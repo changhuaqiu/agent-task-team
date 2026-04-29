@@ -9,20 +9,20 @@ status: done
 
 # F095: Thread Sidebar 导航体验升级
 
-> **Status**: done | **Owner**: Ragdoll | **Priority**: P1
+> **Status**: done | **Owner**: Agent-R | **Priority**: P1
 **Phase A~D completed: 2026-03-13** | **Phase E/F/G completed: 2026-03-27**
 **Implementation**: PR #366 / #370 / #373 / #376 / #378 / #380 / #779
 
 ## Why
 
-team lead反馈：Thread Sidebar 在当前 5-10 个项目时已经很难用（cat-cafe 174 条 thread 却排在第四位），新建对话窗口太小、不能命名、不能关联 feat、不能置顶。
+team lead反馈：Thread Sidebar 在当前 5-10 个项目时已经很难用（agent-hub 174 条 thread 却排在第四位），新建对话窗口太小、不能命名、不能关联 feat、不能置顶。
 
 **终态挑战**：当项目增长到 20-50 个时，扁平分组列表无论怎么排序都不可用。**这不是排序问题，是"只展示活跃的"问题。**
 
 team experience：
-> "你看我们有这么多每个都展开而且我想用的 cat cafe 在这么下面！这也太难用了"
+> "你看我们有这么多每个都展开而且我想用的 agent task hub 在这么下面！这也太难用了"
 > "我希望比如说我可以填写他的 thread 名字！甚至直接关联某个 feat！"
-> "默认折叠！分组置顶、拖拽排序等你和Maine Coon一起讨论揣摩一下用户需求都给我优化一下！"
+> "默认折叠！分组置顶、拖拽排序等你和Agent-M一起讨论揣摩一下用户需求都给我优化一下！"
 > "如果后续我们有 20 个项目 50 个项目怎么办？"
 
 核心设计原则（家规 P1）：**每步产物是终态基座不是脚手架**。
@@ -55,7 +55,7 @@ Sidebar 布局从上到下：
 │    不分组，快速触达       │
 ├─────────────────────────┤
 │ 📁 活跃项目区            │  ← 新增概念
-│  cat-cafe          [▼]  │    近 7 天有活动 OR 用户手动 pin
+│  agent-hub          [▼]  │    近 7 天有活动 OR 用户手动 pin
 │  relay-station     [▼]  │    自动收纳不活跃项目
 │  studio-flow       [▼]  │
 ├─────────────────────────┤
@@ -142,7 +142,7 @@ IM Hub 连接器等系统级 thread 需要专属管理，不应丢到"未分类"
 - [x] AC-A1: 展开/折叠某分组后刷新页面，保持上次的展开/折叠状态
 - [x] AC-A2: 多个分组可以各自独立记忆状态
 - [x] AC-A3: 首次访问（无 localStorage 记录）时保持默认全部折叠
-- [x] AC-A4: localStorage key 有命名空间前缀（如 `cat-cafe:sidebar:`），不与其他功能冲突
+- [x] AC-A4: localStorage key 有命名空间前缀（如 `agent-hub:sidebar:`），不与其他功能冲突
 - [x] AC-A5: 搜索时匹配 thread 所在分组强制展开（忽略折叠状态）
 - [x] AC-A6: 切换 thread 时目标分组自动展开
 - [x] AC-A7: "全部展开/全部折叠"按钮可用
@@ -197,8 +197,8 @@ IM Hub 连接器等系统级 thread 需要专属管理，不应丢到"未分类"
 |----|---------------------------|---------|----------|------|
 | R1 | "能够记录我是不是展开或者默认折叠" | AC-A1~A4 | test + manual | [x] |
 | R2 | "默认折叠" | AC-A3 | test | [x] |
-| R3 | 搜到了但分组折叠看不到（Maine Coon发现） | AC-A5 | test | [x] |
-| R4 | "我想用的 cat cafe 在这么下面" | AC-B1~B5 | screenshot | [x] |
+| R3 | 搜到了但分组折叠看不到（Agent-M发现） | AC-A5 | test | [x] |
+| R4 | "我想用的 agent task hub 在这么下面" | AC-B1~B5 | screenshot | [x] |
 | R5 | "如果后续我们有 20 个项目 50 个项目怎么办" | AC-B2~B7 | test + screenshot | [x] |
 | R6 | "我可以填写他的 thread 名字" | AC-C1 | test + manual | [x] |
 | R7 | "甚至直接关联某个 feat" | AC-C2 | test + manual | [x] |
@@ -226,7 +226,7 @@ IM Hub 连接器等系统级 thread 需要专属管理，不应丢到"未分类"
 
 | 风险 | 缓解 |
 |------|------|
-| localStorage 不可用（隐私模式等） | try-catch 降级为不记忆，不影响功能 |
+| localStorage 不可用（隐私模式等） | try-agentch 降级为不记忆，不影响功能 |
 | "活跃项目"阈值 7 天不合适 | 可配置化（localStorage），但先用 7 天验证 |
 | "最近对话"和"置顶"有重叠显示 | 置顶 thread 不出现在"最近对话"段（去重） |
 | Phase C feat 下拉需要后端接口 | 可先纯前端 hardcode，后端接口做为增强 |
@@ -242,9 +242,9 @@ IM Hub 连接器等系统级 thread 需要专属管理，不应丢到"未分类"
 
 ## Review Gate
 
-- Phase A: Ragdoll实现 → Maine Coon review
-- Phase B: Design Gate（前端 UX → team lead确认 wireframe）→ Ragdoll实现 → Maine Coon review
-- Phase C: Design Gate（前端 UX → team lead确认 wireframe）→ Ragdoll实现 → Maine Coon review
+- Phase A: Agent-R实现 → Agent-M review
+- Phase B: Design Gate（前端 UX → team lead确认 wireframe）→ Agent-R实现 → Agent-M review
+- Phase C: Design Gate（前端 UX → team lead确认 wireframe）→ Agent-R实现 → Agent-M review
 
 ## Known Issues (Post-completion)
 

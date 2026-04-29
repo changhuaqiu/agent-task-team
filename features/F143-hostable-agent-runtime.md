@@ -8,7 +8,7 @@ created: 2026-03-27
 
 # F143: Hostable Agent Runtime — 统一宿主抽象
 
-> **Status**: spec | **Owner**: Ragdoll Opus 4.6 | **Priority**: P1
+> **Status**: spec | **Owner**: Agent-R Opus 4.6 | **Priority**: P1
 
 ## Why
 
@@ -90,7 +90,7 @@ playground 分支的 ACP 实现验证了"配置接入"的可行性（填表 → 
 - **Evolved from**: F050（External Agent Onboarding——L1/L2 接入经验是本 feature 的输入）
 - **Related**: F002（A2A 内部协作——F143 下的一种 remote runtime contract）
 - **Related**: F126（Limb Control Plane——类似的抽象模式：ILimbNode / Registry / Capability / Lease）
-- **Related**: F127（Cat Instance Management——动态创建猫 + provider profile 是 F143 的配置底座）
+- **Related**: F127（agent Instance Management——动态创建Agent + provider profile 是 F143 的配置底座）
 
 ## Risk
 
@@ -105,7 +105,7 @@ playground 分支的 ACP 实现验证了"配置接入"的可行性（填表 → 
 
 | # | 决策 | 理由 | 日期 |
 |---|------|------|------|
-| KD-1 | 四维可组合模型：Transport × Binding × RuntimeContract × EventAdapter | 两猫 + GPT Pro 共识（Part 3 综合） | 2026-03-27 |
+| KD-1 | 四维可组合模型：Transport × Binding × RuntimeContract × EventAdapter | 两Agent + GPT Pro 共识（Part 3 综合） | 2026-03-27 |
 | KD-2 | Supervisor 独立成 sidecar，不藏进 transport | battle-tested 的 liveness/timeout 逻辑不能被"通用化"吃掉 | 2026-03-27 |
 | KD-3 | 先统一控制面，不统一 parser | 控制面乱了全平台出血，parser 脏一点没关系 | 2026-03-27 |
 | KD-4 | ResumeKind 多类型，不用 boolean | resume 至少有 4 种语义（provider_session/stream_redelivery/host_replay/opaque_token） | 2026-03-27 |
@@ -116,5 +116,5 @@ playground 分支的 ACP 实现验证了"配置接入"的可行性（填表 → 
 
 ## Review Gate
 
-- Phase A: 架构级——猫猫讨论 → team lead拍板（ADR-023 审批）
+- Phase A: 架构级——Agent讨论 → team lead拍板（ADR-023 审批）
 - Phase B-D: 跨 family review

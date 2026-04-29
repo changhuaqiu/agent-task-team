@@ -8,19 +8,19 @@ created: 2026-03-04
 
 # F055: A2A MCP Structured Routing（结构化路由 + targetCats）
 
-> **Status**: spec | **Owner**: Ragdoll (Opus 4.6)
+> **Status**: spec | **Owner**: Agent-R (Opus 4.6)
 > **Created**: 2026-03-04
 
 ## Why
 
-猫猫们在 CLI 文本里写 `@队友` 的格式经常出错（行中 @、忘记换行、冒号后紧跟 @），导致 A2A 路由失败，team lead变成人工转发站。
+Agent们在 CLI 文本里写 `@队友` 的格式经常出错（行中 @、忘记换行、冒号后紧跟 @），导致 A2A 路由失败，team lead变成人工转发站。
 
 **根因**：CLI 纯文本输出是自由格式，@ mention 靠文本解析是软约束，模型生成惯性导致格式不遵守。
 
 **team experience**：
 > "你们真的很不喜欢好好 at"
 > "现在有个问题就是很容易不自己 at 自己的队友导致 a2a 链条断掉"
-> "之前一直要用 cli @ 其他猫是因为 codex 和 gemini 是 http callback 导致你们行为不统一...但是我们后续统一了 mcp 了，那其实我们直接不允许 cli at，一定是调用 mcp"
+> "之前一直要用 cli @ 其他Agent是因为 codex 和 gemini 是 http callback 导致你们行为不统一...但是我们后续统一了 mcp 了，那其实我们直接不允许 cli at，一定是调用 mcp"
 > "主回复的 callback 里加 targetCats 字段，让它是一个动作"
 
 ## What
@@ -32,7 +32,7 @@ created: 2026-03-04
 1. **Callback schema 加 `targetCats` 字段**
    - `post-message` callback response 新增可选字段 `targetCats: CatId[]`
    - 空数组或不传 = 纯回复不路由
-   - 多猫用数组：`targetCats: ["codex", "gemini"]`
+   - 多Agent用数组：`targetCats: ["codex", "gemini"]`
 
 2. **路由优先级**
    ```
@@ -44,9 +44,9 @@ created: 2026-03-04
    - Phase 3: 移除文本解析（待观察稳定后）
 
 3. **A2A 提示词更新**
-   - 不再教"行首写 @猫名"
+   - 不再教"行首写 @Agent名"
    - 改为教"在回调中声明 targetCats 字段"
-   - 对 Claude 猫：通过 MCP 工具 schema 强制结构化
+   - 对 Claude Agent：通过 MCP 工具 schema 强制结构化
    - 对 Codex/Gemini：HTTP callback JSON schema 同样强制
 
 4. **可见性规则（不变）**
@@ -61,10 +61,10 @@ created: 2026-03-04
 - 不改 thread participation 逻辑
 - 不做 7B 意图识别（成本高、CJK 准确率不够、双通道已够兜底）
 
-### 相关改进（clowder-ai#417）
+### 相关改进（agent-task-hub#417）
 
 - 协议明确区分：inline `@xx` = semantic only，line-start `@xx` = actionable handoff
-- `callback-tools.ts` post_message 描述已统一为"行首 @猫名"，避免误导
+- `callback-tools.ts` post_message 描述已统一为"行首 @Agent名"，避免误导
 - `detectInlineActionMentions()` 补上 write-side feedback，句中 action-like @ 不再静默丢弃
 
 ---
@@ -75,7 +75,7 @@ created: 2026-03-04
 - [ ] AC-1: `post-message` callback schema 支持 `targetCats?: CatId[]`
 - [ ] AC-2: `targetCats` 非空时直接路由，不再依赖文本解析
 - [ ] AC-3: `targetCats` 为空时 fallback 到行首 @ 文本解析（Phase 1 兼容）
-- [ ] AC-4: A2A 提示词更新，教猫猫用结构化字段
+- [ ] AC-4: A2A 提示词更新，教Agent用结构化字段
 - [ ] AC-5: Claude / Codex / Gemini 三条路径行为一致
 - [ ] AC-6: 消息可见性不变（debug=全量, play=chain scope）
 - [ ] AC-7: 现有 A2A 回归测试不红（兼容旧文本 @ 模式）
@@ -88,8 +88,8 @@ created: 2026-03-04
 |----|---------------------------|---------|----------|------|
 | R1 | "主回复的 callback 里加 targetCats 字段，让它是一个动作" | AC-1, AC-2 | test: callback + routing | [ ] |
 | R2 | "不允许 cli at 一定是调用 mcp" | AC-4, AC-5 | test: prompt content + callback integration | [ ] |
-| R3 | "at 猫A 但猫BCD也应该能收到...debug 下看见 play 下不看见" | AC-6 | test: thread visibility by mode | [ ] |
-| R4 | "list 字段" — 支持多猫 | AC-1 | test: targetCats with multiple cats | [ ] |
+| R3 | "at AgentA 但AgentBCD也应该能收到...debug 下看见 play 下不看见" | AC-6 | test: thread visibility by mode | [ ] |
+| R4 | "list 字段" — 支持多Agent | AC-1 | test: targetCats with multiple agents | [ ] |
 
 ### 覆盖检查
 - [x] 每个需求点都能映射到至少一个 AC
@@ -121,8 +121,8 @@ created: 2026-03-04
 | 风险 | 缓解 |
 |------|------|
 | Claude CLI `-p` 模式下 function calling 不稳定 | Phase 1 保留文本 fallback |
-| 旧版 runtime 猫猫不支持新字段 | 字段可选，向后兼容 |
-| 提示词更新后猫猫仍用旧方式 | 双通道并存，不丢路由 |
+| 旧版 runtime Agent不支持新字段 | 字段可选，向后兼容 |
+| 提示词更新后Agent仍用旧方式 | 双通道并存，不丢路由 |
 
 ---
 

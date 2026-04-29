@@ -8,7 +8,7 @@ created: 2026-02-26
 
 # F027: A2A 路径统一 — 两条路合一 + 全链可取消 + 多 mention
 
-> **Status**: done | **Owner**: 三猫
+> **Status**: done | **Owner**: Admin
 > **Created**: 2026-02-26
 
 ## Why

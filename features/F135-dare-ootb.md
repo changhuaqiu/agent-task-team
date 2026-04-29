@@ -6,22 +6,22 @@ doc_kind: spec
 created: 2026-03-23
 ---
 
-# F135: 狸花猫开箱即用（DARE Out-of-the-Box）
+# F135: Tabby Agent开箱即用（DARE Out-of-the-Box）
 
 > **Status**: spec | **Owner**: bouillipx (社区) | **Priority**: P2
 >
-> **来源**：社区 PR [clowder-ai#192](https://github.com/zts212653/clowder-ai/pull/192) / [clowder-ai#194](https://github.com/zts212653/clowder-ai/pull/194)
-> **Issue**: [clowder-ai#195](https://github.com/zts212653/clowder-ai/issues/195)
+> **来源**：社区 PR [agent-task-hub#192](https://github.com/zts212653/agent-task-hub/pull/192) / [agent-task-hub#194](https://github.com/zts212653/agent-task-hub/pull/194)
+> **Issue**: [agent-task-hub#195](https://github.com/zts212653/agent-task-hub/issues/195)
 
 ## Why
 
-当前安装 Clowder AI 后，狸花猫 (@dare) 需要 4 步手动配置才能使用：
+当前安装 Clowder AI 后，Tabby Agent (@dare) 需要 4 步手动配置才能使用：
 1. 单独 clone DARE 仓库
 2. 在 `.env` 配置 `DARE_PATH`
 3. 手动在 DARE venv 中安装 Python 依赖（openai、httpx[socks] 等）
 4. 手动修改 bootstrap binding 从 `skip` 改为 `enabled`
 
-team experience："我想要安装猫猫就有狸花猫，安装完后，只需要配置 api_key 就能使用了"
+team experience："我想要安装Agent就有Tabby Agent，安装完后，只需要配置 api_key 就能使用了"
 
 ## What
 

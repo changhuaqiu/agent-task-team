@@ -8,7 +8,7 @@ created: 2026-03-26
 
 # F141: GitHub Repo Inbox — 仓库事件自动发现
 
-> **Status**: done | **Owner**: Ragdoll | **Priority**: P1 | **Completed**: 2026-03-27
+> **Status**: done | **Owner**: Agent-R | **Priority**: P1 | **Completed**: 2026-03-27
 
 ## 三层架构定位
 
@@ -24,16 +24,16 @@ created: 2026-03-26
 
 team experience（2026-03-26 thread `F140 讨论`）：
 
-> "你看之前的猫猫是如何知道什么时候要挂PR，什么时候要挂CICD的...有的应该是你们主动注册关注哪个 PR 或者 issue 但是有的又是怎么样的？被通知吗？还是都是要主动注册？"
+> "你看之前的Agent是如何知道什么时候要挂PR，什么时候要挂CICD的...有的应该是你们主动注册关注哪个 PR 或者 issue 但是有的又是怎么样的？被通知吗？还是都是要主动注册？"
 
-Maine Coon分析（GPT-5.4）：
+Agent-M分析（GPT-5.4）：
 
 > "基本靠team lead/maintainer 人肉发现，再把球传给我们...当前最大缺口不是 tracked PR 的后续信号，而是我们根本不知道仓库里来了一个新的外部 PR / Issue"
 
 **现状 Gap**：
 - F133/F140 解决的是"已注册 PR 后续发生了什么"（追踪层）
 - 但 maintainer 最痛的是"有个新东西出现了，系统完全没感知"（发现层）
-- 社区 contributor 不用 Cat Café，不会调 `register_pr_tracking`
+- 社区 contributor 不用 Agent Task Hub，不会调 `register_pr_tracking`
 - 新 PR / 新 Issue 全靠team lead人肉当 webhook
 
 ## What
@@ -64,9 +64,9 @@ GitHub webhook POST → /api/connectors/github-repo-event/webhook
   → 归一化 RepoInboxSignal
   → ConnectorThreadBindingStore 查 per-repo inbox thread（无则创建）
   → deliverConnectorMessage()（mention GITHUB_REPO_INBOX_CAT_ID）
-  → invokeTrigger.trigger()（唤醒猫执行 triage，KD-17）
+  → invokeTrigger.trigger()（唤醒Agent执行 triage，KD-17）
   → Redis delivery id confirm
-  → 猫收到通知 → 主人翁五问 triage → 认领 → register_pr_tracking → F140
+  → Agent收到通知 → 主人翁五问 triage → 认领 → register_pr_tracking → F140
 ```
 
 **4. ConnectorSource 注册**
@@ -81,8 +81,8 @@ GitHub webhook POST → /api/connectors/github-repo-event/webhook
 - 首次事件自动创建 thread，标题 `Repo Inbox · {owner/repo}`
 - thread owner = 真实 maintainer userId（不造 system thread）
 
-**6. Cat Mention**
-- Phase A：`GITHUB_REPO_INBOX_CAT_ID` 环境变量指定收件猫（KD-16）
+**6. agent Mention**
+- Phase A：`GITHUB_REPO_INBOX_CAT_ID` 环境变量指定收件Agent（KD-16）
 - 单点收件，triage 后在 thread 内 handoff
 
 **7. Skill/SOP 更新**
@@ -100,7 +100,7 @@ GitHub webhook POST → /api/connectors/github-repo-event/webhook
 | **profile** | `poller`（同其他 repo-watcher 任务） |
 | **trigger** | `interval: 300_000`（5min，低频补偿即可） |
 | **gate** | `gh api` 查 open PRs/Issues → 过滤已通知（delivery id 去重表）→ 返回 `WorkItem<RepoInboxSignal>[]` |
-| **subjectKey** | `repo-{owner/repo}#{type}-{number}`（如 `repo-zts212653/clowder-ai#pr-259`） |
+| **subjectKey** | `repo-{owner/repo}#{type}-{number}`（如 `repo-zts212653/agent-task-hub#pr-259`） |
 | **execute** | `deliverConnectorMessage()` 投递到 inbox thread（与 Phase A 共用投递路径） |
 | **actor** | `role: 'repo-watcher'`, `costTier: 'cheap'` |
 | **outcome** | `whenNoSignal: 'record'`（记录空闲周期，可观测） |
@@ -154,23 +154,23 @@ GitHub webhook POST → /api/connectors/github-repo-event/webhook
 | KD-3 | Issue discovery 和 PR discovery 在同一个 Repo Inbox | 都是"仓库新事件"，统一发现层 | 2026-03-26 |
 | KD-4 | 独立立项不合并进 F140 | F140 = 追踪层（已注册 PR 信号），F141 = 发现层（新事件感知），不同抽象层级；team lead确认分开立项 | 2026-03-26 |
 | KD-5 | 投递走 deliverConnectorMessage() 统一消息管线 | 与 F133/F140 体验一致，复用基础设施 | 2026-03-26 |
-| KD-6 | 主人翁五问 Gate 作为 triage 质量门禁 | team lead明确指出猫猫默认倾向接纳是大问题；fail-closed 设计对冲接纳偏向 | 2026-03-26 |
-| KD-7 | Fail-closed 默认：无证据 = 不通过，unknown 不能进 WELCOME | 三猫讨论共识，防止形式主义打勾 | 2026-03-26 |
+| KD-6 | 主人翁五问 Gate 作为 triage 质量门禁 | team lead明确指出Agent默认倾向接纳是大问题；fail-closed 设计对冲接纳偏向 | 2026-03-26 |
+| KD-7 | Fail-closed 默认：无证据 = 不通过，unknown 不能进 WELCOME | Admin讨论共识，防止形式主义打勾 | 2026-03-26 |
 | KD-8 | Scene B Merge Gate 重排：方向(五问) 在质量之前 | 家规 P3"方向正确 > 速度"——方向错的 PR 不值得花时间审代码 | 2026-03-26 |
 | KD-9 | 拒绝"方案"不否定"问题"：decline PR ≠ 否定底层问题 | 社区温度 + 问题仍挂 design anchor 追踪 | 2026-03-26 |
 | KD-10 | Phase B RepoScanTaskSpec 复用 F139 已有 poller consumer 模式 | F139 Phase 1a/1b 已 merged，4 个 consumer 验证了模式；repo-watcher + cheap 与 cicd-check 一致 | 2026-03-26 |
-| KD-11 | HMAC 签名校验需要 raw body：扩展 ConnectorWebhookHandler 接口加 `rawBody?: Buffer` | Maine Coon P1：GitHub 签名对原始字节流签名，parsed JSON stringify 不可靠 | 2026-03-26 |
-| KD-12 | handler id / source id / registry 三处统一为 `github-repo-event` | Maine Coon P1：通用 webhook route 要求 URL connectorId = 已注册 connector，不能拆名字 | 2026-03-26 |
-| KD-13 | delivery id 去重用 Redis SET NX EX + claim/confirm/rollback 语义 | Maine Coon P1：内存 Map fire-and-forget 会在投递失败时毒死 GitHub retry | 2026-03-26 |
-| KD-14 | per-repo inbox thread 用 ConnectorThreadBindingStore 持久绑定 | Maine Coon P2：不能靠标题猜线程，重启后会长垃圾 thread | 2026-03-26 |
-| KD-15 | transport dedup（delivery id）和 business dedup（Phase B reconciliation）分开存储和 key | Maine Coon安全审查：两个问题域，不该复用 | 2026-03-26 |
-| KD-16 | Phase A cat mention 用配置 `GITHUB_REPO_INBOX_CAT_ID`，不做 actor.role 解析 | Maine Coon建议：先单点收件，triage thread 里再 handoff | 2026-03-26 |
-| KD-17 | deliver 后必须 `invokeTrigger.trigger()` 触发猫执行 | Maine Coon(codex) P1：deliverConnectorMessage 只落消息+广播，不触发猫调用；不加 trigger = 通知沉没 | 2026-03-26 |
-| KD-18 | `github-repo-event` 必须注册到 shared connector registry + env-registry.ts | Maine Coon(codex) P1+P2：未注册会被 404 拦；env vars 注册后运营可见 | 2026-03-26 |
-| KD-19 | ConnectorBubble 前端需新增 `github-repo-event` 图标分支 | Maine Coon(codex) P2：否则显示成文本 fallback | 2026-03-26 |
-| KD-20 | 首次事件并发创建 inbox thread 需加 repo 级短锁（compare-and-bind） | Maine Coon(codex) P2：防并发重复创建线程 | 2026-03-26 |
+| KD-11 | HMAC 签名校验需要 raw body：扩展 ConnectorWebhookHandler 接口加 `rawBody?: Buffer` | Agent-M P1：GitHub 签名对原始字节流签名，parsed JSON stringify 不可靠 | 2026-03-26 |
+| KD-12 | handler id / source id / registry 三处统一为 `github-repo-event` | Agent-M P1：通用 webhook route 要求 URL connectorId = 已注册 connector，不能拆名字 | 2026-03-26 |
+| KD-13 | delivery id 去重用 Redis SET NX EX + claim/confirm/rollback 语义 | Agent-M P1：内存 Map fire-and-forget 会在投递失败时毒死 GitHub retry | 2026-03-26 |
+| KD-14 | per-repo inbox thread 用 ConnectorThreadBindingStore 持久绑定 | Agent-M P2：不能靠标题猜线程，重启后会长垃圾 thread | 2026-03-26 |
+| KD-15 | transport dedup（delivery id）和 business dedup（Phase B reconciliation）分开存储和 key | Agent-M安全审查：两个问题域，不该复用 | 2026-03-26 |
+| KD-16 | Phase A agent mention 用配置 `GITHUB_REPO_INBOX_CAT_ID`，不做 actor.role 解析 | Agent-M建议：先单点收件，triage thread 里再 handoff | 2026-03-26 |
+| KD-17 | deliver 后必须 `invokeTrigger.trigger()` 触发Agent执行 | Agent-M(codex) P1：deliverConnectorMessage 只落消息+广播，不触发Agent调用；不加 trigger = 通知沉没 | 2026-03-26 |
+| KD-18 | `github-repo-event` 必须注册到 shared connector registry + env-registry.ts | Agent-M(codex) P1+P2：未注册会被 404 拦；env vars 注册后运营可见 | 2026-03-26 |
+| KD-19 | ConnectorBubble 前端需新增 `github-repo-event` 图标分支 | Agent-M(codex) P2：否则显示成文本 fallback | 2026-03-26 |
+| KD-20 | 首次事件并发创建 inbox thread 需加 repo 级短锁（compare-and-bind） | Agent-M(codex) P2：防并发重复创建线程 | 2026-03-26 |
 
 ## Review Gate
 
-- Phase A: Maine Coon (codex/gpt52) cross-family review
-- Phase B: Maine Coon (codex/Spark) cross-family review — P1 pushback accepted, P2 fixed
+- Phase A: Agent-M (codex/gpt52) cross-family review
+- Phase B: Agent-M (codex/Spark) cross-family review — P1 pushback accepted, P2 fixed

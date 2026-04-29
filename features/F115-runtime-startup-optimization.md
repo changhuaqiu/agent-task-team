@@ -8,11 +8,11 @@ created: 2026-03-14
 
 # F115: Runtime 启动链优化
 
-> **Status**: done | **Owner**: Maine Coon/gpt52 | **Priority**: P1 | **Completed**: 2026-03-16
+> **Status**: done | **Owner**: Agent-M/gpt52 | **Priority**: P1 | **Completed**: 2026-03-16
 
 ## Why
 
-2026-03-13 clowder-ai 同步验收中发生一连串 runtime 事故（proxy 被杀、sidecar 假阳性、529 透传、依赖缺失），暴露了 `start-dev.sh` 在跨仓共享时的脆弱性。两猫（opus + gpt52）独立复盘后收敛了 4 个优化方向（见 ADR-016）。本 feature 将这些优化落地为可交付的代码改动。
+2026-03-13 agent-task-hub 同步验收中发生一连串 runtime 事故（proxy 被杀、sidecar 假阳性、529 透传、依赖缺失），暴露了 `start-dev.sh` 在跨仓共享时的脆弱性。两Agent（opus + gpt52）独立复盘后收敛了 4 个优化方向（见 ADR-016）。本 feature 将这些优化落地为可交付的代码改动。
 
 ## What
 
@@ -65,7 +65,7 @@ created: 2026-03-14
 - [x] AC-C1: upstream 529/503 自动 retry（最多 3 次，exponential backoff）
 - [x] AC-C2: thinking/signature 事件不做 JSON round-trip
 - [x] AC-C3: proxy 进程不可达时 fallback 直连 upstream（TCP 探活 + 结构化告警）
-- [x] AC-C4: upstream fetch 增加超时（60s），避免无限等待返回 502（clowder-ai#52）
+- [x] AC-C4: upstream fetch 增加超时（60s），避免无限等待返回 502（agent-task-hub#52）
 
 ### Phase D（交互式 Setup） ✅
 - [x] AC-D1: setup 脚本检测缺失依赖并提示安装命令
@@ -81,7 +81,7 @@ created: 2026-03-14
 
 - **Evolved from**: F059（同步验收中发现的 runtime 问题）
 - **Related**: ADR-016（否决决策：不分叉脚本/不静默安装等）
-- **Community input**: clowder-ai#46（proxy 不可达无 fallback）、clowder-ai#52（upstream fetch 无超时/诊断不足）、clowder-ai#107（manual-port 线索）
+- **Community input**: agent-task-hub#46（proxy 不可达无 fallback）、agent-task-hub#52（upstream fetch 无超时/诊断不足）、agent-task-hub#107（manual-port 线索）
 
 ## Risk
 

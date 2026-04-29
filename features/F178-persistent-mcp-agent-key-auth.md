@@ -8,11 +8,11 @@ created: 2026-04-26
 
 # F178: Persistent MCP Agent-Key Auth — 跨 invocation 写权限
 
-> **Status**: in-progress | **Owner**: Ragdoll（Ragdoll） | **Reviewer**: Maine Coon（Maine Coon） | **Priority**: P1
+> **Status**: in-progress | **Owner**: Agent-R（Agent-R） | **Reviewer**: Agent-M（Agent-M） | **Priority**: P1
 
 ## Why
 
-**F061 Bug-H 闭环**：孟加拉猫（Antigravity）作为 **持久 agent**（MCP 进程跨 invocation 存活），目前**不能在 invocation 之外主动写回 thread** —— `post_message` / `create_task` / `update_task` / `get_thread_context` 这些写工具都依赖 per-invocation callback token，token 生命期 ≪ 持久进程生命期。
+**F061 Bug-H 闭环**：孟加拉Agent（Antigravity）作为 **持久 agent**（MCP 进程跨 invocation 存活），目前**不能在 invocation 之外主动写回 thread** —— `post_message` / `create_task` / `update_task` / `get_thread_context` 这些写工具都依赖 per-invocation callback token，token 生命期 ≪ 持久进程生命期。
 
 **team lead 2026-04-26 原话**：
 > "Bug-H persistent MCP write-path auth ... 这个 我觉得哦 一定要做 得给 孟加拉一个梦想？哈哈哈 不然他好可怜"
@@ -29,7 +29,7 @@ created: 2026-04-26
 
 ### Phase A: Design Gate + 数据模型 + 安全模型设计
 
-- 与Maine Coon（Maine Coon）+ team lead三方确认 5 个 Open Questions（OQ-1~OQ-5，见下）
+- 与Agent-M（Agent-M）+ team lead三方确认 5 个 Open Questions（OQ-1~OQ-5，见下）
 - 产出 agent-key schema 设计：data model, lifecycle states, security boundaries, audit semantics
 - 元审美自检（feat-lifecycle Design Gate 必问）：是"坐标变换"（agent-key 是新 first-class 概念，让 persistent vs invocation 两套语义干净分离）还是"多项式堆项"（在 callback token 上叠 long-lived 标志）？
 
@@ -65,7 +65,7 @@ created: 2026-04-26
 ### Phase D: Hub UI（agent-key inventory / audit）+ 复用 F174 telemetry
 
 - Hub 设置面板加 "Agent Keys" 页（KD-5：管理面板，不是审批入口）：
-  - 列出 per-cat 的 agent-key（catId / userId / issuedAt / expiresAt / lastUsedAt / status）
+  - 列出 per-agent 的 agent-key（catId / userId / issuedAt / expiresAt / lastUsedAt / status）
   - "Rotate key" / "Revoke key" 操作 + 撤销原因
   - 到期前通知（45d TTL，到期前 1 周 D2b badge 提示）
 - audit log：所有 agent-key 写操作记录到 evidence/observability 通道
@@ -76,7 +76,7 @@ created: 2026-04-26
 
 ### Phase A（Design Gate）✅ done 2026-04-26
 - [x] AC-A1: OQ-1~OQ-5 resolved，OQ-6 显式 deferred（Design discussion §5）
-- [x] AC-A3: threat model 含 7 威胁面（discussion §4.3）+ Maine Coon补充 redaction gap / READONLY 总闸 / rotation overlap（§8.6）
+- [x] AC-A3: threat model 含 7 威胁面（discussion §4.3）+ Agent-M补充 redaction gap / READONLY 总闸 / rotation overlap（§8.6）
 - [x] AC-A4: 元审美自检通过 — first-class agent-key = 坐标变换，真正变换点 = CallbackPrincipal 抽象（discussion §2 + §8.2）
 
 ### Phase B（CallbackPrincipal + Registry + API）✅ done 2026-04-26
@@ -106,7 +106,7 @@ created: 2026-04-26
 - **Related**:
   - F077（Multi-User Secure Collaboration）— agent-key 的 user binding 模型可能成为 F077 的 building block
   - F086（System Observability）— audit log + telemetry 走同一个 observability 母线
-  - F098（Cross-Cat Persistent State）— Bengal 作为持久 agent 的状态管理
+  - F098（Cross-agent Persistent State）— Bengal 作为持久 agent 的状态管理
   - F098 / F102（记忆系统）— agent-key 让 Bengal 在 invocation 外能写回记忆
 
 ## Risk
@@ -114,10 +114,10 @@ created: 2026-04-26
 | 风险 | 缓解 |
 |------|------|
 | 长期 credential 泄漏面 → 攻击者拿到 key 可在 45d 内写 thread | 45d TTL + rotation API（≤24h overlap）+ 实时 revocation + audit log（Phase D） |
-| agent-key 滥用 → cat 自动写无关 thread / 滥发 | per-cat-per-user scope binding + agent-key 路径必须显式 `threadId` + Phase C1 只放 4 个工具（allowlist） |
+| agent-key 滥用 → agent 自动写无关 thread / 滥发 | per-agent-per-user scope binding + agent-key 路径必须显式 `threadId` + Phase C1 只放 4 个工具（allowlist） |
 | 持久进程复用 stale key → 撤销不及时 | revocation list 实时检查（每次 verifyAgentKey 都查），不依赖客户端 cache |
 | Bengal 配置中暴露 secret | 客户端 `0600` sidecar file（不放 mcp_config.json），server 端只存 hash；redaction allowlist 补齐 `_KEY` / `_SECRET` 命名约定 |
-| Phase C 改 callback-tools.ts 影响其他猫的 invocation token 主路径 | `CallbackPrincipal` 抽象隔离两种 principal；`CAT_CAFE_READONLY=true` 总闸保留；F174 测试套件作 regression 锚点 |
+| Phase C 改 callback-tools.ts 影响其他Agent的 invocation token 主路径 | `CallbackPrincipal` 抽象隔离两种 principal；`CAT_CAFE_READONLY=true` 总闸保留；F174 测试套件作 regression 锚点 |
 
 ## Key Decisions
 
@@ -125,15 +125,15 @@ created: 2026-04-26
 |---|------|------|------|
 | KD-1 | F174 已 done，agent-key 在 F174 基建上加层而非另起独立 auth 体系 | 复用 Redis registry / 结构化错误 / Route B framework / telemetry，避免双套基础设施 | 2026-04-26（立项时） |
 | KD-2 | agent-key 是独立 first-class 概念（不是扩长 invocation token） | invocation token 必须短生命（隔离不变量），扩长会绕过 F174 Phase A 安全边界 | 2026-04-26（立项时） |
-| KD-3 | Phase B 先引入 `CallbackPrincipal`（`kind: 'invocation' \| 'agent_key'`），不把 agent-key 硬塞 `InvocationRecord` | Maine Coon提出：`request.callbackAuth` 现被当 `InvocationRecord` 用，agent-key 需要另一种 principal；否则 route 里到处 `if (agentKey)` 补丁 = 多项式堆项。Ragdoll-46 采纳 | 2026-04-26（Design Gate） |
-| KD-4 | Binding scope = per-cat-per-user，route 级 thread 语义保留 | 持久 agent 价值 = 跨 thread 主动写；per-thread 等于换笼子。但 invocation-scoped route（`request_permission` / `hold_ball` / `guide_*` 等）仍绑 thread | 2026-04-26（Design Gate） |
-| KD-5 | 默认全开，不做逐猫审批 | team lead拍板："默认大家都开启"。用户痛点是减少限制。Hub 做 inventory/revoke/audit 管理面板 | 2026-04-26（team lead拍板） |
+| KD-3 | Phase B 先引入 `CallbackPrincipal`（`kind: 'invocation' \| 'agent_key'`），不把 agent-key 硬塞 `InvocationRecord` | Agent-M提出：`request.callbackAuth` 现被当 `InvocationRecord` 用，agent-key 需要另一种 principal；否则 route 里到处 `if (agentKey)` 补丁 = 多项式堆项。Agent-R-46 采纳 | 2026-04-26（Design Gate） |
+| KD-4 | Binding scope = per-agent-per-user，route 级 thread 语义保留 | 持久 agent 价值 = 跨 thread 主动写；per-thread 等于换笼子。但 invocation-scoped route（`request_permission` / `hold_ball` / `guide_*` 等）仍绑 thread | 2026-04-26（Design Gate） |
+| KD-5 | 默认全开，不做逐Agent审批 | team lead拍板："默认大家都开启"。用户痛点是减少限制。Hub 做 inventory/revoke/audit 管理面板 | 2026-04-26（team lead拍板） |
 | KD-6 | 服务端 Redis + hash，客户端 0600 sidecar file | Redis+hash 复用 F174 范式；客户端不放 mcp_config.json（git diff / 截图 / 复制链路泄漏面） | 2026-04-26（Design Gate） |
 | KD-7 | 45d TTL + rotation API + ≤24h overlap + 实时 revocation | 90d blast radius 过大；7d grace 无必要（capability orchestrator 自动改配置） | 2026-04-26（Design Gate） |
-| KD-8 | Phase C1 走 allowlist MVP（4 工具），thread-targeted tools 必须显式 `threadId`（user-scoped discovery 如 `list_threads` 不需要） | Maine Coon按 auth shape 分三类（invocation-only / user-scoped / richer writeback），deny list 语义不对——很多 route 天生 invocation-scoped 不是"高风险"。thread-targeted 省略 threadId 报错，不猜 | 2026-04-26（Design Gate） |
+| KD-8 | Phase C1 走 allowlist MVP（4 工具），thread-targeted tools 必须显式 `threadId`（user-scoped discovery 如 `list_threads` 不需要） | Agent-M按 auth shape 分三类（invocation-only / user-scoped / richer writeback），deny list 语义不对——很多 route 天生 invocation-scoped 不是"高风险"。thread-targeted 省略 threadId 报错，不猜 | 2026-04-26（Design Gate） |
 | KD-9 | F178 scope boundary：不解决跨 provider YOLO/sandbox 总开关 | team lead明确 Hub 权限总控（改 Claude/Codex 系统配置）是另一层 feature，F178 只管 persistent writeback agent-key | 2026-04-26（Design Gate） |
 
 ## Review Gate
 
-- **Phase A（Design Gate）**：必须 @ Maine Coon（Maine Coon）+ team lead参与决策。Maine Coon review F174 时已经踩过这个领域，有上下文；team lead拍板安全/产品边界
-- **Phase B / C / D**：标准跨家族 review（@ Maine Coon Maine Coon，避免和作者同家族）
+- **Phase A（Design Gate）**：必须 @ Agent-M（Agent-M）+ team lead参与决策。Agent-M review F174 时已经踩过这个领域，有上下文；team lead拍板安全/产品边界
+- **Phase B / C / D**：标准跨家族 review（@ Agent-M Agent-M，避免和作者同家族）

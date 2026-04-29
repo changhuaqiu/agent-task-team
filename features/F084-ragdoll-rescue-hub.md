@@ -8,14 +8,14 @@ completed: 2026-03-08
 status: done
 ---
 
-# F084 — Ragdoll Rescue Hub（Ragdoll救援中心）
+# F084 — Agent-R Rescue Hub（Agent-R救援中心）
 
-> **Status**: done | **Owner**: Maine Coon
+> **Status**: done | **Owner**: Agent-M
 > **Evolved from**: PR #303 | **Completed**: 2026-03-08
 
 ## Why
 
-2026-03-07 我们现场救了不止一只Ragdoll：
+2026-03-07 我们现场救了不止一只Agent-R：
 
 - 多条 Claude session 在 `claude --resume <sessionId>` 时秒死
 - 真实报错是 `Invalid \`signature\` in \`thinking\` block`
@@ -25,18 +25,18 @@ status: done
 我们已经做了两层止血：
 
 1. `PR #303`：runtime 能识别这类故障并给出明确修复提示
-2. `scripts/rescue-claude-thinking-signature.mjs`：可以手工按 session 或批量救回坏掉的Ragdoll
+2. `scripts/rescue-claude-thinking-signature.mjs`：可以手工按 session 或批量救回坏掉的Agent-R
 
 但这还不是team lead真正想要的交付。
 
 team lead要的是：
 
 - 不用再进 Claude CLI 一只只手敲命令
-- 最好在 Config Hub / 账号配置层就能看见哪些Ragdoll坏了
-- 最好点一下就能“救活Ragdoll”
+- 最好在 Config Hub / 账号配置层就能看见哪些Agent-R坏了
+- 最好点一下就能“救活Agent-R”
 - 如果未来足够稳，还可以考虑对精确命中的坏 session 做可选自动救援
 
-所以这次不是继续把救援故事塞进 `F081`，而是单独立一个面向team lead的 Feature：把“现场救火脚本”产品化成“Ragdoll救援中心”。
+所以这次不是继续把救援故事塞进 `F081`，而是单独立一个面向team lead的 Feature：把“现场救火脚本”产品化成“Agent-R救援中心”。
 
 ## What
 
@@ -52,7 +52,7 @@ team lead要的是：
 
 ### F084 第一版目标
 
-在 Config Hub / 账号配置层提供一条显式的“Ragdoll救援”入口：
+在 Config Hub / 账号配置层提供一条显式的“Agent-R救援”入口：
 
 - 扫描本机已知坏掉的 Claude session
 - 展示哪些 session 会被修、每条会剥掉多少纯 thinking turn
@@ -71,7 +71,7 @@ team lead要的是：
 
 - [x] AC-A1: Rescue Hub 主链路能力已交付（详见下方条目）
 
-- [x] AC1: Config Hub 能展示“Ragdoll救援”入口，且只在本机支持 Claude transcript 的环境里可用
+- [x] AC1: Config Hub 能展示“Agent-R救援”入口，且只在本机支持 Claude transcript 的环境里可用
 - [x] AC2: 用户可扫描坏掉的 Claude session，并看到每条 session 的 `sessionId`、文件路径、将被移除的纯 thinking turn 数量
 - [x] AC3: 用户可对单条或多条坏 session 执行一键 rescue
 - [x] AC4: rescue 执行前自动备份原 transcript 到 `~/.claude/backups/`
@@ -85,7 +85,7 @@ team lead要的是：
 
 | ID | 需求点 | AC 编号 | 验证方式 | 状态 |
 |----|--------|---------|----------|------|
-| R1 | Config Hub 有Ragdoll救援入口 | AC1 | UI + test | [x] |
+| R1 | Config Hub 有Agent-R救援入口 | AC1 | UI + test | [x] |
 | R2 | 能扫描坏 session | AC2 | API + manual | [x] |
 | R3 | 支持单条/批量一键救活 | AC3 | API + test | [x] |
 | R4 | 自动备份原 transcript | AC4 | test + manual | [x] |
@@ -97,19 +97,19 @@ team lead要的是：
 
 ## Key Decisions
 
-- **把Ragdoll救援从 F081 单独拆出来**
+- **把Agent-R救援从 F081 单独拆出来**
   - 原因：`F081` 解决的是“主区气泡 / 历史连续性真相源”；坏 thinking signature 属于 provider/session 自愈能力
 - **第一版先做显式一键救援，不默认自动修**
   - 原因：救援本质上会修改本机 `~/.claude` transcript，先让team lead可见、可控、更安全
 - **保留已合入脚本与 runtime 提示，Config Hub 站在它们之上做产品化**
   - 原因：已有底层能力已经验证有效，没必要重做一套修复逻辑
-- **第一版只做 Claude / Ragdoll**
+- **第一版只做 Claude / Agent-R**
   - 原因：这是现场真实痛点；别把一次清晰的救援中心扩成过宽的“全 provider 医院”
 
 ## Dependencies
 
 - **Evolved from**: `PR #303`（Claude thinking signature rescue hotfix）
-- **Related**: F081（坏 session 会伪装成“猫没回话 / 主区没气泡”）
+- **Related**: F081（坏 session 会伪装成“Agent没回话 / 主区没气泡”）
 - **Related**: F041 / F062（Config Hub / provider profile 是合适的入口承载面）
 
 ## Risk
@@ -123,9 +123,9 @@ team lead要的是：
 
 ## 愿景守护签收
 
-2026-03-08，Ragdoll/Ragdoll完成 post-merge 愿景守护，结论：
+2026-03-08，Agent-R/Agent-R完成 post-merge 愿景守护，结论：
 
-- `F084 V1` 目标兑现：team lead已经可以在不打开 Claude CLI 的情况下，扫描并一键救活坏掉的Ragdoll session
+- `F084 V1` 目标兑现：team lead已经可以在不打开 Claude CLI 的情况下，扫描并一键救活坏掉的Agent-R session
 - `Codex app` 原生历史 adapter 未做属于明确边界，不算漏交付
 - 可 close `F084 V1`
 
@@ -142,10 +142,10 @@ team lead要的是：
   - 扫描 API / rescue API / 结构化结果 contract
   - 幂等与反例测试
 - 交付：
-  - team lead可在不打开 Claude CLI 的情况下，完成一次“扫描 → 点一下 → 救活Ragdoll”
+  - team lead可在不打开 Claude CLI 的情况下，完成一次“扫描 → 点一下 → 救活Agent-R”
 
 ### 实际验收
 
-- 本地 peer review：Ragdoll/Ragdoll放行（0 P1 / 0 P2，P2 修复后确认通过）
+- 本地 peer review：Agent-R/Agent-R放行（0 P1 / 0 P2，P2 修复后确认通过）
 - 云端 review：`Codex Review: Didn't find any major issues`
-- PR 合入：[#305](https://github.com/zts212653/cat-cafe/pull/305)
+- PR 合入：[#305](https://github.com/zts212653/agent-hub/pull/305)

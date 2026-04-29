@@ -1,5 +1,5 @@
 <div align="center">
-  <h1>🐈 Agent Task Hub (Cat Café)</h1>
+  <h1>🐈 Agent Task Hub (Agent Task Hub)</h1>
   <p>基于 Next.js 构建的去中心化多智能体（Multi-Agent）研发协作平台。</p>
   
   <p>
@@ -11,7 +11,7 @@
 
 ## 📖 项目简介
 
-`agent-task-hub`（内部代号 **Cat Café**，核心愿景为 *"Cats & U"*）突破了将 AI 仅作为单体辅助工具的传统模式。旨在为用户分配一支具备“对等协作、共享记忆”能力的虚拟研发团队（“猫猫团队”）。人类负责提供愿景和判断，多个 AI Agent 负责拆解、编码、审查和交付，共同把想法变成实际能运行的产品。
+`agent-task-hub`（内部代号 **Agent Task Hub**，核心愿景为 *"Agents & U"*）突破了将 AI 仅作为单体辅助工具的传统模式。旨在为用户分配一支具备“对等协作、共享记忆”能力的虚拟研发团队（“Agent团队”）。人类负责提供愿景和判断，多个 AI Agent 负责拆解、编码、审查和交付，共同把想法变成实际能运行的产品。
 
 本项目主要围绕以下五个维度构建（**The "5-Abilities"**）：
 - **👀 可视 (Visual)**：通过 Task Hub 前端看板实时反映所有任务节点的状态流转。

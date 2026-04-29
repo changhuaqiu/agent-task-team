@@ -9,11 +9,11 @@ status: done
 
 # F080 Input History Completion
 
-> **Status**: done | **Owner**: Ragdoll
+> **Status**: done | **Owner**: Agent-R
 
 ## Why
 
-Terminal 有历史补全能力（输入前缀 + Tab -> 补全历史输入），Cat Cafe Hub 没有。team lead经常重复输入类似内容（如"笨蛋猫猫"），需要 terminal 风格的输入效率提升。
+Terminal 有历史补全能力（输入前缀 + Tab -> 补全历史输入），Agent Task Hub Hub 没有。team lead经常重复输入类似内容（如"笨蛋Agent"），需要 terminal 风格的输入效率提升。
 
 ## What
 
@@ -62,7 +62,7 @@ Terminal 有历史补全能力（输入前缀 + Tab -> 补全历史输入），C
 
 ## Review Gate
 
-- 跨猫 review：@codex
+- 跨Agent review：@codex
 
 ---
 

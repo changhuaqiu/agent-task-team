@@ -10,13 +10,13 @@ completed: 2026-03-10
 
 # F081 Appendix — Bubble/Thread State Write-Path Audit
 
-> **Status**: done | **Owner**: Ragdoll
+> **Status**: done | **Owner**: Agent-R
 > 起因：team lead 2026-03-09 "别让team lead发现什么你们修什么？修了一个另一个又出现问？"
 > gpt52 提议系统级全量审计，opus 对齐到 F081 scope。
 
 ## Why
 
-F081 附录文档用于把“消息/未读/猫状态”的写路径一次性摸清，避免继续头痛医头脚痛医脚，形成可追溯的状态机真相源。
+F081 附录文档用于把“消息/未读/Agent状态”的写路径一次性摸清，避免继续头痛医头脚痛医脚，形成可追溯的状态机真相源。
 
 ## What
 
@@ -112,29 +112,29 @@ F081 附录文档用于把“消息/未读/猫状态”的写路径一次性摸�
 
 | # | Action | File:Line | Trigger | 值 |
 |---|--------|-----------|---------|---|
-| 1 | `setTargetCats(cats)` | chatStore:635 | 用户选猫 | `{cat: 'pending'}` 全部预置 |
-| 2 | `setCatStatus(id, s)` | chatStore:637 | 单猫更新 | 直接设置 |
+| 1 | `setTargetCats(agents)` | chatStore:635 | 用户选Agent | `{agent: 'pending'}` 全部预置 |
+| 2 | `setCatStatus(id, s)` | chatStore:637 | 单Agent更新 | 直接设置 |
 | 3 | `clearCatStatuses()` | chatStore:639 | 发送/取消 | `{}` 清空 |
 | 4 | `setThreadIntentMode()` | chatStore:960 | intent 切换 | `{}` 清空 |
 | 5 | `batchStreamChunkUpdate()` | chatStore:1106 | HOT PATH | 批量设置 |
 | 6-13 | `setCatStatus()` calls | useAgentMessages | text/tool/done/error 事件 | streaming/done/error |
 | 14 | `clearCatStatuses()` | useAgentMessages | isFinal=true / Stop | `{}` 清空 |
-| 15 | `setTargetCats()` | useChatSocketCallbacks:52 | intent_mode 事件 | `{cat: 'pending'}` |
+| 15 | `setTargetCats()` | useChatSocketCallbacks:52 | intent_mode 事件 | `{agent: 'pending'}` |
 
 #### Background Thread
 
 | # | Action | File:Line | Trigger | 值 |
 |---|--------|-----------|---------|---|
-| 16 | `setThreadTargetCats()` | chatStore:982 | intent_mode 事件 | `{cat: 'pending'}` ← **PR #335 修复** |
+| 16 | `setThreadTargetCats()` | chatStore:982 | intent_mode 事件 | `{agent: 'pending'}` ← **PR #335 修复** |
 | 17 | `setThreadIntentMode()` | chatStore:969 | intent 切换 | `{}` 清空 |
-| 18 | `updateThreadCatStatus()` | chatStore:1075 | 单猫更新 | 直接设置 |
+| 18 | `updateThreadCatStatus()` | chatStore:1075 | 单Agent更新 | 直接设置 |
 | 19 | `batchStreamChunkUpdate()` | chatStore:1118 | HOT PATH | 批量设置 |
 | 20 | `resetThreadInvocationState()` | chatStore:1151 | 超时/完成 | `{}` 清空 |
 | 21-28 | `updateThreadCatStatus()` | useSocket-background | text/done/error/tool/status 事件 | streaming/done/error |
 
 **关键发现**：
 - `setThreadIntentMode()` 在 `setThreadTargetCats()` **之前**调用 → 先清空 `{}`，再预置 `pending`
-- PR #335 之前 background `setThreadTargetCats` 没有预置 pending → 黄色猫不出现
+- PR #335 之前 background `setThreadTargetCats` 没有预置 pending → 黄色Agent不出现
 
 ### 2.3 `unreadCount` / `hasUserMention` — 8 个写入点
 
@@ -196,7 +196,7 @@ F081 附录文档用于把“消息/未读/猫状态”的写路径一次性摸�
 | Badge 点不掉 (R1-R3) | ack 到 synthetic ID → 400 | sortable ID 白名单 | #279, #282, #295 |
 | Badge 点不掉 (R4) | cached thread 不刷新 → ack 旧 ID | force fetchHistory when unread>0 | #327 |
 | Badge 点不掉 (R5) | 前端猜 ID 竞态 | POST /read/latest 后端真相源 | #331 |
-| 黄色猫不出现 | BG setThreadTargetCats 没预置 pending | 对称预置 pending | #335 |
+| 黄色Agent不出现 | BG setThreadTargetCats 没预置 pending | 对称预置 pending | #335 |
 | Stale API 回写 badge | initThreadUnread 在 ack 前触发 | 10s 抑制窗口 | #279 |
 | F5 后 badge 爆炸 | 无 cursor = 全 unread | 冷启动: 无 cursor = 0 unread | #267 |
 
@@ -206,4 +206,4 @@ F081 附录文档用于把“消息/未读/猫状态”的写路径一次性摸�
 - [ ] `_unreadSuppressedUntil` 无清理策略，长会话可能累积 key
 - [ ] `catStatuses` 与 `hasActiveInvocation` 分离 → ThreadCatStatus 只看 catStatuses，如果 catStatuses 被清空但 hasActiveInvocation 仍为 true，就会出现"还在跑但显示 idle"
 - [ ] `batchStreamChunkUpdate()` 的 catStatus 参数如果传 undefined 会保持原值，但 done/error 事件不走 batch path → 可能存在竞态
-- [ ] 缺少 E2E 测试覆盖完整 thread lifecycle（进入→消息到达→切走→切回→badge/cat 状态一致性）
+- [ ] 缺少 E2E 测试覆盖完整 thread lifecycle（进入→消息到达→切走→切回→badge/agent 状态一致性）

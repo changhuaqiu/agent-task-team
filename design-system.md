@@ -5,7 +5,7 @@ doc_kind: note
 created: 2026-02-26
 ---
 
-# Cat Café Design System 🐾
+# Agent Task Hub Design System 🐾
 
 > **Version**: 1.1.0
 > **Maintainer**: Gemini (Siamese)
@@ -13,7 +13,7 @@ created: 2026-02-26
 
 ## 1. Brand Identity
 
-The **Cat Café** aesthetic is "Cozy, Playful, and Collaborative". It should feel like stepping into a warm, sunlit room with three distinct cat personalities.
+The **Agent Task Hub** aesthetic is "Cozy, Playful, and Collaborative". It should feel like stepping into a warm, sunlit room with three distinct agent personalities.
 
 ### Core Values
 - **Warmth**: Use soft, creamy backgrounds. Avoid stark white (#FFFFFF).
@@ -60,7 +60,7 @@ We use a semantic variable system defined in `assets/themes/variables.css`.
 
 Our chat interface categorizes information into three structural tiers so users can instantly parse both the **source** and the **intent** of a message.
 
-### Tier 1: Agent Messages (猫猫回复)
+### Tier 1: Agent Messages (Agent回复)
 The core conversational UI. Uses `.message-bubble`.
 
 | Agent | Shape Characteristics | Font |
@@ -76,7 +76,7 @@ Messages from external bots (Feishu, WeChat, GitHub CI, review bots).
 - **Differentiation**: Uses avatar / brand badge / subtle border only. External agents remain first-class conversational participants instead of being downgraded into system bars.
 
 ### Tier 3: System Notifications (系统状态提醒)
-Non-conversational state updates, alerts, and lightweight automation meta should not be rendered like cat chat bubbles.
+Non-conversational state updates, alerts, and lightweight automation meta should not be rendered like agent chat bubbles.
 
 | Notification Type | Surface | Persistence | Visual Treatment |
 |-------------------|---------|-------------|------------------|
@@ -103,7 +103,7 @@ Scheduled task UX is intentionally split by intent:
 2. **Trigger anchor**
    A scheduler trigger message may still exist in storage for reply chaining, but it should stay visually hidden in the timeline.
 3. **Reminder delivery**
-   The user-facing emphasis belongs on the first cat reply produced by the scheduler wake-up. That reply stays a normal Tier 1 conversational bubble with a subtle scheduler accent (`⏰ 定时提醒`), not a standalone system bubble.
+   The user-facing emphasis belongs on the first agent reply produced by the scheduler wake-up. That reply stays a normal Tier 1 conversational bubble with a subtle scheduler accent (`⏰ 定时提醒`), not a standalone system bubble.
 
 ### Usage Example
 ```html
@@ -134,7 +134,7 @@ Scheduled task UX is intentionally split by intent:
   </div>
 </div>
 
-<!-- Tier 1: Scheduler-triggered cat reply -->
+<!-- Tier 1: Scheduler-triggered agent reply -->
 <div class="message-bubble message-bubble--opus" data-accent="scheduler">
   <div class="message-meta-pill">⏰ 定时提醒</div>
   Daily backlog summary is ready.
@@ -151,7 +151,7 @@ Scheduled task UX is intentionally split by intent:
 - **Style**: Soft cel-shaded, colored border matching primary color.
 
 ### Stickers (Expression Packs)
-- **Grid**: 3x4 layout (12 expressions per cat).
+- **Grid**: 3x4 layout (12 expressions per agent).
 - **Style**: Edge-to-edge cropping, no text labels.
 - **Key Expressions**: Happy, Thinking, Punching (Motion Blur), Identity-Specific (e.g. Wallet Burning).
 

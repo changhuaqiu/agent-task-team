@@ -8,7 +8,7 @@ created: 2026-02-26
 
 # F023: 目录结构防腐化 + 重构 + 代码检查工具链
 
-> **Status**: done | **Owner**: 三猫
+> **Status**: done | **Owner**: Admin
 > **Created**: 2026-02-26
 
 ## Why

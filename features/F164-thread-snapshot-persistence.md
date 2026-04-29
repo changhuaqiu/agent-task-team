@@ -8,7 +8,7 @@ created: 2026-04-15
 
 # F164: Thread Snapshot Persistence — 刷新不失忆
 
-> **Status**: done | **Owner**: Ragdoll | **Priority**: P1
+> **Status**: done | **Owner**: Agent-R | **Priority**: P1
 
 **Completed: 2026-04-16**
 
@@ -27,7 +27,7 @@ F080 当时明确写了"不做前端本地缓存"，当时的决策是合理的�
 核心：给 `threadStates` 加 IndexedDB 镜像，冷启动先读快照立刻渲染，再后台拉 API 增量替换。
 
 **技术方案**：
-- 引入 `idb` 库（~1.2KB gzip），创建 `cat-cafe-offline` IndexedDB database
+- 引入 `idb` 库（~1.2KB gzip），创建 `agent-hub-offline` IndexedDB database
 - 两个 object store：`threads`（thread 摘要 + unread）、`messages`（per-thread 最近 50 条）
 - **Write-through**：`setThreads()`/`replaceMessages()`/`pushMessage()` 成功后异步写 IndexedDB，不阻塞主线程
 - **Cold-start read**：`ThreadSidebar` mount 时先 `await idb.getAll('threads')` 立刻渲染；`useChatHistory` 先读 IndexedDB 快照再 kick off API fetch
@@ -81,15 +81,15 @@ F080 当时明确写了"不做前端本地缓存"，当时的决策是合理的�
 
 | # | 决策 | 理由 | 日期 |
 |---|------|------|------|
-| KD-1 | 持久化 `threadStates` 而非新建 `offlineSnapshotStore` | threadStates 已是 thread 级缓存结构，少一层映射（Ragdoll提议，Maine Coon确认） | 2026-04-15 |
+| KD-1 | 持久化 `threadStates` 而非新建 `offlineSnapshotStore` | threadStates 已是 thread 级缓存结构，少一层映射（Agent-R提议，Agent-M确认） | 2026-04-15 |
 | KD-2 | 用 IndexedDB 不用 localStorage | 体积、性能、结构化查询，消息多了 localStorage 会炸 | 2026-04-15 |
-| KD-3 | 不改 Service Worker API 缓存策略 | `/api/*` NetworkOnly 是合理的，全局缓存容易把旧会话/旧队列缓存脏（Ragdoll+Maine Coon共识） | 2026-04-15 |
-| KD-4 | 不做完全离线聊天 | 核心价值是猫猫回复，离线发消息没意义，scope 控制 | 2026-04-15 |
+| KD-3 | 不改 Service Worker API 缓存策略 | `/api/*` NetworkOnly 是合理的，全局缓存容易把旧会话/旧队列缓存脏（Agent-R+Agent-M共识） | 2026-04-15 |
+| KD-4 | 不做完全离线聊天 | 核心价值是Agent回复，离线发消息没意义，scope 控制 | 2026-04-15 |
 
 ## Review Gate
 
-- Phase A: 跨 family review（Maine Coon review Ragdoll代码）
-- Phase B: 前端 UX 需Siamese设计确认 + Maine Coon review
+- Phase A: 跨 family review（Agent-M review Agent-R代码）
+- Phase B: 前端 UX 需Siamese设计确认 + Agent-M review
 
 ## 需求点 Checklist
 
@@ -99,7 +99,7 @@ F080 当时明确写了"不做前端本地缓存"，当时的决策是合理的�
 | R2 | "就是有多少 thread 啊我们的聊天内容啊就都没了" | AC-A1, AC-A2 | 断网 + F5 验证 thread 列表和消息可见 | [x] |
 | R3 | 联网时 F5 体验无退化 | AC-A3 | 联网 F5 测试，确认先显示再替换 | [x] |
 | R4 | 用户能区分离线快照和实时数据 | AC-A4 | 截图验证离线标记 | [x] |
-| R5 | 连接状态可区分（Maine Coon+Siamese提议） | AC-B1 | 截图验证三态指示器 | [x] |
+| R5 | 连接状态可区分（Agent-M+Siamese提议） | AC-B1 | 截图验证三态指示器 | [x] |
 
 ### 覆盖检查
 - [x] 每个需求点都能映射到至少一个 AC

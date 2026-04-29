@@ -8,7 +8,7 @@ created: 2026-03-27
 
 # F145: MCP Portable Provisioning — 声明式 MCP 期望态 + 本机解析
 
-> **Status**: done | **Owner**: Ragdoll + Maine Coon | **Priority**: P1 | **Completed**: 2026-04-12
+> **Status**: done | **Owner**: Agent-R + Agent-M | **Priority**: P1 | **Completed**: 2026-04-12
 
 ## Why
 
@@ -38,7 +38,7 @@ created: 2026-03-27
 
 2. **capabilities.json 清洗**：
    - Pencil 条目改为 `{ id: 'pencil', resolver: 'pencil', args: [] }`（不存绝对路径）
-   - 新增 `.cat-cafe/mcp-resolved.json`（gitignored），存本机解析结果
+   - 新增 `.agent-hub/mcp-resolved.json`（gitignored），存本机解析结果
 
 3. **Pencil resolver 实现**：
    - 候选顺序：`PENCIL_MCP_BIN` env → `~/.antigravity/extensions/` → `~/.vscode/extensions/` → unresolved
@@ -67,41 +67,41 @@ created: 2026-03-27
    - 输出 ready/missing/unresolved 报告
    - 不能自动安装的宿主软件（如 Antigravity / VS Code 本体），给出一条明确安装指引
 
-### Phase C: Built-in Cat Café MCP Auto-Provision for ACP ✅
+### Phase C: Built-in Agent Task Hub MCP Auto-Provision for ACP ✅
 
-**痛点**：ACP resolver (`acp-mcp-resolver.ts`) 把内置 `cat-cafe*` servers 和外部 MCP 一视同仁，全从 `.mcp.json` 读取。社区用户 clone 后没有 `.mcp.json`（gitignored），Gemini ACP 就拿不到任何 MCP server。
+**痛点**：ACP resolver (`acp-mcp-resolver.ts`) 把内置 `agent-hub*` servers 和外部 MCP 一视同仁，全从 `.mcp.json` 读取。社区用户 clone 后没有 `.mcp.json`（gitignored），Gemini ACP 就拿不到任何 MCP server。
 
-**改法**（Maine Coon GPT-5.4 审定边界）：
+**改法**（Agent-M GPT-5.4 审定边界）：
 
-1. **共享 helper**：`resolveBuiltinCatCafeMcpServers(projectRoot, whitelist)` — 从 `packages/mcp-server/dist/` 自动生成内置 server 配置
-   - `cat-cafe` → `dist/index.js`（全量 server，含 limb tools）
-   - `cat-cafe-{suffix}` → `dist/{suffix}.js`
-2. **ACP resolver 改造**：内置 `cat-cafe*` 走 helper，外部 server（`pencil` 等）才 fallback 到 `.mcp.json`
-3. **capabilities.json bootstrap 补齐**：`cat-cafe` 主 server 加入 bootstrap/migration（当前只有 split 三件套）
-4. **mcp:doctor 对齐**：确认 doctor 报告包含 `cat-cafe` 主 server 状态
+1. **共享 helper**：`resolveBuiltinAgent Task HubMcpServers(projectRoot, whitelist)` — 从 `packages/mcp-server/dist/` 自动生成内置 server 配置
+   - `agent-hub` → `dist/index.js`（全量 server，含 limb tools）
+   - `agent-hub-{suffix}` → `dist/{suffix}.js`
+2. **ACP resolver 改造**：内置 `agent-hub*` 走 helper，外部 server（`pencil` 等）才 fallback 到 `.mcp.json`
+3. **capabilities.json bootstrap 补齐**：`agent-hub` 主 server 加入 bootstrap/migration（当前只有 split 三件套）
+4. **mcp:doctor 对齐**：确认 doctor 报告包含 `agent-hub` 主 server 状态
 
 ### Phase E: Per-Project MCP for ACP Sessions ✅
 
-**痛点**：社区用户用 Cat Café 开发自己的项目。不同项目目录下有不同的 `.mcp.json`（database MCP、docker MCP、figma MCP 等）。当前各猫猫对用户项目 `.mcp.json` 的支持情况：
+**痛点**：社区用户用 Agent Task Hub 开发自己的项目。不同项目目录下有不同的 `.mcp.json`（database MCP、docker MCP、figma MCP 等）。当前各Agent对用户项目 `.mcp.json` 的支持情况：
 
-| 猫猫 | 读用户项目 `.mcp.json` | 原因 |
+| Agent | 读用户项目 `.mcp.json` | 原因 |
 |---|---|---|
-| Ragdoll（Claude Code） | ✅ 原生支持 | Claude Code 运行在项目目录，自动发现 `.mcp.json` |
-| Maine Coon（Codex） | ✅ 原生支持 | 同上 |
-| Siamese（Gemini ACP） | ❌ 不支持 | `acp-mcp-resolver.ts` 的 `projectRoot` 硬编码为 `findMonorepoRoot()`，只读 Cat Café monorepo 的 `.mcp.json` |
+| Agent-R（Claude Code） | ✅ 原生支持 | Claude Code 运行在项目目录，自动发现 `.mcp.json` |
+| Agent-M（Codex） | ✅ 原生支持 | 同上 |
+| Siamese（Gemini ACP） | ❌ 不支持 | `acp-mcp-resolver.ts` 的 `projectRoot` 硬编码为 `findMonorepoRoot()`，只读 Agent Task Hub monorepo 的 `.mcp.json` |
 
 **根因**：`resolveAcpMcpServers(projectRoot, whitelist)` 只走两条路：
-1. 内建 cat-cafe-* → 从 `projectRoot/packages/mcp-server/dist/` 自动生成
+1. 内建 agent-hub-* → 从 `projectRoot/packages/mcp-server/dist/` 自动生成
 2. 外部 server → 从 `projectRoot/.mcp.json` 读取（但只匹配 `whitelist` 里的 server）
 
 **两个缺口**：
-1. `projectRoot` 固定为 Cat Café monorepo，不是用户的项目目录
+1. `projectRoot` 固定为 Agent Task Hub monorepo，不是用户的项目目录
 2. 即使 `projectRoot` 指向用户项目，resolver 也只读 `whitelist` 里声明的 server，不会 merge 用户项目 `.mcp.json` 里的全部 server
 
 **改法**：
 1. `resolveAcpMcpServers` 新增参数 `userProjectRoot`（用户项目目录）
 2. 读 `userProjectRoot/.mcp.json` 的所有 server（不限于 whitelist）
-3. Merge 策略：内建 cat-cafe-* 优先 → whitelist 外部 server 次之 → 用户项目 server 补充
+3. Merge 策略：内建 agent-hub-* 优先 → whitelist 外部 server 次之 → 用户项目 server 补充
 4. 去重：同名 server 以前两层为准（防止用户项目覆盖内建 server）
 
 **架构准备度**（已有 seam）：
@@ -115,7 +115,7 @@ created: 2026-03-27
 ### Phase A（Pencil Resolver + 去机器态）✅
 - [x] AC-A1: `capabilities.json` 中 pencil 条目不含机器特定绝对路径
 - [x] AC-A2: Pencil resolver 按 env → Antigravity → VS Code → unresolved 顺序解析
-- [x] AC-A3: 解析结果存入 `.cat-cafe/mcp-resolved.json`（gitignored）
+- [x] AC-A3: 解析结果存入 `.agent-hub/mcp-resolved.json`（gitignored）
 - [x] AC-A4: Unresolved 时不写坏路径进 CLI 配置（`.mcp.json` / `.codex/config.toml` / `.gemini/settings.json`）
 - [x] AC-A5: Gemini 的 `shouldSkipGeminiProjectServer('pencil')` workaround 删除
 - [x] AC-A6: 现有 capability board 测试全绿 + 新增 resolver 回归测试
@@ -129,16 +129,16 @@ created: 2026-03-27
 - [x] AC-B5: 新机器 clone + `pnpm install && pnpm mcp:doctor` 后，报告准确反映本机 MCP 状态
 
 ### Phase C（Built-in MCP Auto-Provision for ACP）✅
-- [x] AC-C1: ACP resolver 不依赖 `.mcp.json` 获取 `cat-cafe*` servers — 从 `projectRoot` 自动生成
+- [x] AC-C1: ACP resolver 不依赖 `.mcp.json` 获取 `agent-hub*` servers — 从 `projectRoot` 自动生成
 - [x] AC-C2: 外部 MCP（`pencil` 等）仍从 `.mcp.json` fallback 读取
-- [x] AC-C3: `capabilities.json` bootstrap 包含 `cat-cafe` 主 server（含 limb tools）
+- [x] AC-C3: `capabilities.json` bootstrap 包含 `agent-hub` 主 server（含 limb tools）
 - [x] AC-C4: 新机器 clone + `pnpm install` 后，Gemini ACP session 自动获得内置 MCP servers（无需手写 `.mcp.json`）
 - [x] AC-C5: 现有 ACP adapter + resolver 测试全绿 + 新增 auto-provision 回归测试
 
 ### Phase E（Per-Project MCP for ACP）✅
 - [x] AC-E1: `resolveAcpMcpServers` 接受 `userProjectRoot` 参数，读取用户项目目录的 `.mcp.json`
 - [x] AC-E2: 用户项目 `.mcp.json` 的 server 自动 merge 到 ACP session MCP 列表
-- [x] AC-E3: 同名 server 优先级：内建 cat-cafe-* > whitelist 外部 > 用户项目
+- [x] AC-E3: 同名 server 优先级：内建 agent-hub-* > whitelist 外部 > 用户项目
 - [x] AC-E4: 用户项目没有 `.mcp.json` 时不报错（graceful degrade，仅内建 + whitelist）
 - [x] AC-E5: 不同 `userProjectRoot` 的 ACP session 拿到不同的 MCP server 集合
 
@@ -201,7 +201,7 @@ Claude Code 读配置时 per-project override > `.mcp.json` > global，拿到不
 
 ## Review Gate
 
-- Phase A: Maine Coon review（Maine Coon参与了架构讨论，由他验收实现）
+- Phase A: Agent-M review（Agent-M参与了架构讨论，由他验收实现）
 - Phase B: 跨家族 review
 
 ## 需求点 Checklist
@@ -211,5 +211,5 @@ Claude Code 读配置时 per-project override > `.mcp.json` > global，拿到不
 | R1 | capabilities.json 不存机器特定路径 | AC-A1 | A | team experience |
 | R2 | Pencil 支持 Antigravity + VS Code 双宿主 | AC-A2 | A | team experience |
 | R3 | 新机器 clone 后 MCP 自动解析 | AC-A3,A4,B5 | A+B | team lead愿景 |
-| R4 | Skill 能声明 MCP 依赖 | AC-B1,B2,B3 | B | Maine Coon提议 |
+| R4 | Skill 能声明 MCP 依赖 | AC-B1,B2,B3 | B | Agent-M提议 |
 | R5 | 一条命令看全局 MCP 就绪状态 | AC-B4,B5 | B | team lead愿景 |

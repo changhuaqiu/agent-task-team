@@ -6,22 +6,22 @@ doc_kind: spec
 created: 2026-03-05
 ---
 
-# F063: Hub Workspace Explorer — team lead不用打开 IDE 也可以和猫猫们优雅协作
+# F063: Hub Workspace Explorer — team lead不用打开 IDE 也可以和Agent们优雅协作
 
-> **Status**: done | **Owner**: Ragdoll (Opus 4.6, Leader)
+> **Status**: done | **Owner**: Agent-R (Opus 4.6, Leader)
 > **Created**: 2026-03-05
 > **Completed**: 2026-03-09
 
 ## Why
 
-team lead和猫猫是**共创伙伴**，但目前协作时team lead被挡在 IDE 门外：
+team lead和Agent是**共创伙伴**，但目前协作时team lead被挡在 IDE 门外：
 
-1. 猫猫说"看 `codex-event-transform.ts:172`"→ team lead要切 WebStorm、搜文件、找行号、读不是自己写的代码
-2. 猫猫改了 spec/提示词模板 → team lead要去 IDE 翻文件才能看到内容
-3. 遇到反复出现的系统问题需要team lead协助梳理时 → "所有和提示词注入有关的代码在哪？"要猫猫回答或自己搜关键词
+1. Agent说"看 `codex-event-transform.ts:172`"→ team lead要切 WebStorm、搜文件、找行号、读不是自己写的代码
+2. Agent改了 spec/提示词模板 → team lead要去 IDE 翻文件才能看到内容
+3. 遇到反复出现的系统问题需要team lead协助梳理时 → "所有和提示词注入有关的代码在哪？"要Agent回答或自己搜关键词
 4. 审计日志/session 事件目前只能在 VSCode 里看，team lead帮忙定位问题需要在 IDE 和 Hub 之间反复切换
 
-**核心判断**：Claude.ai 的 Project Context + Artifacts 能力证明了"在对话旁边直接操作文件和预览"是可行的。以前做这个要人类开发一个月，现在猫猫一天就能做——**没有理由先做临时方案再做正式方案**（team experience："绕路了"）。
+**核心判断**：Claude.ai 的 Project Context + Artifacts 能力证明了"在对话旁边直接操作文件和预览"是可行的。以前做这个要人类开发一个月，现在Agent一天就能做——**没有理由先做临时方案再做正式方案**（team experience："绕路了"）。
 
 ## What
 
@@ -30,7 +30,7 @@ team lead和猫猫是**共创伙伴**，但目前协作时team lead被挡在 IDE
 在 Hub 侧边栏或面板中展示当前仓库的文件系统：
 
 1. **文件树浏览**
-   - 当前猫猫所在仓库的目录树（如 `cat-cafe/`、`dare-framework/`）
+   - 当前Agent所在仓库的目录树（如 `agent-hub/`、`dare-framework/`）
    - 展开/折叠目录，点击查看文件内容
    - 文件图标按类型区分（.ts/.md/.json/.png 等）
 
@@ -45,17 +45,17 @@ team lead和猫猫是**共创伙伴**，但目前协作时team lead被挡在 IDE
    - 文件名搜索：快速定位（fuzzy match）
    - team lead的典型用法："所有和提示词注入有关的代码" → 搜 `system prompt` / `SystemPromptBuilder` → 直接看结果
 
-4. **猫猫联动**
-   - 猫猫提到文件路径/行号时 → Hub 自动识别 → 点击跳转到文件内容面板
-   - 猫猫发 `diff` rich block → 点击可在文件面板中查看完整文件上下文
-   - team lead在文件面板中选中代码 → 可直接引用到对话中问猫猫
+4. **Agent联动**
+   - Agent提到文件路径/行号时 → Hub 自动识别 → 点击跳转到文件内容面板
+   - Agent发 `diff` rich block → 点击可在文件面板中查看完整文件上下文
+   - team lead在文件面板中选中代码 → 可直接引用到对话中问Agent
 
 ### Phase 2: Code Preview & Rendering（P0-P1，与 Phase 1 不冲突就并行）
 
 在 Hub 中直接渲染前端代码预览：
 
 1. **HTML/JSX 预览**
-   - 猫猫输出的 React/HTML 组件 → 在 Hub 内 iframe sandbox 渲染
+   - Agent输出的 React/HTML 组件 → 在 Hub 内 iframe sandbox 渲染
    - 类似 Claude.ai Artifacts 的实时预览能力
    - 支持 Tailwind CSS（我们的设计系统基础）
 
@@ -87,7 +87,7 @@ team lead和猫猫是**共创伙伴**，但目前协作时team lead被挡在 IDE
 
 ## Technical Direction
 
-### 后端：文件系统 API（Maine Coon安全模型 v1）
+### 后端：文件系统 API（Agent-M安全模型 v1）
 
 **API 端点**：
 
@@ -100,7 +100,7 @@ PUT  /api/workspace/file    { worktreeId, path, content, baseSha256, editSession
 
 **Worktree 映射**：服务端用 `git worktree list --porcelain` 建映射 `worktreeId → realRoot`，前端只传 `worktreeId`，**绝不接受前端传绝对路径**。
 
-**P0 安全模型（Maine Coon review 通过的强约束）**：
+**P0 安全模型（Agent-M review 通过的强约束）**：
 
 1. **路径遍历防护**：`resolve(realRoot, userPath)` → `realpath` → 必须满足 `target.startsWith(realRoot + path.sep)`，否则 403
 2. **符号链接逃逸防护**：读写都做 `lstat + realpath`，跨根 symlink 直接拒绝
@@ -114,7 +114,7 @@ PUT  /api/workspace/file    { worktreeId, path, content, baseSha256, editSession
 
 ### 前端：UX 设计（Siamese提案 + team lead拍板）
 
-**布局：「猫咖全景工坊」**
+**布局：「Agent咖全景工坊」**
 
 ```
 ┌─────────────────────────────────────────────────────┐
@@ -126,7 +126,7 @@ PUT  /api/workspace/file    { worktreeId, path, content, baseSha256, editSession
 │    (50%)             │  │   📂 api/src/             ││
 │                      │  │     📄 codex-event-...    ││
 │                      │  │   📂 hub/src/             ││
-│  猫猫消息            │  ├──────────────────────────┤│
+│  Agent消息            │  ├──────────────────────────┤│
 │  [file:172] ← 可点击  │  │ codex-event-transform.ts ││
 │                      │  │ 172│ const imageItems =   ││
 │                      │  │ 173│   contentArr.filter  ││
@@ -142,14 +142,14 @@ PUT  /api/workspace/file    { worktreeId, path, content, baseSha256, editSession
 | 元素 | 设计 | 来源 |
 |------|------|------|
 | 顶栏按钮 | 📁 图标，点击切换分栏显示/隐藏 | team lead拍板 |
-| Worktree 指示器 | 文件面板顶部醒目标签：`🌿 feat/f060` + branch + short sha | Maine Coon(安全)+Siamese(UX) |
+| Worktree 指示器 | 文件面板顶部醒目标签：`🌿 feat/f060` + branch + short sha | Agent-M(安全)+Siamese(UX) |
 | 文件树 | 极简风格，悬浮显示操作按钮，类型图标区分 | Siamese |
 | 编辑器 | **CodeMirror 6**（轻量、可扩展、语法高亮+行号） | Siamese提议 |
-| 只读/编辑切换 | 默认只读🔒，点击切换编辑🔓（签发 edit_session_token） | Siamese(UX)+Maine Coon(安全) |
+| 只读/编辑切换 | 默认只读🔒，点击切换编辑🔓（签发 edit_session_token） | Siamese(UX)+Agent-M(安全) |
 | 文件路径联动 | 聊天中 `file:line` 格式自动变为可点击链接 → 右侧跳转高亮 | Siamese |
-| 正在编辑指示 | 文件图标旁显示 🐾（team lead）或猫猫头像 | Siamese |
+| 正在编辑指示 | 文件图标旁显示 🐾（team lead）或Agent头像 | Siamese |
 | 代码引用 | team lead在编辑器选中代码 → 引用到对话输入框 | spec 原始需求 |
-| 文件头信息 | `branch + worktree + last_commit_short_sha` | Maine Coon |
+| 文件头信息 | `branch + worktree + last_commit_short_sha` | Agent-M |
 
 **技术选型**：
 
@@ -160,7 +160,7 @@ PUT  /api/workspace/file    { worktreeId, path, content, baseSha256, editSession
 | Markdown 渲染 | **react-markdown** | 已在 Hub 中使用 |
 | 文件搜索 | 后端 `grep -r` | Phase 1 够用，后续可升级 |
 
-### 安全测试清单（Maine Coon门禁）
+### 安全测试清单（Agent-M门禁）
 
 | # | 测试场景 | 期望 |
 |---|---------|------|
@@ -181,16 +181,16 @@ PUT  /api/workspace/file    { worktreeId, path, content, baseSha256, editSession
 - [x] AC-1: team lead在 Hub 中可浏览当前仓库目录树（至少 3 层深度）
 - [x] AC-2: 点击文件可查看内容（代码文件有语法高亮+行号）
 - [x] AC-3: 全文搜索可搜到文件内容并展示匹配上下文
-- [x] AC-4: 猫猫消息中的文件路径可点击跳转到文件查看
+- [x] AC-4: Agent消息中的文件路径可点击跳转到文件查看
 - [x] AC-5: HTML/React 组件可在 Hub 内预览渲染效果（Phase 2, PR #251 HTML + PR #256 JSX esbuild-wasm + PR #257 real bundling）
 - [x] AC-6: 文件查看面板和对话面板可同时可见（50:50 分栏）
 - [x] AC-7: 路径安全（不能访问仓库外的系统文件）
 - [x] AC-8: 图片文件可直接预览
-- [x] AC-9: team lead可在 Hub 内编辑文件，猫猫可直接 commit 编辑结果
-- [x] AC-10: 文件系统感知 worktree（显示猫猫当前 worktree 的文件，而非只有 main）
+- [x] AC-9: team lead可在 Hub 内编辑文件，Agent可直接 commit 编辑结果
+- [x] AC-10: 文件系统感知 worktree（显示Agent当前 worktree 的文件，而非只有 main）
 - [x] AC-11: 顶栏有切换按钮，点击后聊天窗口缩小 + 右侧文件面板展开
 - [x] AC-12: 搜索栏支持文件名搜索模式（输入文件名/路径片段 → 快速定位 + 显示相对路径 → 点击导航）
-- [x] AC-13: 猫猫消息中的文件路径点击后自动切换到 workspace 面板并打开该文件（当前 AC-4 的完整体验闭环）
+- [x] AC-13: Agent消息中的文件路径点击后自动切换到 workspace 面板并打开该文件（当前 AC-4 的完整体验闭环）
 - [x] AC-14: team lead可拖拽调整三视图比例（聊天区 | 文件树 | 文件查看器），含最小宽度/高度限制
 - [x] AC-15: team lead可在文件查看器中选中代码行/文件路径，点击"引用到聊天"按钮插入到输入框（类似 Claude.ai 的 "Add to chat"）
 - [x] AC-16: team lead可在文件树或文件查看器中点击 "Open in Finder" 在系统文件管理器中打开文件（Gap 5, PR #307）
@@ -206,14 +206,14 @@ PUT  /api/workspace/file    { worktreeId, path, content, baseSha256, editSession
 |----|---------------------------|---------|----------|------|
 | R1 | "我得打开 vscode 或者 webstorm 然后搜索你说的文件" | AC-1, AC-2 | manual: Hub 内查看文件 | [x] |
 | R2 | "所有和提示词注入有关的代码？我就得想好久得搜什么关键字" | AC-3 | manual: Hub 内全文搜索 | [x] |
-| R3 | "猫猫提到了个文件，此时我翻半天，还得找行号" | AC-4 | manual: 点击文件路径跳转 | [x] |
+| R3 | "Agent提到了个文件，此时我翻半天，还得找行号" | AC-4 | manual: 点击文件路径跳转 | [x] |
 | R4 | "claude ai 里面前端他们也能帮你直接打开文件系统 html jsx 直接展示" | AC-5 | manual: Hub 内渲染预览 | [x] |
 | R5 | "如果定位问题遇到困难team lead一起帮忙会很有用" | AC-1, AC-2, AC-3 | manual: team lead在 Hub 内查看代码协助排查 | [x] |
 | R6 | "审计日志...事实上确实很多时候需要协助查看" | — (Phase 3) | Phase 3 实现后验证 | [x] |
 | R7 | "文件系统指的是你们的运行仓库的文件" | AC-7 | test: 仅暴露仓库内文件 | [x] |
 | R8 | "这个是我们非常重要的一环体验？如何 ux 如何布局？" | AC-6, AC-11 | visual: Siamese review 布局 | [x] |
 | R9 | "聊天窗口变小 文件系统右边代替状态栏出来 五五开" | AC-6, AC-11 | manual: 顶栏按钮切换分栏 | [x] |
-| R10 | "如果是可以编辑的话 那有什么我帮你们编辑 复制进来" | AC-9 | manual: team lead编辑+猫猫 commit | [x] |
+| R10 | "如果是可以编辑的话 那有什么我帮你们编辑 复制进来" | AC-9 | manual: team lead编辑+Agent commit | [x] |
 | R11 | "咱项目是有 worktree 的！所以这点也得考虑" | AC-10 | manual: 切换查看不同 worktree | [x] |
 | R12 | "搜索我可以搜文件名吗？比如贴他的相对路径帮我导航一下？" | AC-12 | manual: 搜文件名 → 显示路径 → 点击导航 | [x] |
 | R13 | "你们发的文本里的那些地址我点击 右边这里能打开吗？" | AC-13 | manual: 点消息中路径 → workspace 面板自动打开文件 | [x] |
@@ -230,38 +230,38 @@ PUT  /api/workspace/file    { worktreeId, path, content, baseSha256, editSession
 | 决策 | 选项 | 结论 | 决策者 |
 |------|------|------|--------|
 | 文件浏览 vs 前端预览优先级 | 分开做 / 一起做 | **不冲突就一起做，冲突则文件先行** | team lead (2026-03-05) |
-| 方案选择 | A 猫猫主动发 / B 侧边栏 / C 完整 Project | **直接做 B/C，不做临时方案 A** | team lead (2026-03-05) |
+| 方案选择 | A Agent主动发 / B 侧边栏 / C 完整 Project | **直接做 B/C，不做临时方案 A** | team lead (2026-03-05) |
 | 文件系统范围 | 仓库文件 / 仓库+runtime | **仓库文件为主，runtime 辅助** | team lead (2026-03-05) |
 | 布局方案 | 侧边栏 / Tab / Modal / 可拖拽 | **顶栏按钮切换，右侧文件系统取代状态栏，聊天:文件 = 50:50** | team lead (2026-03-05) |
-| 文件编辑能力 | 只读 / 可编辑 | **可编辑** — team lead帮忙编辑后猫猫可直接 commit | team lead (2026-03-05) |
-| Worktree 感知 | 忽略 / 感知 | **必须感知 worktree** — 猫猫可能在不同 worktree 工作，文件系统需显示对应 worktree 的文件 | team lead (2026-03-05) |
+| 文件编辑能力 | 只读 / 可编辑 | **可编辑** — team lead帮忙编辑后Agent可直接 commit | team lead (2026-03-05) |
+| Worktree 感知 | 忽略 / 感知 | **必须感知 worktree** — Agent可能在不同 worktree 工作，文件系统需显示对应 worktree 的文件 | team lead (2026-03-05) |
 | 参考实现 | 自研 / 参考现有 | **参考 Claude.ai Project + Codex 布局**，取其精华 | team lead (2026-03-05) |
-| UI 设计语言 | 通用 / 猫猫化 | **对齐 F056 Cat Café 设计语言（猫猫化不是猫化）** | team lead (2026-03-05) |
+| UI 设计语言 | 通用 / Agent化 | **对齐 F056 Agent Task Hub 设计语言（Agent化不是Agent化）** | team lead (2026-03-05) |
 | 设计稿工具 | Figma / Pencil | **Pencil MCP**（用 `pencil-design` skill） | team lead (2026-03-05) |
-| 设计稿协作 | 单猫 / 多猫 | **Siamese出灵感（不画），GPT-5.2 可协助画设计稿，Ragdoll用 Pencil 落地** | team lead (2026-03-05) |
+| 设计稿协作 | 单Agent / 多Agent | **Siamese出灵感（不画），GPT-5.2 可协助画设计稿，Agent-R用 Pencil 落地** | team lead (2026-03-05) |
 
 ## Dependencies
 
 - **Related**: F060（图片渲染能力）
 - **Related**: F058（运行时状态展示）
-- **Related**: F056（设计语言——UI 猫猫化风格必须对齐）
+- **Related**: F056（设计语言——UI Agent化风格必须对齐）
 - **Evolves to**: F082（Git Health Panel — repo 状态可视化，从 workspace 基础设施衍生）
-- **UX Design**: Siamese出灵感 + GPT-5.2 协助画设计稿 + Ragdoll用 Pencil MCP 落地
+- **UX Design**: Siamese出灵感 + GPT-5.2 协助画设计稿 + Agent-R用 Pencil MCP 落地
 
 ## Design Workflow（team lead指定）
 
 实施前的设计稿流程：
 
 1. **灵感**：Siamese/Siamese提供 UX 灵感和方向建议（**不让他画**，幻觉多）
-2. **设计稿**：Ragdoll用 **Pencil MCP**（`pencil-design` skill）画设计稿；如需协助可 @gpt52 一起画
-3. **设计语言**：所有 UI 元素对齐 **F056 Cat Café 设计语言**（猫猫化不是猫化）
+2. **设计稿**：Agent-R用 **Pencil MCP**（`pencil-design` skill）画设计稿；如需协助可 @gpt52 一起画
+3. **设计语言**：所有 UI 元素对齐 **F056 Agent Task Hub 设计语言**（Agent化不是Agent化）
 4. **前端实现**：设计稿确认后用 `pencil-to-code` skill 导出 React/Tailwind 代码
 
 ## Risk
 
 | 风险 | 影响 | 缓解 |
 |------|------|------|
-| 文件系统 API 路径遍历漏洞 | 安全隐患 | 白名单 + 路径规范化 + Maine Coon安全 review |
+| 文件系统 API 路径遍历漏洞 | 安全隐患 | 白名单 + 路径规范化 + Agent-M安全 review |
 | 大仓库文件树加载慢 | 体验差 | 懒加载 + 深度限制 + 缓存 |
 | 前端预览的代码注入风险 | XSS | iframe sandbox + CSP 策略 |
 | 布局影响现有聊天体验 | 回归 | 渐进式：先做可收起的侧边栏 |
@@ -269,12 +269,12 @@ PUT  /api/workspace/file    { worktreeId, path, content, baseSha256, editSession
 ## Review Gate
 
 - **Self-check**: `quality-gate`
-- **Reviewer**: 跨 family（Maine Coon关注安全，Siamese关注 UX）
+- **Reviewer**: 跨 family（Agent-M关注安全，Siamese关注 UX）
 - **Cloud review**: 合入前必须
 
 ## Phase 1 UI 改进需求（team lead反馈 2026-03-05）
 
-team lead评价 Phase 1 UI："有点丑不够猫猫，感觉没有设计感"。以下是具体问题和改进方向。
+team lead评价 Phase 1 UI："有点丑不够Agent，感觉没有设计感"。以下是具体问题和改进方向。
 
 ### 当前问题
 
@@ -283,9 +283,9 @@ team lead评价 Phase 1 UI："有点丑不够猫猫，感觉没有设计感"。�
 | U1 | 文件树缺乏视觉层次 | 纯文本 emoji（📂📄），无颜色区分，hover 只有灰色背景 | Claude.ai Artifacts: 文件类型图标有颜色区分，hover 有微妙渐变 |
 | U2 | 搜索栏太工具化 | 蓝色按钮 + 小 icon，像 admin 后台 | Cursor/Claude: 搜索栏内嵌，圆角大，placeholder 有引导性 |
 | U3 | 文件头区域太暗太突兀 | `bg-gray-800` 深色头 vs `bg-white` 面板体，割裂感 | Codex: 文件头用浅色高对比 + 文件类型 badge |
-| U4 | 没有 Cat Café 设计语言 | 通用灰/蓝配色，和 Hub 其他面板风格不统一 | F056 要求：猫猫化不是猫化，温暖而专业 |
+| U4 | 没有 Agent Task Hub 设计语言 | 通用灰/蓝配色，和 Hub 其他面板风格不统一 | F056 要求：Agent化不是Agent化，温暖而专业 |
 | U5 | worktree 指示器太小 | `text-[10px]` 绿色 badge，几乎看不到 | 应该醒目：分支名 + 短 SHA + 状态色 |
-| U6 | 空状态不友好 | "加载中..." 纯文字 | 应有骨架屏 / 猫猫插图 / 引导提示 |
+| U6 | 空状态不友好 | "加载中..." 纯文字 | 应有骨架屏 / Agent插图 / 引导提示 |
 | U7 | 没有动画过渡 | 面板切换、文件展开/折叠无动画 | Claude.ai: 面板 slide-in，树节点 fade-in |
 | U8 | 搜索结果缺乏上下文感 | 只显示路径:行号 + 匹配行 | Cursor: 高亮关键词，显示文件类型图标，分组显示 |
 
@@ -305,12 +305,12 @@ team lead评价 Phase 1 UI："有点丑不够猫猫，感觉没有设计感"。�
 - 代码查看器顶部有 tab 风格的文件选择器
 - diff 视图是 inline，不是 side-by-side
 
-**我们应该做的（对齐 F056 Cat Café 设计语言）:**
+**我们应该做的（对齐 F056 Agent Task Hub 设计语言）:**
 - 用项目色板（暖色系，不是纯灰蓝）
 - 文件类型用小型彩色 SVG 图标（不是 emoji）
 - 面板过渡用 Framer Motion（和 Hub 其他面板一致）
 - 搜索栏内嵌化，大圆角，带 search icon
-- 空状态展示猫猫相关的友好提示
+- 空状态展示Agent相关的友好提示
 - 文件树 indent guide（竖线）提升层次感
 
 ## Phase 2 计划
@@ -326,7 +326,7 @@ team lead评价 Phase 1 UI："有点丑不够猫猫，感觉没有设计感"。�
 | P2A-5 | 面板过渡动画（Framer Motion slide-in） | S |
 | P2A-6 | worktree 指示器重新设计：醒目标签 + 状态色 | S |
 | P2A-7 | 空状态 + 加载骨架屏 | S |
-| P2A-8 | CodeMirror 主题自定义：对齐 Cat Café 配色 | M |
+| P2A-8 | CodeMirror 主题自定义：对齐 Agent Task Hub 配色 | M |
 
 ### Phase 2B: 功能增强
 
@@ -340,7 +340,7 @@ team lead评价 Phase 1 UI："有点丑不够猫猫，感觉没有设计感"。�
 | P2B-6 | Markdown 渲染模式（raw/rendered 切换） | — | **done** |
 | P2B-7 | 代码选中 → 引用到对话输入框：选中文件/代码行后点击"Add to chat"按钮，将 `file:line` 引用或选中代码片段插入聊天输入框；也支持文件树右键"复制路径" | AC-15 | **done** |
 | P2B-8 | 多 tab 文件查看（不是一次只看一个） | — | **done** |
-| P2B-9 | **BUG**: 引用到聊天不带 worktree 信息 — 格式改为 `` `path` (🌿 branch) ``，让猫猫知道引用的是哪个 worktree | AC-15 | **done** |
+| P2B-9 | **BUG**: 引用到聊天不带 worktree 信息 — 格式改为 `` `path` (🌿 branch) ``，让Agent知道引用的是哪个 worktree | AC-15 | **done** |
 | P2B-10 | **BUG**: "Add to chat" 按钮固定在文件查看器顶部，滚动到下方代码时按钮不可见 — 改为跟随选区浮动或 sticky 在可视区域 | AC-15 | **done** |
 | P2B-11 | **BUG**: Markdown 渲染模式下相对链接不可跳转 — `[F046](features/F046-xxx.md)` 这样的相对路径链接在 Rendered 模式下点击无效（`target="_blank"` 打开的是无意义的浏览器 URL）。应拦截相对 `.md` 链接，解析为相对于当前文件的路径，用 `setWorkspaceOpenFile` 在 workspace 内打开目标文件 | — | **done** |
 
@@ -351,9 +351,9 @@ team lead评价 Phase 1 UI："有点丑不够猫猫，感觉没有设计感"。�
 | P2C-1 | HTML/JSX iframe sandbox 预览 | AC-5 | **done** |
 | P2C-2 | Diff 可视化（unified/side-by-side） | — | **done** |
 
-### Phase 2C-fix: 愿景守护修复（2026-03-06 Maine Coon+GPT-5.4 审查）
+### Phase 2C-fix: 愿景守护修复（2026-03-06 Agent-M+GPT-5.4 审查）
 
-两猫独立审查结论：主链路 80% 已打通，但有 3 条猫尾巴。
+两Agent独立审查结论：主链路 80% 已打通，但有 3 条Agent尾巴。
 
 | Task | 内容 | 来源 | 优先 |
 |------|------|------|------|
@@ -363,7 +363,7 @@ team lead评价 Phase 1 UI："有点丑不够猫猫，感觉没有设计感"。�
 
 ### Phase 2D: 跨项目 Linked Roots（team lead 2026-03-06 提出）
 
-team lead需求：猫猫帮外部项目（如 `studio-flow`）开发时，team lead想在 Hub 里看到那个项目的文件，但不想破坏安全隔离。
+team lead需求：Agent帮外部项目（如 `studio-flow`）开发时，team lead想在 Hub 里看到那个项目的文件，但不想破坏安全隔离。
 
 **方案**：安全隔离保持不变 + 手动 link 外部 project root
 
@@ -388,7 +388,7 @@ team lead需求：猫猫帮外部项目（如 `studio-flow`）开发时，team l
 
 ### Phase 3: 愿景守护 Gaps（codex + gpt52 独立审查 2026-03-06）
 
-第二次愿景守护（Phase 2 全量合入后）两猫共识：主链路 85%+ 但 3 个 gap 阻止"愿景闭环"宣称。
+第二次愿景守护（Phase 2 全量合入后）两Agent共识：主链路 85%+ 但 3 个 gap 阻止"愿景闭环"宣称。
 
 #### Gap 1 (P1): JSX/TSX 预览从演示级升级到真实组件级
 
@@ -408,7 +408,7 @@ team lead需求：猫猫帮外部项目（如 `studio-flow`）开发时，team l
 |------|------|------|
 | P3-4 | API POST/DELETE `/api/workspace/linked-roots` 动态增删 | **done** |
 | P3-5 | 前端添加/移除 linked root UI（路径选择 + 安全校验） | **done** |
-| P3-6 | 持久化策略：写入配置文件（不依赖环境变量重启） | **done** (.cat-cafe/linked-roots.json) |
+| P3-6 | 持久化策略：写入配置文件（不依赖环境变量重启） | **done** (.agent-hub/linked-roots.json) |
 
 #### Gap 3 (P2): Runtime/Audit Explorer 进 Workspace — **done**
 
@@ -471,15 +471,15 @@ team lead反馈（2026-03-08）："调整了右边文件栏的大小，切换走
 |------|------|------|----------|
 | G7-2 | 切换线程后恢复文件树展开状态 + 打开的文件标签 | P2 | 每个线程的 `expandedPaths` + `openTabs` + `openFilePath` 存到 `Map<threadId, WorkspaceState>`，切换线程时 save/restore |
 
-## Phase: Focus Mode（Intake from clowder-ai#362）
+## Phase: Focus Mode（Intake from agent-task-hub#362）
 
-> **Status**: ✅ merged | **Source**: clowder-ai#362 → cat-cafe#966 | **Strategy**: manual-port
-> **Date**: 2026-04-05 | **Owner**: Ragdoll (Opus)
-> **Reviewer**: Maine Coon/Maine Coon (codex) + 云端 Codex
+> **Status**: ✅ merged | **Source**: agent-task-hub#362 → agent-hub#966 | **Strategy**: manual-port
+> **Date**: 2026-04-05 | **Owner**: Agent-R (Opus)
+> **Reviewer**: Agent-M/Agent-M (codex) + 云端 Codex
 
 ### Why
 
-社区贡献者在 clowder-ai#362 实现了 workspace 专注模式——展开任意 pane（浏览器/文件/变更/git/终端）到全 workspace 区域，消除周围干扰。GPT-5.4 评估后建议 intake 回家并修复 UX 问题。
+社区贡献者在 agent-task-hub#362 实现了 workspace 专注模式——展开任意 pane（浏览器/文件/变更/git/终端）到全 workspace 区域，消除周围干扰。GPT-5.4 评估后建议 intake 回家并修复 UX 问题。
 
 ### What
 
@@ -519,11 +519,11 @@ team lead看到实际 UI 后指出两个层级问题：
 | # | 级别 | 问题 | 修复 |
 |---|------|------|------|
 | 6 | P1 | 专注按钮放在 tab bar 与 view mode 同级，层级错误（它是 pane action 不是 view mode） | 移到 per-pane toolbar 行：文件 toolbar 同行（Copy/Path/Finder/编辑 旁）、浏览器右上角浮层 |
-| 7 | P1 | 退出专注用暗色 sticky header，与 Cat Cafe 暖色设计语言冲突 | 改为暖色调半透明浮标：`bg-cocreator-light/70 rounded-full backdrop-blur-sm shadow-sm` |
+| 7 | P1 | 退出专注用暗色 sticky header，与 Agent Task Hub 暖色设计语言冲突 | 改为暖色调半透明浮标：`bg-cocreator-light/70 rounded-full backdrop-blur-sm shadow-sm` |
 
 ### Review 记录
 
-- Maine Coon(codex) R1: 2 P1（onNavigate 空态残留 + 测试 prop 名错误）→ 修复 → R2 放行
+- Agent-M(codex) R1: 2 P1（onNavigate 空态残留 + 测试 prop 名错误）→ 修复 → R2 放行
 - 云端 Codex: "Didn't find any major issues" → 0 P1/P2
 - **team lead UX R2**: 2 P1（按钮层级 + 退出样式）→ fix/focus-mode-ux 分支修复
 
@@ -531,13 +531,13 @@ team lead看到实际 UI 后指出两个层级问题：
 
 | Bug | 描述 | 根因 | 状态 |
 |-----|------|------|------|
-| B1 | 切换 Hub project 后 Workspace 仍显示 cat-cafe 文件 | 后端 `listWorktrees()` 用 `process.cwd()` 固定指向 cat-cafe，前端无 project context | **PR #266 已修（后端+hook）** |
+| B1 | 切换 Hub project 后 Workspace 仍显示 agent-hub 文件 | 后端 `listWorktrees()` 用 `process.cwd()` 固定指向 agent-hub，前端无 project context | **PR #266 已修（后端+hook）** |
 | B1.1 | 切换已有 thread 或刷新页面后 workspace 不跟随项目切换 | `handleSelect` 只做路由跳转不恢复 `projectPath`；`ChatContainer` 首次挂载不从 thread 元数据恢复 `currentProjectPath` | **PR #269 已修** |
 | B2 | Link External Folder "Network error" | `LinkedRootsManager.tsx` 用 raw `fetch` + `API_BASE` 而非 `apiFetch`，port 不匹配 | **PR #264 已修** |
 
 ## B1 Fix Plan — Project-Aware Workspace
 
-**问题**：Workspace API 硬编码 `process.cwd()` 作为 git repo root，导致切换 Hub project 后文件树仍显示 cat-cafe。
+**问题**：Workspace API 硬编码 `process.cwd()` 作为 git repo root，导致切换 Hub project 后文件树仍显示 agent-hub。
 
 **修复方案**（3 层改动）：
 

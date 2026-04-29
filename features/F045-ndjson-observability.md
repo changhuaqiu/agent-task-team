@@ -6,9 +6,9 @@ doc_kind: spec
 created: 2026-02-27
 ---
 
-# F045: NDJSON 可观测性 — CLI 事件流全量解析 + 多猫透明化
+# F045: NDJSON 可观测性 — CLI 事件流全量解析 + 多Agent透明化
 
-> **Status**: done (Phase 1+2 合并交付, PR #88) | **Owner**: Ragdoll
+> **Status**: done (Phase 1+2 合并交付, PR #88) | **Owner**: Agent-R
 > **Created**: 2026-02-27
 > **Priority**: P1
 
@@ -16,22 +16,22 @@ created: 2026-02-27
 
 ## Why
 
-| 猫 | 当前处理 | 丢弃的宝藏 |
+| Agent | 当前处理 | 丢弃的宝藏 |
 |----|----------|-----------|
 | **Claude** | `text_delta`, `assistant`(text/tool_use), `system/init`, `result` | thinking_delta, input_json_delta, message_delta.usage, compact_boundary, rate_limit_event, result error subtypes, structured_output, hook_*, task_* |
 | **Codex** | `agent_message`, `command_execution`, `file_change`, `thread.started` | reasoning, todo_list, mcp_tool_call, web_search, item-level error |
 | **Gemini** | `message/assistant`, `tool_use`, `init`, `result/error` | （暂不在本 Feature 范围，Gemini CLI 事件较少） |
 
 **team lead痛点**：
-1. 猫猫在想什么？前端看不到 thinking
-2. 猫猫的计划进度？只能从自然语言硬抽，很脆弱
+1. Agent在想什么？前端看不到 thinking
+2. Agent的计划进度？只能从自然语言硬抽，很脆弱
 3. 出错了为什么？只显示笼统的 "error"，不知道是超 turn、超预算还是运行时异常
-4. 多猫并行时，不知道每只猫做到哪了
+4. 多Agent并行时，不知道每只Agent做到哪了
 5. token 消耗只在调用结束后才能看到，没有实时感知
 
 ## What
 
-端到端的 CLI 事件流可观测性升级：**parser 补全 → 数据分层存储 → 前端可视化 → 多猫互操作**。
+端到端的 CLI 事件流可观测性升级：**parser 补全 → 数据分层存储 → 前端可视化 → 多Agent互操作**。
 
 ## 核心架构设计
 
@@ -63,11 +63,11 @@ created: 2026-02-27
 | 问题 | 决策 | 理由 |
 |------|------|------|
 | Thinking 展示 | 方案 A：消息气泡内嵌折叠，默认折叠 | 直观，不干扰阅读 |
-| Thinking 跨猫 | **暂不转发/查阅**（遗留到未来） | CLI 输出已经很多，再加 thinking 上下文爆炸 |
+| Thinking 跨Agent | **暂不转发/查阅**（遗留到未来） | CLI 输出已经很多，再加 thinking 上下文爆炸 |
 | Plan 位置 | 右侧看板（`RightStatusPanel`，已有） | 全局性，方便未来扩展 |
 | Plan 持久化 | **必须修复**：当前刷新/页面重载后进度丢失 | team lead痛点：刷新后右上角只显示"等待调用..."（V1 覆盖浏览器刷新；服务重启恢复为 follow-up） |
 | Token/Cost | 保持原状（已有），不在 F045 范围 | F24 已实现 |
-| 优先级排序 | **Plan > Thinking > Error subtype** | team lead日常最想知道"猫做到哪了" |
+| 优先级排序 | **Plan > Thinking > Error subtype** | team lead日常最想知道"Agent做到哪了" |
 
 ### 现有 Plan 系统（F26 遗产）
 
@@ -81,11 +81,11 @@ Claude TodoWrite tool_use → extractTaskProgress() → system_info WS → Right
 2. **仅 Claude**：只检测 `TodoWrite` / `write_todos` 工具名；Codex 的 `todo_list` 事件完全没接
 3. **无历史**：调用结束后 taskProgress 清空，无法回看
 
-### 多猫互操作设计（精简版）
+### 多Agent互操作设计（精简版）
 
-| 数据类型 | 本 Feature 范围 | 跨猫行为 |
+| 数据类型 | 本 Feature 范围 | 跨Agent行为 |
 |----------|----------------|---------|
-| **thinking** | ✅ 解析 + 前端折叠 | ❌ 暂不跨猫（遗留） |
+| **thinking** | ✅ 解析 + 前端折叠 | ❌ 暂不跨Agent（遗留） |
 | **plan** | ✅ 解析 + 持久化 + 右侧看板 | ✅ 全局可见（TaskStore） |
 | **error subtype** | ✅ 解析 + 错误条 | ✅ 全局可见 |
 | **token/cost** | ❌ 已有，不做 | — |
@@ -123,10 +123,10 @@ Claude TodoWrite tool_use → extractTaskProgress() → system_info WS → Right
 
 ### 遗留（Future，不在本 Feature 范围）
 
-- ~~**跨猫 thinking 查阅**~~：team lead决策——"当真的需要的时候再设计，不然过度设计"
+- ~~**跨Agent thinking 查阅**~~：team lead决策——"当真的需要的时候再设计，不然过度设计"
 - ~~**ToolPanel**~~（MCP 工具详情折叠区）：等 Codex mcp_tool_call 实测验证后再考虑
 - ~~**TokenHUD**~~：已有（F24 实现），不重做
-- ~~**CatTaskOverview 跨猫总览**~~：Plan 持久化做好后自然可扩展
+- ~~**CatTaskOverview 跨Agent总览**~~：Plan 持久化做好后自然可扩展
 
 ## Acceptance Criteria
 
@@ -148,10 +148,10 @@ Claude TodoWrite tool_use → extractTaskProgress() → system_info WS → Right
 |------|------|-----------|------|
 | 数据分层 | 三层（Message/Observation/Telemetry） | 扩展 AgentMessageType | 不碰现有 schema，纯增量，前端向后兼容 |
 | thinking 展示 | 消息气泡内嵌折叠（方案 A） | 侧边栏 / 调试开关 | team lead选择：直观 |
-| thinking 跨猫 | **暂不做**（遗留） | 存+按需查阅 | team lead："不然过度设计" |
+| thinking 跨Agent | **暂不做**（遗留） | 存+按需查阅 | team lead："不然过度设计" |
 | plan 位置 | 右侧看板（复用 RightStatusPanel） | 消息流内嵌 | 已有基础设施，全局性 |
-| plan 互操作 | 全局可见 + TaskStore 同步 | 仅本猫可见 | 多猫协调基础 |
-| web_search query | 默认只计数，不落盘 | 完整记录 | 隐私安全（Maine Coon建议） |
+| plan 互操作 | 全局可见 + TaskStore 同步 | 仅本Agent可见 | 多Agent协调基础 |
+| web_search query | 默认只计数，不落盘 | 完整记录 | 隐私安全（Agent-M建议） |
 | token/cost | **不做**，保持原状 | 重做 HUD | 已有（F24），不重复 |
 | AgentMessageType | 不新增 type | 新增 thinking/plan_update/telemetry | 保持接口稳定 |
 
@@ -181,15 +181,15 @@ Claude TodoWrite tool_use → extractTaskProgress() → system_info WS → Right
 
 | 轮次 | Reviewer | 结果 | 日期 |
 |------|----------|------|------|
-| 本地 R1 | Maine Coon/Codex | P0(auth)+P1(persistence)+P2(ghost) → 修复 | 2026-02-27 |
-| 本地 R2 | Maine Coon/Codex | 通过，建议"重启项目"→"浏览器刷新/页面重载" | 2026-02-27 |
+| 本地 R1 | Agent-M/Codex | P0(auth)+P1(persistence)+P2(ghost) → 修复 | 2026-02-27 |
+| 本地 R2 | Agent-M/Codex | 通过，建议"重启项目"→"浏览器刷新/页面重载" | 2026-02-27 |
 | 云端 R1 | Codex (GitHub) | 1P1 (targetCats 未恢复) → 修复 | 2026-02-28 |
 | 云端 R2 | Codex (GitHub) | 1P2 (HTTP race 覆盖 WS 状态) → 修复 | 2026-02-28 |
 | 云端 R3 | Codex (GitHub) | 2P2 (cache 泄漏 + 空 progress 恢复) → 修复 | 2026-02-28 |
 | 云端 R4 | Codex (GitHub) | 2P2 (background thinking + error label) → 修复 | 2026-02-28 |
 | 云端 R5 | Codex (GitHub) | 0 P1/P2，通过 | 2026-02-28 |
 
-## 愿景守护 — Gap 分析（2026-02-28 三猫联合评审）
+## 愿景守护 — Gap 分析（2026-02-28 Admin联合评审）
 
 ### Gap #1: Thinking 气泡归属 ✅ 已修复 (PR #91)
 
@@ -212,15 +212,15 @@ Claude TodoWrite tool_use → extractTaskProgress() → system_info WS → Right
   - PR #97: hardDelete 清除 thinking 字段（安全 P1 hotfix + 回归测试）
   - PR #100: thinkingMode 动态控制 🧠/💭 折叠/展开（debug=展开，play=折叠）
 
-### Gap #2: thinkingMode 默认值可能导致跨猫泄露 ✅ 已验证无泄露 (2026-02-28)
+### Gap #2: thinkingMode 默认值可能导致跨Agent泄露 ✅ 已验证无泄露 (2026-02-28)
 
-**发现者**：Maine Coon/GPT-52
+**发现者**：Agent-M/GPT-52
 
-**问题（历史担忧）**：`RedisThreadStore` 的 `thinkingMode` 默认是 `debug`。我们担心 debug 模式下 🧠 Thinking 可能被传递给其他猫作为上下文，违背team lead“🧠 Thinking 永不跨猫”的约束。
+**问题（历史担忧）**：`RedisThreadStore` 的 `thinkingMode` 默认是 `debug`。我们担心 debug 模式下 🧠 Thinking 可能被传递给其他Agent作为上下文，违背team lead“🧠 Thinking 永不跨Agent”的约束。
 
-**结论（已验证）**：🧠 Thinking 不会进入跨猫 prompt，上述担忧不成立：
-- **prompt 组装**只使用 `StoredMessage.content`（不读取 `thinking` 字段），因此即便 thinking 持久化到 MessageStore，也不会注入到其他猫上下文
-- `thinkingMode` 目前仅影响 **💭 心里话（CLI stream output）** 的跨猫可见性策略，以及前端折叠/展开默认行为（PR #100），不影响 🧠 Thinking 的跨猫隔离
+**结论（已验证）**：🧠 Thinking 不会进入跨Agent prompt，上述担忧不成立：
+- **prompt 组装**只使用 `StoredMessage.content`（不读取 `thinking` 字段），因此即便 thinking 持久化到 MessageStore，也不会注入到其他Agent上下文
+- `thinkingMode` 目前仅影响 **💭 心里话（CLI stream output）** 的跨Agent可见性策略，以及前端折叠/展开默认行为（PR #100），不影响 🧠 Thinking 的跨Agent隔离
 
 **处置**：本 gap 关闭；如未来引入“把 thinking 注入 prompt”的能力，必须重新走team lead拍板 + 安全评审。
 

@@ -8,7 +8,7 @@ created: 2026-02-26
 
 # F040: BACKLOG 整理与 Feature 聚合体系
 
-> **Status**: done | **Owner**: Ragdoll
+> **Status**: done | **Owner**: Agent-R
 > **Created**: 2026-02-26
 > **Completed**: 2026-02-27
 > **Priority**: P1（基建，影响后续所有 feat 的管理方式）
@@ -43,20 +43,20 @@ team lead的记忆系统设计 proposal（三层记忆）：
 1. **拆分 BACKLOG**：Feature Roadmap + Tech Debt 分离
 2. **建立 feat 聚合文件**：`docs/features/FXX-name.md` 收归每个 feat 的散落链接
 3. **定义归档规则**：done 的 feat 从 BACKLOG 活跃区移除
-4. **变成 Skill**：让猫完成 feat 时主动维护网状体系
+4. **变成 Skill**：让Agent完成 feat 时主动维护网状体系
 
 ---
 
 ## Design（设计思路）
 
-### 编号规范（三猫收敛 2026-02-26）
+### 编号规范（Admin收敛 2026-02-26）
 
 | 类型 | 格式 | 示例 | 说明 |
 |------|------|------|------|
 | Feature | `F001` | F001, F021, F040 | 三位固定宽度，不再用 F20b/F21++ |
 | Tech Debt | `TD001` | TD001, TD089 | 不再用 `#`，避免和 PR/issue 冲突 |
 
-> **为什么三位数**：一次到位，避免未来 F100+ 再整体改名。（Maine Coon建议）
+> **为什么三位数**：一次到位，避免未来 F100+ 再整体改名。（Agent-M建议）
 
 ### 目录结构
 
@@ -72,7 +72,7 @@ docs/
 └── (feature-specs/feature-discussions/...)  # 冷层，被 frontmatter 挂接
 ```
 
-### BACKLOG 新结构设计（Ragdoll 2026-02-26）
+### BACKLOG 新结构设计（Agent-R 2026-02-26）
 
 **当前问题**：
 1. Feature (F1-F39) 和 Tech Debt (#1-#103) 混编在一个文件
@@ -85,20 +85,20 @@ docs/
 #### `docs/ROADMAP.md`（热层 - 活跃 Feature 索引）
 
 ```markdown
-# Cat Cafe Feature Roadmap
+# Agent Task Hub Feature Roadmap
 
-> 维护者：三猫 | 最后更新：YYYY-MM-DD
+> 维护者：Admin | 最后更新：YYYY-MM-DD
 >
 > **规则**：只放活跃 Feature（idea/spec/in-progress/review），done 后移除。
 > 详细信息见 `docs/features/Fxxx.md`。
 
 | ID | 名称 | Status | Owner | Link |
 |----|------|--------|-------|------|
-| F010 | 手机端猫猫 | in-progress | Ragdoll | [F010](F010-mobile-cat.md) |
-| F032 | Agent Plugin Architecture | review | Ragdoll | [F032](F032-agent-plugin-architecture.md) |
-| F037 | Agent Swarm 协同模式 | in-progress | 三猫 | [F037](F037-agent-swarm.md) |
-| F039 | 消息排队投递 | spec | Ragdoll | [F039](F039-message-queue-delivery.md) |
-| F040 | BACKLOG 整理 | in-progress | Ragdoll | [F040](F040-backlog-reorganization.md) |
+| F010 | 手机端Agent | in-progress | Agent-R | [F010](F010-mobile-agent.md) |
+| F032 | Agent Plugin Architecture | review | Agent-R | [F032](F032-agent-plugin-architecture.md) |
+| F037 | Agent Swarm 协同模式 | in-progress | Admin | [F037](F037-agent-swarm.md) |
+| F039 | 消息排队投递 | spec | Agent-R | [F039](F039-message-queue-delivery.md) |
+| F040 | BACKLOG 整理 | in-progress | Agent-R | [F040](F040-backlog-reorganization.md) |
 ```
 
 > **超级简洁！** 只有 ~10 行活跃项，不是 200+ 行历史。
@@ -106,9 +106,9 @@ docs/
 #### `docs/TECH-DEBT.md`（技术债务独立文件）
 
 ```markdown
-# Cat Cafe 技术债务
+# Agent Task Hub 技术债务
 
-> 维护者：三猫 | 最后更新：YYYY-MM-DD
+> 维护者：Admin | 最后更新：YYYY-MM-DD
 >
 > **规则**：`[ ]` 待做 / `[~]` 进行中 / `[x]` 已完成
 > 完成后不删除，保留追溯。
@@ -137,9 +137,9 @@ docs/
 - `F21++` → `F021` (演进关系用 `Evolved from` 字段)
 - `F20b` → `F020` (variant 用 Phase 或 聚合文件内区分)
 
-**迁移执行**：由Maine Coon批量执行（见 Progress 章节任务分工）。
+**迁移执行**：由Agent-M批量执行（见 Progress 章节任务分工）。
 
-### Frontmatter Contract（三猫收敛 2026-02-26）
+### Frontmatter Contract（Admin收敛 2026-02-26）
 
 **所有 docs/ 下的 .md 文件**都应该有 YAML frontmatter：
 
@@ -183,7 +183,7 @@ created: 2026-02-26           # 创建日期
 # Fxxx: 名称
 
 > **Status**: idea | spec | in-progress | review | done
-> **Owner**: Ragdoll | Maine Coon | Siamese
+> **Owner**: Agent-R | Agent-M | Siamese
 > **Created**: YYYY-MM-DD
 > **Completed**: YYYY-MM-DD（如果 done）
 
@@ -215,7 +215,7 @@ created: 2026-02-26           # 创建日期
 ## Review Gate（审查记录）
 | 轮次 | Reviewer | 结果 | 日期 |
 |------|----------|------|------|
-| R1 | Maine Coon | Pass | YYYY-MM-DD |
+| R1 | Agent-M | Pass | YYYY-MM-DD |
 | Cloud | Codex | Pass | YYYY-MM-DD |
 
 ## Test Evidence（测试证据）
@@ -239,14 +239,14 @@ created: 2026-02-26           # 创建日期
 
 | 类型 | 路径 | 说明 |
 |------|------|------|
-| **Discussion** | 本 thread（2026-02-26 team lead + Ragdoll）| BACKLOG 问题诊断 |
+| **Discussion** | 本 thread（2026-02-26 team lead + Agent-R）| BACKLOG 问题诊断 |
 | **BACKLOG 条目** | 待登记 | - |
 
 ---
 
 ## Feature 演化图（team lead梳理 2026-02-26）
 
-team lead用 Mermaid 可视化了 Cat Café 的 Feature 演化关系，分为 5 个逻辑栈：
+team lead用 Mermaid 可视化了 Agent Task Hub 的 Feature 演化关系，分为 5 个逻辑栈：
 
 ### 1. 语音栈（Voice Stack）
 ```
@@ -257,7 +257,7 @@ F020 → F022 → F010
 - F020: TTS 文本转语音
 - F022: Voice Input 语音输入
 - F034: Voice Pipeline 完整语音流
-- F010: Mobile Cat 手机端猫猫（依赖语音栈）
+- F010: Mobile agent 手机端Agent（依赖语音栈）
 
 ### 2. 记忆栈（Memory Stack）
 ```
@@ -290,7 +290,7 @@ F021 → F039
 ```
 F014 → F015 → F036
 ```
-- F014: SVG 猫猫状态动画
+- F014: SVG Agent状态动画
 - F015: Backlog 管理（基础）
 - F036: Logo 一笔画动画
 
@@ -306,42 +306,42 @@ F014 → F015 → F036
 - [x] 探索现有 feat 关系图（haiku）
 - [x] 创建本文件（第一个示范）
 - [x] 与 Opus 4.6 讨论，纳入三点改进（Key Decisions 字段、取消 6 月归档、kickoff 而非 completion）
-- [x] 三猫收敛 frontmatter contract（4.5 + 4.6 + GPT-5.2）
+- [x] Admin收敛 frontmatter contract（4.5 + 4.6 + GPT-5.2）
   - 最终 schema：`feature_ids` + `debt_ids` + `topics` + `doc_kind` + `created`
   - `stage` 不下沉到普通文档
   - 编号 `F001` / `TD001`（三位固定宽度）
   - 机器索引 `index.json`（脚本生成）
-- [x] 设计 BACKLOG 新结构（拆分 Feature Roadmap + Tech Debt）— **Ragdoll**
-- [x] 设计 feat-kickoff skill — **Ragdoll**
+- [x] 设计 BACKLOG 新结构（拆分 Feature Roadmap + Tech Debt）— **Agent-R**
+- [x] 设计 feat-kickoff skill — **Agent-R**
 
 ### Phase 2: 迁移执行（2026-02-26~27，已完成）
 
-- [x] 写 frontmatter 迁移脚本 — **Maine Coon**（`scripts/migrate-frontmatter.mjs`）
-- [x] 执行迁移脚本，拆分 BACKLOG + TECH-DEBT — **Maine Coon**
-- [x] 恢复 F001-F041 聚合文件内容（从 git history `be27a44^` 恢复）— **Maine Coon**
-- [x] 创建 `docs/features/README.md` 统一索引 — **Maine Coon**
-- [x] 历史文档补 frontmatter（research/discussion/bug-report 共 50+ 文件）— **Maine Coon**
-- [x] TECH-DEBT commit 标注（52/83 条，剩余 31 条无对应 commit）— **Maine Coon**
-- [x] 创建维护脚本 `scripts/tech-debt-maintain.mjs` — **Maine Coon**
-- [x] 验收 F021 重新开放（F21++ 未完成，不能标 done）— **Ragdoll+team lead**
-- [x] 扩展 frontmatter contract 加入 `debt_ids` 字段 — **Ragdoll**（commit `3fb8aa9`）
-- [x] 更新 SOP.md "完成后真相源同步" 章节 — **Ragdoll**（commit `3fb8aa9`）
+- [x] 写 frontmatter 迁移脚本 — **Agent-M**（`scripts/migrate-frontmatter.mjs`）
+- [x] 执行迁移脚本，拆分 BACKLOG + TECH-DEBT — **Agent-M**
+- [x] 恢复 F001-F041 聚合文件内容（从 git history `be27a44^` 恢复）— **Agent-M**
+- [x] 创建 `docs/features/README.md` 统一索引 — **Agent-M**
+- [x] 历史文档补 frontmatter（research/discussion/bug-report 共 50+ 文件）— **Agent-M**
+- [x] TECH-DEBT commit 标注（52/83 条，剩余 31 条无对应 commit）— **Agent-M**
+- [x] 创建维护脚本 `scripts/tech-debt-maintain.mjs` — **Agent-M**
+- [x] 验收 F021 重新开放（F21++ 未完成，不能标 done）— **Agent-R+team lead**
+- [x] 扩展 frontmatter contract 加入 `debt_ids` 字段 — **Agent-R**（commit `3fb8aa9`）
+- [x] 更新 SOP.md "完成后真相源同步" 章节 — **Agent-R**（commit `3fb8aa9`）
 
 ### Phase 3: Skill 实现（2026-02-27，已完成）
 
-- [x] 创建 `feat-kickoff` skill — **Ragdoll**（`cat-cafe-skills/feat-kickoff/SKILL.md`）
-- [x] 创建 `feat-completion` skill — **Ragdoll**（`cat-cafe-skills/feat-completion/SKILL.md`，commit `d55d3b6`）
+- [x] 创建 `feat-kickoff` skill — **Agent-R**（`agent-hub-skills/feat-kickoff/SKILL.md`）
+- [x] 创建 `feat-completion` skill — **Agent-R**（`agent-hub-skills/feat-completion/SKILL.md`，commit `d55d3b6`）
 
 ### Phase 4: 沉淀同步（2026-02-27，已完成）
 
-- [x] 写 ADR: Metadata Contract — **Ragdoll**（`docs/decisions/011-metadata-contract.md`，commit `14a8b53`）
-- [x] 更新 public-lessons.md（LL-024: 状态字段多点写入会复发蜘蛛网）— **Ragdoll**
-- [x] 同步 CLAUDE.md/AGENTS.md/GEMINI.md（frontmatter 规范 + feat-kickoff/completion 触发）— **Ragdoll**
+- [x] 写 ADR: Metadata Contract — **Agent-R**（`docs/decisions/011-metadata-contract.md`，commit `14a8b53`）
+- [x] 更新 public-lessons.md（LL-024: 状态字段多点写入会复发蜘蛛网）— **Agent-R**
+- [x] 同步 CLAUDE.md/AGENTS.md/GEMINI.md（frontmatter 规范 + feat-kickoff/completion 触发）— **Agent-R**
 
 ### Phase 5: 验收与优化（2026-02-27，已完成）
 
-- [x] 生成 `docs/features/index.json` 机器索引 — **Maine Coon**（`scripts/generate-feature-index.mjs`，commit `6f69452`）
-- [x] 全量扫描验证 frontmatter 覆盖率 — **Maine Coon**（`scripts/check-frontmatter.mjs`，703/707 = 99.4%）
+- [x] 生成 `docs/features/index.json` 机器索引 — **Agent-M**（`scripts/generate-feature-index.mjs`，commit `6f69452`）
+- [x] 全量扫描验证 frontmatter 覆盖率 — **Agent-M**（`scripts/check-frontmatter.mjs`，703/707 = 99.4%）
 - [x] 用 F032 验证"分阶段交付"记录模式 — **跳过**（F032 尚未完成，后续顺便验证）
 
 ---
@@ -350,16 +350,16 @@ F014 → F015 → F036
 
 ### 已完成 ✅
 
-| 项目 | 说明 | 负责猫 |
+| 项目 | 说明 | 负责Agent |
 |------|------|--------|
-| BACKLOG 拆分 | Feature Roadmap + Tech Debt 分离 | Maine Coon |
-| F001-F041 聚合文件 | 全部从 git history 恢复 | Maine Coon |
-| `docs/features/README.md` | 统一索引（done + active） | Maine Coon |
-| Frontmatter 补录 | 50+ 文件（research/discussion/bug-report） | Maine Coon |
-| `feat-kickoff` skill | 已创建并注册 | Ragdoll |
-| `debt_ids` 字段 | 加入 frontmatter contract | Ragdoll |
-| SOP 更新 | "完成后真相源同步" 章节 | Ragdoll |
-| 维护脚本 | `scripts/tech-debt-maintain.mjs` | Maine Coon |
+| BACKLOG 拆分 | Feature Roadmap + Tech Debt 分离 | Agent-M |
+| F001-F041 聚合文件 | 全部从 git history 恢复 | Agent-M |
+| `docs/features/README.md` | 统一索引（done + active） | Agent-M |
+| Frontmatter 补录 | 50+ 文件（research/discussion/bug-report） | Agent-M |
+| `feat-kickoff` skill | 已创建并注册 | Agent-R |
+| `debt_ids` 字段 | 加入 frontmatter contract | Agent-R |
+| SOP 更新 | "完成后真相源同步" 章节 | Agent-R |
+| 维护脚本 | `scripts/tech-debt-maintain.mjs` | Agent-M |
 
 ### 未完成 Gap（2026-02-27 更新）
 
@@ -368,7 +368,7 @@ F014 → F015 → F036
 | ~~`feat-completion` skill~~ | ~~设计时决定先做 kickoff，completion 延后~~ | ~~P1~~ | ✅ 已完成 `d55d3b6` |
 | ~~ADR: Metadata Contract~~ | ~~讨论收敛但沉淀未写~~ | ~~P2~~ | ✅ 已完成 `14a8b53` |
 | ~~lessons-learned 更新~~ | ~~同上~~ | ~~P2~~ | ✅ 已完成 LL-024 |
-| ~~三猫指引同步~~ | ~~CLAUDE.md/AGENTS.md/GEMINI.md 未同步 F40 规则~~ | ~~P2~~ | ✅ 已完成 `14a8b53` |
+| ~~Admin指引同步~~ | ~~CLAUDE.md/AGENTS.md/GEMINI.md 未同步 F40 规则~~ | ~~P2~~ | ✅ 已完成 `14a8b53` |
 | ~~`index.json` 机器索引~~ | ~~脚本未写~~ | ~~P3~~ | ✅ 已完成 `6f69452` |
 | ~~Feature 演化图 ADR~~ | ~~演化关系在哪里记录、怎么维护~~ | ~~P3~~ | ✅ 已在 F40 文档中记录 |
 
@@ -415,13 +415,13 @@ F014 → F015 → F036
 
 ---
 
-## 收敛计划（Ragdoll 2026-02-27）
+## 收敛计划（Agent-R 2026-02-27）
 
 ### Step 1: 创建 `feat-completion` skill（P1，~30min）
 
-1. 创建 `cat-cafe-skills/feat-completion/SKILL.md`
+1. 创建 `agent-hub-skills/feat-completion/SKILL.md`
 2. 使用上方设计草案
-3. 注册 symlinks 给三猫
+3. 注册 symlinks 给Admin
 
 ### Step 2: 沉淀 ADR（P2，~20min）
 
@@ -437,7 +437,7 @@ F014 → F015 → F036
 2. 添加："状态字段多点写入会复发蜘蛛网"
 3. 关联 F040
 
-### Step 4: 同步三猫指引（P2，~15min）
+### Step 4: 同步Admin指引（P2，~15min）
 
 1. CLAUDE.md/AGENTS.md/GEMINI.md 添加：
    - "新文档必须加 frontmatter"

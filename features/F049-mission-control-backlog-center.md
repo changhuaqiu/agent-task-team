@@ -8,7 +8,7 @@ created: 2026-03-01
 
 # F049: Mission Hub — Backlog Center（领取/派发/自动开 Thread）
 
-> **Status**: done | **Owner**: 三猫
+> **Status**: done | **Owner**: Admin
 > **Created**: 2026-03-01
 > **Completed**: 2026-03-03
 > **Priority**: P1（指挥中心基建）
@@ -17,17 +17,17 @@ created: 2026-03-01
 
 ## Why
 
-team lead希望把“想法/任务”的全局调度放进 Cat Café 本体，而不是依赖 IDE 打开 `docs/`：
+team lead希望把“想法/任务”的全局调度放进 Agent Task Hub 本体，而不是依赖 IDE 打开 `docs/`：
 
 - **低摩擦**：随手记录/分拣/派发不该要求打开 VSCode/WebStorm。
-- **跨 thread 协同**：未来可以同时开多个 thread（多组猫猫）并行作战，需要一个全局任务池承载“要做什么”。
+- **跨 thread 协同**：未来可以同时开多个 thread（多组Agent）并行作战，需要一个全局任务池承载“要做什么”。
 - **演进路径**：早期team lead指挥更安全；未来模型能力提升后，逐步放开自组织协作（权限棘轮）。
 
 这条线与 F037（Agent Swarm）中的 “Global Backlog → 领取/批准 → 自动开新 Thread” 强绑定。
 
 ## What
 
-在 Cat Café 里新增一个 **Mission Hub / Backlog Center**：
+在 Agent Task Hub 里新增一个 **Mission Hub / Backlog Center**：
 
 - 作为**全局任务池（Global）**：收纳 “想法/任务/候选 Feature/Tech Debt”；
 - 支持**建议领取 → team lead批准 → 自动创建执行 thread（Thread）**；
@@ -40,8 +40,8 @@ team lead希望把“想法/任务”的全局调度放进 Cat Café 本体，�
 - [x] AC-A1: 本文档需在本轮迁移后维持模板核心结构（Status/Why/What/Dependencies/Risk/Timeline）。
 ### MVP（建议+批准）
 - [x] Web/PWA 可打开 Backlog Center（手机可用）。
-- [x] 任何人（team lead/猫）可创建 backlog item（标题 + 简述 + priority + tags）。
-- [x] 猫可以对某 item 发起“建议领取”（suggest claim），并附 Why/Plan 简述。
+- [x] 任何人（team lead/Agent）可创建 backlog item（标题 + 简述 + priority + tags）。
+- [x] Agent可以对某 item 发起“建议领取”（suggest claim），并附 Why/Plan 简述。
 - [x] team lead可以一键批准/拒绝该建议。
 - [x] 批准后系统自动创建新 thread，并：
   - [x] 关联 `backlogItemId`（backlog ↔ thread 双向可追溯）
@@ -57,7 +57,7 @@ team lead希望把“想法/任务”的全局调度放进 Cat Café 本体，�
 ### 演进（权限棘轮）
 - [x] 有一个配置项（once/thread/global）控制是否允许 self-claim：
   - [x] 默认关闭：只能”建议+批准”
-  - [x] 未来可开启：满足条件后允许猫自领（仍保留审计与回收）
+  - [x] 未来可开启：满足条件后允许Agent自领（仍保留审计与回收）
 
 ### ~~Phase B：线程级路由策略~~ — 已在 F042 PR #148 完成
 > **修正 (2026-03-02)**：routing-policy-scopes 已通过 PR #148 (`b0cadb6a`) 作为 F042 交付物合入 main，不再需要 F049 承接。
@@ -110,14 +110,14 @@ F049 的核心操作包含：claim/lease/heartbeat/原子派发/审计。这是�
 
 ## Phase3 Progress（2026-03-02）
 
-- [x] `selfClaimScope=once`：同一 cat 的第二次非幂等自领会被阻断（403）。
-- [x] `selfClaimScope=thread`：当该 cat 在其他 item 上有 active lease 时，阻断新的自领（409）；释放后可继续。
+- [x] `selfClaimScope=once`：同一 agent 的第二次非幂等自领会被阻断（403）。
+- [x] `selfClaimScope=thread`：当该 agent 在其他 item 上有 active lease 时，阻断新的自领（409）；释放后可继续。
 - [x] lease 四条状态迁移（acquire/heartbeat/release/reclaim）升级为 Redis Lua/CAS 原子更新。
 - [x] Mission Hub 显式展示 policy 阻断原因（once 已消费 / thread 活跃冲突）并和 API 语义对齐。
 
 ## Phase4 Scope（已完成，2026-03-03）
 
-- [x] **态势图（F043 对齐）**：Mission Hub 已增加 thread 视图（MVP 基于 `/api/threads` + `backlogItemId` 显示 thread 标题/lastActive/参与猫/跳转），实现“全局任务面 → 线程执行面”可视化（PR #167）。
+- [x] **态势图（F043 对齐）**：Mission Hub 已增加 thread 视图（MVP 基于 `/api/threads` + `backlogItemId` 显示 thread 标题/lastActive/参与Agent/跳转），实现“全局任务面 → 线程执行面”可视化（PR #167）。
 - [x] **派发链路语义收敛（PR-A/PR-B）**：`suggest/approve/dispatch` 已收敛为可恢复、可幂等、可预期路径，并补齐崩溃窗口回归与 kickoff 幂等硬化（PR #176, PR #179）。
 - [x] **权限棘轮语义收敛**：`once/thread/global` 运行时约束、幂等重试与错误码/UI 提示已对齐（PR #158, PR #176）。
 - [x] **愿景守护签收**：本地 `@gpt52` 全量复核通过（0 P1 / 0 P2），云端 review 通过后按 merge-gate 合入。
@@ -141,4 +141,4 @@ F049 的核心操作包含：claim/lease/heartbeat/原子派发/审计。这是�
 ## Test Evidence
 - `cd packages/api && node --test test/backlog-store.test.js test/backlog-routes.test.js`（含导入刷新用例）
 - `pnpm --dir packages/web test -- src/components/__tests__/mission-control-page.test.ts`
-- `pnpm --filter @cat-cafe/web build`
+- `pnpm --filter @agent-hub/web build`

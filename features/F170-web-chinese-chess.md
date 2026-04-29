@@ -8,11 +8,11 @@ created: 2026-04-20
 
 # F170: Web Chinese Chess — 网页端中国象棋
 
-> **Status**: done (archived — interview demo delivered, implementation kept on feature branch) | **Owner**: Ragdoll | **Priority**: P2 | **Completed**: 2026-04-20
+> **Status**: done (archived — interview demo delivered, implementation kept on feature branch) | **Owner**: Agent-R | **Priority**: P2 | **Completed**: 2026-04-20
 
 ## Why
 
-team lead要求做一个端到端可运行的网页象棋游戏，用于**演示 feat lifecycle 全流程**（立项 → 设计 → 开发 → review → 合入 → 愿景守护）。同时验证 Cat Café 多猫协作在独立前端项目上的执行效率。
+team lead要求做一个端到端可运行的网页象棋游戏，用于**演示 feat lifecycle 全流程**（立项 → 设计 → 开发 → review → 合入 → 愿景守护）。同时验证 Agent Task Hub 多Agent协作在独立前端项目上的执行效率。
 
 ## What
 
@@ -58,7 +58,7 @@ team lead要求做一个端到端可运行的网页象棋游戏，用于**演示
 
 ## Dependencies
 
-- **Related**: F093（Cats & U 世界引擎 — 象棋作为潜在 Scene Card 候选）
+- **Related**: F093（Agents & U 世界引擎 — 象棋作为潜在 Scene Card 候选）
 
 ## Risk
 
@@ -76,5 +76,5 @@ team lead要求做一个端到端可运行的网页象棋游戏，用于**演示
 
 ## Review Gate
 
-- Phase A: 跨猫 review（规则引擎正确性）
-- Phase B: 跨猫 review + team lead试玩验收
+- Phase A: 跨Agent review（规则引擎正确性）
+- Phase B: 跨Agent review + team lead试玩验收

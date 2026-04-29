@@ -8,7 +8,7 @@ created: 2026-02-26
 
 # F001: 配置可见性
 
-> **Status**: done | **Owner**: 三猫
+> **Status**: done | **Owner**: Admin
 > **Created**: 2026-02-26
 
 ## Why

@@ -8,19 +8,19 @@ created: 2026-03-20
 
 # F130: API 日志治理 — 四层分离 × 结构化落盘
 
-> **Status**: done | **Completed**: 2026-03-20 | **Owner**: 金渐层 | **Reviewer**: Maine Coon | **Priority**: P1
+> **Status**: done | **Completed**: 2026-03-20 | **Owner**: Golden Agent | **Reviewer**: Agent-M | **Priority**: P1
 >
-> **Phase A merged**: PR [#600](https://github.com/zts212653/cat-cafe/pull/600) — `22e148ad` (2026-03-20)
-> Reviewed by Maine Coon (gpt52) — 8 rounds. Closes [#594](https://github.com/zts212653/cat-cafe/issues/594).
-> **Phase B+C merged**: PR [#601](https://github.com/zts212653/cat-cafe/pull/601) — `8e89df73` (2026-03-20)
-> Reviewed by Maine Coon (gpt52) — 2 rounds. console.* 全量迁移 + logs:health 脚本。
+> **Phase A merged**: PR [#600](https://github.com/zts212653/agent-hub/pull/600) — `22e148ad` (2026-03-20)
+> Reviewed by Agent-M (gpt52) — 8 rounds. Closes [#594](https://github.com/zts212653/agent-hub/issues/594).
+> **Phase B+C merged**: PR [#601](https://github.com/zts212653/agent-hub/pull/601) — `8e89df73` (2026-03-20)
+> Reviewed by Agent-M (gpt52) — 2 rounds. console.* 全量迁移 + logs:health 脚本。
 >
 
 ## Why
 
 team lead在排查飞书语音上传问题时发现（2026-03-20）：Fastify logger 只配了 stdout，没有 file transport。所有运行日志只在终端输出，terminal 关了就没了。一个多月裸奔。
 
-Issue: [#594](https://github.com/zts212653/cat-cafe/issues/594)
+Issue: [#594](https://github.com/zts212653/agent-hub/issues/594)
 
 实际病灶比 issue 描述更大：
 - **Fastify logger**（pino）只有 stdout，无文件落盘（`index.ts` L182-186）
@@ -62,7 +62,7 @@ Issue: [#594](https://github.com/zts212653/cat-cafe/issues/594)
 
 4. **迁移 4 个核心模块的 `console.*`**：
    - `EventAuditLog.ts` — 去掉审计后多余的 console echo
-   - `invoke-single-cat.ts` — 猫猫调用全链路（16 处）
+   - `invoke-single-agent.ts` — Agent调用全链路（16 处）
    - `route-serial.ts` / `route-parallel.ts` — 路由编排（17+15 处）
    - `SocketManager.ts` — WebSocket 状态（8 处）
 
@@ -89,7 +89,7 @@ Issue: [#594](https://github.com/zts212653/cat-cafe/issues/594)
 - [x] AC-A3: Pino redaction 配置覆盖敏感字段（authorization, cookie, token, apiKey, secret）
 - [x] AC-A4: start-dev.sh 进程层 stderr 独立落盘到 `data/logs/process/`（含未迁移 console 兜底）
 - [x] AC-A5: EventAuditLog 不再 console.log echo（审计层和运行层分离）
-- [x] AC-A6: invoke-single-cat, route-serial, route-parallel, SocketManager 迁移到 logger
+- [x] AC-A6: invoke-single-agent, route-serial, route-parallel, SocketManager 迁移到 logger
 - [x] AC-A7: LOG_LEVEL 环境变量控制日志级别（默认 info）
 - [x] AC-A8: 重启 API 后验证日志文件正确生成
 
@@ -131,8 +131,8 @@ Issue: [#594](https://github.com/zts212653/cat-cafe/issues/594)
 
 ## Review Gate
 
-- Phase A: Maine Coon(gpt52) review — 8 rounds, all resolved
-- Phase B/C: Maine Coon(gpt52) review — 2 rounds, all resolved
+- Phase A: Agent-M(gpt52) review — 8 rounds, all resolved
+- Phase B/C: Agent-M(gpt52) review — 2 rounds, all resolved
 
 ## 代码审计摘要
 

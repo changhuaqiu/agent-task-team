@@ -8,17 +8,17 @@ created: 2026-04-22
 
 # F173: 前端 Thread-Runtime State 统一（消除 dual write-path & liveness fragmentation）
 
-> **Status**: done (realized → closed 2026-04-26 23:14) | **Owner**: Ragdoll + Maine Coon GPT-5.5 | **Priority**: P0
+> **Status**: done (realized → closed 2026-04-26 23:14) | **Owner**: Agent-R + Agent-M GPT-5.5 | **Priority**: P0
 >
-> **Closure 2026-04-26 23:14**: AC-E1/E2/E3 真闭环。Phase E (KD-1 handler unification) 做完 — useSocket-background.ts (634 行) + useSocket-background.types.ts (111 行) + useSocket-background-system-info.ts (341 行) 全部删除，业务逻辑 inline 进 useAgentMessages.ts (+1038 行)。drift risk 结构性消除 (active+bg 同一份实现)。9 PR 闭环：#1347 Phase A → #1379 hotfix3 → #1391 Phase B-3 → #1399 → #1400 → #1405 PR-A → #1411 PR-B → #1413 PR-B-2 → #1416 PR-C → #1417 Phase D → #1421 Phase E Task 1+2 → #1423 Phase E Task 6 fixture → #1426 Phase E Task 3-5 (Maine Coon GPT-5.5)。
+> **Closure 2026-04-26 23:14**: AC-E1/E2/E3 真闭环。Phase E (KD-1 handler unification) 做完 — useSocket-background.ts (634 行) + useSocket-background.types.ts (111 行) + useSocket-background-system-info.ts (341 行) 全部删除，业务逻辑 inline 进 useAgentMessages.ts (+1038 行)。drift risk 结构性消除 (active+bg 同一份实现)。9 PR 闭环：#1347 Phase A → #1379 hotfix3 → #1391 Phase B-3 → #1399 → #1400 → #1405 PR-A → #1411 PR-B → #1413 PR-B-2 → #1416 PR-C → #1417 Phase D → #1421 Phase E Task 1+2 → #1423 Phase E Task 6 fixture → #1426 Phase E Task 3-5 (Agent-M GPT-5.5)。
 >
-> **Reopen-then-closed history**: 04-26 07:30 第一次 close 时 AC-B2 deferred 开 F177 stub 被team lead识破"虚假闭环"，11:30 reopen + 删 F177 stub，重新做 Phase E Task 3-5（Maine Coon GPT-5.5 接手实施）。23:14 真闭环：F177 stub 删除 + handler 业务逻辑真 inline + bg 文件真删除。两次反复后真闭环。教训沉淀：`feedback_no_anchor_as_followup_disguise.md` (P0 铁律)。gpt52 守护 vote 3/3 通过 (2026-04-26 第二次 close)。
+> **Reopen-then-closed history**: 04-26 07:30 第一次 close 时 AC-B2 deferred 开 F177 stub 被team lead识破"虚假闭环"，11:30 reopen + 删 F177 stub，重新做 Phase E Task 3-5（Agent-M GPT-5.5 接手实施）。23:14 真闭环：F177 stub 删除 + handler 业务逻辑真 inline + bg 文件真删除。两次反复后真闭环。教训沉淀：`feedback_no_anchor_as_followup_disguise.md` (P0 铁律)。gpt52 守护 vote 3/3 通过 (2026-04-26 第二次 close)。
 >
 > **Phase A merged 2026-04-23 (PR #1347, squash 3feae9563)**：mirror invariant + 单指针 routing + deterministic bubble id + invocation-driven suppression cleanup（含 fail-open）。Phase B/C/D 留 follow-up PR。
 >
-> **Phase A hotfix merged 2026-04-23 (PR #1352, squash b4e46761d)**：close ea0973e7 ghost — explicit invocationId threaded through all event entry points (text/tool_use/tool_result/done/error/web_search/thinking/rich_block/invocation_created). Maine Coon LGTM-6 cycles + 9 cloud Codex P1 fix cycles. CVO 2026-04-23 拍板将剩余 multi-failure race scenarios (lost done + lost invocation_created + reconnect/hydration) defer 进 Phase B (AC-B5..B10) — thread-scoped runtime consolidation 会从结构上消除这些场景。
+> **Phase A hotfix merged 2026-04-23 (PR #1352, squash b4e46761d)**：close ea0973e7 ghost — explicit invocationId threaded through all event entry points (text/tool_use/tool_result/done/error/web_search/thinking/rich_block/invocation_created). Agent-M LGTM-6 cycles + 9 cloud Codex P1 fix cycles. CVO 2026-04-23 拍板将剩余 multi-failure race scenarios (lost done + lost invocation_created + reconnect/hydration) defer 进 Phase B (AC-B5..B10) — thread-scoped runtime consolidation 会从结构上消除这些场景。
 >
-> **Phase A hotfix2 merged 2026-04-24 (PR #1364, squash da928015e)**：close clowder-ai#573 dup-bubble — stream + callback + persistence 三条路径在同一逻辑响应的 invocation identity 上收口（统一用 OUTER `parentInvocationId ?? ownInvocationId`）。Hotfix 后 1352 的前端 dedup 把 dup 从偶发暴露为 100% 复现，根因是 QueueProcessor:761 broadcast 用 OUTER、route-serial/callbacks 持久化用 INNER 的 split-brain。Codex P1（A→B→A re-enqueue cross-turn merge）实测验证为 broadcast-layer pre-existing 行为，本 PR 不引入新 regression — 真要分 turn 显示需另立 Feature 改 broadcast 契约 + bubble identity。
+> **Phase A hotfix2 merged 2026-04-24 (PR #1364, squash da928015e)**：close agent-task-hub#573 dup-bubble — stream + callback + persistence 三条路径在同一逻辑响应的 invocation identity 上收口（统一用 OUTER `parentInvocationId ?? ownInvocationId`）。Hotfix 后 1352 的前端 dedup 把 dup 从偶发暴露为 100% 复现，根因是 QueueProcessor:761 broadcast 用 OUTER、route-serial/callbacks 持久化用 INNER 的 split-brain。Codex P1（A→B→A re-enqueue cross-turn merge）实测验证为 broadcast-layer pre-existing 行为，本 PR 不引入新 regression — 真要分 turn 显示需另立 Feature 改 broadcast 契约 + bubble identity。
 >
 > **Scope 扩展（2026-04-22 22:05 team lead指示）**：原 scope 仅 message pipeline；新事故诊断把 cancel 按钮缺失 / queue gating 失效 / spawn ENOENT 三个症状同源到 **liveness truth source fragmentation**，与 message dual-write 是同一个病。team experience："不要小修小改"——一锅端。
 
@@ -29,7 +29,7 @@ created: 2026-04-22
 | 时间 | 现象 | 当时归因 |
 |------|------|---------|
 | 4-22 21:42 | F5 后基本每个气泡都裂 | message pipeline dual write（active vs background handler） |
-| 4-22 21:55 | Maine Coon正在 streaming 但前端 cancel 按钮没出 + 同时发消息走 normal send 不是 queue+steer | 前端 `hasActiveInvocation` 与"视觉上Maine Coon在流式输出"不是同一真相源 |
+| 4-22 21:55 | Agent-M正在 streaming 但前端 cancel 按钮没出 + 同时发消息走 normal send 不是 queue+steer | 前端 `hasActiveInvocation` 与"视觉上Agent-M在流式输出"不是同一真相源 |
 | 4-22 21:55 | 后端走 immediate spawn 而不是 queue → spawn `/opt/homebrew/bin/codex` ENOENT | 后端 `invocationTracker` 无 entry 判 hasActive=false；同时 `cli-resolve.ts` 进程内永久 resolvedCache 命中 stale 路径（codex 软链 21:54 被 brew/npm 重建） |
 | 4-21 | stuck-after-cancel | 同类 liveness 漂移 |
 
@@ -45,7 +45,7 @@ created: 2026-04-22
 - `invocationTracker`（进程内 Map，`messages.ts:404-413` 判 hasActive 用这个）
 - `invocationRecordStore`（Redis，跨进程真相）
 
-**Socket event 任一 drop / 乱序 / F5 hydration race** → 5 个前端字段各自漂移。"视觉看到Maine Coon在流" ≠ "store 认 hasActiveInvocation=true" ≠ "invocationTracker 有 entry"，三者独立可以同时不一致。
+**Socket event 任一 drop / 乱序 / F5 hydration race** → 5 个前端字段各自漂移。"视觉看到Agent-M在流" ≠ "store 认 hasActiveInvocation=true" ≠ "invocationTracker 有 entry"，三者独立可以同时不一致。
 
 ### 不能只修 message pipeline
 
@@ -57,7 +57,7 @@ F081 Risk #1 早已预言："**写路径分散导致修复互相覆盖**"。
 - F164（IndexedDB cache，2026-04-16）→ ghost bubble 涌现
 - #1261（2026-04-19）修 IDB 占位过滤
 - #1310（2026-04-21）修 watchdog 清 ghost stream
-- Maine Coon 4-21 修 active-handler callback 不收 invocationless rich placeholder
+- Agent-M 4-21 修 active-handler callback 不收 invocationless rich placeholder
 - F39 force-send（2026-02-27）也是同源 liveness 漂移
 
 team experience（2026-04-22 21:44）："有问题你为什么不直接走 p2？呢？ 你是不是又在绕路和做脚手架了呢？"
@@ -78,7 +78,7 @@ team experience（2026-04-22 22:05）："不要小修小改！！"
 | 后端 hasActive | `invocationTracker`（进程 Map） | `invocationRecordStore`（Redis） | tracker 无 entry 但 record 存在/反之 → gating 误判 |
 | spawn 路径解析 | `cli-resolve.ts` `resolvedCache: Map<string,string>` | — | 永久缓存，从不清空；软链/二进制 rebuild 后 ENOENT |
 
-> **设计校准（Maine Coon push back 2026-04-22）**：chatStore 中 `threadStates[currentThreadId]` 只是 thread switch 时的 snapshot，不是持续真相源；大量 `addMessageToThread`/`setThreadCatInvocation`/`setThreadLoading`/`addThreadActiveInvocation`/`setThreadIntentMode`/`setThreadTargetCats` 都内置 `threadId === currentThreadId` 分叉，仍然把 active 写到 flat（`chatStore.ts:53,1365,1390,1572,1645,1683,1746,1768,1843`）。F123 也已拍过 "shared helper + invariant 渐进，不把统一 MessageWriter 当前置" 路线（`F123:45,140`）。所以 P0 的直线是**先把所有 thread-runtime 写入收口到一个 thread-scoped writer**，flat 降级 compatibility mirror。**不**在 Phase A 把"删 flat"和"统一 writer"绑成一刀。
+> **设计校准（Agent-M push back 2026-04-22）**：chatStore 中 `threadStates[currentThreadId]` 只是 thread switch 时的 snapshot，不是持续真相源；大量 `addMessageToThread`/`setThreadCatInvocation`/`setThreadLoading`/`addThreadActiveInvocation`/`setThreadIntentMode`/`setThreadTargetCats` 都内置 `threadId === currentThreadId` 分叉，仍然把 active 写到 flat（`chatStore.ts:53,1365,1390,1572,1645,1683,1746,1768,1843`）。F123 也已拍过 "shared helper + invariant 渐进，不把统一 MessageWriter 当前置" 路线（`F123:45,140`）。所以 P0 的直线是**先把所有 thread-runtime 写入收口到一个 thread-scoped writer**，flat 降级 compatibility mirror。**不**在 Phase A 把"删 flat"和"统一 writer"绑成一刀。
 
 ### Phase A: ThreadRuntimeWriter 收口（messages + liveness） + socket routing 统一
 
@@ -101,7 +101,7 @@ team experience（2026-04-22 22:05）："不要小修小改！！"
 1. **读侧组件迁移**：从 flat state 切换到 thread-scoped selector（`useThreadMessages(threadId)` / `useThreadLiveness(threadId)` 等），用 zustand `subscribeWithSelector + shallow` 控制重渲染。**`ChatInputActionButton`** 必须从 selector 读 hasActiveInvocation，禁止读 flat 字段。
 2. **`mergeReplaceHydrationMessages`** 删除 ghost-tolerance 分支（来源不再产生 ghost）。
 3. **前后端 liveness reconcile**：`fetchQueue` 拿到的 `activeInvocations` 必须直接覆盖 thread-scoped state，不再"if currentThread 才写"分叉；socket reconnect 触发的 `reconcileInvocationStateOnReconnect` 与 backend `invocationTracker.list()` 对齐，单一 reconcile 路径。
-4. 跨场景回归测试（F5 / thread switch / socket reconnect / cross-post / 并发多猫 / cancel-during-stream / queue+steer）全绿。
+4. 跨场景回归测试（F5 / thread switch / socket reconnect / cross-post / 并发多Agent / cancel-during-stream / queue+steer）全绿。
 5. F081 AC-B2 关闭。
 
 ### Phase D: 环境/缓存防腐（cli-resolve）
@@ -130,7 +130,7 @@ team experience（2026-04-22 22:05）："不要小修小改！！"
 - [ ] AC-B1: 所有 runtime refs 合并为 `Map<threadId, ThreadRuntimeRefs>`（active/finalized/replaced/sawStreamData/pendingTimeoutDiag/timeoutHandle/lastTouched），保持 runtime-only
 - [ ] AC-B2: ~~`useSocket-background.ts` 缩为 ≤ 30 行 shim~~ ~~**重新规划 2026-04-25**: end-state 是 0 行（删除整文件），不留 shim~~ ~~**再次重新规划 2026-04-26 (deferred / re-scoped → F177 接棒)**~~ — **2026-04-26 11:30: F177 stub 撤销，handler unification 直接做，归到 Phase E (AC-E1/E2)**。PR-D 开工实地审计揭示 `handleBackgroundAgentMessage` (~500 行) 不是 dead code，是 active live runtime path；删整文件等价于 KD-1 handler unification。把它抽到 F177 stub 是话术包装，team lead push back: debt = never。归到 Phase E 直接做。`recoverStreamingMessage` / `ensureBackgroundAssistantMessage` / `shouldSuppressLateBackgroundStreamChunk` / `markThreadInvocationActive/Complete` 不是 Phase C 后才 dead 的，它们是 `handleBackgroundAgentMessage` 的内部 helper，被 ~500 行 live business logic（active→bg stream 恢复 / callback replacement / late chunk suppression / tool placeholder / toast/status）调用。Phase C 关闭了 **writer 端**双路径（KD-2 mirror invariant），但 **event handler 端**（active 走 useAgentMessages.onMessage / background 走 handleBackgroundAgentMessage）仍是双实现。删整文件需要把 background handler 业务逻辑迁到 thread-aware useAgentMessages，是真正的 KD-1 handler unification 改动，不是 cleanup，单独立项再做。Phase C 主线（read 收口 + writer 收口 + hydration 收口 + liveness 收口）至此完成。
 - [ ] AC-B3: GC 三规则就位（delete 硬删 / done+empty 立刻删 / setCurrentThread+reconnect sweep idle）
-- [ ] AC-B4: thread switch 不再触发 ghost bubble（fixture 验证）— **重新规划 2026-04-25**: fixture 抽出作为 pre-Phase C 独立小 PR（B-3 fixture）由Ragdoll own，给 Phase C 大改动提供回归基础设施。**Fixture 已 merged via PR #1391 (squash `94180b490`, 2026-04-25 09:42)**：3 条 invariant 锁定（routing isolation / concurrent isolation / terminal correctness），Phase C 改 hydration 时此 fixture 必须保持绿。AC-B4 完整闭合（含真实 race window 修复）等 Phase C。
+- [ ] AC-B4: thread switch 不再触发 ghost bubble（fixture 验证）— **重新规划 2026-04-25**: fixture 抽出作为 pre-Phase C 独立小 PR（B-3 fixture）由Agent-R own，给 Phase C 大改动提供回归基础设施。**Fixture 已 merged via PR #1391 (squash `94180b490`, 2026-04-25 09:42)**：3 条 invariant 锁定（routing isolation / concurrent isolation / terminal correctness），Phase C 改 hydration 时此 fixture 必须保持绿。AC-B4 完整闭合（含真实 race window 修复）等 Phase C。
 
 #### Phase B Backlog: 双失/三失场景 race（hotfix PR #1352 cloud Codex 累积发现）
 
@@ -139,9 +139,9 @@ team experience（2026-04-22 22:05）："不要小修小改！！"
 下表是 Phase B 必须覆盖的 follow-up backlog（来自 PR #1352 cloud Codex review 的真实 finding）：
 
 - [ ] **AC-B5**: invocationless 终端事件（legacy `done`/`error` 无 `msg.invocationId`）在 `activeRefs` 已 clear（thread switch / hydration）后必须能 finalize 已 bound 的 streaming bubble；当前 hotfix 的 Loop 2 unbound fallback 拒绝 bound bubble，导致 stuck-streaming 状态（cloud P1#10）。
-- [ ] **AC-B6**: `invocation_created` boundary 路径下 `markReplacedInvocation` 已升级为 `Set<invocationId>`，但旧 invocationId 只在 thread-level cleanup 时整体清掉；长会话下应在"该 invocation 真正 terminal + confirm-no-late-window"后用 `removeReplacedInvocation` 做细粒度回收，避免内存/维护债（Maine Coon LGTM-5 非阻塞观察 + cloud P2 multi-value）。
+- [ ] **AC-B6**: `invocation_created` boundary 路径下 `markReplacedInvocation` 已升级为 `Set<invocationId>`，但旧 invocationId 只在 thread-level cleanup 时整体清掉；长会话下应在"该 invocation 真正 terminal + confirm-no-late-window"后用 `removeReplacedInvocation` 做细粒度回收，避免内存/维护债（Agent-M LGTM-5 非阻塞观察 + cloud P2 multi-value）。
 - [ ] **AC-B7**: 多个 stale unbound bubble 共存（reconnect / hydration）时，`invocation_created` 只 rebind 最新一个；其他 unbound bubble 应被 finalize 或 GC，不能继续作为"unbound 抽奖池"被 callback / late event 误捕。
-- [ ] **AC-B8**: callback path 的 strict-callback 契约（clowder-ai#305 absorb）与 stream→callback 关联机制需要在 thread-scoped runtime 重写，目前依赖 `extra.stream.invocationId` 严格匹配 + activeInvocations fallback 兜底，结构脆弱。
+- [ ] **AC-B8**: callback path 的 strict-callback 契约（agent-task-hub#305 absorb）与 stream→callback 关联机制需要在 thread-scoped runtime 重写，目前依赖 `extra.stream.invocationId` 严格匹配 + activeInvocations fallback 兜底，结构脆弱。
 - [ ] **AC-B9**: `shouldSuppressLateStreamChunk` 当前用"explicit `msg.invocationId` 优先 / 无则 catInvocations 兜底"+"surgical clean stale catInvocations"组合（cloud P1#6）。Phase B thread-scoped runtime 应直接用 `lastObservedExplicitInvocationId` 替代 catInvocations 兜底，消除 surgical clean。
 - [ ] **AC-B10**: 终端 permissive fallback 的 binding policy 现在用 slot-fresh 信号差异化（slot-fresh confirmed → 任何 streaming bubble；否则 → 仅 binding 匹配 / unbound）。Phase B 应让 `isStaleTerminalEvent` 显式返回 confirmation source，避免在 callsite 重新计算 slot-fresh。
 
@@ -190,19 +190,19 @@ team experience（2026-04-22 22:05）："不要小修小改！！"
 | # | 决策 | 理由 | 日期 |
 |---|------|------|------|
 | KD-1 | 不在 hydration merge 加 dedup 补丁 | team lead magic word "脚手架" + "绕路了"；F081 已预言写路径分散 = 反复出 bug | 2026-04-22 |
-| KD-2 | flat state 降级 compatibility mirror，**不**在 Phase A 删 | Maine Coon push back：直接 selector-only 把"统一 writer"和"删 flat"绑成一刀，scope 过大；F123 已拍 shared helper + invariant 渐进路线。先收口写入，flat 由 writer 同步，读侧迁完后再决定退休（Phase E / TD） | 2026-04-22 |
+| KD-2 | flat state 降级 compatibility mirror，**不**在 Phase A 删 | Agent-M push back：直接 selector-only 把"统一 writer"和"删 flat"绑成一刀，scope 过大；F123 已拍 shared helper + invariant 渐进路线。先收口写入，flat 由 writer 同步，读侧迁完后再决定退休（Phase E / TD） | 2026-04-22 |
 | KD-3 | runtime refs 保持 runtime-only（不进 zustand），用 `Map<threadId, ThreadRuntimeRefs>` 单一聚合 entry；GC 三规则（delete 硬删 / done+empty 立刻删 / switch+reconnect sweep idle），不引入后台定时器 | refs 是过程性数据不该污染 store；聚合 entry 避免散成多张 top-level Map；GC 由 lifecycle 事件驱动比定时器更可预测 | 2026-04-22 |
-| KD-4 | socket routing 一并收口 `intent_mode` / `spawn_started`，不只 `agent_message` | Maine Coon指出 race 不只在 message 路径；只收 message 路径，invocation owner 注册仍会双写，ghost 根因换壳回来 | 2026-04-22 |
+| KD-4 | socket routing 一并收口 `intent_mode` / `spawn_started`，不只 `agent_message` | Agent-M指出 race 不只在 message 路径；只收 message 路径，invocation owner 注册仍会双写，ghost 根因换壳回来 | 2026-04-22 |
 | KD-5 | **F173 scope 扩展为 thread-runtime state（messages + liveness）一起统一，不只 message pipeline** | 4-22 21:55 事故诊断把 cancel 按钮缺失 / queue gating 失效 / spawn ENOENT 同源到 liveness fragmentation；team experience"不要小修小改"——一锅端，避免 F173 v1 修完 cancel/queue 这条链还得另开 feat | 2026-04-22 |
 | KD-6 | cli-resolve cache invalidation 作 Phase D sidecar 一起合，不单独 hot fix | 同事故现场 + team lead"不要小修小改"指示；3-5 行代码 + 单测，独立 PR 即可，不污染 thread-runtime 主架构 | 2026-04-22 |
 | KD-7 | 后端 `invocationTracker` ↔ Redis record 收口暂不纳入 F173 | 后端 liveness audit 是 layer 不同的工作（涉及跨进程一致性），独立立项更清晰；F173 已经覆盖前端 + 环境层 | 2026-04-22 |
 
 ## Review Gate
 
-- Phase A: Maine Coon（架构 review，writer + routing 正确性） + Siamese（视觉回归守护）
-- Phase B: Maine Coon（refs 迁移 + GC 策略） + Codex（测试覆盖）
+- Phase A: Agent-M（架构 review，writer + routing 正确性） + Siamese（视觉回归守护）
+- Phase B: Agent-M（refs 迁移 + GC 策略） + Codex（测试覆盖）
 - Phase C: 跨家族 review（read-path migration） + team lead愿景守护（cancel/queue UX 一致性）
-- Phase D: Maine Coon / Codex（cli-resolve 单测）
+- Phase D: Agent-M / Codex（cli-resolve 单测）
 
 ## 需求点 Checklist
 

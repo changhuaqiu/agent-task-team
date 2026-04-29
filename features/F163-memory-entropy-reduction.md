@@ -8,13 +8,13 @@ created: 2026-04-15
 
 # F163: Memory Entropy Reduction — 记忆熵减与知识生命周期治理
 
-> **Status**: done | **Owner**: Ragdoll | **Priority**: P1 | **Completed**: 2026-04-26
+> **Status**: done | **Owner**: Agent-R | **Priority**: P1 | **Completed**: 2026-04-26
 
 ## Why
 
 ### 核心问题
 
-Cat Café 的记忆系统只有"增"的机制，没有"减"的机制。
+Agent Task Hub 的记忆系统只有"增"的机制，没有"减"的机制。
 
 F102 建好了记忆基础设施（怎么存和搜），F152 在做记忆可移植性（怎么跨项目携带），但没有人做过"怎么保持知识精准"。
 
@@ -24,7 +24,7 @@ F102 建好了记忆基础设施（怎么存和搜），F152 在做记忆可移�
 |---------|------|
 | shared-rules.md | 449 行 |
 | Lessons Learned (LL-XXX) | 51 条 |
-| Ragdoll feedback 记忆 | 40 个 |
+| Agent-R feedback 记忆 | 40 个 |
 | MEMORY.md 索引条目 | 61 条 |
 | ADR | 28+ |
 | Feature spec | 160+ |
@@ -33,7 +33,7 @@ F102 建好了记忆基础设施（怎么存和搜），F152 在做记忆可移�
 
 ### 为什么是 P1
 
-三猫 + team lead在 Harness Engineering 讨论中达成共识：
+Admin + team lead在 Harness Engineering 讨论中达成共识：
 
 > **Harness 长期价值 = 对用户决策边界的拟合精度 × 知识压缩后的信噪比**
 
@@ -85,9 +85,9 @@ contradicts: []                      # 与哪些知识冲突
 observed → candidate → validated → constitutional
    │          │           │              │
    │          │           │              └─ 仅 CVO 手动提升（铁律级）
-   │          │           └─ 双证据 + 猫提议 + CVO 确认
-   │          └─ 多次验证 / 猫建议晋升
-   └─ 猫创建/提取的新知识默认状态（隔离态：落地但不晋升、不加权、不扩散）
+   │          │           └─ 双证据 + Agent提议 + CVO 确认
+   │          └─ 多次验证 / Agent建议晋升
+   └─ Agent创建/提取的新知识默认状态（隔离态：落地但不晋升、不加权、不扩散）
 ```
 
 ### activation 约束（防 prompt 肥胖）
@@ -158,7 +158,7 @@ Suggest 模式只产出建议/日志/队列，不落真实状态变更。Apply �
 - **禁止级联压缩**：summary 只允许一层，严禁 summary-of-summary（60% 事实召回损失风险）
 - **shared-rules 浓缩**：同类规则聚类 → 提议合并 → team lead确认 → 浓缩后保留 `source_ids` 可追溯
 
-猫不自主执行合并——产出 pruning 建议，team lead拍板。
+Agent不自主执行合并——产出 pruning 建议，team lead拍板。
 
 ### Phase C: 三触发知识审计 ✅
 
@@ -167,12 +167,12 @@ Suggest 模式只产出建议/日志/队列，不落真实状态变更。Apply �
 | 触发类型 | 时机 | 机制 |
 |---------|------|------|
 | **Write-time** | 新 LL/ADR/feedback 写入时 | 反向查重：`search_evidence` 检索相关旧知识，发现冲突则标记 `contradicts[]`，附带在 PR 中 |
-| **Retrieval-time** | 猫使用知识时发现与当前事实矛盾 | 猫标记 `status=review`，记录矛盾原因，进入 review queue |
+| **Retrieval-time** | Agent使用知识时发现与当前事实矛盾 | Agent标记 `status=review`，记录矛盾原因，进入 review queue |
 | **Review-time** | `verified_at` 超过 `review_cycle_days` 阈值 | 进入复核队列（时间触发审查，不触发行动——"时间是陪审员不是法官"） |
 
 **审计产出**：
 - Harness 健康报告：规则膨胀率、冲突检测、ADR 断链、未验证知识清单
-- Review queue：猫只标记和建议，CVO 确认 invalidation / archive / merge
+- Review queue：Agent只标记和建议，CVO 确认 invalidation / archive / merge
 - `invalid_at` + `replaced_by` + `contradicts[]` 构成冲突图谱
 
 ## Acceptance Criteria
@@ -195,7 +195,7 @@ Suggest 模式只产出建议/日志/队列，不落真实状态变更。Apply �
 
 ### Phase C（三触发知识审计）✅
 - [x] AC-C1: Write-time 矛盾检测：新知识写入时自动检索相关旧知识，冲突标记 `contradicts[]`
-- [x] AC-C2: Retrieval-time 标记：猫可将使用中发现过时的知识标记为 `status=review`
+- [x] AC-C2: Retrieval-time 标记：Agent可将使用中发现过时的知识标记为 `status=review`
 - [x] AC-C3: Review-time 队列：`verified_at` 超阈值的知识自动进入复核队列
 - [x] AC-C4: 有 skill 或 scheduled task 可生成 Harness 健康报告（膨胀率、冲突检测、ADR 断链、未验证清单）
 - [x] AC-C5: team lead确认报告的 pruning 建议 actionable（不是无用的噪声）
@@ -236,7 +236,7 @@ Suggest 模式只产出建议/日志/队列，不落真实状态变更。Apply �
 
 **核心问题**（team lead 2026-04-19）：搜"数学之美 圆桌讨论"时最精准命中的 thread 标 `[low]`（因为它是 observed），半相关的 LL-051 标 `[high]`（因为它是 constitutional）。confidence 标签语义错误——反映文档权威性而非搜索匹配质量。
 
-**方案**（三猫共识）：confidence = f(rank)，authority 作为独立字段暴露。两个正交维度不再融合。
+**方案**（Admin共识）：confidence = f(rank)，authority 作为独立字段暴露。两个正交维度不再融合。
 
 ### Phase E AC
 - [x] AC-E1: `rankToConfidence(rank)` 纯函数存在，从排序位置派生 confidence，有单元测试（P2 修复移除了 dead `totalResults` 参数）
@@ -250,8 +250,8 @@ Suggest 模式只产出建议/日志/队列，不落真实状态变更。Apply �
 
 **前置条件（全部已满足 ✅）**：
 - F163 Phase A-E ✅ — 多轴元数据 + 压缩 + 审计 + authority backfill + confidence=f(rank)
-- F148 Phase F ✅ — Intent + Baton Context（`extractBatonContext` + `summarizeActiveTasks`，猫知道"我在做什么任务"）
-- F148 Phase G ✅ — Goal & Grounding（真相源排序 + `best-next-source`，猫知道"该先看哪个文档"）
+- F148 Phase F ✅ — Intent + Baton Context（`extractBatonContext` + `summarizeActiveTasks`，Agent知道"我在做什么任务"）
+- F148 Phase G ✅ — Goal & Grounding（真相源排序 + `best-next-source`，Agent知道"该先看哪个文档"）
 - F148 Phase H ✅ — Artifact Tracking（确定性追踪改动的 artifact）
 
 **方案**（来源：F169 愿景约束 VAC-C1~C5，opus-47 提出，team lead确认加入；Design Gate by gpt52 2026-04-25）：
@@ -261,7 +261,7 @@ Suggest 模式只产出建议/日志/队列，不落真实状态变更。Apply �
   - v1 只用确定性信号，不上 query co-occurrence（复杂度高收益不确定）
 - **task_context 来源**：F148 F/G/H 合成上下文（gpt52 Design Gate 修正）
   - `summarizeActiveTasks()` — 当前活跃 feature/task
-  - `truthSource / best-next-source` — 猫当前该看的真相源
+  - `truthSource / best-next-source` — Agent当前该看的真相源
   - `recentArtifacts` — 近期改动的 artifact
   - ⚠️ 不是 `extractBatonContext()`（那只给传球摘要，不给 canonical task/feature）
 - `criticality=high` 的铁律级知识**不参与 gating**（P0 铁律永远在场，对齐 KD-7 + ADR-009）
@@ -281,7 +281,7 @@ salience 在 authority boost 之后、confidence 派生之前。不塞进 `apply
 **与 F148 的正反面关系**：
 - F148 Phase G 做"加相关"（best-next-source 排序，主动推相关文档）
 - F163 Phase F 做"减无关"（salience gating，降权无关文档）
-- 终态：猫进 thread 5 秒内有正确上下文，不用手动搜 5 次
+- 终态：Agent进 thread 5 秒内有正确上下文，不用手动搜 5 次
 
 **实现路径（LL-051 教训：不建框架，直接解决问题）**：
 1. 写 `salience()` 纯函数（scoring 本体 ≤30 行；task context 组装 + shadow diff logging + flag 接线在外层 glue code，不计入）
@@ -322,10 +322,10 @@ salience 在 authority boost 之后、confidence 派生之前。不塞进 `apply
 
 | # | 决策 | 理由 | 日期 |
 |---|------|------|------|
-| KD-1 | 猫不自主删除/合并知识，只产出建议 | 知识是team lead思维的结晶，删错了不可逆 | 2026-04-15 |
+| KD-1 | Agent不自主删除/合并知识，只产出建议 | 知识是team lead思维的结晶，删错了不可逆 | 2026-04-15 |
 | KD-2 | 先做分层加权（Phase A），再做压缩和审计 | 分层是最小 invasive 的改动，不删不改只加权 | 2026-04-15 |
 | KD-3 | 单维四层改为多轴元数据（authority × activation × status） | 五方调研共识：单维层级无法表达"高权威但已失效"等正交状态 | 2026-04-16 |
-| KD-4 | 压缩为非替代式：生成 summary + source_ids 回链，原件保留 | 两份云端调研 + 三只本地猫全票：替代式压缩丢失触发锚点 | 2026-04-16 |
+| KD-4 | 压缩为非替代式：生成 summary + source_ids 回链，原件保留 | 两份云端调研 + 三只本地Agent全票：替代式压缩丢失触发锚点 | 2026-04-16 |
 | KD-5 | 知识过期由冲突驱动，不由时间驱动（时间仅触发审查，不触发行动） | 五方共识 + ADR-009 教训：软件知识没有自然半衰期 | 2026-04-16 |
 | KD-6 | 晋升四级：observed → candidate → validated → constitutional（最后一级仅 CVO） | 保留 observed 隔离态（防偶然偏好过早晋升），砍掉无行为差异的 provisional | 2026-04-16 |
 | KD-7 | always_on 仅限 constitutional 红线 + 当前任务激活约束 | 防 prompt 肥胖：高权威 ≠ 常驻 prompt | 2026-04-16 |
@@ -336,7 +336,7 @@ salience 在 authority boost 之后、confidence 派生之前。不塞进 `apply
 
 ## Review Gate
 
-- Phase A: 跨家族 review（搜索权重逻辑变更影响所有猫的检索体验）
+- Phase A: 跨家族 review（搜索权重逻辑变更影响所有Agent的检索体验）
 - Phase B: team lead review（合并/删除知识需要 CVO 确认）
 - Phase C: team lead review（健康报告的 actionability 由team lead判断）
-- Phase F: 跨家族 review（搜索 rerank 逻辑变更影响所有猫的检索体验，同 Phase A）
+- Phase F: 跨家族 review（搜索 rerank 逻辑变更影响所有Agent的检索体验，同 Phase A）

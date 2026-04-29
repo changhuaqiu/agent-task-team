@@ -8,14 +8,14 @@ created: 2026-02-26
 
 # F026: UI Dashboard Upgrade — 右面板重构 + 实时计划进度
 
-> **Status**: done | **Owner**: 三猫
+> **Status**: done | **Owner**: Admin
 > **Created**: 2026-02-26
 
 ## Why
 - 2026-02-14 team lead提议
 
 ## What
-- **F26**: ✅ f59740f + R1 fix 70e8321, PR #6. RightStatusPanel active/history 分区 + CatTaskProgress checklist + invoke-single-cat task 提取. 计划: 2026-02-14-ui-dashboard-upgrade.md
+- **F26**: ✅ f59740f + R1 fix 70e8321, PR #6. RightStatusPanel active/history 分区 + CatTaskProgress checklist + invoke-single-agent task 提取. 计划: 2026-02-14-ui-dashboard-upgrade.md
 
 ## Acceptance Criteria
 - [x] AC-A1: 本文档已补齐模板核心结构（Status/Why/What/Dependencies/Risk/Timeline）。

@@ -9,13 +9,13 @@ decision_id: ADR-020
 # ADR-020: F102 Memory System Architecture — Conversation Identity + 检索 + 摘要
 
 > **Status**: accepted
-> **Deciders**: 铲屎官 + Ragdoll(opus) + Maine Coon(gpt52) + 金渐层(opencode)
+> **Deciders**: 铲屎官 + Agent-R(opus) + Agent-M(gpt52) + Golden Agent(opencode)
 > **Date**: 2026-03-22
 > **Architecture Diagram**: 见 thread `thread_mmygpnn83c3m0oiq` 的 html_widget `f102-architecture-v2`
 
 ## Context
 
-Cat Café 需要一个记忆系统，让猫猫能：
+Agent Task Hub 需要一个记忆系统，让Agent能：
 1. 搜索项目知识（feature specs、决策、教训、对话历史）
 2. 跨语言搜索（英文 query 命中中文文档）
 3. 自动生成 thread 摘要（不靠人工）
@@ -37,37 +37,37 @@ Cat Café 需要一个记忆系统，让猫猫能：
 用户消息 (飞书/Telegram/Hub)
   │
   ▼
-Connector Binding          外部 chat → Cat Café thread 的映射
+Connector Binding          外部 chat → Agent Task Hub thread 的映射
   connector:{id}:{externalChat} → threadId
   │
   ▼
-Thread                     所有猫共享的"聊天室"
+Thread                     所有Agent共享的"聊天室"
   title · participants · features · threadMemory
   消息归属单元, 摘要归属单元
   │
-  ├──→ Session Chain (opus)    每只猫在每个 thread 的独立链
+  ├──→ Session Chain (opus)    每只Agent在每个 thread 的独立链
   │    seq: 0 → 1 → 2 → ...   按 catId × threadId 组织
   │    ↓
-  │    Active Slot             每猫每 thread 最多 1 个 active session
+  │    Active Slot             每Agent每 thread 最多 1 个 active session
   │    session-active:{catId}:{threadId} → sessionId
   │    ↓
   │    CLI Resume              Claude Code --resume 的映射
   │    session-cli:{cliSessionId} → sessionId
   │
-  └──→ Session Chain (codex)   另一只猫的独立链
+  └──→ Session Chain (codex)   另一只Agent的独立链
 ```
 
 **关键关系**：
 - **Thread** 是共享语义单元（摘要/搜索/消息都归 thread）
-- **Session Chain** 是 per-cat 运行时单元（恢复/审计/事件下钻）
-- **两层不混**（KD-41：多猫 session 有重合，不重复摘要）
+- **Session Chain** 是 per-agent 运行时单元（恢复/审计/事件下钻）
+- **两层不混**（KD-41：多Agent session 有重合，不重复摘要）
 
 ### 2. 检索架构 — 三种独立路径 (KD-44)
 
 | 模式 | 路径 | 适用场景 |
 |------|------|---------|
 | **lexical** | FTS5 BM25 全文搜索 | Feature ID、精确术语（F042, Redis） |
-| **semantic** | 向量 NN（vec0 nearest-neighbor）→ hydrate evidence_docs | 跨语言（"cat naming" → "猫名故事"）、同义表达 |
+| **semantic** | 向量 NN（vec0 nearest-neighbor）→ hydrate evidence_docs | 跨语言（"agent naming" → "Agent名故事"）、同义表达 |
 | **hybrid** | BM25 召回 + 向量 NN 召回 → RRF 融合（k=60） | **推荐日常使用** |
 
 每种模式有独立的召回路径（KD-44）：
@@ -171,12 +171,12 @@ ANTHROPIC_PROXY_ENABLED=1 → 本地反代 :9877（调度器自动读 proxy-upst
 | 来源 | 学了什么 | 没搬什么 |
 |------|---------|---------|
 | **Lossless Claw (LCM)** | "压缩≠丢弃，摘要必须可穿透" · LSM 分层思想 | DAG 数据结构 · session 内 compaction |
-| **OpenClaw Gateway** | connector binding · conversation identity · session truth boundary | 强隔离多脑模型（我们保留多猫共享协作） |
+| **OpenClaw Gateway** | connector binding · conversation identity · session truth boundary | 强隔离多脑模型（我们保留多Agent共享协作） |
 | **Artem《Grep Is Dead》(QMD)** | SQLite FTS5 + vec + RRF 同构确认 | QMD 外部依赖（我们扩大自有数据源） |
 
 ## 独有优势
 
-1. **Thread-level 共享摘要** — 不按猫分（多猫 session 重合），thread 一份摘要所有猫共享
+1. **Thread-level 共享摘要** — 不按Agent分（多Agent session 重合），thread 一份摘要所有Agent共享
 2. **自然语言摘要 + 程序解析** — 让 Opus 说人话，格式交给程序（不强迫模型输出 JSON）
 3. **三种检索模式真正独立** — semantic 不依赖 BM25 召回（纯 NN），hybrid 是 RRF 融合
 4. **本地优先 + 全部 feature-flagged** — SQLite 本地文件 · 开源默认 off · 一个开关启用
@@ -185,9 +185,9 @@ ANTHROPIC_PROXY_ENABLED=1 → 本地反代 :9877（调度器自动读 proxy-upst
 ## Consequences
 
 ### 正面
-- 猫猫搜 "cat naming origin" 第一条就是花名册（中英混搜桥接）
+- Agent搜 "agent naming origin" 第一条就是花名册（中英混搜桥接）
 - 380+ thread 自动生成 abstractive summary，不靠人工
-- 新猫/新 session 启动时自带项目上下文（SessionBootstrap auto-recall）
+- 新Agent/新 session 启动时自带项目上下文（SessionBootstrap auto-recall）
 - 五个概念关系清晰，端到端流转有文档
 
 ### 负面

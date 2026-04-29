@@ -8,7 +8,7 @@ created: 2026-02-26
 
 # F005: ideate 模式 A2A follow-up
 
-> **Status**: done | **Owner**: 三猫
+> **Status**: done | **Owner**: Admin
 > **Created**: 2026-02-26
 
 ## Why

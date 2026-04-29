@@ -8,7 +8,7 @@ created: 2026-02-28
 
 # F047: Queue Steer（队列消息一键“立即执行 / 提到队首”）
 
-> **Status**: done | **Owner**: Maine Coon/Maine Coon（Codex）
+> **Status**: done | **Owner**: Agent-M/Agent-M（Codex）
 > **Created**: 2026-02-28
 > **Completed**: 2026-02-28
 > **Priority**: P1
@@ -17,7 +17,7 @@ created: 2026-02-28
 
 ## Why
 
-team lead在 Codex 原生体验中使用 **Steer**：当消息在队列里等待时，点击 Steer 会让“那条排队消息”立刻进入猫的处理流程（而不是只能撤回/重排/再发一条）。
+team lead在 Codex 原生体验中使用 **Steer**：当消息在队列里等待时，点击 Steer 会让“那条排队消息”立刻进入Agent的处理流程（而不是只能撤回/重排/再发一条）。
 
 ## What
 
@@ -31,7 +31,7 @@ team lead在 Codex 原生体验中使用 **Steer**：当消息在队列里等待
 - [x] AC-A1: 本文档需在本轮迁移后维持模板核心结构（Status/Why/What/Dependencies/Risk/Timeline）。
 - [x] `queued` 条目显示 Steer（`processing` 不显示）
 - [x] Steer 弹窗提供「立即执行 / 提到队首」并可取消
-- [x] 立即执行：有猫在跑时会先 cancel，再立刻执行被 Steer 的条目
+- [x] 立即执行：有Agent在跑时会先 cancel，再立刻执行被 Steer 的条目
 - [x] 提到队首：条目移动到队首，不影响当前执行；当前结束后优先执行
 - [x] 两种行为都会触发 `queue_updated`，前端实时更新
 - [x] 具备 API 测试覆盖（至少：权限、409 processing、两种 steer 行为）
@@ -54,7 +54,7 @@ team lead在 Codex 原生体验中使用 **Steer**：当消息在队列里等待
 
 - `QueuePanel` queued entry row adds **Steer** button
 - Modal offers two choices:
-  - 立即执行（取消当前猫）
+  - 立即执行（取消当前Agent）
   - 提到队首（不取消）
 
 ## Key Decisions
@@ -71,12 +71,12 @@ team lead在 Codex 原生体验中使用 **Steer**：当消息在队列里等待
 
 | 轮次 | Reviewer | 结果 | 日期 |
 |------|----------|------|------|
-| R1 | Ragdoll/Opus-46 | 0 P1 / 1 P2 | 2026-02-28 |
-| R2 | Ragdoll/Opus-46 | 0 P1 / 0 P2 ✅ | 2026-02-28 |
+| R1 | Agent-R/Opus-46 | 0 P1 / 1 P2 | 2026-02-28 |
+| R2 | Agent-R/Opus-46 | 0 P1 / 0 P2 ✅ | 2026-02-28 |
 | Cloud | chatgpt-codex-connector | 0 P1 / 0 P2 ✅ | 2026-02-28 |
 
 ### 愿景交叉验证签收
-| 猫猫 | 读了哪些原始文档 | 三个问题结论 | 签收 |
+| Agent | 读了哪些原始文档 | 三个问题结论 | 签收 |
 |------|------------------|-------------|------|
 
 ## Dependencies

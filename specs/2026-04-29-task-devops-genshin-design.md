@@ -3,7 +3,7 @@
 ## 1. 核心架构：基于“能力发现”的自治路由模型 + 协作大厅
 
 ### 1.1 设计理念
-结合 DevOps 流程、Superpowers（能力矩阵）、OpenSpec（结构化规范）以及用户体验需求，系统采用**方案1（自治路由模型）**作为底层驱动，并在展现层引入**全局协作大厅（Global Chat Room）**。同时，移除原有的像素猫元素，采用《原神》主题风格（Genshin Impact Theme）提升沉浸感。
+结合 DevOps 流程、Superpowers（能力矩阵）、OpenSpec（结构化规范）以及用户体验需求，系统采用**方案1（自治路由模型）**作为底层驱动，并在展现层引入**全局协作大厅（Global Chat Room）**。同时，移除原有的像素Agent元素，采用《原神》主题风格（Genshin Impact Theme）提升沉浸感。
 
 ### 1.2 核心模型 (Core Models)
 
@@ -48,7 +48,7 @@
 
 ## 3. 原神像素风重构 (Genshin Impact Pixel Theme)
 
-为了提升体验，将现有的像素猫（Pixel Cat）视觉元素替换为**《原神》角色的 8-Bit 像素艺术风格**，保留强烈的像素（Pixel Art）硬朗感。
+为了提升体验，将现有的像素Agent（Pixel agent）视觉元素替换为**《原神》角色的 8-Bit 像素艺术风格**，保留强烈的像素（Pixel Art）硬朗感。
 
 ### 3.1 角色映射与卡池管理 (Agent Personas & Pool)
 系统采用 **“内置角色池 (Preset Pool) + 自由编队”** 的模式。
@@ -86,4 +86,4 @@
 1.  **Phase 1: 数据模型更新**: 在 Zustand Store 中引入 `ChatMessage` 实体，增加对全局聊天的状态管理。
 2.  **Phase 2: 布局调整**: 重构 `page.tsx`，引入双列布局（左看板，右聊天室）。
 3.  **Phase 3: 聊天大厅开发**: 实现 `GlobalChatRoom` 组件，支持文本渲染、Task 引用（点击高亮看板卡片）以及内嵌的审批按钮交互。
-4.  **Phase 4: 视觉主题替换**: 清理 CSS 变量，移除猫咪元素，全面应用原神色彩与材质。更新 Agent 的初始数据（名字、头像、角色）。
+4.  **Phase 4: 视觉主题替换**: 清理 CSS 变量，移除Agent咪元素，全面应用原神色彩与材质。更新 Agent 的初始数据（名字、头像、角色）。

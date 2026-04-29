@@ -9,17 +9,17 @@ decision_id: ADR-021
 # ADR-021: F129 Pack System 架构 — Multi-Agent 共创世界的声明式 Mod 生态
 
 > **Status**: accepted
-> **Deciders**: 铲屎官 + Ragdoll(opus) + Maine Coon(gpt52) + Siamese(gemini) + 金渐层(opencode)
+> **Deciders**: 铲屎官 + Agent-R(opus) + Agent-M(gpt52) + Siamese(gemini) + Golden Agent(opencode)
 > **Date**: 2026-03-25
 > **Feature Spec**: `docs/features/F129-pack-system-multi-agent-mod.md`
 
 ## Context
 
-Cat Café 已有 120+ features，cat-config + skills + shared-rules 体系经过验证。但这套体系目前是硬编码在项目里的，无法让用户自定义、无法分享、无法适配非 coding 场景。
+Agent Task Hub 已有 120+ features，agent-config + skills + shared-rules 体系经过验证。但这套体系目前是硬编码在项目里的，无法让用户自定义、无法分享、无法适配非 coding 场景。
 
 ### 核心问题
 
-铲屎官的原话：*"如果我是金融从业者？如果我是跑团爱好者？如果我是律师？……me & world & cats，我可以是任何身份的我。"*
+铲屎官的原话：*"如果我是金融从业者？如果我是跑团爱好者？如果我是律师？……me & world & agents，我可以是任何身份的我。"*
 
 **需要一个机制，让"多 agent 协作世界"可定义、可分享、可组合。**
 
@@ -29,7 +29,7 @@ Cat Café 已有 120+ features，cat-config + skills + shared-rules 体系经过
 |------|-------------------|------------------|
 | 定义 | 一个 agent 怎么工作 | 一群 agent 怎么协作 |
 | 核心差异 | 无 | **shared-rules — 团队社会契约** |
-| 例子 | Claude Code CLAUDE.md | Cat Café shared-rules.md |
+| 例子 | Claude Code CLAUDE.md | Agent Task Hub shared-rules.md |
 
 单 agent 系统的 skill 只需要告诉一个 agent 怎么工作。多 agent 系统还需要定义 agent 之间的协作规范——这就是 shared-rules。目前业界（OpenClaw、SillyTavern、Cursor）的 skill/plugin 体系都停留在 single-agent 层面。
 
@@ -43,7 +43,7 @@ Experience = Me（本地私有） × Pack（可分享） + Growth（私有生长
 
 - **Me** = 用户自己，不打包
 - **Pack** = 一个完整的"多 agent 共创世界"定义（文化种子）
-- **Growth** = 用户和猫猫一起长出来的私有关系/记忆（关系果实）
+- **Growth** = 用户和Agent一起长出来的私有关系/记忆（关系果实）
 
 > **KD-11 边界**：Pack 只定义亲密协作发生的条件，不承诺承载亲密协作本身。Growth 不可直接打包外发，只能经蒸馏后回流为方法论/模板（W5）。
 
@@ -80,7 +80,7 @@ graph TB
 | **Core Rails** | 不可覆盖 | 平台（hardcoded） |
 | **Pack** | 社区分享 | Pack 作者 |
 | **World Driver** | 随 Pack 分享 | Pack 作者 |
-| **Growth** | 本地私有 | 用户 × 猫猫 |
+| **Growth** | 本地私有 | 用户 × Agent |
 
 ### 3. 双轨信任边界（KD-9）
 
@@ -98,7 +98,7 @@ graph LR
         UR["用户当前请求"]
         -->|">"| GRO["Growth"]
         -->|">"| DEF["Pack defaults.yaml"]
-        -->|">"| CAT["猫本体默认"]
+        -->|">"| agent["Agent本体默认"]
     end
 
     style RF fill:#c0392b,color:#fff
@@ -107,7 +107,7 @@ graph LR
     style UR fill:#2ecc71,color:#fff
     style GRO fill:#27ae60,color:#fff
     style DEF fill:#3498db,color:#fff
-    style CAT fill:#95a5a6,color:#fff
+    style agent fill:#95a5a6,color:#fff
 ```
 
 **关键安全属性**：
@@ -120,7 +120,7 @@ graph LR
 ```
 my-pack/
 ├── pack.yaml               ← 元信息 + 兼容性
-├── masks/                   ← 猫格面具（叠加专业角色，不改核心身份）
+├── masks/                   ← Agent格面具（叠加专业角色，不改核心身份）
 ├── guardrails.yaml          ← 硬约束（行业红线、安全边界）
 ├── defaults.yaml            ← 默认行为（协作流程、语气）
 ├── workflows/               ← 声明式工作流 schema
@@ -138,13 +138,13 @@ my-pack/
 ```mermaid
 sequenceDiagram
     participant User as 用户
-    participant CLI as cafe CLI
+    participant CLI as hub CLI
     participant Loader as Pack Loader
     participant Compiler as Pack Compiler
     participant SPB as SystemPromptBuilder
-    participant Agent as 猫猫 (Agent)
+    participant Agent as Agent (Agent)
 
-    User->>CLI: cafe pack add <url>
+    User->>CLI: hub pack add <url>
     CLI->>Loader: 下载 + schema 校验
     Note over Loader: fail-closed：<br/>未知字段 → reject<br/>capabilities/ → reject (Phase A)
 
@@ -186,7 +186,7 @@ graph LR
         SE["Extensions<br/>Browser JS"]
     end
 
-    subgraph "Cat Café Pack"
+    subgraph "Agent Task Hub Pack"
         PM["masks/"]
         PW["workflows/<br/>defaults/"]
         PK["knowledge/"]
@@ -237,7 +237,7 @@ graph TB
 
 ### 9. 与业界方案的定位差异
 
-| 维度 | OpenClaw / SillyTavern | Cursor / Claude Code | **Cat Café Pack** |
+| 维度 | OpenClaw / SillyTavern | Cursor / Claude Code | **Agent Task Hub Pack** |
 |------|----------------------|---------------------|-------------------|
 | Agent 数量 | 单 agent | 单 agent | **多 agent** |
 | 协作规范 | 无一等公民多 agent 协作规范 | 无一等公民多 agent 协作规范 | **shared-rules 拆为 guardrails + defaults** |
@@ -252,7 +252,7 @@ graph TB
 - 用户无需写代码即可定义自己的多 agent 协作世界
 - shared-rules 的团队协作规范可分享，填补业界 multi-agent skill 空白
 - 双轨信任边界防止社区 Pack 污染核心身份和安全边界
-- Growth 私有层保护用户与猫猫的亲密关系不被商品化
+- Growth 私有层保护用户与Agent的亲密关系不被商品化
 
 ### 风险
 - Pack 格式过度设计 → Phase A 只做最小格式，dogfood 验证
@@ -268,10 +268,10 @@ graph TB
 
 | # | 决策 | 来源 |
 |---|------|------|
-| KD-1 | 术语统一为 Pack | 三猫共识 |
+| KD-1 | 术语统一为 Pack | Admin共识 |
 | KD-2 | Pack = 声明式 mod，不是代码插件 | lesson-07 禁区 |
-| KD-8 | Pack 内不用 `shared-rules.md`，拆 guardrails + defaults | Maine Coon P1：同名冲突 |
-| KD-9 | 双轨信任边界：schema→编译，不原样注入 | Maine Coon P1：prompt injection |
+| KD-8 | Pack 内不用 `shared-rules.md`，拆 guardrails + defaults | Agent-M P1：同名冲突 |
+| KD-9 | 双轨信任边界：schema→编译，不原样注入 | Agent-M P1：prompt injection |
 | KD-10 | Bundle-first（OpenClaw）+ Content-first（SillyTavern） | 三方交叉验证 |
 | KD-11 | Pack = 文化种子；Growth = 关系果实；蒸馏回流 | 脑暴涌现 |
 
@@ -282,7 +282,7 @@ graph TB
 | 类型 | 路径 |
 |------|------|
 | Feature Spec | `docs/features/F129-pack-system-multi-agent-mod.md` |
-| Vision | `docs/VISION.md` §Cats & U + §人与猫 |
+| Vision | `docs/VISION.md` §Agents & U + §人与Agent |
 | Discussion | *(internal reference removed)* |
 | Research | *(internal reference removed)* |
 | Lesson | `docs/public-lessons.md` §LL-037 |

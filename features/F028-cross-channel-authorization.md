@@ -8,7 +8,7 @@ created: 2026-02-26
 
 # F028: 授权请求跨渠道通知
 
-> **Status**: done | **Owner**: 三猫
+> **Status**: done | **Owner**: Admin
 > **Created**: 2026-02-26
 
 ## Why

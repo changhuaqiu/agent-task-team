@@ -9,7 +9,7 @@ created: 2026-02-26
 
 > 日期: 2026-02-08
 > 状态: 已拍板
-> 参与者: Ragdoll (Opus 4.5) + 铲屎官 🐬
+> 参与者: Agent-R (Opus 4.5) + 铲屎官 🐬
 > 背景: Phase 5 上下文工程规划
 
 ---
@@ -33,42 +33,42 @@ Phase 5 要集成 Hindsight 作为协作记忆系统。在开工前需要拍板 
 
 ## 问题 2：Bank 设计
 
-### Ragdoll初始方案
+### Agent-R初始方案
 
 | 方案 | Bank 结构 | 优点 | 缺点 |
 |------|----------|------|------|
-| A | 单一 `cat-cafe` | 简单 | 所有记忆混在一起 |
-| B | `cat-cafe-shared` + `cat-cafe-{catId}` | 共享 vs 个人分离 | 需要决定什么进哪里 |
-| C | `cat-cafe-{projectPath}` | 项目独立 | 跨项目知识不能共享 |
+| A | 单一 `agent-hub` | 简单 | 所有记忆混在一起 |
+| B | `agent-hub-shared` + `agent-hub-{catId}` | 共享 vs 个人分离 | 需要决定什么进哪里 |
+| C | `agent-hub-{projectPath}` | 项目独立 | 跨项目知识不能共享 |
 | D | B + C 混合 | 最灵活 | 最复杂 |
 
-Ragdoll推荐 B：共享知识放 `cat-cafe-shared`，个人经验放 `cat-cafe-{catId}`。
+Agent-R推荐 B：共享知识放 `agent-hub-shared`，个人经验放 `agent-hub-{catId}`。
 
 ### 铲屎官反馈 🐬
 
-> "如果缅因大猫不知道你为什么如此架构他要如何 review 你的代码呢？他可能会猫猫疑惑你这到底是 bug 还是 feature。"
+> "如果缅因大Agent不知道你为什么如此架构他要如何 review 你的代码呢？他可能会Agent疑惑你这到底是 bug 还是 feature。"
 
 **核心洞察**：
-1. **"个人经验"不应该隔离** — 架构决策必须共享，否则其他猫无法理解 why
+1. **"个人经验"不应该隔离** — 架构决策必须共享，否则其他Agent无法理解 why
 2. **Thread 级别不需要进 Hindsight** — Redis 已经保存完整聊天，thread 对话本身就是 session 记忆
 3. **需要定期同步 thread 对话** — 导出成 md/log 作为可检索的历史
 
 ### 最终决策
 
 **Bank 结构**:
-- `cat-cafe-shared`: 所有项目知识、决策记录、协作规则（三猫都能读写）
-- 暂不做 `cat-cafe-{catId}` — 避免知识孤岛
+- `agent-hub-shared`: 所有项目知识、决策记录、协作规则（Admin都能读写）
+- 暂不做 `agent-hub-{catId}` — 避免知识孤岛
 
 ### 补充决策：单一 Bank 下的“可过滤”约定 ✅
 
 既然不做个人 bank，那么“避免混在一起”的能力必须由 **tags/metadata 约定**来承担，否则 Recall/Reflect 很容易跨项目/跨阶段串味。
 
-**决策**：写入 `cat-cafe-shared` 的每条 `MemoryItem`（或每个文档的 items）必须满足：
-- 至少 1 个 `project:*` tag（Cat Café 固定为 `project:cat-cafe`）
+**决策**：写入 `agent-hub-shared` 的每条 `MemoryItem`（或每个文档的 items）必须满足：
+- 至少 1 个 `project:*` tag（Agent Task Hub 固定为 `project:agent-hub`）
 - 至少 1 个 `kind:*` tag（例如：`kind:decision` / `kind:phase` / `kind:discussion` / `kind:backlog`）
 - `metadata` 至少包含：
   - `anchor`：稳定证据锚点（例如 `docs/decisions/005-hindsight-integration-decisions.md` 或 `commit:<sha>`）
-  - `author`：写入者（例如 `ragdoll|maine|siamese|caretaker`）
+  - `author`：写入者（例如 `Agent-R|maine|siamese|caretaker`）
   - `status`：`draft|published|archived`
 
 **注意（Hindsight OpenAPI 约束）**：`metadata` 的 value 类型是 `string`（`Record<string,string>`）。如需存 anchors 列表/结构化内容，必须序列化为字符串（例如 JSON 字符串或多行文本）。
@@ -76,7 +76,7 @@ Ragdoll推荐 B：共享知识放 `cat-cafe-shared`，个人经验放 `cat-cafe-
 **记忆层次**:
 ```
 ┌─────────────────────────────────────────────────────────┐
-│ Hindsight (cat-cafe-shared)                             │
+│ Hindsight (agent-hub-shared)                             │
 │ - 决策记录 (docs/decisions/)                            │
 │ - 阶段计划 (docs/phases/ 归档后的)                       │
 │ - 协作规则、架构知识                                     │
@@ -97,7 +97,7 @@ Ragdoll推荐 B：共享知识放 `cat-cafe-shared`，个人经验放 `cat-cafe-
 ┌─────────────────────────────────────────────────────────┐
 │ Redis (MessageStore)                                     │
 │ - 当前 thread 完整消息                                   │
-│ - 猫猫压缩后可回溯                                       │
+│ - Agent压缩后可回溯                                       │
 └─────────────────────────────────────────────────────────┘
                          ▲
                          │ 索引/摘要
@@ -110,19 +110,19 @@ Ragdoll推荐 B：共享知识放 `cat-cafe-shared`，个人经验放 `cat-cafe-
 ```
 
 **MCP 封装约束**:
-- Cat Café 的 MCP 工具**只暴露 `cat-cafe-*` 开头的 bank**
-- 不让猫猫看到其他项目的 bank（如 `routing-shared`, `mission-control-hub` 等）
-- 原因：避免浪费猫猫上下文，聚焦当前项目
+- Agent Task Hub 的 MCP 工具**只暴露 `agent-hub-*` 开头的 bank**
+- 不让Agent看到其他项目的 bank（如 `routing-shared`, `mission-control-hub` 等）
+- 原因：避免浪费Agent上下文，聚焦当前项目
 
 **待办**:
 - [ ] 调研/确认 Hindsight 的 memory types（world/observation/experience/opinion…）与我们导入文档的映射策略
-- [ ] MCP 封装时过滤 bank 列表（只返回 `cat-cafe-*`）
+- [ ] MCP 封装时过滤 bank 列表（只返回 `agent-hub-*`）
 
 ---
 
 ## 问题 3：F3-lite 与 Hindsight 分工
 
-### Ragdoll分析
+### Agent-R分析
 
 | 方案 | 描述 |
 |------|------|
@@ -132,18 +132,18 @@ Ragdoll推荐 B：共享知识放 `cat-cafe-shared`，个人经验放 `cat-cafe-
 
 ### 铲屎官反馈 🐬
 
-> "F3-lite 像快速的短期记忆。猫猫压缩后丢失完整记忆，但有摘要。用摘要去 F3-lite 找，找不到就去 thread log 找。"
+> "F3-lite 像快速的短期记忆。Agent压缩后丢失完整记忆，但有摘要。用摘要去 F3-lite 找，找不到就去 thread log 找。"
 
 ### 最终决策: 方案 B（分层）
 
 **F3-lite 定位**:
 - 短期记忆 / 摘要索引
-- 猫猫压缩上下文后，留下的"指针"
+- Agent压缩上下文后，留下的"指针"
 - 例如：`/remember api-design 见 thread log 2026-02-08 的讨论`
 
 **检索链路**:
 ```
-猫猫需要回忆
+Agent需要回忆
     │
     ▼
 F3-lite (摘要索引)
@@ -159,11 +159,11 @@ Hindsight Recall (语义检索)
 
 ## 问题 4：发布门禁实现位置
 
-### Ragdoll分析
+### Agent-R分析
 
 | 方案 | 描述 |
 |------|------|
-| A | Cat Café 调用层实现（Redis 存状态） |
+| A | Agent Task Hub 调用层实现（Redis 存状态） |
 | B | 用 Hindsight 的 metadata/tags 存状态 |
 | C | 不做门禁，全部写入即生效 |
 
@@ -171,7 +171,7 @@ Hindsight Recall (语义检索)
 
 > "可以注意做好优雅的实现，别丢东西 🤣 什么优雅停机之类的保障都搞上"
 
-### 最终决策: 方案 A（Cat Café 调用层）
+### 最终决策: 方案 A（Agent Task Hub 调用层）
 
 **实现要点**:
 - Redis 存状态机 (draft → pending_review → published)
@@ -181,7 +181,7 @@ Hindsight Recall (语义检索)
 ### 补充决策：安全边界与降级策略 ✅
 
 **安全边界**
-- Hindsight 当前为本地开发环境（无认证）。Cat Café 集成时应 **只允许服务端调用** Hindsight（避免浏览器直连 `localhost:8888`，也避免把无认证服务暴露到前端）。
+- Hindsight 当前为本地开发环境（无认证）。Agent Task Hub 集成时应 **只允许服务端调用** Hindsight（避免浏览器直连 `localhost:8888`，也避免把无认证服务暴露到前端）。
 
 **降级策略**
 - Hindsight 不可用时：检索链路降级为 `docs/` 文件搜索（grep/简单倒排），并在 UI 明确提示“已降级/结果可能不完整”。
@@ -191,7 +191,7 @@ Hindsight Recall (语义检索)
 
 ## 问题 5：Evidence 检索是否用 Hindsight Recall
 
-### Ragdoll分析
+### Agent-R分析
 
 | 方案 | 描述 |
 |------|------|
@@ -199,7 +199,7 @@ Hindsight Recall (语义检索)
 | B | 用 grep/glob 文件搜索 |
 | C | 混合：先 grep 找候选，再用 LLM 排序 |
 
-Ragdoll推荐 A，创建 `cat-cafe-evidence` bank。
+Agent-R推荐 A，创建 `agent-hub-evidence` bank。
 
 ### 铲屎官反馈 🐬
 
@@ -210,8 +210,8 @@ Ragdoll推荐 A，创建 `cat-cafe-evidence` bank。
 ### 最终决策: 方案 A（Hindsight Recall）
 
 **调整**:
-- 不单独建 `cat-cafe-evidence` bank，直接用 `cat-cafe-shared`
-- **两只猫需要调研**: Hindsight 的 memory types 如何利用
+- 不单独建 `agent-hub-evidence` bank，直接用 `agent-hub-shared`
+- **两只Agent需要调研**: Hindsight 的 memory types 如何利用
 
 **导入策略**:
 - 只导入**归档后**的稳定文档
@@ -224,7 +224,7 @@ Ragdoll推荐 A，创建 `cat-cafe-evidence` bank。
 
 ## 问题 6：Reflect 触发策略
 
-### Ragdoll分析
+### Agent-R分析
 
 | 触发时机 | 描述 | 成本 |
 |----------|------|------|
@@ -234,20 +234,20 @@ Ragdoll推荐 A，创建 `cat-cafe-evidence` bank。
 
 ### 铲屎官反馈 🐬
 
-> "优先让猫猫和人自己主动调用，比如猫猫通过 MCP，人通过 slash magic word"
+> "优先让Agent和人自己主动调用，比如Agent通过 MCP，人通过 slash magic word"
 
 ### 最终决策: 手动优先
 
 **实现**:
 - 用户: `/reflect [query]` slash command
-- 猫猫: `cat_cafe_reflect` MCP callback
+- Agent: `cat_cafe_reflect` MCP callback
 - 后续可加定时/自动
 
 ---
 
 ## 问题 7：UX 呈现方式
 
-### Ragdoll分析
+### Agent-R分析
 
 | 方案 | 描述 |
 |------|------|
@@ -255,22 +255,22 @@ Ragdoll推荐 A，创建 `cat-cafe-evidence` bank。
 | B | 卡片组件（类似 TaskCard） |
 | C | 折叠展开 |
 
-Ragdoll推荐 B（卡片）。
+Agent-R推荐 B（卡片）。
 
 ### 铲屎官反馈 🐬
 
 > "我同意你的方式，但是放的位置可能都是在右边？参考 Claude Code 的 cowork 截图。"
 >
-> "我们现在的 tool_use 和 error 事件现在是被丢弃的 → 这个必须之后展示！可观测性很重要，不然等了几分钟前端只有猫猫在思考，感受太差了。"
+> "我们现在的 tool_use 和 error 事件现在是被丢弃的 → 这个必须之后展示！可观测性很重要，不然等了几分钟前端只有Agent在思考，感受太差了。"
 >
-> "这估计就是你这只猫猫写的 bug（还是 feature？🤣 这里就说明了问题 2 —— 你的架构决策如果只是你的记忆，铲屎官都无法判断到底为什么了！）"
+> "这估计就是你这只Agent写的 bug（还是 feature？🤣 这里就说明了问题 2 —— 你的架构决策如果只是你的记忆，铲屎官都无法判断到底为什么了！）"
 
 ### 最终决策: 卡片组件 + 右侧面板 + 可观测性修复
 
 **布局参考**: Claude Code cowork 截图 (`reference-pictures/`)
 
 **必须修复的 bug/feature**:
-- `tool_use` 事件当前被丢弃 → 必须展示（猫猫在调用什么工具）
+- `tool_use` 事件当前被丢弃 → 必须展示（Agent在调用什么工具）
 - `error` 事件当前被丢弃 → 必须展示
 - 这是可观测性问题，也是 UX 问题
 
@@ -283,7 +283,7 @@ Ragdoll推荐 B（卡片）。
 
 ## 关键教训
 
-1. **知识不能隔离** — "个人经验"的划分会导致其他猫无法理解 why
+1. **知识不能隔离** — "个人经验"的划分会导致其他Agent无法理解 why
 2. **Thread 对话本身就是 session 记忆** — 不需要额外进 Hindsight
 3. **只导入归档后的稳定内容** — 正在进行的讨论不稳定
 4. **记录决策过程的 why** — 选项分析 + 反馈 = 可追溯的决策思考
@@ -297,13 +297,13 @@ Ragdoll推荐 B（卡片）。
 
 - 观察到的 fact types（至少包含）：`world`、`observation`、`experience`、`opinion`
 - 示例（`dare-framework`）：`total_nodes=377`；`world=271`、`observation=87`、`experience=8`、`opinion=11`
-- 说明：这只是现有 bank 的快照；`cat-cafe-shared` 的写入策略仍应以 **tags/metadata 约定**为主，避免单一 bank 串味。
+- 说明：这只是现有 bank 的快照；`agent-hub-shared` 的写入策略仍应以 **tags/metadata 约定**为主，避免单一 bank 串味。
 
 ---
 
 ## 附录 B：GPT Pro 外部研究回流（2026-02-13，讨论输入）
 
-> 说明：本节是外部研究输入，不是自动拍板结论。最终取舍需三猫讨论后再转为正式决策。
+> 说明：本节是外部研究输入，不是自动拍板结论。最终取舍需Admin讨论后再转为正式决策。
 
 ### 输入来源
 
@@ -312,7 +312,7 @@ Ragdoll推荐 B（卡片）。
 
 ### 现场快照（2026-02-13）
 
-- `cat-cafe-shared` 当前呈现为 `opinion-only`（`nodes_by_fact_type={"opinion":27}`）
+- `agent-hub-shared` 当前呈现为 `opinion-only`（`nodes_by_fact_type={"opinion":27}`）
 - `tags` 为空（`total=0`）
 
 ### 回流要点（待讨论）
@@ -335,19 +335,19 @@ Ragdoll推荐 B（卡片）。
 
 ---
 
-*附录 B 补充整理：Maine Coon 🐾（2026-02-13）*
-*原始签名: Ragdoll 🐾 + 铲屎官 🐬*
+*附录 B 补充整理：Agent-M 🐾（2026-02-13）*
+*原始签名: Agent-R 🐾 + 铲屎官 🐬*
 
 ---
 
 ## 附录 C：Hindsight 导入治理五项共识（2026-02-13，已收敛）
 
-> 说明：本节记录Ragdoll与Maine Coon讨论后达成的五项共识，已获铲屎官确认。附录 B 中的"待决"项在此正式拍板。
+> 说明：本节记录Agent-R与Agent-M讨论后达成的五项共识，已获铲屎官确认。附录 B 中的"待决"项在此正式拍板。
 
 ### 讨论过程
 
-- Ragdoll独立判断：*(internal reference removed)*
-- Maine Coon独立判断：*(internal reference removed)*
+- Agent-R独立判断：*(internal reference removed)*
+- Agent-M独立判断：*(internal reference removed)*
 - 收敛确认：*(internal reference removed)*
 - 铲屎官挑战（教训沉淀）：*(internal reference removed)*
 
@@ -375,8 +375,8 @@ Ragdoll推荐 B（卡片）。
 - 不建持久化映射表
 
 **否决理由**：
-- "纯 path 绑定" → 目录重构时 ADR/Phase 的身份会变，需要 delete + reimport（Ragdoll原始方案，被Maine Coon"身份与路径解耦"论据说服后放弃）
-- "docRef 映射系统" → 对 <50 文档的团队过度工程，引入映射表的持久化和同步开销（Ragdoll反对，Maine Coon同意简化）
+- "纯 path 绑定" → 目录重构时 ADR/Phase 的身份会变，需要 delete + reimport（Agent-R原始方案，被Agent-M"身份与路径解耦"论据说服后放弃）
+- "docRef 映射系统" → 对 <50 文档的团队过度工程，引入映射表的持久化和同步开销（Agent-R反对，Agent-M同意简化）
 
 #### 共识 3：Discussion 导入边界
 
@@ -387,8 +387,8 @@ Ragdoll推荐 B（卡片）。
 - 讨论文件在 git 里永远可查，用于审计
 
 **否决理由**：
-- "讨论全量导入" → 信噪比太低，200+ 行讨论文件的"结论"边界模糊（Ragdoll论据）
-- "讨论绝对不导入，不留例外" → 可能丢失"尚未 ADR 化但已执行的临时规则"（Maine Coon论据，折中为预留接口）
+- "讨论全量导入" → 信噪比太低，200+ 行讨论文件的"结论"边界模糊（Agent-R论据）
+- "讨论绝对不导入，不留例外" → 可能丢失"尚未 ADR 化但已执行的临时规则"（Agent-M论据，折中为预留接口）
 
 #### 共识 4：Tombstone GC
 
@@ -407,12 +407,12 @@ Ragdoll推荐 B（卡片）。
 **决策**：P0 prompt 约束 + 审计观测；P1 根据 evidence_hit_rate 评估 callback 强制
 
 - P0：更新 CLAUDE.md / AGENTS.md，加规则"回答决策类问题前先 Recall"
-- P0：审计日志记录猫猫是否在回答前调了 recall
+- P0：审计日志记录Agent是否在回答前调了 recall
 - P1 判断标准：2 周后 evidence_hit_rate > 80% → 不需要 callback；< 50% → 升级到 callback
 
 **否决理由**：
-- "P0 就上 callback 强制" → 要改 AgentRouter 响应流程，复杂度高，不适合止血阶段（Ragdoll论据）
-- "只靠 prompt，不做审计" → 无法观测执行率，无法判断是否需要升级（Maine Coon论据，折中为 prompt + 审计）
+- "P0 就上 callback 强制" → 要改 AgentRouter 响应流程，复杂度高，不适合止血阶段（Agent-R论据）
+- "只靠 prompt，不做审计" → 无法观测执行率，无法判断是否需要升级（Agent-M论据，折中为 prompt + 审计）
 
 ### 补充决策：教训沉淀机制
 
@@ -427,7 +427,7 @@ Ragdoll推荐 B（卡片）。
 
 ---
 
-*附录 C 整理：Ragdoll 🐾（2026-02-13）*
+*附录 C 整理：Agent-R 🐾（2026-02-13）*
 
 ---
 
@@ -438,9 +438,9 @@ Ragdoll推荐 B（卡片）。
 ### 已完成（P0）
 
 1. 导入契约 + 导入器 + CLI 落地
-   - 入口：`pnpm --filter @cat-cafe/api hindsight:import:p0 -- --all`
+   - 入口：`pnpm --filter @agent-hub/api hindsight:import:p0 -- --all`
 2. 默认 evidence 检索收紧
-   - 默认 tags：`project:cat-cafe` + `origin:git`
+   - 默认 tags：`project:agent-hub` + `origin:git`
    - 默认 tagsMatch：`all_strict`（由 runtime config 管理）
 3. 可观测三件套落地
    - 脚本：`scripts/hindsight/p0-health-check.sh`
@@ -448,7 +448,7 @@ Ragdoll推荐 B（卡片）。
 
 ### 2026-02-13 验收快照
 
-- `pnpm --filter @cat-cafe/api test`：`984 pass / 0 fail / 1 skip`
+- `pnpm --filter @agent-hub/api test`：`984 pass / 0 fail / 1 skip`
 - `bash scripts/hindsight/p0-health-check.sh`：PASS
   - `stats.total_nodes=66`
   - `tags.total=23`
@@ -470,7 +470,7 @@ Ragdoll推荐 B（卡片）。
 
 ---
 
-*附录 D 整理：Maine Coon 🐾（2026-02-13）*
+*附录 D 整理：Agent-M 🐾（2026-02-13）*
 
 ---
 
@@ -485,7 +485,7 @@ Ragdoll推荐 B（卡片）。
 3. `docs/decisions/003-project-thread-architecture.md`
 4. `docs/decisions/007-cascade-delete-semantics.md`
 5. `docs/decisions/008-conversation-mutability-and-invocation-lifecycle.md`
-6. `docs/decisions/009-cat-cafe-skills-distribution.md`
+6. `docs/decisions/009-agent-hub-skills-distribution.md`
 
 ### 验收命令
 
@@ -496,7 +496,7 @@ for f in \
   docs/decisions/003-project-thread-architecture.md \
   docs/decisions/007-cascade-delete-semantics.md \
   docs/decisions/008-conversation-mutability-and-invocation-lifecycle.md \
-  docs/decisions/009-cat-cafe-skills-distribution.md; do
+  docs/decisions/009-agent-hub-skills-distribution.md; do
   rg -q "^## 否决理由（P0\.5 回填）$" "$f" || { echo "MISSING: $f"; exit 1; }
 done
 ```
@@ -520,7 +520,7 @@ done
 > 触发条件：本次合入包含可导入源变更（ADR / `CLAUDE.md` / `AGENTS.md` / `docs/public-lessons.md`）。
 
 ```bash
-pnpm --filter @cat-cafe/api hindsight:import:p0 -- --all
+pnpm --filter @agent-hub/api hindsight:import:p0 -- --all
 bash scripts/hindsight/p0-health-check.sh
 ```
 
@@ -529,7 +529,7 @@ bash scripts/hindsight/p0-health-check.sh
 
 ### 2026-02-14 收口执行结果（main）
 
-- 导入：`pnpm --filter @cat-cafe/api hindsight:import:p0 -- --all`
+- 导入：`pnpm --filter @agent-hub/api hindsight:import:p0 -- --all`
   - 结果：`sources=10 chunks=111 dryRun=false`
 - 健康检查：`bash scripts/hindsight/p0-health-check.sh`
   - 结果：`PASS stats.total_nodes=112 total_documents=30`

@@ -10,22 +10,22 @@ decision_id: ADR-022
 # ADR-022: 统一调度抽象 — 从 setInterval 到值守台
 
 > **Status**: accepted
-> **Deciders**: 铲屎官 + Ragdoll(opus) + Maine Coon(gpt52)
+> **Deciders**: 铲屎官 + Agent-R(opus) + Agent-M(gpt52)
 > **Date**: 2026-03-25
-> **Consult**: GPT Pro (云端审阅), 金渐层(opencode)
+> **Consult**: GPT Pro (云端审阅), Golden Agent(opencode)
 > **Research**: *(internal reference removed)*
 > **Architecture Diagram**: `designs/F-schedule-abstraction.pen`
 
 ## Context
 
-Cat Café 有多个分散的定时/周期性任务需求，但没有统一的调度抽象：
+Agent Task Hub 有多个分散的定时/周期性任务需求，但没有统一的调度抽象：
 
 | 现有场景 | 当前实现 | 问题 |
 |----------|----------|------|
 | 记忆摘要调度（F102） | `setInterval` 每 30 分钟 | 硬编码、重启丢状态、无静默 |
 | 健康提醒（F085） | Claude Code `/loop 90m` | 会话级、3 天过期 |
 | PR/CI 轮询 | 各自 `setInterval` | 各自为战 |
-| 未来：猫猫巡检 | 未实现 | 需要多猫调度 + 静默协议 |
+| 未来：Agent巡检 | 未实现 | 需要多Agent调度 + 静默协议 |
 | 未来：精确定时 | 未实现 | "每天 9:00 生成日报" |
 
 当前调度器是一个 `setInterval` 壳（`packages/api/src/infrastructure/scheduler/`）：
@@ -41,7 +41,7 @@ interface ScheduledTask {
 
 ### 外部调研：OpenClaw（龙虾）Heartbeat
 
-三猫独立调研了 OpenClaw 的 heartbeat + cron 体系（详见 research 文档）。核心发现：
+Admin独立调研了 OpenClaw 的 heartbeat + cron 体系（详见 research 文档）。核心发现：
 
 **值得借鉴的模式**：
 - `HEARTBEAT_OK` 静默协议 — 无事则闭嘴（协议级，非 prompt hack）
@@ -65,7 +65,7 @@ interface ScheduledTask {
 
 ### 1. 六维度 TaskSpec + 五步流水线
 
-Maine Coon提出的正交模型，经 GPT Pro 审阅 + Maine Coon review 后微调（原 5 维度，恢复 Context）：
+Agent-M提出的正交模型，经 GPT Pro 审阅 + Agent-M review 后微调（原 5 维度，恢复 Context）：
 
 ```
 TaskSpec（任务语义）
@@ -118,19 +118,19 @@ gate: (ctx: GateCtx) => Promise<
 ```typescript
 actor: {
   kind: 'role',
-  role: 'memory-curator',     // 调度能力，不是具体猫
+  role: 'memory-curator',     // 调度能力，不是具体Agent
   strategy: 'singleton',       // singleton / sharded / broadcast
   costTier: 'cheap'            // cheap → Sonnet，deep → Opus
 }
 ```
 
-**Why**：多猫场景下，`opus` 是 runtime binding 不是真相源。resolver 根据 roster/availability/thread affinity/cost hint 选猫。
+**Why**：多Agent场景下，`opus` 是 runtime binding 不是真相源。resolver 根据 roster/availability/thread affinity/cost hint 选Agent。
 
-**注**：`role` 是**能力命名空间**（`memory-curator` / `repo-watcher` / `health-monitor`），不是 roster 身份角色（`architect` / `peer-reviewer`）。resolver 路径：能力角色 → cat-config.json roster 匹配 → 可用性 + 亲和 + 成本 → 选猫。
+**注**：`role` 是**能力命名空间**（`memory-curator` / `repo-watcher` / `health-monitor`），不是 roster 身份角色（`architect` / `peer-reviewer`）。resolver 路径：能力角色 → agent-config.json roster 匹配 → 可用性 + 亲和 + 成本 → 选Agent。
 
 #### D-3: MCP dispatch = 异步 handoff，不是同步执行
 
-唤醒猫 ≠ 调函数。唤醒猫 = 通过 MCP `post_message` 发消息 → 等异步回执。
+唤醒Agent ≠ 调函数。唤醒Agent = 通过 MCP `post_message` 发消息 → 等异步回执。
 
 ```typescript
 interface DispatchReceipt {
@@ -142,16 +142,16 @@ interface DispatchReceipt {
 }
 ```
 
-**Why**：这是 Cat Café 与龙虾（OpenClaw）最根本的架构差异。龙虾是单 agent 同步 turn；我们是多猫独立进程通过 MCP 通信。
+**Why**：这是 Agent Task Hub 与龙虾（OpenClaw）最根本的架构差异。龙虾是单 agent 同步 turn；我们是多Agent独立进程通过 MCP 通信。
 
 #### D-4: 电闸 vs 备忘录分离
 
 | 层 | 内容 | 谁能改 | 格式 |
 |----|------|--------|------|
 | **电闸**（TaskSpec） | trigger、run policy、actor、outcome | 仅铲屎官审批 | TypeScript / YAML |
-| **备忘录**（Checklist） | "醒来检查什么" | 猫可以改 | 自然语言 |
+| **备忘录**（Checklist） | "醒来检查什么" | Agent可以改 | 自然语言 |
 
-**Why**：龙虾的 HEARTBEAT.md 把电闸和备忘录混在一起，agent 可以把自己的触发频率改成每 5 分钟。我们分离两层：猫可以改"检查什么"，不能改"多久检查一次"。
+**Why**：龙虾的 HEARTBEAT.md 把电闸和备忘录混在一起，agent 可以把自己的触发频率改成每 5 分钟。我们分离两层：Agent可以改"检查什么"，不能改"多久检查一次"。
 
 #### D-5: run ledger 从第一天就有
 
@@ -170,17 +170,17 @@ RUN_DISPATCHED | RUN_COMPLETED | RUN_TIMEOUT | RUN_FAILED
 
 | 方式 | 面向谁 | 例子 |
 |------|--------|------|
-| **自然语言** | 所有用户 | "帮我设一个每天 9 点的日报巡检" → 猫生成 checklist + 提议 spec |
+| **自然语言** | 所有用户 | "帮我设一个每天 9 点的日报巡检" → Agent生成 checklist + 提议 spec |
 | **Hub UI 面板** | 所有用户 | "定时任务"面板：查看活跃任务、运行历史、暂停/恢复、编辑 checklist |
 | **TaskSpec 代码** | 开发者 | TypeScript/YAML 注册新的 task（内部开发或社区插件） |
 
-用户**永远不需要直接编辑 markdown**。checklist 的 backing store 可以是 markdown 或 DB，但用户通过自然语言告诉猫或通过 Hub UI 操作。
+用户**永远不需要直接编辑 markdown**。checklist 的 backing store 可以是 markdown 或 DB，但用户通过自然语言告诉Agent或通过 Hub UI 操作。
 
 ### 3. 与龙虾（OpenClaw）生态的兼容性
 
 #### 兼容层
 
-| 龙虾概念 | Cat Café 对应 | 兼容程度 |
+| 龙虾概念 | Agent Task Hub 对应 | 兼容程度 |
 |---------|--------------|---------|
 | `HEARTBEAT.md` | checklist（备忘录层） | **格式互认** — 自然语言 checklist 可直接导入 |
 | `HEARTBEAT_OK` | `outcome.whenNoSignal: 'drop'` | **语义一致** — 我们建模为 spec 字段 |
@@ -191,9 +191,9 @@ RUN_DISPATCHED | RUN_COMPLETED | RUN_TIMEOUT | RUN_FAILED
 
 #### 差异层（我们多出来的）
 
-| 维度 | 龙虾没有 | Cat Café 有 | 根因 |
+| 维度 | 龙虾没有 | Agent Task Hub 有 | 根因 |
 |------|---------|-------------|------|
-| Actor/Placement | 单 agent | role + resolver + lease + MCP dispatch | 多猫 |
+| Actor/Placement | 单 agent | role + resolver + lease + MCP dispatch | 多Agent |
 | typed signal gate | 字符串 OK/alert | 结构化 signal | 消除二次扫描 |
 | 电闸/备忘录分离 | 无 | task.spec vs checklist | 安全边界 |
 | dispatch receipt | 同步 turn | 异步 handoff 追踪 | MCP 架构 |
@@ -208,7 +208,7 @@ RUN_DISPATCHED | RUN_COMPLETED | RUN_TIMEOUT | RUN_FAILED
 **开发者扩展**：
 
 ```typescript
-// 方式 1：代码注册（内部开发者/猫猫）
+// 方式 1：代码注册（内部开发者/Agent）
 const myTask: TaskSpec = { id, profile, trigger, admission, run, state, outcome };
 taskRunner.register(myTask);
 
@@ -226,7 +226,7 @@ my-pack/
 
 | Profile | trigger | admission | run | state | outcome | actor |
 |---------|---------|-----------|-----|-------|---------|-------|
-| **awareness** | interval 30m+ | gate + activeHours | overlap:skip, retry:0 | cursor:memory, ledger:sqlite | noSignal:drop | role:巡检猫 |
+| **awareness** | interval 30m+ | gate + activeHours | overlap:skip, retry:0 | cursor:memory, ledger:sqlite | noSignal:drop | role:巡检Agent |
 | **poller** | interval 1-30m | gate only | overlap:skip, retry:1 | cursor:sqlite, ledger:sqlite | noSignal:record | local |
 | **precise** | cron | activeHours | overlap:configurable, retry:configurable | registration:persistent, cursor:sqlite, catchup:configurable | always:emit | role:configurable |
 
@@ -236,13 +236,13 @@ my-pack/
 
 | 规则 | 理由 |
 |------|------|
-| gate 必须先于 heavy context 加载 | 先装 session 再做 cheap check = 省的钱被猫一爪拍飞 |
+| gate 必须先于 heavy context 加载 | 先装 session 再做 cheap check = 省的钱被Agent一爪拍飞 |
 | `profile: precise` 不允许 `registration: ephemeral` | 对外承诺精确时间但绑在进程 timer 上 = 玻璃腿 |
 | retry + overlap 打开时必须有 idempotency/dedupe | 参考 Temporal/Trigger.dev |
 | `silent-if-ok` 必须写 run ledger | 对用户静默 ≠ 对系统失忆 |
 | `broadcast` 只适合只读任务 | 有 side effect 的必须 singleton/sharded |
-| awareness 任务默认加 jitter | 避免整点全猫齐醒 |
-| 猫改 checklist（备忘录），不改 spec（电闸） | 安全边界 |
+| awareness 任务默认加 jitter | 避免整点全Agent齐醒 |
+| Agent改 checklist（备忘录），不改 spec（电闸） | 安全边界 |
 | `subjectKey` 贯穿 lease/cursor/dedupe/dispatch/ledger | 统一锚点，防主键分裂 |
 
 ### 6. anti-feedback-loop
@@ -279,7 +279,7 @@ interface TaskSpec_P1<Signal = unknown> {
 
 交付物：5 步流水线 + SQLite run ledger + F102 gate 升级为 typed signal。
 
-### Phase 1b — Actor + "唤醒猫"
+### Phase 1b — Actor + "唤醒Agent"
 
 加 actor 维度 + dispatch receipt + MCP 异步追踪。
 
@@ -315,7 +315,7 @@ interface TaskSpec_P1<Signal = unknown> {
 **Positive**：
 - F102/PR poller/MediaCleanup 统一进同一个调度壳
 - 静默协议 + run ledger 让系统可观测但不吵
-- 多猫调度有了正式模型（role + lease + dispatch receipt）
+- 多Agent调度有了正式模型（role + lease + dispatch receipt）
 - 用户通过 UI/自然语言配置，不需要编辑文件
 
 **Negative**：
@@ -329,5 +329,5 @@ interface TaskSpec_P1<Signal = unknown> {
 
 ---
 
-*起草：Ragdoll/Opus-46 | 审阅：Maine Coon/GPT-5.4 | 外部咨询：GPT Pro | 2026-03-25*
-*rev-1：采纳Maine Coon review — 恢复 Context 维度 + subjectKey 统一锚点 + actor.role 能力命名空间*
+*起草：Agent-R/Opus-46 | 审阅：Agent-M/GPT-5.4 | 外部咨询：GPT Pro | 2026-03-25*
+*rev-1：采纳Agent-M review — 恢复 Context 维度 + subjectKey 统一锚点 + actor.role 能力命名空间*

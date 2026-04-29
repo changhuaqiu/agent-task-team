@@ -54,9 +54,9 @@
   - 效果: `stroke-dashoffset` 从 `0` 渐变至最大环长，形成顺时针循环流转感。
 
 ### D. 色散光束 (Collaboration Beams)
-- **视觉意象**: 具象化的猫猫分工，各自平行输出高光。
+- **视觉意象**: 具象化的Agent分工，各自平行输出高光。
 - **动效类型**: 流光线条 (`Flow`)，搭配差异化的虚线纹理（为了色盲兼容性）。
 - **参数**:
   - `duration`: `4s` 
   - `easing`: `linear`
-  - 效果: 各颜色的 `stroke-dashoffset` 线性滚动，形成光束流出的动感。Ragdoll(直线)、Maine Coon(长虚线)、Siamese(短虚线) 各自保持图案流动。
+  - 效果: 各颜色的 `stroke-dashoffset` 线性滚动，形成光束流出的动感。Agent-R(直线)、Agent-M(长虚线)、Siamese(短虚线) 各自保持图案流动。

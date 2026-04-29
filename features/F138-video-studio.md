@@ -7,26 +7,26 @@ created: 2026-03-24
 updated: 2026-04-05
 ---
 
-# F138: Cat Café Video Studio — AI 视频制作管线
+# F138: Agent Task Hub Video Studio — AI 视频制作管线
 
-> **Status**: in-progress (Phase 1 基建中：spec 驱动 composition + FA 集成 + showcase 素材录制) | **Owner**: Ragdoll + 金渐层 | **Priority**: P1
+> **Status**: in-progress (Phase 1 基建中：spec 驱动 composition + FA 集成 + showcase 素材录制) | **Owner**: Agent-R + Golden Agent | **Priority**: P1
 
 ## Why
 
-> "来吧猫猫 立项吧！link waoowaoo 和 Remotion，我们的第一个目标就是把我们的做出我们的 bilibili 的视频？比如先把我们的教程做成视频？"
+> "来吧Agent 立项吧！link waoowaoo 和 Remotion，我们的第一个目标就是把我们的做出我们的 bilibili 的视频？比如先把我们的教程做成视频？"
 > — team lead，2026-03-24
 
-Cat Café 需要**系统化的视频制作能力**，不再是一次性手搓 Remotion 代码。目标：
+Agent Task Hub 需要**系统化的视频制作能力**，不再是一次性手搓 Remotion 代码。目标：
 
-1. **把教程做成 B 站视频**——Cat Café 的 setup guide、bootcamp 流程、功能演示都应该有视频版
+1. **把教程做成 B 站视频**——Agent Task Hub 的 setup guide、bootcamp 流程、功能演示都应该有视频版
 2. **重构现有介绍视频**——V4.8 是手动分镜 + 手写代码，学习 waoowaoo 后应该能更自动化
-3. **建立可复用的视频制作管线**——team lead给素材+脚本，猫猫自动排版渲染
+3. **建立可复用的视频制作管线**——team lead给素材+脚本，Agent自动排版渲染
 
 ### 核心原则（GPT Pro 设计审阅 2026-03-25）
 
 > **先把"视频 spec"做成中枢神经，再让 AI、Remotion、队列、发布系统都围着它转。不要反过来让 prompt 当王。**
 
-### 两条生产路径（2026-04-05 三猫讨论收敛）
+### 两条生产路径（2026-04-05 Admin讨论收敛）
 
 F138 需要同时支持两条视频生产路径，对应不同场景和复杂度：
 
@@ -37,7 +37,7 @@ F138 需要同时支持两条视频生产路径，对应不同场景和复杂度
 ```
 - 适合：教程、showcase、宣传片——内容结构预先设计好
 - 人的输入：分镜脚本 + 素材粗录 + 关键时间点粗标
-- 猫的工作：节奏控制（trim/加速/跳剪）、TTS 配音、字幕、渲染
+- Agent的工作：节奏控制（trim/加速/跳剪）、TTS 配音、字幕、渲染
 - **对齐机制**：TTS 输出 word-level timestamps → 自动生成 Remotion Sequence timing
 
 **路径 A：先素材后配音**（Phase 3 引入）
@@ -48,7 +48,7 @@ F138 需要同时支持两条视频生产路径，对应不同场景和复杂度
 ```
 - 适合：日常记录、快速出片、"丢视频自动配音"场景
 - 人的输入：原始视频 + 风格/调性关键词
-- 猫的工作：画面理解 + 文案生成 + 配音 + 自动对齐
+- Agent的工作：画面理解 + 文案生成 + 配音 + 自动对齐
 - **核心依赖**：多模态视觉小模型（如 Qwen-VL-2B）逐帧/逐段理解
 - 这就是短视频平台（剪映/CapCut「图文成片」）的核心能力
 
@@ -71,8 +71,8 @@ F138 需要同时支持两条视频生产路径，对应不同场景和复杂度
 ### 现状
 
 - **已有**：`/home/user/` — 2,182 行 Remotion 代码，15+ 轮迭代经验
-- **已有**：`docs/videos/cat-cafe-intro/` — 分镜脚本 + 素材索引 + 制作复盘
-- **已有**：猫猫 TTS 声线（Ragdoll/Maine Coon/Siamese，F066/F103）
+- **已有**：`docs/videos/agent-hub-intro/` — 分镜脚本 + 素材索引 + 制作复盘
+- **已有**：Agent TTS 声线（Agent-R/Agent-M/Siamese，F066/F103）
 - **缺失**：没有 canonical video spec（事实散在聊天/代码/旁白/字幕里）
 - **缺失**：没有自动化流水线，每次做视频都是从零手写场景组件
 - **缺失**：没有 AI 辅助分镜/图片生成/角色一致性
@@ -117,8 +117,8 @@ brief → asset ingest → video-spec → voice-script → TTS(+timestamps) → 
 ```
 
 1. **第一支视频：Feature Showcase 60s 精华版**（✅ team lead已拍板 2026-04-05）
-   - 8 段画面（多猫协作/飞书同步/语音声线/Browser Preview/记忆搜索/Rich Block/训练营/学习伴侣）
-   - team lead录素材 + 粗标关键时间点，猫猫并行建管线
+   - 8 段画面（多Agent协作/飞书同步/语音声线/Browser Preview/记忆搜索/Rich Block/训练营/学习伴侣）
+   - team lead录素材 + 粗标关键时间点，Agent并行建管线
 2. **第二支视频：待定**（攻防战 or 安装教程 or 训练营演示）— 验证管线复用性
 3. **Remotion 模板库重构** — 从一次性 demo 重构为 schema 驱动的模板库
 4. **TTS + forced alignment → Remotion 自动对齐**（⚠️ 2026-04-05 修正：不赌 TTS 原生 timestamps）
@@ -129,7 +129,7 @@ brief → asset ingest → video-spec → voice-script → TTS(+timestamps) → 
    - 架构：Data Contract (JSON) 与 Renderer (Remotion/FFmpeg) 解耦
 5. **写 `video-forge` Skill**（对标 ppt-forge SKILL.md）
    - 场景路由：brief → 素材入库 → spec 冻结 → 配音 → 渲染 → 审查 → 交付
-   - 多猫分工：Ragdoll（内容+编排）、Maine Coon（音画同步+事实审查）、Siamese（节奏+调性）
+   - 多Agent分工：Agent-R（内容+编排）、Agent-M（音画同步+事实审查）、Siamese（节奏+调性）
    - 审查标准：类比 ppt-forge 的视觉审查 6 件套
 
 ### Phase 2: 上生产运维能力
@@ -193,7 +193,7 @@ brief → asset ingest → video-spec → voice-script → TTS(+timestamps) → 
 ### Phase 1（路径 B 生产环 — showcase 视频锻炼）
 - [ ] AC-1a: Remotion 项目重构为 schema 驱动的模板库
 - [ ] AC-1b: TTS + forced alignment → Remotion 自动对齐可用（全局音频，不段级切碎）
-- [ ] AC-1c: `video-forge` Skill 文件完成（场景路由 + 多猫分工 + 审查标准）
+- [ ] AC-1c: `video-forge` Skill 文件完成（场景路由 + 多Agent分工 + 审查标准）
 - [ ] AC-1d: 用管线跑通 showcase 60s 精华版视频
 - [ ] AC-1e: 用同一套管线跑通第 2 支视频（验证复用性）
 - [ ] AC-1f: 至少 1 支视频上传 B 站
@@ -218,8 +218,8 @@ brief → asset ingest → video-spec → voice-script → TTS(+timestamps) → 
 ## Dependencies
 
 - **Evolved from**: F054（HCI 预热基础设施 — B 站 MCP 调研在 F054 Phase 1）
-- **Related**: F093（Cats & U 世界引擎 — 介绍视频的创意方向）
-- **Related**: F066/F103（Voice Pipeline / Per-Cat Voice Identity — TTS 配音能力）
+- **Related**: F093（Agents & U 世界引擎 — 介绍视频的创意方向）
+- **Related**: F066/F103（Voice Pipeline / Per-agent Voice Identity — TTS 配音能力）
 - **Sister pipeline**: F144（PPT Forge — 管线锻造路径的参考模板）
 - **External**: [waoowaoo](https://github.com/saturndec/waoowaoo)（参考架构，无 License，仅学习）
 
@@ -249,7 +249,7 @@ brief → asset ingest → video-spec → voice-script → TTS(+timestamps) → 
 | KD-7 | prompt 输出必须是 JSON draft/patch，不吐 prose | "AI 说得再漂亮，只要不能落进 spec，它就只是彩带，不是齿轮" | 2026-03-25 |
 | KD-8 | 两条生产路径：路径 B（先脚本后素材）Phase 1 主攻，路径 A（先素材后配音）Phase 3 引入 | 路径 B 我们已有全部零件且 showcase 选题已定；路径 A 需要多模态模型，依赖更重 | 2026-04-05 |
 | KD-9 | 用实战磨管线，不从纸上设计 schema 开始 | 对标 F144 ppt-forge 成长路径：先手搓 → 沉淀 Skill → 沉淀 schema → gate 化 | 2026-04-05 |
-| KD-10 | TTS + forced alignment（不赌原生 timestamps）→ Remotion 自动对齐 | 两份云端调研 + 三猫交叉验证：CosyVoice/Qwen-TTS 均无生产级原生 timestamps | 2026-04-05 |
+| KD-10 | TTS + forced alignment（不赌原生 timestamps）→ Remotion 自动对齐 | 两份云端调研 + Admin交叉验证：CosyVoice/Qwen-TTS 均无生产级原生 timestamps | 2026-04-05 |
 | KD-11 | 先冻 video-spec + voice-script 两个 schema，其余 Phase 2 补 | 5 个 schema 一起冻容易纸上谈兵，先用实战验证最核心的两个 | 2026-04-05 |
 | KD-12 | 全局音频，不段级切碎 TTS | Gemini "致命缺陷" + Siamese"情绪连贯性" — 段级切碎丢失语调/呼吸感/上下文 | 2026-04-05 |
-| KD-14 | retiming 拒绝暴力慢放，优先 FREEZE_STYLIZED > B_ROLL > SLOW_MO | Siamese审美判断 + 三猫拍板 | 2026-04-05 |
+| KD-14 | retiming 拒绝暴力慢放，优先 FREEZE_STYLIZED > B_ROLL > SLOW_MO | Siamese审美判断 + Admin拍板 | 2026-04-05 |

@@ -8,14 +8,14 @@ created: 2026-03-14
 
 # F117: Message Delivery Lifecycle — 消息投递生命周期真相源
 
-> **Status**: done | **Owner**: Ragdoll + Maine Coon | **Priority**: P1
-> **community_issue**: [#20](https://github.com/zts212653/clowder-ai/issues/20)
+> **Status**: done | **Owner**: Agent-R + Agent-M | **Priority**: P1
+> **community_issue**: [#20](https://github.com/zts212653/agent-task-hub/issues/20)
 
 ## Why
 
-team lead 2026-03-14 实测发现：queue 模式发送消息后立即取消，该消息仍出现在聊天流、进入猫猫 prompt context。社区 issue #20 也报告了同样问题。
+team lead 2026-03-14 实测发现：queue 模式发送消息后立即取消，该消息仍出现在聊天流、进入Agent prompt context。社区 issue #20 也报告了同样问题。
 
-根因：当前架构下 queue send 在 enqueue 阶段就持久化 user message 并做乐观插入，但没有 delivery status 概念。History API 和 ContextAssembler 不区分 queued/delivered/canceled，导致未送达甚至已取消的消息污染聊天历史和猫猫上下文。
+根因：当前架构下 queue send 在 enqueue 阶段就持久化 user message 并做乐观插入，但没有 delivery status 概念。History API 和 ContextAssembler 不区分 queued/delivered/canceled，导致未送达甚至已取消的消息污染聊天历史和Agent上下文。
 
 **核心 invariant**：`undelivered user messages MUST NOT appear in timeline, history API, or prompt context.`
 
@@ -26,14 +26,14 @@ team experience：
 ## 已确认的 Bug 现象（team lead实测 2026-03-14）
 
 ### Bug 1: 队列消息提前显示气泡
-- **复现**：猫猫正在回复中 → 用户发消息（自动进队列）→ 消息还在"排队中"面板 → 聊天流里气泡已经出现
+- **复现**：Agent正在回复中 → 用户发消息（自动进队列）→ 消息还在"排队中"面板 → 聊天流里气泡已经出现
 - **期望**：队列面板显示即可，聊天气泡等到消息真正"送达"（dequeue 执行）时才插入
 - **截图**：同一条消息同时出现在聊天气泡和排队面板（`1773488348921-03899885.png`）
 
-### Bug 2: 取消后消息仍在气泡 + 仍进入猫猫上下文
-- **复现**：用户在队列面板按 X 取消消息 → 气泡仍然留在聊天流 → 猫猫下次回复时 prompt context 里有这条已取消的消息
-- **期望**：取消后气泡消失，猫猫永远不应该"看到"这条消息
-- **实测证据**：team lead发送 `嘿嘿大猫猫喵` → 取消 → 猫猫对话上下文中仍出现该消息
+### Bug 2: 取消后消息仍在气泡 + 仍进入Agent上下文
+- **复现**：用户在队列面板按 X 取消消息 → 气泡仍然留在聊天流 → Agent下次回复时 prompt context 里有这条已取消的消息
+- **期望**：取消后气泡消失，Agent永远不应该"看到"这条消息
+- **实测证据**：team lead发送 `嘿嘿大Agent喵` → 取消 → Agent对话上下文中仍出现该消息
 
 ### Bug 3a: queued 用户 @mention 提前进入 pending-mentions（F117 scope）
 - **复现**：用户发带 @gpt52 的消息 → 消息进入队列（排队中）→ `pending-mentions` 已包含该条目
@@ -41,12 +41,12 @@ team experience：
 - **根因**：mention inbox 读取时只看 `msg.mentions`，不看 `deliveryStatus`
 
 ### Bug 3b: `cat_cafe_post_message` 的 @mention 路由异常（F117 out of scope）
-- **复现**：猫猫用 `cat_cafe_post_message` 发带 `@gpt52` 的消息 → Maine Coon session 未收到
+- **复现**：Agent用 `cat_cafe_post_message` 发带 `@gpt52` 的消息 → Agent-M session 未收到
 - **截图**：`1773488607773-f4b34f0a.png`
 - **不属于 F117**：`post_message` 走 callback 路由（`callbacks.ts` → `messageStore.append` + `enqueueA2ATargets`），不经过前端 queue send，不依赖 delivery lifecycle
 - **处置**：单开 callback @mention 路由 bug，F117 仅标记 `related`
 
-### 根因链路（Maine Coon + Ragdoll调查确认）
+### 根因链路（Agent-M + Agent-R调查确认）
 1. `useSendMessage.ts:95-100` — 无条件乐观插入，不区分 queue/immediate
 2. `messages.ts:249` — enqueue 阶段就持久化 user message，无 delivery status 标记
 3. `messages.ts:700` — History API 不过滤 delivery status
@@ -102,7 +102,7 @@ team experience：
 ## Dependencies
 
 - **Evolved from**: F039（消息排队投递 — 三模式已完成，但缺 delivery lifecycle 概念）
-- **Related**: F047（Queue Steer）、community issue [#20](https://github.com/zts212653/clowder-ai/issues/20)、PR [#25](https://github.com/zts212653/clowder-ai/pull/25)
+- **Related**: F047（Queue Steer）、community issue [#20](https://github.com/zts212653/agent-task-hub/issues/20)、PR [#25](https://github.com/zts212653/agent-task-hub/pull/25)
 
 ## Risk
 
@@ -116,12 +116,12 @@ team experience：
 
 | # | 决策 | 理由 | 日期 |
 |---|------|------|------|
-| KD-1 | 用显式 `deliveryStatus` 字段而非 `deliveredAt` | `deliveredAt` 老数据没有，过滤会误伤即时消息和历史消息（Maine Coon提出） | 2026-03-14 |
+| KD-1 | 用显式 `deliveryStatus` 字段而非 `deliveredAt` | `deliveredAt` 老数据没有，过滤会误伤即时消息和历史消息（Agent-M提出） | 2026-03-14 |
 | KD-2 | 不 merge 社区 PR #25 作为 quick fix | 只修渲染层是脚手架不是终态，withdraw resurfacing 未闭合（P1铁律）| 2026-03-14 |
 | KD-3 | 修完后走全量 sync 而非 hotfix | 有多个已完成 F 待同步，hotfix 增加后续同步难度（team lead决定）| 2026-03-14 |
-| KD-4 | Bug 3 拆分：queued @mention 泄漏 in scope / post_message callback 路由 out of scope | post_message 走 callback 路由不经 queue，硬塞进 F117 会混 scope（Maine Coon Design Gate 提出）| 2026-03-14 |
+| KD-4 | Bug 3 拆分：queued @mention 泄漏 in scope / post_message callback 路由 out of scope | post_message 走 callback 路由不经 queue，硬塞进 F117 会混 scope（Agent-M Design Gate 提出）| 2026-03-14 |
 
 ## Review Gate
 
-- Phase A: 跨家族 review（Maine Coon review 后端 delivery lifecycle 改动）
-- Phase B: 跨家族 review（Maine Coon review 前端适配）
+- Phase A: 跨家族 review（Agent-M review 后端 delivery lifecycle 改动）
+- Phase B: 跨家族 review（Agent-M review 前端适配）

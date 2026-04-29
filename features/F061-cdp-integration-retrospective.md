@@ -1,17 +1,17 @@
 ---
 feature_ids: [F061]
 related_features: [F050, F060]
-topics: [cdp, antigravity, bengal-cat, browser-automation, dom-scraping, lessons-learned]
+topics: [cdp, antigravity, bengal-agent, browser-automation, dom-scraping, lessons-learned]
 doc_kind: retrospective
 created: 2026-03-09
 ---
 
 # F061 CDP 接入困难与解决方案复盘
 
-> **Status**: done | **Owner**: Ragdoll/Ragdoll
-> **Feature**: [F061 Antigravity 接入 — 孟加拉猫](F061-antigravity-bengal-cat.md)
+> **Status**: done | **Owner**: Agent-R/Agent-R
+> **Feature**: [F061 Antigravity 接入 — 孟加拉Agent](F061-antigravity-bengal-agent.md)
 > **时间跨度**: 2026-03-04 ~ 2026-03-09（6 天，25+ commits，7 PRs）
-> **作者**: Ragdoll/Ragdoll
+> **作者**: Agent-R/Agent-R
 
 ---
 
@@ -98,7 +98,7 @@ F061 主线交付后，需要把“接入不可控 Web IDE 的真实踩坑”结
 
 | 维度 | 详情 |
 |------|------|
-| **症状** | 孟加拉猫抓回来的内容有重复、包含 thinking 文本、CSS 垃圾 |
+| **症状** | 孟加拉Agent抓回来的内容有重复、包含 thinking 文本、CSS 垃圾 |
 | **根因** | 代码只认 `<details>` / `[class*="thinking"]`，但 Antigravity 用 `<button>Thought for 16s</button>` + `<div class="max-h-0 opacity-0">` 折叠容器 |
 | **解决** | ① 扩展检测：匹配 "Thought for Xs" 按钮 + 遍历折叠 sibling ② `extractBlockText` 重写为 clone-first：先 strip hidden 子树再提取文本 ③ thinking sibling 也走 `extractBlockText` 净化（不直接 `textContent`） |
 | **教训** | **第一版只修了 responseText，没修 thinkingText——"把垃圾从一个桶挪到另一个桶"不算修好。** Review 抓住了这个问题 |
@@ -126,7 +126,7 @@ F061 主线交付后，需要把“接入不可控 Web IDE 的真实踩坑”结
 
 | 维度 | 详情 |
 |------|------|
-| **症状** | 孟加拉猫 @ team lead但team lead没收到通知 |
+| **症状** | 孟加拉Agent @ team lead但team lead没收到通知 |
 | **根因** | `detectUserMention` 只在 MCP callback 路径（callbacks.ts），agent stream 路径（route-serial.ts）没有 |
 | **解决** | 在 route-serial.ts 的 textContent 处理块中加入 `detectUserMention`，结果写入 `messageStore.append` + WebSocket `done` yield |
 | **PR** | #320 |
@@ -166,7 +166,7 @@ DOM 里有 `display:none`、`max-h-0 opacity-0`、`aria-hidden="true"` 的元素
 
 ---
 
-## 如果接入网页版 ChatGPT Pro（Maine Coon Pro），会遇到同样的事情吗？
+## 如果接入网页版 ChatGPT Pro（Agent-M Pro），会遇到同样的事情吗？
 
 **简短回答：是的，会遇到几乎完全一样的困难，而且可能更难。**
 

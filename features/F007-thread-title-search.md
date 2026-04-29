@@ -8,7 +8,7 @@ created: 2026-02-26
 
 # F007: Thread 名字检索
 
-> **Status**: done | **Owner**: 三猫
+> **Status**: done | **Owner**: Admin
 > **Created**: 2026-02-26
 
 ## Why

@@ -6,19 +6,19 @@ doc_kind: spec
 created: 2026-04-10
 ---
 
-# F158: Kimi CLI First-Class Cat
+# F158: Kimi CLI First-Class agent
 
-> **Status**: done | **Owner**: 社区 (ZephaniaCN) + Ragdoll | **Priority**: P2
+> **Status**: done | **Owner**: 社区 (ZephaniaCN) + Agent-R | **Priority**: P2
 
 ## Why
 
-Kimi (Moonshot AI) 是国内主流 AI 提供商之一。社区贡献者 ZephaniaCN 提交了完整的 Kimi CLI 集成 PR（clowder-ai#361），将 Kimi 作为第五个 first-class CLI cat 接入 Cat Cafe 运行时，补齐了国产大模型的 CLI 支持。
+Kimi (Moonshot AI) 是国内主流 AI 提供商之一。社区贡献者 ZephaniaCN 提交了完整的 Kimi CLI 集成 PR（agent-task-hub#361），将 Kimi 作为第五个 first-class CLI agent 接入 Agent Task Hub 运行时，补齐了国产大模型的 CLI 支持。
 
 ## What
 
 ### Phase A: CLI Runtime Integration
 
-将 `kimi-cli` 接入 Cat Cafe 运行时，实现与 Claude/Codex/Gemini 同等级别的 first-class 支持：
+将 `kimi-cli` 接入 Agent Task Hub 运行时，实现与 Claude/Codex/Gemini 同等级别的 first-class 支持：
 
 - **KimiAgentService**：基于 `kimi-cli` 的 NDJSON 流式解析，支持 session init/resume、thinking block 解析、image-aware sessions
 - **Account Resolver**：kimi 作为 builtin client，支持 OAuth 和 API Key 两种认证方式
@@ -31,9 +31,9 @@ Kimi (Moonshot AI) 是国内主流 AI 提供商之一。社区贡献者 Zephania
 Hub 全链路支持 kimi 成员管理：
 
 - 成员创建向导（add-member-wizard）支持选择 kimi client
-- Cat Editor 支持 kimi 协议和 MCP 配置
+- agent Editor 支持 kimi 协议和 MCP 配置
 - 配额面板、能力面板、技能面板展示 kimi 状态
-- 头像（`/avatars/kimi.png`）和品种标识（梵花猫 / Turkish Van）
+- 头像（`/avatars/kimi.png`）和品种标识（梵花Agent / Turkish Van）
 
 ### Phase C: Cross-Platform Support
 
@@ -53,7 +53,7 @@ Hub 全链路支持 kimi 成员管理：
 
 ### Phase B（Hub UI Integration）
 - [x] AC-B1: 成员创建向导可选择 kimi 作为 client
-- [x] AC-B2: Cat Editor 正确显示 kimi 的协议和模型选项
+- [x] AC-B2: agent Editor 正确显示 kimi 的协议和模型选项
 - [x] AC-B3: 配额面板展示 kimi 配额状态
 - [x] AC-B4: kimi 头像和品种标识正确显示
 
@@ -64,8 +64,8 @@ Hub 全链路支持 kimi 成员管理：
 ## Dependencies
 
 - **Related**: F050（External Agent Onboarding — Kimi 走 F050 的 L1 CLI adapter 路径接入）
-- **Related**: F061（Antigravity Bengal Cat — 同属"外部 CLI → first-class cat"的接入模式）
-- **Related**: F127（Cat Instance Management — 动态猫实例注册，Kimi 是新增实例的实际用例）
+- **Related**: F061（Antigravity Bengal agent — 同属"外部 CLI → first-class agent"的接入模式）
+- **Related**: F127（agent Instance Management — 动态Agent实例注册，Kimi 是新增实例的实际用例）
 - **Related**: F149（ACP Runtime Operations — 扩展性边界）
 
 ## Risk
@@ -73,13 +73,13 @@ Hub 全链路支持 kimi 成员管理：
 | 风险 | 缓解 |
 |------|------|
 | kimi CLI 未安装时 agent service 测试全 skip | CI 加 stub binary + test:public 排除 |
-| 社区 PR 基于 accounts refactor (clowder-ai#340) 之前的代码，字段名过时 | maintainer commit 统一对齐 provider→clientId |
-| SystemPromptBuilder size 超限 | 阈值 +100 适配新 cat roster |
+| 社区 PR 基于 accounts refactor (agent-task-hub#340) 之前的代码，字段名过时 | maintainer commit 统一对齐 provider→clientId |
+| SystemPromptBuilder size 超限 | 阈值 +100 适配新 agent roster |
 
 ## Key Decisions
 
 | # | 决策 | 理由 | 日期 |
 |---|------|------|------|
-| KD-1 | 品种定为"梵花猫"(Turkish Van)，breedId='moonshot' | 社区贡献者选择，team lead未反对 | 2026-04-04 |
-| KD-2 | 尚未分配个性化昵称（如Ragdoll/Maine Coon/Siamese） | 等team lead拍板 | 2026-04-10 |
-| KD-3 | 先在 clowder-ai 合入社区 PR，再 intake 回 cat-cafe | Maine Coon建议，team lead同意 | 2026-04-10 |
+| KD-1 | 品种定为"梵花Agent"(Turkish Van)，breedId='moonshot' | 社区贡献者选择，team lead未反对 | 2026-04-04 |
+| KD-2 | 尚未分配个性化昵称（如Agent-R/Agent-M/Siamese） | 等team lead拍板 | 2026-04-10 |
+| KD-3 | 先在 agent-task-hub 合入社区 PR，再 intake 回 agent-hub | Agent-M建议，team lead同意 | 2026-04-10 |

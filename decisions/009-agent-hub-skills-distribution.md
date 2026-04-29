@@ -1,6 +1,6 @@
 ---
 feature_ids: []
-topics: [cat, cafe, skills]
+topics: [agent, hub, skills]
 doc_kind: decision
 created: 2026-02-26
 status: drifted
@@ -11,10 +11,10 @@ drift_note: >
   (.claude/.codex/.gemini/skills), creating a dual-layer mount model
   that ADR-009 did not anticipate. Runtime mount policy, health checks,
   and capabilities board now operate on inconsistent assumptions.
-  See clowder-ai#386 for community report.
+  See agent-task-hub#386 for community report.
 ---
 
-# ADR-009: Cat Café Skills 分发策略
+# ADR-009: Agent Task Hub Skills 分发策略
 
 > **⚠️ DRIFTED** — 本决策的"仅用户级分发"假设已被 [F070](../features/F070-portable-governance.md) 的项目级 governance bootstrap 事实性推翻。当前系统同时存在用户级和项目级两层挂载，且无一致性校验。新的 canonical mount policy 待定（successor ADR 待立）。
 >
@@ -22,23 +22,23 @@ drift_note: >
 
 > 状态：~~已决策~~ → drifted（2026-04-07 标注）
 > 日期：2026-02-10
-> 决策者：铲屎官 + Ragdoll
+> 决策者：铲屎官 + Agent-R
 
 ## 背景
 
-Cat Café Skills 是从 Superpowers 改进而来的协作规则 skills，需要让三只猫都能加载。
+Agent Task Hub Skills 是从 Superpowers 改进而来的协作规则 skills，需要让三只Agent都能加载。
 
 ### 问题
 
-1. 三只猫读取 skills 的位置不同
+1. 三只Agent读取 skills 的位置不同
 2. 当前 `.claude/skills/` 被 gitignored，无法提交到 repo
 3. 需要让 skills 在任何项目中都能加载（用户级）
 
 ## 调研结果
 
-### 三猫 Skills 目录
+### Admin Skills 目录
 
-| 猫 | 用户级（全局） | 项目级 | 当前状态 |
+| Agent | 用户级（全局） | 项目级 | 当前状态 |
 |----|----------------|--------|----------|
 | Claude | `~/.claude/skills/` | `.claude/skills/` | 用户级不存在 |
 | Codex | `~/.codex/skills/` | `.codex/skills/`? | 用户级存在，有 20+ skills |
@@ -54,20 +54,20 @@ Cat Café Skills 是从 Superpowers 改进而来的协作规则 skills，需要�
 
 ### 1. 源目录（Git 追踪）
 
-创建 `cat-cafe-skills/` 作为源目录：
+创建 `agent-hub-skills/` 作为源目录：
 
 ```
-cat-cafe/
-└── cat-cafe-skills/           # ← Git 追踪的源目录
+agent-hub/
+└── agent-hub-skills/           # ← Git 追踪的源目录
     ├── merge-approval-gate/
     │   └── SKILL.md
     ├── spec-compliance-check/
     │   └── SKILL.md
-    ├── cross-cat-handoff/
+    ├── cross-agent-handoff/
     │   └── SKILL.md
-    ├── cat-cafe-requesting-review/
+    ├── agent-hub-requesting-review/
     │   └── SKILL.md
-    ├── cat-cafe-receiving-review/
+    ├── agent-hub-receiving-review/
     │   └── SKILL.md
     └── feat-discussion/
         └── SKILL.md
@@ -75,7 +75,7 @@ cat-cafe/
 
 ### 2. Symlink 到用户级 Skills 目录
 
-让三只猫在**任何项目**都能加载这些 skills：
+让三只Agent在**任何项目**都能加载这些 skills：
 
 ```bash
 # 源目录绝对路径
@@ -103,30 +103,30 @@ done
 
 ### 3. 为什么选择用户级而非项目级
 
-1. **任何项目都能用**：Cat Café 的协作规则应该对三只猫在任何项目都生效
-2. **单一来源**：源文件在 `cat-cafe-skills/`，symlink 到三个用户级目录
-3. **易于更新**：更新源文件，三只猫自动同步
-4. **可开源分享**：`cat-cafe-skills/` 在 git 里，别人可以 clone 后自己 symlink
+1. **任何项目都能用**：Agent Task Hub 的协作规则应该对三只Agent在任何项目都生效
+2. **单一来源**：源文件在 `agent-hub-skills/`，symlink 到三个用户级目录
+3. **易于更新**：更新源文件，三只Agent自动同步
+4. **可开源分享**：`agent-hub-skills/` 在 git 里，别人可以 clone 后自己 symlink
 
 ## 实施步骤
 
 ```bash
 # 1. 创建源目录
-mkdir -p cat-cafe-skills
+mkdir -p agent-hub-skills
 
 # 2. 移动现有 skills（从 .claude/skills/）
-mv .claude/skills/merge-approval-gate cat-cafe-skills/
-mv .claude/skills/spec-compliance-check cat-cafe-skills/
-mv .claude/skills/cross-cat-handoff cat-cafe-skills/
-mv .claude/skills/cat-cafe-requesting-review cat-cafe-skills/
-mv .claude/skills/cat-cafe-receiving-review cat-cafe-skills/
-mv .claude/skills/feat-discussion cat-cafe-skills/
+mv .claude/skills/merge-approval-gate agent-hub-skills/
+mv .claude/skills/spec-compliance-check agent-hub-skills/
+mv .claude/skills/cross-agent-handoff agent-hub-skills/
+mv .claude/skills/agent-hub-requesting-review agent-hub-skills/
+mv .claude/skills/agent-hub-receiving-review agent-hub-skills/
+mv .claude/skills/feat-discussion agent-hub-skills/
 
 # 3. 创建用户级 symlinks
 mkdir -p ~/.claude/skills ~/.gemini/skills
-ln -s $(pwd)/cat-cafe-skills ~/.claude/skills/cat-cafe-skills
-ln -s $(pwd)/cat-cafe-skills ~/.codex/skills/cat-cafe-skills
-ln -s $(pwd)/cat-cafe-skills ~/.gemini/skills/cat-cafe-skills
+ln -s $(pwd)/agent-hub-skills ~/.claude/skills/agent-hub-skills
+ln -s $(pwd)/agent-hub-skills ~/.codex/skills/agent-hub-skills
+ln -s $(pwd)/agent-hub-skills ~/.gemini/skills/agent-hub-skills
 ```
 
 ## Tradeoff
@@ -142,7 +142,7 @@ ln -s $(pwd)/cat-cafe-skills ~/.gemini/skills/cat-cafe-skills
 ## 否决理由（P0.5 回填）
 
 - **备选方案 A**：仅保留项目级 skills（不做用户级分发）
-  - 不选原因：每个项目都要重复配置，三猫跨项目协作规则无法稳定复用。
+  - 不选原因：每个项目都要重复配置，Admin跨项目协作规则无法稳定复用。
 - **备选方案 B**：把 skill 文件复制到三套用户目录（不使用 symlink）
   - 不选原因：会形成多份副本并导致版本漂移，后续维护成本高且容易失配。
 - **备选方案 C**：目录级单个 symlink（不按 skill 粒度链接）

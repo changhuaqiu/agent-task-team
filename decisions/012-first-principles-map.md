@@ -1,7 +1,7 @@
 ---
 doc_kind: decision
 decision_id: 012
-title: Cat Café 第一性原理总表
+title: Agent Task Hub 第一性原理总表
 status: accepted
 created: 2026-03-09
 topics: [first-principles, governance, knowledge-engineering]
@@ -9,22 +9,22 @@ related_features: [F059, F086, F046, F043]
 related_decisions: [005]
 ---
 
-# ADR-012: Cat Café 第一性原理总表
+# ADR-012: Agent Task Hub 第一性原理总表
 
 ## Context
 
 随着 F059、F086、F046、lessons-learned 与 tutorial lessons 持续沉淀，咱们已经形成一套稳定的治理哲学，但目前这些内容分散在：
 
-- `cat-cafe-skills/refs/shared-rules.md`
+- `agent-hub-skills/refs/shared-rules.md`
 - `docs/features/F059-open-source-plan.md`
-- `docs/features/F086-cat-orchestration-multi-mention.md`
+- `docs/features/F086-agent-orchestration-multi-mention.md`
 - `docs/public-lessons.md`
 - `docs/decisions/005-hindsight-integration-decisions.md`
-- `cat-cafe-tutorials/docs/lessons/`
+- `agent-hub-tutorials/docs/lessons/`
 
 问题不是“我们没有原则”，而是**原则、世界观、操作规则、证据**仍然混在一起，导致：
 
-1. 新猫不容易看出哪些是公理，哪些只是推论。
+1. 新Agent不容易看出哪些是公理，哪些只是推论。
 2. discussion 容易被误读成“定义层”，造成多真相源。
 3. tutorial / lessons / feature 文档提供了大量解释，但没有统一地图。
 
@@ -32,7 +32,7 @@ related_decisions: [005]
 
 ## Decision
 
-Cat Café 的治理结构分为三层：
+Agent Task Hub 的治理结构分为三层：
 
 1. **公理层（Axioms）**  
    不可从其他规则推导的底层真理。定义唯一存放在 `shared-rules.md`。
@@ -63,9 +63,9 @@ Cat Café 的治理结构分为三层：
 
 这层是长期讨论中反复出现、但不适合直接写成“硬规则”的团队信条。
 
-### W1. 猫猫是 Agent，不是 API
+### W1. Agent是 Agent，不是 API
 
-猫猫不是被动等调用的函数，而是有身份、有上下文、有主动性的行动体。
+Agent不是被动等调用的函数，而是有身份、有上下文、有主动性的行动体。
 
 ### W2. 共享文件 / Git / 记忆，才会从三个聊天机器人变成一个团队
 
@@ -73,7 +73,7 @@ Cat Café 的治理结构分为三层：
 
 ### W3. 用户是 CVO，不是甲方路由器
 
-用户负责表达愿景、判断结果、持续纠偏，而不是充当人肉中转站。CVO 授权猫猫自主行动，只在关键决策点介入——猫猫的职责是让 CVO 能"放心不看"，而不是"随时要看"。
+用户负责表达愿景、判断结果、持续纠偏，而不是充当人肉中转站。CVO 授权Agent自主行动，只在关键决策点介入——Agent的职责是让 CVO 能"放心不看"，而不是"随时要看"。
 
 ### W4. 知识必须分层治理，不能随地大小拉 markdown
 
@@ -110,7 +110,7 @@ Cat Café 的治理结构分为三层：
 
 ### A. 公理定义层
 
-- `cat-cafe-skills/refs/shared-rules.md`
+- `agent-hub-skills/refs/shared-rules.md`
 
 ### B. 世界观与哲学收敛层
 
@@ -124,7 +124,7 @@ Cat Café 的治理结构分为三层：
 
 - `docs/features/F043-mcp-unification.md`
 - `docs/features/F046-anti-drift-protocol.md`
-- `docs/features/F086-cat-orchestration-multi-mention.md`
+- `docs/features/F086-agent-orchestration-multi-mention.md`
 - `docs/decisions/005-hindsight-integration-decisions.md`
 
 ### D. 教训与反思层
@@ -141,9 +141,9 @@ Cat Café 的治理结构分为三层：
 
 ### E. 教学外显层（tutorial repo）
 
-- `cat-cafe-tutorials/docs/lessons/03-meta-rules.md`
-- `cat-cafe-tutorials/docs/lessons/09-context-engineering.md`
-- `cat-cafe-tutorials/docs/lessons/10-knowledge-management.md`
+- `agent-hub-tutorials/docs/lessons/03-meta-rules.md`
+- `agent-hub-tutorials/docs/lessons/09-context-engineering.md`
+- `agent-hub-tutorials/docs/lessons/10-knowledge-management.md`
 
 ## Discussion / Tutorial 的地位
 
@@ -160,7 +160,7 @@ Cat Café 的治理结构分为三层：
 
 ### 正面结果
 
-- 新猫能快速分辨“什么是公理，什么是推论”
+- 新Agent能快速分辨“什么是公理，什么是推论”
 - 我们可以继续扩展文档，而不制造第二套宪法
 - tutorial / feature / lessons 的地位会更清晰
 
@@ -176,4 +176,4 @@ Cat Café 的治理结构分为三层：
 
 ## Decision Status
 
-Draft → Accepted。由Maine Coon(GPT-5.4)起草，Ragdoll(Opus 4.6) review 两轮，Ragdoll(Opus 4.5) 独立思考补充 W3，铲屎官定稿。
+Draft → Accepted。由Agent-M(GPT-5.4)起草，Agent-R(Opus 4.6) review 两轮，Agent-R(Opus 4.5) 独立思考补充 W3，铲屎官定稿。

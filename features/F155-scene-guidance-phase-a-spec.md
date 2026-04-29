@@ -8,7 +8,7 @@ created: 2026-03-27
 
 # F155: Scene-Based Bidirectional Guidance Engine
 
-> **Status**: Phase A accepted / frozen — 基础引导引擎已验收冻结，可开 PR 合入 | **Owner**: Ragdoll/Ragdoll | **Priority**: P1
+> **Status**: Phase A accepted / frozen — 基础引导引擎已验收冻结，可开 PR 合入 | **Owner**: Agent-R/Agent-R | **Priority**: P1
 
 ## Why
 
@@ -17,7 +17,7 @@ Console 功能日益复杂，但入口简单，用户不知道从哪开始。复
 当前痛点：
 - 用户不知道"添加新成员"需要先配认证
 - 飞书/钉钉等外部系统的权限配置需要反复截图沟通
-- 猫猫无法实时看到用户操作状态，只能靠用户描述和截图诊断问题
+- Agent无法实时看到用户操作状态，只能靠用户描述和截图诊断问题
 
 ## What
 
@@ -26,7 +26,7 @@ Console 功能日益复杂，但入口简单，用户不知道从哪开始。复
 ```
 data-guide-id tags → Flow YAML (guides/flows/) → Runtime API → Guide Engine (Frontend)
                                                                       ↕ Socket.io
-                                                                  Cat (状态感知)
+                                                                  agent (状态感知)
 ```
 
 **设计原则**（CVO Phase A 反馈收敛）：
@@ -47,7 +47,7 @@ interface OrchestrationStep {
 }
 ```
 
-**元素标签系统**：页面关键控件加稳定 `data-guide-id`，命名空间式（如 `hub.trigger`、`cats.add-member`），语义而非位置。Target whitelist: `/^[a-zA-Z0-9._-]+$/`。
+**元素标签系统**：页面关键控件加稳定 `data-guide-id`，命名空间式（如 `hub.trigger`、`agents.add-member`），语义而非位置。Target whitelist: `/^[a-zA-Z0-9._-]+$/`。
 
 **Flow YAML**：`guides/flows/*.yaml` 编排场景流程，`guides/registry.yaml` 注册发现。
 
@@ -63,7 +63,7 @@ interface OrchestrationStep {
 **完成回调（frontend → backend）**：
 - 前端 `phase='complete'` 时自动调用 `POST /api/guide-actions/complete`
 - 后端 `guideState: active → completed` + 发 `guide_complete` Socket.io 事件
-- 猫猫收到事件即可感知用户已完成引导
+- Agent收到事件即可感知用户已完成引导
 
 **前端 API 端点**（userId-based auth）：
 - `POST /api/guide-actions/start` — offered/awaiting_choice → active
@@ -77,9 +77,9 @@ interface OrchestrationStep {
 - `control` — next/skip/exit（不再支持 back）
 - `update-guide-state` — offered / awaiting_choice / completed / cancelled 等非 start 状态更新
 
-**CI 验证**：`scripts/gen-guide-catalog.mjs` 校验 v2 schema + target whitelist
+**CI 验证**：`scripts/gen-guide-agentalog.mjs` 校验 v2 schema + target whitelist
 
-**P0 验证场景**：添加新成员（4 步：open-hub → go-to-cats → click-add-member → edit-member-profile）
+**P0 验证场景**：添加新成员（4 步：open-hub → go-to-agents → click-add-member → edit-member-profile）
 
 ### Phase B: 场景扩展（F155 scope）
 
@@ -98,7 +98,7 @@ interface OrchestrationStep {
 
 | 方向 | 归属 | 说明 |
 |------|------|------|
-| 自动观测 substrate | 独立 feature 待立项 | 不只服务 guide，可被 guide/debug/diagnostics 复用。含 observe.fields、idle 检测、verifier 契约、猫眼指示灯 |
+| 自动观测 substrate | 独立 feature 待立项 | 不只服务 guide，可被 guide/debug/diagnostics 复用。含 observe.fields、idle 检测、verifier 契约、Agent眼指示灯 |
 | 新增外部配置页签 / 全新外部画布 | 按场景单独设计 | 仅当某流程无法复用当前 Hub / IM Hub UI、需要新增专门配置 surface 时，才不走 Guide Engine 遮罩引导 |
 
 ### 当前进展与阶段判断（2026-04-20）
@@ -106,9 +106,9 @@ interface OrchestrationStep {
 | 维度 | 当前状态 | 说明 |
 |------|---------|------|
 | 核心引擎 | ✅ 完成 | tag-based runtime、YAML flow、前端遮罩/镂空、auto-advance、exit-only HUD 已跑通 |
-| P0 内部场景 | ✅ 完成 | `add-member` 已收口为 4 步：`hub.trigger → cats.overview → cats.add-member → member-editor.profile(confirm)` |
-| 完成态闭环 | ✅ 完成 | 前端 `complete` → 后端 `guideState=completed` → Socket 通知猫 → 一次性消费 ack |
-| Esc 误退修复 | ✅ 完成 | KD-14：GuideOverlay preventDefault + CatCafeHub guideActive guard |
+| P0 内部场景 | ✅ 完成 | `add-member` 已收口为 4 步：`hub.trigger → agents.overview → agents.add-member → member-editor.profile(confirm)` |
+| 完成态闭环 | ✅ 完成 | 前端 `complete` → 后端 `guideState=completed` → Socket 通知Agent → 一次性消费 ack |
+| Esc 误退修复 | ✅ 完成 | KD-14：GuideOverlay preventDefault + Agent Task HubHub guideActive guard |
 | CVO 验收 | ✅ 通过 | 2026-04-09 CVO 手动测试”添加成员”流程，确认链路通畅 |
 | gpt52 review | ✅ 放行 | completion callback 6 轮 + 收尾 2 轮，全部 P1/P2 已修复 |
 | Phase B 场景扩展 | 🚧 Review-ready | 当前 branch 已补齐 `add-account-auth`、`configure-first-provider`、`edit-member-auth`、`connect-wechat`、`connect-feishu` |
@@ -125,7 +125,7 @@ interface OrchestrationStep {
 ### 触发与发现规范
 
 当前阶段只保留一条触发路径：
-1. **对话意图触发**：用户在正常对话中表达配置/求助意图 → 猫先判断是直接解释还是适合走引导 → 调用 MCP `cat_cafe_get_available_guides()` 获取当前可用场景目录 → 基于场景描述建议引导 → [🐾 带我去做] 卡片 → 用户确认后启动
+1. **对话意图触发**：用户在正常对话中表达配置/求助意图 → Agent先判断是直接解释还是适合走引导 → 调用 MCP `cat_cafe_get_available_guides()` 获取当前可用场景目录 → 基于场景描述建议引导 → [🐾 带我去做] 卡片 → 用户确认后启动
 
 说明：
 - 路由层不直接根据原始消息关键词或显式命令触发 guide
@@ -133,28 +133,28 @@ interface OrchestrationStep {
 
 ### guide-authoring Skill
 
-已创建 `cat-cafe-skills/guide-authoring/SKILL.md`，定义 6 步标准 SOP（v2）：
+已创建 `agent-hub-skills/guide-authoring/SKILL.md`，定义 6 步标准 SOP（v2）：
 场景识别 → YAML 编排（v2 auto-advance） → 标签标注 → 注册发现 → CI 契约 → E2E 验证。
 
 ### 场景优先级（能力审计结果）
 
 | 优先级 | 场景 | Console Tab | 复杂度 | 跨系统 |
 |--------|------|------------|--------|--------|
-| P0 | 添加成员 | cats → HubCatEditor | 极高 | 否 |
-| P0 | 配置第一个 Provider | cats → HubAddMemberWizard → HubCatEditor | 高 | 否 |
+| P0 | 添加成员 | agents → HubCatEditor | 极高 | 否 |
+| P0 | 配置第一个 Provider | agents → HubAddMemberWizard → HubCatEditor | 高 | 否 |
 | P1 | 添加账户认证 | settings → accounts | 高 | 否 |
-| P1 | 修改成员认证与模型 | cats → HubCatEditor | 高 | 否 |
+| P1 | 修改成员认证与模型 | agents → HubCatEditor | 高 | 否 |
 | P1 | 微信对接 | connector config | 高 | 是 |
 | P1 | 飞书对接 | connector config | 高 | 是 |
 | P1 | 开启推送通知 | notify | 中 | 否 |
-| P2 | 管理猫猫能力 | capabilities | 中 | 否 |
+| P2 | 管理Agent能力 | capabilities | 中 | 否 |
 | P2 | 治理看板配置 | governance | 中 | 否 |
 
 ### 触发与发现（详细设计）
 
 **Guide Registry**（`guides/registry.yaml`）：注册所有可用引导，含 keywords + 意图映射。
 **MCP Tool**：`cat_cafe_get_available_guides()` → 读取 registry + 当前上下文可用性 → 返回可用引导列表。
-**Skill Manifest**：猫检测到配置意图（"怎么/如何/配置"）后，先判断是否需要交互引导；需要时调用 `cat_cafe_get_available_guides` 查看可用场景目录，再问用户"要我带你走一遍吗？"。
+**Skill Manifest**：Agent检测到配置意图（"怎么/如何/配置"）后，先判断是否需要交互引导；需要时调用 `cat_cafe_get_available_guides` 查看可用场景目录，再问用户"要我带你走一遍吗？"。
 **Routing Boundary**：`GuideRoutingInterceptor` 仅负责续接已有 guideState（offered/awaiting_choice/active/completed），不从普通消息或显式命令直接创建新 guide offer。
 
 ## Acceptance Criteria
@@ -165,8 +165,8 @@ interface OrchestrationStep {
 - [x] AC-A3: Guide Engine 前端组件：遮罩 + 高亮 + 自动推进（v2: 无手动导航，HUD 仅退出）
 - [x] AC-A4: MCP resolve/start/control 工具 + 前端 action routes（start/cancel/complete）
 - [x] AC-A5: "添加成员" 引导流程端到端可运行（含 confirm 步骤 + 保存成功回调）
-- [x] AC-A6: 对话触发：猫建议引导 → InteractiveBlock → 用户确认 → 启动
-- [x] AC-A7: 完成回调：前端 complete → 后端 guideState completed → Socket.io 通知猫猫
+- [x] AC-A6: 对话触发：Agent建议引导 → InteractiveBlock → 用户确认 → 启动
+- [x] AC-A7: 完成回调：前端 complete → 后端 guideState completed → Socket.io 通知Agent
 
 ### Phase B（平台内场景扩展）
 - [ ] AC-B1: 基于已有 Console 功能扩展 2+ 个引导场景（如 API Provider 配置、连接器配置）
@@ -175,7 +175,7 @@ interface OrchestrationStep {
 ### 已拆出（不再属于 F155 scope）
 - ~~AC-B1(旧): observe 层~~ → 独立 feature "自动观测 substrate" 待立项
 - ~~AC-B2(旧): MCP guide_observe~~ → 同上
-- ~~AC-B4(旧): 猫眼观测指示灯~~ → 同上
+- ~~AC-B4(旧): Agent眼观测指示灯~~ → 同上
 - ~~AC-B5: 飞书外部平台完整 E2E~~ → 保持拆分；当前 F155 只覆盖 Hub / IM Hub 内已有 surface 的 guide flow，不覆盖外部平台联调自动化
 - ~~AC-S1: Sensitive Data Containment~~ → 随独立 observe feature 走
 - ~~AC-S2: Verifier Permission Boundary~~ → 随独立 observe feature 走
@@ -204,7 +204,7 @@ interface OrchestrationStep {
 
 ## Dependencies
 
-- **Related**: F087（猫猫训练营 — 类似的引导概念，但面向不同场景）
+- **Related**: F087（Agent训练营 — 类似的引导概念，但面向不同场景）
 - **Related**: F110（训练营愿景引导增强 — 引导 UX 模式可复用）
 - **Related**: F134（飞书群聊 — `connect-feishu` guide 的业务背景与后续联调上下游）
 - **Related**: F099（Hub 导航可扩展 — Hub tab/深链基础设施）
@@ -214,7 +214,7 @@ interface OrchestrationStep {
 | 风险 | 缓解 |
 |------|------|
 | 元素标签被 UI 重构意外删除/重命名 | CI 契约测试（AC-S3）阻塞合并 |
-| 跨系统流程用户中途放弃导致状态不一致 | sessionStorage 持久化 + 猫猫感知 idle 超时 |
+| 跨系统流程用户中途放弃导致状态不一致 | sessionStorage 持久化 + Agent感知 idle 超时 |
 | collect_input 敏感值泄露 | AC-S1 封存规则 + 服务端 TTL |
 | 流程文档与页面演进脱节 | CI gate 每次构建校验 tag manifest |
 | Guide Engine 性能影响正常操作 | 遮罩层 z-index 隔离 + 不影响非引导区域交互 |
@@ -224,7 +224,7 @@ interface OrchestrationStep {
 | # | 决策 | 理由 | 日期 |
 |---|------|------|------|
 | KD-1 | 选择"标签 + YAML 编排 + Guide Runtime"方案，否决硬编码和纯动态方案 | 可测、可审计、可版本化；新场景不改代码 | 2026-03-27 |
-| KD-2 | 双向可观测：猫猫实时感知用户操作状态 | 免截图诊断；猫猫能主动介入卡点 | 2026-03-27 |
+| KD-2 | 双向可观测：Agent实时感知用户操作状态 | 免截图诊断；Agent能主动介入卡点 | 2026-03-27 |
 | KD-3 | sensitive 值刷新后不恢复，强制重填 | 安全优先于便利 | 2026-03-27 |
 | KD-4 | 有副作用的 verification 按 verifier 配置 confirm: required/auto | sideEffect=true 必须二次确认，CI 校验规则 | 2026-03-27 |
 | KD-5 | P0 skip_if 限声明式比较（eq/in/exists/gt/lt），禁止表达式 | 沙箱成本高，声明式可满足 P0 需求 | 2026-03-27 |
@@ -241,5 +241,5 @@ interface OrchestrationStep {
 
 ## Review Gate
 
-- Phase A: Maine Coon/gpt52 负责安全边界 + 可测性 review
-- Phase B: Maine Coon/gpt52 安全 review + Siamese/gemini25 视觉 review
+- Phase A: Agent-M/gpt52 负责安全边界 + 可测性 review
+- Phase B: Agent-M/gpt52 安全 review + Siamese/gemini25 视觉 review

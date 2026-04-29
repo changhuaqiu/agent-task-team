@@ -6,9 +6,9 @@ doc_kind: feature-spec
 created: 2026-03-04
 ---
 
-# F059: Cat Café 开源计划
+# F059: Agent Task Hub 开源计划
 
-> **Status**: done | **Owner**: Ragdoll | **Priority**: P2 | **Target**: 2026-03-30（team lead定）| **Completed**: 2026-03-30
+> **Status**: done | **Owner**: Agent-R | **Priority**: P2 | **Target**: 2026-03-30（team lead定）| **Completed**: 2026-03-30
 
 ## 愿景
 
@@ -16,7 +16,7 @@ created: 2026-03-04
 
 ### 核心哲学：软硬结合（2026-03-08 team lead定调）
 
-这定义了 clowder-ai 的灵魂：
+这定义了 agent-task-hub 的灵魂：
 - **硬约束（铁律）**= 法律底线：数据圣域、进程自保、配置不可变、网络边界
 - **软约束（愿景+信条）**= 在底线上释放主观能动性：角色定位、协作规范、质量文化、共创关系
 
@@ -24,7 +24,7 @@ Clowder-ai 不是一个"管住 agent 不出错"的框架，是一个"让 agent �
 
 ### 第一性原理（2026-03-08 team lead定调）
 
-完整定义见 `cat-cafe-skills/refs/shared-rules.md`「第一性原理」章节：
+完整定义见 `agent-hub-skills/refs/shared-rules.md`「第一性原理」章节：
 
 | # | 原理 | 一句话 |
 |---|------|-------|
@@ -34,13 +34,13 @@ Clowder-ai 不是一个"管住 agent 不出错"的框架，是一个"让 agent �
 | P4 | 单一真相源 | 每个概念只在一处定义 |
 | P5 | 可验证才算完成 | 证据说话，不是信心说话 |
 
-### 三层能力边界（全猫共识，2026-03-08 讨论）
+### 三层能力边界（全Agent共识，2026-03-08 讨论）
 
 | 层级 | 负责什么 | 不负责什么 |
 |------|---------|-----------|
 | 模型 | 理解、推理、生成 | 长期记忆、自我校验、执行纪律 |
 | Agent CLI | 工具使用、文件操作、命令执行 | 团队协作、跨角色 review、长期状态 |
-| 平台（clowder-ai 开源的就是这层） | 身份管理、协作路由、流程纪律、审计追溯、记忆沉淀 | 推理（还是模型的事） |
+| 平台（agent-task-hub 开源的就是这层） | 身份管理、协作路由、流程纪律、审计追溯、记忆沉淀 | 推理（还是模型的事） |
 
 > **模型给能力上限，平台给行为下限。**（GPT-5.4 总结）
 > 每一层是**乘数效应**，不是加法。
@@ -49,14 +49,14 @@ Clowder-ai 不是一个"管住 agent 不出错"的框架，是一个"让 agent �
 
 > 用户不需要会写代码，但需要会表达愿景、判断结果、持续纠偏。
 
-clowder-ai 的目标用户画像：
+agent-task-hub 的目标用户画像：
 - 我们先交付"可用雏形"（80%）
 - 用户的 AI 团队持续定制最后 20% 细节到用户语境
 - 平台替用户补：意图编译、护栏执行、质量闭环、记忆治理
 
-### Story Telling 定稿（2026-03-08 全猫讨论收敛）
+### Story Telling 定稿（2026-03-08 全Agent讨论收敛）
 
-讨论发起：Ragdoll(opus4.6)，参与：opus4.5 / codex / gemini
+讨论发起：Agent-R(opus4.6)，参与：opus4.5 / codex / gemini
 
 **统一术语**（全仓一致，README/docs/演讲口径统一）：
 - **Hard Rails** = 硬约束/铁律（数据圣域、进程自保、配置不可变、网络边界）
@@ -83,7 +83,7 @@ and collaborative discipline.
 |------|------|
 | GitHub description | "Build AI teams, not just agents. Hard rails, soft power, shared mission." |
 | README 开篇 | 如上结构 |
-| Landing page 视觉 | 三棱镜意象：白光（愿景）穿过棱镜（Hard Rails）折射出彩色群猫（自由协作）|
+| Landing page 视觉 | 三棱镜意象：白光（愿景）穿过棱镜（Hard Rails）折射出彩色群Agent（自由协作）|
 | 中文品牌层 | 「每个灵感，都值得一群认真的灵魂」 |
 
 ### team experience（2026-03-04）
@@ -93,14 +93,14 @@ and collaborative discipline.
 
 ## Why
 
-Cat Café 的架构能力（多 Agent 协作、MCP 集成、CLI 子进程调度）有通用价值，但主仓包含大量敏感内容不能直接公开。
+Agent Task Hub 的架构能力（多 Agent 协作、MCP 集成、CLI 子进程调度）有通用价值，但主仓包含大量敏感内容不能直接公开。
 
-Cat Café 内部实践已验证的核心增量（vs 裸 API / 单 Agent CLI）：
-- **跨模型 review**：打破单模型盲区（F32-b Maine Coon 12 轮 review，F33 云端 5 轮）
+Agent Task Hub 内部实践已验证的核心增量（vs 裸 API / 单 Agent CLI）：
+- **跨模型 review**：打破单模型盲区（F32-b Agent-M 12 轮 review，F33 云端 5 轮）
 - **身份常驻注入**：抗 compact 漂移（F042）
-- **愿景守护**：跨猫签收 + 证据链（F046）
+- **愿景守护**：跨Agent签收 + 证据链（F046）
 - **教训沉淀**：27+ 条结构化 lessons learned
-- **A2A 协作协议**：异步但有序的多猫协同
+- **A2A 协作协议**：异步但有序的多Agent协同
 
 ## What
 
@@ -109,9 +109,9 @@ Cat Café 内部实践已验证的核心增量（vs 裸 API / 单 Agent CLI）�
 | 资产 | 位置 | 风险 |
 |------|------|------|
 | team lead个人信息/对话 | `docs/` 讨论记录、mailbox | 隐私 |
-| 三猫内部决策过程 | `docs/features/`、`docs/decisions/` | 策略暴露 |
+| Admin内部决策过程 | `docs/features/`、`docs/decisions/` | 策略暴露 |
 | 设计资产 | `designs/*.pen`、Pencil 打样 | 知识产权 |
-| 部署配置 | `cat-config.json`、MCP 配置 | 安全 |
+| 部署配置 | `agent-config.json`、MCP 配置 | 安全 |
 | Git 历史 | 所有 commit message 含内部讨论 | 即使删文件历史还在 |
 
 ### 可以开源的能力
@@ -129,12 +129,12 @@ Cat Café 内部实践已验证的核心增量（vs 裸 API / 单 Agent CLI）�
 
 ### 开源策略
 
-1. **主仓（cat-cafe）保持私有** — 工作室仓，包含全部资产
-2. **开源仓独立建** — 新 repo `clowder-ai`，精挑细选同步
+1. **主仓（agent-hub）保持私有** — 工作室仓，包含全部资产
+2. **开源仓独立建** — 新 repo `agent-task-hub`，精挑细选同步
 3. **同步方式**：脚本过滤（strip 敏感内容）+ 手动 cherry-pick
 4. **License**：**MIT**（team lead拍板 2026-03-07）
-5. **仓库名**：**`clowder-ai`**（全猫投票 2026-03-08，5:1 通过）
-   - clowder = 英语中"一群猫"的量词，精准传达多 Agent 协作语义
+5. **仓库名**：**`agent-task-hub`**（全Agent投票 2026-03-08，5:1 通过）
+   - clowder = 英语中"一群Agent"的量词，精准传达多 Agent 协作语义
    - `-ai` 后缀区分 GitHub 上已有的 `clowder-framework` 等同名项目
    - Tagline: *"Hard Rails. Soft Power. Shared Mission."*
    - GitHub description: *"Build AI teams, not just agents. Hard rails, soft power, shared mission."*
@@ -145,31 +145,31 @@ Cat Café 内部实践已验证的核心增量（vs 裸 API / 单 Agent CLI）�
 
 | 资产 | 路径 | 说明 |
 |------|------|------|
-| Logo（前端在用） | `packages/web/src/components/icons/CatCafeLogo.tsx` | 三猫环绕线稿 + 流光渐变（布偶蓝→缅因金→暹罗紫），Siamese画的 |
-| Logo SVG 清理版 | `assets/icons/cat-cafe-logo-v2-clean.svg` | 可直接用于 README |
-| Logo 纯线稿 | `assets/icons/cat-cafe-logo-lineart.svg` | 单色版 |
-| Logo 描边版 | `assets/icons/cat-cafe-logo-lineart-stroke.svg` | 动画用 |
+| Logo（前端在用） | `packages/web/src/components/icons/Agent Task HubLogo.tsx` | Admin环绕线稿 + 流光渐变（布偶蓝→缅因金→暹罗紫），Siamese画的 |
+| Logo SVG 清理版 | `assets/icons/agent-hub-logo-v2-clean.svg` | 可直接用于 README |
+| Logo 纯线稿 | `assets/icons/agent-hub-logo-lineart.svg` | 单色版 |
+| Logo 描边版 | `assets/icons/agent-hub-logo-lineart-stroke.svg` | 动画用 |
 | 三棱镜 Hero | `assets/hero-prism.svg` | Landing page 用，Siamese 2026-03-08 画的 |
-| 品牌规范 | `docs/design/clowder-ai-brand.md` | 术语、配色 token、可访问性、禁用词 |
+| 品牌规范 | `docs/design/agent-task-hub-brand.md` | 术语、配色 token、可访问性、禁用词 |
 | Hero 动效规范 | `docs/design/hero-prism-motion.md` | 动效参数 + reduced-motion 降级 |
-| 猫猫头像全套 | `assets/avatars/` | 各猫 avatar（含 sliced-finial 风格变体） |
+| Agent头像全套 | `assets/avatars/` | 各Agent avatar（含 sliced-finial 风格变体） |
 | Logo 迭代探索 | `assets/logos/` | Gemini + ChatGPT 生成的历史探索稿 |
 
-**配色 token**（三猫流光渐变）：
-- Opus Blue: `#2563EB`（Ragdoll/架构）→ 开源版: `#3B82F6`
-- Codex Green: `#10B981`（Maine Coon/安全审计）
+**配色 token**（Admin流光渐变）：
+- Opus Blue: `#2563EB`（Agent-R/架构）→ 开源版: `#3B82F6`
+- Codex Green: `#10B981`（Agent-M/安全审计）
 - Gemini Amber: `#F59E0B`（Siamese/创意）
-- 背景深空灰: `#0F172A`（Midnight Cafe 风格）
+- 背景深空灰: `#0F172A`（Midnight hub 风格）
 
 ### 开源版铁律（Agent 安全约束）
 
-> team experience（2026-03-07）："猫猫咖啡的 redis 等不能动，不然开源的猫猫干着干着把自己老家端了"
+> team experience（2026-03-07）："Agent咖啡的 redis 等不能动，不然开源的Agent干着干着把自己老家端了"
 
 开源版 Agent MD（CLAUDE.md / AGENTS.md / GEMINI.md）必须内置以下硬约束，防止 agent 破坏自身运行环境：
 
 1. **数据存储圣域** — Agent 不得删除/清空自己的 Redis 数据库、SQLite 文件或任何持久化存储。测试用临时实例，生产实例只读不删。
 2. **进程自保** — Agent 不得 kill 自己的父进程、不得修改自己的启动配置使自己无法重启。
-3. **配置不可变** — Agent 运行时不得修改 `cat-config.json`、`.env`、MCP 配置等运行时配置文件。配置变更必须通过人类操作。
+3. **配置不可变** — Agent 运行时不得修改 `agent-config.json`、`.env`、MCP 配置等运行时配置文件。配置变更必须通过人类操作。
 4. **网络边界** — Agent 不得访问 localhost 上非自己的服务端口（防止跨 agent 干扰）。
 
 这些铁律要同时体现在：
@@ -189,17 +189,17 @@ Cat Café 内部实践已验证的核心增量（vs 裸 API / 单 Agent CLI）�
 
 ### 开源前的准备工作
 
-**Phase 1: 同步管道（Ragdoll Opus 4.6，进行中）**
+**Phase 1: 同步管道（Agent-R Opus 4.6，进行中）**
 
 - [x] `sync-manifest.yaml` — 定义导出白名单、transforms、denylist、provenance
 - [x] `scripts/sync-to-opensource.sh` — 五步管道（clean export → allowlist → transforms → security scan → output）
 - [x] 源码脱敏 — 个人信息从 placeholder/JSDoc/测试路径中移除
 - [x] 安全扫描 — 分层策略（API key 值零容忍/个人信息源码检查/env 变量名仅告警）
 - [x] Dry-run 通过 — 946 files, 5 transforms, 0 errors, 2 warnings
-- [x] `cat-cafe-skills/` 加入导出 — 通用化 transform（去team lead个人引用）
+- [x] `agent-hub-skills/` 加入导出 — 通用化 transform（去team lead个人引用）
 - [x] `test:public` 测试套件 — post-sync 标准启动验收替代
 - [x] `--validate` 模式 — post-sync gate + 标准启动验收实现
-- [x] 仓库名更新 — 脚本/manifest 已全部使用 `clowder-ai`
+- [x] 仓库名更新 — 脚本/manifest 已全部使用 `agent-task-hub`
 
 **Phase 2: 社区门面（待 P1 完成后）**
 
@@ -211,10 +211,10 @@ Cat Café 内部实践已验证的核心增量（vs 裸 API / 单 Agent CLI）�
 **Phase 3: 打磨（待 P2 完成后）**
 
 - [x] 补充 JSDoc（公开 API 面：parse-utils, DeduplicationService, AgentRegistry, MCP server 入口）
-- [x] 更新教程仓链接 — 教程仓: https://github.com/zts212653/cat-cafe-tutorials （注意不是 clowder-ai-tutorials）
-- [x] 两猫交叉 review 完整导出（v0.5.0~v0.6.0 多轮 sync + review 已覆盖）
+- [x] 更新教程仓链接 — 教程仓: https://github.com/zts212653/agent-hub-tutorials （注意不是 agent-task-hub-tutorials）
+- [x] 两Agent交叉 review 完整导出（v0.5.0~v0.6.0 多轮 sync + review 已覆盖）
 
-**Phase 4: 同步架构优化（3/13 事故后新增，两猫共识）** ✅
+**Phase 4: 同步架构优化（3/13 事故后新增，两Agent共识）** ✅
 
 核心决策：
 - **D1**: 四层关系模型（Source-owned / Public-generated / Target-owned / Public-intake）
@@ -231,22 +231,22 @@ Phase 4 实施过程中暴露的 runtime 层问题：
 - proxy 被误杀和生命周期管理
 - 修 A 炸 B 链条分析
 
-已收敛（两猫 3/13）：4.1=A profile 化, 4.2=全做, 4.3=A+C, 4.4=交互式 setup → [ADR-016](../decisions/016-sync-runtime-negation-decisions.md) + [LL-030](../public-lessons.md#LL-030)
+已收敛（两Agent 3/13）：4.1=A profile 化, 4.2=全做, 4.3=A+C, 4.4=交互式 setup → [ADR-016](../decisions/016-sync-runtime-negation-decisions.md) + [LL-030](../public-lessons.md#LL-030)
 
-**Phase 4c: Hotfix Lane 设计（3/14 平行 session 提出）** ✅ 已实现（Maine Coon code review 3/13 放行）
+**Phase 4c: Hotfix Lane 设计（3/14 平行 session 提出）** ✅ 已实现（Agent-M code review 3/13 放行）
 
 社区报 bug 后的精准修复通道：全量 sync 之外增加 tag-based hotfix 节奏。
-- `scripts/sync-hotfix.sh` — 从 worktree（基于 sync tag）推指定文件到 clowder-ai
+- `scripts/sync-hotfix.sh` — 从 worktree（基于 sync tag）推指定文件到 agent-task-hub
 - Source 侧两层门禁：HEAD == sync tag + 本地改动 ⊆ FILES，hard-fail
-- Target 侧漂移检查：clowder-ai 文件必须等于 sync 时版本
-- 首次 e2e 验证：clowder-ai#18（button tooltips），PR #65
+- Target 侧漂移检查：agent-task-hub 文件必须等于 sync 时版本
+- 首次 e2e 验证：agent-task-hub#18（button tooltips），PR #65
 
 **Phase 5: 社区编号体系（3/13 讨论收敛）**
 
 核心决策：
 - **D6**: 社区和内部共用一套 F 编号，从 ROADMAP.md 统一分配，不另起 P/CEP 系列
 - **D7**: Bug 用 GitHub issue # 追踪，不分配 F 号（F 号只给 feature）
-- **D8**: F 编号由维护者（team lead拍板 + 猫执行）分配，社区不自选号
+- **D8**: F 编号由维护者（team lead拍板 + Agent执行）分配，社区不自选号
 - **D9**: 分配 F 号前必须做关联检测——确认 issue 不是现有 feature 的子项（F114-F116 撤销教训）
 
 实施项（按优先级）：
@@ -260,20 +260,20 @@ Phase 4 实施过程中暴露的 runtime 层问题：
 
 ### Skills 开源策略（2026-03-09 讨论收敛）
 
-> 三猫共识：skills 不能全关也不能全开。
+> Admin共识：skills 不能全关也不能全开。
 
 **必须开源**（运行时依赖 + 核心差异化）：
 
 | 资产 | 理由 |
 |------|------|
-| `cat-cafe-skills/manifest.yaml` | skill 路由真相源，API capability discovery 依赖 |
-| `cat-cafe-skills/*/SKILL.md` | SystemPromptBuilder 注入 + governance bootstrap 依赖 |
-| `cat-cafe-skills/refs/shared-rules.md` | 第一性原理 + 协作规则（clowder-ai 的灵魂） |
-| `cat-cafe-skills/refs/rich-blocks.md` | 运行时功能依赖 |
-| `cat-cafe-skills/refs/mcp-callbacks.md` | MCP 集成文档 |
-| `cat-cafe-skills/refs/pr-template.md` | 社区 PR 需要 |
-| `cat-cafe-skills/refs/review-request-template.md` | review 流程需要 |
-| `cat-cafe-skills/refs/requirements-checklist-template.md` | 质量门禁需要 |
+| `agent-hub-skills/manifest.yaml` | skill 路由真相源，API capability discovery 依赖 |
+| `agent-hub-skills/*/SKILL.md` | SystemPromptBuilder 注入 + governance bootstrap 依赖 |
+| `agent-hub-skills/refs/shared-rules.md` | 第一性原理 + 协作规则（agent-task-hub 的灵魂） |
+| `agent-hub-skills/refs/rich-blocks.md` | 运行时功能依赖 |
+| `agent-hub-skills/refs/mcp-callbacks.md` | MCP 集成文档 |
+| `agent-hub-skills/refs/pr-template.md` | 社区 PR 需要 |
+| `agent-hub-skills/refs/review-request-template.md` | review 流程需要 |
+| `agent-hub-skills/refs/requirements-checklist-template.md` | 质量门禁需要 |
 
 **需要 transform**（通用化）：
 
@@ -291,20 +291,20 @@ Phase 4 实施过程中暴露的 runtime 层问题：
 | `refs/decision-matrix.md` | 内部决策权矩阵 |
 | `refs/vision-evidence-workflow.md` | 内部愿景守护细节 |
 
-### 商用影响分析（2026-03-09 三猫讨论）
+### 商用影响分析（2026-03-09 Admin讨论）
 
-MIT 下别人可商用。三猫共识：
+MIT 下别人可商用。Admin共识：
 
-- **护城河不在代码和 skills**：真正的差异化在经验积累（lessons-learned、decisions、三猫默契、运营 SOP）——这些不导出
+- **护城河不在代码和 skills**：真正的差异化在经验积累（lessons-learned、decisions、Admin默契、运营 SOP）——这些不导出
 - **Skills 开源反而是拉新手段**：别人用了我们的 SOP 觉得好，会回来贡献
 - **真正的风险**：不是"别人商用"，而是"送出去多少 know-how" → 用分层 transform 控制
 - **安全面暴露**：prompt 规则公开后需更依赖代码层防护（铁律的代码层实现）
 
-## 内测小伙伴（clowder-ai 私有仓 Collaborator）
+## 内测小伙伴（agent-task-hub 私有仓 Collaborator）
 
-> 来源：https://github.com/zts212653/cat-cafe-tutorials/issues/29
+> 来源：https://github.com/zts212653/agent-hub-tutorials/issues/29
 > 计划开放时间：2026-03-16 ~ 2026-03-22
-> 仓库：https://github.com/zts212653/clowder-ai（私有，2026-03-12 建立）
+> 仓库：https://github.com/zts212653/agent-task-hub（私有，2026-03-12 建立）
 
 | # | GitHub 用户名 | 备注 |
 |---|--------------|------|
@@ -313,8 +313,8 @@ MIT 下别人可商用。三猫共识：
 | 3 | `296569015` | |
 | 4 | `southstarcy` | 在公司复刻，暂无截图 |
 | 5 | `zybsdsp135` | |
-| 6 | `Liny777` | 已集成三猫（Claude/Codex/Gemini） |
-| 7 | `whutzefengxie-ops` | 仓被猫删了 |
+| 6 | `Liny777` | 已集成Admin（Claude/Codex/Gemini） |
+| 7 | `whutzefengxie-ops` | 仓被Agent删了 |
 | 8 | `2862282695gjh-afk` | 有截图，Python 版复刻 |
 | 9 | `Carrilog` | 有截图 |
 | 10 | `LnManch` | 有截图 |
@@ -359,6 +359,6 @@ MIT 下别人可商用。三猫共识：
 
 | 风险 | 缓解 |
 |------|------|
-| 敏感信息泄露 | strip 脚本 + 人工 review（至少两猫交叉检查） |
+| 敏感信息泄露 | strip 脚本 + 人工 review（至少两Agent交叉检查） |
 | 开源后维护负担 | 先小范围（核心框架），不一步开源全部 |
 | 内部开发被开源仓拖慢 | 受控回流模型：社区 PR 只进 `community/` 路径；核心路径由主仓同步 |

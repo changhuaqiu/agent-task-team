@@ -208,10 +208,10 @@ export function AgentTaskGroup({ agent }: AgentTaskGroupProps) {
         {/* Empty state */}
         {tasks.length === 0 && (
           <div className="flex flex-col items-center justify-center py-12 text-[hsl(var(--text-tertiary))]">
-            <Cat className="w-8 h-8 mb-2 opacity-40" />
+            <agent className="w-8 h-8 mb-2 opacity-40" />
             <span className="text-[12px] font-medium">No tasks assigned</span>
             <span className="text-[10px] mt-0.5 opacity-60">
-              This cat is resting...
+              This agent is resting...
             </span>
           </div>
         )}

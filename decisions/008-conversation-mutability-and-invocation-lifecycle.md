@@ -8,8 +8,8 @@ created: 2026-02-26
 # ADR-008: 对话可变性与调用生命周期
 
 > 日期: 2026-02-09
-> 状态: **草案 — 待Maine Coon review + 铲屎官拍板**
-> 参与者: Ragdoll (Opus) + Maine Coon (Codex) + 铲屎官
+> 状态: **草案 — 待Agent-M review + 铲屎官拍板**
+> 参与者: Agent-R (Opus) + Agent-M (Codex) + 铲屎官
 > 背景: 铲屎官要求类似 Google AI Studio 的删除/编辑能力；重复消息 + ENOENT 问题
 
 ---
@@ -27,7 +27,7 @@ created: 2026-02-26
 | 缺陷 | 现状 | 后果 |
 |------|------|------|
 | 无幂等性 | POST /api/messages 没有去重机制 | 网络重试或用户重发 → 重复消息 |
-| 无执行状态 | 消息写入 + 猫调用在同一 background async 中 | 调用失败时无法单独重试执行 |
+| 无执行状态 | 消息写入 + Agent调用在同一 background async 中 | 调用失败时无法单独重试执行 |
 | 消息不可变是全局假设 | cursor 单调递增依赖消息 ID 链不变 | 一旦允许删除，cursor 可能指向"空洞" |
 
 ---
@@ -66,7 +66,7 @@ created: 2026-02-26
 
 ### 决策
 
-引入 `InvocationRecord`，将"消息写入"与"猫调用执行"解耦。
+引入 `InvocationRecord`，将"消息写入"与"Agent调用执行"解耦。
 
 ### 状态定义
 
@@ -95,7 +95,7 @@ interface InvocationRecord {
 POST /api/messages
   → reply 202
   → background:
-      → 写入用户消息 + 调用猫 (耦合在一起)
+      → 写入用户消息 + 调用Agent (耦合在一起)
       → 失败 = 无法单独重试
 ```
 
@@ -111,7 +111,7 @@ POST /api/messages
   ④ reply 202 { invocationId }
   ⑤ background:
       → InvocationRecord.status = 'running'
-      → 执行猫调用 (routeSerial/routeParallel)
+      → 执行Agent调用 (routeSerial/routeParallel)
       → 成功: InvocationRecord.status = 'succeeded', ackCursor()
       → 失败: InvocationRecord.status = 'failed', error = ...
       → 取消: InvocationRecord.status = 'canceled'
@@ -129,12 +129,12 @@ POST /api/messages
 | ② 之后、③ 之前 | Record 存在，消息存在，但 Record.userMessageId=null | retry 端点: 根据 idempotencyKey 查找消息 → 回填 → 执行 |
 | ③ 之后、⑤ 之前 | Record + 消息都完整 | retry 端点: 直接执行 |
 
-`userMessageId: null` 是 InvocationRecord 的"未完成"标记。重试端点检测到此状态时，先补完消息写入再执行猫调用。
+`userMessageId: null` 是 InvocationRecord 的"未完成"标记。重试端点检测到此状态时，先补完消息写入再执行Agent调用。
 
 **注意**：① 失败（Lua 脚本执行出错）= 什么都没创建，请求直接返回 500。无需补偿——原子性保证要么全部成功要么全部不做。
 
 关键变化：
-- 用户消息写入和猫调用执行彻底解耦
+- 用户消息写入和Agent调用执行彻底解耦
 - 重试只需重新执行 ⑤，不会重复写入用户消息
 - cursor 只在 `succeeded` 时推进，`failed`/`canceled` 不推进
 
@@ -147,7 +147,7 @@ POST /api/invocations/:id/retry
   → 拒绝重试: status == 'running' | 'succeeded' | 'canceled'
   → 补偿: 若 userMessageId == null，先补写用户消息并回填
   → 更新 status = 'queued' (若已是 queued 则不变)
-  → 执行猫调用
+  → 执行Agent调用
 ```
 
 **为什么 `queued` 整体可重试（不细分 `userMessageId`）**：`queued` 的语义是"还没开始运行"。无论 `userMessageId` 是否有值，重试都是安全的——endpoint 内部根据 `userMessageId` 是否为 null 决定是否需要先补写消息。三种 `queued` 崩溃态全部覆盖：
@@ -168,7 +168,7 @@ POST /api/invocations/:id/retry
 
 ### 存储
 
-- Redis: `cat-cafe:invocation:{id}` Hash，TTL 7 天
+- Redis: `agent-hub:invocation:{id}` Hash，TTL 7 天
 - 内存 fallback: bounded Map，MAX 500
 
 ### Why
@@ -195,7 +195,7 @@ POST /api/messages 支持可选的 `idempotencyKey` 字段。
 ### 设计
 
 ```
-Redis key: cat-cafe:idemp:{threadId}:{userId}:{clientKey}
+Redis key: agent-hub:idemp:{threadId}:{userId}:{clientKey}
 Value: invocationId (D1 的 InvocationRecord ID)
 TTL: 300 秒 (5 分钟)
 ```
@@ -206,8 +206,8 @@ TTL: 300 秒 (5 分钟)
 2. 后端生成 `invocationId`，执行 **单个 Lua 脚本** 完成以下操作：
 
 ```lua
--- KEYS[1] = cat-cafe:idemp:{threadId}:{userId}:{clientKey}
--- KEYS[2] = cat-cafe:invocation:{invocationId}
+-- KEYS[1] = agent-hub:idemp:{threadId}:{userId}:{clientKey}
+-- KEYS[2] = agent-hub:invocation:{invocationId}
 -- ARGV = invocationId, threadId, userId, targetCats, intent, idempotencyKey, now
 local existing = redis.call('GET', KEYS[1])
 if existing then
@@ -247,7 +247,7 @@ const sendMessageSchema = z.object({
 理由：
 - 整个数据模型是 thread-scoped，幂等 key 应保持一致
 - 不同 thread 中的相同 key 不冲突（理论上不可能，UUID 碰撞概率极低，但语义上正确）
-- 与现有 Redis key pattern（`cat-cafe:msg:thread:{threadId}`）一致
+- 与现有 Redis key pattern（`agent-hub:msg:thread:{threadId}`）一致
 
 ### 向后兼容 + 内部强制保证
 
@@ -415,14 +415,14 @@ POST /api/threads/:id/branch
 ### Why
 
 1. **保护 cursor 一致性** — 原 thread 消息序列不变，cursor 不受影响
-2. **保护多 agent 上下文** — 猫的 session 绑定原 thread，不会因编辑而"穿越"
+2. **保护多 agent 上下文** — Agent的 session 绑定原 thread，不会因编辑而"穿越"
 3. **可审计** — 原始对话完整保留，分支是独立的新记录
 
 ### Tradeoff
 
 1. 不如原地编辑直觉 — 需要用户理解"分支"概念
 2. 消息复制增加存储 — 可接受（Redis 7 天 TTL 自然清理）
-3. 分支后的新 thread 没有 cat session resume — 是 feature（从干净状态开始）
+3. 分支后的新 thread 没有 agent session resume — 是 feature（从干净状态开始）
 
 ---
 
@@ -467,7 +467,7 @@ interface MessageMetadata {
 ## 否决理由（P0.5 回填）
 
 - **备选方案 A**：原地编辑消息（不分支）
-  - 不选原因：会破坏 cursor 单调假设与多猫 session 一致性，重放和审计链条会断裂（对应 D3/D4 约束）。
+  - 不选原因：会破坏 cursor 单调假设与多Agent session 一致性，重放和审计链条会断裂（对应 D3/D4 约束）。
 - **备选方案 B**：只加幂等键去重，不引入 InvocationRecord
   - 不选原因：只能缓解重复消息，无法表达调用生命周期、失败补偿与可重试边界（对应 D1/D2 设计目标）。
 - **备选方案 C**：优先做强一致删除，再讨论 Tombstone
@@ -558,7 +558,7 @@ type SocketEvent =
 |------|------|------|------|
 | S1 改 messages.ts 引入新 bug | 中 | 高 | 现有 567 tests 回归 + S1 新增 ~20 tests |
 | InvocationRecord 存储增加 Redis 内存 | 低 | 低 | 7 天 TTL 自动清理 |
-| 软删消息被猫的 session resume 拉回 | 中 | 中 | session resume 时也过滤 deletedAt |
+| 软删消息被Agent的 session resume 拉回 | 中 | 中 | session resume 时也过滤 deletedAt |
 | Branch 复制大量消息影响性能 | 低 | 低 | 限制单次复制上限 200 条 |
 | 硬删后 EventAuditLog 仍有原始内容摘要 | 低 | 中 | 审计日志不存原文，只存 prompt-digest hash |
 
@@ -576,6 +576,6 @@ ADR-007 定义的 thread 级联删除保持不变。新增的消息级删除（D
 
 ---
 
-*起草: Ragdoll 🐾 (2026-02-09)*
-*讨论基础: Maine Coon开放邀请 + 铲屎官裁决*
-*待: Maine Coon review → 铲屎官拍板 → 开始实施*
+*起草: Agent-R 🐾 (2026-02-09)*
+*讨论基础: Agent-M开放邀请 + 铲屎官裁决*
+*待: Agent-M review → 铲屎官拍板 → 开始实施*

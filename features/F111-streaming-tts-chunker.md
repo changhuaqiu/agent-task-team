@@ -8,7 +8,7 @@ created: 2026-03-12
 
 # F111: Streaming TTS Chunker — 流式分句合成管线
 
-> **Status**: done | **Owner**: 金渐层 (OpenCode, claude-opus-4-6) | **Priority**: P1 | **Completed**: 2026-03-17
+> **Status**: done | **Owner**: Golden Agent (OpenCode, claude-opus-4-6) | **Priority**: P1 | **Completed**: 2026-03-17
 
 ## Why
 
@@ -35,7 +35,7 @@ AIRI 项目的 `tts-chunker.ts` 已验证了这种管线在 TypeScript 中的可
 
 2. **Streaming Synthesis API**
    - 新增端点：`/api/tts/stream`（SSE，前端用 `fetch` + `ReadableStream` 消费）
-   - 鉴权：不用浏览器原生 `EventSource`（不支持自定义 header），改用 `fetch` + `ReadableStream` 读取 SSE 流，保留现有 `X-Cat-Cafe-User` header 鉴权链路，无需引入 token/query 鉴权
+   - 鉴权：不用浏览器原生 `EventSource`（不支持自定义 header），改用 `fetch` + `ReadableStream` 读取 SSE 流，保留现有 `X-agent-hub-User` header 鉴权链路，无需引入 token/query 鉴权
    - 前端逐段接收 audio chunk（Base64 编码）→ 解码 → 逐段播放
    - 保持与现有 `/api/tts/synthesize` 的兼容（非流式仍可用）
 
@@ -62,7 +62,7 @@ AIRI 项目的 `tts-chunker.ts` 已验证了这种管线在 TypeScript 中的可
    - Abort 不需要单独事件：前端检测到 WebSocket `done` 或断开即 abort
 
 3. **Scope 约束（Phase B-1）**
-   - 只做 route-serial + 单 cat + voiceMode 主路径
+   - 只做 route-serial + 单 agent + voiceMode 主路径
    - 不做 Route A（callback-only / create_rich_block(audio)）优化
    - 不做 route-parallel
    - 现有 `/api/tts/stream` + `useVoiceAutoPlay` 保留为 fallback（页面刷新/断线恢复/非实时场景）
@@ -124,7 +124,7 @@ AIRI 项目的 `tts-chunker.ts` 已验证了这种管线在 TypeScript 中的可
 **关键结论**：
 
 1. **F111 Plan C（分句合成）方向验证通过** — TTS 合成部分只占 2-3s，主要延迟来自 LLM 思考和 CLI 启动
-2. **CLI 冷启动 28s 是最大瓶颈** — opencode 框架开销，非 Cat Café 可优化范围
+2. **CLI 冷启动 28s 是最大瓶颈** — opencode 框架开销，非 Agent Task Hub 可优化范围
 3. **"边吐字边转语音"（Plan A 真流式）可进一步优化** — 理论上把 10s 压缩到 3-5s，因为 LLM 思考时间被 TTS 并行利用
 4. **当前实现满足 AC-A1 的精神**（TTS 合成部分 < 2s），但完整端到端还受 LLM 思考时间影响
 

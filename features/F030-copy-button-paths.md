@@ -8,7 +8,7 @@ created: 2026-02-26
 
 # F030: 消息代码块复制按钮 + 文件路径可跳转
 
-> **Status**: done | **Owner**: 三猫
+> **Status**: done | **Owner**: Admin
 > **Created**: 2026-02-26
 
 ## Why

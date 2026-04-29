@@ -8,21 +8,21 @@ created: 2026-03-08
 completed: 2026-03-09
 ---
 
-# F086 Cat Orchestration — 猫猫自主协作 + 元认知系统
+# F086 agent Orchestration — Agent自主协作 + 元认知系统
 
-> **Status**: done | **Owner**: 三猫
+> **Status**: done | **Owner**: Admin
 
 ## Why
 
 ### 核心痛点（team lead采访 2026-03-08 20:25-20:36）
 
-1. **协作链路脆弱**：A2A 经常断线，猫猫间协作不流畅，断了就需要team lead手动重新调度
-2. **猫猫缺少元思考**：不是能力问题，是意识问题 — 猫猫不会主动想"这个我应该拉其他猫讨论"
+1. **协作链路脆弱**：A2A 经常断线，Agent间协作不流畅，断了就需要team lead手动重新调度
+2. **Agent缺少元思考**：不是能力问题，是意识问题 — Agent不会主动想"这个我应该拉其他Agent讨论"
 3. **缺少元反思**：做完一个 feat 没有系统性地问"学到了什么？"，反思结果也没有沉淀到能影响未来行为的地方
-4. **知识孤岛**：只有Ragdoll有 MEMORY.md，其他猫没有跨 session 记忆
+4. **知识孤岛**：只有Agent-R有 MEMORY.md，其他Agent没有跨 session 记忆
 
 team experience：
-> "其实你们经常 a2a 断线，很多时候都是我在强调和要求你们是不是这里能够找其他猫猫讨论。"
+> "其实你们经常 a2a 断线，很多时候都是我在强调和要求你们是不是这里能够找其他Agent讨论。"
 > "你们有的时候缺少这样的元思考。不是说没能力吧？"
 > "我还认为我们缺少元反思逻辑。做完一个 feat 学习到了什么？沉淀呢？元认知提升呢？反思呢？"
 
@@ -43,10 +43,10 @@ team experience：
 
 | 缺口 | 问题 |
 |------|------|
-| 猫猫**主动协作** | 不知道什么时候该拉人，工具也不够流畅 |
+| Agent**主动协作** | 不知道什么时候该拉人，工具也不够流畅 |
 | **元反思循环** | 做完事不会系统性反思"学到了什么" |
 | **知识沉淀** | 反思结果没有变成可复用的知识影响未来行为 |
-| **跨猫可检索沉淀** | 只有Ragdoll有 MEMORY.md，其他猫缺少可检索的共享真相源 |
+| **跨Agent可检索沉淀** | 只有Agent-R有 MEMORY.md，其他Agent缺少可检索的共享真相源 |
 
 ## What — 三个 Milestone
 
@@ -54,7 +54,7 @@ team experience：
 
 ### M1 编排运行时 — 多重 @ + 回流路由
 
-**目标**：最小闭环的多猫协作工具。
+**目标**：最小闭环的多Agent协作工具。
 
 #### MCP 工具设计
 
@@ -82,7 +82,7 @@ team experience：
 - `targets.length <= 3`（硬限制，后续按需放宽）
 - `parallel only`（sequential 延后）
 - `callbackTo` 必填
-- 被召唤猫禁止二次扩散（@ mention 被忽略）
+- 被召唤Agent禁止二次扩散（@ mention 被忽略）
 - 调用频率限制 + 幂等键 + 超时回收
 - **超时默认 8 分钟**，允许 3~20 分钟覆盖（超时立即进 partial/timeout，回流已有结果）
 
@@ -95,22 +95,22 @@ pending → running → partial | done | timeout | failed
 | 状态 | 含义 |
 |------|------|
 | `pending` | multi_mention 已发出，等待 targets 响应 |
-| `running` | 至少一只猫已开始回答 |
-| `partial` | 部分猫已回答，部分超时/失败 |
+| `running` | 至少一只Agent已开始回答 |
+| `partial` | 部分Agent已回答，部分超时/失败 |
 | `done` | 所有 targets 都已回答 |
 | `timeout` | 超时未全部响应，已有回答回流给发起者 |
-| `failed` | 全部失败（如所有猫不可达） |
+| `failed` | 全部失败（如所有Agent不可达） |
 
 **部分失败策略**：已收到的回答照常回流，未收到的标注"超时/不可达"。不阻塞发起者。
 
-**回流载荷**：首版发原文（每只猫的完整回答），不做摘要。
+**回流载荷**：首版发原文（每只Agent的完整回答），不做摘要。
 
 #### 交互流程
 
 ```
 team lead @opus "帮我设计一下这个功能"
     ↓
-Ragdoll思考后，需要收集意见
+Agent-R思考后，需要收集意见
     ↓
 调 cat_cafe_multi_mention({
   targets: ['codex', 'gemini', 'gpt52'],
@@ -118,12 +118,12 @@ Ragdoll思考后，需要收集意见
   callbackTo: 'opus'
 })
     ↓
-三只猫各自收到消息（在 thread 里，天然透明）
+三只Agent各自收到消息（在 thread 里，天然透明）
   ├── codex 回答 → 自动路由回 opus
   ├── gemini 回答 → 自动路由回 opus
   └── gpt52 回答 → 自动路由回 opus
     ↓
-Ragdoll收到三份回答，综合后给team lead
+Agent-R收到三份回答，综合后给team lead
 ```
 
 #### 安全模型
@@ -132,7 +132,7 @@ Ragdoll收到三份回答，综合后给team lead
 |------|------|
 | CLI @ | 保留 ≤2 限制（防提示词注入） |
 | MCP multi_mention | **≤3 targets**（首版硬限制） |
-| 被 @ 猫 | **禁止** 再 @ 其他猫（防级联广播） |
+| 被 @ Agent | **禁止** 再 @ 其他Agent（防级联广播） |
 | 白名单 | 仅已注册 catId，不接受任意字符串 |
 | 回流 | 自动路由回 callbackTo，不经过team lead |
 
@@ -140,7 +140,7 @@ Ragdoll收到三份回答，综合后给team lead
 
 1. 新增 MCP tool handler `cat_cafe_multi_mention`
 2. routing 层：`callbackTo: CatId` 回流标记 + 状态机
-3. 防扩散：被召唤猫的 @ mention 被忽略
+3. 防扩散：被召唤Agent的 @ mention 被忽略
 4. system prompt 注入："你正在回答 {发起者} 的问题，回答后会自动路由回去"
 5. 可观测性：状态机变迁日志 + 超时/失败报告
 
@@ -155,8 +155,8 @@ Ragdoll收到三份回答，综合后给team lead
 | 触发器 | 场景 | 默认动作 |
 |--------|------|---------|
 | **A: 高影响决策** | 架构选型、API 契约、跨模块改动 | 先搜现有决策（docs/decisions/） → 再决定是否 multi_mention |
-| **B: 跨领域问题** | 涉及前端/安全/性能/UX 等非自身专长 | 先搜对应领域文档 → 再 @ 对应领域的猫 |
-| **C: 高不确定性** | 方案不确定、多种选择难以取舍 | 先搜历史讨论 → 再拉猫获取多视角 |
+| **B: 跨领域问题** | 涉及前端/安全/性能/UX 等非自身专长 | 先搜对应领域文档 → 再 @ 对应领域的Agent |
+| **C: 高不确定性** | 方案不确定、多种选择难以取舍 | 先搜历史讨论 → 再拉Agent获取多视角 |
 | **D: 信息不足** | 发现自己对上下文了解不够 | **先 search（messages/docs/evidence）→ 再问人** |
 | **E: 新领域侦查** | 要写新代码/MCP/集成时，先摸清现有体系 | **先从 feats/README 顺藤摸瓜 → 读相关 spec/discussion → 再动手** |
 
@@ -168,7 +168,7 @@ Ragdoll收到三份回答，综合后给team lead
 - 这是唯一的强制点，不对普通工作加负担
 
 **软引导**（Skills/提示词层面）：
-- 四个触发器场景写入 Skills，作为猫猫自检参考
+- 四个触发器场景写入 Skills，作为Agent自检参考
 - 不是每次做事都要"填表"，只在触发 multi_mention 时才检查
 
 #### 实现方式
@@ -225,24 +225,24 @@ team experience：
 3. **构建时机**：按需构建 + 本地缓存（最轻）；CI 仅做一致性检查（frontmatter/schema/link），暂不做全量重建
 4. 向量库只有在实测"比直接搜名字更快更准"时再引入
 
-#### 跨猫共享知识（降级方案）
+#### 跨Agent共享知识（降级方案）
 
-> **设计决策**：首版不做"每只猫都有完整长期记忆"，先解决"大家能查到同一份真相源"。（gpt52 建议 2026-03-08）
+> **设计决策**：首版不做"每只Agent都有完整长期记忆"，先解决"大家能查到同一份真相源"。（gpt52 建议 2026-03-08）
 
 - 共享的是**可检索的结构化沉淀**（反思胶囊 + 文档链接网络）
-- 不是"每只猫都有 MEMORY.md"
+- 不是"每只Agent都有 MEMORY.md"
 - 先解决"大家能查到同一份真相源"，再谈个体长期记忆
 
 #### ⚠️ Hindsight (cat_cafe_reflect) 已废弃
 
 team lead明确表示 (2026-03-08)：hindsight 反思功能**废弃**——大量 token 消耗但效果不好。
-当前猫猫实际常用的是搜索类工具（search_evidence, session_search, read_session_events）。
+当前Agent实际常用的是搜索类工具（search_evidence, session_search, read_session_events）。
 
 **教训**：元反思不能走"自动生成大段反思摘要"的路（token 黑洞）。
 
-#### 活生生的反面教材（Ragdoll自省 2026-03-08）
+#### 活生生的反面教材（Agent-R自省 2026-03-08）
 
-team lead指出：Ragdoll在采访时没有先搜索了解知识体系现状就开始提问——这恰好是 F086 要解决的"元思考缺失"的活例子。
+team lead指出：Agent-R在采访时没有先搜索了解知识体系现状就开始提问——这恰好是 F086 要解决的"元思考缺失"的活例子。
 
 > "你自己回顾你刚刚采访的错误，你并没有先搜、先了解、高效的理解我们，然后再问再想。"
 
@@ -251,14 +251,14 @@ team lead指出：Ragdoll在采访时没有先搜索了解知识体系现状就�
 - [x] AC-A1: M1/M2/M3 的完整验收条目见下方分组（本条为模板编号锚点）
 
 ### M1 编排运行时
-- [x] MCP 工具 `cat_cafe_multi_mention` 可被猫猫调用
+- [x] MCP 工具 `cat_cafe_multi_mention` 可被Agent调用
 - [x] `targets <= 3` 硬限制
 - [x] `parallel only`（首版）
 - [x] `callbackTo` 必填
 - [x] 回流状态机：pending → running → partial | done | timeout | failed
 - [x] 部分失败策略：已收到回答照常回流，未收到标注超时
 - [x] 回流载荷：原文（首版不做摘要）
-- [x] 防扩散：被 @ 猫不能再 @ 其他猫（isActiveTarget + 409 guard）
+- [x] 防扩散：被 @ Agent不能再 @ 其他Agent（isActiveTarget + 409 guard）
 - [x] 幂等键 + 超时回收
 - [x] CLI @ 限制 ≤2 保持不变（unchanged）
 - [x] 超时默认 8m（3~20m 可配），超时立即回流已有结果
@@ -272,7 +272,7 @@ team lead指出：Ragdoll在采访时没有先搜索了解知识体系现状就�
 
 ### M2 元思考触发
 - [x] 5 个触发器写入 Skills/shared-rules（高影响决策/跨领域/高不确定/信息不足/新领域侦查）
-- [x] 每个触发器有默认动作（先搜 → 再决定是否拉猫）
+- [x] 每个触发器有默认动作（先搜 → 再决定是否拉Agent）
 - [x] 触发器 E "新领域侦查"：写新代码前先从 feats 顺藤摸瓜，摸清现有体系
 - [x] multi_mention 调用时硬检查：缺少 searchEvidenceRefs 且无 overrideReason → 拒绝调用
 - [x] 普通工作不加负担（硬检查只在触发 multi_mention 时）
@@ -285,14 +285,14 @@ team lead指出：Ragdoll在采访时没有先搜索了解知识体系现状就�
 - [x] 反思结果有明确 `rule_update_target`（回写到哪个文件）
 - [x] 文档关系索引（title + summary + frontmatter edges + backlinks）
 - [x] 索引按需构建 + 本地缓存，CI 仅做一致性检查
-- [x] 跨猫可检索：所有猫能查到同一份结构化沉淀
+- [x] 跨Agent可检索：所有Agent能查到同一份结构化沉淀
 
 ### 非目标（首版明确不做）
 - ❌ 向量库（除非实测证明比 BM25 更好）
 - ❌ 自动长摘要（hindsight 路线已废弃）
 - ❌ 无限扩散 swarm（targets 上限 3）
 - ❌ sequential 模式（延后）
-- ❌ 每只猫都有完整长期记忆
+- ❌ 每只Agent都有完整长期记忆
 
 ## Key Decisions
 
@@ -302,7 +302,7 @@ team lead指出：Ragdoll在采访时没有先搜索了解知识体系现状就�
 4. **元思考是硬触发器不是口号**：可触发、可记录、可验证（gpt52 建议），含侦查阶段（team lead补充）
 5. **反思胶囊 6 固定字段**：不自由发挥，强制结构化（gpt52 建议）
 6. **先 BM25 + frontmatter 图谱，不预设向量库**（team lead + 两方共识）
-7. **共享记忆降级**：先"可检索的共享沉淀"，不做"每猫完整 MEMORY"（gpt52 建议）
+7. **共享记忆降级**：先"可检索的共享沉淀"，不做"每Agent完整 MEMORY"（gpt52 建议）
 8. **F086 ≠ F037**：F086 是确定性编排+回流，F037 是自主 swarm 探索，并列不吞并（codex 判定）
 9. **F079 Gap 4 与 F086 M1 不混做**：cat_cafe_start_vote 是投票扩展，multi_mention 是编排运行时，先跑通 M1 再决定 Gap 4 接入方式（gpt52 R3 建议）
 
@@ -319,8 +319,8 @@ team lead指出：Ragdoll在采访时没有先搜索了解知识体系现状就�
 | **callback auth** | `packages/api/src/routes/callback-auth-schema.ts` | 复用 `invocationId + callbackToken` 验证 |
 | **callback routes** | `packages/api/src/routes/callbacks.ts` | 新增 `/api/callbacks/multi-mention` 端点 |
 | **WorklistRegistry** | `packages/api/src/.../routing/WorklistRegistry.ts` | M1 不复用 worklist（parallel 独立调度），但需防冲突 |
-| **F055 targetCats** | `callback-a2a-trigger.ts` | 被 @ 猫的回答通过 targetCats 路由回 callbackTo |
-| **a2a-mentions** | `packages/api/src/.../routing/a2a-mentions.ts` | 被 @ 猫禁止二次扩散：响应中 @ mention 被忽略 |
+| **F055 targetCats** | `callback-a2a-trigger.ts` | 被 @ Agent的回答通过 targetCats 路由回 callbackTo |
+| **a2a-mentions** | `packages/api/src/.../routing/a2a-mentions.ts` | 被 @ Agent禁止二次扩散：响应中 @ mention 被忽略 |
 | **SystemPromptBuilder** | `packages/api/src/.../context/SystemPromptBuilder.ts` | 注入 "你正在回答 {initiator} 的问题" 上下文 |
 | **vote-intercept** | `packages/api/src/.../routing/vote-intercept.ts` | 参考模式：MCP 发起 → routing 拦截 → 状态追踪 → 结果聚合 |
 
@@ -335,22 +335,22 @@ team lead指出：Ragdoll在采访时没有先搜索了解知识体系现状就�
 
 ### 关键设计决策（基于侦查）
 
-1. **放 collab server 不放 memory**：multi_mention 是协作核心工具，所有猫必须可用
-2. **不复用 WorklistRegistry**：worklist 是 serial route 的线程局部状态，M1 是独立的 parallel 调度，混用会冲突。但需要注意：如果 callbackTo 猫当前在 serial route 中，回流消息不能破坏 worklist
-3. **复用 F055 targetCats 做回流**：被 @ 猫回答后，通过 `targetCats: [callbackTo]` 路由回发起者，不造新轮子
-4. **防扩散在 SystemPromptBuilder 注入**：被 @ 猫的 system prompt 加 "不要 @ 其他猫"，同时 a2a-mentions 解析层做硬拦截（双保险）
+1. **放 collab server 不放 memory**：multi_mention 是协作核心工具，所有Agent必须可用
+2. **不复用 WorklistRegistry**：worklist 是 serial route 的线程局部状态，M1 是独立的 parallel 调度，混用会冲突。但需要注意：如果 callbackTo Agent当前在 serial route 中，回流消息不能破坏 worklist
+3. **复用 F055 targetCats 做回流**：被 @ Agent回答后，通过 `targetCats: [callbackTo]` 路由回发起者，不造新轮子
+4. **防扩散在 SystemPromptBuilder 注入**：被 @ Agent的 system prompt 加 "不要 @ 其他Agent"，同时 a2a-mentions 解析层做硬拦截（双保险）
 5. **状态机独立于 route strategy**：新增 `MultiMentionOrchestrator` 管理 pending→done 生命周期，不嵌入 route-serial/parallel
 
 ### 与现有 A2A 的关系
 
 ```
 现有 A2A（文本 @）:
-  猫回答 → a2a-mentions 解析 → WorklistRegistry 入队 → serial route 执行
+  Agent回答 → a2a-mentions 解析 → WorklistRegistry 入队 → serial route 执行
   限制: ≤2 targets，serial only，无回流保证
 
 F086 multi_mention（MCP 工具）:
-  猫调 MCP → callback → MultiMentionOrchestrator → parallel 调度 targets
-  → 每只猫回答 → targetCats 路由回 callbackTo → 聚合 → 通知发起者
+  Agent调 MCP → callback → MultiMentionOrchestrator → parallel 调度 targets
+  → 每只Agent回答 → targetCats 路由回 callbackTo → 聚合 → 通知发起者
   限制: ≤3 targets，parallel only（首版），有状态机保证
 
 两者并存：文本 @ 仍然工作（向后兼容），multi_mention 是结构化升级路径
@@ -358,7 +358,7 @@ F086 multi_mention（MCP 工具）:
 
 ## Dependencies
 
-- **Evolved from**: F079（投票系统 — 猫猫协作先例）
+- **Evolved from**: F079（投票系统 — Agent协作先例）
 - **Evolved from**: F042（三层信息架构 — 知识该放哪里）
 - **Evolved from**: F043（MCP 归一化 — 查询和发现）
 - **Evolved from**: F046（愿景守护 — 反漂移协议）
@@ -376,16 +376,16 @@ F086 multi_mention（MCP 工具）:
 
 ## Review Gate
 
-- 跨猫 review：@codex（安全边界）+ @gpt52（架构 + 元认知视角）
+- 跨Agent review：@codex（安全边界）+ @gpt52（架构 + 元认知视角）
 - 设计评审已完成首轮（2026-03-08，见 Timeline）
 
 ## Key Decision #3: shared-rules 注入机制（Post-completion Discovery）
 
-> 发现时机：F086 feature close 后，team lead在另一线程指出"猫猫们对 shared-rules 的注入方式很疑惑——只有一个 link，他们根本不知道还有这玩意"
+> 发现时机：F086 feature close 后，team lead在另一线程指出"Agent们对 shared-rules 的注入方式很疑惑——只有一个 link，他们根本不知道还有这玩意"
 > 参与者：team lead + gpt52（方案设计）+ opus 4.6（实施简化）
 > 决策方式：team lead拍板 quick fix
 
-**问题**：`governance-pack.ts:27` 和 `CLAUDE.md` 都只写了文件路径引用 `cat-cafe-skills/refs/shared-rules.md`。猫猫启动时看不到实际内容，除非主动 `Read` 该文件。F086 M2 给 shared-rules 加了第一性原理和触发器，但注入机制没变——内容更丰富了，猫还是看不到。
+**问题**：`governance-pack.ts:27` 和 `CLAUDE.md` 都只写了文件路径引用 `agent-hub-skills/refs/shared-rules.md`。Agent启动时看不到实际内容，除非主动 `Read` 该文件。F086 M2 给 shared-rules 加了第一性原理和触发器，但注入机制没变——内容更丰富了，Agent还是看不到。
 
 **讨论收敛的方案**（gpt52 + opus 4.6 共识）：
 - 三层注入：L0 常驻（原则+底线）→ L1 场景切片（按 context 选择）→ L2 按需读取

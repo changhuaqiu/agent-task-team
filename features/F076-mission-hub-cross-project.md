@@ -8,7 +8,7 @@ created: 2026-03-07
 
 # F076: Mission Hub 跨项目作战面板 + 甲方项目治理引擎
 
-> **Status**: done (superseded by F152) | **Owner**: Ragdoll | **Completed**: 2026-04-10
+> **Status**: done (superseded by F152) | **Owner**: Agent-R | **Completed**: 2026-04-10
 > **Evolved from**: F049（Mission Control MVP）+ F058（Mission Hub 增强）+ F070（Portable Governance）
 > **Superseded by**: F152（Expedition Memory — 外部项目记忆冷启动 + 经验回流）
 
@@ -16,17 +16,17 @@ created: 2026-03-07
 
 ### 核心痛点（team lead采访 2026-03-07）
 
-猫猫团队不只做 cat-cafe 自己的项目，还会被派遣到外部甲方项目（如 studio-flow）。
+Agent团队不只做 agent-hub 自己的项目，还会被派遣到外部甲方项目（如 studio-flow）。
 这类项目的管理痛点与自研项目截然不同：
 
 1. **甲方不知道自己要什么** — 给的 PRD 往往是让 AI 写的"许愿清单"，看似完整实则空洞（缺 AC、缺边界、缺优先级）
 2. **需求膨胀** — 甲方把"企业管理系统"所有模块一股脑塞进来（登录、工作台、客户、审核、团队、统计...），每个"一点"的工作量天差地别
 3. **没有完成确信** — 自研项目 AC 自己定，心里有数；甲方项目的 AC 在甲方脑子里，你写的可能和他想的不一样
-4. **救火员困境** — "当猫猫救火员的时候如何才能高质量完成任务？"
+4. **救火员困境** — "当Agent救火员的时候如何才能高质量完成任务？"
 
 ### team experience
 
-> "甲方根本就不知道自己想要啥...他给了一个他的 claude 写的需求 prd...一个不懂编程的人带着大猫猫传来一份不知道如何形容的 prd"
+> "甲方根本就不知道自己想要啥...他给了一个他的 claude 写的需求 prd...一个不懂编程的人带着大Agent传来一份不知道如何形容的 prd"
 >
 > "和自己的项目那种全盘掌控的感觉完全不一样！现在就感觉乱七八糟的"
 
@@ -38,7 +38,7 @@ created: 2026-03-07
 
 ### 两大能力
 
-**能力 1: 需求翻译官（Need Audit Pipeline）** — 多猫讨论收敛 2026-03-07
+**能力 1: 需求翻译官（Need Audit Pipeline）** — 多Agent讨论收敛 2026-03-07
 
 核心洞察（gpt52）：**第一步不是拆 feat，而是先降级。** 把 PRD 从"看起来完整的需求文档"降级为"待验证的意图包"。
 
@@ -122,7 +122,7 @@ Intent Card 槽位（v2）：actor / context-trigger / goal / object-state / suc
 - ❌ ~~独立深色 dashboard~~ — 初版 wireframe 已废弃
 
 **不做的**:
-- C（猫猫派遣状态）：大概率都是Ragdoll，不需要独立面板
+- C（Agent派遣状态）：大概率都是Agent-R，不需要独立面板
 - E（项目数据回流）：项目信息不进家门。只回流**知识工程经验**（方法论沉淀），不回流项目数据。"家不是工作的地方"
 
 ### 案例参考：studio-flow
@@ -132,12 +132,12 @@ Intent Card 槽位（v2）：actor / context-trigger / goal / object-state / suc
 - 甲方9点验收基线 → BACKLOG feature 映射
 - SF-025 Gap Fix Batch：6 个模块塞一个 feat（登录、工作台、客户、审核、团队、数据）
 - 251 tests，Sprint 0/0.5/1/B 分层
-- 已部署 cat-cafe governance（CLAUDE.md, AGENTS.md）
+- 已部署 agent-hub governance（CLAUDE.md, AGENTS.md）
 - **观察到的问题**：SF-025 是巨兽 feat、甲方"一点"粒度差异大、缺乏需求合理性挑战
 
 **studio-flow 资源盘点 (2026-03-07 跨线程)**：
 
-通过跨线程协作（studio-flow Ragdoll盘点），获取到以下甲方素材清单：
+通过跨线程协作（studio-flow Agent-R盘点），获取到以下甲方素材清单：
 - **6 个 PRD 文件**：PRD-V1.md (744行, 10模块), PRD-V2.md (474行, 甲方逐条反馈+修改), PRD-V3.md (198行, 甲方口述补充), PRD-V4.md (101行, 后期优化项), PRD-V5.md (43行, UI/动效/细节), PRD-V6.md (22行, 最终修改)
 - **25 features** (SF-001 ~ SF-027, 跳过 SF-013/SF-016)
 - **甲方验收 9 点基线**：覆盖登录安全→工作台看板→客户管理→审核流→团队管理→统计报表→系统设置→响应式→通知
@@ -180,7 +180,7 @@ F076 经历了完整的多阶段讨论过程（2026-03-07 全天）：
 - 5 轮 Q&A，从"跨项目面板"演化为"甲方项目治理引擎"
 - 核心痛点提炼：甲方不知道自己要什么 / 需求膨胀 / 没有完成确信 / 救火员困境
 
-### Phase 2: 多猫独立思考 + 讨论收敛
+### Phase 2: 多Agent独立思考 + 讨论收敛
 - **Opus 独立思考**：三阶段审计管线 + 5 个模糊检测启发式 → `opus-independent-thinking.md`
 - **GPT-5.2 独立思考**：强调"降级优先" + Source tag + 粒度门禁 + 五维评分
 - **收敛会议**：6 共识 + 5 分歧逐项解决 → `meeting-notes.md`
@@ -198,7 +198,7 @@ F076 经历了完整的多阶段讨论过程（2026-03-07 全天）：
 - 含：对象模型 / Intent Card v2 schema / 状态机 / 决策权矩阵 / 8 风险信号 / 方法论谱系
 
 ### Phase 5: studio-flow 跨线程资源盘点
-- 跨线程协作请 studio-flow Ragdoll盘点所有甲方 PRD 素材
+- 跨线程协作请 studio-flow Agent-R盘点所有甲方 PRD 素材
 - 获取：6 PRD 文件 / 25 features / 9 点验收基线 / 试跑建议
 
 ### Phase 6: UX 方向修正

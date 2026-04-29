@@ -8,7 +8,7 @@ created: 2026-03-06
 
 # F067: Cold-start Verifier — 无历史污染的交付物验证
 
-> **Status**: spec | **Owner**: Ragdoll
+> **Status**: spec | **Owner**: Agent-R
 > **Created**: 2026-03-06
 > **Priority**: P2
 > **Evolved from**: F046 B2
@@ -17,7 +17,7 @@ created: 2026-03-06
 
 ## Why
 
-F041 能力看板事件证明：参与开发的猫猫会被上下文惯性影响，即使 AC 全绿也可能交付物偏离愿景。F046 建立了流程层守护（跨猫签收、review 附需求摘录），但缺少一种**无历史污染**的独立验证机制。
+F041 能力看板事件证明：参与开发的Agent会被上下文惯性影响，即使 AC 全绿也可能交付物偏离愿景。F046 建立了流程层守护（跨Agent签收、review 附需求摘录），但缺少一种**无历史污染**的独立验证机制。
 
 一个从未参与过讨论和开发的 agent，只看原始需求和最终交付物，能给出最客观的"这是不是team lead要的"判断。
 
@@ -28,7 +28,7 @@ F041 能力看板事件证明：参与开发的猫猫会被上下文惯性影响
 ### 核心设计点
 
 1. **无污染保证**：Verifier 不读开发历史、不读 review 记录、不读讨论——只看需求 spec 和交付物
-2. **触发时机**：feature completion Step 0 之后、跨猫签收之前
+2. **触发时机**：feature completion Step 0 之后、跨Agent签收之前
 3. **输入**：原始需求文档（team experience + AC）+ 交付物清单（代码路径 + 截图/录屏）
 4. **输出**：Pass/Fail + 逐项匹配度 + 发现的偏离点
 

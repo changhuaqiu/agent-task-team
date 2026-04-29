@@ -8,14 +8,14 @@ created: 2026-02-26
 
 # F029: 删除右面板"任务统计"死区 + TaskExtractor 清理
 
-> **Status**: done | **Owner**: 三猫
+> **Status**: done | **Owner**: Admin
 > **Created**: 2026-02-26
 
 ## Why
 - ✅ `e532ab4` + `9ebb93f`
 
 ## What
-- **~~F29~~**: 右面板"任务统计"永远是 0——TaskExtractor 从对话文本提取 - [ ] / TODO: 标记，但猫猫实际用 CLI 工具 (TaskCreate/write_todos) 管理任务，两套系统不搭。删除：RightStatusPanel 的任务统计 section + taskSummary prop + ChatContainer taskSummary 计算。TaskExtractor 后端逻辑（TaskStore/fetchTasks）暂保留给 sidebar 毛线球用；前端右面板的任务展示由 F26 的实时 task 进度取代（放在每只猫的调用卡片里）。
+- **~~F29~~**: 右面板"任务统计"永远是 0——TaskExtractor 从对话文本提取 - [ ] / TODO: 标记，但Agent实际用 CLI 工具 (TaskCreate/write_todos) 管理任务，两套系统不搭。删除：RightStatusPanel 的任务统计 section + taskSummary prop + ChatContainer taskSummary 计算。TaskExtractor 后端逻辑（TaskStore/fetchTasks）暂保留给 sidebar 毛线球用；前端右面板的任务展示由 F26 的实时 task 进度取代（放在每只Agent的调用卡片里）。
 
 ## Acceptance Criteria
 - [x] AC-A1: 本文档已补齐模板核心结构（Status/Why/What/Dependencies/Risk/Timeline）。

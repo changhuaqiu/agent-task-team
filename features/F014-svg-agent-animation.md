@@ -1,20 +1,20 @@
 ---
 feature_ids: [F014]
 related_features: []
-topics: [svg, cat, animation]
+topics: [svg, agent, animation]
 doc_kind: note
 created: 2026-02-26
 ---
 
-# F014: SVG 猫猫状态动画
+# F014: SVG Agent状态动画
 
-> **Status**: done (abandoned) | **Owner**: 三猫
+> **Status**: done (abandoned) | **Owner**: Admin
 > **Created**: 2026-02-26
 
 ## Why
 
 ## What
-- **F14**: 把 ASCII ᓚᘏᗢ 升级为三猫参数化 SVG 动画。方案 B（AI 生成 + 结构化 + CSS 动画）已确认。调研报告+执行计划: svg-frontend-research.md
+- **F14**: 把 ASCII ᓚᘏᗢ 升级为Admin参数化 SVG 动画。方案 B（AI 生成 + 结构化 + CSS 动画）已确认。调研报告+执行计划: svg-frontend-research.md
 
 ## Acceptance Criteria
 - [ ] AC-A1: 本文档需在本轮迁移后维持模板核心结构（Status/Why/What/Dependencies/Risk/Timeline）。

@@ -4,24 +4,24 @@ related_features: [F087, F110]
 topics: [guidance, onboarding, ux, interactive]
 doc_kind: spec
 created: 2026-04-09
-community_issue: "clowder-ai#409"
-community_pr: ["clowder-ai#398", "clowder-ai#457", "clowder-ai#504"]
-intake_issue: "cat-cafe#1294"
+community_issue: "agent-task-hub#409"
+community_pr: ["agent-task-hub#398", "agent-task-hub#457", "agent-task-hub#504"]
+intake_issue: "agent-hub#1294"
 ---
 
 # F155: Scene-Based Guidance Engine — 场景式交互引导
 
-> **Status**: in-progress (Phase A merged in cat-cafe main via PR #1122; Phase B selective intake merged in cat-cafe main via PR #1147; guided-scenarios selective intake merged in cat-cafe main via PR #1296) | **Source**: Community (mindfn) | **Priority**: P1 | **Owner**: Maine Coon/gpt52
+> **Status**: in-progress (Phase A merged in agent-hub main via PR #1122; Phase B selective intake merged in agent-hub main via PR #1147; guided-scenarios selective intake merged in agent-hub main via PR #1296) | **Source**: Community (mindfn) | **Priority**: P1 | **Owner**: Agent-M/gpt52
 
 ## Why
 
 用户使用复杂功能（如添加成员、配置 Provider）时缺乏上下文引导。F087/F110 的训练营解决了"首次入门"，但用户在日常操作中遇到具体功能时仍然需要分步交互引导。
 
-社区贡献者 mindfn 在 clowder-ai#409 提出并实现了完整的 Phase A 方案。
+社区贡献者 mindfn 在 agent-task-hub#409 提出并实现了完整的 Phase A 方案。
 
 ## What
 
-### Phase A（已 merged 到 cat-cafe main）
+### Phase A（已 merged 到 agent-hub main）
 
 1. **YAML 驱动的引导流程定义** — `guides/flows/*.yaml` + `guides/registry.yaml`
 2. **引导状态机** — `offered → awaiting_choice → active → completed/cancelled`（前向 DAG）
@@ -29,12 +29,12 @@ intake_issue: "cat-cafe#1294"
 4. **Auto-advance 引擎** — 4 种推进模式：`click` / `visible` / `input` / `confirm`
 5. **后端回调路由** — guide-action routes + completion ack + one-shot consumption
 6. **路由集成** — `guideOfferOwner` / `guideCompletionOwner` 注入 parallel/serial routing
-7. **SystemPromptBuilder 注入** — 引导上下文写入猫猫系统提示
-8. **MCP 回调工具** — 让猫猫触发引导
+7. **SystemPromptBuilder 注入** — 引导上下文写入Agent系统提示
+8. **MCP 回调工具** — 让Agent触发引导
 9. **Esc Guard** — 引导期间阻止误关 Hub
 10. **Guide Authoring Skill** — 编写新引导流程的 SOP
 
-### Phase B（已 selective intake 到 cat-cafe main）
+### Phase B（已 selective intake 到 agent-hub main）
 
 - [x] 移除 `retreatStep` 死代码（与 KD-9 forward-only 矛盾）
 - [x] 添加 `schemaVersion` 到 YAML flow 格式 + loader 启动校验（缺省按隐式 v1 兼容过渡）
@@ -51,7 +51,7 @@ intake_issue: "cat-cafe#1294"
 - [ ] **CustomEvent 迁移**：移除 `window.addEventListener('guide:start')` 桥接层，改用 Socket.io（server→client）+ Zustand actions（client-side）
 - [ ] **GuideSession 领域对象**：从 thread-scoped `guideState` 迁移到独立 `GuideSession` store `{ threadId, userId, guideId, sessionId, state }`
 - [ ] **文件拆分**：`callback-guide-routes.ts` 状态机迁移到 domain service；`GuideOverlay.tsx` 继续向 `guide-overlay-parts.tsx` 分解
-- [ ] **意图判定与 guide catalog 策略层**：猫先基于用户意图判断是直接解释还是需要引导，再通过 MCP `cat_cafe_get_available_guides()` 获取当前可用场景目录，并基于返回描述选择具体场景；路由层不再直接从原始消息触发 guide，避免 hijack 正常对话
+- [ ] **意图判定与 guide catalog 策略层**：Agent先基于用户意图判断是直接解释还是需要引导，再通过 MCP `cat_cafe_get_available_guides()` 获取当前可用场景目录，并基于返回描述选择具体场景；路由层不再直接从原始消息触发 guide，避免 hijack 正常对话
 
 **产品扩展**
 
@@ -93,7 +93,7 @@ The default thread (`threadId: 'default'`) is shared by all users. This creates 
 1. **Self-heal blocked**: `isSharedDefaultThread()` prevents `start`/`preview` endpoints from manufacturing guide state when `!gs` — any authenticated user could occupy the single guide slot
 2. **User-scoped events**: Socket events use `emitToUser`, not `emitToThread` — prevents guide UI leaking to other users
 3. **Access guard**: `canAccessGuideState()` checks `gs.userId === requestUserId` — one user's guide doesn't block or interfere with another's
-4. **Foreign reoffer suppression**: Routing layer skips guide injection for cats that didn't originally offer the guide on this thread
+4. **Foreign reoffer suppression**: Routing layer skips guide injection for agents that didn't originally offer the guide on this thread
 
 ## Key Decisions（社区侧）
 
@@ -111,7 +111,7 @@ TBD — 待 intake 讨论后确定。
 
 ## Risk
 
-- **HIGH**: 深度修改 routing core（route-parallel/serial/invoke-single-cat/SystemPromptBuilder）
+- **HIGH**: 深度修改 routing core（route-parallel/serial/invoke-single-agent/SystemPromptBuilder）
 - 社区方案 Q4 UNKNOWN — 缺长期 owner
 
 ## Intake 评估（Phase B 已 merged）
@@ -124,33 +124,33 @@ TBD — 待 intake 讨论后确定。
 | Q2 | 与现有 Feature 冲突/重叠？ | 不冲突 — F087/F110 是入门训练营，F155 是操作级上下文引导 |
 | Q3 | 技术栈 fit？ | PASS — TS/React/MCP/Socket 全栈 |
 | Q4 | 维护能力？ | **UNKNOWN / NEEDS-OWNER** — 72 commits 证明社区持续迭代，但不等于我们有长期 owner + 支持能力 |
-| Q5 | 技术负债？ | **HIGH** — 深度修改 routing core（route-parallel/serial/invoke-single-cat/SystemPromptBuilder），非隔离模块 |
+| Q5 | 技术负债？ | **HIGH** — 深度修改 routing core（route-parallel/serial/invoke-single-agent/SystemPromptBuilder），非隔离模块 |
 
 ### Merge Gate（已关闭）
 
-- [x] Accepted issue 已补齐：`clowder-ai#409` 当前为 `triaged` + `feature:F155`
+- [x] Accepted issue 已补齐：`agent-task-hub#409` 当前为 `triaged` + `feature:F155`
 - [x] 历史冲突标记已清理
-- [x] `clowder-ai#398` 已于 2026-04-12 squash merge（commit `2e1d5e2c2bfb8cb95753d1c6a8cd0e9aab7c8a17`）
-- [x] `clowder-ai#457` 已于 2026-04-13 squash merge（commit `517c076d23e9b7ab07b082cc63d81052e4ce9931`）
-- [x] `cat-cafe#1122` 已于 2026-04-12 squash merge（commit `e4e05c79881dfd4d0c35e8ddb4eb32cf5025493e`）
+- [x] `agent-task-hub#398` 已于 2026-04-12 squash merge（commit `2e1d5e2c2bfb8cb95753d1c6a8cd0e9aab7c8a17`）
+- [x] `agent-task-hub#457` 已于 2026-04-13 squash merge（commit `517c076d23e9b7ab07b082cc63d81052e4ce9931`）
+- [x] `agent-hub#1122` 已于 2026-04-12 squash merge（commit `e4e05c79881dfd4d0c35e8ddb4eb32cf5025493e`）
 
 ### Intake 现状
 
-- Intake Intent Issue：`cat-cafe#1119`（已关闭）
-- Phase B selective intake 已于 2026-04-13 merge 到 cat-cafe main（PR #1147）
+- Intake Intent Issue：`agent-hub#1119`（已关闭）
+- Phase B selective intake 已于 2026-04-13 merge 到 agent-hub main（PR #1147）
 - 机械分类：67 `safe-cherry-pick` / 1 `brand-guard` / 14 `manual-port`
 - 当前 intake 策略：Phase A / Phase B 均按 selective absorb 回流；Phase B 已完成 `ephemeral guide session` 分层与 extraction seams 的 file-level intake，不做 upstream 全量 replay
-- Phase A intake 已于 2026-04-12 merge 到 cat-cafe main（PR #1122）
-- `clowder-ai#504` 已于 2026-04-20 upstream squash merge（commit `2161cfcb32958c6c665ddfde5611c9fbee674ef8`）
-- guided scenarios selective intake 已于 2026-04-20 merge 到 cat-cafe main（PR #1296, commit `3d886c72a9be7c788b1e461634be9bb711df538b`）；`cat-cafe#1294` 已自动关闭
-- `clowder-ai#504` 机械分类：50 `safe-cherry-pick` / 4 `manual-port`
+- Phase A intake 已于 2026-04-12 merge 到 agent-hub main（PR #1122）
+- `agent-task-hub#504` 已于 2026-04-20 upstream squash merge（commit `2161cfcb32958c6c665ddfde5611c9fbee674ef8`）
+- guided scenarios selective intake 已于 2026-04-20 merge 到 agent-hub main（PR #1296, commit `3d886c72a9be7c788b1e461634be9bb711df538b`）；`agent-hub#1294` 已自动关闭
+- `agent-task-hub#504` 机械分类：50 `safe-cherry-pick` / 4 `manual-port`
 
 ### Intake Shape
 
 这个 PR **不是** `safe-cherry-pick`，而是 `absorbed + manual-port` 混合型：
 
 - 如果我们接，接的大概率是**产品能力定义 + 部分实现**，不是整包吞掉 routing core 的耦合改动
-- `route-serial.ts`（+158）、`route-parallel.ts`（+158）、`invoke-single-cat.ts`、`SystemPromptBuilder.ts`（+108）这四个文件的改动需要逐行评审，可能需要重构为更松耦合的注入方式
+- `route-serial.ts`（+158）、`route-parallel.ts`（+158）、`invoke-single-agent.ts`、`SystemPromptBuilder.ts`（+108）这四个文件的改动需要逐行评审，可能需要重构为更松耦合的注入方式
 - 前端 overlay + guide store + YAML catalog 相对独立，吸纳成本较低
 - 结论：**吸纳的是 feature 定义，不是批准整包实现**
 
@@ -162,7 +162,7 @@ PR 后半段（04-09 的 20+ commits）连续修了以下问题，说明 `guideS
 - foreign non-terminal reoffer suppression（`suppress foreign default-thread reoffers`）
 - stale local `guide:start` gate（`gate stale local guide starts`）
 - guide state scoping by user（`scope shared guide state by user`）
-- completion ack timing（`defer completionAcked write until owner cat receives injection`）
+- completion ack timing（`defer completionAcked write until owner agent receives injection`）
 
 后续 intake 必须按**高风险改动**看待，需要完整的安全 review。
 
@@ -175,14 +175,14 @@ PR 后半段（04-09 的 20+ commits）连续修了以下问题，说明 `guideS
 
 ## Upstream Links
 
-- Issue: [clowder-ai#409](https://github.com/zts212653/clowder-ai/issues/409)
-- Issue: [clowder-ai#503](https://github.com/zts212653/clowder-ai/issues/503)
-- Issue: [clowder-ai#542](https://github.com/zts212653/clowder-ai/issues/542)
-- PR: [clowder-ai#398](https://github.com/zts212653/clowder-ai/pull/398)
-- PR: [clowder-ai#457](https://github.com/zts212653/clowder-ai/pull/457)
-- PR: [clowder-ai#504](https://github.com/zts212653/clowder-ai/pull/504)
-- Intake Issue: [cat-cafe#1119](https://github.com/zts212653/cat-cafe/issues/1119)
-- Intake Issue: [cat-cafe#1144](https://github.com/zts212653/cat-cafe/issues/1144)
-- Intake Issue: [cat-cafe#1294](https://github.com/zts212653/cat-cafe/issues/1294)
-- Intake PR: [cat-cafe#1122](https://github.com/zts212653/cat-cafe/pull/1122)
-- Intake PR: [cat-cafe#1296](https://github.com/zts212653/cat-cafe/pull/1296)
+- Issue: [agent-task-hub#409](https://github.com/zts212653/agent-task-hub/issues/409)
+- Issue: [agent-task-hub#503](https://github.com/zts212653/agent-task-hub/issues/503)
+- Issue: [agent-task-hub#542](https://github.com/zts212653/agent-task-hub/issues/542)
+- PR: [agent-task-hub#398](https://github.com/zts212653/agent-task-hub/pull/398)
+- PR: [agent-task-hub#457](https://github.com/zts212653/agent-task-hub/pull/457)
+- PR: [agent-task-hub#504](https://github.com/zts212653/agent-task-hub/pull/504)
+- Intake Issue: [agent-hub#1119](https://github.com/zts212653/agent-hub/issues/1119)
+- Intake Issue: [agent-hub#1144](https://github.com/zts212653/agent-hub/issues/1144)
+- Intake Issue: [agent-hub#1294](https://github.com/zts212653/agent-hub/issues/1294)
+- Intake PR: [agent-hub#1122](https://github.com/zts212653/agent-hub/pull/1122)
+- Intake PR: [agent-hub#1296](https://github.com/zts212653/agent-hub/pull/1296)

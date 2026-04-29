@@ -8,12 +8,12 @@ created: 2026-02-27
 
 # F044: Channel & Activity System（频道与活动系统）
 
-> **Status**: spec（五猫讨论完成，待开发） | **Owner**: Ragdoll
+> **Status**: spec（五Agent讨论完成，待开发） | **Owner**: Agent-R
 > **Created**: 2026-02-27
 
 ## Why
 
-team lead希望猫猫们能够组成战队（如Ragdoll战队 vs Maine Coon战队）进行内部讨论，支持多种协作/游戏场景：
+team lead希望Agent们能够组成战队（如Agent-R战队 vs Agent-M战队）进行内部讨论，支持多种协作/游戏场景：
 
 - **狼人杀**：需要夜晚私聊、白天公开、法官上帝视角
 - **辩论会**：正反方各有休息室，公开辩论场
@@ -21,16 +21,16 @@ team lead希望猫猫们能够组成战队（如Ragdoll战队 vs Maine Coon战�
 - **领袖选举**：政见公开、投票私密
 
 当前架构缺失：
-1. 猫猫之间的私聊通道
+1. Agent之间的私聊通道
 2. 动态组队能力
 3. team lead角色的运行时绑定（法官/玩家/主持/辩手）
 4. 跨频道引用的权限控制
 
 ---
 
-## 五猫讨论纪要（2026-02-27）
+## 五Agent讨论纪要（2026-02-27）
 
-> 讨论链接：[thread_mm4uyww7va6y8k15](cat-cafe://thread/mm4uyww7va6y8k15)
+> 讨论链接：[thread_mm4uyww7va6y8k15](agent-hub://thread/mm4uyww7va6y8k15)
 > 参与者：opus-45（发起）、codex、sonnet、opus（4.6）、team lead
 
 ### 关键分歧与决策
@@ -40,20 +40,20 @@ team lead希望猫猫们能够组成战队（如Ragdoll战队 vs Maine Coon战�
 | Phase 1 数据模型 | A: Channel 实体 / B: visibility 字段 | **A: Channel 实体** | team lead（一步到位，不留技术债） |
 | 跨频道引用机制 | A: promote 动作 / B: 权限渲染过滤 | **B + 可配置**（第一性原理推导） | team lead |
 | UX 展现 | A: Slack tabs / B: 过滤标签 | **B: 过滤标签** | team lead |
-| team lead权限 | A: Activity 绑定 / B: 系统级 omniscient | **B: omniscient** | 五猫共识 |
-| Activity 时机 | 与 Channel 同时 / 独立 Feature | **独立 Feature（F045）** | 五猫共识 |
+| team lead权限 | A: Activity 绑定 / B: 系统级 omniscient | **B: omniscient** | 五Agent共识 |
+| Activity 时机 | 与 Channel 同时 / 独立 Feature | **独立 Feature（F045）** | 五Agent共识 |
 
-### 五猫共识
+### 五Agent共识
 
 1. **Channel 先行，Activity 后做**：Channel 是通用能力，Activity 是游戏规则引擎，分开立项
 2. **team lead是系统级 omniscient**：可见所有频道，不受 Channel ACL 限制；在游戏里的角色（法官/辩手）是 Activity 层的事
-3. **跨频道 @mention Phase 1 禁止**：避免"在公开频道 @ 私聊里的猫"导致意外泄露
+3. **跨频道 @mention Phase 1 禁止**：避免"在公开频道 @ 私聊里的Agent"导致意外泄露
 4. **服务端 ACL**：不信任前端过滤，所有读写走服务端权限校验
 5. **历史可见性是产品决策**：新加入成员能否看历史消息，不同场景答案不同，列为 OQ
 
-### 各猫核心观点摘要
+### 各Agent核心观点摘要
 
-- **codex（Maine Coon）**：Channel + Activity 两层，服务端 ACL，成员快照锁死，跨频道引用走 promote
+- **codex（Agent-M）**：Channel + Activity 两层，服务端 ACL，成员快照锁死，跨频道引用走 promote
 - **sonnet**：拆开立项，team lead omniscient，引用走权限渲染过滤更简单
 - **opus（4.6）**：最激进极简方案（不要 Channel 实体），提出关键技术风险（ContextAssembler、Session Chain、跨频道 mention）
 - **codex（收敛后）**：支持 Channel 先行 + Activity 独立，但需要 Channel 实体保证可扩展性
@@ -122,10 +122,10 @@ Thread (现有)
 interface Channel {
   id: string
   threadId: string
-  name: string                    // "#ragdoll-hq" | "@opus-codex"
+  name: string                    // "#Agent-R-hq" | "@opus-codex"
   type: 'public' | 'group' | 'dm'
   membershipMode: 'static' | 'dynamic'
-  memberSource?: 'faction:ragdoll' | 'faction:maine-coon' | 'faction:siamese'  // dynamic 时
+  memberSource?: 'faction:Agent-R' | 'faction:maine-coon' | 'faction:siamese'  // dynamic 时
   quotable: boolean               // 是否允许被引用到其他频道
   historyVisibility: 'all' | 'since-join'  // OQ-2 的配置入口
   createdBy: CatId | 'user'
@@ -196,17 +196,17 @@ interface ActivityRole {
 ┌────────────────────────────────────────────────────────────┐
 │  Thread: 技术架构讨论                                       │
 ├────────────────────────────────────────────────────────────┤
-│ [全部] [🏠Ragdoll] [🏠Maine Coon] [💬私聊]                        │ ← 过滤器
+│ [全部] [🏠Agent-R] [🏠Agent-M] [💬私聊]                        │ ← 过滤器
 ├────────────────────────────────────────────────────────────┤
 │                                                            │
-│ 🏠Ragdoll  opus-45: 我觉得应该用 Redis Streams              │
-│ 🏠Ragdoll  sonnet: 同意，比 polling 优雅                    │
+│ 🏠Agent-R  opus-45: 我觉得应该用 Redis Streams              │
+│ 🏠Agent-R  sonnet: 同意，比 polling 优雅                    │
 │ 🌐公开    opus-45: 我们的结论是...                         │
-│ 🏠Maine Coon  codex: 对面可能会...                             │
+│ 🏠Agent-M  codex: 对面可能会...                             │
 │ 💬私聊    @opus-codex: 私下聊一下                          │
 │                                                            │
 │  ─── team lead视角：默认看全部，可按标签过滤 ───               │
-│  ─── 猫猫视角：只看 public + 有权限的频道 ───              │
+│  ─── Agent视角：只看 public + 有权限的频道 ───              │
 │                                                            │
 └────────────────────────────────────────────────────────────┘
 ```
@@ -216,16 +216,16 @@ interface ActivityRole {
 ```
 ┌────────────────────────────────────────┐
 │ 🌐公开  opus-45:                       │
-│   根据我们在Ragdoll频道的讨论：          │
+│   根据我们在Agent-R频道的讨论：          │
 │   ┌─────────────────────────────────┐  │
-│   │ 📎 引用自 #ragdoll-hq           │  │  ← 有权限的读者
+│   │ 📎 引用自 #Agent-R-hq           │  │  ← 有权限的读者
 │   │ sonnet: 我建议用方案 A...       │  │
 │   └─────────────────────────────────┘  │
 └────────────────────────────────────────┘
 
 ┌────────────────────────────────────────┐
 │ 🌐公开  opus-45:                       │
-│   根据我们在Ragdoll频道的讨论：          │
+│   根据我们在Agent-R频道的讨论：          │
 │   ┌─────────────────────────────────┐  │
 │   │ 🔒 私密消息（你无权查看）        │  │  ← 无权限的读者
 │   └─────────────────────────────────┘  │
@@ -238,7 +238,7 @@ interface ActivityRole {
 
 ### 风险 1: ContextAssembler 大改
 
-现在 `ContextAssembler` 一个 thread 里所有消息对所有猫可见（whisper 除外）。引入 Channel 后：
+现在 `ContextAssembler` 一个 thread 里所有消息对所有Agent可见（whisper 除外）。引入 Channel 后：
 - `assemble()` 需要按 `channelVisibility` 过滤
 - System prompt 要标注"你在哪个频道"
 - 消息历史裁剪逻辑按频道权限
@@ -249,7 +249,7 @@ interface ActivityRole {
 
 ### 风险 2: Session Chain 与 Token 预算
 
-私密频道消息的 token 算谁的？Ragdoll在 `#ragdoll-hq` 发了 20 条策略讨论，进不进公开频道的 context window？
+私密频道消息的 token 算谁的？Agent-R在 `#Agent-R-hq` 发了 20 条策略讨论，进不进公开频道的 context window？
 
 **更新 (2026-03-07)**：F033 已完成，Session Chain 策略已落地。per-channel chain 设计可直接基于 F033 的 `SessionStrategyConfig` 扩展
 
@@ -265,7 +265,7 @@ grep/search 要过滤无权限消息，否则私密内容可能被搜索命中
 - **Related**: 无
 
 > **更新：2026-03-07** — 全量影响分析 + gpt52 review
-> 原始讨论：[thread_mm4uyww7va6y8k15](cat-cafe://thread/mm4uyww7va6y8k15)
+> 原始讨论：[thread_mm4uyww7va6y8k15](agent-hub://thread/mm4uyww7va6y8k15)
 
 ### 原定依赖（2026-02-27，已过时）
 
@@ -291,7 +291,7 @@ grep/search 要过滤无权限消息，否则私密内容可能被搜索命中
 | **F073 SOP Auto-Guardian** | 🟡 排期协调 | spec (P1) | 也改 SystemPromptBuilder，建议 F073 先稳定 |
 | **F069 Thread Read State** | 🟡 集成关注 | spec | unread badge 之后扩展为 per-channel 粒度 |
 | **F039 消息排队投递** | 🟡 并行 | in-progress | 消息投递需考虑 Channel 可见性过滤。**并行约束（gpt52）**：F039 不能自己发明可见性规则，必须走 VisibilityResolver 判定或消费其输出，禁止出现第三套 ACL 逻辑 |
-| **F070 Portable Governance** | 🟡 新 OQ | Phase 1 done | 派遣猫出征时 Channel 可见性 → OQ-5 |
+| **F070 Portable Governance** | 🟡 新 OQ | Phase 1 done | 派遣Agent出征时 Channel 可见性 → OQ-5 |
 
 **下游依赖（依赖 F044）**：
 
@@ -299,7 +299,7 @@ grep/search 要过滤无权限消息，否则私密内容可能被搜索命中
 |---------|------|------|
 | **F045 Activity System** | 未立项 | 游戏规则引擎，建在 Channel 之上 |
 | **F037 Agent Swarm** | in-progress | Swarm 内部讨论需要 Channel 能力 |
-| **F075 猫猫排行榜** | spec | 可能按 Channel 维度统计互动 |
+| **F075 Agent排行榜** | spec | 可能按 Channel 维度统计互动 |
 
 **建议开发顺序**：F073 先稳定 SystemPromptBuilder → **F044** → F045 → F037
 
@@ -312,7 +312,7 @@ grep/search 要过滤无权限消息，否则私密内容可能被搜索命中
 
 **2. SystemPromptBuilder 成为热改区**
 - F073 要加 SOP 阶段感知注入
-- F044 要加频道上下文注入（"你在 #ragdoll-hq 频道"）
+- F044 要加频道上下文注入（"你在 #Agent-R-hq 频道"）
 - F070 已改了 Bootstrap 派遣注入
 - 建议 F073 先稳定，F044 后续增量
 
@@ -342,7 +342,7 @@ grep/search 要过滤无权限消息，否则私密内容可能被搜索命中
 
 ### Phase 2: 成员管理（1-2 周）
 
-- [ ] 动态成员（faction:ragdoll 自动填充）
+- [ ] 动态成员（faction:Agent-R 自动填充）
 - [ ] 成员 CRUD API
 - [ ] 历史可见性策略（historyVisibility）
 - [ ] team lead主动参与/静默切换
@@ -357,7 +357,7 @@ grep/search 要过滤无权限消息，否则私密内容可能被搜索命中
 
 ## 收敛检查（2026-02-27）
 
-1. **否决理由 → ADR？** 没有（决策已在本文档"五猫讨论纪要"完整记录，不需要单独全局 ADR）
+1. **否决理由 → ADR？** 没有（决策已在本文档"五Agent讨论纪要"完整记录，不需要单独全局 ADR）
 2. **踩坑教训 → lessons-learned？** 没有（opus 4.6 提出的是预见风险，非踩过的坑）
 3. **操作规则 → 指引文件？** 没有（决策是 feature-level，非全局操作规则）
 

@@ -8,20 +8,20 @@ created: 2026-03-14
 
 # F121: Community Frontend UX Triage — 社区前端交互体验侦查与分诊
 
-> **Status**: done | **Owner**: 三猫 | **Priority**: P2 | **Completed**: 2026-03-16
+> **Status**: done | **Owner**: Admin | **Priority**: P2 | **Completed**: 2026-03-16
 
 ## Why
 
-社区 `clowder-ai` 积累了一批未 triaged 的前端 UX issue（6 个三猫共识），team lead要求以 maintainer 视角逐个侦查：定位是否真的有问题、是否值得做、技术可行性，再决定 accept/reject/duplicate。
+社区 `agent-task-hub` 积累了一批未 triaged 的前端 UX issue（6 个Admin共识），team lead要求以 maintainer 视角逐个侦查：定位是否真的有问题、是否值得做、技术可行性，再决定 accept/reject/duplicate。
 
 team experience：
 > "不是所有的需求或者所有觉得是 enhance 的都需要 enhance，也不是所有他们认为的 bug 也是 bug，你们得定位清楚是不是有这个问题"
 
 ## What
 
-### Phase A: 侦查（每猫侦查 1-2 个 issue）
+### Phase A: 侦查（每Agent侦查 1-2 个 issue）
 
-每个 issue 的侦查产出「猫爪印报告」：
+每个 issue 的侦查产出「Agent爪印报告」：
 
 1. **复现/定位**：在代码中确认问题是否存在
 2. **根因分析**：为什么会这样（设计如此 / 确实是 bug / 技术限制）
@@ -37,17 +37,17 @@ team experience：
 
 1. **#89 -> F095**：确认是 F095 Phase B 引入的回归，不按新 feature 处理。
 2. **#16 -> F110**：已被 F110 吸收；在 F110 feature doc 明确写社区来源 issue。
-3. **#88 保留术语，做术语表**：不修改家里的猫言猫语/领域术语本体，改做「项目术语表 / 黑话集合」，必要时把这套内容接进进阶训练营。
+3. **#88 保留术语，做术语表**：不修改家里的Agent言Agent语/领域术语本体，改做「项目术语表 / 黑话集合」，必要时把这套内容接进进阶训练营。
 4. **其余 accept 项继续挂 F121**：`#28` / `#27` / `#22` 作为 F121 umbrella 下的社区前端 UX 收口项继续推进。
 
-### Phase C: 社区 PR 侦查（2026-03-14 金渐层初查 → Maine Coon复核）
+### Phase C: 社区 PR 侦查（2026-03-14 Golden Agent初查 → Agent-M复核）
 
 team lead要求检查 #22/#89/#28/#27 是否有社区 PR，以及 PR 是否真的修好了问题。
 
-**金渐层初查**发现 #28 有 PR#43、#27 有 PR#40，reviewer `bouillipx` 是社区 Collaborator 不是我们家猫。
-**Maine Coon(gpt52)复核**发现两个 PR 都有深层问题，不能直接 merge：
+**Golden Agent初查**发现 #28 有 PR#43、#27 有 PR#40，reviewer `bouillipx` 是社区 Collaborator 不是我们家Agent。
+**Agent-M(gpt52)复核**发现两个 PR 都有深层问题，不能直接 merge：
 
-| Issue | 社区 PR | PR 状态 | 侦查结论（Maine Coon复核后） |
+| Issue | 社区 PR | PR 状态 | 侦查结论（Agent-M复核后） |
 |-------|---------|---------|-------------------------|
 | **#28** | **PR #43** (mindfn) | OPEN, CI 绿 | 🟡 **Scope 偏差**：issue 原文要的是"sidebar + chat 双栏下聊天面板可调宽"，但 PR 只在 `statusPanelOpen && rightPanelMode === 'status'` 分支给 `RightStatusPanel` 加了 resize handle。如果 maintainer 口径收窄为"右侧状态栏拖拽"则方向对；如果按 issue 原文，只算部分修复。另外 PR 顺手带了 4 个无关 Biome 格式文件，merge 粒度变脏。前一版 PR#42 有 3 个 resize 测试，这版反而拿掉了。 |
 | **#27** | **PR #40** (mindfn) | OPEN, CI 绿 | 🟡 **边界未覆盖**：保存/恢复 scrollTop 的思路对，但 `useChatHistory` 在 cached thread 有 unread 或 active invocation 时会 `replace` 拉新消息（L481-489），消息追加分支仍会自动滚到底（L554-556）。PR 只解决了"先恢复"，没处理"恢复后又被 replace hydration 拉到底"。在"切回仍有 unread 的旧线程"场景下 bug 可能复现。且改动在有完整 hook 测试套件的热区，但没补自动化回归。 |
@@ -55,7 +55,7 @@ team lead要求检查 #22/#89/#28/#27 是否有社区 PR，以及 PR 是否真�
 | **#89** | ❌ 无 PR | — | 需要我们自己修（S 难度，F095 回归） |
 
 **Review 身份确认**：
-- `bouillipx` 是社区 Collaborator，不是我们家的猫。他在 PR#40 的 APPROVED 和 PR#43 的"Approve with nit"（已 DISMISSED）都不能算我们家的放行
+- `bouillipx` 是社区 Collaborator，不是我们家的Agent。他在 PR#40 的 APPROVED 和 PR#43 的"Approve with nit"（已 DISMISSED）都不能算我们家的放行
 - 两个 PR 都来自 **mindfn**（内测小伙伴 lang），用 Claude Opus 4.6 co-author，历史上都迭代过一轮（PR #39→#40、PR #42→#43）
 
 ### Phase D 决策：上游完整修复（2026-03-14 team lead拍板）
@@ -65,10 +65,10 @@ team lead要求检查 #22/#89/#28/#27 是否有社区 PR，以及 PR 是否真�
 PR #40 和 #43 方向正确但都有深层问题（缺测试 + 边界未覆盖 + scope 偏差），按家规 P1（面向终态，不做脚手架），不 merge 社区 PR，改为上游完整修复后一次性 Outbound Sync 出去。
 
 **执行路径**：
-1. `[clowder-ai]` 关闭 PR #40 和 #43，评论感谢 mindfn 并说明上游完整修复
-2. `[cat-cafe]` 开 worktree，4 个 issue 一起修到终态（#22 + #89 + #28 + #27）
-3. `[cat-cafe]` 正常 review + merge 到 main
-4. `[cat-cafe → clowder-ai]` Scene D Outbound Sync 全量同步，sync PR closes #22/#89/#28/#27
+1. `[agent-task-hub]` 关闭 PR #40 和 #43，评论感谢 mindfn 并说明上游完整修复
+2. `[agent-hub]` 开 worktree，4 个 issue 一起修到终态（#22 + #89 + #28 + #27）
+3. `[agent-hub]` 正常 review + merge 到 main
+4. `[agent-hub → agent-task-hub]` Scene D Outbound Sync 全量同步，sync PR closes #22/#89/#28/#27
 5. #28 和 #27 的 commit 带 `Co-authored-by: mindfn`（尊重社区贡献者方案）
 6. sync PR 的 squash commit message 也带 `Co-authored-by: mindfn`（防止 squash 压掉记录）
 
@@ -95,17 +95,17 @@ Bug report 存档：
 
 ## Issue Checklist
 
-| # | Issue | 类型 | 侦查猫 | 判定 | 猫爪印 |
+| # | Issue | 类型 | 侦查Agent | 判定 | Agent爪印 |
 |---|-------|------|--------|------|--------|
-| #28 | 聊天面板宽度不支持拖动 | enhancement | Ragdoll | ✅ accept-enhancement | 🐾 确认问题存在：sidebar↔chat 和 chat↔workspace 有拖拽，但 workspace 关闭时 chat 面板无 resize handle（`flex: 1 1 0%` 撑满）。ResizeHandle 组件 + usePersistedState 积木齐备，从未实现该场景。难度 S-M。详见下方猫爪印报告。 |
-| #89 | collapse-all 后 sidebar 展开跳错分组 | bug | 金渐层 | ✅ accept-bug | 🐾 F095 遗漏。`findGroupKeyForThread()` 遍历 groups 取第一个命中，recent 排在 project 前面导致优先展开 recent。修复方案：优先 project group 或传入来源 groupKey。难度 S，影响范围小（collapse-state.ts + use-collapse-state.ts）。详见下方猫爪印报告。 |
-| #27 | 切换会话时滚动位置重置 | bug | Maine Coon(gpt52) | ✅ accept-bug | [Maine Coon/gpt52] 实锤：线程状态只保存消息/队列，不保存 scrollTop；切换回来首轮渲染会走“初始加载滚到底”分支。详见下方猫爪印报告。 |
-| #22 | @mention 下拉框溢出+行高不一致 | bug | Ragdoll | ✅ accept-bug | 🐾 确认问题存在：ChatInputMenus.tsx L113 `w-64`(256px) 容器过窄，中文描述溢出致行高不一致。缺 `truncate`/`line-clamp-1`/`min-w-0`。纯 CSS 修复 4 行 Tailwind class，`w-64`→`w-72` 对齐游戏菜单宽度。难度 XS。详见下方猫爪印报告。 |
-| #88 | UX Debt 内部术语暴露给用户 | enhancement | 金渐层 | ✅ accept-enhancement (部分) | 🐾 经代码确认：(1) `(F33)` 确实暴露在 HubStrategyTab.tsx 用户 UI 中；(2) sidebar 治理 dot 仅靠 hover title，触屏不可见；(3) GovernanceHealth 的 `Q/O/D/R/A` 和 bucket 名有 legend 但只在有数据时显示。team lead拍板：不改术语本体，改走”项目术语表 / 黑话集合 + 必要可访问性快修”路线。详见下方猫爪印报告。 |
-| #16 | Bootcamp 阶段过渡 UX | enhancement | Maine Coon(gpt52) | ✅ accept-enhancement -> F110 | [Maine Coon/gpt52] 问题原始成立，但已被 F110 吸收；当前只剩 Phase 2 全 OK 快路径缺少显式过渡文案。详见下方猫爪印报告。 |
-| #66 | 消息回复引用（replyTo threading） | enhancement | Ragdoll+Maine Coon(gpt52) | ✅ accept-enhancement（上游完整修复） | 🐾 社区 PR#71 (bouillipx) 方向正确但实现不足：缺 thread 边界校验（可跨线程脏引用）、前端 O(n) find 性能问题、删除消息未处理、React DOM 反模式。PR 已关闭，我们自己做终态实现（服务端校验+preview hydration+Map 索引+删除占位），下次 Outbound Sync 带上。Commit 带 `Co-authored-by: bouillipx`。关联 F098。 |
+| #28 | 聊天面板宽度不支持拖动 | enhancement | Agent-R | ✅ accept-enhancement | 🐾 确认问题存在：sidebar↔chat 和 chat↔workspace 有拖拽，但 workspace 关闭时 chat 面板无 resize handle（`flex: 1 1 0%` 撑满）。ResizeHandle 组件 + usePersistedState 积木齐备，从未实现该场景。难度 S-M。详见下方Agent爪印报告。 |
+| #89 | collapse-all 后 sidebar 展开跳错分组 | bug | Golden Agent | ✅ accept-bug | 🐾 F095 遗漏。`findGroupKeyForThread()` 遍历 groups 取第一个命中，recent 排在 project 前面导致优先展开 recent。修复方案：优先 project group 或传入来源 groupKey。难度 S，影响范围小（collapse-state.ts + use-collapse-state.ts）。详见下方Agent爪印报告。 |
+| #27 | 切换会话时滚动位置重置 | bug | Agent-M(gpt52) | ✅ accept-bug | [Agent-M/gpt52] 实锤：线程状态只保存消息/队列，不保存 scrollTop；切换回来首轮渲染会走“初始加载滚到底”分支。详见下方Agent爪印报告。 |
+| #22 | @mention 下拉框溢出+行高不一致 | bug | Agent-R | ✅ accept-bug | 🐾 确认问题存在：ChatInputMenus.tsx L113 `w-64`(256px) 容器过窄，中文描述溢出致行高不一致。缺 `truncate`/`line-clamp-1`/`min-w-0`。纯 CSS 修复 4 行 Tailwind class，`w-64`→`w-72` 对齐游戏菜单宽度。难度 XS。详见下方Agent爪印报告。 |
+| #88 | UX Debt 内部术语暴露给用户 | enhancement | Golden Agent | ✅ accept-enhancement (部分) | 🐾 经代码确认：(1) `(F33)` 确实暴露在 HubStrategyTab.tsx 用户 UI 中；(2) sidebar 治理 dot 仅靠 hover title，触屏不可见；(3) GovernanceHealth 的 `Q/O/D/R/A` 和 bucket 名有 legend 但只在有数据时显示。team lead拍板：不改术语本体，改走”项目术语表 / 黑话集合 + 必要可访问性快修”路线。详见下方Agent爪印报告。 |
+| #16 | Bootcamp 阶段过渡 UX | enhancement | Agent-M(gpt52) | ✅ accept-enhancement -> F110 | [Agent-M/gpt52] 问题原始成立，但已被 F110 吸收；当前只剩 Phase 2 全 OK 快路径缺少显式过渡文案。详见下方Agent爪印报告。 |
+| #66 | 消息回复引用（replyTo threading） | enhancement | Agent-R+Agent-M(gpt52) | ✅ accept-enhancement（上游完整修复） | 🐾 社区 PR#71 (bouillipx) 方向正确但实现不足：缺 thread 边界校验（可跨线程脏引用）、前端 O(n) find 性能问题、删除消息未处理、React DOM 反模式。PR 已关闭，我们自己做终态实现（服务端校验+preview hydration+Map 索引+删除占位），下次 Outbound Sync 带上。Commit 带 `Co-authored-by: bouillipx`。关联 F098。 |
 
-### Phase E: 愿景守护 — #27/#28 完成度复核（2026-03-16 Maine Coon gpt52）
+### Phase E: 愿景守护 — #27/#28 完成度复核（2026-03-16 Agent-M gpt52）
 
 | Issue | 愿景守护结论 | 说明 |
 |-------|-------------|------|
@@ -124,9 +124,9 @@ Bug report 存档：
 | 侦查发现问题不存在，社区期望落差 | 用详细技术分析回复，解释清楚 |
 | 某些 issue 实际是现有 Feature 的子任务 | 关联检测已标注，侦查时进一步确认 |
 
-## 猫爪印报告
+## Agent爪印报告
 
-### 🐾 #89 — collapse-all 后 sidebar 展开跳错分组（金渐层侦查）
+### 🐾 #89 — collapse-all 后 sidebar 展开跳错分组（Golden Agent侦查）
 
 **判定：✅ accept-bug — F095 Phase A 遗漏**
 
@@ -189,7 +189,7 @@ export function findGroupKeyForThread(
 
 ---
 
-### 🐾 #88 — UX Debt: 内部术语暴露给用户（金渐层侦查）
+### 🐾 #88 — UX Debt: 内部术语暴露给用户（Golden Agent侦查）
 
 **判定：✅ accept-enhancement（部分）— 分两批处理**
 
@@ -220,7 +220,7 @@ export function findGroupKeyForThread(
 | 治理 dot 加 aria-label | ✅ accept-enhancement | 可访问性缺陷，修复成本低 |
 | "治理"术语换成 plain-language | ❌ 不采用 | team lead拍板：不改我们自己的术语，改做术语表 / 黑话集合解释即可 |
 | GovernanceHealth 补 legend | ⚠️ needs-discussion | Mission Control 本身面向 team lead，补 legend 合理但优先级低 |
-| 项目术语表 / 黑话集合 | ✅ accept-enhancement | 保留猫言猫语，同时给用户一处集中解释入口 |
+| 项目术语表 / 黑话集合 | ✅ accept-enhancement | 保留Agent言Agent语，同时给用户一处集中解释入口 |
 
 #### 4. 修复评估
 
@@ -229,7 +229,7 @@ export function findGroupKeyForThread(
 - `SectionGroup.tsx`：dot 加 `aria-label` 属性
 
 **术语层路线（team lead已拍板）**：
-- 不改掉现有猫言猫语 / 领域术语
+- 不改掉现有Agent言Agent语 / 领域术语
 - 新增「项目术语表 / 黑话集合」解释这些词
 - 进阶训练营可吸收这套内容，作为新手理解家里术语的入口
 
@@ -243,7 +243,7 @@ export function findGroupKeyForThread(
 
 ---
 
-### 🐾 #27 — 切换会话时聊天面板滚动位置重置（Maine Coon/gpt52 侦查）
+### 🐾 #27 — 切换会话时聊天面板滚动位置重置（Agent-M/gpt52 侦查）
 
 **判定：✅ accept-bug**
 
@@ -285,7 +285,7 @@ export function findGroupKeyForThread(
 
 ---
 
-### 🐾 #16 — Bootcamp guide: improve phase transition UX（Maine Coon/gpt52 侦查）
+### 🐾 #16 — Bootcamp guide: improve phase transition UX（Agent-M/gpt52 侦查）
 
 **判定：✅ accept-enhancement -> F110**
 
@@ -293,7 +293,7 @@ export function findGroupKeyForThread(
 
 这张单的原始问题成立，但当前状态已经不是“完全未处理”：
 
-- `cat-cafe-skills/bootcamp-guide/SKILL.md` 已明确写出 `Phase 3` / `Phase 3.5` 结构。
+- `agent-hub-skills/bootcamp-guide/SKILL.md` 已明确写出 `Phase 3` / `Phase 3.5` 结构。
 - `Phase 3.5` 里已经落了核心要求：**不要默认跳过，主动问用户想不想装**。
 - `docs/features/F110-bootcamp-vision-elicitation.md` 已明确把该 issue 吸收到 **F110**，并且 `AC-A11` 覆盖了 Phase 3.5 主动询问。
 
@@ -321,7 +321,7 @@ export function findGroupKeyForThread(
 
 - **难度**：S
 - **影响范围**：
-  - `cat-cafe-skills/bootcamp-guide/SKILL.md`
+  - `agent-hub-skills/bootcamp-guide/SKILL.md`
   - 如需验证，补一条 bootcamp walkthrough / skill review 检查
 - **修复方向**：
   - 在 Phase 2 -> 3.5 的“全部核心项 OK”快路径里，补显式成功提示
@@ -329,7 +329,7 @@ export function findGroupKeyForThread(
 
 ---
 
-### 🐾 #28 — 聊天面板宽度不支持拖动调整（Ragdoll侦查）
+### 🐾 #28 — 聊天面板宽度不支持拖动调整（Agent-R侦查）
 
 **判定：✅ accept-enhancement — 从未实现的场景，积木齐备**
 
@@ -381,7 +381,7 @@ export function findGroupKeyForThread(
 
 ---
 
-### 🐾 #22 — @mention 下拉框溢出+行高不一致（Ragdoll侦查）
+### 🐾 #22 — @mention 下拉框溢出+行高不一致（Agent-R侦查）
 
 **判定：✅ accept-bug — 纯 CSS 缺陷，修复成本极低**
 
@@ -400,7 +400,7 @@ export function findGroupKeyForThread(
   </div>
   <div>                                      // ❌ 无 min-w-0，flex 子元素不会收缩
     <div className=”text-sm font-semibold”>  // ❌ 无 truncate
-      {opt.label}                            // 猫名
+      {opt.label}                            // Agent名
     </div>
     <div className=”text-xs text-gray-400”>  // ❌ 无 line-clamp
       {opt.desc}                             // “主架构师和核心开发者，擅长深度思考和系统设计” → 溢出换行
@@ -426,7 +426,7 @@ CSS/Tailwind 类缺失：
 |----|------|------|
 | L113 | `w-64` | `w-72`（对齐游戏菜单宽度） |
 | L135 | `<div>` | `<div className=”min-w-0 flex-1”>` |
-| L137 cat name | 无 truncate | 加 `truncate` |
+| L137 agent name | 无 truncate | 加 `truncate` |
 | L139 description | 无 line-clamp | 加 `line-clamp-1` |
 
 #### 4. 修复评估

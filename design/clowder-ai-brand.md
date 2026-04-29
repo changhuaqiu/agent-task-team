@@ -32,10 +32,10 @@
 
 ### 角色色彩 (Role Tokens)
 在深色背景下，必须使用亮度足够的主题色：
-- **Opus Blue (Ragdoll)**: `#60A5FA` (Tailwind Blue 400)
-- **Codex Green (Maine Coon)**: `#34D399` (Tailwind Emerald 400)
+- **Opus Blue (Agent-R)**: `#60A5FA` (Tailwind Blue 400)
+- **Codex Green (Agent-M)**: `#34D399` (Tailwind Emerald 400)
 - **Gemini Amber (Siamese)**: `#FBBF24` (Tailwind Amber 400)
-- **Bengal Orange (孟加拉猫)**: `#FB923C` (Tailwind Orange 400)
+- **Bengal Orange (孟加拉Agent)**: `#FB923C` (Tailwind Orange 400)
 
 ### 色盲安全替代方案 (Color-blindness Safe)
 **规则**：不能仅靠颜色区分角色或信息状态。

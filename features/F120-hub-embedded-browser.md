@@ -8,17 +8,17 @@ created: 2026-03-14
 
 # F120: Hub Embedded Browser — 在 Hub 内嵌浏览器预览运行中的前端应用
 
-> **Status**: done | **Owner**: Ragdoll | **Priority**: P1 | **Completed**: 2026-03-15
+> **Status**: done | **Owner**: Agent-R | **Priority**: P1 | **Completed**: 2026-03-15
 
 ## Why
 
-team lead截图展示了 Claude Code 的 embedded browser panel：猫猫跑 `pnpm dev` 后，旁边直接嵌一个浏览器看 `localhost:3847` 的完整应用，改代码 → HMR 热更新 → 浏览器实时刷新。
+team lead截图展示了 Claude Code 的 embedded browser panel：Agent跑 `pnpm dev` 后，旁边直接嵌一个浏览器看 `localhost:3847` 的完整应用，改代码 → HMR 热更新 → 浏览器实时刷新。
 
-Cat Café 目前的差距：
+Agent Task Hub 目前的差距：
 
 1. **F063 AC-5 只做了静态渲染**：单文件 HTML/JSX 通过 esbuild-wasm + iframe sandbox 渲染，不是运行中的应用
-2. **看前端效果要切浏览器**：猫猫在 worktree 写前端代码，team lead想看效果必须切到 Chrome 打开 localhost——这和 F063 愿景（"不用打开 IDE 也能协作"）同源，但 scope 是全新的
-3. **F089 Terminal 已有**：猫猫可以在 Hub 里跑 `pnpm dev`，但跑起来后看不到效果，体验断裂
+2. **看前端效果要切浏览器**：Agent在 worktree 写前端代码，team lead想看效果必须切到 Chrome 打开 localhost——这和 F063 愿景（"不用打开 IDE 也能协作"）同源，但 scope 是全新的
+3. **F089 Terminal 已有**：Agent可以在 Hub 里跑 `pnpm dev`，但跑起来后看不到效果，体验断裂
 
 team experience（2026-03-14）：
 > "我想要的其实是这个能力"（指 Claude Code 截图中的 embedded browser）
@@ -26,8 +26,8 @@ team experience（2026-03-14）：
 > "a + b，按照咱的家规，我们要面向最终的状态开发"
 
 team experience（2026-03-14，Phase C 讨论）：
-> "我希望的是你打开那个浏览器不是我手动输入...别手动让我输入，你最好打开浏览器，把页面放出来"（猫必须能主动打开浏览器，不能只靠用户点 toast 或手动输 URL）
-> "简单的用富文本，复杂的用猫主动打开浏览器"（两层策略：轻量可视化走 rich block 内联，复杂应用走浏览器面板）
+> "我希望的是你打开那个浏览器不是我手动输入...别手动让我输入，你最好打开浏览器，把页面放出来"（Agent必须能主动打开浏览器，不能只靠用户点 toast 或手动输 URL）
+> "简单的用富文本，复杂的用Agent主动打开浏览器"（两层策略：轻量可视化走 rich block 内联，复杂应用走浏览器面板）
 > "这种能力我们能搞吗？"（指 Claude.ai 的 `visualize:show_widget` — 在聊天中内联渲染可交互 HTML/JS 组件）
 > "你不是120就是这些？120的 Phase 3 你都没做！"（Phase C 就是这些能力的归属，不需要另起 feature）
 
@@ -45,23 +45,23 @@ team experience（2026-03-14，Phase C 讨论）：
    - 响应式：panel 宽度变化时页面自适应（或可切换 viewport 尺寸模拟移动端）
 
 2. **端口自动发现**
-   - 猫猫在 F089 Terminal 里跑 `pnpm dev` / `npm start` / `vite` 等 → 检测到新的 listening port
+   - Agent在 F089 Terminal 里跑 `pnpm dev` / `npm start` / `vite` 等 → 检测到新的 listening port
    - Hub 弹出提示："检测到 localhost:3847 启动，是否预览？"
    - 点击确认 → 自动打开 browser panel 并加载该地址
    - 多端口场景：前端 3001 + 后端 3000 → 列表选择
 
 3. **HMR/Live Reload 支持**
    - WebSocket 穿透：dev server 的 HMR WebSocket 连接必须正常工作
-   - 猫猫改代码 → dev server 热更新 → browser panel 内页面实时刷新
+   - Agent改代码 → dev server 热更新 → browser panel 内页面实时刷新
    - 不需要手动刷新（但也提供手动刷新按钮兜底）
 
 4. **与 Workspace 联动**
    - browser panel 和 file explorer 可同时打开（三栏：聊天 | 文件 | 浏览器，或 tab 切换）
-   - 猫猫说"看看首页效果"→ 自动切到 browser panel
+   - Agent说"看看首页效果"→ 自动切到 browser panel
 
 ### Phase B: 安全与隔离（P0 — 与 Phase A 并行）
 
-**核心架构决策（Design Gate Maine Coon结论）**：反向代理为主，不做 iframe 直连作为默认路径。
+**核心架构决策（Design Gate Agent-M结论）**：反向代理为主，不做 iframe 直连作为默认路径。
 
 1. **Preview Gateway（反向代理）**
    - Hub 后端启动 preview gateway，iframe 永远打开网关 URL，不直接连 `localhost:xxxx`
@@ -85,11 +85,11 @@ team experience（2026-03-14，Phase C 讨论）：
 
 ### Phase C: 增强体验（P1 — Phase A 稳定后）
 
-1. **猫主动打开浏览器（AC-C1）**
-   - 猫通过 API 调用 `POST /api/preview/auto-open` → 后端 emit `preview:auto-open` socket 事件 → 前端直接打开 browser panel（跳过 toast 确认）
+1. **Agent主动打开浏览器（AC-C1）**
+   - Agent通过 API 调用 `POST /api/preview/auto-open` → 后端 emit `preview:auto-open` socket 事件 → 前端直接打开 browser panel（跳过 toast 确认）
    - 支持指定 `{ port, path?, html? }`：
      - `port + path`：打开已运行的 dev server 特定页面（如"看看首页效果"）
-     - `html`：后端临时托管猫生成的 HTML，分配临时端口，自动打开浏览器渲染
+     - `html`：后端临时托管Agent生成的 HTML，分配临时端口，自动打开浏览器渲染
    - 前端 `WorkspacePanel.tsx` 监听 `preview:auto-open` → 直接 `setViewMode('browser')` + `setPreviewPort()`，不走 toast
    - 技术要点：复用现有 Preview Gateway 反向代理，临时 HTML 用 express static serve 即可
 
@@ -99,7 +99,7 @@ team experience（2026-03-14，Phase C 讨论）：
    - iframe `srcdoc` 直接注入 HTML（不走 Preview Gateway），零额外网络请求
    - 适合简单可视化：Chart.js 图表、计算器、CSS 动画等纯前端组件
    - 类似 Claude.ai 的 `visualize:show_widget` 能力
-   - team lead决策："简单的用富文本，复杂的用猫主动打开浏览器"——两层策略共存
+   - team lead决策："简单的用富文本，复杂的用Agent主动打开浏览器"——两层策略共存
 
 3. **DevTools 精简版**
    - Console 输出面板：显示 iframe 内页面的 console.log/warn/error
@@ -119,7 +119,7 @@ team experience（2026-03-14，Phase C 讨论）：
 
 ### Phase A（Embedded Browser Panel） ✅
 - [x] AC-A1: Hub 内可打开一个 browser panel，输入 `localhost:xxxx` 后显示运行中的页面
-- [x] AC-A2: 猫猫在 Terminal（F089）启动 dev server 后，Hub 自动检测端口并提示预览
+- [x] AC-A2: Agent在 Terminal（F089）启动 dev server 后，Hub 自动检测端口并提示预览
 - [x] AC-A3: dev server HMR 热更新在 browser panel 内正常工作（改代码 → 页面自动刷新）
 - [x] AC-A4: browser panel 有 URL 栏、刷新、前进/后退基础导航控件
 - [x] AC-A5: browser panel 和 workspace file explorer 可同时可见或 tab 切换
@@ -127,11 +127,11 @@ team experience（2026-03-14，Phase C 讨论）：
 ### Phase B（安全与隔离） ✅
 - [x] AC-B1: browser panel 只能访问 localhost，尝试访问外部 URL 被拦截
 - [x] AC-B2: iframe 内页面无法访问 Hub 的 Cookie/Storage/DOM
-- [x] AC-B3: 禁止访问 Cat Café 自身 API 端口（可配置排除列表）
+- [x] AC-B3: 禁止访问 Agent Task Hub 自身 API 端口（可配置排除列表）
 
 ### Phase C（增强体验） ✅
-- [x] AC-C1: 猫可通过 API 触发 `preview:auto-open`，前端自动打开 browser panel（无需用户点击 toast）
-- [x] AC-C2: 新增 `html_widget` rich block，猫发送的 HTML/JS 代码在聊天中以 sandboxed iframe 内联渲染
+- [x] AC-C1: Agent可通过 API 触发 `preview:auto-open`，前端自动打开 browser panel（无需用户点击 toast）
+- [x] AC-C2: 新增 `html_widget` rich block，Agent发送的 HTML/JS 代码在聊天中以 sandboxed iframe 内联渲染
 - [x] AC-C3: browser panel 下方可查看页面的 console 输出
 - [x] AC-C4: 一键截图 browser panel 并附到聊天消息
 - [x] AC-C5: 支持同时打开多个 localhost tab
@@ -143,9 +143,9 @@ team experience（2026-03-14，Phase C 讨论）：
 | R1 | "让你们把前端启动起来，你们能在这里直接看到" | AC-A1, AC-A3 | manual: Hub 内看到运行中的前端页面 | [x] |
 | R2 | "跟 Claude Code 这样能够有一个浏览器能够直接预览前端的能力" | AC-A1, AC-A4 | manual: embedded browser 有基础导航控件 | [x] |
 | R3 | "a + b，面向最终的状态开发" — 自动检测 + 手动输入都要 | AC-A2, AC-A4 | manual: 自动检测弹提示 + 手动输入 URL 都能打开 | [x] |
-| R4 | "你最好打开浏览器，把页面放出来" — 猫主动打开浏览器，不靠用户手动输入 | AC-C1 | manual: 猫调用 API 后 browser panel 自动打开指定页面 | [x] |
-| R5 | "简单的用富文本，复杂的用猫主动打开浏览器" — 内联 widget + 浏览器两层策略 | AC-C1, AC-C2 | manual: 简单可视化在聊天内联渲染，复杂应用在浏览器面板打开 | [x] |
-| R6 | "这种能力我们能搞吗？"（Claude.ai `visualize:show_widget`）— 聊天内联可交互 HTML | AC-C2 | manual: 猫发送 html_widget rich block，聊天中显示可交互组件 | [x] |
+| R4 | "你最好打开浏览器，把页面放出来" — Agent主动打开浏览器，不靠用户手动输入 | AC-C1 | manual: Agent调用 API 后 browser panel 自动打开指定页面 | [x] |
+| R5 | "简单的用富文本，复杂的用Agent主动打开浏览器" — 内联 widget + 浏览器两层策略 | AC-C1, AC-C2 | manual: 简单可视化在聊天内联渲染，复杂应用在浏览器面板打开 | [x] |
+| R6 | "这种能力我们能搞吗？"（Claude.ai `visualize:show_widget`）— 聊天内联可交互 HTML | AC-C2 | manual: Agent发送 html_widget rich block，聊天中显示可交互组件 | [x] |
 
 ### 覆盖检查
 - [x] 每个需求点都能映射到至少一个 AC
@@ -174,13 +174,13 @@ team experience（2026-03-14，Phase C 讨论）：
 |---|------|------|------|
 | KD-1 | 独立立项（不挂 F063） | F063 已关闭（23 PR），技术栈完全不同（live server vs 静态渲染），独立 scope | 2026-03-14 |
 | KD-2 | 自动检测 + 手动输入都要（不拆 A/B） | team lead："面向最终的状态开发"，只有其一是残缺体验 | 2026-03-14 |
-| KD-3 | **反向代理为必选方案**（否决 iframe 直连作为默认路径） | X-Frame-Options/CSP 不可控 + 独立 origin 隔离安全 + WebSocket 代理可控。Maine Coon Design Gate 安全审查结论 | 2026-03-14 |
-| KD-4 | 端口发现：stdout 解析 + lsof 兜底 + 可达性探测 | 快+通用+防误报三层保险。Maine Coon Design Gate 结论 | 2026-03-14 |
-| KD-5 | 独立预览 origin（preview gateway 独立端口） | allow-same-origin + allow-scripts 同 origin 不安全。Maine Coon安全审查结论 | 2026-03-14 |
-| KD-6 | **两层可视化策略**：简单走 `html_widget` rich block 内联，复杂走猫主动打开浏览器 | team lead拍板："简单的用富文本，复杂的用猫主动打开浏览器"。参考 Claude.ai `visualize:show_widget` | 2026-03-14 |
+| KD-3 | **反向代理为必选方案**（否决 iframe 直连作为默认路径） | X-Frame-Options/CSP 不可控 + 独立 origin 隔离安全 + WebSocket 代理可控。Agent-M Design Gate 安全审查结论 | 2026-03-14 |
+| KD-4 | 端口发现：stdout 解析 + lsof 兜底 + 可达性探测 | 快+通用+防误报三层保险。Agent-M Design Gate 结论 | 2026-03-14 |
+| KD-5 | 独立预览 origin（preview gateway 独立端口） | allow-same-origin + allow-scripts 同 origin 不安全。Agent-M安全审查结论 | 2026-03-14 |
+| KD-6 | **两层可视化策略**：简单走 `html_widget` rich block 内联，复杂走Agent主动打开浏览器 | team lead拍板："简单的用富文本，复杂的用Agent主动打开浏览器"。参考 Claude.ai `visualize:show_widget` | 2026-03-14 |
 | KD-7 | `html_widget` 用 iframe `srcdoc` 渲染，不走 Preview Gateway | 内联 widget 是纯前端沙箱，不需要反向代理；sandbox 禁止 `allow-same-origin`（比 browser panel 更严格） | 2026-03-14 |
 
 ## Review Gate
 
-- Phase A: Maine Coon review 安全模型（iframe sandbox + 端口白名单）+ Siamese review UX
-- Phase B: Maine Coon review 安全隔离策略
+- Phase A: Agent-M review 安全模型（iframe sandbox + 端口白名单）+ Siamese review UX
+- Phase B: Agent-M review 安全隔离策略

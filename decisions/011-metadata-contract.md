@@ -8,8 +8,8 @@ created: 2026-02-27
 # ADR-011: 文档元数据契约（Frontmatter Contract）
 
 > 日期：2026-02-27
-> 状态：**已批准** — 三猫收敛 (4.5 + 4.6 + GPT-5.2) + 铲屎官确认
-> 参与者：Ragdoll（方案设计）、Opus 4.6（审查）、Maine Coon/GPT-5.2（审查）、铲屎官（确认）
+> 状态：**已批准** — Admin收敛 (4.5 + 4.6 + GPT-5.2) + 铲屎官确认
+> 参与者：Agent-R（方案设计）、Opus 4.6（审查）、Agent-M/GPT-5.2（审查）、铲屎官（确认）
 
 ## 背景
 
@@ -70,7 +70,7 @@ created: 2026-02-26           # 创建日期
 | Feature | `F001` | F001, F021, F040 |
 | Tech Debt | `TD001` | TD001, TD089 |
 
-- 三位固定宽度（Maine Coon建议：一次到位，避免 F100+ 再改名）
+- 三位固定宽度（Agent-M建议：一次到位，避免 F100+ 再改名）
 - 不再用 `#`（避免和 PR/issue 冲突）
 - 不再用后缀（F21++ → F021，演进用 `Evolved from` 字段）
 
@@ -110,8 +110,8 @@ created: 2026-02-26           # 创建日期
 - [x] Frontmatter contract 定义（本 ADR）
 - [x] `feat-kickoff` skill 强制新文档加 frontmatter
 - [x] `feat-completion` skill 检查关联文档 frontmatter
-- [x] 迁移脚本 `scripts/migrate-frontmatter.mjs`（Maine Coon）
-- [x] 历史文档补录（50+ 文件，Maine Coon）
+- [x] 迁移脚本 `scripts/migrate-frontmatter.mjs`（Agent-M）
+- [x] 历史文档补录（50+ 文件，Agent-M）
 - [x] SOP 更新"完成后真相源同步"章节
 
 ### 待完成
@@ -123,7 +123,7 @@ created: 2026-02-26           # 创建日期
 
 本决策来自 F040 讨论，详见：
 - `docs/features/F040-backlog-reorganization.md`
-- 2026-02-26 三猫 + 铲屎官讨论 thread
+- 2026-02-26 Admin + 铲屎官讨论 thread
 
 ---
 

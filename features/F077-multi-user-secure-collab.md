@@ -8,12 +8,12 @@ created: 2026-03-07
 
 # F077 — Multi-User Secure Collaboration（多用户安全协作）
 
-> **Status**: spec | **Owner**: Ragdoll
+> **Status**: spec | **Owner**: Agent-R
 > **Evolved from**: F074（挂载目录支持暴露了零认证裸跑问题）
 
 ## Why
 
-Cat Café Hub 当前 3001 端口零认证裸跑，同 WiFi 下任何人可直接访问所有 thread、以team lead身份操作猫猫、浏览项目文件。team lead想让朋友也能用 Hub 与猫猫协作，但需要独立身份、私有空间隔离、传输安全。
+Agent Task Hub Hub 当前 3001 端口零认证裸跑，同 WiFi 下任何人可直接访问所有 thread、以team lead身份操作Agent、浏览项目文件。team lead想让朋友也能用 Hub 与Agent协作，但需要独立身份、私有空间隔离、传输安全。
 
 **team experience**："我朋友喊你们搞的哈哈哈哈 我们的 3001 没做任何防护 直接同个 wifi 就能访问到 好像很危险？能让他们以其他team lead的身份接入吗？而不是 landy 以及我的这些 thread 能不让他们看见吗？他们只能看见共享区的 thread"
 
@@ -51,7 +51,7 @@ GitHub OAuth 认证 + Thread ACL + Redis Session，实现安全的多用户协�
 - [ ] AC4: 私有 thread 对非 owner 不可见（API + WS 双重校验）
 - [ ] AC5: 共享 thread 对所有 member 可见，非 member 不可见
 - [ ] AC6: WS 连接从 session 取身份，伪造 userId 无效
-- [ ] AC7: `X-Cat-Cafe-User` 仅限 internal/MCP/测试使用，浏览器端禁用
+- [ ] AC7: `X-agent-hub-User` 仅限 internal/MCP/测试使用，浏览器端禁用
 - [ ] AC8: 现有路由越权审计完成，所有读写路由有 owner/member 校验
 - [ ] AC9: 现有单用户部署不受影响（auth 可选，默认关闭 = 向后兼容）
 - [ ] AC10: 用户只能在自己被授权的 projectPath 下操作，Agent 执行命令受 projectPath 沙盒约束
@@ -67,14 +67,14 @@ GitHub OAuth 认证 + Thread ACL + Redis Session，实现安全的多用户协�
 | R5 | 私有 thread 隔离（WS） | AC4 | test | [ ] |
 | R6 | 共享 thread 可见性 | AC5 | test | [ ] |
 | R7 | WS session 认证 | AC6 | test | [ ] |
-| R8 | X-Cat-Cafe-User 限制 | AC7 | test | [ ] |
+| R8 | X-agent-hub-User 限制 | AC7 | test | [ ] |
 | R9 | Route audit 三级分类 | AC8 | test | [ ] |
 | R10 | 向后兼容（auth 可选） | AC9 | test | [ ] |
 | R11 | projectPath 沙盒（Agent 只在授权目录执行） | AC10 | test | [ ] |
 
 ## Key Decisions
 
-### 已决（基于Ragdoll + gpt52 讨论）
+### 已决（基于Agent-R + gpt52 讨论）
 
 1. **GitHub OAuth + 本地 member store**（非纯 OAuth）
    - GitHub 只做身份验证，不做授权
@@ -95,7 +95,7 @@ GitHub OAuth 认证 + Thread ACL + Redis Session，实现安全的多用户协�
 4. **`resolveUserId()` 作为迁移 seam**
    - 内部改为：session cookie → internal signed header → legacy header (dev only)
    - 浏览器侧去掉自报身份，改为 `/api/me` bootstrap
-   - `X-Cat-Cafe-User` 降级为 internal/MCP/测试专用
+   - `X-agent-hub-User` 降级为 internal/MCP/测试专用
 
 5. **Route audit 与 OAuth 并行**
    - audit 结果直接指导 middleware 设计
@@ -106,7 +106,7 @@ GitHub OAuth 认证 + Thread ACL + Redis Session，实现安全的多用户协�
    - `AUTH_ENABLED=true` 开启多用户模式
 
 7. **projectPath 即权限沙盒（team lead灵感）**
-   - 三层安全模型：认证（你是谁）→ Thread ACL（你看到什么）→ projectPath ACL（猫能碰什么文件）
+   - 三层安全模型：认证（你是谁）→ Thread ACL（你看到什么）→ projectPath ACL（Agent能碰什么文件）
    - 每个用户绑定 `allowedProjectPaths[]`，Agent 只在授权目录执行
    - 共享挂载目录（F074）天然成为协作边界：各人挂自己的目录，共享目录大家都能访问
    - 不需要 OS 级用户隔离，应用层即可控制
@@ -116,7 +116,7 @@ GitHub OAuth 认证 + Thread ACL + Redis Session，实现安全的多用户协�
 - **"单用户命名空间假设"是核心风险** — session/queue/delivery 都按 userId 过滤，共享 thread 下需要改为 thread-scoped
 - **CORS 不是安全边界** — 真正的边界是认证 + 授权
 - **默认公共大厅是天然泄漏口** — 多用户模式必须收口
-- **共享区驱动猫改本机文件 = 远程执行** — Phase 2 必须接审批体系
+- **共享区驱动Agent改本机文件 = 远程执行** — Phase 2 必须接审批体系
 
 ## Dependencies
 
@@ -132,6 +132,6 @@ GitHub OAuth 认证 + Thread ACL + Redis Session，实现安全的多用户协�
 
 ## Review Gate
 
-- 跨家族 review（Maine Coon优先）
+- 跨家族 review（Agent-M优先）
 - 云端 Codex review
 - **安全专项 review**（认证/授权改动必须）

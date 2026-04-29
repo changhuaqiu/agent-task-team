@@ -10,14 +10,14 @@ status: done
 
 # F074: Mount Directory Support — 挂载/共享目录支持
 
-> **Status**: done | **Owner**: Ragdoll
+> **Status**: done | **Owner**: Agent-R
 **Completed: 2026-03-11**
 **Implementation**: PR #273 (`3c067fd3`)
 > **Evolved from**: F068（新建对话 UX）
 
 ## Why
 
-team lead通过共享目录（SMB/NFS）将同事电脑挂载到本机，想在挂载目录下直接与猫猫协作。当前后端 `validateProjectPath` 的 allowlist 默认只含 `$HOME`、`/tmp`、`/private/tmp`，不包含 `/Volumes`，导致所有挂载目录被 403 拒绝。`PROJECT_ALLOWED_ROOTS` 环境变量是覆盖模式（非追加），配置成本高且容易丢失默认值。前端文案写"选择任意目录"但实际受限，体验不一致。
+team lead通过共享目录（SMB/NFS）将同事电脑挂载到本机，想在挂载目录下直接与Agent协作。当前后端 `validateProjectPath` 的 allowlist 默认只含 `$HOME`、`/tmp`、`/private/tmp`，不包含 `/Volumes`，导致所有挂载目录被 403 拒绝。`PROJECT_ALLOWED_ROOTS` 环境变量是覆盖模式（非追加），配置成本高且容易丢失默认值。前端文案写"选择任意目录"但实际受限，体验不一致。
 
 ## What
 
@@ -70,5 +70,5 @@ team lead通过共享目录（SMB/NFS）将同事电脑挂载到本机，想在�
 
 ## Review Gate
 
-- 跨家族 review（Maine Coon优先）
+- 跨家族 review（Agent-M优先）
 - 云端 Codex review

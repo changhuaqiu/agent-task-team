@@ -9,32 +9,32 @@ completed: 2026-03-11
 
 # F071: UX Debt Batch — 前端小修小补合集
 
-> **Status**: done | **Owner**: Ragdoll | **Priority**: P2
+> **Status**: done | **Owner**: Agent-R | **Priority**: P2
 **Completed: 2026-03-11**
 **Implementation**: PR #268 (`ed06a8c7`)
-**Follow-up fixes**: `a26ca1b7`（待上传图片预览）/ `e9249040`（mention 自动滚动 + “还有更多猫猫”提示）/ `1849a90d`（lightbox 开图闪烁 hotfix）
+**Follow-up fixes**: `a26ca1b7`（待上传图片预览）/ `e9249040`（mention 自动滚动 + “还有更多Agent”提示）/ `1849a90d`（lightbox 开图闪烁 hotfix）
 
 ## Why
 
-随着猫猫家族壮大和功能累积，前端出现了几个高频但零碎的 UX 痛点。单个都不大，但都直接影响team lead日常聊天体验，适合合并成一个 debt batch 统一收口。
+随着Agent家族壮大和功能累积，前端出现了几个高频但零碎的 UX 痛点。单个都不大，但都直接影响team lead日常聊天体验，适合合并成一个 debt batch 统一收口。
 
 ### team experience（2026-03-07）
 
 > "上传的图片上传后不支持预览"
 >
-> "发送消息当前thread没有消息和猫猫在处理；但是任然提示有猫猫正在工作"
+> "发送消息当前thread没有消息和Agent在处理；但是任然提示有Agent正在工作"
 >
-> "@现在猫猫家族 的成员太多了。。我都看不到都有谁了 如何优化？"
+> "@现在Agent家族 的成员太多了。。我都看不到都有谁了 如何优化？"
 >
 > "聊天窗中发送的消息 图片支持点击预览(回显)"
 >
 > "d1 的这个图片预览如果我只是在上传的过程中 他能够也支持你这个预览吗？"
 >
-> "按键盘往下的时候只有这四只猫可以选 但是其实其他猫猫藏在下面了"
+> "按键盘往下的时候只有这四只Agent可以选 但是其实其他Agent藏在下面了"
 
 ## What
 
-本 feature 作为债务批处理，集中收口图片预览、猫猫状态面板、@ mention 列表三个高频 UX 问题，并把 merge 后才暴露出的两个真实使用边角一并收进真相源。
+本 feature 作为债务批处理，集中收口图片预览、Agent状态面板、@ mention 列表三个高频 UX 问题，并把 merge 后才暴露出的两个真实使用边角一并收进真相源。
 
 ### D1: 图片预览统一为 Lightbox 体验
 
@@ -44,7 +44,7 @@ completed: 2026-03-11
 
 **最终交付**：
 - 提取共享 `Lightbox.tsx`，复用到普通消息图片与 rich block 媒体预览
-- `ChatMessage.tsx` 的图片点击改为 inline lightbox，用户消息和猫猫消息统一支持
+- `ChatMessage.tsx` 的图片点击改为 inline lightbox，用户消息和Agent消息统一支持
 - `ImagePreview.tsx` 的待上传图片缩略图支持点击放大预览
 - 保留 Esc 关闭、点击背景关闭、复制图片链接按钮
 
@@ -54,9 +54,9 @@ completed: 2026-03-11
 - `packages/web/src/components/Lightbox.tsx`
 - `packages/web/src/components/rich/MediaGalleryBlock.tsx`
 
-### D2: 猫猫状态面板去掉误导性的幽灵“等待调用...”
+### D2: Agent状态面板去掉误导性的幽灵“等待调用...”
 
-**问题**：当前 thread 没有猫猫在处理消息，但状态面板在 F5 或切 thread 后仍显示“等待调用...”，让team lead误以为还有活跃任务。
+**问题**：当前 thread 没有Agent在处理消息，但状态面板在 F5 或切 thread 后仍显示“等待调用...”，让team lead误以为还有活跃任务。
 
 **根因**：切换线程或冷启动时 `catStatuses` 可能为空，而 WebSocket 不会回放旧的 `intent_mode`；这时 UI 用“等待调用...”兜底，文案语义比真实状态更强，导致误导。
 
@@ -70,22 +70,22 @@ completed: 2026-03-11
 
 ### D3: @ mention 下拉从“堆一长列”改成可过滤、可滚动、可见性明确
 
-**问题**：猫猫家族成员增多后，@ mention 下拉变得很长。起初虽然加了滚动，但 macOS 隐藏滚动条，team lead看起来只像“只有前四只猫可以选”。
+**问题**：Agent家族成员增多后，@ mention 下拉变得很长。起初虽然加了滚动，但 macOS 隐藏滚动条，team lead看起来只像“只有前四只Agent可以选”。
 
 **根因**：
 1. 初版下拉没有输入过滤，输入 `@op` 仍显示全部
 2. 初版下拉没有滚动容器，列表无限增长
-3. 加上滚动后，键盘导航不会自动滚动到当前选项，也没有“下面还有猫”提示
+3. 加上滚动后，键盘导航不会自动滚动到当前选项，也没有“下面还有Agent”提示
 
 **最终交付**：
 - `ChatInput.tsx` 基于 `label` / `id` / `insert` 做 mention 过滤
-- `ChatInputMenus.tsx` 增加 `max-h-80` 滚动容器和“无匹配猫猫”空态
+- `ChatInputMenus.tsx` 增加 `max-h-80` 滚动容器和“无匹配Agent”空态
 - `chat-input-options.ts` 将 mention fragment limit 从 4 提升到 12，减少刚输入就截断的情况
 - 键盘 ArrowUp / ArrowDown 选中隐藏项时自动 `scrollIntoView`
-- 列表底部仍有隐藏项时显示“↓ 还有更多猫猫”提示
+- 列表底部仍有隐藏项时显示“↓ 还有更多Agent”提示
 - 空结果时只拦截 plain `Enter`，保留 `Shift+Enter` 换行语义
 
-> team lead评价："你这只心机小坏猫！是不想让大家看到都接入了什么猫猫吗？"  
+> team lead评价："你这只心机小Rogue Agent！是不想让大家看到都接入了什么Agent吗？"  
 > 结论：不是心机，是滚动 affordance 不够。
 
 **关键文件**：
@@ -107,18 +107,18 @@ completed: 2026-03-11
 - [x] AC-A1: 点击已发送/回显消息中的图片，弹出 lightbox 全屏预览（Esc/点击背景关闭，支持复制图片链接）。
 - [x] AC-A2: 发送前的待上传图片缩略图支持同样的 lightbox 放大预览。
 - [x] AC-A3: F5 刷新或切换 thread 后，无活跃 invocation 时状态面板显示“空闲”，不再误导为“等待调用...”。
-- [x] AC-A4: @ mention 下拉支持输入过滤、空结果提示、滚动容器，9+ 个猫也能快速定位。
-- [x] AC-A5: @ mention 下拉在键盘导航时会自动滚动到当前项，并在存在隐藏项时明确提示“↓ 还有更多猫猫”。
+- [x] AC-A4: @ mention 下拉支持输入过滤、空结果提示、滚动容器，9+ 个Agent也能快速定位。
+- [x] AC-A5: @ mention 下拉在键盘导航时会自动滚动到当前项，并在存在隐藏项时明确提示“↓ 还有更多Agent”。
 
 ## 需求点 Checklist
 
 | ID | 需求点（team experience/转述） | AC 编号 | 验证方式 | 状态 |
 |----|---------------------------|---------|----------|------|
-| R1 | 上传后的消息图片支持点击预览（含回显） | AC-A1 | `pnpm --filter @cat-cafe/web test` + PR #268 | [x] |
+| R1 | 上传后的消息图片支持点击预览（含回显） | AC-A1 | `pnpm --filter @agent-hub/web test` + PR #268 | [x] |
 | R2 | 发送前的待上传图片也支持点击预览 | AC-A2 | code review + `a26ca1b7` | [x] |
-| R3 | 无活跃任务时不要再显示“有猫猫在工作” | AC-A3 | `right-status-panel.test.ts` + PR #268 | [x] |
+| R3 | 无活跃任务时不要再显示“有Agent在工作” | AC-A3 | `right-status-panel.test.ts` + PR #268 | [x] |
 | R4 | @ 列表成员太多时能过滤和滚动 | AC-A4 | `chat-input-mention-filter.test.ts` + PR #268 | [x] |
-| R5 | 键盘导航时隐藏的猫猫也能被看见，并提示下面还有更多 | AC-A5 | `e9249040` + `chat-input-menus.test.tsx` | [x] |
+| R5 | 键盘导航时隐藏的Agent也能被看见，并提示下面还有更多 | AC-A5 | `e9249040` + `chat-input-menus.test.tsx` | [x] |
 
 ### 覆盖检查
 - [x] 每个需求点都能映射到至少一个 AC
@@ -129,7 +129,7 @@ completed: 2026-03-11
 
 - **Evolved from**: F039（消息队列与状态呈现基线）
 - **Blocked by**: 无
-- **Related**: F075（@ mention 优化直接引出了猫猫排行榜想法）
+- **Related**: F075（@ mention 优化直接引出了Agent排行榜想法）
 
 ## Risk
 
@@ -155,8 +155,8 @@ completed: 2026-03-11
 
 ## 愿景交叉验证签收
 
-| 猫猫 | 读了哪些文档 | 三问结论（核心问题 / 交付物 / 体验） | 签收 |
+| Agent | 读了哪些文档 | 三问结论（核心问题 / 交付物 / 体验） | 签收 |
 |------|-------------|-------------------------------------|------|
-| Ragdoll/Ragdoll (opus) | F071 spec、PR #268、自测结果、后续 `a26ca1b7` / `e9249040` | 核心问题是 3 个高频 UX 刺点；交付物覆盖 D1/D2/D3 及两处补丁；team lead日常聊天路径已顺手很多 | ✅ |
-| Maine Coon/Maine Coon (codex) | F071 spec、原始对话、分支 diff、PR #268、本地测试 | 初审抓出 2P1 + 1P2；修复后复审通过，确认可 merge；说明交付物经 review 打磨后已达标 | ✅ |
-| Maine Coon/Maine Coon (gpt52) | F071 spec、原始对话、PR #268、`a26ca1b7`、`e9249040`、反思胶囊 | 核心问题是“聊天时几个小刺反复打断体验”；最终交付既解决主诉求，也补上真实使用才暴露的边角；现在可以从 active backlog 正式移出 | ✅ 可 close |
+| Agent-R/Agent-R (opus) | F071 spec、PR #268、自测结果、后续 `a26ca1b7` / `e9249040` | 核心问题是 3 个高频 UX 刺点；交付物覆盖 D1/D2/D3 及两处补丁；team lead日常聊天路径已顺手很多 | ✅ |
+| Agent-M/Agent-M (codex) | F071 spec、原始对话、分支 diff、PR #268、本地测试 | 初审抓出 2P1 + 1P2；修复后复审通过，确认可 merge；说明交付物经 review 打磨后已达标 | ✅ |
+| Agent-M/Agent-M (gpt52) | F071 spec、原始对话、PR #268、`a26ca1b7`、`e9249040`、反思胶囊 | 核心问题是“聊天时几个小刺反复打断体验”；最终交付既解决主诉求，也补上真实使用才暴露的边角；现在可以从 active backlog 正式移出 | ✅ 可 close |

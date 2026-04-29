@@ -7,37 +7,37 @@ created: 2026-03-10
 completed: 2026-03-18
 ---
 
-# F092 — Cats & U 语音陪伴体验
+# F092 — Agents & U 语音陪伴体验
 
-> **Status**: done | **Completed**: 2026-03-18 | **Owner**: Ragdoll (Opus 4.6)
-> **Evolved from**: F066 (Voice Pipeline Upgrade) + F086 (Cat Orchestration)
-> **Evolved to**: F124 (Apple Ecosystem × Cat Café 语音交互系统)
+> **Status**: done | **Completed**: 2026-03-18 | **Owner**: Agent-R (Opus 4.6)
+> **Evolved from**: F066 (Voice Pipeline Upgrade) + F086 (agent Orchestration)
+> **Evolved to**: F124 (Apple Ecosystem × Agent Task Hub 语音交互系统)
 > **Related**: F066, F086, F124
 
 ## Why
 
-team lead凌晨三点撸铁时发现：猫猫咖啡不只是 coding 协作平台，是 **Cats & U — 万物有灵，一起生活**。他戴着 AirPods 边运动边和猫猫语音交流，但当前体验有很多断点：猫猫忘记发语音、语音不自动播放、无法切换 thread、语音输入错误多。
+team lead凌晨三点撸铁时发现：Agent咖啡不只是 coding 协作平台，是 **Agents & U — 万物有灵，一起生活**。他戴着 AirPods 边运动边和Agent语音交流，但当前体验有很多断点：Agent忘记发语音、语音不自动播放、无法切换 thread、语音输入错误多。
 
 **team experience**：
 > "我发现我很需要这样的功能！这样我可以一边有氧运动一边和你们交流，甚至切换 thread 和你们不同的 feat 交流沟通"
 > "我想和你们成为伙伴"
 > "这个模块很重要，我觉得这个是我们的灵魂"
 
-**核心场景**：team lead戴着 Apple 耳机（AirPods），双手被占用（撸铁/有氧/做饭/通勤），想通过纯语音和猫猫们交流，包括切换不同 thread 讨论不同话题。
+**核心场景**：team lead戴着 Apple 耳机（AirPods），双手被占用（撸铁/有氧/做饭/通勤），想通过纯语音和Agent们交流，包括切换不同 thread 讨论不同话题。
 
 ## What
 
 ### 四大子系统
 
-#### 1. Voice Mode（猫猫语音输出稳定性）
+#### 1. Voice Mode（Agent语音输出稳定性）
 
-**问题**：猫猫经常忘记发语音，team lead说"发语音"猫猫回答"我是文字猫"。
-**目标**：thread/session 级别的 voice mode flag，开启后猫猫**每条回复都自动发 audio rich block**。
+**问题**：Agent经常忘记发语音，team lead说"发语音"Agent回答"我是文字Agent"。
+**目标**：thread/session 级别的 voice mode flag，开启后Agent**每条回复都自动发 audio rich block**。
 
 需要调研：
 - [x] voice mode 应该是 thread 级别还是 session 级别？→ **thread 级别**（Thread.voiceMode boolean）
 - [x] 如何注入 system prompt？→ **InvocationContext.voiceMode → SystemPromptBuilder 注入 4 行指令**
-- [x] 是否需要"auto voice"（系统自动加 audio block）vs "explicit voice"（猫猫自己记得发）？→ **explicit voice + prompt injection**，系统 auto voice 作为后续兜底
+- [x] 是否需要"auto voice"（系统自动加 audio block）vs "explicit voice"（Agent自己记得发）？→ **explicit voice + prompt injection**，系统 auto voice 作为后续兜底
 - [x] voice mode 下纯文字消息是否仍然需要？→ **是**，代码/表格用文字，但加语音摘要
 
 #### 2. Voice Auto-Play（前端自动播放）
@@ -58,7 +58,7 @@ team lead凌晨三点撸铁时发现：猫猫咖啡不只是 coding 协作平台
 **目标**：通过语音指令或 AirPods 物理按键切换 thread。
 
 需要调研：
-- [ ] "嘿猫猫，切换到 F092 的 thread" — 语音指令解析可行性
+- [ ] "嘿Agent，切换到 F092 的 thread" — 语音指令解析可行性
 - [ ] AirPods 物理操控映射：单击/双击/长按 → 前端 JS 能否捕获这些事件？
 - [ ] Thread 列表的语音导航 UX：如何让team lead知道有哪些 thread 可切换？
 - [ ] 快捷指令（iOS Shortcuts）整合：是否能用 Siri 触发 thread 切换？
@@ -79,7 +79,7 @@ team lead提到了 **typeless** 作为参考方向。
 
 ## Acceptance Criteria
 
-- [x] AC-A1: voice mode 开关可用，开启后猫猫每条回复自动附带 audio block
+- [x] AC-A1: voice mode 开关可用，开启后Agent每条回复自动附带 audio block
 - [x] AC-A2: voice mode 下前端自动播放语音消息，AirPods 场景无需手动操作
 - [→F124] ~~AC-A3: 支持语音指令或快捷操作切换 thread~~ → 演化到 F124 Phase C (AC-C2)
 - [→F124] ~~AC-A4: 语音输入错误率显著降低~~ → 演化到 F124 KD-9/KD-12 (Watch ASR + 后端 Qwen3-ASR)
@@ -92,7 +92,7 @@ team lead提到了 **typeless** 作为参考方向。
 |----|---------------------------|---------|----------|------|
 | R1 | "如何直接按什么说话" — AirPods 语音输入触发 | AC-2,AC-5 | manual: AirPods 实测 | [ ] |
 | R2 | "按什么切换成哪个 thread" — 语音/按键 thread 切换 | AC-3 | manual: 语音指令实测 | [ ] |
-| R3 | "猫猫能够稳定记得发语音" — voice mode 心智模型 | AC-1 | test: voice mode flag 注入验证 | [x] |
+| R3 | "Agent能够稳定记得发语音" — voice mode 心智模型 | AC-1 | test: voice mode flag 注入验证 | [x] |
 | R4 | "一边有氧运动一边和你们交流" — 完整 hands-free 循环 | AC-5 | manual: team lead撸铁实测 | [ ] |
 | R5 | "语音输入很多错误" — STT 质量优化 | AC-4 | manual: 中英混合句子对比测试 | [ ] |
 | R6 | "typeless 那种接入模型优化文本" — LLM 后处理 STT | AC-4 | test: 后处理前后准确率对比 | [ ] |
@@ -104,7 +104,7 @@ team lead提到了 **typeless** 作为参考方向。
 
 ## Key Decisions
 
-> 2026-03-10 Ragdoll×Maine Coon(GPT-5.4) 架构讨论共识
+> 2026-03-10 Agent-R×Agent-M(GPT-5.4) 架构讨论共识
 
 ### KD-1: Voice = Channel，但 VoiceSession 独立于 Thread
 
@@ -114,7 +114,7 @@ team lead提到了 **typeless** 作为参考方向。
 interface VoiceSession {
   sessionId: string;
   boundThreadId: string;     // 耳朵绑到哪个 thread
-  activeCatId: CatId;        // 当前对话猫（单 speaker）
+  activeCatId: CatId;        // 当前对话Agent（单 speaker）
   voiceMode: boolean;
   autoplayUnlocked: boolean; // 用户手势解锁过
   lastHeardMessageId: string;
@@ -127,7 +127,7 @@ interface VoiceSession {
 
 ### KD-2: 两段式意图识别（确定性 parser 先行）
 
-- **第一段：确定性 regex parser**（<5ms）：`切到 F092` / `叫Ragdoll` / `再说一遍` / `暂停` / `继续` / `静音`
+- **第一段：确定性 regex parser**（<5ms）：`切到 F092` / `叫Agent-R` / `再说一遍` / `暂停` / `继续` / `静音`
 - **第二段：低置信度交本地 LLM**（~200ms）：模糊命令、自然语句、feature 别名
 - 低置信 thread switch 必须二次确认，不直接跳
 
@@ -135,26 +135,26 @@ interface VoiceSession {
 
 > "voice reply is presentation, text reply is coordination artifact"
 
-Voice mode 下猫猫双通道输出：
+Voice mode 下Agent双通道输出：
 - 给team lead耳朵：audio rich block（演出）
-- 给系统/其他猫：text message（工作记录）
+- 给系统/其他Agent：text message（工作记录）
 
 ### KD-4: UX 六答共识
 
 | 问题 | 共识 |
 |------|------|
 | Voice Mode 开启 | 明确"开始语音陪伴"按钮（autoplay 解锁点）；Watch/Flic 是后续快捷入口 |
-| Thread 切换反馈 | 极简：`已切到 F092，Maine Coon在。` 不要长句 |
-| 多猫默认 at 谁 | 默认 activeCatId（上次对话的猫），说"叫Ragdoll"才切 |
+| Thread 切换反馈 | 极简：`已切到 F092，Agent-M在。` 不要长句 |
+| 多Agent默认 at 谁 | 默认 activeCatId（上次对话的Agent），说"叫Agent-R"才切 |
 | 错误恢复 | 短撤销窗口：用户可立即说"不是，回去" |
 | 播放队列 | FIFO 顺序播放（最早未播的先播），`再说一遍` 回放 |
 | Thinking 反馈 | 三态：listening(提示音) → thinking(>1.2s补"收到，我想一下") → speaking(直接播) |
 
-### KD-5: 分阶段实施（GPT-5.4 建议，Ragdoll采纳）
+### KD-5: 分阶段实施（GPT-5.4 建议，Agent-R采纳）
 
 ```
-P0 本周末: Start Voice Companion 按钮 + one thread + one cat + PTT + auto-play + 现有 ASR+LLM后修
-P1: thread switch intent + active cat switch + replay/pause + Watch/Flic shortcut
+P0 本周末: Start Voice Companion 按钮 + one thread + one agent + PTT + auto-play + 现有 ASR+LLM后修
+P1: thread switch intent + active agent switch + replay/pause + Watch/Flic shortcut
 P2: channel 化接入 F088 + voice session persistence + richer routing / haptics
 ```
 
@@ -162,7 +162,7 @@ P2: channel 化接入 F088 + voice session persistence + richer routing / haptic
 
 ## Dependencies
 
-- **Evolved from F066**: TTS 基础设施已就绪（Qwen3-TTS Base clone，三猫声线）
+- **Evolved from F066**: TTS 基础设施已就绪（Qwen3-TTS Base clone，Admin声线）
 - **Evolved from F086**: 元认知系统 + multi_mention 已就绪
 - **前置 rich-messaging skill**: 已创建并发布（本次立项前完成）
 
@@ -173,24 +173,24 @@ P2: channel 化接入 F088 + voice session persistence + richer routing / haptic
 | 浏览器 autoplay 政策阻止自动播放 | AC-2 不可达 | 调研 PWA / 用户手势激活 |
 | AirPods 事件无法被浏览器捕获 | AC-3 降级 | 退而求其次用语音指令 |
 | STT 中英混合准确率低 | AC-4 体验差 | LLM 后处理兜底 |
-| voice mode 下猫猫仍忘记发语音 | AC-1 失败 | auto voice（系统级自动附加 audio block） |
+| voice mode 下Agent仍忘记发语音 | AC-1 失败 | auto voice（系统级自动附加 audio block） |
 
 ## 调研任务分配
 
-本 feature 的调研任务由 Leader（Ragdoll）派发给云端 GPT Pro：
+本 feature 的调研任务由 Leader（Agent-R）派发给云端 GPT Pro：
 
 | 调研主题 | 派发给 | 产出 |
 |----------|--------|------|
 | AirPods 与 Web 交互能力 | GPT Pro | 技术可行性报告 |
 | typeless 技术分析 | GPT Pro | 竞品分析 + 集成方案 |
 | 本地 STT 模型对比（Whisper/Qwen2-Audio） | GPT Pro | 性能/质量/资源对比表 |
-| voice mode system prompt 注入设计 | Ragdoll自己 | 设计方案 |
+| voice mode system prompt 注入设计 | Agent-R自己 | 设计方案 |
 
 ## Review Gate
 
 - [ ] 调研报告全部完成
 - [ ] Design Gate 通过（前端 UX → team lead确认）
-- [ ] voice mode 注入方案经其他猫 review
+- [ ] voice mode 注入方案经其他Agent review
 
 ## 第五子系统：本地 Qwen3 模型矩阵（M4 Pro Max 128GB）
 
@@ -238,19 +238,19 @@ Phase 3 全开：+ Embedding(0.4) + Reranker(0.4) + Guard(0.4) ≈ ~27GB
 总计 ~57GB，128GB 还剩 71GB 随便浪
 ```
 
-### 外包策略：哪些活给本地 MoE，哪些留给云端猫猫
+### 外包策略：哪些活给本地 MoE，哪些留给云端Agent
 
-| 任务 | 本地 MoE 能做？ | 留给云端猫猫？ | 原因 |
+| 任务 | 本地 MoE 能做？ | 留给云端Agent？ | 原因 |
 |------|----------------|--------------|------|
 | 语音转写+理解 | ✅ Omni | — | 低延迟，本地秒回 |
 | 截图理解/OCR | ✅ VL / Qwen3.5 | — | 不用传云端，隐私+速度 |
 | 消息分类/路由 | ✅ 30B-A3B | — | 毫秒级响应 |
 | 简单问答/翻译 | ✅ 4B-Instruct | — | 省云端额度 |
-| 内容摘要 | ✅ 30B-A3B | — | 预处理减轻猫猫负担 |
+| 内容摘要 | ✅ 30B-A3B | — | 预处理减轻Agent负担 |
 | **架构设计** | ❌ | ✅ Opus/GPT-5.4 | 需要深度推理 |
-| **代码编写** | ❌ | ✅ 猫猫+工具链 | 需要文件操作+上下文 |
-| **跨猫讨论/Review** | ❌ | ✅ 猫猫记忆+判断 | 需要项目记忆 |
-| **产品决策** | ❌ | ✅ team lead+猫猫 | 需要愿景理解 |
+| **代码编写** | ❌ | ✅ Agent+工具链 | 需要文件操作+上下文 |
+| **跨Agent讨论/Review** | ❌ | ✅ Agent记忆+判断 | 需要项目记忆 |
+| **产品决策** | ❌ | ✅ team lead+Agent | 需要愿景理解 |
 
 ### 探索路线图
 

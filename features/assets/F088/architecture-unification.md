@@ -33,7 +33,7 @@ ConnectorRouter 收到飞书消息后在 ThreadStore 创建 thread，但用 `def
 
 ### 三层架构（设计共识）
 
-> 核心结论：**统一的是 Cat Café thread/message core，不是 GitHub transport**。GitHub 也是 connector。
+> 核心结论：**统一的是 Agent Task Hub thread/message core，不是 GitHub transport**。GitHub 也是 connector。
 
 1. **Principal Link**: `connector + externalSenderId → internalUserId`（解决"IM 用户是谁"）
 2. **Session Binding**: `connector + externalChatId → activeThreadId` + recent threads（解决"当前指向哪个 thread"）
@@ -43,8 +43,8 @@ ConnectorRouter 收到飞书消息后在 ThreadStore 创建 thread，但用 `def
 
 ## ISSUE-2: Cloudflare Access 与 Tunnel ingress 路径冲突
 
-**现象**：`cafe.clowder-ai.com` 配了 Cloudflare Access 保护，webhook 请求被 302 到登录页。创建 path-scoped bypass Application 后，请求不再 302 但被路由到了前端（3001）而非 API（3002）。
+**现象**：`hub.agent-task-hub.com` 配了 Cloudflare Access 保护，webhook 请求被 302 到登录页。创建 path-scoped bypass Application 后，请求不再 302 但被路由到了前端（3001）而非 API（3002）。
 
-**临时方案**：飞书 webhook URL 使用 `api.clowder-ai.com`（无 Access 保护的备用子域名），webhook 安全性靠应用层 verification token。
+**临时方案**：飞书 webhook URL 使用 `api.agent-task-hub.com`（无 Access 保护的备用子域名），webhook 安全性靠应用层 verification token。
 
-**长期方案**：排查 `cafe.clowder-ai.com` 的 Access bypass + tunnel ingress 共存问题，统一为单域名。
+**长期方案**：排查 `hub.agent-task-hub.com` 的 Access bypass + tunnel ingress 共存问题，统一为单域名。

@@ -8,14 +8,14 @@ created: 2026-03-24
 
 # F134: Feishu Group Chat — 飞书群聊多用户支持
 
-> **Status**: done | **Completed**: 2026-03-26 | **Follow-up**: done | **Owner**: Ragdoll | **Priority**: P1 | **PR**: #697, #699, #700, #705, #745, #871
+> **Status**: done | **Completed**: 2026-03-26 | **Follow-up**: done | **Owner**: Agent-R | **Priority**: P1 | **PR**: #697, #699, #700, #705, #745, #871
 >
 > **Related**: F088（复用公共层 + Phase 7 公共层扩展）| F132（钉钉/企微，同模式独立 Feature）
 >
 
 ## Why
 
-Cat Café 目前的飞书接入只支持 **1v1 私聊（DM）**，team lead希望把机器人拉进飞书群聊，让群里的人都能 @机器人提问，且猫回复时能 @发送者，区分不同用户。
+Agent Task Hub 目前的飞书接入只支持 **1v1 私聊（DM）**，team lead希望把机器人拉进飞书群聊，让群里的人都能 @机器人提问，且Agent回复时能 @发送者，区分不同用户。
 
 team experience：
 > *"如果我们的飞书的机器人加入多个群，比如不同的人 at 你，我们需要区分不同的用户，以及加入不同的群，我们可以优化一下 🤔 这样的话得区分到底哪个群聊给哪个 thread 发了信息？"*
@@ -102,13 +102,13 @@ export interface FeishuInboundMessage {
    }
    ```
 
-3. **messageStore 写入时携带 sender**：在 Cat Café Web UI 中展示"来自群聊的 某某人"
+3. **messageStore 写入时携带 sender**：在 Agent Task Hub Web UI 中展示"来自群聊的 某某人"
 
 4. **thread 创建标题**：群聊自动创建 thread 时，标题应为 `飞书群聊 {群名/群ID}` 而非 `飞书 DM`
 
 ### Phase C: 群聊回复 @发送者（飞书特定）
 
-猫回复时，在群聊场景下应 @发送者，让对方知道这是回复给自己的。
+Agent回复时，在群聊场景下应 @发送者，让对方知道这是回复给自己的。
 
 1. **OutboundDeliveryHook 扩展**：传递消息的原始 sender 信息到 adapter
 2. **FeishuAdapter.sendReply / sendRichMessage 增强**：
@@ -140,7 +140,7 @@ export interface FeishuInboundMessage {
 > team lead 2026-03-25 提出：飞书应同时支持 Webhook 和 WebSocket 长连接两种模式，由team lead在 IM Hub 配置面板选择，而不是非此即彼推翻现有实现。
 
 **背景**：
-- 当前 Cat Café 飞书接入仅支持 **Webhook 模式**（需要公网 IP / 反向代理）
+- 当前 Agent Task Hub 飞书接入仅支持 **Webhook 模式**（需要公网 IP / 反向代理）
 - 飞书官方提供 **WebSocket 长连接模式**（不需要公网 IP，客户端主动连飞书服务器）
 - `@larksuiteoapi/node-sdk`（我们已引入的 SDK）原生支持 `WSClient` 长连接
 - Lark（飞书国际版）**不支持**长连接，只能用 Webhook
@@ -211,13 +211,13 @@ if (connectionMode === 'websocket') {
 ### Phase B（公共层 Sender 身份透传） ✅
 - [x] AC-B1: ConnectorRouter.route() 接受可选 sender 参数
 - [x] AC-B2: ConnectorSource 携带 sender 信息存入 messageStore
-- [x] AC-B3: Cat Café Web UI 展示 sender 信息（"来自飞书群聊的 You"）
+- [x] AC-B3: Agent Task Hub Web UI 展示 sender 信息（"来自飞书群聊的 You"）
 - [x] AC-B4: 群聊自动创建 thread 标题为 `飞书群聊` 而非 `飞书 DM`
 - [x] AC-B5: 现有 DM / Telegram / 钉钉消息路由不受影响（sender 可选，不传 = 不展示）
 
 ### Phase C（群聊回复 @发送者） ✅
-- [x] AC-C1: 猫回复群聊消息时，飞书侧正确 @原始发送者
-- [x] AC-C2: 猫回复 DM 消息时，不添加 @（保持原行为）
+- [x] AC-C1: Agent回复群聊消息时，飞书侧正确 @原始发送者
+- [x] AC-C2: Agent回复 DM 消息时，不添加 @（保持原行为）
 - [x] AC-C3: 多人在群里 @机器人，各自的回复正确 @各自的发送者
 
 ### Phase D（权限控制） ✅
@@ -267,7 +267,7 @@ if (connectionMode === 'websocket') {
 | 飞书群消息量大，机器人被无关消息刷爆 | @Bot 检测 + @all 忽略（KD-7）+ Phase D 权限白名单 |
 | Bot 自身 open_id 获取方式可能因飞书 API 变更 | 双策略：API 查询 + env 配置 fallback（KD-5） |
 | ConnectorSource 扩展 sender 可能影响前端渲染 | sender 字段可选，前端 graceful fallback |
-| 公共层改动（Phase B）影响其他 adapter | sender 参数可选，不传 = 不影响；跨 family review Maine Coon |
+| 公共层改动（Phase B）影响其他 adapter | sender 参数可选，不传 = 不影响；跨 family review Agent-M |
 | 新增飞书权限（contact/chat）需team lead手动配置 | 文档中列出具体权限名，提醒team lead在开发者后台添加 |
 | 发送者姓名 API 调用频率限制 | 内存 Map 缓存，同一 open_id 只调一次（KD-6） |
 | WebSocket 长连接模式下飞书侧中断 | SDK 内置自动重连 + 日志可观测；Webhook 模式作为 fallback 始终可用 |
@@ -285,7 +285,7 @@ if (connectionMode === 'websocket') {
 | KD-5 | Bot open_id 双策略获取 | 启动时调 `GET /open-apis/bot/v3/info` 自动获取 + `FEISHU_BOT_OPEN_ID` env 兜底。原因：open_id 是 app-scoped（同一 bot 不同 app token 看到不同 open_id，见 openclaw/openclaw#40768），env 兜底防 API 失败 | 2026-03-25 |
 | KD-6 | 发送者姓名通过 Contact API 获取 + 内存缓存 | `event.sender` 只有 `sender_id`（含 open_id/user_id/union_id），无 name 字段。需调 `GET /contact/v3/users/:open_id` 获取。用 Map 缓存避免重复调用。需 `contact:user.base:readonly` 权限 | 2026-03-25 |
 | KD-7 | @所有人（@_all）不触发 bot | team lead确认："我@所有人的时候，bot我觉得应该不要响应，而是要明确@bot时候才响应"。`@_all` 在 mentions 中 key 为 `@_all`，与 `@_user_N` 不同，过滤即可 | 2026-03-25 |
-| KD-8 | ~~群聊中禁用 /命令~~ → 群聊支持 /命令 + 每群独立 IM Hub | 初版 KD-8 禁用了群聊 /command，team lead实测发现 `/threads` 被猫猫"扮演系统"回复。PR #699 移除限制，群聊恢复 /slash 命令支持，Hub 标题含群名（`飞书群聊 · {群名} IM Hub`）区分多群 | 2026-03-25 |
+| KD-8 | ~~群聊中禁用 /命令~~ → 群聊支持 /命令 + 每群独立 IM Hub | 初版 KD-8 禁用了群聊 /command，team lead实测发现 `/threads` 被Agent"扮演系统"回复。PR #699 移除限制，群聊恢复 /slash 命令支持，Hub 标题含群名（`飞书群聊 · {群名} IM Hub`）区分多群 | 2026-03-25 |
 | KD-9 | `@sender` 采用 message-level 绑定（`source.sender` 写入 messageStore）而非 thread-level lastSender | 原设计的 `lastSender` 是 thread 级覆盖存储，群聊并发时后到消息会覆盖先到的 sender，导致错 @。改用 message-level：每条入站消息的 `ConnectorSource.sender` 已持久化在 messageStore，deliver 时通过 `triggerMessageId` 回溯原始消息的 sender。详见 KD-9 技术设计章节 | 2026-03-25 |
 | KD-10 | Contact API + Chat API 放在 FeishuAdapter，不预抽服务 | `resolveSenderName(openId)` + `resolveChatName(chatId)` 带 TTL Map cache，直接放在 FeishuAdapter 内。只有第二个 connector 也需要时才抽 `FeishuContactService`。需权限：`contact:user.base:readonly` + `im:chat:readonly`（team lead已配） | 2026-03-25 |
 | KD-11 | Connector source 队列禁止 merge | `source === 'connector'` 的消息直接禁止 merge（快速稳妥方案）。QueueEntry 新增可选 `senderMeta` 字段用于 UI 展示，但不参与 merge 判断。这避免群聊中不同 sender 的消息被合并 | 2026-03-25 |
@@ -377,7 +377,7 @@ FeishuAdapter.parseEvent()
 ### Phase C: 群聊回复 @发送者
 
 ```
-猫回复 → OutboundDeliveryHook.deliver()
+Agent回复 → OutboundDeliveryHook.deliver()
   │
   ├─ 从 message metadata 取 sender info
   │
@@ -392,7 +392,7 @@ FeishuAdapter.parseEvent()
 
 ## Review Gate
 
-- Phase A+B: 跨 family review（Maine Coon @codex），公共层改动需额外审查
+- Phase A+B: 跨 family review（Agent-M @codex），公共层改动需额外审查
 - Phase C: 可与 Phase A+B 合并 review
 - Phase D: 独立 review（涉及权限模型）
 
@@ -400,17 +400,17 @@ FeishuAdapter.parseEvent()
 
 ### F134 Follow-up: Feishu QR Bind in IM Hub
 
-社区 PR `clowder-ai#287` 提出的能力方向与 F134 一致：在 IM Hub 内提供 Feishu 扫码绑定 / onboarding 流程，降低手填 `FEISHU_APP_ID` / `FEISHU_APP_SECRET` 的门槛。
+社区 PR `agent-task-hub#287` 提出的能力方向与 F134 一致：在 IM Hub 内提供 Feishu 扫码绑定 / onboarding 流程，降低手填 `FEISHU_APP_ID` / `FEISHU_APP_SECRET` 的门槛。
 
 当前结论：
 
 - **方向**：已吸收，作为 F134 follow-up 合入
-- **来源**：`clowder-ai#287`
-- **accepted issue**：`clowder-ai#301`
+- **来源**：`agent-task-hub#287`
+- **accepted issue**：`agent-task-hub#301`
 - **吸收方式**：**absorbed direction, manual-port execution**
 - **合入结果**：PR #871 (`96e87b13`) 已 merge
 
-之所以不直接 cherry-pick，是因为 cat-cafe 当前主干已经在同一组文件上有更新的 F134/F136 体系：
+之所以不直接 cherry-pick，是因为 agent-hub 当前主干已经在同一组文件上有更新的 F134/F136 体系：
 
 - IM Hub 已有 `FEISHU_CONNECTION_MODE` 与 mode-aware steps
 - 连接器敏感配置已有统一 `/api/config/secrets` + allowlist + hot-reload
@@ -580,7 +580,7 @@ interface QueueEntry {
 }
 ```
 
-**merge 策略（采用Maine Coon review 的"快速稳妥"方案）**：
+**merge 策略（采用Agent-M review 的"快速稳妥"方案）**：
 ```typescript
 // source === 'connector' 直接禁止 merge（不同群用户消息绝不合并）
 // 这比精细 sender 比较更安全，避免任何跨发送者合并风险
@@ -596,7 +596,7 @@ if (
 }
 ```
 
-**sender 链路打通**（解决Maine Coon P1：enqueue 入参缺 sender）：
+**sender 链路打通**（解决Agent-M P1：enqueue 入参缺 sender）：
 ```typescript
 // ConnectorInvokeTrigger.enqueueWhileActive() — 新增 sender 参数
 private enqueueWhileActive(
@@ -632,7 +632,7 @@ private enqueueWhileActive(
 | messages.ts (Web UI) | `messages.ts:1345-1374` | `stored.id`（非 connector，不需要 sender） |
 | callbacks.ts | `callbacks.ts:548` | `validatedReplyTo ?? autoFilledReplyTo`（回溯 parent invocation 的触发消息，非 connector 场景不需要 sender） |
 
-**类型声明层同步**（P2，Maine Coon review 补充）：
+**类型声明层同步**（P2，Agent-M review 补充）：
 除业务调用点外，以下类型接口也需同步扩展 `triggerMessageId` 参数：
 - `messages.ts` 的 `OutboundDeliveryHookLike` 接口
 - `callbacks.ts` 的 `CallbackRoutesOptions.outboundHook.deliver` 类型
@@ -645,7 +645,7 @@ private enqueueWhileActive(
 2. **ConnectorThreadBindingStore** — `lastSender` 代码路径删除（不再读写），Redis 历史字段容忍残留不清理（后续单独做迁移）
 3. **RedisConnectorThreadBindingStore** — 同上，代码接口移除 `lastSender`，不再写入
 
-### ConnectorBubble 展示规范（Maine Coon review 确认）
+### ConnectorBubble 展示规范（Agent-M review 确认）
 
 群聊消息气泡展示：
 - 主标签：`飞书群聊 · {chatName || chatIdSuffix}`

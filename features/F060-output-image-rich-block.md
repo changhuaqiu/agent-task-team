@@ -8,21 +8,21 @@ created: 2026-03-04
 
 # F060: output_image 富文本渲染
 
-> **Status**: done | **Owner**: 三猫
+> **Status**: done | **Owner**: Admin
 > **Completed**: 2026-03-06
 
 ## Why
 
-MCP 工具（如小红书 `get_login_qrcode`）返回 `output_image` 类型数据时，Hub 前端无法渲染——猫猫看到了二维码但team lead看不到。当前 Hub 只支持两种图片渲染路径：
+MCP 工具（如小红书 `get_login_qrcode`）返回 `output_image` 类型数据时，Hub 前端无法渲染——Agent看到了二维码但team lead看不到。当前 Hub 只支持两种图片渲染路径：
 
 1. `ImageContent`（用户上传，`type: 'image', url: string`）
-2. `media_gallery` rich block（需要猫猫主动创建 rich block）
+2. `media_gallery` rich block（需要Agent主动创建 rich block）
 
 两者都不覆盖 **MCP 工具自动返回的图片** 这个场景。
 
 ## What
 
-让 Hub 能自动渲染猫猫调用 MCP 工具后返回的 `output_image`，无需猫猫手动创建 rich block。
+让 Hub 能自动渲染Agent调用 MCP 工具后返回的 `output_image`，无需Agent手动创建 rich block。
 
 ### 方案
 
@@ -39,7 +39,7 @@ MCP tool result 中的 `output_image` 是 base64 编码图片。需要在消息�
 - [x] AC-2: 图片可点击放大查看（Phase 2: PR #238）
 - [x] AC-5: 图片可复制到剪贴板（Phase 2: PR #238）
 - [x] AC-3: 对所有 MCP 工具的 output_image 生效（不限于小红书）
-- [x] AC-4: 不需要猫猫额外操作（无需手动创建 rich block）
+- [x] AC-4: 不需要Agent额外操作（无需手动创建 rich block）
 
 ## 需求点 Checklist
 
@@ -48,7 +48,7 @@ MCP tool result 中的 `output_image` 是 base64 编码图片。需要在消息�
 | R1 | "添加一个feat 要做富文本返回 output_image" | AC-1 | screenshot + manual | [x] Phase 1 |
 | R2 | 图片可交互（放大查看） | AC-2 | manual | [x] Phase 2 |
 | R3 | 通用化，不限特定 MCP | AC-3 | test | [x] |
-| R4 | 自动化，不增加猫猫负担 | AC-4 | test | [x] |
+| R4 | 自动化，不增加Agent负担 | AC-4 | test | [x] |
 | R5 | "方便我复制"（图片可复制到剪贴板） | AC-5 | manual | [x] Phase 2 |
 
 ### 覆盖检查
@@ -106,15 +106,15 @@ MCP tool result 中的 `output_image` 是 base64 编码图片。需要在消息�
 
 ## Review Gate
 
-- Reviewer: 跨家族优先（Maine Coon）
+- Reviewer: 跨家族优先（Agent-M）
 - 验收: team lead用小红书 QR 码场景端到端验证
 
 ## Acceptance Sign-off
 
-| 猫猫 | 读了哪些文档 | 三问结论 | 签收 |
+| Agent | 读了哪些文档 | 三问结论 | 签收 |
 |------|-------------|---------|------|
-| Ragdoll/Ragdoll | F060 spec, BACKLOG, team experience | 核心问题已解决，交付物完全匹配，team lead亲自验收通过 | ✅ |
-| Maine Coon/Maine Coon | F060 spec, MediaGalleryBlock.tsx, codex-event-transform.ts | R1→R2 两轮 review，AC 对齐确认 | ✅ |
+| Agent-R/Agent-R | F060 spec, BACKLOG, team experience | 核心问题已解决，交付物完全匹配，team lead亲自验收通过 | ✅ |
+| Agent-M/Agent-M | F060 spec, MediaGalleryBlock.tsx, codex-event-transform.ts | R1→R2 两轮 review，AC 对齐确认 | ✅ |
 | team lead | Hub 前端实际操作 | "验收成功"+"f60 大成功" | ✅ |
 
 ## Implementation Evidence (Phase 1)
@@ -131,6 +131,6 @@ MCP tool result 中的 `output_image` 是 base64 编码图片。需要在消息�
 - Biome: 无新增 lint issue
 
 ### Peer Review
-- Reviewer: Maine Coon/Maine Coon (codex)
+- Reviewer: Agent-M/Agent-M (codex)
 - R1: Request changes (P1: 持久化缺失, P2: 无大小/类型约束)
 - R2: Approved (0 P1/P2, 1 P3 非阻塞建议)

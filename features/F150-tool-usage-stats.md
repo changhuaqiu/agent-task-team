@@ -8,17 +8,17 @@ created: 2026-04-01
 
 # F150: Tool/Skill/MCP Usage Statistics — 工具使用可观测看板
 
-> **Status**: done | **Owner**: Community (bouillipx) + Ragdoll | **Priority**: P2
+> **Status**: done | **Owner**: Community (bouillipx) + Agent-R | **Priority**: P2
 
 ## Why
 
-Cat Cafe 的猫猫们每天调用大量 tool、skill、MCP 能力，但目前没有一个统一的地方回答：
+Agent Task Hub 的Agent们每天调用大量 tool、skill、MCP 能力，但目前没有一个统一的地方回答：
 
 - 哪些工具被用得最多？哪些几乎没人碰？
-- 各只猫的工具使用分布有什么差异？
+- 各只Agent的工具使用分布有什么差异？
 - 使用趋势是什么样的？
 
-F051 解决了"猫粮还剩多少"（quota），F075 解决了"谁干了多少活"（cat leaderboard），但**"哪些工具被用了多少次"**这个维度一直缺失。这条 feature 补齐工具侧的可观测性。
+F051 解决了"Agent粮还剩多少"（quota），F075 解决了"谁干了多少活"（agent leaderboard），但**"哪些工具被用了多少次"**这个维度一直缺失。这条 feature 补齐工具侧的可观测性。
 
 ## What
 
@@ -27,12 +27,12 @@ F051 解决了"猫粮还剩多少"（quota），F075 解决了"谁干了多少�
 在 `route-serial` / `route-parallel` 的 `tool_use` 事件处埋点：
 
 - **分类引擎** `classifyTool()`：把工具名归入 `builtin` / `skill` / `mcp` 三类，覆盖 Claude Code (`mcp__`) 和 Codex (`mcp:`) 两种 MCP 命名格式
-- **Fire-and-forget 计数**：Redis INCR，O(1) 不阻塞请求路径，key 按 `tool:{toolName}:cat:{catId}:day:{YYYYMMDD}` 结构化
+- **Fire-and-forget 计数**：Redis INCR，O(1) 不阻塞请求路径，key 按 `tool:{toolName}:agent:{catId}:day:{YYYYMMDD}` 结构化
 - **聚合 API** `GET /api/usage/tools`：支持 `days` / `catId` / `category` 筛选，60 秒内存缓存
 
 ### Phase B: Hub UI 看板 + 冷存档
 
-- **Hub 面板**：总览卡片（总调用数 / 活跃工具数 / 最热工具）、三列分类排行榜、每日趋势折线图、按猫分布
+- **Hub 面板**：总览卡片（总调用数 / 活跃工具数 / 最热工具）、三列分类排行榜、每日趋势折线图、按Agent分布
 - **冷存档** `ToolUsageArchiver`：JSONL append-only 归档 + 每日 sweep（Redis 90 天 TTL 过期前持久化）
 - **全时段查询** `days=0`：Redis 热数据 + archive 合并
 
@@ -47,8 +47,8 @@ F051 解决了"猫粮还剩多少"（quota），F075 解决了"谁干了多少�
 
 ### Phase B（Hub UI + 存档）
 
-- [x] AC-B1: Hub 面板展示总览卡片、分类排行榜、每日趋势、按猫分布
-- [x] AC-B2: UI 筛选器（天数 / 猫 / 分类）与 API 参数对齐
+- [x] AC-B1: Hub 面板展示总览卡片、分类排行榜、每日趋势、按Agent分布
+- [x] AC-B2: UI 筛选器（天数 / Agent / 分类）与 API 参数对齐
 - [x] AC-B3: JSONL 冷存档在 Redis TTL 过期前完成 sweep
 - [x] AC-B4: `days=0` 全时段查询正确合并 Redis 热数据和 archive 冷数据
 - [x] AC-B5: archive merge / sweep 路径有自动化测试
@@ -57,28 +57,28 @@ F051 解决了"猫粮还剩多少"（quota），F075 解决了"谁干了多少�
 
 - **Related**: F051（Quota Board — 同属 usage analytics 方向，共享 Hub 看板入口）
 - **Related**: F009（tool_use 事件显示 — Phase A 在同一事件点埋点）
-- **Related**: F075（猫猫排行榜 — 可作为 cat 维度的数据消费方）
+- **Related**: F075（Agent排行榜 — 可作为 agent 维度的数据消费方）
 
 ## Origin
 
-社区贡献者 `bouillipx` 在 `clowder-ai` 提交 PR #286（Phase A）和 #295（Phase B），
+社区贡献者 `bouillipx` 在 `agent-task-hub` 提交 PR #286（Phase A）和 #295（Phase B），
 经 maintainer review 后从错误的 F142 改挂为 F150。
 
-- 社区 issue 锚点：`clowder-ai#339`
-- Phase A PR：`clowder-ai#286`
-- Phase B PR：`clowder-ai#295`
+- 社区 issue 锚点：`agent-task-hub#339`
+- Phase A PR：`agent-task-hub#286`
+- Phase B PR：`agent-task-hub#295`
 
 ## Risk
 
 | Risk | Mitigation |
 |------|------------|
-| Redis key 膨胀（工具数 x 猫数 x 天数） | 90 天 TTL + 冷存档 sweep |
+| Redis key 膨胀（工具数 x Agent数 x 天数） | 90 天 TTL + 冷存档 sweep |
 | JSONL archive 无 compaction | Phase C backlog：定期压缩或迁移到 SQLite |
 | 核心路由文件改动（AgentRouter 等）的 intake 风险 | Intake 类型定为 manual-port，逐文件审查 |
 
 ## Vision Guard
 
-> **Guardian**: 金渐层 (opencode/Opus-4.6) — 非作者、非 reviewer 独立验收
+> **Guardian**: Golden Agent (opencode/Opus-4.6) — 非作者、非 reviewer 独立验收
 > **Date**: 2026-04-04
 > **Verdict**: ✅ PASS
 
@@ -98,10 +98,10 @@ F051 解决了"猫粮还剩多少"（quota），F075 解决了"谁干了多少�
 
 ### 交付证据
 
-- Intake PR: `cat-cafe#954` → `6accff30e` (MERGED)
-- 社区 PR: `clowder-ai#286` + `clowder-ai#295` (MERGED)
-- 社区 Issue: `clowder-ai#339` (CLOSED)
-- Intent Issues: `cat-cafe#952` + `cat-cafe#953` (CLOSED)
+- Intake PR: `agent-hub#954` → `6accff30e` (MERGED)
+- 社区 PR: `agent-task-hub#286` + `agent-task-hub#295` (MERGED)
+- 社区 Issue: `agent-task-hub#339` (CLOSED)
+- Intent Issues: `agent-hub#952` + `agent-hub#953` (CLOSED)
 - Test: `35/35 pass`（classify × 7 + counter × 8 + routes × 6 + archive × 14）
 - Static check: `pnpm check` ✅
-- Web build: `pnpm --filter @cat-cafe/web build` ✅
+- Web build: `pnpm --filter @agent-hub/web build` ✅

@@ -8,7 +8,7 @@ created: 2026-03-14
 
 # F118: CLI Liveness Watchdog & Session Recovery — CLI 进程活性守卫 + 会话恢复
 
-> **Status**: done (Phase D closed) | **Owner**: Ragdoll + Maine Coon | **Priority**: P0 | **Completed**: 2026-03-14 | **Follow-up Hardening**: closed (PR #492, 2026-03-16) | **GAP-2**: Phase D closed — D1 merged (PR #1105), D2 merged (PR #1108), D3+D4 merged (PR #1109), all 2026-04-12
+> **Status**: done (Phase D closed) | **Owner**: Agent-R + Agent-M | **Priority**: P0 | **Completed**: 2026-03-14 | **Follow-up Hardening**: closed (PR #492, 2026-03-16) | **GAP-2**: Phase D closed — D1 merged (PR #1105), D2 merged (PR #1108), D3+D4 merged (PR #1109), all 2026-04-12
 
 ## Why
 
@@ -20,7 +20,7 @@ created: 2026-03-14
 
 ### 观察到的现象
 
-**现象 1 — Maine Coon 1800s 静默超时（Cat Café 内部）**
+**现象 1 — Agent-M 1800s 静默超时（Agent Task Hub 内部）**
 
 - Thread: `thread_mmq8de3e0o4p1407` / session `019cec11-32cf-74b2-af27-469c43644c37`
 - 表现：Codex CLI 吐出 `thread.started` 后 30 分钟完全静默，被 watchdog 杀掉
@@ -28,7 +28,7 @@ created: 2026-03-14
 - **硬证据**：同一 `cliSessionId` 在挂住期间被另一颗 invocation 成功 resume 使用（审计日志 04:46:16–04:48:02 PDT）
 - Invocation: `6c521978-b5ea-439d-b03b-52444ac4f1e5`（04:41:55 → 05:11:57 PDT / 11:41:55 → 12:11:57 UTC）
 
-**现象 2 — Maine Coon半初始化失败（Cat Café 内部）** ⚠️ 高度一致，非独立证明并发 resume
+**现象 2 — Agent-M半初始化失败（Agent Task Hub 内部）** ⚠️ 高度一致，非独立证明并发 resume
 
 - Thread: `thread_mmq9wjiiht3k5vb3` / session `019cec37-8def-75e3-951e-bbc04c1febf9`
 - 表现：session chain 登记了 `cliSessionId`，raw archive 收到 `thread.started`，但 Codex 本地 `~/.codex/sessions/` 无 rollout 文件
@@ -63,7 +63,7 @@ created: 2026-03-14
 
 **A1 — cliSessionId Mutex**
 
-在 `invoke-single-cat.ts` 拿到 `activeRec.cliSessionId` 之后、进入 `service.invoke()` 之前，加 session 级别串行锁：
+在 `invoke-single-agent.ts` 拿到 `activeRec.cliSessionId` 之后、进入 `service.invoke()` 之前，加 session 级别串行锁：
 
 - 同一进程内，同一个 `cliSessionId` 任一时刻最多允许一颗 in-flight `resume`
 - 默认策略：**queue / fail-fast**（第二颗排队等旧的结束，或直接报错），不默认抢占旧请求
@@ -117,7 +117,7 @@ created: 2026-03-14
 
 **C1 — 沉默状态指示器**
 
-在猫猫消息气泡区域显示当前 CLI 进程状态：
+在Agent消息气泡区域显示当前 CLI 进程状态：
 
 - 正常工作：现有的 thinking/typing 动画（不变）
 - `alive_but_silent`：显示"工具执行中，静默等待…"+ 经过时间
@@ -165,15 +165,15 @@ created: 2026-03-14
 
 ## Community Issue Coverage (Scope Extension 2026-03-14)
 
-> **决策**：三猫 + team lead共识，社区 issue #86/#98/#99 统一归入 F118，扩展 scope 为 liveness + recovery + audit closure 完整链路，不新开 F121。
+> **决策**：Admin + team lead共识，社区 issue #86/#98/#99 统一归入 F118，扩展 scope 为 liveness + recovery + audit closure 完整链路，不新开 F121。
 > **Triage 报告**：`docs/ops/2026-03-14-community-issue-triage-tokenfelix.md`
 > **贡献者**：TokenFelix (whutzefengxie-ops)
 
-| clowder-ai Issue | 问题 | 与 F118 的关系 | 社区已有修复 |
+| agent-task-hub Issue | 问题 | 与 F118 的关系 | 社区已有修复 |
 |------------------|------|---------------|-------------|
-| [#86](https://github.com/zts212653/clowder-ai/issues/86) | Session 上下文溢出死循环 — resume 无熔断器 | **主线**：直接对应 liveness + overflow circuit breaker | — |
-| [#98](https://github.com/zts212653/clowder-ai/issues/98) | 有毒 session 绑定无自愈 — active record 无健康检查 | **主线**：resume health check + auto-seal | — |
-| [#99](https://github.com/zts212653/clowder-ai/issues/99) | `finally` 块审计缺失 — generator `.return()` 不写 `CAT_ERROR` | **伴生**：liveness 链的审计闭环 | fork commit `465f64d` |
+| [#86](https://github.com/zts212653/agent-task-hub/issues/86) | Session 上下文溢出死循环 — resume 无熔断器 | **主线**：直接对应 liveness + overflow circuit breaker | — |
+| [#98](https://github.com/zts212653/agent-task-hub/issues/98) | 有毒 session 绑定无自愈 — active record 无健康检查 | **主线**：resume health check + auto-seal | — |
+| [#99](https://github.com/zts212653/agent-task-hub/issues/99) | `finally` 块审计缺失 — generator `.return()` 不写 `CAT_ERROR` | **伴生**：liveness 链的审计闭环 | fork commit `465f64d` |
 
 ### 扩展后的因果链
 
@@ -217,15 +217,15 @@ CLI 挂了 (liveness, Phase A+B ✅)
 ### 剩余非阻塞 hardening（避免遗忘）
 
 - [x] 把 `reconcileStuck()` 从"invoke 前按当前 `catId/threadId` best-effort 扫描"升级成启动时 / 定时的全局 reaper。当前实现只能在同一 thread 再次被 invoke 时自愈，长期无人触碰的旧 thread 仍可能保留 `sealing` 终态垃圾。 → `reconcileAllStuck()` + `listSealingSessions()` + startup sweep + 5min periodic timer (feat/f118-hardening)
-- [x] 把 `reconcileStuck()` 正式纳入 `ISessionSealer` 契约，移除调用侧的 `'reconcileStuck' in deps.sessionSealer` + type cast，收干净类型层和运行时能力的漂移。 → `ISessionSealer` 接口扩展 + invoke-single-cat.ts 类型安全调用 (feat/f118-hardening)
+- [x] 把 `reconcileStuck()` 正式纳入 `ISessionSealer` 契约，移除调用侧的 `'reconcileStuck' in deps.sessionSealer` + type cast，收干净类型层和运行时能力的漂移。 → `ISessionSealer` 接口扩展 + invoke-single-agent.ts 类型安全调用 (feat/f118-hardening)
 
 ## Known Gaps
 
-### GAP-1: 跨猫交接时的初始上下文注入溢出（2026-03-16）✅ Fixed
+### GAP-1: 跨Agent交接时的初始上下文注入溢出（2026-03-16）✅ Fixed
 
-**现象**：在 F118 hardening review 过程中，Maine Coon因为首次被 @mention 加入讨论时注入了过多上下文（完整 thread 历史 + 审计报告 + 代码 diff），导致 Codex CLI context window 溢出崩溃。
+**现象**：在 F118 hardening review 过程中，Agent-M因为首次被 @mention 加入讨论时注入了过多上下文（完整 thread 历史 + 审计报告 + 代码 diff），导致 Codex CLI context window 溢出崩溃。
 
-**根因**：`assembleIncrementalContext()` 在 `route-helpers.ts` 中没有总消息数或 token 预算守卫。当 `cursor=undefined`（首次参与的猫）或 cursor 过期时，`fetchAfterCursor()` 返回全部 thread 消息，无截断地注入。
+**根因**：`assembleIncrementalContext()` 在 `route-helpers.ts` 中没有总消息数或 token 预算守卫。当 `cursor=undefined`（首次参与的Agent）或 cursor 过期时，`fetchAfterCursor()` 返回全部 thread 消息，无截断地注入。
 
 **修复（PR #498, squash `7621d25b`）**：
 - **第一刀**：无条件 `maxMessages` 尾截（`relevant.slice(-budget.maxMessages)`）
@@ -238,13 +238,13 @@ CLI 挂了 (liveness, Phase A+B ✅)
 
 **现象**：两个线程的 `@gpt52` mention 5+ 分钟无响应。session chain 显示 `seq0` sealed（`cli_session_replaced`），`seq1` active 但 `messageCount=0`。
 
-**根因**：AC-C6 的 overflow circuit breaker 实现有 loophole。`invoke-single-cat.ts:1109` 在收到新 `session_init`（CLI 换了 session）时，通过 `sessionChainStore.create()` 创建新 active record，但**不继承** `consecutiveRestoreFailures`。新 record 从 0 开始 → 熔断阈值（3）永远达不到 → 循环卡死无限重复。
+**根因**：AC-C6 的 overflow circuit breaker 实现有 loophole。`invoke-single-agent.ts:1109` 在收到新 `session_init`（CLI 换了 session）时，通过 `sessionChainStore.create()` 创建新 active record，但**不继承** `consecutiveRestoreFailures`。新 record 从 0 开始 → 熔断阈值（3）永远达不到 → 循环卡死无限重复。
 
-**发现者**：Maine Coon(GPT-5.4) 在侦探猫猫调查中定位，Ragdoll(Opus) 代码验证确认。
+**发现者**：Agent-M(GPT-5.4) 在侦探Agent调查中定位，Agent-R(Opus) 代码验证确认。
 
 **D1 已合入**（PR #1105, 2026-04-12）：`create()` + immediate `update()` 继承 `consecutiveRestoreFailures`，熔断器现在能正确触发。
 
-**D2 已合入**（PR #1108, 2026-04-12）：`spawn_started` socket event + per-cat spawning UI + D1 P3 多轮替换回归测试。填补 intent_mode 盲区（0-2min），ThinkingIndicator 显示"启动中..."。
+**D2 已合入**（PR #1108, 2026-04-12）：`spawn_started` socket event + per-agent spawning UI + D1 P3 多轮替换回归测试。填补 intent_mode 盲区（0-2min），ThinkingIndicator 显示"启动中..."。
 
 **D3+D4 已合入**（PR #1109, 2026-04-12）：纵深防御层。D3: InvocationTracker TTL guard — `has()` 对超过 75min（2.5× CLI timeout）的 slot 自动清理返回 false。D4: QueueProcessor zombie defense — `processingSlots` 从 `Set` 改为 `Map<string, number>`（记录 startedAt），三入口加 `sweepZombieSlots()`，双重确认（TTL 超时 + tracker.has() 为 false）防误杀。Phase D 全部完成。
 
@@ -255,9 +255,9 @@ CLI 挂了 (liveness, Phase A+B ✅)
 | KD-1 | Bug + Enhancement 合并为一个 Feature | team lead："拆的越复杂，实现出来距离愿景越远" | 2026-03-14 |
 | KD-2 | Session mutex 放在会话复用层，不修改 InvocationTracker | InvocationTracker 是 threadId:catId slot guard，不是 session 级串行化 | 2026-03-14 |
 | KD-3 | 进程活性用 CPU 时间采样而不是单纯 kill -0 | kill -0 只能检测 PID 存在，不能检测假死 | 2026-03-14 |
-| KD-4 | SessionMutex 默认 queue/fail-fast，不默认抢占旧请求 | 防止后来的 thread 杀掉健康请求（Maine Coon review P1） | 2026-03-14 |
-| KD-5 | CPU 增长只影响状态判定，不无限重置 timer；需 bounded extension + hard cap | 防 busy-loop/livelock 永不超时（Maine Coon review P1） | 2026-03-14 |
-| KD-6 | 社区 #86/#98/#99 归入 F118，扩展 scope 为 liveness + recovery + audit closure，不开 F121 | 一条因果链不拆两个 feature，管理成本 > 边界清晰收益（三猫 + team lead共识） | 2026-03-14 |
+| KD-4 | SessionMutex 默认 queue/fail-fast，不默认抢占旧请求 | 防止后来的 thread 杀掉健康请求（Agent-M review P1） | 2026-03-14 |
+| KD-5 | CPU 增长只影响状态判定，不无限重置 timer；需 bounded extension + hard cap | 防 busy-loop/livelock 永不超时（Agent-M review P1） | 2026-03-14 |
+| KD-6 | 社区 #86/#98/#99 归入 F118，扩展 scope 为 liveness + recovery + audit closure，不开 F121 | 一条因果链不拆两个 feature，管理成本 > 边界清晰收益（Admin + team lead共识） | 2026-03-14 |
 
 ## Review Gate
 

@@ -8,7 +8,7 @@ created: 2026-03-27
 
 # F155: Add-Member Internal Guide UI Spec (Phase A)
 
-> **Status**: spec | **Owner**: Maine Coon/Maine Coon (codex) | **Scope**: 内部场景（添加成员）
+> **Status**: spec | **Owner**: Agent-M/Agent-M (codex) | **Scope**: 内部场景（添加成员）
 
 ## Why
 
@@ -70,10 +70,10 @@ steps:
     target: hub.trigger
     advance: click
   - id: click-add-member
-    target: cats.overview
+    target: agents.overview
     advance: click
   - id: click-add-member
-    target: cats.add-member
+    target: agents.add-member
     advance: click
   - id: edit-member-profile
     target: member-editor.profile
@@ -83,8 +83,8 @@ steps:
 ## `data-guide-id` Naming (Phase A Required)
 
 - `hub.trigger`
-- `cats.overview`
-- `cats.add-member`
+- `agents.overview`
+- `agents.add-member`
 - `member-editor.profile`
 
 命名规则：`domain.section.action`，语义化，禁止位置语义（如 left/top/row1）。
@@ -116,7 +116,7 @@ any
 ```css
 :root {
   --guide-overlay-bg: rgba(12, 16, 24, 0.62);
-  --guide-cutout-ring: #d4853a; /* 猫咖橙 */
+  --guide-cutout-ring: #d4853a; /* Agent咖橙 */
   --guide-cutout-shadow: rgba(212, 133, 58, 0.35);
   --guide-hud-bg: #fffdf8;
   --guide-hud-border: #e7dac7;

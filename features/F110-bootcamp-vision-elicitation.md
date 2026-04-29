@@ -4,36 +4,36 @@ related_features: [F087, F106]
 topics: [bootcamp, onboarding, cvo, vision, ux]
 doc_kind: spec
 created: 2026-03-12
-community_issue: https://github.com/zts212653/clowder-ai/issues/16
+community_issue: https://github.com/zts212653/agent-task-hub/issues/16
 ---
 
 # F110: 训练营愿景引导增强 — CVO 需求挖掘 + SOP 显式加载
 
-> **Status**: spec | **Owner**: Ragdoll | **Priority**: P1
+> **Status**: spec | **Owner**: Agent-R | **Priority**: P1
 > **Evolved from**: F087（CVO Bootcamp — 训练营基础设施已完成，但 Phase 5+ 引导能力不足）
-> **Community issue**: [#16](https://github.com/zts212653/clowder-ai/issues/16)（Bootcamp Phase Transition UX，已吸收进 F110）
+> **Community issue**: [#16](https://github.com/zts212653/agent-task-hub/issues/16)（Bootcamp Phase Transition UX，已吸收进 F110）
 
 ## Why
 
-F087 训练营已经能走完 Phase 0-4（选猫 → 环境检测 → 任务选择），但 Phase 5 kickoff 开始的"真实协作"部分有三个严重缺口：
+F087 训练营已经能走完 Phase 0-4（选Agent → 环境检测 → 任务选择），但 Phase 5 kickoff 开始的"真实协作"部分有三个严重缺口：
 
-1. **没有愿景采访流程** — Phase 5 只有一句"用户说愿景，猫猫帮结构化成 spec"，没有引导性问题模板。新手team lead需求表达不清楚时，猫猫不知道怎么引导
-2. **没有隐藏需求发现机制** — 没有教猫猫"观察→假设→追问→确认"的需求挖掘方法论
-3. **Phase 5-10 没有显式标注 SOP skill 加载** — 进入真实协作后全凭猫猫自觉，缺少"此时必须加载 feat-lifecycle / tdd / request-review"的显式指引
+1. **没有愿景采访流程** — Phase 5 只有一句"用户说愿景，Agent帮结构化成 spec"，没有引导性问题模板。新手team lead需求表达不清楚时，Agent不知道怎么引导
+2. **没有隐藏需求发现机制** — 没有教Agent"观察→假设→追问→确认"的需求挖掘方法论
+3. **Phase 5-10 没有显式标注 SOP skill 加载** — 进入真实协作后全凭Agent自觉，缺少"此时必须加载 feat-lifecycle / tdd / request-review"的显式指引
 
 ### team experience（2026-03-12）
 
-> "你这新手训练营 会主动提醒Ragdoll加载sop 引导新手指挥官 按照对齐愿景来吗？ 会采访新手team lead他的愿景要如何提吗？很多人需求都特么表达不清楚 我们的 skills 里有写让你们去揣摩用户隐藏需求然后 引导去问他们要不要吗？"
+> "你这新手训练营 会主动提醒Agent-R加载sop 引导新手指挥官 按照对齐愿景来吗？ 会采访新手team lead他的愿景要如何提吗？很多人需求都特么表达不清楚 我们的 skills 里有写让你们去揣摩用户隐藏需求然后 引导去问他们要不要吗？"
 
 > "开个feat 如果你的f87 close的话。 而且对应的skills 你也得优化。 也得和他们先对齐ux 才能算愿景对齐完成"
 
 ## What
 
-### UX 对齐讨论收敛（2026-03-12，Ragdoll+Maine Coon+Siamese）
+### UX 对齐讨论收敛（2026-03-12，Agent-R+Agent-M+Siamese）
 
-三猫独立思考后收敛的共识：
+Admin独立思考后收敛的共识：
 
-| 话题 | Maine Coon（安全/流程） | Siamese（视觉/体验） | 收敛结论 |
+| 话题 | Agent-M（安全/流程） | Siamese（视觉/体验） | 收敛结论 |
 |------|-------------------|-------------------|---------|
 | 采访轮次 | 改 2+可选1，三项齐了就收束 | OK但别像面试，用选择题替代填空题 | **2+可选1 动态制 + 卡片选择辅助** |
 | 隐藏需求 | 补成功标准+现有替代方案 | 补"视觉模糊描述"信号 | **全部采纳，按场景分层** |
@@ -50,14 +50,14 @@ F087 训练营已经能走完 Phase 0-4（选猫 → 环境检测 → 任务选�
 
 Phase 4 选完任务后，先做三件事再进采访：
 
-1. **回放**：确认用户选了什么任务（"你选了 Q7 猫猫点餐系统"）
+1. **回放**：确认用户选了什么任务（"你选了 Q7 Agent点餐系统"）
 2. **庆祝就任 CVO 仪式**（配合 Rich Block 卡片/语音）：
    ```
    🎓 恭喜上任 CVO！从现在起——
-   Ragdoll负责搭架构，Maine Coon负责抓虫子，Siamese负责把它变好看。
+   Agent-R负责搭架构，Agent-M负责抓虫子，Siamese负责把它变好看。
    技术细节全交给我们！你只需要大胆做梦。
    ```
-3. **角色切换卡**（Maine Coon提议）：
+3. **角色切换卡**（Agent-M提议）：
    ```
    你现在是决策者（不是旁观者）。
    本轮你只需要拍 3 个板：目标、范围、优先级。
@@ -75,7 +75,7 @@ Phase 4 选完任务后，先做三件事再进采访：
 **硬限制**：
 - 每轮最多 2 个问题，超过就先摘要回读
 - 用户说"我不知道"→ 必须给 2-3 个可选示例或卡片帮助表达
-- **反锚定原则**：先让用户说完，猫猫不提前抛方案
+- **反锚定原则**：先让用户说完，Agent不提前抛方案
 
 #### 需求确认摘要（采访收束后必做）
 
@@ -89,7 +89,7 @@ Phase 4 选完任务后，先做三件事再进采访：
 
 ### 缺口 2: 隐藏需求发现（观察→假设→追问→确认）
 
-教猫猫在采访过程中主动发现隐性需求：
+教Agent在采访过程中主动发现隐性需求：
 
 **基础信号（所有场景必查）**：
 
@@ -99,8 +99,8 @@ Phase 4 选完任务后，先做三件事再进采访：
 | 只描述功能不描述体验 | 没想清 UX | "做完后你第一眼想看到什么？" |
 | 说"类似 XX 那种" | 有具体参考 | "XX 里你最喜欢/最讨厌哪个部分？" |
 | 反复提某个词 | 核心痛点 | "你多次提到 XX，这是最困扰你的？" |
-| 没提成功标准 | 不知道怎么算"做成了" | "如果做完了，你怎么判断它好不好用？"（Maine Coon） |
-| 没提现有替代 | 可能有未说出的痛点 | "你现在怎么做这件事？最痛的地方在哪？"（Maine Coon） |
+| 没提成功标准 | 不知道怎么算"做成了" | "如果做完了，你怎么判断它好不好用？"（Agent-M） |
+| 没提现有替代 | 可能有未说出的痛点 | "你现在怎么做这件事？最痛的地方在哪？"（Agent-M） |
 
 **视觉信号（涉及 UI 时触发）**（Siamese提议）：
 
@@ -116,13 +116,13 @@ Phase 4 选完任务后，先做三件事再进采访：
 | Phase | SOP Skill | 白话解释（说给用户听，不露 skill 名） |
 |-------|-----------|--------------------------------------|
 | Phase 5 (kickoff) | `feat-lifecycle` | "我们先把你的想法变成一份明确的计划" |
-| Phase 6 (design) | `collaborative-thinking` → Design Gate | "猫猫们会各自出方案，你来拍板" |
+| Phase 6 (design) | `collaborative-thinking` → Design Gate | "Agent们会各自出方案，你来拍板" |
 | Phase 7 (dev) | `worktree` + `tdd` | "开始写代码了！先写测试，再写实现" |
-| Phase 8 (review) | `request-review` + `receive-review` | "让另一只猫来检查代码质量" |
+| Phase 8 (review) | `request-review` + `receive-review` | "让另一只Agent来检查代码质量" |
 | Phase 9 (complete) | `merge-gate` + `quality-gate` | "合入主分支，你的功能正式上线" |
 | Phase 10 (retro) | `feat-lifecycle` completion | "回顾一下我们做了什么" |
 
-每个 Phase 转换时，猫猫要用 **「🎯 CVO 决策时刻」** 标注，并用一句白话解释为什么需要人类判断。
+每个 Phase 转换时，Agent要用 **「🎯 CVO 决策时刻」** 标注，并用一句白话解释为什么需要人类判断。
 
 ### 交付范围
 
@@ -130,16 +130,16 @@ Phase 4 选完任务后，先做三件事再进采访：
 |--------|------|
 | `bootcamp-guide/SKILL.md` 重写 | Phase 4→5 桥接 + Phase 5 采访全量增强 + Phase 5-10 SOP 加载 |
 | `feat-lifecycle` skill 微调 | 采访式模式补充"新手友好"引导语 |
-| 模拟走查脚本 | 覆盖"表达清楚"和"表达混乱"两类用户（Maine Coon提议） |
+| 模拟走查脚本 | 覆盖"表达清楚"和"表达混乱"两类用户（Agent-M提议） |
 
 ## Acceptance Criteria
 
 - [ ] AC-A1: `bootcamp-guide` Phase 5 包含结构化愿景采访流程（2+可选1 动态制）
 - [ ] AC-A2: 采访流程包含"隐藏需求发现"指引（基础信号 6 条 + 视觉信号 2 条）
-- [ ] AC-A3: 采访结束后猫猫主动做"需求确认摘要"回读给用户
+- [ ] AC-A3: 采访结束后Agent主动做"需求确认摘要"回读给用户
 - [ ] AC-A4: Phase 5-10 每个 Phase 显式标注对应的 SOP skill 加载要求
 - [ ] AC-A5: 每个 Phase 转换有白话解释 + 「🎯 CVO 决策时刻」标注说明
-- [ ] AC-A6: ~~和Maine Coon/Siamese完成 UX 对齐讨论~~ ✅ 已完成（2026-03-12 multi_mention 讨论）
+- [ ] AC-A6: ~~和Agent-M/Siamese完成 UX 对齐讨论~~ ✅ 已完成（2026-03-12 multi_mention 讨论）
 - [ ] AC-A7: Skill 更新后模拟走查 Phase 5，覆盖"表达清楚"和"表达混乱"两类用户
 - [ ] AC-A8: Phase 4→5 桥接仪式（回放+庆祝就任 CVO+角色切换卡）
 - [ ] AC-A9: 每轮最多 2 个问题硬限制 + "不知道"时给 2-3 个示例/卡片
@@ -153,9 +153,9 @@ Phase 4 选完任务后，先做三件事再进采访：
 |----|---------------------------|---------|----------|------|
 | R1 | "会采访新手team lead他的愿景要如何提吗？" | AC-A1, AC-A3 | skill 文本 review | [ ] |
 | R2 | "很多人需求都特么表达不清楚" | AC-A2, AC-A9, AC-A10 | 隐藏需求发现指引 + 卡片辅助 | [ ] |
-| R3 | "会主动提醒Ragdoll加载sop 引导新手指挥官" | AC-A4, AC-A5 | Phase→Skill 映射表完整 | [ ] |
+| R3 | "会主动提醒Agent-R加载sop 引导新手指挥官" | AC-A4, AC-A5 | Phase→Skill 映射表完整 | [ ] |
 | R4 | "也得和他们先对齐ux 才能算愿景对齐完成" | AC-A6 | UX 对齐讨论记录（已完成） | [x] |
-| R5 | 角色切换 + 桥接仪式（Maine Coon+Siamese共识） | AC-A8 | 桥接仪式在 skill 中存在 | [ ] |
+| R5 | 角色切换 + 桥接仪式（Agent-M+Siamese共识） | AC-A8 | 桥接仪式在 skill 中存在 | [ ] |
 
 ### 覆盖检查
 - [x] 每个需求点都能映射到至少一个 AC
@@ -171,7 +171,7 @@ Phase 4 选完任务后，先做三件事再进采访：
 
 | 风险 | 缓解 |
 |------|------|
-| 采访模板太死板像问卷 | 模板是参考不是脚本，猫猫要根据上下文灵活调整 |
+| 采访模板太死板像问卷 | 模板是参考不是脚本，Agent要根据上下文灵活调整 |
 | 隐藏需求发现过度推测 | 追问后必须确认，不能替用户做假设 |
 | SOP skill 加载让新手觉得流程复杂 | 用白话翻译每个环节，不暴露 skill 名称给用户 |
 
@@ -179,15 +179,15 @@ Phase 4 选完任务后，先做三件事再进采访：
 
 | # | 决策 | 理由 | 日期 | 决策者 |
 |---|------|------|------|--------|
-| KD-1 | 采访改为 2+可选1 动态制 | 固定 3 轮有问卷感；三项齐了就收束 | 2026-03-12 | Maine Coon提议→三猫共识 |
-| KD-2 | Phase 5-10 SOP skill 显式标注在 bootcamp-guide 里 | 不能依赖猫猫自觉 | 2026-03-12 | Ragdoll |
-| KD-3 | Phase 4→5 加"桥接仪式"（回放+庆祝+角色切换卡） | Maine Coon：角色切换是最大卡点；Siamese：仪式感消除畏难 | 2026-03-12 | Maine Coon+Siamese共识 |
+| KD-1 | 采访改为 2+可选1 动态制 | 固定 3 轮有问卷感；三项齐了就收束 | 2026-03-12 | Agent-M提议→Admin共识 |
+| KD-2 | Phase 5-10 SOP skill 显式标注在 bootcamp-guide 里 | 不能依赖Agent自觉 | 2026-03-12 | Agent-R |
+| KD-3 | Phase 4→5 加"桥接仪式"（回放+庆祝+角色切换卡） | Agent-M：角色切换是最大卡点；Siamese：仪式感消除畏难 | 2026-03-12 | Agent-M+Siamese共识 |
 | KD-4 | "不知道"时给选择题+卡片，不强迫填空 | Siamese：把填空题变选择题降低门槛 | 2026-03-12 | Siamese提议→采纳 |
-| KD-5 | 每轮最多 2 个问题，超过先摘要回读 | Maine Coon：防止问卷疲劳 | 2026-03-12 | Maine Coon提议→采纳 |
-| KD-6 | 隐藏需求分层：基础信号（全场景）+ 视觉信号（涉及 UI） | 训练营场景不需要企业级需求分析 | 2026-03-12 | Ragdoll收敛 |
-| KD-7 | 4→5 不做"快速起步/深度澄清"入口分叉 | 减少选择焦虑，由猫猫自适应 | 2026-03-12 | Ragdoll判断 |
-| KD-8 | Maine Coon建议的"利害关系人冲突"和"风险容忍度"不纳入训练营 | 训练营是单人 CVO + 轻量项目，不适用 | 2026-03-12 | Ragdoll判断 |
-| KD-9 | Phase 3.5 可选功能：主动帮装，不跳过。根据用户硬件配置推荐 TTS/ASR 方案 | 实际用户反馈：env check 通过后猫猫把可选功能当"不重要"直接跳过，用户想装但没被引导。我们自己用 Qwen3 系列 TTS，但轻量场景推荐 Kokoro-82M；需要根据用户硬件（Apple Silicon/NVIDIA GPU/CPU-only）做差异化推荐 | 2026-03-13 | team lead指出 |
+| KD-5 | 每轮最多 2 个问题，超过先摘要回读 | Agent-M：防止问卷疲劳 | 2026-03-12 | Agent-M提议→采纳 |
+| KD-6 | 隐藏需求分层：基础信号（全场景）+ 视觉信号（涉及 UI） | 训练营场景不需要企业级需求分析 | 2026-03-12 | Agent-R收敛 |
+| KD-7 | 4→5 不做"快速起步/深度澄清"入口分叉 | 减少选择焦虑，由Agent自适应 | 2026-03-12 | Agent-R判断 |
+| KD-8 | Agent-M建议的"利害关系人冲突"和"风险容忍度"不纳入训练营 | 训练营是单人 CVO + 轻量项目，不适用 | 2026-03-12 | Agent-R判断 |
+| KD-9 | Phase 3.5 可选功能：主动帮装，不跳过。根据用户硬件配置推荐 TTS/ASR 方案 | 实际用户反馈：env check 通过后Agent把可选功能当"不重要"直接跳过，用户想装但没被引导。我们自己用 Qwen3 系列 TTS，但轻量场景推荐 Kokoro-82M；需要根据用户硬件（Apple Silicon/NVIDIA GPU/CPU-only）做差异化推荐 | 2026-03-13 | team lead指出 |
 | KD-10 | 当前训练营定位为"新手训练营"，Phase 3.5 帮装可选功能属于新手范围 | 进阶训练营（如自定义 LLM 后训模型、高级 pipeline 配置等）留 OQ 口子，不在 F110 范围内 | 2026-03-13 | team lead指出 |
 
 ## Review Gate

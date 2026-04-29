@@ -4,12 +4,12 @@ topics: [deploy, onboarding, linux, macos, windows, community, directory-picker,
 doc_kind: spec
 created: 2026-03-13
 source: community
-community_issue: https://github.com/zts212653/clowder-ai/issues/14
+community_issue: https://github.com/zts212653/agent-task-hub/issues/14
 ---
 
 # F113: Multi-Platform One-Click Deploy
 
-> **Status**: in-progress | **Source**: clowder-ai #14 (mindfn) | **Priority**: P2
+> **Status**: in-progress | **Source**: agent-task-hub #14 (mindfn) | **Priority**: P2
 
 ## Why
 
@@ -29,8 +29,8 @@ community_issue: https://github.com/zts212653/clowder-ai/issues/14
 - TTY 安全读取（非交互环境兼容）
 - npm registry fallback（中国镜像）
 - provider-profile 配置引导
-- 2026-03-19：已吸收 `clowder-ai#128` 的 Linux TTY/install/runtime 修复（cat-cafe PR #565），保留内部 runtime 语义并补齐回归测试
-- 2026-03-19：post-review follow-up（cat-cafe PR #566）已合入，补齐 `/workspace` provider-profile sharing 边界，并修正 installer completion banner 的家里端口口径
+- 2026-03-19：已吸收 `agent-task-hub#128` 的 Linux TTY/install/runtime 修复（agent-hub PR #565），保留内部 runtime 语义并补齐回归测试
+- 2026-03-19：post-review follow-up（agent-hub PR #566）已合入，补齐 `/workspace` provider-profile sharing 边界，并修正 installer completion banner 的家里端口口径
 
 ### Phase B: macOS 一键安装（PR #174 已合入 main，AC-B6 待验收）
 
@@ -56,8 +56,8 @@ community_issue: https://github.com/zts212653/clowder-ai/issues/14
 
 `scripts/install.ps1` — 原生 PowerShell 安装器（非 WSL 前置），检测/安装 Node.js、pnpm、Redis、AI CLI 工具。
 
-- 2026-03-19：已吸收 `clowder-ai#113` 的 Windows 一键部署与 CLI spawn 修复（cat-cafe PR #572），manual-port 时保留家里 runtime 口径（`3003/3004/6399`），并锁定开源出口口径为 `Frontend 3003 / API 3004 / Redis 6399`
-- 2026-03-19：outbound sync follow-up（cat-cafe PR #573）已合入，补齐 Windows deploy 脚本导出 allowlist，并修正 sync parser 对 YAML `#` 的处理，避免公开仓同步时误删脚本或截断合法路径
+- 2026-03-19：已吸收 `agent-task-hub#113` 的 Windows 一键部署与 CLI spawn 修复（agent-hub PR #572），manual-port 时保留家里 runtime 口径（`3003/3004/6399`），并锁定开源出口口径为 `Frontend 3003 / API 3004 / Redis 6399`
+- 2026-03-19：outbound sync follow-up（agent-hub PR #573）已合入，补齐 Windows deploy 脚本导出 allowlist，并修正 sync parser 对 YAML `#` 的处理，避免公开仓同步时误删脚本或截断合法路径
 
 ### Phase D: 跨平台目录选择器 ✅
 
@@ -98,13 +98,13 @@ API 契约：
 
 交付行为：
 1. 空目录打开 → 展示三栏初始化卡片（clone/init/skip）
-2. 用户选择后 → 展示 Working 猫猫动画（最少 1.2s）→ Done 猫猫
+2. 用户选择后 → 展示 Working Agent动画（最少 1.2s）→ Done Agent
 3. 切换 thread → 卡片状态正确重置（`key={threadId}` 强制重挂载）
-4. 猫猫插画为 Gemini 生成的动漫风格透明底 PNG
+4. Agent插画为 Gemini 生成的动漫风格透明底 PNG
 
 已知 tradeoff / 风险：
 - `<img>` 标签未用 Next.js `<Image />`（Biome 有 warning），当前图片仅 3 张且小，影响可忽略
-- 猫猫 PNG 通过阈值去白（RGB > 240 → 透明），非精确抠图，极浅色边缘可能有半透明 artifact
+- Agent PNG 通过阈值去白（RGB > 240 → 透明），非精确抠图，极浅色边缘可能有半透明 artifact
 - `Promise.all` 最小展示时间（1.2s）是固定值，未做用户偏好配置
 
 脚本通用原则：幂等性（重复运行不报错）、版本检测（已安装不重装）、清晰的进度提示。
@@ -136,7 +136,7 @@ API 契约：
 - [x] AC-E1: 新项目打开时展示初始化引导卡片（clone/init/skip）
 - [x] AC-E2: 切换 thread 后卡片状态正确重置
 - [x] AC-E3: 快速操作（init/skip）不因过快完成导致 UI 闪烁
-- [x] AC-E4: 猫猫插画与卡片背景自然融合（透明底）
+- [x] AC-E4: Agent插画与卡片背景自然融合（透明底）
 
 ### 通用
 - [x] AC-X1: 安装脚本具备幂等性和清晰进度提示
@@ -161,11 +161,11 @@ API 契约：
 
 ## Post-QG Delta (Phase E, 2026-03-31)
 
-QG 通过后追加的改动（均已 push 到 clowder-ai PR #299）：
+QG 通过后追加的改动（均已 push 到 agent-task-hub PR #299）：
 
 | Commit | 改动 | 原因 |
 |--------|------|------|
-| `424269e` | SVG → Gemini 动漫风格 PNG 插画 + Bug 1 修复（`govRefetch`） | team lead要求动漫猫猫风格；切换 thread 后治理状态不刷新 |
+| `424269e` | SVG → Gemini 动漫风格 PNG 插画 + Bug 1 修复（`govRefetch`） | team lead要求动漫Agent风格；切换 thread 后治理状态不刷新 |
 | `770712a` | 去除 PNG 白色背景（PIL 阈值抠图） | 白底与卡片背景色不融合 |
 | `f1742a2` | `items-center` 对齐 + 1.2s 最小展示时间 | 图文错落；init/skip 闪烁 |
 | `70a69a1` | `key={threadId}` 强制重挂载 | Bug 1 复现：组件内部 state 残留 |
@@ -192,9 +192,9 @@ PR #174（已 rebase 到最新 main，CI 状态以 GitHub PR 页面为准）revi
 
 ## Dependencies
 
-- **Evolved from**: clowder-ai #14（社区用户反馈安装门槛高）
+- **Evolved from**: agent-task-hub #14（社区用户反馈安装门槛高）
 - **Related**: F115（Runtime 启动链优化）、F070（Portable Governance）
 
 ## Notes
 
-- clowder-ai #12（`buildClaudeEnvOverrides` bug）已于 2026-03-14 关闭，不再阻塞。
+- agent-task-hub #12（`buildClaudeEnvOverrides` bug）已于 2026-03-14 关闭，不再阻塞。

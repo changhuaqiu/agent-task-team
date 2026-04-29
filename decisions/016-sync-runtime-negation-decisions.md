@@ -9,11 +9,11 @@ status: accepted
 
 # ADR-016: 同步 & Runtime 否决决策
 
-> 来源：2026-03-13 F059 同步 Runtime 事故复盘 + 两猫收敛讨论
+> 来源：2026-03-13 F059 同步 Runtime 事故复盘 + 两Agent收敛讨论
 
 ## 背景
 
-3/13 下午在 clowder-ai 同步验收中发生一连串 runtime 事故（proxy 被杀、sidecar 假阳性、529 透传、依赖缺失）。复盘后两猫独立分析并收敛了 4 个优化方向，同时明确否决了 4 条替代方案。
+3/13 下午在 agent-task-hub 同步验收中发生一连串 runtime 事故（proxy 被杀、sidecar 假阳性、529 透传、依赖缺失）。复盘后两Agent独立分析并收敛了 4 个优化方向，同时明确否决了 4 条替代方案。
 
 ## 否决决策
 
@@ -25,13 +25,13 @@ status: accepted
 
 ### N2: 不做通用 reverse transform
 
-**否决理由**：出站 transform 包含有损操作（猫名替换、端口 remap、文档生成、内部路径擦除），通用反 transform 需要维护 22 个逆映射且无法保证无损。
+**否决理由**：出站 transform 包含有损操作（Agent名替换、端口 remap、文档生成、内部路径擦除），通用反 transform 需要维护 22 个逆映射且无法保证无损。
 
 **替代方案**：默认不反 transform，仅对极小 allowlist 做显式逆映射，其余进入 manual-port 人工审阅。
 
 ### N3: 不分叉 `start-dev.sh` 成两份真相源
 
-**否决理由**：方案 B（clowder-ai 有自己的 start-dev.sh）会创造两份启动链真相源，未来必然漂移，且 sync transform 需要额外维护这个分叉点。
+**否决理由**：方案 B（agent-task-hub 有自己的 start-dev.sh）会创造两份启动链真相源，未来必然漂移，且 sync transform 需要额外维护这个分叉点。
 
 **采纳方案**：Profile 化 `start-dev.sh --profile=dev|opensource`，一份脚本、不同 profile 决定默认值和 sidecar/proxy 策略。`.env` 只做显式 override，不负责定义环境身份。
 

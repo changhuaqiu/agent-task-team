@@ -8,7 +8,7 @@ created: 2026-02-26
 
 # F025: 可靠性工程（状态机规格 + 并发演练 + 证据闸门）
 
-> **Status**: done | **Owner**: 三猫
+> **Status**: done | **Owner**: Admin
 > **Created**: 2026-02-26
 
 ## Why

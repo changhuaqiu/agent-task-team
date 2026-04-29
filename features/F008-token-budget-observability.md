@@ -8,13 +8,13 @@ created: 2026-02-26
 
 # F008: Token 预算 + 深度可观测性
 
-> **Status**: done | **Owner**: 三猫
+> **Status**: done | **Owner**: Admin
 > **Created**: 2026-02-26
 
 ## Why
 
 ## What
-- **F8**: 全部完成：char→token 迁移 (js-tiktoken, 16 files) + 三猫 CLI usage/cost/cache 捕获 + 前端 RightStatusPanel per-cat token 显示 + ParallelStatusBar 聚合 + inputTokens 归一化 (da75aaf) + review fix (e8d1dbd)。commits: 66a59e4→6f25a2b→e8d1dbd
+- **F8**: 全部完成：char→token 迁移 (js-tiktoken, 16 files) + Admin CLI usage/cost/cache 捕获 + 前端 RightStatusPanel per-agent token 显示 + ParallelStatusBar 聚合 + inputTokens 归一化 (da75aaf) + review fix (e8d1dbd)。commits: 66a59e4→6f25a2b→e8d1dbd
 
 ## Acceptance Criteria
 - [x] AC-A1: 本文档已补齐模板核心结构（Status/Why/What/Dependencies/Risk/Timeline）。

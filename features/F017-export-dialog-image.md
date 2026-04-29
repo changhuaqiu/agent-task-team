@@ -8,13 +8,13 @@ created: 2026-02-26
 
 # F017: 导出对话长图
 
-> **Status**: done | **Owner**: 三猫
+> **Status**: done | **Owner**: Admin
 > **Created**: 2026-02-26
 
 ## Why
 
 ## What
-- **F17**: Chrome headless 导出。Maine Coon 3 轮 review 通过（R1 路径 + R2 安全/构建/性能 + R3 system thread）。设计: 2026-02-10-f19-f18-f17-ux-polish.md
+- **F17**: Chrome headless 导出。Agent-M 3 轮 review 通过（R1 路径 + R2 安全/构建/性能 + R3 system thread）。设计: 2026-02-10-f19-f18-f17-ux-polish.md
 
 ## Acceptance Criteria
 - [x] AC-A1: 本文档已补齐模板核心结构（Status/Why/What/Dependencies/Risk/Timeline）。

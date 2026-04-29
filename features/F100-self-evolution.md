@@ -7,9 +7,9 @@ created: 2026-03-11
 updated: 2026-03-16
 ---
 
-# F100: Self-Evolution — 猫猫自我进化机制
+# F100: Self-Evolution — Agent自我进化机制
 
-> **Status**: in-progress | **Owner**: Ragdoll | **Priority**: P1
+> **Status**: in-progress | **Owner**: Agent-R | **Priority**: P1
 > Phase 1 完成：行为层 skill（A/B/C 三模式触发规则）
 > Phase 2 完成：三模式知识对象化（A 守护记录 + B 流程提案闭环 + C 知识蒸馏验证 + 五级阶梯 + 元认知）
 > Phase 3 待建：可观测层 — **blocked on F102 close**，需基于 F102 终态重新定义
@@ -17,11 +17,11 @@ updated: 2026-03-16
 ## Why
 
 三个缺口：
-1. team lead有 ADHD，聊 feat 时 scope 无限发散，猫猫不主动提醒"要不要拆？"
-2. 猫猫被反复纠正同类错误，不主动提改 SOP/skills/家规
-3. **（team lead追加）** 猫猫只从错误中学习，不从有价值的经验中成长——比如帮team lead分析医学报告、法律探讨、deep research，这些知识/方法论没有沉淀机制
+1. team lead有 ADHD，聊 feat 时 scope 无限发散，Agent不主动提醒"要不要拆？"
+2. Agent被反复纠正同类错误，不主动提改 SOP/skills/家规
+3. **（team lead追加）** Agent只从错误中学习，不从有价值的经验中成长——比如帮team lead分析医学报告、法律探讨、deep research，这些知识/方法论没有沉淀机制
 
-根因：P2 说猫猫是共创伙伴，但只落地了"被动执行"，没有"主动护栏 + 主动改进 + 主动成长"。
+根因：P2 说Agent是共创伙伴，但只落地了"被动执行"，没有"主动护栏 + 主动改进 + 主动成长"。
 
 ## What
 
@@ -51,23 +51,23 @@ updated: 2026-03-16
 
 ## Discussion
 
-- Thread: `thread_mmlv4v2oq6dxefr6`（Ragdoll + Maine Coon GPT-5.4 讨论 A+B 模式）
+- Thread: `thread_mmlv4v2oq6dxefr6`（Agent-R + Agent-M GPT-5.4 讨论 A+B 模式）
 - team lead追加 Mode C（知识进化）：不只从错误学，也从有价值的经验成长
 
 ## Deliverables
 
 ### Phase 1
-- [x] `cat-cafe-skills/self-evolution/SKILL.md` (147 行，三模式)
-- [x] `cat-cafe-skills/manifest.yaml` 注册（11 triggers）
+- [x] `agent-hub-skills/self-evolution/SKILL.md` (147 行，三模式)
+- [x] `agent-hub-skills/manifest.yaml` 注册（11 triggers）
 - [x] `SystemPromptBuilder.ts` L0 digest 许可句（含三模式）
-- [x] 三猫 symlinks（claude/codex/gemini）
+- [x] Admin symlinks（claude/codex/gemini）
 
 ### Phase 2
 - [x] `docs/decisions/015-knowledge-object-contract.md` — ADR-015 Knowledge Object Contract
 - [x] `docs/scope-guard-log.md` — Mode A Scope Guard Log
 - [x] `evals/mode-c/TEMPLATE/` — Mode C Eval Ledger 结构（cases/judge/summary）
-- [x] `cat-cafe-skills/self-evolution/SKILL.md` 升级（228 行，含三机制闭环+五级阶梯+元认知）
-- [x] `cat-cafe-skills/manifest.yaml` 新增 6 triggers（共 17）
+- [x] `agent-hub-skills/self-evolution/SKILL.md` 升级（228 行，含三机制闭环+五级阶梯+元认知）
+- [x] `agent-hub-skills/manifest.yaml` 新增 6 triggers（共 17）
 - [x] `SystemPromptBuilder.ts` L0 digest 更新（Episode→蒸馏→Eval）
 
 ## AC
@@ -76,20 +76,20 @@ updated: 2026-03-16
 - [x] Mode B: Process Evolution 有提案模板 + 硬护栏 + 杠杆排序
 - [x] Mode C: Knowledge Evolution 有三问判断 + 沉淀形式表 + 提案模板
 - [x] L0 digest 一句许可覆盖三模式
-- [x] 三猫都能加载 skill
+- [x] Admin都能加载 skill
 - [x] 不造新沉淀库
 
 ---
 
 ## Phase 2: 三模式知识对象化设计（2026-03-12）
 
-> 来源：四源调研 Round 1（基础设施）+ Round 2（Mode C 灵魂）+ 三猫收敛讨论
+> 来源：四源调研 Round 1（基础设施）+ Round 2（Mode C 灵魂）+ Admin收敛讨论
 
 ### 现状评估
 
-Phase 1 完成的是**行为层**——三猫什么时候该守 scope（A）、该演化流程（B）、该沉淀知识（C）。调研证实方向没走歪。
+Phase 1 完成的是**行为层**——Admin什么时候该守 scope（A）、该演化流程（B）、该沉淀知识（C）。调研证实方向没走歪。
 
-**三模式都只做了一半**：Phase 1 教猫"什么时候触发"，缺"触发之后产出什么、怎么验证有效、怎么逐步成熟"。
+**三模式都只做了一半**：Phase 1 教Agent"什么时候触发"，缺"触发之后产出什么、怎么验证有效、怎么逐步成熟"。
 
 ### Mode A Phase 2: Scope Guard 对象化
 
@@ -115,7 +115,7 @@ Phase 2 补齐：
 
 Phase 1 状态：三问判断 + 4 槽提案模板 + 沉淀形式表。
 
-Phase 2 补齐（核心，来自四源调研 + 三猫讨论）：
+Phase 2 补齐（核心，来自四源调研 + Admin讨论）：
 
 **三机制闭环**：
 ```
@@ -167,7 +167,7 @@ Episode Card（原料）→ Dual Distillation（蒸馏成品）→ Eval Ledger�
 
 ### 三模式共享：Knowledge Object Contract
 
-基于 ADR-011 通用 frontmatter，给知识对象加可选 `knowledge` 块（Maine Coon提议，6+2 核心字段先行）：
+基于 ADR-011 通用 frontmatter，给知识对象加可选 `knowledge` 块（Agent-M提议，6+2 核心字段先行）：
 
 ```yaml
 knowledge:
@@ -201,7 +201,7 @@ F100 的终态 = 行为层 + 知识对象化 + 验证闭环，面向终态设计
 - **以前**：Mode C = "值得沉淀就记下来"
 - **现在**：三模式统一 = "先记录（Episode），再蒸馏（Method/Skill），再验证（Eval Ledger），用五级阶梯治理成熟度"
 
-> "Mode C 不是把经历记下来，而是把 episode 抽成方法，再用 replay 证明它真有增益。先把三张卡片跑起来，别急着给三只猫装 PPO 发动机。" — GPT Pro
+> "Mode C 不是把经历记下来，而是把 episode 抽成方法，再用 replay 证明它真有增益。先把三张卡片跑起来，别急着给三只Agent装 PPO 发动机。" — GPT Pro
 
 ---
 
@@ -228,7 +228,7 @@ F100 Phase 3 原设计中的多个组件与 F102 存在重叠或依赖：
 |---|---|
 | Capability Catalog（能力目录搜索） | `search_evidence` + `evidence_docs` 已可检索 |
 | Memory Radar（热点/冲突/重复） | `edges` + `needs_review` invalidation 部分覆盖 |
-| Event Envelope（7 种 OTel 事件） | 当前 3 猫规模下 ROI 存疑 |
+| Event Envelope（7 种 OTel 事件） | 当前 3 Agent规模下 ROI 存疑 |
 
 ### 计划
 

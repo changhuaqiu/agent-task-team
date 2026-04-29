@@ -8,7 +8,7 @@ created: 2026-03-07
 
 # F082 Git Health Panel — Repo 状态可视化
 
-> **Status**: done | **Owner**: Ragdoll
+> **Status**: done | **Owner**: Agent-R
 > **Evolved from**: F063 (Hub Workspace Explorer) | **Completed**: 2026-03-08
 
 ## Why
@@ -27,8 +27,8 @@ team lead和朋友们使用 Hub 协作时，经常需要了解 repo 的 git 状�
 
 ### Phase 2: Git Health Dashboard（定制层）
 - **Dirty Files**: `git status --porcelain` 分类展示（staged / unstaged / untracked）
-- **Stale Branches**: 已合入 main 但未删除的本地/remote 分支，标注关联猫猫
-- **Orphan Worktrees**: 活跃 worktree 列表，标注哪些对应已合入分支（坏猫警报）
+- **Stale Branches**: 已合入 main 但未删除的本地/remote 分支，标注关联Agent
+- **Orphan Worktrees**: 活跃 worktree 列表，标注哪些对应已合入分支（Rogue Agent警报）
 - **Runtime Drift**: runtime 与 main 的 commit 差距（落后/领先几个 commit、差了哪些功能）
 
 ## Acceptance Criteria
@@ -45,7 +45,7 @@ team lead和朋友们使用 Hub 协作时，经常需要了解 repo 的 git 状�
 ### Phase 2
 - [x] `GET /api/workspace/git-health` 返回综合健康数据
 - [x] Dirty Files 区块：Phase 1 git-status 已覆盖（staged/unstaged/untracked）
-- [x] Stale Branches 区块：列出已合入未删的分支 + 猫猫归属（author）
+- [x] Stale Branches 区块：列出已合入未删的分支 + Agent归属（author）
 - [x] Orphan Worktrees 区块：标注应清理的 worktree（branch 已 merged = orphan）
 - [x] Runtime Drift 区块：显示 runtime 与 main 的 commit 差异（需设 RUNTIME_REPO_PATH）
 
@@ -85,4 +85,4 @@ team lead和朋友们使用 Hub 协作时，经常需要了解 repo 的 git 状�
 
 ## Review Gate
 
-- Phase 完成后跑 quality-gate + 跨猫 review
+- Phase 完成后跑 quality-gate + 跨Agent review

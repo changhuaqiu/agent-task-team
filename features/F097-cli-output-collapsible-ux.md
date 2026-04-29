@@ -8,7 +8,7 @@ created: 2026-03-11
 
 # F097: CLI Output Collapsible UX — 聊天气泡折叠式重构
 
-> **Status**: done | **Owner**: Ragdoll | **Priority**: P1 | **Completed**: 2026-03-11
+> **Status**: done | **Owner**: Agent-R | **Priority**: P1 | **Completed**: 2026-03-11
 
 ## Why
 
@@ -24,12 +24,12 @@ team lead runtime 实测后补充（2026-03-11 08:06）：
 
 ```
 第 1 层：CLI 输出块整体
-  ┌─ CLI 输出 · 已完成 · 9 tools · 1m49s  🐾 共享给其他猫  ▶ ─┐
+  ┌─ CLI 输出 · 已完成 · 9 tools · 1m49s  🐾 共享给其他Agent  ▶ ─┐
   └──────────────────────────────────────────────────────────────┘
   ↕ 点击展开/折叠
 
 第 2 层：tools 区 + stdout 区（tools 默认折叠，stdout 始终可见）
-  ┌─ CLI 输出 · 已完成 · 9 tools · 1m49s  🐾 共享给其他猫  ▼ ─┐
+  ┌─ CLI 输出 · 已完成 · 9 tools · 1m49s  🐾 共享给其他Agent  ▼ ─┐
   │ ▶ 9 tools（已折叠）          ← 点击可展开全部工具        │
   │ ─── stdout ───                                             │
   │ 重构完成，所有测试通过。主要改动：                          │
@@ -39,7 +39,7 @@ team lead runtime 实测后补充（2026-03-11 08:06）：
   ↕ 点击 "9 tools" 行
 
 第 3 层：展开工具列表（每个工具可独立展开看细节）
-  ┌─ CLI 输出 · 已完成 · 9 tools · 1m49s  🐾 共享给其他猫  ▼ ─┐
+  ┌─ CLI 输出 · 已完成 · 9 tools · 1m49s  🐾 共享给其他Agent  ▼ ─┐
   │ ▼ 9 tools                                                  │
   │   ✓ Read src/components/index.ts                       ▶  │
   │   ✓ Grep "CliOutput"                                   ▶  │
@@ -59,14 +59,14 @@ team lead runtime 实测后补充（2026-03-11 08:06）：
 | done（刚完成） | 折叠 | 折叠 | 不自动折叠 |
 | done（用户手动展开后） | 展开 | 折叠（只看 stdout） | 保持用户选择 |
 
-**关键**：done 时 tools 默认折叠成 1 行，但 stdout 在 CLI 块展开时始终可见。用户不需要展开 tools 就能看到猫说了什么。
+**关键**：done 时 tools 默认折叠成 1 行，但 stdout 在 CLI 块展开时始终可见。用户不需要展开 tools 就能看到Agent说了什么。
 
 ### team lead痛点（按严重程度）
 
-1. **tools 占满屏** — 9 个工具调用全展开，一屏看不完，找不到猫的回复
+1. **tools 占满屏** — 9 个工具调用全展开，一屏看不完，找不到Agent的回复
 2. **颜色和设计稿不匹配** — `bg-black/75` overlay 黑乎乎，设计稿是 `#1E293B` 干净深蓝
 3. **Markdown 不渲染** — `**粗体**` 显示原始星号
-4. **CLI 输出全英文** — team lead要过一下脑子才知道猫做到哪了
+4. **CLI 输出全英文** — team lead要过一下脑子才知道Agent做到哪了
 5. **Thinking 位置** — 应在 CLI 上方（先推理再执行）
 6. **内容不换行** — 挤在一起
 
@@ -115,7 +115,7 @@ Before:                              After:
                                     │ │ ─── stdout ──────────────────── ││
                                     │ │ Let me check the structure...   ││
                                     │ │ Tests pass. Refactoring...      ││
-                                    │ │              共享给其他猫 👁     ││
+                                    │ │              共享给其他Agent 👁     ││
                                     │ └──────────────────────────────────┘│
                                     │ [🧠 Thinking ▶ Reviewing the...]  │
                                     └────────────────────────────────────┘
@@ -128,7 +128,7 @@ Before:                              After:
 ```
 
 **视觉风格**（Opus + GPT-5.4 共识）：
-- **外层 bubble**：保留猫种气质（ragdoll 紫调、maine-coon 绿调等）
+- **外层 bubble**：保留Agent种气质（Agent-R 紫调、maine-coon 绿调等）
 - **内层 CLI block**：深色 terminal substrate（`bg-gray-800/900 text-gray-100`）
 - **品种色**：仅用于 header pill / active border / focus ring
 - **CLI 文本**：monospace / plain-text，不走 markdown 渲染
@@ -146,16 +146,16 @@ Before:                              After:
 
 **状态枚举**：`进行中 | 已完成 | 失败 | 已中断`（摘要行、active row 高亮、auto-collapse 条件共用）
 
-**可见性 chip**（遵循 F056 猫猫设计语言）：
+**可见性 chip**（遵循 F056 Agent设计语言）：
 - 来源：thread `thinkingMode`（不是 `message.whisper`）
 - 规则：
-  - `thinkingMode = shared` → `共享给其他猫` + 猫爪 SVG icon（表示"其他猫能看到"）
-  - `thinkingMode = private`（或未设置）→ `不共享给其他猫`（低调灰文本，无特殊 icon）
-- **图标规范**：全部使用 SVG icon，禁止 emoji（F056 KD-8 + 四大宪章"猫咖隐喻：不堆砌猫 emoji"）
+  - `thinkingMode = shared` → `共享给其他Agent` + Agent爪 SVG icon（表示"其他Agent能看到"）
+  - `thinkingMode = private`（或未设置）→ `不共享给其他Agent`（低调灰文本，无特殊 icon）
+- **图标规范**：全部使用 SVG icon，禁止 emoji（F056 KD-8 + 四大宪章"Agent咖隐喻：不堆砌Agent emoji"）
   - Tool 行前缀：Lucide `wrench` SVG（替代 🔧 emoji）
   - 状态完成：Lucide `check` SVG（替代 ✓/✅ 文本）
   - 折叠箭头：Lucide `chevron-right` / `chevron-down`（替代 ▶/▼ 文本）
-  - 共享可见性：猫爪 SVG（F056 Paw Pads 设计语言）
+  - 共享可见性：Agent爪 SVG（F056 Paw Pads 设计语言）
 - 位置：header / collapsed summary 行（收起后也必须可见），不放 panel 内右下角
 - 若消息本身是 whisper → 单独挂 `悄悄话` badge，不与可见性 chip 合并
 
@@ -197,7 +197,7 @@ Before:                              After:
 ## Dependencies
 
 - **Evolved from**: F009（tool_use/tool_result 显示）、F081（气泡连续性）
-- **Related**: F056（猫猫设计语言 — icon/token 规范）、F071（UX debt batch）、F096（Interactive Rich Blocks）
+- **Related**: F056（Agent设计语言 — icon/token 规范）、F071（UX debt batch）、F096（Interactive Rich Blocks）
 
 ## Risk
 
@@ -215,13 +215,13 @@ Before:                              After:
 | KD-1 | 💭心里话 → CLI 输出 | "心里话"误导，实际是 CLI stdout | 2026-03-11 |
 | KD-2 | 🧠Thinking 保持独立 | Thinking 是推理过程，不是 CLI 输出 | 2026-03-11 |
 | KD-3 | 纯前端改造，不改后端数据结构 | toolEvents/origin/thinking 数据已足够 | 2026-03-11 |
-| KD-4 | 深色 terminal substrate + 品种色 accent | 内层"执行日志"一眼成立，外层保留猫种气质 | 2026-03-11 |
+| KD-4 | 深色 terminal substrate + 品种色 accent | 内层"执行日志"一眼成立，外层保留Agent种气质 | 2026-03-11 |
 | KD-5 | A2A 共享交互语法，保留独立视觉 | A2A 是"内部讨论"不是"执行日志"，语义不同 | 2026-03-11 |
 | KD-6 | 摘要行状态枚举：进行中/已完成/失败/已中断 | 统一摘要、高亮、auto-collapse 的状态源 | 2026-03-11 |
 | KD-7 | 可见性来源 thinkingMode 不是 whisper | whisper 消息级 vs thinkingMode thread 级，层级不同 | 2026-03-11 |
 | KD-8 | Phase A 不做时序穿插，不合并 callback+stream | 后端数据模型不支持，Phase B 再补 | 2026-03-11 |
 | KD-9 | CliOutputBlock 接口面向终态（统一 CliEvent[] 时序流） | 家规 P1：终态基座不是脚手架。Phase A 前端适配，Phase B 零组件改动 | 2026-03-11 |
-| KD-10 | 全部 SVG icon，禁止 emoji | F056 四大宪章"猫咖隐喻：不堆砌猫 emoji" + KD-8 禁硬编码。共享可见性用猫爪 SVG | 2026-03-11 |
+| KD-10 | 全部 SVG icon，禁止 emoji | F056 四大宪章"Agent咖隐喻：不堆砌Agent emoji" + KD-8 禁硬编码。共享可见性用Agent爪 SVG | 2026-03-11 |
 
 ## team lead反馈 + 反思（2026-03-11 Phase A 后）
 
@@ -234,7 +234,7 @@ Before:                              After:
 5. **Tools 独立折叠** — 收起全部 tools 调用但保留 CLI 输出时体验不闭环
 6. **CLI 输出语言** — stdout 全是英文，team lead要过一下脑子才知道做到哪了
 
-### Ragdoll反思
+### Agent-R反思
 
 **根本问题：没对照设计稿就交差。**
 
@@ -265,7 +265,7 @@ Phase A 写完代码 → review → merge，全程没有拿 runtime 截图和 Pe
 
 我用了 `pencil-to-code` skill，调了 `batch_get` 读到了 QAaoQ 和 7Nv1q 的完整节点树，每个节点的 `fill`、`iconFontFamily`、`iconFontName`、`fontSize`、`fontWeight`、`padding`、`cornerRadius`、`stroke` 全有。但写代码时：
 
-1. **SVG 不是 lucide 的** — 设计稿用 `iconFontFamily: "lucide"`, `iconFontName: "wrench"/"check"/"paw-print"/"loader"/"chevron-right"`。我应该直接用 lucide 官方 SVG（npm 有 `lucide-react`，或者从 lucide.dev 复制精确 path）。我却自己手画了 SVG path，猫爪画得和设计稿完全不同。
+1. **SVG 不是 lucide 的** — 设计稿用 `iconFontFamily: "lucide"`, `iconFontName: "wrench"/"check"/"paw-print"/"loader"/"chevron-right"`。我应该直接用 lucide 官方 SVG（npm 有 `lucide-react`，或者从 lucide.dev 复制精确 path）。我却自己手画了 SVG path，Agent爪画得和设计稿完全不同。
 
 2. **Active tool 颜色没精确对齐** — 设计稿 streaming active tool row：
    - `fill: "#7C3AED20"` → bg 是 violet-600 at 12% opacity
@@ -274,9 +274,9 @@ Phase A 写完代码 → review → merge，全程没有拿 runtime 截图和 Pe
    - Tool name: `fill: "#F5F3FF"` (violet-50), `fontWeight: "600"`
    - Detail text: `fill: "#C084FC"` (violet-400)
 
-   我用了 `lighten()` 动态计算，计算结果不是这些值。应该：ragdoll 直接用精确值，其他品种按比例映射。
+   我用了 `lighten()` 动态计算，计算结果不是这些值。应该：Agent-R 直接用精确值，其他品种按比例映射。
 
-3. **猫爪图标不一样** — 设计稿是 lucide `paw-print`，我手画了一个完全不同的猫爪 SVG。
+3. **Agent爪图标不一样** — 设计稿是 lucide `paw-print`，我手画了一个完全不同的Agent爪 SVG。
 
 4. **反复改来改去没对齐设计稿** — 从深色 → 浅色透明 → 深色 → 浅色 → 深色，改了 8 个 commit，每次都是"凭感觉近似"而不是"读设计稿属性 → 1:1 写代码"。
 
@@ -313,7 +313,7 @@ Phase A 写完代码 → review → merge，全程没有拿 runtime 截图和 Pe
 
 | # | 设计稿有 | 实现缺失/错误 | 根因 |
 |---|---------|-------------|------|
-| 1 | Header: `CLI 输出 · 已完成 · 6 tools · 2m15s 共享给其他猫` | 只有 `49 tools`，无状态、无时长、无可见性 chip | runtime 仍在跑旧 ToolEventsPanel 或 label 适配层有 bug |
+| 1 | Header: `CLI 输出 · 已完成 · 6 tools · 2m15s 共享给其他Agent` | 只有 `49 tools`，无状态、无时长、无可见性 chip | runtime 仍在跑旧 ToolEventsPanel 或 label 适配层有 bug |
 | 2 | Tool 行: `✓ 🔧 Read src/components/index.ts` | 显示 `✓ 🔧 opus → Bash` — catId 前缀暴露，无参数 | **label 格式错误**：`useAgentMessages` 生成 `${catId} → ${toolName}`，CliOutputBlock 直接展示 |
 | 3 | 结果摘要: `Bash pnpm test` 旁有绿色 `12 passed` | 无任何结果摘要 | tool_result detail 没被解析为行内摘要 |
 | 4 | Active tool: 紫色半透明 bg + 左边框 + spinner + 亮色文字 | 代码有但 runtime 可能没触发（status 判断/label 匹配问题） | 需验证 streaming 态是否正确高亮 |
@@ -347,7 +347,7 @@ Phase A 写完代码 → review → merge，全程没有拿 runtime 截图和 Pe
 | 5 | 气泡"乌漆嘛黑"看不出品种色 | `#283548` 固定深蓝灰 | `hexToRgba(accent, 0.10)` 品种色混合 | `791b381d` |
 | 6 | 气泡浅紫色文字不可见 | rgba 透明度在浅色主题上太淡 | `tintedDark(accent, 0.25)` 混入深色基底 | `1537a942` |
 | 7 | Markdown 表头白色看不见 | 没考虑深色气泡内的 md 样式 | `.cli-output-md` scoped CSS overrides | `f2e28f0d` |
-| 8 | 两只孟加拉猫不区分 | config 里没 variantLabel | 加 `"variantLabel": "Gemini"` | `1537a942` |
+| 8 | 两只孟加拉Agent不区分 | config 里没 variantLabel | 加 `"variantLabel": "Gemini"` | `1537a942` |
 
 **根因分析——为什么team lead要抓耳朵：**
 
@@ -359,7 +359,7 @@ Phase A 写完代码 → review → merge，全程没有拿 runtime 截图和 Pe
 
 4. **防御性编码不足** — 文字溢出 bug 的代码逻辑（`!isStreamOrigin`）理论上是对的，但实际存在边缘情况。正确做法是 belt-and-suspenders：`hasCliBlock` 为真时绝对不渲染外部内容。
 
-5. **config 细节忽视** — Bengal 猫两个 variant 没区分，说明改完代码后没验证周边影响。
+5. **config 细节忽视** — Bengal Agent两个 variant 没区分，说明改完代码后没验证周边影响。
 
 **以后遇到同类问题的正确流程：**
 

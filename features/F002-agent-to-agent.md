@@ -8,7 +8,7 @@ created: 2026-02-26
 
 # F002: Agent-to-Agent 调用 (A2A)
 
-> **Status**: done | **Owner**: 三猫
+> **Status**: done | **Owner**: Admin
 > **Created**: 2026-02-26
 
 ## Why

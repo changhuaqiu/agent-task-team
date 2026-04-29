@@ -8,14 +8,14 @@ created: 2026-03-22
 
 # F132: DingTalk + WeCom Chat Gateway — 钉钉/企微接入
 
-> **Status**: done | **Phase A-E Completed**: 2026-04-14 | **Owner**: Ragdoll | **Priority**: P1
+> **Status**: done | **Phase A-E Completed**: 2026-04-14 | **Owner**: Agent-R | **Priority**: P1
 >
-> **分工**：金渐层（@opencode）实现 → Maine Coon（@codex）review → Ragdoll（@opus）愿景守护
-> 实现过程中不 @ Ragdoll，保持 owner 上下文干净。每个 Phase PR merge 后触发愿景守护。
+> **分工**：Golden Agent（@opencode）实现 → Agent-M（@codex）review → Agent-R（@opus）愿景守护
+> 实现过程中不 @ Agent-R，保持 owner 上下文干净。每个 Phase PR merge 后触发愿景守护。
 
 ## Why
 
-Cat Café 已通过 F088 建立了飞书和 Telegram 的双向 DM 通道，但国内企业级 IM 还有两个主力平台未覆盖：**钉钉**（阿里系，6 亿+用户）和**企业微信**（腾讯系，与微信互通）。三者合计覆盖国内企业即时通讯 90%+ 的份额。
+Agent Task Hub 已通过 F088 建立了飞书和 Telegram 的双向 DM 通道，但国内企业级 IM 还有两个主力平台未覆盖：**钉钉**（阿里系，6 亿+用户）和**企业微信**（腾讯系，与微信互通）。三者合计覆盖国内企业即时通讯 90%+ 的份额。
 
 team experience：*"我们需要接入钉钉和企业微信，必须复用我们的 channel 等等架构设计，学习飞书的接入"*
 
@@ -226,8 +226,8 @@ F088 已验证的三层架构（Principal Link / Session Binding / Command Layer
 
 ### Phase A（DingTalk Adapter — DM 基础）
 - [x] AC-A1: 钉钉企业内部应用 DM 消息入站解析正确（text + richText）
-- [x] AC-A2: 猫猫回复通过 DingTalkAdapter 发送到钉钉（text + markdown）
-- [x] AC-A3: AI Card 正确渲染猫名 header + 正文 + deep link
+- [x] AC-A2: Agent回复通过 DingTalkAdapter 发送到钉钉（text + markdown）
+- [x] AC-A3: AI Card 正确渲染Agent名 header + 正文 + deep link
 - [x] AC-A4: AI Card 流式（create → streaming update → finish，300ms throttle）
 - [x] AC-A5: 图片/音频双向收发
 - [x] AC-A6: 复用 ConnectorRouter/CommandLayer/BindingStore，公共层零改动
@@ -253,7 +253,7 @@ F088 已验证的三层架构（Principal Link / Session Binding / Command Layer
 ### Phase B（WeCom Bot Adapter）✅ PR #804 merged
 - [x] AC-B1: 企微 Bot WebSocket 连接 + 心跳 + 重连
 - [x] AC-B2: Bot DM 消息入站解析正确（text + image + voice）
-- [x] AC-B3: 猫猫回复通过 `replyStream` 流式发送（真流式）
+- [x] AC-B3: Agent回复通过 `replyStream` 流式发送（真流式）
 - [x] AC-B4: 模板卡片发送 + 更新
 - [x] AC-B5: 图片/语音双向收发（SDK 内置）
 - [x] AC-B6: 复用 ConnectorRouter/CommandLayer/BindingStore，公共层零改动
@@ -262,7 +262,7 @@ F088 已验证的三层架构（Principal Link / Session Binding / Command Layer
 - [x] AC-C1: 回调 URL 验证（echostr challenge + AES 解密）通过
 - [x] AC-C2: SHA1 签名校验 + AES-256-CBC 消息解密正确
 - [x] AC-C3: XML → JSON 转换正确（`fast-xml-parser`）
-- [x] AC-C4: 猫猫回复通过 `message/send` API 发送（text + markdown + 图文卡片）
+- [x] AC-C4: Agent回复通过 `message/send` API 发送（text + markdown + 图文卡片）
 - [x] AC-C5: 图片/语音通过临时素材 API 收发
 - [x] AC-C6: final-only 模式（无 streaming），长回复分块发送
 - [x] AC-C7: 公共层零改动
@@ -350,8 +350,8 @@ F088 已验证的三层架构（Principal Link / Session Binding / Command Layer
 
 ## Review Gate
 
-- Phase A: 跨 family review（Maine Coon）
-- Phase B: 跨 family review（Maine Coon）
-- Phase C: 跨 family review（Maine Coon）— AES/XML 安全实现需额外审查
+- Phase A: 跨 family review（Agent-M）
+- Phase B: 跨 family review（Agent-M）
+- Phase C: 跨 family review（Agent-M）— AES/XML 安全实现需额外审查
 - Phase D: 可与 Phase C 合并 review
-- Phase E: 跨 family review（Maine Coon）— 前端 + 后端联动验证
+- Phase E: 跨 family review（Agent-M）— 前端 + 后端联动验证

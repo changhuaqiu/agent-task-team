@@ -8,7 +8,7 @@ created: 2026-03-14
 
 # F123: Bubble Runtime Correctness（消息身份契约 + Reconcile 状态机）
 
-> **Status**: done | **Owner**: Maine Coon/Maine Coon | **Priority**: P1 | **Completed**: 2026-03-16
+> **Status**: done | **Owner**: Agent-M/Agent-M | **Priority**: P1 | **Completed**: 2026-03-16
 
 ## Why
 
@@ -50,7 +50,7 @@ team lead关于“气泡为什么又双影 / 又丢 / 又要 F5 才正常”的�
 把 F5 / thread switch / replace hydration / draft recovery 统一成“单调可见”的恢复语义。
 
 - 恢复只能补齐或替换为“同一身份的更强版本”，不能再凭空制造第二个影子 bubble
-- 先完成 `window.__catCafeDebug.dumpBubbleTimeline()` 级别的 dump，让现场问题可导出、可回放、可定位
+- 先完成 `window.__agent task hubDebug.dumpBubbleTimeline()` 级别的 dump，让现场问题可导出、可回放、可定位
 - 用 replay tests 封住我们已经踩过的整组历史 case
 
 ## Acceptance Criteria

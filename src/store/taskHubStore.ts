@@ -1,4 +1,7 @@
 import { create } from 'zustand';
+import { io } from 'socket.io-client';
+
+const socket = io('http://localhost:4000');
 
 /* ============================================================
    Task Hub Store
@@ -367,27 +370,13 @@ export const useTaskHubStore = create<TaskHubState>((set, get) => ({
   simulateCliExecution: (taskId, command) => {
     set((state) => ({
       isTerminalRunning: { ...state.isTerminalRunning, [taskId]: true },
+      terminalLogs: { ...state.terminalLogs, [taskId]: [] }
     }));
 
-    const logs = [
-      `\x1b[33m$ ${command}\x1b[0m`,
-      `\x1b[90m> Starting execution environment...\x1b[0m`,
-      `\x1b[36m[info]\x1b[0m Resolving dependencies...`,
-      `\x1b[32m[success]\x1b[0m Execution completed in 2.3s`,
-    ];
+    const task = get().tasks.find(t => t.id === taskId);
+    const agentId = task ? task.agentId : 'system';
 
-    let i = 0;
-    const interval = setInterval(() => {
-      if (i < logs.length) {
-        get().appendTerminalLog(taskId, logs[i] + '\r\n');
-        i++;
-      } else {
-        clearInterval(interval);
-        set((state) => ({
-          isTerminalRunning: { ...state.isTerminalRunning, [taskId]: false },
-        }));
-      }
-    }, 800);
+    socket.emit('terminal:start', { taskId, agentId, command });
   },
 
   updateTaskStatus: (taskId, status, reviewNote) =>
@@ -470,3 +459,28 @@ export const useTaskHubStore = create<TaskHubState>((set, get) => ({
       ),
     })),
 }));
+
+// --- Socket.io Event Listeners ---
+socket.on('terminal:data', ({ taskId, data }) => {
+  useTaskHubStore.getState().appendTerminalLog(taskId, data);
+});
+
+socket.on('agent:event', (event) => {
+  const { taskId, agentId, type, message } = event;
+  
+  if (type === 'step_start' || type === 'message') {
+    useTaskHubStore.getState().addChatMessage({
+      agentId: agentId || 'system',
+      content: message || JSON.stringify(event),
+      referencedTaskId: taskId,
+    });
+  }
+});
+
+socket.on('terminal:exit', ({ taskId, code }) => {
+  useTaskHubStore.getState().appendTerminalLog(taskId, `\r\n\x1b[36m[process exited with code ${code}]\x1b[0m\r\n`);
+  useTaskHubStore.setState((state) => ({
+    isTerminalRunning: { ...state.isTerminalRunning, [taskId]: false },
+  }));
+});
+

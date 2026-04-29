@@ -15,7 +15,7 @@ created: 2026-02-26
 
 ## 背景
 
-Cat Café 的核心目标是让三只猫脱离“人肉路由”模式，形成可持续协作。  
+Agent Task Hub 的核心目标是让三只Agent脱离“人肉路由”模式，形成可持续协作。  
 过去在交接和传话中，容易只记录“改了什么”，缺少“为什么这样改”，导致：
 
 1. 接手方无法快速判断决策是否合理
@@ -28,7 +28,7 @@ Cat Café 的核心目标是让三只猫脱离“人肉路由”模式，形成�
 
 ### 1. 交接与传话格式（强制）
 
-无论是任务交接、review 请求、计划变更、还是跨猫转述，必须包含：
+无论是任务交接、review 请求、计划变更、还是跨Agent转述，必须包含：
 
 1. `What`：具体改动或决策
 2. `Why`：约束、目标、风险驱动
@@ -39,16 +39,16 @@ Cat Café 的核心目标是让三只猫脱离“人肉路由”模式，形成�
 ### 2. 不确定就提问（强制）
 
 任何关键前提不确定时，必须主动提问，不允许硬猜推进。  
-提问对象包括铲屎官、Ragdoll、Maine Coon、Siamese。
+提问对象包括铲屎官、Agent-R、Agent-M、Siamese。
 
 ### 3. 每个可验证子任务都要 commit（强制）
 
 每完成一个可验证子任务，必须提交 commit。  
-commit message 需带猫猫签名，便于追溯责任与意图。
+commit message 需带Agent签名，便于追溯责任与意图。
 
 示例：
-- `feat(api): add mcp callback registry [Ragdoll🐾]`
-- `fix(api): handle cli non-zero exit [Maine Coon🐾]`
+- `feat(api): add mcp callback registry [Agent-R🐾]`
+- `fix(api): handle cli non-zero exit [Agent-M🐾]`
 - `feat(web): add sticker panel v1 [Siamese🐾]`
 
 建议在 commit body 增加 `Why:` 一行，记录关键决策理由。
@@ -76,23 +76,23 @@ commit message 需带猫猫签名，便于追溯责任与意图。
 ### 成本
 
 1. 单次交接和提交信息会更长
-2. 需要三猫共同保持格式纪律
+2. 需要Admin共同保持格式纪律
 
 ## 执行范围
 
 本协议适用于：
 
-1. `AGENTS.md`（Maine Coon）
-2. `CLAUDE.md`（Ragdoll）
+1. `AGENTS.md`（Agent-M）
+2. `CLAUDE.md`（Agent-R）
 3. `GEMINI.md`（Siamese）
-4. 所有与 Cat Café 相关的任务交接和 commit
+4. 所有与 Agent Task Hub 相关的任务交接和 commit
 
 ## 否决理由（P0.5 回填）
 
 - **备选方案 A**：仅要求记录 `What`，由接手方自行推断 `Why`
-  - 不选原因：历史实践已证明会导致决策不可审计，接手猫无法判断“bug 还是 feature”。
+  - 不选原因：历史实践已证明会导致决策不可审计，接手Agent无法判断“bug 还是 feature”。
 - **备选方案 B**：仅在 review 请求中要求五件套，日常交接不强制
-  - 不选原因：会形成“双轨写作标准”，跨猫同步时上下文质量不一致，问题回流概率高。
+  - 不选原因：会形成“双轨写作标准”，跨Agent同步时上下文质量不一致，问题回流概率高。
 - **备选方案 C**：允许“完成后批量补 commit 和 Why”
   - 不选原因：补写信息容易失真，无法保证每个可验证子任务和证据一一对应。
 
@@ -104,5 +104,5 @@ commit message 需带猫猫签名，便于追溯责任与意图。
 - [ ] 是否列出 `Open Questions`
 - [ ] 是否指定了 `Next Action`
 - [ ] 是否完成对应 commit
-- [ ] commit 是否带猫猫签名
+- [ ] commit 是否带Agent签名
 - [ ] 验证结果是否标注执行环境与失败归因

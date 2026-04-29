@@ -1,11 +1,11 @@
 # F180-agent-terminal-cli-design: Agent Interactive Terminal Bridge
 
 ## Context
-User has external interactive CLI agents (e.g., `opencode` CLI) that are tightly coupled with other systems and cannot expose an API or structured NDJSON output. The user wants Cat Cafe's agents to be able to communicate with these external CLIs directly in the terminal, acting as a bridge between the chatroom and the CLI.
+User has external interactive CLI agents (e.g., `opencode` CLI) that are tightly coupled with other systems and cannot expose an API or structured NDJSON output. The user wants Agent Task Hub's agents to be able to communicate with these external CLIs directly in the terminal, acting as a bridge between the chatroom and the CLI.
 
 ## Approach Selected
 **Agent as a Tool User (General Terminal Control)**
-Instead of hardcoding a specific parser for the `opencode` CLI, we will expose Cat Cafe's existing `TmuxGateway` infrastructure as MCP tools. The LLM Agent (e.g., Claude/Opus) will act as the human operator: starting the CLI, typing commands into its stdin, and reading its stdout from the terminal screen to report back to the user.
+Instead of hardcoding a specific parser for the `opencode` CLI, we will expose Agent Task Hub's existing `TmuxGateway` infrastructure as MCP tools. The LLM Agent (e.g., Claude/Opus) will act as the human operator: starting the CLI, typing commands into its stdin, and reading its stdout from the terminal screen to report back to the user.
 
 ## System Design
 
@@ -24,11 +24,11 @@ To prevent arbitrary code execution, `terminal_create` will not allow arbitrary 
 - Users can configure their `opencode` path normally (which is resolved via `resolveCliCommand`).
 
 ### 3. Agent Workflow
-1. User asks the Cat: "启动 opencode，帮我查一下某个问题"。
-2. The Cat uses `terminal_create({ command: "opencode" })` to get a `paneId`.
-3. The Cat uses `terminal_send_keys({ paneId, keys: "查一下某个问题\n" })`.
-4. The Cat uses `terminal_capture({ paneId })` after a short delay (or loops until it sees a prompt) to read the CLI's output.
-5. The Cat summarizes the output and replies to the user.
+1. User asks the agent: "启动 opencode，帮我查一下某个问题"。
+2. The agent uses `terminal_create({ command: "opencode" })` to get a `paneId`.
+3. The agent uses `terminal_send_keys({ paneId, keys: "查一下某个问题\n" })`.
+4. The agent uses `terminal_capture({ paneId })` after a short delay (or loops until it sees a prompt) to read the CLI's output.
+5. The agent summarizes the output and replies to the user.
 6. The human user can also open the Hub Terminal UI (F089) in the browser to watch the agent driving the CLI in real-time.
 
 ## Trade-offs

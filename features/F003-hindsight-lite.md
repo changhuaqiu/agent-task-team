@@ -8,7 +8,7 @@ created: 2026-02-26
 
 # F003: 显式记忆 (F3-lite)
 
-> **Status**: done | **Owner**: 三猫
+> **Status**: done | **Owner**: Admin
 > **Created**: 2026-02-26
 
 ## Why

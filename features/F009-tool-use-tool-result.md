@@ -8,7 +8,7 @@ created: 2026-02-26
 
 # F009: tool_use/tool_result 事件显示
 
-> **Status**: done | **Owner**: 三猫
+> **Status**: done | **Owner**: Admin
 > **Created**: 2026-02-26
 
 ## Why

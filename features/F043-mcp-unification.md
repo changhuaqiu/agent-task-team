@@ -9,7 +9,7 @@ created: 2026-02-27
 
 # F043: MCP 归一化 — Server 拆分 + 协作工具补全
 
-> **Status**: done | **Owner**: Ragdoll
+> **Status**: done | **Owner**: Agent-R
 > **Priority**: P1
 > **依赖**: F041（能力看板 + 配置编排，现已就位）
 > **Completed**: 2026-03-04
@@ -17,23 +17,23 @@ created: 2026-02-27
 
 ## 与 F041 的关系
 
-- **F041**：team lead视角 — 能力看板 UI + 配置编排器 + 全局/每猫开关
-- **F043**：猫的视角 — MCP server 本身怎么拆分、新增哪些协作工具
+- **F041**：team lead视角 — 能力看板 UI + 配置编排器 + 全局/每Agent开关
+- **F043**：Agent的视角 — MCP server 本身怎么拆分、新增哪些协作工具
 - F041 提供配置编排基础设施，F043 在此基础上重组 MCP server 架构
 
 ## Why
 
 ### 现状问题
 
-1. **1 个 MCP server 挂 27 个 tools 平铺**：所有 tool schema 注入系统提示，prompt 臃肿，猫选工具认知负担大
-2. **协作工具缺口**：猫不能按 catId 过滤消息、不知道有哪些 thread、不能跨 thread 通知、没有 feat→thread 索引
+1. **1 个 MCP server 挂 27 个 tools 平铺**：所有 tool schema 注入系统提示，prompt 臃肿，Agent选工具认知负担大
+2. **协作工具缺口**：Agent不能按 catId 过滤消息、不知道有哪些 thread、不能跨 thread 通知、没有 feat→thread 索引
 3. **file tools 冗余**：宿主 CLI 自带文件操作，MCP 再包一层无意义
 
-### 猫的实际痛点（Ragdoll 4.5 + 4.6 共同反馈）
+### Agent的实际痛点（Agent-R 4.5 + 4.6 共同反馈）
 
 - **近视眼**：只能看到当前 thread，不知道其他 thread 的决策
 - **接力棒丢了**：feat 接力时找不到前序 feat 的讨论在哪个 thread
-- **肉眼找猫**：想看"Maine Coon说了什么"只能 `get_thread_context(limit=100)` 然后肉眼翻
+- **肉眼找Agent**：想看"Agent-M说了什么"只能 `get_thread_context(limit=100)` 然后肉眼翻
 - **隔墙喊话**：在 thread-A 做完了阻塞 thread-B 的工作，没有直接通知方式
 
 ## What
@@ -42,15 +42,15 @@ created: 2026-02-27
 
 ```
 现状:
-  cat-cafe-mcp (1 server, 27 tools 平铺)
+  agent-hub-mcp (1 server, 27 tools 平铺)
 
 目标:
-  ① cat-cafe-collab  (协作核心, ~14 tools)  ← 三猫必装
-  ② cat-cafe-memory   (记忆与回溯, ~9 tools) ← 按需
-  ③ cat-cafe-signals  (信号猎手, 5 tools)    ← 按需
+  ① agent-hub-collab  (协作核心, ~14 tools)  ← Admin必装
+  ② agent-hub-memory   (记忆与回溯, ~9 tools) ← 按需
+  ③ agent-hub-signals  (信号猎手, 5 tools)    ← 按需
 ```
 
-#### ① cat-cafe-collab（协作核心）
+#### ① agent-hub-collab（协作核心）
 
 现有：post_message, get_thread_context, get_pending_mentions, ack_mentions, update_task, create_rich_block, get_rich_block_rules, request_permission, check_permission
 
@@ -60,18 +60,18 @@ created: 2026-02-27
 - `cross_post_message` — 跨 thread 发消息 **[P2 ✅]**
 - `list_tasks` — 全局任务视图 **[P2 ✅]**
 
-#### ② cat-cafe-memory（记忆与回溯）
+#### ② agent-hub-memory（记忆与回溯）
 
 现有：search_evidence, reflect, retain_memory, list_session_chain, read_session_events, read_session_digest, read_invocation_detail, session_search
 
 新增：
 - `feat_index` — feat→thread 映射 **[P1]**
 
-#### ③ cat-cafe-signals（信号猎手）
+#### ③ agent-hub-signals（信号猎手）
 
 现有：signal_list_inbox, signal_get_article, signal_search, signal_mark_read, signal_summarize
 
-**注意**：Signals 是猫猫日报功能（F21++），三猫共用，不是某只猫专属。
+**注意**：Signals 是Agent日报功能（F21++），Admin共用，不是某只Agent专属。
 
 #### file tools
 
@@ -85,7 +85,7 @@ created: 2026-02-27
 
 ```typescript
 // 新增参数
-catId?: CatId | 'user'   // 按猫过滤（'user' = team lead消息）
+catId?: CatId | 'user'   // 按Agent过滤（'user' = team lead消息）
 keyword?: string          // 内容包含关键词
 ```
 
@@ -109,7 +109,7 @@ interface ThreadSummary {
   title?: string;
   lastActiveAt: number;
   messageCount: number | null;  // Phase A: null（后续 countByThread 增强）
-  participants: CatId[];  // 参与过的猫
+  participants: CatId[];  // 参与过的Agent
 }
 ```
 
@@ -152,7 +152,7 @@ content: string    // 消息内容
 ```typescript
 interface ListTasksInput {
   threadId?: string;     // 过滤特定 thread
-  catId?: CatId;         // 过滤特定猫
+  catId?: CatId;         // 过滤特定Agent
   status?: TaskStatus;   // 过滤状态
 }
 ```
@@ -175,7 +175,7 @@ interface ListTasksInput {
 
 | 指标 | 拆分前（全量注入） | 拆分后（按需加载） | 变化 |
 |------|-------------------|-------------------|------|
-| 每次默认暴露的工具数（协作主链路） | 30（legacy `cat-cafe-mcp` 全量） | 15（仅 `cat-cafe-collab`） | **-50%** |
+| 每次默认暴露的工具数（协作主链路） | 30（legacy `agent-hub-mcp` 全量） | 15（仅 `agent-hub-collab`） | **-50%** |
 | 可选工具面（memory + signals） | 0（不可拆分，始终全量） | 15（`10 + 5`，按需启用） | 按需化（从“总是注入”变为“可关闭”） |
 | file tools 暴露数 | 3（`read_file/write_file/list_files`） | 0 | **-100%** |
 
@@ -231,9 +231,9 @@ Layer 0: Knowledge Engineering Research (Done)
 
 ## 讨论来源
 
-2026-02-27 team lead + Ragdoll (Opus 4.6) + Ragdoll (Opus 4.5)，F037 Agent Swarm 后续讨论。
+2026-02-27 team lead + Agent-R (Opus 4.6) + Agent-R (Opus 4.5)，F037 Agent Swarm 后续讨论。
 
-核心问题由team lead提出："agent 之间的协作，在 thread 之内和跨 thread 会用到什么功能？现在的搜 codebase 够吗？猫猫咖啡如何进化给你们更多可能性？"
+核心问题由team lead提出："agent 之间的协作，在 thread 之内和跨 thread 会用到什么功能？现在的搜 codebase 够吗？Agent咖啡如何进化给你们更多可能性？"
 
 ## Risk
 | 风险 | 缓解 |
@@ -241,10 +241,10 @@ Layer 0: Knowledge Engineering Research (Done)
 | 历史文档口径与当前实现可能漂移 | 在 F094 批次里持续复跑审计脚本并按批次回填 |
 ## 愿景守护签收表
 
-| 猫猫 | 读了哪些文档 | 三问结论 | 签收 |
+| Agent | 读了哪些文档 | 三问结论 | 签收 |
 |------|-------------|---------|------|
-| Ragdoll (Opus 4.6) | F043 spec, VISION.md, tool-registration.test.js, callback-tools.test.js | ① team lead不想当人肉路由器 ② 7/7 AC 通过，愿景对齐 4/5 ③ 猫能自主搜消息/发现 thread/跨 thread 通知/查 feat 映射 | ✅ |
-| Maine Coon (GPT-5.2) | F043 spec, VISION.md, tool-registration.test.js (50/50), capability-orchestrator.test.js (51/51) | ① team lead不想当路由器+猫要自主找上下文 ② 交付物直接贡献愿景 #1/#2/#3/#5 ③ 查证据/找入口/发接力棒/管任务四条链路可用 | ✅ |
+| Agent-R (Opus 4.6) | F043 spec, VISION.md, tool-registration.test.js, callback-tools.test.js | ① team lead不想当人肉路由器 ② 7/7 AC 通过，愿景对齐 4/5 ③ Agent能自主搜消息/发现 thread/跨 thread 通知/查 feat 映射 | ✅ |
+| Agent-M (GPT-5.2) | F043 spec, VISION.md, tool-registration.test.js (50/50), capability-orchestrator.test.js (51/51) | ① team lead不想当路由器+Agent要自主找上下文 ② 交付物直接贡献愿景 #1/#2/#3/#5 ③ 查证据/找入口/发接力棒/管任务四条链路可用 | ✅ |
 
 ### GPT-5.2 Open Questions 立场（记录）
 

@@ -8,16 +8,16 @@ created: 2026-03-10
 
 # F091: Signal Study Mode — 信号学习伴侣
 
-> **Status**: done | **Owner**: Ragdoll
+> **Status**: done | **Owner**: Agent-R
 > **Created**: 2026-03-10
 > **Completed**: 2026-03-17
 
 ## Why
 
-F021 Signal Hunter 完成了 RSS 抓取 + 打分 + 收件箱的基础版。但team lead最初的愿景是一个**学习伴侣系统**——发现文章后能和猫猫讨论、归档学习笔记、转成播客巩固记忆。
+F021 Signal Hunter 完成了 RSS 抓取 + 打分 + 收件箱的基础版。但team lead最初的愿景是一个**学习伴侣系统**——发现文章后能和Agent讨论、归档学习笔记、转成播客巩固记忆。
 
 现状断裂点：
-1. "在对话中讨论文章"是假的——猫猫不知道你在讨论哪篇，零上下文
+1. "在对话中讨论文章"是假的——Agent不知道你在讨论哪篇，零上下文
 2. 没有 Study 概念——只有文章，没有笔记/报告/播客
 3. 讨论精华沉没在聊天记录里，没有归档
 4. Signal Hunter 的 studies 被困在旧系统里
@@ -27,40 +27,40 @@ F021 Signal Hunter 完成了 RSS 抓取 + 打分 + 收件箱的基础版。但te
 把 Signal 从 RSS 阅读器升级为学习伴侣：
 - **对话优先**的双入口触发 Study（对话中贴链接为主入口，Signal 页面"开始学习"为辅）
 - **Thread-Study 关联**：开始学习时默认跳转 thread 并注入上下文，支持手动关联已有 thread
-- 文章上下文自动注入猫的 system prompt
+- 文章上下文自动注入Agent的 system prompt
 - 深度学习笔记归档（用户确认后写入）
-- 播客生成（两种模式：2-3 分钟精华 + 10 分钟深度讨论，声线跟随参与猫猫）
-- 多猫研究集成（复用 F086 多猫编排）
+- 播客生成（两种模式：2-3 分钟精华 + 10 分钟深度讨论，声线跟随参与Agent）
+- 多Agent研究集成（复用 F086 多Agent编排）
 - Study 前端展示（文章详情页折叠区）
-- 记忆对接（用 cat-cafe-memory session search，不走 RAG）
+- 记忆对接（用 agent-hub-memory session search，不走 RAG）
 - "打开原文"保留外链跳转（team lead确认：给人展示来源时跳浏览器是正确行为），详情页内嵌 markdown 渲染供日常阅读
 
 ## Evolved from
 
 - `F021` — Signal Hunter 基础版（RSS 抓取 + 收件箱，已 done）
 - `F066` — Voice Pipeline Upgrade（TTS 流式合成 + 播放队列）
-- `F086` — Cat Orchestration（多猫编排 + multi_mention）
+- `F086` — agent Orchestration（多Agent编排 + multi_mention）
 
 ## Related
 
 - `F034` — Voice Block 语音消息（TTS provider）
-- `F-Swarm-1` — 多猫深度研究群
+- `F-Swarm-1` — 多Agent深度研究群
 
 ## Acceptance Criteria
 
 - [x] AC-A1: Study Mode 端到端主链路已完成（详细 AC 见下方条目）
 
 - [x] AC-1: Signal 文章详情页有"开始学习"按钮，默认跳转 thread 并自动注入文章上下文；手动关联 thread 支持手输 ID *(scope reduced: 完整 picker deferred，当前行为满足team lead核心场景)*
-- [x] AC-2: 对话中贴 Signal 文章链接时，猫猫自动识别并获取文章上下文 *(thread-article 关联后 activeSignals 自动注入 contentSnippet+note)*
+- [x] AC-2: 对话中贴 Signal 文章链接时，Agent自动识别并获取文章上下文 *(thread-article 关联后 activeSignals 自动注入 contentSnippet+note)*
 - [x] AC-11: Study 折叠区展示关联的 thread 列表，点击可跳转到对应 thread 继续讨论
-- [x] AC-3: 讨论中说"归档"，猫生成深度笔记（含洞见/思考/开放问题），用户确认后写入 *(MCP signal_save_notes)*
+- [x] AC-3: 讨论中说"归档"，Agent生成深度笔记（含洞见/思考/开放问题），用户确认后写入 *(MCP signal_save_notes)*
 - [x] AC-4: 文章详情页 Study 折叠区展示笔记、播客、研究报告
-- [x] AC-5: 播客有两种模式——精华版（2-3 分钟）和深度版（10 分钟），声线跟随参与猫猫（可 2-3 只），前端可播放 *(PodcastPlayer + segment viewer + generate API)*
-- [x] AC-6: Study 模式可触发多猫研究，报告归档到 Study 目录 *(多猫研究按钮 + research=multi 上下文注入)*
+- [x] AC-5: 播客有两种模式——精华版（2-3 分钟）和深度版（10 分钟），声线跟随参与Agent（可 2-3 只），前端可播放 *(PodcastPlayer + segment viewer + generate API)*
+- [x] AC-6: Study 模式可触发多Agent研究，报告归档到 Study 目录 *(多Agent研究按钮 + research=multi 上下文注入)*
 - [x] AC-7: 7 个新 MCP 工具可用（start_study / save_notes / list_studies / generate_podcast / signal_update_article / signal_delete_article / signal_link_thread）
 - [x] AC-8: Signal Hunter 旧 studies 迁移到新结构 *(migration.ts)*
 - [x] AC-9: 有 study 的文章在列表有视觉标记 *(studyCount badge + ✎ note icon)* ~~⚠️ REGRESSION~~ **Fixed PR #948: enrichWithStudyMeta 回填 studyCount/lastStudiedAt**
-- [x] AC-10: 记忆对接用 cat-cafe-memory session search（不走 RAG），猫猫讨论前能搜到相关历史 *(ActiveSignalArticle enrichment with relatedDiscussions)*
+- [x] AC-10: 记忆对接用 agent-hub-memory session search（不走 RAG），Agent讨论前能搜到相关历史 *(ActiveSignalArticle enrichment with relatedDiscussions)*
 - [x] AC-12: "打开原文"保留外链跳转（team lead确认：需要给人展示来源时跳浏览器是正确行为），详情页已内嵌 markdown 渲染供日常阅读
 - [~] AC-13: Signal Inbox 列表视图 UX 设计语言归一化 *(转出为 TECH-DEBT.md TD107)*
 - [x] AC-14: 可删除文章（单篇 + 批量选择删除），软删除（`deletedAt` 时间戳），列表过滤隐藏
@@ -79,26 +79,26 @@ F021 Signal Hunter 完成了 RSS 抓取 + 打分 + 收件箱的基础版。但te
 
 | ID | 需求点（team experience/转述） | AC 编号 | 验证方式 | 状态 |
 |----|---------------------------|---------|----------|------|
-| R1 | "和猫猫们聊的多，聊天才能碰撞灵感"——对话入口优先，贴链接猫识别 | AC-1, AC-2, AC-11 | manual + test | [x] |
+| R1 | "和Agent们聊的多，聊天才能碰撞灵感"——对话入口优先，贴链接Agent识别 | AC-1, AC-2, AC-11 | manual + test | [x] |
 | R11 | "可以让我选择新开 thread 或者关联哪个 thread？甚至挂载进来！聊天和 Study 相辅相成" | AC-1, AC-11 | manual + test | [x] |
-| R2 | 文章上下文自动注入 system prompt，猫读原文然后和team lead讲 | AC-2 | test | [x] |
+| R2 | 文章上下文自动注入 system prompt，Agent读原文然后和team lead讲 | AC-2 | test | [x] |
 | R3 | 深度学习笔记归档（用户确认后写入） | AC-3 | manual + test | [x] |
 | R4 | Study 前端展示（折叠区 + 视觉标记） | AC-4, AC-9 | screenshot | [x] |
-| R5 | "两种都要"——精华 2-3 分钟 + 深度 10 分钟，声线跟随参与猫，可三只 | AC-5 | manual + test | [x] |
-| R6 | 多猫研究集成（复用 F086） | AC-6 | manual | [x] |
+| R5 | "两种都要"——精华 2-3 分钟 + 深度 10 分钟，声线跟随参与Agent，可三只 | AC-5 | manual + test | [x] |
+| R6 | 多Agent研究集成（复用 F086） | AC-6 | manual | [x] |
 | R7 | 7 个新 MCP 工具（含管理类 parity） | AC-7 | test | [x] |
 | R8 | Study 存储方案（文章同目录） | AC-3, AC-4 | test | [x] |
 | R9 | Signal Hunter 迁移 | AC-8 | manual | [x] |
 | R12 | "打开原文不要跳浏览器"→ team lead确认保留外链（给人 show 来源） | AC-12 | team lead确认 | [x] |
 | R13 | "hunter 列表 UX 设计语言归一化" | AC-13 | screenshot | [~] 转出 TECH-DEBT.md TD107 |
-| R10 | "记忆是 thread session 搜来的"——用 cat-cafe-memory，不走 RAG | AC-10 | test | [x] |
+| R10 | "记忆是 thread session 搜来的"——用 agent-hub-memory，不走 RAG | AC-10 | test | [x] |
 | R14 | "有的时候拉到了一堆垃圾就想干掉！"——删除文章（单篇+批量） | AC-14, AC-16 | manual | [x] |
 | R15 | "添加备注"——team lead给文章加个人笔记/提醒 | AC-15 | manual | [x] |
 | R16 | 批量操作（多选 → 删除/标已读/归档/加标签） | AC-16 | manual | [x] |
 | R17 | 按来源过滤（50+ 信源需要快速筛选） | AC-17 | manual | [x] |
 | R18 | 文章关联——相关文章绑成"学习集" | AC-18 | manual | [x] |
 | R19 | 学习时间线——"上周学了什么"回顾视图 | AC-19 | screenshot | [x] |
-| R20 | 删除语义——软删除，有关联资产不硬删（Maine Coon brainstorm） | AC-20 | test | [x] |
+| R20 | 删除语义——软删除，有关联资产不硬删（Agent-M brainstorm） | AC-20 | test | [x] |
 | R21 | 备注 vs 笔记边界：备注进搜索、不注入上下文、列表 hover 预览 | AC-21 | manual | [x] |
 | R22 | Thread 关联 edge cases（默认继续/去重/并列挂载/stale link） | AC-22 | test | [x] |
 | R23 | 讨论前 evidence pack（先搜后聊） | AC-23 | test | [x] |
@@ -111,9 +111,9 @@ F021 Signal Hunter 完成了 RSS 抓取 + 打分 + 收件箱的基础版。但te
 
 ## team experience（2026-03-10 Design Gate）
 
-> "和猫猫们聊的多。只有聊天才能碰撞灵感。我们现在都是你们读原文然后和我讲，我只看关键原文然后我们一人三猫甚至更多猫开始讨论。"
+> "和Agent们聊的多。只有聊天才能碰撞灵感。我们现在都是你们读原文然后和我讲，我只看关键原文然后我们一人Admin甚至更多Agent开始讨论。"
 >
-> "两种都要——精华 2-3 分钟和深度 10 分钟是面对不同的场景的。声线可以选择默认参加的猫猫，甚至可以三只猫猫。"
+> "两种都要——精华 2-3 分钟和深度 10 分钟是面对不同的场景的。声线可以选择默认参加的Agent，甚至可以三只Agent。"
 >
 > "记忆是 thread session 搜来的，可以用！但是我还是不建议走奇怪的 RAG 等，我实践了一年了没有好用的效果。"
 >
@@ -129,13 +129,13 @@ F021 Signal Hunter 完成了 RSS 抓取 + 打分 + 收件箱的基础版。但te
 >
 > "需要能让我删除文章！添加备注等等功能。有的时候拉到了一堆垃圾就想干掉！"
 
-### Ragdoll场景补充（team lead确认前的推演）
+### Agent-R场景补充（team lead确认前的推演）
 
 team lead的日常使用场景推演：
 
 1. **垃圾清理**（team lead明确要求）：50+ 信源每天拉一堆文章，质量参差不齐，需要快速删除不想看的。批量操作是必须的——一个个删太痛苦。
 
-2. **个人备注**（team lead明确要求）：不同于标签（分类用），备注是team lead的个人提醒——"下次和Maine Coon讨论"、"这个和 F086 有关"、"等 Gemini 2.5 发了再看"。
+2. **个人备注**（team lead明确要求）：不同于标签（分类用），备注是team lead的个人提醒——"下次和Agent-M讨论"、"这个和 F086 有关"、"等 Gemini 2.5 发了再看"。
 
 3. **来源过滤**（推演）：50+ 信源太多，team lead会想"今天只看 Anthropic 的"或"只看论文"。现有 Tab 只有状态过滤（全部/未读/收藏），缺来源维度。
 
@@ -149,22 +149,22 @@ team lead的日常使用场景推演：
 |---|------|---------|-----|
 | 1 | 主入口 | 对话中贴链接（team lead日常场景） | "聊天才能碰撞灵感" |
 | 2 | 播客模式 | 两种：精华 2-3min + 深度 10min | 不同场景不同需求 |
-| 3 | 播客声线 | 跟随参与猫猫，可 2-3 只 | 自然 |
-| 4 | 记忆 | cat-cafe-memory session search | "实践了一年了没有好用的 RAG" |
+| 3 | 播客声线 | 跟随参与Agent，可 2-3 只 | 自然 |
+| 4 | 记忆 | agent-hub-memory session search | "实践了一年了没有好用的 RAG" |
 | 5 | 笔记归档 | 用户确认后写入 | 生成质量需人把关 |
 | 6 | 存储 | 文章同目录子文件夹 | 物理聚合，ls 可见 |
-| 7 | 多猫研究 | 复用 F086 + deep-research | 不造轮子 |
-| 8 | Phase 策略 | **面向终态不分阶段，但 artifact 保留 job state** | **P1 面向终态不绕路**（铁律）+ Maine Coon push back |
+| 7 | 多Agent研究 | 复用 F086 + deep-research | 不造轮子 |
+| 8 | Phase 策略 | **面向终态不分阶段，但 artifact 保留 job state** | **P1 面向终态不绕路**（铁律）+ Agent-M push back |
 | 9 | 设计先行 | 先画 UX，再写代码 | "代码是最廉价的，设计才是灵魂" |
 | 10 | Thread-Study 关联 | 默认跳转 thread + 手动关联，聊天和 Study 相辅相成 | 满足核心场景，完整 picker 为过度设计 |
 | 11 | 原文阅读 | 详情页内嵌 md 渲染 + "打开原文"保留外链跳转 | team lead确认：给人 show 来源时需要跳浏览器 |
 | 12 | 列表 UX | Signal Inbox 列表 UX 归一化转出为 TD | 独立 UX pass，不阻塞学习伴侣核心 |
-| 13 | 删除策略 | 软删除（`deletedAt`），不硬删有关联的文章 | 防幽灵引用，保留恢复可能（Maine Coon brainstorm） |
-| 14 | 备注边界 | 备注进搜索、不注入上下文、列表 hover 预览 | 备注≠study 笔记，控制噪声（Maine Coon brainstorm） |
-| 15 | MCP parity | 管理操作（删除/备注/thread 关联）必须有 MCP 工具 | 主入口是对话，不能只在 Web UI（Maine Coon push back） |
-| 16 | 数据模型 | frontmatter 轻量 + sidecar 目录 meta.json 聚合索引 | 不把 frontmatter 写成垃圾场（Maine Coon brainstorm） |
-| 17 | Evidence pack | 讨论前固定搜：文章全文 + note + linked threads + study note | "先搜后聊"具体化，不是玄学记忆（Maine Coon提案） |
-| 18 | 实施顺序 | 模型→MCP→对话入口→UI→视图层 | 按依赖拓扑落，不按功能切片（Maine Coon建议） |
+| 13 | 删除策略 | 软删除（`deletedAt`），不硬删有关联的文章 | 防幽灵引用，保留恢复可能（Agent-M brainstorm） |
+| 14 | 备注边界 | 备注进搜索、不注入上下文、列表 hover 预览 | 备注≠study 笔记，控制噪声（Agent-M brainstorm） |
+| 15 | MCP parity | 管理操作（删除/备注/thread 关联）必须有 MCP 工具 | 主入口是对话，不能只在 Web UI（Agent-M push back） |
+| 16 | 数据模型 | frontmatter 轻量 + sidecar 目录 meta.json 聚合索引 | 不把 frontmatter 写成垃圾场（Agent-M brainstorm） |
+| 17 | Evidence pack | 讨论前固定搜：文章全文 + note + linked threads + study note | "先搜后聊"具体化，不是玄学记忆（Agent-M提案） |
+| 18 | 实施顺序 | 模型→MCP→对话入口→UI→视图层 | 按依赖拓扑落，不按功能切片（Agent-M建议） |
 | 沿用 | F21++ 设计文档其余决策 | 见 2026-02-26 文档 | — |
 
 ## Dependencies
@@ -177,30 +177,30 @@ team lead的日常使用场景推演：
 
 - R5 播客 10 分钟深度版 TTS 合成耗时/成本需评估
 - R4 前端改动范围较大（文章详情页 + 列表页）
-- 现有 PATCH 端点只支持 `status/tags/summary`，需扩展共享 schema + API + MCP（Maine Coon发现）
+- 现有 PATCH 端点只支持 `status/tags/summary`，需扩展共享 schema + API + MCP（Agent-M发现）
 - 删除/迁移操作与 `filePath` 耦合（`article-query-service.ts` 静默跳过缺失文件），需确保一致性
 - Thread 关联 many-to-many 模型复杂度（当前是硬编码 `/thread/default?signal=...`）
 
 ## Review Gate
 
 - [x] Design Gate: UX 确认（team lead 2026-03-10）
-- [x] 本地猫 review（codex R1+R2，2026-03-10）
+- [x] 本地Agent review（codex R1+R2，2026-03-10）
 - [x] 云端 review（PR #348 R1+R2，2026-03-10）
 - [x] 愿景守护 close review（gpt52 2026-03-10：第二次守护后team lead拍板缩 scope，AC-13 转出 TECH-DEBT.md TD107）
 
 ## Phase 5: 播客真正可用（2026-03-11） ✅
 
-> **Status**: done | **Owner**: Ragdoll
+> **Status**: done | **Owner**: Agent-R
 
 team lead决策（2026-03-11 17:19）：
 - **脚本生成**：用 Opus 4.5 或 4.6（ClaudeAgentService），复用文章 study thread 上下文
 - **去重**：同 article+mode 新脚本覆盖旧 artifact
-- **TTS**：接现有猫猫声线（F066 VoiceBlockSynthesizer）
+- **TTS**：接现有Agent声线（F066 VoiceBlockSynthesizer）
 
 team lead决策（2026-03-11 19:51）：
 - **Thread session reuse 开 Phase 6 做**：Phase 5 scope = LLM 生成 + 去重 + TTS 播放
 - Phase 5 当前用 context injection（读已有笔记+thread ID 注入 prompt）
-- Phase 6 实现真正的 session reuse：往已有 study thread 发消息，走现有消息管道（和 GitHub 通知一样），不需要深耦合 cat routing
+- Phase 6 实现真正的 session reuse：往已有 study thread 发消息，走现有消息管道（和 GitHub 通知一样），不需要深耦合 agent routing
 
 ### Phase 5 AC
 - [x] AC-P5-1: 播客脚本由 LLM 生成（精华版 5-8 段，深度版 15-25 段）
@@ -208,12 +208,12 @@ team lead决策（2026-03-11 19:51）：
 - [x] AC-P5-3: 生成后自动 TTS 合成音频，前端可播放（apiFetch → blob URL）
 
 ### Phase 6: Thread Session Reuse ✅
-- [x] AC-P6-1: 有已有 study thread 时，通过消息管道往 thread 发消息触发生成（复用该 thread 的猫实例）
+- [x] AC-P6-1: 有已有 study thread 时，通过消息管道往 thread 发消息触发生成（复用该 thread 的Agent实例）
 - [x] AC-P6-2: 无 study thread 时，启动新 thread 再发消息
 
 ## Phase 7: 播客质量修复（2026-03-12） ✅
 
-> **Status**: done | **Owner**: Ragdoll
+> **Status**: done | **Owner**: Agent-R
 
 team lead报告 4 个问题（thread_mmn3fsvdfvgqsf9i 23:40/23:52）：
 - 精华版内容太简略（每段只有 30-50 字）
@@ -229,7 +229,7 @@ team lead报告 4 个问题（thread_mmn3fsvdfvgqsf9i 23:40/23:52）：
 
 ## Phase 8: 播客上下文注入修复（2026-03-12） ✅
 
-> **Status**: done | **Owner**: Ragdoll
+> **Status**: done | **Owner**: Agent-R
 
 team lead 04:36 报告："只给人发了原文？study的内容呢？生成的内容只有原文讲的那么点东西"
 
@@ -243,7 +243,7 @@ team lead 04:36 报告："只给人发了原文？study的内容呢？生成的�
 
 ## Phase 9: Signal 返回导航修复 + 学习笔记可查看（2026-03-13） ✅
 
-> **Status**: done | **Owner**: Ragdoll
+> **Status**: done | **Owner**: Agent-R
 
 team lead 01:22 报告：学习笔记只列 ID 看不了内容，Signal 返回跳默认 thread 会发错消息。
 
@@ -251,13 +251,13 @@ team lead 01:22 报告：学习笔记只列 ID 看不了内容，Signal 返回�
 - [x] AC-P9-1: Signal 入口传 `?from=threadId`，返回按钮回到来源 thread
 - [x] AC-P9-2: "Chat" 改为 Mission Hub 风格"返回线程"按钮（`<` 图标 + 文字）
 - [x] AC-P9-3: `?from=` 参数在 Signals/Sources 子页间透传
-- [x] AC-P9-4: "在对话中讨论"/"开始学习"/"多猫研究"使用关联 study thread（不再 hardcode default）
+- [x] AC-P9-4: "在对话中讨论"/"开始学习"/"多Agent研究"使用关联 study thread（不再 hardcode default）
 - [x] AC-P9-5: 学习笔记可点击展开查看内容（`apiFetch` + lazy load）
 - [x] AC-P9-6: 新增 `GET /api/signals/articles/:id/notes/:noteId` API endpoint
 
 ## Phase 10: 文章正文提取 + 讨论创建 thread（2026-03-16） ✅
 
-> **Status**: done | **Owner**: Ragdoll
+> **Status**: done | **Owner**: Agent-R
 
 team lead 18:58 报告两个 bug：
 1. Fetch 新文章后正文只有标题，没有实际内容（WebpageFetcher 不提取正文）
@@ -270,7 +270,7 @@ team lead 18:58 报告两个 bug：
 
 ## Phase 11: Secondary Fetch + Backfill（2026-03-17） ✅
 
-> **Status**: done | **Owner**: 金渐层 + Maine Coon
+> **Status**: done | **Owner**: Golden Agent + Agent-M
 
 team lead 21:54 报告：Phase 10 只修了列表页提取，19 篇 Anthropic Engineering 文章仍然只有标题没有正文。根因：listing page 只有卡片/链接，没有文章正文——需要二次抓取每篇文章的独立 URL。
 
@@ -288,20 +288,20 @@ team lead 21:54 报告：Phase 10 只修了列表页提取，19 篇 Anthropic En
 - 两列布局：左列文章列表（320px），右列详情（fill）
 - 列表项有 study 的显示绿色 badge（"2 studies"），无 study 的显示状态 badge（"inbox"）
 - 详情区：Tier badge + 状态 → 标题 → 来源/时间 → 三个 action 按钮 → AI 摘要 → **Study Mode 折叠区**
-- Study 折叠区（淡灰底 + 边框）：笔记卡片（参与猫 badge + 洞见预览）+ 播客卡片（播放器 + 声线标识）
+- Study 折叠区（淡灰底 + 边框）：笔记卡片（参与Agent badge + 洞见预览）+ 播客卡片（播放器 + 声线标识）
 - "开始学习"按钮紫色突出，"在对话中讨论"灰色次级
 
 ### Screen B: 对话中贴链接 → 上下文注入
 - team lead在 thread 中贴 signal:// 链接
-- 系统蓝色提示条："已识别 Signal 文章，自动注入文章上下文到猫猫 system prompt"
-- 猫猫回复直接体现对文章内容的理解（不是泛泛而谈）
+- 系统蓝色提示条："已识别 Signal 文章，自动注入文章上下文到Agent system prompt"
+- Agent回复直接体现对文章内容的理解（不是泛泛而谈）
 - 这是**主入口**——team lead日常场景是聊天碰撞灵感
 
 ### Screen C: 播客播放器（双模式）
 - 精华版/深度版 pill 切换
 - 播放控制：上一个 / 播放 / 下一个 + 进度条 + 时间
-- "正在说话"指示器：高亮当前说话的猫，灰色显示其他猫（可 2-3 只）
-- 对话稿预览：每猫用自己的颜色标注
+- "正在说话"指示器：高亮当前说话的Agent，灰色显示其他Agent（可 2-3 只）
+- 对话稿预览：每Agent用自己的颜色标注
 
 ### Screen D: Signal Inbox 列表（设计归一化）
 - 标题 + 实时统计（今日/未读计数）
@@ -316,33 +316,33 @@ team lead 21:54 报告：Phase 10 只修了列表页提取，19 篇 Anthropic En
 - 文章元信息条（Tier + 来源 + 日期）
 - **复用 MarkdownContent 组件**渲染完整 .md 正文
 - 支持标题、段落、blockquote（紫色竖线）、代码块（深色主题 + 复制按钮）
-- 猫猫标注：橙色提示条，猫猫在原文旁加批注/关联洞见
+- Agent标注：橙色提示条，Agent在原文旁加批注/关联洞见
 
-## Ragdoll×Maine Coon 头脑风暴纪要（2026-03-10）
+## Agent-R×Agent-M 头脑风暴纪要（2026-03-10）
 
-**参与者**: Ragdoll/Ragdoll (@opus) + Maine Coon/Maine Coon (@gpt52, GPT-5.4)
-**模式**: collaborative-thinking Mode B（多猫独立思考）
+**参与者**: Agent-R/Agent-R (@opus) + Agent-M/Agent-M (@gpt52, GPT-5.4)
+**模式**: collaborative-thinking Mode B（多Agent独立思考）
 
-### Maine Coon的 2 个 Push Back（已采纳）
+### Agent-M的 2 个 Push Back（已采纳）
 
 1. **MCP 工具数量不够**：主入口是对话，管理操作（删除/备注/thread 关联）不能只在 Web UI。4→7 个新工具。
 2. **Artifact job state 必须有**：不要 Study 生命周期状态机，但播客/研究生成的 `queued/running/ready/failed` 不可省。Decision #8 已修正。
 
-### Maine Coon补充的 5 个缺口场景（已转为 R20-R24）
+### Agent-M补充的 5 个缺口场景（已转为 R20-R24）
 
 1. **删除语义**（R20）：软删除 `deletedAt`，有关联资产不硬删。当前 `article-query-service.ts` 静默跳过缺失文件会留幽灵数据。
-2. **备注 vs 笔记边界**（R21）：备注=team lead scratch note（进搜索、不注入上下文、列表 hover 预览）；笔记=猫猫深度分析（重量、需确认）。
+2. **备注 vs 笔记边界**（R21）：备注=team lead scratch note（进搜索、不注入上下文、列表 hover 预览）；笔记=Agent深度分析（重量、需确认）。
 3. **Thread 关联 many-to-many**（R22）：4 条 edge case——默认继续最近 thread / 重复贴去重 / 并列挂载 vs 切换 / thread 删后 stale 不级联。
 4. **批量操作范围**（AC-16 更新）：当前页可见项，不做全部命中项。
 5. **讨论前检索策略**（R23）：evidence pack = 文章全文 + note + linked threads (max 3) + study note。"先搜后聊"。
 
-### Maine Coon的数据模型建议（已采纳为 Decision #16）
+### Agent-M的数据模型建议（已采纳为 Decision #16）
 
 - **frontmatter 保持轻量**：现有 `status/tags/summary` + 新增 `note/deletedAt/studyCount/lastStudiedAt`
 - **sidecar 目录 + meta.json**：`{articleId}/meta.json` 做聚合索引（threads/artifacts/collections），notes/report/audio 独立文件
 - **stable id 原则**：UI 不依赖文件名推关系，`articleId` 做 anchor
 
-### Maine Coon的实施顺序建议（已采纳为 Decision #18）
+### Agent-M的实施顺序建议（已采纳为 Decision #18）
 
 不是"分 Phase 阉割功能"，而是"同一终态按依赖拓扑落"：
 1. 聚合模型 + 写接口（note/delete/thread-link/artifact-manifest）
@@ -358,7 +358,7 @@ team lead 21:54 报告：Phase 10 只修了列表页提取，19 篇 Anthropic En
 
 ### 分歧区
 
-无重大分歧。Maine Coon的 2 个 push back 都被采纳。
+无重大分歧。Agent-M的 2 个 push back 都被采纳。
 
 ### 收敛检查
 
@@ -368,36 +368,36 @@ team lead 21:54 报告：Phase 10 只修了列表页提取，19 篇 Anthropic En
 
 ## Known Issues (2026-04-03 Audit)
 
-> **审计者**: Ragdoll/Ragdoll + Maine Coon/Maine Coon(GPT-5.4)
+> **审计者**: Agent-R/Agent-R + Agent-M/Agent-M(GPT-5.4)
 > **触发**: team lead报告"收藏文章消失 + 找不到学习过的文章"
 
 ### P1 — 功能断裂
 
 | # | Issue | 状态 | 影响的 AC | 发现者 |
 |---|-------|------|-----------|--------|
-| 1 | **收藏/归档 tab 缺失** | ✅ PR #948 | 设计 gap（Screen D） | Ragdoll |
-| 2 | **studyCount 永远为 0** | ✅ PR #948 | AC-9 | Ragdoll |
-| 3 | **lastStudiedAt 未回流** | ✅ PR #948 | AC-9 | Maine Coon确认 |
-| 4 | **时间线 deep-link 断裂** | ✅ PR #948 | AC-19 | Maine Coon |
-| 5 | **搜索结果状态漂移** | ✅ PR #948 | — | Maine Coon |
-| 6 | **软删除文章仍计入统计** | ✅ PR #948 | AC-14/AC-20 | Maine Coon |
+| 1 | **收藏/归档 tab 缺失** | ✅ PR #948 | 设计 gap（Screen D） | Agent-R |
+| 2 | **studyCount 永远为 0** | ✅ PR #948 | AC-9 | Agent-R |
+| 3 | **lastStudiedAt 未回流** | ✅ PR #948 | AC-9 | Agent-M确认 |
+| 4 | **时间线 deep-link 断裂** | ✅ PR #948 | AC-19 | Agent-M |
+| 5 | **搜索结果状态漂移** | ✅ PR #948 | — | Agent-M |
+| 6 | **软删除文章仍计入统计** | ✅ PR #948 | AC-14/AC-20 | Agent-M |
 
 ### P2 — 体验缺陷
 
 | # | Issue | 状态 | 影响的 AC | 发现者 |
 |---|-------|------|-----------|--------|
-| 7 | **无"已学习"筛选维度** | 🔲 deferred（需设计讨论） | 设计 gap（Screen D） | Ragdoll |
-| 8 | **来源过滤器只取已加载文章** | ✅ PR #948 | AC-17 | Maine Coon |
-| 9 | **批量操作缺"加标签"** | ✅ PR #948 | AC-16 | Maine Coon |
-| 10 | **StudyFoldArea 不自动展开** | ✅ PR #948 | AC-4 | Maine Coon |
+| 7 | **无"已学习"筛选维度** | 🔲 deferred（需设计讨论） | 设计 gap（Screen D） | Agent-R |
+| 8 | **来源过滤器只取已加载文章** | ✅ PR #948 | AC-17 | Agent-M |
+| 9 | **批量操作缺"加标签"** | ✅ PR #948 | AC-16 | Agent-M |
+| 10 | **StudyFoldArea 不自动展开** | ✅ PR #948 | AC-4 | Agent-M |
 
 ### P3 — 打磨项
 
 | # | Issue | 状态 | 影响的 AC | 发现者 |
 |---|-------|------|-----------|--------|
-| 11 | **备注图标缺 hover 预览** | ✅ PR #948 | AC-21 | Maine Coon |
-| 12 | **updateArticle 返回不带 studyCount** | ✅ PR #948 | AC-9 | Ragdoll |
+| 11 | **备注图标缺 hover 预览** | ✅ PR #948 | AC-21 | Agent-M |
+| 12 | **updateArticle 返回不带 studyCount** | ✅ PR #948 | AC-9 | Agent-R |
 
 ### 测试覆盖
 
-Maine Coon单独跑了相关 4 个 API 测试文件（28/28 通过），web 侧 signal 组件测试也通过。以上问题均未被现有测试覆盖——是"链路缺口"不是"红灯被忽略"。
+Agent-M单独跑了相关 4 个 API 测试文件（28/28 通过），web 侧 signal 组件测试也通过。以上问题均未被现有测试覆盖——是"链路缺口"不是"红灯被忽略"。

@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'Agent Task Hub — Cat Cafe',
+  title: 'Agent Task Hub — Agent Task Hub',
   description:
     'Decentralized Multi-Agent Task Scheduling & Monitoring System',
 };

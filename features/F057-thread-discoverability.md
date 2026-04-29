@@ -6,33 +6,33 @@ doc_kind: feature-spec
 created: 2026-03-04
 ---
 
-# F057: Thread 可发现性 — 排序 + 搜索 + 猫猫工具
+# F057: Thread 可发现性 — 排序 + 搜索 + Agent工具
 
-> **Status**: done | **Owner**: Ragdoll
+> **Status**: done | **Owner**: Agent-R
 > **Priority**: P1
 > **Completed**: 2026-03-05
 > **Evolved from**: F052（跨线程消息暴露了"找不到 thread"的痛点）
-> **Related**: F056（设计语言猫猫化 — UI 应用新设计标准）
+> **Related**: F056（设计语言Agent化 — UI 应用新设计标准）
 
 ## 愿景
 
-> **一句话**：Thread 多了不可怕，找得到、猫猫也找得到才行。
+> **一句话**：Thread 多了不可怕，找得到、Agent也找得到才行。
 
 ### team experience（2026-03-04）
 
 > "现在 thread 太多了！希望活跃的 thread 自己跑到前面"
-> "比如置顶的 有猫猫回复我 他也要能跳到上面去"
+> "比如置顶的 有Agent回复我 他也要能跳到上面去"
 > "通过 thread id 搜索？不然我找不到！"
-> "你们也要有 list_threads MCP 工具 不然如何回答我哪些 thread 举办过猫猫杀？"
+> "你们也要有 list_threads MCP 工具 不然如何回答我哪些 thread 举办过Agent杀？"
 > "你们都不会 at 我呀！其实也应该增加 at team lead"
 
 ### 期望体验
 
-team lead打开 Cat Café Hub 侧边栏：
-1. **置顶区**里最近有猫回复的 thread 自动浮到最前面，不用翻
+team lead打开 Agent Task Hub Hub 侧边栏：
+1. **置顶区**里最近有Agent回复的 thread 自动浮到最前面，不用翻
 2. **非置顶区**也按活跃度排序，刚有动静的在上面
 3. 想找特定 thread 时，**搜索框**输入名字或 ID 就能找到
-4. 问猫猫"哪个 thread 做过 X"，猫猫能用 `list_threads` 工具查到并回答
+4. 问Agent"哪个 thread 做过 X"，Agent能用 `list_threads` 工具查到并回答
 5. 跨线程消息的"转发自"badge 显示 **thread ID + 名称**，可点击跳转
 
 ## Why
@@ -43,9 +43,9 @@ team lead打开 Cat Café Hub 侧边栏：
 |------|------|
 | 置顶 thread 太多，活跃的和沉寂的平级排列 | team lead翻不到正在活跃的 thread |
 | 没有搜索功能 | 只能肉眼滚动找 |
-| 猫猫没有 list_threads 工具 | 无法回答"哪个 thread 做过 X" |
+| Agent没有 list_threads 工具 | 无法回答"哪个 thread 做过 X" |
 | 跨线程 badge 只显示 hash 前 8 位 | 认不出来源 thread |
-| 猫猫不会 @ team lead | team lead不知道哪个 thread 有新动态 |
+| Agent不会 @ team lead | team lead不知道哪个 thread 有新动态 |
 
 ## What
 
@@ -76,14 +76,14 @@ team lead打开 Cat Café Hub 侧边栏：
 - badge 可点击，跳转到来源 thread
 - API 需要返回 thread 名称（或前端 lookup）
 
-### Phase C：猫猫 MCP 工具
+### Phase C：Agent MCP 工具
 
 #### C1: `list_threads` MCP 工具
 - 参数：`keyword`（名称搜索）、`status`（active/pinned/all）、`limit`
 - 返回：thread ID、名称、最后活跃时间、置顶状态、消息数
-- 猫猫可以用来回答"哪个 thread 做过 X"
+- Agent可以用来回答"哪个 thread 做过 X"
 
-#### C2: 猫 @ team lead能力
+#### C2: Agent @ team lead能力
 - MCP `post_message` 支持 `@user` mention
 - 前端 thread 列表对有 `@user` 未读的 thread 加强高亮
 
@@ -99,19 +99,19 @@ team lead打开 Cat Café Hub 侧边栏：
 - [x] AC-B2: 跨线程 badge 显示 thread ID + 名称，可点击跳转
 
 ### Phase C
-- [x] AC-C1: `list_threads` MCP 工具可用，猫猫能按名称搜索 thread
-- [x] AC-C2: 猫猫能 @ team lead，team lead在 thread 列表看到未读高亮
+- [x] AC-C1: `list_threads` MCP 工具可用，Agent能按名称搜索 thread
+- [x] AC-C2: Agent能 @ team lead，team lead在 thread 列表看到未读高亮
 
 ## 需求点 Checklist
 
 | ID | 需求点（team experience/转述） | AC 编号 | 验证方式 | 状态 |
 |----|---------------------------|---------|----------|------|
 | R1 | "活跃的 thread 自己跑到前面" | AC-A1, AC-A2 | 截图对比排序 | [x] |
-| R2 | "有猫猫回复他也要能跳到上面去" | AC-A1 | 发消息后观察排序变化 | [x] |
+| R2 | "有Agent回复他也要能跳到上面去" | AC-A1 | 发消息后观察排序变化 | [x] |
 | R3 | "未读要在前面" | AC-A3 | 截图对比 | [x] |
 | R4 | "通过 thread id 搜索" | AC-B1 | 搜索框输入 ID 验证 | [x] |
-| R5 | "你们也要有 list_threads MCP 工具" | AC-C1 | 猫猫调用工具回答问题 | [x] |
-| R6 | "应该增加 at team lead" | AC-C2 | 猫猫 @ user + 高亮验证 | [x] |
+| R5 | "你们也要有 list_threads MCP 工具" | AC-C1 | Agent调用工具回答问题 | [x] |
+| R6 | "应该增加 at team lead" | AC-C2 | Agent @ user + 高亮验证 | [x] |
 | R7 | "转发自 badge 显示不全" | AC-B2 | badge 显示 ID+名称 | [x] |
 
 ### 覆盖检查
@@ -122,14 +122,14 @@ team lead打开 Cat Café Hub 侧边栏：
 
 | # | 决策 | 理由 | 日期 |
 |---|------|------|------|
-| KD-1 | 排序用最后消息时间，不用 @ 优先 | team lead说"猫猫不会 at 我"，目前 @ user 不存在 | 2026-03-04 |
+| KD-1 | 排序用最后消息时间，不用 @ 优先 | team lead说"Agent不会 at 我"，目前 @ user 不存在 | 2026-03-04 |
 | KD-2 | 搜索做在前端（过滤已加载的 thread 列表） | thread 数量有限（< 100），不需要后端搜索 | 2026-03-04 |
 | KD-3 | badge 增强归入 F057 而非 F052 | F052 done，badge 增强本质是 thread 可发现性问题 | 2026-03-04 |
 
 ## Dependencies
 
 - **Evolved from**: F052（跨线程消息暴露 thread 找不到的痛点）
-- **Related**: F056（设计语言 — UI 遵循猫猫化设计标准）
+- **Related**: F056（设计语言 — UI 遵循Agent化设计标准）
 
 ## Risk
 
@@ -140,12 +140,12 @@ team lead打开 Cat Café Hub 侧边栏：
 
 ## Review Gate
 
-- 跨家族 review（Maine Coon codex 或 gpt52）
+- 跨家族 review（Agent-M codex 或 gpt52）
 - Phase B2 的 badge 设计需Siamese视觉确认
 
 ## 签收表
 
-| 猫猫 | 读了哪些文档 | 三问结论 | 签收 |
+| Agent | 读了哪些文档 | 三问结论 | 签收 |
 |------|-------------|---------|------|
-| Ragdoll (opus) | F057 spec, thread-utils.ts, ThreadSidebar.tsx, ChatMessage.tsx, callback-tools.ts, user-mention.ts | 7/7 AC 代码已实现，team lead体验路径完整 | ✅ |
-| Maine Coon (codex) | F057 spec, thread-utils.ts:42, ThreadSidebar.tsx:220, ChatMessage.tsx:385, callbacks.ts:230+551, ThreadCatStatus.tsx:45, chatStore.ts:592 | 7/7 AC 独立核实，team lead体验完整 | ✅ |
+| Agent-R (opus) | F057 spec, thread-utils.ts, ThreadSidebar.tsx, ChatMessage.tsx, callback-tools.ts, user-mention.ts | 7/7 AC 代码已实现，team lead体验路径完整 | ✅ |
+| Agent-M (codex) | F057 spec, thread-utils.ts:42, ThreadSidebar.tsx:220, ChatMessage.tsx:385, callbacks.ts:230+551, ThreadCatStatus.tsx:45, chatStore.ts:592 | 7/7 AC 独立核实，team lead体验完整 | ✅ |

@@ -10,19 +10,19 @@ updated: 2026-04-16
 
 # F156: Security Hardening — 实时通道 + 本机信任边界加固
 
-> **Status**: spec (Phase E planned) | **Owner**: Ragdoll | **Priority**: P0 | **Completed**: 2026-04-12 (Phase A~D) | **Reopened**: 2026-04-16 (Phase E)
+> **Status**: spec (Phase E planned) | **Owner**: Agent-R | **Priority**: P0 | **Completed**: 2026-04-12 (Phase A~D) | **Reopened**: 2026-04-16 (Phase E)
 
 **重新打开原因**：2026-04-16 对 relay-claw `issue #20` 做反向审计时确认：我们家已经没有 F156 A/B/D 修掉的那条“恶意网页直连 WebSocket/terminal → 后台 shell”攻击链，但同一条本机信任边界下，`resolveUserId()` 的 non-browser header/body fallback 仍留下了一批 **敏感 API 身份入口残余债**。按 feat 归属，这不是新 feature，而是 F156 的后续 Phase E。
 
 ## Why
 
-2026-04-10 安全审计发现：Cat Cafe Hub 的 Socket.IO 实时通道存在 Cross-Site WebSocket Hijacking (CSWSH) 风险。Maine Coon(GPT-5.4) 实测验证：从 `Origin: https://evil.example` 发起 WebSocket-only 连接到 `127.0.0.1:3004`，**连接成功**。
+2026-04-10 安全审计发现：Agent Task Hub Hub 的 Socket.IO 实时通道存在 Cross-Site WebSocket Hijacking (CSWSH) 风险。Agent-M(GPT-5.4) 实测验证：从 `Origin: https://evil.example` 发起 WebSocket-only 连接到 `127.0.0.1:3004`，**连接成功**。
 
 根因：Socket.IO v4 的 `cors` 配置仅对 HTTP long-polling 生效，**不校验 WebSocket upgrade 请求的 Origin 头**（Socket.IO 官方文档 2026-02-16 明确标注）。加上身份自报（`handshake.auth.userId`）、Room 无 ACL，攻击者可以：
 - 从任何恶意网页发现并连接本机 WebSocket
 - 冒充任意 userId
 - 加入任意 thread/user/global room 监听所有消息
-- 发送 `cancel_invocation` 干扰猫猫工作
+- 发送 `cancel_invocation` 干扰Agent工作
 
 **外部参考**：OpenClaw 2026 年初连续爆出两个同类漏洞（CVE-2026-25253 + ClawJacked），攻击链高度相似。
 
@@ -40,7 +40,7 @@ updated: 2026-04-16
 
 ### Phase B: 授权层加固（堵监听/干扰） ✅
 
-> Maine Coon(GPT-5.4) review 后重新排序：plain WS 端点比 Socket.IO room 收口更紧急（read-write PTY > 被动泄漏）
+> Agent-M(GPT-5.4) review 后重新排序：plain WS 端点比 Socket.IO room 收口更紧急（read-write PTY > 被动泄漏）
 
 **B-1: Plain WebSocket Origin + 身份校验**
 1. **terminal WS Origin gate** — `@fastify/websocket` 的 `/api/terminal/sessions/:id/ws` 和 `/api/terminal/agent-panes/:id/ws` 补 Origin 校验（复用 `isOriginAllowed`）。这两个端点完全绕过 Socket.IO `allowRequest`，恶意网页可直连 read-write PTY
@@ -52,13 +52,13 @@ updated: 2026-04-16
 **B-3: 全局 room 收口**
 1. **Room ACL 扩展** — `workspace:global` 和 `preview:global` 在多用户模式下需认证后才能加入（带文件路径、worktreeId、preview 端口等元数据）
 
-### Phase D: Local Trust Boundary Hardening（三猫安全审计产出）
+### Phase D: Local Trust Boundary Hardening（Admin安全审计产出）
 
 **D-1: HTTP 身份从"自报"升级为服务端 session** (P0)
 1. 浏览器侧停用 `userId query param` 作为身份源
 2. 引入同源 `HttpOnly session cookie`，首次打开 Hub 自动配对
 3. 逐步淘汰 `resolveUserId()` 的 query/default 回退路径，写操作统一走 session
-4. 用户零配置：CLI `cat-cafe start` 自动打开浏览器并完成 session 配对
+4. 用户零配置：CLI `agent-hub start` 自动打开浏览器并完成 session 配对
 
 **D-2: 防 Clickjacking** (P0)
 1. API 层加 `X-Frame-Options: DENY` + CSP `frame-ancestors 'none'`（@fastify/helmet 或手动 header）
@@ -88,14 +88,14 @@ updated: 2026-04-16
 > **定位**：这不是把 F156 重新定义成“全站认证重构”。Phase E 只处理同一条本机信任边界里、会把浏览器/本地 API 安全面重新撕开的那批 **敏感身份入口**。
 
 **E-1: 反向审计清单落盘**
-1. 基于 relay-claw `issue #20` 的发现，整理 Cat Cafe 当前 sensitive route ledger
+1. 基于 relay-claw `issue #20` 的发现，整理 Agent Task Hub 当前 sensitive route ledger
 2. 明确区分三类身份语义：`session-only`、`trusted browser fallback`、`non-browser automation`
 3. 不再允许“同一个 `resolveUserId()` 默认同时承担交互式浏览器身份 + 自动化 header 身份 + fallbackUserId”而没有证据区分
 
 **E-2: 敏感路由不再把 header/fallback 当充分身份**
 1. `/api/authorization/*` 这类高影响审批/规则写接口，补 session/显式受控入口约束
 2. terminal 的非 WebSocket 敏感 REST 入口（create/list/delete/agent panes）重新检查是否仍可被 non-browser header 伪造穿透
-3. 任何能导向“执行、审批、配置写入、跨线程高权限动作”的路由，都不能只靠 `X-Cat-Cafe-User` 或 body fallback 认人
+3. 任何能导向“执行、审批、配置写入、跨线程高权限动作”的路由，都不能只靠 `X-agent-hub-User` 或 body fallback 认人
 
 **E-3: helper 语义拆分**
 1. 保留 `resolveUserId()` 仅用于已证明安全的兼容路径
@@ -103,8 +103,8 @@ updated: 2026-04-16
 3. 例外必须在 route ledger 里显式声明“为什么还能保留 header 身份”
 
 **E-4: 负向回归包**
-1. 新增负向测试，证明 header/query/body spoof 不能在 Cat Cafe 重现 relay-claw #20 那类攻击链
-2. 重点覆盖：authorization、terminal、配置写入口，以及所有保留 `X-Cat-Cafe-User` 的敏感 API
+1. 新增负向测试，证明 header/query/body spoof 不能在 Agent Task Hub 重现 relay-claw #20 那类攻击链
+2. 重点覆盖：authorization、terminal、配置写入口，以及所有保留 `X-agent-hub-User` 的敏感 API
 
 ### ~~Phase C: OfficeClaw 修复~~ → 已拆出
 
@@ -160,7 +160,7 @@ updated: 2026-04-16
 
 **修改**：`resolveApiUrl()` 增加对称 mismatch 检测：
 - `NEXT_PUBLIC_API_URL` 是云域名 + 浏览器是 `localhost`/`127.0.0.1` → 跳过 env，回到 auto-detect → `localhost:{port+1}`
-- 其他场景行为完全不变（Host allowlist、WeixinAdapter callback URL、`cafe.clowder-ai.com` 远程访问、开源 `localhost:3004` 默认配置）
+- 其他场景行为完全不变（Host allowlist、WeixinAdapter callback URL、`hub.agent-task-hub.com` 远程访问、开源 `localhost:3004` 默认配置）
 
 **对社区用户的影响**：
 | 用户场景 | 是否受影响 |
@@ -174,10 +174,10 @@ updated: 2026-04-16
 
 ### Phase E（非浏览器身份入口收口） 🔲
 - [ ] AC-E1: relay-claw 反向审计清单落盘到本 spec，明确 sensitive route ledger（session-only / trusted browser fallback / non-browser automation）
-- [ ] AC-E2: `/api/authorization/*` 不再把 `X-Cat-Cafe-User` / fallback 作为充分身份来源；敏感审批与规则写入必须走更窄的身份语义
+- [ ] AC-E2: `/api/authorization/*` 不再把 `X-agent-hub-User` / fallback 作为充分身份来源；敏感审批与规则写入必须走更窄的身份语义
 - [ ] AC-E3: terminal 非 WS 敏感 REST 入口完成复核并收口，不再留下“先伪造身份拿 session 列表/创建，再走别的入口扩大影响”的残余链
-- [ ] AC-E4: 新增负向回归测试，证明 header/query/body spoof 不能在 Cat Cafe 的 sensitive routes 上复现 relay-claw #20 同类问题
-- [ ] AC-E5: 对仍保留 `X-Cat-Cafe-User` 的 automation-only route 建立显式 allowlist + 注释证据，不再靠隐式约定
+- [ ] AC-E4: 新增负向回归测试，证明 header/query/body spoof 不能在 Agent Task Hub 的 sensitive routes 上复现 relay-claw #20 同类问题
+- [ ] AC-E5: 对仍保留 `X-agent-hub-User` 的 automation-only route 建立显式 allowlist + 注释证据，不再靠隐式约定
 
 ### ~~Phase C（OfficeClaw）~~ → 已拆出为独立任务
 
@@ -220,7 +220,7 @@ API 重启后，用户在浏览器中看到所有 thread 消失、发消息 401�
 
 ### team lead担忧
 
-**如果推送到社区（clowder-ai），所有用户都会遭遇同样的惊吓**。社区小伙伴不像team lead知道可以查 Redis，他们只会看到"thread 全没了 + 401"→ 以为数据丢失 → 提 issue / 放弃使用。
+**如果推送到社区（agent-task-hub），所有用户都会遭遇同样的惊吓**。社区小伙伴不像team lead知道可以查 Redis，他们只会看到"thread 全没了 + 401"→ 以为数据丢失 → 提 issue / 放弃使用。
 
 ### 建议修复
 
@@ -350,7 +350,7 @@ team lead实测：刷新页面后 thread 又消失了，只有回到首页再进
 
 ### 不阻塞 F156 关单，但必须从这里分流出去的尾巴
 
-- GitHub issue `#1064`（brand guard 仍检查已被 F156 废弃的 `X-Cat-Cafe-User` 头）属于 **相关清理项**，不是 runtime fallout blocker；应单独关闭，不要继续混进 F156 体验闭环口径里。
+- GitHub issue `#1064`（brand guard 仍检查已被 F156 废弃的 `X-agent-hub-User` 头）属于 **相关清理项**，不是 runtime fallout blocker；应单独关闭，不要继续混进 F156 体验闭环口径里。
 - D-4 / FU-1 / FU-2 已在本 spec 的 Spun-off Items 里正式拆出；后续若再做，必须走独立立项或独立文档任务，不得把它们重新塞回 F156 completion gate。
 
 ### 守护说明

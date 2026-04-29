@@ -9,7 +9,7 @@ created: 2026-04-14
 
 # F162: Enterprise Action Toolkit — 官方 CLI 驱动的企业工作流
 
-> **Status**: in-progress | **Owner**: Ragdoll | **Priority**: P1
+> **Status**: in-progress | **Owner**: Agent-R | **Priority**: P1
 > **Deadline**: 2026-04-17（WXG 面试 showcase）
 > **Architecture**: [ADR-029](../decisions/029-external-tool-integration-strategy.md)
 
@@ -21,11 +21,11 @@ team experience（2026-04-14）：
 > "meeting/table 才够打"
 > "周四晚上 WXG 面试直接 show 给他们看"
 
-Cat Café 已通过 F088/F132 实现了企微的**消息收发**（Transport Plane），但企业 IM 的真正价值不在聊天，在于**把聊天变成可追踪的工作流程**——文档、表格、待办、会议。
+Agent Task Hub 已通过 F088/F132 实现了企微的**消息收发**（Transport Plane），但企业 IM 的真正价值不在聊天，在于**把聊天变成可追踪的工作流程**——文档、表格、待办、会议。
 
 2026 Q1 企微发布官方 CLI（`wecom-cli`）并附带 Agent Skills，让 AI Agent 直接编排企业操作成为可能。我们利用 ADR-029 定义的 `ActionService + CliExecutor` 模式，用企微打样验证这条路。
 
-**展示目标**：WXG 面试现场，群里一句话 → 猫自动创建企微文档 + 智能表格 + 待办 + 会议 → 链接回贴群聊。面试官打开企微即可看到成果。
+**展示目标**：WXG 面试现场，群里一句话 → Agent自动创建企微文档 + 智能表格 + 待办 + 会议 → 链接回贴群聊。面试官打开企微即可看到成果。
 
 ## What
 
@@ -34,7 +34,7 @@ Cat Café 已通过 F088/F132 实现了企微的**消息收发**（Transport Pla
 ```
 team lead在 Hub/企微群 发一句话
   ↓
-猫解析意图（enterprise workflow skill）
+Agent解析意图（enterprise workflow skill）
   ↓
 POST /api/callbacks/wecom-action
   ↓
@@ -44,10 +44,10 @@ CliExecutor → wecom-cli doc/todo/meeting/...
   ↓
 资源句柄持久化（doc URL / todo ID / meeting link）
   ↓
-猫组合结果 → 回贴 Hub + 企微群
+Agent组合结果 → 回贴 Hub + 企微群
 ```
 
-**不做 MCP server**（ADR-029 Decision 4）。猫通过 callback route 调用 ActionService。
+**不做 MCP server**（ADR-029 Decision 4）。Agent通过 callback route 调用 ActionService。
 
 ### Phase A: WeCom Golden Chain Showcase
 
@@ -87,11 +87,11 @@ CliExecutor → wecom-cli doc/todo/meeting/...
 
 4. **Callback Route**（`packages/api/src/routes/callback-wecom-action-routes.ts`）
    - `POST /api/callbacks/wecom-action`
-   - 猫通过 callback credentials 调用
+   - Agent通过 callback credentials 调用
    - 参数校验 + ActionService 调度
 
-5. **Enterprise Workflow Skill**（`cat-cafe-skills/skills/enterprise-workflow/`）
-   - 指导猫：意图解析 → 参数提取 → 调 callback → 组合结果
+5. **Enterprise Workflow Skill**（`agent-hub-skills/skills/enterprise-workflow/`）
+   - 指导Agent：意图解析 → 参数提取 → 调 callback → 组合结果
    - 引用 upstream wecom-cli Agent Skills 作为能力描述
 
 6. **Demo Script**
@@ -105,7 +105,7 @@ CliExecutor → wecom-cli doc/todo/meeting/...
 ```
 team lead: "把今天讨论整理成 PRD + 多维表 + 任务 + 日程 + Slides"
   ↓
-猫解析意图（enterprise workflow skill，新增 Lark 分支）
+Agent解析意图（enterprise workflow skill，新增 Lark 分支）
   ↓
 POST /api/callbacks/lark-action   { action: "golden_chain", ... }
   ↓
@@ -134,9 +134,9 @@ LarkCliExecutor → lark-cli docs/base/task/calendar/slides +...
 - [x] AC-A1: `wecom-cli` 安装配置完成，基本命令可在本机执行（v0.1.5, 四命令全通）
 - [x] AC-A2: WeComActionService 实现 `createDoc` / `createSmartTable` / `createTodo` / `createMeeting` 四个方法
 - [x] AC-A3: 每个方法有 audit log 记录（谁调了什么、参数、结果）
-- [x] AC-A4: callback route `/api/callbacks/wecom-action` 可被猫调用
+- [x] AC-A4: callback route `/api/callbacks/wecom-action` 可被Agent调用
 - [x] AC-A5: 端到端：一句话 → 文档 + 表格 + 待办 + 会议 → 链接回贴（team lead 2026-04-17 确认已端到端验证；期间真实使用过——Opus 在面试日程调整时用 wecom-cli 创建过 21:15 新会议）
-- [x] AC-A6: 企微 App 中可看到猫创建的文档/表格/待办/会议（team lead实机确认）
+- [x] AC-A6: 企微 App 中可看到Agent创建的文档/表格/待办/会议（team lead实机确认）
 - [x] AC-A8: 备选方案：预录 demo 视频/GIF 一份 ~~保留~~ — WXG 面试于 2026-04-17 完成，实时 demo 通过，fallback hedge 不再需要
 
 ### Phase B（Lark Golden Chain Showcase + Slides 增量）
@@ -193,9 +193,9 @@ LarkCliExecutor → lark-cli docs/base/task/calendar/slides +...
 |--------|------|------|
 | 企微文档创建 | team lead 2026-04-14 | ✅ CLI 验证 + ActionService 实现 |
 | 企微智能表格创建 | team lead 2026-04-14 | ✅ CLI 验证 + 默认字段处理 |
-| 企微待办分发 | Maine Coon(GPT-5.4) 黄金链路提案 | ✅ CLI 验证 + follower_id 字段修正 |
+| 企微待办分发 | Agent-M(GPT-5.4) 黄金链路提案 | ✅ CLI 验证 + follower_id 字段修正 |
 | 企微会议创建 | team lead "meeting 才够打" | ✅ CLI 验证 + 会议链接获取 |
-| 结果链接回贴群聊 | Maine Coon(GPT-5.4) 黄金链路提案 | ✅ team lead端到端验证 |
+| 结果链接回贴群聊 | Agent-M(GPT-5.4) 黄金链路提案 | ✅ team lead端到端验证 |
 | 面试 demo 脚本 | team lead deadline 需求 | ✅ PR #1182, 5-phase 60s 脚本 |
 | 备录视频 fallback | 风险缓解 | N/A — 面试已过，实时 demo 通过，无需 fallback |
 | 飞书文档（docx） | team lead 2026-04-17 | ✅ 骨架 + 单测 |

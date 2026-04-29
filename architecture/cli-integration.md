@@ -7,14 +7,14 @@ created: 2026-02-26
 
 # CLI 集成架构：Claude Code / Codex / Gemini CLI
 
-> Cat Cafe 项目如何对接三个不同厂商的 AI CLI 工具
-> 作者：Ragdoll | 最后更新：2026-02-07
+> Agent Task Hub 项目如何对接三个不同厂商的 AI CLI 工具
+> 作者：Agent-R | 最后更新：2026-02-07
 
 ## 概述
 
-Cat Cafe 需要调用三个不同厂商的 AI Agent：
-- **Ragdoll** → Claude Code CLI (`claude`)
-- **Maine Coon** → OpenAI Codex CLI (`codex`)
+Agent Task Hub 需要调用三个不同厂商的 AI Agent：
+- **Agent-R** → Claude Code CLI (`claude`)
+- **Agent-M** → OpenAI Codex CLI (`codex`)
 - **Siamese** → Google Gemini CLI (`gemini`)
 
 这三个 CLI 有不同的调用方式、输出格式和 Session 管理机制。本文档记录我们的集成方案和踩过的坑。
@@ -26,13 +26,13 @@ Cat Cafe 需要调用三个不同厂商的 AI Agent：
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                        AgentRouter                           │
-│  (路由逻辑: @mention 解析 → 选择猫 → 调用 AgentService)        │
+│  (路由逻辑: @mention 解析 → 选择Agent → 调用 AgentService)        │
 └───────────────┬─────────────────┬─────────────────┬─────────┘
                 │                 │                 │
                 ▼                 ▼                 ▼
 ┌───────────────────┐ ┌───────────────────┐ ┌───────────────────┐
 │ ClaudeAgentService│ │ CodexAgentService │ │ GeminiAgentService│
-│  (Ragdoll Opus)     │ │  (Maine Coon Codex)    │ │  (Siamese Gemini)   │
+│  (Agent-R Opus)     │ │  (Agent-M Codex)    │ │  (Siamese Gemini)   │
 └─────────┬─────────┘ └─────────┬─────────┘ └─────────┬─────────┘
           │                     │                     │
           └─────────────────────┼─────────────────────┘
@@ -175,7 +175,7 @@ claude -p "prompt" \
 ```
 
 **特殊处理：**
-- **MCP 支持**：通过 `--mcp-config` 注入我们的 MCP Server，让 Claude 能回调 Cat Cafe
+- **MCP 支持**：通过 `--mcp-config` 注入我们的 MCP Server，让 Claude 能回调 Agent Task Hub
 - **图片传递**：通过 `--images` flag 传递本地图片路径
 - **Session 恢复**：通过 `--resume <sessionId>` 恢复上下文
 
@@ -289,7 +289,7 @@ gemini -p "prompt" -o stream-json -y [-i image.png]
 ```
 
 **特殊处理：**
-- **Session 恢复（F053，2026-03-03）**：在当前环境（Gemini CLI 0.31.0）支持 `gemini --resume <sessionId>`（UUID），provider 已启用 resume；prompt prepend 继续用于跨猫历史补全
+- **Session 恢复（F053，2026-03-03）**：在当前环境（Gemini CLI 0.31.0）支持 `gemini --resume <sessionId>`（UUID），provider 已启用 resume；prompt prepend 继续用于跨Agent历史补全
 - **图片支持**：通过 `-i` flag 传递
 - **Antigravity fallback**：IDE 模式不输出 NDJSON，需要通过 MCP 回传
 
@@ -361,7 +361,7 @@ const args = options?.sessionId
 
 **背景**：2026-02 阶段我们曾按“index/latest only”实现降级路径。
 
-**当前结论（2026-03-03）**：Gemini CLI 0.31.0 已支持 UUID `--resume <sessionId>`，`GeminiAgentService` 已接入；prompt prepend 保留为跨猫上下文补充，不再作为 resume 的替代策略。
+**当前结论（2026-03-03）**：Gemini CLI 0.31.0 已支持 UUID `--resume <sessionId>`，`GeminiAgentService` 已接入；prompt prepend 保留为跨Agent上下文补充，不再作为 resume 的替代策略。
 
 ### 5. stderr 不能暴露给用户
 
@@ -381,10 +381,10 @@ yield { __cliError: true, message: `CLI 异常退出 (code: ${exitCode})` };
 
 ## 配置管理
 
-模型配置的运行时来源是 `.cat-cafe/cat-catalog.json`（由 `cat-template.json` 首次启动时 bootstrap 生成）。
+模型配置的运行时来源是 `.agent-hub/agent-agentalog.json`（由 `agent-template.json` 首次启动时 bootstrap 生成）。
 
-- `cat-template.json`（repo 根）：种子模板，仅在首次启动且 catalog 不存在时复制生成 catalog。后续不参与运行时读取
-- `.cat-cafe/cat-catalog.json`：唯一运行时配置源。所有猫的增删改查都直接操作此文件
+- `agent-template.json`（repo 根）：种子模板，仅在首次启动且 catalog 不存在时复制生成 catalog。后续不参与运行时读取
+- `.agent-hub/agent-agentalog.json`：唯一运行时配置源。所有Agent的增删改查都直接操作此文件
 - 环境变量 `CAT_{CATID}_MODEL`（如 `CAT_OPUS_MODEL`）：可 override 运行时配置，用于调试或临时切换模型。正常使用不需要
 
 **配置文件格式：**
@@ -393,7 +393,7 @@ yield { __cliError: true, message: `CLI 异常退出 (code: ${exitCode})` };
   "version": 2,
   "breeds": [
     {
-      "id": "ragdoll",
+      "id": "Agent-R",
       "defaultVariantId": "opus",
       "variants": [{ "id": "opus", "defaultModel": "claude-opus-4-6", ... }]
     }
@@ -437,7 +437,7 @@ const service = new GeminiAgentService({ spawnFn: mockSpawn });
 1. **进程池**：避免每次 spawn 的 500ms-2s 启动开销
 2. **CLI 版本检测**：不同版本 NDJSON 格式可能变化，需要版本锁定或适配
 3. **Cancel 协议**：目前是 SIGTERM/SIGKILL 硬杀，理想情况应该有优雅取消协议
-4. **MCP 双向通信**：让非 Claude 猫也能通过 MCP 回传（目前用 HTTP callback 模拟）
+4. **MCP 双向通信**：让非 Claude Agent也能通过 MCP 回传（目前用 HTTP callback 模拟）
 
 ---
 
@@ -451,10 +451,10 @@ packages/api/src/
 │   ├── cli-format.ts         # 错误格式化
 │   └── ndjson-parser.ts      # NDJSON 解析
 ├── config/
-│   ├── cat-models.ts         # 模型配置读取
-│   └── cat-config-loader.ts  # JSON 配置加载
-└── domains/cats/services/
-    ├── ClaudeAgentService.ts # Ragdoll
-    ├── CodexAgentService.ts  # Maine Coon
+│   ├── agent-models.ts         # 模型配置读取
+│   └── agent-config-loader.ts  # JSON 配置加载
+└── domains/agents/services/
+    ├── ClaudeAgentService.ts # Agent-R
+    ├── CodexAgentService.ts  # Agent-M
     └── GeminiAgentService.ts # Siamese
 ```

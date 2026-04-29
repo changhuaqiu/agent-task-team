@@ -8,7 +8,7 @@ created: 2026-03-04
 
 # F058: Mission Control 增强（F049++）
 
-> **Status**: done | **Completed**: 2026-03-11 | **Owner**: Ragdoll
+> **Status**: done | **Completed**: 2026-03-11 | **Owner**: Agent-R
 > **Priority**: P1
 > **依赖**: F049（Mission Control MVP 已合入）
 > **Evolved from**: F049（MVP 使用中发现的 bug + 增强需求）
@@ -104,7 +104,7 @@ approve→dispatch 的多步操作（改状态→开 thread→写消息→标记
 
 ### Phase D：导入状态映射 + Layout 修复（team lead实测发现的 bug）
 
-> 2026-03-05 team lead实测截图暴露两个 Phase A 遗漏 bug。Phase A～C 代码审查全绿、云端 review 全通过，但Ragdoll"愿景守护"只 grep 了代码就打勾，没有实际验证产品效果。team experience："明明不能用！刷新之后都进度不对吧？右下角那些东西看都看不到！你还不能 done"。
+> 2026-03-05 team lead实测截图暴露两个 Phase A 遗漏 bug。Phase A～C 代码审查全绿、云端 review 全通过，但Agent-R"愿景守护"只 grep 了代码就打勾，没有实际验证产品效果。team experience："明明不能用！刷新之后都进度不对吧？右下角那些东西看都看不到！你还不能 done"。
 
 #### D1: 导入状态映射
 
@@ -130,7 +130,7 @@ approve→dispatch 的多步操作（改状态→开 thread→写消息→标记
 
 #### I1: Feature Doc 标准模板
 
-**决策**：在 `cat-cafe-skills/refs/feature-doc-template.md` 建立标准模板，规范 YAML frontmatter、Phase 标题、AC 格式、Dependencies 段落。
+**决策**：在 `agent-hub-skills/refs/feature-doc-template.md` 建立标准模板，规范 YAML frontmatter、Phase 标题、AC 格式、Dependencies 段落。
 
 **目的**：Progress Dashboard parser 需要从 feature docs 自动提取 Phase 进度、AC 完成度。格式统一 = parser 可靠。
 
@@ -241,7 +241,7 @@ approve→dispatch 的多步操作（改状态→开 thread→写消息→标记
 - [x] AC-H7: 保留快速创建和从文档导入功能
 
 ### Phase I（Progress Dashboard + Doc 模板统一）
-- [x] AC-I1: `cat-cafe-skills/refs/feature-doc-template.md` 存在且经team lead确认
+- [x] AC-I1: `agent-hub-skills/refs/feature-doc-template.md` 存在且经team lead确认
 - [x] AC-I2: `feat-lifecycle` skill kickoff 自动复制模板
 - [x] AC-I3: Feature Row 点击展开一级（Phase 进度条 + Timeline/Risk/PR）
 - [x] AC-I4: Phase 条目点击展开二级（AC 列表 + 完成状态）
@@ -262,9 +262,9 @@ approve→dispatch 的多步操作（改状态→开 thread→写消息→标记
 | R1 | "ft close 了他也不会更新" | AC-A1, AC-A2, AC-A6 | test（导入后 done 状态 + UI 展示） | [x] |
 | R2 | "也不列出我们做完的" | AC-A3 | test + screenshot（已完成折叠区） | [x] |
 | R3 | "feat 原本元数据就有依赖的 能不能也画出来" | AC-A4, AC-A5 | test + screenshot（依赖标签） | [x] |
-| R4 | 派发防崩溃（Maine Coon增强列表） | AC-B1 | test（Lua 原子化回归） | [x] |
-| R5 | 消息不重复更可靠（Maine Coon增强列表） | AC-B2, AC-B3 | test（幂等回归） | [x] |
-| R6 | 态势图升级（Maine Coon增强列表） | AC-C1 | test + screenshot（鸟瞰视图） | [x] |
+| R4 | 派发防崩溃（Agent-M增强列表） | AC-B1 | test（Lua 原子化回归） | [x] |
+| R5 | 消息不重复更可靠（Agent-M增强列表） | AC-B2, AC-B3 | test（幂等回归） | [x] |
+| R6 | 态势图升级（Agent-M增强列表） | AC-C1 | test + screenshot（鸟瞰视图） | [x] |
 | R7 | "从mission hub如何退出呢？" | AC-E1 | test（back button href=/） | [x] |
 | R8 | "线程态势截断看不全" | AC-E2, AC-F1 | test + screenshot（紧凑卡片 + grid 布局） | [x] |
 | R9 | "close 的 feat 刷新后还在，需要回顾" | AC-F2 | test + screenshot（鸟瞰已完成折叠区） | [x] |
@@ -314,33 +314,33 @@ approve→dispatch 的多步操作（改状态→开 thread→写消息→标记
 
 ## Review Gate
 
-- Phase A: 跨家族 review（Maine Coon）
-- Phase B: 跨家族 review（Maine Coon）+ Redis 专项验证
+- Phase A: 跨家族 review（Agent-M）
+- Phase B: 跨家族 review（Agent-M）+ Redis 专项验证
 - Phase C: 前端部分额外需要Siamese视觉 review
 
-## Phase H 讨论记录（2026-03-06 四猫 UX 需求分析）
+## Phase H 讨论记录（2026-03-06 四Agent UX 需求分析）
 
 ### team experience
 
-> "现在这种 ux 太差了 可能需要有些变成 tab 隐藏或者切换？你想想看跳出最开始Maine Coon设计的这个 ux 体验思考我要如何看什么时候可能看什么"
+> "现在这种 ux 太差了 可能需要有些变成 tab 隐藏或者切换？你想想看跳出最开始Agent-M设计的这个 ux 体验思考我要如何看什么时候可能看什么"
 > "你最好先画出设计图我看看的？别用他现在这个丑丑的 包括入口好像也能从 mission hub 纯粹文字然后加一个图标好看点 以及返回哪个按钮现在是返回 default thread 很难用 你得返回我之前在的 thread 能做到吗？"
 
-### 各猫独立提案（原始记录）
+### 各Agent独立提案（原始记录）
 
-#### Ragdoll Opus 4.6（我）—— 两 Tab 方案
+#### Agent-R Opus 4.6（我）—— 两 Tab 方案
 - **核心思路**：读和写分开。看状态是一个模式，做操作是另一个模式。
 - Tab 1「态势总览」：Feature 鸟瞰全宽 + 活跃线程 + 快速统计（只读仪表盘）
 - Tab 2「调度工作台」：任务列表 + 状态筛选器 + 选中详情/审批面板（操作面板）
 - Done 以鸟瞰 chip 或筛选器方式呈现，不独立 Tab
 
-#### Ragdoll Opus 4.5 —— 搜索优先 + 聚焦卡片
+#### Agent-R Opus 4.5 —— 搜索优先 + 聚焦卡片
 - **核心洞察**：用户不是来"看 Mission Hub"的，是来"找一个答案"的。
-- 入口是搜索框（`F058` 跳到聚焦视图、`@codex` 过滤猫参与的任务）
+- 入口是搜索框（`F058` 跳到聚焦视图、`@codex` 过滤Agent参与的任务）
 - 默认"今日摘要"：待审批 + 活跃线程 + 前 5 高优 Open
 - 右侧操作面板只在选中时出现
 - 🤔 不确定搜索框是否太重（team lead可能习惯点击不习惯打字）
 
-#### Maine Coon GPT-5.4（Maine Coon）—— 三模式方案
+#### Agent-M GPT-5.4（Agent-M）—— 三模式方案
 - **核心结论**：把 4 种完全不同的查看任务硬塞进 1 个页面，任何一种都看不好。
 - 模式 1「关注/Today」：默认页，活跃 feature + 执行中 thread + 待审批 + 异常项（30 秒回答"现在要不要我出手"）
 - 模式 2「调度/Workbench」：Open/Suggested/Approve/Dispatch 操作
@@ -348,9 +348,9 @@ approve→dispatch 的多步操作（改状态→开 thread→写消息→标记
 - **金句**："Mission Hub 默认看'现在要处理什么'，不是'系统里所有东西'"
 - **先把用户在不同时间点的目标分开，再讨论 tab 数量**
 
-#### Ragdoll Sonnet —— 信息密度分层 + Feature 行
+#### Agent-R Sonnet —— 信息密度分层 + Feature 行
 - **核心问题**：team lead按 Feature 想还是按任务状态想？答案是 Feature。
-- Kanban 是猫猫的工作视图，不是产品经理的决策视图
+- Kanban 是Agent的工作视图，不是产品经理的决策视图
 - 主视图 = Feature 行列表（一行一个 Feature，带进度条 + 状态 + 线程数）
 - 点击展开详情（tasks + threads + 操作 + 文档链接）
 - 顶部状态栏 + 底部待操作 badge
@@ -358,7 +358,7 @@ approve→dispatch 的多步操作（改状态→开 thread→写消息→标记
 
 ### 收敛决策（Opus 4.6 综合）
 
-| 维度 | 四猫分歧 | 最终决策 | 理由 |
+| 维度 | 四Agent分歧 | 最终决策 | 理由 |
 |------|---------|---------|------|
 | 导航方式 | 2Tab / 搜索 / 3模式 / 密度分层 | **两 Tab**（功能列表 + 依赖全景） | 原决策"无 Tab"，team lead提出依赖全景需求后回退（KD-4） |
 | 主轴 | 状态列 / 搜索 / 场景 / Feature 行 | **Feature 行** | team lead心智模型是 Feature 级别不是 task 级别 |
@@ -373,7 +373,7 @@ approve→dispatch 的多步操作（改状态→开 thread→写消息→标记
 
 ### Phase H 设计稿评审（2026-03-06）
 
-**设计稿位置**: `designs/mission-hub-坏猫采访.pen`
+**设计稿位置**: `designs/mission-hub-Rogue Agent采访.pen`
 
 #### team lead反馈 R1
 - ✅ "好看！方向对了"
@@ -381,7 +381,7 @@ approve→dispatch 的多步操作（改状态→开 thread→写消息→标记
 - 🔴 "别做的突破屏幕"——依赖全景图的节点卡片超出画布边界
 
 #### 设计迭代：加 Tab 切换
-原四猫收敛决策是"无 Tab"，但team lead提出依赖关系全景需求后，回退为 **两 Tab 方案**：
+原四Agent收敛决策是"无 Tab"，但team lead提出依赖关系全景需求后，回退为 **两 Tab 方案**：
 
 | Tab | 内容 | 场景 |
 |-----|------|------|

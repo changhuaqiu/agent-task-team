@@ -90,7 +90,7 @@ created: 2026-02-26
 
 ---
 
-## 6) Maine Coon侧首批条目（AGENTS + Review + Skills）
+## 6) Agent-M侧首批条目（AGENTS + Review + Skills）
 
 ### LL-002: Review 问题必须先 Red 再 Green，禁止先改后补测
 - 状态：validated
@@ -103,12 +103,12 @@ created: 2026-02-26
 - 防护：review 关闭条件绑定 Red→Green 证据；无红灯记录不允许宣称修复完成。
 - 来源锚点：
   - `AGENTS.md#L281`
-  - `cat-cafe-skills/cat-cafe-receiving-review/SKILL.md#L52`
+  - `agent-hub-skills/agent-hub-receiving-review/SKILL.md#L52`
 - 原理（可选）：修复可信度来自“可重复的因果链验证”，不是来自主观确信。
 
 - 关联：
-  - `cat-cafe-skills/cat-cafe-receiving-review/SKILL.md`
-  - `cat-cafe-skills/systematic-debugging/SKILL.md`
+  - `agent-hub-skills/agent-hub-receiving-review/SKILL.md`
+  - `agent-hub-skills/systematic-debugging/SKILL.md`
 
 ### LL-003: Reviewer 必须有立场，Author 必须技术性 push back
 - 状态：validated
@@ -125,8 +125,8 @@ created: 2026-02-26
 - 原理（可选）：高质量 review 的本质是“可审计决策过程”，不是“快速达成共识”。
 
 - 关联：
-  - `cat-cafe-skills/cat-cafe-receiving-review/SKILL.md`
-  - `cat-cafe-skills/cat-cafe-requesting-review/SKILL.md`
+  - `agent-hub-skills/agent-hub-receiving-review/SKILL.md`
+  - `agent-hub-skills/agent-hub-requesting-review/SKILL.md`
 
 ### LL-004: P1/P2 当轮清零，P3 当场决断，不挂债务
 - 状态：validated
@@ -144,7 +144,7 @@ created: 2026-02-26
 
 - 关联：
   - `docs/ROADMAP.md`
-  - `cat-cafe-skills/merge-approval-gate/SKILL.md`
+  - `agent-hub-skills/merge-approval-gate/SKILL.md`
 
 ### LL-005: 修完 review 后必须回给 reviewer 二次确认再合 main
 - 状态：validated
@@ -156,12 +156,12 @@ created: 2026-02-26
 - 修复：修复完成后提交确认请求，等待 reviewer 明确放行语句再合入。
 - 防护：合入门禁检查 docs/mailbox 放行证据；条件放行需二次确认。
 - 来源锚点：
-  - `cat-cafe-skills/merge-approval-gate/SKILL.md#L8`
-  - `cat-cafe-skills/cat-cafe-receiving-review/SKILL.md#L151`
+  - `agent-hub-skills/merge-approval-gate/SKILL.md#L8`
+  - `agent-hub-skills/agent-hub-receiving-review/SKILL.md#L151`
 - 原理（可选）：双人闭环的价值在于“独立验证”，不是“互通知晓”。
 
 - 关联：
-  - `cat-cafe-skills/merge-approval-gate/SKILL.md`
+  - `agent-hub-skills/merge-approval-gate/SKILL.md`
   - *(internal reference removed)*
 
 ### LL-006: 没有新鲜验证证据，不得宣称完成
@@ -174,13 +174,13 @@ created: 2026-02-26
 - 修复：每次完成声明前执行对应验证命令，读取完整输出和退出码。
 - 防护：completion 前置 verification gate；输出中必须附验证依据。
 - 来源锚点：
-  - `cat-cafe-skills/verification-before-completion/SKILL.md#L19`
-  - `cat-cafe-skills/verification-before-completion/SKILL.md#L27`
+  - `agent-hub-skills/verification-before-completion/SKILL.md#L19`
+  - `agent-hub-skills/verification-before-completion/SKILL.md#L27`
 - 原理（可选）：工程沟通的最小诚信单位是“可复现证据”，不是“信心表达”。
 
 - 关联：
-  - `cat-cafe-skills/verification-before-completion/SKILL.md`
-  - `cat-cafe-skills/spec-compliance-check/SKILL.md`
+  - `agent-hub-skills/verification-before-completion/SKILL.md`
+  - `agent-hub-skills/spec-compliance-check/SKILL.md`
 
 ### LL-007: 交接缺 Why 会让接手方无法判断
 - 状态：validated
@@ -188,16 +188,16 @@ created: 2026-02-26
 
 - 坑：交接只写改动不写 why/取舍/待决项，接手方无法判断风险与下一步。
 - 根因：把“信息传递”简化成“变更清单”，忽略决策上下文。
-- 触发条件：赶进度、跨猫传话频繁、review 来回次数增多时。
+- 触发条件：赶进度、跨Agent传话频繁、review 来回次数增多时。
 - 修复：交接统一按五件套（What/Why/Tradeoff/Open Questions/Next Action）。
 - 防护：缺项即阻断发送；交接模板与 skill 检查同时执行。
 - 来源锚点：
   - `AGENTS.md#L181`
-  - `cat-cafe-skills/cross-cat-handoff/SKILL.md#L10`
+  - `agent-hub-skills/cross-agent-handoff/SKILL.md#L10`
 - 原理（可选）：协作效率的瓶颈是“决策上下文丢失”，不是“消息数量不足”。
 
 - 关联：
-  - `cat-cafe-skills/cross-cat-handoff/SKILL.md`
+  - `agent-hub-skills/cross-agent-handoff/SKILL.md`
   - *(internal reference removed)*
 
 ### LL-008: Worktree 生命周期必须成套执行（建-收敛-合入-清理）
@@ -231,16 +231,16 @@ created: 2026-02-26
 - 防护：流程上把“澄清问题”置于实现之前，未澄清不得进入修复环节。
 - 来源锚点：
   - `AGENTS.md#L192`
-  - `cat-cafe-skills/cat-cafe-receiving-review/SKILL.md#L100`
+  - `agent-hub-skills/agent-hub-receiving-review/SKILL.md#L100`
 - 原理（可选）：方向正确性是效率前提，错误方向上的加速只会放大损失。
 
 - 关联：
-  - `cat-cafe-skills/systematic-debugging/SKILL.md`
-  - `cat-cafe-skills/cat-cafe-receiving-review/SKILL.md`
+  - `agent-hub-skills/systematic-debugging/SKILL.md`
+  - `agent-hub-skills/agent-hub-receiving-review/SKILL.md`
 
 ---
 
-## 7) Ragdoll侧首批条目（CLAUDE.md + Bug Report + Skills）
+## 7) Agent-R侧首批条目（CLAUDE.md + Bug Report + Skills）
 
 ### LL-010: 删除文件必须用 trash，禁止 /bin/rm
 - 状态：validated
@@ -274,18 +274,18 @@ created: 2026-02-26
 
 - 关联：LL-008 | `using-git-worktrees` skill | `finishing-a-development-branch` skill
 
-### LL-012: 不要 --force 删有猫在工作的 worktree
+### LL-012: 不要 --force 删有Agent在工作的 worktree
 - 状态：validated
 - 更新时间：2026-02-13
 
-- 坑：Maine Coon正在 worktree 里修 bug，我看到 `git branch --merged main` 就以为已合入，`--force` 强删了他的工地。Maine Coon呆在消失的目录里不知所措。
+- 坑：Agent-M正在 worktree 里修 bug，我看到 `git branch --merged main` 就以为已合入，`--force` 强删了他的工地。Agent-M呆在消失的目录里不知所措。
 - 根因：把 `--merged main` 当成"工作完成"的充分条件。实际上 `--merged` 只说明分支起点在 main 历史上，不代表 worktree 内的工作已完成或没人在用。
 - 触发条件：清理 worktree 时看到"包含修改或未跟踪文件"警告但选择 --force。
-- 修复：清理前必须问"这个 worktree 有猫在用吗？"。有修改/未跟踪文件警告 = 绝对禁止 --force。
+- 修复：清理前必须问"这个 worktree 有Agent在用吗？"。有修改/未跟踪文件警告 = 绝对禁止 --force。
 - 防护：CLAUDE.md 明确规则 + 清理前先检查 worktree 内 git status。
 - 来源锚点：
   - CLAUDE.md "Worktree 铁律"（auto memory 2026-02-12）
-  - 2026-02-12 实际犯错：强删 `cat-cafe-opus-permission-request`
+  - 2026-02-12 实际犯错：强删 `agent-hub-opus-permission-request`
 - 原理：单一信号（`--merged`）不足以判断完整状态。状态判断需要多维验证——分支合并状态 ≠ 工作目录状态 ≠ 使用者状态。
 
 - 关联：LL-008 | LL-011 | `using-git-worktrees` skill
@@ -330,7 +330,7 @@ created: 2026-02-26
 - 根因：开发环境和生产数据共享同一个 Redis 实例，靠配置（环境变量）隔离。一旦忘设配置，默认值指向生产。
 - 触发条件：worktree 中启动服务但忘记创建 `.env` 设置 `REDIS_URL=redis://localhost:6398`。
 - 修复：(1) 强制 worktree 使用 6398 端口 (2) 启动前验证 `echo $REDIS_URL` (3) 启动后验证数据量。
-- 防护：CLAUDE.md §10 三猫铁律 + `.env` 模板 + 启动验证步骤。
+- 防护：CLAUDE.md §10 Admin铁律 + `.env` 模板 + 启动验证步骤。
 - 来源锚点：
   - `CLAUDE.md#L344` §10 Worktree Redis 隔离
   - *(internal reference removed)*
@@ -365,7 +365,7 @@ created: 2026-02-26
 - 防护：更新所有 Agent 的提示词模板，将 `curl` 示例改为 `jq` 构造法；在 `GEMINI.md` 中增加醒目警告。
 - 来源锚点：
   - `GEMINI.md` (2026-02-19 更新)
-  - 2026-02-19 Siamese（Gemini）“猫猫杀”游戏调试过程
+  - 2026-02-19 Siamese（Gemini）“Agent杀”游戏调试过程
 - 原理：结构化数据必须由结构化工具生成。在命令行环境中，`jq` 是保证数据序列化健壮性的事实标准。
 
 ### LL-017: CAS 比较必须基于不可变快照，不能用内存活引用
@@ -379,7 +379,7 @@ created: 2026-02-26
 - 防护：CAS 模式代码审查清单 + ADR-008 S2 的 Redis Lua 原子操作（Redis 侧天然不存在此问题）。
 - 来源锚点：
   - ADR-008 S2 CAS Lua 开发过程
-  - `packages/api/src/domains/cats/services/InvocationRecordStore.ts` snapshotStatus 实现
+  - `packages/api/src/domains/agents/services/InvocationRecordStore.ts` snapshotStatus 实现
 - 原理：CAS 操作的正确性取决于"读取值的不可变性"。在引用语义的语言中（JS/Python/Java），内存引用 ≠ 快照；CAS 比较必须基于值拷贝。
 
 - 关联：ADR-008 InvocationRecord 状态机
@@ -388,9 +388,9 @@ created: 2026-02-26
 - 状态：validated
 - 更新时间：2026-02-13
 
-- 坑：Session 按 `userId:catId` 存储，不区分 thread。导致Maine Coon在 Thread A 的上下文（Phase 5 任务）泄漏到 Thread B（哲学茶话会），Maine Coon在茶话会结尾突然开始执行 Phase 5 文档编写——被称为"夺魂"事件。
-- 根因：Session key 设计缺少 threadId 维度。隐含假设"一只猫同时只在一个 thread 工作"，但多 thread 场景下 session 跨 thread 污染。
-- 触发条件：同一只猫被 @ 到多个 thread，且不同 thread 有不同的上下文/任务。
+- 坑：Session 按 `userId:catId` 存储，不区分 thread。导致Agent-M在 Thread A 的上下文（Phase 5 任务）泄漏到 Thread B（哲学茶话会），Agent-M在茶话会结尾突然开始执行 Phase 5 文档编写——被称为"夺魂"事件。
+- 根因：Session key 设计缺少 threadId 维度。隐含假设"一只Agent同时只在一个 thread 工作"，但多 thread 场景下 session 跨 thread 污染。
+- 触发条件：同一只Agent被 @ 到多个 thread，且不同 thread 有不同的上下文/任务。
 - 修复：Session key 改为 `userId:catId:threadId` + 消息级审计日志追踪上下文来源。
 - 防护：BACKLOG #38（已完成）+ 消息级审计日志 BACKLOG #37（已完成）+ bug report 归档。
 - 来源锚点：
@@ -439,7 +439,7 @@ created: 2026-02-26
 - 状态：validated
 - 更新时间：2026-02-13
 
-- 坑：茶话会夺魂 bug 调试时，修 bug 的Ragdoll（分身 session `thread_mlkxnyg17ftop4v8`）找到了 `~/.codex/AGENTS.md` 全局注入后就停了——"这能解释为什么Maine Coon去跑 superpowers"。但铲屎官追问："可它怎么知道 Phase 5 的？AGENTS.md 里又没有 Phase 5。"这一问才逼出了真正的根因——Session 跨 thread 污染。如果铲屎官没追问，我们只会修触发器，留下根因。
+- 坑：茶话会夺魂 bug 调试时，修 bug 的Agent-R（分身 session `thread_mlkxnyg17ftop4v8`）找到了 `~/.codex/AGENTS.md` 全局注入后就停了——"这能解释为什么Agent-M去跑 superpowers"。但铲屎官追问："可它怎么知道 Phase 5 的？AGENTS.md 里又没有 Phase 5。"这一问才逼出了真正的根因——Session 跨 thread 污染。如果铲屎官没追问，我们只会修触发器，留下根因。
 - 根因：AI 模型的推理模式倾向于在找到"看起来说得通"的第一层解释后停止追溯。"看起来合理"≠"因果链完全闭合"。AGENTS.md 能解释 superpowers 行为但解释不了 Phase 5 知识来源——因果链有断点，但模型没有主动识别。
 - 触发条件：找到一个能解释部分症状的原因时；时间压力下想快速修复时；root cause 和 trigger 看起来像同一件事时。
 - 修复：铲屎官持续追问直到因果链完全闭合。每个"解释"都要验证：它能解释所有症状吗？有没有它解释不了的？
@@ -481,7 +481,7 @@ created: 2026-02-26
 - 来源锚点：
   - `docs/decisions/011-metadata-contract.md` §D
   - `docs/features/F040-backlog-reorganization.md` Frontmatter Contract 章节
-  - 2026-02-26 三猫讨论（4.6 提出此问题）
+  - 2026-02-26 Admin讨论（4.6 提出此问题）
 - 原理：单点真相源原则——任何状态信息都应该只有一个权威来源。多点写入 = 同步负担 + 不一致风险。静态关联可以多点存（因为不变），动态状态必须单点存。
 
 - 关联：ADR-011 | F040 | `feat-kickoff` skill | `feat-completion` skill
@@ -490,31 +490,31 @@ created: 2026-02-26
 - 状态：draft
 - 更新时间：2026-02-27
 
-- 坑：SOP、CLAUDE.md、AGENTS.md、skill 文件里写死"Ragdoll找Maine Coon review"、"Maine Coon放行才能合入"。当同一物种有多个分身（Opus 4.5/4.6/Sonnet）时，规则指向不明；AGENTS.md 甚至出现"Maine Coon文件里写找Maine Coon review"的自我矛盾。
-- 根因：早期 1 Family = 1 Individual = 1 Role，写死个体名等于写死角色。多分身 + 新猫接入打破了这个等式。
-- 触发条件：新猫/新分身加入时，或同一物种多个分身同时在线时。
-- 修复：规则写"具有 peer-reviewer 角色的跨 family 猫"，不写"Maine Coon"。Roster (cat-config.json) 是唯一事实源，规则引用角色而非个体。
+- 坑：SOP、CLAUDE.md、AGENTS.md、skill 文件里写死"Agent-R找Agent-M review"、"Agent-M放行才能合入"。当同一物种有多个分身（Opus 4.5/4.6/Sonnet）时，规则指向不明；AGENTS.md 甚至出现"Agent-M文件里写找Agent-M review"的自我矛盾。
+- 根因：早期 1 Family = 1 Individual = 1 Role，写死个体名等于写死角色。多分身 + 新Agent接入打破了这个等式。
+- 触发条件：新Agent/新分身加入时，或同一物种多个分身同时在线时。
+- 修复：规则写"具有 peer-reviewer 角色的跨 family Agent"，不写"Agent-M"。Roster (agent-config.json) 是唯一事实源，规则引用角色而非个体。
 - 防护：F042 Phase B 文档去硬编码 + review 时检查是否有新增的个体名硬编码。
 - 来源锚点：
   - `docs/features/F042-prompt-engineering-audit.md` §1.1
   - *(internal reference removed)*
-  - 2026-02-27 四猫 + 铲屎官讨论
+  - 2026-02-27 四Agent + 铲屎官讨论
 - 原理：协作规则的持久性取决于它引用的是稳定抽象（角色）还是不稳定实例（个体）。引用个体 = 每次团队变化都要改规则。
 
-- 关联：F042 | F032 | cat-config.json roster
+- 关联：F042 | F032 | agent-config.json roster
 
 ### LL-026: 身份信息是硬约束常量，不是可推断上下文
 - 状态：draft
 - 更新时间：2026-02-27
 
-- 坑：Maine Coon在 Context compact 后自称"Ragdoll"（Ragdoll的昵称），把自己当成了Ragdoll。A2A @ 能力也随对话推进退化，猫猫不再主动 @ 队友协作。
+- 坑：Agent-M在 Context compact 后自称"Agent-R"（Agent-R的昵称），把自己当成了Agent-R。A2A @ 能力也随对话推进退化，Agent不再主动 @ 队友协作。
 - 根因：身份信息（"你是谁"）和 A2A 协议（"怎么 @ 队友"）被当成普通上下文，compact 时可能被压缩掉或改写。模型从最近上下文推断身份时，容易被最近的说话人风格锚定。
 - 触发条件：长对话 → Context compact → 身份段被压缩 → 模型从残留上下文推断错误身份。
 - 修复：每次 system prompt 注入（含 compact 后）都必须包含不可省略的身份声明 + A2A 格式规则。
 - 防护：F042 Phase A 验证注入缺口 + Phase C 优化注入频率。
 - 来源锚点：
   - `docs/features/F042-prompt-engineering-audit.md` §1.2, §1.3
-  - *(internal reference removed)*（Maine Coon自省分析）
+  - *(internal reference removed)*（Agent-M自省分析）
   - 2026-02-27 铲屎官运行时观察
 - 原理：多 Agent 系统中，身份是最基础的约束——它决定了模型的行为边界、权限和协作关系。把身份当成可推断项，就相当于每次 compact 后给模型一个"你可以变成任何人"的自由度。
 
@@ -525,12 +525,12 @@ created: 2026-02-26
 ### LL-027: Feature spec 与代码实现的时间线漂移会误导路线决策
 - 状态：validated
 - 更新时间：2026-03-02
-- 现象：F042 的 6 个 PR 在 2026-03-01 合入 main，但 spec 的 Status 仍停留在 "in-progress (决策完成，待实施)" — 导致路线盘点时两猫都要花大量 token 做 "spec vs 实际" 的对账
+- 现象：F042 的 6 个 PR 在 2026-03-01 合入 main，但 spec 的 Status 仍停留在 "in-progress (决策完成，待实施)" — 导致路线盘点时两Agent都要花大量 token 做 "spec vs 实际" 的对账
 - 根因：没有 "PR 合入后更新 spec" 的强制环节
 - 对策：**Feature 相关 PR 合入后 48h 内必须同步 spec 的 Timeline/Status**。纳入 merge-gate 或 feat-lifecycle 的收尾步骤。
 - 来源锚点：
   - *(internal reference removed)*（收敛纪要）
-  - Maine Coon 2026-03-01 F042 盘点分析（对账 spec vs git log）
+  - Agent-M 2026-03-01 F042 盘点分析（对账 spec vs git log）
 - 关联：F042 | merge-gate | feat-lifecycle
 
 ### LL-028: "最小实现"不等于"做个玩具再重写"——绕路 C 点反模式
@@ -544,20 +544,20 @@ created: 2026-02-26
   2. 步骤是内部实现节奏，不是给铲屎官看的交付批次；交付物是完整 feat
   3. 纯探索显式标注 Spike（时间盒 + 产出结论），不伪装成交付物
   4. Quality gate 自检：后续要"重写"还是"扩展"？重写 = 绕路
-- 来源锚点：2026-03-05 铲屎官反馈 + Ragdoll/Maine Coon联合分析
+- 来源锚点：2026-03-05 铲屎官反馈 + Agent-R/Agent-M联合分析
 - 关联：writing-plans | quality-gate
 
 ### LL-029: 交付物验证不能只看 spec checkbox——必须核实 commit/PR
 - 状态：validated
 - 更新时间：2026-03-09
-- 现象：猫猫声称 feature 完成/未完成，只看了 spec 文件的 checkbox 状态就下结论，没有去核实 git log、PR、实际 commit。导致"睁眼说瞎话"——spec 可能漏标、错标，与实际代码状态不一致。
+- 现象：Agent声称 feature 完成/未完成，只看了 spec 文件的 checkbox 状态就下结论，没有去核实 git log、PR、实际 commit。导致"睁眼说瞎话"——spec 可能漏标、错标，与实际代码状态不一致。
 - 根因：偷懒走捷径。spec checkbox 是人工维护的元数据，不是交付证据本身。把"关于证据的描述"当成了"证据"。
 - 对策：
   1. 验证交付物时，至少核实两层：spec checkbox + 实际 commit/PR 状态
   2. "完成"的证据链：spec AC ✅ + commit 存在 + PR merged + 测试通过
   3. "未完成"也需要证据：具体哪条 AC 缺失 + 对应代码/PR 确实没有
   4. 不要只读 .md 文件就下结论——.md 是索引，git 才是真相
-- 来源锚点：2026-03-09 铲屎官发现Ragdoll(另一线程)只看 spec 就声称 feat 未完成
+- 来源锚点：2026-03-09 铲屎官发现Agent-R(另一线程)只看 spec 就声称 feat 未完成
 - 关联：P5（可验证才算完成）| quality-gate | feat-lifecycle
 
 ### LL-030: 共享脚本改默认值，同 commit 必须补显式环境值 + 真实启动验收
@@ -572,7 +572,7 @@ created: 2026-02-26
 - 来源锚点：
   - *(internal reference removed)*（C1 共识 + 4.1 决策）
   - `docs/decisions/016-sync-runtime-negation-decisions.md`（N3 否决分叉脚本）
-  - commit `553984d5`（Maine Coon proxy kill 门禁修复）
+  - commit `553984d5`（Agent-M proxy kill 门禁修复）
 - 原理：共享基础设施的默认值是所有消费环境的隐式契约。改默认值 = 改所有环境的行为。必须同时补齐所有消费方的显式覆盖，并用真实启动验证——静态检查只能证明"代码合法"，不能证明"行为正确"。
 
 - 关联：ADR-016 | LL-019 过度修复反模式 | LL-020 补丁数量信号
@@ -597,8 +597,8 @@ created: 2026-02-26
 - 状态：validated
 - 更新时间：2026-03-14
 
-- 坑：F101 狼人杀被声明 done（2026-03-12），愿景守护由 GPT-5.4 审查并 pass。92 个单元测试全绿、190+ 游戏测试全绿。但 2026-03-14 铲屎官第一次真的启动 dev 点开狼人杀后发现：(1) GameShell 接了 onClose 但没渲染关闭按钮——用户被困在全屏游戏里出不来；(2) 无大厅/配置流程——硬编码 7 只猫自动塞入；(3) 猫猫 AI 不会自动行动——游戏永远卡在 night_guard 等待；(4) 与 .pen 设计稿的 UX 差距大。整体不可用。
-- 根因：愿景守护是通过阅读代码、测试报告和 spec checkbox 完成的，没有一只猫真的启动 `pnpm dev`，打开浏览器，点击"狼人杀"，选个模式，看看会发生什么。单元测试验证的是组件/引擎的孤立行为，不是端到端用户体验。"每个部件都对"≠"组装起来能用"。
+- 坑：F101 狼人杀被声明 done（2026-03-12），愿景守护由 GPT-5.4 审查并 pass。92 个单元测试全绿、190+ 游戏测试全绿。但 2026-03-14 铲屎官第一次真的启动 dev 点开狼人杀后发现：(1) GameShell 接了 onClose 但没渲染关闭按钮——用户被困在全屏游戏里出不来；(2) 无大厅/配置流程——硬编码 7 只Agent自动塞入；(3) Agent AI 不会自动行动——游戏永远卡在 night_guard 等待；(4) 与 .pen 设计稿的 UX 差距大。整体不可用。
+- 根因：愿景守护是通过阅读代码、测试报告和 spec checkbox 完成的，没有一只Agent真的启动 `pnpm dev`，打开浏览器，点击"狼人杀"，选个模式，看看会发生什么。单元测试验证的是组件/引擎的孤立行为，不是端到端用户体验。"每个部件都对"≠"组装起来能用"。
 - 触发条件：feature 有前端 UI + 后端引擎 + WebSocket 实时交互等多层集成时；只跑单元测试不做 E2E 验证时。
 - 修复：(1) 重新打开 F101，补 Phase C 可用性修复；(2) 新增 AC-C4 要求 codex/gpt52 启动 dev 做真实 E2E 验收。
 - 防护：愿景守护增加"真实环境启动验证"环节——对于有 UI 的 feature，reviewer 或铲屎官必须至少启动一次 dev 环境并走通核心流程。不方便的话至少把 dev 启动好让铲屎官一起测。
@@ -614,7 +614,7 @@ created: 2026-02-26
 
 - 状态：validated
 - 更新时间：2026-03-18
-- 坑：PR #543 云端 Codex review 的 review body 显示 `COMMENTED`（通常意味着"no major issues"），但实际在 inline code comment 里提了一个 P1（flushDirtyThreads 用了空的 threadMemory.summary 会 30 秒后删除 rebuild 刚建好的 thread 索引）。Ragdoll只看了 review body 就 merge 了，漏掉了 P1。
+- 坑：PR #543 云端 Codex review 的 review body 显示 `COMMENTED`（通常意味着"no major issues"），但实际在 inline code comment 里提了一个 P1（flushDirtyThreads 用了空的 threadMemory.summary 会 30 秒后删除 rebuild 刚建好的 thread 索引）。Agent-R只看了 review body 就 merge 了，漏掉了 P1。
 - 根因：`gh pr view` 的 `--json reviews` 只返回 review body，不返回 inline code comments。必须额外调 `gh api repos/.../pulls/N/comments` 才能看到 inline comments。
 - 触发条件：云端 review 给了 `COMMENTED` state + 有 inline P1 code comment。
 - 防护：
@@ -632,7 +632,7 @@ created: 2026-02-26
 - 状态：validated
 - 更新时间：2026-03-21
 - 坑：F102 Phase C 的 embedding 实现用了 `@huggingface/transformers`（Transformers.js ONNX，in-process CPU），而同一项目里 TTS/ASR 已有完整的参考架构（独立 Python 进程 + MLX GPU + HTTP /health + 端口注册 + GPU 锁）。结果：(a) CPU 和 API 进程争抢资源；(b) 无独立端口、无健康检查、dashboard 不可见；(c) 启动时同步阻塞下载 614MB 模型；(d) Mac 有 Apple Silicon GPU 不用，浪费硬件。
-- 根因：Ragdoll偷懒走了"最小实现路径"（ONNX + Transformers.js in-process），没有对照同项目已有的 TTS/ASR 架构模式。这是典型的"脚手架"——有终态参考（独立进程 GPU）还做了中间态（in-process CPU）。
+- 根因：Agent-R偷懒走了"最小实现路径"（ONNX + Transformers.js in-process），没有对照同项目已有的 TTS/ASR 架构模式。这是典型的"脚手架"——有终态参考（独立进程 GPU）还做了中间态（in-process CPU）。
 - 触发条件：新增本地模型推理能力时，没有先审视项目里已有的模型服务架构。
 - 防护：
   - **新增任何本地模型推理 → 先看 TTS/ASR 的实现模式**（独立进程 + GPU + HTTP + /health + 端口注册）
@@ -648,7 +648,7 @@ created: 2026-02-26
 
 - 状态：validated
 - 更新时间：2026-03-21
-- 坑：Maine Coon执行 `scripts/sync-to-opensource.sh` 时，TARGET_DIR 指向了 `cat-cafe-runtime`（runtime worktree）而非 `clowder-ai`（开源仓）。脚本核心操作 `rsync -a --delete` 把 runtime 当成开源仓目标来清洗：(a) 2057 个文件从磁盘删除（296,204 行代码消失）；(b) `.env` 被开源版覆盖（端口变 3003/3004、品牌变 Clowder AI、API keys 全丢、代理关闭）；(c) `.env` 被删除；(d) `node_modules` 损坏导致服务无法启动。**`.env` 是 gitignored 的，`git checkout .` 无法恢复，API keys、飞书/Telegram/GitHub IMAP 配置均无备份。**
+- 坑：Agent-M执行 `scripts/sync-to-opensource.sh` 时，TARGET_DIR 指向了 `agent-hub-runtime`（runtime worktree）而非 `agent-task-hub`（开源仓）。脚本核心操作 `rsync -a --delete` 把 runtime 当成开源仓目标来清洗：(a) 2057 个文件从磁盘删除（296,204 行代码消失）；(b) `.env` 被开源版覆盖（端口变 3003/3004、品牌变 Clowder AI、API keys 全丢、代理关闭）；(c) `.env` 被删除；(d) `node_modules` 损坏导致服务无法启动。**`.env` 是 gitignored 的，`git checkout .` 无法恢复，API keys、飞书/Telegram/GitHub IMAP 配置均无备份。**
 - 根因：(1) sync 脚本的 TARGET_DIR 没有安全护栏，任何路径都能被当成目标；(2) `CLOWDER_AI_DIR` 环境变量被设错或在错误目录执行了脚本；(3) `rsync --delete` 是不可逆破坏性操作，无 trash/回收站。
 - 触发条件：`CLOWDER_AI_DIR` 指向内部 worktree，或在 worktree 目录下执行 sync 脚本导致相对路径解析错误。
 - 修复：
@@ -656,10 +656,10 @@ created: 2026-02-26
   - `.env`：从 WebStorm `content.dat` 缓存逐 key 恢复（Anthropic/OpenRouter/Feishu/GitHub IMAP 找回，OpenAI/Google/Telegram 未找回需手动补）
   - `.env`：从 `.env.example` 重建
 - 防护：
-  - **`sync-to-opensource.sh` 新增 TARGET_DIR 安全护栏**：(a) 目录名匹配 `cat-cafe*` 则拒绝；(b) 目标是当前仓库的 git worktree 则拒绝
-  - **full sync 改成 source-owned public gate**：先把导出产物打到 temp target，在 temp target 跑 `pnpm check` / `pnpm lint` / `build` / `test:public` / startup acceptance；绿了才允许碰真实 `clowder-ai`
+  - **`sync-to-opensource.sh` 新增 TARGET_DIR 安全护栏**：(a) 目录名匹配 `agent-hub*` 则拒绝；(b) 目标是当前仓库的 git worktree 则拒绝
+  - **full sync 改成 source-owned public gate**：先把导出产物打到 temp target，在 temp target 跑 `pnpm check` / `pnpm lint` / `build` / `test:public` / startup acceptance；绿了才允许碰真实 `agent-task-hub`
   - **本机 smoke 不再属于 full sync 主路径**：README/macOS 启动验收单独执行，且必须显式隔离端口/Redis，不能顺手碰 runtime
-  - **所有猫：禁止对 runtime worktree 执行任何同步/清理脚本**（runtime 是生产环境，不是测试靶子）
+  - **所有Agent：禁止对 runtime worktree 执行任何同步/清理脚本**（runtime 是生产环境，不是测试靶子）
   - **.env 应该有备份机制**（目前没有，gitignored 的敏感文件是单点故障）
 - 来源锚点：
   - `scripts/sync-to-opensource.sh` L148-L164（新增 safety guard）
@@ -675,12 +675,12 @@ created: 2026-02-26
 
 - 状态：validated
 - 更新时间：2026-03-24
-- 坑：`sync-to-opensource.sh` 进入 temp target public gate 后，Maine Coon多次在 `Biome check...` 或 `Smoke test (test:public)...` 阶段就回消息，误把“脚本还在跑 / 会话还活着”当成阶段完成。结果一旦执行停下，外部看到的是“同步到了 Step 5”，但真实 target 还没被碰到，PR/CI 也根本没开始。
-- 根因：(1) 把长静默门禁误当成 checkpoint；(2) 只观察到了会话状态，没有等到脚本退出码和终态输出；(3) `opensource-ops` / outbound sync 文档之前写了 temp target public gate 必须全绿，但没把“执行中的猫不得在 Step 5 半路退出”写成硬约束。
+- 坑：`sync-to-opensource.sh` 进入 temp target public gate 后，Agent-M多次在 `Biome check...` 或 `Smoke test (test:public)...` 阶段就回消息，误把“脚本还在跑 / 会话还活着”当成阶段完成。结果一旦执行停下，外部看到的是“同步到了 Step 5”，但真实 target 还没被碰到，PR/CI 也根本没开始。
+- 根因：(1) 把长静默门禁误当成 checkpoint；(2) 只观察到了会话状态，没有等到脚本退出码和终态输出；(3) `opensource-ops` / outbound sync 文档之前写了 temp target public gate 必须全绿，但没把“执行中的Agent不得在 Step 5 半路退出”写成硬约束。
 - 触发条件：release-intended full sync / full sync 进入 temp target public gate，尤其卡在 `pnpm check`、`pnpm lint`、`build`、`test:public`、startup acceptance 这类长静默步骤时。
 - 修复：
-  - `cat-cafe-skills/opensource-ops/SKILL.md` 增加关键原则：full sync 是长跑门禁，不是中途 checkpoint
-  - `cat-cafe-skills/refs/opensource-ops-outbound-sync.md` 增加执行纪律：Step 5 只允许以 `✓ Source-owned public gate passed` 或明确红灯失败作为退出条件
+  - `agent-hub-skills/opensource-ops/SKILL.md` 增加关键原则：full sync 是长跑门禁，不是中途 checkpoint
+  - `agent-hub-skills/refs/opensource-ops-outbound-sync.md` 增加执行纪律：Step 5 只允许以 `✓ Source-owned public gate passed` 或明确红灯失败作为退出条件
 - 防护：
   - release / full sync 期间，只要脚本还没打印 `=== Sync complete ===` 或失败红灯，就继续守在执行链上
   - 禁止在 `Biome check...` / `Smoke test (test:public)...` / `Startup acceptance...` 这些中间状态汇报“已经到下一步”
@@ -691,13 +691,13 @@ created: 2026-02-26
 
 - 状态：draft
 - 更新时间：2026-03-25
-- 坑：预期不同模型家族（Claude Opus vs GPT-5.4）会给出差异化观点，但本地两猫的观点反而比同模型家族的云端猫（GPT Pro）更趋同。差点把这种趋同当成"互相附和"忽略了。
-- 根因：本地猫共享 shared-rules、共同经历（120+ features 的协作历史、同一套教训沉淀），这些"共享记忆"比底层模型参数更能塑造判断框架。云端猫虽同属 GPT 家族但缺乏这些共同经历，所以反而提出了更多不同视角。
-- 触发条件：多猫独立思考/brainstorm 场景——当两只本地猫意见过度一致时，不要急于下结论是"互相附和"，也不要急于下结论是"充分验证"，需要引入无共享记忆的外部视角交叉校验。
-- 修复：F129 生态调研中增加了云端 GPT Pro Deep Research 作为独立视角；本地两猫 + 云端猫三方碰撞后才做综合。
+- 坑：预期不同模型家族（Claude Opus vs GPT-5.4）会给出差异化观点，但本地两Agent的观点反而比同模型家族的云端Agent（GPT Pro）更趋同。差点把这种趋同当成"互相附和"忽略了。
+- 根因：本地Agent共享 shared-rules、共同经历（120+ features 的协作历史、同一套教训沉淀），这些"共享记忆"比底层模型参数更能塑造判断框架。云端Agent虽同属 GPT 家族但缺乏这些共同经历，所以反而提出了更多不同视角。
+- 触发条件：多Agent独立思考/brainstorm 场景——当两只本地Agent意见过度一致时，不要急于下结论是"互相附和"，也不要急于下结论是"充分验证"，需要引入无共享记忆的外部视角交叉校验。
+- 修复：F129 生态调研中增加了云端 GPT Pro Deep Research 作为独立视角；本地两Agent + 云端Agent三方碰撞后才做综合。
 - 防护：
-  - 高 stakes 的多猫独立思考，默认在扇入前引入至少 1 个无共享记忆视角；该视角第一轮只看原问题和最小中性背景，不看本地综合（锁死时序：先独立出结论，再碰撞）
-  - 本地猫趋同时显式标注"⚠️ 可能受共享记忆影响"，不直接等价于"独立验证通过"
+  - 高 stakes 的多Agent独立思考，默认在扇入前引入至少 1 个无共享记忆视角；该视角第一轮只看原问题和最小中性背景，不看本地综合（锁死时序：先独立出结论，再碰撞）
+  - 本地Agent趋同时显式标注"⚠️ 可能受共享记忆影响"，不直接等价于"独立验证通过"
 - 来源锚点：*(internal reference removed)* §3 + *(internal reference removed)* §Local Synthesis
 - 原理：团队文化是一种隐性的 prompt——shared-rules、共同教训、协作习惯构成了比 system prompt 更深层的"预训练"。这不是坏事（恰恰说明团队文化在起作用），但在需要多元视角时必须意识到这个偏置。
 
@@ -708,7 +708,7 @@ created: 2026-02-26
 - 状态：validated
 - 更新时间：2026-03-26
 
-- 坑：F139 Phase 1a 的 TaskRunnerV2 实现了 `withTimeout()` 用 `Promise.race` 给 execute 加超时。timeout reject 后 `finally` 释放了 `running` 锁，但底层 execute 仍在运行——下一个 tick 绕过 overlap guard 进入了同一 task 的并发执行。Maine Coon第二轮 review 抓出此 P1。
+- 坑：F139 Phase 1a 的 TaskRunnerV2 实现了 `withTimeout()` 用 `Promise.race` 给 execute 加超时。timeout reject 后 `finally` 释放了 `running` 锁，但底层 execute 仍在运行——下一个 tick 绕过 overlap guard 进入了同一 task 的并发执行。Agent-M第二轮 review 抓出此 P1。
 - 根因：JS Promise 无法取消。`Promise.race([execute, timeout])` 只决定哪个先 settle 调用方，但输掉 race 的 promise 仍然在跑。如果 timeout 赢了就释放锁，等于告诉调度器"这个 task 空闲了"，而实际 execute 还在占用资源。
 - 触发条件：任何用 Promise.race/setTimeout 做 timeout 的场景，如果 timeout 后释放了互斥资源（锁、信号量、连接池 slot）。
 - 修复：
@@ -720,7 +720,7 @@ created: 2026-02-26
   - **测试**：`task-runner-v2.test.js` "concurrent reentry" 用例：gate 返回信号 + execute 永远 pending + timeout 触发 → 验证第二个 tick 被 overlap guard 拦截
 - 来源锚点：
   - `packages/api/src/infrastructure/scheduler/TaskRunnerV2.ts` L139, L169
-  - Maine Coon Round 2 review (2026-03-25): "timeout reject → finally → running=false，但 execute 还在飞"
+  - Agent-M Round 2 review (2026-03-25): "timeout reject → finally → running=false，但 execute 还在飞"
 - 原理：Promise 是 completion token，不是 cancellation token。race 只决定 observer 的视角，不影响 producer 的生命周期。在 JS 没有原生 AbortSignal 深度集成之前，timeout 和资源释放必须解耦。
 
 - 关联：F139 Phase 1a PR #747 | ADR-022
@@ -741,7 +741,7 @@ created: 2026-02-26
   - **测试**：`review-comments-spec.test.js` "cursor not advanced on execute failure" 用例
 - 来源锚点：
   - `packages/api/src/infrastructure/email/ReviewCommentsTaskSpec.ts` L81, L96
-  - Maine Coon Round 1 review P2-1: "gate 里推进 cursor 是 over-optimistic"
+  - Agent-M Round 1 review P2-1: "gate 里推进 cursor 是 over-optimistic"
 - 原理：cursor/watermark 是"已确认处理完成"的标记，语义上等价于 Kafka consumer commit。Kafka 的 at-least-once 保证也要求 commit 在 process 之后，不在 poll 时自动推进。
 
 - 关联：F139 Phase 1a PR #747 | ReviewCommentsTaskSpec
@@ -753,38 +753,38 @@ created: 2026-02-26
 - 状态：validated
 - 更新时间：2026-03-27
 
-- 坑：金渐层在 5 个文档中写入了 11 处未来日期（2026-06/07），实际当时是 2026-03。这是第二轮修复（第一轮 de2cb42f5 修了 F137）。
-- 根因：LLM 没有可靠的内部时钟。金渐层的训练数据截止日期造成系统性时间偏差（+3~4 个月），在不调用 `date` 命令校准的情况下，凭"内部时间感"直接写入日期 = 幻觉。
-- 触发条件：任何猫在文档中写入日期（timeline、changelog、KD 表、Phase 记录等）且未先确认当前日期时。
+- 坑：Golden Agent在 5 个文档中写入了 11 处未来日期（2026-06/07），实际当时是 2026-03。这是第二轮修复（第一轮 de2cb42f5 修了 F137）。
+- 根因：LLM 没有可靠的内部时钟。Golden Agent的训练数据截止日期造成系统性时间偏差（+3~4 个月），在不调用 `date` 命令校准的情况下，凭"内部时间感"直接写入日期 = 幻觉。
+- 触发条件：任何Agent在文档中写入日期（timeline、changelog、KD 表、Phase 记录等）且未先确认当前日期时。
 - 偏差模式：稳定 +3~4 个月，不是随机错误，是系统性偏差。
 - 修复：commit `9f87d354e` 批量修正 5 文件 11 处（open-source-status / F048 / F055 / F121 / F134）。
 - 防护：
-  - **铁律：写日期前先 `date`** — 任何猫在文档中写入日期时，必须先执行 `date` 或从系统 prompt 中确认当前日期，禁止凭感觉写
+  - **铁律：写日期前先 `date`** — 任何Agent在文档中写入日期时，必须先执行 `date` 或从系统 prompt 中确认当前日期，禁止凭感觉写
   - **Review 检查项**：reviewer 核对文档中新增日期是否在合理范围内（不超过当前日期）
 - 来源锚点：
-  - 金渐层自述根因：内部时间感知幻觉 + 训练截止日期偏差
+  - Golden Agent自述根因：内部时间感知幻觉 + 训练截止日期偏差
   - 第一轮修复：de2cb42f5（F137）、第二轮修复：9f87d354e（F048/F055/F121/F134/open-source-status）
 - 原理：LLM 的时间感知是从训练数据中学到的统计分布，不是真实时钟。没有外部锚定（系统 prompt 日期注入或 `date` 命令），任何模型都可能产出偏移日期。这跟"内容幻觉"本质相同——模型生成看起来合理但事实错误的信息。
 
-- 关联：金渐层日期幻觉 | 5 文件 11 处 | 两轮修复
+- 关联：Golden Agent日期幻觉 | 5 文件 11 处 | 两轮修复
 
 ### LL-041: 写完产物不主动打开 = 做了菜不端上桌
 
 - 状态：validated
 - 更新时间：2026-03-28
 
-- 坑：Ragdoll写完诊断报告后只报了文件路径，没有帮铲屎官打开。铲屎官反问："我们有打开的能力，但你写完了竟然不帮我打开！"
-- 根因：猫的工作流在"产出文件"这一步就画了句号，没有编码"呈现给铲屎官"这一步。workspace-navigator、browser-preview、rich block 等展示能力都存在，但只在铲屎官明确要求时才被动使用——缺少"何时主动展示"的触发时机。
-- 触发条件：任何猫写完文件/跑完测试/改完前端/生成报告后，没有主动打开或展示给铲屎官。
+- 坑：Agent-R写完诊断报告后只报了文件路径，没有帮铲屎官打开。铲屎官反问："我们有打开的能力，但你写完了竟然不帮我打开！"
+- 根因：Agent的工作流在"产出文件"这一步就画了句号，没有编码"呈现给铲屎官"这一步。workspace-navigator、browser-preview、rich block 等展示能力都存在，但只在铲屎官明确要求时才被动使用——缺少"何时主动展示"的触发时机。
+- 触发条件：任何Agent写完文件/跑完测试/改完前端/生成报告后，没有主动打开或展示给铲屎官。
 - 修复：当次手动用 Navigate API 打开了报告。
 - 防护：
-  - **shared-rules W8 共享视图** — 将"产物端上桌"编码为世界观级规则，通过 GOVERNANCE_L0_DIGEST 注入所有猫的每次调用
+  - **shared-rules W8 共享视图** — 将"产物端上桌"编码为世界观级规则，通过 GOVERNANCE_L0_DIGEST 注入所有Agent的每次调用
   - **判断标准**：写完产物后问"铲屎官需要看到这个吗？"——是 → 按场景用 navigate / preview / rich block 打开
 - 来源锚点：
   - 铲屎官原话："写完竟然不帮我打开！就和写完前端不帮我打开 preview 一样"
   - shared-rules.md W8 新增
   - SystemPromptBuilder.ts GOVERNANCE_L0_DIGEST W8 新增
-- 原理：人猫协作是双向共享感知，不是单向任务完成汇报。愿景写的是"共享家园"——家人做了饭会端上桌，不会只喊一声"厨房锅里有饭"。猫的能力边界不只是"能做"，还包括"做完后展示"。这是人猫协作和人用 API 的本质区别（W1）。
+- 原理：人Agent协作是双向共享感知，不是单向任务完成汇报。愿景写的是"共享家园"——家人做了饭会端上桌，不会只喊一声"厨房锅里有饭"。Agent的能力边界不只是"能做"，还包括"做完后展示"。这是人Agent协作和人用 API 的本质区别（W1）。
 
 - 关联：shared-rules W8 | workspace-navigator skill | browser-preview skill | 三天产品化诊断
 
@@ -839,24 +839,24 @@ created: 2026-02-26
   3. 测试 IME 场景时，模拟 `compositionstart` → `keydown(Enter)` 序列，不要用 `Object.defineProperty(event, 'isComposing', { value: true })`
 - 关联：F080（输入历史）| ChatInput | ThreadItem
 
-### LL-045: Runtime worktree 反复被猫污染——三次误删 + 进程表爆炸导致系统重启
+### LL-045: Runtime worktree 反复被Agent污染——三次误删 + 进程表爆炸导致系统重启
 - 状态：draft
 - 更新时间：2026-03-31
 
-- 坑：2026-03-29 ～ 2026-03-31 期间，runtime worktree（`cat-cafe-runtime`）被多个Ragdoll session 反复弄脏，导致 `pnpm start` 无法启动。发现三批污染：
+- 坑：2026-03-29 ～ 2026-03-31 期间，runtime worktree（`agent-hub-runtime`）被多个Agent-R session 反复弄脏，导致 `pnpm start` 无法启动。发现三批污染：
   1. **WeixinAdapter voice_item A/B test**（`WEIXIN_VOICE_ITEM_MODE` env 切换 `minimal` vs `metadata`）——调试微信语音问题，直接在 runtime 编辑
-  2. **invoke-single-cat.ts account resolution 调试**——插入 `appendFileSync('/tmp/cat-cafe-account-debug.log')` 文件日志 + 多个 `let→const` 误改（会导致运行时崩溃）+ proxy fallback if/else 逻辑被重构坏
+  2. **invoke-single-agent.ts account resolution 调试**——插入 `appendFileSync('/tmp/agent-hub-account-debug.log')` 文件日志 + 多个 `let→const` 误改（会导致运行时崩溃）+ proxy fallback if/else 逻辑被重构坏
   3. **`process-liveness-probe.test.js` 进程泄漏**——同一测试文件被多实例并发运行（疑似 watch 模式反复触发），每个实例 spawn 子进程不回收，进程数飙至 10472，Load Average 199，系统进入 `EAGAIN`（fork failed: resource temporarily unavailable），最终只能重启 macOS
   - 另有 Knowledge Feed markers（`docs/markers/*.yaml`）和开源同步残留（`LICENSE`、`ROADMAP.md`、`.sync-provenance.json`）出现在 runtime
 
 - 根因：
-  1. **P0 铁律执行失败**：`feedback_no_touch_runtime.md` 已明确"禁止直接操作 runtime worktree"，但多个 session 的Ragdoll仍然在 runtime 里直接编辑代码/运行测试/运行脚本
-  2. **runtime 无写保护**：除了 `pnpm start` 时的脏检查（`git status -uno`），runtime worktree 没有任何机制阻止猫直接写入
+  1. **P0 铁律执行失败**：`feedback_no_touch_runtime.md` 已明确"禁止直接操作 runtime worktree"，但多个 session 的Agent-R仍然在 runtime 里直接编辑代码/运行测试/运行脚本
+  2. **runtime 无写保护**：除了 `pnpm start` 时的脏检查（`git status -uno`），runtime worktree 没有任何机制阻止Agent直接写入
   3. **测试进程无上限**：`process-liveness-probe.test.js` 涉及 spawn 子进程，但无 maxprocs / ulimit 保护，watch 模式下可指数膨胀
-  4. **清理时二次伤害**：发现污染后，当前 session 的Ragdoll三次不检查内容就执行 `git checkout --` / `git clean -fd`，导致调试进度（invoke-single-cat.ts）和 Knowledge Feed markers 不可逆丢失
+  4. **清理时二次伤害**：发现污染后，当前 session 的Agent-R三次不检查内容就执行 `git checkout --` / `git clean -fd`，导致调试进度（invoke-single-agent.ts）和 Knowledge Feed markers 不可逆丢失
 
 - 触发条件：
-  - 猫在 runtime worktree 目录下执行编辑/测试/脚本（而非 feature worktree）
+  - Agent在 runtime worktree 目录下执行编辑/测试/脚本（而非 feature worktree）
   - 测试涉及 process spawn 且在 watch 模式下运行
   - 发现脏文件后不检查内容直接清理
 
@@ -868,7 +868,7 @@ created: 2026-02-26
 - 防护：
   1. **runtime worktree 写保护**：考虑用 `chflags uchg` 或 git hook 阻止非 `runtime-worktree.sh` 的写入
   2. **测试进程上限**：`process-liveness-probe.test.js` 需加 spawn 计数器 + `ulimit -u` 防护
-  3. **清理前必须检查**：见 `feedback_never_clean_without_checking.md`——`git checkout/clean/rm` 前先 `ls`/`cat`/`git diff` 看内容，stash 优先于 checkout
+  3. **清理前必须检查**：见 `feedback_never_clean_without_checking.md`——`git checkout/clean/rm` 前先 `ls`/`agent`/`git diff` 看内容，stash 优先于 checkout
   4. **脏检查应区分 tracked 和 untracked**：当前 `ensure_runtime_clean` 用 `-uno` 忽略 untracked 文件，markers/sync 残留不会阻止启动但会持续积累
 
 - 来源锚点：
@@ -877,7 +877,7 @@ created: 2026-02-26
   - `feedback_never_clean_without_checking.md`
   - `scripts/runtime-worktree.sh` ensure_runtime_clean 函数
 
-- 关联：F137（WeixinAdapter voice）| F118（invoke-single-cat audit）| #862 | feedback_no_touch_runtime.md
+- 关联：F137（WeixinAdapter voice）| F118（invoke-single-agent audit）| #862 | feedback_no_touch_runtime.md
 
 ---
 
@@ -893,7 +893,7 @@ created: 2026-02-26
   4. 2月～3月：Redis 一直跑在纯 RDB 模式，数据涨到 42,778 keys。AOF 文件在 `appendonlydir/` 里吃灰，停留在 2月10日的空壳状态
   5. 3月31日：LL-045 进程爆炸 → macOS 强制重启 → Redis 进程死亡 → `pnpm start` 用 `--appendonly yes` 冷启动 → Redis 看到 `appendonlydir/` 存在 → **优先加载 AOF（空的）→ 忽略 110MB 的 dump.rdb** → 空库
 - 以前没出事的原因：Redis 进程从来没被杀过。每次 `pnpm start` 发现 6399 已在跑就直连（`start-dev.sh:927`），不触发冷启动。这是第一次真正的冷启动。
-- 救命的备份：`archive_redis_snapshot "pre-start"` 在每次 `pnpm start` 启动前自动备份 dump.rdb 到 `~/.cat-cafe/redis-backups/dev/`（保留 20 份）。今天 07:34 的 `dev-pre-start-20260331-073456.rdb` 包含完整的 42,778 keys，恢复成功。**这个机制源自 2月10日 LL-015 事故后的加固。**
+- 救命的备份：`archive_redis_snapshot "pre-start"` 在每次 `pnpm start` 启动前自动备份 dump.rdb 到 `~/.agent-hub/redis-backups/dev/`（保留 20 份）。今天 07:34 的 `dev-pre-start-20260331-073456.rdb` 包含完整的 42,778 keys，恢复成功。**这个机制源自 2月10日 LL-015 事故后的加固。**
 
 - 修复（已提交 `3ae239a1a`）：
   1. **stale AOF 冷启动防护**（`start-dev.sh:716 maybe_quarantine_stale_aof_dir`）：冷启动前比较 AOF base 与 dump.rdb 体积比，dump/base >= 100 倍判定为 stale，自动隔离 `appendonlydir/` 到 backup
@@ -917,9 +917,9 @@ created: 2026-02-26
 - 状态：validated
 - 更新时间：2026-04-10
 
-- 背景：Cat Cafe Hub 的 Socket.IO 实时通道被发现存在 CSWSH（Cross-Site WebSocket Hijacking）风险。`Origin: https://evil.example` 可以成功建立 WebSocket 连接到 `127.0.0.1:3004`
+- 背景：Agent Task Hub Hub 的 Socket.IO 实时通道被发现存在 CSWSH（Cross-Site WebSocket Hijacking）风险。`Origin: https://evil.example` 可以成功建立 WebSocket 连接到 `127.0.0.1:3004`
 
-- 影响：恶意网页可从任意 Origin 连接本机 WebSocket，冒充用户、监听消息、干扰猫猫工作
+- 影响：恶意网页可从任意 Origin 连接本机 WebSocket，冒充用户、监听消息、干扰Agent工作
 
 - 根因：
   1. **Socket.IO v4 的 `cors` 配置只对 HTTP long-polling 生效**，不校验 WebSocket upgrade 请求的 Origin 头（Socket.IO 官方文档 2026-02-16 明确标注）
@@ -940,7 +940,7 @@ created: 2026-02-26
 
 - 来源锚点：
   - F156 spec：`docs/features/F156-websocket-security-hardening.md`
-  - 三猫安全审计：*(internal reference removed)*
+  - Admin安全审计：*(internal reference removed)*
   - PR #1041（Phase A）、PR #1045（Phase B）
   - 外部参考：OpenClaw CVE-2026-25253 + ClawJacked（同类攻击链）
 
@@ -961,7 +961,7 @@ created: 2026-02-26
   2. 新增 Redis store 必须 DEFAULT_TTL=0，引入非零 TTL 需 P0 级审批
   3. 任何 `EXPIRE` / `SET EX` 调用必须有 `> 0` 守卫，防止 TTL=0 变成立即删除
 - 来源锚点：
-  - 根因文件：`packages/api/src/domains/cats/services/stores/redis/RedisThreadStore.ts:32`
+  - 根因文件：`packages/api/src/domains/agents/services/stores/redis/RedisThreadStore.ts:32`
   - 丢失 thread：`thread_mmlv4v2oq6dxefr6`（2026-03-11 创建，2026-04-10 过期）
   - Feature spec：`docs/features/F100-self-evolution.md` line 54
 - 原理：**EXPIRE 0 = 立即删除**（Redis 语义）。框架层 TTL 默认值决定了用户数据的生死线——这不是"配置"，而是产品决策。opt-out 持久化 = 用户必须知道一个他们不可能知道的配置才能保住自己的数据，这在产品层面是不可接受的。
@@ -972,13 +972,13 @@ created: 2026-02-26
 - 状态：draft
 - 更新时间：2026-04-11
 
-- 坑：2026-04-10，Maine Coon在 review F152 PR (#1070) 时，在主仓库执行 `pnpm dev:direct`。`start-dev.sh` 的 `kill_managed_ports()` 无条件杀掉 3003/3004 端口上的进程——正在运行的 runtime 被踢掉，铲屎官被动中断。
+- 坑：2026-04-10，Agent-M在 review F152 PR (#1070) 时，在主仓库执行 `pnpm dev:direct`。`start-dev.sh` 的 `kill_managed_ports()` 无条件杀掉 3003/3004 端口上的进程——正在运行的 runtime 被踢掉，铲屎官被动中断。
 - 根因：
   1. **`kill_port()` 不检查进程归属**：谁占着端口就杀谁，不区分是本 worktree 残留还是 runtime/alpha 等其他实例
   2. **护栏分裂**：`runtime-worktree.sh` 有 `CAT_CAFE_RUNTIME_RESTART_OK` 授权门，但 `dev:direct` 走 `start-dev.sh`，绕过了这道门
-  3. **`guard_main_branch_start()` 盲区**：只拦 `main` 分支 + `cat-cafe` 仓库名，主仓库切到 feature branch 照样触发事故
+  3. **`guard_main_branch_start()` 盲区**：只拦 `main` 分支 + `agent-hub` 仓库名，主仓库切到 feature branch 照样触发事故
   4. **review 沙盒规范有文档无工具**：request-review skill 写了"在沙盒操作"，但缺少统一入口和强制机制
-- 触发条件：任何猫在非隔离环境（主仓库、错误 worktree）执行 `pnpm dev:direct` / `pnpm start`，且 runtime 正在使用相同端口
+- 触发条件：任何Agent在非隔离环境（主仓库、错误 worktree）执行 `pnpm dev:direct` / `pnpm start`，且 runtime 正在使用相同端口
 - 修复（PR #1077，已合入 `807536df5`）：
   1. 新增 `pid_cwd()` + `path_is_within_project()` + `guard_port_kill_ownership()`：`kill_port()` 前检查占用进程的工作目录是否属于当前 `$PROJECT_DIR`，跨 worktree 默认拒绝 kill
   2. `CAT_CAFE_RUNTIME_RESTART_OK=1` 显式授权才放行
@@ -991,12 +991,12 @@ created: 2026-02-26
   4. request-review 模板强制证据字段（reviewer 必须填沙盒路径和端口）
 - 来源锚点：
   - 事故报告：`docs/bug-report/2026-04-10-review-dev-direct-runtime-interruption/bug-report.md`
-  - 修复 PR：zts212653/cat-cafe#1077
+  - 修复 PR：zts212653/agent-hub#1077
   - 端口归属 guard：`scripts/start-dev.sh:450`（`guard_port_kill_ownership`）
   - review 入口：`scripts/review-start.sh`
-- 原理：**"默认安全"优于"靠人记得"**。LL-045 证明纪律文档拦不住猫——写了"不要动 runtime"但多个 session 仍然直接操作。端口保护和 Redis production Redis (sacred)一样，必须在工具层面做到"默认不可能发生"，而非"读了文档就不会发生"。
+- 原理：**"默认安全"优于"靠人记得"**。LL-045 证明纪律文档拦不住Agent——写了"不要动 runtime"但多个 session 仍然直接操作。端口保护和 Redis production Redis (sacred)一样，必须在工具层面做到"默认不可能发生"，而非"读了文档就不会发生"。
 
-- 关联：LL-045（runtime worktree 反复被猫污染）| PR #1077 | `feedback_no_touch_runtime.md` | CLAUDE.md 铁律 #4
+- 关联：LL-045（runtime worktree 反复被Agent污染）| PR #1077 | `feedback_no_touch_runtime.md` | CLAUDE.md 铁律 #4
 
 ---
 
@@ -1004,7 +1004,7 @@ created: 2026-02-26
 - 状态：draft
 - 更新时间：2026-04-13
 
-- 坑：ADR-009（2026-02-10）选择"仅用户级 skill 分发"，F070（2026-03-08）引入项目级 governance bootstrap，事实性推翻 ADR-009 的核心假设。但 F070 完成时未触发任何 ADR/spec 影响检查，导致 ADR-009 以 `active` 状态存续 2 个月，直到社区 issue clowder-ai#386（2026-04-08）才暴露。
+- 坑：ADR-009（2026-02-10）选择"仅用户级 skill 分发"，F070（2026-03-08）引入项目级 governance bootstrap，事实性推翻 ADR-009 的核心假设。但 F070 完成时未触发任何 ADR/spec 影响检查，导致 ADR-009 以 `active` 状态存续 2 个月，直到社区 issue agent-task-hub#386（2026-04-08）才暴露。
 - 根因：
   1. **Feature 完成无"知识影响扫描"**：feat-lifecycle close step 不检查新 Feature 是否推翻了现有 ADR/spec 的前提
   2. **ADR 缺 machine-readable 状态**：无 `drifted`/`superseded` 状态字段，`search_evidence` 无法区分过时文档和当前真相
@@ -1012,19 +1012,19 @@ created: 2026-02-26
 - 触发条件：任何 Feature 改变了现有 ADR 的核心假设，但 Feature 完成时无人检查
 - 修复：
   1. ADR-009 已标注 `status: drifted`（2026-04-07）
-  2. ADR-025 作为 successor ADR 已完成三猫 review（2026-04-13 收敛）
+  2. ADR-025 作为 successor ADR 已完成Admin review（2026-04-13 收敛）
   3. ADR/spec frontmatter 新增 `status: active|drifted|superseded|historical` + `drifted_by` + `last_reviewed` 字段
 - 防护（待落地）：
   1. feat-lifecycle close step 增加"知识影响扫描"：新 Feature 是否改变了现有 ADR/spec 的假设？
   2. `search_evidence` 检索排序降权 drifted/historical 文档
   3. 定期 ADR 巡检（半年一次 `last_reviewed` 刷新）
 - 来源锚点：
-  - 社区 issue：[clowder-ai#386](https://github.com/zts212653/clowder-ai/issues/386)
-  - ADR-009 drift 标注：`docs/decisions/009-cat-cafe-skills-distribution.md`
+  - 社区 issue：[agent-task-hub#386](https://github.com/zts212653/agent-task-hub/issues/386)
+  - ADR-009 drift 标注：`docs/decisions/009-agent-hub-skills-distribution.md`
   - Successor ADR：`docs/decisions/025-skills-canonical-mount-policy.md`
-- 原理：**知识也有保质期**。ADR 记录的是某个时间点的决策假设，后续架构演进可能悄悄推翻这些假设。如果只靠猫的记忆发现漂移，检测延迟 = Feature 交付频率的倒数。必须在 Feature completion 工具层面做"知识影响扫描"，才能把漂移窗口从月级压到天级。
+- 原理：**知识也有保质期**。ADR 记录的是某个时间点的决策假设，后续架构演进可能悄悄推翻这些假设。如果只靠Agent的记忆发现漂移，检测延迟 = Feature 交付频率的倒数。必须在 Feature completion 工具层面做"知识影响扫描"，才能把漂移窗口从月级压到天级。
 
-- 关联：ADR-009 | ADR-025 | F070 | clowder-ai#386 | `project_knowledge_lifecycle_gap.md`
+- 关联：ADR-009 | ADR-025 | F070 | agent-task-hub#386 | `project_knowledge_lifecycle_gap.md`
 
 ---
 
@@ -1059,7 +1059,7 @@ created: 2026-02-26
 - 状态：draft
 - 更新时间：2026-04-18
 
-- 坑：shell 启动脚本里 `exec ${env_prefix}pnpm run start`（`env_prefix="NODE_ENV=production "`）直接启动失败，bash 报 "NODE_ENV=production: command not found"。结果不是"设置环境变量后再 exec pnpm"，而是把 `NODE_ENV=production` 当成可执行文件名去 PATH 里查找。F153 intake clowder-ai#512 合入当天社区小伙伴启动就挂。
+- 坑：shell 启动脚本里 `exec ${env_prefix}pnpm run start`（`env_prefix="NODE_ENV=production "`）直接启动失败，bash 报 "NODE_ENV=production: command not found"。结果不是"设置环境变量后再 exec pnpm"，而是把 `NODE_ENV=production` 当成可执行文件名去 PATH 里查找。F153 intake agent-task-hub#512 合入当天社区小伙伴启动就挂。
 - 根因：
   1. **`exec` builtin 不解析内联赋值**：bash 的 `VAR=val command arg` 形式，**只有当 command 是外部可执行程序**（如 `env`、`pnpm`）时，内联 `VAR=val` 才会作为临时环境变量传递。`exec` 是 shell builtin，走 replace-current-process 路径，第一个 token 直接被当成要 exec 的 program name——`NODE_ENV=production pnpm` 等同于 `exec 'NODE_ENV=production' pnpm`。
   2. **字符串断言掩盖启动失败**：`test/start-dev-script.test.js` 只断言 `printf "$(api_launch_command)"` 输出 `"cd ... && exec NODE_ENV=... pnpm ..."` 这个字符串字面量，没有 `eval` 这段输出验证进程真能启动。CI 全绿但 `pnpm run start` 从未被实际执行过。
@@ -1069,13 +1069,13 @@ created: 2026-02-26
   1. Shell 启动脚本的单测不能只断言 `printf` 输出文本，至少一个 case 必须 `bash -n` 语法检查 + 在 mock 环境下 `eval` 这段命令验证 exit code（或跑 `pnpm dev:direct --dry-run`）
   2. Intake 社区 PR 改动 `scripts/**` 尤其启动/runtime 脚本时，reviewer checklist 加一条"本地跑一次 `pnpm alpha:start` 或 `pnpm dev:direct` 确认实际能启动不报错"
 - 来源锚点：
-  - Bug report: `clowder-ai#526`（2026-04-18 社区小伙伴报挂）
-  - 引入 commit: `cat-cafe:206ae80c40`（F153 intake clowder-ai#512）
-  - 修复 commit: `cat-cafe:bf5f54b9`（PR #1257）+ `clowder-ai:6ab02c44`（PR #527）
+  - Bug report: `agent-task-hub#526`（2026-04-18 社区小伙伴报挂）
+  - 引入 commit: `agent-hub:206ae80c40`（F153 intake agent-task-hub#512）
+  - 修复 commit: `agent-hub:bf5f54b9`（PR #1257）+ `agent-task-hub:6ab02c44`（PR #527）
   - 修复位置: `scripts/start-dev.sh:683-685` `api_launch_command()`
 - 原理：**`VAR=val command arg` 语法中 `VAR=val` 是"赋值前缀"还是 argv[0] 取决于 command 的类别**——外部程序会被 shell 剥离前缀作为临时 env 传递；builtin（`exec` / `source` / `:`）则直接把前缀当成参数。`env` 这个 POSIX 工具的存在就是为了让"在指定环境下运行程序"成为一个可被任何 builtin/context 调用的显式动作。**任何需要给子进程设环境变量又必须经过 builtin（典型就是 `exec`）的场景，用 `env` 显式承接。**
 
-- 关联：F153 intake clowder-ai#512 | clowder-ai#526 | cat-cafe#1257 | clowder-ai#527
+- 关联：F153 intake agent-task-hub#512 | agent-task-hub#526 | agent-hub#1257 | agent-task-hub#527
 
 ---
 
@@ -1099,10 +1099,10 @@ created: 2026-02-26
   - *(internal reference removed)*
   - *(internal reference removed)*
   - *(internal reference removed)*
-  - `packages/api/src/domains/cats/services/agents/providers/GeminiAgentService.ts`
+  - `packages/api/src/domains/agents/services/agents/providers/GeminiAgentService.ts`
 - 原理：**长任务的关键不是“后台”两个字，而是谁拥有生命周期。** 需要持续交互时，生命周期应该绑在当前 `session_id`；需要任务脱离对话继续跑时，必须显式切换到真正 detached 的进程组，并用外部探针观测。shell 伪后台只是“看起来像分叉了”，不是可靠的 liveness ownership。
 
-- 关联：`assets/system-prompts/cats/codex.md` | *(internal reference removed)*
+- 关联：`assets/system-prompts/agents/codex.md` | *(internal reference removed)*
 
 ---
 

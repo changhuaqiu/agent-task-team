@@ -11,24 +11,24 @@ created: 2026-03-09
 
 ## Phase 1 (MVP) — 飞书 + Telegram DM-only ✅ PR #328
 
-- [x] AC-1: 飞书 DM 发消息 → Cat Café 收到 → 触发猫猫回复 → 回复发回飞书 (integration test)
-- [x] AC-2: Telegram DM 发消息 → Cat Café 收到 → 触发猫猫回复 → 回复发回 Telegram (integration test)
-- [x] AC-3: 外部 DM 自动映射到 Cat Café thread（ConnectorThreadBinding）(7 + 6 unit tests)
+- [x] AC-1: 飞书 DM 发消息 → Agent Task Hub 收到 → 触发Agent回复 → 回复发回飞书 (integration test)
+- [x] AC-2: Telegram DM 发消息 → Agent Task Hub 收到 → 触发Agent回复 → 回复发回 Telegram (integration test)
+- [x] AC-3: 外部 DM 自动映射到 Agent Task Hub thread（ConnectorThreadBinding）(7 + 6 unit tests)
 - [x] AC-4: 飞书 webhook verification token 校验（fail-closed）/ Bot API auth（Telegram）(adapter tests)
 - [ ] AC-5: 现有 Web UI 功能不受影响 (regression pending)
 - [x] AC-6: 入站消息幂等——同一外部消息重放不触发重复 invoke（integration test）
 - [x] AC-7: Outbound = final-only——agent 回复完成后一次性发送到外部平台 (wired in trigger)
 
-## Phase 2 — 多猫身份 + 分角色展示 ✅ PR #336
+## Phase 2 — 多Agent身份 + 分角色展示 ✅ PR #336
 
-- [x] AC-8: 外部消息 `@布偶` / `@缅因` → 路由到指定猫（parseMentions + ConnectorRouter, 11+9 unit tests）
-- [x] AC-9: 外部回帖标明是哪只猫在说话（方案 A: 消息前缀 `[Ragdoll🐱]`，8 unit tests）
-- [x] AC-10: 多猫接力时，外部看到分角色对话（ConnectorInvokeTrigger 传透 catId → OutboundDeliveryHook 前缀，3 integration tests）
+- [x] AC-8: 外部消息 `@布偶` / `@缅因` → 路由到指定Agent（parseMentions + ConnectorRouter, 11+9 unit tests）
+- [x] AC-9: 外部回帖标明是哪只Agent在说话（方案 A: 消息前缀 `[Agent-R🐱]`，8 unit tests）
+- [x] AC-10: 多Agent接力时，外部看到分角色对话（ConnectorInvokeTrigger 传透 catId → OutboundDeliveryHook 前缀，3 integration tests）
 
 ## Phase 3 — 富文本卡片 ✅
 
-- [x] AC-11: Cat Café rich block → 飞书消息卡片 JSON — feishu-card-formatter + FeishuAdapter.sendRichMessage, 8 tests
-- [x] AC-12: Cat Café rich block → Telegram formatted message（HTML parse_mode）— telegram-html-formatter + TelegramAdapter.sendRichMessage, 9 tests
+- [x] AC-11: Agent Task Hub rich block → 飞书消息卡片 JSON — feishu-card-formatter + FeishuAdapter.sendRichMessage, 8 tests
+- [x] AC-12: Agent Task Hub rich block → Telegram formatted message（HTML parse_mode）— telegram-html-formatter + TelegramAdapter.sendRichMessage, 9 tests
 - [x] AC-13: OutboundDeliveryHook 自动检测 rich block 类型，选择纯文本降级 or 卡片格式, 12 tests
 - [ ] AC-14: 飞书卡片支持按钮交互回调（card action callback → ConnectorRouter）— deferred to Phase 3b
 
@@ -73,10 +73,10 @@ created: 2026-03-09
 ## Phase 5-9 — 未来 Phases
 
 ### Phase 5 — 图片/文件收发
-- [x] AC-19: 接收用户图片 → 下载 → 存储 → 传递给猫（contentBlocks + absPath）
-- [x] AC-20: 接收用户文件 → 下载 → 本地缓存 + 文本描述传递给猫
-  - ⚠️ 文件内容提取（PDF/文档解析）→ 结构化输入传递给猫：future phase
-- [x] AC-21: 猫的图片回复 → Telegram 原生 InputFile / Feishu 原生 /im/v1/images 上传
+- [x] AC-19: 接收用户图片 → 下载 → 存储 → 传递给Agent（contentBlocks + absPath）
+- [x] AC-20: 接收用户文件 → 下载 → 本地缓存 + 文本描述传递给Agent
+  - ⚠️ 文件内容提取（PDF/文档解析）→ 结构化输入传递给Agent：future phase
+- [x] AC-21: Agent的图片回复 → Telegram 原生 InputFile / Feishu 原生 /im/v1/images 上传
 - [x] AC-F1: Feishu 原生图片上传（FeishuTokenManager + /im/v1/images multipart）
 - [x] AC-C1: ConnectorMediaService 定期清理超龄文件（MediaCleanupJob, 24h TTL）
 
@@ -87,7 +87,7 @@ created: 2026-03-09
 - [x] AC-24: STT/TTS provider 可配置（ISttProvider + SttRegistry）
 
 ### Phase 7 — 群聊 + 多人
-- [ ] AC-25: 群聊 @猫猫 → @mention 触发（依赖 F077）
+- [ ] AC-25: 群聊 @Agent → @mention 触发（依赖 F077）
 - [ ] AC-26: 多用户权限隔离
 
 ### Phase 8 — 更多平台 + 自助接入

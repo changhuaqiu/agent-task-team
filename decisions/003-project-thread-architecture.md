@@ -9,7 +9,7 @@ created: 2026-02-26
 
 > **状态**: 已决定
 > **日期**: 2026-02-06
-> **决策者**: 铲屎官 + Ragdoll
+> **决策者**: 铲屎官 + Agent-R
 > **上下文**: Phase 3.2 完成后复盘, 参考 Codex App 的 Project/Thread 模型
 
 ## 背景
@@ -19,7 +19,7 @@ Phase 3.2 实现了扁平的 Thread（对话）管理，但缺少 **Project 层*
 
 ```
 Codex App 侧栏:
-├── cat-cafe (Project = 目录)
+├── agent-hub (Project = 目录)
 │   ├── /home/user/relay-st...   (Thread)
 │   ├── Study identity injection discussion    (Thread)
 │   ├── 调研 Claude Code Agent Teams ...       (Thread)
@@ -34,11 +34,11 @@ Codex App 侧栏:
 
 ### 为什么是目录?
 
-1. **CLI 天然需要目录**: `spawn('claude', ['-p', ...], { cwd: projectDir })` — 三只猫的 CLI 都在一个目录里工作。目录就是项目上下文。
+1. **CLI 天然需要目录**: `spawn('claude', ['-p', ...], { cwd: projectDir })` — 三只Agent的 CLI 都在一个目录里工作。目录就是项目上下文。
 
 2. **文件系统即记忆**: 目录结构本身就是知识的组织方式 — CLAUDE.md, AGENTS.md, GEMINI.md, docs/, src/ 都是项目记忆的一部分。
 
-3. **跨项目天然隔离**: 当猫咖帮铲屎官做别的项目时（非 cat-cafe 本身），`AgentServiceOptions.workingDirectory` 已支持设置不同 cwd。Project = Directory 让这个变得自然。
+3. **跨项目天然隔离**: 当Agent咖帮铲屎官做别的项目时（非 agent-hub 本身），`AgentServiceOptions.workingDirectory` 已支持设置不同 cwd。Project = Directory 让这个变得自然。
 
 4. **与 Phase 3.5 一致**: Task (毛线球) 附着到 Thread, Thread 归属 Project。Task 的文件操作天然在 Project 目录内。
 
@@ -55,12 +55,12 @@ Codex App 侧栏:
 Project (目录)
 ├── Thread (会话)
 │   ├── Messages (按 threadId 隔离)
-│   ├── Participants (活跃猫猫)
+│   ├── Participants (活跃Agent)
 │   ├── Tasks (Phase 3.5, 毛线球)
 │   └── Summary (Phase 3.5, 拍立得照片墙)
 ├── Thread
 │   └── ...
-└── 项目配置 (CLAUDE.md, cat-config.json 等)
+└── 项目配置 (CLAUDE.md, agent-config.json 等)
 ```
 
 ### 数据模型变更
@@ -90,7 +90,7 @@ interface Thread {
 ```
 对话                        [+ 新对话]
 ─────────────────────────────────
-▼ cat-cafe                    1d
+▼ agent-hub                    1d
     Study identity inject...  4h
     调研 Agent Teams ...      8h
 ▼ relay-station              2w
@@ -119,7 +119,7 @@ interface Thread {
 |------|------|--------|
 | Project 层 (目录) | Phase 3.2 聚焦 Thread, Project 是上层概念 | ThreadStore + 前端 |
 | 身份注入 | P0 阻塞项, demo 才发现 | System Prompt Builder |
-| 猫配置外置 | 身份注入的前置 | cat-config.json |
+| Agent配置外置 | 身份注入的前置 | agent-config.json |
 | Redis ThreadStore | 内存够用, Redis 留后续 | ThreadStore 接口已预留 |
 | Task (毛线球) | Phase 3.5-A | Thread.id 附着 |
 | Intent Signal | Phase 3.5-B | AgentRouter |
@@ -129,31 +129,31 @@ interface Thread {
 
 ### 1. 身份注入 (P0, 万物之基)
 
-Demo 发现: 三只猫全不知道自己是谁。
+Demo 发现: 三只Agent全不知道自己是谁。
 
 ```
 System Prompt 分层组装:
-1. 身份层: "你是Ragdoll(Opus), Cat Cafe 的主架构师..."
-2. 项目层: "当前项目: cat-cafe, 路径: /path/to/project"
+1. 身份层: "你是Agent-R(Opus), Agent Task Hub 的主架构师..."
+2. 项目层: "当前项目: agent-hub, 路径: /path/to/project"
 3. 会话层: "当前对话参与者: opus, codex"
 4. 即时层: "用户刚说: ..."
 ```
 
-### 2. 猫配置外置
+### 2. Agent配置外置
 
 ```json
-// cat-config.json
+// agent-config.json
 {
-  "cats": {
+  "agents": {
     "opus": {
-      "displayName": "Ragdoll",
+      "displayName": "Agent-R",
       "cli": "claude",
       "defaultModel": "claude-opus-4-6",
       "mcpSupport": true,
       "flags": ["--permission-mode", "dontAsk"]
     },
     "codex": {
-      "displayName": "Maine Coon",
+      "displayName": "Agent-M",
       "cli": "codex",
       "defaultModel": "gpt-5.2",
       "mcpSupport": false,
@@ -172,7 +172,7 @@ System Prompt 分层组装:
 ### 3. Project 自动发现
 
 ```
-用户打开 Cat Cafe → 检测 cwd → 注册为 Project
+用户打开 Agent Task Hub → 检测 cwd → 注册为 Project
 切换目录 → 切换 Project → Thread 列表跟随
 spawn CLI → cwd = projectPath
 ```
@@ -183,16 +183,16 @@ spawn CLI → cwd = projectPath
   - 不选原因：跨目录/跨仓库上下文会互相污染，无法表达真实工作目录边界，后续 task/summary 归属混乱。
 - **备选方案 B**：由用户手工创建/维护 Project 实体
   - 不选原因：增加操作负担且与 CLI `cwd` 脱节，容易出现“界面项目”和“执行目录”不一致。
-- **备选方案 C**：按猫猫身份拆 Project（每猫一个项目视图）
-  - 不选原因：会制造知识孤岛，破坏三猫协作共享上下文的目标。
+- **备选方案 C**：按Agent身份拆 Project（每Agent一个项目视图）
+  - 不选原因：会制造知识孤岛，破坏Admin协作共享上下文的目标。
 
 **不做边界**：本轮不引入跨项目权限系统与复杂项目元数据管理，先保持 Project=目录的轻量模型。
 
-## 给未来Ragdoll的备忘
+## 给未来Agent-R的备忘
 
 1. **不要忘记 Project = 目录**。这是铲屎官明确确认的设计决策。
 2. **Thread 是 Project 内的会话**，不是全局扁平的。
 3. **身份注入是万物之基** — 不做身份注入，Phase 3.5 的一切都是空中楼阁。
 4. **参考 Codex App** — `reference-pictures/codex-app-multi-thread.png` 是铲屎官给的参考截图。
-5. **双轨制 (Task + Roundtable)** — Maine Coon的设计 (`dual-track-collaboration-design.md`) 已获共识。
+5. **双轨制 (Task + Roundtable)** — Agent-M的设计 (`dual-track-collaboration-design.md`) 已获共识。
 6. **Demo 发现** — *(internal reference removed)* 记录了所有 P0-P3 问题。

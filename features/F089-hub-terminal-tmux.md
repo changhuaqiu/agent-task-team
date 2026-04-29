@@ -7,15 +7,15 @@ doc_kind: spec
 created: 2026-03-09
 ---
 
-# F089 Hub Terminal & tmux Integration — 浏览器终端 + 猫猫可观测性
+# F089 Hub Terminal & tmux Integration — 浏览器终端 + Agent可观测性
 
-> **Status**: in-progress | **Owner**: Ragdoll
+> **Status**: in-progress | **Owner**: Agent-R
 
 ## Why
 
 ### 核心需求（team lead 2026-03-08）
 
-1. **观察猫猫操作**：agent 在 Claude CLI 里跑的子进程（Bash tool、subagent 等）team lead看不到
+1. **观察Agent操作**：agent 在 Claude CLI 里跑的子进程（Bash tool、subagent 等）team lead看不到
 2. **崩溃恢复**：agent 卡死时想看现场（而不是只能杀进程重来）
 3. **手动接管**：agent 做到一半想人工接手继续
 4. **浏览器内 terminal**：不想切 iTerm，在 Hub 里直接操作
@@ -27,7 +27,7 @@ created: 2026-03-09
 
 ## What
 
-### 单源双消费架构（Maine Coon P1 审查修正）
+### 单源双消费架构（Agent-M P1 审查修正）
 
 ```
                      ┌─ pipe-pane tee ─→ 机器解析（NDJSON/结构化事件）→ socket.io → 前端
@@ -41,7 +41,7 @@ tmux pane（agent 跑在这里）─┤
 
 ### tmux 架构
 
-- **一个 worktree = 一个 tmux server**：`tmux -L catcafe-{worktreeId}`
+- **一个 worktree = 一个 tmux server**：`tmux -L agent task hub-{worktreeId}`
 - **用户 shell = tmux 里的一个 window/pane**
 - **agent = tmux 里的另一个 pane**（Phase 1 先做用户 shell，Phase 2 加 agent pane）
 - **观看 agent = 前端 attach 到 agent pane**（read-only）
@@ -75,14 +75,14 @@ tmux pane（agent 跑在这里）─┤
 ### Phase 2：Agent 在 tmux pane 里跑（后端 plumbing）
 
 > 核心变化：agent（Claude CLI / Codex CLI）直接在 tmux pane 里启动，不是独立 spawn+pipe。
-> 注：Phase 2 scope = 后端 runtime plumbing。前端 agent pane UI 入口移至 Phase 3（2026-03-09 愿景守护复盘，Maine Coon/GPT-5.4 指出 spec AC 与交付不符，按 P4 单一真相源原则调整分界）。
+> 注：Phase 2 scope = 后端 runtime plumbing。前端 agent pane UI 入口移至 Phase 3（2026-03-09 愿景守护复盘，Agent-M/GPT-5.4 指出 spec AC 与交付不符，按 P4 单一真相源原则调整分界）。
 
 - [x] Agent invocation 在 tmux pane 里直跑 CLI 命令（`SpawnCliOverride` + `TmuxAgentSpawner`，PR #334）
 - [x] FIFO-based tee pane 输出给机器侧 NDJSON 解析器（`spawnCliInTmux` FIFO pipeline，PR #334）
 - [x] `remain-on-exit` 保留崩溃现场（`TmuxGateway.createAgentPane`，PR #334）
 - [x] `select-pane -d` 默认 read-only（`TmuxGateway.setPaneReadOnly`，PR #334）
 - [x] `AgentPaneRegistry` 内存跟踪 + `GET /api/terminal/agent-panes` 端点（PR #334）
-- [x] Two-stage kill: C-c → 3s grace → kill-pane（Maine Coon P2 审查修正，PR #334）
+- [x] Two-stage kill: C-c → 3s grace → kill-pane（Agent-M P2 审查修正，PR #334）
 
 ### Phase 3：Agent 可观测 UI + Takeover + 进程监控
 
@@ -105,13 +105,13 @@ tmux pane（agent 跑在这里）─┤
 
 ## Key Decisions
 
-1. **单源双消费**：agent 在 tmux pane 里跑，`pipe-pane` tee 给机器解析，前端 attach 同一 pane 观看（Maine Coon P1 审查修正，取代旧版"双轨制"）
+1. **单源双消费**：agent 在 tmux pane 里跑，`pipe-pane` tee 给机器解析，前端 attach 同一 pane 观看（Agent-M P1 审查修正，取代旧版"双轨制"）
 2. **从 Day 1 底层就是 tmux**：不走"先纯 PTY 再叠 tmux"的绕路（P1 面向终态不绕路）
 3. **workspace 级 tmux server**：一个 worktree = 一个 tmux server，不是 per-invocation
 4. **plain WebSocket**：terminal 字节流用 `@fastify/websocket`，结构化事件继续用 socket.io。**⚠️ `@fastify/websocket` 全局注册会抢占 HTTP upgrade 事件，导致 Socket.IO WebSocket 握手 404（polling 不受影响）。修复：`onRequest` hook 对 `/socket.io/` 路径 `reply.hijack()`，让 Socket.IO 自行处理。**
 5. **macOS 优先**：进程监控用 pidtree/pidusage（跨平台），不用 Linux cgroup
 6. **tmux CLI 调用就是终态**：不需要 control mode (-CC)，Spike 2026-03-09 验证
-7. **tmux agent spawner opt-in**：`CAT_CAFE_TMUX_AGENT=1` 才启用。Phase 2 PR #334 无条件创建 `TmuxGateway`，导致所有有 `workingDirectory` 的 agent 调用走 tmux pane——runtime 没配 tmux 时 CLI 直接 exit 1，猫猫全部静默失败。修复后默认关闭，Phase 3 完成 + tmux 环境就绪后再开启。
+7. **tmux agent spawner opt-in**：`CAT_CAFE_TMUX_AGENT=1` 才启用。Phase 2 PR #334 无条件创建 `TmuxGateway`，导致所有有 `workingDirectory` 的 agent 调用走 tmux pane——runtime 没配 tmux 时 CLI 直接 exit 1，Agent全部静默失败。修复后默认关闭，Phase 3 完成 + tmux 环境就绪后再开启。
 
 ## Dependencies
 

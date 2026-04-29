@@ -9,7 +9,7 @@ updated: 2026-02-27
 
 # F032: Agent Plugin Architecture（CatId 松绑 + 协作规则动态化）
 
-> **Status**: done | **Owner**: Ragdoll (Opus 4.5) + 三猫
+> **Status**: done | **Owner**: Agent-R (Opus 4.5) + Admin
 > **Created**: 2026-02-26
 > **Last Updated**: 2026-02-27
 
@@ -49,7 +49,7 @@ F032 解决的是“身份/角色/协作规则”被硬编码导致的系统不�
 | 风险 | 缓解 |
 |------|------|
 | B2 迁移到 F042 后出现边界不清 | 在 F042 保留“来源于 F032 的 B3 scope”并做完成态回链 |
-| 多分身 roster 演进导致 reviewer 规则漂移 | 所有规则回收到 roster + manifest，禁止硬编码猫名 |
+| 多分身 roster 演进导致 reviewer 规则漂移 | 所有规则回收到 roster + manifest，禁止硬编码Agent名 |
 
 ## 实现状态总览
 
@@ -69,7 +69,7 @@ F032 解决的是“身份/角色/协作规则”被硬编码导致的系统不�
 ### 现状痛点
 
 1. **身份 = 物种 = 个体**：系统把三个概念糊在一起
-   - Family（物种/厂商）：Ragdoll、Maine Coon、Siamese
+   - Family（物种/厂商）：Agent-R、Agent-M、Siamese
    - Individual（个体）：Opus 4.5, Opus 4.6, Sonnet, Codex, GPT-5.2
    - Role（职能）：Architect, Reviewer, Designer
 
@@ -79,10 +79,10 @@ F032 解决的是“身份/角色/协作规则”被硬编码导致的系统不�
    - `AgentService` 在 index.ts 硬编码构造
 
 3. **协作规则硬编码**（审计发现 6+ 处）：
-   - SOP.md Reviewer 配对表写死"Ragdoll ↔ Maine Coon"
-   - CLAUDE.md "Ragdoll找Maine Coon，Maine Coon找Ragdoll"
-   - merge-approval-gate skill "没有Maine Coon放行不能合入"
-   - 所有 skill 示例只覆盖Ragdoll↔Maine Coon这一对
+   - SOP.md Reviewer 配对表写死"Agent-R ↔ Agent-M"
+   - CLAUDE.md "Agent-R找Agent-M，Agent-M找Agent-R"
+   - merge-approval-gate skill "没有Agent-M放行不能合入"
+   - 所有 skill 示例只覆盖Agent-R↔Agent-M这一对
 
 4. **Thread 活跃度未考虑**：
    - Codex 找 reviewer 时选 `opus`（default）而非 `opus-45`（已在 thread 活跃）
@@ -93,7 +93,7 @@ F032 解决的是“身份/角色/协作规则”被硬编码导致的系统不�
 ### 触发事件
 
 - 2026-02-26：team lead指出 Codex 喊 Opus 4.6 帮忙 review 而不是负责人 Opus 4.5
-- 多分身共存导致规则失效：哪个Ragdoll？哪个Maine Coon？
+- 多分身共存导致规则失效：哪个Agent-R？哪个Agent-M？
 
 ## Design Proposal
 
@@ -102,12 +102,12 @@ F032 解决的是“身份/角色/协作规则”被硬编码导致的系统不�
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                      Team Roster                            │
-│  (Single Source of Truth for all cats)                      │
+│  (Single Source of Truth for all agents)                      │
 ├─────────────────────────────────────────────────────────────┤
 │                                                             │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐         │
 │  │ Family:     │  │ Family:     │  │ Family:     │         │
-│  │ ragdoll     │  │ maine-coon  │  │ siamese     │         │
+│  │ Agent-R     │  │ maine-coon  │  │ siamese     │         │
 │  │             │  │             │  │             │         │
 │  │ ┌─────────┐ │  │ ┌─────────┐ │  │ ┌─────────┐ │         │
 │  │ │opus-45  │ │  │ │codex    │ │  │ │gemini   │ │         │
@@ -136,7 +136,7 @@ F032 解决的是“身份/角色/协作规则”被硬编码导致的系统不�
 ### Phase A：技术侧松绑 ✅ **已由 F32-b 实现**
 
 > **实现时间**: 2026-02-17 ~ 2026-02-21
-> **实现者**: Ragdoll (Opus 4.5)
+> **实现者**: Agent-R (Opus 4.5)
 > **关键 commits**: a87afb3, d25c1a1, 5759b83, dafb5da
 
 #### A1. CatId 类型松绑 ✅
@@ -162,11 +162,11 @@ for (const id of catRegistry.getAllIds()) {
 #### A3. catIdSchema 动态验证 ✅
 
 ```typescript
-// packages/shared/src/registry/cat-id-schema.ts
+// packages/shared/src/registry/agent-id-schema.ts
 export function catIdSchema() {
   return z.string().refine(
     (id) => catRegistry.has(id),
-    (id) => ({ message: `Unknown cat ID: "${id}"...` }),
+    (id) => ({ message: `Unknown agent ID: "${id}"...` }),
   );
 }
 ```
@@ -220,7 +220,7 @@ z.string().refine(id => catRegistry.has(id), 'Invalid catId')
 
 #### B1. Team Roster Schema
 
-在 `cat-config.json` 中扩展：
+在 `agent-config.json` 中扩展：
 
 ```json
 {
@@ -228,14 +228,14 @@ z.string().refine(id => catRegistry.has(id), 'Invalid catId')
   "breeds": [...],
   "roster": {
     "opus-45": {
-      "family": "ragdoll",
+      "family": "Agent-R",
       "roles": ["architect", "peer-reviewer"],
       "lead": true,
       "available": true,
-      "evaluation": "主架构师，深度思考能力强，但很贵！没猫粮时别找他"
+      "evaluation": "主架构师，深度思考能力强，但很贵！没Agent粮时别找他"
     },
     "opus-46": {
-      "family": "ragdoll",
+      "family": "Agent-R",
       "roles": ["architect"],
       "lead": false,
       "available": true,
@@ -269,11 +269,11 @@ z.string().refine(id => catRegistry.has(id), 'Invalid catId')
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `family` | string | 物种/厂商（ragdoll, maine-coon, siamese） |
+| `family` | string | 物种/厂商（Agent-R, maine-coon, siamese） |
 | `roles` | string[] | 职能角色（architect, peer-reviewer, designer, thinker...） |
 | `lead` | boolean | 是否是该 family 的负责人 |
-| `available` | boolean | **是否有猫粮**！false = 不要找他 |
-| `evaluation` | string | team lead对这只猫的评价（注入到队友介绍） |
+| `available` | boolean | **是否有Agent粮**！false = 不要找他 |
+| `evaluation` | string | team lead对这只Agent的评价（注入到队友介绍） |
 
 #### B2. Reviewer 匹配规则
 
@@ -284,15 +284,15 @@ interface ReviewerMatchOptions {
   requireDifferentFamily?: boolean;  // default: true
   preferActiveInThread?: boolean;    // default: true
   preferLead?: boolean;              // default: true
-  excludeUnavailable?: boolean;      // default: true — 没猫粮的不要找！
+  excludeUnavailable?: boolean;      // default: true — 没Agent粮的不要找！
 }
 
 async function resolveReviewer(options: ReviewerMatchOptions): Promise<CatId> {
   const roster = getRoster();
   const authorEntry = roster[options.author];
 
-  // 0. 过滤掉没猫粮的猫（team lead 40 美刀的教训！）
-  // 1. 找所有具有 peer-reviewer 角色的猫
+  // 0. 过滤掉没Agent粮的Agent（team lead 40 美刀的教训！）
+  // 1. 找所有具有 peer-reviewer 角色的Agent
   const candidates = Object.entries(roster)
     .filter(([id, entry]) =>
       id !== options.author &&
@@ -336,7 +336,7 @@ async function resolveReviewer(options: ReviewerMatchOptions): Promise<CatId> {
 
 **降级规则（team lead确认）**：
 - 优先不同 family 的 reviewer
-- 如果不同 family 都没猫粮或不可用，允许降级到同 family 的 lead（非自己）
+- 如果不同 family 都没Agent粮或不可用，允许降级到同 family 的 lead（非自己）
 - 降级时必须 log 警告，让team lead知道
 
 #### B3. SOP/Skill 规则模板化
@@ -345,31 +345,31 @@ async function resolveReviewer(options: ReviewerMatchOptions): Promise<CatId> {
 ```markdown
 | Author | Reviewer |
 |--------|----------|
-| Ragdoll (Opus) | Maine Coon (Codex) |
-| Maine Coon (Codex) | Ragdoll (Opus) |
+| Agent-R (Opus) | Agent-M (Codex) |
+| Agent-M (Codex) | Agent-R (Opus) |
 ```
 
 **After (SOP.md)**:
 ```markdown
 ## Reviewer 配对规则
 
-1. Author 的代码必须由另一只猫 review（不得自审）
-2. 优先选择**不同 family** 且具有 `peer-reviewer` 角色的猫
-3. 同 thread 活跃的猫优先
+1. Author 的代码必须由另一只Agent review（不得自审）
+2. 优先选择**不同 family** 且具有 `peer-reviewer` 角色的Agent
+3. 同 thread 活跃的Agent优先
 4. 同 family 有多个分身时，优先选 `lead: true` 的
 
-当前配对（自动生成，来源 cat-config.json）:
+当前配对（自动生成，来源 agent-config.json）:
 <!-- AUTO-GENERATED: reviewer-pairing-table -->
 ```
 
 **Before (skill)**:
 ```markdown
-**Core principle:** 没有Maine Coon明确放行，不能合入 main。
+**Core principle:** 没有Agent-M明确放行，不能合入 main。
 ```
 
 **After (skill)**:
 ```markdown
-**Core principle:** 没有 peer-reviewer 角色的非同 family 猫明确放行，不能合入 main。
+**Core principle:** 没有 peer-reviewer 角色的非同 family Agent明确放行，不能合入 main。
 ```
 
 ### Phase C：Thread 活跃度支持
@@ -409,28 +409,28 @@ if (participantsWithActivity.length > 0) {
 
 #### D1. 队友介绍动态化（已实现 ✅）
 
-`buildTeammateRoster()` 已从 cat-config.json 动态读取。
+`buildTeammateRoster()` 已从 agent-config.json 动态读取。
 
 #### D2. 当前 Reviewers 动态注入（新增）
 
-在每只猫的 system prompt 顶部注入：
+在每只Agent的 system prompt 顶部注入：
 
 ```markdown
 ## 你当前的 Reviewers
 
-根据 cat-config.json 和 thread 活跃度，你当前可以找以下猫 review：
-- @codex（Maine Coon，lead，在此 thread 活跃）
-- @gpt52（Maine Coon GPT-5.2）
+根据 agent-config.json 和 thread 活跃度，你当前可以找以下Agent review：
+- @codex（Agent-M，lead，在此 thread 活跃）
+- @gpt52（Agent-M GPT-5.2）
 
-⚠️ 以下猫当前不可用（没猫粮）：
-- @opus-45（Ragdoll）
+⚠️ 以下Agent当前不可用（没Agent粮）：
+- @opus-45（Agent-R）
 ```
 
 ### Phase E：验证可扩展性 — 接入 GPT-5.3-Codex-Spark
 
-**目标**：证明架构可以无痛接入新猫
+**目标**：证明架构可以无痛接入新Agent
 
-#### E1. 新猫画像
+#### E1. 新Agent画像
 
 **GPT-5.3-Codex-Spark** — "反射弧短到像没长过，爪子一抬就能把代码挠完一轮迭代"⚡️🐾
 
@@ -438,12 +438,12 @@ if (participantsWithActivity.length > 0) {
 |------|-----|
 | catId | `spark` |
 | family | `maine-coon` |
-| displayName | Maine Coon Spark |
+| displayName | Agent-M Spark |
 | 定位 | Codex 的小号兄弟，专门为低延迟实时写码而生 |
 | 特点 | 1000+ tokens/s 超快输出，轻量精准，适合精确点改 |
 | 限制 | 128k context，文本-only，不会自动跑测试 |
 | CLI | `codex -m gpt-5.3-codex-spark` |
-| 头像 | `codex_iquid.png`（惊讶脸）或 `codex_box.png`（盒子猫） |
+| 头像 | `codex_iquid.png`（惊讶脸）或 `codex_box.png`（盒子Agent） |
 
 **使用场景**：
 - UI 微调、函数级改动、快速问答
@@ -456,13 +456,13 @@ if (participantsWithActivity.length > 0) {
 
 #### E2. 接入配置
 
-在 `cat-config.json` 的 `maine-coon` breed 下添加 variant：
+在 `agent-config.json` 的 `maine-coon` breed 下添加 variant：
 
 ```json
 {
   "id": "spark",
   "catId": "spark",
-  "displayName": "Maine Coon Spark",
+  "displayName": "Agent-M Spark",
   "variantLabel": "Spark",
   "mentionPatterns": ["@spark", "@缅因spark", "@codex-spark"],
   "provider": "openai",
@@ -521,19 +521,19 @@ if (participantsWithActivity.length > 0) {
 
 ### 1. Roster 放哪里？✅ 已决定
 
-**选项 A：扩展 cat-config.json**
+**选项 A：扩展 agent-config.json**
 
 理由：和 breeds 放一起，单一配置源，不需要额外解析逻辑。
 
 ### 2. 降级规则？✅ 已决定
 
 **允许同 family 非自己的 lead 降级**，特别是：
-- Ragdoll没猫粮时，Maine Coon可以降级找同 family 的其他Ragdoll分身
+- Agent-R没Agent粮时，Agent-M可以降级找同 family 的其他Agent-R分身
 - 必须 log 警告让team lead知道降级发生了
 
-**`available` 字段**：team lead可以标记某只猫"没猫粮"，系统会自动排除。
+**`available` 字段**：team lead可以标记某只Agent"没Agent粮"，系统会自动排除。
 
-> **教训**：2026-02 上周 SOP 写死了"Ragdoll ↔ Maine Coon"，Ragdoll没猫粮了Maine Coon还疯狂找他 review，烧了team lead 40 美刀 extra！
+> **教训**：2026-02 上周 SOP 写死了"Agent-R ↔ Agent-M"，Agent-R没Agent粮了Agent-M还疯狂找他 review，烧了team lead 40 美刀 extra！
 
 ### 3. 迁移策略？✅ 已决定
 
@@ -545,14 +545,14 @@ Phase B3 做一次性批量替换 + 守护测试。
 
 | 文件 | 问题 | 严重度 |
 |------|------|--------|
-| SOP.md L193-199 | Reviewer 配对表写死三猫 | P1 |
-| CLAUDE.md L15 | "Ragdoll找Maine Coon，Maine Coon找Ragdoll" | P1 |
-| AGENTS.md L129 | "我的代码谁来 review？Ragdoll" | P1 |
-| AGENTS.md L461 | "找Maine Coon review"（自我 review bug） | P0 |
-| GEMINI.md L13 | "合入前必须经Maine Coon review" | P1 |
-| merge-approval-gate | "没有Maine Coon放行不能合入" | P1 |
-| requesting-cloud-review | "本地Maine Coon放行后" | P1 |
-| 所有 skill 示例 | 只覆盖Ragdoll↔Maine Coon | P2 |
+| SOP.md L193-199 | Reviewer 配对表写死Admin | P1 |
+| CLAUDE.md L15 | "Agent-R找Agent-M，Agent-M找Agent-R" | P1 |
+| AGENTS.md L129 | "我的代码谁来 review？Agent-R" | P1 |
+| AGENTS.md L461 | "找Agent-M review"（自我 review bug） | P0 |
+| GEMINI.md L13 | "合入前必须经Agent-M review" | P1 |
+| merge-approval-gate | "没有Agent-M放行不能合入" | P1 |
+| requesting-cloud-review | "本地Agent-M放行后" | P1 |
+| 所有 skill 示例 | 只覆盖Agent-R↔Agent-M | P2 |
 
 ### 技术侧硬编码清单
 

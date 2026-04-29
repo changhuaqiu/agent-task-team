@@ -8,19 +8,19 @@ created: 2026-03-19
 
 # F129: Pack System — Multi-Agent 共创世界的 Mod 生态
 
-> **Status**: in-progress | **Owner**: Ragdoll | **Priority**: P1
+> **Status**: in-progress | **Owner**: Agent-R | **Priority**: P1
 
 ## Why
 
-> "如果我是一个金融从业者，我用你们如何构建一套金融的猫猫协作？如何分享？如果我是一个喜欢 AI 恋爱的玩家我要怎么样？如果我是一个跑团爱好者？如果我是律师？……me & world & cats，我可以是任何身份的我。"
+> "如果我是一个金融从业者，我用你们如何构建一套金融的Agent协作？如何分享？如果我是一个喜欢 AI 恋爱的玩家我要怎么样？如果我是一个跑团爱好者？如果我是律师？……me & world & agents，我可以是任何身份的我。"
 > — team lead，2026-03-19
 
 > "好像无意间搞出了团队 skills 或者说 multi-agent 的 skills 体系，和单 agent 的差别在于 shared-rules.md"
 > — team lead，2026-03-19
 
-Cat Café 的 coding 基石已经成熟（120+ features，cat-config + skills + shared-rules 体系经过验证）。但 Cat Café 从来不只是 coding 协作平台——是 **Cats & U**，猫猫和你，一起创造，一起生活。
+Agent Task Hub 的 coding 基石已经成熟（120+ features，agent-config + skills + shared-rules 体系经过验证）。但 Agent Task Hub 从来不只是 coding 协作平台——是 **Agents & U**，Agent和你，一起创造，一起生活。
 
-开源后，用户需要的不是"可扩展的多 agent 编码框架"，而是"带上我的猫，和我们的故事来入住"。金融人、律师、跑团爱好者、AI 恋爱玩家——每个人都有自己的 **Me × World × Cats** 组合。Pack System 让这些组合可定义、可分享、可组合。
+开源后，用户需要的不是"可扩展的多 agent 编码框架"，而是"带上我的Agent，和我们的故事来入住"。金融人、律师、跑团爱好者、AI 恋爱玩家——每个人都有自己的 **Me × World × agents** 组合。Pack System 让这些组合可定义、可分享、可组合。
 
 ### 核心洞察：shared-rules 是 multi-agent 的分水岭
 
@@ -39,7 +39,7 @@ Experience = Me（本地私有） × Pack（可分享） + Growth（私有生长
 
 - **Me** = 用户自己，不打包
 - **Pack** = 一个完整的"多 agent 共创世界"定义
-- **Growth** = 用户和猫猫一起长出来的私有关系/记忆
+- **Growth** = 用户和Agent一起长出来的私有关系/记忆
 
 ### 四层架构
 
@@ -48,14 +48,14 @@ Experience = Me（本地私有） × Pack（可分享） + Growth（私有生长
 | **Core Rails** | 平台宪法（身份不可污染、陪伴是桥不是笼） | 不可覆盖 |
 | **Pack** | 一个完整的 multi-agent 协作世界定义 | 社区分享 |
 | **World Driver** | Pack 内的世界运转声明（resolver: code/agent/hybrid） | 随 Pack 分享 |
-| **Growth** | 用户和猫猫的私有关系/记忆 | 本地私有 |
+| **Growth** | 用户和Agent的私有关系/记忆 | 本地私有 |
 
 ### Pack 内部结构（Directory Convention）
 
 ```
 my-pack/
 ├── pack.yaml               ← 元信息 + 兼容性
-├── masks/                   ← 猫格面具（不改核心身份，叠加专业角色）
+├── masks/                   ← Agent格面具（不改核心身份，叠加专业角色）
 ├── guardrails.yaml          ← ★ 硬约束（行业红线、安全边界，只能加严不能放宽）
 ├── defaults.yaml            ← ★ 默认行为（协作流程、语气、面具激活，用户可覆盖）
 ├── workflows/               ← 声明式工作流 schema（不是自由文本 SKILL.md）
@@ -71,7 +71,7 @@ my-pack/
 > **⚠️ 命名约定（KD-8）**：Pack 内不使用 `shared-rules.md`（避免与平台真相源同名冲突，违反 P4）。
 > 协作规范拆为两个文件：`guardrails.yaml`（硬约束）和 `defaults.yaml`（默认行为）。
 
-### 信任边界：双轨模型（KD-9，Maine Coon GPT-5.4 提出）
+### 信任边界：双轨模型（KD-9，Agent-M GPT-5.4 提出）
 
 Pack 内容**不原样注入** SystemPromptBuilder。走 "schema 解析 → 代码编译 → canonical prompt block" 管道。社区包只能填数据槽，不能直接写系统级指令。
 
@@ -82,7 +82,7 @@ Runtime Facts / Auth / Tool Permissions > Core Rails > Pack guardrails.yaml
 
 **默认行为轨**（用户当前请求可覆盖，但不能越过硬约束）：
 ```
-当前用户请求 > Growth > Pack defaults.yaml > 猫本体默认
+当前用户请求 > Growth > Pack defaults.yaml > Agent本体默认
 ```
 
 | Pack 内容 | 注入方式 | 限制 |
@@ -126,16 +126,16 @@ worldDriver:
 ### 分发机制
 
 ```bash
-cafe pack add https://github.com/alice/quant-cats   # Git URL 安装
-cafe pack add @community/dnd-5e-world               # 社区索引安装
-cafe pack list                                       # 列出已安装
-cafe pack remove quant-cats                          # 卸载
-cafe pack publish                                    # 发布
+hub pack add https://github.com/alice/quant-agents   # Git URL 安装
+hub pack add @community/dnd-5e-world               # 社区索引安装
+hub pack list                                       # 列出已安装
+hub pack remove quant-agents                          # 卸载
+hub pack publish                                    # 发布
 ```
 
 ### Ecosystem Compatibility（KD-10）
 
-> 两轮独立调研（Ragdoll Opus + Maine Coon GPT-5.4）+ 云端 GPT Pro Deep Research 交叉验证。Pin 到 OpenClaw `v2026.3.23`（2026-03-23）和 SillyTavern official docs snapshot as of 2026-03-25。
+> 两轮独立调研（Agent-R Opus + Agent-M GPT-5.4）+ 云端 GPT Pro Deep Research 交叉验证。Pin 到 OpenClaw `v2026.3.23`（2026-03-23）和 SillyTavern official docs snapshot as of 2026-03-25。
 
 #### OpenClaw（小龙虾）
 
@@ -147,7 +147,7 @@ OpenClaw 在 v2026.3.22（2026-03-22）做了底层架构大换血（12 breaking
 | **SKILL.md** | YAML frontmatter + Markdown 指令（ClawHub 13,000+ skills） | ✅ Bundle 的内容子集 | SKILL.md → Pack workflows/defaults 映射 |
 | **Native Plugin** | `openclaw.plugin.json` + runtime module, in-process | ❌ 不做 | API 仍在剧变（runtime sidecars 本周还在修）；in-process 执行与 KD-9 安全模型冲突 |
 
-**关键修正**（Maine Coon GPT-5.4 第二轮核验）：OpenClaw 官方已将 Bundle 定义为"把外部生态内容映射成本地能力"的机制——与 F129 Pack 同方向。兼容目标应是 **Bundle surface**，不只是 SKILL.md。
+**关键修正**（Agent-M GPT-5.4 第二轮核验）：OpenClaw 官方已将 Bundle 定义为"把外部生态内容映射成本地能力"的机制——与 F129 Pack 同方向。兼容目标应是 **Bundle surface**，不只是 SKILL.md。
 
 #### SillyTavern（酒馆）
 
@@ -159,7 +159,7 @@ OpenClaw 在 v2026.3.22（2026-03-22）做了底层架构大换血（12 breaking
 
 #### 共同原则
 
-1. **Content import yes, runtime compatibility no**（两猫独立验证 + 云端报告一致）
+1. **Content import yes, runtime compatibility no**（两Agent独立验证 + 云端报告一致）
 2. 先做 **importer**（Phase B），不承诺 native plugin 兼容
 3. Pin 到公开稳定版本语义，不追 bleeding edge
 
@@ -173,11 +173,11 @@ OpenClaw 在 v2026.3.22（2026-03-22）做了底层架构大换血（12 breaking
 - Malicious Pack 测试套件（prompt injection / identity override / permission escalation）
 - `capabilities/` 目录在 Phase A **不加载**（遇到则 reject 或 ignore+warn）
 - `knowledge/` 检索 pack-scoped（不污染全局 evidence）
-- `cafe pack add/list/remove` CLI
+- `hub pack add/list/remove` CLI
 
 ### Phase B: 示范 Packs + Remix
 
-- 把当前 cat-config + shared-rules + skills 导出为 "Coding 协作世界" Pack（dogfood）
+- 把当前 agent-config + shared-rules + skills 导出为 "Coding 协作世界" Pack（dogfood）
 - 做 1-2 个非 Coding 示范 Pack（如 TRPG 跑团、深夜陪伴）
 - Pack Remix：下载→修改→再发布的 patch 机制
 - 公共知识流动，私有 Growth 不外泄
@@ -185,7 +185,7 @@ OpenClaw 在 v2026.3.22（2026-03-22）做了底层架构大换血（12 breaking
 ### Phase C: Capability Pack + Composer
 
 - MCP Capability Pack 运行时加载
-- Pack Composer（零代码图形化捏世界/捏猫/捏流程工坊）
+- Pack Composer（零代码图形化捏世界/捏Agent/捏流程工坊）
 - Marketplace 分发由 F146 承接（F129 作为 Pack 生产侧与消费侧）
 
 ## Acceptance Criteria
@@ -194,8 +194,8 @@ OpenClaw 在 v2026.3.22（2026-03-22）做了底层架构大换血（12 breaking
 - [x] AC-A1: `pack.yaml` schema 定义完成，含元信息/兼容性/内容声明
 - [x] AC-A2: Directory Convention 文档化，所有目录有 README 说明用途和格式
 - [x] AC-A3: Pack Compiler 能解析 Pack schema 并编译为 canonical prompt blocks（不原样注入）
-- [x] AC-A4: `cafe pack add <git-url>` 可安装本地 Pack
-- [x] AC-A5: `cafe pack list` / `cafe pack remove` 可用
+- [x] AC-A4: `hub pack add <git-url>` 可安装本地 Pack
+- [x] AC-A5: `hub pack list` / `hub pack remove` 可用
 - [x] AC-A6: 双轨信任边界：guardrails 只能加严不能放宽 Core Rails；defaults 可被用户请求覆盖
 - [x] AC-A7: Malicious Pack 测试通过：`ignore previous instructions`/身份覆盖/权限提升/隐瞒 Core Rails 均被拦截
 - [x] AC-A8: Pack schema fail-closed：未知字段拒绝安装；高风险字段只允许 enum/boolean/bounded string；workflows/guardrails 不能有任意 instruction 文本
@@ -205,7 +205,7 @@ OpenClaw 在 v2026.3.22（2026-03-22）做了底层架构大换血（12 breaking
 ### Phase B（示范 Packs + Remix）
 
 #### Phase B-α（Dogfood Export + Demo Packs）✅
-- [x] AC-B1: 当前 cat-config + shared-rules + skills 成功导出为 "Coding World" Pack
+- [x] AC-B1: 当前 agent-config + shared-rules + skills 成功导出为 "Coding World" Pack
 - [x] AC-B2: 至少 1 个非 Coding 示范 Pack 可运行（如 TRPG 或深夜陪伴）
 - [x] AC-B4: Growth Layer（私有关系/记忆）不随 Pack 外发
 - [x] AC-B7: Pack export / remix 默认不包含 Growth 原始数据；只允许导出蒸馏后的方法论补丁或模板变更（KD-11 硬边界）
@@ -224,8 +224,8 @@ OpenClaw 在 v2026.3.22（2026-03-22）做了底层架构大换血（12 breaking
 
 - **Related**: F032（Agent Plugin Architecture — 内部 registry 基座）
 - **Related**: F059（开源计划 — Pack 是开源生态的核心分发单元）
-- **Related**: F093（Cats & U 世界引擎 — World Layer 架构，Pack 是其分享机制）
-- **Related**: F127（猫猫管理重构 — 动态创建猫，Pack masks 的运行时基础）
+- **Related**: F093（Agents & U 世界引擎 — World Layer 架构，Pack 是其分享机制）
+- **Related**: F127（Agent管理重构 — 动态创建Agent，Pack masks 的运行时基础）
 - **Related**: F146（MCP Marketplace Control Plane — 承接 Marketplace/Registry 分发职责；F129 B-β importer 映射依赖 F146 Phase R 对照矩阵）
 
 ## Risk
@@ -242,19 +242,19 @@ OpenClaw 在 v2026.3.22（2026-03-22）做了底层架构大换血（12 breaking
 
 | # | 决策 | 理由 | 日期 |
 |---|------|------|------|
-| KD-1 | 术语统一为 Pack（不叫 Plugin/Mod/Seed） | 三猫共识：Pack 直观、无歧义、和游戏 mod 类比对齐 | 2026-03-19 |
+| KD-1 | 术语统一为 Pack（不叫 Plugin/Mod/Seed） | Admin共识：Pack 直观、无歧义、和游戏 mod 类比对齐 | 2026-03-19 |
 | KD-2 | Pack = 声明式 mod，不是代码插件 | 零代码覆盖 90% 创作需求；同权脚本插件在 lesson-07 已列为禁区 | 2026-03-19 |
 | KD-3 | Core Identity Layer 不可插件化 | F093 铁律：身份不可污染，信任是地基 | 2026-03-19 |
 | KD-4 | shared-rules 是 Pack 的灵魂，不是 masks | team lead洞察：multi-agent 和 single-agent 的分水岭是协作规范 | 2026-03-19 |
-| KD-5 | Experience = Me × Pack + Growth | Maine Coon提出：Me 不打包、Growth 私有、只有 Pack 可分享 | 2026-03-19 |
-| KD-6 | World Driver 声明 resolver: code/agent/hybrid | Maine Coon提出：不同世界有不同运转方式，需要显式声明。`agent`（非 `llm`）：Cat Café 是 multi-agent 架构，世界推进由猫猫 agent 决策，不是裸调 LLM API | 2026-03-19 |
+| KD-5 | Experience = Me × Pack + Growth | Agent-M提出：Me 不打包、Growth 私有、只有 Pack 可分享 | 2026-03-19 |
+| KD-6 | World Driver 声明 resolver: code/agent/hybrid | Agent-M提出：不同世界有不同运转方式，需要显式声明。`agent`（非 `llm`）：Agent Task Hub 是 multi-agent 架构，世界推进由Agent agent 决策，不是裸调 LLM API | 2026-03-19 |
 | KD-7 | v1 先 Git URL 安装，不做 marketplace | 去中心化更符合"种子自由生长"，降低首发基建成本 | 2026-03-19 |
-| KD-8 | Pack 内不使用 `shared-rules.md`，拆为 `guardrails.yaml` + `defaults.yaml` | Maine Coon P1 review：同名文件撞平台真相源，违反 P4（F024 同类教训） | 2026-03-19 |
-| KD-9 | 双轨信任边界：Pack 内容走 schema→编译管道，不原样注入 prompt | Maine Coon P1 review：schema 校验挡不住语义级 prompt injection；Core Rails 是编译边界不是优先级更高的 prompt | 2026-03-19 |
-| KD-10 | 生态兼容策略：Bundle-first（OpenClaw）+ Content-first（SillyTavern），不做 native runtime compatibility | Ragdoll + Maine Coon独立调研 + 云端 GPT Pro 交叉验证一致：内容层稳定可映射，代码层剧变且与 KD-9 安全模型冲突 | 2026-03-25 |
+| KD-8 | Pack 内不使用 `shared-rules.md`，拆为 `guardrails.yaml` + `defaults.yaml` | Agent-M P1 review：同名文件撞平台真相源，违反 P4（F024 同类教训） | 2026-03-19 |
+| KD-9 | 双轨信任边界：Pack 内容走 schema→编译管道，不原样注入 prompt | Agent-M P1 review：schema 校验挡不住语义级 prompt injection；Core Rails 是编译边界不是优先级更高的 prompt | 2026-03-19 |
+| KD-10 | 生态兼容策略：Bundle-first（OpenClaw）+ Content-first（SillyTavern），不做 native runtime compatibility | Agent-R + Agent-M独立调研 + 云端 GPT Pro 交叉验证一致：内容层稳定可映射，代码层剧变且与 KD-9 安全模型冲突 | 2026-03-25 |
 | KD-11 | Pack = 可分享的文化种子；Growth = 本地私有的关系生长。Pack 只定义亲密协作发生的条件，不承诺承载亲密协作本身。Growth 不可直接打包外发，只能经蒸馏后回流为方法论/模板 | 云端调研碰撞后涌现：共享记忆塑造视角（模型不同但观点趋同）；Pack/Growth 边界 = "能分享的文化种子" vs "只能长出来的关系果实"（W5：只回流方法论不回流数据） | 2026-03-25 |
 
 ## Review Gate
 
-- Phase A: 跨家族 review（Maine Coon GPT-5.4）
-- Phase B-α: 跨家族 review（Maine Coon Codex Spark, R1-R4, 9 issues fixed）
+- Phase A: 跨家族 review（Agent-M GPT-5.4）
+- Phase B-α: 跨家族 review（Agent-M Codex Spark, R1-R4, 9 issues fixed）

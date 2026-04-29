@@ -12,17 +12,17 @@ created: 2026-03-23
 
 ## Vision
 
-**Hub 的配置面板从「只读展示」变成「可读可写可即时生效」。** 无论是 IM connector 配置、猫猫配置、Provider Profiles 还是环境变量——用户在 Hub 里改完，不用重启，立刻生效。热更新管线是实现这个愿景的基座，不是目的本身。
+**Hub 的配置面板从「只读展示」变成「可读可写可即时生效」。** 无论是 IM connector 配置、Agent配置、Provider Profiles 还是环境变量——用户在 Hub 里改完，不用重启，立刻生效。热更新管线是实现这个愿景的基座，不是目的本身。
 
 ## Why
 
 > team experience（2026-03-23，F088 Phase 8 讨论中）：
 >
-> "connector 这个指的是？ im？ 我记得 F127 有一个烂摊子没收拾，他搞了个他自己的 Hot Reload 但是不用 cat config yaml 而是自己搞了一套。所以按照「脚手架」「喵约」理论我们是不是先梳理一下，我们有哪些配置项？我现在就能知道，我们有 ENV、Local，还有这个 cat config，这些可能都是需要有热更新的，这样子才能干掉 F127 的烂摊子，让它这些热更新都收到一块儿比较好一点。
+> "connector 这个指的是？ im？ 我记得 F127 有一个烂摊子没收拾，他搞了个他自己的 Hot Reload 但是不用 agent config yaml 而是自己搞了一套。所以按照「脚手架」「喵约」理论我们是不是先梳理一下，我们有哪些配置项？我现在就能知道，我们有 ENV、Local，还有这个 agent config，这些可能都是需要有热更新的，这样子才能干掉 F127 的烂摊子，让它这些热更新都收到一块儿比较好一点。
 >
 > 然后就像你说的一样，各自模块订阅各自自己的热更新。但是这个我们得从全局考虑，这其实是配置的热更新。但是我们想到底有哪些配置呢？你是需要思考这一点的。"
 
-**核心问题**：Cat Café 目前有多种配置源，各自热更新机制不统一，导致改配置后要重启才能生效，或者各子系统自己搞一套 ad-hoc 的 reload 逻辑（如 F127 的 `runtime-cat-catalog.ts`）。
+**核心问题**：Agent Task Hub 目前有多种配置源，各自热更新机制不统一，导致改配置后要重启才能生效，或者各子系统自己搞一套 ad-hoc 的 reload 逻辑（如 F127 的 `runtime-agent-agentalog.ts`）。
 
 ## What
 
@@ -31,10 +31,10 @@ created: 2026-03-23
 | 配置源 | 文件 / 位置 | 当前热更新能力 | 问题 |
 |--------|-------------|----------------|------|
 | **`.env` 环境变量** | 项目根 `.env` | `PATCH /api/config/env` 写 `.env` + 写 `process.env`，但子系统不重新初始化 | Connector gateway 启动时读一次，改了 token 不生效；其他读 `process.env` 的变量倒是立即生效 |
-| **`cat-template.json`** | 项目根 `cat-template.json`（原 `cat-config.yaml` 设计在实现中演变为 JSON 模板） | 启动时 seed 一次 | F127 自建了一套独立的运行时猫猫目录（`cat-catalog.json`），已被 F136 收编 |
-| **ConfigStore (F4)** | 内存 + Redis | `PATCH /api/config` 热更新，即时生效 | 只管运行时可变的配置子集（coCreator、budget 等），不覆盖 env 和猫猫配置 |
-| **Provider Profiles (F062)** | `~/.cat-cafe/provider-profiles.json` + `.secrets.local.json` | UI 可编辑，文件写入后需重启生效 | **双真相源**：元信息与 cat-config 的 provider/model 重叠，`provider-binding-compat.ts` 在补缝。Phase 4 将消除 |
-| **猫猫模板** | `cat-template.json` | 启动时加载一次 | 不影响运行时 |
+| **`agent-template.json`** | 项目根 `agent-template.json`（原 `agent-config.yaml` 设计在实现中演变为 JSON 模板） | 启动时 seed 一次 | F127 自建了一套独立的运行时Agent目录（`agent-agentalog.json`），已被 F136 收编 |
+| **ConfigStore (F4)** | 内存 + Redis | `PATCH /api/config` 热更新，即时生效 | 只管运行时可变的配置子集（coCreator、budget 等），不覆盖 env 和Agent配置 |
+| **Provider Profiles (F062)** | `~/.agent-hub/provider-profiles.json` + `.secrets.local.json` | UI 可编辑，文件写入后需重启生效 | **双真相源**：元信息与 agent-config 的 provider/model 重叠，`provider-binding-compat.ts` 在补缝。Phase 4 将消除 |
+| **Agent模板** | `agent-template.json` | 启动时加载一次 | 不影响运行时 |
 
 ### 目标架构（方向性，待具体设计）
 
@@ -53,7 +53,7 @@ created: 2026-03-23
                ▼
 ┌── 订阅者（各子系统自行响应）──────────────┐
 │  ConnectorGateway  → restart adapters      │
-│  CatCatalog        → reload cat instances  │
+│  CatCatalog        → reload agent instances  │
 │  AccountBinding    → rebind credentials    │
 │  ConfigStore       → (已有机制)            │
 │  ...其他需要的模块                          │
@@ -61,40 +61,40 @@ created: 2026-03-23
 
 Phase 4 终态（2026-03-28 决策，F171 校准后的实际落地）:
 ┌── 模板（进 git）──────────────────────────┐
-│  cat-template.json                         │
+│  agent-template.json                         │
 │    roleTemplates: 品种模板（soul/model）   │
 │    clientDefaults: Client 默认模型列表     │
 └────────────────────────────────────────────┘
 ┌── 运行时状态（不进 git）──────────────────┐
-│  .cat-cafe/cat-catalog.json                │
-│    breeds: 猫实例（accountRef/model）      │
+│  .agent-hub/agent-agentalog.json                │
+│    breeds: Agent实例（accountRef/model）      │
 │    roster: 成员注册表                      │
-│  .cat-cafe/accounts.json                   │
+│  .agent-hub/accounts.json                   │
 │    accountId → {authType, clientId, models} │
 └────────────────────────────────────────────┘
 ┌── 纯钥匙串（零元信息）────────────────────┐
-│  ~/.cat-cafe/credentials.json              │
+│  ~/.agent-hub/credentials.json              │
 │    accountId → apiKey/accessToken          │
 └────────────────────────────────────────────┘
-> **设计 vs 实现差异**：原设计用 `cat-config.yaml` 作为统一真相源，
-> 实现中演变为 `cat-template.json`（模板）+ `cat-catalog.json`（猫状态）+ `accounts.json`（账户元数据）三文件分离。
+> **设计 vs 实现差异**：原设计用 `agent-config.yaml` 作为统一真相源，
+> 实现中演变为 `agent-template.json`（模板）+ `agent-agentalog.json`（Agent状态）+ `accounts.json`（账户元数据）三文件分离。
 > 账号类型由 `authType: 'oauth' | 'api_key'` 唯一决定（F171 移除了冗余的 `builtin` 标记和 `ProfileKind` 类型）。
 ```
 
 **核心原则**：
 1. **一个管线** — 所有配置变更走同一个 event bus，不再各搞各的
 2. **订阅自治** — 各子系统自己决定如何响应变更（restart / reload / ignore）
-3. **收编 F127** — `runtime-cat-catalog.ts` 的热更新能力并入统一管线，干掉独立的 ad-hoc 机制
-4. **渐进式** — 可以分 Phase，先做 connector 热重载（F088 直接需求），再扩展到猫猫管理
+3. **收编 F127** — `runtime-agent-agentalog.ts` 的热更新能力并入统一管线，干掉独立的 ad-hoc 机制
+4. **渐进式** — 可以分 Phase，先做 connector 热重载（F088 直接需求），再扩展到Agent管理
 
 ### 决策记录（2026-03-27，team lead + @opus + @codex 讨论收敛）
 
 - [x] **F127 收编方式：重写，渐进迁移（3A→3B→3C）**
-  - 3A: 把 `/api/cats` 路由里的 side effect（registry reconcile）迁到统一 event bus subscriber — 终态 subscriber
-  - 3B: `runtime-cat-catalog` 收敛成纯存储+校验，删掉 ad-hoc 触发路径 — 终态存储层
+  - 3A: 把 `/api/agents` 路由里的 side effect（registry reconcile）迁到统一 event bus subscriber — 终态 subscriber
+  - 3B: `runtime-agent-agentalog` 收敛成纯存储+校验，删掉 ad-hoc 触发路径 — 终态存储层
   - 3C: 删除 3A/3B 使旧代码变成的死代码
   - 每步产物都是终态基座，不是脚手架（team lead确认）
-  - 证据：`runtime-cat-catalog.ts` 实际 527 行，路由里直接耦合 reconcile（`cats.ts:297`、`index.ts:635`）
+  - 证据：`runtime-agent-agentalog.ts` 实际 527 行，路由里直接耦合 reconcile（`agents.ts:297`、`index.ts:635`）
 
 - [x] **热更新粒度：key 级为主 + file/domain 级降级**
   - Event schema: `{ changedKeys[], changeSetId, scope: 'file' | 'domain' | 'key', timestamp }`
@@ -119,10 +119,10 @@ Phase 4 终态（2026-03-28 决策，F171 校准后的实际落地）:
   - A* 方案本质上在合理化两个真相源，偏离 F136 愿景
 
 - [x] **终态：统一配置架构，`credentials.json` = 纯钥匙串**
-  > 原始设计用 `cat-config.yaml`，实际落地为 `cat-template.json` + `accounts.json` + `cat-catalog.json` 三文件。以下为原设计示例（保留作历史决策记录）：
+  > 原始设计用 `agent-config.yaml`，实际落地为 `agent-template.json` + `accounts.json` + `agent-agentalog.json` 三文件。以下为原设计示例（保留作历史决策记录）：
   ```yaml
-  # 原设计（cat-config.yaml）— 实际实现用 cat-template.json + accounts.json 替代
-  cats:
+  # 原设计（agent-config.yaml）— 实际实现用 agent-template.json + accounts.json 替代
+  agents:
     opus:
       provider: anthropic
       defaultModel: claude-opus-4-6
@@ -138,17 +138,17 @@ Phase 4 终态（2026-03-28 决策，F171 校准后的实际落地）:
       baseUrl: https://open.bigmodel.cn/api/paas/v4
   ```
   ```json
-  // ~/.cat-cafe/credentials.json（纯钥匙串，不进 git）
+  // ~/.agent-hub/credentials.json（纯钥匙串，不进 git）
   { "claude": "<your-anthropic-key>", "my-glm": "<your-glm-key>" }
   ```
-  - `provider-profiles.json` 元信息文件退场（元信息搬入 `cat-config.accounts`）
+  - `provider-profiles.json` 元信息文件退场（元信息搬入 `agent-config.accounts`）
   - `provider-profiles.secrets.local.json` 简化为 `credentials.json`（纯 key-value）
   - `provider-binding-compat.ts` 可删（不再有两边需要校验一致性）
   - `.env` 的 `*_API_KEY` deprecated（只读 legacy fallback），不再作为主写入口
 
 - [x] **`accounts` 区（@codex 提议，team lead确认）**
-  - 多猫共用同一账户只引用 `accountRef`，不重复配置 protocol/baseUrl
-  - `protocol` 字段决定 API 兼容性：任意支持 Anthropic 协议的 API 都能给Ragdoll用，任意支持 OpenAI 协议的都能给Maine Coon用
+  - 多Agent共用同一账户只引用 `accountRef`，不重复配置 protocol/baseUrl
+  - `protocol` 字段决定 API 兼容性：任意支持 Anthropic 协议的 API 都能给Agent-R用，任意支持 OpenAI 协议的都能给Agent-M用
   - team lead确认："可以，只要你能解决比如我任意一个 api 支持 anthropic 我都能给 claude code 用"
 
 - [x] **凭证三入口收敛**
@@ -158,9 +158,9 @@ Phase 4 终态（2026-03-28 决策，F171 校准后的实际落地）:
   - 启动时检测到 legacy env key → 一次性"导入到 credentials"提示
 
 - [x] **模板分发**
-  - `cat-template.json` 进 git（品种模板 + client 默认模型，无敏感值）
-  - `.cat-cafe/accounts.json` 和 `.cat-cafe/cat-catalog.json` 不进 git（运行时状态）
-  - `~/.cat-cafe/credentials.json` 在全局目录，天然不进 git
+  - `agent-template.json` 进 git（品种模板 + client 默认模型，无敏感值）
+  - `.agent-hub/accounts.json` 和 `.agent-hub/agent-agentalog.json` 不进 git（运行时状态）
+  - `~/.agent-hub/credentials.json` 在全局目录，天然不进 git
 
 ### 硬约束补充（2026-03-28，@codex review 补项 — 4 条不补必长技术债）
 
@@ -175,9 +175,9 @@ Phase 4 终态（2026-03-28 决策，F171 校准后的实际落地）:
   - 理由：oauth/api_key 共存，accessToken 有 TTL，未来需 refresh 机制
   - 纯 string 会导致 oauth 场景回到 ad-hoc 扩展
 
-- [x] **HC-2: 运行时写源 = `cat-catalog.json`（猫）+ `accounts.json`（账户）**
-  - `cat-template.json` 只做品种模板（进 git），首次启动 bootstrap 创建空 catalog
-  - 猫 CRUD 写 `cat-catalog.json`，账户 CRUD 写 `accounts.json` → 各自发 ConfigChangeEvent
+- [x] **HC-2: 运行时写源 = `agent-agentalog.json`（Agent）+ `accounts.json`（账户）**
+  - `agent-template.json` 只做品种模板（进 git），首次启动 bootstrap 创建空 catalog
+  - Agent CRUD 写 `agent-agentalog.json`，账户 CRUD 写 `accounts.json` → 各自发 ConfigChangeEvent
   - 不引入双源冲突：模板是只读 base，运行时文件是唯一可变源
   - 首次启动后运行时以 catalog + accounts 为准，模板仅补全缺失的品种默认值
 
@@ -191,18 +191,18 @@ Phase 4 终态（2026-03-28 决策，F171 校准后的实际落地）:
   - 全 repo `grep -r 'process\.env\.\w*API_KEY\|process\.env\.\w*SECRET'` 业务链路零命中（test/mock 除外）
   - `pnpm check:legacy-credentials` 绿
   - 兼容导入测试全绿（旧格式 → 新格式端到端）
-  - Provider 热更新回归通过（改 credentials → 猫 rebind 验证）
+  - Provider 热更新回归通过（改 credentials → Agent rebind 验证）
   - 全量 `pnpm gate` 通过
 
 - [x] **HC-5: credentials 全局作用域 + 跨项目冲突检测 hard error**（@gpt52 review 两轮收敛）
-  - `~/.cat-cafe/credentials.json` 保持全局（和现有 provider-profiles 行为一致，多项目共享账户）
+  - `~/.agent-hub/credentials.json` 保持全局（和现有 provider-profiles 行为一致，多项目共享账户）
   - **冲突检测（4a 阶段实施）**：启动时扫描 `known-project-roots.json` 中所有项目的 `accounts` 区，同名 accountRef 的 `protocol/baseUrl/authType` 不一致 → **hard error**（不静默复用错误凭证）
   - 同名 accountRef + 相同配置 = 正常共享（多项目共用同一 API key）
   - 不引入 project-scoped credentials（会丧失多项目共享能力）
   - `CAT_CAFE_GLOBAL_CONFIG_ROOT` 环境变量可用于需要完全隔离的场景
   - 4a/4b 在同一 worktree 连续实施、同一 PR 合入，避免半新半旧双轨
 
-- [x] **文案统一（@gpt52 review 补项）**：用户通过 Hub UI 管理配置，运行时落盘 `.cat-cafe/cat-catalog.json`（猫）+ `.cat-cafe/accounts.json`（账户），`cat-template.json` 只做模板不参与运行时——用户视角是统一的配置管理，实现是分文件存储
+- [x] **文案统一（@gpt52 review 补项）**：用户通过 Hub UI 管理配置，运行时落盘 `.agent-hub/agent-agentalog.json`（Agent）+ `.agent-hub/accounts.json`（账户），`agent-template.json` 只做模板不参与运行时——用户视角是统一的配置管理，实现是分文件存储
 
 ### 已知的具体需求（从 F088 Phase 8 产生）
 
@@ -216,14 +216,14 @@ Phase 4 终态（2026-03-28 决策，F171 校准后的实际落地）:
 
 - **F004** (done): ConfigStore 热更新 — 运行时可变配置已有基座
 - **F088** (done Phase 8): IM Hub 配置向导 UI — 触发了 connector 热更新需求
-- **F127** (in-progress): 猫猫管理重构 — 其 `runtime-cat-catalog.ts` 是需要收编的「脚手架」
+- **F127** (in-progress): Agent管理重构 — 其 `runtime-agent-agentalog.ts` 是需要收编的「脚手架」
 - **F062** (done): Provider Profile Hub — 账户配置层
 
 ## Risk
 
 1. **引用替换的完整性**：outboundHook 在 invokeTrigger、queueProcessor、messages route 等多处被 wire，restart 后必须全部更新
 2. **Telegram polling race condition**：旧 polling 要优雅退出，新 polling 才能启动，中间可能丢消息
-3. **F127 收编范围**：如果改动 F127 的核心逻辑，可能影响已有的猫猫动态创建功能
+3. **F127 收编范围**：如果改动 F127 的核心逻辑，可能影响已有的Agent动态创建功能
 
 ## Phase 进度
 
@@ -233,10 +233,10 @@ Phase 4 终态（2026-03-28 决策，F171 校准后的实际落地）:
 | **2** | Connector 热重载 + `/api/config/secrets` | ✅ done | PR #784 merged (2026-03-27) |
 | **2b** | Hub connector config UI → secrets endpoint 前端接线 | ✅ done | PR #788 merged (2026-03-27) |
 | **3A** | F127 side effect 迁移到 event bus subscriber | ✅ done | PR #790 merged (2026-03-28) — CatCatalogSubscriber + emitChangeAsync |
-| **3B** | `runtime-cat-catalog` 收敛为纯存储+校验 | ✅ done (no-op) | grep 确认无 ad-hoc 触发路径残留 |
+| **3B** | `runtime-agent-agentalog` 收敛为纯存储+校验 | ✅ done (no-op) | grep 确认无 ad-hoc 触发路径残留 |
 | **3C** | 删除 F127 ad-hoc 热更新死代码 | ✅ done (no-op) | grep 确认无死代码 |
-| **4a** | 单一真相源：`cat-config.accounts` + `credentials.json` 读写层 | ✅ done | PR #818 merged (2026-03-28) — accounts + credentials + migration + HC-5 conflict guard |
-| **4b** | 统一运行时读取：所有调用链走 `cat-config + credentials`，禁直读 `*_API_KEY` | ✅ done | PR #818 merged (2026-03-28) — unified resolver + route dual-write + LlmAIProvider rewired |
+| **4a** | 单一真相源：`agent-config.accounts` + `credentials.json` 读写层 | ✅ done | PR #818 merged (2026-03-28) — accounts + credentials + migration + HC-5 conflict guard |
+| **4b** | 统一运行时读取：所有调用链走 `agent-config + credentials`，禁直读 `*_API_KEY` | ✅ done | PR #818 merged (2026-03-28) — unified resolver + route dual-write + LlmAIProvider rewired |
 | **4c** | Provider 热更新：`AccountBindingSubscriber` + rebind | ✅ done | PR #824 merged (2026-03-28) — event bus subscriber for account config changes |
 | **4d** | 下线旧层：删 `provider-profiles.ts` + `provider-binding-compat.ts` + tests | ✅ done | PR #824 merged (2026-03-28) — net -2032 lines, all consumers migrated |
 
@@ -265,14 +265,14 @@ Phase 4 终态（2026-03-28 决策，F171 校准后的实际落地）:
 **来源**：2026-03-29 team lead报告"新建 api key 更新不动"+ minimax baseUrl 更新报 conflict
 
 **实现**（PR #847, merged 2026-03-29）：
-- Cat Editor `profilesVersion` + `provider-profiles-changed` CustomEvent 跨组件 invalidation
+- agent Editor `profilesVersion` + `provider-profiles-changed` CustomEvent 跨组件 invalidation
 - HC-5 `validateAccountWrite` + `detectAccountConflicts` 用 `isSameProject()` 排除同一 git 项目的 worktree
 - 3 worktree-aware 回归测试
 - Cloud review: @gpt52 审放行（无 P1/P2）
 
-## Follow-up: Hub Sensitive Env Write — ✅ Implemented (PR #853, absorb clowder-ai PR #285)
+## Follow-up: Hub Sensitive Env Write — ✅ Implemented (PR #853, absorb agent-task-hub PR #285)
 
-**来源**：社区 PR clowder-ai#285 提出 Hub 可写 sensitive env（OPENAI_API_KEY / F102_API_KEY / GITHUB_MCP_PAT）。Maine Coon评估后认为有 4 个防御点值得吸收，但实现形式与我们 accounts/credentials 主线冲突，不宜原样 intake。
+**来源**：社区 PR agent-task-hub#285 提出 Hub 可写 sensitive env（OPENAI_API_KEY / F102_API_KEY / GITHUB_MCP_PAT）。Agent-M评估后认为有 4 个防御点值得吸收，但实现形式与我们 accounts/credentials 主线冲突，不宜原样 intake。
 
 **实现**（PR #853, merged 2026-03-29）：
 1. sensitive env `runtimeEditable: true` fail-closed whitelist — 3 env-owning secrets（OPENAI_API_KEY, GITHUB_MCP_PAT, F102_API_KEY）

@@ -9,7 +9,7 @@ updated: 2026-04-02
 
 # F149: ACP Runtime Operations — 项目级进程池 + Session Lease
 
-> **Status**: done | **Owner**: Maine Coon/gpt52 | **Priority**: P1
+> **Status**: done | **Owner**: Agent-M/gpt52 | **Priority**: P1
 
 ## Why
 
@@ -33,7 +33,7 @@ team experience（2026-03-31）：
 >
 > “今天可能一共开了20个甚至更多thread。”
 >
-> “Maine Coon的想法还是一个脚手架不是最终状态。”
+> “Agent-M的想法还是一个脚手架不是最终状态。”
 >
 > “我们要支持acp这个协议 支持Siameseacp接入 其实 codex 和claude code也支持这个协议。”
 
@@ -58,7 +58,7 @@ team experience（2026-03-31）：
 让 Gemini 成为第一个跑在这套运行时运营层上的 ACP-style local agent：
 
 1. 以仓库 cwd 直接启动 ACP 进程，不走“怪目录回指项目”的长期依赖路径
-2. 在 ACP 模式下使用精简 provider profile（当前最小集：`cat-cafe` / `cat-cafe-memory` / `cat-cafe-collab` / `cat-cafe-signals` / `pencil`）
+2. 在 ACP 模式下使用精简 provider profile（当前最小集：`agent-hub` / `agent-hub-memory` / `agent-hub-collab` / `agent-hub-signals` / `pencil`）
 3. 证明同一个 ACP process 可以承载多个 thread session，而不是每条消息重启 CLI
 4. 对 `initialize / newSession / loadSession / prompt` 的耗时和失败原因做结构化观测
 
@@ -146,7 +146,7 @@ team experience（2026-03-31）：
 | `gemini-3.1-pro-preview` 会报 `No capacity available for model ...` / `MODEL_CAPACITY_EXHAUSTED`，即使 OAuth 订阅层级正常、visible usage 很低 | 这不是 `subscription_quota_exhausted`，而是 provider 侧容量/路由问题。F149 必须把它归到 `model_capacity`，不能当作本地 runtime 卡死或用户额度见底 |
 | headless / 非交互 Gemini CLI 在 capacity/5xx 路径上会重试 + exponential backoff，体感上会表现成“几分钟没回答” | F149 的观测必须拆开 `cold_init_ms` 与 `provider_backoff_ms`；控制面要能看见“是在重试退避”，而不是把所有长尾都归咎于 ACP 启动慢 |
 | `/stats` 或会话内用量页首先是当前 session 统计，不是 preview 模型实时可用性的权威面板 | 调度、熔断、告警不能依赖 CLI quota UI；是否有容量要以实际错误分类和请求链路遥测为准 |
-| `loadSession()` 会 replay 历史；session 热状态丢了以后，恢复本身也可能污染 transcript | session 连续性只能被当作性能优化，不是真相源。真相源仍是 Cat Café thread transcript；恢复路径必须 shadow 化 |
+| `loadSession()` 会 replay 历史；session 热状态丢了以后，恢复本身也可能污染 transcript | session 连续性只能被当作性能优化，不是真相源。真相源仍是 Agent Task Hub thread transcript；恢复路径必须 shadow 化 |
 | preview 模型在 provider/CLI 层可能伴随 fallback、silent downgrade 或重复 retry | 对被 pin 住的 agent identity，V1 不能默认“静默帮你换模型就算成功”；需要显式 policy，至少先保 transcript 语义和错误可见性 |
 | ACP stdio 单通道支持 cross-session multiplex（OQ-6 已验证） | V1 Gemini carrier `supportsMultiplexing=true`；调度器可向同一进程并行下发不同 session 的 prompt。same-session 仍为 single-flight |
 | 不同 ACP carrier 即使同协议，也不代表事件格式、权限模型、工具桥、副作用语义一致 | F149 未来可以复用 pool/lease/lifecycle，但不承诺“只写一个 provider 配置项就吃遍所有 ACP agent”；第二个 carrier 落地后才能收敛真正共性 |
@@ -159,7 +159,7 @@ team experience（2026-03-31）：
 | KD-2 | 不接受“API adapter 替代 agent runtime”方案 | 把Siamese变成 raw API 会丢掉 agent 身份、工具使用和 session 连续性，违反 W1 | 2026-03-31 |
 | KD-3 | V1 的优化目标是 process reuse，不是重复强调 session resume | F053 已经解决了旧 headless Gemini 路径的 `--resume`，当前瓶颈是每轮重启进程 | 2026-03-31 |
 | KD-4 | Phase B 先用 Gemini 当第一载体，但 feature 命名不绑死单 provider | 避免”只救Siamese”的窄 patch，同时不提前抽象到第二个 F143 | 2026-03-31 |
-| KD-5 | F149 Phase B 不被 F143 Phase A 阻塞，反向反哺 F143 抽象提取 | 具体物先于抽象层——先做 GeminiAcpAdapter，再让 F143 从中提取 seam。等抽象层先落地再做具体实现是 waterfall，会浪费实验动量（Ragdoll push back） | 2026-03-31 |
+| KD-5 | F149 Phase B 不被 F143 Phase A 阻塞，反向反哺 F143 抽象提取 | 具体物先于抽象层——先做 GeminiAcpAdapter，再让 F143 从中提取 seam。等抽象层先落地再做具体实现是 waterfall，会浪费实验动量（Agent-R push back） | 2026-03-31 |
 | KD-6 | thread 持有 logical session binding，不持有 long process lease | 云端两份咨询最强共识。thread 是异步长生命周期业务实体，process lease 是物理资源短占用。绑死会让team lead吃饭的 10 分钟里进程不可回收（GPT Pro + DeepThink 一致） | 2026-04-01 |
 | KD-7 | 失败处理分三层：process-poison / session-poison / turn-transient | process-poison（stdout 污染/协议失步/僵尸）→ kill process；session-poison（merged/dropped response）→ seal session；turn-transient（429/5xx 无 side effect）→ retry/backoff。有 tool call side effect 的禁止盲重试（GPT Pro failure taxonomy + Gemini issue #24017） | 2026-04-01 |
 | KD-8 | `loadSession` 保留为 recovery primitive，恢复路径必须 shadow | Gemini ACP 的 `loadSession` 会 replay 历史（`session.streamHistory()`），直接用会污染 thread transcript。保留但必须拦截 replay 事件（GPT Pro 建议 + 本地源码验证） | 2026-04-01 |
@@ -170,5 +170,5 @@ team experience（2026-03-31）：
 
 ## Review Gate
 
-- Phase A: 架构级——先由Maine Coon收敛，再请Ragdoll push back，最后team lead拍板
+- Phase A: 架构级——先由Agent-M收敛，再请Agent-R push back，最后team lead拍板
 - Phase B/C: 跨 family review

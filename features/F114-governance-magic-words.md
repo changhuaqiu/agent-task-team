@@ -8,13 +8,13 @@ created: 2026-03-13
 
 # F114: Magic Words + 愿景守护 Gate
 
-> **Status**: done | **Owner**: Ragdoll | **Priority**: P1 | **Completed**: 2026-03-13
+> **Status**: done | **Owner**: Agent-R | **Priority**: P1 | **Completed**: 2026-03-13
 
 ## Why
 
 ### team experience
 
-> "我感觉做愿景守护的喵，要么他没有认真的看我的愿景，要么你们两只猫的人类意图理解能力有问题。但是这个问题在于，按照你跟Maine Coon的智力水平，这句话不应该理解错。" — team lead 2026-03-13
+> "我感觉做愿景守护的喵，要么他没有认真的看我的愿景，要么你们两只Agent的人类意图理解能力有问题。但是这个问题在于，按照你跟Agent-M的智力水平，这句话不应该理解错。" — team lead 2026-03-13
 
 > "我们的家规或者喵约里面很多很重要的该怎么办？" — team lead 2026-03-13
 
@@ -22,11 +22,11 @@ created: 2026-03-13
 
 ### 问题根因
 
-1. **愿景守护流于形式**：F101（mode v2 / 狼人杀）案例——team lead愿景是"删旧 mode，把狼人杀加入 mode"。两次愿景守护都没拦住：守护猫只审计了 checkbox，没有从用户视角验证体验。
+1. **愿景守护流于形式**：F101（mode v2 / 狼人杀）案例——team lead愿景是"删旧 mode，把狼人杀加入 mode"。两次愿景守护都没拦住：守护Agent只审计了 checkbox，没有从用户视角验证体验。
 
-2. **声明式规则的固有弱点**：shared-rules §9 写着"AC 全打勾 ≠ 完成"，但没有任何机制能验证猫是否真的执行了这个检查。
+2. **声明式规则的固有弱点**：shared-rules §9 写着"AC 全打勾 ≠ 完成"，但没有任何机制能验证Agent是否真的执行了这个检查。
 
-3. **team lead缺少紧急拉闸手段**：猫走偏时，team lead只能用自然语言描述问题，没有能快速触发特定行为模式的触发词。
+3. **team lead缺少紧急拉闸手段**：Agent走偏时，team lead只能用自然语言描述问题，没有能快速触发特定行为模式的触发词。
 
 ### 解决什么
 
@@ -47,7 +47,7 @@ created: 2026-03-13
 
 在系统提示词常驻摘要末尾追加 4 个触发词定义：
 
-| 触发词 | 含义 | 猫的动作 |
+| 触发词 | 含义 | Agent的动作 |
 |--------|------|---------|
 | **「脚手架」** | 你在偷懒写临时方案 | 停，审视产物是否终态，不是→重写 |
 | **「绕路了」** | 局部最优但全局绕路 | 停，画出直线路径，丢掉绕路部分 |
@@ -70,7 +70,7 @@ created: 2026-03-13
 ```
 
 **BLOCKED 条件**：
-- 守护猫输出缺少对照表 → 不放行
+- 守护Agent输出缺少对照表 → 不放行
 - 对照表中有未匹配项 → 不放行，踢回修改
 - 找不到team experience（Discussion/Interview 缺失）→ BLOCKED，要求补充
 
@@ -79,10 +79,10 @@ created: 2026-03-13
 ## Acceptance Criteria
 
 - [x] AC-1: `GOVERNANCE_L0_DIGEST` 包含 4 个 magic words 定义 + 对应行为
-- [x] AC-2: team lead发送「星星罐子」时，猫停止新增副作用并等待指示
+- [x] AC-2: team lead发送「星星罐子」时，Agent停止新增副作用并等待指示
 - [x] AC-3: `feat-lifecycle` 愿景守护步骤包含 BLOCKED 条件（缺对照表 = 不放行）
 - [x] AC-4: 愿景守护输出包含"team experience vs 实际状态"对照表格式
-- [x] AC-5: SystemPromptBuilder 测试通过（`pnpm --filter @cat-cafe/api test`）
+- [x] AC-5: SystemPromptBuilder 测试通过（`pnpm --filter @agent-hub/api test`）
 
 ## Dependencies
 
@@ -101,14 +101,14 @@ created: 2026-03-13
 
 | # | 决策 | 理由 | 日期 |
 |---|------|------|------|
-| KD-1 | 不瘦身、不分四层、不搞动态注入 | 以前就是分层的（F042），降到 refs 后猫根本不看（1% 注意率） | 2026-03-13 |
+| KD-1 | 不瘦身、不分四层、不搞动态注入 | 以前就是分层的（F042），降到 refs 后Agent根本不看（1% 注意率） | 2026-03-13 |
 | KD-2 | 证物对照表作为愿景守护 Gate 核心 | F101 案例证明 checkbox 审计无效 | 2026-03-13 |
 | KD-3 | Magic words 存入 GOVERNANCE_L0_DIGEST | 必须对所有 session/thread 生效 | 2026-03-13 |
 | KD-4 | 「星星罐子」= 最高级停机词 | 源自 2026-03-12 repo visibility 事故 | 2026-03-13 |
 | KD-5 | Gate > Magic Words（本体 vs 辅助） | Codex/Gemini 有 prompt 补注空窗，纯 prompt 方案不 100% 可靠 | 2026-03-13 |
-| KD-6 | 现有 shared-rules 17 条结构不动 | team lead + Ragdoll + Maine Coon三方共识：当前结构是最优折中 | 2026-03-13 |
+| KD-6 | 现有 shared-rules 17 条结构不动 | team lead + Agent-R + Agent-M三方共识：当前结构是最优折中 | 2026-03-13 |
 
 ## Review Gate
 
-- 跨家族 review（Maine Coon review SystemPromptBuilder + feat-lifecycle 改动）
-- team lead亲自验收（用真实 magic word 测试猫的反应）
+- 跨家族 review（Agent-M review SystemPromptBuilder + feat-lifecycle 改动）
+- team lead亲自验收（用真实 magic word 测试Agent的反应）

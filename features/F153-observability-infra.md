@@ -4,16 +4,16 @@ related_features: [F130, F008, F150]
 topics: [observability, telemetry, metrics, health-check, infrastructure]
 doc_kind: spec
 created: 2026-04-09
-community_issue: "zts212653/clowder-ai#388"
+community_issue: "zts212653/agent-task-hub#388"
 ---
 
 # F153: Observability Infrastructure — 运行时可观测基础设施
 
-> **Status**: in-progress | **Owner**: Community + Ragdoll | **Priority**: P2
+> **Status**: in-progress | **Owner**: Community + Agent-R | **Priority**: P2
 
 ## Why
 
-Cat Cafe 当前缺乏系统性运行时可观测能力：异常难定位、超时难检测、猫猫是否在工作没有可靠信号。F130 解决了日志落盘，但 metrics/tracing/health 这一层还是空白。社区贡献者提交了 clowder-ai#393 实现 Phase 1 基础设施。
+Agent Task Hub 当前缺乏系统性运行时可观测能力：异常难定位、超时难检测、Agent是否在工作没有可靠信号。F130 解决了日志落盘，但 metrics/tracing/health 这一层还是空白。社区贡献者提交了 agent-task-hub#393 实现 Phase 1 基础设施。
 
 team experience（2026-04-09）："这是可观测性基础设施 PR，核心是在 packages/api 里接入 OTel SDK，补 telemetry redaction、metrics allowlist、Prometheus/OTLP、/ready 健康检查，以及 cli-spawn 参数脱敏。"
 
@@ -21,7 +21,7 @@ team experience（2026-04-09）："这是可观测性基础设施 PR，核心是
 
 ### Phase A: OTel SDK + Metrics + Health Check（社区 PR intake）
 
-从 clowder-ai#393 intake 以下模块：
+从 agent-task-hub#393 intake 以下模块：
 
 1. **TelemetryRedactor** — 四级字段分类脱敏
    - Class A（凭证 → `[REDACTED]`）
@@ -36,7 +36,7 @@ team experience（2026-04-09）："这是可观测性基础设施 PR，核心是
 
 ### Phase B: OTel 全链路追踪（社区 PR intake）✅
 
-从 clowder-ai#450 intake 以下模块：
+从 agent-task-hub#450 intake 以下模块：
 
 1. **parentSpan 全链路穿透** — invocationSpan → AgentServiceOptions → 6 providers → CliSpawnOptions → spawnCli
 2. **`cat_cafe.cli_session` child span** — CLI 子进程生命周期追踪（4 路状态：timeout/error/signal/ok）
@@ -46,7 +46,7 @@ team experience（2026-04-09）："这是可观测性基础设施 PR，核心是
 
 ### Phase C: Inline @mention observability（社区 PR intake）✅
 
-从 clowder-ai#489 intake 以下模块：
+从 agent-task-hub#489 intake 以下模块：
 
 1. **8+1 A2A counters** — `inline_action.checked/detected/shadow_miss/feedback_written/feedback_write_failed/hint_emitted/hint_emit_failed/routed_set_skip` + `line_start.detected`
 2. **Shadow detection** — strict/relaxed 双层启发式，区分 `strict hit / shadow miss / narrative mention`
@@ -56,7 +56,7 @@ team experience（2026-04-09）："这是可观测性基础设施 PR，核心是
 
 ### Phase D: Runtime 调试 exporter + 启动语义对齐（社区 PR intake）
 
-从 clowder-ai#512 intake 以下模块：
+从 agent-task-hub#512 intake 以下模块：
 
 1. **`TELEMETRY_DEBUG` 调试通道** — 用 `ConsoleSpanExporter` 输出 UNREDACTED spans，供本地维护者排查 tracing
 2. **default-deny guardrail** — 仅 `NODE_ENV=development|test` 默认允许；其他/未设置环境必须显式 `TELEMETRY_DEBUG_FORCE=true`
@@ -69,7 +69,7 @@ team experience（2026-04-09）："这是可观测性基础设施 PR，核心是
 
 方案 B：API 代理 + 自建轻量前端，零外部依赖（不引入 Grafana/Tempo/Sentry）。
 
-**安全约束（Design Gate Maine Coon review 2026-04-21）：**
+**安全约束（Design Gate Agent-M review 2026-04-21）：**
 - LocalTraceExporter 必须放在 RedactingSpanProcessor **之后**（redacted fan-out），Hub 只看脱敏后数据
 - Exporter 投影为 redacted DTO 再入 store，不存 SDK span 对象；维护者看 raw 走 TELEMETRY_DEBUG console 通道
 - 按 raw ID 查询时，先 HMAC 查询参数再 match store，不存 raw ID
@@ -87,7 +87,7 @@ Phase E 只回答"发生了什么"（traces、metrics、健康状态），不做
 4. **Telemetry API 路由** — `/api/telemetry/traces`、`/traces/stats`、`/metrics`、`/metrics/history`、`/health`
 5. **HubTraceTree** — 前端树形 trace 可视化（`buildForest` 按 `parentSpanId` 组装父子关系）
 6. **burn-rate 告警** — SLO-based alerting（error rate / p95 latency / active invocations），WebSocket 推送
-7. **产品级 instruments** — `invocation.completed`、`thread.duration`、`session.rounds`、`cat.invocation.count`、`cat.response.duration`
+7. **产品级 instruments** — `invocation.completed`、`thread.duration`、`session.rounds`、`agent.invocation.count`、`agent.response.duration`
 
 > **Review P1/P2 修复**（PR #546 review）：
 > - P1: `findP95Latency` histogram bucket 语义错误（cumulative count ≠ seconds）→ 只用 `quantile="0.95"`
@@ -97,9 +97,9 @@ Phase E 只回答"发生了什么"（traces、metrics、健康状态），不做
 
 ### Phase F: Trace 持久化 — 指针关联方案（设计中）
 
-> **Status**: spec | **Owner**: Ragdoll
+> **Status**: spec | **Owner**: Agent-R
 > **Trigger**: 重启后 trace 数据全丢（LocalTraceStore 纯内存）
-> **Discussion**: 2026-04-22，三猫讨论（Ragdoll + Sonnet + GPT-5.4）
+> **Discussion**: 2026-04-22，Admin讨论（Agent-R + Sonnet + GPT-5.4）
 
 #### 问题
 
@@ -125,7 +125,7 @@ Phase E 只回答"发生了什么"（traces、metrics、健康状态），不做
 | `message.timestamp` | span endTime（⚠️ 非 startTime，见下方精度说明） |
 | `extra.stream.invocationId` | invocation 关联 |
 
-> **startTime 精度说明**（Maine Coon review）：assistant message 的 `timestamp` 是终态落盘时打的，接近 span **end** 而非 start。合成 span 时应使用 `startTime = timestamp - durationMs`（invocation/cli_session）或 `timestamp - durationApiMs`（llm_call）。只有 user message 的 `timestamp` 可直接作为 `cat_cafe.route` span 的 startTime。
+> **startTime 精度说明**（Agent-M review）：assistant message 的 `timestamp` 是终态落盘时打的，接近 span **end** 而非 start。合成 span 时应使用 `startTime = timestamp - durationMs`（invocation/cli_session）或 `timestamp - durationApiMs`（llm_call）。只有 user message 的 `timestamp` 可直接作为 `cat_cafe.route` span 的 startTime。
 
 **只需补 OTel 身份指针**（~100 bytes/消息），不需要存完整 span 快照：
 
@@ -146,7 +146,7 @@ interface TracingPointers {
 
 #### 前置条件（P1 阻塞）
 
-**相关性键不统一**（GPT-5.4 发现，Maine Coon review 修正键名）：
+**相关性键不统一**（GPT-5.4 发现，Agent-M review 修正键名）：
 
 | span 类型 | 是否带 invocationId | 问题 |
 |-----------|-------------------|------|
@@ -197,7 +197,7 @@ Phase E 实现引入了 `cat_cafe.route` 根 span（`AgentRouter` 创建），`c
 放在 **outer invocation 的 terminal status transition**（`routes/messages.ts` 中 status 变 `succeeded`/`failed` 的 `update()` 调用处），不是 exporter hook，也不是 inner `invokeSingleCat` finally：
 
 - exporter `onEnd` 时不知道所有 span 是否都结束了
-- inner finally 是 per-cat 的，多猫并发写同一个 record 会互相踩
+- inner finally 是 per-agent 的，多Agent并发写同一个 record 会互相踩
 - outer terminal transition 是唯一确定"该 invocation 所有工作都完成"的时刻
 
 ### Phase G: 后续增强
@@ -234,7 +234,7 @@ Phase E 实现引入了 `cat_cafe.route` 根 span（`AgentRouter` 创建），`c
 - [x] AC-C3: routedSet overlap 单独计数，且 narrative routed mention 不得误计 skip
 - [x] AC-C4: feedback 写入失败 / hint 发射失败从 silent catch 变为可观测 counter
 - [x] AC-C5: shadow miss metadata 只含 hash + length，不含 raw text
-- [x] AC-C6: regressions 覆盖 strict/shadow 同猫跨行、same-line dual mention、code block / blockquote 排除
+- [x] AC-C6: regressions 覆盖 strict/shadow 同Agent跨行、same-line dual mention、code block / blockquote 排除
 
 ### Phase E（Hub 嵌入式可观测 + Snapshot Store）✅
 - [x] AC-E1: `LocalTraceStore` ring buffer 存储脱敏 TraceSpanDTO（10K cap，2h TTL）
@@ -281,28 +281,28 @@ Phase E 实现引入了 `cat_cafe.route` 根 span（`AgentRouter` 创建），`c
 
 | # | 决策 | 理由 | 日期 |
 |---|------|------|------|
-| KD-1 | 社区 PR 先不放行，P1 修完再 intake | Maine Coon review 发现 counter 泄漏 + 端口硬编码 | 2026-04-09 |
-| KD-2 | 分配 F153（cat-cafe F152 = Expedition Memory 已占） | team lead确认 | 2026-04-09 |
+| KD-1 | 社区 PR 先不放行，P1 修完再 intake | Agent-M review 发现 counter 泄漏 + 端口硬编码 | 2026-04-09 |
+| KD-2 | 分配 F153（agent-hub F152 = Expedition Memory 已占） | team lead确认 | 2026-04-09 |
 | KD-3 | AC-A5 改为 graceful degradation（缺 salt → 禁用 OTel，不崩溃）| 生产稳定性优先 | 2026-04-11 |
 | KD-4 | Pane registry abort 状态不一致接受为 known limitation，不阻塞 intake | pre-existing 行为，属 F089 terminal 域 | 2026-04-13 |
 | KD-5 | 4 轮 review 后放行 intake | 所有 P1 已修，核心 P2 已修，剩余 P2 non-blocking | 2026-04-13 |
-| KD-6 | Phase B review: tool_use 改 addEvent + redactor-safe keys | Ragdoll+Maine Coon双猫 review 发现零时长 span 反模式 + 脱敏穿透 | 2026-04-12 |
+| KD-6 | Phase B review: tool_use 改 addEvent + redactor-safe keys | Agent-R+Agent-M双Agent review 发现零时长 span 反模式 + 脱敏穿透 | 2026-04-12 |
 | KD-7 | Phase B 2 轮 review 后放行 intake | P1（脱敏）+ P2（tool_use + scope）全部修完 | 2026-04-12 |
-| KD-8 | clowder-ai#489 双猫重审后放行 merge + absorb | strict/shadow/narrative 三级模型成立；剩余架构偏好降为 non-blocking | 2026-04-15 |
+| KD-8 | agent-task-hub#489 双Agent重审后放行 merge + absorb | strict/shadow/narrative 三级模型成立；剩余架构偏好降为 non-blocking | 2026-04-15 |
 | KD-9 | `TELEMETRY_DEBUG` 走 default-deny + 启动链显式注入 `NODE_ENV` | 只在真实 dev/test 语义下开放 raw exporter，避免 runtime/profile 脱钩 | 2026-04-18 |
 | KD-10 | NODE_ENV 由启动模式（PROD_WEB/-Dev）决定，不由 profile 决定 | dev:direct + --profile=opensource 是开发模式，不应标 production | 2026-04-20 |
-| KD-11 | Phase E 走方案 B（API 代理 + 自建前端），不引入 Grafana/Tempo/Sentry | 零外部依赖，贴合猫咖数据模型，零额外进程 | 2026-04-21 |
+| KD-11 | Phase E 走方案 B（API 代理 + 自建前端），不引入 Grafana/Tempo/Sentry | 零外部依赖，贴合Agent咖数据模型，零额外进程 | 2026-04-21 |
 | KD-12 | Trace 存储用 in-process ring buffer，不引入 Tempo | 零额外进程，保留最近 N 小时即够用 | 2026-04-21 |
-| KD-13 | LocalTraceExporter 放 redactor 之后，Hub 只看脱敏后数据 | Maine Coon Design Gate：raw span 走 TELEMETRY_DEBUG console，不走 Hub | 2026-04-21 |
-| KD-14 | `/api/telemetry/*` 走 session/cookie auth | Maine Coon Design Gate：不复制 `/ready` 公开探针模式 | 2026-04-21 |
-| KD-15 | 查询参数先 HMAC 再 match store | Maine Coon Design Gate：不为查询方便存 raw ID | 2026-04-21 |
+| KD-13 | LocalTraceExporter 放 redactor 之后，Hub 只看脱敏后数据 | Agent-M Design Gate：raw span 走 TELEMETRY_DEBUG console，不走 Hub | 2026-04-21 |
+| KD-14 | `/api/telemetry/*` 走 session/cookie auth | Agent-M Design Gate：不复制 `/ready` 公开探针模式 | 2026-04-21 |
+| KD-15 | 查询参数先 HMAC 再 match store | Agent-M Design Gate：不为查询方便存 raw ID | 2026-04-21 |
 | KD-16 | F153 = descriptive observability，不做 normative eval | Phase E 只展示"发生了什么"，eval 信号留给未来 phase（eval 讨论 2026-04-19） | 2026-04-21 |
 | KD-17 | 补 5 个产品级 instrument（task/session 层），不急于吸收 ActivityEventBus | Phase A 的 5 个是基础设施级；L1-L3 gap 分析显示 task 完成/耗时/轮次信号缺失 | 2026-04-21 |
 | KD-18 | Phase F: 否决 SQLite 独立存储 | team lead认为单独一份可观测数据冗余 | 2026-04-22 |
 | KD-19 | Phase F: 否决完整 span JSON 写入 InvocationRecord | GPT-5.4 + Sonnet review: Redis 内存线性膨胀 + HGETALL 读放大 + TTL 生命周期错位 | 2026-04-22 |
 | KD-20 | Phase F: 选定指针关联方案 | team lead洞察：消息数据已含 timing/token/tool 信息，只需补 OTel ID 指针（~100 bytes） | 2026-04-22 |
-| KD-21 | Phase F 前置：统一 `invocationId`（沿用现有键名，值改为 outer record ID）| GPT-5.4 发现不统一；Maine Coon review 修正：不引入新键名 `recordInvocationId`，否则破坏 redactor Class C + trace query | 2026-04-22 |
+| KD-21 | Phase F 前置：统一 `invocationId`（沿用现有键名，值改为 outer record ID）| GPT-5.4 发现不统一；Agent-M review 修正：不引入新键名 `recordInvocationId`，否则破坏 redactor Class C + trace query | 2026-04-22 |
 | KD-22 | Phase F 纳入 `cat_cafe.route` 根 span | Phase E 实现引入 route 根 span，invocation 已变子 span；hydrate 必须覆盖 route 否则重启后层级断裂 | 2026-04-22 |
-| KD-23 | startTime 用 `timestamp - durationMs` 反推 | assistant message timestamp 是终态落盘时间 ≈ span end；Maine Coon review 发现直接当 startTime 会偏移 | 2026-04-22 |
-| KD-24 | `extra.tracing` 需要 parser + merge 前置改造 | `updateExtra()` 是整块覆盖，parser 不保留未知字段；Maine Coon review 指出需先 widen type + merge 语义 | 2026-04-22 |
+| KD-23 | startTime 用 `timestamp - durationMs` 反推 | assistant message timestamp 是终态落盘时间 ≈ span end；Agent-M review 发现直接当 startTime 会偏移 | 2026-04-22 |
+| KD-24 | `extra.tracing` 需要 parser + merge 前置改造 | `updateExtra()` 是整块覆盖，parser 不保留未知字段；Agent-M review 指出需先 widen type + merge 语义 | 2026-04-22 |
 | KD-25 | tool_use spans 暂不持久化 | KD-6 原决策为 event；Phase E 升级为 MCP 工具 span 但仍是零时长；等 Phase G 真实执行边界再持久化 | 2026-04-22 |

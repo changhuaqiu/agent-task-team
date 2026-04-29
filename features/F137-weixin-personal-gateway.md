@@ -9,16 +9,16 @@ created: 2026-03-23
 
 # F137: WeChat Personal Gateway — 微信个人号 iLink Bot 接入
 
-> **Status**: done | **Completed**: 2026-03-28 | **Owner**: 金渐层 | **Priority**: P1
+> **Status**: done | **Completed**: 2026-03-28 | **Owner**: Golden Agent | **Priority**: P1
 >
-> **分工**：金渐层（@opencode）实现 → Maine Coon（@codex）review → Ragdoll（@opus）愿景守护
-> 实现过程中不 @ Ragdoll，保持 owner 上下文干净。每个 Phase PR merge 后触发愿景守护。
+> **分工**：Golden Agent（@opencode）实现 → Agent-M（@codex）review → Agent-R（@opus）愿景守护
+> 实现过程中不 @ Agent-R，保持 owner 上下文干净。每个 Phase PR merge 后触发愿景守护。
 
 ## Why
 
 F088 + F132 覆盖了**企业级 IM**（飞书、Telegram、钉钉、企业微信），但team lead的个人微信——12 亿用户量级的国民级 IM——一直无法接入。2026 年 3 月，腾讯微信正式开放 **iLink Bot 协议**（灰度中），允许个人微信号直接与 AI Bot 交互（扫码登录、长轮询收消息、HTTP 发消息），无需企业资质、无需公网 URL、无需 XML/AES 加解密。
 
-team experience：*"那我们是不是可以学习 @tencent-weixin/openclaw-weixin 这个的实现模式！把我们的猫猫接入微信！！？"*
+team experience：*"那我们是不是可以学习 @tencent-weixin/openclaw-weixin 这个的实现模式！把我们的Agent接入微信！！？"*
 
 team experience：*"你也得复用那些基础设施，就不要自己做一套"*
 
@@ -112,7 +112,7 @@ team lead确认已被灰度到 ClawBot（iLink Bot）功能。
 
 #### iLink 协议消息类型（`ILinkMessageItem.type`）
 
-| type 值 | 名称 | 入站（微信→Cat Cafe） | 出站（Cat Cafe→微信） |
+| type 值 | 名称 | 入站（微信→Agent Task Hub） | 出站（Agent Task Hub→微信） |
 |---------|------|:-----:|:-----:|
 | 1 | TEXT | 已实现 | 已实现 |
 | 2 | IMAGE | 已实现（CDN 下载 + AES 解密） | 已实现（CDN 上传 + `image_item`） |
@@ -136,11 +136,11 @@ team lead确认已被灰度到 ClawBot（iLink Bot）功能。
 
 **~~之前结论有误~~**：iLink `sendmessage` API **支持发送图片/文件/语音/视频**——通过 `item_list` 中的 `image_item`/`file_item`/`voice_item`/`video_item`。需要先调 `getuploadurl` 获取 CDN 上传地址，用 AES-128-ECB 加密后上传，拿到 `filekey` + `encrypt_query_param` + `aes_key` 后放入 item。官方 `@tencent-weixin/openclaw-weixin@2.0.1` 的 `send-media.ts` + `cdn/upload.ts` 有完整实现。
 
-> 纠正来源：2026-03-25 Ragdoll核实 openclaw v2.0.1 源码 `sendImageMessageWeixin` / `uploadFileToWeixin` 确认。
+> 纠正来源：2026-03-25 Agent-R核实 openclaw v2.0.1 源码 `sendImageMessageWeixin` / `uploadFileToWeixin` 确认。
 
 #### iLink 富媒体能力矩阵
 
-| 能力 | iLink 协议 | Cat Cafe 实现 | 状态 |
+| 能力 | iLink 协议 | Agent Task Hub 实现 | 状态 |
 |------|:-:|:-:|:-:|
 | 文字收/发 | ✅ | ✅ | Phase A 已完成 |
 | 图片收 | ✅ CDN URL | ✅ CDN 下载 + AES 解密 | Phase B 完成 |
@@ -168,8 +168,8 @@ team lead确认已被灰度到 ClawBot（iLink Bot）功能。
 #### 纯文本辨识度方案
 
 在无法发送富文本的限制下，通过以下手段提升消息辨识度：
-- 猫名标识：`【Ragdoll🐱】` 中文方括号 + cat emoji 作为前缀
-- 多猫接力时每只猫独立标识段落，分隔线 `─────────` 提升可读性
+- Agent名标识：`【Agent-R🐱】` 中文方括号 + agent emoji 作为前缀
+- 多Agent接力时每只Agent独立标识段落，分隔线 `─────────` 提升可读性
 - stripMarkdown 保留结构（bullet list → `•`、heading → 文本）
 
 ### Phase C: IM Hub 配置向导 + 健壮性
@@ -224,7 +224,7 @@ team lead确认已被灰度到 ClawBot（iLink Bot）功能。
 ### Phase A（文本双向）
 - [x] AC-A1: 扫码登录流程完整（获取 QR → 扫码 → 获取 bot_token → 持久化）
 - [x] AC-A2: 微信个人号 DM 消息入站解析正确（文本消息）
-- [x] AC-A3: 猫猫回复通过 WeixinAdapter 发送到微信（文本，含 context_token 缓存）
+- [x] AC-A3: Agent回复通过 WeixinAdapter 发送到微信（文本，含 context_token 缓存）
 - [x] AC-A4: 长消息自动分块（>2000 字符）
 - [x] AC-A5: 复用 ConnectorRouter/CommandLayer/BindingStore，公共层零改动
 - [x] AC-A6: /new /threads /use /where 命令在微信内正常工作 — ConnectorCommandLayer 对所有 connector 统一处理，无 weixin 排除逻辑
@@ -250,7 +250,7 @@ team lead确认已被灰度到 ClawBot（iLink Bot）功能。
 - 7 测试覆盖所有状态转换 (idle→fetching→waiting→scanned→confirmed→error→expired)
 - 自动轮询铁律：`setInterval(2500ms)` + `setTimeout(60000ms)`，扫码后零用户干预
 - Pencil 绘制 SVG 图标，无 emoji
-- Maine Coon (codex) R2 放行 + 云端 Codex review 无 P1/P2
+- Agent-M (codex) R2 放行 + 云端 Codex review 无 P1/P2
 
 ### Phase D（断开连接 + 解绑）✅
 
@@ -266,7 +266,7 @@ team lead确认已被灰度到 ClawBot（iLink Bot）功能。
 
 | ID | 需求点（team experience/转述） | AC 编号 | 验证方式 | 状态 |
 |----|---------------------------|---------|----------|------|
-| R1 | "把我们的猫猫接入微信" | AC-A1~A7 | test + manual DM | [x] |
+| R1 | "把我们的Agent接入微信" | AC-A1~A7 | test + manual DM | [x] |
 | R2 | "你也得复用那些基础设施，就不要自己做一套" | AC-A5, AC-C4 | code review: 公共层 diff = 0 | [x] |
 | R3 | "也得接入我们的消息管线，都得是一样的" | AC-A5, AC-A6 | /new /threads /use /where 可用 | [x] |
 | R4 | "如果有配置需要配置...在那边能够显示" | AC-C1 | IM Hub 配置向导可见 | [x] |
@@ -303,8 +303,8 @@ team lead确认已被灰度到 ClawBot（iLink Bot）功能。
 
 **现象**（2026-03-24 Alpha 实测，3 次复现）：
 - ✅ 微信扫码登录成功 → 长轮询启动
-- ✅ 微信发消息 → iLink `getupdates` 正常接收 → ConnectorRouter 路由 → 创建 thread + binding → 猫猫 invocation 创建 → 猫猫处理完成
-- ❌ 猫猫回复 **从未** 到达微信端 — 微信 DM 窗口无任何新消息
+- ✅ 微信发消息 → iLink `getupdates` 正常接收 → ConnectorRouter 路由 → 创建 thread + binding → Agent invocation 创建 → Agent处理完成
+- ❌ Agent回复 **从未** 到达微信端 — 微信 DM 窗口无任何新消息
 
 **证据链**（来自 `api.2026-03-23.1.log`, PID 72430）：
 
@@ -323,7 +323,7 @@ team lead确认已被灰度到 ClawBot（iLink Bot）功能。
 
 **Redis binding 已确认存在**：
 ```
-cat-cafe:connector-binding:weixin:o9cq8008zWwzHxRSAQqEgo5Sz34g@im.wechat
+agent-hub:connector-binding:weixin:o9cq8008zWwzHxRSAQqEgo5Sz34g@im.wechat
   connectorId: weixin
   externalChatId: o9cq8008zWwzHxRSAQqEgo5Sz34g@im.wechat
   threadId: thread_mn45go5om80e4v98
@@ -349,7 +349,7 @@ cat-cafe:connector-binding:weixin:o9cq8008zWwzHxRSAQqEgo5Sz34g@im.wechat
 
 **状态**: 🟢 Fixed — PR #704 + #708 + #710 + #711 累积修复，E2E 三轮验证通过 (2026-03-24)
 
-**现象**：team lead发第一条微信消息 → 猫猫回复 → 微信收到 ✅。发第二条 → 猫猫回复 → 微信收不到 ❌（或延迟 3-5 分钟才收到）。
+**现象**：team lead发第一条微信消息 → Agent回复 → 微信收到 ✅。发第二条 → Agent回复 → 微信收不到 ❌（或延迟 3-5 分钟才收到）。
 
 **根因（多层）**：
 1. **iLink `context_token` 单次消费**（PR #704）：第一次 `sendmessage` + `FINISH` 后 token 作废，后续用同一 token 被静默丢弃
@@ -359,7 +359,7 @@ cat-cafe:connector-binding:weixin:o9cq8008zWwzHxRSAQqEgo5Sz34g@im.wechat
 **修复时间线**：
 | PR | Commit | 修复内容 |
 |----|--------|---------|
-| #704 | 50b62edb | Token 消费追踪 + debounce 3s 聚合多猫回复 + 跨 token 隔离 |
+| #704 | 50b62edb | Token 消费追踪 + debounce 3s 聚合多Agent回复 + 跨 token 隔离 |
 | #708 | a0a07250 | sendTyping keepalive（typing_ticket → 5s heartbeat）— 排除了 typing 缺失假设 |
 | #710 | 8f1e7fe9 | 禁用分块，单条 sendmessage 发送全部内容 — 排除了 chunking 假设，收敛到协议字段 |
 | #711 | 61f6baf4 | 对齐官方 sendmessage body（补 `client_id/message_type/from_user_id`）+ 200+非 JSON/空 body 硬失败 + raw response 调试日志 |
@@ -376,19 +376,19 @@ cat-cafe:connector-binding:weixin:o9cq8008zWwzHxRSAQqEgo5Sz34g@im.wechat
 
 ### BUG-4：A→B→C 接力链只送达 A，B/C 静默丢失
 
-**现象**：team lead在微信端发消息触发 A→B→C 猫猫接力链时，只收到 A 的回复，B 和 C 的回复静默丢失。iLink API 均返回 200 OK。
+**现象**：team lead在微信端发消息触发 A→B→C Agent接力链时，只收到 A 的回复，B 和 C 的回复静默丢失。iLink API 均返回 200 OK。
 
 **根因**：`context_token` 单次消费（iLink 协议约束）+ 3s debounce 阻塞 deliver loop。A 的 `flushReply()` 消费 token 后删除，B/C 的 `sendReply()` 到达时已无 token，静默跳过（`WeixinAdapter.ts:519-524`）。
 
 **代码证据**：`ConnectorInvokeTrigger.ts:475` 逐 turn `await deliver()`，但 `sendReply` 的 Promise 在 `flushReply` 完成后（3s）才 resolve。Turn A flush 后 `contextTokens.delete(chatId)` → Turn B 到达 → `!currentToken && !pendingReplies` → silent return。
 
-**修复**：`ConnectorInvokeTrigger` 检测到 WeChat binding 且 `nonEmptyTurns > 1` 时，合并所有 turn 内容（带猫名前缀）为单次 `deliver()` 调用。非 WeChat 连接器保持原有逐 turn 投递逻辑。richBlocks 渲染为纯文本嵌入合并内容（避免 adapter fallback 重复追加）。混合 connector 绑定（如 weixin+feishu）回退到逐 turn 投递。
+**修复**：`ConnectorInvokeTrigger` 检测到 WeChat binding 且 `nonEmptyTurns > 1` 时，合并所有 turn 内容（带Agent名前缀）为单次 `deliver()` 调用。非 WeChat 连接器保持原有逐 turn 投递逻辑。richBlocks 渲染为纯文本嵌入合并内容（避免 adapter fallback 重复追加）。混合 connector 绑定（如 weixin+feishu）回退到逐 turn 投递。
 
 **验证**：4 条新增测试覆盖合并路径 + richBlocks 保留 + 混合 connector 回归 + 非 WeChat 回归。42/42 全绿。PR #717 merged（2026-03-25，commit 2be35f8a）。
 
 **BUG-4b/4c 后续修复**（PR #740，2026-03-25，commit 08c663fb）：
 - **BUG-4b**：`ConnectorInvokeTrigger` 合并判断 `every()` → `some()`。原逻辑要求所有绑定 connector 都是单 token 才合并，但 weixin+feishu 混合绑定时 `every()` 返回 false，导致不合并。修正为 `some()` — 只要有一个是 weixin 就合并。
-- **BUG-4c**：`QueueProcessor` 完全缺失 BUG-4 合并逻辑。当 queued invocations 产出多 turn WeChat 输出时，每个 turn 独立 deliver，第一个消费 token 后后续静默丢失。新增完整合并路径（含 `getConnectorIds` 检测 + `SINGLE_TOKEN_CONNECTORS` + 猫名前缀 + 分隔线）。
+- **BUG-4c**：`QueueProcessor` 完全缺失 BUG-4 合并逻辑。当 queued invocations 产出多 turn WeChat 输出时，每个 turn 独立 deliver，第一个消费 token 后后续静默丢失。新增完整合并路径（含 `getConnectorIds` 检测 + `SINGLE_TOKEN_CONNECTORS` + Agent名前缀 + 分隔线）。
 - **BUG-4c P1**（云端 review 发现）：QueueProcessor merge 路径丢弃 richBlocks。修复：合并循环中用 `renderAllRichBlocksPlaintext` 将 richBlocks 渲染为纯文本后嵌入合并内容。
 - **验证**：83 pass（42 ConnectorInvokeTrigger + 41 QueueProcessor）。Gate 全绿，云端 review 两轮通过。
 
@@ -406,11 +406,11 @@ cat-cafe:connector-binding:weixin:o9cq8008zWwzHxRSAQqEgo5Sz34g@im.wechat
 **实验设计**：`flushReply()` 发送成功后，不再执行 `lastConsumedToken.set()` 和 `contextTokens.delete()`——保留 token 给后续 sendReply 调用。
 
 **实验结果**（2026-03-25 16:41 实测）：
-- Ragdoll回复 → 两条消息分别到达微信 ✅
-- 金渐层 + Maine Coon回复 → 也成功到达微信 ✅
+- Agent-R回复 → 两条消息分别到达微信 ✅
+- Golden Agent + Agent-M回复 → 也成功到达微信 ✅
 - **同一个 context_token 支持多次 sendmessage 调用！**
 
-**修复**：将实验代码正式化——`flushReply()` 不再消费/删除 token。每只猫的回复作为独立微信消息发送。
+**修复**：将实验代码正式化——`flushReply()` 不再消费/删除 token。每只Agent的回复作为独立微信消息发送。
 
 **影响**：
 - BUG-4 系列的 merge 逻辑（ConnectorInvokeTrigger + QueueProcessor 合并多 turn）不再是 WeChat 接龙的必要条件——但保留为可选的用户体验优化（合并消息 vs 多条碎片消息）
@@ -428,6 +428,6 @@ cat-cafe:connector-binding:weixin:o9cq8008zWwzHxRSAQqEgo5Sz34g@im.wechat
 
 ## Review Gate
 
-- Phase A: 跨 family review（Maine Coon @codex）
-- Phase B: 跨 family review（Maine Coon @codex）— AES 加解密需额外审查
+- Phase A: 跨 family review（Agent-M @codex）
+- Phase B: 跨 family review（Agent-M @codex）— AES 加解密需额外审查
 - Phase C: 前端走 Design Gate（IM Hub 配置向导 UX → team lead确认）

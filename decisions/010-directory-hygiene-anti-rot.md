@@ -9,11 +9,11 @@ created: 2026-02-26
 
 > 日期：2026-02-13
 > 状态：**已批准** — 三方 + GPT Pro 对齐完毕，待执行
-> 参与者：Ragdoll（方案设计）、Maine Coon（reviewer 视角 + 硬规则）、铲屎官（发起人）、GPT Pro（外部评审）
+> 参与者：Agent-R（方案设计）、Agent-M（reviewer 视角 + 硬规则）、铲屎官（发起人）、GPT Pro（外部评审）
 
 ## 背景
 
-2026-02-13 铲屎官发现 `packages/api/src/domains/cats/services/` 堆积 70 个 .ts 文件，6 种不同职责混在一个扁平目录里。`docs/` 也有 270 个文件，从未系统归档。
+2026-02-13 铲屎官发现 `packages/api/src/domains/agents/services/` 堆积 70 个 .ts 文件，6 种不同职责混在一个扁平目录里。`docs/` 也有 270 个文件，从未系统归档。
 
 根因：增量开发无决策压力 + 无早期报警机制 + 代码规范只管文件大小不管目录大小。
 
@@ -78,11 +78,11 @@ AI 新增文件时必须：
 ### 目录重构方案：方案 A（就地整理）
 
 ```
-domains/cats/services/
+domains/agents/services/
 ├── agents/
 │   ├── providers/       # ClaudeAgentService, CodexAgentService, GeminiAgentService
 │   ├── routing/         # AgentRouter, route-strategies
-│   └── invocation/      # invoke-single-cat, stream-merge, InvocationTracker
+│   └── invocation/      # invoke-single-agent, stream-merge, InvocationTracker
 ├── stores/
 │   ├── ports/           # Store 接口 (MessageStore, ThreadStore...)
 │   ├── redis/           # Redis 实现 + keys
@@ -110,7 +110,7 @@ docs/
 │   └── 2026-02/
 ├── decisions/           # ADR（已有，不动）
 ├── phases/              # Phase 设计文档（不动）
-├── tasks/               # 猫猫任务表（不动）
+├── tasks/               # Agent任务表（不动）
 └── README.md            # 导航入口
 ```
 
@@ -127,30 +127,30 @@ docs/
 | 方案 | 不做理由 |
 |------|----------|
 | DDD 分层（方案 B） | 对当前规模太重，短期收益不如方案 A |
-| 代码生成器/脚手架 | 3 猫团队暂不需要 |
+| 代码生成器/脚手架 | 3 Agent团队暂不需要 |
 | CODEOWNERS 文件 | 代码基本一人写，目前意义不大 |
 | PR 模板 | 我们不走 GitHub PR 流程 |
 | 后端测试搬到源码旁边 | .test.js 搬家是另一个大改动，不混着做 |
 
 ## 三方意见记录
 
-### Ragdoll（方案设计者）
+### Agent-R（方案设计者）
 - 根因分析：温水煮青蛙 + 规范盲区 + 缺重构 checkpoint
 - 原始方案 ABCD → 综合后扩展到 A-H
 - orchestration/ 命名保留（和 ModeOrchestrator 一致）
 - 例外清单放 `.dir-exceptions.json`（离代码近，方便 lint 读取）
 
-### Maine Coon（reviewer 视角）
+### Agent-M（reviewer 视角）
 - **核心痛点**：不是文件多，而是"边界不清导致改动扩散不可预测"
 - **硬规则要求**：(1) 拆目录理由白名单 (2) 例外 owner+expiresAt (3) 兼容导出控毒
 - **依赖边界 lint 是必须的**：拆目录不拆耦合 = 假整理
 - **补充**：docs 归档做增量迁移，不做一次性大搬家
 - **同意**：方案 A、warn 15/error 25、JS Boundaries 先上
-- **Open Question 1**：orchestration/ 还是 coordination/？→ Ragdoll判断保留 orchestration/
-- **Open Question 2**：例外清单放哪？→ Ragdoll判断放 .dir-exceptions.json + decisions/ 记 ADR
+- **Open Question 1**：orchestration/ 还是 coordination/？→ Agent-R判断保留 orchestration/
+- **Open Question 2**：例外清单放哪？→ Agent-R判断放 .dir-exceptions.json + decisions/ 记 ADR
 
 ### GPT Pro（外部评审）
-- **新增盲点**：猫砂盆目录风险、例外机制、目录所有权、兼容层毒性控制
+- **新增盲点**：Agent砂盆目录风险、例外机制、目录所有权、兼容层毒性控制
 - **阈值建议**：warn 15 / error 25-30（三方采纳）
 - **工具建议**：JS Boundaries 先上，dependency-cruiser 做 CI 终检（三方采纳）
 - **目录拆分**：提供方案 A（就地整理）和方案 B（DDD），三方选 A
@@ -162,8 +162,8 @@ docs/
 
 | 文档 | 用途 |
 |------|------|
-| 方案初稿 (internal) | Ragdoll初始 ABCD 方案 + 影响分析 |
-| 开放讨论邀请 (internal) | 给Maine Coon的讨论邀请 |
+| 方案初稿 (internal) | Agent-R初始 ABCD 方案 + 影响分析 |
+| 开放讨论邀请 (internal) | 给Agent-M的讨论邀请 |
 | 进展更新 (internal) | F8/F12 状态更新 + docs 膨胀 |
 | GPT Pro 综合判断 (internal) | 三方意见综合 + 5 个确认项 |
 | GPT Pro 评审 prompt (internal) | 发给 GPT Pro 的完整 context |

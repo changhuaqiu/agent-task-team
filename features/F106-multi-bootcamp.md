@@ -8,7 +8,7 @@ created: 2026-03-12
 
 # F106: 多训练营支持 + 训练营列表页
 
-> **Status**: done | **Owner**: Ragdoll | **Priority**: P2 | **Completed**: 2026-03-12
+> **Status**: done | **Owner**: Agent-R | **Priority**: P2 | **Completed**: 2026-03-12
 > **Evolved from**: F087（CVO Bootcamp — 当前只支持单训练营）
 
 ## Why
@@ -31,7 +31,7 @@ team lead体验训练营后发现候选任务很多都很好玩，想同时开�
 
 2. **前端 CTA 逻辑调整**：
    - 有训练营 → "我的训练营(N)" → 打开列表 modal
-   - 无训练营 → "开始猫猫训练营" → 打开列表 modal（空态 + 创建按钮）
+   - 无训练营 → "开始Agent训练营" → 打开列表 modal（空态 + 创建按钮）
 
 3. **Phase 进度可视化**：列表中每个训练营显示当前 phase（如 Phase 5/11）
 
@@ -47,7 +47,7 @@ team lead体验训练营后发现候选任务很多都很好玩，想同时开�
 - [x] AC-A2: 训练营列表页展示所有训练营的 phase 进度
 - [x] AC-A3: 点击列表中的训练营跳转到对应 thread
 - [x] AC-A4: 列表底部有"开始新训练营"入口
-- [x] AC-A5: 空消息态 CTA 适配：有训练营→"我的训练营(N)"打开列表 modal，无训练营→"开始猫猫训练营"打开列表 modal（显示空态+创建按钮）
+- [x] AC-A5: 空消息态 CTA 适配：有训练营→"我的训练营(N)"打开列表 modal，无训练营→"开始Agent训练营"打开列表 modal（显示空态+创建按钮）
 
 ## Dependencies
 

@@ -40,8 +40,8 @@ OpenClaw 用了 ~98.5K LOC 做 25+ 平台，但其中一半以上是 AI agent �
 
 ### 初始评估收敛
 
-- **Ragdoll初始估 3-4 天** → 低估了 outbound 改造 + thread mapping 新真相源
-- **Maine Coon初始估 6-10 周** → 口径按 OpenClaw 级产品化，scope 偏大
+- **Agent-R初始估 3-4 天** → 低估了 outbound 改造 + thread mapping 新真相源
+- **Agent-M初始估 6-10 周** → 口径按 OpenClaw 级产品化，scope 偏大
 - **收敛共识：双平台 MVP 7-9 天，全量 3-4 周**
 
 Outbound 不是挂 callback 就完事——需要基于现有 streaming pipeline 挂 final-only hook，这是首个平台最难的 50%。但第二个平台边际成本低，因为共享基座。

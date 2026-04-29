@@ -10,7 +10,7 @@ created: 2026-03-28
 
 > **Scope 扩展（2026-04-18 team lead拍板）**：不止 MCP，覆盖 plugin / skill / tool / connector。UI 标签"能力市场"。
 
-> **Status**: done | **Completed**: 2026-04-19 | **Owner**: Maine Coon + Ragdoll | **Priority**: P1
+> **Status**: done | **Completed**: 2026-04-19 | **Owner**: Agent-M + Agent-R | **Priority**: P1
 
 ## team lead愿景
 
@@ -22,7 +22,7 @@ created: 2026-03-28
 >
 > “Connectors 比如 Figma 那种 app connector 也要。L1、L2、L3 都得做。”
 
-**一句话**：team lead说一句自然语言需求，猫就能去多家市场搜索、比较、安全评估、一键拉回来安装——人类不碰 JSON、不碰命令行。
+**一句话**：team lead说一句自然语言需求，Agent就能去多家市场搜索、比较、安全评估、一键拉回来安装——人类不碰 JSON、不碰命令行。
 
 ## Why
 
@@ -107,7 +107,7 @@ L3 不直接写入 L1，内部拆成三个状态面：
 - `DELETE /api/capabilities/mcp/:id`
 
 并发与一致性要求：
-- 写入能力必须串行化（锁）或带版本号 CAS，避免双猫并发安装导致覆盖
+- 写入能力必须串行化（锁）或带版本号 CAS，避免双Agent并发安装导致覆盖
 - 所有写操作都通过同一编排入口，保证 `capabilities.json`、CLI 配置、probe 状态一致
 
 ### Phase B: Marketplace 聚合（4 生态）✅
@@ -167,7 +167,7 @@ L3 不直接写入 L1，内部拆成三个状态面：
 
 Skill 内容安全（防下毒）：
 
-外来 SKILL.md 是自然语言 prompt，加载后直接成为猫的 system prompt 一部分。这是 MCP 代码层安全工具扫不到的攻击面。
+外来 SKILL.md 是自然语言 prompt，加载后直接成为Agent的 system prompt 一部分。这是 MCP 代码层安全工具扫不到的攻击面。
 
 1. **SKILL.md 内容安全扫描**
    - 安装外来 skill 时，先做 prompt injection 检测（关键词 + 语义审查）
@@ -180,7 +180,7 @@ Skill 内容安全（防下毒）：
 3. **Quarantine 状态机**
    - `pending_review` → `approved` / `quarantined` / `rejected`
    - `quarantined` 的 skill 可以查看内容但不能激活
-   - 只有team lead或审核猫显式 approve 才能从 quarantined 变 approved
+   - 只有team lead或审核Agent显式 approve 才能从 quarantined 变 approved
 
 版本管理：
 
@@ -251,7 +251,7 @@ Skill 内容安全（防下毒）：
 - [x] AC-C6: 声明态与实测态出现 diff 时强制告警并阻断 ready
 - [x] AC-C7: 外来 SKILL.md 安装时必须经过内容安全扫描（prompt injection 检测），不通过则标 `quarantined`
 - [x] AC-C8: 外来 skill 权限隔离（不允许访问写路径、不允许触发其他 skill、工具调用需逐次确认）
-- [x] AC-C9: quarantined skill 只有team lead或审核猫显式 approve 后才能激活
+- [x] AC-C9: quarantined skill 只有team lead或审核Agent显式 approve 后才能激活
 - [x] AC-C10: 外来 skill 安装时记录不可变指纹（source + version + hash/signature），运行前校验一致性，不一致自动降级 `quarantined`
 - [x] AC-C11: 外来 skill 首次运行默认最小权限（dry-run/只读），涉及写文件、网络外发、高危工具必须二次确认
 - [x] AC-C12: 一键 `revoke`（全端停用 + 清理挂载 + 禁止再次激活），60s 内传播到 Hub/CLI/connector 侧
@@ -302,5 +302,5 @@ Skill 内容安全（防下毒）：
 
 ## Review Gate
 
-- Phase A: Maine Coon author + Ragdoll严格 review
+- Phase A: Agent-M author + Agent-R严格 review
 - Phase B/C: 跨家族 review + 安全视角复核（至少一轮）

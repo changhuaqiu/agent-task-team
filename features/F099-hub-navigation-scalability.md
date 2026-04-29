@@ -8,11 +8,11 @@ created: 2026-03-11
 
 # F099: Hub & 顶栏导航可扩展性重构
 
-> **Status**: done | **Owner**: Ragdoll | **Priority**: P1 | **Completed**: 2026-03-12
+> **Status**: done | **Owner**: Agent-R | **Priority**: P1 | **Completed**: 2026-03-12
 
 ## Why
 
-Hub 水平页签已有 13 个（猫猫总览→排行榜），溢出屏幕；顶栏图标 6+ 个也快满。
+Hub 水平页签已有 13 个（Agent总览→排行榜），溢出屏幕；顶栏图标 6+ 个也快满。
 team experience："随着功能越来越多，页签会越来越多…不太合适。"
 
 根因不是"页签太多"，而是用一维扁平导航承载多维异质功能，缺少分层规则。
@@ -34,7 +34,7 @@ V1 (PR #384) 先实现 Bento Box 网格，team lead反馈后 V2 (PR #396) 改为
 
 | 分组 | 页签 | 用户意图 |
 |------|------|---------|
-| 猫猫与协作 (cat) | 猫猫总览、能力中心、猫粮看板、排行榜 | "我要看猫" |
+| Agent与协作 (agent) | Agent总览、能力中心、Agent粮看板、排行榜 | "我要看Agent" |
 | 系统配置 (settings) | 系统配置、环境&文件、账号配置、语音设置、通知、Session 策略 | "我要改设置" |
 | 监控与治理 (activity) | 治理看板、健康、命令速查 | "我要查状况" |
 
@@ -62,7 +62,7 @@ team lead反馈治理看板"像配置类，该放 Hub 里"，Phase B 不急。
 - [x] AC-A3: 顶栏常驻 5 个（导出、语音、Signal、Hub 齿轮、面板切换），分屏隐藏
 - [x] AC-A4: 现有所有功能仍可达（无功能丢失）
 - [x] AC-A5: team lead确认视觉方案（SVG 图标 + 品种色，Design Gate）
-- [x] AC-A6: 齿轮 tooltip 改为"Cat Café Hub"
+- [x] AC-A6: 齿轮 tooltip 改为"Agent Task Hub Hub"
 - [x] AC-A7: Hub 齿轮在顶栏常驻（工作区模式下仍可达）
 
 ### Phase B（重页面毕业）— de-scoped
@@ -85,9 +85,9 @@ Phase B 从 F099 移出，后续按需独立立项。
 | # | 决策 | 理由 | 日期 |
 |---|------|------|------|
 | KD-1 | 采用 Bento Box 网格而非侧边栏 | Siamese提出：温馨调性 > B 端企业味；2D 空间利用率高 | 2026-03-11 |
-| KD-2 | 复用 F042 三层导航原则 | Maine Coon GPT-5.4 提出：前端 IA 和知识架构是同一个病 | 2026-03-11 |
-| KD-3 | 新功能默认 Layer 2，需审批升级 | Maine Coon提出硬规则防止再次膨胀 | 2026-03-11 |
-| KD-4 | 齿轮入口位置不动，tooltip 改为"Cat Café Hub" | 入口心智模型已建立；改 tooltip 提升开源新用户功能发现性 | 2026-03-11 |
+| KD-2 | 复用 F042 三层导航原则 | Agent-M GPT-5.4 提出：前端 IA 和知识架构是同一个病 | 2026-03-11 |
+| KD-3 | 新功能默认 Layer 2，需审批升级 | Agent-M提出硬规则防止再次膨胀 | 2026-03-11 |
+| KD-4 | 齿轮入口位置不动，tooltip 改为"Agent Task Hub Hub" | 入口心智模型已建立；改 tooltip 提升开源新用户功能发现性 | 2026-03-11 |
 | KD-5 | Hub Bento Box 分三组 | team lead确认：三组够用，四组增加认知负担且最大组没变小 | 2026-03-11 |
 | KD-6 | 导出按钮保留在顶栏 | team lead确认：导出是高频操作，不能移走 | 2026-03-11 |
 | KD-7 | 分屏功能候选废弃 | team lead评价"太简陋"，"左边监控进度好像够了"；不优化则移除 | 2026-03-11 |
@@ -98,4 +98,4 @@ Phase B 从 F099 移出，后续按需独立立项。
 
 ## Review Gate
 
-- Phase A: 跨 family review（Maine Coon）
+- Phase A: 跨 family review（Agent-M）

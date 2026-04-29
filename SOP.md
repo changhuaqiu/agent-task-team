@@ -6,14 +6,14 @@ created: 2026-02-26
 updated: 2026-03-11
 ---
 
-# Cat Café 开发 SOP
+# Agent Task Hub 开发 SOP
 
-> 三猫开发全流程的导航图。每步的详细操作在对应 skill 内。
+> Admin开发全流程的导航图。每步的详细操作在对应 skill 内。
 > 冲突时以 skill 内容为准。
 
 ## 愿景驱动（核心原则）
 
-Cat Café 的开发是**愿景驱动**的。和铲屎官确认了 feature 的愿景后：
+Agent Task Hub 的开发是**愿景驱动**的。和铲屎官确认了 feature 的愿景后：
 
 - **没达成愿景 = 没完成**，必须继续做，不能半路停下来问"要不要继续"（§17）
 - **唯一停下来的理由**：发现了原本没发现的、确实解决不了的阻塞（技术限制/外部依赖不可用），此时升级铲屎官
@@ -41,7 +41,7 @@ Phase N merge → 碰头（不是"要不要继续"，是"方向对不对"）→ 
 
 ## Runtime 单实例保护（P0）
 
-`../cat-cafe-runtime` 是咱们的运行态单实例（通常占用 `3003/3004`），默认视为**在线服务**，不是随手重启的实验环境。
+`../agent-hub-runtime` 是咱们的运行态单实例（通常占用 `3003/3004`），默认视为**在线服务**，不是随手重启的实验环境。
 
 硬规则：
 1. 在 runtime 会话里，禁止执行会触发重启的命令：`pnpm start`、`pnpm runtime:start`、`./scripts/start-dev.sh`
@@ -52,7 +52,7 @@ Phase N merge → 碰头（不是"要不要继续"，是"方向对不对"）→ 
 
 ## Alpha 验收通道
 
-`../cat-cafe-alpha` 是基于最新 `origin/main` 的隔离测试环境，供铲屎官和猫猫们验收最新改动，不干扰 runtime。
+`../agent-hub-alpha` 是基于最新 `origin/main` 的隔离测试环境，供铲屎官和Agent们验收最新改动，不干扰 runtime。
 
 | 命令 | 作用 |
 |------|------|
@@ -61,7 +61,7 @@ Phase N merge → 碰头（不是"要不要继续"，是"方向对不对"）→ 
 | `pnpm alpha:status` | 查看环境状态 |
 
 使用场景：
-- 愿景守护：守护猫用 alpha 独立验证已合入 main 的改动，不依赖开发猫提供环境
+- 愿景守护：守护Agent用 alpha 独立验证已合入 main 的改动，不依赖开发Agent提供环境
 - 铲屎官测试：稳定的测试入口，和 runtime 互不干扰
 - PR merge 后验收：确认合入 main 的改动在完整环境中工作正常
 
@@ -70,12 +70,12 @@ Phase N merge → 碰头（不是"要不要继续"，是"方向对不对"）→ 
 ## 完整流程（5 步）
 
 ```
-⓪ Design Gate    → 设计确认（UX→铲屎官/后端→猫猫/架构→两边）
+⓪ Design Gate    → 设计确认（UX→铲屎官/后端→Agent/架构→两边）
 ① worktree        → 隔离开发环境
 ② quality-gate    → 自检 + 愿景对照 + 设计稿对照
 ③ review 循环     → 本地 peer review（P1/P2 清零 + reviewer 放行）
 ④ merge-gate      → 门禁 → PR → 云端 review → squash merge → 清理
-⑤ 愿景守护       → 非作者非 reviewer 的猫做愿景三问 → 放行 close / 踢回
+⑤ 愿景守护       → 非作者非 reviewer 的Agent做愿景三问 → 放行 close / 踢回
 ```
 
 > **⚠️ Design Gate 在 ① 之前！** UX 没确认不准开 worktree。PR 在 ③ 之后。
@@ -83,13 +83,13 @@ Phase N merge → 碰头（不是"要不要继续"，是"方向对不对"）→ 
 
 | Step | 做什么 | Skill | 详情 |
 |------|--------|-------|------|
-| ⓪ | 设计确认：前端→铲屎官画 wireframe；后端→猫猫讨论；架构→两边 | `feat-lifecycle` Design Gate | Trivial 跳过⓪，按下方例外路径判断 |
+| ⓪ | 设计确认：前端→铲屎官画 wireframe；后端→Agent讨论；架构→两边 | `feat-lifecycle` Design Gate | Trivial 跳过⓪，按下方例外路径判断 |
 | ① | 创建 worktree，配置 Redis 6398 | `worktree` | 禁止直接改 main |
 | ② | 愿景对照 + spec 合规 + 跑测试 + **有 .pen 则设计稿对照** | `quality-gate` | AC ≠ 完成，问"铲屎官体验如何？" |
 | ③a | 发 review 请求（五件套 + 证据） | `request-review` | 附原始需求摘录 |
 | ③b | 处理 review 反馈（Red→Green） | `receive-review` | 禁止表演性同意 |
 | ④ | 门禁 → PR → 云端 review → merge → 清理 | `merge-gate` | **③ 放行后才进入**，模板见 `refs/pr-template.md` |
-| ⑤ | 愿景守护 + feat close（feature 最后一个 Phase 时） | `feat-lifecycle` completion | 守护猫 ≠ 作者 ≠ reviewer，动态选（查 roster） |
+| ⑤ | 愿景守护 + feat close（feature 最后一个 Phase 时） | `feat-lifecycle` completion | 守护Agent ≠ 作者 ≠ reviewer，动态选（查 roster） |
 
 ## 例外路径
 
@@ -110,9 +110,9 @@ Phase N merge → 碰头（不是"要不要继续"，是"方向对不对"）→ 
 
 ## Reviewer 配对规则
 
-动态匹配自运行时猫配置（repo 根 `cat-template.json` + `.cat-cafe/cat-catalog.json` overlay）：
+动态匹配自运行时Agent配置（repo 根 `agent-template.json` + `.agent-hub/agent-agentalog.json` overlay）：
 1. 跨 family 优先 | 2. 必须有 peer-reviewer 角色 | 3. 必须 available
-4. 优先 lead | 5. 优先活跃猫
+4. 优先 lead | 5. 优先活跃Agent
 
 **降级**：无跨 family reviewer → 同 family 不同个体 → 铲屎官。
 **铁律**：同一个体不能 review 自己的代码。
@@ -123,7 +123,7 @@ Phase N merge → 碰头（不是"要不要继续"，是"方向对不对"）→ 
 |------|------|------|
 | Biome | `pnpm check` / `pnpm check:fix` | 开发中 + Step ② |
 | TypeScript | `pnpm lint` | Step ② 必跑 |
-| shared rebuild | `pnpm --filter @cat-cafe/shared build` | shared 包改后 |
+| shared rebuild | `pnpm --filter @agent-hub/shared build` | shared 包改后 |
 | 目录卫生 | `pnpm check:dir-size` + `pnpm check:deps` | 新增文件时 |
 
 详见 ADR-010（目录卫生）。
@@ -141,57 +141,57 @@ Phase N merge → 碰头（不是"要不要继续"，是"方向对不对"）→ 
 
 ## 开源社区 Issue 处理（F059）
 
-开源仓 `clowder-ai` 的社区 issue 由猫猫 triage，**铲屎官决定是否立项**。
+开源仓 `agent-task-hub` 的社区 issue 由Agent triage，**铲屎官决定是否立项**。
 
 ### 角色分工
 
 | 角色 | 谁 | 做什么 |
 |------|-----|--------|
-| **Triage** | 任意猫（收到 @ 或主动巡查） | 给 issue 加 `bug` / `feature` label，回复确认收到 |
-| **F 号分配** | 铲屎官拍板 → 猫执行 | 在 ROADMAP.md 加条目，分配下一个可用 F 号 |
-| **Feature Doc** | 分配到的猫 | 按模板写 `docs/features/F{NNN}-slug.md` |
-| **实现** | 任意猫或社区贡献者 | 按 Feature Doc AC 实现 + PR |
+| **Triage** | 任意Agent（收到 @ 或主动巡查） | 给 issue 加 `bug` / `feature` label，回复确认收到 |
+| **F 号分配** | 铲屎官拍板 → Agent执行 | 在 ROADMAP.md 加条目，分配下一个可用 F 号 |
+| **Feature Doc** | 分配到的Agent | 按模板写 `docs/features/F{NNN}-slug.md` |
+| **实现** | 任意Agent或社区贡献者 | 按 Feature Doc AC 实现 + PR |
 
 ### 流程
 
 ```
-社区开 issue → 猫 triage（加 label）→ 铲屎官拍板
+社区开 issue → Agent triage（加 label）→ 铲屎官拍板
     ├─ Feature → ROADMAP.md 加 F{NNN} → Feature Doc → 实现 → 全量 sync 推送
-    └─ Bug fix → worktree(sync tag) → 修 → sync-hotfix.sh → clowder-ai PR → cherry-pick 回 main
+    └─ Bug fix → worktree(sync tag) → 修 → sync-hotfix.sh → agent-task-hub PR → cherry-pick 回 main
 ```
 
 ### Hotfix Lane（Bug 快修通道）
 
 社区报 bug 时，不必等全量 sync，直接走 hotfix lane：
 
-1. `git worktree add -b fix/xxx ../cat-cafe-hotfix-xxx sync/LATEST-TAG`
+1. `git worktree add -b fix/xxx ../agent-hub-hotfix-xxx sync/LATEST-TAG`
 2. 在 worktree 里修 bug
-3. `cd ../cat-cafe-hotfix-xxx && bash scripts/sync-hotfix.sh fix/xxx <changed-files>`
-4. 在 clowder-ai 上开 PR、review、merge
-5. Cherry-pick fix 回 cat-cafe main
+3. `cd ../agent-hub-hotfix-xxx && bash scripts/sync-hotfix.sh fix/xxx <changed-files>`
+4. 在 agent-task-hub 上开 PR、review、merge
+5. Cherry-pick fix 回 agent-hub main
 6. `intake-from-opensource.sh --record --pr <N> --decision <absorbed|public-only>`
-   - 若 `--decision absorbed`：hotfix 是我们自己 outbound 提的（没有 cat-cafe 的 Intake Intent Issue / absorb PR），必须加 `--skip-absorbed-guard` 跳过 strict guard
-   - 若是社区 inbound PR 的 absorbed record（不是本条 hotfix 流程），参见 `cat-cafe-skills/refs/opensource-ops-inbound-pr.md`，要带 `--intent-issue <I> --absorb-pr <P> --review-proof <URL|file>`
+   - 若 `--decision absorbed`：hotfix 是我们自己 outbound 提的（没有 agent-hub 的 Intake Intent Issue / absorb PR），必须加 `--skip-absorbed-guard` 跳过 strict guard
+   - 若是社区 inbound PR 的 absorbed record（不是本条 hotfix 流程），参见 `agent-hub-skills/refs/opensource-ops-inbound-pr.md`，要带 `--intent-issue <I> --absorb-pr <P> --review-proof <URL|file>`
 7. `intake-from-opensource.sh --advance-ledger`
 
 > 详见 Hotfix Lane 设计 (internal)
 
 ### Full Sync Gate（Source-Owned）
 
-全量同步到 `clowder-ai` 时，**不能只看家里的 `pnpm gate` 绿不绿**。  
+全量同步到 `agent-task-hub` 时，**不能只看家里的 `pnpm gate` 绿不绿**。  
 `source gate green != target/public gate green`。
 
 硬规则：
-1. 先在 `cat-cafe` 导出同一份同步产物到 **temp target**
-2. 在 temp target 跑完整 public gate：`pnpm check`、`pnpm lint`、`build`、`pnpm --filter @cat-cafe/api run test:public`、startup acceptance
-3. **只有 temp target public gate 全绿，才允许碰真实 `clowder-ai`**
+1. 先在 `agent-hub` 导出同一份同步产物到 **temp target**
+2. 在 temp target 跑完整 public gate：`pnpm check`、`pnpm lint`、`build`、`pnpm --filter @agent-hub/api run test:public`、startup acceptance
+3. **只有 temp target public gate 全绿，才允许碰真实 `agent-task-hub`**
 4. 本机 README/macOS smoke 不属于 full sync 主路径；它必须是 sync 完成后的独立步骤，且必须显式隔离端口/Redis
 
-一句话：**不要再把真实 `clowder-ai` 当第一轮验收场，更不能把 runtime 当验收靶子。**
+一句话：**不要再把真实 `agent-task-hub` 当第一轮验收场，更不能把 runtime 当验收靶子。**
 
 ### Release Provenance（三点映射）
 
-公开 release 不要求 `cat-cafe` 和 `clowder-ai` 同 SHA；我们要求的是**可追溯映射**。
+公开 release 不要求 `agent-hub` 和 `agent-task-hub` 同 SHA；我们要求的是**可追溯映射**。
 
 硬规则：
 1. release-intended full sync 必须从家里 source 侧显式传 `--release-tag=vX.Y.Z`
@@ -221,23 +221,23 @@ release notes /后续 backport 也必须引用这些锚点，而不是口头约�
 ### 规则
 
 - **社区和内部共用一套 F 编号**：不另起 P/CEP/社区专属编号系列（2026-03-13 决策，详见 F059 spec D6）
-- **F 编号唯一源**：ROADMAP.md（铲屎官拍板后猫执行分配）
+- **F 编号唯一源**：ROADMAP.md（铲屎官拍板后Agent执行分配）
 - **Bug 不编号**：直接用 issue # 追踪，修完 close（D7）
-- **贡献者不自选号**：CONTRIBUTING.md 已写明，猫猫回复时也要强调（D8）
+- **贡献者不自选号**：CONTRIBUTING.md 已写明，Agent回复时也要强调（D8）
 - **分配 F 号前必须做关联检测**：确认 issue 不是现有 feature 的子项/增强（F114-F116 撤销教训，D9）
-- **社区贡献者的 PR**：猫猫用 `community-pr` skill 引导（编号校验 + Feature Doc 对齐）
+- **社区贡献者的 PR**：Agent用 `community-pr` skill 引导（编号校验 + Feature Doc 对齐）
 
 ### Issue Label 命名规范
 
-开源仓 `clowder-ai` 的 issue label 统一格式：
+开源仓 `agent-task-hub` 的 issue label 统一格式：
 
 | Label | 格式 | 颜色 | 说明 |
 |-------|------|------|------|
-| Feature 关联 | `feature:F{NNN}` | `#0E8A16` 绿 | 关联到 cat-cafe Feature 编号 |
+| Feature 关联 | `feature:F{NNN}` | `#0E8A16` 绿 | 关联到 agent-hub Feature 编号 |
 | Bug | `bug` | GitHub 默认 | 社区 bug report |
 | Enhancement | `enhancement` | GitHub 默认 | 社区增强建议 |
 
 **注意**：
 - Feature label 必须用 `feature:F{NNN}` 格式（带 `feature:` 前缀 + 大写 F + 三位数字），不要用裸编号如 `F115`
-- Label 在 cat-cafe 定义规范，通过 sync 流程同步到 clowder-ai 的 CONTRIBUTING.md
+- Label 在 agent-hub 定义规范，通过 sync 流程同步到 agent-task-hub 的 CONTRIBUTING.md
 - 新建 label 时统一用绿色 `#0E8A16`
