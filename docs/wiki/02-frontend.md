@@ -77,4 +77,4 @@
 - Tailwind v4：`@import "tailwindcss";`
 - 主题变量：`--bg-* / --text-* / --agent-* / --status-* / --accent-*` 等
 - 提供 light/dark 两套变量（跟随 `prefers-color-scheme`）
-- 组件通过 `bg-[hsl(var(--...))]` 使用变量，从而在 Tailwind 中实现主题化
+- 组件通过 `bg-[hsl(var(--bg-app))]` 这类写法引用变量，从而在 Tailwind 中实现主题化

@@ -1,7 +1,8 @@
 import { create } from 'zustand';
 import { io } from 'socket.io-client';
 
-const socket = io('http://localhost:4000');
+const daemonUrl = process.env.NEXT_PUBLIC_DAEMON_URL;
+const socket = daemonUrl ? io(daemonUrl) : io();
 
 /* ============================================================
    Task Hub Store
