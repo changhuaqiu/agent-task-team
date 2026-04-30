@@ -3,7 +3,6 @@
 import {
   type Task,
   type AgentTheme,
-  STATUS_ORDER,
   useTaskHubStore,
 } from '@/store/taskHubStore';
 import { StatusBadge } from './StatusBadge';

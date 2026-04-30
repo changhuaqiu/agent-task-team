@@ -14,6 +14,8 @@ import { useShallow } from 'zustand/react/shallow';
 export default function Home() {
   const activeAgents = useTaskHubStore(useShallow(selectActiveAgents));
   const selectedTaskId = useTaskHubStore((s) => s.selectedTaskId);
+  const isNewTaskDialogOpen = useTaskHubStore((s) => s.isNewTaskDialogOpen);
+  const isRosterModalOpen = useTaskHubStore((s) => s.isRosterModalOpen);
   const setRosterModalOpen = useTaskHubStore((s) => s.setRosterModalOpen);
   const setNewTaskDialogOpen = useTaskHubStore((s) => s.setNewTaskDialogOpen);
 
@@ -87,10 +89,10 @@ export default function Home() {
       {selectedTaskId && <TaskDetailPanel />}
 
       {/* ── New Task Dialog ── */}
-      <NewTaskDialog />
+      {isNewTaskDialogOpen && <NewTaskDialog />}
 
       {/* ── Agent Roster Modal ── */}
-      <AgentRosterModal />
+      {isRosterModalOpen && <AgentRosterModal />}
     </main>
   );
 }

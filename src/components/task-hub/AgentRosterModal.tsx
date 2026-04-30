@@ -15,7 +15,7 @@ export function AgentRosterModal() {
 
   if (!isOpen) return null;
 
-  const handleRecruit = (agentId: string, agentName: string) => {
+  const handleRecruit = (agentId: string) => {
     inviteAgent(agentId);
     addChatMessage({
       agentId,
@@ -86,7 +86,7 @@ export function AgentRosterModal() {
                     </div>
 
                     <button
-                      onClick={() => handleRecruit(agent.id, agent.name)}
+                      onClick={() => handleRecruit(agent.id)}
                       className={cn(
                         'mt-3 w-full py-1.5 px-3 rounded-[2px] text-[11px] font-bold uppercase tracking-widest border-2 transition-colors',
                         `bg-[hsl(var(--agent-${agent.theme}-soft))]`,

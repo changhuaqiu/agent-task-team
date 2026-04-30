@@ -2,13 +2,12 @@
 
 import { useState, useMemo } from 'react';
 import {
-  type Task,
   STATUS_ORDER,
 } from '@/store/taskHubStore';
 import { Agent, useTaskHubStore } from '@/store/taskHubStore';
 import { TaskCard } from './TaskCard';
 import { cn } from '@/lib/utils';
-import { ChevronDown, ChevronRight, User, LogOut } from 'lucide-react';
+import { ChevronDown, ChevronRight, LogOut } from 'lucide-react';
 import { PixelAvatar } from './PixelAvatar';
 
 /* ---- Agent theme map → CSS variable families ---- */

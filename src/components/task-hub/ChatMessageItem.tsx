@@ -1,6 +1,5 @@
 'use client';
 
-import { useState, useEffect } from 'react';
 import { useTaskHubStore, selectActiveAgents, selectAvailableRoster, type ChatMessage } from '@/store/taskHubStore';
 import { useShallow } from 'zustand/react/shallow';
 import { PixelAvatar } from './PixelAvatar';
@@ -44,7 +43,6 @@ const formatContentWithMentions = (content: string) => {
 };
 
 export function ChatMessageItem({ message }: ChatMessageItemProps) {
-  const [mounted, setMounted] = useState(false);
   const activeAgents = useTaskHubStore(useShallow(selectActiveAgents));
   const availableRoster = useTaskHubStore(useShallow(selectAvailableRoster));
   const allAgents = [...activeAgents, ...availableRoster];
@@ -52,20 +50,10 @@ export function ChatMessageItem({ message }: ChatMessageItemProps) {
   const setSelectedTaskId = useTaskHubStore((s) => s.setSelectedTaskId);
   const updateChatMessageStatus = useTaskHubStore((s) => s.updateChatMessageStatus);
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
   const isHuman = message.agentId === 'human';
   const agent = allAgents.find((a) => a.id === message.agentId);
 
-  // To prevent hydration mismatch, only render the time string on the client
-  const timeString = mounted
-    ? new Date(message.timestamp).toLocaleTimeString([], {
-        hour: '2-digit',
-        minute: '2-digit',
-      })
-    : '';
+  const timeString = message.timestamp.slice(11, 16);
 
   return (
     <div

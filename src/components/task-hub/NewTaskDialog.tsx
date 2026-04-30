@@ -16,21 +16,15 @@ export function NewTaskDialog() {
 
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [agentId, setAgentId] = useState(activeAgents[0]?.id ?? '');
+  const [agentId, setAgentId] = useState(() => activeAgents[0]?.id ?? '');
   const [status, setStatus] = useState<TaskStatus>('pending');
   const [selectedDeps, setSelectedDeps] = useState<string[]>([]);
 
-  // Reset form when opened
   useEffect(() => {
     if (isOpen) {
-      setTitle('');
-      setDescription('');
-      setStatus('pending');
-      setAgentId(activeAgents[0]?.id || '');
-      setSelectedDeps([]);
       setTimeout(() => titleRef.current?.focus(), 100);
     }
-  }, [isOpen, activeAgents]);
+  }, [isOpen]);
 
   // Close on Escape
   useEffect(() => {
@@ -54,11 +48,6 @@ export function NewTaskDialog() {
       artifacts: [],
     });
 
-    // Reset
-    setTitle('');
-    setDescription('');
-    setStatus('pending');
-    setSelectedDeps([]);
     setOpen(false);
   };
 
