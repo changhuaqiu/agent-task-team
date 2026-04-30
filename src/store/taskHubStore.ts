@@ -108,10 +108,10 @@ interface TaskHubState {
 
   // --- Terminal Store ---
   terminalLogs: Record<string, string[]>;
-  isTerminalRunning: Record<string, boolean>;
+  agentStatus: Record<string, 'idle' | 'busy'>;
 
   // Actions
-  appendTerminalLog: (taskId: string, log: string) => void;
+  appendTerminalLog: (agentId: string, log: string) => void;
   simulateCliExecution: (taskId: string, command: string) => void;
   setSelectedTaskId: (id: string | null) => void;
   isNewTaskDialogOpen: boolean;
@@ -121,7 +121,7 @@ interface TaskHubState {
 }
 
 // --- Initial Data (Pixel-art themed) ---
-const AGENT_ROSTER: Agent[] = [
+export const AGENT_ROSTER: Agent[] = [
   {
     id: 'jean',
     name: 'Jean',
@@ -329,7 +329,7 @@ export const useTaskHubStore = create<TaskHubState>((set, get) => ({
   chatMessages: initialChatMessages,
 
   terminalLogs: {},
-  isTerminalRunning: {},
+  agentStatus: {},
 
   selectedTaskId: null,
   setSelectedTaskId: (id) => set({ selectedTaskId: id }),
@@ -359,22 +359,22 @@ export const useTaskHubStore = create<TaskHubState>((set, get) => ({
     return get().tasks.find((t) => t.id === taskId);
   },
 
-  appendTerminalLog: (taskId, log) =>
+  appendTerminalLog: (agentId, log) =>
     set((state) => ({
       terminalLogs: {
         ...state.terminalLogs,
-        [taskId]: [...(state.terminalLogs[taskId] || []), log],
+        [agentId]: [...(state.terminalLogs[agentId] || []), log],
       },
     })),
 
   simulateCliExecution: (taskId, command) => {
-    set((state) => ({
-      isTerminalRunning: { ...state.isTerminalRunning, [taskId]: true },
-      terminalLogs: { ...state.terminalLogs, [taskId]: [] }
-    }));
-
     const task = get().tasks.find(t => t.id === taskId);
     const agentId = task ? task.agentId : 'system';
+
+    set((state) => ({
+      agentStatus: { ...state.agentStatus, [agentId]: 'busy' },
+      terminalLogs: { ...state.terminalLogs, [agentId]: [] }
+    }));
 
     socket.emit('terminal:start', { taskId, agentId, command });
   },
@@ -461,8 +461,8 @@ export const useTaskHubStore = create<TaskHubState>((set, get) => ({
 }));
 
 // --- Socket.io Event Listeners ---
-socket.on('terminal:data', ({ taskId, data }) => {
-  useTaskHubStore.getState().appendTerminalLog(taskId, data);
+socket.on('terminal:data', ({ agentId, data }) => {
+  useTaskHubStore.getState().appendTerminalLog(agentId, data);
 });
 
 socket.on('agent:event', (event) => {
@@ -477,10 +477,10 @@ socket.on('agent:event', (event) => {
   }
 });
 
-socket.on('terminal:exit', ({ taskId, code }) => {
-  useTaskHubStore.getState().appendTerminalLog(taskId, `\r\n\x1b[36m[process exited with code ${code}]\x1b[0m\r\n`);
+socket.on('terminal:exit', ({ agentId, code }) => {
+  useTaskHubStore.getState().appendTerminalLog(agentId, `\r\n\x1b[36m[process exited with code ${code}]\x1b[0m\r\n`);
   useTaskHubStore.setState((state) => ({
-    isTerminalRunning: { ...state.isTerminalRunning, [taskId]: false },
+    agentStatus: { ...state.agentStatus, [agentId]: 'idle' },
   }));
 });
 

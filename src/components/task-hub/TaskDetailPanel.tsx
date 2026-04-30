@@ -3,9 +3,8 @@
 import { useEffect, useRef } from 'react';
 import {
   type TaskStatus,
-  STATUS_LABELS,
-  STATUS_ORDER,
   useTaskHubStore,
+  AGENT_ROSTER,
 } from '@/store/taskHubStore';
 import { StatusBadge } from './StatusBadge';
 import { TerminalView } from './TerminalView';
@@ -90,16 +89,15 @@ export function TaskDetailPanel() {
   const selectedTaskId = useTaskHubStore((s) => s.selectedTaskId);
   const setSelectedTaskId = useTaskHubStore((s) => s.setSelectedTaskId);
   const tasks = useTaskHubStore((s) => s.tasks);
-  const agents = useTaskHubStore((s) => s.agents);
   const updateTaskStatus = useTaskHubStore((s) => s.updateTaskStatus);
   const removeTask = useTaskHubStore((s) => s.removeTask);
   const panelRef = useRef<HTMLDivElement>(null);
 
   const task = tasks.find((t) => t.id === selectedTaskId);
-  const agent = task ? agents.find((a) => a.id === task.agentId) : null;
+  const agent = task ? AGENT_ROSTER.find((a) => a.id === task.agentId) : null;
 
   const simulateCliExecution = useTaskHubStore((s) => s.simulateCliExecution);
-  const isRunning = useTaskHubStore((s) => task ? s.isTerminalRunning[task.id] : false);
+  const isRunning = useTaskHubStore((s) => agent ? s.agentStatus[agent.id] === 'busy' : false);
 
   // Close on Escape
   useEffect(() => {
@@ -303,12 +301,12 @@ export function TaskDetailPanel() {
             {task.status === 'in_progress' && (
               <button
                 type="button"
-                onClick={() => simulateCliExecution(task.id, 'npm run test')}
+                onClick={() => simulateCliExecution(task.id, `opencode run "Task: ${task.title}. Provide a brief status update." --session agent-${agent.id} --format json`)}
                 disabled={isRunning}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[var(--radius-sm)] border border-[hsl(var(--border))] bg-[hsl(var(--bg-muted))] text-[hsl(var(--text-primary))] text-[11px] font-semibold transition-all duration-200 hover:bg-[hsl(var(--bg-card-hover))] disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <TerminalIcon className="w-3.5 h-3.5" />
-                {isRunning ? 'Running...' : 'Run CLI'}
+                {isRunning ? 'Agent Busy...' : 'Run Opencode'}
               </button>
             )}
           </div>
@@ -329,16 +327,16 @@ export function TaskDetailPanel() {
         <div className="h-64 shrink-0 flex flex-col bg-[#111111] border-t-2 border-[hsl(var(--border))]">
           <div className="px-3 py-1.5 flex items-center justify-between border-b-2 border-[#333]">
             <span className="text-[10px] font-bold text-[#888] uppercase tracking-widest">
-              Terminal
+              {agent.name}&apos;s Console
             </span>
             {isRunning && (
               <span className="text-[10px] font-bold text-[hsl(var(--status-progress))] uppercase tracking-widest animate-pulse">
-                Active
+                Busy
               </span>
             )}
           </div>
           <div className="flex-1 relative overflow-hidden">
-            <TerminalView taskId={task.id} />
+            <TerminalView agentId={agent.id} />
           </div>
         </div>
       </div>

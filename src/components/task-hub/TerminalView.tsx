@@ -5,12 +5,12 @@ import { FitAddon } from '@xterm/addon-fit';
 import { useTaskHubStore } from '@/store/taskHubStore';
 import '@xterm/xterm/css/xterm.css';
 
-export function TerminalView({ taskId }: { taskId: string }) {
+export function TerminalView({ agentId }: { agentId: string }) {
   const terminalRef = useRef<HTMLDivElement>(null);
   const termInstance = useRef<Terminal | null>(null);
   const fitAddon = useRef<FitAddon | null>(null);
   
-  const logs = useTaskHubStore((s) => s.terminalLogs[taskId] || []);
+  const logs = useTaskHubStore((s) => s.terminalLogs[agentId]);
 
   useEffect(() => {
     if (!terminalRef.current) return;
@@ -46,10 +46,11 @@ export function TerminalView({ taskId }: { taskId: string }) {
 
   // Write new logs
   useEffect(() => {
-    if (termInstance.current && logs.length > 0) {
+    const currentLogs = logs || [];
+    if (termInstance.current && currentLogs.length > 0) {
       // Clear and rewrite to simplify sync for mock (or track last written index)
       termInstance.current.clear();
-      logs.forEach(log => termInstance.current?.write(log));
+      currentLogs.forEach(log => termInstance.current?.write(log));
     }
   }, [logs]);
 
