@@ -1,8 +1,9 @@
+'use client';
+
 import { create } from 'zustand';
 import { io } from 'socket.io-client';
 
-const daemonUrl = process.env.NEXT_PUBLIC_DAEMON_URL;
-const socket = daemonUrl ? io(daemonUrl) : io();
+const socket = io(undefined, { path: '/api/socketio', autoConnect: false });
 
 /* ============================================================
    Task Hub Store
@@ -87,6 +88,12 @@ export interface Task {
 
 export type ProjectId = 'default' | (string & {});
 
+export interface DispatchToAgentInput {
+  agentId: string;
+  prompt: string;
+  referencedTaskId?: string;
+}
+
 // --- Store ---
 interface TaskHubState {
   selectedProjectId: ProjectId;
@@ -116,8 +123,9 @@ interface TaskHubState {
   agentStatus: Record<string, 'idle' | 'busy'>;
 
   // Actions
+  connectDaemon: () => void;
   upsertAgentSession: (projectId: ProjectId, agentId: string, sessionId: string) => void;
-  activateAgent: (agentId: string, prompt: string, referencedTaskId?: string) => void;
+  dispatchToAgent: (input: DispatchToAgentInput) => void;
   appendTerminalLog: (agentId: string, log: string) => void;
   simulateCliExecution: (taskId: string, prompt: string, sessionId?: string) => void;
   setSelectedTaskId: (id: string | null) => void;
@@ -185,7 +193,7 @@ export const AGENT_ROSTER: Agent[] = [
   },
 ];
 
-const now = new Date().toISOString();
+const now = '2026-01-01T00:00:00.000Z';
 
 const initialTasks: Task[] = [
   {
@@ -280,7 +288,7 @@ const initialChatMessages: ChatMessage[] = [
     id: 'msg-1',
     agentId: 'jean',
     content: 'I have broken down the main epic into 7 tasks. @zhongli @keqing please review your assigned tasks.',
-    timestamp: new Date(Date.now() - 3600000).toISOString(), // 1 hour ago
+    timestamp: '2026-01-01T00:10:00.000Z',
     mentions: ['zhongli', 'keqing'],
     intent: 'ideate',
   },
@@ -288,7 +296,7 @@ const initialChatMessages: ChatMessage[] = [
     id: 'msg-2',
     agentId: 'zhongli',
     content: 'The DB schema design for TASK-002 looks solid. However, I need approval to execute the migration script on the staging database. @human',
-    timestamp: new Date(Date.now() - 1800000).toISOString(), // 30 mins ago
+    timestamp: '2026-01-01T00:20:00.000Z',
     isApprovalRequest: true,
     referencedTaskId: 'TASK-002',
     approvalStatus: 'approved',
@@ -299,13 +307,13 @@ const initialChatMessages: ChatMessage[] = [
     id: 'msg-3',
     agentId: 'human',
     content: 'Migration approved. Proceed when ready.',
-    timestamp: new Date(Date.now() - 1700000).toISOString(),
+    timestamp: '2026-01-01T00:21:00.000Z',
   },
   {
     id: 'msg-4',
     agentId: 'nahida',
     content: 'I found an issue in TASK-006 during review. The regex for @ mentions is missing a boundary check. I have rejected the task, @zhongli please fix.',
-    timestamp: new Date(Date.now() - 600000).toISOString(), // 10 mins ago
+    timestamp: '2026-01-01T00:30:00.000Z',
     referencedTaskId: 'TASK-006',
     mentions: ['zhongli'],
     intent: 'review',
@@ -314,7 +322,7 @@ const initialChatMessages: ChatMessage[] = [
     id: 'msg-5',
     agentId: 'keqing',
     content: 'I am currently blocked on TASK-004. Waiting for the final API contract from TASK-002 before I can bind the UI components. Can we expedite? @jean',
-    timestamp: new Date(Date.now() - 120000).toISOString(), // 2 mins ago
+    timestamp: '2026-01-01T00:31:00.000Z',
     referencedTaskId: 'TASK-004',
     mentions: ['jean'],
     intent: 'general',
@@ -339,6 +347,13 @@ export const useTaskHubStore = create<TaskHubState>((set, get) => ({
 
   terminalLogs: {},
   agentStatus: {},
+
+  connectDaemon: () => {
+    if (socket.connected) return;
+    fetch('/api/socketio')
+      .catch(() => undefined)
+      .finally(() => socket.connect());
+  },
 
   selectedTaskId: null,
   setSelectedTaskId: (id) => set({ selectedTaskId: id }),
@@ -379,17 +394,22 @@ export const useTaskHubStore = create<TaskHubState>((set, get) => ({
       },
     })),
 
-  activateAgent: (agentId, prompt, referencedTaskId) => {
+  dispatchToAgent: ({ agentId, prompt, referencedTaskId }) => {
     const projectId = get().selectedProjectId;
     const sessionId = get().agentSessions[projectId]?.[agentId];
-    if (sessionId) return;
 
     set((state) => ({
       agentStatus: { ...state.agentStatus, [agentId]: 'busy' },
       terminalLogs: { ...state.terminalLogs, [agentId]: [] },
     }));
 
-    socket.emit('terminal:start', { projectId, taskId: referencedTaskId, agentId, prompt });
+    socket.emit('terminal:start', {
+      projectId,
+      taskId: referencedTaskId,
+      agentId,
+      prompt,
+      sessionId,
+    });
   },
 
   appendTerminalLog: (agentId, log) =>
@@ -415,18 +435,30 @@ export const useTaskHubStore = create<TaskHubState>((set, get) => ({
   },
 
   updateTaskStatus: (taskId, status, reviewNote) =>
-    set((state) => ({
-      tasks: state.tasks.map((task) =>
-        task.id === taskId
-          ? {
-              ...task,
-              status,
-              reviewNote: reviewNote ?? task.reviewNote,
-              updatedAt: new Date().toISOString(),
-            }
-          : task
-      ),
-    })),
+    (() => {
+      const prev = get().getTaskById(taskId);
+
+      set((state) => ({
+        tasks: state.tasks.map((task) =>
+          task.id === taskId
+            ? {
+                ...task,
+                status,
+                reviewNote: reviewNote ?? task.reviewNote,
+                updatedAt: new Date().toISOString(),
+              }
+            : task
+        ),
+      }));
+
+      if (prev && status === 'in_progress') {
+        get().dispatchToAgent({
+          agentId: prev.agentId,
+          referencedTaskId: prev.id,
+          prompt: `Start ${prev.id}: ${prev.title}. ${prev.description}`,
+        });
+      }
+    })(),
 
   addTask: (taskData) => {
     const id = `TASK-${String(taskCounter++).padStart(3, '0')}`;
@@ -440,11 +472,11 @@ export const useTaskHubStore = create<TaskHubState>((set, get) => ({
     }));
 
     if (taskData.agentId) {
-      get().activateAgent(
-        taskData.agentId,
-        `You are assigned ${id}: ${taskData.title}. ${taskData.description}`,
-        id
-      );
+      get().dispatchToAgent({
+        agentId: taskData.agentId,
+        referencedTaskId: id,
+        prompt: `You are assigned ${id}: ${taskData.title}. ${taskData.description}. Reply with your plan and next steps.`,
+      });
     }
   },
 
@@ -469,11 +501,11 @@ export const useTaskHubStore = create<TaskHubState>((set, get) => ({
     if (prev && patch.agentId && patch.agentId !== prev.agentId) {
       const title = patch.title ?? prev.title;
       const description = patch.description ?? prev.description;
-      get().activateAgent(
-        patch.agentId,
-        `You are assigned ${taskId}: ${title}. ${description}`,
-        taskId
-      );
+      get().dispatchToAgent({
+        agentId: patch.agentId,
+        referencedTaskId: taskId,
+        prompt: `You are assigned ${taskId}: ${title}. ${description}. Reply with your plan and next steps.`,
+      });
     }
   },
 
@@ -506,7 +538,11 @@ export const useTaskHubStore = create<TaskHubState>((set, get) => ({
 
     if (msg.agentId === 'human') {
       for (const mentionedAgentId of mentions) {
-        get().activateAgent(mentionedAgentId, msg.content, msg.referencedTaskId);
+        get().dispatchToAgent({
+          agentId: mentionedAgentId,
+          referencedTaskId: msg.referencedTaskId,
+          prompt: msg.content,
+        });
       }
     }
   },
@@ -526,6 +562,10 @@ socket.on('terminal:data', ({ agentId, data }) => {
 
 socket.on('agent:session', ({ projectId, agentId, sessionId }) => {
   useTaskHubStore.getState().upsertAgentSession(projectId || 'default', agentId, sessionId);
+  useTaskHubStore.getState().addChatMessage({
+    agentId,
+    content: `[${projectId || 'default'}] session activated: ${sessionId}`,
+  });
   useTaskHubStore.setState((state) => ({
     agentStatus: { ...state.agentStatus, [agentId]: 'idle' },
   }));
