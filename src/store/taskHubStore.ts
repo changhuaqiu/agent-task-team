@@ -112,7 +112,7 @@ interface TaskHubState {
 
   // Actions
   appendTerminalLog: (agentId: string, log: string) => void;
-  simulateCliExecution: (taskId: string, command: string) => void;
+  simulateCliExecution: (taskId: string, prompt: string, sessionId?: string) => void;
   setSelectedTaskId: (id: string | null) => void;
   isNewTaskDialogOpen: boolean;
   setNewTaskDialogOpen: (open: boolean) => void;
@@ -367,7 +367,7 @@ export const useTaskHubStore = create<TaskHubState>((set, get) => ({
       },
     })),
 
-  simulateCliExecution: (taskId, command) => {
+  simulateCliExecution: (taskId, prompt, sessionId) => {
     const task = get().tasks.find(t => t.id === taskId);
     const agentId = task ? task.agentId : 'system';
 
@@ -376,7 +376,7 @@ export const useTaskHubStore = create<TaskHubState>((set, get) => ({
       terminalLogs: { ...state.terminalLogs, [agentId]: [] }
     }));
 
-    socket.emit('terminal:start', { taskId, agentId, command });
+    socket.emit('terminal:start', { taskId, agentId, prompt, sessionId });
   },
 
   updateTaskStatus: (taskId, status, reviewNote) =>
@@ -483,4 +483,3 @@ socket.on('terminal:exit', ({ agentId, code }) => {
     agentStatus: { ...state.agentStatus, [agentId]: 'idle' },
   }));
 });
-
