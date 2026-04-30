@@ -85,8 +85,12 @@ export interface Task {
   updatedAt: string;
 }
 
+export type ProjectId = 'default' | (string & {});
+
 // --- Store ---
 interface TaskHubState {
+  selectedProjectId: ProjectId;
+  agentSessions: Record<ProjectId, Record<string, string | undefined>>;
   activeAgentIds: string[];
   tasks: Task[];
   chatMessages: ChatMessage[];
@@ -112,6 +116,8 @@ interface TaskHubState {
   agentStatus: Record<string, 'idle' | 'busy'>;
 
   // Actions
+  upsertAgentSession: (projectId: ProjectId, agentId: string, sessionId: string) => void;
+  activateAgent: (agentId: string, prompt: string, referencedTaskId?: string) => void;
   appendTerminalLog: (agentId: string, log: string) => void;
   simulateCliExecution: (taskId: string, prompt: string, sessionId?: string) => void;
   setSelectedTaskId: (id: string | null) => void;
@@ -325,6 +331,8 @@ export const selectAvailableRoster = (state: TaskHubState) =>
 let taskCounter = 8;
 
 export const useTaskHubStore = create<TaskHubState>((set, get) => ({
+  selectedProjectId: 'default',
+  agentSessions: { default: {} },
   activeAgentIds: ['jean', 'keqing'], // Start with two active agents
   tasks: initialTasks,
   chatMessages: initialChatMessages,
@@ -360,6 +368,30 @@ export const useTaskHubStore = create<TaskHubState>((set, get) => ({
     return get().tasks.find((t) => t.id === taskId);
   },
 
+  upsertAgentSession: (projectId, agentId, sessionId) =>
+    set((state) => ({
+      agentSessions: {
+        ...state.agentSessions,
+        [projectId]: {
+          ...(state.agentSessions[projectId] || {}),
+          [agentId]: sessionId,
+        },
+      },
+    })),
+
+  activateAgent: (agentId, prompt, referencedTaskId) => {
+    const projectId = get().selectedProjectId;
+    const sessionId = get().agentSessions[projectId]?.[agentId];
+    if (sessionId) return;
+
+    set((state) => ({
+      agentStatus: { ...state.agentStatus, [agentId]: 'busy' },
+      terminalLogs: { ...state.terminalLogs, [agentId]: [] },
+    }));
+
+    socket.emit('terminal:start', { projectId, taskId: referencedTaskId, agentId, prompt });
+  },
+
   appendTerminalLog: (agentId, log) =>
     set((state) => ({
       terminalLogs: {
@@ -369,15 +401,17 @@ export const useTaskHubStore = create<TaskHubState>((set, get) => ({
     })),
 
   simulateCliExecution: (taskId, prompt, sessionId) => {
+    const projectId = get().selectedProjectId;
     const task = get().tasks.find(t => t.id === taskId);
     const agentId = task ? task.agentId : 'system';
+    const resolvedSessionId = sessionId || get().agentSessions[projectId]?.[agentId];
 
     set((state) => ({
       agentStatus: { ...state.agentStatus, [agentId]: 'busy' },
       terminalLogs: { ...state.terminalLogs, [agentId]: [] }
     }));
 
-    socket.emit('terminal:start', { taskId, agentId, prompt, sessionId });
+    socket.emit('terminal:start', { projectId, taskId, agentId, prompt, sessionId: resolvedSessionId });
   },
 
   updateTaskStatus: (taskId, status, reviewNote) =>
@@ -394,17 +428,25 @@ export const useTaskHubStore = create<TaskHubState>((set, get) => ({
       ),
     })),
 
-  addTask: (taskData) =>
-    set((state) => {
-      const id = `TASK-${String(taskCounter++).padStart(3, '0')}`;
-      const stamp = new Date().toISOString();
-      return {
-        tasks: [
-          ...state.tasks,
-          { ...taskData, id, createdAt: stamp, updatedAt: stamp },
-        ],
-      };
-    }),
+  addTask: (taskData) => {
+    const id = `TASK-${String(taskCounter++).padStart(3, '0')}`;
+    const stamp = new Date().toISOString();
+
+    set((state) => ({
+      tasks: [
+        ...state.tasks,
+        { ...taskData, id, createdAt: stamp, updatedAt: stamp },
+      ],
+    }));
+
+    if (taskData.agentId) {
+      get().activateAgent(
+        taskData.agentId,
+        `You are assigned ${id}: ${taskData.title}. ${taskData.description}`,
+        id
+      );
+    }
+  },
 
   removeTask: (taskId) =>
     set((state) => ({
@@ -413,45 +455,61 @@ export const useTaskHubStore = create<TaskHubState>((set, get) => ({
         state.selectedTaskId === taskId ? null : state.selectedTaskId,
     })),
 
-  updateTask: (taskId, patch) =>
+  updateTask: (taskId, patch) => {
+    const prev = get().getTaskById(taskId);
+
     set((state) => ({
       tasks: state.tasks.map((task) =>
         task.id === taskId
           ? { ...task, ...patch, updatedAt: new Date().toISOString() }
           : task
       ),
-    })),
+    }));
 
-  addChatMessage: (msg) =>
-    set((state) => {
-      // Parse mentions
-      const mentionsMatch = msg.content.match(/@(\w+)/g);
-      const mentions = mentionsMatch ? mentionsMatch.map((m) => m.substring(1)) : [];
+    if (prev && patch.agentId && patch.agentId !== prev.agentId) {
+      const title = patch.title ?? prev.title;
+      const description = patch.description ?? prev.description;
+      get().activateAgent(
+        patch.agentId,
+        `You are assigned ${taskId}: ${title}. ${description}`,
+        taskId
+      );
+    }
+  },
 
-      // Parse intent based on keywords (simplified Clowder logic)
-      let intent: ChatMessage['intent'] = 'general';
-      const contentLower = msg.content.toLowerCase();
-      if (contentLower.includes('brainstorm') || contentLower.includes('design') || contentLower.includes('plan')) {
-        intent = 'ideate';
-      } else if (contentLower.includes('implement') || contentLower.includes('execute') || contentLower.includes('build')) {
-        intent = 'execute';
-      } else if (contentLower.includes('review') || contentLower.includes('check') || contentLower.includes('audit')) {
-        intent = 'review';
+  addChatMessage: (msg) => {
+    const mentionsMatch = msg.content.match(/@(\w+)/g);
+    const mentions = mentionsMatch ? mentionsMatch.map((m) => m.substring(1)) : [];
+
+    let intent: ChatMessage['intent'] = 'general';
+    const contentLower = msg.content.toLowerCase();
+    if (contentLower.includes('brainstorm') || contentLower.includes('design') || contentLower.includes('plan')) {
+      intent = 'ideate';
+    } else if (contentLower.includes('implement') || contentLower.includes('execute') || contentLower.includes('build')) {
+      intent = 'execute';
+    } else if (contentLower.includes('review') || contentLower.includes('check') || contentLower.includes('audit')) {
+      intent = 'review';
+    }
+
+    set((state) => ({
+      chatMessages: [
+        ...state.chatMessages,
+        {
+          ...msg,
+          id: `msg-${Date.now()}`,
+          timestamp: new Date().toISOString(),
+          mentions,
+          intent,
+        },
+      ],
+    }));
+
+    if (msg.agentId === 'human') {
+      for (const mentionedAgentId of mentions) {
+        get().activateAgent(mentionedAgentId, msg.content, msg.referencedTaskId);
       }
-
-      return {
-        chatMessages: [
-          ...state.chatMessages,
-          {
-            ...msg,
-            id: `msg-${Date.now()}`,
-            timestamp: new Date().toISOString(),
-            mentions,
-            intent,
-          },
-        ],
-      };
-    }),
+    }
+  },
 
   updateChatMessageStatus: (msgId, status) =>
     set((state) => ({
@@ -464,6 +522,13 @@ export const useTaskHubStore = create<TaskHubState>((set, get) => ({
 // --- Socket.io Event Listeners ---
 socket.on('terminal:data', ({ agentId, data }) => {
   useTaskHubStore.getState().appendTerminalLog(agentId, data);
+});
+
+socket.on('agent:session', ({ projectId, agentId, sessionId }) => {
+  useTaskHubStore.getState().upsertAgentSession(projectId || 'default', agentId, sessionId);
+  useTaskHubStore.setState((state) => ({
+    agentStatus: { ...state.agentStatus, [agentId]: 'idle' },
+  }));
 });
 
 socket.on('agent:event', (event) => {

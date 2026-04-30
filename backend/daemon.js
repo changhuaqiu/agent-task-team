@@ -8,20 +8,22 @@ module.exports = function registerDaemon(io) {
   io.on('connection', (socket) => {
     console.log('Client connected:', socket.id);
 
-    socket.on('terminal:start', ({ taskId, agentId, prompt, sessionId }) => {
+    socket.on('terminal:start', ({ projectId, taskId, agentId, prompt, sessionId }) => {
       if (activeProcesses.has(agentId)) {
         activeProcesses.get(agentId).kill();
       }
 
-      const resolvedSessionId = sessionId || `agent-${agentId}`;
-
       const command = 'opencode';
-      const args = ['run', prompt || '', '--session', resolvedSessionId, '--format', 'json'];
+      const args = ['run', prompt || '', '--format', 'json'];
+      if (sessionId) {
+        args.push('--session', sessionId);
+      }
 
       socket.emit('terminal:data', { agentId, data: `\x1b[33m$ ${command} ${args.join(' ')}\x1b[0m\r\n` });
 
       const child = spawn(command, args);
       activeProcesses.set(agentId, child);
+      let sessionEmitted = false;
 
       child.on('error', (err) => {
         socket.emit('terminal:data', { agentId, data: `\r\n\x1b[31m[spawn error]\x1b[0m ${String(err?.message || err)}\r\n` });
@@ -46,8 +48,14 @@ module.exports = function registerDaemon(io) {
             return;
           }
 
+          const parsedSessionId = parsed.sessionID || parsed.sessionId || parsed.part?.sessionID || parsed.part?.sessionId;
+          if (!sessionEmitted && parsedSessionId) {
+            sessionEmitted = true;
+            socket.emit('agent:session', { projectId: projectId || 'default', agentId, sessionId: parsedSessionId });
+          }
+
           if (parsed.type === 'text') {
-            socket.emit('agent:event', { taskId, agentId, type: 'message', message: parsed.content });
+            socket.emit('agent:event', { taskId, agentId, type: 'message', message: parsed.part?.text || parsed.content });
           } else if (parsed.type === 'tool_use') {
             socket.emit('agent:event', { taskId, agentId, type: 'message', message: `🔧 Used tool: ${parsed.part?.tool}` });
           } else if (parsed.type === 'step_start') {
@@ -80,4 +88,3 @@ module.exports = function registerDaemon(io) {
     });
   });
 }
-
