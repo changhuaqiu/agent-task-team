@@ -98,6 +98,7 @@ export function TaskDetailPanel() {
 
   const simulateCliExecution = useTaskHubStore((s) => s.simulateCliExecution);
   const isRunning = useTaskHubStore((s) => agent ? s.agentStatus[agent.id] === 'busy' : false);
+  const isOpencodeButtonEnabled = process.env.NEXT_PUBLIC_ENABLE_OPENCODE === 'true';
 
   // Close on Escape
   useEffect(() => {
@@ -298,7 +299,7 @@ export function TaskDetailPanel() {
                 </button>
               );
             })}
-            {task.status === 'in_progress' && (
+            {isOpencodeButtonEnabled && task.status === 'in_progress' && (
               <button
                 type="button"
                 onClick={() => simulateCliExecution(task.id, `Task: ${task.title}. Provide a brief status update.`, `agent-${agent.id}`)}
