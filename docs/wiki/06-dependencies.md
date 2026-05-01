@@ -40,17 +40,20 @@ src/app/page.tsx
   └─ src/store/taskHubStore.ts
 
 src/store/taskHubStore.ts
-  └─ socket.io-client  →  backend/server.js (socket.io)
+  └─ socket.io-client  →  Next.js Socket.io（/api/socketio）→ src/server/daemon.ts
 
-backend/server.js
+src/server/daemon.ts
   ├─ socket.io
-  └─ child_process.spawn('opencode', ['attach', 'http://localhost:4096'])
+  ├─ child_process.spawn('opencode', ['run', ...])（本地可执行）
+  └─ fetch('{bridge}/run')（Bridge 模式）
 ```
 
 ## 6.4 外部集成点（真正的“系统边界”）
 
 - `opencode` CLI
-  - 当前后端实现依赖该二进制存在于 PATH
-  - 通过 `opencode attach http://localhost:4096` 接入一个外部会话
+  - 本地可执行：daemon 直接调用 `opencode run --format json`
+  - Bridge：daemon 通过公网 URL 调用本机转发服务，将执行落到本机 opencode
+  - attach（可选）：Bridge 可用 attach 模式连接本机已有实例
 - 网络端口
-  - `3000`（前端）、`4000`（后端）、`4096`（opencode 会话）
+  - Next.js：默认 `3000`（同时承载 UI + daemon）
+  - Bridge：默认 `8787`（本机进程，可改）

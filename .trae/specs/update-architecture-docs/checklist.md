@@ -1,0 +1,7 @@
+- [x] docs/wiki/01-architecture.md 已与当前代码一致，并包含“配置体系概览 + 架构演进路线”章节
+- [x] docs/wiki/04-backend-daemon.md 已以 src/server/daemon.ts 为主线更新，并明确 backend/server.js 为历史/可选路径
+- [x] docs/wiki/05-run-and-dev.md 已更新为当前默认启动方式，并包含 macOS/Linux/Windows 的 Bridge 指引
+- [x] 文档中清晰说明设置页配置项（Bridge URL/启用、Mock Runner、一键清空）及其持久化/影响范围
+- [x] 文档中清晰说明 Socket.io 事件协议与 Opencode 三种模式（本地 run / Bridge / Mock Runner）
+- [x] 文档包含最小安全/认证规划（CORS、Bridge token、禁止内网 URL 等）且不泄露任何敏感信息
+- [x] `pnpm build` 在文档更新后通过
