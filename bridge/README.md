@@ -8,6 +8,12 @@
 bash scripts/opencode-bridge-install.sh
 ```
 
+Windows：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\opencode-bridge-install.ps1
+```
+
 要求：
 - Node.js 18+
 - opencode 已安装并可通过 `opencode --version` 执行
@@ -20,10 +26,22 @@ bash scripts/opencode-bridge-install.sh
 bash scripts/opencode-bridge-start.sh --port=8787 --mode=run
 ```
 
+Windows：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\opencode-bridge-start.ps1 -Port 8787 -Mode run
+```
+
 可选（参考 `agent-task-team` 的风格，通过 `opencode attach` 连接本机运行中的实例）：
 
 ```bash
 bash scripts/opencode-bridge-start.sh --port=8787 --mode=attach --attach-url=http://localhost:4096
+```
+
+Windows：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\opencode-bridge-start.ps1 -Port 8787 -Mode attach -AttachUrl http://localhost:4096
 ```
 
 ## 3. 暴露公网 URL
