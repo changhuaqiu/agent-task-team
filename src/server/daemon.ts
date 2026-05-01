@@ -110,7 +110,7 @@ export default function registerDaemon(io: IOServer) {
           if (process.env.ENABLE_MOCK_RUNNER !== '1') {
             socket.emit('terminal:data', {
               agentId,
-              data: `\r\n\x1b[31m[opencode not found]\x1b[0m Set ENABLE_MOCK_RUNNER=1 to use the built-in mock runner.\r\n`,
+              data: `\r\n\x1b[31m[未找到 opencode]\x1b[0m 如需使用内置模拟执行器，请设置 ENABLE_MOCK_RUNNER=1。\r\n`,
             });
             socket.emit('terminal:exit', { agentId, code: 127 });
             activeProcesses.delete(agentId);
@@ -123,7 +123,7 @@ export default function registerDaemon(io: IOServer) {
 
           socket.emit('terminal:data', {
             agentId,
-            data: `\r\n\x1b[33m[opencode not found]\x1b[0m Falling back to mock runner.\r\n`,
+            data: `\r\n\x1b[33m[未找到 opencode]\x1b[0m 已切换到内置模拟执行器。\r\n`,
           });
           socket.emit('terminal:data', {
             agentId,

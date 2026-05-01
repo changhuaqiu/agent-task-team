@@ -21,12 +21,12 @@ export type TaskStatus =
   | 'blocked';
 
 export const STATUS_LABELS: Record<TaskStatus, string> = {
-  pending:     'Pending',
-  in_progress: 'In Progress',
-  in_review:   'In Review',
-  done:        'Done',
-  rejected:    'Rejected',
-  blocked:     'Blocked',
+  pending: '待处理',
+  in_progress: '进行中',
+  in_review: '评审中',
+  done: '已完成',
+  rejected: '已拒绝',
+  blocked: '已阻塞',
 };
 
 export const STATUS_ORDER: TaskStatus[] = [
@@ -175,6 +175,21 @@ interface TaskHubState {
   hasHydrated: boolean;
   setHasHydrated: (hydrated: boolean) => void;
 
+  opencodeStatus: {
+    checked: boolean;
+    available: boolean;
+    path?: string;
+    version?: string;
+    error?: string;
+  };
+  setOpencodeStatus: (status: {
+    checked: boolean;
+    available: boolean;
+    path?: string;
+    version?: string;
+    error?: string;
+  }) => void;
+
   selectedProjectId: ProjectId;
   agentSessions: Record<ProjectId, Record<string, string | undefined>>;
   activeAgentIds: string[];
@@ -236,7 +251,7 @@ export const AGENT_ROSTER: Agent[] = [
     id: 'jean',
     name: 'Jean',
     role: 'planner',
-    roleLabel: 'Acting Grand Master',
+    roleLabel: '项目统筹',
     theme: 'jean',
     emoji: '⚔️',
     isOnline: true,
@@ -245,7 +260,7 @@ export const AGENT_ROSTER: Agent[] = [
     id: 'keqing',
     name: 'Keqing',
     role: 'worker',
-    roleLabel: 'Frontend Yuheng',
+    roleLabel: '前端负责人',
     theme: 'keqing',
     emoji: '⚡',
     isOnline: true,
@@ -254,7 +269,7 @@ export const AGENT_ROSTER: Agent[] = [
     id: 'zhongli',
     name: 'Zhongli',
     role: 'worker',
-    roleLabel: 'Backend Archon',
+    roleLabel: '后端负责人',
     theme: 'zhongli',
     emoji: '🔶',
     isOnline: false,
@@ -263,7 +278,7 @@ export const AGENT_ROSTER: Agent[] = [
     id: 'nahida',
     name: 'Nahida',
     role: 'reviewer',
-    roleLabel: 'Code Reviewer',
+    roleLabel: '代码评审',
     theme: 'nahida',
     emoji: '🌿',
     isOnline: true,
@@ -272,7 +287,7 @@ export const AGENT_ROSTER: Agent[] = [
     id: 'albedo',
     name: 'Albedo',
     role: 'worker',
-    roleLabel: 'Algorithm Alchemist',
+    roleLabel: '算法工程',
     theme: 'albedo',
     emoji: '✨',
     isOnline: false,
@@ -281,7 +296,7 @@ export const AGENT_ROSTER: Agent[] = [
     id: 'venti',
     name: 'Venti',
     role: 'reviewer',
-    roleLabel: 'QA Bard',
+    roleLabel: 'QA 测试',
     theme: 'venti',
     emoji: '💨',
     isOnline: false,
@@ -308,6 +323,9 @@ export const useTaskHubStore = create<TaskHubState>()(
     (set, get) => ({
       hasHydrated: false,
       setHasHydrated: (hydrated) => set({ hasHydrated: hydrated }),
+
+      opencodeStatus: { checked: false, available: false },
+      setOpencodeStatus: (status) => set({ opencodeStatus: status }),
 
       selectedProjectId: 'default',
       agentSessions: { default: {} },
@@ -385,7 +403,7 @@ export const useTaskHubStore = create<TaskHubState>()(
           conversationId: id,
           invocationId: makeId('inv'),
           timestamp: stamp,
-          summary: 'Conversation created. Ready for planning.',
+          summary: '会话已创建，可以开始规划。',
           needsHuman: false,
           humanActions: [],
           body: {
@@ -785,12 +803,12 @@ socket.on('terminal:exit', ({ agentId, code }) => {
   }
 
   if (typeof code === 'number' && code !== 0 && taskId && conversationId) {
-    store.updateTaskStatus(taskId, 'blocked', `Execution failed (exit ${code}).`);
+    store.updateTaskStatus(taskId, 'blocked', `执行失败（退出码 ${code}）。`);
     store.openBlocker({
       conversationId,
       taskId,
       type: 'execution_failure',
-      reasonSummary: `Run failed (exit ${code}).`,
+      reasonSummary: `执行失败（退出码 ${code}）。`,
       evidenceRef: runId ? `run:${runId}` : undefined,
     });
   }

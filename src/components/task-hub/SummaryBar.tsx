@@ -52,7 +52,7 @@ export function SummaryBar() {
         </div>
       ))}
       <div className="ml-auto text-[11px] text-[hsl(var(--text-tertiary))] font-medium tabular-nums">
-        {tasks.length} total
+        {tasks.length} 总计
       </div>
     </div>
   );

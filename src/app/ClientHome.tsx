@@ -18,6 +18,7 @@ export default function ClientHome() {
   const hasHydrated = useTaskHubStore((s) => s.hasHydrated);
   const activeAgents = useTaskHubStore(useShallow(selectActiveAgents));
   const selectedTaskId = useTaskHubStore((s) => s.selectedTaskId);
+  const selectedConversationId = useTaskHubStore((s) => s.selectedConversationId);
   const isNewTaskDialogOpen = useTaskHubStore((s) => s.isNewTaskDialogOpen);
   const isRosterModalOpen = useTaskHubStore((s) => s.isRosterModalOpen);
   const setRosterModalOpen = useTaskHubStore((s) => s.setRosterModalOpen);
@@ -37,17 +38,17 @@ export default function ClientHome() {
               <span className="text-[12px] font-black tracking-tight text-[hsl(var(--accent))]">HUB</span>
             </div>
             <div>
-              <h1 className="text-[16px] font-bold tracking-tight text-[hsl(var(--text-primary))] uppercase">DevOps Hub</h1>
-              <p className="text-[10px] text-[hsl(var(--text-tertiary))] font-bold tracking-widest uppercase">Multi-Agent Guild</p>
+              <h1 className="text-[16px] font-bold tracking-tight text-[hsl(var(--text-primary))] uppercase">DevOps 中心</h1>
+              <p className="text-[10px] text-[hsl(var(--text-tertiary))] font-bold tracking-widest uppercase">多智能体协作</p>
             </div>
           </div>
         </header>
 
         <div className="flex-1 flex items-center justify-center p-6">
           <div className="w-full max-w-lg rounded-[var(--radius-xl)] border border-[hsl(var(--border))] bg-[hsl(var(--bg-card))] p-6 shadow-sm">
-            <div className="text-[11px] font-bold tracking-widest uppercase text-[hsl(var(--text-tertiary))]">Initializing</div>
-            <div className="text-[14px] font-semibold text-[hsl(var(--text-primary))] mt-1">Hydrating local state…</div>
-            <div className="text-[12px] text-[hsl(var(--text-tertiary))] mt-2">If this takes too long, refresh the page.</div>
+            <div className="text-[11px] font-bold tracking-widest uppercase text-[hsl(var(--text-tertiary))]">初始化中</div>
+            <div className="text-[14px] font-semibold text-[hsl(var(--text-primary))] mt-1">正在加载本地状态…</div>
+            <div className="text-[12px] text-[hsl(var(--text-tertiary))] mt-2">如果等待过久，请刷新页面。</div>
           </div>
         </div>
       </main>
@@ -66,10 +67,10 @@ export default function ClientHome() {
           </div>
           <div>
             <h1 className="text-[16px] font-bold tracking-tight text-[hsl(var(--text-primary))] uppercase">
-              DevOps Hub
+              DevOps 中心
             </h1>
             <p className="text-[10px] text-[hsl(var(--text-tertiary))] font-bold tracking-widest uppercase">
-              Multi-Agent Guild
+              多智能体协作
             </p>
           </div>
         </div>
@@ -85,7 +86,7 @@ export default function ClientHome() {
                   : 'text-[hsl(var(--text-secondary))] hover:bg-[hsl(var(--bg-card))]'
               }`}
             >
-              War Room
+              作战室
             </button>
             <button
               type="button"
@@ -96,7 +97,7 @@ export default function ClientHome() {
                   : 'text-[hsl(var(--text-secondary))] hover:bg-[hsl(var(--bg-card))]'
               }`}
             >
-              Board
+              看板
             </button>
             <button
               type="button"
@@ -107,17 +108,18 @@ export default function ClientHome() {
                   : 'text-[hsl(var(--text-secondary))] hover:bg-[hsl(var(--bg-card))]'
               }`}
             >
-              Quality
+              质量
             </button>
           </div>
 
           <button
             type="button"
             onClick={() => setNewTaskDialogOpen(true)}
-            className="inline-flex items-center gap-1.5 bg-[hsl(var(--text-primary))] text-[hsl(var(--text-inverse))] px-3.5 py-2 rounded-[var(--radius-md)] text-[12px] font-semibold hover:opacity-90 active:scale-[0.97] transition-all duration-200 shadow-sm"
+            disabled={!selectedConversationId}
+            className="inline-flex items-center gap-1.5 bg-[hsl(var(--text-primary))] text-[hsl(var(--text-inverse))] px-3.5 py-2 rounded-[var(--radius-md)] text-[12px] font-semibold hover:opacity-90 active:scale-[0.97] transition-all duration-200 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Plus className="w-3.5 h-3.5" />
-            New Task
+            新建任务
           </button>
         </div>
       </header>
@@ -150,7 +152,7 @@ export default function ClientHome() {
                       <UserPlus className="w-6 h-6" />
                     </div>
                     <span className="text-[12px] font-bold uppercase tracking-widest">
-                      Invite Agent
+                      邀请智能体
                     </span>
                   </button>
                 </div>

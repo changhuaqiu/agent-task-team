@@ -19,7 +19,7 @@ export function AgentRosterModal() {
     inviteAgent(agentId);
     addChatMessage({
       agentId,
-      content: `Hello Traveler! I've joined the party. Ready to take on some tasks.`,
+      content: `你好！我已加入团队，随时可以开始任务。`,
     });
     // Close modal if no more agents left
     if (availableAgents.length <= 1) {
@@ -35,7 +35,7 @@ export function AgentRosterModal() {
           <div className="flex items-center gap-2 text-[hsl(var(--accent))]">
             <Sparkles className="w-5 h-5" />
             <h2 className="text-[16px] font-bold uppercase tracking-wide">
-              Agent Wish / Roster
+              智能体招募 / 名单
             </h2>
           </div>
           <button
@@ -50,7 +50,7 @@ export function AgentRosterModal() {
         <div className="p-6 overflow-y-auto flex-1 bg-[url('/noise.png')]">
           {availableAgents.length === 0 ? (
             <div className="text-center py-12 text-[hsl(var(--text-tertiary))] font-bold uppercase tracking-widest">
-              All available agents have been recruited!
+              所有可用智能体已招募完成！
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -94,7 +94,7 @@ export function AgentRosterModal() {
                         `hover:bg-[hsl(var(--agent-${agent.theme}))] hover:text-[hsl(var(--bg-app))]`
                       )}
                     >
-                      Recruit
+                      招募
                     </button>
                   </div>
                 </div>

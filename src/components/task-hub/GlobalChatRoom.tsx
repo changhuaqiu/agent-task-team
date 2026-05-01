@@ -47,10 +47,10 @@ export function GlobalChatRoom() {
       <div className="shrink-0 h-[60px] flex items-center justify-between px-5 bg-[hsl(var(--bg-card))] border-b-[2px] border-[hsl(var(--border))]">
         <h2 className="text-[14px] font-bold text-[hsl(var(--text-primary))] flex items-center gap-2">
           <Hash className="w-4 h-4 text-[hsl(var(--accent))]" />
-          Global Chat Room
+          全局聊天室
         </h2>
         <span className="text-[10px] font-bold text-[hsl(var(--text-tertiary))] bg-[hsl(var(--bg-muted))] px-2 py-1 rounded-[4px] border border-[hsl(var(--border-subtle))]">
-          {chatMessages.length} Messages
+          {chatMessages.length} 条消息
         </span>
       </div>
 
@@ -72,7 +72,7 @@ export function GlobalChatRoom() {
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Send a message or @agent..."
+            placeholder="发送消息或 @智能体…"
             rows={1}
             className={cn(
               'w-full bg-[hsl(var(--bg-app))] text-[hsl(var(--text-primary))] text-[13px] placeholder:text-[hsl(var(--text-tertiary))]',
@@ -101,7 +101,7 @@ export function GlobalChatRoom() {
           </button>
         </div>
         <p className="text-[9px] font-medium text-[hsl(var(--text-tertiary))] mt-2 ml-1">
-          Use #TASK-000 to reference tasks.
+          使用 #TASK-000 引用任务。
         </p>
       </div>
     </div>

@@ -3,6 +3,12 @@
 import { useTaskHubStore } from '@/store/taskHubStore';
 import { useMemo } from 'react';
 
+const BLOCKER_TYPE_LABELS: Record<string, string> = {
+  execution_failure: '执行失败',
+  gate_failure: '质量门失败',
+  needs_human_approval: '需要人工确认',
+};
+
 function formatTime(iso: string) {
   try {
     return new Date(iso).toISOString().replace('T', ' ').replace('.000Z', 'Z');
@@ -22,16 +28,16 @@ export function QualityView() {
       <div className="max-w-5xl mx-auto flex flex-col gap-4">
         <div className="rounded-[var(--radius-lg)] border border-[hsl(var(--border))] bg-[hsl(var(--bg-card))] p-4 shadow-sm">
           <div className="text-[11px] font-bold tracking-widest uppercase text-[hsl(var(--text-tertiary))]">
-            Blockers
+            阻塞项
           </div>
           <div className="text-[13px] font-semibold text-[hsl(var(--text-primary))]">
-            {openBlockers.length} open
+            {openBlockers.length} 个未解决
           </div>
         </div>
 
         {openBlockers.length === 0 ? (
           <div className="rounded-[var(--radius-lg)] border border-[hsl(var(--border))] bg-[hsl(var(--bg-card))] p-4 shadow-sm text-[12px] text-[hsl(var(--text-tertiary))] font-semibold">
-            No blockers.
+            暂无阻塞项。
           </div>
         ) : (
           openBlockers.map((b) => (
@@ -42,7 +48,7 @@ export function QualityView() {
               onClick={() => setSelectedTaskId(b.taskId)}
             >
               <div className="text-[11px] font-bold tracking-widest uppercase text-[hsl(var(--danger))]">
-                {b.type.replace(/_/g, ' ')}
+                {BLOCKER_TYPE_LABELS[b.type] ?? b.type.replace(/_/g, ' ')}
               </div>
               <div className="text-[13px] font-semibold text-[hsl(var(--text-primary))]">
                 {b.taskId} · {b.reasonSummary}

@@ -3,6 +3,19 @@
 import type { Blocker, InternalEvent, SupervisorOutputEnvelope } from '@/store/taskHubStore';
 import { useTaskHubStore } from '@/store/taskHubStore';
 
+const OUTPUT_KIND_LABELS: Record<string, string> = {
+  decision_brief: '决策简报',
+  execution_plan: '执行计划',
+  status_report: '状态报告',
+  quality_review_pack: '质量评审包',
+};
+
+const EVENT_TYPE_LABELS: Record<string, string> = {
+  'run.started': '开始执行',
+  'run.finished': '执行结束',
+  'task.status_changed': '任务状态变更',
+};
+
 function formatTime(iso: string) {
   try {
     return new Date(iso).toISOString().replace('T', ' ').replace('.000Z', 'Z');
@@ -22,8 +35,8 @@ export function SupervisorOutputCard({ output }: { output: SupervisorOutputEnvel
     inviteAgent('zhongli');
 
     addTask({
-      title: 'UX: IA + acceptance criteria',
-      description: 'Define IA for War Room/Board/Quality and write acceptance criteria for v0.',
+      title: 'UX：信息架构与验收标准',
+      description: '梳理作战室/看板/质量页面的信息架构，并输出 v0 验收标准。',
       status: 'in_progress',
       agentId: 'keqing',
       dependencies: [],
@@ -31,8 +44,8 @@ export function SupervisorOutputCard({ output }: { output: SupervisorOutputEnvel
     });
 
     addTask({
-      title: 'Dev: timeline components',
-      description: 'Implement timeline cards and integrate into War Room view.',
+      title: '研发：时间线卡片组件',
+      description: '实现时间线卡片并集成到作战室页面。',
       status: 'in_progress',
       agentId: 'jean',
       dependencies: [],
@@ -40,8 +53,8 @@ export function SupervisorOutputCard({ output }: { output: SupervisorOutputEnvel
     });
 
     addTask({
-      title: 'QA: gate + blocker checks',
-      description: 'Validate that failing runs immediately block tasks and surface blockers in Quality view.',
+      title: 'QA：质量门与阻塞检查',
+      description: '验证：执行失败后任务会被立即阻塞，并在质量页面可见。',
       status: 'in_progress',
       agentId: 'nahida',
       dependencies: [],
@@ -49,8 +62,8 @@ export function SupervisorOutputCard({ output }: { output: SupervisorOutputEnvel
     });
 
     addTask({
-      title: 'Arch: guardrails & quality contract',
-      description: 'Confirm module boundaries and propose v0 quality gates + risk policy.',
+      title: '架构：边界与质量契约',
+      description: '确认模块边界，提出 v0 质量门与风险策略。',
       status: 'in_progress',
       agentId: 'zhongli',
       dependencies: [],
@@ -62,7 +75,7 @@ export function SupervisorOutputCard({ output }: { output: SupervisorOutputEnvel
       conversationId: output.conversationId,
       invocationId: `inv-${Date.now()}`,
       timestamp: stamp,
-      summary: 'Batch 1 started. Awaiting outputs and quality gate evidence.',
+      summary: '第 1 批次已启动，等待输出与质量门证据。',
       needsHuman: false,
       humanActions: [],
       body: {
@@ -80,7 +93,7 @@ export function SupervisorOutputCard({ output }: { output: SupervisorOutputEnvel
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="text-[11px] font-bold tracking-widest uppercase text-[hsl(var(--text-tertiary))]">
-            {output.kind.replace(/_/g, ' ')}
+            {OUTPUT_KIND_LABELS[output.kind] ?? output.kind.replace(/_/g, ' ')}
           </div>
           <div className="text-[14px] font-semibold text-[hsl(var(--text-primary))]">
             {output.summary}
@@ -96,7 +109,7 @@ export function SupervisorOutputCard({ output }: { output: SupervisorOutputEnvel
             className="h-8 px-3 rounded-[var(--radius-md)] bg-[hsl(var(--text-primary))] text-[hsl(var(--text-inverse))] text-[12px] font-semibold"
             onClick={applySamplePlan}
           >
-            Start Batch 1
+            启动第 1 批次
           </button>
         )}
       </div>
@@ -131,7 +144,7 @@ export function BlockerCard({ blocker }: { blocker: Blocker }) {
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="text-[11px] font-bold tracking-widest uppercase text-[hsl(var(--danger))]">
-            Blocker
+            阻塞项
           </div>
           <div className="text-[13px] font-semibold text-[hsl(var(--text-primary))]">
             {blocker.reasonSummary}
@@ -145,7 +158,7 @@ export function BlockerCard({ blocker }: { blocker: Blocker }) {
           className="h-8 px-3 rounded-[var(--radius-md)] bg-[hsl(var(--text-primary))] text-[hsl(var(--text-inverse))] text-[12px] font-semibold"
           onClick={() => setSelectedTaskId(blocker.taskId)}
         >
-          Open Task
+          打开任务
         </button>
       </div>
     </div>
@@ -165,7 +178,7 @@ export function EventCard({ event }: { event: InternalEvent }) {
     return (
       <div className="rounded-[var(--radius-lg)] border border-[hsl(var(--border))] bg-[hsl(var(--bg-card))] p-4 shadow-sm">
         <div className="text-[11px] font-bold tracking-widest uppercase text-[hsl(var(--text-tertiary))]">
-          Task Status
+          {EVENT_TYPE_LABELS[event.type] ?? '任务状态'}
         </div>
         <div className="text-[13px] font-semibold text-[hsl(var(--text-primary))]">
           {payload.taskId} → {payload.status}
@@ -182,11 +195,11 @@ export function EventCard({ event }: { event: InternalEvent }) {
     return (
       <div className="rounded-[var(--radius-lg)] border border-[hsl(var(--border))] bg-[hsl(var(--bg-card))] p-4 shadow-sm">
         <div className="text-[11px] font-bold tracking-widest uppercase text-[hsl(var(--text-tertiary))]">
-          Run
+          {EVENT_TYPE_LABELS[event.type] ?? '执行'}
         </div>
         <div className="text-[13px] font-semibold text-[hsl(var(--text-primary))]">
-          {event.type} {payload.taskId ? `· ${payload.taskId}` : ''} {payload.agentId ? `· ${payload.agentId}` : ''}
-          {typeof payload.code === 'number' ? ` · exit ${payload.code}` : ''}
+          {(EVENT_TYPE_LABELS[event.type] ?? event.type)} {payload.taskId ? `· ${payload.taskId}` : ''} {payload.agentId ? `· ${payload.agentId}` : ''}
+          {typeof payload.code === 'number' ? ` · 退出码 ${payload.code}` : ''}
         </div>
         <div className="text-[11px] text-[hsl(var(--text-tertiary))] mt-1">
           {formatTime(event.timestamp)}

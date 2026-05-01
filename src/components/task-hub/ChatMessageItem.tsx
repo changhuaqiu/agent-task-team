@@ -23,6 +23,12 @@ const IntentIcon = ({ intent }: { intent?: string }) => {
   }
 };
 
+const INTENT_LABELS: Record<string, string> = {
+  ideate: '构思',
+  execute: '执行',
+  review: '评审',
+};
+
 const formatContentWithMentions = (content: string) => {
   const mentionRegex = /(@\w+)/g;
   const parts = content.split(mentionRegex);
@@ -86,7 +92,7 @@ export function ChatMessageItem({ message }: ChatMessageItemProps) {
         {/* Header */}
         <div className="flex items-baseline gap-2 mb-1">
           <span className="text-[11px] font-bold text-[hsl(var(--text-secondary))]">
-            {isHuman ? 'Traveler' : agent?.name}
+            {isHuman ? '用户' : agent?.name}
           </span>
           <span className="text-[9px] text-[hsl(var(--text-tertiary))] opacity-70">
             {timeString}
@@ -94,7 +100,7 @@ export function ChatMessageItem({ message }: ChatMessageItemProps) {
           {message.intent && message.intent !== 'general' && !isHuman && (
             <span className="flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded-sm bg-[hsl(var(--bg-muted))] border border-[hsl(var(--border-subtle))] uppercase">
               <IntentIcon intent={message.intent} />
-              {message.intent}
+              {INTENT_LABELS[message.intent] ?? message.intent}
             </span>
           )}
         </div>
@@ -132,13 +138,13 @@ export function ChatMessageItem({ message }: ChatMessageItemProps) {
                     onClick={() => updateChatMessageStatus(message.id, 'approved')}
                     className="flex-1 flex items-center justify-center gap-1 bg-[hsl(var(--status-done))] hover:brightness-110 text-[hsl(var(--bg-app))] text-[10px] font-bold py-1.5 px-2 rounded-[2px] shadow-[2px_2px_0px_hsl(var(--text-primary))] transition-transform active:translate-y-[2px] active:shadow-[0px_0px_0px_hsl(var(--text-primary))]"
                   >
-                    <Check className="w-3 h-3" /> Approve
+                    <Check className="w-3 h-3" /> 同意
                   </button>
                   <button
                     onClick={() => updateChatMessageStatus(message.id, 'rejected')}
                     className="flex-1 flex items-center justify-center gap-1 bg-[hsl(var(--status-rejected))] hover:brightness-110 text-[hsl(var(--bg-app))] text-[10px] font-bold py-1.5 px-2 rounded-[2px] shadow-[2px_2px_0px_hsl(var(--text-primary))] transition-transform active:translate-y-[2px] active:shadow-[0px_0px_0px_hsl(var(--text-primary))]"
                   >
-                    <X className="w-3 h-3" /> Reject
+                    <X className="w-3 h-3" /> 拒绝
                   </button>
                 </>
               ) : (
@@ -150,7 +156,7 @@ export function ChatMessageItem({ message }: ChatMessageItemProps) {
                       : 'bg-[hsl(var(--status-rejected-bg))] text-[hsl(var(--status-rejected))] border-[hsl(var(--status-rejected-border))]'
                   )}
                 >
-                  {message.approvalStatus === 'approved' ? 'APPROVED' : 'REJECTED'}
+                  {message.approvalStatus === 'approved' ? '已同意' : '已拒绝'}
                 </div>
               )}
             </div>

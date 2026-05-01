@@ -22,7 +22,7 @@ export function ConversationPicker() {
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="text-[11px] font-bold tracking-widest uppercase text-[hsl(var(--text-tertiary))]">
-            Conversation
+            会话
           </div>
           <div className="flex items-center gap-2 mt-2">
             <select
@@ -30,7 +30,7 @@ export function ConversationPicker() {
               onChange={(e) => setSelectedConversationId(e.target.value ? e.target.value : null)}
               className="h-9 px-3 rounded-[var(--radius-md)] border border-[hsl(var(--border))] bg-[hsl(var(--bg-app))] text-[12px] font-semibold"
             >
-              {conversations.length === 0 && <option value="">No conversations</option>}
+              {conversations.length === 0 && <option value="">暂无会话</option>}
               {conversations.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.title}
@@ -38,7 +38,7 @@ export function ConversationPicker() {
               ))}
             </select>
             <div className="text-[11px] text-[hsl(var(--text-tertiary))] font-semibold truncate">
-              {selected?.goal || 'Create your first conversation to begin.'}
+              {selected?.goal || '请先创建一个会话，然后再开始操作。'}
             </div>
           </div>
         </div>
@@ -48,13 +48,13 @@ export function ConversationPicker() {
         <input
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          placeholder="Conversation title"
+          placeholder="会话标题"
           className="h-9 px-3 rounded-[var(--radius-md)] border border-[hsl(var(--border))] bg-[hsl(var(--bg-app))] text-[12px] font-semibold"
         />
         <input
           value={goal}
           onChange={(e) => setGoal(e.target.value)}
-          placeholder="Goal"
+          placeholder="目标"
           className="h-9 px-3 rounded-[var(--radius-md)] border border-[hsl(var(--border))] bg-[hsl(var(--bg-app))] text-[12px] font-semibold md:col-span-2"
         />
       </div>
@@ -73,7 +73,7 @@ export function ConversationPicker() {
           className="h-9 px-3 rounded-[var(--radius-md)] bg-[hsl(var(--text-primary))] text-[hsl(var(--text-inverse))] text-[12px] font-semibold hover:opacity-90 disabled:opacity-50"
           disabled={!title.trim() || !goal.trim()}
         >
-          New Conversation
+          新建会话
         </button>
       </div>
     </div>
