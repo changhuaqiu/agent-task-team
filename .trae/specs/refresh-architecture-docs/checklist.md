@@ -1,0 +1,7 @@
+- [ ] docs/wiki/01-architecture.md 已与当前代码一致，并包含“配置体系概览 + 架构演进路线”章节
+- [ ] docs/wiki/04-backend-daemon.md 已以当前默认实现为主线更新，且明确历史/可选路径
+- [ ] docs/wiki/05-run-and-dev.md 已更新为当前默认启动方式，并包含从 0 到可执行的步骤与排障
+- [ ] docs/wiki/06-dependencies.md 的依赖图与外部集成点说明已对齐现状
+- [ ] docs/wiki/README.md 已包含最短上手路径与演进路线入口
+- [ ] 文档包含最小安全/认证规划（CORS、token/allowlist、敏感信息处理）且不泄露任何密钥
+- [ ] `pnpm build` 在文档更新后通过
