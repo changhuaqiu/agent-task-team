@@ -343,7 +343,7 @@ export const useTaskHubStore = create<TaskHubState>()(
 
       connectDaemon: () => {
         if (socket.connected) return;
-        fetch('/api/socketio')
+        fetch('/api/daemon/init')
           .catch(() => undefined)
           .finally(() => socket.connect());
       },
