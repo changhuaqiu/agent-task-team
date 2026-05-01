@@ -7,10 +7,11 @@ import { NewTaskDialog } from '@/components/task-hub/NewTaskDialog';
 import { SummaryBar } from '@/components/task-hub/SummaryBar';
 import { GlobalChatRoom } from '@/components/task-hub/GlobalChatRoom';
 import { AgentRosterModal } from '@/components/task-hub/AgentRosterModal';
+import { SettingsDrawer } from '@/components/task-hub/SettingsDrawer';
 import { QualityView } from '@/components/war-room/QualityView';
 import { WarRoomView } from '@/components/war-room/WarRoomView';
 import { useEffect, useState } from 'react';
-import { Plus, UserPlus } from 'lucide-react';
+import { Plus, UserPlus, Settings } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 
 export default function ClientHome() {
@@ -23,6 +24,7 @@ export default function ClientHome() {
   const isRosterModalOpen = useTaskHubStore((s) => s.isRosterModalOpen);
   const setRosterModalOpen = useTaskHubStore((s) => s.setRosterModalOpen);
   const setNewTaskDialogOpen = useTaskHubStore((s) => s.setNewTaskDialogOpen);
+  const setSettingsOpen = useTaskHubStore((s) => s.setSettingsOpen);
   const connectDaemon = useTaskHubStore((s) => s.connectDaemon);
 
   useEffect(() => {
@@ -121,6 +123,15 @@ export default function ClientHome() {
             <Plus className="w-3.5 h-3.5" />
             新建任务
           </button>
+
+          <button
+            type="button"
+            onClick={() => setSettingsOpen(true)}
+            className="inline-flex items-center justify-center w-10 h-10 rounded-[var(--radius-md)] border border-[hsl(var(--border))] bg-[hsl(var(--bg-app))] text-[hsl(var(--text-secondary))] hover:bg-[hsl(var(--bg-card))]"
+            aria-label="设置"
+          >
+            <Settings className="w-4 h-4" />
+          </button>
         </div>
       </header>
 
@@ -175,6 +186,8 @@ export default function ClientHome() {
 
       {/* ── Agent Roster Modal ── */}
       {isRosterModalOpen && <AgentRosterModal />}
+
+      <SettingsDrawer />
     </main>
   );
 }

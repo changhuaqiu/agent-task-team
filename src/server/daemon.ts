@@ -9,13 +9,14 @@ type TerminalStartPayload = {
   agentId: string;
   prompt: string;
   sessionId?: string;
+  allowMockRunner?: boolean;
 };
 
 export default function registerDaemon(io: IOServer) {
   const activeProcesses = new Map<string, ReturnType<typeof spawn>>();
 
   io.on('connection', (socket: Socket) => {
-    socket.on('terminal:start', ({ projectId, taskId, agentId, prompt, sessionId }: TerminalStartPayload) => {
+    socket.on('terminal:start', ({ projectId, taskId, agentId, prompt, sessionId, allowMockRunner }: TerminalStartPayload) => {
       if (activeProcesses.has(agentId)) {
         activeProcesses.get(agentId)?.kill();
       }
@@ -107,7 +108,7 @@ export default function registerDaemon(io: IOServer) {
       child.on('error', (err) => {
         const code = (err as unknown as { code?: string }).code;
         if (code === 'ENOENT') {
-          if (process.env.ENABLE_MOCK_RUNNER !== '1') {
+          if (!allowMockRunner && process.env.ENABLE_MOCK_RUNNER !== '1') {
             socket.emit('terminal:data', {
               agentId,
               data: `\r\n\x1b[31m[未找到 opencode]\x1b[0m 如需使用内置模拟执行器，请设置 ENABLE_MOCK_RUNNER=1。\r\n`,

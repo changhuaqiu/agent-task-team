@@ -175,6 +175,18 @@ interface TaskHubState {
   hasHydrated: boolean;
   setHasHydrated: (hydrated: boolean) => void;
 
+  isSettingsOpen: boolean;
+  setSettingsOpen: (open: boolean) => void;
+
+  enableMockRunner: boolean;
+  setEnableMockRunner: (enabled: boolean) => void;
+
+  daemonConnection: {
+    status: 'disconnected' | 'connecting' | 'connected';
+    error?: string;
+  };
+  setDaemonConnection: (next: { status: 'disconnected' | 'connecting' | 'connected'; error?: string }) => void;
+
   opencodeStatus: {
     checked: boolean;
     available: boolean;
@@ -324,6 +336,15 @@ export const useTaskHubStore = create<TaskHubState>()(
       hasHydrated: false,
       setHasHydrated: (hydrated) => set({ hasHydrated: hydrated }),
 
+      isSettingsOpen: false,
+      setSettingsOpen: (open) => set({ isSettingsOpen: open }),
+
+      enableMockRunner: false,
+      setEnableMockRunner: (enabled) => set({ enableMockRunner: enabled }),
+
+      daemonConnection: { status: 'disconnected' },
+      setDaemonConnection: (next) => set({ daemonConnection: next }),
+
       opencodeStatus: { checked: false, available: false },
       setOpencodeStatus: (status) => set({ opencodeStatus: status }),
 
@@ -343,8 +364,11 @@ export const useTaskHubStore = create<TaskHubState>()(
 
       connectDaemon: () => {
         if (socket.connected) return;
+        get().setDaemonConnection({ status: 'connecting' });
         fetch('/api/daemon/init')
-          .catch(() => undefined)
+          .catch((e) => {
+            get().setDaemonConnection({ status: 'disconnected', error: String((e as any)?.message || e) });
+          })
           .finally(() => socket.connect());
       },
 
@@ -552,6 +576,7 @@ export const useTaskHubStore = create<TaskHubState>()(
           agentId,
           prompt,
           sessionId,
+          allowMockRunner: get().enableMockRunner,
         });
       },
 
@@ -587,7 +612,14 @@ export const useTaskHubStore = create<TaskHubState>()(
           payload: { runId, agentId, taskId },
         });
 
-        socket.emit('terminal:start', { projectId, taskId, agentId, prompt, sessionId: resolvedSessionId });
+        socket.emit('terminal:start', {
+          projectId,
+          taskId,
+          agentId,
+          prompt,
+          sessionId: resolvedSessionId,
+          allowMockRunner: get().enableMockRunner,
+        });
       },
 
       updateTaskStatus: (taskId, status, reviewNote) =>
@@ -730,6 +762,7 @@ export const useTaskHubStore = create<TaskHubState>()(
         selectedProjectId: state.selectedProjectId,
         agentSessions: state.agentSessions,
         activeAgentIds: state.activeAgentIds,
+        enableMockRunner: state.enableMockRunner,
         conversations: state.conversations,
         selectedConversationId: state.selectedConversationId,
         tasks: state.tasks,
@@ -755,6 +788,22 @@ export const useTaskHubStore = create<TaskHubState>()(
 );
 
 // --- Socket.io Event Listeners ---
+socket.off('connect');
+socket.off('disconnect');
+socket.off('connect_error');
+
+socket.on('connect', () => {
+  useTaskHubStore.getState().setDaemonConnection({ status: 'connected' });
+});
+
+socket.on('disconnect', () => {
+  useTaskHubStore.getState().setDaemonConnection({ status: 'disconnected' });
+});
+
+socket.on('connect_error', (err) => {
+  useTaskHubStore.getState().setDaemonConnection({ status: 'disconnected', error: String((err as any)?.message || err) });
+});
+
 socket.on('terminal:data', ({ agentId, data }) => {
   useTaskHubStore.getState().appendTerminalLog(agentId, data);
 });
