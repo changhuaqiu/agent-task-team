@@ -207,7 +207,7 @@ export function AgentTaskGroup({ agent }: AgentTaskGroupProps) {
         {/* Empty state */}
         {tasks.length === 0 && (
           <div className="flex flex-col items-center justify-center py-12 text-[hsl(var(--text-tertiary))]">
-            <agent className="w-8 h-8 mb-2 opacity-40" />
+            <div className="w-8 h-8 mb-2 opacity-40 rounded-[4px] border border-[hsl(var(--border))] bg-[hsl(var(--bg-app))]" />
             <span className="text-[12px] font-medium">No tasks assigned</span>
             <span className="text-[10px] mt-0.5 opacity-60">
               This agent is resting...

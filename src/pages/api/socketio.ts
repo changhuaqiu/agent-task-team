@@ -5,10 +5,10 @@ import registerDaemon from '@/server/daemon';
 
 type NextApiResponseWithSocket = NextApiResponse & {
   socket: NextApiResponse['socket'] & {
-    server: NextApiResponse['socket']['server'] & {
+    server: {
       io?: IOServer;
     };
-  };
+  } & Record<string, any>;
 };
 
 export const config = {
@@ -19,7 +19,7 @@ export const config = {
 
 export default function handler(req: NextApiRequest, res: NextApiResponseWithSocket) {
   if (!res.socket.server.io) {
-    const io = new IOServer(res.socket.server, { path: '/api/socketio', cors: { origin: '*' } });
+    const io = new IOServer(res.socket.server as any, { path: '/api/socketio', cors: { origin: '*' } });
     res.socket.server.io = io;
     registerDaemon(io);
   }

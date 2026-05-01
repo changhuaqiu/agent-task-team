@@ -20,7 +20,6 @@ export function AgentRosterModal() {
     addChatMessage({
       agentId,
       content: `Hello Traveler! I've joined the party. Ready to take on some tasks.`,
-      intent: 'general',
     });
     // Close modal if no more agents left
     if (availableAgents.length <= 1) {

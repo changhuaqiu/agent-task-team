@@ -29,6 +29,8 @@ const themeAccent: Record<AgentTheme, string> = {
   keqing: 'border-l-[hsl(var(--agent-keqing))]',
   zhongli:'border-l-[hsl(var(--agent-zhongli))]',
   nahida: 'border-l-[hsl(var(--agent-nahida))]',
+  albedo: 'border-l-[hsl(var(--agent-albedo))]',
+  venti:  'border-l-[hsl(var(--agent-venti))]',
 };
 
 interface TaskCardProps {
