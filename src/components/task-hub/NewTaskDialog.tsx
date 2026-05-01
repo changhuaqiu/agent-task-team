@@ -16,21 +16,15 @@ export function NewTaskDialog() {
 
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [agentId, setAgentId] = useState(activeAgents[0]?.id ?? '');
+  const [agentId, setAgentId] = useState(() => activeAgents[0]?.id ?? '');
   const [status, setStatus] = useState<TaskStatus>('pending');
   const [selectedDeps, setSelectedDeps] = useState<string[]>([]);
 
-  // Reset form when opened
   useEffect(() => {
     if (isOpen) {
-      setTitle('');
-      setDescription('');
-      setStatus('pending');
-      setAgentId(activeAgents[0]?.id || '');
-      setSelectedDeps([]);
       setTimeout(() => titleRef.current?.focus(), 100);
     }
-  }, [isOpen, activeAgents]);
+  }, [isOpen]);
 
   // Close on Escape
   useEffect(() => {
@@ -54,11 +48,6 @@ export function NewTaskDialog() {
       artifacts: [],
     });
 
-    // Reset
-    setTitle('');
-    setDescription('');
-    setStatus('pending');
-    setSelectedDeps([]);
     setOpen(false);
   };
 
@@ -90,7 +79,7 @@ export function NewTaskDialog() {
           {/* Header */}
           <div className="flex items-center justify-between px-5 py-4 border-b border-[hsl(var(--border))]">
             <h2 className="text-[15px] font-bold text-[hsl(var(--text-primary))]">
-              New Task
+              新建任务
             </h2>
             <button
               type="button"
@@ -106,14 +95,14 @@ export function NewTaskDialog() {
             {/* Title */}
             <div className="space-y-1.5">
               <label className="text-[11px] font-semibold uppercase tracking-wider text-[hsl(var(--text-tertiary))]">
-                Title *
+                标题 *
               </label>
               <input
                 ref={titleRef}
                 type="text"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                placeholder="e.g. Implement login API"
+                placeholder="例如：实现登录 API"
                 className="w-full px-3 py-2 text-[13px] bg-[hsl(var(--bg-muted))] border border-[hsl(var(--border))] rounded-[var(--radius-md)] text-[hsl(var(--text-primary))] placeholder:text-[hsl(var(--text-tertiary))] outline-none focus:border-[hsl(var(--accent))] focus:ring-2 focus:ring-[hsl(var(--accent)/0.15)] transition-all"
                 required
               />
@@ -122,12 +111,12 @@ export function NewTaskDialog() {
             {/* Description */}
             <div className="space-y-1.5">
               <label className="text-[11px] font-semibold uppercase tracking-wider text-[hsl(var(--text-tertiary))]">
-                Description
+                描述
               </label>
               <textarea
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                placeholder="Describe the task and acceptance criteria..."
+                placeholder="描述任务内容与验收标准…"
                 rows={3}
                 className="w-full px-3 py-2 text-[13px] bg-[hsl(var(--bg-muted))] border border-[hsl(var(--border))] rounded-[var(--radius-md)] text-[hsl(var(--text-primary))] placeholder:text-[hsl(var(--text-tertiary))] outline-none focus:border-[hsl(var(--accent))] focus:ring-2 focus:ring-[hsl(var(--accent)/0.15)] transition-all resize-none"
               />
@@ -137,7 +126,7 @@ export function NewTaskDialog() {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <label className="text-[11px] font-semibold uppercase tracking-wider text-[hsl(var(--text-tertiary))]">
-                  Assign To
+                  分配给
                 </label>
                 <select
                   value={agentId}
@@ -154,16 +143,16 @@ export function NewTaskDialog() {
 
               <div className="space-y-1.5">
                 <label className="text-[11px] font-semibold uppercase tracking-wider text-[hsl(var(--text-tertiary))]">
-                  Status
+                  状态
                 </label>
                 <select
                   value={status}
                   onChange={(e) => setStatus(e.target.value as TaskStatus)}
                   className="w-full px-3 py-2 text-[13px] bg-[hsl(var(--bg-muted))] border border-[hsl(var(--border))] rounded-[var(--radius-md)] text-[hsl(var(--text-primary))] outline-none focus:border-[hsl(var(--accent))] transition-all"
                 >
-                  <option value="pending">Pending</option>
-                  <option value="in_progress">In Progress</option>
-                  <option value="blocked">Blocked</option>
+                  <option value="pending">待处理</option>
+                  <option value="in_progress">进行中</option>
+                  <option value="blocked">已阻塞</option>
                 </select>
               </div>
             </div>
@@ -172,7 +161,7 @@ export function NewTaskDialog() {
             {tasks.length > 0 && (
               <div className="space-y-1.5">
                 <label className="text-[11px] font-semibold uppercase tracking-wider text-[hsl(var(--text-tertiary))]">
-                  Dependencies (optional)
+                  依赖（可选）
                 </label>
                 <div className="flex flex-wrap gap-1.5 max-h-[100px] overflow-y-auto scrollbar-thin">
                   {tasks.map((t) => (
@@ -203,7 +192,7 @@ export function NewTaskDialog() {
               onClick={() => setOpen(false)}
               className="px-4 py-2 text-[12px] font-medium text-[hsl(var(--text-secondary))] hover:text-[hsl(var(--text-primary))] bg-[hsl(var(--bg-muted))] rounded-[var(--radius-md)] transition-colors"
             >
-              Cancel
+              取消
             </button>
             <button
               type="submit"
@@ -216,7 +205,7 @@ export function NewTaskDialog() {
               )}
             >
               <Plus className="w-3.5 h-3.5" />
-              Create Task
+              创建任务
             </button>
           </div>
         </form>

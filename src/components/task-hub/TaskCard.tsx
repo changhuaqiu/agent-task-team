@@ -3,7 +3,6 @@
 import {
   type Task,
   type AgentTheme,
-  STATUS_ORDER,
   useTaskHubStore,
 } from '@/store/taskHubStore';
 import { StatusBadge } from './StatusBadge';
@@ -30,6 +29,8 @@ const themeAccent: Record<AgentTheme, string> = {
   keqing: 'border-l-[hsl(var(--agent-keqing))]',
   zhongli:'border-l-[hsl(var(--agent-zhongli))]',
   nahida: 'border-l-[hsl(var(--agent-nahida))]',
+  albedo: 'border-l-[hsl(var(--agent-albedo))]',
+  venti:  'border-l-[hsl(var(--agent-venti))]',
 };
 
 interface TaskCardProps {
@@ -58,7 +59,7 @@ export function TaskCard({ task, agentTheme }: TaskCardProps) {
         isDone && 'opacity-55',
         !isDone && 'border-[hsl(var(--border))]'
       )}
-      aria-label={`Task ${task.id}: ${task.title}`}
+      aria-label={`任务 ${task.id}：${task.title}`}
     >
       {/* Top row: ID + Status */}
       <div className="flex items-center justify-between gap-2 mb-1.5">
@@ -106,7 +107,7 @@ export function TaskCard({ task, agentTheme }: TaskCardProps) {
             <div className="flex items-center gap-1 text-[10px] text-[hsl(var(--text-tertiary))]">
               <Link2 className="w-3 h-3" />
               <span>
-                {task.dependencies.length} dep{task.dependencies.length > 1 ? 's' : ''}
+                {task.dependencies.length} 个依赖
               </span>
             </div>
           )}

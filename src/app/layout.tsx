@@ -13,9 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'Agent Task Hub — Agent Task Hub',
-  description:
-    'Decentralized Multi-Agent Task Scheduling & Monitoring System',
+  title: '智能体任务中心',
+  description: '去中心化多智能体任务调度与监控系统',
 };
 
 export default function RootLayout({
@@ -25,7 +24,7 @@ export default function RootLayout({
 }>) {
   return (
     <html
-      lang="en"
+      lang="zh-CN"
       className={`${geistSans.variable} ${geistMono.variable} h-full`}
     >
       <body className="min-h-full flex flex-col antialiased">{children}</body>

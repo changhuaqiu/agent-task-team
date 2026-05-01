@@ -6,7 +6,13 @@
     "dev": "next dev --webpack",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "bridge:install": "bash bridge/install.sh",
+    "bridge:start": "node bridge/opencode-bridge.mjs",
+    "bridge:check": "bash scripts/opencode-bridge-install.sh",
+    "bridge:serve": "bash scripts/opencode-bridge-start.sh",
+    "bridge:check:win": "powershell -ExecutionPolicy Bypass -File .\\scripts\\opencode-bridge-install.ps1",
+    "bridge:serve:win": "powershell -ExecutionPolicy Bypass -File .\\scripts\\opencode-bridge-start.ps1"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.11.0",

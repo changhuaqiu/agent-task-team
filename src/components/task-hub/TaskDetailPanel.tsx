@@ -43,42 +43,42 @@ const statusActions: {
 }[] = [
   {
     target: 'in_progress',
-    label: 'Start',
+    label: '开始',
     icon: Play,
     className:
       'bg-[hsl(var(--status-progress-bg))] text-[hsl(var(--status-progress))] border-[hsl(var(--status-progress-border))] hover:bg-[hsl(var(--status-progress))] hover:text-white',
   },
   {
     target: 'in_review',
-    label: 'Submit Review',
+    label: '提交评审',
     icon: Eye,
     className:
       'bg-[hsl(var(--status-review-bg))] text-[hsl(var(--status-review))] border-[hsl(var(--status-review-border))] hover:bg-[hsl(var(--status-review))] hover:text-white',
   },
   {
     target: 'done',
-    label: 'Approve',
+    label: '通过',
     icon: CheckCircle2,
     className:
       'bg-[hsl(var(--status-done-bg))] text-[hsl(var(--status-done))] border-[hsl(var(--status-done-border))] hover:bg-[hsl(var(--status-done))] hover:text-white',
   },
   {
     target: 'rejected',
-    label: 'Reject',
+    label: '拒绝',
     icon: XCircle,
     className:
       'bg-[hsl(var(--status-rejected-bg))] text-[hsl(var(--status-rejected))] border-[hsl(var(--status-rejected-border))] hover:bg-[hsl(var(--status-rejected))] hover:text-white',
   },
   {
     target: 'blocked',
-    label: 'Block',
+    label: '阻塞',
     icon: ShieldAlert,
     className:
       'bg-[hsl(var(--status-blocked-bg))] text-[hsl(var(--status-blocked))] border-[hsl(var(--status-blocked-border))] hover:bg-[hsl(var(--status-blocked))] hover:text-white',
   },
   {
     target: 'pending',
-    label: 'Reset',
+    label: '重置',
     icon: Clock,
     className:
       'bg-[hsl(var(--status-pending-bg))] text-[hsl(var(--status-pending))] border-[hsl(var(--status-pending-border))] hover:bg-[hsl(var(--status-pending))] hover:text-white',
@@ -98,6 +98,7 @@ export function TaskDetailPanel() {
 
   const simulateCliExecution = useTaskHubStore((s) => s.simulateCliExecution);
   const isRunning = useTaskHubStore((s) => agent ? s.agentStatus[agent.id] === 'busy' : false);
+  const opencodeAvailable = useTaskHubStore((s) => s.opencodeStatus.available || (s.opencodeBridge.enabled && s.opencodeBridge.available));
 
   // Close on Escape
   useEffect(() => {
@@ -133,7 +134,7 @@ export function TaskDetailPanel() {
         ref={panelRef}
         className="fixed top-0 right-0 h-full w-full max-w-[450px] bg-[hsl(var(--bg-elevated))] border-l border-[hsl(var(--border))] shadow-[var(--shadow-lg)] z-50 flex flex-col animate-slide-in-r"
         role="dialog"
-        aria-label={`Task detail: ${task.title}`}
+        aria-label={`任务详情：${task.title}`}
       >
         {/* Header */}
         <div className="flex items-center justify-between p-5 border-b border-[hsl(var(--border))]">
@@ -147,7 +148,7 @@ export function TaskDetailPanel() {
             type="button"
             onClick={() => setSelectedTaskId(null)}
             className="p-1.5 rounded-[var(--radius-sm)] text-[hsl(var(--text-tertiary))] hover:text-[hsl(var(--text-primary))] hover:bg-[hsl(var(--bg-muted))] transition-colors"
-            aria-label="Close panel"
+            aria-label="关闭面板"
           >
             <X className="w-4.5 h-4.5" />
           </button>
@@ -168,7 +169,7 @@ export function TaskDetailPanel() {
           {/* Assignee */}
           <div className="space-y-1.5">
             <label className="text-[11px] font-semibold uppercase tracking-wider text-[hsl(var(--text-tertiary))]">
-              Assignee
+              负责人
             </label>
             <div className="flex items-center gap-2 px-3 py-2 rounded-[var(--radius-md)] bg-[hsl(var(--bg-muted))]">
               <span className="text-sm">{agent.emoji}</span>
@@ -185,7 +186,7 @@ export function TaskDetailPanel() {
           {task.reviewNote && (
             <div className="space-y-1.5">
               <label className="text-[11px] font-semibold uppercase tracking-wider text-[hsl(var(--text-tertiary))]">
-                Review Feedback
+                评审反馈
               </label>
               <div className="flex items-start gap-2 p-3 rounded-[var(--radius-md)] bg-[hsl(var(--status-rejected-bg))] border border-[hsl(var(--status-rejected-border))]">
                 <MessageSquareWarning className="w-4 h-4 shrink-0 mt-0.5 text-[hsl(var(--status-rejected))]" />
@@ -200,7 +201,7 @@ export function TaskDetailPanel() {
           {depTasks.length > 0 && (
             <div className="space-y-1.5">
               <label className="text-[11px] font-semibold uppercase tracking-wider text-[hsl(var(--text-tertiary))]">
-                Dependencies
+                依赖
               </label>
               <div className="space-y-1.5">
                 {depTasks.map((dep) =>
@@ -230,7 +231,7 @@ export function TaskDetailPanel() {
           {task.artifacts.length > 0 && (
             <div className="space-y-1.5">
               <label className="text-[11px] font-semibold uppercase tracking-wider text-[hsl(var(--text-tertiary))]">
-                Artifacts
+                产出物
               </label>
               <div className="space-y-1.5">
                 {task.artifacts.map((art, i) => {
@@ -258,7 +259,7 @@ export function TaskDetailPanel() {
           <div className="grid grid-cols-2 gap-3 text-[11px]">
             <div>
               <span className="block font-semibold uppercase tracking-wider text-[hsl(var(--text-tertiary))] mb-0.5">
-                Created
+                创建时间
               </span>
               <span className="text-[hsl(var(--text-secondary))]">
                 {new Date(task.createdAt).toLocaleDateString()}
@@ -266,7 +267,7 @@ export function TaskDetailPanel() {
             </div>
             <div>
               <span className="block font-semibold uppercase tracking-wider text-[hsl(var(--text-tertiary))] mb-0.5">
-                Updated
+                更新时间
               </span>
               <span className="text-[hsl(var(--text-secondary))]">
                 {new Date(task.updatedAt).toLocaleDateString()}
@@ -278,7 +279,7 @@ export function TaskDetailPanel() {
         {/* Action Bar */}
         <div className="p-4 border-t border-[hsl(var(--border))] space-y-3">
           <label className="text-[11px] font-semibold uppercase tracking-wider text-[hsl(var(--text-tertiary))]">
-            Transition To
+            流转到
           </label>
           <div className="flex flex-wrap gap-2">
             {availableActions.map((action) => {
@@ -298,15 +299,15 @@ export function TaskDetailPanel() {
                 </button>
               );
             })}
-            {task.status === 'in_progress' && (
+            {opencodeAvailable && task.status === 'in_progress' && (
               <button
                 type="button"
-                onClick={() => simulateCliExecution(task.id, `opencode run "Task: ${task.title}. Provide a brief status update." --session agent-${agent.id} --format json`)}
+                onClick={() => simulateCliExecution(task.id, `任务：${task.title}。请给出简短的进度更新。`, `agent-${agent.id}`)}
                 disabled={isRunning}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[var(--radius-sm)] border border-[hsl(var(--border))] bg-[hsl(var(--bg-muted))] text-[hsl(var(--text-primary))] text-[11px] font-semibold transition-all duration-200 hover:bg-[hsl(var(--bg-card-hover))] disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <TerminalIcon className="w-3.5 h-3.5" />
-                {isRunning ? 'Agent Busy...' : 'Run Opencode'}
+                {isRunning ? '智能体忙碌中…' : '运行 Opencode'}
               </button>
             )}
           </div>
@@ -319,7 +320,7 @@ export function TaskDetailPanel() {
             className="flex items-center gap-1.5 text-[11px] font-medium text-[hsl(var(--status-blocked))] hover:underline mt-1"
           >
             <Trash2 className="w-3 h-3" />
-            Delete Task
+            删除任务
           </button>
         </div>
 
@@ -327,11 +328,11 @@ export function TaskDetailPanel() {
         <div className="h-64 shrink-0 flex flex-col bg-[#111111] border-t-2 border-[hsl(var(--border))]">
           <div className="px-3 py-1.5 flex items-center justify-between border-b-2 border-[#333]">
             <span className="text-[10px] font-bold text-[#888] uppercase tracking-widest">
-              {agent.name}&apos;s Console
+              {agent.name} 的控制台
             </span>
             {isRunning && (
               <span className="text-[10px] font-bold text-[hsl(var(--status-progress))] uppercase tracking-widest animate-pulse">
-                Busy
+                忙碌
               </span>
             )}
           </div>

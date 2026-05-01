@@ -2,13 +2,12 @@
 
 import { useState, useMemo } from 'react';
 import {
-  type Task,
   STATUS_ORDER,
 } from '@/store/taskHubStore';
 import { Agent, useTaskHubStore } from '@/store/taskHubStore';
 import { TaskCard } from './TaskCard';
 import { cn } from '@/lib/utils';
-import { ChevronDown, ChevronRight, User, LogOut } from 'lucide-react';
+import { ChevronDown, ChevronRight, LogOut } from 'lucide-react';
 import { PixelAvatar } from './PixelAvatar';
 
 /* ---- Agent theme map → CSS variable families ---- */
@@ -79,7 +78,7 @@ export function AgentTaskGroup({ agent }: AgentTaskGroupProps) {
 
   const handleDismiss = () => {
     if (tasks.length > 0) {
-      alert(`Cannot dismiss ${agent.name}. They still have ${tasks.length} active tasks! Please reassign them first.`);
+      alert(`无法移除 ${agent.name}：仍有 ${tasks.length} 个未完成任务，请先重新分配。`);
       return;
     }
     dismissAgent(agent.id);
@@ -163,7 +162,7 @@ export function AgentTaskGroup({ agent }: AgentTaskGroupProps) {
               "text-[hsl(var(--text-tertiary))] hover:text-[hsl(var(--status-rejected))]",
               "hover:bg-[hsl(var(--status-rejected))]/10"
             )}
-            title={`Dismiss ${agent.name}`}
+            title={`移除 ${agent.name}`}
           >
             <LogOut className="w-4 h-4" />
           </button>
@@ -189,7 +188,7 @@ export function AgentTaskGroup({ agent }: AgentTaskGroupProps) {
               ) : (
                 <ChevronDown className="w-3.5 h-3.5" />
               )}
-              Completed ({doneTasks.length})
+              已完成（{doneTasks.length}）
             </button>
             {!isDoneCollapsed && (
               <div className="flex flex-col gap-2.5 mt-1">
@@ -208,11 +207,9 @@ export function AgentTaskGroup({ agent }: AgentTaskGroupProps) {
         {/* Empty state */}
         {tasks.length === 0 && (
           <div className="flex flex-col items-center justify-center py-12 text-[hsl(var(--text-tertiary))]">
-            <agent className="w-8 h-8 mb-2 opacity-40" />
-            <span className="text-[12px] font-medium">No tasks assigned</span>
-            <span className="text-[10px] mt-0.5 opacity-60">
-              This agent is resting...
-            </span>
+            <div className="w-8 h-8 mb-2 opacity-40 rounded-[4px] border border-[hsl(var(--border))] bg-[hsl(var(--bg-app))]" />
+            <span className="text-[12px] font-medium">暂无分配任务</span>
+            <span className="text-[10px] mt-0.5 opacity-60">该智能体正在待命…</span>
           </div>
         )}
       </div>
