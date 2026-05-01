@@ -98,7 +98,7 @@ export function TaskDetailPanel() {
 
   const simulateCliExecution = useTaskHubStore((s) => s.simulateCliExecution);
   const isRunning = useTaskHubStore((s) => agent ? s.agentStatus[agent.id] === 'busy' : false);
-  const opencodeAvailable = useTaskHubStore((s) => s.opencodeStatus.available);
+  const opencodeAvailable = useTaskHubStore((s) => s.opencodeStatus.available || (s.opencodeBridge.enabled && s.opencodeBridge.available));
 
   // Close on Escape
   useEffect(() => {

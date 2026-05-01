@@ -12,10 +12,13 @@ export function SettingsDrawer() {
   const setEnableMockRunner = useTaskHubStore((s) => s.setEnableMockRunner);
   const opencodeStatus = useTaskHubStore((s) => s.opencodeStatus);
   const setOpencodeStatus = useTaskHubStore((s) => s.setOpencodeStatus);
+  const opencodeBridge = useTaskHubStore((s) => s.opencodeBridge);
+  const setOpencodeBridge = useTaskHubStore((s) => s.setOpencodeBridge);
   const daemonConnection = useTaskHubStore((s) => s.daemonConnection);
   const connectDaemon = useTaskHubStore((s) => s.connectDaemon);
 
   const [checkingOpencode, setCheckingOpencode] = useState(false);
+  const [checkingBridge, setCheckingBridge] = useState(false);
   const [checkingDaemon, setCheckingDaemon] = useState(false);
 
   if (!isOpen) return null;
@@ -35,6 +38,40 @@ export function SettingsDrawer() {
       setOpencodeStatus({ checked: true, available: false, error: String((e as any)?.message || e) });
     } finally {
       setCheckingOpencode(false);
+    }
+  };
+
+  const checkBridge = async () => {
+    const url = opencodeBridge.url.trim();
+    if (!url) return;
+    setCheckingBridge(true);
+    try {
+      const res = await fetch('/api/opencode/bridge/status', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ url }),
+      });
+      const data = (await res.json()) as {
+        available: boolean;
+        version?: string;
+        error?: string;
+      };
+      setOpencodeBridge({
+        ...opencodeBridge,
+        checked: true,
+        available: Boolean(data.available),
+        version: data.version,
+        error: data.error,
+      });
+    } catch (e) {
+      setOpencodeBridge({
+        ...opencodeBridge,
+        checked: true,
+        available: false,
+        error: String((e as any)?.message || e),
+      });
+    } finally {
+      setCheckingBridge(false);
     }
   };
 
@@ -143,6 +180,57 @@ export function SettingsDrawer() {
           <div className="rounded-[var(--radius-lg)] border border-[hsl(var(--border))] bg-[hsl(var(--bg-card))] p-4 shadow-sm">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
+                <div className="text-[11px] font-bold tracking-widest uppercase text-[hsl(var(--text-tertiary))]">
+                  Opencode Bridge（本机转发）
+                </div>
+                <div className="text-[12px] text-[hsl(var(--text-secondary))] mt-2">
+                  在本机运行 bridge，并通过公网 URL 暴露后，填到这里即可让远程环境使用你本机的 opencode。
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setOpencodeBridge({ ...opencodeBridge, enabled: !opencodeBridge.enabled })}
+                className={cn(
+                  'h-9 px-3 rounded-[var(--radius-md)] border text-[12px] font-semibold transition-colors',
+                  opencodeBridge.enabled
+                    ? 'bg-[hsl(var(--accent-soft))] border-[hsl(var(--accent))] text-[hsl(var(--accent))]'
+                    : 'bg-[hsl(var(--bg-app))] border-[hsl(var(--border))] text-[hsl(var(--text-secondary))]'
+                )}
+              >
+                {opencodeBridge.enabled ? '已启用' : '未启用'}
+              </button>
+            </div>
+
+            <div className="mt-3 flex items-center gap-2">
+              <input
+                value={opencodeBridge.url}
+                onChange={(e) => setOpencodeBridge({ ...opencodeBridge, url: e.target.value })}
+                placeholder="https://xxxx.example.com"
+                className="flex-1 h-9 px-3 rounded-[var(--radius-md)] border border-[hsl(var(--border))] bg-[hsl(var(--bg-app))] text-[12px] font-semibold"
+              />
+              <button
+                type="button"
+                className="h-9 px-3 rounded-[var(--radius-md)] border border-[hsl(var(--border))] bg-[hsl(var(--bg-app))] text-[12px] font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                onClick={checkBridge}
+                disabled={checkingBridge || !opencodeBridge.url.trim()}
+              >
+                {checkingBridge ? '检测中…' : '检测'}
+              </button>
+            </div>
+
+            <div className="text-[12px] text-[hsl(var(--text-secondary))] mt-3">
+              {!opencodeBridge.checked && '状态：未检测'}
+              {opencodeBridge.checked && opencodeBridge.available && `状态：可用（${opencodeBridge.version || 'OK'}）`}
+              {opencodeBridge.checked && !opencodeBridge.available && '状态：不可用'}
+            </div>
+            {opencodeBridge.checked && opencodeBridge.error && (
+              <div className="text-[11px] text-[hsl(var(--danger))] mt-1">{opencodeBridge.error}</div>
+            )}
+          </div>
+
+          <div className="rounded-[var(--radius-lg)] border border-[hsl(var(--border))] bg-[hsl(var(--bg-card))] p-4 shadow-sm">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
                 <div className="flex items-center gap-2 text-[11px] font-bold tracking-widest uppercase text-[hsl(var(--text-tertiary))]">
                   <Wrench className="w-4 h-4 text-[hsl(var(--accent))]" />
                   调试开关
@@ -206,4 +294,3 @@ export function SettingsDrawer() {
     </>
   );
 }
-

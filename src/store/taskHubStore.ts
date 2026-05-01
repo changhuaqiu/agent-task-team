@@ -202,6 +202,23 @@ interface TaskHubState {
     error?: string;
   }) => void;
 
+  opencodeBridge: {
+    url: string;
+    enabled: boolean;
+    checked: boolean;
+    available: boolean;
+    version?: string;
+    error?: string;
+  };
+  setOpencodeBridge: (bridge: {
+    url: string;
+    enabled: boolean;
+    checked: boolean;
+    available: boolean;
+    version?: string;
+    error?: string;
+  }) => void;
+
   selectedProjectId: ProjectId;
   agentSessions: Record<ProjectId, Record<string, string | undefined>>;
   activeAgentIds: string[];
@@ -347,6 +364,9 @@ export const useTaskHubStore = create<TaskHubState>()(
 
       opencodeStatus: { checked: false, available: false },
       setOpencodeStatus: (status) => set({ opencodeStatus: status }),
+
+      opencodeBridge: { url: '', enabled: false, checked: false, available: false },
+      setOpencodeBridge: (bridge) => set({ opencodeBridge: bridge }),
 
       selectedProjectId: 'default',
       agentSessions: { default: {} },
@@ -577,6 +597,7 @@ export const useTaskHubStore = create<TaskHubState>()(
           prompt,
           sessionId,
           allowMockRunner: get().enableMockRunner,
+          opencodeBridgeUrl: get().opencodeBridge.enabled ? get().opencodeBridge.url : undefined,
         });
       },
 
@@ -619,6 +640,7 @@ export const useTaskHubStore = create<TaskHubState>()(
           prompt,
           sessionId: resolvedSessionId,
           allowMockRunner: get().enableMockRunner,
+          opencodeBridgeUrl: get().opencodeBridge.enabled ? get().opencodeBridge.url : undefined,
         });
       },
 
@@ -763,6 +785,7 @@ export const useTaskHubStore = create<TaskHubState>()(
         agentSessions: state.agentSessions,
         activeAgentIds: state.activeAgentIds,
         enableMockRunner: state.enableMockRunner,
+        opencodeBridge: state.opencodeBridge,
         conversations: state.conversations,
         selectedConversationId: state.selectedConversationId,
         tasks: state.tasks,
