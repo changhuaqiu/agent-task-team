@@ -5,7 +5,7 @@
 ## 1. 安装检查
 
 ```bash
-bash bridge/install.sh
+bash scripts/opencode-bridge-install.sh
 ```
 
 要求：
@@ -17,13 +17,13 @@ bash bridge/install.sh
 默认（每次请求直接执行 `opencode run`）：
 
 ```bash
-BRIDGE_PORT=8787 node bridge/opencode-bridge.mjs
+bash scripts/opencode-bridge-start.sh --port=8787 --mode=run
 ```
 
 可选（参考 `agent-task-team` 的风格，通过 `opencode attach` 连接本机运行中的实例）：
 
 ```bash
-OPENCODE_MODE=attach OPENCODE_ATTACH_URL=http://localhost:4096 BRIDGE_PORT=8787 node bridge/opencode-bridge.mjs
+bash scripts/opencode-bridge-start.sh --port=8787 --mode=attach --attach-url=http://localhost:4096
 ```
 
 ## 3. 暴露公网 URL
@@ -44,4 +44,3 @@ OPENCODE_MODE=attach OPENCODE_ATTACH_URL=http://localhost:4096 BRIDGE_PORT=8787 
 - `GET /health`：返回任意文本（用于探活与显示版本）
 - `POST /run`：`{ "prompt": "xxx", "sessionId": "optional" }`
   - 返回：文本流（建议逐行输出 NDJSON，直接透传 opencode 的 `--format json` 输出即可）
-

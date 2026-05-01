@@ -8,7 +8,9 @@
     "start": "next start",
     "lint": "eslint",
     "bridge:install": "bash bridge/install.sh",
-    "bridge:start": "node bridge/opencode-bridge.mjs"
+    "bridge:start": "node bridge/opencode-bridge.mjs",
+    "bridge:check": "bash scripts/opencode-bridge-install.sh",
+    "bridge:serve": "bash scripts/opencode-bridge-start.sh"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.11.0",
