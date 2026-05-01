@@ -65,6 +65,59 @@ pnpm dev
 
 启动后，在浏览器中访问 [http://localhost:3000](http://localhost:3000) 即可预览项目。你可以通过修改 `app/page.tsx` 来开始你的开发，页面会自动热更新。
 
+## 🔌 连接 Opencode（真实执行）
+
+本项目默认运行在远程环境/容器中，无法直接调用你本机安装的 `opencode`。推荐方式是使用 **Opencode Bridge（本机转发）**：
+
+- 本机运行一个轻量 HTTP 服务，将 `opencode run/attach` 的输出流式转发给 Web。
+- Web 端在右上角「设置」中填写公网 URL 并启用，即可在任务详情中看到「运行 Opencode」按钮。
+
+### 1) 本机准备（macOS / Linux）
+
+安装检查（可选：自动安装 opencode）：
+
+```bash
+bash scripts/opencode-bridge-install.sh
+# 或：bash scripts/opencode-bridge-install.sh --install-opencode
+```
+
+启动（run 模式）：
+
+```bash
+bash scripts/opencode-bridge-start.sh --port=8787 --mode=run
+```
+
+启动（attach 模式，可连接本机已运行的 opencode 服务）：
+
+```bash
+bash scripts/opencode-bridge-start.sh --port=8787 --mode=attach --attach-url=http://localhost:4096
+```
+
+### 2) 本机准备（Windows）
+
+安装检查（可选：自动安装 opencode）：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\opencode-bridge-install.ps1
+# 或：powershell -ExecutionPolicy Bypass -File .\scripts\opencode-bridge-install.ps1 -InstallOpencode -Method scoop
+```
+
+启动：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\opencode-bridge-start.ps1 -Port 8787 -Mode run
+```
+
+### 3) Web 配置
+
+1. 把本机 `http://localhost:8787` 暴露成公网可访问 URL（推荐 https）
+2. 打开 Web → 右上角「设置」→「Opencode Bridge（本机转发）」：
+   - 粘贴 URL
+   - 点「检测」
+   - 点「启用」
+
+更多细节见 [bridge/README.md](./bridge/README.md)
+
 ## 📚 文档导读
 
 在开始深入开发前，建议您阅读以下文档以了解本项目的规范和计划：
