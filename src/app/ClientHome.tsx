@@ -15,6 +15,7 @@ import { useShallow } from 'zustand/react/shallow';
 
 export default function ClientHome() {
   const [view, setView] = useState<'war_room' | 'board' | 'quality'>('war_room');
+  const hasHydrated = useTaskHubStore((s) => s.hasHydrated);
   const activeAgents = useTaskHubStore(useShallow(selectActiveAgents));
   const selectedTaskId = useTaskHubStore((s) => s.selectedTaskId);
   const isNewTaskDialogOpen = useTaskHubStore((s) => s.isNewTaskDialogOpen);
@@ -26,6 +27,32 @@ export default function ClientHome() {
   useEffect(() => {
     connectDaemon();
   }, [connectDaemon]);
+
+  if (!hasHydrated) {
+    return (
+      <main className="min-h-screen bg-[hsl(var(--bg-app))] text-[hsl(var(--text-primary))] flex flex-col">
+        <header className="h-[64px] px-6 flex items-center justify-between border-b border-[hsl(var(--border))] bg-[hsl(var(--bg-card))] shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-[var(--radius-md)] border border-[hsl(var(--border))] bg-[hsl(var(--accent-soft))] flex items-center justify-center shadow-[2px_2px_0px_hsl(var(--text-primary))]">
+              <span className="text-[12px] font-black tracking-tight text-[hsl(var(--accent))]">HUB</span>
+            </div>
+            <div>
+              <h1 className="text-[16px] font-bold tracking-tight text-[hsl(var(--text-primary))] uppercase">DevOps Hub</h1>
+              <p className="text-[10px] text-[hsl(var(--text-tertiary))] font-bold tracking-widest uppercase">Multi-Agent Guild</p>
+            </div>
+          </div>
+        </header>
+
+        <div className="flex-1 flex items-center justify-center p-6">
+          <div className="w-full max-w-lg rounded-[var(--radius-xl)] border border-[hsl(var(--border))] bg-[hsl(var(--bg-card))] p-6 shadow-sm">
+            <div className="text-[11px] font-bold tracking-widest uppercase text-[hsl(var(--text-tertiary))]">Initializing</div>
+            <div className="text-[14px] font-semibold text-[hsl(var(--text-primary))] mt-1">Hydrating local state…</div>
+            <div className="text-[12px] text-[hsl(var(--text-tertiary))] mt-2">If this takes too long, refresh the page.</div>
+          </div>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="min-h-screen bg-[hsl(var(--bg-app))] text-[hsl(var(--text-primary))] flex flex-col">

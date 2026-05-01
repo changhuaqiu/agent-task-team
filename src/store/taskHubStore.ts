@@ -172,6 +172,9 @@ export interface Blocker {
 
 // --- Store ---
 interface TaskHubState {
+  hasHydrated: boolean;
+  setHasHydrated: (hydrated: boolean) => void;
+
   selectedProjectId: ProjectId;
   agentSessions: Record<ProjectId, Record<string, string | undefined>>;
   activeAgentIds: string[];
@@ -451,6 +454,9 @@ const EMPTY_BLOCKERS: Blocker[] = [];
 export const useTaskHubStore = create<TaskHubState>()(
   persist(
     (set, get) => ({
+      hasHydrated: false,
+      setHasHydrated: (hydrated) => set({ hasHydrated: hydrated }),
+
       selectedProjectId: 'default',
       agentSessions: { default: {} },
       activeAgentIds: ['jean', 'keqing'],
@@ -557,6 +563,11 @@ export const useTaskHubStore = create<TaskHubState>()(
       },
 
       addSupervisorOutput: (output) => {
+        const tail = (get().eventsByConversation[output.conversationId] || []).slice(-1)[0];
+        if (tail?.type === 'supervisor.output') {
+          const prev = tail.payload as SupervisorOutputEnvelope | undefined;
+          if (prev?.kind === output.kind) return;
+        }
         get().addEvent({
           conversationId: output.conversationId,
           type: 'supervisor.output',
@@ -743,9 +754,17 @@ export const useTaskHubStore = create<TaskHubState>()(
         })(),
 
       addTask: (taskData) => {
+        const conversationId = get().selectedConversationId;
+        const existing = get().tasks.find(
+          (t) =>
+            t.conversationId === conversationId &&
+            t.title === taskData.title &&
+            t.agentId === taskData.agentId
+        );
+        if (existing) return;
+
         const id = `TASK-${String(taskCounter++).padStart(3, '0')}`;
         const stamp = new Date().toISOString();
-        const conversationId = get().selectedConversationId;
 
         set((state) => ({
           tasks: [
@@ -846,6 +865,9 @@ export const useTaskHubStore = create<TaskHubState>()(
         eventsByConversation: state.eventsByConversation,
         blockersByConversation: state.blockersByConversation,
       }),
+      onRehydrateStorage: () => (state) => {
+        state?.setHasHydrated(true);
+      },
     }
   )
 );

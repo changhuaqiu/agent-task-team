@@ -18,40 +18,47 @@ export function ConversationPicker() {
   );
 
   return (
-    <div className="flex flex-col gap-3">
-      <div className="flex items-center gap-2">
-        <select
-          value={selectedConversationId}
-          onChange={(e) => setSelectedConversationId(e.target.value)}
-          className="h-9 px-3 rounded-[var(--radius-md)] border border-[hsl(var(--border))] bg-[hsl(var(--bg-card))] text-[12px] font-semibold"
-        >
-          {conversations.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.title}
-            </option>
-          ))}
-        </select>
-        <div className="text-[11px] text-[hsl(var(--text-tertiary))] font-semibold truncate">
-          {selected?.goal}
+    <div className="rounded-[var(--radius-lg)] border border-[hsl(var(--border))] bg-[hsl(var(--bg-card))] p-4 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-[11px] font-bold tracking-widest uppercase text-[hsl(var(--text-tertiary))]">
+            Conversation
+          </div>
+          <div className="flex items-center gap-2 mt-2">
+            <select
+              value={selectedConversationId}
+              onChange={(e) => setSelectedConversationId(e.target.value)}
+              className="h-9 px-3 rounded-[var(--radius-md)] border border-[hsl(var(--border))] bg-[hsl(var(--bg-app))] text-[12px] font-semibold"
+            >
+              {conversations.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.title}
+                </option>
+              ))}
+            </select>
+            <div className="text-[11px] text-[hsl(var(--text-tertiary))] font-semibold truncate">
+              {selected?.goal}
+            </div>
+          </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mt-3">
         <input
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           placeholder="Conversation title"
-          className="h-9 px-3 rounded-[var(--radius-md)] border border-[hsl(var(--border))] bg-[hsl(var(--bg-card))] text-[12px] font-semibold"
+          className="h-9 px-3 rounded-[var(--radius-md)] border border-[hsl(var(--border))] bg-[hsl(var(--bg-app))] text-[12px] font-semibold"
         />
         <input
           value={goal}
           onChange={(e) => setGoal(e.target.value)}
           placeholder="Goal"
-          className="h-9 px-3 rounded-[var(--radius-md)] border border-[hsl(var(--border))] bg-[hsl(var(--bg-card))] text-[12px] font-semibold md:col-span-2"
+          className="h-9 px-3 rounded-[var(--radius-md)] border border-[hsl(var(--border))] bg-[hsl(var(--bg-app))] text-[12px] font-semibold md:col-span-2"
         />
       </div>
 
-      <div className="flex justify-end">
+      <div className="flex justify-end mt-3">
         <button
           type="button"
           onClick={() => {
@@ -71,4 +78,3 @@ export function ConversationPicker() {
     </div>
   );
 }
-

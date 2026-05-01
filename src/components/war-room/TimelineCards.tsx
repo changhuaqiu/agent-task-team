@@ -5,7 +5,7 @@ import { useTaskHubStore } from '@/store/taskHubStore';
 
 function formatTime(iso: string) {
   try {
-    return new Date(iso).toLocaleString();
+    return new Date(iso).toISOString().replace('T', ' ').replace('.000Z', 'Z');
   } catch {
     return iso;
   }

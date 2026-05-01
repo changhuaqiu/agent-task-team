@@ -3,6 +3,14 @@
 import { useTaskHubStore } from '@/store/taskHubStore';
 import { useMemo } from 'react';
 
+function formatTime(iso: string) {
+  try {
+    return new Date(iso).toISOString().replace('T', ' ').replace('.000Z', 'Z');
+  } catch {
+    return iso;
+  }
+}
+
 export function QualityView() {
   const blockers = useTaskHubStore((s) => s.getOpenBlockersForSelectedConversation());
   const setSelectedTaskId = useTaskHubStore((s) => s.setSelectedTaskId);
@@ -40,7 +48,7 @@ export function QualityView() {
                 {b.taskId} · {b.reasonSummary}
               </div>
               <div className="text-[11px] text-[hsl(var(--text-tertiary))] mt-1">
-                {new Date(b.createdAt).toLocaleString()}
+                {formatTime(b.createdAt)}
               </div>
             </button>
           ))
