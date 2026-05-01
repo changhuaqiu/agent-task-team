@@ -5,7 +5,8 @@ const nextConfig: NextConfig = {
     '127.0.0.1',
     'localhost',
     '*.remote-agent.svc.cluster.local',
-    '*.preview.agent-sandbox-my-c1-gw.trae.ai',
+    '*.agent-sandbox-my-c1-gw.trae.ai',
+    'run-agent-69f37b1bb49c0a1ee7c38329-mom7bgi4-preview.agent-sandbox-my-c1-gw.trae.ai',
   ],
 };
 
