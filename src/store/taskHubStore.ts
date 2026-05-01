@@ -179,7 +179,7 @@ interface TaskHubState {
   agentSessions: Record<ProjectId, Record<string, string | undefined>>;
   activeAgentIds: string[];
   conversations: Conversation[];
-  selectedConversationId: string;
+  selectedConversationId: string | null;
   tasks: Task[];
   chatMessages: ChatMessage[];
   eventsByConversation: Record<string, InternalEvent[]>;
@@ -197,7 +197,7 @@ interface TaskHubState {
 
   // Mutations
   createConversation: (input: { title: string; goal: string; priority?: Conversation['priority'] }) => void;
-  setSelectedConversationId: (conversationId: string) => void;
+  setSelectedConversationId: (conversationId: string | null) => void;
   addSupervisorOutput: (output: SupervisorOutputEnvelope) => void;
   addEvent: (event: Omit<InternalEvent, 'id' | 'timestamp'> & { id?: string; timestamp?: string }) => void;
   openBlocker: (input: Omit<Blocker, 'id' | 'status' | 'createdAt'> & { id?: string; status?: Blocker['status']; createdAt?: string }) => string;
