@@ -107,6 +107,16 @@ export default function registerDaemon(io: IOServer) {
       child.on('error', (err) => {
         const code = (err as unknown as { code?: string }).code;
         if (code === 'ENOENT') {
+          if (process.env.ENABLE_MOCK_RUNNER !== '1') {
+            socket.emit('terminal:data', {
+              agentId,
+              data: `\r\n\x1b[31m[opencode not found]\x1b[0m Set ENABLE_MOCK_RUNNER=1 to use the built-in mock runner.\r\n`,
+            });
+            socket.emit('terminal:exit', { agentId, code: 127 });
+            activeProcesses.delete(agentId);
+            return;
+          }
+
           const fallbackCommand = process.execPath;
           const fallbackScript = join(process.cwd(), 'backend', 'mock-opencode.js');
           const fallbackArgs = [fallbackScript];

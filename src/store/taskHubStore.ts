@@ -288,142 +288,6 @@ export const AGENT_ROSTER: Agent[] = [
   },
 ];
 
-const now = '2026-01-01T00:00:00.000Z';
-
-const initialTasks: Array<Omit<Task, 'conversationId'>> = [
-  {
-    id: 'TASK-001',
-    title: 'Analyze Requirements',
-    description: 'Break down the user story into actionable task items and write acceptance criteria for each.',
-    status: 'done',
-    agentId: 'jean',
-    dependencies: [],
-    artifacts: [
-      { type: 'file', label: 'requirements.md', url: '/docs/requirements.md' },
-    ],
-    createdAt: now,
-    updatedAt: now,
-  },
-  {
-    id: 'TASK-002',
-    title: 'Design DB Schema',
-    description: 'Create the SQLite database schema for the Task Hub entity model.',
-    status: 'in_progress',
-    agentId: 'jean',
-    dependencies: ['TASK-001'],
-    artifacts: [],
-    createdAt: now,
-    updatedAt: now,
-  },
-  {
-    id: 'TASK-003',
-    title: 'Implement MCP Tool CRUD',
-    description: 'Build hub_create_task, hub_update_status, hub_get_my_tasks MCP tools.',
-    status: 'pending',
-    agentId: 'zhongli',
-    dependencies: ['TASK-002'],
-    artifacts: [],
-    createdAt: now,
-    updatedAt: now,
-  },
-  {
-    id: 'TASK-004',
-    title: 'Setup UI Skeleton',
-    description: 'Create the base React components for the Task Hub board layout.',
-    status: 'blocked',
-    agentId: 'keqing',
-    dependencies: ['TASK-002'],
-    artifacts: [],
-    reviewNote: 'Waiting for DB schema to be finalized.',
-    createdAt: now,
-    updatedAt: now,
-  },
-  {
-    id: 'TASK-005',
-    title: 'Review DB Schema PR',
-    description: 'Review the initial pull request for the database schema design.',
-    status: 'in_review',
-    agentId: 'nahida',
-    dependencies: ['TASK-002'],
-    artifacts: [
-      { type: 'pr', label: 'PR #12', url: 'https://github.com/example/pr/12' },
-    ],
-    createdAt: now,
-    updatedAt: now,
-  },
-  {
-    id: 'TASK-006',
-    title: 'A2A Router Implementation',
-    description: 'Implement the Agent-to-Agent text routing system with @ mention parsing.',
-    status: 'rejected',
-    agentId: 'zhongli',
-    dependencies: ['TASK-003'],
-    artifacts: [
-      { type: 'log', label: 'test-failure.log' },
-    ],
-    reviewNote: 'Missing input validation for @ mentions. Need regex guard.',
-    createdAt: now,
-    updatedAt: now,
-  },
-  {
-    id: 'TASK-007',
-    title: 'Write Integration Tests',
-    description: 'Create end-to-end tests for task lifecycle: create → assign → review → done.',
-    status: 'pending',
-    agentId: 'nahida',
-    dependencies: ['TASK-003'],
-    artifacts: [],
-    createdAt: now,
-    updatedAt: now,
-  },
-];
-
-const initialChatMessages: ChatMessage[] = [
-  {
-    id: 'msg-1',
-    agentId: 'jean',
-    content: 'I have broken down the main epic into 7 tasks. @zhongli @keqing please review your assigned tasks.',
-    timestamp: '2026-01-01T00:10:00.000Z',
-    mentions: ['zhongli', 'keqing'],
-    intent: 'ideate',
-  },
-  {
-    id: 'msg-2',
-    agentId: 'zhongli',
-    content: 'The DB schema design for TASK-002 looks solid. However, I need approval to execute the migration script on the staging database. @human',
-    timestamp: '2026-01-01T00:20:00.000Z',
-    isApprovalRequest: true,
-    referencedTaskId: 'TASK-002',
-    approvalStatus: 'approved',
-    mentions: ['human'],
-    intent: 'execute',
-  },
-  {
-    id: 'msg-3',
-    agentId: 'human',
-    content: 'Migration approved. Proceed when ready.',
-    timestamp: '2026-01-01T00:21:00.000Z',
-  },
-  {
-    id: 'msg-4',
-    agentId: 'nahida',
-    content: 'I found an issue in TASK-006 during review. The regex for @ mentions is missing a boundary check. I have rejected the task, @zhongli please fix.',
-    timestamp: '2026-01-01T00:30:00.000Z',
-    referencedTaskId: 'TASK-006',
-    mentions: ['zhongli'],
-    intent: 'review',
-  },
-  {
-    id: 'msg-5',
-    agentId: 'keqing',
-    content: 'I am currently blocked on TASK-004. Waiting for the final API contract from TASK-002 before I can bind the UI components. Can we expedite? @jean',
-    timestamp: '2026-01-01T00:31:00.000Z',
-    referencedTaskId: 'TASK-004',
-    mentions: ['jean'],
-    intent: 'general',
-  },
-];
-
 // --- Helper Selectors ---
 // Note: We use useShallow in components to avoid infinite loops when returning arrays
 export const selectActiveAgents = (state: TaskHubState) => 
@@ -431,22 +295,10 @@ export const selectActiveAgents = (state: TaskHubState) =>
 
 export const selectAvailableRoster = (state: TaskHubState) => 
   AGENT_ROSTER.filter((a) => !state.activeAgentIds.includes(a.id));
-let taskCounter = 8;
+let taskCounter = 1;
 
 const makeId = (prefix: string) =>
   `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-
-const defaultConversationId = 'conv-default';
-
-const defaultConversation: Conversation = {
-  id: defaultConversationId,
-  title: 'Main Battleplan',
-  goal: 'Coordinate multi-role execution with strict quality gates.',
-  status: 'active',
-  priority: 'p1',
-  createdAt: now,
-  updatedAt: now,
-};
 
 const EMPTY_EVENTS: InternalEvent[] = [];
 const EMPTY_BLOCKERS: Blocker[] = [];
@@ -460,22 +312,12 @@ export const useTaskHubStore = create<TaskHubState>()(
       selectedProjectId: 'default',
       agentSessions: { default: {} },
       activeAgentIds: ['jean', 'keqing'],
-      conversations: [defaultConversation],
-      selectedConversationId: defaultConversationId,
-      tasks: initialTasks.map((t) => ({ ...t, conversationId: defaultConversationId })),
-      chatMessages: initialChatMessages,
-      eventsByConversation: {
-        [defaultConversationId]: [
-          {
-            id: makeId('evt'),
-            conversationId: defaultConversationId,
-            type: 'conversation.created',
-            timestamp: now,
-            payload: { conversationId: defaultConversationId },
-          },
-        ],
-      },
-      blockersByConversation: { [defaultConversationId]: [] },
+      conversations: [],
+      selectedConversationId: null,
+      tasks: [],
+      chatMessages: [],
+      eventsByConversation: {},
+      blockersByConversation: {},
 
       terminalLogs: {},
       agentStatus: {},
@@ -490,11 +332,19 @@ export const useTaskHubStore = create<TaskHubState>()(
 
       getConversations: () => get().conversations,
       getSelectedConversation: () =>
-        get().conversations.find((c) => c.id === get().selectedConversationId),
-      getEventsForSelectedConversation: () =>
-        get().eventsByConversation[get().selectedConversationId] ?? EMPTY_EVENTS,
-      getOpenBlockersForSelectedConversation: () =>
-        get().blockersByConversation[get().selectedConversationId] ?? EMPTY_BLOCKERS,
+        get().selectedConversationId
+          ? get().conversations.find((c) => c.id === get().selectedConversationId)
+          : undefined,
+      getEventsForSelectedConversation: () => {
+        const id = get().selectedConversationId;
+        if (!id) return EMPTY_EVENTS;
+        return get().eventsByConversation[id] ?? EMPTY_EVENTS;
+      },
+      getOpenBlockersForSelectedConversation: () => {
+        const id = get().selectedConversationId;
+        if (!id) return EMPTY_BLOCKERS;
+        return get().blockersByConversation[id] ?? EMPTY_BLOCKERS;
+      },
 
       createConversation: ({ title, goal, priority }) => {
         const id = makeId('conv');
@@ -660,6 +510,7 @@ export const useTaskHubStore = create<TaskHubState>()(
         const conversationId =
           (referencedTaskId ? get().getTaskById(referencedTaskId)?.conversationId : undefined) ??
           get().selectedConversationId;
+        if (!conversationId) return;
         const runId = makeId('run');
 
         set((state) => ({
@@ -697,9 +548,10 @@ export const useTaskHubStore = create<TaskHubState>()(
       simulateCliExecution: (taskId, prompt, sessionId) => {
         const projectId = get().selectedProjectId;
         const task = get().tasks.find((t) => t.id === taskId);
-        const agentId = task ? task.agentId : 'system';
+        if (!task) return;
+        const agentId = task.agentId;
         const resolvedSessionId = sessionId || get().agentSessions[projectId]?.[agentId];
-        const conversationId = task?.conversationId ?? get().selectedConversationId;
+        const conversationId = task.conversationId;
         const runId = makeId('run');
 
         set((state) => ({
@@ -723,7 +575,8 @@ export const useTaskHubStore = create<TaskHubState>()(
       updateTaskStatus: (taskId, status, reviewNote) =>
         (() => {
           const prev = get().getTaskById(taskId);
-          const conversationId = prev?.conversationId ?? get().selectedConversationId;
+          if (!prev) return;
+          const conversationId = prev.conversationId;
 
           set((state) => ({
             tasks: state.tasks.map((task) =>
@@ -755,6 +608,7 @@ export const useTaskHubStore = create<TaskHubState>()(
 
       addTask: (taskData) => {
         const conversationId = get().selectedConversationId;
+        if (!conversationId) return;
         const existing = get().tasks.find(
           (t) =>
             t.conversationId === conversationId &&
@@ -852,7 +706,7 @@ export const useTaskHubStore = create<TaskHubState>()(
         })),
     }),
     {
-      name: 'agent-task-hub-store',
+      name: 'agent-task-hub-store-clean',
       storage: createJSONStorage(() => localStorage),
       partialize: (state) => ({
         selectedProjectId: state.selectedProjectId,
@@ -866,6 +720,16 @@ export const useTaskHubStore = create<TaskHubState>()(
         blockersByConversation: state.blockersByConversation,
       }),
       onRehydrateStorage: () => (state) => {
+        if (state?.tasks?.length) {
+          const max = state.tasks.reduce((acc, t) => {
+            const m = /^TASK-(\d+)$/.exec(t.id);
+            const n = m ? Number(m[1]) : 0;
+            return n > acc ? n : acc;
+          }, 0);
+          taskCounter = max + 1;
+        } else {
+          taskCounter = 1;
+        }
         state?.setHasHydrated(true);
       },
     }
@@ -903,13 +767,16 @@ socket.on('agent:event', (event) => {
 socket.on('terminal:exit', ({ agentId, code }) => {
   const store = useTaskHubStore.getState();
   const active = store.activeRunsByAgent[agentId];
-  const conversationId = active?.conversationId ?? store.selectedConversationId;
+  const conversationId =
+    active?.conversationId ||
+    (active?.taskId ? store.getTaskById(active.taskId)?.conversationId : null) ||
+    store.selectedConversationId;
   const runId = active?.runId;
   const taskId = active?.taskId;
 
   store.appendTerminalLog(agentId, `\r\n\x1b[36m[process exited with code ${code}]\x1b[0m\r\n`);
 
-  if (runId) {
+  if (runId && conversationId) {
     store.addEvent({
       conversationId,
       type: 'run.finished',
@@ -917,7 +784,7 @@ socket.on('terminal:exit', ({ agentId, code }) => {
     });
   }
 
-  if (typeof code === 'number' && code !== 0 && taskId) {
+  if (typeof code === 'number' && code !== 0 && taskId && conversationId) {
     store.updateTaskStatus(taskId, 'blocked', `Execution failed (exit ${code}).`);
     store.openBlocker({
       conversationId,

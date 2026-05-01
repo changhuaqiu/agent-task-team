@@ -26,10 +26,11 @@ export function ConversationPicker() {
           </div>
           <div className="flex items-center gap-2 mt-2">
             <select
-              value={selectedConversationId}
-              onChange={(e) => setSelectedConversationId(e.target.value)}
+              value={selectedConversationId ?? ''}
+              onChange={(e) => setSelectedConversationId(e.target.value ? e.target.value : null)}
               className="h-9 px-3 rounded-[var(--radius-md)] border border-[hsl(var(--border))] bg-[hsl(var(--bg-app))] text-[12px] font-semibold"
             >
+              {conversations.length === 0 && <option value="">No conversations</option>}
               {conversations.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.title}
@@ -37,7 +38,7 @@ export function ConversationPicker() {
               ))}
             </select>
             <div className="text-[11px] text-[hsl(var(--text-tertiary))] font-semibold truncate">
-              {selected?.goal}
+              {selected?.goal || 'Create your first conversation to begin.'}
             </div>
           </div>
         </div>

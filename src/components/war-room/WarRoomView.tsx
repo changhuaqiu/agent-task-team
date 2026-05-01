@@ -29,7 +29,7 @@ export function WarRoomView() {
 
             <button
               type="button"
-              className="h-9 px-3 rounded-[var(--radius-md)] bg-[hsl(var(--text-primary))] text-[hsl(var(--text-inverse))] text-[12px] font-semibold"
+              className="h-9 px-3 rounded-[var(--radius-md)] bg-[hsl(var(--text-primary))] text-[hsl(var(--text-inverse))] text-[12px] font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
               onClick={() => {
                 if (!selectedConversation) return;
                 const stamp = new Date().toISOString();
@@ -51,6 +51,7 @@ export function WarRoomView() {
                   },
                 });
               }}
+              disabled={!selectedConversation}
             >
               Generate Plan
             </button>
@@ -62,4 +63,3 @@ export function WarRoomView() {
     </div>
   );
 }
-
