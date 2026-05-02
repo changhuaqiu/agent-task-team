@@ -1,5 +1,3 @@
-import { spawn } from 'child_process';
-import { createInterface } from 'readline';
 import type { Server as IOServer, Socket } from 'socket.io';
 import { join } from 'path';
 import { TmuxGateway } from './tmux-gateway';
@@ -16,6 +14,8 @@ import type { InvocationRow } from './repositories/invocation-repo';
 import { messageRepo } from './repositories/message-repo';
 import { eventRepo } from './repositories/event-repo';
 import { generateSortableId } from './repositories/sortable-id';
+import { createBackend } from './agent/factory';
+import type { AgentEvent } from './agent/types';
 
 type CliEngine = 'opencode' | 'claude' | 'codex' | 'gemini' | 'mock';
 
@@ -35,34 +35,15 @@ type TerminalStartPayload = {
   authContextId?: string;
   accountIds?: string[];
   accountId?: string;
+  force?: boolean;
 };
 
-type EngineDef = {
-  command: string;
-  buildArgs: (prompt: string, sessionId?: string) => string[];
-};
-
-const ENGINE_MAP: Record<CliEngine, EngineDef> = {
-  opencode: {
-    command: 'opencode',
-    buildArgs: (p, s) => ['run', p, '--format', 'json', ...(s ? ['--session', s] : [])],
-  },
-  claude: {
-    command: 'claude',
-    buildArgs: (p, s) => ['-p', p, '--output-format', 'stream-json', ...(s ? ['--resume', s] : [])],
-  },
-  codex: {
-    command: 'codex',
-    buildArgs: (p) => ['-q', p, '--full-auto'],
-  },
-  gemini: {
-    command: 'gemini',
-    buildArgs: (p) => ['-p', p],
-  },
-  mock: {
-    command: process.execPath,
-    buildArgs: () => [join(process.cwd(), 'backend', 'mock-opencode.js')],
-  },
+const ENGINE_COMMAND: Record<CliEngine, string> = {
+  opencode: 'opencode',
+  claude: 'claude',
+  codex: 'codex',
+  gemini: 'gemini',
+  mock: process.execPath,
 };
 
 const RUNTIME_ENGINE_MAP: Record<string, CliEngine> = {
@@ -75,20 +56,8 @@ const RUNTIME_ENGINE_MAP: Record<string, CliEngine> = {
   'mock-runtime': 'mock',
 };
 
-/** Grace period between SIGTERM and SIGKILL */
-const KILL_GRACE_MS = 3_000;
-
 /** Default CLI idle timeout (ms). Configurable via CLI_TIMEOUT_MS env. 0 = disabled. */
 const DEFAULT_TIMEOUT_MS = 300_000; // 5 min
-
-function gracefulKill(child: ReturnType<typeof spawn>): void {
-  try { child.kill('SIGTERM'); } catch { /* already gone */ }
-  const timer = setTimeout(() => {
-    try { child.kill('SIGKILL'); } catch { /* already gone */ }
-  }, KILL_GRACE_MS);
-  timer.unref();
-  child.on('exit', () => clearTimeout(timer));
-}
 
 type AccountProvider = 'anthropic' | 'openai' | 'google' | 'kimi' | 'opencode' | 'other';
 
@@ -149,17 +118,27 @@ export default function registerDaemon(io: IOServer) {
         authContextId,
         accountIds,
         accountId,
+        force,
       }: TerminalStartPayload) => {
-      if (activeProcesses.has(agentId)) {
+      console.log(`[daemon] terminal:start agent=${agentId}, engine=${rawEngine}, accountId=${accountId ?? '(none)'}, force=${force}, busy=${activeProcesses.has(agentId)}`);
+      let primaryCommand = 'unknown';
+      let runtimeConfigDir: string | undefined;
+      try {
+      // Only kill existing process on explicit force send
+      if (force && activeProcesses.has(agentId)) {
         activeProcesses.get(agentId)?.kill();
+      }
+      // If agent is busy and not forcing, reject silently — client should have queued
+      if (!force && activeProcesses.has(agentId)) {
+        socket.emit('agent:error', { agentId, message: 'Agent is busy, message queued' });
+        return;
       }
 
       const engineFromRuntime =
         runtimeId && runtimeId in RUNTIME_ENGINE_MAP ? RUNTIME_ENGINE_MAP[runtimeId] : undefined;
       const engine: CliEngine =
-        engineFromRuntime || (rawEngine && rawEngine in ENGINE_MAP ? rawEngine : 'opencode');
-      const engineDef = ENGINE_MAP[engine];
-      const primaryCommand = engineDef.command;
+        engineFromRuntime || (rawEngine && rawEngine in ENGINE_COMMAND ? rawEngine : 'opencode');
+      primaryCommand = ENGINE_COMMAND[engine];
 
       const credentialEnv = await resolveCredentialEnv(accountId);
 
@@ -173,13 +152,19 @@ export default function registerDaemon(io: IOServer) {
         agentSession = sessionRepo.findActiveByConversation(agentId, sessionConvId);
 
         if (!agentSession) {
+          // Seal any stale sessions for this agent+conversation to avoid UNIQUE constraint collision
+          try { sessionRepo.sealByConversation(agentId, sessionConvId, 'replaced'); } catch { /* ignore */ }
+
+          // Compute next seq to avoid UNIQUE(agent_id, task_id, seq) conflict
+          const nextSeq = sessionRepo.nextSeqForAgent(agentId, taskId || '');
+
           const newSessionId = generateSortableId('ses');
           agentSession = sessionRepo.create({
             id: newSessionId,
             conversationId: sessionConvId,
             agentId,
             taskId: taskId || undefined,
-            seq: 0,
+            seq: nextSeq,
           });
         }
 
@@ -198,9 +183,20 @@ export default function registerDaemon(io: IOServer) {
 
       // Use DB-tracked cli_session_id if available, otherwise fall back to payload sessionId
       const effectiveSessionId = agentSession?.cli_session_id ?? sessionId;
-      const primaryArgs = engineDef.buildArgs(prompt || '', effectiveSessionId);
 
-      let runtimeConfigDir: string | undefined;
+      // Build CLI args for non-Backend paths (tmux, bridge)
+      const primaryArgs = (() => {
+        switch (engine) {
+          case 'opencode': return ['run', prompt || '', '--format', 'json', ...(effectiveSessionId ? ['--session', effectiveSessionId] : [])];
+          case 'claude': return ['-p', prompt || '', '--output-format', 'stream-json', ...(effectiveSessionId ? ['--resume', effectiveSessionId] : [])];
+          case 'codex': return ['-q', prompt || '', '--full-auto'];
+          case 'gemini': return ['-p', prompt || ''];
+          case 'mock': return [join(process.cwd(), 'backend', 'mock-opencode.js')];
+          default: return [];
+        }
+      })();
+
+      runtimeConfigDir = undefined;
       let runtimeConfigEnv: Record<string, string> = {};
 
       if (engine === 'opencode' && accountId) {
@@ -229,13 +225,11 @@ export default function registerDaemon(io: IOServer) {
       // --- Timeout control ---
       const timeoutMs = Number(process.env.CLI_TIMEOUT_MS || DEFAULT_TIMEOUT_MS);
       let timeoutTimer: ReturnType<typeof setTimeout> | null = null;
-      let timedOut = false;
 
       const resetTimeout = () => {
         if (timeoutMs === 0) return;
         if (timeoutTimer) clearTimeout(timeoutTimer);
         timeoutTimer = setTimeout(() => {
-          timedOut = true;
           const active = activeProcesses.get(agentId);
           if (active) {
             active.kill();
@@ -256,157 +250,97 @@ export default function registerDaemon(io: IOServer) {
       // Start initial timeout
       if (timeoutMs > 0) resetTimeout();
 
-      const handleJsonLine = (line: string) => {
+      // --- Bridge NDJSON line parser (OpenCode format) ---
+      const parseAndForwardBridgeLine = (line: string) => {
         const trimmed = line.trim();
         if (!trimmed) return;
-
         let parsed: unknown;
-        try {
-          parsed = JSON.parse(trimmed);
-        } catch {
-          return;
-        }
-
+        try { parsed = JSON.parse(trimmed); } catch { return; }
         if (!parsed || typeof parsed !== 'object') return;
         const obj = parsed as Record<string, unknown>;
         const part = (obj.part && typeof obj.part === 'object') ? (obj.part as Record<string, unknown>) : undefined;
-        const parsedSessionId =
+        const type = typeof obj.type === 'string' ? obj.type : undefined;
+
+        const sessionId =
           (typeof obj.sessionID === 'string' ? obj.sessionID : undefined) ||
           (typeof obj.sessionId === 'string' ? obj.sessionId : undefined) ||
+          (typeof obj.session_id === 'string' ? obj.session_id : undefined) ||
           (typeof part?.sessionID === 'string' ? part.sessionID : undefined) ||
           (typeof part?.sessionId === 'string' ? part.sessionId : undefined);
 
-        if (!sessionEmitted && parsedSessionId) {
-          sessionEmitted = true;
-          socket.emit('agent:session', { projectId: projectId || 'default', agentId, sessionId: parsedSessionId });
-
-          if (agentSession && !agentSession.cli_session_id) {
-            sessionRepo.updateCliSessionId(agentSession.id, parsedSessionId);
-          }
-
-          if (invocation) {
-            invocationRepo.updateStatus(invocation.id, 'running', { cli_session_id: parsedSessionId });
-          }
-        }
-
-        const type = typeof obj.type === 'string' ? obj.type : undefined;
-
-        // Reset timeout on valid NDJSON event
-        resetTimeout();
-
         if (type === 'text') {
-          const text =
-            (typeof part?.text === 'string' ? part.text : undefined) ||
-            (typeof obj.content === 'string' ? obj.content : undefined);
-          if (text) {
-            socket.emit('agent:event', { taskId, agentId, type: 'message', message: text });
-            if (projectId) {
-              messageRepo.append({
-                conversationId: projectId,
-                taskId,
-                senderType: 'agent',
-                senderId: agentId,
-                content: text,
-                contentType: 'text',
-              });
-              if (agentSession) sessionRepo.incrementMessageCount(agentSession.id);
-            }
-          }
+          const text = (typeof part?.text === 'string' ? part.text : undefined) || (typeof obj.content === 'string' ? obj.content : undefined);
+          if (text) forwardAgentEvent({ type: 'text', content: text, sessionId });
         } else if (type === 'tool_use') {
           const toolName = typeof part?.tool === 'string' ? part.tool : undefined;
-          const toolInput = typeof part?.input === 'object' ? JSON.stringify(part.input).slice(0, 200) : undefined;
-          socket.emit('agent:event', { taskId, agentId, type: 'tool_use', toolName, toolInput, message: `🔧 使用工具：${toolName}` });
-          if (projectId) {
-            messageRepo.append({
-              conversationId: projectId,
-              taskId,
-              senderType: 'agent',
-              senderId: agentId,
-              content: `🔧 使用工具：${toolName}`,
-              contentType: 'tool_use',
-            });
-            if (agentSession) sessionRepo.incrementMessageCount(agentSession.id);
-          }
-        } else if (type === 'step_start') {
-          socket.emit('agent:event', { taskId, agentId, type: 'step_start', message: `🚀 开始执行任务。` });
-        } else if (type === 'step_finish') {
-          socket.emit('agent:event', { taskId, agentId, type: 'step_finish', message: `✅ 任务执行完成。` });
+          if (toolName) forwardAgentEvent({ type: 'tool_use', content: '', tool: { name: toolName, input: typeof part?.input === 'object' ? JSON.stringify(part.input).slice(0, 200) : undefined }, sessionId });
         } else if (type === 'error') {
           const errorObj = (obj.error && typeof obj.error === 'object') ? (obj.error as Record<string, unknown>) : undefined;
-          const errorName = typeof errorObj?.name === 'string' ? errorObj.name : undefined;
-          const errorContent = `❌ 错误：${errorName || '未知错误'}`;
-          socket.emit('agent:event', { taskId, agentId, type: 'error', message: errorContent });
-          if (projectId) {
-            messageRepo.append({
-              conversationId: projectId,
-              taskId,
-              senderType: 'agent',
-              senderId: agentId,
-              content: errorContent,
-              contentType: 'error',
-            });
-            if (agentSession) sessionRepo.incrementMessageCount(agentSession.id);
-          }
+          const errorName = typeof errorObj?.name === 'string' ? errorObj.name : '未知错误';
+          forwardAgentEvent({ type: 'error', content: errorName, sessionId });
         }
 
-        if (projectId) {
-          eventRepo.append({
-            conversationId: projectId,
-            taskId,
-            agentId,
-            type: type || 'unknown',
-            payload: obj as Record<string, unknown>,
-          });
-        }
+        // Persist raw event
+        eventRepo.append({
+          conversationId: sessionConvId,
+          taskId,
+          agentId,
+          type: type || 'unknown',
+          payload: obj,
+        });
       };
 
-      const wireChild = (child: ReturnType<typeof spawn>) => {
-        if (child.stdout) {
-          child.stdout.on('data', (data) => {
-            const str = data.toString();
-            socket.emit('terminal:data', { agentId, data: str.replace(/\n/g, '\r\n') });
-            resetTimeout();
-          });
-
-          const rl = createInterface({ input: child.stdout });
-          rl.on('line', (line) => handleJsonLine(line));
-
-          child.on('close', () => rl.close());
-        }
-
-        // stderr: server-side log only, NOT forwarded to frontend
-        if (child.stderr) {
-          child.stderr.on('data', (data) => {
-            console.error(`[cli:stderr][${agentId}]`, data.toString().trimEnd());
-            resetTimeout();
-          });
-        }
-
-        child.on('close', (code) => {
-          clearProcessTimeout();
-
-          let reasonCode: string | undefined;
-          if (timedOut) {
-            reasonCode = 'timeout';
+      // --- Shared agent event forwarder ---
+      const forwardAgentEvent = (event: AgentEvent) => {
+        // Register session ID
+        if (event.sessionId && !sessionEmitted) {
+          sessionEmitted = true;
+          socket.emit('agent:session', { projectId: projectId || 'default', agentId, sessionId: event.sessionId });
+          if (agentSession && !agentSession.cli_session_id) {
+            sessionRepo.updateCliSessionId(agentSession.id, event.sessionId);
           }
-
           if (invocation) {
-            const status = code === 0 ? 'succeeded' : 'failed';
-            invocationRepo.updateStatus(invocation.id, status, {
-              exit_code: code ?? 1,
-              reason_code: reasonCode,
-            });
+            invocationRepo.updateStatus(invocation.id, 'running', { cli_session_id: event.sessionId });
           }
+        }
 
-          socket.emit('terminal:exit', {
-            agentId,
-            code,
-            command: primaryCommand,
-            reasonCode,
-          });
-          activeProcesses.delete(agentId);
-          if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
+        // Forward to client
+        socket.emit('agent:event', {
+          taskId,
+          agentId,
+          type: event.type,
+          content: event.content,
+          tool: event.tool,
+          usage: event.usage,
+          sessionId: event.sessionId,
+          conversationId: sessionConvId,
         });
+
+        // Persist to message repo
+        if (event.type === 'text' && event.content) {
+          messageRepo.append({
+            conversationId: sessionConvId,
+            taskId,
+            senderType: 'agent',
+            senderId: agentId,
+            content: event.content,
+            contentType: 'text',
+          });
+          if (agentSession) sessionRepo.incrementMessageCount(agentSession.id);
+        } else if (event.type === 'tool_use' && event.tool) {
+          messageRepo.append({
+            conversationId: sessionConvId,
+            taskId,
+            senderType: 'agent',
+            senderId: agentId,
+            content: `🔧 使用工具：${event.tool.name}`,
+            contentType: 'tool_use',
+          });
+          if (agentSession) sessionRepo.incrementMessageCount(agentSession.id);
+        }
+
+        // Reset timeout on each event
+        resetTimeout();
       };
 
       // --- Bridge mode (remote opencode via HTTP proxy) ---
@@ -462,11 +396,11 @@ export default function registerDaemon(io: IOServer) {
             while (idx !== -1) {
               const line = buffer.slice(0, idx);
               buffer = buffer.slice(idx + 1);
-              handleJsonLine(line);
+              parseAndForwardBridgeLine(line);
               idx = buffer.indexOf('\n');
             }
           }
-          if (buffer.trim()) handleJsonLine(buffer);
+          if (buffer.trim()) parseAndForwardBridgeLine(buffer);
 
           clearProcessTimeout();
           socket.emit('terminal:exit', { agentId, code: 0, command: 'bridge' });
@@ -540,73 +474,72 @@ export default function registerDaemon(io: IOServer) {
         }
       }
 
-      socket.emit('terminal:data', {
-        agentId,
-        data: `\x1b[33m$ ${primaryCommand} ${primaryArgs.join(' ')}\x1b[0m\r\n`,
+      // --- Execute via Backend abstraction ---
+      const command = ENGINE_COMMAND[engine] || 'opencode';
+      const backend = createBackend(engine, { executablePath: command });
+
+      const { events, result, kill } = backend.execute(prompt || '', {
+        cwd: process.cwd(),
+        resumeSessionId: effectiveSessionId || undefined,
+        timeout: timeoutMs > 0 ? timeoutMs : undefined,
+        env: {
+          ...credentialEnv,
+          ...(runtimeConfigEnv || {}),
+        },
       });
 
-      const child = spawn(primaryCommand, primaryArgs, {
-        env: mergedEnv,
-      });
-      activeProcesses.set(agentId, { kill: () => gracefulKill(child) });
+      activeProcesses.set(agentId, { kill });
 
-      child.on('error', (err) => {
-        const code = (err as unknown as { code?: string }).code;
-        if (code === 'ENOENT') {
-          if (!allowMockRunner && process.env.ENABLE_MOCK_RUNNER !== '1') {
-            if (invocation) {
-              invocationRepo.updateStatus(invocation.id, 'failed', {
-                exit_code: 127,
-                reason_code: 'not_found',
-              });
-            }
-            socket.emit('agent:error', {
-              agentId,
-              message: 'CLI 工具未找到，请检查安装。',
-              reasonCode: 'not_found' as const,
-            });
-            socket.emit('terminal:exit', { agentId, code: 127, command: primaryCommand, reasonCode: 'not_found' });
-            activeProcesses.delete(agentId);
-            if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
-            return;
+      // Consume events and forward to socket
+      (async () => {
+        try {
+          for await (const event of events) {
+            forwardAgentEvent(event);
           }
 
-          const mockDef = ENGINE_MAP.mock;
-          const fallbackCommand = mockDef.command;
-          const fallbackArgs = mockDef.buildArgs(prompt || '');
+          // Wait for final result
+          const final = await result;
+          clearProcessTimeout();
 
-          socket.emit('terminal:data', {
+          if (invocation) {
+            invocationRepo.updateStatus(invocation.id, final.status === 'completed' ? 'succeeded' : 'failed', {
+              exit_code: final.status === 'completed' ? 0 : 1,
+              reason_code: final.status === 'timeout' ? 'timeout' : undefined,
+            });
+          }
+
+          socket.emit('terminal:exit', {
             agentId,
-            data: `\r\n\x1b[33m[未找到 ${primaryCommand}]\x1b[0m 已切换到内置模拟执行器。\r\n`,
+            code: final.status === 'completed' ? 0 : 1,
+            command,
+            reasonCode: final.status === 'timeout' ? 'timeout' : undefined,
           });
-          socket.emit('terminal:data', {
-            agentId,
-            data: `\x1b[33m$ ${fallbackCommand} ${fallbackArgs.join(' ')}\x1b[0m\r\n`,
-          });
-
-          const fallback = spawn(fallbackCommand, fallbackArgs, { env: { ...mergedEnv, OPENCODE_PROMPT: prompt } });
-          activeProcesses.set(agentId, { kill: () => gracefulKill(fallback) });
-          wireChild(fallback);
-          return;
+          activeProcesses.delete(agentId);
+          if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
+        } catch (err) {
+          clearProcessTimeout();
+          console.error(`[daemon][${agentId}] backend error:`, err);
+          socket.emit('terminal:exit', { agentId, code: 1, command, reasonCode: 'spawn_failed' });
+          activeProcesses.delete(agentId);
+          if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
         }
-
-        if (invocation) {
-          invocationRepo.updateStatus(invocation.id, 'failed', {
-            error_message: (err as Error)?.message || 'Unknown error',
-            reason_code: code === 'ENOENT' ? 'not_found' : 'spawn_failed',
-          });
-        }
-        socket.emit('agent:error', {
-          agentId,
-          message: `进程启动失败：${(err as Error)?.message || '未知错误'}`,
-          reasonCode: 'spawn_failed' as const,
-        });
-        socket.emit('terminal:exit', { agentId, code: 127, command: primaryCommand, reasonCode: 'spawn_failed' });
+      })();
+      } catch (err) {
+        console.error(`[daemon] terminal:start error for agent=${agentId}:`, err);
+        socket.emit('agent:error', { agentId, message: `内部错误：${(err as Error)?.message || '未知'}` });
+        socket.emit('terminal:exit', { agentId, code: 1, command: primaryCommand, reasonCode: 'internal_error' });
         activeProcesses.delete(agentId);
         if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
-      });
+      }
+    });
 
-      wireChild(child);
+    // Force-kill a running agent process
+    socket.on('terminal:kill', ({ agentId, force }: { agentId: string; force?: boolean }) => {
+      if (activeProcesses.has(agentId)) {
+        activeProcesses.get(agentId)?.kill();
+        activeProcesses.delete(agentId);
+        socket.emit('terminal:exit', { agentId, code: 0, command: 'kill', reasonCode: force ? 'force_killed' : 'killed' });
+      }
     });
   });
 }
