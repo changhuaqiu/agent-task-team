@@ -2,9 +2,10 @@
 
 import { useTaskHubStore, selectActiveAgents, selectAvailableRoster, type ChatMessage } from '@/store/taskHubStore';
 import { useShallow } from 'zustand/react/shallow';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { PixelAvatar } from './PixelAvatar';
 import { cn } from '@/lib/utils';
+import { parsePhaseBreakdown } from '@/lib/breakdownParser';
 import { Check, X, User, Lightbulb, Play, Eye } from 'lucide-react';
 
 interface ChatMessageItemProps {
@@ -49,31 +50,6 @@ const formatContentWithMentions = (content: string) => {
   });
 };
 
-type TaskProposal = {
-  title: string;
-  description: string;
-  agentId?: string;
-};
-
-const parseTaskProposals = (content: string): TaskProposal[] => {
-  const lines = content.split('\n');
-  const proposals: TaskProposal[] = [];
-  for (const raw of lines) {
-    const m = /^\s*(?:-|\*)?\s*TASK\s*:\s*(.+)\s*$/i.exec(raw);
-    if (!m) continue;
-    const rest = m[1] || '';
-    const agentMatch = /@(\w+)/.exec(rest);
-    const agentId = agentMatch ? agentMatch[1] : undefined;
-    const cleaned = rest.replace(/@(\w+)/g, '').trim();
-    const [titlePart, ...descParts] = cleaned.split('|');
-    const title = (titlePart || '').trim();
-    const description = descParts.join('|').trim();
-    if (!title) continue;
-    proposals.push({ title, description, agentId });
-  }
-  return proposals.slice(0, 3);
-};
-
 export function ChatMessageItem({ message }: ChatMessageItemProps) {
   const activeAgents = useTaskHubStore(useShallow(selectActiveAgents));
   const availableRoster = useTaskHubStore(useShallow(selectAvailableRoster));
@@ -88,7 +64,35 @@ export function ChatMessageItem({ message }: ChatMessageItemProps) {
   const agent = allAgents.find((a) => a.id === message.agentId);
 
   const timeString = message.timestamp.slice(11, 16);
-  const proposals = useMemo(() => parseTaskProposals(message.content), [message.content]);
+  const proposals = useMemo(() => parsePhaseBreakdown(message.content), [message.content]);
+  const hasPhaseStructure = proposals.length > 0;
+
+  const [checkedKeys, setCheckedKeys] = useState<Set<string>>(() => {
+    if (!hasPhaseStructure) return new Set();
+    const keys = new Set<string>();
+    proposals.forEach((phase, pi) => {
+      phase.tasks.forEach((_, ti) => keys.add(`${pi}-${ti}`));
+    });
+    return keys;
+  });
+
+  const toggleCheck = (key: string) => {
+    setCheckedKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const filteredProposals = useMemo(() => {
+    return proposals.map((phase, pi) => ({
+      ...phase,
+      tasks: phase.tasks.filter((_, ti) => checkedKeys.has(`${pi}-${ti}`)),
+    })).filter((p) => p.tasks.length > 0);
+  }, [proposals, checkedKeys]);
+
+  const totalChecked = filteredProposals.reduce((sum, p) => sum + p.tasks.length, 0);
 
   return (
     <div
@@ -148,66 +152,84 @@ export function ChatMessageItem({ message }: ChatMessageItemProps) {
         >
           {formatContentWithMentions(message.content)}
 
-          {proposals.length > 0 && (
+          {hasPhaseStructure && (
             <div className="mt-3 pt-2 border-t border-dashed border-[hsl(var(--border-subtle))] flex flex-col gap-2">
-              {proposals.map((p, idx) => {
-                const suggestedAgent = p.agentId ? allAgents.find((a) => a.id === p.agentId) : undefined;
-                const resolvedAgentId = suggestedAgent?.id ?? activeAgents[0]?.id ?? '';
-                const canCreate = Boolean(resolvedAgentId);
-                return (
-                  <div
-                    key={idx}
-                    className="rounded-[var(--radius-md)] border border-[hsl(var(--border-subtle))] bg-[hsl(var(--bg-app))] p-2"
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <div className="text-[10px] font-bold tracking-widest uppercase text-[hsl(var(--text-tertiary))]">
-                          提案任务
-                        </div>
-                        <div className="text-[12px] font-semibold text-[hsl(var(--text-primary))] mt-0.5">
-                          {p.title}
-                        </div>
-                        {p.description && (
-                          <div className="text-[11px] text-[hsl(var(--text-tertiary))] mt-0.5">
-                            {p.description}
-                          </div>
-                        )}
-                        {suggestedAgent && (
-                          <div className="text-[10px] text-[hsl(var(--text-tertiary))] mt-1">
-                            建议：{suggestedAgent.emoji} {suggestedAgent.name}
-                          </div>
-                        )}
-                      </div>
-                      <button
-                        type="button"
-                        disabled={!canCreate}
-                        onClick={() => {
-                          if (!resolvedAgentId) return;
-                          if (p.agentId && !activeAgents.some((a) => a.id === p.agentId)) {
-                            inviteAgent(p.agentId);
-                          }
-                          addTask({
-                            title: p.title,
-                            description: p.description,
-                            status: 'pending',
-                            agentId: resolvedAgentId,
-                            dependencies: [],
-                            artifacts: [],
-                          });
-                        }}
-                        className={cn(
-                          'h-8 px-3 rounded-[var(--radius-md)] text-[11px] font-bold border transition-colors',
-                          canCreate
-                            ? 'bg-[hsl(var(--accent))] text-white border-[hsl(var(--accent))] hover:opacity-90'
-                            : 'bg-[hsl(var(--bg-muted))] text-[hsl(var(--text-tertiary))] border-[hsl(var(--border))]'
-                        )}
-                      >
-                        创建
-                      </button>
+              {proposals.map((phase, pi) => (
+                <div key={pi} className="rounded-[4px] border-2 border-[hsl(var(--border))] overflow-hidden">
+                  <div className="px-3 py-1.5 bg-[hsl(var(--bg-muted))] flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[9px] font-bold bg-[hsl(var(--accent))] text-white px-1.5 py-0.5 rounded-[2px]">
+                        阶段 {pi + 1}
+                      </span>
+                      <span className="text-[11px] font-bold text-[hsl(var(--text-primary))]">{phase.title}</span>
                     </div>
+                    <span className="text-[9px] text-[hsl(var(--text-tertiary))]">{phase.tasks.length} 任务</span>
                   </div>
-                );
-              })}
+                  <div className="px-2 py-1.5 flex flex-col gap-1">
+                    {phase.tasks.map((task, ti) => {
+                      const key = `${pi}-${ti}`;
+                      const isChecked = checkedKeys.has(key);
+                      const suggestedAgent = task.agentId ? allAgents.find((a) => a.id === task.agentId) : undefined;
+                      return (
+                        <div
+                          key={key}
+                          className={cn(
+                            "flex items-center gap-2 px-2 py-1 rounded-[2px] border transition-colors",
+                            isChecked
+                              ? "bg-[hsl(var(--bg-app))] border-[hsl(var(--border-subtle))]"
+                              : "bg-[hsl(var(--bg-muted))] border-[hsl(var(--border))] opacity-50"
+                          )}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => toggleCheck(key)}
+                            className={cn(
+                              "w-4 h-4 rounded-[2px] border-2 flex items-center justify-center shrink-0 transition-all",
+                              isChecked
+                                ? "bg-[hsl(var(--accent))] border-[hsl(var(--accent))] text-white"
+                                : "bg-[hsl(var(--bg-muted))] border-[hsl(var(--border))]"
+                            )}
+                          >
+                            {isChecked && <span className="text-[8px]">✓</span>}
+                          </button>
+                          <span className="text-[10px] text-[hsl(var(--text-primary))] flex-1 truncate">{task.title}</span>
+                          {suggestedAgent && (
+                            <span className="text-[9px] text-[hsl(var(--text-tertiary))] shrink-0">
+                              {suggestedAgent.emoji} {suggestedAgent.name}
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+
+              <div className="flex gap-2 mt-1">
+                <button
+                  type="button"
+                  disabled={totalChecked === 0}
+                  onClick={() => {
+                    const convId = useTaskHubStore.getState().selectedConversationId;
+                    if (!convId) return;
+                    useTaskHubStore.getState().confirmBreakdown(convId, filteredProposals);
+                  }}
+                  className="flex-1 py-1.5 text-[10px] font-bold bg-[hsl(var(--accent))] text-white border-2 border-[hsl(var(--accent))] rounded-[2px] shadow-[2px_2px_0px_hsl(var(--accent)/0.4)] hover:shadow-[1px_1px_0px_hsl(var(--accent)/0.4)] hover:translate-x-[1px] hover:translate-y-[1px] transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  ✓ 确认选中 ({totalChecked} 个任务)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const convId = useTaskHubStore.getState().selectedConversationId;
+                    if (!convId) return;
+                    useTaskHubStore.getState().triggerBreakdown(convId);
+                  }}
+                  className="py-1.5 px-3 text-[10px] font-bold text-[hsl(var(--text-tertiary))] bg-[hsl(var(--bg-muted))] border border-[hsl(var(--border))] rounded-[2px] hover:text-[hsl(var(--text-primary))] transition-colors"
+                >
+                  重新拆解
+                </button>
+              </div>
             </div>
           )}
 
