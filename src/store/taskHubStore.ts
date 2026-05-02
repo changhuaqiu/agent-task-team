@@ -1,8 +1,11 @@
 'use client';
 
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 import { io } from 'socket.io-client';
 import type { RoleCard } from '@/types/roleCard';
+import type { Phase, PhaseStatus } from '@/types/phase';
+import type { PhaseProposal } from '@/lib/breakdownParser';
 import { PRESET_ROLE_CARDS, PRESET_ROLE_CARD_MAP } from '@/data/presetRoleCards';
 
 const socket = io(undefined, { path: '/api/socketio', autoConnect: false });
@@ -101,6 +104,7 @@ export interface ChatMessage {
   approvalStatus?: 'pending' | 'approved' | 'rejected';
   mentions?: string[]; // Array of agentIds mentioned in the message
   intent?: 'ideate' | 'execute' | 'review' | 'general'; // Captured intent
+  selectedProposals?: string[];
 }
 
 // --- Task Artifact ---
@@ -114,6 +118,7 @@ export interface TaskArtifact {
 export interface Task {
   id: string;
   conversationId: string;
+  phaseId: string;
   title: string;
   description: string;
   status: TaskStatus;
@@ -142,6 +147,8 @@ export interface Conversation {
   goal: string;
   status: 'active' | 'paused' | 'completed' | 'archived';
   priority: 'p0' | 'p1' | 'p2' | 'p3';
+  projectPath: string;
+  breakdownStatus: 'none' | 'in_progress' | 'reviewed' | 'confirmed';
   createdAt: string;
   updatedAt: string;
 }
@@ -330,7 +337,7 @@ interface TaskHubState {
   loadFromServer: () => Promise<void>;
 
   // Mutations
-  createConversation: (input: { title: string; goal: string; priority?: Conversation['priority'] }) => void;
+  createConversation: (input: { title: string; goal: string; projectPath?: string; priority?: Conversation['priority']; autoBreakdown?: boolean }) => void;
   setSelectedConversationId: (conversationId: string | null) => void;
   addSupervisorOutput: (output: SupervisorOutputEnvelope) => void;
   addEvent: (event: Omit<InternalEvent, 'id' | 'timestamp'> & { id?: string; timestamp?: string }) => void;
@@ -339,7 +346,7 @@ interface TaskHubState {
   inviteAgent:      (agentId: string) => void;
   dismissAgent:     (agentId: string) => void;
   updateTaskStatus: (taskId: string, status: TaskStatus, reviewNote?: string) => void;
-  addTask:          (task: Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'conversationId'>) => void;
+  addTask:          (taskData: Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'conversationId' | 'phaseId'> & { phaseId?: string }) => void;
   removeTask:       (taskId: string) => void;
   updateTask:       (taskId: string, patch: Partial<Pick<Task, 'title' | 'description' | 'agentId' | 'dependencies' | 'artifacts'>>) => void;
   addChatMessage:   (msg: Omit<ChatMessage, 'id' | 'timestamp' | 'mentions' | 'intent'> & { conversationId?: string }) => void;
@@ -374,6 +381,16 @@ interface TaskHubState {
   getRoleCardForAgent: (agentId: string) => RoleCard | undefined;
   setAgentRoleCardId: (agentId: string, roleCardId: string) => void;
   setRoleCardAccountIds: (roleCardId: string, accountIds: string[]) => void;
+
+  // Phase state
+  phases: Phase[];
+  upsertPhase: (phase: Omit<Phase, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }) => string;
+  removePhase: (phaseId: string) => void;
+
+  // Breakdown actions
+  setBreakdownStatus: (conversationId: string, status: Conversation['breakdownStatus']) => void;
+  triggerBreakdown: (conversationId: string) => void;
+  confirmBreakdown: (conversationId: string, proposals: PhaseProposal[]) => void;
 
   // Role Card UI state
   isRoleCardDetailOpen: boolean;
@@ -462,6 +479,7 @@ export const selectActiveAgents = (state: TaskHubState) =>
 export const selectAvailableRoster = (state: TaskHubState) => 
   AGENT_ROSTER.filter((a) => !state.activeAgentIds.includes(a.id));
 let taskCounter = 1;
+let state_phases_seq = 1;
 
 const makeId = (prefix: string) =>
   `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -501,6 +519,7 @@ function mapSessionsToState(sessions: any[]): Record<string, Record<string, stri
 }
 
 export const useTaskHubStore = create<TaskHubState>()(
+  persist(
     (set, get) => ({
       hasHydrated: false,
       setHasHydrated: (hydrated) => set({ hasHydrated: hydrated }),
@@ -560,6 +579,8 @@ export const useTaskHubStore = create<TaskHubState>()(
             goal: c.goal || '',
             status: c.status || 'active',
             priority: c.priority || 'p2',
+            projectPath: c.project_path || '',
+            breakdownStatus: c.breakdown_status || 'none',
             createdAt: c.created_at,
             updatedAt: c.updated_at,
           }));
@@ -567,6 +588,7 @@ export const useTaskHubStore = create<TaskHubState>()(
           const tasks: Task[] = (data.tasks || []).map((t: any) => ({
             id: t.id,
             conversationId: t.conversation_id,
+            phaseId: t.phase_id || '',
             title: t.title,
             description: t.description || '',
             status: t.status,
@@ -720,6 +742,7 @@ export const useTaskHubStore = create<TaskHubState>()(
       selectedProjectId: 'default',
       agentSessions: { default: {} },
       activeAgentIds: ['jean', 'keqing'],
+      phases: [],
       conversations: [],
       selectedConversationId: null,
       tasks: [],
@@ -762,7 +785,7 @@ export const useTaskHubStore = create<TaskHubState>()(
         return get().chatMessagesByConversation[id] ?? EMPTY_CHAT;
       },
 
-      createConversation: ({ title, goal, priority }) => {
+      createConversation: ({ title, goal, projectPath, priority, autoBreakdown }) => {
         const id = makeId('conv');
         const stamp = new Date().toISOString();
         const conversation: Conversation = {
@@ -771,6 +794,8 @@ export const useTaskHubStore = create<TaskHubState>()(
           goal,
           status: 'active',
           priority: priority ?? 'p1',
+          projectPath: projectPath ?? '',
+          breakdownStatus: 'none',
           createdAt: stamp,
           updatedAt: stamp,
         };
@@ -816,8 +841,12 @@ export const useTaskHubStore = create<TaskHubState>()(
         fetch('/api/mutations', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ type: 'conversation.create', payload: { id, title, goal, priority: priority ?? 'p1' } }),
+          body: JSON.stringify({ type: 'conversation.create', payload: { id, title, goal, priority: priority ?? 'p1', project_path: projectPath } }),
         }).catch((err) => console.error('[mutation] conversation.create failed:', err));
+
+        if (autoBreakdown !== false) {
+          setTimeout(() => get().triggerBreakdown(id), 500);
+        }
       },
 
       setSelectedConversationId: (conversationId) => set({ selectedConversationId: conversationId }),
@@ -966,6 +995,102 @@ export const useTaskHubStore = create<TaskHubState>()(
           ),
         })),
 
+      // Phase actions
+      upsertPhase: (phaseData) => {
+        const stamp = new Date().toISOString();
+        const existing = get().phases.find((p) => p.id === phaseData.id);
+        if (existing) {
+          set((state) => ({
+            phases: state.phases.map((p) =>
+              p.id === phaseData.id ? { ...p, ...phaseData, updatedAt: stamp } : p
+            ),
+          }));
+          return phaseData.id!;
+        }
+        const id = phaseData.id || `${get().selectedConversationId}-PHASE-${String(state_phases_seq++).padStart(3, '0')}`;
+        set((state) => ({
+          phases: [...state.phases, {
+            id,
+            conversationId: phaseData.conversationId,
+            title: phaseData.title,
+            description: phaseData.description,
+            order: phaseData.order,
+            status: phaseData.status,
+            createdAt: stamp,
+            updatedAt: stamp,
+          }],
+        }));
+        return id;
+      },
+
+      removePhase: (phaseId) => {
+        set((state) => ({ phases: state.phases.filter((p) => p.id !== phaseId) }));
+      },
+
+      setBreakdownStatus: (conversationId, status) => {
+        set((state) => ({
+          conversations: state.conversations.map((c) =>
+            c.id === conversationId ? { ...c, breakdownStatus: status } : c
+          ),
+        }));
+      },
+
+      triggerBreakdown: (conversationId) => {
+        const conv = get().conversations.find((c) => c.id === conversationId);
+        if (!conv) return;
+        get().setBreakdownStatus(conversationId, 'in_progress');
+        const prompt = `你是项目统筹 Jean。请将以下项目目标拆解为 2-4 个阶段。
+
+项目：${conv.title}
+目标：${conv.goal}${conv.projectPath ? `\n项目路径：${conv.projectPath}` : ''}
+
+请严格按以下格式输出，不要输出其他内容：
+
+PHASE: {阶段名} | {阶段简述}
+TASK: {任务标题} | {任务描述} @{推荐agentId}
+TASK: {任务标题} | {任务描述} @{推荐agentId}
+PHASE: {下一个阶段名} | {阶段简述}
+TASK: {任务标题} | {任务描述} @{推荐agentId}`;
+        get().dispatchToAgent({
+          agentId: 'jean',
+          prompt,
+        });
+      },
+
+      confirmBreakdown: (conversationId, proposals) => {
+        let taskSeq = get().tasks.length;
+        for (let pi = 0; pi < proposals.length; pi++) {
+          const prop = proposals[pi];
+          const phaseId = get().upsertPhase({
+            conversationId,
+            title: prop.title,
+            description: prop.description,
+            order: pi,
+            status: 'planned',
+          });
+          for (const taskProp of prop.tasks) {
+            taskSeq++;
+            const taskId = `TASK-${String(taskSeq).padStart(3, '0')}`;
+            const stamp = new Date().toISOString();
+            set((state) => ({
+              tasks: [...state.tasks, {
+                id: taskId,
+                conversationId,
+                phaseId,
+                title: taskProp.title,
+                description: taskProp.description,
+                status: 'pending' as TaskStatus,
+                agentId: taskProp.agentId || 'jean',
+                dependencies: [],
+                artifacts: [],
+                createdAt: stamp,
+                updatedAt: stamp,
+              }],
+            }));
+          }
+        }
+        get().setBreakdownStatus(conversationId, 'confirmed');
+      },
       isRoleCardDetailOpen: false,
       selectedRoleCardId: null,
       setRoleCardDetailOpen: (open, cardId) =>
@@ -1202,7 +1327,7 @@ export const useTaskHubStore = create<TaskHubState>()(
         set((state) => ({
           tasks: [
             ...state.tasks,
-            { ...taskData, id, createdAt: stamp, updatedAt: stamp, conversationId },
+            { ...taskData, id, phaseId: taskData.phaseId || '', createdAt: stamp, updatedAt: stamp, conversationId },
           ],
         }));
 
@@ -1320,6 +1445,50 @@ export const useTaskHubStore = create<TaskHubState>()(
           return changed ? { chatMessagesByConversation: next } : {};
         }),
     }),
+  {
+    name: 'agent-task-hub-store-clean',
+    partialize: (state) => ({
+      conversations: state.conversations,
+      tasks: state.tasks,
+      chatMessagesByConversation: state.chatMessagesByConversation,
+      eventsByConversation: state.eventsByConversation,
+      blockersByConversation: state.blockersByConversation,
+      activeAgentIds: state.activeAgentIds,
+      agentSessions: state.agentSessions,
+      agentAccountOverrides: state.agentAccountOverrides,
+      enableMockRunner: state.enableMockRunner,
+      roleCards: state.roleCards,
+      phases: state.phases,
+    }),
+    onRehydrateStorage: () => (state) => {
+      if (!state) return;
+
+      // Backfill breakdownStatus and projectPath on existing conversations
+      let needsConvUpdate = false;
+      const updatedConversations = state.conversations.map((c: any) => {
+        let updated = false;
+        const patches: Record<string, any> = {};
+        if (c.breakdownStatus === undefined) { patches.breakdownStatus = 'none'; updated = true; }
+        if (c.projectPath === undefined) { patches.projectPath = ''; updated = true; }
+        if (updated) { needsConvUpdate = true; return { ...c, ...patches }; }
+        return c;
+      });
+      if (needsConvUpdate) {
+        state.conversations = updatedConversations;
+      }
+
+      // Backfill phaseId on existing tasks
+      let needsTaskUpdate = false;
+      const updatedTasks = state.tasks.map((t: any) => {
+        if (t.phaseId === undefined) { needsTaskUpdate = true; return { ...t, phaseId: '' }; }
+        return t;
+      });
+      if (needsTaskUpdate) {
+        state.tasks = updatedTasks;
+      }
+    },
+  },
+  ),
 );
 
 // --- Socket.io Event Listeners ---
