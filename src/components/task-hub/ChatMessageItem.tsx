@@ -4,6 +4,8 @@ import { useTaskHubStore, selectActiveAgents, selectAvailableRoster, type ChatMe
 import { useShallow } from 'zustand/react/shallow';
 import { useMemo, useState } from 'react';
 import { PixelAvatar } from './PixelAvatar';
+import { CliOutputBlock } from './CliOutputBlock';
+import { ProgressMessageCard } from './ProgressMessageCard';
 import { cn } from '@/lib/utils';
 import { parsePhaseBreakdown } from '@/lib/breakdownParser';
 import { Check, X, User, Lightbulb, Play, Eye } from 'lucide-react';
@@ -20,6 +22,8 @@ const IntentIcon = ({ intent }: { intent?: string }) => {
       return <Play className="w-3 h-3 text-blue-500" />;
     case 'review':
       return <Eye className="w-3 h-3 text-green-500" />;
+    case 'progress':
+      return <Play className="w-3 h-3 text-blue-400" />;
     default:
       return null;
   }
@@ -29,6 +33,7 @@ const INTENT_LABELS: Record<string, string> = {
   ideate: '构思',
   execute: '执行',
   review: '评审',
+  progress: '进度',
 };
 
 const formatContentWithMentions = (content: string) => {
@@ -66,6 +71,7 @@ export function ChatMessageItem({ message }: ChatMessageItemProps) {
   const timeString = message.timestamp.slice(11, 16);
   const proposals = useMemo(() => parsePhaseBreakdown(message.content), [message.content]);
   const hasPhaseStructure = proposals.length > 0;
+  const hasToolEvents = (message.toolEvents?.length ?? 0) > 0;
 
   const [checkedKeys, setCheckedKeys] = useState<Set<string>>(() => {
     if (!hasPhaseStructure) return new Set();
@@ -150,7 +156,30 @@ export function ChatMessageItem({ message }: ChatMessageItemProps) {
               : 'border-[hsl(var(--border))] rounded-tl-none'
           )}
         >
-          {formatContentWithMentions(message.content)}
+          {/* Main text content */}
+          {message.isStreaming && !message.content && !hasToolEvents ? (
+            <span className="inline-block w-1.5 h-4 bg-[hsl(var(--text-primary))] animate-pulse" />
+          ) : message.content ? (
+            <div className="whitespace-pre-wrap break-words">{formatContentWithMentions(message.content)}</div>
+          ) : null}
+
+          {/* Progress Message Card */}
+          {message.progressData && (
+            <div className="mt-2">
+              <ProgressMessageCard
+                message={message}
+                onTaskClick={(taskId) => setSelectedTaskId(taskId)}
+              />
+            </div>
+          )}
+
+          {/* CLI Output collapsible panel */}
+          {hasToolEvents && (
+            <CliOutputBlock
+              events={message.toolEvents!}
+              isStreaming={!!message.isStreaming}
+            />
+          )}
 
           {hasPhaseStructure && (
             <div className="mt-3 pt-2 border-t border-dashed border-[hsl(var(--border-subtle))] flex flex-col gap-2">
