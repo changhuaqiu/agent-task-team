@@ -96,7 +96,7 @@ export function resolveAgentEngine(
 // --- Chat Message Entity ---
 export interface ToolEvent {
   id: string;
-  type: 'tool_use' | 'step_start' | 'step_finish' | 'error';
+  type: 'tool_use' | 'tool_result' | 'error';
   label: string;
   detail?: string;
   timestamp: string;
@@ -158,6 +158,12 @@ export interface DispatchToAgentInput {
   prompt: string;
   referencedTaskId?: string;
   accountIds?: string[];
+}
+
+export interface PendingDispatch {
+  prompt: string;
+  referencedTaskId?: string;
+  queuedAt: string;
 }
 
 export type TeamRole = 'dev' | 'ux' | 'qa' | 'arch';
@@ -379,11 +385,17 @@ interface TaskHubState {
   agentStatus: Record<string, 'idle' | 'busy'>;
   activeRunsByAgent: Record<string, { runId: string; taskId?: string; conversationId: string; startedAt: string } | undefined>;
   activeStreamMessageId: Record<string, string>;
+  activeStreamConversationId: Record<string, string>;
+  pendingDispatches: Record<string, PendingDispatch[]>;
 
   // Actions
   connectDaemon: () => void;
   upsertAgentSession: (projectId: ProjectId, agentId: string, sessionId: string) => void;
   dispatchToAgent: (input: DispatchToAgentInput) => void;
+  forceSendDispatch: (input: DispatchToAgentInput) => void;
+  enqueueDispatch: (agentId: string, payload: Omit<PendingDispatch, 'queuedAt'>) => void;
+  dequeueNextPending: (agentId: string) => void;
+  clearPendingDispatches: (agentId: string) => void;
   appendTerminalLog: (agentId: string, log: string) => void;
   simulateCliExecution: (taskId: string, prompt: string, sessionId?: string) => void;
   ensureStreamMessage: (agentId: string, conversationId: string) => string;
@@ -511,8 +523,16 @@ export const AGENT_ROSTER: Agent[] = [
 export const selectActiveAgents = (state: TaskHubState) => 
   AGENT_ROSTER.filter((a) => state.activeAgentIds.includes(a.id));
 
-export const selectAvailableRoster = (state: TaskHubState) => 
+export const selectAvailableRoster = (state: TaskHubState) =>
   AGENT_ROSTER.filter((a) => !state.activeAgentIds.includes(a.id));
+
+export const selectPendingCount = (state: TaskHubState) => {
+  const counts: Record<string, number> = {};
+  for (const [agentId, queue] of Object.entries(state.pendingDispatches)) {
+    if (queue && queue.length > 0) counts[agentId] = queue.length;
+  }
+  return counts;
+};
 let taskCounter = 1;
 let state_phases_seq = 1;
 
@@ -789,6 +809,8 @@ export const useTaskHubStore = create<TaskHubState>()(
       agentStatus: {},
       activeRunsByAgent: {},
       activeStreamMessageId: {},
+      activeStreamConversationId: {},
+      pendingDispatches: {},
 
       connectDaemon: () => {
         if (socket.connected) return;
@@ -1235,12 +1257,21 @@ TASK: {任务标题} | {任务描述} @{推荐agentId}`;
         })),
 
       dispatchToAgent: ({ agentId, prompt, referencedTaskId }) => {
+        // If agent is busy, enqueue instead of dispatching
+        if (get().agentStatus[agentId] === 'busy') {
+          console.log(`[dispatch] ${agentId} busy, enqueuing`);
+          get().enqueueDispatch(agentId, { prompt, referencedTaskId });
+          return;
+        }
         const projectId = get().selectedProjectId;
         const sessionId = get().agentSessions[projectId]?.[agentId];
         const conversationId =
           (referencedTaskId ? get().getTaskById(referencedTaskId)?.conversationId : undefined) ??
           get().selectedConversationId;
-        if (!conversationId) return;
+        if (!conversationId) {
+          console.warn(`[dispatch] ${agentId} aborted: no conversationId`);
+          return;
+        }
         const runId = makeId('run');
         const agent = AGENT_ROSTER.find((item) => item.id === agentId);
         // Account resolution: role card accounts > agent override > agent default
@@ -1256,6 +1287,8 @@ TASK: {任务标题} | {任务描述} @{推荐agentId}`;
         const resolvedBinding = agent ? resolveAgentEngine({ ...agent, accountIds: effectiveIds }, get().accounts) : null;
         const agentEngine = agent?.cliEngine ?? 'opencode';
         const resolvedEngine = get().getAvailableRuntime()?.engine ?? resolvedBinding?.engine ?? agentEngine;
+
+        console.log(`[dispatch] ${agentId} → engine=${resolvedEngine}, accountId=${resolvedBinding?.accountId ?? '(none)'}, convId=${conversationId}`);
 
         // Build role card context prefix
         let effectivePrompt = prompt;
@@ -1314,6 +1347,76 @@ TASK: {任务标题} | {任务描述} @{推荐agentId}`;
           accountIds: effectiveIds,
           accountId: resolvedBinding?.accountId ?? '',
         });
+      },
+
+      enqueueDispatch: (agentId, payload) => {
+        const entry: PendingDispatch = { ...payload, queuedAt: new Date().toISOString() };
+        set((state) => ({
+          pendingDispatches: {
+            ...state.pendingDispatches,
+            [agentId]: [...(state.pendingDispatches[agentId] || []), entry],
+          },
+        }));
+      },
+
+      dequeueNextPending: (agentId) => {
+        const queue = get().pendingDispatches[agentId];
+        if (!queue || queue.length === 0) return;
+        const [next, ...rest] = queue;
+        const nextPending = { ...get().pendingDispatches };
+        if (rest.length > 0) {
+          nextPending[agentId] = rest;
+        } else {
+          delete nextPending[agentId];
+        }
+        set({ pendingDispatches: nextPending });
+        // Show the human message in chat now that it's actually being dispatched
+        const conversationId = get().selectedConversationId;
+        if (conversationId) {
+          set((state) => ({
+            chatMessagesByConversation: {
+              ...state.chatMessagesByConversation,
+              [conversationId]: [
+                ...(state.chatMessagesByConversation[conversationId] || []),
+                {
+                  id: `msg-${Date.now()}`,
+                  agentId: 'human' as const,
+                  content: next.prompt,
+                  referencedTaskId: next.referencedTaskId,
+                  timestamp: new Date().toISOString(),
+                  mentions: [agentId],
+                  intent: 'general' as const,
+                },
+              ],
+            },
+          }));
+        }
+        // Dispatch — agent is idle now
+        get().dispatchToAgent({ agentId, prompt: next.prompt, referencedTaskId: next.referencedTaskId });
+      },
+
+      clearPendingDispatches: (agentId) => {
+        const nextPending = { ...get().pendingDispatches };
+        delete nextPending[agentId];
+        set({ pendingDispatches: nextPending });
+      },
+
+      forceSendDispatch: ({ agentId, prompt, referencedTaskId }) => {
+        // Kill the running process
+        socket.emit('terminal:kill', { agentId, force: true });
+        // Clear any queued messages
+        get().clearPendingDispatches(agentId);
+        // Complete any active stream
+        get().completeStreamMessage(agentId);
+        // Mark agent idle so dispatch proceeds
+        set((state) => ({
+          agentStatus: { ...state.agentStatus, [agentId]: 'idle' },
+          activeRunsByAgent: { ...state.activeRunsByAgent, [agentId]: undefined },
+        }));
+        // Small delay for kill to take effect, then dispatch
+        setTimeout(() => {
+          get().dispatchToAgent({ agentId, prompt, referencedTaskId });
+        }, 500);
       },
 
       appendTerminalLog: (agentId, log) =>
@@ -1379,13 +1482,15 @@ TASK: {任务标题} | {任务描述} @{推荐agentId}`;
       ensureStreamMessage: (agentId, conversationId) => {
         const existing = get().activeStreamMessageId[agentId];
         if (existing) {
-          const msgs = get().chatMessagesByConversation[conversationId] ?? [];
+          const existingConvId = get().activeStreamConversationId[agentId];
+          const msgs = get().chatMessagesByConversation[existingConvId ?? conversationId] ?? [];
           if (msgs.some((m) => m.id === existing)) return existing;
         }
         const id = `msg-${Date.now()}-${agentId}`;
         const stamp = new Date().toISOString();
         set((state) => ({
           activeStreamMessageId: { ...state.activeStreamMessageId, [agentId]: id },
+          activeStreamConversationId: { ...state.activeStreamConversationId, [agentId]: conversationId },
           chatMessagesByConversation: {
             ...state.chatMessagesByConversation,
             [conversationId]: [
@@ -1398,8 +1503,12 @@ TASK: {任务标题} | {任务描述} @{推荐agentId}`;
       },
 
       appendToStreamMessage: (messageId, patch) => {
+        // Resolve conversation from tracked stream state
+        const agentEntry = Object.entries(get().activeStreamMessageId).find(([, id]) => id === messageId);
+        const trackedConvId = agentEntry ? get().activeStreamConversationId[agentEntry[0]] : undefined;
+
         set((state) => {
-          const convId = state.selectedConversationId;
+          const convId = trackedConvId ?? state.selectedConversationId;
           if (!convId) return state;
           const msgs = state.chatMessagesByConversation[convId];
           if (!msgs) return state;
@@ -1422,13 +1531,16 @@ TASK: {任务标题} | {任务描述} @{推荐agentId}`;
       completeStreamMessage: (agentId) => {
         const activeId = get().activeStreamMessageId[agentId];
         if (!activeId) return;
+        const trackedConvId = get().activeStreamConversationId[agentId];
         set((state) => {
-          const { [agentId]: _, ...rest } = state.activeStreamMessageId;
-          const convId = state.selectedConversationId;
-          if (!convId) return { activeStreamMessageId: rest as Record<string, string> };
+          const { [agentId]: _, ...restMsgIds } = state.activeStreamMessageId;
+          const { [agentId]: __, ...restConvIds } = state.activeStreamConversationId;
+          const convId = trackedConvId ?? state.selectedConversationId;
+          if (!convId) return { activeStreamMessageId: restMsgIds as Record<string, string>, activeStreamConversationId: restConvIds as Record<string, string> };
           const msgs = state.chatMessagesByConversation[convId];
           return {
-            activeStreamMessageId: rest as Record<string, string>,
+            activeStreamMessageId: restMsgIds as Record<string, string>,
+            activeStreamConversationId: restConvIds as Record<string, string>,
             chatMessagesByConversation: {
               ...state.chatMessagesByConversation,
               [convId]: msgs
@@ -1578,30 +1690,86 @@ TASK: {任务标题} | {任务描述} @{推荐agentId}`;
           }, 500);
         }
 
-        set((state) => ({
-          chatMessagesByConversation: {
-            ...state.chatMessagesByConversation,
-            [conversationId]: [
-              ...(state.chatMessagesByConversation[conversationId] || []),
-              {
-                ...rest,
-                id: `msg-${Date.now()}`,
-                timestamp: new Date().toISOString(),
-                mentions,
-                intent,
-              },
-            ],
-          },
-        }));
-
+        // For human messages with @mentions, determine queue behavior
         if (rest.agentId === 'human') {
-          for (const mentionedAgentId of mentions.slice(0, 2)) {
-            get().dispatchToAgent({
-              agentId: mentionedAgentId,
-              referencedTaskId: rest.referencedTaskId,
-              prompt: rest.content,
-            });
+          const uniqueMentions = [...new Set<string>(mentions)].filter((id) =>
+            AGENT_ROSTER.some((a) => a.id === id),
+          );
+
+          if (uniqueMentions.length > 0) {
+            const busyAgents = uniqueMentions.filter((id) => get().agentStatus[id] === 'busy');
+            const idleAgents = uniqueMentions.filter((id) => get().agentStatus[id] !== 'busy');
+
+            if (busyAgents.length === uniqueMentions.length) {
+              // ALL mentioned agents are busy — only enqueue, don't show chat bubble
+              for (const agentId of busyAgents) {
+                get().enqueueDispatch(agentId, { prompt: rest.content, referencedTaskId: rest.referencedTaskId });
+              }
+              return;
+            }
+
+            // Some idle, some busy — show bubble, dispatch idle ones, enqueue busy ones
+            set((state) => ({
+              chatMessagesByConversation: {
+                ...state.chatMessagesByConversation,
+                [conversationId]: [
+                  ...(state.chatMessagesByConversation[conversationId] || []),
+                  {
+                    ...rest,
+                    id: `msg-${Date.now()}`,
+                    timestamp: new Date().toISOString(),
+                    mentions,
+                    intent,
+                  },
+                ],
+              },
+            }));
+
+            for (const agentId of idleAgents) {
+              get().dispatchToAgent({
+                agentId,
+                referencedTaskId: rest.referencedTaskId,
+                prompt: rest.content,
+              });
+            }
+            for (const agentId of busyAgents) {
+              get().enqueueDispatch(agentId, { prompt: rest.content, referencedTaskId: rest.referencedTaskId });
+            }
+          } else {
+            // No valid @mentions — just show the message
+            set((state) => ({
+              chatMessagesByConversation: {
+                ...state.chatMessagesByConversation,
+                [conversationId]: [
+                  ...(state.chatMessagesByConversation[conversationId] || []),
+                  {
+                    ...rest,
+                    id: `msg-${Date.now()}`,
+                    timestamp: new Date().toISOString(),
+                    mentions,
+                    intent,
+                  },
+                ],
+              },
+            }));
           }
+        } else {
+          // Non-human messages (agent, system) — always add to chat
+          set((state) => ({
+            chatMessagesByConversation: {
+              ...state.chatMessagesByConversation,
+              [conversationId]: [
+                ...(state.chatMessagesByConversation[conversationId] || []),
+                {
+                  ...rest,
+                  id: `msg-${Date.now()}`,
+                  timestamp: new Date().toISOString(),
+                  mentions,
+                  intent,
+                },
+              ],
+            },
+          }));
         }
 
         fetch('/api/mutations', {
@@ -1712,44 +1880,49 @@ socket.on('agent:session', ({ projectId, agentId, sessionId }) => {
 });
 
 socket.on('agent:event', (event) => {
-  const { taskId, agentId, type, message, toolName, toolInput } = event;
+  const { agentId, type, content, tool, sessionId, conversationId: eventConvId } = event;
   const state = useTaskHubStore.getState();
-  const conversationId = state.selectedConversationId;
+  const conversationId = eventConvId || state.selectedConversationId;
   if (!conversationId) return;
 
-  if (type === 'step_start') {
-    state.ensureStreamMessage(agentId, conversationId);
+  // Register session ID if present
+  if (sessionId) {
+    state.upsertAgentSession('default', agentId, sessionId);
+  }
+
+  // 'done' event signals completion — just complete the stream
+  if (type === 'done') {
+    state.completeStreamMessage(agentId);
     return;
   }
 
-  const activeId = state.activeStreamMessageId[agentId];
+  // Auto-create stream message on first event if not exists
+  let activeId = state.activeStreamMessageId[agentId];
   if (!activeId) {
-    state.addChatMessage({
-      agentId: agentId || 'system',
-      content: message || JSON.stringify(event),
-      referencedTaskId: taskId,
-    });
-    return;
+    activeId = state.ensureStreamMessage(agentId, conversationId);
   }
 
-  if (type === 'message') {
-    state.appendToStreamMessage(activeId, { content: message });
+  if (type === 'text') {
+    state.appendToStreamMessage(activeId, { content: content || '' });
+  } else if (type === 'thinking') {
+    // Thinking events are Claude-specific internal process, skip for now
   } else if (type === 'tool_use') {
     state.appendToStreamMessage(activeId, {
       toolEvent: {
         id: `te-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         type: 'tool_use',
-        label: toolName || 'unknown',
-        detail: toolInput,
+        label: tool?.name || 'unknown',
+        detail: tool?.input,
         timestamp: new Date().toISOString(),
       },
     });
-  } else if (type === 'step_finish') {
+  } else if (type === 'tool_result') {
     state.appendToStreamMessage(activeId, {
       toolEvent: {
         id: `te-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        type: 'step_finish',
-        label: '完成',
+        type: 'tool_result',
+        label: tool?.name || 'unknown',
+        detail: tool?.output,
         timestamp: new Date().toISOString(),
       },
     });
@@ -1759,10 +1932,13 @@ socket.on('agent:event', (event) => {
         id: `te-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         type: 'error',
         label: '错误',
-        detail: message,
+        detail: content,
         timestamp: new Date().toISOString(),
       },
     });
+  } else {
+    // Fallback for unknown event types
+    state.appendToStreamMessage(activeId, { content: content || '' });
   }
 });
 
@@ -1815,10 +1991,37 @@ socket.on('terminal:exit', ({ agentId, code, command, reasonCode }: { agentId: s
     activeRunsByAgent: { ...state.activeRunsByAgent, [agentId]: undefined },
   }));
   useTaskHubStore.getState().completeStreamMessage(agentId);
+
+  // Auto-dequeue pending messages for this agent
+  const pending = useTaskHubStore.getState().pendingDispatches[agentId];
+  if (pending && pending.length > 0) {
+    // Small delay to let the process fully clean up
+    setTimeout(() => {
+      useTaskHubStore.getState().dequeueNextPending(agentId);
+    }, 300);
+  }
 });
 
 socket.on('agent:error', ({ agentId, message, reasonCode }: { agentId: string; message: string; reasonCode?: string }) => {
   const state = useTaskHubStore.getState();
+
+  // Daemon rejected dispatch because agent was busy (client-daemon state mismatch)
+  // Sync client state to busy and ensure the prompt is queued
+  if (message === 'Agent is busy, message queued') {
+    const active = state.activeRunsByAgent[agentId];
+    const prompt = active ? undefined : undefined; // run entry exists but process wasn't actually spawned
+    // Clean up the stale run entry — the real process will emit terminal:exit eventually
+    const pending = state.pendingDispatches[agentId];
+    if (!pending || pending.length === 0) {
+      // Nothing queued — daemon has a process but client lost track
+      // Keep agentStatus as busy, clear the stale run entry so terminal:exit can still fire
+      useTaskHubStore.setState((s) => ({
+        agentStatus: { ...s.agentStatus, [agentId]: 'busy' },
+      }));
+    }
+    return; // Silent — don't show error bubble
+  }
+
   const activeId = state.activeStreamMessageId[agentId];
   if (activeId) {
     state.appendToStreamMessage(activeId, { content: `\n⚠️ ${message}` });

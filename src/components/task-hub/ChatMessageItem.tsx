@@ -164,7 +164,7 @@ export function ChatMessageItem({ message }: ChatMessageItemProps) {
         >
           {/* Main text content */}
           {message.isStreaming && !message.content && !hasToolEvents ? (
-            <span className="inline-block w-1.5 h-4 bg-[hsl(var(--text-primary))] animate-pulse" />
+            <span className="inline-block w-1.5 h-4 bg-current animate-pulse rounded-full opacity-50" />
           ) : message.content ? (
             <div className="whitespace-pre-wrap break-words">{formatContentWithMentions(message.content)}</div>
           ) : null}
