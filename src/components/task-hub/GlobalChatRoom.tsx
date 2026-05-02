@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useTaskHubStore, type ChatMessage } from '@/store/taskHubStore';
 import { ChatMessageItem } from './ChatMessageItem';
+import { MessageGroup } from './MessageGroup';
 import { Send, Hash } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -41,6 +42,17 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
       e.preventDefault();
       handleSend();
     }
+  };
+
+  const AGENT_META: Record<string, { emoji: string; name: string; color: string }> = {
+    jean: { emoji: '🔑', name: 'Jean', color: 'border-amber-500/40' },
+    keqing: { emoji: '⚡', name: 'Keqing', color: 'border-blue-500/40' },
+    zhongli: { emoji: '🛡️', name: 'Zhongli', color: 'border-amber-600/40' },
+    nahida: { emoji: '🌿', name: 'Nahida', color: 'border-emerald-500/40' },
+    albedo: { emoji: '⚗️', name: 'Albedo', color: 'border-purple-500/40' },
+    venti: { emoji: '🎵', name: 'Venti', color: 'border-cyan-500/40' },
+    system: { emoji: '⚙️', name: '系统', color: 'border-violet-500/40' },
+    human: { emoji: '👤', name: '用户', color: 'border-[hsl(var(--agent-owner))]/40' },
   };
 
   return (
@@ -121,9 +133,41 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
             </div>
           </div>
         )}
-        {chatMessages.map((msg) => (
-          <ChatMessageItem key={msg.id} message={msg} />
-        ))}
+        {(() => {
+          const groups: { agentId: string; messages: ChatMessage[] }[] = [];
+          const msgs = chatMessages;
+          for (const msg of msgs) {
+            const lastGroup = groups[groups.length - 1];
+            if (lastGroup && lastGroup.agentId === msg.agentId) {
+              lastGroup.messages.push(msg);
+            } else {
+              groups.push({ agentId: msg.agentId, messages: [msg] });
+            }
+          }
+
+          return groups.map((group, gi) => {
+            const meta = AGENT_META[group.agentId] || { emoji: '?', name: group.agentId, color: 'border-zinc-500/40' };
+            const isLatestGroup = gi === groups.length - 1;
+            const isHuman = group.agentId === 'human';
+
+            if (isHuman) {
+              return group.messages.map((msg) => (
+                <ChatMessageItem key={msg.id} message={msg} />
+              ));
+            }
+
+            return (
+              <MessageGroup
+                key={group.messages[0].id}
+                messages={group.messages}
+                themeColor={meta.color}
+                agentEmoji={meta.emoji}
+                agentName={meta.name}
+                defaultExpanded={isLatestGroup}
+              />
+            );
+          });
+        })()}
       </div>
 
       {/* Input Area */}
