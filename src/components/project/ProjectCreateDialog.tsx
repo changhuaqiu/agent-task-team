@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { X, Plus } from 'lucide-react';
 import { useTaskHubStore } from '@/store/taskHubStore';
 import { cn } from '@/lib/utils';
+import { FolderPicker } from '@/components/ui/FolderPicker';
 
 export function ProjectCreateDialog({
   open,
@@ -16,6 +17,8 @@ export function ProjectCreateDialog({
   const titleRef = useRef<HTMLInputElement>(null);
   const [title, setTitle] = useState('');
   const [goal, setGoal] = useState('');
+  const [projectPath, setProjectPath] = useState('');
+  const [autoBreakdown, setAutoBreakdown] = useState(true);
 
   useEffect(() => {
     if (!open) return;
@@ -37,9 +40,11 @@ export function ProjectCreateDialog({
     const trimmedTitle = title.trim();
     const trimmedGoal = goal.trim();
     if (!trimmedTitle || !trimmedGoal) return;
-    createConversation({ title: trimmedTitle, goal: trimmedGoal });
+    createConversation({ title: trimmedTitle, goal: trimmedGoal, projectPath: projectPath || undefined, autoBreakdown });
     setTitle('');
     setGoal('');
+    setProjectPath('');
+    setAutoBreakdown(true);
     onClose();
   };
 
@@ -87,6 +92,10 @@ export function ProjectCreateDialog({
             </div>
 
             <div className="space-y-1.5">
+              <FolderPicker value={projectPath} onChange={setProjectPath} />
+            </div>
+
+            <div className="space-y-1.5">
               <label className="text-[11px] font-semibold uppercase tracking-wider text-[hsl(var(--text-tertiary))]">
                 目标 / 验收标准
               </label>
@@ -97,6 +106,26 @@ export function ProjectCreateDialog({
                 rows={4}
                 className="w-full px-3 py-2 rounded-[var(--radius-md)] border border-[hsl(var(--border))] bg-[hsl(var(--bg-muted))] text-[13px] font-medium outline-none resize-none focus:border-[hsl(var(--accent))]"
               />
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                role="checkbox"
+                aria-checked={autoBreakdown}
+                onClick={() => setAutoBreakdown(!autoBreakdown)}
+                className={cn(
+                  'w-4 h-4 rounded-[2px] border-2 flex items-center justify-center transition-all',
+                  autoBreakdown
+                    ? 'bg-[hsl(var(--accent))] border-[hsl(var(--accent))] text-white'
+                    : 'bg-[hsl(var(--bg-muted))] border-[hsl(var(--border))]'
+                )}
+              >
+                {autoBreakdown && <span className="text-[10px]">✓</span>}
+              </button>
+              <span className="text-[11px] text-[hsl(var(--text-secondary))]">
+                自动拆解任务（由 ⚔️ Jean 分析）
+              </span>
             </div>
           </div>
 
@@ -119,7 +148,7 @@ export function ProjectCreateDialog({
               )}
             >
               <Plus className="w-3.5 h-3.5" />
-              创建项目
+              {autoBreakdown ? '创建并拆解' : '创建项目'}
             </button>
           </div>
         </div>
