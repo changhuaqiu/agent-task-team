@@ -11,6 +11,7 @@ export function ProjectChatPanel() {
   const selectedConversationId = useTaskHubStore((s) => s.selectedConversationId);
   const selectedConversation = useTaskHubStore((s) => s.getSelectedConversation());
   const tasks = useTaskHubStore((s) => s.tasks);
+  const phases = useTaskHubStore((s) => s.phases);
 
   const scoped = useMemo(() => {
     if (!selectedConversationId) return [];
@@ -63,6 +64,22 @@ export function ProjectChatPanel() {
             {selectedConversation.goal}
           </div>
         )}
+        {selectedConversation?.breakdownStatus === 'in_progress' && (
+          <div className="flex items-center gap-1.5 mt-1.5">
+            <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+            <span className="text-[10px] font-bold text-amber-500">⚔️ Jean 正在拆解任务…</span>
+          </div>
+        )}
+        {selectedConversation?.breakdownStatus === 'reviewed' && (() => {
+          const phaseCount = phases.filter((p) => p.conversationId === selectedConversationId).length;
+          const taskCount = scoped.length;
+          return (
+            <div className="flex items-center gap-1.5 mt-1.5">
+              <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400" />
+              <span className="text-[10px] font-bold text-amber-500">{phaseCount} 阶段 · {taskCount} 任务 · 待确认</span>
+            </div>
+          );
+        })()}
         <AgentBar />
       </div>
 
