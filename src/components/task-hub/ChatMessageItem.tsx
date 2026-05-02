@@ -84,6 +84,7 @@ export function ChatMessageItem({ message }: ChatMessageItemProps) {
 
   const [showRejectInput, setShowRejectInput] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
+  const [isHovered, setIsHovered] = useState(false);
 
   const toggleCheck = (key: string) => {
     setCheckedKeys((prev) => {
@@ -109,6 +110,8 @@ export function ChatMessageItem({ message }: ChatMessageItemProps) {
         'flex gap-3 w-full animate-fade-in',
         isHuman ? 'flex-row-reverse' : 'flex-row'
       )}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
     >
       {/* Avatar */}
       <div className="shrink-0 pt-1">
@@ -378,6 +381,40 @@ export function ChatMessageItem({ message }: ChatMessageItemProps) {
                 >
                   {message.approvalStatus === 'approved' ? '已同意' : `已拒绝${message.rejectionReason ? '：' + message.rejectionReason.slice(0, 30) : ''}`}
                 </div>
+              )}
+            </div>
+          )}
+
+          {/* Hover Action Bar */}
+          {isHovered && (
+            <div className="absolute -top-2 right-2 flex gap-0.5 bg-[hsl(var(--bg-card))] border border-[hsl(var(--border))] rounded-[4px] p-0.5 shadow-sm z-10">
+              <button
+                type="button"
+                onClick={() => {
+                  window.dispatchEvent(new CustomEvent('chat:quote', { detail: message.content }));
+                }}
+                className="text-[9px] px-1.5 py-0.5 text-[hsl(var(--text-tertiary))] hover:text-[hsl(var(--text-primary))] rounded-[2px] hover:bg-[hsl(var(--bg-muted))] transition-colors"
+                title="引用此消息"
+              >
+                📎
+              </button>
+              <button
+                type="button"
+                onClick={() => navigator.clipboard.writeText(message.content)}
+                className="text-[9px] px-1.5 py-0.5 text-[hsl(var(--text-tertiary))] hover:text-[hsl(var(--text-primary))] rounded-[2px] hover:bg-[hsl(var(--bg-muted))] transition-colors"
+                title="复制内容"
+              >
+                📋
+              </button>
+              {message.referencedTaskId && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedTaskId(message.referencedTaskId!)}
+                  className="text-[9px] px-1.5 py-0.5 text-[hsl(var(--text-tertiary))] hover:text-[hsl(var(--text-primary))] rounded-[2px] hover:bg-[hsl(var(--bg-muted))] transition-colors"
+                  title="跳转到任务"
+                >
+                  🔗
+                </button>
               )}
             </div>
           )}
