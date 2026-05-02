@@ -13,6 +13,33 @@ export type { CliEngine, DetectedRuntime };
 
 const socket = io(undefined, { path: '/api/socketio', autoConnect: false });
 
+/** Stream timeout watchdogs — auto-complete stuck streaming messages after 60s of silence. */
+const STREAM_WATCHDOG_MS = 60_000;
+const streamWatchdogs: Record<string, ReturnType<typeof setTimeout>> = {};
+
+function resetWatchdog(agentId: string) {
+  if (streamWatchdogs[agentId]) clearTimeout(streamWatchdogs[agentId]);
+  streamWatchdogs[agentId] = setTimeout(() => {
+    const state = useTaskHubStore.getState();
+    if (state.activeStreamMessageId[agentId]) {
+      console.warn(`[watchdog] Stream for ${agentId} timed out after ${STREAM_WATCHDOG_MS / 1000}s, auto-completing`);
+      useTaskHubStore.setState((s) => ({
+        agentStatus: { ...s.agentStatus, [agentId]: 'idle' },
+        activeRunsByAgent: { ...s.activeRunsByAgent, [agentId]: undefined },
+      }));
+      useTaskHubStore.getState().completeStreamMessage(agentId);
+    }
+    delete streamWatchdogs[agentId];
+  }, STREAM_WATCHDOG_MS);
+}
+
+function clearWatchdog(agentId: string) {
+  if (streamWatchdogs[agentId]) {
+    clearTimeout(streamWatchdogs[agentId]);
+    delete streamWatchdogs[agentId];
+  }
+}
+
 /* ============================================================
    Task Hub Store
    Aligned with: docs/wiki/01-architecture.md
@@ -1286,14 +1313,19 @@ TASK: {任务标题} | {任务描述} @{推荐agentId}`;
         if (agent?.roleCardId) {
           const rc = get().roleCards.find((c) => c.id === agent.roleCardId);
           if (rc) {
-            const parts: string[] = [`[Role: ${rc.displayName}]`];
-            if (rc.responsibilities.length) parts.push(`Responsibilities: ${rc.responsibilities.join(', ')}`);
-            if (rc.nonResponsibilities.length) parts.push(`NOT responsible for: ${rc.nonResponsibilities.join(', ')}`);
-            if (rc.outputFormat !== 'freeform') parts.push(`Output format: ${rc.outputFormat}`);
-            if (rc.requiresEvidence) parts.push('Must provide evidence/references');
-            if (rc.forbiddenActions.length) parts.push(`Forbidden: ${rc.forbiddenActions.join(', ')}`);
-            parts.push('---');
-            effectivePrompt = `${parts.join('\n')}\n${prompt}`;
+            const isFirstWakeUp = !sessionId;
+            if (isFirstWakeUp && rc.persona?.introduction) {
+              effectivePrompt = `${rc.persona.introduction}\n\n---\n${prompt}`;
+            } else {
+              const parts: string[] = [`[Role: ${rc.displayName}]`];
+              if (rc.responsibilities.length) parts.push(`Responsibilities: ${rc.responsibilities.join(', ')}`);
+              if (rc.nonResponsibilities.length) parts.push(`NOT responsible for: ${rc.nonResponsibilities.join(', ')}`);
+              if (rc.outputFormat !== 'freeform') parts.push(`Output format: ${rc.outputFormat}`);
+              if (rc.requiresEvidence) parts.push('Must provide evidence/references');
+              if (rc.forbiddenActions.length) parts.push(`Forbidden: ${rc.forbiddenActions.join(', ')}`);
+              parts.push('---');
+              effectivePrompt = `${parts.join('\n')}\n${prompt}`;
+            }
           }
         }
 
@@ -1475,7 +1507,10 @@ TASK: {任务标题} | {任务描述} @{推荐agentId}`;
         if (existing) {
           const existingConvId = get().activeStreamConversationId[agentId];
           const msgs = get().chatMessagesByConversation[existingConvId ?? conversationId] ?? [];
-          if (msgs.some((m) => m.id === existing)) return existing;
+          if (msgs.some((m) => m.id === existing)) {
+            resetWatchdog(agentId);
+            return existing;
+          }
         }
         const id = `msg-${Date.now()}-${agentId}`;
         const stamp = new Date().toISOString();
@@ -1490,6 +1525,7 @@ TASK: {任务标题} | {任务描述} @{推荐agentId}`;
             ],
           },
         }));
+        resetWatchdog(agentId);
         return id;
       },
 
@@ -1498,6 +1534,8 @@ TASK: {任务标题} | {任务描述} @{推荐agentId}`;
         const agentEntry = Object.entries(get().activeStreamMessageId).find(([, id]) => id === messageId);
         const trackedConvId = agentEntry ? get().activeStreamConversationId[agentEntry[0]] : undefined;
         if (!trackedConvId) return; // no tracked conversation — drop silently instead of writing to wrong bucket
+        // Reset watchdog on each append
+        if (agentEntry) resetWatchdog(agentEntry[0]);
 
         set((state) => {
           const convId = trackedConvId;
@@ -1522,6 +1560,7 @@ TASK: {任务标题} | {任务描述} @{推荐agentId}`;
       completeStreamMessage: (agentId) => {
         const activeId = get().activeStreamMessageId[agentId];
         if (!activeId) return;
+        clearWatchdog(agentId);
         const trackedConvId = get().activeStreamConversationId[agentId];
         set((state) => {
           const { [agentId]: _, ...restMsgIds } = state.activeStreamMessageId;
@@ -2070,6 +2109,13 @@ socket.on('agent:error', ({ agentId, message, reasonCode }: { agentId: string; m
         agentStatus: { ...s.agentStatus, [agentId]: 'busy' },
       }));
     }
+    // Retry dequeue after a short delay — the current run may finish soon
+    setTimeout(() => {
+      const current = useTaskHubStore.getState();
+      if (current.agentStatus[agentId] === 'idle' && current.pendingDispatches[agentId]?.length) {
+        current.dequeueNextPending(agentId);
+      }
+    }, 2000);
     return; // Silent — don't show error bubble
   }
 
