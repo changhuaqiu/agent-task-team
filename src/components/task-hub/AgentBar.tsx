@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useTaskHubStore, AGENT_ROSTER } from '@/store/taskHubStore';
 import { getCategoryConfig } from '@/components/role-card/RoleCardBadge';
 import { AgentBindingPanel } from '@/components/task-hub/AgentBindingPanel';
@@ -14,13 +14,26 @@ export function AgentBar() {
   const tasks = useTaskHubStore((s) => s.tasks);
 
   const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Close expanded panel when clicking outside
+  useEffect(() => {
+    if (!expandedAgent) return;
+    const handler = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setExpandedAgent(null);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [expandedAgent]);
 
   const activeAgents = AGENT_ROSTER.filter((a) => activeAgentIds.includes(a.id));
 
   if (activeAgents.length === 0) return null;
 
   return (
-    <div className="px-4 pt-2 pb-1">
+    <div ref={containerRef} className="px-4 pt-2 pb-1">
       <div className="flex items-center gap-1.5 flex-wrap">
         {activeAgents.map((agent) => {
           const roleCard = agent.roleCardId
