@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { cn } from '@/lib/utils';
 import { STATUS_LABELS, STATUS_ORDER, type Task, type TaskStatus, useTaskHubStore } from '@/store/taskHubStore';
 import { StatusBadge } from '@/components/task-hub/StatusBadge';
@@ -30,7 +30,22 @@ export function MiniKanban() {
     return tasks.filter((t) => t.conversationId === selectedConversationId);
   }, [selectedConversationId, tasks]);
 
-  const grouped = useMemo(() => groupByStatus(scoped), [scoped]);
+  const phases = useTaskHubStore((s) => s.phases);
+  const [activePhase, setActivePhase] = useState<string | null>(null);
+
+  const scopedPhases = useMemo(() => {
+    if (!selectedConversationId) return [];
+    return phases
+      .filter((p) => p.conversationId === selectedConversationId)
+      .sort((a, b) => a.order - b.order);
+  }, [selectedConversationId, phases]);
+
+  const phaseFiltered = useMemo(() => {
+    if (!activePhase) return scoped;
+    return scoped.filter((t) => t.phaseId === activePhase);
+  }, [scoped, activePhase]);
+
+  const grouped = useMemo(() => groupByStatus(phaseFiltered), [phaseFiltered]);
 
   return (
     <div className="rounded-[var(--radius-lg)] border border-[hsl(var(--border))] bg-[hsl(var(--bg-card))] shadow-sm overflow-hidden">
@@ -43,6 +58,40 @@ export function MiniKanban() {
         </div>
       </div>
 
+      {scopedPhases.length > 0 && (
+        <div className="px-3 pb-2 flex gap-1.5 flex-wrap">
+          <button
+            type="button"
+            onClick={() => setActivePhase(null)}
+            className={cn(
+              'px-2 py-1 text-[10px] font-bold rounded-[2px] border-2 transition-all',
+              activePhase === null
+                ? 'bg-[hsl(var(--accent))] text-white border-[hsl(var(--accent))] shadow-[1px_1px_0px_hsl(var(--accent)/0.4)]'
+                : 'bg-[hsl(var(--bg-muted))] text-[hsl(var(--text-tertiary))] border-[hsl(var(--border))] hover:border-[hsl(var(--text-primary))]'
+            )}
+          >
+            全部 ({scoped.length})
+          </button>
+          {scopedPhases.map((phase) => {
+            const count = scoped.filter((t) => t.phaseId === phase.id).length;
+            return (
+              <button
+                key={phase.id}
+                type="button"
+                onClick={() => setActivePhase(phase.id)}
+                className={cn(
+                  'px-2 py-1 text-[10px] font-bold rounded-[2px] border-2 transition-all',
+                  activePhase === phase.id
+                    ? 'bg-[hsl(var(--accent))] text-white border-[hsl(var(--accent))] shadow-[1px_1px_0px_hsl(var(--accent)/0.4)]'
+                    : 'bg-[hsl(var(--bg-muted))] text-[hsl(var(--text-tertiary))] border-[hsl(var(--border))] hover:border-[hsl(var(--text-primary))]'
+                )}
+              >
+                {phase.title} ({count})
+              </button>
+            );
+          })}
+        </div>
+      )}
       <div className="p-3 overflow-x-auto scrollbar-thin">
         <div className="flex gap-3 w-max items-start">
           {MINI_STATUS_ORDER.map((status) => {
