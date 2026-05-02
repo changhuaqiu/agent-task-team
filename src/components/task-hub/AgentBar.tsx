@@ -11,6 +11,7 @@ export function AgentBar() {
   const roleCards = useTaskHubStore((s) => s.roleCards);
   const accounts = useTaskHubStore((s) => s.accounts);
   const setRosterModalOpen = useTaskHubStore((s) => s.setRosterModalOpen);
+  const tasks = useTaskHubStore((s) => s.tasks);
 
   const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
 
@@ -32,6 +33,7 @@ export function AgentBar() {
             return acc?.status === 'valid';
           }) ?? false;
           const isExpanded = expandedAgent === agent.id;
+          const currentTask = tasks.find((t: { agentId: string; status: string }) => t.agentId === agent.id && t.status === 'in_progress');
 
           return (
             <div key={agent.id} className="relative">
@@ -42,9 +44,11 @@ export function AgentBar() {
                   'flex items-center gap-1.5 px-2 py-1 rounded-[4px] border-2 transition-all',
                   isExpanded
                     ? 'border-[hsl(var(--text-primary))] bg-[hsl(var(--bg-elevated))] shadow-[2px_2px_0px_hsl(var(--text-primary))]'
-                    : cfg
-                      ? `border-[hsl(var(${cfg.themeVar})/0.4)] bg-[hsl(var(${cfg.themeVar}-soft)/0.5)] hover:border-[hsl(var(${cfg.themeVar}))]`
-                      : 'border-[hsl(var(--border))] bg-[hsl(var(--bg-muted))] hover:border-[hsl(var(--text-primary))]',
+                    : currentTask
+                      ? 'border-blue-500 bg-blue-500/10 shadow-[0_0_8px_rgba(59,130,246,0.2)] hover:border-blue-400'
+                      : cfg
+                        ? `border-[hsl(var(${cfg.themeVar})/0.4)] bg-[hsl(var(${cfg.themeVar}-soft)/0.5)] hover:border-[hsl(var(${cfg.themeVar}))]`
+                        : 'border-[hsl(var(--border))] bg-[hsl(var(--bg-muted))] hover:border-[hsl(var(--text-primary))]',
                 )}
               >
                 {/* Emoji avatar */}
@@ -74,13 +78,19 @@ export function AgentBar() {
                   )}
                 </div>
 
+                {currentTask && (
+                  <span className="text-[8px] text-blue-400 max-w-[60px] truncate animate-pulse">
+                    {currentTask.title}
+                  </span>
+                )}
+
                 {/* Account status dot */}
                 <span
                   className={cn(
                     'w-1.5 h-1.5 rounded-full shrink-0',
-                    hasValidAccount ? 'bg-emerald-400' : boundCount > 0 ? 'bg-amber-400' : 'bg-zinc-400',
+                    currentTask ? 'bg-blue-400 animate-pulse' : hasValidAccount ? 'bg-emerald-400' : boundCount > 0 ? 'bg-amber-400' : 'bg-zinc-400',
                   )}
-                  title={hasValidAccount ? '账号已验证' : boundCount > 0 ? '账号待验证' : '未绑定账号'}
+                  title={currentTask ? `执行中: ${currentTask.title}` : hasValidAccount ? '账号已验证' : boundCount > 0 ? '账号待验证' : '未绑定账号'}
                 />
               </button>
 
