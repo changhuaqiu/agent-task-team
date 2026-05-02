@@ -25,6 +25,7 @@ type TerminalStartPayload = {
   agentId: string;
   prompt: string;
   sessionId?: string;
+  conversationId?: string;
   allowMockRunner?: boolean;
   opencodeBridgeUrl?: string;
   engine?: CliEngine;
@@ -138,6 +139,7 @@ export default function registerDaemon(io: IOServer) {
         agentId,
         prompt,
         sessionId,
+        conversationId,
         allowMockRunner,
         opencodeBridgeUrl,
         engine: rawEngine,
@@ -162,19 +164,21 @@ export default function registerDaemon(io: IOServer) {
       const credentialEnv = await resolveCredentialEnv(accountId);
 
       // --- Session & Invocation tracking (SQLite) ---
+      // Use conversationId for session scoping (project-level session per agent)
+      const sessionConvId = conversationId || projectId || 'default';
       let agentSession: AgentSessionRow | undefined;
       let invocation: InvocationRow | undefined;
 
-      if (taskId && accountId) {
-        agentSession = sessionRepo.findActive(agentId, taskId);
+      if (accountId) {
+        agentSession = sessionRepo.findActiveByConversation(agentId, sessionConvId);
 
         if (!agentSession) {
           const newSessionId = generateSortableId('ses');
           agentSession = sessionRepo.create({
             id: newSessionId,
-            conversationId: projectId || 'default',
+            conversationId: sessionConvId,
             agentId,
-            taskId,
+            taskId: taskId || undefined,
             seq: 0,
           });
         }
@@ -182,8 +186,8 @@ export default function registerDaemon(io: IOServer) {
         const invocationId = generateSortableId('inv');
         invocation = invocationRepo.create({
           id: invocationId,
-          conversation_id: projectId || 'default',
-          task_id: taskId,
+          conversation_id: sessionConvId,
+          task_id: taskId || '',
           agent_id: agentId,
           session_id: agentSession.id,
           engine,
@@ -310,15 +314,15 @@ export default function registerDaemon(io: IOServer) {
           }
         } else if (type === 'tool_use') {
           const toolName = typeof part?.tool === 'string' ? part.tool : undefined;
-          const toolContent = `🔧 使用工具：${toolName}`;
-          socket.emit('agent:event', { taskId, agentId, type: 'message', message: toolContent });
+          const toolInput = typeof part?.input === 'object' ? JSON.stringify(part.input).slice(0, 200) : undefined;
+          socket.emit('agent:event', { taskId, agentId, type: 'tool_use', toolName, toolInput, message: `🔧 使用工具：${toolName}` });
           if (projectId) {
             messageRepo.append({
               conversationId: projectId,
               taskId,
               senderType: 'agent',
               senderId: agentId,
-              content: toolContent,
+              content: `🔧 使用工具：${toolName}`,
               contentType: 'tool_use',
             });
             if (agentSession) sessionRepo.incrementMessageCount(agentSession.id);
@@ -326,12 +330,12 @@ export default function registerDaemon(io: IOServer) {
         } else if (type === 'step_start') {
           socket.emit('agent:event', { taskId, agentId, type: 'step_start', message: `🚀 开始执行任务。` });
         } else if (type === 'step_finish') {
-          socket.emit('agent:event', { taskId, agentId, type: 'message', message: `✅ 任务执行完成。` });
+          socket.emit('agent:event', { taskId, agentId, type: 'step_finish', message: `✅ 任务执行完成。` });
         } else if (type === 'error') {
           const errorObj = (obj.error && typeof obj.error === 'object') ? (obj.error as Record<string, unknown>) : undefined;
           const errorName = typeof errorObj?.name === 'string' ? errorObj.name : undefined;
           const errorContent = `❌ 错误：${errorName || '未知错误'}`;
-          socket.emit('agent:event', { taskId, agentId, type: 'message', message: errorContent });
+          socket.emit('agent:event', { taskId, agentId, type: 'error', message: errorContent });
           if (projectId) {
             messageRepo.append({
               conversationId: projectId,
