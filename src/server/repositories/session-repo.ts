@@ -25,6 +25,14 @@ export const sessionRepo = {
       .get(agentId, taskId, 'active') as AgentSessionRow | undefined;
   },
 
+  findActiveByConversation(agentId: string, conversationId: string): AgentSessionRow | undefined {
+    return getDb()
+      .prepare(
+        'SELECT * FROM agent_session WHERE agent_id = ? AND conversation_id = ? AND status = ? ORDER BY seq DESC LIMIT 1',
+      )
+      .get(agentId, conversationId, 'active') as AgentSessionRow | undefined;
+  },
+
   findByAgentAndTask(agentId: string, taskId: string): AgentSessionRow[] {
     return getDb()
       .prepare('SELECT * FROM agent_session WHERE agent_id = ? AND task_id = ? ORDER BY seq ASC')
@@ -35,7 +43,7 @@ export const sessionRepo = {
     id: string;
     conversationId: string;
     agentId: string;
-    taskId: string;
+    taskId?: string;
     seq?: number;
   }): AgentSessionRow {
     const now = new Date().toISOString();
@@ -44,7 +52,7 @@ export const sessionRepo = {
         `INSERT INTO agent_session (id, conversation_id, agent_id, task_id, seq, status, created_at)
          VALUES (?, ?, ?, ?, ?, 'active', ?)`,
       )
-      .run(input.id, input.conversationId, input.agentId, input.taskId, input.seq ?? 0, now);
+      .run(input.id, input.conversationId, input.agentId, input.taskId ?? '', input.seq ?? 0, now);
     return sessionRepo.getById(input.id)!;
   },
 
