@@ -1,6 +1,6 @@
 // --- RoleCard Type System ---
-// 6 dimensions: Identity, Responsibility, Work Style, Action Boundaries,
-// Capability Binding, Output & Quality
+// 7 dimensions: Identity, Responsibility, Work Style, Action Boundaries,
+// Capability Binding, Output & Quality, Persona
 
 export type RoleCardCategory =
   | 'planner'
@@ -60,6 +60,15 @@ export interface RoleCard {
   outputFormat: OutputFormat;
   requiresEvidence: boolean;
   riskGrading: RiskGrading;
+
+  // Dimension 7: Persona
+  persona?: {
+    introduction: string;
+    voice: string;
+    mindset: string;
+    habits: string;
+    collaboration: string;
+  };
 
   // Meta
   isPreset: boolean;
