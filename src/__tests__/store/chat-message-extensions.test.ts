@@ -140,6 +140,33 @@ describe('ChatMessage extensions', () => {
     });
   });
 
+  describe('confirmBreakdown system feedback', () => {
+    it('sends a system message after confirming breakdown', () => {
+      const convId = 'conv-1';
+      useTaskHubStore.setState({
+        conversations: [{ id: convId, title: 'Test', goal: 'Build X', status: 'active', priority: 'p1', projectPath: '', breakdownStatus: 'reviewed', createdAt: '', updatedAt: '' }],
+        selectedConversationId: convId,
+        tasks: [],
+        chatMessagesByConversation: { [convId]: [] },
+        phases: [],
+        activeAgentIds: ['jean', 'keqing'],
+      });
+
+      useTaskHubStore.getState().confirmBreakdown(convId, [
+        { title: 'Phase 1', description: '', tasks: [
+          { title: 'Task A', description: '', agentId: 'keqing' },
+          { title: 'Task B', description: '', agentId: 'keqing' },
+        ]},
+      ]);
+
+      const messages = useTaskHubStore.getState().chatMessagesByConversation[convId];
+      const systemMsg = messages?.find(m => m.agentId === 'system' && m.intent !== 'progress');
+      expect(systemMsg).toBeDefined();
+      expect(systemMsg?.content).toContain('2 个任务');
+      expect(systemMsg?.content).toContain('1 个阶段');
+    });
+  });
+
   describe('addChatMessage auto-create conversation', () => {
     it('auto-creates a conversation when none selected and none exist', () => {
       const store = useTaskHubStore.getState();

@@ -372,7 +372,7 @@ interface TaskHubState {
   removeTask:       (taskId: string) => void;
   updateTask:       (taskId: string, patch: Partial<Pick<Task, 'title' | 'description' | 'agentId' | 'dependencies' | 'artifacts'>>) => void;
   addChatMessage:   (msg: Omit<ChatMessage, 'id' | 'timestamp' | 'mentions' | 'intent'> & { conversationId?: string }) => void;
-  updateChatMessageStatus: (msgId: string, status: 'approved' | 'rejected') => void;
+  updateChatMessageStatus: (msgId: string, status: 'approved' | 'rejected', rejectionReason?: string) => void;
 
   // --- Terminal Store ---
   terminalLogs: Record<string, string[]>;
@@ -1166,6 +1166,29 @@ TASK: {任务标题} | {任务描述} @{推荐agentId}`;
           }
         }
         get().setBreakdownStatus(conversationId, 'confirmed');
+
+        // System feedback message
+        const totalTasks = proposals.reduce((sum, p) => sum + p.tasks.length, 0);
+        const totalPhases = proposals.length;
+        const phaseSummary = proposals.map((p, i) =>
+          `阶段 ${i + 1}: ${p.tasks.length} 任务 ${i === 0 ? '✓ 已派发' : '⏳ 等待前置阶段'}`
+        ).join('\n');
+
+        const systemMsg = {
+          id: `msg-${Date.now()}-sys`,
+          agentId: 'system' as const,
+          content: `已创建 **${totalTasks} 个任务**，分 **${totalPhases} 个阶段**执行：\n\n${phaseSummary}\n\n你可以随时 @Agent 追加指令或调整计划。`,
+          timestamp: new Date().toISOString(),
+          intent: 'general' as const,
+          conversationId,
+        };
+
+        set((state) => ({
+          chatMessagesByConversation: {
+            ...state.chatMessagesByConversation,
+            [conversationId]: [...(state.chatMessagesByConversation[conversationId] || []), systemMsg],
+          },
+        }));
       },
       isRoleCardDetailOpen: false,
       selectedRoleCardId: null,
