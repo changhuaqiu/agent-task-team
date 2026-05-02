@@ -4,6 +4,7 @@ import { useEffect, useRef } from 'react';
 import {
   type TaskStatus,
   useTaskHubStore,
+  resolveAgentEngine,
   AGENT_ROSTER,
 } from '@/store/taskHubStore';
 import { StatusBadge } from './StatusBadge';
@@ -100,7 +101,9 @@ export function TaskDetailPanel() {
 
   const simulateCliExecution = useTaskHubStore((s) => s.simulateCliExecution);
   const isRunning = useTaskHubStore((s) => agent ? s.agentStatus[agent.id] === 'busy' : false);
-  const availableRuntime = useTaskHubStore((s) => s.getAvailableRuntime());
+  const daemonRuntimes = useTaskHubStore((s) => s.daemonRuntimes);
+  const enableMockRunner = useTaskHubStore((s) => s.enableMockRunner);
+  const accounts = useTaskHubStore((s) => s.accounts);
 
   // Close on Escape
   useEffect(() => {
@@ -110,6 +113,11 @@ export function TaskDetailPanel() {
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
   }, [setSelectedTaskId]);
+
+  const resolvedBinding = agent ? resolveAgentEngine(agent, accounts) : null;
+  const resolvedEngine = resolvedBinding?.engine ?? agent?.cliEngine ?? 'opencode';
+  const engineAvailable = daemonRuntimes.some((r) => r.engine === resolvedEngine && r.available)
+    || (resolvedEngine === 'mock' && enableMockRunner);
 
   if (!task || !agent) return null;
 
@@ -305,7 +313,7 @@ export function TaskDetailPanel() {
                 </button>
               );
             })}
-            {availableRuntime && task.status === 'in_progress' && (
+            {engineAvailable && task.status === 'in_progress' && (
               <button
                 type="button"
                 onClick={() => simulateCliExecution(task.id, `任务：${task.title}。请给出简短的进度更新。`, `agent-${agent.id}`)}
@@ -313,7 +321,7 @@ export function TaskDetailPanel() {
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[var(--radius-sm)] border border-[hsl(var(--border))] bg-[hsl(var(--bg-muted))] text-[hsl(var(--text-primary))] text-[11px] font-semibold transition-all duration-200 hover:bg-[hsl(var(--bg-card-hover))] disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <TerminalIcon className="w-3.5 h-3.5" />
-                {isRunning ? '智能体忙碌中…' : `运行 ${availableRuntime.engine}`}
+                {isRunning ? '智能体忙碌中…' : `运行 ${resolvedEngine}`}
               </button>
             )}
           </div>

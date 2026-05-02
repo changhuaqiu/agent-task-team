@@ -6,7 +6,10 @@ import { io } from 'socket.io-client';
 import type { RoleCard } from '@/types/roleCard';
 import type { Phase, PhaseStatus } from '@/types/phase';
 import type { PhaseProposal } from '@/lib/breakdownParser';
+import type { CliEngine, DetectedRuntime } from '@/server/types';
 import { PRESET_ROLE_CARDS, PRESET_ROLE_CARD_MAP } from '@/data/presetRoleCards';
+
+export type { CliEngine, DetectedRuntime };
 
 const socket = io(undefined, { path: '/api/socketio', autoConnect: false });
 
@@ -46,8 +49,6 @@ export const STATUS_ORDER: TaskStatus[] = [
 export type AgentRole = 'planner' | 'worker' | 'reviewer';
 
 export type AgentTheme = 'jean' | 'keqing' | 'zhongli' | 'nahida' | 'albedo' | 'venti';
-
-export type CliEngine = 'opencode' | 'claude' | 'codex' | 'gemini' | 'mock';
 
 export interface Agent {
   id: string;
@@ -302,37 +303,8 @@ interface TaskHubState {
   };
   setDaemonConnection: (next: { status: 'disconnected' | 'connecting' | 'connected'; error?: string }) => void;
 
-  opencodeStatus: {
-    checked: boolean;
-    available: boolean;
-    path?: string;
-    version?: string;
-    error?: string;
-  };
-  setOpencodeStatus: (status: {
-    checked: boolean;
-    available: boolean;
-    path?: string;
-    version?: string;
-    error?: string;
-  }) => void;
-
-  opencodeBridge: {
-    url: string;
-    enabled: boolean;
-    checked: boolean;
-    available: boolean;
-    version?: string;
-    error?: string;
-  };
-  setOpencodeBridge: (bridge: {
-    url: string;
-    enabled: boolean;
-    checked: boolean;
-    available: boolean;
-    version?: string;
-    error?: string;
-  }) => void;
+  daemonRuntimes: DetectedRuntime[];
+  setDaemonRuntimes: (runtimes: DetectedRuntime[]) => void;
 
   accounts: Account[];
   upsertAccount: (account: Omit<Account, 'id' | 'createdAt' | 'updatedAt' | 'status' | 'lastVerifiedAt' | 'verifyError' | 'hasApiKey'> & { id?: string; apiKey?: string }) => Promise<string>;
@@ -715,11 +687,8 @@ export const useTaskHubStore = create<TaskHubState>()(
       daemonConnection: { status: 'disconnected' },
       setDaemonConnection: (next) => set({ daemonConnection: next }),
 
-      opencodeStatus: { checked: false, available: false },
-      setOpencodeStatus: (status) => set({ opencodeStatus: status }),
-
-      opencodeBridge: { url: '', enabled: false, checked: false, available: false },
-      setOpencodeBridge: (bridge) => set({ opencodeBridge: bridge }),
+      daemonRuntimes: [],
+      setDaemonRuntimes: (runtimes) => set({ daemonRuntimes: runtimes }),
 
       accounts: [],
       upsertAccount: async (account) => {
@@ -781,14 +750,10 @@ export const useTaskHubStore = create<TaskHubState>()(
       },
 
       getAvailableRuntime: () => {
-        const s = get();
-        if (s.opencodeStatus.checked && s.opencodeStatus.available) {
-          return { engine: 'opencode' as CliEngine, available: true };
-        }
-        if (s.opencodeBridge.enabled && s.opencodeBridge.checked && s.opencodeBridge.available) {
-          return { engine: 'opencode' as CliEngine, available: true };
-        }
-        if (s.enableMockRunner) {
+        const runtimes = get().daemonRuntimes;
+        const found = runtimes.find((r) => r.available);
+        if (found) return { engine: found.engine, available: true };
+        if (get().enableMockRunner) {
           return { engine: 'mock' as CliEngine, available: true };
         }
         return null;
@@ -1286,7 +1251,7 @@ TASK: {任务标题} | {任务描述} @{推荐agentId}`;
         }
         const resolvedBinding = agent ? resolveAgentEngine({ ...agent, accountIds: effectiveIds }, get().accounts) : null;
         const agentEngine = agent?.cliEngine ?? 'opencode';
-        const resolvedEngine = get().getAvailableRuntime()?.engine ?? resolvedBinding?.engine ?? agentEngine;
+        const resolvedEngine = resolvedBinding?.engine ?? agentEngine;
 
         console.log(`[dispatch] ${agentId} → engine=${resolvedEngine}, accountId=${resolvedBinding?.accountId ?? '(none)'}, convId=${conversationId}`);
 
@@ -1342,7 +1307,7 @@ TASK: {任务标题} | {任务描述} @{推荐agentId}`;
           prompt: effectivePrompt,
           sessionId,
           allowMockRunner: get().enableMockRunner,
-          opencodeBridgeUrl: get().opencodeBridge.enabled ? get().opencodeBridge.url : undefined,
+          opencodeBridgeUrl: undefined,
           engine: resolvedEngine,
           accountIds: effectiveIds,
           accountId: resolvedBinding?.accountId ?? '',
@@ -1448,7 +1413,7 @@ TASK: {任务标题} | {任务描述} @{推荐agentId}`;
         }
         const resolvedBinding = agent ? resolveAgentEngine({ ...agent, accountIds: effectiveIds }, get().accounts) : null;
         const agentEngine = agent?.cliEngine ?? 'opencode';
-        const resolvedEngine = get().getAvailableRuntime()?.engine ?? resolvedBinding?.engine ?? agentEngine;
+        const resolvedEngine = resolvedBinding?.engine ?? agentEngine;
 
         set((state) => ({
           agentStatus: { ...state.agentStatus, [agentId]: 'busy' },
@@ -1472,7 +1437,7 @@ TASK: {任务标题} | {任务描述} @{推荐agentId}`;
           prompt,
           sessionId: resolvedSessionId,
           allowMockRunner: get().enableMockRunner,
-          opencodeBridgeUrl: get().opencodeBridge.enabled ? get().opencodeBridge.url : undefined,
+          opencodeBridgeUrl: undefined,
           engine: resolvedEngine,
           accountIds: effectiveIds,
           accountId: resolvedBinding?.accountId ?? '',
@@ -1858,6 +1823,11 @@ socket.off('connect_error');
 
 socket.on('connect', () => {
   useTaskHubStore.getState().setDaemonConnection({ status: 'connected' });
+  socket.emit('runtimes:list', (response: { runtimes: DetectedRuntime[] }) => {
+    if (response?.runtimes) {
+      useTaskHubStore.getState().setDaemonRuntimes(response.runtimes);
+    }
+  });
 });
 
 socket.on('disconnect', () => {
@@ -1866,6 +1836,10 @@ socket.on('disconnect', () => {
 
 socket.on('connect_error', (err) => {
   useTaskHubStore.getState().setDaemonConnection({ status: 'disconnected', error: String((err as any)?.message || err) });
+});
+
+socket.on('runtimes:update', ({ runtimes }: { runtimes: DetectedRuntime[] }) => {
+  useTaskHubStore.getState().setDaemonRuntimes(runtimes);
 });
 
 socket.on('terminal:data', ({ agentId, data }) => {

@@ -1,5 +1,7 @@
 import type { Server as IOServer, Socket } from 'socket.io';
 import { join } from 'path';
+import { exec } from 'node:child_process';
+import { promisify } from 'node:util';
 import { TmuxGateway } from './tmux-gateway';
 import { AgentPaneRegistry } from './agent-pane-registry';
 import { readAccount } from './accounts-file';
@@ -7,6 +9,7 @@ import { readCredential } from './credentials';
 import { buildProbeEnv } from './cli-probe';
 import { generateRuntimeConfig, cleanupRuntimeConfig, makeInvocationId } from './opencode-config';
 import type { AccountProvider as RuntimeAccountProvider } from './opencode-config';
+import type { CliEngine, DetectedRuntime } from './types';
 import { sessionRepo } from './repositories/session-repo';
 import type { AgentSessionRow } from './repositories/session-repo';
 import { invocationRepo } from './repositories/invocation-repo';
@@ -17,8 +20,6 @@ import { generateSortableId } from './repositories/sortable-id';
 import { createBackend } from './agent/factory';
 import type { AgentEvent } from './agent/types';
 
-type CliEngine = 'opencode' | 'claude' | 'codex' | 'gemini' | 'mock';
-
 type TerminalStartPayload = {
   projectId?: string;
   taskId?: string;
@@ -26,7 +27,6 @@ type TerminalStartPayload = {
   prompt: string;
   sessionId?: string;
   conversationId?: string;
-  allowMockRunner?: boolean;
   opencodeBridgeUrl?: string;
   engine?: CliEngine;
   runtimeId?: string;
@@ -70,6 +70,28 @@ async function resolveCredentialEnv(accountId?: string): Promise<Record<string, 
   return buildProbeEnv(account.provider as AccountProvider, cred.apiKey, account.baseUrl);
 }
 
+const execAsync = promisify(exec);
+
+async function detectAvailableRuntimes(): Promise<DetectedRuntime[]> {
+  const results: DetectedRuntime[] = [];
+  const engines: CliEngine[] = ['claude', 'codex', 'opencode'];
+  for (const engine of engines) {
+    const command = ENGINE_COMMAND[engine];
+    try {
+      await execAsync(`which ${command}`, { timeout: 3_000 });
+      let version: string | undefined;
+      try {
+        const { stdout } = await execAsync(`${command} --version`, { timeout: 5_000 });
+        version = stdout.trim().slice(0, 60) || undefined;
+      } catch { /* ignore */ }
+      results.push({ engine, available: true, version });
+    } catch {
+      results.push({ engine, available: false });
+    }
+  }
+  return results;
+}
+
 export default function registerDaemon(io: IOServer) {
   const activeProcesses = new Map<string, { kill: () => void }>();
 
@@ -97,6 +119,17 @@ export default function registerDaemon(io: IOServer) {
       }
       callback?.({ panes: agentPaneRegistry.listAll() });
     });
+
+    socket.on('runtimes:list', async (callback) => {
+      const runtimes = await detectAvailableRuntimes();
+      callback?.({ runtimes });
+    });
+
+    // Push runtimes on connect
+    (async () => {
+      const runtimes = await detectAvailableRuntimes();
+      socket.emit('runtimes:update', { runtimes });
+    })();
   });
 
   io.on('connection', (socket: Socket) => {
@@ -109,7 +142,6 @@ export default function registerDaemon(io: IOServer) {
         prompt,
         sessionId,
         conversationId,
-        allowMockRunner,
         opencodeBridgeUrl,
         engine: rawEngine,
         runtimeId,
