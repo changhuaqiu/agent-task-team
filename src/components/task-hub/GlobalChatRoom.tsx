@@ -1,17 +1,30 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { useTaskHubStore, type ChatMessage } from '@/store/taskHubStore';
 import { ChatMessageItem } from './ChatMessageItem';
 import { MessageGroup } from './MessageGroup';
+import { ChatFilterBar, type ChatFilter } from './ChatFilterBar';
 import { Send, Hash } from 'lucide-react';
 import { cn } from '@/lib/utils';
+
+function formatDateSeparator(dateStr: string): string {
+  const date = new Date(dateStr);
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+
+  if (date.toDateString() === today.toDateString()) return '今天';
+  if (date.toDateString() === yesterday.toDateString()) return '昨天';
+  return `${date.getMonth() + 1}月${date.getDate()}日`;
+}
 
 export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalone' | 'embedded' }) {
   const selectedConversationId = useTaskHubStore((s) => s.selectedConversationId);
   const chatMessages = useTaskHubStore((s) => s.getChatMessagesForSelectedConversation());
   const addChatMessage = useTaskHubStore((s) => s.addChatMessage);
   const [inputValue, setInputValue] = useState('');
+  const [filter, setFilter] = useState<ChatFilter>({ intent: null, agentId: null, userOnly: false, search: '' });
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll to bottom on new message
@@ -20,6 +33,16 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [chatMessages]);
+
+  // Quote event listener
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      setInputValue(`> ${detail}\n\n`);
+    };
+    window.addEventListener('chat:quote', handler);
+    return () => window.removeEventListener('chat:quote', handler);
+  }, []);
 
   const handleSend = () => {
     if (!inputValue.trim()) return;
@@ -55,6 +78,18 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
     human: { emoji: '👤', name: '用户', color: 'border-[hsl(var(--agent-owner))]/40' },
   };
 
+  const filteredMessages = useMemo(() => {
+    let msgs = chatMessages;
+    if (filter.intent) msgs = msgs.filter(m => m.intent === filter.intent);
+    if (filter.agentId) msgs = msgs.filter(m => m.agentId === filter.agentId);
+    if (filter.userOnly) msgs = msgs.filter(m => m.agentId === 'human');
+    if (filter.search) {
+      const q = filter.search.toLowerCase();
+      msgs = msgs.filter(m => m.content.toLowerCase().includes(q));
+    }
+    return msgs;
+  }, [chatMessages, filter]);
+
   return (
     <div
       className={cn(
@@ -83,6 +118,10 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
         className="flex-1 overflow-y-auto p-5 flex flex-col gap-6 scrollbar-thin scroll-smooth"
         style={{ backgroundImage: 'radial-gradient(hsl(var(--border)) 1px, transparent 0)', backgroundSize: '16px 16px' }}
       >
+        <ChatFilterBar
+          onFilterChange={setFilter}
+          messageCount={chatMessages.length}
+        />
         {!selectedConversationId && chatMessages.length === 0 && (
           <div className="flex flex-col items-center justify-center flex-1 gap-4 py-12 px-4">
             <div className="text-3xl">⚔️</div>
@@ -135,7 +174,7 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
         )}
         {(() => {
           const groups: { agentId: string; messages: ChatMessage[] }[] = [];
-          const msgs = chatMessages;
+          const msgs = filteredMessages;
           for (const msg of msgs) {
             const lastGroup = groups[groups.length - 1];
             if (lastGroup && lastGroup.agentId === msg.agentId) {
@@ -145,26 +184,39 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
             }
           }
 
+          let lastDate = '';
           return groups.map((group, gi) => {
+            const groupDate = new Date(group.messages[0].timestamp).toDateString();
+            const showDateSep = groupDate !== lastDate;
+            lastDate = groupDate;
+
             const meta = AGENT_META[group.agentId] || { emoji: '?', name: group.agentId, color: 'border-zinc-500/40' };
             const isLatestGroup = gi === groups.length - 1;
             const isHuman = group.agentId === 'human';
 
-            if (isHuman) {
-              return group.messages.map((msg) => (
-                <ChatMessageItem key={msg.id} message={msg} />
-              ));
-            }
-
             return (
-              <MessageGroup
-                key={group.messages[0].id}
-                messages={group.messages}
-                themeColor={meta.color}
-                agentEmoji={meta.emoji}
-                agentName={meta.name}
-                defaultExpanded={isLatestGroup}
-              />
+              <div key={group.messages[0].id}>
+                {showDateSep && (
+                  <div className="text-center my-3">
+                    <span className="text-[9px] text-[hsl(var(--text-tertiary))] bg-[hsl(var(--bg-card))] px-3 py-0.5 rounded-full border border-[hsl(var(--border-subtle))]">
+                      ── {formatDateSeparator(group.messages[0].timestamp)} ──
+                    </span>
+                  </div>
+                )}
+                {isHuman ? (
+                  group.messages.map((msg) => (
+                    <ChatMessageItem key={msg.id} message={msg} />
+                  ))
+                ) : (
+                  <MessageGroup
+                    messages={group.messages}
+                    themeColor={meta.color}
+                    agentEmoji={meta.emoji}
+                    agentName={meta.name}
+                    defaultExpanded={isLatestGroup}
+                  />
+                )}
+              </div>
             );
           });
         })()}
