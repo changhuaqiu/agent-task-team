@@ -1605,7 +1605,7 @@ TASK: {任务标题} | {任务描述} @{推荐agentId}`;
         }).catch((err) => console.error('[mutation] message.append failed:', err));
       },
 
-      updateChatMessageStatus: (msgId, status) =>
+      updateChatMessageStatus: (msgId, status, rejectionReason) =>
         set((state) => {
           let changed = false;
           const next = { ...state.chatMessagesByConversation };
@@ -1614,7 +1614,11 @@ TASK: {任务标题} | {任务描述} @{推荐agentId}`;
             const idx = msgs.findIndex((m) => m.id === msgId);
             if (idx === -1) continue;
             changed = true;
-            next[conversationId] = msgs.map((m) => (m.id === msgId ? { ...m, approvalStatus: status } : m));
+            next[conversationId] = msgs.map((m) =>
+              m.id === msgId
+                ? { ...m, approvalStatus: status, ...(status === 'rejected' && rejectionReason ? { rejectionReason } : {}) }
+                : m
+            );
           }
           return changed ? { chatMessagesByConversation: next } : {};
         }),
