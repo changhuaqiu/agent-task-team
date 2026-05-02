@@ -399,6 +399,15 @@ interface TaskHubState {
   agentAccountOverrides: Record<string, string[]>;
   setAgentAccountIds: (agentId: string, accountIds: string[]) => void;
 
+  createProgressMessage: (params: {
+    taskId: string;
+    taskTitle: string;
+    type: 'start' | 'update' | 'complete';
+    completedSteps?: number;
+    totalSteps?: number;
+    steps?: { label: string; status: 'done' | 'in_progress' | 'pending' }[];
+  }, conversationId: string) => ChatMessage;
+
   // --- Role Card Store ---
   roleCards: RoleCard[];
   upsertRoleCard: (card: Omit<RoleCard, 'id' | 'createdAt' | 'updatedAt' | 'version' | 'isPreset'> & { id?: string; isPreset?: boolean }) => string;
@@ -973,6 +982,32 @@ export const useTaskHubStore = create<TaskHubState>()(
             [agentId]: accountIds,
           },
         })),
+
+      createProgressMessage: (params, conversationId) => {
+        const id = `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+        const contentTemplates: Record<string, string> = {
+          start: `▶ #${params.taskId} 开始执行 — ${params.taskTitle}`,
+          update: `⟳ #${params.taskId} 进度更新 — ${params.completedSteps}/${params.totalSteps}`,
+          complete: `✓ #${params.taskId} 执行完成 — ${params.taskTitle}`,
+        };
+
+        return {
+          id,
+          agentId: 'system',
+          content: contentTemplates[params.type],
+          timestamp: new Date().toISOString(),
+          intent: 'progress',
+          referencedTaskId: params.taskId,
+          conversationId,
+          progressData: {
+            taskId: params.taskId,
+            type: params.type,
+            completedSteps: params.completedSteps ?? 0,
+            totalSteps: params.totalSteps ?? 0,
+            steps: params.steps ?? [],
+          },
+        };
+      },
 
       // --- Role Card Store ---
       roleCards: [...PRESET_ROLE_CARDS],
