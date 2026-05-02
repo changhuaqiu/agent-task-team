@@ -9,6 +9,7 @@ import { ProgressMessageCard } from './ProgressMessageCard';
 import { cn } from '@/lib/utils';
 import { parsePhaseBreakdown } from '@/lib/breakdownParser';
 import { Check, X, User, Lightbulb, Play, Eye } from 'lucide-react';
+import { MarkdownContent } from './MarkdownContent';
 
 interface ChatMessageItemProps {
   message: ChatMessage;
@@ -68,7 +69,7 @@ export function ChatMessageItem({ message }: ChatMessageItemProps) {
   const isHuman = message.agentId === 'human';
   const agent = allAgents.find((a) => a.id === message.agentId);
 
-  const timeString = message.timestamp.slice(11, 16);
+  const timeString = new Date(message.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
   const proposals = useMemo(() => parsePhaseBreakdown(message.content), [message.content]);
   const hasPhaseStructure = proposals.length > 0;
   const hasToolEvents = (message.toolEvents?.length ?? 0) > 0;
@@ -166,7 +167,11 @@ export function ChatMessageItem({ message }: ChatMessageItemProps) {
           {message.isStreaming && !message.content && !hasToolEvents ? (
             <span className="inline-block w-1.5 h-4 bg-current animate-pulse rounded-full opacity-50" />
           ) : message.content ? (
-            <div className="whitespace-pre-wrap break-words">{formatContentWithMentions(message.content)}</div>
+            isHuman ? (
+              <div className="whitespace-pre-wrap break-words">{formatContentWithMentions(message.content)}</div>
+            ) : (
+              <MarkdownContent content={message.content} />
+            )
           ) : null}
 
           {/* Progress Message Card */}
