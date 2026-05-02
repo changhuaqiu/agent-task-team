@@ -38,7 +38,7 @@ export function ProjectChatPanel() {
         <div className="flex items-baseline justify-between gap-3">
           <div className="min-w-0">
             <div className="text-[14px] font-bold text-[hsl(var(--text-primary))] truncate">
-              {selectedConversation?.title || '请选择一个项目'}
+              {selectedConversation?.title || '⚔️ 作战指挥室'}
             </div>
           </div>
           {selectedConversationId && (
@@ -62,6 +62,12 @@ export function ProjectChatPanel() {
         {selectedConversation?.goal && (
           <div className="text-[11px] text-[hsl(var(--text-tertiary))] mt-1 truncate">
             {selectedConversation.goal}
+          </div>
+        )}
+        {selectedConversation?.breakdownStatus === 'no_account' && (
+          <div className="flex items-center gap-1.5 mt-1.5">
+            <span className="inline-block w-1.5 h-1.5 rounded-full bg-red-400" />
+            <span className="text-[10px] font-bold text-red-400">为 ⚔️ Jean 配置账号后可拆解任务</span>
           </div>
         )}
         {selectedConversation?.breakdownStatus === 'in_progress' && (

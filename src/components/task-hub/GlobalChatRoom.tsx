@@ -71,9 +71,54 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
         className="flex-1 overflow-y-auto p-5 flex flex-col gap-6 scrollbar-thin scroll-smooth"
         style={{ backgroundImage: 'radial-gradient(hsl(var(--border)) 1px, transparent 0)', backgroundSize: '16px 16px' }}
       >
-        {!selectedConversationId && (
-          <div className="rounded-[var(--radius-lg)] border border-[hsl(var(--border))] bg-[hsl(var(--bg-card))] p-4 shadow-sm text-[12px] text-[hsl(var(--text-tertiary))] font-semibold">
-            先创建一个项目，然后在这里下达指令（可 @智能体）。
+        {!selectedConversationId && chatMessages.length === 0 && (
+          <div className="flex flex-col items-center justify-center flex-1 gap-4 py-12 px-4">
+            <div className="text-3xl">⚔️</div>
+            <div className="text-center">
+              <h3 className="text-[14px] font-bold text-[hsl(var(--text-primary))]">
+                作战指挥室
+              </h3>
+              <p className="text-[11px] text-[hsl(var(--text-tertiary))] mt-1 max-w-[280px] leading-relaxed">
+                描述你想构建的东西，或 @Agent 下达具体指令。
+                <br />首次发送将自动创建项目。
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2 justify-center mt-2">
+              {[
+                '@Jean 帮我规划一下…',
+                '@Keqing 写一个…',
+                '@Zhongli 审查…',
+              ].map((hint) => (
+                <button
+                  key={hint}
+                  type="button"
+                  onClick={() => setInputValue(hint)}
+                  className="text-[10px] px-3 py-1 rounded-full border border-[hsl(var(--border))] bg-[hsl(var(--bg-muted))] text-[hsl(var(--text-tertiary))] hover:border-[hsl(var(--text-primary))] hover:text-[hsl(var(--text-primary))] transition-colors"
+                >
+                  {hint}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        {selectedConversationId && chatMessages.length === 0 && (
+          <div className="flex flex-col items-center justify-center flex-1 gap-3 py-8 px-4">
+            <div className="text-2xl">🔑</div>
+            <p className="text-[11px] text-[hsl(var(--text-tertiary))] text-center max-w-[260px]">
+              @Jean 可以帮你拆解任务，或直接 @Agent 下达指令
+            </p>
+            <div className="flex flex-wrap gap-2 justify-center mt-1">
+              {['@Jean 帮我规划一下…', '@Keqing 直接开始…'].map((hint) => (
+                <button
+                  key={hint}
+                  type="button"
+                  onClick={() => setInputValue(hint)}
+                  className="text-[10px] px-3 py-1 rounded-full border border-[hsl(var(--border))] bg-[hsl(var(--bg-muted))] text-[hsl(var(--text-tertiary))] hover:border-[hsl(var(--text-primary))] hover:text-[hsl(var(--text-primary))] transition-colors"
+                >
+                  {hint}
+                </button>
+              ))}
+            </div>
           </div>
         )}
         {chatMessages.map((msg) => (
@@ -93,7 +138,7 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
             onKeyDown={handleKeyDown}
             placeholder="发送消息或 @智能体…"
             rows={1}
-            disabled={!selectedConversationId}
+
             className={cn(
               'w-full bg-[hsl(var(--bg-app))] text-[hsl(var(--text-primary))] text-[13px] placeholder:text-[hsl(var(--text-tertiary))]',
               'rounded-[4px] border-[2px] border-[hsl(var(--border))] px-3 py-2.5',
@@ -107,7 +152,7 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
           />
           <button
             onClick={handleSend}
-            disabled={!inputValue.trim() || !selectedConversationId}
+            disabled={!inputValue.trim()}
             className={cn(
               'shrink-0 flex items-center justify-center w-11 h-11 rounded-[4px] transition-all',
               'bg-[hsl(var(--accent))] text-[hsl(var(--bg-app))]',
@@ -121,7 +166,7 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
           </button>
         </div>
         <p className="text-[9px] font-medium text-[hsl(var(--text-tertiary))] mt-2 ml-1">
-          使用 #TASK-000 引用任务。
+          使用 #TASK-000 引用任务 · @Agent 提及智能体
         </p>
       </div>
     </div>
