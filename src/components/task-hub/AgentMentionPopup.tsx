@@ -1,20 +1,20 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useEffect } from 'react';
 import { useTaskHubStore, AGENT_ROSTER } from '@/store/taskHubStore';
 import { cn } from '@/lib/utils';
 
 interface AgentMentionPopupProps {
   inputValue: string;
   cursorPosition: number;
+  selectedIndex: number;
   onSelect: (mention: string) => void;
   onClose: () => void;
 }
 
-export function AgentMentionPopup({ inputValue, cursorPosition, onSelect, onClose }: AgentMentionPopupProps) {
+export function AgentMentionPopup({ inputValue, cursorPosition, selectedIndex, onSelect, onClose }: AgentMentionPopupProps) {
   const activeAgentIds = useTaskHubStore((s) => s.activeAgentIds);
   const roleCards = useTaskHubStore((s) => s.roleCards);
-  const [selectedIndex, setSelectedIndex] = useState(0);
 
   const activeAgents = AGENT_ROSTER.filter((a) => activeAgentIds.includes(a.id));
 
@@ -35,40 +35,17 @@ export function AgentMentionPopup({ inputValue, cursorPosition, onSelect, onClos
     );
   });
 
-  const handleSelect = useCallback((index: number) => {
-    const agent = filtered[index];
-    if (!agent) return;
-    onSelect(agent.id);
-  }, [filtered, onSelect]);
-
-  // Reset selected index when filter changes
-  useEffect(() => {
-    setSelectedIndex(0);
-  }, [query]);
-
-  // Keyboard navigation
+  // Keyboard: only handle Escape here (navigation/select is handled by parent textarea)
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (filtered.length === 0) return;
-
-      if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        setSelectedIndex((i) => (i + 1) % filtered.length);
-      } else if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        setSelectedIndex((i) => (i - 1 + filtered.length) % filtered.length);
-      } else if (e.key === 'Enter' || e.key === 'Tab') {
-        e.preventDefault();
-        handleSelect(selectedIndex);
-      } else if (e.key === 'Escape') {
+      if (e.key === 'Escape' && filtered.length > 0) {
         e.preventDefault();
         onClose();
       }
     };
-
     window.addEventListener('keydown', handler, true);
     return () => window.removeEventListener('keydown', handler, true);
-  }, [filtered, selectedIndex, handleSelect, onClose]);
+  }, [filtered, onClose]);
 
   if (filtered.length === 0 || !atMatch) return null;
 
@@ -91,8 +68,7 @@ export function AgentMentionPopup({ inputValue, cursorPosition, onSelect, onClos
               <button
                 key={agent.id}
                 type="button"
-                onClick={() => handleSelect(i)}
-                onMouseEnter={() => setSelectedIndex(i)}
+                onClick={() => onSelect(agent.id)}
                 className={cn(
                   'w-full flex items-center gap-2 px-2.5 py-1.5 text-left transition-colors',
                   i === selectedIndex

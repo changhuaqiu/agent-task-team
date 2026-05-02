@@ -1,13 +1,15 @@
 'use client';
 
 import { useState, useRef, useEffect, useMemo } from 'react';
-import { useTaskHubStore, type ChatMessage } from '@/store/taskHubStore';
+import { useShallow } from 'zustand/react/shallow';
+import { useTaskHubStore, AGENT_ROSTER, type ChatMessage, type PendingDispatch } from '@/store/taskHubStore';
 import { ChatMessageItem } from './ChatMessageItem';
 import { MessageGroup } from './MessageGroup';
 import { ChatFilterBar, type ChatFilter } from './ChatFilterBar';
 import { AgentMentionPopup } from './AgentMentionPopup';
-import { Send, Hash } from 'lucide-react';
+import { Send, Hash, Clock, Zap } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useAutoScroll } from '@/hooks/useAutoScroll';
 
 function formatDateSeparator(dateStr: string): string {
   const date = new Date(dateStr);
@@ -24,19 +26,23 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
   const selectedConversationId = useTaskHubStore((s) => s.selectedConversationId);
   const chatMessages = useTaskHubStore((s) => s.getChatMessagesForSelectedConversation());
   const addChatMessage = useTaskHubStore((s) => s.addChatMessage);
+  const pendingDispatches = useTaskHubStore(useShallow((s) => s.pendingDispatches));
+  const clearPendingDispatches = useTaskHubStore((s) => s.clearPendingDispatches);
+  const forceSendDispatch = useTaskHubStore((s) => s.forceSendDispatch);
+  const hasPending = Object.keys(pendingDispatches).some((k) => (pendingDispatches[k]?.length ?? 0) > 0);
   const [inputValue, setInputValue] = useState('');
   const [filter, setFilter] = useState<ChatFilter>({ intent: null, agentId: null, userOnly: false, search: '' });
   const [mentionOpen, setMentionOpen] = useState(false);
+  const [mentionSelectedIndex, setMentionSelectedIndex] = useState(0);
+  const [mentionFiltered, setMentionFiltered] = useState<typeof AGENT_ROSTER>([]);
   const [cursorPos, setCursorPos] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const mentionOpenRef = useRef(false);
+  mentionOpenRef.current = mentionOpen;
 
-  // Auto-scroll to bottom on new message
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [chatMessages]);
+  // Auto-scroll: follows new content when at bottom, ignores when user scrolled up
+  useAutoScroll(scrollRef);
 
   // Quote event listener
   useEffect(() => {
@@ -236,6 +242,7 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
                     agentEmoji={meta.emoji}
                     agentName={meta.name}
                     defaultExpanded={isLatestGroup}
+                    forceExpand={group.messages.some(m => m.isStreaming)}
                   />
                 )}
               </div>
@@ -243,6 +250,74 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
           });
         })()}
       </div>
+
+      {/* Pending Queue Indicator */}
+      {hasPending && (
+        <div className="shrink-0 px-4 py-2 bg-[hsl(var(--bg-muted))] border-t border-[hsl(var(--border-subtle))]">
+          <div className="flex flex-col gap-1.5">
+            {Object.entries(pendingDispatches).map(([agentId, queue]) => {
+              if (!queue || queue.length === 0) return null;
+              const agent = AGENT_ROSTER.find((a) => a.id === agentId);
+              return (
+                <div key={agentId} className="flex items-start gap-2">
+                  <div className="flex items-center gap-1.5 shrink-0 mt-0.5">
+                    <Clock className="w-3 h-3 text-[hsl(var(--text-tertiary))]" />
+                    <span className="text-[10px] font-bold text-[hsl(var(--text-secondary))]">
+                      {agent?.emoji} {agent?.name ?? agentId}
+                    </span>
+                    <span className="text-[9px] bg-[hsl(var(--accent-soft))] text-[hsl(var(--accent))] px-1 rounded-[2px]">{queue.length}</span>
+                  </div>
+                  <div className="flex-1 flex flex-col gap-1 min-w-0">
+                    {queue.map((item, i) => (
+                      <div
+                        key={`${agentId}-${i}`}
+                        className="flex items-center gap-1.5 text-[10px] text-[hsl(var(--text-tertiary))] bg-[hsl(var(--bg-card))] rounded-[2px] border border-[hsl(var(--border-subtle))] px-2 py-1"
+                      >
+                        <span className="truncate flex-1 text-[hsl(var(--text-primary))]">{item.prompt.slice(0, 80)}{item.prompt.length > 80 ? '…' : ''}</span>
+                        {i === 0 && (
+                          <button
+                            type="button"
+                            onClick={() => forceSendDispatch({ agentId, prompt: item.prompt, referencedTaskId: item.referencedTaskId })}
+                            className="shrink-0 text-[hsl(var(--text-tertiary))] hover:text-amber-400"
+                            title="强制发送（中断当前任务）"
+                          >
+                            <Zap className="w-3 h-3" />
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const next = queue.filter((_, j) => j !== i);
+                            const pd = { ...useTaskHubStore.getState().pendingDispatches };
+                            if (next.length > 0) {
+                              pd[agentId] = next;
+                            } else {
+                              delete pd[agentId];
+                            }
+                            useTaskHubStore.setState({ pendingDispatches: pd });
+                          }}
+                          className="shrink-0 text-[hsl(var(--text-tertiary))] hover:text-[hsl(var(--status-rejected))]"
+                          title="移除此条"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => clearPendingDispatches(agentId)}
+                    className="shrink-0 text-[9px] text-[hsl(var(--text-tertiary))] hover:text-[hsl(var(--status-rejected))] mt-0.5"
+                    title="清空全部"
+                  >
+                    全部清空
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Input Area */}
       <div className={cn(
@@ -254,6 +329,7 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
             <AgentMentionPopup
               inputValue={inputValue}
               cursorPosition={cursorPos}
+              selectedIndex={mentionSelectedIndex}
               onSelect={handleMentionSelect}
               onClose={() => setMentionOpen(false)}
             />
@@ -265,12 +341,41 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
               setInputValue(e.target.value);
               setCursorPos(e.target.selectionStart ?? e.target.value.length);
               const textBefore = e.target.value.slice(0, e.target.selectionStart ?? e.target.value.length);
-              const hasAt = /@\w*$/.test(textBefore);
+              const atMatch = textBefore.match(/@(\w*)$/);
+              const hasAt = !!atMatch;
               setMentionOpen(hasAt);
+              if (hasAt && atMatch) {
+                const query = atMatch[1].toLowerCase();
+                const store = useTaskHubStore.getState();
+                const activeAgents = AGENT_ROSTER.filter((a) => store.activeAgentIds.includes(a.id));
+                const filtered = activeAgents.filter((agent) => {
+                  const roleCard = agent.roleCardId ? store.roleCards.find((c) => c.id === agent.roleCardId) : null;
+                  const displayName = roleCard?.displayName || '';
+                  return (
+                    agent.name.toLowerCase().includes(query) ||
+                    agent.id.toLowerCase().includes(query) ||
+                    displayName.toLowerCase().includes(query)
+                  );
+                });
+                setMentionFiltered(filtered);
+                setMentionSelectedIndex(0);
+              }
             }}
             onKeyDown={(e) => {
-              if (mentionOpen && (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter' || e.key === 'Tab' || e.key === 'Escape')) {
-                return; // Let AgentMentionPopup handle these
+              if (mentionOpenRef.current && (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter' || e.key === 'Tab' || e.key === 'Escape')) {
+                e.preventDefault();
+                e.stopPropagation();
+                if (e.key === 'Enter' || e.key === 'Tab') {
+                  const agent = mentionFiltered[mentionSelectedIndex];
+                  if (agent) handleMentionSelect(agent.id);
+                } else if (e.key === 'Escape') {
+                  setMentionOpen(false);
+                } else if (e.key === 'ArrowDown') {
+                  setMentionSelectedIndex((i) => (i + 1) % (mentionFiltered.length || 1));
+                } else if (e.key === 'ArrowUp') {
+                  setMentionSelectedIndex((i) => (i - 1 + (mentionFiltered.length || 1)) % (mentionFiltered.length || 1));
+                }
+                return;
               }
               handleKeyDown(e);
             }}
