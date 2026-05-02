@@ -5,6 +5,7 @@ import { useTaskHubStore, type ChatMessage } from '@/store/taskHubStore';
 import { ChatMessageItem } from './ChatMessageItem';
 import { MessageGroup } from './MessageGroup';
 import { ChatFilterBar, type ChatFilter } from './ChatFilterBar';
+import { AgentMentionPopup } from './AgentMentionPopup';
 import { Send, Hash } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -25,7 +26,10 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
   const addChatMessage = useTaskHubStore((s) => s.addChatMessage);
   const [inputValue, setInputValue] = useState('');
   const [filter, setFilter] = useState<ChatFilter>({ intent: null, agentId: null, userOnly: false, search: '' });
+  const [mentionOpen, setMentionOpen] = useState(false);
+  const [cursorPos, setCursorPos] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Auto-scroll to bottom on new message
   useEffect(() => {
@@ -58,6 +62,24 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
     });
 
     setInputValue('');
+  };
+
+  const handleMentionSelect = (agentId: string) => {
+    const textBefore = inputValue.slice(0, cursorPos);
+    const atMatch = textBefore.match(/@\w*$/);
+    if (!atMatch) return;
+    const atStart = textBefore.lastIndexOf('@');
+    const before = inputValue.slice(0, atStart);
+    const after = inputValue.slice(cursorPos);
+    const newValue = `${before}@${agentId} ${after}`;
+    setInputValue(newValue);
+    setMentionOpen(false);
+    // Focus back to textarea
+    requestAnimationFrame(() => {
+      const pos = atStart + agentId.length + 2; // @agentId + space
+      textareaRef.current?.focus();
+      textareaRef.current?.setSelectionRange(pos, pos);
+    });
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -228,10 +250,30 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
         variant === 'standalone' ? 'border-t-[2px] border-[hsl(var(--border))] shadow-[0_-4px_12px_rgba(0,0,0,0.02)]' : 'border-t border-[hsl(var(--border-subtle))]',
       )}>
         <div className="relative flex items-end gap-2">
+          {mentionOpen && (
+            <AgentMentionPopup
+              inputValue={inputValue}
+              cursorPosition={cursorPos}
+              onSelect={handleMentionSelect}
+              onClose={() => setMentionOpen(false)}
+            />
+          )}
           <textarea
+            ref={textareaRef}
             value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
-            onKeyDown={handleKeyDown}
+            onChange={(e) => {
+              setInputValue(e.target.value);
+              setCursorPos(e.target.selectionStart ?? e.target.value.length);
+              const textBefore = e.target.value.slice(0, e.target.selectionStart ?? e.target.value.length);
+              const hasAt = /@\w*$/.test(textBefore);
+              setMentionOpen(hasAt);
+            }}
+            onKeyDown={(e) => {
+              if (mentionOpen && (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter' || e.key === 'Tab' || e.key === 'Escape')) {
+                return; // Let AgentMentionPopup handle these
+              }
+              handleKeyDown(e);
+            }}
             placeholder="发送消息或 @智能体…"
             rows={1}
 
