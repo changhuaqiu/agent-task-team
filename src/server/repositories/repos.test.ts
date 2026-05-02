@@ -1,0 +1,479 @@
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { createTestDb, setTestDb, resetDb } from '../db/index';
+import { generateSortableId, resetSeq } from './sortable-id';
+import { conversationRepo } from './conversation-repo';
+import { taskRepo } from './task-repo';
+import { messageRepo } from './message-repo';
+import { sessionRepo } from './session-repo';
+import { invocationRepo } from './invocation-repo';
+import { eventRepo } from './event-repo';
+
+beforeEach(() => {
+  const db = createTestDb();
+  setTestDb(db);
+  resetSeq();
+});
+
+afterEach(() => {
+  resetDb();
+});
+
+describe('sortable-id', () => {
+  it('generates unique IDs', () => {
+    const ids = new Set<string>();
+    for (let i = 0; i < 100; i++) {
+      ids.add(generateSortableId());
+    }
+    expect(ids.size).toBe(100);
+  });
+
+  it('IDs sort chronologically', () => {
+    const ids: string[] = [];
+    for (let i = 0; i < 10; i++) {
+      ids.push(generateSortableId());
+    }
+    const sorted = [...ids].sort();
+    expect(sorted).toEqual(ids);
+  });
+
+  it('supports prefix', () => {
+    const id = generateSortableId('msg');
+    expect(id.startsWith('msg-')).toBe(true);
+  });
+
+  it('resetSeq resets the counter', () => {
+    const a = generateSortableId();
+    resetSeq();
+    const b = generateSortableId();
+    expect(a).not.toBe(b);
+  });
+});
+
+describe('conversation-repo', () => {
+  it('creates and retrieves a conversation', () => {
+    const conv = conversationRepo.create({ id: 'conv-1', title: 'Test Conv', goal: 'Build stuff' });
+    expect(conv.id).toBe('conv-1');
+    expect(conv.title).toBe('Test Conv');
+    expect(conv.goal).toBe('Build stuff');
+    expect(conv.status).toBe('active');
+    expect(conv.priority).toBe('p2');
+
+    const fetched = conversationRepo.getById('conv-1');
+    expect(fetched).toBeDefined();
+    expect(fetched!.title).toBe('Test Conv');
+  });
+
+  it('lists conversations ordered by updated_at DESC', () => {
+    conversationRepo.create({ id: 'conv-1', title: 'First' });
+    conversationRepo.create({ id: 'conv-2', title: 'Second' });
+    conversationRepo.update('conv-1', { title: 'Updated First' });
+    const list = conversationRepo.list();
+    expect(list.length).toBe(2);
+    expect(list[0].id).toBe('conv-1');
+  });
+
+  it('updates a conversation', () => {
+    conversationRepo.create({ id: 'conv-1', title: 'Original' });
+    conversationRepo.update('conv-1', { title: 'Updated', status: 'archived' });
+    const updated = conversationRepo.getById('conv-1')!;
+    expect(updated.title).toBe('Updated');
+    expect(updated.status).toBe('archived');
+  });
+
+  it('deletes a conversation', () => {
+    conversationRepo.create({ id: 'conv-1', title: 'To Delete' });
+    conversationRepo.delete('conv-1');
+    expect(conversationRepo.getById('conv-1')).toBeUndefined();
+  });
+
+  it('returns undefined for missing conversation', () => {
+    expect(conversationRepo.getById('nonexistent')).toBeUndefined();
+  });
+});
+
+describe('task-repo', () => {
+  beforeEach(() => {
+    conversationRepo.create({ id: 'conv-1', title: 'Parent' });
+  });
+
+  it('creates and retrieves a task', () => {
+    const task = taskRepo.create({
+      id: 'task-1',
+      conversation_id: 'conv-1',
+      title: 'Implement X',
+      agent_id: 'agent-a',
+    });
+    expect(task.id).toBe('task-1');
+    expect(task.status).toBe('pending');
+    expect(task.agent_id).toBe('agent-a');
+  });
+
+  it('gets tasks by conversation', () => {
+    taskRepo.create({ id: 'task-1', conversation_id: 'conv-1', title: 'T1', agent_id: 'a' });
+    taskRepo.create({ id: 'task-2', conversation_id: 'conv-1', title: 'T2', agent_id: 'b' });
+    const tasks = taskRepo.getByConversation('conv-1');
+    expect(tasks.length).toBe(2);
+  });
+
+  it('gets tasks by agent', () => {
+    taskRepo.create({ id: 'task-1', conversation_id: 'conv-1', title: 'T1', agent_id: 'agent-a' });
+    taskRepo.create({ id: 'task-2', conversation_id: 'conv-1', title: 'T2', agent_id: 'agent-b' });
+    const tasks = taskRepo.getByAgent('agent-a');
+    expect(tasks.length).toBe(1);
+    expect(tasks[0].id).toBe('task-1');
+  });
+
+  it('updates task status', () => {
+    taskRepo.create({ id: 'task-1', conversation_id: 'conv-1', title: 'T1', agent_id: 'a' });
+    taskRepo.updateStatus('task-1', 'in_progress');
+    expect(taskRepo.getById('task-1')!.status).toBe('in_progress');
+  });
+
+  it('updates task status with review note', () => {
+    taskRepo.create({ id: 'task-1', conversation_id: 'conv-1', title: 'T1', agent_id: 'a' });
+    taskRepo.updateStatus('task-1', 'approved', 'LGTM');
+    const task = taskRepo.getById('task-1')!;
+    expect(task.status).toBe('approved');
+    expect(task.review_note).toBe('LGTM');
+  });
+
+  it('deletes a task', () => {
+    taskRepo.create({ id: 'task-1', conversation_id: 'conv-1', title: 'T1', agent_id: 'a' });
+    taskRepo.delete('task-1');
+    expect(taskRepo.getById('task-1')).toBeUndefined();
+  });
+
+  it('foreign key prevents deleting conversation with tasks', () => {
+    taskRepo.create({ id: 'task-1', conversation_id: 'conv-1', title: 'T1', agent_id: 'a' });
+    expect(() => conversationRepo.delete('conv-1')).toThrow();
+    expect(taskRepo.getById('task-1')).toBeDefined();
+  });
+
+  it('stores dependencies as JSON', () => {
+    const task = taskRepo.create({
+      id: 'task-1',
+      conversation_id: 'conv-1',
+      title: 'T1',
+      agent_id: 'a',
+      dependencies: ['dep-1', 'dep-2'],
+    });
+    expect(task.dependencies).toBe('["dep-1","dep-2"]');
+  });
+});
+
+describe('message-repo', () => {
+  beforeEach(() => {
+    conversationRepo.create({ id: 'conv-1', title: 'Test' });
+  });
+
+  it('appends a message and returns ID', () => {
+    const id = messageRepo.append({
+      conversationId: 'conv-1',
+      senderType: 'human',
+      senderId: 'user-1',
+      content: 'Hello world',
+    });
+    expect(id).toBeTruthy();
+    expect(id.startsWith('msg-')).toBe(true);
+  });
+
+  it('gets messages by conversation', () => {
+    messageRepo.append({ conversationId: 'conv-1', senderType: 'human', senderId: 'u1', content: 'Msg 1' });
+    messageRepo.append({ conversationId: 'conv-1', senderType: 'agent', senderId: 'a1', content: 'Msg 2' });
+    const msgs = messageRepo.getByConversation('conv-1');
+    expect(msgs.length).toBe(2);
+    expect(msgs[0].content).toBe('Msg 1');
+    expect(msgs[1].content).toBe('Msg 2');
+  });
+
+  it('paginates with cursor', () => {
+    const id1 = messageRepo.append({ conversationId: 'conv-1', senderType: 'human', senderId: 'u1', content: 'A' });
+    const id2 = messageRepo.append({ conversationId: 'conv-1', senderType: 'human', senderId: 'u1', content: 'B' });
+    messageRepo.append({ conversationId: 'conv-1', senderType: 'human', senderId: 'u1', content: 'C' });
+
+    const page = messageRepo.getByConversation('conv-1', { cursor: id1, limit: 1 });
+    expect(page.length).toBe(1);
+    expect(page[0].id).toBe(id2);
+  });
+
+  it('gets messages by task', () => {
+    conversationRepo.create({ id: 'conv-2', title: 'T2' });
+    taskRepo.create({ id: 'task-1', conversation_id: 'conv-1', title: 'T1', agent_id: 'a' });
+    messageRepo.append({ conversationId: 'conv-1', taskId: 'task-1', senderType: 'agent', senderId: 'a', content: 'Task msg' });
+    messageRepo.append({ conversationId: 'conv-1', senderType: 'human', senderId: 'u1', content: 'Non-task msg' });
+
+    const taskMsgs = messageRepo.getByTask('task-1');
+    expect(taskMsgs.length).toBe(1);
+    expect(taskMsgs[0].content).toBe('Task msg');
+  });
+
+  it('gets messages by agent', () => {
+    messageRepo.append({ conversationId: 'conv-1', senderType: 'agent', senderId: 'agent-a', content: 'From A' });
+    messageRepo.append({ conversationId: 'conv-1', senderType: 'agent', senderId: 'agent-b', content: 'From B' });
+    const msgs = messageRepo.getByAgent('agent-a');
+    expect(msgs.length).toBe(1);
+    expect(msgs[0].content).toBe('From A');
+  });
+
+  it('counts messages by conversation', () => {
+    messageRepo.append({ conversationId: 'conv-1', senderType: 'human', senderId: 'u1', content: 'A' });
+    messageRepo.append({ conversationId: 'conv-1', senderType: 'human', senderId: 'u1', content: 'B' });
+    expect(messageRepo.countByConversation('conv-1')).toBe(2);
+  });
+
+  it('round-trips mentions as JSON', () => {
+    messageRepo.append({
+      conversationId: 'conv-1',
+      senderType: 'human',
+      senderId: 'u1',
+      content: '@agent-a please review',
+      mentions: ['agent-a'],
+    });
+    const msgs = messageRepo.getByConversation('conv-1');
+    expect(JSON.parse(msgs[0].mentions!)).toEqual(['agent-a']);
+  });
+
+  it('round-trips metadata as JSON', () => {
+    messageRepo.append({
+      conversationId: 'conv-1',
+      senderType: 'agent',
+      senderId: 'a1',
+      content: 'result',
+      metadata: { tokens: 42, model: 'gpt-4' },
+    });
+    const msgs = messageRepo.getByConversation('conv-1');
+    expect(JSON.parse(msgs[0].metadata!)).toEqual({ tokens: 42, model: 'gpt-4' });
+  });
+});
+
+describe('session-repo', () => {
+  beforeEach(() => {
+    conversationRepo.create({ id: 'conv-1', title: 'Test' });
+    taskRepo.create({ id: 'task-1', conversation_id: 'conv-1', title: 'T1', agent_id: 'agent-a' });
+  });
+
+  it('creates and finds an active session', () => {
+    sessionRepo.create({
+      id: 'ses-1',
+      conversationId: 'conv-1',
+      agentId: 'agent-a',
+      taskId: 'task-1',
+    });
+    const found = sessionRepo.findActive('agent-a', 'task-1');
+    expect(found).toBeDefined();
+    expect(found!.id).toBe('ses-1');
+    expect(found!.status).toBe('active');
+  });
+
+  it('returns undefined when no active session', () => {
+    expect(sessionRepo.findActive('agent-a', 'task-1')).toBeUndefined();
+  });
+
+  it('updates cli_session_id', () => {
+    sessionRepo.create({ id: 'ses-1', conversationId: 'conv-1', agentId: 'agent-a', taskId: 'task-1' });
+    sessionRepo.updateCliSessionId('ses-1', 'cli-ses-123');
+    expect(sessionRepo.getById('ses-1')!.cli_session_id).toBe('cli-ses-123');
+  });
+
+  it('increments message count', () => {
+    sessionRepo.create({ id: 'ses-1', conversationId: 'conv-1', agentId: 'agent-a', taskId: 'task-1' });
+    sessionRepo.incrementMessageCount('ses-1');
+    sessionRepo.incrementMessageCount('ses-1');
+    expect(sessionRepo.getById('ses-1')!.message_count).toBe(2);
+  });
+
+  it('seals a session', () => {
+    sessionRepo.create({ id: 'ses-1', conversationId: 'conv-1', agentId: 'agent-a', taskId: 'task-1' });
+    sessionRepo.seal('ses-1', 'task completed');
+    const sealed = sessionRepo.getById('ses-1')!;
+    expect(sealed.status).toBe('sealed');
+    expect(sealed.seal_reason).toBe('task completed');
+    expect(sealed.sealed_at).toBeTruthy();
+  });
+
+  it('seals sessions by agent and task', () => {
+    sessionRepo.create({ id: 'ses-1', conversationId: 'conv-1', agentId: 'agent-a', taskId: 'task-1', seq: 0 });
+    sessionRepo.create({ id: 'ses-2', conversationId: 'conv-1', agentId: 'agent-a', taskId: 'task-1', seq: 1 });
+    sessionRepo.sealByTask('agent-a', 'task-1', 'done');
+    expect(sessionRepo.getById('ses-1')!.status).toBe('sealed');
+    expect(sessionRepo.getById('ses-2')!.status).toBe('sealed');
+  });
+
+  it('findActive returns undefined after sealing', () => {
+    sessionRepo.create({ id: 'ses-1', conversationId: 'conv-1', agentId: 'agent-a', taskId: 'task-1' });
+    sessionRepo.seal('ses-1', 'done');
+    expect(sessionRepo.findActive('agent-a', 'task-1')).toBeUndefined();
+  });
+
+  it('lists active sessions by agent', () => {
+    taskRepo.create({ id: 'task-2', conversation_id: 'conv-1', title: 'T2', agent_id: 'agent-a' });
+    sessionRepo.create({ id: 'ses-1', conversationId: 'conv-1', agentId: 'agent-a', taskId: 'task-1' });
+    sessionRepo.create({ id: 'ses-2', conversationId: 'conv-1', agentId: 'agent-a', taskId: 'task-2' });
+    sessionRepo.seal('ses-2', 'done');
+    const active = sessionRepo.listActiveByAgent('agent-a');
+    expect(active.length).toBe(1);
+    expect(active[0].id).toBe('ses-1');
+  });
+
+  it('lists active sessions by conversation', () => {
+    sessionRepo.create({ id: 'ses-1', conversationId: 'conv-1', agentId: 'agent-a', taskId: 'task-1' });
+    const active = sessionRepo.listActiveByConversation('conv-1');
+    expect(active.length).toBe(1);
+  });
+
+  it('enforces unique constraint on (agent_id, task_id, seq)', () => {
+    sessionRepo.create({ id: 'ses-1', conversationId: 'conv-1', agentId: 'agent-a', taskId: 'task-1', seq: 0 });
+    expect(() => {
+      sessionRepo.create({ id: 'ses-2', conversationId: 'conv-1', agentId: 'agent-a', taskId: 'task-1', seq: 0 });
+    }).toThrow();
+  });
+
+  it('allows same agent+task with different seq', () => {
+    sessionRepo.create({ id: 'ses-1', conversationId: 'conv-1', agentId: 'agent-a', taskId: 'task-1', seq: 0 });
+    const ses2 = sessionRepo.create({ id: 'ses-2', conversationId: 'conv-1', agentId: 'agent-a', taskId: 'task-1', seq: 1 });
+    expect(ses2.id).toBe('ses-2');
+  });
+});
+
+describe('invocation-repo', () => {
+  beforeEach(() => {
+    conversationRepo.create({ id: 'conv-1', title: 'Test' });
+    taskRepo.create({ id: 'task-1', conversation_id: 'conv-1', title: 'T1', agent_id: 'agent-a' });
+  });
+
+  it('creates an invocation with queued status', () => {
+    const inv = invocationRepo.create({
+      id: 'inv-1',
+      conversation_id: 'conv-1',
+      agent_id: 'agent-a',
+      task_id: 'task-1',
+    });
+    expect(inv.status).toBe('queued');
+    expect(inv.agent_id).toBe('agent-a');
+  });
+
+  it('transitions status queued→running→succeeded', () => {
+    invocationRepo.create({ id: 'inv-1', conversation_id: 'conv-1', agent_id: 'agent-a' });
+    invocationRepo.updateStatus('inv-1', 'running');
+    expect(invocationRepo.getById('inv-1')!.status).toBe('running');
+
+    invocationRepo.updateStatus('inv-1', 'succeeded', { exit_code: 0 });
+    const inv = invocationRepo.getById('inv-1')!;
+    expect(inv.status).toBe('succeeded');
+    expect(inv.exit_code).toBe(0);
+  });
+
+  it('records failure with error message', () => {
+    invocationRepo.create({ id: 'inv-1', conversation_id: 'conv-1', agent_id: 'agent-a' });
+    invocationRepo.updateStatus('inv-1', 'failed', { exit_code: 1, error_message: 'OOM' });
+    const inv = invocationRepo.getById('inv-1')!;
+    expect(inv.status).toBe('failed');
+    expect(inv.error_message).toBe('OOM');
+  });
+
+  it('gets invocations by agent', () => {
+    invocationRepo.create({ id: 'inv-1', conversation_id: 'conv-1', agent_id: 'agent-a' });
+    invocationRepo.create({ id: 'inv-2', conversation_id: 'conv-1', agent_id: 'agent-b' });
+    const invs = invocationRepo.getByAgent('agent-a');
+    expect(invs.length).toBe(1);
+    expect(invs[0].id).toBe('inv-1');
+  });
+
+  it('gets invocations by conversation', () => {
+    invocationRepo.create({ id: 'inv-1', conversation_id: 'conv-1', agent_id: 'agent-a' });
+    const invs = invocationRepo.getByConversation('conv-1');
+    expect(invs.length).toBe(1);
+  });
+
+  it('getActive excludes terminal statuses', () => {
+    invocationRepo.create({ id: 'inv-1', conversation_id: 'conv-1', agent_id: 'agent-a' });
+    invocationRepo.create({ id: 'inv-2', conversation_id: 'conv-1', agent_id: 'agent-a' });
+    invocationRepo.updateStatus('inv-2', 'succeeded');
+    const active = invocationRepo.getActive();
+    expect(active.length).toBe(1);
+    expect(active[0].id).toBe('inv-1');
+  });
+
+  it('allows retry: failed→running', () => {
+    invocationRepo.create({ id: 'inv-1', conversation_id: 'conv-1', agent_id: 'agent-a' });
+    invocationRepo.updateStatus('inv-1', 'running');
+    invocationRepo.updateStatus('inv-1', 'failed', { exit_code: 1 });
+    invocationRepo.updateStatus('inv-1', 'running');
+    expect(invocationRepo.getById('inv-1')!.status).toBe('running');
+  });
+
+  it('stores optional fields', () => {
+    const inv = invocationRepo.create({
+      id: 'inv-1',
+      conversation_id: 'conv-1',
+      agent_id: 'agent-a',
+      engine: 'opencode',
+      account_id: 'acct-1',
+      prompt: 'Fix the bug',
+      session_id: 'ses-1',
+    });
+    expect(inv.engine).toBe('opencode');
+    expect(inv.account_id).toBe('acct-1');
+    expect(inv.prompt).toBe('Fix the bug');
+    expect(inv.session_id).toBe('ses-1');
+  });
+});
+
+describe('event-repo', () => {
+  beforeEach(() => {
+    conversationRepo.create({ id: 'conv-1', title: 'Test' });
+    taskRepo.create({ id: 'task-1', conversation_id: 'conv-1', title: 'T1', agent_id: 'agent-a' });
+  });
+
+  it('appends an event and returns ID', () => {
+    const id = eventRepo.append({
+      conversationId: 'conv-1',
+      agentId: 'agent-a',
+      type: 'agent.text',
+      payload: { text: 'Hello' },
+    });
+    expect(id).toBeTruthy();
+    expect(id.startsWith('evt-')).toBe(true);
+  });
+
+  it('gets events by conversation', () => {
+    eventRepo.append({ conversationId: 'conv-1', agentId: 'agent-a', type: 'agent.text' });
+    eventRepo.append({ conversationId: 'conv-1', agentId: 'agent-a', type: 'agent.tool_use' });
+    const events = eventRepo.getByConversation('conv-1');
+    expect(events.length).toBe(2);
+    expect(events[0].type).toBe('agent.text');
+  });
+
+  it('gets events by task', () => {
+    eventRepo.append({ conversationId: 'conv-1', taskId: 'task-1', agentId: 'agent-a', type: 'agent.text' });
+    eventRepo.append({ conversationId: 'conv-1', agentId: 'agent-a', type: 'agent.text' });
+    const taskEvents = eventRepo.getByTask('task-1');
+    expect(taskEvents.length).toBe(1);
+  });
+
+  it('gets events by agent', () => {
+    eventRepo.append({ conversationId: 'conv-1', agentId: 'agent-a', type: 'agent.text' });
+    eventRepo.append({ conversationId: 'conv-1', agentId: 'agent-b', type: 'agent.text' });
+    const events = eventRepo.getByAgent('agent-a');
+    expect(events.length).toBe(1);
+  });
+
+  it('stores payload as JSON', () => {
+    eventRepo.append({
+      conversationId: 'conv-1',
+      agentId: 'agent-a',
+      type: 'agent.tool_use',
+      payload: { tool: 'Read', args: { path: '/foo' } },
+    });
+    const events = eventRepo.getByConversation('conv-1');
+    expect(JSON.parse(events[0].payload!)).toEqual({ tool: 'Read', args: { path: '/foo' } });
+  });
+
+  it('respects limit option', () => {
+    for (let i = 0; i < 5; i++) {
+      eventRepo.append({ conversationId: 'conv-1', agentId: 'agent-a', type: `event-${i}` });
+    }
+    const limited = eventRepo.getByConversation('conv-1', { limit: 3 });
+    expect(limited.length).toBe(3);
+  });
+});

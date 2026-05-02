@@ -5,6 +5,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { PixelAvatar } from './PixelAvatar';
 import { X, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { RoleCardSummary } from '@/components/role-card/RoleCardSummary';
 
 export function AgentRosterModal() {
   const isOpen = useTaskHubStore((s) => s.isRosterModalOpen);
@@ -12,6 +13,7 @@ export function AgentRosterModal() {
   const availableAgents = useTaskHubStore(useShallow(selectAvailableRoster));
   const inviteAgent = useTaskHubStore((s) => s.inviteAgent);
   const addChatMessage = useTaskHubStore((s) => s.addChatMessage);
+  const roleCards = useTaskHubStore((s) => s.roleCards);
 
   if (!isOpen) return null;
 
@@ -79,9 +81,15 @@ export function AgentRosterModal() {
                       <h3 className="text-[14px] font-bold text-[hsl(var(--text-primary))] flex items-center gap-2">
                         {agent.name} <span>{agent.emoji}</span>
                       </h3>
-                      <p className="text-[10px] font-bold text-[hsl(var(--text-tertiary))] uppercase tracking-wider mt-0.5">
-                        {agent.roleLabel}
-                      </p>
+                      {agent.roleCardId && roleCards.find((c) => c.id === agent.roleCardId) ? (
+                        <div className="mt-1">
+                          <RoleCardSummary card={roleCards.find((c) => c.id === agent.roleCardId)!} />
+                        </div>
+                      ) : (
+                        <p className="text-[10px] font-bold text-[hsl(var(--text-tertiary))] uppercase tracking-wider mt-0.5">
+                          {agent.roleLabel}
+                        </p>
+                      )}
                     </div>
 
                     <button

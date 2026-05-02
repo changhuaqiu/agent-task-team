@@ -1,0 +1,117 @@
+import { getDb } from '../db/index';
+
+export interface InvocationRow {
+  id: string;
+  conversation_id: string;
+  task_id: string | null;
+  agent_id: string;
+  session_id: string | null;
+  status: string;
+  engine: string | null;
+  account_id: string | null;
+  cli_session_id: string | null;
+  prompt: string | null;
+  exit_code: number | null;
+  reason_code: string | null;
+  usage: string | null;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NewInvocation {
+  id: string;
+  conversation_id: string;
+  task_id?: string;
+  agent_id: string;
+  session_id?: string;
+  engine?: string;
+  account_id?: string;
+  prompt?: string;
+}
+
+type InvocationUpdateFields = Partial<
+  Pick<
+    InvocationRow,
+    | 'status'
+    | 'exit_code'
+    | 'reason_code'
+    | 'usage'
+    | 'error_message'
+    | 'cli_session_id'
+    | 'session_id'
+  >
+>;
+
+export const invocationRepo = {
+  create(input: NewInvocation): InvocationRow {
+    const now = new Date().toISOString();
+    getDb()
+      .prepare(
+        `INSERT INTO invocation (id, conversation_id, task_id, agent_id, session_id, status, engine, account_id, prompt, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        input.id,
+        input.conversation_id,
+        input.task_id ?? null,
+        input.agent_id,
+        input.session_id ?? null,
+        input.engine ?? null,
+        input.account_id ?? null,
+        input.prompt ?? null,
+        now,
+        now,
+      );
+    return invocationRepo.getById(input.id)!;
+  },
+
+  getById(id: string): InvocationRow | undefined {
+    return getDb().prepare('SELECT * FROM invocation WHERE id = ?').get(id) as
+      | InvocationRow
+      | undefined;
+  },
+
+  updateStatus(id: string, status: string, updates?: InvocationUpdateFields): void {
+    const now = new Date().toISOString();
+    const sets: string[] = ['status = ?', 'updated_at = ?'];
+    const values: unknown[] = [status, now];
+    if (updates) {
+      for (const [key, value] of Object.entries(updates)) {
+        if (key === 'status') continue;
+        sets.push(`${key} = ?`);
+        values.push(value);
+      }
+    }
+    values.push(id);
+    getDb().prepare(`UPDATE invocation SET ${sets.join(', ')} WHERE id = ?`).run(...values);
+  },
+
+  getByAgent(agentId: string, options?: { limit?: number }): InvocationRow[] {
+    const limit = options?.limit ?? 50;
+    return getDb()
+      .prepare('SELECT * FROM invocation WHERE agent_id = ? ORDER BY created_at DESC LIMIT ?')
+      .all(agentId, limit) as InvocationRow[];
+  },
+
+  getByConversation(convId: string): InvocationRow[] {
+    return getDb()
+      .prepare('SELECT * FROM invocation WHERE conversation_id = ? ORDER BY created_at ASC')
+      .all(convId) as InvocationRow[];
+  },
+
+  getActive(): InvocationRow[] {
+    return getDb()
+      .prepare(
+        "SELECT * FROM invocation WHERE status NOT IN ('succeeded', 'failed', 'canceled') ORDER BY created_at ASC",
+      )
+      .all() as InvocationRow[];
+  },
+
+  listRecent(options?: { limit?: number }): InvocationRow[] {
+    const limit = options?.limit ?? 50;
+    return getDb()
+      .prepare('SELECT * FROM invocation ORDER BY created_at DESC LIMIT ?')
+      .all(limit) as InvocationRow[];
+  },
+};

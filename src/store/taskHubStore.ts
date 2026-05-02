@@ -1,14 +1,15 @@
 'use client';
 
 import { create } from 'zustand';
-import { createJSONStorage, persist } from 'zustand/middleware';
 import { io } from 'socket.io-client';
+import type { RoleCard } from '@/types/roleCard';
+import { PRESET_ROLE_CARDS, PRESET_ROLE_CARD_MAP } from '@/data/presetRoleCards';
 
 const socket = io(undefined, { path: '/api/socketio', autoConnect: false });
 
 /* ============================================================
    Task Hub Store
-   Aligned with: specs/2026-04-29-decentralized-agent-task-hub-design.md
+   Aligned with: docs/wiki/01-architecture.md
    ============================================================ */
 
 // --- Status (6-state machine per spec §2.2) ---
@@ -43,14 +44,50 @@ export type AgentRole = 'planner' | 'worker' | 'reviewer';
 
 export type AgentTheme = 'jean' | 'keqing' | 'zhongli' | 'nahida' | 'albedo' | 'venti';
 
+export type CliEngine = 'opencode' | 'claude' | 'codex' | 'gemini' | 'mock';
+
 export interface Agent {
   id: string;
   name: string;
+  /** @deprecated — use roleCardId + RoleCard instead */
   role: AgentRole;
+  /** @deprecated — use roleCardId + RoleCard.displayName instead */
   roleLabel: string;
+  roleCardId: string;
   theme: AgentTheme;
   emoji: string;
   isOnline: boolean;
+  cliEngine?: CliEngine;
+  accountIds: string[];
+}
+
+export const PROVIDER_TO_ENGINE: Record<AccountProvider, CliEngine> = {
+  anthropic: 'claude',
+  openai: 'codex',
+  google: 'gemini',
+  kimi: 'opencode',
+  opencode: 'opencode',
+  other: 'opencode',
+};
+
+export function providerToEngine(provider: AccountProvider): CliEngine {
+  return PROVIDER_TO_ENGINE[provider];
+}
+
+export function resolveAgentEngine(
+  agent: Agent,
+  accounts: Account[],
+): { engine: CliEngine; accountId: string } | null {
+  for (const accountId of agent.accountIds) {
+    const account = accounts.find((a) => a.id === accountId && a.enabled);
+    if (account) {
+      return { engine: providerToEngine(account.provider), accountId };
+    }
+  }
+  if (agent.cliEngine) {
+    return { engine: agent.cliEngine, accountId: '' };
+  }
+  return null;
 }
 
 // --- Chat Message Entity ---
@@ -94,6 +131,7 @@ export interface DispatchToAgentInput {
   agentId: string;
   prompt: string;
   referencedTaskId?: string;
+  accountIds?: string[];
 }
 
 export type TeamRole = 'dev' | 'ux' | 'qa' | 'arch';
@@ -170,10 +208,53 @@ export interface Blocker {
   resolvedAt?: string;
 }
 
+export type AccountAuthMode = 'api_key' | 'oauth';
+
+export type AccountProvider = 'anthropic' | 'openai' | 'google' | 'kimi' | 'opencode' | 'other';
+
+export const PROVIDER_LABELS: Record<AccountProvider, string> = {
+  anthropic: 'Claude',
+  openai: 'OpenAI / Codex',
+  google: 'Gemini',
+  kimi: 'Kimi',
+  opencode: 'OpenCode',
+  other: '其他',
+};
+
+export const PROVIDER_OPTIONS: AccountProvider[] = ['anthropic', 'openai', 'google', 'kimi', 'opencode', 'other'];
+
+export const MODEL_SUGGESTIONS: Partial<Record<AccountProvider, string[]>> = {
+  anthropic: ['claude-sonnet-4-6', 'claude-opus-4-6', 'claude-sonnet-4-5-20250929'],
+  openai: ['gpt-5.4', 'gpt-5.3-codex', 'o3-pro'],
+  google: ['gemini-2.5-pro', 'gemini-3-flash-preview'],
+  kimi: ['moonshot-v2'],
+  opencode: ['claude-sonnet-4-6', 'gpt-5.4'],
+};
+
+export interface Account {
+  id: string;
+  name: string;
+  authMode: AccountAuthMode;
+  provider: AccountProvider;
+  baseUrl?: string;
+  // apiKey lives in server credentials — never stored client-side
+  models: string[];
+  enabled: boolean;
+  status: 'unknown' | 'valid' | 'pending' | 'error';
+  lastVerifiedAt?: string;
+  verifyError?: string;
+  hasApiKey?: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 // --- Store ---
 interface TaskHubState {
   hasHydrated: boolean;
   setHasHydrated: (hydrated: boolean) => void;
+  refreshRuntimeCatalog: () => void;
+  mergeLegacyChatMessages: (legacyMessages: ChatMessage[]) => void;
+  getAvailableRuntime: () => { engine: CliEngine; available: boolean } | null;
 
   isSettingsOpen: boolean;
   setSettingsOpen: (open: boolean) => void;
@@ -219,13 +300,18 @@ interface TaskHubState {
     error?: string;
   }) => void;
 
+  accounts: Account[];
+  upsertAccount: (account: Omit<Account, 'id' | 'createdAt' | 'updatedAt' | 'status' | 'lastVerifiedAt' | 'verifyError' | 'hasApiKey'> & { id?: string; apiKey?: string }) => Promise<string>;
+  removeAccount: (accountId: string) => Promise<void>;
+  loadAccounts: () => Promise<void>;
+
   selectedProjectId: ProjectId;
   agentSessions: Record<ProjectId, Record<string, string | undefined>>;
   activeAgentIds: string[];
   conversations: Conversation[];
   selectedConversationId: string | null;
   tasks: Task[];
-  chatMessages: ChatMessage[];
+  chatMessagesByConversation: Record<string, ChatMessage[]>;
   eventsByConversation: Record<string, InternalEvent[]>;
   blockersByConversation: Record<string, Blocker[]>;
 
@@ -238,6 +324,10 @@ interface TaskHubState {
   getSelectedConversation: () => Conversation | undefined;
   getEventsForSelectedConversation: () => InternalEvent[];
   getOpenBlockersForSelectedConversation: () => Blocker[];
+  getChatMessagesForSelectedConversation: () => ChatMessage[];
+
+  // Server hydration
+  loadFromServer: () => Promise<void>;
 
   // Mutations
   createConversation: (input: { title: string; goal: string; priority?: Conversation['priority'] }) => void;
@@ -252,13 +342,13 @@ interface TaskHubState {
   addTask:          (task: Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'conversationId'>) => void;
   removeTask:       (taskId: string) => void;
   updateTask:       (taskId: string, patch: Partial<Pick<Task, 'title' | 'description' | 'agentId' | 'dependencies' | 'artifacts'>>) => void;
-  addChatMessage:   (msg: Omit<ChatMessage, 'id' | 'timestamp' | 'mentions' | 'intent'>) => void;
+  addChatMessage:   (msg: Omit<ChatMessage, 'id' | 'timestamp' | 'mentions' | 'intent'> & { conversationId?: string }) => void;
   updateChatMessageStatus: (msgId: string, status: 'approved' | 'rejected') => void;
 
   // --- Terminal Store ---
   terminalLogs: Record<string, string[]>;
   agentStatus: Record<string, 'idle' | 'busy'>;
-  activeRunsByAgent: Record<string, { runId: string; taskId?: string; conversationId: string } | undefined>;
+  activeRunsByAgent: Record<string, { runId: string; taskId?: string; conversationId: string; startedAt: string } | undefined>;
 
   // Actions
   connectDaemon: () => void;
@@ -272,6 +362,26 @@ interface TaskHubState {
   setNewTaskDialogOpen: (open: boolean) => void;
   isRosterModalOpen: boolean;
   setRosterModalOpen: (open: boolean) => void;
+
+  agentAccountOverrides: Record<string, string[]>;
+  setAgentAccountIds: (agentId: string, accountIds: string[]) => void;
+
+  // --- Role Card Store ---
+  roleCards: RoleCard[];
+  upsertRoleCard: (card: Omit<RoleCard, 'id' | 'createdAt' | 'updatedAt' | 'version' | 'isPreset'> & { id?: string; isPreset?: boolean }) => string;
+  removeRoleCard: (cardId: string) => void;
+  getRoleCardById: (cardId: string) => RoleCard | undefined;
+  getRoleCardForAgent: (agentId: string) => RoleCard | undefined;
+  setAgentRoleCardId: (agentId: string, roleCardId: string) => void;
+  setRoleCardAccountIds: (roleCardId: string, accountIds: string[]) => void;
+
+  // Role Card UI state
+  isRoleCardDetailOpen: boolean;
+  selectedRoleCardId: string | null;
+  setRoleCardDetailOpen: (open: boolean, cardId?: string) => void;
+  isRoleCardEditorOpen: boolean;
+  editingRoleCardId: string | null;
+  setRoleCardEditorOpen: (open: boolean, cardId?: string) => void;
 }
 
 // --- Initial Data (Pixel-art themed) ---
@@ -281,54 +391,66 @@ export const AGENT_ROSTER: Agent[] = [
     name: 'Jean',
     role: 'planner',
     roleLabel: '项目统筹',
+    roleCardId: 'preset-planner',
     theme: 'jean',
     emoji: '⚔️',
     isOnline: true,
+    accountIds: [],
   },
   {
     id: 'keqing',
     name: 'Keqing',
     role: 'worker',
     roleLabel: '前端负责人',
+    roleCardId: 'preset-frontend',
     theme: 'keqing',
     emoji: '⚡',
     isOnline: true,
+    accountIds: [],
   },
   {
     id: 'zhongli',
     name: 'Zhongli',
     role: 'worker',
     roleLabel: '后端负责人',
+    roleCardId: 'preset-backend',
     theme: 'zhongli',
     emoji: '🔶',
     isOnline: false,
+    accountIds: [],
   },
   {
     id: 'nahida',
     name: 'Nahida',
     role: 'reviewer',
     roleLabel: '代码评审',
+    roleCardId: 'preset-code-reviewer',
     theme: 'nahida',
     emoji: '🌿',
     isOnline: true,
+    accountIds: [],
   },
   {
     id: 'albedo',
     name: 'Albedo',
     role: 'worker',
     roleLabel: '算法工程',
+    roleCardId: 'preset-arch-reviewer',
     theme: 'albedo',
     emoji: '✨',
     isOnline: false,
+    accountIds: [],
   },
   {
     id: 'venti',
     name: 'Venti',
     role: 'reviewer',
     roleLabel: 'QA 测试',
+    roleCardId: 'preset-qa',
     theme: 'venti',
     emoji: '💨',
     isOnline: false,
+    accountIds: [],
   },
 ];
 
@@ -346,12 +468,166 @@ const makeId = (prefix: string) =>
 
 const EMPTY_EVENTS: InternalEvent[] = [];
 const EMPTY_BLOCKERS: Blocker[] = [];
+const EMPTY_CHAT: ChatMessage[] = [];
+
+// --- Helpers for mapping DB rows to store shape ---
+function mapMessagesToState(recentMessages: Record<string, any[]>): Record<string, ChatMessage[]> {
+  const result: Record<string, ChatMessage[]> = {};
+  for (const [convId, msgs] of Object.entries(recentMessages)) {
+    result[convId] = msgs.map((m) => ({
+      id: m.id,
+      agentId: m.sender_type === 'human' ? 'human' : m.sender_id,
+      content: m.content,
+      timestamp: m.created_at,
+      mentions: typeof m.mentions === 'string' ? JSON.parse(m.mentions || '[]') : (m.mentions || []),
+      intent: m.intent,
+      referencedTaskId: m.task_id,
+      ...(m.metadata ? { metadata: JSON.parse(m.metadata) } : {}),
+    }));
+  }
+  return result;
+}
+
+function mapSessionsToState(sessions: any[]): Record<string, Record<string, string | undefined>> {
+  const result: Record<string, Record<string, string | undefined>> = { default: {} };
+  for (const s of sessions) {
+    const projectId = s.conversation_id || 'default';
+    if (!result[projectId]) result[projectId] = {};
+    if (s.cli_session_id) {
+      result[projectId][s.agent_id] = s.cli_session_id;
+    }
+  }
+  return result;
+}
 
 export const useTaskHubStore = create<TaskHubState>()(
-  persist(
     (set, get) => ({
       hasHydrated: false,
       setHasHydrated: (hydrated) => set({ hasHydrated: hydrated }),
+
+      loadFromServer: async () => {
+        try {
+          const oldData = localStorage.getItem('agent-task-hub-store-clean');
+          if (oldData) {
+            try {
+              const parsed = JSON.parse(oldData);
+              if (parsed?.conversations?.length) {
+                for (const conv of parsed.conversations) {
+                  fetch('/api/mutations', {
+                    method: 'POST',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify({ type: 'conversation.create', payload: { id: conv.id, title: conv.title, goal: conv.goal, priority: conv.priority } }),
+                  }).catch(() => {});
+                }
+              }
+              if (parsed?.tasks?.length) {
+                for (const t of parsed.tasks) {
+                  fetch('/api/mutations', {
+                    method: 'POST',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify({ type: 'task.create', payload: { id: t.id, conversation_id: t.conversationId, title: t.title, description: t.description, agent_id: t.agentId, dependencies: JSON.stringify(t.dependencies || []), artifacts: JSON.stringify(t.artifacts || []) } }),
+                  }).catch(() => {});
+                }
+              }
+              if (parsed?.chatMessagesByConversation) {
+                for (const [convId, msgs] of Object.entries(parsed.chatMessagesByConversation)) {
+                  for (const rawMsg of (msgs as any[])) {
+                    const msg = rawMsg as any;
+                    fetch('/api/mutations', {
+                      method: 'POST',
+                      headers: { 'content-type': 'application/json' },
+                      body: JSON.stringify({ type: 'message.append', payload: { conversationId: convId, senderType: msg.agentId === 'human' ? 'human' : 'agent', senderId: msg.agentId, content: msg.content, mentions: msg.mentions, intent: msg.intent, taskId: msg.referencedTaskId } }),
+                    }).catch(() => {});
+                  }
+                }
+              }
+              localStorage.removeItem('agent-task-hub-store-clean');
+            } catch (migrationErr) {
+              console.error('[loadFromServer] localStorage migration failed:', migrationErr);
+            }
+          }
+
+          const res = await fetch('/api/state');
+          if (!res.ok) {
+            set({ hasHydrated: true });
+            return;
+          }
+          const data = await res.json();
+
+          const conversations: Conversation[] = (data.conversations || []).map((c: any) => ({
+            id: c.id,
+            title: c.title || '',
+            goal: c.goal || '',
+            status: c.status || 'active',
+            priority: c.priority || 'p2',
+            createdAt: c.created_at,
+            updatedAt: c.updated_at,
+          }));
+
+          const tasks: Task[] = (data.tasks || []).map((t: any) => ({
+            id: t.id,
+            conversationId: t.conversation_id,
+            title: t.title,
+            description: t.description || '',
+            status: t.status,
+            agentId: t.agent_id,
+            dependencies: typeof t.dependencies === 'string' ? JSON.parse(t.dependencies || '[]') : (t.dependencies || []),
+            artifacts: typeof t.artifacts === 'string' ? JSON.parse(t.artifacts || '[]') : (t.artifacts || []),
+            reviewNote: t.review_note,
+            createdAt: t.created_at,
+            updatedAt: t.updated_at,
+          }));
+
+          set({
+            conversations,
+            tasks,
+            chatMessagesByConversation: mapMessagesToState(data.recentMessages || {}),
+            agentSessions: mapSessionsToState(data.activeSessions || []),
+            hasHydrated: true,
+          });
+
+          if (tasks.length) {
+            const max = tasks.reduce((acc, t) => {
+              const m = /^TASK-(\d+)$/.exec(t.id);
+              const n = m ? Number(m[1]) : 0;
+              return n > acc ? n : acc;
+            }, 0);
+            taskCounter = max + 1;
+          }
+
+          get().loadAccounts();
+
+          get().refreshRuntimeCatalog();
+
+          const existingIds = new Set(get().roleCards.map((c) => c.id));
+          const missing = PRESET_ROLE_CARDS.filter((c) => !existingIds.has(c.id));
+          if (missing.length) {
+            set((state) => ({ roleCards: [...missing, ...state.roleCards] }));
+          }
+        } catch (err) {
+          console.error('[loadFromServer] Failed:', err);
+          set({ hasHydrated: true });
+        }
+      },
+      refreshRuntimeCatalog: () => {},
+      mergeLegacyChatMessages: (legacyMessages) => {
+        if (!legacyMessages.length) return;
+        let conversationId: string | null =
+          get().selectedConversationId ??
+          get().conversations[0]?.id ??
+          null;
+        if (!conversationId) {
+          get().createConversation({ title: '未命名会话', goal: '迁移自旧版本的聊天记录' });
+          conversationId = get().selectedConversationId ?? null;
+        }
+        if (!conversationId) return;
+        set((state) => ({
+          chatMessagesByConversation: {
+            ...state.chatMessagesByConversation,
+            [conversationId]: [...(state.chatMessagesByConversation[conversationId] || []), ...legacyMessages],
+          },
+        }));
+      },
 
       isSettingsOpen: false,
       setSettingsOpen: (open) => set({ isSettingsOpen: open }),
@@ -368,13 +644,86 @@ export const useTaskHubStore = create<TaskHubState>()(
       opencodeBridge: { url: '', enabled: false, checked: false, available: false },
       setOpencodeBridge: (bridge) => set({ opencodeBridge: bridge }),
 
+      accounts: [],
+      upsertAccount: async (account) => {
+        const isCreate = !account.id;
+        const url = isCreate ? '/api/accounts' : `/api/accounts/${account.id}`;
+        const method = isCreate ? 'POST' : 'PATCH';
+
+        const body: Record<string, unknown> = {
+          name: account.name,
+          provider: account.provider,
+          baseUrl: account.baseUrl,
+          models: account.models,
+          enabled: account.enabled,
+        };
+
+        if (isCreate) {
+          body.authMode = account.authMode;
+        }
+
+        if (account.apiKey) body.apiKey = account.apiKey;
+
+        const res = await fetch(url, {
+          method,
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error((err as Record<string, unknown>).error ? String((err as Record<string, unknown>).error) : `API error ${res.status}`);
+        }
+
+        const data = await res.json();
+
+        set((state) => {
+          const serverAccount = data.account;
+          const exists = state.accounts.some((a) => a.id === serverAccount.id);
+          return {
+            accounts: exists
+              ? state.accounts.map((a) => a.id === serverAccount.id ? serverAccount : a)
+              : [serverAccount, ...state.accounts],
+          };
+        });
+
+        return data.account.id;
+      },
+      removeAccount: async (accountId) => {
+        await fetch(`/api/accounts/${accountId}`, { method: 'DELETE' });
+        set((state) => ({
+          accounts: state.accounts.filter((a) => a.id !== accountId),
+        }));
+      },
+      loadAccounts: async () => {
+        try {
+          const res = await fetch('/api/accounts');
+          const data = await res.json();
+          set({ accounts: data.accounts });
+        } catch {}
+      },
+
+      getAvailableRuntime: () => {
+        const s = get();
+        if (s.opencodeStatus.checked && s.opencodeStatus.available) {
+          return { engine: 'opencode' as CliEngine, available: true };
+        }
+        if (s.opencodeBridge.enabled && s.opencodeBridge.checked && s.opencodeBridge.available) {
+          return { engine: 'opencode' as CliEngine, available: true };
+        }
+        if (s.enableMockRunner) {
+          return { engine: 'mock' as CliEngine, available: true };
+        }
+        return null;
+      },
+
       selectedProjectId: 'default',
       agentSessions: { default: {} },
       activeAgentIds: ['jean', 'keqing'],
       conversations: [],
       selectedConversationId: null,
       tasks: [],
-      chatMessages: [],
+      chatMessagesByConversation: {},
       eventsByConversation: {},
       blockersByConversation: {},
 
@@ -406,6 +755,11 @@ export const useTaskHubStore = create<TaskHubState>()(
         const id = get().selectedConversationId;
         if (!id) return EMPTY_BLOCKERS;
         return get().blockersByConversation[id] ?? EMPTY_BLOCKERS;
+      },
+      getChatMessagesForSelectedConversation: () => {
+        const id = get().selectedConversationId;
+        if (!id) return EMPTY_CHAT;
+        return get().chatMessagesByConversation[id] ?? EMPTY_CHAT;
       },
 
       createConversation: ({ title, goal, priority }) => {
@@ -458,6 +812,12 @@ export const useTaskHubStore = create<TaskHubState>()(
             evidenceLinks: [],
           },
         });
+
+        fetch('/api/mutations', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ type: 'conversation.create', payload: { id, title, goal, priority: priority ?? 'p1' } }),
+        }).catch((err) => console.error('[mutation] conversation.create failed:', err));
       },
 
       setSelectedConversationId: (conversationId) => set({ selectedConversationId: conversationId }),
@@ -472,6 +832,20 @@ export const useTaskHubStore = create<TaskHubState>()(
             [record.conversationId]: [...(state.eventsByConversation[record.conversationId] || []), record],
           },
         }));
+
+        if (record.conversationId) {
+          fetch('/api/mutations', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ type: 'event.append', payload: {
+              conversationId: record.conversationId,
+              taskId: (record.payload as any)?.taskId,
+              agentId: (record.payload as any)?.agentId || 'system',
+              type: record.type,
+              payload: record.payload,
+            }}),
+          }).catch((err) => console.error('[mutation] event.append failed:', err));
+        }
       },
 
       addSupervisorOutput: (output) => {
@@ -535,6 +909,72 @@ export const useTaskHubStore = create<TaskHubState>()(
       isRosterModalOpen: false,
       setRosterModalOpen: (open) => set({ isRosterModalOpen: open }),
 
+      agentAccountOverrides: {},
+      setAgentAccountIds: (agentId, accountIds) =>
+        set((state) => ({
+          agentAccountOverrides: {
+            ...state.agentAccountOverrides,
+            [agentId]: accountIds,
+          },
+        })),
+
+      // --- Role Card Store ---
+      roleCards: [...PRESET_ROLE_CARDS],
+      upsertRoleCard: (card) => {
+        const now = new Date().toISOString();
+        if (card.id) {
+          set((state) => ({
+            roleCards: state.roleCards.map((c) =>
+              c.id === card.id
+                ? { ...c, ...card, updatedAt: now, version: c.version + 1 } as RoleCard
+                : c
+            ),
+          }));
+          return card.id;
+        }
+        const id = makeId('rc');
+        set((state) => ({
+          roleCards: [
+            ...state.roleCards,
+            { ...card, id, isPreset: false, version: 1, createdAt: now, updatedAt: now } as RoleCard,
+          ],
+        }));
+        return id;
+      },
+      removeRoleCard: (cardId) =>
+        set((state) => ({
+          roleCards: state.roleCards.filter((c) => !(c.id === cardId && !c.isPreset)),
+        })),
+      getRoleCardById: (cardId) => get().roleCards.find((c) => c.id === cardId),
+      getRoleCardForAgent: (agentId) => {
+        const agent = AGENT_ROSTER.find((a) => a.id === agentId);
+        if (!agent?.roleCardId) return undefined;
+        return get().roleCards.find((c) => c.id === agent.roleCardId);
+      },
+      setAgentRoleCardId: (agentId, roleCardId) => {
+        const idx = AGENT_ROSTER.findIndex((a) => a.id === agentId);
+        if (idx !== -1) {
+          (AGENT_ROSTER as Agent[])[idx].roleCardId = roleCardId;
+        }
+        set({}); // trigger re-render
+      },
+
+      setRoleCardAccountIds: (roleCardId, accountIds) =>
+        set((state) => ({
+          roleCards: state.roleCards.map((c) =>
+            c.id === roleCardId ? { ...c, accountIds, updatedAt: new Date().toISOString() } : c
+          ),
+        })),
+
+      isRoleCardDetailOpen: false,
+      selectedRoleCardId: null,
+      setRoleCardDetailOpen: (open, cardId) =>
+        set({ isRoleCardDetailOpen: open, selectedRoleCardId: cardId ?? null }),
+      isRoleCardEditorOpen: false,
+      editingRoleCardId: null,
+      setRoleCardEditorOpen: (open, cardId) =>
+        set({ isRoleCardEditorOpen: open, editingRoleCardId: cardId ?? null }),
+
       inviteAgent: (agentId) =>
         set((state) => {
           if (state.activeAgentIds.includes(agentId)) return state;
@@ -574,30 +1014,63 @@ export const useTaskHubStore = create<TaskHubState>()(
           get().selectedConversationId;
         if (!conversationId) return;
         const runId = makeId('run');
+        const agent = AGENT_ROSTER.find((item) => item.id === agentId);
+        // Account resolution: role card accounts > agent override > agent default
+        let effectiveIds: string[] = [];
+        if (agent) {
+          const roleCard = agent.roleCardId ? get().roleCards.find((c) => c.id === agent.roleCardId) : null;
+          if (roleCard && roleCard.accountIds.length > 0) {
+            effectiveIds = roleCard.accountIds;
+          } else {
+            effectiveIds = get().agentAccountOverrides[agentId] ?? agent.accountIds;
+          }
+        }
+        const resolvedBinding = agent ? resolveAgentEngine({ ...agent, accountIds: effectiveIds }, get().accounts) : null;
+        const agentEngine = agent?.cliEngine ?? 'opencode';
+        const resolvedEngine = get().getAvailableRuntime()?.engine ?? resolvedBinding?.engine ?? agentEngine;
+
+        // Build role card context prefix
+        let effectivePrompt = prompt;
+        if (agent?.roleCardId) {
+          const rc = get().roleCards.find((c) => c.id === agent.roleCardId);
+          if (rc) {
+            const parts: string[] = [`[Role: ${rc.displayName}]`];
+            if (rc.responsibilities.length) parts.push(`Responsibilities: ${rc.responsibilities.join(', ')}`);
+            if (rc.nonResponsibilities.length) parts.push(`NOT responsible for: ${rc.nonResponsibilities.join(', ')}`);
+            if (rc.outputFormat !== 'freeform') parts.push(`Output format: ${rc.outputFormat}`);
+            if (rc.requiresEvidence) parts.push('Must provide evidence/references');
+            if (rc.forbiddenActions.length) parts.push(`Forbidden: ${rc.forbiddenActions.join(', ')}`);
+            parts.push('---');
+            effectivePrompt = `${parts.join('\n')}\n${prompt}`;
+          }
+        }
 
         set((state) => ({
           agentStatus: { ...state.agentStatus, [agentId]: 'busy' },
           terminalLogs: { ...state.terminalLogs, [agentId]: [] },
           activeRunsByAgent: {
             ...state.activeRunsByAgent,
-            [agentId]: { runId, taskId: referencedTaskId, conversationId },
+            [agentId]: { runId, taskId: referencedTaskId, conversationId, startedAt: new Date().toISOString() },
           },
         }));
 
         get().addEvent({
           conversationId,
           type: 'run.started',
-          payload: { runId, agentId, taskId: referencedTaskId },
+          payload: { runId, agentId, taskId: referencedTaskId, engine: resolvedEngine },
         });
 
         socket.emit('terminal:start', {
           projectId,
           taskId: referencedTaskId,
           agentId,
-          prompt,
+          prompt: effectivePrompt,
           sessionId,
           allowMockRunner: get().enableMockRunner,
           opencodeBridgeUrl: get().opencodeBridge.enabled ? get().opencodeBridge.url : undefined,
+          engine: resolvedEngine,
+          accountIds: effectiveIds,
+          accountId: resolvedBinding?.accountId ?? '',
         });
       },
 
@@ -617,20 +1090,34 @@ export const useTaskHubStore = create<TaskHubState>()(
         const resolvedSessionId = sessionId || get().agentSessions[projectId]?.[agentId];
         const conversationId = task.conversationId;
         const runId = makeId('run');
+        const agent = AGENT_ROSTER.find((item) => item.id === agentId);
+        // Account resolution: role card accounts > agent override > agent default
+        let effectiveIds: string[] = [];
+        if (agent) {
+          const roleCard = agent.roleCardId ? get().roleCards.find((c) => c.id === agent.roleCardId) : null;
+          if (roleCard && roleCard.accountIds.length > 0) {
+            effectiveIds = roleCard.accountIds;
+          } else {
+            effectiveIds = get().agentAccountOverrides[agentId] ?? agent.accountIds;
+          }
+        }
+        const resolvedBinding = agent ? resolveAgentEngine({ ...agent, accountIds: effectiveIds }, get().accounts) : null;
+        const agentEngine = agent?.cliEngine ?? 'opencode';
+        const resolvedEngine = get().getAvailableRuntime()?.engine ?? resolvedBinding?.engine ?? agentEngine;
 
         set((state) => ({
           agentStatus: { ...state.agentStatus, [agentId]: 'busy' },
           terminalLogs: { ...state.terminalLogs, [agentId]: [] },
           activeRunsByAgent: {
             ...state.activeRunsByAgent,
-            [agentId]: { runId, taskId, conversationId },
+            [agentId]: { runId, taskId, conversationId, startedAt: new Date().toISOString() },
           },
         }));
 
         get().addEvent({
           conversationId,
           type: 'run.started',
-          payload: { runId, agentId, taskId },
+          payload: { runId, agentId, taskId, engine: resolvedEngine },
         });
 
         socket.emit('terminal:start', {
@@ -641,6 +1128,9 @@ export const useTaskHubStore = create<TaskHubState>()(
           sessionId: resolvedSessionId,
           allowMockRunner: get().enableMockRunner,
           opencodeBridgeUrl: get().opencodeBridge.enabled ? get().opencodeBridge.url : undefined,
+          engine: resolvedEngine,
+          accountIds: effectiveIds,
+          accountId: resolvedBinding?.accountId ?? '',
         });
       },
 
@@ -668,6 +1158,23 @@ export const useTaskHubStore = create<TaskHubState>()(
             type: 'task.status_changed',
             payload: { taskId, status, reviewNote },
           });
+
+          fetch('/api/mutations', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ type: 'task.updateStatus', payload: { id: taskId, status, reviewNote } }),
+          }).catch((err) => console.error('[mutation] task.updateStatus failed:', err));
+
+          if (status === 'done' || status === 'rejected' || status === 'blocked') {
+            const task = get().tasks.find((t) => t.id === taskId);
+            if (task) {
+              fetch('/api/mutations', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ type: 'session.sealByTask', payload: { agentId: task.agentId, taskId, reason: `task_${status}` } }),
+              }).catch((err) => console.error('[mutation] session.sealByTask failed:', err));
+            }
+          }
 
           if (prev && status === 'in_progress') {
             get().dispatchToAgent({
@@ -706,6 +1213,12 @@ export const useTaskHubStore = create<TaskHubState>()(
             prompt: `You are assigned ${id}: ${taskData.title}. ${taskData.description}. Reply with your plan and next steps.`,
           });
         }
+
+        fetch('/api/mutations', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ type: 'task.create', payload: { id, conversation_id: conversationId, title: taskData.title, description: taskData.description, agent_id: taskData.agentId, dependencies: JSON.stringify(taskData.dependencies), artifacts: JSON.stringify(taskData.artifacts) } }),
+        }).catch((err) => console.error('[mutation] task.create failed:', err));
       },
 
       removeTask: (taskId) =>
@@ -735,11 +1248,15 @@ export const useTaskHubStore = create<TaskHubState>()(
       },
 
       addChatMessage: (msg) => {
-        const mentionsMatch = msg.content.match(/@(\w+)/g);
-        const mentions = mentionsMatch ? mentionsMatch.map((m) => m.substring(1)) : [];
+        const { conversationId: conv, ...rest } = msg as any;
+        const conversationId = conv ?? get().selectedConversationId;
+        if (!conversationId) return;
+
+        const mentionsMatch = rest.content.match(/@(\w+)/g);
+        const mentions = mentionsMatch ? mentionsMatch.map((m: string) => m.substring(1)) : [];
 
         let intent: ChatMessage['intent'] = 'general';
-        const contentLower = msg.content.toLowerCase();
+        const contentLower = rest.content.toLowerCase();
         if (contentLower.includes('brainstorm') || contentLower.includes('design') || contentLower.includes('plan')) {
           intent = 'ideate';
         } else if (contentLower.includes('implement') || contentLower.includes('execute') || contentLower.includes('build')) {
@@ -749,65 +1266,60 @@ export const useTaskHubStore = create<TaskHubState>()(
         }
 
         set((state) => ({
-          chatMessages: [
-            ...state.chatMessages,
-            {
-              ...msg,
-              id: `msg-${Date.now()}`,
-              timestamp: new Date().toISOString(),
-              mentions,
-              intent,
-            },
-          ],
+          chatMessagesByConversation: {
+            ...state.chatMessagesByConversation,
+            [conversationId]: [
+              ...(state.chatMessagesByConversation[conversationId] || []),
+              {
+                ...rest,
+                id: `msg-${Date.now()}`,
+                timestamp: new Date().toISOString(),
+                mentions,
+                intent,
+              },
+            ],
+          },
         }));
 
-        if (msg.agentId === 'human') {
+        if (rest.agentId === 'human') {
           for (const mentionedAgentId of mentions.slice(0, 2)) {
             get().dispatchToAgent({
               agentId: mentionedAgentId,
-              referencedTaskId: msg.referencedTaskId,
-              prompt: msg.content,
+              referencedTaskId: rest.referencedTaskId,
+              prompt: rest.content,
             });
           }
         }
+
+        fetch('/api/mutations', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ type: 'message.append', payload: {
+            conversationId,
+            taskId: rest.referencedTaskId,
+            senderType: rest.agentId === 'human' ? 'human' : 'agent',
+            senderId: rest.agentId,
+            content: rest.content,
+            mentions,
+            intent,
+          }}),
+        }).catch((err) => console.error('[mutation] message.append failed:', err));
       },
 
       updateChatMessageStatus: (msgId, status) =>
-        set((state) => ({
-          chatMessages: state.chatMessages.map((m) => (m.id === msgId ? { ...m, approvalStatus: status } : m)),
-        })),
+        set((state) => {
+          let changed = false;
+          const next = { ...state.chatMessagesByConversation };
+          for (const conversationId of Object.keys(next)) {
+            const msgs = next[conversationId] || [];
+            const idx = msgs.findIndex((m) => m.id === msgId);
+            if (idx === -1) continue;
+            changed = true;
+            next[conversationId] = msgs.map((m) => (m.id === msgId ? { ...m, approvalStatus: status } : m));
+          }
+          return changed ? { chatMessagesByConversation: next } : {};
+        }),
     }),
-    {
-      name: 'agent-task-hub-store-clean',
-      storage: createJSONStorage(() => localStorage),
-      partialize: (state) => ({
-        selectedProjectId: state.selectedProjectId,
-        agentSessions: state.agentSessions,
-        activeAgentIds: state.activeAgentIds,
-        enableMockRunner: state.enableMockRunner,
-        opencodeBridge: state.opencodeBridge,
-        conversations: state.conversations,
-        selectedConversationId: state.selectedConversationId,
-        tasks: state.tasks,
-        chatMessages: state.chatMessages,
-        eventsByConversation: state.eventsByConversation,
-        blockersByConversation: state.blockersByConversation,
-      }),
-      onRehydrateStorage: () => (state) => {
-        if (state?.tasks?.length) {
-          const max = state.tasks.reduce((acc, t) => {
-            const m = /^TASK-(\d+)$/.exec(t.id);
-            const n = m ? Number(m[1]) : 0;
-            return n > acc ? n : acc;
-          }, 0);
-          taskCounter = max + 1;
-        } else {
-          taskCounter = 1;
-        }
-        state?.setHasHydrated(true);
-      },
-    }
-  )
 );
 
 // --- Socket.io Event Listeners ---
@@ -854,7 +1366,7 @@ socket.on('agent:event', (event) => {
   }
 });
 
-socket.on('terminal:exit', ({ agentId, code }) => {
+socket.on('terminal:exit', ({ agentId, code, command, reasonCode }: { agentId: string; code: number; command?: string; reasonCode?: string }) => {
   const store = useTaskHubStore.getState();
   const active = store.activeRunsByAgent[agentId];
   const conversationId =
@@ -870,23 +1382,51 @@ socket.on('terminal:exit', ({ agentId, code }) => {
     store.addEvent({
       conversationId,
       type: 'run.finished',
-      payload: { runId, agentId, taskId, code },
+      payload: { runId, agentId, taskId, code, reasonCode },
     });
   }
 
   if (typeof code === 'number' && code !== 0 && taskId && conversationId) {
-    store.updateTaskStatus(taskId, 'blocked', `执行失败（退出码 ${code}）。`);
+    let blockerType: Blocker['type'] = 'execution_failure';
+    let reasonSummary = `执行失败（退出码 ${code}）。`;
+
+    if (reasonCode === 'not_found') {
+      reasonSummary = 'CLI 工具未找到，请检查安装。';
+    } else if (reasonCode === 'timeout') {
+      blockerType = 'timeout';
+      reasonSummary = '执行超时，Agent 已自动终止。';
+    } else if (reasonCode === 'spawn_failed') {
+      reasonSummary = '进程启动失败。';
+    }
+
+    store.updateTaskStatus(taskId, 'blocked', reasonSummary);
     store.openBlocker({
       conversationId,
       taskId,
-      type: 'execution_failure',
-      reasonSummary: `执行失败（退出码 ${code}）。`,
-      evidenceRef: runId ? `run:${runId}` : undefined,
+      type: blockerType,
+      reasonSummary,
+      evidenceRef: runId ? `run:${runId}` : (command ? `cli:${command}` : undefined),
     });
+
+    const task = store.tasks.find((t) => t.id === taskId);
+    if (task) {
+      fetch('/api/mutations', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ type: 'session.sealByTask', payload: { agentId: task.agentId, taskId, reason: `exit_${code}` } }),
+      }).catch(() => {});
+    }
   }
 
   useTaskHubStore.setState((state) => ({
     agentStatus: { ...state.agentStatus, [agentId]: 'idle' },
     activeRunsByAgent: { ...state.activeRunsByAgent, [agentId]: undefined },
   }));
+});
+
+socket.on('agent:error', ({ agentId, message, reasonCode }: { agentId: string; message: string; reasonCode?: string }) => {
+  useTaskHubStore.getState().addChatMessage({
+    agentId: agentId || 'system',
+    content: `⚠️ ${message}`,
+  });
 });

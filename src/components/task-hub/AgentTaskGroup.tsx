@@ -7,8 +7,10 @@ import {
 import { Agent, useTaskHubStore } from '@/store/taskHubStore';
 import { TaskCard } from './TaskCard';
 import { cn } from '@/lib/utils';
-import { ChevronDown, ChevronRight, LogOut } from 'lucide-react';
+import { ChevronDown, ChevronRight, LogOut, Settings } from 'lucide-react';
 import { PixelAvatar } from './PixelAvatar';
+import { AgentBindingPanel } from './AgentBindingPanel';
+import { RoleCardBadge } from '@/components/role-card/RoleCardBadge';
 
 /* ---- Agent theme map → CSS variable families ---- */
 const themeStyles = {
@@ -69,12 +71,14 @@ interface AgentTaskGroupProps {
 export function AgentTaskGroup({ agent }: AgentTaskGroupProps) {
   const allTasks = useTaskHubStore((s) => s.tasks);
   const dismissAgent = useTaskHubStore((s) => s.dismissAgent);
+  const roleCards = useTaskHubStore((s) => s.roleCards);
   const tasks = useMemo(
     () => allTasks.filter((t) => t.agentId === agent.id),
     [allTasks, agent.id]
   );
 
   const [isDoneCollapsed, setIsDoneCollapsed] = useState(true);
+  const [showBinding, setShowBinding] = useState(false);
 
   const handleDismiss = () => {
     if (tasks.length > 0) {
@@ -136,9 +140,15 @@ export function AgentTaskGroup({ agent }: AgentTaskGroupProps) {
           <h3 className="text-[13px] font-bold text-[hsl(var(--text-primary))] truncate flex items-center gap-1.5">
             {agent.emoji} {agent.name}
           </h3>
-          <p className="text-[11px] text-[hsl(var(--text-secondary))] truncate">
-            {agent.roleLabel}
-          </p>
+          {agent.roleCardId ? (
+            <div className="mt-0.5">
+              <RoleCardBadge card={roleCards.find((c) => c.id === agent.roleCardId)!} size="sm" />
+            </div>
+          ) : (
+            <p className="text-[11px] text-[hsl(var(--text-secondary))] truncate">
+              {agent.roleLabel}
+            </p>
+          )}
         </div>
 
         <div className="flex items-center gap-2">
@@ -153,6 +163,19 @@ export function AgentTaskGroup({ agent }: AgentTaskGroupProps) {
           >
             {activeCount}
           </span>
+
+          <button
+            onClick={() => setShowBinding(!showBinding)}
+            className={cn(
+              "p-1.5 rounded-md transition-colors",
+              showBinding
+                ? "text-[hsl(var(--accent))] bg-[hsl(var(--accent-soft))]"
+                : "text-[hsl(var(--text-tertiary))] hover:text-[hsl(var(--text-secondary))] hover:bg-[hsl(var(--bg-muted))]"
+            )}
+            title="账号绑定"
+          >
+            <Settings className={cn("w-3.5 h-3.5 transition-transform", showBinding && "rotate-90")} />
+          </button>
 
           {/* Dismiss Button */}
           <button
@@ -171,6 +194,10 @@ export function AgentTaskGroup({ agent }: AgentTaskGroupProps) {
 
       {/* ── Task List ── */}
       <div className="flex-1 flex flex-col gap-2.5 overflow-y-auto p-3 scrollbar-thin">
+        {showBinding && (
+          <AgentBindingPanel agentId={agent.id} agentName={agent.name} />
+        )}
+
         {sortedActive.map((task) => (
           <TaskCard key={task.id} task={task} agentTheme={agent.theme} />
         ))}

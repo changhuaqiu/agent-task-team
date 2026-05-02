@@ -5,6 +5,7 @@ import { useTaskHubStore, selectActiveAgents, type TaskStatus } from '@/store/ta
 import { useShallow } from 'zustand/react/shallow';
 import { cn } from '@/lib/utils';
 import { X, Plus } from 'lucide-react';
+import { RoleRecommendation } from '@/components/role-card/RoleRecommendation';
 
 export function NewTaskDialog() {
   const isOpen = useTaskHubStore((s) => s.isNewTaskDialogOpen);
@@ -12,6 +13,7 @@ export function NewTaskDialog() {
   const addTask = useTaskHubStore((s) => s.addTask);
   const activeAgents = useTaskHubStore(useShallow(selectActiveAgents));
   const tasks = useTaskHubStore((s) => s.tasks);
+  const roleCards = useTaskHubStore((s) => s.roleCards);
   const titleRef = useRef<HTMLInputElement>(null);
 
   const [title, setTitle] = useState('');
@@ -133,11 +135,14 @@ export function NewTaskDialog() {
                   onChange={(e) => setAgentId(e.target.value)}
                   className="w-full px-3 py-2 text-[13px] bg-[hsl(var(--bg-muted))] border border-[hsl(var(--border))] rounded-[var(--radius-md)] text-[hsl(var(--text-primary))] outline-none focus:border-[hsl(var(--accent))] transition-all"
                 >
-                  {activeAgents.length > 0 && activeAgents.map((agent) => (
-                    <option key={agent.id} value={agent.id}>
-                      {agent.emoji} {agent.name}
-                    </option>
-                  ))}
+                  {activeAgents.length > 0 && activeAgents.map((agent) => {
+                    const card = roleCards.find((c) => c.id === agent.roleCardId);
+                    return (
+                      <option key={agent.id} value={agent.id}>
+                        {agent.emoji} {agent.name}{card ? ` — ${card.displayName}` : ''}
+                      </option>
+                    );
+                  })}
                 </select>
               </div>
 
@@ -183,6 +188,14 @@ export function NewTaskDialog() {
                 </div>
               </div>
             )}
+
+            {/* Role Recommendation */}
+            <RoleRecommendation
+              title={title}
+              description={description}
+              currentAgentId={agentId}
+              onAccept={setAgentId}
+            />
           </div>
 
           {/* Footer */}

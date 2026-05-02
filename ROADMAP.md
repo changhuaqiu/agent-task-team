@@ -16,6 +16,9 @@ created: 2026-02-26
 
 | ID | 名称 | Status | Owner | Source | Link |
 |----|------|--------|-------|--------|------|
+| F179 | Document Architecture & Multi-Agent Constraints | done | Admin | internal | `docs/README.md` |
+| F180 | Engineering Role Card Mechanism | in-progress | Admin | internal | `docs/product/business/2026-05-01-engineering-role-card-business-plan.md` |
+| F181 | Unified Integration Config Center | done | Admin | internal | `docs/technical/integrations/2026-05-01-cli-channel-auth-config-center.md` |
 | F038 | Skills 梳理 + 按需发现机制 | parked | Admin | internal | [F038](features/F038-skills-discovery.md) |
 | F044 | Channel & Activity System — 战队频道 + 游戏活动 | spec | Agent-R | internal | [F044](features/F044-channel-activity-system.md) |
 | F048 | Restart Recovery — 重启自愈（Phase B: 队列持久化） | phase-a-done | Agent-R | internal | [F048](features/F048-restart-recovery.md) |

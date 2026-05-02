@@ -28,7 +28,7 @@
 - **Worker Agents (执行节点)**：专注于执行特定领域的编码工作。
 - **Reviewer Agent (审查节点)**：专职进行 Code Review，决定任务放行（`approved`）还是打回（`rejected`）。
 
-*详见 [架构设计文档](./specs/2026-04-29-decentralized-agent-task-hub-design.md) 和 [产品愿景](./VISION.md)*。
+*详见 [统一规格目录](./specs/README.md)、[整体架构文档](./docs/wiki/01-architecture.md) 和 [产品愿景](./VISION.md)*。
 
 ## 🛠️ 技术栈
 
@@ -126,7 +126,8 @@ powershell -ExecutionPolicy Bypass -File .\scripts\opencode-bridge-start.ps1 -Po
 - [研发路线图 (ROADMAP.md)](./ROADMAP.md)
 - [标准操作程序 (SOP.md)](./SOP.md)
 - [Agent 指南 (AGENTS.md)](./AGENTS.md)
-- [核心设计与架构规范 (specs & design 目录)](./specs/)
+- [统一规格目录 (specs/)](./specs/)
+- [项目文档导航 (docs/README.md)](./docs/README.md)
 
 ---
 

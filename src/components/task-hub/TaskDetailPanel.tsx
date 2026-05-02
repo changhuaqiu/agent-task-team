@@ -8,6 +8,7 @@ import {
 } from '@/store/taskHubStore';
 import { StatusBadge } from './StatusBadge';
 import { TerminalView } from './TerminalView';
+import { RoleCardBadge } from '@/components/role-card/RoleCardBadge';
 import { cn } from '@/lib/utils';
 import {
   X,
@@ -91,6 +92,7 @@ export function TaskDetailPanel() {
   const tasks = useTaskHubStore((s) => s.tasks);
   const updateTaskStatus = useTaskHubStore((s) => s.updateTaskStatus);
   const removeTask = useTaskHubStore((s) => s.removeTask);
+  const roleCards = useTaskHubStore((s) => s.roleCards);
   const panelRef = useRef<HTMLDivElement>(null);
 
   const task = tasks.find((t) => t.id === selectedTaskId);
@@ -98,7 +100,7 @@ export function TaskDetailPanel() {
 
   const simulateCliExecution = useTaskHubStore((s) => s.simulateCliExecution);
   const isRunning = useTaskHubStore((s) => agent ? s.agentStatus[agent.id] === 'busy' : false);
-  const opencodeAvailable = useTaskHubStore((s) => s.opencodeStatus.available || (s.opencodeBridge.enabled && s.opencodeBridge.available));
+  const availableRuntime = useTaskHubStore((s) => s.getAvailableRuntime());
 
   // Close on Escape
   useEffect(() => {
@@ -176,9 +178,13 @@ export function TaskDetailPanel() {
               <span className="text-[13px] font-medium text-[hsl(var(--text-primary))]">
                 {agent.name}
               </span>
-              <span className="text-[11px] text-[hsl(var(--text-tertiary))]">
-                {agent.roleLabel}
-              </span>
+              {agent.roleCardId ? (
+                <RoleCardBadge card={roleCards.find((c) => c.id === agent.roleCardId)!} size="sm" />
+              ) : (
+                <span className="text-[11px] text-[hsl(var(--text-tertiary))]">
+                  {agent.roleLabel}
+                </span>
+              )}
             </div>
           </div>
 
@@ -299,7 +305,7 @@ export function TaskDetailPanel() {
                 </button>
               );
             })}
-            {opencodeAvailable && task.status === 'in_progress' && (
+            {availableRuntime && task.status === 'in_progress' && (
               <button
                 type="button"
                 onClick={() => simulateCliExecution(task.id, `任务：${task.title}。请给出简短的进度更新。`, `agent-${agent.id}`)}
@@ -307,7 +313,7 @@ export function TaskDetailPanel() {
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[var(--radius-sm)] border border-[hsl(var(--border))] bg-[hsl(var(--bg-muted))] text-[hsl(var(--text-primary))] text-[11px] font-semibold transition-all duration-200 hover:bg-[hsl(var(--bg-card-hover))] disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <TerminalIcon className="w-3.5 h-3.5" />
-                {isRunning ? '智能体忙碌中…' : '运行 Opencode'}
+                {isRunning ? '智能体忙碌中…' : `运行 ${availableRuntime.engine}`}
               </button>
             )}
           </div>

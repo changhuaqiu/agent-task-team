@@ -2,6 +2,7 @@
 
 import { useTaskHubStore, selectActiveAgents, selectAvailableRoster, type ChatMessage } from '@/store/taskHubStore';
 import { useShallow } from 'zustand/react/shallow';
+import { useMemo } from 'react';
 import { PixelAvatar } from './PixelAvatar';
 import { cn } from '@/lib/utils';
 import { Check, X, User, Lightbulb, Play, Eye } from 'lucide-react';
@@ -48,6 +49,31 @@ const formatContentWithMentions = (content: string) => {
   });
 };
 
+type TaskProposal = {
+  title: string;
+  description: string;
+  agentId?: string;
+};
+
+const parseTaskProposals = (content: string): TaskProposal[] => {
+  const lines = content.split('\n');
+  const proposals: TaskProposal[] = [];
+  for (const raw of lines) {
+    const m = /^\s*(?:-|\*)?\s*TASK\s*:\s*(.+)\s*$/i.exec(raw);
+    if (!m) continue;
+    const rest = m[1] || '';
+    const agentMatch = /@(\w+)/.exec(rest);
+    const agentId = agentMatch ? agentMatch[1] : undefined;
+    const cleaned = rest.replace(/@(\w+)/g, '').trim();
+    const [titlePart, ...descParts] = cleaned.split('|');
+    const title = (titlePart || '').trim();
+    const description = descParts.join('|').trim();
+    if (!title) continue;
+    proposals.push({ title, description, agentId });
+  }
+  return proposals.slice(0, 3);
+};
+
 export function ChatMessageItem({ message }: ChatMessageItemProps) {
   const activeAgents = useTaskHubStore(useShallow(selectActiveAgents));
   const availableRoster = useTaskHubStore(useShallow(selectAvailableRoster));
@@ -55,11 +81,14 @@ export function ChatMessageItem({ message }: ChatMessageItemProps) {
   
   const setSelectedTaskId = useTaskHubStore((s) => s.setSelectedTaskId);
   const updateChatMessageStatus = useTaskHubStore((s) => s.updateChatMessageStatus);
+  const addTask = useTaskHubStore((s) => s.addTask);
+  const inviteAgent = useTaskHubStore((s) => s.inviteAgent);
 
   const isHuman = message.agentId === 'human';
   const agent = allAgents.find((a) => a.id === message.agentId);
 
   const timeString = message.timestamp.slice(11, 16);
+  const proposals = useMemo(() => parseTaskProposals(message.content), [message.content]);
 
   return (
     <div
@@ -118,6 +147,69 @@ export function ChatMessageItem({ message }: ChatMessageItemProps) {
           )}
         >
           {formatContentWithMentions(message.content)}
+
+          {proposals.length > 0 && (
+            <div className="mt-3 pt-2 border-t border-dashed border-[hsl(var(--border-subtle))] flex flex-col gap-2">
+              {proposals.map((p, idx) => {
+                const suggestedAgent = p.agentId ? allAgents.find((a) => a.id === p.agentId) : undefined;
+                const resolvedAgentId = suggestedAgent?.id ?? activeAgents[0]?.id ?? '';
+                const canCreate = Boolean(resolvedAgentId);
+                return (
+                  <div
+                    key={idx}
+                    className="rounded-[var(--radius-md)] border border-[hsl(var(--border-subtle))] bg-[hsl(var(--bg-app))] p-2"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="text-[10px] font-bold tracking-widest uppercase text-[hsl(var(--text-tertiary))]">
+                          提案任务
+                        </div>
+                        <div className="text-[12px] font-semibold text-[hsl(var(--text-primary))] mt-0.5">
+                          {p.title}
+                        </div>
+                        {p.description && (
+                          <div className="text-[11px] text-[hsl(var(--text-tertiary))] mt-0.5">
+                            {p.description}
+                          </div>
+                        )}
+                        {suggestedAgent && (
+                          <div className="text-[10px] text-[hsl(var(--text-tertiary))] mt-1">
+                            建议：{suggestedAgent.emoji} {suggestedAgent.name}
+                          </div>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        disabled={!canCreate}
+                        onClick={() => {
+                          if (!resolvedAgentId) return;
+                          if (p.agentId && !activeAgents.some((a) => a.id === p.agentId)) {
+                            inviteAgent(p.agentId);
+                          }
+                          addTask({
+                            title: p.title,
+                            description: p.description,
+                            status: 'pending',
+                            agentId: resolvedAgentId,
+                            dependencies: [],
+                            artifacts: [],
+                          });
+                        }}
+                        className={cn(
+                          'h-8 px-3 rounded-[var(--radius-md)] text-[11px] font-bold border transition-colors',
+                          canCreate
+                            ? 'bg-[hsl(var(--accent))] text-white border-[hsl(var(--accent))] hover:opacity-90'
+                            : 'bg-[hsl(var(--bg-muted))] text-[hsl(var(--text-tertiary))] border-[hsl(var(--border))]'
+                        )}
+                      >
+                        创建
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
 
           {/* Reference Task Tag */}
           {message.referencedTaskId && (
