@@ -33,7 +33,7 @@ export function ProjectChatPanel() {
 
   return (
     <section className="flex-1 min-w-0 h-full bg-[hsl(var(--bg-app))] flex flex-col">
-      <div className="px-5 pt-4 pb-3 border-b border-[hsl(var(--border))] bg-[hsl(var(--bg-card))]">
+      <div className="px-4 pt-2.5 pb-2 border-b border-[hsl(var(--border))] bg-[hsl(var(--bg-card))]">
         {/* Title row */}
         <div className="flex items-baseline justify-between gap-3">
           <div className="min-w-0">

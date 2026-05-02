@@ -26,7 +26,7 @@ export default function ClientHome() {
 
   if (!hasHydrated) {
     return (
-      <main className="min-h-screen bg-[hsl(var(--bg-app))] text-[hsl(var(--text-primary))] flex flex-col">
+      <main className="h-screen overflow-hidden bg-[hsl(var(--bg-app))] text-[hsl(var(--text-primary))] flex flex-col">
         <header className="h-[64px] px-6 flex items-center justify-between border-b border-[hsl(var(--border))] bg-[hsl(var(--bg-card))] shadow-sm">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-[var(--radius-md)] border border-[hsl(var(--border))] bg-[hsl(var(--accent-soft))] flex items-center justify-center shadow-[2px_2px_0px_hsl(var(--text-primary))]">
@@ -51,7 +51,7 @@ export default function ClientHome() {
   }
 
   return (
-    <main className="min-h-screen bg-[hsl(var(--bg-app))] text-[hsl(var(--text-primary))] flex flex-col">
+    <main className="h-screen overflow-hidden bg-[hsl(var(--bg-app))] text-[hsl(var(--text-primary))] flex flex-col">
       {/* ── Header ── */}
       <header className="h-[64px] px-6 flex items-center justify-between border-b border-[hsl(var(--border))] bg-[hsl(var(--bg-card))] shadow-sm">
         <div className="flex items-center gap-3">

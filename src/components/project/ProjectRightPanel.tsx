@@ -41,8 +41,8 @@ export function ProjectRightPanel() {
   const openBlockers = useMemo(() => blockers.filter((b) => b.status === 'open'), [blockers]);
 
   return (
-    <aside className="w-[320px] shrink-0 h-full border-l border-[hsl(var(--border))] bg-[hsl(var(--bg-app))] overflow-y-auto scrollbar-thin">
-      <div className="p-4 flex flex-col gap-4">
+    <aside className="w-[320px] shrink-0 h-full border-l border-[hsl(var(--border))] bg-[hsl(var(--bg-app))] flex flex-col">
+      <div className="flex-1 overflow-y-auto scrollbar-thin p-4 flex flex-col gap-4">
         <MiniKanban />
 
         <div className="rounded-[var(--radius-lg)] border border-[hsl(var(--border))] bg-[hsl(var(--bg-card))] shadow-sm">
