@@ -94,17 +94,38 @@ export function resolveAgentEngine(
 }
 
 // --- Chat Message Entity ---
+export interface ToolEvent {
+  id: string;
+  type: 'tool_use' | 'step_start' | 'step_finish' | 'error';
+  label: string;
+  detail?: string;
+  timestamp: string;
+}
+
 export interface ChatMessage {
   id: string;
-  agentId: string | 'human';
+  agentId: string | 'human' | 'system';
   content: string;
   timestamp: string;
   isApprovalRequest?: boolean;
   referencedTaskId?: string;
   approvalStatus?: 'pending' | 'approved' | 'rejected';
   mentions?: string[]; // Array of agentIds mentioned in the message
-  intent?: 'ideate' | 'execute' | 'review' | 'general'; // Captured intent
+  intent?: 'ideate' | 'execute' | 'review' | 'general' | 'progress'; // Captured intent
   selectedProposals?: string[];
+  toolEvents?: ToolEvent[];
+  isStreaming?: boolean;
+  progressData?: {
+    taskId: string;
+    type: 'start' | 'update' | 'complete';
+    completedSteps: number;
+    totalSteps: number;
+    steps: { label: string; status: 'done' | 'in_progress' | 'pending' }[];
+  };
+  artifactPreview?: {
+    files: { path: string; change: 'added' | 'modified' | 'deleted' }[];
+  };
+  rejectionReason?: string;
 }
 
 // --- Task Artifact ---
@@ -148,7 +169,7 @@ export interface Conversation {
   status: 'active' | 'paused' | 'completed' | 'archived';
   priority: 'p0' | 'p1' | 'p2' | 'p3';
   projectPath: string;
-  breakdownStatus: 'none' | 'in_progress' | 'reviewed' | 'confirmed';
+  breakdownStatus: 'none' | 'in_progress' | 'reviewed' | 'confirmed' | 'no_account';
   createdAt: string;
   updatedAt: string;
 }
@@ -327,6 +348,7 @@ interface TaskHubState {
   // not returned via functions that create new array references every time they are called.
   getTasksByAgent: (agentId: string) => Task[];
   getTaskById:     (taskId: string) => Task | undefined;
+  getAgentCurrentTask: (agentId: string) => Task | undefined;
   getConversations: () => Conversation[];
   getSelectedConversation: () => Conversation | undefined;
   getEventsForSelectedConversation: () => InternalEvent[];
@@ -356,6 +378,7 @@ interface TaskHubState {
   terminalLogs: Record<string, string[]>;
   agentStatus: Record<string, 'idle' | 'busy'>;
   activeRunsByAgent: Record<string, { runId: string; taskId?: string; conversationId: string; startedAt: string } | undefined>;
+  activeStreamMessageId: Record<string, string>;
 
   // Actions
   connectDaemon: () => void;
@@ -363,6 +386,9 @@ interface TaskHubState {
   dispatchToAgent: (input: DispatchToAgentInput) => void;
   appendTerminalLog: (agentId: string, log: string) => void;
   simulateCliExecution: (taskId: string, prompt: string, sessionId?: string) => void;
+  ensureStreamMessage: (agentId: string, conversationId: string) => string;
+  appendToStreamMessage: (messageId: string, patch: { content?: string; toolEvent?: ToolEvent }) => void;
+  completeStreamMessage: (agentId: string) => void;
   selectedTaskId: string | null;
   setSelectedTaskId: (id: string | null) => void;
   isNewTaskDialogOpen: boolean;
@@ -753,6 +779,7 @@ export const useTaskHubStore = create<TaskHubState>()(
       terminalLogs: {},
       agentStatus: {},
       activeRunsByAgent: {},
+      activeStreamMessageId: {},
 
       connectDaemon: () => {
         if (socket.connected) return;
@@ -1038,6 +1065,20 @@ export const useTaskHubStore = create<TaskHubState>()(
       triggerBreakdown: (conversationId) => {
         const conv = get().conversations.find((c) => c.id === conversationId);
         if (!conv) return;
+
+        // Account guard: check if Jean has valid accounts configured
+        const jean = AGENT_ROSTER.find((a) => a.id === 'jean');
+        const accounts = get().accounts;
+        const roleCard = jean?.roleCardId ? get().roleCards.find((c) => c.id === jean.roleCardId) : null;
+        const effectiveIds = (roleCard && roleCard.accountIds.length > 0)
+          ? roleCard.accountIds
+          : (get().agentAccountOverrides['jean'] ?? jean?.accountIds ?? []);
+        const hasAccount = effectiveIds.some((aid) => accounts.some((a) => a.id === aid && a.enabled));
+        if (!hasAccount) {
+          get().setBreakdownStatus(conversationId, 'no_account');
+          return;
+        }
+
         get().setBreakdownStatus(conversationId, 'in_progress');
         const prompt = `你是项目统筹 Jean。请将以下项目目标拆解为 2-4 个阶段。
 
@@ -1118,6 +1159,10 @@ TASK: {任务标题} | {任务描述} @{推荐agentId}`;
 
       getTaskById: (taskId) => {
         return get().tasks.find((t) => t.id === taskId);
+      },
+
+      getAgentCurrentTask: (agentId) => {
+        return get().tasks.find((t) => t.agentId === agentId && t.status === 'in_progress');
       },
 
       upsertAgentSession: (projectId, agentId, sessionId) =>
@@ -1259,6 +1304,69 @@ TASK: {任务标题} | {任务描述} @{推荐agentId}`;
         });
       },
 
+      ensureStreamMessage: (agentId, conversationId) => {
+        const existing = get().activeStreamMessageId[agentId];
+        if (existing) {
+          const msgs = get().chatMessagesByConversation[conversationId] ?? [];
+          if (msgs.some((m) => m.id === existing)) return existing;
+        }
+        const id = `msg-${Date.now()}-${agentId}`;
+        const stamp = new Date().toISOString();
+        set((state) => ({
+          activeStreamMessageId: { ...state.activeStreamMessageId, [agentId]: id },
+          chatMessagesByConversation: {
+            ...state.chatMessagesByConversation,
+            [conversationId]: [
+              ...(state.chatMessagesByConversation[conversationId] || []),
+              { id, agentId, content: '', timestamp: stamp, isStreaming: true, toolEvents: [] },
+            ],
+          },
+        }));
+        return id;
+      },
+
+      appendToStreamMessage: (messageId, patch) => {
+        set((state) => {
+          const convId = state.selectedConversationId;
+          if (!convId) return state;
+          const msgs = state.chatMessagesByConversation[convId];
+          if (!msgs) return state;
+          return {
+            chatMessagesByConversation: {
+              ...state.chatMessagesByConversation,
+              [convId]: msgs.map((m) => {
+                if (m.id !== messageId) return m;
+                return {
+                  ...m,
+                  content: patch.content != null ? m.content + patch.content : m.content,
+                  toolEvents: patch.toolEvent ? [...(m.toolEvents ?? []), patch.toolEvent] : m.toolEvents,
+                };
+              }),
+            },
+          };
+        });
+      },
+
+      completeStreamMessage: (agentId) => {
+        const activeId = get().activeStreamMessageId[agentId];
+        if (!activeId) return;
+        set((state) => {
+          const { [agentId]: _, ...rest } = state.activeStreamMessageId;
+          const convId = state.selectedConversationId;
+          if (!convId) return { activeStreamMessageId: rest as Record<string, string> };
+          const msgs = state.chatMessagesByConversation[convId];
+          return {
+            activeStreamMessageId: rest as Record<string, string>,
+            chatMessagesByConversation: {
+              ...state.chatMessagesByConversation,
+              [convId]: msgs
+                ? msgs.map((m) => m.id === activeId ? { ...m, isStreaming: false } : m)
+                : msgs,
+            },
+          };
+        });
+      },
+
       updateTaskStatus: (taskId, status, reviewNote) =>
         (() => {
           const prev = get().getTaskById(taskId);
@@ -1373,6 +1481,14 @@ TASK: {任务标题} | {任务描述} @{推荐agentId}`;
       },
 
       addChatMessage: (msg) => {
+        // Auto-create conversation if none selected and none exist
+        if (!get().selectedConversationId && get().conversations.length === 0 && msg.agentId === 'human') {
+          const title = msg.content.length > 20
+            ? msg.content.slice(0, msg.content.indexOf('，') > 0 ? msg.content.indexOf('，') : 20)
+            : msg.content;
+          get().createConversation({ title, goal: msg.content });
+        }
+
         const { conversationId: conv, ...rest } = msg as any;
         const conversationId = conv ?? get().selectedConversationId;
         if (!conversationId) return;
@@ -1514,23 +1630,62 @@ socket.on('terminal:data', ({ agentId, data }) => {
 
 socket.on('agent:session', ({ projectId, agentId, sessionId }) => {
   useTaskHubStore.getState().upsertAgentSession(projectId || 'default', agentId, sessionId);
-  useTaskHubStore.getState().addChatMessage({
-    agentId,
-    content: `[${projectId || 'default'}] session activated: ${sessionId}`,
-  });
   useTaskHubStore.setState((state) => ({
     agentStatus: { ...state.agentStatus, [agentId]: 'idle' },
   }));
 });
 
 socket.on('agent:event', (event) => {
-  const { taskId, agentId, type, message } = event;
-  
-  if (type === 'step_start' || type === 'message') {
-    useTaskHubStore.getState().addChatMessage({
+  const { taskId, agentId, type, message, toolName, toolInput } = event;
+  const state = useTaskHubStore.getState();
+  const conversationId = state.selectedConversationId;
+  if (!conversationId) return;
+
+  if (type === 'step_start') {
+    state.ensureStreamMessage(agentId, conversationId);
+    return;
+  }
+
+  const activeId = state.activeStreamMessageId[agentId];
+  if (!activeId) {
+    state.addChatMessage({
       agentId: agentId || 'system',
       content: message || JSON.stringify(event),
       referencedTaskId: taskId,
+    });
+    return;
+  }
+
+  if (type === 'message') {
+    state.appendToStreamMessage(activeId, { content: message });
+  } else if (type === 'tool_use') {
+    state.appendToStreamMessage(activeId, {
+      toolEvent: {
+        id: `te-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        type: 'tool_use',
+        label: toolName || 'unknown',
+        detail: toolInput,
+        timestamp: new Date().toISOString(),
+      },
+    });
+  } else if (type === 'step_finish') {
+    state.appendToStreamMessage(activeId, {
+      toolEvent: {
+        id: `te-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        type: 'step_finish',
+        label: '完成',
+        timestamp: new Date().toISOString(),
+      },
+    });
+  } else if (type === 'error') {
+    state.appendToStreamMessage(activeId, {
+      toolEvent: {
+        id: `te-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        type: 'error',
+        label: '错误',
+        detail: message,
+        timestamp: new Date().toISOString(),
+      },
     });
   }
 });
@@ -1591,11 +1746,19 @@ socket.on('terminal:exit', ({ agentId, code, command, reasonCode }: { agentId: s
     agentStatus: { ...state.agentStatus, [agentId]: 'idle' },
     activeRunsByAgent: { ...state.activeRunsByAgent, [agentId]: undefined },
   }));
+  useTaskHubStore.getState().completeStreamMessage(agentId);
 });
 
 socket.on('agent:error', ({ agentId, message, reasonCode }: { agentId: string; message: string; reasonCode?: string }) => {
-  useTaskHubStore.getState().addChatMessage({
-    agentId: agentId || 'system',
-    content: `⚠️ ${message}`,
-  });
+  const state = useTaskHubStore.getState();
+  const activeId = state.activeStreamMessageId[agentId];
+  if (activeId) {
+    state.appendToStreamMessage(activeId, { content: `\n⚠️ ${message}` });
+    state.completeStreamMessage(agentId);
+  } else {
+    state.addChatMessage({
+      agentId: agentId || 'system',
+      content: `⚠️ ${message}`,
+    });
+  }
 });
