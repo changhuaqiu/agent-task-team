@@ -1456,17 +1456,6 @@ TASK: {任务标题} | {任务描述} @{推荐agentId}`;
             body: JSON.stringify({ type: 'task.updateStatus', payload: { id: taskId, status, reviewNote } }),
           }).catch((err) => console.error('[mutation] task.updateStatus failed:', err));
 
-          if (status === 'done' || status === 'rejected' || status === 'blocked') {
-            const task = get().tasks.find((t) => t.id === taskId);
-            if (task) {
-              fetch('/api/mutations', {
-                method: 'POST',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({ type: 'session.sealByTask', payload: { agentId: task.agentId, taskId, reason: `task_${status}` } }),
-              }).catch((err) => console.error('[mutation] session.sealByTask failed:', err));
-            }
-          }
-
           if (prev && status === 'in_progress') {
             get().dispatchToAgent({
               agentId: prev.agentId,
@@ -1805,14 +1794,6 @@ socket.on('terminal:exit', ({ agentId, code, command, reasonCode }: { agentId: s
       evidenceRef: runId ? `run:${runId}` : (command ? `cli:${command}` : undefined),
     });
 
-    const task = store.tasks.find((t) => t.id === taskId);
-    if (task) {
-      fetch('/api/mutations', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ type: 'session.sealByTask', payload: { agentId: task.agentId, taskId, reason: `exit_${code}` } }),
-      }).catch(() => {});
-    }
   }
 
   useTaskHubStore.setState((state) => ({
