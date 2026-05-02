@@ -31,6 +31,7 @@ export interface AgentResult {
   error?: string;
   durationMs: number;
   sessionId?: string;
+  usage?: Record<string, { inputTokens: number; outputTokens: number }>;
 }
 
 // --- Backend interface ---
