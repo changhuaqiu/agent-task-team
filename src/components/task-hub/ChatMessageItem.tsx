@@ -192,7 +192,30 @@ export function ChatMessageItem({ message }: ChatMessageItemProps) {
                       </span>
                       <span className="text-[11px] font-bold text-[hsl(var(--text-primary))]">{phase.title}</span>
                     </div>
-                    <span className="text-[9px] text-[hsl(var(--text-tertiary))]">{phase.tasks.length} 任务</span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const keys = new Set(checkedKeys);
+                          phase.tasks.forEach((_, ti) => keys.add(`${pi}-${ti}`));
+                          setCheckedKeys(keys);
+                        }}
+                        className="text-[9px] text-[hsl(var(--accent))] hover:underline"
+                      >
+                        全选
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const keys = new Set(checkedKeys);
+                          phase.tasks.forEach((_, ti) => keys.delete(`${pi}-${ti}`));
+                          setCheckedKeys(keys);
+                        }}
+                        className="text-[9px] text-[hsl(var(--text-tertiary))] hover:underline"
+                      >
+                        全不选
+                      </button>
+                    </div>
                   </div>
                   <div className="px-2 py-1.5 flex flex-col gap-1">
                     {phase.tasks.map((task, ti) => {
