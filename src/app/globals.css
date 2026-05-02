@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@plugin "@tailwindcss/typography";
 
 /* ============================================================
    Agent Task Hub — Pixel Warm Design System
@@ -246,3 +247,25 @@ body {
 .animate-slide-in-r { animation: slideInRight 0.3s var(--ease-out) both; }
 .animate-slide-in-u { animation: slideInUp 0.25s var(--ease-out) both; }
 .animate-pulse-dot  { animation: pulse-dot 2s ease-in-out infinite; }
+
+/* --- Markdown Prose Overrides --- */
+.markdown-body {
+  --tw-prose-body: hsl(var(--text-primary));
+  --tw-prose-headings: hsl(var(--text-primary));
+  --tw-prose-lead: hsl(var(--text-secondary));
+  --tw-prose-links: hsl(var(--accent));
+  --tw-prose-bold: hsl(var(--text-primary));
+  --tw-prose-counters: hsl(var(--text-secondary));
+  --tw-prose-bullets: hsl(var(--text-tertiary));
+  --tw-prose-hr: hsl(var(--border));
+  --tw-prose-quotes: hsl(var(--text-secondary));
+  --tw-prose-quote-borders: hsl(var(--accent));
+  --tw-prose-captions: hsl(var(--text-tertiary));
+  --tw-prose-kbd: hsl(var(--bg-muted));
+  --tw-prose-kbd-shadows: hsl(var(--text-primary));
+  --tw-prose-code: hsl(var(--accent));
+  --tw-prose-pre-code: #e2e8f0;
+  --tw-prose-pre-bg: #1A1625;
+  --tw-prose-th-borders: hsl(var(--border));
+  --tw-prose-td-borders: hsl(var(--border-subtle));
+}
