@@ -373,6 +373,7 @@ interface TaskHubState {
   ensureStreamMessage: (agentId: string, conversationId: string) => string;
   appendToStreamMessage: (messageId: string, patch: { content?: string; toolEvent?: ToolEvent }) => void;
   completeStreamMessage: (agentId: string) => void;
+  cleanupStaleStreams: () => void;
   selectedTaskId: string | null;
   setSelectedTaskId: (id: string | null) => void;
   isNewTaskDialogOpen: boolean;
@@ -545,6 +546,28 @@ function mapSessionsToState(sessions: any[]): Record<string, Record<string, stri
   return result;
 }
 
+function mergeSessions(
+  serverSessions: Record<string, Record<string, string | undefined>>,
+  persistedSessions: Record<string, Record<string, string | undefined>>,
+): Record<string, Record<string, string | undefined>> {
+  const result: Record<string, Record<string, string | undefined>> = {};
+  const allProjects = new Set([
+    ...Object.keys(serverSessions),
+    ...Object.keys(persistedSessions),
+  ]);
+  for (const project of allProjects) {
+    const server = serverSessions[project] || {};
+    const persisted = persistedSessions[project] || {};
+    const agents = new Set([...Object.keys(server), ...Object.keys(persisted)]);
+    const merged: Record<string, string | undefined> = {};
+    for (const agent of agents) {
+      merged[agent] = server[agent] || persisted[agent];
+    }
+    result[project] = merged;
+  }
+  return result;
+}
+
 export const useTaskHubStore = create<TaskHubState>()(
   persist(
     (set, get) => ({
@@ -631,7 +654,10 @@ export const useTaskHubStore = create<TaskHubState>()(
             conversations,
             tasks,
             chatMessagesByConversation: mapMessagesToState(data.recentMessages || {}),
-            agentSessions: mapSessionsToState(data.activeSessions || []),
+            agentSessions: mergeSessions(
+              mapSessionsToState(data.activeSessions || []),
+              get().agentSessions,
+            ),
             hasHydrated: true,
           });
 
@@ -1468,13 +1494,13 @@ TASK: {任务标题} | {任务描述} @{推荐agentId}`;
       },
 
       appendToStreamMessage: (messageId, patch) => {
-        // Resolve conversation from tracked stream state
+        // Resolve conversation from tracked stream state — never fall back to selectedConversationId
         const agentEntry = Object.entries(get().activeStreamMessageId).find(([, id]) => id === messageId);
         const trackedConvId = agentEntry ? get().activeStreamConversationId[agentEntry[0]] : undefined;
+        if (!trackedConvId) return; // no tracked conversation — drop silently instead of writing to wrong bucket
 
         set((state) => {
-          const convId = trackedConvId ?? state.selectedConversationId;
-          if (!convId) return state;
+          const convId = trackedConvId;
           const msgs = state.chatMessagesByConversation[convId];
           if (!msgs) return state;
           return {
@@ -1500,20 +1526,36 @@ TASK: {任务标题} | {任务描述} @{推荐agentId}`;
         set((state) => {
           const { [agentId]: _, ...restMsgIds } = state.activeStreamMessageId;
           const { [agentId]: __, ...restConvIds } = state.activeStreamConversationId;
-          const convId = trackedConvId ?? state.selectedConversationId;
-          if (!convId) return { activeStreamMessageId: restMsgIds as Record<string, string>, activeStreamConversationId: restConvIds as Record<string, string> };
-          const msgs = state.chatMessagesByConversation[convId];
+          if (!trackedConvId) return { activeStreamMessageId: restMsgIds as Record<string, string>, activeStreamConversationId: restConvIds as Record<string, string> };
+          const msgs = state.chatMessagesByConversation[trackedConvId];
           return {
             activeStreamMessageId: restMsgIds as Record<string, string>,
             activeStreamConversationId: restConvIds as Record<string, string>,
             chatMessagesByConversation: {
               ...state.chatMessagesByConversation,
-              [convId]: msgs
+              [trackedConvId]: msgs
                 ? msgs.map((m) => m.id === activeId ? { ...m, isStreaming: false } : m)
                 : msgs,
             },
           };
         });
+      },
+
+      cleanupStaleStreams: () => {
+        const state = get();
+        const updates: Record<string, ChatMessage[]> = {};
+        for (const [convId, msgs] of Object.entries(state.chatMessagesByConversation)) {
+          const hasStale = msgs.some((m) => m.isStreaming);
+          if (hasStale) {
+            updates[convId] = msgs.map((m) => m.isStreaming ? { ...m, isStreaming: false } : m);
+          }
+        }
+        if (Object.keys(updates).length > 0) {
+          set({ chatMessagesByConversation: { ...state.chatMessagesByConversation, ...updates } });
+        }
+        if (Object.keys(state.activeStreamMessageId).length > 0) {
+          set({ activeStreamMessageId: {}, activeStreamConversationId: {} });
+        }
       },
 
       updateTaskStatus: (taskId, status, reviewNote) =>
@@ -1823,11 +1865,38 @@ socket.off('connect_error');
 
 socket.on('connect', () => {
   useTaskHubStore.getState().setDaemonConnection({ status: 'connected' });
+
+  // Request available runtimes
   socket.emit('runtimes:list', (response: { runtimes: DetectedRuntime[] }) => {
     if (response?.runtimes) {
       useTaskHubStore.getState().setDaemonRuntimes(response.runtimes);
     }
   });
+
+  // Sync daemon process state
+  socket.emit('daemon:status', (response: { activeAgents: Record<string, { taskId?: string; conversationId?: string }> }) => {
+    if (!response?.activeAgents) return;
+    const statusUpdate: Record<string, 'busy'> = {};
+    const runsUpdate: Record<string, { runId: string; taskId?: string; conversationId: string; startedAt: string } | undefined> = {};
+    for (const [agentId, info] of Object.entries(response.activeAgents)) {
+      statusUpdate[agentId] = 'busy';
+      runsUpdate[agentId] = info.conversationId
+        ? {
+            runId: `recovered-${agentId}`,
+            taskId: info.taskId,
+            conversationId: info.conversationId,
+            startedAt: new Date().toISOString(),
+          }
+        : undefined;
+    }
+    useTaskHubStore.setState((state) => ({
+      agentStatus: { ...state.agentStatus, ...statusUpdate },
+      activeRunsByAgent: { ...state.activeRunsByAgent, ...runsUpdate },
+    }));
+  });
+
+  // Clean up stale streaming messages from previous session
+  useTaskHubStore.getState().cleanupStaleStreams();
 });
 
 socket.on('disconnect', () => {
@@ -1848,15 +1917,23 @@ socket.on('terminal:data', ({ agentId, data }) => {
 
 socket.on('agent:session', ({ projectId, agentId, sessionId }) => {
   useTaskHubStore.getState().upsertAgentSession(projectId || 'default', agentId, sessionId);
-  useTaskHubStore.setState((state) => ({
-    agentStatus: { ...state.agentStatus, [agentId]: 'idle' },
-  }));
 });
 
 socket.on('agent:event', (event) => {
   const { agentId, type, content, tool, sessionId, conversationId: eventConvId } = event;
   const state = useTaskHubStore.getState();
-  const conversationId = eventConvId || state.selectedConversationId;
+
+  // Resolve conversationId: prefer event payload, then active run tracking, then selected
+  // Daemon may send 'default' as fallback — resolve to actual frontend conversation
+  const active = state.activeRunsByAgent[agentId];
+  let conversationId: string | undefined;
+  if (eventConvId && eventConvId !== 'default') {
+    conversationId = eventConvId;
+  } else if (active?.conversationId) {
+    conversationId = active.conversationId;
+  } else {
+    conversationId = state.selectedConversationId ?? undefined;
+  }
   if (!conversationId) return;
 
   // Register session ID if present

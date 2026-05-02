@@ -94,6 +94,7 @@ async function detectAvailableRuntimes(): Promise<DetectedRuntime[]> {
 
 export default function registerDaemon(io: IOServer) {
   const activeProcesses = new Map<string, { kill: () => void }>();
+  const broadcast = (event: string, data: any) => io.emit(event, data);
 
   const tmuxEnabled = process.env.ATH_TMUX_ENABLED === '1';
   let tmuxGateway: TmuxGateway | undefined;
@@ -128,7 +129,7 @@ export default function registerDaemon(io: IOServer) {
     // Push runtimes on connect
     (async () => {
       const runtimes = await detectAvailableRuntimes();
-      socket.emit('runtimes:update', { runtimes });
+      broadcast('runtimes:update', { runtimes });
     })();
   });
 
@@ -265,7 +266,7 @@ export default function registerDaemon(io: IOServer) {
           const active = activeProcesses.get(agentId);
           if (active) {
             active.kill();
-            socket.emit('agent:error', {
+            broadcast('agent:error', {
               agentId,
               message: `CLI 响应超时 (${Math.round(timeoutMs / 1000)}s)，已自动终止。`,
               reasonCode: 'timeout' as const,
@@ -327,7 +328,7 @@ export default function registerDaemon(io: IOServer) {
         // Register session ID
         if (event.sessionId && !sessionEmitted) {
           sessionEmitted = true;
-          socket.emit('agent:session', { projectId: projectId || 'default', agentId, sessionId: event.sessionId });
+          broadcast('agent:session', { projectId: projectId || 'default', agentId, sessionId: event.sessionId });
           if (agentSession && !agentSession.cli_session_id) {
             sessionRepo.updateCliSessionId(agentSession.id, event.sessionId);
           }
@@ -337,7 +338,7 @@ export default function registerDaemon(io: IOServer) {
         }
 
         // Forward to client
-        socket.emit('agent:event', {
+        broadcast('agent:event', {
           taskId,
           agentId,
           type: event.type,
@@ -381,7 +382,7 @@ export default function registerDaemon(io: IOServer) {
         const controller = new AbortController();
         activeProcesses.set(agentId, { kill: () => controller.abort() });
 
-        socket.emit('terminal:data', {
+        broadcast('terminal:data', {
           agentId,
           data: `\x1b[33m$ opencode-bridge ${url}\x1b[0m\r\n`,
         });
@@ -403,12 +404,15 @@ export default function registerDaemon(io: IOServer) {
           });
 
           if (!r.ok || !r.body) {
-            socket.emit('agent:error', {
+            broadcast('agent:error', {
               agentId,
               message: `Bridge 连接失败 (HTTP ${r.status})`,
               reasonCode: 'spawn_failed' as const,
             });
-            socket.emit('terminal:exit', { agentId, code: 127, command: 'bridge', reasonCode: 'spawn_failed' });
+            if (agentSession) {
+              sessionRepo.seal(agentSession.id, 'failed');
+            }
+            broadcast('terminal:exit', { agentId, code: 127, command: 'bridge', reasonCode: 'spawn_failed' });
             activeProcesses.delete(agentId);
             if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
             return;
@@ -421,7 +425,7 @@ export default function registerDaemon(io: IOServer) {
             const { done, value } = await reader.read();
             if (done) break;
             const str = decoder.decode(value, { stream: true });
-            socket.emit('terminal:data', { agentId, data: str.replace(/\n/g, '\r\n') });
+            broadcast('terminal:data', { agentId, data: str.replace(/\n/g, '\r\n') });
             resetTimeout();
             buffer += str;
             let idx = buffer.indexOf('\n');
@@ -435,19 +439,25 @@ export default function registerDaemon(io: IOServer) {
           if (buffer.trim()) parseAndForwardBridgeLine(buffer);
 
           clearProcessTimeout();
-          socket.emit('terminal:exit', { agentId, code: 0, command: 'bridge' });
+          if (agentSession) {
+            sessionRepo.seal(agentSession.id, 'completed');
+          }
+          broadcast('terminal:exit', { agentId, code: 0, command: 'bridge' });
           activeProcesses.delete(agentId);
           if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
           return;
         } catch (e) {
           clearProcessTimeout();
           const msg = String((e as Error)?.message || e);
-          socket.emit('agent:error', {
+          broadcast('agent:error', {
             agentId,
             message: `Bridge 错误：${msg}`,
             reasonCode: 'spawn_failed' as const,
           });
-          socket.emit('terminal:exit', { agentId, code: 127, command: 'bridge', reasonCode: 'spawn_failed' });
+          if (agentSession) {
+            sessionRepo.seal(agentSession.id, 'failed');
+          }
+          broadcast('terminal:exit', { agentId, code: 127, command: 'bridge', reasonCode: 'spawn_failed' });
           activeProcesses.delete(agentId);
           if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
           return;
@@ -469,7 +479,7 @@ export default function registerDaemon(io: IOServer) {
           await tmuxGateway.execInPane(worktreeId, paneId, shellCmd);
           await tmuxGateway.setPaneReadOnly(worktreeId, paneId, true);
 
-          socket.emit('terminal:data', {
+          broadcast('terminal:data', {
             agentId,
             data: `\x1b[33m$ [tmux:${paneId}] ${primaryCommand} ${primaryArgs.join(' ')}\x1b[0m\r\n`,
           });
@@ -482,7 +492,7 @@ export default function registerDaemon(io: IOServer) {
             }
             try {
               const content = await tmuxGateway.capturePane(worktreeId, paneId);
-              socket.emit('terminal:data', { agentId, data: content.replace(/\n/g, '\r\n') });
+              broadcast('terminal:data', { agentId, data: content.replace(/\n/g, '\r\n') });
             } catch { /* pane gone */ }
           }, 2000);
 
@@ -540,7 +550,11 @@ export default function registerDaemon(io: IOServer) {
             });
           }
 
-          socket.emit('terminal:exit', {
+          if (agentSession) {
+            sessionRepo.seal(agentSession.id, final.status === 'completed' ? 'completed' : 'failed');
+          }
+
+          broadcast('terminal:exit', {
             agentId,
             code: final.status === 'completed' ? 0 : 1,
             command,
@@ -551,15 +565,18 @@ export default function registerDaemon(io: IOServer) {
         } catch (err) {
           clearProcessTimeout();
           console.error(`[daemon][${agentId}] backend error:`, err);
-          socket.emit('terminal:exit', { agentId, code: 1, command, reasonCode: 'spawn_failed' });
+          if (agentSession) {
+            sessionRepo.seal(agentSession.id, 'failed');
+          }
+          broadcast('terminal:exit', { agentId, code: 1, command, reasonCode: 'spawn_failed' });
           activeProcesses.delete(agentId);
           if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
         }
       })();
       } catch (err) {
         console.error(`[daemon] terminal:start error for agent=${agentId}:`, err);
-        socket.emit('agent:error', { agentId, message: `内部错误：${(err as Error)?.message || '未知'}` });
-        socket.emit('terminal:exit', { agentId, code: 1, command: primaryCommand, reasonCode: 'internal_error' });
+        broadcast('agent:error', { agentId, message: `内部错误：${(err as Error)?.message || '未知'}` });
+        broadcast('terminal:exit', { agentId, code: 1, command: primaryCommand, reasonCode: 'internal_error' });
         activeProcesses.delete(agentId);
         if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
       }
@@ -572,6 +589,22 @@ export default function registerDaemon(io: IOServer) {
         activeProcesses.delete(agentId);
         socket.emit('terminal:exit', { agentId, code: 0, command: 'kill', reasonCode: force ? 'force_killed' : 'killed' });
       }
+    });
+
+    socket.on('daemon:status', (callback) => {
+      const activeAgents: Record<string, { taskId?: string; conversationId?: string }> = {};
+      for (const [agentId] of activeProcesses) {
+        const session = sessionRepo.findLatestActiveByAgent(agentId);
+        if (session) {
+          activeAgents[agentId] = {
+            taskId: session.task_id || undefined,
+            conversationId: session.conversation_id || undefined,
+          };
+        } else {
+          activeAgents[agentId] = {};
+        }
+      }
+      callback?.({ activeAgents });
     });
   });
 }

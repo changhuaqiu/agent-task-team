@@ -86,10 +86,39 @@ export const sessionRepo = {
       .run('sealed', reason, now, agentId, taskId, 'active');
   },
 
+  sealByConversation(agentId: string, conversationId: string, reason: string): void {
+    const now = new Date().toISOString();
+    getDb()
+      .prepare(
+        'UPDATE agent_session SET status = ?, seal_reason = ?, sealed_at = ? WHERE agent_id = ? AND conversation_id = ? AND status = ?',
+      )
+      .run('sealed', reason, now, agentId, conversationId, 'active');
+  },
+
+  countByAgentAndConversation(agentId: string, conversationId: string): number {
+    const row = getDb()
+      .prepare('SELECT COUNT(*) as cnt FROM agent_session WHERE agent_id = ? AND conversation_id = ?')
+      .get(agentId, conversationId) as { cnt: number } | undefined;
+    return row?.cnt ?? 0;
+  },
+
+  nextSeqForAgent(agentId: string, taskId: string): number {
+    const row = getDb()
+      .prepare('SELECT MAX(seq) as max_seq FROM agent_session WHERE agent_id = ? AND task_id = ?')
+      .get(agentId, taskId) as { max_seq: number | null } | undefined;
+    return (row?.max_seq ?? -1) + 1;
+  },
+
   listActiveByAgent(agentId: string): AgentSessionRow[] {
     return getDb()
       .prepare('SELECT * FROM agent_session WHERE agent_id = ? AND status = ? ORDER BY created_at DESC')
       .all(agentId, 'active') as AgentSessionRow[];
+  },
+
+  findLatestActiveByAgent(agentId: string): AgentSessionRow | undefined {
+    return getDb()
+      .prepare("SELECT * FROM agent_session WHERE agent_id = ? AND status = 'active' ORDER BY created_at DESC LIMIT 1")
+      .get(agentId) as AgentSessionRow | undefined;
   },
 
   listActiveByConversation(convId: string): AgentSessionRow[] {
