@@ -1564,6 +1564,17 @@ TASK: {任务标题} | {任务描述} @{推荐agentId}`;
           intent = 'review';
         }
 
+        // Auto-trigger Jean breakdown for new projects
+        const existingConv = get().conversations.find((c: Conversation) => c.id === conversationId);
+        if (existingConv && existingConv.breakdownStatus === 'none' && !mentions.length) {
+          setTimeout(() => {
+            const state = useTaskHubStore.getState();
+            if (state.conversations.find((c: Conversation) => c.id === conversationId)?.breakdownStatus === 'none') {
+              state.triggerBreakdown(conversationId);
+            }
+          }, 500);
+        }
+
         set((state) => ({
           chatMessagesByConversation: {
             ...state.chatMessagesByConversation,
