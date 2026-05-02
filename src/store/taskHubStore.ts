@@ -1273,6 +1273,19 @@ TASK: {任务标题} | {任务描述} @{推荐agentId}`;
           }
         }
 
+        // Inject task context if referencedTaskId exists
+        if (referencedTaskId) {
+          const task = get().getTaskById(referencedTaskId);
+          if (task) {
+            const phase = task.phaseId ? get().phases.find((p) => p.id === task.phaseId) : undefined;
+            const contextParts: string[] = [`[任务: ${task.id} ${task.title}]`];
+            if (phase) contextParts.push(`[阶段: ${phase.title}]`);
+            if (task.description) contextParts.push(task.description);
+            contextParts.push(effectivePrompt);
+            effectivePrompt = contextParts.join('\n');
+          }
+        }
+
         set((state) => ({
           agentStatus: { ...state.agentStatus, [agentId]: 'busy' },
           terminalLogs: { ...state.terminalLogs, [agentId]: [] },
@@ -1291,6 +1304,7 @@ TASK: {任务标题} | {任务描述} @{推荐agentId}`;
         socket.emit('terminal:start', {
           projectId,
           taskId: referencedTaskId,
+          conversationId,
           agentId,
           prompt: effectivePrompt,
           sessionId,
