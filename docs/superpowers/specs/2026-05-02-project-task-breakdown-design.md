@@ -271,18 +271,15 @@ createConversation: (input: {
 
 | 文件 | 改动 |
 |---|---|
-| `src/store/taskHubStore.ts` | Phase state + breakdown actions + createConversation 扩展 |
-| `src/types/roleCard.ts` 或 `src/store/taskHubStore.ts` | Task 增加 phaseId，Conversation 增加 breakdownStatus |
+| `src/store/taskHubStore.ts` | Phase state + breakdown actions + createConversation 扩展 + Task.phaseId + Conversation.breakdownStatus + ChatMessage.selectedProposals |
 | `src/components/project/ProjectCreateDialog.tsx` | 集成 FolderPicker + autoBreakdown 开关 |
 | `src/components/task-hub/ChatMessageItem.tsx` | parsePhaseBreakdown 渲染 + 确认交互 |
 | `src/components/project/ProjectChatPanel.tsx` | 头部 breakdownStatus 指示 |
 | `src/components/project/MiniKanban.tsx` | 阶段 tab 分组 |
-| `src/store/taskHubStore.ts` | ChatMessage 增加 selectedProposals 元数据 |
-| `src/server/db/schema.ts` | phase 表 + task 表 phaseId 字段 |
 
 ## 不在范围内
 
 - 任务拖拽排序（后续）
 - 阶段间自动流转（如阶段 1 全部完成后自动激活阶段 2）
-- 拆解结果持久化到数据库（Phase 表仅 localStorage，后续再加 SQLite）
+- 拆解结果持久化到 SQLite（Phase 本期仅 localStorage，后续再加数据库表）
 - 多人协作 / 权限
