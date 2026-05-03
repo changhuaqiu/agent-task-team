@@ -316,7 +316,7 @@ export function TaskDetailPanel() {
             {engineAvailable && task.status === 'in_progress' && (
               <button
                 type="button"
-                onClick={() => simulateCliExecution(task.id, `任务：${task.title}。请给出简短的进度更新。`, `agent-${agent.id}`)}
+                onClick={() => simulateCliExecution(task.id, `任务：${task.title}。请给出简短的进度更新。`, undefined)}
                 disabled={isRunning}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[var(--radius-sm)] border border-[hsl(var(--border))] bg-[hsl(var(--bg-muted))] text-[hsl(var(--text-primary))] text-[11px] font-semibold transition-all duration-200 hover:bg-[hsl(var(--bg-card-hover))] disabled:opacity-50 disabled:cursor-not-allowed"
               >

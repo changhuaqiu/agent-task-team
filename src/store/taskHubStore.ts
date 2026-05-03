@@ -8,8 +8,8 @@ import type { Phase, PhaseStatus } from '@/types/phase';
 import type { PhaseProposal } from '@/lib/breakdownParser';
 import type { CliEngine, DetectedRuntime } from '@/server/types';
 import { PRESET_ROLE_CARDS, PRESET_ROLE_CARD_MAP } from '@/data/presetRoleCards';
-import { buildSystemPrompt } from '@/lib/agent-context/buildSystemPrompt';
-import { buildConversationHistory } from '@/lib/agent-context/buildConversationHistory';
+import { composeSystemPrompt, composeUserPrompt } from '@/lib/agent-context/PromptComposer';
+import type { ComposeOptions } from '@/lib/agent-context/PromptComposer';
 
 export type { CliEngine, DetectedRuntime };
 
@@ -1397,51 +1397,29 @@ export const useTaskHubStore = create<TaskHubState>()(
 
         console.log(`[dispatch] ${agentId} → engine=${resolvedEngine}, accountId=${resolvedBinding?.accountId ?? '(none)'}, convId=${conversationId}`);
 
-        // Strip @mentions — they're UI routing syntax, not task content
-        const cleanedPrompt = prompt.replace(/@\w+\s*/g, '').trim() || '你好，请就绪并等待指令。';
+        // Build prompts via PromptComposer
+        const roleCard = agent?.roleCardId ? get().roleCards.find((c) => c.id === agent.roleCardId) : undefined;
+        const conv = get().conversations.find((c) => c.id === conversationId);
+        const task = referencedTaskId ? get().getTaskById(referencedTaskId) : undefined;
+        const phase = task?.phaseId ? get().phases.find((p) => p.id === task.phaseId) : undefined;
 
-        // Build system prompt from role card (only on first wake-up, session will carry context afterwards)
-        let systemPrompt: string | undefined;
-        let effectivePrompt = cleanedPrompt;
-        if (agent?.roleCardId && !sessionId) {
-          const rc = get().roleCards.find((c) => c.id === agent.roleCardId);
-          if (rc) {
-            const conv = get().conversations.find((c) => c.id === conversationId);
-            systemPrompt = buildSystemPrompt({
-              agentId,
-              agentName: agent.name,
-              roleCard: rc,
-              allRoleCards: get().roleCards,
-              projectName: conv?.title ?? '',
-              projectPath: conv?.projectPath ?? '',
-            });
-          }
-        }
+        const composeOpts: ComposeOptions = {
+          agent: agent ? { id: agent.id, name: agent.name } : { id: agentId, name: agentId },
+          roleCard,
+          allRoleCards: get().roleCards,
+          project: { name: conv?.title ?? '', path: conv?.projectPath ?? '' },
+          isFirstWake: !sessionId,
+          messages: !sessionId ? (get().chatMessagesByConversation[conversationId] ?? []) : undefined,
+          task: task ? {
+            id: task.id, title: task.title,
+            description: task.description,
+            phase: phase ? { title: phase.title } : undefined,
+          } : undefined,
+          rawPrompt: prompt,
+        };
 
-        // Inject conversation history on first wake-up (agent enters existing conversation blind)
-        if (!sessionId) {
-          const existingMessages = get().chatMessagesByConversation[conversationId] ?? [];
-          const history = buildConversationHistory(existingMessages, agentId);
-          if (history) {
-            effectivePrompt = `${history}\n\n---\n\n${effectivePrompt}`;
-          }
-        }
-
-        // Inject task context if referencedTaskId exists
-        if (referencedTaskId) {
-          const task = get().getTaskById(referencedTaskId);
-          if (task) {
-            const phase = task.phaseId ? get().phases.find((p) => p.id === task.phaseId) : undefined;
-            const contextParts: string[] = [`[任务: ${task.id} ${task.title}]`];
-            if (phase) contextParts.push(`[阶段: ${phase.title}]`);
-            if (task.description) contextParts.push(task.description);
-            contextParts.push(effectivePrompt);
-            effectivePrompt = contextParts.join('\n');
-          }
-        }
-
-        // Trailing decision prompt — nudge agent to think about next steps
-        effectivePrompt += '\n\n完成回复后思考：是否需要交接给其他角色？是否需要请求用户确认？如不需要，正常结束即可。';
+        const systemPrompt = composeSystemPrompt(composeOpts);
+        const effectivePrompt = composeUserPrompt(composeOpts);
 
         set((state) => ({
           agentStatus: { ...state.agentStatus, [agentId]: 'busy' },
@@ -1575,25 +1553,18 @@ export const useTaskHubStore = create<TaskHubState>()(
         const agentEngine = agent?.cliEngine ?? 'opencode';
         const resolvedEngine = resolvedBinding?.engine ?? agentEngine;
 
-        // Build system prompt from role card (first wake-up only)
-        let systemPrompt: string | undefined;
-        if (agent?.roleCardId && !resolvedSessionId) {
-          const rc = get().roleCards.find((c) => c.id === agent.roleCardId);
-          if (rc) {
-            const parts: string[] = [];
-            if (rc.persona?.introduction) {
-              parts.push(rc.persona.introduction);
-            } else {
-              parts.push(`[Role: ${rc.displayName}]`);
-              if (rc.responsibilities.length) parts.push(`Responsibilities: ${rc.responsibilities.join(', ')}`);
-              if (rc.nonResponsibilities.length) parts.push(`NOT responsible for: ${rc.nonResponsibilities.join(', ')}`);
-              if (rc.outputFormat !== 'freeform') parts.push(`Output format: ${rc.outputFormat}`);
-              if (rc.requiresEvidence) parts.push('Must provide evidence/references');
-              if (rc.forbiddenActions.length) parts.push(`Forbidden: ${rc.forbiddenActions.join(', ')}`);
-            }
-            systemPrompt = parts.join('\n');
-          }
-        }
+        // Build system prompt via PromptComposer
+        const simRoleCard = agent?.roleCardId ? get().roleCards.find((c) => c.id === agent.roleCardId) : undefined;
+        const simOpts: ComposeOptions = {
+          agent: agent ? { id: agent.id, name: agent.name } : { id: agentId, name: agentId },
+          roleCard: simRoleCard,
+          allRoleCards: get().roleCards,
+          project: { name: '', path: '' },
+          isFirstWake: !resolvedSessionId,
+          rawPrompt: prompt,
+        };
+
+        const systemPrompt = composeSystemPrompt(simOpts);
 
         set((state) => ({
           agentStatus: { ...state.agentStatus, [agentId]: 'busy' },
