@@ -25,38 +25,38 @@
   --border-subtle:  35 10% 92%;
   --ring:          240 5% 80%;
 
-  /* --- Agent Identity Colors (Genshin Elements) --- */
-  /* Jean — Anemo (Light Green) ⚔️ */
-  --agent-jean:          160 40% 50%;
-  --agent-jean-soft:     160 30% 92%;
-  --agent-jean-border:   160 35% 75%;
+  /* --- Agent Identity Colors (Mario Universe) --- */
+  /* Mario — Red ⭐ */
+  --agent-mario:          0 72% 51%;
+  --agent-mario-soft:     0 60% 95%;
+  --agent-mario-border:   0 65% 78%;
 
-  /* Keqing — Electro (Deep Purple) ⚡ */
-  --agent-keqing:        280 50% 60%;
-  --agent-keqing-soft:   280 40% 94%;
-  --agent-keqing-border: 280 45% 80%;
+  /* Luigi — Green ⚡ */
+  --agent-luigi:        130 60% 40%;
+  --agent-luigi-soft:   130 40% 93%;
+  --agent-luigi-border: 130 50% 75%;
 
-  /* Zhongli — Geo (Amber/Gold) 🔶 */
-  --agent-zhongli:       40 80% 55%;
-  --agent-zhongli-soft:  40 70% 93%;
-  --agent-zhongli-border:40 60% 75%;
+  /* Toad — White-Red 🛡️ */
+  --agent-toad:       25 20% 85%;
+  --agent-toad-soft:  0 60% 95%;
+  --agent-toad-border:0 65% 80%;
 
-  /* Nahida — Dendro (Vibrant Green) 🌿 */
-    --agent-nahida:        130 50% 45%;
-    --agent-nahida-soft:   130 40% 92%;
-    --agent-nahida-border: 130 45% 70%;
+  /* Peach — Pink-Gold 🌸 */
+  --agent-peach:        330 70% 60%;
+  --agent-peach-soft:   330 50% 94%;
+  --agent-peach-border: 330 55% 80%;
 
-    /* Albedo — Geo (Chalk/Yellow) ✨ */
-    --agent-albedo:        45 60% 60%;
-    --agent-albedo-soft:   45 50% 94%;
-    --agent-albedo-border: 45 55% 80%;
+  /* Donkey Kong — Brown-Red ⚙️ */
+  --agent-dk:        25 70% 35%;
+  --agent-dk-soft:   25 50% 93%;
+  --agent-dk-border: 25 60% 75%;
 
-    /* Venti — Anemo (Cyan/Teal) 💨 */
-    --agent-venti:         180 50% 50%;
-    --agent-venti-soft:    180 40% 94%;
-    --agent-venti-border:  180 45% 80%;
+  /* Yoshi — Green-Orange 🎵 */
+  --agent-yoshi:         100 60% 50%;
+  --agent-yoshi-soft:    100 40% 93%;
+  --agent-yoshi-border:  100 50% 75%;
 
-  /* Owner — Traveler (Light Blue/Star) */
+  /* Owner — Player (Blue) */
   --agent-owner:         200 60% 60%;
   --agent-owner-soft:    200 50% 94%;
   --agent-owner-border:  200 45% 80%;
@@ -147,18 +147,18 @@
     --border-subtle:  240 4% 14%;
     --ring:           240 4% 30%;
 
-    --agent-jean-soft:     160 30% 15%;
-    --agent-jean-border:   160 30% 25%;
-    --agent-keqing-soft:   280 30% 15%;
-    --agent-keqing-border: 280 30% 25%;
-    --agent-zhongli-soft:  40 40% 15%;
-    --agent-zhongli-border:40 40% 25%;
-    --agent-nahida-soft:   130 30% 15%;
-    --agent-nahida-border: 130 30% 25%;
-    --agent-albedo-soft:   45 30% 15%;
-    --agent-albedo-border: 45 30% 25%;
-    --agent-venti-soft:    180 30% 15%;
-    --agent-venti-border:  180 30% 25%;
+    --agent-mario-soft:     0 40% 15%;
+    --agent-mario-border:   0 40% 25%;
+    --agent-luigi-soft:   130 30% 15%;
+    --agent-luigi-border: 130 30% 25%;
+    --agent-toad-soft:  25 20% 18%;
+    --agent-toad-border:0 40% 25%;
+    --agent-peach-soft:   330 30% 18%;
+    --agent-peach-border: 330 30% 28%;
+    --agent-dk-soft:   25 40% 15%;
+    --agent-dk-border: 25 40% 25%;
+    --agent-yoshi-soft:    100 30% 15%;
+    --agent-yoshi-border:  100 30% 25%;
     --agent-owner-soft:    200 30% 15%;
     --agent-owner-border:  200 30% 25%;
 

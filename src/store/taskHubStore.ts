@@ -8,7 +8,7 @@ import type { Phase, PhaseStatus } from '@/types/phase';
 import type { PhaseProposal } from '@/lib/breakdownParser';
 import type { CliEngine, DetectedRuntime } from '@/server/types';
 import { PRESET_ROLE_CARDS, PRESET_ROLE_CARD_MAP } from '@/data/presetRoleCards';
-import { buildSystemPrompt, type SystemPromptContext } from '@/lib/agent-context/buildSystemPrompt';
+import { buildSystemPrompt } from '@/lib/agent-context/buildSystemPrompt';
 import { buildConversationHistory } from '@/lib/agent-context/buildConversationHistory';
 
 export type { CliEngine, DetectedRuntime };
@@ -111,7 +111,7 @@ export const STATUS_ORDER: TaskStatus[] = [
 // --- Agent Role ---
 export type AgentRole = 'planner' | 'worker' | 'reviewer';
 
-export type AgentTheme = 'jean' | 'keqing' | 'zhongli' | 'nahida' | 'albedo' | 'venti';
+export type AgentTheme = 'mario' | 'luigi' | 'toad' | 'peach' | 'dk' | 'yoshi';
 
 export interface Agent {
   id: string;
@@ -488,68 +488,68 @@ interface TaskHubState {
 // --- Initial Data (Pixel-art themed) ---
 export const AGENT_ROSTER: Agent[] = [
   {
-    id: 'jean',
-    name: 'Jean',
+    id: 'mario',
+    name: 'Mario',
     role: 'planner',
     roleLabel: '项目统筹',
     roleCardId: 'preset-planner',
-    theme: 'jean',
-    emoji: '⚔️',
+    theme: 'mario',
+    emoji: '⭐',
     isOnline: true,
     accountIds: [],
   },
   {
-    id: 'keqing',
-    name: 'Keqing',
+    id: 'luigi',
+    name: 'Luigi',
     role: 'worker',
-    roleLabel: '前端负责人',
+    roleLabel: '前端实现',
     roleCardId: 'preset-frontend',
-    theme: 'keqing',
+    theme: 'luigi',
     emoji: '⚡',
     isOnline: true,
     accountIds: [],
   },
   {
-    id: 'zhongli',
-    name: 'Zhongli',
+    id: 'toad',
+    name: 'Toad',
     role: 'worker',
-    roleLabel: '后端负责人',
+    roleLabel: '后端开发',
     roleCardId: 'preset-backend',
-    theme: 'zhongli',
-    emoji: '🔶',
+    theme: 'toad',
+    emoji: '🛡️',
     isOnline: false,
     accountIds: [],
   },
   {
-    id: 'nahida',
-    name: 'Nahida',
+    id: 'peach',
+    name: 'Peach',
     role: 'reviewer',
     roleLabel: '代码评审',
     roleCardId: 'preset-code-reviewer',
-    theme: 'nahida',
-    emoji: '🌿',
+    theme: 'peach',
+    emoji: '🌸',
     isOnline: true,
     accountIds: [],
   },
   {
-    id: 'albedo',
-    name: 'Albedo',
+    id: 'dk',
+    name: 'Donkey Kong',
     role: 'worker',
-    roleLabel: '算法工程',
+    roleLabel: '架构工程',
     roleCardId: 'preset-arch-reviewer',
-    theme: 'albedo',
-    emoji: '✨',
+    theme: 'dk',
+    emoji: '⚙️',
     isOnline: false,
     accountIds: [],
   },
   {
-    id: 'venti',
-    name: 'Venti',
+    id: 'yoshi',
+    name: 'Yoshi',
     role: 'reviewer',
     roleLabel: 'QA 测试',
     roleCardId: 'preset-qa',
-    theme: 'venti',
-    emoji: '💨',
+    theme: 'yoshi',
+    emoji: '🎵',
     isOnline: false,
     accountIds: [],
   },
@@ -851,7 +851,7 @@ export const useTaskHubStore = create<TaskHubState>()(
 
       selectedProjectId: 'default',
       agentSessions: { default: {} },
-      activeAgentIds: ['jean', 'keqing'],
+      activeAgentIds: ['mario', 'luigi'],
       phases: [],
       conversations: [],
       selectedConversationId: null,
@@ -1204,13 +1204,13 @@ export const useTaskHubStore = create<TaskHubState>()(
         const conv = get().conversations.find((c) => c.id === conversationId);
         if (!conv) return;
 
-        // Account guard: check if Jean has valid accounts configured
-        const jean = AGENT_ROSTER.find((a) => a.id === 'jean');
+        // Account guard: check if Mario has valid accounts configured
+        const mario = AGENT_ROSTER.find((a) => a.id === 'mario');
         const accounts = get().accounts;
-        const roleCard = jean?.roleCardId ? get().roleCards.find((c) => c.id === jean.roleCardId) : null;
+        const roleCard = mario?.roleCardId ? get().roleCards.find((c) => c.id === mario.roleCardId) : null;
         const effectiveIds = (roleCard && roleCard.accountIds.length > 0)
           ? roleCard.accountIds
-          : (get().agentAccountOverrides['jean'] ?? jean?.accountIds ?? []);
+          : (get().agentAccountOverrides['mario'] ?? mario?.accountIds ?? []);
         const hasAccount = effectiveIds.some((aid) => accounts.some((a) => a.id === aid && a.enabled));
         if (!hasAccount) {
           get().setBreakdownStatus(conversationId, 'no_account');
@@ -1218,7 +1218,7 @@ export const useTaskHubStore = create<TaskHubState>()(
         }
 
         get().setBreakdownStatus(conversationId, 'in_progress');
-        const prompt = `你是项目统筹 Jean。请将以下项目目标拆解为 2-4 个阶段。
+        const prompt = `你是项目统筹 Mario。请将以下项目目标拆解为 2-4 个阶段。
 
 项目：${conv.title}
 目标：${conv.goal}${conv.projectPath ? `\n项目路径：${conv.projectPath}` : ''}
@@ -1231,7 +1231,7 @@ TASK: {任务标题} | {任务描述} @{推荐agentId}
 PHASE: {下一个阶段名} | {阶段简述}
 TASK: {任务标题} | {任务描述} @{推荐agentId}`;
         get().dispatchToAgent({
-          agentId: 'jean',
+          agentId: 'mario',
           prompt,
         });
       },
@@ -1259,7 +1259,7 @@ TASK: {任务标题} | {任务描述} @{推荐agentId}`;
                 title: taskProp.title,
                 description: taskProp.description,
                 status: 'pending' as TaskStatus,
-                agentId: taskProp.agentId || 'jean',
+                agentId: taskProp.agentId || 'mario',
                 dependencies: [],
                 artifacts: [],
                 createdAt: stamp,
@@ -1827,7 +1827,7 @@ TASK: {任务标题} | {任务描述} @{推荐agentId}`;
           intent = 'review';
         }
 
-        // Auto-trigger Jean breakdown for new projects
+        // Auto-trigger Mario breakdown for new projects
         const existingConv = get().conversations.find((c: Conversation) => c.id === conversationId);
         if (existingConv && existingConv.breakdownStatus === 'none' && !mentions.length) {
           setTimeout(() => {

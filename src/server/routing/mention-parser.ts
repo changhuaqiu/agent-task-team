@@ -15,7 +15,7 @@ export interface RoutingDecision {
 }
 
 /** Known agent IDs from the roster (must match AGENT_ROSTER in store) */
-const AGENT_IDS = ['jean', 'keqing', 'zhongli', 'nahida', 'albedo', 'venti'] as const;
+const AGENT_IDS = ['mario', 'luigi', 'toad', 'peach', 'dk', 'yoshi'] as const;
 
 /** Group mention keywords that resolve to all agents */
 const GROUP_KEYWORDS = ['all', '全体', 'team', 'team全体'];
