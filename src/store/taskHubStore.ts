@@ -8,14 +8,50 @@ import type { Phase, PhaseStatus } from '@/types/phase';
 import type { PhaseProposal } from '@/lib/breakdownParser';
 import type { CliEngine, DetectedRuntime } from '@/server/types';
 import { PRESET_ROLE_CARDS, PRESET_ROLE_CARD_MAP } from '@/data/presetRoleCards';
+import { buildSystemPrompt, type SystemPromptContext } from '@/lib/agent-context/buildSystemPrompt';
+import { buildConversationHistory } from '@/lib/agent-context/buildConversationHistory';
 
 export type { CliEngine, DetectedRuntime };
 
 const socket = io(undefined, { path: '/api/socketio', autoConnect: false });
 
-/** Stream timeout watchdogs — auto-complete stuck streaming messages after 60s of silence. */
-const STREAM_WATCHDOG_MS = 60_000;
+/** Stream timeout watchdogs — auto-complete stuck streaming messages after 5min of silence. */
+const STREAM_WATCHDOG_MS = 300_000;
 const streamWatchdogs: Record<string, ReturnType<typeof setTimeout>> = {};
+
+/** Stream content debounce — batch text appends via rAF to reduce React re-renders. */
+const streamBuffer: Record<string, string> = {};
+let bufferFlushScheduled = false;
+
+function scheduleBufferFlush() {
+  if (bufferFlushScheduled) return;
+  bufferFlushScheduled = true;
+  requestAnimationFrame(() => {
+    bufferFlushScheduled = false;
+    const state = useTaskHubStore.getState();
+    const entries = Object.entries(streamBuffer);
+    for (const [messageId, pending] of entries) {
+      if (!pending) continue;
+      delete streamBuffer[messageId];
+      // Find which conversation this message belongs to via active stream tracking
+      const agentEntry = Object.entries(state.activeStreamMessageId).find(([, id]) => id === messageId);
+      const convId = agentEntry ? state.activeStreamConversationId[agentEntry[0]] : undefined;
+      if (!convId) continue;
+      useTaskHubStore.setState((s) => {
+        const msgs = s.chatMessagesByConversation[convId];
+        if (!msgs) return s;
+        return {
+          chatMessagesByConversation: {
+            ...s.chatMessagesByConversation,
+            [convId]: msgs.map((m) =>
+              m.id === messageId ? { ...m, content: m.content + pending } : m
+            ),
+          },
+        };
+      });
+    }
+  });
+}
 
 function resetWatchdog(agentId: string) {
   if (streamWatchdogs[agentId]) clearTimeout(streamWatchdogs[agentId]);
@@ -366,6 +402,7 @@ interface TaskHubState {
   // Mutations
   createConversation: (input: { title: string; goal: string; projectPath?: string; priority?: Conversation['priority']; autoBreakdown?: boolean }) => void;
   setSelectedConversationId: (conversationId: string | null) => void;
+  deleteConversation: (conversationId: string) => void;
   addSupervisorOutput: (output: SupervisorOutputEnvelope) => void;
   addEvent: (event: Omit<InternalEvent, 'id' | 'timestamp'> & { id?: string; timestamp?: string }) => void;
   openBlocker: (input: Omit<Blocker, 'id' | 'status' | 'createdAt'> & { id?: string; status?: Blocker['status']; createdAt?: string }) => string;
@@ -879,6 +916,7 @@ export const useTaskHubStore = create<TaskHubState>()(
         set((state) => ({
           conversations: [conversation, ...state.conversations],
           selectedConversationId: id,
+          selectedProjectId: id,
           eventsByConversation: {
             ...state.eventsByConversation,
             [id]: [
@@ -925,7 +963,32 @@ export const useTaskHubStore = create<TaskHubState>()(
         }
       },
 
-      setSelectedConversationId: (conversationId) => set({ selectedConversationId: conversationId }),
+      setSelectedConversationId: (conversationId) => set({ selectedConversationId: conversationId, selectedProjectId: conversationId || 'default' }),
+
+      deleteConversation: (conversationId) => {
+        const state = get();
+        // Clear selection if deleting the active conversation
+        if (state.selectedConversationId === conversationId) {
+          set({ selectedConversationId: null, selectedProjectId: 'default' });
+        }
+        // Remove local state
+        const { [conversationId]: _msgs, ...restMsgs } = state.chatMessagesByConversation;
+        const { [conversationId]: _evts, ...restEvts } = state.eventsByConversation;
+        const { [conversationId]: _blockers, ...restBlockers } = state.blockersByConversation;
+        set({
+          conversations: state.conversations.filter((c) => c.id !== conversationId),
+          tasks: state.tasks.filter((t) => t.conversationId !== conversationId),
+          chatMessagesByConversation: restMsgs,
+          eventsByConversation: restEvts,
+          blockersByConversation: restBlockers,
+        });
+        // Server-side delete
+        fetch('/api/mutations', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'conversation.delete', payload: { id: conversationId } }),
+        }).catch(() => {});
+      },
 
       addEvent: ({ id, timestamp, ...event }) => {
         const resolvedId = id ?? makeId('evt');
@@ -1308,24 +1371,33 @@ TASK: {任务标题} | {任务描述} @{推荐agentId}`;
 
         console.log(`[dispatch] ${agentId} → engine=${resolvedEngine}, accountId=${resolvedBinding?.accountId ?? '(none)'}, convId=${conversationId}`);
 
-        // Build role card context prefix
-        let effectivePrompt = prompt;
-        if (agent?.roleCardId) {
+        // Strip @mentions — they're UI routing syntax, not task content
+        const cleanedPrompt = prompt.replace(/@\w+\s*/g, '').trim() || '你好，请就绪并等待指令。';
+
+        // Build system prompt from role card (only on first wake-up, session will carry context afterwards)
+        let systemPrompt: string | undefined;
+        let effectivePrompt = cleanedPrompt;
+        if (agent?.roleCardId && !sessionId) {
           const rc = get().roleCards.find((c) => c.id === agent.roleCardId);
           if (rc) {
-            const isFirstWakeUp = !sessionId;
-            if (isFirstWakeUp && rc.persona?.introduction) {
-              effectivePrompt = `${rc.persona.introduction}\n\n---\n${prompt}`;
-            } else {
-              const parts: string[] = [`[Role: ${rc.displayName}]`];
-              if (rc.responsibilities.length) parts.push(`Responsibilities: ${rc.responsibilities.join(', ')}`);
-              if (rc.nonResponsibilities.length) parts.push(`NOT responsible for: ${rc.nonResponsibilities.join(', ')}`);
-              if (rc.outputFormat !== 'freeform') parts.push(`Output format: ${rc.outputFormat}`);
-              if (rc.requiresEvidence) parts.push('Must provide evidence/references');
-              if (rc.forbiddenActions.length) parts.push(`Forbidden: ${rc.forbiddenActions.join(', ')}`);
-              parts.push('---');
-              effectivePrompt = `${parts.join('\n')}\n${prompt}`;
-            }
+            const conv = get().conversations.find((c) => c.id === conversationId);
+            systemPrompt = buildSystemPrompt({
+              agentId,
+              agentName: agent.name,
+              roleCard: rc,
+              allRoleCards: get().roleCards,
+              projectName: conv?.title ?? '',
+              projectPath: conv?.projectPath ?? '',
+            });
+          }
+        }
+
+        // Inject conversation history on first wake-up (agent enters existing conversation blind)
+        if (!sessionId) {
+          const existingMessages = get().chatMessagesByConversation[conversationId] ?? [];
+          const history = buildConversationHistory(existingMessages, agentId);
+          if (history) {
+            effectivePrompt = `${history}\n\n---\n\n${effectivePrompt}`;
           }
         }
 
@@ -1341,6 +1413,9 @@ TASK: {任务标题} | {任务描述} @{推荐agentId}`;
             effectivePrompt = contextParts.join('\n');
           }
         }
+
+        // Trailing decision prompt — nudge agent to think about next steps
+        effectivePrompt += '\n\n完成回复后思考：是否需要交接给其他角色？是否需要请求用户确认？如不需要，正常结束即可。';
 
         set((state) => ({
           agentStatus: { ...state.agentStatus, [agentId]: 'busy' },
@@ -1363,6 +1438,7 @@ TASK: {任务标题} | {任务描述} @{推荐agentId}`;
           conversationId,
           agentId,
           prompt: effectivePrompt,
+          systemPrompt,
           sessionId,
           allowMockRunner: get().enableMockRunner,
           opencodeBridgeUrl: undefined,
@@ -1426,7 +1502,7 @@ TASK: {任务标题} | {任务描述} @{推荐agentId}`;
 
       forceSendDispatch: ({ agentId, prompt, referencedTaskId }) => {
         // Kill the running process
-        socket.emit('terminal:kill', { agentId, force: true });
+        socket.emit('terminal:kill', { agentId, projectId: get().selectedProjectId, force: true });
         // Clear any queued messages
         get().clearPendingDispatches(agentId);
         // Complete any active stream
@@ -1473,6 +1549,26 @@ TASK: {任务标题} | {任务描述} @{推荐agentId}`;
         const agentEngine = agent?.cliEngine ?? 'opencode';
         const resolvedEngine = resolvedBinding?.engine ?? agentEngine;
 
+        // Build system prompt from role card (first wake-up only)
+        let systemPrompt: string | undefined;
+        if (agent?.roleCardId && !resolvedSessionId) {
+          const rc = get().roleCards.find((c) => c.id === agent.roleCardId);
+          if (rc) {
+            const parts: string[] = [];
+            if (rc.persona?.introduction) {
+              parts.push(rc.persona.introduction);
+            } else {
+              parts.push(`[Role: ${rc.displayName}]`);
+              if (rc.responsibilities.length) parts.push(`Responsibilities: ${rc.responsibilities.join(', ')}`);
+              if (rc.nonResponsibilities.length) parts.push(`NOT responsible for: ${rc.nonResponsibilities.join(', ')}`);
+              if (rc.outputFormat !== 'freeform') parts.push(`Output format: ${rc.outputFormat}`);
+              if (rc.requiresEvidence) parts.push('Must provide evidence/references');
+              if (rc.forbiddenActions.length) parts.push(`Forbidden: ${rc.forbiddenActions.join(', ')}`);
+            }
+            systemPrompt = parts.join('\n');
+          }
+        }
+
         set((state) => ({
           agentStatus: { ...state.agentStatus, [agentId]: 'busy' },
           terminalLogs: { ...state.terminalLogs, [agentId]: [] },
@@ -1493,6 +1589,7 @@ TASK: {任务标题} | {任务描述} @{推荐agentId}`;
           taskId,
           agentId,
           prompt,
+          systemPrompt,
           sessionId: resolvedSessionId,
           allowMockRunner: get().enableMockRunner,
           opencodeBridgeUrl: undefined,
@@ -1530,31 +1627,36 @@ TASK: {任务标题} | {任务描述} @{推荐agentId}`;
       },
 
       appendToStreamMessage: (messageId, patch) => {
-        // Resolve conversation from tracked stream state — never fall back to selectedConversationId
+        // Resolve conversation from tracked stream state
         const agentEntry = Object.entries(get().activeStreamMessageId).find(([, id]) => id === messageId);
         const trackedConvId = agentEntry ? get().activeStreamConversationId[agentEntry[0]] : undefined;
-        if (!trackedConvId) return; // no tracked conversation — drop silently instead of writing to wrong bucket
+        if (!trackedConvId) return; // no tracked conversation
         // Reset watchdog on each append
         if (agentEntry) resetWatchdog(agentEntry[0]);
 
-        set((state) => {
-          const convId = trackedConvId;
-          const msgs = state.chatMessagesByConversation[convId];
-          if (!msgs) return state;
-          return {
-            chatMessagesByConversation: {
-              ...state.chatMessagesByConversation,
-              [convId]: msgs.map((m) => {
-                if (m.id !== messageId) return m;
-                return {
-                  ...m,
-                  content: patch.content != null ? m.content + patch.content : m.content,
-                  toolEvents: patch.toolEvent ? [...(m.toolEvents ?? []), patch.toolEvent] : m.toolEvents,
-                };
-              }),
-            },
-          };
-        });
+        // Buffer content via rAF to batch React re-renders
+        if (patch.content != null) {
+          streamBuffer[messageId] = (streamBuffer[messageId] || '') + patch.content;
+          scheduleBufferFlush();
+        }
+
+        // Tool events are low-frequency
+        if (patch.toolEvent) {
+          set((state) => {
+            const convId = trackedConvId;
+            const msgs = state.chatMessagesByConversation[convId];
+            if (!msgs) return state;
+            return {
+              chatMessagesByConversation: {
+                ...state.chatMessagesByConversation,
+                [convId]: msgs.map((m) => {
+                  if (m.id !== messageId) return m;
+                  return { ...m, toolEvents: [...(m.toolEvents ?? []), patch.toolEvent!] };
+                }),
+              },
+            };
+          });
+        }
       },
 
       completeStreamMessage: (agentId) => {
@@ -1975,9 +2077,16 @@ socket.on('agent:event', (event) => {
   }
   if (!conversationId) return;
 
-  // Register session ID if present
+  // Register session ID if present — scope to actual project, not hardcoded 'default'
   if (sessionId) {
-    state.upsertAgentSession('default', agentId, sessionId);
+    const actualProjectId = useTaskHubStore.getState().selectedProjectId;
+    state.upsertAgentSession(actualProjectId, agentId, sessionId);
+  }
+
+  // Heartbeat: daemon keeps the watchdog alive while process is running
+  if (type === 'heartbeat') {
+    resetWatchdog(agentId);
+    return;
   }
 
   // 'done' event signals completion — just complete the stream
