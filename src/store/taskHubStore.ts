@@ -584,16 +584,46 @@ const EMPTY_CHAT: ChatMessage[] = [];
 function mapMessagesToState(recentMessages: Record<string, any[]>): Record<string, ChatMessage[]> {
   const result: Record<string, ChatMessage[]> = {};
   for (const [convId, msgs] of Object.entries(recentMessages)) {
-    result[convId] = msgs.map((m) => ({
-      id: m.id,
-      agentId: m.sender_type === 'human' ? 'human' : m.sender_id,
-      content: m.content,
-      timestamp: m.created_at,
-      mentions: typeof m.mentions === 'string' ? JSON.parse(m.mentions || '[]') : (m.mentions || []),
-      intent: m.intent,
-      referencedTaskId: m.task_id,
-      ...(m.metadata ? { metadata: JSON.parse(m.metadata) } : {}),
-    }));
+    const mapped: ChatMessage[] = [];
+    for (const m of msgs) {
+      const isToolUse = m.content_type === 'tool_use';
+
+      if (isToolUse) {
+        // Merge tool_use rows into the preceding agent message's toolEvents
+        const meta = m.metadata ? (typeof m.metadata === 'string' ? JSON.parse(m.metadata) : m.metadata) : {};
+        const toolEvent: ToolEvent = {
+          id: m.id,
+          type: 'tool_use',
+          label: meta?.toolEvent?.name || m.content.replace(/^🔧\s*使用工具：/, ''),
+          detail: meta?.toolEvent?.input || undefined,
+          timestamp: m.created_at,
+        };
+        const prev = mapped[mapped.length - 1];
+        if (prev && prev.agentId === m.sender_id) {
+          prev.toolEvents = [...(prev.toolEvents || []), toolEvent];
+        } else {
+          // Orphan tool_use without preceding agent message — create a synthetic one
+          mapped.push({
+            id: `synth-${m.id}`,
+            agentId: m.sender_id,
+            content: '',
+            timestamp: m.created_at,
+            toolEvents: [toolEvent],
+          });
+        }
+      } else {
+        mapped.push({
+          id: m.id,
+          agentId: m.sender_type === 'human' ? 'human' : m.sender_id,
+          content: m.content,
+          timestamp: m.created_at,
+          mentions: typeof m.mentions === 'string' ? JSON.parse(m.mentions || '[]') : (m.mentions || []),
+          intent: m.intent,
+          referencedTaskId: m.task_id,
+        });
+      }
+    }
+    result[convId] = mapped;
   }
   return result;
 }

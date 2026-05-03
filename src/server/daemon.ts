@@ -25,6 +25,7 @@ type TerminalStartPayload = {
   taskId?: string;
   agentId: string;
   prompt: string;
+  systemPrompt?: string;
   sessionId?: string;
   conversationId?: string;
   opencodeBridgeUrl?: string;
@@ -94,6 +95,7 @@ async function detectAvailableRuntimes(): Promise<DetectedRuntime[]> {
 
 export default function registerDaemon(io: IOServer) {
   const activeProcesses = new Map<string, { kill: () => void }>();
+  const processKey = (agentId: string, projectId?: string) => `${agentId}@${projectId || 'default'}`;
   const broadcast = (event: string, data: any) => io.emit(event, data);
 
   const tmuxEnabled = process.env.ATH_TMUX_ENABLED === '1';
@@ -141,6 +143,7 @@ export default function registerDaemon(io: IOServer) {
         taskId,
         agentId,
         prompt,
+        systemPrompt,
         sessionId,
         conversationId,
         opencodeBridgeUrl,
@@ -153,16 +156,16 @@ export default function registerDaemon(io: IOServer) {
         accountId,
         force,
       }: TerminalStartPayload) => {
-      console.log(`[daemon] terminal:start agent=${agentId}, engine=${rawEngine}, accountId=${accountId ?? '(none)'}, force=${force}, busy=${activeProcesses.has(agentId)}`);
+      console.log(`[daemon] terminal:start agent=${agentId}, engine=${rawEngine}, accountId=${accountId ?? '(none)'}, force=${force}, busy=${activeProcesses.has(processKey(agentId, projectId))}`);
       let primaryCommand = 'unknown';
       let runtimeConfigDir: string | undefined;
       try {
       // Only kill existing process on explicit force send
-      if (force && activeProcesses.has(agentId)) {
-        activeProcesses.get(agentId)?.kill();
+      if (force && activeProcesses.has(processKey(agentId, projectId))) {
+        activeProcesses.get(processKey(agentId, projectId))?.kill();
       }
       // If agent is busy and not forcing, reject silently — client should have queued
-      if (!force && activeProcesses.has(agentId)) {
+      if (!force && activeProcesses.has(processKey(agentId, projectId))) {
         socket.emit('agent:error', { agentId, message: 'Agent is busy, message queued' });
         return;
       }
@@ -220,7 +223,13 @@ export default function registerDaemon(io: IOServer) {
       // Build CLI args for non-Backend paths (tmux, bridge)
       const primaryArgs = (() => {
         switch (engine) {
-          case 'opencode': return ['run', prompt || '', '--format', 'json', ...(effectiveSessionId ? ['--session', effectiveSessionId] : [])];
+          case 'opencode': {
+            const a = ['run', '--format', 'json'];
+            if (systemPrompt) a.push('--prompt', systemPrompt);
+            if (effectiveSessionId) a.push('--session', effectiveSessionId);
+            a.push(prompt || '');
+            return a;
+          }
           case 'claude': return ['-p', prompt || '', '--output-format', 'stream-json', ...(effectiveSessionId ? ['--resume', effectiveSessionId] : [])];
           case 'codex': return ['-q', prompt || '', '--full-auto'];
           case 'gemini': return ['-p', prompt || ''];
@@ -263,7 +272,7 @@ export default function registerDaemon(io: IOServer) {
         if (timeoutMs === 0) return;
         if (timeoutTimer) clearTimeout(timeoutTimer);
         timeoutTimer = setTimeout(() => {
-          const active = activeProcesses.get(agentId);
+          const active = activeProcesses.get(processKey(agentId, projectId));
           if (active) {
             active.kill();
             broadcast('agent:error', {
@@ -279,6 +288,21 @@ export default function registerDaemon(io: IOServer) {
       const clearProcessTimeout = () => {
         if (timeoutTimer) { clearTimeout(timeoutTimer); timeoutTimer = null; }
       };
+
+      // --- Heartbeat: keep client watchdog alive while process is running ---
+      const HEARTBEAT_INTERVAL_MS = 30_000;
+      const heartbeatTimer = setInterval(() => {
+        if (activeProcesses.has(processKey(agentId, projectId))) {
+          broadcast('agent:event', {
+            agentId,
+            sessionId: agentSession?.cli_session_id,
+            event: { type: 'heartbeat' },
+          });
+        } else {
+          clearInterval(heartbeatTimer);
+        }
+      }, HEARTBEAT_INTERVAL_MS);
+      heartbeatTimer.unref();
 
       // Start initial timeout
       if (timeoutMs > 0) resetTimeout();
@@ -325,6 +349,7 @@ export default function registerDaemon(io: IOServer) {
 
       // --- Shared agent event forwarder ---
       const forwardAgentEvent = (event: AgentEvent) => {
+        try {
         // Register session ID
         if (event.sessionId && !sessionEmitted) {
           sessionEmitted = true;
@@ -351,6 +376,7 @@ export default function registerDaemon(io: IOServer) {
 
         // Persist to message repo
         if (event.type === 'text' && event.content) {
+          try {
           messageRepo.append({
             conversationId: sessionConvId,
             taskId,
@@ -360,7 +386,11 @@ export default function registerDaemon(io: IOServer) {
             contentType: 'text',
           });
           if (agentSession) sessionRepo.incrementMessageCount(agentSession.id);
+          } catch (dbErr) {
+            console.error(`[daemon] Failed to persist text message for ${agentId}:`, dbErr);
+          }
         } else if (event.type === 'tool_use' && event.tool) {
+          try {
           messageRepo.append({
             conversationId: sessionConvId,
             taskId,
@@ -368,8 +398,15 @@ export default function registerDaemon(io: IOServer) {
             senderId: agentId,
             content: `🔧 使用工具：${event.tool.name}`,
             contentType: 'tool_use',
+            metadata: { toolEvent: { type: 'tool_use', name: event.tool.name, input: event.tool.input?.slice(0, 500) } },
           });
           if (agentSession) sessionRepo.incrementMessageCount(agentSession.id);
+          } catch (dbErr) {
+            console.error(`[daemon] Failed to persist tool_use message for ${agentId}:`, dbErr);
+          }
+        }
+        } catch (err) {
+          console.error(`[daemon] forwardAgentEvent error for ${agentId}:`, err);
         }
 
         // Reset timeout on each event
@@ -380,7 +417,7 @@ export default function registerDaemon(io: IOServer) {
       if (opencodeBridgeUrl) {
         const url = String(opencodeBridgeUrl).trim().replace(/\/+$/, '');
         const controller = new AbortController();
-        activeProcesses.set(agentId, { kill: () => controller.abort() });
+        activeProcesses.set(processKey(agentId, projectId), { kill: () => controller.abort() });
 
         broadcast('terminal:data', {
           agentId,
@@ -393,6 +430,7 @@ export default function registerDaemon(io: IOServer) {
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({
               prompt: prompt || '',
+              systemPrompt: systemPrompt || undefined,
               sessionId,
               engine,
               runtimeId,
@@ -413,7 +451,7 @@ export default function registerDaemon(io: IOServer) {
               sessionRepo.seal(agentSession.id, 'failed');
             }
             broadcast('terminal:exit', { agentId, code: 127, command: 'bridge', reasonCode: 'spawn_failed' });
-            activeProcesses.delete(agentId);
+            activeProcesses.delete(processKey(agentId, projectId));
             if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
             return;
           }
@@ -439,15 +477,17 @@ export default function registerDaemon(io: IOServer) {
           if (buffer.trim()) parseAndForwardBridgeLine(buffer);
 
           clearProcessTimeout();
+          clearInterval(heartbeatTimer);
           if (agentSession) {
             sessionRepo.seal(agentSession.id, 'completed');
           }
           broadcast('terminal:exit', { agentId, code: 0, command: 'bridge' });
-          activeProcesses.delete(agentId);
+          activeProcesses.delete(processKey(agentId, projectId));
           if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
           return;
         } catch (e) {
           clearProcessTimeout();
+          clearInterval(heartbeatTimer);
           const msg = String((e as Error)?.message || e);
           broadcast('agent:error', {
             agentId,
@@ -458,7 +498,7 @@ export default function registerDaemon(io: IOServer) {
             sessionRepo.seal(agentSession.id, 'failed');
           }
           broadcast('terminal:exit', { agentId, code: 127, command: 'bridge', reasonCode: 'spawn_failed' });
-          activeProcesses.delete(agentId);
+          activeProcesses.delete(processKey(agentId, projectId));
           if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
           return;
         }
@@ -486,7 +526,7 @@ export default function registerDaemon(io: IOServer) {
 
           // Poll pane output for terminal:data events
           const pollInterval = setInterval(async () => {
-            if (!activeProcesses.has(agentId)) {
+            if (!activeProcesses.has(processKey(agentId, projectId))) {
               clearInterval(pollInterval);
               return;
             }
@@ -496,7 +536,7 @@ export default function registerDaemon(io: IOServer) {
             } catch { /* pane gone */ }
           }, 2000);
 
-          activeProcesses.set(agentId, {
+          activeProcesses.set(processKey(agentId, projectId), {
             kill: async () => {
               clearInterval(pollInterval);
               try {
@@ -522,6 +562,7 @@ export default function registerDaemon(io: IOServer) {
 
       const { events, result, kill } = backend.execute(prompt || '', {
         cwd: process.cwd(),
+        systemPrompt: systemPrompt || undefined,
         resumeSessionId: effectiveSessionId || undefined,
         timeout: timeoutMs > 0 ? timeoutMs : undefined,
         env: {
@@ -530,7 +571,7 @@ export default function registerDaemon(io: IOServer) {
         },
       });
 
-      activeProcesses.set(agentId, { kill });
+      activeProcesses.set(processKey(agentId, projectId), { kill });
 
       // Consume events and forward to socket
       (async () => {
@@ -542,6 +583,7 @@ export default function registerDaemon(io: IOServer) {
           // Wait for final result
           const final = await result;
           clearProcessTimeout();
+          clearInterval(heartbeatTimer);
 
           if (invocation) {
             invocationRepo.updateStatus(invocation.id, final.status === 'completed' ? 'succeeded' : 'failed', {
@@ -560,16 +602,17 @@ export default function registerDaemon(io: IOServer) {
             command,
             reasonCode: final.status === 'timeout' ? 'timeout' : undefined,
           });
-          activeProcesses.delete(agentId);
+          activeProcesses.delete(processKey(agentId, projectId));
           if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
         } catch (err) {
           clearProcessTimeout();
+          clearInterval(heartbeatTimer);
           console.error(`[daemon][${agentId}] backend error:`, err);
           if (agentSession) {
             sessionRepo.seal(agentSession.id, 'failed');
           }
           broadcast('terminal:exit', { agentId, code: 1, command, reasonCode: 'spawn_failed' });
-          activeProcesses.delete(agentId);
+          activeProcesses.delete(processKey(agentId, projectId));
           if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
         }
       })();
@@ -577,23 +620,25 @@ export default function registerDaemon(io: IOServer) {
         console.error(`[daemon] terminal:start error for agent=${agentId}:`, err);
         broadcast('agent:error', { agentId, message: `内部错误：${(err as Error)?.message || '未知'}` });
         broadcast('terminal:exit', { agentId, code: 1, command: primaryCommand, reasonCode: 'internal_error' });
-        activeProcesses.delete(agentId);
+        activeProcesses.delete(processKey(agentId, projectId));
         if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
       }
     });
 
     // Force-kill a running agent process
-    socket.on('terminal:kill', ({ agentId, force }: { agentId: string; force?: boolean }) => {
-      if (activeProcesses.has(agentId)) {
-        activeProcesses.get(agentId)?.kill();
-        activeProcesses.delete(agentId);
+    socket.on('terminal:kill', ({ agentId, projectId: killProjectId, force }: { agentId: string; projectId?: string; force?: boolean }) => {
+      const key = processKey(agentId, killProjectId);
+      if (activeProcesses.has(key)) {
+        activeProcesses.get(key)?.kill();
+        activeProcesses.delete(key);
         socket.emit('terminal:exit', { agentId, code: 0, command: 'kill', reasonCode: force ? 'force_killed' : 'killed' });
       }
     });
 
     socket.on('daemon:status', (callback) => {
       const activeAgents: Record<string, { taskId?: string; conversationId?: string }> = {};
-      for (const [agentId] of activeProcesses) {
+      for (const [key] of activeProcesses) {
+        const agentId = key.split('@')[0];
         const session = sessionRepo.findLatestActiveByAgent(agentId);
         if (session) {
           activeAgents[agentId] = {
