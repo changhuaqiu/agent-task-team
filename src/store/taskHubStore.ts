@@ -1952,7 +1952,7 @@ export const useTaskHubStore = create<TaskHubState>()(
     }),
   {
     name: 'agent-task-hub-store-clean',
-    version: 1,
+    version: 2,
     migrate: (persisted: any, version: number) => {
       if (version === 0) {
         // Migrate Genshin agent IDs → Mario agent IDs
@@ -2003,6 +2003,10 @@ export const useTaskHubStore = create<TaskHubState>()(
           }
           persisted.chatMessagesByConversation = mapped;
         }
+      }
+      if (version < 2) {
+        // Clear stale CLI sessions — agents need fresh systemPrompt injection
+        persisted.agentSessions = {};
       }
       return persisted;
     },
