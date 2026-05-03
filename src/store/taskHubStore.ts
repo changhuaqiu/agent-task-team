@@ -239,7 +239,7 @@ export interface Conversation {
   status: 'active' | 'paused' | 'completed' | 'archived';
   priority: 'p0' | 'p1' | 'p2' | 'p3';
   projectPath: string;
-  breakdownStatus: 'none' | 'in_progress' | 'reviewed' | 'confirmed' | 'no_account';
+  breakdownStatus: 'none' | 'proposal' | 'confirmed' | 'no_account';
   createdAt: string;
   updatedAt: string;
 }
@@ -400,7 +400,7 @@ interface TaskHubState {
   loadFromServer: () => Promise<void>;
 
   // Mutations
-  createConversation: (input: { title: string; goal: string; projectPath?: string; priority?: Conversation['priority']; autoBreakdown?: boolean }) => void;
+  createConversation: (input: { title: string; goal: string; projectPath?: string; priority?: Conversation['priority'] }) => void;
   setSelectedConversationId: (conversationId: string | null) => void;
   deleteConversation: (conversationId: string) => void;
   addSupervisorOutput: (output: SupervisorOutputEnvelope) => void;
@@ -473,7 +473,7 @@ interface TaskHubState {
 
   // Breakdown actions
   setBreakdownStatus: (conversationId: string, status: Conversation['breakdownStatus']) => void;
-  triggerBreakdown: (conversationId: string) => void;
+  triggerProposal: (conversationId: string) => void;
   confirmBreakdown: (conversationId: string, proposals: PhaseProposal[]) => void;
 
   // Role Card UI state
@@ -928,7 +928,7 @@ export const useTaskHubStore = create<TaskHubState>()(
         return get().chatMessagesByConversation[id] ?? EMPTY_CHAT;
       },
 
-      createConversation: ({ title, goal, projectPath, priority, autoBreakdown }) => {
+      createConversation: ({ title, goal, projectPath, priority }) => {
         const id = makeId('conv');
         const stamp = new Date().toISOString();
         const conversation: Conversation = {
@@ -988,9 +988,7 @@ export const useTaskHubStore = create<TaskHubState>()(
           body: JSON.stringify({ type: 'conversation.create', payload: { id, title, goal, priority: priority ?? 'p1', project_path: projectPath } }),
         }).catch((err) => console.error('[mutation] conversation.create failed:', err));
 
-        if (autoBreakdown !== false) {
-          setTimeout(() => get().triggerBreakdown(id), 500);
-        }
+        setTimeout(() => get().triggerProposal(id), 500);
       },
 
       setSelectedConversationId: (conversationId) => set({ selectedConversationId: conversationId, selectedProjectId: conversationId || 'default' }),
@@ -1230,38 +1228,36 @@ export const useTaskHubStore = create<TaskHubState>()(
         }));
       },
 
-      triggerBreakdown: (conversationId) => {
+      triggerProposal: (conversationId) => {
         const conv = get().conversations.find((c) => c.id === conversationId);
         if (!conv) return;
 
-        // Account guard: check if Mario has valid accounts configured
-        const mario = AGENT_ROSTER.find((a) => a.id === 'mario');
+        // Account guard: check if Jean has valid accounts configured
+        const jean = AGENT_ROSTER.find((a) => a.id === 'jean');
         const accounts = get().accounts;
-        const roleCard = mario?.roleCardId ? get().roleCards.find((c) => c.id === mario.roleCardId) : null;
+        const roleCard = jean?.roleCardId ? get().roleCards.find((c) => c.id === jean.roleCardId) : null;
         const effectiveIds = (roleCard && roleCard.accountIds.length > 0)
           ? roleCard.accountIds
-          : (get().agentAccountOverrides['mario'] ?? mario?.accountIds ?? []);
+          : (get().agentAccountOverrides['jean'] ?? jean?.accountIds ?? []);
         const hasAccount = effectiveIds.some((aid) => accounts.some((a) => a.id === aid && a.enabled));
         if (!hasAccount) {
           get().setBreakdownStatus(conversationId, 'no_account');
           return;
         }
 
-        get().setBreakdownStatus(conversationId, 'in_progress');
-        const prompt = `你是项目统筹 Mario。请将以下项目目标拆解为 2-4 个阶段。
+        get().setBreakdownStatus(conversationId, 'proposal');
+        const prompt = `请先基于以下项目目标输出一份技术架构方案和业务方案草案。
+
+方案需要包含：
+- 技术架构：核心技术选型、模块划分、关键依赖
+- 业务方案：核心流程、边界条件、优先级建议
+
+和用户讨论确认后，当你判断需求已足够清晰，再使用 PHASE/TASK 格式输出任务拆解。
 
 项目：${conv.title}
-目标：${conv.goal}${conv.projectPath ? `\n项目路径：${conv.projectPath}` : ''}
-
-请严格按以下格式输出，不要输出其他内容：
-
-PHASE: {阶段名} | {阶段简述}
-TASK: {任务标题} | {任务描述} @{推荐agentId}
-TASK: {任务标题} | {任务描述} @{推荐agentId}
-PHASE: {下一个阶段名} | {阶段简述}
-TASK: {任务标题} | {任务描述} @{推荐agentId}`;
+目标：${conv.goal}${conv.projectPath ? `\n项目路径：${conv.projectPath}` : ''}`;
         get().dispatchToAgent({
-          agentId: 'mario',
+          agentId: 'jean',
           prompt,
         });
       },
@@ -1857,13 +1853,13 @@ TASK: {任务标题} | {任务描述} @{推荐agentId}`;
           intent = 'review';
         }
 
-        // Auto-trigger Mario breakdown for new projects
+        // Auto-trigger Jean proposal for new projects
         const existingConv = get().conversations.find((c: Conversation) => c.id === conversationId);
         if (existingConv && existingConv.breakdownStatus === 'none' && !mentions.length) {
           setTimeout(() => {
             const state = useTaskHubStore.getState();
             if (state.conversations.find((c: Conversation) => c.id === conversationId)?.breakdownStatus === 'none') {
-              state.triggerBreakdown(conversationId);
+              state.triggerProposal(conversationId);
             }
           }, 500);
         }
@@ -1985,6 +1981,72 @@ TASK: {任务标题} | {任务描述} @{推荐agentId}`;
     }),
   {
     name: 'agent-task-hub-store-clean',
+    version: 1,
+    migrate: (persisted: any, version: number) => {
+      if (version === 0) {
+        // Migrate Genshin agent IDs → Mario agent IDs
+        const idMap: Record<string, string> = {
+          jean: 'mario', keqing: 'luigi', zhongli: 'toad',
+          nahida: 'peach', albedo: 'dk', venti: 'yoshi',
+        };
+        const remap = (id: string) => idMap[id] ?? id;
+
+        // activeAgentIds
+        if (Array.isArray(persisted.activeAgentIds)) {
+          persisted.activeAgentIds = persisted.activeAgentIds.map(remap);
+        }
+
+        // agentSessions: Record<projectId, Record<agentId, sessionId>>
+        if (persisted.agentSessions && typeof persisted.agentSessions === 'object') {
+          const mapped: Record<string, any> = {};
+          for (const [proj, agents] of Object.entries(persisted.agentSessions)) {
+            const entry: Record<string, any> = {};
+            if (agents && typeof agents === 'object') {
+              for (const [aid, sid] of Object.entries(agents as Record<string, any>)) {
+                entry[remap(aid)] = sid;
+              }
+            }
+            mapped[proj] = entry;
+          }
+          persisted.agentSessions = mapped;
+        }
+
+        // agentAccountOverrides: Record<agentId, string[]>
+        if (persisted.agentAccountOverrides && typeof persisted.agentAccountOverrides === 'object') {
+          const mapped: Record<string, any> = {};
+          for (const [aid, ids] of Object.entries(persisted.agentAccountOverrides)) {
+            mapped[remap(aid)] = ids;
+          }
+          persisted.agentAccountOverrides = mapped;
+        }
+
+        // tasks[].agentId
+        if (Array.isArray(persisted.tasks)) {
+          persisted.tasks = persisted.tasks.map((t: any) => ({
+            ...t,
+            agentId: remap(t.agentId),
+          }));
+        }
+
+        // chatMessagesByConversation messages[].agentId + mentions
+        if (persisted.chatMessagesByConversation && typeof persisted.chatMessagesByConversation === 'object') {
+          const mapped: Record<string, any> = {};
+          for (const [convId, msgs] of Object.entries(persisted.chatMessagesByConversation)) {
+            if (Array.isArray(msgs)) {
+              mapped[convId] = msgs.map((m: any) => ({
+                ...m,
+                agentId: typeof m.agentId === 'string' ? remap(m.agentId) : m.agentId,
+                mentions: Array.isArray(m.mentions) ? m.mentions.map(remap) : m.mentions,
+              }));
+            } else {
+              mapped[convId] = msgs;
+            }
+          }
+          persisted.chatMessagesByConversation = mapped;
+        }
+      }
+      return persisted;
+    },
     partialize: (state) => ({
       conversations: state.conversations,
       tasks: state.tasks,

@@ -163,10 +163,10 @@ export function ChatMessageItem({ message }: ChatMessageItemProps) {
               : 'border-[hsl(var(--border))] rounded-tl-none'
           )}
         >
-          {/* Main text content */}
+          {/* Main text content — clowder-ai pattern: streaming+tools → CLI block is primary, no markdown */}
           {message.isStreaming && !message.content && !hasToolEvents ? (
             <span className="inline-block w-1.5 h-4 bg-current animate-pulse rounded-full opacity-50" />
-          ) : message.content ? (
+          ) : message.content && !(hasToolEvents && message.isStreaming) ? (
             isHuman ? (
               <div className="whitespace-pre-wrap break-words">{formatContentWithMentions(message.content)}</div>
             ) : (
@@ -184,11 +184,12 @@ export function ChatMessageItem({ message }: ChatMessageItemProps) {
             </div>
           )}
 
-          {/* CLI Output collapsible panel */}
+          {/* CLI Output collapsible panel — during streaming, this is the primary visual for tool-using messages */}
           {hasToolEvents && (
             <CliOutputBlock
               events={message.toolEvents!}
               isStreaming={!!message.isStreaming}
+              streamText={message.isStreaming ? message.content : undefined}
             />
           )}
 
@@ -286,11 +287,11 @@ export function ChatMessageItem({ message }: ChatMessageItemProps) {
                   onClick={() => {
                     const convId = useTaskHubStore.getState().selectedConversationId;
                     if (!convId) return;
-                    useTaskHubStore.getState().triggerBreakdown(convId);
+                    useTaskHubStore.getState().triggerProposal(convId);
                   }}
                   className="py-1.5 px-3 text-[10px] font-bold text-[hsl(var(--text-tertiary))] bg-[hsl(var(--bg-muted))] border border-[hsl(var(--border))] rounded-[2px] hover:text-[hsl(var(--text-primary))] transition-colors"
                 >
-                  重新拆解
+                  重新出方案
                 </button>
               </div>
             </div>

@@ -184,7 +184,7 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
           <div className="flex flex-col items-center justify-center flex-1 gap-3 py-8 px-4">
             <div className="text-2xl">🔑</div>
             <p className="text-[11px] text-[hsl(var(--text-tertiary))] text-center max-w-[260px]">
-              @Mario 可以帮你拆解任务，或直接 @Agent 下达指令
+              @jean 可以帮你分析项目、出技术方案，或直接 @Agent 下达指令
             </p>
             <div className="flex flex-wrap gap-2 justify-center mt-1">
               {['@Mario 帮我规划一下…', '@Luigi 直接开始…'].map((hint) => (

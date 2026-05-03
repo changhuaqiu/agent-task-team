@@ -67,25 +67,15 @@ export function ProjectChatPanel() {
         {selectedConversation?.breakdownStatus === 'no_account' && (
           <div className="flex items-center gap-1.5 mt-1.5">
             <span className="inline-block w-1.5 h-1.5 rounded-full bg-red-400" />
-            <span className="text-[10px] font-bold text-red-400">为 ⭐ Mario 配置账号后可拆解任务</span>
+            <span className="text-[10px] font-bold text-red-400">为 Jean 配置账号后可分析项目</span>
           </div>
         )}
-        {selectedConversation?.breakdownStatus === 'in_progress' && (
+        {selectedConversation?.breakdownStatus === 'proposal' && (
           <div className="flex items-center gap-1.5 mt-1.5">
             <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
-            <span className="text-[10px] font-bold text-amber-500">⭐ Mario 正在拆解任务…</span>
+            <span className="text-[10px] font-bold text-amber-500">Jean 正在分析项目…</span>
           </div>
         )}
-        {selectedConversation?.breakdownStatus === 'reviewed' && (() => {
-          const phaseCount = phases.filter((p) => p.conversationId === selectedConversationId).length;
-          const taskCount = scoped.length;
-          return (
-            <div className="flex items-center gap-1.5 mt-1.5">
-              <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400" />
-              <span className="text-[10px] font-bold text-amber-500">{phaseCount} 阶段 · {taskCount} 任务 · 待确认</span>
-            </div>
-          );
-        })()}
         <AgentBar />
       </div>
 
