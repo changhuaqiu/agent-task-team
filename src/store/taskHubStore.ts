@@ -1232,13 +1232,13 @@ export const useTaskHubStore = create<TaskHubState>()(
         const conv = get().conversations.find((c) => c.id === conversationId);
         if (!conv) return;
 
-        // Account guard: check if Jean has valid accounts configured
-        const jean = AGENT_ROSTER.find((a) => a.id === 'jean');
+        // Account guard: check if Mario has valid accounts configured
+        const mario = AGENT_ROSTER.find((a) => a.id === 'mario');
         const accounts = get().accounts;
-        const roleCard = jean?.roleCardId ? get().roleCards.find((c) => c.id === jean.roleCardId) : null;
+        const roleCard = mario?.roleCardId ? get().roleCards.find((c) => c.id === mario.roleCardId) : null;
         const effectiveIds = (roleCard && roleCard.accountIds.length > 0)
           ? roleCard.accountIds
-          : (get().agentAccountOverrides['jean'] ?? jean?.accountIds ?? []);
+          : (get().agentAccountOverrides['mario'] ?? mario?.accountIds ?? []);
         const hasAccount = effectiveIds.some((aid) => accounts.some((a) => a.id === aid && a.enabled));
         if (!hasAccount) {
           get().setBreakdownStatus(conversationId, 'no_account');
@@ -1257,7 +1257,7 @@ export const useTaskHubStore = create<TaskHubState>()(
 项目：${conv.title}
 目标：${conv.goal}${conv.projectPath ? `\n项目路径：${conv.projectPath}` : ''}`;
         get().dispatchToAgent({
-          agentId: 'jean',
+          agentId: 'mario',
           prompt,
         });
       },
