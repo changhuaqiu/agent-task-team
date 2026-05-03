@@ -25,12 +25,12 @@ const artifactIcons = {
 
 /* ---- border-left accent per agent theme ---- */
 const themeAccent: Record<AgentTheme, string> = {
-  jean:   'border-l-[hsl(var(--agent-jean))]',
-  keqing: 'border-l-[hsl(var(--agent-keqing))]',
-  zhongli:'border-l-[hsl(var(--agent-zhongli))]',
-  nahida: 'border-l-[hsl(var(--agent-nahida))]',
-  albedo: 'border-l-[hsl(var(--agent-albedo))]',
-  venti:  'border-l-[hsl(var(--agent-venti))]',
+  mario:  'border-l-[hsl(var(--agent-mario))]',
+  luigi:  'border-l-[hsl(var(--agent-luigi))]',
+  toad:   'border-l-[hsl(var(--agent-toad))]',
+  peach:  'border-l-[hsl(var(--agent-peach))]',
+  dk:     'border-l-[hsl(var(--agent-dk))]',
+  yoshi:  'border-l-[hsl(var(--agent-yoshi))]',
 };
 
 interface TaskCardProps {

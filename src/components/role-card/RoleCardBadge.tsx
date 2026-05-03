@@ -4,12 +4,12 @@ import type { RoleCard, RoleCardCategory } from '@/types/roleCard';
 import { cn } from '@/lib/utils';
 
 const CATEGORY_CONFIG: Record<RoleCardCategory, { emoji: string; themeVar: string; label: string }> = {
-  planner:       { emoji: '⚔️', themeVar: '--agent-jean',    label: '规划' },
-  frontend:      { emoji: '⚡', themeVar: '--agent-keqing',   label: '前端' },
-  backend:       { emoji: '🔶', themeVar: '--agent-zhongli',  label: '后端' },
-  code_reviewer: { emoji: '🌿', themeVar: '--agent-nahida',   label: '评审' },
-  arch_reviewer: { emoji: '✨', themeVar: '--agent-albedo',   label: '架构' },
-  qa:            { emoji: '💨', themeVar: '--agent-venti',    label: '质检' },
+  planner:       { emoji: '⭐', themeVar: '--agent-mario',  label: '规划' },
+  frontend:      { emoji: '⚡', themeVar: '--agent-luigi',  label: '前端' },
+  backend:       { emoji: '🛡️', themeVar: '--agent-toad',   label: '后端' },
+  code_reviewer: { emoji: '🌸', themeVar: '--agent-peach',  label: '评审' },
+  arch_reviewer: { emoji: '⚙️', themeVar: '--agent-dk',     label: '架构' },
+  qa:            { emoji: '🎵', themeVar: '--agent-yoshi',  label: '质检' },
 };
 
 export function getCategoryConfig(category: RoleCardCategory) {
