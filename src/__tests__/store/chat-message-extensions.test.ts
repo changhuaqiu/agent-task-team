@@ -12,7 +12,7 @@ describe('ChatMessage extensions', () => {
       chatMessagesByConversation: {},
       eventsByConversation: {},
       blockersByConversation: {},
-      activeAgentIds: ['jean', 'keqing'],
+      activeAgentIds: ['mario', 'luigi'],
     });
   });
 
@@ -43,7 +43,7 @@ describe('ChatMessage extensions', () => {
             title: 'Active task',
             description: 'A task in progress',
             status: 'in_progress',
-            agentId: 'keqing',
+            agentId: 'luigi',
             dependencies: [],
             artifacts: [],
             createdAt: new Date().toISOString(),
@@ -56,7 +56,7 @@ describe('ChatMessage extensions', () => {
             title: 'Pending task',
             description: 'A pending task',
             status: 'pending',
-            agentId: 'keqing',
+            agentId: 'luigi',
             dependencies: [],
             artifacts: [],
             createdAt: new Date().toISOString(),
@@ -65,7 +65,7 @@ describe('ChatMessage extensions', () => {
         ],
       });
 
-      const task = useTaskHubStore.getState().getAgentCurrentTask('keqing');
+      const task = useTaskHubStore.getState().getAgentCurrentTask('luigi');
       expect(task).toBeDefined();
       expect(task!.id).toBe('TASK-001');
       expect(task!.status).toBe('in_progress');
@@ -81,7 +81,7 @@ describe('ChatMessage extensions', () => {
             title: 'Pending task',
             description: 'A pending task',
             status: 'pending',
-            agentId: 'keqing',
+            agentId: 'luigi',
             dependencies: [],
             artifacts: [],
             createdAt: new Date().toISOString(),
@@ -90,7 +90,7 @@ describe('ChatMessage extensions', () => {
         ],
       });
 
-      const task = useTaskHubStore.getState().getAgentCurrentTask('keqing');
+      const task = useTaskHubStore.getState().getAgentCurrentTask('luigi');
       expect(task).toBeUndefined();
     });
   });
@@ -149,13 +149,13 @@ describe('ChatMessage extensions', () => {
         tasks: [],
         chatMessagesByConversation: { [convId]: [] },
         phases: [],
-        activeAgentIds: ['jean', 'keqing'],
+        activeAgentIds: ['mario', 'luigi'],
       });
 
       useTaskHubStore.getState().confirmBreakdown(convId, [
         { title: 'Phase 1', description: '', tasks: [
-          { title: 'Task A', description: '', agentId: 'keqing' },
-          { title: 'Task B', description: '', agentId: 'keqing' },
+          { title: 'Task A', description: '', agentId: 'luigi' },
+          { title: 'Task B', description: '', agentId: 'luigi' },
         ]},
       ]);
 

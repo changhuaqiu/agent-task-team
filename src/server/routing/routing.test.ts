@@ -12,21 +12,21 @@ describe('mention-parser', () => {
     });
 
     it('routes single @mention to serial', () => {
-      const result = parseMentions('@jean please write code');
+      const result = parseMentions('@mario please write code');
       expect(result.strategy).toBe('serial');
-      expect(result.targets).toEqual(['jean']);
+      expect(result.targets).toEqual(['mario']);
       expect(result.hasExplicitMention).toBe(true);
     });
 
     it('routes multiple @mentions to serial in order', () => {
-      const result = parseMentions('@jean write code, then @keqing review it');
+      const result = parseMentions('@mario write code, then @luigi review it');
       expect(result.strategy).toBe('serial');
-      expect(result.targets).toEqual(['jean', 'keqing']);
+      expect(result.targets).toEqual(['mario', 'luigi']);
     });
 
     it('deduplicates repeated @mentions', () => {
-      const result = parseMentions('@jean do this @jean also that');
-      expect(result.targets).toEqual(['jean']);
+      const result = parseMentions('@mario do this @mario also that');
+      expect(result.targets).toEqual(['mario']);
     });
 
     it('handles @all as broadcast', () => {
@@ -42,18 +42,18 @@ describe('mention-parser', () => {
     });
 
     it('is case-insensitive', () => {
-      const result = parseMentions('@Jean write code');
-      expect(result.targets).toEqual(['jean']);
+      const result = parseMentions('@Mario write code');
+      expect(result.targets).toEqual(['mario']);
     });
 
     it('matches by agent name (display name)', () => {
-      const result = parseMentions('@Jean write code');
-      expect(result.targets).toContain('jean');
+      const result = parseMentions('@Mario write code');
+      expect(result.targets).toContain('mario');
     });
 
     it('ignores @mentions inside code blocks', () => {
-      const result = parseMentions('here is code:\n```\n@jean not a mention\n```\nbut @keqing is');
-      expect(result.targets).toEqual(['keqing']);
+      const result = parseMentions('here is code:\n```\n@mario not a mention\n```\nbut @luigi is');
+      expect(result.targets).toEqual(['luigi']);
     });
 
     it('falls back to broadcast when no known agent matched', () => {
@@ -63,14 +63,14 @@ describe('mention-parser', () => {
     });
 
     it('uses provided participants for broadcast', () => {
-      const result = parseMentions('hello', ['jean', 'keqing']);
-      expect(result.targets).toEqual(['jean', 'keqing']);
+      const result = parseMentions('hello', ['mario', 'luigi']);
+      expect(result.targets).toEqual(['mario', 'luigi']);
     });
   });
 
   describe('hasMentions', () => {
     it('returns true for messages with @', () => {
-      expect(hasMentions('@jean hello')).toBe(true);
+      expect(hasMentions('@mario hello')).toBe(true);
     });
 
     it('returns false for plain messages', () => {
@@ -78,13 +78,13 @@ describe('mention-parser', () => {
     });
 
     it('ignores @ in code blocks', () => {
-      expect(hasMentions('```\n@jean\n```')).toBe(false);
+      expect(hasMentions('```\n@mario\n```')).toBe(false);
     });
   });
 
   describe('extractRawMentions', () => {
     it('extracts raw mention names', () => {
-      expect(extractRawMentions('@jean @keqing hello')).toEqual(['jean', 'keqing']);
+      expect(extractRawMentions('@mario @luigi hello')).toEqual(['mario', 'luigi']);
     });
 
     it('returns empty for no mentions', () => {
@@ -96,53 +96,53 @@ describe('mention-parser', () => {
 describe('agent-router', () => {
   describe('routeMessage', () => {
     it('routes based on mentions', () => {
-      const result = routeMessage('@jean do this', {
-        participants: ['jean', 'keqing'],
+      const result = routeMessage('@mario do this', {
+        participants: ['mario', 'luigi'],
         agentStatus: {},
       });
       expect(result.strategy).toBe('serial');
-      expect(result.targets).toEqual(['jean']);
+      expect(result.targets).toEqual(['mario']);
     });
 
     it('broadcasts when no mentions', () => {
       const result = routeMessage('hello', {
-        participants: ['jean', 'keqing'],
+        participants: ['mario', 'luigi'],
         agentStatus: {},
       });
       expect(result.strategy).toBe('broadcast');
-      expect(result.targets).toEqual(['jean', 'keqing']);
+      expect(result.targets).toEqual(['mario', 'luigi']);
     });
 
     it('filters out busy agents', () => {
       const result = routeMessage('hello', {
-        participants: ['jean', 'keqing'],
-        agentStatus: { jean: 'busy' },
+        participants: ['mario', 'luigi'],
+        agentStatus: { mario: 'busy' },
       });
-      expect(result.targets).not.toContain('jean');
-      expect(result.targets).toContain('keqing');
+      expect(result.targets).not.toContain('mario');
+      expect(result.targets).toContain('luigi');
     });
 
     it('returns all targets even if busy when no alternatives', () => {
-      const result = routeMessage('@jean do this', {
-        participants: ['jean'],
-        agentStatus: { jean: 'busy' },
+      const result = routeMessage('@mario do this', {
+        participants: ['mario'],
+        agentStatus: { mario: 'busy' },
       });
-      expect(result.targets).toEqual(['jean']);
+      expect(result.targets).toEqual(['mario']);
     });
   });
 
   describe('planSerialExecution', () => {
     it('plans sequential dispatches with delays', () => {
-      const plan = planSerialExecution(['jean', 'keqing'], 'write code', {});
+      const plan = planSerialExecution(['mario', 'luigi'], 'write code', {});
       expect(plan).toHaveLength(2);
-      expect(plan[0].agentId).toBe('jean');
+      expect(plan[0].agentId).toBe('mario');
       expect(plan[0].delay).toBe(0);
-      expect(plan[1].agentId).toBe('keqing');
+      expect(plan[1].agentId).toBe('luigi');
       expect(plan[1].delay).toBe(1000);
     });
 
     it('returns single plan for single target', () => {
-      const plan = planSerialExecution(['jean'], 'write code', {});
+      const plan = planSerialExecution(['mario'], 'write code', {});
       expect(plan).toHaveLength(1);
       expect(plan[0].delay).toBe(0);
     });

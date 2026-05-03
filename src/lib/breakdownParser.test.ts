@@ -5,8 +5,8 @@ describe('parsePhaseBreakdown', () => {
   it('parses a single phase with tasks', () => {
     const input = [
       'PHASE: 基础搭建 | 数据库和路由先行',
-      'TASK: 数据库 Schema 设计 | 设计 users/orders 表 @zhongli',
-      'TASK: 前端项目初始化 | 搭建 React 项目骨架 @keqing',
+      'TASK: 数据库 Schema 设计 | 设计 users/orders 表 @toad',
+      'TASK: 前端项目初始化 | 搭建 React 项目骨架 @luigi',
     ].join('\n');
 
     const result = parsePhaseBreakdown(input);
@@ -17,17 +17,17 @@ describe('parsePhaseBreakdown', () => {
     expect(result[0].tasks[0]).toEqual({
       title: '数据库 Schema 设计',
       description: '设计 users/orders 表',
-      agentId: 'zhongli',
+      agentId: 'toad',
     });
-    expect(result[0].tasks[1].agentId).toBe('keqing');
+    expect(result[0].tasks[1].agentId).toBe('luigi');
   });
 
   it('parses multiple phases', () => {
     const input = [
       'PHASE: 阶段一 | 描述一',
-      'TASK: 任务 A | 描述A @jean',
+      'TASK: 任务 A | 描述A @mario',
       'PHASE: 阶段二 | 描述二',
-      'TASK: 任务 B | 描述B @keqing',
+      'TASK: 任务 B | 描述B @luigi',
       'TASK: 任务 C | 描述C',
     ].join('\n');
 

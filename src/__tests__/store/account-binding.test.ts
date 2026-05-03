@@ -78,7 +78,7 @@ describe('resolveAgentEngine', () => {
     name: `Agent ${overrides.id}`,
     role: 'worker',
     roleLabel: 'Worker',
-    theme: 'jean',
+    theme: 'mario',
     emoji: '⚔️',
     isOnline: true,
     accountIds: [],
