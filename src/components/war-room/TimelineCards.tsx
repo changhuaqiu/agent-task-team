@@ -31,14 +31,14 @@ export function SupervisorOutputCard({ output }: { output: SupervisorOutputEnvel
 
   const applySamplePlan = () => {
     const stamp = new Date().toISOString();
-    inviteAgent('nahida');
-    inviteAgent('zhongli');
+    inviteAgent('peach');
+    inviteAgent('toad');
 
     addTask({
       title: 'UX：信息架构与验收标准',
       description: '梳理作战室/看板/质量页面的信息架构，并输出 v0 验收标准。',
       status: 'in_progress',
-      agentId: 'keqing',
+      agentId: 'luigi',
       dependencies: [],
       artifacts: [],
     });
@@ -47,7 +47,7 @@ export function SupervisorOutputCard({ output }: { output: SupervisorOutputEnvel
       title: '研发：时间线卡片组件',
       description: '实现时间线卡片并集成到作战室页面。',
       status: 'in_progress',
-      agentId: 'jean',
+      agentId: 'mario',
       dependencies: [],
       artifacts: [],
     });
@@ -56,7 +56,7 @@ export function SupervisorOutputCard({ output }: { output: SupervisorOutputEnvel
       title: 'QA：质量门与阻塞检查',
       description: '验证：执行失败后任务会被立即阻塞，并在质量页面可见。',
       status: 'in_progress',
-      agentId: 'nahida',
+      agentId: 'peach',
       dependencies: [],
       artifacts: [],
     });
@@ -65,7 +65,7 @@ export function SupervisorOutputCard({ output }: { output: SupervisorOutputEnvel
       title: '架构：边界与质量契约',
       description: '确认模块边界，提出 v0 质量门与风险策略。',
       status: 'in_progress',
-      agentId: 'zhongli',
+      agentId: 'toad',
       dependencies: [],
       artifacts: [],
     });

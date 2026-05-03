@@ -87,7 +87,7 @@ export function ChatHubView() {
               </div>
               {recentTasks.length === 0 ? (
                 <div className="text-[12px] text-[hsl(var(--text-tertiary))] mt-2">
-                  还没有任务。你可以在对话里写：TASK: 标题 @jean
+                  还没有任务。你可以在对话里写：TASK: 标题 @mario
                 </div>
               ) : (
                 <div className="mt-3 flex flex-col gap-2">

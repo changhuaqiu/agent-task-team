@@ -96,14 +96,14 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
   };
 
   const AGENT_META: Record<string, { emoji: string; name: string; color: string }> = {
-    jean: { emoji: '🔑', name: 'Jean', color: 'border-amber-500/40' },
-    keqing: { emoji: '⚡', name: 'Keqing', color: 'border-blue-500/40' },
-    zhongli: { emoji: '🛡️', name: 'Zhongli', color: 'border-amber-600/40' },
-    nahida: { emoji: '🌿', name: 'Nahida', color: 'border-emerald-500/40' },
-    albedo: { emoji: '⚗️', name: 'Albedo', color: 'border-purple-500/40' },
-    venti: { emoji: '🎵', name: 'Venti', color: 'border-cyan-500/40' },
+    mario:  { emoji: '⭐', name: 'Mario',       color: 'border-red-500/40' },
+    luigi:  { emoji: '⚡', name: 'Luigi',       color: 'border-green-500/40' },
+    toad:   { emoji: '🛡️', name: 'Toad',       color: 'border-amber-300/40' },
+    peach:  { emoji: '🌸', name: 'Peach',       color: 'border-pink-500/40' },
+    dk:     { emoji: '⚙️', name: 'Donkey Kong', color: 'border-amber-700/40' },
+    yoshi:  { emoji: '🎵', name: 'Yoshi',       color: 'border-green-400/40' },
     system: { emoji: '⚙️', name: '系统', color: 'border-violet-500/40' },
-    human: { emoji: '👤', name: '用户', color: 'border-[hsl(var(--agent-owner))]/40' },
+    human:  { emoji: '👤', name: '用户', color: 'border-[hsl(var(--agent-owner))]/40' },
   };
 
   const filteredMessages = useMemo(() => {
@@ -164,9 +164,9 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
             </div>
             <div className="flex flex-wrap gap-2 justify-center mt-2">
               {[
-                '@Jean 帮我规划一下…',
-                '@Keqing 写一个…',
-                '@Zhongli 审查…',
+                '@Mario 帮我规划一下…',
+                '@Luigi 写一个…',
+                '@Peach 审查…',
               ].map((hint) => (
                 <button
                   key={hint}
@@ -184,10 +184,10 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
           <div className="flex flex-col items-center justify-center flex-1 gap-3 py-8 px-4">
             <div className="text-2xl">🔑</div>
             <p className="text-[11px] text-[hsl(var(--text-tertiary))] text-center max-w-[260px]">
-              @Jean 可以帮你拆解任务，或直接 @Agent 下达指令
+              @Mario 可以帮你拆解任务，或直接 @Agent 下达指令
             </p>
             <div className="flex flex-wrap gap-2 justify-center mt-1">
-              {['@Jean 帮我规划一下…', '@Keqing 直接开始…'].map((hint) => (
+              {['@Mario 帮我规划一下…', '@Luigi 直接开始…'].map((hint) => (
                 <button
                   key={hint}
                   type="button"

@@ -65,7 +65,7 @@ export function ProjectCreateDialog({
                 新建项目
               </div>
               <div className="text-[14px] font-semibold text-[hsl(var(--text-primary))] mt-1">
-                先定义需求，再进入对话与拆解
+                起个头，细节在对话中梳理
               </div>
             </div>
             <button
@@ -97,13 +97,13 @@ export function ProjectCreateDialog({
 
             <div className="space-y-1.5">
               <label className="text-[11px] font-semibold uppercase tracking-wider text-[hsl(var(--text-tertiary))]">
-                目标 / 验收标准
+                一句话描述
               </label>
               <textarea
                 value={goal}
                 onChange={(event) => setGoal(event.target.value)}
-                placeholder="写清楚这条需求想达成什么、验收怎么判断。"
-                rows={4}
+                placeholder="简单描述你想做什么，细节可以稍后在对话中补充。"
+                rows={2}
                 className="w-full px-3 py-2 rounded-[var(--radius-md)] border border-[hsl(var(--border))] bg-[hsl(var(--bg-muted))] text-[13px] font-medium outline-none resize-none focus:border-[hsl(var(--accent))]"
               />
             </div>
@@ -124,7 +124,7 @@ export function ProjectCreateDialog({
                 {autoBreakdown && <span className="text-[10px]">✓</span>}
               </button>
               <span className="text-[11px] text-[hsl(var(--text-secondary))]">
-                自动拆解任务（由 ⚔️ Jean 分析）
+                自动拆解任务（由 ⭐ Mario 分析）
               </span>
             </div>
           </div>
