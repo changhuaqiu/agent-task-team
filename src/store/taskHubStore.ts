@@ -1996,20 +1996,8 @@ export const useTaskHubStore = create<TaskHubState>()(
           persisted.activeAgentIds = persisted.activeAgentIds.map(remap);
         }
 
-        // agentSessions: Record<projectId, Record<agentId, sessionId>>
-        if (persisted.agentSessions && typeof persisted.agentSessions === 'object') {
-          const mapped: Record<string, any> = {};
-          for (const [proj, agents] of Object.entries(persisted.agentSessions)) {
-            const entry: Record<string, any> = {};
-            if (agents && typeof agents === 'object') {
-              for (const [aid, sid] of Object.entries(agents as Record<string, any>)) {
-                entry[remap(aid)] = sid;
-              }
-            }
-            mapped[proj] = entry;
-          }
-          persisted.agentSessions = mapped;
-        }
+        // agentSessions: clear entirely — old CLI sessions are dead after migration
+        persisted.agentSessions = {};
 
         // agentAccountOverrides: Record<agentId, string[]>
         if (persisted.agentAccountOverrides && typeof persisted.agentAccountOverrides === 'object') {
@@ -2280,6 +2268,14 @@ socket.on('terminal:exit', ({ agentId, code, command, reasonCode }: { agentId: s
   useTaskHubStore.setState((state) => ({
     agentStatus: { ...state.agentStatus, [agentId]: 'idle' },
     activeRunsByAgent: { ...state.activeRunsByAgent, [agentId]: undefined },
+    // Clear CLI session so next dispatch re-injects role card systemPrompt
+    agentSessions: {
+      ...state.agentSessions,
+      [state.selectedProjectId || 'default']: {
+        ...(state.agentSessions[state.selectedProjectId || 'default'] || {}),
+        [agentId]: undefined,
+      },
+    },
   }));
   useTaskHubStore.getState().completeStreamMessage(agentId);
 
