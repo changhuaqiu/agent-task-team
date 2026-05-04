@@ -15,6 +15,7 @@ created: 2026-02-26
 |--------|------|-------|------|
 | 文档架构与多 Agent 约束 | done | Admin | `docs/README.md` |
 | 工程型角色卡机制 | in-progress | Admin | `docs/product/business/2026-05-01-engineering-role-card-business-plan.md` |
+| 智能分派系统 | done | Admin | `docs/superpowers/specs/2026-05-04-intelligent-dispatch-design.md` — CapabilityProfile 能力图谱 + DispatchAdvisor 匹配引擎 + ProjectStatusLayer 任务看板 + 可配置角色系统 |
 | 统一集成配置中心 | in-progress | Admin | `specs/unify-integration-config-center/` |
 
 ## 说明
