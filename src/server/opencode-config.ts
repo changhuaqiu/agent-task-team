@@ -10,6 +10,7 @@ export interface RuntimeConfigInput {
   baseUrl?: string;
   models: string[];
   defaultModel?: string;
+  systemPrompt?: string;
 }
 
 export interface RuntimeConfigResult {
@@ -47,29 +48,34 @@ export function generateRuntimeConfig(
   input: RuntimeConfigInput,
 ): RuntimeConfigResult {
   const isNative = NATIVE_PROVIDERS.includes(input.provider);
+  const needsProviderConfig = !isNative || !!input.baseUrl;
 
-  if (isNative && !input.baseUrl) {
+  // Generate config if we need provider config OR have a system prompt to inject
+  if (!needsProviderConfig && !input.systemPrompt) {
     return { generated: false, env: {} };
   }
 
   const configDir = path.join(getDataDir(), `oc-config-${invocationId}`);
   const configPath = path.join(configDir, 'opencode.json');
-  const providerName = `${input.provider}-compat`;
-
-  const modelsMap: Record<string, { name: string }> = {};
-  for (const model of input.models) {
-    modelsMap[model] = { name: model };
-  }
-  if (Object.keys(modelsMap).length === 0) {
-    modelsMap['default'] = { name: 'default' };
-  }
-
-  const effectiveModel = input.defaultModel || input.models[0] || 'default';
 
   const config: Record<string, unknown> = {
     $schema: 'https://opencode.ai/config.json',
-    model: `${providerName}/${effectiveModel}`,
-    provider: {
+  };
+
+  // Provider config (only for non-native or custom baseUrl)
+  if (needsProviderConfig) {
+    const providerName = `${input.provider}-compat`;
+    const modelsMap: Record<string, { name: string }> = {};
+    for (const model of input.models) {
+      modelsMap[model] = { name: model };
+    }
+    if (Object.keys(modelsMap).length === 0) {
+      modelsMap['default'] = { name: 'default' };
+    }
+    const effectiveModel = input.defaultModel || input.models[0] || 'default';
+
+    config.model = `${providerName}/${effectiveModel}`;
+    config.provider = {
       [providerName]: {
         ...(isNative ? {} : { name: PROVIDER_DISPLAY_NAMES[input.provider] || 'Custom Provider' }),
         npm: isNative ? NATIVE_NPM_MAP[input.provider] : '@ai-sdk/openai-compatible',
@@ -79,18 +85,28 @@ export function generateRuntimeConfig(
           ...(input.baseUrl ? { baseURL: `{env:${OC_BASE_URL_ENV}}` } : {}),
         },
       },
-    },
-  };
+    };
+  }
+
+  // System prompt as instructions file
+  if (input.systemPrompt) {
+    const instructionsPath = path.join(configDir, 'system-prompt.md');
+    fs.mkdirSync(configDir, { recursive: true });
+    fs.writeFileSync(instructionsPath, input.systemPrompt, 'utf-8');
+    config.instructions = [instructionsPath];
+  }
 
   fs.mkdirSync(configDir, { recursive: true });
   fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
 
   const env: Record<string, string> = {
     OPENCODE_CONFIG: configPath,
-    [OC_API_KEY_ENV]: input.apiKey,
   };
-  if (input.baseUrl) {
-    env[OC_BASE_URL_ENV] = input.baseUrl;
+  if (needsProviderConfig) {
+    env[OC_API_KEY_ENV] = input.apiKey;
+    if (input.baseUrl) {
+      env[OC_BASE_URL_ENV] = input.baseUrl;
+    }
   }
 
   return { generated: true, configPath, configDir, env };

@@ -35,11 +35,11 @@ export function WorkspaceRootRow({
           )}
         />
         <FolderOpen className="w-4 h-4 shrink-0 text-[hsl(var(--text-tertiary))]" />
-        <span className="text-[var(--text-sm)] font-medium text-[hsl(var(--text-primary))] truncate min-w-0">
+        <span className="text-[13px] font-medium text-[hsl(var(--text-primary))] truncate min-w-0">
           {name}
         </span>
         {count > 0 && (
-          <span className="text-[var(--text-xs)] text-[hsl(var(--text-tertiary))] ml-auto shrink-0 tabular-nums">
+          <span className="text-[11px] text-[hsl(var(--text-tertiary))] ml-auto shrink-0 tabular-nums">
             {count}
           </span>
         )}

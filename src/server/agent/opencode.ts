@@ -57,27 +57,15 @@ export class OpenCodeBackend implements AgentBackend {
       ...this.config.env,
     };
 
-    // Inject system prompt via opencode's custom agent config.
-    // opencode treats the positional arg as a USER message, not a system message.
-    // By defining a custom agent with our prompt via OPENCODE_CONFIG_CONTENT + --pure
-    // (to bypass plugins like oh-my-openagent that override agent definitions),
-    // opencode injects it as a SYSTEM message.
-    if (opts.systemPrompt) {
-      args.push('--pure');
-      env.OPENCODE_CONFIG_CONTENT = JSON.stringify({
-        agent: {
-          'ath-agent': {
-            description: 'Agent Task Hub runtime agent',
-            prompt: opts.systemPrompt,
-            mode: 'primary',
-          },
-        },
-        default_agent: 'ath-agent',
-      });
-      args.push('--agent', 'ath-agent');
-    }
+    // System prompt is also injected via OPENCODE_CONFIG instructions file (by daemon.ts).
+    // Additionally, we frame it as a user directive here so it overrides the default
+    // agent identity (Sisyphus). The default agent's own rules say:
+    // "User instructions override these defaults." — we leverage that.
+    const effectivePrompt = opts.systemPrompt
+      ? `<user-directive priority="override">\nIDENTITY OVERRIDE — per your own rule "User instructions override these defaults":\n${opts.systemPrompt}\n</user-directive>\n\n${prompt}`
+      : prompt;
 
-    args.push(prompt);
+    args.push(effectivePrompt);
 
     const startTime = Date.now();
 

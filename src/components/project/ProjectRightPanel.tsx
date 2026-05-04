@@ -31,12 +31,12 @@ export function ProjectRightPanel() {
   const blockers = useTaskHubStore((s) => s.getOpenBlockersForSelectedConversation());
   const setSelectedTaskId = useTaskHubStore((s) => s.setSelectedTaskId);
 
-  const [open, setOpen] = useState(false);
-
   const scoped = useMemo(() => {
     if (!selectedConversationId) return [];
     return tasks.filter((t) => t.conversationId === selectedConversationId);
   }, [selectedConversationId, tasks]);
+
+  const [open, setOpen] = useState(() => scoped.length > 0);
 
   const nextItems = useMemo(() => buildNextItems(scoped), [scoped]);
   const openBlockers = useMemo(() => blockers.filter((b) => b.status === 'open'), [blockers]);

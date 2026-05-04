@@ -81,6 +81,7 @@ export interface PendingDispatch {
   queuedAt: string;
   source?: 'user' | 'a2a';
   fromAgentId?: string;
+  conversationId?: string;
 }
 
 export const createDaemonSlice = (set: any, get: () => any) => {
@@ -139,7 +140,7 @@ export const createDaemonSlice = (set: any, get: () => any) => {
         },
       })),
 
-    dispatchToAgent: ({ agentId, prompt, referencedTaskId, source, fromAgentId }: { agentId: string; prompt: string; referencedTaskId?: string; source?: 'user' | 'a2a'; fromAgentId?: string }) => {
+    dispatchToAgent: ({ agentId, prompt, referencedTaskId, source, fromAgentId, conversationId: explicitConvId }: { agentId: string; prompt: string; referencedTaskId?: string; source?: 'user' | 'a2a'; fromAgentId?: string; conversationId?: string }) => {
       if (get().agentStatus[agentId] === 'busy') {
         console.log(`[dispatch] ${agentId} busy, enqueuing`);
         get().enqueueDispatch(agentId, { prompt, referencedTaskId, source, fromAgentId });
@@ -148,6 +149,7 @@ export const createDaemonSlice = (set: any, get: () => any) => {
       const projectId = get().selectedProjectId;
       const sessionId = get().agentSessions[projectId]?.[agentId];
       const conversationId =
+        explicitConvId ??
         (referencedTaskId ? get().getTaskById(referencedTaskId)?.conversationId : undefined) ??
         get().selectedConversationId;
       if (!conversationId) {
@@ -251,7 +253,11 @@ export const createDaemonSlice = (set: any, get: () => any) => {
     },
 
     enqueueDispatch: (agentId: string, payload: Omit<PendingDispatch, 'queuedAt'>) => {
-      const entry: PendingDispatch = { ...payload, queuedAt: new Date().toISOString() };
+      const conversationId = payload.conversationId
+        ?? (payload.referencedTaskId ? get().getTaskById(payload.referencedTaskId)?.conversationId : undefined)
+        ?? get().selectedConversationId
+        ?? undefined;
+      const entry: PendingDispatch = { ...payload, queuedAt: new Date().toISOString(), conversationId };
 
       const existing = get().pendingDispatches[agentId];
       if (existing && existing.length > 0 && payload.referencedTaskId) {
@@ -279,7 +285,7 @@ export const createDaemonSlice = (set: any, get: () => any) => {
           type: 'dispatch.enqueue',
           payload: { agentId, prompt: payload.prompt, referencedTaskId: payload.referencedTaskId },
         }),
-      }).catch(() => {});
+      }).catch(() => { /* fire-and-forget: 队列已入内存，服务端持久化失败不影响本地调度 */ });
     },
 
     dequeueNextPending: (agentId: string) => {
@@ -293,7 +299,9 @@ export const createDaemonSlice = (set: any, get: () => any) => {
         delete nextPending[agentId];
       }
       set({ pendingDispatches: nextPending });
-      const conversationId = get().selectedConversationId;
+      const conversationId = next.conversationId
+        ?? (next.referencedTaskId ? get().getTaskById(next.referencedTaskId)?.conversationId : undefined)
+        ?? get().selectedConversationId;
       if (conversationId) {
         if (next.source === 'a2a') {
           // A2A handoff: show a clean label, not the raw formatted prompt
@@ -338,8 +346,7 @@ export const createDaemonSlice = (set: any, get: () => any) => {
           }));
         }
       }
-      }
-      get().dispatchToAgent({ agentId, prompt: next.prompt, referencedTaskId: next.referencedTaskId });
+      get().dispatchToAgent({ agentId, prompt: next.prompt, referencedTaskId: next.referencedTaskId, conversationId });
     },
 
     clearPendingDispatches: (agentId: string) => {

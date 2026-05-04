@@ -47,6 +47,9 @@ export interface DispatchToAgentInput {
   prompt: string;
   referencedTaskId?: string;
   accountIds?: string[];
+  source?: 'user' | 'a2a';
+  fromAgentId?: string;
+  conversationId?: string;
 }
 
 export type TeamRole = 'dev' | 'ux' | 'qa' | 'arch';
@@ -906,7 +909,7 @@ export const useTaskHubStore = create<TaskHubState>()(
 
               if (busyAgents.length === uniqueMentions.length) {
                 for (const agentId of busyAgents) {
-                  get().enqueueDispatch(agentId, { prompt: rest.content, referencedTaskId: rest.referencedTaskId });
+                  get().enqueueDispatch(agentId, { prompt: rest.content, referencedTaskId: rest.referencedTaskId, conversationId });
                 }
                 return;
               }
@@ -935,7 +938,7 @@ export const useTaskHubStore = create<TaskHubState>()(
                 });
               }
               for (const agentId of busyAgents) {
-                get().enqueueDispatch(agentId, { prompt: rest.content, referencedTaskId: rest.referencedTaskId });
+                get().enqueueDispatch(agentId, { prompt: rest.content, referencedTaskId: rest.referencedTaskId, conversationId });
               }
             } else {
               set((state: any) => ({

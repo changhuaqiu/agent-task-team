@@ -3,6 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import { applyMigrations } from './migrate';
 import { seedPresetSkills } from '../seed-skills';
+import { seedPresetAgents } from './seed-agents';
 
 let db: Database.Database | null = null;
 
@@ -22,6 +23,7 @@ export function getDb(): Database.Database {
   db.pragma('busy_timeout = 5000');
 
   applyMigrations(db);
+  seedPresetAgents();
   seedPresetSkills();
   return db;
 }

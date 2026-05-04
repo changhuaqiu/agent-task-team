@@ -367,7 +367,7 @@ describe('composeSystemPrompt', () => {
     expect(result).toBeDefined();
     expect(result!).toContain('我是规划专家');
     expect(result!).toContain('## 项目上下文');
-    expect(result!).toContain('团队花名册');
+    expect(result!).not.toContain('@luigi');
   });
 
   it('returns undefined on subsequent wake', () => {
@@ -398,11 +398,19 @@ describe('composeUserPrompt', () => {
     expect(result).toContain('是否需要交接给其他角色');
   });
 
-  it('builds without history on subsequent wake', () => {
-    const result = composeUserPrompt({ ...baseOpts, isFirstWake: false });
-    expect(result).not.toContain('[对话历史');
+  it('includes history on subsequent wake too', () => {
+    const messages: ChatMessage[] = [
+      makeMessage({ agentId: 'human', content: '你好', timestamp: '2026-05-03T10:00:00Z' }),
+    ];
+    const result = composeUserPrompt({ ...baseOpts, isFirstWake: false, messages });
+    expect(result).toContain('[对话历史');
     expect(result).toContain('请开始工作');
     expect(result).toContain('是否需要交接给其他角色');
+  });
+
+  it('includes team roster on every dispatch', () => {
+    const result = composeUserPrompt(baseOpts);
+    expect(result).toContain('@luigi');
   });
 
   it('includes task context when task provided', () => {
@@ -426,9 +434,9 @@ describe('composeUserPrompt', () => {
 });
 
 // ===========================================================================
-// composeSystemPrompt with skills
+// composeUserPrompt with skills (moved from system prompt)
 // ===========================================================================
-describe('composeSystemPrompt with skills', () => {
+describe('composeUserPrompt with skills', () => {
   const baseOpts: ComposeOptions = {
     agent: { id: 'mario', name: 'Mario' },
     allRoleCards: [],
@@ -438,17 +446,21 @@ describe('composeSystemPrompt with skills', () => {
   };
 
   it('includes skill content when skills provided', () => {
-    const result = composeSystemPrompt({
+    const result = composeUserPrompt({
       ...baseOpts,
       skills: [{ name: 'code-review', content: 'Review carefully.' }],
     });
-    expect(result).toBeDefined();
-    expect(result!).toContain('## Skill: code-review');
+    expect(result).toContain('## Skill: code-review');
   });
 
-  it('works without skills (backward compatible)', () => {
-    const result = composeSystemPrompt(baseOpts);
-    expect(result).toBeDefined();
-    expect(result!).not.toContain('## Skill:');
+  it('works without skills', () => {
+    const result = composeUserPrompt(baseOpts);
+    expect(result).not.toContain('## Skill:');
+  });
+
+  it('includes protocol layer', () => {
+    const result = composeUserPrompt(baseOpts);
+    expect(result).toContain('任务协作协议');
+    expect(result).toContain('.ath/TASKS.md');
   });
 });

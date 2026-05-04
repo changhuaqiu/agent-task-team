@@ -1,4 +1,4 @@
-import { AGENT_ROSTER } from '@/store/taskHubStore';
+import { AGENT_ROSTER } from '@/store/agentStore';
 import type { RoleCard } from '@/types/roleCard';
 
 const ROLE_LABELS: Record<string, string> = {

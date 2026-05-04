@@ -68,7 +68,7 @@ export function parseTasksMd(content: string): ParsedTask[] {
     if (cells.length < 8) continue;
 
     const id = cells[0];
-    if (!id || id.includes('-') === false) continue;
+    if (!id || (!id.includes('-') && !id.includes('.'))) continue;
 
     if (isOldFormat) {
       // Old format: ID | Title | Role | Agent | Status | Depends | Deliverable | Level

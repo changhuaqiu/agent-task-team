@@ -1,4 +1,4 @@
-import type { ChatMessage } from '@/store/taskHubStore';
+import type { ChatMessage } from '@/store/types';
 
 const SENDER_LABELS: Record<string, string> = {
   human: '用户',

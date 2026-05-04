@@ -89,7 +89,7 @@ export function ProjectSidebar() {
             })}
 
           {isExpanded && sorted.length === 0 && (
-            <div className="px-6 py-4 text-[var(--text-xs)] text-[hsl(var(--text-tertiary))]">
+            <div className="px-6 py-4 text-[11px] text-[hsl(var(--text-tertiary))]">
               还没有项目
             </div>
           )}

@@ -1,0 +1,377 @@
+'use client';
+
+import type { RoleCard } from '@/types/roleCard';
+import type { SkillSummary } from '@/lib/agent-context/PromptComposer';
+import type { CliEngine } from '@/server/types';
+import { PRESET_ROLE_CARDS } from '@/data/presetRoleCards';
+
+// --- Agent Role & Roster ---
+
+export type AgentRole = 'planner' | 'worker' | 'reviewer';
+export type AgentTheme = 'mario' | 'luigi' | 'toad' | 'peach' | 'dk' | 'yoshi';
+
+export interface Agent {
+  id: string;
+  name: string;
+  /** @deprecated — use roleCardId + RoleCard instead */
+  role: AgentRole;
+  /** @deprecated — use roleCardId + RoleCard.displayName instead */
+  roleLabel: string;
+  roleCardId: string;
+  theme: AgentTheme;
+  emoji: string;
+  isOnline: boolean;
+  cliEngine?: CliEngine;
+  accountIds: string[];
+}
+
+const FALLBACK_AGENTS: Agent[] = [
+  {
+    id: 'mario',
+    name: 'Mario',
+    role: 'planner',
+    roleLabel: '项目统筹',
+    roleCardId: 'preset-planner',
+    theme: 'mario',
+    emoji: '⭐',
+    isOnline: true,
+    accountIds: [],
+  },
+  {
+    id: 'luigi',
+    name: 'Luigi',
+    role: 'worker',
+    roleLabel: '前端实现',
+    roleCardId: 'preset-frontend',
+    theme: 'luigi',
+    emoji: '⚡',
+    isOnline: true,
+    accountIds: [],
+  },
+  {
+    id: 'toad',
+    name: 'Toad',
+    role: 'worker',
+    roleLabel: '后端开发',
+    roleCardId: 'preset-backend',
+    theme: 'toad',
+    emoji: '🛡️',
+    isOnline: false,
+    accountIds: [],
+  },
+  {
+    id: 'peach',
+    name: 'Peach',
+    role: 'reviewer',
+    roleLabel: '代码评审',
+    roleCardId: 'preset-code-reviewer',
+    theme: 'peach',
+    emoji: '🌸',
+    isOnline: true,
+    accountIds: [],
+  },
+  {
+    id: 'dk',
+    name: 'Donkey Kong',
+    role: 'worker',
+    roleLabel: '架构工程',
+    roleCardId: 'preset-arch-reviewer',
+    theme: 'dk',
+    emoji: '⚙️',
+    isOnline: false,
+    accountIds: [],
+  },
+  {
+    id: 'yoshi',
+    name: 'Yoshi',
+    role: 'reviewer',
+    roleLabel: 'QA 测试',
+    roleCardId: 'preset-qa',
+    theme: 'yoshi',
+    emoji: '🎵',
+    isOnline: false,
+    accountIds: [],
+  },
+];
+
+export let AGENT_ROSTER: Agent[] = [...FALLBACK_AGENTS];
+
+const ROLE_MAP: Record<string, AgentRole> = {
+  'preset-planner': 'planner',
+  'preset-frontend': 'worker',
+  'preset-backend': 'worker',
+  'preset-code-reviewer': 'reviewer',
+  'preset-arch-reviewer': 'worker',
+  'preset-qa': 'reviewer',
+};
+
+const ROLE_LABEL_MAP: Record<string, string> = {
+  'preset-planner': '项目统筹',
+  'preset-frontend': '前端实现',
+  'preset-backend': '后端开发',
+  'preset-code-reviewer': '代码评审',
+  'preset-arch-reviewer': '架构工程',
+  'preset-qa': 'QA 测试',
+};
+
+export async function loadAgents(): Promise<void> {
+  try {
+    const res = await fetch('/api/agents');
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!Array.isArray(data.agents) || data.agents.length === 0) return;
+
+    const prevOnline: Record<string, boolean> = {};
+    const prevCliEngine: Record<string, CliEngine | undefined> = {};
+    const prevAccountIds: Record<string, string[]> = {};
+    for (const a of AGENT_ROSTER) {
+      prevOnline[a.id] = a.isOnline;
+      prevCliEngine[a.id] = a.cliEngine;
+      prevAccountIds[a.id] = a.accountIds;
+    }
+
+    AGENT_ROSTER = data.agents.map((row: any) => ({
+      id: row.id,
+      name: row.name,
+      role: ROLE_MAP[row.role_card_id] ?? 'worker',
+      roleLabel: ROLE_LABEL_MAP[row.role_card_id] ?? row.name,
+      roleCardId: row.role_card_id,
+      theme: row.theme as AgentTheme,
+      emoji: row.emoji,
+      isOnline: prevOnline[row.id] ?? false,
+      cliEngine: prevCliEngine[row.id],
+      accountIds: prevAccountIds[row.id] ?? [],
+    }));
+  } catch (err) {
+    console.error('[loadAgents] Failed, using fallback:', err);
+  }
+}
+
+// --- Account types & helpers ---
+
+export type AccountProvider = 'anthropic' | 'openai' | 'google' | 'kimi' | 'opencode' | 'other';
+
+export const PROVIDER_TO_ENGINE: Record<AccountProvider, CliEngine> = {
+  anthropic: 'claude',
+  openai: 'codex',
+  google: 'gemini',
+  kimi: 'opencode',
+  opencode: 'opencode',
+  other: 'opencode',
+};
+
+export function providerToEngine(provider: AccountProvider): CliEngine {
+  return PROVIDER_TO_ENGINE[provider];
+}
+
+export interface Account {
+  id: string;
+  name: string;
+  authMode: AccountAuthMode;
+  provider: AccountProvider;
+  baseUrl?: string;
+  models: string[];
+  enabled: boolean;
+  status: 'unknown' | 'valid' | 'pending' | 'error';
+  lastVerifiedAt?: string;
+  verifyError?: string;
+  hasApiKey?: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type AccountAuthMode = 'api_key' | 'oauth';
+
+export const PROVIDER_LABELS: Record<AccountProvider, string> = {
+  anthropic: 'Claude',
+  openai: 'OpenAI / Codex',
+  google: 'Gemini',
+  kimi: 'Kimi',
+  opencode: 'OpenCode',
+  other: '其他',
+};
+
+export const PROVIDER_OPTIONS: AccountProvider[] = ['anthropic', 'openai', 'google', 'kimi', 'opencode', 'other'];
+
+export const MODEL_SUGGESTIONS: Partial<Record<AccountProvider, string[]>> = {
+  anthropic: ['claude-sonnet-4-6', 'claude-opus-4-6', 'claude-sonnet-4-5-20250929'],
+  openai: ['gpt-5.4', 'gpt-5.3-codex', 'o3-pro'],
+  google: ['gemini-2.5-pro', 'gemini-3-flash-preview'],
+  kimi: ['moonshot-v2'],
+  opencode: ['claude-sonnet-4-6', 'gpt-5.4'],
+};
+
+export function resolveAgentEngine(
+  agent: Agent,
+  accounts: Account[],
+): { engine: CliEngine; accountId: string } | null {
+  for (const accountId of agent.accountIds) {
+    const account = accounts.find((a) => a.id === accountId && a.enabled);
+    if (account) {
+      return { engine: providerToEngine(account.provider), accountId };
+    }
+  }
+  if (agent.cliEngine) {
+    return { engine: agent.cliEngine, accountId: '' };
+  }
+  return null;
+}
+
+// --- Agent Slice Creator ---
+
+export const createAgentSlice = (set: any, get: () => any) => {
+  return {
+    activeAgentIds: ['mario', 'luigi'] as string[],
+
+    // Role Cards
+    roleCards: [...PRESET_ROLE_CARDS] as RoleCard[],
+    upsertRoleCard: (card: Omit<RoleCard, 'id' | 'createdAt' | 'updatedAt' | 'version' | 'isPreset'> & { id?: string; isPreset?: boolean }): string => {
+      const now = new Date().toISOString();
+      if (card.id) {
+        set((state: any) => ({
+          roleCards: state.roleCards.map((c: RoleCard) =>
+            c.id === card.id
+              ? { ...c, ...card, updatedAt: now, version: c.version + 1 } as RoleCard
+              : c
+          ),
+        }));
+        return card.id;
+      }
+      const id = `rc-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      set((state: any) => ({
+        roleCards: [
+          ...state.roleCards,
+          { ...card, id, isPreset: false, version: 1, createdAt: now, updatedAt: now } as RoleCard,
+        ],
+      }));
+      return id;
+    },
+    removeRoleCard: (cardId: string) =>
+      set((state: any) => ({
+        roleCards: state.roleCards.filter((c: RoleCard) => !(c.id === cardId && !c.isPreset)),
+      })),
+    getRoleCardById: (cardId: string): RoleCard | undefined =>
+      get().roleCards.find((c: RoleCard) => c.id === cardId),
+    getRoleCardForAgent: (agentId: string): RoleCard | undefined => {
+      const agent = AGENT_ROSTER.find((a) => a.id === agentId);
+      if (!agent?.roleCardId) return undefined;
+      return get().roleCards.find((c: RoleCard) => c.id === agent.roleCardId);
+    },
+    setAgentRoleCardId: (agentId: string, roleCardId: string) => {
+      const idx = AGENT_ROSTER.findIndex((a) => a.id === agentId);
+      if (idx !== -1) {
+        (AGENT_ROSTER as Agent[])[idx].roleCardId = roleCardId;
+      }
+      set({}); // trigger re-render
+    },
+    setRoleCardAccountIds: (roleCardId: string, accountIds: string[]) =>
+      set((state: any) => ({
+        roleCards: state.roleCards.map((c: RoleCard) =>
+          c.id === roleCardId ? { ...c, accountIds, updatedAt: new Date().toISOString() } : c
+        ),
+      })),
+
+    // Agent account bindings
+    agentAccountOverrides: {} as Record<string, string[]>,
+    setAgentAccountIds: (agentId: string, accountIds: string[]) =>
+      set((state: any) => ({
+        agentAccountOverrides: {
+          ...state.agentAccountOverrides,
+          [agentId]: accountIds,
+        },
+      })),
+
+    // Invite / dismiss
+    inviteAgent: (agentId: string) =>
+      set((state: any) => {
+        if (state.activeAgentIds.includes(agentId)) return state;
+        return { activeAgentIds: [...state.activeAgentIds, agentId] };
+      }),
+
+    dismissAgent: (agentId: string) =>
+      set((state: any) => ({
+        activeAgentIds: state.activeAgentIds.filter((id: string) => id !== agentId),
+      })),
+
+    // Roster modal UI
+    isRosterModalOpen: false as boolean,
+    setRosterModalOpen: (open: boolean) => set({ isRosterModalOpen: open }),
+
+    // Role Card UI state
+    isRoleCardDetailOpen: false as boolean,
+    selectedRoleCardId: null as string | null,
+    setRoleCardDetailOpen: (open: boolean, cardId?: string) =>
+      set({ isRoleCardDetailOpen: open, selectedRoleCardId: cardId ?? null }),
+    isRoleCardEditorOpen: false as boolean,
+    editingRoleCardId: null as string | null,
+    setRoleCardEditorOpen: (open: boolean, cardId?: string) =>
+      set({ isRoleCardEditorOpen: open, editingRoleCardId: cardId ?? null }),
+
+    // Skill state
+    skillsMap: {} as Record<string, SkillSummary>,
+    agentSkillIds: {} as Record<string, string[]>,
+    loadSkills: async () => {
+      try {
+        const res = await fetch('/api/skills');
+        const rawSkills = await res.json();
+        const map: Record<string, SkillSummary> = {};
+        for (const s of rawSkills) {
+          map[s.id] = {
+            name: s.name,
+            content: s.content,
+            files: (s.files ?? []).map((f: { path: string; content: string }) => ({ path: f.path, content: f.content })),
+          };
+        }
+
+        const agentIds = AGENT_ROSTER.map((a) => a.id);
+        const assignments: Record<string, string[]> = {};
+        await Promise.all(agentIds.map(async (id) => {
+          try {
+            const r = await fetch(`/api/agents/${id}/skills`);
+            const agentSkills = await r.json();
+            for (const as of agentSkills) {
+              if (!map[as.id]) {
+                map[as.id] = {
+                  name: as.name,
+                  content: as.content,
+                  files: (as.files ?? []).map((f: { path: string; content: string }) => ({ path: f.path, content: f.content })),
+                };
+              }
+            }
+            assignments[id] = agentSkills.map((s: { id: string }) => s.id);
+          } catch { /* ignore */ }
+        }));
+        set({ skillsMap: map, agentSkillIds: assignments });
+      } catch (err) {
+        console.error('[loadSkills] Failed:', err);
+      }
+    },
+    getSkillsForAgent: (agentId: string): SkillSummary[] => {
+      const { skillsMap, agentSkillIds } = get();
+      const ids = agentSkillIds[agentId] ?? [];
+      return ids.map((id: string) => skillsMap[id]).filter(Boolean);
+    },
+    assignSkillsToAgent: async (agentId: string, skillIds: string[]) => {
+      await fetch(`/api/agents/${agentId}/skills`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ skillIds }),
+      });
+      set((state: any) => ({
+        agentSkillIds: { ...state.agentSkillIds, [agentId]: skillIds },
+      }));
+    },
+    importSkills: async (source: string): Promise<{ imported?: number; error?: string }> => {
+      const res = await fetch('/api/skills/import', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ source }),
+      });
+      const result = await res.json();
+      if (result.imported) {
+        await get().loadSkills();
+      }
+      return result;
+    },
+  };
+};

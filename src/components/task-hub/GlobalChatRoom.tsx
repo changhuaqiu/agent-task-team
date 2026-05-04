@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useRef, useEffect, useMemo } from 'react';
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import { useIMEGuard } from '@/hooks/useIMEGuard';
 import { useShallow } from 'zustand/react/shallow';
 import { useTaskHubStore, AGENT_ROSTER, type ChatMessage, type PendingDispatch } from '@/store/taskHubStore';
 import { ChatMessageItem } from './ChatMessageItem';
@@ -33,6 +34,7 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
   const [inputValue, setInputValue] = useState('');
   const [filter, setFilter] = useState<ChatFilter>({ intent: null, agentId: null, userOnly: false, search: '' });
   const [mentionOpen, setMentionOpen] = useState(false);
+  const ime = useIMEGuard();
   const [mentionSelectedIndex, setMentionSelectedIndex] = useState(0);
   const [mentionFiltered, setMentionFiltered] = useState<typeof AGENT_ROSTER>([]);
   const [cursorPos, setCursorPos] = useState(0);
@@ -89,7 +91,7 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter' && !e.shiftKey && !ime.isComposing()) {
       e.preventDefault();
       handleSend();
     }
@@ -362,6 +364,7 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
               }
             }}
             onKeyDown={(e) => {
+              if (ime.isComposing()) return;
               if (mentionOpenRef.current && (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter' || e.key === 'Tab' || e.key === 'Escape')) {
                 e.preventDefault();
                 e.stopPropagation();
@@ -379,6 +382,8 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
               }
               handleKeyDown(e);
             }}
+            onCompositionStart={ime.onCompositionStart}
+            onCompositionEnd={ime.onCompositionEnd}
             placeholder="发送消息或 @智能体…"
             rows={1}
 

@@ -3,7 +3,7 @@
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
-import { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import { Copy, Check } from 'lucide-react';
 
 interface MarkdownContentProps {
@@ -62,16 +62,57 @@ function CodeBlockWithActions({ className, children, ...props }: React.Component
   );
 }
 
-function preprocessMentions(content: string): string {
-  return content.replace(
-    /(@\w+)/g,
-    '<span class="inline-block px-1 bg-[hsl(var(--accent-soft))] text-[hsl(var(--accent))] rounded-[2px] font-bold mx-0.5">$1</span>'
-  );
+function renderTextWithMentions(text: string): React.ReactNode[] {
+  const parts = text.split(/(@\w+)/g);
+  return parts.map((part, i) => {
+    if (part.startsWith('@')) {
+      return (
+        <span
+          key={i}
+          className="inline-block px-1 bg-[hsl(var(--accent-soft))] text-[hsl(var(--accent))] rounded-[2px] font-bold mx-0.5"
+        >
+          {part}
+        </span>
+      );
+    }
+    return <React.Fragment key={i}>{part}</React.Fragment>;
+  });
+}
+
+function MentionParagraph({ children, ...props }: React.ComponentProps<'p'> & { children?: React.ReactNode }) {
+  const processed = React.Children.map(children, (child) => {
+    if (typeof child === 'string') {
+      return <>{renderTextWithMentions(child)}</>;
+    }
+    return child;
+  });
+
+  return <p {...props}>{processed}</p>;
+}
+
+function MentionListItem({ children, ...props }: React.ComponentProps<'li'> & { children?: React.ReactNode }) {
+  const processed = React.Children.map(children, (child) => {
+    if (typeof child === 'string') {
+      return <>{renderTextWithMentions(child)}</>;
+    }
+    return child;
+  });
+
+  return <li {...props}>{processed}</li>;
+}
+
+function MentionTableCell({ children, ...props }: React.ComponentProps<'td'> & { children?: React.ReactNode }) {
+  const processed = React.Children.map(children, (child) => {
+    if (typeof child === 'string') {
+      return <>{renderTextWithMentions(child)}</>;
+    }
+    return child;
+  });
+
+  return <td {...props}>{processed}</td>;
 }
 
 export function MarkdownContent({ content }: MarkdownContentProps) {
-  const preprocessed = useMemo(() => preprocessMentions(content), [content]);
-
   return (
     <div className="markdown-body prose prose-sm prose-invert max-w-none text-[12px] leading-relaxed [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1 [&_li]:my-0.5 [&_h1]:text-[14px] [&_h1]:mt-2 [&_h1]:mb-1 [&_h2]:text-[13px] [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-[12px] [&_h3]:mt-1.5 [&_h3]:mb-0.5 [&_blockquote]:my-1 [&_pre]:bg-[#1A1625] [&_pre]:rounded-[4px] [&_table]:text-[11px]">
       <ReactMarkdown
@@ -79,6 +120,9 @@ export function MarkdownContent({ content }: MarkdownContentProps) {
         rehypePlugins={[rehypeHighlight]}
         components={{
           code: CodeBlock as any,
+          p: MentionParagraph,
+          li: MentionListItem,
+          td: MentionTableCell as any,
           a: ({ href, children }) => (
             <a href={href} target="_blank" rel="noopener noreferrer" className="text-[hsl(var(--accent))] underline hover:brightness-125">
               {children}
@@ -86,7 +130,7 @@ export function MarkdownContent({ content }: MarkdownContentProps) {
           ),
         }}
       >
-        {preprocessed}
+        {content}
       </ReactMarkdown>
     </div>
   );

@@ -76,6 +76,50 @@ describe('parseTasksMd', () => {
     expect(tasks).toHaveLength(1);
     expect(tasks[0].id).toBe('TASK-001');
   });
+
+  it('parses dot-separated IDs (1.1, 1.2, 2.1)', () => {
+    const md = `# 任务看板
+
+| ID | Title | Phase | Role | Agent | Status | Depends | Deliverable |
+|----|-------|-------|------|-------|--------|---------|-------------|
+| 1.1 | Setup project | phase-1 | planner | mario | done | - | project init |
+| 1.2 | Design UI | phase-1 | frontend | peach | doing | - | Figma mockup |
+| 2.1 | Build API | phase-2 | backend | luigi | todo | - | REST endpoints |
+`;
+
+    const tasks = parseTasksMd(md);
+    expect(tasks).toHaveLength(3);
+    expect(tasks[0]).toEqual({
+      id: '1.1',
+      title: 'Setup project',
+      phase: 'phase-1',
+      role: 'planner',
+      agent: 'mario',
+      status: 'done',
+      depends: [],
+      deliverable: 'project init',
+    });
+    expect(tasks[1]).toEqual({
+      id: '1.2',
+      title: 'Design UI',
+      phase: 'phase-1',
+      role: 'frontend',
+      agent: 'peach',
+      status: 'in_progress',
+      depends: [],
+      deliverable: 'Figma mockup',
+    });
+    expect(tasks[2]).toEqual({
+      id: '2.1',
+      title: 'Build API',
+      phase: 'phase-2',
+      role: 'backend',
+      agent: 'luigi',
+      status: 'pending',
+      depends: [],
+      deliverable: 'REST endpoints',
+    });
+  });
 });
 
 describe('formatTasksMd', () => {

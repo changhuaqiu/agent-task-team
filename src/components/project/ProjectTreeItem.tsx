@@ -44,18 +44,18 @@ export function ProjectTreeItem({
           <StatusDot health={health} />
           <span
             className={cn(
-              'text-[var(--text-sm)] text-[hsl(var(--text-primary))] truncate min-w-0',
+              'text-[12px] text-[hsl(var(--text-primary))] truncate min-w-0',
               isSelected && 'font-medium'
             )}
           >
             {title}
           </span>
         </div>
-        <div className="mt-0.5 pl-[14px] text-[var(--text-xs)] text-[hsl(var(--text-tertiary))] truncate">
+        <div className="mt-0.5 pl-[14px] text-[11px] text-[hsl(var(--text-tertiary))] truncate">
           {goal}
         </div>
         {isSelected && taskCount > 0 && (
-          <div className="mt-1 pl-[14px] flex items-center gap-2 text-[var(--text-xs)] tabular-nums text-[hsl(var(--text-tertiary))]">
+          <div className="mt-1 pl-[14px] flex items-center gap-2 text-[10px] tabular-nums text-[hsl(var(--text-tertiary))]">
             <span>{taskCount} 任务</span>
             {blockerCount > 0 && (
               <span className="text-[hsl(var(--status-blocked))]">{blockerCount} 阻塞</span>
