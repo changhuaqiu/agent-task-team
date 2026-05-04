@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import { Maximize2, Minimize2 } from 'lucide-react';
 import {
   DndContext,
   DragOverlay,
@@ -61,12 +60,11 @@ function isTaskStatus(value: unknown): value is TaskStatus {
 
 interface MiniKanbanProps {
   expanded?: boolean;
-  onToggleExpand?: () => void;
 }
 
 // --- Component ---
 
-export function MiniKanban({ expanded, onToggleExpand }: MiniKanbanProps) {
+export function MiniKanban({ expanded }: MiniKanbanProps) {
   // Store hooks
   const selectedConversationId = useTaskHubStore((s) => s.selectedConversationId);
   const tasks = useTaskHubStore((s) => s.tasks);
@@ -192,25 +190,10 @@ export function MiniKanban({ expanded, onToggleExpand }: MiniKanbanProps) {
     <>
       <div className="rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--bg-card))] shadow-sm overflow-hidden">
         {/* Header */}
-        <div className="p-4 border-b border-[hsl(var(--border-subtle))] flex items-center justify-between">
-          <div>
-            <div className="text-xs font-medium tracking-widest uppercase text-[hsl(var(--text-tertiary))]">
-              看板
-            </div>
-            <div className="text-xs text-[hsl(var(--text-tertiary))] mt-1">
-              横向滚动查看各状态列，点卡片打开详情。
-            </div>
+        <div className="p-3 border-b border-[hsl(var(--border-subtle))] flex items-center justify-between">
+          <div className="text-xs font-medium tracking-wider uppercase text-[hsl(var(--text-tertiary))]">
+            看板
           </div>
-          {onToggleExpand && (
-            <button
-              type="button"
-              onClick={onToggleExpand}
-              className="p-1.5 rounded-md hover:bg-[hsl(var(--bg-muted))] transition-colors text-[hsl(var(--text-tertiary))]"
-              title={expanded ? '收起' : '展开'}
-            >
-              {expanded ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
-            </button>
-          )}
         </div>
 
         {/* Phase filter bar */}

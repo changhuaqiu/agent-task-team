@@ -75,24 +75,20 @@ describe('MiniKanban integration', () => {
     expect(screen.getByText('Write tests')).toBeDefined();
   });
 
-  it('shows expand button when callback provided', () => {
+  it('renders without expand button when no callback', () => {
     useTaskHubStore.setState({
       selectedConversationId: 'conv-1',
       tasks: [],
       phases: [],
     });
 
-    render(<MiniKanban expanded={false} onToggleExpand={() => {}} />);
-    const buttons = screen.getAllByRole('button');
-    const expandBtn = buttons.find((b) => b.querySelector('svg.lucide-maximize-2'));
-    expect(expandBtn).toBeDefined();
+    render(<MiniKanban expanded={false} />);
+    expect(screen.getByText('看板')).toBeDefined();
   });
 
-  it('shows minimize button when expanded', () => {
-    render(<MiniKanban expanded={true} onToggleExpand={() => {}} />);
-    const buttons = screen.getAllByRole('button');
-    const minimizeBtn = buttons.find((b) => b.querySelector('svg.lucide-minimize-2'));
-    expect(minimizeBtn).toBeDefined();
+  it('accepts expanded prop', () => {
+    render(<MiniKanban expanded={true} />);
+    expect(screen.getByText('看板')).toBeDefined();
   });
 
   it('renders column headers with correct labels', () => {
