@@ -1,6 +1,8 @@
+import type { CapabilityProfile } from './capabilityProfile';
+
 // --- RoleCard Type System ---
-// 7 dimensions: Identity, Responsibility, Work Style, Action Boundaries,
-// Capability Binding, Output & Quality, Persona
+// 8 dimensions: Identity, Responsibility, Work Style, Action Boundaries,
+// Capability Binding, Output & Quality, Persona, Capability Profile
 
 export type RoleCardCategory =
   | 'planner'
@@ -60,6 +62,9 @@ export interface RoleCard {
   outputFormat: OutputFormat;
   requiresEvidence: boolean;
   riskGrading: RiskGrading;
+
+  // Dimension 8: Capability Profile
+  capabilities?: CapabilityProfile;
 
   // Dimension 7: Persona
   persona?: {
