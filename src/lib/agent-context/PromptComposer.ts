@@ -17,6 +17,7 @@ export interface ComposeOptions {
   messages?: ChatMessage[];
   task?: { id: string; title: string; description?: string; phase?: { title: string } };
   rawPrompt: string;
+  currentLoad?: Record<string, number>;
 }
 
 export function composeSystemPrompt(opts: ComposeOptions): string | undefined {
@@ -24,7 +25,7 @@ export function composeSystemPrompt(opts: ComposeOptions): string | undefined {
   return [
     buildRoleLayer(opts.agent, opts.roleCard),
     buildProjectLayer(opts.project),
-    buildTeamLayer(opts.agent.id, opts.allRoleCards),
+    buildTeamLayer(opts.agent.id, opts.allRoleCards, opts.currentLoad),
   ]
     .filter(Boolean)
     .join('\n\n');
