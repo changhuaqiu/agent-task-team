@@ -18,41 +18,41 @@ describe('WorkdirManager', () => {
   const mgr = () => new WorkdirManager(tmpRoot);
 
   describe('resolveWorkdir', () => {
-    it('creates task workdir structure on first use', () => {
-      const wd = mgr().resolveWorkdir('mario', 'proj-1', 'TASK-001');
+    it('creates task workdir structure on first use', async () => {
+      const wd = await mgr().resolveWorkdir('mario', 'proj-1', 'TASK-001');
       expect(wd).toContain('proj-1');
       expect(wd).toContain('mario');
       expect(wd).toContain('TASK-001');
       expect(fs.existsSync(wd)).toBe(true);
     });
 
-    it('reuses existing workdir for same task', () => {
+    it('reuses existing workdir for same task', async () => {
       const m = mgr();
-      const first = m.resolveWorkdir('mario', 'proj-1', 'TASK-001');
-      const second = m.resolveWorkdir('mario', 'proj-1', 'TASK-001');
+      const first = await m.resolveWorkdir('mario', 'proj-1', 'TASK-001');
+      const second = await m.resolveWorkdir('mario', 'proj-1', 'TASK-001');
       expect(first).toBe(second);
     });
 
-    it('creates separate workdirs for different tasks', () => {
+    it('creates separate workdirs for different tasks', async () => {
       const m = mgr();
-      const wd1 = m.resolveWorkdir('mario', 'proj-1', 'TASK-001');
-      const wd2 = m.resolveWorkdir('mario', 'proj-1', 'TASK-002');
+      const wd1 = await m.resolveWorkdir('mario', 'proj-1', 'TASK-001');
+      const wd2 = await m.resolveWorkdir('mario', 'proj-1', 'TASK-002');
       expect(wd1).not.toBe(wd2);
     });
 
-    it('shares base directory across tasks for same agent+project', () => {
+    it('shares base directory across tasks for same agent+project', async () => {
       const m = mgr();
-      m.resolveWorkdir('mario', 'proj-1', 'TASK-001');
-      m.resolveWorkdir('mario', 'proj-1', 'TASK-002');
+      await m.resolveWorkdir('mario', 'proj-1', 'TASK-001');
+      await m.resolveWorkdir('mario', 'proj-1', 'TASK-002');
       const basePath = path.join(tmpRoot, 'proj-1', 'mario', 'base');
       expect(fs.existsSync(basePath)).toBe(true);
     });
   });
 
   describe('writeSessionMeta / readSessionMeta', () => {
-    it('writes and reads session metadata', () => {
+    it('writes and reads session metadata', async () => {
       const m = mgr();
-      m.resolveWorkdir('mario', 'proj-1', 'TASK-001');
+      await m.resolveWorkdir('mario', 'proj-1', 'TASK-001');
       m.writeSessionMeta('mario', 'proj-1', 'TASK-001', { sessionId: 'sess-abc' });
       const meta = m.readSessionMeta('mario', 'proj-1', 'TASK-001');
       expect(meta?.sessionId).toBe('sess-abc');
@@ -65,9 +65,9 @@ describe('WorkdirManager', () => {
   });
 
   describe('gc', () => {
-    it('removes task dirs with expired gc_meta', () => {
+    it('removes task dirs with expired gc_meta', async () => {
       const m = mgr();
-      const wd = m.resolveWorkdir('mario', 'proj-1', 'TASK-001');
+      const wd = await m.resolveWorkdir('mario', 'proj-1', 'TASK-001');
       const gcPath = path.join(path.dirname(wd), '.gc_meta.json');
       fs.writeFileSync(gcPath, JSON.stringify({
         taskId: 'TASK-001',
@@ -77,9 +77,9 @@ describe('WorkdirManager', () => {
       expect(fs.existsSync(wd)).toBe(false);
     });
 
-    it('keeps task dirs within TTL', () => {
+    it('keeps task dirs within TTL', async () => {
       const m = mgr();
-      const wd = m.resolveWorkdir('mario', 'proj-1', 'TASK-001');
+      const wd = await m.resolveWorkdir('mario', 'proj-1', 'TASK-001');
       const gcPath = path.join(path.dirname(wd), '.gc_meta.json');
       fs.writeFileSync(gcPath, JSON.stringify({
         taskId: 'TASK-001',
@@ -89,9 +89,9 @@ describe('WorkdirManager', () => {
       expect(fs.existsSync(wd)).toBe(true);
     });
 
-    it('keeps active dirs without gc_meta', () => {
+    it('keeps active dirs without gc_meta', async () => {
       const m = mgr();
-      const wd = m.resolveWorkdir('mario', 'proj-1', 'TASK-001');
+      const wd = await m.resolveWorkdir('mario', 'proj-1', 'TASK-001');
       m.gc(24 * 3600 * 1000);
       expect(fs.existsSync(wd)).toBe(true);
     });

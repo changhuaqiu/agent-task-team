@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { WorktreeManager } from './worktree-manager';
 
 export interface SessionMeta {
   sessionId: string;
@@ -13,21 +14,50 @@ export interface GCMeta {
 
 export class WorkdirManager {
   private root: string;
+  private worktreeManager: WorktreeManager;
   private activeDirs: Set<string> = new Set();
 
-  constructor(root: string) {
+  constructor(root: string, repoRoot?: string) {
     this.root = root;
     fs.mkdirSync(root, { recursive: true });
+    this.worktreeManager = new WorktreeManager(repoRoot || root);
   }
 
-  resolveWorkdir(agentId: string, projectId: string, taskId: string): string {
-    const baseDir = path.join(this.root, projectId, agentId, 'base');
+  async resolveProjectWorkdir(projectSlug: string): Promise<string> {
+    const worktreePath = this.worktreeManager.getWorktreePath(projectSlug);
+
+    if (!await this.worktreeManager.exists(projectSlug)) {
+      await this.worktreeManager.createWorktree(projectSlug);
+    }
+
+    return worktreePath;
+  }
+
+  getWorktreeManager(): WorktreeManager {
+    return this.worktreeManager;
+  }
+
+  async resolveWorkdir(
+    agentId: string,
+    projectId: string,
+    taskId: string,
+    options?: { useWorktree?: boolean; projectSlug?: string },
+  ): Promise<string> {
+    let baseDir: string;
+
+    if (options?.useWorktree && options?.projectSlug) {
+      const worktreePath = await this.resolveProjectWorkdir(options.projectSlug);
+      baseDir = path.join(worktreePath, '.agent-workspaces', agentId, 'base');
+    } else {
+      baseDir = path.join(this.root, projectId, agentId, 'base');
+    }
+
     fs.mkdirSync(baseDir, { recursive: true });
 
-    const taskDir = path.join(this.root, projectId, agentId, `task-${taskId}`, 'workdir');
+    const taskDir = path.join(path.dirname(baseDir), `task-${taskId}`, 'workdir');
     fs.mkdirSync(taskDir, { recursive: true });
 
-    this.activeDirs.add(path.join(this.root, projectId, agentId, `task-${taskId}`));
+    this.activeDirs.add(path.dirname(taskDir));
     return taskDir;
   }
 
