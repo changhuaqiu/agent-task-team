@@ -378,6 +378,42 @@ export default function registerDaemon(io: IOServer) {
         });
       };
 
+      // --- Tool interception helpers for skill-defined tools ---
+      const NATIVE_TOOLS = new Set([
+        'Read', 'Write', 'Edit', 'Bash', 'Agent', 'Glob', 'Grep',
+        'TodoRead', 'TodoWrite', 'WebSearch', 'WebFetch',
+        'NotebookEdit', 'TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet',
+        'AskUserQuestion', 'EnterPlanMode', 'ExitPlanMode',
+        'CronCreate', 'CronDelete', 'CronList',
+        'Skill', 'ScheduleWakeup',
+      ]);
+
+      function isNativeTool(name: string): boolean {
+        return NATIVE_TOOLS.has(name) || name.startsWith('mcp__');
+      }
+
+      function handleCustomToolUse(
+        agentId: string,
+        projectId: string | undefined,
+        tool: { name: string; callId?: string; input?: string },
+      ): void {
+        try {
+          const input = tool.input ? JSON.parse(tool.input) : {};
+          fetch('http://localhost:3000/api/mutations', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              type: 'tool.invoke',
+              payload: { toolName: tool.name, agentId, projectId, input },
+            }),
+          }).catch((err) => {
+            console.error(`[daemon] tool invocation failed for ${tool.name}:`, err);
+          });
+        } catch {
+          console.error(`[daemon] failed to parse tool input for ${tool.name}`);
+        }
+      }
+
       // --- Shared agent event forwarder ---
       const forwardAgentEvent = (event: AgentEvent) => {
         try {
@@ -394,6 +430,11 @@ export default function registerDaemon(io: IOServer) {
           if (taskId && projectId) {
             workdirManager.writeSessionMeta(agentId, projectId, taskId, { sessionId: event.sessionId!, updatedAt: '' });
           }
+        }
+
+        // Intercept tool_use events for skill-defined tools
+        if (event.type === 'tool_use' && event.tool?.name && !isNativeTool(event.tool.name)) {
+          handleCustomToolUse(agentId, projectId, event.tool);
         }
 
         // Forward to client

@@ -16,7 +16,8 @@ type MutationType =
   | 'invocation.create'
   | 'invocation.updateStatus'
   | 'dispatch.enqueue'
-  | 'event.append';
+  | 'event.append'
+  | 'tool.invoke';
 
 interface MutationRequest {
   type: MutationType;
@@ -148,6 +149,36 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         const { eventRepo } = await import('@/server/repositories/event-repo');
         const id = eventRepo.append(payload as any);
         result = { id };
+        break;
+      }
+      case 'tool.invoke': {
+        const { taskRepo } = await import('@/server/repositories/task-repo');
+        const { toolName, agentId: toolAgentId, projectId: toolProjectId, input } = payload as any;
+        const conversationId = (payload as any).conversationId || toolProjectId || 'default';
+
+        if (toolName === 'task_list') {
+          const tasks = taskRepo.list();
+          res.json({ ok: true, result: tasks });
+        } else if (toolName === 'task_create') {
+          const taskCount = taskRepo.list().length;
+          const id = `TASK-${String(taskCount + 1).padStart(3, '0')}`;
+          const task = taskRepo.create({
+            id,
+            conversation_id: conversationId,
+            title: input.title,
+            description: input.description || '',
+            agent_id: input.agent_id || toolAgentId,
+          });
+          res.json({ ok: true, result: task });
+        } else if (toolName === 'task_update_status') {
+          taskRepo.updateStatus(input.task_id, input.status);
+          res.json({ ok: true });
+        } else if (toolName === 'task_assign') {
+          taskRepo.update(input.task_id, { agent_id: input.agent_id });
+          res.json({ ok: true });
+        } else {
+          res.status(400).json({ error: `Unknown tool: ${toolName}` });
+        }
         break;
       }
       default:
