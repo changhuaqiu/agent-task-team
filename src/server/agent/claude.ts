@@ -59,6 +59,7 @@ export class ClaudeBackend implements AgentBackend {
   private createEventQueue(child: ChildProcess, startTime: number, done: (r: AgentResult) => void) {
     let output = '';
     let sessionId: string | undefined;
+    const accumulatedUsage = { inputTokens: 0, outputTokens: 0 };
     const queue: AgentEvent[] = [];
     let resolveNext: ((v: IteratorResult<AgentEvent>) => void) | null = null;
     let finished = false;
@@ -107,6 +108,11 @@ export class ClaudeBackend implements AgentBackend {
         const resultText = typeof obj.result === 'string' ? obj.result : undefined;
         if (resultText) output += resultText;
         if (typeof obj.session_id === 'string') sessionId = obj.session_id;
+        if (obj.usage) {
+          const usage = obj.usage as Record<string, unknown>;
+          accumulatedUsage.inputTokens += (typeof usage.input_tokens === 'number' ? usage.input_tokens : 0);
+          accumulatedUsage.outputTokens += (typeof usage.output_tokens === 'number' ? usage.output_tokens : 0);
+        }
         push({ type: 'done', content: resultText || '', sessionId });
       }
       // content_block_stop, system — ignored
@@ -120,6 +126,9 @@ export class ClaudeBackend implements AgentBackend {
         error: code !== 0 ? `Process exited with code ${code}` : undefined,
         durationMs: Date.now() - startTime,
         sessionId,
+        usage: accumulatedUsage.inputTokens > 0
+          ? { default: { inputTokens: accumulatedUsage.inputTokens, outputTokens: accumulatedUsage.outputTokens } }
+          : undefined,
       });
       if (resolveNext) {
         resolveNext({ value: undefined, done: true } as any);
