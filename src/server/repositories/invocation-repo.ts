@@ -15,6 +15,9 @@ export interface InvocationRow {
   reason_code: string | null;
   usage: string | null;
   error_message: string | null;
+  dispatch_status: string | null;
+  token_usage: string | null;
+  lease_expiry: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -113,5 +116,29 @@ export const invocationRepo = {
     return getDb()
       .prepare('SELECT * FROM invocation ORDER BY created_at DESC LIMIT ?')
       .all(limit) as InvocationRow[];
+  },
+
+  updateDispatchStatus(id: string, dispatchStatus: string, extra?: { tokenUsage?: string }): void {
+    const db = getDb();
+    const now = new Date().toISOString();
+    const sets: string[] = ['dispatch_status = ?', 'updated_at = ?'];
+    const values: (string | null)[] = [dispatchStatus, now];
+
+    if (extra?.tokenUsage !== undefined) {
+      sets.push('token_usage = ?');
+      values.push(extra.tokenUsage);
+    }
+
+    values.push(id);
+    db.prepare(`UPDATE invocation SET ${sets.join(', ')} WHERE id = ?`).run(...values);
+  },
+
+  findLatestCompletedForAgent(agentId: string): InvocationRow | undefined {
+    const db = getDb();
+    return db.prepare(`
+      SELECT * FROM invocation
+      WHERE agent_id = ? AND dispatch_status = 'completed'
+      ORDER BY created_at DESC LIMIT 1
+    `).get(agentId) as InvocationRow | undefined;
   },
 };
