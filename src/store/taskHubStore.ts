@@ -1364,6 +1364,8 @@ socket.on('a2a:dispatch', ({ agentId, prompt, referencedTaskId, fromAgentId, con
     agentId,
     prompt,
     referencedTaskId,
+    source: 'a2a',
+    fromAgentId,
   });
 });
 

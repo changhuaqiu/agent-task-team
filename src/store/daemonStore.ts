@@ -139,10 +139,10 @@ export const createDaemonSlice = (set: any, get: () => any) => {
         },
       })),
 
-    dispatchToAgent: ({ agentId, prompt, referencedTaskId }: { agentId: string; prompt: string; referencedTaskId?: string }) => {
+    dispatchToAgent: ({ agentId, prompt, referencedTaskId, source, fromAgentId }: { agentId: string; prompt: string; referencedTaskId?: string; source?: 'user' | 'a2a'; fromAgentId?: string }) => {
       if (get().agentStatus[agentId] === 'busy') {
         console.log(`[dispatch] ${agentId} busy, enqueuing`);
-        get().enqueueDispatch(agentId, { prompt, referencedTaskId });
+        get().enqueueDispatch(agentId, { prompt, referencedTaskId, source, fromAgentId });
         return;
       }
       const projectId = get().selectedProjectId;
@@ -294,7 +294,10 @@ export const createDaemonSlice = (set: any, get: () => any) => {
       }
       set({ pendingDispatches: nextPending });
       const conversationId = get().selectedConversationId;
-      if (conversationId) {
+      // A2A dispatches don't create a synthetic human message —
+      // the A2A context is already in the prompt. Only user dispatches
+      // need a visible chat entry.
+      if (conversationId && next.source !== 'a2a') {
         set((state: any) => ({
           chatMessagesByConversation: {
             ...state.chatMessagesByConversation,
