@@ -1,11 +1,41 @@
 'use client';
 
 import { useState, useMemo } from 'react';
+import { Maximize2, Minimize2 } from 'lucide-react';
+import {
+  DndContext,
+  DragOverlay,
+  closestCorners,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragStartEvent,
+  type DragEndEvent,
+  type DragOverEvent,
+} from '@dnd-kit/core';
 import { cn } from '@/lib/utils';
-import { STATUS_LABELS, STATUS_ORDER, type Task, type TaskStatus, useTaskHubStore } from '@/store/taskHubStore';
-import { StatusBadge } from '@/components/task-hub/StatusBadge';
+import {
+  STATUS_ORDER,
+  type Task,
+  type TaskStatus,
+  useTaskHubStore,
+} from '@/store/taskHubStore';
+import { KanbanColumn } from './KanbanColumn';
+import { KanbanCard } from './KanbanCard';
+import { KanbanContextMenu } from './KanbanContextMenu';
 
-const MINI_STATUS_ORDER: TaskStatus[] = STATUS_ORDER;
+// --- Valid status transitions ---
+
+const VALID_TRANSITIONS: Record<TaskStatus, TaskStatus[]> = {
+  pending: ['in_progress', 'blocked'],
+  in_progress: ['in_review', 'blocked'],
+  in_review: ['done', 'blocked'],
+  done: [],
+  rejected: ['pending', 'in_progress'],
+  blocked: ['pending', 'in_progress'],
+};
+
+// --- Helpers ---
 
 function groupByStatus(tasks: Task[]): Record<TaskStatus, Task[]> {
   const map: Record<TaskStatus, Task[]> = {
@@ -20,19 +50,60 @@ function groupByStatus(tasks: Task[]): Record<TaskStatus, Task[]> {
   return map;
 }
 
-export function MiniKanban() {
+function isTaskStatus(value: unknown): value is TaskStatus {
+  return (
+    typeof value === 'string' &&
+    ['pending', 'in_progress', 'in_review', 'done', 'rejected', 'blocked'].includes(value)
+  );
+}
+
+// --- Props ---
+
+interface MiniKanbanProps {
+  expanded?: boolean;
+  onToggleExpand?: () => void;
+}
+
+// --- Component ---
+
+export function MiniKanban({ expanded, onToggleExpand }: MiniKanbanProps) {
+  // Store hooks
   const selectedConversationId = useTaskHubStore((s) => s.selectedConversationId);
   const tasks = useTaskHubStore((s) => s.tasks);
   const setSelectedTaskId = useTaskHubStore((s) => s.setSelectedTaskId);
+  const updateTaskStatus = useTaskHubStore((s) => s.updateTaskStatus);
+  const updateTask = useTaskHubStore((s) => s.updateTask);
+  const phases = useTaskHubStore((s) => s.phases);
 
+  // Drag state
+  const [activeTask, setActiveTask] = useState<Task | null>(null);
+  const [dragOverStatus, setDragOverStatus] = useState<TaskStatus | null>(null);
+  const [dragSourceStatus, setDragSourceStatus] = useState<TaskStatus | null>(null);
+
+  // Context menu state
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    task: Task;
+  } | null>(null);
+
+  // Phase filter
+  const [activePhase, setActivePhase] = useState<string | null>(null);
+
+  // Sensors
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 5 },
+    }),
+  );
+
+  // Derived: scoped tasks (filtered by selected conversation)
   const scoped = useMemo(() => {
     if (!selectedConversationId) return [];
     return tasks.filter((t) => t.conversationId === selectedConversationId);
   }, [selectedConversationId, tasks]);
 
-  const phases = useTaskHubStore((s) => s.phases);
-  const [activePhase, setActivePhase] = useState<string | null>(null);
-
+  // Derived: scoped phases
   const scopedPhases = useMemo(() => {
     if (!selectedConversationId) return [];
     return phases
@@ -40,120 +111,199 @@ export function MiniKanban() {
       .sort((a, b) => a.order - b.order);
   }, [selectedConversationId, phases]);
 
+  // Derived: phase-filtered tasks
   const phaseFiltered = useMemo(() => {
     if (!activePhase) return scoped;
     return scoped.filter((t) => t.phaseId === activePhase);
   }, [scoped, activePhase]);
 
+  // Derived: grouped by status
   const grouped = useMemo(() => groupByStatus(phaseFiltered), [phaseFiltered]);
 
+  // --- DnD handlers ---
+
+  function handleDragStart(event: DragStartEvent) {
+    const task = event.active.data.current?.task as Task | undefined;
+    if (task) {
+      setActiveTask(task);
+      setDragSourceStatus(task.status);
+    }
+  }
+
+  function handleDragOver(event: DragOverEvent) {
+    const overId = event.over?.id;
+    if (isTaskStatus(overId)) {
+      setDragOverStatus(overId);
+    }
+  }
+
+  function handleDragEnd(event: DragEndEvent) {
+    const overId = event.over?.id;
+    if (activeTask && isTaskStatus(overId)) {
+      const targetStatus = overId as TaskStatus;
+      const allowed = VALID_TRANSITIONS[activeTask.status] ?? [];
+      if (allowed.includes(targetStatus)) {
+        updateTaskStatus(activeTask.id, targetStatus);
+      }
+    }
+    clearDragState();
+  }
+
+  function handleDragCancel() {
+    clearDragState();
+  }
+
+  function clearDragState() {
+    setActiveTask(null);
+    setDragOverStatus(null);
+    setDragSourceStatus(null);
+  }
+
+  // --- Card interaction handlers ---
+
+  function handleCardClick(taskId: string) {
+    setSelectedTaskId(taskId);
+  }
+
+  function handleCardContextMenu(e: React.MouseEvent, task: Task) {
+    e.preventDefault();
+    setContextMenu({ x: e.clientX, y: e.clientY, task });
+  }
+
+  // --- Context menu handlers ---
+
+  function handleContextStatusChange(taskId: string, status: TaskStatus) {
+    updateTaskStatus(taskId, status);
+  }
+
+  function handleContextAssign(taskId: string, agentId: string) {
+    updateTask(taskId, { agentId });
+  }
+
+  function handleContextEdit(taskId: string) {
+    setSelectedTaskId(taskId);
+  }
+
+  function handleContextViewDeps(taskId: string) {
+    setSelectedTaskId(taskId);
+  }
+
   return (
-    <div className="rounded-[var(--radius-lg)] border border-[hsl(var(--border))] bg-[hsl(var(--bg-card))] shadow-sm overflow-hidden">
-      <div className="p-4 border-b border-[hsl(var(--border-subtle))]">
-        <div className="text-[11px] font-bold tracking-widest uppercase text-[hsl(var(--text-tertiary))]">
-          看板
+    <>
+      <div className="rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--bg-card))] shadow-sm overflow-hidden">
+        {/* Header */}
+        <div className="p-4 border-b border-[hsl(var(--border-subtle))] flex items-center justify-between">
+          <div>
+            <div className="text-xs font-medium tracking-widest uppercase text-[hsl(var(--text-tertiary))]">
+              看板
+            </div>
+            <div className="text-xs text-[hsl(var(--text-tertiary))] mt-1">
+              横向滚动查看各状态列，点卡片打开详情。
+            </div>
+          </div>
+          {onToggleExpand && (
+            <button
+              type="button"
+              onClick={onToggleExpand}
+              className="p-1.5 rounded-md hover:bg-[hsl(var(--bg-muted))] transition-colors text-[hsl(var(--text-tertiary))]"
+              title={expanded ? '收起' : '展开'}
+            >
+              {expanded ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+            </button>
+          )}
         </div>
-        <div className="text-[12px] text-[hsl(var(--text-tertiary))] mt-1">
-          横向滚动查看各状态列，点卡片打开详情。
-        </div>
-      </div>
 
-      {scopedPhases.length > 0 && (
-        <div className="px-3 pb-2 flex gap-1.5 flex-wrap">
-          <button
-            type="button"
-            onClick={() => setActivePhase(null)}
-            className={cn(
-              'px-2 py-1 text-[10px] font-bold rounded-[2px] border-2 transition-all',
-              activePhase === null
-                ? 'bg-[hsl(var(--accent))] text-white border-[hsl(var(--accent))] shadow-[1px_1px_0px_hsl(var(--accent)/0.4)]'
-                : 'bg-[hsl(var(--bg-muted))] text-[hsl(var(--text-tertiary))] border-[hsl(var(--border))] hover:border-[hsl(var(--text-primary))]'
-            )}
-          >
-            全部 ({scoped.length})
-          </button>
-          {scopedPhases.map((phase) => {
-            const count = scoped.filter((t) => t.phaseId === phase.id).length;
-            return (
-              <button
-                key={phase.id}
-                type="button"
-                onClick={() => setActivePhase(phase.id)}
-                className={cn(
-                  'px-2 py-1 text-[10px] font-bold rounded-[2px] border-2 transition-all',
-                  activePhase === phase.id
-                    ? 'bg-[hsl(var(--accent))] text-white border-[hsl(var(--accent))] shadow-[1px_1px_0px_hsl(var(--accent)/0.4)]'
-                    : 'bg-[hsl(var(--bg-muted))] text-[hsl(var(--text-tertiary))] border-[hsl(var(--border))] hover:border-[hsl(var(--text-primary))]'
-                )}
-              >
-                {phase.title} ({count})
-              </button>
-            );
-          })}
-        </div>
-      )}
-      <div className="p-3 overflow-x-auto scrollbar-thin">
-        <div className="flex gap-3 w-max items-start">
-          {MINI_STATUS_ORDER.map((status) => {
-            const col = grouped[status] || [];
-            return (
-              <div
-                key={status}
-                className="w-[220px] shrink-0 rounded-[var(--radius-lg)] border border-[hsl(var(--border-subtle))] bg-[hsl(var(--bg-app))]"
-              >
-                <div className="p-3 border-b border-[hsl(var(--border-subtle))] flex items-center justify-between gap-2">
-                  <div className="text-[11px] font-bold text-[hsl(var(--text-secondary))]">
-                    {STATUS_LABELS[status]}
-                  </div>
-                  <div className="text-[11px] font-bold tabular-nums text-[hsl(var(--text-tertiary))]">
-                    {col.length}
-                  </div>
-                </div>
-
-                <div className="p-2 flex flex-col gap-2 max-h-[420px] overflow-y-auto scrollbar-thin">
-                  {col.length === 0 ? (
-                    <div className="text-[11px] text-[hsl(var(--text-tertiary))] font-semibold p-2">
-                      空
-                    </div>
-                  ) : (
-                    col
-                      .slice()
-                      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-                      .map((t) => (
-                        <button
-                          key={t.id}
-                          type="button"
-                          onClick={() => setSelectedTaskId(t.id)}
-                          className={cn(
-                            'text-left rounded-[var(--radius-md)] border px-3 py-2 transition-colors',
-                            'bg-[hsl(var(--bg-card))] hover:bg-[hsl(var(--bg-card-hover))]',
-                            'border-[hsl(var(--border))]'
-                          )}
-                        >
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="min-w-0">
-                              <div className="text-[10px] font-mono font-bold text-[hsl(var(--text-tertiary))] tracking-wider">
-                                {t.id}
-                              </div>
-                              <div className="text-[12px] font-semibold text-[hsl(var(--text-primary))] line-clamp-2 mt-0.5">
-                                {t.title}
-                              </div>
-                              <div className="text-[10px] text-[hsl(var(--text-tertiary))] mt-1">
-                                @{t.agentId}
-                              </div>
-                            </div>
-                            <StatusBadge status={t.status} />
-                          </div>
-                        </button>
-                      ))
+        {/* Phase filter bar */}
+        {scopedPhases.length > 0 && (
+          <div className="px-3 pb-2 flex gap-1.5 flex-wrap">
+            <button
+              type="button"
+              onClick={() => setActivePhase(null)}
+              className={cn(
+                'px-2 py-1 text-xs font-medium rounded-sm border transition-colors',
+                activePhase === null
+                  ? 'bg-[hsl(var(--accent))] text-white border-[hsl(var(--accent))]'
+                  : 'bg-[hsl(var(--bg-muted))] text-[hsl(var(--text-tertiary))] border-[hsl(var(--border))] hover:bg-[hsl(var(--bg-card-hover))]',
+              )}
+            >
+              全部 ({scoped.length})
+            </button>
+            {scopedPhases.map((phase) => {
+              const count = scoped.filter((t) => t.phaseId === phase.id).length;
+              return (
+                <button
+                  key={phase.id}
+                  type="button"
+                  onClick={() => setActivePhase(phase.id)}
+                  className={cn(
+                    'px-2 py-1 text-xs font-medium rounded-sm border transition-colors',
+                    activePhase === phase.id
+                      ? 'bg-[hsl(var(--accent))] text-white border-[hsl(var(--accent))]'
+                      : 'bg-[hsl(var(--bg-muted))] text-[hsl(var(--text-tertiary))] border-[hsl(var(--border))] hover:bg-[hsl(var(--bg-card-hover))]',
                   )}
+                >
+                  {phase.title} ({count})
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Kanban board with DnD */}
+        <div className="p-3 overflow-x-auto scrollbar-thin">
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCorners}
+            onDragStart={handleDragStart}
+            onDragOver={handleDragOver}
+            onDragEnd={handleDragEnd}
+            onDragCancel={handleDragCancel}
+          >
+            <div className="flex gap-3 w-max items-start">
+              {STATUS_ORDER.map((status) => {
+                const columnTasks = grouped[status] || [];
+                const isValidTarget =
+                  dragSourceStatus != null &&
+                  (VALID_TRANSITIONS[dragSourceStatus] ?? []).includes(status);
+
+                return (
+                  <KanbanColumn
+                    key={status}
+                    status={status}
+                    tasks={columnTasks}
+                    isDropTarget={dragOverStatus === status}
+                    isValidTarget={isValidTarget}
+                    onCardClick={handleCardClick}
+                    onCardContextMenu={handleCardContextMenu}
+                  />
+                );
+              })}
+            </div>
+
+            <DragOverlay>
+              {activeTask ? (
+                <div className="w-[220px]">
+                  <KanbanCard task={activeTask} />
                 </div>
-              </div>
-            );
-          })}
+              ) : null}
+            </DragOverlay>
+          </DndContext>
         </div>
       </div>
-    </div>
+
+      {/* Context menu rendered outside the DndContext */}
+      {contextMenu && (
+        <KanbanContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          task={contextMenu.task}
+          onStatusChange={handleContextStatusChange}
+          onAssign={handleContextAssign}
+          onEdit={handleContextEdit}
+          onViewDeps={handleContextViewDeps}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
+    </>
   );
 }
-
