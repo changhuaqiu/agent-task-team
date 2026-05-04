@@ -24,6 +24,7 @@
 | 层 | 函数 | 内容 | 注入时机 |
 |---|---|---|---|
 | RoleLayer | `buildRoleLayer(agent, roleCard)` | persona 全 5 维度 + 角色约束 | 仅首次唤醒 |
+| SkillLayer | `buildSkillLayer(skills)` | agent 绑定的 skill 指令 + 配套文件 | 仅首次唤醒 |
 | ProjectLayer | `buildProjectLayer(project)` | 项目名、路径、规范文件 | 仅首次唤醒 |
 | TeamLayer | `buildTeamLayer(selfId, roleCards)` | 团队名册 + 协作规则 | 仅首次唤醒 |
 
@@ -43,12 +44,21 @@
 ## ComposeOptions 接口
 
 ```typescript
+interface SkillSummary {
+  id: string;
+  name: string;
+  description?: string;
+  content: string;
+  files?: { path: string; content: string }[];
+}
+
 interface ComposeOptions {
   agent: { id: string; name: string };
   roleCard: RoleCard;
   allRoleCards: RoleCard[];
   project: { name: string; path: string };
   isFirstWake: boolean;
+  skills?: SkillSummary[];
   messages?: ChatMessage[];
   task?: { id: string; title: string; description?: string; phase?: { title: string } };
   rawPrompt: string;
@@ -60,7 +70,7 @@ interface ComposeOptions {
 ```typescript
 function composeSystemPrompt(opts: ComposeOptions): string | undefined {
   if (!opts.isFirstWake) return undefined;
-  return [buildRoleLayer, buildProjectLayer, buildTeamLayer]
+  return [buildRoleLayer, buildSkillLayer, buildProjectLayer, buildTeamLayer]
     .map(fn => fn(opts))
     .filter(Boolean)
     .join('\n\n');
@@ -177,6 +187,7 @@ src/lib/agent-context/
   PromptComposer.ts           ← composeSystemPrompt + composeUserPrompt + ComposeOptions
   layers/
     roleLayer.ts              ← buildRoleLayer
+    skillLayer.ts             ← buildSkillLayer（skill 指令 + 配套文件）
     projectLayer.ts           ← buildProjectLayer
     teamLayer.ts              ← buildTeamLayer（含协作规则）
     historyLayer.ts           ← buildHistoryLayer

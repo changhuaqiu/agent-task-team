@@ -12,6 +12,8 @@
   - 聊天、任务详情、设置、终端、agent 相关组件
 - `src/components/role-card/`
   - 工程型角色卡展示、编辑、绑定相关组件
+- `src/components/skill/`
+  - Skill 能力模块：SkillLibrary（双栏浏览）、SkillDetail（详情）、SkillImportDialog（导入弹窗）
 - `src/store/`
   - Zustand 状态与前端编排
 - `src/lib/`
@@ -101,15 +103,29 @@
   - daemon / runtime / bridge 检查
   - 账号与执行配置入口
 
+### Skill 管理
+
+- [`SkillLibrary.tsx`](../../src/components/skill/SkillLibrary.tsx)
+  - 双栏布局：左侧 skill 列表 + 右侧 skill 详情
+  - 支持创建、导入、编辑、删除 skill
+- [`SkillDetail.tsx`](../../src/components/skill/SkillDetail.tsx)
+  - 展示 SKILL.md 内容与配套文件
+- [`SkillImportDialog.tsx`](../../src/components/skill/SkillImportDialog.tsx)
+  - URL 输入弹窗，支持 Git 仓库和单文件导入
+- Agent skill 标签集成在 `AgentBindingPanel` 中
+  - 每个 agent 卡片显示已绑定的 skill 标签，支持添加/移除
+
 ## 2.5 当前前端状态来源
 
 前端不是单纯本地状态页面，数据来源分为三层：
 
-- 初始真相源：`GET /api/state`
-- 运行时缓存：`taskHubStore`
+- 初始真相源：`GET /api/state`（含 skills）
+- 运行时缓存：`taskHubStore`（`skillsMap` 缓存所有 skill，`agentSkillIds` 缓存绑定关系）
 - 实时流：Socket.io daemon 事件
 
-因此前端组件的职责已从“直接持有全部业务状态”变为：
+Skill 加载流程：`loadFromServer()` → `loadSkills()` → `GET /api/skills` → 写入 `skillsMap`。Agent 绑定通过 `assignSkillsToAgent()` 调用 `/api/agents/{id}/skills` 更新。
+
+因此前端组件的职责已从”直接持有全部业务状态”变为：
 
 - 渲染状态
 - 调用 store action

@@ -20,6 +20,9 @@
 - Agent Backend 工厂：[`src/server/agent/factory.ts`](../../src/server/agent/factory.ts)
 - 数据库层：[`src/server/db`](../../src/server/db)
 - Repository 层：[`src/server/repositories`](../../src/server/repositories)
+- Skill 仓库：[`src/server/repositories/skill-repo.ts`](../../src/server/repositories/skill-repo.ts)
+- Skill Layer（PromptComposer）：[`src/lib/agent-context/layers/skillLayer.ts`](../../src/lib/agent-context/layers/skillLayer.ts)
+- Skill API 路由：[`src/pages/api/skills/`](../../src/pages/api/skills/)
 
 ## 1.2 运行时拓扑
 
@@ -48,7 +51,8 @@ SQLite 作为默认数据源，数据库文件位于项目工作目录下的 `.a
    - recentMessages
    - activeSessions
    - recentInvocations
-3. store 将后端真相源映射为前端运行态，然后再调用 `connectDaemon()`
+   - skills（可复用能力模块）
+3. store 将后端真相源映射为前端运行态，其中 skills 被缓存到 `skillsMap`；然后再调用 `connectDaemon()`
 
 ### B) 用户操作与持久化
 
@@ -107,6 +111,9 @@ SQLite 作为默认数据源，数据库文件位于项目工作目录下的 `.a
 - `Blocker`：风险与阻塞项
 - `Account`：账号与执行认证入口
 - `RoleCard`：工程型角色卡
+- `Skill`：可复用能力模块（SKILL.md + 配套文件），与 RoleCard 正交
+- `SkillFile`：Skill 的配套文件（模板、清单、参考文档）
+- `AgentSkill`：Agent 与 Skill 的多对多关联
 - `AgentSession`：conversation 级或任务级执行会话
 - `Invocation`：每次实际执行记录
 
@@ -141,6 +148,20 @@ SQLite 作为默认数据源，数据库文件位于项目工作目录下的 `.a
 
 详见 [`docs/technical/execution/opencode-integration-executable-chain.md`](../technical/execution/opencode-integration-executable-chain.md)。
 
+### E) Skill System（能力模块系统）
+
+在 RoleCard（身份）之外新增 Skill（能力）维度。Skill 是可复用的指令模块，通过 SKILL.md + 配套文件定义，可从外部 Git 仓库导入。
+
+核心设计：
+
+- **正交于 RoleCard**：一个 Agent 有一个 Role（身份）和 N 个 Skill（能力）
+- **SQLite 存储**：`skill`、`skill_file`、`agent_skill` 三张表（migration v2）
+- **PromptComposer 集成**：`SkillLayer`（Layer 2）在 RoleLayer 之后注入 skill 指令到 systemPrompt
+- **Store 缓存**：`skillsMap` 缓存所有 skill，`agentSkillIds` 缓存 agent-skill 绑定关系
+- **API 路由**：`/api/skills`（CRUD）、`/api/skills/import`（Git 导入）、`/api/agents/{id}/skills`（绑定管理）
+- **UI**：SkillLibrary（双栏浏览）、SkillImportDialog（导入弹窗）、AgentBindingPanel 中的 skill 标签
+- **预设 Skill**：code-review、tdd、debugging、brainstorm 四个内置 skill
+
 ### D) 账号绑定与多运行时参数通路
 
 系统正在从“单一 opencode”演进到“账号绑定 + 多 CLI 执行”的模型。
@@ -159,6 +180,7 @@ SQLite 作为默认数据源，数据库文件位于项目工作目录下的 `.a
   - SQLite repo 与 API rehydrate
   - Agent Backend 抽象
   - 基础账号模型与执行绑定
+  - Skill System（能力模块）：CRUD、导入、agent 绑定、PromptComposer SkillLayer、UI
 - 部分完成：
   - 统一集成配置中心
   - 多 runtime 的完整信息架构

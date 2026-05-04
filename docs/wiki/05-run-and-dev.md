@@ -95,6 +95,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\opencode-bridge-start.ps1 -Po
 - 页面首次加载会调用 `/api/state`
 - mutation 会写入 SQLite
 - session / invocation / event 也会持续写入数据库
+- 首次初始化时（migration v2），4 个预设 skill（code-review、tdd、debugging、brainstorm）会被自动种子到数据库
 
 如果你遇到“页面状态和预期不一致”，优先排查：
 
@@ -129,3 +130,5 @@ pnpm build
 - 终端无输出：检查 daemon 是否连接成功、账号是否可用、执行链路是否选择到正确 engine
 - Bridge 不可用：确认公网 URL 可访问，且 `GET {url}/health` 返回 200
 - 某个 agent 一直 busy：检查是否存在旧 invocation 未结束，或 daemon 超时后未正确回收
+- Skill 导入失败：确认 Git 仓库 URL 可访问且包含 `skills/{name}/SKILL.md` 目录结构；检查目标仓库是否有 `..` 或绝对路径等非法路径
+- Skill 未注入 systemPrompt：确认 agent 已通过 `/api/agents/{id}/skills` 绑定 skill，且首次唤醒时 `isFirstWake` 为 true
