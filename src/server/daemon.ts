@@ -19,6 +19,7 @@ import { eventRepo } from './repositories/event-repo';
 import { generateSortableId } from './repositories/sortable-id';
 import { createBackend } from './agent/factory';
 import type { AgentEvent } from './agent/types';
+import { WorkdirManager } from './workdir-manager';
 
 type TerminalStartPayload = {
   projectId?: string;
@@ -97,6 +98,10 @@ export default function registerDaemon(io: IOServer) {
   const activeProcesses = new Map<string, { kill: () => void }>();
   const processKey = (agentId: string, projectId?: string) => `${agentId}@${projectId || 'default'}`;
   const broadcast = (event: string, data: any) => io.emit(event, data);
+
+  const workspacesRoot = process.env.ATH_WORKSPACES_ROOT || join(process.cwd(), '.ath', 'workspaces');
+  const workdirManager = new WorkdirManager(workspacesRoot);
+  workdirManager.gc(24 * 3600 * 1000);
 
   const tmuxEnabled = process.env.ATH_TMUX_ENABLED === '1';
   let tmuxGateway: TmuxGateway | undefined;
@@ -386,6 +391,9 @@ export default function registerDaemon(io: IOServer) {
           if (invocation) {
             invocationRepo.updateStatus(invocation.id, 'running', { cli_session_id: event.sessionId });
           }
+          if (taskId && projectId) {
+            workdirManager.writeSessionMeta(agentId, projectId, taskId, { sessionId: event.sessionId!, updatedAt: '' });
+          }
         }
 
         // Forward to client
@@ -584,8 +592,11 @@ export default function registerDaemon(io: IOServer) {
       const command = ENGINE_COMMAND[engine] || 'opencode';
       const backend = createBackend(engine, { executablePath: command });
 
+      const wd = workdirManager.resolveWorkdir(agentId, projectId || 'default', taskId || `adhoc-${Date.now()}`);
+      const sessionMeta = taskId ? workdirManager.readSessionMeta(agentId, projectId || 'default', taskId) : null;
+
       const { events, result, kill } = backend.execute(prompt || '', {
-        cwd: process.cwd(),
+        cwd: wd,
         systemPrompt: systemPrompt || undefined,
         resumeSessionId: effectiveSessionId || undefined,
         timeout: timeoutMs > 0 ? timeoutMs : undefined,
@@ -605,7 +616,7 @@ export default function registerDaemon(io: IOServer) {
           }
 
           // Wait for final result
-          const final = await result;
+          let final = await result;
           clearProcessTimeout();
           clearInterval(heartbeatTimer);
 
@@ -614,6 +625,31 @@ export default function registerDaemon(io: IOServer) {
             invocationRepo.updateDispatchStatus(invocation.id, 'completed', {
               tokenUsage: JSON.stringify(final.usage),
             });
+          }
+
+          // Write GC meta for workdir cleanup
+          if (taskId && projectId) {
+            workdirManager.writeGCMeta(agentId, projectId, taskId);
+          }
+
+          // If we tried to resume but got no session, retry with fresh session
+          if (final.status === 'failed' && effectiveSessionId && !final.sessionId) {
+            console.log(`[daemon] session resume failed for ${agentId}, retrying with fresh session`);
+            const retryRun = backend.execute(prompt || '', {
+              cwd: wd,
+              systemPrompt: systemPrompt || undefined,
+              resumeSessionId: undefined,
+              timeout: timeoutMs > 0 ? timeoutMs : undefined,
+              env: {
+                ...credentialEnv,
+                ...(runtimeConfigEnv || {}),
+              },
+            });
+
+            for await (const retryEvent of retryRun.events) {
+              forwardAgentEvent(retryEvent);
+            }
+            final = await retryRun.result;
           }
 
           if (invocation) {
