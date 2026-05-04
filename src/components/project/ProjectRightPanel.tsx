@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useTaskHubStore, type Task } from '@/store/taskHubStore';
 import { MiniKanban } from './MiniKanban';
 import { cn } from '@/lib/utils';
@@ -31,6 +31,7 @@ export function ProjectRightPanel() {
   const tasks = useTaskHubStore((s) => s.tasks);
   const blockers = useTaskHubStore((s) => s.getOpenBlockersForSelectedConversation());
   const setSelectedTaskId = useTaskHubStore((s) => s.setSelectedTaskId);
+  const [kanbanExpanded, setKanbanExpanded] = useState(false);
 
   const scoped = useMemo(() => {
     if (!selectedConversationId) return [];
@@ -41,9 +42,12 @@ export function ProjectRightPanel() {
   const openBlockers = useMemo(() => blockers.filter((b) => b.status === 'open'), [blockers]);
 
   return (
-    <aside className="w-[320px] shrink-0 h-full border-l border-[hsl(var(--border))] bg-[hsl(var(--bg-app))] flex flex-col">
+    <aside className={cn(
+      'shrink-0 h-full border-l border-[hsl(var(--border))] bg-[hsl(var(--bg-app))] flex flex-col transition-all duration-200',
+      kanbanExpanded ? 'w-[600px]' : 'w-[320px]'
+    )}>
       <div className="flex-1 overflow-y-auto scrollbar-thin p-4 flex flex-col gap-4">
-        <MiniKanban />
+        <MiniKanban expanded={kanbanExpanded} onToggleExpand={() => setKanbanExpanded((v) => !v)} />
 
         <div className="rounded-[var(--radius-lg)] border border-[hsl(var(--border))] bg-[hsl(var(--bg-card))] shadow-sm">
           <div className="p-4 border-b border-[hsl(var(--border-subtle))]">

@@ -86,6 +86,11 @@ export function KanbanCard({ task, theme, onClick, onContextMenu }: KanbanCardPr
       )}
 
       {/* Title */}
+      <div className="flex items-start justify-between gap-1">
+        <span className="text-xs font-mono font-medium text-[hsl(var(--text-tertiary))] tracking-wider">
+          {task.id}
+        </span>
+      </div>
       <h4 className="line-clamp-2 text-sm font-medium leading-snug text-[hsl(var(--text-primary))]">
         {task.title}
       </h4>

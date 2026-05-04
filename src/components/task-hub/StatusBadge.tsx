@@ -70,10 +70,10 @@ export function StatusBadge({
   return (
     <span
       className={cn(
-        'inline-flex items-center gap-1.5 border font-bold tracking-wider uppercase whitespace-nowrap rounded-[4px]',
+        'inline-flex items-center gap-1.5 border font-medium tracking-wider uppercase whitespace-nowrap rounded-sm',
         config.badgeClass,
-        size === 'sm' && 'px-2 py-0.5 text-[9px]',
-        size === 'md' && 'px-2.5 py-1 text-[10px]'
+        size === 'sm' && 'px-2 py-0.5 text-xs',
+        size === 'md' && 'px-2.5 py-1 text-xs'
       )}
     >
       {showIcon ? (
