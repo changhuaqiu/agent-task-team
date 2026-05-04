@@ -11,8 +11,8 @@
 **Spec:** `docs/superpowers/specs/2026-05-04-intelligent-dispatch-design.md`
 
 **Phases:**
-- Phase 1 (Tasks 1–7): Core intelligence — capability types, matching engine, prompt enhancements, integration
-- Phase 2 (Tasks 8–10): Configurable roles — DB persistence, dynamic mention parsing
+- Phase 1 (Tasks 1–8): Core intelligence — capability types, matching engine, prompt enhancements, project status layer, integration
+- Phase 2 (Tasks 9–11): Configurable roles — DB persistence, dynamic mention parsing
 
 ---
 
@@ -27,6 +27,8 @@
 | Create | `src/lib/dispatchAdvisor/matcher.test.ts` | Tests for matching algorithm |
 | Create | `src/lib/dispatchAdvisor/index.ts` | DispatchAdvisor facade |
 | Create | `src/lib/dispatchAdvisor/index.test.ts` | Tests for facade |
+| Create | `src/lib/agent-context/layers/projectStatusLayer.ts` | Project task board layer |
+| Create | `src/lib/agent-context/layers/projectStatusLayer.test.ts` | Tests for project status layer |
 | Modify | `src/lib/agent-context/layers/teamLayer.ts:19` | Enhanced team roster output |
 | Modify | `src/lib/agent-context/layers/roleLayer.ts:9` | Mario planner dispatch prompt |
 | Modify | `src/store/taskHubStore.ts:1265` | Wire advisor into confirmBreakdown |
@@ -888,6 +890,196 @@ Expected: No errors
 ```bash
 git add src/store/taskHubStore.ts
 git commit -m "feat: wire DispatchAdvisor into confirmBreakdown flow"
+```
+
+---
+
+### Task 7.5: ProjectStatusLayer — Project Task Board
+
+**Files:**
+- Create: `src/lib/agent-context/layers/projectStatusLayer.ts`
+- Create: `src/lib/agent-context/layers/projectStatusLayer.test.ts`
+- Modify: `src/lib/agent-context/PromptComposer.ts`
+
+- [ ] **Step 1: Write failing tests**
+
+```typescript
+// src/lib/agent-context/layers/projectStatusLayer.test.ts
+import { describe, it, expect } from 'vitest';
+import { buildProjectStatusLayer } from './projectStatusLayer';
+
+describe('buildProjectStatusLayer', () => {
+  const agents = [
+    { id: 'mario', name: 'Mario', emoji: '⭐' },
+    { id: 'luigi', name: 'Luigi', emoji: '⚡' },
+    { id: 'toad', name: 'Toad', emoji: '🛡️' },
+  ];
+
+  const tasks = [
+    { id: 'TASK-001', title: '设计架构', agentId: 'mario', status: 'done' as const },
+    { id: 'TASK-002', title: '实现登录页', agentId: 'luigi', status: 'in_progress' as const },
+    { id: 'TASK-003', title: '实现用户API', agentId: 'toad', status: 'in_progress' as const },
+    { id: 'TASK-004', title: '实现注册页', agentId: 'luigi', status: 'pending' as const },
+    { id: 'TASK-005', title: '数据库迁移', agentId: 'toad', status: 'pending' as const },
+    { id: 'TASK-006', title: '单元测试', agentId: '', status: 'pending' as const },
+  ];
+
+  it('renders project task board with summary', () => {
+    const result = buildProjectStatusLayer(agents, tasks);
+    expect(result).toContain('项目任务看板');
+    expect(result).toContain('6 个任务');
+    expect(result).toContain('1 完成');
+    expect(result).toContain('2 进行中');
+    expect(result).toContain('3 待处理');
+  });
+
+  it('groups tasks by agent', () => {
+    const result = buildProjectStatusLayer(agents, tasks);
+    expect(result).toContain('Mario');
+    expect(result).toContain('Luigi');
+    expect(result).toContain('TASK-002');
+  });
+
+  it('shows unassigned tasks', () => {
+    const result = buildProjectStatusLayer(agents, tasks);
+    expect(result).toContain('TASK-006');
+  });
+
+  it('returns empty string when no tasks', () => {
+    const result = buildProjectStatusLayer(agents, []);
+    expect(result).toBe('');
+  });
+});
+```
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run: `npx vitest run src/lib/agent-context/layers/projectStatusLayer.test.ts`
+Expected: FAIL — module not found
+
+- [ ] **Step 3: Implement the layer**
+
+```typescript
+// src/lib/agent-context/layers/projectStatusLayer.ts
+
+interface AgentInfo {
+  id: string;
+  name: string;
+  emoji: string;
+}
+
+interface TaskInfo {
+  id: string;
+  title: string;
+  agentId: string;
+  status: 'pending' | 'in_progress' | 'done';
+}
+
+const STATUS_LABELS: Record<string, string> = {
+  done: '✓',
+  in_progress: '进行中',
+  pending: '待处理',
+};
+
+export function buildProjectStatusLayer(
+  agents: AgentInfo[],
+  tasks: TaskInfo[],
+): string {
+  if (tasks.length === 0) return '';
+
+  const total = tasks.length;
+  const done = tasks.filter((t) => t.status === 'done').length;
+  const inProgress = tasks.filter((t) => t.status === 'in_progress').length;
+  const pending = tasks.filter((t) => t.status === 'pending').length;
+
+  // Group tasks by agent
+  const byAgent = new Map<string, TaskInfo[]>();
+  const unassigned: TaskInfo[] = [];
+
+  for (const task of tasks) {
+    if (!task.agentId) {
+      unassigned.push(task);
+    } else {
+      const list = byAgent.get(task.agentId) ?? [];
+      list.push(task);
+      byAgent.set(task.agentId, list);
+    }
+  }
+
+  const lines: string[] = [
+    `## 项目任务看板`,
+    '',
+    `总进度：${total} 个任务 | ${done} 完成 | ${inProgress} 进行中 | ${pending} 待处理`,
+    '',
+  ];
+
+  // Agent sections — in roster order
+  for (const agent of agents) {
+    const agentTasks = byAgent.get(agent.id);
+    if (!agentTasks || agentTasks.length === 0) {
+      lines.push(`${agent.emoji} ${agent.name}: 无任务`);
+    } else {
+      const taskLines = agentTasks
+        .map((t) => `${t.id} ${STATUS_LABELS[t.status]} ${t.title}`)
+        .join(', ');
+      lines.push(`${agent.emoji} ${agent.name}: ${taskLines}`);
+    }
+  }
+
+  // Unassigned section
+  if (unassigned.length > 0) {
+    const unassignedLines = unassigned
+      .map((t) => `${t.id} ${STATUS_LABELS[t.status]} ${t.title}`)
+      .join(', ');
+    lines.push(`未分配: ${unassignedLines}`);
+  }
+
+  return lines.join('\n');
+}
+```
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+Run: `npx vitest run src/lib/agent-context/layers/projectStatusLayer.test.ts`
+Expected: All tests PASS
+
+- [ ] **Step 5: Wire into PromptComposer**
+
+In `src/lib/agent-context/PromptComposer.ts`:
+
+Add import:
+```typescript
+import { buildProjectStatusLayer } from './layers/projectStatusLayer';
+```
+
+Add `tasks` field to `ComposeOptions` interface:
+```typescript
+  tasks?: { id: string; title: string; agentId: string; status: string }[];
+```
+
+Add `buildProjectStatusLayer` call in `composeSystemPrompt`, after `buildTeamLayer`:
+```typescript
+const projectStatus = opts.tasks
+  ? buildProjectStatusLayer(
+      AGENT_ROSTER.map((a) => ({ id: a.id, name: a.name, emoji: a.emoji })),
+      opts.tasks as Parameters<typeof buildProjectStatusLayer>[1],
+    )
+  : '';
+
+const parts = [roleLayer, projectLayer, teamLayer, projectStatus].filter(Boolean);
+return parts.join('\n\n');
+```
+
+- [ ] **Step 6: Verify existing tests still pass**
+
+Run: `npx vitest run src/__tests__/agent-context/promptComposer.test.ts`
+Expected: All tests PASS (projectStatus only renders when tasks are provided)
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add src/lib/agent-context/layers/projectStatusLayer.ts src/lib/agent-context/layers/projectStatusLayer.test.ts src/lib/agent-context/PromptComposer.ts src/__tests__/agent-context/promptComposer.test.ts
+git commit -m "feat: add ProjectStatusLayer with per-agent task board"
 ```
 
 ---
