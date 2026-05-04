@@ -135,7 +135,7 @@ dispatchToAgent(agentId, taskId, projectId):
 | Condition | Action | TTL |
 |-----------|--------|-----|
 | Task completed/failed | Clean entire task directory | 24h |
-| Task completed, still-open issue | Clean regenerable artifacts only (node_modules, .next, .turbo) | 12h |
+| Task completed, project still active with pending tasks | Clean regenerable artifacts only (node_modules, .next, .turbo) | 12h |
 | Orphan directory (no .gc_meta.json) | Clean entire directory | 72h |
 | Agent removed from project | Clean base/ + all task dirs | immediate |
 
