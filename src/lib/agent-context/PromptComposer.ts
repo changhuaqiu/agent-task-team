@@ -7,6 +7,13 @@ import { buildHistoryLayer } from './layers/historyLayer';
 import { buildTaskContextLayer } from './layers/taskContextLayer';
 import { buildUserMessageLayer } from './layers/userMessageLayer';
 import { buildBehaviorLayer } from './layers/behaviorLayer';
+import { buildSkillLayer } from './layers/skillLayer';
+
+export interface SkillSummary {
+  name: string;
+  content: string;
+  files?: { path: string; content: string }[];
+}
 
 export interface ComposeOptions {
   agent: { id: string; name: string };
@@ -17,12 +24,14 @@ export interface ComposeOptions {
   messages?: ChatMessage[];
   task?: { id: string; title: string; description?: string; phase?: { title: string } };
   rawPrompt: string;
+  skills?: SkillSummary[];
 }
 
 export function composeSystemPrompt(opts: ComposeOptions): string | undefined {
   if (!opts.isFirstWake) return undefined;
   return [
     buildRoleLayer(opts.agent, opts.roleCard),
+    buildSkillLayer(opts.skills ?? []),
     buildProjectLayer(opts.project),
     buildTeamLayer(opts.agent.id, opts.allRoleCards),
   ]
