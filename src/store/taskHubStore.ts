@@ -10,6 +10,7 @@ import type { CliEngine, DetectedRuntime } from '@/server/types';
 import { PRESET_ROLE_CARDS, PRESET_ROLE_CARD_MAP } from '@/data/presetRoleCards';
 import { composeSystemPrompt, composeUserPrompt } from '@/lib/agent-context/PromptComposer';
 import type { ComposeOptions } from '@/lib/agent-context/PromptComposer';
+import { DispatchAdvisor } from '@/lib/dispatchAdvisor';
 
 export type { CliEngine, DetectedRuntime };
 
@@ -1263,9 +1264,32 @@ export const useTaskHubStore = create<TaskHubState>()(
       },
 
       confirmBreakdown: (conversationId, proposals) => {
+        // Build AgentProfile list from AGENT_ROSTER + RoleCards
+        const allRoleCards = get().roleCards;
+        const agentProfiles = AGENT_ROSTER.map((agent) => {
+          const rc = allRoleCards.find((c) => c.id === agent.roleCardId);
+          return {
+            id: agent.id,
+            forbiddenActions: rc?.forbiddenActions ?? [],
+            capabilities: rc?.capabilities,
+          };
+        });
+
+        // Count current load per agent
+        const currentTasks = get().tasks;
+        const currentLoad: Record<string, number> = {};
+        for (const t of currentTasks) {
+          if (t.status === 'in_progress' || t.status === 'pending') {
+            currentLoad[t.agentId] = (currentLoad[t.agentId] ?? 0) + 1;
+          }
+        }
+
+        const advisor = new DispatchAdvisor(agentProfiles);
+        const enriched = advisor.suggest(proposals, currentLoad);
+
         let taskSeq = get().tasks.length;
-        for (let pi = 0; pi < proposals.length; pi++) {
-          const prop = proposals[pi];
+        for (let pi = 0; pi < enriched.length; pi++) {
+          const prop = enriched[pi];
           const phaseId = get().upsertPhase({
             conversationId,
             title: prop.title,
@@ -1296,12 +1320,16 @@ export const useTaskHubStore = create<TaskHubState>()(
         }
         get().setBreakdownStatus(conversationId, 'confirmed');
 
-        // System feedback message
-        const totalTasks = proposals.reduce((sum, p) => sum + p.tasks.length, 0);
-        const totalPhases = proposals.length;
-        const phaseSummary = proposals.map((p, i) =>
-          `阶段 ${i + 1}: ${p.tasks.length} 任务 ${i === 0 ? '✓ 已派发' : '⏳ 等待前置阶段'}`
-        ).join('\n');
+        // System feedback message with per-agent assignment details
+        const totalTasks = enriched.reduce((sum, p) => sum + p.tasks.length, 0);
+        const totalPhases = enriched.length;
+        const phaseSummary = enriched.map((p, i) => {
+          const taskLines = p.tasks.map((t) => {
+            const agentName = t.agentId ? `→ @${t.agentId}` : '→ 未分配';
+            return `  - ${t.title} ${agentName}`;
+          }).join('\n');
+          return `阶段 ${i + 1}:\n${taskLines}`;
+        }).join('\n\n');
 
         const systemMsg = {
           id: `msg-${Date.now()}-sys`,
