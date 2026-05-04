@@ -14,8 +14,22 @@ export interface RoutingDecision {
   hasExplicitMention: boolean;
 }
 
-/** Known agent IDs from the roster (must match AGENT_ROSTER in store) */
-const AGENT_IDS = ['mario', 'luigi', 'toad', 'peach', 'dk', 'yoshi'] as const;
+/** Default agent IDs — always present */
+const DEFAULT_AGENT_IDS = ['mario', 'luigi', 'toad', 'peach', 'dk', 'yoshi'];
+
+/** Dynamic agent ID registry (starts with defaults) */
+let agentIdRegistry: string[] = [...DEFAULT_AGENT_IDS];
+
+/** Register additional agent IDs (for custom roles) */
+export function registerAgentIds(ids: string[]): void {
+  const combined = new Set([...DEFAULT_AGENT_IDS, ...ids]);
+  agentIdRegistry = [...combined];
+}
+
+/** Get current agent IDs (for testing) */
+export function getAgentIds(): string[] {
+  return [...agentIdRegistry];
+}
 
 /** Group mention keywords that resolve to all agents */
 const GROUP_KEYWORDS = ['all', '全体', 'team', 'team全体'];
@@ -33,7 +47,7 @@ const GROUP_KEYWORDS = ['all', '全体', 'team', 'team全体'];
  */
 export function parseMentions(
   message: string,
-  participants: string[] = [...AGENT_IDS],
+  participants: string[] = [...agentIdRegistry],
 ): RoutingDecision {
   // Strip fenced code blocks before parsing (prevents false matches in code)
   const stripped = message.replace(/```[\s\S]*?```/g, '');
@@ -63,7 +77,7 @@ export function parseMentions(
 
   // Resolve individual mentions to agentIds.
   // Sort agent IDs by length descending to prevent prefix collisions (zhongli before zhong)
-  const sortedAgentIds = [...AGENT_IDS].sort((a, b) => b.length - a.length);
+  const sortedAgentIds = [...agentIdRegistry].sort((a, b) => b.length - a.length);
 
   const resolved: string[] = [];
   const seen = new Set<string>();
