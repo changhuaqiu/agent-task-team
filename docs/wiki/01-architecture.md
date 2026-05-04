@@ -106,7 +106,7 @@ SQLite 作为默认数据源，数据库文件位于项目工作目录下的 `.a
 - `ChatMessage`：对话消息，支持 streaming/tool/progress/artifact preview
 - `Blocker`：风险与阻塞项
 - `Account`：账号与执行认证入口
-- `RoleCard`：工程型角色卡
+- `RoleCard`：工程型角色卡，现含第 8 维度 `CapabilityProfile`（domains、skills、seniority、maxConcurrentTasks），持久化于 `role_cards` SQLite 表
 - `AgentSession`：conversation 级或任务级执行会话
 - `Invocation`：每次实际执行记录
 
@@ -143,7 +143,7 @@ SQLite 作为默认数据源，数据库文件位于项目工作目录下的 `.a
 
 ### D) 账号绑定与多运行时参数通路
 
-系统正在从“单一 opencode”演进到“账号绑定 + 多 CLI 执行”的模型。
+系统正在从”单一 opencode”演进到”账号绑定 + 多 CLI 执行”的模型。
 
 当前事实是：
 
@@ -151,6 +151,27 @@ SQLite 作为默认数据源，数据库文件位于项目工作目录下的 `.a
 - 角色卡与账号绑定已落地
 - 多运行时参数通路已部分落地
 - 独立配置中心与完整 runtime center 尚未完成
+
+### E) PromptComposer 系统提示层
+
+系统提示由 PromptComposer 分层构建，当前共 4 层：
+
+1. **RoleLayer**：注入角色定义；当角色 category 为 `planner` 时，额外注入 planner 专属 dispatch 指令
+2. **ProjectLayer**：注入项目上下文
+3. **TeamLayer**：注入团队信息，现包含 capability domains、skills、seniority 与 load 信息
+4. **ProjectStatusLayer**（新增）：展示 per-agent 任务看板与整体项目进度
+
+### F) 智能任务分发
+
+`confirmBreakdown` 流程现接入 `DispatchAdvisor`，基于 capability profile 进行程序化匹配：
+
+1. Mario 分解任务
+2. DispatchAdvisor 根据域关键词匹配 + 技能匹配 + 负载感知 + 禁止动作检查，建议 agentId
+3. 任务以建议的 agentId 创建
+
+### G) mention-parser 动态注册
+
+`mention-parser.ts` 现支持通过 `registerAgentIds()` 动态注册 agent ID，允许自定义角色在运行时加入路由，无需代码变更。
 
 ## 1.8 当前状态判断
 
