@@ -308,6 +308,8 @@ export const createDaemonSlice = (set: any, get: () => any) => {
                 timestamp: new Date().toISOString(),
                 mentions: [agentId],
                 intent: 'general' as const,
+                source: next.source,
+                fromAgentId: next.fromAgentId,
               },
             ],
           },

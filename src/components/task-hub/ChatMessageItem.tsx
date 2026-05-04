@@ -10,6 +10,8 @@ import { cn } from '@/lib/utils';
 import { parsePhaseBreakdown } from '@/lib/breakdownParser';
 import { Check, X, User, Lightbulb, Play, Eye } from 'lucide-react';
 import { MarkdownContent } from './MarkdownContent';
+import { TokenBadge } from './TokenSummary';
+import { TaskStatusCard } from './TaskStatusCard';
 
 interface ChatMessageItemProps {
   message: ChatMessage;
@@ -105,6 +107,21 @@ export function ChatMessageItem({ message }: ChatMessageItemProps) {
 
   const totalChecked = filteredProposals.reduce((sum, p) => sum + p.tasks.length, 0);
 
+  // Task status card rendering
+  if (message.intent === 'task_status') {
+    return (
+      <div className="py-1">
+        <TaskStatusCard
+          taskId={message.metadata?.taskId || ''}
+          agentId={message.agentId === 'system' ? (message.metadata?.agentId || '') : message.agentId}
+          title={message.metadata?.title || ''}
+          status={message.metadata?.status || ''}
+          timestamp={message.timestamp}
+        />
+      </div>
+    );
+  }
+
   return (
     <div
       className={cn(
@@ -151,6 +168,13 @@ export function ChatMessageItem({ message }: ChatMessageItemProps) {
           )}
         </div>
 
+        {/* A2A source label */}
+        {!isHuman && message.source === 'a2a' && message.fromAgentId && (
+          <span className="text-xs text-gray-400 mb-1 block">
+            [{message.fromAgentId} → {message.agentId}]
+          </span>
+        )}
+
         {/* Bubble */}
         <div
           className={cn(
@@ -191,6 +215,12 @@ export function ChatMessageItem({ message }: ChatMessageItemProps) {
               isStreaming={!!message.isStreaming}
               streamText={message.isStreaming ? message.content : undefined}
             />
+          )}
+
+          {!message.isStreaming && message.tokenUsage && hasToolEvents && (
+            <div className="mt-1.5">
+              <TokenBadge usage={message.tokenUsage} />
+            </div>
           )}
 
           {hasPhaseStructure && (
