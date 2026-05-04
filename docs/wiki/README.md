@@ -23,7 +23,10 @@
    - 右上角「设置」
    - 在 `模型账号` 分区添加并验证账号
    - 如需要，再为角色卡绑定账号
-5. 在中间作战指挥室推进任务：
+5. （可选）配置 Skill 能力模块：
+   - 在 Skill 库中浏览或导入 skill
+   - 在 Agent 配置面板中为 agent 绑定 skill
+6. 在中间作战指挥室推进任务：
    - 发起对话
    - 查看拆解状态
    - 打开任务详情执行 CLI
@@ -39,3 +42,7 @@
 - SQLite / Drizzle：[`src/server/db`](../../src/server/db)
 - Repo 层：[`src/server/repositories`](../../src/server/repositories)
 - 设置与账号入口：[`src/components/task-hub/SettingsDrawer.tsx`](../../src/components/task-hub/SettingsDrawer.tsx)
+- Skill 仓库：[`src/server/repositories/skill-repo.ts`](../../src/server/repositories/skill-repo.ts)
+- Skill Layer：[`src/lib/agent-context/layers/skillLayer.ts`](../../src/lib/agent-context/layers/skillLayer.ts)
+- Skill API 路由：[`src/pages/api/skills/`](../../src/pages/api/skills/)
+- Skill UI 组件：[`src/components/skill/`](../../src/components/skill/)

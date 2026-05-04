@@ -138,6 +138,9 @@ export interface Task {
 - 账号与角色：
   - `accounts`
   - `roleCards`
+- Skill 能力模块：
+  - `skillsMap: Record<string, SkillSummary>`
+  - `agentSkillIds: Record<string, string[]>`
 - UI 控制：
   - `selectedTaskId`
   - `isNewTaskDialogOpen`
@@ -166,6 +169,7 @@ export interface Task {
 
 - `loadFromServer()`
   - 从 `/api/state` 加载 conversations、tasks、messages、sessions、invocations
+  - 内部调用 `loadSkills()` 加载 skills 并缓存到 `skillsMap`
 - `connectDaemon()`
   - 初始化 daemon 并绑定 socket 事件
 
@@ -187,7 +191,19 @@ export interface Task {
 
 - `addChatMessage()`
 - `dispatchToAgent()`
+  - 当前通过 `composeSystemPrompt(opts)` 构建 systemPrompt，`ComposeOptions.skills` 从 `skillsMap` 解析
 - 流式消息处理相关方法
+
+### Skill 管理
+
+- `loadSkills()`
+  - 从 `/api/skills` 加载所有 skill 并写入 `skillsMap`
+- `getSkillsForAgent(agentId)`
+  - 从 `agentSkillIds[agentId]` 解析出该 agent 绑定的 skill 列表
+- `assignSkillsToAgent(agentId, skillIds)`
+  - 通过 `/api/agents/{agentId}/skills` 写入绑定关系并更新 `agentSkillIds`
+- `importSkills(source)`
+  - 通过 `/api/skills/import` 从 Git 仓库或 URL 导入 skill
 
 ### 执行环境
 

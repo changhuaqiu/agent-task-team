@@ -55,11 +55,29 @@ src/pages/api/state.ts
   └─ src/server/repositories/*
       └─ src/server/db/*
 
+src/pages/api/skills/*
+  ├─ src/server/repositories/skill-repo.ts
+  └─ src/server/db/*
+
+src/lib/agent-context/layers/skillLayer.ts
+  ├─ src/server/repositories/skill-repo.ts (via getSkillsForAgent)
+  └─ src/lib/agent-context/PromptComposer.ts
+
 src/server/daemon.ts
   ├─ src/server/agent/factory.ts
   ├─ src/server/repositories/*
   ├─ child_process / backend adapters
   └─ fetch('{bridge}/run')（Bridge 模式）
+
+src/lib/agent-context/PromptComposer.ts
+  ├─ src/lib/agent-context/layers/roleLayer.ts
+  ├─ src/lib/agent-context/layers/skillLayer.ts
+  ├─ src/lib/agent-context/layers/projectLayer.ts
+  ├─ src/lib/agent-context/layers/teamLayer.ts
+  ├─ src/lib/agent-context/layers/historyLayer.ts
+  ├─ src/lib/agent-context/layers/taskContextLayer.ts
+  ├─ src/lib/agent-context/layers/userMessageLayer.ts
+  └─ src/lib/agent-context/layers/behaviorLayer.ts
 ```
 
 ## 6.4 外部集成点（真正的“系统边界”）

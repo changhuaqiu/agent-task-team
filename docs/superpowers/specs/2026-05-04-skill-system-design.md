@@ -1,7 +1,7 @@
 # Skill System Design
 
 **Date**: 2026-05-04
-**Status**: Draft
+**Status**: Implemented
 **Related**: PromptComposer (2026-05-03), Role-Card System, Multica Skill Architecture
 
 ## Problem

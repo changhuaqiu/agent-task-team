@@ -21,6 +21,7 @@ flowchart TB
     Workspace["ProjectWorkspace"]
     Settings["SettingsDrawer"]
     TaskPanel["TaskDetailPanel"]
+    SkillLibrary["SkillLibrary"]
   end
 
   subgraph Store["Store / Orchestration"]
@@ -33,6 +34,7 @@ flowchart TB
     AccountsAPI["/api/accounts*"]
     SocketAPI["/api/socketio"]
     DaemonInit["/api/daemon/init"]
+    SkillAPI["/api/skills*"]
   end
 
   subgraph AppServer["Application Backend"]
@@ -70,9 +72,13 @@ flowchart TB
   TaskHubStore --> AccountsAPI
   TaskHubStore --> DaemonInit
   TaskHubStore --> SocketAPI
+  TaskHubStore --> SkillAPI
+
+  SkillLibrary --> TaskHubStore
 
   StateAPI --> Repos
   MutationAPI --> Repos
+  SkillAPI --> Repos
   AccountsAPI --> Accounts
   AccountsAPI --> Credentials
   Repos --> DB
@@ -113,12 +119,12 @@ sequenceDiagram
   User->>UI: 打开页面
   UI->>Store: loadFromServer()
   Store->>StateAPI: GET /api/state
-  StateAPI->>Repo: 读取 conversations/tasks/messages/sessions/invocations
+  StateAPI->>Repo: 读取 conversations/tasks/messages/sessions/invocations/skills
   Repo->>DB: 查询
   DB-->>Repo: 返回结果
   Repo-->>StateAPI: 聚合状态
   StateAPI-->>Store: JSON state
-  Store->>Store: rehydrate 前端运行态
+  Store->>Store: rehydrate 前端运行态（含 skillsMap、agentSkillIds）
   UI->>Store: connectDaemon()
   Store->>Socket: 建立 socket 连接
   Socket->>Daemon: 初始化 daemon 通道
@@ -145,7 +151,7 @@ sequenceDiagram
 
   User->>UI: 点击运行 / 派发任务
   UI->>Store: dispatchToAgent() / simulateCliExecution()
-  Store->>Store: 根据账号绑定推导 engine/accountId
+  Store->>Store: 根据账号绑定推导 engine/accountId，ComposeOptions.skills 注入 skill 指令
   Store->>Socket: emit terminal:start
   Socket->>Daemon: terminal:start
   Daemon->>Accounts: 读取账号与凭据
@@ -180,6 +186,9 @@ flowchart LR
     Sessions["agent_session"]
     Invocations["invocation"]
     Events["agent_event"]
+    Skills["skill"]
+    SkillFiles["skill_file"]
+    AgentSkills["agent_skill"]
   end
 
   subgraph DB["SQLite"]
@@ -197,6 +206,9 @@ flowchart LR
   Sessions --> DataDB
   Invocations --> DataDB
   Events --> DataDB
+  Skills --> DataDB
+  SkillFiles --> DataDB
+  AgentSkills --> DataDB
 ```
 
 ## 7.5 当前架构要点
@@ -208,3 +220,4 @@ flowchart LR
 - `gemini / mock` 仍不是独立 backend
 - Bridge 仍可用，但不是当前前台主配置入口
 - 账号与凭据当前走文件存储，不走 SQLite
+- **Skill System**：正交于 RoleCard 的能力模块层，通过 SkillLayer（Layer 2）注入 systemPrompt，支持 Git 导入与 agent 绑定
