@@ -259,6 +259,7 @@ export const createDaemonSlice = (set: any, get: () => any) => {
         ?? undefined;
       const entry: PendingDispatch = { ...payload, queuedAt: new Date().toISOString(), conversationId };
 
+      // 同 taskId 的排队指令合并追加，保留原 conversationId 不覆盖
       const existing = get().pendingDispatches[agentId];
       if (existing && existing.length > 0 && payload.referencedTaskId) {
         const match = existing.find((d: PendingDispatch) => d.referencedTaskId === payload.referencedTaskId);
@@ -304,7 +305,6 @@ export const createDaemonSlice = (set: any, get: () => any) => {
         ?? get().selectedConversationId;
       if (conversationId) {
         if (next.source === 'a2a') {
-          // A2A handoff: show a clean label, not the raw formatted prompt
           set((state: any) => ({
             chatMessagesByConversation: {
               ...state.chatMessagesByConversation,
@@ -313,11 +313,11 @@ export const createDaemonSlice = (set: any, get: () => any) => {
                 {
                   id: `msg-${Date.now()}`,
                   agentId: next.fromAgentId ?? 'system',
-                  content: `@${agentId}`,
+                  content: next.prompt,
                   referencedTaskId: next.referencedTaskId,
                   timestamp: new Date().toISOString(),
                   mentions: [agentId],
-                  intent: 'a2a_handoff' as const,
+                  intent: 'general' as const,
                   source: 'a2a',
                   fromAgentId: next.fromAgentId,
                 },
