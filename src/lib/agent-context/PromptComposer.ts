@@ -10,11 +10,43 @@ import { buildTaskContextLayer } from './layers/taskContextLayer';
 import { buildUserMessageLayer } from './layers/userMessageLayer';
 import { buildBehaviorLayer } from './layers/behaviorLayer';
 import { buildSkillLayer } from './layers/skillLayer';
+import { buildToolLayer } from './layers/toolLayer';
+
+export interface ParamDef {
+  name: string;
+  type: 'string' | 'number' | 'boolean';
+  required: boolean;
+  description: string;
+}
+
+export interface ToolDefinition {
+  name: string;
+  description: string;
+  parameters: ParamDef[];
+  handler: string;
+}
 
 export interface SkillSummary {
   name: string;
   content: string;
   files?: { path: string; content: string }[];
+  config?: string;
+}
+
+export function extractToolsFromSkills(skills: SkillSummary[]): ToolDefinition[] {
+  const tools: ToolDefinition[] = [];
+  for (const skill of skills) {
+    if (!skill.config) continue;
+    try {
+      const parsed = JSON.parse(skill.config);
+      if (Array.isArray(parsed.tools)) {
+        tools.push(...parsed.tools);
+      }
+    } catch {
+      // invalid config JSON — skip
+    }
+  }
+  return tools;
 }
 
 export interface ComposeOptions {
@@ -41,9 +73,12 @@ export function composeSystemPrompt(opts: ComposeOptions): string | undefined {
       )
     : '';
 
+  const tools = extractToolsFromSkills(opts.skills ?? []);
+
   return [
     buildRoleLayer(opts.agent, opts.roleCard),
     buildSkillLayer(opts.skills ?? []),
+    buildToolLayer(tools),
     buildProjectLayer(opts.project),
     buildTeamLayer(opts.agent.id, opts.allRoleCards, opts.currentLoad),
     projectStatus,
