@@ -31,12 +31,33 @@ function isValidUrl(url: string): boolean {
   }
 }
 
+const CLONE_TIMEOUT_MS = 30_000; // 30 seconds
+
+function classifyCloneError(err: Error): Error {
+  const msg = err.message.toLowerCase();
+  if (msg.includes('timed out') || msg.includes('timeout') || msg.includes('recv failure') || msg.includes('could not resolve')) {
+    return new Error('网络连接失败，无法访问该仓库。请检查网络连接或代理设置。');
+  }
+  if (msg.includes('not found') || msg.includes('404') || msg.includes('does not exist') || msg.includes("couldn't find remote ref")) {
+    return new Error('仓库不存在，请检查 URL 是否正确。');
+  }
+  if (msg.includes('authentication') || msg.includes('403') || msg.includes('permission denied') || msg.includes('could not read from remote')) {
+    return new Error('仓库需要认证或无访问权限。仅支持公开仓库。');
+  }
+  return new Error(`克隆仓库失败: ${err.message}`);
+}
+
 async function cloneRepo(repoUrl: string, targetDir: string): Promise<void> {
   return new Promise((resolve, reject) => {
-    execFile('git', ['clone', '--depth', '1', repoUrl, targetDir], (err) => {
-      if (err) reject(new Error(`git clone failed: ${err.message}`));
+    const child = execFile('git', ['clone', '--depth', '1', repoUrl, targetDir], (err) => {
+      if (err) reject(classifyCloneError(err));
       else resolve();
     });
+    // Kill the process if it takes too long
+    setTimeout(() => {
+      child.kill();
+      reject(new Error('克隆超时（30秒），请检查网络连接。'));
+    }, CLONE_TIMEOUT_MS);
   });
 }
 

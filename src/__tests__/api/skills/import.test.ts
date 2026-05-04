@@ -27,7 +27,6 @@ describe('POST /api/skills/import', () => {
     const res = mockRes();
     await handler(req, res);
     expect(res.statusCode).toBe(500);
-    expect(res._json.error).toContain('Import failed');
     expect(res._json.error).toContain('Invalid URL');
   });
 

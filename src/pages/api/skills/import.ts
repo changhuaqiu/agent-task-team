@@ -11,6 +11,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const result = await importFromUrl(source);
     return res.status(200).json(result);
   } catch (e: any) {
-    return res.status(500).json({ error: `Import failed: ${e.message}` });
+    return res.status(500).json({ error: e.message || '导入失败，请稍后重试。' });
   }
 }
