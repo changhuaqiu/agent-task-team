@@ -23,8 +23,15 @@ describe('scanMentions', () => {
     expect(result).toHaveLength(1);
   });
 
-  it('skips @mentions inline (not at line start)', () => {
-    const text = '我告诉 @luigi 去做这件事';
+  it('matches @mentions inline (not just line start)', () => {
+    const text = '这个任务交给 @luigi 处理';
+    const result = scanMentions(text, AGENTS, 'mario');
+    expect(result).toHaveLength(1);
+    expect(result[0].agentId).toBe('luigi');
+  });
+
+  it('does not match @mention mid-word', () => {
+    const text = 'email is foo@luigi.com';
     const result = scanMentions(text, AGENTS, 'mario');
     expect(result).toHaveLength(0);
   });

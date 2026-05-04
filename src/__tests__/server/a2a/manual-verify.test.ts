@@ -72,7 +72,20 @@ describe('A2A 完整链路验证', () => {
     expect(rows[0].chain_depth).toBe(1);
   });
 
-  it('场景2: 代码块中的 @mention 不触发', async () => {
+  it('场景2: 代码块外的 inline @mention 也触发', async () => {
+    const response = '这个前端任务交给 @luigi 处理，完成后告诉我';
+
+    await messenger.onAgentResponse('mario', response, {
+      conversationId: 'conv-1',
+      chainDepth: 0,
+    });
+
+    const [, payload] = io.lastEvent();
+    expect(payload.agentId).toBe('luigi');
+    expect(payload.fromAgentId).toBe('mario');
+  });
+
+  it('场景3: 代码块中的 @mention 不触发', async () => {
     const response = `
 看这段代码：
 \`\`\`typescript
@@ -90,7 +103,7 @@ const x = 1;
     expect(io.emitted()).toHaveLength(0);
   });
 
-  it('场景3: CJK 名字也能触发', async () => {
+  it('场景4: CJK 名字也能触发', async () => {
     const response = '设计完成了\n@路易吉 开始实现吧';
 
     await messenger.onAgentResponse('mario', response, {
@@ -102,7 +115,7 @@ const x = 1;
     expect(payload.agentId).toBe('luigi');
   });
 
-  it('场景4: 多个 @mention 最多触发 2 个', async () => {
+  it('场景5: 多个 @mention 最多触发 2 个', async () => {
     const response = `
 @luigi 做前端
 @toad 写测试
@@ -119,7 +132,7 @@ const x = 1;
     expect(dispatches.length).toBeLessThanOrEqual(2);
   });
 
-  it('场景5: ping-pong 防护 — 连续互 @ 4 次被阻止', async () => {
+  it('场景6: ping-pong 防护 — 连续互 @ 4 次被阻止', async () => {
     // 模拟 4 次短回复互 @（<200 chars，无 tool_use → non-substantive）
     for (let i = 0; i < 2; i++) {
       await messenger.onAgentResponse('mario', '@luigi ok', {
@@ -145,7 +158,7 @@ const x = 1;
     expect(blocked.length).toBeGreaterThan(0);
   });
 
-  it('场景6: 过期清理 — 30 分钟前的 pending 记录被清理', () => {
+  it('场景7: 过期清理 — 30 分钟前的 pending 记录被清理', () => {
     const old = new Date(Date.now() - 31 * 60 * 1000).toISOString();
     db.prepare(`
       INSERT INTO agent_mailbox (id, conversation_id, from_agent_id, to_agent_id,

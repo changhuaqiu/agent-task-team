@@ -22,29 +22,35 @@ export function scanMentions(
 
   const targets: MentionTarget[] = [];
   const seen = new Set<string>();
+  const consumedRanges: [number, number][] = []; // [start, end) of matched positions
 
-  for (const line of stripped.split('\n')) {
-    const trimmed = line.trimStart();
-    // Only match @mentions at line start (after optional markdown prefix)
-    const mdPrefix = trimmed.match(/^(?:[-*>]|\d+\.)\s*/);
-    const content = mdPrefix ? trimmed.slice(mdPrefix[0].length) : trimmed;
+  // Search entire text for @mentions (not just line start)
+  for (const { pattern, agentId } of patterns) {
+    if (agentId === selfAgentId) continue;
+    if (seen.has(agentId)) continue;
+    if (targets.length >= MAX_TARGETS) break;
 
-    for (const { pattern, agentId } of patterns) {
-      if (agentId === selfAgentId) continue;
-      if (seen.has(agentId)) continue;
-      if (targets.length >= MAX_TARGETS) break;
+    // Search for the pattern anywhere in the text (case-insensitive)
+    const idx = stripped.toLowerCase().indexOf(pattern.toLowerCase());
+    if (idx !== -1) {
+      // Skip if this position is already consumed by a longer match
+      const overlaps = consumedRanges.some(([start, end]) => idx >= start && idx < end);
+      if (overlaps) continue;
 
-      if (content.toLowerCase().startsWith(pattern.toLowerCase())) {
-        // Verify token boundary: next char is whitespace/punctuation/EOF
-        const nextChar = content[pattern.length];
-        if (nextChar === undefined || /[\s\p{P}]/u.test(nextChar)) {
-          seen.add(agentId);
-          targets.push({ agentId, position: line.indexOf(pattern) });
-          break; // one match per line
-        }
+      // Verify token boundary: char before @ is whitespace/start, char after is whitespace/punctuation/EOF
+      const prevChar = idx > 0 ? stripped[idx - 1] : undefined;
+      const afterEnd = idx + pattern.length;
+      const nextChar = stripped[afterEnd];
+
+      const validPrev = prevChar === undefined || /[\s\p{P}]/u.test(prevChar);
+      const validNext = nextChar === undefined || /[\s\p{P}]/u.test(nextChar);
+
+      if (validPrev && validNext) {
+        seen.add(agentId);
+        consumedRanges.push([idx, afterEnd]);
+        targets.push({ agentId, position: idx });
       }
     }
-    if (targets.length >= MAX_TARGETS) break;
   }
 
   return targets;
