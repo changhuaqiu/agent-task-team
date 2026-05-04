@@ -20,6 +20,7 @@ import { eventRepo } from './repositories/event-repo';
 import { generateSortableId } from './repositories/sortable-id';
 import { createBackend } from './agent/factory';
 import type { AgentEvent } from './agent/types';
+import { withDoneGuarantee } from './agent/with-done-guarantee';
 import { WorkdirManager } from './workdir-manager';
 import { AgentMessenger } from './a2a';
 import { getDb } from './db';
@@ -678,7 +679,7 @@ export default function registerDaemon(io: IOServer) {
       const athDir = join(projectDir, '.ath');
       const effectivePrompt = (prompt || '') + `\n\n[系统] 任务看板路径: ${athDir}/TASKS.md`;
 
-      const { events, result, kill } = backend.execute(effectivePrompt, {
+      const { events: rawEvents, result, kill } = backend.execute(effectivePrompt, {
         cwd: wd,
         systemPrompt: systemPrompt || undefined,
         resumeSessionId: effectiveSessionId || undefined,
@@ -688,6 +689,8 @@ export default function registerDaemon(io: IOServer) {
           ...(runtimeConfigEnv || {}),
         },
       });
+
+      const events = withDoneGuarantee(rawEvents, result);
 
       activeProcesses.set(processKey(agentId, projectId), { kill });
 
