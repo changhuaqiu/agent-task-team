@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createTestDb, setTestDb, resetDb } from '@/server/db/index';
+import { resetSeq } from '@/server/repositories/sortable-id';
+import { skillRepo } from '@/server/repositories/skill-repo';
 import type Database from 'better-sqlite3';
 
 let db: Database.Database;
@@ -11,6 +13,7 @@ beforeEach(() => {
 
 afterEach(() => {
   resetDb();
+  resetSeq();
 });
 
 describe('skill tables exist after migration', () => {
@@ -27,5 +30,220 @@ describe('skill tables exist after migration', () => {
   it('has agent_skill table', () => {
     const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='agent_skill'").all();
     expect(tables).toHaveLength(1);
+  });
+});
+
+describe('skillRepo', () => {
+  describe('create + getById', () => {
+    it('creates a skill and retrieves it', () => {
+      const created = skillRepo.create({
+        name: 'my-skill',
+        content: 'You are a helpful assistant.',
+      });
+
+      expect(created.id).toMatch(/^skill-/);
+      expect(created.name).toBe('my-skill');
+      expect(created.content).toBe('You are a helpful assistant.');
+      expect(created.description).toBeNull();
+      expect(created.config).toBeNull();
+      expect(created.is_preset).toBe(0);
+      expect(created.version).toBe(1);
+
+      const fetched = skillRepo.getById(created.id);
+      expect(fetched).toEqual(created);
+    });
+
+    it('creates a skill with optional fields', () => {
+      const created = skillRepo.create({
+        name: 'full-skill',
+        description: 'A full skill',
+        content: 'content',
+        config: '{"model":"gpt-4"}',
+        isPreset: true,
+      });
+
+      expect(created.description).toBe('A full skill');
+      expect(created.config).toBe('{"model":"gpt-4"}');
+      expect(created.is_preset).toBe(1);
+    });
+  });
+
+  describe('getByName', () => {
+    it('finds a skill by name', () => {
+      skillRepo.create({ name: 'find-me', content: 'x' });
+      const found = skillRepo.getByName('find-me');
+      expect(found).toBeDefined();
+      expect(found!.name).toBe('find-me');
+    });
+
+    it('returns undefined for unknown name', () => {
+      expect(skillRepo.getByName('nope')).toBeUndefined();
+    });
+  });
+
+  describe('list', () => {
+    it('returns all skills ordered by name', () => {
+      skillRepo.create({ name: 'bravo', content: 'b' });
+      skillRepo.create({ name: 'alpha', content: 'a' });
+
+      const list = skillRepo.list();
+      expect(list).toHaveLength(2);
+      expect(list[0].name).toBe('alpha');
+      expect(list[1].name).toBe('bravo');
+    });
+  });
+
+  describe('update', () => {
+    it('updates skill fields', () => {
+      const created = skillRepo.create({ name: 'original', content: 'v1' });
+
+      skillRepo.update(created.id, {
+        name: 'updated',
+        content: 'v2',
+        description: 'new desc',
+        config: '{"key":"val"}',
+      });
+
+      const fetched = skillRepo.getById(created.id)!;
+      expect(fetched.name).toBe('updated');
+      expect(fetched.content).toBe('v2');
+      expect(fetched.description).toBe('new desc');
+      expect(fetched.config).toBe('{"key":"val"}');
+      // updated_at is set to a new ISO string (may match if same millisecond)
+      expect(typeof fetched.updated_at).toBe('string');
+    });
+
+    it('updates only provided fields', () => {
+      const created = skillRepo.create({ name: 'patch', content: 'c' });
+
+      skillRepo.update(created.id, { description: 'added' });
+
+      const fetched = skillRepo.getById(created.id)!;
+      expect(fetched.name).toBe('patch');
+      expect(fetched.content).toBe('c');
+      expect(fetched.description).toBe('added');
+    });
+  });
+
+  describe('delete', () => {
+    it('deletes the skill', () => {
+      const created = skillRepo.create({ name: 'to-delete', content: 'x' });
+      skillRepo.delete(created.id);
+      expect(skillRepo.getById(created.id)).toBeUndefined();
+    });
+
+    it('cascades to files and agent associations', () => {
+      const skill = skillRepo.create({ name: 'cascade', content: 'c' });
+      skillRepo.addFile(skill.id, { path: 'foo.md', content: 'f' });
+      skillRepo.assignToAgent('agent-1', skill.id);
+
+      skillRepo.delete(skill.id);
+
+      // files gone
+      expect(skillRepo.listFiles(skill.id)).toHaveLength(0);
+      // agent association gone
+      expect(skillRepo.getSkillIdsForAgent('agent-1')).toHaveLength(0);
+    });
+  });
+
+  describe('files', () => {
+    it('adds files and lists them', () => {
+      const skill = skillRepo.create({ name: 'files', content: 'c' });
+
+      skillRepo.addFile(skill.id, { path: 'dir/a.md', content: 'aaa' });
+      skillRepo.addFile(skill.id, { path: 'dir/b.md', content: 'bbb' });
+
+      const files = skillRepo.listFiles(skill.id);
+      expect(files).toHaveLength(2);
+      expect(files[0].path).toBe('dir/a.md');
+      expect(files[0].content).toBe('aaa');
+      expect(files[1].path).toBe('dir/b.md');
+    });
+
+    it('upserts on duplicate path', () => {
+      const skill = skillRepo.create({ name: 'upsert', content: 'c' });
+
+      skillRepo.addFile(skill.id, { path: 'readme.md', content: 'v1' });
+      skillRepo.addFile(skill.id, { path: 'readme.md', content: 'v2' });
+
+      const files = skillRepo.listFiles(skill.id);
+      expect(files).toHaveLength(1);
+      expect(files[0].content).toBe('v2');
+    });
+
+    it('rejects path traversal', () => {
+      const skill = skillRepo.create({ name: 'secure', content: 'c' });
+
+      expect(() => skillRepo.addFile(skill.id, { path: '../etc/passwd', content: 'x' })).toThrow(
+        'Invalid file path: ../etc/passwd',
+      );
+
+      expect(() => skillRepo.addFile(skill.id, { path: '/absolute/path', content: 'x' })).toThrow(
+        'Invalid file path: /absolute/path',
+      );
+    });
+
+    it('replaces files', () => {
+      const skill = skillRepo.create({ name: 'replace', content: 'c' });
+
+      skillRepo.addFile(skill.id, { path: 'old.md', content: 'old' });
+      skillRepo.addFile(skill.id, { path: 'keep.md', content: 'keep' });
+
+      skillRepo.replaceFiles(skill.id, [
+        { path: 'new1.md', content: 'n1' },
+        { path: 'new2.md', content: 'n2' },
+      ]);
+
+      const files = skillRepo.listFiles(skill.id);
+      expect(files).toHaveLength(2);
+      expect(files.map((f) => f.path).sort()).toEqual(['new1.md', 'new2.md']);
+    });
+  });
+
+  describe('agent assignments', () => {
+    it('assigns skills to agent and retrieves ids', () => {
+      const s1 = skillRepo.create({ name: 's1', content: 'c1' });
+      const s2 = skillRepo.create({ name: 's2', content: 'c2' });
+
+      skillRepo.assignToAgent('agent-x', s1.id);
+      skillRepo.assignToAgent('agent-x', s2.id);
+
+      const ids = skillRepo.getSkillIdsForAgent('agent-x');
+      expect(ids).toHaveLength(2);
+      expect(ids).toContain(s1.id);
+      expect(ids).toContain(s2.id);
+    });
+
+    it('removes an agent assignment', () => {
+      const s1 = skillRepo.create({ name: 'rm', content: 'c' });
+      skillRepo.assignToAgent('agent-y', s1.id);
+
+      skillRepo.removeAgentAssignment('agent-y', s1.id);
+      expect(skillRepo.getSkillIdsForAgent('agent-y')).toHaveLength(0);
+    });
+
+    it('setAgentSkills replaces all assignments', () => {
+      const s1 = skillRepo.create({ name: 'old', content: 'o' });
+      const s2 = skillRepo.create({ name: 'new', content: 'n' });
+
+      skillRepo.assignToAgent('agent-z', s1.id);
+      skillRepo.setAgentSkills('agent-z', [s2.id]);
+
+      const ids = skillRepo.getSkillIdsForAgent('agent-z');
+      expect(ids).toHaveLength(1);
+      expect(ids).toContain(s2.id);
+    });
+
+    it('getSkillsForAgent includes files', () => {
+      const skill = skillRepo.create({ name: 'full', content: 'body' });
+      skillRepo.addFile(skill.id, { path: 'guide.md', content: 'guide content' });
+      skillRepo.assignToAgent('agent-f', skill.id);
+
+      const skills = skillRepo.getSkillsForAgent('agent-f');
+      expect(skills).toHaveLength(1);
+      expect(skills[0].files).toHaveLength(1);
+      expect(skills[0].files[0].path).toBe('guide.md');
+      expect(skills[0].files[0].content).toBe('guide content');
+    });
   });
 });
