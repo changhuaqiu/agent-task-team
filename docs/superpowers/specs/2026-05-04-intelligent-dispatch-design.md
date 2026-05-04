@@ -45,7 +45,7 @@ interface CapabilityProfile {
 
 ### 存储
 
-- 扩展现有 `role_cards` SQLite 表，新增 `capabilities_json TEXT` 字段存储 JSON 序列化的 CapabilityProfile
+- 新建 `role_cards` SQLite 表（当前 RoleCard 为纯内存对象，无 DB 持久化），存储角色完整配置含 `capabilities_json TEXT` 字段
 - `agents` 表通过 `roleCardId` 关联角色，不再依赖硬编码 `AGENT_ROSTER`
 - 6 个预设角色作为种子数据保留，不可删除，可编辑能力图谱
 
@@ -111,7 +111,7 @@ function matchTaskToAgent(
 
 1. **领域匹配**（权重 0.5）：task 关键词与 `domains` 的 `DOMAIN_KEYWORDS` 映射匹配
 2. **技能匹配**（权重 0.3）：task 关键词与 `skills` 直接匹配
-3. **禁忌惩罚**（权重 -0.5）：命中 `forbiddenActions` 的角色降权
+3. **禁忌惩罚**（乘法因子 0）：命中 `forbiddenActions` 的角色 score 直接归零
 4. **负载因子**（权重 0.2）：已满载角色 score 归零
 
 ### 领域关键词映射表
@@ -215,7 +215,7 @@ LLM 灵活性 + 程序化兜底，双重保障。
 | 组件 | 变更类型 | 说明 |
 |------|---------|------|
 | `RoleCard` 类型 | 扩展 | 新增 `capabilities` 字段，现有 7 维度不变 |
-| `role_cards` 表 | 扩展 | 新增 `capabilities_json` 列，现有列不变 |
+| `role_cards` 表 | 新建 | 当前无 DB 持久化，新建表存储角色配置含 capabilities |
 | `AGENT_ROSTER` | 替换 | 改为从 DB 读取，6 个预设 ID 不变 |
 | `mention-parser.ts` | 扩展 | `AGENT_IDS` 改为动态加载，现有 ID 不变 |
 | `TeamLayer` | 增强 | 输出内容增强，调用接口不变 |
