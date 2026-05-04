@@ -129,6 +129,20 @@ export const agentEvent = sqliteTable('agent_event', {
 ]);
 
 // ──────────────────────────────────────────────
+// role_cards
+// ──────────────────────────────────────────────
+export const roleCards = sqliteTable('role_cards', {
+  id: text('id').primaryKey(),
+  data: text('data').notNull(), // Full RoleCard JSON including capabilities
+  isPreset: integer('is_preset', { mode: 'boolean' }).notNull().default(false),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+});
+
+export type RoleCardRow = InferSelectModel<typeof roleCards>;
+export type NewRoleCardRow = InferInsertModel<typeof roleCards>;
+
+// ──────────────────────────────────────────────
 // Inferred types
 // ──────────────────────────────────────────────
 export type Conversation = InferSelectModel<typeof conversation>;

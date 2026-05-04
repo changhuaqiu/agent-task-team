@@ -102,6 +102,18 @@ CREATE INDEX IF NOT EXISTS idx_event_conv ON agent_event(conversation_id);
 CREATE INDEX IF NOT EXISTS idx_event_agent ON agent_event(agent_id);
 `,
   },
+  {
+    version: 2,
+    sql: `
+CREATE TABLE IF NOT EXISTS role_cards (
+  id TEXT PRIMARY KEY,
+  data TEXT NOT NULL,
+  is_preset INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+`,
+  },
 ];
 
 export function applyMigrations(db: Database.Database): void {
