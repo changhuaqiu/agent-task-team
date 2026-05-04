@@ -157,6 +157,19 @@ CREATE INDEX IF NOT EXISTS idx_agent_skill_agent ON agent_skill(agent_id);
 CREATE INDEX IF NOT EXISTS idx_agent_skill_skill ON agent_skill(skill_id);
 `,
   },
+  {
+    version: 4,
+    sql: `
+    ALTER TABLE task ADD COLUMN claimed_at TEXT;
+    ALTER TABLE task ADD COLUMN started_at TEXT;
+    ALTER TABLE task ADD COLUMN completed_at TEXT;
+    ALTER TABLE task ADD COLUMN lease_expiry TEXT;
+    ALTER TABLE task ADD COLUMN work_dir TEXT;
+
+    ALTER TABLE invocation ADD COLUMN dispatch_status TEXT DEFAULT 'queued';
+    ALTER TABLE invocation ADD COLUMN token_usage TEXT;
+  `,
+  },
 ];
 
 export function applyMigrations(db: Database.Database): void {
