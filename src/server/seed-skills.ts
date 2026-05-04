@@ -14,4 +14,10 @@ export function seedPresetSkills(): void {
       });
     }
   }
+
+  // Auto-assign task-management to Mario (planner)
+  const taskMgmt = skillRepo.getByName('task-management');
+  if (taskMgmt) {
+    skillRepo.assignToAgent('mario', taskMgmt.id);
+  }
 }
