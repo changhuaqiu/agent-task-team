@@ -39,6 +39,11 @@ export const task = sqliteTable('task', {
   reviewNote: text('review_note'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
+  claimedAt: text('claimed_at'),
+  startedAt: text('started_at'),
+  completedAt: text('completed_at'),
+  leaseExpiry: text('lease_expiry'),
+  workDir: text('work_dir'),
 }, (table) => [
   index('idx_task_conv').on(table.conversationId),
 ]);
@@ -107,6 +112,8 @@ export const invocation = sqliteTable('invocation', {
   errorMessage: text('error_message'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
+  dispatchStatus: text('dispatch_status').default('queued'),
+  tokenUsage: text('token_usage'),
 }, (table) => [
   index('idx_invocation_agent').on(table.agentId),
   index('idx_invocation_conv').on(table.conversationId),
