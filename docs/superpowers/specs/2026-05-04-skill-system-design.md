@@ -274,7 +274,7 @@ Each agent card shows assigned skills as tags, with add/remove controls:
 
 ```
 ┌─ Mario (Planner) ────────────────┐
-│  Role Card: Jean (规划师)         │
+│  Role Card: Mario (规划师)        │
 │                                   │
 │  Skills:                          │
 │   [code-review] [brainstorm] [+]  │

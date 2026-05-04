@@ -1,13 +1,22 @@
 # CLI Terminal Integration Implementation Plan
 
-> **For execution:** REQUIRED SUB-SKILL: Use executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> 历史计划稿。其核心目标“在任务详情中集成 CLI 终端能力”已经被当前实现吸收，但其中的外部参考和旧主题表述已失效。
 
-**Goal:** Integrate a pixel-themed `xterm.js` terminal emulator into the TaskDetailPanel to simulate AionUi's CLI observation capabilities.
+## 当前状态
 
-**Architecture:** 
-1. Expand Zustand to hold `terminalLogs` per task and provide a mock execution function.
-2. Build a `TerminalView` component using `@xterm/xterm` and `@xterm/addon-fit`.
-3. Embed `TerminalView` in the lower half of `TaskDetailPanel` and style it with the Genshin Pixel theme.
+- `TerminalView` 已经在当前项目中存在
+- 任务详情与终端输出链路应以当前代码和 Wiki 文档为准
+- 文中的旧视觉主题和外部产品参考不再作为实现依据
+
+## 当前替代文档
+
+- `docs/wiki/02-frontend.md`
+- `docs/wiki/04-backend-daemon.md`
+- `docs/wiki/07-architecture-diagrams.md`
+
+---
+
+以下内容仅作为历史草稿保留，不代表当前事实。
 
 **Tech Stack:** Next.js, Zustand, xterm.js, Tailwind CSS.
 

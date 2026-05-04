@@ -1,7 +1,7 @@
-# AionUi x Opencode Backend Integration Design
+# Opencode Backend Integration Design
 
 ## 1. 核心目标
-实现从纯前端 (Zustand Mock) 向“前后端分离 + WebSocket 实时流”架构的演进。借鉴 AionUi 理念，引入独立的 Node.js 后端服务 (Daemon)，用于调度 `opencode` 等真实 CLI 工具，并通过双通道机制将原始 PTY 终端流和结构化 JSON 事件流推送到前端。
+实现从纯前端 (Zustand Mock) 向“前后端分离 + WebSocket 实时流”架构的演进。引入独立的 Node.js 后端服务 (Daemon)，用于调度 `opencode` 等真实 CLI 工具，并通过双通道机制将原始 PTY 终端流和结构化 JSON 事件流推送到前端。
 
 ## 2. 架构概览
 
@@ -54,5 +54,5 @@
 完成此次重构后，Task Hub 的体验将发生质变：
 1. 点击任务面板的执行按钮，真实的 Node.js 子进程将在后端启动。
 2. 详情面板下方的终端会像黑客帝国一样流式输出包含 ANSI 颜色的日志。
-3. 同时，右侧的全局聊天室会像 Clowder 一样，自动冒出 Agent 汇报进度的对话气泡。
+3. 同时，右侧的全局聊天室会自动冒出 Agent 汇报进度的对话气泡。
 4. 架构彻底解耦，为未来接入真正的 OpenClaw 或其他 MCP Agent 扫清了技术障碍。

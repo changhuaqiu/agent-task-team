@@ -242,7 +242,7 @@ const effectivePrompt = composeUserPrompt(opts);
 
 ### 2026-05-04: systemPrompt 注入修复
 
-**问题**：首次 @agent 时 Jean 收到的 prompt 没有任何角色信息（无 persona、无团队名册、无协作规则）。
+**问题**：首次 @agent 时 Mario 收到的 prompt 没有任何角色信息（无 persona、无团队名册、无协作规则）。
 
 **根因**：
 1. `opencode.ts` 用 `--prompt` flag 传递 systemPrompt，但 opencode CLI 不识别该 flag，静默忽略

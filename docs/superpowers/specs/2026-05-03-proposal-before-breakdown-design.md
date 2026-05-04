@@ -2,18 +2,18 @@
 
 ## Problem
 
-当前项目启动流程直接跳到任务拆解，缺少架构方案和业务方案的讨论阶段。用户提需求后 500ms 自动触发 Jean 拆任务，没有给用户和 Jean 讨论技术方案的机会。
+当前项目启动流程直接跳到任务拆解，缺少架构方案和业务方案的讨论阶段。用户提需求后 500ms 自动触发 Mario 拆任务，没有给用户和 Mario 讨论技术方案的机会。
 
 ## Decision
 
-改为"方案先行"流程：Jean 先出技术架构方案+业务方案草案，和用户讨论，Jean 判断需求清晰后自行输出 PHASE/TASK 格式触发拆解。用户确认后创建任务。
+改为"方案先行"流程：Mario 先出技术架构方案+业务方案草案，和用户讨论，Mario 判断需求清晰后自行输出 PHASE/TASK 格式触发拆解。用户确认后创建任务。
 
 ## Scope
 
 - 改变 `triggerBreakdown` 的 prompt 和行为（从"拆任务"改为"出方案"）
 - 去掉 `ProjectCreateDialog` 的"自动拆解任务"复选框
 - 新增 `breakdownStatus: 'proposal'` 状态
-- Jean 的 persona 更新，加入方案先行+自行拆解的行为指引
+- Mario 的 persona 更新，加入方案先行+自行拆解的行为指引
 - 不改 `parsePhaseBreakdown`、`confirmBreakdown`、`ChatMessageItem` 拆解确认 UI
 
 ## Flow
@@ -23,13 +23,13 @@
 ```
 用户发第一条消息 / 创建项目
         ↓
-自动 dispatch Jean（proposal prompt）
+自动 dispatch Mario（proposal prompt）
         ↓
-Jean 输出技术架构方案 + 业务方案草案
+Mario 输出技术架构方案 + 业务方案草案
         ↓
-用户讨论 / 反馈 / Jean 回复（多轮对话）
+用户讨论 / 反馈 / Mario 回复（多轮对话）
         ↓
-Jean 判断需求清晰 → 输出 PHASE/TASK 格式
+Mario 判断需求清晰 → 输出 PHASE/TASK 格式
         ↓
 parsePhaseBreakdown 自动检测 → 用户确认 → 任务创建
 ```
@@ -39,11 +39,11 @@ parsePhaseBreakdown 自动检测 → 用户确认 → 任务创建
 ```
 'none' → 'proposal' → 'confirmed'
               ↑
-         (Jean 被派出去出方案)
+         (Mario 被派出去出方案)
 ```
 
 - `none`: 新项目，未触发任何 agent
-- `proposal`: Jean 已被派出去出方案（防止重复触发）
+- `proposal`: Mario 已被派出去出方案（防止重复触发）
 - `confirmed`: 用户已确认拆解，任务已创建
 - `no_account`: 没有可用账号
 
@@ -64,7 +64,7 @@ Rename function. Change prompt from:
 To:
 
 ```
-你是项目统筹 Jean。请先基于以下项目目标输出一份技术架构方案和业务方案草案。
+你是项目统筹 Mario。请先基于以下项目目标输出一份技术架构方案和业务方案草案。
 
 方案需要包含：
 - 技术架构：核心技术选型、模块划分、关键依赖
@@ -111,11 +111,11 @@ if (existingConv && existingConv.breakdownStatus === 'none' && !mentions.length)
 }
 ```
 
-### 4. Jean persona update
+### 4. Mario persona update
 
 **File:** `src/data/presetRoleCards.ts`
 
-Update Jean's persona.introduction to include:
+Update Mario's persona.introduction to include:
 "收到新项目时，你会先输出技术架构方案和业务方案草案，和用户讨论确认后再拆解任务。当你判断需求已经足够清晰，你会直接用 PHASE/TASK 格式输出任务拆解方案。"
 
 ### 5. ProjectChatPanel status display update
@@ -123,7 +123,7 @@ Update Jean's persona.introduction to include:
 **File:** `src/components/project-hub/ProjectChatPanel.tsx`
 
 Update status labels:
-- `'proposal'` → "Jean 正在分析项目…"
+- `'proposal'` → "Mario 正在分析项目…"
 - Remove `'in_progress'` and `'reviewed'` cases
 
 ## Files Changed
@@ -132,7 +132,7 @@ Update status labels:
 |------|--------|
 | `src/store/taskHubStore.ts` | Rename triggerBreakdown → triggerProposal, new prompt, new status, remove autoBreakdown param |
 | `src/components/project/ProjectCreateDialog.tsx` | Remove autoBreakdown checkbox, fix button text |
-| `src/data/presetRoleCards.ts` | Update Jean persona |
+| `src/data/presetRoleCards.ts` | Update Mario persona |
 | `src/components/task-hub/ProjectChatPanel.tsx` | Update status display |
 
 ## What Doesn't Change

@@ -1,14 +1,20 @@
 # Agent Roster Management Implementation Plan
 
-> **For execution:** REQUIRED SUB-SKILL: Use executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> 历史计划稿。该文档保留了早期 roster 设计过程，但其中的旧角色命名与“招募队伍”世界观不再是当前项目主表达。
 
-**Goal:** Implement a "Preset Pool + Active Party" system for Agents, allowing users to invite and dismiss Agents from their Task Hub board.
+## 当前状态
 
-**Architecture:** 
-1. Separate `agents` in Zustand store into `roster` (all available agents) and `activeAgentIds` (those currently on the board).
-2. Add a `[ + Invite Agent ]` button at the end of the Agent columns on the board.
-3. Create an `AgentRosterModal` to display the uninvited agents from the roster.
-4. Add a `[ Dismiss ]` button to the `AgentTaskGroup` header to remove them (if they have 0 pending tasks).
+- `AGENT_ROSTER` 已经存在于当前代码中
+- 当前项目使用 `Mario / Luigi / Toad / Peach / DK / Yoshi` 这一组内置角色
+- 相关实现应以当前 `src/store/taskHubStore.ts` 与 `docs/wiki/02-frontend.md` 为准
+
+## 说明
+
+文中涉及的旧角色命名和主题化描述仅代表早期探索过程，不应再被用作当前产品文案或实现依据。
+
+---
+
+以下内容仅作为历史草稿保留，不代表当前事实。
 
 **Tech Stack:** Next.js (App Router), Zustand, Tailwind CSS, Lucide React.
 
@@ -26,7 +32,7 @@ export type AgentTheme = 'jean' | 'keqing' | 'zhongli' | 'nahida' | 'albedo' | '
 ```
 
 - [ ] **Step 2: Define the Full Roster**
-Update `initialAgents` to include the full roster (Jean, Keqing, Zhongli, Nahida, Albedo, Venti). Rename it to `AGENT_ROSTER`.
+Update `initialAgents` to include the full roster (Mario, Luigi, Toad, Peach, DK, Yoshi). Rename it to `AGENT_ROSTER`.
 
 - [ ] **Step 3: Update State Interface**
 Replace `agents: Agent[]` with `activeAgentIds: string[]`. Add queries and mutations.

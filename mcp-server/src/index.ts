@@ -28,7 +28,7 @@ function createServer(): McpServer {
     'dispatch_to_agent',
     'Dispatch a prompt to a specific agent in Agent Task Hub. The agent will execute the prompt using its configured CLI engine (opencode, claude, codex, or mock). Returns the run ID for tracking.',
     {
-      agentId: z.string().describe('Agent ID to dispatch to (e.g. "jean", "keqing", "zhongli", "nahida")'),
+      agentId: z.string().describe('Agent ID to dispatch to (e.g. "mario", "luigi", "toad", "peach", "dk", "yoshi")'),
       prompt: z.string().describe('The prompt/instruction to send to the agent'),
       sessionId: z.string().optional().describe('Optional session ID to resume a previous session'),
       taskId: z.string().optional().describe('Optional task ID to associate the run with'),
@@ -83,12 +83,12 @@ function createServer(): McpServer {
     {},
     async () => {
       const agents = [
-        { id: 'jean', name: 'Jean', role: 'planner', roleLabel: '项目统筹', cliEngine: 'opencode', emoji: '⚔️' },
-        { id: 'keqing', name: 'Keqing', role: 'worker', roleLabel: '前端负责人', cliEngine: 'opencode', emoji: '⚡' },
-        { id: 'zhongli', name: 'Zhongli', role: 'worker', roleLabel: '后端负责人', cliEngine: 'opencode', emoji: '🔶' },
-        { id: 'nahida', name: 'Nahida', role: 'reviewer', roleLabel: '代码评审', cliEngine: 'opencode', emoji: '🌿' },
-        { id: 'albedo', name: 'Albedo', role: 'worker', roleLabel: '算法工程', cliEngine: 'opencode', emoji: '✨' },
-        { id: 'venti', name: 'Venti', role: 'reviewer', roleLabel: 'QA 测试', cliEngine: 'opencode', emoji: '💨' },
+        { id: 'mario', name: 'Mario', role: 'planner', roleLabel: '项目统筹', cliEngine: 'opencode', emoji: '⭐' },
+        { id: 'luigi', name: 'Luigi', role: 'worker', roleLabel: '前端负责人', cliEngine: 'opencode', emoji: '🟢' },
+        { id: 'toad', name: 'Toad', role: 'worker', roleLabel: '后端负责人', cliEngine: 'opencode', emoji: '🍄' },
+        { id: 'peach', name: 'Peach', role: 'reviewer', roleLabel: '代码评审', cliEngine: 'opencode', emoji: '👑' },
+        { id: 'dk', name: 'DK', role: 'worker', roleLabel: '算法工程', cliEngine: 'opencode', emoji: '🦍' },
+        { id: 'yoshi', name: 'Yoshi', role: 'reviewer', roleLabel: 'QA 测试', cliEngine: 'opencode', emoji: '🦖' },
       ];
       const lines = agents.map((a) => `${a.emoji} ${a.id} (${a.name}) — ${a.roleLabel} [${a.role}] engine: ${a.cliEngine}`);
       return {

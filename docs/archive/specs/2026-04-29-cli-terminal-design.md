@@ -1,7 +1,7 @@
 # Task CLI Terminal Integration Design
 
 ## 1. 核心目标
-借鉴 AionUi (OfficeCLI) 的架构理念，在现有的 Task Hub 界面中无缝集成 CLI 终端的可视化观测能力。采用 **xterm.js** 提供原生的终端模拟体验，并确保它能完美融入我们已有的《原神》像素风 UI 中。
+借鉴早期外部终端工作台的架构思路，在现有的 Task Hub 界面中无缝集成 CLI 终端的可视化观测能力。采用 **xterm.js** 提供原生的终端模拟体验，并确保它能融入当前 UI。
 
 ## 2. 架构设计
 
@@ -23,8 +23,8 @@
     *   将 `xterm` 的实例挂载到 `TaskDetailPanel` 的某个 `div` 引用上。
     *   监听 Zustand 中 `terminalLogs[taskId]` 的变化，并将新增的内容通过 `term.write()` 写入终端。
 
-### 2.3 像素风主题适配 (Pixel Theme)
-为了保持高度统一的 Genshin Pixel Art 风格，终端必须经过深度定制：
+### 2.3 主题适配 (Theme)
+为了保持界面统一，终端需要经过定制：
 *   **字体**: 强制使用全局的等宽像素字体 (`var(--font-geist-mono)` 或自定义的像素英文字体)。
 *   **配色方案 (xterm Theme)**:
     *   Background: 极深的石板灰 (`#111111` 或 `var(--bg-app)`)。
@@ -34,9 +34,9 @@
 
 ## 3. 用户交互流程 (User Flow)
 
-1.  **触发命令**: 
+1.  **触发命令**:
     *   在 Task 详情中，用户或 Agent 决定执行某项操作（例如有一个 `[Run Build]` 按钮）。
-    *   点击后，系统在 Global Chat Room 中广播意图：`"Keqing is executing: npm run build"`。
+    *   点击后，系统在 Global Chat Room 中广播意图：`"Agent is executing: npm run build"`。
 2.  **观测输出**:
     *   `TaskDetailPanel` 下半部分的黑框终端开始闪烁光标。
     *   文本像打字机一样快速流出，伴随 ANSI 颜色变化（绿色 `✔ Compiled successfully`，黄色 `⚠ Warnings`）。
@@ -45,4 +45,4 @@
     *   根据终端执行的成功/失败，Agent 在聊天室报告结果并请求下一步指示（例如：`"Build failed with 2 errors. Should I try fixing them?"`）。
 
 ## 4. 扩展性 (Future Proofing)
-本设计刻意将 UI 组件 (`xterm.js`) 与数据源 (`Zustand mock`) 解耦。未来接入真实后端时，只需将 `simulateAgentExecution` 替换为发起一个 `WebSocket` 连接，并将 `socket.onmessage` 直接重定向到 `term.write()`，UI 层无需任何修改即可升级为真实的 AionUi 终端桥接架构。
+本设计刻意将 UI 组件 (`xterm.js`) 与数据源 (`Zustand mock`) 解耦。未来接入真实后端时，只需将 `simulateAgentExecution` 替换为发起一个 `WebSocket` 连接，并将 `socket.onmessage` 直接重定向到 `term.write()`，UI 层无需任何修改即可升级为真实的终端桥接架构。

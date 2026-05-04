@@ -4,7 +4,7 @@
 
 **Goal:** 为去中心化的 Agent 团队打造一个“可视、可管、可 push”的前端任务看板（Task Hub），让多节点（如 Planner, opencode-a, reviewer）的协作状态透明化。
 
-**Architecture:** 采用垂直分组流式布局（参考 Clowder AI 的 Plan Board 设计），通过 Zustand 订阅后端任务状态。以 Agent 为维度聚合任务，支持多状态（Pending, In Progress, In Review, Done, Blocked）的视觉区分与人工干预交互。
+**Architecture:** 采用垂直分组流式布局（参考早期外部看板交互模式），通过 Zustand 订阅后端任务状态。以 Agent 为维度聚合任务，支持多状态（Pending, In Progress, In Review, Done, Blocked）的视觉区分与人工干预交互。
 
 **Tech Stack:** Next.js 14 (App Router), Tailwind CSS, Zustand, Lucide React (Icons), Radix UI (Collapsible).
 
