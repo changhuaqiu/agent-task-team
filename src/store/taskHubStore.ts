@@ -181,6 +181,7 @@ function mapMessagesToState(recentMessages: Record<string, any[]>): Record<strin
           });
         }
       } else {
+        const meta = m.metadata ? (typeof m.metadata === 'string' ? JSON.parse(m.metadata) : m.metadata) : {};
         mapped.push({
           id: m.id,
           agentId: m.sender_type === 'human' ? 'human' : m.sender_id,
@@ -189,6 +190,8 @@ function mapMessagesToState(recentMessages: Record<string, any[]>): Record<strin
           mentions: typeof m.mentions === 'string' ? JSON.parse(m.mentions || '[]') : (m.mentions || []),
           intent: m.intent,
           referencedTaskId: m.task_id,
+          source: meta?.source,
+          fromAgentId: meta?.fromAgentId,
         });
       }
     }
@@ -986,6 +989,10 @@ export const useTaskHubStore = create<TaskHubState>()(
               content: rest.content,
               mentions,
               intent,
+              metadata: {
+                source: rest.source,
+                fromAgentId: rest.fromAgentId,
+              },
             }}),
           }).catch((err) => console.error('[mutation] message.append failed:', err));
         },
@@ -1369,6 +1376,7 @@ socket.on('a2a:dispatch', ({ agentId, prompt, referencedTaskId, fromAgentId, con
     referencedTaskId,
     source: 'a2a',
     fromAgentId,
+    conversationId,
   });
 });
 
