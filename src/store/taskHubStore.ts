@@ -573,6 +573,14 @@ export const useTaskHubStore = create<TaskHubState>()(
               hasHydrated: true,
             });
 
+            // Auto-select first conversation if none selected
+            if (!get().selectedConversationId && conversations.length > 0) {
+              const recent = conversations.reduce((a, b) =>
+                a.updatedAt > b.updatedAt ? a : b
+              );
+              set({ selectedConversationId: recent.id, selectedProjectId: recent.id });
+            }
+
             if (tasks.length) {
               const max = tasks.reduce((acc, t) => {
                 const m = /^TASK-(\d+)$/.exec(t.id);
