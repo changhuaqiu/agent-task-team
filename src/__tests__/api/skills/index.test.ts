@@ -4,6 +4,7 @@ import { resetSeq } from '@/server/repositories/sortable-id';
 import { mockReq, mockRes } from '@/test-helpers/mock-api';
 import handler from '@/pages/api/skills/index';
 import detailHandler from '@/pages/api/skills/[id]';
+import agentSkillsHandler from '@/pages/api/agents/[agentId]/skills';
 
 beforeEach(() => { setTestDb(createTestDb()); resetSeq(); });
 afterEach(() => { resetDb(); });
@@ -97,5 +98,38 @@ describe('DELETE /api/skills/:id', () => {
     const getRes = mockRes();
     await detailHandler(mockReq('GET', undefined, { id }), getRes);
     expect(getRes.statusCode).toBe(404);
+  });
+});
+
+describe('GET /api/agents/:agentId/skills', () => {
+  it('returns skills assigned to agent', async () => {
+    // Create two skills
+    const r1 = mockRes(); await handler(mockReq('POST', { name: 'review', content: 'review content' }), r1);
+    const r2 = mockRes(); await handler(mockReq('POST', { name: 'tdd', content: 'tdd content' }), r2);
+
+    // Assign both to mario
+    await agentSkillsHandler(mockReq('POST', { skillIds: [r1._json.id, r2._json.id] }, { agentId: 'mario' }), mockRes());
+
+    const getRes = mockRes();
+    await agentSkillsHandler(mockReq('GET', undefined, { agentId: 'mario' }), getRes);
+    expect(getRes.statusCode).toBe(200);
+    expect(getRes._json).toHaveLength(2);
+  });
+});
+
+describe('POST /api/agents/:agentId/skills', () => {
+  it('replaces agent skill assignments', async () => {
+    const r1 = mockRes(); await handler(mockReq('POST', { name: 'a-replace', content: 'a' }), r1);
+    const r2 = mockRes(); await handler(mockReq('POST', { name: 'b-replace', content: 'b' }), r2);
+
+    // Assign r1
+    await agentSkillsHandler(mockReq('POST', { skillIds: [r1._json.id] }, { agentId: 'luigi' }), mockRes());
+    // Replace with r2
+    await agentSkillsHandler(mockReq('POST', { skillIds: [r2._json.id] }, { agentId: 'luigi' }), mockRes());
+
+    const getRes = mockRes();
+    await agentSkillsHandler(mockReq('GET', undefined, { agentId: 'luigi' }), getRes);
+    expect(getRes._json).toHaveLength(1);
+    expect(getRes._json[0].name).toBe('b-replace');
   });
 });
