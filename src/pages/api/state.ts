@@ -4,6 +4,7 @@ import { taskRepo } from '@/server/repositories/task-repo';
 import { messageRepo } from '@/server/repositories/message-repo';
 import { sessionRepo } from '@/server/repositories/session-repo';
 import { invocationRepo } from '@/server/repositories/invocation-repo';
+import { skillRepo } from '@/server/repositories/skill-repo';
 
 export default function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return res.status(405).end();
@@ -30,6 +31,13 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
       recentMessages,
       activeSessions,
       recentInvocations,
+      skills: skillRepo.list(),
+      agentSkillIds: Object.fromEntries(
+        ['mario', 'luigi', 'toad', 'peach', 'dk', 'yoshi'].map((id) => [
+          id,
+          skillRepo.getSkillIdsForAgent(id),
+        ]),
+      ),
     });
   } catch (error) {
     console.error('[api/state] Error:', error);
