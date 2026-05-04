@@ -1546,6 +1546,8 @@ export const useTaskHubStore = create<TaskHubState>()(
         const systemPrompt = composeSystemPrompt(composeOpts);
         const effectivePrompt = composeUserPrompt(composeOpts);
 
+        console.log(`[dispatch] ${agentId} isFirstWake=${composeOpts.isFirstWake}, systemPrompt=${systemPrompt ? `${systemPrompt.length} chars` : 'undefined'}, roleCard=${composeOpts.roleCard?.id ?? '(none)'}`);
+
         set((state) => ({
           agentStatus: { ...state.agentStatus, [agentId]: 'busy' },
           terminalLogs: { ...state.terminalLogs, [agentId]: [] },
@@ -1579,12 +1581,36 @@ export const useTaskHubStore = create<TaskHubState>()(
 
       enqueueDispatch: (agentId, payload) => {
         const entry: PendingDispatch = { ...payload, queuedAt: new Date().toISOString() };
+
+        // Coalescing: if a pending dispatch already exists for this agent+task, merge instead of enqueue
+        const existing = get().pendingDispatches[agentId];
+        if (existing && existing.length > 0 && payload.referencedTaskId) {
+          const match = existing.find((d) => d.referencedTaskId === payload.referencedTaskId);
+          if (match) {
+            match.prompt = `${match.prompt}\n\n[追加指令]: ${payload.prompt}`;
+            set((state) => ({
+              pendingDispatches: { ...state.pendingDispatches },
+            }));
+            return;
+          }
+        }
+
         set((state) => ({
           pendingDispatches: {
             ...state.pendingDispatches,
             [agentId]: [...(state.pendingDispatches[agentId] || []), entry],
           },
         }));
+
+        // Persist dispatch to DB for crash recovery
+        fetch('/api/mutations', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type: 'dispatch.enqueue',
+            payload: { agentId, prompt: payload.prompt, referencedTaskId: payload.referencedTaskId },
+          }),
+        }).catch(() => {});
       },
 
       dequeueNextPending: (agentId) => {

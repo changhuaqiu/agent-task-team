@@ -15,6 +15,7 @@ type MutationType =
   | 'session.sealByTask'
   | 'invocation.create'
   | 'invocation.updateStatus'
+  | 'dispatch.enqueue'
   | 'event.append';
 
 interface MutationRequest {
@@ -125,6 +126,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         const { id, status, ...updates } = payload as any;
         invocationRepo.updateStatus(id, status, updates);
         result = { id, status };
+        break;
+      }
+      case 'dispatch.enqueue': {
+        const { invocationRepo } = await import('@/server/repositories/invocation-repo');
+        const { generateSortableId } = await import('@/server/repositories/sortable-id');
+        const { agentId, prompt, referencedTaskId } = payload as any;
+        const { conversationId } = req.body as any;
+        invocationRepo.create({
+          id: generateSortableId('disp'),
+          conversation_id: conversationId || 'default',
+          agent_id: agentId,
+          task_id: referencedTaskId || '',
+          prompt,
+          engine: '',
+        });
+        result = { ok: true };
         break;
       }
       case 'event.append': {
