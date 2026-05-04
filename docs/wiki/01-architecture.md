@@ -23,6 +23,10 @@
 - Skill 仓库：[`src/server/repositories/skill-repo.ts`](../../src/server/repositories/skill-repo.ts)
 - Skill Layer（PromptComposer）：[`src/lib/agent-context/layers/skillLayer.ts`](../../src/lib/agent-context/layers/skillLayer.ts)
 - Skill API 路由：[`src/pages/api/skills/`](../../src/pages/api/skills/)
+- 任务文件服务：[`src/server/task-file-service.ts`](../../src/server/task-file-service.ts)
+- 任务文件监听：[`src/server/task-file-watcher.ts`](../../src/server/task-file-watcher.ts)
+- Skill Tool 执行器：[`src/server/skill-tool-executor.ts`](../../src/server/skill-tool-executor.ts)
+- 任务工具路由：[`src/server/skill-tool-router.ts`](../../src/server/skill-tool-router.ts)
 
 ## 1.2 运行时拓扑
 
@@ -69,6 +73,18 @@ SQLite 作为默认数据源，数据库文件位于项目工作目录下的 `.a
 5. daemon 将事件：
    - 广播给前端（`agent:event` / `agent:session` / `terminal:data` / `terminal:exit`）
    - 同步写入 `messageRepo / eventRepo / invocationRepo / sessionRepo`
+
+### D) 任务文件同步链路
+
+1. Agent 执行过程中直接编辑 `.ath/TASKS.md`（修改状态、认领任务、上报风险）
+2. `TaskFileWatcher`（chokidar）检测文件变更，防抖 500ms 后触发 `syncTasksToDb()`
+3. `TaskFileService.readTasksMd()` 解析文件，返回 `{ tasks: ParsedTask[], blockers: ParsedBlocker[] }`
+4. 对于每个解析出的任务：
+   - DB 中不存在 → `taskRepo.create()` 创建
+   - DB 中已存在 → 对比差异更新 status/agent
+5. 广播 Socket.IO `task.sync` 事件（含 `conversationId`, `tasks`, `blockers`）
+6. Store 收到事件后：新任务加入 `tasks[]`，已有任务更新字段，新 blocker 调用 `openBlocker()`
+7. 看板、代办、风险面板实时刷新
 
 ## 1.4 当前 UI 信息架构
 
@@ -210,6 +226,21 @@ SQLite 作为默认数据源，数据库文件位于项目工作目录下的 `.a
 - [`src/data/presetSkills/taskManagement.ts`](../../src/data/presetSkills/taskManagement.ts)
 
 设计文档：[`docs/superpowers/specs/2026-05-04-task-system-enhancement-design.md`](../superpowers/specs/2026-05-04-task-system-enhancement-design.md)
+
+### I) TASKS.md ↔ 看板双向同步
+
+Agent 直接编辑 `.ath/TASKS.md` 文件管理任务，系统自动同步到 SQLite 和 UI 看板：
+
+- **文件格式**：8 列表格（ID | Title | Phase | Role | Agent | Status | Depends | Deliverable）+ `## 风险 / 阻塞` 区域
+- **FileWatcher**：检测文件变更 → 解析 → 创建/更新 DB → Socket.IO 广播
+- **Store**：`task.sync` handler 创建新任务、同步 blocker
+- **工具双写**：`task_create` / `task_update_status` 同时写 DB 和文件
+- **协议引导**：`protocolLayer.ts` 文档化新格式，引导 Agent 直接写 MD
+
+关键文件：
+- [`src/server/task-file-service.ts`](../../src/server/task-file-service.ts) — md 读写解析
+- [`src/server/task-file-watcher.ts`](../../src/server/task-file-watcher.ts) — 文件监听 + DB 同步
+- [`src/store/taskHubStore.ts`](../../src/store/taskHubStore.ts) — `task.sync` handler
 
 ## 1.8 当前状态判断
 

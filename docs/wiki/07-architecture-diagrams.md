@@ -22,6 +22,7 @@ flowchart TB
     Settings["SettingsDrawer"]
     TaskPanel["TaskDetailPanel"]
     SkillLibrary["SkillLibrary"]
+    MiniKanban["MiniKanban"]
   end
 
   subgraph Store["Store / Orchestration"]
@@ -42,6 +43,8 @@ flowchart TB
     DB["SQLite / Drizzle"]
     Daemon["Socket.io Daemon"]
     BackendFactory["Agent Backend Factory"]
+    FileWatcher["TaskFileWatcher"]
+    FileService["TaskFileService"]
   end
 
   subgraph Engines["Execution Backends"]
@@ -55,6 +58,7 @@ flowchart TB
     SQLite[".ath/data.db"]
     Accounts[".ath/accounts.json"]
     Credentials[".ath/credentials.json"]
+    TasksMd[".ath/workspaces/*/TASKS.md"]
   end
 
   subgraph External["External Runtime"]
@@ -66,6 +70,7 @@ flowchart TB
   Workspace --> TaskHubStore
   Settings --> TaskHubStore
   TaskPanel --> TaskHubStore
+  MiniKanban --> TaskHubStore
 
   TaskHubStore --> StateAPI
   TaskHubStore --> MutationAPI
@@ -89,6 +94,12 @@ flowchart TB
   Daemon --> BackendFactory
   Daemon --> Accounts
   Daemon --> Credentials
+  Daemon --> FileWatcher
+
+  FileWatcher --> FileService
+  FileService --> TasksMd
+  FileWatcher --> Repos
+  FileWatcher -->|task.sync| SocketAPI
 
   BackendFactory --> OpenCode
   BackendFactory --> Claude
@@ -170,6 +181,50 @@ sequenceDiagram
   Store-->>UI: 重渲染
 ```
 
+## 7.3.1 任务文件同步链路
+
+这条链路描述"Agent 编辑 TASKS.md 后看板自动刷新"的路径。
+
+```mermaid
+sequenceDiagram
+  participant Agent as Agent CLI
+  participant FS as .ath/TASKS.md
+  participant FW as TaskFileWatcher
+  participant TFS as TaskFileService
+  participant Repo as taskRepo
+  participant Socket as Socket.IO
+  participant Store as taskHubStore
+  participant UI as MiniKanban
+
+  Agent->>FS: 编辑 TASKS.md（改状态/认领/加风险）
+  FW->>FS: chokidar 检测变更（防抖 500ms）
+  FW->>TFS: readTasksMd()
+  TFS-->>FW: { tasks, blockers }
+
+  loop 每个解析出的任务
+    FW->>Repo: getById(taskId)
+    alt DB 中不存在
+      FW->>Repo: create(task)
+    else DB 中已存在
+      FW->>Repo: updateStatus / update
+    end
+  end
+
+  FW->>Socket: emit task.sync { conversationId, tasks, blockers }
+  Socket-->>Store: task.sync 事件
+
+  loop 每个同步的任务
+    alt store 中不存在
+      Store->>Store: 加入 tasks[]
+    else store 中已存在
+      Store->>Store: 更新 status / agentId
+    end
+  end
+
+  Store->>Store: openBlocker() 处理新风险
+  Store-->>UI: 重渲染看板 + 风险面板
+```
+
 ## 7.4 存储拓扑
 
 当前项目有两类存储，不应混为一谈：
@@ -200,6 +255,14 @@ flowchart LR
     CredentialsFile[".ath/credentials.json"]
   end
 
+  subgraph ProjectFiles["项目文件存储"]
+    Workspaces[".ath/workspaces/<convId>/.ath/"]
+    TasksMdFile["TASKS.md — 任务看板"]
+    ProjectMd["PROJECT.md — 项目元数据"]
+    ProtocolsMd["PROTOCOLS.md — 流转协议"]
+    RolesMd["ROLES.md — 角色定义"]
+  end
+
   Conversations --> DataDB
   Tasks --> DataDB
   Messages --> DataDB
@@ -209,6 +272,11 @@ flowchart LR
   Skills --> DataDB
   SkillFiles --> DataDB
   AgentSkills --> DataDB
+
+  Workspaces --> TasksMdFile
+  Workspaces --> ProjectMd
+  Workspaces --> ProtocolsMd
+  Workspaces --> RolesMd
 ```
 
 ## 7.5 当前架构要点
@@ -221,3 +289,5 @@ flowchart LR
 - Bridge 仍可用，但不是当前前台主配置入口
 - 账号与凭据当前走文件存储，不走 SQLite
 - **Skill System**：正交于 RoleCard 的能力模块层，通过 SkillLayer（Layer 2）注入 systemPrompt，支持 Git 导入与 agent 绑定
+- **TaskFileWatcher**：文件驱动同步管道的核心——Agent 写 MD → watcher 解析 → DB 创建/更新 → Socket 广播 → store 刷新。这是"文件即真相源"架构的关键桥梁
+- **工具双写**：`task_create` / `task_update_status` 同时写 SQLite 和 TASKS.md，保证两条数据源始终一致

@@ -99,6 +99,10 @@ Repository 当前覆盖的核心对象：
 新增模块：
 - [`src/server/workdir-manager.ts`](../../src/server/workdir-manager.ts) — WorkdirManager：per-task 工作目录创建、session 元数据读写、GC
 - [`src/lib/agent-context/layers/toolLayer.ts`](../../src/lib/agent-context/layers/toolLayer.ts) — 从 skill.config.tools 生成 tool 定义注入 prompt
+- [`src/server/task-file-service.ts`](../../src/server/task-file-service.ts) — TaskFileService：md 读写解析（ParsedTask + ParsedBlocker + 格式兼容）
+- [`src/server/task-file-watcher.ts`](../../src/server/task-file-watcher.ts) — TaskFileWatcher：chokidar 文件监听 + DB 创建/更新 + Socket 广播
+- [`src/server/skill-tool-executor.ts`](../../src/server/skill-tool-executor.ts) — Skill Tool 执行器：直接 DB 查询 + 文件双写
+- [`src/server/skill-tool-router.ts`](../../src/server/skill-tool-router.ts) — Tool 名称路由映射（api:// → toolName）
 
 这层的职责是：
 
@@ -177,6 +181,9 @@ Repository 当前覆盖的核心对象：
 - `agent:session`
 - `terminal:exit`
 - `agent:error`
+- `task.sync` — 任务文件变更同步（来自 TaskFileWatcher，含 tasks + blockers + conversationId）
+- `task.assigned` — 任务分配通知（来自 task_assign 工具，触发 dispatchToAgent）
+- `task.ready` — 依赖满足通知（来自 TaskFileWatcher 依赖解析，触发自动 dispatch）
 
 ## 4.5 Agent Backend 抽象
 

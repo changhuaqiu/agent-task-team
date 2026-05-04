@@ -236,8 +236,21 @@ store 监听 daemon 推送的实时事件，并将其映射成前端状态：
   - 更新执行会话
 - `terminal:exit`
   - 更新 agentStatus 与退出信息
+- `task.sync`
+  - 文件变更触发的任务同步事件（来自 TaskFileWatcher）
+  - payload: `{ projectPath, conversationId, tasks: ParsedTask[], blockers: ParsedBlocker[] }`
+  - 新任务 → 加入 `tasks[]`（之前被跳过，现已修复）
+  - 已有任务 → 更新 `status` / `agentId`
+  - 新 blocker → 调用 `openBlocker()`
+- `task.assigned`
+  - 任务分配事件（来自 `task_assign` 工具调用）
+  - store 收到后触发 `dispatchToAgent({ agentId, referencedTaskId })`
+- `task.ready`
+  - 依赖满足事件（来自 TaskFileWatcher 依赖解析）
+  - 当任务的所有依赖都 `done` 且该任务有 Agent 分配时触发
+  - store 收到后自动将 `pending` → `in_progress` 并 dispatch Agent
 
-这使得“执行输出”不再只是终端文本，也会体现在聊天和持久化记录里。
+这使得”执行输出”不再只是终端文本，也会体现在聊天和持久化记录里。
 
 ## 3.6 当前判断
 
