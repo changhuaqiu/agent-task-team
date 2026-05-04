@@ -6,7 +6,7 @@ import { ProjectRightPanel } from './ProjectRightPanel';
 
 export function ProjectWorkspace() {
   return (
-    <div className="flex-1 min-h-0 flex overflow-hidden relative">
+    <div className="flex-1 min-h-0 flex overflow-hidden">
       <ProjectSidebar />
       <ProjectChatPanel />
       <ProjectRightPanel />
