@@ -12,10 +12,11 @@ import {
 } from '@/store/taskHubStore';
 import { TagEditor } from '@/components/ui/TagEditor';
 import { cn } from '@/lib/utils';
-import { X, Plus, Trash2, Loader2, Zap, Users } from 'lucide-react';
+import { X, Plus, Trash2, Loader2, Zap, Users, Download } from 'lucide-react';
 import { RoleCardListPage } from '@/components/role-card/RoleCardListPage';
 import { RoleCardDetailDrawer } from '@/components/role-card/RoleCardDetailDrawer';
 import { RoleCardEditor } from '@/components/role-card/RoleCardEditor';
+import { SkillLibrary } from '@/components/skill/SkillLibrary';
 
 const AUTH_MODE_OPTIONS: Array<{ value: AccountAuthMode; label: string }> = [
   { value: 'oauth', label: 'OAuth' },
@@ -353,7 +354,7 @@ export function SettingsDrawer() {
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [verifyingId, setVerifyingId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'accounts' | 'roles'>('accounts');
+  const [activeTab, setActiveTab] = useState<'accounts' | 'roles' | 'skills'>('accounts');
 
   if (!isOpen) return null;
 
@@ -432,6 +433,18 @@ export function SettingsDrawer() {
               >
                 角色卡
               </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab('skills')}
+                className={cn(
+                  'px-3 py-1.5 text-[11px] font-bold tracking-wider uppercase transition-colors',
+                  activeTab === 'skills'
+                    ? 'bg-[hsl(var(--accent))] text-white'
+                    : 'bg-[hsl(var(--bg-muted))] text-[hsl(var(--text-secondary))] hover:text-[hsl(var(--text-primary))]'
+                )}
+              >
+                技能
+              </button>
             </div>
           </div>
           <button type="button" onClick={() => setOpen(false)} className="p-1.5 rounded-[var(--radius-sm)] text-[hsl(var(--text-tertiary))] hover:text-[hsl(var(--text-primary))] hover:bg-[hsl(var(--bg-muted))] transition-colors" aria-label="关闭">
@@ -478,8 +491,10 @@ export function SettingsDrawer() {
           <div className="text-[10px] text-[hsl(var(--text-tertiary))] pt-2">
             点击卡片编辑 →
           </div>
-        </>) : (
+        </>) : activeTab === 'roles' ? (
           <RoleCardListPage onClose={() => setOpen(false)} />
+        ) : (
+          <SkillLibrary />
         )}
         </div>
       </div>

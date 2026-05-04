@@ -73,7 +73,7 @@ export function SkillLibrary() {
   return (
     <div className="flex h-full rounded-[var(--radius-xl)] border border-[hsl(var(--border))] bg-[hsl(var(--bg-app))] overflow-hidden">
       {/* Left panel — skill list */}
-      <div className="w-[240px] flex-shrink-0 border-r border-[hsl(var(--border))] flex flex-col">
+      <div className="w-[180px] flex-shrink-0 border-r border-[hsl(var(--border))] flex flex-col">
         {/* List header */}
         <div className="flex items-center justify-between px-3 py-3 border-b border-[hsl(var(--border))]">
           <span className="text-[11px] font-semibold uppercase tracking-wider text-[hsl(var(--text-tertiary))]">
