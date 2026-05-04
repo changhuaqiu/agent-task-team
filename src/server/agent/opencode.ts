@@ -49,8 +49,6 @@ export class OpenCodeBackend implements AgentBackend {
     if (opts.model) args.push('--model', opts.model);
     if (opts.resumeSessionId) args.push('--session', opts.resumeSessionId);
     if (opts.customArgs) args.push(...opts.customArgs);
-    // opencode has no system-prompt flag — merge into main prompt
-    args.push(opts.systemPrompt ? `${opts.systemPrompt}\n\n---\n\n${prompt}` : prompt);
 
     const env: Record<string, string> = {
       ...(process.env as Record<string, string>),
@@ -58,6 +56,26 @@ export class OpenCodeBackend implements AgentBackend {
       ...opts.env,
       ...this.config.env,
     };
+
+    // Inject system prompt via opencode's custom agent config.
+    // opencode treats the positional arg as a USER message, not a system message.
+    // By defining a custom agent with our prompt, opencode injects it as a SYSTEM message.
+    if (opts.systemPrompt) {
+      env.OPENCODE_CONFIG_CONTENT = JSON.stringify({
+        agent: {
+          'ath-agent': {
+            description: 'Agent Task Hub runtime agent',
+            prompt: opts.systemPrompt,
+            mode: 'primary',
+          },
+        },
+        default_agent: 'ath-agent',
+      });
+      args.push('--agent', 'ath-agent');
+    }
+
+    args.push(prompt);
+
     const startTime = Date.now();
 
     // --- Spawn strategy ---
@@ -203,6 +221,9 @@ export class OpenCodeBackend implements AgentBackend {
         error: code !== 0 ? `Process exited with code ${code}` : undefined,
         durationMs,
         sessionId,
+        usage: inputTokens > 0
+          ? { default: { inputTokens, outputTokens } }
+          : undefined,
       });
       if (resolveNext) {
         resolveNext({ value: undefined, done: true } as any);
