@@ -151,6 +151,44 @@ export type RoleCardRow = InferSelectModel<typeof roleCards>;
 export type NewRoleCardRow = InferInsertModel<typeof roleCards>;
 
 // ──────────────────────────────────────────────
+// phase
+// ──────────────────────────────────────────────
+export const phase = sqliteTable('phase', {
+  id: text('id').primaryKey(),
+  conversationId: text('conversation_id')
+    .notNull()
+    .references(() => conversation.id),
+  title: text('title').notNull(),
+  description: text('description'),
+  order: integer('order').notNull().default(0),
+  status: text('status').notNull().default('planned'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  index('idx_phase_conv').on(table.conversationId),
+]);
+
+export type PhaseRow = InferSelectModel<typeof phase>;
+export type NewPhaseRow = InferInsertModel<typeof phase>;
+
+// ──────────────────────────────────────────────
+// agents
+// ──────────────────────────────────────────────
+export const agents = sqliteTable('agents', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  roleCardId: text('role_card_id').notNull(),
+  theme: text('theme').notNull(),
+  emoji: text('emoji').notNull(),
+  isPreset: integer('is_preset', { mode: 'boolean' }).notNull().default(false),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+});
+
+export type AgentRow = InferSelectModel<typeof agents>;
+export type NewAgentRow = InferInsertModel<typeof agents>;
+
+// ──────────────────────────────────────────────
 // Inferred types
 // ──────────────────────────────────────────────
 export type Conversation = InferSelectModel<typeof conversation>;
@@ -170,3 +208,30 @@ export type NewInvocation = InferInsertModel<typeof invocation>;
 
 export type AgentEvent = InferSelectModel<typeof agentEvent>;
 export type NewAgentEvent = InferInsertModel<typeof agentEvent>;
+
+// ──────────────────────────────────────────────
+// agent_mailbox
+// ──────────────────────────────────────────────
+export const agentMailbox = sqliteTable('agent_mailbox', {
+  id: text('id').primaryKey(),
+  conversationId: text('conversation_id').notNull()
+    .references(() => conversation.id),
+  fromAgentId: text('from_agent_id').notNull(),
+  toAgentId: text('to_agent_id').notNull(),
+  triggerMessageId: text('trigger_message_id'),
+  taskId: text('task_id'),
+  content: text('content').notNull(),
+  contextSnapshot: text('context_snapshot'), // JSON text nullable
+  status: text('status').notNull().default('pending'), // pending | delivered | processed | expired
+  chainDepth: integer('chain_depth').notNull().default(0),
+  a2aFrom: text('a2a_from'),
+  source: text('source').notNull().default('a2a'),
+  createdAt: text('created_at').notNull(),
+  deliveredAt: text('delivered_at'),
+}, (table) => [
+  index('idx_mailbox_to_status').on(table.toAgentId, table.status),
+  index('idx_mailbox_conv').on(table.conversationId),
+]);
+
+export type AgentMailboxRow = InferSelectModel<typeof agentMailbox>;
+export type NewAgentMailboxRow = InferInsertModel<typeof agentMailbox>;

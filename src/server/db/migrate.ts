@@ -174,7 +174,63 @@ CREATE INDEX IF NOT EXISTS idx_agent_skill_skill ON agent_skill(skill_id);
     version: 5,
     sql: `
     ALTER TABLE invocation ADD COLUMN lease_expiry TEXT;
-  `,
+    `,
+  },
+  {
+    version: 6,
+    sql: `
+    CREATE TABLE IF NOT EXISTS phase (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL REFERENCES conversation(id),
+      title TEXT NOT NULL,
+      description TEXT,
+      "order" INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'planned',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_phase_conv ON phase(conversation_id);
+    `,
+  },
+  {
+    version: 7,
+    sql: `
+    CREATE TABLE IF NOT EXISTS agents (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      role_card_id TEXT NOT NULL,
+      theme TEXT NOT NULL,
+      emoji TEXT NOT NULL,
+      is_preset INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    `,
+  },
+  {
+    version: 8,
+    sql: `
+    CREATE TABLE IF NOT EXISTS agent_mailbox (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL REFERENCES conversation(id),
+      from_agent_id TEXT NOT NULL,
+      to_agent_id TEXT NOT NULL,
+      trigger_message_id TEXT,
+      task_id TEXT,
+      content TEXT NOT NULL,
+      context_snapshot TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      chain_depth INTEGER NOT NULL DEFAULT 0,
+      a2a_from TEXT,
+      source TEXT NOT NULL DEFAULT 'a2a',
+      created_at TEXT NOT NULL,
+      delivered_at TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_mailbox_to_status ON agent_mailbox(to_agent_id, status);
+    CREATE INDEX IF NOT EXISTS idx_mailbox_conv ON agent_mailbox(conversation_id);
+    `,
   },
 ];
 
