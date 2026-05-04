@@ -2,135 +2,175 @@
 
 ## 1.1 形态与边界
 
-本仓库是一个“前端可视化协作看板 + Daemon（终端/事件桥接器）”的组合：
+当前仓库已经从“纯前端黑板 + 单一 opencode 执行器”演进为四层结构：
 
-- 前端：Next.js（App Router）+ React，用于展示任务看板、全局聊天室、任务详情、质量视图与设置页。
-- Daemon：Socket.io 服务端 + CLI 执行器，用于：
-  - 接收前端发起的执行请求（terminal:start）
-  - 通过本地不同的 CLI（如 opencode, claude-cli）或 Bridge（本机转发）执行任务
-  - 将 stdout/stderr 流式转发为 Web 终端输出，并从 NDJSON 中解析结构化事件（agent:event / agent:session）
+- 前端工作台：Next.js + React，负责项目切换、作战指挥室、任务详情、风险面板与设置入口
+- 前端编排层：Zustand store，负责 UI 状态、Socket 连接、API rehydrate 与用户操作编排
+- 应用 API 与持久化层：Next.js API Routes + SQLite/Drizzle + Repository
+- 执行层：Socket.io daemon + Agent Backend 抽象 + Bridge / 本地 CLI
 
-关键文件（以当前默认路径为准）：
+关键文件：
 
-- 前端入口：[`src/app/page.tsx`](../../src/app/page.tsx)、[`src/app/layout.tsx`](../../src/app/layout.tsx)
-- UI 容器：[`src/app/ClientHome.tsx`](../../src/app/ClientHome.tsx)
-- 状态与事件中枢：[`src/store/taskHubStore.ts`](../../src/store/taskHubStore.ts)
-- Daemon 实现：[`src/server/daemon.ts`](../../src/server/daemon.ts)
-- Daemon 初始化路由：[`src/pages/api/daemon/init.ts`](../../src/pages/api/daemon/init.ts)
-- Socket.io 路由：[`src/pages/api/socketio.ts`](../../src/pages/api/socketio.ts)
-- 设置页（配置入口）：[`src/components/task-hub/SettingsDrawer.tsx`](../../src/components/task-hub/SettingsDrawer.tsx)
-- Bridge（本机转发）：[`bridge/opencode-bridge.mjs`](../../bridge/opencode-bridge.mjs) 与 [`scripts/*`](../../scripts/)
+- 前端主入口：[`src/app/ClientHome.tsx`](../../src/app/ClientHome.tsx)
+- 工作台容器：[`src/components/project/ProjectWorkspace.tsx`](../../src/components/project/ProjectWorkspace.tsx)
+- 状态仓库：[`src/store/taskHubStore.ts`](../../src/store/taskHubStore.ts)
+- 状态加载 API：[`src/pages/api/state.ts`](../../src/pages/api/state.ts)
+- 变更写入 API：[`src/pages/api/mutations.ts`](../../src/pages/api/mutations.ts)
+- Daemon：[`src/server/daemon.ts`](../../src/server/daemon.ts)
+- Agent Backend 工厂：[`src/server/agent/factory.ts`](../../src/server/agent/factory.ts)
+- 数据库层：[`src/server/db`](../../src/server/db)
+- Repository 层：[`src/server/repositories`](../../src/server/repositories)
 
-历史/可选路径（非默认）：
+## 1.2 运行时拓扑
 
-- 独立后端（Express + Socket.io）：[`backend/server.js`](../../backend/server.js)（用于单独部署 daemon 的场景，文档需明确其为可选）
+默认开发模式下，`pnpm dev` 同时承载前端页面、API 与 Socket.io：
 
-## 1.2 运行时拓扑（Ports / Paths）
-
-默认开发模式下（`pnpm dev`），Next.js 同时承载 Web UI 与 Socket.io daemon：
-
-- Web：`http://localhost:3000`（端口可由环境变量覆盖）
+- Web：`http://localhost:3000`
+- 状态初始化：`GET /api/state`
+- 持久化 mutation：`POST /api/mutations`
 - Daemon 初始化：`GET /api/daemon/init`
-- Socket.io path：`/api/socketio`（同源连接）
+- Socket.io：`/api/socketio`
 
-Opencode Bridge（本机转发）是“本机进程”，默认监听：
+本机 Bridge 仍然是可选外部进程：
 
-- Bridge：`http://localhost:8787`（可通过 `BRIDGE_PORT` 覆盖）
+- Bridge：`http://localhost:8787`
+
+SQLite 作为默认数据源，数据库文件位于项目工作目录下的 `.ath/`。
 
 ## 1.3 核心数据流
 
-### A) 任务/聊天的“黑板式”数据流
+### A) 页面初始化与 Rehydrate
 
-1. UI 组件通过 `useTaskHubStore()` 读取 `tasks / chatMessages / terminalLogs / eventsByConversation` 等状态。
-2. UI 触发的操作（新建会话/新建任务/改状态/发聊天/邀请 Agent）调用 store 中的 mutation（如 `createConversation`、`addTask`、`updateTaskStatus`、`addChatMessage`）。
-3. 所有组件共享同一个 Zustand store：状态写入 → 视图自动更新（Blackboard 风格）。
+1. 前端启动后，[`ClientHome.tsx`](../../src/app/ClientHome.tsx) 先调用 `loadFromServer()`
+2. `GET /api/state` 从 SQLite 读取：
+   - conversations
+   - tasks
+   - recentMessages
+   - activeSessions
+   - recentInvocations
+3. store 将后端真相源映射为前端运行态，然后再调用 `connectDaemon()`
 
-### B) 终端与 Agent 事件流（Socket.io）
+### B) 用户操作与持久化
 
-1. 前端启动时会先 `fetch('/api/daemon/init')` 确保 daemon 初始化，再 `socket.connect()` 建立同源 Socket 连接（见 `taskHubStore.ts` 的 `connectDaemon()`）。
-2. 当用户在任务详情中触发“运行 Agent”时，前端通过 Socket 发送 `terminal:start`，核心字段已扩展为包含多运行时上下文：
-   - `taskId / agentId / prompt / sessionId`
-   - `runtimeId / providerProfileId / channel / authContextId`
-   - `allowMockRunner`（调试开关）
-3. Daemon 收到 `terminal:start` 后根据 `runtimeId` 和 `authContextId` 按需路由并执行：
-   - 若命中 Bridge（如 opencodeBridgeUrl）：HTTP 调用 `{bridge}/run` 并流式转发
-   - 否则：通过本地 CLI（如 `opencode`, `claude-cli`）衍生子进程并执行任务
-4. Daemon 对输出做两类处理：
-   - 原样（换行适配）转发为 `terminal:data` 用于 xterm 渲染
-   - 逐行解析 NDJSON：抽取 `sessionId`（发 `agent:session`），以及 `text/tool_use/step_*`（发 `agent:event`）
-5. 执行结束后发 `terminal:exit`，前端将 agent 标记为 idle 并记录退出码。
+1. 用户在工作台中创建项目、任务、消息或状态流转
+2. store 先更新本地状态，再通过 `POST /api/mutations` 写入 Repository
+3. Repository 统一落 SQLite，保证刷新后可恢复
 
-## 1.4 领域状态机（TaskStatus）
+### C) 执行链路
 
-任务状态机在 `taskHubStore.ts` 以联合类型表达：
+1. 任务执行时，前端通过 Socket 发送 `terminal:start`
+2. daemon 根据 `engine / runtimeId / accountId / opencodeBridgeUrl` 解析执行路径
+3. daemon 通过 Agent Backend 工厂选择对应执行器，例如 `opencode / claude / codex`
+4. 执行输出被统一归一化为 `AgentEvent`
+5. daemon 将事件：
+   - 广播给前端（`agent:event` / `agent:session` / `terminal:data` / `terminal:exit`）
+   - 同步写入 `messageRepo / eventRepo / invocationRepo / sessionRepo`
 
-- `pending | in_progress | in_review | done | rejected | blocked`
+## 1.4 当前 UI 信息架构
 
-UI 侧：
+当前主界面不是旧的双栏任务看板，而是三栏工作台：
 
-- 任务卡片/详情通过 `StatusBadge` 渲染状态
-- `TaskDetailPanel` 提供状态跳转（开始 / 提交评审 / 通过 / 拒绝 / 阻塞 / 重置）
+- 左栏：项目列表与项目切换
+- 中栏：作战指挥室，显示当前项目目标、拆解状态、Agent 条带和嵌入式聊天
+- 右栏：Mini Kanban、下一步代办、风险与阻塞
 
-## 1.5 代码组织约定（本项目实际做法）
+辅助层：
 
-- 业务中枢在 store：任务/聊天/终端/事件等核心状态集中在 `src/store/taskHubStore.ts`
-- 视图组件尽量薄：`src/components/*` 以渲染 + 调用 store actions 为主
-- daemon 只做桥接：执行进程/转发流/解析事件，不维护业务实体（会话/任务仍由前端维护与持久化）
-- 配置入口在设置页：环境探测、daemon 连接、bridge URL、调试开关、清空本地数据
+- 任务详情抽屉：任务信息、状态流转、终端输出
+- 新建任务弹窗
+- Agent roster 弹窗
+- 设置抽屉：当前已落地的账号与角色卡配置入口
 
-## 1.6 配置体系（UI / env / scripts）
+## 1.5 当前后端主链路
 
-配置分三层：
+后端不再只是“桥接 stdout”，而是承担三部分职责：
 
-- UI（localStorage，面向使用者）：
-  - Opencode Bridge URL、启用状态与检测结果
-  - Mock Runner 开关
-  - 一键清空本地持久化数据（重置到从 0 开始）
-- 环境变量（面向部署/运行时）：
-  - `ENABLE_MOCK_RUNNER=1`：允许在找不到 `opencode` 时回退到内置模拟执行器
-  - Bridge 进程：`BRIDGE_PORT / OPENCODE_MODE / OPENCODE_ATTACH_URL`
-- 脚本（面向安装/启动）：
-  - `scripts/opencode-bridge-install.*`：安装检查/可选安装 opencode
-  - `scripts/opencode-bridge-start.*`：启动 bridge（run/attach）
+- API 真相源：
+  - `/api/state` 负责加载当前项目状态
+  - `/api/mutations` 负责写入 conversation/task/message/session/invocation/event
+- SQLite 持久化：
+  - `better-sqlite3` + `drizzle-orm`
+  - repo 负责业务语义读写
+- Daemon 编排：
+  - 会话查找 / 创建 / seal
+  - invocation 跟踪
+  - account credential 注入
+  - Agent Backend 选择
 
-## 1.7 核心业务模型与演进抽象
+## 1.6 核心业务对象
 
-### A) 统一集成配置中心 (Unified Integration Config Center)
-随着多 CLI 和多渠道的接入，架构从“硬编码依赖单一 `opencode` 运行时”向“配置化路由”演进。
-核心抽象模型包括：
-- `CliRuntime`: 本地 CLI 或远程 Daemon 执行器（如 `opencode`, `claude-cli`, `mock`）。
-- `Credential`: 凭证模型，区分 API Key、OAuth 和 Web Session。
-- `ProviderProfile`: 厂商能力描述（模型提供商等）。
-- `ChannelConfig`: 渠道接入配置。
-- `RoutingPolicy`: 用于绑定 Channel 到默认的 Runtime 与 Provider。
+当前主业务对象包括：
 
-### B) 工程型角色卡机制 (Engineering Role Card Schema)
-为摆脱“泛化助手”模式，引入了针对软件工程场景的结构化角色卡：
-- **Identity (身份边界)**: 定义 Agent 的代号、名称、头像。
-- **Responsibility (核心职责)**: 描述 Agent 在工作流中的专注领域（如架构师、开发、测试）。
-- **Behavior (行为准则)**: 设定交互偏好、交付物格式要求及协作口吻。
-- **CapabilityPolicy (能力权限)**: 绑定到具体的 MCP / Tools 或 Runtime。
-- 角色卡的数据模型与前端组件（`RoleCardListPage`, `RoleCardEditor` 等）已经解耦并在持续演进。
+- `Conversation`：项目 / 战役级上下文
+- `Task`：具体执行任务，带 `conversationId`、`phaseId`、`agentId`
+- `ChatMessage`：对话消息，支持 streaming/tool/progress/artifact preview
+- `Blocker`：风险与阻塞项
+- `Account`：账号与执行认证入口
+- `RoleCard`：工程型角色卡
+- `AgentSession`：conversation 级或任务级执行会话
+- `Invocation`：每次实际执行记录
 
-## 1.8 架构演进路线（里程碑）
+## 1.7 架构演进主线
 
-### M0：可执行链路（现状）
-- 目标：通过设置页配置 Bridge，让远程环境调用本机真实 opencode；并在 UI 中可观察输出与事件。
-- 验证：创建任务 → 运行 Opencode → 终端输出可见；Bridge/Daemon 状态可见。
+### A) 项目工作台化
 
-### M1：统一“派发到 Agent”的语义（部分完成）
-- 目标：把“激活 session / 任务执行 / @mention 对话”统一为单一动作，并形成稳定的会话复用策略与角色卡分配机制。
-- 验证：工程型角色卡能稳定约束各 Agent 的回答边界，通过统一的调度中心派发任务。
+从旧的任务板视图演进到“项目 > 指挥室 > 风险面板”三栏工作流，项目切换成为第一层上下文。
 
-### M1.5：多引擎执行链路（进行中）
-- 目标：完成统一集成配置中心（Unified Integration Config Center），解耦 Runtime、Provider、Channel 和 Credentials。
-- 验证：系统能同时并存 `opencode` 和其他 CLI 工具执行环境，不同 Auth 方式逻辑隔离。
+### B) SQLite 真相源
 
-### M2：生产化安全与权限（规划）
-- 目标：为 daemon 与 bridge 增加最小认证（token / allowlist），收敛 CORS，避免公网暴露风险。
-- 验证：无 token 无法调用关键执行接口；安全配置有文档与自测步骤。
+从 localStorage 主导演进到 SQLite 主导，前端 store 变成运行时缓存与编排层，而不是唯一数据源。
 
-## 1.8 关联设计文档（仓库内）
+### C) Agent Backend 抽象
+
+从 daemon 内部硬编码多引擎分支，演进到统一的 Backend 接口：
+
+- [`src/server/agent/types.ts`](../../src/server/agent/types.ts) — `AgentBackend` 接口 + `AgentRun` / `AgentEvent` / `AgentResult` 类型
+- [`src/server/agent/factory.ts`](../../src/server/agent/factory.ts) — `createBackend(engine, config)` 工厂
+- 独立 backend 实现：`opencode.ts` / `claude.ts` / `codex.ts`
+
+核心设计：
+- `execute(prompt, opts)` → `{ events: AsyncGenerator<AgentEvent>, result: Promise<AgentResult>, kill }`
+- 各引擎私有协议归一化为统一的 `AgentEvent` 流（text / thinking / tool_use / error / done）
+- Daemon 通过 `for await (const event of events)` 消费，统一处理 session/invocation/socket 广播
+- 新增引擎只需实现 `AgentBackend` 接口，不改动 daemon 主流程
+
+**OpenCode 跨平台 Spawn 策略**：OpenCode 的 Go 二进制检测到非 TTY stdout 时抑制输出（上游 bug `anomalyco/opencode#14948`）。采用三级 fallback：
+1. 直接 spawn Go 二进制（`.opencode`），绕过 Node.js wrapper 的 `spawnSync({ stdio: "inherit" })`
+2. `script -q /dev/null` PTY 包装（Unix，提供真实 TTY）
+3. 直接 pipe 兜底（Windows / 无 script 命令时）
+
+详见 [`docs/technical/execution/opencode-integration-executable-chain.md`](../technical/execution/opencode-integration-executable-chain.md)。
+
+### D) 账号绑定与多运行时参数通路
+
+系统正在从“单一 opencode”演进到“账号绑定 + 多 CLI 执行”的模型。
+
+当前事实是：
+
+- 账号管理已落地
+- 角色卡与账号绑定已落地
+- 多运行时参数通路已部分落地
+- 独立配置中心与完整 runtime center 尚未完成
+
+## 1.8 当前状态判断
+
+- 已完成：
+  - 项目工作台 UI
+  - SQLite repo 与 API rehydrate
+  - Agent Backend 抽象
+  - 基础账号模型与执行绑定
+- 部分完成：
+  - 统一集成配置中心
+  - 多 runtime 的完整信息架构
+  - 独立配置中心页面
+- 仍在规划：
+  - 更强的安全与权限边界
+  - 更完整的渠道、provider、routing policy
+
+## 1.9 关联文档
 
 - 需求与愿景：[`VISION.md`](../../VISION.md)、[`ROADMAP.md`](../../ROADMAP.md)
-- 设计与决策记录：[`decisions/`](../../decisions/)
+- 规格目录：[`specs/`](../../specs/)
+- 文档导航：[`docs/README.md`](../README.md)
+- 架构图：[`07-architecture-diagrams.md`](./07-architecture-diagrams.md)
+- 决策记录：[`decisions/`](../../decisions/)

@@ -1,5 +1,4 @@
 ---
-feature_ids: []
 topics: [cascade, delete, semantics]
 doc_kind: decision
 created: 2026-02-26

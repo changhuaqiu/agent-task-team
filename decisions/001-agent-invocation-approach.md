@@ -1,5 +1,4 @@
 ---
-feature_ids: [F159]
 topics: [agent, invocation, approach]
 doc_kind: decision
 created: 2026-02-26

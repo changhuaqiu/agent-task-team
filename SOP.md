@@ -1,5 +1,4 @@
 ---
-feature_ids: [F042]
 topics: [sop]
 doc_kind: note
 created: 2026-02-26
@@ -149,7 +148,7 @@ Phase N merge → 碰头（不是"要不要继续"，是"方向对不对"）→ 
 |------|-----|--------|
 | **Triage** | 任意Agent（收到 @ 或主动巡查） | 给 issue 加 `bug` / `feature` label，回复确认收到 |
 | **F 号分配** | 铲屎官拍板 → Agent执行 | 在 ROADMAP.md 加条目，分配下一个可用 F 号 |
-| **Feature Doc** | 分配到的Agent | 按模板写 `docs/features/F{NNN}-slug.md` |
+| **Feature Doc** | 分配到的Agent | 按模板写 `(legacy feature document removed)` |
 | **实现** | 任意Agent或社区贡献者 | 按 Feature Doc AC 实现 + PR |
 
 ### 流程

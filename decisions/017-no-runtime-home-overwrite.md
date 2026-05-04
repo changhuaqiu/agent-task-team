@@ -1,5 +1,4 @@
 ---
-feature_ids: [F050]
 topics: [system-prompt, governance, security]
 doc_kind: adr
 created: 2026-03-13

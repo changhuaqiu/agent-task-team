@@ -1,8 +1,9 @@
-- [x] 已提供独立的“账户与集成配置中心”入口，且不再要求用户在设置抽屉中完成复杂集成配置
-- [x] `CLI Runtimes` 分区以统一 runtime 视角展示 `opencode`、`claude`、`codex`、`mock` 等能力，而非仅围绕 `opencode`
-- [x] `Credentials` 分区支持最小闭环管理，至少可新增、查看、编辑、删除本地凭据记录，并展示类型、状态与适用范围提示
-- [x] 设置抽屉已收缩为“系统摘要 + 快速检测 + 配置中心入口”，仍保留 daemon / bridge / mock 等关键信息
-- [x] OpenCode 已被纳入统一 runtime 模型管理，业务执行链路不再对 `opencode` 保持唯一特判
-- [x] 执行请求的数据契约已支持 `runtimeId / providerProfileId / channel / authContextId` 等上下文，且兼容现有 `engine`
-- [x] 配置模型已为 `Provider Profiles`、`Channels`、`Routing Policy` 预留扩展位，后续接入不需要推翻第一阶段结构
-- [x] 最终通过基本验证，包括配置中心可访问、入口可达，以及 `pnpm build` 可通过
+- [x] 设置抽屉已提供 `模型账号` 分区
+- [x] 设置抽屉已提供 `角色卡` 分区
+- [x] 账号支持新增、编辑、删除、验证的最小闭环
+- [x] OAuth 与 API Key 两种模式的字段已按不同表单逻辑处理
+- [x] 角色卡支持浏览、详情、编辑与账号绑定
+- [x] 执行链路已支持 `accountId`，且保留 `runtimeId / providerProfileId / channel / authContextId` 参数通路
+- [x] daemon 已具备多 backend 能力，`opencode / claude / codex` 已独立接入
+- [ ] 独立配置中心页面已落地
+- [ ] `Provider Profiles / Channels / Routing Policy` 已落地

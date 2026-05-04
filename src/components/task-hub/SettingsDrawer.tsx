@@ -150,8 +150,11 @@ function AccountDialog({
   const [submitting, setSubmitting] = useState(false);
 
   const prevOpenRef = useRef(open);
+  const prevInitialIdRef = useRef<string | undefined>(initial?.id);
   useEffect(() => {
-    if (open && !prevOpenRef.current) {
+    const isOpening = open && !prevOpenRef.current;
+    const initialChanged = initial?.id !== prevInitialIdRef.current;
+    if (isOpening || (open && initialChanged)) {
       setAuthMode(initial?.authMode ?? 'oauth');
       setProvider(initial?.provider ?? 'anthropic');
       setName(initial?.name ?? '');
@@ -161,6 +164,7 @@ function AccountDialog({
       setSubmitting(false);
     }
     prevOpenRef.current = open;
+    prevInitialIdRef.current = initial?.id;
   }, [open, initial]);
 
   if (!open) return null;

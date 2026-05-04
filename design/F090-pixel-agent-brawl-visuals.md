@@ -1,5 +1,4 @@
 ---
-feature_ids: [F090]
 topics: [visual-design, pixel-art, game-ui, cyber-agent-hub]
 doc_kind: spec
 created: 2026-03-09

@@ -1,5 +1,4 @@
 ---
-feature_ids: []
 topics: [design, system]
 doc_kind: note
 created: 2026-02-26

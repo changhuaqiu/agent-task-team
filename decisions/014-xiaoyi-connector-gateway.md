@@ -1,5 +1,4 @@
 ---
-feature_ids: [F151]
 topics: [connector, architecture, xiaoyi, websocket]
 doc_kind: decision
 created: 2026-04-02

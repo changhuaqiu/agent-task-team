@@ -16,8 +16,8 @@ related_decisions: [005]
 随着 F059、F086、F046、lessons-learned 与 tutorial lessons 持续沉淀，咱们已经形成一套稳定的治理哲学，但目前这些内容分散在：
 
 - `agent-hub-skills/refs/shared-rules.md`
-- `docs/features/F059-open-source-plan.md`
-- `docs/features/F086-agent-orchestration-multi-mention.md`
+- `(legacy feature document removed)`
+- `(legacy feature document removed)`
 - `docs/public-lessons.md`
 - `docs/decisions/005-hindsight-integration-decisions.md`
 - `agent-hub-tutorials/docs/lessons/`
@@ -115,16 +115,16 @@ Agent不是被动等调用的函数，而是有身份、有上下文、有主动
 ### B. 世界观与哲学收敛层
 
 - `docs/VISION.md`
-- `docs/features/F059-open-source-plan.md`
-- `docs/features/F087-cvo-bootcamp.md`
+- `(legacy feature document removed)`
+- `(legacy feature document removed)`
 
 注：**Hard Rails, Soft Power, Shared Mission** 是 F059 的品牌表达，不单独视为世界观条目；它是对 P2 + W1 + W3 的对外浓缩。
 
 ### C. 知识工程与治理结构层
 
-- `docs/features/F043-mcp-unification.md`
-- `docs/features/F046-anti-drift-protocol.md`
-- `docs/features/F086-agent-orchestration-multi-mention.md`
+- `(legacy feature document removed)`
+- `(legacy feature document removed)`
+- `(legacy feature document removed)`
 - `docs/decisions/005-hindsight-integration-decisions.md`
 
 ### D. 教训与反思层

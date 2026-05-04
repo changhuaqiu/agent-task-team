@@ -3,13 +3,14 @@
 import { useMemo, useState } from 'react';
 import { useTaskHubStore } from '@/store/taskHubStore';
 import { cn } from '@/lib/utils';
-import { Plus } from 'lucide-react';
+import { Plus, Trash2 } from 'lucide-react';
 import { ProjectCreateDialog } from './ProjectCreateDialog';
 
 export function ProjectSidebar() {
   const conversations = useTaskHubStore((s) => s.conversations);
   const selectedConversationId = useTaskHubStore((s) => s.selectedConversationId);
   const setSelectedConversationId = useTaskHubStore((s) => s.setSelectedConversationId);
+  const deleteConversation = useTaskHubStore((s) => s.deleteConversation);
   const tasks = useTaskHubStore((s) => s.tasks);
   const blockers = useTaskHubStore((s) => s.blockersByConversation);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -73,32 +74,46 @@ export function ProjectSidebar() {
               const counts = statsByConversation.taskCounts.get(c.id) ?? { total: 0, blocked: 0 };
               const openBlockerCount = statsByConversation.openBlockers.get(c.id) ?? 0;
               return (
-                <button
-                  key={c.id}
-                  type="button"
-                  onClick={() => setSelectedConversationId(c.id)}
-                  className={cn(
-                    'text-left rounded-[var(--radius-lg)] border p-3 transition-colors',
-                    c.id === selectedConversationId
-                      ? 'border-[hsl(var(--accent))] bg-[hsl(var(--accent-soft))]'
-                      : 'border-[hsl(var(--border))] bg-[hsl(var(--bg-app))] hover:bg-[hsl(var(--bg-card-hover))]'
-                  )}
-                >
-                  <div className="text-[12px] font-semibold text-[hsl(var(--text-primary))] truncate">
-                    {c.title}
-                  </div>
-                  <div className="text-[11px] text-[hsl(var(--text-tertiary))] mt-1 line-clamp-2">
-                    {c.goal}
-                  </div>
-                  <div className="mt-2 flex items-center gap-2 text-[10px] font-bold text-[hsl(var(--text-tertiary))]">
-                    <span className="tabular-nums">{counts.total} 任务</span>
-                    {openBlockerCount > 0 && (
-                      <span className="tabular-nums text-[hsl(var(--danger))]">
-                        {openBlockerCount} 阻塞
-                      </span>
+                <div key={c.id} className="group relative">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedConversationId(c.id)}
+                    className={cn(
+                      'w-full text-left rounded-[var(--radius-lg)] border p-3 transition-colors',
+                      c.id === selectedConversationId
+                        ? 'border-[hsl(var(--accent))] bg-[hsl(var(--accent-soft))]'
+                        : 'border-[hsl(var(--border))] bg-[hsl(var(--bg-app))] hover:bg-[hsl(var(--bg-card-hover))]'
                     )}
-                  </div>
-                </button>
+                  >
+                    <div className="text-[12px] font-semibold text-[hsl(var(--text-primary))] truncate">
+                      {c.title}
+                    </div>
+                    <div className="text-[11px] text-[hsl(var(--text-tertiary))] mt-1 line-clamp-2">
+                      {c.goal}
+                    </div>
+                    <div className="mt-2 flex items-center gap-2 text-[10px] font-bold text-[hsl(var(--text-tertiary))]">
+                      <span className="tabular-nums">{counts.total} 任务</span>
+                      {openBlockerCount > 0 && (
+                        <span className="tabular-nums text-[hsl(var(--danger))]">
+                          {openBlockerCount} 阻塞
+                        </span>
+                      )}
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (confirm(`删除项目「${c.title}」及其所有任务？`)) {
+                        deleteConversation(c.id);
+                      }
+                    }}
+                    className="absolute top-2 right-2 p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity text-[hsl(var(--text-tertiary))] hover:text-[hsl(var(--danger))] hover:bg-[hsl(var(--bg-card-hover))]"
+                    title="删除项目"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               );
             })
           )}

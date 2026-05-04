@@ -21,7 +21,15 @@ export default function handler(req: NextApiRequest, res: NextApiResponseWithSoc
   if (!res.socket.server.io) {
     const io = new IOServer(res.socket.server as any, { path: '/api/socketio', cors: { origin: '*' } });
     res.socket.server.io = io;
+
+    // Re-register daemon handlers on each new IO server instance.
+    // Also clear stale handlers on existing sockets when they reconnect.
     registerDaemon(io);
+
+    io.on('connection', (socket) => {
+      // Health-check: client can ping to verify daemon is active
+      socket.on('daemon:ping', (cb) => cb?.({ ok: true }));
+    });
   }
 
   res.end();

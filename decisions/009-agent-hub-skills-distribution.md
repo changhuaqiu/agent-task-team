@@ -1,5 +1,4 @@
 ---
-feature_ids: []
 topics: [agent, hub, skills]
 doc_kind: decision
 created: 2026-02-26
@@ -16,7 +15,7 @@ drift_note: >
 
 # ADR-009: Agent Task Hub Skills 分发策略
 
-> **⚠️ DRIFTED** — 本决策的"仅用户级分发"假设已被 [F070](../features/F070-portable-governance.md) 的项目级 governance bootstrap 事实性推翻。当前系统同时存在用户级和项目级两层挂载，且无一致性校验。新的 canonical mount policy 待定（successor ADR 待立）。
+> **⚠️ DRIFTED** — 本决策的"仅用户级分发"假设已被 F070（legacy feature document removed） 的项目级 governance bootstrap 事实性推翻。当前系统同时存在用户级和项目级两层挂载，且无一致性校验。新的 canonical mount policy 待定（successor ADR 待立）。
 >
 > 原始决策内容保留如下，作为历史记录。
 

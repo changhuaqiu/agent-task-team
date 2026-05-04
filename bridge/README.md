@@ -2,6 +2,12 @@
 
 用途：把你本机的 `opencode` 通过一个 HTTP 服务暴露出来，让远程运行的 Agent Task Hub 可以调用“真实的本机 opencode”。
 
+说明：
+
+- Bridge 协议当前仍然有效
+- 但当前产品前端没有完整的 Bridge 配置界面
+- Bridge 更适合作为开发链路、远程调试或定制集成能力使用
+
 ## 1. 安装检查
 
 ```bash
@@ -52,10 +58,9 @@ powershell -ExecutionPolicy Bypass -File .\scripts\opencode-bridge-start.ps1 -Po
 - `cloudflared tunnel --url http://localhost:8787`
 - 或 ngrok
 
-得到公网 URL 之后，打开 Web 右上角「设置」→「Opencode Bridge（本机转发）」：
-- 粘贴 URL
-- 点「检测」
-- 点「启用」
+得到公网 URL 之后，将该 URL 接入 daemon 或本地调试链路。
+
+当前不建议再把“前端设置里手填 Bridge URL”当成默认产品路径。
 
 ## 4. 协议
 

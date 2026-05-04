@@ -225,14 +225,24 @@ export default function registerDaemon(io: IOServer) {
         switch (engine) {
           case 'opencode': {
             const a = ['run', '--format', 'json'];
-            if (systemPrompt) a.push('--prompt', systemPrompt);
             if (effectiveSessionId) a.push('--session', effectiveSessionId);
-            a.push(prompt || '');
+            a.push(systemPrompt ? `${systemPrompt}\n\n---\n\n${prompt || ''}` : (prompt || ''));
             return a;
           }
-          case 'claude': return ['-p', prompt || '', '--output-format', 'stream-json', ...(effectiveSessionId ? ['--resume', effectiveSessionId] : [])];
-          case 'codex': return ['-q', prompt || '', '--full-auto'];
-          case 'gemini': return ['-p', prompt || ''];
+          case 'claude': {
+            const a = ['-p', prompt || '', '--output-format', 'stream-json'];
+            if (systemPrompt) a.push('--append-system-prompt', systemPrompt);
+            if (effectiveSessionId) a.push('--resume', effectiveSessionId);
+            return a;
+          }
+          case 'codex': {
+            const merged = systemPrompt ? `${systemPrompt}\n\n---\n\n${prompt || ''}` : (prompt || '');
+            return ['-q', merged, '--full-auto'];
+          }
+          case 'gemini': {
+            const merged = systemPrompt ? `${systemPrompt}\n\n---\n\n${prompt || ''}` : (prompt || '');
+            return ['-p', merged];
+          }
           case 'mock': return [join(process.cwd(), 'backend', 'mock-opencode.js')];
           default: return [];
         }
@@ -478,9 +488,7 @@ export default function registerDaemon(io: IOServer) {
 
           clearProcessTimeout();
           clearInterval(heartbeatTimer);
-          if (agentSession) {
-            sessionRepo.seal(agentSession.id, 'completed');
-          }
+          // Don't seal on successful completion — session stays active for --resume reuse
           broadcast('terminal:exit', { agentId, code: 0, command: 'bridge' });
           activeProcesses.delete(processKey(agentId, projectId));
           if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
@@ -592,8 +600,8 @@ export default function registerDaemon(io: IOServer) {
             });
           }
 
-          if (agentSession) {
-            sessionRepo.seal(agentSession.id, final.status === 'completed' ? 'completed' : 'failed');
+          if (agentSession && final.status !== 'completed') {
+            sessionRepo.seal(agentSession.id, 'failed');
           }
 
           broadcast('terminal:exit', {

@@ -7,7 +7,7 @@
 - `next` / `react` / `react-dom`
   - Next.js App Router 前端框架与渲染运行时
 - `zustand`
-  - 全局状态：任务、聊天、终端日志、弹窗状态、Socket 事件落库
+  - 全局状态、前端编排与 Socket 事件接入
 - `tailwindcss`（通过 `@import "tailwindcss"` 在 `globals.css` 引入）
   - 以 utility class + CSS variables 的方式实现主题与组件样式
 - `clsx` + `tailwind-merge`
@@ -18,8 +18,12 @@
   - Web 终端（`TerminalView`）
 - `socket.io-client`
   - 前端连接后端守护进程（`taskHubStore.ts`）
+- `better-sqlite3`
+  - SQLite 驱动，作为应用当前默认持久化方案
+- `drizzle-orm`
+  - 数据库访问与 schema 映射
 - `express` + `socket.io`
-  - 后端守护进程（`backend/server.js`）
+  - `socket.io` 用于默认 daemon；`express` 主要保留给独立 daemon / 可选后端场景
 
 ## 6.2 开发依赖（devDependencies）
 
@@ -29,22 +33,32 @@
   - Lint，配置入口为 [`eslint.config.mjs`](../../eslint.config.mjs)
 - `@tailwindcss/postcss`
   - Tailwind v4 的 postcss 集成
+- `drizzle-kit`
+  - SQLite schema / migration 工具链
+- `vitest`
+  - 当前测试框架
 
 ## 6.3 内部模块依赖关系（简图）
 
 ```
-src/app/page.tsx
+src/app/ClientHome.tsx
+  ├─ src/components/project/*
   ├─ src/components/task-hub/*
-  │    ├─ src/store/taskHubStore.ts
-  │    └─ src/lib/utils.ts
   └─ src/store/taskHubStore.ts
 
 src/store/taskHubStore.ts
-  └─ socket.io-client  →  Next.js Socket.io（/api/socketio）→ src/server/daemon.ts
+  ├─ fetch('/api/state')
+  ├─ fetch('/api/mutations')
+  └─ socket.io-client → /api/socketio → src/server/daemon.ts
+
+src/pages/api/state.ts
+  └─ src/server/repositories/*
+      └─ src/server/db/*
 
 src/server/daemon.ts
-  ├─ socket.io
-  ├─ child_process.spawn('opencode', ['run', ...])（本地可执行）
+  ├─ src/server/agent/factory.ts
+  ├─ src/server/repositories/*
+  ├─ child_process / backend adapters
   └─ fetch('{bridge}/run')（Bridge 模式）
 ```
 
@@ -57,3 +71,5 @@ src/server/daemon.ts
 - 网络端口
   - Next.js：默认 `3000`（同时承载 UI + daemon）
   - Bridge：默认 `8787`（本机进程，可改）
+- 数据库
+  - SQLite：本地文件数据库，无需额外服务

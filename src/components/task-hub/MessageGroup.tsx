@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { cn } from '@/lib/utils';
 import type { ChatMessage } from '@/store/taskHubStore';
 import { ChatMessageItem } from './ChatMessageItem';
@@ -11,18 +11,24 @@ interface MessageGroupProps {
   agentEmoji: string;
   agentName: string;
   defaultExpanded: boolean;
+  forceExpand?: boolean;
 }
 
-export function MessageGroup({ messages, themeColor, agentEmoji, agentName, defaultExpanded }: MessageGroupProps) {
+export function MessageGroup({ messages, themeColor, agentEmoji, agentName, defaultExpanded, forceExpand }: MessageGroupProps) {
   const [expanded, setExpanded] = useState(defaultExpanded);
+
+  // External force-expand (e.g. when a message in this group starts streaming)
+  useEffect(() => {
+    if (forceExpand && !expanded) setExpanded(true);
+  }, [forceExpand]);
   if (messages.length === 0) return null;
 
   if (messages.length === 1) {
     return <ChatMessageItem message={messages[0]} />;
   }
 
-  const firstTime = messages[0].timestamp.slice(11, 16);
-  const lastTime = messages[messages.length - 1].timestamp.slice(11, 16);
+  const firstTime = new Date(messages[0].timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
+  const lastTime = new Date(messages[messages.length - 1].timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
 
   return (
     <div className={cn('border-l-2 pl-2.5', themeColor)}>

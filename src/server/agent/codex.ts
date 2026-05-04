@@ -86,12 +86,14 @@ export class CodexBackend implements AgentBackend {
           if (queue.length > 0) {
             yield queue.shift()!;
           } else {
-            yield await new Promise<AgentEvent>((resolve) => {
+            const event = await new Promise<AgentEvent | undefined>((resolve) => {
               resolveNext = (r) => {
-                if (r.done) return;
+                if (r.done) { resolve(undefined); return; }
                 resolve(r.value!);
               };
             });
+            if (event === undefined) break; // process exited
+            yield event;
           }
         }
         while (queue.length > 0) yield queue.shift()!;

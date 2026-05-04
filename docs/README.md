@@ -2,6 +2,9 @@
 
 本文档定义当前项目的文档分类方式与演进规则，后续新增文档默认按照这里的目录结构落位。
 
+> 文档维护说明：
+> 事实型文档必须持续和当前代码保持一致。如果某篇文档描述的是“设计目标”而不是“已落地事实”，必须明确标注其状态，避免被后续 agent 误读为当前实现。
+
 ## 一、文档分层
 
 ### 1. 项目级入口文档
@@ -80,6 +83,10 @@
 - `docs/technical/integrations/2026-05-01-cli-channel-auth-config-center.md`
 - `docs/technical/execution/opencode-integration-executable-chain.md`
 
+说明：
+
+- `2026-05-01-cli-channel-auth-config-center.md` 当前仍是设计稿，不代表完整落地状态
+
 ### 进行中的计划
 
 - `docs/plans/`
@@ -88,6 +95,10 @@
 
 - `specs/README.md`
 - `specs/unify-integration-config-center/`
+
+说明：
+
+- `specs/unify-integration-config-center/` 当前为进行中规格，不应理解为全部完成
 
 ### 稳定知识库
 

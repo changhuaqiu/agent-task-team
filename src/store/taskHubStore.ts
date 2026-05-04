@@ -1952,7 +1952,7 @@ export const useTaskHubStore = create<TaskHubState>()(
     }),
   {
     name: 'agent-task-hub-store-clean',
-    version: 2,
+    version: 3,
     migrate: (persisted: any, version: number) => {
       if (version === 0) {
         // Migrate Genshin agent IDs → Mario agent IDs
@@ -2007,6 +2007,10 @@ export const useTaskHubStore = create<TaskHubState>()(
       if (version < 2) {
         // Clear stale CLI sessions — agents need fresh systemPrompt injection
         persisted.agentSessions = {};
+      }
+      if (version < 3) {
+        // Reset activeAgentIds to defaults — stale persistence could include all 6 agents
+        persisted.activeAgentIds = ['mario', 'luigi'];
       }
       return persisted;
     },

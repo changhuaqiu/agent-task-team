@@ -1,5 +1,4 @@
 ---
-feature_ids: [F139, F102, F104, F085]
 related_features: [F118, F032, F129]
 topics: [schedule, heartbeat, cron, task-runner, autonomy, openclaw-compat]
 doc_kind: decision

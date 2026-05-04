@@ -1,14 +1,17 @@
 # 03 — 领域模型与状态仓库（Zustand）
 
-核心状态仓库位于 [`src/store/taskHubStore.ts`](../../src/store/taskHubStore.ts)。它同时承担三类职责：
+核心状态仓库位于 [`src/store/taskHubStore.ts`](../../src/store/taskHubStore.ts)。
 
-1. 领域模型定义（Task / Agent / ChatMessage / TaskArtifact 等）
-2. 全局状态与 mutation（任务/聊天/Agent roster/终端）
-3. Socket.io 事件监听与落库（把后端推送写入 store）
+在当前版本里，它不再只是“前端黑板”，而是承担四类职责：
 
-## 3.1 领域模型
+1. 领域模型定义
+2. 前端运行态缓存
+3. API rehydrate 与 mutation 编排
+4. Socket 实时事件接入
 
-### TaskStatus（状态机）
+## 3.1 核心领域模型
+
+### TaskStatus
 
 ```ts
 export type TaskStatus =
@@ -22,33 +25,58 @@ export type TaskStatus =
 
 配套常量：
 
-- `STATUS_LABELS: Record<TaskStatus, string>`
-- `STATUS_ORDER: TaskStatus[]`（用于看板排序）
+- `STATUS_LABELS`
+- `STATUS_ORDER`
 
-### Agent / Roster
+### Agent
+
+当前 `Agent` 已从旧的静态 role 演进为“角色卡 + 账号绑定 + 运行时选择”模型：
 
 ```ts
-export type AgentRole = 'planner' | 'worker' | 'reviewer';
-export type AgentTheme = 'jean' | 'keqing' | 'zhongli' | 'nahida' | 'albedo' | 'venti';
-
 export interface Agent {
   id: string;
   name: string;
-  role: AgentRole;
-  roleLabel: string;
+  roleCardId: string;
   theme: AgentTheme;
   emoji: string;
   isOnline: boolean;
+  cliEngine?: CliEngine;
+  accountIds: string[];
 }
 ```
 
-`AGENT_ROSTER` 是内置静态 roster；`activeAgentIds` 表示当前看板上显示哪些 agents。
+说明：
+
+- `role / roleLabel` 已处于兼容保留状态
+- 实际上更推荐由 `roleCardId` 驱动 Agent 能力与身份
+
+### Conversation
+
+`Conversation` 现在就是“项目上下文”：
+
+```ts
+export interface Conversation {
+  id: string;
+  title: string;
+  goal: string;
+  status: 'active' | 'paused' | 'completed' | 'archived';
+  priority: 'p0' | 'p1' | 'p2' | 'p3';
+  projectPath: string;
+  breakdownStatus: 'none' | 'in_progress' | 'reviewed' | 'confirmed' | 'no_account';
+  createdAt: string;
+  updatedAt: string;
+}
+```
 
 ### Task
+
+任务已经从旧版简单列表扩展为项目内任务：
 
 ```ts
 export interface Task {
   id: string;
+  conversationId: string;
+  phaseId: string;
   title: string;
   description: string;
   status: TaskStatus;
@@ -63,81 +91,135 @@ export interface Task {
 
 ### ChatMessage
 
-```ts
-export interface ChatMessage {
-  id: string;
-  agentId: string | 'human';
-  content: string;
-  timestamp: string;
-  isApprovalRequest?: boolean;
-  referencedTaskId?: string;
-  approvalStatus?: 'pending' | 'approved' | 'rejected';
-  mentions?: string[];
-  intent?: 'ideate' | 'execute' | 'review' | 'general';
-}
-```
+消息模型已支持更多运行态信息：
 
-## 3.2 Store State（关键字段）
+- `toolEvents`
+- `isStreaming`
+- `progressData`
+- `artifactPreview`
+- `rejectionReason`
+- `selectedProposals`
 
-- `activeAgentIds: string[]`
-- `tasks: Task[]`
-- `chatMessages: ChatMessage[]`
-- `terminalLogs: Record<string, string[]>`：按 `agentId` 存储 xterm 可直接写入的字符串片段
-- `agentStatus: Record<string, 'idle' | 'busy'>`
+这意味着聊天室已经同时承载：
+
+- 普通对话
+- Agent 流式输出
+- 工具调用记录
+- 进度信息
+- 审批 / 拒绝结果
+
+### 其他关键对象
+
+- `Blocker`：项目风险 / 阻塞
+- `Account`：账号与认证配置
+- `SupervisorOutputEnvelope`：监督者输出
+- `InternalEvent`：内部事件流
+
+## 3.2 Store State 的真实结构
+
+当前 store 关键状态不再只有 `tasks/chatMessages`，而是包含多个域：
+
+- 应用与连接：
+  - `hasHydrated`
+  - `daemonConnection`
+  - `enableMockRunner`
+  - `daemonRuntimes`
+- 工作台上下文：
+  - `conversations`
+  - `selectedConversationId`
+  - `phases`
+  - `tasks`
+  - `blockersByConversation`
+- 聊天与执行：
+  - `chatMessages`
+  - `terminalLogs`
+  - `agentStatus`
+  - `eventsByConversation`
+- 账号与角色：
+  - `accounts`
+  - `roleCards`
 - UI 控制：
-  - `selectedTaskId: string | null`
-  - `isNewTaskDialogOpen: boolean`
-  - `isRosterModalOpen: boolean`
+  - `selectedTaskId`
+  - `isNewTaskDialogOpen`
+  - `isRosterModalOpen`
+  - `isSettingsOpen`
 
-## 3.3 Selectors（导出的派生数据）
+## 3.3 Store 不再是唯一真相源
 
-仓库通过“导出 selector 函数”的方式避免在 store 里返回新数组引用：
+当前的数据生命周期是：
 
-- `selectActiveAgents(state)`：从 `AGENT_ROSTER` 中筛出 `activeAgentIds` 对应 agent
-- `selectAvailableRoster(state)`：`AGENT_ROSTER` 中未激活的 agent
+1. 页面初始化时，store 从 `GET /api/state` rehydrate
+2. 用户操作通过 store action 触发本地更新
+3. store 再调用 `/api/mutations` 写入后端
+4. daemon 事件通过 Socket 进入 store
 
-UI 组件中通常配合 `useShallow` 使用，以减少不必要的渲染。
+因此 store 更接近：
 
-## 3.4 Mutations（核心业务函数）
+- 前端运行时缓存
+- UI orchestration layer
+
+而不是持久化主数据源。
+
+## 3.4 当前重要方法
+
+### 初始化
+
+- `loadFromServer()`
+  - 从 `/api/state` 加载 conversations、tasks、messages、sessions、invocations
+- `connectDaemon()`
+  - 初始化 daemon 并绑定 socket 事件
+
+### 项目 / 上下文
+
+- `getSelectedConversation()`
+- `setSelectedConversationId()`
+- conversation 相关创建、更新、删除动作
 
 ### 任务
 
-- `getTasksByAgent(agentId)`：按 agent 过滤任务
-- `getTaskById(taskId)`
-- `addTask(taskData)`：生成自增 `TASK-xxx`，写入 `createdAt/updatedAt`
-- `updateTask(taskId, patch)`
-- `updateTaskStatus(taskId, status, reviewNote?)`
-- `removeTask(taskId)`：如果删除的是当前选中任务，同时清空 `selectedTaskId`
+- `getTaskById()`
+- `updateTaskStatus()`
+- `addTask()`
+- `updateTask()`
+- `removeTask()`
 
-### Agent roster
+### 聊天与派发
 
-- `inviteAgent(agentId)`：加入 `activeAgentIds`
-- `dismissAgent(agentId)`：从 `activeAgentIds` 移除（是否允许移除由 UI 侧校验）
+- `addChatMessage()`
+- `dispatchToAgent()`
+- 流式消息处理相关方法
 
-### 聊天
+### 执行环境
 
-- `addChatMessage(msg)`：
-  - 用 `@(\w+)` 正则解析 `mentions`
-  - 用关键词简易分类 `intent`（brainstorm/design/plan → ideate；implement/execute/build → execute；review/check/audit → review）
-  - 生成 `id: msg-${Date.now()}` 与 `timestamp`
-- `updateChatMessageStatus(msgId, status)`
+- `refreshRuntimeCatalog()`
+- `getAvailableRuntime()`
+- 账号与 runtime 检查、配置相关方法
 
-### 终端
+说明：
 
-- `appendTerminalLog(agentId, log)`：追加一段终端输出
-- `simulateCliExecution(taskId, command)`：
-  - 根据 taskId 找到对应 `agentId`
-  - 将该 agent 标为 `busy` 并清空其 `terminalLogs`
-  - 向后端 emit：`socket.emit('terminal:start', { taskId, agentId, command })`
+- 当前 `refreshRuntimeCatalog()` 仍是空实现，尚未形成真正的前端 runtime catalog
+- 运行时可用性主要通过 daemon 推送和执行时解析决定，而不是完整的配置中心模型
 
-## 3.5 Socket 事件监听（前端落库）
+## 3.5 Socket 事件在当前版本中的作用
 
-store 文件底部直接注册事件监听：
+store 监听 daemon 推送的实时事件，并将其映射成前端状态：
 
-- `terminal:data` → `appendTerminalLog(agentId, data)`
-- `agent:event` → `addChatMessage({ agentId, content, referencedTaskId })`（仅处理 `type === 'step_start' || 'message'`）
-- `terminal:exit` → 追加退出提示 + `agentStatus[agentId] = idle`
+- `terminal:data`
+  - 写入 `terminalLogs`
+- `agent:event`
+  - 映射到聊天流、tool event、streaming content、进度信息
+- `agent:session`
+  - 更新执行会话
+- `terminal:exit`
+  - 更新 agentStatus 与退出信息
 
-这意味着“后端事件”天然会变成：
+这使得“执行输出”不再只是终端文本，也会体现在聊天和持久化记录里。
 
-后端推送 → store 落库 → UI 组件重渲染。
+## 3.6 当前判断
+
+如果要理解这个项目，不能再把 `taskHubStore` 当成简单状态容器看待，而应把它理解为：
+
+- 前端状态机
+- API 客户端编排层
+- Socket 事件适配层
+- 工作台 UI 的统一入口

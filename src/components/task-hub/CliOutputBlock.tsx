@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils';
 interface CliOutputBlockProps {
   events: ToolEvent[];
   isStreaming: boolean;
+  streamText?: string;
 }
 
 function ToolRow({ event, isLast }: { event: ToolEvent; isLast: boolean }) {
@@ -91,17 +92,20 @@ function extractPrimaryArg(detail?: string): string | null {
   }
 }
 
-export function CliOutputBlock({ events, isStreaming }: CliOutputBlockProps) {
+export function CliOutputBlock({ events, isStreaming, streamText }: CliOutputBlockProps) {
   const [expanded, setExpanded] = useState(true);
+  const [bodyExpanded, setBodyExpanded] = useState(true);
   const [userInteracted, setUserInteracted] = useState(false);
   const prevStreamingRef = useRef(isStreaming);
 
   useEffect(() => {
     if (isStreaming) {
       setExpanded(true);
+      setBodyExpanded(true);
       setUserInteracted(false);
     } else if (prevStreamingRef.current && !isStreaming && !userInteracted) {
       setExpanded(false);
+      setBodyExpanded(false);
     }
     prevStreamingRef.current = isStreaming;
   }, [isStreaming, userInteracted]);
@@ -109,10 +113,16 @@ export function CliOutputBlock({ events, isStreaming }: CliOutputBlockProps) {
   const toolUseEvents = events.filter((e) => e.type === 'tool_use' || e.type === 'tool_result');
   const toolCount = toolUseEvents.length;
   const activeTool = isStreaming ? toolUseEvents[toolUseEvents.length - 1] : undefined;
+  const needsCollapse = events.length > 5;
 
   const handleToggle = () => {
     setUserInteracted(true);
     setExpanded(!expanded);
+  };
+
+  const handleBodyToggle = () => {
+    setUserInteracted(true);
+    setBodyExpanded(!bodyExpanded);
   };
 
   return (
@@ -149,7 +159,10 @@ export function CliOutputBlock({ events, isStreaming }: CliOutputBlockProps) {
       {expanded && (
         <div style={{ backgroundColor: '#1F1A2E' }}>
           <div style={{ height: 1, backgroundColor: '#334155' }} />
-          <div className="space-y-0.5" style={{ padding: '4px 8px', maxHeight: 200, overflowY: 'auto' }}>
+          <div
+            className="space-y-0.5 overflow-hidden transition-[max-height] duration-200"
+            style={{ padding: '4px 8px', maxHeight: bodyExpanded ? 'none' : 200 }}
+          >
             {events.map((event, i) => (
               <ToolRow
                 key={event.id}
@@ -158,6 +171,36 @@ export function CliOutputBlock({ events, isStreaming }: CliOutputBlockProps) {
               />
             ))}
           </div>
+          {/* Stream text — show agent's text output inside CLI block during streaming */}
+          {streamText && isStreaming && (
+            <>
+              <div style={{ height: 1, backgroundColor: '#334155', margin: '4px 8px' }} />
+              <div style={{ padding: '4px 12px 8px', maxHeight: 120 }} className="overflow-hidden">
+                <span className="text-[9px] font-bold text-[#64748B] uppercase tracking-wider">stdout</span>
+                <div className="text-[11px] text-[#E2E8F0] whitespace-pre-wrap break-words font-mono leading-relaxed mt-1">
+                  {streamText}
+                </div>
+              </div>
+            </>
+          )}
+          {needsCollapse && !bodyExpanded && (
+            <button
+              type="button"
+              onClick={handleBodyToggle}
+              className="w-full text-[9px] text-[#64748B] hover:text-[#94A3B8] py-1 text-center transition-colors"
+            >
+              ▼ 展开全部 ({events.length} 条)
+            </button>
+          )}
+          {needsCollapse && bodyExpanded && !isStreaming && (
+            <button
+              type="button"
+              onClick={handleBodyToggle}
+              className="w-full text-[9px] text-[#64748B] hover:text-[#94A3B8] py-1 text-center transition-colors"
+            >
+              ▲ 收起
+            </button>
+          )}
         </div>
       )}
     </div>

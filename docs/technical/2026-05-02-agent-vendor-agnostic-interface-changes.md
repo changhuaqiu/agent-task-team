@@ -98,6 +98,12 @@ CLI stdout (引擎私有格式)
 - 单元测试: 261/261 通过
 - 向后兼容: 旧消息（无 toolEvents）正常渲染
 
+## 当前限制
+
+- `gemini` 当前在 [`factory.ts`](../../src/server/agent/factory.ts) 中仍回退到 `OpenCodeBackend`
+- `mock` 当前也仍回退到 `OpenCodeBackend`
+- 因此“厂商无关接口”已经完成了主干抽象，但并不代表所有 engine 都已经有独立 backend 实现
+
 ## 新增引擎步骤
 
 1. 创建 `src/server/agent/<engine>.ts`，实现 `AgentBackend` 接口

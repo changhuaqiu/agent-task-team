@@ -1,6 +1,45 @@
 import { spawn, type ChildProcess } from 'child_process';
 import { createInterface } from 'readline';
+import { existsSync, realpathSync } from 'fs';
+import { dirname, join } from 'path';
 import type { AgentBackend, AgentRun, AgentEvent, ExecOptions, BackendConfig, AgentResult } from './types';
+
+/** Strip ANSI escape sequences and stray CR from PTY output. */
+const STRIP_ANSI_RE = /\x1b\[[0-9;]*[a-zA-Z]|\x1b\].*?\x07|\x1b[()>]|\r$/g;
+
+const IS_WINDOWS = process.platform === 'win32';
+
+/**
+ * Resolve the native Go binary (`.opencode` / `opencode.exe`) from the Node.js wrapper path.
+ * Bypassing the wrapper avoids the `spawnSync({ stdio: "inherit" })` indirection
+ * which loses piped stdout on some platforms.
+ */
+function resolveGoBinary(wrapperPath: string): string | null {
+  try {
+    const real = realpathSync(wrapperPath);
+    const dir = dirname(real);
+    // Unix: `.opencode`, Windows: `opencode.exe` or `.opencode.exe`
+    const candidates = IS_WINDOWS
+      ? [join(dir, 'opencode.exe'), join(dir, '.opencode.exe')]
+      : [join(dir, '.opencode')];
+    for (const c of candidates) {
+      if (existsSync(c)) return c;
+    }
+  } catch { /* not found */ }
+  return null;
+}
+
+/** Check if `script` command is available (Unix only). */
+function hasScriptCommand(): boolean {
+  if (IS_WINDOWS) return false;
+  try {
+    const { execSync } = require('child_process');
+    execSync('which script', { timeout: 2000, stdio: 'ignore' });
+    return true;
+  } catch { return false; }
+}
+
+const _hasScript = hasScriptCommand();
 
 export class OpenCodeBackend implements AgentBackend {
   constructor(private config: BackendConfig) {}
@@ -8,10 +47,10 @@ export class OpenCodeBackend implements AgentBackend {
   execute(prompt: string, opts: ExecOptions): AgentRun {
     const args = ['run', '--format', 'json'];
     if (opts.model) args.push('--model', opts.model);
-    if (opts.systemPrompt) args.push('--prompt', opts.systemPrompt);
     if (opts.resumeSessionId) args.push('--session', opts.resumeSessionId);
     if (opts.customArgs) args.push(...opts.customArgs);
-    args.push(prompt);
+    // opencode has no system-prompt flag — merge into main prompt
+    args.push(opts.systemPrompt ? `${opts.systemPrompt}\n\n---\n\n${prompt}` : prompt);
 
     const env: Record<string, string> = {
       ...(process.env as Record<string, string>),
@@ -20,7 +59,37 @@ export class OpenCodeBackend implements AgentBackend {
       ...this.config.env,
     };
     const startTime = Date.now();
-    const child = spawn(this.config.executablePath, args, { env: env as any, cwd: opts.cwd });
+
+    // --- Spawn strategy ---
+    // OpenCode's Go binary suppresses stdout output when it detects a non-TTY.
+    // We try strategies in order:
+    // 1. Spawn the Go binary directly (bypasses Node.js wrapper's spawnSync)
+    // 2. Wrap with `script -q /dev/null` for a real PTY (Unix where available)
+    // 3. Last resort: direct pipe through the Node.js wrapper
+    const goBinary = resolveGoBinary(this.config.executablePath);
+    let child: ChildProcess;
+
+    if (goBinary) {
+      // Strategy 1: spawn Go binary directly with piped stdio
+      child = spawn(goBinary, args, {
+        env: env as any,
+        cwd: opts.cwd,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+    } else if (_hasScript) {
+      // Strategy 2: wrap in `script` for PTY (macOS / Linux)
+      child = spawn('script', ['-q', '/dev/null', this.config.executablePath, ...args], {
+        env: env as any,
+        cwd: opts.cwd,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+    } else {
+      // Strategy 3: direct pipe fallback (Windows or no script available)
+      child = spawn(this.config.executablePath, args, {
+        env: env as any,
+        cwd: opts.cwd,
+      });
+    }
 
     let resultResolve!: (r: AgentResult) => void;
     const resultPromise = new Promise<AgentResult>((resolve) => { resultResolve = resolve; });
@@ -58,8 +127,10 @@ export class OpenCodeBackend implements AgentBackend {
 
     const setFinished = () => { finished = true; };
 
-    const rl = createInterface({ input: child.stdout! });
-    rl.on('line', (line) => {
+    const rl = createInterface({ input: child.stdout!, crlfDelay: Infinity });
+    rl.on('line', (rawLine) => {
+      // Strip ANSI escape sequences from PTY output
+      const line = rawLine.replace(STRIP_ANSI_RE, '');
       const trimmed = line.trim();
       if (!trimmed) return;
       let parsed: any;
@@ -108,6 +179,21 @@ export class OpenCodeBackend implements AgentBackend {
       }
     });
 
+    // Capture stderr for diagnostics
+    const stderrChunks: string[] = [];
+    child.stderr?.on('data', (chunk: Buffer) => {
+      stderrChunks.push(chunk.toString());
+    });
+
+    child.on('error', (err) => {
+      finished = true;
+      push({ type: 'error', content: `Spawn error: ${err.message}`, sessionId });
+      done({ status: 'failed', output, error: err.message, durationMs: Date.now() - startTime, sessionId });
+      if (resolveNext) {
+        resolveNext({ value: undefined, done: true } as any);
+      }
+    });
+
     child.on('close', (code) => {
       finished = true;
       const durationMs = Date.now() - startTime;
@@ -129,12 +215,14 @@ export class OpenCodeBackend implements AgentBackend {
           if (queue.length > 0) {
             yield queue.shift()!;
           } else {
-            yield await new Promise<AgentEvent>((resolve) => {
+            const event = await new Promise<AgentEvent | undefined>((resolve) => {
               resolveNext = (r) => {
-                if (r.done) return;
+                if (r.done) { resolve(undefined); return; }
                 resolve(r.value!);
               };
             });
+            if (event === undefined) break; // process exited
+            yield event;
           }
         }
         while (queue.length > 0) yield queue.shift()!;

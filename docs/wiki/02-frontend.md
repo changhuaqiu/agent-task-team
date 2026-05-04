@@ -1,80 +1,125 @@
-# 02 — 前端（Next.js App Router）
+# 02 — 前端（项目工作台）
 
-## 2.1 目录结构
+## 2.1 前端目录结构
 
 - `src/app/`
-  - `layout.tsx`：RootLayout、字体、全局样式引入
-  - `page.tsx`：主界面（看板 + 聊天室 + 弹窗/抽屉）
-  - `globals.css`：设计系统（CSS Variables）+ Tailwind v4 导入
-- `src/components/task-hub/`：Task Hub 相关 UI 组件集合（以展示与交互为主）
-- `src/store/`：Zustand 全局状态与 Socket 监听
-- `src/lib/utils.ts`：`cn()`（clsx + tailwind-merge）
+  - `layout.tsx`：RootLayout、字体、全局样式
+  - `page.tsx`：页面入口，渲染 `ClientHome`
+  - `globals.css`：全局设计系统与 Tailwind v4
+- `src/components/project/`
+  - 新的项目工作台主 UI
+- `src/components/task-hub/`
+  - 聊天、任务详情、设置、终端、agent 相关组件
+- `src/components/role-card/`
+  - 工程型角色卡展示、编辑、绑定相关组件
+- `src/store/`
+  - Zustand 状态与前端编排
+- `src/lib/`
+  - 路由、工具函数与辅助逻辑
 
-## 2.2 页面入口：Home
+## 2.2 页面入口
 
-主页面为 [`src/app/page.tsx`](../../src/app/page.tsx)，整体布局是“三段式”：
+真实页面入口是 [`src/app/ClientHome.tsx`](../../src/app/ClientHome.tsx)。
 
-- Header：标题 + New Task 按钮（打开 `NewTaskDialog`）
-- SummaryBar：按 `TaskStatus` 汇总数量
-- Main：两列布局
-  - 左侧：任务看板（按 active agents 渲染多列 `AgentTaskGroup`）
-  - 右侧：全局聊天室（`GlobalChatRoom`，仅在大屏 `lg` 展示）
-- Overlay：任务详情抽屉（`TaskDetailPanel`）+ 新建任务弹窗 + Agent roster 弹窗
+启动阶段：
 
-页面层的状态依赖来自 store：
+1. 调用 `loadFromServer()` 从 API rehydrate
+2. 完成后调用 `connectDaemon()`
+3. 数据未准备好时展示“初始化中”状态
 
-- `activeAgents = useTaskHubStore(selectActiveAgents)`
-- `selectedTaskId = useTaskHubStore((s) => s.selectedTaskId)`
+主界面结构：
 
-## 2.3 UI 组件职责（task-hub）
+- Header
+  - 左侧：产品标题
+  - 右侧：新建任务、设置
+- Body
+  - `ProjectWorkspace`
+- Overlay
+  - `TaskDetailPanel`
+  - `NewTaskDialog`
+  - `AgentRosterModal`
+  - `SettingsDrawer`
 
-### 看板与任务
+## 2.3 当前工作台信息架构
 
-- [`AgentTaskGroup.tsx`](../../src/components/task-hub/AgentTaskGroup.tsx)
-  - 展示某个 agent 的任务列
-  - 对任务按 `STATUS_ORDER` 排序
-  - done 任务单独折叠展示
-  - dismiss agent 时做了“如果仍有任务则阻止”的前端校验
-- [`TaskCard.tsx`](../../src/components/task-hub/TaskCard.tsx)
-  - 单任务摘要卡片（状态、描述、deps/artifacts 数量）
-  - 点击后 `setSelectedTaskId(task.id)` 打开详情抽屉
+[`ProjectWorkspace.tsx`](../../src/components/project/ProjectWorkspace.tsx) 是当前页面主框架，采用三栏布局：
+
+- 左栏：[`ProjectSidebar.tsx`](../../src/components/project/ProjectSidebar.tsx)
+  - 项目列表
+  - 项目统计
+  - 项目切换
+  - 新建项目入口
+- 中栏：[`ProjectChatPanel.tsx`](../../src/components/project/ProjectChatPanel.tsx)
+  - 当前项目标题与目标
+  - 拆解状态提示
+  - Agent 条带
+  - 嵌入式聊天室
+- 右栏：[`ProjectRightPanel.tsx`](../../src/components/project/ProjectRightPanel.tsx)
+  - Mini Kanban
+  - 下一步代办
+  - 风险 / 阻塞
+
+这意味着“项目上下文”已经成为前端第一层状态，而不是旧版的单一全局看板。
+
+## 2.4 关键交互组件
+
+### 项目侧
+
+- [`ProjectSidebar.tsx`](../../src/components/project/ProjectSidebar.tsx)
+  - 从 `conversations` 派生项目列表
+  - 根据任务和 blocker 计算项目摘要
+  - 通过 `selectedConversationId` 切换当前上下文
+- [`ProjectCreateDialog.tsx`](../../src/components/project/ProjectCreateDialog.tsx)
+  - 负责新建项目
+
+### 指挥室
+
+- [`ProjectChatPanel.tsx`](../../src/components/project/ProjectChatPanel.tsx)
+  - 展示当前项目标题、goal、拆解状态
+  - 聚合当前项目任务数
+  - 内嵌 [`GlobalChatRoom.tsx`](../../src/components/task-hub/GlobalChatRoom.tsx)
+- [`AgentBar.tsx`](../../src/components/task-hub/AgentBar.tsx)
+  - 展示当前参与 Agent 与绑定状态
+
+### 右侧辅助面板
+
+- [`ProjectRightPanel.tsx`](../../src/components/project/ProjectRightPanel.tsx)
+  - 基于任务状态推导下一步代办
+  - 基于 blocker 列表展示风险
+- [`MiniKanban.tsx`](../../src/components/project/MiniKanban.tsx)
+  - 当前项目任务概览
+
+### 任务执行与设置
+
 - [`TaskDetailPanel.tsx`](../../src/components/task-hub/TaskDetailPanel.tsx)
-  - 任务详情抽屉：展示 assignee、依赖、artifacts、review note、时间戳
-  - 状态流转按钮：调用 `updateTaskStatus(task.id, targetStatus)`
-  - 当任务处于 `in_progress` 时提供 “Run Opencode”
-  - 内置终端区域：使用 `TerminalView` 渲染 `terminalLogs[agentId]`
+  - 任务详情
+  - 状态流转
+  - CLI 执行入口
+  - 终端输出
+- [`SettingsDrawer.tsx`](../../src/components/task-hub/SettingsDrawer.tsx)
+  - 系统摘要
+  - daemon / runtime / bridge 检查
+  - 账号与执行配置入口
 
-### 聊天室
+## 2.5 当前前端状态来源
 
-- [`GlobalChatRoom.tsx`](../../src/components/task-hub/GlobalChatRoom.tsx)
-  - 展示 `chatMessages`
-  - 发送消息：调用 `addChatMessage({ agentId:'human', content, referencedTaskId? })`
-  - 支持 `#TASK-xxx` 引用（正则 `/#TASK-\d{3}/i`）
-- [`ChatMessageItem.tsx`](../../src/components/task-hub/ChatMessageItem.tsx)
-  - 单条消息渲染：avatar、时间、intent badge、@mention 高亮、引用任务跳转
-  - 支持 approval request：`updateChatMessageStatus(msgId, approved|rejected)`
+前端不是单纯本地状态页面，数据来源分为三层：
 
-### Agent roster 与状态展示
+- 初始真相源：`GET /api/state`
+- 运行时缓存：`taskHubStore`
+- 实时流：Socket.io daemon 事件
 
-- [`AgentRosterModal.tsx`](../../src/components/task-hub/AgentRosterModal.tsx)
-  - 展示可招募的 agents（`selectAvailableRoster`）
-  - 招募：`inviteAgent(agentId)` 并发一条 agent 入群消息
-- [`StatusBadge.tsx`](../../src/components/task-hub/StatusBadge.tsx)
-  - 统一渲染任务状态（颜色/图标/label 来自 `taskHubStore.ts`）
-- [`PixelAvatar.tsx`](../../src/components/task-hub/PixelAvatar.tsx)
-  - 以 8x8 inline SVG 的像素头像实现 agent theme 风格
+因此前端组件的职责已从“直接持有全部业务状态”变为：
 
-### Web 终端
+- 渲染状态
+- 调用 store action
+- 通过 store 间接触发 API 写入与实时更新
 
-- [`TerminalView.tsx`](../../src/components/task-hub/TerminalView.tsx)
-  - 基于 `@xterm/xterm` + `@xterm/addon-fit`
-  - 监听 `terminalLogs[agentId]` 变化，清屏并重放日志（简化同步）
-
-## 2.4 样式与设计系统
+## 2.6 样式与设计系统
 
 全局样式位于 [`src/app/globals.css`](../../src/app/globals.css)：
 
 - Tailwind v4：`@import "tailwindcss";`
-- 主题变量：`--bg-* / --text-* / --agent-* / --status-* / --accent-*` 等
-- 提供 light/dark 两套变量（跟随 `prefers-color-scheme`）
-- 组件通过 `bg-[hsl(var(--bg-app))]` 这类写法引用变量，从而在 Tailwind 中实现主题化
+- 设计变量：`--bg-* / --text-* / --status-* / --accent-*`
+- 通过 HSL variables 驱动卡片、边框、状态色和深浅模式
+- 页面主风格已经从“纯任务板”转向“控制台 / 工作台”式布局

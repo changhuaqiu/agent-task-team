@@ -1,5 +1,4 @@
 ---
-feature_ids: [F102, F065, F088]
 topics: [memory, architecture, conversation-identity, embedding, search, compaction]
 doc_kind: decision
 created: 2026-03-22
@@ -201,5 +200,5 @@ ANTHROPIC_PROXY_ENABLED=1 → 本地反代 :9877（调度器自动读 proxy-upst
 
 ## Related
 
-- [F102 spec](../features/F102-memory-adapter-refactor.md) — 完整 Phase A~G 定义 + KD-1~44
+- F102 spec（legacy feature document removed） — 完整 Phase A~G 定义 + KD-1~44
 - [LL-034: Embedding 实现教训](../public-lessons.md#LL-034)

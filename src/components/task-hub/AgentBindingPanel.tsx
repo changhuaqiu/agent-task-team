@@ -8,7 +8,7 @@ import {
   type Account,
 } from '@/store/taskHubStore';
 import { RoleCardBadge, getCategoryConfig } from '@/components/role-card/RoleCardBadge';
-import { X, Plus, Link2 } from 'lucide-react';
+import { X, Plus, Link2, Copy, Terminal } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const STATUS_DOT: Record<string, string> = {
@@ -35,6 +35,12 @@ export function AgentBindingPanel({ agentId, agentName }: AgentBindingPanelProps
   const roleCards = useTaskHubStore((s) => s.roleCards);
   const setRoleCardAccountIds = useTaskHubStore((s) => s.setRoleCardAccountIds);
   const setAgentRoleCardId = useTaskHubStore((s) => s.setAgentRoleCardId);
+  const selectedProjectId = useTaskHubStore((s) => s.selectedProjectId);
+  const agentSessions = useTaskHubStore((s) => s.agentSessions);
+  const activeRunsByAgent = useTaskHubStore((s) => s.activeRunsByAgent);
+
+  const sessionId = agentSessions[selectedProjectId]?.[agentId];
+  const activeRun = activeRunsByAgent[agentId];
 
   // Find current agent's role card
   const agent = AGENT_ROSTER.find((a) => a.id === agentId);
@@ -239,6 +245,51 @@ export function AgentBindingPanel({ agentId, agentName }: AgentBindingPanelProps
             执行任务时按顺序尝试以上账号。
           </div>
         )}
+
+        {/* Session / Run Info */}
+        <div className="border-t-2 border-[hsl(var(--text-primary)/0.1)] mt-3 pt-2">
+          <div className="text-[10px] font-bold tracking-wider uppercase text-[hsl(var(--text-tertiary))] mb-1.5 flex items-center gap-1.5">
+            <Terminal className="w-3 h-3" />
+            CLI 会话
+          </div>
+          {sessionId ? (
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-1.5 py-1 px-2 rounded-[4px] bg-[hsl(var(--bg-app))] border border-[hsl(var(--border))]">
+                <span className="text-[10px] text-[hsl(var(--text-tertiary))] shrink-0">Session</span>
+                <span className="text-[10px] font-mono text-[hsl(var(--text-primary))] truncate flex-1" title={sessionId}>
+                  {sessionId.length > 16 ? `${sessionId.slice(0, 8)}…${sessionId.slice(-4)}` : sessionId}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => navigator.clipboard?.writeText(sessionId)}
+                  className="p-0.5 rounded text-[hsl(var(--text-tertiary))] hover:text-[hsl(var(--accent))] transition-colors shrink-0"
+                  title="复制 Session ID"
+                >
+                  <Copy className="w-3 h-3" />
+                </button>
+              </div>
+              {activeRun && (
+                <div className="flex items-center gap-1.5 py-1 px-2 rounded-[4px] bg-[hsl(var(--bg-app))] border border-[hsl(var(--border))]">
+                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse shrink-0" />
+                  <span className="text-[10px] text-[hsl(var(--text-tertiary))] shrink-0">Run</span>
+                  <span className="text-[10px] font-mono text-[hsl(var(--text-primary))] truncate flex-1" title={activeRun.runId}>
+                    {activeRun.runId.length > 16 ? `${activeRun.runId.slice(0, 8)}…${activeRun.runId.slice(-4)}` : activeRun.runId}
+                  </span>
+                  {activeRun.taskId && (
+                    <span className="text-[9px] text-[hsl(var(--accent))] shrink-0">
+                      {activeRun.taskId}
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5 py-1 px-2 rounded-[4px] bg-[hsl(var(--bg-app))] border border-[hsl(var(--border))]">
+              <span className="inline-block w-1.5 h-1.5 rounded-full bg-zinc-400 shrink-0" />
+              <span className="text-[11px] text-[hsl(var(--text-tertiary))]">未连接</span>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

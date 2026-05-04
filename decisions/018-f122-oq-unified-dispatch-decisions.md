@@ -1,6 +1,5 @@
 ---
 decision_id: ADR-018
-feature_ids: [F122]
 related_features: [F108]
 topics: [a2a, queue, dispatch, steer, multi_mention, architecture]
 doc_kind: decision

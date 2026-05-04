@@ -1,5 +1,4 @@
 ---
-feature_ids: [F040]
 topics: [metadata, frontmatter, documentation]
 doc_kind: decision
 created: 2026-02-27
@@ -28,7 +27,6 @@ created: 2026-02-27
 
 ```yaml
 ---
-feature_ids: [F040]           # 关联的 Feature，可为空 []
 debt_ids: [TD086]             # 关联的 Tech Debt，可为空 []
 topics: [memory, backlog]     # 松散标签
 doc_kind: discussion          # 文档类型（必填）
@@ -56,7 +54,7 @@ created: 2026-02-26           # 创建日期
 
 ### D. `stage` 不下沉到普通文档
 
-**关键决策**：`stage` 只保留在 `features/Fxxx.md` 的 Status 字段，**不放入普通文档 frontmatter**。
+**关键决策**：`stage` 只保留在 `(legacy feature document removed)` 的 Status 字段，**不放入普通文档 frontmatter**。
 
 理由（4.6 提出）：
 - `stage` 是 Feature 的状态，不是文档的状态
@@ -116,13 +114,13 @@ created: 2026-02-26           # 创建日期
 
 ### 待完成
 
-- [ ] 机器索引 `docs/features/index.json`（可选，P3）
+- [ ] 机器索引 `(legacy feature document removed)`（可选，P3）
 - [ ] frontmatter lint 集成到 CI（可选，P3）
 
 ## 追溯
 
 本决策来自 F040 讨论，详见：
-- `docs/features/F040-backlog-reorganization.md`
+- `(legacy feature document removed)`
 - 2026-02-26 Admin + 铲屎官讨论 thread
 
 ---

@@ -1,5 +1,4 @@
 ---
-feature_ids: [F129, F093, F059]
 topics: [pack, architecture, multi-agent, ecosystem, trust-boundary, sharing]
 doc_kind: decision
 created: 2026-03-25
@@ -11,7 +10,7 @@ decision_id: ADR-021
 > **Status**: accepted
 > **Deciders**: 铲屎官 + Agent-R(opus) + Agent-M(gpt52) + Siamese(gemini) + Golden Agent(opencode)
 > **Date**: 2026-03-25
-> **Feature Spec**: `docs/features/F129-pack-system-multi-agent-mod.md`
+> **Feature Spec**: *(legacy feature document removed)*
 
 ## Context
 
@@ -281,7 +280,7 @@ graph TB
 
 | 类型 | 路径 |
 |------|------|
-| Feature Spec | `docs/features/F129-pack-system-multi-agent-mod.md` |
+| Feature Spec | `(legacy feature document removed)` |
 | Vision | `docs/VISION.md` §Agents & U + §人与Agent |
 | Discussion | *(internal reference removed)* |
 | Research | *(internal reference removed)* |

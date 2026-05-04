@@ -1,460 +1,246 @@
 ---
-feature_ids: []
 topics: [architecture, cli, integration]
 doc_kind: note
 created: 2026-02-26
 ---
 
-# CLI 集成架构：Claude Code / Codex / Gemini CLI
+# CLI 集成架构：当前实现
 
-> Agent Task Hub 项目如何对接三个不同厂商的 AI CLI 工具
-> 作者：Agent-R | 最后更新：2026-02-07
+> 更新：2026-05-02
 
 ## 概述
 
-Agent Task Hub 需要调用三个不同厂商的 AI Agent：
-- **Agent-R** → Claude Code CLI (`claude`)
-- **Agent-M** → OpenAI Codex CLI (`codex`)
-- **Siamese** → Google Gemini CLI (`gemini`)
+当前仓库的 CLI 集成已经从“daemon 内部按引擎写死分支”演进为：
 
-这三个 CLI 有不同的调用方式、输出格式和 Session 管理机制。本文档记录我们的集成方案和踩过的坑。
+- daemon 负责执行编排、会话跟踪、socket 转发与持久化
+- backend 工厂负责按引擎创建具体执行器
+- 各 backend 负责把引擎私有输出归一化为统一 `AgentEvent`
 
----
+当前正式支持的主要 backend：
+
+- `opencode`
+- `claude`
+- `codex`
+
+当前的兼容 / 回退路径：
+
+- `gemini`：暂时回退到 `OpenCodeBackend`
+- `mock`：暂时回退到 `OpenCodeBackend`
+
+因此本文档只描述当前代码里的真实架构，不再描述历史上不存在于本仓库的 `AgentService`、`packages/api/src` 等结构。
 
 ## 架构概览
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                        AgentRouter                           │
-│  (路由逻辑: @mention 解析 → 选择Agent → 调用 AgentService)        │
-└───────────────┬─────────────────┬─────────────────┬─────────┘
-                │                 │                 │
-                ▼                 ▼                 ▼
-┌───────────────────┐ ┌───────────────────┐ ┌───────────────────┐
-│ ClaudeAgentService│ │ CodexAgentService │ │ GeminiAgentService│
-│  (Agent-R Opus)     │ │  (Agent-M Codex)    │ │  (Siamese Gemini)   │
-└─────────┬─────────┘ └─────────┬─────────┘ └─────────┬─────────┘
-          │                     │                     │
-          └─────────────────────┼─────────────────────┘
-                                ▼
-                    ┌───────────────────────┐
-                    │      spawnCli()       │
-                    │  (通用子进程管理器)     │
-                    └───────────┬───────────┘
-                                │
-                    ┌───────────▼───────────┐
-                    │   parseNDJSON()       │
-                    │  (NDJSON 流解析器)     │
-                    └───────────────────────┘
+```text
+前端 store
+  -> socket.emit('terminal:start')
+    -> src/server/daemon.ts
+      -> createBackend(engine, config)
+        -> src/server/agent/<engine>.ts
+          -> AsyncGenerator<AgentEvent>
+      -> forwardAgentEvent()
+        -> socket.emit(...)
+        -> messageRepo / eventRepo / invocationRepo / sessionRepo
 ```
 
-**核心设计决策：CLI 子进程而非 SDK**
-
-我们选择 CLI 子进程模式而非直接调用 SDK，原因是：
-
-1. **订阅复用**：用户已有 Claude Max / ChatGPT Plus / Gemini Advanced 订阅，不想再付 API 费用
-2. **功能完整**：CLI 已实现 MCP、工具调用、文件操作等复杂功能
-3. **隔离安全**：子进程天然隔离，崩溃不影响主进程
-4. **更新解耦**：CLI 更新不需要重新部署后端
-
----
-
-## 通用基础设施
-
-### 1. NDJSON 流解析器 (`ndjson-parser.ts`)
-
-三个 CLI 都支持 NDJSON（Newline-Delimited JSON）流式输出，每行一个 JSON 对象。
-
-```typescript
-// 核心实现
-export async function* parseNDJSON(stream: Readable): AsyncGenerator<unknown> {
-  const rl = createInterface({ input: stream, crlfDelay: Infinity });
-  for await (const line of rl) {
-    const trimmed = line.trim();
-    if (trimmed.length === 0) continue;
-    try {
-      yield JSON.parse(trimmed);
-    } catch {
-      yield { __parseError: true, line: trimmed, error: 'Failed to parse JSON line' };
-    }
-  }
-}
-```
-
-**关键点：**
-- 使用 `readline` 逐行处理，内存友好
-- 空行静默跳过
-- JSON 解析失败不抛出，而是 yield 一个特殊的 `ParseError` 对象
-
-### 2. CLI 进程管理器 (`cli-spawn.ts`)
-
-封装子进程生命周期管理：
-
-```typescript
-export async function* spawnCli(options: CliSpawnOptions): AsyncGenerator<unknown> {
-  const child = spawn(options.command, options.args, { stdio: ['ignore', 'pipe', 'pipe'] });
-
-  // ... 超时、取消、清理逻辑
-
-  for await (const event of parseNDJSON(child.stdout)) {
-    resetTimeout();  // 每次输出重置超时计时器
-    yield event;
-  }
-}
-```
-
-**处理的问题：**
-
-| 问题 | 解决方案 |
-|------|----------|
-| 进程超时 | 可配置超时 (`CLI_TIMEOUT_MS`)，默认 30 分钟，`0` 禁用 |
-| 优雅终止 | 先 SIGTERM，3 秒后 SIGKILL |
-| 僵尸进程 | `process.on('exit')` 钩子强制清理 |
-| 用户取消 | 支持 `AbortSignal` |
-| 错误上报 | CLI 退出码非零时 yield `{ __cliError: true, ... }` |
-
-**重要教训：stderr 活跃也算"活着"**
-
-```typescript
-// Bug: Claude CLI 的 thinking/工具调用输出到 stderr，不是 stdout
-// 如果只监听 stdout，会误判为"超时无响应"
-child.stderr?.on('data', () => {
-  resetTimeout();  // stderr 有输出也重置超时！
-});
-```
-
-### 3. 统一消息类型 (`types.ts`)
-
-三个 CLI 的原始事件格式不同，但转换后统一为 `AgentMessage`：
-
-```typescript
-type AgentMessage =
-  | { type: 'session_init'; catId: CatId; sessionId: string; timestamp: number }
-  | { type: 'text'; catId: CatId; content: string; timestamp: number; metadata?: MessageMetadata }
-  | { type: 'tool_use'; catId: CatId; toolName: string; toolInput: Record<string, unknown>; timestamp: number }
-  | { type: 'error'; catId: CatId; error: string; timestamp: number; metadata?: MessageMetadata }
-  | { type: 'done'; catId: CatId; timestamp: number; metadata?: MessageMetadata }
-  // ... 更多类型
-```
-
----
-
-## 各 CLI 对接详解
-
-### Claude Code CLI (`claude`)
-
-**调用方式：**
-```bash
-claude -p "prompt" \
-  --output-format stream-json \
-  --verbose \
-  --model claude-opus-4-6 \
-  --allowedTools Read,Edit,Glob,Grep \
-  --permission-mode acceptEdits \
-  [--resume <sessionId>] \
-  [--mcp-config <json>] \
-  [--images <path>]
-```
-
-**NDJSON 事件格式：**
-```jsonc
-// Session 初始化
-{"type": "system", "subtype": "init", "session_id": "abc123"}
-
-// 文本输出 (content 是数组，可能有多个 block)
-{"type": "assistant", "message": {"content": [{"type": "text", "text": "..."}]}}
-
-// 工具调用
-{"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Read", "input": {...}}]}}
-
-// 成功完成 (我们跳过，自己 yield done)
-{"type": "result", "subtype": "success"}
-
-// 错误
-{"type": "result", "subtype": "error", "error": "..."}
-```
-
-**特殊处理：**
-- **MCP 支持**：通过 `--mcp-config` 注入我们的 MCP Server，让 Claude 能回调 Agent Task Hub
-- **图片传递**：通过 `--images` flag 传递本地图片路径
-- **Session 恢复**：通过 `--resume <sessionId>` 恢复上下文
-
-**事件转换：**
-```typescript
-function transformClaudeEvent(event, catId): AgentMessage | null {
-  // system/init → session_init
-  if (e['type'] === 'system' && e['subtype'] === 'init') {
-    return { type: 'session_init', catId, sessionId: e['session_id'], ... };
-  }
-  // assistant → 遍历 content blocks，提取 text 和 tool_use
-  if (e['type'] === 'assistant') {
-    const messages = [];
-    for (const block of e.message.content) {
-      if (block.type === 'text') messages.push({ type: 'text', content: block.text, ... });
-      if (block.type === 'tool_use') messages.push({ type: 'tool_use', toolName: block.name, ... });
-    }
-    return messages;  // 可能返回多条消息
-  }
-  return null;  // 跳过其他事件
-}
-```
-
----
-
-### Codex CLI (`codex`)
-
-**调用方式：**
-```bash
-# 新会话
-codex exec --json --sandbox workspace-write --full-auto "prompt"
-
-# 恢复会话 (注意 resume 是子命令，不是 flag)
-codex exec resume SESSION_ID "prompt" --json --sandbox workspace-write --full-auto
-```
-
-**NDJSON 事件格式：**
-```jsonc
-// Session 初始化
-{"type": "thread.started", "thread_id": "thread_abc123"}
-
-// 文本输出 (在 item.completed 里)
-{"type": "item.completed", "item": {"type": "agent_message", "text": "..."}}
-
-// 命令执行 (我们跳过)
-{"type": "item.completed", "item": {"type": "command_execution", ...}}
-
-// 文件修改 (我们跳过)
-{"type": "item.completed", "item": {"type": "file_change", ...}}
-
-// Turn 生命周期 (我们跳过)
-{"type": "turn.started"}
-{"type": "turn.completed"}
-```
-
-**特殊处理：**
-- **Sandbox 模式**：`--sandbox workspace-write` 是 OS 级别沙箱，只允许写工作目录
-- **无图片支持**：Codex CLI 目前不支持图片传递，我们在 prompt 里嵌入路径提示
-- **Session 恢复语法不同**：是 `resume SESSION_ID` 子命令，不是 `--resume` flag
-
-**事件转换：**
-```typescript
-function transformCodexEvent(event, catId): AgentMessage | null {
-  // thread.started → session_init
-  if (e['type'] === 'thread.started') {
-    return { type: 'session_init', catId, sessionId: e['thread_id'], ... };
-  }
-  // item.completed + agent_message → text
-  if (e['type'] === 'item.completed' && e['item']?.type === 'agent_message') {
-    return { type: 'text', catId, content: e['item']['text'], ... };
-  }
-  return null;  // 跳过 command_execution, file_change, turn.* 等
-}
-```
-
----
-
-### Gemini CLI (`gemini`)
-
-**双 Adapter 架构：**
-
-| Adapter | 命令 | 场景 |
-|---------|------|------|
-| `gemini-cli` (默认) | `gemini -p "..." -o stream-json -y` | 全自动 headless |
-| `antigravity` | `open -a Antigravity` | IDE 模式，MCP 回传 |
-
-**gemini-cli 调用方式：**
-```bash
-gemini -p "prompt" -o stream-json -y [-i image.png]
-```
-
-**NDJSON 事件格式 (v0.27.2)：**
-```jsonc
-// Session 初始化
-{"type": "init", "session_id": "abc123"}
-
-// 文本输出
-{"type": "message", "role": "assistant", "content": "..."}
-
-// 工具调用
-{"type": "tool_use", "tool_name": "Read", "parameters": {...}}
-
-// 工具结果 (跳过)
-{"type": "tool_result", ...}
-
-// 成功 (跳过)
-{"type": "result", "status": "success"}
-
-// 错误
-{"type": "result", "status": "error", "error": "..."}
-```
-
-**特殊处理：**
-- **Session 恢复（F053，2026-03-03）**：在当前环境（Gemini CLI 0.31.0）支持 `gemini --resume <sessionId>`（UUID），provider 已启用 resume；prompt prepend 继续用于跨Agent历史补全
-- **图片支持**：通过 `-i` flag 传递
-- **Antigravity fallback**：IDE 模式不输出 NDJSON，需要通过 MCP 回传
-
-**事件转换：**
-```typescript
-function transformGeminiEvent(event, catId): AgentMessage | null {
-  // init → session_init
-  if (e['type'] === 'init') {
-    return { type: 'session_init', catId, sessionId: e['session_id'], ... };
-  }
-  // message + assistant → text
-  if (e['type'] === 'message' && e['role'] === 'assistant') {
-    return { type: 'text', catId, content: e['content'], ... };
-  }
-  // tool_use → tool_use
-  if (e['type'] === 'tool_use') {
-    return { type: 'tool_use', catId, toolName: e['tool_name'], toolInput: e['parameters'], ... };
-  }
-  // result + error → error
-  if (e['type'] === 'result' && e['status'] !== 'success') {
-    return { type: 'error', catId, error: e['error'], ... };
-  }
-  return null;
-}
-```
-
----
-
-## 踩坑记录
-
-### 1. stderr 不是错误，是 thinking
-
-**问题**：Claude CLI 的 thinking 输出和工具调用日志都走 stderr，不是 stdout。如果只监听 stdout 来判断"CLI 是否活着"，会导致误杀正在工作的进程。
-
-**解决**：stderr 有输出时也重置超时计时器。
-
-```typescript
-child.stderr?.on('data', () => {
-  resetTimeout();  // stderr 活跃 = CLI 还在工作
-});
-```
-
-### 2. CLI_TIMEOUT_MS=0 不生效
-
-**问题**：`Number(env['CLI_TIMEOUT_MS']) || 1800000` 对 `0` 无效，因为 `0 || 1800000 = 1800000`。
-
-**解决**：显式判断：
-```typescript
-const parsed = Number(raw);
-if (Number.isFinite(parsed) && parsed >= 0) {
-  return parsed;  // 0 也是合法值（禁用超时）
-}
-return FALLBACK_TIMEOUT;
-```
-
-### 3. Codex resume 语法不同
-
-**问题**：Claude 用 `--resume sessionId`，Codex 用 `resume SESSION_ID` 作为子命令。
-
-**解决**：分开处理：
-```typescript
-// Codex
-const args = options?.sessionId
-  ? ['exec', 'resume', options.sessionId, prompt, '--json', '--full-auto']
-  : ['exec', '--json', '--sandbox', SANDBOX_MODE, '--full-auto', prompt];
-```
-
-### 4. Gemini resume 语义纠偏（F053）
-
-**背景**：2026-02 阶段我们曾按“index/latest only”实现降级路径。
-
-**当前结论（2026-03-03）**：Gemini CLI 0.31.0 已支持 UUID `--resume <sessionId>`，`GeminiAgentService` 已接入；prompt prepend 保留为跨Agent上下文补充，不再作为 resume 的替代策略。
-
-### 5. stderr 不能暴露给用户
-
-**问题**：stderr 可能包含 debug 信息、API key 或内部 trace。
-
-**解决**：stderr 只写 `console.error` 供开发调试，不 yield 给前端。错误消息用脱敏的固定文案。
-
-```typescript
-// 日志（开发用）
-console.error(`[cli-spawn] ${command} stderr (debug only):\n${stderrBuffer}`);
-
-// yield 给用户（脱敏）
-yield { __cliError: true, message: `CLI 异常退出 (code: ${exitCode})` };
-```
-
----
-
-## 配置管理
-
-模型配置的运行时来源是 `.agent-hub/agent-agentalog.json`（由 `agent-template.json` 首次启动时 bootstrap 生成）。
-
-- `agent-template.json`（repo 根）：种子模板，仅在首次启动且 catalog 不存在时复制生成 catalog。后续不参与运行时读取
-- `.agent-hub/agent-agentalog.json`：唯一运行时配置源。所有Agent的增删改查都直接操作此文件
-- 环境变量 `CAT_{CATID}_MODEL`（如 `CAT_OPUS_MODEL`）：可 override 运行时配置，用于调试或临时切换模型。正常使用不需要
-
-**配置文件格式：**
-```json
+关键文件：
+
+- `src/server/daemon.ts`
+- `src/server/agent/factory.ts`
+- `src/server/agent/types.ts`
+- `src/server/agent/opencode.ts`
+- `src/server/agent/claude.ts`
+- `src/server/agent/codex.ts`
+
+## 设计原则
+
+### 1. CLI 优先，不走 SDK
+
+当前仍坚持 CLI 子进程模式，主要原因：
+
+1. 复用用户已有 CLI 环境与订阅
+2. 保持工具能力、文件操作和 session 语义
+3. 将各厂商差异隔离在 backend 内部
+4. 让 daemon 聚焦“编排”，而不是理解每个引擎的私有协议
+
+### 2. 统一事件模型
+
+backend 不直接把原始 stdout 交给前端，而是统一产出 `AgentEvent`。
+
+当前主要事件类型：
+
+- `text`
+- `thinking`
+- `tool_use`
+- `tool_result`
+- `error`
+- `done`
+
+daemon 只消费统一事件，不再直接分支解析每一种 CLI 协议。
+
+### 3. 会话与调用分层
+
+当前区分两层状态：
+
+- `agent_session`
+  - conversation 级 / agent 级执行会话
+- `invocation`
+  - 单次执行记录
+
+这让 session 复用和执行审计可以分开管理。
+
+## 当前执行流程
+
+### 1. 前端发起执行
+
+前端通过 Socket 发送 `terminal:start`，当前 payload 包含：
+
+```ts
 {
-  "version": 2,
-  "breeds": [
-    {
-      "id": "Agent-R",
-      "defaultVariantId": "opus",
-      "variants": [{ "id": "opus", "defaultModel": "claude-opus-4-6", ... }]
-    }
-  ]
+  projectId?,
+  taskId?,
+  agentId,
+  prompt,
+  sessionId?,
+  conversationId?,
+  allowMockRunner?,
+  opencodeBridgeUrl?,
+  engine?,
+  runtimeId?,
+  providerProfileId?,
+  channel?,
+  authContextId?,
+  accountIds?,
+  accountId?,
+  force?
 }
 ```
 
----
+说明：
 
-## 测试策略
+- 当前真正决定执行路径的仍然是 `engine`、`runtimeId`、`accountId`、`opencodeBridgeUrl`
+- `providerProfileId / channel / authContextId` 目前主要是参数预留和透传，不是完整配置系统
 
-通过依赖注入 mock spawn 函数进行单元测试：
+### 2. daemon 编排
 
-```typescript
-// 测试用的 mock spawn
-function mockSpawn(command, args, options) {
-  const child = new EventEmitter();
-  child.stdout = new PassThrough();
-  child.stderr = new PassThrough();
-  child.kill = jest.fn();
+daemon 的主要步骤：
 
-  // 模拟 NDJSON 输出
-  setTimeout(() => {
-    child.stdout.write('{"type": "init", "session_id": "test-session"}\n');
-    child.stdout.write('{"type": "message", "role": "assistant", "content": "Hello!"}\n');
-    child.stdout.end();
-    child.emit('exit', 0, null);
-  }, 10);
+1. 解析执行上下文
+2. 根据 `accountId` 读取账号和凭据
+3. 查找或创建 `agent_session`
+4. 创建 `invocation`
+5. 根据 `engine` 调用 `createBackend()`
+6. 消费 backend 输出的 `AgentEvent`
+7. 写入 repo 并广播给前端
 
-  return child;
+### 3. backend 执行
+
+每个 backend 都负责：
+
+- 生成 CLI 命令或进程配置
+- 解析自身输出协议
+- 转换为统一 `AgentEvent`
+
+## 工厂与 backend
+
+当前工厂实现见 `src/server/agent/factory.ts`：
+
+```ts
+switch (engine) {
+  case 'opencode': return new OpenCodeBackend(config);
+  case 'claude':   return new ClaudeBackend(config);
+  case 'codex':    return new CodexBackend(config);
+  case 'gemini':   return new OpenCodeBackend(config);
+  case 'mock':     return new OpenCodeBackend(config);
 }
-
-// 注入 mock
-const service = new GeminiAgentService({ spawnFn: mockSpawn });
 ```
 
----
+这说明当前状态是：
 
-## 未来改进
+- `opencode / claude / codex`：独立 backend
+- `gemini / mock`：尚未独立实现
 
-1. **进程池**：避免每次 spawn 的 500ms-2s 启动开销
-2. **CLI 版本检测**：不同版本 NDJSON 格式可能变化，需要版本锁定或适配
-3. **Cancel 协议**：目前是 SIGTERM/SIGKILL 硬杀，理想情况应该有优雅取消协议
-4. **MCP 双向通信**：让非 Claude Agent也能通过 MCP 回传（目前用 HTTP callback 模拟）
+## 当前各引擎状态
 
----
+### OpenCode
 
-## 相关文件
+- backend：`OpenCodeBackend`
+- 典型命令：`opencode run <prompt> --format json [--session <id>]`
+- 适合处理 NDJSON 风格输出
 
-```
-packages/api/src/
-├── utils/
-│   ├── cli-spawn.ts          # 通用子进程管理
-│   ├── cli-types.ts          # 类型定义
-│   ├── cli-format.ts         # 错误格式化
-│   └── ndjson-parser.ts      # NDJSON 解析
-├── config/
-│   ├── agent-models.ts         # 模型配置读取
-│   └── agent-config-loader.ts  # JSON 配置加载
-└── domains/agents/services/
-    ├── ClaudeAgentService.ts # Agent-R
-    ├── CodexAgentService.ts  # Agent-M
-    └── GeminiAgentService.ts # Siamese
-```
+### Claude
+
+- backend：`ClaudeBackend`
+- 典型命令：`claude -p <prompt> --output-format stream-json [--resume <id>]`
+- 会产生 `stream-json` 风格事件
+
+### Codex
+
+- backend：`CodexBackend`
+- 当前以最简模式接入
+- 使用 JSON 解析加纯文本 fallback
+
+### Gemini
+
+- 当前没有独立 backend
+- factory 中暂时回退到 `OpenCodeBackend`
+- 不能视为与 `claude / codex / opencode` 同等级落地
+
+## 运行时探测
+
+daemon 当前会主动探测的 CLI 只有：
+
+- `claude`
+- `codex`
+- `opencode`
+
+这意味着：
+
+- 前端并没有完整的统一 runtime catalog
+- `gemini` 当前也不在默认探测清单中
+
+## Bridge 与本地 CLI
+
+当前 daemon 支持两类主路径：
+
+### 1. Bridge 模式
+
+- 当 `opencodeBridgeUrl` 存在时优先走 bridge
+- daemon 通过 HTTP 调用 `{bridge}/run`
+- bridge 输出被逐行解析后再归一化为 `AgentEvent`
+
+### 2. 本地 CLI 模式
+
+- daemon 直接调用本地 `opencode / claude / codex`
+- backend 负责各自 stdout/stderr 解析
+
+## 持久化职责
+
+daemon 当前不仅负责“转发”，还负责写入：
+
+- `sessionRepo`
+- `invocationRepo`
+- `messageRepo`
+- `eventRepo`
+
+因此 CLI 集成层现在已经是：
+
+- 执行层
+- 观测层
+- 审计层
+
+而不是单纯的 stdout 桥接器。
+
+## 当前已知限制
+
+1. `gemini` 未独立实现
+2. `mock` 未独立实现
+3. 统一 runtime 管理 UI 尚未完成
+4. `providerProfileId / channel / authContextId` 仍然主要是参数预留
+
+## 后续建议
+
+1. 为 `gemini` 增加独立 backend
+2. 为 `mock` 增加真正的 mock backend
+3. 将 runtime 检测、账号映射、backend 能力说明统一回写到配置中心文档
+4. 持续保持本文档与 `src/server/agent/*`、`src/server/daemon.ts` 一致

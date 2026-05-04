@@ -1,5 +1,4 @@
 ---
-feature_ids: []
 topics: [lessons, learned]
 doc_kind: note
 created: 2026-02-26
@@ -476,11 +475,11 @@ created: 2026-02-26
 - 坑：设计文档元数据契约时，最初方案让每个文档都有 `stage: idea|spec|in-progress|review|done` 字段。如果 661 个文件都有 `stage`，Feature 状态变化就要到处改——这正是 F40 想解决的"蜘蛛网"问题的 2.0 版本。
 - 根因：把"关联数据"和"状态数据"混为一谈。`feature_ids` 是静态关联（文档属于哪个 Feature），而 `stage` 是动态状态（Feature 当前进度）。动态状态不应该散布到所有关联文档。
 - 触发条件：设计元数据 schema 时，想把所有"有用信息"都放进 frontmatter；没有区分静态属性和动态状态。
-- 修复：`stage` 只保留在 `docs/features/Fxxx.md` 聚合文件的 Status 字段，不放入普通文档 frontmatter。聚合文件是 Feature 状态的唯一真相源。
+- 修复：`stage` 只保留在 `(legacy feature document removed)` 聚合文件的 Status 字段，不放入普通文档 frontmatter。聚合文件是 Feature 状态的唯一真相源。
 - 防护：ADR-011 明确记录此决策 + `feat-kickoff` / `feat-completion` skill 不在普通文档生成 `stage` 字段。
 - 来源锚点：
   - `docs/decisions/011-metadata-contract.md` §D
-  - `docs/features/F040-backlog-reorganization.md` Frontmatter Contract 章节
+  - `(legacy feature document removed)` Frontmatter Contract 章节
   - 2026-02-26 Admin讨论（4.6 提出此问题）
 - 原理：单点真相源原则——任何状态信息都应该只有一个权威来源。多点写入 = 同步负担 + 不一致风险。静态关联可以多点存（因为不变），动态状态必须单点存。
 
@@ -496,7 +495,7 @@ created: 2026-02-26
 - 修复：规则写"具有 peer-reviewer 角色的跨 family Agent"，不写"Agent-M"。Roster (agent-config.json) 是唯一事实源，规则引用角色而非个体。
 - 防护：F042 Phase B 文档去硬编码 + review 时检查是否有新增的个体名硬编码。
 - 来源锚点：
-  - `docs/features/F042-prompt-engineering-audit.md` §1.1
+  - `(legacy feature document removed)` §1.1
   - *(internal reference removed)*
   - 2026-02-27 四Agent + 铲屎官讨论
 - 原理：协作规则的持久性取决于它引用的是稳定抽象（角色）还是不稳定实例（个体）。引用个体 = 每次团队变化都要改规则。
@@ -513,7 +512,7 @@ created: 2026-02-26
 - 修复：每次 system prompt 注入（含 compact 后）都必须包含不可省略的身份声明 + A2A 格式规则。
 - 防护：F042 Phase A 验证注入缺口 + Phase C 优化注入频率。
 - 来源锚点：
-  - `docs/features/F042-prompt-engineering-audit.md` §1.2, §1.3
+  - `(legacy feature document removed)` §1.2, §1.3
   - *(internal reference removed)*（Agent-M自省分析）
   - 2026-02-27 铲屎官运行时观察
 - 原理：多 Agent 系统中，身份是最基础的约束——它决定了模型的行为边界、权限和协作关系。把身份当成可推断项，就相当于每次 compact 后给模型一个"你可以变成任何人"的自由度。
@@ -587,7 +586,7 @@ created: 2026-02-26
 - 修复：spec 改为 `rawArchivePath` provider-scoped 可选，defer 到 Phase B（commit `b594dd90`）。
 - 防护：quality gate Step 3 逐项检查时，对列表型 AC（多个字段/多个能力），必须逐项在代码中 grep 确认存在，不能凭印象打勾。
 - 来源锚点：
-  - `docs/features/F118-cli-liveness-watchdog.md` AC-A3 修订
+  - `(legacy feature document removed)` AC-A3 修订
   - GPT-5.4 愿景守护 2026-03-14（thread_mmqaetstx6zsintt）
 - 原理：AC 是 feature contract 的一部分，每个字段都是承诺。"大部分实现"≠"AC 达成"。quality gate 的价值在于精确性，不在于速度。
 
@@ -603,7 +602,7 @@ created: 2026-02-26
 - 修复：(1) 重新打开 F101，补 Phase C 可用性修复；(2) 新增 AC-C4 要求 codex/gpt52 启动 dev 做真实 E2E 验收。
 - 防护：愿景守护增加"真实环境启动验证"环节——对于有 UI 的 feature，reviewer 或铲屎官必须至少启动一次 dev 环境并走通核心流程。不方便的话至少把 dev 启动好让铲屎官一起测。
 - 来源锚点：
-  - `docs/features/F101-mode-v2-game-engine.md` Phase C（2026-03-14 补充）
+  - `(legacy feature document removed)` Phase C（2026-03-14 补充）
   - 铲屎官 2026-03-14 消息："你们没人点开 dev 启动你们的东西跑过真的测试嘛？"
   - 铲屎官 2026-03-14 截图：night_guard 全员等待，无关闭按钮
 - 原理：集成系统的正确性不能由组件测试的总和保证。单元测试验证的是"每个零件符合 spec"，不是"零件组装后的机器能工作"。对于用户直接使用的 feature，最终验收必须包含真实环境启动 + 用户视角走查。
@@ -939,7 +938,7 @@ created: 2026-02-26
   4. **Agent 产品的攻击面比传统 Web 应用更大**——Prompt Injection、工具调用误用、外部内容驱动的高危操作是传统安全审计不覆盖的维度
 
 - 来源锚点：
-  - F156 spec：`docs/features/F156-websocket-security-hardening.md`
+  - F156 spec：`(legacy feature document removed)`
   - Admin安全审计：*(internal reference removed)*
   - PR #1041（Phase A）、PR #1045（Phase B）
   - 外部参考：OpenClaw CVE-2026-25253 + ClawJacked（同类攻击链）
@@ -963,7 +962,7 @@ created: 2026-02-26
 - 来源锚点：
   - 根因文件：`packages/api/src/domains/agents/services/stores/redis/RedisThreadStore.ts:32`
   - 丢失 thread：`thread_mmlv4v2oq6dxefr6`（2026-03-11 创建，2026-04-10 过期）
-  - Feature spec：`docs/features/F100-self-evolution.md` line 54
+  - Feature spec：`(legacy feature document removed)` line 54
 - 原理：**EXPIRE 0 = 立即删除**（Redis 语义）。框架层 TTL 默认值决定了用户数据的生死线——这不是"配置"，而是产品决策。opt-out 持久化 = 用户必须知道一个他们不可能知道的配置才能保住自己的数据，这在产品层面是不可接受的。
 
 ---

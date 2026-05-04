@@ -13,20 +13,21 @@
 
 `agent-task-hub`（内部代号 **Agent Task Hub**，核心愿景为 *"Agents & U"*）突破了将 AI 仅作为单体辅助工具的传统模式。旨在为用户分配一支具备“对等协作、共享记忆”能力的虚拟研发团队（“Agent团队”）。人类负责提供愿景和判断，多个 AI Agent 负责拆解、编码、审查和交付，共同把想法变成实际能运行的产品。
 
-本项目主要围绕以下五个维度构建（**The "5-Abilities"**）：
-- **👀 可视 (Visual)**：通过 Task Hub 前端看板实时反映所有任务节点的状态流转。
-- **🎮 可管 (Manageable)**：支持死循环熔断保护，人类可随时介入修改状态、中断或重新分配任务。
-- **🚀 可 push (Pushable)**：外部需求不仅可通过人类下发，Agent 之间也可根据情况互相派发子任务。
-- **🔄 可推进 (Drivable)**：依靠 `@` 提及路由接力通知机制，确保从拆解到交付无缝衔接。
-- **♻️ 可迭代 (Iterative)**：独立的 Reviewer Agent 机制保障代码质量，减少推倒重来的成本。
+当前版本已经从早期的“任务板 + 聊天室”演进为一个**项目工作台**：
+
+- 左侧：项目列表与项目切换
+- 中间：作战指挥室，展示项目目标、拆解状态、Agent 条带与对话
+- 右侧：Mini Kanban、下一步代办、风险与阻塞
+- 底层：SQLite 持久化、API rehydrate、Socket.io daemon、多 CLI backend
 
 ## 🏗️ 核心架构
 
-系统采用了 **“状态上板 (Blackboard) + 消息通知 (Event-driven A2A)”** 的混合驱动架构：
+系统当前采用四层结构：
 
-- **Planner Agent (架构师/拆解者)**：接收大需求，拆解为细粒度的任务写入看板。
-- **Worker Agents (执行节点)**：专注于执行特定领域的编码工作。
-- **Reviewer Agent (审查节点)**：专职进行 Code Review，决定任务放行（`approved`）还是打回（`rejected`）。
+- **前端工作台**：项目、聊天、任务、阻塞、设置等统一 UI
+- **状态与编排层**：Zustand 负责运行态缓存、API rehydrate 和 socket 事件接入
+- **应用后端层**：Next.js API + SQLite / Drizzle / Repository
+- **执行层**：Socket.io daemon + Agent Backend 抽象 + CLI / Bridge
 
 *详见 [统一规格目录](./specs/README.md)、[整体架构文档](./docs/wiki/01-architecture.md) 和 [产品愿景](./VISION.md)*。
 
@@ -36,6 +37,7 @@
 
 - **框架**: [Next.js 16.2](https://nextjs.org/) + [React 19](https://react.dev/)
 - **状态管理**: [Zustand 5](https://github.com/pmndrs/zustand)
+- **持久化**: `better-sqlite3` + `drizzle-orm`
 - **样式**: [Tailwind CSS v4](https://tailwindcss.com/)
 - **组件/功能集成**: 
   - `xterm.js` (Web 终端模拟)
@@ -63,14 +65,23 @@ pnpm dev
 # yarn dev
 ```
 
-启动后，在浏览器中访问 [http://localhost:3000](http://localhost:3000) 即可预览项目。你可以通过修改 `app/page.tsx` 来开始你的开发，页面会自动热更新。
+启动后，在浏览器中访问 [http://localhost:3000](http://localhost:3000) 即可预览项目。你可以从 `src/app/ClientHome.tsx`、`src/components/project/` 和 `src/store/taskHubStore.ts` 开始理解当前主界面与状态流。
+
+## 🧭 当前使用路径
+
+1. 启动项目：`pnpm dev`
+2. 打开 Web
+3. 在左侧项目栏创建一个项目
+4. 在右上角设置中进入 `模型账号`
+5. 添加并验证账号，必要时在 `角色卡` 中完成账号绑定
+6. 在项目内创建任务并打开任务详情执行 CLI
 
 ## 🔌 连接 Opencode（真实执行）
 
-本项目默认运行在远程环境/容器中，无法直接调用你本机安装的 `opencode`。推荐方式是使用 **Opencode Bridge（本机转发）**：
+本项目仍支持 **Opencode Bridge（本机转发）**，用于远程环境间接调用你本机安装的 `opencode`：
 
 - 本机运行一个轻量 HTTP 服务，将 `opencode run/attach` 的输出流式转发给 Web。
-- Web 端在右上角「设置」中填写公网 URL 并启用，即可在任务详情中看到「运行 Opencode」按钮。
+- 当前前端没有完整的 Bridge 管理界面；Bridge 更适合作为开发链路或定制集成能力使用。
 
 ### 1) 本机准备（macOS / Linux）
 
@@ -108,15 +119,26 @@ powershell -ExecutionPolicy Bypass -File .\scripts\opencode-bridge-install.ps1
 powershell -ExecutionPolicy Bypass -File .\scripts\opencode-bridge-start.ps1 -Port 8787 -Mode run
 ```
 
-### 3) Web 配置
+### 3) 接入说明
 
 1. 把本机 `http://localhost:8787` 暴露成公网可访问 URL（推荐 https）
-2. 打开 Web → 右上角「设置」→「Opencode Bridge（本机转发）」：
-   - 粘贴 URL
-   - 点「检测」
-   - 点「启用」
+2. 将该 URL 作为执行环境配置的一部分接入 daemon 或本地调试链路
+
+说明：
+
+- Bridge 协议与启动方式仍有效
+- 当前产品主流配置入口已经转向“模型账号 / 角色卡”
+- 不应再把“设置里直接填 Bridge URL”视为当前默认用户路径
 
 更多细节见 [bridge/README.md](./bridge/README.md)
+
+## 🗄️ 持久化说明
+
+当前项目已经接入 SQLite 持久化：
+
+- 页面初始状态通过 `/api/state` 加载
+- conversation / task / message / session / invocation / event 会写入本地数据库
+- Zustand 主要承担前端运行态缓存与编排，不再是唯一数据源
 
 ## 📚 文档导读
 

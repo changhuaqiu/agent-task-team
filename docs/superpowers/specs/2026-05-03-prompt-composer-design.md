@@ -8,7 +8,18 @@
 
 ## Prompt 分层
 
-### System Prompt（通过 `--prompt` / `--append-system-prompt` 注入）
+### System Prompt
+
+**注入方式因引擎而异：**
+
+| 引擎 | systemPrompt 注入方式 | 说明 |
+|---|---|---|
+| opencode | 合并进主 prompt（`\n\n---\n\n` 分隔） | opencode CLI 无 system-prompt flag，`--prompt` 不生效会被忽略 |
+| claude | `--append-system-prompt` flag | 通过 Claude Code CLI 的追加系统提示机制 |
+| codex | 合并进主 prompt | 同 opencode |
+| gemini | 合并进主 prompt | 同 opencode |
+
+> **历史问题（2026-05-04 修复）**：opencode 曾用 `--prompt` 传递 systemPrompt，但该 flag 不被 opencode CLI 识别，导致首次 @agent 时角色身份、团队名册、协作规则全部丢失。claude 引擎在 tmux 路径中也缺失 `--append-system-prompt`。修复后改为合并到主 prompt（opencode/codex/gemini）或正确使用 flag（claude）。
 
 | 层 | 函数 | 内容 | 注入时机 |
 |---|---|---|---|
@@ -212,8 +223,32 @@ const effectivePrompt = composeUserPrompt(opts);
 
 ## 不改动的部分
 
-- `daemon.ts` — 接收 systemPrompt / prompt 的逻辑不变
-- `opencode.ts` / `claude.ts` — `--prompt` / `--append-system-prompt` 的传递方式不变
 - `presetRoleCards.ts` — persona 数据不变
 - UI 组件 — 不涉及
 - `triggerProposal` — 只改 agentId（已修），prompt 内容不变
+
+## 后续修复记录
+
+### 2026-05-04: systemPrompt 注入修复
+
+**问题**：首次 @agent 时 Jean 收到的 prompt 没有任何角色信息（无 persona、无团队名册、无协作规则）。
+
+**根因**：
+1. `opencode.ts` 用 `--prompt` flag 传递 systemPrompt，但 opencode CLI 不识别该 flag，静默忽略
+2. `daemon.ts` 的 `primaryArgs` IIFE 中，claude/codex/gemini 引擎完全没有传递 systemPrompt
+3. 对 opencode 来说，即使 systemPrompt 正确生成了，也无法到达 CLI agent
+
+**修复**（影响文件）：
+- `src/server/agent/opencode.ts` — 移除无效的 `--prompt` flag，改为将 systemPrompt 合并进主 prompt（用 `\n\n---\n\n` 分隔）
+- `src/server/daemon.ts` primaryArgs IIFE — opencode/codex/gemini 合并到主 prompt；claude 新增 `--append-system-prompt`
+
+### 2026-05-04: session 完成后错误密封
+
+**问题**：每次 CLI 执行完成后 session 被密封（status = 'sealed'），导致下次消息发送时 `findActiveByConversation` 找不到可用 session，`isFirstWake` 永远为 true，systemPrompt 重复注入，CLI session 无法通过 `--resume` 复用。
+
+**根因**：`daemon.ts` 在 backend/bridge/tmux 路径中，CLI 正常完成后都调用 `sessionRepo.seal(id, 'completed')`。这使得每个 session 只能使用一次，违背了 session 跨消息复用的设计意图。
+
+**修复**（影响文件）：
+- `src/server/daemon.ts` — backend 路径：成功完成不再 seal，仅失败时 seal；bridge 路径：移除成功完成的 seal 调用
+- 保留的 seal 场景：失败/超时/异常 + 创建新 session 时的 `sealByConversation('replaced')`
+- 数据修复：`UPDATE agent_session SET status='active' WHERE seal_reason='completed'`

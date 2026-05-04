@@ -1,5 +1,4 @@
 ---
-feature_ids: [F059, F115]
 topics: [sync, runtime, startup, architecture]
 doc_kind: decision
 created: 2026-03-13

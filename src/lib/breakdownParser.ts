@@ -10,13 +10,29 @@ export interface PhaseProposal {
   tasks: TaskProposal[];
 }
 
+const STRIP_HTML_RE = /<[^>]+>/g;
+
+/**
+ * Parse PHASE/TASK structured text from agent output.
+ * Handles both newline-separated and inline formats:
+ *   PHASE: title | desc TASK: t1 | d1 @deep TASK: t2 | d2 @quick
+ */
 export function parsePhaseBreakdown(content: string): PhaseProposal[] {
-  const lines = content.split('\n');
+  const cleaned = content.replace(STRIP_HTML_RE, '');
+  // Normalize: treat "TASK:" and "PHASE:" as token boundaries by inserting newlines
+  const normalized = cleaned
+    .replace(/\s*TASK\s*:/gi, '\nTASK:')
+    .replace(/\s*PHASE\s*:/gi, '\nPHASE:');
+
+  const lines = normalized.split('\n');
   const phases: PhaseProposal[] = [];
   let currentPhase: PhaseProposal | null = null;
 
   for (const raw of lines) {
-    const phaseMatch = /^\s*PHASE\s*:\s*(.+)\s*$/i.exec(raw);
+    const trimmed = raw.trim();
+    if (!trimmed) continue;
+
+    const phaseMatch = /^PHASE\s*:\s*(.+)$/i.exec(trimmed);
     if (phaseMatch) {
       const rest = phaseMatch[1] || '';
       const [titlePart, ...descParts] = rest.split('|');
@@ -29,13 +45,13 @@ export function parsePhaseBreakdown(content: string): PhaseProposal[] {
       continue;
     }
 
-    const taskMatch = /^\s*(?:-|\*)?\s*TASK\s*:\s*(.+)\s*$/i.exec(raw);
+    const taskMatch = /^(?:-|\*)?\s*TASK\s*:\s*(.+)$/i.exec(trimmed);
     if (taskMatch && currentPhase) {
       const rest = taskMatch[1] || '';
       const agentMatch = /@(\w+)/.exec(rest);
       const agentId = agentMatch ? agentMatch[1] : undefined;
-      const cleaned = rest.replace(/@(\w+)/g, '').trim();
-      const [titlePart, ...descParts] = cleaned.split('|');
+      const noAgent = rest.replace(/@(\w+)/g, '').trim();
+      const [titlePart, ...descParts] = noAgent.split('|');
       const title = (titlePart || '').trim();
       const description = descParts.join('|').trim();
       if (title) {

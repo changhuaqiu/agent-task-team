@@ -1,5 +1,4 @@
 ---
-feature_ids: []
 topics: [conversation, mutability, invocation]
 doc_kind: decision
 created: 2026-02-26

@@ -1,5 +1,4 @@
 ---
-feature_ids: [F100]
 topics: [knowledge, frontmatter, governance]
 doc_kind: decision
 created: 2026-03-12
