@@ -134,7 +134,7 @@ describe('buildRoleLayer', () => {
   });
 
   it('omits outputFormat constraint when freeform', () => {
-    const rc = makeRoleCard({ outputFormat: 'freeform' });
+    const rc = makeRoleCard({ outputFormat: 'freeform', category: 'frontend' });
     const result = buildRoleLayer(agent, rc);
     expect(result).not.toContain('输出格式');
   });

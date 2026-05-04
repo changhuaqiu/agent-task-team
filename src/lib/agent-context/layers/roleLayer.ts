@@ -53,5 +53,21 @@ export function buildRoleLayer(agent: { id: string; name: string }, roleCard?: R
     parts.push(`## 协作风格\n${roleCard.persona.collaboration}`);
   }
 
+  // Planner-specific dispatch instructions
+  if (roleCard.category === 'planner') {
+    parts.push(`## 分派职责
+你是项目统筹，核心职责：
+1. 将用户目标分解为 PHASE → TASK，每个 TASK 粒度控制在单角色可独立完成
+2. 分派时参考团队花名册的领域和技能匹配
+3. 如果 Advisor 给出了建议分派，优先采纳；有异议时说明理由
+4. 每个 TASK 输出格式：TASK: <描述> @<agentId>
+
+## TASK 粒度标准
+- 一个 TASK = 一个角色的一次独立交付
+- 涉及两个领域的 TASK 必须拆成两个
+- 单个 TASK 预估工作量不超过项目总量的 1/5
+- 有依赖关系的 TASK 放在同一 PHASE 内，按顺序排列`);
+  }
+
   return parts.join('\n\n');
 }
