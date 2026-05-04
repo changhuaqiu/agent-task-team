@@ -17,7 +17,10 @@ type MutationType =
   | 'invocation.updateStatus'
   | 'dispatch.enqueue'
   | 'event.append'
-  | 'tool.invoke';
+  | 'tool.invoke'
+  | 'phase.upsert'
+  | 'phase.delete'
+  | 'ath.initBreakdown';
 
 interface MutationRequest {
   type: MutationType;
@@ -151,6 +154,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         result = { id };
         break;
       }
+      case 'phase.upsert': {
+        const { upsertPhase } = await import('@/server/db/phaseQueries');
+        result = upsertPhase(payload as any);
+        break;
+      }
+      case 'phase.delete': {
+        const { deletePhase } = await import('@/server/db/phaseQueries');
+        deletePhase(payload.id as string);
+        result = { id: payload.id };
+        break;
+      }
       case 'tool.invoke': {
         const { taskRepo } = await import('@/server/repositories/task-repo');
         const { toolName, agentId: toolAgentId, projectId: toolProjectId, input } = payload as any;
@@ -162,23 +176,112 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         } else if (toolName === 'task_create') {
           const taskCount = taskRepo.list().length;
           const id = `TASK-${String(taskCount + 1).padStart(3, '0')}`;
+          const deps = typeof input.dependencies === 'string'
+            ? input.dependencies.split(',').map((s: string) => s.trim()).filter(Boolean)
+            : [];
           const task = taskRepo.create({
             id,
             conversation_id: conversationId,
             title: input.title,
             description: input.description || '',
             agent_id: input.agent_id || toolAgentId,
+            dependencies: deps,
           });
+
+          // Also write to TASKS.md
+          try {
+            const { readTasksMd, writeTasksMd } = await import('@/server/task-file-service');
+            const { join } = await import('path');
+            const wsRoot = process.env.ATH_WORKSPACES_ROOT || join(process.cwd(), '.ath', 'workspaces');
+            const projectDir = join(wsRoot, conversationId || 'default');
+            const { tasks: existingTasks, blockers } = readTasksMd(projectDir);
+            existingTasks.push({
+              id,
+              title: input.title,
+              phase: input.phase || '',
+              role: input.role || 'worker',
+              agent: input.agent_id || toolAgentId || '',
+              status: 'pending',
+              depends: deps,
+              deliverable: input.deliverable || '',
+            });
+            writeTasksMd(projectDir, existingTasks, blockers);
+          } catch (e) {
+            console.error('[task_create] failed to update TASKS.md:', e);
+          }
+
           res.json({ ok: true, result: task });
         } else if (toolName === 'task_update_status') {
           taskRepo.updateStatus(input.task_id, input.status);
+
+          // Also update TASKS.md
+          try {
+            const { updateTaskInMd } = await import('@/server/task-file-service');
+            const { join } = await import('path');
+            const wsRoot = process.env.ATH_WORKSPACES_ROOT || join(process.cwd(), '.ath', 'workspaces');
+            const existing = taskRepo.getById(input.task_id);
+            const convId = existing?.conversation_id || conversationId || 'default';
+            const projectDir = join(wsRoot, convId);
+            const STATUS_FILE: Record<string, string> = {
+              pending: 'todo', in_progress: 'doing', in_review: 'review', done: 'done', blocked: 'blocked', rejected: 'rejected',
+            };
+            updateTaskInMd(projectDir, input.task_id, { status: STATUS_FILE[input.status] || input.status });
+          } catch (e) {
+            console.error('[task_update_status] failed to update TASKS.md:', e);
+          }
+
           res.json({ ok: true });
         } else if (toolName === 'task_assign') {
           taskRepo.update(input.task_id, { agent_id: input.agent_id });
+
+          // Update .ath/TASKS.md
+          const { updateTaskInMd } = await import('@/server/task-file-service');
+          const { join: joinPath } = await import('path');
+          const wsRoot = process.env.ATH_WORKSPACES_ROOT || joinPath(process.cwd(), '.ath', 'workspaces');
+          const taskProjectDir = joinPath(wsRoot, conversationId || 'default');
+          try {
+            updateTaskInMd(taskProjectDir, input.task_id, { agent: input.agent_id });
+          } catch (e) {
+            console.error('[task_assign] failed to update .ath/TASKS.md:', e);
+          }
+
           res.json({ ok: true });
+
+          // Broadcast task.assigned for store to trigger dispatchToAgent
+          const io = (res.socket as any)?.server?.io;
+          if (io) {
+            io.emit('task.assigned', {
+              taskId: input.task_id,
+              agentId: input.agent_id,
+              conversationId,
+            });
+          }
         } else {
-          res.status(400).json({ error: `Unknown tool: ${toolName}` });
+          res.status(400).json({ ok: false, error: `Unknown tool: ${toolName}` });
         }
+        break;
+      }
+      case 'ath.initBreakdown': {
+        const { initProjectDir, writeTasksMd } = await import('@/server/task-file-service');
+        const { conversationId, projectName, projectGoal, tasks } = payload as any;
+
+        // Scope .ath/ under workspaces/<conversationId>/ so projects don't collide
+        const { join } = await import('path');
+        const workspacesRoot = process.env.ATH_WORKSPACES_ROOT || join(process.cwd(), '.ath', 'workspaces');
+        const projectDir = join(workspacesRoot, conversationId || 'default');
+
+        initProjectDir(projectDir, {
+          name: projectName || 'Project',
+          goal: projectGoal || '',
+          techStack: ['Next.js', 'TypeScript', 'SQLite'],
+          constraints: ['All existing tests must pass'],
+        });
+
+        if (tasks?.length) {
+          writeTasksMd(projectDir, tasks);
+        }
+
+        result = { projectDir };
         break;
       }
       default:

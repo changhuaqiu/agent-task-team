@@ -1400,10 +1400,31 @@ socket.on('task.assigned', ({ taskId, agentId, conversationId }: { taskId: strin
   });
 });
 
-socket.on('task.sync', ({ projectPath, tasks: syncedTasks }: { projectPath: string; tasks: any[] }) => {
+socket.on('task.sync', ({ projectPath, conversationId, tasks: syncedTasks, blockers: syncedBlockers }: { projectPath: string; conversationId: string; tasks: any[]; blockers?: any[] }) => {
+  const store = useTaskHubStore.getState();
+
   for (const synced of syncedTasks) {
-    const existing = useTaskHubStore.getState().getTaskById(synced.id);
-    if (!existing) continue;
+    const existing = store.getTaskById(synced.id);
+    if (!existing) {
+      // New task from file — add to store
+      useTaskHubStore.setState((state) => ({
+        tasks: [...state.tasks, {
+          id: synced.id,
+          conversationId: conversationId || state.selectedConversationId || '',
+          phaseId: synced.phase || '',
+          title: synced.title,
+          description: synced.deliverable || '',
+          status: synced.status,
+          agentId: synced.agent || '',
+          dependencies: synced.depends || [],
+          artifacts: [],
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }],
+      }));
+      continue;
+    }
+
     if (existing.status !== synced.status || existing.agentId !== synced.agent) {
       useTaskHubStore.setState((state) => ({
         tasks: state.tasks.map((t) =>
@@ -1412,6 +1433,25 @@ socket.on('task.sync', ({ projectPath, tasks: syncedTasks }: { projectPath: stri
             : t
         ),
       }));
+    }
+  }
+
+  // Sync blockers from file
+  if (syncedBlockers && syncedBlockers.length > 0) {
+    for (const b of syncedBlockers) {
+      if (b.status === 'open') {
+        const existingBlk = (store.blockersByConversation[conversationId] || []).find((eb: any) => eb.id === b.id);
+        if (!existingBlk) {
+          store.openBlocker({
+            id: b.id,
+            conversationId,
+            taskId: b.taskId,
+            type: b.type,
+            reasonSummary: b.summary,
+            status: 'open',
+          });
+        }
+      }
     }
   }
 });

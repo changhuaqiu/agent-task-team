@@ -27,11 +27,15 @@ You can create, assign, and update tasks for your team. Use the provided tools t
       },
       {
         name: 'task_create',
-        description: 'Create a new task and optionally assign it to an agent',
+        description: 'Create a new task with full details and optionally assign it to an agent',
         parameters: [
           { name: 'title', type: 'string', required: true, description: 'Short task title' },
           { name: 'description', type: 'string', required: false, description: 'Detailed task description' },
           { name: 'agent_id', type: 'string', required: false, description: 'Agent ID to assign (mario, luigi, toad, peach, dk, yoshi)' },
+          { name: 'role', type: 'string', required: false, description: 'Task role: planner, backend, frontend, testing, security, devops' },
+          { name: 'phase', type: 'string', required: false, description: 'Phase ID (e.g. P1, P2)' },
+          { name: 'dependencies', type: 'string', required: false, description: 'Comma-separated task IDs this task depends on' },
+          { name: 'deliverable', type: 'string', required: false, description: 'Expected output file or artifact' },
         ],
         handler: 'api://tasks/create',
       },
