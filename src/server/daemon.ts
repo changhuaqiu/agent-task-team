@@ -38,6 +38,7 @@ type TerminalStartPayload = {
   accountIds?: string[];
   accountId?: string;
   force?: boolean;
+  projectSlug?: string;
 };
 
 const ENGINE_COMMAND: Record<CliEngine, string> = {
@@ -160,6 +161,7 @@ export default function registerDaemon(io: IOServer) {
         accountIds,
         accountId,
         force,
+        projectSlug,
       }: TerminalStartPayload) => {
       console.log(`[daemon] terminal:start agent=${agentId}, engine=${rawEngine}, accountId=${accountId ?? '(none)'}, force=${force}, busy=${activeProcesses.has(processKey(agentId, projectId))}`);
       console.log(`[daemon] systemPrompt=${systemPrompt ? `${systemPrompt.length} chars` : '(none)'}, prompt=${prompt ? `${prompt.length} chars` : '(none)'}`);
@@ -622,7 +624,7 @@ export default function registerDaemon(io: IOServer) {
       const command = ENGINE_COMMAND[engine] || 'opencode';
       const backend = createBackend(engine, { executablePath: command });
 
-      const wd = await workdirManager.resolveWorkdir(agentId, projectId || 'default', taskId || `adhoc-${Date.now()}`);
+      const wd = await workdirManager.resolveWorkdir(agentId, projectId || 'default', taskId || `adhoc-${Date.now()}`, projectSlug ? { useWorktree: true, projectSlug } : undefined);
       const sessionMeta = taskId ? workdirManager.readSessionMeta(agentId, projectId || 'default', taskId) : null;
 
       const { events, result, kill } = backend.execute(prompt || '', {
@@ -747,6 +749,34 @@ export default function registerDaemon(io: IOServer) {
         }
       }
       callback?.({ activeAgents });
+    });
+
+    // --- Worktree management events ---
+    socket.on('worktree:list', async (callback) => {
+      try {
+        const worktrees = await workdirManager.getWorktreeManager().listWorktrees();
+        callback?.({ worktrees });
+      } catch (error) {
+        callback?.({ error: 'Failed to list worktrees' });
+      }
+    });
+
+    socket.on('worktree:create', async ({ projectSlug: slug }: { projectSlug: string }, callback) => {
+      try {
+        const worktree = await workdirManager.getWorktreeManager().createWorktree(slug);
+        callback?.({ worktree });
+      } catch (error) {
+        callback?.({ error: 'Failed to create worktree' });
+      }
+    });
+
+    socket.on('worktree:remove', async ({ projectSlug: slug }: { projectSlug: string }, callback) => {
+      try {
+        await workdirManager.getWorktreeManager().removeWorktree(slug);
+        callback?.({ success: true });
+      } catch (error) {
+        callback?.({ error: 'Failed to remove worktree' });
+      }
     });
   });
 }
