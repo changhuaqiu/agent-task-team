@@ -1350,6 +1350,16 @@ socket.on('terminal:exit', ({ agentId, code, command, reasonCode }: { agentId: s
   }
 });
 
+socket.on('a2a:dispatch', ({ agentId, prompt, referencedTaskId, fromAgentId, conversationId }: { agentId: string; prompt: string; referencedTaskId?: string; fromAgentId: string; conversationId?: string }) => {
+  console.log(`[a2a] dispatch from ${fromAgentId} to ${agentId}`);
+  useTaskHubStore.getState().enqueueDispatch(agentId, {
+    prompt,
+    referencedTaskId,
+    source: 'a2a',
+    fromAgentId,
+  });
+});
+
 socket.on('agent:error', ({ agentId, message, reasonCode }: { agentId: string; message: string; reasonCode?: string }) => {
   const state = useTaskHubStore.getState();
 
