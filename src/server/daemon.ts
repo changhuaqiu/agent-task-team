@@ -157,6 +157,7 @@ export default function registerDaemon(io: IOServer) {
         force,
       }: TerminalStartPayload) => {
       console.log(`[daemon] terminal:start agent=${agentId}, engine=${rawEngine}, accountId=${accountId ?? '(none)'}, force=${force}, busy=${activeProcesses.has(processKey(agentId, projectId))}`);
+      console.log(`[daemon] systemPrompt=${systemPrompt ? `${systemPrompt.length} chars` : '(none)'}, prompt=${prompt ? `${prompt.length} chars` : '(none)'}`);
       let primaryCommand = 'unknown';
       let runtimeConfigDir: string | undefined;
       try {
@@ -226,7 +227,8 @@ export default function registerDaemon(io: IOServer) {
           case 'opencode': {
             const a = ['run', '--format', 'json'];
             if (effectiveSessionId) a.push('--session', effectiveSessionId);
-            a.push(systemPrompt ? `${systemPrompt}\n\n---\n\n${prompt || ''}` : (prompt || ''));
+            if (systemPrompt) a.push('--agent', 'ath-agent');
+            a.push(prompt || '');
             return a;
           }
           case 'claude': {
@@ -270,7 +272,21 @@ export default function registerDaemon(io: IOServer) {
         }
       }
 
-      const mergedEnv = { ...process.env, ...credentialEnv, ...runtimeConfigEnv };
+      const mergedEnv: Record<string, string> = { ...process.env, ...credentialEnv, ...runtimeConfigEnv } as Record<string, string>;
+
+      // Inject system prompt via opencode's custom agent config (for tmux path; backend path handles it internally)
+      if (systemPrompt && engine === 'opencode') {
+        mergedEnv.OPENCODE_CONFIG_CONTENT = JSON.stringify({
+          agent: {
+            'ath-agent': {
+              description: 'Agent Task Hub runtime agent',
+              prompt: systemPrompt,
+              mode: 'primary',
+            },
+          },
+          default_agent: 'ath-agent',
+        });
+      }
 
       let sessionEmitted = false;
 
@@ -592,6 +608,13 @@ export default function registerDaemon(io: IOServer) {
           const final = await result;
           clearProcessTimeout();
           clearInterval(heartbeatTimer);
+
+          // Persist token usage if available
+          if (final.usage && Object.keys(final.usage).length > 0 && invocation) {
+            invocationRepo.updateDispatchStatus(invocation.id, 'completed', {
+              tokenUsage: JSON.stringify(final.usage),
+            });
+          }
 
           if (invocation) {
             invocationRepo.updateStatus(invocation.id, final.status === 'completed' ? 'succeeded' : 'failed', {
