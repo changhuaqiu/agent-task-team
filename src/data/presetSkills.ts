@@ -1,3 +1,5 @@
+import { TASK_MANAGEMENT_SKILL } from './presetSkills/taskManagement';
+
 export const PRESET_SKILLS = [
   {
     name: 'code-review',
@@ -68,4 +70,5 @@ export const PRESET_SKILLS = [
 - 区分 "必须有" 和 "可以有"`,
     isPreset: true,
   },
+  TASK_MANAGEMENT_SKILL,
 ];

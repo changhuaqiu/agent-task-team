@@ -9,6 +9,7 @@ export function seedPresetSkills(): void {
         name: preset.name,
         description: preset.description,
         content: preset.content,
+        config: preset.config,
         isPreset: preset.isPreset,
       });
     }
