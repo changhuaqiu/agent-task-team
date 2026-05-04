@@ -89,6 +89,6 @@ describe('SQLite Foundation', () => {
     const row = db.prepare('SELECT MAX(version) as v FROM _schema_version').get() as {
       v: number;
     };
-    expect(row.v).toBe(1);
+    expect(row.v).toBe(2);
   });
 });
