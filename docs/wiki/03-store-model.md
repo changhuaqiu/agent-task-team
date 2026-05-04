@@ -49,6 +49,11 @@ export interface Agent {
 
 - `role / roleLabel` 已处于兼容保留状态
 - 实际上更推荐由 `roleCardId` 驱动 Agent 能力与身份
+- RoleCard 现包含可选 `capabilities` 字段（`CapabilityProfile`），作为第 8 维度描述：
+  - `domains`：擅长领域列表
+  - `skills`：技能标签
+  - `seniority`：资历等级
+  - `maxConcurrentTasks`：最大并行任务数
 
 ### Conversation
 
@@ -138,6 +143,8 @@ export interface Task {
 - 账号与角色：
   - `accounts`
   - `roleCards`
+  - 角色卡可持久化到 `role_cards` SQLite 表（JSON `data` 列存储完整 RoleCard）
+  - 配套查询函数：`upsertRoleCard`、`loadAllRoleCards`、`deleteRoleCard`
 - UI 控制：
   - `selectedTaskId`
   - `isNewTaskDialogOpen`
@@ -187,6 +194,7 @@ export interface Task {
 
 - `addChatMessage()`
 - `dispatchToAgent()`
+- `confirmBreakdown()` 现在经过 `DispatchAdvisor` —— 一个编程式匹配器，根据 capability profiles、当前负载和 forbidden actions 建议 agent 分配。Advisor 在任务创建前产出带有 `suggestedAgentIds` 的 enriched PhaseProposals
 - 流式消息处理相关方法
 
 ### 执行环境

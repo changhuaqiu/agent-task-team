@@ -58,6 +58,7 @@ Repository 当前覆盖的核心对象：
 - `sessionRepo`
 - `invocationRepo`
 - `eventRepo`
+- `role_cards` 表：`id TEXT PK, data TEXT NOT NULL, is_preset INTEGER NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL`，其中 `data` 列以 JSON 存储完整 RoleCard（含 CapabilityProfile）
 
 这层的职责是：
 
@@ -83,6 +84,7 @@ Repository 当前覆盖的核心对象：
 - account credential 注入
 - timeout 管理
 - bridge / tmux / 本地 CLI 多路径支持
+- 任务创建经过 DispatchAdvisor 步骤，以编程式匹配将任务分配到 agent（基于 capability profiles、当前负载和 forbidden actions）
 
 ## 4.4 Socket 事件协议
 
