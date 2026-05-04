@@ -1,8 +1,10 @@
 import type { RoleCard } from '@/types/roleCard';
 import type { ChatMessage } from '@/store/taskHubStore';
+import { AGENT_ROSTER } from '@/store/taskHubStore';
 import { buildRoleLayer } from './layers/roleLayer';
 import { buildProjectLayer } from './layers/projectLayer';
 import { buildTeamLayer } from './layers/teamLayer';
+import { buildProjectStatusLayer } from './layers/projectStatusLayer';
 import { buildHistoryLayer } from './layers/historyLayer';
 import { buildTaskContextLayer } from './layers/taskContextLayer';
 import { buildUserMessageLayer } from './layers/userMessageLayer';
@@ -18,14 +20,24 @@ export interface ComposeOptions {
   task?: { id: string; title: string; description?: string; phase?: { title: string } };
   rawPrompt: string;
   currentLoad?: Record<string, number>;
+  tasks?: { id: string; title: string; agentId: string; status: string }[];
 }
 
 export function composeSystemPrompt(opts: ComposeOptions): string | undefined {
   if (!opts.isFirstWake) return undefined;
+
+  const projectStatus = opts.tasks
+    ? buildProjectStatusLayer(
+        AGENT_ROSTER.map((a) => ({ id: a.id, name: a.name, emoji: a.emoji })),
+        opts.tasks as Parameters<typeof buildProjectStatusLayer>[1],
+      )
+    : '';
+
   return [
     buildRoleLayer(opts.agent, opts.roleCard),
     buildProjectLayer(opts.project),
     buildTeamLayer(opts.agent.id, opts.allRoleCards, opts.currentLoad),
+    projectStatus,
   ]
     .filter(Boolean)
     .join('\n\n');
