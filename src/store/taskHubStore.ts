@@ -9,7 +9,7 @@ import type { PhaseProposal } from '@/lib/breakdownParser';
 import type { CliEngine, DetectedRuntime } from '@/server/types';
 import { PRESET_ROLE_CARDS, PRESET_ROLE_CARD_MAP } from '@/data/presetRoleCards';
 import { composeSystemPrompt, composeUserPrompt } from '@/lib/agent-context/PromptComposer';
-import type { ComposeOptions } from '@/lib/agent-context/PromptComposer';
+import type { ComposeOptions, SkillSummary } from '@/lib/agent-context/PromptComposer';
 
 export type { CliEngine, DetectedRuntime };
 
@@ -483,6 +483,14 @@ interface TaskHubState {
   isRoleCardEditorOpen: boolean;
   editingRoleCardId: string | null;
   setRoleCardEditorOpen: (open: boolean, cardId?: string) => void;
+
+  // Skill state
+  skillsMap: Record<string, SkillSummary>;
+  agentSkillIds: Record<string, string[]>;
+  loadSkills: () => Promise<void>;
+  getSkillsForAgent: (agentId: string) => SkillSummary[];
+  assignSkillsToAgent: (agentId: string, skillIds: string[]) => Promise<void>;
+  importSkills: (source: string) => Promise<{ imported?: number; error?: string }>;
 }
 
 // --- Initial Data (Pixel-art themed) ---
@@ -773,6 +781,8 @@ export const useTaskHubStore = create<TaskHubState>()(
           if (missing.length) {
             set((state) => ({ roleCards: [...missing, ...state.roleCards] }));
           }
+
+          get().loadSkills();
         } catch (err) {
           console.error('[loadFromServer] Failed:', err);
           set({ hasHydrated: true });
@@ -1328,6 +1338,74 @@ export const useTaskHubStore = create<TaskHubState>()(
       setRoleCardEditorOpen: (open, cardId) =>
         set({ isRoleCardEditorOpen: open, editingRoleCardId: cardId ?? null }),
 
+      // Skill state
+      skillsMap: {},
+      agentSkillIds: {},
+      loadSkills: async () => {
+        try {
+          const res = await fetch('/api/skills');
+          const rawSkills = await res.json();
+          const map: Record<string, SkillSummary> = {};
+          for (const s of rawSkills) {
+            map[s.id] = {
+              name: s.name,
+              content: s.content,
+              files: (s.files ?? []).map((f: { path: string; content: string }) => ({ path: f.path, content: f.content })),
+            };
+          }
+
+          // Load agent-skill assignments and merge any agent-specific skill data
+          const agentIds = ['mario', 'luigi', 'toad', 'peach', 'dk', 'yoshi'];
+          const assignments: Record<string, string[]> = {};
+          await Promise.all(agentIds.map(async (id) => {
+            try {
+              const r = await fetch(`/api/agents/${id}/skills`);
+              const agentSkills = await r.json();
+              for (const as of agentSkills) {
+                if (!map[as.id]) {
+                  map[as.id] = {
+                    name: as.name,
+                    content: as.content,
+                    files: (as.files ?? []).map((f: { path: string; content: string }) => ({ path: f.path, content: f.content })),
+                  };
+                }
+              }
+              assignments[id] = agentSkills.map((s: { id: string }) => s.id);
+            } catch { /* ignore */ }
+          }));
+          set({ skillsMap: map, agentSkillIds: assignments });
+        } catch (err) {
+          console.error('[loadSkills] Failed:', err);
+        }
+      },
+      getSkillsForAgent: (agentId) => {
+        const { skillsMap, agentSkillIds } = get();
+        const ids = agentSkillIds[agentId] ?? [];
+        return ids.map((id) => skillsMap[id]).filter(Boolean);
+      },
+      assignSkillsToAgent: async (agentId, skillIds) => {
+        await fetch(`/api/agents/${agentId}/skills`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ skillIds }),
+        });
+        set((state) => ({
+          agentSkillIds: { ...state.agentSkillIds, [agentId]: skillIds },
+        }));
+      },
+      importSkills: async (source) => {
+        const res = await fetch('/api/skills/import', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ source }),
+        });
+        const result = await res.json();
+        if (result.imported) {
+          await get().loadSkills();
+        }
+        return result;
+      },
+
       inviteAgent: (agentId) =>
         set((state) => {
           if (state.activeAgentIds.includes(agentId)) return state;
@@ -1416,6 +1494,7 @@ export const useTaskHubStore = create<TaskHubState>()(
             phase: phase ? { title: phase.title } : undefined,
           } : undefined,
           rawPrompt: prompt,
+          skills: get().getSkillsForAgent(agentId),
         };
 
         const systemPrompt = composeSystemPrompt(composeOpts);
@@ -1562,6 +1641,7 @@ export const useTaskHubStore = create<TaskHubState>()(
           project: { name: '', path: '' },
           isFirstWake: !resolvedSessionId,
           rawPrompt: prompt,
+          skills: get().getSkillsForAgent(agentId),
         };
 
         const systemPrompt = composeSystemPrompt(simOpts);

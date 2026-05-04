@@ -8,7 +8,7 @@ import {
   type Account,
 } from '@/store/taskHubStore';
 import { RoleCardBadge, getCategoryConfig } from '@/components/role-card/RoleCardBadge';
-import { X, Plus, Link2, Copy, Terminal } from 'lucide-react';
+import { X, Plus, Link2, Copy, Terminal, Zap } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const STATUS_DOT: Record<string, string> = {
@@ -38,6 +38,9 @@ export function AgentBindingPanel({ agentId, agentName }: AgentBindingPanelProps
   const selectedProjectId = useTaskHubStore((s) => s.selectedProjectId);
   const agentSessions = useTaskHubStore((s) => s.agentSessions);
   const activeRunsByAgent = useTaskHubStore((s) => s.activeRunsByAgent);
+  const skillsMap = useTaskHubStore((s) => s.skillsMap);
+  const agentSkillIds = useTaskHubStore((s) => s.agentSkillIds);
+  const assignSkillsToAgent = useTaskHubStore((s) => s.assignSkillsToAgent);
 
   const sessionId = agentSessions[selectedProjectId]?.[agentId];
   const activeRun = activeRunsByAgent[agentId];
@@ -58,7 +61,9 @@ export function AgentBindingPanel({ agentId, agentName }: AgentBindingPanelProps
 
   const [showAdd, setShowAdd] = useState(false);
   const [showRolePicker, setShowRolePicker] = useState(false);
+  const [showSkillPicker, setShowSkillPicker] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const skillDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!showAdd) return;
@@ -70,6 +75,17 @@ export function AgentBindingPanel({ agentId, agentName }: AgentBindingPanelProps
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [showAdd]);
+
+  useEffect(() => {
+    if (!showSkillPicker) return;
+    const handler = (e: MouseEvent) => {
+      if (skillDropdownRef.current && !skillDropdownRef.current.contains(e.target as Node)) {
+        setShowSkillPicker(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showSkillPicker]);
 
   const handleUnbind = (accountId: string) => {
     if (!currentRoleCard) return;
@@ -85,6 +101,22 @@ export function AgentBindingPanel({ agentId, agentName }: AgentBindingPanelProps
   const handleSwitchRole = (cardId: string) => {
     setAgentRoleCardId(agentId, cardId);
     setShowRolePicker(false);
+  };
+
+  // Skill assignments
+  const currentSkillIds = agentSkillIds[agentId] ?? [];
+  const allSkillEntries = Object.entries(skillsMap);
+  const unassignedSkills = allSkillEntries.filter(([id]) => !currentSkillIds.includes(id));
+
+  const handleRemoveSkill = (skillId: string) => {
+    const next = currentSkillIds.filter((id) => id !== skillId);
+    assignSkillsToAgent(agentId, next);
+  };
+
+  const handleAddSkill = (skillId: string) => {
+    const next = [...currentSkillIds, skillId];
+    assignSkillsToAgent(agentId, next);
+    setShowSkillPicker(false);
   };
 
   const cfg = currentRoleCard ? getCategoryConfig(currentRoleCard.category) : null;
@@ -138,6 +170,79 @@ export function AgentBindingPanel({ agentId, agentName }: AgentBindingPanelProps
               })}
             </div>
           )}
+        </div>
+
+        {/* Divider */}
+        <div className="border-t-2 border-[hsl(var(--text-primary)/0.1)] mb-3" />
+
+        {/* Skill Assignment Section */}
+        <div className="mb-3">
+          <div className="text-[10px] font-bold tracking-wider uppercase text-[hsl(var(--text-tertiary))] mb-1.5 flex items-center gap-1.5">
+            <Zap className="w-3 h-3" />
+            技能
+          </div>
+
+          <div className="flex flex-wrap gap-1.5">
+            {currentSkillIds.length === 0 && (
+              <span className="text-[11px] text-[hsl(var(--text-tertiary))]">未分配技能</span>
+            )}
+            {currentSkillIds.map((skillId) => {
+              const skill = skillsMap[skillId];
+              if (!skill) return null;
+              return (
+                <span
+                  key={skillId}
+                  className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-medium border border-[hsl(var(--border))] bg-[hsl(var(--bg-secondary))] text-[hsl(var(--text-secondary))]"
+                >
+                  {skill.name}
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveSkill(skillId)}
+                    className="opacity-60 hover:opacity-100 text-[10px] leading-none"
+                    aria-label={`移除技能 ${skill.name}`}
+                  >
+                    <X className="w-2.5 h-2.5" />
+                  </button>
+                </span>
+              );
+            })}
+
+            {/* Add skill button */}
+            <div className="relative" ref={skillDropdownRef}>
+              <button
+                type="button"
+                onClick={() => setShowSkillPicker(!showSkillPicker)}
+                className="inline-flex items-center gap-0.5 rounded-full px-2.5 py-1 text-[11px] font-medium border border-dashed border-[hsl(var(--border))] bg-transparent text-[hsl(var(--text-tertiary))] hover:border-[hsl(var(--accent))] hover:text-[hsl(var(--accent))] transition-colors"
+              >
+                <Plus className="w-2.5 h-2.5" />
+                添加
+              </button>
+
+              {showSkillPicker && unassignedSkills.length > 0 && (
+                <div className="absolute left-0 top-full mt-1 z-20 border-2 border-[hsl(var(--text-primary))] rounded-[4px] bg-[hsl(var(--bg-elevated))] shadow-[3px_3px_0px_hsl(var(--text-primary))] min-w-[180px] max-h-[180px] overflow-y-auto">
+                  {unassignedSkills.map(([skillId, skill]) => (
+                    <button
+                      key={skillId}
+                      type="button"
+                      onClick={() => handleAddSkill(skillId)}
+                      className="flex items-center gap-2 w-full px-3 py-2 text-left hover:bg-[hsl(var(--bg-muted))] transition-colors border-b border-[hsl(var(--border))] last:border-b-0"
+                    >
+                      <Zap className="w-3 h-3 text-[hsl(var(--accent))] shrink-0" />
+                      <span className="text-[12px] text-[hsl(var(--text-primary))] truncate">
+                        {skill.name}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {showSkillPicker && unassignedSkills.length === 0 && (
+                <div className="absolute left-0 top-full mt-1 z-20 border-2 border-[hsl(var(--text-primary))] rounded-[4px] bg-[hsl(var(--bg-elevated))] shadow-[3px_3px_0px_hsl(var(--text-primary))] px-3 py-2">
+                  <span className="text-[11px] text-[hsl(var(--text-tertiary))]">所有技能已分配</span>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
 
         {/* Divider */}
