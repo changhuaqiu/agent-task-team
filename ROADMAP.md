@@ -6,7 +6,7 @@ created: 2026-02-26
 
 # Agent Task Hub Project Roadmap
 
-> 维护者：Admin | 最后更新：2026-04-15
+> 维护者：Admin | 最后更新：2026-05-04
 >
 > **规则**：只记录当前项目真实在推进的工作流与长期方向。
 > 外部迁入的 feature/backlog 体系已移除，不再作为本项目规划依据。
@@ -17,6 +17,7 @@ created: 2026-02-26
 | 工程型角色卡机制 | in-progress | Admin | `docs/product/business/2026-05-01-engineering-role-card-business-plan.md` |
 | 智能分派系统 | done | Admin | `docs/superpowers/specs/2026-05-04-intelligent-dispatch-design.md` — CapabilityProfile 能力图谱 + DispatchAdvisor 匹配引擎 + ProjectStatusLayer 任务看板 + 可配置角色系统 |
 | 统一集成配置中心 | in-progress | Admin | `specs/unify-integration-config-center/` |
+| 任务系统增强 | done | Admin | `docs/superpowers/specs/2026-05-04-task-system-enhancement-design.md` — Dispatch 持久化 + Workdir 隔离 + Skill Config Tools + Token 追踪 |
 
 ## 说明
 

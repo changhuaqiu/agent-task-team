@@ -95,7 +95,24 @@ powershell -ExecutionPolicy Bypass -File .\scripts\opencode-bridge-start.ps1 -Po
 - 页面首次加载会调用 `/api/state`
 - mutation 会写入 SQLite
 - session / invocation / event 也会持续写入数据库
-- 首次初始化时（migration v2），4 个预设 skill（code-review、tdd、debugging、brainstorm）会被自动种子到数据库
+- 首次初始化时（migration v2），4 个预设 skill（code-review、tdd、debugging、brainstorm）会被自动种子到数据库；migration v5 后 task-management skill 也会被种子并自动分配给 Mario
+- dispatch 持久化：`pendingDispatches` 现在同步写入 SQLite invocation 表，进程崩溃后可恢复
+- dispatch 去重：同 agent+task 的追加指令会自动合并，不会创建重复 dispatch
+
+文件系统结构（新增）：
+
+```
+.ath/
+  *.db                          ← SQLite 数据库
+  workspaces/                   ← Workdir 隔离根目录（ATH_WORKSPACES_ROOT 可覆盖）
+    {projectId}/
+      {agentId}/
+        base/                   ← 跨 task 共享基础环境（node_modules 等）
+        task-{taskId}/
+          workdir/              ← agent 执行 cwd
+          .session.json         ← session 续接信息
+          .gc_meta.json         ← GC 元数据（完成后写入）
+```
 
 如果你遇到“页面状态和预期不一致”，优先排查：
 

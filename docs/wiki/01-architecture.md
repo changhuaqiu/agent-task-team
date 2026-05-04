@@ -194,6 +194,23 @@ SQLite 作为默认数据源，数据库文件位于项目工作目录下的 `.a
 
 `mention-parser.ts` 现支持通过 `registerAgentIds()` 动态注册 agent ID，允许自定义角色在运行时加入路由，无需代码变更。
 
+### H) 任务系统增强
+
+基于 Multica 任务编排模式分析，实现四模块增强：
+
+1. **Dispatch 持久化**：`pendingDispatches` 从内存 JS 数组迁移到 SQLite 持久化队列，新增 `dispatch-repo`（原子 claim、僵尸恢复、去重合并）。`invocation` 表增加 `dispatch_status`（queued/claimed/running/completed/failed）和 `lease_expiry` 字段。
+2. **Workdir 隔离复用**：新增 `WorkdirManager`（`src/server/workdir-manager.ts`），为每个 (agent, task) 分配独立工作目录，跨 task 共享 `base/` 基础环境。支持 session resume 失败自动降级为 fresh session。GC 策略分级清理（24h 全清理、12h 可再生产物清理、72h 孤儿清理）。
+3. **Skill Config Tools**：扩展 `skill.config` 字段定义 callable tools（`ToolDefinition` 类型），新增 `toolLayer` 在 PromptComposer 中注入 tool 定义。Agent 可通过 `tool_use` 调用自定义工具（如 task_create/task_list/task_update_status/task_assign），daemon 拦截并路由到 API。
+4. **Token 追踪**：Claude/OpenCode backend 提取 stream 中的 token 用量，按 invocation 持久化到 `token_usage` JSON 字段。
+
+关键文件：
+- [`src/server/repositories/dispatch-repo.ts`](../../src/server/repositories/dispatch-repo.ts)
+- [`src/server/workdir-manager.ts`](../../src/server/workdir-manager.ts)
+- [`src/lib/agent-context/layers/toolLayer.ts`](../../src/lib/agent-context/layers/toolLayer.ts)
+- [`src/data/presetSkills/taskManagement.ts`](../../src/data/presetSkills/taskManagement.ts)
+
+设计文档：[`docs/superpowers/specs/2026-05-04-task-system-enhancement-design.md`](../superpowers/specs/2026-05-04-task-system-enhancement-design.md)
+
 ## 1.8 当前状态判断
 
 - 已完成：
@@ -202,6 +219,7 @@ SQLite 作为默认数据源，数据库文件位于项目工作目录下的 `.a
   - Agent Backend 抽象
   - 基础账号模型与执行绑定
   - Skill System（能力模块）：CRUD、导入、agent 绑定、PromptComposer SkillLayer、UI
+  - 任务系统增强：Dispatch 持久化、Workdir 隔离复用、Skill Config Tools、Token 追踪
 - 部分完成：
   - 统一集成配置中心
   - 多 runtime 的完整信息架构

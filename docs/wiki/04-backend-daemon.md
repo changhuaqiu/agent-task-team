@@ -34,6 +34,8 @@
 - message append
 - session create/update/seal
 - invocation create/updateStatus
+- dispatch enqueue（dispatch 持久化入队）
+- tool invoke（skill 定义的自定义 tool 路由）
 - event append
 
 这意味着前端大部分结构化写操作都已经可以写入 SQLite，而不是停留在本地 store。
@@ -59,7 +61,17 @@
 - `drizzle-orm`
 - `drizzle-kit`
 
-数据库包含以下表（migration v2 新增 skill 相关 3 张表）：
+数据库包含以下表（migration v2 新增 skill 相关 3 张表，v4-v5 新增 dispatch 追踪列）：
+
+`task` 表新增列：
+- `claimed_at`、`started_at`、`completed_at` — dispatch 生命周期时间戳
+- `lease_expiry` — claim 过期时间，用于僵尸任务恢复
+- `work_dir` — agent 执行工作目录路径
+
+`invocation` 表新增列：
+- `dispatch_status` — 内部 dispatch 状态（queued/claimed/running/completed/failed）
+- `token_usage` — JSON 格式 token 用量数据（per-model）
+- `lease_expiry` — claim 过期时间
 
 - `conversation`、`task`、`chat_message`、`agent_session`、`invocation`、`agent_event` — 业务主数据
 - `skill` — 能力模块核心表（name 唯一约束）
@@ -79,8 +91,14 @@ Repository 当前覆盖的核心对象：
 - `sessionRepo`
 - `invocationRepo`
 - `eventRepo`
+- `dispatchRepo` — dispatch 队列管理（原子 claim、僵尸恢复、pending 查询）
 - `role_cards` 表：`id TEXT PK, data TEXT NOT NULL, is_preset INTEGER NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL`，其中 `data` 列以 JSON 存储完整 RoleCard（含 CapabilityProfile）
 - `skillRepo` — skill CRUD、文件管理、agent 绑定（[`skill-repo.ts`](../../src/server/repositories/skill-repo.ts)）
+- `dispatchRepo` — dispatch 队列持久化（[`dispatch-repo.ts`](../../src/server/repositories/dispatch-repo.ts)）
+
+新增模块：
+- [`src/server/workdir-manager.ts`](../../src/server/workdir-manager.ts) — WorkdirManager：per-task 工作目录创建、session 元数据读写、GC
+- [`src/lib/agent-context/layers/toolLayer.ts`](../../src/lib/agent-context/layers/toolLayer.ts) — 从 skill.config.tools 生成 tool 定义注入 prompt
 
 这层的职责是：
 
@@ -107,6 +125,12 @@ Repository 当前覆盖的核心对象：
 - timeout 管理
 - bridge / tmux / 本地 CLI 多路径支持
 - 任务创建经过 DispatchAdvisor 步骤，以编程式匹配将任务分配到 agent（基于 capability profiles、当前负载和 forbidden actions）
+- Dispatch 持久化：入队时写入 SQLite invocation 表，崩溃后可恢复；同 agent+task 的 dispatch 自动合并（coalescing）
+- Workdir 隔离：每次执行分配独立 `cwd`（`.ath/workspaces/{projectId}/{agentId}/task-{taskId}/workdir/`），跨 task 共享 `base/` 基础环境
+- Session resume 降级：resume 失败时自动以 fresh session 重试，保持同一 workdir
+- Token 追踪：从 CLI 流式输出提取 token 用量，按 invocation 持久化
+- Tool 拦截：识别 skill 定义的自定义 tool_use（非原生 tool），路由到内部 API
+- GC：启动时清理过期 task 工作目录（24h TTL），active root 引用计数保护
 
 ## 4.4 Socket 事件协议
 
@@ -193,6 +217,8 @@ daemon 当前已经具备会话级跟踪：
 
 - `invocationRepo.create()`
 - `invocationRepo.updateStatus()`
+- `invocationRepo.updateDispatchStatus()` — 更新 dispatch 状态和 token 用量
+- `invocationRepo.findLatestCompletedForAgent()` — 查找 agent 最近完成的 invocation（用于 workdir 复用）
 
 这使系统能记录：
 
