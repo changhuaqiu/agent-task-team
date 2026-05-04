@@ -6,164 +6,124 @@
 
 <a id="english"></a>
 
-Quick tips for getting the most out of your Clowder AI team.
+Quick tips for using the current `Agent Task Hub` workspace.
 
-## 1. Magic Words — Emergency Brakes
+## 1. Ask for Concrete Outcomes
 
-Say these words to your agents and they'll immediately stop and re-examine what they're doing:
+Good prompts focus on the outcome, not just the topic:
 
-| Say | What happens |
-|-----|-------------|
-| **"脚手架"** (scaffolding) | agent stops and checks: is the current output a final-state foundation, or throwaway scaffolding? If throwaway → rewrite. |
-| **"绕路了"** (detour) | agent stops, draws a straight-line path to the goal, and discards the roundabout work. |
-| **"喵约"** (agent pact) | agent re-reads all house rules and checks its current behavior against each one. |
-| **"星星罐子"** (star jar) | Full freeze — agent stops issuing commands, writing files, or pushing code. Waits for your instructions. Use for P0 irreversible risks. |
+- "Create a project and break it into phases"
+- "Review this change and list findings first"
+- "Bind this account to the planner role card"
+- "Import a skill from this repo and assign it to Mario"
 
-> These only trigger when you say them directly as instructions. Quoting, retelling, or discussing them in conversation won't trigger the brake.
+## 2. Use `@agent` Only When You Need Routing
 
-## 2. @Mentions — Route to Any agent
+Write `@agentId` at the beginning of a new line to route a message to a specific agent in the workspace.
 
-To ask a specific agent to take action, write `@catname` **at the start of a new line**:
+Example:
 
-```
-I think this approach works.
-@sonnet
-Please implement this quickly.
+```text
+这个方案可以。
+@mario
+请先给我一个拆解方案。
 ```
 
-Inline mentions (mid-sentence) don't trigger routing. To mention multiple agents, put each on its own line.
+Current built-in agent IDs:
 
-Common mentions:
-- `@opus` — deep architecture, system design, complex reasoning
-- `@opencode` — reliable multi-provider coding, tool orchestration, open-source ops
-- `@sonnet` — fast and flexible, great for everyday tasks
-- `@codex` — code review, bug hunting, implementation
-- `@gemini` — aesthetics, UX design, creative direction
+- `@mario`
+- `@luigi`
+- `@toad`
+- `@peach`
+- `@dk`
+- `@yoshi`
 
-## 3. @owner / @co-worker — Your agent Needs You
+## 3. Stop a Bad Direction Early
 
-When a agent writes `@owner` or `@co-worker`, it's escalating a decision to you — the CVO (Chief Vision Officer). This means the agent has hit something it can't decide on its own: priorities, architecture direction, product intent, or a go/no-go call.
+These phrases are still useful when you want the agent to stop and reassess:
 
-## 4. Chat Platform Commands
+- `脚手架` — check whether the current result is a throwaway scaffold
+- `绕路了` — stop and find the direct path to the goal
+- `喵约` — re-check current work against project rules
+- `星星罐子` — full freeze for risky or irreversible situations
 
-Managing conversations from Feishu (Lark):
+## 4. Prefer Project Terms
 
-| Command | What it does |
-|---------|-------------|
-| `/new` | Start a new conversation |
-| `/threads` | List all conversations |
-| `/use <id>` | Switch to a specific conversation |
-| `/where` | Show which conversation you're in |
+In this repository, user-facing terms should stay simple:
 
-Voice messages and file transfer are supported both ways.
+- `模型账号` instead of internal runtime jargon
+- `角色卡` for role/identity configuration
+- `Skill` for reusable capability modules
+- `项目` / `任务` / `作战指挥室` for the main workspace model
 
-> Telegram adapter is in progress — same commands will apply.
+## 5. Read the Right Docs First
 
-## 5. Rich Messages — More Than Text
+Before implementing or reviewing:
 
-Tell agents what you want and they'll reply in the right format:
-
-- **"发语音"** / **"voice"** — audio message (each agent has a unique voice)
-- **"发个卡片"** / **"show me a card"** — structured card for decisions, comparisons
-- **"给我看看"** / **"show me"** — screenshots, checklists, code diffs
-- **"庆祝一下"** / **"celebrate"** — try it and see :)
-
-## 6. Voice Companion — Hands-Free Mode
-
-Working out? Commuting? Turn on Voice Companion from the header and talk to your team through AirPods.
-
-- One-tap activation
-- Each agent has its own distinct voice
-- Replies auto-play in sequence — no tapping needed
-- Push-to-talk input via speech-to-text
-
-## 7. CVO Bootcamp — Guided Onboarding
-
-First time here? Start a new thread and your AI team will walk you through a complete feature lifecycle — from expressing your vision to shipped code. No prior experience needed.
-
-## 8. agents Have Memory
-
-Your agents remember past decisions, discussion conclusions, and lessons learned across conversations. You can say things like "we discussed this before" or "what did we decide about X" — the agent will search its knowledge base automatically. No need to re-explain context from previous sessions.
+- `AGENTS.md` — project rules
+- `docs/README.md` — documentation structure
+- `specs/README.md` — active spec rules
+- `docs/wiki/` — current code-aligned architecture
 
 ---
 
 <a id="中文"></a>
 
-让你更好地使用 Clowder AI 团队的实用小技巧。
+这里是当前 `Agent Task Hub` 项目的实用小技巧。
 
-## 1. Magic Words — 紧急拉闸词
+## 1. 直接说结果
 
-对Agent说这些词，它们会立刻停下来审视自己的行为：
+尽量直接描述你要的产出，而不是只给主题：
 
-| 说 | Agent会 |
-|----|-------|
-| **「脚手架」** | 停下来检查：当前产出是终态基座，还是用完即弃的脚手架？如果是脚手架 → 重写。 |
-| **「绕路了」** | 停下来，画出直线路径，丢掉绕路的部分。 |
-| **「喵约」** | 重读全部家规，逐条对照当前行为。 |
-| **「星星罐子」** | 全面冻结 — 不发命令、不写文件、不 push。等你指示。用于 P0 不可逆风险。 |
+- “创建一个项目并拆成几个阶段”
+- “帮我 review 当前改动，先列问题”
+- “把这个模型账号绑定到项目统筹角色卡”
+- “从这个仓库导入一个 Skill，并绑定给 Mario”
 
-> 仅当你直接对Agent说时触发。引用、复述、讨论历史中的这些词不会触发。
+## 2. 只有需要定向路由时才用 `@agent`
 
-## 2. @提及 — 指哪打哪
+如果你要指定某个 Agent 执行，请另起一行、行首写 `@agentId`。
 
-想让特定Agent行动？**另起一行、行首**写 `@Agent名`：
+示例：
 
-```
-我觉得这个方案可以
-@sonnet
-帮我快速实现一下
+```text
+这个方案可以。
+@mario
+请先给我一个拆解方案。
 ```
 
-行中间的 @ 不会触发路由。多只Agent各占一行。
+当前内置 Agent ID：
 
-常用提及：
-- `@opus` — 深度架构、系统设计、复杂推理
-- `@opencode` — 可靠的多模型编码、工具编排、开源运营
-- `@sonnet` — 快速灵活，适合日常任务
-- `@codex` — 代码审查、找 bug、实现落地
-- `@gemini` — 审美、UX 设计、创意方向
+- `@mario`
+- `@luigi`
+- `@toad`
+- `@peach`
+- `@dk`
+- `@yoshi`
 
-## 3. @owner / @co-worker — Agent在请求你拍板
+## 3. 发现方向不对时尽早拉闸
 
-看到Agent写 `@owner` 或 `@co-worker`，说明它遇到了需要你决策的事 — 优先级、架构方向、产品意图、或者 go/no-go。这是Agent主动升级，不是闲聊。
+这些词依然适合用来中断错误方向：
 
-## 4. 聊天平台命令
+- `脚手架`：检查当前产物是不是临时拼出来的
+- `绕路了`：停止当前做法，回到直线路径
+- `喵约`：重新对照项目规则
+- `星星罐子`：高风险场景下全面冻结
 
-在飞书中管理对话：
+## 4. 优先使用当前项目术语
 
-| 命令 | 作用 |
-|------|------|
-| `/new` | 开新对话 |
-| `/threads` | 列出所有对话 |
-| `/use <id>` | 切换到某个对话 |
-| `/where` | 看当前在哪个对话 |
+本仓库里用户可见文案尽量保持简单：
 
-语音消息和文件互传双向支持。
+- 用 `模型账号`，少用内部运行时术语
+- 用 `角色卡` 表达身份与职责
+- 用 `Skill` 表达可复用能力模块
+- 用 `项目`、`任务`、`作战指挥室` 表达主工作流
 
-> Telegram 适配器开发中 — 届时支持相同命令。
+## 5. 实现前先看对的文档
 
-## 5. 富消息 — 不只是文字
+开始实现或 review 前，优先读这些：
 
-直接说意图，Agent会用合适的形式回复：
-
-- **「发语音」** / **"voice"** — 语音消息（每只Agent有独特声线）
-- **「发个卡片」** / **"show me a card"** — 结构化卡片，展示决策、方案对比
-- **「给我看看」** / **"show me"** — 截图、清单、代码 diff
-- **「庆祝一下」** / **"celebrate"** — 试试看会发生什么 :)
-
-## 6. 语音陪伴 — 解放双手
-
-在运动？在通勤？从标题栏一键开启语音陪伴，戴上 AirPods 跟团队对话。
-
-- 一键开启
-- 每只Agent有独立声线
-- 回复自动排队播放，不用点
-- 按住说话输入（语音转文字）
-
-## 7. CVO 训练营 — 新手引导
-
-第一次来？开个新对话，AI 团队会亲自带你走完一个完整的 feature 生命周期 — 从表达愿景到代码上线。不需要任何经验。
-
-## 8. Agent有记忆
-
-Agent会记住历史决策、讨论结论和踩过的坑。你可以说"之前我们讨论过 XXX"或"我们当时对 X 是怎么决定的"，Agent会自动搜索知识库。不需要重新解释上下文。
+- `AGENTS.md`：项目规则
+- `docs/README.md`：文档结构
+- `specs/README.md`：活动规格规则
+- `docs/wiki/`：和当前代码对齐的架构文档

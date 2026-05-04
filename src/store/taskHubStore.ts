@@ -377,6 +377,9 @@ interface TaskHubState {
 
   selectedProjectId: ProjectId;
   agentSessions: Record<ProjectId, Record<string, string | undefined>>;
+  // Tracks whether next dispatch needs full compose (role card + history).
+  // Keyed by `${projectId}:${agentId}`. undefined / true = needs full compose.
+  needsFullCompose: Record<string, boolean>;
   activeAgentIds: string[];
   conversations: Conversation[];
   selectedConversationId: string | null;
@@ -753,14 +756,26 @@ export const useTaskHubStore = create<TaskHubState>()(
             updatedAt: t.updated_at,
           }));
 
+          const mergedSessions = mergeSessions(
+            mapSessionsToState(data.activeSessions || []),
+            get().agentSessions,
+          );
+
+          // Derive needsFullCompose from hydrated sessions:
+          // agents with active sessions already had role card injected
+          const hydratedNeedsFullCompose: Record<string, boolean> = {};
+          for (const [proj, agents] of Object.entries(mergedSessions)) {
+            for (const [aid, sid] of Object.entries(agents || {})) {
+              if (sid) hydratedNeedsFullCompose[`${proj}:${aid}`] = false;
+            }
+          }
+
           set({
             conversations,
             tasks,
             chatMessagesByConversation: mapMessagesToState(data.recentMessages || {}),
-            agentSessions: mergeSessions(
-              mapSessionsToState(data.activeSessions || []),
-              get().agentSessions,
-            ),
+            agentSessions: mergedSessions,
+            needsFullCompose: hydratedNeedsFullCompose,
             hasHydrated: true,
           });
 
@@ -892,6 +907,7 @@ export const useTaskHubStore = create<TaskHubState>()(
 
       selectedProjectId: 'default',
       agentSessions: { default: {} },
+      needsFullCompose: {},
       activeAgentIds: ['mario', 'luigi'],
       phases: [],
       conversations: [],
@@ -1509,13 +1525,16 @@ export const useTaskHubStore = create<TaskHubState>()(
         const task = referencedTaskId ? get().getTaskById(referencedTaskId) : undefined;
         const phase = task?.phaseId ? get().phases.find((p) => p.id === task.phaseId) : undefined;
 
+        const composeKey = `${projectId}:${agentId}`;
+        const isFirstWake = get().needsFullCompose[composeKey] !== false;
+
         const composeOpts: ComposeOptions = {
           agent: agent ? { id: agent.id, name: agent.name } : { id: agentId, name: agentId },
           roleCard,
           allRoleCards: get().roleCards,
           project: { name: conv?.title ?? '', path: conv?.projectPath ?? '' },
-          isFirstWake: !sessionId,
-          messages: !sessionId ? (get().chatMessagesByConversation[conversationId] ?? []) : undefined,
+          isFirstWake,
+          messages: isFirstWake ? (get().chatMessagesByConversation[conversationId] ?? []) : undefined,
           task: task ? {
             id: task.id, title: task.title,
             description: task.description,
@@ -1551,6 +1570,7 @@ export const useTaskHubStore = create<TaskHubState>()(
         set((state) => ({
           agentStatus: { ...state.agentStatus, [agentId]: 'busy' },
           terminalLogs: { ...state.terminalLogs, [agentId]: [] },
+          needsFullCompose: { ...state.needsFullCompose, [composeKey]: false },
           activeRunsByAgent: {
             ...state.activeRunsByAgent,
             [agentId]: { runId, taskId: referencedTaskId, conversationId, startedAt: new Date().toISOString() },
@@ -1706,12 +1726,15 @@ export const useTaskHubStore = create<TaskHubState>()(
 
         // Build system prompt via PromptComposer
         const simRoleCard = agent?.roleCardId ? get().roleCards.find((c) => c.id === agent.roleCardId) : undefined;
+        const simComposeKey = `${projectId}:${agentId}`;
+        const simIsFirstWake = get().needsFullCompose[simComposeKey] !== false;
+
         const simOpts: ComposeOptions = {
           agent: agent ? { id: agent.id, name: agent.name } : { id: agentId, name: agentId },
           roleCard: simRoleCard,
           allRoleCards: get().roleCards,
           project: { name: '', path: '' },
-          isFirstWake: !resolvedSessionId,
+          isFirstWake: simIsFirstWake,
           rawPrompt: prompt,
           skills: get().getSkillsForAgent(agentId),
         };
@@ -1721,6 +1744,7 @@ export const useTaskHubStore = create<TaskHubState>()(
         set((state) => ({
           agentStatus: { ...state.agentStatus, [agentId]: 'busy' },
           terminalLogs: { ...state.terminalLogs, [agentId]: [] },
+          needsFullCompose: { ...state.needsFullCompose, [simComposeKey]: false },
           activeRunsByAgent: {
             ...state.activeRunsByAgent,
             [agentId]: { runId, taskId, conversationId, startedAt: new Date().toISOString() },
@@ -1976,7 +2000,7 @@ export const useTaskHubStore = create<TaskHubState>()(
           intent = 'review';
         }
 
-        // Auto-trigger Jean proposal for new projects
+        // Auto-trigger Mario proposal for new projects
         const existingConv = get().conversations.find((c: Conversation) => c.id === conversationId);
         if (existingConv && existingConv.breakdownStatus === 'none' && !mentions.length) {
           setTimeout(() => {
@@ -2107,7 +2131,7 @@ export const useTaskHubStore = create<TaskHubState>()(
     version: 3,
     migrate: (persisted: any, version: number) => {
       if (version === 0) {
-        // Migrate Genshin agent IDs → Mario agent IDs
+        // Migrate legacy agent IDs to the current Mario roster IDs
         const idMap: Record<string, string> = {
           jean: 'mario', keqing: 'luigi', zhongli: 'toad',
           nahida: 'peach', albedo: 'dk', venti: 'yoshi',
@@ -2396,17 +2420,15 @@ socket.on('terminal:exit', ({ agentId, code, command, reasonCode }: { agentId: s
 
   }
 
+  const exitProjectId = useTaskHubStore.getState().selectedProjectId || 'default';
+  const exitComposeKey = `${exitProjectId}:${agentId}`;
+
   useTaskHubStore.setState((state) => ({
     agentStatus: { ...state.agentStatus, [agentId]: 'idle' },
     activeRunsByAgent: { ...state.activeRunsByAgent, [agentId]: undefined },
-    // Clear CLI session so next dispatch re-injects role card systemPrompt
-    agentSessions: {
-      ...state.agentSessions,
-      [state.selectedProjectId || 'default']: {
-        ...(state.agentSessions[state.selectedProjectId || 'default'] || {}),
-        [agentId]: undefined,
-      },
-    },
+    // Mark that next dispatch needs full compose (role card + history),
+    // but preserve sessionId for UI display.
+    needsFullCompose: { ...state.needsFullCompose, [exitComposeKey]: true },
   }));
   useTaskHubStore.getState().completeStreamMessage(agentId);
 

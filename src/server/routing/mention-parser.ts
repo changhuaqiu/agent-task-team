@@ -93,7 +93,7 @@ export function parseMentions(
       continue;
     }
 
-    // Match on display name (e.g. "Jean" → "jean")
+    // Match on display name form (e.g. "Mario" → "mario")
     const nameMatch = sortedAgentIds.find((id) => {
       const displayName = id.charAt(0).toUpperCase() + id.slice(1);
       return displayName.toLowerCase() === lower;

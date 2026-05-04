@@ -232,7 +232,10 @@ export default function registerDaemon(io: IOServer) {
           case 'opencode': {
             const a = ['run', '--format', 'json'];
             if (effectiveSessionId) a.push('--session', effectiveSessionId);
-            if (systemPrompt) a.push('--agent', 'ath-agent');
+            if (systemPrompt) {
+              a.push('--pure');
+              a.push('--agent', 'ath-agent');
+            }
             a.push(prompt || '');
             return a;
           }

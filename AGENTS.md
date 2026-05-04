@@ -8,7 +8,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 
 ## Account Configuration Guardrails
 
-- When the user asks to "reference" or "copy" an existing product UX such as `clowder-ai`, inspect the real implementation first. Do not invent a parallel IA from memory or README summaries.
+- When the user asks to "reference" or "copy" an existing product UX, inspect the real implementation first. Do not invent a parallel IA from memory or README summaries.
 - For account/configuration pages, default to the user mental model first:
   - show configured accounts
   - show one primary create action

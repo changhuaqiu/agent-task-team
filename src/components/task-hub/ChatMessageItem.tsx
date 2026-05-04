@@ -163,7 +163,7 @@ export function ChatMessageItem({ message }: ChatMessageItemProps) {
               : 'border-[hsl(var(--border))] rounded-tl-none'
           )}
         >
-          {/* Main text content — clowder-ai pattern: streaming+tools → CLI block is primary, no markdown */}
+          {/* During tool-heavy streaming, the CLI block stays primary and markdown is deferred. */}
           {message.isStreaming && !message.content && !hasToolEvents ? (
             <span className="inline-block w-1.5 h-4 bg-current animate-pulse rounded-full opacity-50" />
           ) : message.content && !(hasToolEvents && message.isStreaming) ? (

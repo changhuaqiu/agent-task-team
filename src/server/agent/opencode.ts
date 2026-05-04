@@ -59,8 +59,11 @@ export class OpenCodeBackend implements AgentBackend {
 
     // Inject system prompt via opencode's custom agent config.
     // opencode treats the positional arg as a USER message, not a system message.
-    // By defining a custom agent with our prompt, opencode injects it as a SYSTEM message.
+    // By defining a custom agent with our prompt via OPENCODE_CONFIG_CONTENT + --pure
+    // (to bypass plugins like oh-my-openagent that override agent definitions),
+    // opencode injects it as a SYSTEM message.
     if (opts.systemPrompt) {
+      args.push('--pure');
       env.OPENCODE_CONFIG_CONTENT = JSON.stringify({
         agent: {
           'ath-agent': {
