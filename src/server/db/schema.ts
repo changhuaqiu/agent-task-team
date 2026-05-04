@@ -113,6 +113,7 @@ export const invocation = sqliteTable('invocation', {
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
   dispatchStatus: text('dispatch_status').default('queued'),
+  leaseExpiry: text('lease_expiry'),
   tokenUsage: text('token_usage'),
 }, (table) => [
   index('idx_invocation_agent').on(table.agentId),

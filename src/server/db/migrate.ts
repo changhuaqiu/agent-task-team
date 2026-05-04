@@ -170,6 +170,12 @@ CREATE INDEX IF NOT EXISTS idx_agent_skill_skill ON agent_skill(skill_id);
     ALTER TABLE invocation ADD COLUMN token_usage TEXT;
   `,
   },
+  {
+    version: 5,
+    sql: `
+    ALTER TABLE invocation ADD COLUMN lease_expiry TEXT;
+  `,
+  },
 ];
 
 export function applyMigrations(db: Database.Database): void {
