@@ -8,6 +8,7 @@ import { readAccount } from './accounts-file';
 import { readCredential } from './credentials';
 import { buildProbeEnv } from './cli-probe';
 import { generateRuntimeConfig, cleanupRuntimeConfig, makeInvocationId } from './opencode-config';
+import { startTaskWatcher } from './task-file-watcher';
 import type { AccountProvider as RuntimeAccountProvider } from './opencode-config';
 import type { CliEngine, DetectedRuntime } from './types';
 import { sessionRepo } from './repositories/session-repo';
@@ -20,6 +21,8 @@ import { generateSortableId } from './repositories/sortable-id';
 import { createBackend } from './agent/factory';
 import type { AgentEvent } from './agent/types';
 import { WorkdirManager } from './workdir-manager';
+import { AgentMessenger } from './a2a';
+import { getDb } from './db';
 
 type TerminalStartPayload = {
   projectId?: string;
@@ -99,6 +102,7 @@ export default function registerDaemon(io: IOServer) {
   const activeProcesses = new Map<string, { kill: () => void }>();
   const processKey = (agentId: string, projectId?: string) => `${agentId}@${projectId || 'default'}`;
   const broadcast = (event: string, data: any) => io.emit(event, data);
+  const agentResponseBuffer = new Map<string, string>();
 
   const workspacesRoot = process.env.ATH_WORKSPACES_ROOT || join(process.cwd(), '.ath', 'workspaces');
   const workdirManager = new WorkdirManager(workspacesRoot);
@@ -117,6 +121,22 @@ export default function registerDaemon(io: IOServer) {
       console.error('[daemon] tmux not available, falling back to direct spawn:', (err as Error).message);
       tmuxGateway = undefined;
     }
+  }
+
+  // Read agents from DB for A2A mention patterns
+  const db = getDb();
+  const dbAgents = db.prepare('SELECT id, name FROM agents').all() as { id: string; name: string }[];
+  const a2aMessenger = new AgentMessenger(db, io,
+    dbAgents.map(a => ({
+      id: a.id,
+      mentionPatterns: [`@${a.id}`, `@${a.name}`],
+    })),
+  );
+
+  // Expire stale A2A mailbox entries on startup
+  const expired = a2aMessenger.expireStale();
+  if (expired > 0) {
+    console.log(`[a2a] expired ${expired} stale mailbox entries`);
   }
 
   // Agent pane listing endpoint
@@ -440,6 +460,12 @@ export default function registerDaemon(io: IOServer) {
           conversationId: sessionConvId,
         });
 
+        // Buffer agent text for A2A scanning
+        if (event.type === 'text' && typeof event.content === 'string') {
+          const existing = agentResponseBuffer.get(agentId) ?? '';
+          agentResponseBuffer.set(agentId, existing + event.content);
+        }
+
         // Persist to message repo
         if (event.type === 'text' && event.content) {
           try {
@@ -473,6 +499,20 @@ export default function registerDaemon(io: IOServer) {
         }
         } catch (err) {
           console.error(`[daemon] forwardAgentEvent error for ${agentId}:`, err);
+        }
+
+        // A2A: scan agent's accumulated response for @mentions on completion
+        if (event.type === 'done') {
+          const accumulated = agentResponseBuffer.get(agentId);
+          if (accumulated) {
+            agentResponseBuffer.delete(agentId);
+            a2aMessenger.onAgentResponse(agentId, accumulated, {
+              conversationId: sessionConvId ?? '',
+              taskId,
+              triggerMessageId: undefined,
+              chainDepth: 0,
+            }).catch(err => console.error('[a2a] onAgentResponse error:', err));
+          }
         }
 
         // Reset timeout on each event
@@ -517,6 +557,7 @@ export default function registerDaemon(io: IOServer) {
               sessionRepo.seal(agentSession.id, 'failed');
             }
             broadcast('terminal:exit', { agentId, code: 127, command: 'bridge', reasonCode: 'spawn_failed' });
+            agentResponseBuffer.delete(agentId);
             activeProcesses.delete(processKey(agentId, projectId));
             if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
             return;
@@ -546,6 +587,7 @@ export default function registerDaemon(io: IOServer) {
           clearInterval(heartbeatTimer);
           // Don't seal on successful completion — session stays active for --resume reuse
           broadcast('terminal:exit', { agentId, code: 0, command: 'bridge' });
+          agentResponseBuffer.delete(agentId);
           activeProcesses.delete(processKey(agentId, projectId));
           if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
           return;
@@ -562,6 +604,7 @@ export default function registerDaemon(io: IOServer) {
             sessionRepo.seal(agentSession.id, 'failed');
           }
           broadcast('terminal:exit', { agentId, code: 127, command: 'bridge', reasonCode: 'spawn_failed' });
+          agentResponseBuffer.delete(agentId);
           activeProcesses.delete(processKey(agentId, projectId));
           if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
           return;
@@ -627,7 +670,15 @@ export default function registerDaemon(io: IOServer) {
       const wd = await workdirManager.resolveWorkdir(agentId, projectId || 'default', taskId || `adhoc-${Date.now()}`, projectSlug ? { useWorktree: true, projectSlug } : undefined);
       const sessionMeta = taskId ? workdirManager.readSessionMeta(agentId, projectId || 'default', taskId) : null;
 
-      const { events, result, kill } = backend.execute(prompt || '', {
+      // Start file watcher for project-level .ath/ directory
+      const projectDir = join(workspacesRoot, projectId || 'default');
+      startTaskWatcher(projectDir, io);
+
+      // Inject .ath/ absolute path into prompt so agent can find TASKS.md
+      const athDir = join(projectDir, '.ath');
+      const effectivePrompt = (prompt || '') + `\n\n[系统] 任务看板路径: ${athDir}/TASKS.md`;
+
+      const { events, result, kill } = backend.execute(effectivePrompt, {
         cwd: wd,
         systemPrompt: systemPrompt || undefined,
         resumeSessionId: effectiveSessionId || undefined,
@@ -701,6 +752,7 @@ export default function registerDaemon(io: IOServer) {
             command,
             reasonCode: final.status === 'timeout' ? 'timeout' : undefined,
           });
+          agentResponseBuffer.delete(agentId);
           activeProcesses.delete(processKey(agentId, projectId));
           if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
         } catch (err) {
@@ -711,6 +763,7 @@ export default function registerDaemon(io: IOServer) {
             sessionRepo.seal(agentSession.id, 'failed');
           }
           broadcast('terminal:exit', { agentId, code: 1, command, reasonCode: 'spawn_failed' });
+          agentResponseBuffer.delete(agentId);
           activeProcesses.delete(processKey(agentId, projectId));
           if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
         }
@@ -719,6 +772,7 @@ export default function registerDaemon(io: IOServer) {
         console.error(`[daemon] terminal:start error for agent=${agentId}:`, err);
         broadcast('agent:error', { agentId, message: `内部错误：${(err as Error)?.message || '未知'}` });
         broadcast('terminal:exit', { agentId, code: 1, command: primaryCommand, reasonCode: 'internal_error' });
+        agentResponseBuffer.delete(agentId);
         activeProcesses.delete(processKey(agentId, projectId));
         if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
       }
