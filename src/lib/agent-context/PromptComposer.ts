@@ -9,6 +9,13 @@ import { buildHistoryLayer } from './layers/historyLayer';
 import { buildTaskContextLayer } from './layers/taskContextLayer';
 import { buildUserMessageLayer } from './layers/userMessageLayer';
 import { buildBehaviorLayer } from './layers/behaviorLayer';
+import { buildSkillLayer } from './layers/skillLayer';
+
+export interface SkillSummary {
+  name: string;
+  content: string;
+  files?: { path: string; content: string }[];
+}
 
 export interface ComposeOptions {
   agent: { id: string; name: string };
@@ -21,6 +28,7 @@ export interface ComposeOptions {
   rawPrompt: string;
   currentLoad?: Record<string, number>;
   tasks?: { id: string; title: string; agentId: string; status: string }[];
+  skills?: SkillSummary[];
 }
 
 export function composeSystemPrompt(opts: ComposeOptions): string | undefined {
@@ -35,6 +43,7 @@ export function composeSystemPrompt(opts: ComposeOptions): string | undefined {
 
   return [
     buildRoleLayer(opts.agent, opts.roleCard),
+    buildSkillLayer(opts.skills ?? []),
     buildProjectLayer(opts.project),
     buildTeamLayer(opts.agent.id, opts.allRoleCards, opts.currentLoad),
     projectStatus,

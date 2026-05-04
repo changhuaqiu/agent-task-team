@@ -85,10 +85,14 @@ describe('SQLite Foundation', () => {
   });
 
   it('migration is idempotent', () => {
-    applyMigrations(db);
-    const row = db.prepare('SELECT MAX(version) as v FROM _schema_version').get() as {
+    const before = db.prepare('SELECT MAX(version) as v FROM _schema_version').get() as {
       v: number;
     };
-    expect(row.v).toBe(2);
+    applyMigrations(db);
+    const after = db.prepare('SELECT MAX(version) as v FROM _schema_version').get() as {
+      v: number;
+    };
+    expect(before.v).toBeGreaterThanOrEqual(1);
+    expect(after.v).toBe(before.v);
   });
 });

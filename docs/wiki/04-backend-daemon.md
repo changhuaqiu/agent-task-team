@@ -19,6 +19,7 @@
 - `recentMessages`
 - `activeSessions`
 - `recentInvocations`
+- `skills`
 
 这条接口已经是页面 hydrate 的主要真相源。
 
@@ -37,6 +38,19 @@
 
 这意味着前端大部分结构化写操作都已经可以写入 SQLite，而不是停留在本地 store。
 
+### Skill API 路由
+
+[`src/pages/api/skills/`](../../src/pages/api/skills/) 提供 skill 的 CRUD 与导入：
+
+- `GET /api/skills` — 列出所有 skill
+- `GET /api/skills/:id` — 获取 skill 详情（含配套文件）
+- `POST /api/skills` — 创建 skill
+- `PATCH /api/skills/:id` — 更新 skill（含文件替换）
+- `DELETE /api/skills/:id` — 删除 skill（级联删除文件与 agent 绑定）
+- `POST /api/skills/import` — 从 Git 仓库或 URL 导入 skill
+- `GET /api/agents/:agentId/skills` — 列出 agent 绑定的 skill
+- `POST /api/agents/:agentId/skills` — 替换 agent 的 skill 绑定（clear-then-add）
+
 ## 4.2 SQLite 与 Repository 层
 
 当前数据库技术栈：
@@ -44,6 +58,13 @@
 - `better-sqlite3`
 - `drizzle-orm`
 - `drizzle-kit`
+
+数据库包含以下表（migration v2 新增 skill 相关 3 张表）：
+
+- `conversation`、`task`、`chat_message`、`agent_session`、`invocation`、`agent_event` — 业务主数据
+- `skill` — 能力模块核心表（name 唯一约束）
+- `skill_file` — skill 配套文件（FK → skill.id，CASCADE）
+- `agent_skill` — agent-skill 多对多关联（agent_id + skill_id 联合主键）
 
 核心目录：
 
@@ -59,6 +80,7 @@ Repository 当前覆盖的核心对象：
 - `invocationRepo`
 - `eventRepo`
 - `role_cards` 表：`id TEXT PK, data TEXT NOT NULL, is_preset INTEGER NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL`，其中 `data` 列以 JSON 存储完整 RoleCard（含 CapabilityProfile）
+- `skillRepo` — skill CRUD、文件管理、agent 绑定（[`skill-repo.ts`](../../src/server/repositories/skill-repo.ts)）
 
 这层的职责是：
 

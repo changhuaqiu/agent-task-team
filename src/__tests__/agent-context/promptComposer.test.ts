@@ -424,3 +424,31 @@ describe('composeUserPrompt', () => {
     expect(result).toContain('\n\n---\n\n');
   });
 });
+
+// ===========================================================================
+// composeSystemPrompt with skills
+// ===========================================================================
+describe('composeSystemPrompt with skills', () => {
+  const baseOpts: ComposeOptions = {
+    agent: { id: 'mario', name: 'Mario' },
+    allRoleCards: [],
+    project: { name: 'TestApp', path: '/tmp/test' },
+    isFirstWake: true,
+    rawPrompt: 'hello',
+  };
+
+  it('includes skill content when skills provided', () => {
+    const result = composeSystemPrompt({
+      ...baseOpts,
+      skills: [{ name: 'code-review', content: 'Review carefully.' }],
+    });
+    expect(result).toBeDefined();
+    expect(result!).toContain('## Skill: code-review');
+  });
+
+  it('works without skills (backward compatible)', () => {
+    const result = composeSystemPrompt(baseOpts);
+    expect(result).toBeDefined();
+    expect(result!).not.toContain('## Skill:');
+  });
+});

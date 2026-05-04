@@ -114,6 +114,49 @@ CREATE TABLE IF NOT EXISTS role_cards (
 );
 `,
   },
+  {
+    version: 3,
+    sql: `
+CREATE TABLE IF NOT EXISTS role_cards (
+  id TEXT PRIMARY KEY,
+  data TEXT NOT NULL,
+  is_preset INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS skill (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE,
+  description TEXT,
+  content TEXT NOT NULL,
+  config TEXT,
+  is_preset INTEGER NOT NULL DEFAULT 0,
+  version INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS skill_file (
+  id TEXT PRIMARY KEY,
+  skill_id TEXT NOT NULL REFERENCES skill(id) ON DELETE CASCADE,
+  path TEXT NOT NULL,
+  content TEXT NOT NULL,
+  UNIQUE(skill_id, path)
+);
+
+CREATE TABLE IF NOT EXISTS agent_skill (
+  agent_id TEXT NOT NULL,
+  skill_id TEXT NOT NULL REFERENCES skill(id) ON DELETE CASCADE,
+  assigned_at TEXT NOT NULL,
+  PRIMARY KEY (agent_id, skill_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_skill_file_skill ON skill_file(skill_id);
+CREATE INDEX IF NOT EXISTS idx_agent_skill_agent ON agent_skill(agent_id);
+CREATE INDEX IF NOT EXISTS idx_agent_skill_skill ON agent_skill(skill_id);
+`,
+  },
 ];
 
 export function applyMigrations(db: Database.Database): void {
