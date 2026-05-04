@@ -294,29 +294,50 @@ export const createDaemonSlice = (set: any, get: () => any) => {
       }
       set({ pendingDispatches: nextPending });
       const conversationId = get().selectedConversationId;
-      // A2A dispatches don't create a synthetic human message —
-      // the A2A context is already in the prompt. Only user dispatches
-      // need a visible chat entry.
-      if (conversationId && next.source !== 'a2a') {
-        set((state: any) => ({
-          chatMessagesByConversation: {
-            ...state.chatMessagesByConversation,
-            [conversationId]: [
-              ...(state.chatMessagesByConversation[conversationId] || []),
-              {
-                id: `msg-${Date.now()}`,
-                agentId: 'human' as const,
-                content: next.prompt,
-                referencedTaskId: next.referencedTaskId,
-                timestamp: new Date().toISOString(),
-                mentions: [agentId],
-                intent: 'general' as const,
-                source: next.source,
-                fromAgentId: next.fromAgentId,
-              },
-            ],
-          },
-        }));
+      if (conversationId) {
+        if (next.source === 'a2a') {
+          // A2A handoff: show a clean label, not the raw formatted prompt
+          set((state: any) => ({
+            chatMessagesByConversation: {
+              ...state.chatMessagesByConversation,
+              [conversationId]: [
+                ...(state.chatMessagesByConversation[conversationId] || []),
+                {
+                  id: `msg-${Date.now()}`,
+                  agentId: next.fromAgentId ?? 'system',
+                  content: `@${agentId}`,
+                  referencedTaskId: next.referencedTaskId,
+                  timestamp: new Date().toISOString(),
+                  mentions: [agentId],
+                  intent: 'a2a_handoff' as const,
+                  source: 'a2a',
+                  fromAgentId: next.fromAgentId,
+                },
+              ],
+            },
+          }));
+        } else {
+          set((state: any) => ({
+            chatMessagesByConversation: {
+              ...state.chatMessagesByConversation,
+              [conversationId]: [
+                ...(state.chatMessagesByConversation[conversationId] || []),
+                {
+                  id: `msg-${Date.now()}`,
+                  agentId: 'human' as const,
+                  content: next.prompt,
+                  referencedTaskId: next.referencedTaskId,
+                  timestamp: new Date().toISOString(),
+                  mentions: [agentId],
+                  intent: 'general' as const,
+                  source: next.source,
+                  fromAgentId: next.fromAgentId,
+                },
+              ],
+            },
+          }));
+        }
+      }
       }
       get().dispatchToAgent({ agentId, prompt: next.prompt, referencedTaskId: next.referencedTaskId });
     },
