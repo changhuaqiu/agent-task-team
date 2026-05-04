@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   type TaskStatus,
   useTaskHubStore,
@@ -92,9 +92,12 @@ export function TaskDetailPanel() {
   const setSelectedTaskId = useTaskHubStore((s) => s.setSelectedTaskId);
   const tasks = useTaskHubStore((s) => s.tasks);
   const updateTaskStatus = useTaskHubStore((s) => s.updateTaskStatus);
+  const updateTask = useTaskHubStore((s) => s.updateTask);
   const removeTask = useTaskHubStore((s) => s.removeTask);
   const roleCards = useTaskHubStore((s) => s.roleCards);
   const panelRef = useRef<HTMLDivElement>(null);
+  const [editingField, setEditingField] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState('');
 
   const task = tasks.find((t) => t.id === selectedTaskId);
   const agent = task ? AGENT_ROSTER.find((a) => a.id === task.agentId) : null;
@@ -119,7 +122,7 @@ export function TaskDetailPanel() {
   const engineAvailable = daemonRuntimes.some((r) => r.engine === resolvedEngine && r.available)
     || (resolvedEngine === 'mock' && enableMockRunner);
 
-  if (!task || !agent) return null;
+  if (!task) return null;
 
   // Dependency resolution
   const depTasks = task.dependencies
@@ -167,47 +170,126 @@ export function TaskDetailPanel() {
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-5 space-y-5 scrollbar-thin">
           {/* Title */}
-          <h2 className="text-[18px] font-bold leading-tight text-[hsl(var(--text-primary))]">
-            {task.title}
-          </h2>
+          {editingField === 'title' ? (
+            <input
+              autoFocus
+              value={editValue}
+              onChange={(e) => setEditValue(e.target.value)}
+              onBlur={() => {
+                updateTask(task.id, { title: editValue });
+                setEditingField(null);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  updateTask(task.id, { title: editValue });
+                  setEditingField(null);
+                }
+                if (e.key === 'Escape') setEditingField(null);
+              }}
+              className="text-lg font-medium text-[hsl(var(--text-primary))] bg-transparent border-b border-[hsl(var(--accent))] outline-none w-full"
+            />
+          ) : (
+            <h2
+              className="text-lg font-medium leading-tight text-[hsl(var(--text-primary))] cursor-pointer hover:bg-[hsl(var(--bg-muted))] rounded-sm px-1 -mx-1"
+              onClick={() => { setEditingField('title'); setEditValue(task.title); }}
+            >
+              {task.title}
+            </h2>
+          )}
 
           {/* Description */}
-          <p className="text-[13px] leading-relaxed text-[hsl(var(--text-secondary))]">
-            {task.description}
-          </p>
+          {editingField === 'description' ? (
+            <textarea
+              autoFocus
+              value={editValue}
+              onChange={(e) => setEditValue(e.target.value)}
+              onBlur={() => {
+                updateTask(task.id, { description: editValue });
+                setEditingField(null);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') setEditingField(null);
+              }}
+              rows={3}
+              className="text-sm leading-relaxed text-[hsl(var(--text-secondary))] bg-transparent border border-[hsl(var(--border))] rounded-sm p-2 outline-none w-full resize-y"
+            />
+          ) : (
+            <p
+              className="text-sm leading-relaxed text-[hsl(var(--text-secondary))] cursor-pointer hover:bg-[hsl(var(--bg-muted))] rounded-sm px-2 py-1 -mx-2"
+              onClick={() => { setEditingField('description'); setEditValue(task.description); }}
+            >
+              {task.description || '点击添加描述...'}
+            </p>
+          )}
 
           {/* Assignee */}
           <div className="space-y-1.5">
-            <label className="text-[11px] font-semibold uppercase tracking-wider text-[hsl(var(--text-tertiary))]">
+            <label className="text-xs font-medium uppercase tracking-wider text-[hsl(var(--text-tertiary))]">
               负责人
             </label>
-            <div className="flex items-center gap-2 px-3 py-2 rounded-[var(--radius-md)] bg-[hsl(var(--bg-muted))]">
-              <span className="text-sm">{agent.emoji}</span>
-              <span className="text-[13px] font-medium text-[hsl(var(--text-primary))]">
-                {agent.name}
-              </span>
-              {agent.roleCardId ? (
-                <RoleCardBadge card={roleCards.find((c) => c.id === agent.roleCardId)!} size="sm" />
-              ) : (
-                <span className="text-[11px] text-[hsl(var(--text-tertiary))]">
-                  {agent.roleLabel}
+            {editingField === 'agent' ? (
+              <div className="flex flex-col gap-1">
+                {AGENT_ROSTER.map((a) => (
+                  <button
+                    key={a.id}
+                    type="button"
+                    onClick={() => {
+                      updateTask(task.id, { agentId: a.id });
+                      setEditingField(null);
+                    }}
+                    className={cn(
+                      'flex items-center gap-2 px-3 py-2 rounded-sm text-left transition-colors',
+                      'hover:bg-[hsl(var(--bg-card-hover))]',
+                      a.id === task.agentId && 'bg-[hsl(var(--bg-muted))] border border-[hsl(var(--accent))]'
+                    )}
+                  >
+                    <span className="text-sm">{a.emoji}</span>
+                    <span className="text-sm font-medium text-[hsl(var(--text-primary))]">{a.name}</span>
+                    <span className="text-xs text-[hsl(var(--text-tertiary))]">{a.roleLabel}</span>
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => { updateTask(task.id, { agentId: '' }); setEditingField(null); }}
+                  className="text-xs text-[hsl(var(--text-tertiary))] hover:text-[hsl(var(--text-primary))] px-3 py-1"
+                >
+                  清除分配
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setEditingField('agent')}
+                className="flex items-center gap-2 px-3 py-2 rounded-sm bg-[hsl(var(--bg-muted))] w-full text-left hover:bg-[hsl(var(--bg-card-hover))] transition-colors"
+              >
+                <span className="text-sm">{agent?.emoji ?? '🤖'}</span>
+                <span className="text-sm font-medium text-[hsl(var(--text-primary))]">
+                  {agent?.name ?? 'Unassigned'}
                 </span>
-              )}
-            </div>
+                {agent?.roleCardId ? (
+                  <RoleCardBadge card={roleCards.find((c) => c.id === agent.roleCardId)!} size="sm" />
+                ) : (
+                  agent && <span className="text-xs text-[hsl(var(--text-tertiary))]">{agent.roleLabel}</span>
+                )}
+              </button>
+            )}
           </div>
 
-          {/* Review Note */}
-          {task.reviewNote && (
+          {/* Review/Block Note */}
+          {(task.status === 'rejected' || task.status === 'blocked') && (
             <div className="space-y-1.5">
-              <label className="text-[11px] font-semibold uppercase tracking-wider text-[hsl(var(--text-tertiary))]">
-                评审反馈
+              <label className="text-xs font-medium uppercase tracking-wider text-[hsl(var(--text-tertiary))]">
+                {task.status === 'rejected' ? '拒绝原因' : '阻塞原因'}
               </label>
-              <div className="flex items-start gap-2 p-3 rounded-[var(--radius-md)] bg-[hsl(var(--status-rejected-bg))] border border-[hsl(var(--status-rejected-border))]">
-                <MessageSquareWarning className="w-4 h-4 shrink-0 mt-0.5 text-[hsl(var(--status-rejected))]" />
-                <p className="text-[12px] leading-relaxed text-[hsl(var(--status-rejected))]">
-                  {task.reviewNote}
-                </p>
-              </div>
+              <textarea
+                value={task.reviewNote ?? ''}
+                onChange={(e) => {
+                  updateTaskStatus(task.id, task.status, e.target.value);
+                }}
+                placeholder="填写原因..."
+                rows={2}
+                className="text-sm leading-relaxed bg-[hsl(var(--status-rejected-bg))] border border-[hsl(var(--status-rejected-border))] rounded-sm p-3 outline-none w-full resize-y text-[hsl(var(--status-rejected))]"
+              />
             </div>
           )}
 
@@ -339,6 +421,7 @@ export function TaskDetailPanel() {
         </div>
 
         {/* Terminal View (Lower Half) */}
+        {agent && (
         <div className="h-64 shrink-0 flex flex-col bg-[#111111] border-t-2 border-[hsl(var(--border))]">
           <div className="px-3 py-1.5 flex items-center justify-between border-b-2 border-[#333]">
             <span className="text-[10px] font-bold text-[#888] uppercase tracking-widest">
@@ -354,6 +437,7 @@ export function TaskDetailPanel() {
             <TerminalView agentId={agent.id} />
           </div>
         </div>
+        )}
       </div>
     </>
   );
