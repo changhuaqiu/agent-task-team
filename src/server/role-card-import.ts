@@ -5,6 +5,7 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import os from 'os';
 import { upsertRoleCard } from './db/roleCardQueries';
+import { securityScanner } from './security-scanner';
 import type { RoleCard, RoleCardCategory } from '@/types/roleCard';
 
 interface SoulSpecMetadata {
@@ -225,6 +226,16 @@ export async function importRoleCardFromUrl(source: string): Promise<{ imported:
           errors.push(`${path.basename(dir)}: 无法解析`);
           continue;
         }
+
+        // Security scan before upserting to database
+        const scanResult = securityScanner.scan(parsed.soulContent);
+        if (!scanResult.passed) {
+          errors.push(`${path.basename(dir)}: 安全扫描未通过`);
+          errors.push(...scanResult.critical);
+          errors.push(...scanResult.warnings.map(w => `  - ${w}`));
+          continue;
+        }
+
         const roleCard = soulToRoleCard(parsed);
         upsertRoleCard(roleCard);
         imported.push(roleCard.name);
