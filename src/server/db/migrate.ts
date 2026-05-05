@@ -345,6 +345,12 @@ CREATE INDEX IF NOT EXISTS idx_agent_skill_skill ON agent_skill(skill_id);
     CREATE INDEX IF NOT EXISTS idx_agent_team_pack_pack ON agent_team_pack(pack_id);
     `,
   },
+  {
+    version: 12,
+    sql: `
+    ALTER TABLE conversation ADD COLUMN team_pack_id TEXT REFERENCES team_pack(id);
+  `,
+  },
 ];
 
 export function applyMigrations(db: Database.Database): void {

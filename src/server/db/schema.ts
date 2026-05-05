@@ -17,6 +17,7 @@ export const conversation = sqliteTable('conversation', {
   status: text('status'),
   priority: text('priority'),
   projectPath: text('project_path'),
+  teamPackId: text('team_pack_id').references(() => teamPack.id),
   participants: text('participants'), // JSON text
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
