@@ -3,7 +3,7 @@
 import { cn } from '@/lib/utils';
 import { StatusBadge } from './StatusBadge';
 import { useTaskHubStore } from '@/store/taskHubStore';
-import { AGENT_ROSTER } from '@/store/agentStore';
+import type { Agent, AgentTheme } from '@/store/agentStore';
 
 interface TaskStatusCardProps {
   taskId: string;
@@ -24,7 +24,8 @@ const AGENT_COLORS: Record<string, string> = {
 
 export function TaskStatusCard({ taskId, agentId, title, status, timestamp }: TaskStatusCardProps) {
   const setSelectedTaskId = useTaskHubStore((s) => s.setSelectedTaskId);
-  const agent = AGENT_ROSTER.find((a) => a.id === agentId);
+  const getEffectiveRoster = useTaskHubStore((s) => s.getEffectiveRoster);
+  const agent = getEffectiveRoster().find((a) => a.id === agentId);
   const emoji = agent?.emoji || '🤖';
   const borderColor = AGENT_COLORS[agentId] || 'var(--border)';
   const timeStr = timestamp

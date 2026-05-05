@@ -5,8 +5,8 @@ import {
   type TaskStatus,
   useTaskHubStore,
   resolveAgentEngine,
-  AGENT_ROSTER,
 } from '@/store/taskHubStore';
+import type { Agent } from '@/store/agentStore';
 import { StatusBadge } from './StatusBadge';
 import { TerminalView } from './TerminalView';
 import { RoleCardBadge } from '@/components/role-card/RoleCardBadge';
@@ -95,12 +95,13 @@ export function TaskDetailPanel() {
   const updateTask = useTaskHubStore((s) => s.updateTask);
   const removeTask = useTaskHubStore((s) => s.removeTask);
   const roleCards = useTaskHubStore((s) => s.roleCards);
+  const getEffectiveRoster = useTaskHubStore((s) => s.getEffectiveRoster);
   const panelRef = useRef<HTMLDivElement>(null);
   const [editingField, setEditingField] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
 
   const task = tasks.find((t) => t.id === selectedTaskId);
-  const agent = task ? AGENT_ROSTER.find((a) => a.id === task.agentId) : null;
+  const agent = task ? getEffectiveRoster().find((a) => a.id === task.agentId) : null;
 
   const simulateCliExecution = useTaskHubStore((s) => s.simulateCliExecution);
   const isRunning = useTaskHubStore((s) => agent ? s.agentStatus[agent.id] === 'busy' : false);
@@ -229,7 +230,7 @@ export function TaskDetailPanel() {
             </label>
             {editingField === 'agent' ? (
               <div className="flex flex-col gap-1">
-                {AGENT_ROSTER.map((a) => (
+                {getEffectiveRoster().map((a) => (
                   <button
                     key={a.id}
                     type="button"
