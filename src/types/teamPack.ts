@@ -1,5 +1,14 @@
 export type WorkflowType = 'linear' | 'state_machine';
 
+export interface Task {
+  id: string;
+  description: string;
+  status: 'pending' | 'in_progress' | 'completed' | 'failed';
+  assignedTo?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface WorkflowTransition {
   from: string;
   to: string;
@@ -74,10 +83,16 @@ export interface TeamPack {
   tags: string[];
   category: string;
   roles: TeamPackRole[];
+  teamMode: 'pipeline' | 'parallel' | 'hub_spoke' | 'custom';
   workflow: TeamPackWorkflow;
   communicationMatrix: TeamPackCommunicationMatrix;
   sharedContext?: TeamPackSharedContext;
   rules?: TeamPackRules;
+  source?: {
+    type: 'github' | 'preset';
+    url?: string;
+    importedAt: string;
+  };
   isPreset: boolean;
   createdAt: string;
   updatedAt: string;
@@ -93,6 +108,7 @@ export interface CreateTeamPackInput {
   tags?: string[];
   category?: string;
   roles: TeamPackRole[];
+  teamMode: 'pipeline' | 'parallel' | 'hub_spoke' | 'custom';
   workflow: TeamPackWorkflow;
   communicationMatrix: TeamPackCommunicationMatrix;
   sharedContext?: TeamPackSharedContext;

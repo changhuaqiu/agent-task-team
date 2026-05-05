@@ -18,18 +18,19 @@ export function buildTeamPackLayer(
     parts.push(`**${agentRole.displayName}**：${agentRole.description ?? ''}`);
   }
 
-  // Workflow
-  if (teamPack.workflow.type === 'state_machine' && teamPack.workflow.states) {
-    parts.push(`### 团队工作流程`);
-    const stateDescriptions = teamPack.workflow.states
-      .filter(s => !s.terminal)
-      .map(s => `- **${s.name}** (${s.role})：${s.description}`);
-    parts.push(stateDescriptions.join('\n'));
-  } else if (teamPack.workflow.type === 'linear' && teamPack.workflow.steps) {
-    parts.push(`### 团队工作流程`);
-    const stepDescriptions = teamPack.workflow.steps
-      .map((s, i) => `${i + 1}. **${s.role}**：${s.action} → ${s.output}`);
-    parts.push(stepDescriptions.join('\n'));
+  // Team mode specific instructions
+  if (teamPack.teamMode === 'pipeline') {
+    parts.push(`### 工作模式：流水线`);
+    parts.push(`任务将依次经过所有角色，前一个角色的输出是后一个角色的输入。`);
+  } else if (teamPack.teamMode === 'parallel') {
+    parts.push(`### 工作模式：并行执行`);
+    parts.push(` Coordinator (${teamPack.roles[0]?.displayName}) 将分配任务，其他角色并行工作，所有完成后 Coordinator 汇总。`);
+  } else if (teamPack.teamMode === 'hub_spoke') {
+    parts.push(`### 工作模式：中心辐射`);
+    parts.push(`中心角色可以按需调用周边专家角色。周边专家角色只在被调用时响应。`);
+  } else if (teamPack.teamMode === 'custom') {
+    parts.push(`### 工作模式：自定义状态机`);
+    parts.push(`严格按照 workflow.states 中定义的状态机进行任务流转。`);
   }
 
   // Communication matrix for this agent

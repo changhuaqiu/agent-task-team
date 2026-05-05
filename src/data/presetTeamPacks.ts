@@ -10,6 +10,7 @@ export const PRESET_TEAM_PACKS: CreateTeamPackInput[] = [
     version: '1.0.0',
     tags: ['default', 'full-stack', 'all-roles'],
     category: 'team/default',
+    teamMode: 'hub_spoke',
     roles: [
       { id: 'mario', displayName: '项目统筹', required: true, description: '规划任务、梳理依赖、统筹协调', soul: '# 项目统筹\n\n负责拆解任务、排列优先级、梳理依赖关系，确保团队目标清晰可执行。' },
       { id: 'luigi', displayName: '前端实现', required: true, description: '前端开发、UI 实现、交互逻辑', soul: '# 前端实现\n\n负责前端代码实现，包括 UI 组件、交互逻辑、状态管理等。' },
@@ -45,6 +46,7 @@ export const PRESET_TEAM_PACKS: CreateTeamPackInput[] = [
     version: '1.0.0',
     tags: ['engineering', 'planning', 'coding', 'review'],
     category: 'team/engineering',
+    teamMode: 'pipeline',
     roles: [
       { id: 'planner', displayName: '规划师', required: true, description: '拆解任务、排优先级、梳理依赖', soul: '# 规划师\n\n## 核心身份\n我是规划师，负责把模糊的需求变成清晰可执行的任务。\n\n## 核心原则\n- 先理解再拆解\n- 小步快跑\n- 依赖显性化\n- 风险前置' },
       { id: 'coder', displayName: '实现者', required: true, description: '写代码、调 bug、实现功能', soul: '# 实现者\n\n## 核心身份\n我是实现者，负责把任务列表变成可运行的代码。\n\n## 核心原则\n- 测试先行（TDD）\n- 小步提交\n- 代码即文档\n- 遵循规范' },
@@ -75,6 +77,7 @@ export const PRESET_TEAM_PACKS: CreateTeamPackInput[] = [
     version: '1.0.0',
     tags: ['research', 'analysis', 'writing'],
     category: 'team/research',
+    teamMode: 'parallel',
     roles: [
       { id: 'researcher', displayName: '研究员', required: true, description: '信息收集、文献调研', soul: '# 研究员\n\n负责信息收集、文献调研、竞品分析。\n\n## 核心原则\n- 来源可追溯\n- 数据驱动\n- 客观中立' },
       { id: 'analyst', displayName: '分析师', required: true, description: '数据分析、趋势判断', soul: '# 分析师\n\n负责数据分析、趋势判断、可行性评估。\n\n## 核心原则\n- 量化为先\n- 多维度对比\n- 风险评估' },

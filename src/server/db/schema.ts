@@ -336,10 +336,12 @@ export const teamPack = sqliteTable('team_pack', {
   license: text('license'),
   tags: text('tags'),               // JSON string[]
   category: text('category').notNull().default('team/general'),
+  teamMode: text('team_mode').notNull().default('hub_spoke'),  // pipeline | parallel | hub_spoke | custom
   workflow: text('workflow').notNull(),  // JSON: TeamPackWorkflow
   communicationMatrix: text('communication_matrix').notNull(),  // JSON
   sharedContext: text('shared_context'),  // JSON
   rules: text('rules'),             // JSON: TeamPackRules
+  source: text('source'),           // JSON: { type, url, importedAt }
   isPreset: integer('is_preset', { mode: 'boolean' }).notNull().default(false),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),

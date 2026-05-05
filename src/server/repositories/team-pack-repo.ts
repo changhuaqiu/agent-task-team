@@ -16,10 +16,12 @@ interface TeamPackRow {
   license: string | null;
   tags: string | null;
   category: string;
+  team_mode: string;
   workflow: string;
   communication_matrix: string;
   shared_context: string | null;
   rules: string | null;
+  source: string | null;
   is_preset: number;
   created_at: string;
   updated_at: string;
@@ -53,10 +55,12 @@ function rowToTeamPack(row: TeamPackRow, roles: TeamPackRoleRow[]): TeamPack {
     license: row.license ?? undefined,
     tags: row.tags ? JSON.parse(row.tags) : [],
     category: row.category,
+    teamMode: row.team_mode as 'pipeline' | 'parallel' | 'hub_spoke' | 'custom',
     workflow: JSON.parse(row.workflow),
     communicationMatrix: JSON.parse(row.communication_matrix),
     sharedContext: row.shared_context ? JSON.parse(row.shared_context) : undefined,
     rules: row.rules ? JSON.parse(row.rules) : undefined,
+    source: row.source ? JSON.parse(row.source) : undefined,
     isPreset: row.is_preset === 1,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -82,8 +86,8 @@ export const teamPackRepo = {
     const db = getDb();
 
     db.prepare(
-      `INSERT INTO team_pack (id, name, display_name, description, version, author, license, tags, category, workflow, communication_matrix, shared_context, rules, is_preset, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`
+      `INSERT INTO team_pack (id, name, display_name, description, version, author, license, tags, category, team_mode, workflow, communication_matrix, shared_context, rules, is_preset, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`
     ).run(
       id,
       input.name,
@@ -94,6 +98,7 @@ export const teamPackRepo = {
       input.license ?? null,
       input.tags ? JSON.stringify(input.tags) : null,
       input.category ?? 'team/general',
+      input.teamMode ?? 'hub_spoke',
       JSON.stringify(input.workflow),
       JSON.stringify(input.communicationMatrix),
       input.sharedContext ? JSON.stringify(input.sharedContext) : null,
