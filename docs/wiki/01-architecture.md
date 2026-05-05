@@ -2,267 +2,312 @@
 
 ## 1.1 形态与边界
 
-当前仓库已经从“纯前端黑板 + 单一 opencode 执行器”演进为四层结构：
+Agent Task Hub 是一个四层结构的多智能体协作平台：
 
-- 前端工作台：Next.js + React，负责项目切换、作战指挥室、任务详情、风险面板与设置入口
-- 前端编排层：Zustand store，负责 UI 状态、Socket 连接、API rehydrate 与用户操作编排
-- 应用 API 与持久化层：Next.js API Routes + SQLite/Drizzle + Repository
-- 执行层：Socket.io daemon + Agent Backend 抽象 + Bridge / 本地 CLI
-
-关键文件：
-
-- 前端主入口：[`src/app/ClientHome.tsx`](../../src/app/ClientHome.tsx)
-- 工作台容器：[`src/components/project/ProjectWorkspace.tsx`](../../src/components/project/ProjectWorkspace.tsx)
-- 状态仓库：[`src/store/taskHubStore.ts`](../../src/store/taskHubStore.ts)
-- 状态加载 API：[`src/pages/api/state.ts`](../../src/pages/api/state.ts)
-- 变更写入 API：[`src/pages/api/mutations.ts`](../../src/pages/api/mutations.ts)
-- Daemon：[`src/server/daemon.ts`](../../src/server/daemon.ts)
-- Agent Backend 工厂：[`src/server/agent/factory.ts`](../../src/server/agent/factory.ts)
-- 数据库层：[`src/server/db`](../../src/server/db)
-- Repository 层：[`src/server/repositories`](../../src/server/repositories)
-- Skill 仓库：[`src/server/repositories/skill-repo.ts`](../../src/server/repositories/skill-repo.ts)
-- Skill Layer（PromptComposer）：[`src/lib/agent-context/layers/skillLayer.ts`](../../src/lib/agent-context/layers/skillLayer.ts)
-- Skill API 路由：[`src/pages/api/skills/`](../../src/pages/api/skills/)
-- 任务文件服务：[`src/server/task-file-service.ts`](../../src/server/task-file-service.ts)
-- 任务文件监听：[`src/server/task-file-watcher.ts`](../../src/server/task-file-watcher.ts)
-- Skill Tool 执行器：[`src/server/skill-tool-executor.ts`](../../src/server/skill-tool-executor.ts)
-- 任务工具路由：[`src/server/skill-tool-router.ts`](../../src/server/skill-tool-router.ts)
+| 层级 | 技术 | 职责 |
+|------|------|------|
+| **前端工作台** | Next.js + React | 项目切换、作战指挥室、任务详情、风险面板 |
+| **状态编排层** | Zustand | UI 状态、Socket 事件、API Rehydrate |
+| **应用后端层** | Next.js API + SQLite | 数据持久化、业务逻辑、Repository |
+| **执行层** | Socket.io Daemon + Agent Backend | CLI 执行、会话管理、事件流 |
 
 ## 1.2 运行时拓扑
 
-默认开发模式下，`pnpm dev` 同时承载前端页面、API 与 Socket.io：
-
-- Web：`http://localhost:3000`
-- 状态初始化：`GET /api/state`
-- 持久化 mutation：`POST /api/mutations`
-- Daemon 初始化：`GET /api/daemon/init`
-- Socket.io：`/api/socketio`
-
-本机 Bridge 仍然是可选外部进程：
-
-- Bridge：`http://localhost:8787`
-
-SQLite 作为默认数据源，数据库文件位于项目工作目录下的 `.ath/`。
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        Browser (前端)                           │
+│  ┌───────────────────────────────────────────────────────────┐  │
+│  │  Zustand Store                                            │  │
+│  │  - pendingDispatches (按 agentId:conversationId 隔离)     │  │
+│  │  - agentStatus / activeRunsByAgent                        │  │
+│  │  - chatMessagesByConversation                             │  │
+│  └───────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────┘
+                              │ Socket.io
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                     Next.js Server                              │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐  │
+│  │ /api/state  │  │ /api/mutat. │  │ /api/socketio (Daemon)  │  │
+│  └─────────────┘  └─────────────┘  └─────────────────────────┘  │
+│                              │                                  │
+│                              ▼                                  │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │  Daemon (src/server/daemon.ts)                          │    │
+│  │  - Session 管理 (按 agentId + conversationId)            │    │
+│  │  - Invocation 跟踪                                      │    │
+│  │  - Account Credential 注入                              │    │
+│  │  - Agent Backend 选择                                    │    │
+│  └─────────────────────────────────────────────────────────┘    │
+│                              │                                  │
+│                              ▼                                  │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │  SQLite (better-sqlite3 + Drizzle ORM)                  │    │
+│  │  - conversation / task / message                        │    │
+│  │  - agent_session / invocation / event                   │    │
+│  │  - account / role_card / skill                          │    │
+│  └─────────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    Agent Backend (执行层)                        │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐             │
+│  │  OpenCode   │  │  Claude CLI │  │  Codex CLI  │             │
+│  └─────────────┘  └─────────────┘  └─────────────┘             │
+└─────────────────────────────────────────────────────────────────┘
+```
 
 ## 1.3 核心数据流
 
 ### A) 页面初始化与 Rehydrate
 
-1. 前端启动后，[`ClientHome.tsx`](../../src/app/ClientHome.tsx) 先调用 `loadFromServer()`
-2. `GET /api/state` 从 SQLite 读取：
-   - conversations
-   - tasks
-   - recentMessages
-   - activeSessions
-   - recentInvocations
-   - skills（可复用能力模块）
-3. store 将后端真相源映射为前端运行态，其中 skills 被缓存到 `skillsMap`；然后再调用 `connectDaemon()`
+1. `ClientHome.tsx` 调用 `loadFromServer()`
+2. `GET /api/state` 从 SQLite 加载：
+   - conversations、tasks、recentMessages
+   - activeSessions、recentInvocations、skills
+3. Store 映射为前端运行态，然后调用 `connectDaemon()`
 
 ### B) 用户操作与持久化
 
-1. 用户在工作台中创建项目、任务、消息或状态流转
-2. store 先更新本地状态，再通过 `POST /api/mutations` 写入 Repository
-3. Repository 统一落 SQLite，保证刷新后可恢复
+1. 用户在工作台操作（创建项目、任务、消息等）
+2. Store 先更新本地状态
+3. 通过 `POST /api/mutations` 写入 Repository → SQLite
 
-### C) 执行链路
+### C) 任务执行链路
 
-1. 任务执行时，前端通过 Socket 发送 `terminal:start`
-2. daemon 根据 `engine / runtimeId / accountId / opencodeBridgeUrl` 解析执行路径
-3. daemon 通过 Agent Backend 工厂选择对应执行器，例如 `opencode / claude / codex`
-4. 执行输出被统一归一化为 `AgentEvent`
-5. daemon 将事件：
-   - 广播给前端（`agent:event` / `agent:session` / `terminal:data` / `terminal:exit`）
-   - 同步写入 `messageRepo / eventRepo / invocationRepo / sessionRepo`
+```
+用户触发任务
+    │
+    ▼
+dispatchToAgent()
+    │
+    ├─ agentStatus[agentId] === 'busy'?
+    │   └─ YES → enqueueDispatch(agentId, conversationId)
+    │             存入 pendingDispatches["agentId:conversationId"]
+    │
+    └─ NO → socket.emit('terminal:start')
+                │
+                ▼
+        Daemon 处理
+                │
+                ├─ sessionRepo.findActiveByConversation(agentId, conversationId)
+                │   └─ 找到 → 使用 cli_session_id (--resume)
+                │   └─ 没找到 → 创建新 session
+                │
+                ├─ createBackend(engine).execute(prompt, opts)
+                │   └─ 返回 AsyncGenerator<AgentEvent>
+                │
+                └─ for await (event of events)
+                    ├─ 广播到前端 (agent:event)
+                    ├─ 写入 messageRepo / eventRepo
+                    └─ event.type === 'done'
+                        └─ orchestrator.onAgentDone()
+                            └─ dequeueNextPending(agentId, conversationId)
+```
 
-### D) 任务文件同步链路
+### D) 会话隔离机制
 
-1. Agent 执行过程中直接编辑 `.ath/TASKS.md`（修改状态、认领任务、上报风险）
-2. `TaskFileWatcher`（chokidar）检测文件变更，防抖 500ms 后触发 `syncTasksToDb()`
-3. `TaskFileService.readTasksMd()` 解析文件，返回 `{ tasks: ParsedTask[], blockers: ParsedBlocker[] }`
-4. 对于每个解析出的任务：
-   - DB 中不存在 → `taskRepo.create()` 创建
-   - DB 中已存在 → 对比差异更新 status/agent
-5. 广播 Socket.IO `task.sync` 事件（含 `conversationId`, `tasks`, `blockers`）
-6. Store 收到事件后：新任务加入 `tasks[]`，已有任务更新字段，新 blocker 调用 `openBlocker()`
-7. 看板、代办、风险面板实时刷新
+**设计目标**：每个项目中每个 Agent 维护一个长期会话，所有对话共享上下文。
 
-## 1.4 当前 UI 信息架构
+| 维度 | 隔离键 | 说明 |
+|------|--------|------|
+| Session (DB) | `(agent_id, conversation_id)` | 一个项目中一个 Agent 只有一个 active session |
+| Daemon 进程锁 | `(agentId, projectId)` | 同一项目中同一 Agent 只能有一个运行进程 |
+| 前端队列 | `agentId:conversationId` | 每个项目的排队消息独立，不会互相干扰 |
 
-当前主界面不是旧的双栏任务看板，而是三栏工作台：
+**Session 生命周期**：
+```
+项目创建 + Agent 首次派发
+    → session created (status: 'active')
+    → CLI 返回 cli_session_id → 回写
 
-- 左栏：项目列表与项目切换
-- 中栏：作战指挥室，显示当前项目目标、拆解状态、Agent 条带和嵌入式聊天
-- 右栏：Mini Kanban、下一步代办、风险与阻塞
+后续派发（聊天 / 任务）
+    → 查找 active session → 复用 cli_session_id
+    → CLI --resume <cliSessionId>
+
+项目归档
+    → session sealed (status: 'sealed')
+```
+
+**关键点**：
+- 任务完成（done/rejected）时 **不再** seal session
+- 进程退出失败时 **不再** seal session
+- Session 跟随项目生命周期
+
+### E) 队列隔离机制
+
+**问题背景**：之前 `pendingDispatches` 按 `agentId` 做 key，导致跨项目的排队消息共享队列，dequeue 时错乱。
+
+**解决方案**：使用复合 key `agentId:conversationId`。
+
+```typescript
+// daemonStore.ts
+function queueKey(agentId: string, conversationId: string): string {
+  return `${agentId}:${conversationId}`;
+}
+
+// 入队
+const key = queueKey(agentId, conversationId);
+state.pendingDispatches[key].push(entry);
+
+// 出队（在 terminal:exit 或 agent:error 后）
+const key = `${agentId}:${conversationId}`;
+dequeueNextPending(agentId, conversationId);
+```
+
+**前端渲染**：`GlobalChatRoom.tsx` 按 `selectedConversationId` 过滤显示当前项目的队列。
+
+### F) 任务文件同步链路
+
+1. Agent 编辑 `.ath/TASKS.md`（修改状态、认领任务、上报风险）
+2. `TaskFileWatcher`（chokidar）检测变更，防抖 500ms
+3. `TaskFileService.readTasksMd()` 解析文件
+4. DB 同步：不存在 → 创建，已存在 → 更新
+5. Socket.IO 广播 `task.sync`
+6. Store 更新 → UI 刷新
+
+## 1.4 UI 信息架构
+
+三栏工作台布局：
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        Header                                   │
+│  [项目标题]                                    [+新建] [设置]   │
+├──────────┬──────────────────────────────────────┬───────────────┤
+│          │                                      │               │
+│  项目    │         作战指挥室                    │   Mini        │
+│  列表    │  ┌─────────────────────────────────┐ │   Kanban      │
+│          │  │ 项目目标 / 拆解状态              │ │               │
+│  ──────  │  ├─────────────────────────────────┤ │   代办        │
+│          │  │ Agent 条带 (Mario / Coder /     │ │               │
+│  项目 A  │  │ Reviewer)                       │ │   ──────      │
+│  项目 B  │  ├─────────────────────────────────┤ │               │
+│  项目 C  │  │ 聊天区域                        │ │   风险        │
+│          │  │ - 用户消息                      │ │   阻塞        │
+│          │  │ - Agent 流式响应                │ │               │
+│          │  │ - 工具调用事件                  │ │               │
+│          │  └─────────────────────────────────┘ │               │
+│          │                                      │               │
+├──────────┴──────────────────────────────────────┴───────────────┤
+│                     Pending Queue (按项目隔离)                   │
+└─────────────────────────────────────────────────────────────────┘
+```
 
 辅助层：
-
-- 任务详情抽屉：任务信息、状态流转、终端输出
+- 任务详情抽屉
 - 新建任务弹窗
-- Agent roster 弹窗
-- 设置抽屉：当前已落地的账号与角色卡配置入口
+- Agent Roster 弹窗
+- 设置抽屉（账号、角色卡、Skill）
 
-## 1.5 当前后端主链路
+## 1.5 后端职责
 
-后端不再只是“桥接 stdout”，而是承担三部分职责：
+### API 层
 
-- API 真相源：
-  - `/api/state` 负责加载当前项目状态
-  - `/api/mutations` 负责写入 conversation/task/message/session/invocation/event
-- SQLite 持久化：
-  - `better-sqlite3` + `drizzle-orm`
-  - repo 负责业务语义读写
-- Daemon 编排：
-  - 会话查找 / 创建 / seal
-  - invocation 跟踪
-  - account credential 注入
-  - Agent Backend 选择
+| 端点 | 方法 | 职责 |
+|------|------|------|
+| `/api/state` | GET | 加载全量状态 |
+| `/api/mutations` | POST | 写入所有变更 |
+| `/api/daemon/init` | GET | 初始化 Socket.IO Daemon |
+| `/api/socketio` | WS | WebSocket 通信 |
+
+### Repository 层
+
+| Repository | 职责 |
+|------------|------|
+| `conversationRepo` | 项目/对话 CRUD |
+| `taskRepo` | 任务 CRUD + 状态流转 |
+| `messageRepo` | 聊天消息追加 |
+| `sessionRepo` | Agent Session 生命周期 |
+| `invocationRepo` | 执行记录跟踪 |
+| `eventRepo` | 事件日志追加 |
+| `dispatchRepo` | Dispatch 队列持久化 |
+| `skillRepo` | Skill CRUD + 绑定 |
+
+### Daemon 职责
+
+1. **Session 查找/创建**：`findActiveByConversation(agentId, conversationId)`
+2. **Invocation 跟踪**：记录每次执行的状态和 token 用量
+3. **Credential 注入**：从 Account 读取 API Key 注入环境变量
+4. **Backend 选择**：根据 engine 选择对应的 Agent Backend
+5. **事件广播**：统一处理 session/invocation/socket 广播
 
 ## 1.6 核心业务对象
 
-当前主业务对象包括：
-
-- `Conversation`：项目 / 战役级上下文
-- `Task`：具体执行任务，带 `conversationId`、`phaseId`、`agentId`
-- `ChatMessage`：对话消息，支持 streaming/tool/progress/artifact preview
-- `Blocker`：风险与阻塞项
-- `Account`：账号与执行认证入口
-- `RoleCard`：工程型角色卡，现含第 8 维度 `CapabilityProfile`（domains、skills、seniority、maxConcurrentTasks），持久化于 `role_cards` SQLite 表
-- `Skill`：可复用能力模块（SKILL.md + 配套文件），与 RoleCard 正交
-- `SkillFile`：Skill 的配套文件（模板、清单、参考文档）
-- `AgentSkill`：Agent 与 Skill 的多对多关联
-- `AgentSession`：conversation 级或任务级执行会话
-- `Invocation`：每次实际执行记录
+| 对象 | 说明 | 持久化 |
+|------|------|--------|
+| `Conversation` | 项目/战役级上下文 | SQLite |
+| `Task` | 执行任务，带 conversationId、phaseId、agentId | SQLite |
+| `ChatMessage` | 对话消息，支持 streaming/tool/progress | SQLite |
+| `Blocker` | 风险与阻塞项 | SQLite |
+| `Account` | 账号与执行认证 | SQLite |
+| `RoleCard` | 工程型角色卡，含 CapabilityProfile | SQLite |
+| `Skill` | 可复用能力模块 | SQLite |
+| `AgentSession` | 会话级执行上下文 | SQLite |
+| `Invocation` | 单次执行记录 | SQLite |
 
 ## 1.7 架构演进主线
 
 ### A) 项目工作台化
 
-从旧的任务板视图演进到“项目 > 指挥室 > 风险面板”三栏工作流，项目切换成为第一层上下文。
+从任务板视图演进到"项目 > 指挥室 > 风险面板"三栏工作流。
 
 ### B) SQLite 真相源
 
-从 localStorage 主导演进到 SQLite 主导，前端 store 变成运行时缓存与编排层，而不是唯一数据源。
+从 localStorage 主导演进到 SQLite 主导，前端 Store 变成运行时缓存。
 
 ### C) Agent Backend 抽象
 
-从 daemon 内部硬编码多引擎分支，演进到统一的 Backend 接口：
+统一的 Backend 接口，新增引擎只需实现接口：
 
-- [`src/server/agent/types.ts`](../../src/server/agent/types.ts) — `AgentBackend` 接口 + `AgentRun` / `AgentEvent` / `AgentResult` 类型
-- [`src/server/agent/factory.ts`](../../src/server/agent/factory.ts) — `createBackend(engine, config)` 工厂
-- 独立 backend 实现：`opencode.ts` / `claude.ts` / `codex.ts`
+```typescript
+interface AgentBackend {
+  execute(prompt: string, opts: ExecuteOptions): AgentRun;
+}
 
-核心设计：
-- `execute(prompt, opts)` → `{ events: AsyncGenerator<AgentEvent>, result: Promise<AgentResult>, kill }`
-- 各引擎私有协议归一化为统一的 `AgentEvent` 流（text / thinking / tool_use / error / done）
-- Daemon 通过 `for await (const event of events)` 消费，统一处理 session/invocation/socket 广播
-- 新增引擎只需实现 `AgentBackend` 接口，不改动 daemon 主流程
+interface AgentRun {
+  events: AsyncGenerator<AgentEvent>;
+  result: Promise<AgentResult>;
+  kill: () => void;
+}
+```
 
-**OpenCode 跨平台 Spawn 策略**：OpenCode 的 Go 二进制检测到非 TTY stdout 时抑制输出（上游 bug `anomalyco/opencode#14948`）。采用三级 fallback：
-1. 直接 spawn Go 二进制（`.opencode`），绕过 Node.js wrapper 的 `spawnSync({ stdio: "inherit" })`
-2. `script -q /dev/null` PTY 包装（Unix，提供真实 TTY）
-3. 直接 pipe 兜底（Windows / 无 script 命令时）
+### D) 会话级隔离
 
-详见 [`docs/technical/execution/opencode-integration-executable-chain.md`](../technical/execution/opencode-integration-executable-chain.md)。
+Session 粒度从 `(agentId, taskId)` 演进到 `(agentId, conversationId)`：
+- 一个项目中一个 Agent 只有一个长期 Session
+- 任务派发复用 Session，通过 prompt 注入任务上下文
+- 队列使用复合 key `agentId:conversationId` 隔离
 
-### E) Skill System（能力模块系统）
+### E) Skill 系统
 
-在 RoleCard（身份）之外新增 Skill（能力）维度。Skill 是可复用的指令模块，通过 SKILL.md + 配套文件定义，可从外部 Git 仓库导入。
-
-核心设计：
-
-- **正交于 RoleCard**：一个 Agent 有一个 Role（身份）和 N 个 Skill（能力）
-- **SQLite 存储**：`skill`、`skill_file`、`agent_skill` 三张表（migration v2）
-- **PromptComposer 集成**：`SkillLayer`（Layer 2）在 RoleLayer 之后注入 skill 指令到 systemPrompt
-- **Store 缓存**：`skillsMap` 缓存所有 skill，`agentSkillIds` 缓存 agent-skill 绑定关系
-- **API 路由**：`/api/skills`（CRUD）、`/api/skills/import`（Git 导入）、`/api/agents/{id}/skills`（绑定管理）
-- **UI**：SkillLibrary（双栏浏览）、SkillImportDialog（导入弹窗）、AgentBindingPanel 中的 skill 标签
-- **预设 Skill**：code-review、tdd、debugging、brainstorm 四个内置 skill
-
-### D) 账号绑定与多运行时参数通路
-
-系统正在从”单一 opencode”演进到”账号绑定 + 多 CLI 执行”的模型。
-
-当前事实是：
-
-- 账号管理已落地
-- 角色卡与账号绑定已落地
-- 多运行时参数通路已部分落地
-- 独立配置中心与完整 runtime center 尚未完成
-
-### E) PromptComposer 系统提示层
-
-系统提示由 PromptComposer 分层构建，当前共 4 层：
-
-1. **RoleLayer**：注入角色定义；当角色 category 为 `planner` 时，额外注入 planner 专属 dispatch 指令
-2. **ProjectLayer**：注入项目上下文
-3. **TeamLayer**：注入团队信息，现包含 capability domains、skills、seniority 与 load 信息
-4. **ProjectStatusLayer**（新增）：展示 per-agent 任务看板与整体项目进度
+RoleCard（身份）+ Skill（能力）正交设计：
+- SQLite 存储：skill、skill_file、agent_skill
+- PromptComposer 集成：SkillLayer 注入到 system prompt
+- Git 仓库导入
 
 ### F) 智能任务分发
 
-`confirmBreakdown` 流程现接入 `DispatchAdvisor`，基于 capability profile 进行程序化匹配：
+DispatchAdvisor 基于 CapabilityProfile 进行匹配：
+1. 域关键词匹配
+2. 技能匹配
+3. 负载感知
+4. 禁止动作检查
 
-1. Mario 分解任务
-2. DispatchAdvisor 根据域关键词匹配 + 技能匹配 + 负载感知 + 禁止动作检查，建议 agentId
-3. 任务以建议的 agentId 创建
+## 1.8 当前状态
 
-### G) mention-parser 动态注册
-
-`mention-parser.ts` 现支持通过 `registerAgentIds()` 动态注册 agent ID，允许自定义角色在运行时加入路由，无需代码变更。
-
-### H) 任务系统增强
-
-基于 Multica 任务编排模式分析，实现四模块增强：
-
-1. **Dispatch 持久化**：`pendingDispatches` 从内存 JS 数组迁移到 SQLite 持久化队列，新增 `dispatch-repo`（原子 claim、僵尸恢复、去重合并）。`invocation` 表增加 `dispatch_status`（queued/claimed/running/completed/failed）和 `lease_expiry` 字段。
-2. **Workdir 隔离复用**：新增 `WorkdirManager`（`src/server/workdir-manager.ts`），为每个 (agent, task) 分配独立工作目录，跨 task 共享 `base/` 基础环境。支持 session resume 失败自动降级为 fresh session。GC 策略分级清理（24h 全清理、12h 可再生产物清理、72h 孤儿清理）。
-3. **Skill Config Tools**：扩展 `skill.config` 字段定义 callable tools（`ToolDefinition` 类型），新增 `toolLayer` 在 PromptComposer 中注入 tool 定义。Agent 可通过 `tool_use` 调用自定义工具（如 task_create/task_list/task_update_status/task_assign），daemon 拦截并路由到 API。
-4. **Token 追踪**：Claude/OpenCode backend 提取 stream 中的 token 用量，按 invocation 持久化到 `token_usage` JSON 字段。
-
-关键文件：
-- [`src/server/repositories/dispatch-repo.ts`](../../src/server/repositories/dispatch-repo.ts)
-- [`src/server/workdir-manager.ts`](../../src/server/workdir-manager.ts)
-- [`src/lib/agent-context/layers/toolLayer.ts`](../../src/lib/agent-context/layers/toolLayer.ts)
-- [`src/data/presetSkills/taskManagement.ts`](../../src/data/presetSkills/taskManagement.ts)
-
-设计文档：[`docs/superpowers/specs/2026-05-04-task-system-enhancement-design.md`](../superpowers/specs/2026-05-04-task-system-enhancement-design.md)
-
-### I) TASKS.md ↔ 看板双向同步
-
-Agent 直接编辑 `.ath/TASKS.md` 文件管理任务，系统自动同步到 SQLite 和 UI 看板：
-
-- **文件格式**：8 列表格（ID | Title | Phase | Role | Agent | Status | Depends | Deliverable）+ `## 风险 / 阻塞` 区域
-- **FileWatcher**：检测文件变更 → 解析 → 创建/更新 DB → Socket.IO 广播
-- **Store**：`task.sync` handler 创建新任务、同步 blocker
-- **工具双写**：`task_create` / `task_update_status` 同时写 DB 和文件
-- **协议引导**：`protocolLayer.ts` 文档化新格式，引导 Agent 直接写 MD
-
-关键文件：
-- [`src/server/task-file-service.ts`](../../src/server/task-file-service.ts) — md 读写解析
-- [`src/server/task-file-watcher.ts`](../../src/server/task-file-watcher.ts) — 文件监听 + DB 同步
-- [`src/store/taskHubStore.ts`](../../src/store/taskHubStore.ts) — `task.sync` handler
-
-## 1.8 当前状态判断
-
-- 已完成：
-  - 项目工作台 UI
-  - SQLite repo 与 API rehydrate
-  - Agent Backend 抽象
-  - 基础账号模型与执行绑定
-  - Skill System（能力模块）：CRUD、导入、agent 绑定、PromptComposer SkillLayer、UI
-  - 任务系统增强：Dispatch 持久化、Workdir 隔离复用、Skill Config Tools、Token 追踪
-- 部分完成：
-  - 统一集成配置中心
-  - 多 runtime 的完整信息架构
-  - 独立配置中心页面
-- 仍在规划：
-  - 更强的安全与权限边界
-  - 更完整的渠道、provider、routing policy
+| 状态 | 模块 |
+|------|------|
+| ✅ 已完成 | 项目工作台 UI、SQLite 持久化、Agent Backend、账号模型、Skill 系统、会话隔离、队列隔离 |
+| 🚧 进行中 | 统一集成配置中心、多 runtime 信息架构 |
+| 📋 规划中 | 安全与权限边界、渠道/provider/routing policy |
 
 ## 1.9 关联文档
 
-- 需求与愿景：[`VISION.md`](../../VISION.md)、[`ROADMAP.md`](../../ROADMAP.md)
-- 规格目录：[`specs/`](../../specs/)
-- 文档导航：[`docs/README.md`](../README.md)
-- 架构图：[`07-architecture-diagrams.md`](./07-architecture-diagrams.md)
-- 决策记录：[`decisions/`](../../decisions/)
+- [产品愿景](../../VISION.md)
+- [研发路线图](../../ROADMAP.md)
+- [规格目录](../../specs/)
+- [文档导航](../README.md)
+- [架构图](./07-architecture-diagrams.md)
+- [决策记录](../../decisions/)

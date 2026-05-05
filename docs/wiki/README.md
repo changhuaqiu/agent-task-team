@@ -1,49 +1,97 @@
 # Agent Task Hub — Code Wiki
 
-本 Wiki 以“当前代码事实”为主线，描述项目在本轮重构后的真实形态：项目工作台、SQLite 持久化、Agent Backend 抽象、账号配置与多运行时执行链路。
+本 Wiki 描述项目的当前实现状态和架构设计。
 
-## 导航
+## 快速上手
 
-- [01-整体架构](./01-architecture.md)
-- [02-前端（项目工作台）](./02-frontend.md)
-- [03-领域模型与状态仓库（Zustand + API Rehydrate）](./03-store-model.md)
-- [04-后端执行链路（API + SQLite + Daemon + Agent Backend）](./04-backend-daemon.md)
-- [05-运行与开发](./05-run-and-dev.md)
-- [06-依赖与集成点](./06-dependencies.md)
-- [07-架构图（基于当前代码）](./07-architecture-diagrams.md)
-- [08-开发流程门控规范（G1/G2/G3 + Hotfix）](./08-review-protocols.md)
+```bash
+# 一键安装
+./setup.sh
 
-## 最短上手路径（从 0 到可运行）
+# 启动生产模式
+pnpm start
 
-1. 启动：`pnpm install && pnpm dev`
-2. 打开 Web：`http://localhost:3000`
-3. 创建项目：
-   - 左侧项目栏点击 `+`
-   - 选择一个项目进入当前上下文
-4. 配置运行账号：
-   - 右上角「设置」
-   - 在 `模型账号` 分区添加并验证账号
-   - 如需要，再为角色卡绑定账号
-5. （可选）配置 Skill 能力模块：
-   - 在 Skill 库中浏览或导入 skill
-   - 在 Agent 配置面板中为 agent 绑定 skill
-6. 在中间作战指挥室推进任务：
-   - 发起对话
-   - 查看拆解状态
-   - 打开任务详情执行 CLI
+# 或开发模式（带热更新）
+pnpm dev
+```
 
-## 快速定位入口
+访问 [http://localhost:3000](http://localhost:3000) 开始使用。
 
-- 前端主入口：[`src/app/ClientHome.tsx`](../../src/app/ClientHome.tsx)
-- 项目工作台：[`src/components/project/ProjectWorkspace.tsx`](../../src/components/project/ProjectWorkspace.tsx)
-- 状态与前端编排：[`src/store/taskHubStore.ts`](../../src/store/taskHubStore.ts)
-- 状态加载 API：[`src/pages/api/state.ts`](../../src/pages/api/state.ts)
-- 持久化 mutation API：[`src/pages/api/mutations.ts`](../../src/pages/api/mutations.ts)
-- Daemon 实现：[`src/server/daemon.ts`](../../src/server/daemon.ts)
-- SQLite / Drizzle：[`src/server/db`](../../src/server/db)
-- Repo 层：[`src/server/repositories`](../../src/server/repositories)
-- 设置与账号入口：[`src/components/task-hub/SettingsDrawer.tsx`](../../src/components/task-hub/SettingsDrawer.tsx)
-- Skill 仓库：[`src/server/repositories/skill-repo.ts`](../../src/server/repositories/skill-repo.ts)
-- Skill Layer：[`src/lib/agent-context/layers/skillLayer.ts`](../../src/lib/agent-context/layers/skillLayer.ts)
-- Skill API 路由：[`src/pages/api/skills/`](../../src/pages/api/skills/)
-- Skill UI 组件：[`src/components/skill/`](../../src/components/skill/)
+## 文档导航
+
+| 文档 | 说明 |
+|------|------|
+| [01-整体架构](./01-architecture.md) | 四层架构、数据流、会话隔离、队列隔离 |
+| [02-前端工作台](./02-frontend.md) | 三栏布局、组件结构、状态管理 |
+| [03-领域模型](./03-store-model.md) | Zustand Store、数据模型、Rehydrate |
+| [04-后端 Daemon](./04-backend-daemon.md) | 执行链路、Session 管理、Agent Backend |
+| [05-运行与开发](./05-run-and-dev.md) | 开发环境、测试、部署 |
+| [06-依赖与集成](./06-dependencies.md) | 第三方依赖、集成点 |
+| [07-架构图](./07-architecture-diagrams.md) | 可视化架构图 |
+| [08-开发规范](./08-review-protocols.md) | 代码审查、发布流程 |
+
+## 快速定位
+
+| 模块 | 入口文件 |
+|------|----------|
+| 前端入口 | `src/app/ClientHome.tsx` |
+| 项目工作台 | `src/components/project/ProjectWorkspace.tsx` |
+| 状态管理 | `src/store/taskHubStore.ts` |
+| Daemon 编排 | `src/server/daemon.ts` |
+| 数据库 | `src/server/db/` |
+| Repository | `src/server/repositories/` |
+| Agent Backend | `src/server/agent/` |
+| Skill 系统 | `src/server/repositories/skill-repo.ts` |
+
+## 使用路径
+
+1. **创建项目**：左侧项目栏点击 `+`
+2. **配置账号**：右上角设置 → 模型账号 → 添加并验证
+3. **绑定角色卡**：设置 → 角色卡 → 为 Agent 绑定账号
+4. **配置 Skill**（可选）：Skill 库浏览/导入 → Agent 绑定
+5. **开始协作**：在作战指挥室发起对话、创建任务
+
+## 核心概念
+
+### 会话隔离
+
+每个项目中每个 Agent 维护独立的长期会话：
+- Session 键：`(agentId, conversationId)`
+- 任务完成不会 seal session
+- Session 跟随项目生命周期
+
+### 队列隔离
+
+跨项目的排队消息完全隔离：
+- 队列键：`agentId:conversationId`
+- 项目 A 的 Agent busy 不影响项目 B
+- dequeue 时正确匹配 conversationId
+
+### Agent Backend
+
+统一的执行器抽象，支持多 CLI：
+- OpenCode
+- Claude CLI
+- Codex CLI
+- Gemini CLI
+
+新增引擎只需实现 `AgentBackend` 接口。
+
+## 项目结构
+
+```
+src/
+├── app/                    # Next.js App Router
+├── components/             # React 组件
+│   ├── project/           # 项目工作台
+│   ├── task-hub/          # 聊天、任务、设置
+│   ├── role-card/         # 角色卡
+│   └── skill/             # Skill 系统
+├── store/                  # Zustand 状态管理
+├── server/                 # 后端逻辑
+│   ├── agent/             # Agent Backend
+│   ├── repositories/      # 数据访问层
+│   └── db/                # 数据库
+├── lib/                    # 工具函数
+└── pages/api/             # API Routes
+```

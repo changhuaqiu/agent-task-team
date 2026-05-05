@@ -1,9 +1,15 @@
 <div align="center">
-  <h1>🐈 Agent Task Hub (Agent Task Hub)</h1>
-  <p>基于 Next.js 构建的去中心化多智能体（Multi-Agent）研发协作平台。</p>
-  
+  <h1>🐈 Agent Task Hub</h1>
+  <p><strong>去中心化多智能体研发协作平台</strong></p>
   <p>
-    <b>“想法和产品之间，隔着的不是程序员，而是实现力。”</b>
+    <em>"想法和产品之间，隔着的不是程序员，而是实现力。"</em>
+  </p>
+  <p>
+    <a href="#-快速开始">快速开始</a> •
+    <a href="#-核心功能">核心功能</a> •
+    <a href="#-架构设计">架构设计</a> •
+    <a href="#-部署指南">部署指南</a> •
+    <a href="#-文档">文档</a>
   </p>
 </div>
 
@@ -11,44 +17,26 @@
 
 ## 📖 项目简介
 
-`agent-task-hub`（内部代号 **Agent Task Hub**，核心愿景为 *"Agents & U"*）突破了将 AI 仅作为单体辅助工具的传统模式。旨在为用户分配一支具备“对等协作、共享记忆”能力的虚拟研发团队（“Agent团队”）。人类负责提供愿景和判断，多个 AI Agent 负责拆解、编码、审查和交付，共同把想法变成实际能运行的产品。
+**Agent Task Hub** 是一个基于 Next.js 构建的多智能体协作平台，让人类与 AI Agent 组成虚拟研发团队，共同将想法转化为可运行的产品。
 
-当前版本已经从早期的“任务板 + 聊天室”演进为一个**项目工作台**：
+### 为什么需要 Agent Task Hub？
 
-- 左侧：项目列表与项目切换
-- 中间：作战指挥室，展示项目目标、拆解状态、Agent 条带与对话
-- 右侧：Mini Kanban、下一步代办、风险与阻塞
-- 底层：SQLite 持久化、API rehydrate、Socket.io daemon、多 CLI backend
+传统 AI 工具是单体辅助——一个 AI 帮你完成一个任务。Agent Task Hub 突破了这个模式：
 
-## 🏗️ 核心架构
-
-系统当前采用四层结构：
-
-- **前端工作台**：项目、聊天、任务、阻塞、设置等统一 UI
-- **状态与编排层**：Zustand 负责运行态缓存、API rehydrate 和 socket 事件接入
-- **应用后端层**：Next.js API + SQLite / Drizzle / Repository
-- **执行层**：Socket.io daemon + Agent Backend 抽象 + CLI / Bridge
-
-*详见 [统一规格目录](./specs/README.md)、[整体架构文档](./docs/wiki/01-architecture.md) 和 [产品愿景](./VISION.md)*。
-
-## 🛠️ 技术栈
-
-本项目是一个现代化的 Web 应用：
-
-- **框架**: [Next.js 16.2](https://nextjs.org/) + [React 19](https://react.dev/)
-- **状态管理**: [Zustand 5](https://github.com/pmndrs/zustand)
-- **持久化**: `better-sqlite3` + `drizzle-orm`
-- **样式**: [Tailwind CSS v4](https://tailwindcss.com/)
-- **组件/功能集成**: 
-  - `xterm.js` (Web 终端模拟)
-  - `lucide-react` (图标系统)
+- **多 Agent 协作**：分配一支具备不同专业能力的 Agent 团队
+- **对等协作**：没有 Boss Agent，每个 Agent 有自己的判断和专长
+- **共享记忆**：Agent 之间的对话和上下文是共享的
+- **可迁移经验**：养成的协作模式可以迁移到新项目
 
 ## 🚀 快速开始
 
 ### 环境要求
 
-- **Node.js** 18+ (推荐 20 LTS)
-- **pnpm** (自动安装)
+| 依赖 | 版本要求 | 说明 |
+|------|----------|------|
+| Node.js | 18+ | 推荐 20 LTS |
+| pnpm | 8+ | 包管理器（脚本会自动安装） |
+| Git | 2.30+ | 用于版本控制和 worktree |
 
 ### 一键安装
 
@@ -57,7 +45,7 @@
 git clone <your-repo-url> agent-task-hub
 cd agent-task-hub
 
-# 运行安装脚本（自动安装依赖 + 构建）
+# 运行安装脚本（自动检查环境、安装依赖、构建项目）
 ./setup.sh
 
 # 启动生产模式
@@ -73,104 +61,224 @@ pnpm install
 # 构建生产版本
 pnpm build
 
-# 启动
+# 启动生产服务
 pnpm start
 ```
 
-### 开发模式（带热更新）
+### 开发模式
 
 ```bash
+# 启动开发服务器（带热更新）
 pnpm dev
 ```
 
-启动后，在浏览器中访问 [http://localhost:3000](http://localhost:3000) 即可预览项目。
+启动后访问 [http://localhost:3000](http://localhost:3000)。
 
-## 🧭 当前使用路径
+## ✨ 核心功能
 
-1. 启动项目：`pnpm dev`
-2. 打开 Web
-3. 在左侧项目栏创建一个项目
-4. 在右上角设置中进入 `模型账号`
-5. 添加并验证账号，必要时在 `角色卡` 中完成账号绑定
-6. 在项目内创建任务并打开任务详情执行 CLI
+### 🎯 项目工作台
 
-## 🔌 连接 Opencode（真实执行）
+三栏布局的项目管理界面：
 
-本项目仍支持 **Opencode Bridge（本机转发）**，用于远程环境间接调用你本机安装的 `opencode`：
+| 区域 | 功能 |
+|------|------|
+| 左栏 | 项目列表与切换 |
+| 中栏 | 作战指挥室：目标、拆解、Agent 对话 |
+| 右栏 | Mini Kanban、代办、风险面板 |
 
-- 本机运行一个轻量 HTTP 服务，将 `opencode run/attach` 的输出流式转发给 Web。
-- 当前前端没有完整的 Bridge 管理界面；Bridge 更适合作为开发链路或定制集成能力使用。
+### 🤖 多 Agent 协作
 
-### 1) 本机准备（macOS / Linux）
+- **智能任务分发**：基于 Agent 能力图谱自动匹配任务
+- **会话级隔离**：每个项目中每个 Agent 维护独立的长期会话
+- **A2A 通信**：Agent 之间可以通过 `@mention` 相互协作
+- **队列隔离**：跨项目的排队消息不会互相干扰
 
-安装检查（可选：自动安装 opencode）：
+### 📋 任务管理
+
+- **双向同步**：`.ath/TASKS.md` 文件与 UI 看板实时同步
+- **状态流转**：pending → in_progress → in_review → done
+- **阻塞追踪**：自动识别和追踪任务阻塞项
+- **Workdir 隔离**：每个任务独立工作目录，支持 Git worktree
+
+### 🔧 Skill 系统
+
+可复用的能力模块，与 RoleCard（身份）正交：
+
+- 从 Git 仓库导入 Skill
+- 为 Agent 绑定多个 Skill
+- Skill 指令自动注入 system prompt
+
+### 🔐 账号与认证
+
+- **多 Runtime 支持**：OpenCode、Claude CLI、Codex CLI、Gemini CLI
+- **API Key 模式**：直接配置 API Key
+- **角色卡绑定**：为不同角色配置不同的执行账号
+
+## 🏗️ 架构设计
+
+### 系统分层
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    前端工作台 (Next.js)                      │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐         │
+│  │  项目列表    │  │  作战指挥室  │  │  Kanban     │         │
+│  └─────────────┘  └─────────────┘  └─────────────┘         │
+├─────────────────────────────────────────────────────────────┤
+│                  状态与编排层 (Zustand)                      │
+│  - UI 状态管理    - Socket 事件处理    - API Rehydrate       │
+├─────────────────────────────────────────────────────────────┤
+│                应用后端层 (Next.js API)                      │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐         │
+│  │  SQLite     │  │  Repository │  │  Daemon     │         │
+│  │  (Drizzle)  │  │  (业务逻辑)  │  │  (编排器)    │         │
+│  └─────────────┘  └─────────────┘  └─────────────┘         │
+├─────────────────────────────────────────────────────────────┤
+│                    执行层 (CLI/Bridge)                       │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐         │
+│  │  OpenCode   │  │  Claude CLI │  │  Codex CLI  │         │
+│  └─────────────┘  └─────────────┘  └─────────────┘         │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 核心数据流
+
+1. **页面初始化**：`/api/state` 从 SQLite 加载全量状态
+2. **用户操作**：Zustand 更新本地状态 → `/api/mutations` 持久化
+3. **任务执行**：Socket → Daemon → Agent Backend → 事件流 → 前端 + DB
+4. **文件同步**：TaskFileWatcher 监听 `.ath/TASKS.md` → 解析 → DB → Socket 广播
+
+### 关键文件
+
+| 层级 | 文件 | 职责 |
+|------|------|------|
+| 前端入口 | `src/app/ClientHome.tsx` | 页面初始化与状态加载 |
+| 状态管理 | `src/store/taskHubStore.ts` | Zustand 状态编排 |
+| Daemon | `src/server/daemon.ts` | Socket 事件处理与 Agent 编排 |
+| 数据库 | `src/server/db/` | SQLite + Drizzle ORM |
+| Repository | `src/server/repositories/` | 业务数据访问层 |
+| Agent Backend | `src/server/agent/` | 多 CLI 执行器抽象 |
+
+## 🛠️ 技术栈
+
+| 类别 | 技术 | 用途 |
+|------|------|------|
+| 框架 | Next.js 16.2 + React 19 | 全栈 Web 应用 |
+| 状态管理 | Zustand 5 | 前端运行态缓存与编排 |
+| 数据库 | SQLite (better-sqlite3) | 本地持久化 |
+| ORM | Drizzle ORM | 类型安全的 SQL |
+| 样式 | Tailwind CSS v4 | 原子化 CSS |
+| 实时通信 | Socket.io | WebSocket 双向通信 |
+| 终端模拟 | xterm.js | Web 终端 |
+
+## 📂 项目结构
+
+```
+agent-task-hub/
+├── src/
+│   ├── app/                    # Next.js App Router
+│   ├── components/             # React 组件
+│   │   ├── project/           # 项目工作台
+│   │   ├── task-hub/          # 聊天、任务、设置
+│   │   ├── role-card/         # 角色卡管理
+│   │   └── skill/             # Skill 系统
+│   ├── store/                  # Zustand 状态管理
+│   ├── server/                 # 后端逻辑
+│   │   ├── agent/             # Agent Backend 实现
+│   │   ├── repositories/      # 数据访问层
+│   │   └── db/                # 数据库配置
+│   ├── lib/                    # 工具函数
+│   └── pages/api/             # API Routes
+├── docs/                       # 项目文档
+├── specs/                      # 规格文档
+├── architecture/               # 架构文档
+├── bridge/                     # OpenCode Bridge
+├── scripts/                    # 安装脚本
+└── setup.sh                    # 一键安装脚本
+```
+
+## 🚢 部署指南
+
+### 生产模式部署
 
 ```bash
-bash scripts/opencode-bridge-install.sh
-# 或：bash scripts/opencode-bridge-install.sh --install-opencode
+# 构建
+pnpm build
+
+# 启动（默认端口 3000）
+pnpm start
+
+# 自定义端口
+PORT=8080 pnpm start
 ```
 
-启动（run 模式）：
+### Docker 部署（示例）
 
-```bash
-bash scripts/opencode-bridge-start.sh --port=8787 --mode=run
+```dockerfile
+FROM node:20-alpine AS builder
+WORKDIR /app
+COPY package.json pnpm-lock.yaml ./
+RUN npm install -g pnpm && pnpm install --frozen-lockfile
+COPY . .
+RUN pnpm build
+
+FROM node:20-alpine AS runner
+WORKDIR /app
+COPY --from=builder /app/.next ./.next
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/package.json ./
+EXPOSE 3000
+CMD ["pnpm", "start"]
 ```
 
-启动（attach 模式，可连接本机已运行的 opencode 服务）：
+### 环境变量
 
-```bash
-bash scripts/opencode-bridge-start.sh --port=8787 --mode=attach --attach-url=http://localhost:4096
-```
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `PORT` | 3000 | 服务端口 |
+| `NODE_ENV` | production | 运行环境 |
+| `ATH_WORKSPACES_ROOT` | .ath/workspaces | 工作目录根路径 |
+| `ATH_TMUX_ENABLED` | 0 | 启用 tmux 集成 |
+| `CLI_TIMEOUT_MS` | 300000 | CLI 超时时间 (ms) |
 
-### 2) 本机准备（Windows）
+## 📚 文档
 
-安装检查（可选：自动安装 opencode）：
+### 核心文档
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\opencode-bridge-install.ps1
-# 或：powershell -ExecutionPolicy Bypass -File .\scripts\opencode-bridge-install.ps1 -InstallOpencode -Method scoop
-```
+- [产品愿景](./VISION.md) - 项目愿景与理念
+- [研发路线图](./ROADMAP.md) - 当前进展与计划
+- [标准操作程序](./SOP.md) - 开发规范
+- [Agent 指南](./AGENTS.md) - Agent 工作约束
 
-启动：
+### 技术文档
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\opencode-bridge-start.ps1 -Port 8787 -Mode run
-```
+- [整体架构](./docs/wiki/01-architecture.md) - 系统架构详解
+- [前端工作台](./docs/wiki/02-frontend.md) - 前端模块说明
+- [后端 Daemon](./docs/wiki/04-backend-daemon.md) - 执行链路详解
+- [架构图](./docs/wiki/07-architecture-diagrams.md) - 可视化架构
 
-### 3) 接入说明
+### 规格文档
 
-1. 把本机 `http://localhost:8787` 暴露成公网可访问 URL（推荐 https）
-2. 将该 URL 作为执行环境配置的一部分接入 daemon 或本地调试链路
+- [规格目录](./specs/) - 所有规格文档索引
+- [文档导航](./docs/README.md) - 文档分类与导航
 
-说明：
+## 🤝 参与贡献
 
-- Bridge 协议与启动方式仍有效
-- 当前产品主流配置入口已经转向“模型账号 / 角色卡”
-- 不应再把“设置里直接填 Bridge URL”视为当前默认用户路径
+1. Fork 项目
+2. 创建功能分支 (`git checkout -b feature/amazing-feature`)
+3. 提交变更 (`git commit -m 'feat: add amazing feature'`)
+4. 推送到分支 (`git push origin feature/amazing-feature`)
+5. 创建 Pull Request
 
-更多细节见 [bridge/README.md](./bridge/README.md)
+## 📄 开源协议
 
-## 🗄️ 持久化说明
-
-当前项目已经接入 SQLite 持久化：
-
-- 页面初始状态通过 `/api/state` 加载
-- conversation / task / message / session / invocation / event 会写入本地数据库
-- Zustand 主要承担前端运行态缓存与编排，不再是唯一数据源
-
-## 📚 文档导读
-
-在开始深入开发前，建议您阅读以下文档以了解本项目的规范和计划：
-
-- [产品愿景 (VISION.md)](./VISION.md)
-- [研发路线图 (ROADMAP.md)](./ROADMAP.md)
-- [标准操作程序 (SOP.md)](./SOP.md)
-- [Agent 指南 (AGENTS.md)](./AGENTS.md)
-- [统一规格目录 (specs/)](./specs/)
-- [项目文档导航 (docs/README.md)](./docs/README.md)
+本项目采用 [MIT 协议](./LICENSE) 开源。
 
 ---
 
 <div align="center">
-  <p><i>「领养团队，一起长出世界。」</i></p>
+  <p><strong>「领养团队，一起长出世界。」</strong></p>
+  <p>
+    <sub>Built with ❤️ by Agent Task Hub Team</sub>
+  </p>
 </div>
