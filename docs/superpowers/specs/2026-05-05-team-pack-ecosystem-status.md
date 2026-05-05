@@ -137,7 +137,7 @@ dispatch → composeOpts.teamPack → PromptComposer → Agent prompt 包含团�
 
 1. **预设套件 isPreset=false**：通过 API 创建的套件标记为 `isPreset: false`，需手动更新数据库
 2. **team_mode 迁移**：已有数据库需重启服务以应用迁移 v13
-3. **Agent 身份固定**：套件角色 ID（如 `planner`）与预设 Agent ID（如 `mario`）不匹配，需建立映射
+3. ~~**Agent 身份固定**：套件角色 ID（如 `planner`）与预设 Agent ID（如 `mario`）不匹配，需建立映射~~ ✅ 已修复：使用动态 effectiveRoster
 
 ---
 
@@ -145,14 +145,13 @@ dispatch → composeOpts.teamPack → PromptComposer → Agent prompt 包含团�
 
 ### 4.1 Agent ID 映射
 
-**问题**：预设套件使用 `planner/coder/reviewer` 作为角色 ID，但系统预设 Agent 是 `mario/luigi/toad/peach/dk/yoshi`。
+~~**问题**：预设套件使用 `planner/coder/reviewer` 作为角色 ID，但系统预设 Agent 是 `mario/luigi/toad/peach/dk/yoshi`。~~
 
-**影响**：选择「工程三件套」后，AgentBar 会显示 `planner/coder/reviewer`，但这些 ID 在 `AGENT_ROSTER` 中不存在。
-
-**方案**：
-1. 在 `AGENT_ROSTER` 中添加通用角色 ID 支持
-2. 或在 TeamPack 中定义 `agentId` 映射关系
-3. 或让预设套件使用现有 Agent ID
+**✅ 已修复（方案3）**：通过 `effectiveRoster` 动态扩展机制解决：
+- `taskHubStore.getEffectiveRoster()` 合并 `AGENT_ROSTER` 与当前团队套件的角色
+- 套件角色自动获得 emoji/theme（基于 role ID 哈希）
+- AgentBar、AgentMentionPopup 等消费点统一读取 `effectiveRoster`
+- 创建项目时立即同步 `activeAgentIds`，无需切换后再刷新
 
 ### 4.2 团队套件生命周期
 
