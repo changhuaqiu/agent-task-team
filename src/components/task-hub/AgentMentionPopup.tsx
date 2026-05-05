@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
-import { useTaskHubStore, AGENT_ROSTER } from '@/store/taskHubStore';
+import { useTaskHubStore } from '@/store/taskHubStore';
 import { cn } from '@/lib/utils';
 
 interface AgentMentionPopupProps {
@@ -15,8 +15,10 @@ interface AgentMentionPopupProps {
 export function AgentMentionPopup({ inputValue, cursorPosition, selectedIndex, onSelect, onClose }: AgentMentionPopupProps) {
   const activeAgentIds = useTaskHubStore((s) => s.activeAgentIds);
   const roleCards = useTaskHubStore((s) => s.roleCards);
+  const getEffectiveRoster = useTaskHubStore((s) => s.getEffectiveRoster);
+  const effectiveRoster = getEffectiveRoster();
 
-  const activeAgents = AGENT_ROSTER.filter((a) => activeAgentIds.includes(a.id));
+  const activeAgents = effectiveRoster.filter((a) => activeAgentIds.includes(a.id));
 
   // Extract the search text after @
   const textBeforeCursor = inputValue.slice(0, cursorPosition);
