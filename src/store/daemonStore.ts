@@ -223,6 +223,15 @@ export const createDaemonSlice = (set: any, get: () => any) => {
           from: fromAgentId,
           content: prompt,
         } : undefined,
+        teamPack: (() => {
+          if (!conv?.teamPackId) return undefined;
+          try {
+            const { useTeamPackStore } = require('./teamPackStore');
+            return useTeamPackStore.getState().teamPacks.find((p: any) => p.id === conv.teamPackId);
+          } catch {
+            return undefined;
+          }
+        })(),
       };
 
       const systemPrompt = composeSystemPrompt(composeOpts);

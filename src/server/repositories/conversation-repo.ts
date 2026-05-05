@@ -7,20 +7,21 @@ export interface ConversationRow {
   status: string;
   priority: string;
   project_path: string | null;
+  team_pack_id: string | null;
   participants: string | null;
   created_at: string;
   updated_at: string;
 }
 
 export const conversationRepo = {
-  create(input: { id: string; title: string; goal?: string; priority?: string; project_path?: string }): ConversationRow {
+  create(input: { id: string; title: string; goal?: string; priority?: string; project_path?: string; team_pack_id?: string }): ConversationRow {
     const now = new Date().toISOString();
     getDb()
       .prepare(
-        `INSERT INTO conversation (id, title, goal, status, priority, project_path, created_at, updated_at)
-         VALUES (?, ?, ?, 'active', ?, ?, ?, ?)`,
+        `INSERT INTO conversation (id, title, goal, status, priority, project_path, team_pack_id, created_at, updated_at)
+         VALUES (?, ?, ?, 'active', ?, ?, ?, ?, ?)`,
       )
-      .run(input.id, input.title, input.goal ?? null, input.priority ?? 'p2', input.project_path ?? null, now, now);
+      .run(input.id, input.title, input.goal ?? null, input.priority ?? 'p2', input.project_path ?? null, input.team_pack_id ?? null, now, now);
     return conversationRepo.getById(input.id)!;
   },
 

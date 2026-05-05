@@ -192,7 +192,15 @@ pnpm start    # 启动
 - ✅ SQLite 持久化
 - ✅ Skill 系统
 - ✅ 智能任务分发
-- 🚧 统一集成配置中心
+- 🚧 统一集成配置中心 — 账号模型 + 角色卡绑定 + daemon 执行上下文扩展
+- 🚧 Role Card 生态系统 — TeamPack 数据模型 + GitHub 导入管道 + 协作编排层
+- 🚧 安全扫描 — Prompt 注入检测 + 敏感信息检测 + 危险指令检测
+- 🚧 项目绑定 — 项目与 TeamPack 1:1 绑定，生命周期内不可切换
+- 🚧 团队模式引擎 — pipeline / parallel / hub_spoke / custom 四种策略
+- 🚧 来源追踪 — TeamPack.source 记录导入来源（github/preset）
+- 🚧 输入验证 — 目录结构探测 + pack.json 格式校验 + role.json 验证
+- 🚧 速率限制 — shallow clone 30s 超时 + GitHub API 频率控制
+- 🚧 错误国际化 — 统一错误码与 i18n 资源管理
 - 📋 更多 Agent 类型支持
 - 📋 团队协作功能
 

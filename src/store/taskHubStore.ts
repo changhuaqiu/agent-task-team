@@ -64,6 +64,7 @@ export interface Conversation {
   priority: 'p0' | 'p1' | 'p2' | 'p3';
   projectPath: string;
   breakdownStatus: 'none' | 'proposal' | 'confirmed' | 'no_account';
+  teamPackId?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -290,7 +291,7 @@ export interface TaskHubState {
 
   loadFromServer: () => Promise<void>;
 
-  createConversation: (input: { title: string; goal: string; projectPath?: string; priority?: Conversation['priority'] }) => void;
+  createConversation: (input: { title: string; goal: string; projectPath?: string; priority?: Conversation['priority']; teamPackId?: string }) => void;
   setSelectedConversationId: (conversationId: string | null) => void;
   deleteConversation: (conversationId: string) => void;
   addSupervisorOutput: (output: SupervisorOutputEnvelope) => void;
@@ -547,6 +548,7 @@ export const useTaskHubStore = create<TaskHubState>()(
               priority: c.priority || 'p2',
               projectPath: c.project_path || '',
               breakdownStatus: c.breakdown_status || 'none',
+              teamPackId: c.team_pack_id || undefined,
               createdAt: c.created_at,
               updatedAt: c.updated_at,
             }));
@@ -684,7 +686,7 @@ export const useTaskHubStore = create<TaskHubState>()(
           }));
         },
 
-        createConversation: ({ title, goal, projectPath, priority }: { title: string; goal: string; projectPath?: string; priority?: Conversation['priority'] }) => {
+        createConversation: ({ title, goal, projectPath, priority, teamPackId }: { title: string; goal: string; projectPath?: string; priority?: Conversation['priority']; teamPackId?: string }) => {
           const id = makeId('conv');
           const stamp = new Date().toISOString();
           const conversation: Conversation = {
@@ -695,6 +697,7 @@ export const useTaskHubStore = create<TaskHubState>()(
             priority: priority ?? 'p1',
             projectPath: projectPath ?? '',
             breakdownStatus: 'none',
+            teamPackId,
             createdAt: stamp,
             updatedAt: stamp,
           };
@@ -741,13 +744,46 @@ export const useTaskHubStore = create<TaskHubState>()(
           fetch('/api/mutations', {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ type: 'conversation.create', payload: { id, title, goal, priority: priority ?? 'p1', project_path: projectPath } }),
+            body: JSON.stringify({ type: 'conversation.create', payload: { id, title, goal, priority: priority ?? 'p1', project_path: projectPath, team_pack_id: teamPackId } }),
           }).catch((err) => console.error('[mutation] conversation.create failed:', err));
 
           setTimeout(() => get().triggerProposal(id), 500);
         },
 
-        setSelectedConversationId: (conversationId: string | null) => set({ selectedConversationId: conversationId, selectedProjectId: conversationId || 'default' }),
+        setSelectedConversationId: (conversationId: string | null) => {
+          const conv = get().conversations.find((c) => c.id === conversationId);
+
+          if (conv?.teamPackId) {
+            fetch(`/api/team-packs/${conv.teamPackId}`)
+              .then((res) => res.ok ? res.json() : null)
+              .then((teamPack) => {
+                if (teamPack && teamPack.roles?.length > 0) {
+                  set({
+                    selectedConversationId: conversationId,
+                    selectedProjectId: conversationId || 'default',
+                    activeAgentIds: teamPack.roles.map((r: any) => r.id),
+                  });
+                } else {
+                  set({
+                    selectedConversationId: conversationId,
+                    selectedProjectId: conversationId || 'default',
+                  });
+                }
+              })
+              .catch(() => {
+                set({
+                  selectedConversationId: conversationId,
+                  selectedProjectId: conversationId || 'default',
+                });
+              });
+            return;
+          }
+
+          set({
+            selectedConversationId: conversationId,
+            selectedProjectId: conversationId || 'default',
+          });
+        },
 
         deleteConversation: (conversationId: string) => {
           const state = get();

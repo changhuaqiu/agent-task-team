@@ -12,11 +12,13 @@ import {
 } from '@/store/taskHubStore';
 import { TagEditor } from '@/components/ui/TagEditor';
 import { cn } from '@/lib/utils';
-import { X, Plus, Trash2, Loader2, Zap, Users, Download } from 'lucide-react';
+import { X, Plus, Trash2, Loader2, Zap, Users, Download, GitBranch } from 'lucide-react';
 import { RoleCardListPage } from '@/components/role-card/RoleCardListPage';
 import { RoleCardDetailDrawer } from '@/components/role-card/RoleCardDetailDrawer';
 import { RoleCardEditor } from '@/components/role-card/RoleCardEditor';
 import { SkillLibrary } from '@/components/skill/SkillLibrary';
+import { useTeamPackStore } from '@/store/teamPackStore';
+import type { TeamPack } from '@/types/teamPack';
 
 const AUTH_MODE_OPTIONS: Array<{ value: AccountAuthMode; label: string }> = [
   { value: 'oauth', label: 'OAuth' },
@@ -344,6 +346,225 @@ function AccountDialog({
   );
 }
 
+const TEAM_MODE_LABELS: Record<TeamPack['teamMode'], string> = {
+  pipeline: 'Pipeline',
+  parallel: 'Parallel',
+  hub_spoke: 'Hub & Spoke',
+  custom: 'Custom',
+};
+
+function TeamPackCard({
+  pack,
+  onDelete,
+  deleting,
+}: {
+  pack: TeamPack;
+  onDelete: () => void;
+  deleting: boolean;
+}) {
+  return (
+    <div className="rounded-[var(--radius-md)] border border-[hsl(var(--border))] bg-[hsl(var(--bg-app))] p-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[12px] font-semibold text-[hsl(var(--text-primary))]">{pack.displayName}</span>
+            <span className={cn(
+              'rounded-full px-2 py-0.5 text-[10px] font-semibold border',
+              'bg-[hsl(var(--accent-soft))] text-[hsl(var(--accent))] border-[hsl(var(--accent))]'
+            )}>
+              {TEAM_MODE_LABELS[pack.teamMode]}
+            </span>
+            {pack.isPreset && (
+              <span className="rounded-full px-2 py-0.5 text-[10px] font-medium bg-[hsl(var(--bg-muted))] text-[hsl(var(--text-tertiary))] border border-[hsl(var(--border-subtle))]">
+                预设
+              </span>
+            )}
+          </div>
+          {pack.description && (
+            <div className="text-[11px] text-[hsl(var(--text-tertiary))] mt-1 line-clamp-2">{pack.description}</div>
+          )}
+          <div className="text-[10px] text-[hsl(var(--text-tertiary))] mt-1">
+            {pack.roles.length} 个角色
+          </div>
+          {pack.roles.length > 0 && (
+            <div className="flex flex-wrap gap-1 mt-2">
+              {pack.roles.map((r) => (
+                <span key={r.id} className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-[hsl(var(--bg-muted))] text-[hsl(var(--text-secondary))] border border-[hsl(var(--border-subtle))]">
+                  {r.displayName}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+        {!pack.isPreset && (
+          <button
+            type="button"
+            onClick={onDelete}
+            disabled={deleting}
+            className="shrink-0 p-1.5 rounded text-[hsl(var(--text-tertiary))] hover:text-[hsl(var(--status-rejected))] hover:bg-[hsl(var(--status-rejected-bg))] transition-colors disabled:opacity-50"
+            aria-label="删除团队套件"
+          >
+            {deleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TeamPacksTab() {
+  const teamPacks = useTeamPackStore((s) => s.teamPacks);
+  const isLoading = useTeamPackStore((s) => s.isLoading);
+  const error = useTeamPackStore((s) => s.error);
+  const fetchTeamPacks = useTeamPackStore((s) => s.fetchTeamPacks);
+  const deleteTeamPack = useTeamPackStore((s) => s.deleteTeamPack);
+
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [showImport, setShowImport] = useState(false);
+  const [importUrl, setImportUrl] = useState('');
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetchTeamPacks();
+  }, [fetchTeamPacks]);
+
+  const handleDelete = async (id: string) => {
+    if (!confirm('确定要删除这个团队套件吗？')) return;
+    setDeletingId(id);
+    try {
+      await deleteTeamPack(id);
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const handleImport = async () => {
+    const url = importUrl.trim();
+    if (!url) return;
+    setImporting(true);
+    setImportError(null);
+    try {
+      const res = await fetch('/api/role-cards/import', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ url }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error ?? '导入失败');
+      }
+      setImportUrl('');
+      setShowImport(false);
+      await fetchTeamPacks();
+    } catch (e: unknown) {
+      setImportError(e instanceof Error ? e.message : '导入失败');
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const presets = teamPacks.filter((p) => p.isPreset);
+  const imported = teamPacks.filter((p) => !p.isPreset);
+
+  return (
+    <>
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-[11px] text-[hsl(var(--text-tertiary))]">
+          团队套件定义了 Agent 团队的角色配置和协作模式。
+        </div>
+        <button
+          type="button"
+          onClick={() => setShowImport((v) => !v)}
+          className="shrink-0 h-8 px-3 rounded-[var(--radius-md)] bg-[hsl(var(--text-primary))] text-[hsl(var(--text-inverse))] text-[11px] font-semibold inline-flex items-center gap-1.5 hover:opacity-90"
+        >
+          <GitBranch className="w-3.5 h-3.5" />
+          从 GitHub 导入
+        </button>
+      </div>
+
+      {showImport && (
+        <div className="rounded-[var(--radius-md)] border border-[hsl(var(--border))] bg-[hsl(var(--bg-app))] p-3 space-y-2">
+          <label className="text-[11px] font-semibold uppercase tracking-wider text-[hsl(var(--text-tertiary))]">GitHub 仓库地址</label>
+          <div className="flex gap-2">
+            <input
+              value={importUrl}
+              onChange={(e) => { setImportUrl(e.target.value); setImportError(null); }}
+              placeholder="https://github.com/user/team-pack-repo"
+              className="flex-1 h-9 px-3 rounded-[var(--radius-md)] border border-[hsl(var(--border))] bg-[hsl(var(--bg-elevated))] text-[12px] font-medium outline-none focus:border-[hsl(var(--accent))]"
+            />
+            <button
+              type="button"
+              onClick={handleImport}
+              disabled={importing || !importUrl.trim()}
+              className="shrink-0 h-9 px-4 rounded-[var(--radius-md)] bg-[hsl(var(--accent))] text-white text-[11px] font-semibold hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-1.5"
+            >
+              {importing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+              导入
+            </button>
+          </div>
+          {importError && (
+            <div className="text-[10px] text-red-400">{importError}</div>
+          )}
+        </div>
+      )}
+
+      {isLoading && teamPacks.length === 0 ? (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="w-5 h-5 animate-spin text-[hsl(var(--text-tertiary))]" />
+        </div>
+      ) : error ? (
+        <div className="rounded-[var(--radius-lg)] border border-red-400/30 bg-red-400/5 p-4 text-center">
+          <div className="text-[12px] text-red-400">{error}</div>
+          <button
+            type="button"
+            onClick={() => fetchTeamPacks()}
+            className="mt-2 text-[11px] text-[hsl(var(--accent))] hover:underline"
+          >
+            重试
+          </button>
+        </div>
+      ) : teamPacks.length === 0 ? (
+        <div className="rounded-[var(--radius-lg)] border border-dashed border-[hsl(var(--border))] bg-[hsl(var(--bg-card))] p-8 text-center">
+          <div className="text-[13px] font-semibold text-[hsl(var(--text-secondary))]">还没有团队套件</div>
+          <div className="text-[11px] text-[hsl(var(--text-tertiary))] mt-2">
+            点击「从 GitHub 导入」添加团队套件，或浏览预设套件。
+          </div>
+        </div>
+      ) : (
+        <>
+          {presets.length > 0 && (
+            <>
+              <div className="text-[10px] font-bold tracking-wider uppercase text-[hsl(var(--text-tertiary))] pt-1">预设套件</div>
+              {presets.map((pack) => (
+                <TeamPackCard
+                  key={pack.id}
+                  pack={pack}
+                  onDelete={() => {}}
+                  deleting={false}
+                />
+              ))}
+            </>
+          )}
+          {imported.length > 0 && (
+            <>
+              <div className="text-[10px] font-bold tracking-wider uppercase text-[hsl(var(--text-tertiary))] pt-1">已导入</div>
+              {imported.map((pack) => (
+                <TeamPackCard
+                  key={pack.id}
+                  pack={pack}
+                  onDelete={() => handleDelete(pack.id)}
+                  deleting={deletingId === pack.id}
+                />
+              ))}
+            </>
+          )}
+        </>
+      )}
+    </>
+  );
+}
+
 export function SettingsDrawer() {
   const isOpen = useTaskHubStore((s) => s.isSettingsOpen);
   const setOpen = useTaskHubStore((s) => s.setSettingsOpen);
@@ -354,7 +575,7 @@ export function SettingsDrawer() {
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [verifyingId, setVerifyingId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'accounts' | 'roles' | 'skills'>('accounts');
+  const [activeTab, setActiveTab] = useState<'accounts' | 'roles' | 'skills' | 'team-packs'>('accounts');
 
   if (!isOpen) return null;
 
@@ -445,6 +666,18 @@ export function SettingsDrawer() {
               >
                 技能
               </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab('team-packs')}
+                className={cn(
+                  'px-3 py-1.5 text-[11px] font-bold tracking-wider uppercase transition-colors',
+                  activeTab === 'team-packs'
+                    ? 'bg-[hsl(var(--accent))] text-white'
+                    : 'bg-[hsl(var(--bg-muted))] text-[hsl(var(--text-secondary))] hover:text-[hsl(var(--text-primary))]'
+                )}
+              >
+                团队套件
+              </button>
             </div>
           </div>
           <button type="button" onClick={() => setOpen(false)} className="p-1.5 rounded-[var(--radius-sm)] text-[hsl(var(--text-tertiary))] hover:text-[hsl(var(--text-primary))] hover:bg-[hsl(var(--bg-muted))] transition-colors" aria-label="关闭">
@@ -493,8 +726,10 @@ export function SettingsDrawer() {
           </div>
         </>) : activeTab === 'roles' ? (
           <RoleCardListPage onClose={() => setOpen(false)} />
-        ) : (
+        ) : activeTab === 'skills' ? (
           <SkillLibrary />
+        ) : (
+          <TeamPacksTab />
         )}
         </div>
       </div>

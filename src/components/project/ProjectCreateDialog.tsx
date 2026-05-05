@@ -1,10 +1,19 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { X, Plus } from 'lucide-react';
+import { X, Plus, Check } from 'lucide-react';
 import { useTaskHubStore } from '@/store/taskHubStore';
+import { useTeamPackStore } from '@/store/teamPackStore';
 import { cn } from '@/lib/utils';
 import { FolderPicker } from '@/components/ui/FolderPicker';
+import type { TeamPack } from '@/types/teamPack';
+
+const TEAM_MODE_CONFIG: Record<TeamPack['teamMode'], { emoji: string; label: string }> = {
+  pipeline: { emoji: '🔄', label: '流水线' },
+  parallel: { emoji: '⚡', label: '并行' },
+  hub_spoke: { emoji: '🎯', label: '中枢' },
+  custom: { emoji: '⚙️', label: '自定义' },
+};
 
 export function ProjectCreateDialog({
   open,
@@ -14,15 +23,18 @@ export function ProjectCreateDialog({
   onClose: () => void;
 }) {
   const createConversation = useTaskHubStore((s) => s.createConversation);
+  const { teamPacks, fetchTeamPacks } = useTeamPackStore();
   const titleRef = useRef<HTMLInputElement>(null);
   const [title, setTitle] = useState('');
   const [goal, setGoal] = useState('');
   const [projectPath, setProjectPath] = useState('');
+  const [selectedTeamPackId, setSelectedTeamPackId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
     setTimeout(() => titleRef.current?.focus(), 50);
-  }, [open]);
+    fetchTeamPacks();
+  }, [open, fetchTeamPacks]);
 
   useEffect(() => {
     if (!open) return;
@@ -39,10 +51,16 @@ export function ProjectCreateDialog({
     const trimmedTitle = title.trim();
     const trimmedGoal = goal.trim();
     if (!trimmedTitle || !trimmedGoal) return;
-    createConversation({ title: trimmedTitle, goal: trimmedGoal, projectPath: projectPath || undefined });
+    createConversation({
+      title: trimmedTitle,
+      goal: trimmedGoal,
+      projectPath: projectPath || undefined,
+      teamPackId: selectedTeamPackId ?? undefined,
+    });
     setTitle('');
     setGoal('');
     setProjectPath('');
+    setSelectedTeamPackId(null);
     onClose();
   };
 
@@ -54,10 +72,10 @@ export function ProjectCreateDialog({
       />
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
         <div
-          className="w-full max-w-[560px] rounded-[var(--radius-xl)] border border-[hsl(var(--border))] bg-[hsl(var(--bg-elevated))] shadow-[var(--shadow-lg)]"
+          className="w-full max-w-[560px] max-h-[90vh] flex flex-col rounded-[var(--radius-xl)] border border-[hsl(var(--border))] bg-[hsl(var(--bg-elevated))] shadow-[var(--shadow-lg)]"
           onClick={(event) => event.stopPropagation()}
         >
-          <div className="flex items-center justify-between px-5 py-4 border-b border-[hsl(var(--border))]">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-[hsl(var(--border))] shrink-0">
             <div>
               <div className="text-[11px] font-bold tracking-widest uppercase text-[hsl(var(--text-tertiary))]">
                 新建项目
@@ -75,7 +93,7 @@ export function ProjectCreateDialog({
             </button>
           </div>
 
-          <div className="p-5 space-y-4">
+          <div className="p-5 space-y-4 overflow-y-auto">
             <div className="space-y-1.5">
               <label className="text-[11px] font-semibold uppercase tracking-wider text-[hsl(var(--text-tertiary))]">
                 项目标题
@@ -93,6 +111,75 @@ export function ProjectCreateDialog({
               <FolderPicker value={projectPath} onChange={setProjectPath} />
             </div>
 
+            {teamPacks.length > 0 && (
+              <div className="space-y-2">
+                <label className="text-[11px] font-semibold uppercase tracking-wider text-[hsl(var(--text-tertiary))]">
+                  选择团队套件
+                </label>
+                <div className="grid gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedTeamPackId(null)}
+                    className={cn(
+                      'relative flex items-center gap-3 px-3 py-2.5 rounded-[var(--radius-md)] border text-left transition-colors',
+                      selectedTeamPackId === null
+                        ? 'border-[hsl(var(--accent))] bg-[hsl(var(--accent))]/5'
+                        : 'border-[hsl(var(--border))] bg-[hsl(var(--bg-muted))] hover:border-[hsl(var(--text-tertiary))]'
+                    )}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[13px] font-medium text-[hsl(var(--text-secondary))]">
+                        不选择
+                      </div>
+                      <div className="text-[11px] text-[hsl(var(--text-tertiary))] mt-0.5">
+                        使用默认配置创建项目
+                      </div>
+                    </div>
+                    {selectedTeamPackId === null && (
+                      <Check className="w-4 h-4 text-[hsl(var(--accent))] shrink-0" />
+                    )}
+                  </button>
+
+                  {teamPacks.map((pack) => {
+                    const modeConfig = TEAM_MODE_CONFIG[pack.teamMode];
+                    return (
+                      <button
+                        key={pack.id}
+                        type="button"
+                        onClick={() => setSelectedTeamPackId(pack.id)}
+                        className={cn(
+                          'relative flex items-start gap-3 px-3 py-2.5 rounded-[var(--radius-md)] border text-left transition-colors',
+                          selectedTeamPackId === pack.id
+                            ? 'border-[hsl(var(--accent))] bg-[hsl(var(--accent))]/5'
+                            : 'border-[hsl(var(--border))] bg-[hsl(var(--bg-muted))] hover:border-[hsl(var(--text-tertiary))]'
+                        )}
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[13px] font-medium text-[hsl(var(--text-primary))]">
+                              {pack.displayName}
+                            </span>
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-[var(--radius-sm)] bg-[hsl(var(--bg-elevated))] text-[10px] font-medium text-[hsl(var(--text-tertiary))] border border-[hsl(var(--border))]">
+                              {modeConfig.emoji} {modeConfig.label}
+                            </span>
+                            <span className="text-[10px] text-[hsl(var(--text-tertiary))]">
+                              {pack.roles.length} 个角色
+                            </span>
+                          </div>
+                          <div className="text-[11px] text-[hsl(var(--text-tertiary))] mt-0.5 line-clamp-1">
+                            {pack.description}
+                          </div>
+                        </div>
+                        {selectedTeamPackId === pack.id && (
+                          <Check className="w-4 h-4 text-[hsl(var(--accent))] shrink-0 mt-0.5" />
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             <div className="space-y-1.5">
               <label className="text-[11px] font-semibold uppercase tracking-wider text-[hsl(var(--text-tertiary))]">
                 一句话描述
@@ -107,7 +194,7 @@ export function ProjectCreateDialog({
             </div>
           </div>
 
-          <div className="flex justify-end gap-2 px-5 py-4 border-t border-[hsl(var(--border))]">
+          <div className="flex justify-end gap-2 px-5 py-4 border-t border-[hsl(var(--border))] shrink-0">
             <button
               type="button"
               onClick={onClose}
