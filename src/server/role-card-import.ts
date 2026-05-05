@@ -7,6 +7,7 @@ import os from 'os';
 import { upsertRoleCard } from './db/roleCardQueries';
 import { securityScanner } from './security-scanner';
 import { generateSortableId } from './repositories/sortable-id';
+import { createErrorMessage, type ErrorMessage } from './error-messages';
 import type { RoleCard, RoleCardCategory } from '@/types/roleCard';
 
 interface SoulSpecMetadata {
@@ -40,29 +41,29 @@ function isValidUrl(url: string): boolean {
 
 const CLONE_TIMEOUT_MS = 30_000;
 
-function classifyCloneError(err: Error): Error {
+function classifyCloneError(err: Error): ErrorMessage {
   const msg = err.message.toLowerCase();
   if (msg.includes('timed out') || msg.includes('timeout')) {
-    return new Error('网络连接失败，请检查网络连接或代理设置。');
+    return createErrorMessage('NETWORK_ERROR', err.message);
   }
   if (msg.includes('not found') || msg.includes('404')) {
-    return new Error('仓库不存在，请检查 URL 是否正确。');
+    return createErrorMessage('CLONE_NOT_FOUND');
   }
   if (msg.includes('authentication') || msg.includes('403')) {
-    return new Error('仓库需要认证或无访问权限。仅支持公开仓库。');
+    return createErrorMessage('CLONE_AUTH_REQUIRED');
   }
-  return new Error(`克隆仓库失败: ${err.message}`);
+  return createErrorMessage('CLONE_FAILED', err.message);
 }
 
 async function cloneRepo(repoUrl: string, targetDir: string): Promise<void> {
-  return new Promise((resolve, reject) => {
+  return new Promise<void>((resolve, reject) => {
     const child = execFile('git', ['clone', '--depth', '1', repoUrl, targetDir], (err) => {
       if (err) reject(classifyCloneError(err));
       else resolve();
     });
     setTimeout(() => {
       child.kill();
-      reject(new Error('克隆超时（30秒），请检查网络连接。'));
+      reject(createErrorMessage('CLONE_TIMEOUT'));
     }, CLONE_TIMEOUT_MS);
   });
 }
@@ -188,7 +189,10 @@ function soulToRoleCard(parsed: ParsedSoul): RoleCard {
 }
 
 export async function importRoleCardFromUrl(source: string): Promise<{ imported: string[]; errors: string[] }> {
-  if (!isValidUrl(source)) throw new Error('Invalid URL');
+  if (!isValidUrl(source)) {
+    const errorMsg = createErrorMessage('INVALID_URL');
+    throw new Error(errorMsg.message);
+  }
 
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'role-card-import-'));
   const imported: string[] = [];
@@ -217,7 +221,8 @@ export async function importRoleCardFromUrl(source: string): Promise<{ imported:
     }
 
     if (soulDirs.length === 0) {
-      throw new Error('未找到 soul.json 或 SOUL.md 文件');
+      const errorMsg = createErrorMessage('FORMAT_NOT_RECOGNIZED');
+      throw new Error(errorMsg.description);
     }
 
     for (const dir of soulDirs) {
@@ -231,7 +236,8 @@ export async function importRoleCardFromUrl(source: string): Promise<{ imported:
         // Security scan before upserting to database
         const scanResult = securityScanner.scan(parsed.soulContent);
         if (!scanResult.passed) {
-          errors.push(`${path.basename(dir)}: 安全扫描未通过`);
+          const errorMsg = createErrorMessage('SECURITY_SCAN_FAILED');
+          errors.push(`${path.basename(dir)}: ${errorMsg.description}`);
           errors.push(...scanResult.critical);
           errors.push(...scanResult.warnings.map(w => `  - ${w}`));
           continue;
@@ -241,7 +247,16 @@ export async function importRoleCardFromUrl(source: string): Promise<{ imported:
         upsertRoleCard(roleCard);
         imported.push(roleCard.name);
       } catch (e: unknown) {
-        const message = e instanceof Error ? e.message : String(e);
+        let message: string;
+        if (typeof e === 'object' && e !== null && 'code' in e) {
+          // This is an ErrorMessage
+          const errorMsg = e as ErrorMessage;
+          message = errorMsg.description || errorMsg.message;
+        } else if (e instanceof Error) {
+          message = e.message;
+        } else {
+          message = String(e);
+        }
         errors.push(`${path.basename(dir)}: ${message}`);
       }
     }
