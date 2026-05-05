@@ -44,7 +44,7 @@ export function KanbanColumn({
     <div
       ref={setNodeRef}
       className={cn(
-        'w-[220px] shrink-0 rounded-md border bg-[hsl(var(--bg-app))] transition-colors',
+        'w-[180px] shrink-0 rounded-md border bg-[hsl(var(--bg-app))] transition-colors',
         highlighted
           ? 'border-[hsl(var(--accent))] bg-[hsl(var(--accent)/0.04)]'
           : 'border-[hsl(var(--border-subtle))]',
@@ -52,20 +52,20 @@ export function KanbanColumn({
       )}
     >
       {/* Column header */}
-      <div className="p-3 border-b border-[hsl(var(--border-subtle))] flex items-center justify-between gap-2">
-        <span className="text-xs font-medium text-[hsl(var(--text-secondary))]">
+      <div className="px-2.5 py-2 border-b border-[hsl(var(--border-subtle))] flex items-center justify-between gap-2">
+        <span className="text-[10px] font-medium uppercase tracking-wide text-[hsl(var(--text-secondary))]">
           {STATUS_LABELS[status]}
         </span>
-        <span className="text-xs font-normal tabular-nums text-[hsl(var(--text-tertiary))]">
+        <span className="text-[10px] font-normal tabular-nums text-[hsl(var(--text-tertiary))]">
           {tasks.length}
         </span>
       </div>
 
       {/* Card list */}
-      <div className="p-2 flex flex-col gap-2 max-h-[420px] overflow-y-auto scrollbar-thin">
+      <div className="p-1.5 flex flex-col gap-1.5 max-h-[380px] overflow-y-auto scrollbar-thin">
         {sorted.length === 0 ? (
-          <div className="text-xs font-normal text-[hsl(var(--text-tertiary))] p-2">
-            空
+          <div className="text-[10px] font-normal text-[hsl(var(--text-tertiary))] px-2 py-3 text-center">
+            —
           </div>
         ) : (
           <SortableContext items={sorted.map((t) => t.id)} strategy={verticalListSortingStrategy}>

@@ -67,7 +67,7 @@ export interface Conversation {
   status: 'active' | 'paused' | 'completed' | 'archived';
   priority: 'p0' | 'p1' | 'p2' | 'p3';
   projectPath: string;
-  breakdownStatus: 'none' | 'in_progress' | 'reviewed' | 'confirmed' | 'no_account';
+  breakdownStatus: 'none' | 'proposal' | 'confirmed' | 'no_account';
   createdAt: string;
   updatedAt: string;
 }

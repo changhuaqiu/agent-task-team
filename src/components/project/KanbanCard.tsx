@@ -5,7 +5,7 @@ import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { ChevronRight, Paperclip, ExternalLink } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { Task, TaskArtifact } from '@/store/taskHubStore';
+import type { Task } from '@/store/taskHubStore';
 import type { AgentTheme } from '@/store/agentStore';
 
 const themeBorder: Record<AgentTheme, string> = {
@@ -25,12 +25,6 @@ function themeFromAgentId(agentId: string): AgentTheme {
   return map[agentId] ?? 'mario';
 }
 
-const artifactIcon: Record<TaskArtifact['type'], React.ReactNode> = {
-  file: <Paperclip size={12} className="size-3" />,
-  pr: <Paperclip size={12} className="size-3" />,
-  log: <Paperclip size={12} className="size-3" />,
-  link: <ExternalLink size={12} className="size-3" />,
-};
 
 interface KanbanCardProps {
   task: Task;
@@ -58,17 +52,19 @@ export function KanbanCard({ task, theme, onClick, onContextMenu }: KanbanCardPr
   const isUnassigned = !task.agentId || task.agentId === '-';
   const isMuted = task.status === 'blocked' || task.status === 'rejected';
 
-  const hasFileArtifact = task.artifacts.some((a) => a.type === 'file' || a.type === 'pr' || a.type === 'log');
-  const hasLinkArtifact = task.artifacts.some((a) => a.type === 'link');
+  const hasFileArtifact = task.artifacts?.some((a) => a.type === 'file' || a.type === 'pr' || a.type === 'log');
+  const hasLinkArtifact = task.artifacts?.some((a) => a.type === 'link');
+  const hasDeps = task.dependencies && task.dependencies.length > 0;
+  const hasBottomRow = !isUnassigned || hasDeps || hasFileArtifact || hasLinkArtifact;
 
   return (
     <div
       ref={setNodeRef}
       style={style}
       className={cn(
-        'relative flex flex-col gap-1 rounded-md border border-l-3 bg-[hsl(var(--bg-card))] p-3 transition-colors duration-150',
+        'relative flex flex-col gap-1 rounded-md border bg-[hsl(var(--bg-card))] p-2.5 transition-colors duration-150',
         'cursor-grab select-none',
-        themeBorder[resolvedTheme],
+        !isUnassigned ? `border-l-3 ${themeBorder[resolvedTheme]}` : 'border-l-3 border-l-[hsl(var(--border-subtle))]',
         isMuted && 'bg-[hsl(var(--bg-muted))] opacity-80',
         isDragging && 'opacity-50',
       )}
@@ -78,52 +74,49 @@ export function KanbanCard({ task, theme, onClick, onContextMenu }: KanbanCardPr
       onContextMenu={onContextMenu}
       data-testid={`kanban-card-${task.id}`}
     >
-      {/* Phase tag */}
-      {task.phaseId && (
-        <span className="absolute top-2 right-2 inline-flex items-center rounded-sm bg-[hsl(var(--bg-muted))] px-1.5 py-0.5 text-xs font-medium text-[hsl(var(--text-secondary))]">
+      {/* Phase tag — only show non-empty */}
+      {task.phaseId && task.phaseId !== '-' && (
+        <span className="absolute top-1.5 right-1.5 inline-flex items-center rounded-sm bg-[hsl(var(--bg-muted))] px-1.5 py-0.5 text-[10px] font-medium text-[hsl(var(--text-tertiary))]">
           {task.phaseId}
         </span>
       )}
 
-      {/* Title */}
-      <div className="flex items-start justify-between gap-1">
-        <span className="text-xs font-mono font-medium text-[hsl(var(--text-tertiary))] tracking-wider">
+      {/* ID + Title */}
+      <div className="flex items-baseline gap-1.5">
+        <span className="text-[10px] font-mono text-[hsl(var(--text-tertiary))] shrink-0">
           {task.id}
         </span>
+        <h4 className="line-clamp-2 text-xs font-medium leading-snug text-[hsl(var(--text-primary))]">
+          {task.title}
+        </h4>
       </div>
-      <h4 className="line-clamp-2 text-sm font-medium leading-snug text-[hsl(var(--text-primary))]">
-        {task.title}
-      </h4>
 
-      {/* Bottom row */}
-      <div className="mt-auto flex items-center gap-2 text-xs text-[hsl(var(--text-secondary))]">
-        {/* Agent */}
-        {isUnassigned ? (
-          <span className="italic">Unassigned</span>
-        ) : (
-          <span>@{task.agentId}</span>
-        )}
+      {/* Bottom row — only render if there's content */}
+      {hasBottomRow && (
+        <div className="mt-1 flex items-center gap-2 text-[10px] text-[hsl(var(--text-tertiary))]">
+          {!isUnassigned && (
+            <span className="font-medium text-[hsl(var(--text-secondary))]">@{task.agentId}</span>
+          )}
 
-        {/* Dependencies */}
-        {task.dependencies.length > 0 && (
-          <span className="inline-flex items-center gap-0.5">
-            <ChevronRight size={12} className="size-3" />
-            {task.dependencies.length}
-          </span>
-        )}
+          {hasDeps && (
+            <span className="inline-flex items-center gap-0.5">
+              <ChevronRight size={10} className="size-2.5" />
+              {task.dependencies.length}
+            </span>
+          )}
 
-        {/* Artifact icons */}
-        {hasFileArtifact && (
-          <span title="file" className="inline-flex items-center">
-            <Paperclip size={12} className="size-3" />
-          </span>
-        )}
-        {hasLinkArtifact && (
-          <span title="link" className="inline-flex items-center">
-            <ExternalLink size={12} className="size-3" />
-          </span>
-        )}
-      </div>
+          {hasFileArtifact && (
+            <span title="file" className="inline-flex items-center">
+              <Paperclip size={10} className="size-2.5" />
+            </span>
+          )}
+          {hasLinkArtifact && (
+            <span title="link" className="inline-flex items-center">
+              <ExternalLink size={10} className="size-2.5" />
+            </span>
+          )}
+        </div>
+      )}
     </div>
   );
 }

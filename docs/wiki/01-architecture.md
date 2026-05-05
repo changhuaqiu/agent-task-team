@@ -112,7 +112,7 @@ dispatchToAgent()
 
 | 维度 | 隔离键 | 说明 |
 |------|--------|------|
-| Session (DB) | `(agent_id, conversation_id)` | 一个项目中一个 Agent 只有一个 active session |
+| Session (DB) | `(agent_id, task_id)` | 一个项目中一个 Agent 可有多个 session（按 task 隔离），通过 `findActiveByConversation()` 按 conversation 查询 |
 | Daemon 进程锁 | `(agentId, projectId)` | 同一项目中同一 Agent 只能有一个运行进程 |
 | 前端队列 | `agentId:conversationId` | 每个项目的排队消息独立，不会互相干扰 |
 
@@ -240,7 +240,7 @@ dequeueNextPending(agentId, conversationId);
 | `Conversation` | 项目/战役级上下文 | SQLite |
 | `Task` | 执行任务，带 conversationId、phaseId、agentId | SQLite |
 | `ChatMessage` | 对话消息，支持 streaming/tool/progress | SQLite |
-| `Blocker` | 风险与阻塞项 | SQLite |
+| `Blocker` | 风险与阻塞项（从 task 数据派生，非独立持久化表） | 运行时 |
 | `Account` | 账号与执行认证 | SQLite |
 | `RoleCard` | 工程型角色卡，含 CapabilityProfile | SQLite |
 | `Skill` | 可复用能力模块 | SQLite |

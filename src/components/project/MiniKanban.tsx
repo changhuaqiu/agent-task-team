@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback, useSyncExternalStore } from 'react';
 import {
   DndContext,
   DragOverlay,
@@ -15,6 +15,7 @@ import {
 import { cn } from '@/lib/utils';
 import {
   STATUS_ORDER,
+  STATUS_LABELS,
   type Task,
   type TaskStatus,
   useTaskHubStore,
@@ -22,6 +23,9 @@ import {
 import { KanbanColumn } from './KanbanColumn';
 import { KanbanCard } from './KanbanCard';
 import { KanbanContextMenu } from './KanbanContextMenu';
+import { Columns3, Users, List } from 'lucide-react';
+
+type ViewMode = 'status' | 'agent' | 'list';
 
 // --- Valid status transitions ---
 
@@ -56,6 +60,50 @@ function isTaskStatus(value: unknown): value is TaskStatus {
   );
 }
 
+// --- Sync age hook (pure external store) ---
+
+let syncListeners: Array<() => void> = [];
+let syncInterval: ReturnType<typeof setInterval> | null = null;
+
+function startSyncTicker() {
+  if (syncInterval) return;
+  syncInterval = setInterval(() => {
+    for (const l of syncListeners) l();
+  }, 10_000);
+}
+
+function stopSyncTicker() {
+  if (syncInterval && syncListeners.length === 0) {
+    clearInterval(syncInterval);
+    syncInterval = null;
+  }
+}
+
+function computeSyncLabel(ts: string | null): string | null {
+  if (!ts) return null;
+  const seconds = Math.floor((Date.now() - new Date(ts).getTime()) / 1000);
+  if (seconds < 10) return 'live';
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+  return `${Math.floor(seconds / 3600)}h`;
+}
+
+function useSyncAgo(lastSyncAt: string | null): string | null {
+  const subscribe = useCallback((onStoreChange: () => void) => {
+    syncListeners.push(onStoreChange);
+    startSyncTicker();
+    return () => {
+      syncListeners = syncListeners.filter((l) => l !== onStoreChange);
+      stopSyncTicker();
+    };
+  }, []);
+
+  const getSnapshot = useCallback(() => computeSyncLabel(lastSyncAt), [lastSyncAt]);
+  const getServerSnapshot = useCallback(() => null as string | null, []);
+
+  return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+}
+
 // --- Props ---
 
 interface MiniKanbanProps {
@@ -64,7 +112,7 @@ interface MiniKanbanProps {
 
 // --- Component ---
 
-export function MiniKanban({ expanded }: MiniKanbanProps) {
+export function MiniKanban(_props: MiniKanbanProps) {
   // Store hooks
   const selectedConversationId = useTaskHubStore((s) => s.selectedConversationId);
   const tasks = useTaskHubStore((s) => s.tasks);
@@ -72,6 +120,10 @@ export function MiniKanban({ expanded }: MiniKanbanProps) {
   const updateTaskStatus = useTaskHubStore((s) => s.updateTaskStatus);
   const updateTask = useTaskHubStore((s) => s.updateTask);
   const phases = useTaskHubStore((s) => s.phases);
+  const lastTaskSyncAt = useTaskHubStore((s) => s.lastTaskSyncAt);
+
+  // View mode
+  const [viewMode, setViewMode] = useState<ViewMode>('status');
 
   // Drag state
   const [activeTask, setActiveTask] = useState<Task | null>(null);
@@ -117,6 +169,19 @@ export function MiniKanban({ expanded }: MiniKanbanProps) {
 
   // Derived: grouped by status
   const grouped = useMemo(() => groupByStatus(phaseFiltered), [phaseFiltered]);
+
+  // Derived: grouped by agent
+  const groupedByAgent = useMemo(() => {
+    const map: Record<string, Task[]> = {};
+    for (const t of phaseFiltered) {
+      const key = t.agentId && t.agentId !== '-' ? t.agentId : '_unassigned';
+      (map[key] ??= []).push(t);
+    }
+    return map;
+  }, [phaseFiltered]);
+
+  // Sync indicator via external store (avoids impure Date.now in render)
+  const syncAgo = useSyncAgo(lastTaskSyncAt);
 
   // --- DnD handlers ---
 
@@ -189,21 +254,82 @@ export function MiniKanban({ expanded }: MiniKanbanProps) {
   return (
     <>
       <div className="rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--bg-card))] shadow-sm overflow-hidden">
-        {/* Header */}
-        <div className="p-3 border-b border-[hsl(var(--border-subtle))] flex items-center justify-between">
-          <div className="text-xs font-medium tracking-wider uppercase text-[hsl(var(--text-tertiary))]">
-            看板
+        {/* Header with view toggle + sync indicator */}
+        <div className="p-3 border-b border-[hsl(var(--border-subtle))] flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <div className="text-xs font-medium tracking-wider uppercase text-[hsl(var(--text-tertiary))]">
+              看板
+            </div>
+            <span className="text-[10px] tabular-nums text-[hsl(var(--text-tertiary))]">
+              {phaseFiltered.length}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {/* Sync indicator */}
+            {syncAgo && (
+              <span className="flex items-center gap-1 text-[10px] text-[hsl(var(--text-tertiary))]">
+                <span className={cn(
+                  'inline-block w-1.5 h-1.5 rounded-full',
+                  syncAgo === 'live' ? 'bg-green-400 animate-pulse' : 'bg-[hsl(var(--text-tertiary))]'
+                )} />
+                {syncAgo === 'live' ? '同步中' : syncAgo}
+              </span>
+            )}
+
+            {/* View mode toggle */}
+            <div className="flex items-center border border-[hsl(var(--border-subtle))] rounded-sm overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setViewMode('status')}
+                className={cn(
+                  'p-1 transition-colors',
+                  viewMode === 'status'
+                    ? 'bg-[hsl(var(--accent))] text-white'
+                    : 'text-[hsl(var(--text-tertiary))] hover:bg-[hsl(var(--bg-muted))]',
+                )}
+                title="按状态"
+              >
+                <Columns3 size={12} />
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('agent')}
+                className={cn(
+                  'p-1 transition-colors',
+                  viewMode === 'agent'
+                    ? 'bg-[hsl(var(--accent))] text-white'
+                    : 'text-[hsl(var(--text-tertiary))] hover:bg-[hsl(var(--bg-muted))]',
+                )}
+                title="按执行者"
+              >
+                <Users size={12} />
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('list')}
+                className={cn(
+                  'p-1 transition-colors',
+                  viewMode === 'list'
+                    ? 'bg-[hsl(var(--accent))] text-white'
+                    : 'text-[hsl(var(--text-tertiary))] hover:bg-[hsl(var(--bg-muted))]',
+                )}
+                title="列表视图"
+              >
+                <List size={12} />
+              </button>
+            </div>
           </div>
         </div>
 
         {/* Phase filter bar */}
         {scopedPhases.length > 0 && (
-          <div className="px-3 pb-2 flex gap-1.5 flex-wrap">
+          <div className="px-3 py-2 flex gap-1.5 flex-wrap border-b border-[hsl(var(--border-subtle))]">
             <button
               type="button"
               onClick={() => setActivePhase(null)}
               className={cn(
-                'px-2 py-1 text-xs font-medium rounded-sm border transition-colors',
+                'px-2 py-0.5 text-[10px] font-medium rounded-sm border transition-colors',
                 activePhase === null
                   ? 'bg-[hsl(var(--accent))] text-white border-[hsl(var(--accent))]'
                   : 'bg-[hsl(var(--bg-muted))] text-[hsl(var(--text-tertiary))] border-[hsl(var(--border))] hover:bg-[hsl(var(--bg-card-hover))]',
@@ -219,7 +345,7 @@ export function MiniKanban({ expanded }: MiniKanbanProps) {
                   type="button"
                   onClick={() => setActivePhase(phase.id)}
                   className={cn(
-                    'px-2 py-1 text-xs font-medium rounded-sm border transition-colors',
+                    'px-2 py-0.5 text-[10px] font-medium rounded-sm border transition-colors',
                     activePhase === phase.id
                       ? 'bg-[hsl(var(--accent))] text-white border-[hsl(var(--accent))]'
                       : 'bg-[hsl(var(--bg-muted))] text-[hsl(var(--text-tertiary))] border-[hsl(var(--border))] hover:bg-[hsl(var(--bg-card-hover))]',
@@ -232,46 +358,127 @@ export function MiniKanban({ expanded }: MiniKanbanProps) {
           </div>
         )}
 
-        {/* Kanban board with DnD */}
-        <div className="p-3 overflow-x-auto scrollbar-thin">
-          <DndContext
-            sensors={sensors}
-            collisionDetection={closestCorners}
-            onDragStart={handleDragStart}
-            onDragOver={handleDragOver}
-            onDragEnd={handleDragEnd}
-            onDragCancel={handleDragCancel}
-          >
-            <div className="flex gap-3 w-max items-start">
-              {STATUS_ORDER.map((status) => {
-                const columnTasks = grouped[status] || [];
-                const isValidTarget =
-                  dragSourceStatus != null &&
-                  (VALID_TRANSITIONS[dragSourceStatus] ?? []).includes(status);
+        {/* View: Status columns (default DnD kanban) */}
+        {viewMode === 'status' && (
+          <div className="p-3 overflow-x-auto scrollbar-thin">
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCorners}
+              onDragStart={handleDragStart}
+              onDragOver={handleDragOver}
+              onDragEnd={handleDragEnd}
+              onDragCancel={handleDragCancel}
+            >
+              <div className="flex gap-2 w-max items-start">
+                {STATUS_ORDER.map((status) => {
+                  const columnTasks = grouped[status] || [];
+                  const isValidTarget =
+                    dragSourceStatus != null &&
+                    (VALID_TRANSITIONS[dragSourceStatus] ?? []).includes(status);
 
-                return (
-                  <KanbanColumn
-                    key={status}
-                    status={status}
-                    tasks={columnTasks}
-                    isDropTarget={dragOverStatus === status}
-                    isValidTarget={isValidTarget}
-                    onCardClick={handleCardClick}
-                    onCardContextMenu={handleCardContextMenu}
-                  />
-                );
-              })}
-            </div>
+                  return (
+                    <KanbanColumn
+                      key={status}
+                      status={status}
+                      tasks={columnTasks}
+                      isDropTarget={dragOverStatus === status}
+                      isValidTarget={isValidTarget}
+                      onCardClick={handleCardClick}
+                      onCardContextMenu={handleCardContextMenu}
+                    />
+                  );
+                })}
+              </div>
 
-            <DragOverlay>
-              {activeTask ? (
-                <div className="w-[220px]">
-                  <KanbanCard task={activeTask} />
+              <DragOverlay>
+                {activeTask ? (
+                  <div className="w-[200px]">
+                    <KanbanCard task={activeTask} />
+                  </div>
+                ) : null}
+              </DragOverlay>
+            </DndContext>
+          </div>
+        )}
+
+        {/* View: Agent groups */}
+        {viewMode === 'agent' && (
+          <div className="p-3 flex flex-col gap-3 max-h-[500px] overflow-y-auto scrollbar-thin">
+            {Object.entries(groupedByAgent)
+              .sort(([a], [b]) => a.localeCompare(b))
+              .map(([agent, agentTasks]) => (
+                <div key={agent} className="rounded border border-[hsl(var(--border-subtle))]">
+                  <div className="px-2.5 py-1.5 bg-[hsl(var(--bg-muted))] border-b border-[hsl(var(--border-subtle))] flex items-center justify-between">
+                    <span className="text-xs font-medium text-[hsl(var(--text-secondary))]">
+                      {agent === '_unassigned' ? '未分配' : `@${agent}`}
+                    </span>
+                    <span className="text-[10px] tabular-nums text-[hsl(var(--text-tertiary))]">{agentTasks.length}</span>
+                  </div>
+                  <div className="p-2 flex flex-col gap-1.5">
+                    {agentTasks
+                      .sort((a, b) => STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status))
+                      .map((task) => (
+                        <button
+                          key={task.id}
+                          type="button"
+                          onClick={() => handleCardClick(task.id)}
+                          className="flex items-center gap-2 px-2 py-1.5 rounded text-left hover:bg-[hsl(var(--bg-card-hover))] transition-colors"
+                        >
+                          <StatusDot status={task.status} />
+                          <span className="text-[10px] font-mono text-[hsl(var(--text-tertiary))] shrink-0">{task.id}</span>
+                          <span className="text-xs text-[hsl(var(--text-primary))] truncate">{task.title}</span>
+                        </button>
+                      ))}
+                  </div>
                 </div>
-              ) : null}
-            </DragOverlay>
-          </DndContext>
-        </div>
+              ))}
+            {Object.keys(groupedByAgent).length === 0 && (
+              <div className="text-xs text-[hsl(var(--text-tertiary))] p-3">暂无任务</div>
+            )}
+          </div>
+        )}
+
+        {/* View: Compact list */}
+        {viewMode === 'list' && (
+          <div className="max-h-[500px] overflow-y-auto scrollbar-thin">
+            <table className="w-full text-xs">
+              <thead className="sticky top-0 bg-[hsl(var(--bg-card))]">
+                <tr className="border-b border-[hsl(var(--border-subtle))]">
+                  <th className="text-left px-2.5 py-1.5 font-medium text-[hsl(var(--text-tertiary))]">ID</th>
+                  <th className="text-left px-2.5 py-1.5 font-medium text-[hsl(var(--text-tertiary))]">标题</th>
+                  <th className="text-left px-2.5 py-1.5 font-medium text-[hsl(var(--text-tertiary))]">状态</th>
+                  <th className="text-left px-2.5 py-1.5 font-medium text-[hsl(var(--text-tertiary))]">执行者</th>
+                </tr>
+              </thead>
+              <tbody>
+                {phaseFiltered
+                  .sort((a, b) => STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status))
+                  .map((task) => (
+                    <tr
+                      key={task.id}
+                      onClick={() => handleCardClick(task.id)}
+                      className="border-b border-[hsl(var(--border-subtle))] hover:bg-[hsl(var(--bg-card-hover))] cursor-pointer transition-colors"
+                    >
+                      <td className="px-2.5 py-1.5 font-mono text-[10px] text-[hsl(var(--text-tertiary))] whitespace-nowrap">{task.id}</td>
+                      <td className="px-2.5 py-1.5 text-[hsl(var(--text-primary))] max-w-[180px] truncate">{task.title}</td>
+                      <td className="px-2.5 py-1.5 whitespace-nowrap">
+                        <span className="inline-flex items-center gap-1">
+                          <StatusDot status={task.status} />
+                          <span className="text-[hsl(var(--text-secondary))]">{STATUS_LABELS[task.status]}</span>
+                        </span>
+                      </td>
+                      <td className="px-2.5 py-1.5 text-[hsl(var(--text-secondary))] whitespace-nowrap">
+                        {task.agentId && task.agentId !== '-' ? `@${task.agentId}` : '-'}
+                      </td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+            {phaseFiltered.length === 0 && (
+              <div className="text-xs text-[hsl(var(--text-tertiary))] p-3">暂无任务</div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Context menu rendered outside the DndContext */}
@@ -289,4 +496,16 @@ export function MiniKanban({ expanded }: MiniKanbanProps) {
       )}
     </>
   );
+}
+
+function StatusDot({ status }: { status: TaskStatus }) {
+  const colors: Record<TaskStatus, string> = {
+    pending: 'bg-gray-400',
+    in_progress: 'bg-blue-400',
+    in_review: 'bg-amber-400',
+    done: 'bg-green-400',
+    rejected: 'bg-red-400',
+    blocked: 'bg-red-600',
+  };
+  return <span className={cn('inline-block w-2 h-2 rounded-full shrink-0', colors[status])} />;
 }

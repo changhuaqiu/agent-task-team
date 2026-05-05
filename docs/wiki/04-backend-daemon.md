@@ -20,6 +20,7 @@
 - `activeSessions`
 - `recentInvocations`
 - `skills`
+- `agentSkillIds`（每个 agent 绑定的 skill ID 列表）
 
 这条接口已经是页面 hydrate 的主要真相源。
 
@@ -91,10 +92,10 @@ Repository 当前覆盖的核心对象：
 - `sessionRepo`
 - `invocationRepo`
 - `eventRepo`
-- `dispatchRepo` — dispatch 队列管理（原子 claim、僵尸恢复、pending 查询）
+- `dispatchRepo` — dispatch 队列管理（操作 invocation 表的 dispatch_status 列，提供原子 claim、僵尸恢复、pending 查询）
 - `role_cards` 表：`id TEXT PK, data TEXT NOT NULL, is_preset INTEGER NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL`，其中 `data` 列以 JSON 存储完整 RoleCard（含 CapabilityProfile）
 - `skillRepo` — skill CRUD、文件管理、agent 绑定（[`skill-repo.ts`](../../src/server/repositories/skill-repo.ts)）
-- `dispatchRepo` — dispatch 队列持久化（[`dispatch-repo.ts`](../../src/server/repositories/dispatch-repo.ts)）
+- `dispatchRepo` — dispatch 状态管理（基于 invocation 表扩展列，[`dispatch-repo.ts`](../../src/server/repositories/dispatch-repo.ts)）
 
 新增模块：
 - [`src/server/workdir-manager.ts`](../../src/server/workdir-manager.ts) — WorkdirManager：per-task 工作目录创建、session 元数据读写、GC
@@ -148,6 +149,7 @@ Repository 当前覆盖的核心对象：
   taskId?,
   agentId,
   prompt,
+  systemPrompt?,
   sessionId?,
   conversationId?,
   allowMockRunner?,
@@ -159,7 +161,8 @@ Repository 当前覆盖的核心对象：
   authContextId?,
   accountIds?,
   accountId?,
-  force?
+  force?,
+  projectSlug?
 }
 ```
 
