@@ -297,6 +297,54 @@ CREATE INDEX IF NOT EXISTS idx_agent_skill_skill ON agent_skill(skill_id);
     CREATE INDEX IF NOT EXISTS idx_audit_conv ON a2a_audit_log(conversation_id);
     `,
   },
+  {
+    version: 11,
+    sql: `
+    CREATE TABLE IF NOT EXISTS team_pack (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      display_name TEXT NOT NULL,
+      description TEXT NOT NULL,
+      version TEXT NOT NULL DEFAULT '1.0.0',
+      author TEXT,
+      license TEXT,
+      tags TEXT,
+      category TEXT NOT NULL DEFAULT 'team/general',
+      workflow TEXT NOT NULL,
+      communication_matrix TEXT NOT NULL,
+      shared_context TEXT,
+      rules TEXT,
+      is_preset INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS team_pack_role (
+      id TEXT PRIMARY KEY,
+      pack_id TEXT NOT NULL REFERENCES team_pack(id) ON DELETE CASCADE,
+      role_id TEXT NOT NULL,
+      display_name TEXT NOT NULL,
+      soul TEXT NOT NULL,
+      required INTEGER NOT NULL DEFAULT 1,
+      description TEXT,
+      role_card_id TEXT,
+      created_at TEXT NOT NULL,
+      UNIQUE(pack_id, role_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS agent_team_pack (
+      agent_id TEXT NOT NULL,
+      pack_id TEXT NOT NULL REFERENCES team_pack(id) ON DELETE CASCADE,
+      role_id TEXT NOT NULL,
+      assigned_at TEXT NOT NULL,
+      PRIMARY KEY (agent_id, pack_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_team_pack_role_pack ON team_pack_role(pack_id);
+    CREATE INDEX IF NOT EXISTS idx_agent_team_pack_agent ON agent_team_pack(agent_id);
+    CREATE INDEX IF NOT EXISTS idx_agent_team_pack_pack ON agent_team_pack(pack_id);
+    `,
+  },
 ];
 
 export function applyMigrations(db: Database.Database): void {
