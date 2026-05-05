@@ -6,6 +6,7 @@ import path from 'path';
 import os from 'os';
 import { upsertRoleCard } from './db/roleCardQueries';
 import { securityScanner } from './security-scanner';
+import { generateSortableId } from './repositories/sortable-id';
 import type { RoleCard, RoleCardCategory } from '@/types/roleCard';
 
 interface SoulSpecMetadata {
@@ -150,7 +151,7 @@ function soulToRoleCard(parsed: ParsedSoul): RoleCard {
   };
 
   return {
-    id: `imported-${metadata.name}`,
+    id: generateSortableId('rc'),
     name: metadata.name,
     displayName: metadata.displayName,
     description: metadata.description,
