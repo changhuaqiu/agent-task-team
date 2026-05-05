@@ -3,7 +3,8 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { useIMEGuard } from '@/hooks/useIMEGuard';
 import { useShallow } from 'zustand/react/shallow';
-import { useTaskHubStore, AGENT_ROSTER, type ChatMessage, type PendingDispatch } from '@/store/taskHubStore';
+import { useTaskHubStore, type ChatMessage, type PendingDispatch } from '@/store/taskHubStore';
+import type { Agent } from '@/store/agentStore';
 import { ChatMessageItem } from './ChatMessageItem';
 import { MessageGroup } from './MessageGroup';
 import { ChatFilterBar, type ChatFilter } from './ChatFilterBar';
@@ -30,6 +31,8 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
   const pendingDispatches = useTaskHubStore(useShallow((s) => s.pendingDispatches));
   const clearPendingDispatches = useTaskHubStore((s) => s.clearPendingDispatches);
   const forceSendDispatch = useTaskHubStore((s) => s.forceSendDispatch);
+  const getEffectiveRoster = useTaskHubStore((s) => s.getEffectiveRoster);
+  const effectiveRoster = getEffectiveRoster();
 
   const currentPending = useMemo(() => {
     const convId = selectedConversationId;
@@ -51,7 +54,7 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
   const [mentionOpen, setMentionOpen] = useState(false);
   const ime = useIMEGuard();
   const [mentionSelectedIndex, setMentionSelectedIndex] = useState(0);
-  const [mentionFiltered, setMentionFiltered] = useState<typeof AGENT_ROSTER>([]);
+  const [mentionFiltered, setMentionFiltered] = useState<Agent[]>([]);
   const [cursorPos, setCursorPos] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -274,7 +277,7 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
           <div className="flex flex-col gap-1.5">
             {Object.entries(currentPending).map(([agentId, queue]) => {
               if (!queue || queue.length === 0) return null;
-              const agent = AGENT_ROSTER.find((a) => a.id === agentId);
+              const agent = effectiveRoster.find((a) => a.id === agentId);
               const convId = selectedConversationId ?? '';
               const key = `${agentId}:${convId}`;
               return (
@@ -366,7 +369,8 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
               if (hasAt && atMatch) {
                 const query = atMatch[1].toLowerCase();
                 const store = useTaskHubStore.getState();
-                const activeAgents = AGENT_ROSTER.filter((a) => store.activeAgentIds.includes(a.id));
+                const roster = store.getEffectiveRoster();
+                const activeAgents = roster.filter((a) => store.activeAgentIds.includes(a.id));
                 const filtered = activeAgents.filter((agent) => {
                   const roleCard = agent.roleCardId ? store.roleCards.find((c) => c.id === agent.roleCardId) : null;
                   const displayName = roleCard?.displayName || '';
