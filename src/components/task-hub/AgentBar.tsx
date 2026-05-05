@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { useTaskHubStore, AGENT_ROSTER } from '@/store/taskHubStore';
+import { useTaskHubStore } from '@/store/taskHubStore';
 import { getCategoryConfig } from '@/components/role-card/RoleCardBadge';
 import { AgentBindingPanel } from '@/components/task-hub/AgentBindingPanel';
 import { cn } from '@/lib/utils';
@@ -12,6 +12,7 @@ export function AgentBar() {
   const accounts = useTaskHubStore((s) => s.accounts);
   const setRosterModalOpen = useTaskHubStore((s) => s.setRosterModalOpen);
   const tasks = useTaskHubStore((s) => s.tasks);
+  const getEffectiveRoster = useTaskHubStore((s) => s.getEffectiveRoster);
 
   const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -28,7 +29,8 @@ export function AgentBar() {
     return () => document.removeEventListener('mousedown', handler);
   }, [expandedAgent]);
 
-  const activeAgents = AGENT_ROSTER.filter((a) => activeAgentIds.includes(a.id));
+  const effectiveRoster = getEffectiveRoster();
+  const activeAgents = effectiveRoster.filter((a) => activeAgentIds.includes(a.id));
 
   if (activeAgents.length === 0) return null;
 
@@ -37,9 +39,13 @@ export function AgentBar() {
       <div className="flex items-center gap-1.5 flex-wrap">
         {activeAgents.map((agent) => {
           const roleCard = agent.roleCardId
-            ? roleCards.find((c) => c.id === agent.roleCardId)
+            ? roleCards.find((c) => c.id === agent.roleCardId) ?? null
             : null;
-          const cfg = roleCard ? getCategoryConfig(roleCard.category) : null;
+          const cfg = roleCard
+            ? getCategoryConfig(roleCard.category)
+            : agent.roleLabel
+              ? { themeVar: '--color-blue', label: agent.roleLabel }
+              : null;
           const boundCount = roleCard?.accountIds.length ?? 0;
           const hasValidAccount = roleCard?.accountIds.some((id) => {
             const acc = accounts.find((a) => a.id === id);
@@ -81,12 +87,12 @@ export function AgentBar() {
                   <span className="text-[10px] font-bold text-[hsl(var(--text-primary))]">
                     {agent.name}
                   </span>
-                  {roleCard && (
+                  {(roleCard || agent.roleLabel) && (
                     <span className={cn(
                       'text-[8px] font-bold tracking-wider uppercase',
                       cfg ? `text-[hsl(var(${cfg.themeVar}))]` : 'text-[hsl(var(--text-tertiary))]',
                     )}>
-                      {roleCard.displayName}
+                      {roleCard ? roleCard.displayName : agent.roleLabel}
                     </span>
                   )}
                 </div>
