@@ -1,284 +1,232 @@
 <div align="center">
   <h1>🐈 Agent Task Hub</h1>
-  <p><strong>去中心化多智能体研发协作平台</strong></p>
+  <h3>领养你的 AI 研发团队</h3>
   <p>
-    <em>"想法和产品之间，隔着的不是程序员，而是实现力。"</em>
+    <strong>想法和产品之间，隔着的不是程序员，而是实现力。</strong>
   </p>
   <p>
+    <a href="#-为什么需要-agent-task-hub">为什么需要</a> •
+    <a href="#-它是什么">它是什么</a> •
+    <a href="#-核心理念">核心理念</a> •
     <a href="#-快速开始">快速开始</a> •
-    <a href="#-核心功能">核心功能</a> •
-    <a href="#-架构设计">架构设计</a> •
-    <a href="#-部署指南">部署指南</a> •
-    <a href="#-文档">文档</a>
+    <a href="#-了解更多">了解更多</a>
   </p>
 </div>
 
 ---
 
-## 📖 项目简介
+## 🎯 为什么需要 Agent Task Hub
 
-**Agent Task Hub** 是一个基于 Next.js 构建的多智能体协作平台，让人类与 AI Agent 组成虚拟研发团队，共同将想法转化为可运行的产品。
+**你有没有过这样的经历？**
 
-### 为什么需要 Agent Task Hub？
+脑子里有一个绝妙的想法，想做一个产品、一个工具、一个 demo。但你卡住了——
 
-传统 AI 工具是单体辅助——一个 AI 帮你完成一个任务。Agent Task Hub 突破了这个模式：
+- 找程序员？太贵，而且沟通成本巨大
+- 自己学？时间不够，而且不想成为程序员
+- 用 AI 工具？每次都是从零开始，上次的对话、上次的经验、上次踩的坑，全都丢了
 
-- **多 Agent 协作**：分配一支具备不同专业能力的 Agent 团队
-- **对等协作**：没有 Boss Agent，每个 Agent 有自己的判断和专长
-- **共享记忆**：Agent 之间的对话和上下文是共享的
-- **可迁移经验**：养成的协作模式可以迁移到新项目
+**问题不是你缺一个更强的 AI，而是你缺一支团队。**
+
+传统 AI 工具是"一次性助手"——用完就忘，下次重新开始。但真正的团队不一样：
+
+- 他们**记得**你们一起做过的每一个决定
+- 他们**积累**了你们磨合出来的协作默契
+- 他们**成长**了，从 80 分的通用能力，长成 100 分的专属配合
+
+**Agent Task Hub 就是让你"领养"这样一支团队的地方。**
+
+---
+
+## 🤖 它是什么
+
+Agent Task Hub 不是另一个 AI 聊天工具。
+
+它是一个**多智能体协作平台**，让你和多个 AI Agent 组成虚拟研发团队，共同把想法变成能运行的产品。
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                                                             │
+│    你（人类）                                                │
+│    ├── 提供愿景                                              │
+│    ├── 做出判断                                              │
+│    └── 带着作品走进人群                                       │
+│                                                             │
+│    Agent 团队                                               │
+│    ├── 🎯 Planner    — 把大目标拆成可执行的小任务              │
+│    ├── 💻 Coder      — 写代码、调 bug、实现功能               │
+│    └── 🔍 Reviewer   — 审查质量、发现问题、把关交付            │
+│                                                             │
+│    一起磨合、一起成长、一起交付                                │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 💡 核心理念
+
+### 1. 领养团队，不是配置工具
+
+> 工具用完就忘，团队越磨越强。
+
+你和 Agent 一起建立的协作规则、踩过的坑、沉淀的经验，都会留下来。下次项目直接复用，不用从头开始。
+
+### 2. 对等协作，没有 Boss Agent
+
+三个 Agent 各有专长，自己判断该不该回应、怎么回应。但执行有纪律——TDD、代码审查、质量门禁，自由判断，结构化交付。
+
+### 3. 共享记忆，上下文不丢失
+
+Agent 之间的对话是共享的。Planner 说的背景，Coder 能看到；Reviewer 发现的问题，Planner 也知道。不会出现"我跟上一个 Agent 说过了"的尴尬。
+
+### 4. 想法 → 产品，一步到位
+
+不用先写需求文档、再找设计师、再找开发。直接告诉团队你想做什么，他们帮你拆解、实现、审查、交付。
+
+---
+
+## ✨ 能做什么
+
+| 场景 | 怎么用 |
+|------|--------|
+| **做一个产品原型** | 描述你想要什么，团队帮你从 0 到 1 |
+| **改造现有项目** | 把代码库接入，团队帮你分析、重构、加功能 |
+| **学习新技术** | 让团队带你做一个真实项目，边做边学 |
+| **自动化重复工作** | 把流程告诉团队，以后一句话触发 |
+
+---
 
 ## 🚀 快速开始
-
-### 环境要求
-
-| 依赖 | 版本要求 | 说明 |
-|------|----------|------|
-| Node.js | 18+ | 推荐 20 LTS |
-| pnpm | 8+ | 包管理器（脚本会自动安装） |
-| Git | 2.30+ | 用于版本控制和 worktree |
 
 ### 一键安装
 
 ```bash
-# 克隆项目
-git clone <your-repo-url> agent-task-hub
+git clone <repo-url> agent-task-hub
 cd agent-task-hub
-
-# 运行安装脚本（自动检查环境、安装依赖、构建项目）
-./setup.sh
-
-# 启动生产模式
-pnpm start
+./setup.sh    # 自动安装依赖 + 构建
+pnpm start    # 启动
 ```
 
-### 手动安装
+打开 http://localhost:3000，开始领养你的团队。
 
-```bash
-# 安装依赖
-pnpm install
-
-# 构建生产版本
-pnpm build
-
-# 启动生产服务
-pnpm start
-```
-
-### 开发模式
-
-```bash
-# 启动开发服务器（带热更新）
-pnpm dev
-```
-
-启动后访问 [http://localhost:3000](http://localhost:3000)。
-
-## ✨ 核心功能
-
-### 🎯 项目工作台
-
-三栏布局的项目管理界面：
-
-| 区域 | 功能 |
-|------|------|
-| 左栏 | 项目列表与切换 |
-| 中栏 | 作战指挥室：目标、拆解、Agent 对话 |
-| 右栏 | Mini Kanban、代办、风险面板 |
-
-### 🤖 多 Agent 协作
-
-- **智能任务分发**：基于 Agent 能力图谱自动匹配任务
-- **会话级隔离**：每个项目中每个 Agent 维护独立的长期会话
-- **A2A 通信**：Agent 之间可以通过 `@mention` 相互协作
-- **队列隔离**：跨项目的排队消息不会互相干扰
-
-### 📋 任务管理
-
-- **双向同步**：`.ath/TASKS.md` 文件与 UI 看板实时同步
-- **状态流转**：pending → in_progress → in_review → done
-- **阻塞追踪**：自动识别和追踪任务阻塞项
-- **Workdir 隔离**：每个任务独立工作目录，支持 Git worktree
-
-### 🔧 Skill 系统
-
-可复用的能力模块，与 RoleCard（身份）正交：
-
-- 从 Git 仓库导入 Skill
-- 为 Agent 绑定多个 Skill
-- Skill 指令自动注入 system prompt
-
-### 🔐 账号与认证
-
-- **多 Runtime 支持**：OpenCode、Claude CLI、Codex CLI、Gemini CLI
-- **API Key 模式**：直接配置 API Key
-- **角色卡绑定**：为不同角色配置不同的执行账号
-
-## 🏗️ 架构设计
-
-### 系统分层
+### 三步上手
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    前端工作台 (Next.js)                      │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐         │
-│  │  项目列表    │  │  作战指挥室  │  │  Kanban     │         │
-│  └─────────────┘  └─────────────┘  └─────────────┘         │
-├─────────────────────────────────────────────────────────────┤
-│                  状态与编排层 (Zustand)                      │
-│  - UI 状态管理    - Socket 事件处理    - API Rehydrate       │
-├─────────────────────────────────────────────────────────────┤
-│                应用后端层 (Next.js API)                      │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐         │
-│  │  SQLite     │  │  Repository │  │  Daemon     │         │
-│  │  (Drizzle)  │  │  (业务逻辑)  │  │  (编排器)    │         │
-│  └─────────────┘  └─────────────┘  └─────────────┘         │
-├─────────────────────────────────────────────────────────────┤
-│                    执行层 (CLI/Bridge)                       │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐         │
-│  │  OpenCode   │  │  Claude CLI │  │  Codex CLI  │         │
-│  └─────────────┘  └─────────────┘  └─────────────┘         │
-└─────────────────────────────────────────────────────────────┘
+第一步：创建项目
+  └── 告诉团队你想做什么
+
+第二步：配置账号
+  └── 让团队能调用 AI 能力
+
+第三步：开始协作
+  └── 发消息、分配任务、看进展
 ```
 
-### 核心数据流
+---
 
-1. **页面初始化**：`/api/state` 从 SQLite 加载全量状态
-2. **用户操作**：Zustand 更新本地状态 → `/api/mutations` 持久化
-3. **任务执行**：Socket → Daemon → Agent Backend → 事件流 → 前端 + DB
-4. **文件同步**：TaskFileWatcher 监听 `.ath/TASKS.md` → 解析 → DB → Socket 广播
+## 🏗️ 技术架构
 
-### 关键文件
+如果你是开发者，可能关心这些：
 
-| 层级 | 文件 | 职责 |
+| 层级 | 技术 | 说明 |
 |------|------|------|
-| 前端入口 | `src/app/ClientHome.tsx` | 页面初始化与状态加载 |
-| 状态管理 | `src/store/taskHubStore.ts` | Zustand 状态编排 |
-| Daemon | `src/server/daemon.ts` | Socket 事件处理与 Agent 编排 |
-| 数据库 | `src/server/db/` | SQLite + Drizzle ORM |
-| Repository | `src/server/repositories/` | 业务数据访问层 |
-| Agent Backend | `src/server/agent/` | 多 CLI 执行器抽象 |
+| 前端 | Next.js 16 + React 19 | 现代化 Web 应用 |
+| 状态 | Zustand 5 | 前端状态管理 |
+| 数据库 | SQLite | 本地持久化，零配置 |
+| 实时通信 | Socket.io | 双向 WebSocket |
+| Agent 执行 | 多 CLI 支持 | OpenCode / Claude / Codex / Gemini |
 
-## 🛠️ 技术栈
+**会话级隔离**：每个项目中每个 Agent 维护独立会话，上下文不串。
 
-| 类别 | 技术 | 用途 |
-|------|------|------|
-| 框架 | Next.js 16.2 + React 19 | 全栈 Web 应用 |
-| 状态管理 | Zustand 5 | 前端运行态缓存与编排 |
-| 数据库 | SQLite (better-sqlite3) | 本地持久化 |
-| ORM | Drizzle ORM | 类型安全的 SQL |
-| 样式 | Tailwind CSS v4 | 原子化 CSS |
-| 实时通信 | Socket.io | WebSocket 双向通信 |
-| 终端模拟 | xterm.js | Web 终端 |
+**队列隔离**：跨项目的任务排队互不干扰。
 
-## 📂 项目结构
+**Skill 系统**：可复用的能力模块，从 Git 仓库导入。
+
+→ [完整架构文档](./docs/wiki/01-architecture.md)
+
+---
+
+## 📸 界面预览
 
 ```
-agent-task-hub/
-├── src/
-│   ├── app/                    # Next.js App Router
-│   ├── components/             # React 组件
-│   │   ├── project/           # 项目工作台
-│   │   ├── task-hub/          # 聊天、任务、设置
-│   │   ├── role-card/         # 角色卡管理
-│   │   └── skill/             # Skill 系统
-│   ├── store/                  # Zustand 状态管理
-│   ├── server/                 # 后端逻辑
-│   │   ├── agent/             # Agent Backend 实现
-│   │   ├── repositories/      # 数据访问层
-│   │   └── db/                # 数据库配置
-│   ├── lib/                    # 工具函数
-│   └── pages/api/             # API Routes
-├── docs/                       # 项目文档
-├── specs/                      # 规格文档
-├── architecture/               # 架构文档
-├── bridge/                     # OpenCode Bridge
-├── scripts/                    # 安装脚本
-└── setup.sh                    # 一键安装脚本
+┌─────────────────────────────────────────────────────────────────┐
+│  Agent Task Hub                                    [+新项目] [⚙]│
+├──────────┬──────────────────────────────────────┬───────────────┤
+│          │                                      │               │
+│  📁 项目  │   🎯 目标：做一个 Todo 应用          │   📋 看板     │
+│          │   ─────────────────────────────      │               │
+│  My App  │                                      │   □ 设计 UI   │
+│  Demo    │   👤 Mario: 我来拆解任务...           │   □ 写代码    │
+│  学习    │   💻 Coder: 已完成登录模块...          │   ■ 测试     │
+│          │   🔍 Reviewer: 代码审查通过...         │               │
+│          │                                      │   ⚠ 风险     │
+│          │   ─────────────────────────────      │   无          │
+│          │   [输入消息...]                       │               │
+│          │                                      │               │
+└──────────┴──────────────────────────────────────┴───────────────┘
 ```
 
-## 🚢 部署指南
+---
 
-### 生产模式部署
+## 🌟 为什么选择 Agent Task Hub
 
-```bash
-# 构建
-pnpm build
+| 对比 | 传统 AI 工具 | Agent Task Hub |
+|------|-------------|----------------|
+| **协作方式** | 1 对 1，单线程 | 多 Agent 并行协作 |
+| **记忆** | 用完就忘 | 持久化记忆，跨会话保留 |
+| **经验积累** | 每次从零开始 | 团队越磨越强 |
+| **上下文** | 只有当前对话 | 全项目共享 |
+| **质量保障** | 无 | TDD + 代码审查 + 门禁 |
+| **适用场景** | 简单问答 | 完整产品开发 |
 
-# 启动（默认端口 3000）
-pnpm start
+---
 
-# 自定义端口
-PORT=8080 pnpm start
-```
+## 🗺️ 路线图
 
-### Docker 部署（示例）
+- ✅ 项目工作台 UI
+- ✅ 多 Agent 协作
+- ✅ 会话级隔离
+- ✅ SQLite 持久化
+- ✅ Skill 系统
+- ✅ 智能任务分发
+- 🚧 统一集成配置中心
+- 📋 更多 Agent 类型支持
+- 📋 团队协作功能
 
-```dockerfile
-FROM node:20-alpine AS builder
-WORKDIR /app
-COPY package.json pnpm-lock.yaml ./
-RUN npm install -g pnpm && pnpm install --frozen-lockfile
-COPY . .
-RUN pnpm build
-
-FROM node:20-alpine AS runner
-WORKDIR /app
-COPY --from=builder /app/.next ./.next
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/package.json ./
-EXPOSE 3000
-CMD ["pnpm", "start"]
-```
-
-### 环境变量
-
-| 变量 | 默认值 | 说明 |
-|------|--------|------|
-| `PORT` | 3000 | 服务端口 |
-| `NODE_ENV` | production | 运行环境 |
-| `ATH_WORKSPACES_ROOT` | .ath/workspaces | 工作目录根路径 |
-| `ATH_TMUX_ENABLED` | 0 | 启用 tmux 集成 |
-| `CLI_TIMEOUT_MS` | 300000 | CLI 超时时间 (ms) |
+---
 
 ## 📚 文档
 
-### 核心文档
+| 文档 | 说明 |
+|------|------|
+| [产品愿景](./VISION.md) | 为什么做这个项目 |
+| [架构设计](./docs/wiki/01-architecture.md) | 技术架构详解 |
+| [开发规范](./SOP.md) | 如何参与贡献 |
+| [Agent 指南](./AGENTS.md) | Agent 工作约束 |
+| [完整文档](./docs/README.md) | 文档导航 |
 
-- [产品愿景](./VISION.md) - 项目愿景与理念
-- [研发路线图](./ROADMAP.md) - 当前进展与计划
-- [标准操作程序](./SOP.md) - 开发规范
-- [Agent 指南](./AGENTS.md) - Agent 工作约束
-
-### 技术文档
-
-- [整体架构](./docs/wiki/01-architecture.md) - 系统架构详解
-- [前端工作台](./docs/wiki/02-frontend.md) - 前端模块说明
-- [后端 Daemon](./docs/wiki/04-backend-daemon.md) - 执行链路详解
-- [架构图](./docs/wiki/07-architecture-diagrams.md) - 可视化架构
-
-### 规格文档
-
-- [规格目录](./specs/) - 所有规格文档索引
-- [文档导航](./docs/README.md) - 文档分类与导航
+---
 
 ## 🤝 参与贡献
 
-1. Fork 项目
-2. 创建功能分支 (`git checkout -b feature/amazing-feature`)
-3. 提交变更 (`git commit -m 'feat: add amazing feature'`)
-4. 推送到分支 (`git push origin feature/amazing-feature`)
-5. 创建 Pull Request
+我们欢迎任何形式的贡献：
+
+- 🐛 报告 Bug
+- 💡 提出新功能
+- 📖 完善文档
+- 🔧 提交代码
+
+---
 
 ## 📄 开源协议
 
-本项目采用 [MIT 协议](./LICENSE) 开源。
+MIT License
 
 ---
 
 <div align="center">
-  <p><strong>「领养团队，一起长出世界。」</strong></p>
+  <h3>「领养团队，一起长出世界。」</h3>
   <p>
-    <sub>Built with ❤️ by Agent Task Hub Team</sub>
+    <sub>让每个人都有机会带着自己的团队，把想法变成现实。</sub>
   </p>
 </div>
