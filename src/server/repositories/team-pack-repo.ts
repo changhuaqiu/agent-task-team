@@ -178,7 +178,7 @@ export const teamPackRepo = {
 
   // ── Role Management ──────────────────────
 
-  addRole(packId: string, role: Omit<TeamPackRole, 'roleCardId'>): void {
+  addRole(packId: string, role: TeamPackRole): void {
     const now = new Date().toISOString();
     getDb().prepare(
       `INSERT INTO team_pack_role (id, pack_id, role_id, display_name, soul, required, description, role_card_id, created_at)
@@ -191,7 +191,7 @@ export const teamPackRepo = {
       role.soul,
       role.required ? 1 : 0,
       role.description ?? null,
-      null,
+      role.roleCardId ?? null,
       now
     );
   },
