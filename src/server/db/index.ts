@@ -4,6 +4,7 @@ import fs from 'fs';
 import { applyMigrations } from './migrate';
 import { seedPresetSkills } from '../seed-skills';
 import { seedPresetAgents } from './seed-agents';
+import { seedTeamPacks } from '../seed-team-packs';
 
 let db: Database.Database | null = null;
 
@@ -25,6 +26,7 @@ export function getDb(): Database.Database {
   applyMigrations(db);
   seedPresetAgents();
   seedPresetSkills();
+  seedTeamPacks();
   return db;
 }
 

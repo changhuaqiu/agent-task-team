@@ -13,6 +13,8 @@ import { buildSkillLayer } from './layers/skillLayer';
 import { buildToolLayer } from './layers/toolLayer';
 import { buildProtocolLayer, deriveRoleFromCard } from './layers/protocolLayer';
 import { buildA2ALayer } from './layers/a2aLayer';
+import { buildTeamPackLayer } from './layers/teamPackLayer';
+import type { TeamPack } from '@/types/teamPack';
 
 export interface ParamDef {
   name: string;
@@ -64,6 +66,7 @@ export interface ComposeOptions {
   tasks?: { id: string; title: string; agentId: string; status: string }[];
   skills?: SkillSummary[];
   a2a?: { from?: string; content?: string; contextSnapshot?: string };
+  teamPack?: TeamPack;
 }
 
 export function composeSystemPrompt(opts: ComposeOptions): string | undefined {
@@ -98,6 +101,12 @@ export function composeUserPrompt(opts: ComposeOptions): string {
   // Team roster (every dispatch — members change over time)
   const team = buildTeamLayer(opts.agent.id, opts.allRoleCards, opts.currentLoad);
   if (team) parts.push(team);
+
+  // TeamPack context (if agent is part of a team pack)
+  if (opts.teamPack) {
+    const teamPackCtx = buildTeamPackLayer(opts.agent.id, opts.teamPack);
+    if (teamPackCtx) parts.push(teamPackCtx);
+  }
 
   // Protocol layer (every dispatch — constraints + guidance)
   const protocol = buildProtocolLayer({

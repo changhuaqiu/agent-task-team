@@ -17,6 +17,7 @@ export const conversation = sqliteTable('conversation', {
   status: text('status'),
   priority: text('priority'),
   projectPath: text('project_path'),
+  teamPackId: text('team_pack_id').references(() => teamPack.id),
   participants: text('participants'), // JSON text
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
@@ -321,3 +322,69 @@ export const a2aAuditLog = sqliteTable('a2a_audit_log', {
 
 export type A2aAuditLogRow = InferSelectModel<typeof a2aAuditLog>;
 export type NewA2aAuditLogRow = InferInsertModel<typeof a2aAuditLog>;
+
+// ──────────────────────────────────────────────
+// team_pack
+// ──────────────────────────────────────────────
+export const teamPack = sqliteTable('team_pack', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull().unique(),
+  displayName: text('display_name').notNull(),
+  description: text('description').notNull(),
+  version: text('version').notNull().default('1.0.0'),
+  author: text('author'),           // JSON: { name, github }
+  license: text('license'),
+  tags: text('tags'),               // JSON string[]
+  category: text('category').notNull().default('team/general'),
+  teamMode: text('team_mode').notNull().default('hub_spoke'),  // pipeline | parallel | hub_spoke | custom
+  workflow: text('workflow').notNull(),  // JSON: TeamPackWorkflow
+  communicationMatrix: text('communication_matrix').notNull(),  // JSON
+  sharedContext: text('shared_context'),  // JSON
+  rules: text('rules'),             // JSON: TeamPackRules
+  source: text('source'),           // JSON: { type, url, importedAt }
+  isPreset: integer('is_preset', { mode: 'boolean' }).notNull().default(false),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+});
+
+export type TeamPackRow = InferSelectModel<typeof teamPack>;
+export type NewTeamPackRow = InferInsertModel<typeof teamPack>;
+
+// ──────────────────────────────────────────────
+// team_pack_role
+// ──────────────────────────────────────────────
+export const teamPackRole = sqliteTable('team_pack_role', {
+  id: text('id').primaryKey(),
+  packId: text('pack_id').notNull()
+    .references(() => teamPack.id, { onDelete: 'cascade' }),
+  roleId: text('role_id').notNull(),
+  displayName: text('display_name').notNull(),
+  soul: text('soul').notNull(),
+  required: integer('required', { mode: 'boolean' }).notNull().default(true),
+  description: text('description'),
+  roleCardId: text('role_card_id'),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  uniqueIndex('uq_team_pack_role').on(table.packId, table.roleId),
+  index('idx_team_pack_role_pack').on(table.packId),
+]);
+
+export type TeamPackRoleRow = InferSelectModel<typeof teamPackRole>;
+export type NewTeamPackRoleRow = InferInsertModel<typeof teamPackRole>;
+
+// ──────────────────────────────────────────────
+// agent_team_pack (junction table)
+// ──────────────────────────────────────────────
+export const agentTeamPack = sqliteTable('agent_team_pack', {
+  agentId: text('agent_id').notNull(),
+  packId: text('pack_id').notNull()
+    .references(() => teamPack.id, { onDelete: 'cascade' }),
+  roleId: text('role_id').notNull(),
+  assignedAt: text('assigned_at').notNull(),
+}, (table) => [
+  index('idx_agent_team_pack_agent').on(table.agentId),
+  index('idx_agent_team_pack_pack').on(table.packId),
+]);
+
+export type AgentTeamPackRow = InferSelectModel<typeof agentTeamPack>;
+export type NewAgentTeamPackRow = InferInsertModel<typeof agentTeamPack>;
