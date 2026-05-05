@@ -783,13 +783,14 @@ export const useTaskHubStore = create<TaskHubState>()(
           }));
 
           if (record.conversationId) {
+            const payloadObj = (record.payload && typeof record.payload === 'object') ? record.payload as Record<string, unknown> : {};
             fetch('/api/mutations', {
               method: 'POST',
               headers: { 'content-type': 'application/json' },
               body: JSON.stringify({ type: 'event.append', payload: {
                 conversationId: record.conversationId,
-                taskId: (record.payload as any)?.taskId,
-                agentId: (record.payload as any)?.agentId || 'system',
+                taskId: (payloadObj?.taskId as string) || undefined,
+                agentId: (payloadObj?.agentId as string) || 'system',
                 type: record.type,
                 payload: record.payload,
               }}),

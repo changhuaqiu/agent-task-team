@@ -45,27 +45,45 @@
 
 ## 🚀 快速开始
 
-### 1. 安装依赖
+### 环境要求
 
-推荐使用 `pnpm` 安装项目依赖：
+- **Node.js** 18+ (推荐 20 LTS)
+- **pnpm** (自动安装)
+
+### 一键安装
 
 ```bash
-pnpm install
-# 或使用 npm / yarn
-# npm install
-# yarn install
+# 克隆项目
+git clone <your-repo-url> agent-task-hub
+cd agent-task-hub
+
+# 运行安装脚本（自动安装依赖 + 构建）
+./setup.sh
+
+# 启动生产模式
+pnpm start
 ```
 
-### 2. 运行开发服务器
+### 手动安装
+
+```bash
+# 安装依赖
+pnpm install
+
+# 构建生产版本
+pnpm build
+
+# 启动
+pnpm start
+```
+
+### 开发模式（带热更新）
 
 ```bash
 pnpm dev
-# 或
-# npm run dev
-# yarn dev
 ```
 
-启动后，在浏览器中访问 [http://localhost:3000](http://localhost:3000) 即可预览项目。你可以从 `src/app/ClientHome.tsx`、`src/components/project/` 和 `src/store/taskHubStore.ts` 开始理解当前主界面与状态流。
+启动后，在浏览器中访问 [http://localhost:3000](http://localhost:3000) 即可预览项目。
 
 ## 🧭 当前使用路径
 
