@@ -239,8 +239,9 @@ export async function importRoleCardFromUrl(source: string): Promise<{ imported:
         const roleCard = soulToRoleCard(parsed);
         upsertRoleCard(roleCard);
         imported.push(roleCard.name);
-      } catch (e: any) {
-        errors.push(`${path.basename(dir)}: ${e.message}`);
+      } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : String(e);
+        errors.push(`${path.basename(dir)}: ${message}`);
       }
     }
   } finally {

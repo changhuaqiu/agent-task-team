@@ -11,8 +11,9 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
     try {
       const pack = teamPackRepo.create(req.body);
       return res.status(201).json(pack);
-    } catch (e: any) {
-      return res.status(400).json({ error: e.message });
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : 'Unknown error';
+      return res.status(400).json({ error: message });
     }
   }
 

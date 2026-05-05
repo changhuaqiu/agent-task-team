@@ -15,7 +15,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   try {
     const result = await importRoleCardFromUrl(source);
     return res.status(200).json(result);
-  } catch (e: any) {
-    return res.status(400).json({ error: e.message });
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : 'Unknown error';
+    return res.status(400).json({ error: message });
   }
 }

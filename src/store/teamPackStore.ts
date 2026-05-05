@@ -29,8 +29,9 @@ export const useTeamPackStore = create<TeamPackState>((set, get) => ({
       if (!res.ok) throw new Error('Failed to fetch team packs');
       const packs = await res.json();
       set({ teamPacks: packs, isLoading: false });
-    } catch (e: any) {
-      set({ error: e.message, isLoading: false });
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : 'Unknown error';
+      set({ error: message, isLoading: false });
     }
   },
 
@@ -49,8 +50,9 @@ export const useTeamPackStore = create<TeamPackState>((set, get) => ({
         isLoading: false,
       }));
       return pack;
-    } catch (e: any) {
-      set({ error: e.message, isLoading: false });
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : 'Unknown error';
+      set({ error: message, isLoading: false });
       throw e;
     }
   },
@@ -65,8 +67,9 @@ export const useTeamPackStore = create<TeamPackState>((set, get) => ({
         selectedPackId: state.selectedPackId === id ? null : state.selectedPackId,
         isLoading: false,
       }));
-    } catch (e: any) {
-      set({ error: e.message, isLoading: false });
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : 'Unknown error';
+      set({ error: message, isLoading: false });
     }
   },
 
