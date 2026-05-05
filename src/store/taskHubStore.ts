@@ -10,11 +10,12 @@ import type { TaskStatus, Task } from './taskStore';
 import { setTaskCounter, STATUS_LABELS, STATUS_ORDER } from './taskStore';
 import { createAgentSlice, AGENT_ROSTER } from './agentStore';
 import { loadAgents } from './agentStore';
-import type { Account } from './agentStore';
+import type { Account, Agent, AgentRole, AgentTheme } from './agentStore';
 import { createDaemonSlice } from './daemonStore';
 import { socket, resetWatchdog, clearWatchdog } from './daemonStore';
 import type { PendingDispatch } from './daemonStore';
 import type { RoleCard } from '@/types/roleCard';
+import type { TeamPackRole, TeamPack } from '@/types/teamPack';
 import type { Phase } from '@/types/phase';
 import type { PhaseProposal } from '@/lib/breakdownParser';
 import type { SkillSummary } from '@/lib/agent-context/PromptComposer';
@@ -129,6 +130,34 @@ export interface Blocker {
   status: 'open' | 'fixed';
   createdAt: string;
   resolvedAt?: string;
+}
+
+// --- Synthesize Agent from TeamPackRole ---
+
+const TEAM_ROLE_EMOJIS = ['🎯', '🔧', '🔍', '📊', '✍️', '🧪', '💡', '🛡️', '⚡', '🎪'];
+const TEAM_ROLE_THEMES: AgentTheme[] = ['mario', 'luigi', 'toad', 'peach', 'dk', 'yoshi'];
+
+/**
+ * Synthesize an Agent object from a TeamPackRole.
+ * Used when a team pack role doesn't exist in AGENT_ROSTER.
+ */
+function synthesizeAgentFromRole(role: TeamPackRole, index: number): Agent {
+  // Deterministic emoji/theme based on role ID hash
+  const hash = role.id.split('').reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
+  const emoji = TEAM_ROLE_EMOJIS[hash % TEAM_ROLE_EMOJIS.length];
+  const theme = TEAM_ROLE_THEMES[hash % TEAM_ROLE_THEMES.length];
+
+  return {
+    id: role.id,
+    name: role.displayName,
+    role: 'worker' as AgentRole,
+    roleLabel: role.displayName,
+    roleCardId: role.roleCardId ?? `team-role-${role.id}`,
+    theme,
+    emoji,
+    isOnline: true,
+    accountIds: [],
+  };
 }
 
 // --- Helper Selectors ---
@@ -270,6 +299,8 @@ export interface TaskHubState {
   agentSessions: Record<ProjectId, Record<string, string | undefined>>;
   needsFullCompose: Record<string, boolean>;
   activeAgentIds: string[];
+  currentTeamPack: TeamPack | null;
+  getEffectiveRoster: () => Agent[];
   conversations: Conversation[];
   selectedConversationId: string | null;
   tasks: Task[];
@@ -461,6 +492,7 @@ export const useTaskHubStore = create<TaskHubState>()(
         },
 
         selectedProjectId: 'default' as ProjectId,
+        currentTeamPack: null as TeamPack | null,
         conversations: [] as Conversation[],
         selectedConversationId: null as string | null,
         taskSyncError: null as { message: string; timestamp: string; conversationId: string } | null,
@@ -489,6 +521,46 @@ export const useTaskHubStore = create<TaskHubState>()(
           const id = get().selectedConversationId;
           if (!id) return EMPTY_CHAT;
           return get().chatMessagesByConversation[id] ?? EMPTY_CHAT;
+        },
+
+        getEffectiveRoster: () => {
+          const state = get();
+          const conv = state.conversations.find((c) => c.id === state.selectedConversationId);
+
+          if (!conv?.teamPackId || !state.currentTeamPack) {
+            return AGENT_ROSTER;
+          }
+
+          const rosterMap = new Map<string, Agent>();
+
+          for (const agent of AGENT_ROSTER) {
+            rosterMap.set(agent.id, agent);
+          }
+
+          state.currentTeamPack.roles.forEach((role: TeamPackRole, index: number) => {
+            const existingAgent = rosterMap.get(role.id);
+            if (existingAgent) {
+              rosterMap.set(role.id, {
+                ...existingAgent,
+                name: role.displayName || existingAgent.name,
+                roleLabel: role.displayName || existingAgent.roleLabel,
+              });
+            } else {
+              rosterMap.set(role.id, synthesizeAgentFromRole(role, index));
+            }
+          });
+
+          const activeIds = new Set(state.activeAgentIds);
+          const active: Agent[] = [];
+          const inactive: Agent[] = [];
+          for (const [, agent] of rosterMap) {
+            if (activeIds.has(agent.id)) {
+              active.push(agent);
+            } else {
+              inactive.push(agent);
+            }
+          }
+          return [...active, ...inactive];
         },
 
         loadFromServer: async () => {
@@ -762,11 +834,13 @@ export const useTaskHubStore = create<TaskHubState>()(
                     selectedConversationId: conversationId,
                     selectedProjectId: conversationId || 'default',
                     activeAgentIds: teamPack.roles.map((r: any) => r.id),
+                    currentTeamPack: teamPack,
                   });
                 } else {
                   set({
                     selectedConversationId: conversationId,
                     selectedProjectId: conversationId || 'default',
+                    currentTeamPack: null,
                   });
                 }
               })
@@ -774,6 +848,7 @@ export const useTaskHubStore = create<TaskHubState>()(
                 set({
                   selectedConversationId: conversationId,
                   selectedProjectId: conversationId || 'default',
+                  currentTeamPack: null,
                 });
               });
             return;
@@ -782,6 +857,7 @@ export const useTaskHubStore = create<TaskHubState>()(
           set({
             selectedConversationId: conversationId,
             selectedProjectId: conversationId || 'default',
+            currentTeamPack: null,
           });
         },
 
