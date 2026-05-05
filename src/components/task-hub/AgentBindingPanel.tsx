@@ -4,7 +4,6 @@ import { useState, useRef, useEffect } from 'react';
 import {
   useTaskHubStore,
   PROVIDER_LABELS,
-  AGENT_ROSTER,
   type Account,
 } from '@/store/taskHubStore';
 import { RoleCardBadge, getCategoryConfig } from '@/components/role-card/RoleCardBadge';
@@ -42,11 +41,14 @@ export function AgentBindingPanel({ agentId, agentName }: AgentBindingPanelProps
   const agentSkillIds = useTaskHubStore((s) => s.agentSkillIds);
   const assignSkillsToAgent = useTaskHubStore((s) => s.assignSkillsToAgent);
 
+  const getEffectiveRoster = useTaskHubStore((s) => s.getEffectiveRoster);
+  const effectiveRoster = getEffectiveRoster();
+
   const sessionId = agentSessions[selectedProjectId]?.[agentId];
   const activeRun = activeRunsByAgent[agentId];
 
-  // Find current agent's role card
-  const agent = AGENT_ROSTER.find((a) => a.id === agentId);
+  // Find current agent's role card (from effective roster which includes team pack roles)
+  const agent = effectiveRoster.find((a) => a.id === agentId);
   const currentRoleCard = agent?.roleCardId ? roleCards.find((c) => c.id === agent.roleCardId) : null;
 
   // Account IDs come from the role card now
