@@ -226,6 +226,7 @@ export const agentMailbox = sqliteTable('agent_mailbox', {
   chainDepth: integer('chain_depth').notNull().default(0),
   a2aFrom: text('a2a_from'),
   source: text('source').notNull().default('a2a'),
+  epochId: text('epoch_id'),
   createdAt: text('created_at').notNull(),
   deliveredAt: text('delivered_at'),
 }, (table) => [
@@ -235,3 +236,88 @@ export const agentMailbox = sqliteTable('agent_mailbox', {
 
 export type AgentMailboxRow = InferSelectModel<typeof agentMailbox>;
 export type NewAgentMailboxRow = InferInsertModel<typeof agentMailbox>;
+
+// ──────────────────────────────────────────────
+// A2A v2: invocation_chain
+// ──────────────────────────────────────────────
+export const invocationChain = sqliteTable('invocation_chain', {
+  id: text('id').primaryKey(),
+  conversationId: text('conversation_id').notNull()
+    .references(() => conversation.id),
+  rootTriggerType: text('root_trigger_type').notNull(),
+  rootTriggerId: text('root_trigger_id').notNull(),
+  status: text('status').notNull().default('active'),
+  config: text('config').notNull(),
+  createdAt: text('created_at').notNull(),
+  completedAt: text('completed_at'),
+}, (table) => [
+  index('idx_chain_conv').on(table.conversationId),
+  index('idx_chain_status').on(table.status),
+]);
+
+export type InvocationChainRow = InferSelectModel<typeof invocationChain>;
+export type NewInvocationChainRow = InferInsertModel<typeof invocationChain>;
+
+// ──────────────────────────────────────────────
+// A2A v2: chain_worklist
+// ──────────────────────────────────────────────
+export const chainWorklist = sqliteTable('chain_worklist', {
+  id: text('id').primaryKey(),
+  chainId: text('chain_id').notNull()
+    .references(() => invocationChain.id),
+  agentId: text('agent_id').notNull(),
+  requestedBy: text('requested_by').notNull(),
+  prompt: text('prompt').notNull(),
+  contentHash: text('content_hash').notNull(),
+  depth: integer('depth').notNull().default(0),
+  status: text('status').notNull().default('queued'),
+  outcome: text('outcome'),
+  queuedAt: text('queued_at').notNull(),
+  startedAt: text('started_at'),
+  completedAt: text('completed_at'),
+}, (table) => [
+  index('idx_worklist_chain').on(table.chainId),
+  index('idx_worklist_agent').on(table.agentId, table.status),
+  uniqueIndex('uq_worklist_hash').on(table.chainId, table.contentHash),
+]);
+
+export type ChainWorklistRow = InferSelectModel<typeof chainWorklist>;
+export type NewChainWorklistRow = InferInsertModel<typeof chainWorklist>;
+
+// ──────────────────────────────────────────────
+// A2A v2: delivery_cursor
+// ──────────────────────────────────────────────
+export const deliveryCursor = sqliteTable('delivery_cursor', {
+  agentId: text('agent_id').notNull(),
+  conversationId: text('conversation_id').notNull(),
+  lastChainId: text('last_chain_id'),
+  lastEntryId: text('last_entry_id'),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  uniqueIndex('pk_cursor').on(table.agentId, table.conversationId),
+]);
+
+export type DeliveryCursorRow = InferSelectModel<typeof deliveryCursor>;
+export type NewDeliveryCursorRow = InferInsertModel<typeof deliveryCursor>;
+
+// ──────────────────────────────────────────────
+// A2A v2: a2a_audit_log
+// ──────────────────────────────────────────────
+export const a2aAuditLog = sqliteTable('a2a_audit_log', {
+  id: text('id').primaryKey(),
+  chainId: text('chain_id'),
+  conversationId: text('conversation_id').notNull(),
+  eventType: text('event_type').notNull(),
+  fromAgentId: text('from_agent_id'),
+  toAgentId: text('to_agent_id'),
+  contentHash: text('content_hash'),
+  reason: text('reason'),
+  metadata: text('metadata'),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  index('idx_audit_chain').on(table.chainId),
+  index('idx_audit_conv').on(table.conversationId),
+]);
+
+export type A2aAuditLogRow = InferSelectModel<typeof a2aAuditLog>;
+export type NewA2aAuditLogRow = InferInsertModel<typeof a2aAuditLog>;

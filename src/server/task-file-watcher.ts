@@ -47,8 +47,29 @@ export function stopTaskWatcher(projectPath: string): void {
 }
 
 export function syncTasksToDb(projectPath: string, io: IOServer): void {
+  const { existsSync, readFileSync } = require('fs');
+  const { join } = require('path');
+  const tasksFile = join(projectPath, '.ath', 'TASKS.md');
+
   const { tasks: parsed, blockers } = readTasksMd(projectPath);
-  if (parsed.length === 0 && blockers.length === 0) return;
+
+  // Alert when file exists and has content but parser returned 0 tasks
+  if (parsed.length === 0) {
+    if (existsSync(tasksFile)) {
+      const raw = readFileSync(tasksFile, 'utf-8');
+      const nonEmptyLines = raw.split('\n').filter((l: string) => l.trim().length > 0);
+      if (nonEmptyLines.length > 2) {
+        console.warn(`[task-watcher] TASKS.md has ${nonEmptyLines.length} lines but parsed 0 tasks — possible format issue at ${tasksFile}`);
+        io.emit('task.sync_error', {
+          projectPath,
+          conversationId: conversationIdFromPath(projectPath),
+          message: `TASKS.md 解析失败：文件有 ${nonEmptyLines.length} 行内容但未识别到任何任务。请检查表格格式。`,
+          lineCount: nonEmptyLines.length,
+        });
+      }
+    }
+    if (blockers.length === 0) return;
+  }
 
   const newlyDone: string[] = [];
   const conversationId = conversationIdFromPath(projectPath);

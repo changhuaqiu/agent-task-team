@@ -50,6 +50,8 @@ export interface DispatchToAgentInput {
   source?: 'user' | 'a2a';
   fromAgentId?: string;
   conversationId?: string;
+  contextSnapshot?: string;
+  epochId?: string;
 }
 
 export type TeamRole = 'dev' | 'ux' | 'qa' | 'arch';
@@ -270,6 +272,9 @@ export interface TaskHubState {
   conversations: Conversation[];
   selectedConversationId: string | null;
   tasks: Task[];
+  taskSyncError: { message: string; timestamp: string; conversationId: string } | null;
+  lastTaskSyncAt: string | null;
+  clearTaskSyncError: () => void;
   chatMessagesByConversation: Record<string, ChatMessage[]>;
   eventsByConversation: Record<string, InternalEvent[]>;
   blockersByConversation: Record<string, Blocker[]>;
@@ -313,8 +318,8 @@ export interface TaskHubState {
   dispatchToAgent: (input: DispatchToAgentInput) => void;
   forceSendDispatch: (input: DispatchToAgentInput) => void;
   enqueueDispatch: (agentId: string, payload: Omit<PendingDispatch, 'queuedAt'>) => void;
-  dequeueNextPending: (agentId: string) => void;
-  clearPendingDispatches: (agentId: string) => void;
+  dequeueNextPending: (agentId: string, conversationId: string) => void;
+  clearPendingDispatches: (agentId: string, conversationId: string) => void;
   appendTerminalLog: (agentId: string, log: string) => void;
   simulateCliExecution: (taskId: string, prompt: string, sessionId?: string) => void;
   ensureStreamMessage: (agentId: string, conversationId: string) => string;
@@ -457,6 +462,9 @@ export const useTaskHubStore = create<TaskHubState>()(
         selectedProjectId: 'default' as ProjectId,
         conversations: [] as Conversation[],
         selectedConversationId: null as string | null,
+        taskSyncError: null as { message: string; timestamp: string; conversationId: string } | null,
+        lastTaskSyncAt: null as string | null,
+        clearTaskSyncError: () => set({ taskSyncError: null }),
         chatMessagesByConversation: {} as Record<string, ChatMessage[]>,
         eventsByConversation: {} as Record<string, InternalEvent[]>,
         blockersByConversation: {} as Record<string, Blocker[]>,
@@ -643,6 +651,14 @@ export const useTaskHubStore = create<TaskHubState>()(
             }
 
             get().loadSkills();
+
+            // Request fresh file sync for active conversations
+            if (socket.connected) {
+              const activeConvs = get().conversations.filter((c: Conversation) => c.status === 'active');
+              for (const conv of activeConvs.slice(0, 5)) {
+                socket.emit('task.request_sync', { conversationId: conv.id });
+              }
+            }
           } catch (err) {
             console.error('[loadFromServer] Failed:', err);
             set({ hasHydrated: true });
@@ -1360,16 +1376,20 @@ socket.on('terminal:exit', ({ agentId, code, command, reasonCode }: { agentId: s
   }));
   useTaskHubStore.getState().completeStreamMessage(agentId);
 
-  const pending = useTaskHubStore.getState().pendingDispatches[agentId];
-  if (pending && pending.length > 0) {
-    setTimeout(() => {
-      useTaskHubStore.getState().dequeueNextPending(agentId);
-    }, 300);
+  if (conversationId) {
+    const key = `${agentId}:${conversationId}`;
+    const pending = useTaskHubStore.getState().pendingDispatches[key];
+    if (pending && pending.length > 0) {
+      const exitConvId = conversationId;
+      setTimeout(() => {
+        useTaskHubStore.getState().dequeueNextPending(agentId, exitConvId);
+      }, 300);
+    }
   }
 });
 
-socket.on('a2a:dispatch', ({ agentId, prompt, referencedTaskId, fromAgentId, conversationId }: { agentId: string; prompt: string; referencedTaskId?: string; fromAgentId: string; conversationId?: string }) => {
-  console.log(`[a2a] dispatch from ${fromAgentId} to ${agentId}`);
+socket.on('a2a:dispatch', ({ agentId, prompt, referencedTaskId, fromAgentId, conversationId, chainId, entryId }: { agentId: string; prompt: string; referencedTaskId?: string; fromAgentId: string; conversationId?: string; chainId?: string; entryId?: string }) => {
+  console.log(`[a2a:v2] chain=${chainId} dispatch ${fromAgentId} → ${agentId}`);
   useTaskHubStore.getState().dispatchToAgent({
     agentId,
     prompt,
@@ -1385,16 +1405,20 @@ socket.on('agent:error', ({ agentId, message, reasonCode }: { agentId: string; m
 
   if (message === 'Agent is busy, message queued') {
     const active = state.activeRunsByAgent[agentId];
-    const pending = state.pendingDispatches[agentId];
+    const convId = active?.conversationId || state.selectedConversationId;
+    if (!convId) return;
+    const key = `${agentId}:${convId}`;
+    const pending = state.pendingDispatches[key];
     if (!pending || pending.length === 0) {
       useTaskHubStore.setState((s) => ({
         agentStatus: { ...s.agentStatus, [agentId]: 'busy' },
       }));
     }
+    const errConvId = convId;
     setTimeout(() => {
       const current = useTaskHubStore.getState();
-      if (current.agentStatus[agentId] === 'idle' && current.pendingDispatches[agentId]?.length) {
-        current.dequeueNextPending(agentId);
+      if (current.agentStatus[agentId] === 'idle' && current.pendingDispatches[key]?.length) {
+        current.dequeueNextPending(agentId, errConvId);
       }
     }, 2000);
     return;
@@ -1431,6 +1455,7 @@ socket.on('task.assigned', ({ taskId, agentId, conversationId }: { taskId: strin
 });
 
 socket.on('task.sync', ({ projectPath, conversationId, tasks: syncedTasks, blockers: syncedBlockers }: { projectPath: string; conversationId: string; tasks: any[]; blockers?: any[] }) => {
+  useTaskHubStore.setState({ lastTaskSyncAt: new Date().toISOString(), taskSyncError: null });
   const store = useTaskHubStore.getState();
 
   for (const synced of syncedTasks) {
@@ -1496,5 +1521,11 @@ socket.on('task.ready', ({ taskId, agentId }: { taskId: string; agentId: string 
     agentId,
     referencedTaskId: taskId,
     prompt: `依赖已满足，开始执行 ${taskId}: ${task.title}. ${task.description || ''}`,
+  });
+});
+
+socket.on('task.sync_error', ({ conversationId, message }: { conversationId: string; message: string }) => {
+  useTaskHubStore.setState({
+    taskSyncError: { message, timestamp: new Date().toISOString(), conversationId },
   });
 });

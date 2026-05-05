@@ -8,7 +8,7 @@ import { readAccount } from './accounts-file';
 import { readCredential } from './credentials';
 import { buildProbeEnv } from './cli-probe';
 import { generateRuntimeConfig, cleanupRuntimeConfig, makeInvocationId } from './opencode-config';
-import { startTaskWatcher } from './task-file-watcher';
+import { startTaskWatcher, syncTasksToDb } from './task-file-watcher';
 import type { AccountProvider as RuntimeAccountProvider } from './opencode-config';
 import type { CliEngine, DetectedRuntime } from './types';
 import { sessionRepo } from './repositories/session-repo';
@@ -134,10 +134,10 @@ export default function registerDaemon(io: IOServer) {
     })),
   );
 
-  // Expire stale A2A mailbox entries on startup
+  // Expire stale A2A chains on startup
   const expired = a2aMessenger.expireStale();
   if (expired > 0) {
-    console.log(`[a2a] expired ${expired} stale mailbox entries`);
+    console.log(`[a2a] expired ${expired} stale chains`);
   }
 
   // Agent pane listing endpoint
@@ -502,17 +502,22 @@ export default function registerDaemon(io: IOServer) {
           console.error(`[daemon] forwardAgentEvent error for ${agentId}:`, err);
         }
 
-        // A2A: scan agent's accumulated response for @mentions on completion
+        // A2A v2: on agent completion, let orchestrator scan for @mentions and advance chain
         if (event.type === 'done') {
           const accumulated = agentResponseBuffer.get(agentId);
-          if (accumulated) {
-            agentResponseBuffer.delete(agentId);
+          agentResponseBuffer.delete(agentId);
+          if (accumulated && sessionConvId) {
             a2aMessenger.onAgentResponse(agentId, accumulated, {
-              conversationId: sessionConvId ?? '',
+              conversationId: sessionConvId,
               taskId,
               triggerMessageId: undefined,
               chainDepth: 0,
+              epochId: undefined,
             }).catch(err => console.error('[a2a] onAgentResponse error:', err));
+          }
+          // Notify orchestrator agent is done (may trigger next worklist dispatch)
+          if (sessionConvId) {
+            a2aMessenger.orchestrator.onAgentDone(agentId, sessionConvId);
           }
         }
 
@@ -672,7 +677,8 @@ export default function registerDaemon(io: IOServer) {
       const sessionMeta = taskId ? workdirManager.readSessionMeta(agentId, projectId || 'default', taskId) : null;
 
       // Start file watcher for project-level .ath/ directory
-      const projectDir = join(workspacesRoot, projectId || 'default');
+      // Use conversationId (canonical) over projectId to match mutations/task-tools path
+      const projectDir = join(workspacesRoot, conversationId || projectId || 'default');
       startTaskWatcher(projectDir, io);
 
       // Inject .ath/ absolute path into prompt so agent can find TASKS.md
@@ -834,6 +840,12 @@ export default function registerDaemon(io: IOServer) {
       } catch (error) {
         callback?.({ error: 'Failed to remove worktree' });
       }
+    });
+
+    socket.on('task.request_sync', ({ conversationId: reqConvId }: { conversationId: string }) => {
+      const dir = join(workspacesRoot, reqConvId || 'default');
+      startTaskWatcher(dir, io);
+      syncTasksToDb(dir, io);
     });
   });
 }

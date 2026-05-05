@@ -264,3 +264,72 @@ describe('initProjectDir', () => {
     expect(existsSync(join(TMP, '.ath', 'ROLES.md'))).toBe(true);
   });
 });
+
+describe('parseTasksMd — checklist fallback', () => {
+  it('parses markdown checkbox format', () => {
+    const md = `# Tasks
+
+- [ ] Build login page
+- [x] Setup database
+- [ ] Write unit tests
+`;
+    const tasks = parseTasksMd(md);
+    expect(tasks).toHaveLength(3);
+    expect(tasks[0].title).toBe('Build login page');
+    expect(tasks[0].status).toBe('pending');
+    expect(tasks[1].title).toBe('Setup database');
+    expect(tasks[1].status).toBe('done');
+    expect(tasks[2].id).toBe('TASK-003');
+  });
+
+  it('extracts task IDs from checkbox lines', () => {
+    const md = `- [ ] TASK-001: Implement auth
+- [x] BUG-7: Fix memory leak
+`;
+    const tasks = parseTasksMd(md);
+    expect(tasks).toHaveLength(2);
+    expect(tasks[0].id).toBe('TASK-001');
+    expect(tasks[0].title).toBe('Implement auth');
+    expect(tasks[1].id).toBe('BUG-7');
+    expect(tasks[1].status).toBe('done');
+  });
+
+  it('parses status-prefix format', () => {
+    const md = `- doing: Implement API endpoints
+- done: Database schema
+- blocked: Frontend deployment
+`;
+    const tasks = parseTasksMd(md);
+    expect(tasks).toHaveLength(3);
+    expect(tasks[0].status).toBe('in_progress');
+    expect(tasks[0].title).toBe('Implement API endpoints');
+    expect(tasks[1].status).toBe('done');
+    expect(tasks[2].status).toBe('blocked');
+  });
+
+  it('does NOT use checklist fallback when table is present', () => {
+    const md = `| ID | Title | Phase | Role | Agent | Status | Depends | Deliverable |
+|----|-------|-------|------|-------|--------|---------|-------------|
+| TASK-001 | Real task | P1 | backend | luigi | doing | - | - |
+
+- [ ] This should NOT be parsed
+`;
+    const tasks = parseTasksMd(md);
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0].id).toBe('TASK-001');
+    expect(tasks[0].title).toBe('Real task');
+  });
+
+  it('handles partial table (fewer columns)', () => {
+    const md = `| ID | Title | Agent | Status |
+|----|-------|-------|--------|
+| TASK-001 | Fix bug | mario | doing |
+| TASK-002 | Add tests | toad | todo |
+`;
+    const tasks = parseTasksMd(md);
+    expect(tasks).toHaveLength(2);
+    expect(tasks[0].id).toBe('TASK-001');
+    expect(tasks[0].status).toBe('in_progress');
+    expect(tasks[1].status).toBe('pending');
+  });
+});

@@ -29,10 +29,18 @@ export interface ProjectMeta {
 
 const STATUS_MAP: Record<string, string> = {
   todo: 'pending',
+  pending: 'pending',
   doing: 'in_progress',
+  in_progress: 'in_progress',
+  'in progress': 'in_progress',
+  wip: 'in_progress',
   review: 'in_review',
+  in_review: 'in_review',
+  'in review': 'in_review',
   done: 'done',
+  completed: 'done',
   blocked: 'blocked',
+  rejected: 'rejected',
 };
 
 const STATUS_REVERSE: Record<string, string> = {
@@ -47,13 +55,14 @@ export function parseTasksMd(content: string): ParsedTask[] {
   const lines = content.split('\n');
   const tasks: ParsedTask[] = [];
 
-  // Detect old format by scanning for header row with "Level" as last column
+  // Detect format by scanning header row
   let isOldFormat = false;
+
   for (const line of lines) {
     const trimmed = line.trim();
-    if (trimmed.startsWith('|') && (trimmed.includes('| ID') || trimmed.includes('|ID'))) {
-      const headerCells = trimmed.split('|').map((c) => c.trim()).filter(Boolean);
-      if (headerCells.length >= 8 && /^Level$/i.test(headerCells[headerCells.length - 1])) {
+    if (trimmed.startsWith('|') && /\bID\b/i.test(trimmed)) {
+      const headerCells = trimmed.split('|').map((c) => c.trim().toLowerCase()).filter(Boolean);
+      if (headerCells.length >= 8 && headerCells[headerCells.length - 1] === 'level') {
         isOldFormat = true;
       }
       break;
@@ -62,38 +71,216 @@ export function parseTasksMd(content: string): ParsedTask[] {
 
   for (const line of lines) {
     const trimmed = line.trim();
-    if (!trimmed.startsWith('|') || trimmed.startsWith('|-') || trimmed.startsWith('| ID') || trimmed.startsWith('|ID')) continue;
+
+    // Stop parsing tasks at section boundaries (blockers, notes, etc.)
+    if (/^##\s/.test(trimmed)) break;
+    if (!trimmed.startsWith('|')) continue;
+    // Skip header and separator rows
+    if (/^\|[\s-|:]+$/.test(trimmed)) continue;
+    if (/\bID\b/i.test(trimmed) && /\bTitle\b/i.test(trimmed)) continue;
 
     const cells = trimmed.split('|').map((c) => c.trim()).filter(Boolean);
-    if (cells.length < 8) continue;
+    // Relaxed: accept rows with at least 2 cells (ID + Title minimum)
+    if (cells.length < 2) continue;
 
     const id = cells[0];
-    if (!id || (!id.includes('-') && !id.includes('.'))) continue;
+    if (!id) continue;
+    // Accept any ID that looks task-like: contains dash, dot, or TASK prefix
+    if (!id.includes('-') && !id.includes('.') && !/^TASK/i.test(id) && !/^\w+-\d+/.test(id)) continue;
+
+    // Helper to safely get cell value with default
+    const cell = (idx: number, fallback = ''): string => {
+      const val = cells[idx];
+      if (!val || val === '-') return fallback;
+      return val;
+    };
+
+    const normalizeStatus = (raw: string): string => {
+      const key = raw.toLowerCase().trim();
+      return STATUS_MAP[key] ?? (key || 'pending');
+    };
+
+    const parseDeps = (raw: string): string[] => {
+      if (!raw || raw === '-') return [];
+      return raw.split(',').map((s) => s.trim()).filter(Boolean);
+    };
 
     if (isOldFormat) {
       // Old format: ID | Title | Role | Agent | Status | Depends | Deliverable | Level
       tasks.push({
         id,
-        title: cells[1],
+        title: cell(1, id),
         phase: '',
-        role: cells[2],
-        agent: cells[3] === '-' ? '' : cells[3],
-        status: STATUS_MAP[cells[4]] ?? cells[4],
-        depends: cells[5] === '-' ? [] : cells[5].split(',').map((s) => s.trim()),
-        deliverable: cells[6] === '-' ? '' : cells[6],
+        role: cell(2),
+        agent: cell(3),
+        status: normalizeStatus(cell(4, 'todo')),
+        depends: parseDeps(cell(5)),
+        deliverable: cell(6),
       });
-    } else {
-      // New format: ID | Title | Phase | Role | Agent | Status | Depends | Deliverable
+    } else if (cells.length >= 8) {
+      // Full 8-column format: ID | Title | Phase | Role | Agent | Status | Depends | Deliverable
       tasks.push({
         id,
-        title: cells[1],
-        phase: cells[2] === '-' ? '' : cells[2],
-        role: cells[3],
-        agent: cells[4] === '-' ? '' : cells[4],
-        status: STATUS_MAP[cells[5]] ?? cells[5],
-        depends: cells[6] === '-' ? [] : cells[6].split(',').map((s) => s.trim()),
-        deliverable: cells[7] === '-' ? '' : cells[7],
+        title: cell(1, id),
+        phase: cell(2),
+        role: cell(3),
+        agent: cell(4),
+        status: normalizeStatus(cell(5, 'todo')),
+        depends: parseDeps(cell(6)),
+        deliverable: cell(7),
       });
+    } else if (cells.length >= 6) {
+      // Partial format (6-7 columns) — try to match by inferring columns
+      // Heuristic: if cell[5] looks like a status, use positional mapping
+      const possibleStatus = cells[5]?.toLowerCase().trim() || '';
+      if (STATUS_MAP[possibleStatus] || possibleStatus === '') {
+        // Likely: ID | Title | Phase | Role | Agent | Status [| Depends] [| Deliverable]
+        tasks.push({
+          id,
+          title: cell(1, id),
+          phase: cell(2),
+          role: cell(3),
+          agent: cell(4),
+          status: normalizeStatus(cell(5, 'todo')),
+          depends: parseDeps(cell(6)),
+          deliverable: cell(7),
+        });
+      } else {
+        // Likely: ID | Title | Agent | Status | Depends | Deliverable (minimal)
+        tasks.push({
+          id,
+          title: cell(1, id),
+          phase: '',
+          role: '',
+          agent: cell(2),
+          status: normalizeStatus(cell(3, 'todo')),
+          depends: parseDeps(cell(4)),
+          deliverable: cell(5),
+        });
+      }
+    } else if (cells.length >= 4) {
+      // 4-5 columns: try to find which cell is the status
+      // Check if cell[3] looks like a status → ID | Title | Agent | Status [| ...]
+      const c3 = cells[3]?.toLowerCase().trim() || '';
+      if (STATUS_MAP[c3]) {
+        tasks.push({
+          id,
+          title: cell(1, id),
+          phase: '',
+          role: '',
+          agent: cell(2),
+          status: normalizeStatus(cell(3, 'todo')),
+          depends: parseDeps(cell(4)),
+          deliverable: cell(5),
+        });
+      } else {
+        // cell[2] might be the status → ID | Title | Status | Agent
+        const c2 = cells[2]?.toLowerCase().trim() || '';
+        if (STATUS_MAP[c2]) {
+          tasks.push({
+            id,
+            title: cell(1, id),
+            phase: '',
+            role: '',
+            agent: cell(3),
+            status: normalizeStatus(cell(2, 'todo')),
+            depends: parseDeps(cell(4)),
+            deliverable: '',
+          });
+        } else {
+          // Default: ID | Title | col2 | col3 → treat as agent/status
+          tasks.push({
+            id,
+            title: cell(1, id),
+            phase: '',
+            role: '',
+            agent: cell(2),
+            status: normalizeStatus(cell(3, 'todo')),
+            depends: [],
+            deliverable: '',
+          });
+        }
+      }
+    } else if (cells.length >= 3) {
+      // 3 columns: ID | Title | Status (or Agent)
+      const third = cells[2]?.toLowerCase().trim() || '';
+      const isStatus = !!STATUS_MAP[third];
+      tasks.push({
+        id,
+        title: cell(1, id),
+        phase: '',
+        role: '',
+        agent: isStatus ? '' : cell(2),
+        status: isStatus ? normalizeStatus(cell(2)) : 'pending',
+        depends: [],
+        deliverable: '',
+      });
+    } else {
+      // 2 cells: ID | Title
+      tasks.push({
+        id,
+        title: cell(1, id),
+        phase: '',
+        role: '',
+        agent: '',
+        status: 'pending',
+        depends: [],
+        deliverable: '',
+      });
+    }
+  }
+
+  // Fallback: parse markdown checklist format when table parse found nothing
+  if (tasks.length === 0) {
+    let seqNum = 1;
+    for (const line of lines) {
+      const trimmed = line.trim();
+      // Match: - [ ] task  or  - [x] task  or  - [X] task
+      const checkboxMatch = trimmed.match(/^-\s*\[([ xX])\]\s+(.+)$/);
+      if (!checkboxMatch) {
+        // Also match: - status: task title (e.g. "- doing: Implement API")
+        const statusPrefixMatch = trimmed.match(/^-\s+(todo|doing|done|review|blocked|in_progress|pending):\s*(.+)$/i);
+        if (statusPrefixMatch) {
+          const rawStatus = statusPrefixMatch[1].toLowerCase();
+          const title = statusPrefixMatch[2].trim();
+          const idMatch = title.match(/^((?:TASK-\d+|[\w]+-\d+)[:\s])\s*(.*)$/i);
+          const id = idMatch ? idMatch[1].replace(/[:\s]+$/, '') : `TASK-${String(seqNum).padStart(3, '0')}`;
+          const cleanTitle = idMatch ? (idMatch[2] || title) : title;
+
+          tasks.push({
+            id,
+            title: cleanTitle,
+            phase: '',
+            role: '',
+            agent: '',
+            status: STATUS_MAP[rawStatus] ?? 'pending',
+            depends: [],
+            deliverable: '',
+          });
+          seqNum++;
+        }
+        continue;
+      }
+
+      const isDone = checkboxMatch[1].toLowerCase() === 'x';
+      const rawTitle = checkboxMatch[2].trim();
+
+      // Try to extract ID prefix: "TASK-001: title" or "BUG-1: title"
+      const idMatch = rawTitle.match(/^((?:TASK-\d+|[\w]+-\d+)[:\s])\s*(.*)$/i);
+      const id = idMatch ? idMatch[1].replace(/[:\s]+$/, '') : `TASK-${String(seqNum).padStart(3, '0')}`;
+      const cleanTitle = idMatch ? (idMatch[2] || rawTitle) : rawTitle;
+
+      tasks.push({
+        id,
+        title: cleanTitle,
+        phase: '',
+        role: '',
+        agent: '',
+        status: isDone ? 'done' : 'pending',
+        depends: [],
+        deliverable: '',
+      });
+      seqNum++;
     }
   }
 

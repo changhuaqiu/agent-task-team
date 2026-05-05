@@ -81,7 +81,12 @@ export interface PendingDispatch {
   queuedAt: string;
   source?: 'user' | 'a2a';
   fromAgentId?: string;
-  conversationId?: string;
+  conversationId: string;
+}
+
+/** Composite key for per-project queue isolation: agentId:conversationId */
+function queueKey(agentId: string, conversationId: string): string {
+  return `${agentId}:${conversationId}`;
 }
 
 export const createDaemonSlice = (set: any, get: () => any) => {
@@ -141,13 +146,6 @@ export const createDaemonSlice = (set: any, get: () => any) => {
       })),
 
     dispatchToAgent: ({ agentId, prompt, referencedTaskId, source, fromAgentId, conversationId: explicitConvId }: { agentId: string; prompt: string; referencedTaskId?: string; source?: 'user' | 'a2a'; fromAgentId?: string; conversationId?: string }) => {
-      if (get().agentStatus[agentId] === 'busy') {
-        console.log(`[dispatch] ${agentId} busy, enqueuing`);
-        get().enqueueDispatch(agentId, { prompt, referencedTaskId, source, fromAgentId });
-        return;
-      }
-      const projectId = get().selectedProjectId;
-      const sessionId = get().agentSessions[projectId]?.[agentId];
       const conversationId =
         explicitConvId ??
         (referencedTaskId ? get().getTaskById(referencedTaskId)?.conversationId : undefined) ??
@@ -156,6 +154,14 @@ export const createDaemonSlice = (set: any, get: () => any) => {
         console.warn(`[dispatch] ${agentId} aborted: no conversationId`);
         return;
       }
+
+      if (get().agentStatus[agentId] === 'busy') {
+        console.log(`[dispatch] ${agentId} busy, enqueuing for conversation ${conversationId}`);
+        get().enqueueDispatch(agentId, { prompt, referencedTaskId, source, fromAgentId, conversationId });
+        return;
+      }
+      const projectId = get().selectedProjectId;
+      const sessionId = get().agentSessions[projectId]?.[agentId];
       const runId = `run-${Date.now()}-${Math.random().toString(16).slice(2)}`;
       const agent = AGENT_ROSTER.find((item) => item.id === agentId);
       let effectiveIds: string[] = [];
@@ -213,6 +219,10 @@ export const createDaemonSlice = (set: any, get: () => any) => {
             status: t.status,
           })),
         skills: get().getSkillsForAgent(agentId),
+        a2a: source === 'a2a' && fromAgentId ? {
+          from: fromAgentId,
+          content: prompt,
+        } : undefined,
       };
 
       const systemPrompt = composeSystemPrompt(composeOpts);
@@ -255,27 +265,16 @@ export const createDaemonSlice = (set: any, get: () => any) => {
     enqueueDispatch: (agentId: string, payload: Omit<PendingDispatch, 'queuedAt'>) => {
       const conversationId = payload.conversationId
         ?? (payload.referencedTaskId ? get().getTaskById(payload.referencedTaskId)?.conversationId : undefined)
-        ?? get().selectedConversationId
-        ?? undefined;
-      const entry: PendingDispatch = { ...payload, queuedAt: new Date().toISOString(), conversationId };
+        ?? get().selectedConversationId;
+      if (!conversationId) return;
 
-      // 同 taskId 的排队指令合并追加，保留原 conversationId 不覆盖
-      const existing = get().pendingDispatches[agentId];
-      if (existing && existing.length > 0 && payload.referencedTaskId) {
-        const match = existing.find((d: PendingDispatch) => d.referencedTaskId === payload.referencedTaskId);
-        if (match) {
-          match.prompt = `${match.prompt}\n\n[追加指令]: ${payload.prompt}`;
-          set((state: any) => ({
-            pendingDispatches: { ...state.pendingDispatches },
-          }));
-          return;
-        }
-      }
+      const entry: PendingDispatch = { ...payload, queuedAt: new Date().toISOString(), conversationId };
+      const key = queueKey(agentId, conversationId);
 
       set((state: any) => ({
         pendingDispatches: {
           ...state.pendingDispatches,
-          [agentId]: [...(state.pendingDispatches[agentId] || []), entry],
+          [key]: [...(state.pendingDispatches[key] || []), entry],
         },
       }));
 
@@ -286,85 +285,73 @@ export const createDaemonSlice = (set: any, get: () => any) => {
           type: 'dispatch.enqueue',
           payload: { agentId, prompt: payload.prompt, referencedTaskId: payload.referencedTaskId },
         }),
-      }).catch(() => { /* fire-and-forget: 队列已入内存，服务端持久化失败不影响本地调度 */ });
+      }).catch(() => {});
     },
 
-    dequeueNextPending: (agentId: string) => {
-      const queue = get().pendingDispatches[agentId];
+    dequeueNextPending: (agentId: string, conversationId: string) => {
+      const key = queueKey(agentId, conversationId);
+      const queue = get().pendingDispatches[key];
       if (!queue || queue.length === 0) return;
       const [next, ...rest] = queue;
       const nextPending = { ...get().pendingDispatches };
       if (rest.length > 0) {
-        nextPending[agentId] = rest;
+        nextPending[key] = rest;
       } else {
-        delete nextPending[agentId];
+        delete nextPending[key];
       }
       set({ pendingDispatches: nextPending });
-      const conversationId = next.conversationId
+      const nextConvId = next.conversationId
         ?? (next.referencedTaskId ? get().getTaskById(next.referencedTaskId)?.conversationId : undefined)
         ?? get().selectedConversationId;
-      if (conversationId) {
-        if (next.source === 'a2a') {
-          set((state: any) => ({
-            chatMessagesByConversation: {
-              ...state.chatMessagesByConversation,
-              [conversationId]: [
-                ...(state.chatMessagesByConversation[conversationId] || []),
-                {
-                  id: `msg-${Date.now()}`,
-                  agentId: next.fromAgentId ?? 'system',
-                  content: next.prompt,
-                  referencedTaskId: next.referencedTaskId,
-                  timestamp: new Date().toISOString(),
-                  mentions: [agentId],
-                  intent: 'general' as const,
-                  source: 'a2a',
-                  fromAgentId: next.fromAgentId,
-                },
-              ],
-            },
-          }));
-        } else {
-          set((state: any) => ({
-            chatMessagesByConversation: {
-              ...state.chatMessagesByConversation,
-              [conversationId]: [
-                ...(state.chatMessagesByConversation[conversationId] || []),
-                {
-                  id: `msg-${Date.now()}`,
-                  agentId: 'human' as const,
-                  content: next.prompt,
-                  referencedTaskId: next.referencedTaskId,
-                  timestamp: new Date().toISOString(),
-                  mentions: [agentId],
-                  intent: 'general' as const,
-                  source: next.source,
-                  fromAgentId: next.fromAgentId,
-                },
-              ],
-            },
-          }));
-        }
+      if (nextConvId) {
+        set((state: any) => ({
+          chatMessagesByConversation: {
+            ...state.chatMessagesByConversation,
+            [nextConvId]: [
+              ...(state.chatMessagesByConversation[nextConvId] || []),
+              {
+                id: `msg-${Date.now()}`,
+                agentId: next.source === 'a2a' ? (next.fromAgentId ?? 'system') : 'human',
+                content: next.prompt,
+                referencedTaskId: next.referencedTaskId,
+                timestamp: new Date().toISOString(),
+                mentions: [agentId],
+                intent: 'general' as const,
+                source: next.source ?? 'user',
+                fromAgentId: next.fromAgentId,
+              },
+            ],
+          },
+        }));
       }
-      get().dispatchToAgent({ agentId, prompt: next.prompt, referencedTaskId: next.referencedTaskId, conversationId });
+      get().dispatchToAgent({
+        agentId,
+        prompt: next.prompt,
+        referencedTaskId: next.referencedTaskId,
+        source: next.source,
+        fromAgentId: next.fromAgentId,
+        conversationId: nextConvId,
+      });
     },
 
-    clearPendingDispatches: (agentId: string) => {
+    clearPendingDispatches: (agentId: string, conversationId: string) => {
+      const key = queueKey(agentId, conversationId);
       const nextPending = { ...get().pendingDispatches };
-      delete nextPending[agentId];
+      delete nextPending[key];
       set({ pendingDispatches: nextPending });
     },
 
-    forceSendDispatch: ({ agentId, prompt, referencedTaskId }: { agentId: string; prompt: string; referencedTaskId?: string }) => {
+    forceSendDispatch: ({ agentId, prompt, referencedTaskId, conversationId: explicitConvId }: { agentId: string; prompt: string; referencedTaskId?: string; conversationId?: string }) => {
+      const conversationId = explicitConvId ?? get().selectedConversationId ?? '';
       socket.emit('terminal:kill', { agentId, projectId: get().selectedProjectId, force: true });
-      get().clearPendingDispatches(agentId);
+      if (conversationId) get().clearPendingDispatches(agentId, conversationId);
       get().completeStreamMessage(agentId);
       set((state: any) => ({
         agentStatus: { ...state.agentStatus, [agentId]: 'idle' },
         activeRunsByAgent: { ...state.activeRunsByAgent, [agentId]: undefined },
       }));
       setTimeout(() => {
-        get().dispatchToAgent({ agentId, prompt, referencedTaskId });
+        get().dispatchToAgent({ agentId, prompt, referencedTaskId, conversationId });
       }, 500);
     },
 

@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react';
 import { useTaskHubStore, type Task } from '@/store/taskHubStore';
 import { MiniKanban } from './MiniKanban';
 import { cn } from '@/lib/utils';
-import { PanelRightOpen, PanelRightClose } from 'lucide-react';
+import { PanelRightOpen, PanelRightClose, AlertTriangle } from 'lucide-react';
 
 type NextItem = {
   label: string;
@@ -23,6 +23,35 @@ function buildNextItems(tasks: Task[]): NextItem[] {
     if (t.status === 'pending') items.push({ label: `可开始：${t.id} ${t.title}`, taskId: t.id });
   }
   return items.slice(0, 6);
+}
+
+function SyncStatusBar() {
+  const syncError = useTaskHubStore((s) => s.taskSyncError);
+  const lastSyncAt = useTaskHubStore((s) => s.lastTaskSyncAt);
+  const clearError = useTaskHubStore((s) => s.clearTaskSyncError);
+  const selectedConvId = useTaskHubStore((s) => s.selectedConversationId);
+
+  if (syncError && syncError.conversationId === selectedConvId) {
+    return (
+      <div className="rounded border border-[hsl(var(--danger))] bg-[hsl(var(--status-rejected-bg))] px-3 py-2 flex items-center gap-2">
+        <AlertTriangle className="w-3.5 h-3.5 text-[hsl(var(--danger))] shrink-0" />
+        <span className="text-xs text-[hsl(var(--danger))] flex-1">{syncError.message}</span>
+        <button onClick={clearError} className="text-xs text-[hsl(var(--text-tertiary))] hover:underline shrink-0">dismiss</button>
+      </div>
+    );
+  }
+
+  if (lastSyncAt) {
+    const seconds = Math.floor((Date.now() - new Date(lastSyncAt).getTime()) / 1000);
+    const ago = seconds < 60 ? 'just now' : seconds < 3600 ? `${Math.floor(seconds / 60)}m ago` : `${Math.floor(seconds / 3600)}h ago`;
+    return (
+      <div className="text-[10px] text-[hsl(var(--text-tertiary))]">
+        synced: {ago}
+      </div>
+    );
+  }
+
+  return null;
 }
 
 export function ProjectRightPanel() {
@@ -62,6 +91,7 @@ export function ProjectRightPanel() {
       {open && (
         <aside className="w-[520px] shrink-0 h-full border-l border-[hsl(var(--border))] bg-[hsl(var(--bg-app))] flex flex-col animate-slide-in-r">
           <div className="flex-1 overflow-y-auto scrollbar-thin p-4 flex flex-col gap-4">
+            <SyncStatusBar />
             <MiniKanban expanded={true} />
 
             {/* Next actions */}

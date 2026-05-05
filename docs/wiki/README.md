@@ -11,6 +11,7 @@
 - [05-运行与开发](./05-run-and-dev.md)
 - [06-依赖与集成点](./06-dependencies.md)
 - [07-架构图（基于当前代码）](./07-architecture-diagrams.md)
+- [08-开发流程门控规范（G1/G2/G3 + Hotfix）](./08-review-protocols.md)
 
 ## 最短上手路径（从 0 到可运行）
 

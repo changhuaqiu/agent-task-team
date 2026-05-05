@@ -1,7 +1,7 @@
 // src/__tests__/server/a2a/scanner.test.ts
 import { describe, it, expect } from 'vitest';
-import { scanMentions } from '@/server/a2a/scanner';
-import type { AgentMentionConfig } from '@/server/a2a/types';
+import { scanMentions, extractMentionContent } from '@/server/a2a/scanner';
+import type { AgentMentionConfig } from '@/server/a2a/types-v2';
 
 const AGENTS: AgentMentionConfig[] = [
   { id: 'mario', mentionPatterns: ['@mario', '@Mario', '@马里奥'] },
@@ -71,5 +71,31 @@ describe('scanMentions', () => {
     const text = '没有 mention 的普通文本';
     const result = scanMentions(text, AGENTS, 'mario');
     expect(result).toHaveLength(0);
+  });
+});
+
+describe('extractMentionContent', () => {
+  it('extracts content after @mention', () => {
+    const text = '状态广播：BUG-7 done\n\n@luigi 请开始写文档\n\n其他内容';
+    const targets = scanMentions(text, AGENTS, 'mario');
+    const content = extractMentionContent(text, targets[0]);
+    expect(content).toContain('请开始写文档');
+    expect(content).not.toContain('BUG-7 done');
+  });
+
+  it('falls back to full text when mention content is too short', () => {
+    const text = '内容 @luigi';
+    const targets = scanMentions(text, AGENTS, 'mario');
+    const content = extractMentionContent(text, targets[0]);
+    // No content after mention, falls back to full text
+    expect(content).toBe(text);
+  });
+
+  it('stops at next @mention', () => {
+    const text = '@luigi 请实现前端的登录组件和注册页面 @toad 写测试';
+    const targets = scanMentions(text, AGENTS, 'mario');
+    const content = extractMentionContent(text, targets[0]);
+    expect(content).toContain('请实现前端的登录组件和注册页面');
+    expect(content).not.toContain('@toad');
   });
 });

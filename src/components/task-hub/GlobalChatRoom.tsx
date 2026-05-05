@@ -30,7 +30,22 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
   const pendingDispatches = useTaskHubStore(useShallow((s) => s.pendingDispatches));
   const clearPendingDispatches = useTaskHubStore((s) => s.clearPendingDispatches);
   const forceSendDispatch = useTaskHubStore((s) => s.forceSendDispatch);
-  const hasPending = Object.keys(pendingDispatches).some((k) => (pendingDispatches[k]?.length ?? 0) > 0);
+
+  const currentPending = useMemo(() => {
+    const convId = selectedConversationId;
+    if (!convId) return {};
+    const result: Record<string, PendingDispatch[]> = {};
+    for (const [key, queue] of Object.entries(pendingDispatches)) {
+      if (!queue || queue.length === 0) continue;
+      if (key.endsWith(`:${convId}`)) {
+        const agentId = key.slice(0, -(convId.length + 1));
+        result[agentId] = queue;
+      }
+    }
+    return result;
+  }, [pendingDispatches, selectedConversationId]);
+
+  const hasPending = Object.keys(currentPending).length > 0;
   const [inputValue, setInputValue] = useState('');
   const [filter, setFilter] = useState<ChatFilter>({ intent: null, agentId: null, userOnly: false, search: '' });
   const [mentionOpen, setMentionOpen] = useState(false);
@@ -257,9 +272,11 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
       {hasPending && (
         <div className="shrink-0 px-4 py-2 bg-[hsl(var(--bg-muted))] border-t border-[hsl(var(--border-subtle))]">
           <div className="flex flex-col gap-1.5">
-            {Object.entries(pendingDispatches).map(([agentId, queue]) => {
+            {Object.entries(currentPending).map(([agentId, queue]) => {
               if (!queue || queue.length === 0) return null;
               const agent = AGENT_ROSTER.find((a) => a.id === agentId);
+              const convId = selectedConversationId ?? '';
+              const key = `${agentId}:${convId}`;
               return (
                 <div key={agentId} className="flex items-start gap-2">
                   <div className="flex items-center gap-1.5 shrink-0 mt-0.5">
@@ -279,7 +296,7 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
                         {i === 0 && (
                           <button
                             type="button"
-                            onClick={() => forceSendDispatch({ agentId, prompt: item.prompt, referencedTaskId: item.referencedTaskId })}
+                            onClick={() => forceSendDispatch({ agentId, prompt: item.prompt, referencedTaskId: item.referencedTaskId, conversationId: convId })}
                             className="shrink-0 text-[hsl(var(--text-tertiary))] hover:text-amber-400"
                             title="强制发送（中断当前任务）"
                           >
@@ -292,9 +309,9 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
                             const next = queue.filter((_, j) => j !== i);
                             const pd = { ...useTaskHubStore.getState().pendingDispatches };
                             if (next.length > 0) {
-                              pd[agentId] = next;
+                              pd[key] = next;
                             } else {
-                              delete pd[agentId];
+                              delete pd[key];
                             }
                             useTaskHubStore.setState({ pendingDispatches: pd });
                           }}
@@ -308,7 +325,7 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
                   </div>
                   <button
                     type="button"
-                    onClick={() => clearPendingDispatches(agentId)}
+                    onClick={() => clearPendingDispatches(agentId, convId)}
                     className="shrink-0 text-[9px] text-[hsl(var(--text-tertiary))] hover:text-[hsl(var(--status-rejected))] mt-0.5"
                     title="清空全部"
                   >
