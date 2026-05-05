@@ -1215,7 +1215,7 @@ export const useTaskHubStore = create<TaskHubState>()(
     },
     {
       name: 'agent-task-hub-store-clean',
-      version: 3,
+      version: 4,
       migrate: (persisted: any, version: number) => {
         if (version === 0) {
           const idMap: Record<string, string> = {
@@ -1267,6 +1267,9 @@ export const useTaskHubStore = create<TaskHubState>()(
         if (version < 3) {
           persisted.activeAgentIds = ['mario', 'luigi'];
         }
+        if (version < 4) {
+          persisted.currentTeamPack = persisted.currentTeamPack ?? null;
+        }
         return persisted;
       },
       partialize: (state) => ({
@@ -1276,6 +1279,7 @@ export const useTaskHubStore = create<TaskHubState>()(
         eventsByConversation: state.eventsByConversation,
         blockersByConversation: state.blockersByConversation,
         activeAgentIds: state.activeAgentIds,
+        currentTeamPack: state.currentTeamPack,
         agentSessions: state.agentSessions,
         agentAccountOverrides: state.agentAccountOverrides,
         enableMockRunner: state.enableMockRunner,
