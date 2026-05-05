@@ -796,6 +796,21 @@ export const useTaskHubStore = create<TaskHubState>()(
             },
           }));
 
+          // If team pack selected, fetch it and sync activeAgentIds immediately
+          if (teamPackId) {
+            fetch(`/api/team-packs/${teamPackId}`)
+              .then((res) => res.ok ? res.json() : null)
+              .then((teamPack) => {
+                if (teamPack && teamPack.roles?.length > 0) {
+                  set({
+                    activeAgentIds: teamPack.roles.map((r: any) => r.id),
+                    currentTeamPack: teamPack,
+                  });
+                }
+              })
+              .catch(() => {}); // Non-blocking; user can still use the app
+          }
+
           get().addSupervisorOutput({
             kind: 'status_report',
             conversationId: id,
