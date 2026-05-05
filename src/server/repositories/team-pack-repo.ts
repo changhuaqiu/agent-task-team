@@ -86,8 +86,8 @@ export const teamPackRepo = {
     const db = getDb();
 
     db.prepare(
-      `INSERT INTO team_pack (id, name, display_name, description, version, author, license, tags, category, team_mode, workflow, communication_matrix, shared_context, rules, is_preset, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`
+      `INSERT INTO team_pack (id, name, display_name, description, version, author, license, tags, category, team_mode, workflow, communication_matrix, shared_context, rules, source, is_preset, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`
     ).run(
       id,
       input.name,
@@ -103,6 +103,7 @@ export const teamPackRepo = {
       JSON.stringify(input.communicationMatrix),
       input.sharedContext ? JSON.stringify(input.sharedContext) : null,
       input.rules ? JSON.stringify(input.rules) : null,
+      input.source ? JSON.stringify(input.source) : null,
       now,
       now
     );

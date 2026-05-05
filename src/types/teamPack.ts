@@ -113,4 +113,9 @@ export interface CreateTeamPackInput {
   communicationMatrix: TeamPackCommunicationMatrix;
   sharedContext?: TeamPackSharedContext;
   rules?: TeamPackRules;
+  source?: {
+    type: 'github' | 'preset';
+    url?: string;
+    importedAt: string;
+  };
 }
