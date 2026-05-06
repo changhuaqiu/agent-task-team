@@ -55,7 +55,7 @@ export function KanbanCard({ task, theme, onClick, onContextMenu }: KanbanCardPr
   const hasFileArtifact = task.artifacts?.some((a) => a.type === 'file' || a.type === 'pr' || a.type === 'log');
   const hasLinkArtifact = task.artifacts?.some((a) => a.type === 'link');
   const hasDeps = task.dependencies && task.dependencies.length > 0;
-  const hasBottomRow = !isUnassigned || hasDeps || hasFileArtifact || hasLinkArtifact;
+  const hasBottomRow = true;
 
   return (
     <div
@@ -94,7 +94,9 @@ export function KanbanCard({ task, theme, onClick, onContextMenu }: KanbanCardPr
       {/* Bottom row — only render if there's content */}
       {hasBottomRow && (
         <div className="mt-1 flex items-center gap-2 text-[10px] text-[hsl(var(--text-tertiary))]">
-          {!isUnassigned && (
+          {isUnassigned ? (
+            <span className="font-medium text-[hsl(var(--text-secondary))]">Unassigned</span>
+          ) : (
             <span className="font-medium text-[hsl(var(--text-secondary))]">@{task.agentId}</span>
           )}
 

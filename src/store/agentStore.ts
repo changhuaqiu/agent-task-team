@@ -262,7 +262,12 @@ export const createAgentSlice = (set: any, get: () => any) => {
       if (idx !== -1) {
         (AGENT_ROSTER as Agent[])[idx].roleCardId = roleCardId;
       }
-      set({}); // trigger re-render
+      set((state: any) => ({
+        agentRoleCardOverrides: {
+          ...(state.agentRoleCardOverrides ?? {}),
+          [agentId]: roleCardId,
+        },
+      }));
     },
     setRoleCardAccountIds: (roleCardId: string, accountIds: string[]) =>
       set((state: any) => ({
@@ -273,6 +278,7 @@ export const createAgentSlice = (set: any, get: () => any) => {
 
     // Agent account bindings
     agentAccountOverrides: {} as Record<string, string[]>,
+    agentRoleCardOverrides: {} as Record<string, string>,
     setAgentAccountIds: (agentId: string, accountIds: string[]) =>
       set((state: any) => ({
         agentAccountOverrides: {
@@ -323,7 +329,10 @@ export const createAgentSlice = (set: any, get: () => any) => {
           };
         }
 
-        const agentIds = AGENT_ROSTER.map((a) => a.id);
+        const effectiveRoster = typeof get().getEffectiveRoster === 'function'
+          ? get().getEffectiveRoster()
+          : AGENT_ROSTER;
+        const agentIds: string[] = Array.from(new Set<string>(effectiveRoster.map((a: Agent) => a.id)));
         const assignments: Record<string, string[]> = {};
         await Promise.all(agentIds.map(async (id) => {
           try {

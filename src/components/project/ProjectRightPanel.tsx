@@ -51,14 +51,14 @@ function SyncStatusBar() {
   return null;
 }
 
-export function ProjectRightPanel({ conversationId }: { conversationId: string }) {
+export function ProjectRightPanel({ teamPackId }: { teamPackId: string }) {
   const selectedConversationId = useTaskHubStore((s) => s.selectedConversationId);
   const tasks = useTaskHubStore((s) => s.tasks);
   const blockers = useTaskHubStore((s) => s.getOpenBlockersForSelectedConversation());
   const setSelectedTaskId = useTaskHubStore((s) => s.setSelectedTaskId);
   
   const { teamPacks, fetchTeamPacks } = useTeamPackStore();
-  const teamPack = teamPacks.find(p => p.id === conversationId && conversationId);
+  const teamPack = teamPacks.find(p => p.id === teamPackId && teamPackId);
 
   const [open, setOpen] = useState(() => {
     const scopedTasks = tasks.filter(t => t.conversationId === selectedConversationId);

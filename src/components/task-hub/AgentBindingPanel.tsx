@@ -33,6 +33,7 @@ export function AgentBindingPanel({ agentId, agentName }: AgentBindingPanelProps
   const accounts = useTaskHubStore((s) => s.accounts);
   const roleCards = useTaskHubStore((s) => s.roleCards);
   const setRoleCardAccountIds = useTaskHubStore((s) => s.setRoleCardAccountIds);
+  const setAgentAccountIds = useTaskHubStore((s) => s.setAgentAccountIds);
   const setAgentRoleCardId = useTaskHubStore((s) => s.setAgentRoleCardId);
   const selectedProjectId = useTaskHubStore((s) => s.selectedProjectId);
   const agentSessions = useTaskHubStore((s) => s.agentSessions);
@@ -40,19 +41,14 @@ export function AgentBindingPanel({ agentId, agentName }: AgentBindingPanelProps
   const skillsMap = useTaskHubStore((s) => s.skillsMap);
   const agentSkillIds = useTaskHubStore((s) => s.agentSkillIds);
   const assignSkillsToAgent = useTaskHubStore((s) => s.assignSkillsToAgent);
-
-  const getEffectiveRoster = useTaskHubStore((s) => s.getEffectiveRoster);
-  const effectiveRoster = getEffectiveRoster();
+  const getAgentRuntimeProfile = useTaskHubStore((s) => s.getAgentRuntimeProfile);
+  const profile = getAgentRuntimeProfile(agentId);
 
   const sessionId = agentSessions[selectedProjectId]?.[agentId];
   const activeRun = activeRunsByAgent[agentId];
 
-  // Find current agent's role card (from effective roster which includes team pack roles)
-  const agent = effectiveRoster.find((a) => a.id === agentId);
-  const currentRoleCard = agent?.roleCardId ? roleCards.find((c) => c.id === agent.roleCardId) : null;
-
-  // Account IDs come from the role card now
-  const boundIds = currentRoleCard?.accountIds ?? [];
+  const currentRoleCard = profile?.roleCard ?? null;
+  const boundIds = profile?.accountIds ?? [];
   const boundAccounts = boundIds
     .map((id) => accounts.find((a) => a.id === id))
     .filter((a): a is Account => Boolean(a));
@@ -89,14 +85,20 @@ export function AgentBindingPanel({ agentId, agentName }: AgentBindingPanelProps
     return () => document.removeEventListener('mousedown', handler);
   }, [showSkillPicker]);
 
+  const writeAccountBinding = (nextIds: string[]) => {
+    if (currentRoleCard) {
+      setRoleCardAccountIds(currentRoleCard.id, nextIds);
+      return;
+    }
+    setAgentAccountIds(agentId, nextIds);
+  };
+
   const handleUnbind = (accountId: string) => {
-    if (!currentRoleCard) return;
-    setRoleCardAccountIds(currentRoleCard.id, boundIds.filter((id) => id !== accountId));
+    writeAccountBinding(boundIds.filter((id) => id !== accountId));
   };
 
   const handleBind = (accountId: string) => {
-    if (!currentRoleCard) return;
-    setRoleCardAccountIds(currentRoleCard.id, [...boundIds, accountId]);
+    writeAccountBinding([...boundIds, accountId]);
     setShowAdd(false);
   };
 

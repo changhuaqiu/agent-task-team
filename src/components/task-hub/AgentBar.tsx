@@ -13,6 +13,7 @@ export function AgentBar() {
   const setRosterModalOpen = useTaskHubStore((s) => s.setRosterModalOpen);
   const tasks = useTaskHubStore((s) => s.tasks);
   const getEffectiveRoster = useTaskHubStore((s) => s.getEffectiveRoster);
+  const getAgentRuntimeProfile = useTaskHubStore((s) => s.getAgentRuntimeProfile);
 
   const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -38,19 +39,20 @@ export function AgentBar() {
     <div ref={containerRef} className="px-4 pt-2 pb-1">
       <div className="flex items-center gap-1.5 flex-wrap">
         {activeAgents.map((agent) => {
-          const roleCard = agent.roleCardId
-            ? roleCards.find((c) => c.id === agent.roleCardId) ?? null
-            : null;
+          const profile = getAgentRuntimeProfile(agent.id);
+          const roleCard = profile?.roleCard
+            ?? (agent.roleCardId ? roleCards.find((c) => c.id === agent.roleCardId) ?? null : null);
           const cfg = roleCard
             ? getCategoryConfig(roleCard.category)
             : agent.roleLabel
               ? { themeVar: '--color-blue', label: agent.roleLabel }
               : null;
-          const boundCount = roleCard?.accountIds.length ?? 0;
-          const hasValidAccount = roleCard?.accountIds.some((id) => {
+          const boundIds = profile?.accountIds ?? roleCard?.accountIds ?? [];
+          const boundCount = boundIds.length;
+          const hasValidAccount = boundIds.some((id) => {
             const acc = accounts.find((a) => a.id === id);
             return acc?.status === 'valid';
-          }) ?? false;
+          });
           const isExpanded = expandedAgent === agent.id;
           const currentTask = tasks.find((t: { agentId: string; status: string }) => t.agentId === agent.id && t.status === 'in_progress');
 

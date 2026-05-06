@@ -167,6 +167,17 @@ dispatch → composeOpts.teamPack → PromptComposer → Agent prompt 包含团�
 
 **方案**：在种子函数中显式设置 `source: { type: 'preset', importedAt: new Date().toISOString() }`
 
+### 4.4 Team Pack 角色与旧角色卡绑定兼容
+
+~~**问题**：动态 Team Pack 角色已能显示在 AgentBar，但旧的账号、技能、角色卡切换、dispatch 链路仍有部分路径依赖 `AGENT_ROSTER` 或已存在的 RoleCard。~~
+
+**✅ 已修复**：通过 `getAgentRuntimeProfile(agentId)` 统一解析运行时角色：
+- 从 `getEffectiveRoster()` 读取当前项目可用角色，支持 `planner/coder/reviewer` 等 Team Pack 动态角色
+- 使用 `agentRoleCardOverrides` 保存动态角色的角色卡切换结果
+- 账号解析优先使用 RoleCard 账号，缺失时回退到 `agentAccountOverrides[agentId]` 和 agent 自身账号
+- `AgentBindingPanel`、`AgentBar`、技能加载、dispatch、模拟执行共用同一解析结果
+- `loadSkills()` 现在按 effective roster 拉取技能绑定，动态角色的技能分配可重新加载
+
 ---
 
 ## 五、下一步计划

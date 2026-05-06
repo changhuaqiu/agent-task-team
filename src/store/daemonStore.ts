@@ -4,7 +4,8 @@ import { io } from 'socket.io-client';
 import type { DetectedRuntime, CliEngine } from '@/server/types';
 import { composeSystemPrompt, composeUserPrompt } from '@/lib/agent-context/PromptComposer';
 import type { ComposeOptions } from '@/lib/agent-context/PromptComposer';
-import { AGENT_ROSTER, resolveAgentEngine } from './agentStore';
+import { resolveAgentEngine } from './agentStore';
+import type { Agent } from './agentStore';
 
 // --- Shared socket instance ---
 export const socket = io(undefined, { path: '/api/socketio', autoConnect: false });
@@ -163,23 +164,16 @@ export const createDaemonSlice = (set: any, get: () => any) => {
       const projectId = get().selectedProjectId;
       const sessionId = get().agentSessions[projectId]?.[agentId];
       const runId = `run-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-      const agent = AGENT_ROSTER.find((item) => item.id === agentId);
-      let effectiveIds: string[] = [];
-      if (agent) {
-        const roleCard = agent.roleCardId ? get().roleCards.find((c: any) => c.id === agent.roleCardId) : null;
-        if (roleCard && roleCard.accountIds.length > 0) {
-          effectiveIds = roleCard.accountIds;
-        } else {
-          effectiveIds = get().agentAccountOverrides[agentId] ?? agent.accountIds;
-        }
-      }
+      const profile = get().getAgentRuntimeProfile(agentId);
+      const agent = profile?.agent;
+      const effectiveIds = profile?.accountIds ?? [];
       const resolvedBinding = agent ? resolveAgentEngine({ ...agent, accountIds: effectiveIds }, get().accounts) : null;
       const agentEngine = agent?.cliEngine ?? 'opencode';
       const resolvedEngine = resolvedBinding?.engine ?? agentEngine;
 
       console.log(`[dispatch] ${agentId} → engine=${resolvedEngine}, accountId=${resolvedBinding?.accountId ?? '(none)'}, convId=${conversationId}`);
 
-      const roleCard = agent?.roleCardId ? get().roleCards.find((c: any) => c.id === agent.roleCardId) : undefined;
+      const roleCard = profile?.roleCard;
       const conv = get().conversations.find((c: any) => c.id === conversationId);
       const task = referencedTaskId ? get().getTaskById(referencedTaskId) : undefined;
       const phase = task?.phaseId ? get().phases.find((p: any) => p.id === task.phaseId) : undefined;
@@ -201,7 +195,7 @@ export const createDaemonSlice = (set: any, get: () => any) => {
         } : undefined,
         rawPrompt: prompt,
         currentLoad: Object.fromEntries(
-          AGENT_ROSTER.map((rosterAgent) => [
+          get().getEffectiveRoster().map((rosterAgent: Agent) => [
             rosterAgent.id,
             get().tasks.filter(
               (t: any) =>
@@ -381,21 +375,14 @@ export const createDaemonSlice = (set: any, get: () => any) => {
       const resolvedSessionId = sessionId || state.agentSessions[projectId]?.[agentId];
       const conversationId = task.conversationId;
       const runId = `run-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-      const agent = AGENT_ROSTER.find((item) => item.id === agentId);
-      let effectiveIds: string[] = [];
-      if (agent) {
-        const roleCard = agent.roleCardId ? state.roleCards.find((c: any) => c.id === agent.roleCardId) : null;
-        if (roleCard && roleCard.accountIds.length > 0) {
-          effectiveIds = roleCard.accountIds;
-        } else {
-          effectiveIds = state.agentAccountOverrides[agentId] ?? agent.accountIds;
-        }
-      }
+      const profile = state.getAgentRuntimeProfile(agentId);
+      const agent = profile?.agent;
+      const effectiveIds = profile?.accountIds ?? [];
       const resolvedBinding = agent ? resolveAgentEngine({ ...agent, accountIds: effectiveIds }, state.accounts) : null;
       const agentEngine = agent?.cliEngine ?? 'opencode';
       const resolvedEngine = resolvedBinding?.engine ?? agentEngine;
 
-      const simRoleCard = agent?.roleCardId ? state.roleCards.find((c: any) => c.id === agent.roleCardId) : undefined;
+      const simRoleCard = profile?.roleCard;
       const simComposeKey = `${projectId}:${agentId}`;
       const simIsFirstWake = state.needsFullCompose[simComposeKey] !== false;
 

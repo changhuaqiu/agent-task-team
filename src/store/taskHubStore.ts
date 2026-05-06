@@ -70,6 +70,13 @@ export interface Conversation {
   updatedAt: string;
 }
 
+export interface AgentRuntimeProfile {
+  agent: Agent;
+  roleCard?: RoleCard;
+  accountIds: string[];
+  skills: SkillSummary[];
+}
+
 export type SupervisorOutputKind =
   | 'decision_brief'
   | 'execution_plan'
@@ -301,6 +308,7 @@ export interface TaskHubState {
   activeAgentIds: string[];
   currentTeamPack: TeamPack | null;
   getEffectiveRoster: () => Agent[];
+  getAgentRuntimeProfile: (agentId: string) => AgentRuntimeProfile | null;
   conversations: Conversation[];
   selectedConversationId: string | null;
   tasks: Task[];
@@ -366,6 +374,7 @@ export interface TaskHubState {
   setRosterModalOpen: (open: boolean) => void;
 
   agentAccountOverrides: Record<string, string[]>;
+  agentRoleCardOverrides: Record<string, string>;
   setAgentAccountIds: (agentId: string, accountIds: string[]) => void;
 
   createProgressMessage: (params: {
@@ -553,14 +562,50 @@ export const useTaskHubStore = create<TaskHubState>()(
           const activeIds = new Set(state.activeAgentIds);
           const active: Agent[] = [];
           const inactive: Agent[] = [];
+          const withRoleCardOverride = (agent: Agent): Agent => {
+            const overrideRoleCardId = state.agentRoleCardOverrides?.[agent.id];
+            if (!overrideRoleCardId) return agent;
+            const card = state.roleCards.find((item: RoleCard) => item.id === overrideRoleCardId);
+            return {
+              ...agent,
+              roleCardId: overrideRoleCardId,
+              roleLabel: card?.displayName ?? agent.roleLabel,
+            };
+          };
+
           for (const [, agent] of rosterMap) {
-            if (activeIds.has(agent.id)) {
-              active.push(agent);
+            const resolvedAgent = withRoleCardOverride(agent);
+            if (activeIds.has(resolvedAgent.id)) {
+              active.push(resolvedAgent);
             } else {
-              inactive.push(agent);
+              inactive.push(resolvedAgent);
             }
           }
           return [...active, ...inactive];
+        },
+
+        getAgentRuntimeProfile: (agentId: string) => {
+          const state = get();
+          const agent = state.getEffectiveRoster().find((item: Agent) => item.id === agentId);
+          if (!agent) return null;
+
+          const overrideRoleCardId = state.agentRoleCardOverrides?.[agentId];
+          const roleCardId = overrideRoleCardId ?? agent.roleCardId;
+          const roleCard = roleCardId
+            ? state.roleCards.find((card: RoleCard) => card.id === roleCardId)
+            : undefined;
+          const accountIds = roleCard && roleCard.accountIds.length > 0
+            ? roleCard.accountIds
+            : (state.agentAccountOverrides[agentId] ?? agent.accountIds ?? []);
+
+          return {
+            agent: roleCard
+              ? { ...agent, roleCardId: roleCard.id, roleLabel: roleCard.displayName }
+              : agent,
+            roleCard,
+            accountIds,
+            skills: state.getSkillsForAgent(agentId),
+          };
         },
 
         loadFromServer: async () => {
