@@ -358,6 +358,14 @@ CREATE INDEX IF NOT EXISTS idx_agent_skill_skill ON agent_skill(skill_id);
     ALTER TABLE team_pack ADD COLUMN source TEXT;
   `,
   },
+  {
+    version: 14,
+    sql: `
+    ALTER TABLE team_pack_role ADD COLUMN role_card_snapshot TEXT;
+    ALTER TABLE team_pack_role ADD COLUMN account_ids TEXT;
+    ALTER TABLE team_pack_role ADD COLUMN skill_ids TEXT;
+  `,
+  },
 ];
 
 export function applyMigrations(db: Database.Database): void {

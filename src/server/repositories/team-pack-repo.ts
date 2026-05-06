@@ -36,6 +36,9 @@ interface TeamPackRoleRow {
   required: number;
   description: string | null;
   role_card_id: string | null;
+  role_card_snapshot: string | null;
+  account_ids: string | null;
+  skill_ids: string | null;
   created_at: string;
 }
 
@@ -71,6 +74,9 @@ function rowToTeamPack(row: TeamPackRow, roles: TeamPackRoleRow[]): TeamPack {
       required: r.required === 1,
       description: r.description ?? undefined,
       roleCardId: r.role_card_id ?? undefined,
+      roleCardSnapshot: r.role_card_snapshot ? JSON.parse(r.role_card_snapshot) : undefined,
+      accountIds: r.account_ids ? JSON.parse(r.account_ids) : undefined,
+      skillIds: r.skill_ids ? JSON.parse(r.skill_ids) : undefined,
     })),
   };
 }
@@ -110,8 +116,11 @@ export const teamPackRepo = {
 
     for (const role of input.roles) {
       db.prepare(
-        `INSERT INTO team_pack_role (id, pack_id, role_id, display_name, soul, required, description, role_card_id, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO team_pack_role (
+          id, pack_id, role_id, display_name, soul, required, description,
+          role_card_id, role_card_snapshot, account_ids, skill_ids, created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
         generateSortableId('tpr'),
         id,
@@ -121,6 +130,9 @@ export const teamPackRepo = {
         role.required ? 1 : 0,
         role.description ?? null,
         role.roleCardId ?? null,
+        role.roleCardSnapshot ? JSON.stringify(role.roleCardSnapshot) : null,
+        role.accountIds ? JSON.stringify(role.accountIds) : null,
+        role.skillIds ? JSON.stringify(role.skillIds) : null,
         now
       );
     }
@@ -181,8 +193,11 @@ export const teamPackRepo = {
   addRole(packId: string, role: TeamPackRole): void {
     const now = new Date().toISOString();
     getDb().prepare(
-      `INSERT INTO team_pack_role (id, pack_id, role_id, display_name, soul, required, description, role_card_id, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO team_pack_role (
+        id, pack_id, role_id, display_name, soul, required, description,
+        role_card_id, role_card_snapshot, account_ids, skill_ids, created_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       generateSortableId('tpr'),
       packId,
@@ -192,12 +207,48 @@ export const teamPackRepo = {
       role.required ? 1 : 0,
       role.description ?? null,
       role.roleCardId ?? null,
+      role.roleCardSnapshot ? JSON.stringify(role.roleCardSnapshot) : null,
+      role.accountIds ? JSON.stringify(role.accountIds) : null,
+      role.skillIds ? JSON.stringify(role.skillIds) : null,
       now
     );
   },
 
   removeRole(packId: string, roleId: string): void {
     getDb().prepare('DELETE FROM team_pack_role WHERE pack_id = ? AND role_id = ?').run(packId, roleId);
+  },
+
+  updateRoleConfig(
+    packId: string,
+    roleId: string,
+    patch: Pick<Partial<TeamPackRole>, 'roleCardId' | 'roleCardSnapshot' | 'accountIds' | 'skillIds'>,
+  ): TeamPackRole | undefined {
+    const sets: string[] = [];
+    const values: unknown[] = [];
+
+    if (patch.roleCardId !== undefined) {
+      sets.push('role_card_id = ?');
+      values.push(patch.roleCardId ?? null);
+    }
+    if (patch.roleCardSnapshot !== undefined) {
+      sets.push('role_card_snapshot = ?');
+      values.push(patch.roleCardSnapshot ? JSON.stringify(patch.roleCardSnapshot) : null);
+    }
+    if (patch.accountIds !== undefined) {
+      sets.push('account_ids = ?');
+      values.push(JSON.stringify(patch.accountIds));
+    }
+    if (patch.skillIds !== undefined) {
+      sets.push('skill_ids = ?');
+      values.push(JSON.stringify(patch.skillIds));
+    }
+    if (sets.length === 0) {
+      return teamPackRepo.getById(packId)?.roles.find((role) => role.id === roleId);
+    }
+
+    values.push(packId, roleId);
+    getDb().prepare(`UPDATE team_pack_role SET ${sets.join(', ')} WHERE pack_id = ? AND role_id = ?`).run(...values);
+    return teamPackRepo.getById(packId)?.roles.find((role) => role.id === roleId);
   },
 
   // ── Agent Assignment ─────────────────────

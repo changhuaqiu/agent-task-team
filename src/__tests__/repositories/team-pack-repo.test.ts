@@ -80,6 +80,55 @@ describe('teamPackRepo.create', () => {
       communicationMatrix: {},
     })).toThrow();
   });
+
+  it('persists role snapshot, account IDs, and skill IDs on team pack roles', () => {
+    const pack = teamPackRepo.create({
+      name: 'role-snapshot-pack',
+      displayName: 'Role Snapshot Pack',
+      description: 'Stores member config',
+      roles: [{
+        id: 'planner',
+        displayName: '规划师',
+        soul: '# 规划师',
+        required: true,
+        roleCardSnapshot: {
+          name: 'planner',
+          displayName: '团队内规划师',
+          description: 'Plans work',
+          category: 'planner',
+          tags: [],
+          applicableScenarios: [],
+          responsibilities: ['Plan'],
+          nonResponsibilities: [],
+          successCriteria: [],
+          clarifyBeforeExecute: 'when_ambiguous',
+          outputStyle: 'structured',
+          preferStructuredOutput: true,
+          allowedActions: ['can_propose_only'],
+          requiresConfirmation: [],
+          forbiddenActions: [],
+          preferredEngines: [],
+          allowedTools: [],
+          accountIds: [],
+          outputFormat: 'checklist',
+          requiresEvidence: true,
+          riskGrading: 'optional',
+          sourceRoleCardId: 'preset-planner',
+          snapshotVersion: 1,
+          snapshottedAt: '2026-05-06T00:00:00.000Z',
+        },
+        accountIds: ['acc-1'],
+        skillIds: ['skill-1'],
+      }],
+      workflow: { type: 'linear' },
+      communicationMatrix: {},
+    });
+
+    const fetched = teamPackRepo.getById(pack.id)!;
+    expect(fetched.roles[0].roleCardSnapshot?.displayName).toBe('团队内规划师');
+    expect(fetched.roles[0].accountIds).toEqual(['acc-1']);
+    expect(fetched.roles[0].skillIds).toEqual(['skill-1']);
+  });
 });
 
 describe('teamPackRepo.getById / getByName', () => {
@@ -116,6 +165,43 @@ describe('teamPackRepo.getById / getByName', () => {
 
   it('returns undefined for non-existent id', () => {
     expect(teamPackRepo.getById('non-existent')).toBeUndefined();
+  });
+});
+
+describe('teamPackRepo.updateRoleConfig', () => {
+  it('updates persisted role config and returns the updated role', () => {
+    const pack = teamPackRepo.create({
+      name: 'update-role-config-pack',
+      displayName: 'Update Role Config Pack',
+      description: 'Updates member config',
+      roles: [{ id: 'planner', displayName: '规划师', soul: '# 规划师', required: true }],
+      workflow: { type: 'linear' },
+      communicationMatrix: {},
+    });
+
+    const updated = teamPackRepo.updateRoleConfig(pack.id, 'planner', {
+      roleCardId: 'preset-planner',
+      accountIds: ['acc-2'],
+      skillIds: ['skill-2'],
+    });
+
+    expect(updated?.roleCardId).toBe('preset-planner');
+    expect(updated?.accountIds).toEqual(['acc-2']);
+    expect(updated?.skillIds).toEqual(['skill-2']);
+    expect(teamPackRepo.getById(pack.id)?.roles[0].accountIds).toEqual(['acc-2']);
+  });
+
+  it('returns undefined when updating a missing role', () => {
+    const pack = teamPackRepo.create({
+      name: 'missing-role-config-pack',
+      displayName: 'Missing Role Config Pack',
+      description: 'Missing member config',
+      roles: [{ id: 'planner', displayName: '规划师', soul: '# 规划师', required: true }],
+      workflow: { type: 'linear' },
+      communicationMatrix: {},
+    });
+
+    expect(teamPackRepo.updateRoleConfig(pack.id, 'missing', { accountIds: ['acc-3'] })).toBeUndefined();
   });
 });
 

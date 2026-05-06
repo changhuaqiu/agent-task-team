@@ -363,6 +363,9 @@ export const teamPackRole = sqliteTable('team_pack_role', {
   required: integer('required', { mode: 'boolean' }).notNull().default(true),
   description: text('description'),
   roleCardId: text('role_card_id'),
+  roleCardSnapshot: text('role_card_snapshot'),
+  accountIds: text('account_ids'),
+  skillIds: text('skill_ids'),
   createdAt: text('created_at').notNull(),
 }, (table) => [
   uniqueIndex('uq_team_pack_role').on(table.packId, table.roleId),
