@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { useTaskHubStore, type Account } from '@/store/taskHubStore';
-import type { TeamPack, TeamPackRole } from '@/types/teamPack';
+import type { TeamPack, TeamPackRole, RoleCardSnapshot } from '@/types/teamPack';
+import type { RoleCard } from '@/types/roleCard';
 
 function makeRole(overrides: Partial<TeamPackRole> & { id: string }): TeamPackRole {
   return { displayName: overrides.id, soul: '', required: true, ...overrides };
@@ -40,6 +41,38 @@ function makeAccount(id: string): Account {
   };
 }
 
+function makeRoleCard(overrides: Partial<RoleCard> = {}): RoleCard {
+  return {
+    id: 'rc-stable-planner',
+    name: 'stable-planner',
+    displayName: 'Planner Card',
+    description: 'Stable planner role card for compatibility tests.',
+    category: 'planner',
+    tags: ['planning'],
+    applicableScenarios: ['Planning'],
+    responsibilities: ['Plan work'],
+    nonResponsibilities: [],
+    successCriteria: ['Plan is clear'],
+    clarifyBeforeExecute: 'when_ambiguous',
+    outputStyle: 'structured',
+    preferStructuredOutput: true,
+    allowedActions: ['can_propose_only'],
+    requiresConfirmation: [],
+    forbiddenActions: [],
+    preferredEngines: [],
+    allowedTools: [],
+    accountIds: ['acc-global'],
+    outputFormat: 'checklist',
+    requiresEvidence: true,
+    riskGrading: 'optional',
+    isPreset: false,
+    version: 1,
+    createdAt: '2026-05-06T00:00:00.000Z',
+    updatedAt: '2026-05-06T00:00:00.000Z',
+    ...overrides,
+  };
+}
+
 const originalFetch = global.fetch;
 
 beforeEach(() => {
@@ -61,6 +94,7 @@ beforeEach(() => {
     selectedProjectId: 'conv-team',
     activeAgentIds: ['planner'],
     currentTeamPack: makeTeamPack('pack-team', [makeRole({ id: 'planner', displayName: '规划师' })]),
+    roleCards: [makeRoleCard()],
     accounts: [makeAccount('acc-openai')],
     agentAccountOverrides: {},
     agentRoleCardOverrides: {},
@@ -140,5 +174,58 @@ describe('team role card compatibility', () => {
 
     expect(calls).toContain('/api/agents/planner/skills');
     expect(useTaskHubStore.getState().agentSkillIds.planner).toEqual(['skill-1']);
+  });
+
+  it('prefers TeamPack role snapshot and member bindings over global role cards', () => {
+    const baseCard = makeRoleCard();
+    const snapshot = {
+      name: 'stable-planner',
+      displayName: '团队内规划师',
+      description: 'Stable planner role card for compatibility tests.',
+      category: 'planner',
+      tags: ['planning'],
+      applicableScenarios: ['Planning'],
+      responsibilities: ['Plan work'],
+      nonResponsibilities: [],
+      successCriteria: ['Plan is clear'],
+      clarifyBeforeExecute: 'when_ambiguous',
+      outputStyle: 'structured',
+      preferStructuredOutput: true,
+      allowedActions: ['can_propose_only'],
+      requiresConfirmation: [],
+      forbiddenActions: [],
+      preferredEngines: [],
+      allowedTools: [],
+      accountIds: ['acc-snapshot'],
+      outputFormat: 'checklist',
+      requiresEvidence: true,
+      riskGrading: 'optional',
+      sourceRoleCardId: baseCard.id,
+      snapshotVersion: 1,
+      snapshottedAt: '2026-05-06T00:00:00.000Z',
+    } satisfies RoleCardSnapshot;
+
+    useTaskHubStore.setState({
+      roleCards: [baseCard],
+      currentTeamPack: makeTeamPack('pack-team', [{
+        ...makeRole({ id: 'planner', displayName: '规划师' }),
+        roleCardId: baseCard.id,
+        roleCardSnapshot: snapshot,
+        accountIds: ['acc-team'],
+        skillIds: ['skill-team'],
+      }]),
+      skillsMap: {
+        'skill-team': {
+          name: 'Team Skill',
+          content: 'Use team-owned skill.',
+        },
+      },
+    });
+
+    const profile = useTaskHubStore.getState().getAgentRuntimeProfile('planner');
+
+    expect(profile?.roleCard?.displayName).toBe('团队内规划师');
+    expect(profile?.accountIds).toEqual(['acc-team']);
+    expect(profile?.skills.map((s) => s.name)).toEqual(['Team Skill']);
   });
 });

@@ -1,4 +1,12 @@
+import type { RoleCard } from './roleCard';
+
 export type WorkflowType = 'linear' | 'state_machine';
+
+export type RoleCardSnapshot = Omit<RoleCard, 'id' | 'isPreset' | 'version' | 'createdAt' | 'updatedAt'> & {
+  sourceRoleCardId?: string;
+  snapshotVersion: number;
+  snapshottedAt: string;
+};
 
 export interface Task {
   id: string;
@@ -45,6 +53,9 @@ export interface TeamPackRole {
   required: boolean;
   description?: string;
   roleCardId?: string;
+  roleCardSnapshot?: RoleCardSnapshot;
+  accountIds?: string[];
+  skillIds?: string[];
 }
 
 export interface TeamPackCommunicationMatrix {
