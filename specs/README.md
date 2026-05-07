@@ -21,3 +21,10 @@
 ## 当前有效规格
 
 - `unify-integration-config-center/`：统一集成配置中心
+- `team-role-card-compatibility/`：Team Pack 动态角色与账号、角色卡、Skill、dispatch 的兼容模型
+- `team-runtime-contract/`：项目级团队运行时契约，统一 TeamPack、RoleCard、Account、Skill、Prompt、Dispatch 与 A2A 的事实源
+
+## 当前草案规格
+
+- `role-card-format/`：角色卡与 Team Pack 文件格式草案
+- `a2a-v2/`：链式 A2A 编排草案
