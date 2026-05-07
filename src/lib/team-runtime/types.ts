@@ -1,10 +1,16 @@
-import type { AgentTheme } from '@/store/agentStore';
-import type { CliEngine } from '@/server/types';
 import type { RoleCard } from '@/types/roleCard';
 import type { TeamPack } from '@/types/teamPack';
-import type { SkillSummary } from '@/lib/agent-context/PromptComposer';
 
 export type RuntimeAgentSource = 'preset-agent' | 'team-pack-role';
+export type RuntimeAgentTheme = 'mario' | 'luigi' | 'toad' | 'peach' | 'dk' | 'yoshi';
+export type RuntimeCliEngine = 'opencode' | 'claude' | 'codex' | 'gemini' | 'mock';
+
+export interface RuntimeSkillSummary {
+  name: string;
+  content: string;
+  files?: { path: string; content: string }[];
+  config?: string;
+}
 
 export interface RuntimeAgent {
   id: string;
@@ -13,10 +19,10 @@ export interface RuntimeAgent {
   roleCardId?: string;
   roleCard?: RoleCard;
   accountIds: string[];
-  skills: SkillSummary[];
-  cliEngine?: CliEngine;
+  skills: RuntimeSkillSummary[];
+  cliEngine?: RuntimeCliEngine;
   emoji?: string;
-  theme?: AgentTheme;
+  theme?: RuntimeAgentTheme;
   canModifyCode?: boolean;
   canReview?: boolean;
 }
@@ -49,13 +55,13 @@ export interface TeamRuntime {
 export interface RuntimeAgentProfile {
   agent: RuntimeAgent;
   execution: {
-    engine: CliEngine;
+    engine: RuntimeCliEngine;
     accountId?: string;
     runtimeId?: string;
   };
   prompt: {
     roleCard?: RoleCard;
-    skills: SkillSummary[];
+    skills: RuntimeSkillSummary[];
     teamPack?: TeamPack;
     roster: RuntimeAgent[];
   };
