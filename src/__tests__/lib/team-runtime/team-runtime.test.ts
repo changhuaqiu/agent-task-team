@@ -235,6 +235,102 @@ describe('resolveRuntimeAgentProfile', () => {
     });
   });
 
+  it('skips disabled accounts and uses the next enabled one', () => {
+    const runtime: TeamRuntime = {
+      conversationId: 'conv-team',
+      roster: [
+        {
+          id: 'planner',
+          displayName: 'Planner',
+          source: 'team-pack-role',
+          accountIds: ['acc-disabled', 'acc-enabled'],
+          skills: [],
+        },
+      ],
+      communicationPolicy: {
+        canSend: () => true,
+        explainBlock: () => undefined,
+      },
+      workflowPolicy: {
+        assignInitialTask: () => null,
+        getNextAgent: () => null,
+      },
+    };
+
+    const profile = resolveRuntimeAgentProfile(runtime, 'planner', [
+      { id: 'acc-disabled', provider: 'openai', enabled: false },
+      { id: 'acc-enabled', provider: 'anthropic', enabled: true },
+    ]);
+
+    expect(profile).toMatchObject({
+      agent: { id: 'planner' },
+      execution: { engine: 'claude', accountId: 'acc-enabled' },
+    });
+  });
+
+  it('falls back to explicit cliEngine when no account is enabled', () => {
+    const runtime: TeamRuntime = {
+      conversationId: 'conv-team',
+      roster: [
+        {
+          id: 'planner',
+          displayName: 'Planner',
+          source: 'team-pack-role',
+          accountIds: ['acc-disabled'],
+          cliEngine: 'gemini',
+          skills: [],
+        },
+      ],
+      communicationPolicy: {
+        canSend: () => true,
+        explainBlock: () => undefined,
+      },
+      workflowPolicy: {
+        assignInitialTask: () => null,
+        getNextAgent: () => null,
+      },
+    };
+
+    const profile = resolveRuntimeAgentProfile(runtime, 'planner', [
+      { id: 'acc-disabled', provider: 'openai', enabled: false },
+    ]);
+
+    expect(profile).toMatchObject({
+      agent: { id: 'planner' },
+      execution: { engine: 'gemini' },
+    });
+    expect(profile?.execution.accountId).toBeUndefined();
+  });
+
+  it('returns null when there is no enabled account and no explicit cliEngine', () => {
+    const runtime: TeamRuntime = {
+      conversationId: 'conv-team',
+      roster: [
+        {
+          id: 'planner',
+          displayName: 'Planner',
+          source: 'team-pack-role',
+          accountIds: ['acc-disabled'],
+          skills: [],
+        },
+      ],
+      communicationPolicy: {
+        canSend: () => true,
+        explainBlock: () => undefined,
+      },
+      workflowPolicy: {
+        assignInitialTask: () => null,
+        getNextAgent: () => null,
+      },
+    };
+
+    expect(
+      resolveRuntimeAgentProfile(runtime, 'planner', [
+        { id: 'acc-disabled', provider: 'openai', enabled: false },
+      ]),
+    ).toBeNull();
+  });
+
   it('returns null when the runtime agent does not exist', () => {
     const runtime = resolveTeamRuntime({
       conversationId: 'conv-team',

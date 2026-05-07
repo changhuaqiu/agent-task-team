@@ -33,7 +33,8 @@ export function resolveRuntimeAgentProfile(
     .map((id) => accounts.find((account) => account.id === id && account.enabled))
     .find(Boolean);
 
-  const engine = enabledAccount ? providerToEngine(enabledAccount.provider) : (agent.cliEngine ?? 'opencode');
+  const engine = enabledAccount ? providerToEngine(enabledAccount.provider) : agent.cliEngine;
+  if (!engine) return null;
 
   return {
     agent,
