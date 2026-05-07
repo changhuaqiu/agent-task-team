@@ -1,6 +1,6 @@
 export { resolveCommunicationPolicy } from './resolveCommunicationPolicy';
 export { resolveTeamRuntime } from './resolveTeamRuntime';
-export type { ResolveTeamRuntimeInput } from './resolveTeamRuntime';
+export type { PresetRuntimeAgentInput, ResolveTeamRuntimeInput } from './resolveTeamRuntime';
 export { resolveWorkflowPolicy } from './resolveWorkflowPolicy';
 export type {
   CommunicationPolicy,

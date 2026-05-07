@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { resolveTeamRuntime } from '@/lib/team-runtime';
-import type { TeamRuntime, RuntimeAgent, RuntimeAgentProfile } from '@/lib/team-runtime';
-import type { Agent } from '@/store/agentStore';
+import type { TeamRuntime, RuntimeAgent, RuntimeAgentProfile, PresetRuntimeAgentInput } from '@/lib/team-runtime';
+import type { RoleCard } from '@/types/roleCard';
 import type { TeamPack } from '@/types/teamPack';
 
 describe('team-runtime public contract', () => {
@@ -38,17 +38,45 @@ describe('team-runtime public contract', () => {
   });
 });
 
-const presetAgent: Agent = {
+const presetAgent: PresetRuntimeAgentInput = {
   id: 'mario',
   name: 'Mario',
-  role: 'planner',
-  roleLabel: 'Planner',
   roleCardId: 'rc-planner',
   theme: 'mario',
   emoji: '⭐',
-  isOnline: true,
   accountIds: ['acc-agent'],
 };
+
+function roleCard(id: string, displayName: string): RoleCard {
+  return {
+    id,
+    name: id,
+    displayName,
+    description: `${displayName} role card`,
+    category: 'planner',
+    tags: [],
+    applicableScenarios: [],
+    responsibilities: [],
+    nonResponsibilities: [],
+    successCriteria: [],
+    clarifyBeforeExecute: 'when_ambiguous',
+    outputStyle: 'structured',
+    preferStructuredOutput: true,
+    allowedActions: [],
+    requiresConfirmation: [],
+    forbiddenActions: [],
+    preferredEngines: [],
+    allowedTools: [],
+    accountIds: [],
+    outputFormat: 'structured_list',
+    requiresEvidence: false,
+    riskGrading: 'none',
+    isPreset: false,
+    version: 1,
+    createdAt: '2026-05-07T00:00:00.000Z',
+    updatedAt: '2026-05-07T00:00:00.000Z',
+  };
+}
 
 const teamPack: TeamPack = {
   id: 'pack-1',
@@ -121,6 +149,35 @@ describe('resolveTeamRuntime', () => {
       displayName: 'Planner',
       source: 'team-pack-role',
       accountIds: ['acc-team'],
+    });
+  });
+
+  it('lets TeamPack role card overrides replace default role cards', () => {
+    const defaultCard = roleCard('rc-default', 'Default Planner');
+    const overrideCard = roleCard('rc-override', 'Override Planner');
+    const teamPackWithDefaultRoleCard: TeamPack = {
+      ...teamPack,
+      roles: teamPack.roles.map((role) =>
+        role.id === 'planner' ? { ...role, roleCardId: defaultCard.id } : role,
+      ),
+    };
+
+    const runtime = resolveTeamRuntime({
+      conversationId: 'conv-team-override',
+      teamPack: teamPackWithDefaultRoleCard,
+      presetAgents: [presetAgent],
+      activeAgentIds: ['planner', 'reviewer'],
+      roleCards: [defaultCard, overrideCard],
+      skillsMap: {},
+      agentSkillIds: {},
+      agentAccountOverrides: {},
+      agentRoleCardOverrides: { planner: overrideCard.id },
+    });
+
+    expect(runtime.roster[0]).toMatchObject({
+      id: 'planner',
+      roleCardId: overrideCard.id,
+      displayName: overrideCard.displayName,
     });
   });
 

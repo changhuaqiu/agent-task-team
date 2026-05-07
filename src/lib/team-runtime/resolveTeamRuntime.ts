@@ -1,14 +1,29 @@
-import type { RuntimeAgent, RuntimeSkillSummary, TeamRuntime } from './types';
+import type {
+  RuntimeAgent,
+  RuntimeAgentTheme,
+  RuntimeCliEngine,
+  RuntimeSkillSummary,
+  TeamRuntime,
+} from './types';
 import { resolveCommunicationPolicy } from './resolveCommunicationPolicy';
 import { resolveWorkflowPolicy } from './resolveWorkflowPolicy';
-import type { Agent } from '@/store/agentStore';
 import type { RoleCard } from '@/types/roleCard';
 import type { TeamPack } from '@/types/teamPack';
+
+export interface PresetRuntimeAgentInput {
+  id: string;
+  name: string;
+  roleCardId: string;
+  accountIds?: string[];
+  cliEngine?: RuntimeCliEngine;
+  emoji?: string;
+  theme?: RuntimeAgentTheme;
+}
 
 export interface ResolveTeamRuntimeInput {
   conversationId: string;
   teamPack?: TeamPack;
-  presetAgents: Agent[];
+  presetAgents: PresetRuntimeAgentInput[];
   activeAgentIds: string[];
   roleCards: RoleCard[];
   skillsMap: Record<string, RuntimeSkillSummary>;
@@ -26,7 +41,7 @@ function roleCardById(roleCards: RoleCard[], id: string | undefined): RoleCard |
   return roleCards.find((card) => card.id === id);
 }
 
-function presetRuntimeAgent(agent: Agent, input: ResolveTeamRuntimeInput): RuntimeAgent {
+function presetRuntimeAgent(agent: PresetRuntimeAgentInput, input: ResolveTeamRuntimeInput): RuntimeAgent {
   const roleCardId = input.agentRoleCardOverrides[agent.id] ?? agent.roleCardId;
   const roleCard = roleCardById(input.roleCards, roleCardId);
   const accountIds = roleCard?.accountIds?.length
@@ -51,7 +66,7 @@ function teamRoleRuntimeAgents(input: ResolveTeamRuntimeInput): RuntimeAgent[] {
   if (!teamPack) return [];
   return teamPack.roles.map((role) => {
     const overrideRoleCardId = input.agentRoleCardOverrides[role.id];
-    const roleCardId = role.roleCardId ?? overrideRoleCardId;
+    const roleCardId = overrideRoleCardId ?? role.roleCardId;
     const globalRoleCard = roleCardById(input.roleCards, roleCardId);
     const roleCard = role.roleCardSnapshot
       ? {
