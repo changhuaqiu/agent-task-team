@@ -374,6 +374,21 @@ describe('composeSystemPrompt', () => {
     const result = composeSystemPrompt({ ...baseOpts, isFirstWake: false });
     expect(result).toBeUndefined();
   });
+
+  it('uses an explicitly empty runtime roster instead of static preset agents', () => {
+    const result = composeSystemPrompt({
+      ...baseOpts,
+      runtimeRoster: [],
+      tasks: [
+        { id: 'T-1', title: 'Preset task', agentId: 'luigi', status: 'pending' },
+      ],
+    });
+
+    expect(result).toBeDefined();
+    expect(result!).toContain('## 项目任务看板');
+    expect(result!).not.toContain('Luigi');
+    expect(result!).not.toContain('Mario');
+  });
 });
 
 // ===========================================================================
@@ -439,6 +454,17 @@ describe('composeUserPrompt', () => {
     expect(result).toContain('Planner @planner（当前角色）');
     expect(result).toContain('Reviewer @reviewer');
     expect(result).not.toContain('@luigi');
+  });
+
+  it('uses an explicitly empty runtime roster instead of the static team layer', () => {
+    const result = composeUserPrompt({
+      ...baseOpts,
+      runtimeRoster: [],
+    });
+
+    expect(result).not.toContain('## 当前团队');
+    expect(result).not.toContain('@luigi');
+    expect(result).not.toContain('协作规则');
   });
 
   it('includes task context when task provided', () => {

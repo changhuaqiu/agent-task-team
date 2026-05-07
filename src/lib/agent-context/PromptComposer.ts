@@ -74,12 +74,13 @@ export interface ComposeOptions {
 export function composeSystemPrompt(opts: ComposeOptions): string | undefined {
   if (!opts.isFirstWake) return undefined;
 
+  const rosterForStatus = opts.runtimeRoster !== undefined
+    ? opts.runtimeRoster.map((a) => ({ id: a.id, name: a.displayName, emoji: a.emoji ?? '🤖' }))
+    : AGENT_ROSTER.map((a) => ({ id: a.id, name: a.name, emoji: a.emoji }));
+
   const projectStatus = opts.tasks
     ? buildProjectStatusLayer(
-        (opts.runtimeRoster?.length
-          ? opts.runtimeRoster.map((a) => ({ id: a.id, name: a.displayName, emoji: a.emoji ?? '🤖' }))
-          : AGENT_ROSTER.map((a) => ({ id: a.id, name: a.name, emoji: a.emoji }))
-        ),
+        rosterForStatus,
         opts.tasks as Parameters<typeof buildProjectStatusLayer>[1],
       )
     : '';
@@ -104,7 +105,7 @@ export function composeUserPrompt(opts: ComposeOptions): string {
   if (toolLayer) parts.push(toolLayer);
 
   // Team roster (every dispatch — members change over time)
-  const team = opts.runtimeRoster?.length
+  const runtimeTeam = opts.runtimeRoster?.length
     ? [
         '## 当前团队',
         ...opts.runtimeRoster.map((member) => {
@@ -112,6 +113,9 @@ export function composeUserPrompt(opts: ComposeOptions): string {
           return `- ${member.displayName} @${member.id}${marker}`;
         }),
       ].join('\n')
+    : '';
+  const team = opts.runtimeRoster !== undefined
+    ? runtimeTeam
     : buildTeamLayer(opts.agent.id, opts.allRoleCards, opts.currentLoad);
   if (team) parts.push(team);
 
