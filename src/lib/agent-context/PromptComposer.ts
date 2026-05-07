@@ -1,6 +1,7 @@
 import type { RoleCard } from '@/types/roleCard';
 import type { ChatMessage } from '@/store/types';
 import { AGENT_ROSTER } from '@/store/agentStore';
+import type { RuntimeAgent } from '@/lib/team-runtime';
 import { buildRoleLayer } from './layers/roleLayer';
 import { buildProjectLayer } from './layers/projectLayer';
 import { buildTeamLayer } from './layers/teamLayer';
@@ -67,6 +68,7 @@ export interface ComposeOptions {
   skills?: SkillSummary[];
   a2a?: { from?: string; content?: string; contextSnapshot?: string };
   teamPack?: TeamPack;
+  runtimeRoster?: RuntimeAgent[];
 }
 
 export function composeSystemPrompt(opts: ComposeOptions): string | undefined {
@@ -74,7 +76,10 @@ export function composeSystemPrompt(opts: ComposeOptions): string | undefined {
 
   const projectStatus = opts.tasks
     ? buildProjectStatusLayer(
-        AGENT_ROSTER.map((a) => ({ id: a.id, name: a.name, emoji: a.emoji })),
+        (opts.runtimeRoster?.length
+          ? opts.runtimeRoster.map((a) => ({ id: a.id, name: a.displayName, emoji: a.emoji ?? '🤖' }))
+          : AGENT_ROSTER.map((a) => ({ id: a.id, name: a.name, emoji: a.emoji }))
+        ),
         opts.tasks as Parameters<typeof buildProjectStatusLayer>[1],
       )
     : '';
@@ -99,7 +104,15 @@ export function composeUserPrompt(opts: ComposeOptions): string {
   if (toolLayer) parts.push(toolLayer);
 
   // Team roster (every dispatch — members change over time)
-  const team = buildTeamLayer(opts.agent.id, opts.allRoleCards, opts.currentLoad);
+  const team = opts.runtimeRoster?.length
+    ? [
+        '## 当前团队',
+        ...opts.runtimeRoster.map((member) => {
+          const marker = member.id === opts.agent.id ? '（当前角色）' : '';
+          return `- ${member.displayName} @${member.id}${marker}`;
+        }),
+      ].join('\n')
+    : buildTeamLayer(opts.agent.id, opts.allRoleCards, opts.currentLoad);
   if (team) parts.push(team);
 
   // TeamPack context (if agent is part of a team pack)

@@ -413,6 +413,34 @@ describe('composeUserPrompt', () => {
     expect(result).toContain('@luigi');
   });
 
+  it('uses runtime roster when provided', () => {
+    const result = composeUserPrompt({
+      ...baseOpts,
+      agent: { id: 'planner', name: 'Planner' },
+      runtimeRoster: [
+        {
+          id: 'planner',
+          displayName: 'Planner',
+          source: 'team-pack-role',
+          accountIds: [],
+          skills: [],
+        },
+        {
+          id: 'reviewer',
+          displayName: 'Reviewer',
+          source: 'team-pack-role',
+          accountIds: [],
+          skills: [],
+        },
+      ],
+    });
+
+    expect(result).toContain('## 当前团队');
+    expect(result).toContain('Planner @planner（当前角色）');
+    expect(result).toContain('Reviewer @reviewer');
+    expect(result).not.toContain('@luigi');
+  });
+
   it('includes task context when task provided', () => {
     const result = composeUserPrompt({
       ...baseOpts,

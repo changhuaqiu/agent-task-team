@@ -4,8 +4,7 @@ import { io } from 'socket.io-client';
 import type { DetectedRuntime, CliEngine } from '@/server/types';
 import { composeSystemPrompt, composeUserPrompt } from '@/lib/agent-context/PromptComposer';
 import type { ComposeOptions } from '@/lib/agent-context/PromptComposer';
-import { resolveAgentEngine } from './agentStore';
-import type { Agent } from './agentStore';
+import type { RuntimeAgent } from '@/lib/team-runtime';
 
 // --- Shared socket instance ---
 export const socket = io(undefined, { path: '/api/socketio', autoConnect: false });
@@ -156,24 +155,28 @@ export const createDaemonSlice = (set: any, get: () => any) => {
         return;
       }
 
+      const profile = get().getAgentRuntimeProfile(agentId);
+      if (!profile) {
+        console.warn(`[dispatch] ${agentId} aborted: no runtime profile or enabled account for conversation ${conversationId}`);
+        return;
+      }
+
       if (get().agentStatus[agentId] === 'busy') {
         console.log(`[dispatch] ${agentId} busy, enqueuing for conversation ${conversationId}`);
         get().enqueueDispatch(agentId, { prompt, referencedTaskId, source, fromAgentId, conversationId });
         return;
       }
+
       const projectId = get().selectedProjectId;
       const sessionId = get().agentSessions[projectId]?.[agentId];
       const runId = `run-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-      const profile = get().getAgentRuntimeProfile(agentId);
-      const agent = profile?.agent;
-      const effectiveIds = profile?.accountIds ?? [];
-      const resolvedBinding = agent ? resolveAgentEngine({ ...agent, accountIds: effectiveIds }, get().accounts) : null;
-      const agentEngine = agent?.cliEngine ?? 'opencode';
-      const resolvedEngine = resolvedBinding?.engine ?? agentEngine;
+      const agent = profile.agent;
+      const effectiveIds = profile.agent.accountIds;
+      const resolvedEngine = profile.execution.engine;
 
-      console.log(`[dispatch] ${agentId} → engine=${resolvedEngine}, accountId=${resolvedBinding?.accountId ?? '(none)'}, convId=${conversationId}`);
+      console.log(`[dispatch] ${agentId} → engine=${resolvedEngine}, accountId=${profile.execution.accountId ?? '(none)'}, convId=${conversationId}`);
 
-      const roleCard = profile?.roleCard;
+      const roleCard = profile.prompt.roleCard;
       const conv = get().conversations.find((c: any) => c.id === conversationId);
       const task = referencedTaskId ? get().getTaskById(referencedTaskId) : undefined;
       const phase = task?.phaseId ? get().phases.find((p: any) => p.id === task.phaseId) : undefined;
@@ -182,7 +185,7 @@ export const createDaemonSlice = (set: any, get: () => any) => {
       const isFirstWake = get().needsFullCompose[composeKey] !== false;
 
       const composeOpts: ComposeOptions = {
-        agent: agent ? { id: agent.id, name: agent.name } : { id: agentId, name: agentId },
+        agent: { id: agent.id, name: agent.displayName },
         roleCard,
         allRoleCards: get().roleCards,
         project: { name: conv?.title ?? '', path: conv?.projectPath ?? '' },
@@ -195,7 +198,7 @@ export const createDaemonSlice = (set: any, get: () => any) => {
         } : undefined,
         rawPrompt: prompt,
         currentLoad: Object.fromEntries(
-          get().getEffectiveRoster().map((rosterAgent: Agent) => [
+          profile.prompt.roster.map((rosterAgent: RuntimeAgent) => [
             rosterAgent.id,
             get().tasks.filter(
               (t: any) =>
@@ -212,20 +215,13 @@ export const createDaemonSlice = (set: any, get: () => any) => {
             agentId: t.agentId,
             status: t.status,
           })),
-        skills: get().getSkillsForAgent(agentId),
+        skills: profile.prompt.skills,
         a2a: source === 'a2a' && fromAgentId ? {
           from: fromAgentId,
           content: prompt,
         } : undefined,
-        teamPack: (() => {
-          if (!conv?.teamPackId) return undefined;
-          try {
-            const { useTeamPackStore } = require('./teamPackStore');
-            return useTeamPackStore.getState().teamPacks.find((p: any) => p.id === conv.teamPackId);
-          } catch {
-            return undefined;
-          }
-        })(),
+        teamPack: profile.prompt.teamPack,
+        runtimeRoster: profile.prompt.roster,
       };
 
       const systemPrompt = composeSystemPrompt(composeOpts);
@@ -260,8 +256,9 @@ export const createDaemonSlice = (set: any, get: () => any) => {
         allowMockRunner: get().enableMockRunner,
         opencodeBridgeUrl: undefined,
         engine: resolvedEngine,
+        runtimeId: profile.execution.runtimeId,
         accountIds: effectiveIds,
-        accountId: resolvedBinding?.accountId ?? '',
+        accountId: profile.execution.accountId ?? '',
       });
     },
 
@@ -374,26 +371,42 @@ export const createDaemonSlice = (set: any, get: () => any) => {
       const agentId = task.agentId;
       const resolvedSessionId = sessionId || state.agentSessions[projectId]?.[agentId];
       const conversationId = task.conversationId;
-      const runId = `run-${Date.now()}-${Math.random().toString(16).slice(2)}`;
       const profile = state.getAgentRuntimeProfile(agentId);
-      const agent = profile?.agent;
-      const effectiveIds = profile?.accountIds ?? [];
-      const resolvedBinding = agent ? resolveAgentEngine({ ...agent, accountIds: effectiveIds }, state.accounts) : null;
-      const agentEngine = agent?.cliEngine ?? 'opencode';
-      const resolvedEngine = resolvedBinding?.engine ?? agentEngine;
+      if (!profile) {
+        console.warn(`[simulate] ${agentId} aborted: no runtime profile or enabled account for conversation ${conversationId}`);
+        return;
+      }
 
-      const simRoleCard = profile?.roleCard;
+      const runId = `run-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      const agent = profile.agent;
+      const effectiveIds = profile.agent.accountIds;
+      const resolvedEngine = profile.execution.engine;
+
+      const simRoleCard = profile.prompt.roleCard;
       const simComposeKey = `${projectId}:${agentId}`;
       const simIsFirstWake = state.needsFullCompose[simComposeKey] !== false;
+      const conv = state.conversations.find((c: any) => c.id === conversationId);
 
       const simOpts: ComposeOptions = {
-        agent: agent ? { id: agent.id, name: agent.name } : { id: agentId, name: agentId },
+        agent: { id: agent.id, name: agent.displayName },
         roleCard: simRoleCard,
         allRoleCards: state.roleCards,
-        project: { name: '', path: '' },
+        project: { name: conv?.title ?? '', path: conv?.projectPath ?? '' },
         isFirstWake: simIsFirstWake,
         rawPrompt: prompt,
-        skills: state.getSkillsForAgent(agentId),
+        currentLoad: Object.fromEntries(
+          profile.prompt.roster.map((rosterAgent: RuntimeAgent) => [
+            rosterAgent.id,
+            state.tasks.filter(
+              (t: any) =>
+                t.agentId === rosterAgent.id &&
+                (t.status === 'in_progress' || t.status === 'pending'),
+            ).length,
+          ]),
+        ),
+        skills: profile.prompt.skills,
+        teamPack: profile.prompt.teamPack,
+        runtimeRoster: profile.prompt.roster,
       };
 
       const systemPrompt = composeSystemPrompt(simOpts);
@@ -424,8 +437,9 @@ export const createDaemonSlice = (set: any, get: () => any) => {
         allowMockRunner: get().enableMockRunner,
         opencodeBridgeUrl: undefined,
         engine: resolvedEngine,
+        runtimeId: profile.execution.runtimeId,
         accountIds: effectiveIds,
-        accountId: resolvedBinding?.accountId ?? '',
+        accountId: profile.execution.accountId ?? '',
       });
     },
 
