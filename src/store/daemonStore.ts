@@ -17,6 +17,11 @@ const streamWatchdogs: Record<string, ReturnType<typeof setTimeout>> = {};
 const streamBuffer: Record<string, string> = {};
 let bufferFlushScheduled = false;
 
+const NO_RUNTIME_PROFILE_ABORT = {
+  reasonCode: 'no_runtime_profile',
+  message: '请先为该角色绑定可用账号或执行引擎',
+} as const;
+
 export function resetWatchdog(agentId: string, getState: () => any, setState: (partial: any) => void) {
   if (streamWatchdogs[agentId]) clearTimeout(streamWatchdogs[agentId]);
   streamWatchdogs[agentId] = setTimeout(() => {
@@ -92,6 +97,16 @@ function queueKey(agentId: string, conversationId: string): string {
 export const createDaemonSlice = (set: any, get: () => any) => {
   const _resetWatchdog = (agentId: string) => resetWatchdog(agentId, get, set);
   const _scheduleFlush = () => scheduleBufferFlush(get, set);
+  const _recordNoRuntimeProfileAbort = (conversationId: string, agentId: string) => {
+    get().addEvent({
+      conversationId,
+      type: 'invocation.aborted',
+      payload: {
+        agentId,
+        ...NO_RUNTIME_PROFILE_ABORT,
+      },
+    });
+  };
 
   return {
     daemonConnection: { status: 'disconnected' as 'disconnected' | 'connecting' | 'connected', error: undefined as string | undefined },
@@ -158,6 +173,7 @@ export const createDaemonSlice = (set: any, get: () => any) => {
       const profile = get().getAgentRuntimeProfile(agentId);
       if (!profile) {
         console.warn(`[dispatch] ${agentId} aborted: no runtime profile or enabled account for conversation ${conversationId}`);
+        _recordNoRuntimeProfileAbort(conversationId, agentId);
         return;
       }
 
@@ -374,6 +390,7 @@ export const createDaemonSlice = (set: any, get: () => any) => {
       const profile = state.getAgentRuntimeProfile(agentId);
       if (!profile) {
         console.warn(`[simulate] ${agentId} aborted: no runtime profile or enabled account for conversation ${conversationId}`);
+        _recordNoRuntimeProfileAbort(conversationId, agentId);
         return;
       }
 
