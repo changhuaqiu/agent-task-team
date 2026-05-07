@@ -1,0 +1,102 @@
+import type { RuntimeAgent, RuntimeSkillSummary, TeamRuntime } from './types';
+import { resolveCommunicationPolicy } from './resolveCommunicationPolicy';
+import { resolveWorkflowPolicy } from './resolveWorkflowPolicy';
+import type { Agent } from '@/store/agentStore';
+import type { RoleCard } from '@/types/roleCard';
+import type { TeamPack } from '@/types/teamPack';
+
+export interface ResolveTeamRuntimeInput {
+  conversationId: string;
+  teamPack?: TeamPack;
+  presetAgents: Agent[];
+  activeAgentIds: string[];
+  roleCards: RoleCard[];
+  skillsMap: Record<string, RuntimeSkillSummary>;
+  agentSkillIds: Record<string, string[]>;
+  agentAccountOverrides: Record<string, string[]>;
+  agentRoleCardOverrides: Record<string, string>;
+}
+
+function skillsFromIds(ids: string[] | undefined, skillsMap: Record<string, RuntimeSkillSummary>): RuntimeSkillSummary[] {
+  return Array.from(new Set(ids ?? [])).map((id) => skillsMap[id]).filter(Boolean);
+}
+
+function roleCardById(roleCards: RoleCard[], id: string | undefined): RoleCard | undefined {
+  if (!id) return undefined;
+  return roleCards.find((card) => card.id === id);
+}
+
+function presetRuntimeAgent(agent: Agent, input: ResolveTeamRuntimeInput): RuntimeAgent {
+  const roleCardId = input.agentRoleCardOverrides[agent.id] ?? agent.roleCardId;
+  const roleCard = roleCardById(input.roleCards, roleCardId);
+  const accountIds = roleCard?.accountIds?.length
+    ? roleCard.accountIds
+    : (input.agentAccountOverrides[agent.id] ?? agent.accountIds ?? []);
+  return {
+    id: agent.id,
+    displayName: roleCard?.displayName ?? agent.name,
+    source: 'preset-agent',
+    roleCardId,
+    roleCard,
+    accountIds,
+    skills: skillsFromIds(input.agentSkillIds[agent.id], input.skillsMap),
+    cliEngine: agent.cliEngine,
+    emoji: agent.emoji,
+    theme: agent.theme,
+  };
+}
+
+function teamRoleRuntimeAgents(input: ResolveTeamRuntimeInput): RuntimeAgent[] {
+  const teamPack = input.teamPack;
+  if (!teamPack) return [];
+  return teamPack.roles.map((role) => {
+    const overrideRoleCardId = input.agentRoleCardOverrides[role.id];
+    const roleCardId = role.roleCardId ?? overrideRoleCardId;
+    const globalRoleCard = roleCardById(input.roleCards, roleCardId);
+    const roleCard = role.roleCardSnapshot
+      ? {
+          ...role.roleCardSnapshot,
+          id: `team-role-snapshot-${role.id}`,
+          isPreset: false,
+          version: role.roleCardSnapshot.snapshotVersion,
+          createdAt: role.roleCardSnapshot.snapshottedAt,
+          updatedAt: role.roleCardSnapshot.snapshottedAt,
+        }
+      : globalRoleCard;
+    const accountIds = role.accountIds?.length
+      ? role.accountIds
+      : roleCard?.accountIds?.length
+        ? roleCard.accountIds
+        : (input.agentAccountOverrides[role.id] ?? []);
+
+    return {
+      id: role.id,
+      displayName: roleCard?.displayName ?? role.displayName,
+      source: 'team-pack-role',
+      roleCardId: roleCard?.id ?? roleCardId,
+      roleCard,
+      accountIds,
+      skills: skillsFromIds([...(role.skillIds ?? []), ...(input.agentSkillIds[role.id] ?? [])], input.skillsMap),
+    };
+  });
+}
+
+export function resolveTeamRuntime(input: ResolveTeamRuntimeInput): TeamRuntime {
+  const roster = input.teamPack
+    ? teamRoleRuntimeAgents(input)
+    : input.presetAgents.map((agent) => presetRuntimeAgent(agent, input));
+
+  const active = new Set(input.activeAgentIds);
+  const orderedRoster = [
+    ...roster.filter((agent) => active.has(agent.id)),
+    ...roster.filter((agent) => !active.has(agent.id)),
+  ];
+
+  return {
+    conversationId: input.conversationId,
+    teamPack: input.teamPack,
+    roster: orderedRoster,
+    communicationPolicy: resolveCommunicationPolicy(input.teamPack),
+    workflowPolicy: resolveWorkflowPolicy(input.teamPack, orderedRoster.map((agent) => agent.id)),
+  };
+}
