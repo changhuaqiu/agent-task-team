@@ -40,14 +40,14 @@ export function AgentBar() {
       <div className="flex items-center gap-1.5 flex-wrap">
         {activeAgents.map((agent) => {
           const profile = getAgentRuntimeProfile(agent.id);
-          const roleCard = profile?.roleCard
+          const roleCard = profile?.prompt.roleCard
             ?? (agent.roleCardId ? roleCards.find((c) => c.id === agent.roleCardId) ?? null : null);
           const cfg = roleCard
             ? getCategoryConfig(roleCard.category)
             : agent.roleLabel
               ? { themeVar: '--color-blue', label: agent.roleLabel }
               : null;
-          const boundIds = profile?.accountIds ?? roleCard?.accountIds ?? [];
+          const boundIds = profile?.agent.accountIds ?? agent.accountIds ?? roleCard?.accountIds ?? [];
           const boundCount = boundIds.length;
           const hasValidAccount = boundIds.some((id) => {
             const acc = accounts.find((a) => a.id === id);

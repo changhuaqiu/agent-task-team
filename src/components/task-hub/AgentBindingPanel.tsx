@@ -9,6 +9,7 @@ import {
 import { RoleCardBadge, getCategoryConfig } from '@/components/role-card/RoleCardBadge';
 import { X, Plus, Link2, Copy, Terminal, Zap } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import type { RoleCard } from '@/types/roleCard';
 
 const STATUS_DOT: Record<string, string> = {
   valid: 'bg-emerald-400',
@@ -32,23 +33,45 @@ interface AgentBindingPanelProps {
 export function AgentBindingPanel({ agentId, agentName }: AgentBindingPanelProps) {
   const accounts = useTaskHubStore((s) => s.accounts);
   const roleCards = useTaskHubStore((s) => s.roleCards);
-  const setRoleCardAccountIds = useTaskHubStore((s) => s.setRoleCardAccountIds);
-  const setAgentAccountIds = useTaskHubStore((s) => s.setAgentAccountIds);
-  const setAgentRoleCardId = useTaskHubStore((s) => s.setAgentRoleCardId);
+  const upsertRoleCard = useTaskHubStore((s) => s.upsertRoleCard);
+  const setRoleCardEditorOpen = useTaskHubStore((s) => s.setRoleCardEditorOpen);
+  const setTeamRoleAccountIds = useTaskHubStore((s) => s.setTeamRoleAccountIds);
+  const setTeamRoleSkillIds = useTaskHubStore((s) => s.setTeamRoleSkillIds);
+  const setTeamRoleCardSnapshot = useTaskHubStore((s) => s.setTeamRoleCardSnapshot);
   const selectedProjectId = useTaskHubStore((s) => s.selectedProjectId);
   const agentSessions = useTaskHubStore((s) => s.agentSessions);
   const activeRunsByAgent = useTaskHubStore((s) => s.activeRunsByAgent);
   const skillsMap = useTaskHubStore((s) => s.skillsMap);
   const agentSkillIds = useTaskHubStore((s) => s.agentSkillIds);
-  const assignSkillsToAgent = useTaskHubStore((s) => s.assignSkillsToAgent);
+  const agentAccountOverrides = useTaskHubStore((s) => s.agentAccountOverrides);
+  const currentTeamPack = useTaskHubStore((s) => s.currentTeamPack);
+  const getEffectiveRoster = useTaskHubStore((s) => s.getEffectiveRoster);
   const getAgentRuntimeProfile = useTaskHubStore((s) => s.getAgentRuntimeProfile);
   const profile = getAgentRuntimeProfile(agentId);
 
   const sessionId = agentSessions[selectedProjectId]?.[agentId];
   const activeRun = activeRunsByAgent[agentId];
+  const rosterAgent = getEffectiveRoster().find((agent) => agent.id === agentId);
+  const currentTeamRole = currentTeamPack?.roles.find((role) => role.id === agentId);
+  const teamRoleSnapshotCard = currentTeamRole?.roleCardSnapshot
+    ? ({
+        ...currentTeamRole.roleCardSnapshot,
+        id: `team-role-snapshot-${currentTeamRole.id}`,
+        isPreset: false,
+        version: currentTeamRole.roleCardSnapshot.snapshotVersion,
+        createdAt: currentTeamRole.roleCardSnapshot.snapshottedAt,
+        updatedAt: currentTeamRole.roleCardSnapshot.snapshottedAt,
+      } satisfies RoleCard)
+    : null;
 
-  const currentRoleCard = profile?.roleCard ?? null;
-  const boundIds = profile?.accountIds ?? [];
+  const currentRoleCard = profile?.prompt.roleCard
+    ?? teamRoleSnapshotCard
+    ?? (rosterAgent?.roleCardId ? roleCards.find((card) => card.id === rosterAgent.roleCardId) ?? null : null);
+  const boundIds = profile?.agent.accountIds
+    ?? agentAccountOverrides[agentId]
+    ?? rosterAgent?.accountIds
+    ?? currentTeamRole?.accountIds
+    ?? [];
   const boundAccounts = boundIds
     .map((id) => accounts.find((a) => a.id === id))
     .filter((a): a is Account => Boolean(a));
@@ -86,11 +109,7 @@ export function AgentBindingPanel({ agentId, agentName }: AgentBindingPanelProps
   }, [showSkillPicker]);
 
   const writeAccountBinding = (nextIds: string[]) => {
-    if (currentRoleCard) {
-      setRoleCardAccountIds(currentRoleCard.id, nextIds);
-      return;
-    }
-    setAgentAccountIds(agentId, nextIds);
+    void setTeamRoleAccountIds(agentId, nextIds);
   };
 
   const handleUnbind = (accountId: string) => {
@@ -103,23 +122,39 @@ export function AgentBindingPanel({ agentId, agentName }: AgentBindingPanelProps
   };
 
   const handleSwitchRole = (cardId: string) => {
-    setAgentRoleCardId(agentId, cardId);
+    void setTeamRoleCardSnapshot(agentId, cardId);
     setShowRolePicker(false);
   };
 
+  const handleSaveAsMaterial = () => {
+    if (!currentRoleCard) return;
+    const { id, isPreset, version, createdAt, updatedAt, ...card } = currentRoleCard;
+    const newId = upsertRoleCard({
+      ...card,
+      name: `${card.name}-material`,
+      displayName: `${card.displayName} 素材`,
+      isPreset: false,
+    });
+    setRoleCardEditorOpen(true, newId);
+  };
+
   // Skill assignments
-  const currentSkillIds = agentSkillIds[agentId] ?? [];
+  const currentSkillIds = profile?.prompt.skills
+    ? Object.entries(skillsMap)
+        .filter(([, skill]) => profile.prompt.skills.some((item) => item.name === skill.name && item.content === skill.content))
+        .map(([id]) => id)
+    : (currentTeamRole?.skillIds ?? agentSkillIds[agentId] ?? []);
   const allSkillEntries = Object.entries(skillsMap);
   const unassignedSkills = allSkillEntries.filter(([id]) => !currentSkillIds.includes(id));
 
   const handleRemoveSkill = (skillId: string) => {
     const next = currentSkillIds.filter((id) => id !== skillId);
-    assignSkillsToAgent(agentId, next);
+    void setTeamRoleSkillIds(agentId, next);
   };
 
   const handleAddSkill = (skillId: string) => {
     const next = [...currentSkillIds, skillId];
-    assignSkillsToAgent(agentId, next);
+    void setTeamRoleSkillIds(agentId, next);
     setShowSkillPicker(false);
   };
 
@@ -136,18 +171,28 @@ export function AgentBindingPanel({ agentId, agentName }: AgentBindingPanelProps
         {/* Role Card Section */}
         <div className="mb-3">
           <div className="text-[10px] font-bold tracking-wider uppercase text-[hsl(var(--text-tertiary))] mb-1.5 flex items-center gap-1.5">
-            当前角色
+            团队成员
           </div>
           {currentRoleCard ? (
             <div className="flex items-center justify-between">
               <RoleCardBadge card={currentRoleCard} size="md" />
-              <button
-                type="button"
-                onClick={() => setShowRolePicker(!showRolePicker)}
-                className="text-[10px] font-bold px-2 py-0.5 rounded-[2px] border-2 border-[hsl(var(--text-primary))] bg-[hsl(var(--bg-app))] shadow-[1px_1px_0px_hsl(var(--text-primary))] hover:shadow-none hover:translate-x-[1px] hover:translate-y-[1px] transition-all"
-              >
-                换角色
-              </button>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setShowRolePicker(!showRolePicker)}
+                  className="text-[10px] font-bold px-2 py-0.5 rounded-[2px] border-2 border-[hsl(var(--text-primary))] bg-[hsl(var(--bg-app))] shadow-[1px_1px_0px_hsl(var(--text-primary))] hover:shadow-none hover:translate-x-[1px] hover:translate-y-[1px] transition-all"
+                >
+                  换角色
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveAsMaterial}
+                  className="text-[10px] font-bold px-2 py-0.5 rounded-[2px] border-2 border-[hsl(var(--text-primary))] bg-[hsl(var(--bg-app))] shadow-[1px_1px_0px_hsl(var(--text-primary))] hover:shadow-none hover:translate-x-[1px] hover:translate-y-[1px] transition-all inline-flex items-center gap-1"
+                >
+                  <Copy className="w-3 h-3" />
+                  存为素材
+                </button>
+              </div>
             </div>
           ) : (
             <div className="text-[11px] text-[hsl(var(--text-tertiary))]">未绑定角色卡</div>

@@ -113,11 +113,14 @@ afterEach(() => {
 describe('team role card compatibility', () => {
   it('resolves a dynamic Team Pack role from effective roster', () => {
     const profile = useTaskHubStore.getState().getAgentRuntimeProfile('planner');
+    const roster = useTaskHubStore.getState().getEffectiveRoster();
 
-    expect(profile?.agent.id).toBe('planner');
-    expect(profile?.agent.name).toBe('规划师');
-    expect(profile?.roleCard).toBeUndefined();
-    expect(profile?.accountIds).toEqual([]);
+    expect(profile).toBeNull();
+    expect(roster.find((agent) => agent.id === 'planner')).toMatchObject({
+      id: 'planner',
+      name: '规划师',
+      accountIds: [],
+    });
   });
 
   it('uses agent account overrides when no RoleCard exists', () => {
@@ -125,7 +128,8 @@ describe('team role card compatibility', () => {
 
     const profile = useTaskHubStore.getState().getAgentRuntimeProfile('planner');
 
-    expect(profile?.accountIds).toEqual(['acc-openai']);
+    expect(profile?.agent.accountIds).toEqual(['acc-openai']);
+    expect(profile?.execution).toMatchObject({ engine: 'codex', accountId: 'acc-openai' });
   });
 
   it('uses role card override accounts before agent account overrides', () => {
@@ -136,24 +140,28 @@ describe('team role card compatibility', () => {
         displayName: 'Planner Card',
         accountIds: ['acc-role'],
       }, ...state.roleCards],
+      accounts: [makeAccount('acc-role'), ...state.accounts],
       agentRoleCardOverrides: { planner: 'rc-planner' },
       agentAccountOverrides: { planner: ['acc-openai'] },
     }));
 
     const profile = useTaskHubStore.getState().getAgentRuntimeProfile('planner');
 
-    expect(profile?.roleCard?.id).toBe('rc-planner');
-    expect(profile?.accountIds).toEqual(['acc-role']);
+    expect(profile?.prompt.roleCard?.id).toBe('rc-planner');
+    expect(profile?.agent.accountIds).toEqual(['acc-role']);
   });
 
   it('stores role card switching for dynamic roles in overrides', () => {
     const cardId = useTaskHubStore.getState().roleCards[0].id;
 
+    useTaskHubStore.setState((state) => ({
+      accounts: [makeAccount('acc-global'), ...state.accounts],
+    }));
     useTaskHubStore.getState().setAgentRoleCardId('planner', cardId);
 
     const state = useTaskHubStore.getState();
     expect(state.agentRoleCardOverrides.planner).toBe(cardId);
-    expect(state.getAgentRuntimeProfile('planner')?.roleCard?.id).toBe(cardId);
+    expect(state.getAgentRuntimeProfile('planner')?.prompt.roleCard?.id).toBe(cardId);
   });
 
   it('loads skill assignments for effective roster IDs', async () => {
@@ -206,6 +214,7 @@ describe('team role card compatibility', () => {
     } satisfies RoleCardSnapshot;
 
     useTaskHubStore.setState({
+      accounts: [makeAccount('acc-team'), ...useTaskHubStore.getState().accounts],
       roleCards: [baseCard],
       currentTeamPack: makeTeamPack('pack-team', [{
         ...makeRole({ id: 'planner', displayName: '规划师' }),
@@ -224,8 +233,41 @@ describe('team role card compatibility', () => {
 
     const profile = useTaskHubStore.getState().getAgentRuntimeProfile('planner');
 
-    expect(profile?.roleCard?.displayName).toBe('团队内规划师');
-    expect(profile?.accountIds).toEqual(['acc-team']);
-    expect(profile?.skills.map((s) => s.name)).toEqual(['Team Skill']);
+    expect(profile?.prompt.roleCard?.displayName).toBe('团队内规划师');
+    expect(profile?.agent.accountIds).toEqual(['acc-team']);
+    expect(profile?.prompt.skills.map((s) => s.name)).toEqual(['Team Skill']);
+  });
+
+  it('resolves execution from an enabled account override for a dynamic role', () => {
+    useTaskHubStore.setState({ agentAccountOverrides: { planner: ['acc-openai'] } });
+
+    const profile = useTaskHubStore.getState().getAgentRuntimeProfile('planner');
+
+    expect(profile?.execution.engine).toBe('codex');
+    expect(profile?.execution.accountId).toBe('acc-openai');
+  });
+
+  it('persists dynamic team role account bindings through the team role API', async () => {
+    const calls: Array<{ url: string; body: unknown }> = [];
+    global.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({
+        url: String(input),
+        body: init?.body ? JSON.parse(String(init.body)) : undefined,
+      });
+      return new Response(JSON.stringify({
+        role: {
+          ...useTaskHubStore.getState().currentTeamPack!.roles[0],
+          accountIds: ['acc-openai'],
+        },
+      }), { status: 200 });
+    }) as typeof fetch;
+
+    await useTaskHubStore.getState().setTeamRoleAccountIds('planner', ['acc-openai']);
+
+    expect(calls).toEqual([{
+      url: '/api/team-packs/pack-team/roles/planner',
+      body: { accountIds: ['acc-openai'] },
+    }]);
+    expect(useTaskHubStore.getState().currentTeamPack?.roles[0].accountIds).toEqual(['acc-openai']);
   });
 });

@@ -10,10 +10,12 @@ import type { TaskStatus, Task } from './taskStore';
 import { setTaskCounter, STATUS_LABELS, STATUS_ORDER } from './taskStore';
 import { createAgentSlice, AGENT_ROSTER } from './agentStore';
 import { loadAgents } from './agentStore';
-import type { Account, Agent, AgentRole, AgentTheme } from './agentStore';
+import type { Account, Agent, AgentRole } from './agentStore';
 import { createDaemonSlice } from './daemonStore';
 import { socket, resetWatchdog, clearWatchdog } from './daemonStore';
 import type { PendingDispatch } from './daemonStore';
+import { resolveRuntimeAgentProfile, resolveTeamRuntime } from '@/lib/team-runtime';
+import type { PresetRuntimeAgentInput, RuntimeAgentProfile } from '@/lib/team-runtime';
 import type { RoleCard } from '@/types/roleCard';
 import type { TeamPackRole, TeamPack } from '@/types/teamPack';
 import type { Phase } from '@/types/phase';
@@ -68,13 +70,6 @@ export interface Conversation {
   teamPackId?: string;
   createdAt: string;
   updatedAt: string;
-}
-
-export interface AgentRuntimeProfile {
-  agent: Agent;
-  roleCard?: RoleCard;
-  accountIds: string[];
-  skills: SkillSummary[];
 }
 
 export type SupervisorOutputKind =
@@ -139,35 +134,79 @@ export interface Blocker {
   resolvedAt?: string;
 }
 
-// --- Synthesize Agent from TeamPackRole ---
+// --- Helper Selectors ---
 
-const TEAM_ROLE_EMOJIS = ['🎯', '🔧', '🔍', '📊', '✍️', '🧪', '💡', '🛡️', '⚡', '🎪'];
-const TEAM_ROLE_THEMES: AgentTheme[] = ['mario', 'luigi', 'toad', 'peach', 'dk', 'yoshi'];
+function findCurrentTeamRole(state: TaskHubState, agentId: string): TeamPackRole | undefined {
+  const conv = state.conversations.find((c) => c.id === state.selectedConversationId);
+  if (!conv?.teamPackId || !state.currentTeamPack || state.currentTeamPack.id !== conv.teamPackId) {
+    return undefined;
+  }
+  return state.currentTeamPack.roles.find((role) => role.id === agentId);
+}
 
-/**
- * Synthesize an Agent object from a TeamPackRole.
- * Used when a team pack role doesn't exist in AGENT_ROSTER.
- */
-function synthesizeAgentFromRole(role: TeamPackRole, index: number): Agent {
-  // Deterministic emoji/theme based on role ID hash
-  const hash = role.id.split('').reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
-  const emoji = TEAM_ROLE_EMOJIS[hash % TEAM_ROLE_EMOJIS.length];
-  const theme = TEAM_ROLE_THEMES[hash % TEAM_ROLE_THEMES.length];
-
+function updateCurrentTeamRole(
+  state: TaskHubState,
+  agentId: string,
+  patch: Partial<TeamPackRole>,
+): Pick<TaskHubState, 'currentTeamPack'> {
+  if (!state.currentTeamPack) return { currentTeamPack: state.currentTeamPack };
   return {
-    id: role.id,
-    name: role.displayName,
-    role: 'worker' as AgentRole,
-    roleLabel: role.displayName,
-    roleCardId: role.roleCardId ?? `team-role-${role.id}`,
-    theme,
-    emoji,
-    isOnline: true,
-    accountIds: [],
+    currentTeamPack: {
+      ...state.currentTeamPack,
+      roles: state.currentTeamPack.roles.map((role) =>
+        role.id === agentId ? { ...role, ...patch } : role
+      ),
+    },
   };
 }
 
-// --- Helper Selectors ---
+function buildTeamRuntimeFromState(state: TaskHubState) {
+  const conv = state.conversations.find((c) => c.id === state.selectedConversationId);
+  const presetAgents: PresetRuntimeAgentInput[] = AGENT_ROSTER.map((agent) => ({
+    id: agent.id,
+    name: agent.name,
+    roleCardId: agent.roleCardId,
+    accountIds: agent.accountIds,
+    cliEngine: agent.cliEngine,
+    emoji: agent.emoji,
+    theme: agent.theme,
+  }));
+
+  const runtime = resolveTeamRuntime({
+    conversationId: conv?.id ?? state.selectedConversationId ?? 'default',
+    teamPack: conv?.teamPackId ? state.currentTeamPack ?? undefined : undefined,
+    presetAgents,
+    activeAgentIds: state.activeAgentIds,
+    roleCards: state.roleCards,
+    skillsMap: state.skillsMap,
+    agentSkillIds: state.agentSkillIds,
+    agentAccountOverrides: state.agentAccountOverrides,
+    agentRoleCardOverrides: state.agentRoleCardOverrides ?? {},
+  });
+
+  if (!conv?.teamPackId || !state.currentTeamPack) {
+    return runtime;
+  }
+
+  const presetRuntime = resolveTeamRuntime({
+    conversationId: runtime.conversationId,
+    presetAgents,
+    activeAgentIds: state.activeAgentIds,
+    roleCards: state.roleCards,
+    skillsMap: state.skillsMap,
+    agentSkillIds: state.agentSkillIds,
+    agentAccountOverrides: state.agentAccountOverrides,
+    agentRoleCardOverrides: state.agentRoleCardOverrides ?? {},
+  });
+  const existingIds = new Set(runtime.roster.map((agent) => agent.id));
+  return {
+    ...runtime,
+    roster: [
+      ...runtime.roster,
+      ...presetRuntime.roster.filter((agent) => !existingIds.has(agent.id)),
+    ],
+  };
+}
 
 const selectActiveAgents = (state: TaskHubState) =>
   AGENT_ROSTER.filter((a) => state.activeAgentIds.includes(a.id));
@@ -308,7 +347,10 @@ export interface TaskHubState {
   activeAgentIds: string[];
   currentTeamPack: TeamPack | null;
   getEffectiveRoster: () => Agent[];
-  getAgentRuntimeProfile: (agentId: string) => AgentRuntimeProfile | null;
+  getAgentRuntimeProfile: (agentId: string) => RuntimeAgentProfile | null;
+  setTeamRoleAccountIds: (agentId: string, accountIds: string[]) => Promise<void>;
+  setTeamRoleSkillIds: (agentId: string, skillIds: string[]) => Promise<void>;
+  setTeamRoleCardSnapshot: (agentId: string, roleCardId: string) => Promise<void>;
   conversations: Conversation[];
   selectedConversationId: string | null;
   tasks: Task[];
@@ -534,78 +576,85 @@ export const useTaskHubStore = create<TaskHubState>()(
 
         getEffectiveRoster: () => {
           const state = get();
-          const conv = state.conversations.find((c) => c.id === state.selectedConversationId);
+          const runtime = buildTeamRuntimeFromState(state);
 
-          if (!conv?.teamPackId || !state.currentTeamPack) {
-            return AGENT_ROSTER;
-          }
-
-          const rosterMap = new Map<string, Agent>();
-
-          for (const agent of AGENT_ROSTER) {
-            rosterMap.set(agent.id, agent);
-          }
-
-          state.currentTeamPack.roles.forEach((role: TeamPackRole, index: number) => {
-            const existingAgent = rosterMap.get(role.id);
-            if (existingAgent) {
-              rosterMap.set(role.id, {
-                ...existingAgent,
-                name: role.displayName || existingAgent.name,
-                roleLabel: role.displayName || existingAgent.roleLabel,
-              });
-            } else {
-              rosterMap.set(role.id, synthesizeAgentFromRole(role, index));
-            }
-          });
-
-          const activeIds = new Set(state.activeAgentIds);
-          const active: Agent[] = [];
-          const inactive: Agent[] = [];
-          const withRoleCardOverride = (agent: Agent): Agent => {
-            const overrideRoleCardId = state.agentRoleCardOverrides?.[agent.id];
-            if (!overrideRoleCardId) return agent;
-            const card = state.roleCards.find((item: RoleCard) => item.id === overrideRoleCardId);
+          return runtime.roster.map((runtimeAgent) => {
+            const presetAgent = AGENT_ROSTER.find((agent) => agent.id === runtimeAgent.id);
             return {
-              ...agent,
-              roleCardId: overrideRoleCardId,
-              roleLabel: card?.displayName ?? agent.roleLabel,
+              id: runtimeAgent.id,
+              name: runtimeAgent.displayName,
+              role: presetAgent?.role ?? ('worker' as AgentRole),
+              roleLabel: runtimeAgent.roleCard?.displayName ?? presetAgent?.roleLabel ?? runtimeAgent.displayName,
+              roleCardId: runtimeAgent.roleCardId ?? presetAgent?.roleCardId ?? `team-role-${runtimeAgent.id}`,
+              theme: runtimeAgent.theme ?? presetAgent?.theme ?? 'mario',
+              emoji: runtimeAgent.emoji ?? presetAgent?.emoji ?? '🤖',
+              isOnline: presetAgent?.isOnline ?? true,
+              cliEngine: runtimeAgent.cliEngine ?? presetAgent?.cliEngine,
+              accountIds: runtimeAgent.accountIds,
             };
-          };
-
-          for (const [, agent] of rosterMap) {
-            const resolvedAgent = withRoleCardOverride(agent);
-            if (activeIds.has(resolvedAgent.id)) {
-              active.push(resolvedAgent);
-            } else {
-              inactive.push(resolvedAgent);
-            }
-          }
-          return [...active, ...inactive];
+          });
         },
 
         getAgentRuntimeProfile: (agentId: string) => {
           const state = get();
-          const agent = state.getEffectiveRoster().find((item: Agent) => item.id === agentId);
-          if (!agent) return null;
+          const runtime = buildTeamRuntimeFromState(state);
+          return resolveRuntimeAgentProfile(runtime, agentId, state.accounts);
+        },
 
-          const overrideRoleCardId = state.agentRoleCardOverrides?.[agentId];
-          const roleCardId = overrideRoleCardId ?? agent.roleCardId;
-          const roleCard = roleCardId
-            ? state.roleCards.find((card: RoleCard) => card.id === roleCardId)
-            : undefined;
-          const accountIds = roleCard && roleCard.accountIds.length > 0
-            ? roleCard.accountIds
-            : (state.agentAccountOverrides[agentId] ?? agent.accountIds ?? []);
+        setTeamRoleAccountIds: async (agentId: string, accountIds: string[]) => {
+          const packId = get().currentTeamPack?.id;
+          if (!packId) {
+            get().setAgentAccountIds(agentId, accountIds);
+            return;
+          }
+          const res = await fetch(`/api/team-packs/${packId}/roles/${agentId}`, {
+            method: 'PATCH',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ accountIds }),
+          });
+          if (!res.ok) throw new Error('Failed to update team member accounts');
+          const data = await res.json();
+          set((state: TaskHubState) => updateCurrentTeamRole(state, agentId, data.role));
+        },
 
-          return {
-            agent: roleCard
-              ? { ...agent, roleCardId: roleCard.id, roleLabel: roleCard.displayName }
-              : agent,
-            roleCard,
-            accountIds,
-            skills: state.getSkillsForAgent(agentId),
+        setTeamRoleSkillIds: async (agentId: string, skillIds: string[]) => {
+          const packId = get().currentTeamPack?.id;
+          if (!packId) {
+            await get().assignSkillsToAgent(agentId, skillIds);
+            return;
+          }
+          const res = await fetch(`/api/team-packs/${packId}/roles/${agentId}`, {
+            method: 'PATCH',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ skillIds }),
+          });
+          if (!res.ok) throw new Error('Failed to update team member skills');
+          const data = await res.json();
+          set((state: TaskHubState) => updateCurrentTeamRole(state, agentId, data.role));
+        },
+
+        setTeamRoleCardSnapshot: async (agentId: string, roleCardId: string) => {
+          const packId = get().currentTeamPack?.id;
+          const card = get().roleCards.find((item: RoleCard) => item.id === roleCardId);
+          if (!packId || !card) {
+            get().setAgentRoleCardId(agentId, roleCardId);
+            return;
+          }
+          const { id, isPreset, version, createdAt, updatedAt, ...snapshotBase } = card;
+          const roleCardSnapshot = {
+            ...snapshotBase,
+            sourceRoleCardId: id,
+            snapshotVersion: version,
+            snapshottedAt: new Date().toISOString(),
           };
+          const res = await fetch(`/api/team-packs/${packId}/roles/${agentId}`, {
+            method: 'PATCH',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ roleCardId, roleCardSnapshot }),
+          });
+          if (!res.ok) throw new Error('Failed to update team member role');
+          const data = await res.json();
+          set((state: TaskHubState) => updateCurrentTeamRole(state, agentId, data.role));
         },
 
         loadFromServer: async () => {
