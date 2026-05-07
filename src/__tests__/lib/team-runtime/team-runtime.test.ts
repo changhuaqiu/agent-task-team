@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { resolveTeamRuntime } from '@/lib/team-runtime';
+import { resolveRuntimeAgentProfile, resolveTeamRuntime } from '@/lib/team-runtime';
 import type { TeamRuntime, RuntimeAgent, RuntimeAgentProfile, PresetRuntimeAgentInput } from '@/lib/team-runtime';
 import type { RoleCard } from '@/types/roleCard';
 import type { TeamPack } from '@/types/teamPack';
@@ -197,5 +197,57 @@ describe('resolveTeamRuntime', () => {
     expect(runtime.communicationPolicy.canSend('planner', 'reviewer')).toBe(true);
     expect(runtime.communicationPolicy.canSend('reviewer', 'planner')).toBe(false);
     expect(runtime.communicationPolicy.explainBlock('reviewer', 'planner')).toBe('团队协作规则阻止了这次转交');
+  });
+});
+
+describe('resolveRuntimeAgentProfile', () => {
+  it('resolves execution engine and account from the first enabled account', () => {
+    const runtime = resolveTeamRuntime({
+      conversationId: 'conv-team',
+      teamPack,
+      presetAgents: [presetAgent],
+      activeAgentIds: ['planner'],
+      roleCards: [],
+      skillsMap: {},
+      agentSkillIds: {},
+      agentAccountOverrides: {},
+      agentRoleCardOverrides: {},
+    });
+
+    const profile = resolveRuntimeAgentProfile(runtime, 'planner', [
+      {
+        id: 'acc-team',
+        name: 'OpenAI',
+        authMode: 'api_key',
+        provider: 'openai',
+        models: ['gpt-5.4'],
+        enabled: true,
+        status: 'valid',
+        createdAt: '2026-05-07T00:00:00.000Z',
+        updatedAt: '2026-05-07T00:00:00.000Z',
+      },
+    ]);
+
+    expect(profile).toMatchObject({
+      agent: { id: 'planner' },
+      execution: { engine: 'codex', accountId: 'acc-team' },
+      prompt: { teamPack: { id: 'pack-1' } },
+    });
+  });
+
+  it('returns null when the runtime agent does not exist', () => {
+    const runtime = resolveTeamRuntime({
+      conversationId: 'conv-team',
+      teamPack,
+      presetAgents: [presetAgent],
+      activeAgentIds: ['planner'],
+      roleCards: [],
+      skillsMap: {},
+      agentSkillIds: {},
+      agentAccountOverrides: {},
+      agentRoleCardOverrides: {},
+    });
+
+    expect(resolveRuntimeAgentProfile(runtime, 'ghost', [])).toBeNull();
   });
 });
