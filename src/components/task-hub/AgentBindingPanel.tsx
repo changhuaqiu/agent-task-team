@@ -38,7 +38,10 @@ export function AgentBindingPanel({ agentId, agentName }: AgentBindingPanelProps
   const setTeamRoleAccountIds = useTaskHubStore((s) => s.setTeamRoleAccountIds);
   const setTeamRoleSkillIds = useTaskHubStore((s) => s.setTeamRoleSkillIds);
   const setTeamRoleCardSnapshot = useTaskHubStore((s) => s.setTeamRoleCardSnapshot);
+  const setRoleCardAccountIds = useTaskHubStore((s) => s.setRoleCardAccountIds);
   const selectedProjectId = useTaskHubStore((s) => s.selectedProjectId);
+  const conversations = useTaskHubStore((s) => s.conversations);
+  const selectedConversationId = useTaskHubStore((s) => s.selectedConversationId);
   const agentSessions = useTaskHubStore((s) => s.agentSessions);
   const activeRunsByAgent = useTaskHubStore((s) => s.activeRunsByAgent);
   const skillsMap = useTaskHubStore((s) => s.skillsMap);
@@ -52,7 +55,15 @@ export function AgentBindingPanel({ agentId, agentName }: AgentBindingPanelProps
   const sessionId = agentSessions[selectedProjectId]?.[agentId];
   const activeRun = activeRunsByAgent[agentId];
   const rosterAgent = getEffectiveRoster().find((agent) => agent.id === agentId);
-  const currentTeamRole = currentTeamPack?.roles.find((role) => role.id === agentId);
+  const selectedConversation = conversations.find((conversation) => conversation.id === selectedConversationId);
+  const isCurrentTeamRole = Boolean(
+    selectedConversation?.teamPackId
+      && currentTeamPack?.id === selectedConversation.teamPackId
+      && currentTeamPack.roles.some((role) => role.id === agentId),
+  );
+  const currentTeamRole = isCurrentTeamRole
+    ? currentTeamPack?.roles.find((role) => role.id === agentId)
+    : undefined;
   const teamRoleSnapshotCard = currentTeamRole?.roleCardSnapshot
     ? ({
         ...currentTeamRole.roleCardSnapshot,
@@ -109,7 +120,13 @@ export function AgentBindingPanel({ agentId, agentName }: AgentBindingPanelProps
   }, [showSkillPicker]);
 
   const writeAccountBinding = (nextIds: string[]) => {
-    void setTeamRoleAccountIds(agentId, nextIds);
+    if (isCurrentTeamRole) {
+      void setTeamRoleAccountIds(agentId, nextIds);
+    } else if (currentRoleCard) {
+      setRoleCardAccountIds(currentRoleCard.id, nextIds);
+    } else {
+      void setTeamRoleAccountIds(agentId, nextIds);
+    }
   };
 
   const handleUnbind = (accountId: string) => {

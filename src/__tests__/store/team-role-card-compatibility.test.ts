@@ -270,4 +270,56 @@ describe('team role card compatibility', () => {
     }]);
     expect(useTaskHubStore.getState().currentTeamPack?.roles[0].accountIds).toEqual(['acc-openai']);
   });
+
+  it('falls back to preset agent account overrides when a loaded TeamPack does not contain the agent', async () => {
+    const calls: Array<{ url: string; body: unknown }> = [];
+    global.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({
+        url: String(input),
+        body: init?.body ? JSON.parse(String(init.body)) : undefined,
+      });
+      return new Response(JSON.stringify({}), { status: 200 });
+    }) as typeof fetch;
+
+    await useTaskHubStore.getState().setTeamRoleAccountIds('mario', ['acc-openai']);
+
+    expect(useTaskHubStore.getState().agentAccountOverrides.mario).toEqual(['acc-openai']);
+    expect(calls.some((call) => call.url === '/api/team-packs/pack-team/roles/mario')).toBe(false);
+  });
+
+  it('falls back to preset agent skill assignments when a loaded TeamPack does not contain the agent', async () => {
+    const calls: Array<{ url: string; body: unknown }> = [];
+    global.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({
+        url: String(input),
+        body: init?.body ? JSON.parse(String(init.body)) : undefined,
+      });
+      return new Response(JSON.stringify([]), { status: 200 });
+    }) as typeof fetch;
+
+    await useTaskHubStore.getState().setTeamRoleSkillIds('mario', ['skill-review']);
+
+    expect(calls).toContainEqual({
+      url: '/api/agents/mario/skills',
+      body: { skillIds: ['skill-review'] },
+    });
+    expect(calls.some((call) => call.url === '/api/team-packs/pack-team/roles/mario')).toBe(false);
+    expect(useTaskHubStore.getState().agentSkillIds.mario).toEqual(['skill-review']);
+  });
+
+  it('falls back to preset agent role card overrides when a loaded TeamPack does not contain the agent', async () => {
+    const calls: Array<{ url: string; body: unknown }> = [];
+    global.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({
+        url: String(input),
+        body: init?.body ? JSON.parse(String(init.body)) : undefined,
+      });
+      return new Response(JSON.stringify({}), { status: 200 });
+    }) as typeof fetch;
+
+    await useTaskHubStore.getState().setTeamRoleCardSnapshot('mario', 'rc-stable-planner');
+
+    expect(useTaskHubStore.getState().agentRoleCardOverrides.mario).toBe('rc-stable-planner');
+    expect(calls.some((call) => call.url === '/api/team-packs/pack-team/roles/mario')).toBe(false);
+  });
 });

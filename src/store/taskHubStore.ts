@@ -602,7 +602,8 @@ export const useTaskHubStore = create<TaskHubState>()(
         },
 
         setTeamRoleAccountIds: async (agentId: string, accountIds: string[]) => {
-          const packId = get().currentTeamPack?.id;
+          const teamRole = findCurrentTeamRole(get(), agentId);
+          const packId = teamRole ? get().currentTeamPack?.id : undefined;
           if (!packId) {
             get().setAgentAccountIds(agentId, accountIds);
             return;
@@ -618,7 +619,8 @@ export const useTaskHubStore = create<TaskHubState>()(
         },
 
         setTeamRoleSkillIds: async (agentId: string, skillIds: string[]) => {
-          const packId = get().currentTeamPack?.id;
+          const teamRole = findCurrentTeamRole(get(), agentId);
+          const packId = teamRole ? get().currentTeamPack?.id : undefined;
           if (!packId) {
             await get().assignSkillsToAgent(agentId, skillIds);
             return;
@@ -634,7 +636,8 @@ export const useTaskHubStore = create<TaskHubState>()(
         },
 
         setTeamRoleCardSnapshot: async (agentId: string, roleCardId: string) => {
-          const packId = get().currentTeamPack?.id;
+          const teamRole = findCurrentTeamRole(get(), agentId);
+          const packId = teamRole ? get().currentTeamPack?.id : undefined;
           const card = get().roleCards.find((item: RoleCard) => item.id === roleCardId);
           if (!packId || !card) {
             get().setAgentRoleCardId(agentId, roleCardId);
