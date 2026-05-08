@@ -13,10 +13,26 @@ function mockReq(method: string, body?: any): any {
 function mockRes(): any {
   const res: any = {
     statusCode: 200,
+    headersSent: false,
+    jsonCalls: 0,
     _json: null,
     status(code: number) { res.statusCode = code; return res; },
-    json(data: any) { res._json = data; return res; },
-    end() { return res; },
+    json(data: any) {
+      res.jsonCalls += 1;
+      if (res.headersSent) {
+        throw new Error('Response JSON was written more than once');
+      }
+      res.headersSent = true;
+      res._json = data;
+      return res;
+    },
+    end() {
+      if (res.headersSent) {
+        throw new Error('Response was ended more than once');
+      }
+      res.headersSent = true;
+      return res;
+    },
   };
   return res;
 }
@@ -150,6 +166,25 @@ describe('POST /api/mutations', () => {
     expect(taskRepo.getById('task-team-1')!.agent_id).toBe('planner');
   });
 
+  it('task.create rejects a non-TeamPack task without an explicit agent', async () => {
+    await seedConversation();
+    const req = mockReq('POST', {
+      type: 'task.create',
+      payload: { id: 'task-unassigned', conversation_id: 'conv-1', title: 'Needs an assignee' },
+    });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(400);
+    expect(res.jsonCalls).toBe(1);
+    expect(res._json.ok).toBe(false);
+    expect(res._json.error).toContain('No workflow assignment was available');
+
+    const { taskRepo } = await import('@/server/repositories/task-repo');
+    expect(taskRepo.getById('task-unassigned')).toBeUndefined();
+    expect(taskRepo.list().some((task) => task.agent_id === '')).toBe(false);
+  });
+
   it('task.create preserves an explicit agent instead of overriding with WorkflowPolicy', async () => {
     await seedTeamPackConversation();
     const req = mockReq('POST', {
@@ -185,6 +220,11 @@ describe('POST /api/mutations', () => {
 
       const { taskRepo } = await import('@/server/repositories/task-repo');
       const { readTasksMd } = await import('@/server/task-file-service');
+      expect(res.statusCode).toBe(200);
+      expect(res.jsonCalls).toBe(1);
+      expect(res._json.ok).toBe(true);
+      expect(res._json.result.id).toBe('TASK-001');
+      expect(res._json.result.agent_id).toBe('planner');
       expect(taskRepo.getById('TASK-001')!.agent_id).toBe('planner');
       expect(readTasksMd(join(tempRoot, 'conv-team')).tasks[0].agent).toBe('planner');
     } finally {
@@ -195,6 +235,29 @@ describe('POST /api/mutations', () => {
       }
       rmSync(tempRoot, { recursive: true, force: true });
     }
+  });
+
+  it('tool.invoke task_create preserves an explicit input agent over WorkflowPolicy', async () => {
+    await seedTeamPackConversation();
+    const req = mockReq('POST', {
+      type: 'tool.invoke',
+      payload: {
+        toolName: 'task_create',
+        conversationId: 'conv-team',
+        agentId: 'fallback-agent',
+        input: { title: 'Build directly', description: 'Skip planning', agent_id: 'coder' },
+      },
+    });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.jsonCalls).toBe(1);
+    expect(res._json.ok).toBe(true);
+    expect(res._json.result.agent_id).toBe('coder');
+
+    const { taskRepo } = await import('@/server/repositories/task-repo');
+    expect(taskRepo.getById('TASK-001')!.agent_id).toBe('coder');
   });
 
   it('task.updateStatus changes status', async () => {

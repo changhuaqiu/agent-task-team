@@ -45,6 +45,7 @@ TeamPack 会话的服务端任务创建会经过 [`src/server/team-runtime/task-
 
 - 如果请求显式提供 `agent_id`，API 保留该选择，不由团队流程覆盖。
 - 如果没有显式 `agent_id` 且 conversation 绑定了 `team_pack_id`，API 读取 TeamPack 并通过 `WorkflowPolicy.assignInitialTask()` 选择初始角色。
+- 如果既没有显式 `agent_id`，也无法从 TeamPack workflow、runtime roster 或调用方 fallback 解析出负责人，API 返回明确失败，不会写入空字符串 `agent_id`。
 - `tool.invoke` 的 `task_create` 复用同一分配逻辑，并把最终 agent 同步写入 SQLite 与 `TASKS.md`。
 - 该服务端路径只依赖 repository 与 `src/lib/team-runtime`，不导入前端 store。
 

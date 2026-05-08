@@ -293,6 +293,7 @@ TeamLayer and TeamPackLayer describe the same active team
 - `task.create` uses `WorkflowPolicy.assignInitialTask()` when no explicit `agent_id` is supplied and the conversation is bound to a TeamPack.
 - `tool.invoke` `task_create` uses the same helper and writes the selected agent to both SQLite and `TASKS.md`.
 - Explicit `agent_id` values from user or tool input are preserved and are not overridden by TeamPack workflow policy.
+- If no explicit, workflow, runtime roster, or caller fallback assignee can be resolved, the API must fail clearly before persistence instead of storing an empty `agent_id`.
 - Server assignment resolution reads repositories and `src/lib/team-runtime`; it must not import frontend stores.
 
 ### Daemon

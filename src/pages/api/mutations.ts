@@ -75,6 +75,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
             description: taskPayload.description,
             explicitAgentId: taskPayload.agent_id,
           });
+          if (!assignment.agentId) {
+            return res.status(400).json({ ok: false, error: assignment.reason });
+          }
           taskPayload.agent_id = assignment.agentId;
         }
         result = taskRepo.create(taskPayload);
@@ -183,8 +186,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         const conversationId = (payload as any).conversationId || toolProjectId || 'default';
 
         if (toolName === 'task_list') {
-          const tasks = taskRepo.list();
-          res.json({ ok: true, result: tasks });
+          result = taskRepo.list();
         } else if (toolName === 'task_create') {
           const { resolveInitialTaskAssignment } = await import('@/server/team-runtime/task-assignment');
           const taskCount = taskRepo.list().length;
@@ -200,6 +202,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
             explicitAgentId: input.agent_id,
             fallbackAgentId: toolAgentId,
           });
+          if (!assignment.agentId) {
+            return res.status(400).json({ ok: false, error: assignment.reason });
+          }
           const task = taskRepo.create({
             id,
             conversation_id: conversationId,
@@ -231,7 +236,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
             console.error('[task_create] failed to update TASKS.md:', e);
           }
 
-          res.json({ ok: true, result: task });
+          result = task;
         } else if (toolName === 'task_update_status') {
           taskRepo.updateStatus(input.task_id, input.status);
 
@@ -250,8 +255,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
           } catch (e) {
             console.error('[task_update_status] failed to update TASKS.md:', e);
           }
-
-          res.json({ ok: true });
         } else if (toolName === 'task_assign') {
           taskRepo.update(input.task_id, { agent_id: input.agent_id });
 
@@ -266,8 +269,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
             console.error('[task_assign] failed to update .ath/TASKS.md:', e);
           }
 
-          res.json({ ok: true });
-
           // Broadcast task.assigned for store to trigger dispatchToAgent
           const io = (res.socket as any)?.server?.io;
           if (io) {
@@ -278,7 +279,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
             });
           }
         } else {
-          res.status(400).json({ ok: false, error: `Unknown tool: ${toolName}` });
+          return res.status(400).json({ ok: false, error: `Unknown tool: ${toolName}` });
         }
         break;
       }
@@ -312,6 +313,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     res.status(200).json({ ok: true, result });
   } catch (error) {
     console.error(`[api/mutations] Error in ${type}:`, error);
+    if ((res as any).headersSent) return;
     res.status(500).json({ ok: false, error: (error as Error).message });
   }
 }

@@ -14,7 +14,7 @@ export interface ResolveTaskAssignmentInput {
 }
 
 export interface ResolvedTaskAssignment {
-  agentId: string;
+  agentId?: string;
   source: TaskAssignmentSource;
   reason: string;
 }
@@ -74,7 +74,7 @@ export function resolveInitialTaskAssignment(input: ResolveTaskAssignmentInput):
   }
 
   return {
-    agentId: present(input.fallbackAgentId) ?? '',
+    agentId: present(input.fallbackAgentId),
     source: 'fallback',
     reason: 'No workflow assignment was available.',
   };
