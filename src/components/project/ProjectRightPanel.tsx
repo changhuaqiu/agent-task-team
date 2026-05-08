@@ -5,7 +5,7 @@ import { useTaskHubStore, type Task } from '@/store/taskHubStore';
 import { useTeamPackStore } from '@/store/teamPackStore';
 import { MiniKanban } from './MiniKanban';
 import { cn } from '@/lib/utils';
-import { PanelRightOpen, PanelRightClose, AlertTriangle, Users, Layout, Briefcase } from 'lucide-react';
+import { AlertTriangle, Briefcase, Layout, PanelRightClose, PanelRightOpen, Sparkles, Users } from 'lucide-react';
 
 type NextItem = {
   label: string;
@@ -14,10 +14,10 @@ type NextItem = {
 
 function buildNextItems(tasks: Task[]): NextItem[] {
   const items: NextItem[] = [];
-  for (const t of tasks) {
-    if (t.status === 'blocked') items.push({ label: `解除阻塞：${t.id} ${t.title}`, taskId: t.id });
-    if (t.status === 'in_review') items.push({ label: `等待评审：${t.id} ${t.title}`, taskId: t.id });
-    if (t.status === 'pending') items.push({ label: `可开始：${t.id} ${t.title}`, taskId: t.id });
+  for (const task of tasks) {
+    if (task.status === 'blocked') items.push({ label: `解除阻塞：${task.id} ${task.title}`, taskId: task.id });
+    if (task.status === 'in_review') items.push({ label: `等待评审：${task.id} ${task.title}`, taskId: task.id });
+    if (task.status === 'pending') items.push({ label: `可开始：${task.id} ${task.title}`, taskId: task.id });
   }
   return items.slice(0, 6);
 }
@@ -30,215 +30,186 @@ function SyncStatusBar() {
 
   if (syncError && syncError.conversationId === selectedConvId) {
     return (
-      <div className="rounded border border-[hsl(var(--danger))] bg-[hsl(var(--status-rejected-bg))] px-3 py-2 flex items-center gap-2">
+      <div className="rounded-md border border-[hsl(var(--danger))] bg-[hsl(var(--status-rejected-bg))] px-2 py-1.5 flex items-center gap-2">
         <AlertTriangle className="w-3.5 h-3.5 text-[hsl(var(--danger))] shrink-0" />
-        <span className="text-xs text-[hsl(var(--danger))] flex-1">{syncError.message}</span>
-        <button onClick={clearError} className="text-xs text-[hsl(var(--text-tertiary))] hover:underline shrink-0">dismiss</button>
+        <span className="text-xs text-[hsl(var(--danger))] flex-1 line-clamp-1">{syncError.message}</span>
+        <button onClick={clearError} className="text-xs text-[hsl(var(--text-tertiary))] hover:underline shrink-0">关闭</button>
       </div>
     );
   }
 
-  if (lastSyncAt) {
-    const seconds = Math.floor((Date.now() - new Date(lastSyncAt).getTime()) / 1000);
-    const ago = seconds < 60 ? 'just now' : seconds < 3600 ? `${Math.floor(seconds / 60)}m ago` : `${Math.floor(seconds / 3600)}h ago`;
-    return (
-      <div className="text-[10px] text-[hsl(var(--text-tertiary))]">
-        synced: {ago}
-      </div>
-    );
-  }
+  if (!lastSyncAt) return null;
 
-  return null;
+  const seconds = Math.floor((Date.now() - new Date(lastSyncAt).getTime()) / 1000);
+  const ago = seconds < 60 ? '刚刚同步' : seconds < 3600 ? `${Math.floor(seconds / 60)} 分钟前` : `${Math.floor(seconds / 3600)} 小时前`;
+  return <div className="text-[10px] text-[hsl(var(--text-tertiary))]">{ago}</div>;
 }
 
 export function ProjectRightPanel({ teamPackId }: { teamPackId: string }) {
   const selectedConversationId = useTaskHubStore((s) => s.selectedConversationId);
+  const selectedConversation = useTaskHubStore((s) => s.conversations.find((c) => c.id === s.selectedConversationId));
+  const currentTeamPack = useTaskHubStore((s) => s.currentTeamPack);
   const tasks = useTaskHubStore((s) => s.tasks);
   const blockers = useTaskHubStore((s) => s.getOpenBlockersForSelectedConversation());
   const setSelectedTaskId = useTaskHubStore((s) => s.setSelectedTaskId);
-  
-  const { teamPacks, fetchTeamPacks } = useTeamPackStore();
-  const teamPack = teamPacks.find(p => p.id === teamPackId && teamPackId);
+
+  const teamPacks = useTeamPackStore((s) => s.teamPacks);
+  const fallbackTeamPack = teamPacks.find((pack) => pack.id === teamPackId && teamPackId);
+  const teamPack = currentTeamPack?.id === teamPackId ? currentTeamPack : fallbackTeamPack;
 
   const [open, setOpen] = useState(() => {
-    const scopedTasks = tasks.filter(t => t.conversationId === selectedConversationId);
-    const scopedBlockers = blockers.filter(b => b.conversationId === selectedConversationId);
+    const scopedTasks = tasks.filter((task) => task.conversationId === selectedConversationId);
+    const scopedBlockers = blockers.filter((blocker) => blocker.conversationId === selectedConversationId);
     return scopedTasks.length > 0 || scopedBlockers.length > 0;
   });
 
-  const nextItems = useMemo(() => buildNextItems(tasks.filter(t => t.conversationId === selectedConversationId)), [tasks, selectedConversationId]);
-  const openBlockers = useMemo(() => blockers.filter(b => b.conversationId === selectedConversationId), [blockers]);
+  const scopedTasks = useMemo(
+    () => tasks.filter((task) => task.conversationId === selectedConversationId),
+    [tasks, selectedConversationId],
+  );
+  const nextItems = useMemo(() => buildNextItems(scopedTasks), [scopedTasks]);
+  const openBlockers = useMemo(
+    () => blockers.filter((blocker) => blocker.conversationId === selectedConversationId),
+    [blockers, selectedConversationId],
+  );
 
   return (
     <>
-      {/* Toggle button */}
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => setOpen((value) => !value)}
         className={cn(
           'shrink-0 h-full flex items-center justify-center',
           'w-6 border-l border-[hsl(var(--border))] bg-[hsl(var(--bg-app))]',
           'hover:bg-[hsl(var(--bg-muted))] transition-colors',
-          'text-[hsl(var(--text-tertiary))] hover:text-[hsl(var(--text-primary))]'
+          'text-[hsl(var(--text-tertiary))] hover:text-[hsl(var(--text-primary))]',
         )}
         title={open ? '收起面板' : '展开面板'}
       >
         {open ? <PanelRightClose className="w-4 h-4" /> : <PanelRightOpen className="w-4 h-4" />}
       </button>
 
-      {/* Collapsible panel */}
       {open && (
-        <aside className="w-[520px] shrink-0 h-full border-l border-[hsl(var(--border))] bg-[hsl(var(--bg-app))] flex flex-col animate-slide-in-r">
-          <div className="flex-1 overflow-y-auto scrollbar-thin p-4 flex flex-col gap-4">
-            <SyncStatusBar />
-            <MiniKanban expanded={true} />
+        <aside className="w-[440px] shrink-0 h-full border-l border-[hsl(var(--border))] bg-[hsl(var(--bg-muted))] flex flex-col animate-slide-in-r">
+          <div className="shrink-0 px-4 py-3 border-b border-[hsl(var(--border-subtle))] bg-[hsl(var(--bg-app))]">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-[11px] font-bold tracking-[0.18em] uppercase text-[hsl(var(--text-tertiary))]">
+                  Project Board
+                </div>
+                <div className="text-sm font-semibold text-[hsl(var(--text-primary))] truncate mt-0.5">
+                  {selectedConversation?.title ?? '项目侧栏'}
+                </div>
+              </div>
+              <SyncStatusBar />
+            </div>
+          </div>
 
-            {/* Team Pack Info Section */}
+          <div className="flex-1 overflow-y-auto scrollbar-thin p-3 flex flex-col gap-3">
             {teamPack && (
-              <div className="space-y-4">
-                {/* Header */}
-                <div className="p-4 border-b border-[hsl(var(--border-subtle))] rounded-lg">
-                  <div className="flex items-center justify-between">
-                    <h2 className="text-lg font-bold">团队套件</h2>
-                    <div className="text-xs text-[hsl(var(--text-tertiary))]">
-                      当前激活
+              <section className="rounded-xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--bg-card))] shadow-sm p-3">
+                <div className="flex items-start gap-3">
+                  <div className="w-9 h-9 rounded-lg border border-[hsl(var(--border-subtle))] bg-[hsl(var(--bg-app))] flex items-center justify-center shrink-0">
+                    {teamPack.teamMode === 'pipeline' && <Briefcase className="w-4 h-4 text-[hsl(var(--accent))]" />}
+                    {teamPack.teamMode === 'parallel' && <Layout className="w-4 h-4 text-[hsl(var(--accent))]" />}
+                    {teamPack.teamMode === 'hub_spoke' && <Sparkles className="w-4 h-4 text-[hsl(var(--accent))]" />}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="font-semibold text-sm text-[hsl(var(--text-primary))] truncate">{teamPack.displayName}</div>
+                      <span className="shrink-0 rounded-full bg-[hsl(var(--accent-soft))] px-2 py-0.5 text-[10px] font-semibold text-[hsl(var(--accent))]">
+                        当前团队
+                      </span>
+                    </div>
+                    <div className="text-[11px] text-[hsl(var(--text-tertiary))] mt-1 line-clamp-2">
+                      {teamPack.description || '这支团队负责当前项目的任务协作。'}
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {teamPack.roles.slice(0, 6).map((role) => (
+                        <span
+                          key={role.id}
+                          className="inline-flex items-center gap-1 rounded-full border border-[hsl(var(--border-subtle))] bg-[hsl(var(--bg-app))] px-2 py-1 text-[10px] font-medium text-[hsl(var(--text-secondary))]"
+                          title={role.description ?? role.displayName}
+                        >
+                          <span className="size-1.5 rounded-full bg-[hsl(var(--accent))]" />
+                          {role.displayName}
+                        </span>
+                      ))}
+                      {teamPack.roles.length > 6 && (
+                        <span className="rounded-full px-2 py-1 text-[10px] text-[hsl(var(--text-tertiary))]">
+                          +{teamPack.roles.length - 6}
+                        </span>
+                      )}
                     </div>
                   </div>
                 </div>
-
-                {/* Team Pack Details */}
-                <div className="bg-white rounded-lg border border-[hsl(var(--border-subtle))] shadow-sm p-4">
-                  <div className="flex items-start gap-3 mb-3">
-                    <div className="w-10 h-10 flex items-center justify-center">
-                      {teamPack.teamMode === 'pipeline' && (
-                        <Briefcase className="text-blue-600" />
-                      )}
-                      {teamPack.teamMode === 'parallel' && (
-                        <Layout className="text-green-600" />
-                      )}
-                      {teamPack.teamMode === 'hub_spoke' && (
-                        <Layout className="text-purple-600" />
-                      )}
-                    </div>
-                    <div className="flex-1">
-                      <div className="font-semibold text-lg">{teamPack.displayName}</div>
-                      <div className="text-xs text-[hsl(var(--text-tertiary))] mt-1">
-                        {teamPack.teamMode === 'pipeline' && '🔄 流水线模式'}
-                        {teamPack.teamMode === 'parallel' && '⚡ 并行模式'}
-                        {teamPack.teamMode === 'hub_spoke' && '🎯 中心辐射模式'}
-                      </div>
-                      <div className="text-sm text-gray-500 mt-1">
-                        {teamPack.description}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Team Members */}
-                  <div className="p-4">
-                    <div className="flex items-center gap-2 mb-3">
-                      <Users className="w-4 h-4 text-gray-600" />
-                      <div className="font-semibold text-sm">团队成员 ({teamPack.roles.length})</div>
-                    </div>
-                    <div className="space-y-2">
-                      {teamPack.roles.map((role, index) => (
-                        <div key={role.id} className="flex items-start gap-2 p-2 border-b border-[hsl(var(--border-subtle))] rounded">
-                          <span className="text-xl">{role.displayName.charAt(0)}</span>
-                          <div className="flex-1">
-                            <div className="font-medium">{role.displayName}</div>
-                            <div className="text-xs text-gray-500">{role.description}</div>
-                          </div>
-                           {index < teamPack.roles.length - 1 && (
-                             <div className="w-px h-px rounded-full bg-gray-200" />
-                           )}
-                         </div>
-                       ))}
-                     </div>
-                   </div>
-
-                   {/* Team Rules */}
-                   {teamPack.rules && (
-                     <div className="p-4 bg-gray-50 rounded">
-                       <div className="text-xs font-semibold mb-2 uppercase tracking-wider text-[hsl(var(--text-tertiary))]">
-                         团队规则
-                       </div>
-                       <div className="space-y-1 text-sm text-gray-700">
-                         {teamPack.rules.maxIterations && <div>最大重试次数：{teamPack.rules.maxIterations}</div>}
-                         {teamPack.rules.escalationTimeoutHours && <div>升级超时：{teamPack.rules.escalationTimeoutHours} 小时</div>}
-                         {teamPack.rules.requireEvidence && <div>产出必须附带证据</div>}
-                         {teamPack.rules.autoAssign && <div>自动分配任务</div>}
-                       </div>
-                     </div>
-                   )}
-                 </div>
-              </div>
+              </section>
             )}
 
-            {/* Next actions */}
-            <div className="rounded-lg border border-[hsl(var(--border-subtle))] bg-[hsl(var(--bg-card))] shadow-sm p-4">
-              <div className="p-3 border-b border-[hsl(var(--border-subtle))]">
-                <div className="text-xs font-semibold mb-2 uppercase tracking-wider text-[hsl(var(--text-tertiary))]">
-                  代办
+            {teamPackId && !teamPack && (
+              <section className="rounded-xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--bg-card))] shadow-sm p-3">
+                <div className="flex items-center gap-2 text-[12px] text-[hsl(var(--text-tertiary))]">
+                  <Users className="w-4 h-4" />
+                  正在载入当前团队…
                 </div>
-                <div className="p-3 flex flex-col gap-2">
-                  {nextItems.length === 0 ? (
-                    <div className="text-xs text-gray-500 p-2">暂无代办。</div>
-                  ) : (
-                    nextItems.map((it, idx) => (
-                      <button
-                        key={idx}
-                        type="button"
-                        onClick={() => it.taskId && setSelectedTaskId(it.taskId)}
-                        className={cn(
-                          'text-left rounded-sm border px-3 py-2 transition-colors',
-                          'bg-[hsl(var(--bg-app))] hover:bg-[hsl(var(--bg-card-hover))]',
-                          'border-[hsl(var(--border-subtle))]'
-                        )}
-                      >
-                        <div className="text-xs text-[hsl(var(--text-tertiary))]">{it.label}</div>
-                      </button>
-                    ))
+              </section>
+            )}
+
+            <MiniKanban expanded={true} />
+
+            <section className="rounded-xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--bg-card))] shadow-sm overflow-hidden">
+              <div className="px-3 py-2 border-b border-[hsl(var(--border-subtle))] flex items-center justify-between">
+                <div className="text-[11px] font-bold tracking-[0.16em] uppercase text-[hsl(var(--text-tertiary))]">下一步</div>
+                <span className="text-[10px] tabular-nums text-[hsl(var(--text-tertiary))]">{nextItems.length}</span>
+              </div>
+              <div className="p-2 flex flex-col gap-1.5">
+                {nextItems.length === 0 ? (
+                  <div className="text-xs text-[hsl(var(--text-tertiary))] p-2">暂无代办。</div>
+                ) : (
+                  nextItems.map((item, index) => (
+                    <button
+                      key={index}
+                      type="button"
+                      onClick={() => item.taskId && setSelectedTaskId(item.taskId)}
+                      className="text-left rounded-md border px-3 py-2 transition-colors bg-[hsl(var(--bg-app))] hover:bg-[hsl(var(--bg-card-hover))] border-[hsl(var(--border-subtle))]"
+                    >
+                      <div className="text-xs text-[hsl(var(--text-secondary))] line-clamp-2">{item.label}</div>
+                    </button>
+                  ))
+                )}
+              </div>
+            </section>
+
+            {openBlockers.length > 0 && (
+              <section className="rounded-xl border border-[hsl(var(--status-rejected-border))] bg-[hsl(var(--status-rejected-bg))] shadow-sm overflow-hidden">
+                <div className="px-3 py-2 border-b border-[hsl(var(--status-rejected-border))] flex items-center gap-2">
+                  <AlertTriangle className="w-3.5 h-3.5 text-[hsl(var(--danger))]" />
+                  <div className="text-[11px] font-bold tracking-[0.16em] uppercase text-[hsl(var(--danger))]">风险 / 阻塞</div>
+                </div>
+                <div className="p-2 space-y-1.5">
+                  {openBlockers.slice(0, 6).map((blocker) => (
+                    <button
+                      key={blocker.id}
+                      type="button"
+                      onClick={() => setSelectedTaskId(blocker.taskId)}
+                      className="w-full text-left rounded-md border px-3 py-2 transition-colors bg-[hsl(var(--bg-app))] hover:bg-[hsl(var(--bg-card-hover))] border-[hsl(var(--status-rejected-border))]"
+                    >
+                      <div className="text-xs text-[hsl(var(--text-primary))]">
+                        {blocker.taskId} · {blocker.reasonSummary}
+                      </div>
+                      {blocker.evidenceRef && (
+                        <div className="text-xs text-[hsl(var(--text-tertiary))] mt-1">{blocker.evidenceRef}</div>
+                      )}
+                    </button>
+                  ))}
+                  {openBlockers.length > 6 && (
+                    <div className="text-center text-[10px] text-[hsl(var(--text-tertiary))] py-1">
+                      还有 {openBlockers.length - 6} 条未显示
+                    </div>
                   )}
                 </div>
-              </div>
-
-              {/* Blockers */}
-              {blockers.length > 0 && (
-                <div className="rounded-lg border border-[hsl(var(--border-subtle))] bg-[hsl(var(--bg-card))] shadow-sm p-4 mt-4">
-                  <div className="p-3 border-b border-[hsl(var(--border-subtle))]">
-                    <div className="text-xs font-semibold mb-2 uppercase tracking-wider text-[hsl(var(--text-tertiary))]">
-                      风险 / 阻塞
-                    </div>
-                    <div className="space-y-2">
-                      {openBlockers.slice(0, 6).map((b) => (
-                        <button
-                          key={b.id}
-                          type="button"
-                          onClick={() => setSelectedTaskId(b.taskId)}
-                          className={cn(
-                            'text-left rounded-sm border px-3 py-2 transition-colors',
-                            'bg-[hsl(var(--status-rejected-bg))] hover:bg-[hsl(var(--bg-card-hover))]',
-                            'border-[hsl(var(--status-rejected-border))]'
-                          )}
-                        >
-                          <div className="text-xs text-[hsl(var(--text-primary))]">
-                            {b.taskId} · {b.reasonSummary}
-                          </div>
-                          {b.evidenceRef && (
-                            <div className="text-xs text-[hsl(var(--text-tertiary))] mt-1">{b.evidenceRef}</div>
-                          )}
-                        </button>
-                      ))}
-                      {blockers.length > 6 && (
-                        <div className="text-center mt-2">
-                          <button className="text-xs text-[hsl(var(--text-tertiary))] underline hover:text-[hsl(var(--text-primary))]">
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
+              </section>
+            )}
           </div>
         </aside>
       )}

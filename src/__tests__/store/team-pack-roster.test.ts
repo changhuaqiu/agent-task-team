@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useTaskHubStore, AGENT_ROSTER } from '@/store/taskHubStore';
 import type { TeamPack, TeamPackRole } from '@/types/teamPack';
 
@@ -53,6 +53,7 @@ function resetStore() {
 
 describe('Team Pack Dynamic Roster', () => {
   beforeEach(() => {
+    vi.restoreAllMocks();
     resetStore();
   });
 
@@ -224,6 +225,69 @@ describe('Team Pack Dynamic Roster', () => {
       const conv = after.conversations.find((c) => c.id === after.selectedConversationId);
       expect(conv).toBeDefined();
       expect(conv!.teamPackId).toBe('pack-test');
+    });
+
+    it('does not keep the previous team active when creating a plain project', () => {
+      const teamPack = makeTeamPack({
+        id: 'pack-old',
+        roles: [
+          makeRole({ id: 'planner', displayName: 'Planner' }),
+          makeRole({ id: 'coder', displayName: 'Coder' }),
+        ],
+      });
+      useTaskHubStore.setState({
+        activeAgentIds: ['planner', 'coder'],
+        currentTeamPack: teamPack,
+      });
+
+      useTaskHubStore.getState().createConversation({
+        title: 'Plain Project',
+        goal: 'Use preset team',
+      });
+
+      const after = useTaskHubStore.getState();
+      expect(after.currentTeamPack).toBeNull();
+      expect(after.activeAgentIds).toEqual(['mario', 'luigi']);
+    });
+
+    it('ignores a stale team-pack response after switching to another project', async () => {
+      const oldTeamPack = makeTeamPack({
+        id: 'pack-old',
+        roles: [makeRole({ id: 'planner', displayName: 'Planner' })],
+      });
+      let resolveOldPack: (value: any) => void = () => {};
+      const oldPackPromise = new Promise((resolve) => {
+        resolveOldPack = resolve;
+      });
+      vi.spyOn(global, 'fetch').mockImplementation((url: string | URL | Request) => {
+        const href = String(url);
+        if (href.includes('/api/team-packs/pack-old')) {
+          return oldPackPromise as Promise<any>;
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true }) } as any);
+      });
+
+      const store = useTaskHubStore.getState();
+      store.createConversation({ title: 'Team Project', goal: 'Use team', teamPackId: 'pack-old' });
+      const teamConversationId = useTaskHubStore.getState().selectedConversationId;
+      expect(teamConversationId).toBeTruthy();
+
+      store.createConversation({ title: 'Plain Project', goal: 'No team' });
+      const plainConversationId = useTaskHubStore.getState().selectedConversationId;
+      expect(plainConversationId).not.toBe(teamConversationId);
+
+      resolveOldPack({
+        ok: true,
+        json: () => Promise.resolve(oldTeamPack),
+      });
+      await oldPackPromise;
+      await Promise.resolve();
+      await Promise.resolve();
+
+      const after = useTaskHubStore.getState();
+      expect(after.selectedConversationId).toBe(plainConversationId);
+      expect(after.currentTeamPack).toBeNull();
+      expect(after.activeAgentIds).toEqual(['mario', 'luigi']);
     });
   });
 });

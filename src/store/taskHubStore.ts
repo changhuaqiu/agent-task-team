@@ -162,6 +162,9 @@ function updateCurrentTeamRole(
 
 function buildTeamRuntimeFromState(state: TaskHubState) {
   const conv = state.conversations.find((c) => c.id === state.selectedConversationId);
+  const currentTeamPack = conv?.teamPackId && state.currentTeamPack?.id === conv.teamPackId
+    ? state.currentTeamPack
+    : undefined;
   const presetAgents: PresetRuntimeAgentInput[] = AGENT_ROSTER.map((agent) => ({
     id: agent.id,
     name: agent.name,
@@ -174,7 +177,7 @@ function buildTeamRuntimeFromState(state: TaskHubState) {
 
   const runtime = resolveTeamRuntime({
     conversationId: conv?.id ?? state.selectedConversationId ?? 'default',
-    teamPack: conv?.teamPackId ? state.currentTeamPack ?? undefined : undefined,
+    teamPack: currentTeamPack,
     presetAgents,
     activeAgentIds: state.activeAgentIds,
     roleCards: state.roleCards,
@@ -184,7 +187,7 @@ function buildTeamRuntimeFromState(state: TaskHubState) {
     agentRoleCardOverrides: state.agentRoleCardOverrides ?? {},
   });
 
-  if (!conv?.teamPackId || !state.currentTeamPack) {
+  if (!currentTeamPack) {
     return runtime;
   }
 
@@ -229,6 +232,52 @@ const makeId = (prefix: string) =>
 const EMPTY_EVENTS: InternalEvent[] = [];
 const EMPTY_BLOCKERS: Blocker[] = [];
 const EMPTY_CHAT: ChatMessage[] = [];
+const DEFAULT_ACTIVE_AGENT_IDS = ['mario', 'luigi'];
+
+function applyConversationTeamPack(
+  get: () => TaskHubState,
+  set: (partial: any) => void,
+  conversationId: string | null,
+  teamPackId: string,
+) {
+  fetch(`/api/team-packs/${teamPackId}`)
+    .then((res) => res.ok ? res.json() : null)
+    .then((teamPack) => {
+      const current = get().conversations.find((c) => c.id === conversationId);
+      if (
+        get().selectedConversationId !== conversationId
+        || !current?.teamPackId
+        || current.teamPackId !== teamPackId
+      ) {
+        return;
+      }
+
+      if (teamPack && teamPack.id === teamPackId && teamPack.roles?.length > 0) {
+        set({
+          selectedConversationId: conversationId,
+          selectedProjectId: conversationId || 'default',
+          activeAgentIds: teamPack.roles.map((role: any) => role.id),
+          currentTeamPack: teamPack,
+        });
+      } else {
+        set({
+          selectedConversationId: conversationId,
+          selectedProjectId: conversationId || 'default',
+          activeAgentIds: DEFAULT_ACTIVE_AGENT_IDS,
+          currentTeamPack: null,
+        });
+      }
+    })
+    .catch(() => {
+      if (get().selectedConversationId !== conversationId) return;
+      set({
+        selectedConversationId: conversationId,
+        selectedProjectId: conversationId || 'default',
+        activeAgentIds: DEFAULT_ACTIVE_AGENT_IDS,
+        currentTeamPack: null,
+      });
+    });
+}
 
 function mapMessagesToState(recentMessages: Record<string, any[]>): Record<string, ChatMessage[]> {
   const result: Record<string, ChatMessage[]> = {};
@@ -875,6 +924,8 @@ export const useTaskHubStore = create<TaskHubState>()(
             conversations: [conversation, ...state.conversations],
             selectedConversationId: id,
             selectedProjectId: id,
+            activeAgentIds: teamPackId ? [] : DEFAULT_ACTIVE_AGENT_IDS,
+            currentTeamPack: null,
             eventsByConversation: {
               ...state.eventsByConversation,
               [id]: [
@@ -893,19 +944,8 @@ export const useTaskHubStore = create<TaskHubState>()(
             },
           }));
 
-          // If team pack selected, fetch it and sync activeAgentIds immediately
           if (teamPackId) {
-            fetch(`/api/team-packs/${teamPackId}`)
-              .then((res) => res.ok ? res.json() : null)
-              .then((teamPack) => {
-                if (teamPack && teamPack.roles?.length > 0) {
-                  set({
-                    activeAgentIds: teamPack.roles.map((r: any) => r.id),
-                    currentTeamPack: teamPack,
-                  });
-                }
-              })
-              .catch(() => {}); // Non-blocking; user can still use the app
+            applyConversationTeamPack(get, set, id, teamPackId);
           }
 
           get().addSupervisorOutput({
@@ -938,37 +978,20 @@ export const useTaskHubStore = create<TaskHubState>()(
           const conv = get().conversations.find((c) => c.id === conversationId);
 
           if (conv?.teamPackId) {
-            fetch(`/api/team-packs/${conv.teamPackId}`)
-              .then((res) => res.ok ? res.json() : null)
-              .then((teamPack) => {
-                if (teamPack && teamPack.roles?.length > 0) {
-                  set({
-                    selectedConversationId: conversationId,
-                    selectedProjectId: conversationId || 'default',
-                    activeAgentIds: teamPack.roles.map((r: any) => r.id),
-                    currentTeamPack: teamPack,
-                  });
-                } else {
-                  set({
-                    selectedConversationId: conversationId,
-                    selectedProjectId: conversationId || 'default',
-                    currentTeamPack: null,
-                  });
-                }
-              })
-              .catch(() => {
-                set({
-                  selectedConversationId: conversationId,
-                  selectedProjectId: conversationId || 'default',
-                  currentTeamPack: null,
-                });
-              });
+            set({
+              selectedConversationId: conversationId,
+              selectedProjectId: conversationId || 'default',
+              activeAgentIds: [],
+              currentTeamPack: null,
+            });
+            applyConversationTeamPack(get, set, conversationId, conv.teamPackId);
             return;
           }
 
           set({
             selectedConversationId: conversationId,
             selectedProjectId: conversationId || 'default',
+            activeAgentIds: DEFAULT_ACTIVE_AGENT_IDS,
             currentTeamPack: null,
           });
         },

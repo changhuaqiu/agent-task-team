@@ -70,10 +70,14 @@ Resolution rules after team-first fusion:
 4. Account IDs come from `TeamPackRole.accountIds`, then the resolved RoleCard, then `agentAccountOverrides[agentId]`, then `agent.accountIds`.
 5. Skill IDs come from `TeamPackRole.skillIds`, then `agentSkillIds[agentId]`.
 6. `TeamPackRole.roleCardSnapshot` is persisted through the team role config API and can be generated through team member materialization.
+7. `currentTeamPack` is scoped to the selected project. Creating or selecting a non-TeamPack project must clear `currentTeamPack` and restore the preset default active agents.
+8. Async TeamPack loads may update active agents only when the selected project still matches the requested `teamPackId`; stale responses must be ignored.
 
 ## Acceptance Criteria
 
 - A project created with `engineering-trio` has active roles `planner`, `coder`, `reviewer`.
+- A plain project created after a TeamPack project does not inherit the previous TeamPack roles.
+- Switching projects while a TeamPack request is in flight does not let the stale TeamPack response overwrite the newly selected project.
 - Clicking `planner` opens the binding panel and shows account binding controls.
 - If global accounts exist, clicking "添加账号" on `planner` stores the binding on `TeamPackRole.accountIds` when a TeamPack role exists.
 - Switching `planner` to an existing RoleCard stores a `TeamPackRole.roleCardSnapshot` when a TeamPack role exists.
