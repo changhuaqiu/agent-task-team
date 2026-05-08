@@ -1386,7 +1386,7 @@ git commit -m "docs: document team runtime contract implementation"
 **Files:**
 - No code changes expected.
 
-- [ ] **Step 1: Run targeted test suite**
+- [x] **Step 1: Run targeted test suite**
 
 Run:
 
@@ -1396,7 +1396,7 @@ pnpm vitest run src/__tests__/lib/team-runtime/team-runtime.test.ts src/__tests_
 
 Expected: PASS.
 
-- [ ] **Step 2: Run typecheck**
+- [x] **Step 2: Run typecheck**
 
 Run:
 
@@ -1406,7 +1406,7 @@ pnpm tsc --noEmit
 
 Expected: PASS with no TypeScript errors.
 
-- [ ] **Step 3: Run full tests if targeted suite passes**
+- [x] **Step 3: Run full tests if targeted suite passes**
 
 Run:
 
