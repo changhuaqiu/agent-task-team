@@ -10,6 +10,7 @@ import { taskRepo } from '../repositories/task-repo';
 export interface KanbanSnapshotProvider {
   getTasks(conversationId: string): { id: string; title: string; status: string; agent_id: string }[];
   getCommunicationPolicy?: (conversationId: string) => CommunicationPolicy | undefined;
+  getAgentMentionConfigs?: (conversationId: string) => AgentMentionConfig[] | undefined;
 }
 
 const defaultSnapshotProvider: KanbanSnapshotProvider = {
@@ -38,6 +39,7 @@ export class AgentMessenger {
         }));
       },
       getCommunicationPolicy: provider.getCommunicationPolicy?.bind(provider),
+      getAgentMentionConfigs: provider.getAgentMentionConfigs?.bind(provider),
     });
   }
 

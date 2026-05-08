@@ -23,6 +23,7 @@ import type { AgentEvent } from './agent/types';
 import { withDoneGuarantee } from './agent/with-done-guarantee';
 import { WorkdirManager } from './workdir-manager';
 import { AgentMessenger } from './a2a';
+import { createRuntimeSnapshotProvider } from './a2a/runtime-snapshot-provider';
 import { getDb } from './db';
 
 type TerminalStartPayload = {
@@ -132,6 +133,7 @@ export default function registerDaemon(io: IOServer) {
       id: a.id,
       mentionPatterns: [`@${a.id}`, `@${a.name}`],
     })),
+    createRuntimeSnapshotProvider(),
   );
 
   // Expire stale A2A chains on startup

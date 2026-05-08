@@ -276,6 +276,10 @@ TeamLayer and TeamPackLayer describe the same active team
 
 - A2A target resolution must use runtime roster.
 - Communication checks must use `CommunicationPolicy`.
+- Production daemon must inject a server-side runtime provider into `AgentMessenger`; the provider resolves `conversation.team_pack_id` with `teamPackRepo.getById()` and `resolveTeamRuntime()` instead of importing UI stores.
+- A2A only requires roster ids/display names and policy, so the server provider may resolve runtime with empty RoleCard, Skill and override maps. TeamPack conversations use TeamPack role ids as active agents; preset conversations use DB agent ids.
+- Runtime mention patterns include `@${agent.id}` and `@${agent.displayName}` when the display name is non-empty and differs from the id.
+- Policy checks must run before breadth and dedup checks for agent-originated dispatches so TeamPack rule blocks are not masked by chain limits.
 - Blocked communication must be auditable.
 
 ### TeamModeEngine
@@ -322,4 +326,3 @@ Add focused tests for:
 - A2A dispatch respects TeamPack communication rules.
 - TeamModeEngine is connected through WorkflowPolicy to a real decision path.
 - Documentation explains Team Runtime Contract as the project-level collaboration kernel.
-

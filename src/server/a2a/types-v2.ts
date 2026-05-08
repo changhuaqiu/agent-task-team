@@ -160,6 +160,7 @@ export interface AuditLogEntry {
 export interface MentionTarget {
   agentId: string;
   position: number;
+  pattern?: string;
 }
 
 export interface AgentMentionConfig {

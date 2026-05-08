@@ -198,7 +198,9 @@ Repository 当前覆盖的核心对象：
 - agent 发起的 `@mention` 如果被规则阻止，会写入 `a2a_audit_log` 的 `dispatch_blocked` 记录，并通过现有 `agent:event` system 事件提示“团队协作规则阻止了这次转交”。
 - 未提供 policy provider 时，保持原有默认行为，不阻止已有 A2A dispatch。
 
-policy 通过 `AgentMessenger` 的 `KanbanSnapshotProvider.getCommunicationPolicy(conversationId)` 可选边界注入。A2A server 代码只依赖 `src/lib/team-runtime` 的中立契约类型，不导入前端 store，也不直接解释 TeamPack 细节。
+policy 通过 `AgentMessenger` 的 `KanbanSnapshotProvider.getCommunicationPolicy(conversationId)` 可选边界注入；mention 扫描通过同一边界的 `getAgentMentionConfigs(conversationId)` 读取当前会话 roster。生产 daemon 使用 server-side runtime provider：读取 `conversation.team_pack_id`，通过 `teamPackRepo.getById()` 取得 TeamPack，再用 `resolveTeamRuntime()` 生成 TeamPack role roster 与协作规则。A2A server 代码只依赖 `src/lib/team-runtime` 的中立契约类型，不导入前端 store，也不直接解释 TeamPack 细节。
+
+TeamPack 会话的 A2A mention pattern 来自 runtime role id 和 displayName（例如 `@planner` 与 `@Planner`）；没有 TeamPack 的会话回退到 DB `agents` roster。协作规则检查在 breadth/dedup 之前执行，因此被 TeamPack 规则阻止的 agent-to-agent handoff 不会被链路宽度限制掩盖；`fromAgentId === 'user'` 的直接用户派发仍保持原有行为。
 
 ## 4.6 Agent Backend 抽象
 

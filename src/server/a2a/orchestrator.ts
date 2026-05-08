@@ -27,6 +27,7 @@ const MIN_SUBSTANTIVE_LENGTH = 30;
 export interface OrchestratorConfig {
   getTasksForConversation: (conversationId: string) => TaskSummary[];
   getCommunicationPolicy?: (conversationId: string) => CommunicationPolicy | undefined;
+  getAgentMentionConfigs?: (conversationId: string) => AgentMentionConfig[] | undefined;
 }
 
 export class Orchestrator {
@@ -95,13 +96,6 @@ export class Orchestrator {
       return { allow: false, reason: `depth ${req.depth} exceeds chain max ${chain.config.maxDepth}`, silent: false };
     }
 
-    // Breadth check
-    const worklist = this.chainRepo.getWorklistForChain(chain.id);
-    const uniqueAgents = new Set(worklist.map(e => e.agentId));
-    if (!uniqueAgents.has(req.toAgentId) && uniqueAgents.size >= chain.config.maxBreadth) {
-      return { allow: false, reason: `chain breadth limit reached (${chain.config.maxBreadth} agents)`, silent: false };
-    }
-
     const policy = this.config.getCommunicationPolicy?.(chain.conversationId);
     if (req.fromAgentId !== 'user' && policy && !policy.canSend(req.fromAgentId, req.toAgentId)) {
       const reason = policy.explainBlock(req.fromAgentId, req.toAgentId) ?? '团队协作规则阻止了这次转交';
@@ -114,6 +108,13 @@ export class Orchestrator {
         metadata: { blockedBy: 'communication_policy' },
       });
       return { allow: false, reason, silent: false };
+    }
+
+    // Breadth check
+    const worklist = this.chainRepo.getWorklistForChain(chain.id);
+    const uniqueAgents = new Set(worklist.map(e => e.agentId));
+    if (!uniqueAgents.has(req.toAgentId) && uniqueAgents.size >= chain.config.maxBreadth) {
+      return { allow: false, reason: `chain breadth limit reached (${chain.config.maxBreadth} agents)`, silent: false };
     }
 
     // Run five-layer dedup
@@ -187,8 +188,9 @@ export class Orchestrator {
       return;
     }
 
-    // Scan for @mentions
-    const targets = scanMentions(response, this.agents, agentId);
+    // Scan against the conversation runtime roster when available.
+    const mentionConfigs = this.config.getAgentMentionConfigs?.(conversationId) ?? this.agents;
+    const targets = scanMentions(response, mentionConfigs, agentId);
     if (targets.length === 0) {
       this.tryCompleteChain(chain.id);
       return;

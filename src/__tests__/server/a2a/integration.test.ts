@@ -1,13 +1,16 @@
 // src/__tests__/server/a2a/integration.test.ts
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { applyMigrations } from '@/server/db/migrate';
+import { resetDb, setTestDb } from '@/server/db';
 import { AgentMessenger } from '@/server/a2a';
+import { createRuntimeSnapshotProvider } from '@/server/a2a/runtime-snapshot-provider';
 import { resolveTeamRuntime } from '@/lib/team-runtime';
 import type { AgentMentionConfig } from '@/server/a2a/types-v2';
 import type { KanbanSnapshotProvider } from '@/server/a2a';
 import type { CommunicationPolicy } from '@/lib/team-runtime';
 import type { TeamPack } from '@/types/teamPack';
+import { teamPackRepo } from '@/server/repositories/team-pack-repo';
 
 function mockIO() {
   const emitted: any[] = [];
@@ -55,6 +58,27 @@ function teamPackWithPlannerReviewer(canPlannerSendToReviewer: boolean): TeamPac
   };
 }
 
+function createPersistedTeamPack(canPlannerSendToReviewer: boolean, reviewer = { id: 'reviewer', displayName: 'Reviewer' }): TeamPack {
+  return teamPackRepo.create({
+    name: `a2a-pack-${canPlannerSendToReviewer ? 'allow' : 'block'}-${reviewer.id}`,
+    displayName: 'A2A Pack',
+    description: 'A2A policy test pack',
+    version: '1.0.0',
+    tags: [],
+    category: 'test',
+    roles: [
+      { id: 'planner', displayName: 'Planner', soul: '', required: true },
+      { id: reviewer.id, displayName: reviewer.displayName, soul: '', required: true },
+    ],
+    teamMode: 'pipeline',
+    workflow: { type: 'linear' },
+    communicationMatrix: {
+      planner: { canSendTo: canPlannerSendToReviewer ? [reviewer.id] : [], canReceiveFrom: [] },
+      [reviewer.id]: { canSendTo: [], canReceiveFrom: canPlannerSendToReviewer ? ['planner'] : [] },
+    },
+  });
+}
+
 function communicationPolicyFromTeamPack(teamPack: TeamPack): CommunicationPolicy {
   return resolveTeamRuntime({
     conversationId: 'conv-1',
@@ -88,6 +112,7 @@ let testTasks: { id: string; title: string; status: string; agent_id: string }[]
 beforeEach(() => {
   db = new Database(':memory:');
   applyMigrations(db);
+  setTestDb(db);
   db.prepare(`INSERT INTO conversation (id, created_at, updated_at) VALUES (?, ?, ?)`)
     .run('conv-1', new Date().toISOString(), new Date().toISOString());
   io = mockIO();
@@ -99,6 +124,11 @@ beforeEach(() => {
 
   messenger = new AgentMessenger(db, io as any, AGENTS, snapshotProvider);
   messenger.orchestrator.reset();
+});
+
+afterEach(() => {
+  resetDb();
+  db.close();
 });
 
 describe('A2A v2 integration', () => {
@@ -173,6 +203,48 @@ describe('A2A v2 integration', () => {
     `).all() as any[];
     expect(blockedLogs).toHaveLength(1);
     expect(blockedLogs[0].reason).toBe('团队协作规则阻止了这次转交');
+  });
+
+  it('uses persisted TeamPack runtime provider to block disallowed production-like A2A', async () => {
+    const pack = createPersistedTeamPack(false);
+    db.prepare('UPDATE conversation SET team_pack_id = ? WHERE id = ?').run(pack.id, 'conv-1');
+    messenger = new AgentMessenger(db, io as any, AGENTS, createRuntimeSnapshotProvider());
+    messenger.orchestrator.reset();
+
+    messenger.onUserMessage('conv-1', 'msg-1', 'planner', '请规划功能');
+
+    await messenger.onAgentResponse('planner', '方案已经确认，但协作规则不允许直接交给审查角色。\n@reviewer 请审查计划中的测试覆盖、风险项和验收标准', {
+      conversationId: 'conv-1',
+      chainDepth: 0,
+    });
+
+    const reviewerDispatches = io.emitted().filter(([e, p]) => e === 'a2a:dispatch' && p.agentId === 'reviewer');
+    expect(reviewerDispatches).toHaveLength(0);
+
+    const blockedLogs = db.prepare(`
+      SELECT * FROM a2a_audit_log
+      WHERE event_type = 'dispatch_blocked' AND from_agent_id = 'planner' AND to_agent_id = 'reviewer'
+    `).all() as any[];
+    expect(blockedLogs).toHaveLength(1);
+    expect(blockedLogs[0].reason).toBe('团队协作规则阻止了这次转交');
+  });
+
+  it('detects TeamPack role display-name mentions that are absent from static DB agents', async () => {
+    const pack = createPersistedTeamPack(true, { id: 'qa-lead', displayName: 'Quality Captain' });
+    db.prepare('UPDATE conversation SET team_pack_id = ? WHERE id = ?').run(pack.id, 'conv-1');
+    messenger = new AgentMessenger(db, io as any, AGENTS, createRuntimeSnapshotProvider());
+    messenger.orchestrator.reset();
+
+    messenger.onUserMessage('conv-1', 'msg-1', 'planner', '请规划功能');
+
+    await messenger.onAgentResponse('planner', '方案已经确认，下一步需要质量负责人审查。\n@Quality Captain 请审查计划中的测试覆盖、风险项和验收标准', {
+      conversationId: 'conv-1',
+      chainDepth: 0,
+    });
+
+    const qaDispatches = io.emitted().filter(([e, p]) => e === 'a2a:dispatch' && p.agentId === 'qa-lead');
+    expect(qaDispatches).toHaveLength(1);
+    expect(qaDispatches[0][1].fromAgentId).toBe('planner');
   });
 
   it('does not apply CommunicationPolicy to direct user-to-agent dispatch', () => {

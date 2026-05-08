@@ -48,7 +48,7 @@ export function scanMentions(
       if (validPrev && validNext) {
         seen.add(agentId);
         consumedRanges.push([idx, afterEnd]);
-        targets.push({ agentId, position: idx });
+        targets.push({ agentId, position: idx, pattern });
       }
     }
   }
@@ -69,10 +69,12 @@ export function extractMentionContent(fullText: string, target: MentionTarget): 
 
   // Find the end of the mention pattern itself
   // Scan forward from mentionStart to skip the @mention token
-  let contentStart = mentionStart;
-  // Skip the @mention pattern (e.g., "@luigi " or "@luigi,")
-  while (contentStart < stripped.length && !/[\s\p{P}]/u.test(stripped[contentStart])) {
-    contentStart++;
+  let contentStart = target.pattern ? mentionStart + target.pattern.length : mentionStart;
+  if (!target.pattern) {
+    // Skip the @mention pattern (e.g., "@luigi " or "@luigi,")
+    while (contentStart < stripped.length && !/[\s\p{P}]/u.test(stripped[contentStart])) {
+      contentStart++;
+    }
   }
   // Skip the delimiter after the mention
   if (contentStart < stripped.length && /[\s\p{P}]/u.test(stripped[contentStart])) {
