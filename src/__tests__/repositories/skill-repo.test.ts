@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createTestDb, setTestDb, resetDb } from '@/server/db/index';
 import { resetSeq } from '@/server/repositories/sortable-id';
 import { skillRepo } from '@/server/repositories/skill-repo';
+import { seedPresetSkills } from '@/server/seed-skills';
 import type Database from 'better-sqlite3';
 
 let db: Database.Database;
@@ -245,5 +246,21 @@ describe('skillRepo', () => {
       expect(skills[0].files[0].path).toBe('guide.md');
       expect(skills[0].files[0].content).toBe('guide content');
     });
+  });
+});
+
+describe('seedPresetSkills', () => {
+  it('seeds git-collaboration and assigns it to built-in team role ids', () => {
+    seedPresetSkills();
+
+    const skill = skillRepo.getByName('git-collaboration');
+    expect(skill).toBeDefined();
+    expect(skill!.is_preset).toBe(1);
+    expect(skill!.content).toContain('GitHub pull requests');
+    expect(skill!.content).toContain('GitLab merge requests');
+
+    for (const agentId of ['mario', 'luigi', 'toad', 'peach', 'dk', 'yoshi', 'planner', 'coder', 'reviewer', 'researcher', 'analyst', 'writer']) {
+      expect(skillRepo.getSkillIdsForAgent(agentId)).toContain(skill!.id);
+    }
   });
 });

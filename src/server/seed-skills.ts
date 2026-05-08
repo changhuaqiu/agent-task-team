@@ -1,6 +1,21 @@
 import { skillRepo } from './repositories/skill-repo';
 import { PRESET_SKILLS } from '../data/presetSkills';
 
+const GIT_COLLABORATION_AGENT_IDS = [
+  'mario',
+  'luigi',
+  'toad',
+  'peach',
+  'dk',
+  'yoshi',
+  'planner',
+  'coder',
+  'reviewer',
+  'researcher',
+  'analyst',
+  'writer',
+];
+
 export function seedPresetSkills(): void {
   for (const preset of PRESET_SKILLS) {
     const existing = skillRepo.getByName(preset.name);
@@ -19,5 +34,12 @@ export function seedPresetSkills(): void {
   const taskMgmt = skillRepo.getByName('task-management');
   if (taskMgmt) {
     skillRepo.assignToAgent('mario', taskMgmt.id);
+  }
+
+  const gitCollaboration = skillRepo.getByName('git-collaboration');
+  if (gitCollaboration) {
+    for (const agentId of GIT_COLLABORATION_AGENT_IDS) {
+      skillRepo.assignToAgent(agentId, gitCollaboration.id);
+    }
   }
 }

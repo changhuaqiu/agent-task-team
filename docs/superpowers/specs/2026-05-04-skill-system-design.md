@@ -97,6 +97,17 @@ version: 1
 
 Frontmatter fields: `name` (required), `description` (required), `version` (optional, default 1).
 
+## Preset Skills
+
+Preset skills are seeded into SQLite and may be assigned to built-in agents or TeamPack role IDs during startup. They are shared capability modules, not role identities.
+
+Current preset expectations:
+
+- `task-management` gives coordinator-style agents structured task list, creation, status, and assignment tools.
+- `git-collaboration` gives all known built-in agents and TeamPack roles a common Git collaboration workflow for issues, GitHub pull requests, GitLab merge requests, and review handoff.
+
+`git-collaboration` remains a workflow skill. It standardizes repository orientation, issue drafting, PR/MR preparation, review evidence, and authority boundaries, but it does not grant credentials or implement provider API access by itself. Provider-specific actions still depend on the available CLI, app connector, token, and user intent.
+
 ### Repository Convention
 
 Skill repos follow a directory convention:

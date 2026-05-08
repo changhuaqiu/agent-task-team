@@ -1,6 +1,8 @@
 import { TASK_MANAGEMENT_SKILL } from './presetSkills/taskManagement';
+import { GIT_COLLABORATION_SKILL } from './presetSkills/gitCollaboration';
 
 export const PRESET_SKILLS = [
+  GIT_COLLABORATION_SKILL,
   {
     name: 'code-review',
     description: '结构化代码审查，提供 checklist 和反馈模板',

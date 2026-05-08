@@ -23,6 +23,7 @@
 - `unify-integration-config-center/`：统一集成配置中心
 - `team-role-card-compatibility/`：Team Pack 动态角色与账号、角色卡、Skill、dispatch 的兼容模型
 - `team-runtime-contract/`：项目级团队运行时契约，统一 TeamPack、RoleCard、Account、Skill、Prompt、Dispatch 与 A2A 的事实源
+- `git-collaboration-skill-config/`：为内置 Agent 与 TeamPack 角色配置统一 Git 协作 Skill，包括 issue、PR/MR 与 review 工作流
 
 ## 当前草案规格
 
