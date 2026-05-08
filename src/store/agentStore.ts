@@ -1,6 +1,7 @@
 'use client';
 
 import type { RoleCard } from '@/types/roleCard';
+import type { TeamPackRole } from '@/types/teamPack';
 import type { SkillSummary } from '@/lib/agent-context/PromptComposer';
 import type { CliEngine } from '@/server/types';
 import { PRESET_ROLE_CARDS } from '@/data/presetRoleCards';
@@ -279,13 +280,21 @@ export const createAgentSlice = (set: any, get: () => any) => {
     // Agent account bindings
     agentAccountOverrides: {} as Record<string, string[]>,
     agentRoleCardOverrides: {} as Record<string, string>,
-    setAgentAccountIds: (agentId: string, accountIds: string[]) =>
+    setAgentAccountIds: (agentId: string, accountIds: string[]) => {
+      const teamRole = typeof get().getSelectedConversation === 'function'
+        ? get().currentTeamPack?.roles?.find((role: TeamPackRole) => role.id === agentId)
+        : undefined;
+      if (teamRole && typeof get().setTeamRoleAccountIds === 'function') {
+        void get().setTeamRoleAccountIds(agentId, accountIds);
+        return;
+      }
       set((state: any) => ({
         agentAccountOverrides: {
           ...state.agentAccountOverrides,
           [agentId]: accountIds,
         },
-      })),
+      }));
+    },
 
     // Invite / dismiss
     inviteAgent: (agentId: string) =>

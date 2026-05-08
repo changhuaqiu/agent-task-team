@@ -11,8 +11,7 @@ import {
   Pencil,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { type Task, type TaskStatus } from '@/store/taskHubStore';
-import { AGENT_ROSTER } from '@/store/agentStore';
+import { type Task, type TaskStatus, useTaskHubStore } from '@/store/taskHubStore';
 
 // --- Status transition map ---
 
@@ -66,8 +65,13 @@ export function KanbanContextMenu({
   onClose,
 }: KanbanContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
+  const getEffectiveRoster = useTaskHubStore((s) => s.getEffectiveRoster);
+  const activeAgentIds = useTaskHubStore((s) => s.activeAgentIds);
   const transitions = statusTransitions[task.status] ?? [];
   const hasDeps = task.dependencies && task.dependencies.length > 0;
+  const assignableAgents = getEffectiveRoster().filter((agent) => (
+    activeAgentIds.length === 0 || activeAgentIds.includes(agent.id)
+  ));
 
   // Close on outside click or Escape
   useEffect(() => {
@@ -141,7 +145,7 @@ export function KanbanContextMenu({
             'rounded-md shadow-md py-1 min-w-[160px] hidden group-hover:block'
           )}
         >
-          {AGENT_ROSTER.map((agent) => (
+          {assignableAgents.map((agent) => (
             <button
               key={agent.id}
               type="button"

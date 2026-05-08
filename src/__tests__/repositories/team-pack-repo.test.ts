@@ -129,6 +129,27 @@ describe('teamPackRepo.create', () => {
     expect(fetched.roles[0].accountIds).toEqual(['acc-1']);
     expect(fetched.roles[0].skillIds).toEqual(['skill-1']);
   });
+
+  it('creates self-contained snapshots for roles without role cards', () => {
+    const pack = teamPackRepo.create({
+      name: 'self-contained-pack',
+      displayName: 'Self-contained Pack',
+      description: 'Creates member snapshots',
+      roles: [{
+        id: 'planner',
+        displayName: '规划师',
+        soul: '# 规划师\n\n负责拆解工作。',
+        required: true,
+        description: 'Plans work',
+      }],
+      workflow: { type: 'linear' },
+      communicationMatrix: {},
+    });
+
+    expect(pack.roles[0].roleCardSnapshot?.displayName).toBe('规划师');
+    expect(pack.roles[0].roleCardSnapshot?.sourceRoleCardId).toBeUndefined();
+    expect(pack.roles[0].roleCardSnapshot?.snapshotVersion).toBe(1);
+  });
 });
 
 describe('teamPackRepo.getById / getByName', () => {
@@ -168,6 +189,47 @@ describe('teamPackRepo.getById / getByName', () => {
   });
 });
 
+describe('teamPackRepo.update', () => {
+  it('updates editable team pack fields and replaces roles with snapshots', () => {
+    const pack = teamPackRepo.create({
+      name: 'editable-pack',
+      displayName: 'Editable Pack',
+      description: 'Before',
+      roles: [{ id: 'planner', displayName: '规划师', soul: '# 规划师', required: true }],
+      teamMode: 'pipeline',
+      workflow: { type: 'linear' },
+      communicationMatrix: {},
+    });
+
+    teamPackRepo.update(pack.id, {
+      displayName: 'Edited Pack',
+      description: 'After',
+      teamMode: 'parallel',
+      roles: [
+        { id: 'writer', displayName: '撰稿人', soul: '# 撰稿人', required: true, description: 'Writes docs' },
+        { id: 'reviewer', displayName: '审查者', soul: '# 审查者', required: false, description: 'Reviews docs' },
+      ],
+      workflow: {
+        type: 'linear',
+        steps: [{ role: 'writer', action: 'write', output: 'draft' }],
+      },
+      communicationMatrix: {
+        writer: { canSendTo: ['reviewer'], canReceiveFrom: ['reviewer'] },
+        reviewer: { canSendTo: ['writer'], canReceiveFrom: ['writer'] },
+      },
+    });
+
+    const updated = teamPackRepo.getById(pack.id)!;
+    expect(updated.displayName).toBe('Edited Pack');
+    expect(updated.description).toBe('After');
+    expect(updated.teamMode).toBe('parallel');
+    expect(updated.roles.map((role) => role.id)).toEqual(['reviewer', 'writer']);
+    expect(updated.roles[0].roleCardSnapshot?.displayName).toBe('审查者');
+    expect(updated.workflow.steps?.[0].role).toBe('writer');
+    expect(updated.communicationMatrix.writer.canSendTo).toEqual(['reviewer']);
+  });
+});
+
 describe('teamPackRepo.updateRoleConfig', () => {
   it('updates persisted role config and returns the updated role', () => {
     const pack = teamPackRepo.create({
@@ -202,6 +264,34 @@ describe('teamPackRepo.updateRoleConfig', () => {
     });
 
     expect(teamPackRepo.updateRoleConfig(pack.id, 'missing', { accountIds: ['acc-3'] })).toBeUndefined();
+  });
+});
+
+describe('teamPackRepo.materializeRoleSnapshots', () => {
+  it('copies role card definitions into missing role snapshots', () => {
+    const pack = teamPackRepo.create({
+      name: 'materialize-role-card-pack',
+      displayName: 'Materialize Role Card Pack',
+      description: 'Uses existing role card as source',
+      roles: [{
+        id: 'planner',
+        displayName: '规划师',
+        soul: '# 规划师',
+        required: true,
+        roleCardId: 'preset-planner',
+        roleCardSnapshot: undefined,
+      }],
+      workflow: { type: 'linear' },
+      communicationMatrix: {},
+    });
+
+    db.prepare('UPDATE team_pack_role SET role_card_snapshot = NULL WHERE pack_id = ? AND role_id = ?').run(pack.id, 'planner');
+
+    const materialized = teamPackRepo.materializeRoleSnapshots(pack.id);
+
+    expect(materialized?.roles[0].roleCardSnapshot?.sourceRoleCardId).toBe('preset-planner');
+    expect(materialized?.roles[0].roleCardSnapshot?.displayName).toBeTruthy();
+    expect(teamPackRepo.getById(pack.id)?.roles[0].roleCardSnapshot?.sourceRoleCardId).toBe('preset-planner');
   });
 });
 

@@ -122,21 +122,21 @@ export function RoleCardListPage({ onClose }: { onClose: () => void }) {
     <div className="space-y-5">
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-[14px] font-bold text-[hsl(var(--text-primary))]">角色卡</h3>
+          <h3 className="text-[14px] font-bold text-[hsl(var(--text-primary))]">角色素材</h3>
           <p className="text-[10px] font-bold tracking-wider uppercase text-[hsl(var(--text-tertiary))] mt-0.5">
-            定义工程协作角色的职责、工作方式和输出规范
+            作为团队成员身份模板复用，项目运行优先使用团队套件内的成员定义
           </p>
         </div>
         <button
           onClick={() => setEditorOpen(true)}
           className="inline-flex items-center gap-1.5 px-3 py-2 text-[11px] font-bold bg-[hsl(var(--accent))] text-white border-2 border-[hsl(var(--accent))] shadow-[2px_2px_0px_hsl(var(--accent)/0.4)] rounded-[4px] hover:shadow-[1px_1px_0px_hsl(var(--accent)/0.4)] hover:translate-x-[1px] hover:translate-y-[1px] transition-all"
         >
-          <Plus className="w-3.5 h-3.5" /> 创建
+          <Plus className="w-3.5 h-3.5" /> 创建素材
         </button>
       </div>
 
       <div className="space-y-3">
-        <h4 className="text-[10px] font-bold tracking-widest uppercase text-[hsl(var(--text-tertiary))]">预置角色</h4>
+        <h4 className="text-[10px] font-bold tracking-widest uppercase text-[hsl(var(--text-tertiary))]">预置素材</h4>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {presetCards.map((card) => (
             <RoleCardCard key={card.id} card={card} onDetail={handleDetail} onEdit={handleEdit} onClone={handleClone} onDelete={handleDelete} />

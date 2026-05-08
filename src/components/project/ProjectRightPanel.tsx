@@ -5,7 +5,7 @@ import { useTaskHubStore, type Task } from '@/store/taskHubStore';
 import { useTeamPackStore } from '@/store/teamPackStore';
 import { MiniKanban } from './MiniKanban';
 import { cn } from '@/lib/utils';
-import { PanelRightOpen, PanelRightClose, AlertTriangle, Users, Layout, Briefcase, Info } from 'lucide-react';
+import { PanelRightOpen, PanelRightClose, AlertTriangle, Users, Layout, Briefcase } from 'lucide-react';
 
 type NextItem = {
   label: string;
@@ -94,7 +94,7 @@ export function ProjectRightPanel({ teamPackId }: { teamPackId: string }) {
             <MiniKanban expanded={true} />
 
             {/* Team Pack Info Section */}
-            {teamPack ? (
+            {teamPack && (
               <div className="space-y-4">
                 {/* Header */}
                 <div className="p-4 border-b border-[hsl(var(--border-subtle))] rounded-lg">
@@ -170,18 +170,6 @@ export function ProjectRightPanel({ teamPackId }: { teamPackId: string }) {
                      </div>
                    )}
                  </div>
-              </div>
-            ) : (
-              <div className="p-8 text-center text-gray-500">
-                <div className="flex flex-col items-center gap-4">
-                  <Info className="w-10 h-10 text-gray-400" />
-                  <div>
-                    <div className="text-sm font-medium">请先选择团队套件</div>
-                    <div className="text-xs text-gray-400 mt-1">
-                      在项目创建对话框中选择团队套件，或者访问团队套件管理页面
-                    </div>
-                  </div>
-                </div>
               </div>
             )}
 

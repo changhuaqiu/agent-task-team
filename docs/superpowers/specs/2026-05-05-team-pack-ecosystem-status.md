@@ -178,6 +178,16 @@ dispatch → composeOpts.teamPack → PromptComposer → Agent prompt 包含团�
 - `AgentBindingPanel`、`AgentBar`、技能加载、dispatch、模拟执行共用同一解析结果
 - `loadSkills()` 现在按 effective roster 拉取技能绑定，动态角色的技能分配可重新加载
 
+### 4.5 团队优先角色身份 Phase 1
+
+**状态**：Phase 1-3 已落地，保留旧入口兼容。
+
+TeamPackRole 支持保存 `roleCardSnapshot`、`accountIds`、`skillIds`。项目运行时通过 `getAgentRuntimeProfile(agentId)` 优先读取当前 TeamPack 成员定义；全局 RoleCard 和 Agent overrides 仅作为兼容 fallback。成员头像配置面板写入 TeamPackRole，使团队套件逐步成为角色身份、账号和技能绑定的事实来源。
+
+团队套件现在支持“固化团队成员”，会为缺少 snapshot 的成员写入 `roleCardSnapshot`；导出接口返回自包含 TeamPack 数据。设置抽屉将独立角色入口降级为“角色素材”，成员配置面板提供“存为素材”，用于把团队成员身份另存为可复用模板。
+
+团队套件页已提供完整编辑器：可编辑套件基础信息、团队模式、成员列表、成员身份内容、工作流、通信矩阵、共享上下文和团队规则。保存后成员行会重建并生成 snapshot，保证编辑后的 TeamPack 仍可自包含导出。
+
 ---
 
 ## 五、下一步计划

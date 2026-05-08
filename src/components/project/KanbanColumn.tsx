@@ -4,14 +4,9 @@ import React, { useMemo } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { cn } from '@/lib/utils';
-import { type Task, type TaskStatus, STATUS_LABELS } from '@/store/taskHubStore';
-import { AGENT_ROSTER, type AgentTheme } from '@/store/agentStore';
+import { type Task, type TaskStatus, STATUS_LABELS, useTaskHubStore } from '@/store/taskHubStore';
+import { type AgentTheme } from '@/store/agentStore';
 import { KanbanCard } from './KanbanCard';
-
-function agentTheme(agentId: string): AgentTheme {
-  const agent = AGENT_ROSTER.find((a) => a.id === agentId);
-  return (agent?.theme ?? 'mario') as AgentTheme;
-}
 
 interface KanbanColumnProps {
   status: TaskStatus;
@@ -31,6 +26,13 @@ export function KanbanColumn({
   onCardContextMenu,
 }: KanbanColumnProps) {
   const { setNodeRef, isOver } = useDroppable({ id: status });
+  const getEffectiveRoster = useTaskHubStore((s) => s.getEffectiveRoster);
+  const effectiveRoster = getEffectiveRoster();
+
+  const agentTheme = (agentId: string): AgentTheme => {
+    const agent = effectiveRoster.find((item) => item.id === agentId);
+    return (agent?.theme ?? 'mario') as AgentTheme;
+  };
 
   const sorted = useMemo(
     () => [...tasks].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),

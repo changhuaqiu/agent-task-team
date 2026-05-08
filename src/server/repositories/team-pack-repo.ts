@@ -1,6 +1,10 @@
 import { getDb } from '../db/index';
+import { loadAllRoleCards } from '../db/roleCardQueries';
 import { generateSortableId } from './sortable-id';
 import type { TeamPack, TeamPackRole, CreateTeamPackInput } from '@/types/teamPack';
+import type { RoleCard } from '@/types/roleCard';
+import { PRESET_ROLE_CARDS } from '@/data/presetRoleCards';
+import { materializeTeamPack, materializeTeamRoleSnapshot } from '../team-pack-role-snapshot';
 
 // ──────────────────────────────────────────────
 // Types
@@ -81,6 +85,17 @@ function rowToTeamPack(row: TeamPackRow, roles: TeamPackRoleRow[]): TeamPack {
   };
 }
 
+function loadSnapshotSourceCards(): RoleCard[] {
+  const cards = new Map<string, RoleCard>();
+  for (const card of PRESET_ROLE_CARDS) cards.set(card.id, card);
+  try {
+    for (const card of loadAllRoleCards()) cards.set(card.id, card);
+  } catch {
+    // Test databases and early migrations may not have role card rows yet.
+  }
+  return [...cards.values()];
+}
+
 // ──────────────────────────────────────────────
 // Repository
 // ──────────────────────────────────────────────
@@ -114,7 +129,9 @@ export const teamPackRepo = {
       now
     );
 
-    for (const role of input.roles) {
+    const sourceCards = loadSnapshotSourceCards();
+    for (const inputRole of input.roles) {
+      const role = materializeTeamRoleSnapshot(inputRole, sourceCards, now);
       db.prepare(
         `INSERT INTO team_pack_role (
           id, pack_id, role_id, display_name, soul, required, description,
@@ -173,15 +190,51 @@ export const teamPackRepo = {
 
     if (updates.displayName !== undefined) { sets.push('display_name = ?'); values.push(updates.displayName); }
     if (updates.description !== undefined) { sets.push('description = ?'); values.push(updates.description); }
+    if (updates.name !== undefined) { sets.push('name = ?'); values.push(updates.name); }
+    if (updates.version !== undefined) { sets.push('version = ?'); values.push(updates.version); }
+    if (updates.tags !== undefined) { sets.push('tags = ?'); values.push(JSON.stringify(updates.tags)); }
+    if (updates.category !== undefined) { sets.push('category = ?'); values.push(updates.category); }
+    if (updates.teamMode !== undefined) { sets.push('team_mode = ?'); values.push(updates.teamMode); }
     if (updates.workflow !== undefined) { sets.push('workflow = ?'); values.push(JSON.stringify(updates.workflow)); }
     if (updates.communicationMatrix !== undefined) { sets.push('communication_matrix = ?'); values.push(JSON.stringify(updates.communicationMatrix)); }
+    if (updates.sharedContext !== undefined) { sets.push('shared_context = ?'); values.push(updates.sharedContext ? JSON.stringify(updates.sharedContext) : null); }
+    if (updates.rules !== undefined) { sets.push('rules = ?'); values.push(updates.rules ? JSON.stringify(updates.rules) : null); }
 
-    if (sets.length === 0) return;
-    sets.push('updated_at = ?');
-    values.push(now);
-    values.push(id);
+    if (sets.length > 0) {
+      sets.push('updated_at = ?');
+      values.push(now);
+      values.push(id);
 
-    db.prepare(`UPDATE team_pack SET ${sets.join(', ')} WHERE id = ?`).run(...values);
+      db.prepare(`UPDATE team_pack SET ${sets.join(', ')} WHERE id = ?`).run(...values);
+    }
+
+    if (updates.roles !== undefined) {
+      db.prepare('DELETE FROM team_pack_role WHERE pack_id = ?').run(id);
+      const sourceCards = loadSnapshotSourceCards();
+      for (const inputRole of updates.roles) {
+        const role = materializeTeamRoleSnapshot(inputRole, sourceCards, now);
+        db.prepare(
+          `INSERT INTO team_pack_role (
+            id, pack_id, role_id, display_name, soul, required, description,
+            role_card_id, role_card_snapshot, account_ids, skill_ids, created_at
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ).run(
+          generateSortableId('tpr'),
+          id,
+          role.id,
+          role.displayName,
+          role.soul,
+          role.required ? 1 : 0,
+          role.description ?? null,
+          role.roleCardId ?? null,
+          role.roleCardSnapshot ? JSON.stringify(role.roleCardSnapshot) : null,
+          role.accountIds ? JSON.stringify(role.accountIds) : null,
+          role.skillIds ? JSON.stringify(role.skillIds) : null,
+          now
+        );
+      }
+    }
   },
 
   delete(id: string): void {
@@ -190,8 +243,9 @@ export const teamPackRepo = {
 
   // ── Role Management ──────────────────────
 
-  addRole(packId: string, role: TeamPackRole): void {
+  addRole(packId: string, inputRole: TeamPackRole): void {
     const now = new Date().toISOString();
+    const role = materializeTeamRoleSnapshot(inputRole, loadSnapshotSourceCards(), now);
     getDb().prepare(
       `INSERT INTO team_pack_role (
         id, pack_id, role_id, display_name, soul, required, description,
@@ -249,6 +303,27 @@ export const teamPackRepo = {
     values.push(packId, roleId);
     getDb().prepare(`UPDATE team_pack_role SET ${sets.join(', ')} WHERE pack_id = ? AND role_id = ?`).run(...values);
     return teamPackRepo.getById(packId)?.roles.find((role) => role.id === roleId);
+  },
+
+  materializeRoleSnapshots(packId: string): TeamPack | undefined {
+    const pack = teamPackRepo.getById(packId);
+    if (!pack) return undefined;
+
+    const sourceCards = loadSnapshotSourceCards();
+    const materialized = materializeTeamPack(pack, sourceCards);
+    const db = getDb();
+    for (const role of materialized.roles) {
+      db.prepare(
+        'UPDATE team_pack_role SET role_card_snapshot = ? WHERE pack_id = ? AND role_id = ?',
+      ).run(JSON.stringify(role.roleCardSnapshot), packId, role.id);
+    }
+    return teamPackRepo.getById(packId);
+  },
+
+  getExportById(packId: string): TeamPack | undefined {
+    const pack = teamPackRepo.getById(packId);
+    if (!pack) return undefined;
+    return materializeTeamPack(pack, loadSnapshotSourceCards());
   },
 
   // ── Agent Assignment ─────────────────────

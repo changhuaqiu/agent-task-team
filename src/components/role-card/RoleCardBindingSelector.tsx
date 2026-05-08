@@ -1,6 +1,6 @@
 'use client';
 
-import { useTaskHubStore, AGENT_ROSTER } from '@/store/taskHubStore';
+import { useTaskHubStore } from '@/store/taskHubStore';
 import { RoleCardBadge } from './RoleCardBadge';
 import { Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -14,8 +14,9 @@ export function RoleCardBindingSelector({
 }) {
   const roleCards = useTaskHubStore((s) => s.roleCards);
   const setAgentRoleCardId = useTaskHubStore((s) => s.setAgentRoleCardId);
+  const getEffectiveRoster = useTaskHubStore((s) => s.getEffectiveRoster);
 
-  const agent = AGENT_ROSTER.find((a) => a.id === agentId);
+  const agent = getEffectiveRoster().find((a) => a.id === agentId);
   if (!agent) return null;
 
   const currentCardId = agent.roleCardId;

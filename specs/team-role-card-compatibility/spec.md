@@ -1,6 +1,6 @@
 # Team Role Card Compatibility Spec
 
-**Status:** Active
+**Status:** Implemented
 **Date:** 2026-05-06
 **Related docs:**
 - `docs/superpowers/specs/2026-05-05-role-card-ecosystem-design.md`
@@ -62,23 +62,23 @@ interface AgentRuntimeProfile {
 }
 ```
 
-Resolution rules:
+Resolution rules after team-first fusion:
 
 1. Start from `getEffectiveRoster()` so Team Pack roles are visible to all consumers.
-2. Apply `agentRoleCardOverrides[agentId]` before falling back to `agent.roleCardId`.
-3. If a RoleCard exists and has `accountIds`, use those accounts.
-4. Otherwise use `agentAccountOverrides[agentId]`.
-5. Otherwise use `agent.accountIds`.
-6. Skills come from `agentSkillIds[agentId]`.
+2. If the selected project has a current TeamPack role, prefer `TeamPackRole.roleCardSnapshot`.
+3. Otherwise use `TeamPackRole.roleCardId`, then `agentRoleCardOverrides[agentId]`, then `agent.roleCardId`.
+4. Account IDs come from `TeamPackRole.accountIds`, then the resolved RoleCard, then `agentAccountOverrides[agentId]`, then `agent.accountIds`.
+5. Skill IDs come from `TeamPackRole.skillIds`, then `agentSkillIds[agentId]`.
+6. `TeamPackRole.roleCardSnapshot` is persisted through the team role config API and can be generated through team member materialization.
 
 ## Acceptance Criteria
 
 - A project created with `engineering-trio` has active roles `planner`, `coder`, `reviewer`.
 - Clicking `planner` opens the binding panel and shows account binding controls.
-- If global accounts exist, clicking "添加账号" on `planner` stores the binding under `agentAccountOverrides.planner` when no RoleCard exists.
-- Switching `planner` to an existing RoleCard stores `agentRoleCardOverrides.planner`.
-- After switching to a RoleCard, account resolution uses that RoleCard's account IDs when present.
-- Adding a skill to `planner` calls `/api/agents/planner/skills` and `loadSkills()` hydrates it after reload.
+- If global accounts exist, clicking "添加账号" on `planner` stores the binding on `TeamPackRole.accountIds` when a TeamPack role exists.
+- Switching `planner` to an existing RoleCard stores a `TeamPackRole.roleCardSnapshot` when a TeamPack role exists.
+- After switching to a RoleCard, account resolution uses TeamPack member account IDs first, then the role snapshot/source RoleCard as fallback.
+- Adding a skill to `planner` writes `TeamPackRole.skillIds` when a TeamPack role exists; legacy `/api/agents/{agentId}/skills` remains the fallback without TeamPack.
 - Dispatch to `planner` resolves an agent from `getEffectiveRoster()` and sends the chosen account IDs to `terminal:start`.
 - Tests cover dynamic role account binding, role switching, skill hydration IDs, and dispatch profile resolution.
-
+- TeamPacks can be materialized and exported with member snapshots so sharing does not require external RoleCards.
