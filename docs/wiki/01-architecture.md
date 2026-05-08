@@ -8,6 +8,7 @@ Agent Task Hub 是一个四层结构的多智能体协作平台：
 |------|------|------|
 | **前端工作台** | Next.js + React | 项目切换、作战指挥室、任务详情、风险面板 |
 | **状态编排层** | Zustand | UI 状态、Socket 事件、API Rehydrate |
+| **团队运行契约层** | `src/lib/team-runtime` | 解析项目团队、角色资料、账号、Skill、协作规则与任务流程 |
 | **应用后端层** | Next.js API + SQLite | 数据持久化、业务逻辑、Repository |
 | **执行层** | Socket.io Daemon + Agent Backend | CLI 执行、会话管理、事件流 |
 
@@ -30,6 +31,13 @@ Agent Task Hub 是一个四层结构的多智能体协作平台：
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐  │
 │  │ /api/state  │  │ /api/mutat. │  │ /api/socketio (Daemon)  │  │
 │  └─────────────┘  └─────────────┘  └─────────────────────────┘  │
+│                              │                                  │
+│                              ▼                                  │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │  Team Runtime Contract (src/lib/team-runtime)           │    │
+│  │  - roster / profile / communication / workflow          │    │
+│  │  - TeamPack roles override static preset assumptions    │    │
+│  └─────────────────────────────────────────────────────────┘    │
 │                              │                                  │
 │                              ▼                                  │
 │  ┌─────────────────────────────────────────────────────────┐    │
@@ -82,6 +90,11 @@ Agent Task Hub 是一个四层结构的多智能体协作平台：
     ▼
 dispatchToAgent()
     │
+    ├─ resolveRuntimeAgentProfile(conversationId, agentId)
+    │   ├─ 当前项目团队身份
+    │   ├─ 可用账号 / engine
+    │   └─ roleCard / skills / TeamPack / roster
+    │
     ├─ agentStatus[agentId] === 'busy'?
     │   └─ YES → enqueueDispatch(agentId, conversationId)
     │             存入 pendingDispatches["agentId:conversationId"]
@@ -105,6 +118,31 @@ dispatchToAgent()
                         └─ orchestrator.onAgentDone()
                             └─ dequeueNextPending(agentId, conversationId)
 ```
+
+### C2) Team Runtime Contract
+
+`src/lib/team-runtime/` 是当前项目级协作内核。它不新增一张独立运行时表，而是从已有事实对象解析出当前项目的团队运行结构：
+
+- `Conversation.team_pack_id`
+- `TeamPack.roles[]`、`workflow`、`communicationMatrix`
+- RoleCard、Account、Skill 绑定
+- preset agents 和当前 active agent 列表
+
+解析结果包含四个关键对象：
+
+- `TeamRuntime.roster`：当前项目可展示、可绑定、可派发、可注入 prompt 的团队成员。
+- `RuntimeAgentProfile`：单个成员的执行资料，包含账号、engine、RoleCard、Skill、TeamPack 和 roster。
+- `CommunicationPolicy`：A2A handoff 是否允许，以及被阻止时的用户可读说明。
+- `WorkflowPolicy`：通过 `TeamModeEngine` 决定 TeamPack 会话的初始任务负责人或后续角色。
+
+当前落地链路：
+
+- Store 的 `getEffectiveRoster()` 与 `getAgentRuntimeProfile()` 委托给 Team Runtime Contract，store 只缓存结果，不拥有规则。
+- `dispatchToAgent()` 先解析 `RuntimeAgentProfile`，再 compose prompt 与发送 `terminal:start`；缺少可执行资料时明确中止，不静默落到错误角色。
+- PromptComposer 接收 runtime roster，TeamLayer 不再以静态 `AGENT_ROSTER` 作为唯一团队事实。
+- `/api/state` 返回所有持久化 agent-skill 绑定，支持动态 TeamPack role。
+- A2A 通过 server-side runtime provider 读取当前 conversation roster 和 communication policy，再扫描 `@roleId` / `@displayName`。
+- `/api/mutations` 的任务创建在没有显式负责人时通过 `WorkflowPolicy.assignInitialTask()` 选择 TeamPack 初始角色。
 
 ### D) 会话隔离机制
 
@@ -244,6 +282,8 @@ dequeueNextPending(agentId, conversationId);
 | `Account` | 账号与执行认证 | SQLite |
 | `RoleCard` | 工程型角色卡，含 CapabilityProfile | SQLite |
 | `Skill` | 可复用能力模块 | SQLite |
+| `TeamPack` | 团队套件，包含角色、流程、协作规则 | SQLite |
+| `TeamRuntime` | 从 Conversation / TeamPack / RoleCard / Account / Skill 解析出的项目团队契约 | 派生运行结构 |
 | `AgentSession` | 会话级执行上下文 | SQLite |
 | `Invocation` | 单次执行记录 | SQLite |
 
@@ -295,11 +335,20 @@ DispatchAdvisor 基于 CapabilityProfile 进行匹配：
 3. 负载感知
 4. 禁止动作检查
 
+### G) Team Runtime Contract
+
+项目团队从固定 agent 列表演进为运行时解析模型：
+
+1. 没有绑定 TeamPack 的项目使用 preset agents。
+2. 绑定 TeamPack 的项目以 TeamPack roles 为团队事实源。
+3. RoleCard、Account、Skill、Prompt、Dispatch、A2A 和 Workflow 都读取同一个 runtime 结果。
+4. Daemon 和 API 不直接解释 TeamPack 规则，只接收解析后的执行资料、协作规则或任务分配结果。
+
 ## 1.8 当前状态
 
 | 状态 | 模块 |
 |------|------|
-| ✅ 已完成 | 项目工作台 UI、SQLite 持久化、Agent Backend、账号模型、Skill 系统、会话隔离、队列隔离 |
+| ✅ 已完成 | 项目工作台 UI、SQLite 持久化、Agent Backend、账号模型、Skill 系统、会话隔离、队列隔离、Team Runtime Contract 基础链路 |
 | 🚧 进行中 | 统一集成配置中心、多 runtime 信息架构 |
 | 📋 规划中 | 安全与权限边界、渠道/provider/routing policy |
 

@@ -145,6 +145,13 @@ Repository 当前覆盖的核心对象：
 - Tool 拦截：识别 skill 定义的自定义 tool_use（非原生 tool），路由到内部 API
 - GC：启动时清理过期 task 工作目录（24h TTL），active root 引用计数保护
 
+Daemon 的边界是执行编排，不是团队规则解释器：
+
+- 前端 dispatch 已经把 `RuntimeAgentProfile` 解析成 `terminal:start` payload 中的 `agentId`、`engine`、`accountId`、prompt 上下文。
+- A2A 使用 [`src/server/a2a/runtime-snapshot-provider.ts`](../../src/server/a2a/runtime-snapshot-provider.ts) 从 repository 和 Team Runtime Contract 读取当前会话 roster 与通信规则。
+- 服务端任务创建使用 [`src/server/team-runtime/task-assignment.ts`](../../src/server/team-runtime/task-assignment.ts) 调用 `WorkflowPolicy.assignInitialTask()`。
+- Daemon 不直接读取前端 store，也不在执行循环中手写 TeamPack workflow 或通信矩阵判断。
+
 ## 4.4 Socket 事件协议
 
 ### 输入事件：`terminal:start`

@@ -170,6 +170,20 @@ export interface Task {
 
 而不是持久化主数据源。
 
+### Team Runtime Cache
+
+当前团队身份、执行资料和协作策略不再由 store 自己拼装。store 只负责把 rehydrate 得到的 Conversation、TeamPack、RoleCard、Account、Skill 和 agent 绑定传入 `src/lib/team-runtime/`，再缓存解析结果用于 UI 和派发。
+
+关键规则：
+
+- `getEffectiveRoster()` 委托 `resolveTeamRuntime()`。没有 TeamPack 时返回 preset agents；有 TeamPack 时以 TeamPack roles 为第一事实源，并为旧 UI 兼容保留必要映射。
+- `getAgentRuntimeProfile(agentId)` 委托 `resolveRuntimeAgentProfile()`。它返回单个成员的 RoleCard、Skill、账号和 engine；如果没有可执行账号或 fallback engine，返回 `null`。
+- `dispatchToAgent()` 必须先拿到 `RuntimeAgentProfile`，再 compose prompt 和 emit `terminal:start`。拿不到 profile 时记录明确的 no-runtime-profile 中止事件，不再静默使用默认 engine。
+- PromptComposer 接收 runtime roster，因此 TeamLayer、TeamPackLayer 和 dispatch 使用的是同一组团队身份。
+- `/api/state` 返回持久化的全部 `agentSkillIds`，store 不能再假设只有固定六个 preset agent 才能绑定 Skill。
+
+这意味着 store 的职责边界是“缓存与适配”，不是“定义团队规则”。TeamPack 的通信规则、任务流程和角色解析都应保留在 Team Runtime Contract 或 server repository 边界内。
+
 ## 3.4 当前重要方法
 
 ### 初始化
@@ -199,7 +213,7 @@ export interface Task {
 - `addChatMessage()`
 - `dispatchToAgent()`
 - `confirmBreakdown()` 现在经过 `DispatchAdvisor` —— 一个编程式匹配器，根据 capability profiles、当前负载和 forbidden actions 建议 agent 分配。Advisor 在任务创建前产出带有 `suggestedAgentIds` 的 enriched PhaseProposals
-  - 当前通过 `composeSystemPrompt(opts)` 构建 systemPrompt，`ComposeOptions.skills` 从 `skillsMap` 解析
+- 当前通过 `composeSystemPrompt(opts)` 构建 systemPrompt，`ComposeOptions.skills` 从 `skillsMap` 解析，团队花名册来自 Team Runtime roster
 - 流式消息处理相关方法
 
 ### Skill 管理
@@ -260,3 +274,6 @@ store 监听 daemon 推送的实时事件，并将其映射成前端状态：
 - API 客户端编排层
 - Socket 事件适配层
 - 工作台 UI 的统一入口
+- Team Runtime 的前端缓存与展示适配层
+
+它不应成为 RoleCard、TeamPack workflow、通信矩阵或账号执行规则的最终事实源。

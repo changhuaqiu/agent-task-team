@@ -1228,7 +1228,7 @@ git commit -m "feat: enforce team communication policy for a2a"
 - Expected modify: `src/store/taskStore.ts` or `src/store/daemonStore.ts`
 - Test: `src/__tests__/store/team-role-card-compatibility.test.ts` or a new `src/__tests__/lib/team-runtime/workflow-policy.test.ts`
 
-- [ ] **Step 1: Add focused workflow test**
+- [x] **Step 1: Add focused workflow test**
 
 Add to `src/__tests__/lib/team-runtime/team-runtime.test.ts`:
 
@@ -1260,7 +1260,7 @@ it('delegates initial task assignment to TeamModeEngine through workflow policy'
 });
 ```
 
-- [ ] **Step 2: Run test**
+- [x] **Step 2: Run test**
 
 Run:
 
@@ -1270,7 +1270,7 @@ pnpm vitest run src/__tests__/lib/team-runtime/team-runtime.test.ts
 
 Expected: PASS if Task 2 already implemented the adapter. If it fails, fix `resolveWorkflowPolicy.ts`.
 
-- [ ] **Step 3: Wire one real path**
+- [x] **Step 3: Wire one real path**
 
 Choose the least invasive existing path. Recommended: in task creation/confirmation where `DispatchAdvisor` assigns tasks, when a selected conversation has `teamPackId`, resolve runtime and ask `workflowPolicy.assignInitialTask()` before falling back to advisor.
 
@@ -1296,7 +1296,7 @@ const assignment = runtime.workflowPolicy.assignInitialTask({
 const agentId = assignment?.agentId ?? advisorSuggestedAgentId;
 ```
 
-- [ ] **Step 4: Run related tests**
+- [x] **Step 4: Run related tests**
 
 Run:
 
@@ -1306,7 +1306,7 @@ pnpm vitest run src/__tests__/lib/team-runtime/team-runtime.test.ts src/__tests_
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/store/taskStore.ts src/store/taskHubStore.ts src/__tests__/lib/team-runtime/team-runtime.test.ts src/__tests__/store/team-role-card-compatibility.test.ts
@@ -1324,7 +1324,7 @@ git commit -m "feat: route team assignments through workflow policy"
 - Modify: `docs/product/business/2026-05-05-role-card-ecosystem-analysis.md`
 - Modify: `specs/team-runtime-contract/checklist.md`
 
-- [ ] **Step 1: Update architecture doc**
+- [x] **Step 1: Update architecture doc**
 
 In `docs/wiki/01-architecture.md`, add Team Runtime Contract between Store and Repositories:
 
@@ -1334,7 +1334,7 @@ In `docs/wiki/01-architecture.md`, add Team Runtime Contract between Store and R
 Team Runtime Contract 是项目级协作内核。它从 Conversation、TeamPack、RoleCard、Account、Skill 和 preset roster 解析出当前项目可运行团队，供 UI、PromptComposer、Dispatch、A2A 和 workflow policy 共同使用。
 ```
 
-- [ ] **Step 2: Update store model doc**
+- [x] **Step 2: Update store model doc**
 
 In `docs/wiki/03-store-model.md`, add:
 
@@ -1342,7 +1342,7 @@ In `docs/wiki/03-store-model.md`, add:
 Store 缓存 TeamRuntime 的结果，但不拥有团队解析规则。团队解析规则位于 `src/lib/team-runtime/`，store helper 只负责把当前 state 传入 resolver 并把结果提供给 UI。
 ```
 
-- [ ] **Step 3: Update daemon doc**
+- [x] **Step 3: Update daemon doc**
 
 In `docs/wiki/04-backend-daemon.md`, add:
 
@@ -1350,7 +1350,7 @@ In `docs/wiki/04-backend-daemon.md`, add:
 Daemon 接收已经解析好的 `engine`、`accountId`、`prompt` 和 `systemPrompt`。TeamPack workflow、通信规则和角色解析不在 daemon 内解释，daemon 只负责执行上下文、session、invocation、credential、timeout、backend 和事件转发。
 ```
 
-- [ ] **Step 4: Update product doc**
+- [x] **Step 4: Update product doc**
 
 In `docs/product/business/2026-05-05-role-card-ecosystem-analysis.md`, add:
 
@@ -1358,11 +1358,11 @@ In `docs/product/business/2026-05-05-role-card-ecosystem-analysis.md`, add:
 TeamRuntime 是 TeamPack 落地为可运行团队的产品边界：用户看到的是团队、角色、账号、技能和协作规则；系统内部通过 TeamRuntime 把这些对象解析为统一运行时。
 ```
 
-- [ ] **Step 5: Update checklist**
+- [x] **Step 5: Update checklist**
 
 In `specs/team-runtime-contract/checklist.md`, mark only completed items as checked after verifying code and tests.
 
-- [ ] **Step 6: Run docs/spec grep**
+- [x] **Step 6: Run docs/spec grep**
 
 Run:
 
