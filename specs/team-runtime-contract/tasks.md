@@ -34,7 +34,7 @@
 - [ ] Update A2A target resolution to use runtime roster.
 - [x] Enforce `CommunicationPolicy` before enqueueing or dispatching A2A work.
 - [x] Record blocked A2A attempts as audit/debug events.
-- [ ] Route at least one task assignment or follow-up decision through `WorkflowPolicy`.
+- [x] Route at least one task assignment or follow-up decision through `WorkflowPolicy`.
 - [x] Add tests for allowed and blocked communication matrix cases.
 
 ## Phase 6: Documentation

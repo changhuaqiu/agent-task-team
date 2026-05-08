@@ -1,4 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { mkdtempSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import { createTestDb, setTestDb, resetDb } from '@/server/db/index';
 import { resetSeq } from '@/server/repositories/sortable-id';
 import handler from '@/pages/api/mutations';
@@ -30,6 +33,34 @@ afterEach(() => {
 async function seedConversation() {
   const { conversationRepo } = await import('@/server/repositories/conversation-repo');
   conversationRepo.create({ id: 'conv-1', title: 'Seed Conv' });
+}
+
+async function seedTeamPackConversation() {
+  const { conversationRepo } = await import('@/server/repositories/conversation-repo');
+  const { teamPackRepo } = await import('@/server/repositories/team-pack-repo');
+  const pack = teamPackRepo.create({
+    name: 'workflow-policy-pack',
+    displayName: 'Workflow Policy Pack',
+    description: 'Tests workflow-driven initial task assignment',
+    teamMode: 'pipeline',
+    roles: [
+      { id: 'planner', displayName: 'Planner', soul: '# Planner', required: true },
+      { id: 'coder', displayName: 'Coder', soul: '# Coder', required: true },
+    ],
+    workflow: {
+      type: 'linear',
+      steps: [
+        { role: 'planner', action: 'plan', output: 'plan' },
+        { role: 'coder', action: 'build', output: 'implementation' },
+      ],
+    },
+    communicationMatrix: {
+      planner: { canSendTo: ['coder'], canReceiveFrom: [] },
+      coder: { canSendTo: [], canReceiveFrom: ['planner'] },
+    },
+  });
+  conversationRepo.create({ id: 'conv-team', title: 'Team Conv', team_pack_id: pack.id });
+  return pack;
 }
 
 async function seedTask() {
@@ -100,6 +131,70 @@ describe('POST /api/mutations', () => {
     expect(res._json.ok).toBe(true);
     expect(res._json.result.id).toBe('task-1');
     expect(res._json.result.status).toBe('pending');
+  });
+
+  it('task.create assigns a TeamPack task through WorkflowPolicy when no explicit agent is supplied', async () => {
+    await seedTeamPackConversation();
+    const req = mockReq('POST', {
+      type: 'task.create',
+      payload: { id: 'task-team-1', conversation_id: 'conv-team', title: 'Plan the work' },
+    });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res._json.ok).toBe(true);
+    expect(res._json.result.agent_id).toBe('planner');
+
+    const { taskRepo } = await import('@/server/repositories/task-repo');
+    expect(taskRepo.getById('task-team-1')!.agent_id).toBe('planner');
+  });
+
+  it('task.create preserves an explicit agent instead of overriding with WorkflowPolicy', async () => {
+    await seedTeamPackConversation();
+    const req = mockReq('POST', {
+      type: 'task.create',
+      payload: { id: 'task-team-2', conversation_id: 'conv-team', title: 'Build directly', agent_id: 'coder' },
+    });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res._json.ok).toBe(true);
+    expect(res._json.result.agent_id).toBe('coder');
+  });
+
+  it('tool.invoke task_create keeps TASKS.md in sync with the WorkflowPolicy assignee', async () => {
+    await seedTeamPackConversation();
+    const oldRoot = process.env.ATH_WORKSPACES_ROOT;
+    const tempRoot = mkdtempSync(join(tmpdir(), 'ath-workflow-policy-'));
+    process.env.ATH_WORKSPACES_ROOT = tempRoot;
+
+    try {
+      const req = mockReq('POST', {
+        type: 'tool.invoke',
+        payload: {
+          toolName: 'task_create',
+          conversationId: 'conv-team',
+          agentId: 'fallback-agent',
+          input: { title: 'Create team plan', description: 'Plan before building' },
+        },
+      });
+      const res = mockRes();
+      await handler(req, res);
+
+      const { taskRepo } = await import('@/server/repositories/task-repo');
+      const { readTasksMd } = await import('@/server/task-file-service');
+      expect(taskRepo.getById('TASK-001')!.agent_id).toBe('planner');
+      expect(readTasksMd(join(tempRoot, 'conv-team')).tasks[0].agent).toBe('planner');
+    } finally {
+      if (oldRoot === undefined) {
+        delete process.env.ATH_WORKSPACES_ROOT;
+      } else {
+        process.env.ATH_WORKSPACES_ROOT = oldRoot;
+      }
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
   });
 
   it('task.updateStatus changes status', async () => {

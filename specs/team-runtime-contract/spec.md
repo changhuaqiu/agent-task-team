@@ -287,6 +287,14 @@ TeamLayer and TeamPackLayer describe the same active team
 - `TeamModeEngine` should remain strategy-focused.
 - Consumers should call it through `WorkflowPolicy`, not directly from UI components.
 
+### Task Assignment
+
+- Server-side task creation resolves initial assignees through `src/server/team-runtime/task-assignment.ts`.
+- `task.create` uses `WorkflowPolicy.assignInitialTask()` when no explicit `agent_id` is supplied and the conversation is bound to a TeamPack.
+- `tool.invoke` `task_create` uses the same helper and writes the selected agent to both SQLite and `TASKS.md`.
+- Explicit `agent_id` values from user or tool input are preserved and are not overridden by TeamPack workflow policy.
+- Server assignment resolution reads repositories and `src/lib/team-runtime`; it must not import frontend stores.
+
 ### Daemon
 
 - Daemon receives already-resolved execution context.

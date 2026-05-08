@@ -65,7 +65,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       }
       case 'task.create': {
         const { taskRepo } = await import('@/server/repositories/task-repo');
-        result = taskRepo.create(payload as any);
+        const { resolveInitialTaskAssignment } = await import('@/server/team-runtime/task-assignment');
+        const taskPayload = payload as any;
+        if (taskPayload.conversation_id) {
+          const assignment = resolveInitialTaskAssignment({
+            conversationId: taskPayload.conversation_id,
+            taskId: taskPayload.id,
+            title: taskPayload.title,
+            description: taskPayload.description,
+            explicitAgentId: taskPayload.agent_id,
+          });
+          taskPayload.agent_id = assignment.agentId;
+        }
+        result = taskRepo.create(taskPayload);
         break;
       }
       case 'task.updateStatus': {
@@ -174,17 +186,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
           const tasks = taskRepo.list();
           res.json({ ok: true, result: tasks });
         } else if (toolName === 'task_create') {
+          const { resolveInitialTaskAssignment } = await import('@/server/team-runtime/task-assignment');
           const taskCount = taskRepo.list().length;
           const id = `TASK-${String(taskCount + 1).padStart(3, '0')}`;
           const deps = typeof input.dependencies === 'string'
             ? input.dependencies.split(',').map((s: string) => s.trim()).filter(Boolean)
             : [];
+          const assignment = resolveInitialTaskAssignment({
+            conversationId,
+            taskId: id,
+            title: input.title,
+            description: input.description,
+            explicitAgentId: input.agent_id,
+            fallbackAgentId: toolAgentId,
+          });
           const task = taskRepo.create({
             id,
             conversation_id: conversationId,
             title: input.title,
             description: input.description || '',
-            agent_id: input.agent_id || toolAgentId,
+            agent_id: assignment.agentId,
             dependencies: deps,
           });
 
@@ -200,7 +221,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
               title: input.title,
               phase: input.phase || '',
               role: input.role || 'worker',
-              agent: input.agent_id || toolAgentId || '',
+              agent: assignment.agentId,
               status: 'pending',
               depends: deps,
               deliverable: input.deliverable || '',
