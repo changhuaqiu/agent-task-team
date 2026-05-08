@@ -121,6 +121,24 @@ describe('GET /api/state', () => {
     expect(res._json.activeSessions.length).toBe(1);
     expect(res._json.activeSessions[0].id).toBe('ses-1');
   });
+
+  it('returns dynamic agent skill bindings beyond preset agent ids', async () => {
+    const { skillRepo } = await import('@/server/repositories/skill-repo');
+
+    const skill = skillRepo.create({
+      name: 'Planner Skill',
+      content: 'Use planner skill.',
+    });
+    skillRepo.setAgentSkills('planner', [skill.id]);
+
+    const req = mockReq('GET');
+    const res = mockRes();
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res._json.agentSkillIds.planner).toEqual([skill.id]);
+  });
 });
 
 describe('POST /api/state', () => {

@@ -202,4 +202,15 @@ export const skillRepo = {
       .all(agentId) as { skill_id: string }[];
     return rows.map((r) => r.skill_id);
   },
+
+  getAllAgentSkillIds(): Record<string, string[]> {
+    const rows = getDb()
+      .prepare('SELECT agent_id, skill_id FROM agent_skill ORDER BY agent_id, skill_id')
+      .all() as { agent_id: string; skill_id: string }[];
+    const result: Record<string, string[]> = {};
+    for (const row of rows) {
+      result[row.agent_id] = [...(result[row.agent_id] ?? []), row.skill_id];
+    }
+    return result;
+  },
 };

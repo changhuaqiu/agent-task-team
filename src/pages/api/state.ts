@@ -32,12 +32,7 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
       activeSessions,
       recentInvocations,
       skills: skillRepo.list(),
-      agentSkillIds: Object.fromEntries(
-        ['mario', 'luigi', 'toad', 'peach', 'dk', 'yoshi'].map((id) => [
-          id,
-          skillRepo.getSkillIdsForAgent(id),
-        ]),
-      ),
+      agentSkillIds: skillRepo.getAllAgentSkillIds(),
     });
   } catch (error) {
     console.error('[api/state] Error:', error);
