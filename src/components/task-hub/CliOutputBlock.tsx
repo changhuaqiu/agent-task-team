@@ -140,13 +140,13 @@ export function CliOutputBlock({ events, isStreaming, streamText }: CliOutputBlo
         <span style={{ color: '#8B5CF6' }}>
           {expanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
         </span>
-        <span className="font-medium">CLI Output</span>
+        <span className="font-medium">执行输出</span>
         <span className="text-[#475569]">·</span>
         <span className={isStreaming ? 'text-violet-400 font-semibold' : 'text-[#22D3EE] font-semibold'}>
-          {isStreaming ? 'streaming' : 'done'}
+          {isStreaming ? '进行中' : '已完成'}
         </span>
         <span className="text-[#475569]">·</span>
-        <span>{toolCount} tools</span>
+        <span>{toolCount} 个工具</span>
         {activeTool && (
           <>
             <span className="text-[#475569]">·</span>
@@ -176,7 +176,7 @@ export function CliOutputBlock({ events, isStreaming, streamText }: CliOutputBlo
             <>
               <div style={{ height: 1, backgroundColor: '#334155', margin: '4px 8px' }} />
               <div style={{ padding: '4px 12px 8px', maxHeight: 120 }} className="overflow-hidden">
-                <span className="text-[9px] font-bold text-[#64748B] uppercase tracking-wider">stdout</span>
+                <span className="text-[9px] font-bold text-[#64748B] uppercase tracking-wider">输出</span>
                 <div className="text-[11px] text-[#E2E8F0] whitespace-pre-wrap break-words font-mono leading-relaxed mt-1">
                   {streamText}
                 </div>
