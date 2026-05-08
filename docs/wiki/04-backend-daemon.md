@@ -188,7 +188,19 @@ Repository 当前覆盖的核心对象：
 - `task.assigned` — 任务分配通知（来自 task_assign 工具，触发 dispatchToAgent）
 - `task.ready` — 依赖满足通知（来自 TaskFileWatcher 依赖解析，触发自动 dispatch）
 
-## 4.5 Agent Backend 抽象
+## 4.5 A2A 编排与团队协作规则
+
+[`src/server/a2a/orchestrator.ts`](../../src/server/a2a/orchestrator.ts) 负责链式 A2A 编排：用户直派会创建 invocation chain 并写入 worklist，agent 输出中的 `@mention` 会转为 agent-to-agent dispatch request。
+
+当项目提供 Team Runtime `CommunicationPolicy` 时，A2A mention handoff 在写入 worklist 前检查协作规则：
+
+- `fromAgentId === 'user'` 的直接用户派发不受该规则拦截。
+- agent 发起的 `@mention` 如果被规则阻止，会写入 `a2a_audit_log` 的 `dispatch_blocked` 记录，并通过现有 `agent:event` system 事件提示“团队协作规则阻止了这次转交”。
+- 未提供 policy provider 时，保持原有默认行为，不阻止已有 A2A dispatch。
+
+policy 通过 `AgentMessenger` 的 `KanbanSnapshotProvider.getCommunicationPolicy(conversationId)` 可选边界注入。A2A server 代码只依赖 `src/lib/team-runtime` 的中立契约类型，不导入前端 store，也不直接解释 TeamPack 细节。
+
+## 4.6 Agent Backend 抽象
 
 当前 daemon 已将多引擎逻辑从单体 if/else 中抽离。
 
@@ -214,7 +226,7 @@ Repository 当前覆盖的核心对象：
 - 增加一个 backend 文件
 - 在 factory 里注册
 
-## 4.6 会话与调用追踪
+## 4.7 会话与调用追踪
 
 daemon 当前已经具备会话级跟踪：
 
@@ -235,7 +247,7 @@ daemon 当前已经具备会话级跟踪：
 - 某个项目下某个 agent 的会话链
 - 每次执行的输入、状态和退出结果
 
-## 4.7 Bridge / 本地 CLI / Mock
+## 4.8 Bridge / 本地 CLI / Mock
 
 当前执行策略仍保留三类路径：
 
@@ -253,7 +265,7 @@ daemon 当前已经具备会话级跟踪：
 - `gemini` 当前在工厂中仍回退到 `OpenCodeBackend`
 - 它不能被视为与 `opencode / claude / codex` 同等级的独立 backend
 
-## 4.8 当前判断
+## 4.9 当前判断
 
 当前后端应被理解为：
 

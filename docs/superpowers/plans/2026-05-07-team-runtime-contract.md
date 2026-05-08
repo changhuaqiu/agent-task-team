@@ -1118,13 +1118,15 @@ git commit -m "fix: hydrate dynamic agent skill bindings"
 
 ### Task 7: A2A Communication Policy Integration
 
+**Status:** Implemented on 2026-05-08. A2A agent-to-agent mention dispatch now accepts an optional Team Runtime `CommunicationPolicy` through `KanbanSnapshotProvider.getCommunicationPolicy(conversationId)`, blocks disallowed handoffs before worklist insertion, records `dispatch_blocked`, and emits the existing non-silent system event. Direct user-to-agent dispatch remains allowed.
+
 **Files:**
 - Inspect and modify the actual A2A dispatch file found by `rg -n "AgentMessenger|requestDispatch|onAgentDone|@mention|mention" src/server/a2a src/server/daemon.ts`.
 - Expected modify: `src/server/a2a/orchestrator.ts`
 - Expected modify: `src/server/a2a/scanner.ts`
 - Test: `src/__tests__/server/a2a/integration.test.ts` or `src/__tests__/server/a2a/scanner.test.ts`
 
-- [ ] **Step 1: Locate the A2A enqueue decision**
+- [x] **Step 1: Locate the A2A enqueue decision**
 
 Run:
 
@@ -1134,7 +1136,7 @@ rg -n "AgentMessenger|requestDispatch|onAgentDone|mention|worklist|mailbox|dispa
 
 Expected: Identify the single function that turns a detected mention into a mailbox/worklist/dispatch entry.
 
-- [ ] **Step 2: Add failing policy test**
+- [x] **Step 2: Add failing policy test**
 
 In the A2A test file closest to the enqueue function, add a test with a TeamPack communication matrix:
 
@@ -1181,7 +1183,7 @@ it('blocks A2A dispatch when TeamPack communication policy disallows the target'
 
 This first test can live in `src/__tests__/lib/team-runtime/team-runtime.test.ts` if the server A2A code is hard to isolate. Then add an integration test once the enqueue function accepts policy input.
 
-- [ ] **Step 3: Wire communication policy into enqueue**
+- [x] **Step 3: Wire communication policy into enqueue**
 
 At the A2A enqueue decision point, resolve or accept a `CommunicationPolicy`. The implementation should perform this check before inserting mailbox/worklist rows:
 
@@ -1200,7 +1202,7 @@ if (!communicationPolicy.canSend(fromAgentId, toAgentId)) {
 
 If the current A2A path cannot access TeamPack yet, pass `CommunicationPolicy` from daemon/store in the narrowest existing boundary rather than importing UI store into server code.
 
-- [ ] **Step 4: Run A2A tests**
+- [x] **Step 4: Run A2A tests**
 
 Run:
 

@@ -2,6 +2,9 @@
 import type Database from 'better-sqlite3';
 import type { Server as IOServer } from 'socket.io';
 import type {
+  CommunicationPolicy,
+} from '@/lib/team-runtime';
+import type {
   InvocationChain,
   WorklistEntry,
   ChainTrigger,
@@ -23,6 +26,7 @@ const MIN_SUBSTANTIVE_LENGTH = 30;
 
 export interface OrchestratorConfig {
   getTasksForConversation: (conversationId: string) => TaskSummary[];
+  getCommunicationPolicy?: (conversationId: string) => CommunicationPolicy | undefined;
 }
 
 export class Orchestrator {
@@ -96,6 +100,20 @@ export class Orchestrator {
     const uniqueAgents = new Set(worklist.map(e => e.agentId));
     if (!uniqueAgents.has(req.toAgentId) && uniqueAgents.size >= chain.config.maxBreadth) {
       return { allow: false, reason: `chain breadth limit reached (${chain.config.maxBreadth} agents)`, silent: false };
+    }
+
+    const policy = this.config.getCommunicationPolicy?.(chain.conversationId);
+    if (req.fromAgentId !== 'user' && policy && !policy.canSend(req.fromAgentId, req.toAgentId)) {
+      const reason = policy.explainBlock(req.fromAgentId, req.toAgentId) ?? '团队协作规则阻止了这次转交';
+      this.audit('dispatch_blocked', {
+        chainId: chain.id,
+        conversationId: chain.conversationId,
+        fromAgentId: req.fromAgentId,
+        toAgentId: req.toAgentId,
+        reason,
+        metadata: { blockedBy: 'communication_policy' },
+      });
+      return { allow: false, reason, silent: false };
     }
 
     // Run five-layer dedup

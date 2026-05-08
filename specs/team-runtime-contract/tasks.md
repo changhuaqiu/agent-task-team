@@ -32,10 +32,10 @@
 ## Phase 5: A2A and Workflow Integration
 
 - [ ] Update A2A target resolution to use runtime roster.
-- [ ] Enforce `CommunicationPolicy` before enqueueing or dispatching A2A work.
-- [ ] Record blocked A2A attempts as audit/debug events.
+- [x] Enforce `CommunicationPolicy` before enqueueing or dispatching A2A work.
+- [x] Record blocked A2A attempts as audit/debug events.
 - [ ] Route at least one task assignment or follow-up decision through `WorkflowPolicy`.
-- [ ] Add tests for allowed and blocked communication matrix cases.
+- [x] Add tests for allowed and blocked communication matrix cases.
 
 ## Phase 6: Documentation
 
@@ -43,4 +43,3 @@
 - [ ] Update `docs/wiki/03-store-model.md` to describe store as runtime cache, not runtime fact source.
 - [ ] Update `docs/wiki/04-backend-daemon.md` to clarify daemon receives resolved execution context and does not interpret TeamPack rules.
 - [ ] Update role-card or TeamPack product docs with the final user-facing model.
-

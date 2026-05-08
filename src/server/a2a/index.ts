@@ -2,12 +2,14 @@
 // Thin facade — delegates all logic to Orchestrator
 import type Database from 'better-sqlite3';
 import type { Server as IOServer } from 'socket.io';
+import type { CommunicationPolicy } from '@/lib/team-runtime';
 import type { AgentMentionConfig, TaskSummary } from './types-v2';
 import { Orchestrator } from './orchestrator';
 import { taskRepo } from '../repositories/task-repo';
 
 export interface KanbanSnapshotProvider {
   getTasks(conversationId: string): { id: string; title: string; status: string; agent_id: string }[];
+  getCommunicationPolicy?: (conversationId: string) => CommunicationPolicy | undefined;
 }
 
 const defaultSnapshotProvider: KanbanSnapshotProvider = {
@@ -35,6 +37,7 @@ export class AgentMessenger {
           agentId: t.agent_id,
         }));
       },
+      getCommunicationPolicy: provider.getCommunicationPolicy?.bind(provider),
     });
   }
 
