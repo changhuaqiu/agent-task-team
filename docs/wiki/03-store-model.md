@@ -182,6 +182,7 @@ export interface Task {
 - PromptComposer 接收 runtime roster，因此 TeamLayer、TeamPackLayer 和 dispatch 使用的是同一组团队身份。
 - `/api/state` 返回持久化的全部 `agentSkillIds`，store 不能再假设只有固定六个 preset agent 才能绑定 Skill。
 - 项目创建后的方案分析不再固定派发给 Mario。普通项目仍使用 preset planner；TeamPack 项目等待对应 TeamPack 加载完成后，按 workflow 的首个可用角色发起 proposal。
+- 用户消息中的 `@agent` 也按 runtime roster 解析。TeamPack role id、当前角色名和角色素材显示名都可以作为 mention 目标，不再只接受静态 Mario 6 人组。
 
 这意味着 store 的职责边界是“缓存与适配”，不是“定义团队规则”。TeamPack 的通信规则、任务流程和角色解析都应保留在 Team Runtime Contract 或 server repository 边界内。
 

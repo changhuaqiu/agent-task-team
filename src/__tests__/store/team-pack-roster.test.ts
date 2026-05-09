@@ -397,4 +397,84 @@ describe('Team Pack Dynamic Roster', () => {
       vi.useRealTimers();
     });
   });
+
+  describe('human mentions in TeamPack projects', () => {
+    it('dispatches to dynamic TeamPack role ids from @mentions', () => {
+      const dispatchToAgent = vi.fn();
+      const teamPack = makeTeamPack({
+        id: 'pack-mentions',
+        roles: [
+          makeRole({ id: 'planner', displayName: '规划师' }),
+          makeRole({ id: 'coder', displayName: '实现者' }),
+        ],
+      });
+      useTaskHubStore.setState({
+        conversations: [{
+          id: 'conv-mentions',
+          title: 'Team Mentions',
+          goal: 'Use dynamic mentions',
+          status: 'active',
+          priority: 'p1',
+          projectPath: '',
+          breakdownStatus: 'none',
+          teamPackId: 'pack-mentions',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }],
+        selectedConversationId: 'conv-mentions',
+        activeAgentIds: ['planner', 'coder'],
+        currentTeamPack: teamPack,
+        dispatchToAgent: dispatchToAgent as any,
+      });
+
+      useTaskHubStore.getState().addChatMessage({
+        agentId: 'human',
+        content: '@planner 请先分析这个项目',
+      });
+
+      expect(dispatchToAgent).toHaveBeenCalledWith(expect.objectContaining({
+        agentId: 'planner',
+        conversationId: 'conv-mentions',
+      }));
+    });
+
+    it('dispatches to TeamPack role display names from CJK @mentions', () => {
+      const dispatchToAgent = vi.fn();
+      const teamPack = makeTeamPack({
+        id: 'pack-cjk-mentions',
+        roles: [
+          makeRole({ id: 'planner', displayName: '规划师' }),
+          makeRole({ id: 'coder', displayName: '实现者' }),
+        ],
+      });
+      useTaskHubStore.setState({
+        conversations: [{
+          id: 'conv-cjk-mentions',
+          title: 'CJK Mentions',
+          goal: 'Use display name mentions',
+          status: 'active',
+          priority: 'p1',
+          projectPath: '',
+          breakdownStatus: 'none',
+          teamPackId: 'pack-cjk-mentions',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }],
+        selectedConversationId: 'conv-cjk-mentions',
+        activeAgentIds: ['planner', 'coder'],
+        currentTeamPack: teamPack,
+        dispatchToAgent: dispatchToAgent as any,
+      });
+
+      useTaskHubStore.getState().addChatMessage({
+        agentId: 'human',
+        content: '@规划师 请先分析这个项目',
+      });
+
+      expect(dispatchToAgent).toHaveBeenCalledWith(expect.objectContaining({
+        agentId: 'planner',
+        conversationId: 'conv-cjk-mentions',
+      }));
+    });
+  });
 });

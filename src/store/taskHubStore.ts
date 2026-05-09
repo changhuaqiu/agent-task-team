@@ -241,6 +241,31 @@ const EMPTY_EVENTS: InternalEvent[] = [];
 const EMPTY_BLOCKERS: Blocker[] = [];
 const EMPTY_CHAT: ChatMessage[] = [];
 const DEFAULT_ACTIVE_AGENT_IDS = ['mario', 'luigi'];
+const MENTION_PATTERN = /@([\w\u4e00-\u9fff-]+)/g;
+
+function extractMentionTokens(content: string): string[] {
+  const tokens: string[] = [];
+  let match: RegExpExecArray | null;
+  MENTION_PATTERN.lastIndex = 0;
+  while ((match = MENTION_PATTERN.exec(content)) !== null) {
+    tokens.push(match[1]);
+  }
+  return tokens;
+}
+
+function resolveMentionAgentIds(state: TaskHubState, tokens: string[]): string[] {
+  const roster = state.getEffectiveRoster();
+  const byMention = new Map<string, string>();
+  for (const agent of roster) {
+    byMention.set(agent.id.toLowerCase(), agent.id);
+    byMention.set(agent.name.toLowerCase(), agent.id);
+    const roleCardName = agent.roleCardId
+      ? state.roleCards.find((card) => card.id === agent.roleCardId)?.displayName
+      : undefined;
+    if (roleCardName) byMention.set(roleCardName.toLowerCase(), agent.id);
+  }
+  return [...new Set(tokens.map((token) => byMention.get(token.toLowerCase())).filter(Boolean) as string[])];
+}
 
 function applyConversationTeamPack(
   get: () => TaskHubState,
@@ -1196,8 +1221,7 @@ export const useTaskHubStore = create<TaskHubState>()(
           const conversationId = conv ?? get().selectedConversationId;
           if (!conversationId) return;
 
-          const mentionsMatch = rest.content.match(/@(\w+)/g);
-          const mentions = mentionsMatch ? mentionsMatch.map((m: string) => m.substring(1)) : [];
+          const mentions = extractMentionTokens(rest.content);
 
           let intent: ChatMessage['intent'] = 'general';
           const contentLower = rest.content.toLowerCase();
@@ -1220,9 +1244,7 @@ export const useTaskHubStore = create<TaskHubState>()(
           }
 
           if (rest.agentId === 'human') {
-            const uniqueMentions = [...new Set<string>(mentions)].filter((id) =>
-              AGENT_ROSTER.some((a) => a.id === id),
-            );
+            const uniqueMentions = resolveMentionAgentIds(get(), mentions);
 
             if (uniqueMentions.length > 0) {
               const busyAgents = uniqueMentions.filter((id) => get().agentStatus[id] === 'busy');
@@ -1256,6 +1278,7 @@ export const useTaskHubStore = create<TaskHubState>()(
                   agentId,
                   referencedTaskId: rest.referencedTaskId,
                   prompt: rest.content,
+                  conversationId,
                 });
               }
               for (const agentId of busyAgents) {

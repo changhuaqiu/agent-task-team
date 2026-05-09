@@ -22,7 +22,7 @@ export function AgentMentionPopup({ inputValue, cursorPosition, selectedIndex, o
 
   // Extract the search text after @
   const textBeforeCursor = inputValue.slice(0, cursorPosition);
-  const atMatch = textBeforeCursor.match(/@(\w*)$/);
+  const atMatch = textBeforeCursor.match(/@([\w\u4e00-\u9fff-]*)$/);
   const query = atMatch ? atMatch[1].toLowerCase() : '';
 
   const filtered = activeAgents.filter((agent) => {

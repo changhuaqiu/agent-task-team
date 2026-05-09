@@ -363,7 +363,7 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
               setInputValue(e.target.value);
               setCursorPos(e.target.selectionStart ?? e.target.value.length);
               const textBefore = e.target.value.slice(0, e.target.selectionStart ?? e.target.value.length);
-              const atMatch = textBefore.match(/@(\w*)$/);
+              const atMatch = textBefore.match(/@([\w\u4e00-\u9fff-]*)$/);
               const hasAt = !!atMatch;
               setMentionOpen(hasAt);
               if (hasAt && atMatch) {
