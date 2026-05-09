@@ -217,6 +217,8 @@ policy 通过 `AgentMessenger` 的 `KanbanSnapshotProvider.getCommunicationPolic
 
 TeamPack 会话的 A2A mention pattern 来自 runtime role id 和 displayName（例如 `@planner` 与 `@Planner`）；没有 TeamPack 的会话回退到 DB `agents` roster。协作规则检查在 breadth/dedup 之前执行，因此被 TeamPack 规则阻止的 agent-to-agent handoff 不会被链路宽度限制掩盖；`fromAgentId === 'user'` 的直接用户派发仍保持原有行为。
 
+A2A v2 当前使用 invocation chain 作为一次用户触发内的临时协作边界。新用户消息会中止同会话旧 active chain；dispatch prompt 只注入当前 chain 内 cursor 之后的协作消息，不会把旧用户触发的完成项带入新上下文。链路超时、重复内容、重复目标、ping-pong 和通信规则阻断都会写入 `a2a_audit_log`。
+
 ## 4.6 Agent Backend 抽象
 
 当前 daemon 已将多引擎逻辑从单体 if/else 中抽离。

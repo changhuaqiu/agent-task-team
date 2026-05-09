@@ -5,5 +5,5 @@
 - [x] 角色卡支持浏览、详情、编辑与账号绑定
 - [x] 执行链路已支持 `accountId`，且保留 `runtimeId / providerProfileId / channel / authContextId` 参数通路
 - [x] daemon 已具备多 backend 能力，`opencode / claude / codex` 已独立接入
-- [ ] 独立配置中心页面已落地
-- [ ] `Provider Profiles / Channels / Routing Policy` 已落地
+- [x] 独立配置中心页面已落地
+- [x] `Provider Profiles / Channels / Routing Policy` 已落地

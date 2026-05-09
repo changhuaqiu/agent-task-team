@@ -337,6 +337,44 @@ describe('A2A v2 integration', () => {
     expect(chain2!.id).not.toBe(chain1Id);
   });
 
+  it('does not inject completed work from an old user chain into a new chain prompt', async () => {
+    messenger.onUserMessage('conv-1', 'msg-1', 'mario', '旧链路任务：设计认证方案');
+    await messenger.onAgentResponse('mario', '旧链路已经完成，没有新的协作转交，只记录最终方案。', {
+      conversationId: 'conv-1',
+      chainDepth: 0,
+    });
+
+    messenger.onUserMessage('conv-1', 'msg-2', 'luigi', '新链路任务：实现登录页面');
+
+    const luigiDispatches = io.emitted().filter(([e, p]) => e === 'a2a:dispatch' && p.agentId === 'luigi');
+    expect(luigiDispatches).toHaveLength(1);
+    expect(luigiDispatches[0][1].prompt).toContain('新链路任务：实现登录页面');
+    expect(luigiDispatches[0][1].prompt).not.toContain('旧链路任务：设计认证方案');
+  });
+
+  it('blocks and marks an expired chain as timeout before accepting new dispatch work', () => {
+    const chain = messenger.orchestrator.createChain({
+      conversationId: 'conv-1',
+      type: 'user_message',
+      messageId: 'msg-expired',
+      config: { maxDurationMs: 1 },
+    });
+    db.prepare('UPDATE invocation_chain SET created_at = ? WHERE id = ?')
+      .run(new Date(Date.now() - 5_000).toISOString(), chain.id);
+
+    const decision = messenger.orchestrator.requestDispatch({
+      chainId: chain.id,
+      fromAgentId: 'mario',
+      toAgentId: 'luigi',
+      content: '请继续这条已经过期的链路',
+      depth: 1,
+    });
+
+    expect(decision.allow).toBe(false);
+    const row = db.prepare('SELECT status FROM invocation_chain WHERE id = ?').get(chain.id) as any;
+    expect(row.status).toBe('timeout');
+  });
+
   it('dispatch prompt includes task context and response guidance', async () => {
     testTasks = [
       { id: 'task-1', title: 'Fix auth bug', status: 'doing', agent_id: 'luigi' },

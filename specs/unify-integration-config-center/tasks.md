@@ -26,16 +26,16 @@
   - [x] `opencode / claude / codex` 有独立 backend
   - [x] `gemini / mock` 当前仍使用回退实现
 
-- [ ] Task 6: 独立配置中心页面
-  - [ ] 新增 `src/app/settings/integrations/page.tsx`
-  - [ ] 提供独立配置中心路由与页面骨架
-  - [ ] 将抽屉与页面职责重新分层
+- [x] Task 6: 独立配置中心页面
+  - [x] 新增 `src/app/settings/integrations/page.tsx`
+  - [x] 提供独立配置中心路由与页面骨架
+  - [x] 将抽屉与页面职责重新分层
 
-- [ ] Task 7: 完整配置对象接入
-  - [ ] 新增 `Provider Profiles`
-  - [ ] 新增 `Channels`
-  - [ ] 新增 `Routing Policy`
-  - [ ] 让默认聊天 / 执行 / 评审 runtime 可配置
+- [x] Task 7: 完整配置对象接入
+  - [x] 新增 `Provider Profiles`
+  - [x] 新增 `Channels`
+  - [x] 新增 `Routing Policy`
+  - [x] 让默认聊天 / 执行 / 评审 runtime 可配置
 
 - [x] Task 8: 基础验证
   - [x] 账号配置可访问

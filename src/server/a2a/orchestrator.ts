@@ -120,6 +120,11 @@ export class Orchestrator {
     // Run five-layer dedup
     const dedupResult = runAllDedupLayers(this.chainRepo, chain, req);
     if (!dedupResult.pass) {
+      if (dedupResult.failedLayer === 'chain_lifetime') {
+        this.chainRepo.abort(chain.id, 'timeout');
+        this.clearChainTimer(chain.id);
+        clearRippleForChain(chain.id);
+      }
       this.audit('dispatch_blocked', {
         chainId: chain.id,
         conversationId: chain.conversationId,

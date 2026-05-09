@@ -10,8 +10,11 @@ const order: TaskStatus[] = ['blocked', 'rejected', 'in_progress', 'in_review', 
 export function ProjectChatPanel() {
   const selectedConversationId = useTaskHubStore((s) => s.selectedConversationId);
   const selectedConversation = useTaskHubStore((s) => s.getSelectedConversation());
+  const getEffectiveRoster = useTaskHubStore((s) => s.getEffectiveRoster);
   const tasks = useTaskHubStore((s) => s.tasks);
   const phases = useTaskHubStore((s) => s.phases);
+  const proposalAgent = getEffectiveRoster()[0];
+  const proposalAgentName = proposalAgent?.name ?? '当前团队';
 
   const scoped = useMemo(() => {
     if (!selectedConversationId) return [];
@@ -67,13 +70,13 @@ export function ProjectChatPanel() {
         {selectedConversation?.breakdownStatus === 'no_account' && (
           <div className="flex items-center gap-1.5 mt-1.5">
             <span className="inline-block w-1.5 h-1.5 rounded-full bg-red-400" />
-            <span className="text-[10px] font-bold text-red-400">为 Mario 配置账号后可分析项目</span>
+            <span className="text-[10px] font-bold text-red-400">为 {proposalAgentName} 配置账号后可分析项目</span>
           </div>
         )}
         {selectedConversation?.breakdownStatus === 'proposal' && (
           <div className="flex items-center gap-1.5 mt-1.5">
             <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
-            <span className="text-[10px] font-bold text-amber-500">Mario 正在分析项目…</span>
+            <span className="text-[10px] font-bold text-amber-500">{proposalAgentName} 正在分析项目…</span>
           </div>
         )}
         <AgentBar />

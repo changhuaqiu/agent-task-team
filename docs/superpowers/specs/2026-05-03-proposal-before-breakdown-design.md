@@ -2,11 +2,11 @@
 
 ## Problem
 
-当前项目启动流程直接跳到任务拆解，缺少架构方案和业务方案的讨论阶段。用户提需求后 500ms 自动触发 Mario 拆任务，没有给用户和 Mario 讨论技术方案的机会。
+当前项目启动流程直接跳到任务拆解，缺少架构方案和业务方案的讨论阶段。用户提需求后 500ms 自动触发项目规划角色拆任务，没有给用户和团队规划角色讨论技术方案的机会。
 
 ## Decision
 
-改为"方案先行"流程：Mario 先出技术架构方案+业务方案草案，和用户讨论，Mario 判断需求清晰后自行输出 PHASE/TASK 格式触发拆解。用户确认后创建任务。
+改为"方案先行"流程：普通项目由 Mario 先出技术架构方案+业务方案草案；TeamPack 项目由所选团队 workflow 的初始角色负责。和用户讨论后，规划角色判断需求清晰再输出 PHASE/TASK 格式触发拆解，用户确认后创建任务。
 
 ## Scope
 
@@ -23,13 +23,13 @@
 ```
 用户发第一条消息 / 创建项目
         ↓
-自动 dispatch Mario（proposal prompt）
+自动 dispatch 当前项目的规划角色（proposal prompt）
         ↓
-Mario 输出技术架构方案 + 业务方案草案
+规划角色输出技术架构方案 + 业务方案草案
         ↓
-用户讨论 / 反馈 / Mario 回复（多轮对话）
+用户讨论 / 反馈 / 规划角色回复（多轮对话）
         ↓
-Mario 判断需求清晰 → 输出 PHASE/TASK 格式
+规划角色判断需求清晰 → 输出 PHASE/TASK 格式
         ↓
 parsePhaseBreakdown 自动检测 → 用户确认 → 任务创建
 ```
@@ -43,7 +43,7 @@ parsePhaseBreakdown 自动检测 → 用户确认 → 任务创建
 ```
 
 - `none`: 新项目，未触发任何 agent
-- `proposal`: Mario 已被派出去出方案（防止重复触发）
+- `proposal`: 当前项目规划角色已被派出去出方案（防止重复触发）
 - `confirmed`: 用户已确认拆解，任务已创建
 - `no_account`: 没有可用账号
 
@@ -123,7 +123,7 @@ Update Mario's persona.introduction to include:
 **File:** `src/components/project-hub/ProjectChatPanel.tsx`
 
 Update status labels:
-- `'proposal'` → "Mario 正在分析项目…"
+- `'proposal'` → "{当前规划角色} 正在分析项目…"
 - Remove `'in_progress'` and `'reviewed'` cases
 
 ## Files Changed

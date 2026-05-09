@@ -29,8 +29,10 @@ export class CursorRepo {
     `).run(agentId, conversationId, chainId, entryId, now);
   }
 
-  getEntriesAfterCursor(agentId: string, conversationId: string): { chainId: string; entryId: string; prompt: string; requestedBy: string; completedAt: string }[] {
-    const cursor = this.get(agentId, conversationId);
+  getEntriesAfterCursor(agentId: string, conversationId: string, currentChainId?: string): { chainId: string; entryId: string; prompt: string; requestedBy: string; completedAt: string }[] {
+    const rawCursor = this.get(agentId, conversationId);
+    const cursor = currentChainId && rawCursor?.lastChainId !== currentChainId ? null : rawCursor;
+    const chainFilter = currentChainId ? 'AND cw.chain_id = ?' : '';
 
     let query: string;
     let params: any[];
@@ -51,10 +53,13 @@ export class CursorRepo {
             AND cw.outcome = 'success'
             AND cw.agent_id != ?
             AND cw.completed_at > ?
+            ${chainFilter}
           ORDER BY cw.completed_at ASC
           LIMIT 10
         `;
-        params = [conversationId, agentId, cursorEntry.completed_at];
+        params = currentChainId
+          ? [conversationId, agentId, cursorEntry.completed_at, currentChainId]
+          : [conversationId, agentId, cursorEntry.completed_at];
       } else {
         query = `
           SELECT cw.chain_id, cw.id as entry_id, cw.prompt, cw.requested_by, cw.completed_at
@@ -64,13 +69,14 @@ export class CursorRepo {
             AND cw.status = 'done'
             AND cw.outcome = 'success'
             AND cw.agent_id != ?
+            ${chainFilter}
           ORDER BY cw.completed_at ASC
           LIMIT 10
         `;
-        params = [conversationId, agentId];
+        params = currentChainId ? [conversationId, agentId, currentChainId] : [conversationId, agentId];
       }
     } else {
-      // No cursor — deliver recent completed entries (max 5 for first dispatch)
+      // No cursor for this chain — never inject completed entries from older user triggers.
       query = `
         SELECT cw.chain_id, cw.id as entry_id, cw.prompt, cw.requested_by, cw.completed_at
         FROM chain_worklist cw
@@ -79,10 +85,11 @@ export class CursorRepo {
           AND cw.status = 'done'
           AND cw.outcome = 'success'
           AND cw.agent_id != ?
+          ${chainFilter}
         ORDER BY cw.completed_at DESC
         LIMIT 5
       `;
-      params = [conversationId, agentId];
+      params = currentChainId ? [conversationId, agentId, currentChainId] : [conversationId, agentId];
     }
 
     const rows = this.db.prepare(query).all(...params) as any[];

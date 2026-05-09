@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import {
   useTaskHubStore,
@@ -12,7 +13,7 @@ import {
 } from '@/store/taskHubStore';
 import { TagEditor } from '@/components/ui/TagEditor';
 import { cn } from '@/lib/utils';
-import { X, Plus, Trash2, Loader2, Zap, Users, Download, GitBranch, Pencil } from 'lucide-react';
+import { X, Plus, Trash2, Loader2, Zap, Users, Download, GitBranch, Pencil, ExternalLink } from 'lucide-react';
 import { RoleCardListPage } from '@/components/role-card/RoleCardListPage';
 import { RoleCardDetailDrawer } from '@/components/role-card/RoleCardDetailDrawer';
 import { RoleCardEditor } from '@/components/role-card/RoleCardEditor';
@@ -975,9 +976,19 @@ export function SettingsDrawer() {
               </button>
             </div>
           </div>
-          <button type="button" onClick={() => setOpen(false)} className="p-1.5 rounded-[var(--radius-sm)] text-[hsl(var(--text-tertiary))] hover:text-[hsl(var(--text-primary))] hover:bg-[hsl(var(--bg-muted))] transition-colors" aria-label="关闭">
-            <X className="w-4.5 h-4.5" />
-          </button>
+          <div className="flex items-center gap-2">
+            <Link
+              href="/settings/integrations"
+              onClick={() => setOpen(false)}
+              className="hidden sm:inline-flex items-center gap-1.5 rounded-[var(--radius-sm)] border border-[hsl(var(--border))] bg-[hsl(var(--bg-app))] px-2.5 py-1.5 text-[10px] font-bold text-[hsl(var(--text-tertiary))] transition-colors hover:border-[hsl(var(--text-primary))] hover:text-[hsl(var(--text-primary))]"
+            >
+              配置中心
+              <ExternalLink className="h-3 w-3" />
+            </Link>
+            <button type="button" onClick={() => setOpen(false)} className="p-1.5 rounded-[var(--radius-sm)] text-[hsl(var(--text-tertiary))] hover:text-[hsl(var(--text-primary))] hover:bg-[hsl(var(--bg-muted))] transition-colors" aria-label="关闭">
+              <X className="w-4.5 h-4.5" />
+            </button>
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto p-5 space-y-3 scrollbar-thin">

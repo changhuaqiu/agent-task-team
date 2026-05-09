@@ -1,6 +1,6 @@
 # A2A v2: Chain-Orchestrated Dispatch
 
-> Status: Draft  
+> Status: Implemented core
 > Author: kk + claude  
 > Date: 2026-05-05
 
@@ -404,9 +404,17 @@ CREATE INDEX idx_audit_conv ON a2a_audit_log(conversation_id);
 ## Success Criteria
 
 After implementation:
-- [ ] Zero "收到，待命" messages in any agent conversation
-- [ ] Zero duplicate dispatch to same agent with same content
-- [ ] All chains terminate within 120s
-- [ ] No message from a previous user trigger appears in current agent context
-- [ ] Agent context contains only cursor-incremental messages
-- [ ] TASKS.md is the only place agents look for project state
+- [x] Zero "收到，待命" messages in any agent conversation
+- [x] Zero duplicate dispatch to same agent with same content
+- [x] All chains terminate within 120s
+- [x] No message from a previous user trigger appears in current agent context
+- [x] Agent context contains only cursor-incremental messages
+- [x] TASKS.md is the only place agents look for project state
+
+## Current Implementation Notes
+
+- `src/server/a2a/orchestrator.ts` is now the dispatch decision point for chain creation, mention handoff, policy checks, dedup, timeout and audit events.
+- `src/server/a2a/chain.ts`, `cursor.ts`, `dedup.ts` and `context-builder.ts` back the persistent chain/worklist/cursor model.
+- Agent dispatch prompts include TASKS.md-oriented response guidance and file-edit mutex context.
+- Cursor-based context is scoped to the current invocation chain, so a new user trigger cannot inherit completed work from an older chain.
+- Team Runtime `CommunicationPolicy` is enforced for agent-originated A2A handoff, while direct user-to-agent dispatch remains allowed.

@@ -163,6 +163,7 @@ Rules:
 - If no TeamPack is bound, existing manual or advisor-based assignment remains valid.
 - Pipeline, parallel, hub_spoke and custom modes must be supported through a single policy interface.
 - This spec does not require full automatic workflow execution in the first implementation step; it requires the policy to be wired into at least one real dispatch or A2A decision path.
+- Project startup analysis must use the selected project runtime. TeamPack projects dispatch the initial proposal to the TeamPack workflow's first available role, while non-TeamPack projects keep the preset planner behavior.
 
 ## Architecture
 

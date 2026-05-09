@@ -3,36 +3,35 @@
 > 状态：设计稿，非完整落地现状
 > 更新：2026-05-02
 >
-> 当前代码已落地的是“模型账号 + 角色卡 + daemon 扩展参数通路”，并没有独立配置中心页面，也没有完整的 `Provider Profiles / Channels / Routing Policy`。阅读本稿时，请以 `specs/unify-integration-config-center/`、`src/components/task-hub/SettingsDrawer.tsx` 和当前代码实现为准。
+> 当前代码已落地“模型账号 + 角色素材 + 独立配置中心 + Provider Profiles / Channels / Routing Policy + daemon 扩展参数通路”。阅读本稿时，请以 `specs/unify-integration-config-center/`、`src/components/settings/IntegrationSettingsPage.tsx` 和当前代码实现为准。
 
 ## 1. 当前代码事实
 
 ### 1.1 已落地能力
 
 - 设置抽屉当前主入口是：`模型账号`、`角色卡`
+- `/settings/integrations` 已作为独立配置中心页面落地
 - 账号支持新增、编辑、删除、验证
 - OAuth 与 API Key 两种模式已按不同表单逻辑落地
 - 角色卡支持浏览、详情、编辑与账号绑定
+- 配置中心展示账号、角色素材、技能、团队套件与执行环境状态；账号/角色/技能/团队套件的深层编辑流程仍保留在设置抽屉
+- 配置中心支持编辑 `ProviderProfile / ChannelConfig / RoutingPolicy`
 - daemon 执行请求已支持 `engine / runtimeId / channel / authContextId / accountId` 参数通路
 - daemon 已有 `opencode / claude / codex` 三类主要 backend
 
 ### 1.2 未落地能力
 
-- 独立配置中心页面
 - 完整的 `CLI Runtimes` 管理界面
-- 完整的 `Provider Profiles` 管理
-- 完整的 `Channels` 管理
-- 完整的 `Routing Policy` 管理
+- 将所有聊天 / 执行 / 评审入口强制接入 `RoutingPolicy`
 - 独立 `gemini` backend
 
 ## 2. 当前问题
 
 当前项目虽然已经开始支持多 CLI 和账号绑定，但配置层仍存在几个缺口：
 
-1. 用户能管理账号，却不能看到完整 runtime 目录
-2. daemon 已有扩展参数，但前端没有对应的完整对象模型
-3. `provider / channel / routing` 仍停留在设计阶段
-4. 设置抽屉承担了“已落地入口”和“未来设计想象”两种角色，容易误导后续开发
+1. 用户能看到执行环境健康状态，但还不能安装或管理自定义 runtime
+2. daemon 已有扩展参数，前端已有配置对象，但部分执行入口尚未读取 routing policy
+3. 设置抽屉仍承担账号/角色/技能/团队套件深层编辑，后续可继续收缩为摘要 + 跳转入口
 
 ## 3. 本文档的目标范围
 
@@ -83,8 +82,8 @@
 - `displayName`
 - `models[]`
 - `defaultModel`
-
-当前未落地。
+- `accountIds`
+- `enabled`
 
 ### 4.4 ChannelConfig
 
@@ -106,9 +105,8 @@
 - `scope`
 - `runtimeId`
 - `providerProfileId`
-- `fallbacks[]`
-
-当前未落地。
+- `fallbackRuntimeIds[]`
+- `enabled`
 
 ## 5. 目标信息架构
 
@@ -121,35 +119,35 @@
 
 ### 阶段二：独立配置中心
 
-未来独立页面可拆为：
+当前 `/settings/integrations` 作为独立配置中心，不复制设置抽屉中的深层编辑流程。页面当前拆为：
 
-- `CLI Runtimes`
 - `Accounts`
 - `Provider Profiles`
 - `Channels`
 - `Routing Policy`
+- `CLI Runtime health`
 
 ## 6. 与当前代码的衔接关系
 
 当前应这样理解：
 
-- `SettingsDrawer.tsx`：当前真实配置入口
+- `SettingsDrawer.tsx`：账号、角色素材、技能、团队套件的深层编辑入口
+- `IntegrationSettingsPage.tsx`：配置中心总览和 routing 对象轻量编辑入口
 - `Account`：当前真实落地的配置对象
 - `RoleCard`：当前真实落地的协作对象
-- `runtimeId / channel / authContextId`：当前只是参数通路或未来对象挂载点
+- `ProviderProfile / ChannelConfig / RoutingPolicy`：当前真实落地的前端配置对象
+- `runtimeId / channel / authContextId`：执行请求参数通路
 
 不应这样理解：
 
-- 不应把本文档中的独立页面视为当前已存在页面
-- 不应把 `Provider Profiles / Channels / Routing Policy` 视为当前已实现对象
+- 不应把配置中心理解为账号密钥或团队套件的第二套编辑系统
 - 不应把 `gemini` 视为当前已独立支持的 runtime
 
 ## 7. 后续实施建议
 
-1. 先补 runtime catalog 的真实 store 与 API
-2. 再补独立配置中心页面骨架
-3. 再补 `Provider Profiles / Channels / Routing Policy`
-4. 最后将设置抽屉收缩为摘要 + 跳转入口
+1. 将普通聊天、任务执行和评审入口统一读取 `RoutingPolicy`
+2. 补 runtime catalog 的真实 store 与 API
+3. 最后将设置抽屉收缩为摘要 + 跳转入口
 
 ## 8. 当前结论
 

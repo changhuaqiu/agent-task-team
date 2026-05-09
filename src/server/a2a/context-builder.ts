@@ -45,7 +45,7 @@ export function buildDispatchContext(
     : [];
 
   // Get incremental messages since cursor
-  const recentEntries = cursorRepo.getEntriesAfterCursor(entry.agentId, conversationId);
+  const recentEntries = cursorRepo.getEntriesAfterCursor(entry.agentId, conversationId, entry.chainId);
   const newMessages: MessageSummary[] = recentEntries.map(e => ({
     id: e.entryId,
     from: e.requestedBy,

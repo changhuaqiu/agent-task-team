@@ -4,6 +4,7 @@ import type { Phase } from '@/types/phase';
 import type { PhaseProposal } from '@/lib/breakdownParser';
 import { DispatchAdvisor } from '@/lib/dispatchAdvisor';
 import { AGENT_ROSTER } from './agentStore';
+import type { TeamPack } from '@/types/teamPack';
 
 // --- Task types ---
 
@@ -61,6 +62,25 @@ let statePhasesSeq = 1;
 
 export function setTaskCounter(val: number) { taskCounter = val; }
 export function getTaskCounter() { return taskCounter; }
+
+function getInitialTeamRoleId(teamPack: TeamPack): string | null {
+  const available = new Set(teamPack.roles.map((role) => role.id));
+  const workflow = teamPack.workflow ?? {};
+  const firstStepRole = workflow.steps?.[0]?.role;
+  if (firstStepRole && available.has(firstStepRole)) return firstStepRole;
+
+  const firstStateRole = workflow.states?.find((state) => !state.terminal)?.role;
+  if (firstStateRole && available.has(firstStateRole)) return firstStateRole;
+
+  return teamPack.roles.find((role) => role.required)?.id ?? teamPack.roles[0]?.id ?? null;
+}
+
+function getProposalAgentId(state: any, conv: any): string | null {
+  if (!conv.teamPackId) return 'mario';
+  const teamPack = state.currentTeamPack;
+  if (!teamPack || teamPack.id !== conv.teamPackId) return null;
+  return getInitialTeamRoleId(teamPack);
+}
 
 // --- Task Slice Creator ---
 
@@ -287,14 +307,11 @@ export const createTaskSlice = (set: any, get: () => any) => {
       const conv = state.conversations.find((c: any) => c.id === conversationId);
       if (!conv) return;
 
-      const mario = AGENT_ROSTER.find((a) => a.id === 'mario');
-      const accounts = state.accounts;
-      const roleCard = mario?.roleCardId ? state.roleCards.find((c: any) => c.id === mario.roleCardId) : null;
-      const effectiveIds = (roleCard && roleCard.accountIds.length > 0)
-        ? roleCard.accountIds
-        : (state.agentAccountOverrides['mario'] ?? mario?.accountIds ?? []);
-      const hasAccount = effectiveIds.some((aid: string) => accounts.some((a: any) => a.id === aid && a.enabled));
-      if (!hasAccount) {
+      const proposalAgentId = getProposalAgentId(state, conv);
+      if (!proposalAgentId) return;
+
+      const profile = state.getAgentRuntimeProfile(proposalAgentId);
+      if (!profile) {
         get().setBreakdownStatus(conversationId, 'no_account');
         return;
       }
@@ -311,8 +328,9 @@ export const createTaskSlice = (set: any, get: () => any) => {
 项目：${conv.title}
 目标：${conv.goal}${conv.projectPath ? `\n项目路径：${conv.projectPath}` : ''}`;
       get().dispatchToAgent({
-        agentId: 'mario',
+        agentId: proposalAgentId,
         prompt,
+        conversationId,
       });
     },
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { useTaskHubStore, AGENT_ROSTER } from '@/store/taskHubStore';
+import { useTaskHubStore, AGENT_ROSTER, type Account } from '@/store/taskHubStore';
 import type { TeamPack, TeamPackRole } from '@/types/teamPack';
 
 // ---------------------------------------------------------------------------
@@ -34,6 +34,22 @@ function makeRole(overrides: Partial<TeamPackRole> & { id: string }): TeamPackRo
   };
 }
 
+function makeAccount(id: string): Account {
+  return {
+    id,
+    name: id,
+    authMode: 'api_key',
+    provider: 'openai',
+    models: ['gpt-5.4'],
+    enabled: true,
+    status: 'valid',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+const originalDispatchToAgent = useTaskHubStore.getState().dispatchToAgent;
+
 function resetStore() {
   useTaskHubStore.setState({
     conversations: [],
@@ -44,6 +60,8 @@ function resetStore() {
     blockersByConversation: {},
     activeAgentIds: ['mario', 'luigi'],
     currentTeamPack: null,
+    accounts: [],
+    dispatchToAgent: originalDispatchToAgent,
   });
 }
 
@@ -53,6 +71,7 @@ function resetStore() {
 
 describe('Team Pack Dynamic Roster', () => {
   beforeEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
     resetStore();
   });
@@ -288,6 +307,94 @@ describe('Team Pack Dynamic Roster', () => {
       expect(after.selectedConversationId).toBe(plainConversationId);
       expect(after.currentTeamPack).toBeNull();
       expect(after.activeAgentIds).toEqual(['mario', 'luigi']);
+    });
+
+    it('dispatches the selected team pack initial role for project analysis', () => {
+      const dispatchToAgent = vi.fn();
+      const teamPack = makeTeamPack({
+        id: 'pack-planner',
+        roles: [
+          makeRole({ id: 'planner', displayName: 'Planner', accountIds: ['acc-planner'] }),
+          makeRole({ id: 'coder', displayName: 'Coder', accountIds: ['acc-coder'] }),
+        ],
+        workflow: {
+          type: 'state_machine',
+          states: [
+            { name: 'planning', role: 'planner', description: 'Plan first', transitions: [] },
+            { name: 'coding', role: 'coder', description: 'Code next', transitions: [] },
+          ],
+        },
+      });
+
+      useTaskHubStore.setState({
+        conversations: [{
+          id: 'conv-team',
+          title: 'Team Project',
+          goal: 'Use the selected team',
+          status: 'active',
+          priority: 'p1',
+          projectPath: '',
+          breakdownStatus: 'none',
+          teamPackId: 'pack-planner',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }],
+        selectedConversationId: 'conv-team',
+        activeAgentIds: ['planner', 'coder'],
+        currentTeamPack: teamPack,
+        accounts: [makeAccount('acc-planner'), makeAccount('acc-coder')],
+        dispatchToAgent: dispatchToAgent as any,
+      });
+
+      useTaskHubStore.getState().triggerProposal('conv-team');
+
+      expect(dispatchToAgent).toHaveBeenCalledWith(expect.objectContaining({
+        agentId: 'planner',
+        conversationId: 'conv-team',
+      }));
+      expect(dispatchToAgent).not.toHaveBeenCalledWith(expect.objectContaining({ agentId: 'mario' }));
+    });
+
+    it('waits for the team pack before auto-starting project analysis', async () => {
+      vi.useFakeTimers();
+      const dispatchToAgent = vi.fn();
+      const teamPack = makeTeamPack({
+        id: 'pack-auto',
+        roles: [makeRole({ id: 'researcher', displayName: 'Researcher', accountIds: ['acc-researcher'] })],
+        workflow: {
+          type: 'linear',
+          steps: [{ role: 'researcher', action: 'Research first', output: 'Notes' }],
+        },
+      });
+
+      vi.spyOn(global, 'fetch').mockImplementation((url: string | URL | Request) => {
+        const href = String(url);
+        if (href.includes('/api/team-packs/pack-auto')) {
+          return Promise.resolve({ ok: true, json: () => Promise.resolve(teamPack) } as any);
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true }) } as any);
+      });
+
+      useTaskHubStore.setState({
+        accounts: [makeAccount('acc-researcher')],
+        dispatchToAgent: dispatchToAgent as any,
+      });
+
+      useTaskHubStore.getState().createConversation({
+        title: 'Research Project',
+        goal: 'Use research team',
+        teamPackId: 'pack-auto',
+      });
+
+      await Promise.resolve();
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(500);
+
+      expect(dispatchToAgent).toHaveBeenCalledWith(expect.objectContaining({
+        agentId: 'researcher',
+      }));
+      expect(dispatchToAgent).not.toHaveBeenCalledWith(expect.objectContaining({ agentId: 'mario' }));
+      vi.useRealTimers();
     });
   });
 });
