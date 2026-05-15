@@ -96,6 +96,9 @@ export function composeSystemPrompt(opts: ComposeOptions): string | undefined {
 
 export function composeUserPrompt(opts: ComposeOptions): string {
   const parts: string[] = [];
+  const a2aDispatch = opts.a2a?.from && opts.a2a?.content
+    ? opts.a2a
+    : undefined;
 
   // Skills + tools (every dispatch — CLI is a new process)
   const tools = extractToolsFromSkills(opts.skills ?? []);
@@ -145,15 +148,16 @@ export function composeUserPrompt(opts: ComposeOptions): string {
   }
 
   // A2A context (only when dispatched via @mention)
-  if (opts.a2a?.from && opts.a2a?.content) {
+  if (a2aDispatch) {
     parts.push(buildA2ALayer({
-      a2aFrom: opts.a2a.from,
-      a2aContent: opts.a2a.content,
-      a2aContextSnapshot: opts.a2a.contextSnapshot,
+      a2aFrom: a2aDispatch.from,
+      a2aContent: a2aDispatch.content,
+      a2aContextSnapshot: a2aDispatch.contextSnapshot,
     }));
+  } else {
+    parts.push(buildUserMessageLayer(opts.rawPrompt));
   }
 
-  parts.push(buildUserMessageLayer(opts.rawPrompt));
   parts.push(buildBehaviorLayer());
 
   return parts.join('\n\n---\n\n');

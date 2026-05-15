@@ -160,6 +160,17 @@ export class ChainRepo {
     return this.rowToEntry(row);
   }
 
+  getActiveEntry(chainId: string, agentId: string): WorklistEntry | null {
+    const row = this.db.prepare(
+      `SELECT * FROM chain_worklist
+       WHERE chain_id = ? AND agent_id = ? AND status IN ('dispatching', 'executing')
+       ORDER BY started_at DESC
+       LIMIT 1`
+    ).get(chainId, agentId) as any;
+    if (!row) return null;
+    return this.rowToEntry(row);
+  }
+
   // ── Timeout management ──
 
   getExpiredChains(maxAgeMs: number): InvocationChain[] {

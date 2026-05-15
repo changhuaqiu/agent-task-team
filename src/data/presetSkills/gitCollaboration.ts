@@ -14,6 +14,22 @@ Use this skill when work touches Git-hosted collaboration: issues, GitHub pull r
 - Use "pull request" for GitHub and "merge request" for GitLab unless the user asks for a different term.
 - Keep summaries focused on user-facing work: changed behavior, files touched, tests run, risks, and next action.
 
+## Worktree Branch Workflow
+
+When the system prompt indicates you are in a Git Worktree branch (look for "[系统] 当前在 Git Worktree 分支 worktree/..." in your context):
+
+1. **You are on an isolated branch** — all changes stay local to this worktree until you push.
+2. **Commit frequently** — small atomic commits on the \`worktree/{slug}\` branch.
+3. **Before finishing**: push the branch and create a PR/MR back to \`main\`:
+   \`\`\`bash
+   git add -A
+   git commit -m "descriptive message"
+   git push -u origin worktree/{slug}
+   gh pr create --base main --head worktree/{slug} --title "Title" --body "Description"
+   \`\`\`
+4. **Do NOT merge** the PR yourself — leave it for human review.
+5. **If push fails** with auth error, report the blocker: include the exact command that failed and suggest the user verify git credentials (SSH key, PAT, or gh auth status).
+
 ## Issue Workflow
 
 - Create or draft an issue only when the task asks for tracking, reporting, or follow-up.

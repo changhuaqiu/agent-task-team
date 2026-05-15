@@ -9,6 +9,33 @@ import type { RuntimeAgent } from '@/lib/team-runtime';
 // --- Shared socket instance ---
 export const socket = io(undefined, { path: '/api/socketio', autoConnect: false });
 
+const BROWSER_NODE_STORAGE_KEY = 'ath.browserRuntimeNodeId';
+let runtimeHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
+
+export function getBrowserRuntimeNodeId(): string {
+  if (typeof window === 'undefined') return 'browser:ssr';
+  const existing = window.localStorage.getItem(BROWSER_NODE_STORAGE_KEY);
+  if (existing) return existing;
+  const id = `browser:${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  window.localStorage.setItem(BROWSER_NODE_STORAGE_KEY, id);
+  return id;
+}
+
+export function registerBrowserRuntimeNode() {
+  const nodeId = getBrowserRuntimeNodeId();
+  socket.emit('runtime:hello', {
+    nodeId,
+    kind: 'browser',
+    label: 'Browser UI',
+    capabilities: ['dispatch-intent', 'socket-transport'],
+  });
+  socket.emit('runtime:heartbeat', { nodeId });
+  if (runtimeHeartbeatTimer) clearInterval(runtimeHeartbeatTimer);
+  runtimeHeartbeatTimer = setInterval(() => {
+    if (socket.connected) socket.emit('runtime:heartbeat', { nodeId });
+  }, 5_000);
+}
+
 // --- Stream watchdogs & buffer (module-level, shared across slice & socket listeners) ---
 
 const STREAM_WATCHDOG_MS = 300_000;
@@ -74,6 +101,28 @@ export function scheduleBufferFlush(getState: () => any, setState: (partial: any
   });
 }
 
+export function flushStreamBufferForMessage(
+  messageId: string,
+  conversationId: string,
+  setState: (partial: any) => void,
+) {
+  const pending = streamBuffer[messageId];
+  if (!pending) return;
+  delete streamBuffer[messageId];
+  setState((s: any) => {
+    const msgs = s.chatMessagesByConversation[conversationId];
+    if (!msgs) return s;
+    return {
+      chatMessagesByConversation: {
+        ...s.chatMessagesByConversation,
+        [conversationId]: msgs.map((m: any) =>
+          m.id === messageId ? { ...m, content: m.content + pending } : m
+        ),
+      },
+    };
+  });
+}
+
 export function appendToStreamBuffer(messageId: string, content: string) {
   streamBuffer[messageId] = (streamBuffer[messageId] || '') + content;
 }
@@ -84,7 +133,7 @@ export interface PendingDispatch {
   prompt: string;
   referencedTaskId?: string;
   queuedAt: string;
-  source?: 'user' | 'a2a';
+  source?: 'user' | 'a2a' | 'workflow' | 'review_gate' | 'system';
   fromAgentId?: string;
   conversationId: string;
 }
@@ -160,27 +209,27 @@ export const createDaemonSlice = (set: any, get: () => any) => {
         },
       })),
 
-    dispatchToAgent: ({ agentId, prompt, referencedTaskId, source, fromAgentId, conversationId: explicitConvId }: { agentId: string; prompt: string; referencedTaskId?: string; source?: 'user' | 'a2a'; fromAgentId?: string; conversationId?: string }) => {
+    dispatchToAgent: ({ agentId, prompt, referencedTaskId, source, fromAgentId, conversationId: explicitConvId, chainId, passId }: { agentId: string; prompt: string; referencedTaskId?: string; source?: 'user' | 'a2a' | 'workflow' | 'review_gate' | 'system'; fromAgentId?: string; conversationId?: string; chainId?: string; passId?: string }) => {
       const conversationId =
         explicitConvId ??
         (referencedTaskId ? get().getTaskById(referencedTaskId)?.conversationId : undefined) ??
         get().selectedConversationId;
       if (!conversationId) {
         console.warn(`[dispatch] ${agentId} aborted: no conversationId`);
-        return;
+        return false;
       }
 
       const profile = get().getAgentRuntimeProfile(agentId);
       if (!profile) {
         console.warn(`[dispatch] ${agentId} aborted: no runtime profile or enabled account for conversation ${conversationId}`);
         _recordNoRuntimeProfileAbort(conversationId, agentId);
-        return;
+        return false;
       }
 
       if (get().agentStatus[agentId] === 'busy') {
         console.log(`[dispatch] ${agentId} busy, enqueuing for conversation ${conversationId}`);
         get().enqueueDispatch(agentId, { prompt, referencedTaskId, source, fromAgentId, conversationId });
-        return;
+        return true;
       }
 
       const projectId = get().selectedProjectId;
@@ -265,6 +314,12 @@ export const createDaemonSlice = (set: any, get: () => any) => {
         projectId,
         taskId: referencedTaskId,
         conversationId,
+        sourceNodeId: getBrowserRuntimeNodeId(),
+        dispatchSource: source ?? 'user',
+        dispatchIntent: source === 'a2a' ? 'delegate' : (source === 'workflow' ? 'implement' : 'answer'),
+        fromAgentId,
+        chainId,
+        passId,
         agentId,
         prompt: effectivePrompt,
         systemPrompt,
@@ -275,7 +330,10 @@ export const createDaemonSlice = (set: any, get: () => any) => {
         runtimeId: profile.execution.runtimeId,
         accountIds: effectiveIds,
         accountId: profile.execution.accountId ?? '',
+        projectPath: conv?.projectPath || undefined,
+        useWorktree: conv?.useWorktree || undefined,
       });
+      return true;
     },
 
     enqueueDispatch: (agentId: string, payload: Omit<PendingDispatch, 'queuedAt'>) => {
@@ -340,7 +398,7 @@ export const createDaemonSlice = (set: any, get: () => any) => {
           },
         }));
       }
-      get().dispatchToAgent({
+      const accepted = get().dispatchToAgent({
         agentId,
         prompt: next.prompt,
         referencedTaskId: next.referencedTaskId,
@@ -348,6 +406,14 @@ export const createDaemonSlice = (set: any, get: () => any) => {
         fromAgentId: next.fromAgentId,
         conversationId: nextConvId,
       });
+      if (accepted && next.source !== 'a2a' && nextConvId) {
+        socket.emit('a2a:user-turn-created', {
+          conversationId: nextConvId,
+          messageId: `queued-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          targetAgentIds: [agentId],
+          prompt: next.prompt,
+        });
+      }
     },
 
     clearPendingDispatches: (agentId: string, conversationId: string) => {
@@ -457,6 +523,8 @@ export const createDaemonSlice = (set: any, get: () => any) => {
         runtimeId: profile.execution.runtimeId,
         accountIds: effectiveIds,
         accountId: profile.execution.accountId ?? '',
+        projectPath: conv?.projectPath || undefined,
+        useWorktree: conv?.useWorktree || undefined,
       });
     },
 
@@ -521,6 +589,9 @@ export const createDaemonSlice = (set: any, get: () => any) => {
       if (!activeId) return;
       clearWatchdog(agentId);
       const trackedConvId = get().activeStreamConversationId[agentId];
+      if (trackedConvId) {
+        flushStreamBufferForMessage(activeId, trackedConvId, set);
+      }
       set((state: any) => {
         const { [agentId]: _, ...restMsgIds } = state.activeStreamMessageId;
         const { [agentId]: __, ...restConvIds } = state.activeStreamConversationId;

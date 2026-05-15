@@ -8,7 +8,7 @@ import { CliOutputBlock } from './CliOutputBlock';
 import { ProgressMessageCard } from './ProgressMessageCard';
 import { cn } from '@/lib/utils';
 import { parsePhaseBreakdown } from '@/lib/breakdownParser';
-import { Check, X, User, Lightbulb, Play, Eye } from 'lucide-react';
+import { Check, X, User, Lightbulb, Play, Eye, Link2, Copy, ExternalLink } from 'lucide-react';
 import { MarkdownContent } from './MarkdownContent';
 import { TokenBadge } from './TokenSummary';
 import { TaskStatusCard } from './TaskStatusCard';
@@ -278,13 +278,13 @@ export function ChatMessageItem({ message }: ChatMessageItemProps) {
                             type="button"
                             onClick={() => toggleCheck(key)}
                             className={cn(
-                              "w-4 h-4 rounded-[2px] border-2 flex items-center justify-center shrink-0 transition-all",
+                              "w-5 h-5 rounded-[2px] border-2 flex items-center justify-center shrink-0 transition-all",
                               isChecked
                                 ? "bg-[hsl(var(--accent))] border-[hsl(var(--accent))] text-white"
                                 : "bg-[hsl(var(--bg-muted))] border-[hsl(var(--border))]"
                             )}
                           >
-                            {isChecked && <span className="text-[8px]">✓</span>}
+                            {isChecked && <Check className="w-3 h-3" />}
                           </button>
                           <span className="text-[10px] text-[hsl(var(--text-primary))] flex-1 truncate">{task.title}</span>
                           {suggestedAgent && (
@@ -423,33 +423,36 @@ export function ChatMessageItem({ message }: ChatMessageItemProps) {
 
           {/* Hover Action Bar */}
           {isHovered && (
-            <div className="absolute -top-2 right-2 flex gap-0.5 bg-[hsl(var(--bg-card))] border border-[hsl(var(--border))] rounded-[4px] p-0.5 shadow-sm z-10">
+            <div className="absolute -top-2 right-2 flex gap-0.5 bg-[hsl(var(--bg-card))] border border-[hsl(var(--border))] rounded-[var(--radius-sm)] p-0.5 shadow-sm z-10">
               <button
                 type="button"
                 onClick={() => {
                   window.dispatchEvent(new CustomEvent('chat:quote', { detail: message.content }));
                 }}
-                className="text-[9px] px-1.5 py-0.5 text-[hsl(var(--text-tertiary))] hover:text-[hsl(var(--text-primary))] rounded-[2px] hover:bg-[hsl(var(--bg-muted))] transition-colors"
+                className="p-1 text-[hsl(var(--text-tertiary))] hover:text-[hsl(var(--text-primary))] rounded-[2px] hover:bg-[hsl(var(--bg-muted))] transition-colors"
                 title="引用此消息"
+                aria-label="引用此消息"
               >
-                📎
+                <Link2 className="w-3.5 h-3.5" />
               </button>
               <button
                 type="button"
                 onClick={() => navigator.clipboard.writeText(message.content)}
-                className="text-[9px] px-1.5 py-0.5 text-[hsl(var(--text-tertiary))] hover:text-[hsl(var(--text-primary))] rounded-[2px] hover:bg-[hsl(var(--bg-muted))] transition-colors"
+                className="p-1 text-[hsl(var(--text-tertiary))] hover:text-[hsl(var(--text-primary))] rounded-[2px] hover:bg-[hsl(var(--bg-muted))] transition-colors"
                 title="复制内容"
+                aria-label="复制内容"
               >
-                📋
+                <Copy className="w-3.5 h-3.5" />
               </button>
               {message.referencedTaskId && (
                 <button
                   type="button"
                   onClick={() => setSelectedTaskId(message.referencedTaskId!)}
-                  className="text-[9px] px-1.5 py-0.5 text-[hsl(var(--text-tertiary))] hover:text-[hsl(var(--text-primary))] rounded-[2px] hover:bg-[hsl(var(--bg-muted))] transition-colors"
+                  className="p-1 text-[hsl(var(--text-tertiary))] hover:text-[hsl(var(--text-primary))] rounded-[2px] hover:bg-[hsl(var(--bg-muted))] transition-colors"
                   title="跳转到任务"
+                  aria-label="跳转到任务"
                 >
-                  🔗
+                  <ExternalLink className="w-3.5 h-3.5" />
                 </button>
               )}
             </div>

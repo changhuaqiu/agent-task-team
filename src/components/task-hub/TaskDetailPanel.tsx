@@ -146,7 +146,11 @@ export function TaskDetailPanel() {
       {/* Panel */}
       <div
         ref={panelRef}
-        className="fixed top-0 right-0 h-full w-full max-w-[450px] bg-[hsl(var(--bg-elevated))] border-l border-[hsl(var(--border))] shadow-[var(--shadow-lg)] z-50 flex flex-col animate-slide-in-r"
+        className={cn(
+          'fixed top-0 right-0 h-full border-l border-[hsl(var(--border))]',
+          'bg-[hsl(var(--bg-elevated))] shadow-[var(--shadow-lg)] z-50 flex flex-col animate-slide-in-r',
+          'w-full max-w-[90vw] md:max-w-[450px]'
+        )}
         role="dialog"
         aria-label={`任务详情：${task.title}`}
       >
@@ -161,10 +165,10 @@ export function TaskDetailPanel() {
           <button
             type="button"
             onClick={() => setSelectedTaskId(null)}
-            className="p-1.5 rounded-[var(--radius-sm)] text-[hsl(var(--text-tertiary))] hover:text-[hsl(var(--text-primary))] hover:bg-[hsl(var(--bg-muted))] transition-colors"
+            className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-[var(--radius-sm)] text-[hsl(var(--text-tertiary))] hover:text-[hsl(var(--text-primary))] hover:bg-[hsl(var(--bg-muted))] transition-colors"
             aria-label="关闭面板"
           >
-            <X className="w-4.5 h-4.5" />
+            <X className="w-4 h-4" />
           </button>
         </div>
 
@@ -267,9 +271,10 @@ export function TaskDetailPanel() {
                 <span className="text-sm font-medium text-[hsl(var(--text-primary))]">
                   {agent?.name ?? 'Unassigned'}
                 </span>
-                {agent?.roleCardId ? (
-                  <RoleCardBadge card={roleCards.find((c) => c.id === agent.roleCardId)!} size="sm" />
-                ) : (
+                {agent?.roleCardId ? (() => {
+                  const rc = roleCards.find((c) => c.id === agent.roleCardId);
+                  return rc ? <RoleCardBadge card={rc} size="sm" /> : null;
+                })() : (
                   agent && <span className="text-xs text-[hsl(var(--text-tertiary))]">{agent.roleLabel}</span>
                 )}
               </button>

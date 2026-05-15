@@ -481,6 +481,28 @@ describe('composeUserPrompt', () => {
     expect(result).toContain('你好，请就绪并等待指令。');
   });
 
+  it('wraps A2A dispatches in an explicit cross-agent envelope', () => {
+    const a2aPrompt = [
+      '═══ A2A 任务指派 ═══',
+      '来自：mario',
+      '── 指令 ──',
+      '请评审当前架构方案。',
+    ].join('\n');
+    const result = composeUserPrompt({
+      ...baseOpts,
+      agent: { id: 'dk', name: 'DK' },
+      rawPrompt: a2aPrompt,
+      a2a: { from: 'mario', content: a2aPrompt },
+    });
+
+    expect(result).toContain('═══ 跨角色协作消息 ═══');
+    expect(result).toContain('触发来源：@mario');
+    expect(result).toContain('上游 agent 在回复中 @ 了你');
+    expect(result).toContain('不要为了确认、总结或礼貌性回复再 @mario');
+    expect(result).toContain('请评审当前架构方案。');
+    expect(result.match(/═══ A2A 任务指派 ═══/g)).toHaveLength(1);
+  });
+
   it('joins parts with separator', () => {
     const result = composeUserPrompt(baseOpts);
     expect(result).toContain('\n\n---\n\n');

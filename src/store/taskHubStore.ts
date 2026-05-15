@@ -12,10 +12,10 @@ import { createAgentSlice, AGENT_ROSTER } from './agentStore';
 import { loadAgents } from './agentStore';
 import type { Account, Agent, AgentRole } from './agentStore';
 import { createDaemonSlice } from './daemonStore';
-import { socket, resetWatchdog, clearWatchdog } from './daemonStore';
+import { socket, resetWatchdog, clearWatchdog, registerBrowserRuntimeNode } from './daemonStore';
 import type { PendingDispatch } from './daemonStore';
 import { resolveRuntimeAgentProfile, resolveTeamRuntime } from '@/lib/team-runtime';
-import type { PresetRuntimeAgentInput, RuntimeAgentProfile } from '@/lib/team-runtime';
+import type { PresetRuntimeAgentInput, RuntimeAgentProfile, TeamRuntime } from '@/lib/team-runtime';
 import type { RoleCard } from '@/types/roleCard';
 import type { TeamPackRole, TeamPack } from '@/types/teamPack';
 import {
@@ -30,8 +30,8 @@ import type { Phase } from '@/types/phase';
 import type { PhaseProposal } from '@/lib/breakdownParser';
 import type { SkillSummary } from '@/lib/agent-context/PromptComposer';
 import type { DetectedRuntime, CliEngine } from '@/server/types';
-import type { ChatMessage, ToolEvent } from './types';
-export type { ChatMessage, ToolEvent } from './types';
+import type { A2AHandoffStatus, A2APossessionView, ChatMessage, ToolEvent } from './types';
+export type { A2AHandoffStatus, A2AHandoffView, A2APossessionView, ChatMessage, ToolEvent } from './types';
 
 // Re-export types from sub-stores (backward compatibility)
 export type { CliEngine, DetectedRuntime } from '@/server/types';
@@ -58,9 +58,11 @@ export interface DispatchToAgentInput {
   prompt: string;
   referencedTaskId?: string;
   accountIds?: string[];
-  source?: 'user' | 'a2a';
+  source?: 'user' | 'a2a' | 'workflow' | 'review_gate' | 'system';
   fromAgentId?: string;
   conversationId?: string;
+  chainId?: string;
+  passId?: string;
   contextSnapshot?: string;
   epochId?: string;
 }
@@ -74,6 +76,8 @@ export interface Conversation {
   status: 'active' | 'paused' | 'completed' | 'archived';
   priority: 'p0' | 'p1' | 'p2' | 'p3';
   projectPath: string;
+  useWorktree?: boolean;
+  gitRepoRoot?: string;
   breakdownStatus: 'none' | 'proposal' | 'confirmed' | 'no_account';
   teamPackId?: string;
   createdAt: string;
@@ -217,6 +221,115 @@ function buildTeamRuntimeFromState(state: TaskHubState) {
       ...presetRuntime.roster.filter((agent) => !existingIds.has(agent.id)),
     ],
   };
+}
+
+interface TeamRuntimeCache {
+  selectedConversationId: string | null;
+  conversations: Conversation[];
+  currentTeamPack: TeamPack | null;
+  activeAgentIds: string[];
+  roleCards: RoleCard[];
+  skillsMap: Record<string, SkillSummary>;
+  agentSkillIds: Record<string, string[]>;
+  agentAccountOverrides: Record<string, string[]>;
+  agentRoleCardOverrides: Record<string, string>;
+  presetRosterSignature: string;
+  runtime: TeamRuntime;
+  effectiveRoster: Agent[] | null;
+  profilesByAgentId: Map<string, { accounts: Account[]; profile: RuntimeAgentProfile | null }>;
+}
+
+let teamRuntimeCache: TeamRuntimeCache | null = null;
+
+function getPresetRosterSignature(): string {
+  return AGENT_ROSTER.map((agent) => [
+    agent.id,
+    agent.name,
+    agent.roleCardId,
+    agent.cliEngine ?? '',
+    agent.theme,
+    agent.emoji,
+    agent.isOnline ? '1' : '0',
+    agent.accountIds.join(','),
+  ].join(':')).join('|');
+}
+
+function isTeamRuntimeCacheCurrent(
+  cache: TeamRuntimeCache,
+  state: TaskHubState,
+  presetRosterSignature: string,
+): boolean {
+  return cache.selectedConversationId === state.selectedConversationId
+    && cache.conversations === state.conversations
+    && cache.currentTeamPack === state.currentTeamPack
+    && cache.activeAgentIds === state.activeAgentIds
+    && cache.roleCards === state.roleCards
+    && cache.skillsMap === state.skillsMap
+    && cache.agentSkillIds === state.agentSkillIds
+    && cache.agentAccountOverrides === state.agentAccountOverrides
+    && cache.agentRoleCardOverrides === state.agentRoleCardOverrides
+    && cache.presetRosterSignature === presetRosterSignature;
+}
+
+function getCachedTeamRuntime(state: TaskHubState): TeamRuntime {
+  const presetRosterSignature = getPresetRosterSignature();
+  if (teamRuntimeCache && isTeamRuntimeCacheCurrent(teamRuntimeCache, state, presetRosterSignature)) {
+    return teamRuntimeCache.runtime;
+  }
+
+  const runtime = buildTeamRuntimeFromState(state);
+  teamRuntimeCache = {
+    selectedConversationId: state.selectedConversationId,
+    conversations: state.conversations,
+    currentTeamPack: state.currentTeamPack,
+    activeAgentIds: state.activeAgentIds,
+    roleCards: state.roleCards,
+    skillsMap: state.skillsMap,
+    agentSkillIds: state.agentSkillIds,
+    agentAccountOverrides: state.agentAccountOverrides,
+    agentRoleCardOverrides: state.agentRoleCardOverrides,
+    presetRosterSignature,
+    runtime,
+    effectiveRoster: null,
+    profilesByAgentId: new Map(),
+  };
+  return runtime;
+}
+
+function getCachedEffectiveRoster(state: TaskHubState): Agent[] {
+  const runtime = getCachedTeamRuntime(state);
+  const cache = teamRuntimeCache;
+  if (cache?.effectiveRoster) return cache.effectiveRoster;
+
+  const effectiveRoster = runtime.roster.map((runtimeAgent) => {
+    const presetAgent = AGENT_ROSTER.find((agent) => agent.id === runtimeAgent.id);
+    return {
+      id: runtimeAgent.id,
+      name: runtimeAgent.displayName,
+      role: presetAgent?.role ?? ('worker' as AgentRole),
+      roleLabel: runtimeAgent.roleCard?.displayName ?? presetAgent?.roleLabel ?? runtimeAgent.displayName,
+      roleCardId: runtimeAgent.roleCardId ?? presetAgent?.roleCardId ?? `team-role-${runtimeAgent.id}`,
+      theme: runtimeAgent.theme ?? presetAgent?.theme ?? 'mario',
+      emoji: runtimeAgent.emoji ?? presetAgent?.emoji ?? '🤖',
+      isOnline: presetAgent?.isOnline ?? true,
+      cliEngine: runtimeAgent.cliEngine ?? presetAgent?.cliEngine,
+      accountIds: runtimeAgent.accountIds,
+    };
+  });
+
+  if (cache) cache.effectiveRoster = effectiveRoster;
+  return effectiveRoster;
+}
+
+function getCachedAgentRuntimeProfile(state: TaskHubState, agentId: string): RuntimeAgentProfile | null {
+  const runtime = getCachedTeamRuntime(state);
+  const cache = teamRuntimeCache;
+  const cachedProfile = cache?.profilesByAgentId.get(agentId);
+  if (cachedProfile?.accounts === state.accounts) return cachedProfile.profile;
+
+  const profile = resolveRuntimeAgentProfile(runtime, agentId, state.accounts);
+  cache?.profilesByAgentId.set(agentId, { accounts: state.accounts, profile });
+  return profile;
 }
 
 const selectActiveAgents = (state: TaskHubState) =>
@@ -457,6 +570,7 @@ export interface TaskHubState {
   chatMessagesByConversation: Record<string, ChatMessage[]>;
   eventsByConversation: Record<string, InternalEvent[]>;
   blockersByConversation: Record<string, Blocker[]>;
+  a2aByConversation: Record<string, A2APossessionView>;
 
   getTasksByAgent: (agentId: string) => Task[];
   getTaskById:     (taskId: string) => Task | undefined;
@@ -466,10 +580,14 @@ export interface TaskHubState {
   getEventsForSelectedConversation: () => InternalEvent[];
   getOpenBlockersForSelectedConversation: () => Blocker[];
   getChatMessagesForSelectedConversation: () => ChatMessage[];
+  getA2AForSelectedConversation: () => A2APossessionView | undefined;
+  recordA2APassOffer: (payload: { conversationId: string; chainId: string; passId?: string; fromAgentId?: string; toAgentId?: string; title?: string }) => void;
+  recordA2APossessionChanged: (payload: { conversationId: string; chainId: string; currentHolderId: string; passId?: string }) => void;
+  recordA2APassBlocked: (payload: { conversationId: string; chainId?: string; passId?: string; fromAgentId?: string; toAgentId?: string; reason: string; status?: A2AHandoffStatus }) => void;
 
   loadFromServer: () => Promise<void>;
 
-  createConversation: (input: { title: string; goal: string; projectPath?: string; priority?: Conversation['priority']; teamPackId?: string }) => void;
+  createConversation: (input: { title: string; goal: string; projectPath?: string; priority?: Conversation['priority']; teamPackId?: string; useWorktree?: boolean; gitRepoRoot?: string }) => void;
   setSelectedConversationId: (conversationId: string | null) => void;
   deleteConversation: (conversationId: string) => void;
   addSupervisorOutput: (output: SupervisorOutputEnvelope) => void;
@@ -494,7 +612,7 @@ export interface TaskHubState {
 
   connectDaemon: () => void;
   upsertAgentSession: (projectId: ProjectId, agentId: string, sessionId: string) => void;
-  dispatchToAgent: (input: DispatchToAgentInput) => void;
+  dispatchToAgent: (input: DispatchToAgentInput) => boolean;
   forceSendDispatch: (input: DispatchToAgentInput) => void;
   enqueueDispatch: (agentId: string, payload: Omit<PendingDispatch, 'queuedAt'>) => void;
   dequeueNextPending: (agentId: string, conversationId: string) => void;
@@ -678,6 +796,7 @@ export const useTaskHubStore = create<TaskHubState>()(
         chatMessagesByConversation: {} as Record<string, ChatMessage[]>,
         eventsByConversation: {} as Record<string, InternalEvent[]>,
         blockersByConversation: {} as Record<string, Blocker[]>,
+        a2aByConversation: {} as Record<string, A2APossessionView>,
 
         getConversations: () => get().conversations,
         getSelectedConversation: () =>
@@ -699,32 +818,117 @@ export const useTaskHubStore = create<TaskHubState>()(
           if (!id) return EMPTY_CHAT;
           return get().chatMessagesByConversation[id] ?? EMPTY_CHAT;
         },
+        getA2AForSelectedConversation: () => {
+          const id = get().selectedConversationId;
+          if (!id) return undefined;
+          return get().a2aByConversation[id];
+        },
+        recordA2APassOffer: (payload: { conversationId: string; chainId: string; passId?: string; fromAgentId?: string; toAgentId?: string; title?: string }) => set((state: any) => {
+          const now = new Date().toISOString();
+          const existing: A2APossessionView = state.a2aByConversation[payload.conversationId] ?? {
+            chainId: payload.chainId,
+            status: 'active',
+            updatedAt: now,
+            handoffs: [],
+          };
+          const handoffId = payload.passId ?? `offer-${payload.chainId}-${now}`;
+          const handoffs = [
+            ...existing.handoffs.filter((handoff) => handoff.id !== handoffId),
+            {
+              id: handoffId,
+              chainId: payload.chainId,
+              passId: payload.passId,
+              fromAgentId: payload.fromAgentId,
+              toAgentId: payload.toAgentId,
+              status: 'offered' as const,
+              title: payload.title,
+              timestamp: now,
+            },
+          ].slice(-8);
+          return {
+            a2aByConversation: {
+              ...state.a2aByConversation,
+              [payload.conversationId]: {
+                ...existing,
+                chainId: payload.chainId,
+                status: 'active',
+                updatedAt: now,
+                handoffs,
+              },
+            },
+          };
+        }),
+        recordA2APossessionChanged: (payload: { conversationId: string; chainId: string; currentHolderId: string; passId?: string }) => set((state: any) => {
+          const now = new Date().toISOString();
+          const existing: A2APossessionView = state.a2aByConversation[payload.conversationId] ?? {
+            chainId: payload.chainId,
+            status: 'active',
+            updatedAt: now,
+            handoffs: [],
+          };
+          const handoffs = existing.handoffs.map((handoff) =>
+            payload.passId && handoff.passId === payload.passId
+              ? { ...handoff, status: 'started' as const, timestamp: now }
+              : handoff
+          );
+          return {
+            a2aByConversation: {
+              ...state.a2aByConversation,
+              [payload.conversationId]: {
+                ...existing,
+                chainId: payload.chainId,
+                currentHolderId: payload.currentHolderId,
+                status: 'active',
+                updatedAt: now,
+                handoffs,
+              },
+            },
+          };
+        }),
+        recordA2APassBlocked: (payload: { conversationId: string; chainId?: string; passId?: string; fromAgentId?: string; toAgentId?: string; reason: string; status?: A2AHandoffStatus }) => set((state: any) => {
+          const now = new Date().toISOString();
+          const chainId = payload.chainId ?? state.a2aByConversation[payload.conversationId]?.chainId ?? `blocked-${now}`;
+          const existing: A2APossessionView = state.a2aByConversation[payload.conversationId] ?? {
+            chainId,
+            status: 'active',
+            updatedAt: now,
+            handoffs: [],
+          };
+          const handoffId = payload.passId ?? `blocked-${chainId}-${now}`;
+          const status = payload.status ?? 'blocked';
+          const handoffs = [
+            ...existing.handoffs.filter((handoff) => handoff.id !== handoffId),
+            {
+              id: handoffId,
+              chainId,
+              passId: payload.passId,
+              fromAgentId: payload.fromAgentId,
+              toAgentId: payload.toAgentId,
+              status,
+              reason: payload.reason,
+              timestamp: now,
+            },
+          ].slice(-8);
+          return {
+            a2aByConversation: {
+              ...state.a2aByConversation,
+              [payload.conversationId]: {
+                ...existing,
+                chainId,
+                status: status === 'timeout' ? 'timeout' : 'blocked',
+                updatedAt: now,
+                handoffs,
+              },
+            },
+          };
+        }),
 
         getEffectiveRoster: () => {
-          const state = get();
-          const runtime = buildTeamRuntimeFromState(state);
-
-          return runtime.roster.map((runtimeAgent) => {
-            const presetAgent = AGENT_ROSTER.find((agent) => agent.id === runtimeAgent.id);
-            return {
-              id: runtimeAgent.id,
-              name: runtimeAgent.displayName,
-              role: presetAgent?.role ?? ('worker' as AgentRole),
-              roleLabel: runtimeAgent.roleCard?.displayName ?? presetAgent?.roleLabel ?? runtimeAgent.displayName,
-              roleCardId: runtimeAgent.roleCardId ?? presetAgent?.roleCardId ?? `team-role-${runtimeAgent.id}`,
-              theme: runtimeAgent.theme ?? presetAgent?.theme ?? 'mario',
-              emoji: runtimeAgent.emoji ?? presetAgent?.emoji ?? '🤖',
-              isOnline: presetAgent?.isOnline ?? true,
-              cliEngine: runtimeAgent.cliEngine ?? presetAgent?.cliEngine,
-              accountIds: runtimeAgent.accountIds,
-            };
-          });
+          return getCachedEffectiveRoster(get());
         },
 
         getAgentRuntimeProfile: (agentId: string) => {
-          const state = get();
-          const runtime = buildTeamRuntimeFromState(state);
-          return resolveRuntimeAgentProfile(runtime, agentId, state.accounts);
+          return getCachedAgentRuntimeProfile(get(), agentId);
         },
 
         setTeamRoleAccountIds: async (agentId: string, accountIds: string[]) => {
@@ -842,6 +1046,8 @@ export const useTaskHubStore = create<TaskHubState>()(
               status: c.status || 'active',
               priority: c.priority || 'p2',
               projectPath: c.project_path || '',
+              useWorktree: c.use_worktree === 1 || c.use_worktree === true,
+              gitRepoRoot: c.git_repo_root || undefined,
               breakdownStatus: c.breakdown_status || 'none',
               teamPackId: c.team_pack_id || undefined,
               createdAt: c.created_at,
@@ -981,7 +1187,7 @@ export const useTaskHubStore = create<TaskHubState>()(
           }));
         },
 
-        createConversation: ({ title, goal, projectPath, priority, teamPackId }: { title: string; goal: string; projectPath?: string; priority?: Conversation['priority']; teamPackId?: string }) => {
+        createConversation: ({ title, goal, projectPath, priority, teamPackId, useWorktree, gitRepoRoot }: { title: string; goal: string; projectPath?: string; priority?: Conversation['priority']; teamPackId?: string; useWorktree?: boolean; gitRepoRoot?: string }) => {
           const id = makeId('conv');
           const stamp = new Date().toISOString();
           const conversation: Conversation = {
@@ -991,6 +1197,8 @@ export const useTaskHubStore = create<TaskHubState>()(
             status: 'active',
             priority: priority ?? 'p1',
             projectPath: projectPath ?? '',
+            useWorktree,
+            gitRepoRoot,
             breakdownStatus: 'none',
             teamPackId,
             createdAt: stamp,
@@ -1045,7 +1253,7 @@ export const useTaskHubStore = create<TaskHubState>()(
           fetch('/api/mutations', {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ type: 'conversation.create', payload: { id, title, goal, priority: priority ?? 'p1', project_path: projectPath, team_pack_id: teamPackId } }),
+            body: JSON.stringify({ type: 'conversation.create', payload: { id, title, goal, priority: priority ?? 'p1', project_path: projectPath, team_pack_id: teamPackId, use_worktree: useWorktree, git_repo_root: gitRepoRoot } }),
           }).catch((err) => console.error('[mutation] conversation.create failed:', err));
 
           if (!teamPackId) {
@@ -1222,6 +1430,7 @@ export const useTaskHubStore = create<TaskHubState>()(
           if (!conversationId) return;
 
           const mentions = extractMentionTokens(rest.content);
+          const messageId = `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 
           let intent: ChatMessage['intent'] = 'general';
           const contentLower = rest.content.toLowerCase();
@@ -1264,7 +1473,7 @@ export const useTaskHubStore = create<TaskHubState>()(
                     ...(state.chatMessagesByConversation[conversationId] || []),
                     {
                       ...rest,
-                      id: `msg-${Date.now()}`,
+                      id: messageId,
                       timestamp: new Date().toISOString(),
                       mentions,
                       intent,
@@ -1273,18 +1482,32 @@ export const useTaskHubStore = create<TaskHubState>()(
                 },
               }));
 
+              const acceptedAgentIds: string[] = [];
               for (const agentId of idleAgents) {
-                get().dispatchToAgent({
+                const accepted = get().dispatchToAgent({
                   agentId,
                   referencedTaskId: rest.referencedTaskId,
                   prompt: rest.content,
                   conversationId,
                 });
+                if (accepted) acceptedAgentIds.push(agentId);
               }
+              socket.emit('a2a:user-turn-created', {
+                conversationId,
+                messageId,
+                targetAgentIds: acceptedAgentIds,
+                prompt: rest.content,
+              });
               for (const agentId of busyAgents) {
                 get().enqueueDispatch(agentId, { prompt: rest.content, referencedTaskId: rest.referencedTaskId, conversationId });
               }
             } else {
+              socket.emit('a2a:user-turn-created', {
+                conversationId,
+                messageId,
+                targetAgentIds: [],
+                prompt: rest.content,
+              });
               set((state: any) => ({
                 chatMessagesByConversation: {
                   ...state.chatMessagesByConversation,
@@ -1292,7 +1515,7 @@ export const useTaskHubStore = create<TaskHubState>()(
                     ...(state.chatMessagesByConversation[conversationId] || []),
                     {
                       ...rest,
-                      id: `msg-${Date.now()}`,
+                      id: messageId,
                       timestamp: new Date().toISOString(),
                       mentions,
                       intent,
@@ -1309,7 +1532,7 @@ export const useTaskHubStore = create<TaskHubState>()(
                   ...(state.chatMessagesByConversation[conversationId] || []),
                   {
                     ...rest,
-                    id: `msg-${Date.now()}`,
+                    id: messageId,
                     timestamp: new Date().toISOString(),
                     mentions,
                     intent,
@@ -1526,6 +1749,7 @@ socket.off('connect_error');
 
 socket.on('connect', () => {
   useTaskHubStore.getState().setDaemonConnection({ status: 'connected' });
+  registerBrowserRuntimeNode();
 
   socket.emit('runtimes:list', (response: { runtimes: import('@/server/types').DetectedRuntime[] }) => {
     if (response?.runtimes) {
@@ -1651,6 +1875,41 @@ socket.on('agent:event', (event) => {
   }
 });
 
+socket.on('a2a:pass-offer', ({ agentId, fromAgentId, conversationId, chainId, passId }: { agentId: string; fromAgentId?: string; conversationId?: string; chainId?: string; passId?: string }) => {
+  if (!conversationId || !chainId) return;
+  useTaskHubStore.getState().recordA2APassOffer({
+    conversationId,
+    chainId,
+    passId,
+    fromAgentId,
+    toAgentId: agentId,
+    title: fromAgentId ? `${fromAgentId} 交接给 ${agentId}` : `交接给 ${agentId}`,
+  });
+});
+
+socket.on('a2a:possession-changed', ({ chainId, conversationId, currentHolderId, passId }: { chainId?: string; conversationId?: string; currentHolderId?: string; passId?: string }) => {
+  if (!conversationId || !chainId || !currentHolderId) return;
+  useTaskHubStore.getState().recordA2APossessionChanged({
+    conversationId,
+    chainId,
+    currentHolderId,
+    passId,
+  });
+});
+
+socket.on('a2a:pass-blocked', ({ conversationId, chainId, passId, fromAgentId, toAgentId, reason, status }: { conversationId?: string; chainId?: string; passId?: string; fromAgentId?: string; toAgentId?: string; reason?: string; status?: A2AHandoffStatus }) => {
+  if (!conversationId || !reason) return;
+  useTaskHubStore.getState().recordA2APassBlocked({
+    conversationId,
+    chainId,
+    passId,
+    fromAgentId,
+    toAgentId,
+    reason,
+    status,
+  });
+});
+
 socket.on('terminal:exit', ({ agentId, code, command, reasonCode }: { agentId: string; code: number; command?: string; reasonCode?: string }) => {
   const store = useTaskHubStore.getState();
   const active = store.activeRunsByAgent[agentId];
@@ -1725,16 +1984,35 @@ socket.on('terminal:exit', ({ agentId, code, command, reasonCode }: { agentId: s
   }
 });
 
-socket.on('a2a:dispatch', ({ agentId, prompt, referencedTaskId, fromAgentId, conversationId, chainId, entryId }: { agentId: string; prompt: string; referencedTaskId?: string; fromAgentId: string; conversationId?: string; chainId?: string; entryId?: string }) => {
+socket.on('a2a:dispatch', ({ agentId, prompt, referencedTaskId, fromAgentId, conversationId, chainId, entryId, passId }: { agentId: string; prompt: string; referencedTaskId?: string; fromAgentId: string; conversationId?: string; chainId?: string; entryId?: string; passId?: string }) => {
   console.log(`[a2a:v2] chain=${chainId} dispatch ${fromAgentId} → ${agentId}`);
-  useTaskHubStore.getState().dispatchToAgent({
+  const accepted = useTaskHubStore.getState().dispatchToAgent({
     agentId,
     prompt,
     referencedTaskId,
     source: 'a2a',
     fromAgentId,
     conversationId,
+    chainId,
+    passId,
   });
+  if (accepted && chainId && entryId && conversationId) {
+    socket.emit('a2a:agent-started', {
+      chainId,
+      entryId,
+      conversationId,
+      agentId,
+      passId,
+    });
+  } else if (!accepted && chainId && entryId && conversationId) {
+    socket.emit('a2a:dispatch-failed', {
+      chainId,
+      entryId,
+      conversationId,
+      agentId,
+      reason: 'no runtime profile or conversation context',
+    });
+  }
 });
 
 socket.on('agent:error', ({ agentId, message, reasonCode }: { agentId: string; message: string; reasonCode?: string }) => {
@@ -1787,6 +2065,7 @@ socket.on('task.assigned', ({ taskId, agentId, conversationId }: { taskId: strin
   store.dispatchToAgent({
     agentId,
     referencedTaskId: taskId,
+    source: 'workflow',
     prompt: `你被分配了 ${taskId}: ${task.title}. ${task.description || ''}`,
   });
 });
@@ -1857,6 +2136,7 @@ socket.on('task.ready', ({ taskId, agentId }: { taskId: string; agentId: string 
   store.dispatchToAgent({
     agentId,
     referencedTaskId: taskId,
+    source: 'workflow',
     prompt: `依赖已满足，开始执行 ${taskId}: ${task.title}. ${task.description || ''}`,
   });
 });

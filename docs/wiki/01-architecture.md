@@ -2,7 +2,9 @@
 
 ## 1.1 形态与边界
 
-Agent Task Hub 是一个四层结构的多智能体协作平台：
+Agent Task Hub 正在从前端驱动的多智能体工作台，演进为“控制平面 + 执行平面”的多实例 agent 协作系统。正式控制平面规格见 [`specs/system-control-plane/spec.md`](../../specs/system-control-plane/spec.md)。
+
+当前实现仍保留原有分层：
 
 | 层级 | 技术 | 职责 |
 |------|------|------|
@@ -12,7 +14,50 @@ Agent Task Hub 是一个四层结构的多智能体协作平台：
 | **应用后端层** | Next.js API + SQLite | 数据持久化、业务逻辑、Repository |
 | **执行层** | Socket.io Daemon + Agent Backend | CLI 执行、会话管理、事件流 |
 
+目标边界：
+
+| 平面 | 职责 |
+|------|------|
+| **Control Plane** | 统一任务、workflow、dispatch、A2A、runtime health、policy、proof 与 context 决策 |
+| **Execution Plane** | local daemon、OpenCode bridge、remote runtime、worktree executor 只消费 execution envelope 并报告生命周期 |
+| **UX Plane** | 发送用户意图、订阅状态、展示可解释失败，不作为跨实例投递事实源 |
+
+关键原则：
+
+- UI store 是运行时缓存，不是跨实例 dispatch 的事实源。
+- daemon 是 executor，不应长期承担团队策略、workflow 和 A2A delivery 决策。
+- browser、daemon、bridge、remote runtime 都是 runtime node，跨实例动作必须有身份、envelope、health、ACK 和 proof。
+- A2A possession 负责“谁持球、谁能传球”；Control Plane 负责“能否投递、投给哪个实例、是否启动成功”。
+
 ## 1.2 运行时拓扑
+
+目标控制平面拓扑：
+
+```mermaid
+flowchart TD
+  UI["Browser UI"] --> API["Control Plane API"]
+  API --> TR["Team Runtime"]
+  API --> WF["Workflow"]
+  API --> TA["Task Authority"]
+  API --> DG["Dispatch Gateway"]
+  API --> PG["Policy Gates"]
+  API --> HR["Runtime Health Registry"]
+  API --> PL["Proof Log"]
+  API --> CX["Context Plane"]
+  DG --> RR["Runtime Router"]
+  RR --> LD["Local Daemon"]
+  RR --> OB["OpenCode Bridge"]
+  RR --> RM["Remote Runtime"]
+  RR --> WT["Worktree Executor"]
+  LD --> PL
+  OB --> PL
+  RM --> PL
+  WT --> PL
+```
+
+当前 `taskHubStore`、`daemon`、`a2a/orchestrator` 的部分职责会在迁移期逐步收敛到 `DispatchGateway`、`RuntimeNodeRegistry`、`AgentBindingRegistry` 与 `ProofLog`。
+
+当前运行时拓扑：
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -84,6 +129,8 @@ Agent Task Hub 是一个四层结构的多智能体协作平台：
 
 ### C) 任务执行链路
 
+> 当前实现状态：直接用户派发仍由 store 解析 runtime profile 后通过 `terminal:start` 启动 daemon。目标架构要求用户派发、A2A、workflow、review gate 都先提交 dispatch intent，由 Control Plane 生成 execution envelope 后再定向路由。
+
 ```
 用户触发任务
     │
@@ -118,6 +165,28 @@ dispatchToAgent()
                         └─ orchestrator.onAgentDone()
                             └─ dequeueNextPending(agentId, conversationId)
 ```
+
+目标执行链路：
+
+```text
+user / agent / workflow intent
+    ↓
+DispatchGateway.normalizeIntent()
+    ↓
+TeamRuntime resolves target profile
+    ↓
+PolicyGates check identity, authority, team rules, possession, health, budget, dedup
+    ↓
+ContextPlane builds ExecutionEnvelope
+    ↓
+RuntimeRouter sends envelope to exact RuntimeNode
+    ↓
+Executor returns started / failed / completed
+    ↓
+ProofLog records each phase
+```
+
+在目标链路中，任何 dispatch 都不能在 executor ACK 前被标记为 `started`。
 
 ### C2) Team Runtime Contract
 

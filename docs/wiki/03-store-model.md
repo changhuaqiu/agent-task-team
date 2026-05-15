@@ -140,6 +140,7 @@ export interface Task {
   - `terminalLogs`
   - `agentStatus`
   - `eventsByConversation`
+  - `a2aByConversation`
 - 账号与角色：
   - `accounts`
   - `roleCards`
@@ -170,9 +171,19 @@ export interface Task {
 
 而不是持久化主数据源。
 
+控制平面迁移后，store 还需要进一步降级：
+
+- store 发送 dispatch intent，不直接判定跨实例投递成功。
+- store 订阅 `RuntimeNode`、`AgentBinding`、`ExecutionEnvelope` 与 `ProofLog` 派生状态。
+- `agentStatus` 只能作为 UI 快照；runtime health 与 agent binding 事实必须来自 Control Plane。
+- `a2aByConversation` 仍可缓存当前协作视图，但 handoff delivery 成败由 Dispatch Gateway 和 Proof Log 决定。
+- 用户消息、A2A、workflow 自动派发最终应走同一个 server-side dispatch path。
+
 ### Team Runtime Cache
 
 当前团队身份、执行资料和协作策略不再由 store 自己拼装。store 只负责把 rehydrate 得到的 Conversation、TeamPack、RoleCard、Account、Skill 和 agent 绑定传入 `src/lib/team-runtime/`，再缓存解析结果用于 UI 和派发。
+
+Team Runtime 缓存是派生缓存，不是新的事实源。缓存只复用 `resolveTeamRuntime()`、`getEffectiveRoster()` 和 `getAgentRuntimeProfile()` 的结果；当 conversation、TeamPack、RoleCard、Skill、账号绑定、角色卡覆盖、active roster 或 preset roster 签名发生变化时必须失效。这样可以避免组件 render 阶段反复扫描并创建 roster/profile 对象，同时保持 Team Runtime Contract 仍然是团队语义的唯一领域契约。
 
 关键规则：
 
@@ -183,6 +194,8 @@ export interface Task {
 - `/api/state` 返回持久化的全部 `agentSkillIds`，store 不能再假设只有固定六个 preset agent 才能绑定 Skill。
 - 项目创建后的方案分析不再固定派发给 Mario。普通项目仍使用 preset planner；TeamPack 项目等待对应 TeamPack 加载完成后，按 workflow 的首个可用角色发起 proposal。
 - 用户消息中的 `@agent` 也按 runtime roster 解析。TeamPack role id、当前角色名和角色素材显示名都可以作为 mention 目标，不再只接受静态 Mario 6 人组。
+- 用户消息写入时会先解析 `@agent` 并尝试执行派发。只有 `dispatchToAgent()` 成功启动或接收该派发后，store 才向 daemon 发送 `a2a:user-turn-created` 并登记本次用户触发的 A2A chain；未命中 agent 或没有成功启动任何目标时，只通知 daemon 终止旧 active chain。忙碌 agent 的用户派发先留在本地 pending queue，等真正 dequeue 并启动成功时再登记 chain，避免 server 把尚未执行的任务误标为 `executing` 后触发假超时。
+- A2A possession UI 状态由 `a2aByConversation` 缓存，记录当前持球者和最近交接事件。它只保留最近 8 条 handoff 作为 UI 时间线，是 socket runtime view，不作为项目任务状态事实源；任务进度仍以 SQLite task/TASKS.md 为准。
 
 这意味着 store 的职责边界是“缓存与适配”，不是“定义团队规则”。TeamPack 的通信规则、任务流程和角色解析都应保留在 Team Runtime Contract 或 server repository 边界内。
 
@@ -249,7 +262,8 @@ store 监听 daemon 推送的实时事件，并将其映射成前端状态：
 - `agent:event`
   - 映射到聊天流、tool event、streaming content、进度信息
 - `agent:session`
-  - 更新执行会话
+  - 更新执行会话，并写入 `agentSessions[conversationId][agentId]`
+  - 前端成员配置面板读取该缓存展示调试用 CLI session id，避免普通配置流程依赖实现细节
 - `terminal:exit`
   - 更新 agentStatus 与退出信息
 - `task.sync`

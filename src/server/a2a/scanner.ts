@@ -3,13 +3,17 @@ import type { AgentMentionConfig, MentionTarget } from './types-v2';
 
 const MAX_TARGETS = 2;
 
+function stripCodeBlocks(text: string): string {
+  return text.replace(/```[\s\S]*?```/g, '');
+}
+
 export function scanMentions(
   text: string,
   agents: AgentMentionConfig[],
   selfAgentId: string,
 ): MentionTarget[] {
   // Strip fenced code blocks
-  const stripped = text.replace(/```[\s\S]*?```/g, '');
+  const stripped = stripCodeBlocks(text);
 
   // Build sorted pattern list (longest first to prevent prefix collision)
   const patterns: { pattern: string; agentId: string }[] = [];
@@ -56,6 +60,34 @@ export function scanMentions(
   return targets;
 }
 
+export function findUnresolvedMentionTokens(
+  text: string,
+  agents: AgentMentionConfig[],
+  selfAgentId: string,
+): string[] {
+  const stripped = stripCodeBlocks(text);
+  const knownPatterns = new Set(
+    agents
+      .filter((agent) => agent.id !== selfAgentId)
+      .flatMap((agent) => agent.mentionPatterns.map((pattern) => pattern.toLowerCase())),
+  );
+  const selfPatterns = new Set(
+    agents
+      .filter((agent) => agent.id === selfAgentId)
+      .flatMap((agent) => agent.mentionPatterns.map((pattern) => pattern.toLowerCase())),
+  );
+  const unresolved = new Set<string>();
+  const tokenPattern = /(^|[\s\p{P}])(@[\p{L}\p{N}_-]+)/gu;
+  let match: RegExpExecArray | null;
+  while ((match = tokenPattern.exec(stripped)) !== null) {
+    const token = match[2];
+    const normalized = token.toLowerCase();
+    if (knownPatterns.has(normalized) || selfPatterns.has(normalized)) continue;
+    unresolved.add(token);
+  }
+  return Array.from(unresolved).slice(0, MAX_TARGETS);
+}
+
 /**
  * Extract only the content after the @mention, not the full agent output.
  * Takes text from the mention position to the next @mention (if any) or end of text.
@@ -64,7 +96,7 @@ export function extractMentionContent(fullText: string, target: MentionTarget): 
   // Find the mention position in the original text (not code-stripped)
   // Use the position from the stripped text as an approximation —
   // in practice the mention is always outside code blocks anyway
-  const stripped = fullText.replace(/```[\s\S]*?```/g, '');
+  const stripped = stripCodeBlocks(fullText);
   const mentionStart = target.position;
 
   // Find the end of the mention pattern itself

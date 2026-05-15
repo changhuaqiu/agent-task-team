@@ -1,6 +1,6 @@
 // src/__tests__/server/a2a/scanner.test.ts
 import { describe, it, expect } from 'vitest';
-import { scanMentions, extractMentionContent } from '@/server/a2a/scanner';
+import { scanMentions, extractMentionContent, findUnresolvedMentionTokens } from '@/server/a2a/scanner';
 import type { AgentMentionConfig } from '@/server/a2a/types-v2';
 
 const AGENTS: AgentMentionConfig[] = [
@@ -97,5 +97,19 @@ describe('extractMentionContent', () => {
     const content = extractMentionContent(text, targets[0]);
     expect(content).toContain('请实现前端的登录组件和注册页面');
     expect(content).not.toContain('@toad');
+  });
+});
+
+describe('findUnresolvedMentionTokens', () => {
+  it('returns @mentions that are not in the runtime roster', () => {
+    const text = '请 @dk 做架构评审，然后 @luigi 实现';
+    const result = findUnresolvedMentionTokens(text, AGENTS, 'mario');
+    expect(result).toEqual(['@dk']);
+  });
+
+  it('ignores code blocks and self mentions', () => {
+    const text = '@mario 自己别转交\n```txt\n@dk 不应该匹配\n```';
+    const result = findUnresolvedMentionTokens(text, AGENTS, 'mario');
+    expect(result).toEqual([]);
   });
 });

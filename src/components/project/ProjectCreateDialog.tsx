@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { X, Plus, Check } from 'lucide-react';
+import { X, Plus, Check, GitBranch } from 'lucide-react';
 import { useTaskHubStore } from '@/store/taskHubStore';
 import { useTeamPackStore } from '@/store/teamPackStore';
 import { cn } from '@/lib/utils';
@@ -29,6 +29,9 @@ export function ProjectCreateDialog({
   const [goal, setGoal] = useState('');
   const [projectPath, setProjectPath] = useState('');
   const [selectedTeamPackId, setSelectedTeamPackId] = useState<string | null>(null);
+  const [gitDetected, setGitDetected] = useState(false);
+  const [gitRepoRoot, setGitRepoRoot] = useState<string | null>(null);
+  const [gitChecking, setGitChecking] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -45,6 +48,36 @@ export function ProjectCreateDialog({
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [open, onClose]);
 
+  useEffect(() => {
+    if (!projectPath) {
+      setGitDetected(false);
+      setGitRepoRoot(null);
+      return;
+    }
+    let cancelled = false;
+    setGitChecking(true);
+    fetch('/api/git/detect', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ path: projectPath }),
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (cancelled) return;
+        setGitDetected(data.isGit === true);
+        setGitRepoRoot(data.repoRoot ?? null);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setGitDetected(false);
+        setGitRepoRoot(null);
+      })
+      .finally(() => {
+        if (!cancelled) setGitChecking(false);
+      });
+    return () => { cancelled = true; };
+  }, [projectPath]);
+
   if (!open) return null;
 
   const handleCreate = () => {
@@ -56,11 +89,15 @@ export function ProjectCreateDialog({
       goal: trimmedGoal,
       projectPath: projectPath || undefined,
       teamPackId: selectedTeamPackId ?? undefined,
+      useWorktree: gitDetected || undefined,
+      gitRepoRoot: gitRepoRoot ?? undefined,
     });
     setTitle('');
     setGoal('');
     setProjectPath('');
     setSelectedTeamPackId(null);
+    setGitDetected(false);
+    setGitRepoRoot(null);
     onClose();
   };
 
@@ -109,6 +146,15 @@ export function ProjectCreateDialog({
 
             <div className="space-y-1.5">
               <FolderPicker value={projectPath} onChange={setProjectPath} />
+              {projectPath && gitChecking && (
+                <div className="text-[11px] text-[hsl(var(--text-tertiary))]">检测中…</div>
+              )}
+              {projectPath && !gitChecking && gitDetected && (
+                <div className="flex items-center gap-1.5 text-[11px] font-medium text-[hsl(var(--accent))]">
+                  <GitBranch className="w-3.5 h-3.5" />
+                  Git 仓库已检测到，将创建独立 worktree 开发
+                </div>
+              )}
             </div>
 
             {teamPacks.length > 0 && (

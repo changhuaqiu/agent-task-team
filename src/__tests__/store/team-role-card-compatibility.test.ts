@@ -252,6 +252,36 @@ describe('team role card compatibility', () => {
     expect(profile?.execution.accountId).toBe('acc-openai');
   });
 
+  it('reuses cached effective roster until runtime inputs change', () => {
+    const state = useTaskHubStore.getState();
+    const firstRoster = state.getEffectiveRoster();
+    const secondRoster = state.getEffectiveRoster();
+
+    expect(secondRoster).toBe(firstRoster);
+
+    useTaskHubStore.setState((current) => ({
+      roleCards: [...current.roleCards],
+    }));
+
+    expect(useTaskHubStore.getState().getEffectiveRoster()).not.toBe(firstRoster);
+  });
+
+  it('reuses cached runtime profiles until account inputs change', () => {
+    useTaskHubStore.setState({ agentAccountOverrides: { planner: ['acc-openai'] } });
+
+    const state = useTaskHubStore.getState();
+    const firstProfile = state.getAgentRuntimeProfile('planner');
+    const secondProfile = state.getAgentRuntimeProfile('planner');
+
+    expect(secondProfile).toBe(firstProfile);
+
+    useTaskHubStore.setState((current) => ({
+      accounts: [...current.accounts],
+    }));
+
+    expect(useTaskHubStore.getState().getAgentRuntimeProfile('planner')).not.toBe(firstProfile);
+  });
+
   it('records an aborted invocation event when dispatching a dynamic role without an executable profile', () => {
     const emitSpy = vi.spyOn(socket, 'emit');
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
@@ -275,6 +305,27 @@ describe('team role card compatibility', () => {
         message: '请先为该角色绑定可用账号或执行引擎',
       },
     }));
+  });
+
+  it('does not register an A2A executing chain when user mention dispatch is rejected', () => {
+    const emitSpy = vi.spyOn(socket, 'emit');
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    useTaskHubStore.getState().addChatMessage({
+      agentId: 'human',
+      content: '@planner Draft a plan',
+      conversationId: 'conv-team',
+    });
+
+    expect(emitSpy).toHaveBeenCalledWith('a2a:user-turn-created', expect.objectContaining({
+      conversationId: 'conv-team',
+      targetAgentIds: [],
+      prompt: '@planner Draft a plan',
+    }));
+    expect(emitSpy).not.toHaveBeenCalledWith('a2a:user-turn-created', expect.objectContaining({
+      targetAgentIds: ['planner'],
+    }));
+    expect(useTaskHubStore.getState().agentStatus.planner).not.toBe('busy');
   });
 
   it('records an aborted invocation event when simulating a task for a dynamic role without an executable profile', () => {

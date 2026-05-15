@@ -159,6 +159,108 @@ describe('A2A v2 integration', () => {
     expect(luigiDispatch![1].prompt).toContain('请实现前端登录组件');
   });
 
+  it('does not dispatch non-actionable mentions from the current holder', async () => {
+    messenger.onUserMessage('conv-1', 'msg-1', 'mario', '开始设计');
+
+    await messenger.onAgentResponse('mario', '方案上下文记录：这和 @luigi 上次说的一样，但现在还不需要转交。', {
+      conversationId: 'conv-1',
+      chainDepth: 0,
+    });
+
+    const luigiDispatches = io.emitted().filter(([e, p]) => e === 'a2a:dispatch' && p.agentId === 'luigi');
+    expect(luigiDispatches).toHaveLength(0);
+
+    const passes = db.prepare(`
+      SELECT * FROM a2a_pass WHERE to_agent_id = 'luigi'
+    `).all() as any[];
+    expect(passes).toHaveLength(0);
+  });
+
+  it('records possession and handoff packet for an explicit pass', async () => {
+    messenger.onUserMessage('conv-1', 'msg-1', 'mario', '开始设计');
+
+    await messenger.onAgentResponse('mario', '设计已完成。\n@luigi 请实现前端登录组件，包含表单验证和错误处理', {
+      conversationId: 'conv-1',
+      chainDepth: 0,
+    });
+
+    const pass = db.prepare(`
+      SELECT * FROM a2a_pass WHERE from_holder_id = 'mario' AND to_agent_id = 'luigi'
+    `).get() as any;
+    expect(pass).toBeDefined();
+    expect(pass.status).toBe('offered');
+    expect(pass.intent).toBe('implement');
+
+    const packet = db.prepare(`
+      SELECT * FROM a2a_handoff_packet WHERE pass_id = ?
+    `).get(pass.id) as any;
+    expect(packet.requested_action).toContain('请实现前端登录组件');
+    expect(packet.forbidden_behaviors).toContain('不要只回复确认收到');
+  });
+
+  it('routes dispatch summary table mentions as handoffs', async () => {
+    messenger.onUserMessage('conv-1', 'msg-1', 'mario', '请派发任务');
+
+    await messenger.onAgentResponse('mario', [
+      '两个 agent 重新派发完毕：',
+      '任务 Agent Task ID 状态',
+      'TASK-001+002 @luigi bg_59d463d0 运行中',
+      'TASK-004+005 @toad bg_b806e569 运行中',
+    ].join('\n'), {
+      conversationId: 'conv-1',
+      chainDepth: 0,
+    });
+
+    const luigiDispatches = io.emitted().filter(([e, p]) => e === 'a2a:dispatch' && p.agentId === 'luigi');
+    const toadDispatches = io.emitted().filter(([e, p]) => e === 'a2a:dispatch' && p.agentId === 'toad');
+
+    expect(luigiDispatches).toHaveLength(1);
+    expect(toadDispatches).toHaveLength(1);
+    expect(luigiDispatches[0][1].prompt).toContain('重新派发完毕');
+    expect(toadDispatches[0][1].prompt).toContain('重新派发完毕');
+  });
+
+  it('routes agent @mention after client-driven direct dispatch is registered as executing', async () => {
+    messenger.registerExternalUserDispatch('conv-1', 'msg-1', ['mario'], '@mario 开始设计');
+
+    const initialDispatches = io.emitted().filter(([e]) => e === 'a2a:dispatch');
+    expect(initialDispatches).toHaveLength(0);
+
+    await messenger.onAgentResponse('mario', '编码实现已经完成，下一步需要审查。\n@luigi 请审查这次改动的边界条件和测试覆盖', {
+      conversationId: 'conv-1',
+      chainDepth: 0,
+    });
+
+    const luigiDispatches = io.emitted().filter(([e, p]) => e === 'a2a:dispatch' && p.agentId === 'luigi');
+    expect(luigiDispatches).toHaveLength(1);
+    expect(luigiDispatches[0][1].fromAgentId).toBe('mario');
+    expect(luigiDispatches[0][1].prompt).toContain('请审查这次改动');
+
+    const marioEntry = db.prepare(`
+      SELECT status, outcome FROM chain_worklist WHERE agent_id = 'mario'
+    `).get() as any;
+    expect(marioEntry.status).toBe('done');
+    expect(marioEntry.outcome).toBe('success');
+  });
+
+  it('can abort an active user chain when a new non-mention user message arrives', () => {
+    messenger.beginUserChain('conv-1', 'msg-1');
+
+    const active = messenger.orchestrator.getActiveChain('conv-1');
+    expect(active).not.toBeNull();
+
+    const aborted = messenger.abortConversationChains('conv-1', 'new_user_message_without_a2a_target');
+
+    expect(aborted).toBe(1);
+    const row = db.prepare('SELECT status FROM invocation_chain WHERE id = ?').get(active!.id) as any;
+    expect(row.status).toBe('aborted');
+    const logs = db.prepare(`
+      SELECT * FROM a2a_audit_log
+      WHERE event_type = 'chain_aborted' AND reason = 'new_user_message_without_a2a_target'
+    `).all() as any[];
+    expect(logs).toHaveLength(1);
+  });
+
   it('allows agent-originated A2A dispatch when CommunicationPolicy permits the target', async () => {
     messenger = createMessengerWithPolicy(communicationPolicyFromTeamPack(teamPackWithPlannerReviewer(true)));
 
@@ -245,6 +347,33 @@ describe('A2A v2 integration', () => {
     const qaDispatches = io.emitted().filter(([e, p]) => e === 'a2a:dispatch' && p.agentId === 'qa-lead');
     expect(qaDispatches).toHaveLength(1);
     expect(qaDispatches[0][1].fromAgentId).toBe('planner');
+  });
+
+  it('surfaces unresolved mentions that are outside the current runtime roster', async () => {
+    const pack = createPersistedTeamPack(true);
+    db.prepare('UPDATE conversation SET team_pack_id = ? WHERE id = ?').run(pack.id, 'conv-1');
+    messenger = new AgentMessenger(db, io as any, AGENTS, createRuntimeSnapshotProvider());
+    messenger.orchestrator.reset();
+
+    messenger.onUserMessage('conv-1', 'msg-1', 'planner', '请规划功能');
+
+    await messenger.onAgentResponse('planner', '方案已经确认，需要默认团队里的架构角色协助。\n@dk 请审查计划中的架构边界和风险项', {
+      conversationId: 'conv-1',
+      chainDepth: 0,
+    });
+
+    const dkDispatches = io.emitted().filter(([e, p]) => e === 'a2a:dispatch' && p.agentId === 'dk');
+    expect(dkDispatches).toHaveLength(0);
+
+    const systemEvents = io.emitted().filter(([e, p]) => e === 'agent:event' && p.type === 'system');
+    expect(systemEvents.some(([, p]) => p.content.includes('当前团队没有可接收 @dk 的角色'))).toBe(true);
+
+    const blockedLogs = db.prepare(`
+      SELECT * FROM a2a_audit_log
+      WHERE event_type = 'dispatch_blocked' AND json_extract(metadata, '$.blockedBy') = 'unknown_mention_target'
+    `).all() as any[];
+    expect(blockedLogs).toHaveLength(1);
+    expect(blockedLogs[0].reason).toBe('当前团队没有可接收 @dk 的角色');
   });
 
   it('does not apply CommunicationPolicy to direct user-to-agent dispatch', () => {

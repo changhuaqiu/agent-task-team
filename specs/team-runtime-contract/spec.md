@@ -165,6 +165,7 @@ Rules:
 - This spec does not require full automatic workflow execution in the first implementation step; it requires the policy to be wired into at least one real dispatch or A2A decision path.
 - Project startup analysis must use the selected project runtime. TeamPack projects dispatch the initial proposal to the TeamPack workflow's first available role, while non-TeamPack projects keep the preset planner behavior.
 - User-entered `@agent` mentions must resolve against the current runtime roster, not only preset `AGENT_ROSTER`. TeamPack role IDs and user-facing display names are valid mention targets.
+- User-entered mentions must also open the server-side A2A chain boundary through daemon notification after the direct client dispatch is accepted. Only accepted initial agents may be registered as `executing`; failed or not-yet-dequeued targets must not be registered, so agent-originated mentions in the response can route to the next runtime agent without duplicate initial execution or false timeout chains.
 
 ## Architecture
 
@@ -267,6 +268,7 @@ TeamLayer and TeamPackLayer describe the same active team
 - Remove direct dependency on static `AGENT_ROSTER` for team roster generation.
 - Accept runtime roster through compose options.
 - Keep RoleLayer, ProjectLayer, SkillLayer, ToolLayer, TeamLayer, TeamPackLayer, ProtocolLayer, HistoryLayer, TaskContextLayer, A2ALayer, UserMessageLayer and BehaviorLayer responsibilities unchanged.
+- For A2A dispatches, A2ALayer owns the cross-agent envelope and anti-echo rules; UserMessageLayer must not duplicate the same dispatch prompt as a generic user message.
 
 ### API State
 
@@ -281,6 +283,7 @@ TeamLayer and TeamPackLayer describe the same active team
 - Production daemon must inject a server-side runtime provider into `AgentMessenger`; the provider resolves `conversation.team_pack_id` with `teamPackRepo.getById()` and `resolveTeamRuntime()` instead of importing UI stores.
 - A2A only requires roster ids/display names and policy, so the server provider may resolve runtime with empty RoleCard, Skill and override maps. TeamPack conversations use TeamPack role ids as active agents; preset conversations use DB agent ids.
 - Runtime mention patterns include `@${agent.id}` and `@${agent.displayName}` when the display name is non-empty and differs from the id.
+- Agent-originated `@mention` tokens that do not resolve to the current runtime roster must be surfaced as an A2A block event, not ignored silently. The user-facing explanation should say “当前团队没有可接收 @agent 的角色” so users can distinguish roster mismatch from delivery timeout.
 - Policy checks must run before breadth and dedup checks for agent-originated dispatches so TeamPack rule blocks are not masked by chain limits.
 - Blocked communication must be auditable.
 
@@ -308,6 +311,7 @@ TeamLayer and TeamPackLayer describe the same active team
 
 - UI labels should use user-facing terms: `团队`, `角色`, `账号`, `技能`, `协作规则`.
 - Primary UX must not expose implementation terms such as `runtime`, `channel`, `routing`, `bridge`, `providerHints`, `session`.
+- A narrowly scoped diagnostics field may expose the current CLI session id inside the member binding panel, with copy affordance, for debugging resume behavior only.
 - For account/configuration flows, do not duplicate choices in both page body and modal.
 - TeamPack roles should behave like normal roles in the binding panel.
 - If a collaboration is blocked by communication policy, explain it as a team rule outcome.

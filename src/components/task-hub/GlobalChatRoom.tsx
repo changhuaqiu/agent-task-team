@@ -9,9 +9,11 @@ import { ChatMessageItem } from './ChatMessageItem';
 import { MessageGroup } from './MessageGroup';
 import { ChatFilterBar, type ChatFilter } from './ChatFilterBar';
 import { AgentMentionPopup } from './AgentMentionPopup';
-import { Send, Hash, Clock, Zap } from 'lucide-react';
+import { A2APossessionStrip } from './A2APossessionStrip';
+import { Send, Hash, Clock, Zap, Shield } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAutoScroll } from '@/hooks/useAutoScroll';
+import { EmptyState } from '@/components/ui/EmptyState';
 
 function formatDateSeparator(dateStr: string): string {
   const date = new Date(dateStr);
@@ -141,7 +143,7 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
   return (
     <div
       className={cn(
-        'flex flex-col h-full bg-[hsl(var(--bg-app))] w-full',
+        'flex flex-col h-full min-h-0 bg-[hsl(var(--bg-app))] w-full',
         variant === 'standalone'
           ? 'border-l-[2px] border-[hsl(var(--border))] shadow-[-4px_0_12px_rgba(0,0,0,0.05)]'
           : ''
@@ -163,62 +165,36 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
       {/* Message List */}
       <div
         ref={scrollRef}
-        className="flex-1 overflow-y-auto p-5 flex flex-col gap-6 scrollbar-thin scroll-smooth"
+        className="flex-1 min-h-0 overflow-y-auto p-5 flex flex-col gap-6 scrollbar-thin scroll-smooth"
         style={{ backgroundImage: 'radial-gradient(hsl(var(--border)) 1px, transparent 0)', backgroundSize: '16px 16px' }}
       >
         <ChatFilterBar
           onFilterChange={setFilter}
           messageCount={chatMessages.length}
         />
+        <A2APossessionStrip />
         {!selectedConversationId && chatMessages.length === 0 && (
-          <div className="flex flex-col items-center justify-center flex-1 gap-4 py-12 px-4">
-            <div className="text-3xl">⚔️</div>
-            <div className="text-center">
-              <h3 className="text-[14px] font-bold text-[hsl(var(--text-primary))]">
-                作战指挥室
-              </h3>
-              <p className="text-[11px] text-[hsl(var(--text-tertiary))] mt-1 max-w-[280px] leading-relaxed">
-                描述你想构建的东西，或 @Agent 下达具体指令。
-                <br />首次发送将自动创建项目。
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2 justify-center mt-2">
-              {[
-                '@Mario 帮我规划一下…',
-                '@Luigi 写一个…',
-                '@Peach 审查…',
-              ].map((hint) => (
-                <button
-                  key={hint}
-                  type="button"
-                  onClick={() => setInputValue(hint)}
-                  className="text-[10px] px-3 py-1 rounded-full border border-[hsl(var(--border))] bg-[hsl(var(--bg-muted))] text-[hsl(var(--text-tertiary))] hover:border-[hsl(var(--text-primary))] hover:text-[hsl(var(--text-primary))] transition-colors"
-                >
-                  {hint}
-                </button>
-              ))}
-            </div>
-          </div>
+          <EmptyState
+            icon={Shield}
+            title="作战指挥室"
+            description="描述你想构建的东西，或 @Agent 下达具体指令。首次发送将自动创建项目。"
+            actions={[
+              { label: '@Mario 帮我规划一下…', value: '@Mario 帮我规划一下…' },
+              { label: '@Luigi 写一个…', value: '@Luigi 写一个…' },
+              { label: '@Peach 审查…', value: '@Peach 审查…' },
+            ]}
+          />
         )}
         {selectedConversationId && chatMessages.length === 0 && (
-          <div className="flex flex-col items-center justify-center flex-1 gap-3 py-8 px-4">
-            <div className="text-2xl">🔑</div>
-            <p className="text-[11px] text-[hsl(var(--text-tertiary))] text-center max-w-[260px]">
-              @jean 可以帮你分析项目、出技术方案，或直接 @Agent 下达指令
-            </p>
-            <div className="flex flex-wrap gap-2 justify-center mt-1">
-              {['@Mario 帮我规划一下…', '@Luigi 直接开始…'].map((hint) => (
-                <button
-                  key={hint}
-                  type="button"
-                  onClick={() => setInputValue(hint)}
-                  className="text-[10px] px-3 py-1 rounded-full border border-[hsl(var(--border))] bg-[hsl(var(--bg-muted))] text-[hsl(var(--text-tertiary))] hover:border-[hsl(var(--text-primary))] hover:text-[hsl(var(--text-primary))] transition-colors"
-                >
-                  {hint}
-                </button>
-              ))}
-            </div>
-          </div>
+          <EmptyState
+            icon={Hash}
+            title="准备好开始"
+            description={`@jean 可以帮你分析项目、出技术方案，或直接 @Agent 下达指令`}
+            actions={[
+              { label: '@Mario 帮我规划一下…', value: '@Mario 帮我规划一下…' },
+              { label: '@Luigi 直接开始…', value: '@Luigi 直接开始…' },
+            ]}
+          />
         )}
         {(() => {
           const groups: { agentId: string; messages: ChatMessage[] }[] = [];
@@ -356,7 +332,9 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
               onClose={() => setMentionOpen(false)}
             />
           )}
+          <label htmlFor="chat-input" className="sr-only">消息输入</label>
           <textarea
+            id="chat-input"
             ref={textareaRef}
             value={inputValue}
             onChange={(e) => {

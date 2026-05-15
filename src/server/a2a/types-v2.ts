@@ -83,6 +83,7 @@ export interface DispatchRequest {
   toAgentId: string;
   content: string;
   depth: number;
+  intent?: 'delegate' | 'review' | 'answer' | 'verify' | 'implement' | 'plan';
 }
 
 export type DispatchDecision =

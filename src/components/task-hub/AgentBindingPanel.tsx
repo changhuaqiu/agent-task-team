@@ -6,8 +6,9 @@ import {
   PROVIDER_LABELS,
   type Account,
 } from '@/store/taskHubStore';
+import { useShallow } from 'zustand/react/shallow';
 import { RoleCardBadge, getCategoryConfig } from '@/components/role-card/RoleCardBadge';
-import { X, Plus, Link2, Copy, Zap } from 'lucide-react';
+import { X, Plus, Link2, Copy, Zap, Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { RoleCard } from '@/types/roleCard';
 
@@ -31,22 +32,45 @@ interface AgentBindingPanelProps {
 }
 
 export function AgentBindingPanel({ agentId, agentName }: AgentBindingPanelProps) {
-  const accounts = useTaskHubStore((s) => s.accounts);
-  const roleCards = useTaskHubStore((s) => s.roleCards);
-  const upsertRoleCard = useTaskHubStore((s) => s.upsertRoleCard);
-  const setRoleCardEditorOpen = useTaskHubStore((s) => s.setRoleCardEditorOpen);
-  const setTeamRoleAccountIds = useTaskHubStore((s) => s.setTeamRoleAccountIds);
-  const setTeamRoleSkillIds = useTaskHubStore((s) => s.setTeamRoleSkillIds);
-  const setTeamRoleCardSnapshot = useTaskHubStore((s) => s.setTeamRoleCardSnapshot);
-  const setRoleCardAccountIds = useTaskHubStore((s) => s.setRoleCardAccountIds);
-  const conversations = useTaskHubStore((s) => s.conversations);
-  const selectedConversationId = useTaskHubStore((s) => s.selectedConversationId);
-  const skillsMap = useTaskHubStore((s) => s.skillsMap);
-  const agentSkillIds = useTaskHubStore((s) => s.agentSkillIds);
-  const agentAccountOverrides = useTaskHubStore((s) => s.agentAccountOverrides);
-  const currentTeamPack = useTaskHubStore((s) => s.currentTeamPack);
-  const getEffectiveRoster = useTaskHubStore((s) => s.getEffectiveRoster);
-  const getAgentRuntimeProfile = useTaskHubStore((s) => s.getAgentRuntimeProfile);
+  const {
+    accounts,
+    roleCards,
+    upsertRoleCard,
+    setRoleCardEditorOpen,
+    setTeamRoleAccountIds,
+    setTeamRoleSkillIds,
+    setTeamRoleCardSnapshot,
+    setRoleCardAccountIds,
+    conversations,
+    selectedConversationId,
+    selectedProjectId,
+    agentSessions,
+    skillsMap,
+    agentSkillIds,
+    agentAccountOverrides,
+    currentTeamPack,
+    getEffectiveRoster,
+    getAgentRuntimeProfile,
+  } = useTaskHubStore(useShallow((s) => ({
+    accounts: s.accounts,
+    roleCards: s.roleCards,
+    upsertRoleCard: s.upsertRoleCard,
+    setRoleCardEditorOpen: s.setRoleCardEditorOpen,
+    setTeamRoleAccountIds: s.setTeamRoleAccountIds,
+    setTeamRoleSkillIds: s.setTeamRoleSkillIds,
+    setTeamRoleCardSnapshot: s.setTeamRoleCardSnapshot,
+    setRoleCardAccountIds: s.setRoleCardAccountIds,
+    conversations: s.conversations,
+    selectedConversationId: s.selectedConversationId,
+    selectedProjectId: s.selectedProjectId,
+    agentSessions: s.agentSessions,
+    skillsMap: s.skillsMap,
+    agentSkillIds: s.agentSkillIds,
+    agentAccountOverrides: s.agentAccountOverrides,
+    currentTeamPack: s.currentTeamPack,
+    getEffectiveRoster: s.getEffectiveRoster,
+    getAgentRuntimeProfile: s.getAgentRuntimeProfile,
+  })));
   const profile = getAgentRuntimeProfile(agentId);
 
   const rosterAgent = getEffectiveRoster().find((agent) => agent.id === agentId);
@@ -89,8 +113,11 @@ export function AgentBindingPanel({ agentId, agentName }: AgentBindingPanelProps
   const [showAdd, setShowAdd] = useState(false);
   const [showRolePicker, setShowRolePicker] = useState(false);
   const [showSkillPicker, setShowSkillPicker] = useState(false);
+  const [copiedSession, setCopiedSession] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const skillDropdownRef = useRef<HTMLDivElement>(null);
+  const sessionProjectId = selectedConversationId ?? selectedProjectId;
+  const sessionId = agentSessions[sessionProjectId]?.[agentId];
 
   useEffect(() => {
     if (!showAdd) return;
@@ -113,6 +140,18 @@ export function AgentBindingPanel({ agentId, agentName }: AgentBindingPanelProps
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [showSkillPicker]);
+
+  useEffect(() => {
+    if (!copiedSession) return;
+    const timer = window.setTimeout(() => setCopiedSession(false), 1200);
+    return () => window.clearTimeout(timer);
+  }, [copiedSession]);
+
+  const handleCopySessionId = () => {
+    if (!sessionId) return;
+    void navigator.clipboard?.writeText(sessionId);
+    setCopiedSession(true);
+  };
 
   const writeAccountBinding = (nextIds: string[]) => {
     if (isCurrentTeamRole) {
@@ -411,6 +450,31 @@ export function AgentBindingPanel({ agentId, agentName }: AgentBindingPanelProps
             执行任务时按顺序尝试以上账号。
           </div>
         )}
+
+        {/* Divider */}
+        <div className="border-t-2 border-[hsl(var(--text-primary)/0.1)] my-3" />
+
+        {/* Debug Session Section */}
+        <div>
+          <div className="text-[10px] font-bold tracking-wider uppercase text-[hsl(var(--text-tertiary))] mb-1.5 flex items-center gap-1.5">
+            调试 Session
+          </div>
+          <div className="flex items-center gap-1.5 rounded-[4px] border border-[hsl(var(--border))] bg-[hsl(var(--bg-app))] px-2 py-1.5">
+            <code className="min-w-0 flex-1 truncate text-[10px] text-[hsl(var(--text-secondary))]" title={sessionId ?? undefined}>
+              {sessionId ?? '尚未创建 CLI session'}
+            </code>
+            <button
+              type="button"
+              onClick={handleCopySessionId}
+              disabled={!sessionId}
+              className="shrink-0 rounded-[2px] p-1 text-[hsl(var(--text-tertiary))] transition-colors hover:bg-[hsl(var(--bg-muted))] hover:text-[hsl(var(--text-primary))] disabled:cursor-not-allowed disabled:opacity-40"
+              title={sessionId ? '复制 session id' : '暂无 session id'}
+              aria-label="复制 session id"
+            >
+              {copiedSession ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+            </button>
+          </div>
+        </div>
 
       </div>
     </div>

@@ -1,0 +1,81 @@
+import { getDb } from '../db/index';
+import { generateSortableId } from './sortable-id';
+
+export interface ProofEventRow {
+  id: string;
+  event_type: string;
+  conversation_id: string | null;
+  task_id: string | null;
+  chain_id: string | null;
+  pass_id: string | null;
+  envelope_id: string | null;
+  node_id: string | null;
+  agent_id: string | null;
+  actor_id: string | null;
+  reason_code: string | null;
+  metadata: string | null;
+  created_at: string;
+}
+
+export interface AppendProofEventInput {
+  eventType: string;
+  conversationId?: string;
+  taskId?: string;
+  chainId?: string;
+  passId?: string;
+  envelopeId?: string;
+  nodeId?: string;
+  agentId?: string;
+  actorId?: string;
+  reasonCode?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export const proofLogRepo = {
+  append(input: AppendProofEventInput): ProofEventRow {
+    const id = generateSortableId('proof');
+    const now = new Date().toISOString();
+    getDb()
+      .prepare(
+        `INSERT INTO control_proof_event (
+          id, event_type, conversation_id, task_id, chain_id, pass_id,
+          envelope_id, node_id, agent_id, actor_id, reason_code, metadata, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        id,
+        input.eventType,
+        input.conversationId ?? null,
+        input.taskId ?? null,
+        input.chainId ?? null,
+        input.passId ?? null,
+        input.envelopeId ?? null,
+        input.nodeId ?? null,
+        input.agentId ?? null,
+        input.actorId ?? null,
+        input.reasonCode ?? null,
+        input.metadata ? JSON.stringify(input.metadata) : null,
+        now,
+      );
+    return proofLogRepo.getById(id)!;
+  },
+
+  getById(id: string): ProofEventRow | undefined {
+    return getDb()
+      .prepare('SELECT * FROM control_proof_event WHERE id = ?')
+      .get(id) as ProofEventRow | undefined;
+  },
+
+  getByEnvelope(envelopeId: string): ProofEventRow[] {
+    return getDb()
+      .prepare('SELECT * FROM control_proof_event WHERE envelope_id = ? ORDER BY created_at ASC, id ASC')
+      .all(envelopeId) as ProofEventRow[];
+  },
+
+  getByConversation(conversationId: string, options?: { limit?: number }): ProofEventRow[] {
+    const limit = options?.limit ?? 200;
+    return getDb()
+      .prepare('SELECT * FROM control_proof_event WHERE conversation_id = ? ORDER BY created_at ASC, id ASC LIMIT ?')
+      .all(conversationId, limit) as ProofEventRow[];
+  },
+};

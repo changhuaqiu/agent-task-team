@@ -17,6 +17,8 @@ export const conversation = sqliteTable('conversation', {
   status: text('status'),
   priority: text('priority'),
   projectPath: text('project_path'),
+  useWorktree: integer('use_worktree', { mode: 'boolean' }),
+  gitRepoRoot: text('git_repo_root'),
   teamPackId: text('team_pack_id').references(() => teamPack.id),
   participants: text('participants'), // JSON text
   createdAt: text('created_at').notNull(),
@@ -322,6 +324,209 @@ export const a2aAuditLog = sqliteTable('a2a_audit_log', {
 
 export type A2aAuditLogRow = InferSelectModel<typeof a2aAuditLog>;
 export type NewA2aAuditLogRow = InferInsertModel<typeof a2aAuditLog>;
+
+// ──────────────────────────────────────────────
+// A2A possession contract
+// ──────────────────────────────────────────────
+export const a2aPossessionChain = sqliteTable('a2a_possession_chain', {
+  id: text('id').primaryKey(),
+  conversationId: text('conversation_id').notNull()
+    .references(() => conversation.id),
+  rootTriggerType: text('root_trigger_type').notNull(),
+  rootTriggerId: text('root_trigger_id').notNull(),
+  status: text('status').notNull().default('active'),
+  currentHolderId: text('current_holder_id').notNull(),
+  config: text('config').notNull().default('{}'),
+  createdAt: text('created_at').notNull(),
+  completedAt: text('completed_at'),
+}, (table) => [
+  index('idx_possession_chain_conv').on(table.conversationId),
+  index('idx_possession_chain_status').on(table.status),
+  index('idx_possession_chain_holder').on(table.currentHolderId),
+]);
+
+export type A2aPossessionChainRow = InferSelectModel<typeof a2aPossessionChain>;
+export type NewA2aPossessionChainRow = InferInsertModel<typeof a2aPossessionChain>;
+
+export const a2aPossession = sqliteTable('a2a_possession', {
+  id: text('id').primaryKey(),
+  chainId: text('chain_id').notNull()
+    .references(() => a2aPossessionChain.id),
+  holderId: text('holder_id').notNull(),
+  holderType: text('holder_type').notNull(),
+  status: text('status').notNull().default('open'),
+  startedAt: text('started_at').notNull(),
+  completedAt: text('completed_at'),
+  summary: text('summary'),
+}, (table) => [
+  index('idx_possession_chain').on(table.chainId),
+  index('idx_possession_holder').on(table.holderId, table.status),
+]);
+
+export type A2aPossessionRow = InferSelectModel<typeof a2aPossession>;
+export type NewA2aPossessionRow = InferInsertModel<typeof a2aPossession>;
+
+export const a2aPass = sqliteTable('a2a_pass', {
+  id: text('id').primaryKey(),
+  chainId: text('chain_id').notNull()
+    .references(() => a2aPossessionChain.id),
+  fromPossessionId: text('from_possession_id').notNull()
+    .references(() => a2aPossession.id),
+  fromHolderId: text('from_holder_id').notNull(),
+  toAgentId: text('to_agent_id').notNull(),
+  status: text('status').notNull().default('drafted'),
+  intent: text('intent').notNull(),
+  phase: text('phase'),
+  reason: text('reason'),
+  handoffPacketId: text('handoff_packet_id'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  index('idx_pass_chain').on(table.chainId),
+  index('idx_pass_target_status').on(table.toAgentId, table.status),
+  index('idx_pass_status').on(table.status),
+]);
+
+export type A2aPassRow = InferSelectModel<typeof a2aPass>;
+export type NewA2aPassRow = InferInsertModel<typeof a2aPass>;
+
+export const a2aHandoffPacket = sqliteTable('a2a_handoff_packet', {
+  id: text('id').primaryKey(),
+  chainId: text('chain_id').notNull()
+    .references(() => a2aPossessionChain.id),
+  passId: text('pass_id').notNull()
+    .references(() => a2aPass.id),
+  fromHolderId: text('from_holder_id').notNull(),
+  toAgentId: text('to_agent_id').notNull(),
+  title: text('title').notNull(),
+  requestedAction: text('requested_action').notNull(),
+  possessionSummary: text('possession_summary').notNull(),
+  relevantDecisions: text('relevant_decisions').notNull().default('[]'),
+  evidenceRefs: text('evidence_refs').notNull().default('[]'),
+  constraints: text('constraints').notNull().default('[]'),
+  openQuestions: text('open_questions').notNull().default('[]'),
+  forbiddenBehaviors: text('forbidden_behaviors').notNull().default('[]'),
+  sourceMessageIds: text('source_message_ids').notNull().default('[]'),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  index('idx_handoff_chain').on(table.chainId),
+  index('idx_handoff_pass').on(table.passId),
+]);
+
+export type A2aHandoffPacketRow = InferSelectModel<typeof a2aHandoffPacket>;
+export type NewA2aHandoffPacketRow = InferInsertModel<typeof a2aHandoffPacket>;
+
+// ──────────────────────────────────────────────
+// System Control Plane: proof events
+// ──────────────────────────────────────────────
+export const controlProofEvent = sqliteTable('control_proof_event', {
+  id: text('id').primaryKey(),
+  eventType: text('event_type').notNull(),
+  conversationId: text('conversation_id'),
+  taskId: text('task_id'),
+  chainId: text('chain_id'),
+  passId: text('pass_id'),
+  envelopeId: text('envelope_id'),
+  nodeId: text('node_id'),
+  agentId: text('agent_id'),
+  actorId: text('actor_id'),
+  reasonCode: text('reason_code'),
+  metadata: text('metadata'),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  index('idx_proof_event_type').on(table.eventType),
+  index('idx_proof_event_conv').on(table.conversationId),
+  index('idx_proof_event_envelope').on(table.envelopeId),
+  index('idx_proof_event_node').on(table.nodeId),
+  index('idx_proof_event_agent').on(table.agentId),
+]);
+
+export type ControlProofEventRow = InferSelectModel<typeof controlProofEvent>;
+export type NewControlProofEventRow = InferInsertModel<typeof controlProofEvent>;
+
+// ──────────────────────────────────────────────
+// System Control Plane: runtime nodes
+// ──────────────────────────────────────────────
+export const runtimeNode = sqliteTable('runtime_node', {
+  id: text('id').primaryKey(),
+  kind: text('kind').notNull(),
+  label: text('label').notNull(),
+  endpoint: text('endpoint'),
+  status: text('status').notNull().default('reachable'),
+  capabilities: text('capabilities').notNull().default('[]'),
+  trustLevel: text('trust_level').notNull().default('local'),
+  lastHeartbeatAt: text('last_heartbeat_at'),
+  missedHeartbeats: integer('missed_heartbeats').notNull().default(0),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  index('idx_runtime_node_kind').on(table.kind),
+  index('idx_runtime_node_status').on(table.status),
+  index('idx_runtime_node_heartbeat').on(table.lastHeartbeatAt),
+]);
+
+export type RuntimeNodeRow = InferSelectModel<typeof runtimeNode>;
+export type NewRuntimeNodeRow = InferInsertModel<typeof runtimeNode>;
+
+// ──────────────────────────────────────────────
+// System Control Plane: agent bindings
+// ──────────────────────────────────────────────
+export const agentBinding = sqliteTable('agent_binding', {
+  id: text('id').primaryKey(),
+  conversationId: text('conversation_id').notNull(),
+  agentId: text('agent_id').notNull(),
+  nodeId: text('node_id').notNull()
+    .references(() => runtimeNode.id),
+  runtimeId: text('runtime_id').notNull(),
+  status: text('status').notNull().default('idle'),
+  activeEnvelopeId: text('active_envelope_id'),
+  lastStartedAt: text('last_started_at'),
+  lastFinishedAt: text('last_finished_at'),
+  lastError: text('last_error'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  uniqueIndex('uq_agent_binding_conv_agent').on(table.conversationId, table.agentId),
+  index('idx_agent_binding_conv_agent').on(table.conversationId, table.agentId),
+  index('idx_agent_binding_node').on(table.nodeId),
+  index('idx_agent_binding_status').on(table.status),
+]);
+
+export type AgentBindingRow = InferSelectModel<typeof agentBinding>;
+export type NewAgentBindingRow = InferInsertModel<typeof agentBinding>;
+
+// ──────────────────────────────────────────────
+// System Control Plane: execution envelopes
+// ──────────────────────────────────────────────
+export const executionEnvelope = sqliteTable('execution_envelope', {
+  id: text('id').primaryKey(),
+  source: text('source').notNull(),
+  intent: text('intent').notNull(),
+  conversationId: text('conversation_id').notNull(),
+  taskId: text('task_id'),
+  chainId: text('chain_id'),
+  passId: text('pass_id'),
+  fromNodeId: text('from_node_id').notNull(),
+  fromAgentId: text('from_agent_id'),
+  toNodeId: text('to_node_id').notNull(),
+  toAgentId: text('to_agent_id').notNull(),
+  payload: text('payload').notNull().default('{}'),
+  ttlMs: integer('ttl_ms').notNull(),
+  nonce: text('nonce').notNull(),
+  status: text('status').notNull().default('drafted'),
+  reasonCode: text('reason_code'),
+  expiresAt: text('expires_at').notNull(),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  index('idx_execution_envelope_conv').on(table.conversationId),
+  index('idx_execution_envelope_target').on(table.toNodeId, table.toAgentId),
+  index('idx_execution_envelope_status').on(table.status),
+  index('idx_execution_envelope_expires').on(table.expiresAt),
+]);
+
+export type ExecutionEnvelopeRow = InferSelectModel<typeof executionEnvelope>;
+export type NewExecutionEnvelopeRow = InferInsertModel<typeof executionEnvelope>;
 
 // ──────────────────────────────────────────────
 // team_pack

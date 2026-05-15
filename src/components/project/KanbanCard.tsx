@@ -63,7 +63,7 @@ export function KanbanCard({ task, theme, onClick, onContextMenu }: KanbanCardPr
       style={style}
       className={cn(
         'relative flex flex-col gap-1 rounded-md border bg-[hsl(var(--bg-card))] p-2.5 transition-colors duration-150',
-        'cursor-grab select-none',
+        'cursor-grab active:cursor-grabbing select-none',
         !isUnassigned ? `border-l-3 ${themeBorder[resolvedTheme]}` : 'border-l-3 border-l-[hsl(var(--border-subtle))]',
         isMuted && 'bg-[hsl(var(--bg-muted))] opacity-80',
         isDragging && 'opacity-50',
@@ -76,14 +76,14 @@ export function KanbanCard({ task, theme, onClick, onContextMenu }: KanbanCardPr
     >
       {/* Phase tag — only show non-empty */}
       {task.phaseId && task.phaseId !== '-' && (
-        <span className="absolute top-1.5 right-1.5 inline-flex items-center rounded-sm bg-[hsl(var(--bg-muted))] px-1.5 py-0.5 text-[10px] font-medium text-[hsl(var(--text-tertiary))]">
+        <span className="absolute top-1.5 right-1.5 inline-flex items-center rounded-[var(--radius-sm)] bg-[hsl(var(--bg-muted))] px-1.5 py-0.5 text-[10px] font-medium text-[hsl(var(--text-tertiary))]">
           {task.phaseId}
         </span>
       )}
 
       {/* ID + Title */}
       <div className="flex items-baseline gap-1.5">
-        <span className="text-[10px] font-mono text-[hsl(var(--text-tertiary))] shrink-0">
+        <span className="text-[11px] font-mono text-[hsl(var(--text-tertiary))] shrink-0">
           {task.id}
         </span>
         <h4 className="line-clamp-2 text-xs font-medium leading-snug text-[hsl(var(--text-primary))]">
@@ -93,7 +93,7 @@ export function KanbanCard({ task, theme, onClick, onContextMenu }: KanbanCardPr
 
       {/* Bottom row — only render if there's content */}
       {hasBottomRow && (
-        <div className="mt-1 flex items-center gap-2 text-[10px] text-[hsl(var(--text-tertiary))]">
+        <div className="mt-1 flex items-center gap-2 text-[11px] text-[hsl(var(--text-tertiary))]">
           {isUnassigned ? (
             <span className="font-medium text-[hsl(var(--text-secondary))]">Unassigned</span>
           ) : (

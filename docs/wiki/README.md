@@ -21,7 +21,7 @@ pnpm dev
 
 | 文档 | 说明 |
 |------|------|
-| [01-整体架构](./01-architecture.md) | 四层架构、数据流、会话隔离、队列隔离 |
+| [01-整体架构](./01-architecture.md) | 控制平面目标架构、当前数据流、会话隔离、队列隔离 |
 | [02-前端工作台](./02-frontend.md) | 三栏布局、组件结构、状态管理 |
 | [03-领域模型](./03-store-model.md) | Zustand Store、数据模型、Rehydrate |
 | [04-后端 Daemon](./04-backend-daemon.md) | 执行链路、Session 管理、Agent Backend |

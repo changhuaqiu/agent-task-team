@@ -55,6 +55,23 @@ export class AgentMessenger {
     this.orchestrator.onUserMessage(conversationId, messageId, targetAgentId, prompt);
   }
 
+  beginUserChain(conversationId: string, messageId: string): void {
+    this.orchestrator.onUserMessage(conversationId, messageId);
+  }
+
+  registerExternalUserDispatch(
+    conversationId: string,
+    messageId: string,
+    targetAgentIds: string[],
+    prompt: string,
+  ): void {
+    this.orchestrator.registerExternalUserDispatch(conversationId, messageId, targetAgentIds, prompt);
+  }
+
+  abortConversationChains(conversationId: string, reason: string): number {
+    return this.orchestrator.abortActiveChains(conversationId, reason);
+  }
+
   expireStale(): number {
     return this.orchestrator.expireStaleChains();
   }

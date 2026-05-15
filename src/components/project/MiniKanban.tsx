@@ -4,8 +4,9 @@ import { useState, useMemo, useCallback, useSyncExternalStore } from 'react';
 import {
   DndContext,
   DragOverlay,
-  closestCorners,
+  pointerWithin,
   PointerSensor,
+  TouchSensor,
   useSensor,
   useSensors,
   type DragStartEvent,
@@ -143,7 +144,10 @@ export function MiniKanban(_props: MiniKanbanProps) {
   // Sensors
   const sensors = useSensors(
     useSensor(PointerSensor, {
-      activationConstraint: { distance: 5 },
+      activationConstraint: { distance: 8 },
+    }),
+    useSensor(TouchSensor, {
+      activationConstraint: { delay: 150, tolerance: 5 },
     }),
   );
 
@@ -278,45 +282,48 @@ export function MiniKanban(_props: MiniKanbanProps) {
             )}
 
             {/* View mode toggle */}
-            <div className="flex items-center border border-[hsl(var(--border-subtle))] rounded-sm overflow-hidden">
+            <div className="flex items-center border border-[hsl(var(--border-subtle))] rounded-[var(--radius-sm)] overflow-hidden">
               <button
                 type="button"
                 onClick={() => setViewMode('status')}
                 className={cn(
-                  'p-1 transition-colors',
+                  'min-h-[32px] min-w-[32px] p-1.5 flex items-center justify-center transition-colors',
                   viewMode === 'status'
                     ? 'bg-[hsl(var(--accent))] text-white'
                     : 'text-[hsl(var(--text-tertiary))] hover:bg-[hsl(var(--bg-muted))]',
                 )}
                 title="按状态"
+                aria-label="按状态视图"
               >
-                <Columns3 size={12} />
+                <Columns3 size={14} />
               </button>
               <button
                 type="button"
                 onClick={() => setViewMode('agent')}
                 className={cn(
-                  'p-1 transition-colors',
+                  'min-h-[32px] min-w-[32px] p-1.5 flex items-center justify-center transition-colors',
                   viewMode === 'agent'
                     ? 'bg-[hsl(var(--accent))] text-white'
                     : 'text-[hsl(var(--text-tertiary))] hover:bg-[hsl(var(--bg-muted))]',
                 )}
                 title="按执行者"
+                aria-label="按执行者视图"
               >
-                <Users size={12} />
+                <Users size={14} />
               </button>
               <button
                 type="button"
                 onClick={() => setViewMode('list')}
                 className={cn(
-                  'p-1 transition-colors',
+                  'min-h-[32px] min-w-[32px] p-1.5 flex items-center justify-center transition-colors',
                   viewMode === 'list'
                     ? 'bg-[hsl(var(--accent))] text-white'
                     : 'text-[hsl(var(--text-tertiary))] hover:bg-[hsl(var(--bg-muted))]',
                 )}
                 title="列表视图"
+                aria-label="列表视图"
               >
-                <List size={12} />
+                <List size={14} />
               </button>
             </div>
           </div>
@@ -363,7 +370,7 @@ export function MiniKanban(_props: MiniKanbanProps) {
           <div className="p-3 overflow-x-auto scrollbar-thin">
             <DndContext
               sensors={sensors}
-              collisionDetection={closestCorners}
+              collisionDetection={pointerWithin}
               onDragStart={handleDragStart}
               onDragOver={handleDragOver}
               onDragEnd={handleDragEnd}
@@ -390,9 +397,9 @@ export function MiniKanban(_props: MiniKanbanProps) {
                 })}
               </div>
 
-              <DragOverlay>
+              <DragOverlay dropAnimation={{ duration: 200, easing: 'ease' }}>
                 {activeTask ? (
-                  <div className="w-[200px]">
+                  <div className="w-[210px] scale-105 shadow-[var(--shadow-lg)] rounded-[var(--radius-md)] ring-2 ring-[hsl(var(--accent)/0.3)]">
                     <KanbanCard task={activeTask} />
                   </div>
                 ) : null}
@@ -500,12 +507,12 @@ export function MiniKanban(_props: MiniKanbanProps) {
 
 function StatusDot({ status }: { status: TaskStatus }) {
   const colors: Record<TaskStatus, string> = {
-    pending: 'bg-gray-400',
-    in_progress: 'bg-blue-400',
-    in_review: 'bg-amber-400',
-    done: 'bg-green-400',
-    rejected: 'bg-red-400',
-    blocked: 'bg-red-600',
+    pending: 'bg-[hsl(var(--status-pending))]',
+    in_progress: 'bg-[hsl(var(--status-progress))]',
+    in_review: 'bg-[hsl(var(--status-review))]',
+    done: 'bg-[hsl(var(--status-done))]',
+    rejected: 'bg-[hsl(var(--status-rejected))]',
+    blocked: 'bg-[hsl(var(--status-blocked))]',
   };
   return <span className={cn('inline-block w-2 h-2 rounded-full shrink-0', colors[status])} />;
 }

@@ -12,7 +12,9 @@ import {
   ShieldCheck,
   Sparkles,
   Users,
+  Home,
 } from 'lucide-react';
+import { Breadcrumb } from '@/components/ui/Breadcrumb';
 import { PROVIDER_LABELS, useTaskHubStore } from '@/store/taskHubStore';
 import { useTeamPackStore } from '@/store/teamPackStore';
 import { cn } from '@/lib/utils';
@@ -135,6 +137,12 @@ export function IntegrationSettingsPage() {
 
   return (
     <main className="min-h-screen bg-[hsl(var(--bg-app))] px-4 py-6 sm:px-6 lg:px-10">
+      <Breadcrumb
+        items={[
+          { label: '主页', href: '/', icon: Home },
+          { label: '配置中心' },
+        ]}
+      />
       <div className="mx-auto flex max-w-[1180px] flex-col gap-6">
         <header className="relative overflow-hidden rounded-[var(--radius-xl)] border-2 border-[hsl(var(--text-primary))] bg-[hsl(var(--bg-elevated))] p-6 shadow-[6px_6px_0px_hsl(var(--text-primary))]">
           <div className="absolute right-[-80px] top-[-90px] h-[220px] w-[220px] rounded-full bg-[hsl(var(--status-pending-bg))]" />

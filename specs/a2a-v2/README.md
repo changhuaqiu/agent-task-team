@@ -117,6 +117,10 @@ interface ExecutedEntry {
 
 **Key invariant:** A chain CANNOT survive across user messages. New user message = new chain. Period.
 
+Production note: the current UI keeps direct user-to-agent dispatch in the client store. When a user message resolves to one or more runtime agents, the client must first attempt the direct dispatch and only then emit `a2a:user-message` for targets that were actually accepted by `dispatchToAgent()`. The daemon opens the chain boundary and records only those already-started direct dispatches as executing worklist entries without emitting duplicate initial work. Busy user-directed targets stay in the client pending queue and are registered with daemon only when they are later dequeued and accepted for execution. Agent-originated `@mention` handoff then continues through the orchestrator when the directly dispatched agent completes. Completion is normalized by the daemon across local backend `done` events and OpenCode bridge stream termination, so bridge-based agents still have their buffered text scanned before cleanup. The OpenCode bridge must pass `--format json` before the prompt, preserve the same system-prompt override envelope as the local backend, and daemon must use raw bridge output only as a fallback when no structured text event was parsed. A new user message without accepted agent targets aborts the previous active chain for that conversation. If the client cannot start an `a2a:dispatch`, it emits `a2a:dispatch-failed` so the server-side worklist does not hang.
+
+Roster mismatch is a block, not a timeout. If an agent output contains an `@mention` token that is not part of the current runtime roster, the orchestrator emits a system block message and writes an audit event with `blockedBy: "unknown_mention_target"` instead of silently completing the chain.
+
 ### 2. Orchestrator
 
 The single decision-making authority for all cross-agent dispatch.
@@ -250,6 +254,13 @@ interface AgentDispatchContext {
 - Full conversation history (use cursor)
 - Other agents' full responses (only relevant excerpts)
 - State that can be read from TASKS.md
+
+Client prompt composition preserves the same protocol boundary. The `a2a:dispatch`
+payload must be wrapped as a cross-agent collaboration message that names the
+source agent, carries the orchestrator-built chain context, and states the
+anti-echo rule: do not @ the source for acknowledgements, summaries, or courtesy
+replies. A2A dispatches must not also append the same content as a generic user
+message, because that weakens source awareness and can create duplicate context.
 
 ## Database Schema Changes
 

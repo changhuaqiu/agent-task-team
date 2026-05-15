@@ -28,6 +28,14 @@ This version has breaking changes — APIs, conventions, and file structure may 
 
 ## Multi-Agent Collaboration & Documentation Rules
 
+### 0. Project Standards Must Be Followed
+- **Standards Entry Point**: Before any development, business analysis, UX decision, architecture design, or review work, read `docs/standards/README.md` and the applicable standards document.
+- **Technical Standard**: Code, architecture, data model, interface, runtime, integration, testing, and technical review work MUST follow `docs/standards/technical.md`.
+- **Business Standard**: Requirement analysis, product modeling, UX decisions, role/collaboration mechanics, and business copy MUST follow `docs/standards/business.md`.
+- **Iteration Knowledge Capture**: Before concluding any iteration, follow `docs/standards/iteration-knowledge.md` to decide whether reusable knowledge must be captured in `docs/wiki/`, `docs/knowledge/`, `decisions/`, or active specs.
+- **Knowledge Governance**: Any reusable knowledge added to `docs/knowledge/` MUST follow `docs/standards/knowledge-governance.md` and be indexed in `docs/knowledge/catalog.md`.
+- **Mixed Work**: Tasks that include both implementation and product/business judgment MUST follow both the technical and business standards.
+
 ### 1. Documentation Management & Evolution Plan
 - **Implementation Must Update Design Docs First**: Every implementation change MUST be reflected in the relevant design or architecture document before the task is considered complete. Code and design documents are required to stay in sync; do not ship code changes without updating the corresponding docs in `docs/`, `design/`, `architecture/`, or `decisions/`.
 - **Single Source of Truth**: The `docs/` directory is the central hub for all project documentation. Always refer to `docs/README.md` for the directory structure and document evolution rules.

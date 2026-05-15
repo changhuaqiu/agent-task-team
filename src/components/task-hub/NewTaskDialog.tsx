@@ -86,7 +86,8 @@ export function NewTaskDialog() {
             <button
               type="button"
               onClick={() => setOpen(false)}
-              className="p-1.5 rounded-[var(--radius-sm)] text-[hsl(var(--text-tertiary))] hover:text-[hsl(var(--text-primary))] hover:bg-[hsl(var(--bg-muted))] transition-colors"
+              className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-[var(--radius-sm)] text-[hsl(var(--text-tertiary))] hover:text-[hsl(var(--text-primary))] hover:bg-[hsl(var(--bg-muted))] transition-colors"
+              aria-label="关闭"
             >
               <X className="w-4 h-4" />
             </button>

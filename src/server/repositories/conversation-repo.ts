@@ -7,6 +7,8 @@ export interface ConversationRow {
   status: string;
   priority: string;
   project_path: string | null;
+  use_worktree: number | null;
+  git_repo_root: string | null;
   team_pack_id: string | null;
   participants: string | null;
   created_at: string;
@@ -14,14 +16,14 @@ export interface ConversationRow {
 }
 
 export const conversationRepo = {
-  create(input: { id: string; title: string; goal?: string; priority?: string; project_path?: string; team_pack_id?: string }): ConversationRow {
+  create(input: { id: string; title: string; goal?: string; priority?: string; project_path?: string; team_pack_id?: string; use_worktree?: boolean; git_repo_root?: string }): ConversationRow {
     const now = new Date().toISOString();
     getDb()
       .prepare(
-        `INSERT INTO conversation (id, title, goal, status, priority, project_path, team_pack_id, created_at, updated_at)
-         VALUES (?, ?, ?, 'active', ?, ?, ?, ?, ?)`,
+        `INSERT INTO conversation (id, title, goal, status, priority, project_path, use_worktree, git_repo_root, team_pack_id, created_at, updated_at)
+         VALUES (?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(input.id, input.title, input.goal ?? null, input.priority ?? 'p2', input.project_path ?? null, input.team_pack_id ?? null, now, now);
+      .run(input.id, input.title, input.goal ?? null, input.priority ?? 'p2', input.project_path ?? null, input.use_worktree ? 1 : 0, input.git_repo_root ?? null, input.team_pack_id ?? null, now, now);
     return conversationRepo.getById(input.id)!;
   },
 
@@ -35,7 +37,7 @@ export const conversationRepo = {
 
   update(
     id: string,
-    updates: Partial<Pick<ConversationRow, 'title' | 'goal' | 'status' | 'priority' | 'participants' | 'project_path'>>,
+    updates: Partial<Pick<ConversationRow, 'title' | 'goal' | 'status' | 'priority' | 'participants' | 'project_path' | 'use_worktree' | 'git_repo_root'>>,
   ): void {
     const sets: string[] = [];
     const values: unknown[] = [];

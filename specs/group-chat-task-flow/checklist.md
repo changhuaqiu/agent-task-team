@@ -1,0 +1,20 @@
+# Group Chat Task Flow Checklist
+
+- [ ] Group chat remains the primary user-facing collaboration surface.
+- [ ] Task Graph is the source of truth for durable task state.
+- [ ] Casual chat text cannot mutate task state without a structured action.
+- [ ] A user request can split into multiple task nodes.
+- [ ] Parallel task ownership is visible and conflict-safe.
+- [ ] Dependency waiting is visible in both chat and task map.
+- [ ] Blocked tasks show user-actionable reasons.
+- [ ] A2A handoff packets reference task ids and artifacts.
+- [ ] Task ownership changes only after receiver start acknowledgement.
+- [ ] Failed handoffs preserve existing ownership.
+- [ ] Multiple task branches can merge without deleting source history.
+- [ ] Review failure creates a reopen or corrective task.
+- [ ] Task capsules link chat messages to graph facts.
+- [ ] Task map and task detail show the same state.
+- [ ] User can interrupt, reassign, pause, cancel, split, merge, and summarize tasks.
+- [ ] High-impact graph mutations are policy-gated.
+- [ ] Dependency cycles and handoff ping-pong are blocked.
+- [ ] Proof events explain task-affecting execution and policy decisions.

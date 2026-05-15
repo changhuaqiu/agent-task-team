@@ -16,6 +16,17 @@
 - `AGENTS.md`：Agent 在本项目中的工作约束
 - `CLAUDE.md` / `GEMINI.md` / `TIPS.md`：模型/协作辅助说明
 
+### 1.1. `docs/standards/`
+
+项目级规范入口，定义所有开发动作和业务分析动作必须遵守的双层规范：
+
+- `docs/standards/technical.md`：技术规范，覆盖代码、架构、数据模型、接口、测试、运行时与集成变更
+- `docs/standards/business.md`：业务规范，覆盖需求分析、产品抽象、UX、角色协作机制与业务文案
+- `docs/standards/iteration-knowledge.md`：迭代知识沉淀规范，定义每轮结束时如何识别并沉淀可复用知识
+- `docs/standards/knowledge-governance.md`：知识治理规范，定义知识分层、类型、成熟度、证据、索引、引用和淘汰规则
+
+任何技术或业务动作开始前，都必须先判断动作类型并读取对应规范；每轮迭代结束前，都必须按知识沉淀规范判断是否需要更新 `docs/wiki/`、`docs/knowledge/`、`decisions/` 或相关规格。进入 `docs/knowledge/` 的条目必须遵守知识治理规范并同步更新 `docs/knowledge/catalog.md`。
+
 ### 2. `docs/product/`
 
 面向产品与业务演进的文档。
@@ -49,6 +60,10 @@
 ### 7. `docs/knowledge/`
 
 沉淀型知识文档，例如 lessons learned、长期经验、复盘型资料。
+
+- `docs/knowledge/catalog.md`：可复用知识索引
+- `docs/knowledge/templates/`：知识条目模板
+- `docs/knowledge/public-lessons.md`：既有 lessons learned
 
 ### 8. `design/`
 
@@ -104,6 +119,15 @@
 
 - `docs/wiki/`
 - `docs/knowledge/public-lessons.md`
+- `docs/knowledge/catalog.md`
+
+### 项目规范
+
+- `docs/standards/README.md`
+- `docs/standards/technical.md`
+- `docs/standards/business.md`
+- `docs/standards/iteration-knowledge.md`
+- `docs/standards/knowledge-governance.md`
 
 ### 设计资产
 
@@ -142,6 +166,14 @@
 - 不允许出现“代码已经改完，但设计文档仍停留在旧状态”的情况
 - 多 Agent 并行开发时，文档同步是强制交付门禁，不是可选动作
 - 项目正式文档必须位于仓库根目录可见的文档体系中，不应以 `.trae/` 作为正式交付位置
+
+### 1.1. 所有动作必须遵守项目规范
+
+- 技术开发、架构设计、数据模型、接口、运行时、测试与技术评审动作必须遵守 `docs/standards/technical.md`
+- 需求分析、业务建模、产品判断、UX、角色协作与文案动作必须遵守 `docs/standards/business.md`
+- 每轮迭代结束前必须遵守 `docs/standards/iteration-knowledge.md`，判断哪些知识应沉淀为长期资产
+- 知识进入 `docs/knowledge/` 前必须遵守 `docs/standards/knowledge-governance.md`，并同步更新 `docs/knowledge/catalog.md`
+- 混合任务必须同时遵守技术规范与业务规范
 
 ### 2. 先判断是否为“长期有效”
 

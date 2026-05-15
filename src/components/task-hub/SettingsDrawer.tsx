@@ -13,11 +13,12 @@ import {
 } from '@/store/taskHubStore';
 import { TagEditor } from '@/components/ui/TagEditor';
 import { cn } from '@/lib/utils';
-import { X, Plus, Trash2, Loader2, Zap, Users, Download, GitBranch, Pencil, ExternalLink } from 'lucide-react';
+import { X, Plus, Trash2, Loader2, Zap, Users, Download, GitBranch, Pencil, ExternalLink, Home } from 'lucide-react';
 import { RoleCardListPage } from '@/components/role-card/RoleCardListPage';
 import { RoleCardDetailDrawer } from '@/components/role-card/RoleCardDetailDrawer';
 import { RoleCardEditor } from '@/components/role-card/RoleCardEditor';
 import { SkillLibrary } from '@/components/skill/SkillLibrary';
+import { Breadcrumb } from '@/components/ui/Breadcrumb';
 import { useTeamPackStore } from '@/store/teamPackStore';
 import type { CreateTeamPackInput, TeamPack, TeamPackRole } from '@/types/teamPack';
 
@@ -103,19 +104,19 @@ function AccountCard({
             type="button"
             onClick={(e) => { e.stopPropagation(); onVerify(); }}
             disabled={verifying}
-            className="p-1.5 rounded text-[hsl(var(--text-tertiary))] hover:text-[hsl(var(--accent))] hover:bg-[hsl(var(--accent-soft))] transition-colors disabled:opacity-50"
+            className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded text-[hsl(var(--text-tertiary))] hover:text-[hsl(var(--accent))] hover:bg-[hsl(var(--accent-soft))] transition-colors disabled:opacity-50"
             aria-label="测试连接"
             title="测试连接"
           >
-            {verifying ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
+            {verifying ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
           </button>
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); onDelete(); }}
-            className="p-1.5 rounded text-[hsl(var(--text-tertiary))] hover:text-[hsl(var(--status-rejected))] hover:bg-[hsl(var(--status-rejected-bg))] transition-colors"
+            className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded text-[hsl(var(--text-tertiary))] hover:text-[hsl(var(--status-rejected))] hover:bg-[hsl(var(--status-rejected-bg))] transition-colors"
             aria-label="删除账号"
           >
-            <Trash2 className="w-3.5 h-3.5" />
+            <Trash2 className="w-4 h-4" />
           </button>
         </div>
       </div>
@@ -917,7 +918,7 @@ export function SettingsDrawer() {
 
   return (
     <>
-      <div className="fixed inset-0 bg-black/25 backdrop-blur-[2px] z-40 animate-fade-in" onClick={() => setOpen(false)} />
+      <div className="fixed inset-0 bg-black/25 backdrop-blur-[2px] z-40 animate-fade-in" onClick={() => setOpen( false)} />
       <div
         className="fixed top-0 right-0 h-full w-full max-w-[520px] bg-[hsl(var(--bg-elevated))] border-l-2 border-[hsl(var(--text-primary))] shadow-[-4px_0_0px_hsl(var(--text-primary))] z-50 flex flex-col animate-slide-in-r"
         role="dialog"
@@ -979,19 +980,30 @@ export function SettingsDrawer() {
           <div className="flex items-center gap-2">
             <Link
               href="/settings/integrations"
-              onClick={() => setOpen(false)}
+              onClick={() => setOpen( false)}
               className="hidden sm:inline-flex items-center gap-1.5 rounded-[var(--radius-sm)] border border-[hsl(var(--border))] bg-[hsl(var(--bg-app))] px-2.5 py-1.5 text-[10px] font-bold text-[hsl(var(--text-tertiary))] transition-colors hover:border-[hsl(var(--text-primary))] hover:text-[hsl(var(--text-primary))]"
             >
               配置中心
               <ExternalLink className="h-3 w-3" />
             </Link>
-            <button type="button" onClick={() => setOpen(false)} className="p-1.5 rounded-[var(--radius-sm)] text-[hsl(var(--text-tertiary))] hover:text-[hsl(var(--text-primary))] hover:bg-[hsl(var(--bg-muted))] transition-colors" aria-label="关闭">
-              <X className="w-4.5 h-4.5" />
+            <button type="button" onClick={() => setOpen( false)} className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-[var(--radius-sm)] text-[hsl(var(--text-tertiary))] hover:text-[hsl(var(--text-primary))] hover:bg-[hsl(var(--bg-muted))] transition-colors" aria-label="关闭">
+              <X className="w-4 h-4" />
             </button>
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-5 space-y-3 scrollbar-thin">
+        <div className="flex-1 overflow-y-auto scrollbar-thin">
+          <Breadcrumb
+            items={[
+              { label: '主页', href: '/', icon: Home },
+              { label: '设置' },
+              { label: activeTab === 'accounts' ? '模型账号' :
+                        activeTab === 'roles' ? '智能体模板' :
+                        activeTab === 'skills' ? '技能' : '团队配置' },
+            ]}
+            className="mb-3"
+          />
+          <div className="p-5 space-y-3">
         {activeTab === 'accounts' ? (<>
           <div className="flex items-center justify-between gap-3">
             <div className="text-[11px] text-[hsl(var(--text-tertiary))]">
@@ -1037,6 +1049,7 @@ export function SettingsDrawer() {
         ) : (
           <TeamPacksTab />
         )}
+        </div>
         </div>
       </div>
 

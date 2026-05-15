@@ -43,15 +43,11 @@ export class WorkdirManager {
     taskId: string,
     options?: { useWorktree?: boolean; projectSlug?: string },
   ): Promise<string> {
-    let baseDir: string;
-
     if (options?.useWorktree && options?.projectSlug) {
-      const worktreePath = await this.resolveProjectWorkdir(options.projectSlug);
-      baseDir = path.join(worktreePath, '.agent-workspaces', agentId, 'base');
-    } else {
-      baseDir = path.join(this.root, projectId, agentId, 'base');
+      return this.resolveProjectWorkdir(options.projectSlug);
     }
 
+    const baseDir = path.join(this.root, projectId, agentId, 'base');
     fs.mkdirSync(baseDir, { recursive: true });
 
     const taskDir = path.join(path.dirname(baseDir), `task-${taskId}`, 'workdir');
@@ -101,12 +97,8 @@ export class WorkdirManager {
 
           const gcPath = path.join(taskPath, '.gc_meta.json');
           if (!fs.existsSync(gcPath)) {
-            // No gc_meta means task is still active or never completed
             continue;
           }
-
-          // Even if in activeDirs, if gc_meta exists it's eligible for GC
-          // (gc_meta is the authoritative signal that a task is completed)
 
           const meta: GCMeta = JSON.parse(fs.readFileSync(gcPath, 'utf-8'));
           const age = Date.now() - new Date(meta.completedAt).getTime();
@@ -116,6 +108,24 @@ export class WorkdirManager {
         }
       }
     }
+  }
+
+  async gcWorktrees(activeSlugs: Set<string>): Promise<string[]> {
+    const allWorktrees = await this.worktreeManager.listWorktrees();
+    const removed: string[] = [];
+
+    for (const wt of allWorktrees) {
+      const slug = wt.branch.replace('worktree/', '');
+      if (activeSlugs.has(slug)) continue;
+      try {
+        await this.worktreeManager.removeWorktree(slug);
+        removed.push(slug);
+      } catch {
+        // Worktree might be locked or have unmerged changes
+      }
+    }
+
+    return removed;
   }
 
   refreshContextFiles(workdir: string, context: { roleCardContent?: string; teamInfo?: string }): void {

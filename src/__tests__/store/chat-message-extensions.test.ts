@@ -12,7 +12,80 @@ describe('ChatMessage extensions', () => {
       chatMessagesByConversation: {},
       eventsByConversation: {},
       blockersByConversation: {},
+      a2aByConversation: {},
+      activeStreamMessageId: {},
+      activeStreamConversationId: {},
       activeAgentIds: ['mario', 'luigi'],
+    });
+    (globalThis as any).requestAnimationFrame = (callback: FrameRequestCallback) => {
+      setTimeout(() => callback(0), 0);
+      return 0;
+    };
+  });
+
+  describe('A2A possession view state', () => {
+    it('records pass offer and started possession handoff', () => {
+      useTaskHubStore.setState({ selectedConversationId: 'conv-1' });
+
+      useTaskHubStore.getState().recordA2APassOffer({
+        conversationId: 'conv-1',
+        chainId: 'chain-1',
+        passId: 'pass-1',
+        fromAgentId: 'mario',
+        toAgentId: 'luigi',
+      });
+      useTaskHubStore.getState().recordA2APossessionChanged({
+        conversationId: 'conv-1',
+        chainId: 'chain-1',
+        currentHolderId: 'luigi',
+        passId: 'pass-1',
+      });
+
+      const view = useTaskHubStore.getState().getA2AForSelectedConversation();
+      expect(view?.currentHolderId).toBe('luigi');
+      expect(view?.handoffs).toHaveLength(1);
+      expect(view?.handoffs[0]).toMatchObject({
+        passId: 'pass-1',
+        fromAgentId: 'mario',
+        toAgentId: 'luigi',
+        status: 'started',
+      });
+    });
+
+    it('records blocked pass reasons for the selected conversation', () => {
+      useTaskHubStore.setState({ selectedConversationId: 'conv-1' });
+
+      useTaskHubStore.getState().recordA2APassBlocked({
+        conversationId: 'conv-1',
+        chainId: 'chain-1',
+        fromAgentId: 'mario',
+        toAgentId: 'dk',
+        reason: '当前团队没有可接收 @dk 的角色',
+      });
+
+      const view = useTaskHubStore.getState().getA2AForSelectedConversation();
+      expect(view?.status).toBe('blocked');
+      expect(view?.handoffs[0].status).toBe('blocked');
+      expect(view?.handoffs[0].reason).toContain('@dk');
+    });
+
+    it('keeps only the latest eight handoff events for the timeline', () => {
+      useTaskHubStore.setState({ selectedConversationId: 'conv-1' });
+
+      for (let i = 0; i < 10; i++) {
+        useTaskHubStore.getState().recordA2APassOffer({
+          conversationId: 'conv-1',
+          chainId: 'chain-1',
+          passId: `pass-${i}`,
+          fromAgentId: 'mario',
+          toAgentId: 'luigi',
+        });
+      }
+
+      const view = useTaskHubStore.getState().getA2AForSelectedConversation();
+      expect(view?.handoffs).toHaveLength(8);
+      expect(view?.handoffs[0].passId).toBe('pass-2');
+      expect(view?.handoffs[7].passId).toBe('pass-9');
     });
   });
 
@@ -137,6 +210,42 @@ describe('ChatMessage extensions', () => {
       expect(msg.progressData?.completedSteps).toBe(2);
       expect(msg.progressData?.totalSteps).toBe(4);
       expect(msg.progressData?.steps).toHaveLength(4);
+    });
+  });
+
+  describe('streaming message buffer', () => {
+    it('flushes buffered text when stream completes before the next animation frame', async () => {
+      useTaskHubStore.setState({
+        conversations: [
+          {
+            id: 'conv-1',
+            title: 'Test',
+            goal: 'Test goal',
+            status: 'active',
+            priority: 'p1',
+            projectPath: '',
+            breakdownStatus: 'none',
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          },
+        ],
+        selectedConversationId: 'conv-1',
+        chatMessagesByConversation: { 'conv-1': [] },
+      });
+
+      const store = useTaskHubStore.getState();
+      const messageId = store.ensureStreamMessage('mario', 'conv-1');
+      store.appendToStreamMessage(messageId, { content: '最终答复文本' });
+      store.completeStreamMessage('mario');
+
+      const message = useTaskHubStore
+        .getState()
+        .chatMessagesByConversation['conv-1']
+        .find((m) => m.id === messageId);
+
+      expect(message?.content).toBe('最终答复文本');
+      expect(message?.isStreaming).toBe(false);
+      await new Promise((resolve) => setTimeout(resolve, 0));
     });
   });
 

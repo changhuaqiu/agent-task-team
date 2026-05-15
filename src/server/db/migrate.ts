@@ -366,6 +366,170 @@ CREATE INDEX IF NOT EXISTS idx_agent_skill_skill ON agent_skill(skill_id);
     ALTER TABLE team_pack_role ADD COLUMN skill_ids TEXT;
   `,
   },
+  {
+    version: 15,
+    sql: `
+    ALTER TABLE conversation ADD COLUMN use_worktree INTEGER;
+    ALTER TABLE conversation ADD COLUMN git_repo_root TEXT;
+  `,
+  },
+  {
+    version: 16,
+    sql: `
+    CREATE TABLE IF NOT EXISTS a2a_possession_chain (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL REFERENCES conversation(id),
+      root_trigger_type TEXT NOT NULL,
+      root_trigger_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active',
+      current_holder_id TEXT NOT NULL,
+      config TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL,
+      completed_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_possession_chain_conv ON a2a_possession_chain(conversation_id);
+    CREATE INDEX IF NOT EXISTS idx_possession_chain_status ON a2a_possession_chain(status);
+    CREATE INDEX IF NOT EXISTS idx_possession_chain_holder ON a2a_possession_chain(current_holder_id);
+
+    CREATE TABLE IF NOT EXISTS a2a_possession (
+      id TEXT PRIMARY KEY,
+      chain_id TEXT NOT NULL REFERENCES a2a_possession_chain(id),
+      holder_id TEXT NOT NULL,
+      holder_type TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'open',
+      started_at TEXT NOT NULL,
+      completed_at TEXT,
+      summary TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_possession_chain ON a2a_possession(chain_id);
+    CREATE INDEX IF NOT EXISTS idx_possession_holder ON a2a_possession(holder_id, status);
+
+    CREATE TABLE IF NOT EXISTS a2a_pass (
+      id TEXT PRIMARY KEY,
+      chain_id TEXT NOT NULL REFERENCES a2a_possession_chain(id),
+      from_possession_id TEXT NOT NULL REFERENCES a2a_possession(id),
+      from_holder_id TEXT NOT NULL,
+      to_agent_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'drafted',
+      intent TEXT NOT NULL,
+      phase TEXT,
+      reason TEXT,
+      handoff_packet_id TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_pass_chain ON a2a_pass(chain_id);
+    CREATE INDEX IF NOT EXISTS idx_pass_target_status ON a2a_pass(to_agent_id, status);
+    CREATE INDEX IF NOT EXISTS idx_pass_status ON a2a_pass(status);
+
+    CREATE TABLE IF NOT EXISTS a2a_handoff_packet (
+      id TEXT PRIMARY KEY,
+      chain_id TEXT NOT NULL REFERENCES a2a_possession_chain(id),
+      pass_id TEXT NOT NULL REFERENCES a2a_pass(id),
+      from_holder_id TEXT NOT NULL,
+      to_agent_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      requested_action TEXT NOT NULL,
+      possession_summary TEXT NOT NULL,
+      relevant_decisions TEXT NOT NULL DEFAULT '[]',
+      evidence_refs TEXT NOT NULL DEFAULT '[]',
+      constraints TEXT NOT NULL DEFAULT '[]',
+      open_questions TEXT NOT NULL DEFAULT '[]',
+      forbidden_behaviors TEXT NOT NULL DEFAULT '[]',
+      source_message_ids TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_handoff_chain ON a2a_handoff_packet(chain_id);
+    CREATE INDEX IF NOT EXISTS idx_handoff_pass ON a2a_handoff_packet(pass_id);
+  `,
+  },
+  {
+    version: 17,
+    sql: `
+    CREATE TABLE IF NOT EXISTS control_proof_event (
+      id TEXT PRIMARY KEY,
+      event_type TEXT NOT NULL,
+      conversation_id TEXT,
+      task_id TEXT,
+      chain_id TEXT,
+      pass_id TEXT,
+      envelope_id TEXT,
+      node_id TEXT,
+      agent_id TEXT,
+      actor_id TEXT,
+      reason_code TEXT,
+      metadata TEXT,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_proof_event_type ON control_proof_event(event_type);
+    CREATE INDEX IF NOT EXISTS idx_proof_event_conv ON control_proof_event(conversation_id);
+    CREATE INDEX IF NOT EXISTS idx_proof_event_envelope ON control_proof_event(envelope_id);
+    CREATE INDEX IF NOT EXISTS idx_proof_event_node ON control_proof_event(node_id);
+    CREATE INDEX IF NOT EXISTS idx_proof_event_agent ON control_proof_event(agent_id);
+
+    CREATE TABLE IF NOT EXISTS runtime_node (
+      id TEXT PRIMARY KEY,
+      kind TEXT NOT NULL,
+      label TEXT NOT NULL,
+      endpoint TEXT,
+      status TEXT NOT NULL DEFAULT 'reachable',
+      capabilities TEXT NOT NULL DEFAULT '[]',
+      trust_level TEXT NOT NULL DEFAULT 'local',
+      last_heartbeat_at TEXT,
+      missed_heartbeats INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_runtime_node_kind ON runtime_node(kind);
+    CREATE INDEX IF NOT EXISTS idx_runtime_node_status ON runtime_node(status);
+    CREATE INDEX IF NOT EXISTS idx_runtime_node_heartbeat ON runtime_node(last_heartbeat_at);
+
+    CREATE TABLE IF NOT EXISTS agent_binding (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL,
+      agent_id TEXT NOT NULL,
+      node_id TEXT NOT NULL REFERENCES runtime_node(id),
+      runtime_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'idle',
+      active_envelope_id TEXT,
+      last_started_at TEXT,
+      last_finished_at TEXT,
+      last_error TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(conversation_id, agent_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_binding_conv_agent ON agent_binding(conversation_id, agent_id);
+    CREATE INDEX IF NOT EXISTS idx_agent_binding_node ON agent_binding(node_id);
+    CREATE INDEX IF NOT EXISTS idx_agent_binding_status ON agent_binding(status);
+
+    CREATE TABLE IF NOT EXISTS execution_envelope (
+      id TEXT PRIMARY KEY,
+      source TEXT NOT NULL,
+      intent TEXT NOT NULL,
+      conversation_id TEXT NOT NULL,
+      task_id TEXT,
+      chain_id TEXT,
+      pass_id TEXT,
+      from_node_id TEXT NOT NULL,
+      from_agent_id TEXT,
+      to_node_id TEXT NOT NULL,
+      to_agent_id TEXT NOT NULL,
+      payload TEXT NOT NULL DEFAULT '{}',
+      ttl_ms INTEGER NOT NULL,
+      nonce TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'drafted',
+      reason_code TEXT,
+      expires_at TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_execution_envelope_conv ON execution_envelope(conversation_id);
+    CREATE INDEX IF NOT EXISTS idx_execution_envelope_target ON execution_envelope(to_node_id, to_agent_id);
+    CREATE INDEX IF NOT EXISTS idx_execution_envelope_status ON execution_envelope(status);
+    CREATE INDEX IF NOT EXISTS idx_execution_envelope_expires ON execution_envelope(expires_at);
+    `,
+  },
 ];
 
 export function applyMigrations(db: Database.Database): void {

@@ -11,4 +11,5 @@
 - [x] TeamPack roles are visible and configurable in account and skill binding UX.
 - [x] Tests cover preset runtime, TeamPack runtime, prompt roster, dispatch profile, skill hydration, communication policy and workflow policy.
 - [x] Architecture, store and daemon docs are updated to match the final behavior.
-- [x] No primary UX copy exposes internal terms such as `runtime`, `channel`, `routing`, `bridge`, `providerHints` or `session`.
+- [x] No primary UX copy exposes internal terms such as `runtime`, `channel`, `routing`, `bridge`, `providerHints` or `session`; the member binding panel may expose a debug-only CLI session id copy field.
+- [x] User-entered mentions open a server-side A2A chain boundary and register the directly dispatched initial agents as executing, so agent-originated follow-up mentions route without duplicate initial dispatch.

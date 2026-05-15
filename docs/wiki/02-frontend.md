@@ -82,6 +82,16 @@
   - 内嵌 [`GlobalChatRoom.tsx`](../../src/components/task-hub/GlobalChatRoom.tsx)
 - [`AgentBar.tsx`](../../src/components/task-hub/AgentBar.tsx)
   - 展示当前参与 Agent 与绑定状态
+  - Agent 成员配置面板中保留调试用 CLI session id 展示与复制入口，便于排查 session 续接问题
+- [`CliOutputBlock.tsx`](../../src/components/task-hub/CliOutputBlock.tsx)
+  - 将 CLI tool events 渲染为“执行摘要 + 活动时间线”
+  - 顶部展示运行中 / 已完成 / 错误数量和当前工具
+  - 每条工具事件支持展开查看参数或结果，避免正文只剩工具噪音
+- [`A2APossessionStrip.tsx`](../../src/components/task-hub/A2APossessionStrip.tsx)
+  - 在聊天室消息流顶部展示当前持球者、最近一次交接和阻止原因
+  - 支持展开最近 8 次交接记录，作为轻量可审计时间线
+  - 只使用用户可理解的“当前持球 / 交接 / 被阻止”文案，不暴露 runtime、worklist、chain 等内部概念
+  - 由 socket 事件 `a2a:pass-offer`、`a2a:possession-changed`、`a2a:pass-blocked` 驱动
 
 ### 右侧辅助面板
 
