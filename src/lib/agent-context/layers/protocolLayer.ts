@@ -57,7 +57,7 @@ todo → doing → review → done / blocked
 5. 阻塞 → Status 改为 blocked，在表格下方加风险行
 6. 遇到风险 → 在"风险 / 阻塞"区域新增一行
 7. 任务行变化会自动生成群聊通知；只有需要对方执行新动作时才用「@agent 请/需要 + 动作 + 具体交付物」发起 A2A 交接
-8. 纯 @mention、通知 @agent、@agent 已完成/已写入 TASKS.md 不会唤醒对方；系统会用任务通知同步状态
+8. 纯 @mention、通知 @agent、@agent 已完成/已写入 TASKS.md 不会唤醒对方；下游依赖解除由系统自动调度（wakeup），无需手动通知
 
 ### 禁止
 - 不改其他 Agent 的任务行

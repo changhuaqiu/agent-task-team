@@ -31,5 +31,5 @@ export function buildCollaborationLayer(): string {
 ### 回声防护
 - 不要为了确认、总结或礼貌回复 @ 回请求来源。
 - 如果没有新的可执行动作，正常结束即可。
-- 不要用 A2A 同步状态；任务状态由 Task Graph / TASKS.md / 任务通知负责。`;
+- 不要用 A2A 同步状态；下游依赖解除由系统自动调度，任务状态由 Task Graph / TASKS.md 负责。`;
 }
