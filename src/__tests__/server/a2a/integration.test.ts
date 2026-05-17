@@ -813,4 +813,71 @@ describe('A2A v2 integration', () => {
     expect(logs.length).toBeGreaterThanOrEqual(1);
     expect(logs.some((l: any) => l.event_type === 'chain_created')).toBe(true);
   });
+
+  it('coordinator re-entry: Peach can pass back to Mario in the same chain', async () => {
+    vi.useFakeTimers();
+    try {
+      // Insert mario into the agents table so resolveTaskNotificationAudience finds it
+      // isCoordinator checks agentId === 'mario' among other conditions
+      db.prepare(`
+        INSERT INTO agents (id, name, role_card_id, theme, emoji, is_preset, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run('mario', 'Mario', '', 'default', '🔴', 1, new Date().toISOString(), new Date().toISOString());
+
+      // Mario starts a chain via user message
+      messenger.onUserMessage('conv-1', 'msg-1', 'mario', '开始设计方案');
+
+      // Advance past the rate limit window (5s) before Mario responds
+      await vi.advanceTimersByTimeAsync(6_000);
+
+      // Mario completes and hands off to Peach with a review request
+      await messenger.onAgentResponse('mario', '设计方案已完成，涵盖认证、错误处理和状态管理。\n@peach 请审查设计方案的测试覆盖、风险项和验收标准', {
+        conversationId: 'conv-1',
+        chainDepth: 0,
+      });
+
+      // Verify Peach was dispatched
+      const peachDispatches = io.emitted().filter(([e, p]) => e === 'a2a:dispatch' && p.agentId === 'peach');
+      expect(peachDispatches).toHaveLength(1);
+
+      // Mark Peach's entry as executing (simulating dispatch acceptance)
+      const chain = messenger.orchestrator.getActiveChain('conv-1');
+      const peachWorklist = db.prepare('SELECT * FROM chain_worklist WHERE chain_id = ? AND agent_id = ?').all(chain!.id, 'peach') as any[];
+      const peachEntry = peachWorklist[0];
+      expect(peachEntry).toBeDefined();
+      messenger.orchestrator.markDispatchStarted(chain!.id, peachEntry.id, 'conv-1', 'peach', peachDispatches[0][1].passId);
+
+      // Advance past the rate limit window again so mario's re-entry is not rate-limited
+      await vi.advanceTimersByTimeAsync(6_000);
+
+      // Peach completes review and passes back to Mario with actionable intent
+      await messenger.onAgentResponse('peach', '设计评审已通过，建议已在 TASKS.md 中更新，请确认最终结论并推进下一步实现。\n@mario 请确认评审结论，安排后续实现任务', {
+        conversationId: 'conv-1',
+        chainDepth: 1,
+      });
+
+      // Mario should be dispatched despite already being in the chain (coordinator exemption)
+      // The first mario dispatch is from user (onUserMessage); the second one is from peach
+      const marioDispatches = io.emitted().filter(([e, p]) => e === 'a2a:dispatch' && p.agentId === 'mario');
+      expect(marioDispatches).toHaveLength(2);
+      expect(marioDispatches[0][1].fromAgentId).toBe('user');   // initial user dispatch
+      expect(marioDispatches[1][1].fromAgentId).toBe('peach');   // coordinator re-entry
+      expect(marioDispatches[1][1].prompt).toContain('请确认评审结论');
+
+      // Verify audit log shows dispatch_allowed (not dispatch_blocked) for mario
+      const blockedLogs = db.prepare(`
+        SELECT * FROM a2a_audit_log
+        WHERE event_type = 'dispatch_blocked' AND to_agent_id = 'mario'
+      `).all() as any[];
+      expect(blockedLogs).toHaveLength(0);
+
+      const allowedLogs = db.prepare(`
+        SELECT * FROM a2a_audit_log
+        WHERE event_type = 'dispatch_allowed' AND to_agent_id = 'mario'
+      `).all() as any[];
+      expect(allowedLogs.length).toBeGreaterThanOrEqual(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

@@ -19,8 +19,20 @@ export function computeContentHash(fromAgent: string, toAgent: string, content: 
 // Layer 2: Chain-Scoped Agent Dedup
 // ──────────────────────────────────────────────
 
-export function checkChainAgentDedup(chainRepo: ChainRepo, chainId: string, agentId: string): { pass: boolean; reason?: string } {
+export interface ChainDedupOptions {
+  exemptAgentIds?: string[];
+}
+
+export function checkChainAgentDedup(
+  chainRepo: ChainRepo,
+  chainId: string,
+  agentId: string,
+  options?: ChainDedupOptions,
+): { pass: boolean; reason?: string } {
   if (chainRepo.hasAgentInChain(chainId, agentId)) {
+    if (options?.exemptAgentIds?.includes(agentId)) {
+      return { pass: true };
+    }
     return { pass: false, reason: `agent ${agentId} already has an entry in chain ${chainId}` };
   }
   return { pass: true };
@@ -107,7 +119,11 @@ export function checkChainLifetime(chain: InvocationChain): { pass: boolean; rea
 // Direct Ping-Pong Detection (zero tolerance)
 // ──────────────────────────────────────────────
 
-export function checkDirectPingPong(chainRepo: ChainRepo, chainId: string, fromAgentId: string, toAgentId: string): { pass: boolean; reason?: string } {
+export function checkDirectPingPong(chainRepo: ChainRepo, chainId: string, fromAgentId: string, toAgentId: string, options?: ChainDedupOptions): { pass: boolean; reason?: string } {
+  // Coordinators are exempt from ping-pong detection — they are the natural re-entry point
+  if (options?.exemptAgentIds?.includes(toAgentId)) {
+    return { pass: true };
+  }
   // If toAgent just dispatched to fromAgent in this chain, block immediately
   const worklist = chainRepo.getWorklistForChain(chainId);
   const lastEntry = worklist.filter(e => e.status === 'done' || e.status === 'executing').pop();
@@ -131,17 +147,18 @@ export function runAllDedupLayers(
   chainRepo: ChainRepo,
   chain: InvocationChain,
   req: DispatchRequest,
+  options?: ChainDedupOptions,
 ): DedupResult {
   // Layer 5: Chain lifetime (check first — if chain is expired, nothing else matters)
   const lifetime = checkChainLifetime(chain);
   if (!lifetime.pass) return { pass: false, failedLayer: 'chain_lifetime', reason: lifetime.reason };
 
-  // Direct ping-pong (zero tolerance, check early — this is the most important non-silent block)
-  const pingPong = checkDirectPingPong(chainRepo, chain.id, req.fromAgentId, req.toAgentId);
+  // Direct ping-pong (zero tolerance, check early — coordinators are exempt)
+  const pingPong = checkDirectPingPong(chainRepo, chain.id, req.fromAgentId, req.toAgentId, options);
   if (!pingPong.pass) return { pass: false, failedLayer: 'ping_pong', reason: pingPong.reason };
 
   // Layer 2: Chain-scoped agent dedup
-  const agentDedup = checkChainAgentDedup(chainRepo, chain.id, req.toAgentId);
+  const agentDedup = checkChainAgentDedup(chainRepo, chain.id, req.toAgentId, options);
   if (!agentDedup.pass) return { pass: false, failedLayer: 'agent_dedup', reason: agentDedup.reason };
 
   // Layer 3: Ripple detection

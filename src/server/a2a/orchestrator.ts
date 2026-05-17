@@ -19,6 +19,8 @@ import type {
 import { ChainRepo } from './chain';
 import { CursorRepo } from './cursor';
 import { computeContentHash, runAllDedupLayers, recordDispatchTime, clearRippleForChain, resetAllDedupState } from './dedup';
+import type { ChainDedupOptions } from './dedup';
+import { resolveTaskNotificationAudience } from '../task-flow/task-notification-publisher';
 import { buildDispatchContext, renderDispatchPrompt } from './context-builder';
 import { findUnresolvedMentionTokens, scanMentions } from './scanner';
 import { scanPassIntents } from './pass-intent';
@@ -246,8 +248,10 @@ export class Orchestrator {
       return { allow: false, reason: `chain breadth limit reached (${chain.config.maxBreadth} agents)`, silent: false };
     }
 
-    // Run five-layer dedup
-    const dedupResult = runAllDedupLayers(this.chainRepo, chain, req);
+    // Run five-layer dedup (coordinators are exempt from Layer 2 agent dedup)
+    const audience = resolveTaskNotificationAudience(chain.conversationId);
+    const dedupOptions: ChainDedupOptions = { exemptAgentIds: audience.coordinatorAgentIds };
+    const dedupResult = runAllDedupLayers(this.chainRepo, chain, req, dedupOptions);
     if (!dedupResult.pass) {
       if (dedupResult.failedLayer === 'chain_lifetime') {
         this.chainRepo.abort(chain.id, 'timeout');
