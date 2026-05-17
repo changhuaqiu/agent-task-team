@@ -146,6 +146,44 @@ export interface Blocker {
   resolvedAt?: string;
 }
 
+// --- Lookup Indexes (O(1) by reference equality) ---
+
+let _convLookup: Record<string, Conversation> = {};
+let _convLookupRef: Conversation[] | null = null;
+
+function getConvLookup(conversations: Conversation[]): Record<string, Conversation> {
+  if (conversations !== _convLookupRef) {
+    _convLookupRef = conversations;
+    _convLookup = {};
+    for (const c of conversations) _convLookup[c.id] = c;
+  }
+  return _convLookup;
+}
+
+// --- Memoized Selectors ---
+
+let _lastActiveKey = '';
+let _lastActiveResult: Agent[] = [];
+const selectActiveAgents = (state: TaskHubState) => {
+  const key = state.activeAgentIds.join(',') + ':' + state.agentRoster.length;
+  if (key === _lastActiveKey) return _lastActiveResult;
+  _lastActiveKey = key;
+  _lastActiveResult = state.agentRoster.filter((a) => state.activeAgentIds.includes(a.id));
+  return _lastActiveResult;
+};
+
+let _lastAvailableKey = '';
+let _lastAvailableResult: Agent[] = [];
+const selectAvailableRoster = (state: TaskHubState) => {
+  const key = state.activeAgentIds.join(',') + ':' + state.agentRoster.length;
+  if (key === _lastAvailableKey) return _lastAvailableResult;
+  _lastAvailableKey = key;
+  _lastAvailableResult = state.agentRoster.filter((a) => !state.activeAgentIds.includes(a.id));
+  return _lastAvailableResult;
+};
+
+const selectAgentRoster = (state: TaskHubState) => state.agentRoster;
+
 // --- Helper Selectors ---
 
 function findCurrentTeamRole(state: TaskHubState, agentId: string): TeamPackRole | undefined {
@@ -332,12 +370,6 @@ function getCachedAgentRuntimeProfile(state: TaskHubState, agentId: string): Run
   return profile;
 }
 
-const selectActiveAgents = (state: TaskHubState) =>
-  AGENT_ROSTER.filter((a) => state.activeAgentIds.includes(a.id));
-
-const selectAvailableRoster = (state: TaskHubState) =>
-  AGENT_ROSTER.filter((a) => !state.activeAgentIds.includes(a.id));
-
 const selectPendingCount = (state: TaskHubState) => {
   const counts: Record<string, number> = {};
   for (const [agentId, queue] of Object.entries(state.pendingDispatches)) {
@@ -517,6 +549,7 @@ function mergeSessions(
 // --- Store Interface (composed from all slices) ---
 
 export interface TaskHubState {
+  agentRoster: Agent[];
   hasHydrated: boolean;
   setHasHydrated: (hydrated: boolean) => void;
   refreshRuntimeCatalog: () => void;
@@ -590,6 +623,7 @@ export interface TaskHubState {
   createConversation: (input: { title: string; goal: string; projectPath?: string; priority?: Conversation['priority']; teamPackId?: string; useWorktree?: boolean; gitRepoRoot?: string }) => void;
   setSelectedConversationId: (conversationId: string | null) => void;
   deleteConversation: (conversationId: string) => void;
+  restoreConversation: (conversation: Conversation) => void;
   addSupervisorOutput: (output: SupervisorOutputEnvelope) => void;
   addEvent: (event: Omit<InternalEvent, 'id' | 'timestamp'> & { id?: string; timestamp?: string }) => void;
   openBlocker: (input: Omit<Blocker, 'id' | 'status' | 'createdAt'> & { id?: string; status?: Blocker['status']; createdAt?: string }) => string;
@@ -681,7 +715,7 @@ export interface TaskHubState {
   removeWorktree: (projectSlug: string) => Promise<void>;
 }
 
-export { selectActiveAgents, selectAvailableRoster, selectPendingCount };
+export { selectActiveAgents, selectAvailableRoster, selectAgentRoster, selectPendingCount };
 
 // --- Composed Store ---
 
@@ -760,7 +794,7 @@ export const useTaskHubStore = create<TaskHubState>()(
 
           const data = await res.json();
 
-          set((state: any) => {
+          set((state: TaskHubState) => {
             const serverAccount = data.account;
             const exists = state.accounts.some((a: any) => a.id === serverAccount.id);
             return {
@@ -774,7 +808,7 @@ export const useTaskHubStore = create<TaskHubState>()(
         },
         removeAccount: async (accountId: string) => {
           await fetch(`/api/accounts/${accountId}`, { method: 'DELETE' });
-          set((state: any) => ({
+          set((state: TaskHubState) => ({
             accounts: state.accounts.filter((a: any) => a.id !== accountId),
           }));
         },
@@ -799,10 +833,11 @@ export const useTaskHubStore = create<TaskHubState>()(
         a2aByConversation: {} as Record<string, A2APossessionView>,
 
         getConversations: () => get().conversations,
-        getSelectedConversation: () =>
-          get().selectedConversationId
-            ? get().conversations.find((c) => c.id === get().selectedConversationId)
-            : undefined,
+        getSelectedConversation: () => {
+          const id = get().selectedConversationId;
+          if (!id) return undefined;
+          return getConvLookup(get().conversations)[id];
+        },
         getEventsForSelectedConversation: () => {
           const id = get().selectedConversationId;
           if (!id) return EMPTY_EVENTS;
@@ -823,7 +858,7 @@ export const useTaskHubStore = create<TaskHubState>()(
           if (!id) return undefined;
           return get().a2aByConversation[id];
         },
-        recordA2APassOffer: (payload: { conversationId: string; chainId: string; passId?: string; fromAgentId?: string; toAgentId?: string; title?: string }) => set((state: any) => {
+        recordA2APassOffer: (payload: { conversationId: string; chainId: string; passId?: string; fromAgentId?: string; toAgentId?: string; title?: string }) => set((state: TaskHubState) => {
           const now = new Date().toISOString();
           const existing: A2APossessionView = state.a2aByConversation[payload.conversationId] ?? {
             chainId: payload.chainId,
@@ -858,7 +893,7 @@ export const useTaskHubStore = create<TaskHubState>()(
             },
           };
         }),
-        recordA2APossessionChanged: (payload: { conversationId: string; chainId: string; currentHolderId: string; passId?: string }) => set((state: any) => {
+        recordA2APossessionChanged: (payload: { conversationId: string; chainId: string; currentHolderId: string; passId?: string }) => set((state: TaskHubState) => {
           const now = new Date().toISOString();
           const existing: A2APossessionView = state.a2aByConversation[payload.conversationId] ?? {
             chainId: payload.chainId,
@@ -885,7 +920,7 @@ export const useTaskHubStore = create<TaskHubState>()(
             },
           };
         }),
-        recordA2APassBlocked: (payload: { conversationId: string; chainId?: string; passId?: string; fromAgentId?: string; toAgentId?: string; reason: string; status?: A2AHandoffStatus }) => set((state: any) => {
+        recordA2APassBlocked: (payload: { conversationId: string; chainId?: string; passId?: string; fromAgentId?: string; toAgentId?: string; reason: string; status?: A2AHandoffStatus }) => set((state: TaskHubState) => {
           const now = new Date().toISOString();
           const chainId = payload.chainId ?? state.a2aByConversation[payload.conversationId]?.chainId ?? `blocked-${now}`;
           const existing: A2APossessionView = state.a2aByConversation[payload.conversationId] ?? {
@@ -1150,7 +1185,7 @@ export const useTaskHubStore = create<TaskHubState>()(
             const existingIds = new Set(get().roleCards.map((c: any) => c.id));
             const missing = PRESET_ROLE_CARDS.filter((c) => !existingIds.has(c.id));
             if (missing.length) {
-              set((state: any) => ({ roleCards: [...missing, ...state.roleCards] }));
+              set((state: TaskHubState) => ({ roleCards: [...missing, ...state.roleCards] }));
             }
 
             get().loadSkills();
@@ -1179,7 +1214,7 @@ export const useTaskHubStore = create<TaskHubState>()(
             conversationId = get().selectedConversationId ?? null;
           }
           if (!conversationId) return;
-          set((state: any) => ({
+          set((state: TaskHubState) => ({
             chatMessagesByConversation: {
               ...state.chatMessagesByConversation,
               [conversationId]: [...(state.chatMessagesByConversation[conversationId] || []), ...legacyMessages],
@@ -1205,7 +1240,7 @@ export const useTaskHubStore = create<TaskHubState>()(
             updatedAt: stamp,
           };
 
-          set((state: any) => ({
+          set((state: TaskHubState) => ({
             conversations: [conversation, ...state.conversations],
             selectedConversationId: id,
             selectedProjectId: id,
@@ -1262,7 +1297,14 @@ export const useTaskHubStore = create<TaskHubState>()(
         },
 
         setSelectedConversationId: (conversationId: string | null) => {
+          const previousConversationId = get().selectedConversationId;
           const conv = get().conversations.find((c) => c.id === conversationId);
+          if (previousConversationId && previousConversationId !== conversationId) {
+            socket.emit('conversation:leave', { conversationId: previousConversationId });
+          }
+          if (conversationId) {
+            socket.emit('conversation:join', { conversationId });
+          }
 
           if (conv?.teamPackId) {
             set({
@@ -1305,11 +1347,36 @@ export const useTaskHubStore = create<TaskHubState>()(
           }).catch(() => {});
         },
 
+        restoreConversation: (conversation: Conversation) => {
+          set((state: TaskHubState) => ({
+            conversations: [...state.conversations, conversation],
+            selectedConversationId: conversation.id,
+          }));
+          fetch('/api/mutations', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              type: 'conversation.create',
+              payload: {
+                id: conversation.id,
+                title: conversation.title,
+                goal: conversation.goal,
+                status: conversation.status,
+                priority: conversation.priority,
+                project_path: conversation.projectPath,
+                team_pack_id: conversation.teamPackId,
+                use_worktree: conversation.useWorktree,
+                git_repo_root: conversation.gitRepoRoot,
+              },
+            }),
+          }).catch(() => {});
+        },
+
         addEvent: ({ id, timestamp, ...event }: Omit<InternalEvent, 'id' | 'timestamp'> & { id?: string; timestamp?: string }) => {
           const resolvedId = id ?? makeId('evt');
           const resolvedTimestamp = timestamp ?? new Date().toISOString();
           const record: InternalEvent = { ...event, id: resolvedId, timestamp: resolvedTimestamp };
-          set((state: any) => ({
+          set((state: TaskHubState) => ({
             eventsByConversation: {
               ...state.eventsByConversation,
               [record.conversationId]: [...(state.eventsByConversation[record.conversationId] || []), record],
@@ -1355,7 +1422,7 @@ export const useTaskHubStore = create<TaskHubState>()(
             createdAt: stamp,
           };
 
-          set((state: any) => ({
+          set((state: TaskHubState) => ({
             blockersByConversation: {
               ...state.blockersByConversation,
               [blocker.conversationId]: [...(state.blockersByConversation[blocker.conversationId] || []), blocker],
@@ -1373,7 +1440,7 @@ export const useTaskHubStore = create<TaskHubState>()(
 
         fixBlocker: (conversationId: string, blockerId: string) => {
           const stamp = new Date().toISOString();
-          set((state: any) => ({
+          set((state: TaskHubState) => ({
             blockersByConversation: {
               ...state.blockersByConversation,
               [conversationId]: (state.blockersByConversation[conversationId] || []).map((b: Blocker) =>
@@ -1466,7 +1533,7 @@ export const useTaskHubStore = create<TaskHubState>()(
                 return;
               }
 
-              set((state: any) => ({
+              set((state: TaskHubState) => ({
                 chatMessagesByConversation: {
                   ...state.chatMessagesByConversation,
                   [conversationId]: [
@@ -1497,6 +1564,7 @@ export const useTaskHubStore = create<TaskHubState>()(
                 messageId,
                 targetAgentIds: acceptedAgentIds,
                 prompt: rest.content,
+                taskId: rest.referencedTaskId,
               });
               for (const agentId of busyAgents) {
                 get().enqueueDispatch(agentId, { prompt: rest.content, referencedTaskId: rest.referencedTaskId, conversationId });
@@ -1507,8 +1575,9 @@ export const useTaskHubStore = create<TaskHubState>()(
                 messageId,
                 targetAgentIds: [],
                 prompt: rest.content,
+                taskId: rest.referencedTaskId,
               });
-              set((state: any) => ({
+              set((state: TaskHubState) => ({
                 chatMessagesByConversation: {
                   ...state.chatMessagesByConversation,
                   [conversationId]: [
@@ -1525,7 +1594,7 @@ export const useTaskHubStore = create<TaskHubState>()(
               }));
             }
           } else {
-            set((state: any) => ({
+            set((state: TaskHubState) => ({
               chatMessagesByConversation: {
                 ...state.chatMessagesByConversation,
                 [conversationId]: [
@@ -1562,7 +1631,7 @@ export const useTaskHubStore = create<TaskHubState>()(
         },
 
         updateChatMessageStatus: (msgId: string, status: 'approved' | 'rejected', rejectionReason?: string) =>
-          set((state: any) => {
+          set((state: TaskHubState) => {
             let changed = false;
             const next = { ...state.chatMessagesByConversation };
             for (const conversationId of Object.keys(next)) {
@@ -1750,6 +1819,10 @@ socket.off('connect_error');
 socket.on('connect', () => {
   useTaskHubStore.getState().setDaemonConnection({ status: 'connected' });
   registerBrowserRuntimeNode();
+  const selectedConversationId = useTaskHubStore.getState().selectedConversationId;
+  if (selectedConversationId) {
+    socket.emit('conversation:join', { conversationId: selectedConversationId });
+  }
 
   socket.emit('runtimes:list', (response: { runtimes: import('@/server/types').DetectedRuntime[] }) => {
     if (response?.runtimes) {
@@ -1986,7 +2059,21 @@ socket.on('terminal:exit', ({ agentId, code, command, reasonCode }: { agentId: s
 
 socket.on('a2a:dispatch', ({ agentId, prompt, referencedTaskId, fromAgentId, conversationId, chainId, entryId, passId }: { agentId: string; prompt: string; referencedTaskId?: string; fromAgentId: string; conversationId?: string; chainId?: string; entryId?: string; passId?: string }) => {
   console.log(`[a2a:v2] chain=${chainId} dispatch ${fromAgentId} → ${agentId}`);
-  const accepted = useTaskHubStore.getState().dispatchToAgent({
+  const state = useTaskHubStore.getState();
+  if (state.agentStatus[agentId] === 'busy') {
+    if (chainId && entryId && conversationId) {
+      socket.emit('a2a:dispatch-deferred', {
+        chainId,
+        entryId,
+        conversationId,
+        agentId,
+        passId,
+        reason: 'target agent is busy',
+      });
+    }
+    return;
+  }
+  const accepted = state.dispatchToAgent({
     agentId,
     prompt,
     referencedTaskId,
@@ -2070,6 +2157,49 @@ socket.on('task.assigned', ({ taskId, agentId, conversationId }: { taskId: strin
   });
 });
 
+socket.on('task.notification', (notification: {
+  id?: string;
+  conversationId?: string;
+  taskId?: string;
+  recipients?: string[];
+  content?: string;
+  createdAt?: string;
+  kind?: string;
+  changedFields?: string[];
+  metadata?: Record<string, any>;
+}) => {
+  const conversationId = notification.conversationId;
+  const content = notification.content;
+  if (!conversationId || !content) return;
+
+  useTaskHubStore.setState((state) => {
+    const existing = state.chatMessagesByConversation[conversationId] || [];
+    if (notification.id && existing.some((message) => message.id === notification.id)) return {};
+    const message: ChatMessage = {
+      id: notification.id || `msg-${Date.now()}-task-notify`,
+      agentId: 'system',
+      content,
+      timestamp: notification.createdAt || new Date().toISOString(),
+      conversationId,
+      referencedTaskId: notification.taskId,
+      mentions: notification.recipients || [],
+      intent: 'task_status',
+      metadata: {
+        ...(notification.metadata || {}),
+        kind: notification.kind,
+        changedFields: notification.changedFields,
+        recipients: notification.recipients || [],
+      },
+    };
+    return {
+      chatMessagesByConversation: {
+        ...state.chatMessagesByConversation,
+        [conversationId]: [...existing, message],
+      },
+    };
+  });
+});
+
 socket.on('task.sync', ({ projectPath, conversationId, tasks: syncedTasks, blockers: syncedBlockers }: { projectPath: string; conversationId: string; tasks: any[]; blockers?: any[] }) => {
   useTaskHubStore.setState({ lastTaskSyncAt: new Date().toISOString(), taskSyncError: null });
   const store = useTaskHubStore.getState();
@@ -2096,11 +2226,27 @@ socket.on('task.sync', ({ projectPath, conversationId, tasks: syncedTasks, block
       continue;
     }
 
-    if (existing.status !== synced.status || existing.agentId !== synced.agent) {
+    const nextDescription = synced.deliverable || existing.description;
+    const nextDependencies = synced.depends || existing.dependencies;
+    const changed =
+      existing.status !== synced.status ||
+      existing.agentId !== synced.agent ||
+      existing.title !== synced.title ||
+      existing.description !== nextDescription ||
+      JSON.stringify(existing.dependencies || []) !== JSON.stringify(nextDependencies || []);
+    if (changed) {
       useTaskHubStore.setState((state) => ({
         tasks: state.tasks.map((t) =>
           t.id === synced.id
-            ? { ...t, status: synced.status, agentId: synced.agent || t.agentId, updatedAt: new Date().toISOString() }
+            ? {
+                ...t,
+                title: synced.title || t.title,
+                description: nextDescription,
+                status: synced.status,
+                agentId: synced.agent || t.agentId,
+                dependencies: nextDependencies,
+                updatedAt: new Date().toISOString(),
+              }
             : t
         ),
       }));

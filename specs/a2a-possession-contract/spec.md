@@ -67,7 +67,7 @@ interface A2AChain {
   rootTriggerType: 'user_turn' | 'scheduled' | 'system';
   rootTriggerId: string;
   status: 'active' | 'completed' | 'aborted' | 'timeout';
-  currentHolderId: string; // user or runtime agent id
+  currentHolderId: string; // latest active holder for compatibility UI
   createdAt: string;
   completedAt?: string;
   config: A2AChainConfig;
@@ -76,7 +76,8 @@ interface A2AChain {
 
 Chain rules:
 
-- A chain has exactly one current holder.
+- A chain may have one or more active branch holders after an explicit fan-out.
+- `currentHolderId` is a compatibility pointer to the latest started holder; open possessions are the source of truth for holder eligibility.
 - A new user turn may either continue the active possession, interrupt it, or create a new chain.
 - A completed or aborted chain never receives new passes.
 - Chain status is derived from possessions and passes, not from raw chat messages.
@@ -108,7 +109,8 @@ interface A2APossession {
 
 Possession rules:
 
-- Only the open possession holder can pass the ball.
+- Only an open possession holder can pass the ball.
+- Multiple open possessions may coexist when one holder fans out to multiple targets in the same handoff turn.
 - All holder text, tool use, tool results, system feedback, and relevant user follow-ups during the possession form the possession buffer.
 - The buffer is not forwarded as raw chat history.
 - The possession ends when the holder completes, aborts, or successfully passes the ball.
@@ -116,7 +118,7 @@ Possession rules:
 
 ### Pass
 
-A pass is an explicit handoff from the current holder to a target runtime agent.
+A pass is an explicit handoff from an active holder to a target runtime agent.
 
 ```typescript
 interface A2APass {
@@ -147,7 +149,7 @@ interface A2APass {
 
 Pass rules:
 
-- A pass must be created by the current holder.
+- A pass must be created by an active holder.
 - A pass must target a runtime roster member.
 - A pass must pass communication policy before it can be offered.
 - A pass must not become `started` until the execution adapter confirms an agent process/session has started.
@@ -252,6 +254,8 @@ user possession
 
 Direct user pass may have looser communication policy than agent-originated pass, but it still must validate roster, runtime profile, account, and execution availability.
 
+If a user explicitly targets multiple runtime agents in one turn, the server registers one pass and one open possession per target. These branch holders may complete or pass onward independently.
+
 ### Agent Pass
 
 ```text
@@ -267,6 +271,8 @@ agent possession completes or requests handoff
   -> previous possession.completed
   -> new possession.open(holder=targetAgent)
 ```
+
+If an agent creates multiple explicit passes in one response, all targets are offered in the same dispatch cycle when idle. Once started, each target becomes an independent branch holder. A later response from any open branch holder is valid even if `currentHolderId` points at another branch.
 
 ### Completion Without Pass
 
@@ -322,6 +328,12 @@ User-facing messages:
 - `missing_runtime_profile`: "请先为该角色绑定可用账号或执行引擎"
 
 The generic message "A2A 链超时终止 (120s)" is deprecated.
+
+Busy-target compatibility behavior:
+
+- If the browser/runtime reports the target is busy, the server records the delivery as `deferred` and returns the worklist entry to `queued`.
+- Deferred entries are retried when the target reports idle/done.
+- Busy targets must not be marked `executing`, and they must not be converted into permanent pass failures unless a later retry or timeout fails.
 
 ## Event Protocol
 
@@ -455,6 +467,22 @@ The first implementation may use deterministic extraction:
 
 Later implementations may use a summarizer, but the packet schema must remain stable.
 
+## Task Graph Integration
+
+When Group Chat Task Flow is enabled, A2A possession handoffs must be task-linked.
+
+Task-linked handoff rules:
+
+- A pass that moves work between agents should reference the target task id.
+- The handoff packet should include task summary, blockers, artifact refs, open questions, and constraints.
+- A task handoff begins with `task.handoff_requested`.
+- Task ownership changes only after the receiving runtime acknowledges start and `task.handoff_accepted` is recorded.
+- If a pass is blocked, rejected, timed out, or errors, the existing task owner remains unchanged.
+- A2A must not infer task split, merge, completion, or reopen from casual chat text; those changes belong to Task Graph structured actions.
+- Compatibility dispatch payloads should preserve the task link as `referencedTaskId` so group chat cards and task detail navigation stay aligned during migration.
+
+This keeps A2A responsible for collaboration transfer while Task Graph remains responsible for durable task state.
+
 ## Loop and Fanout Policy
 
 - One possession can create at most one active pass by default.
@@ -530,6 +558,13 @@ System Control Plane is responsible for:
 
 During migration, this spec may still describe compatibility behavior using `a2a:dispatch` and worklist entries. The target architecture is that A2A submits a pass intent to `DispatchGateway` and receives a phase-specific result.
 
+Compatibility delivery outbox:
+
+- Server-originated A2A dispatches are persisted in `a2a_delivery` before emitting socket events.
+- `a2a_delivery` stores conversation, chain, worklist entry, pass, target agent, payload, delivery status, attempt count, and last error.
+- Conversation room join triggers resend for active `sent` deliveries whose worklist entry is still `dispatching`.
+- Client busy feedback marks the delivery `deferred`; retry increments attempts and emits a fresh compatibility `a2a:dispatch`.
+
 ### Keep
 
 - Team Runtime roster resolution
@@ -562,20 +597,35 @@ Current implementation status:
 - The existing `invocation_chain` and `chain_worklist` path remains readable and executable during migration.
 - Server dispatch now creates offered passes and handoff packets before emitting compatibility `a2a:dispatch`.
 - Client ACK uses `a2a:agent-started`; only then does the server mark the worklist entry executing and transfer possession.
+- Task-linked dispatch now records `task.handoff_requested` on pass creation and `task.handoff_accepted` only after the receiver start acknowledgement.
 - Agent-originated `@mention` scanning now requires actionable pass intent; ordinary mentions remain diagnostics and do not wake agents.
-- Dispatch summary language such as "派发/分配/指派 @agent" is treated as actionable handoff intent, including compact table-like summaries.
+- Non-actionable notification language such as "通知 @agent 查看结果" remains a task/group-chat awareness event, not an A2A handoff; the system emits a neutral scoped awareness notice rather than an error-style block message, and tells the agent to use "`@agent 请/需要 + 动作 + 交付物`" for execution requests.
+- The prompt composer injects the collaboration protocol into agent prompts so agents learn the same boundary before they respond: task/status updates use Task Graph or `TASKS.md`; notification-style mentions are awareness only; A2A requires "`@agent 请/需要 + 动作 + 具体交付物`".
+- Actionable pass intent recognizes common task-flow verbs including 启动、执行、完成、认领、推进, and English implementation verbs such as fix and update. Completed-state language remains non-actionable.
+- Dispatch summary language such as "重新派发/重新分配/重新指派 @agent" is treated as actionable handoff intent, including compact table-like summaries; completed-state text such as "已分配给 @agent" does not create a new pass.
+- Mention scanning now evaluates repeated mentions so a later actionable `@agent` request is not hidden by an earlier contextual mention.
+- Generic explanatory placeholders such as `@mention`, `@agent`, and `@username` are ignored by unresolved-target diagnostics.
 - Multiple queued, idle targets created from the same holder response are offered in the same dispatch cycle so a batch handoff can wake parallel agents.
+- Multiple branch holders can complete independently; open possession rows, not the compatibility `currentHolderId`, decide whether an agent may respond or pass onward.
+- Client-driven direct user fan-out registers every successful target as an independent started pass instead of treating only the first target as holder.
+- Server-originated compatibility dispatches are persisted in `a2a_delivery` and resent on conversation room join while still awaiting client acknowledgement.
+- Client busy feedback now defers and retries delivery instead of marking the pass failed immediately.
+- A2A socket events are scoped to the conversation room instead of global broadcast; clients join the selected conversation room on connect and conversation switch.
+- Possession chain, possession, pass, and packet multi-table mutations are wrapped in SQLite transactions to avoid split-brain state after crashes.
+- Orchestrator startup rebuilds active agent state, entry-pass links, task handoff links, accepted pass ids, dedup ripple state, and dispatch timers from SQLite.
+- Timeout handling is phase-specific for compatibility flow offer, run, and holder idle phases, with `startTimeoutMs` reserved for the accepted-before-process-start protocol phase.
+- Handoff packets now extract a possession summary, relevant decisions, evidence refs, and open questions from holder text instead of keeping those sections empty.
 - The UI consumes possession socket events and shows current holder, recent handoff, blocked handoff reasons, and an expandable recent handoff timeline in the chat workspace.
 - Full historical debug views and timeout subtype filtering remain future work.
 
 ## Acceptance Criteria
 
 - User can start a chain and pass to one agent.
-- Only the current holder can pass to the next agent.
+- Only an active holder can pass to the next agent.
 - Agent multi-turn output is merged into one handoff packet.
 - Mentioning a non-roster agent produces a clear block message, not a timeout.
 - Missing runtime/account rejects before pass acceptance.
-- Busy targets do not become `executing`; they remain pending or rejected with a clear reason.
+- Busy targets do not become `executing`; they remain queued/deferred for retry or later fail with a clear reason.
 - Timeout messages identify the failed phase.
 - Chain completion is derived from possession/pass states.
 - No old possession can wake an agent after a newer user turn takes over.

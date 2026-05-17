@@ -416,6 +416,33 @@ export const a2aHandoffPacket = sqliteTable('a2a_handoff_packet', {
 export type A2aHandoffPacketRow = InferSelectModel<typeof a2aHandoffPacket>;
 export type NewA2aHandoffPacketRow = InferInsertModel<typeof a2aHandoffPacket>;
 
+export const a2aDelivery = sqliteTable('a2a_delivery', {
+  id: text('id').primaryKey(),
+  conversationId: text('conversation_id').notNull()
+    .references(() => conversation.id),
+  chainId: text('chain_id').notNull()
+    .references(() => invocationChain.id),
+  entryId: text('entry_id').notNull()
+    .references(() => chainWorklist.id),
+  passId: text('pass_id'),
+  agentId: text('agent_id').notNull(),
+  eventType: text('event_type').notNull().default('a2a:dispatch'),
+  payload: text('payload').notNull().default('{}'),
+  status: text('status').notNull().default('pending'),
+  attempts: integer('attempts').notNull().default(0),
+  lastError: text('last_error'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  index('idx_a2a_delivery_conv').on(table.conversationId, table.status),
+  index('idx_a2a_delivery_entry').on(table.entryId),
+  index('idx_a2a_delivery_agent').on(table.agentId, table.status),
+  uniqueIndex('uq_a2a_delivery_entry').on(table.entryId),
+]);
+
+export type A2aDeliveryRow = InferSelectModel<typeof a2aDelivery>;
+export type NewA2aDeliveryRow = InferInsertModel<typeof a2aDelivery>;
+
 // ──────────────────────────────────────────────
 // System Control Plane: proof events
 // ──────────────────────────────────────────────
@@ -527,6 +554,110 @@ export const executionEnvelope = sqliteTable('execution_envelope', {
 
 export type ExecutionEnvelopeRow = InferSelectModel<typeof executionEnvelope>;
 export type NewExecutionEnvelopeRow = InferInsertModel<typeof executionEnvelope>;
+
+// ──────────────────────────────────────────────
+// Group Chat Task Graph: task actions
+// ──────────────────────────────────────────────
+export const taskAction = sqliteTable('task_action', {
+  id: text('id').primaryKey(),
+  conversationId: text('conversation_id').notNull()
+    .references(() => conversation.id),
+  actorId: text('actor_id').notNull(),
+  actorType: text('actor_type').notNull(),
+  type: text('type').notNull(),
+  taskIds: text('task_ids').notNull().default('[]'),
+  messageId: text('message_id'),
+  passId: text('pass_id'),
+  possessionId: text('possession_id'),
+  proofEventId: text('proof_event_id'),
+  payload: text('payload').notNull().default('{}'),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  index('idx_task_action_conv').on(table.conversationId),
+  index('idx_task_action_type').on(table.type),
+  index('idx_task_action_message').on(table.messageId),
+  index('idx_task_action_pass').on(table.passId),
+]);
+
+export type TaskActionRow = InferSelectModel<typeof taskAction>;
+export type NewTaskActionRow = InferInsertModel<typeof taskAction>;
+
+// ──────────────────────────────────────────────
+// Group Chat Task Graph: task edges
+// ──────────────────────────────────────────────
+export const taskEdge = sqliteTable('task_edge', {
+  id: text('id').primaryKey(),
+  conversationId: text('conversation_id').notNull()
+    .references(() => conversation.id),
+  fromTaskId: text('from_task_id').notNull()
+    .references(() => task.id),
+  toTaskId: text('to_task_id').notNull()
+    .references(() => task.id),
+  type: text('type').notNull(),
+  createdByActionId: text('created_by_action_id').notNull()
+    .references(() => taskAction.id),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  uniqueIndex('uq_task_edge').on(table.fromTaskId, table.toTaskId, table.type),
+  index('idx_task_edge_conv').on(table.conversationId),
+  index('idx_task_edge_from').on(table.fromTaskId),
+  index('idx_task_edge_to').on(table.toTaskId),
+  index('idx_task_edge_type').on(table.type),
+]);
+
+export type TaskEdgeRow = InferSelectModel<typeof taskEdge>;
+export type NewTaskEdgeRow = InferInsertModel<typeof taskEdge>;
+
+// ──────────────────────────────────────────────
+// Group Chat Task Graph: artifact references
+// ──────────────────────────────────────────────
+export const taskArtifactRef = sqliteTable('task_artifact_ref', {
+  id: text('id').primaryKey(),
+  conversationId: text('conversation_id').notNull()
+    .references(() => conversation.id),
+  taskId: text('task_id').notNull()
+    .references(() => task.id),
+  kind: text('kind').notNull(),
+  label: text('label').notNull(),
+  path: text('path'),
+  url: text('url'),
+  proofEventId: text('proof_event_id'),
+  createdByActionId: text('created_by_action_id').notNull()
+    .references(() => taskAction.id),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  index('idx_task_artifact_conv').on(table.conversationId),
+  index('idx_task_artifact_task').on(table.taskId),
+  index('idx_task_artifact_action').on(table.createdByActionId),
+]);
+
+export type TaskArtifactRefRow = InferSelectModel<typeof taskArtifactRef>;
+export type NewTaskArtifactRefRow = InferInsertModel<typeof taskArtifactRef>;
+
+// ──────────────────────────────────────────────
+// Group Chat Task Graph: chat bindings
+// ──────────────────────────────────────────────
+export const chatTaskBinding = sqliteTable('chat_task_binding', {
+  id: text('id').primaryKey(),
+  conversationId: text('conversation_id').notNull()
+    .references(() => conversation.id),
+  messageId: text('message_id').notNull()
+    .references(() => chatMessage.id),
+  taskId: text('task_id').notNull()
+    .references(() => task.id),
+  actionId: text('action_id')
+    .references(() => taskAction.id),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  uniqueIndex('uq_chat_task_binding').on(table.messageId, table.taskId, table.actionId),
+  index('idx_chat_task_binding_conv').on(table.conversationId),
+  index('idx_chat_task_binding_message').on(table.messageId),
+  index('idx_chat_task_binding_task').on(table.taskId),
+  index('idx_chat_task_binding_action').on(table.actionId),
+]);
+
+export type ChatTaskBindingRow = InferSelectModel<typeof chatTaskBinding>;
+export type NewChatTaskBindingRow = InferInsertModel<typeof chatTaskBinding>;
 
 // ──────────────────────────────────────────────
 // team_pack

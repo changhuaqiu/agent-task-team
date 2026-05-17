@@ -33,7 +33,7 @@ interface KanbanCardProps {
   onContextMenu?: (e: React.MouseEvent) => void;
 }
 
-export function KanbanCard({ task, theme, onClick, onContextMenu }: KanbanCardProps) {
+export const KanbanCard = React.memo(function KanbanCard({ task, theme, onClick, onContextMenu }: KanbanCardProps) {
   const {
     attributes,
     listeners,
@@ -121,4 +121,4 @@ export function KanbanCard({ task, theme, onClick, onContextMenu }: KanbanCardPr
       )}
     </div>
   );
-}
+});

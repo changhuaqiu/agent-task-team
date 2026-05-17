@@ -60,6 +60,20 @@ export interface Task {
 let taskCounter = 1;
 let statePhasesSeq = 1;
 
+// --- Task lookup index (O(1) by reference equality) ---
+
+let _taskLookup: Record<string, Task> = {};
+let _taskLookupRef: Task[] | null = null;
+
+function getTaskLookup(tasks: Task[]): Record<string, Task> {
+  if (tasks !== _taskLookupRef) {
+    _taskLookupRef = tasks;
+    _taskLookup = {};
+    for (const t of tasks) _taskLookup[t.id] = t;
+  }
+  return _taskLookup;
+}
+
 export function setTaskCounter(val: number) { taskCounter = val; }
 export function getTaskCounter() { return taskCounter; }
 
@@ -84,6 +98,7 @@ function getProposalAgentId(state: any, conv: any): string | null {
 
 // --- Task Slice Creator ---
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- set/get typed as any to avoid circular dependency with TaskHubState
 export const createTaskSlice = (set: any, get: () => any) => {
   return {
     tasks: [] as Task[],
@@ -101,7 +116,7 @@ export const createTaskSlice = (set: any, get: () => any) => {
     },
 
     getTaskById: (taskId: string): Task | undefined => {
-      return get().tasks.find((t: Task) => t.id === taskId);
+      return getTaskLookup(get().tasks)[taskId];
     },
 
     getAgentCurrentTask: (agentId: string): Task | undefined => {
@@ -169,6 +184,12 @@ export const createTaskSlice = (set: any, get: () => any) => {
           prompt: `You are assigned ${taskId}: ${title}. ${description}. Reply with your plan and next steps.`,
         });
       }
+
+      fetch('/api/mutations', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ type: 'task.update', payload: { id: taskId, ...patch } }),
+      }).catch((err: any) => console.error('[mutation] task.update failed:', err));
     },
 
     updateTaskStatus: (taskId: string, status: TaskStatus, reviewNote?: string) => {

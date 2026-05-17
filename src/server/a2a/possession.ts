@@ -132,6 +132,18 @@ export class PossessionRepo {
     return row ? this.rowToPossession(row) : null;
   }
 
+  getOpenPossessionForHolder(chainId: string, holderId: string): A2APossession | null {
+    const row = this.db.prepare(`
+      SELECT * FROM a2a_possession
+      WHERE chain_id = ?
+        AND holder_id = ?
+        AND status IN ('open', 'handoff_drafted', 'handoff_offered', 'handoff_accepted', 'handoff_started')
+      ORDER BY started_at DESC
+      LIMIT 1
+    `).get(chainId, holderId) as any;
+    return row ? this.rowToPossession(row) : null;
+  }
+
   createPass(input: {
     chainId: string;
     fromHolderId: string;
@@ -139,11 +151,8 @@ export class PossessionRepo {
     intent: PassIntent;
     packet: Omit<A2AHandoffPacket, 'id' | 'chainId' | 'passId' | 'fromHolderId' | 'toAgentId' | 'createdAt'>;
   }): { pass: A2APass; packet: A2AHandoffPacket } {
-    const possession = this.getOpenPossession(input.chainId);
+    const possession = this.getOpenPossessionForHolder(input.chainId, input.fromHolderId);
     if (!possession) throw new Error(`No open possession for chain ${input.chainId}`);
-    if (possession.holderId !== input.fromHolderId) {
-      throw new Error(`Current holder is ${possession.holderId}, not ${input.fromHolderId}`);
-    }
 
     const now = new Date().toISOString();
     const passId = genId('pass');
@@ -209,7 +218,8 @@ export class PossessionRepo {
     phase: PassBlockPhase;
     reason: string;
   }): A2APass | null {
-    const possession = this.getOpenPossession(input.chainId);
+    const possession = this.getOpenPossessionForHolder(input.chainId, input.fromHolderId)
+      ?? this.getOpenPossession(input.chainId);
     if (!possession) return null;
     const now = new Date().toISOString();
     const id = genId('pass');

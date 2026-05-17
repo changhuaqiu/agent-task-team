@@ -48,7 +48,7 @@ export class AgentMessenger {
     response: string,
     ctx: { conversationId: string; taskId?: string; triggerMessageId?: string; chainDepth: number; epochId?: string },
   ): Promise<void> {
-    this.orchestrator.onAgentResponse(agentId, response, ctx.conversationId);
+    this.orchestrator.onAgentResponse(agentId, response, ctx.conversationId, ctx.taskId);
   }
 
   onUserMessage(conversationId: string, messageId: string, targetAgentId?: string, prompt?: string): void {
@@ -64,8 +64,9 @@ export class AgentMessenger {
     messageId: string,
     targetAgentIds: string[],
     prompt: string,
+    taskId?: string,
   ): void {
-    this.orchestrator.registerExternalUserDispatch(conversationId, messageId, targetAgentIds, prompt);
+    this.orchestrator.registerExternalUserDispatch(conversationId, messageId, targetAgentIds, prompt, taskId);
   }
 
   abortConversationChains(conversationId: string, reason: string): number {

@@ -1,5 +1,6 @@
 'use client';
 
+import React from 'react';
 import type { LucideIcon } from 'lucide-react';
 
 interface EmptyStateProps {
@@ -10,7 +11,7 @@ interface EmptyStateProps {
   className?: string;
 }
 
-export function EmptyState({
+export const EmptyState = React.memo(function EmptyState({
   icon: Icon,
   title,
   description,
@@ -50,4 +51,4 @@ export function EmptyState({
       )}
     </div>
   );
-}
+});

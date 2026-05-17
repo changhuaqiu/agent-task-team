@@ -14,6 +14,13 @@ export interface ChatMessage {
   conversationId?: string;
   isApprovalRequest?: boolean;
   referencedTaskId?: string;
+  taskRefs?: {
+    id: string;
+    title: string;
+    status?: string;
+    ownerAgentId?: string;
+  }[];
+  taskActionIds?: string[];
   approvalStatus?: 'pending' | 'approved' | 'rejected';
   mentions?: string[];
   intent?: 'ideate' | 'execute' | 'review' | 'general' | 'progress' | 'task_status';

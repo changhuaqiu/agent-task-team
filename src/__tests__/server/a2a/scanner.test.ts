@@ -43,10 +43,11 @@ describe('scanMentions', () => {
     expect(result[0].agentId).toBe('luigi');
   });
 
-  it('returns max 2 targets', () => {
+  it('bounds mention scan results defensively', () => {
     const text = '@luigi 做前端\n@toad 做测试\n@mario 不算自己';
     const result = scanMentions(text, AGENTS, 'mario');
-    expect(result.length).toBeLessThanOrEqual(2);
+    expect(result.length).toBeLessThanOrEqual(12);
+    expect(result.map((target) => target.agentId)).toEqual(['luigi', 'toad']);
   });
 
   it('uses longest match to prevent prefix collision', () => {
@@ -65,6 +66,14 @@ describe('scanMentions', () => {
     const result = scanMentions(text, AGENTS, 'mario');
     expect(result).toHaveLength(1);
     expect(result[0].agentId).toBe('luigi');
+  });
+
+  it('returns repeated mentions so pass intent can choose the actionable one', () => {
+    const text = '我参考了 @luigi 的旧方案。\n@luigi 请实现新的任务图加载兜底逻辑';
+    const result = scanMentions(text, AGENTS, 'mario');
+    expect(result).toHaveLength(2);
+    expect(result.every((target) => target.agentId === 'luigi')).toBe(true);
+    expect(result[1].position).toBeGreaterThan(result[0].position);
   });
 
   it('returns empty for no mentions', () => {
@@ -105,6 +114,12 @@ describe('findUnresolvedMentionTokens', () => {
     const text = '请 @dk 做架构评审，然后 @luigi 实现';
     const result = findUnresolvedMentionTokens(text, AGENTS, 'mario');
     expect(result).toEqual(['@dk']);
+  });
+
+  it('ignores generic mention placeholders in explanatory text', () => {
+    const text = 'A2A 通过 @mention token 触发，但这里的 @agent 只是文档占位符。';
+    const result = findUnresolvedMentionTokens(text, AGENTS, 'mario');
+    expect(result).toEqual([]);
   });
 
   it('ignores code blocks and self mentions', () => {

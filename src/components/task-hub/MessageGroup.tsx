@@ -14,7 +14,9 @@ interface MessageGroupProps {
   forceExpand?: boolean;
 }
 
-export function MessageGroup({ messages, themeColor, agentEmoji, agentName, defaultExpanded, forceExpand }: MessageGroupProps) {
+import React from 'react';
+
+export const MessageGroup = React.memo(function MessageGroup({ messages, themeColor, agentEmoji, agentName, defaultExpanded, forceExpand }: MessageGroupProps) {
   const [expanded, setExpanded] = useState(defaultExpanded);
 
   // External force-expand (e.g. when a message in this group starts streaming)
@@ -55,4 +57,4 @@ export function MessageGroup({ messages, themeColor, agentEmoji, agentName, defa
       )}
     </div>
   );
-}
+});

@@ -6,10 +6,14 @@ import {
   useTaskHubStore,
   resolveAgentEngine,
 } from '@/store/taskHubStore';
+import { useShallow } from 'zustand/react/shallow';
 import type { Agent } from '@/store/agentStore';
 import { StatusBadge } from './StatusBadge';
 import { TerminalView } from './TerminalView';
 import { RoleCardBadge } from '@/components/role-card/RoleCardBadge';
+import { TaskGraphTimeline } from './TaskGraphTimeline';
+import { TaskGraphActionsPanel } from './TaskGraphActionsPanel';
+import { useTaskGraph } from './useTaskGraph';
 import { cn } from '@/lib/utils';
 import {
   X,
@@ -88,26 +92,43 @@ const statusActions: {
 ];
 
 export function TaskDetailPanel() {
-  const selectedTaskId = useTaskHubStore((s) => s.selectedTaskId);
-  const setSelectedTaskId = useTaskHubStore((s) => s.setSelectedTaskId);
-  const tasks = useTaskHubStore((s) => s.tasks);
-  const updateTaskStatus = useTaskHubStore((s) => s.updateTaskStatus);
-  const updateTask = useTaskHubStore((s) => s.updateTask);
-  const removeTask = useTaskHubStore((s) => s.removeTask);
-  const roleCards = useTaskHubStore((s) => s.roleCards);
-  const getEffectiveRoster = useTaskHubStore((s) => s.getEffectiveRoster);
+  const {
+    selectedTaskId,
+    setSelectedTaskId,
+    tasks,
+    updateTaskStatus,
+    updateTask,
+    removeTask,
+    roleCards,
+    getEffectiveRoster,
+    simulateCliExecution,
+    daemonRuntimes,
+    enableMockRunner,
+    accounts,
+    agentStatus,
+  } = useTaskHubStore(useShallow((s) => ({
+    selectedTaskId: s.selectedTaskId,
+    setSelectedTaskId: s.setSelectedTaskId,
+    tasks: s.tasks,
+    updateTaskStatus: s.updateTaskStatus,
+    updateTask: s.updateTask,
+    removeTask: s.removeTask,
+    roleCards: s.roleCards,
+    getEffectiveRoster: s.getEffectiveRoster,
+    simulateCliExecution: s.simulateCliExecution,
+    daemonRuntimes: s.daemonRuntimes,
+    enableMockRunner: s.enableMockRunner,
+    accounts: s.accounts,
+    agentStatus: s.agentStatus,
+  })));
   const panelRef = useRef<HTMLDivElement>(null);
   const [editingField, setEditingField] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
 
   const task = tasks.find((t) => t.id === selectedTaskId);
+  const { graph, isLoading: graphLoading, error: graphError, refresh: refreshGraph } = useTaskGraph(task?.conversationId);
   const agent = task ? getEffectiveRoster().find((a) => a.id === task.agentId) : null;
-
-  const simulateCliExecution = useTaskHubStore((s) => s.simulateCliExecution);
-  const isRunning = useTaskHubStore((s) => agent ? s.agentStatus[agent.id] === 'busy' : false);
-  const daemonRuntimes = useTaskHubStore((s) => s.daemonRuntimes);
-  const enableMockRunner = useTaskHubStore((s) => s.enableMockRunner);
-  const accounts = useTaskHubStore((s) => s.accounts);
+  const isRunning = agent ? agentStatus[agent.id] === 'busy' : false;
 
   // Close on Escape
   useEffect(() => {
@@ -357,6 +378,29 @@ export function TaskDetailPanel() {
             </div>
           )}
 
+          {graphError && (
+            <div className="rounded-[var(--radius-sm)] border border-[hsl(var(--status-rejected-border))] bg-[hsl(var(--status-rejected-bg))] p-2 text-xs text-[hsl(var(--status-rejected))]">
+              {graphError}
+            </div>
+          )}
+
+          <TaskGraphTimeline
+            graph={graph}
+            taskId={task.id}
+            className={graphLoading ? 'opacity-60' : undefined}
+          />
+
+          <TaskGraphActionsPanel
+            task={{
+              id: task.id,
+              conversationId: task.conversationId,
+              title: task.title,
+              status: task.status,
+              agentId: task.agentId,
+            }}
+            onChanged={refreshGraph}
+          />
+
           {/* Timestamps */}
           <div className="grid grid-cols-2 gap-3 text-[11px]">
             <div>
@@ -418,6 +462,7 @@ export function TaskDetailPanel() {
             onClick={() => {
               removeTask(task.id);
               setSelectedTaskId(null);
+              void refreshGraph();
             }}
             className="flex items-center gap-1.5 text-[11px] font-medium text-[hsl(var(--status-blocked))] hover:underline mt-1"
           >

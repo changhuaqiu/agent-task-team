@@ -2,7 +2,7 @@
 
 > Status: Draft for implementation
 > Date: 2026-05-12
-> Related specs: `team-runtime-contract/`, `a2a-possession-contract/`
+> Related specs: `team-runtime-contract/`, `a2a-possession-contract/`, `group-chat-task-flow/`
 
 ## Problem Statement
 
@@ -447,6 +447,18 @@ Task Authority owns task state, assignment, and leases.
 
 Dispatch may reference a task but must not directly mutate task state without Task Authority.
 
+When Group Chat Task Flow is enabled, Task Authority includes the Task Graph contract:
+
+- task nodes
+- task edges
+- task action events
+- blockers
+- artifact refs
+- split and merge lineage
+- reopen history
+
+The group chat UI may render task capsules and action cards, but durable task state changes must be recorded as task actions.
+
 Task status transitions caused by runtime lifecycle events must go through Control Plane:
 
 - start may move task to `in_progress`
@@ -454,11 +466,24 @@ Task status transitions caused by runtime lifecycle events must go through Contr
 - runtime failure may open blocker state
 - timeout may mark lease expired or task blocked
 
+Task graph transitions caused by A2A must also go through Control Plane:
+
+- task-linked passes record task action events instead of changing ownership from chat text
+- high-impact graph operations such as merge and cancel require confirmation
+- non-owner reassignment of a running task requires confirmation before `task.claimed`
+- blocked task-graph policy decisions are recorded as `task_graph.policy.blocked` proof events
+
+- `task.handoff_requested` may create an A2A pass intent
+- receiver start acknowledgement may record `task.handoff_accepted`
+- blocked or rejected delivery may record a task blocker or failed handoff action
+- review failure may create a reopen or corrective task action
+
 ## Context Plane Integration
 
 Context Plane builds execution payloads from durable references:
 
 - user turn
+- task graph node and edge references
 - task state
 - team runtime profile
 - role card
@@ -535,6 +560,7 @@ Future federation may extend this to a full PII pipeline and trust-level matrix.
 - Runtime health scan marks non-heartbeating nodes stale after 2 missed intervals and unreachable after 3 missed intervals.
 - Existing `terminal:start` dispatch now creates an envelope and proof timeline while preserving the compatibility execution path.
 - Existing A2A compatibility dispatch passes chain/pass metadata into the execution envelope.
+- Task Graph policy now writes proof events for blocked high-impact actions and keeps task action ids correlated through task/pass fields where available.
 - Full directed runtime routing and executor-only envelope consumption remain future work.
 
 ## Acceptance Criteria

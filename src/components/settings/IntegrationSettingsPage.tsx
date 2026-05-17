@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { Breadcrumb } from '@/components/ui/Breadcrumb';
 import { PROVIDER_LABELS, useTaskHubStore } from '@/store/taskHubStore';
+import { useShallow } from 'zustand/react/shallow';
 import { useTeamPackStore } from '@/store/teamPackStore';
 import { cn } from '@/lib/utils';
 import type { CliEngine } from '@/server/types';
@@ -104,18 +105,33 @@ function EmptyLine({ children }: { children: ReactNode }) {
 }
 
 export function IntegrationSettingsPage() {
-  const hasHydrated = useTaskHubStore((s) => s.hasHydrated);
-  const loadFromServer = useTaskHubStore((s) => s.loadFromServer);
-  const accounts = useTaskHubStore((s) => s.accounts);
-  const roleCards = useTaskHubStore((s) => s.roleCards);
-  const skillsMap = useTaskHubStore((s) => s.skillsMap);
-  const daemonRuntimes = useTaskHubStore((s) => s.daemonRuntimes);
-  const providerProfiles = useTaskHubStore((s) => s.providerProfiles);
-  const channelConfigs = useTaskHubStore((s) => s.channelConfigs);
-  const routingPolicies = useTaskHubStore((s) => s.routingPolicies);
-  const updateProviderProfile = useTaskHubStore((s) => s.updateProviderProfile);
-  const updateChannelConfig = useTaskHubStore((s) => s.updateChannelConfig);
-  const updateRoutingPolicy = useTaskHubStore((s) => s.updateRoutingPolicy);
+  const {
+    hasHydrated,
+    loadFromServer,
+    accounts,
+    roleCards,
+    skillsMap,
+    daemonRuntimes,
+    providerProfiles,
+    channelConfigs,
+    routingPolicies,
+    updateProviderProfile,
+    updateChannelConfig,
+    updateRoutingPolicy,
+  } = useTaskHubStore(useShallow((s) => ({
+    hasHydrated: s.hasHydrated,
+    loadFromServer: s.loadFromServer,
+    accounts: s.accounts,
+    roleCards: s.roleCards,
+    skillsMap: s.skillsMap,
+    daemonRuntimes: s.daemonRuntimes,
+    providerProfiles: s.providerProfiles,
+    channelConfigs: s.channelConfigs,
+    routingPolicies: s.routingPolicies,
+    updateProviderProfile: s.updateProviderProfile,
+    updateChannelConfig: s.updateChannelConfig,
+    updateRoutingPolicy: s.updateRoutingPolicy,
+  })));
   const teamPacks = useTeamPackStore((s) => s.teamPacks);
   const fetchTeamPacks = useTeamPackStore((s) => s.fetchTeamPacks);
 

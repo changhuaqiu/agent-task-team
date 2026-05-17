@@ -9,13 +9,21 @@ export interface ChainConfig {
   maxDepth: number;
   maxBreadth: number;
   maxDurationMs: number;
+  offerTimeoutMs: number;
+  startTimeoutMs: number;
+  runTimeoutMs: number;
+  holderIdleTimeoutMs: number;
   allowedAgents?: string[];
 }
 
 export const DEFAULT_CHAIN_CONFIG: ChainConfig = {
   maxDepth: 5,
   maxBreadth: 4,
-  maxDurationMs: 120_000,
+  maxDurationMs: 600_000,
+  offerTimeoutMs: 45_000,
+  startTimeoutMs: 45_000,
+  runTimeoutMs: 600_000,
+  holderIdleTimeoutMs: 120_000,
 };
 
 export type ChainStatus = 'active' | 'completed' | 'aborted' | 'timeout';
@@ -84,6 +92,7 @@ export interface DispatchRequest {
   content: string;
   depth: number;
   intent?: 'delegate' | 'review' | 'answer' | 'verify' | 'implement' | 'plan';
+  taskId?: string;
 }
 
 export type DispatchDecision =

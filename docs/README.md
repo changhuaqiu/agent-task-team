@@ -91,12 +91,14 @@
 ### 产品 / 业务
 
 - `docs/product/ux/2026-05-01-ux-journey-and-gameplay-plan.md`
+- `docs/product/ux/2026-05-15-group-chat-task-flow.md`
 - `docs/product/business/2026-05-01-engineering-role-card-business-plan.md`
 
 ### 技术设计
 
 - `docs/technical/integrations/2026-05-01-cli-channel-auth-config-center.md`
 - `docs/technical/execution/opencode-integration-executable-chain.md`
+- `docs/technical/execution/group-chat-task-graph.md`
 
 说明：
 

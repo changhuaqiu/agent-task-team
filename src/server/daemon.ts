@@ -1,5 +1,7 @@
 import type { Server as IOServer, Socket } from 'socket.io';
 import { join } from 'path';
+import fs from 'node:fs';
+import path from 'node:path';
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
 import { TmuxGateway } from './tmux-gateway';
@@ -80,6 +82,7 @@ const DEFAULT_TIMEOUT_MS = 300_000; // 5 min
 const STRIP_ANSI_RE = /\x1b\[[0-9;]*[a-zA-Z]|\x1b\].*?\x07|\x1b[()>]|\r/g;
 const LOCAL_DAEMON_NODE_ID = 'daemon:local';
 const RUNTIME_HEARTBEAT_INTERVAL_MS = 5_000;
+const OPENCODE_PROJECT_SKILLS_DIR = join('.opencode', 'skills');
 
 type AccountProvider = 'anthropic' | 'openai' | 'google' | 'kimi' | 'opencode' | 'other';
 
@@ -112,6 +115,21 @@ async function detectAvailableRuntimes(): Promise<DetectedRuntime[]> {
     }
   }
   return results;
+}
+
+function resolveOpenCodeProjectSkillPaths(projectPath?: string): string[] {
+  const candidates = [projectPath, process.cwd()]
+    .filter((candidate): candidate is string => !!candidate?.trim());
+
+  const paths = new Set<string>();
+  for (const candidate of candidates) {
+    const skillDir = path.resolve(candidate, OPENCODE_PROJECT_SKILLS_DIR);
+    if (fs.existsSync(skillDir) && fs.statSync(skillDir).isDirectory()) {
+      paths.add(skillDir);
+    }
+  }
+
+  return Array.from(paths);
 }
 
 export default function registerDaemon(io: IOServer) {
@@ -181,6 +199,22 @@ export default function registerDaemon(io: IOServer) {
   // Agent pane listing endpoint
   io.on('connection', (socket: Socket) => {
     let connectedRuntimeNodeId: string | undefined;
+    const joinedConversationIds = new Set<string>();
+
+    socket.on('conversation:join', (payload: { conversationId?: string }) => {
+      const conversationId = payload?.conversationId?.trim();
+      if (!conversationId) return;
+      socket.join(conversationId);
+      joinedConversationIds.add(conversationId);
+      a2aMessenger.orchestrator.resendPendingDeliveries(conversationId);
+    });
+
+    socket.on('conversation:leave', (payload: { conversationId?: string }) => {
+      const conversationId = payload?.conversationId?.trim();
+      if (!conversationId) return;
+      socket.leave(conversationId);
+      joinedConversationIds.delete(conversationId);
+    });
 
     socket.on('runtime:hello', (payload: {
       nodeId?: string;
@@ -213,6 +247,7 @@ export default function registerDaemon(io: IOServer) {
       if (connectedRuntimeNodeId) {
         runtimeNodeRepo.setStatus(connectedRuntimeNodeId, 'stale');
       }
+      joinedConversationIds.clear();
     });
 
     socket.on('agent-panes:list', (callback) => {
@@ -228,6 +263,7 @@ export default function registerDaemon(io: IOServer) {
       messageId?: string;
       targetAgentIds?: string[];
       prompt?: string;
+      taskId?: string;
     }) => {
       const conversationId = payload?.conversationId;
       const messageId = payload?.messageId;
@@ -241,6 +277,7 @@ export default function registerDaemon(io: IOServer) {
           messageId,
           payload.targetAgentIds,
           payload.prompt ?? '',
+          payload.taskId,
         );
       } else {
         a2aMessenger.abortConversationChains(conversationId, 'new_user_message_without_a2a_target');
@@ -252,6 +289,7 @@ export default function registerDaemon(io: IOServer) {
       messageId?: string;
       targetAgentIds?: string[];
       prompt?: string;
+      taskId?: string;
     }) => {
       const conversationId = payload?.conversationId;
       const messageId = payload?.messageId;
@@ -263,6 +301,7 @@ export default function registerDaemon(io: IOServer) {
           messageId,
           payload.targetAgentIds,
           payload.prompt ?? '',
+          payload.taskId,
         );
       } else {
         a2aMessenger.abortConversationChains(conversationId, 'new_user_turn_without_pass');
@@ -300,6 +339,25 @@ export default function registerDaemon(io: IOServer) {
         payload.conversationId,
         payload.agentId,
         payload.reason ?? 'client dispatch failed',
+      );
+    });
+
+    socket.on('a2a:dispatch-deferred', (payload: {
+      chainId?: string;
+      entryId?: string;
+      conversationId?: string;
+      agentId?: string;
+      passId?: string;
+      reason?: string;
+    }) => {
+      if (!payload.chainId || !payload.entryId || !payload.conversationId || !payload.agentId) return;
+      a2aMessenger.orchestrator.markDispatchDeferred(
+        payload.chainId,
+        payload.entryId,
+        payload.conversationId,
+        payload.agentId,
+        payload.reason ?? 'target agent is busy',
+        payload.passId,
       );
     });
 
@@ -494,18 +552,20 @@ export default function registerDaemon(io: IOServer) {
       runtimeConfigDir = undefined;
       let runtimeConfigEnv: Record<string, string> = {};
 
-      if (engine === 'opencode' && accountId) {
-        const account = await readAccount(accountId);
-        const cred = await readCredential(accountId);
-        if (account && cred?.apiKey) {
+      if (engine === 'opencode') {
+        const projectSkillPaths = resolveOpenCodeProjectSkillPaths(projectPath);
+        const account = accountId ? await readAccount(accountId) : undefined;
+        const cred = accountId ? await readCredential(accountId) : undefined;
+        if ((account && cred?.apiKey) || systemPrompt || projectSkillPaths.length > 0) {
           const invocationId = makeInvocationId(agentId);
           const result = generateRuntimeConfig(invocationId, {
-            provider: account.provider as RuntimeAccountProvider,
-            apiKey: cred.apiKey,
-            baseUrl: account.baseUrl,
-            models: account.models,
-            defaultModel: account.models[0],
+            provider: account?.provider as RuntimeAccountProvider | undefined,
+            apiKey: cred?.apiKey,
+            baseUrl: account?.baseUrl,
+            models: account?.models,
+            defaultModel: account?.models?.[0],
             systemPrompt: systemPrompt || undefined,
+            skillPaths: projectSkillPaths,
           });
           if (result.generated) {
             runtimeConfigDir = result.configDir;

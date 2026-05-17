@@ -10,6 +10,8 @@
 - [ ] A2A handoff packets reference task ids and artifacts.
 - [ ] Task ownership changes only after receiver start acknowledgement.
 - [ ] Failed handoffs preserve existing ownership.
+- [ ] Task updates notify related agents without starting A2A handoffs.
+- [ ] Task notifications are persisted in chat history and scoped to the conversation room.
 - [ ] Multiple task branches can merge without deleting source history.
 - [ ] Review failure creates a reopen or corrective task.
 - [ ] Task capsules link chat messages to graph facts.

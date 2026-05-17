@@ -24,22 +24,24 @@ export function scanMentions(
   }
   patterns.sort((a, b) => b.pattern.length - a.pattern.length);
 
-  const targets: MentionTarget[] = [];
-  const seen = new Set<string>();
+  const matches: MentionTarget[] = [];
   const consumedRanges: [number, number][] = []; // [start, end) of matched positions
 
   // Search entire text for @mentions (not just line start)
   for (const { pattern, agentId } of patterns) {
     if (agentId === selfAgentId) continue;
-    if (seen.has(agentId)) continue;
-    if (targets.length >= MAX_TARGETS) break;
 
     // Search for the pattern anywhere in the text (case-insensitive)
-    const idx = stripped.toLowerCase().indexOf(pattern.toLowerCase());
-    if (idx !== -1) {
+    const lower = stripped.toLowerCase();
+    const normalizedPattern = pattern.toLowerCase();
+    let idx = lower.indexOf(normalizedPattern);
+    while (idx !== -1) {
       // Skip if this position is already consumed by a longer match
       const overlaps = consumedRanges.some(([start, end]) => idx >= start && idx < end);
-      if (overlaps) continue;
+      if (overlaps) {
+        idx = lower.indexOf(normalizedPattern, idx + pattern.length);
+        continue;
+      }
 
       // Verify token boundary: char before @ is whitespace/start, char after is whitespace/punctuation/EOF
       const prevChar = idx > 0 ? stripped[idx - 1] : undefined;
@@ -50,14 +52,14 @@ export function scanMentions(
       const validNext = nextChar === undefined || /[\s\p{P}]/u.test(nextChar);
 
       if (validPrev && validNext) {
-        seen.add(agentId);
         consumedRanges.push([idx, afterEnd]);
-        targets.push({ agentId, position: idx, pattern });
+        matches.push({ agentId, position: idx, pattern });
       }
+      idx = lower.indexOf(normalizedPattern, idx + pattern.length);
     }
   }
 
-  return targets;
+  return matches.sort((a, b) => a.position - b.position).slice(0, MAX_TARGETS);
 }
 
 export function findUnresolvedMentionTokens(
@@ -77,11 +79,13 @@ export function findUnresolvedMentionTokens(
       .flatMap((agent) => agent.mentionPatterns.map((pattern) => pattern.toLowerCase())),
   );
   const unresolved = new Set<string>();
+  const genericPlaceholders = new Set(['@mention', '@agent', '@agents', '@username', '@user']);
   const tokenPattern = /(^|[\s\p{P}])(@[\p{L}\p{N}_-]+)/gu;
   let match: RegExpExecArray | null;
   while ((match = tokenPattern.exec(stripped)) !== null) {
     const token = match[2];
     const normalized = token.toLowerCase();
+    if (genericPlaceholders.has(normalized)) continue;
     if (knownPatterns.has(normalized) || selfPatterns.has(normalized)) continue;
     unresolved.add(token);
   }
@@ -117,10 +121,12 @@ export function extractMentionContent(fullText: string, target: MentionTarget): 
   }
 
   // Find end: next @mention or end of text
-  const nextMention = stripped.indexOf(' @', contentStart);
-  const end = nextMention !== -1 ? nextMention : stripped.length;
+  const rest = stripped.slice(contentStart);
+  const nextMentionMatch = /(^|[\s\p{P}])@[\p{L}\p{N}_-]+/u.exec(rest);
+  const end = nextMentionMatch ? contentStart + nextMentionMatch.index : stripped.length;
   const content = stripped.slice(contentStart, end).trim();
 
-  // If we extracted meaningful content, use it; otherwise fall back to full text
-  return content.length > 10 ? content : fullText;
+  // If we extracted mention-local content, keep it local; falling back to the
+  // full response can make an earlier contextual mention borrow a later action.
+  return content.length > 0 ? content : fullText;
 }

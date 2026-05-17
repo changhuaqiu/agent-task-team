@@ -139,6 +139,31 @@ describe('generateRuntimeConfig: non-native providers', () => {
 // ─── Config JSON structure ───
 
 describe('generateRuntimeConfig: config JSON structure', () => {
+  it('mounts project-local skill paths and allows skill loading', () => {
+    const result = generate({
+      skillPaths: ['/repo/.opencode/skills', '/repo/.opencode/skills'],
+    });
+
+    expect(result.generated).toBe(true);
+    const config = JSON.parse(fs.readFileSync(result.configPath!, 'utf-8'));
+    expect(config.skills).toEqual({ paths: ['/repo/.opencode/skills'] });
+    expect(config.permission).toEqual({ skill: { '*': 'allow' } });
+  });
+
+  it('can generate skill-only config without provider credentials', () => {
+    const result = generate({
+      systemPrompt: 'system',
+      skillPaths: ['/repo/.opencode/skills'],
+    });
+
+    const config = JSON.parse(fs.readFileSync(result.configPath!, 'utf-8'));
+    expect(config.provider).toBeUndefined();
+    expect(config.model).toBeUndefined();
+    expect(config.instructions).toHaveLength(1);
+    expect(config.skills.paths).toEqual(['/repo/.opencode/skills']);
+    expect(result.env.ATH_OC_API_KEY).toBeUndefined();
+  });
+
   it('uses {env:ATH_OC_API_KEY} placeholder — never raw API key', () => {
     const result = generate({
       provider: 'kimi',

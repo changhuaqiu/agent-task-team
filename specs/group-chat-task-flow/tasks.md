@@ -1,62 +1,75 @@
 # Group Chat Task Flow Tasks
 
-> Status: Draft
+> Status: Implemented baseline
 > Date: 2026-05-15
 
 ## Phase 1: Contract and Persistence
 
-- [ ] Define `TaskGraph`, `TaskNode`, `TaskEdge`, `TaskAction`, and `ArtifactRef` types.
-- [ ] Decide whether to extend existing task tables or add graph-specific tables.
-- [ ] Add durable task action event storage.
-- [ ] Add graph reconstruction from task action events.
-- [ ] Add migration path for existing conversation tasks.
-- [ ] Add repository tests for split, dependency, merge, reopen, and cancel flows.
+- [x] Define `TaskGraph`, `TaskNode`, `TaskEdge`, `TaskAction`, and `ArtifactRef` types.
+- [x] Decide whether to extend existing task tables or add graph-specific tables.
+- [x] Add durable task action event storage.
+- [x] Add graph reconstruction from task action events.
+- [x] Add migration path for existing conversation tasks.
+- [x] Add repository tests for split, dependency, and merge flows.
+- [x] Add repository tests for reopen flows.
+- [x] Add repository tests for cancel flows.
 
 ## Phase 2: Chat and Task Binding
 
-- [ ] Extend chat messages with referenced task ids and action ids.
-- [ ] Render task capsules inside group chat messages.
-- [ ] Render task action cards for split, claim, handoff, block, merge, review, and reopen events.
-- [ ] Collapse verbose runtime logs behind details.
-- [ ] Add message-to-task detail navigation.
+- [x] Extend chat messages with referenced task ids and action ids.
+- [x] Render task capsules inside group chat messages.
+- [x] Render task action cards for split, claim, handoff, block, merge, review, and reopen events.
+- [x] Collapse verbose runtime logs behind details.
+- [x] Add message-to-task detail navigation.
+- [x] Add read-only Task Graph API for conversation graph views.
 
 ## Phase 3: Multi-Task Flow
 
-- [ ] Implement root task creation from a user chat request.
-- [ ] Implement one-to-many task splitting.
-- [ ] Implement dependency and waiting-state transitions.
-- [ ] Implement task blocker creation and resume.
-- [ ] Implement many-to-one task merge requests and merge completion.
-- [ ] Implement reopen or corrective task creation after failed review.
+- [x] Implement root task creation from a user chat request.
+- [x] Implement one-to-many task splitting.
+- [x] Implement dependency edge creation for split task flows.
+- [x] Implement task blocker creation and resume.
+- [x] Implement many-to-one task merge completion.
+- [x] Implement reopen or corrective task creation after failed review.
 
 ## Phase 4: A2A Possession Integration
 
-- [ ] Link `task.handoff_requested` to A2A pass creation.
-- [ ] Include target task id and task summary in handoff packets.
-- [ ] Update task owner only after pass start acknowledgement.
-- [ ] Preserve existing owner when handoff is blocked, rejected, or timed out.
-- [ ] Add anti-ping-pong checks for task handoffs.
+- [x] Link `task.handoff_requested` to A2A pass creation.
+- [x] Include target task id and task summary in handoff packets.
+- [x] Update task owner only after pass start acknowledgement.
+- [x] Preserve existing owner when handoff is blocked, rejected, or timed out.
+- [x] Add anti-ping-pong checks for task handoffs.
 
 ## Phase 5: Task Map UI
 
-- [ ] Add task graph view with fan-out and merge visualization.
-- [ ] Add compact list mode for dense task graphs.
-- [ ] Show owner, status, blockers, dependencies, and artifact count on each node.
-- [ ] Add filters by owner, status, branch, and blocked state.
-- [ ] Add task detail panel with linked chat messages and artifacts.
+- [x] Add task graph view with fan-out and merge visualization.
+- [x] Add compact list mode for dense task graphs.
+- [x] Show owner, status, blockers, dependencies, and artifact count on each node.
+- [x] Add filters by owner, status, branch, and blocked state.
+- [x] Add task detail panel with linked chat messages and artifacts.
+- [x] Add task detail timeline with task actions, chat bindings, artifacts, and proof events.
 
 ## Phase 6: User Controls and Policy
 
-- [ ] Add user controls for split, merge, assign, reassign, pause, cancel, unblock, and summarize.
-- [ ] Define which agent-proposed actions auto-apply.
-- [ ] Require confirmation for high-impact merge, cancel, and cross-branch reassignment.
-- [ ] Block dependency cycles and unsafe ownership steals.
-- [ ] Record policy decisions in proof events.
+- [x] Add user controls for split, merge, assign, reassign, pause, cancel, unblock, and summarize.
+- [x] Define which agent-proposed actions auto-apply.
+- [x] Require confirmation for high-impact merge, cancel, and cross-branch reassignment.
+- [x] Block dependency cycles and unsafe ownership steals.
+- [x] Record policy decisions in proof events.
+
+## Phase 6.5: Task Awareness Notifications
+
+- [x] Add a Task Notification contract separate from A2A possession handoff.
+- [x] Resolve related recipients from owner, previous owner, coordinator, reviewer, and dependency owners.
+- [x] Persist notifications as system chat messages.
+- [x] Emit `task.notification` to the conversation room.
+- [x] Publish notifications from task mutation APIs, structured task graph actions, and `TASKS.md` watcher sync.
+- [x] Update agent guidance so status updates use Task Notification instead of A2A handoff.
 
 ## Phase 7: Documentation and Migration
 
-- [ ] Update product UX documentation for group-chat task flow.
-- [ ] Update technical documentation for Task Graph state authority.
-- [ ] Update A2A Possession docs to reference task-linked handoff packets.
-- [ ] Update System Control Plane docs for task-action proof events.
-- [ ] Archive or deprecate conflicting chat-as-state assumptions.
+- [x] Update product UX documentation for group-chat task flow.
+- [x] Update technical documentation for Task Graph state authority.
+- [x] Update A2A Possession docs to reference task-linked handoff packets.
+- [x] Update System Control Plane docs for task-action proof events.
+- [x] Archive or deprecate conflicting chat-as-state assumptions.

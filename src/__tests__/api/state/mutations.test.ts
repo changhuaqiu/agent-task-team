@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -278,6 +278,35 @@ describe('POST /api/mutations', () => {
     expect(taskRepo.getById('task-1')!.status).toBe('in_progress');
   });
 
+  it('task.updateStatus publishes a persisted task notification to related agents', async () => {
+    await seedTask();
+    const emit = vi.fn();
+    const to = vi.fn(() => ({ emit }));
+    const req = mockReq('POST', {
+      type: 'task.updateStatus',
+      payload: { id: 'task-1', status: 'in_review', actorId: 'reviewer', actorType: 'agent' },
+    });
+    const res = mockRes();
+    res.socket = { server: { io: { to, emit: vi.fn() } } };
+
+    await handler(req, res);
+
+    const { messageRepo } = await import('@/server/repositories/message-repo');
+    const messages = messageRepo.getByConversation('conv-1');
+    expect(messages).toHaveLength(1);
+    expect(messages[0].sender_id).toBe('task-notifier');
+    expect(messages[0].content).toContain('@agent-a');
+    expect(JSON.parse(messages[0].metadata ?? '{}')).toMatchObject({
+      startsA2AHandoff: false,
+      taskId: 'task-1',
+    });
+    expect(to).toHaveBeenCalledWith('conv-1');
+    expect(emit).toHaveBeenCalledWith('task.notification', expect.objectContaining({
+      taskId: 'task-1',
+      recipients: ['agent-a'],
+    }));
+  });
+
   it('task.updateStatus with reviewNote', async () => {
     await seedTask();
     const req = mockReq('POST', {
@@ -306,6 +335,24 @@ describe('POST /api/mutations', () => {
     const task = taskRepo.getById('task-1')!;
     expect(task.title).toBe('Renamed');
     expect(task.description).toBe('Updated desc');
+  });
+
+  it('task.update notifies both old and new owners when agentId changes', async () => {
+    await seedTask();
+    const emit = vi.fn();
+    const req = mockReq('POST', {
+      type: 'task.update',
+      payload: { id: 'task-1', agentId: 'agent-b', actorId: 'planner', actorType: 'agent' },
+    });
+    const res = mockRes();
+    res.socket = { server: { io: { to: vi.fn(() => ({ emit })), emit: vi.fn() } } };
+
+    await handler(req, res);
+
+    const { taskRepo } = await import('@/server/repositories/task-repo');
+    const { messageRepo } = await import('@/server/repositories/message-repo');
+    expect(taskRepo.getById('task-1')!.agent_id).toBe('agent-b');
+    expect(JSON.parse(messageRepo.getByConversation('conv-1')[0].mentions ?? '[]')).toEqual(['agent-b', 'agent-a']);
   });
 
   it('task.delete removes task', async () => {

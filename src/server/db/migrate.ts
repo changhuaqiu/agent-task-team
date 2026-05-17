@@ -530,6 +530,111 @@ CREATE INDEX IF NOT EXISTS idx_agent_skill_skill ON agent_skill(skill_id);
     CREATE INDEX IF NOT EXISTS idx_execution_envelope_expires ON execution_envelope(expires_at);
     `,
   },
+  {
+    version: 18,
+    sql: `
+    CREATE TABLE IF NOT EXISTS task_action (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL REFERENCES conversation(id),
+      actor_id TEXT NOT NULL,
+      actor_type TEXT NOT NULL,
+      type TEXT NOT NULL,
+      task_ids TEXT NOT NULL DEFAULT '[]',
+      message_id TEXT,
+      pass_id TEXT,
+      possession_id TEXT,
+      proof_event_id TEXT,
+      payload TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_task_action_conv ON task_action(conversation_id);
+    CREATE INDEX IF NOT EXISTS idx_task_action_type ON task_action(type);
+    CREATE INDEX IF NOT EXISTS idx_task_action_message ON task_action(message_id);
+    CREATE INDEX IF NOT EXISTS idx_task_action_pass ON task_action(pass_id);
+
+    CREATE TABLE IF NOT EXISTS task_edge (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL REFERENCES conversation(id),
+      from_task_id TEXT NOT NULL REFERENCES task(id),
+      to_task_id TEXT NOT NULL REFERENCES task(id),
+      type TEXT NOT NULL,
+      created_by_action_id TEXT NOT NULL REFERENCES task_action(id),
+      created_at TEXT NOT NULL,
+      UNIQUE(from_task_id, to_task_id, type)
+    );
+    CREATE INDEX IF NOT EXISTS idx_task_edge_conv ON task_edge(conversation_id);
+    CREATE INDEX IF NOT EXISTS idx_task_edge_from ON task_edge(from_task_id);
+    CREATE INDEX IF NOT EXISTS idx_task_edge_to ON task_edge(to_task_id);
+    CREATE INDEX IF NOT EXISTS idx_task_edge_type ON task_edge(type);
+
+    CREATE TABLE IF NOT EXISTS task_artifact_ref (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL REFERENCES conversation(id),
+      task_id TEXT NOT NULL REFERENCES task(id),
+      kind TEXT NOT NULL,
+      label TEXT NOT NULL,
+      path TEXT,
+      url TEXT,
+      proof_event_id TEXT,
+      created_by_action_id TEXT NOT NULL REFERENCES task_action(id),
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_task_artifact_conv ON task_artifact_ref(conversation_id);
+    CREATE INDEX IF NOT EXISTS idx_task_artifact_task ON task_artifact_ref(task_id);
+    CREATE INDEX IF NOT EXISTS idx_task_artifact_action ON task_artifact_ref(created_by_action_id);
+
+    CREATE TABLE IF NOT EXISTS chat_task_binding (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL REFERENCES conversation(id),
+      message_id TEXT NOT NULL REFERENCES chat_message(id),
+      task_id TEXT NOT NULL REFERENCES task(id),
+      action_id TEXT REFERENCES task_action(id),
+      created_at TEXT NOT NULL,
+      UNIQUE(message_id, task_id, action_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_chat_task_binding_conv ON chat_task_binding(conversation_id);
+    CREATE INDEX IF NOT EXISTS idx_chat_task_binding_message ON chat_task_binding(message_id);
+    CREATE INDEX IF NOT EXISTS idx_chat_task_binding_task ON chat_task_binding(task_id);
+    CREATE INDEX IF NOT EXISTS idx_chat_task_binding_action ON chat_task_binding(action_id);
+
+    INSERT OR IGNORE INTO task_action
+      (id, conversation_id, actor_id, actor_type, type, task_ids, payload, created_at)
+    SELECT
+      'task-action-migrated-' || id,
+      conversation_id,
+      'system',
+      'system',
+      'task.created',
+      '["' || replace(id, '"', '\\"') || '"]',
+      json_object('title', title, 'status', status, 'ownerAgentId', agent_id, 'migrated', 1),
+      created_at
+    FROM task;
+    `,
+  },
+  {
+    version: 19,
+    sql: `
+    CREATE TABLE IF NOT EXISTS a2a_delivery (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL REFERENCES conversation(id),
+      chain_id TEXT NOT NULL REFERENCES invocation_chain(id),
+      entry_id TEXT NOT NULL REFERENCES chain_worklist(id),
+      pass_id TEXT,
+      agent_id TEXT NOT NULL,
+      event_type TEXT NOT NULL DEFAULT 'a2a:dispatch',
+      payload TEXT NOT NULL DEFAULT '{}',
+      status TEXT NOT NULL DEFAULT 'pending',
+      attempts INTEGER NOT NULL DEFAULT 0,
+      last_error TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_a2a_delivery_conv ON a2a_delivery(conversation_id, status);
+    CREATE INDEX IF NOT EXISTS idx_a2a_delivery_entry ON a2a_delivery(entry_id);
+    CREATE INDEX IF NOT EXISTS idx_a2a_delivery_agent ON a2a_delivery(agent_id, status);
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_a2a_delivery_entry ON a2a_delivery(entry_id);
+    `,
+  },
 ];
 
 export function applyMigrations(db: Database.Database): void {

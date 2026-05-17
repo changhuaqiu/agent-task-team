@@ -2,9 +2,16 @@
 'use client';
 
 import { cn } from '@/lib/utils';
-import { StatusDot } from './StatusDot';
+import { StatusPill } from './StatusDot';
 import { ProjectTreeItemActions } from './ProjectTreeItemActions';
 import type { ProjectHealth } from './getProjectStatus';
+
+const HEALTH_PROGRESS_COLOR: Record<ProjectHealth, string> = {
+  empty: 'hsl(var(--border-subtle))',
+  healthy: 'hsl(var(--status-done))',
+  attention: 'hsl(var(--status-pending))',
+  blocked: 'hsl(var(--status-blocked))',
+};
 
 export function ProjectTreeItem({
   title,
@@ -12,6 +19,7 @@ export function ProjectTreeItem({
   health,
   isSelected,
   taskCount,
+  doneCount,
   blockerCount,
   onSelect,
   onDelete,
@@ -21,10 +29,14 @@ export function ProjectTreeItem({
   health: ProjectHealth;
   isSelected: boolean;
   taskCount: number;
+  doneCount: number;
   blockerCount: number;
   onSelect: () => void;
   onDelete: () => void;
 }) {
+  const progressPct = taskCount > 0 ? (doneCount / taskCount) * 100 : 0;
+  const progressColor = HEALTH_PROGRESS_COLOR[health];
+
   return (
     <div className="group relative pl-4">
       {isSelected && (
@@ -33,6 +45,7 @@ export function ProjectTreeItem({
       <button
         type="button"
         onClick={onSelect}
+        title={goal || undefined}
         className={cn(
           'w-full text-left rounded-[var(--radius-md)] px-3 py-2 transition-colors duration-[var(--duration-fast)]',
           isSelected
@@ -41,7 +54,7 @@ export function ProjectTreeItem({
         )}
       >
         <div className="flex items-center gap-2 min-w-0">
-          <StatusDot health={health} />
+          <StatusPill health={health} />
           <span
             className={cn(
               'text-[12px] text-[hsl(var(--text-primary))] truncate min-w-0',
@@ -50,15 +63,25 @@ export function ProjectTreeItem({
           >
             {title}
           </span>
+          {taskCount > 0 && (
+            <span className="ml-auto shrink-0 text-[10px] tabular-nums text-[hsl(var(--text-tertiary))]">
+              {doneCount}/{taskCount}
+            </span>
+          )}
         </div>
-        <div className="mt-0.5 pl-[14px] text-[11px] text-[hsl(var(--text-tertiary))] truncate">
-          {goal}
-        </div>
-        {isSelected && taskCount > 0 && (
-          <div className="mt-1 pl-[14px] flex items-center gap-2 text-[10px] tabular-nums text-[hsl(var(--text-tertiary))]">
-            <span>{taskCount} 任务</span>
+
+        {taskCount > 0 && (
+          <div className="mt-1.5 flex items-center gap-2">
+            <div className="flex-1 h-[2px] rounded-full bg-[hsl(var(--bg-muted))] overflow-hidden">
+              <div
+                className="h-full rounded-full transition-all duration-300"
+                style={{ width: `${progressPct}%`, backgroundColor: progressColor }}
+              />
+            </div>
             {blockerCount > 0 && (
-              <span className="text-[hsl(var(--status-blocked))]">{blockerCount} 阻塞</span>
+              <span className="text-[10px] tabular-nums text-[hsl(var(--status-blocked))] shrink-0">
+                {blockerCount} 阻塞
+              </span>
             )}
           </div>
         )}

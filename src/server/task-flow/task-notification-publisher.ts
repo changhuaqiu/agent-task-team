@@ -1,0 +1,175 @@
+import type { Server as IOServer } from 'socket.io';
+import { PRESET_ROLE_CARD_MAP } from '@/data/presetRoleCards';
+import type { RoleCard } from '@/types/roleCard';
+import { listAgents } from '../db/agentQueries';
+import { conversationRepo } from '../repositories/conversation-repo';
+import { messageRepo } from '../repositories/message-repo';
+import { taskGraphRepo } from '../repositories/task-graph-repo';
+import { taskRepo } from '../repositories/task-repo';
+import type { TaskRow } from '../repositories/task-repo';
+import { teamPackRepo } from '../repositories/team-pack-repo';
+import {
+  buildTaskNotification,
+  getChangedTaskFields,
+  resolveTaskNotificationRecipients,
+  type TaskNotification,
+  type TaskNotificationActorType,
+  type TaskNotificationKind,
+} from './task-notifications';
+
+export interface PublishTaskNotificationInput {
+  io?: IOServer;
+  kind: TaskNotificationKind;
+  task: TaskRow;
+  previousTask?: TaskRow;
+  actorId?: string;
+  actorType?: TaskNotificationActorType;
+  recipients: string[];
+  changedFields?: string[];
+}
+
+export interface PublishTaskChangeNotificationInput {
+  io?: IOServer;
+  kind: TaskNotificationKind;
+  task: TaskRow;
+  previousTask?: TaskRow;
+  actorId?: string;
+  actorType?: TaskNotificationActorType;
+  changedFields?: string[];
+}
+
+function emitToConversation(io: IOServer | undefined, conversationId: string, notification: TaskNotification): void {
+  if (!io) return;
+  const room = io.to(conversationId);
+  room.emit('task.notification', notification);
+}
+
+function isCoordinator(agentId: string, displayName: string | undefined, roleCard?: RoleCard): boolean {
+  return roleCard?.category === 'planner' ||
+    roleCard?.engineering?.roleType === 'coordinator' ||
+    roleCard?.engineering?.roleType === 'planner' ||
+    agentId === 'mario' ||
+    agentId === 'planner' ||
+    !!displayName?.includes('统筹') ||
+    !!displayName?.includes('规划');
+}
+
+function isReviewer(roleCard?: RoleCard): boolean {
+  return roleCard?.category === 'code_reviewer' ||
+    roleCard?.category === 'arch_reviewer' ||
+    roleCard?.category === 'qa' ||
+    roleCard?.engineering?.canApprovePR === true;
+}
+
+function resolveTaskNotificationAudience(conversationId: string): {
+  coordinatorAgentIds: string[];
+  reviewAgentIds: string[];
+} {
+  const coordinatorAgentIds: string[] = [];
+  const reviewAgentIds: string[] = [];
+  const add = (list: string[], id: string | undefined) => {
+    if (!id || list.includes(id)) return;
+    list.push(id);
+  };
+
+  const conversation = conversationRepo.getById(conversationId);
+  const teamPack = conversation?.team_pack_id ? teamPackRepo.getById(conversation.team_pack_id) : undefined;
+
+  if (teamPack) {
+    for (const role of teamPack.roles) {
+      const roleCard = role.roleCardSnapshot
+        ? ({
+            ...role.roleCardSnapshot,
+            id: `team-role-snapshot-${role.id}`,
+            isPreset: false,
+            version: role.roleCardSnapshot.snapshotVersion,
+            createdAt: role.roleCardSnapshot.snapshottedAt,
+            updatedAt: role.roleCardSnapshot.snapshottedAt,
+          } as RoleCard)
+        : (role.roleCardId ? PRESET_ROLE_CARD_MAP[role.roleCardId] : undefined);
+      if (isCoordinator(role.id, role.displayName, roleCard)) add(coordinatorAgentIds, role.id);
+      if (isReviewer(roleCard)) add(reviewAgentIds, role.id);
+    }
+    return { coordinatorAgentIds, reviewAgentIds };
+  }
+
+  for (const agent of listAgents()) {
+    const roleCard = PRESET_ROLE_CARD_MAP[agent.role_card_id];
+    if (isCoordinator(agent.id, agent.name, roleCard)) add(coordinatorAgentIds, agent.id);
+    if (isReviewer(roleCard)) add(reviewAgentIds, agent.id);
+  }
+
+  return { coordinatorAgentIds, reviewAgentIds };
+}
+
+export function publishTaskNotification(input: PublishTaskNotificationInput): TaskNotification | null {
+  const recipients = Array.from(new Set(input.recipients.map((item) => item.trim()).filter(Boolean)));
+  if (recipients.length === 0) return null;
+
+  const notification = buildTaskNotification({
+    kind: input.kind,
+    task: input.task,
+    previousTask: input.previousTask,
+    actorId: input.actorId,
+    actorType: input.actorType,
+    recipients,
+    changedFields: input.changedFields,
+  });
+
+  const id = messageRepo.append({
+    conversationId: notification.conversationId,
+    taskId: notification.taskId,
+    senderType: 'system',
+    senderId: 'task-notifier',
+    content: notification.content,
+    mentions: notification.recipients,
+    intent: 'task_status',
+    metadata: {
+      ...notification.metadata,
+      kind: notification.kind,
+      actorId: notification.actorId,
+      actorType: notification.actorType,
+      recipients: notification.recipients,
+      changedFields: notification.changedFields,
+    },
+  });
+
+  const published = {
+    ...notification,
+    id,
+    createdAt: new Date().toISOString(),
+  };
+  emitToConversation(input.io, notification.conversationId, published);
+  return published;
+}
+
+export function publishTaskChangeNotification(input: PublishTaskChangeNotificationInput): TaskNotification | null {
+  const changedFields = input.changedFields?.length
+    ? input.changedFields
+    : getChangedTaskFields(input.task, input.previousTask);
+  if (input.previousTask && changedFields.length === 0) return null;
+
+  const audience = resolveTaskNotificationAudience(input.task.conversation_id);
+  const recipients = resolveTaskNotificationRecipients({
+    kind: input.kind,
+    task: input.task,
+    previousTask: input.previousTask,
+    actorId: input.actorId,
+    coordinatorAgentIds: audience.coordinatorAgentIds,
+    reviewAgentIds: audience.reviewAgentIds,
+    conversationTasks: taskRepo.getByConversation(input.task.conversation_id),
+    edges: taskGraphRepo.listEdges(input.task.conversation_id),
+    changedFields,
+  });
+
+  return publishTaskNotification({
+    io: input.io,
+    kind: input.kind,
+    task: input.task,
+    previousTask: input.previousTask,
+    actorId: input.actorId,
+    actorType: input.actorType,
+    recipients,
+    changedFields,
+  });
+}

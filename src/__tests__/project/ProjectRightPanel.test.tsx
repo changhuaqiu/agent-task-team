@@ -10,7 +10,9 @@ vi.mock('@dnd-kit/core', () => ({
   DndContext: ({ children }: { children: React.ReactNode }) => <div data-testid="dnd-context">{children}</div>,
   DragOverlay: ({ children }: { children: React.ReactNode }) => <div data-testid="drag-overlay">{children}</div>,
   closestCorners: vi.fn(),
+  pointerWithin: vi.fn(),
   PointerSensor: vi.fn(),
+  TouchSensor: vi.fn(),
   useSensor: vi.fn(),
   useSensors: () => [],
   useDroppable: () => ({ setNodeRef: vi.fn(), isOver: false }),
@@ -55,7 +57,7 @@ describe('ProjectRightPanel', () => {
 
     render(<ProjectRightPanel teamPackId="" />);
 
-    expect(screen.getByText('看板')).toBeDefined();
+    expect(screen.getAllByText('看板').length).toBeGreaterThan(0);
     expect(screen.getByText('TASK-001')).toBeDefined();
     expect(screen.queryByText('请先选择团队套件')).toBeNull();
   });

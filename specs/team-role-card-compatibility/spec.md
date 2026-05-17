@@ -72,10 +72,13 @@ Resolution rules after team-first fusion:
 6. `TeamPackRole.roleCardSnapshot` is persisted through the team role config API and can be generated through team member materialization.
 7. `currentTeamPack` is scoped to the selected project. Creating or selecting a non-TeamPack project must clear `currentTeamPack` and restore the preset default active agents.
 8. Async TeamPack loads may update active agents only when the selected project still matches the requested `teamPackId`; stale responses must be ignored.
+9. Synthesized TeamPack role snapshots must preserve execution semantics: implementation roles such as backend/frontend/coder can modify code and create files, while reviewer/planner/QA roles remain propose-only unless explicitly bound to a modifying RoleCard.
+10. Preset TeamPacks should bind each known role to the matching preset RoleCard so runtime prompts do not accidentally downgrade implementers into advisory-only roles.
 
 ## Acceptance Criteria
 
 - A project created with `engineering-trio` has active roles `planner`, `coder`, `reviewer`.
+- The default `toad` backend role and `engineering-trio` `coder` role resolve to implementation RoleCards that allow code changes.
 - A plain project created after a TeamPack project does not inherit the previous TeamPack roles.
 - Switching projects while a TeamPack request is in flight does not let the stale TeamPack response overwrite the newly selected project.
 - Clicking `planner` opens the binding panel and shows account binding controls.

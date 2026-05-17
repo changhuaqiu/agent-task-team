@@ -5,12 +5,13 @@ import crypto from 'node:crypto';
 export type AccountProvider = 'anthropic' | 'openai' | 'google' | 'kimi' | 'opencode' | 'other';
 
 export interface RuntimeConfigInput {
-  provider: AccountProvider;
-  apiKey: string;
+  provider?: AccountProvider;
+  apiKey?: string;
   baseUrl?: string;
-  models: string[];
+  models?: string[];
   defaultModel?: string;
   systemPrompt?: string;
+  skillPaths?: string[];
 }
 
 export interface RuntimeConfigResult {
@@ -47,11 +48,14 @@ export function generateRuntimeConfig(
   invocationId: string,
   input: RuntimeConfigInput,
 ): RuntimeConfigResult {
-  const isNative = NATIVE_PROVIDERS.includes(input.provider);
-  const needsProviderConfig = !isNative || !!input.baseUrl;
+  const skillPaths = Array.from(new Set(input.skillPaths ?? [])).filter(Boolean);
+  const hasProviderCredentials = !!input.provider && !!input.apiKey;
+  const isNative = input.provider ? NATIVE_PROVIDERS.includes(input.provider) : false;
+  const needsProviderConfig = hasProviderCredentials && (!isNative || !!input.baseUrl);
 
-  // Generate config if we need provider config OR have a system prompt to inject
-  if (!needsProviderConfig && !input.systemPrompt) {
+  // Generate config if we need provider config, have a system prompt to inject,
+  // or need to mount project-local OpenCode skills from an Agent Task Team workdir.
+  if (!needsProviderConfig && !input.systemPrompt && skillPaths.length === 0) {
     return { generated: false, env: {} };
   }
 
@@ -63,16 +67,16 @@ export function generateRuntimeConfig(
   };
 
   // Provider config (only for non-native or custom baseUrl)
-  if (needsProviderConfig) {
+  if (needsProviderConfig && input.provider && input.apiKey) {
     const providerName = `${input.provider}-compat`;
     const modelsMap: Record<string, { name: string }> = {};
-    for (const model of input.models) {
+    for (const model of input.models ?? []) {
       modelsMap[model] = { name: model };
     }
     if (Object.keys(modelsMap).length === 0) {
       modelsMap['default'] = { name: 'default' };
     }
-    const effectiveModel = input.defaultModel || input.models[0] || 'default';
+    const effectiveModel = input.defaultModel || input.models?.[0] || 'default';
 
     config.model = `${providerName}/${effectiveModel}`;
     config.provider = {
@@ -84,6 +88,15 @@ export function generateRuntimeConfig(
           apiKey: `{env:${OC_API_KEY_ENV}}`,
           ...(input.baseUrl ? { baseURL: `{env:${OC_BASE_URL_ENV}}` } : {}),
         },
+      },
+    };
+  }
+
+  if (skillPaths.length > 0) {
+    config.skills = { paths: skillPaths };
+    config.permission = {
+      skill: {
+        '*': 'allow',
       },
     };
   }
@@ -102,7 +115,7 @@ export function generateRuntimeConfig(
   const env: Record<string, string> = {
     OPENCODE_CONFIG: configPath,
   };
-  if (needsProviderConfig) {
+  if (needsProviderConfig && input.apiKey) {
     env[OC_API_KEY_ENV] = input.apiKey;
     if (input.baseUrl) {
       env[OC_BASE_URL_ENV] = input.baseUrl;

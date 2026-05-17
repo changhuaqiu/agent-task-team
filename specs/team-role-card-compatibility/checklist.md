@@ -3,6 +3,7 @@
 - [x] `pnpm vitest run src/__tests__/store/team-pack-roster.test.ts src/__tests__/store/account-binding.test.ts`
 - [x] `pnpm vitest run src/__tests__/store/team-role-card-compatibility.test.ts`
 - [x] `pnpm vitest run src/__tests__/repositories/team-pack-repo.test.ts src/__tests__/api/team-packs/pack-detail.test.ts src/__tests__/api/team-packs/role-config.test.ts src/__tests__/store/team-role-card-compatibility.test.ts`
+- [x] `pnpm vitest run src/__tests__/server/team-pack-role-snapshot.test.ts src/__tests__/server/seed-team-packs.test.ts`
 - [x] `pnpm test -- src/__tests__/store/team-role-card-compatibility.test.ts` fails before implementation for the expected missing runtime profile and also exposes unrelated `KanbanCard` failures.
 - [x] `pnpm tsc --noEmit`
 - [ ] Manual check: create project with 工程三件套, click each avatar, bind account, add skill.

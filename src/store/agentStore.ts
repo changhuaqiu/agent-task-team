@@ -143,6 +143,12 @@ export async function loadAgents(): Promise<void> {
       cliEngine: prevCliEngine[row.id],
       accountIds: prevAccountIds[row.id] ?? [],
     }));
+
+    // Sync to Zustand state for reactivity
+    try {
+      const { useTaskHubStore } = await import('./taskHubStore');
+      useTaskHubStore.setState({ agentRoster: [...AGENT_ROSTER] });
+    } catch {}
   } catch (err) {
     console.error('[loadAgents] Failed, using fallback:', err);
   }
@@ -220,8 +226,11 @@ export function resolveAgentEngine(
 
 // --- Agent Slice Creator ---
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- set/get typed as any to avoid circular dependency with TaskHubState
 export const createAgentSlice = (set: any, get: () => any) => {
   return {
+    agentRoster: [...FALLBACK_AGENTS] as Agent[],
+
     activeAgentIds: ['mario', 'luigi'] as string[],
 
     // Role Cards
@@ -264,6 +273,7 @@ export const createAgentSlice = (set: any, get: () => any) => {
         (AGENT_ROSTER as Agent[])[idx].roleCardId = roleCardId;
       }
       set((state: any) => ({
+        agentRoster: [...AGENT_ROSTER],
         agentRoleCardOverrides: {
           ...(state.agentRoleCardOverrides ?? {}),
           [agentId]: roleCardId,

@@ -8,10 +8,14 @@ import { CliOutputBlock } from './CliOutputBlock';
 import { ProgressMessageCard } from './ProgressMessageCard';
 import { cn } from '@/lib/utils';
 import { parsePhaseBreakdown } from '@/lib/breakdownParser';
-import { Check, X, User, Lightbulb, Play, Eye, Link2, Copy, ExternalLink } from 'lucide-react';
+import { User, Lightbulb, Play, Eye, Link2, Copy, ExternalLink } from 'lucide-react';
 import { MarkdownContent } from './MarkdownContent';
 import { TokenBadge } from './TokenSummary';
 import { TaskStatusCard } from './TaskStatusCard';
+import { TaskCapsules, type TaskCapsuleRef } from './TaskCapsules';
+import { TaskActionCard, type TaskActionCardRef } from './TaskActionCard';
+import { ChatPhaseProposals } from './ChatPhaseProposals';
+import { ChatApprovalActions } from './ChatApprovalActions';
 
 interface ChatMessageItemProps {
   message: ChatMessage;
@@ -39,6 +43,40 @@ const INTENT_LABELS: Record<string, string> = {
   progress: '进度',
 };
 
+function taskRefsFromMessage(message: ChatMessage): TaskCapsuleRef[] {
+  const refs = message.taskRefs ?? message.metadata?.taskRefs;
+  if (Array.isArray(refs)) {
+    return refs
+      .filter((item): item is TaskCapsuleRef =>
+        item &&
+        typeof item.id === 'string' &&
+        typeof item.title === 'string'
+      )
+      .map((item) => ({
+        id: item.id,
+        title: item.title,
+        status: typeof item.status === 'string' ? item.status : undefined,
+        ownerAgentId: typeof item.ownerAgentId === 'string' ? item.ownerAgentId : undefined,
+      }));
+  }
+  if (message.referencedTaskId) {
+    return [{ id: message.referencedTaskId, title: message.referencedTaskId }];
+  }
+  return [];
+}
+
+function taskActionsFromMessage(message: ChatMessage): TaskActionCardRef[] {
+  const actions = message.metadata?.taskActions;
+  if (!Array.isArray(actions)) return [];
+
+  return actions.filter((item): item is TaskActionCardRef =>
+    item &&
+    typeof item.id === 'string' &&
+    typeof item.actionType === 'string' &&
+    Array.isArray(item.taskIds)
+  );
+}
+
 const formatContentWithMentions = (content: string) => {
   const mentionRegex = /(@\w+)/g;
   const parts = content.split(mentionRegex);
@@ -62,11 +100,9 @@ export function ChatMessageItem({ message }: ChatMessageItemProps) {
   const activeAgents = useTaskHubStore(useShallow(selectActiveAgents));
   const availableRoster = useTaskHubStore(useShallow(selectAvailableRoster));
   const allAgents = [...activeAgents, ...availableRoster];
-  
+
   const setSelectedTaskId = useTaskHubStore((s) => s.setSelectedTaskId);
   const updateChatMessageStatus = useTaskHubStore((s) => s.updateChatMessageStatus);
-  const addTask = useTaskHubStore((s) => s.addTask);
-  const inviteAgent = useTaskHubStore((s) => s.inviteAgent);
 
   const isHuman = message.agentId === 'human';
   const agent = allAgents.find((a) => a.id === message.agentId);
@@ -75,37 +111,10 @@ export function ChatMessageItem({ message }: ChatMessageItemProps) {
   const proposals = useMemo(() => parsePhaseBreakdown(message.content), [message.content]);
   const hasPhaseStructure = proposals.length > 0;
   const hasToolEvents = (message.toolEvents?.length ?? 0) > 0;
+  const taskRefs = useMemo(() => taskRefsFromMessage(message), [message]);
+  const taskActions = useMemo(() => taskActionsFromMessage(message), [message]);
 
-  const [checkedKeys, setCheckedKeys] = useState<Set<string>>(() => {
-    if (!hasPhaseStructure) return new Set();
-    const keys = new Set<string>();
-    proposals.forEach((phase, pi) => {
-      phase.tasks.forEach((_, ti) => keys.add(`${pi}-${ti}`));
-    });
-    return keys;
-  });
-
-  const [showRejectInput, setShowRejectInput] = useState(false);
-  const [rejectReason, setRejectReason] = useState('');
   const [isHovered, setIsHovered] = useState(false);
-
-  const toggleCheck = (key: string) => {
-    setCheckedKeys((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  };
-
-  const filteredProposals = useMemo(() => {
-    return proposals.map((phase, pi) => ({
-      ...phase,
-      tasks: phase.tasks.filter((_, ti) => checkedKeys.has(`${pi}-${ti}`)),
-    })).filter((p) => p.tasks.length > 0);
-  }, [proposals, checkedKeys]);
-
-  const totalChecked = filteredProposals.reduce((sum, p) => sum + p.tasks.length, 0);
 
   // Task status card rendering
   if (message.intent === 'task_status') {
@@ -179,7 +188,6 @@ export function ChatMessageItem({ message }: ChatMessageItemProps) {
         <div
           className={cn(
             'relative px-3 py-2 text-[12px] leading-relaxed break-words shadow-[var(--shadow-sm)] border',
-            // JRPG Dialog Box style
             'bg-[hsl(var(--bg-card))] text-[hsl(var(--text-primary))]',
             'rounded-[4px]',
             isHuman
@@ -187,7 +195,6 @@ export function ChatMessageItem({ message }: ChatMessageItemProps) {
               : 'border-[hsl(var(--border))] rounded-tl-none'
           )}
         >
-          {/* During tool-heavy streaming, the CLI block stays primary and markdown is deferred. */}
           {message.isStreaming && !message.content && !hasToolEvents ? (
             <span className="inline-block w-1.5 h-4 bg-current animate-pulse rounded-full opacity-50" />
           ) : message.content && !(hasToolEvents && message.isStreaming) ? (
@@ -198,7 +205,6 @@ export function ChatMessageItem({ message }: ChatMessageItemProps) {
             )
           ) : null}
 
-          {/* Progress Message Card */}
           {message.progressData && (
             <div className="mt-2">
               <ProgressMessageCard
@@ -208,7 +214,6 @@ export function ChatMessageItem({ message }: ChatMessageItemProps) {
             </div>
           )}
 
-          {/* CLI Output collapsible panel — during streaming, this is the primary visual for tool-using messages */}
           {hasToolEvents && (
             <CliOutputBlock
               events={message.toolEvents!}
@@ -224,201 +229,37 @@ export function ChatMessageItem({ message }: ChatMessageItemProps) {
           )}
 
           {hasPhaseStructure && (
-            <div className="mt-3 pt-2 border-t border-dashed border-[hsl(var(--border-subtle))] flex flex-col gap-2">
-              {proposals.map((phase, pi) => (
-                <div key={pi} className="rounded-[4px] border-2 border-[hsl(var(--border))] overflow-hidden">
-                  <div className="px-3 py-1.5 bg-[hsl(var(--bg-muted))] flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[9px] font-bold bg-[hsl(var(--accent))] text-white px-1.5 py-0.5 rounded-[2px]">
-                        阶段 {pi + 1}
-                      </span>
-                      <span className="text-[11px] font-bold text-[hsl(var(--text-primary))]">{phase.title}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const keys = new Set(checkedKeys);
-                          phase.tasks.forEach((_, ti) => keys.add(`${pi}-${ti}`));
-                          setCheckedKeys(keys);
-                        }}
-                        className="text-[9px] text-[hsl(var(--accent))] hover:underline"
-                      >
-                        全选
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const keys = new Set(checkedKeys);
-                          phase.tasks.forEach((_, ti) => keys.delete(`${pi}-${ti}`));
-                          setCheckedKeys(keys);
-                        }}
-                        className="text-[9px] text-[hsl(var(--text-tertiary))] hover:underline"
-                      >
-                        全不选
-                      </button>
-                    </div>
-                  </div>
-                  <div className="px-2 py-1.5 flex flex-col gap-1">
-                    {phase.tasks.map((task, ti) => {
-                      const key = `${pi}-${ti}`;
-                      const isChecked = checkedKeys.has(key);
-                      const suggestedAgent = task.agentId ? allAgents.find((a) => a.id === task.agentId) : undefined;
-                      return (
-                        <div
-                          key={key}
-                          className={cn(
-                            "flex items-center gap-2 px-2 py-1 rounded-[2px] border transition-colors",
-                            isChecked
-                              ? "bg-[hsl(var(--bg-app))] border-[hsl(var(--border-subtle))]"
-                              : "bg-[hsl(var(--bg-muted))] border-[hsl(var(--border))] opacity-50"
-                          )}
-                        >
-                          <button
-                            type="button"
-                            onClick={() => toggleCheck(key)}
-                            className={cn(
-                              "w-5 h-5 rounded-[2px] border-2 flex items-center justify-center shrink-0 transition-all",
-                              isChecked
-                                ? "bg-[hsl(var(--accent))] border-[hsl(var(--accent))] text-white"
-                                : "bg-[hsl(var(--bg-muted))] border-[hsl(var(--border))]"
-                            )}
-                          >
-                            {isChecked && <Check className="w-3 h-3" />}
-                          </button>
-                          <span className="text-[10px] text-[hsl(var(--text-primary))] flex-1 truncate">{task.title}</span>
-                          {suggestedAgent && (
-                            <span className="text-[9px] text-[hsl(var(--text-tertiary))] shrink-0">
-                              {suggestedAgent.emoji} {suggestedAgent.name}
-                            </span>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
+            <ChatPhaseProposals proposals={proposals} allAgents={allAgents} />
+          )}
+
+          {taskRefs.length > 0 && (
+            <TaskCapsules
+              tasks={taskRefs}
+              onSelectTask={setSelectedTaskId}
+              className="mt-2"
+            />
+          )}
+
+          {taskActions.length > 0 && (
+            <div className="mt-2 flex flex-col gap-1.5">
+              {taskActions.map((action) => (
+                <TaskActionCard
+                  key={action.id}
+                  action={action}
+                  onSelectTask={setSelectedTaskId}
+                />
               ))}
-
-              <div className="flex gap-2 mt-1">
-                <button
-                  type="button"
-                  disabled={totalChecked === 0}
-                  onClick={() => {
-                    const convId = useTaskHubStore.getState().selectedConversationId;
-                    if (!convId) return;
-                    useTaskHubStore.getState().confirmBreakdown(convId, filteredProposals);
-                  }}
-                  className="flex-1 py-1.5 text-[10px] font-bold bg-[hsl(var(--accent))] text-white border-2 border-[hsl(var(--accent))] rounded-[2px] shadow-[2px_2px_0px_hsl(var(--accent)/0.4)] hover:shadow-[1px_1px_0px_hsl(var(--accent)/0.4)] hover:translate-x-[1px] hover:translate-y-[1px] transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  ✓ 确认选中 ({totalChecked} 个任务)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const convId = useTaskHubStore.getState().selectedConversationId;
-                    if (!convId) return;
-                    useTaskHubStore.getState().triggerProposal(convId);
-                  }}
-                  className="py-1.5 px-3 text-[10px] font-bold text-[hsl(var(--text-tertiary))] bg-[hsl(var(--bg-muted))] border border-[hsl(var(--border))] rounded-[2px] hover:text-[hsl(var(--text-primary))] transition-colors"
-                >
-                  重新出方案
-                </button>
-              </div>
             </div>
           )}
 
-          {/* Reference Task Tag */}
-          {message.referencedTaskId && (
-            <button
-              onClick={() => setSelectedTaskId(message.referencedTaskId!)}
-              className="mt-2 block w-fit text-[10px] font-bold text-[hsl(var(--accent))] hover:text-[hsl(var(--accent-soft))] bg-[hsl(var(--accent-soft))] hover:bg-[hsl(var(--accent))] px-2 py-0.5 rounded-[2px] border border-[hsl(var(--accent))] transition-colors"
-            >
-              #{message.referencedTaskId}
-            </button>
-          )}
-
-          {/* Approval Actions */}
           {message.isApprovalRequest && (
-            <div className="mt-3 pt-2 border-t border-dashed border-[hsl(var(--border-subtle))] flex flex-col gap-2">
-              {message.artifactPreview && message.artifactPreview.files.length > 0 && (
-                <div className="mb-2 p-2 bg-[hsl(var(--bg-app))] rounded-[4px] border border-[hsl(var(--border-subtle))]">
-                  <div className="text-[9px] text-[hsl(var(--text-tertiary))] mb-1">产出物预览：</div>
-                  <div className="font-mono text-[10px] space-y-0.5">
-                    {message.artifactPreview.files.map((file, fi) => (
-                      <div key={fi} className={cn(
-                        file.change === 'added' && 'text-emerald-400',
-                        file.change === 'modified' && 'text-blue-400',
-                        file.change === 'deleted' && 'text-red-400',
-                      )}>
-                        {file.change === 'added' && '+ '}
-                        {file.change === 'modified' && '~ '}
-                        {file.change === 'deleted' && '- '}
-                        <span className="text-[hsl(var(--accent))]">{file.path}</span>
-                        <span className="text-[hsl(var(--text-tertiary))]"> ({file.change === 'added' ? '新增' : file.change === 'modified' ? '修改' : '删除'})</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {message.approvalStatus === 'pending' ? (
-                <>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => {
-                        updateChatMessageStatus(message.id, 'approved');
-                        setShowRejectInput(false);
-                      }}
-                      className="flex-1 flex items-center justify-center gap-1 bg-[hsl(var(--status-done))] hover:brightness-110 text-[hsl(var(--bg-app))] text-[10px] font-bold py-1.5 px-2 rounded-[2px] shadow-[2px_2px_0px_hsl(var(--text-primary))] transition-transform active:translate-y-[2px] active:shadow-[0px_0px_0px_hsl(var(--text-primary))]"
-                    >
-                      <Check className="w-3 h-3" /> 同意
-                    </button>
-                    <button
-                      onClick={() => setShowRejectInput(true)}
-                      className="flex-1 flex items-center justify-center gap-1 bg-[hsl(var(--status-rejected))] hover:brightness-110 text-[hsl(var(--bg-app))] text-[10px] font-bold py-1.5 px-2 rounded-[2px] shadow-[2px_2px_0px_hsl(var(--text-primary))] transition-transform active:translate-y-[2px] active:shadow-[0px_0px_0px_hsl(var(--text-primary))]"
-                    >
-                      <X className="w-3 h-3" /> 拒绝
-                    </button>
-                  </div>
-                  {showRejectInput && (
-                    <div className="mt-2 p-2 bg-[hsl(var(--bg-app))] border border-[hsl(var(--status-rejected-border))] rounded-[4px]">
-                      <div className="text-[9px] font-bold text-[hsl(var(--status-rejected))] mb-1">拒绝原因：</div>
-                      <textarea
-                        value={rejectReason}
-                        onChange={(e) => setRejectReason(e.target.value)}
-                        placeholder="描述问题或建议修改…"
-                        rows={2}
-                        className="w-full bg-[hsl(var(--bg-muted))] text-[hsl(var(--text-primary))] text-[11px] rounded-[2px] border border-[hsl(var(--border))] px-2 py-1.5 focus:outline-none focus:border-[hsl(var(--status-rejected))] resize-none"
-                      />
-                      <div className="flex justify-end mt-1">
-                        <button
-                          onClick={() => {
-                            if (!rejectReason.trim()) return;
-                            updateChatMessageStatus(message.id, 'rejected', rejectReason.trim());
-                            setShowRejectInput(false);
-                            setRejectReason('');
-                          }}
-                          disabled={!rejectReason.trim()}
-                          className="text-[9px] font-bold px-3 py-1 bg-[hsl(var(--status-rejected))] text-[hsl(var(--bg-app))] rounded-[2px] disabled:opacity-40 disabled:cursor-not-allowed"
-                        >
-                          提交反馈
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </>
-              ) : (
-                <div
-                  className={cn(
-                    'w-full text-center text-[10px] font-bold py-1 rounded-[2px] border',
-                    message.approvalStatus === 'approved'
-                      ? 'bg-[hsl(var(--status-done-bg))] text-[hsl(var(--status-done))] border-[hsl(var(--status-done-border))]'
-                      : 'bg-[hsl(var(--status-rejected-bg))] text-[hsl(var(--status-rejected))] border-[hsl(var(--status-rejected-border))]'
-                  )}
-                >
-                  {message.approvalStatus === 'approved' ? '已同意' : `已拒绝${message.rejectionReason ? '：' + message.rejectionReason.slice(0, 30) : ''}`}
-                </div>
-              )}
-            </div>
+            <ChatApprovalActions
+              messageId={message.id}
+              approvalStatus={message.approvalStatus ?? 'pending'}
+              rejectionReason={message.rejectionReason}
+              artifactPreview={message.artifactPreview}
+              onUpdateStatus={updateChatMessageStatus}
+            />
           )}
 
           {/* Hover Action Bar */}

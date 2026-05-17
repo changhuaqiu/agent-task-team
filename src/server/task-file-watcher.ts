@@ -3,6 +3,7 @@ import type { FSWatcher } from 'chokidar';
 import { basename } from 'path';
 import { readTasksMd } from './task-file-service';
 import { taskRepo } from './repositories/task-repo';
+import { publishTaskChangeNotification } from './task-flow/task-notification-publisher';
 import type { Server as IOServer } from 'socket.io';
 
 function conversationIdFromPath(projectPath: string): string {
@@ -11,6 +12,16 @@ function conversationIdFromPath(projectPath: string): string {
 
 const watchers = new Map<string, FSWatcher>();
 const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+function normalizeDependencyList(value: string | null | undefined): string {
+  if (!value) return '[]';
+  try {
+    const parsed = JSON.parse(value);
+    return JSON.stringify(Array.isArray(parsed) ? parsed : []);
+  } catch {
+    return JSON.stringify(value.split(',').map((item) => item.trim()).filter(Boolean));
+  }
+}
 
 export function startTaskWatcher(projectPath: string, io: IOServer): void {
   if (watchers.has(projectPath)) return;
@@ -60,9 +71,10 @@ export function syncTasksToDb(projectPath: string, io: IOServer): void {
       const nonEmptyLines = raw.split('\n').filter((l: string) => l.trim().length > 0);
       if (nonEmptyLines.length > 2) {
         console.warn(`[task-watcher] TASKS.md has ${nonEmptyLines.length} lines but parsed 0 tasks — possible format issue at ${tasksFile}`);
-        io.emit('task.sync_error', {
+        const conversationId = conversationIdFromPath(projectPath);
+        io.to(conversationId).emit('task.sync_error', {
           projectPath,
-          conversationId: conversationIdFromPath(projectPath),
+          conversationId,
           message: `TASKS.md 解析失败：文件有 ${nonEmptyLines.length} 行内容但未识别到任何任务。请检查表格格式。`,
           lineCount: nonEmptyLines.length,
         });
@@ -92,12 +104,51 @@ export function syncTasksToDb(projectPath: string, io: IOServer): void {
       continue;
     }
 
+    const updates: Record<string, unknown> = {};
+    const changedFields: string[] = [];
+
     if (existing.status !== t.status) {
-      taskRepo.updateStatus(t.id, t.status);
+      updates.status = t.status;
+      changedFields.push('status');
       if (t.status === 'done') newlyDone.push(t.id);
     }
     if (t.agent && existing.agent_id !== t.agent) {
-      taskRepo.update(t.id, { agent_id: t.agent });
+      updates.agent_id = t.agent;
+      changedFields.push('agent_id');
+    }
+    if (existing.title !== t.title) {
+      updates.title = t.title;
+      changedFields.push('title');
+    }
+    const nextDescription = t.deliverable || '';
+    if ((existing.description ?? '') !== nextDescription) {
+      updates.description = nextDescription;
+      changedFields.push('description');
+    }
+    const nextDependencies = JSON.stringify(t.depends);
+    if (normalizeDependencyList(existing.dependencies) !== nextDependencies) {
+      updates.dependencies = nextDependencies;
+      changedFields.push('dependencies');
+    }
+
+    if (changedFields.length > 0) {
+      taskRepo.update(t.id, updates);
+      const updated = taskRepo.getById(t.id);
+      if (updated) {
+        publishTaskChangeNotification({
+          io,
+          kind: changedFields.includes('agent_id')
+            ? 'task.assigned'
+            : changedFields.includes('status')
+              ? 'task.status_changed'
+              : 'task.file_synced',
+          task: updated,
+          previousTask: existing,
+          actorId: 'system',
+          actorType: 'system',
+          changedFields,
+        });
+      }
     }
   }
 
@@ -110,11 +161,11 @@ export function syncTasksToDb(projectPath: string, io: IOServer): void {
           return dep?.status === 'done';
         });
         if (allDone) {
-          io.emit('task.ready', { taskId: t.id, agentId: t.agent, projectPath });
+          io.to(conversationId).emit('task.ready', { taskId: t.id, agentId: t.agent, projectPath });
         }
       }
     }
   }
 
-  io.emit('task.sync', { projectPath, conversationId, tasks: parsed, blockers });
+  io.to(conversationId).emit('task.sync', { projectPath, conversationId, tasks: parsed, blockers });
 }

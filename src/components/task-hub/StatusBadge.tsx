@@ -1,5 +1,6 @@
 'use client';
 
+import React from 'react';
 import { type TaskStatus, STATUS_LABELS } from '@/store/taskHubStore';
 import { cn } from '@/lib/utils';
 import {
@@ -59,7 +60,7 @@ interface StatusBadgeProps {
   showIcon?: boolean;
 }
 
-export function StatusBadge({
+export const StatusBadge = React.memo(function StatusBadge({
   status,
   size = 'sm',
   showIcon = false,
@@ -90,4 +91,4 @@ export function StatusBadge({
       {STATUS_LABELS[status]}
     </span>
   );
-}
+});

@@ -27,6 +27,16 @@ export function seedPresetSkills(): void {
         config: preset.config,
         isPreset: preset.isPreset,
       });
+    } else if (existing.is_preset === 1 && (
+      existing.description !== (preset.description ?? null)
+      || existing.content !== preset.content
+      || existing.config !== (preset.config ?? null)
+    )) {
+      skillRepo.update(existing.id, {
+        description: preset.description ?? null,
+        content: preset.content,
+        config: preset.config ?? null,
+      });
     }
   }
 

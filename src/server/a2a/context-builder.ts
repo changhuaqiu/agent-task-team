@@ -4,11 +4,12 @@ import type { ChainRepo } from './chain';
 import type { CursorRepo } from './cursor';
 
 const RESPONSE_GUIDANCE = `规则：
-- 不要广播状态（状态在 TASKS.md 里，不需要通过消息同步）
+- 不要广播状态来同步任务状态；状态/产出更新请写 TASKS.md，系统会自动用任务通知知会相关角色，不要为同步状态发起 A2A 交接
 - 不要确认收到（没有 ack 机制，确认无意义）
 - 只做实际工作或报告无法执行的原因
 - 不要为了确认、总结或礼貌性回复 @ 回请求来源，避免 A2A 回声
-- 如果需要其他 agent 执行新操作，用 @mention 并说明具体指令
+- 如果需要其他 agent 执行新操作，用「@agent 请/需要 + 动作 + 具体交付物」发起 A2A 交接，例如「@peach 请评审 TASK-003 的后端改动」
+- 纯 @mention、通知 @agent、@agent 已完成/已写入 TASKS.md 只会被视为群聊信息，不会唤醒对方；状态同步依赖任务通知
 - 删除文件内容后，必须立即搜索确认关键内容仍然存在；如果误删，立即恢复
 - 不要编辑其他 agent 正在编辑的文件（见下方"编辑互斥"段落）
 

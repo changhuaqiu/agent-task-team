@@ -2,7 +2,7 @@
 
 > **操作版**：[`.ath/PROTOCOLS.md`](../../.ath/PROTOCOLS.md)（团队协作工具链引用此路径）
 >
-> 版本：1.2 | 创建：2026-05-04 | 最后更新：2026-05-05
+> 版本：1.3 | 创建：2026-05-04 | 最后更新：2026-05-17
 >
 > 守门人：@peach（G2）、@dk（G3 协审）
 > 架构评审：@dk | 方案评审：@dk @yoshi | 统筹：@mario
@@ -12,11 +12,11 @@
 ## 状态流转总览
 
 ```
-todo ──[G1 通过]──→ doing ──[实现完成]──→ review ──[G2 通过]──→ MR ──[G3 通过]──→ done
-                          ↑                   ↑                         ↑
-                      方案评审              质量守卫                   合并门控
+todo ──[G1 通过]──→ doing ──[实现完成]──→ draft MR ──[review issues 清零]──→ G3 ──→ done
+                          ↑                    ↑                             ↑
+                      方案评审             质量守卫 + issue 修复循环       合并门控
 
-hotfix ──[跳过 G1]──→ doing ──[G2 精简]──→ MR ──[G3 单人]──→ done ──[48h 补全 G2]
+hotfix ──[跳过 G1]──→ doing ──[draft MR + G2 精简]──→ G3 单人 ──→ done ──[48h 补全 G2]
 ```
 
 ---
@@ -57,8 +57,9 @@ hotfix ──[跳过 G1]──→ doing ──[G2 精简]──→ MR ──[G3 
 ## G2: 质量守卫（Review Gate）
 
 ### 触发条件
-- 实现者完成任务，任务状态从 `doing → review`
+- 实现者完成任务，自测通过，并提交 draft PR/MR 作为审查面
 - 或：实现者标 `doing` 并提交代码后主动请求 review
+- 任务状态从 `doing → review` 时，应附带 PR/MR 链接或明确说明无法创建 PR/MR 的认证/远端阻塞
 
 ### 守门人
 - **@peach**（主要负责）
@@ -181,16 +182,40 @@ hotfix ──[跳过 G1]──→ doing ──[G2 精简]──→ MR ──[G3 
 ```
 
 ### 阻塞规则
-- 未通过 G2 的任务**禁止**提交 MR
-- `block` 结论需要实现者修复后重新提交 G2
+- 未提交 draft PR/MR 的实现任务不得进入 G3，除非明确记录认证、远端或用户授权阻塞
+- `block` 结论必须转化为 linked issue，作为实现者的返工队列
+- 实现者修复 linked issue 后，继续向同一个 PR/MR 推送提交，并请求对应审查人复核
 - `pass-with-notes` 可进入 G3，但建议项应跟进
+
+---
+
+## Review Issue Fix Loop（MR/PR 上的问题修复闭环）
+
+### 默认流程
+1. 实现者完成代码与自测后，创建 draft PR/MR。
+2. @peach、@dk、@yoshi 或其他相关审查角色基于 PR/MR diff、CI、测试证据审查。
+3. 需要代码、测试、文档、UX 或架构返工的问题，审查人创建 linked issue；纯建议可保留为 review note。
+4. 实现者按 issue 修复，在同一个 PR/MR 分支追加提交，并在 issue 中附测试证据。
+5. 审查人复核 issue，确认解决后关闭或标记 resolved。
+6. 所有 blocking linked issues 清零后，PR/MR 进入 G3。
+
+### Issue 要求
+- 标题包含任务 ID 或 PR/MR 编号，避免脱离上下文。
+- 正文包含问题、证据、影响、期望行为、修复验收标准。
+- 必须链接 PR/MR、相关 TASK、失败测试或文件位置。
+- 不重复创建同一问题；已有 issue 应追加证据和状态。
+
+### 权限要求
+- Git token / SSH / provider app / `gh` / `glab` 认证是外部凭证，不写入任务、评论或 Skill。
+- 如果无法创建 PR/MR 或 issue，agent 必须说明缺少的认证或工具，并给出下一步配置命令。
+- 合并仍由用户或明确授权的 maintainer 执行，agent 不默认 merge。
 
 ---
 
 ## G3: MR 合并门控（Merge Gate）
 
 ### 触发条件
-- G2 通过后，实现者提交 Merge Request
+- G2 blocking linked issues 清零后，draft PR/MR 准备进入合并门控
 - 任务状态：`review` → 准备标 `done`
 
 ### 审批人
@@ -235,11 +260,12 @@ hotfix ──[跳过 G1]──→ doing ──[G2 精简]──→ MR ──[G3 
 |------|---------|------|
 | `todo → doing` | G1 方案评审通过 | G1 |
 | `doing → review` | 代码实现完成 + 自测通过 | — |
-| `review → MR` | G2 质量守卫通过 | G2 |
-| `MR → done` | G3 双人审批通过 + 合并完成 | G3 |
+| `doing/review → draft MR` | 实现完成 + 自测通过 + 可创建远端分支 | G2 输入 |
+| `review → G3` | G2 blocking linked issues 清零 | G2 |
+| `G3 → done` | G3 双人审批通过 + 合并完成 | G3 |
 | `任意 → blocked` | 遇到阻塞（技术/依赖/外部） | 记录到风险表 |
 | `hotfix → doing` | @mario 判定 P0 | 跳过 G1 |
-| `hotfix MR → done` | G2 精简通过 + G3 单人 approve | 精简 G2/G3 |
+| `hotfix draft MR → done` | G2 精简通过 + G3 单人 approve | 精简 G2/G3 |
 
 ---
 
@@ -250,3 +276,4 @@ hotfix ──[跳过 G1]──→ doing ──[G2 精简]──→ MR ──[G3 
 | 1.0 | 2026-05-04 | 初始版本：G1/G2/G3 三门控 | @peach |
 | 1.1 | 2026-05-04 | DK 架构评审反馈：G1 退出路径+超时、G2 协审量化+E/F 项修正、G3 审批人+冲突机制、Hotfix 通道 | @peach |
 | 1.2 | 2026-05-04 | Yoshi 反馈：G2 检查力度三级分级（标准/精简/最小），按任务类型选择审查深度 | @peach |
+| 1.3 | 2026-05-17 | 开发完成后以 draft PR/MR 作为审查面，blocking 发现转 linked issue，开发者按 issue 修复后进入 G3 | @codex |

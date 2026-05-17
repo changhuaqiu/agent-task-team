@@ -20,12 +20,48 @@ import { ChainRepo } from './chain';
 import { CursorRepo } from './cursor';
 import { computeContentHash, runAllDedupLayers, recordDispatchTime, clearRippleForChain, resetAllDedupState } from './dedup';
 import { buildDispatchContext, renderDispatchPrompt } from './context-builder';
-import { findUnresolvedMentionTokens } from './scanner';
+import { findUnresolvedMentionTokens, scanMentions } from './scanner';
 import { scanPassIntents } from './pass-intent';
 import { buildHandoffPacketDraft } from './handoff-packet';
 import { PossessionRepo } from './possession';
+import { taskGraphRepo } from '../repositories/task-graph-repo';
 
-const MIN_SUBSTANTIVE_LENGTH = 30;
+const MIN_SUBSTANTIVE_LENGTH = 50;
+
+function hasExplicitNoHandoffLanguage(text: string): boolean {
+  return /(不需要|无需|不要|别|不必).*?(转交|交接|唤醒|派发|分配|指派|通知|@)/i.test(text);
+}
+
+function hasNotificationStyleMention(text: string): boolean {
+  return /(通知|知会|同步给|同步到|抄送|cc|给).*?@[\p{L}\p{N}_-]+/iu.test(text);
+}
+
+function formatNonActionableMentionNotice(tokens: string[]): string {
+  const mentionList = tokens.join('、');
+  return `A2A 未转交：${mentionList} 只是提及或通知，没有明确执行动作。任务状态会通过任务通知同步；如需唤醒对方，请写成「@agent 请评审/实现/验证 ...」。`;
+}
+
+function formatNotificationMentionNotice(tokens: string[]): string {
+  const mentionList = tokens.join('、');
+  return `群聊知会：${mentionList} 已作为信息接收方出现；这不会启动新的 A2A 执行。需要对方动手时，请写成「@agent 请评审/实现/验证 ...」。`;
+}
+
+function formatDispatchBlockReason(reason: string): string {
+  const agentDedupMatch = reason.match(/^agent\s+([^\s]+)\s+already has an entry in chain/i);
+  if (agentDedupMatch) {
+    return `@${agentDedupMatch[1]} 已在本轮 A2A 链中，系统不会重复唤醒；任务状态请通过任务通知或 TASKS.md 同步，若要追加新工作请等待当前链路结束后再发起。`;
+  }
+  if (reason.startsWith('direct ping-pong:')) {
+    return `检测到来回 @mention 的 ping-pong 风险，系统已阻止这次转交；请把需要执行的下一步写入任务或由统筹重新派发。`;
+  }
+  if (reason.startsWith('rate limited:')) {
+    return `目标 Agent 刚收到过派发，系统暂缓重复唤醒；请等待当前派发完成或稍后重试。`;
+  }
+  if (reason.includes('reached max dispatches')) {
+    return `本轮 A2A 链路已达到最大转交次数，请收束当前任务或让用户/统筹开启新一轮。`;
+  }
+  return reason;
+}
 
 export interface OrchestratorConfig {
   getTasksForConversation: (conversationId: string) => TaskSummary[];
@@ -40,7 +76,9 @@ export class Orchestrator {
   private agents: AgentMentionConfig[];
   private agentStates: Map<string, AgentState> = new Map();
   private chainTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
+  private passTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
   private entryPassIds: Map<string, string> = new Map();
+  private entryTaskIds: Map<string, string> = new Map();
   private config: OrchestratorConfig;
 
   constructor(
@@ -54,6 +92,7 @@ export class Orchestrator {
     this.cursorRepo = new CursorRepo(db);
     this.agents = agentConfigs;
     this.config = config;
+    this.rebuildStateFromDB();
   }
 
   // ──────────────────────────────────────────────
@@ -124,7 +163,7 @@ export class Orchestrator {
     if (!possessionChain || possessionChain.status !== 'active') {
       return { allow: false, reason: 'possession chain not active or not found', silent: true };
     }
-    if (possessionChain.currentHolderId !== req.fromAgentId) {
+    if (!this.possessionRepo.getOpenPossessionForHolder(chain.id, req.fromAgentId)) {
       const reason = `当前持球者是 ${possessionChain.currentHolderId}，${req.fromAgentId} 不能转交`;
       this.possessionRepo.createBlockedPass({
         chainId: chain.id,
@@ -275,6 +314,18 @@ export class Orchestrator {
       }),
     });
     this.entryPassIds.set(entry.id, pass.id);
+    if (req.taskId) {
+      this.entryTaskIds.set(entry.id, req.taskId);
+      taskGraphRepo.recordHandoffRequested({
+        conversationId: chain.conversationId,
+        taskId: req.taskId,
+        fromAgentId: req.fromAgentId,
+        toAgentId: req.toAgentId,
+        passId: pass.id,
+        requestedAction: req.content,
+      });
+    }
+    this.startOfferTimer(chain, pass.id, req.fromAgentId, req.toAgentId);
 
     this.audit('dispatch_allowed', {
       chainId: chain.id,
@@ -292,7 +343,7 @@ export class Orchestrator {
   // Agent response handling
   // ──────────────────────────────────────────────
 
-  onAgentResponse(agentId: string, response: string, conversationId: string): void {
+  onAgentResponse(agentId: string, response: string, conversationId: string, taskId?: string): void {
     const chain = this.chainRepo.getActiveByConversation(conversationId);
     if (!chain) return;
 
@@ -304,7 +355,8 @@ export class Orchestrator {
     }
 
     const possessionChain = this.possessionRepo.getById(chain.id);
-    if (possessionChain && possessionChain.currentHolderId !== agentId) {
+    const openPossession = this.possessionRepo.getOpenPossessionForHolder(chain.id, agentId);
+    if (possessionChain && !openPossession) {
       this.audit('dispatch_blocked', {
         chainId: chain.id,
         conversationId,
@@ -325,17 +377,22 @@ export class Orchestrator {
     // Update agent state
     this.setAgentState(agentId, 'idle');
 
-    // Don't scan short responses for @mentions (anti-ack)
+    const mentionConfigs = this.config.getAgentMentionConfigs?.(conversationId) ?? this.agents;
+
+    // Don't scan short responses without @mentions (anti-ack), but allow short
+    // explicit handoffs such as "@luigi 请验证".
     const hasToolUse = response.includes('tool_use');
-    if (!hasToolUse && response.length < MIN_SUBSTANTIVE_LENGTH) {
+    const hasMentionToken = scanMentions(response, mentionConfigs, agentId).length > 0
+      || findUnresolvedMentionTokens(response, mentionConfigs, agentId).length > 0;
+    if (!hasToolUse && !hasMentionToken && response.length < MIN_SUBSTANTIVE_LENGTH) {
       this.tryCompleteChain(chain.id);
       return;
     }
 
     // Scan against the conversation runtime roster when available.
-    const mentionConfigs = this.config.getAgentMentionConfigs?.(conversationId) ?? this.agents;
     const targets = scanPassIntents(response, mentionConfigs, agentId);
     if (targets.length === 0) {
+      const knownMentionTargets = scanMentions(response, mentionConfigs, agentId);
       const unresolvedTokens = findUnresolvedMentionTokens(response, mentionConfigs, agentId);
       for (const token of unresolvedTokens) {
         const reason = `当前团队没有可接收 ${token} 的角色`;
@@ -346,9 +403,35 @@ export class Orchestrator {
           reason,
           metadata: { blockedBy: 'unknown_mention_target', mention: token },
         });
-        this.io.emit('agent:event', {
+        this.io.to(conversationId).emit('agent:event', {
           type: 'system',
           content: `A2A 拦截：${reason}`,
+          conversationId,
+        });
+      }
+      if (knownMentionTargets.length > 0 && !hasExplicitNoHandoffLanguage(response)) {
+        const tokens = Array.from(new Set(
+          knownMentionTargets.map((target) => target.pattern ?? `@${target.agentId}`),
+        ));
+        const notificationStyle = hasNotificationStyleMention(response);
+        const reason = notificationStyle
+          ? formatNotificationMentionNotice(tokens)
+          : formatNonActionableMentionNotice(tokens);
+        this.audit('dispatch_blocked', {
+          chainId: chain.id,
+          conversationId,
+          fromAgentId: agentId,
+          reason: 'mention_without_pass_intent',
+          metadata: {
+            blockedBy: 'pass_intent',
+            diagnostic: reason,
+            mentions: tokens,
+            notificationStyle,
+          },
+        });
+        this.io.to(conversationId).emit('agent:event', {
+          type: 'system',
+          content: reason,
           conversationId,
         });
       }
@@ -377,12 +460,14 @@ export class Orchestrator {
         content: target.content,
         depth: currentDepth + 1,
         intent: target.intent,
+        taskId,
       });
 
       if (!decision.allow && !decision.silent) {
-        this.io.emit('agent:event', {
+        const displayReason = formatDispatchBlockReason(decision.reason);
+        this.io.to(conversationId).emit('agent:event', {
           type: 'system',
-          content: `A2A 拦截：${decision.reason}`,
+          content: `A2A 拦截：${displayReason}`,
           conversationId,
         });
       }
@@ -421,6 +506,7 @@ export class Orchestrator {
     messageId: string,
     targetAgentIds: string[],
     prompt: string,
+    taskId?: string,
   ): InvocationChain {
     const chain = this.createChain({
       conversationId,
@@ -428,36 +514,27 @@ export class Orchestrator {
       messageId,
     });
 
+    const startedPassIds: string[] = [];
     for (const targetAgentId of [...new Set(targetAgentIds)]) {
       const contentHash = computeContentHash('user', targetAgentId, prompt);
       const entry = this.chainRepo.appendWorklist(chain.id, targetAgentId, 'user', prompt, contentHash, 0);
       if (!entry) continue;
-      if (this.entryPassIds.size === 0 || targetAgentIds[0] === targetAgentId) {
-        const { pass } = this.possessionRepo.createPass({
-          chainId: chain.id,
+      if (taskId) this.entryTaskIds.set(entry.id, taskId);
+      const { pass } = this.possessionRepo.createPass({
+        chainId: chain.id,
+        fromHolderId: 'user',
+        toAgentId: targetAgentId,
+        intent: 'delegate',
+        packet: buildHandoffPacketDraft({
           fromHolderId: 'user',
           toAgentId: targetAgentId,
+          content: prompt,
           intent: 'delegate',
-          packet: buildHandoffPacketDraft({
-            fromHolderId: 'user',
-            toAgentId: targetAgentId,
-            content: prompt,
-            intent: 'delegate',
-            sourceMessageIds: [messageId],
-          }),
-        });
-        this.entryPassIds.set(entry.id, pass.id);
-        this.possessionRepo.startPass(pass.id);
-      } else {
-        this.possessionRepo.createBlockedPass({
-          chainId: chain.id,
-          fromHolderId: 'user',
-          toAgentId: targetAgentId,
-          intent: 'delegate',
-          phase: 'holder',
-          reason: '当前持球模型一次只允许交接给一个 agent',
-        });
-      }
+          sourceMessageIds: [messageId],
+        }),
+      });
+      this.entryPassIds.set(entry.id, pass.id);
+      startedPassIds.push(pass.id);
       this.chainRepo.markExecuting(entry.id);
       this.setAgentState(targetAgentId, 'executing', chain.id);
       recordDispatchTime(targetAgentId);
@@ -469,6 +546,11 @@ export class Orchestrator {
         contentHash,
         metadata: { externalDispatch: true },
       });
+    }
+
+    for (const passId of startedPassIds) {
+      this.possessionRepo.startPass(passId);
+      this.clearPassTimer(passId);
     }
 
     return chain;
@@ -523,29 +605,41 @@ export class Orchestrator {
 
       const passId = this.entryPassIds.get(next.id)
         ?? this.possessionRepo.findLatestPassForTarget(chainId, next.agentId, ['offered', 'accepted', 'starting'])?.id;
+      const referencedTaskId = this.entryTaskIds.get(next.id);
 
-      this.io.emit('a2a:pass-offer', {
+      const passOfferPayload = {
         agentId: next.agentId,
         prompt,
-        referencedTaskId: undefined,
+        referencedTaskId,
         fromAgentId: next.requestedBy,
         conversationId,
         chainId,
         entryId: next.id,
         passId,
-      });
+      };
+
+      this.io.to(conversationId).emit('a2a:pass-offer', passOfferPayload);
 
       // Compatibility event for the current client. The client must ACK with
       // a2a:agent-started before this becomes executing in the possession model.
-      this.io.emit('a2a:dispatch', {
+      const dispatchPayload = {
         agentId: next.agentId,
         prompt,
-        referencedTaskId: undefined,
+        referencedTaskId,
         fromAgentId: next.requestedBy,
         conversationId,
         chainId,
         entryId: next.id,
         passId,
+      };
+      this.io.to(conversationId).emit('a2a:dispatch', dispatchPayload);
+      this.recordDeliverySent({
+        conversationId,
+        chainId,
+        entryId: next.id,
+        passId,
+        agentId: next.agentId,
+        payload: dispatchPayload,
       });
 
       dispatched = true;
@@ -571,7 +665,19 @@ export class Orchestrator {
     if (resolvedPassId) {
       this.entryPassIds.set(entryId, resolvedPassId);
       this.possessionRepo.startPass(resolvedPassId);
-      this.io.emit('a2a:possession-changed', {
+      this.clearPassTimer(resolvedPassId);
+      const referencedTaskId = this.entryTaskIds.get(entryId);
+      const pass = this.possessionRepo.getPass(resolvedPassId);
+      if (referencedTaskId && pass) {
+        taskGraphRepo.recordHandoffAccepted({
+          conversationId,
+          taskId: referencedTaskId,
+          fromAgentId: pass.fromHolderId,
+          toAgentId: agentId,
+          passId: resolvedPassId,
+        });
+      }
+      this.io.to(conversationId).emit('a2a:possession-changed', {
         chainId,
         conversationId,
         currentHolderId: agentId,
@@ -605,6 +711,90 @@ export class Orchestrator {
     this.dispatchNext(chainId, conversationId);
   }
 
+  markDispatchDeferred(
+    chainId: string,
+    entryId: string,
+    conversationId: string,
+    agentId: string,
+    reason: string,
+    passId?: string,
+  ): void {
+    const chain = this.chainRepo.getById(chainId);
+    if (!chain || chain.status !== 'active') return;
+    const now = new Date().toISOString();
+    this.db.prepare(`
+      UPDATE chain_worklist
+      SET status = 'queued', started_at = NULL
+      WHERE id = ? AND chain_id = ? AND agent_id = ?
+    `).run(entryId, chainId, agentId);
+    this.db.prepare(`
+      INSERT INTO a2a_delivery
+        (id, conversation_id, chain_id, entry_id, pass_id, agent_id, event_type, payload, status, attempts, last_error, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, 'a2a:dispatch', '{}', 'pending', 0, ?, ?, ?)
+      ON CONFLICT(entry_id) DO UPDATE SET
+        status = 'pending',
+        last_error = excluded.last_error,
+        updated_at = excluded.updated_at
+    `).run(
+      `delivery-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      conversationId,
+      chainId,
+      entryId,
+      passId ?? this.entryPassIds.get(entryId) ?? null,
+      agentId,
+      reason,
+      now,
+      now,
+    );
+    this.setAgentState(agentId, 'idle');
+    this.audit('dispatch_blocked', {
+      chainId,
+      conversationId,
+      toAgentId: agentId,
+      reason,
+      metadata: { dispatchDeferred: true },
+    });
+  }
+
+  resendPendingDeliveries(conversationId: string): void {
+    const chain = this.chainRepo.getActiveByConversation(conversationId);
+    if (!chain) return;
+    this.dispatchNext(chain.id, conversationId);
+  }
+
+  private recordDeliverySent(input: {
+    conversationId: string;
+    chainId: string;
+    entryId: string;
+    passId?: string;
+    agentId: string;
+    payload: unknown;
+  }): void {
+    const now = new Date().toISOString();
+    this.db.prepare(`
+      INSERT INTO a2a_delivery
+        (id, conversation_id, chain_id, entry_id, pass_id, agent_id, event_type, payload, status, attempts, last_error, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, 'a2a:dispatch', ?, 'sent', 1, NULL, ?, ?)
+      ON CONFLICT(entry_id) DO UPDATE SET
+        pass_id = excluded.pass_id,
+        payload = excluded.payload,
+        status = 'sent',
+        attempts = attempts + 1,
+        last_error = NULL,
+        updated_at = excluded.updated_at
+    `).run(
+      `delivery-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      input.conversationId,
+      input.chainId,
+      input.entryId,
+      input.passId ?? null,
+      input.agentId,
+      JSON.stringify(input.payload),
+      now,
+      now,
+    );
+  }
+
   // ──────────────────────────────────────────────
   // Chain completion
   // ──────────────────────────────────────────────
@@ -624,6 +814,55 @@ export class Orchestrator {
   // Timeout management
   // ──────────────────────────────────────────────
 
+  private startOfferTimer(
+    chain: InvocationChain,
+    passId: string,
+    fromAgentId: string,
+    toAgentId: string,
+  ): void {
+    const timeoutMs = chain.config.offerTimeoutMs;
+    if (!timeoutMs || timeoutMs <= 0) return;
+
+    this.clearPassTimer(passId);
+    const timer = setTimeout(() => {
+      this.passTimers.delete(passId);
+      const currentChain = this.chainRepo.getById(chain.id);
+      const pass = this.possessionRepo.getPass(passId);
+      if (!currentChain || currentChain.status !== 'active' || !pass || pass.status !== 'offered') return;
+
+      const reason = 'A2A 转交未被执行端确认';
+      this.chainRepo.abort(chain.id, 'timeout');
+      this.possessionRepo.timeoutChain(chain.id, 'offer', reason);
+      this.clearChainTimer(chain.id);
+      clearRippleForChain(chain.id);
+      this.audit('chain_timeout', {
+        chainId: chain.id,
+        conversationId: chain.conversationId,
+        fromAgentId,
+        toAgentId,
+        reason,
+        metadata: { phase: 'offer', passId },
+      });
+      this.io.to(chain.conversationId).emit('agent:event', {
+        type: 'system',
+        content: `A2A offer 阶段超时：${reason}`,
+        conversationId: chain.conversationId,
+      });
+      this.emitPassBlocked(chain.conversationId, chain.id, fromAgentId, toAgentId, reason, 'timeout');
+    }, timeoutMs);
+    timer.unref?.();
+
+    this.passTimers.set(passId, timer);
+  }
+
+  private clearPassTimer(passId: string): void {
+    const timer = this.passTimers.get(passId);
+    if (timer) {
+      clearTimeout(timer);
+      this.passTimers.delete(passId);
+    }
+  }
+
   private startChainTimer(chain: InvocationChain): void {
     const timer = setTimeout(() => {
       this.chainTimers.delete(chain.id);
@@ -637,7 +876,7 @@ export class Orchestrator {
         );
         clearRippleForChain(chain.id);
         this.audit('chain_timeout', { chainId: chain.id, conversationId: chain.conversationId });
-        this.io.emit('agent:event', {
+        this.io.to(chain.conversationId).emit('agent:event', {
           type: 'system',
           content: `A2A 执行阶段超时：当前持球者未在 ${chain.config.maxDurationMs / 1000}s 内完成或交接`,
           conversationId: chain.conversationId,
@@ -673,7 +912,7 @@ export class Orchestrator {
     reason: string,
     status: 'blocked' | 'timeout' = 'blocked',
   ): void {
-    this.io.emit('a2a:pass-blocked', {
+    this.io.to(conversationId).emit('a2a:pass-blocked', {
       conversationId,
       chainId,
       fromAgentId,
@@ -712,6 +951,64 @@ export class Orchestrator {
     }
   }
 
+  private rebuildStateFromDB(): void {
+    const activeChains = this.db.prepare(`
+      SELECT * FROM invocation_chain WHERE status = 'active'
+    `).all() as any[];
+
+    for (const row of activeChains) {
+      const chain = this.chainRepo.getById(row.id);
+      if (chain) this.startChainTimer(chain);
+    }
+
+    const activeEntries = this.db.prepare(`
+      SELECT
+        w.id AS entry_id,
+        w.chain_id,
+        w.agent_id,
+        w.status,
+        (
+          SELECT p.id FROM a2a_pass p
+          WHERE p.chain_id = w.chain_id
+            AND p.to_agent_id = w.agent_id
+            AND p.status IN ('offered', 'accepted', 'starting', 'started')
+          ORDER BY p.updated_at DESC
+          LIMIT 1
+        ) AS pass_id
+      FROM chain_worklist w
+      JOIN invocation_chain c ON c.id = w.chain_id
+      WHERE c.status = 'active'
+        AND w.status IN ('queued', 'dispatching', 'executing')
+    `).all() as Array<{
+      entry_id: string;
+      chain_id: string;
+      agent_id: string;
+      status: 'queued' | 'dispatching' | 'executing';
+      pass_id?: string | null;
+    }>;
+
+    for (const entry of activeEntries) {
+      this.setAgentState(
+        entry.agent_id,
+        entry.status === 'executing' ? 'executing' : 'queued',
+        entry.chain_id,
+      );
+      if (entry.pass_id) this.entryPassIds.set(entry.entry_id, entry.pass_id);
+    }
+
+    const offeredPasses = this.db.prepare(`
+      SELECT p.id, p.chain_id, p.from_holder_id, p.to_agent_id
+      FROM a2a_pass p
+      JOIN invocation_chain c ON c.id = p.chain_id
+      WHERE c.status = 'active' AND p.status = 'offered'
+    `).all() as Array<{ id: string; chain_id: string; from_holder_id: string; to_agent_id: string }>;
+
+    for (const pass of offeredPasses) {
+      const chain = this.chainRepo.getById(pass.chain_id);
+      if (chain) this.startOfferTimer(chain, pass.id, pass.from_holder_id, pass.to_agent_id);
+    }
+  }
+
   // ──────────────────────────────────────────────
   // Reset (for testing)
   // ──────────────────────────────────────────────
@@ -719,8 +1016,11 @@ export class Orchestrator {
   reset(): void {
     this.agentStates.clear();
     this.entryPassIds.clear();
+    this.entryTaskIds.clear();
     for (const timer of this.chainTimers.values()) clearTimeout(timer);
     this.chainTimers.clear();
+    for (const timer of this.passTimers.values()) clearTimeout(timer);
+    this.passTimers.clear();
     resetAllDedupState();
   }
 

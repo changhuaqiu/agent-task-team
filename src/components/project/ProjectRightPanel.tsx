@@ -2,8 +2,11 @@
 
 import { useMemo, useState } from 'react';
 import { useTaskHubStore, type Task } from '@/store/taskHubStore';
+import { useShallow } from 'zustand/react/shallow';
 import { useTeamPackStore } from '@/store/teamPackStore';
 import { MiniKanban } from './MiniKanban';
+import { TaskGraphMap, type TaskGraphMapView } from '@/components/task-hub/TaskGraphMap';
+import { useTaskGraph } from '@/components/task-hub/useTaskGraph';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/Tabs';
 import { cn } from '@/lib/utils';
 import { AlertTriangle, Briefcase, Layout, PanelRightClose, PanelRightOpen, Sparkles, Users, ShieldCheck, CheckCircle } from 'lucide-react';
@@ -24,10 +27,12 @@ function buildNextItems(tasks: Task[]): NextItem[] {
 }
 
 function SyncStatusBar() {
-  const syncError = useTaskHubStore((s) => s.taskSyncError);
-  const lastSyncAt = useTaskHubStore((s) => s.lastTaskSyncAt);
-  const selectedConvId = useTaskHubStore((s) => s.selectedConversationId);
-  const clearError = useTaskHubStore((s) => s.clearTaskSyncError);
+  const { syncError, lastSyncAt, selectedConvId, clearError } = useTaskHubStore(useShallow((s) => ({
+    syncError: s.taskSyncError,
+    lastSyncAt: s.lastTaskSyncAt,
+    selectedConvId: s.selectedConversationId,
+    clearError: s.clearTaskSyncError,
+  })));
 
   if (syncError && syncError.conversationId === selectedConvId) {
     return (
@@ -47,12 +52,14 @@ function SyncStatusBar() {
 }
 
 export function ProjectRightPanel({ teamPackId }: { teamPackId: string }) {
-  const selectedConversationId = useTaskHubStore((s) => s.selectedConversationId);
+  const { selectedConversationId, currentTeamPack, tasks, blockers, setSelectedTaskId } = useTaskHubStore(useShallow((s) => ({
+    selectedConversationId: s.selectedConversationId,
+    currentTeamPack: s.currentTeamPack,
+    tasks: s.tasks,
+    blockers: s.getOpenBlockersForSelectedConversation(),
+    setSelectedTaskId: s.setSelectedTaskId,
+  })));
   const selectedConversation = useTaskHubStore((s) => s.conversations.find((c) => c.id === s.selectedConversationId));
-  const currentTeamPack = useTaskHubStore((s) => s.currentTeamPack);
-  const tasks = useTaskHubStore((s) => s.tasks);
-  const blockers = useTaskHubStore((s) => s.getOpenBlockersForSelectedConversation());
-  const setSelectedTaskId = useTaskHubStore((s) => s.setSelectedTaskId);
 
   const teamPacks = useTeamPackStore((s) => s.teamPacks);
   const fallbackTeamPack = teamPacks.find((pack) => pack.id === teamPackId && teamPackId);
@@ -63,7 +70,8 @@ export function ProjectRightPanel({ teamPackId }: { teamPackId: string }) {
     const scopedBlockers = blockers.filter((blocker) => blocker.conversationId === selectedConversationId);
     return scopedTasks.length > 0 || scopedBlockers.length > 0;
   });
-  const [activeTab, setActiveTab] = useState<'board' | 'tasks' | 'risks'>('board');
+  const [activeTab, setActiveTab] = useState<'board' | 'map' | 'tasks' | 'risks'>('board');
+  const { graph: remoteGraph, isLoading: graphLoading, error: graphError } = useTaskGraph(selectedConversationId);
 
   const scopedTasks = useMemo(
     () => tasks.filter((task) => task.conversationId === selectedConversationId),
@@ -74,15 +82,61 @@ export function ProjectRightPanel({ teamPackId }: { teamPackId: string }) {
     () => blockers.filter((blocker) => blocker.conversationId === selectedConversationId),
     [blockers, selectedConversationId],
   );
+  const localGraph = useMemo<TaskGraphMapView>(() => ({
+    conversationId: selectedConversationId ?? '',
+    tasks: scopedTasks.map((task) => ({
+      id: task.id,
+      title: task.title,
+      status: task.status,
+      agent_id: task.agentId,
+    })),
+    edges: scopedTasks.flatMap((task) => task.dependencies.map((dependencyId) => ({
+      id: `${task.id}-depends-${dependencyId}`,
+      from_task_id: task.id,
+      to_task_id: dependencyId,
+      type: 'depends_on',
+    }))),
+    artifacts: scopedTasks.flatMap((task) => task.artifacts.map((artifact, index) => ({
+      id: `${task.id}-artifact-${index}`,
+      task_id: task.id,
+      kind: artifact.type,
+      label: artifact.label,
+    }))),
+  }), [scopedTasks, selectedConversationId]);
+  const graphView = useMemo<TaskGraphMapView>(() => {
+    if (!remoteGraph || (remoteGraph.tasks.length === 0 && localGraph.tasks.length > 0)) return localGraph;
+    return {
+      conversationId: remoteGraph.conversationId,
+      tasks: remoteGraph.tasks.map((task) => ({
+        id: task.id,
+        title: task.title,
+        status: task.status,
+        agent_id: task.agent_id,
+      })),
+      edges: remoteGraph.edges.map((edge) => ({
+        id: edge.id,
+        from_task_id: edge.from_task_id,
+        to_task_id: edge.to_task_id,
+        type: edge.type,
+      })),
+      artifacts: remoteGraph.artifacts.map((artifact) => ({
+        id: artifact.id,
+        task_id: artifact.task_id,
+        kind: artifact.kind,
+        label: artifact.label,
+      })),
+    };
+  }, [localGraph, remoteGraph]);
 
   const tabs = [
     { value: 'board', label: '看板', count: scopedTasks.length },
+    { value: 'map', label: '地图', count: scopedTasks.length },
     { value: 'tasks', label: '待办', count: nextItems.length },
     { value: 'risks', label: '风险', count: openBlockers.length },
   ];
 
   const handleTabChange = (v: string) => {
-    setActiveTab(v as 'board' | 'tasks' | 'risks');
+    setActiveTab(v as 'board' | 'map' | 'tasks' | 'risks');
   };
 
   return (
@@ -178,6 +232,19 @@ export function ProjectRightPanel({ teamPackId }: { teamPackId: string }) {
 
               {/* MiniKanban */}
               <MiniKanban expanded={true} />
+            </TabsContent>
+
+            {/* Map Tab */}
+            <TabsContent value="map" className="flex-1 overflow-y-auto scrollbar-thin p-3">
+              {graphError && (
+                <div className="mb-2 rounded-md border border-[hsl(var(--status-rejected-border))] bg-[hsl(var(--status-rejected-bg))] px-2 py-1.5 text-xs text-[hsl(var(--status-rejected))]">
+                  {graphError}，已显示本地任务视图。
+                </div>
+              )}
+              {graphLoading && (
+                <div className="mb-2 text-[10px] text-[hsl(var(--text-tertiary))]">正在刷新任务地图…</div>
+              )}
+              <TaskGraphMap graph={graphView} onSelectTask={setSelectedTaskId} />
             </TabsContent>
 
             {/* Tasks Tab */}

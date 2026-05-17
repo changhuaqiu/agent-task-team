@@ -98,6 +98,8 @@ Resolution rules:
 7. Otherwise preset agent `accountIds` are used.
 8. Skills are resolved from agent skill bindings plus TeamPack role `skillIds`, with duplicates removed.
 9. Missing RoleCard is allowed; runtime must still produce a dispatchable identity when account resolution succeeds.
+10. If a TeamPack role has only a synthesized RoleCard snapshot, the synthesized permissions must match the role category: backend/frontend/coder roles are implementers that can modify code and create files, while planner/reviewer/QA roles remain advisory or gatekeeping roles unless explicitly configured otherwise.
+11. Preset TeamPacks should store `roleCardId` and materialized snapshots for known roles so runtime prompts, A2A roster resolution, and dispatch behavior all use the same role boundary.
 
 ### RuntimeAgentProfile
 
@@ -281,7 +283,7 @@ TeamLayer and TeamPackLayer describe the same active team
 - A2A target resolution must use runtime roster.
 - Communication checks must use `CommunicationPolicy`.
 - Production daemon must inject a server-side runtime provider into `AgentMessenger`; the provider resolves `conversation.team_pack_id` with `teamPackRepo.getById()` and `resolveTeamRuntime()` instead of importing UI stores.
-- A2A only requires roster ids/display names and policy, so the server provider may resolve runtime with empty RoleCard, Skill and override maps. TeamPack conversations use TeamPack role ids as active agents; preset conversations use DB agent ids.
+- A2A roster checks only require ids/display names and policy, but the server provider should still pass available preset/custom RoleCards into runtime resolution so TeamPack roles with `roleCardId` do not lose their implementation/reviewer boundaries. TeamPack conversations use TeamPack role ids as active agents; preset conversations use DB agent ids.
 - Runtime mention patterns include `@${agent.id}` and `@${agent.displayName}` when the display name is non-empty and differs from the id.
 - Agent-originated `@mention` tokens that do not resolve to the current runtime roster must be surfaced as an A2A block event, not ignored silently. The user-facing explanation should say “当前团队没有可接收 @agent 的角色” so users can distinguish roster mismatch from delivery timeout.
 - Policy checks must run before breadth and dedup checks for agent-originated dispatches so TeamPack rule blocks are not masked by chain limits.
@@ -334,6 +336,7 @@ Add focused tests for:
 ## Acceptance Criteria
 
 - A project bound to `engineering-trio` resolves `planner`, `coder`, and `reviewer` as runtime agents.
+- Runtime resolution keeps implementation roles executable: `toad`/backend and `coder` do not receive “只能提出建议，不能直接修改代码” unless their RoleCard explicitly says so.
 - The same runtime agents are used by AgentBar, AgentBindingPanel, PromptComposer, dispatch, skill hydration and A2A.
 - Dispatch to a TeamPack role sends the selected account and engine to daemon.
 - PromptComposer does not import `AGENT_ROSTER` to build team roster.

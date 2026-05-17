@@ -2,12 +2,14 @@ import { describe, it, expect } from 'vitest';
 import type { RoleCard } from '@/types/roleCard';
 import type { ChatMessage } from '@/store/taskHubStore';
 import { buildRoleLayer } from '@/lib/agent-context/layers/roleLayer';
+import { PRESET_ROLE_CARD_MAP } from '@/data/presetRoleCards';
 import { buildProjectLayer } from '@/lib/agent-context/layers/projectLayer';
 import { buildTeamLayer } from '@/lib/agent-context/layers/teamLayer';
 import { buildHistoryLayer } from '@/lib/agent-context/layers/historyLayer';
 import { buildTaskContextLayer } from '@/lib/agent-context/layers/taskContextLayer';
 import { buildUserMessageLayer } from '@/lib/agent-context/layers/userMessageLayer';
 import { buildBehaviorLayer } from '@/lib/agent-context/layers/behaviorLayer';
+import { buildCollaborationLayer } from '@/lib/agent-context/layers/collaborationLayer';
 import { composeSystemPrompt, composeUserPrompt } from '@/lib/agent-context/PromptComposer';
 import type { ComposeOptions } from '@/lib/agent-context/PromptComposer';
 
@@ -153,6 +155,13 @@ describe('buildRoleLayer', () => {
     expect(result).not.toContain('只能提出建议');
   });
 
+  it('does not make preset backend advisory-only', () => {
+    const result = buildRoleLayer({ id: 'toad', name: 'Toad' }, PRESET_ROLE_CARD_MAP['preset-backend']);
+    expect(result).toContain('## 角色约束');
+    expect(result).toContain('职责：API 开发、数据模型设计、服务端逻辑实现、性能优化');
+    expect(result).not.toContain('只能提出建议，不能直接修改代码');
+  });
+
   it('includes confirmation constraint', () => {
     const rc = makeRoleCard({ requiresConfirmation: ['架构变更', '数据库迁移'] });
     const result = buildRoleLayer(agent, rc);
@@ -209,12 +218,29 @@ describe('buildTeamLayer', () => {
     expect(result).toContain('@luigi');
     expect(result).toContain('实现'); // ROLE_LABELS[frontend] = '实现'
     expect(result).toContain('协作规则');
-    expect(result).toContain('@agentId');
+    expect(result).toContain('@agent 请/需要 + 动作 + 具体对象/交付物');
+    expect(result).not.toContain('另起一行行首写 @agentId');
   });
 
   it('uses fallback roleLabel when no matching role card', () => {
     const result = buildTeamLayer('mario', []);
     expect(result).not.toBe('');
+  });
+});
+
+// ===========================================================================
+// collaborationLayer
+// ===========================================================================
+describe('buildCollaborationLayer', () => {
+  it('defines when @mentions wake agents and when they are just awareness', () => {
+    const result = buildCollaborationLayer();
+    expect(result).toContain('## Agent 协作协议');
+    expect(result).toContain('系统会自动在群聊通知相关角色');
+    expect(result).toContain('@agent 请/需要 + 动作 + 具体对象/交付物');
+    expect(result).toContain('启动、执行、完成、认领、推进');
+    expect(result).toContain('fix、update、implement、build、execute');
+    expect(result).toContain('通知 @mario 查看结果');
+    expect(result).toContain('不会唤醒对方');
   });
 });
 
@@ -342,7 +368,7 @@ describe('buildUserMessageLayer', () => {
 describe('buildBehaviorLayer', () => {
   it('returns decision nudge text', () => {
     const result = buildBehaviorLayer();
-    expect(result).toContain('是否需要交接给其他角色');
+    expect(result).toContain('@agent 请/需要 + 动作 + 具体交付物');
     expect(result).toContain('是否需要请求用户确认');
   });
 });
@@ -410,7 +436,7 @@ describe('composeUserPrompt', () => {
     const result = composeUserPrompt({ ...baseOpts, messages });
     expect(result).toContain('[对话历史');
     expect(result).toContain('请开始工作');
-    expect(result).toContain('是否需要交接给其他角色');
+    expect(result).toContain('@agent 请/需要 + 动作 + 具体交付物');
   });
 
   it('includes history on subsequent wake too', () => {
@@ -420,12 +446,19 @@ describe('composeUserPrompt', () => {
     const result = composeUserPrompt({ ...baseOpts, isFirstWake: false, messages });
     expect(result).toContain('[对话历史');
     expect(result).toContain('请开始工作');
-    expect(result).toContain('是否需要交接给其他角色');
+    expect(result).toContain('@agent 请/需要 + 动作 + 具体交付物');
   });
 
   it('includes team roster on every dispatch', () => {
     const result = composeUserPrompt(baseOpts);
     expect(result).toContain('@luigi');
+  });
+
+  it('injects collaboration protocol into every user prompt dispatch', () => {
+    const result = composeUserPrompt(baseOpts);
+    expect(result).toContain('## Agent 协作协议');
+    expect(result).toContain('只有需要其他角色执行新动作时');
+    expect(result).toContain('通知 @mario 查看结果');
   });
 
   it('uses runtime roster when provided', () => {
@@ -499,6 +532,7 @@ describe('composeUserPrompt', () => {
     expect(result).toContain('触发来源：@mario');
     expect(result).toContain('上游 agent 在回复中 @ 了你');
     expect(result).toContain('不要为了确认、总结或礼貌性回复再 @mario');
+    expect(result).toContain('不要为了“通知完成”再发起 A2A');
     expect(result).toContain('请评审当前架构方案。');
     expect(result.match(/═══ A2A 任务指派 ═══/g)).toHaveLength(1);
   });
@@ -538,5 +572,11 @@ describe('composeUserPrompt with skills', () => {
     const result = composeUserPrompt(baseOpts);
     expect(result).toContain('任务协作协议');
     expect(result).toContain('.ath/TASKS.md');
+  });
+
+  it('includes collaboration protocol in the first system prompt', () => {
+    const result = composeSystemPrompt(baseOpts);
+    expect(result).toContain('## Agent 协作协议');
+    expect(result).toContain('A2A 唤醒语法');
   });
 });

@@ -1,5 +1,5 @@
 // src/__tests__/server/a2a/integration.test.ts
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { applyMigrations } from '@/server/db/migrate';
 import { resetDb, setTestDb } from '@/server/db';
@@ -14,9 +14,17 @@ import { teamPackRepo } from '@/server/repositories/team-pack-repo';
 
 function mockIO() {
   const emitted: any[] = [];
+  const roomEmitted: any[] = [];
   return {
     emit: (...args: any[]) => emitted.push(args),
+    to: (room: string) => ({
+      emit: (...args: any[]) => {
+        roomEmitted.push([room, ...args]);
+        emitted.push(args);
+      },
+    }),
     emitted: () => emitted,
+    roomEmitted: () => roomEmitted,
   };
 }
 
@@ -142,12 +150,21 @@ describe('A2A v2 integration', () => {
     expect(dispatches[0][1].chainId).toBeDefined();
   });
 
+  it('emits A2A dispatch events only to the conversation room', () => {
+    messenger.onUserMessage('conv-1', 'msg-1', 'luigi', '请开始实现前端');
+
+    const roomDispatches = io.roomEmitted().filter(([, event]) => event === 'a2a:dispatch');
+    expect(roomDispatches).toHaveLength(1);
+    expect(roomDispatches[0][0]).toBe('conv-1');
+    expect(roomDispatches[0][2].conversationId).toBe('conv-1');
+  });
+
   it('agent @mention creates worklist entry and dispatches', async () => {
     // Create a chain first (simulates user message trigger)
     messenger.onUserMessage('conv-1', 'msg-1', 'mario', '开始设计');
 
-    // Mario completes and @mentions Luigi (response must be > 30 chars to trigger scan)
-    await messenger.onAgentResponse('mario', '架构设计已完成，使用 JWT 认证方案。\n@luigi 请实现前端登录组件，包含表单验证和错误处理', {
+    // Mario completes and @mentions Luigi (response must be > 50 chars to trigger scan)
+    await messenger.onAgentResponse('mario', '架构设计已完成，使用 JWT 认证方案，并补充了错误处理、登录态持久化和接口边界。\n@luigi 请实现前端登录组件，包含表单验证和错误处理', {
       conversationId: 'conv-1',
       chainDepth: 0,
     });
@@ -174,6 +191,32 @@ describe('A2A v2 integration', () => {
       SELECT * FROM a2a_pass WHERE to_agent_id = 'luigi'
     `).all() as any[];
     expect(passes).toHaveLength(0);
+  });
+
+  it('renders notification-style mentions as group-chat awareness without waking the mentioned agent', async () => {
+    messenger.onUserMessage('conv-1', 'msg-1', 'peach', '请完成 TASK-006 代码评审');
+
+    await messenger.onAgentResponse(
+      'peach',
+      'TASK-006 评审已完成，结论 PASS-WITH-NOTES。通知 @mario 查看 TASK-006 结果，状态和评审说明已写入 TASKS.md，后续任务可以从看板继续推进。',
+      {
+        conversationId: 'conv-1',
+        chainDepth: 0,
+      },
+    );
+
+    const marioDispatches = io.emitted().filter(([event, payload]) => event === 'a2a:dispatch' && payload.agentId === 'mario');
+    expect(marioDispatches).toHaveLength(0);
+
+    const notices = io.roomEmitted()
+      .filter(([room, event, payload]) => room === 'conv-1' && event === 'agent:event' && payload.type === 'system')
+      .map(([, , payload]) => payload.content);
+    expect(notices.some((content) => (
+      content.includes('群聊知会')
+      && content.includes('@mario')
+      && content.includes('不会启动新的 A2A 执行')
+      && content.includes('@agent 请评审/实现/验证')
+    ))).toBe(true);
   });
 
   it('records possession and handoff packet for an explicit pass', async () => {
@@ -220,13 +263,112 @@ describe('A2A v2 integration', () => {
     expect(toadDispatches[0][1].prompt).toContain('重新派发完毕');
   });
 
+  it('allows fan-out branch holders to complete independently', async () => {
+    messenger.onUserMessage('conv-1', 'msg-1', 'mario', '请派发并行审查');
+
+    await messenger.onAgentResponse('mario', [
+      '并行审查开始：',
+      '@peach 请审查 UI 风险、验收标准和边界条件',
+      '@toad 请审查后端 API、状态流转和失败恢复',
+    ].join('\n'), {
+      conversationId: 'conv-1',
+      chainDepth: 0,
+    });
+
+    const peachDispatch = io.emitted().find(([event, payload]) => event === 'a2a:dispatch' && payload.agentId === 'peach');
+    const toadDispatch = io.emitted().find(([event, payload]) => event === 'a2a:dispatch' && payload.agentId === 'toad');
+    expect(peachDispatch).toBeDefined();
+    expect(toadDispatch).toBeDefined();
+
+    messenger.orchestrator.markDispatchStarted(peachDispatch![1].chainId, peachDispatch![1].entryId, 'conv-1', 'peach', peachDispatch![1].passId);
+    messenger.orchestrator.markDispatchStarted(toadDispatch![1].chainId, toadDispatch![1].entryId, 'conv-1', 'toad', toadDispatch![1].passId);
+
+    await messenger.onAgentResponse('peach', 'UI 审查完成：建议保留可见的交接历史和阻塞原因，不需要继续转交。', {
+      conversationId: 'conv-1',
+      chainDepth: 1,
+    });
+
+    const nonHolderBlocks = db.prepare(`
+      SELECT * FROM a2a_audit_log
+      WHERE conversation_id = ? AND reason LIKE 'non-holder response ignored%'
+    `).all('conv-1') as any[];
+    expect(nonHolderBlocks).toHaveLength(0);
+
+    const peachEntry = db.prepare(`
+      SELECT status, outcome FROM chain_worklist WHERE agent_id = 'peach'
+    `).get() as any;
+    expect(peachEntry).toMatchObject({ status: 'done', outcome: 'success' });
+  });
+
+  it('defers busy A2A deliveries and retries when the target becomes idle', () => {
+    messenger.onUserMessage('conv-1', 'msg-1', 'luigi', '请实现服务端投递队列和 busy 重试');
+    const chain = messenger.orchestrator.getActiveChain('conv-1')!;
+
+    const firstDispatches = io.emitted().filter(([event, payload]) => event === 'a2a:dispatch' && payload.agentId === 'luigi');
+    expect(firstDispatches).toHaveLength(1);
+
+    messenger.orchestrator.markDispatchDeferred(
+      chain.id,
+      firstDispatches[0][1].entryId,
+      'conv-1',
+      'luigi',
+      'target agent is busy',
+      firstDispatches[0][1].passId,
+    );
+
+    const deferredEntry = db.prepare('SELECT status FROM chain_worklist WHERE id = ?').get(firstDispatches[0][1].entryId) as any;
+    expect(deferredEntry.status).toBe('queued');
+
+    messenger.orchestrator.onAgentDone('luigi', 'conv-1');
+
+    const allDispatches = io.emitted().filter(([event, payload]) => event === 'a2a:dispatch' && payload.agentId === 'luigi');
+    expect(allDispatches).toHaveLength(2);
+
+    const delivery = db.prepare(`
+      SELECT status, attempts, last_error FROM a2a_delivery
+      WHERE entry_id = ?
+      ORDER BY updated_at DESC
+      LIMIT 1
+    `).get(firstDispatches[0][1].entryId) as any;
+    expect(delivery).toMatchObject({ status: 'sent', last_error: null });
+    expect(delivery.attempts).toBeGreaterThanOrEqual(2);
+  });
+
+  it('registers client-driven user fan-out as independent holders', async () => {
+    messenger.registerExternalUserDispatch('conv-1', 'msg-1', ['mario', 'luigi'], '@mario @luigi 并行分析协作链路');
+
+    expect(messenger.orchestrator.getAgentState('mario').status).toBe('executing');
+    expect(messenger.orchestrator.getAgentState('luigi').status).toBe('executing');
+
+    const openHolders = db.prepare(`
+      SELECT holder_id FROM a2a_possession
+      WHERE chain_id = ? AND status = 'open'
+      ORDER BY holder_id ASC
+    `).all(messenger.orchestrator.getActiveChain('conv-1')!.id) as Array<{ holder_id: string }>;
+    expect(openHolders.map((holder) => holder.holder_id)).toEqual(['luigi', 'mario']);
+
+    await messenger.onAgentResponse('mario', '我已经完成链路分析，需要后端继续落地。\n@toad 请实现分支持球的服务端状态恢复和验证测试', {
+      conversationId: 'conv-1',
+      chainDepth: 0,
+    });
+
+    const toadDispatches = io.emitted().filter(([event, payload]) => event === 'a2a:dispatch' && payload.agentId === 'toad');
+    expect(toadDispatches).toHaveLength(1);
+
+    const nonHolderBlocks = db.prepare(`
+      SELECT * FROM a2a_audit_log
+      WHERE conversation_id = ? AND reason LIKE 'non-holder response ignored%'
+    `).all('conv-1') as any[];
+    expect(nonHolderBlocks).toHaveLength(0);
+  });
+
   it('routes agent @mention after client-driven direct dispatch is registered as executing', async () => {
     messenger.registerExternalUserDispatch('conv-1', 'msg-1', ['mario'], '@mario 开始设计');
 
     const initialDispatches = io.emitted().filter(([e]) => e === 'a2a:dispatch');
     expect(initialDispatches).toHaveLength(0);
 
-    await messenger.onAgentResponse('mario', '编码实现已经完成，下一步需要审查。\n@luigi 请审查这次改动的边界条件和测试覆盖', {
+    await messenger.onAgentResponse('mario', '编码实现已经完成，关键路径、异常路径和测试说明都已经补齐，下一步需要审查。\n@luigi 请审查这次改动的边界条件和测试覆盖', {
       conversationId: 'conv-1',
       chainDepth: 0,
     });
@@ -241,6 +383,61 @@ describe('A2A v2 integration', () => {
     `).get() as any;
     expect(marioEntry.status).toBe('done');
     expect(marioEntry.outcome).toBe('success');
+  });
+
+  it('rebuilds active A2A state from the database after restart', async () => {
+    messenger.registerExternalUserDispatch('conv-1', 'msg-1', ['mario'], '@mario 开始设计登录流程');
+
+    const restartedIO = mockIO();
+    const restartedMessenger = new AgentMessenger(db, restartedIO as any, AGENTS, {
+      getTasks: () => testTasks,
+    });
+
+    expect(restartedMessenger.orchestrator.getAgentState('mario').status).toBe('executing');
+
+    await restartedMessenger.onAgentResponse('mario', '登录流程设计完成，采用表单校验和错误提示。\n@luigi 请实现登录表单组件，包含校验、提交和错误展示', {
+      conversationId: 'conv-1',
+      chainDepth: 0,
+    });
+
+    const luigiDispatches = restartedIO.emitted().filter(([event, payload]) => event === 'a2a:dispatch' && payload.agentId === 'luigi');
+    expect(luigiDispatches).toHaveLength(1);
+  });
+
+  it('links A2A handoffs to task graph ownership and dispatch payloads', async () => {
+    db.prepare(`
+      INSERT INTO task (id, conversation_id, title, description, status, agent_id, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run('task-1', 'conv-1', '登录任务', '', 'in_progress', 'mario', new Date().toISOString(), new Date().toISOString());
+
+    messenger.registerExternalUserDispatch('conv-1', 'msg-1', ['mario'], '@mario 开始登录任务', 'task-1');
+
+    await messenger.onAgentResponse('mario', '我已经完成登录任务的方案设计，需要继续实现。\n@luigi 请接手实现登录表单、校验和错误处理', {
+      conversationId: 'conv-1',
+      taskId: 'task-1',
+      chainDepth: 0,
+    });
+
+    const luigiDispatch = io.emitted().find(([event, payload]) => event === 'a2a:dispatch' && payload.agentId === 'luigi');
+    expect(luigiDispatch?.[1].referencedTaskId).toBe('task-1');
+
+    messenger.orchestrator.markDispatchStarted(
+      luigiDispatch![1].chainId,
+      luigiDispatch![1].entryId,
+      'conv-1',
+      'luigi',
+      luigiDispatch![1].passId,
+    );
+
+    const task = db.prepare('SELECT agent_id FROM task WHERE id = ?').get('task-1') as any;
+    expect(task.agent_id).toBe('luigi');
+
+    const actions = db.prepare(`
+      SELECT type, actor_id, task_ids, pass_id FROM task_action WHERE conversation_id = ? ORDER BY created_at ASC, id ASC
+    `).all('conv-1') as any[];
+    expect(actions.some((action) => action.type === 'task.handoff_requested' && action.actor_id === 'mario')).toBe(true);
+    expect(actions.some((action) => action.type === 'task.handoff_accepted' && action.actor_id === 'luigi')).toBe(true);
+    expect(actions.every((action) => JSON.parse(action.task_ids).includes('task-1'))).toBe(true);
   });
 
   it('can abort an active user chain when a new non-mention user message arrives', () => {
@@ -357,7 +554,7 @@ describe('A2A v2 integration', () => {
 
     messenger.onUserMessage('conv-1', 'msg-1', 'planner', '请规划功能');
 
-    await messenger.onAgentResponse('planner', '方案已经确认，需要默认团队里的架构角色协助。\n@dk 请审查计划中的架构边界和风险项', {
+    await messenger.onAgentResponse('planner', '方案已经确认，核心拆解、依赖顺序和执行风险都已经整理，需要默认团队里的架构角色协助。\n@dk 请审查计划中的架构边界和风险项', {
       conversationId: 'conv-1',
       chainDepth: 0,
     });
@@ -502,6 +699,45 @@ describe('A2A v2 integration', () => {
     expect(decision.allow).toBe(false);
     const row = db.prepare('SELECT status FROM invocation_chain WHERE id = ?').get(chain.id) as any;
     expect(row.status).toBe('timeout');
+  });
+
+  it('emits phase-specific offer timeout messages', async () => {
+    vi.useFakeTimers();
+    try {
+      const chain = messenger.orchestrator.createChain({
+        conversationId: 'conv-1',
+        type: 'user_message',
+        messageId: 'msg-offer-timeout',
+        config: {
+          maxDurationMs: 1_000,
+          offerTimeoutMs: 5,
+          holderIdleTimeoutMs: 1_000,
+        },
+      });
+
+      const decision = messenger.orchestrator.requestDispatch({
+        chainId: chain.id,
+        fromAgentId: 'user',
+        toAgentId: 'luigi',
+        content: '请实现 offer timeout 回归验证',
+        depth: 0,
+      });
+      expect(decision.allow).toBe(true);
+
+      await vi.advanceTimersByTimeAsync(6);
+
+      const systemEvents = io.emitted().filter(([event, payload]) => event === 'agent:event' && payload.type === 'system');
+      expect(systemEvents.some(([, payload]) => payload.content.includes('offer 阶段超时'))).toBe(true);
+
+      const pass = db.prepare('SELECT status, phase, reason FROM a2a_pass WHERE chain_id = ?').get(chain.id) as any;
+      expect(pass).toMatchObject({
+        status: 'timeout',
+        phase: 'offer',
+        reason: 'A2A 转交未被执行端确认',
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('dispatch prompt includes task context and response guidance', async () => {

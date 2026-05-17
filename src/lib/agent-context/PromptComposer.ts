@@ -15,6 +15,7 @@ import { buildToolLayer } from './layers/toolLayer';
 import { buildProtocolLayer, deriveRoleFromCard } from './layers/protocolLayer';
 import { buildA2ALayer } from './layers/a2aLayer';
 import { buildTeamPackLayer } from './layers/teamPackLayer';
+import { buildCollaborationLayer } from './layers/collaborationLayer';
 import type { TeamPack } from '@/types/teamPack';
 
 export interface ParamDef {
@@ -88,6 +89,7 @@ export function composeSystemPrompt(opts: ComposeOptions): string | undefined {
   return [
     buildRoleLayer(opts.agent, opts.roleCard),
     buildProjectLayer(opts.project),
+    buildCollaborationLayer(),
     projectStatus,
   ]
     .filter(Boolean)
@@ -121,6 +123,8 @@ export function composeUserPrompt(opts: ComposeOptions): string {
     ? runtimeTeam
     : buildTeamLayer(opts.agent.id, opts.allRoleCards, opts.currentLoad);
   if (team) parts.push(team);
+
+  parts.push(buildCollaborationLayer());
 
   // TeamPack context (if agent is part of a team pack)
   if (opts.teamPack) {

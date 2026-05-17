@@ -85,15 +85,47 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       }
       case 'task.updateStatus': {
         const { taskRepo } = await import('@/server/repositories/task-repo');
+        const { publishTaskChangeNotification } = await import('@/server/task-flow/task-notification-publisher');
         const { id, status, reviewNote } = payload as any;
+        const previousTask = taskRepo.getById(id);
         taskRepo.updateStatus(id, status, reviewNote);
+        const task = taskRepo.getById(id);
+        if (task) {
+          publishTaskChangeNotification({
+            io: (res.socket as any)?.server?.io,
+            kind: 'task.status_changed',
+            task,
+            previousTask,
+            actorId: (payload as any).actorId,
+            actorType: (payload as any).actorType,
+          });
+        }
         result = { id, status };
         break;
       }
       case 'task.update': {
         const { taskRepo } = await import('@/server/repositories/task-repo');
-        const { id, ...updates } = payload as any;
-        taskRepo.update(id, updates);
+        const { publishTaskChangeNotification } = await import('@/server/task-flow/task-notification-publisher');
+        const { id, actorId, actorType, agentId, dependencies, artifacts, ...updates } = payload as any;
+        const previousTask = taskRepo.getById(id);
+        const normalizedUpdates = {
+          ...updates,
+          ...(agentId !== undefined ? { agent_id: agentId } : {}),
+          ...(dependencies !== undefined ? { dependencies: Array.isArray(dependencies) ? JSON.stringify(dependencies) : dependencies } : {}),
+          ...(artifacts !== undefined ? { artifacts: typeof artifacts === 'string' ? artifacts : JSON.stringify(artifacts) } : {}),
+        };
+        taskRepo.update(id, normalizedUpdates);
+        const task = taskRepo.getById(id);
+        if (task) {
+          publishTaskChangeNotification({
+            io: (res.socket as any)?.server?.io,
+            kind: previousTask?.agent_id && previousTask.agent_id !== task.agent_id ? 'task.assigned' : 'task.updated',
+            task,
+            previousTask,
+            actorId,
+            actorType,
+          });
+        }
         result = { id };
         break;
       }
@@ -238,14 +270,27 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
           result = task;
         } else if (toolName === 'task_update_status') {
+          const previousTask = taskRepo.getById(input.task_id);
           taskRepo.updateStatus(input.task_id, input.status);
+          const updatedTask = taskRepo.getById(input.task_id);
+          if (updatedTask) {
+            const { publishTaskChangeNotification } = await import('@/server/task-flow/task-notification-publisher');
+            publishTaskChangeNotification({
+              io: (res.socket as any)?.server?.io,
+              kind: 'task.status_changed',
+              task: updatedTask,
+              previousTask,
+              actorId: toolAgentId,
+              actorType: 'agent',
+            });
+          }
 
           // Also update TASKS.md
           try {
             const { updateTaskInMd } = await import('@/server/task-file-service');
             const { join } = await import('path');
             const wsRoot = process.env.ATH_WORKSPACES_ROOT || join(process.cwd(), '.ath', 'workspaces');
-            const existing = taskRepo.getById(input.task_id);
+            const existing = updatedTask;
             const convId = existing?.conversation_id || conversationId || 'default';
             const projectDir = join(wsRoot, convId);
             const STATUS_FILE: Record<string, string> = {
@@ -256,7 +301,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
             console.error('[task_update_status] failed to update TASKS.md:', e);
           }
         } else if (toolName === 'task_assign') {
+          const previousTask = taskRepo.getById(input.task_id);
           taskRepo.update(input.task_id, { agent_id: input.agent_id });
+          const updatedTask = taskRepo.getById(input.task_id);
+          if (updatedTask) {
+            const { publishTaskChangeNotification } = await import('@/server/task-flow/task-notification-publisher');
+            publishTaskChangeNotification({
+              io: (res.socket as any)?.server?.io,
+              kind: 'task.assigned',
+              task: updatedTask,
+              previousTask,
+              actorId: toolAgentId,
+              actorType: 'agent',
+            });
+          }
 
           // Update .ath/TASKS.md
           const { updateTaskInMd } = await import('@/server/task-file-service');
@@ -272,7 +330,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
           // Broadcast task.assigned for store to trigger dispatchToAgent
           const io = (res.socket as any)?.server?.io;
           if (io) {
-            io.emit('task.assigned', {
+            io.to(conversationId || 'default').emit('task.assigned', {
               taskId: input.task_id,
               agentId: input.agent_id,
               conversationId,

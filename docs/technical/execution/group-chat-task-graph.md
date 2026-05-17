@@ -1,0 +1,309 @@
+# Group Chat Task Graph Technical Design
+
+> Status: Baseline implemented
+> Date: 2026-05-15
+> Source spec: `specs/group-chat-task-flow/`
+
+## Summary
+
+Group Chat Task Flow adds a task graph authority below the group-chat UX.
+
+The goal is to support playful multi-agent conversation while keeping task state deterministic, replayable, and safe under split, parallel execution, dependency waiting, handoff, merge, review failure, and user intervention.
+
+## Architecture Position
+
+```text
+Group Chat UX
+  ↓ renders
+ChatMessage + Task Capsules + Action Cards
+  ↓ references
+TaskAction Event Log
+  ↓ reconstructs
+Task Graph Authority
+  ↓ coordinates with
+A2A Possession + Dispatch Gateway + Proof Log
+```
+
+## Ownership Boundaries
+
+### Task Graph Authority
+
+Owns durable task facts:
+
+- task node identity
+- task status
+- task owner
+- task dependencies
+- task blockers
+- task artifacts
+- split and merge lineage
+- reopen history
+
+### Chat Layer
+
+Owns user-facing narrative:
+
+- message bubbles
+- agent personality
+- task capsules
+- task action cards
+- navigation to task detail
+
+It does not own durable task state.
+
+### A2A Possession
+
+Owns collaboration transfer:
+
+- current holder
+- pass intent
+- handoff packet
+- receiver start confirmation
+
+It does not directly mutate task ownership without a task action.
+
+### Task Notification
+
+Owns task-update awareness:
+
+- related-agent recipient resolution
+- persisted system chat notice
+- conversation-room socket delivery
+- explicit non-handoff metadata
+
+It does not transfer possession or start an execution run.
+
+### Dispatch Gateway
+
+Owns execution delivery:
+
+- dispatch intent normalization
+- policy gates
+- runtime health
+- execution envelope
+- lifecycle acknowledgement
+- failure reason
+
+## Event Sourcing Model
+
+Task graph mutations should be represented as append-only `TaskAction` events.
+
+```typescript
+interface TaskActionRecord {
+  id: string;
+  conversationId: string;
+  actorId: string;
+  actorType: 'user' | 'agent' | 'system';
+  type: string;
+  taskIds: string[];
+  messageId?: string;
+  passId?: string;
+  possessionId?: string;
+  proofEventId?: string;
+  payloadJson: string;
+  createdAt: string;
+}
+```
+
+Graph state can be materialized into tables or derived cache, but the event log is the explainability backbone.
+
+## Recommended Persistence
+
+Initial implementation can use three layers:
+
+1. Existing task table for current task cards and compatibility.
+2. New task edge table for graph relationships.
+3. New task action table for replay and audit.
+
+Suggested tables:
+
+```text
+task_action
+task_edge
+task_artifact_ref
+```
+
+If existing task rows cannot represent all graph fields cleanly, add a `task_graph_node_meta` table rather than overloading chat metadata.
+
+## Current Implementation Status
+
+- Migration version 18 creates `task_action`, `task_edge`, `task_artifact_ref`, and `chat_task_binding`, and backfills existing task rows as `task.created` actions.
+- `src/server/repositories/task-graph-repo.ts` provides the first Task Graph repository API.
+- `src/server/task-flow/group-chat-task-flow.ts` provides the first chat-driven domain service on top of the repository API.
+- The repository treats `task_action` as the explainability event log and returns `TaskGraphView` as the first read model.
+- `task_edge` rejects cycles for `subtask_of`, `depends_on`, and `merged_into` relationships.
+- `recordHandoffRequested()` records intent without changing owner.
+- `recordHandoffAccepted()` changes owner only when the caller has already received the A2A / execution start acknowledgement.
+- `src/pages/api/task-graph.ts` exposes read and structured mutation APIs for create, split, block, resume, merge, reopen, and cancel.
+- `src/components/task-hub/TaskCapsules.tsx` renders linked task capsules in the group-chat surface.
+- `src/components/task-hub/TaskActionCard.tsx` renders task events as group-chat cards.
+- `src/components/task-hub/useTaskGraph.ts` loads the server graph for both map and task detail views.
+- `src/components/task-hub/TaskGraphMap.tsx` renders the compact task map used by the project right panel.
+- `src/components/task-hub/TaskGraphTimeline.tsx` renders per-task actions, chat bindings, artifacts, and proof events.
+- `src/components/task-hub/TaskGraphActionsPanel.tsx` provides structured task controls for split, merge, assign, block, resume, and cancel.
+- `src/server/task-flow/task-graph-policy.ts` gates high-impact actions; blocked policy decisions are recorded in `control_proof_event`.
+- `assignTask` records `task.claimed`; non-owner reassignment of an `in_progress` task requires confirmation.
+- A2A `DispatchRequest` and compatibility dispatch events now carry `taskId` / `referencedTaskId`; `markDispatchStarted()` records `task.handoff_accepted`.
+- `src/server/task-flow/task-notifications.ts` resolves task-update recipients without using A2A handoff rules.
+- `src/server/task-flow/task-notification-publisher.ts` persists a system chat message and emits `task.notification` to the conversation room.
+- `task.updateStatus`, `task.update`, task tool invocations, structured task graph actions, and `TASKS.md` watcher sync publish task notifications after durable task state changes.
+- The frontend consumes `task.notification` as a system group-chat message instead of dispatching another agent run.
+- Targeted tests live in `src/__tests__/server/repositories/task-graph-repo.test.ts`.
+- Flow service tests live in `src/__tests__/server/task-flow/group-chat-task-flow.test.ts`.
+- API and UI tests cover graph reads, structured mutations, capsules, action cards, and the task map.
+
+## State Transition Rules
+
+Allowed common transitions:
+
+```text
+created -> planned -> ready -> claimed -> running
+running -> waiting
+running -> blocked
+running -> review
+review -> done
+review -> reopened
+blocked -> waiting
+blocked -> ready
+done -> reopened
+ready/running/review -> merged
+created/planned/ready/blocked -> cancelled
+```
+
+Rules:
+
+- `running` requires an owner.
+- `merged` requires a `merged_into` edge.
+- `waiting` should reference at least one dependency or blocker reason.
+- `reopened` must reference a review finding or corrective action.
+- Terminal history is not deleted when a task merges, cancels, or reopens.
+
+## Edge Rules
+
+- `subtask_of`: decomposition relationship.
+- `depends_on`: target cannot proceed until source reaches an acceptable state.
+- `blocks`: source prevents target progress.
+- `derived_from`: source inspired or generated target, without strict dependency.
+- `merged_into`: source has been folded into target.
+- `review_of`: review task validates target.
+- `reopens`: new task reopens prior done or review work.
+
+Validation:
+
+- Block dependency cycles.
+- Block merge cycles.
+- Allow reopen edges only when they create a new corrective branch.
+- Preserve source nodes after merge.
+
+## A2A Handoff Integration
+
+A task handoff is a two-system operation:
+
+1. Task Graph records `task.handoff_requested`.
+2. A2A Possession creates a pass and handoff packet.
+3. Dispatch Gateway attempts delivery.
+4. Receiver start acknowledgement arrives.
+5. Task Graph records `task.handoff_accepted` and updates owner.
+
+Failure behavior:
+
+- `blocked`, `rejected`, `timeout`, or `error` handoffs do not change task owner.
+- The failed pass reason is attached to the task action or blocker.
+- The user can retry, reassign, or take the task back.
+
+Current implementation notes:
+
+- `task.handoff_requested` is recorded when a task-linked pass is created.
+- `task.handoff_accepted` is recorded only after the receiving agent starts.
+- The compatibility socket payload includes `referencedTaskId` so the UI can keep chat, task, and pass context aligned.
+
+## Task Update Notification Integration
+
+Task updates are informational unless the actor asks another agent to perform new work.
+
+Flow:
+
+1. A task mutation is applied through `/api/mutations`, `/api/task-graph`, an intercepted task tool, or `TASKS.md` watcher sync.
+2. The previous and updated task rows are compared to determine changed fields.
+3. Recipients are resolved from current owner, previous owner, coordinator roles, reviewer roles, and downstream dependency owners.
+4. A system chat message is persisted with `startsA2AHandoff: false`.
+5. `task.notification` is emitted to `io.to(conversationId)`.
+6. The UI renders the notification in group chat without starting a new agent execution.
+
+This prevents the previous failure mode where an agent updated task state but related agents had no visible awareness signal unless the agent also attempted an A2A pass.
+
+If an agent writes "通知 @agent" or "@agent 已完成/已写入 TASKS.md" in narrative output, A2A treats it as non-actionable awareness and emits a neutral scoped group-chat notice instead of an error-style handoff block. To wake another agent, the output must include an explicit execution request such as "`@agent 请评审 TASK-003`" or "`@agent 需要验证 TASK-010`".
+
+The same boundary is injected into agent prompts through `buildCollaborationLayer()`. This keeps the primary behavior in the agent's instructions: status changes use Task Graph / `TASKS.md`, notification-style mentions stay in group chat, and A2A is reserved for explicit execution requests.
+
+The intent detector accepts task-flow verbs agents naturally use for execution handoff, including 启动, 执行, 完成, 认领, 推进, plus English implementation verbs such as fix and update. Status summaries such as "已完成" or "已写入 TASKS.md" remain informational and must not wake another agent.
+
+## Chat Binding
+
+Chat messages should reference task facts without becoming the facts.
+
+```typescript
+interface ChatTaskBinding {
+  messageId: string;
+  taskIds: string[];
+  actionIds: string[];
+}
+```
+
+Rendering rules:
+
+- `taskIds` render as task capsules.
+- `actionIds` render as task event cards.
+- A message can reference multiple tasks during split or merge.
+- A casual mention can reference a task without changing it.
+
+## Concurrency and Safety
+
+The graph authority must protect against:
+
+- two agents claiming the same running task
+- owner changes before handoff start acknowledgement
+- dependency cycles
+- merge cycles
+- hidden overwrite conflicts
+- ping-pong handoffs
+- stale chat messages mutating current task state
+
+Minimum gates:
+
+- `OwnershipGate`: only owner, user, coordinator, or system policy can mutate active task state.
+- `GraphGate`: blocks invalid edges and cycles.
+- `PossessionGate`: validates A2A holder before handoff.
+- `ConfirmationGate`: requires user confirmation for high-impact operations.
+- `ProofGate`: records policy and execution-relevant decisions.
+
+## Materialized Views
+
+Useful read models:
+
+- `TaskGraphView`: nodes and edges for the map.
+- `TaskInboxView`: ready or blocked tasks grouped by owner.
+- `TaskBranchView`: subtree under one root.
+- `TaskMergeView`: source tasks and integration target.
+- `TaskTimelineView`: task actions plus linked chat messages and proof events.
+
+## Migration Notes
+
+- Existing tasks remain valid task nodes.
+- Migration version 18 creates a synthetic `task.created` action for each pre-existing task using `task-action-migrated-<taskId>`.
+- Existing chat messages can be backfilled with empty task/action bindings.
+- Existing A2A pass metadata can be linked opportunistically when chain/pass ids are present.
+- Do not infer historical graph edges from old casual chat text.
+
+## Verification
+
+The first implementation should include tests for:
+
+- reconstructing graph from actions
+- one-to-many split
+- dependency wait and resume
+- handoff success and failed handoff owner preservation
+- many-to-one merge
+- review failure reopen
+- cycle rejection
+- chat message binding without state mutation

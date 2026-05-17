@@ -143,6 +143,7 @@ function queueKey(agentId: string, conversationId: string): string {
   return `${agentId}:${conversationId}`;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- set/get typed as any to avoid circular dependency with TaskHubState
 export const createDaemonSlice = (set: any, get: () => any) => {
   const _resetWatchdog = (agentId: string) => resetWatchdog(agentId, get, set);
   const _scheduleFlush = () => scheduleBufferFlush(get, set);
@@ -412,6 +413,7 @@ export const createDaemonSlice = (set: any, get: () => any) => {
           messageId: `queued-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
           targetAgentIds: [agentId],
           prompt: next.prompt,
+          taskId: next.referencedTaskId,
         });
       }
     },

@@ -90,6 +90,13 @@ interface AgentResult {
 - `OPENCODE_PERMISSION={"*":"allow"}` — 自动批准所有工具调用
 - 通过 runtime config 注入 API 凭证
 
+**项目级 Skill 挂载**：
+- Agent Task Team 的 OpenCode 端侧协作规则放在项目内 `.opencode/skills/agent-task-team-collaboration/SKILL.md`
+- Daemon 启动 OpenCode 时会在生成的 `OPENCODE_CONFIG` 中加入当前项目的 `.opencode/skills` 到 `skills.paths`
+- 这是项目级挂载，不写入 `~/.opencode`，避免把本项目协作规则污染到其他项目
+- 因为 Agent 实际执行目录可能是 `.ath/workspaces/...`，不能只依赖 OpenCode 从当前 cwd 自动发现仓库根目录下的 `.opencode/skills`
+- 生成配置同时设置 `permission.skill["*"] = "allow"`，让非交互式 dispatch 可以加载项目 Skill
+
 ### 3.2 Claude
 
 **CLI 调用**：`claude -p --output-format stream-json --input-format stream-json --verbose --permission-mode bypassPermissions`
