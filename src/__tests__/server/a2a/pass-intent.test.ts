@@ -6,6 +6,7 @@ const AGENTS: AgentMentionConfig[] = [
   { id: 'dk', mentionPatterns: ['@dk'] },
   { id: 'luigi', mentionPatterns: ['@luigi'] },
   { id: 'toad', mentionPatterns: ['@toad'] },
+  { id: 'yoshi', mentionPatterns: ['@yoshi'] },
 ];
 
 describe('scanPassIntents', () => {
@@ -80,5 +81,45 @@ describe('scanPassIntents', () => {
     expect(scanPassIntents('@luigi please update the task graph fallback view', AGENTS, 'mario')).toMatchObject([
       { agentId: 'luigi', intent: 'implement' },
     ]);
+  });
+
+  it('detects Harness reject, escalation, coordination, and test handoff intents', () => {
+    expect(scanPassIntents('@luigi 评审不通过，请修正按钮状态回归问题', AGENTS, 'peach')).toMatchObject([
+      { agentId: 'luigi', intent: 'reject' },
+    ]);
+    expect(scanPassIntents('@toad API 契约需要和前端对齐，请确认字段命名', AGENTS, 'luigi')).toMatchObject([
+      { agentId: 'toad', intent: 'coord' },
+    ]);
+    expect(scanPassIntents('@dk 这里发现 schema 边界问题，请做架构评审', AGENTS, 'peach')).toMatchObject([
+      { agentId: 'dk', intent: 'review' },
+    ]);
+    expect(scanPassIntents('@dk 这个需求范围不清，需要 Mario 决策后再继续', AGENTS, 'luigi')).toMatchObject([
+      { agentId: 'dk', intent: 'escalate' },
+    ]);
+    expect(scanPassIntents('@yoshi review 通过，请交给测试验收', AGENTS, 'peach')).toMatchObject([
+      { agentId: 'yoshi', intent: 'handoff_test' },
+    ]);
+  });
+
+  it('recognizes handoff intent even when a completion is mentioned before the target agent', () => {
+    const results = scanPassIntents(
+      '已完成 TASK-004 后端接口，@luigi 请启动 TASK-007 集成接线。',
+      [{ id: 'luigi', mentionPatterns: ['@luigi'] }],
+      'toad',
+    );
+
+    expect(results).toHaveLength(1);
+    expect(results[0].intent).toBe('delegate');
+    expect(results[0].agentId).toBe('luigi');
+  });
+
+  it('blocks non-actionable completion mentions without handoff verbs', () => {
+    const results = scanPassIntents(
+      '已完成 TASK-004 后端接口，@luigi。',
+      [{ id: 'luigi', mentionPatterns: ['@luigi'] }],
+      'toad',
+    );
+
+    expect(results).toHaveLength(0);
   });
 });
