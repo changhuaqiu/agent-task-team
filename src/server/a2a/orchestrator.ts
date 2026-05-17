@@ -38,18 +38,18 @@ function hasNotificationStyleMention(text: string): boolean {
 
 function formatNonActionableMentionNotice(tokens: string[]): string {
   const mentionList = tokens.join('、');
-  return `A2A 未转交：${mentionList} 只是提及或通知，没有明确执行动作。任务状态会通过任务通知同步；如需唤醒对方，请写成「@agent 请评审/实现/验证 ...」。`;
+  return `A2A 未转交：${mentionList} 只是提及或通知，没有明确执行动作。下游任务的依赖解除由系统自动调度，无需手动通知。如需主动安排工作，请写成「@agent 请评审/实现/验证 ...」。`;
 }
 
 function formatNotificationMentionNotice(tokens: string[]): string {
   const mentionList = tokens.join('、');
-  return `群聊知会：${mentionList} 已作为信息接收方出现；这不会启动新的 A2A 执行。需要对方动手时，请写成「@agent 请评审/实现/验证 ...」。`;
+  return `群聊知会：${mentionList} 已作为信息接收方出现；这不会启动新的 A2A 执行。依赖解除由系统自动调度；如需主动安排工作，请写成「@agent 请评审/实现/验证 ...」。`;
 }
 
 function formatDispatchBlockReason(reason: string): string {
   const agentDedupMatch = reason.match(/^agent\s+([^\s]+)\s+already has an entry in chain/i);
   if (agentDedupMatch) {
-    return `@${agentDedupMatch[1]} 已在本轮 A2A 链中，系统不会重复唤醒；任务状态请通过任务通知或 TASKS.md 同步，若要追加新工作请等待当前链路结束后再发起。`;
+    return `@${agentDedupMatch[1]} 已在本轮 A2A 链中，系统不会重复唤醒。下游依赖解除由系统自动调度，无需手动通知；若要追加新工作请等待当前链路结束后再发起。`;
   }
   if (reason.startsWith('direct ping-pong:')) {
     return `检测到来回 @mention 的 ping-pong 风险，系统已阻止这次转交；请把需要执行的下一步写入任务或由统筹重新派发。`;
