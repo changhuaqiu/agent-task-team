@@ -46,6 +46,16 @@ export type { PendingDispatch } from './daemonStore';
 // --- Types that remain in this module ---
 
 export type ProjectId = 'default' | (string & {});
+export type AgentRunStatus = 'idle' | 'busy' | 'background';
+export type AgentRunActivity = 'foreground' | 'awaiting_children';
+
+export interface ActiveAgentRun {
+  runId: string;
+  taskId?: string;
+  conversationId: string;
+  startedAt: string;
+  activity?: AgentRunActivity;
+}
 
 export interface WorktreeInfo {
   path: string;
@@ -113,6 +123,7 @@ export type InternalEventType =
   | 'task.status_changed'
   | 'run.started'
   | 'run.finished'
+  | 'run.background_waiting'
   | 'gate.result'
   | 'blocker.opened'
   | 'blocker.fixed'
@@ -638,8 +649,8 @@ export interface TaskHubState {
   updateChatMessageStatus: (msgId: string, status: 'approved' | 'rejected', rejectionReason?: string) => void;
 
   terminalLogs: Record<string, string[]>;
-  agentStatus: Record<string, 'idle' | 'busy'>;
-  activeRunsByAgent: Record<string, { runId: string; taskId?: string; conversationId: string; startedAt: string } | undefined>;
+  agentStatus: Record<string, AgentRunStatus>;
+  activeRunsByAgent: Record<string, ActiveAgentRun | undefined>;
   activeStreamMessageId: Record<string, string>;
   activeStreamConversationId: Record<string, string>;
   pendingDispatches: Record<string, PendingDispatch[]>;
@@ -1523,8 +1534,8 @@ export const useTaskHubStore = create<TaskHubState>()(
             const uniqueMentions = resolveMentionAgentIds(get(), mentions);
 
             if (uniqueMentions.length > 0) {
-              const busyAgents = uniqueMentions.filter((id) => get().agentStatus[id] === 'busy');
-              const idleAgents = uniqueMentions.filter((id) => get().agentStatus[id] !== 'busy');
+              const busyAgents = uniqueMentions.filter((id) => get().agentStatus[id] && get().agentStatus[id] !== 'idle');
+              const idleAgents = uniqueMentions.filter((id) => !get().agentStatus[id] || get().agentStatus[id] === 'idle');
 
               if (busyAgents.length === uniqueMentions.length) {
                 for (const agentId of busyAgents) {
@@ -1832,8 +1843,8 @@ socket.on('connect', () => {
 
   socket.emit('daemon:status', (response: { activeAgents: Record<string, { taskId?: string; conversationId?: string }> }) => {
     if (!response?.activeAgents) return;
-    const statusUpdate: Record<string, 'busy'> = {};
-    const runsUpdate: Record<string, { runId: string; taskId?: string; conversationId: string; startedAt: string } | undefined> = {};
+    const statusUpdate: Record<string, AgentRunStatus> = {};
+    const runsUpdate: Record<string, ActiveAgentRun | undefined> = {};
     for (const [agentId, info] of Object.entries(response.activeAgents)) {
       statusUpdate[agentId] = 'busy';
       runsUpdate[agentId] = info.conversationId
@@ -1870,8 +1881,55 @@ socket.on('terminal:data', ({ agentId, data }) => {
   useTaskHubStore.getState().appendTerminalLog(agentId, data);
 });
 
-socket.on('agent:session', ({ projectId, agentId, sessionId }) => {
-  useTaskHubStore.getState().upsertAgentSession(projectId || 'default', agentId, sessionId);
+socket.on('agent:session', ({ projectId, conversationId, agentId, sessionId }) => {
+  useTaskHubStore.getState().upsertAgentSession(conversationId || projectId || 'default', agentId, sessionId);
+});
+
+socket.on('agent:activity', ({ conversationId, taskId, agentId, sessionId, status, reason }: {
+  conversationId?: string;
+  taskId?: string;
+  agentId: string;
+  sessionId?: string;
+  status: 'running' | 'awaiting_children' | 'idle';
+  reason?: string;
+}) => {
+  if (!conversationId) return;
+  const state = useTaskHubStore.getState();
+  if (sessionId) {
+    state.upsertAgentSession(conversationId, agentId, sessionId);
+  }
+
+  if (status === 'awaiting_children') {
+    clearWatchdog(agentId);
+    const existing = state.activeRunsByAgent[agentId];
+    useTaskHubStore.setState((s) => ({
+      agentStatus: { ...s.agentStatus, [agentId]: 'background' },
+      activeRunsByAgent: {
+        ...s.activeRunsByAgent,
+        [agentId]: {
+          runId: existing?.runId ?? `background-${agentId}-${Date.now()}`,
+          taskId: taskId ?? existing?.taskId,
+          conversationId,
+          startedAt: existing?.startedAt ?? new Date().toISOString(),
+          activity: 'awaiting_children',
+        },
+      },
+    }));
+    state.addEvent({
+      conversationId,
+      type: 'run.background_waiting',
+      payload: { agentId, taskId, sessionId, reason },
+    });
+    return;
+  }
+
+  if (status === 'idle') {
+    useTaskHubStore.setState((s) => ({
+      agentStatus: { ...s.agentStatus, [agentId]: 'idle' },
+      activeRunsByAgent: { ...s.activeRunsByAgent, [agentId]: undefined },
+    }));
+    state.completeStreamMessage(agentId);
+  }
 });
 
 socket.on('agent:event', (event) => {
@@ -1890,8 +1948,7 @@ socket.on('agent:event', (event) => {
   if (!conversationId) return;
 
   if (sessionId) {
-    const actualProjectId = useTaskHubStore.getState().selectedProjectId;
-    state.upsertAgentSession(actualProjectId, agentId, sessionId);
+    state.upsertAgentSession(conversationId, agentId, sessionId);
   }
 
   if (type === 'heartbeat') {
@@ -1983,24 +2040,60 @@ socket.on('a2a:pass-blocked', ({ conversationId, chainId, passId, fromAgentId, t
   });
 });
 
-socket.on('terminal:exit', ({ agentId, code, command, reasonCode }: { agentId: string; code: number; command?: string; reasonCode?: string }) => {
+socket.on('terminal:exit', ({ agentId, code, command, reasonCode, conversationId: exitConvId, activity }: {
+  agentId: string;
+  code: number;
+  command?: string;
+  reasonCode?: string;
+  conversationId?: string;
+  activity?: 'awaiting_children' | 'idle';
+}) => {
   const store = useTaskHubStore.getState();
   const active = store.activeRunsByAgent[agentId];
   const conversationId =
+    exitConvId ||
     active?.conversationId ||
     (active?.taskId ? store.getTaskById(active.taskId)?.conversationId : null) ||
     store.selectedConversationId;
   const runId = active?.runId;
   const taskId = active?.taskId;
+  const backgroundWaiting = code === 0 && (activity === 'awaiting_children' || active?.activity === 'awaiting_children');
 
   store.appendTerminalLog(agentId, `\r\n\x1b[36m[process exited with code ${code}]\x1b[0m\r\n`);
 
-  if (runId && conversationId) {
+  if (runId && conversationId && !backgroundWaiting) {
     store.addEvent({
       conversationId,
       type: 'run.finished',
       payload: { runId, agentId, taskId, code, reasonCode },
     });
+  }
+
+  if (backgroundWaiting && conversationId) {
+    clearWatchdog(agentId);
+    if (active?.activity !== 'awaiting_children') {
+      store.addEvent({
+        conversationId,
+        type: 'run.background_waiting',
+        payload: { runId, agentId, taskId, command, reasonCode: reasonCode ?? 'awaiting_children' },
+      });
+    }
+    useTaskHubStore.setState((state) => ({
+      agentStatus: { ...state.agentStatus, [agentId]: 'background' },
+      activeRunsByAgent: {
+        ...state.activeRunsByAgent,
+        [agentId]: active
+          ? { ...active, conversationId, activity: 'awaiting_children' }
+          : {
+              runId: `background-${agentId}-${Date.now()}`,
+              taskId,
+              conversationId,
+              startedAt: new Date().toISOString(),
+              activity: 'awaiting_children',
+            },
+      },
+    }));
+    return;
   }
 
   if (typeof code === 'number' && code !== 0 && taskId && conversationId) {
@@ -2035,7 +2128,7 @@ socket.on('terminal:exit', ({ agentId, code, command, reasonCode }: { agentId: s
     }
   }
 
-  const exitProjectId = useTaskHubStore.getState().selectedProjectId || 'default';
+  const exitProjectId = conversationId || useTaskHubStore.getState().selectedProjectId || 'default';
   const exitComposeKey = `${exitProjectId}:${agentId}`;
 
   useTaskHubStore.setState((state) => ({
@@ -2060,7 +2153,7 @@ socket.on('terminal:exit', ({ agentId, code, command, reasonCode }: { agentId: s
 socket.on('a2a:dispatch', ({ agentId, prompt, referencedTaskId, fromAgentId, conversationId, chainId, entryId, passId }: { agentId: string; prompt: string; referencedTaskId?: string; fromAgentId: string; conversationId?: string; chainId?: string; entryId?: string; passId?: string }) => {
   console.log(`[a2a:v2] chain=${chainId} dispatch ${fromAgentId} → ${agentId}`);
   const state = useTaskHubStore.getState();
-  if (state.agentStatus[agentId] === 'busy') {
+  if (state.agentStatus[agentId] && state.agentStatus[agentId] !== 'idle') {
     if (chainId && entryId && conversationId) {
       socket.emit('a2a:dispatch-deferred', {
         chainId,
@@ -2205,7 +2298,7 @@ socket.on('task.wakeup', (wakeup: {
   conversationId?: string;
   taskId?: string;
   agentId?: string;
-  reasonCode?: 'owner_ready' | 'review_requested' | 'dependency_resolved';
+  reasonCode?: 'owner_ready' | 'review_requested' | 'review_decision_ready' | 'dependency_resolved' | 'unblocked_unassigned';
   dispatchSource?: 'workflow' | 'review_gate' | 'system';
   prompt?: string;
   content?: string;
@@ -2252,17 +2345,38 @@ socket.on('task.wakeup', (wakeup: {
   if (!task) return;
 
   if ((wakeup.reasonCode === 'owner_ready' || wakeup.reasonCode === 'dependency_resolved') && task.status === 'pending') {
+    store.dispatchToAgent({
+      agentId,
+      referencedTaskId: taskId,
+      conversationId,
+      source: 'workflow',
+      prompt: wakeup.prompt || `依赖已满足，开始执行 ${taskId}: ${task.title}. ${task.description || ''}`,
+    });
     store.updateTaskStatus(taskId, 'in_progress');
     return;
   }
 
-  if (wakeup.reasonCode === 'review_requested') {
+  if (wakeup.reasonCode === 'review_requested' || wakeup.reasonCode === 'review_decision_ready') {
     store.dispatchToAgent({
       agentId,
       referencedTaskId: taskId,
       conversationId,
       source: 'review_gate',
-      prompt: wakeup.prompt || `请开始评审 ${taskId}: ${task.title}. ${task.description || ''}`,
+      prompt: wakeup.prompt || (
+        wakeup.reasonCode === 'review_decision_ready'
+          ? `请确认 ${taskId}: ${task.title} 的评审结论，并决定是否通过或退回修改。${task.description || ''}`
+          : `请开始评审 ${taskId}: ${task.title}. ${task.description || ''}`
+      ),
+    });
+  }
+
+  if (wakeup.reasonCode === 'unblocked_unassigned') {
+    store.dispatchToAgent({
+      agentId,
+      referencedTaskId: taskId,
+      conversationId,
+      source: 'workflow',
+      prompt: wakeup.prompt || `请分配负责人：${taskId}「${task.title}」的依赖已全部满足，但尚未分配负责人。`,
     });
   }
 });
