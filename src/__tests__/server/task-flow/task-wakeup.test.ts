@@ -1,0 +1,119 @@
+import { describe, expect, it } from 'vitest';
+import type { TaskEdgeRow } from '@/server/repositories/task-graph-repo';
+import type { TaskRow } from '@/server/repositories/task-repo';
+import { resolveTaskWakeups } from '@/server/task-flow/task-wakeup';
+
+function task(overrides: Partial<TaskRow> & Pick<TaskRow, 'id' | 'agent_id'>): TaskRow {
+  const now = '2026-05-17T00:00:00.000Z';
+  return {
+    id: overrides.id,
+    conversation_id: overrides.conversation_id ?? 'conv-1',
+    title: overrides.title ?? overrides.id,
+    description: overrides.description ?? null,
+    status: overrides.status ?? 'pending',
+    agent_id: overrides.agent_id,
+    dependencies: overrides.dependencies ?? null,
+    artifacts: overrides.artifacts ?? null,
+    review_note: overrides.review_note ?? null,
+    created_at: overrides.created_at ?? now,
+    updated_at: overrides.updated_at ?? now,
+  };
+}
+
+function edge(overrides: Partial<TaskEdgeRow> & Pick<TaskEdgeRow, 'from_task_id' | 'to_task_id' | 'type'>): TaskEdgeRow {
+  return {
+    id: overrides.id ?? `edge-${overrides.from_task_id}-${overrides.to_task_id}`,
+    conversation_id: overrides.conversation_id ?? 'conv-1',
+    from_task_id: overrides.from_task_id,
+    to_task_id: overrides.to_task_id,
+    type: overrides.type,
+    created_by_action_id: overrides.created_by_action_id ?? 'action-1',
+    created_at: overrides.created_at ?? '2026-05-17T00:00:00.000Z',
+  };
+}
+
+describe('task wakeup resolver', () => {
+  it('wakes an owner when a pending task is ready and has no blockers', () => {
+    const next = task({ id: 'TASK-008', agent_id: 'toad', status: 'pending', title: 'Execution Adapter' });
+
+    const wakeups = resolveTaskWakeups({
+      task: next,
+      previousTask: { ...next, status: 'blocked' },
+      actorId: 'system',
+      changedFields: ['status'],
+      reviewAgentIds: [],
+      conversationTasks: [next],
+      edges: [],
+    });
+
+    expect(wakeups).toMatchObject([{
+      taskId: 'TASK-008',
+      agentId: 'toad',
+      reasonCode: 'owner_ready',
+      dispatchSource: 'workflow',
+    }]);
+    expect(wakeups[0].content).toContain('系统轻推 @toad');
+    expect(wakeups[0].metadata.startsA2AHandoff).toBe(false);
+  });
+
+  it('does not wake a pending owner while dependencies are unresolved', () => {
+    const dependency = task({ id: 'TASK-001', agent_id: 'luigi', status: 'in_progress' });
+    const next = task({ id: 'TASK-002', agent_id: 'toad', status: 'pending', dependencies: '["TASK-001"]' });
+
+    const wakeups = resolveTaskWakeups({
+      task: next,
+      previousTask: { ...next, status: 'blocked' },
+      actorId: 'system',
+      changedFields: ['status'],
+      reviewAgentIds: [],
+      conversationTasks: [dependency, next],
+      edges: [],
+    });
+
+    expect(wakeups).toEqual([]);
+  });
+
+  it('wakes review roles when a task enters review and skips the actor', () => {
+    const reviewed = task({ id: 'TASK-003', agent_id: 'toad', status: 'in_review' });
+
+    const wakeups = resolveTaskWakeups({
+      task: reviewed,
+      previousTask: { ...reviewed, status: 'in_progress' },
+      actorId: 'peach',
+      changedFields: ['status'],
+      reviewAgentIds: ['peach', 'dk'],
+      conversationTasks: [reviewed],
+      edges: [],
+    });
+
+    expect(wakeups).toHaveLength(1);
+    expect(wakeups[0]).toMatchObject({
+      taskId: 'TASK-003',
+      agentId: 'dk',
+      reasonCode: 'review_requested',
+      dispatchSource: 'review_gate',
+    });
+  });
+
+  it('wakes downstream pending owners when dependencies become done', () => {
+    const completed = task({ id: 'TASK-004', agent_id: 'toad', status: 'done' });
+    const downstream = task({ id: 'TASK-005', agent_id: 'luigi', status: 'pending' });
+
+    const wakeups = resolveTaskWakeups({
+      task: completed,
+      previousTask: { ...completed, status: 'in_review' },
+      actorId: 'toad',
+      changedFields: ['status'],
+      reviewAgentIds: [],
+      conversationTasks: [completed, downstream],
+      edges: [edge({ from_task_id: 'TASK-004', to_task_id: 'TASK-005', type: 'depends_on' })],
+    });
+
+    expect(wakeups).toMatchObject([{
+      taskId: 'TASK-005',
+      agentId: 'luigi',
+      reasonCode: 'dependency_resolved',
+      dispatchSource: 'workflow',
+    }]);
+  });
+});

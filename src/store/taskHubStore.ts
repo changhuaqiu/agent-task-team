@@ -2200,6 +2200,73 @@ socket.on('task.notification', (notification: {
   });
 });
 
+socket.on('task.wakeup', (wakeup: {
+  id?: string;
+  conversationId?: string;
+  taskId?: string;
+  agentId?: string;
+  reasonCode?: 'owner_ready' | 'review_requested' | 'dependency_resolved';
+  dispatchSource?: 'workflow' | 'review_gate' | 'system';
+  prompt?: string;
+  content?: string;
+  createdAt?: string;
+  metadata?: Record<string, any>;
+}) => {
+  const conversationId = wakeup.conversationId;
+  const taskId = wakeup.taskId;
+  const agentId = wakeup.agentId;
+  if (!conversationId || !taskId || !agentId) return;
+
+  if (wakeup.content) {
+    useTaskHubStore.setState((state) => {
+      const existing = state.chatMessagesByConversation[conversationId] || [];
+      if (wakeup.id && existing.some((message) => message.id === wakeup.id)) return {};
+      const message: ChatMessage = {
+        id: wakeup.id || `msg-${Date.now()}-task-wakeup`,
+        agentId: 'system',
+        content: wakeup.content!,
+        timestamp: wakeup.createdAt || new Date().toISOString(),
+        conversationId,
+        referencedTaskId: taskId,
+        mentions: [agentId],
+        intent: 'task_status',
+        metadata: {
+          ...(wakeup.metadata || {}),
+          reasonCode: wakeup.reasonCode,
+          dispatchSource: wakeup.dispatchSource,
+          startsA2AHandoff: false,
+          startsDispatch: true,
+        },
+      };
+      return {
+        chatMessagesByConversation: {
+          ...state.chatMessagesByConversation,
+          [conversationId]: [...existing, message],
+        },
+      };
+    });
+  }
+
+  const store = useTaskHubStore.getState();
+  const task = store.getTaskById(taskId);
+  if (!task) return;
+
+  if ((wakeup.reasonCode === 'owner_ready' || wakeup.reasonCode === 'dependency_resolved') && task.status === 'pending') {
+    store.updateTaskStatus(taskId, 'in_progress');
+    return;
+  }
+
+  if (wakeup.reasonCode === 'review_requested') {
+    store.dispatchToAgent({
+      agentId,
+      referencedTaskId: taskId,
+      conversationId,
+      source: 'review_gate',
+      prompt: wakeup.prompt || `请开始评审 ${taskId}: ${task.title}. ${task.description || ''}`,
+    });
+  }
+});
+
 socket.on('task.sync', ({ projectPath, conversationId, tasks: syncedTasks, blockers: syncedBlockers }: { projectPath: string; conversationId: string; tasks: any[]; blockers?: any[] }) => {
   useTaskHubStore.setState({ lastTaskSyncAt: new Date().toISOString(), taskSyncError: null });
   const store = useTaskHubStore.getState();

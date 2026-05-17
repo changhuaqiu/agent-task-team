@@ -66,6 +66,16 @@
 - [x] Publish notifications from task mutation APIs, structured task graph actions, and `TASKS.md` watcher sync.
 - [x] Update agent guidance so status updates use Task Notification instead of A2A handoff.
 
+## Phase 6.6: Wakeup Layer
+
+- [x] Add a Task Wakeup contract separate from A2A possession handoff and task notifications.
+- [x] Wake explicit pending owners when dependencies are satisfied.
+- [x] Wake reviewer roles when tasks enter review.
+- [x] Wake downstream owners when dependency tasks complete.
+- [x] Persist and emit wakeups as visible group-chat system nudges.
+- [x] Add idempotency to avoid repeated wakeups for the same task/agent/reason.
+- [x] Update agent guidance with self-start rules for assigned work and review work.
+
 ## Phase 7: Documentation and Migration
 
 - [x] Update product UX documentation for group-chat task flow.

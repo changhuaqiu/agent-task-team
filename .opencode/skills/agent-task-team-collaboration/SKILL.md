@@ -13,6 +13,14 @@ This skill is project-local to Agent Task Team. Use it whenever you are working 
 - Treat task status changes as team-visible state. Do not rely on a casual chat message as the only record of progress.
 - If you need another agent to act, write an actionable A2A instruction instead of only mentioning them.
 
+## Self-start Rules
+
+- When the user has authorized the team to proceed, do not repeatedly ask the user to approve routine next steps.
+- If the task board shows a pending/todo task assigned to you and its dependencies are satisfied, start it, mark it doing/in_progress, and work.
+- If a task is in review/in_review and you are the reviewer role or a listed reviewer, start the review without waiting for another mention.
+- If a parallel A2A wake is blocked by breadth or policy limits, update the task/blocker record and wake the next role sequentially instead of retrying the same failed fan-out.
+- On every wakeup, first check whether there is actionable assigned work. Prefer moving work over reporting that you are waiting.
+
 ## A2A Wake Phrasing
 
 - Awareness only: `知会 @agent ...`, `cc @agent ...`, or plain `@agent` should not wake the target.

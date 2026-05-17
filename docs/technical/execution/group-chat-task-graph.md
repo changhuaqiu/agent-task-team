@@ -73,6 +73,18 @@ Owns task-update awareness:
 
 It does not transfer possession or start an execution run.
 
+### Wakeup Layer
+
+Owns minimal liveness nudges:
+
+- detects explicit next actors from existing task facts
+- persists a visible system “系统轻推” message
+- emits `task.wakeup` to the conversation room
+- dedupes repeated nudges for the same task, agent, and reason
+- marks wakeups as `startsA2AHandoff: false`
+
+It does not choose owners for unassigned work and does not replace agent-to-agent decisions.
+
 ### Dispatch Gateway
 
 Owns execution delivery:
@@ -146,8 +158,11 @@ If existing task rows cannot represent all graph fields cleanly, add a `task_gra
 - A2A `DispatchRequest` and compatibility dispatch events now carry `taskId` / `referencedTaskId`; `markDispatchStarted()` records `task.handoff_accepted`.
 - `src/server/task-flow/task-notifications.ts` resolves task-update recipients without using A2A handoff rules.
 - `src/server/task-flow/task-notification-publisher.ts` persists a system chat message and emits `task.notification` to the conversation room.
+- `src/server/task-flow/task-wakeup.ts` resolves lightweight owner/reviewer/dependency wakeups without making scheduler decisions.
+- `src/server/task-flow/task-notification-publisher.ts` also persists `task-wakeup` system messages and emits `task.wakeup` when an explicit next actor is already known.
 - `task.updateStatus`, `task.update`, task tool invocations, structured task graph actions, and `TASKS.md` watcher sync publish task notifications after durable task state changes.
 - The frontend consumes `task.notification` as a system group-chat message instead of dispatching another agent run.
+- The frontend consumes `task.wakeup` as a system nudge; pending owners move to `in_progress`, and review wakeups dispatch reviewer roles through the review gate.
 - Targeted tests live in `src/__tests__/server/repositories/task-graph-repo.test.ts`.
 - Flow service tests live in `src/__tests__/server/task-flow/group-chat-task-flow.test.ts`.
 - API and UI tests cover graph reads, structured mutations, capsules, action cards, and the task map.
@@ -237,6 +252,26 @@ If an agent writes "通知 @agent" or "@agent 已完成/已写入 TASKS.md" in n
 The same boundary is injected into agent prompts through `buildCollaborationLayer()`. This keeps the primary behavior in the agent's instructions: status changes use Task Graph / `TASKS.md`, notification-style mentions stay in group chat, and A2A is reserved for explicit execution requests.
 
 The intent detector accepts task-flow verbs agents naturally use for execution handoff, including 启动, 执行, 完成, 认领, 推进, plus English implementation verbs such as fix and update. Status summaries such as "已完成" or "已写入 TASKS.md" remain informational and must not wake another agent.
+
+## Wakeup Layer Integration
+
+Wakeups sit between task notifications and execution dispatch.
+
+Flow:
+
+1. A task mutation or `TASKS.md` sync changes a durable task fact.
+2. The notification publisher resolves recipients and then asks the Wakeup Layer whether the next actor is explicit.
+3. Wakeup Layer emits only these cases:
+   - `owner_ready`: a pending task has an owner and all dependencies are satisfied.
+   - `review_requested`: a task enters `in_review` and reviewer roles are known.
+   - `dependency_resolved`: a dependency task reaches `done`, unblocking downstream pending owners.
+4. A `task-wakeup` system message is persisted with `startsA2AHandoff: false` and `startsDispatch: true`.
+5. `task.wakeup` is emitted to `io.to(conversationId)`.
+6. The browser runtime starts the known next actor if available; if busy, the existing dispatch queue handles sequencing.
+
+This is intentionally not a central scheduler. If there is no explicit owner or reviewer, the framework does not guess. It only leaves a visible notification for the planner/coordinator to decide.
+
+Wakeup copy uses “系统轻推” so users understand this as a gentle nudge, not hidden orchestration.
 
 ## Chat Binding
 

@@ -79,6 +79,7 @@ The first landed slice implements the source-of-truth path end to end:
 - Task detail includes structured controls for block/resume, split, merge, assign/reassign, and cancel.
 - Running-task reassignment by a non-owner requires confirmation to avoid unsafe ownership steals.
 - Task updates now publish a separate group-chat `task.notification` event for related agents. This notification is informational, persisted as a system chat message, and explicitly does not start an A2A handoff.
+- Wakeup Layer now emits lightweight `task.wakeup` nudges when a task already has a clear next actor, such as a pending owner with satisfied dependencies, an in-review task with reviewer roles, or a downstream task unblocked by a completed dependency. Wakeups are not scheduler decisions and do not create A2A handoffs.
 
 ## Core Concepts
 
@@ -241,6 +242,40 @@ interface TaskNotification {
   };
 }
 ```
+
+### Task Wakeup
+
+`TaskWakeup` is the minimal liveness layer that prevents distributed agents from stalling when the next actor is already known.
+
+It exists because agents should remain distributed and self-directed: the framework does not choose how to do the work, does not replace Mario or role judgment, and does not schedule arbitrary unowned tasks. It only nudges an already-known next actor.
+
+Wakeup rules:
+
+- If a task is `pending` and has an owner with all dependencies satisfied, emit a wakeup to that owner.
+- If a task enters `in_review`, emit wakeups to current reviewer roles.
+- If a dependency moves to `done`, emit wakeups to downstream pending owners whose dependencies are now satisfied.
+- If there is no owner, reviewer, or explicit next actor, wake Mario/planner only through a normal task notification; do not guess an implementation owner.
+- Wakeups are idempotent by `(conversationId, taskId, agentId, reasonCode)` within a short dedupe window.
+- Wakeups are visible as system chat messages and carry `startsA2AHandoff: false`.
+
+```typescript
+interface TaskWakeup {
+  conversationId: string;
+  taskId: string;
+  agentId: string;
+  reasonCode: 'owner_ready' | 'review_requested' | 'dependency_resolved';
+  dispatchSource: 'workflow' | 'review_gate' | 'system';
+  prompt: string;
+  content: string;
+  metadata: {
+    startsA2AHandoff: false;
+    startsDispatch: true;
+    idempotencyKey: string;
+  };
+}
+```
+
+Product copy should describe this as a “系统轻推” rather than scheduling or routing.
 
 Recipient rules:
 

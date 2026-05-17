@@ -4,7 +4,7 @@ import { resetSeq } from '@/server/repositories/sortable-id';
 import { conversationRepo } from '@/server/repositories/conversation-repo';
 import { messageRepo } from '@/server/repositories/message-repo';
 import { taskRepo } from '@/server/repositories/task-repo';
-import { publishTaskNotification } from '@/server/task-flow/task-notification-publisher';
+import { publishTaskChangeNotification, publishTaskNotification } from '@/server/task-flow/task-notification-publisher';
 
 beforeEach(() => {
   setTestDb(createTestDb());
@@ -65,6 +65,43 @@ describe('publishTaskNotification', () => {
       startsA2AHandoff: false,
       recipients: ['toad', 'mario'],
     });
+  });
+
+  it('publishes a wakeup when a task has a clear ready owner', () => {
+    const previousTask = taskRepo.create({
+      id: 'TASK-008',
+      conversation_id: 'conv-1',
+      title: 'Execution Adapter',
+      agent_id: 'toad',
+    });
+    taskRepo.updateStatus(previousTask.id, 'blocked');
+    const blocked = taskRepo.getById(previousTask.id)!;
+    taskRepo.updateStatus(previousTask.id, 'pending');
+    const ready = taskRepo.getById(previousTask.id)!;
+
+    const emit = vi.fn();
+    const to = vi.fn(() => ({ emit }));
+    const io = { to, emit: vi.fn() };
+
+    publishTaskChangeNotification({
+      io: io as any,
+      kind: 'task.status_changed',
+      task: ready,
+      previousTask: blocked,
+      actorId: 'system',
+      actorType: 'system',
+      changedFields: ['status'],
+    });
+
+    expect(emit).toHaveBeenCalledWith('task.wakeup', expect.objectContaining({
+      taskId: 'TASK-008',
+      agentId: 'toad',
+      reasonCode: 'owner_ready',
+      dispatchSource: 'workflow',
+    }));
+
+    const messages = messageRepo.getByConversation('conv-1');
+    expect(messages.some((message) => message.sender_id === 'task-wakeup')).toBe(true);
   });
 
   it('skips publish when there are no related recipients', () => {

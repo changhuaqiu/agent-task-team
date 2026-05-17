@@ -12,6 +12,8 @@
 - [ ] Failed handoffs preserve existing ownership.
 - [ ] Task updates notify related agents without starting A2A handoffs.
 - [ ] Task notifications are persisted in chat history and scoped to the conversation room.
+- [ ] Wakeup Layer only nudges explicit next actors and does not choose owners for unassigned work.
+- [ ] Wakeups are visible, idempotent, and marked as non-A2A handoffs.
 - [ ] Multiple task branches can merge without deleting source history.
 - [ ] Review failure creates a reopen or corrective task.
 - [ ] Task capsules link chat messages to graph facts.

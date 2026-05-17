@@ -16,6 +16,11 @@ import {
   type TaskNotificationActorType,
   type TaskNotificationKind,
 } from './task-notifications';
+import {
+  createTaskWakeupDeduper,
+  resolveTaskWakeups,
+  type TaskWakeup,
+} from './task-wakeup';
 
 export interface PublishTaskNotificationInput {
   io?: IOServer;
@@ -38,10 +43,17 @@ export interface PublishTaskChangeNotificationInput {
   changedFields?: string[];
 }
 
+const wakeupDeduper = createTaskWakeupDeduper();
+
 function emitToConversation(io: IOServer | undefined, conversationId: string, notification: TaskNotification): void {
   if (!io) return;
   const room = io.to(conversationId);
   room.emit('task.notification', notification);
+}
+
+function emitWakeupToConversation(io: IOServer | undefined, conversationId: string, wakeup: TaskWakeup): void {
+  if (!io) return;
+  io.to(conversationId).emit('task.wakeup', wakeup);
 }
 
 function isCoordinator(agentId: string, displayName: string | undefined, roleCard?: RoleCard): boolean {
@@ -162,7 +174,7 @@ export function publishTaskChangeNotification(input: PublishTaskChangeNotificati
     changedFields,
   });
 
-  return publishTaskNotification({
+  const notification = publishTaskNotification({
     io: input.io,
     kind: input.kind,
     task: input.task,
@@ -172,4 +184,39 @@ export function publishTaskChangeNotification(input: PublishTaskChangeNotificati
     recipients,
     changedFields,
   });
+
+  const wakeups = resolveTaskWakeups({
+    task: input.task,
+    previousTask: input.previousTask,
+    actorId: input.actorId,
+    changedFields,
+    reviewAgentIds: audience.reviewAgentIds,
+    conversationTasks: taskRepo.getByConversation(input.task.conversation_id),
+    edges: taskGraphRepo.listEdges(input.task.conversation_id),
+  });
+
+  for (const wakeup of wakeups) {
+    if (!wakeupDeduper.shouldPublish(wakeup)) continue;
+    const id = messageRepo.append({
+      conversationId: wakeup.conversationId,
+      taskId: wakeup.taskId,
+      senderType: 'system',
+      senderId: 'task-wakeup',
+      content: wakeup.content,
+      mentions: [wakeup.agentId],
+      intent: 'task_status',
+      metadata: {
+        ...wakeup.metadata,
+        dispatchSource: wakeup.dispatchSource,
+        prompt: wakeup.prompt,
+      },
+    });
+    emitWakeupToConversation(input.io, wakeup.conversationId, {
+      ...wakeup,
+      id,
+      createdAt: new Date().toISOString(),
+    });
+  }
+
+  return notification;
 }

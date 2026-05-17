@@ -161,7 +161,26 @@ export function syncTasksToDb(projectPath: string, io: IOServer): void {
           return dep?.status === 'done';
         });
         if (allDone) {
-          io.to(conversationId).emit('task.ready', { taskId: t.id, agentId: t.agent, projectPath });
+          io.to(conversationId).emit('task.wakeup', {
+            conversationId,
+            taskId: t.id,
+            agentId: t.agent,
+            reasonCode: 'dependency_resolved',
+            dispatchSource: 'workflow',
+            prompt: `依赖已满足，开始执行 ${t.id}: ${t.title}. ${t.deliverable || ''}`,
+            content: `系统轻推 @${t.agent}：${t.id}「${t.title}」依赖已满足，请继续处理。`,
+            metadata: {
+              taskId: t.id,
+              taskTitle: t.title,
+              taskStatus: t.status,
+              ownerAgentId: t.agent,
+              reasonCode: 'dependency_resolved',
+              idempotencyKey: `${conversationId}:${t.id}:${t.agent}:dependency_resolved`,
+              startsA2AHandoff: false,
+              startsDispatch: true,
+            },
+            createdAt: new Date().toISOString(),
+          });
         }
       }
     }
