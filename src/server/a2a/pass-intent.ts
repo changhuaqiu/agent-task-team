@@ -12,7 +12,8 @@ const ACTION_PATTERNS: Array<{ intent: PassIntent; patterns: RegExp[] }> = [
     intent: 'reject',
     patterns: [
       /(打回|驳回|拒绝|不通过|未通过|reject|rejected|request changes)/i,
-      /请.*?(修正|返工|重做|重新修改|按.+修改|fix the review|address review)/i,
+      /请.*?(修正|返工|重做|重新修改|按.+修改|修复|fix the review|address review)/i,
+      /(请|需要).*?(修复|修正|返工|修改).*?(问题|bug|issue|阻塞|blocker|R\d+)/i,
       /测试.*?(失败|未通过).*?(请|需要).*?(修复|修改)/i,
       /(反馈给|打回给|退回给).*?(实现者|开发|Luigi|Toad|前端|后端)/i,
     ],

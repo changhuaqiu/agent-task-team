@@ -248,9 +248,12 @@ export class Orchestrator {
       return { allow: false, reason: `chain breadth limit reached (${chain.config.maxBreadth} agents)`, silent: false };
     }
 
-    // Run five-layer dedup (coordinators are exempt from Layer 2 agent dedup)
+    // Run five-layer dedup (coordinators exempt from Layer 2; reject/escalate intents exempt from ping-pong + Layer 2)
     const audience = resolveTaskNotificationAudience(chain.conversationId);
-    const dedupOptions: ChainDedupOptions = { exemptAgentIds: audience.coordinatorAgentIds };
+    const dedupOptions: ChainDedupOptions = {
+      exemptAgentIds: audience.coordinatorAgentIds,
+      exemptIntents: ['reject', 'escalate'],
+    };
     const dedupResult = runAllDedupLayers(this.chainRepo, chain, req, dedupOptions);
     if (!dedupResult.pass) {
       if (dedupResult.failedLayer === 'chain_lifetime') {

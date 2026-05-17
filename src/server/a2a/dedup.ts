@@ -21,6 +21,7 @@ export function computeContentHash(fromAgent: string, toAgent: string, content: 
 
 export interface ChainDedupOptions {
   exemptAgentIds?: string[];
+  exemptIntents?: string[];
 }
 
 export function checkChainAgentDedup(
@@ -28,9 +29,13 @@ export function checkChainAgentDedup(
   chainId: string,
   agentId: string,
   options?: ChainDedupOptions,
+  intent?: string,
 ): { pass: boolean; reason?: string } {
   if (chainRepo.hasAgentInChain(chainId, agentId)) {
     if (options?.exemptAgentIds?.includes(agentId)) {
+      return { pass: true };
+    }
+    if (intent && options?.exemptIntents?.includes(intent)) {
       return { pass: true };
     }
     return { pass: false, reason: `agent ${agentId} already has an entry in chain ${chainId}` };
@@ -119,9 +124,13 @@ export function checkChainLifetime(chain: InvocationChain): { pass: boolean; rea
 // Direct Ping-Pong Detection (zero tolerance)
 // ──────────────────────────────────────────────
 
-export function checkDirectPingPong(chainRepo: ChainRepo, chainId: string, fromAgentId: string, toAgentId: string, options?: ChainDedupOptions): { pass: boolean; reason?: string } {
+export function checkDirectPingPong(chainRepo: ChainRepo, chainId: string, fromAgentId: string, toAgentId: string, options?: ChainDedupOptions, intent?: string): { pass: boolean; reason?: string } {
   // Coordinators are exempt from ping-pong detection — they are the natural re-entry point
   if (options?.exemptAgentIds?.includes(toAgentId)) {
+    return { pass: true };
+  }
+  // Reject/escalate intents are legitimate A→B→A patterns (reviewer sends back to implementer)
+  if (intent && options?.exemptIntents?.includes(intent)) {
     return { pass: true };
   }
   // If toAgent just dispatched to fromAgent in this chain, block immediately
@@ -153,12 +162,12 @@ export function runAllDedupLayers(
   const lifetime = checkChainLifetime(chain);
   if (!lifetime.pass) return { pass: false, failedLayer: 'chain_lifetime', reason: lifetime.reason };
 
-  // Direct ping-pong (zero tolerance, check early — coordinators are exempt)
-  const pingPong = checkDirectPingPong(chainRepo, chain.id, req.fromAgentId, req.toAgentId, options);
+  // Direct ping-pong (zero tolerance, check early — coordinators and reject intents are exempt)
+  const pingPong = checkDirectPingPong(chainRepo, chain.id, req.fromAgentId, req.toAgentId, options, req.intent);
   if (!pingPong.pass) return { pass: false, failedLayer: 'ping_pong', reason: pingPong.reason };
 
-  // Layer 2: Chain-scoped agent dedup
-  const agentDedup = checkChainAgentDedup(chainRepo, chain.id, req.toAgentId, options);
+  // Layer 2: Chain-scoped agent dedup (coordinators and reject intents are exempt)
+  const agentDedup = checkChainAgentDedup(chainRepo, chain.id, req.toAgentId, options, req.intent);
   if (!agentDedup.pass) return { pass: false, failedLayer: 'agent_dedup', reason: agentDedup.reason };
 
   // Layer 3: Ripple detection

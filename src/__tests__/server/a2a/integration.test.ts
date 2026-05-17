@@ -751,7 +751,7 @@ describe('A2A v2 integration', () => {
     expect(dispatches).toHaveLength(1);
     const prompt = dispatches[0][1].prompt;
     expect(prompt).toContain('Fix auth bug');
-    expect(prompt).toContain('不要广播状态');
+    expect(prompt).toContain('下游任务的依赖解除');
     expect(prompt).toContain('不要确认收到');
     expect(prompt).toContain('删除文件内容后');
   });
