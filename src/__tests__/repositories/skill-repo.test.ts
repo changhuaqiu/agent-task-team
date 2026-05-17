@@ -260,6 +260,8 @@ describe('seedPresetSkills', () => {
     expect(skill!.content).toContain('GitLab merge requests');
     expect(skill!.content).toContain('Development → Review → Issue Fix Loop');
     expect(skill!.content).toContain('Credential and Provider Setup');
+    expect(skill!.content).toContain('GitHub: use `gh` first');
+    expect(skill!.content).toContain('GitLab: use `glab` first');
 
     for (const agentId of ['mario', 'luigi', 'toad', 'peach', 'dk', 'yoshi', 'planner', 'coder', 'reviewer', 'researcher', 'analyst', 'writer']) {
       expect(skillRepo.getSkillIdsForAgent(agentId)).toContain(skill!.id);
@@ -279,6 +281,7 @@ describe('seedPresetSkills', () => {
     const updated = skillRepo.getById(stale.id);
     expect(updated!.description).toBe('Shared Git workflow for issues, pull requests, merge requests, reviews, and handoff evidence');
     expect(updated!.content).toContain('Development → Review → Issue Fix Loop');
-    expect(updated!.content).toContain('gh auth status');
+    expect(updated!.content).toContain('GitHub: use `gh` first');
+    expect(updated!.content).toContain('gh auth login');
   });
 });

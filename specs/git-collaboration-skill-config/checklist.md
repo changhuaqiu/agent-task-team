@@ -10,3 +10,5 @@
 - [x] Existing preset skill rows are refreshed by seeding when the built-in workflow changes.
 - [x] OpenCode receives a project-local Skill mount instead of relying on user-global Skill installation.
 - [x] OpenCode generated config allows Skill loading for non-interactive task dispatches.
+- [x] GitHub workflows prefer `gh` before raw API or manual URL fallbacks.
+- [x] GitLab workflows prefer `glab` before raw API or manual URL fallbacks.

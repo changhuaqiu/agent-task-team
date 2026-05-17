@@ -32,8 +32,11 @@ This skill is project-local to Agent Task Team. Use it whenever you are working 
 ## Git Credentials
 
 - Do not ask the user to paste tokens into chat.
-- Use configured local auth such as `gh auth status`, `gh auth login`, `glab auth status`, `glab auth login`, SSH keys, credential helpers, or the product account connector.
-- If auth is missing, report the exact missing tool or auth state and the next setup command.
+- For GitHub remotes, use `gh` first for issues, pull requests, comments, reviews, and auth checks.
+- For GitLab remotes, use `glab` first for issues, merge requests, comments, reviews, and auth checks.
+- If GitHub auth is missing, report `gh auth status` and ask the user to run `gh auth login`.
+- If GitLab auth is missing, report `glab auth status` and ask the user to run `glab auth login`.
+- Only use raw provider APIs or manual web URLs when `gh`/`glab` is unavailable and the user explicitly authorizes the fallback.
 
 ## Role Boundaries
 

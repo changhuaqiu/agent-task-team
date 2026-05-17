@@ -207,6 +207,8 @@ hotfix ──[跳过 G1]──→ doing ──[draft MR + G2 精简]──→ G3
 
 ### 权限要求
 - Git token / SSH / provider app / `gh` / `glab` 认证是外部凭证，不写入任务、评论或 Skill。
+- GitHub 仓库默认使用 `gh` 创建 issue、PR、review comment 和读取状态；`gh` 不可用且用户明确授权时，才考虑其他路径。
+- GitLab 仓库默认使用 `glab` 创建 issue、MR、review note 和读取状态；`glab` 不可用且用户明确授权时，才考虑其他路径。
 - 如果无法创建 PR/MR 或 issue，agent 必须说明缺少的认证或工具，并给出下一步配置命令。
 - 合并仍由用户或明确授权的 maintainer 执行，agent 不默认 merge。
 

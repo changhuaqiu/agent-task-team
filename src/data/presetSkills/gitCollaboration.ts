@@ -18,16 +18,19 @@ Use this skill when work touches Git-hosted collaboration: issues, GitHub pull r
 ## Credential and Provider Setup
 
 - Git collaboration credentials are not part of the skill. The skill only defines workflow.
-- Prefer provider-native auth already configured on the machine:
-  - GitHub: \`gh auth status\`, then \`gh auth login\` or a configured GitHub app/connector.
-  - GitLab: \`glab auth status\`, then \`glab auth login\` or an approved PAT in the local Git credential helper.
+- Use provider-native CLI auth as the default path:
+  - GitHub: use \`gh\` first for issues, pull requests, review comments, and auth checks.
+  - GitLab: use \`glab\` first for issues, merge requests, review comments, and auth checks.
+- Only fall back to raw Git hosting APIs or manual URLs when \`gh\`/\`glab\` is unavailable and the user explicitly authorizes the fallback.
 - Before creating issues, PRs, or MRs, verify provider auth and remote:
   \`\`\`bash
   git remote -v
-  gh auth status || true
-  glab auth status || true
+  gh auth status
+  glab auth status
   \`\`\`
-- If auth is missing, do not ask the user to paste a token into chat. Tell them to configure \`gh\`, \`glab\`, SSH, or the product account connector.
+- If the remote is GitHub and \`gh auth status\` fails, stop and ask the user to run \`gh auth login\`.
+- If the remote is GitLab and \`glab auth status\` fails, stop and ask the user to run \`glab auth login\`.
+- If auth is missing, do not ask the user to paste a token into chat.
 
 ## Repository Orientation
 
@@ -49,8 +52,9 @@ When the system prompt indicates you are in a Git Worktree branch (look for "[�
    git push -u origin worktree/{slug}
    gh pr create --base main --head worktree/{slug} --title "Title" --body "Description"
    \`\`\`
+   Use \`glab mr create\` instead when the remote is GitLab.
 4. **Do NOT merge** the PR yourself — leave it for human review.
-5. **If push fails** with auth error, report the blocker: include the exact command that failed and suggest the user verify git credentials (SSH key, PAT, or gh auth status).
+5. **If push or PR/MR creation fails** with auth error, report the blocker: include the exact command that failed and suggest \`gh auth status\` / \`gh auth login\` for GitHub or \`glab auth status\` / \`glab auth login\` for GitLab.
 
 ## Development → Review → Issue Fix Loop
 
@@ -74,6 +78,8 @@ Rules:
 ## Issue Workflow
 
 - Create or draft an issue only when the task asks for tracking, reporting, or follow-up.
+- For GitHub, use \`gh issue create\` and \`gh issue view/comment/close\` before considering any other API path.
+- For GitLab, use \`glab issue create\` and \`glab issue view/comment/close\` before considering any other API path.
 - Confirm the issue title, problem statement, expected behavior, evidence, and owner if they are missing.
 - Include reproduction steps, logs, screenshots, affected files, and acceptance criteria when available.
 - Do not add labels, assignees, milestones, or close issues unless the request or project context makes that intent clear.
@@ -81,6 +87,8 @@ Rules:
 ## PR or MR Workflow
 
 - Before opening a PR/MR, verify the branch, diff scope, and whether unrelated local changes exist.
+- For GitHub, use \`gh pr create/view/comment/review\` as the default PR surface.
+- For GitLab, use \`glab mr create/view/note\` as the default MR surface.
 - Include summary, test evidence, risk notes, linked issues, and screenshots for UI changes.
 - Development agents should open a draft PR/MR after completing implementation when the task is reviewable and the user or task explicitly allows pushing.
 - Default to draft when the change still needs review, CI, design validation, or user confirmation.

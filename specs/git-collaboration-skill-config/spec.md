@@ -77,6 +77,9 @@ Agents using this skill must follow these rules:
 - Issue, PR, MR, label, reviewer, merge, and approval mutations require explicit task intent or user confirmation.
 - Commits, pushes, branch creation, force pushes, merges, and closing issues require explicit user request.
 - Skills define the workflow only; Git provider credentials must come from configured local tooling, account connectors, or approved credential helpers. Agents must never ask the user to paste a token into chat.
+- GitHub collaboration must prefer GitHub CLI (`gh`) for auth checks, issues, pull requests, review comments, and status reads.
+- GitLab collaboration must prefer GitLab CLI (`glab`) for auth checks, issues, merge requests, review comments, and status reads.
+- Raw provider API calls or manual URLs are fallback paths only when the provider CLI is unavailable and the user explicitly authorizes the fallback.
 - The skill must not expose internal runtime terms in user-facing summaries.
 - If provider tooling is missing, the agent should report the exact missing tool or auth condition and provide the next command the user can run.
 
@@ -85,6 +88,7 @@ Agents using this skill must follow these rules:
 - A preset skill named `git-collaboration` exists in `PRESET_SKILLS`.
 - Seeding creates the skill as a preset and assigns it to all known built-in agent and TeamPack role IDs.
 - The skill content includes workflows for issues, PRs, MRs, review, and authority boundaries.
+- The skill content states that GitHub uses `gh` first and GitLab uses `glab` first.
 - The skill content includes the default implementation loop: developer draft PR/MR, reviewer linked issues, developer fix commits, reviewer verification, human/authorized merge.
 - Preset seeding updates existing preset skill content so older local databases receive workflow corrections.
 - Team runtime continues to resolve the skill through existing `agentSkillIds` and TeamPack role `skillIds` behavior.
