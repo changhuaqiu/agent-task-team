@@ -73,7 +73,7 @@ function isReviewer(roleCard?: RoleCard): boolean {
     roleCard?.engineering?.canApprovePR === true;
 }
 
-function resolveTaskNotificationAudience(conversationId: string): {
+export function resolveTaskNotificationAudience(conversationId: string): {
   coordinatorAgentIds: string[];
   reviewAgentIds: string[];
 } {
@@ -190,6 +190,7 @@ export function publishTaskChangeNotification(input: PublishTaskChangeNotificati
     previousTask: input.previousTask,
     actorId: input.actorId,
     changedFields,
+    coordinatorAgentIds: audience.coordinatorAgentIds,
     reviewAgentIds: audience.reviewAgentIds,
     conversationTasks: taskRepo.getByConversation(input.task.conversation_id),
     edges: taskGraphRepo.listEdges(input.task.conversation_id),

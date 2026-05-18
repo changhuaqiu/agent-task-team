@@ -9,10 +9,46 @@ export interface PassIntentTarget extends MentionTarget {
 
 const ACTION_PATTERNS: Array<{ intent: PassIntent; patterns: RegExp[] }> = [
   {
+    intent: 'reject',
+    patterns: [
+      /(打回|驳回|拒绝|不通过|未通过|reject|rejected|request changes)/i,
+      /请.*?(修正|返工|重做|重新修改|按.+修改|fix the review|address review)/i,
+      /测试.*?(失败|未通过).*?(请|需要).*?(修复|修改)/i,
+      /(反馈给|打回给|退回给).*?(实现者|开发|Luigi|Toad|前端|后端)/i,
+    ],
+  },
+  {
+    intent: 'escalate',
+    patterns: [
+      /(升级|上报|请.*决策|需要.*决策|需要.*取舍|escalate|decision needed)/i,
+      /(超出|越界|范围不清|需求冲突|scope boundary|blocked by scope)/i,
+      /(找|请).{0,4}?(Mario|统筹|协调者).{0,4}?(决策|介入|取舍|判断)/i,
+    ],
+  },
+  {
+    intent: 'coord',
+    patterns: [
+      /(对齐|确认接口|接口定义|契约|联调|coord|coordinate|sync on|align)/i,
+      /请.*?(确认|对齐).*?(接口|契约|字段|API|交互)/i,
+      /(找|和|跟|与).{0,4}?(Luigi|Toad|前端|后端).{0,6}?(对齐|确认|协调|配合)/i,
+    ],
+  },
+  {
+    intent: 'handoff_test',
+    patterns: [
+      /(handoff test|交给.*测试|进入.*测试|进入.*验收|交给.*验收)/i,
+      /请\s*(做|执行|开始)?\s*(集成测试|验收|回归测试|QA|test gate)/i,
+      /(review|评审).*(通过|pass|passed).*?(测试|验收|QA|test)/i,
+      /(交给|转交|handoff).{0,4}?(Yoshi|QA|测试|验收)/i,
+    ],
+  },
+  {
     intent: 'review',
     patterns: [
-      /请\s*(审查|审核|检查|review|评审)/i,
-      /需要.*(审查|审核|检查|review|评审)/i,
+      /请\s*(审查|审核|检查|review|评审|评估|评估架构)/i,
+      /请\s*(做|进行|执行).*?(审查|审核|检查|review|评审|评估)/i,
+      /需要.*(审查|审核|检查|review|评审|评估)/i,
+      /(找|请求|交给).{0,4}?(DK|架构|评审).{0,4}?(评估|审查|评审|审核|检查|反馈)/i,
     ],
   },
   {

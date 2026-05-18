@@ -1,8 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import { cn } from '@/lib/utils';
 import { Check, X } from 'lucide-react';
+import { EmojiPickerButton } from '@/components/ui/EmojiPickerButton';
 
 interface ChatApprovalActionsProps {
   messageId: string;
@@ -26,6 +27,24 @@ export function ChatApprovalActions({
 }: ChatApprovalActionsProps) {
   const [showRejectInput, setShowRejectInput] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
+  const rejectRef = useRef<HTMLTextAreaElement>(null);
+
+  const handleEmojiInsert = useCallback((emoji: string) => {
+    const textarea = rejectRef.current;
+    if (!textarea) {
+      setRejectReason((prev) => prev + emoji);
+      return;
+    }
+    const start = textarea.selectionStart ?? rejectReason.length;
+    const end = textarea.selectionEnd ?? start;
+    const next = rejectReason.slice(0, start) + emoji + rejectReason.slice(end);
+    setRejectReason(next);
+    requestAnimationFrame(() => {
+      const pos = start + emoji.length;
+      textarea.focus();
+      textarea.setSelectionRange(pos, pos);
+    });
+  }, [rejectReason]);
 
   return (
     <div className="mt-3 pt-2 border-t border-dashed border-[hsl(var(--border-subtle))] flex flex-col gap-2">
@@ -71,13 +90,19 @@ export function ChatApprovalActions({
           {showRejectInput && (
             <div className="mt-2 p-2 bg-[hsl(var(--bg-app))] border border-[hsl(var(--status-rejected-border))] rounded-[4px]">
               <div className="text-[9px] font-bold text-[hsl(var(--status-rejected))] mb-1">拒绝原因：</div>
-              <textarea
-                value={rejectReason}
-                onChange={(e) => setRejectReason(e.target.value)}
-                placeholder="描述问题或建议修改…"
-                rows={2}
-                className="w-full bg-[hsl(var(--bg-muted))] text-[hsl(var(--text-primary))] text-[11px] rounded-[2px] border border-[hsl(var(--border))] px-2 py-1.5 focus:outline-none focus:border-[hsl(var(--status-rejected))] resize-none"
-              />
+              <div className="relative">
+                <textarea
+                  ref={rejectRef}
+                  value={rejectReason}
+                  onChange={(e) => setRejectReason(e.target.value)}
+                  placeholder="描述问题或建议修改…"
+                  rows={2}
+                  className="w-full bg-[hsl(var(--bg-muted))] text-[hsl(var(--text-primary))] text-[11px] rounded-[2px] border border-[hsl(var(--border))] px-2 py-1.5 focus:outline-none focus:border-[hsl(var(--status-rejected))] resize-none"
+                />
+                <div className="absolute bottom-1 right-1">
+                  <EmojiPickerButton onEmojiSelect={handleEmojiInsert} placement="top-end" />
+                </div>
+              </div>
               <div className="flex justify-end mt-1">
                 <button
                   onClick={() => {

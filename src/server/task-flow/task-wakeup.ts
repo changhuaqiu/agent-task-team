@@ -1,7 +1,7 @@
 import type { TaskEdgeRow } from '../repositories/task-graph-repo';
 import type { TaskRow } from '../repositories/task-repo';
 
-export type TaskWakeupReasonCode = 'owner_ready' | 'review_requested' | 'dependency_resolved';
+export type TaskWakeupReasonCode = 'owner_ready' | 'review_requested' | 'review_decision_ready' | 'dependency_resolved' | 'unblocked_unassigned';
 export type TaskWakeupDispatchSource = 'workflow' | 'review_gate' | 'system';
 
 export interface ResolveTaskWakeupsInput {
@@ -9,6 +9,7 @@ export interface ResolveTaskWakeupsInput {
   previousTask?: TaskRow;
   actorId?: string;
   changedFields?: string[];
+  coordinatorAgentIds: string[];
   reviewAgentIds: string[];
   conversationTasks: TaskRow[];
   edges: TaskEdgeRow[];
@@ -91,7 +92,11 @@ function addWakeup(wakeups: TaskWakeup[], input: {
 
   const actionText = input.reasonCode === 'review_requested'
     ? '请开始评审'
-    : '请继续处理';
+    : input.reasonCode === 'review_decision_ready'
+      ? '请确认评审结论'
+      : input.reasonCode === 'unblocked_unassigned'
+        ? '需要分配负责人'
+        : '请继续处理';
   const prompt = `${actionText} ${input.task.id}: ${input.task.title}. ${input.task.description ?? ''}`.trim();
   const idempotencyKey = `${input.task.conversation_id}:${input.task.id}:${agentId}:${input.reasonCode}`;
 
@@ -139,13 +144,38 @@ export function resolveTaskWakeups(input: ResolveTaskWakeupsInput): TaskWakeup[]
     });
   }
 
-  if (input.task.status === 'in_review' && changedFields.includes('status')) {
+  const reviewActorId = input.actorId && input.reviewAgentIds.includes(input.actorId)
+    ? input.actorId
+    : ((input.actorId === undefined || input.actorId === 'system') && input.reviewAgentIds.includes(input.task.agent_id)
+      ? input.task.agent_id
+      : undefined);
+  const reviewActorSubmittedDecision =
+    reviewActorId !== undefined &&
+    input.task.status === 'in_review' &&
+    (
+      changedFields.includes('review_note') ||
+      input.reviewAgentIds.includes(input.task.agent_id)
+    );
+
+  if (input.task.status === 'in_review' && changedFields.includes('status') && !reviewActorSubmittedDecision) {
     for (const reviewAgentId of input.reviewAgentIds) {
       addWakeup(wakeups, {
         task: input.task,
         agentId: reviewAgentId,
         actorId: input.actorId,
         reasonCode: 'review_requested',
+        dispatchSource: 'review_gate',
+      });
+    }
+  }
+
+  if (reviewActorSubmittedDecision) {
+    for (const coordinatorAgentId of input.coordinatorAgentIds) {
+      addWakeup(wakeups, {
+        task: input.task,
+        agentId: coordinatorAgentId,
+        actorId: reviewActorId,
+        reasonCode: 'review_decision_ready',
         dispatchSource: 'review_gate',
       });
     }
@@ -165,6 +195,32 @@ export function resolveTaskWakeups(input: ResolveTaskWakeupsInput): TaskWakeup[]
         reasonCode: 'dependency_resolved',
         dispatchSource: 'workflow',
       });
+    }
+  }
+
+  // When a task becomes done, check downstream tasks that have no owner but all deps satisfied.
+  // Notify coordinators so they can assign an owner.
+  if (input.previousTask && input.previousTask.status !== 'done' && input.task.status === 'done') {
+    const tasksById = new Map(input.conversationTasks.map((task) => [task.id, task]));
+    const downstreamNotified = new Set<string>();
+    for (const edge of input.edges) {
+      if (edge.type !== 'depends_on' || edge.from_task_id !== input.task.id) continue;
+      const downstream = tasksById.get(edge.to_task_id);
+      if (!downstream || downstream.status !== 'pending') continue;
+      if (!dependenciesSatisfied(downstream, input.conversationTasks, input.edges)) continue;
+      if (downstream.agent_id) continue; // has owner — handled by dependency_resolved above
+      const key = downstream.id;
+      if (downstreamNotified.has(key)) continue;
+      downstreamNotified.add(key);
+      for (const coordinatorAgentId of input.coordinatorAgentIds) {
+        addWakeup(wakeups, {
+          task: downstream,
+          agentId: coordinatorAgentId,
+          actorId: input.actorId,
+          reasonCode: 'unblocked_unassigned',
+          dispatchSource: 'workflow',
+        });
+      }
     }
   }
 

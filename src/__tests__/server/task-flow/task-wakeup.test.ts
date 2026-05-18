@@ -41,6 +41,7 @@ describe('task wakeup resolver', () => {
       previousTask: { ...next, status: 'blocked' },
       actorId: 'system',
       changedFields: ['status'],
+      coordinatorAgentIds: [],
       reviewAgentIds: [],
       conversationTasks: [next],
       edges: [],
@@ -65,6 +66,7 @@ describe('task wakeup resolver', () => {
       previousTask: { ...next, status: 'blocked' },
       actorId: 'system',
       changedFields: ['status'],
+      coordinatorAgentIds: [],
       reviewAgentIds: [],
       conversationTasks: [dependency, next],
       edges: [],
@@ -81,6 +83,7 @@ describe('task wakeup resolver', () => {
       previousTask: { ...reviewed, status: 'in_progress' },
       actorId: 'peach',
       changedFields: ['status'],
+      coordinatorAgentIds: [],
       reviewAgentIds: ['peach', 'dk'],
       conversationTasks: [reviewed],
       edges: [],
@@ -95,6 +98,62 @@ describe('task wakeup resolver', () => {
     });
   });
 
+  it('wakes coordinators when a reviewer submits a review decision', () => {
+    const reviewed = task({
+      id: 'TASK-003',
+      agent_id: 'toad',
+      status: 'in_review',
+      review_note: 'PASS: architecture review approved',
+    });
+
+    const wakeups = resolveTaskWakeups({
+      task: reviewed,
+      previousTask: { ...reviewed, review_note: null },
+      actorId: 'dk',
+      changedFields: ['review_note'],
+      coordinatorAgentIds: ['mario'],
+      reviewAgentIds: ['peach', 'dk'],
+      conversationTasks: [reviewed],
+      edges: [],
+    });
+
+    expect(wakeups).toMatchObject([{
+      taskId: 'TASK-003',
+      agentId: 'mario',
+      reasonCode: 'review_decision_ready',
+      dispatchSource: 'review_gate',
+    }]);
+    expect(wakeups[0].content).toContain('请确认评审结论');
+    expect(wakeups[0].metadata.startsA2AHandoff).toBe(false);
+  });
+
+  it('infers a reviewer-owned file sync as a review decision callback', () => {
+    const reviewed = task({
+      id: 'TASK-010',
+      agent_id: 'dk',
+      status: 'in_review',
+      title: 'Architecture checkpoint',
+    });
+
+    const wakeups = resolveTaskWakeups({
+      task: reviewed,
+      previousTask: { ...reviewed, status: 'in_progress' },
+      actorId: 'system',
+      changedFields: ['status'],
+      coordinatorAgentIds: ['mario'],
+      reviewAgentIds: ['peach', 'dk'],
+      conversationTasks: [reviewed],
+      edges: [],
+    });
+
+    expect(wakeups).toMatchObject([{
+      taskId: 'TASK-010',
+      agentId: 'mario',
+      reasonCode: 'review_decision_ready',
+      dispatchSource: 'review_gate',
+    }]);
+  });
+
   it('wakes downstream pending owners when dependencies become done', () => {
     const completed = task({ id: 'TASK-004', agent_id: 'toad', status: 'done' });
     const downstream = task({ id: 'TASK-005', agent_id: 'luigi', status: 'pending' });
@@ -104,6 +163,7 @@ describe('task wakeup resolver', () => {
       previousTask: { ...completed, status: 'in_review' },
       actorId: 'toad',
       changedFields: ['status'],
+      coordinatorAgentIds: [],
       reviewAgentIds: [],
       conversationTasks: [completed, downstream],
       edges: [edge({ from_task_id: 'TASK-004', to_task_id: 'TASK-005', type: 'depends_on' })],
@@ -113,6 +173,29 @@ describe('task wakeup resolver', () => {
       taskId: 'TASK-005',
       agentId: 'luigi',
       reasonCode: 'dependency_resolved',
+      dispatchSource: 'workflow',
+    }]);
+  });
+
+  it('wakes coordinators when a downstream pending task has all dependencies met but no owner', () => {
+    const completed = task({ id: 'TASK-004', agent_id: 'toad', status: 'done' });
+    const downstream = task({ id: 'TASK-007', agent_id: '', status: 'pending' });
+
+    const wakeups = resolveTaskWakeups({
+      task: completed,
+      previousTask: { ...completed, status: 'in_progress' },
+      actorId: 'toad',
+      changedFields: ['status'],
+      coordinatorAgentIds: ['mario'],
+      reviewAgentIds: [],
+      conversationTasks: [completed, downstream],
+      edges: [edge({ from_task_id: 'TASK-004', to_task_id: 'TASK-007', type: 'depends_on' })],
+    });
+
+    expect(wakeups).toMatchObject([{
+      taskId: 'TASK-007',
+      agentId: 'mario',
+      reasonCode: 'unblocked_unassigned',
       dispatchSource: 'workflow',
     }]);
   });

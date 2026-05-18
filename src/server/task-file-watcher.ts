@@ -3,7 +3,7 @@ import type { FSWatcher } from 'chokidar';
 import { basename } from 'path';
 import { readTasksMd } from './task-file-service';
 import { taskRepo } from './repositories/task-repo';
-import { publishTaskChangeNotification } from './task-flow/task-notification-publisher';
+import { publishTaskChangeNotification, resolveTaskNotificationAudience } from './task-flow/task-notification-publisher';
 import type { Server as IOServer } from 'socket.io';
 
 function conversationIdFromPath(projectPath: string): string {
@@ -181,6 +181,43 @@ export function syncTasksToDb(projectPath: string, io: IOServer): void {
             },
             createdAt: new Date().toISOString(),
           });
+        }
+      }
+    }
+  }
+
+  // Notify coordinators when downstream tasks are unblocked but have no owner
+  for (const doneId of newlyDone) {
+    for (const t of parsed) {
+      if (t.depends.includes(doneId) && t.status === 'pending' && !t.agent) {
+        const allDone = t.depends.every((depId) => {
+          const dep = parsed.find((p) => p.id === depId);
+          return dep?.status === 'done';
+        });
+        if (allDone) {
+          const audience = resolveTaskNotificationAudience(conversationId);
+          for (const coordinatorId of audience.coordinatorAgentIds) {
+            io.to(conversationId).emit('task.wakeup', {
+              conversationId,
+              taskId: t.id,
+              agentId: coordinatorId,
+              reasonCode: 'unblocked_unassigned',
+              dispatchSource: 'workflow',
+              prompt: `请分配负责人：${t.id}: ${t.title} 的依赖已全部满足，但尚未分配负责人。请指定负责人并更新任务看板。`,
+              content: `系统轻推 @${coordinatorId}：${t.id}「${t.title}」依赖已满足，需要分配负责人。`,
+              metadata: {
+                taskId: t.id,
+                taskTitle: t.title,
+                taskStatus: t.status,
+                ownerAgentId: '',
+                reasonCode: 'unblocked_unassigned',
+                idempotencyKey: `${conversationId}:${t.id}:${coordinatorId}:unblocked_unassigned`,
+                startsA2AHandoff: false,
+                startsDispatch: true,
+              },
+              createdAt: new Date().toISOString(),
+            });
+          }
         }
       }
     }
