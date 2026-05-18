@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import {
   type TaskStatus,
   useTaskHubStore,
@@ -15,6 +15,7 @@ import { TaskGraphTimeline } from './TaskGraphTimeline';
 import { TaskGraphActionsPanel } from './TaskGraphActionsPanel';
 import { useTaskGraph } from './useTaskGraph';
 import { cn } from '@/lib/utils';
+import { EmojiPickerButton } from '@/components/ui/EmojiPickerButton';
 import {
   X,
   Link2,
@@ -122,6 +123,8 @@ export function TaskDetailPanel() {
     agentStatus: s.agentStatus,
   })));
   const panelRef = useRef<HTMLDivElement>(null);
+  const descEditRef = useRef<HTMLTextAreaElement>(null);
+  const reviewNoteRef = useRef<HTMLTextAreaElement>(null);
   const [editingField, setEditingField] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
 
@@ -143,6 +146,42 @@ export function TaskDetailPanel() {
   const resolvedEngine = resolvedBinding?.engine ?? agent?.cliEngine ?? 'opencode';
   const engineAvailable = daemonRuntimes.some((r) => r.engine === resolvedEngine && r.available)
     || (resolvedEngine === 'mock' && enableMockRunner);
+
+  const handleDescEmoji = useCallback((emoji: string) => {
+    const textarea = descEditRef.current;
+    if (!textarea) {
+      setEditValue((prev) => prev + emoji);
+      return;
+    }
+    const start = textarea.selectionStart ?? editValue.length;
+    const end = textarea.selectionEnd ?? start;
+    const next = editValue.slice(0, start) + emoji + editValue.slice(end);
+    setEditValue(next);
+    requestAnimationFrame(() => {
+      const pos = start + emoji.length;
+      textarea.focus();
+      textarea.setSelectionRange(pos, pos);
+    });
+  }, [editValue]);
+
+  const handleReviewNoteEmoji = useCallback((emoji: string) => {
+    if (!task) return;
+    const textarea = reviewNoteRef.current;
+    const current = task.reviewNote ?? '';
+    if (!textarea) {
+      updateTaskStatus(task.id, task.status, current + emoji);
+      return;
+    }
+    const start = textarea.selectionStart ?? current.length;
+    const end = textarea.selectionEnd ?? start;
+    const next = current.slice(0, start) + emoji + current.slice(end);
+    updateTaskStatus(task.id, task.status, next);
+    requestAnimationFrame(() => {
+      const pos = start + emoji.length;
+      textarea.focus();
+      textarea.setSelectionRange(pos, pos);
+    });
+  }, [editValue, task, updateTaskStatus]);
 
   if (!task) return null;
 
@@ -225,20 +264,26 @@ export function TaskDetailPanel() {
 
           {/* Description */}
           {editingField === 'description' ? (
-            <textarea
-              autoFocus
-              value={editValue}
-              onChange={(e) => setEditValue(e.target.value)}
-              onBlur={() => {
-                updateTask(task.id, { description: editValue });
-                setEditingField(null);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Escape') setEditingField(null);
-              }}
-              rows={3}
-              className="text-sm leading-relaxed text-[hsl(var(--text-secondary))] bg-transparent border border-[hsl(var(--border))] rounded-sm p-2 outline-none w-full resize-y"
-            />
+            <div className="relative">
+              <textarea
+                ref={descEditRef}
+                autoFocus
+                value={editValue}
+                onChange={(e) => setEditValue(e.target.value)}
+                onBlur={() => {
+                  updateTask(task.id, { description: editValue });
+                  setEditingField(null);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') setEditingField(null);
+                }}
+                rows={3}
+                className="text-sm leading-relaxed text-[hsl(var(--text-secondary))] bg-transparent border border-[hsl(var(--border))] rounded-sm p-2 pr-10 outline-none w-full resize-y"
+              />
+              <div className="absolute top-1.5 right-1.5">
+                <EmojiPickerButton onEmojiSelect={handleDescEmoji} placement="bottom-end" />
+              </div>
+            </div>
           ) : (
             <p
               className="text-sm leading-relaxed text-[hsl(var(--text-secondary))] cursor-pointer hover:bg-[hsl(var(--bg-muted))] rounded-sm px-2 py-1 -mx-2"
@@ -308,15 +353,21 @@ export function TaskDetailPanel() {
               <label className="text-xs font-medium uppercase tracking-wider text-[hsl(var(--text-tertiary))]">
                 {task.status === 'rejected' ? '拒绝原因' : '阻塞原因'}
               </label>
-              <textarea
-                value={task.reviewNote ?? ''}
-                onChange={(e) => {
-                  updateTaskStatus(task.id, task.status, e.target.value);
-                }}
-                placeholder="填写原因..."
-                rows={2}
-                className="text-sm leading-relaxed bg-[hsl(var(--status-rejected-bg))] border border-[hsl(var(--status-rejected-border))] rounded-sm p-3 outline-none w-full resize-y text-[hsl(var(--status-rejected))]"
-              />
+              <div className="relative">
+                <textarea
+                  ref={reviewNoteRef}
+                  value={task.reviewNote ?? ''}
+                  onChange={(e) => {
+                    updateTaskStatus(task.id, task.status, e.target.value);
+                  }}
+                  placeholder="填写原因..."
+                  rows={2}
+                  className="text-sm leading-relaxed bg-[hsl(var(--status-rejected-bg))] border border-[hsl(var(--status-rejected-border))] rounded-sm p-3 pr-10 outline-none w-full resize-y text-[hsl(var(--status-rejected))]"
+                />
+                <div className="absolute top-2.5 right-2.5">
+                  <EmojiPickerButton onEmojiSelect={handleReviewNoteEmoji} placement="bottom-end" />
+                </div>
+              </div>
             </div>
           )}
 

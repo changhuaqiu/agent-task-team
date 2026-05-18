@@ -10,6 +10,7 @@ import { MessageGroup } from './MessageGroup';
 import { ChatFilterBar, type ChatFilter } from './ChatFilterBar';
 import { AgentMentionPopup } from './AgentMentionPopup';
 import { A2APossessionStrip } from './A2APossessionStrip';
+import { EmojiPickerButton } from '@/components/ui/EmojiPickerButton';
 import { Send, Hash, Clock, Zap, Shield } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAutoScroll } from '@/hooks/useAutoScroll';
@@ -109,6 +110,23 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
       textareaRef.current?.setSelectionRange(pos, pos);
     });
   };
+
+  const handleEmojiInsert = useCallback((emoji: string) => {
+    const textarea = textareaRef.current;
+    if (!textarea) {
+      setInputValue((prev) => prev + emoji);
+      return;
+    }
+    const start = textarea.selectionStart ?? inputValue.length;
+    const end = textarea.selectionEnd ?? start;
+    const next = inputValue.slice(0, start) + emoji + inputValue.slice(end);
+    setInputValue(next);
+    requestAnimationFrame(() => {
+      const pos = start + emoji.length;
+      textarea.focus();
+      textarea.setSelectionRange(pos, pos);
+    });
+  }, [inputValue]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey && !ime.isComposing()) {
@@ -397,6 +415,7 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
               height: inputValue ? `${Math.min(120, Math.max(44, inputValue.split('\n').length * 20 + 24))}px` : '44px'
             }}
           />
+          <EmojiPickerButton onEmojiSelect={handleEmojiInsert} placement="top-end" />
           <button
             onClick={handleSend}
             disabled={!inputValue.trim()}

@@ -1,11 +1,12 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useTaskHubStore, selectActiveAgents, type TaskStatus } from '@/store/taskHubStore';
 import { useShallow } from 'zustand/react/shallow';
 import { cn } from '@/lib/utils';
 import { X, Plus } from 'lucide-react';
 import { RoleRecommendation } from '@/components/role-card/RoleRecommendation';
+import { EmojiPickerButton } from '@/components/ui/EmojiPickerButton';
 
 export function NewTaskDialog() {
   const isOpen = useTaskHubStore((s) => s.isNewTaskDialogOpen);
@@ -15,6 +16,7 @@ export function NewTaskDialog() {
   const tasks = useTaskHubStore((s) => s.tasks);
   const roleCards = useTaskHubStore((s) => s.roleCards);
   const titleRef = useRef<HTMLInputElement>(null);
+  const descRef = useRef<HTMLTextAreaElement>(null);
 
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -60,6 +62,23 @@ export function NewTaskDialog() {
         : [...prev, taskId]
     );
   };
+
+  const handleEmojiInsert = useCallback((emoji: string) => {
+    const textarea = descRef.current;
+    if (!textarea) {
+      setDescription((prev) => prev + emoji);
+      return;
+    }
+    const start = textarea.selectionStart ?? description.length;
+    const end = textarea.selectionEnd ?? start;
+    const next = description.slice(0, start) + emoji + description.slice(end);
+    setDescription(next);
+    requestAnimationFrame(() => {
+      const pos = start + emoji.length;
+      textarea.focus();
+      textarea.setSelectionRange(pos, pos);
+    });
+  }, [description]);
 
   if (!isOpen) return null;
 
@@ -116,13 +135,19 @@ export function NewTaskDialog() {
               <label className="text-[11px] font-semibold uppercase tracking-wider text-[hsl(var(--text-tertiary))]">
                 描述
               </label>
-              <textarea
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="描述任务内容与验收标准…"
-                rows={3}
-                className="w-full px-3 py-2 text-[13px] bg-[hsl(var(--bg-muted))] border border-[hsl(var(--border))] rounded-[var(--radius-md)] text-[hsl(var(--text-primary))] placeholder:text-[hsl(var(--text-tertiary))] outline-none focus:border-[hsl(var(--accent))] focus:ring-2 focus:ring-[hsl(var(--accent)/0.15)] transition-all resize-none"
-              />
+              <div className="relative">
+                <textarea
+                  ref={descRef}
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="描述任务内容与验收标准…"
+                  rows={3}
+                  className="w-full px-3 py-2 text-[13px] bg-[hsl(var(--bg-muted))] border border-[hsl(var(--border))] rounded-[var(--radius-md)] text-[hsl(var(--text-primary))] placeholder:text-[hsl(var(--text-tertiary))] outline-none focus:border-[hsl(var(--accent))] focus:ring-2 focus:ring-[hsl(var(--accent)/0.15)] transition-all resize-none"
+                />
+                <div className="absolute bottom-1.5 right-1.5">
+                  <EmojiPickerButton onEmojiSelect={handleEmojiInsert} placement="top-end" />
+                </div>
+              </div>
             </div>
 
             {/* Assignee + Status row */}
