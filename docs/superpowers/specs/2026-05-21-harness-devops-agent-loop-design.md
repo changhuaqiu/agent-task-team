@@ -32,7 +32,7 @@
 | 角色 | Skill | 输入 | 输出 | 迭代焦点 |
 |------|-------|------|------|---------|
 | BA | prd-generation | 业务需求 → L2 biz rules | PRD 文档（含 rule-id + 验收标准） | 需求完整性、验收标准明确性 |
-| 架构师 | architecture-design | PRD → L1 tech wiki | 架构文档 + US + Tasks | 架构合理性、拆解粒度 |
+| 架构师 | architecture-design | PRD → L1 tech + L2 biz | 架构文档 + US + Tasks | 架构合理性、拆解粒度 |
 | 开发 | implement | Tasks → L0-T 规范 + L1 tech | 代码 + 单测 + Task 覆盖 | 代码质量、测试覆盖 |
 | 测试 | test-generation | US+Tasks+PRD → L2 biz | 测试用例 + 追溯矩阵 | 用例覆盖、缺陷发现 |
 
