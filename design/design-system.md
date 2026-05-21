@@ -193,7 +193,7 @@ Active 是"我已经被选中了"。我们的 Active 状态使用 Agent 品牌�
 
 | 元素类型 | Active 效果 | Token |
 |----------|------------|-------|
-| Sidebar 菜单项（Agent 相关） | Agent 品牌色浅背景 + 文字变前景色 + font-medium | `bg-[var(--agent-*)]/10 text-foreground font-medium` |
+| Sidebar 菜单项（Agent 相关） | Agent 品牌色浅背景 + 文字变前景色 + font-medium | 使用静态 agent 色彩 token 映射 + `text-foreground font-medium` |
 | Sidebar 菜单项（通用） | 背景 + 文字变前景色 + font-medium | `data-active:bg-muted data-active:text-foreground data-active:font-medium` |
 | Tab | 下方指示条 + 文字变前景色 + font-medium | `data-[state=active]:text-foreground` |
 | 列表选中行 | Agent 品牌色浅背景或 bg-muted | `bg-[color]/10` 或 `bg-muted` |

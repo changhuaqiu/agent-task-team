@@ -27,7 +27,7 @@ export function routeMessage(
   const decision = parseMentions(message, deps.participants);
 
   const availableTargets = decision.targets.filter(
-    (id) => deps.agentStatus[id] !== 'busy',
+    (id) => !deps.agentStatus[id] || deps.agentStatus[id] === 'idle',
   );
 
   if (availableTargets.length === 0 && decision.targets.length > 0) {
@@ -50,6 +50,7 @@ export function planSerialExecution(
     conversationId?: string;
   },
 ): Array<{ agentId: string; prompt: string; delay: number }> {
+  void _options;
   return targets.map((agentId, index) => ({
     agentId,
     prompt,

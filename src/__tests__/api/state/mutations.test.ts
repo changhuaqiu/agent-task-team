@@ -284,7 +284,17 @@ describe('POST /api/mutations', () => {
     const to = vi.fn(() => ({ emit }));
     const req = mockReq('POST', {
       type: 'task.updateStatus',
-      payload: { id: 'task-1', status: 'in_review', actorId: 'reviewer', actorType: 'agent' },
+      payload: {
+        id: 'task-1',
+        status: 'in_review',
+        actorId: 'reviewer',
+        actorType: 'agent',
+        evidence: {
+          installResult: 'pnpm install passed',
+          buildResult: 'pnpm build passed',
+          gitnexusEvidence: 'query: task update status',
+        },
+      },
     });
     const res = mockRes();
     res.socket = { server: { io: { to, emit: vi.fn() } } };
@@ -304,6 +314,39 @@ describe('POST /api/mutations', () => {
     expect(emit).toHaveBeenCalledWith('task.notification', expect.objectContaining({
       taskId: 'task-1',
       recipients: ['agent-a'],
+    }));
+  });
+
+  it('task.updateStatus blocks review without implementation evidence', async () => {
+    await seedTask();
+    const emit = vi.fn();
+    const to = vi.fn(() => ({ emit }));
+    const req = mockReq('POST', {
+      type: 'task.updateStatus',
+      payload: { id: 'task-1', status: 'in_review', actorId: 'agent-a', actorType: 'agent' },
+    });
+    const res = mockRes();
+    res.socket = { server: { io: { to } } };
+
+    await handler(req, res);
+
+    const { taskRepo } = await import('@/server/repositories/task-repo');
+    const { proofLogRepo } = await import('@/server/repositories/proof-log-repo');
+    expect(res.statusCode).toBe(403);
+    expect(res._json.error).toContain('installResult');
+    expect(taskRepo.getById('task-1')!.status).toBe('pending');
+    expect(proofLogRepo.getByConversation('conv-1')).toContainEqual(expect.objectContaining({
+      event_type: 'task_graph.gate_evidence.blocked',
+      reason_code: 'task_graph.gate_evidence_required',
+    }));
+    expect(to).toHaveBeenCalledWith('conv-1');
+    expect(emit).toHaveBeenCalledWith('task.wakeup', expect.objectContaining({
+      taskId: 'task-1',
+      agentId: 'agent-a',
+      reasonCode: 'missing_implementation_evidence',
+      metadata: expect.objectContaining({
+        missingFields: expect.arrayContaining(['installResult', 'buildResult', 'gitnexusEvidence']),
+      }),
     }));
   });
 

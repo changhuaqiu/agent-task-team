@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
+@source not "../../.claude";
 
 /* ============================================================
    Agent Task Hub — Pixel Warm Design System

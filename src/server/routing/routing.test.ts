@@ -122,6 +122,15 @@ describe('agent-router', () => {
       expect(result.targets).toContain('luigi');
     });
 
+    it('filters out agents waiting for background child work', () => {
+      const result = routeMessage('hello', {
+        participants: ['mario', 'luigi'],
+        agentStatus: { mario: 'background' },
+      });
+      expect(result.targets).not.toContain('mario');
+      expect(result.targets).toContain('luigi');
+    });
+
     it('returns all targets even if busy when no alternatives', () => {
       const result = routeMessage('@mario do this', {
         participants: ['mario'],

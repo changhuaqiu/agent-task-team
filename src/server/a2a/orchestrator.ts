@@ -211,13 +211,17 @@ export class Orchestrator {
     const policy = this.config.getCommunicationPolicy?.(chain.conversationId);
     if (req.fromAgentId !== 'user' && policy && !policy.canSend(req.fromAgentId, req.toAgentId)) {
       const reason = policy.explainBlock(req.fromAgentId, req.toAgentId) ?? '团队协作规则阻止了这次转交';
+      const escalationTargetId = policy.getEscalationTarget?.(req.fromAgentId, req.toAgentId);
+      const escalatedEntry = escalationTargetId
+        ? this.createPolicyEscalationDispatch(chain, req, escalationTargetId, reason)
+        : null;
       this.audit('dispatch_blocked', {
         chainId: chain.id,
         conversationId: chain.conversationId,
         fromAgentId: req.fromAgentId,
         toAgentId: req.toAgentId,
         reason,
-        metadata: { blockedBy: 'communication_policy' },
+        metadata: { blockedBy: 'communication_policy', escalatedToAgentId: escalatedEntry?.agentId },
       });
       this.possessionRepo.createBlockedPass({
         chainId: chain.id,
@@ -228,7 +232,7 @@ export class Orchestrator {
         reason,
       });
       this.emitPassBlocked(chain.conversationId, chain.id, req.fromAgentId, req.toAgentId, reason);
-      return { allow: false, reason, silent: false };
+      return { allow: false, reason, silent: false, escalatedToAgentId: escalatedEntry?.agentId };
     }
 
     // Breadth check
@@ -351,8 +355,94 @@ export class Orchestrator {
   // ──────────────────────────────────────────────
 
   onAgentResponse(agentId: string, response: string, conversationId: string, taskId?: string): void {
-    const chain = this.chainRepo.getActiveByConversation(conversationId);
-    if (!chain) return;
+    let chain = this.chainRepo.getActiveByConversation(conversationId);
+    if (!chain) {
+      // Chainless path: workflow-dispatched agent has no active chain.
+      // Scan for actionable @mentions and create chain on demand.
+      const mentionConfigs = this.config.getAgentMentionConfigs?.(conversationId) ?? this.agents;
+      const targets = scanPassIntents(response, mentionConfigs, agentId);
+      if (targets.length === 0) return;
+
+      chain = this.createChain({
+        conversationId,
+        type: 'agent_handoff',
+        messageId: `chainless-${agentId}-${Date.now()}`,
+      });
+
+      this.audit('chainless_handoff', {
+        chainId: chain.id,
+        conversationId,
+        fromAgentId: agentId,
+        reason: 'workflow-dispatched agent had actionable @mentions, created chain on demand',
+      });
+
+      // Virtual completed entry for the source agent (they already finished responding)
+      const virtualHash = computeContentHash(agentId, 'chain-root', 'virtual-holder');
+      const virtualEntry = this.chainRepo.appendWorklist(chain.id, agentId, 'system', '[virtual holder: chainless response]', virtualHash, 0);
+      if (virtualEntry) {
+        this.chainRepo.markExecuting(virtualEntry.id);
+        this.chainRepo.markDone(virtualEntry.id, 'success');
+      }
+
+      // Give the source agent an open possession so they can hand off
+      const { pass: holderPass } = this.possessionRepo.createPass({
+        chainId: chain.id,
+        fromHolderId: 'user',
+        toAgentId: agentId,
+        intent: 'delegate',
+        packet: buildHandoffPacketDraft({
+          fromHolderId: 'user',
+          toAgentId: agentId,
+          content: '[chainless handoff origin]',
+          intent: 'delegate',
+          sourceMessageIds: [],
+        }),
+      });
+      this.possessionRepo.startPass(holderPass.id);
+      // NOTE: don't completeHolder yet — createPass below needs an open possession for agentId
+
+      // Process @mention targets — leave entries as 'queued', let dispatchNext handle state
+      const startedPassIds: string[] = [];
+      for (const target of targets) {
+        const contentHash = computeContentHash(agentId, target.agentId, target.content);
+        const entry = this.chainRepo.appendWorklist(chain.id, target.agentId, agentId, target.content, contentHash, 1);
+        if (!entry) continue;
+        if (taskId) this.entryTaskIds.set(entry.id, taskId);
+        const { pass: targetPass } = this.possessionRepo.createPass({
+          chainId: chain.id,
+          fromHolderId: agentId,
+          toAgentId: target.agentId,
+          intent: target.intent,
+          packet: buildHandoffPacketDraft({
+            fromHolderId: agentId,
+            toAgentId: target.agentId,
+            content: target.content,
+            intent: target.intent,
+            sourceMessageIds: [],
+          }),
+        });
+        this.entryPassIds.set(entry.id, targetPass.id);
+        startedPassIds.push(targetPass.id);
+        this.audit('dispatch_allowed', {
+          chainId: chain.id,
+          conversationId,
+          fromAgentId: agentId,
+          toAgentId: target.agentId,
+          contentHash,
+          metadata: { chainlessHandoff: true },
+        });
+      }
+
+      // Complete the source agent's possession, then start target passes and dispatch
+      this.possessionRepo.completeHolder(chain.id, agentId, response.slice(0, 1000));
+      for (const passId of startedPassIds) {
+        this.possessionRepo.startPass(passId);
+        this.clearPassTimer(passId);
+      }
+
+      this.dispatchNext(chain.id, conversationId);
+      return;
+    }
 
     // Find the active entry for this agent. In possession mode an entry may
     // still be dispatching when the first response proves the process started.
@@ -474,7 +564,9 @@ export class Orchestrator {
         const displayReason = formatDispatchBlockReason(decision.reason);
         this.io.to(conversationId).emit('agent:event', {
           type: 'system',
-          content: `A2A 拦截：${displayReason}`,
+          content: decision.escalatedToAgentId
+            ? `A2A 拦截：${displayReason} 已升级给 @${decision.escalatedToAgentId} 协调。`
+            : `A2A 拦截：${displayReason}`,
           conversationId,
         });
       }
@@ -691,6 +783,67 @@ export class Orchestrator {
         passId: resolvedPassId,
       });
     }
+  }
+
+  private createPolicyEscalationDispatch(
+    chain: InvocationChain,
+    req: DispatchRequest,
+    escalationTargetId: string,
+    reason: string,
+  ): WorklistEntry | null {
+    if (!escalationTargetId || escalationTargetId === req.fromAgentId || escalationTargetId === req.toAgentId) {
+      return null;
+    }
+
+    const content = [
+      `原始 A2A 转交被协作规则阻止：@${req.fromAgentId} 无法直接交给 @${req.toAgentId}。`,
+      `请协调 @${req.toAgentId} 接手，或调整任务路径。`,
+      `阻断原因：${reason}`,
+      '',
+      `原始请求：${req.content}`,
+    ].join('\n');
+    const contentHash = computeContentHash(req.fromAgentId, escalationTargetId, content);
+    const entry = this.chainRepo.appendWorklist(
+      chain.id,
+      escalationTargetId,
+      req.fromAgentId,
+      content,
+      contentHash,
+      req.depth,
+    );
+
+    if (!entry) return null;
+
+    const { pass } = this.possessionRepo.createPass({
+      chainId: chain.id,
+      fromHolderId: req.fromAgentId,
+      toAgentId: escalationTargetId,
+      intent: 'escalate',
+      packet: buildHandoffPacketDraft({
+        fromHolderId: req.fromAgentId,
+        toAgentId: escalationTargetId,
+        content,
+        intent: 'escalate',
+      }),
+    });
+    this.entryPassIds.set(entry.id, pass.id);
+    if (req.taskId) this.entryTaskIds.set(entry.id, req.taskId);
+    this.startOfferTimer(chain, pass.id, req.fromAgentId, escalationTargetId);
+
+    this.audit('dispatch_allowed', {
+      chainId: chain.id,
+      conversationId: chain.conversationId,
+      fromAgentId: req.fromAgentId,
+      toAgentId: escalationTargetId,
+      contentHash,
+      metadata: {
+        passId: pass.id,
+        policyEscalation: true,
+        blockedToAgentId: req.toAgentId,
+      },
+    });
+
+    return entry;
   }
 
   markDispatchFailed(

@@ -206,6 +206,8 @@ Non-holder behavior:
 
 `@agent` alone is not a pass.
 
+Text that describes scheduling is only intent until a structured dispatch receipt exists. A role may say it intends to start, assign, or hand off work, but it must not claim the lane is executing unless the system has produced a correlated receipt such as an A2A pass offer, task wakeup dispatch, `terminal:start`, or future execution envelope acknowledgement.
+
 Pass detection must require an actionable handoff pattern:
 
 - `@dk 请审查...`
@@ -557,6 +559,13 @@ System Control Plane is responsible for:
 - proof timeline
 
 During migration, this spec may still describe compatibility behavior using `a2a:dispatch` and worklist entries. The target architecture is that A2A submits a pass intent to `DispatchGateway` and receives a phase-specific result.
+
+Dispatch receipt boundary:
+
+- A2A pass text is not by itself proof that the target is executing.
+- `a2a_delivery`, pass status, client acknowledgement, or future execution envelope status must provide the receipt.
+- Parallel handoffs require one receipt per target.
+- If receipt creation fails or only part of a fan-out succeeds, the current holder remains responsible for retrying or escalating.
 
 Compatibility delivery outbox:
 

@@ -68,13 +68,27 @@ export interface DispatchToAgentInput {
   prompt: string;
   referencedTaskId?: string;
   accountIds?: string[];
-  source?: 'user' | 'a2a' | 'workflow' | 'review_gate' | 'system';
+  source?: 'user' | 'a2a' | 'workflow' | 'review_gate' | 'test_gate' | 'system';
   fromAgentId?: string;
   conversationId?: string;
   chainId?: string;
   passId?: string;
   contextSnapshot?: string;
   epochId?: string;
+}
+
+export interface DispatchReceipt {
+  receiptId: string;
+  conversationId: string;
+  taskId?: string;
+  targetAgentId: string;
+  source?: 'user' | 'a2a' | 'workflow' | 'review_gate' | 'test_gate' | 'system';
+  phase: 'requested' | 'sent' | 'started' | 'completed' | 'blocked' | 'failed';
+  chainId?: string;
+  passId?: string;
+  runId?: string;
+  reasonCode?: string;
+  createdAt: string;
 }
 
 export type TeamRole = 'dev' | 'ux' | 'qa' | 'arch';
@@ -625,6 +639,8 @@ export interface TaskHubState {
   getOpenBlockersForSelectedConversation: () => Blocker[];
   getChatMessagesForSelectedConversation: () => ChatMessage[];
   getA2AForSelectedConversation: () => A2APossessionView | undefined;
+  getDispatchReceiptsForSelectedConversation: () => DispatchReceipt[];
+  recordDispatchReceipt: (receipt: DispatchReceipt) => void;
   recordA2APassOffer: (payload: { conversationId: string; chainId: string; passId?: string; fromAgentId?: string; toAgentId?: string; title?: string }) => void;
   recordA2APossessionChanged: (payload: { conversationId: string; chainId: string; currentHolderId: string; passId?: string }) => void;
   recordA2APassBlocked: (payload: { conversationId: string; chainId?: string; passId?: string; fromAgentId?: string; toAgentId?: string; reason: string; status?: A2AHandoffStatus }) => void;
@@ -641,7 +657,7 @@ export interface TaskHubState {
   fixBlocker: (conversationId: string, blockerId: string) => void;
   inviteAgent:      (agentId: string) => void;
   dismissAgent:     (agentId: string) => void;
-  updateTaskStatus: (taskId: string, status: TaskStatus, reviewNote?: string) => void;
+  updateTaskStatus: (taskId: string, status: TaskStatus, reviewNote?: string, evidence?: Record<string, unknown>) => void;
   addTask:          (taskData: Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'conversationId' | 'phaseId'> & { phaseId?: string }) => void;
   removeTask:       (taskId: string) => void;
   updateTask:       (taskId: string, patch: Partial<Pick<Task, 'title' | 'description' | 'agentId' | 'dependencies' | 'artifacts'>>) => void;
@@ -654,6 +670,7 @@ export interface TaskHubState {
   activeStreamMessageId: Record<string, string>;
   activeStreamConversationId: Record<string, string>;
   pendingDispatches: Record<string, PendingDispatch[]>;
+  dispatchReceiptsByConversation: Record<string, DispatchReceipt[]>;
 
   connectDaemon: () => void;
   upsertAgentSession: (projectId: ProjectId, agentId: string, sessionId: string) => void;
@@ -842,6 +859,7 @@ export const useTaskHubStore = create<TaskHubState>()(
         eventsByConversation: {} as Record<string, InternalEvent[]>,
         blockersByConversation: {} as Record<string, Blocker[]>,
         a2aByConversation: {} as Record<string, A2APossessionView>,
+        dispatchReceiptsByConversation: {} as Record<string, DispatchReceipt[]>,
 
         getConversations: () => get().conversations,
         getSelectedConversation: () => {
@@ -869,6 +887,24 @@ export const useTaskHubStore = create<TaskHubState>()(
           if (!id) return undefined;
           return get().a2aByConversation[id];
         },
+        getDispatchReceiptsForSelectedConversation: () => {
+          const id = get().selectedConversationId;
+          if (!id) return [];
+          return get().dispatchReceiptsByConversation[id] ?? [];
+        },
+        recordDispatchReceipt: (receipt: DispatchReceipt) => set((state: TaskHubState) => {
+          const existing = state.dispatchReceiptsByConversation[receipt.conversationId] ?? [];
+          const next = [
+            ...existing.filter((item) => item.receiptId !== receipt.receiptId),
+            receipt,
+          ].slice(-50);
+          return {
+            dispatchReceiptsByConversation: {
+              ...state.dispatchReceiptsByConversation,
+              [receipt.conversationId]: next,
+            },
+          };
+        }),
         recordA2APassOffer: (payload: { conversationId: string; chainId: string; passId?: string; fromAgentId?: string; toAgentId?: string; title?: string }) => set((state: TaskHubState) => {
           const now = new Date().toISOString();
           const existing: A2APossessionView = state.a2aByConversation[payload.conversationId] ?? {
@@ -2017,6 +2053,11 @@ socket.on('a2a:pass-offer', ({ agentId, fromAgentId, conversationId, chainId, pa
   });
 });
 
+socket.on('dispatch.receipt', (receipt: DispatchReceipt) => {
+  if (!receipt?.conversationId || !receipt.receiptId || !receipt.targetAgentId) return;
+  useTaskHubStore.getState().recordDispatchReceipt(receipt);
+});
+
 socket.on('a2a:possession-changed', ({ chainId, conversationId, currentHolderId, passId }: { chainId?: string; conversationId?: string; currentHolderId?: string; passId?: string }) => {
   if (!conversationId || !chainId || !currentHolderId) return;
   useTaskHubStore.getState().recordA2APossessionChanged({
@@ -2058,6 +2099,7 @@ socket.on('terminal:exit', ({ agentId, code, command, reasonCode, conversationId
   const runId = active?.runId;
   const taskId = active?.taskId;
   const backgroundWaiting = code === 0 && (activity === 'awaiting_children' || active?.activity === 'awaiting_children');
+  let missingEvidenceRecovery: { taskId: string; conversationId: string; prompt: string } | undefined;
 
   store.appendTerminalLog(agentId, `\r\n\x1b[36m[process exited with code ${code}]\x1b[0m\r\n`);
 
@@ -2120,11 +2162,24 @@ socket.on('terminal:exit', ({ agentId, code, command, reasonCode, conversationId
 
   }
 
-  // Auto-advance: CLI exit=0 → task in_review
+  // CLI success does not prove review readiness. The implementer must submit
+  // explicit install/build/GitNexus evidence before the task can enter review.
   if (code === 0 && taskId) {
-    const task = store.getTaskById(taskId);
-    if (task && task.status === 'in_progress') {
-      store.updateTaskStatus(taskId, 'in_review');
+      const task = store.getTaskById(taskId);
+      if (task && task.status === 'in_progress') {
+        store.openBlocker({
+        conversationId: task.conversationId,
+        taskId,
+        type: 'gate_fail',
+        gateId: 'build',
+        reasonSummary: '等待实现证据：进入 review_gate 前必须提供 installResult、buildResult 和 gitnexusEvidence。',
+        evidenceRef: runId ? `run:${runId}` : (command ? `cli:${command}` : undefined),
+      });
+      missingEvidenceRecovery = {
+        taskId,
+        conversationId: task.conversationId,
+        prompt: `请补齐 ${taskId}: ${task.title} 的 implementation_evidence：installResult、buildResult、gitnexusEvidence。补齐后用 task_update_status 将任务推进到 in_review。`,
+      };
     }
   }
 
@@ -2137,6 +2192,29 @@ socket.on('terminal:exit', ({ agentId, code, command, reasonCode, conversationId
     needsFullCompose: { ...state.needsFullCompose, [exitComposeKey]: true },
   }));
   useTaskHubStore.getState().completeStreamMessage(agentId);
+
+  if (missingEvidenceRecovery) {
+    const recovery = missingEvidenceRecovery;
+    setTimeout(() => {
+      const current = useTaskHubStore.getState();
+      if (current.agentStatus[agentId] && current.agentStatus[agentId] !== 'idle') {
+        current.enqueueDispatch(agentId, {
+          prompt: recovery.prompt,
+          referencedTaskId: recovery.taskId,
+          source: 'system',
+          conversationId: recovery.conversationId,
+        });
+        return;
+      }
+      current.dispatchToAgent({
+        agentId,
+        referencedTaskId: recovery.taskId,
+        conversationId: recovery.conversationId,
+        source: 'system',
+        prompt: recovery.prompt,
+      });
+    }, 300);
+  }
 
   if (conversationId) {
     const key = `${agentId}:${conversationId}`;
@@ -2298,8 +2376,8 @@ socket.on('task.wakeup', (wakeup: {
   conversationId?: string;
   taskId?: string;
   agentId?: string;
-  reasonCode?: 'owner_ready' | 'review_requested' | 'review_decision_ready' | 'dependency_resolved' | 'unblocked_unassigned';
-  dispatchSource?: 'workflow' | 'review_gate' | 'system';
+  reasonCode?: 'owner_ready' | 'review_requested' | 'review_decision_ready' | 'test_requested' | 'dependency_resolved' | 'unblocked_unassigned' | 'missing_implementation_evidence' | 'missing_delivery_evidence' | 'stale_review_gate' | 'stale_test_gate' | 'runnable_owned_idle';
+  dispatchSource?: 'workflow' | 'review_gate' | 'test_gate' | 'system';
   prompt?: string;
   content?: string;
   createdAt?: string;
@@ -2356,17 +2434,35 @@ socket.on('task.wakeup', (wakeup: {
     return;
   }
 
-  if (wakeup.reasonCode === 'review_requested' || wakeup.reasonCode === 'review_decision_ready') {
+  if (wakeup.reasonCode === 'review_requested' || wakeup.reasonCode === 'review_decision_ready' || wakeup.reasonCode === 'test_requested') {
     store.dispatchToAgent({
       agentId,
       referencedTaskId: taskId,
       conversationId,
-      source: 'review_gate',
+      source: wakeup.reasonCode === 'test_requested' ? 'test_gate' : 'review_gate',
       prompt: wakeup.prompt || (
         wakeup.reasonCode === 'review_decision_ready'
           ? `请确认 ${taskId}: ${task.title} 的评审结论，并决定是否通过或退回修改。${task.description || ''}`
+          : wakeup.reasonCode === 'test_requested'
+            ? `请开始测试 ${taskId}: ${task.title}. ${task.description || ''}`
           : `请开始评审 ${taskId}: ${task.title}. ${task.description || ''}`
       ),
+    });
+  }
+
+  if (
+    wakeup.reasonCode === 'missing_implementation_evidence' ||
+    wakeup.reasonCode === 'missing_delivery_evidence' ||
+    wakeup.reasonCode === 'stale_review_gate' ||
+    wakeup.reasonCode === 'stale_test_gate' ||
+    wakeup.reasonCode === 'runnable_owned_idle'
+  ) {
+    store.dispatchToAgent({
+      agentId,
+      referencedTaskId: taskId,
+      conversationId,
+      source: 'system',
+      prompt: wakeup.prompt || `请恢复处理 ${taskId}: ${task.title}. ${task.description || ''}`,
     });
   }
 

@@ -112,6 +112,30 @@ function buildPrompt(rawPrompt: string, task?: Task, phase?: Phase): string {
 2. 移除 `if (taskId && accountId)` guard — 改为 `if (accountId)`
 3. `task_id` 存入 session 行（可选），但不作为查找键
 
+### 2026-05-17 会话隔离修正
+
+一次新建项目复用旧项目 CLI session 的问题暴露出两个边界：
+
+1. 前端所有 session cache 读取和写入都必须以本次派发的 `conversationId` 为准，不能退回当前选中的 `selectedProjectId`。当用户在旧项目仍处于选中状态时发起新项目派发，旧项目的 cached session 不应进入新项目的 `terminal:start` payload。
+2. Daemon 在已经找到或创建 `(agentId, conversationId)` 对应的数据库 session 行后，不能再把客户端传来的 `sessionId` 当作兜底值。如果该 conversation 的数据库 session 尚未回写 `cli_session_id`，本次启动必须按新 session 处理，等待 CLI 输出自己的 session id 后再回写。
+3. `agent:session` 和带 `sessionId` 的 `agent:event` 广播必须携带并使用实际运行的 `conversationId`。前端 upsert session 时应优先使用事件中的 `conversationId`，只在兼容旧事件时才退回 `projectId`。
+
+这条约束保证 session 复用只发生在同一个 `(agentId, conversationId)` 内，避免新项目继承旧项目的上下文。
+
+### 2026-05-17 后台子 Agent 活动修正
+
+OpenCode 可能在主 CLI 进程中派出子 agent 或子任务。此时本地父进程退出不等于 project session 已完成：子 agent 的结果仍可能回写到同一个 `cli_session_id`，页面如果只监听 `terminal:exit` 就会误判 agent 空闲，并且过早把任务推进 `in_review`。
+
+修正后的状态模型：
+
+1. `terminal:exit` 只代表本地进程结束，不能单独作为 session 完成信号。
+2. Daemon 在看到 `Agent` / `Task` 工具调用时广播 `agent:activity { status: 'awaiting_children' }`，并把本轮 `terminal:exit` 标记为 `activity: 'awaiting_children'`。
+3. 前端收到 `awaiting_children` 后将 agent 标记为 `background`，保留 `activeRunsByAgent`，停止 stream watchdog 自动收尾，并阻止新的派发进入该 agent。
+4. 当 `terminal:exit` 发生且 activity 仍是 `awaiting_children` 时，不写 `run.finished`，不清空 active run，不自动把任务推进 `in_review`。
+5. 后续 session reconciler 或 runtime watcher 应在确认子 agent 结果已同步后广播 `agent:activity { status: 'idle' }`，此时页面才收尾。
+
+这条约束把进程生命周期和 session 活动生命周期拆开，避免后台子 agent 仍在工作时 UI 显示为空闲。
+
 ### terminal:exit handler
 
 - **移除** `session.sealByTask` 调用（进程失败时不再 seal）

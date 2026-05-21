@@ -1,8 +1,19 @@
 import type { TaskEdgeRow } from '../repositories/task-graph-repo';
 import type { TaskRow } from '../repositories/task-repo';
 
-export type TaskWakeupReasonCode = 'owner_ready' | 'review_requested' | 'review_decision_ready' | 'dependency_resolved' | 'unblocked_unassigned';
-export type TaskWakeupDispatchSource = 'workflow' | 'review_gate' | 'system';
+export type TaskWakeupReasonCode =
+  | 'owner_ready'
+  | 'review_requested'
+  | 'review_decision_ready'
+  | 'test_requested'
+  | 'dependency_resolved'
+  | 'unblocked_unassigned'
+  | 'missing_implementation_evidence'
+  | 'missing_delivery_evidence'
+  | 'stale_review_gate'
+  | 'stale_test_gate'
+  | 'runnable_owned_idle';
+export type TaskWakeupDispatchSource = 'workflow' | 'review_gate' | 'test_gate' | 'system';
 
 export interface ResolveTaskWakeupsInput {
   task: TaskRow;
@@ -11,6 +22,7 @@ export interface ResolveTaskWakeupsInput {
   changedFields?: string[];
   coordinatorAgentIds: string[];
   reviewAgentIds: string[];
+  qaAgentIds?: string[];
   conversationTasks: TaskRow[];
   edges: TaskEdgeRow[];
 }
@@ -33,6 +45,8 @@ export interface TaskWakeup {
     idempotencyKey: string;
     startsA2AHandoff: false;
     startsDispatch: true;
+    gateName?: string;
+    missingFields?: string[];
   };
   createdAt?: string;
 }
@@ -79,6 +93,13 @@ function dependenciesSatisfied(task: TaskRow, conversationTasks: TaskRow[], edge
   return dependencyIds.every((id) => tasksById.get(id)?.status === 'done');
 }
 
+function isPassingReviewDecision(note: string | null | undefined): boolean {
+  const text = note?.trim();
+  if (!text) return false;
+  if (/(不通过|未通过|拒绝|退回|阻塞|需修改|fail(?:ed)?|reject(?:ed)?|blocker)/i.test(text)) return false;
+  return /(PASS|APPROVED|LGTM|通过|同意|无阻塞|可进入测试|可以测试)/i.test(text);
+}
+
 function addWakeup(wakeups: TaskWakeup[], input: {
   task: TaskRow;
   agentId: string | null | undefined;
@@ -94,9 +115,21 @@ function addWakeup(wakeups: TaskWakeup[], input: {
     ? '请开始评审'
     : input.reasonCode === 'review_decision_ready'
       ? '请确认评审结论'
-      : input.reasonCode === 'unblocked_unassigned'
-        ? '需要分配负责人'
-        : '请继续处理';
+      : input.reasonCode === 'test_requested'
+        ? '请开始测试'
+        : input.reasonCode === 'unblocked_unassigned'
+          ? '需要分配负责人'
+          : input.reasonCode === 'missing_implementation_evidence'
+            ? '请补齐实现证据'
+            : input.reasonCode === 'missing_delivery_evidence'
+              ? '请补齐交付证据'
+              : input.reasonCode === 'stale_review_gate'
+                ? 'review_gate 已停滞，请评审、退回或升级'
+                : input.reasonCode === 'stale_test_gate'
+                  ? 'test_gate 已停滞，请测试、退回或升级'
+                  : input.reasonCode === 'runnable_owned_idle'
+                    ? '任务可继续但没有活跃派发，请恢复执行或说明阻塞'
+                    : '请继续处理';
   const prompt = `${actionText} ${input.task.id}: ${input.task.title}. ${input.task.description ?? ''}`.trim();
   const idempotencyKey = `${input.task.conversation_id}:${input.task.id}:${agentId}:${input.reasonCode}`;
 
@@ -119,6 +152,41 @@ function addWakeup(wakeups: TaskWakeup[], input: {
       startsDispatch: true,
     },
   });
+}
+
+export function createGateEvidenceRecoveryWakeup(input: {
+  task: TaskRow;
+  agentId: string | null | undefined;
+  reasonCode: 'missing_implementation_evidence' | 'missing_delivery_evidence';
+  missingFields?: string[];
+  gateName?: string;
+}): TaskWakeup | undefined {
+  const agentId = input.agentId?.trim();
+  if (!agentId) return undefined;
+
+  const wakeups: TaskWakeup[] = [];
+  addWakeup(wakeups, {
+    task: input.task,
+    agentId,
+    reasonCode: input.reasonCode,
+    dispatchSource: 'system',
+  });
+  const wakeup = wakeups[0];
+  if (!wakeup) return undefined;
+
+  const fields = input.missingFields?.length ? `缺少字段：${input.missingFields.join(', ')}。` : '';
+  const gate = input.gateName ? `${input.gateName} ` : '';
+  return {
+    ...wakeup,
+    prompt: `${wakeup.prompt} ${gate}${fields}请补齐后重新提交结构化任务状态更新。`.trim(),
+    content: `系统轻推 @${agentId}：${input.task.id}「${input.task.title}」${wakeup.metadata.reasonCode === 'missing_delivery_evidence' ? '缺少交付证据' : '缺少实现证据'}。${fields}`,
+    metadata: {
+      ...wakeup.metadata,
+      gateName: input.gateName ?? '',
+      missingFields: input.missingFields ?? [],
+      idempotencyKey: `${input.task.conversation_id}:${input.task.id}:${agentId}:${input.reasonCode}:${(input.missingFields ?? []).join(',')}`,
+    },
+  };
 }
 
 export function resolveTaskWakeups(input: ResolveTaskWakeupsInput): TaskWakeup[] {
@@ -178,6 +246,18 @@ export function resolveTaskWakeups(input: ResolveTaskWakeupsInput): TaskWakeup[]
         reasonCode: 'review_decision_ready',
         dispatchSource: 'review_gate',
       });
+    }
+
+    if (isPassingReviewDecision(input.task.review_note)) {
+      for (const qaAgentId of input.qaAgentIds ?? []) {
+        addWakeup(wakeups, {
+          task: input.task,
+          agentId: qaAgentId,
+          actorId: reviewActorId,
+          reasonCode: 'test_requested',
+          dispatchSource: 'test_gate',
+        });
+      }
     }
   }
 

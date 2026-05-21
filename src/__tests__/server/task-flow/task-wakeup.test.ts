@@ -127,6 +127,65 @@ describe('task wakeup resolver', () => {
     expect(wakeups[0].metadata.startsA2AHandoff).toBe(false);
   });
 
+  it('wakes QA when a reviewer submits a passing review decision', () => {
+    const reviewed = task({
+      id: 'TASK-004',
+      agent_id: 'toad',
+      status: 'in_review',
+      review_note: 'PASS-WITH-NOTES: review approved, ready for test gate',
+    });
+
+    const wakeups = resolveTaskWakeups({
+      task: reviewed,
+      previousTask: { ...reviewed, review_note: null },
+      actorId: 'peach',
+      changedFields: ['review_note'],
+      coordinatorAgentIds: ['mario'],
+      reviewAgentIds: ['peach', 'dk'],
+      qaAgentIds: ['yoshi'],
+      conversationTasks: [reviewed],
+      edges: [],
+    });
+
+    expect(wakeups).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        taskId: 'TASK-004',
+        agentId: 'mario',
+        reasonCode: 'review_decision_ready',
+        dispatchSource: 'review_gate',
+      }),
+      expect.objectContaining({
+        taskId: 'TASK-004',
+        agentId: 'yoshi',
+        reasonCode: 'test_requested',
+        dispatchSource: 'test_gate',
+      }),
+    ]));
+  });
+
+  it('does not wake QA when a reviewer rejects the task', () => {
+    const reviewed = task({
+      id: 'TASK-004',
+      agent_id: 'toad',
+      status: 'in_review',
+      review_note: 'REJECTED: blocking issue must be fixed before QA',
+    });
+
+    const wakeups = resolveTaskWakeups({
+      task: reviewed,
+      previousTask: { ...reviewed, review_note: null },
+      actorId: 'peach',
+      changedFields: ['review_note'],
+      coordinatorAgentIds: ['mario'],
+      reviewAgentIds: ['peach', 'dk'],
+      qaAgentIds: ['yoshi'],
+      conversationTasks: [reviewed],
+      edges: [],
+    });
+
+    expect(wakeups.some((wakeup) => wakeup.reasonCode === 'test_requested')).toBe(false);
+  });
+
   it('infers a reviewer-owned file sync as a review decision callback', () => {
     const reviewed = task({
       id: 'TASK-010',

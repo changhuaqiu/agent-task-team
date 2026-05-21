@@ -93,6 +93,7 @@
 - `docs/product/ux/2026-05-01-ux-journey-and-gameplay-plan.md`
 - `docs/product/ux/2026-05-15-group-chat-task-flow.md`
 - `docs/product/business/2026-05-01-engineering-role-card-business-plan.md`
+- `docs/product/business/2026-05-17-default-team-collaboration-template.md`
 
 ### 技术设计
 
@@ -112,10 +113,13 @@
 
 - `specs/README.md`
 - `specs/unify-integration-config-center/`
+- `specs/default-team-collaboration-template/`
+- `specs/personality-led-autonomy/`
 
 说明：
 
 - `specs/unify-integration-config-center/` 当前为进行中规格，不应理解为全部完成
+- `specs/personality-led-autonomy/` 当前定义默认团队自治的角色人格闭环和派发回执边界；运行时守护实现仍在后续任务中
 
 ### 稳定知识库
 

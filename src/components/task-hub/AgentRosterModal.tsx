@@ -6,6 +6,51 @@ import { PixelAvatar } from './PixelAvatar';
 import { X, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { RoleCardSummary } from '@/components/role-card/RoleCardSummary';
+import type { AgentTheme } from '@/store/agentStore';
+
+const CARD_THEME_CLASSES: Record<AgentTheme, {
+  border: string;
+  hoverShadow: string;
+  avatar: string;
+  button: string;
+}> = {
+  mario: {
+    border: 'border-[hsl(var(--agent-mario-border))]',
+    hoverShadow: 'hover:shadow-[4px_4px_0px_hsl(var(--agent-mario))]',
+    avatar: 'bg-[hsl(var(--agent-mario))] border-[hsl(var(--agent-mario-border))]',
+    button: 'bg-[hsl(var(--agent-mario-soft))] text-[hsl(var(--agent-mario))] border-[hsl(var(--agent-mario-border))] hover:bg-[hsl(var(--agent-mario))] hover:text-[hsl(var(--bg-app))]',
+  },
+  luigi: {
+    border: 'border-[hsl(var(--agent-luigi-border))]',
+    hoverShadow: 'hover:shadow-[4px_4px_0px_hsl(var(--agent-luigi))]',
+    avatar: 'bg-[hsl(var(--agent-luigi))] border-[hsl(var(--agent-luigi-border))]',
+    button: 'bg-[hsl(var(--agent-luigi-soft))] text-[hsl(var(--agent-luigi))] border-[hsl(var(--agent-luigi-border))] hover:bg-[hsl(var(--agent-luigi))] hover:text-[hsl(var(--bg-app))]',
+  },
+  toad: {
+    border: 'border-[hsl(var(--agent-toad-border))]',
+    hoverShadow: 'hover:shadow-[4px_4px_0px_hsl(var(--agent-toad))]',
+    avatar: 'bg-[hsl(var(--agent-toad))] border-[hsl(var(--agent-toad-border))]',
+    button: 'bg-[hsl(var(--agent-toad-soft))] text-[hsl(var(--agent-toad))] border-[hsl(var(--agent-toad-border))] hover:bg-[hsl(var(--agent-toad))] hover:text-[hsl(var(--bg-app))]',
+  },
+  peach: {
+    border: 'border-[hsl(var(--agent-peach-border))]',
+    hoverShadow: 'hover:shadow-[4px_4px_0px_hsl(var(--agent-peach))]',
+    avatar: 'bg-[hsl(var(--agent-peach))] border-[hsl(var(--agent-peach-border))]',
+    button: 'bg-[hsl(var(--agent-peach-soft))] text-[hsl(var(--agent-peach))] border-[hsl(var(--agent-peach-border))] hover:bg-[hsl(var(--agent-peach))] hover:text-[hsl(var(--bg-app))]',
+  },
+  dk: {
+    border: 'border-[hsl(var(--agent-dk-border))]',
+    hoverShadow: 'hover:shadow-[4px_4px_0px_hsl(var(--agent-dk))]',
+    avatar: 'bg-[hsl(var(--agent-dk))] border-[hsl(var(--agent-dk-border))]',
+    button: 'bg-[hsl(var(--agent-dk-soft))] text-[hsl(var(--agent-dk))] border-[hsl(var(--agent-dk-border))] hover:bg-[hsl(var(--agent-dk))] hover:text-[hsl(var(--bg-app))]',
+  },
+  yoshi: {
+    border: 'border-[hsl(var(--agent-yoshi-border))]',
+    hoverShadow: 'hover:shadow-[4px_4px_0px_hsl(var(--agent-yoshi))]',
+    avatar: 'bg-[hsl(var(--agent-yoshi))] border-[hsl(var(--agent-yoshi-border))]',
+    button: 'bg-[hsl(var(--agent-yoshi-soft))] text-[hsl(var(--agent-yoshi))] border-[hsl(var(--agent-yoshi-border))] hover:bg-[hsl(var(--agent-yoshi))] hover:text-[hsl(var(--bg-app))]',
+  },
+};
 
 export function AgentRosterModal() {
   const isOpen = useTaskHubStore((s) => s.isRosterModalOpen);
@@ -57,19 +102,22 @@ export function AgentRosterModal() {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {availableAgents.map((agent) => (
+                (() => {
+                  const theme = CARD_THEME_CLASSES[agent.theme];
+                  return (
                 <div
                   key={agent.id}
                   className={cn(
                     'group relative flex gap-4 p-4 rounded-[4px] border-2 bg-[hsl(var(--bg-card))] transition-transform hover:-translate-y-1',
-                    `border-[hsl(var(--agent-${agent.theme}-border))]`,
-                    `hover:shadow-[4px_4px_0px_hsl(var(--agent-${agent.theme}))]`
+                    theme.border,
+                    theme.hoverShadow
                   )}
                 >
                   {/* Avatar Side */}
                   <div
                     className={cn(
                       'shrink-0 w-16 h-16 rounded-[4px] border-2 flex items-center justify-center overflow-hidden',
-                      `bg-[hsl(var(--agent-${agent.theme}))] border-[hsl(var(--agent-${agent.theme}-border))]`
+                      theme.avatar
                     )}
                   >
                     <PixelAvatar theme={agent.theme} size={64} />
@@ -96,16 +144,15 @@ export function AgentRosterModal() {
                       onClick={() => handleRecruit(agent.id)}
                       className={cn(
                         'mt-3 w-full py-1.5 px-3 rounded-[2px] text-[11px] font-bold uppercase tracking-widest border-2 transition-colors',
-                        `bg-[hsl(var(--agent-${agent.theme}-soft))]`,
-                        `text-[hsl(var(--agent-${agent.theme}))]`,
-                        `border-[hsl(var(--agent-${agent.theme}-border))]`,
-                        `hover:bg-[hsl(var(--agent-${agent.theme}))] hover:text-[hsl(var(--bg-app))]`
+                        theme.button
                       )}
                     >
                       招募
                     </button>
                   </div>
                 </div>
+                  );
+                })()
               ))}
             </div>
           )}

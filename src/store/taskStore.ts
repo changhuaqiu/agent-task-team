@@ -192,7 +192,7 @@ export const createTaskSlice = (set: any, get: () => any) => {
       }).catch((err: any) => console.error('[mutation] task.update failed:', err));
     },
 
-    updateTaskStatus: (taskId: string, status: TaskStatus, reviewNote?: string) => {
+    updateTaskStatus: (taskId: string, status: TaskStatus, reviewNote?: string, evidence?: Record<string, unknown>) => {
       const prev = get().getTaskById(taskId);
       if (!prev) return;
       const conversationId = prev.conversationId;
@@ -219,7 +219,29 @@ export const createTaskSlice = (set: any, get: () => any) => {
       fetch('/api/mutations', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ type: 'task.updateStatus', payload: { id: taskId, status, reviewNote } }),
+        body: JSON.stringify({ type: 'task.updateStatus', payload: { id: taskId, status, reviewNote, evidence } }),
+      }).then(async (response) => {
+        if (response.ok) return;
+        const body = await response.json().catch(() => ({}));
+        set((state: any) => ({
+          tasks: state.tasks.map((task: Task) =>
+            task.id === taskId
+              ? {
+                  ...task,
+                  status: prev.status,
+                  reviewNote: prev.reviewNote,
+                  updatedAt: prev.updatedAt,
+                }
+              : task
+          ),
+        }));
+        get().openBlocker?.({
+          conversationId,
+          taskId,
+          type: 'gate_fail',
+          gateId: status === 'done' ? 'build' : 'unit',
+          reasonSummary: body.error || `状态流转到 ${status} 被门禁拒绝。`,
+        });
       }).catch((err: any) => console.error('[mutation] task.updateStatus failed:', err));
 
       if (prev && status === 'in_progress') {

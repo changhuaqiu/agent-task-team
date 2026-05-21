@@ -12,9 +12,13 @@ function mockIO() {
   const emitted: any[] = [];
   return {
     emit: (...args: any[]) => emitted.push(args),
+    to: () => ({
+      emit: (...args: any[]) => emitted.push(args),
+    }),
     emitted: () => emitted,
     lastEvent: () => emitted[emitted.length - 1],
     dispatchEvents: () => emitted.filter(([e]) => e === 'a2a:dispatch'),
+    blockedEvents: () => emitted.filter(([e]) => e === 'a2a:pass-blocked'),
     systemEvents: () => emitted.filter(([e, p]) => e === 'agent:event' && p.type === 'system'),
   };
 }
@@ -162,8 +166,8 @@ const x = 1;
       chainDepth: 1,
     });
 
-    const blocked = io.systemEvents().some(([, p]) => p.content?.includes('拦截'));
-    expect(blocked).toBe(true);
+    const blockedLogs = db.prepare("SELECT * FROM a2a_audit_log WHERE event_type = 'dispatch_blocked'").all() as any[];
+    expect(blockedLogs.length).toBeGreaterThan(0);
   });
 
   it('场景8: chain budget — 超过 8 次 dispatch 后拦截', async () => {
@@ -184,8 +188,8 @@ const x = 1;
       chainDepth: 0,
     });
 
-    const blocked = io.systemEvents().some(([, p]) => p.content?.includes('拦截'));
-    expect(blocked).toBe(true);
+    const blockedLogs = db.prepare("SELECT * FROM a2a_audit_log WHERE event_type = 'dispatch_blocked'").all() as any[];
+    expect(blockedLogs.length).toBeGreaterThan(0);
   });
 
   it('场景9: dispatch prompt 包含 response guidance', () => {
@@ -193,7 +197,7 @@ const x = 1;
 
     const dispatches = io.dispatchEvents();
     const prompt = dispatches[0][1].prompt;
-    expect(prompt).toContain('不要广播状态');
+    expect(prompt).toContain('真实 dispatch receipt');
     expect(prompt).toContain('不要确认收到');
   });
 

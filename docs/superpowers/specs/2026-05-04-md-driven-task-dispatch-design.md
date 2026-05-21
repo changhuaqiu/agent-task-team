@@ -464,7 +464,7 @@ if (code === 0 && taskId) {
 ```
 
 - 左侧 Agent emoji + agentId（`text-sm font-medium`）
-- 品牌色左边框（`border-l-2 border-[var(--agent-*)]`）
+- 品牌色左边框（`border-l-2` + agent 色彩 token 映射）
 - 中间任务标题（`text-sm`）
 - 状态 badge 复用 `StatusBadge`
 - 右侧时间戳（`text-xs text-muted-foreground`）

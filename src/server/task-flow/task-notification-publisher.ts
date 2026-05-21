@@ -69,16 +69,21 @@ function isCoordinator(agentId: string, displayName: string | undefined, roleCar
 function isReviewer(roleCard?: RoleCard): boolean {
   return roleCard?.category === 'code_reviewer' ||
     roleCard?.category === 'arch_reviewer' ||
-    roleCard?.category === 'qa' ||
     roleCard?.engineering?.canApprovePR === true;
+}
+
+function isQa(roleCard?: RoleCard): boolean {
+  return roleCard?.category === 'qa';
 }
 
 export function resolveTaskNotificationAudience(conversationId: string): {
   coordinatorAgentIds: string[];
   reviewAgentIds: string[];
+  qaAgentIds: string[];
 } {
   const coordinatorAgentIds: string[] = [];
   const reviewAgentIds: string[] = [];
+  const qaAgentIds: string[] = [];
   const add = (list: string[], id: string | undefined) => {
     if (!id || list.includes(id)) return;
     list.push(id);
@@ -101,17 +106,19 @@ export function resolveTaskNotificationAudience(conversationId: string): {
         : (role.roleCardId ? PRESET_ROLE_CARD_MAP[role.roleCardId] : undefined);
       if (isCoordinator(role.id, role.displayName, roleCard)) add(coordinatorAgentIds, role.id);
       if (isReviewer(roleCard)) add(reviewAgentIds, role.id);
+      if (isQa(roleCard)) add(qaAgentIds, role.id);
     }
-    return { coordinatorAgentIds, reviewAgentIds };
+    return { coordinatorAgentIds, reviewAgentIds, qaAgentIds };
   }
 
   for (const agent of listAgents()) {
     const roleCard = PRESET_ROLE_CARD_MAP[agent.role_card_id];
     if (isCoordinator(agent.id, agent.name, roleCard)) add(coordinatorAgentIds, agent.id);
     if (isReviewer(roleCard)) add(reviewAgentIds, agent.id);
+    if (isQa(roleCard)) add(qaAgentIds, agent.id);
   }
 
-  return { coordinatorAgentIds, reviewAgentIds };
+  return { coordinatorAgentIds, reviewAgentIds, qaAgentIds };
 }
 
 export function publishTaskNotification(input: PublishTaskNotificationInput): TaskNotification | null {
@@ -192,6 +199,7 @@ export function publishTaskChangeNotification(input: PublishTaskChangeNotificati
     changedFields,
     coordinatorAgentIds: audience.coordinatorAgentIds,
     reviewAgentIds: audience.reviewAgentIds,
+    qaAgentIds: audience.qaAgentIds,
     conversationTasks: taskRepo.getByConversation(input.task.conversation_id),
     edges: taskGraphRepo.listEdges(input.task.conversation_id),
   });

@@ -28,6 +28,8 @@
 - `system-control-plane/`：整体控制平面契约，统一跨实例 runtime、dispatch、health、policy、proof 与 execution envelope
 - `frontend-runtime-performance-refactor/`：前端 Team Runtime 派生缓存与高订阅组件收敛重构
 - `group-chat-task-flow/`：群聊式多 Agent 协作体验与 Task Graph 任务流事实源契约
+- `default-team-collaboration-template/`：默认 Mario 6 人组协作样板，约束角色职责、交接规则与质量门禁
+- `personality-led-autonomy/`：人格驱动自治契约，约束 agent 闭环责任、文本调度与真实派发回执的边界，以及系统最小事实兜底
 
 ## 当前草案规格
 

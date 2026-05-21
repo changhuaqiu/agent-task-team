@@ -31,7 +31,7 @@ export type ChainStatus = 'active' | 'completed' | 'aborted' | 'timeout';
 export interface InvocationChain {
   id: string;
   conversationId: string;
-  rootTriggerType: 'user_message' | 'scheduled';
+  rootTriggerType: 'user_message' | 'scheduled' | 'agent_handoff';
   rootTriggerId: string;
   status: ChainStatus;
   config: ChainConfig;
@@ -91,17 +91,17 @@ export interface DispatchRequest {
   toAgentId: string;
   content: string;
   depth: number;
-  intent?: 'delegate' | 'review' | 'answer' | 'verify' | 'implement' | 'plan';
+  intent?: 'delegate' | 'review' | 'answer' | 'verify' | 'implement' | 'plan' | 'reject' | 'escalate' | 'coord' | 'handoff_test';
   taskId?: string;
 }
 
 export type DispatchDecision =
   | { allow: true; entry: WorklistEntry }
-  | { allow: false; reason: string; silent: boolean };
+  | { allow: false; reason: string; silent: boolean; escalatedToAgentId?: string };
 
 export interface ChainTrigger {
   conversationId: string;
-  type: 'user_message' | 'scheduled';
+  type: 'user_message' | 'scheduled' | 'agent_handoff';
   messageId: string;
   config?: Partial<ChainConfig>;
 }
@@ -148,7 +148,8 @@ export type AuditEventType =
   | 'chain_completed'
   | 'chain_aborted'
   | 'chain_timeout'
-  | 'cursor_advanced';
+  | 'cursor_advanced'
+  | 'chainless_handoff';
 
 export interface AuditLogEntry {
   id: string;

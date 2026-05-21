@@ -49,10 +49,23 @@ const NO_RUNTIME_PROFILE_ABORT = {
   message: '请先为该角色绑定可用账号或执行引擎',
 } as const;
 
+type AgentRunStatus = 'idle' | 'busy' | 'background';
+type ActiveAgentRun = {
+  runId: string;
+  taskId?: string;
+  conversationId: string;
+  startedAt: string;
+  activity?: 'foreground' | 'awaiting_children';
+};
+
 export function resetWatchdog(agentId: string, getState: () => any, setState: (partial: any) => void) {
   if (streamWatchdogs[agentId]) clearTimeout(streamWatchdogs[agentId]);
   streamWatchdogs[agentId] = setTimeout(() => {
     const state = getState();
+    if (state.activeRunsByAgent[agentId]?.activity === 'awaiting_children') {
+      delete streamWatchdogs[agentId];
+      return;
+    }
     if (state.activeStreamMessageId[agentId]) {
       console.warn(`[watchdog] Stream for ${agentId} timed out after ${STREAM_WATCHDOG_MS / 1000}s, auto-completing`);
       setState((s: any) => ({
@@ -133,7 +146,7 @@ export interface PendingDispatch {
   prompt: string;
   referencedTaskId?: string;
   queuedAt: string;
-  source?: 'user' | 'a2a' | 'workflow' | 'review_gate' | 'system';
+  source?: 'user' | 'a2a' | 'workflow' | 'review_gate' | 'test_gate' | 'system';
   fromAgentId?: string;
   conversationId: string;
 }
@@ -169,8 +182,8 @@ export const createDaemonSlice = (set: any, get: () => any) => {
     setEnableMockRunner: (enabled: boolean) => set({ enableMockRunner: enabled }),
 
     terminalLogs: {} as Record<string, string[]>,
-    agentStatus: {} as Record<string, 'idle' | 'busy'>,
-    activeRunsByAgent: {} as Record<string, { runId: string; taskId?: string; conversationId: string; startedAt: string } | undefined>,
+    agentStatus: {} as Record<string, AgentRunStatus>,
+    activeRunsByAgent: {} as Record<string, ActiveAgentRun | undefined>,
     activeStreamMessageId: {} as Record<string, string>,
     activeStreamConversationId: {} as Record<string, string>,
     pendingDispatches: {} as Record<string, PendingDispatch[]>,
@@ -210,7 +223,7 @@ export const createDaemonSlice = (set: any, get: () => any) => {
         },
       })),
 
-    dispatchToAgent: ({ agentId, prompt, referencedTaskId, source, fromAgentId, conversationId: explicitConvId, chainId, passId }: { agentId: string; prompt: string; referencedTaskId?: string; source?: 'user' | 'a2a' | 'workflow' | 'review_gate' | 'system'; fromAgentId?: string; conversationId?: string; chainId?: string; passId?: string }) => {
+    dispatchToAgent: ({ agentId, prompt, referencedTaskId, source, fromAgentId, conversationId: explicitConvId, chainId, passId }: { agentId: string; prompt: string; referencedTaskId?: string; source?: 'user' | 'a2a' | 'workflow' | 'review_gate' | 'test_gate' | 'system'; fromAgentId?: string; conversationId?: string; chainId?: string; passId?: string }) => {
       const conversationId =
         explicitConvId ??
         (referencedTaskId ? get().getTaskById(referencedTaskId)?.conversationId : undefined) ??
@@ -227,14 +240,14 @@ export const createDaemonSlice = (set: any, get: () => any) => {
         return false;
       }
 
-      if (get().agentStatus[agentId] === 'busy') {
+      if (get().agentStatus[agentId] && get().agentStatus[agentId] !== 'idle') {
         console.log(`[dispatch] ${agentId} busy, enqueuing for conversation ${conversationId}`);
         get().enqueueDispatch(agentId, { prompt, referencedTaskId, source, fromAgentId, conversationId });
         return true;
       }
 
-      const projectId = get().selectedProjectId;
-      const sessionId = get().agentSessions[projectId]?.[agentId];
+      const projectId = conversationId;
+      const sessionId = get().agentSessions[conversationId]?.[agentId];
       const runId = `run-${Date.now()}-${Math.random().toString(16).slice(2)}`;
       const agent = profile.agent;
       const effectiveIds = profile.agent.accountIds;
@@ -247,7 +260,7 @@ export const createDaemonSlice = (set: any, get: () => any) => {
       const task = referencedTaskId ? get().getTaskById(referencedTaskId) : undefined;
       const phase = task?.phaseId ? get().phases.find((p: any) => p.id === task.phaseId) : undefined;
 
-      const composeKey = `${projectId}:${agentId}`;
+      const composeKey = `${conversationId}:${agentId}`;
       const isFirstWake = get().needsFullCompose[composeKey] !== false;
 
       const composeOpts: ComposeOptions = {
@@ -301,7 +314,7 @@ export const createDaemonSlice = (set: any, get: () => any) => {
         needsFullCompose: { ...state.needsFullCompose, [composeKey]: false },
         activeRunsByAgent: {
           ...state.activeRunsByAgent,
-          [agentId]: { runId, taskId: referencedTaskId, conversationId, startedAt: new Date().toISOString() },
+          [agentId]: { runId, taskId: referencedTaskId, conversationId, startedAt: new Date().toISOString(), activity: 'foreground' },
         },
       }));
 
@@ -427,7 +440,7 @@ export const createDaemonSlice = (set: any, get: () => any) => {
 
     forceSendDispatch: ({ agentId, prompt, referencedTaskId, conversationId: explicitConvId }: { agentId: string; prompt: string; referencedTaskId?: string; conversationId?: string }) => {
       const conversationId = explicitConvId ?? get().selectedConversationId ?? '';
-      socket.emit('terminal:kill', { agentId, projectId: get().selectedProjectId, force: true });
+      socket.emit('terminal:kill', { agentId, projectId: conversationId || get().selectedProjectId, force: true });
       if (conversationId) get().clearPendingDispatches(agentId, conversationId);
       get().completeStreamMessage(agentId);
       set((state: any) => ({
@@ -449,12 +462,12 @@ export const createDaemonSlice = (set: any, get: () => any) => {
 
     simulateCliExecution: (taskId: string, prompt: string, sessionId?: string) => {
       const state = get();
-      const projectId = state.selectedProjectId;
       const task = state.tasks.find((t: any) => t.id === taskId);
       if (!task) return;
       const agentId = task.agentId;
-      const resolvedSessionId = sessionId || state.agentSessions[projectId]?.[agentId];
       const conversationId = task.conversationId;
+      const projectId = conversationId;
+      const resolvedSessionId = sessionId || state.agentSessions[conversationId]?.[agentId];
       const profile = state.getAgentRuntimeProfile(agentId);
       if (!profile) {
         console.warn(`[simulate] ${agentId} aborted: no runtime profile or enabled account for conversation ${conversationId}`);
@@ -502,7 +515,7 @@ export const createDaemonSlice = (set: any, get: () => any) => {
         needsFullCompose: { ...s.needsFullCompose, [simComposeKey]: false },
         activeRunsByAgent: {
           ...s.activeRunsByAgent,
-          [agentId]: { runId, taskId, conversationId, startedAt: new Date().toISOString() },
+          [agentId]: { runId, taskId, conversationId, startedAt: new Date().toISOString(), activity: 'foreground' },
         },
       }));
 
@@ -515,6 +528,7 @@ export const createDaemonSlice = (set: any, get: () => any) => {
       socket.emit('terminal:start', {
         projectId,
         taskId,
+        conversationId,
         agentId,
         prompt,
         systemPrompt,

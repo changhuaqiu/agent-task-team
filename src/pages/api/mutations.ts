@@ -86,18 +86,79 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       case 'task.updateStatus': {
         const { taskRepo } = await import('@/server/repositories/task-repo');
         const { publishTaskChangeNotification } = await import('@/server/task-flow/task-notification-publisher');
-        const { id, status, reviewNote } = payload as any;
+        const { proofLogRepo } = await import('@/server/repositories/proof-log-repo');
+        const { evaluateTaskStatusEvidenceGate } = await import('@/server/task-flow/task-gate-evidence');
+        const { id, status, reviewNote, evidence, actorId, actorType } = payload as any;
         const previousTask = taskRepo.getById(id);
+        const gateDecision = evaluateTaskStatusEvidenceGate({
+          task: previousTask,
+          nextStatus: status,
+          actorId,
+          evidence,
+        });
+        if (!gateDecision.allowed) {
+          proofLogRepo.append({
+            eventType: 'task_graph.gate_evidence.blocked',
+            conversationId: previousTask?.conversation_id,
+            taskId: id,
+            actorId,
+            reasonCode: gateDecision.reasonCode,
+            metadata: {
+              status,
+              gateName: gateDecision.gateName,
+              missingFields: gateDecision.missingFields,
+            },
+          });
+          if (previousTask) {
+            const { createGateEvidenceRecoveryWakeup } = await import('@/server/task-flow/task-wakeup');
+            const recoveryAgentId = gateDecision.gateName === 'delivery_evidence'
+              ? 'mario'
+              : (actorId || previousTask.agent_id);
+            const wakeup = createGateEvidenceRecoveryWakeup({
+              task: previousTask,
+              agentId: recoveryAgentId,
+              reasonCode: gateDecision.gateName === 'delivery_evidence'
+                ? 'missing_delivery_evidence'
+                : 'missing_implementation_evidence',
+              gateName: gateDecision.gateName,
+              missingFields: gateDecision.missingFields,
+            });
+            if (wakeup) {
+              (res.socket as any)?.server?.io?.to(previousTask.conversation_id).emit('task.wakeup', {
+                ...wakeup,
+                id: `wakeup-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                createdAt: new Date().toISOString(),
+              });
+            }
+          }
+          return res.status(403).json({
+            ok: false,
+            error: gateDecision.message ?? 'Task gate evidence is required',
+          });
+        }
         taskRepo.updateStatus(id, status, reviewNote);
         const task = taskRepo.getById(id);
+        if (task && gateDecision.required) {
+          proofLogRepo.append({
+            eventType: 'task_graph.gate_evidence.accepted',
+            conversationId: task.conversation_id,
+            taskId: id,
+            actorId,
+            metadata: {
+              status,
+              gateName: gateDecision.gateName,
+              evidence,
+            },
+          });
+        }
         if (task) {
           publishTaskChangeNotification({
             io: (res.socket as any)?.server?.io,
             kind: 'task.status_changed',
             task,
             previousTask,
-            actorId: (payload as any).actorId,
-            actorType: (payload as any).actorType,
+            actorId,
+            actorType,
           });
         }
         result = { id, status };
@@ -250,7 +311,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
           try {
             const { readTasksMd, writeTasksMd } = await import('@/server/task-file-service');
             const { join } = await import('path');
-            const wsRoot = process.env.ATH_WORKSPACES_ROOT || join(process.cwd(), '.ath', 'workspaces');
+            const wsRoot = process.env.ATH_WORKSPACES_ROOT || join(/*turbopackIgnore: true*/ process.cwd(), '.ath', 'workspaces');
             const projectDir = join(wsRoot, conversationId || 'default');
             const { tasks: existingTasks, blockers } = readTasksMd(projectDir);
             existingTasks.push({
@@ -270,9 +331,70 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
           result = task;
         } else if (toolName === 'task_update_status') {
+          const { evaluateTaskStatusEvidenceGate } = await import('@/server/task-flow/task-gate-evidence');
+          const { proofLogRepo } = await import('@/server/repositories/proof-log-repo');
           const previousTask = taskRepo.getById(input.task_id);
+          const gateDecision = evaluateTaskStatusEvidenceGate({
+            task: previousTask,
+            nextStatus: input.status,
+            actorId: toolAgentId,
+            evidence: input.evidence,
+          });
+          if (!gateDecision.allowed) {
+            proofLogRepo.append({
+              eventType: 'task_graph.gate_evidence.blocked',
+              conversationId: previousTask?.conversation_id || conversationId,
+              taskId: input.task_id,
+              actorId: toolAgentId,
+              reasonCode: gateDecision.reasonCode,
+              metadata: {
+                status: input.status,
+                gateName: gateDecision.gateName,
+                missingFields: gateDecision.missingFields,
+              },
+            });
+            if (previousTask) {
+              const { createGateEvidenceRecoveryWakeup } = await import('@/server/task-flow/task-wakeup');
+              const recoveryAgentId = gateDecision.gateName === 'delivery_evidence'
+                ? 'mario'
+                : (toolAgentId || previousTask.agent_id);
+              const wakeup = createGateEvidenceRecoveryWakeup({
+                task: previousTask,
+                agentId: recoveryAgentId,
+                reasonCode: gateDecision.gateName === 'delivery_evidence'
+                  ? 'missing_delivery_evidence'
+                  : 'missing_implementation_evidence',
+                gateName: gateDecision.gateName,
+                missingFields: gateDecision.missingFields,
+              });
+              if (wakeup) {
+                (res.socket as any)?.server?.io?.to(previousTask.conversation_id || conversationId).emit('task.wakeup', {
+                  ...wakeup,
+                  id: `wakeup-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                  createdAt: new Date().toISOString(),
+                });
+              }
+            }
+            return res.status(403).json({
+              ok: false,
+              error: gateDecision.message ?? 'Task gate evidence is required',
+            });
+          }
           taskRepo.updateStatus(input.task_id, input.status);
           const updatedTask = taskRepo.getById(input.task_id);
+          if (updatedTask && gateDecision.required) {
+            proofLogRepo.append({
+              eventType: 'task_graph.gate_evidence.accepted',
+              conversationId: updatedTask.conversation_id,
+              taskId: input.task_id,
+              actorId: toolAgentId,
+              metadata: {
+                status: input.status,
+                gateName: gateDecision.gateName,
+                evidence: input.evidence,
+              },
+            });
+          }
           if (updatedTask) {
             const { publishTaskChangeNotification } = await import('@/server/task-flow/task-notification-publisher');
             publishTaskChangeNotification({
@@ -289,7 +411,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
           try {
             const { updateTaskInMd } = await import('@/server/task-file-service');
             const { join } = await import('path');
-            const wsRoot = process.env.ATH_WORKSPACES_ROOT || join(process.cwd(), '.ath', 'workspaces');
+            const wsRoot = process.env.ATH_WORKSPACES_ROOT || join(/*turbopackIgnore: true*/ process.cwd(), '.ath', 'workspaces');
             const existing = updatedTask;
             const convId = existing?.conversation_id || conversationId || 'default';
             const projectDir = join(wsRoot, convId);
@@ -319,7 +441,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
           // Update .ath/TASKS.md
           const { updateTaskInMd } = await import('@/server/task-file-service');
           const { join: joinPath } = await import('path');
-          const wsRoot = process.env.ATH_WORKSPACES_ROOT || joinPath(process.cwd(), '.ath', 'workspaces');
+          const wsRoot = process.env.ATH_WORKSPACES_ROOT || joinPath(/*turbopackIgnore: true*/ process.cwd(), '.ath', 'workspaces');
           const taskProjectDir = joinPath(wsRoot, conversationId || 'default');
           try {
             updateTaskInMd(taskProjectDir, input.task_id, { agent: input.agent_id });
@@ -347,7 +469,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
         // Scope .ath/ under workspaces/<conversationId>/ so projects don't collide
         const { join } = await import('path');
-        const workspacesRoot = process.env.ATH_WORKSPACES_ROOT || join(process.cwd(), '.ath', 'workspaces');
+        const workspacesRoot = process.env.ATH_WORKSPACES_ROOT || join(/*turbopackIgnore: true*/ process.cwd(), '.ath', 'workspaces');
         const projectDir = join(workspacesRoot, conversationId || 'default');
 
         initProjectDir(projectDir, {

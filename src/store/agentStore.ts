@@ -74,7 +74,7 @@ const FALLBACK_AGENTS: Agent[] = [
   {
     id: 'dk',
     name: 'Donkey Kong',
-    role: 'worker',
+    role: 'reviewer',
     roleLabel: '架构工程',
     roleCardId: 'preset-arch-reviewer',
     theme: 'dk',
@@ -102,7 +102,7 @@ const ROLE_MAP: Record<string, AgentRole> = {
   'preset-frontend': 'worker',
   'preset-backend': 'worker',
   'preset-code-reviewer': 'reviewer',
-  'preset-arch-reviewer': 'worker',
+  'preset-arch-reviewer': 'reviewer',
   'preset-qa': 'reviewer',
 };
 

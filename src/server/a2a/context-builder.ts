@@ -4,7 +4,11 @@ import type { ChainRepo } from './chain';
 import type { CursorRepo } from './cursor';
 
 const RESPONSE_GUIDANCE = `规则：
-- 下游任务的依赖解除由系统自动调度（wakeup 机制），你无需手动通知下游 agent。状态/产出更新请写 TASKS.md，系统会自动处理后续调度
+- 你的人格和职责负责判断下一步；系统只校验事实，不替你做专业判断
+- 每轮结束必须留下闭环动作：更新任务状态并提交证据、真实派发并确认 receipt、创建 blocker 并升级、或说明外部等待条件和恢复负责人
+- 文本 @mention 或“已通知/已启动”不算派发；只有真实 dispatch receipt、A2A pass offer、task wakeup dispatch 或执行启动回执才算启动
+- 并行管道必须核对 n/n dispatched；部分派发失败时立即重试或升级给协调者，不要宣布全部启动
+- 下游任务的依赖解除由系统自动调度（wakeup 机制），但你仍要确保本轮闭环动作已经发生。状态/产出更新请写 TASKS.md，系统会自动处理后续调度
 - 不要确认收到（没有 ack 机制，确认无意义）
 - 只做实际工作或报告无法执行的原因
 - 不要为了确认、总结或礼貌性回复 @ 回请求来源，避免 A2A 回声

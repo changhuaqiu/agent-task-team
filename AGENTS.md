@@ -36,6 +36,15 @@ This version has breaking changes — APIs, conventions, and file structure may 
 - **Knowledge Governance**: Any reusable knowledge added to `docs/knowledge/` MUST follow `docs/standards/knowledge-governance.md` and be indexed in `docs/knowledge/catalog.md`.
 - **Mixed Work**: Tasks that include both implementation and product/business judgment MUST follow both the technical and business standards.
 
+### 0.1. GitNexus Graph-First Protocol
+- **Graph Context First**: For any non-trivial code, architecture, review, or testing task, use GitNexus before editing or judging code. At minimum, query the relevant feature, symbol, flow, or module.
+- **Impact Before Change**: Before modifying code, inspect the relevant `context` or `impact` so edits stay inside the discovered dependency boundary.
+- **Gate Evidence**: Review and QA agents must use GitNexus impact or change detection evidence before approving, rejecting, or signing off.
+- **Executable Status Gates**: A task cannot enter `in_review` without `installResult`, `buildResult`, and `gitnexusEvidence`; a task cannot enter `done` without `mergedToMain`, `mainInstallResult`, `mainBuildResult`, `mainTestResult`, and `gitnexusDetectChangesResult`.
+- **No Auto Review**: A successful CLI exit is only execution evidence. It must not automatically move a task into review without the required gate evidence.
+- **Fallback Transparency**: If GitNexus is unavailable or stale, say so explicitly, refresh with `gitnexus analyze` when safe, and continue only with a stated fallback.
+- **Handoff Evidence**: Agent handoffs should mention the GitNexus query, symbol, flow, or affected process used to make the decision.
+
 ### 1. Documentation Management & Evolution Plan
 - **Implementation Must Update Design Docs First**: Every implementation change MUST be reflected in the relevant design or architecture document before the task is considered complete. Code and design documents are required to stay in sync; do not ship code changes without updating the corresponding docs in `docs/`, `design/`, `architecture/`, or `decisions/`.
 - **Single Source of Truth**: The `docs/` directory is the central hub for all project documentation. Always refer to `docs/README.md` for the directory structure and document evolution rules.

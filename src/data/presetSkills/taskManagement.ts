@@ -12,6 +12,10 @@ You can create, assign, and update tasks for your team. Use the provided tools t
 - Create tasks with clear, specific titles and descriptions
 - Assign tasks to the most appropriate teammate based on their capabilities
 - Update task status as work progresses
+- Status changes into in_review or done require gate evidence. Do not mark in_review without installResult, buildResult, and gitnexusEvidence. Do not mark done without mergedToMain, mainInstallResult, mainBuildResult, mainTestResult, and gitnexusDetectChangesResult.
+- Text scheduling is not execution. Do not claim a task lane is started unless a real dispatch receipt, A2A pass offer, task wakeup dispatch, or execution-start acknowledgement exists for the target agent and task.
+- For parallel dispatch, verify every target separately and report n/n dispatched. If only part of the fan-out starts, retry or escalate instead of saying all lanes started.
+- Each turn must close by updating task state with evidence, creating a real dispatch, creating/escalating a blocker, or naming an external wait condition with a recovery owner.
 - Do not assign tasks to yourself
 - Limit task creation to 10 operations per dispatch`,
   config: JSON.stringify({
@@ -45,6 +49,7 @@ You can create, assign, and update tasks for your team. Use the provided tools t
         parameters: [
           { name: 'task_id', type: 'string', required: true, description: 'Task ID to update' },
           { name: 'status', type: 'string', required: true, description: 'New status: pending, in_progress, in_review, done, blocked' },
+          { name: 'evidence', type: 'object', required: false, description: 'Required for in_review: installResult, buildResult, gitnexusEvidence. Required for done: mergedToMain, mainInstallResult, mainBuildResult, mainTestResult, gitnexusDetectChangesResult.' },
         ],
         handler: 'api://tasks/update',
       },

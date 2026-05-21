@@ -16,10 +16,20 @@ import { TaskCapsules, type TaskCapsuleRef } from './TaskCapsules';
 import { TaskActionCard, type TaskActionCardRef } from './TaskActionCard';
 import { ChatPhaseProposals } from './ChatPhaseProposals';
 import { ChatApprovalActions } from './ChatApprovalActions';
+import type { AgentTheme } from '@/store/agentStore';
 
 interface ChatMessageItemProps {
   message: ChatMessage;
 }
+
+const AVATAR_THEME_CLASSES: Record<AgentTheme, string> = {
+  mario: 'bg-[hsl(var(--agent-mario))] border-[hsl(var(--agent-mario-border))]',
+  luigi: 'bg-[hsl(var(--agent-luigi))] border-[hsl(var(--agent-luigi-border))]',
+  toad: 'bg-[hsl(var(--agent-toad))] border-[hsl(var(--agent-toad-border))]',
+  peach: 'bg-[hsl(var(--agent-peach))] border-[hsl(var(--agent-peach-border))]',
+  dk: 'bg-[hsl(var(--agent-dk))] border-[hsl(var(--agent-dk-border))]',
+  yoshi: 'bg-[hsl(var(--agent-yoshi))] border-[hsl(var(--agent-yoshi-border))]',
+};
 
 const IntentIcon = ({ intent }: { intent?: string }) => {
   switch (intent) {
@@ -149,8 +159,7 @@ export function ChatMessageItem({ message }: ChatMessageItemProps) {
         ) : agent ? (
           <div className={cn(
             'w-8 h-8 rounded-[4px] flex items-center justify-center shadow-[var(--shadow-sm)] border overflow-hidden',
-            `bg-[hsl(var(--agent-${agent.theme}))]`,
-            `border-[hsl(var(--agent-${agent.theme}-border))]`
+            AVATAR_THEME_CLASSES[agent.theme]
           )}>
             <PixelAvatar theme={agent.theme} size={32} />
           </div>

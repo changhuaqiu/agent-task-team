@@ -40,6 +40,12 @@ const TEAM_AGENTS: AgentMentionConfig[] = [
   { id: 'reviewer', mentionPatterns: ['@reviewer'] },
 ];
 
+const ESCALATION_TEAM_AGENTS: AgentMentionConfig[] = [
+  { id: 'planner', mentionPatterns: ['@planner'] },
+  { id: 'reviewer', mentionPatterns: ['@reviewer'] },
+  { id: 'coordinator', mentionPatterns: ['@coordinator'] },
+];
+
 function teamPackWithPlannerReviewer(canPlannerSendToReviewer: boolean): TeamPack {
   return {
     id: 'pack-a2a',
@@ -879,5 +885,79 @@ describe('A2A v2 integration', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('escalates communication-policy blocks to the configured coordinator', async () => {
+    const policy: CommunicationPolicy = {
+      canSend: (fromAgentId, toAgentId) => !(fromAgentId === 'planner' && toAgentId === 'reviewer'),
+      explainBlock: (fromAgentId, toAgentId) => (
+        fromAgentId === 'planner' && toAgentId === 'reviewer'
+          ? '团队协作规则阻止了这次转交'
+          : undefined
+      ),
+      getEscalationTarget: (fromAgentId) => fromAgentId === 'planner' ? 'coordinator' : undefined,
+    };
+    const snapshotProvider: KanbanSnapshotProvider = {
+      getTasks: () => testTasks,
+      getCommunicationPolicy: () => policy,
+      getAgentMentionConfigs: () => ESCALATION_TEAM_AGENTS,
+    };
+    const policyMessenger = new AgentMessenger(db, io as any, ESCALATION_TEAM_AGENTS, snapshotProvider);
+    policyMessenger.orchestrator.reset();
+
+    policyMessenger.onUserMessage('conv-1', 'msg-1', 'planner', '请规划后续门禁');
+    await policyMessenger.onAgentResponse('planner', '@reviewer 请评审 TASK-003 的后端修改并决定是否进入测试门禁', {
+      conversationId: 'conv-1',
+      chainDepth: 0,
+    });
+
+    const reviewerDispatches = io.emitted().filter(([event, payload]) => event === 'a2a:dispatch' && payload.agentId === 'reviewer');
+    expect(reviewerDispatches).toHaveLength(0);
+
+    const coordinatorDispatches = io.emitted().filter(([event, payload]) => event === 'a2a:dispatch' && payload.agentId === 'coordinator');
+    expect(coordinatorDispatches).toHaveLength(1);
+    expect(coordinatorDispatches[0][1].prompt).toContain('原始 A2A 转交被协作规则阻止');
+    expect(coordinatorDispatches[0][1].prompt).toContain('@reviewer');
+
+    const notices = io.roomEmitted()
+      .filter(([room, event, payload]) => room === 'conv-1' && event === 'agent:event' && payload.type === 'system')
+      .map(([, , payload]) => payload.content);
+    expect(notices.some((content) => content.includes('已升级给 @coordinator 协调'))).toBe(true);
+  });
+});
+
+describe('Chainless handoff (Plan B)', () => {
+  it('creates on-demand chain when chainless agent has actionable @mention', async () => {
+    // No prior chain — simulate a workflow-dispatched agent responding
+    await messenger.onAgentResponse('peach', '@luigi 请修复 TASK-008 的校验问题，补充对应测试', {
+      conversationId: 'conv-1',
+      chainDepth: 0,
+    });
+
+    // Should create a chain and dispatch to luigi
+    const dispatches = io.emitted().filter(([e]) => e === 'a2a:dispatch');
+    expect(dispatches.length).toBeGreaterThanOrEqual(1);
+    const luigiDispatch = dispatches.find(d => d[1].agentId === 'luigi');
+    expect(luigiDispatch).toBeDefined();
+    expect(luigiDispatch![1].prompt).toContain('修复');
+    expect(luigiDispatch![1].chainId).toBeDefined();
+
+    // Verify chain was created with agent_handoff type
+    const chains = db.prepare("SELECT * FROM invocation_chain WHERE root_trigger_type = 'agent_handoff'").all();
+    expect(chains).toHaveLength(1);
+    expect(chains[0].conversation_id).toBe('conv-1');
+  });
+
+  it('ignores chainless agent response without actionable @mention', async () => {
+    await messenger.onAgentResponse('peach', '已完成评审，结论是通过', {
+      conversationId: 'conv-1',
+      chainDepth: 0,
+    });
+
+    const dispatches = io.emitted().filter(([e]) => e === 'a2a:dispatch');
+    expect(dispatches).toHaveLength(0);
+
+    const chains = db.prepare("SELECT * FROM invocation_chain WHERE root_trigger_type = 'agent_handoff'").all();
+    expect(chains).toHaveLength(0);
   });
 });

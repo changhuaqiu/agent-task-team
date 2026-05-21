@@ -6,7 +6,7 @@ export type RuntimeTrustLevel = 'local' | 'paired' | 'verified' | 'trusted' | 'p
 
 export type AgentBindingStatus = 'idle' | 'busy' | 'unreachable' | 'misconfigured' | 'suspended';
 
-export type DispatchSource = 'user' | 'a2a' | 'workflow' | 'review_gate' | 'system';
+export type DispatchSource = 'user' | 'a2a' | 'workflow' | 'review_gate' | 'test_gate' | 'system';
 
 export type DispatchIntent = 'answer' | 'implement' | 'review' | 'verify' | 'plan' | 'delegate';
 

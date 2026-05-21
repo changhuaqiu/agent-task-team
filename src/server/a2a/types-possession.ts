@@ -25,7 +25,17 @@ export type PassStatus =
   | 'timeout'
   | 'error';
 
-export type PassIntent = 'delegate' | 'review' | 'answer' | 'verify' | 'implement' | 'plan';
+export type PassIntent =
+  | 'delegate'
+  | 'review'
+  | 'answer'
+  | 'verify'
+  | 'implement'
+  | 'plan'
+  | 'reject'
+  | 'escalate'
+  | 'coord'
+  | 'handoff_test';
 
 export type PassBlockPhase =
   | 'holder'

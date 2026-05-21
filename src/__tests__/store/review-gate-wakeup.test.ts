@@ -72,6 +72,7 @@ function resetReviewGateStore() {
 describe('review gate wakeup', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    vi.useRealTimers();
     resetReviewGateStore();
   });
 
@@ -110,6 +111,97 @@ describe('review gate wakeup', () => {
         reasonCode: 'review_decision_ready',
       }),
     }));
+  });
+
+  it('dispatches QA through test gate when a passing review wakeup arrives', () => {
+    useTaskHubStore.setState((state) => ({
+      activeAgentIds: ['mario', 'dk', 'yoshi'],
+      agentAccountOverrides: {
+        ...state.agentAccountOverrides,
+        yoshi: ['acc-openai'],
+      },
+    }));
+    const emitSpy = vi.spyOn(socket, 'emit').mockImplementation(() => socket);
+
+    emitServerEvent('task.wakeup', {
+      id: 'msg-test-ready',
+      conversationId: 'conv-review',
+      taskId: 'TASK-001',
+      agentId: 'yoshi',
+      reasonCode: 'test_requested',
+      dispatchSource: 'test_gate',
+      prompt: '请开始测试 TASK-001: Harness review.',
+      content: '系统轻推 @yoshi：TASK-001「Harness review」请开始测试。',
+      metadata: {
+        startsA2AHandoff: false,
+        startsDispatch: true,
+      },
+    });
+
+    expect(emitSpy).toHaveBeenCalledWith('terminal:start', expect.objectContaining({
+      conversationId: 'conv-review',
+      projectId: 'conv-review',
+      taskId: 'TASK-001',
+      agentId: 'yoshi',
+      dispatchSource: 'test_gate',
+      chainId: undefined,
+      passId: undefined,
+    }));
+  });
+
+  it('records dispatch receipts from the daemon', () => {
+    emitServerEvent('dispatch.receipt', {
+      receiptId: 'env-1:started',
+      conversationId: 'conv-review',
+      taskId: 'TASK-001',
+      targetAgentId: 'mario',
+      source: 'review_gate',
+      phase: 'started',
+      createdAt: '2026-05-17T00:01:00.000Z',
+    });
+
+    expect(useTaskHubStore.getState().dispatchReceiptsByConversation['conv-review']).toContainEqual(expect.objectContaining({
+      receiptId: 'env-1:started',
+      phase: 'started',
+      targetAgentId: 'mario',
+    }));
+  });
+
+  it('re-dispatches the implementer to collect evidence after a successful run exits in progress', async () => {
+    vi.useFakeTimers();
+    const emitSpy = vi.spyOn(socket, 'emit').mockImplementation(() => socket);
+    useTaskHubStore.setState((state) => ({
+      activeRunsByAgent: {
+        ...state.activeRunsByAgent,
+        mario: {
+          runId: 'run-1',
+          taskId: 'TASK-001',
+          conversationId: 'conv-review',
+          startedAt: '2026-05-17T00:00:00.000Z',
+          activity: 'foreground',
+        },
+      },
+      tasks: state.tasks.map((task) => task.id === 'TASK-001' ? { ...task, status: 'in_progress', agentId: 'mario' } : task),
+    }));
+
+    emitServerEvent('terminal:exit', {
+      agentId: 'mario',
+      code: 0,
+      command: 'opencode',
+      conversationId: 'conv-review',
+      activity: 'idle',
+    });
+
+    await vi.advanceTimersByTimeAsync(350);
+
+    expect(emitSpy).toHaveBeenCalledWith('terminal:start', expect.objectContaining({
+      conversationId: 'conv-review',
+      taskId: 'TASK-001',
+      agentId: 'mario',
+      dispatchSource: 'system',
+      prompt: expect.stringContaining('implementation_evidence'),
+    }));
+    vi.useRealTimers();
   });
 });
 

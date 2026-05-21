@@ -198,6 +198,45 @@ describe('resolveTeamRuntime', () => {
     expect(runtime.communicationPolicy.canSend('reviewer', 'planner')).toBe(false);
     expect(runtime.communicationPolicy.explainBlock('reviewer', 'planner')).toBe('团队协作规则阻止了这次转交');
   });
+
+  it('keeps older default-team matrices compatible with Harness handoffs', () => {
+    const oldDefaultTeam: TeamPack = {
+      ...teamPack,
+      id: 'default-team-old',
+      name: 'default-team',
+      displayName: 'Mario 6人组',
+      roles: ['mario', 'luigi', 'toad', 'peach', 'dk', 'yoshi'].map((id) => ({
+        id,
+        displayName: id,
+        soul: '',
+        required: true,
+      })),
+      communicationMatrix: {
+        mario: { canSendTo: ['luigi', 'toad', 'peach'], canReceiveFrom: ['luigi', 'toad', 'peach'] },
+        luigi: { canSendTo: ['mario', 'peach'], canReceiveFrom: ['mario', 'peach'] },
+        toad: { canSendTo: ['mario', 'luigi', 'peach'], canReceiveFrom: ['mario', 'luigi', 'peach'] },
+        peach: { canSendTo: ['mario', 'luigi', 'toad'], canReceiveFrom: ['mario', 'luigi', 'toad'] },
+        dk: { canSendTo: ['mario'], canReceiveFrom: ['mario'] },
+        yoshi: { canSendTo: ['mario'], canReceiveFrom: ['mario'] },
+      },
+    };
+
+    const runtime = resolveTeamRuntime({
+      conversationId: 'conv-default-old',
+      teamPack: oldDefaultTeam,
+      presetAgents: [],
+      activeAgentIds: ['mario', 'luigi', 'toad', 'peach', 'dk', 'yoshi'],
+      roleCards: [],
+      skillsMap: {},
+      agentSkillIds: {},
+      agentAccountOverrides: {},
+      agentRoleCardOverrides: {},
+    });
+
+    expect(runtime.communicationPolicy.canSend('peach', 'yoshi')).toBe(true);
+    expect(runtime.communicationPolicy.canSend('yoshi', 'dk')).toBe(true);
+    expect(runtime.communicationPolicy.getEscalationTarget?.('peach', 'yoshi')).toBe('mario');
+  });
 });
 
 describe('resolveRuntimeAgentProfile', () => {

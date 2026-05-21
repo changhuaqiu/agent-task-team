@@ -13,6 +13,7 @@ const OUTPUT_KIND_LABELS: Record<string, string> = {
 const EVENT_TYPE_LABELS: Record<string, string> = {
   'run.started': '开始执行',
   'run.finished': '执行结束',
+  'run.background_waiting': '后台等待',
   'task.status_changed': '任务状态变更',
 };
 

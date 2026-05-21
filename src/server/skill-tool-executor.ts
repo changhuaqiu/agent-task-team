@@ -6,6 +6,8 @@ import type { TaskRow } from './repositories/task-repo';
 import { eventRepo } from './repositories/event-repo';
 import { isSkillTool } from './skill-tool-router';
 import { generateSortableId } from './repositories/sortable-id';
+import { proofLogRepo } from './repositories/proof-log-repo';
+import { evaluateTaskStatusEvidenceGate } from './task-flow/task-gate-evidence';
 
 // ── Types ──────────────────────────────────────
 
@@ -140,7 +142,43 @@ function executeTaskUpdateStatus(invocation: ToolInvocation): ToolResult {
     return { success: false, error: `Task not found: ${taskId}` };
   }
 
+  const evidence = invocation.input.evidence;
+  const gateDecision = evaluateTaskStatusEvidenceGate({
+    task: existing,
+    nextStatus: status,
+    actorId: invocation.agentId,
+    evidence,
+  });
+  if (!gateDecision.allowed) {
+    proofLogRepo.append({
+      eventType: 'task_graph.gate_evidence.blocked',
+      conversationId: existing.conversation_id,
+      taskId,
+      actorId: invocation.agentId,
+      reasonCode: gateDecision.reasonCode,
+      metadata: {
+        status,
+        gateName: gateDecision.gateName,
+        missingFields: gateDecision.missingFields,
+      },
+    });
+    return { success: false, error: gateDecision.message ?? 'Task gate evidence is required' };
+  }
+
   taskRepo.updateStatus(taskId, status);
+  if (gateDecision.required) {
+    proofLogRepo.append({
+      eventType: 'task_graph.gate_evidence.accepted',
+      conversationId: existing.conversation_id,
+      taskId,
+      actorId: invocation.agentId,
+      metadata: {
+        status,
+        gateName: gateDecision.gateName,
+        evidence,
+      },
+    });
+  }
 
   // Also update TASKS.md
   try {

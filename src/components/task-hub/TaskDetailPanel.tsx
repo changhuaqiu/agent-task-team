@@ -7,7 +7,6 @@ import {
   resolveAgentEngine,
 } from '@/store/taskHubStore';
 import { useShallow } from 'zustand/react/shallow';
-import type { Agent } from '@/store/agentStore';
 import { StatusBadge } from './StatusBadge';
 import { TerminalView } from './TerminalView';
 import { RoleCardBadge } from '@/components/role-card/RoleCardBadge';
@@ -23,7 +22,6 @@ import {
   GitPullRequest,
   FileWarning,
   ExternalLink,
-  MessageSquareWarning,
   Play,
   Eye,
   CheckCircle2,
@@ -131,7 +129,9 @@ export function TaskDetailPanel() {
   const task = tasks.find((t) => t.id === selectedTaskId);
   const { graph, isLoading: graphLoading, error: graphError, refresh: refreshGraph } = useTaskGraph(task?.conversationId);
   const agent = task ? getEffectiveRoster().find((a) => a.id === task.agentId) : null;
-  const isRunning = agent ? agentStatus[agent.id] === 'busy' : false;
+  const agentRunStatus = agent ? agentStatus[agent.id] : undefined;
+  const isRunning = agentRunStatus === 'busy' || agentRunStatus === 'background';
+  const isBackgroundRunning = agentRunStatus === 'background';
 
   // Close on Escape
   useEffect(() => {
@@ -504,7 +504,7 @@ export function TaskDetailPanel() {
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[var(--radius-sm)] border border-[hsl(var(--border))] bg-[hsl(var(--bg-muted))] text-[hsl(var(--text-primary))] text-[11px] font-semibold transition-all duration-200 hover:bg-[hsl(var(--bg-card-hover))] disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <TerminalIcon className="w-3.5 h-3.5" />
-                {isRunning ? '智能体忙碌中…' : `运行 ${resolvedEngine}`}
+                {isBackgroundRunning ? '等待子任务返回…' : (isRunning ? '智能体忙碌中…' : `运行 ${resolvedEngine}`)}
               </button>
             )}
           </div>
@@ -531,7 +531,7 @@ export function TaskDetailPanel() {
             </span>
             {isRunning && (
               <span className="text-[10px] font-bold text-[hsl(var(--status-progress))] uppercase tracking-widest animate-pulse">
-                忙碌
+                {isBackgroundRunning ? '后台执行中' : '忙碌'}
               </span>
             )}
           </div>

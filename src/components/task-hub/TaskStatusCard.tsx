@@ -3,7 +3,6 @@
 import { cn } from '@/lib/utils';
 import { StatusBadge } from './StatusBadge';
 import { useTaskHubStore } from '@/store/taskHubStore';
-import type { Agent, AgentTheme } from '@/store/agentStore';
 
 interface TaskStatusCardProps {
   taskId: string;
@@ -14,12 +13,12 @@ interface TaskStatusCardProps {
 }
 
 const AGENT_COLORS: Record<string, string> = {
-  mario: 'var(--agent-opus)',
-  luigi: 'var(--agent-codex)',
-  toad: 'var(--agent-gemini)',
-  peach: 'var(--agent-owner)',
-  dk: 'var(--agent-opus)',
-  yoshi: 'var(--agent-codex)',
+  mario: 'hsl(var(--agent-mario))',
+  luigi: 'hsl(var(--agent-luigi))',
+  toad: 'hsl(var(--agent-toad))',
+  peach: 'hsl(var(--agent-peach))',
+  dk: 'hsl(var(--agent-dk))',
+  yoshi: 'hsl(var(--agent-yoshi))',
 };
 
 export function TaskStatusCard({ taskId, agentId, title, status, timestamp }: TaskStatusCardProps) {
