@@ -17,6 +17,8 @@ import { buildA2ALayer } from './layers/a2aLayer';
 import { buildTeamPackLayer } from './layers/teamPackLayer';
 import { buildCollaborationLayer } from './layers/collaborationLayer';
 import type { TeamPack } from '@/types/teamPack';
+import { ContextBudget } from './ContextBudget';
+import { composeWithBudget, type BudgetPart } from './BudgetGuard';
 
 export interface ParamDef {
   name: string;
@@ -70,6 +72,8 @@ export interface ComposeOptions {
   a2a?: { from?: string; content?: string; contextSnapshot?: string };
   teamPack?: TeamPack;
   runtimeRoster?: RuntimeAgent[];
+  /** 上下文 token 预算（默认 new ContextBudget()） */
+  budget?: ContextBudget;
 }
 
 export function composeSystemPrompt(opts: ComposeOptions): string | undefined {
@@ -97,19 +101,22 @@ export function composeSystemPrompt(opts: ComposeOptions): string | undefined {
 }
 
 export function composeUserPrompt(opts: ComposeOptions): string {
-  const parts: string[] = [];
+  const parts: BudgetPart[] = [];
+  const budget = opts.budget ?? new ContextBudget();
   const a2aDispatch = opts.a2a?.from && opts.a2a?.content
     ? opts.a2a
     : undefined;
 
-  // Skills + tools (every dispatch — CLI is a new process)
-  const tools = extractToolsFromSkills(opts.skills ?? []);
-  const skillLayer = buildSkillLayer(opts.skills ?? []);
-  const toolLayer = buildToolLayer(tools);
-  if (skillLayer) parts.push(skillLayer);
-  if (toolLayer) parts.push(toolLayer);
+  const push = (layer: string, content: string | null | undefined, priority: number) => {
+    if (content) parts.push({ layer, content, priority });
+  };
 
-  // Team roster (every dispatch — members change over time)
+  // Skills + tools (P3 — 能力，可按需 JIT)
+  const tools = extractToolsFromSkills(opts.skills ?? []);
+  push('skill', buildSkillLayer(opts.skills ?? []), 3);
+  push('tool', buildToolLayer(tools), 3);
+
+  // Team roster (P2)
   const runtimeTeam = opts.runtimeRoster?.length
     ? [
         '## 当前团队',
@@ -122,47 +129,49 @@ export function composeUserPrompt(opts: ComposeOptions): string {
   const team = opts.runtimeRoster !== undefined
     ? runtimeTeam
     : buildTeamLayer(opts.agent.id, opts.allRoleCards, opts.currentLoad);
-  if (team) parts.push(team);
+  push('team', team, 2);
 
-  parts.push(buildCollaborationLayer());
+  push('collaboration', buildCollaborationLayer(), 1);
 
-  // TeamPack context (if agent is part of a team pack)
+  // TeamPack context (P1)
   if (opts.teamPack) {
-    const teamPackCtx = buildTeamPackLayer(opts.agent.id, opts.teamPack);
-    if (teamPackCtx) parts.push(teamPackCtx);
+    push('teamPack', buildTeamPackLayer(opts.agent.id, opts.teamPack), 1);
   }
 
-  // Protocol layer (every dispatch — constraints + guidance)
-  const protocol = buildProtocolLayer({
+  // Protocol layer (P0 — 约束，几乎不丢)
+  push('protocol', buildProtocolLayer({
     agentId: opts.agent.id,
     agentRole: deriveRoleFromCard(opts.roleCard),
     projectPath: opts.project.path,
     hasTaskAssignment: !!opts.task,
     isPlanner: opts.roleCard?.category === 'planner',
-  });
-  if (protocol) parts.push(protocol);
+  }), 0);
 
-  // History (every dispatch — future: add compression)
-  const history = buildHistoryLayer(opts.messages ?? [], opts.agent.id);
-  if (history) parts.push(history);
+  // History (P4 — GSSC：按 query 相关性筛选)
+  push('history', buildHistoryLayer(opts.messages ?? [], opts.agent.id, {
+    query: opts.rawPrompt,
+    limit: 10,
+  }), 4);
 
-  // Task context + user message + behavior
+  // Task context (P0)
   if (opts.task) {
-    parts.push(buildTaskContextLayer(opts.task));
+    push('task', buildTaskContextLayer(opts.task), 0);
   }
 
-  // A2A context (only when dispatched via @mention)
+  // A2A context (P1) or user message (P0)
   if (a2aDispatch) {
-    parts.push(buildA2ALayer({
+    push('a2a', buildA2ALayer({
       a2aFrom: a2aDispatch.from,
       a2aContent: a2aDispatch.content,
       a2aContextSnapshot: a2aDispatch.contextSnapshot,
-    }));
+    }), 1);
   } else {
-    parts.push(buildUserMessageLayer(opts.rawPrompt));
+    push('userMessage', buildUserMessageLayer(opts.rawPrompt), 0);
   }
 
-  parts.push(buildBehaviorLayer());
+  // Behavior (P0 — 闭环动作要求)
+  push('behavior', buildBehaviorLayer(), 0);
 
-  return parts.join('\n\n---\n\n');
+  const { prompt } = composeWithBudget(parts, budget);
+  return prompt;
 }

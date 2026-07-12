@@ -1,8 +1,12 @@
-import { spawn, type ChildProcess } from 'child_process';
+import { type ChildProcess } from 'child_process';
+import { spawnCli } from './cliBridge';
+import { CODEX_CAPS } from './capabilities';
 import { createInterface } from 'readline';
 import type { AgentBackend, AgentRun, AgentEvent, ExecOptions, BackendConfig, AgentResult } from './types';
 
 export class CodexBackend implements AgentBackend {
+  readonly capabilities = CODEX_CAPS;
+
   constructor(private config: BackendConfig) {}
 
   execute(prompt: string, opts: ExecOptions): AgentRun {
@@ -16,7 +20,7 @@ export class CodexBackend implements AgentBackend {
       ...this.config.env,
     };
     const startTime = Date.now();
-    const child = spawn(this.config.executablePath, args, { env: env as any, cwd: opts.cwd });
+    const child = spawnCli(this.config.executablePath, args, { env: env as any, cwd: opts.cwd });
 
     let resultResolve!: (r: AgentResult) => void;
     const resultPromise = new Promise<AgentResult>((resolve) => { resultResolve = resolve; });

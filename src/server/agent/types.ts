@@ -1,5 +1,7 @@
 // src/server/agent/types.ts
 
+import type { CapabilitySet } from './capabilities';
+
 // --- Unified event types ---
 export type AgentEventType =
   | 'text'
@@ -59,4 +61,6 @@ export interface BackendConfig {
 
 export interface AgentBackend {
   execute(prompt: string, opts: ExecOptions): AgentRun;
+  /** 该 backend 的能力声明，供 CapabilityRouter（Phase 2）按能力调度 + 降级 */
+  readonly capabilities: CapabilitySet;
 }

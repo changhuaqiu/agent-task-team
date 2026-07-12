@@ -22,11 +22,13 @@
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@tailwindcss/typography": "^0.5.19",
+    "@types/cross-spawn": "^6.0.6",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
     "better-sqlite3": "^12.9.0",
     "chokidar": "^5.0.0",
     "clsx": "^2.1.1",
+    "cross-spawn": "^7.0.6",
     "drizzle-orm": "^0.45.2",
     "emoji-picker-react": "^4.19.1",
     "express": "^5.2.1",
@@ -58,5 +60,11 @@
     "tailwindcss": "^4",
     "typescript": "^5",
     "vitest": "^4.1.5"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "better-sqlite3",
+      "esbuild"
+    ]
   }
 }
