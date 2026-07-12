@@ -19,11 +19,12 @@ export interface ChainConfig {
 export const DEFAULT_CHAIN_CONFIG: ChainConfig = {
   maxDepth: 5,
   maxBreadth: 4,
-  maxDurationMs: 600_000,
+  // A2A 持球者执行/交接超时，默认 30 分钟（原 10 分钟对复杂任务偏短），可用 env 覆盖
+  maxDurationMs: Number(process.env.A2A_MAX_DURATION_MS) || 1_800_000,
   offerTimeoutMs: 45_000,
   startTimeoutMs: 45_000,
-  runTimeoutMs: 600_000,
-  holderIdleTimeoutMs: 120_000,
+  runTimeoutMs: Number(process.env.A2A_RUN_TIMEOUT_MS) || 1_800_000,
+  holderIdleTimeoutMs: Number(process.env.A2A_HOLDER_IDLE_TIMEOUT_MS) || 120_000,
 };
 
 export type ChainStatus = 'active' | 'completed' | 'aborted' | 'timeout';
