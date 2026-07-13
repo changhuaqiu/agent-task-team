@@ -12,6 +12,7 @@ const STATUS_CONFIG: Record<ProjectHealth, { icon: typeof Circle; bgVar: string;
 
 export function StatusPill({ health }: { health: ProjectHealth }) {
   const config = STATUS_CONFIG[health];
+  if (!config) return null;
   const Icon = config.icon;
   return (
     <span

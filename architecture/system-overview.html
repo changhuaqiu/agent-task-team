@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Agent Task Hub · 系统架构总览</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js" integrity="sha384-ZZ1pncU3bQe8y31yfZdMFdSpttDoPmOZg2wguVK9almUodir1PghgT0eY7Mrty8H" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js" integrity="sha384-en/ztfPSRkGfME4KIm05joYXynqzUgbsG5nMrj/xEFAHXkeZfO3yMK8QQ+mP7p1/" crossorigin="anonymous"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'JetBrains Mono', monospace;
+      background: #020617;
+      min-height: 100vh;
+      padding: 2rem;
+      color: white;
+    }
+    .container { max-width: 1440px; margin: 0 auto; }
+    .header { margin-bottom: 1.5rem; }
+    .header-row { display: flex; align-items: center; gap: 1rem; margin-bottom: 0.5rem; }
+    .pulse-dot { width: 12px; height: 12px; background: #22d3ee; border-radius: 50%; animation: pulse 2s infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+    h1 { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.025em; }
+    .subtitle { color: #94a3b8; font-size: 0.875rem; margin-left: 1.75rem; }
+    .diagram-container {
+      background: rgba(15, 23, 42, 0.5);
+      border-radius: 1rem;
+      border: 1px solid #1e293b;
+      padding: 1rem;
+      overflow-x: auto;
+    }
+    svg { width: 100%; min-width: 1300px; display: block; }
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1rem; margin-top: 1.5rem; }
+    .card { background: rgba(15, 23, 42, 0.5); border-radius: 0.75rem; border: 1px solid #1e293b; padding: 1.25rem; }
+    .card-header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem; }
+    .card-dot { width: 8px; height: 8px; border-radius: 50%; }
+    .card-dot.cyan { background: #22d3ee; } .card-dot.emerald { background: #34d399; }
+    .card-dot.violet { background: #a78bfa; } .card-dot.amber { background: #fbbf24; }
+    .card-dot.rose { background: #fb7185; } .card-dot.orange { background: #fb923c; }
+    .card h3 { font-size: 0.875rem; font-weight: 600; }
+    .card ul { list-style: none; color: #94a3b8; font-size: 0.72rem; line-height: 1.5; }
+    .card li { margin-bottom: 0.4rem; }
+    .card li b { color: #cbd5e1; font-weight: 600; }
+    .footer { text-align: center; margin-top: 1.5rem; color: #475569; font-size: 0.75rem; }
+    .toolbar { display: flex; gap: 0.5rem; margin-left: auto; flex-shrink: 0; align-items: center; }
+    .toolbar-toggle { background: transparent; border: none; color: #475569; cursor: pointer; font-size: 1.25rem; line-height: 1; padding: 0.25rem 0.5rem; border-radius: 0.375rem; transition: color 0.2s, background 0.2s; }
+    .toolbar-toggle:hover { color: #94a3b8; background: rgba(30, 41, 59, 0.5); }
+    .toolbar-actions { display: none; gap: 0.5rem; }
+    .toolbar.expanded .toolbar-actions { display: flex; }
+    .toolbar-actions button { background: rgba(30, 41, 59, 0.8); border: 1px solid #334155; color: #94a3b8; padding: 0.375rem 0.75rem; border-radius: 0.375rem; font-family: inherit; font-size: 0.75rem; cursor: pointer; transition: all 0.2s; white-space: nowrap; }
+    .toolbar-actions button:hover { background: rgba(51, 65, 85, 0.8); color: white; border-color: #475569; }
+    @media print { body { background: #020617; padding: 1rem; } .toolbar { display: none !important; } }
+  </style>
+</head>
+<body>
+  <div class="container" id="report-container">
+    <div class="header">
+      <div class="header-row">
+        <div class="pulse-dot"></div>
+        <h1>Agent Task Hub · 系统架构总览</h1>
+        <div class="toolbar">
+          <div class="toolbar-actions">
+            <button onclick="copyAsImage(this)">📋 Copy</button>
+            <button onclick="downloadPNG(this)">🖼️ PNG</button>
+            <button onclick="downloadPDF(this)">📄 PDF</button>
+          </div>
+          <button class="toolbar-toggle" onclick="this.parentElement.classList.toggle('expanded')" title="Export options" aria-label="Export options">⋯</button>
+        </div>
+      </div>
+      <p class="subtitle">多智能体协作平台 · Next.js 16 + React 19 + Zustand 5 + Socket.io + SQLite(drizzle) · CLI 优先（opencode/claude/codex）· 持球/传球 A2A 协作</p>
+    </div>
+
+    <div class="diagram-container">
+      <svg viewBox="0 0 1400 1080">
+        <defs>
+          <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#64748b" />
+          </marker>
+          <marker id="arrow-cyan" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#22d3ee" />
+          </marker>
+          <marker id="arrow-emerald" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#34d399" />
+          </marker>
+          <marker id="arrow-orange" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#fb923c" />
+          </marker>
+          <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+            <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/>
+          </pattern>
+        </defs>
+
+        <!-- Background Grid -->
+        <rect width="100%" height="100%" fill="url(#grid)" />
+
+        <!-- ========== 主流程下行箭头（先画，置于层背景之上、盒子之下） ========== -->
+        <line x1="560" y1="62" x2="560" y2="78" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)"/>
+        <line x1="560" y1="148" x2="560" y2="158" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)"/>
+        <line x1="560" y1="228" x2="560" y2="238" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)"/>
+        <line x1="560" y1="308" x2="560" y2="318" stroke="#fb923c" stroke-width="1.5" marker-end="url(#arrow-orange)"/>
+        <line x1="560" y1="352" x2="560" y2="368" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-emerald)"/>
+        <line x1="560" y1="438" x2="560" y2="448" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-emerald)"/>
+        <line x1="560" y1="550" x2="560" y2="566" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-emerald)"/>
+        <line x1="560" y1="636" x2="560" y2="652" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-emerald)"/>
+        <line x1="560" y1="736" x2="560" y2="752" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+
+        <!-- 横切层引用线（虚线，表示被各层调用，非数据流） -->
+        <line x1="560" y1="852" x2="560" y2="868" stroke="#475569" stroke-width="1" stroke-dasharray="4,4"/>
+        <text x="572" y="864" fill="#64748b" font-size="8">横切：被各层调用</text>
+
+        <!-- 到外部进程的箭头 -->
+        <!-- daemon → Bridge (bridge 模式) -->
+        <path d="M 1064 600 L 1090 600 L 1090 643 L 1100 643" fill="none" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <text x="1098" y="596" fill="#94a3b8" font-size="8">bridge 模式</text>
+        <!-- backend factory → CLI 子进程 -->
+        <line x1="1064" y1="702" x2="1100" y2="702" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <text x="1066" y="694" fill="#94a3b8" font-size="8">spawn</text>
+        <!-- MCP ↔ daemon (socket.io client) -->
+        <path d="M 1100 485 L 1075 485 L 1075 585 L 1064 585" fill="none" stroke="#fb7185" stroke-width="1.3" stroke-dasharray="5,3" marker-end="url(#arrowhead)"/>
+        <text x="1010" y="540" fill="#fb7185" font-size="8">socket.io</text>
+
+        <!-- ========== 用户入口 ========== -->
+        <rect x="460" y="20" width="200" height="42" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.5"/>
+        <text x="560" y="40" fill="white" font-size="12" font-weight="600" text-anchor="middle">用户 / 浏览器</text>
+        <text x="560" y="55" fill="#94a3b8" font-size="9" text-anchor="middle">群聊 · 任务看板 · 配置</text>
+
+        <!-- ========== L1 前端展示层 ========== -->
+        <rect x="40" y="80" width="1020" height="68" rx="8" fill="rgba(8, 51, 68, 0.10)" stroke="#22d3ee" stroke-width="1" stroke-dasharray="6,4"/>
+        <text x="52" y="98" fill="#22d3ee" font-size="10" font-weight="600">L1 · 前端展示层</text>
+        <text x="180" y="98" fill="#64748b" font-size="9">src/app · src/components</text>
+        <rect x="60" y="106" width="320" height="38" rx="6" fill="#0f172a"/>
+        <rect x="60" y="106" width="320" height="38" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="220" y="122" fill="white" font-size="11" font-weight="600" text-anchor="middle">ClientHome → ProjectWorkspace</text>
+        <text x="220" y="137" fill="#94a3b8" font-size="8" text-anchor="middle">三栏 Sidebar · ChatPanel · RightPanel</text>
+        <rect x="392" y="106" width="316" height="38" rx="6" fill="#0f172a"/>
+        <rect x="392" y="106" width="316" height="38" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="550" y="122" fill="white" font-size="11" font-weight="600" text-anchor="middle">task-hub 组件群</text>
+        <text x="550" y="137" fill="#94a3b8" font-size="8" text-anchor="middle">GlobalChatRoom · TaskDetail · Kanban · Terminal</text>
+        <rect x="720" y="106" width="324" height="38" rx="6" fill="#0f172a"/>
+        <rect x="720" y="106" width="324" height="38" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="882" y="122" fill="white" font-size="11" font-weight="600" text-anchor="middle">settings · role-card · skill · war-room</text>
+        <text x="882" y="137" fill="#94a3b8" font-size="8" text-anchor="middle">集成配置中心 · 角色卡 · 技能库 · 战役室</text>
+
+        <!-- ========== L2 前端状态层 ========== -->
+        <rect x="40" y="160" width="1020" height="68" rx="8" fill="rgba(8, 51, 68, 0.10)" stroke="#22d3ee" stroke-width="1" stroke-dasharray="6,4"/>
+        <text x="52" y="178" fill="#22d3ee" font-size="10" font-weight="600">L2 · 前端状态层</text>
+        <text x="180" y="178" fill="#64748b" font-size="9">src/store · Zustand 5 + persist(localStorage)</text>
+        <rect x="60" y="186" width="520" height="38" rx="6" fill="#0f172a"/>
+        <rect x="60" y="186" width="520" height="38" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="320" y="202" fill="white" font-size="11" font-weight="600" text-anchor="middle">useTaskHubStore</text>
+        <text x="320" y="217" fill="#94a3b8" font-size="8" text-anchor="middle">app / agent / daemon / task 四切片 · ~20+ socket 事件监听</text>
+        <rect x="592" y="186" width="452" height="38" rx="6" fill="#0f172a"/>
+        <rect x="592" y="186" width="452" height="38" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="818" y="202" fill="white" font-size="11" font-weight="600" text-anchor="middle">useTeamPackStore（独立）</text>
+        <text x="818" y="217" fill="#94a3b8" font-size="8" text-anchor="middle">TeamPack CRUD · materialize · export</text>
+
+        <!-- ========== L3 前端编排层 ========== -->
+        <rect x="40" y="240" width="1020" height="68" rx="8" fill="rgba(8, 51, 68, 0.10)" stroke="#22d3ee" stroke-width="1" stroke-dasharray="6,4"/>
+        <text x="52" y="258" fill="#22d3ee" font-size="10" font-weight="600">L3 · 前端编排逻辑层</text>
+        <text x="200" y="258" fill="#64748b" font-size="9">src/lib</text>
+        <rect x="60" y="266" width="330" height="38" rx="6" fill="#0f172a"/>
+        <rect x="60" y="266" width="330" height="38" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="225" y="282" fill="white" font-size="11" font-weight="600" text-anchor="middle">PromptComposer + BudgetGuard</text>
+        <text x="225" y="297" fill="#94a3b8" font-size="8" text-anchor="middle">16 层 prompt 组装 · token 预算 P0–P4 裁剪</text>
+        <rect x="402" y="266" width="330" height="38" rx="6" fill="#0f172a"/>
+        <rect x="402" y="266" width="330" height="38" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="567" y="282" fill="white" font-size="11" font-weight="600" text-anchor="middle">resolveTeamRuntime · TeamModeEngine</text>
+        <text x="567" y="297" fill="#94a3b8" font-size="8" text-anchor="middle">roster · 沟通/工作流策略 · pipeline/parallel/hub_spoke/custom</text>
+        <rect x="744" y="266" width="300" height="38" rx="6" fill="#0f172a"/>
+        <rect x="744" y="266" width="300" height="38" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="894" y="282" fill="white" font-size="11" font-weight="600" text-anchor="middle">DispatchAdvisor · roleRouting</text>
+        <text x="894" y="297" fill="#94a3b8" font-size="8" text-anchor="middle">CapabilityProfile 能力匹配 · 任务路由</text>
+
+        <!-- ========== BUS 通信总线 ========== -->
+        <rect x="40" y="320" width="1020" height="30" rx="6" fill="rgba(251, 146, 60, 0.15)" stroke="#fb923c" stroke-width="1.5"/>
+        <text x="550" y="340" fill="#fb923c" font-size="11" font-weight="600" text-anchor="middle">Socket.IO  /api/socketio      ←→      REST  /api/*   (mutations · task-graph · state · accounts · agents · skills · team-packs · phases)</text>
+
+        <!-- ========== L4 服务端 API 层 ========== -->
+        <rect x="40" y="370" width="1020" height="68" rx="8" fill="rgba(6, 78, 59, 0.10)" stroke="#34d399" stroke-width="1" stroke-dasharray="6,4"/>
+        <text x="52" y="388" fill="#34d399" font-size="10" font-weight="600">L4 · 服务端 API 层</text>
+        <text x="200" y="388" fill="#64748b" font-size="9">src/pages/api · Next.js Route Handlers</text>
+        <rect x="60" y="396" width="240" height="38" rx="6" fill="#0f172a"/>
+        <rect x="60" y="396" width="240" height="38" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="180" y="412" fill="white" font-size="11" font-weight="600" text-anchor="middle">/api/mutations</text>
+        <text x="180" y="427" fill="#94a3b8" font-size="8" text-anchor="middle">23 种统一写入 · 门禁评估 · 通知</text>
+        <rect x="312" y="396" width="240" height="38" rx="6" fill="#0f172a"/>
+        <rect x="312" y="396" width="240" height="38" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="432" y="412" fill="white" font-size="11" font-weight="600" text-anchor="middle">/api/task-graph</text>
+        <text x="432" y="427" fill="#94a3b8" font-size="8" text-anchor="middle">create/split/merge/block/resume/assign</text>
+        <rect x="564" y="396" width="220" height="38" rx="6" fill="#0f172a"/>
+        <rect x="564" y="396" width="220" height="38" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="674" y="412" fill="white" font-size="11" font-weight="600" text-anchor="middle">/api/state · phases</text>
+        <text x="674" y="427" fill="#94a3b8" font-size="8" text-anchor="middle">全量快照 · 阶段 CRUD</text>
+        <rect x="796" y="396" width="248" height="38" rx="6" fill="#0f172a"/>
+        <rect x="796" y="396" width="248" height="38" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="920" y="412" fill="white" font-size="11" font-weight="600" text-anchor="middle">accounts · agents · skills · team-packs</text>
+        <text x="920" y="427" fill="#94a3b8" font-size="8" text-anchor="middle">CRUD + 导入 + verify</text>
+
+        <!-- ========== L5 协作协议层 ========== -->
+        <rect x="40" y="450" width="1020" height="100" rx="8" fill="rgba(6, 78, 59, 0.10)" stroke="#34d399" stroke-width="1" stroke-dasharray="6,4"/>
+        <text x="52" y="468" fill="#34d399" font-size="10" font-weight="600">L5 · 协作协议层</text>
+        <text x="180" y="468" fill="#64748b" font-size="9">src/server/a2a · control-plane · task-flow · team-runtime  —  平台最核心的"多 Agent 怎么协作"</text>
+        <rect x="60" y="476" width="245" height="64" rx="6" fill="#0f172a"/>
+        <rect x="60" y="476" width="245" height="64" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="182" y="494" fill="white" font-size="11" font-weight="600" text-anchor="middle">A2A Orchestrator</text>
+        <text x="182" y="510" fill="#94a3b8" font-size="8" text-anchor="middle">持球 / 传球 / 交接包</text>
+        <text x="182" y="523" fill="#94a3b8" font-size="8" text-anchor="middle">五层去重 · 意图检测 · chainless</text>
+        <text x="182" y="535" fill="#34d399" font-size="7" text-anchor="middle">types-v2 兼容过渡中</text>
+        <rect x="317" y="476" width="245" height="64" rx="6" fill="#0f172a"/>
+        <rect x="317" y="476" width="245" height="64" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="439" y="494" fill="white" font-size="11" font-weight="600" text-anchor="middle">Control Plane</text>
+        <text x="439" y="510" fill="#94a3b8" font-size="8" text-anchor="middle">DispatchGateway</text>
+        <text x="439" y="523" fill="#94a3b8" font-size="8" text-anchor="middle">runtime·dispatch·health·policy·proof·envelope</text>
+        <text x="439" y="535" fill="#fbbf24" font-size="7" text-anchor="middle">Phase 2-3 进行中</text>
+        <rect x="574" y="476" width="245" height="64" rx="6" fill="#0f172a"/>
+        <rect x="574" y="476" width="245" height="64" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="696" y="494" fill="white" font-size="11" font-weight="600" text-anchor="middle">Task Flow</text>
+        <text x="696" y="510" fill="#94a3b8" font-size="8" text-anchor="middle">群聊任务图 + Wakeup</text>
+        <text x="696" y="523" fill="#94a3b8" font-size="8" text-anchor="middle">证据门禁 · 自治守护</text>
+        <text x="696" y="535" fill="#34d399" font-size="7" text-anchor="middle">基线已实现</text>
+        <rect x="831" y="476" width="213" height="64" rx="6" fill="#0f172a"/>
+        <rect x="831" y="476" width="213" height="64" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="937" y="494" fill="white" font-size="11" font-weight="600" text-anchor="middle">Team Runtime</text>
+        <text x="937" y="510" fill="#94a3b8" font-size="8" text-anchor="middle">任务分配</text>
+        <text x="937" y="523" fill="#94a3b8" font-size="8" text-anchor="middle">explicit→policy→roster→fallback</text>
+
+        <!-- ========== L6 执行编排核心 ========== -->
+        <rect x="40" y="568" width="1020" height="68" rx="8" fill="rgba(6, 78, 59, 0.18)" stroke="#34d399" stroke-width="2"/>
+        <text x="52" y="586" fill="#34d399" font-size="10" font-weight="600">L6 · 执行编排核心</text>
+        <text x="200" y="586" fill="#64748b" font-size="9">src/server/daemon.ts  ·  ~1360 行  ·  terminal:start 唯一入口</text>
+        <rect x="60" y="594" width="1000" height="38" rx="6" fill="#0f172a"/>
+        <rect x="60" y="594" width="1000" height="38" rx="6" fill="rgba(6, 78, 59, 0.45)" stroke="#34d399" stroke-width="2"/>
+        <text x="560" y="610" fill="white" font-size="11" font-weight="600" text-anchor="middle">terminal:start 全链路编排</text>
+        <text x="560" y="625" fill="#94a3b8" font-size="8" text-anchor="middle">引擎选择 · 凭据注入 · session/invocation 持久化 · DispatchGateway 信封 · forwardAgentEvent 事件转发 · A2A 回调 · 心跳/自治守护/worktree-GC 定时器</text>
+
+        <!-- ========== L7 CLI Backend 工厂 ========== -->
+        <rect x="40" y="654" width="1020" height="82" rx="8" fill="rgba(6, 78, 59, 0.10)" stroke="#34d399" stroke-width="1" stroke-dasharray="6,4"/>
+        <text x="52" y="672" fill="#34d399" font-size="10" font-weight="600">L7 · CLI Backend 工厂</text>
+        <text x="220" y="672" fill="#64748b" font-size="9">src/server/agent  ·  CLI 优先，不走 SDK  ·  统一 AgentEvent(text/thinking/tool_use/tool_result/error/done)</text>
+        <rect x="60" y="680" width="140" height="48" rx="6" fill="#0f172a"/>
+        <rect x="60" y="680" width="140" height="48" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="130" y="700" fill="white" font-size="11" font-weight="600" text-anchor="middle">factory.ts</text>
+        <text x="130" y="716" fill="#94a3b8" font-size="8" text-anchor="middle">createBackend(engine)</text>
+        <rect x="220" y="680" width="195" height="48" rx="6" fill="#0f172a"/>
+        <rect x="220" y="680" width="195" height="48" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="317" y="700" fill="white" font-size="11" font-weight="600" text-anchor="middle">OpenCodeBackend</text>
+        <text x="317" y="716" fill="#94a3b8" font-size="8" text-anchor="middle">Go 直连 / script PTY / Node 三级降级</text>
+        <rect x="435" y="680" width="195" height="48" rx="6" fill="#0f172a"/>
+        <rect x="435" y="680" width="195" height="48" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="532" y="700" fill="white" font-size="11" font-weight="600" text-anchor="middle">ClaudeBackend</text>
+        <text x="532" y="716" fill="#94a3b8" font-size="8" text-anchor="middle">stream-json in/out · resume</text>
+        <rect x="650" y="680" width="195" height="48" rx="6" fill="#0f172a"/>
+        <rect x="650" y="680" width="195" height="48" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="747" y="700" fill="white" font-size="11" font-weight="600" text-anchor="middle">CodexBackend</text>
+        <text x="747" y="716" fill="#94a3b8" font-size="8" text-anchor="middle">NDJSON · 无 resume</text>
+        <rect x="865" y="680" width="175" height="48" rx="6" fill="#0f172a"/>
+        <rect x="865" y="680" width="175" height="48" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#fbbf24" stroke-width="1.5" stroke-dasharray="4,3"/>
+        <text x="952" y="700" fill="#fbbf24" font-size="11" font-weight="600" text-anchor="middle">gemini / mock</text>
+        <text x="952" y="716" fill="#fbbf24" font-size="8" text-anchor="middle">→ 回退 OpenCode（未独立）</text>
+
+        <!-- ========== L8 数据层 ========== -->
+        <rect x="40" y="754" width="1020" height="82" rx="8" fill="rgba(76, 29, 149, 0.12)" stroke="#a78bfa" stroke-width="1" stroke-dasharray="6,4"/>
+        <text x="52" y="772" fill="#a78bfa" font-size="10" font-weight="600">L8 · 数据层</text>
+        <text x="140" y="772" fill="#64748b" font-size="9">src/server/repositories · db  ·  SQLite(.ath/data.db, WAL)</text>
+        <rect x="60" y="780" width="330" height="48" rx="6" fill="#0f172a"/>
+        <rect x="60" y="780" width="330" height="48" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+        <text x="225" y="800" fill="white" font-size="11" font-weight="600" text-anchor="middle">repositories（15+ 单例）</text>
+        <text x="225" y="816" fill="#94a3b8" font-size="8" text-anchor="middle">session·invocation·message·event·task·envelope·proof·runtime·binding·skill·team-pack·task-graph…</text>
+        <rect x="406" y="780" width="290" height="48" rx="6" fill="#0f172a"/>
+        <rect x="406" y="780" width="290" height="48" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+        <text x="551" y="800" fill="white" font-size="11" font-weight="600" text-anchor="middle">SQLite  .ath/data.db</text>
+        <text x="551" y="816" fill="#94a3b8" font-size="8" text-anchor="middle">~30 张表 · WAL · busy_timeout</text>
+        <rect x="712" y="780" width="328" height="48" rx="6" fill="#0f172a"/>
+        <rect x="712" y="780" width="328" height="48" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+        <text x="876" y="800" fill="white" font-size="11" font-weight="600" text-anchor="middle">db/  schema · migrate</text>
+        <text x="876" y="816" fill="#94a3b8" font-size="8" text-anchor="middle">drizzle-orm · 迁移 v1–20+ · seed agents/skills/team-packs</text>
+
+        <!-- ========== L9 横切关注点 ========== -->
+        <rect x="40" y="854" width="1020" height="150" rx="8" fill="rgba(251, 191, 36, 0.05)" stroke="#fbbf24" stroke-width="1" stroke-dasharray="6,4"/>
+        <text x="52" y="872" fill="#fbbf24" font-size="10" font-weight="600">L9 · 横切关注点（被各层调用）</text>
+
+        <text x="60" y="892" fill="#fb7185" font-size="9" font-weight="600">安全 / 导入</text>
+        <rect x="60" y="898" width="318" height="36" rx="6" fill="#0f172a"/>
+        <rect x="60" y="898" width="318" height="36" rx="6" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1.5"/>
+        <text x="219" y="914" fill="white" font-size="10" font-weight="600" text-anchor="middle">security-scanner</text>
+        <text x="219" y="928" fill="#94a3b8" font-size="8" text-anchor="middle">Prompt 注入 · Key 泄露 · 危险命令</text>
+        <rect x="392" y="898" width="318" height="36" rx="6" fill="#0f172a"/>
+        <rect x="392" y="898" width="318" height="36" rx="6" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1.5"/>
+        <text x="551" y="914" fill="white" font-size="10" font-weight="600" text-anchor="middle">skill-import</text>
+        <text x="551" y="928" fill="#94a3b8" font-size="8" text-anchor="middle">GitHub clone · SKILL.md frontmatter</text>
+        <rect x="724" y="898" width="316" height="36" rx="6" fill="#0f172a"/>
+        <rect x="724" y="898" width="316" height="36" rx="6" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1.5"/>
+        <text x="882" y="914" fill="white" font-size="10" font-weight="600" text-anchor="middle">role-card-import</text>
+        <text x="882" y="928" fill="#94a3b8" font-size="8" text-anchor="middle">GitHub clone · soul.json + SOUL.md</text>
+
+        <text x="60" y="952" fill="#fbbf24" font-size="9" font-weight="600">执行基建</text>
+        <rect x="60" y="958" width="500" height="36" rx="6" fill="#0f172a"/>
+        <rect x="60" y="958" width="500" height="36" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="310" y="974" fill="white" font-size="10" font-weight="600" text-anchor="middle">workdir · worktree · worktree-gc · tmux-gateway · agent-pane-registry</text>
+        <text x="310" y="988" fill="#94a3b8" font-size="8" text-anchor="middle">credentials · accounts-file · cli-probe · opencode-config · skill-tool-executor</text>
+
+        <text x="578" y="952" fill="#fbbf24" font-size="9" font-weight="600">文件同步</text>
+        <rect x="578" y="958" width="240" height="36" rx="6" fill="#0f172a"/>
+        <rect x="578" y="958" width="240" height="36" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="698" y="974" fill="white" font-size="10" font-weight="600" text-anchor="middle">task-file-service + watcher</text>
+        <text x="698" y="988" fill="#94a3b8" font-size="8" text-anchor="middle">.ath/TASKS.md 双向同步 · chokidar</text>
+
+        <text x="836" y="952" fill="#fbbf24" font-size="9" font-weight="600">数据模型</text>
+        <rect x="836" y="958" width="204" height="36" rx="6" fill="#0f172a"/>
+        <rect x="836" y="958" width="204" height="36" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="938" y="974" fill="white" font-size="10" font-weight="600" text-anchor="middle">types · data</text>
+        <text x="938" y="988" fill="#94a3b8" font-size="8" text-anchor="middle">RoleCard·TeamPack·preset 6 角色</text>
+
+        <!-- ========== 右侧外部进程列 ========== -->
+        <rect x="1086" y="80" width="280" height="924" rx="10" fill="transparent" stroke="#475569" stroke-width="1" stroke-dasharray="2,4"/>
+        <text x="1098" y="100" fill="#94a3b8" font-size="10" font-weight="600">外部 / 可选进程</text>
+
+        <!-- MCP Server (对齐 L4/L5) -->
+        <rect x="1100" y="460" width="252" height="58" rx="6" fill="#0f172a"/>
+        <rect x="1100" y="460" width="252" height="58" rx="6" fill="rgba(30, 41, 59, 0.6)" stroke="#94a3b8" stroke-width="1.5"/>
+        <text x="1226" y="478" fill="white" font-size="11" font-weight="600" text-anchor="middle">MCP Server</text>
+        <text x="1226" y="492" fill="#94a3b8" font-size="8" text-anchor="middle">stdio · @modelcontextprotocol</text>
+        <text x="1226" y="505" fill="#94a3b8" font-size="8" text-anchor="middle">dispatch_to_agent · list_agents · check_daemon</text>
+
+        <!-- OpenCode Bridge (对齐 L6/L7) -->
+        <rect x="1100" y="620" width="252" height="52" rx="6" fill="#0f172a"/>
+        <rect x="1100" y="620" width="252" height="52" rx="6" fill="rgba(30, 41, 59, 0.6)" stroke="#94a3b8" stroke-width="1.5"/>
+        <text x="1226" y="638" fill="white" font-size="11" font-weight="600" text-anchor="middle">OpenCode Bridge :8787</text>
+        <text x="1226" y="652" fill="#94a3b8" font-size="8" text-anchor="middle">HTTP /health · /run</text>
+        <text x="1226" y="665" fill="#94a3b8" font-size="8" text-anchor="middle">本机 opencode 远程化（开发链路）</text>
+
+        <!-- CLI 子进程 -->
+        <rect x="1100" y="680" width="252" height="52" rx="6" fill="#0f172a"/>
+        <rect x="1100" y="680" width="252" height="52" rx="6" fill="rgba(30, 41, 59, 0.6)" stroke="#94a3b8" stroke-width="1.5"/>
+        <text x="1226" y="698" fill="white" font-size="11" font-weight="600" text-anchor="middle">CLI 子进程</text>
+        <text x="1226" y="712" fill="#94a3b8" font-size="8" text-anchor="middle">opencode / claude / codex</text>
+        <text x="1226" y="725" fill="#94a3b8" font-size="8" text-anchor="middle">spawn · stdin/stdout/stderr</text>
+
+        <!-- backend/ 废弃 -->
+        <rect x="1100" y="754" width="252" height="44" rx="6" fill="rgba(30, 41, 59, 0.3)" stroke="#64748b" stroke-width="1.2" stroke-dasharray="4,3"/>
+        <text x="1226" y="772" fill="#64748b" font-size="11" font-weight="600" text-anchor="middle">backend/（已废弃）</text>
+        <text x="1226" y="786" fill="#64748b" font-size="8" text-anchor="middle">早期独立 daemon 原型 :4000</text>
+
+        <!-- 进程拓扑说明 -->
+        <text x="1100" y="824" fill="#94a3b8" font-size="9" font-weight="600">进程拓扑</text>
+        <text x="1100" y="840" fill="#64748b" font-size="8">• Next.js 主进程 :3000（含 daemon）</text>
+        <text x="1100" y="854" fill="#64748b" font-size="8">• Socket.IO path /api/socketio</text>
+        <text x="1100" y="868" fill="#64748b" font-size="8">• Bridge :8787（HTTP，可选）</text>
+        <text x="1100" y="882" fill="#64748b" font-size="8">• MCP stdio（按需拉起）</text>
+        <text x="1100" y="896" fill="#64748b" font-size="8">• CLI 子进程（spawn）</text>
+
+        <!-- ========== 图例 ========== -->
+        <text x="52" y="1042" fill="white" font-size="10" font-weight="600">图例</text>
+        <rect x="100" y="1034" width="14" height="10" rx="2" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1"/>
+        <text x="120" y="1043" fill="#94a3b8" font-size="8">前端 (L1-L3)</text>
+        <rect x="210" y="1034" width="14" height="10" rx="2" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1"/>
+        <text x="230" y="1043" fill="#94a3b8" font-size="8">服务端 (L4-L7)</text>
+        <rect x="328" y="1034" width="14" height="10" rx="2" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1"/>
+        <text x="348" y="1043" fill="#94a3b8" font-size="8">数据层 (L8)</text>
+        <rect x="430" y="1034" width="14" height="10" rx="2" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1"/>
+        <text x="450" y="1043" fill="#94a3b8" font-size="8">通信总线</text>
+        <rect x="520" y="1034" width="14" height="10" rx="2" fill="rgba(30, 41, 59, 0.6)" stroke="#94a3b8" stroke-width="1"/>
+        <text x="540" y="1043" fill="#94a3b8" font-size="8">外部/可选进程</text>
+        <rect x="650" y="1034" width="14" height="10" rx="2" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1"/>
+        <text x="670" y="1043" fill="#94a3b8" font-size="8">安全/导入</text>
+        <rect x="750" y="1034" width="14" height="10" rx="2" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1"/>
+        <text x="770" y="1043" fill="#94a3b8" font-size="8">执行基建/模型</text>
+        <line x1="870" y1="1039" x2="890" y2="1039" stroke="#fb7185" stroke-width="1.3" stroke-dasharray="5,3"/>
+        <text x="896" y="1043" fill="#94a3b8" font-size="8">异步/外部接入</text>
+        <text x="1010" y="1043" fill="#475569" font-size="8">虚线边框 = 占位/回退/进行中</text>
+      </svg>
+    </div>
+
+    <!-- Info Cards -->
+    <div class="cards">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-dot orange"></div>
+          <h3>核心数据流（一条主线）</h3>
+        </div>
+        <ul>
+          <li>① 用户消息 → <b>store.dispatchToAgent</b></li>
+          <li>② <b>PromptComposer</b> 组装 16 层 prompt（预算裁剪）</li>
+          <li>③ socket <b>terminal:start</b> → daemon</li>
+          <li>④ <b>DispatchGateway</b> 建 ExecutionEnvelope + secret 检测</li>
+          <li>⑤ <b>Backend</b> 执行：spawn 本地 CLI / HTTP bridge / tmux</li>
+          <li>⑥ <b>AgentEvent</b> 流 → forwardAgentEvent</li>
+          <li>⑦ 持久化(message/event/session/invocation) + Socket 广播</li>
+          <li>⑧ <b>A2A</b> 扫描输出 → 持球/传球 → <b>Task Flow</b> 流转</li>
+          <li>⑨ <b>Wakeup</b> 解除下游依赖 → 唤醒下一 Agent</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-dot rose"></div>
+          <h3>关键缺口（按优先级）</h3>
+        </div>
+        <ul>
+          <li><b>P0</b> A2A → DispatchGateway 未集成（仍走 socket 兼容事件）</li>
+          <li><b>P0</b> types-v2.ts ↔ types-possession.ts 并行，迁移未完成（正在改）</li>
+          <li><b>P1</b> Runtime Router / Continue Gate / Possession Buffer 未实现</li>
+          <li><b>P1</b> ContextBudget 精度不足（字符÷4 估算，GSSC 未接入裁剪）</li>
+          <li><b>P2</b> gemini / mock 无独立 backend（回退 OpenCode）</li>
+          <li><b>P2</b> Tmux 模式是哑终端，不解析 AgentEvent</li>
+          <li><b>P2</b> MCP Server 端口/agent 列表硬编码</li>
+          <li><b>P3</b> backend/ 废弃目录未清理 · Bridge 无完整前端 UI</li>
+          <li><b>P3</b> Proof Log / Execution Envelope 消费端缺失</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-dot cyan"></div>
+          <h3>模块守护分工建议</h3>
+        </div>
+        <ul>
+          <li><b>Mario（统筹）</b> · L5 协议编排 · 缺口优先级 · 升级裁决</li>
+          <li><b>DK（架构）</b> · L5 A2A + Control Plane · types-v2 迁移路线</li>
+          <li><b>Toad（后端）</b> · L6 daemon · L7 backend · L8 数据层 · L9 基建</li>
+          <li><b>Luigi（前端）</b> · L1-L3 · PromptComposer/BudgetGuard · 接入裁剪</li>
+          <li><b>Peach（评审）</b> · 跨层契约一致性 · 事实源归属 · impact 审查</li>
+          <li><b>Yoshi（QA）</b> · 证据门禁 · 自治守护 · Wakeup 链路验证</li>
+        </ul>
+      </div>
+    </div>
+
+    <p class="footer">
+      Agent Task Hub · 系统架构总览 · 2026-07-12 · Mario 统筹 · 基于 src/ + backend/ + bridge/ + mcp-server/ 实际代码梳理
+    </p>
+  </div>
+
+  <script>
+    async function copyAsImage(btn) {
+      const orig = btn.textContent;
+      try {
+        const el = document.getElementById('report-container');
+        const r = el.getBoundingClientRect();
+        const pad = 32;
+        const canvas = await html2canvas(document.body, { backgroundColor: '#020617', scale: 2, useCORS: true, ignoreElements: (e) => e.classList && e.classList.contains('toolbar'), x: r.left + window.scrollX - pad, y: r.top + window.scrollY - pad, width: r.width + pad * 2, height: r.height + pad * 2 });
+        const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+        btn.textContent = '✓ Copied!';
+      } catch (e) {
+        btn.textContent = '✗ Failed';
+      }
+      setTimeout(() => btn.textContent = orig, 2000);
+    }
+
+    async function downloadPNG(btn) {
+      const orig = btn.textContent;
+      btn.textContent = '⏳ ...';
+      try {
+        const el = document.getElementById('report-container');
+        const r = el.getBoundingClientRect();
+        const pad = 32;
+        const canvas = await html2canvas(document.body, { backgroundColor: '#020617', scale: 2, useCORS: true, ignoreElements: (e) => e.classList && e.classList.contains('toolbar'), x: r.left + window.scrollX - pad, y: r.top + window.scrollY - pad, width: r.width + pad * 2, height: r.height + pad * 2 });
+        const link = document.createElement('a');
+        link.download = 'agent-task-hub-architecture.png';
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+        btn.textContent = '✓ Done!';
+      } catch (e) {
+        btn.textContent = '✗ Failed';
+      }
+      setTimeout(() => btn.textContent = orig, 2000);
+    }
+
+    async function downloadPDF(btn) {
+      const orig = btn.textContent;
+      btn.textContent = '⏳ ...';
+      try {
+        const el = document.getElementById('report-container');
+        const r = el.getBoundingClientRect();
+        const pad = 32;
+        const canvas = await html2canvas(document.body, { backgroundColor: '#020617', scale: 2, useCORS: true, ignoreElements: (e) => e.classList && e.classList.contains('toolbar'), x: r.left + window.scrollX - pad, y: r.top + window.scrollY - pad, width: r.width + pad * 2, height: r.height + pad * 2 });
+        const imgData = canvas.toDataURL('image/png');
+        const { jsPDF } = window.jspdf;
+        const orientation = canvas.width > canvas.height ? 'landscape' : 'portrait';
+        const pdf = new jsPDF({ orientation, unit: 'px', format: [canvas.width, canvas.height], hotfixes: ['px_scaling'] });
+        pdf.addImage(imgData, 'PNG', 0, 0, canvas.width, canvas.height);
+        pdf.save('agent-task-hub-architecture.pdf');
+        btn.textContent = '✓ Done!';
+      } catch (e) {
+        btn.textContent = '✗ Failed';
+      }
+      setTimeout(() => btn.textContent = orig, 2000);
+    }
+  </script>
+</body>
+</html>

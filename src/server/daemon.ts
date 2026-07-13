@@ -21,6 +21,7 @@ import { messageRepo } from './repositories/message-repo';
 import { eventRepo } from './repositories/event-repo';
 import { generateSortableId } from './repositories/sortable-id';
 import { createBackend } from './agent/factory';
+import { checkCapabilities } from './agent/capabilityRouter';
 import type { AgentEvent } from './agent/types';
 import { withDoneGuarantee } from './agent/with-done-guarantee';
 import { WorkdirManager } from './workdir-manager';
@@ -976,9 +977,7 @@ export default function registerDaemon(io: IOServer) {
               message: `Bridge 连接失败 (HTTP ${r.status})`,
               reasonCode: 'spawn_failed' as const,
             });
-            if (agentSession) {
-              sessionRepo.seal(agentSession.id, 'failed');
-            }
+            // 失败不 seal session（保持 active，下次 @ resume，id 不变）—— specs/agent-session-stability
             markEnvelopeFailed('spawn_failed');
             broadcast('terminal:exit', { agentId, code: 127, command: 'bridge', reasonCode: 'spawn_failed' });
             agentResponseBuffer.delete(agentId);
@@ -1046,9 +1045,7 @@ export default function registerDaemon(io: IOServer) {
             message: `Bridge 错误：${msg}`,
             reasonCode: 'spawn_failed' as const,
           });
-          if (agentSession) {
-            sessionRepo.seal(agentSession.id, 'failed');
-          }
+          // 失败不 seal session（保持 active，下次 @ resume，id 不变）—— specs/agent-session-stability
           markEnvelopeFailed('spawn_failed');
           broadcast('terminal:exit', { agentId, code: 127, command: 'bridge', reasonCode: 'spawn_failed' });
           agentResponseBuffer.delete(agentId);
@@ -1152,16 +1149,27 @@ export default function registerDaemon(io: IOServer) {
         promptWithWorkdir += `\n[系统] 当前在 Git Worktree 分支 ${branchName} 下工作，工作目录: ${wd}`;
       }
 
-      const { events: rawEvents, result, kill } = backend.execute(promptWithWorkdir, {
-        cwd: wd,
-        systemPrompt: systemPrompt || undefined,
-        resumeSessionId: effectiveSessionId || undefined,
-        timeout: timeoutMs > 0 ? timeoutMs : undefined,
-        env: {
-          ...credentialEnv,
-          ...(runtimeConfigEnv || {}),
+      // CapabilityRouter：按 backend 能力降级（resume/systemPrompt/maxTurns/PTY）+ 警告
+      const capsResult = checkCapabilities(backend, {
+        prompt: promptWithWorkdir,
+        opts: {
+          cwd: wd,
+          systemPrompt: systemPrompt || undefined,
+          resumeSessionId: effectiveSessionId || undefined,
+          timeout: timeoutMs > 0 ? timeoutMs : undefined,
+          env: {
+            ...credentialEnv,
+            ...(runtimeConfigEnv || {}),
+          },
         },
       });
+      if (capsResult.warnings.length > 0) {
+        console.warn(
+          `[daemon] capability degradation for ${agentId} (${capsResult.warnings[0].engine}):`,
+          capsResult.warnings.map((w) => `${w.field}→${w.action}`),
+        );
+      }
+      const { events: rawEvents, result, kill } = backend.execute(capsResult.prompt, capsResult.opts);
 
       const events = withDoneGuarantee(rawEvents, result);
 
@@ -1219,9 +1227,7 @@ export default function registerDaemon(io: IOServer) {
             });
           }
 
-          if (agentSession && final.status !== 'completed') {
-            sessionRepo.seal(agentSession.id, 'failed');
-          }
+          // 失败/超时不 seal session（保持 active，下次 @ resume，id 不变）—— specs/agent-session-stability
 
           if (controlEnvelopeId) {
             if (final.status === 'completed') {
@@ -1246,9 +1252,7 @@ export default function registerDaemon(io: IOServer) {
           clearProcessTimeout();
           clearInterval(heartbeatTimer);
           console.error(`[daemon][${agentId}] backend error:`, err);
-          if (agentSession) {
-            sessionRepo.seal(agentSession.id, 'failed');
-          }
+          // 失败不 seal session（保持 active，下次 @ resume，id 不变）—— specs/agent-session-stability
           markEnvelopeFailed('spawn_failed');
           broadcast('terminal:exit', { agentId, code: 1, command, reasonCode: 'spawn_failed' });
           agentResponseBuffer.delete(agentId);

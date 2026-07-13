@@ -1,5 +1,6 @@
-export function buildProjectLayer(project: { name: string; path: string }): string {
+export function buildProjectLayer(project: { id: string; name: string; path: string }): string {
   const lines: string[] = ['## 项目上下文'];
+  lines.push(`- 项目 ID：${project.id}`);
   if (project.name) {
     lines.push(`- 项目：${project.name}`);
   }

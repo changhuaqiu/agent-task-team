@@ -20,6 +20,9 @@ importers:
       '@tailwindcss/typography':
         specifier: ^0.5.19
         version: 0.5.19(tailwindcss@4.2.4)
+      '@types/cross-spawn':
+        specifier: ^6.0.6
+        version: 6.0.6
       '@xterm/addon-fit':
         specifier: ^0.11.0
         version: 0.11.0
@@ -35,6 +38,9 @@ importers:
       clsx:
         specifier: ^2.1.1
         version: 2.1.1
+      cross-spawn:
+        specifier: ^7.0.6
+        version: 7.0.6
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.2(@types/better-sqlite3@7.6.13)(better-sqlite3@12.9.0)
@@ -1310,6 +1316,9 @@ packages:
 
   '@types/cors@2.8.19':
     resolution: {integrity: sha512-mFNylyeyqN93lfe/9CSxOGREz8cpzAhH+E93xJ4xWQf62V8sQ/24reV2nyzUWM6H6Xji+GGHpkbLe7pVoUEskg==}
+
+  '@types/cross-spawn@6.0.6':
+    resolution: {integrity: sha512-fXRhhUkG4H3TQk5dBhQ7m/JDdSNHKwR2BBia62lhwEIq9xGiQKLxd6LymNhn47SjXhsUEPmxi+PKw2OkW4LLjA==}
 
   '@types/debug@4.1.13':
     resolution: {integrity: sha512-KSVgmQmzMwPlmtljOomayoR89W4FynCAi3E8PPs7vmDVPe84hT+vGPKkJfThkmXs0x0jAaa9U8uW8bbfyS2fWw==}
@@ -4749,6 +4758,10 @@ snapshots:
       '@types/node': 20.19.39
 
   '@types/cors@2.8.19':
+    dependencies:
+      '@types/node': 20.19.39
+
+  '@types/cross-spawn@6.0.6':
     dependencies:
       '@types/node': 20.19.39
 

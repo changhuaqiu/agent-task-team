@@ -66,6 +66,7 @@ export const StatusBadge = React.memo(function StatusBadge({
   showIcon = false,
 }: StatusBadgeProps) {
   const config = statusConfig[status];
+  if (!config) return null;
   const Icon = config.icon;
 
   return (

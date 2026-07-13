@@ -43,17 +43,6 @@ const PIXEL_GRIDS: Record<AgentTheme, number[][]> = {
     [0, 0, 4, 4, 4, 4, 0, 0], // blue overalls
     [0, 0, 3, 0, 0, 3, 0, 0], // brown shoes
   ],
-  // Toad — White mushroom cap with red spots, blue vest
-  toad: [
-    [0, 0, 1, 1, 1, 1, 0, 0], // white mushroom dome
-    [0, 1, 4, 1, 1, 4, 1, 0], // white with RED SPOTS
-    [1, 1, 1, 1, 1, 1, 1, 1], // wide cap base
-    [0, 0, 2, 2, 2, 2, 0, 0], // round face
-    [0, 0, 2, 2, 2, 2, 0, 0], // round face
-    [0, 0, 3, 3, 3, 3, 0, 0], // blue vest
-    [0, 0, 3, 3, 3, 3, 0, 0], // blue vest
-    [0, 0, 3, 0, 0, 3, 0, 0], // blue shoes
-  ],
   // Peach — Gold crown, blonde hair, pink dress
   peach: [
     [0, 0, 4, 4, 4, 4, 0, 0], // gold crown
@@ -76,17 +65,6 @@ const PIXEL_GRIDS: Record<AgentTheme, number[][]> = {
     [0, 0, 1, 1, 1, 1, 0, 0], // brown body
     [0, 0, 3, 0, 0, 3, 0, 0], // dark feet
   ],
-  // Yoshi — Big nose, green body, white belly, orange shell spikes
-  yoshi: [
-    [0, 0, 0, 4, 4, 0, 0, 0], // big nose/snout
-    [0, 0, 1, 4, 4, 1, 0, 0], // green head + snout
-    [0, 1, 1, 2, 2, 1, 1, 0], // green body + white belly
-    [0, 1, 2, 2, 2, 2, 1, 0], // green + white belly
-    [0, 3, 1, 1, 1, 1, 3, 0], // orange shell spikes!
-    [0, 0, 1, 1, 1, 1, 0, 0], // green body
-    [0, 0, 1, 1, 1, 1, 0, 0], // green body
-    [0, 0, 1, 0, 0, 1, 0, 0], // green feet
-  ],
 };
 
 /* ── Color palettes per theme ── */
@@ -103,12 +81,6 @@ const PALETTES: Record<AgentTheme, Record<number, string>> = {
     3: 'hsl(25 40% 25%)',   // Dark brown (hair, mustache, shoes)
     4: 'hsl(220 70% 45%)',  // Blue (overalls)
   },
-  toad: {
-    1: 'hsl(0 0% 95%)',     // White (mushroom cap)
-    2: 'hsl(28 60% 72%)',   // Skin
-    3: 'hsl(220 60% 50%)',  // Blue (vest)
-    4: 'hsl(0 65% 50%)',    // Red (spots on cap)
-  },
   peach: {
     1: 'hsl(330 70% 75%)',  // Pink (dress)
     2: 'hsl(28 60% 72%)',   // Skin
@@ -120,12 +92,6 @@ const PALETTES: Record<AgentTheme, Record<number, string>> = {
     2: 'hsl(28 60% 72%)',   // Skin (face)
     3: 'hsl(25 40% 20%)',   // Dark brown (feet)
     4: 'hsl(0 65% 50%)',    // Red (tie)
-  },
-  yoshi: {
-    1: 'hsl(100 60% 50%)',  // Green (body)
-    2: 'hsl(0 0% 95%)',     // White (belly)
-    3: 'hsl(25 90% 55%)',   // Orange (shell spikes)
-    4: 'hsl(28 60% 72%)',   // Skin (snout/nose)
   },
 };
 

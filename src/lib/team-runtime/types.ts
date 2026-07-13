@@ -2,7 +2,7 @@ import type { RoleCard } from '@/types/roleCard';
 import type { TeamPack } from '@/types/teamPack';
 
 export type RuntimeAgentSource = 'preset-agent' | 'team-pack-role';
-export type RuntimeAgentTheme = 'mario' | 'luigi' | 'toad' | 'peach' | 'dk' | 'yoshi';
+export type RuntimeAgentTheme = 'mario' | 'luigi' | 'peach' | 'dk';
 export type RuntimeCliEngine = 'opencode' | 'claude' | 'codex' | 'gemini' | 'mock';
 
 export interface RuntimeSkillSummary {

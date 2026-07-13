@@ -25,10 +25,8 @@ interface ChatMessageItemProps {
 const AVATAR_THEME_CLASSES: Record<AgentTheme, string> = {
   mario: 'bg-[hsl(var(--agent-mario))] border-[hsl(var(--agent-mario-border))]',
   luigi: 'bg-[hsl(var(--agent-luigi))] border-[hsl(var(--agent-luigi-border))]',
-  toad: 'bg-[hsl(var(--agent-toad))] border-[hsl(var(--agent-toad-border))]',
   peach: 'bg-[hsl(var(--agent-peach))] border-[hsl(var(--agent-peach-border))]',
   dk: 'bg-[hsl(var(--agent-dk))] border-[hsl(var(--agent-dk-border))]',
-  yoshi: 'bg-[hsl(var(--agent-yoshi))] border-[hsl(var(--agent-yoshi-border))]',
 };
 
 const IntentIcon = ({ intent }: { intent?: string }) => {
@@ -107,9 +105,9 @@ const formatContentWithMentions = (content: string) => {
 };
 
 export function ChatMessageItem({ message }: ChatMessageItemProps) {
-  const activeAgents = useTaskHubStore(useShallow(selectActiveAgents));
-  const availableRoster = useTaskHubStore(useShallow(selectAvailableRoster));
-  const allAgents = [...activeAgents, ...availableRoster];
+  // 用 effectiveRoster（按当前 conversation 的 runtime roster，含 TeamPack 角色 planner/coder/reviewer），
+  // 而非 agentRoster（6 人组初始，不含 TeamPack 角色）——否则消息找不到 agent → 无头像/名字
+  const allAgents = useTaskHubStore((s) => s.getEffectiveRoster());
 
   const setSelectedTaskId = useTaskHubStore((s) => s.setSelectedTaskId);
   const updateChatMessageStatus = useTaskHubStore((s) => s.updateChatMessageStatus);

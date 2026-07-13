@@ -1,0 +1,277 @@
+// src/lib/agent-context/ContextManager.ts
+
+import type { RoleCard } from '@/types/roleCard';
+import type { ChatMessage } from '@/store/types';
+import type { RuntimeAgent } from '@/lib/team-runtime';
+import type { TeamPack } from '@/types/teamPack';
+import { ContextBudget } from './ContextBudget';
+import { composeWithBudget, type BudgetPart } from './BudgetGuard';
+import { buildRoleLayer } from './layers/roleLayer';
+import { buildProjectLayer } from './layers/projectLayer';
+import { buildTeamLayer } from './layers/teamLayer';
+import { buildProjectStatusLayer } from './layers/projectStatusLayer';
+import { buildHistoryLayer } from './layers/historyLayer';
+import { buildTaskContextLayer } from './layers/taskContextLayer';
+import { buildUserMessageLayer } from './layers/userMessageLayer';
+import { buildBehaviorLayer } from './layers/behaviorLayer';
+import { buildSkillLayer } from './layers/skillLayer';
+import { buildToolLayer } from './layers/toolLayer';
+import { buildProtocolLayer, deriveRoleFromCard } from './layers/protocolLayer';
+import { buildA2ALayer } from './layers/a2aLayer';
+import { buildTeamPackLayer } from './layers/teamPackLayer';
+import { buildCollaborationLayer } from './layers/collaborationLayer';
+import { AGENT_ROSTER } from '@/store/agentStore';
+import { extractToolsFromSkills, type SkillSummary } from './PromptComposer';
+
+// Provider 层（P1 只返回 mock，预留接口）
+export interface ContextProviders {
+  getRoleCard(agentId: string): Promise<RoleCard | undefined>;
+  getAllRoleCards(): Promise<RoleCard[]>;
+  getMessages(conversationId: string, limit?: number): Promise<ChatMessage[]>;
+  getTask(taskId: string): Promise<{ id: string; title: string; description?: string; phase?: { title: string } } | undefined>;
+  getTasks(conversationId: string): Promise<{ id: string; title: string; agentId: string; status: string }[]>;
+  getTeamPack(agentId: string): Promise<TeamPack | undefined>;
+  getRuntimeRoster(conversationId: string): Promise<RuntimeAgent[]>;
+  getSkills(): Promise<string[]>;  // P1: 技能名称列表
+  getCurrentLoad(): Record<string, number>;  // P1: 当前负载 {agentId: taskCount}
+}
+
+// Memory Hook（本期 NoOp）
+export interface MemoryArtifact {
+  id: string;
+  kind: 'decision' | 'fact' | 'preference' | 'blocker';
+  content: string;
+  evidence?: string;
+}
+
+export interface MemoryHook {
+  recall(input: {
+    scope: string;
+    agentId: string;
+    query: string;
+    limit?: number;
+  }): Promise<MemoryArtifact[]>;
+  write(artifact: {
+    scope: string;
+    agentId: string;
+    kind: 'decision' | 'fact' | 'preference' | 'blocker';
+    content: string;
+    evidence?: string;
+  }): Promise<void>;
+}
+
+// NoOp 实现
+export const noOpMemoryHook: MemoryHook = {
+  async recall() {
+    return []; // 本期恒 0
+  },
+  async write() {
+    // 本期 NoOp：直接 resolve
+  },
+};
+
+// 对外契约
+export interface ContextRequest {
+  agentId: string;
+  conversationId: string;          // = projectId，作用域边界
+  taskId?: string;                 // 主循环 dispatch 时带
+  rawPrompt: string;
+  trigger: 'user_turn' | 'a2a_handoff' | 'resume';
+  a2aHandoff?: A2AHandoffPacket;   // 仅 trigger='a2a_handoff' 时带
+  isFirstWake: boolean;
+  budgetOverride?: ContextBudget;  // 默认从 RoleCard / 项目配置推导
+}
+
+// 健康度报告
+export interface ContextReport {
+  trigger: 'user_turn' | 'a2a_handoff' | 'resume';
+  tokensUsed: number;
+  tokensBudget: number;
+  saturation: number;              // tokensUsed / tokensBudget
+  layers: Array<{ layer: string; priority: number; tokens: number; trimmed: boolean }>;
+  p0Intact: boolean;               // P0 层是否完整未裁剪
+  droppedLayers: string[];
+  recalledArtifacts: number;       // 记忆命中数（本期恒 0）
+}
+
+export interface AssembledContext {
+  systemPrompt?: string;           // 仅首次唤醒
+  userPrompt: string;
+  report: ContextReport;
+  sessionId: string;
+}
+
+// A2A 交接包（P1 只定义类型，P2 接入）
+export interface A2AHandoffPacket {
+  title: string;
+  requestedAction: string;
+  possessionSummary: string;
+  relevantDecisions: string[];
+  evidenceRefs: string[];
+  constraints: string[];
+  openQuestions: string[];
+  forbiddenBehaviors: string[];
+  sourceMessageIds: string[];
+  remainingBudget?: number;        // 预算元数据
+}
+
+// ContextManager 实现
+export class ContextManager {
+  private providers: ContextProviders;
+  private memoryHook: MemoryHook;
+
+  constructor(providers: ContextProviders, memoryHook: MemoryHook = noOpMemoryHook) {
+    this.providers = providers;
+    this.memoryHook = memoryHook;
+  }
+
+  async assembleContext(req: ContextRequest): Promise<AssembledContext> {
+    // Provider 层：取原料（只读）
+    const roleCard = await this.providers.getRoleCard(req.agentId);
+    const allRoleCards = await this.providers.getAllRoleCards();
+    const messages = await this.providers.getMessages(req.conversationId, 10);
+    const task = req.taskId ? await this.providers.getTask(req.taskId) : undefined;
+    const tasks = await this.providers.getTasks(req.conversationId);
+    const teamPack = await this.providers.getTeamPack(req.agentId);
+    const runtimeRoster = await this.providers.getRuntimeRoster(req.conversationId);
+
+    // Memory Hook：recall（本期 NoOp）
+    const artifacts = await this.memoryHook.recall({
+      scope: req.conversationId,
+      agentId: req.agentId,
+      query: req.rawPrompt,
+      limit: 10,
+    });
+
+    // Layer 层：复用现有 15 个 buildXxxLayer
+    const parts: BudgetPart[] = [];
+    const budget = req.budgetOverride ?? new ContextBudget();
+
+    const push = (layer: string, content: string | null | undefined, priority: number) => {
+      if (content) parts.push({ layer, content, priority });
+    };
+
+    // Skills + tools (P3 — 能力，可按需 JIT)
+    const skills = this.providers.getSkills();
+    // 将 string[] 转换为 SkillSummary[] 以适配 buildSkillLayer
+    const skillSummaries: SkillSummary[] = (roleCard?.capabilities?.skills ?? []).map(skillName => ({
+      name: skillName,
+      content: '',
+    }));
+    const tools = extractToolsFromSkills(skillSummaries);
+    push('skill', buildSkillLayer(skillSummaries), 3);
+    push('tool', buildToolLayer(tools), 3);
+
+    // Team roster (P2)
+    const runtimeTeam = runtimeRoster?.length
+      ? [
+          '## 当前团队',
+          ...runtimeRoster.map((member) => {
+            const marker = member.id === req.agentId ? '（当前角色）' : '';
+            return `- ${member.displayName} @${member.id}${marker}`;
+          }),
+        ].join('\n')
+      : '';
+    const team = runtimeRoster !== undefined
+      ? runtimeTeam
+      : buildTeamLayer(req.agentId, allRoleCards ?? [], undefined);
+    push('team', team, 2);
+
+    push('collaboration', buildCollaborationLayer(), 1);
+
+    // TeamPack context (P1)
+    if (teamPack) {
+      push('teamPack', buildTeamPackLayer(req.agentId, teamPack), 1);
+    }
+
+    // Protocol layer (P0 — 约束，几乎不丢)
+    push('protocol', buildProtocolLayer({
+      agentId: req.agentId,
+      agentRole: deriveRoleFromCard(roleCard),
+      projectPath: '', // P1 暂不传，待 TASK-004 升级
+      hasTaskAssignment: !!task,
+      isPlanner: roleCard?.category === 'planner',
+    }), 0);
+
+    // History (P4 — GSSC：按 query 相关性筛选)
+    push('history', buildHistoryLayer(messages, req.agentId, {
+      query: req.rawPrompt,
+      limit: 10,
+    }), 4);
+
+    // Task context (P0)
+    if (task) {
+      push('task', buildTaskContextLayer(task), 0);
+    }
+
+    // A2A context (P1) or user message (P0)
+    if (req.a2aHandoff) {
+      push('a2a', buildA2ALayer({
+        a2aFrom: req.a2aHandoff.title,
+        a2aContent: req.a2aHandoff.possessionSummary,
+        a2aContextSnapshot: JSON.stringify(req.a2aHandoff),
+      }), 1);
+    } else {
+      push('userMessage', buildUserMessageLayer(req.rawPrompt), 0);
+    }
+
+    // Behavior (P0 — 闭环动作要求)
+    push('behavior', buildBehaviorLayer(), 0);
+
+    // Budget 层：复用 BudgetGuard
+    const { prompt: userPrompt, report: budgetReport } = composeWithBudget(parts, budget);
+
+    // Health 层：生成 ContextReport
+    const p0Layers = parts.filter(p => p.priority === 0);
+    const p0Intact = p0Layers.every(l => !budgetReport.trimmed.includes(l.layer));
+
+    const report: ContextReport = {
+      trigger: req.trigger,
+      tokensUsed: budgetReport.totalTokens,
+      tokensBudget: budget.maxTokens,
+      saturation: budgetReport.totalTokens / budget.maxTokens,
+      layers: parts.map(p => ({
+        layer: p.layer,
+        priority: p.priority,
+        tokens: Math.ceil(p.content.length / 4), // 简单估算
+        trimmed: budgetReport.trimmed.includes(p.layer),
+      })),
+      p0Intact,
+      droppedLayers: budgetReport.trimmed,
+      recalledArtifacts: artifacts.length, // 本期恒 0
+    };
+
+    // System prompt（仅首次唤醒）
+    let systemPrompt: string | undefined;
+    if (req.isFirstWake) {
+      const rosterForStatus = runtimeRoster?.length
+        ? runtimeRoster.map((a) => ({ id: a.id, name: a.displayName, emoji: a.emoji ?? '🤖' }))
+        : AGENT_ROSTER.map((a) => ({ id: a.id, name: a.name, emoji: a.emoji }));
+
+      const projectStatus = tasks?.length
+        ? buildProjectStatusLayer(rosterForStatus, tasks.map(t => ({
+            ...t,
+            status: t.status === 'pending' || t.status === 'in_progress' || t.status === 'done'
+              ? t.status
+              : 'pending' as const,
+          })))
+        : '';
+
+      systemPrompt = [
+        buildRoleLayer({ id: req.agentId, name: roleCard?.name ?? 'Agent' }, roleCard),
+        buildProjectLayer({ name: '', path: '', id: '' }),
+        buildCollaborationLayer(),
+        projectStatus,
+      ]
+        .filter(Boolean)
+        .join('\n\n');
+    }
+
+    return {
+      systemPrompt,
+      userPrompt,
+      report,
+      sessionId: `${req.conversationId}-${req.agentId}`,
+    };
+  }
+}

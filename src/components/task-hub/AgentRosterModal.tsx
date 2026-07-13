@@ -26,12 +26,6 @@ const CARD_THEME_CLASSES: Record<AgentTheme, {
     avatar: 'bg-[hsl(var(--agent-luigi))] border-[hsl(var(--agent-luigi-border))]',
     button: 'bg-[hsl(var(--agent-luigi-soft))] text-[hsl(var(--agent-luigi))] border-[hsl(var(--agent-luigi-border))] hover:bg-[hsl(var(--agent-luigi))] hover:text-[hsl(var(--bg-app))]',
   },
-  toad: {
-    border: 'border-[hsl(var(--agent-toad-border))]',
-    hoverShadow: 'hover:shadow-[4px_4px_0px_hsl(var(--agent-toad))]',
-    avatar: 'bg-[hsl(var(--agent-toad))] border-[hsl(var(--agent-toad-border))]',
-    button: 'bg-[hsl(var(--agent-toad-soft))] text-[hsl(var(--agent-toad))] border-[hsl(var(--agent-toad-border))] hover:bg-[hsl(var(--agent-toad))] hover:text-[hsl(var(--bg-app))]',
-  },
   peach: {
     border: 'border-[hsl(var(--agent-peach-border))]',
     hoverShadow: 'hover:shadow-[4px_4px_0px_hsl(var(--agent-peach))]',
@@ -43,12 +37,6 @@ const CARD_THEME_CLASSES: Record<AgentTheme, {
     hoverShadow: 'hover:shadow-[4px_4px_0px_hsl(var(--agent-dk))]',
     avatar: 'bg-[hsl(var(--agent-dk))] border-[hsl(var(--agent-dk-border))]',
     button: 'bg-[hsl(var(--agent-dk-soft))] text-[hsl(var(--agent-dk))] border-[hsl(var(--agent-dk-border))] hover:bg-[hsl(var(--agent-dk))] hover:text-[hsl(var(--bg-app))]',
-  },
-  yoshi: {
-    border: 'border-[hsl(var(--agent-yoshi-border))]',
-    hoverShadow: 'hover:shadow-[4px_4px_0px_hsl(var(--agent-yoshi))]',
-    avatar: 'bg-[hsl(var(--agent-yoshi))] border-[hsl(var(--agent-yoshi-border))]',
-    button: 'bg-[hsl(var(--agent-yoshi-soft))] text-[hsl(var(--agent-yoshi))] border-[hsl(var(--agent-yoshi-border))] hover:bg-[hsl(var(--agent-yoshi))] hover:text-[hsl(var(--bg-app))]',
   },
 };
 

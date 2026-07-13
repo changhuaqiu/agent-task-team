@@ -9,7 +9,7 @@ import { PRESET_ROLE_CARDS } from '@/data/presetRoleCards';
 // --- Agent Role & Roster ---
 
 export type AgentRole = 'planner' | 'worker' | 'reviewer';
-export type AgentTheme = 'mario' | 'luigi' | 'toad' | 'peach' | 'dk' | 'yoshi';
+export type AgentTheme = 'mario' | 'luigi' | 'peach' | 'dk';
 
 export interface Agent {
   id: string;
@@ -42,7 +42,7 @@ const FALLBACK_AGENTS: Agent[] = [
     id: 'luigi',
     name: 'Luigi',
     role: 'worker',
-    roleLabel: '前端实现',
+    roleLabel: '全栈开发',
     roleCardId: 'preset-frontend',
     theme: 'luigi',
     emoji: '⚡',
@@ -50,21 +50,10 @@ const FALLBACK_AGENTS: Agent[] = [
     accountIds: [],
   },
   {
-    id: 'toad',
-    name: 'Toad',
-    role: 'worker',
-    roleLabel: '后端开发',
-    roleCardId: 'preset-backend',
-    theme: 'toad',
-    emoji: '🛡️',
-    isOnline: false,
-    accountIds: [],
-  },
-  {
     id: 'peach',
     name: 'Peach',
     role: 'reviewer',
-    roleLabel: '代码评审',
+    roleLabel: '质量保障',
     roleCardId: 'preset-code-reviewer',
     theme: 'peach',
     emoji: '🌸',
@@ -82,17 +71,6 @@ const FALLBACK_AGENTS: Agent[] = [
     isOnline: false,
     accountIds: [],
   },
-  {
-    id: 'yoshi',
-    name: 'Yoshi',
-    role: 'reviewer',
-    roleLabel: 'QA 测试',
-    roleCardId: 'preset-qa',
-    theme: 'yoshi',
-    emoji: '🎵',
-    isOnline: false,
-    accountIds: [],
-  },
 ];
 
 export let AGENT_ROSTER: Agent[] = [...FALLBACK_AGENTS];
@@ -100,19 +78,15 @@ export let AGENT_ROSTER: Agent[] = [...FALLBACK_AGENTS];
 const ROLE_MAP: Record<string, AgentRole> = {
   'preset-planner': 'planner',
   'preset-frontend': 'worker',
-  'preset-backend': 'worker',
   'preset-code-reviewer': 'reviewer',
   'preset-arch-reviewer': 'reviewer',
-  'preset-qa': 'reviewer',
 };
 
 const ROLE_LABEL_MAP: Record<string, string> = {
   'preset-planner': '项目统筹',
-  'preset-frontend': '前端实现',
-  'preset-backend': '后端开发',
-  'preset-code-reviewer': '代码评审',
+  'preset-frontend': '全栈开发',
+  'preset-code-reviewer': '质量保障',
   'preset-arch-reviewer': '架构工程',
-  'preset-qa': 'QA 测试',
 };
 
 export async function loadAgents(): Promise<void> {

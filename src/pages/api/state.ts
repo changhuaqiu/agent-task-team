@@ -13,10 +13,10 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
     const conversations = conversationRepo.list();
     const tasks = taskRepo.list();
 
-    // Load recent messages per conversation (last 100)
+    // Load recent messages per conversation
     const recentMessages: Record<string, unknown[]> = {};
     for (const conv of conversations) {
-      recentMessages[conv.id] = messageRepo.getByConversation(conv.id, { limit: 100 });
+      recentMessages[conv.id] = messageRepo.getByConversation(conv.id, { limit: 1000 });
     }
 
     // Load active sessions

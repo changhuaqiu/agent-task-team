@@ -2,14 +2,12 @@ import type { TeamPack } from '@/types/teamPack';
 import type { CommunicationPolicy } from './types';
 
 const BLOCK_REASON = '团队协作规则阻止了这次转交';
-const DEFAULT_TEAM_AGENT_IDS = ['mario', 'luigi', 'toad', 'peach', 'dk', 'yoshi'];
+const DEFAULT_TEAM_AGENT_IDS = ['mario', 'luigi', 'peach', 'dk'];
 const DEFAULT_TEAM_REQUIRED_SENDS: Record<string, string[]> = {
-  mario: ['luigi', 'toad', 'peach', 'dk', 'yoshi'],
-  luigi: ['mario', 'toad', 'peach', 'yoshi'],
-  toad: ['mario', 'luigi', 'peach', 'dk', 'yoshi'],
-  peach: ['mario', 'luigi', 'toad', 'dk', 'yoshi'],
-  dk: ['mario', 'luigi', 'toad', 'peach'],
-  yoshi: ['mario', 'luigi', 'toad', 'peach', 'dk'],
+  mario: ['luigi', 'peach', 'dk'],
+  luigi: ['mario', 'peach'],
+  peach: ['mario', 'luigi', 'dk'],
+  dk: ['mario', 'luigi', 'peach'],
 };
 
 function isDefaultHarnessTeam(teamPack: TeamPack): boolean {

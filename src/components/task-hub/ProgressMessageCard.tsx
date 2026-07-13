@@ -19,6 +19,7 @@ export function ProgressMessageCard({ message, onTaskClick }: ProgressMessageCar
   if (!data) return null;
 
   const style = TYPE_STYLES[data.type];
+  if (!style) return null; // 未知 type 不渲染，避免 crash
 
   return (
     <div className={cn('rounded-[4px] border-2 p-2.5', style.border, style.bg)}>

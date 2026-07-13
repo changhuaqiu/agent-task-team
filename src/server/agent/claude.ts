@@ -1,9 +1,13 @@
-import { spawn, type SpawnOptions } from 'child_process';
+import { type SpawnOptions } from 'child_process';
+import { spawnCli } from './cliBridge';
+import { CLAUDE_CAPS } from './capabilities';
 import type { ChildProcess } from 'child_process';
 import { createInterface } from 'readline';
 import type { AgentBackend, AgentRun, AgentEvent, ExecOptions, BackendConfig, AgentResult } from './types';
 
 export class ClaudeBackend implements AgentBackend {
+  readonly capabilities = CLAUDE_CAPS;
+
   constructor(private config: BackendConfig) {}
 
   execute(prompt: string, opts: ExecOptions): AgentRun {
@@ -34,7 +38,8 @@ export class ClaudeBackend implements AgentBackend {
       cwd: opts.cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
     };
-    const child = spawn(this.config.executablePath, args, spawnOpts);
+    const child = spawnCli(this.config.executablePath, args, spawnOpts);
+    console.log('[claude] spawned pid=', child.pid, 'executable=', this.config.executablePath, 'cwd=', opts.cwd);
 
     // Write prompt to stdin as stream-json user message, then close
     const stdinPayload = JSON.stringify({
@@ -73,10 +78,18 @@ export class ClaudeBackend implements AgentBackend {
       }
     };
 
+    let stderrText = '';
+    child.stderr?.on('data', (d: Buffer) => {
+      const s = d.toString();
+      stderrText += s;
+      console.error('[claude stderr]', s.trim());
+    });
+
     const rl = createInterface({ input: child.stdout! });
     rl.on('line', (line) => {
       const trimmed = line.trim();
       if (!trimmed) return;
+      console.log('[claude] stdout line:', trimmed.slice(0, 120));
       let parsed: any;
       try { parsed = JSON.parse(trimmed); } catch { return; }
       if (!parsed || typeof parsed !== 'object') return;
@@ -104,6 +117,36 @@ export class ClaudeBackend implements AgentBackend {
           const callId = typeof obj.index === 'number' ? String(obj.index) : undefined;
           push({ type: 'tool_use', content: '', tool: { name: contentBlock.name, callId }, sessionId });
         }
+      } else if (type === 'assistant') {
+        // claude login 用非 anthropic 模型（如 GLM）时，文本在 assistant message.content
+        const message = typeof obj.message === 'object' ? obj.message as Record<string, unknown> : undefined;
+        const content = message?.content;
+        if (typeof content === 'string' && content) {
+          output += content;
+          push({ type: 'text', content, sessionId });
+        } else if (Array.isArray(content)) {
+          for (const block of content) {
+            if (typeof block === 'object' && block !== null) {
+              const b = block as Record<string, unknown>;
+              if (b.type === 'text' && typeof b.text === 'string' && b.text) {
+                output += b.text;
+                push({ type: 'text', content: b.text, sessionId });
+              } else if (b.type === 'tool_use' && typeof b.name === 'string') {
+                // GLM 把 tool_use 放 assistant message.content（非 content_block_start），补解析 → CLI Trace 稳定
+                push({
+                  type: 'tool_use',
+                  content: '',
+                  tool: {
+                    name: b.name,
+                    callId: typeof b.id === 'string' ? b.id : undefined,
+                    input: typeof b.input === 'object' ? JSON.stringify(b.input).slice(0, 200) : undefined,
+                  },
+                  sessionId,
+                });
+              }
+            }
+          }
+        }
       } else if (type === 'result') {
         const resultText = typeof obj.result === 'string' ? obj.result : undefined;
         if (resultText) output += resultText;
@@ -123,7 +166,7 @@ export class ClaudeBackend implements AgentBackend {
       done({
         status: code === 0 ? 'completed' : 'failed',
         output,
-        error: code !== 0 ? `Process exited with code ${code}` : undefined,
+        error: code !== 0 ? `Process exited with code ${code}${stderrText ? `\nstderr: ${stderrText.slice(-500)}` : ''}` : undefined,
         durationMs: Date.now() - startTime,
         sessionId,
         usage: accumulatedUsage.inputTokens > 0

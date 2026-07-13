@@ -35,3 +35,4 @@
 
 - `role-card-format/`：角色卡与 Team Pack 文件格式草案
 - `a2a-v2/`：链式 A2A 编排草案；核心实现存在，但协作语义将被 `a2a-possession-contract/` 取代
+- `context-manager/`：统一上下文管理器草案，收口主循环与 A2A 两条 prompt 管线，引入项目作用域与跨项目身份，A2A 降级为上下文来源协议；记忆系统另立 spec
