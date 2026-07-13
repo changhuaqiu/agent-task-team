@@ -3,19 +3,18 @@ import type { RoleCard } from '@/types/roleCard';
 
 const ROLE_LABELS: Record<string, string> = {
   planner: '统筹',
-  frontend: '实现',
   backend: '实现',
-  code_reviewer: '评审',
-  arch_reviewer: '评审',
-  qa: '测试',
+  code_reviewer: '质量',
+  arch_reviewer: '架构',
 };
 
 const DISPATCH_RULES = `## 分派规则
-- 严格按领域匹配：前端任务 → frontend 域角色，后端任务 → backend 域角色
+- 实现任务 → Luigi（全栈开发），不分前后端
+- 架构/schema/安全风险 → DK（架构工程）
+- 评审+测试 → Peach（质量保障）
 - 负载已满的角色不可分派（当前负载 = 并行上限）
-- 无精确领域匹配时，选择 skills 交集最大的角色
 - 每个 TASK 必须指定 @agentId，不允许空缺
-- 一个 TASK = 一个角色的一次独立交付；涉及两个领域的必须拆成两个 TASK`;
+- 一个 TASK = 一个角色的一次独立交付`;
 
 const COLLABORATION_RULES = `## 协作规则
 - 遇到超出职责范围且需要别人执行的新动作，才发起 A2A 交接

@@ -28,8 +28,8 @@ const GITNEXUS_ROLE_GUIDANCE = {
   luigi: [
     GITNEXUS_PROTOCOL,
     PERSONALITY_AUTONOMY_PROTOCOL,
-    '- 前端实现前用 GitNexus context/impact 查目标组件、状态、入口和调用链；改动保持在已识别影响边界内。',
-    '- 进入 review_gate 前必须提交 implementation_evidence：installResult、buildResult、gitnexusEvidence。',
+    '- 全栈实现前用 GitNexus context/impact 查目标组件、状态、入口和调用链；改动保持在已识别影响边界内。',
+    '- 进入 quality_gate 前必须提交 implementation_evidence：installResult、buildResult、gitnexusEvidence。',
   ].join('\n'),
   peach: [
     GITNEXUS_PROTOCOL,

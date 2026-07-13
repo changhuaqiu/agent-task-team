@@ -385,24 +385,24 @@ describe('composeSystemPrompt', () => {
     rawPrompt: 'hello',
   };
 
-  it('builds full system prompt on first wake', () => {
+  it('builds full system prompt on first wake', async () => {
     const rc = makeRoleCard({
       persona: { introduction: '我是规划专家', voice: '', mindset: '', habits: '', collaboration: '' },
     });
-    const result = composeSystemPrompt({ ...baseOpts, roleCard: rc });
+    const result = await composeSystemPrompt({ ...baseOpts, roleCard: rc });
     expect(result).toBeDefined();
-    expect(result!).toContain('我是规划专家');
-    expect(result!).toContain('## 项目上下文');
-    expect(result!).not.toContain('@luigi');
+    expect(result).toContain('我是规划专家');
+    expect(result).toContain('## 项目上下文');
+    expect(result).not.toContain('@luigi');
   });
 
-  it('returns undefined on subsequent wake', () => {
-    const result = composeSystemPrompt({ ...baseOpts, isFirstWake: false });
+  it('returns undefined on subsequent wake', async () => {
+    const result = await composeSystemPrompt({ ...baseOpts, isFirstWake: false });
     expect(result).toBeUndefined();
   });
 
-  it('uses an explicitly empty runtime roster instead of static preset agents', () => {
-    const result = composeSystemPrompt({
+  it('uses an explicitly empty runtime roster instead of static preset agents', async () => {
+    const result = await composeSystemPrompt({
       ...baseOpts,
       runtimeRoster: [],
       tasks: [
@@ -411,9 +411,9 @@ describe('composeSystemPrompt', () => {
     });
 
     expect(result).toBeDefined();
-    expect(result!).toContain('## 项目任务看板');
-    expect(result!).not.toContain('Luigi');
-    expect(result!).not.toContain('Mario');
+    expect(result).toContain('## 项目任务看板');
+    expect(result).not.toContain('Luigi');
+    expect(result).not.toContain('Mario');
   });
 });
 
@@ -429,40 +429,40 @@ describe('composeUserPrompt', () => {
     rawPrompt: '请开始工作',
   };
 
-  it('builds user prompt with history, message, and behavior on first wake', () => {
+  it('builds user prompt with history, message, and behavior on first wake', async () => {
     const messages: ChatMessage[] = [
       makeMessage({ agentId: 'human', content: '你好', timestamp: '2026-05-03T10:00:00Z' }),
     ];
-    const result = composeUserPrompt({ ...baseOpts, messages });
+    const result = await composeUserPrompt({ ...baseOpts, messages });
     expect(result).toContain('[对话历史');
     expect(result).toContain('请开始工作');
     expect(result).toContain('@agent 请/需要 + 动作 + 具体交付物');
   });
 
-  it('includes history on subsequent wake too', () => {
+  it('includes history on subsequent wake too', async () => {
     const messages: ChatMessage[] = [
       makeMessage({ agentId: 'human', content: '你好', timestamp: '2026-05-03T10:00:00Z' }),
     ];
-    const result = composeUserPrompt({ ...baseOpts, isFirstWake: false, messages });
+    const result = await composeUserPrompt({ ...baseOpts, isFirstWake: false, messages });
     expect(result).toContain('[对话历史');
     expect(result).toContain('请开始工作');
     expect(result).toContain('@agent 请/需要 + 动作 + 具体交付物');
   });
 
-  it('includes team roster on every dispatch', () => {
-    const result = composeUserPrompt(baseOpts);
+  it('includes team roster on every dispatch', async () => {
+    const result = await composeUserPrompt(baseOpts);
     expect(result).toContain('@luigi');
   });
 
-  it('injects collaboration protocol into every user prompt dispatch', () => {
-    const result = composeUserPrompt(baseOpts);
+  it('injects collaboration protocol into every user prompt dispatch', async () => {
+    const result = await composeUserPrompt(baseOpts);
     expect(result).toContain('## Agent 协作协议');
     expect(result).toContain('只有需要其他角色执行新动作时');
     expect(result).toContain('通知 @mario 查看结果');
   });
 
-  it('uses runtime roster when provided', () => {
-    const result = composeUserPrompt({
+  it('uses runtime roster when provided', async () => {
+    const result = await composeUserPrompt({
       ...baseOpts,
       agent: { id: 'planner', name: 'Planner' },
       runtimeRoster: [
@@ -489,8 +489,8 @@ describe('composeUserPrompt', () => {
     expect(result).not.toContain('@luigi');
   });
 
-  it('uses an explicitly empty runtime roster instead of the static team layer', () => {
-    const result = composeUserPrompt({
+  it('uses an explicitly empty runtime roster instead of the static team layer', async () => {
+    const result = await composeUserPrompt({
       ...baseOpts,
       runtimeRoster: [],
     });
@@ -500,8 +500,8 @@ describe('composeUserPrompt', () => {
     expect(result).not.toContain('协作规则');
   });
 
-  it('includes task context when task provided', () => {
-    const result = composeUserPrompt({
+  it('includes task context when task provided', async () => {
+    const result = await composeUserPrompt({
       ...baseOpts,
       task: { id: 'T-1', title: 'Build feature', description: 'desc', phase: { title: '开发' } },
     });
@@ -509,19 +509,19 @@ describe('composeUserPrompt', () => {
     expect(result).toContain('[阶段: 开发]');
   });
 
-  it('falls back to greeting for empty prompt', () => {
-    const result = composeUserPrompt({ ...baseOpts, rawPrompt: '' });
+  it('falls back to greeting for empty prompt', async () => {
+    const result = await composeUserPrompt({ ...baseOpts, rawPrompt: '' });
     expect(result).toContain('你好，请就绪并等待指令。');
   });
 
-  it('wraps A2A dispatches in an explicit cross-agent envelope', () => {
+  it('wraps A2A dispatches in an explicit cross-agent envelope', async () => {
     const a2aPrompt = [
       '═══ A2A 任务指派 ═══',
       '来自：mario',
       '── 指令 ──',
       '请评审当前架构方案。',
     ].join('\n');
-    const result = composeUserPrompt({
+    const result = await composeUserPrompt({
       ...baseOpts,
       agent: { id: 'dk', name: 'DK' },
       rawPrompt: a2aPrompt,
@@ -537,8 +537,8 @@ describe('composeUserPrompt', () => {
     expect(result.match(/═══ A2A 任务指派 ═══/g)).toHaveLength(1);
   });
 
-  it('joins parts with separator', () => {
-    const result = composeUserPrompt(baseOpts);
+  it('joins parts with separator', async () => {
+    const result = await composeUserPrompt(baseOpts);
     expect(result).toContain('\n\n---\n\n');
   });
 });
@@ -555,27 +555,27 @@ describe('composeUserPrompt with skills', () => {
     rawPrompt: 'hello',
   };
 
-  it('includes skill content when skills provided', () => {
-    const result = composeUserPrompt({
+  it('includes skill content when skills provided', async () => {
+    const result = await composeUserPrompt({
       ...baseOpts,
       skills: [{ name: 'code-review', content: 'Review carefully.' }],
     });
     expect(result).toContain('## Skill: code-review');
   });
 
-  it('works without skills', () => {
-    const result = composeUserPrompt(baseOpts);
+  it('works without skills', async () => {
+    const result = await composeUserPrompt(baseOpts);
     expect(result).not.toContain('## Skill:');
   });
 
-  it('includes protocol layer', () => {
-    const result = composeUserPrompt(baseOpts);
+  it('includes protocol layer', async () => {
+    const result = await composeUserPrompt(baseOpts);
     expect(result).toContain('任务协作协议');
     expect(result).toContain('.ath/TASKS.md');
   });
 
-  it('includes collaboration protocol in the first system prompt', () => {
-    const result = composeSystemPrompt(baseOpts);
+  it('includes collaboration protocol in the first system prompt', async () => {
+    const result = await composeSystemPrompt(baseOpts);
     expect(result).toContain('## Agent 协作协议');
     expect(result).toContain('A2A 唤醒语法');
   });

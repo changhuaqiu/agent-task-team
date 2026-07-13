@@ -60,11 +60,13 @@ describe('ContextManager', () => {
   });
 
   it('超预算时 P4 层优先被裁剪', async () => {
+    // 构造大量历史消息，确保会超过预算
     const largeMessages: ChatMessage[] = Array.from({ length: 100 }, (_, i) => ({
       id: `msg-${i}`,
       agentId: 'user',
       content: 'a'.repeat(200),
       timestamp: '2024-01-01T00:00:00Z',
+      conversationId: 'conv-123', // 与当前会话匹配，会进入历史
     }));
 
     mockProviders.getMessages.mockResolvedValue(largeMessages);
@@ -83,6 +85,7 @@ describe('ContextManager', () => {
     const result = await manager.assembleContext(req);
 
     expect(result.report.droppedLayers.length).toBeGreaterThan(0);
+    // history 是 P4，应该被裁剪（预算不足以容纳所有历史）
     expect(result.report.droppedLayers).toContain('history');
   });
 

@@ -29,14 +29,18 @@ export function composeWithBudget(
   const included: BudgetPart[] = [];
   const trimmed: string[] = [];
   let usedTokens = 0;
+  const p0HardLimit = Math.floor(available * 0.5); // P0 硬上限为预算的 50%
 
   for (const part of sorted) {
     const tokens = countTokens(part.content);
     if (part.priority === 0) {
-      // P0 无条件纳入（身份/约束/任务，几乎不丢）
-      // P0 不占用预算，直接加入
-      included.push(part);
-      usedTokens += tokens;
+      // P0 优先保障，但有硬上限（防止 P0 过大挤占其他层）
+      if (usedTokens + tokens <= available && (usedTokens + tokens) <= p0HardLimit) {
+        included.push(part);
+        usedTokens += tokens;
+      } else {
+        trimmed.push(part.layer);
+      }
     } else if (usedTokens + tokens <= available) {
       included.push(part);
       usedTokens += tokens;

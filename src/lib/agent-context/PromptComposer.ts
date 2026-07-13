@@ -19,7 +19,9 @@ import { buildCollaborationLayer } from './layers/collaborationLayer';
 import type { TeamPack } from '@/types/teamPack';
 import { ContextBudget } from './ContextBudget';
 import { composeWithBudget, type BudgetPart } from './BudgetGuard';
-import { ContextManager, noOpMemoryHook, type ContextRequest } from './ContextManager';
+import type { ContextRequest } from './ContextManager';
+import { ContextManager } from './ContextManager';
+import { noOpMemoryHook } from './MemoryHook';
 
 export interface ParamDef {
   name: string;
