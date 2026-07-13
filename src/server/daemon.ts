@@ -977,9 +977,7 @@ export default function registerDaemon(io: IOServer) {
               message: `Bridge 连接失败 (HTTP ${r.status})`,
               reasonCode: 'spawn_failed' as const,
             });
-            if (agentSession) {
-              sessionRepo.seal(agentSession.id, 'failed');
-            }
+            // 失败不 seal session（保持 active，下次 @ resume，id 不变）—— specs/agent-session-stability
             markEnvelopeFailed('spawn_failed');
             broadcast('terminal:exit', { agentId, code: 127, command: 'bridge', reasonCode: 'spawn_failed' });
             agentResponseBuffer.delete(agentId);
@@ -1047,9 +1045,7 @@ export default function registerDaemon(io: IOServer) {
             message: `Bridge 错误：${msg}`,
             reasonCode: 'spawn_failed' as const,
           });
-          if (agentSession) {
-            sessionRepo.seal(agentSession.id, 'failed');
-          }
+          // 失败不 seal session（保持 active，下次 @ resume，id 不变）—— specs/agent-session-stability
           markEnvelopeFailed('spawn_failed');
           broadcast('terminal:exit', { agentId, code: 127, command: 'bridge', reasonCode: 'spawn_failed' });
           agentResponseBuffer.delete(agentId);
@@ -1231,9 +1227,7 @@ export default function registerDaemon(io: IOServer) {
             });
           }
 
-          if (agentSession && final.status !== 'completed') {
-            sessionRepo.seal(agentSession.id, 'failed');
-          }
+          // 失败/超时不 seal session（保持 active，下次 @ resume，id 不变）—— specs/agent-session-stability
 
           if (controlEnvelopeId) {
             if (final.status === 'completed') {
@@ -1258,9 +1252,7 @@ export default function registerDaemon(io: IOServer) {
           clearProcessTimeout();
           clearInterval(heartbeatTimer);
           console.error(`[daemon][${agentId}] backend error:`, err);
-          if (agentSession) {
-            sessionRepo.seal(agentSession.id, 'failed');
-          }
+          // 失败不 seal session（保持 active，下次 @ resume，id 不变）—— specs/agent-session-stability
           markEnvelopeFailed('spawn_failed');
           broadcast('terminal:exit', { agentId, code: 1, command, reasonCode: 'spawn_failed' });
           agentResponseBuffer.delete(agentId);

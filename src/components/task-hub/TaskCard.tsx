@@ -27,10 +27,8 @@ const artifactIcons = {
 const themeAccent: Record<AgentTheme, string> = {
   mario:  'border-l-[hsl(var(--agent-mario))]',
   luigi:  'border-l-[hsl(var(--agent-luigi))]',
-  toad:   'border-l-[hsl(var(--agent-toad))]',
   peach:  'border-l-[hsl(var(--agent-peach))]',
   dk:     'border-l-[hsl(var(--agent-dk))]',
-  yoshi:  'border-l-[hsl(var(--agent-yoshi))]',
 };
 
 interface TaskCardProps {

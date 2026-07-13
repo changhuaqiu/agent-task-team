@@ -1,5 +1,6 @@
 import type { ChatMessage } from '@/store/types';
 import { keywordRelevance, recencyScore } from '../relevance';
+import { filterByProjectId } from '../scopeGuard';
 
 const SENDER_LABELS: Record<string, string> = {
   human: '用户',
@@ -16,6 +17,8 @@ export interface HistoryLayerOpts {
   query?: string;
   /** 选出的条数上限 */
   limit?: number;
+  /** 按 project_id 过滤（= conversationId） */
+  projectId?: string;
 }
 
 function formatTime(timestamp: string): string {
@@ -40,8 +43,15 @@ export function buildHistoryLayer(
 ): string {
   if (messages.length === 0) return '';
 
+  // 按 project_id 过滤（= conversationId）
+  const filteredMessages = opts?.projectId
+    ? filterByProjectId(messages, opts.projectId)
+    : messages;
+
+  if (filteredMessages.length === 0) return '';
+
   // Gather：候选池（最近 CANDIDATE_POOL 条）
-  const candidates = messages.slice(-CANDIDATE_POOL);
+  const candidates = filteredMessages.slice(-CANDIDATE_POOL);
 
   // Select：有 query + limit 且候选超 limit 时，按相关性+新近性评分选 top-limit
   let selected: ChatMessage[];

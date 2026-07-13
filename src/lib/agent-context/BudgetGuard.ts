@@ -24,7 +24,7 @@ export function composeWithBudget(
   budget: ContextBudget,
 ): { prompt: string; report: BudgetReport } {
   const available = budget.availableTokens();
-  // 按优先级升序（P0 先处理），同优先级保持原顺序
+  // 按优先级升序（P4 先处理），同优先级保持原顺序
   const sorted = [...parts].sort((a, b) => a.priority - b.priority);
   const included: BudgetPart[] = [];
   const trimmed: string[] = [];
@@ -34,6 +34,7 @@ export function composeWithBudget(
     const tokens = countTokens(part.content);
     if (part.priority === 0) {
       // P0 无条件纳入（身份/约束/任务，几乎不丢）
+      // P0 不占用预算，直接加入
       included.push(part);
       usedTokens += tokens;
     } else if (usedTokens + tokens <= available) {

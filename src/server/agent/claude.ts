@@ -126,11 +126,23 @@ export class ClaudeBackend implements AgentBackend {
           push({ type: 'text', content, sessionId });
         } else if (Array.isArray(content)) {
           for (const block of content) {
-            if (typeof block === 'object' && block !== null && (block as Record<string, unknown>).type === 'text') {
-              const text = (block as Record<string, unknown>).text;
-              if (typeof text === 'string' && text) {
-                output += text;
-                push({ type: 'text', content: text, sessionId });
+            if (typeof block === 'object' && block !== null) {
+              const b = block as Record<string, unknown>;
+              if (b.type === 'text' && typeof b.text === 'string' && b.text) {
+                output += b.text;
+                push({ type: 'text', content: b.text, sessionId });
+              } else if (b.type === 'tool_use' && typeof b.name === 'string') {
+                // GLM 把 tool_use 放 assistant message.content（非 content_block_start），补解析 → CLI Trace 稳定
+                push({
+                  type: 'tool_use',
+                  content: '',
+                  tool: {
+                    name: b.name,
+                    callId: typeof b.id === 'string' ? b.id : undefined,
+                    input: typeof b.input === 'object' ? JSON.stringify(b.input).slice(0, 200) : undefined,
+                  },
+                  sessionId,
+                });
               }
             }
           }

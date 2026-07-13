@@ -223,7 +223,7 @@ export const createDaemonSlice = (set: any, get: () => any) => {
         },
       })),
 
-    dispatchToAgent: ({ agentId, prompt, referencedTaskId, source, fromAgentId, conversationId: explicitConvId, chainId, passId }: { agentId: string; prompt: string; referencedTaskId?: string; source?: 'user' | 'a2a' | 'workflow' | 'review_gate' | 'test_gate' | 'system'; fromAgentId?: string; conversationId?: string; chainId?: string; passId?: string }) => {
+    dispatchToAgent: async ({ agentId, prompt, referencedTaskId, source, fromAgentId, conversationId: explicitConvId, chainId, passId }: { agentId: string; prompt: string; referencedTaskId?: string; source?: 'user' | 'a2a' | 'workflow' | 'review_gate' | 'test_gate' | 'system'; fromAgentId?: string; conversationId?: string; chainId?: string; passId?: string }) => {
       const conversationId =
         explicitConvId ??
         (referencedTaskId ? get().getTaskById(referencedTaskId)?.conversationId : undefined) ??
@@ -267,7 +267,7 @@ export const createDaemonSlice = (set: any, get: () => any) => {
         agent: { id: agent.id, name: agent.displayName },
         roleCard,
         allRoleCards: get().roleCards,
-        project: { name: conv?.title ?? '', path: conv?.projectPath ?? '' },
+        project: { id: conversationId, name: conv?.title ?? '', path: conv?.projectPath ?? '' },
         isFirstWake,
         messages: get().chatMessagesByConversation[conversationId] ?? [],
         task: task ? {
@@ -303,8 +303,8 @@ export const createDaemonSlice = (set: any, get: () => any) => {
         runtimeRoster: profile.prompt.roster,
       };
 
-      const systemPrompt = composeSystemPrompt(composeOpts);
-      const effectivePrompt = composeUserPrompt(composeOpts);
+      const systemPrompt = await composeSystemPrompt(composeOpts);
+      const effectivePrompt = await composeUserPrompt(composeOpts);
 
       console.log(`[dispatch] ${agentId} isFirstWake=${composeOpts.isFirstWake}, systemPrompt=${systemPrompt ? `${systemPrompt.length} chars` : 'undefined'}, roleCard=${composeOpts.roleCard?.id ?? '(none)'}`);
 
@@ -489,7 +489,7 @@ export const createDaemonSlice = (set: any, get: () => any) => {
         agent: { id: agent.id, name: agent.displayName },
         roleCard: simRoleCard,
         allRoleCards: state.roleCards,
-        project: { name: conv?.title ?? '', path: conv?.projectPath ?? '' },
+        project: { id: conversationId, name: conv?.title ?? '', path: conv?.projectPath ?? '' },
         isFirstWake: simIsFirstWake,
         rawPrompt: prompt,
         currentLoad: Object.fromEntries(

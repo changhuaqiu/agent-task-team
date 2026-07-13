@@ -11,10 +11,8 @@ interface PresetAgent {
 const PRESET_AGENTS: PresetAgent[] = [
   { id: 'mario', name: 'Mario', roleCardId: 'preset-planner', theme: 'mario', emoji: '⭐' },
   { id: 'luigi', name: 'Luigi', roleCardId: 'preset-frontend', theme: 'luigi', emoji: '⚡' },
-  { id: 'toad', name: 'Toad', roleCardId: 'preset-backend', theme: 'toad', emoji: '🛡️' },
   { id: 'peach', name: 'Peach', roleCardId: 'preset-code-reviewer', theme: 'peach', emoji: '🌸' },
   { id: 'dk', name: 'Donkey Kong', roleCardId: 'preset-arch-reviewer', theme: 'dk', emoji: '⚙️' },
-  { id: 'yoshi', name: 'Yoshi', roleCardId: 'preset-qa', theme: 'yoshi', emoji: '🎵' },
 ];
 
 export function seedPresetAgents(): void {

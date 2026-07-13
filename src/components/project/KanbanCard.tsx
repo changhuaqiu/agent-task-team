@@ -11,16 +11,14 @@ import type { AgentTheme } from '@/store/agentStore';
 const themeBorder: Record<AgentTheme, string> = {
   mario: 'border-l-[hsl(var(--agent-mario))]',
   luigi: 'border-l-[hsl(var(--agent-luigi))]',
-  toad: 'border-l-[hsl(var(--agent-toad))]',
   peach: 'border-l-[hsl(var(--agent-peach))]',
   dk: 'border-l-[hsl(var(--agent-dk))]',
-  yoshi: 'border-l-[hsl(var(--agent-yoshi))]',
 };
 
 function themeFromAgentId(agentId: string): AgentTheme {
   const map: Record<string, AgentTheme> = {
-    mario: 'mario', luigi: 'luigi', toad: 'toad',
-    peach: 'peach', dk: 'dk', yoshi: 'yoshi',
+    mario: 'mario', luigi: 'luigi',
+    peach: 'peach', dk: 'dk',
   };
   return map[agentId] ?? 'mario';
 }

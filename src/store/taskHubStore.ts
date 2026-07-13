@@ -674,7 +674,7 @@ export interface TaskHubState {
 
   connectDaemon: () => void;
   upsertAgentSession: (projectId: ProjectId, agentId: string, sessionId: string) => void;
-  dispatchToAgent: (input: DispatchToAgentInput) => boolean;
+  dispatchToAgent: (input: DispatchToAgentInput) => Promise<boolean>;
   forceSendDispatch: (input: DispatchToAgentInput) => void;
   enqueueDispatch: (agentId: string, payload: Omit<PendingDispatch, 'queuedAt'>) => void;
   dequeueNextPending: (agentId: string, conversationId: string) => void;
@@ -1531,7 +1531,7 @@ export const useTaskHubStore = create<TaskHubState>()(
           };
         },
 
-        addChatMessage: (msg: Omit<ChatMessage, 'id' | 'timestamp' | 'mentions' | 'intent'> & { conversationId?: string }) => {
+        addChatMessage: async (msg: Omit<ChatMessage, 'id' | 'timestamp' | 'mentions' | 'intent'> & { conversationId?: string }) => {
           if (!get().selectedConversationId && get().conversations.length === 0 && msg.agentId === 'human') {
             const title = msg.content.length > 20
               ? msg.content.slice(0, msg.content.indexOf('，') > 0 ? msg.content.indexOf('，') : 20)
@@ -1592,13 +1592,13 @@ export const useTaskHubStore = create<TaskHubState>()(
                       mentions,
                       intent,
                     },
-                  ],
+                  ].sort((a: any, b: any) => (a.timestamp || '').localeCompare(b.timestamp || '')),
                 },
               }));
 
               const acceptedAgentIds: string[] = [];
               for (const agentId of idleAgents) {
-                const accepted = get().dispatchToAgent({
+                const accepted = await get().dispatchToAgent({
                   agentId,
                   referencedTaskId: rest.referencedTaskId,
                   prompt: rest.content,
@@ -1636,7 +1636,7 @@ export const useTaskHubStore = create<TaskHubState>()(
                       mentions,
                       intent,
                     },
-                  ],
+                  ].sort((a: any, b: any) => (a.timestamp || '').localeCompare(b.timestamp || '')),
                 },
               }));
             }
@@ -2228,7 +2228,7 @@ socket.on('terminal:exit', ({ agentId, code, command, reasonCode, conversationId
   }
 });
 
-socket.on('a2a:dispatch', ({ agentId, prompt, referencedTaskId, fromAgentId, conversationId, chainId, entryId, passId }: { agentId: string; prompt: string; referencedTaskId?: string; fromAgentId: string; conversationId?: string; chainId?: string; entryId?: string; passId?: string }) => {
+socket.on('a2a:dispatch', async ({ agentId, prompt, referencedTaskId, fromAgentId, conversationId, chainId, entryId, passId }: { agentId: string; prompt: string; referencedTaskId?: string; fromAgentId: string; conversationId?: string; chainId?: string; entryId?: string; passId?: string }) => {
   console.log(`[a2a:v2] chain=${chainId} dispatch ${fromAgentId} → ${agentId}`);
   const state = useTaskHubStore.getState();
   if (state.agentStatus[agentId] && state.agentStatus[agentId] !== 'idle') {
@@ -2244,7 +2244,7 @@ socket.on('a2a:dispatch', ({ agentId, prompt, referencedTaskId, fromAgentId, con
     }
     return;
   }
-  const accepted = state.dispatchToAgent({
+  const accepted = await state.dispatchToAgent({
     agentId,
     prompt,
     referencedTaskId,

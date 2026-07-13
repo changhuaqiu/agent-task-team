@@ -19,6 +19,7 @@ import { buildCollaborationLayer } from './layers/collaborationLayer';
 import type { TeamPack } from '@/types/teamPack';
 import { ContextBudget } from './ContextBudget';
 import { composeWithBudget, type BudgetPart } from './BudgetGuard';
+import { ContextManager, noOpMemoryHook, type ContextRequest } from './ContextManager';
 
 export interface ParamDef {
   name: string;
@@ -61,13 +62,13 @@ export interface ComposeOptions {
   agent: { id: string; name: string };
   roleCard?: RoleCard;
   allRoleCards: RoleCard[];
-  project: { name: string; path: string };
+  project: { id: string; name: string; path: string };
   isFirstWake: boolean;
   messages?: ChatMessage[];
   task?: { id: string; title: string; description?: string; phase?: { title: string } };
   rawPrompt: string;
   currentLoad?: Record<string, number>;
-  tasks?: { id: string; title: string; agentId: string; status: string }[];
+  tasks?: { id: string; title: string; agentId: string; status: 'pending' | 'in_progress' | 'done' }[];
   skills?: SkillSummary[];
   a2a?: { from?: string; content?: string; contextSnapshot?: string };
   teamPack?: TeamPack;
@@ -76,102 +77,72 @@ export interface ComposeOptions {
   budget?: ContextBudget;
 }
 
-export function composeSystemPrompt(opts: ComposeOptions): string | undefined {
-  if (!opts.isFirstWake) return undefined;
+export async function composeSystemPrompt(opts: ComposeOptions): Promise<string | undefined> {
+  const manager = new ContextManager({
+    getRoleCard: async () => opts.roleCard,
+    getAllRoleCards: async () => opts.allRoleCards ?? [],
+    getMessages: async () => opts.messages ?? [],
+    getTask: async () => opts.task,
+    getTasks: async () => opts.tasks ?? [],
+    getTeamPack: async () => opts.teamPack,
+    getRuntimeRoster: async () => opts.runtimeRoster ?? [],
+    getSkills: async () => [],
+    getCurrentLoad: () => opts.currentLoad ?? {},
+  }, noOpMemoryHook);
 
-  const rosterForStatus = opts.runtimeRoster !== undefined
-    ? opts.runtimeRoster.map((a) => ({ id: a.id, name: a.displayName, emoji: a.emoji ?? '🤖' }))
-    : AGENT_ROSTER.map((a) => ({ id: a.id, name: a.name, emoji: a.emoji }));
-
-  const projectStatus = opts.tasks
-    ? buildProjectStatusLayer(
-        rosterForStatus,
-        opts.tasks as Parameters<typeof buildProjectStatusLayer>[1],
-      )
-    : '';
-
-  return [
-    buildRoleLayer(opts.agent, opts.roleCard),
-    buildProjectLayer(opts.project),
-    buildCollaborationLayer(),
-    projectStatus,
-  ]
-    .filter(Boolean)
-    .join('\n\n');
-}
-
-export function composeUserPrompt(opts: ComposeOptions): string {
-  const parts: BudgetPart[] = [];
-  const budget = opts.budget ?? new ContextBudget();
-  const a2aDispatch = opts.a2a?.from && opts.a2a?.content
-    ? opts.a2a
-    : undefined;
-
-  const push = (layer: string, content: string | null | undefined, priority: number) => {
-    if (content) parts.push({ layer, content, priority });
+  const req: ContextRequest = {
+    agentId: opts.agent.id,
+    conversationId: opts.project.name, // P1 临时用 name 作为 conversationId，待后续改造
+    rawPrompt: opts.rawPrompt,
+    trigger: 'user_turn',
+    isFirstWake: opts.isFirstWake,
+    budgetOverride: opts.budget,
   };
 
-  // Skills + tools (P3 — 能力，可按需 JIT)
-  const tools = extractToolsFromSkills(opts.skills ?? []);
-  push('skill', buildSkillLayer(opts.skills ?? []), 3);
-  push('tool', buildToolLayer(tools), 3);
+  const result = await manager.assembleContext(req);
+  return result.systemPrompt;
+}
 
-  // Team roster (P2)
-  const runtimeTeam = opts.runtimeRoster?.length
-    ? [
-        '## 当前团队',
-        ...opts.runtimeRoster.map((member) => {
-          const marker = member.id === opts.agent.id ? '（当前角色）' : '';
-          return `- ${member.displayName} @${member.id}${marker}`;
-        }),
-      ].join('\n')
-    : '';
-  const team = opts.runtimeRoster !== undefined
-    ? runtimeTeam
-    : buildTeamLayer(opts.agent.id, opts.allRoleCards, opts.currentLoad);
-  push('team', team, 2);
+export async function composeUserPrompt(opts: ComposeOptions): Promise<string> {
+  const manager = new ContextManager({
+    getRoleCard: async () => opts.roleCard,
+    getAllRoleCards: async () => opts.allRoleCards ?? [],
+    getMessages: async () => opts.messages ?? [],
+    getTask: async () => opts.task,
+    getTasks: async () => opts.tasks ?? [],
+    getTeamPack: async () => opts.teamPack,
+    getRuntimeRoster: async () => opts.runtimeRoster ?? [],
+    getSkills: async () => [],
+    getCurrentLoad: () => opts.currentLoad ?? {},
+  }, noOpMemoryHook);
 
-  push('collaboration', buildCollaborationLayer(), 1);
-
-  // TeamPack context (P1)
-  if (opts.teamPack) {
-    push('teamPack', buildTeamPackLayer(opts.agent.id, opts.teamPack), 1);
-  }
-
-  // Protocol layer (P0 — 约束，几乎不丢)
-  push('protocol', buildProtocolLayer({
+  const req: ContextRequest = {
     agentId: opts.agent.id,
-    agentRole: deriveRoleFromCard(opts.roleCard),
-    projectPath: opts.project.path,
-    hasTaskAssignment: !!opts.task,
-    isPlanner: opts.roleCard?.category === 'planner',
-  }), 0);
+    conversationId: opts.project.name, // P1 临时用 name 作为 conversationId，待后续改造
+    taskId: opts.task?.id,
+    rawPrompt: opts.rawPrompt,
+    trigger: opts.a2a?.from && opts.a2a?.content ? 'a2a_handoff' : 'user_turn',
+    a2aHandoff: opts.a2a ? {
+      title: opts.a2a.content ?? '',
+      requestedAction: '',
+      possessionSummary: opts.a2a.content ?? '',
+      relevantDecisions: [],
+      evidenceRefs: [],
+      constraints: [],
+      openQuestions: [],
+      forbiddenBehaviors: [],
+      sourceMessageIds: [],
+    } : undefined,
+    isFirstWake: opts.isFirstWake,
+    budgetOverride: opts.budget,
+  };
 
-  // History (P4 — GSSC：按 query 相关性筛选)
-  push('history', buildHistoryLayer(opts.messages ?? [], opts.agent.id, {
-    query: opts.rawPrompt,
-    limit: 10,
-  }), 4);
+  const result = await manager.assembleContext(req);
 
-  // Task context (P0)
-  if (opts.task) {
-    push('task', buildTaskContextLayer(opts.task), 0);
+  // 如果是首次唤醒，返回 systemPrompt + userPrompt
+  if (opts.isFirstWake && result.systemPrompt) {
+    return result.systemPrompt + '\n\n' + result.userPrompt;
   }
 
-  // A2A context (P1) or user message (P0)
-  if (a2aDispatch) {
-    push('a2a', buildA2ALayer({
-      a2aFrom: a2aDispatch.from,
-      a2aContent: a2aDispatch.content,
-      a2aContextSnapshot: a2aDispatch.contextSnapshot,
-    }), 1);
-  } else {
-    push('userMessage', buildUserMessageLayer(opts.rawPrompt), 0);
-  }
-
-  // Behavior (P0 — 闭环动作要求)
-  push('behavior', buildBehaviorLayer(), 0);
-
-  const { prompt } = composeWithBudget(parts, budget);
-  return prompt;
+  return result.userPrompt;
 }

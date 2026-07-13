@@ -61,6 +61,24 @@ function presetRuntimeAgent(agent: PresetRuntimeAgentInput, input: ResolveTeamRu
   };
 }
 
+const ROLE_EMOJI_HINTS: Array<[RegExp, string]> = [
+  [/planner|plan|统筹|规划/, '🎯'],
+  [/coder|developer|开发|实现/, '💻'],
+  [/frontend|前端|ui/, '🎨'],
+  [/backend|后端/, '🛠️'],
+  [/review|评审|审查/, '🔍'],
+  [/arch|架构/, '🏛️'],
+  [/qa|test|测试|验收/, '🧪'],
+  [/research|研究/, '🔬'],
+  [/analyst|分析/, '📊'],
+  [/writer|写作/, '✍️'],
+];
+
+function emojiForRole(role: { id: string; displayName?: string }): string {
+  const text = `${role.id} ${role.displayName ?? ''}`.toLowerCase();
+  return ROLE_EMOJI_HINTS.find(([re]) => re.test(text))?.[1] ?? '🤖';
+}
+
 function teamRoleRuntimeAgents(input: ResolveTeamRuntimeInput): RuntimeAgent[] {
   const teamPack = input.teamPack;
   if (!teamPack) return [];
@@ -92,6 +110,7 @@ function teamRoleRuntimeAgents(input: ResolveTeamRuntimeInput): RuntimeAgent[] {
       roleCard,
       accountIds,
       skills: skillsFromIds([...(role.skillIds ?? []), ...(input.agentSkillIds[role.id] ?? [])], input.skillsMap),
+      emoji: emojiForRole(role),
     };
   });
 }
