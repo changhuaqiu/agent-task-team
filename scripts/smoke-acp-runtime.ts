@@ -16,10 +16,11 @@
 // a real agent subprocess and depends on host auth/config. Run on demand.
 // Exits 0 on pass, 1 on fail.
 
-import { copyFileSync, existsSync, mkdtempSync, writeFileSync } from 'node:fs';
-import { homedir, tmpdir } from 'node:os';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { loadCatalog, createBackend } from '../src/server/agent/acp/catalog';
+import { prepareAcpRuntime } from '../src/server/agent/acp/runtimeSetup';
 
 const PROMPT = 'Reply with a single short greeting sentence.';
 // Adapter startup (npx → adapter → runtime) can be slow even when the package
@@ -64,52 +65,24 @@ async function main(): Promise<number> {
   // inspection on failure.
   const cwd = mkdtempSync(join(tmpdir(), `acp-smoke-${runtime}-`));
 
-  // --- Per-runtime setup ---------------------------------------------------
-  // opencode: write a project-local `opencode.json` with a verified model
-  //   (deepseek) into the temp cwd — the host default (glm-4.7) only emits
-  //   thought chunks, no agent_message_chunk (text), so the text assertion
-  //   can't pass against it. ACP PromptRequest has no model field + execute()
-  //   ignores opts.model (Task 5 deferral), so the model MUST be set through
-  //   opencode's own config layer.
-  // claude: NO cwd config. Auth comes from the host (Claude Code OAuth or
-  //   ANTHROPIC_API_KEY). The adapter is SDK-based (not Claude Code CLI
-  //   native), so it likely needs ANTHROPIC_API_KEY — attempt + observe.
-  // codex: isolate CODEX_HOME — copy the ESSENTIAL config (auth.json +
-  //   config.toml) from ~/.codex into a temp dir, then set CODEX_HOME env to
-  //   that dir. codex-acp reads CODEX_HOME to locate its config. This tests
-  //   the isolation mechanism the daemon needs in Task 8. Do NOT copy
-  //   cache/sqlite/goals_* — keep it minimal.
-  let modelLabel: string;
-  let env: Record<string, string> | undefined;
+  // --- Per-runtime setup (shared with the daemon via runtimeSetup) ---------
+  // The setup logic (opencode model, codex CODEX_HOME isolation, claude
+  // passthrough) lives in src/server/agent/acp/runtimeSetup.ts so the daemon
+  // (Task 8) and this smoke share one implementation.
+  const opencodeModel = process.argv[3] ?? DEFAULT_SMOKE_MODEL[runtime];
+  const prepared = prepareAcpRuntime(entry, {
+    cwd,
+    env: {},
+    opencodeModel,
+  });
 
+  const env = Object.keys(prepared.env).length > 0 ? prepared.env : undefined;
+  let modelLabel: string;
   if (runtime === 'opencode') {
-    const model = process.argv[3] ?? DEFAULT_SMOKE_MODEL[runtime];
-    writeFileSync(
-      join(cwd, 'opencode.json'),
-      `${JSON.stringify({ model }, null, 2)}\n`,
-    );
-    modelLabel = `${model} (via cwd opencode.json)`;
+    modelLabel = `${opencodeModel} (via cwd opencode.json)`;
   } else if (runtime === 'codex') {
-    const codexHomeSrc = join(homedir(), '.codex');
-    const codexHomeTmp = mkdtempSync(join(tmpdir(), 'acp-smoke-codex-home-'));
-    // Copy the essential config files (auth + model config). Skip cache,
-    // sqlite, goals_*, logs — keep the isolated home minimal.
-    const authSrc = join(codexHomeSrc, 'auth.json');
-    const configSrc = join(codexHomeSrc, 'config.toml');
-    if (existsSync(authSrc)) {
-      copyFileSync(authSrc, join(codexHomeTmp, 'auth.json'));
-    } else {
-      console.warn(`[smoke] WARNING: ${authSrc} not found — codex auth may fail`);
-    }
-    if (existsSync(configSrc)) {
-      copyFileSync(configSrc, join(codexHomeTmp, 'config.toml'));
-    } else {
-      console.warn(`[smoke] WARNING: ${configSrc} not found — codex model config may be missing`);
-    }
-    env = { CODEX_HOME: codexHomeTmp };
-    modelLabel = `(via isolated CODEX_HOME: ${codexHomeTmp})`;
+    modelLabel = `(via isolated CODEX_HOME: ${prepared.env.CODEX_HOME ?? '(none)'})`;
   } else {
-    // claude (or any other runtime): no cwd config, no env override.
     modelLabel = '(runtime default)';
   }
 
@@ -130,7 +103,7 @@ async function main(): Promise<number> {
   // reads cwd as `opts.cwd ?? this.o.cwd ?? process.cwd()`, and merges env as
   // `{ ...process.env, ...this.o.env, ...opts.env }` — so passing them again
   // to execute() would be redundant.
-  const backend = createBackend(entry, { cwd, env });
+  const backend = createBackend(entry, { cwd: prepared.cwd, env: prepared.env });
 
   const run = backend.execute(PROMPT, {
     timeout: TURN_TIMEOUT_MS,

@@ -20,9 +20,15 @@ import type { InvocationRow } from './repositories/invocation-repo';
 import { messageRepo } from './repositories/message-repo';
 import { eventRepo } from './repositories/event-repo';
 import { generateSortableId } from './repositories/sortable-id';
-import { createBackend } from './agent/factory';
+import { createBackend as createLegacyBackend } from './agent/factory';
+import { loadCatalog } from './agent/acp/catalog';
+import {
+  chooseBackend,
+  prepareAcpRuntime,
+} from './agent/acp/runtimeSetup';
+import { createBackend as createAcpBackend } from './agent/acp/catalog';
 import { checkCapabilities } from './agent/capabilityRouter';
-import type { AgentEvent } from './agent/types';
+import type { AgentEvent, AgentBackend } from './agent/types';
 import { withDoneGuarantee } from './agent/with-done-guarantee';
 import { WorkdirManager } from './workdir-manager';
 import { AgentMessenger } from './a2a';
@@ -465,6 +471,10 @@ export default function registerDaemon(io: IOServer) {
       let primaryCommand = 'unknown';
       let runtimeConfigDir: string | undefined;
       let controlEnvelopeId: string | undefined;
+      // ACP per-runtime cleanup (e.g. codex temp CODEX_HOME). Declared here so
+      // the outer catch (terminal:start error) can clean up if setup succeeds
+      // but a later step throws before the execute IIFE takes over.
+      let acpCleanup: (() => void) | undefined;
       try {
       const sessionConvId = conversationId || projectId || 'default';
       const emitDispatchReceipt = (
@@ -1109,8 +1119,8 @@ export default function registerDaemon(io: IOServer) {
       }
 
       // --- Execute via Backend abstraction ---
+      // `command` is retained for the terminal:exit broadcast payload below.
       const command = ENGINE_COMMAND[engine] || 'opencode';
-      const backend = createBackend(engine, { executablePath: command });
 
       // Auto-detect git repo and resolve worktree
       let effectiveSlug = projectSlug;
@@ -1149,18 +1159,63 @@ export default function registerDaemon(io: IOServer) {
         promptWithWorkdir += `\n[系统] 当前在 Git Worktree 分支 ${branchName} 下工作，工作目录: ${wd}`;
       }
 
+      // --- ACP/legacy routing selector (spec §7.3–§7.4) ---
+      // Migration flag: AGENT_BACKEND=legacy forces the legacy factory for ALL
+      // runtimes (fallback). Default: route verified-ACP runtimes through
+      // AcpBackend; unverified/unknown engines fall back to the legacy factory.
+      const useAcp = process.env.AGENT_BACKEND !== 'legacy';
+      const choice = chooseBackend(engine, loadCatalog(), useAcp);
+
+      // `executeCwd`/`executeEnv` flow into checkCapabilities opts below so the
+      // ACP path's prepared cwd/env (e.g. codex CODEX_HOME) reach the spawn.
+      // For the legacy path they carry the same values the old code used.
+      let executeCwd = wd;
+      let executeEnv: Record<string, string> = {
+        ...credentialEnv,
+        ...(runtimeConfigEnv || {}),
+      };
+
+      let backend: AgentBackend;
+
+      if (choice.kind === 'acp') {
+        console.log(`[daemon] routing ${agentId} (${engine}) → ACP (${choice.entry.delivery}/${choice.entry.id})`);
+        const prepared = prepareAcpRuntime(choice.entry, {
+          cwd: wd,
+          env: executeEnv,
+        });
+        executeCwd = prepared.cwd;
+        executeEnv = prepared.env;
+        acpCleanup = prepared.cleanup;
+        // codex startup ~117s (WebSocket→HTTPS fallback). Ensure the per-turn
+        // timeout is ≥ 180s for the codex ACP path even if CLI_TIMEOUT_MS was
+        // set lower (Task 7 Minor #1).
+        const minTimeout = engine === 'codex' ? 180_000 : 0;
+        if (timeoutMs > 0 && timeoutMs < minTimeout) {
+          console.warn(`[daemon] raising timeout ${timeoutMs}ms → ${minTimeout}ms for codex ACP startup`);
+        }
+        backend = createAcpBackend(choice.entry, {
+          cwd: prepared.cwd,
+          env: prepared.env,
+        });
+      } else {
+        backend = createLegacyBackend(engine, { executablePath: command });
+      }
+
+      // The effective per-turn timeout (raised for codex ACP if needed).
+      const effectiveTimeoutMs =
+        choice.kind === 'acp' && engine === 'codex' && timeoutMs > 0
+          ? Math.max(timeoutMs, 180_000)
+          : timeoutMs;
+
       // CapabilityRouter：按 backend 能力降级（resume/systemPrompt/maxTurns/PTY）+ 警告
       const capsResult = checkCapabilities(backend, {
         prompt: promptWithWorkdir,
         opts: {
-          cwd: wd,
+          cwd: executeCwd,
           systemPrompt: systemPrompt || undefined,
           resumeSessionId: effectiveSessionId || undefined,
-          timeout: timeoutMs > 0 ? timeoutMs : undefined,
-          env: {
-            ...credentialEnv,
-            ...(runtimeConfigEnv || {}),
-          },
+          timeout: effectiveTimeoutMs > 0 ? effectiveTimeoutMs : undefined,
+          env: executeEnv,
         },
       });
       if (capsResult.warnings.length > 0) {
@@ -1204,14 +1259,11 @@ export default function registerDaemon(io: IOServer) {
           if (final.status === 'failed' && effectiveSessionId && !final.sessionId) {
             console.log(`[daemon] session resume failed for ${agentId}, retrying with fresh session`);
             const retryRun = backend.execute(prompt || '', {
-              cwd: wd,
+              cwd: executeCwd,
               systemPrompt: systemPrompt || undefined,
               resumeSessionId: undefined,
-              timeout: timeoutMs > 0 ? timeoutMs : undefined,
-              env: {
-                ...credentialEnv,
-                ...(runtimeConfigEnv || {}),
-              },
+              timeout: effectiveTimeoutMs > 0 ? effectiveTimeoutMs : undefined,
+              env: executeEnv,
             });
 
             for await (const retryEvent of retryRun.events) {
@@ -1248,6 +1300,7 @@ export default function registerDaemon(io: IOServer) {
           agentResponseBuffer.delete(agentId);
           activeProcesses.delete(processKey(agentId, projectId));
           if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
+          acpCleanup?.();
         } catch (err) {
           clearProcessTimeout();
           clearInterval(heartbeatTimer);
@@ -1258,6 +1311,7 @@ export default function registerDaemon(io: IOServer) {
           agentResponseBuffer.delete(agentId);
           activeProcesses.delete(processKey(agentId, projectId));
           if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
+          acpCleanup?.();
         }
       })();
       } catch (err) {
@@ -1283,6 +1337,7 @@ export default function registerDaemon(io: IOServer) {
         agentResponseBuffer.delete(agentId);
         activeProcesses.delete(processKey(agentId, projectId));
         if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
+        acpCleanup?.();
       }
     });
 
