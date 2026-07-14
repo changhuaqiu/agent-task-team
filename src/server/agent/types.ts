@@ -54,10 +54,9 @@ export interface AgentRun {
   kill: () => void;
 }
 
-export interface BackendConfig {
-  executablePath: string;
-  env?: Record<string, string>;
-}
+// NOTE: `BackendConfig` (the bespoke backends' constructor shape) was removed
+// in Task 10 — AcpBackend has its own config type. See
+// specs/acp-runtime-integration/spec.md §7.4/§8.
 
 export interface AgentBackend {
   execute(prompt: string, opts: ExecOptions): AgentRun;

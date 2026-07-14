@@ -20,10 +20,8 @@ import type { InvocationRow } from './repositories/invocation-repo';
 import { messageRepo } from './repositories/message-repo';
 import { eventRepo } from './repositories/event-repo';
 import { generateSortableId } from './repositories/sortable-id';
-import { createBackend as createLegacyBackend } from './agent/factory';
 import { loadCatalog } from './agent/acp/catalog';
 import {
-  chooseBackend,
   prepareAcpRuntime,
 } from './agent/acp/runtimeSetup';
 import { createBackend as createAcpBackend } from './agent/acp/catalog';
@@ -694,9 +692,10 @@ export default function registerDaemon(io: IOServer) {
       // finishes booting. The default (300s) is unchanged; 0 (disabled) is
       // preserved. (Task 8 review fix: previously only backend.execute saw the
       // floor via effectiveTimeoutMs, while resetTimeout closed over the raw
-      // value — the two timers disagreed.)
+      // value — the two timers disagreed.) Task 10: the AGENT_BACKEND=legacy
+      // guard is gone — all codex turns are ACP now.
       const rawTimeoutMs = Number(process.env.CLI_TIMEOUT_MS || DEFAULT_TIMEOUT_MS);
-      const isCodexAcp = engine === 'codex' && process.env.AGENT_BACKEND !== 'legacy';
+      const isCodexAcp = engine === 'codex';
       const timeoutMs = isCodexAcp && rawTimeoutMs > 0 ? Math.max(rawTimeoutMs, 180_000) : rawTimeoutMs;
       let timeoutTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -1169,49 +1168,43 @@ export default function registerDaemon(io: IOServer) {
         promptWithWorkdir += `\n[系统] 当前在 Git Worktree 分支 ${branchName} 下工作，工作目录: ${wd}`;
       }
 
-      // --- ACP/legacy routing selector (spec §7.3–§7.4) ---
-      // Migration flag: AGENT_BACKEND=legacy forces the legacy factory for ALL
-      // runtimes (fallback). Default: route verified-ACP runtimes through
-      // AcpBackend; unverified/unknown engines fall back to the legacy factory.
-      const useAcp = process.env.AGENT_BACKEND !== 'legacy';
-      const choice = chooseBackend(engine, loadCatalog(), useAcp);
-
+      // --- ACP-only backend construction (Task 10, spec §7.4/§8) ---
+      // The bespoke factory + AGENT_BACKEND=legacy fallback were removed —
+      // every engine MUST resolve to a catalog entry. Unknown engines (e.g.
+      // gemini/mock, which have no catalog entry and were never functional
+      // through the bespoke backend) throw explicitly here; their tmux/bridge
+      // paths (primaryArgs) are unaffected.
+      //
       // `executeCwd`/`executeEnv` flow into checkCapabilities opts below so the
       // ACP path's prepared cwd/env (e.g. codex CODEX_HOME) reach the spawn.
-      // For the legacy path they carry the same values the old code used.
       let executeCwd = wd;
       let executeEnv: Record<string, string> = {
         ...credentialEnv,
         ...(runtimeConfigEnv || {}),
       };
 
-      let backend: AgentBackend;
-
-      if (choice.kind === 'acp') {
-        console.log(`[daemon] routing ${agentId} (${engine}) → ACP (${choice.entry.delivery}/${choice.entry.id})`);
-        const prepared = prepareAcpRuntime(choice.entry, {
-          cwd: wd,
-          env: executeEnv,
-        });
-        executeCwd = prepared.cwd;
-        executeEnv = prepared.env;
-        acpCleanup = prepared.cleanup;
-        // codex startup ~117s (WebSocket→HTTPS fallback). The kill timer +
-        // backend timeout are floored to ≥180s at the timeoutMs source for
-        // codex ACP (see ~L690). Warn only when codex actually routed to ACP
-        // AND the operator-tuned raw timeout was below the floor. (Task 8
-        // review fix: previously gated on engine==='codex' alone, warning for
-        // codex legacy too.)
-        if (choice.kind === 'acp' && engine === 'codex' && rawTimeoutMs > 0 && rawTimeoutMs < 180_000) {
-          console.warn(`[daemon] raising timeout ${rawTimeoutMs}ms → 180000ms for codex ACP startup`);
-        }
-        backend = createAcpBackend(choice.entry, {
-          cwd: prepared.cwd,
-          env: prepared.env,
-        });
-      } else {
-        backend = createLegacyBackend(engine, { executablePath: command });
+      const entry = loadCatalog().find((e) => e.id === engine);
+      if (!entry) {
+        throw new Error(
+          `no ACP catalog entry for engine: ${engine} (bespoke backends removed in Task 10)`,
+        );
       }
+      console.log(`[daemon] routing ${agentId} (${engine}) → ACP (${entry.delivery}/${entry.id})`);
+      const prepared = prepareAcpRuntime(entry, { cwd: wd, env: executeEnv });
+      executeCwd = prepared.cwd;
+      executeEnv = prepared.env;
+      acpCleanup = prepared.cleanup;
+      // codex startup ~117s (WebSocket→HTTPS fallback). The kill timer +
+      // backend timeout are floored to ≥180s at the timeoutMs source for codex
+      // ACP (see ~L690). Warn when the operator-tuned raw timeout was below
+      // the floor.
+      if (engine === 'codex' && rawTimeoutMs > 0 && rawTimeoutMs < 180_000) {
+        console.warn(`[daemon] raising timeout ${rawTimeoutMs}ms → 180000ms for codex ACP startup`);
+      }
+      const backend: AgentBackend = createAcpBackend(entry, {
+        cwd: prepared.cwd,
+        env: prepared.env,
+      });
 
       // The per-turn timeout. timeoutMs already carries the codex-ACP floor
       // (see ~L690), so resetTimeout, backend.execute, and the retry path all

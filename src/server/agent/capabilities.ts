@@ -21,43 +21,8 @@ export interface CapabilitySet {
   requiresPty: boolean;
 }
 
-export const CLAUDE_CAPS: CapabilitySet = {
-  engine: 'claude',
-  promptMode: 'stdin-stream-json',
-  outputMode: 'stream-json',
-  supportsResume: true,
-  supportsModel: true,
-  supportsSystemPrompt: true,
-  systemPromptMode: 'flag',
-  supportsMaxTurns: true,
-  supportsPermissionMode: true,
-  requiresPty: false,
-};
-
-export const OPENCODE_CAPS: CapabilitySet = {
-  engine: 'opencode',
-  promptMode: 'arg',
-  outputMode: 'events',
-  // Phase 3 实测（opencode run --help）：
-  supportsResume: true,         // --continue / --session
-  supportsModel: true,          // -m / --model
-  supportsSystemPrompt: true,
-  systemPromptMode: 'file',
-  supportsMaxTurns: false,      // 无 --max-turns flag
-  supportsPermissionMode: true, // --dangerously-skip-permissions
-  requiresPty: true,
-};
-
-export const CODEX_CAPS: CapabilitySet = {
-  engine: 'codex',
-  promptMode: 'arg',
-  outputMode: 'ndjson',
-  supportsResume: false,
-  supportsModel: true,
-  supportsSystemPrompt: false,
-  systemPromptMode: 'none',
-  supportsMaxTurns: false,
-  // codex 用固定的 --full-auto，视为一种（不可配置的）permission mode
-  supportsPermissionMode: true,
-  requiresPty: false,
-};
+// The per-engine capability CONSTANTS (CLAUDE_CAPS / OPENCODE_CAPS / CODEX_CAPS)
+// were removed in Task 10 along with the bespoke backends — AcpBackend now
+// derives its CapabilitySet from the catalog entry's EngineId, and
+// capabilityRouter consumers pass a synthetic CapabilitySet. See
+// specs/acp-runtime-integration/spec.md §7.4/§8.
