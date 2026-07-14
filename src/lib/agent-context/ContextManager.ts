@@ -30,8 +30,8 @@ export interface ContextProviders {
   getTask(taskId: string): Promise<{ id: string; title: string; description?: string; phase?: { title: string } } | undefined>;
   getTasks(conversationId: string): Promise<{ id: string; title: string; agentId: string; status: string }[]>;
   getTeamPack(agentId: string): Promise<TeamPack | undefined>;
-  getRuntimeRoster(conversationId: string): Promise<RuntimeAgent[]>;
-  getSkills(): Promise<string[]>;  // P1: 技能名称列表
+  getRuntimeRoster(conversationId: string): Promise<RuntimeAgent[] | undefined>;
+  getSkills(): Promise<SkillSummary[]>;
   getCurrentLoad(): Record<string, number>;  // P1: 当前负载 {agentId: taskCount}
 }
 
@@ -79,6 +79,7 @@ export interface ContextRequest {
   a2aHandoff?: A2AHandoffPacket;   // 仅 trigger='a2a_handoff' 时带
   isFirstWake: boolean;
   budgetOverride?: ContextBudget;  // 默认从 RoleCard / 项目配置推导
+  project?: { id: string; name: string; path: string }; // P1 项目信息
 }
 
 // 健康度报告
@@ -155,12 +156,10 @@ export class ContextManager {
     };
 
     // Skills + tools (P3 — 能力，可按需 JIT)
-    const skills = this.providers.getSkills();
-    // 将 string[] 转换为 SkillSummary[] 以适配 buildSkillLayer
-    const skillSummaries: SkillSummary[] = (roleCard?.capabilities?.skills ?? []).map(skillName => ({
-      name: skillName,
-      content: '',
-    }));
+    const providedSkills = await this.providers.getSkills();
+    const skillSummaries: SkillSummary[] = providedSkills.length
+      ? providedSkills
+      : (roleCard?.capabilities?.skills ?? []).map(skillName => ({ name: skillName, content: '' }));
     const tools = extractToolsFromSkills(skillSummaries);
     push('skill', buildSkillLayer(skillSummaries), { tier: 'tool', importance: 0.6 });
     push('tool', buildToolLayer(tools), { tier: 'tool', importance: 0.6 });
@@ -213,7 +212,10 @@ export class ContextManager {
       push('a2a', buildA2ALayer({
         a2aFrom: req.a2aHandoff.title,
         a2aContent: req.a2aHandoff.possessionSummary,
-        a2aContextSnapshot: JSON.stringify(req.a2aHandoff),
+        a2aContextSnapshot: JSON.stringify({
+          ...req.a2aHandoff,
+          possessionSummary: undefined,
+        }),
       }), { tier: 'project', importance: 0.7, scope: '/project' });
     } else {
       // 可见性标签；filterVisible/assertVisibility 强制执行在 P2 接入（见 spec §9）
@@ -264,7 +266,7 @@ export class ContextManager {
 
       systemPrompt = [
         buildRoleLayer({ id: req.agentId, name: roleCard?.name ?? 'Agent' }, roleCard),
-        buildProjectLayer({ name: '', path: '', id: '' }),
+        buildProjectLayer(req.project ?? { name: '', path: '', id: '' }),
         buildCollaborationLayer(),
         projectStatus,
       ]

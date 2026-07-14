@@ -460,7 +460,7 @@ export const createDaemonSlice = (set: any, get: () => any) => {
         },
       })),
 
-    simulateCliExecution: (taskId: string, prompt: string, sessionId?: string) => {
+    simulateCliExecution: async (taskId: string, prompt: string, sessionId?: string) => {
       const state = get();
       const task = state.tasks.find((t: any) => t.id === taskId);
       if (!task) return;
@@ -507,7 +507,7 @@ export const createDaemonSlice = (set: any, get: () => any) => {
         runtimeRoster: profile.prompt.roster,
       };
 
-      const systemPrompt = composeSystemPrompt(simOpts);
+      const systemPrompt = await composeSystemPrompt(simOpts);
 
       set((s: any) => ({
         agentStatus: { ...s.agentStatus, [agentId]: 'busy' },

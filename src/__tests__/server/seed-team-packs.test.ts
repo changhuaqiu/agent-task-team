@@ -17,15 +17,15 @@ afterEach(() => {
 });
 
 describe('seedTeamPacks', () => {
-  it('upgrades existing default Toad role to the backend implementation card', () => {
+  it('upgrades an existing default Luigi role to the full-stack implementation card', () => {
     const pack = teamPackRepo.create({
       name: 'default-team',
-      displayName: '默认团队（Mario 6人组）',
+      displayName: '默认团队',
       description: 'Legacy default team',
       roles: [
         {
-          id: 'toad',
-          displayName: '后端开发',
+          id: 'luigi',
+          displayName: '全栈开发',
           required: true,
           description: '后端服务、API 开发、数据库',
           soul: '# 后端开发',
@@ -35,8 +35,8 @@ describe('seedTeamPacks', () => {
       communicationMatrix: {},
     });
     const staleSnapshot = {
-      name: 'toad',
-      displayName: '后端开发',
+      name: 'luigi',
+      displayName: '全栈开发',
       description: '后端服务、API 开发、数据库',
       category: 'backend',
       tags: [],
@@ -62,15 +62,15 @@ describe('seedTeamPacks', () => {
     db.prepare(`
       UPDATE team_pack_role
       SET role_card_id = NULL, role_card_snapshot = ?
-      WHERE pack_id = ? AND role_id = 'toad'
+      WHERE pack_id = ? AND role_id = 'luigi'
     `).run(JSON.stringify(staleSnapshot), pack.id);
 
     seedTeamPacks();
 
-    const toad = teamPackRepo.getById(pack.id)?.roles.find((role) => role.id === 'toad');
-    expect(toad?.roleCardId).toBe('preset-backend');
-    expect(toad?.roleCardSnapshot?.sourceRoleCardId).toBe('preset-backend');
-    expect(toad?.roleCardSnapshot?.allowedActions).toContain('can_modify_code');
-    expect(toad?.roleCardSnapshot?.allowedActions).not.toContain('can_propose_only');
+    const luigi = teamPackRepo.getById(pack.id)?.roles.find((role) => role.id === 'luigi');
+    expect(luigi?.roleCardId).toBe('preset-frontend');
+    expect(luigi?.roleCardSnapshot?.sourceRoleCardId).toBe('preset-frontend');
+    expect(luigi?.roleCardSnapshot?.allowedActions).toContain('can_modify_code');
+    expect(luigi?.roleCardSnapshot?.allowedActions).not.toContain('can_propose_only');
   });
 });

@@ -90,7 +90,11 @@ export class WorktreeManager {
       worktrees.push(current as WorktreeInfo);
     }
 
-    return worktrees.filter((w) => w.path.startsWith(this.worktreeBase));
+    const base = path.resolve(this.worktreeBase);
+    return worktrees.filter((worktree) => {
+      const relative = path.relative(base, path.resolve(worktree.path));
+      return relative.length > 0 && !relative.startsWith('..') && !path.isAbsolute(relative);
+    });
   }
 
   async removeWorktree(projectSlug: string): Promise<void> {

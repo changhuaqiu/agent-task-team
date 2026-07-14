@@ -165,6 +165,53 @@ describe('A2A v2 integration', () => {
     expect(roomDispatches[0][2].conversationId).toBe('conv-1');
   });
 
+  it('submits A2A work to the server Harness and marks execution after admission', async () => {
+    const submitDispatch = vi.fn(() => ({
+      handled: true,
+      completion: Promise.resolve({ status: 'accepted' as const }),
+    }));
+    const serverMessenger = new AgentMessenger(db, io as any, AGENTS, {
+      getTasks: () => testTasks,
+    }, submitDispatch);
+    serverMessenger.orchestrator.reset();
+
+    serverMessenger.onUserMessage('conv-1', 'msg-harness', 'luigi', 'Implement through Harness');
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(submitDispatch).toHaveBeenCalledWith(expect.objectContaining({
+      conversationId: 'conv-1',
+      agentId: 'luigi',
+      fromAgentId: 'user',
+    }));
+    const dispatch = io.emitted().find(([event, payload]) => event === 'a2a:dispatch' && payload.agentId === 'luigi');
+    expect(dispatch?.[1]).toMatchObject({ handledByHarness: true });
+    const entry = db.prepare("SELECT status FROM chain_worklist WHERE agent_id = 'luigi'").get() as { status: string };
+    expect(entry.status).toBe('executing');
+  });
+
+  it('re-emits an explicit client fallback when server-side A2A planning is blocked', async () => {
+    const serverMessenger = new AgentMessenger(db, io as any, AGENTS, {
+      getTasks: () => testTasks,
+    }, () => ({
+      handled: true,
+      completion: Promise.resolve({ status: 'blocked' as const, reasonCode: 'runtime_profile_missing' }),
+    }));
+    serverMessenger.orchestrator.reset();
+
+    serverMessenger.onUserMessage('conv-1', 'msg-fallback', 'luigi', 'Use compatibility if needed');
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const dispatches = io.emitted().filter(([event, payload]) => event === 'a2a:dispatch' && payload.agentId === 'luigi');
+    expect(dispatches).toHaveLength(2);
+    expect(dispatches[0][1].handledByHarness).toBe(true);
+    expect(dispatches[1][1]).toMatchObject({
+      handledByHarness: false,
+      harnessFallbackReasonCode: 'runtime_profile_missing',
+    });
+  });
+
   it('agent @mention creates worklist entry and dispatches', async () => {
     // Create a chain first (simulates user message trigger)
     messenger.onUserMessage('conv-1', 'msg-1', 'mario', '开始设计');

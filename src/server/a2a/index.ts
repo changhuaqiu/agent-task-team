@@ -4,7 +4,7 @@ import type Database from 'better-sqlite3';
 import type { Server as IOServer } from 'socket.io';
 import type { CommunicationPolicy } from '@/lib/team-runtime';
 import type { AgentMentionConfig, TaskSummary } from './types-v2';
-import { Orchestrator } from './orchestrator';
+import { Orchestrator, type OrchestratorConfig } from './orchestrator';
 import { taskRepo } from '../repositories/task-repo';
 
 export interface KanbanSnapshotProvider {
@@ -27,6 +27,7 @@ export class AgentMessenger {
     io: IOServer,
     agentConfigs: AgentMentionConfig[],
     snapshotProvider?: KanbanSnapshotProvider,
+    submitDispatch?: NonNullable<OrchestratorConfig['submitDispatch']>,
   ) {
     const provider = snapshotProvider ?? defaultSnapshotProvider;
     this.orchestrator = new Orchestrator(db, io, agentConfigs, {
@@ -40,6 +41,7 @@ export class AgentMessenger {
       },
       getCommunicationPolicy: provider.getCommunicationPolicy?.bind(provider),
       getAgentMentionConfigs: provider.getAgentMentionConfigs?.bind(provider),
+      submitDispatch,
     });
   }
 

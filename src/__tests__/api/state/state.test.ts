@@ -71,7 +71,7 @@ describe('GET /api/state', () => {
     expect(res._json.recentInvocations[0].id).toBe('inv-1');
   });
 
-  it('limits messages to 100 per conversation', async () => {
+  it('returns all available messages below the server hydration cap', async () => {
     const { conversationRepo } = await import('@/server/repositories/conversation-repo');
     const { messageRepo } = await import('@/server/repositories/message-repo');
 
@@ -84,7 +84,7 @@ describe('GET /api/state', () => {
     const res = mockRes();
     await handler(req, res);
 
-    expect(res._json.recentMessages['conv-1'].length).toBe(100);
+    expect(res._json.recentMessages['conv-1'].length).toBe(120);
   });
 
   it('limits recent invocations to 50', async () => {

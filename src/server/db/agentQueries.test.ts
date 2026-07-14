@@ -14,9 +14,9 @@ describe('agentQueries', () => {
       seedPresetAgents();
     });
 
-    it('loads all 6 preset agents', () => {
+    it('loads all 4 preset agents', () => {
       const agents = listAgents();
-      expect(agents).toHaveLength(6);
+      expect(agents).toHaveLength(4);
     });
 
     it('each preset agent has is_preset = 1', () => {
@@ -28,12 +28,12 @@ describe('agentQueries', () => {
 
     it('preset agents contain expected ids', () => {
       const ids = listAgents().map((a) => a.id).sort();
-      expect(ids).toEqual(['dk', 'luigi', 'mario', 'peach', 'toad', 'yoshi']);
+      expect(ids).toEqual(['dk', 'luigi', 'mario', 'peach']);
     });
 
     it('seeding twice does not duplicate rows', () => {
       seedPresetAgents();
-      expect(listAgents()).toHaveLength(6);
+      expect(listAgents()).toHaveLength(4);
     });
   });
 

@@ -155,7 +155,7 @@ describe('Team Pack Dynamic Roster', () => {
       expect(ids).toContain('newagent');
 
       expect(ids).toContain('luigi');
-      expect(ids).toContain('toad');
+      expect(ids).toContain('peach');
     });
 
     it('effectiveRoster falls back to AGENT_ROSTER when no team pack', () => {

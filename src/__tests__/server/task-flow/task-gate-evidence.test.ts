@@ -13,7 +13,7 @@ describe('task status evidence gates', () => {
       required: true,
       gateName: 'implementation_evidence',
       reasonCode: 'task_graph.gate_evidence_required',
-      missingFields: ['buildResult', 'gitnexusEvidence'],
+      missingFields: ['buildResult', 'impactEvidence'],
     });
   });
 
@@ -23,7 +23,7 @@ describe('task status evidence gates', () => {
       evidence: {
         installResult: 'pnpm install passed',
         buildResult: 'pnpm build passed',
-        gitnexusEvidence: 'query: task status gate',
+        impactEvidence: 'repository query: task status gate',
       },
     });
 
@@ -47,7 +47,7 @@ describe('task status evidence gates', () => {
       allowed: false,
       required: true,
       gateName: 'delivery_evidence',
-      missingFields: ['mainInstallResult', 'mainTestResult', 'gitnexusDetectChangesResult'],
+      missingFields: ['mainInstallResult', 'mainTestResult', 'mainImpactReviewResult'],
     });
   });
 });

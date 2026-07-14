@@ -70,10 +70,10 @@ describe('project session scoping', () => {
     resetStoreForSessionScope();
   });
 
-  it('does not send a selected old project session when dispatching to a new conversation', () => {
+  it('does not send a selected old project session when dispatching to a new conversation', async () => {
     const emitSpy = vi.spyOn(socket, 'emit').mockImplementation(() => socket);
 
-    const accepted = useTaskHubStore.getState().dispatchToAgent({
+    const accepted = await useTaskHubStore.getState().dispatchToAgent({
       agentId: 'mario',
       prompt: 'start new project',
       conversationId: 'conv-new',
@@ -88,7 +88,7 @@ describe('project session scoping', () => {
     }));
   });
 
-  it('uses the session cached for the dispatch conversation only', () => {
+  it('uses the session cached for the dispatch conversation only', async () => {
     useTaskHubStore.setState((state) => ({
       agentSessions: {
         ...state.agentSessions,
@@ -97,7 +97,7 @@ describe('project session scoping', () => {
     }));
     const emitSpy = vi.spyOn(socket, 'emit').mockImplementation(() => socket);
 
-    useTaskHubStore.getState().dispatchToAgent({
+    await useTaskHubStore.getState().dispatchToAgent({
       agentId: 'mario',
       prompt: 'continue new project',
       conversationId: 'conv-new',

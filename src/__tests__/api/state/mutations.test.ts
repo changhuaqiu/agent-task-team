@@ -292,7 +292,7 @@ describe('POST /api/mutations', () => {
         evidence: {
           installResult: 'pnpm install passed',
           buildResult: 'pnpm build passed',
-          gitnexusEvidence: 'query: task update status',
+          impactEvidence: 'repository query: task update status',
         },
       },
     });
@@ -345,7 +345,7 @@ describe('POST /api/mutations', () => {
       agentId: 'agent-a',
       reasonCode: 'missing_implementation_evidence',
       metadata: expect.objectContaining({
-        missingFields: expect.arrayContaining(['installResult', 'buildResult', 'gitnexusEvidence']),
+        missingFields: expect.arrayContaining(['installResult', 'buildResult', 'impactEvidence']),
       }),
     }));
   });

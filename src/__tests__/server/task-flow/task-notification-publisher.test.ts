@@ -141,7 +141,7 @@ describe('publishTaskNotification', () => {
     }));
     expect(emit).toHaveBeenCalledWith('task.wakeup', expect.objectContaining({
       taskId: 'TASK-009',
-      agentId: 'yoshi',
+      agentId: 'peach',
       reasonCode: 'test_requested',
       dispatchSource: 'test_gate',
     }));
