@@ -1,25 +1,18 @@
 // src/server/agent/acp/runtimeSetup.ts
 //
-// Shared per-runtime ACP setup + the ACP/legacy routing selector.
+// Shared per-runtime ACP filesystem/env setup.
 //
 // Spec: specs/acp-runtime-integration/spec.md §7.3–§7.4 (daemon routing).
 //
-// Two exports:
-//
-// 1. `chooseBackend(engine, catalog, useAcp)` — a PURE routing decision used by
-//    the daemon (Task 8) to pick ACP vs legacy. Unit-testable without spawning
-//    anything. ACP is chosen only when the migration flag is on AND the catalog
-//    has a `prompt`-verified entry for the engine.
-//
-// 2. `prepareAcpRuntime(entry, opts)` — per-runtime filesystem/env setup the
-//    ACP path needs (extracted from scripts/smoke-acp-runtime.ts so the daemon
-//    and smoke share one implementation):
-//      - opencode: writes a project-local `opencode.json` with a text-producing
-//        model (host default glm-4.7 is thought-only). Skipped when the caller
-//        already set `OPENCODE_CONFIG` (the daemon's account-config path wins).
-//      - codex:    isolates `CODEX_HOME` into a temp dir with the ESSENTIAL
-//        config (auth.json + config.toml), returns a cleanup fn that removes it.
-//      - claude:   passthrough (auth comes from the host).
+// `prepareAcpRuntime(entry, opts)` — per-runtime filesystem/env setup the
+// ACP path needs (extracted from scripts/smoke-acp-runtime.ts so the daemon
+// and smoke share one implementation):
+//   - opencode: writes a project-local `opencode.json` with a text-producing
+//     model (host default glm-4.7 is thought-only). Skipped when the caller
+//     already set `OPENCODE_CONFIG` (the daemon's account-config path wins).
+//   - codex:    isolates `CODEX_HOME` into a temp dir with the ESSENTIAL
+//     config (auth.json + config.toml), returns a cleanup fn that removes it.
+//   - claude:   passthrough (auth comes from the host).
 //
 // This module has NO runtime spawn side effects — only filesystem/env prep.
 
@@ -33,40 +26,6 @@ import {
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AgentCatalogEntry } from './catalog';
-
-// ---------------------------------------------------------------------------
-// Routing selector (pure)
-// ---------------------------------------------------------------------------
-
-export type BackendChoice =
-  | { kind: 'acp'; entry: AgentCatalogEntry }
-  | { kind: 'legacy' };
-
-/**
- * Decide whether to route `engine` to ACP or the legacy factory.
- *
- * ACP is chosen only when:
- *  - `useAcp` is true (the migration flag is on), AND
- *  - the catalog has an entry whose `id` matches `engine`, AND
- *  - that entry has `prompt` in its `verifiedCapabilities` (the runtime accepts
- *    a prompt turn and produces output — the minimum bar for routing real work
- *    through ACP).
- *
- * Otherwise the caller falls back to the legacy per-engine factory.
- */
-export function chooseBackend(
-  engine: string,
-  catalog: AgentCatalogEntry[],
-  useAcp: boolean,
-): BackendChoice {
-  if (!useAcp) return { kind: 'legacy' };
-  const entry = catalog.find((e) => e.id === engine);
-  if (!entry) return { kind: 'legacy' };
-  if (!entry.verifiedCapabilities.includes('prompt')) {
-    return { kind: 'legacy' };
-  }
-  return { kind: 'acp', entry };
-}
 
 // ---------------------------------------------------------------------------
 // Per-runtime setup

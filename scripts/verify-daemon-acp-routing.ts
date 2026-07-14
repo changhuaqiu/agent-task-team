@@ -3,16 +3,16 @@
 //
 // Focused end-to-end verification that the daemon's ACP routing chain works
 // for opencode WITHOUT the full socket.io/DB stack. Exercises the exact
-// sequence the daemon (src/server/daemon.ts, Task 8 selector) follows:
+// sequence the daemon (src/server/daemon.ts, Task 10 ACP-only path) follows:
 //
-//   chooseBackend(engine, catalog, useAcp)
+//   loadCatalog().find(engine)
 //     → prepareAcpRuntime(entry, {cwd, env})
 //       → createAcpBackend(entry, {cwd, env})
 //         → backend.execute(prompt, opts)   [via checkCapabilities opts shape]
 //           → withDoneGuarantee(events, result)
 //             → drain events + await result
 //
-// Asserts: selector picks ACP, events flow (text + done), result completes,
+// Asserts: catalog entry resolves, events flow (text + done), result completes,
 // and acpCleanup runs. Exits 0 on pass, 1 on fail.
 //
 // NOT part of the default vitest suite — spawns a real opencode subprocess.
@@ -23,7 +23,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { loadCatalog, createBackend } from '../src/server/agent/acp/catalog';
-import { chooseBackend, prepareAcpRuntime } from '../src/server/agent/acp/runtimeSetup';
+import { prepareAcpRuntime } from '../src/server/agent/acp/runtimeSetup';
 import { checkCapabilities } from '../src/server/agent/capabilityRouter';
 import { withDoneGuarantee } from '../src/server/agent/with-done-guarantee';
 
@@ -32,19 +32,15 @@ const TURN_TIMEOUT_MS = 120_000;
 
 async function main(): Promise<number> {
   const engine = 'opencode';
-  const useAcp = process.env.AGENT_BACKEND !== 'legacy';
   const catalog = loadCatalog();
 
-  // --- Step 1: the daemon's routing selector ---
-  const choice = chooseBackend(engine, catalog, useAcp);
+  // --- Step 1: resolve catalog entry (daemon Task 10: ACP-only, legacy selector removed) ---
+  const entry = catalog.find((e) => e.id === engine);
   console.log('=== Daemon ACP Routing Verification ===');
   console.log(`engine:      ${engine}`);
-  console.log(`useAcp:      ${useAcp}`);
-  console.log(`choice:      ${choice.kind}`);
 
-  if (choice.kind !== 'acp') {
-    console.error(`FAIL: expected ACP routing for ${engine}, got legacy`);
-    console.error('  (set AGENT_BACKEND=legacy to force legacy — is that intended?)');
+  if (!entry) {
+    console.error(`FAIL: no ACP catalog entry for ${engine}`);
     return 1;
   }
 
@@ -59,7 +55,7 @@ async function main(): Promise<number> {
   const runtimeConfigEnv: Record<string, string> = {};
   const executeEnv = { ...credentialEnv, ...runtimeConfigEnv };
 
-  const prepared = prepareAcpRuntime(choice.entry, {
+  const prepared = prepareAcpRuntime(entry, {
     cwd: wd,
     env: executeEnv,
   });
@@ -67,7 +63,7 @@ async function main(): Promise<number> {
   console.log(`cleanup:     ${typeof prepared.cleanup}`);
 
   // --- Step 4: createAcpBackend (daemon's ACP construction) ---
-  const backend = createBackend(choice.entry, {
+  const backend = createBackend(entry, {
     cwd: prepared.cwd,
     env: prepared.env,
   });

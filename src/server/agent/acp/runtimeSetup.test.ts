@@ -1,6 +1,6 @@
 // src/server/agent/acp/runtimeSetup.test.ts
 //
-// Unit tests for the ACP/legacy routing selector + per-runtime setup helper.
+// Unit tests for the per-runtime ACP setup helper.
 // Pure + fast — NO real runtime is spawned. The real-runtime smoke lives in
 // scripts/smoke-acp-runtime.ts.
 //
@@ -11,65 +11,8 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtempSync, readFileSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import {
-  chooseBackend,
-  prepareAcpRuntime,
-} from './runtimeSetup';
-import { loadCatalog, type AgentCatalogEntry } from './catalog';
-
-// ---------------------------------------------------------------------------
-// chooseBackend (pure routing selector)
-// ---------------------------------------------------------------------------
-
-describe('chooseBackend — ACP/legacy routing selector', () => {
-  const catalog = loadCatalog();
-
-  it('routes to ACP for a prompt-verified engine when useAcp=true', () => {
-    // All three seed runtimes have 'prompt' in verifiedCapabilities.
-    for (const entry of catalog) {
-      const choice = chooseBackend(entry.id, catalog, true);
-      expect(choice.kind).toBe('acp');
-      if (choice.kind === 'acp') {
-        expect(choice.entry.id).toBe(entry.id);
-        expect(choice.entry.verifiedCapabilities).toContain('prompt');
-      }
-    }
-  });
-
-  it('routes to legacy when useAcp=false (AGENT_BACKEND=legacy)', () => {
-    const choice = chooseBackend('opencode', catalog, false);
-    expect(choice.kind).toBe('legacy');
-  });
-
-  it('routes to legacy for an unknown engine even when useAcp=true', () => {
-    const choice = chooseBackend('gemini', catalog, true);
-    expect(choice.kind).toBe('legacy');
-  });
-
-  it('routes to legacy when the entry lacks prompt verification', () => {
-    // Fabricate an entry missing 'prompt' from verifiedCapabilities.
-    const unverified: AgentCatalogEntry[] = [
-      {
-        id: 'opencode',
-        protocol: 'acp',
-        delivery: 'native',
-        launcher: { command: 'opencode', args: ['acp'] },
-        verifiedCapabilities: ['initialize', 'newSession'], // NO 'prompt'
-      },
-    ];
-    const choice = chooseBackend('opencode', unverified, true);
-    expect(choice.kind).toBe('legacy');
-  });
-
-  it('returns the catalog entry (not a copy) on the ACP path', () => {
-    const choice = chooseBackend('claude', catalog, true);
-    expect(choice.kind).toBe('acp');
-    if (choice.kind === 'acp') {
-      // Same object identity — the daemon uses entry.launcher etc directly.
-      expect(choice.entry).toBe(catalog.find((e) => e.id === 'claude'));
-    }
-  });
-});
+import { prepareAcpRuntime } from './runtimeSetup';
+import { loadCatalog } from './catalog';
 
 // ---------------------------------------------------------------------------
 // prepareAcpRuntime (per-runtime setup)
