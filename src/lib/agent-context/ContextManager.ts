@@ -232,7 +232,7 @@ export class ContextManager {
       saturation: budgetReport.totalTokens / budget.maxTokens,
       layers: parts.map(p => ({
         layer: p.layer,
-        priority: p.priority,
+        priority: p.priority ?? 0,
         tokens: Math.ceil(p.content.length / 4), // 简单估算
         trimmed: budgetReport.trimmed.includes(p.layer),
       })),
