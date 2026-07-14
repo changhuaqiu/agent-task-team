@@ -150,6 +150,15 @@ export class AcpBackend implements AgentBackend {
     let output = '';
     let sessionId: string | undefined;
 
+    // Cause flags for the abnormal-exit path. In ACP, turn completion is
+    // signaled by the PromptResponse/`stop` message, NOT process exit — so
+    // reaching the `close` handler with !resultResolved is always abnormal.
+    // These flags let the close handler resolve with the correct status:
+    // kill() → cancelled, timeout → timeout, otherwise → failed (never
+    // 'completed' for a bare process exit). Scoped per execute() call.
+    let killed = false;
+    let timedOut = false;
+
     const push = (event: AgentEvent) => {
       if (event.type === 'text') output += event.content;
       if (resolveNext) {
@@ -199,16 +208,12 @@ export class AcpBackend implements AgentBackend {
     // --- Timeout ---
     const timeoutMs = opts.timeout ?? this.o.timeoutMs ?? 120000;
     const timer = setTimeout(() => {
-      if (resultResolved) return;
+      if (resultResolved || timedOut) return;
+      timedOut = true;
       const msg = `ACP agent timed out after ${timeoutMs}ms`;
       push({ type: 'error', content: msg, sessionId });
-      resolveResult({
-        status: 'timeout',
-        output,
-        error: msg,
-        durationMs: Date.now() - startTime,
-        sessionId,
-      });
+      // Do NOT resolveResult here — killProcess() triggers `close`, whose
+      // handler resolves with the cause-based status (timeout).
       killProcess();
       wakeGenerator();
     }, timeoutMs);
@@ -277,6 +282,10 @@ export class AcpBackend implements AgentBackend {
       .catch((err: unknown) => {
         // connectWith rejects on stream error or if the cb throws.
         if (resultResolved) return;
+        // If kill()/timeout broke the stream (process killed mid-turn), the
+        // `close` handler will resolve with the correct cause-based status.
+        // Do not clobber it with a 'failed' here.
+        if (killed || timedOut) return;
         const errMsg = `ACP connection error: ${
           err instanceof Error ? err.message : String(err)
         }`;
@@ -294,6 +303,18 @@ export class AcpBackend implements AgentBackend {
         // so it drains remaining queued events and terminates.
         wakeGenerator();
       });
+
+    // --- Drain stderr (prevent OS pipe-buffer deadlock) ---
+    // stdio is piped on all three channels, but without a 'data' listener on
+    // stderr the OS pipe buffer (~64KB) can fill: real ACP agents (opencode
+    // acp) write diagnostics to stderr, and once the buffer fills the child's
+    // stderr writes block → deadlock (the mock writes nothing, so this only
+    // bites with real agents). Drain + log trimmed lines for debuggability.
+    // Best-effort: never throw. Mirrors OpenCodeBackend's pattern.
+    proc.stderr?.on('data', (chunk: Buffer) => {
+      const line = chunk.toString().trim();
+      if (line) console.warn('[acp] stderr:', line.slice(-500));
+    });
 
     // --- Process error / exit handlers ---
     proc.on('error', (err) => {
@@ -313,15 +334,23 @@ export class AcpBackend implements AgentBackend {
     proc.on('close', (code) => {
       // If the turn already completed, the result is resolved — nothing to do.
       if (resultResolved) return;
-      // Process exited before the turn completed.
-      const errMsg =
-        code !== null
-          ? `ACP agent process exited with code ${code}`
-          : 'ACP agent process exited';
+      // Abnormal exit: the turn did NOT complete via PromptResponse/`stop`.
+      // Resolve cause-based — process exit is never a successful ACP turn
+      // completion, so 'completed' is never used here.
+      const status: AgentResult['status'] = killed
+        ? 'cancelled'
+        : timedOut
+          ? 'timeout'
+          : 'failed';
+      const error = killed
+        ? 'killed by caller'
+        : timedOut
+          ? 'timeout'
+          : `process exited (code ${code})`;
       resolveResult({
-        status: code === 0 ? 'completed' : 'failed',
+        status,
         output,
-        error: code !== 0 ? errMsg : undefined,
+        error,
         durationMs: Date.now() - startTime,
         sessionId,
       });
@@ -363,14 +392,13 @@ export class AcpBackend implements AgentBackend {
       events,
       result: resultPromise,
       kill: () => {
-        if (resultResolved) return;
+        // Idempotent: a second call (or one after the turn completed) is a
+        // no-op. Sets the cause flag so the `close` handler resolves as
+        // 'cancelled'; does NOT resolveResult directly (close is the single
+        // abnormal-exit resolver).
+        if (resultResolved || killed) return;
+        killed = true;
         clearTimeout(timer);
-        resolveResult({
-          status: 'cancelled',
-          output,
-          durationMs: Date.now() - startTime,
-          sessionId,
-        });
         killProcess();
         wakeGenerator();
       },

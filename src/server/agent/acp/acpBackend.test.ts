@@ -66,8 +66,18 @@ describe('AcpBackend (subprocess integration with mockAcpAgent)', () => {
     // kill() must not throw even if called immediately.
     expect(() => run.kill()).not.toThrow();
 
-    // The result should resolve (as cancelled or another terminal status).
+    // Drain the event stream to completion. The withDoneGuarantee wrapper
+    // must still emit a `done` event after kill (generator terminates + the
+    // close handler resolves the result).
+    const types: string[] = [];
+    for await (const event of run.events) {
+      types.push(event.type);
+    }
+    expect(types).toContain('done');
+
+    // Cause-based close handler: kill() → 'cancelled' (deterministic, not the
+    // old loose set).
     const result = await run.result;
-    expect(['cancelled', 'failed', 'timeout']).toContain(result.status);
+    expect(result.status).toBe('cancelled');
   }, 30000);
 });
