@@ -1,0 +1,44 @@
+[
+  {
+    "id": "opencode",
+    "protocol": "acp",
+    "delivery": "native",
+    "launcher": { "command": "opencode", "args": ["acp"] },
+    "protocolVersion": 1,
+    "agentInfo": { "name": "OpenCode", "version": "1.14.35" },
+    "verifiedCapabilities": ["initialize"],
+    "probeNote": "2026-07-14 实测 initialize 握手成功（原生 ACP）"
+  },
+  {
+    "id": "claude",
+    "protocol": "acp",
+    "delivery": "adapter",
+    "launcher": {
+      "command": "npx",
+      "args": ["-y", "@agentclientprotocol/claude-agent-acp"],
+      "package": "@agentclientprotocol/claude-agent-acp",
+      "version": "0.59.0"
+    },
+    "legacyBackend": "claude",
+    "protocolVersion": 1,
+    "agentInfo": { "name": "@agentclientprotocol/claude-agent-acp", "title": "Claude Agent", "version": "0.59.0" },
+    "verifiedCapabilities": ["initialize"],
+    "probeNote": "2026-07-14 实测 initialize 握手成功；适配器 beta，锁版本 0.59.0；需主机 Claude 认证"
+  },
+  {
+    "id": "codex",
+    "protocol": "acp",
+    "delivery": "adapter",
+    "launcher": {
+      "command": "npx",
+      "args": ["-y", "@agentclientprotocol/codex-acp"],
+      "package": "@agentclientprotocol/codex-acp",
+      "version": "1.1.2"
+    },
+    "legacyBackend": "codex",
+    "protocolVersion": 1,
+    "agentInfo": { "name": "@agentclientprotocol/codex-acp", "title": "Codex", "version": "1.1.2" },
+    "verifiedCapabilities": ["initialize"],
+    "probeNote": "2026-07-14 实测 initialize 握手成功；锁版本 1.1.2；需主机 Codex/OpenAI 认证 + 隔离 CODEX_HOME"
+  }
+]
