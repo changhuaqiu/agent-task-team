@@ -87,7 +87,7 @@ export interface ContextReport {
   tokensUsed: number;
   tokensBudget: number;
   saturation: number;              // tokensUsed / tokensBudget
-  layers: Array<{ layer: string; priority: number; tier?: ContextTier; importance?: number; tokens: number; trimmed: boolean }>;
+  layers: Array<{ layer: string; priority?: number; tier?: ContextTier; importance?: number; tokens: number; trimmed: boolean }>;
   p0Intact: boolean;               // P0 层是否完整未裁剪
   droppedLayers: string[];
   recalledArtifacts: number;       // 记忆命中数（本期恒 0）
@@ -197,6 +197,7 @@ export class ContextManager {
     }), { tier: 'system', importance: 0.8 });
 
     // History (P4 — GSSC：按 query 相关性筛选)
+    // 可见性标签；filterVisible/assertVisibility 强制执行在 P2 接入（见 spec §9）
     push('history', buildHistoryLayer(messages, req.agentId, {
       query: req.rawPrompt,
       limit: 10,
@@ -215,6 +216,7 @@ export class ContextManager {
         a2aContextSnapshot: JSON.stringify(req.a2aHandoff),
       }), { tier: 'project', importance: 0.7, scope: '/project' });
     } else {
+      // 可见性标签；filterVisible/assertVisibility 强制执行在 P2 接入（见 spec §9）
       push('userMessage', buildUserMessageLayer(req.rawPrompt), { tier: 'project', importance: 0.9, scope: `/project/${req.agentId}`, private: true });
     }
 
@@ -226,7 +228,7 @@ export class ContextManager {
 
     // Health 层：生成 ContextReport
     const systemLayers = parts.filter(p => p.tier === 'system');
-    const p0Intact = systemLayers.every(l => !budgetReport.trimmed.includes(l.layer)); // system 层完整（字段名保留兼容）
+    const p0Intact = systemLayers.every(l => !budgetReport.trimmed.includes(l.layer)); // system 层完整（字段名保留兼容）// 注：p0Intact 现指 system 层完整；userMessage 等 former-P0 已归 project 层
 
     const report: ContextReport = {
       trigger: req.trigger,
@@ -235,7 +237,7 @@ export class ContextManager {
       saturation: budgetReport.totalTokens / budget.maxTokens,
       layers: parts.map(p => ({
         layer: p.layer,
-        priority: p.priority ?? 0,        // legacy 显示字段
+        priority: p.priority,        // legacy 显示字段（tier-based 层为 undefined）
         tier: p.tier,                      // 结构层（spec §8）
         importance: p.importance,          // 裁剪排序键
         tokens: Math.ceil(p.content.length / 4),
@@ -249,7 +251,7 @@ export class ContextManager {
     // System prompt（仅首次唤醒）
     let systemPrompt: string | undefined;
     if (req.isFirstWake) {
-      const rosterForStatus = (runtimeRoster ?? []).map((a) => ({ id: a.id, name: a.displayName, emoji: a.emoji ?? '🤖' }));
+      const rosterForStatus = (runtimeRoster ?? []).map((a) => ({ id: a.id, name: a.displayName, emoji: a.emoji ?? '🤖' })); // 花名册由 provider 供给（§4 唯一耦合面）；全局 store 兜底已按设计移除
 
       const projectStatus = tasks?.length
         ? buildProjectStatusLayer(rosterForStatus, tasks.map(t => ({

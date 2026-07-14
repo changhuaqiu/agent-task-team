@@ -33,8 +33,8 @@ interface Ranked {
 
 /** 把 legacy priority 映射成 tier + importance；有 tier+importance 则直用。 */
 function rank(part: BudgetPart): Ranked {
-  if (part.tier !== undefined && part.importance !== undefined) {
-    return { part, tier: part.tier, imp: part.importance };
+  if (part.tier !== undefined) {
+    return { part, tier: part.tier, imp: part.importance ?? 0.5 }; // 显式 tier 优先；importance 缺省 0.5
   }
   const pr = part.priority ?? 4;
   const tier: ContextTier = pr <= 1 ? 'system' : pr === 2 ? 'tool' : 'project';
