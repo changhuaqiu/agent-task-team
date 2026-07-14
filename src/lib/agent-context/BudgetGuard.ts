@@ -1,58 +1,87 @@
 // src/lib/agent-context/BudgetGuard.ts
-// stub —— TDD RED 阶段。
-
 import type { ContextBudget } from './ContextBudget';
+
+export type ContextTier = 'system' | 'tool' | 'project';
 
 export interface BudgetPart {
   layer: string;
   content: string;
-  priority: number; // 0=P0（几乎不丢）... 4=P4（最先压）
+  /** @deprecated legacy 0=P0(保留)..4=P4(先丢)。无 tier+importance 时自动映射。 */
+  priority?: number;
+  tier?: ContextTier;
+  importance?: number; // 0..1，越大越后裁
+  scope?: string;
+  private?: boolean;
 }
 
 export interface BudgetReport {
   totalTokens: number;
   trimmed: string[];
+  /** system 层自身超过可用预算（健康信号，不阻断） */
+  systemOverflow?: boolean;
 }
 
-/** 简单 token 估算（字符/4）。后续可换 gpt-tokenizer 精确计数。 */
 function countTokens(text: string): number {
   return Math.ceil(text.length / 4);
 }
+
+interface Ranked {
+  part: BudgetPart;
+  tier: ContextTier;
+  imp: number;
+}
+
+/** 把 legacy priority 映射成 tier + importance；有 tier+importance 则直用。 */
+function rank(part: BudgetPart): Ranked {
+  if (part.tier !== undefined && part.importance !== undefined) {
+    return { part, tier: part.tier, imp: part.importance };
+  }
+  const pr = part.priority ?? 4;
+  const tier: ContextTier = pr <= 1 ? 'system' : pr === 2 ? 'tool' : 'project';
+  const imp = 1 - pr / 4; // P0→1.0 … P4→0.0
+  return { part, tier, imp };
+}
+
+// 包含顺序：system → tool → project；同层内高 importance 优先包含（=后裁）
+const INCLUDE_ORDER: Record<ContextTier, number> = { system: 0, tool: 1, project: 2 };
 
 export function composeWithBudget(
   parts: BudgetPart[],
   budget: ContextBudget,
 ): { prompt: string; report: BudgetReport } {
   const available = budget.availableTokens();
-  // 按优先级升序（P4 先处理），同优先级保持原顺序
-  const sorted = [...parts].sort((a, b) => a.priority - b.priority);
+  const ranked = parts.map(rank);
+  const sorted = [...ranked].sort((a, b) => {
+    if (INCLUDE_ORDER[a.tier] !== INCLUDE_ORDER[b.tier]) {
+      return INCLUDE_ORDER[a.tier] - INCLUDE_ORDER[b.tier];
+    }
+    return b.imp - a.imp; // 高 importance 先包含
+  });
+
   const included: BudgetPart[] = [];
   const trimmed: string[] = [];
   let usedTokens = 0;
-  const p0HardLimit = Math.floor(available * 0.5); // P0 硬上限为预算的 50%
+  let systemOverflow = false;
 
-  for (const part of sorted) {
-    const tokens = countTokens(part.content);
-    if (part.priority === 0) {
-      // P0 优先保障，但有硬上限（防止 P0 过大挤占其他层）
-      if (usedTokens + tokens <= available && (usedTokens + tokens) <= p0HardLimit) {
-        included.push(part);
-        usedTokens += tokens;
-      } else {
-        trimmed.push(part.layer);
-      }
+  for (const r of sorted) {
+    const tokens = countTokens(r.part.content);
+    if (r.tier === 'system') {
+      // 系统层永不裁（spec §8）
+      included.push(r.part);
+      usedTokens += tokens;
+      if (tokens > available) systemOverflow = true;
     } else if (usedTokens + tokens <= available) {
-      included.push(part);
+      included.push(r.part);
       usedTokens += tokens;
     } else {
-      trimmed.push(part.layer);
+      trimmed.push(r.part.layer);
     }
   }
 
-  // 按原始 parts 顺序组装（不改变层的呈现顺序）
+  // 按原始 parts 顺序组装（不改变呈现顺序）
   const includedSet = new Set(included);
   const ordered = parts.filter((p) => includedSet.has(p));
   const prompt = ordered.map((p) => p.content).join('\n\n---\n\n');
 
-  return { prompt, report: { totalTokens: usedTokens, trimmed } };
+  return { prompt, report: { totalTokens: usedTokens, trimmed, systemOverflow } };
 }
