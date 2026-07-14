@@ -5,7 +5,7 @@ import type { ChatMessage } from '@/store/types';
 import type { RuntimeAgent } from '@/lib/team-runtime';
 import type { TeamPack } from '@/types/teamPack';
 import { ContextBudget } from './ContextBudget';
-import { composeWithBudget, type BudgetPart } from './BudgetGuard';
+import { composeWithBudget, type BudgetPart, type ContextTier } from './BudgetGuard';
 import { buildRoleLayer } from './layers/roleLayer';
 import { buildProjectLayer } from './layers/projectLayer';
 import { buildTeamLayer } from './layers/teamLayer';
@@ -20,7 +20,6 @@ import { buildProtocolLayer, deriveRoleFromCard } from './layers/protocolLayer';
 import { buildA2ALayer } from './layers/a2aLayer';
 import { buildTeamPackLayer } from './layers/teamPackLayer';
 import { buildCollaborationLayer } from './layers/collaborationLayer';
-import { AGENT_ROSTER } from '@/store/agentStore';
 import { extractToolsFromSkills, type SkillSummary } from './PromptComposer';
 
 // Provider 层（P1 只返回 mock，预留接口）
@@ -88,7 +87,7 @@ export interface ContextReport {
   tokensUsed: number;
   tokensBudget: number;
   saturation: number;              // tokensUsed / tokensBudget
-  layers: Array<{ layer: string; priority: number; tokens: number; trimmed: boolean }>;
+  layers: Array<{ layer: string; priority: number; tier?: ContextTier; importance?: number; tokens: number; trimmed: boolean }>;
   p0Intact: boolean;               // P0 层是否完整未裁剪
   droppedLayers: string[];
   recalledArtifacts: number;       // 记忆命中数（本期恒 0）
@@ -147,8 +146,12 @@ export class ContextManager {
     const parts: BudgetPart[] = [];
     const budget = req.budgetOverride ?? new ContextBudget();
 
-    const push = (layer: string, content: string | null | undefined, priority: number) => {
-      if (content) parts.push({ layer, content, priority });
+    const push = (
+      layer: string,
+      content: string | null | undefined,
+      opts: { tier: ContextTier; importance: number; scope?: string; private?: boolean },
+    ) => {
+      if (content) parts.push({ layer, content, ...opts });
     };
 
     // Skills + tools (P3 — 能力，可按需 JIT)
@@ -159,8 +162,8 @@ export class ContextManager {
       content: '',
     }));
     const tools = extractToolsFromSkills(skillSummaries);
-    push('skill', buildSkillLayer(skillSummaries), 3);
-    push('tool', buildToolLayer(tools), 3);
+    push('skill', buildSkillLayer(skillSummaries), { tier: 'tool', importance: 0.6 });
+    push('tool', buildToolLayer(tools), { tier: 'tool', importance: 0.6 });
 
     // Team roster (P2)
     const runtimeTeam = runtimeRoster?.length
@@ -175,13 +178,13 @@ export class ContextManager {
     const team = runtimeRoster !== undefined
       ? runtimeTeam
       : buildTeamLayer(req.agentId, allRoleCards ?? [], undefined);
-    push('team', team, 2);
+    push('team', team, { tier: 'project', importance: 0.5, scope: '/project' });
 
-    push('collaboration', buildCollaborationLayer(), 1);
+    push('collaboration', buildCollaborationLayer(), { tier: 'system', importance: 0.8 });
 
     // TeamPack context (P1)
     if (teamPack) {
-      push('teamPack', buildTeamPackLayer(req.agentId, teamPack), 1);
+      push('teamPack', buildTeamPackLayer(req.agentId, teamPack), { tier: 'project', importance: 0.6, scope: '/project' });
     }
 
     // Protocol layer (P0 — 约束，几乎不丢)
@@ -191,17 +194,17 @@ export class ContextManager {
       projectPath: '', // P1 暂不传，待 TASK-004 升级
       hasTaskAssignment: !!task,
       isPlanner: roleCard?.category === 'planner',
-    }), 0);
+    }), { tier: 'system', importance: 0.8 });
 
     // History (P4 — GSSC：按 query 相关性筛选)
     push('history', buildHistoryLayer(messages, req.agentId, {
       query: req.rawPrompt,
       limit: 10,
-    }), 4);
+    }), { tier: 'project', importance: 0.3, scope: `/project/${req.agentId}`, private: true });
 
     // Task context (P0)
     if (task) {
-      push('task', buildTaskContextLayer(task), 0);
+      push('task', buildTaskContextLayer(task), { tier: 'project', importance: 0.8, scope: '/project' });
     }
 
     // A2A context (P1) or user message (P0)
@@ -210,20 +213,20 @@ export class ContextManager {
         a2aFrom: req.a2aHandoff.title,
         a2aContent: req.a2aHandoff.possessionSummary,
         a2aContextSnapshot: JSON.stringify(req.a2aHandoff),
-      }), 1);
+      }), { tier: 'project', importance: 0.7, scope: '/project' });
     } else {
-      push('userMessage', buildUserMessageLayer(req.rawPrompt), 0);
+      push('userMessage', buildUserMessageLayer(req.rawPrompt), { tier: 'project', importance: 0.9, scope: `/project/${req.agentId}`, private: true });
     }
 
     // Behavior (P0 — 闭环动作要求)
-    push('behavior', buildBehaviorLayer(), 0);
+    push('behavior', buildBehaviorLayer(), { tier: 'system', importance: 0.7 });
 
     // Budget 层：复用 BudgetGuard
     const { prompt: userPrompt, report: budgetReport } = composeWithBudget(parts, budget);
 
     // Health 层：生成 ContextReport
-    const p0Layers = parts.filter(p => p.priority === 0);
-    const p0Intact = p0Layers.every(l => !budgetReport.trimmed.includes(l.layer));
+    const systemLayers = parts.filter(p => p.tier === 'system');
+    const p0Intact = systemLayers.every(l => !budgetReport.trimmed.includes(l.layer)); // system 层完整（字段名保留兼容）
 
     const report: ContextReport = {
       trigger: req.trigger,
@@ -232,8 +235,10 @@ export class ContextManager {
       saturation: budgetReport.totalTokens / budget.maxTokens,
       layers: parts.map(p => ({
         layer: p.layer,
-        priority: p.priority ?? 0,
-        tokens: Math.ceil(p.content.length / 4), // 简单估算
+        priority: p.priority ?? 0,        // legacy 显示字段
+        tier: p.tier,                      // 结构层（spec §8）
+        importance: p.importance,          // 裁剪排序键
+        tokens: Math.ceil(p.content.length / 4),
         trimmed: budgetReport.trimmed.includes(p.layer),
       })),
       p0Intact,
@@ -244,9 +249,7 @@ export class ContextManager {
     // System prompt（仅首次唤醒）
     let systemPrompt: string | undefined;
     if (req.isFirstWake) {
-      const rosterForStatus = runtimeRoster?.length
-        ? runtimeRoster.map((a) => ({ id: a.id, name: a.displayName, emoji: a.emoji ?? '🤖' }))
-        : AGENT_ROSTER.map((a) => ({ id: a.id, name: a.name, emoji: a.emoji }));
+      const rosterForStatus = (runtimeRoster ?? []).map((a) => ({ id: a.id, name: a.displayName, emoji: a.emoji ?? '🤖' }));
 
       const projectStatus = tasks?.length
         ? buildProjectStatusLayer(rosterForStatus, tasks.map(t => ({
