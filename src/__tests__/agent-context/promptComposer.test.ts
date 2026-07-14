@@ -155,10 +155,10 @@ describe('buildRoleLayer', () => {
     expect(result).not.toContain('只能提出建议');
   });
 
-  it('does not make preset backend advisory-only', () => {
-    const result = buildRoleLayer({ id: 'toad', name: 'Toad' }, PRESET_ROLE_CARD_MAP['preset-backend']);
+  it('does not make the implementation role advisory-only', () => {
+    const result = buildRoleLayer({ id: 'luigi', name: 'Luigi' }, PRESET_ROLE_CARD_MAP['preset-frontend']);
     expect(result).toContain('## 角色约束');
-    expect(result).toContain('职责：API 开发、数据模型设计、服务端逻辑实现、性能优化');
+    expect(result).toContain('职责：全栈开发、API 设计、数据模型、UI 组件、接口契约');
     expect(result).not.toContain('只能提出建议，不能直接修改代码');
   });
 

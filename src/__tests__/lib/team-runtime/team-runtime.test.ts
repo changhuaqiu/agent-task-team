@@ -199,7 +199,7 @@ describe('resolveTeamRuntime', () => {
     expect(runtime.communicationPolicy.explainBlock('reviewer', 'planner')).toBe('团队协作规则阻止了这次转交');
   });
 
-  it('keeps older default-team matrices compatible with Harness handoffs', () => {
+  it('does not resurrect removed roles from older default-team matrices', () => {
     const oldDefaultTeam: TeamPack = {
       ...teamPack,
       id: 'default-team-old',
@@ -233,8 +233,8 @@ describe('resolveTeamRuntime', () => {
       agentRoleCardOverrides: {},
     });
 
-    expect(runtime.communicationPolicy.canSend('peach', 'yoshi')).toBe(true);
-    expect(runtime.communicationPolicy.canSend('yoshi', 'dk')).toBe(true);
+    expect(runtime.communicationPolicy.canSend('peach', 'yoshi')).toBe(false);
+    expect(runtime.communicationPolicy.canSend('yoshi', 'dk')).toBe(false);
     expect(runtime.communicationPolicy.getEscalationTarget?.('peach', 'yoshi')).toBe('mario');
   });
 });

@@ -14,7 +14,7 @@ describe('WorktreeManager', () => {
 
   beforeEach(async () => {
     testRepo = fs.mkdtempSync(path.join(os.tmpdir(), 'worktree-test-'));
-    await execAsync('git init', { cwd: testRepo });
+    await execAsync('git init -b main', { cwd: testRepo });
     await execAsync('git commit --allow-empty -m "init"', { cwd: testRepo });
     manager = new WorktreeManager(testRepo);
   });
@@ -55,7 +55,7 @@ describe('WorktreeManager', () => {
 
   it('should return correct worktree path', () => {
     const p = manager.getWorktreePath('conv-path');
-    expect(p).toContain('.worktrees/conv-path');
+    expect(p.replaceAll('\\', '/')).toContain('.worktrees/conv-path');
   });
 
   it('should return correct branch name', () => {
@@ -95,7 +95,7 @@ describe('WorktreeManager', () => {
   describe('getRepoRoot', () => {
     it('should return repo root for a git repo', async () => {
       const root = await WorktreeManager.getRepoRoot(testRepo);
-      expect(root).toBe(fs.realpathSync(testRepo));
+      expect(path.resolve(root!)).toBe(path.resolve(fs.realpathSync(testRepo)));
     });
 
     it('should return null for a non-git directory', async () => {

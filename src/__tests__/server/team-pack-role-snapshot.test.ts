@@ -42,14 +42,14 @@ describe('team pack role snapshots', () => {
     expect(snapshot.forbiddenActions.join('')).toContain('直接修改代码');
   });
 
-  it('binds default Toad role to the backend preset role card', () => {
+  it('binds default Luigi role to the full-stack preset role card', () => {
     const defaultTeam = PRESET_TEAM_PACKS.find((pack) => pack.name === 'default-team');
-    const toad = defaultTeam?.roles.find((item) => item.id === 'toad');
+    const luigi = defaultTeam?.roles.find((item) => item.id === 'luigi');
 
-    expect(toad?.roleCardId).toBe('preset-backend');
+    expect(luigi?.roleCardId).toBe('preset-frontend');
 
-    const materialized = materializeTeamRoleSnapshot(toad!, PRESET_ROLE_CARDS);
-    expect(materialized.roleCardSnapshot?.sourceRoleCardId).toBe('preset-backend');
+    const materialized = materializeTeamRoleSnapshot(luigi!, PRESET_ROLE_CARDS);
+    expect(materialized.roleCardSnapshot?.sourceRoleCardId).toBe('preset-frontend');
     expect(materialized.roleCardSnapshot?.allowedActions).toContain('can_modify_code');
     expect(materialized.roleCardSnapshot?.allowedActions).not.toContain('can_propose_only');
   });

@@ -26,6 +26,7 @@
 
 | 规格 | 状态 | 当前边界 |
 | --- | --- | --- |
+| [`platform-harness-loop/`](platform-harness-loop/) | active | 服务端 Agent Loop 主规格：触发、角色解析、上下文、派发、执行观察与续接；其他执行/协作规格作为子契约 |
 | [`acp-runtime-integration/`](acp-runtime-integration/) | active | 用统一 ACP client 一次接入 OpenCode 原生 ACP、Claude/Codex ACP 适配器，并删除 bespoke backend |
 | [`context-manager/`](context-manager/) | active | 统一上下文注入、项目隔离、可见性与 A2A 上下文来源；以 `docs/technical/execution/context-layering.md` 为设计依据 |
 | [`team-simplification/`](team-simplification/) | active | 默认团队从 6 人收敛到 4 人并清理旧 preset |
@@ -40,6 +41,13 @@
 ## 依赖关系
 
 ```text
+platform-harness-loop
+├── system-control-plane
+├── context-manager
+├── acp-runtime-integration
+└── a2a-possession-contract
+    └── group-chat-task-flow
+
 system-control-plane
 ├── acp-runtime-integration
 ├── agent-session-stability

@@ -87,18 +87,19 @@ export async function composeSystemPrompt(opts: ComposeOptions): Promise<string 
     getTask: async () => opts.task,
     getTasks: async () => opts.tasks ?? [],
     getTeamPack: async () => opts.teamPack,
-    getRuntimeRoster: async () => opts.runtimeRoster ?? [],
-    getSkills: async () => [],
+    getRuntimeRoster: async () => opts.runtimeRoster,
+    getSkills: async () => opts.skills ?? [],
     getCurrentLoad: () => opts.currentLoad ?? {},
   }, noOpMemoryHook);
 
   const req: ContextRequest = {
     agentId: opts.agent.id,
-    conversationId: opts.project.name, // P1 临时用 name 作为 conversationId，待后续改造
+    conversationId: opts.project.id || opts.project.name,
     rawPrompt: opts.rawPrompt,
     trigger: 'user_turn',
     isFirstWake: opts.isFirstWake,
     budgetOverride: opts.budget,
+    project: { id: opts.project.id || '', name: opts.project.name, path: opts.project.path }, // P1: 临时传递 project 信息
   };
 
   const result = await manager.assembleContext(req);
@@ -113,19 +114,19 @@ export async function composeUserPrompt(opts: ComposeOptions): Promise<string> {
     getTask: async () => opts.task,
     getTasks: async () => opts.tasks ?? [],
     getTeamPack: async () => opts.teamPack,
-    getRuntimeRoster: async () => opts.runtimeRoster ?? [],
-    getSkills: async () => [],
+    getRuntimeRoster: async () => opts.runtimeRoster,
+    getSkills: async () => opts.skills ?? [],
     getCurrentLoad: () => opts.currentLoad ?? {},
   }, noOpMemoryHook);
 
   const req: ContextRequest = {
     agentId: opts.agent.id,
-    conversationId: opts.project.name, // P1 临时用 name 作为 conversationId，待后续改造
+    conversationId: opts.project.id || opts.project.name,
     taskId: opts.task?.id,
     rawPrompt: opts.rawPrompt,
     trigger: opts.a2a?.from && opts.a2a?.content ? 'a2a_handoff' : 'user_turn',
     a2aHandoff: opts.a2a ? {
-      title: opts.a2a.content ?? '',
+      title: opts.a2a.from ?? 'agent',
       requestedAction: '',
       possessionSummary: opts.a2a.content ?? '',
       relevantDecisions: [],
@@ -137,6 +138,7 @@ export async function composeUserPrompt(opts: ComposeOptions): Promise<string> {
     } : undefined,
     isFirstWake: opts.isFirstWake,
     budgetOverride: opts.budget,
+    project: { id: opts.project.id || '', name: opts.project.name, path: opts.project.path }, // P1: 临时传递 project 信息
   };
 
   const result = await manager.assembleContext(req);

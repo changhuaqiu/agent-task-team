@@ -76,7 +76,7 @@ describe('review gate wakeup', () => {
     resetReviewGateStore();
   });
 
-  it('dispatches coordinator review confirmation without joining an existing A2A chain', () => {
+  it('dispatches coordinator review confirmation without joining an existing A2A chain', async () => {
     const emitSpy = vi.spyOn(socket, 'emit').mockImplementation(() => socket);
 
     emitServerEvent('task.wakeup', {
@@ -94,7 +94,7 @@ describe('review gate wakeup', () => {
       },
     });
 
-    expect(emitSpy).toHaveBeenCalledWith('terminal:start', expect.objectContaining({
+    await vi.waitFor(() => expect(emitSpy).toHaveBeenCalledWith('terminal:start', expect.objectContaining({
       conversationId: 'conv-review',
       projectId: 'conv-review',
       taskId: 'TASK-001',
@@ -102,7 +102,7 @@ describe('review gate wakeup', () => {
       dispatchSource: 'review_gate',
       chainId: undefined,
       passId: undefined,
-    }));
+    })));
     expect(useTaskHubStore.getState().chatMessagesByConversation['conv-review']).toContainEqual(expect.objectContaining({
       id: 'msg-review-ready',
       mentions: ['mario'],
@@ -113,12 +113,12 @@ describe('review gate wakeup', () => {
     }));
   });
 
-  it('dispatches QA through test gate when a passing review wakeup arrives', () => {
+  it('dispatches QA through test gate when a passing review wakeup arrives', async () => {
     useTaskHubStore.setState((state) => ({
-      activeAgentIds: ['mario', 'dk', 'yoshi'],
+      activeAgentIds: ['mario', 'dk', 'peach'],
       agentAccountOverrides: {
         ...state.agentAccountOverrides,
-        yoshi: ['acc-openai'],
+        peach: ['acc-openai'],
       },
     }));
     const emitSpy = vi.spyOn(socket, 'emit').mockImplementation(() => socket);
@@ -127,7 +127,7 @@ describe('review gate wakeup', () => {
       id: 'msg-test-ready',
       conversationId: 'conv-review',
       taskId: 'TASK-001',
-      agentId: 'yoshi',
+      agentId: 'peach',
       reasonCode: 'test_requested',
       dispatchSource: 'test_gate',
       prompt: '请开始测试 TASK-001: Harness review.',
@@ -138,15 +138,15 @@ describe('review gate wakeup', () => {
       },
     });
 
-    expect(emitSpy).toHaveBeenCalledWith('terminal:start', expect.objectContaining({
+    await vi.waitFor(() => expect(emitSpy).toHaveBeenCalledWith('terminal:start', expect.objectContaining({
       conversationId: 'conv-review',
       projectId: 'conv-review',
       taskId: 'TASK-001',
-      agentId: 'yoshi',
+      agentId: 'peach',
       dispatchSource: 'test_gate',
       chainId: undefined,
       passId: undefined,
-    }));
+    })));
   });
 
   it('records dispatch receipts from the daemon', () => {
@@ -165,6 +165,45 @@ describe('review gate wakeup', () => {
       phase: 'started',
       targetAgentId: 'mario',
     }));
+  });
+
+  it('renders a server-owned wakeup without dispatching it again in the browser', async () => {
+    const emitSpy = vi.spyOn(socket, 'emit').mockImplementation(() => socket);
+
+    emitServerEvent('task.wakeup', {
+      id: 'msg-server-owned',
+      conversationId: 'conv-review',
+      taskId: 'TASK-001',
+      agentId: 'mario',
+      reasonCode: 'review_decision_ready',
+      dispatchSource: 'review_gate',
+      prompt: 'Confirm review',
+      content: 'Server-owned wakeup',
+      handledByHarness: true,
+    });
+
+    await Promise.resolve();
+    expect(emitSpy).not.toHaveBeenCalledWith('terminal:start', expect.anything());
+    expect(useTaskHubStore.getState().chatMessagesByConversation['conv-review'])
+      .toContainEqual(expect.objectContaining({ id: 'msg-server-owned' }));
+  });
+
+  it('does not execute a server-owned A2A dispatch twice', async () => {
+    const emitSpy = vi.spyOn(socket, 'emit').mockImplementation(() => socket);
+
+    emitServerEvent('a2a:dispatch', {
+      agentId: 'mario',
+      prompt: 'Continue server-side',
+      fromAgentId: 'dk',
+      conversationId: 'conv-review',
+      chainId: 'chain-1',
+      entryId: 'entry-1',
+      handledByHarness: true,
+    });
+
+    await Promise.resolve();
+    expect(emitSpy).not.toHaveBeenCalledWith('terminal:start', expect.anything());
+    expect(emitSpy).not.toHaveBeenCalledWith('a2a:agent-started', expect.anything());
   });
 
   it('re-dispatches the implementer to collect evidence after a successful run exits in progress', async () => {
@@ -232,7 +271,7 @@ describe('dependency_resolved wakeup', () => {
     }));
   });
 
-  it('dispatches agent and updates status when dependency_resolved wakeup arrives', () => {
+  it('dispatches agent and updates status when dependency_resolved wakeup arrives', async () => {
     const emitSpy = vi.spyOn(socket, 'emit').mockImplementation(() => socket);
 
     emitServerEvent('task.wakeup', {
@@ -250,13 +289,13 @@ describe('dependency_resolved wakeup', () => {
       },
     });
 
-    expect(emitSpy).toHaveBeenCalledWith('terminal:start', expect.objectContaining({
+    await vi.waitFor(() => expect(emitSpy).toHaveBeenCalledWith('terminal:start', expect.objectContaining({
       conversationId: 'conv-review',
       projectId: 'conv-review',
       taskId: 'TASK-007',
       agentId: 'luigi',
       dispatchSource: 'workflow',
-    }));
+    })));
 
     expect(useTaskHubStore.getState().chatMessagesByConversation['conv-review']).toContainEqual(expect.objectContaining({
       id: 'msg-dep-resolved',

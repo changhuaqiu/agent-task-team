@@ -21,6 +21,7 @@ import {
   resolveTaskWakeups,
   type TaskWakeup,
 } from './task-wakeup';
+import { submitTaskWakeupToHarness } from '../harness/registry';
 
 export interface PublishTaskNotificationInput {
   io?: IOServer;
@@ -73,7 +74,9 @@ function isReviewer(roleCard?: RoleCard): boolean {
 }
 
 function isQa(roleCard?: RoleCard): boolean {
-  return roleCard?.category === 'qa';
+  return roleCard?.category === 'qa' ||
+    roleCard?.capabilities?.domains?.includes('testing') === true ||
+    roleCard?.capabilities?.skills?.some((skill) => /(?:^|-)testing$|test|qa/i.test(skill)) === true;
 }
 
 export function resolveTaskNotificationAudience(conversationId: string): {
@@ -220,9 +223,11 @@ export function publishTaskChangeNotification(input: PublishTaskChangeNotificati
         prompt: wakeup.prompt,
       },
     });
+    const submission = submitTaskWakeupToHarness(input.io, { ...wakeup, id });
     emitWakeupToConversation(input.io, wakeup.conversationId, {
       ...wakeup,
       id,
+      handledByHarness: submission?.handled ?? false,
       createdAt: new Date().toISOString(),
     });
   }

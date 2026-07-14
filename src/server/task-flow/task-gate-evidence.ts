@@ -44,7 +44,7 @@ export function evaluateTaskStatusEvidenceGate(input: EvaluateTaskStatusEvidence
     const missingFields = missing(evidence, [
       'installResult',
       'buildResult',
-      'gitnexusEvidence',
+      'impactEvidence',
     ]);
     if (missingFields.length > 0) {
       return {
@@ -66,7 +66,7 @@ export function evaluateTaskStatusEvidenceGate(input: EvaluateTaskStatusEvidence
       'mainInstallResult',
       'mainBuildResult',
       'mainTestResult',
-      'gitnexusDetectChangesResult',
+      'mainImpactReviewResult',
     ]);
     if (missingFields.length > 0) {
       return {

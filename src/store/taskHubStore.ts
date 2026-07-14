@@ -2163,7 +2163,7 @@ socket.on('terminal:exit', ({ agentId, code, command, reasonCode, conversationId
   }
 
   // CLI success does not prove review readiness. The implementer must submit
-  // explicit install/build/GitNexus evidence before the task can enter review.
+  // explicit install/build/impact evidence before the task can enter review.
   if (code === 0 && taskId) {
       const task = store.getTaskById(taskId);
       if (task && task.status === 'in_progress') {
@@ -2172,13 +2172,13 @@ socket.on('terminal:exit', ({ agentId, code, command, reasonCode, conversationId
         taskId,
         type: 'gate_fail',
         gateId: 'build',
-        reasonSummary: '等待实现证据：进入 review_gate 前必须提供 installResult、buildResult 和 gitnexusEvidence。',
+        reasonSummary: '等待实现证据：进入 review_gate 前必须提供 installResult、buildResult 和 impactEvidence。',
         evidenceRef: runId ? `run:${runId}` : (command ? `cli:${command}` : undefined),
       });
       missingEvidenceRecovery = {
         taskId,
         conversationId: task.conversationId,
-        prompt: `请补齐 ${taskId}: ${task.title} 的 implementation_evidence：installResult、buildResult、gitnexusEvidence。补齐后用 task_update_status 将任务推进到 in_review。`,
+        prompt: `请补齐 ${taskId}: ${task.title} 的 implementation_evidence：installResult、buildResult、impactEvidence。补齐后用 task_update_status 将任务推进到 in_review。`,
       };
     }
   }
@@ -2228,7 +2228,8 @@ socket.on('terminal:exit', ({ agentId, code, command, reasonCode, conversationId
   }
 });
 
-socket.on('a2a:dispatch', async ({ agentId, prompt, referencedTaskId, fromAgentId, conversationId, chainId, entryId, passId }: { agentId: string; prompt: string; referencedTaskId?: string; fromAgentId: string; conversationId?: string; chainId?: string; entryId?: string; passId?: string }) => {
+socket.on('a2a:dispatch', async ({ agentId, prompt, referencedTaskId, fromAgentId, conversationId, chainId, entryId, passId, handledByHarness }: { agentId: string; prompt: string; referencedTaskId?: string; fromAgentId: string; conversationId?: string; chainId?: string; entryId?: string; passId?: string; handledByHarness?: boolean; harnessFallbackReasonCode?: string }) => {
+  if (handledByHarness) return;
   console.log(`[a2a:v2] chain=${chainId} dispatch ${fromAgentId} → ${agentId}`);
   const state = useTaskHubStore.getState();
   if (state.agentStatus[agentId] && state.agentStatus[agentId] !== 'idle') {
@@ -2382,6 +2383,8 @@ socket.on('task.wakeup', (wakeup: {
   content?: string;
   createdAt?: string;
   metadata?: Record<string, any>;
+  handledByHarness?: boolean;
+  harnessFallbackReasonCode?: string;
 }) => {
   const conversationId = wakeup.conversationId;
   const taskId = wakeup.taskId;
@@ -2417,6 +2420,10 @@ socket.on('task.wakeup', (wakeup: {
       };
     });
   }
+
+  // The service-side Harness owns continuation after admission. The wakeup
+  // remains visible in chat, but the browser must not start a duplicate run.
+  if (wakeup.handledByHarness) return;
 
   const store = useTaskHubStore.getState();
   const task = store.getTaskById(taskId);

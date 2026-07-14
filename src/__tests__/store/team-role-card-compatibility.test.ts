@@ -317,11 +317,7 @@ describe('team role card compatibility', () => {
       conversationId: 'conv-team',
     });
 
-    expect(emitSpy).toHaveBeenCalledWith('a2a:user-turn-created', expect.objectContaining({
-      conversationId: 'conv-team',
-      targetAgentIds: [],
-      prompt: '@planner Draft a plan',
-    }));
+    expect(emitSpy).not.toHaveBeenCalledWith('a2a:user-turn-created', expect.anything());
     expect(emitSpy).not.toHaveBeenCalledWith('a2a:user-turn-created', expect.objectContaining({
       targetAgentIds: ['planner'],
     }));

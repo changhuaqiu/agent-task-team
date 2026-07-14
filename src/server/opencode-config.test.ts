@@ -355,8 +355,8 @@ describe('generateRuntimeConfig: disk operations', () => {
       apiKey: 'mk-key',
       models: ['moonshot-v2'],
     }, 'my-inv-42');
-    expect(result.configPath).toMatch(/\.ath-test-oc-config\/oc-config-my-inv-42\/opencode\.json$/);
-    expect(result.configDir).toMatch(/\.ath-test-oc-config\/oc-config-my-inv-42$/);
+    expect(result.configPath?.replaceAll('\\', '/')).toMatch(/\.ath-test-oc-config\/oc-config-my-inv-42\/opencode\.json$/);
+    expect(result.configDir?.replaceAll('\\', '/')).toMatch(/\.ath-test-oc-config\/oc-config-my-inv-42$/);
   });
 });
 

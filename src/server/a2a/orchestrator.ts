@@ -69,6 +69,19 @@ export interface OrchestratorConfig {
   getTasksForConversation: (conversationId: string) => TaskSummary[];
   getCommunicationPolicy?: (conversationId: string) => CommunicationPolicy | undefined;
   getAgentMentionConfigs?: (conversationId: string) => AgentMentionConfig[] | undefined;
+  submitDispatch?: (input: {
+    conversationId: string;
+    agentId: string;
+    prompt: string;
+    referencedTaskId?: string;
+    fromAgentId: string;
+    chainId: string;
+    entryId: string;
+    passId?: string;
+  }) => {
+    handled: boolean;
+    completion: Promise<{ status: 'accepted' | 'deferred' | 'blocked' | 'failed'; reasonCode?: string }>;
+  } | undefined;
 }
 
 export class Orchestrator {
@@ -721,6 +734,16 @@ export class Orchestrator {
 
       // Compatibility event for the current client. The client must ACK with
       // a2a:agent-started before this becomes executing in the possession model.
+      const serverSubmission = this.config.submitDispatch?.({
+        agentId: next.agentId,
+        prompt,
+        referencedTaskId,
+        fromAgentId: next.requestedBy,
+        conversationId,
+        chainId,
+        entryId: next.id,
+        passId,
+      });
       const dispatchPayload = {
         agentId: next.agentId,
         prompt,
@@ -730,6 +753,7 @@ export class Orchestrator {
         chainId,
         entryId: next.id,
         passId,
+        handledByHarness: serverSubmission?.handled ?? false,
       };
       this.io.to(conversationId).emit('a2a:dispatch', dispatchPayload);
       this.recordDeliverySent({
@@ -740,6 +764,23 @@ export class Orchestrator {
         agentId: next.agentId,
         payload: dispatchPayload,
       });
+
+      if (serverSubmission?.handled) {
+        void serverSubmission.completion.then((outcome) => {
+          if (outcome.status === 'accepted') {
+            this.markDispatchStarted(chainId, next.id, conversationId, next.agentId, passId);
+            return;
+          }
+          // A server-side profile/context may be unavailable while an older
+          // browser still has a compatible snapshot. Re-emit explicitly as a
+          // compatibility fallback instead of losing the A2A handoff.
+          this.io.to(conversationId).emit('a2a:dispatch', {
+            ...dispatchPayload,
+            handledByHarness: false,
+            harnessFallbackReasonCode: outcome.reasonCode ?? outcome.status,
+          });
+        });
+      }
 
       dispatched = true;
     }

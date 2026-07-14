@@ -49,6 +49,9 @@ export interface TaskWakeup {
     missingFields?: string[];
   };
   createdAt?: string;
+  /** Accepted server-side wakeups are rendered by clients but never dispatched twice. */
+  handledByHarness?: boolean;
+  harnessFallbackReasonCode?: string;
 }
 
 export interface TaskWakeupDeduper {

@@ -37,6 +37,14 @@ import { proofLogRepo } from './repositories/proof-log-repo';
 import { resolveTaskNotificationAudience } from './task-flow/task-notification-publisher';
 import { resolveAutonomyGuardWakeups } from './task-flow/autonomy-guard';
 import { startWorktreeGCScheduler, stopWorktreeGCScheduler } from './worktree-gc';
+import {
+  HarnessCoordinator,
+  RepositoryHarnessPlanner,
+  registerHarnessCoordinator,
+  submitTaskWakeupToHarness,
+  type HarnessDispatchPlan,
+  type HarnessOutcome,
+} from './harness';
 
 type TerminalStartPayload = {
   projectId?: string;
@@ -150,6 +158,48 @@ export default function registerDaemon(io: IOServer) {
   const broadcast = (event: string, data: any) => io.emit(event, data);
   const agentResponseBuffer = new Map<string, string>();
   const dispatchGateway = new DispatchGateway();
+  let handleTerminalStart: ((payload: TerminalStartPayload, emitToRequester?: (event: string, data: unknown) => void) => Promise<void>) | undefined;
+
+  const harnessCoordinator = new HarnessCoordinator({
+    planner: new RepositoryHarnessPlanner(),
+    runtime: {
+      isBusy(agentId, conversationId) {
+        return activeProcesses.has(processKey(agentId, conversationId));
+      },
+      async execute(plan: HarnessDispatchPlan): Promise<HarnessOutcome> {
+        if (!handleTerminalStart) {
+          return { status: 'failed', reasonCode: 'internal_error', message: 'daemon runtime port is not ready' };
+        }
+        await handleTerminalStart({
+          projectId: plan.trigger.conversationId,
+          conversationId: plan.trigger.conversationId,
+          taskId: plan.trigger.taskId,
+          agentId: plan.trigger.agentId,
+          prompt: plan.prompt,
+          systemPrompt: plan.systemPrompt,
+          sourceNodeId: LOCAL_DAEMON_NODE_ID,
+          dispatchSource: plan.trigger.source,
+          dispatchIntent: plan.trigger.source === 'review_gate'
+            ? 'review'
+            : plan.trigger.source === 'test_gate'
+              ? 'verify'
+              : plan.trigger.source === 'a2a'
+                ? 'delegate'
+                : 'implement',
+          fromAgentId: plan.trigger.fromAgentId,
+          chainId: plan.trigger.chainId,
+          passId: plan.trigger.passId,
+          engine: plan.engine,
+          runtimeId: plan.runtimeId,
+          accountId: plan.accountId,
+          projectPath: plan.projectPath,
+          useWorktree: plan.useWorktree,
+        }, (event, data) => io.to(plan.trigger.conversationId).emit(event, data));
+        return { status: 'accepted' };
+      },
+    },
+  });
+  registerHarnessCoordinator(io, harnessCoordinator);
 
   dispatchGateway.ensureRuntimeNode({
     id: LOCAL_DAEMON_NODE_ID,
@@ -206,9 +256,11 @@ export default function registerDaemon(io: IOServer) {
             idempotencyKey: key,
           },
         });
+        const submission = submitTaskWakeupToHarness(io, wakeup);
         io.to(wakeup.conversationId).emit('task.wakeup', {
           ...wakeup,
           id: `wakeup-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          handledByHarness: submission?.handled ?? false,
           createdAt: new Date().toISOString(),
         });
       }
@@ -245,6 +297,21 @@ export default function registerDaemon(io: IOServer) {
       mentionPatterns: [`@${a.id}`, `@${a.name}`],
     })),
     createRuntimeSnapshotProvider(),
+    (input) => {
+      const submission = harnessCoordinator.submit({
+        id: `a2a:${input.entryId}`,
+        source: 'a2a',
+        conversationId: input.conversationId,
+        taskId: input.referencedTaskId,
+        agentId: input.agentId,
+        prompt: input.prompt,
+        fromAgentId: input.fromAgentId,
+        chainId: input.chainId,
+        passId: input.passId,
+        idempotencyKey: `a2a:${input.chainId}:${input.entryId}:${input.agentId}`,
+      });
+      return { handled: submission.handled, completion: submission.completion };
+    },
   );
 
   // Expire stale A2A chains on startup
@@ -430,10 +497,7 @@ export default function registerDaemon(io: IOServer) {
     })();
   });
 
-  io.on('connection', (socket: Socket) => {
-    socket.on(
-      'terminal:start',
-      async ({
+  handleTerminalStart = async ({
         projectId,
         taskId,
         agentId,
@@ -459,7 +523,7 @@ export default function registerDaemon(io: IOServer) {
         projectSlug,
         projectPath,
         useWorktree,
-      }: TerminalStartPayload) => {
+      }: TerminalStartPayload, emitToRequester = broadcast) => {
       console.log(`[daemon] terminal:start agent=${agentId}, engine=${rawEngine}, accountId=${accountId ?? '(none)'}, force=${force}, busy=${activeProcesses.has(processKey(agentId, projectId))}`);
       console.log(`[daemon] systemPrompt=${systemPrompt ? `${systemPrompt.length} chars` : '(none)'}, prompt=${prompt ? `${prompt.length} chars` : '(none)'}`);
       let primaryCommand = 'unknown';
@@ -467,6 +531,7 @@ export default function registerDaemon(io: IOServer) {
       let controlEnvelopeId: string | undefined;
       try {
       const sessionConvId = conversationId || projectId || 'default';
+      const responseBufferKey = processKey(agentId, sessionConvId);
       const emitDispatchReceipt = (
         phase: 'requested' | 'sent' | 'started' | 'completed' | 'blocked' | 'failed',
         reasonCode?: string,
@@ -547,7 +612,7 @@ export default function registerDaemon(io: IOServer) {
 
       if (envelope.status === 'blocked') {
         emitDispatchReceipt('blocked', envelope.reason_code ?? 'runtime_blocked');
-        socket.emit('agent:error', {
+        emitToRequester('agent:error', {
           agentId,
           message: `目标运行实例不可达：${envelope.reason_code ?? 'blocked'}`,
           reasonCode: envelope.reason_code ?? 'runtime_blocked',
@@ -562,7 +627,7 @@ export default function registerDaemon(io: IOServer) {
       // If agent is busy and not forcing, reject silently — client should have queued
       if (!force && activeProcesses.has(processKey(agentId, projectId))) {
         markEnvelopeFailed('agent_busy');
-        socket.emit('agent:error', { agentId, message: 'Agent is busy, message queued' });
+        emitToRequester('agent:error', { agentId, message: 'Agent is busy, message queued' });
         return;
       }
       dispatchGateway.markSent(controlEnvelopeId);
@@ -707,8 +772,8 @@ export default function registerDaemon(io: IOServer) {
         if (a2aCompletionHandled) return;
         a2aCompletionHandled = true;
 
-        const accumulated = agentResponseBuffer.get(agentId) ?? finalContent;
-        agentResponseBuffer.delete(agentId);
+        const accumulated = agentResponseBuffer.get(responseBufferKey) ?? finalContent;
+        agentResponseBuffer.delete(responseBufferKey);
         if (accumulated && sessionConvId) {
           a2aMessenger.onAgentResponse(agentId, accumulated, {
             conversationId: sessionConvId,
@@ -894,8 +959,8 @@ export default function registerDaemon(io: IOServer) {
 
         // Buffer agent text for A2A scanning
         if (event.type === 'text' && typeof event.content === 'string') {
-          const existing = agentResponseBuffer.get(agentId) ?? '';
-          agentResponseBuffer.set(agentId, existing + event.content);
+          const existing = agentResponseBuffer.get(responseBufferKey) ?? '';
+          agentResponseBuffer.set(responseBufferKey, existing + event.content);
         }
 
         // Persist to message repo
@@ -980,7 +1045,7 @@ export default function registerDaemon(io: IOServer) {
             // 失败不 seal session（保持 active，下次 @ resume，id 不变）—— specs/agent-session-stability
             markEnvelopeFailed('spawn_failed');
             broadcast('terminal:exit', { agentId, code: 127, command: 'bridge', reasonCode: 'spawn_failed' });
-            agentResponseBuffer.delete(agentId);
+            agentResponseBuffer.delete(responseBufferKey);
             activeProcesses.delete(processKey(agentId, projectId));
             if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
             return;
@@ -1032,7 +1097,7 @@ export default function registerDaemon(io: IOServer) {
             conversationId: sessionConvId,
             activity: hasBackgroundChildActivity ? 'awaiting_children' : 'idle',
           });
-          agentResponseBuffer.delete(agentId);
+          agentResponseBuffer.delete(responseBufferKey);
           activeProcesses.delete(processKey(agentId, projectId));
           if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
           return;
@@ -1048,7 +1113,7 @@ export default function registerDaemon(io: IOServer) {
           // 失败不 seal session（保持 active，下次 @ resume，id 不变）—— specs/agent-session-stability
           markEnvelopeFailed('spawn_failed');
           broadcast('terminal:exit', { agentId, code: 127, command: 'bridge', reasonCode: 'spawn_failed' });
-          agentResponseBuffer.delete(agentId);
+          agentResponseBuffer.delete(responseBufferKey);
           activeProcesses.delete(processKey(agentId, projectId));
           if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
           return;
@@ -1245,7 +1310,7 @@ export default function registerDaemon(io: IOServer) {
             conversationId: sessionConvId,
             activity: final.status === 'completed' && hasBackgroundChildActivity ? 'awaiting_children' : 'idle',
           });
-          agentResponseBuffer.delete(agentId);
+          agentResponseBuffer.delete(responseBufferKey);
           activeProcesses.delete(processKey(agentId, projectId));
           if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
         } catch (err) {
@@ -1255,7 +1320,7 @@ export default function registerDaemon(io: IOServer) {
           // 失败不 seal session（保持 active，下次 @ resume，id 不变）—— specs/agent-session-stability
           markEnvelopeFailed('spawn_failed');
           broadcast('terminal:exit', { agentId, code: 1, command, reasonCode: 'spawn_failed' });
-          agentResponseBuffer.delete(agentId);
+          agentResponseBuffer.delete(responseBufferKey);
           activeProcesses.delete(processKey(agentId, projectId));
           if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
         }
@@ -1280,10 +1345,15 @@ export default function registerDaemon(io: IOServer) {
         }
         broadcast('agent:error', { agentId, message: `内部错误：${(err as Error)?.message || '未知'}` });
         broadcast('terminal:exit', { agentId, code: 1, command: primaryCommand, reasonCode: 'internal_error' });
-        agentResponseBuffer.delete(agentId);
+        agentResponseBuffer.delete(processKey(agentId, conversationId || projectId || 'default'));
         activeProcesses.delete(processKey(agentId, projectId));
         if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
       }
+    };
+
+  io.on('connection', (socket: Socket) => {
+    socket.on('terminal:start', (payload: TerminalStartPayload) => {
+      void handleTerminalStart?.(payload, (event, data) => socket.emit(event, data));
     });
 
     // Force-kill a running agent process
