@@ -1,3 +1,5 @@
+import type { ContextRecord, VisibilityCtx } from './contextRecord';
+
 /**
  * ScopeGuard - 作用域守卫
  *
@@ -112,4 +114,36 @@ export function filterByProjectId<T extends ScopedItem>(
   projectId: string,
 ): T[] {
   return items.filter(item => item.conversationId === projectId);
+}
+
+/**
+ * 私有泄漏防御断言：intake 中不应出现"别人的私有记录"。
+ * 与 filterVisible 互补——filterVisible 做软过滤，本函数在 intake 边界硬拦截 wiring bug。
+ * 规则：private=true 且 source 已知 且 source≠ctx.agentId → 抛 private_leak。
+ */
+export interface VisibilityViolationError extends Error {
+  type: 'private_leak';
+  details: {
+    agentId: string;
+    record: { scope: string; source?: string };
+  };
+}
+
+export function assertVisibility(
+  records: ContextRecord[],
+  ctx: VisibilityCtx,
+): void {
+  for (const r of records) {
+    if (r.private && r.source !== undefined && r.source !== ctx.agentId) {
+      const error = new Error(
+        `Private leak: record from '${r.source}' (scope=${r.scope}) 进入 '${ctx.agentId}' 的 intake`,
+      ) as VisibilityViolationError;
+      error.type = 'private_leak';
+      error.details = {
+        agentId: ctx.agentId,
+        record: { scope: r.scope, source: r.source },
+      };
+      throw error;
+    }
+  }
 }

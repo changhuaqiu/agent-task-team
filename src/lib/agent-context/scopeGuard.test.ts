@@ -223,3 +223,48 @@ describe('filterByProjectId', () => {
     expect(filtered[1].content).toBe('foo');
   });
 });
+
+import { assertVisibility } from './scopeGuard';
+import type { ContextRecord, VisibilityCtx } from './contextRecord';
+
+describe('assertVisibility — 私有泄漏防御', () => {
+  const luigi: VisibilityCtx = { agentId: 'luigi', allowedScopes: ['/project', '/project/luigi'] };
+
+  const rec = (o: Partial<ContextRecord>): ContextRecord => ({
+    content: 'x', scope: '/project', private: false, importance: 0.5, category: 'task', ...o,
+  });
+
+  it('全是自己的私有记录 + 共享记录 → 不抛', () => {
+    expect(() =>
+      assertVisibility(
+        [
+          rec({ private: true, source: 'luigi', scope: '/project/luigi' }),
+          rec({ private: false }),
+        ],
+        luigi,
+      ),
+    ).not.toThrow();
+  });
+
+  it('混入别人的私有记录 → 抛 private_leak', () => {
+    try {
+      assertVisibility(
+        [rec({ private: true, source: 'mario', scope: '/project/mario' })],
+        luigi,
+      );
+      expect.fail('应抛 private_leak');
+    } catch (e) {
+      expect((e as any).type).toBe('private_leak');
+      expect((e as any).details.agentId).toBe('luigi');
+      expect((e as any).details.record.source).toBe('mario');
+    }
+  });
+
+  it('私有但 source 缺省 → 不抛（无法判定归属，放行给 filterVisible）', () => {
+    expect(() => assertVisibility([rec({ private: true, source: undefined })], luigi)).not.toThrow();
+  });
+
+  it('空列表 → 不抛', () => {
+    expect(() => assertVisibility([], luigi)).not.toThrow();
+  });
+});
