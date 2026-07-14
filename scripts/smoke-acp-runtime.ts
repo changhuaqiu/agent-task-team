@@ -16,13 +16,15 @@
 // a real agent subprocess and depends on host auth/config. Run on demand.
 // Exits 0 on pass, 1 on fail.
 
-import { mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { copyFileSync, existsSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { loadCatalog, createBackend } from '../src/server/agent/acp/catalog';
 
 const PROMPT = 'Reply with a single short greeting sentence.';
-const TURN_TIMEOUT_MS = 90_000;
+// Adapter startup (npx → adapter → runtime) can be slow even when the package
+// is installed locally; use a generous timeout (spec §8 acceptance).
+const TURN_TIMEOUT_MS = 120_000;
 
 /**
  * Default smoke model per runtime, applied via a project-local config file in
@@ -62,15 +64,24 @@ async function main(): Promise<number> {
   // inspection on failure.
   const cwd = mkdtempSync(join(tmpdir(), `acp-smoke-${runtime}-`));
 
-  // Apply the model override via a project-local `opencode.json` written into
-  // the temp cwd (opencode-only). opencode merges project-local config with
-  // the global ~/.config/opencode/opencode.json; the cwd top-level `model`
-  // field overrides the host default. This is the ONLY way to force a model
-  // for an ACP-launched opencode — the ACP PromptRequest has no model field,
-  // and AcpBackend.execute() ignores opts.model (Task 5 deferral). Providers
-  // and credentials live in ~/.local/share/opencode/auth.json, NOT here, so
-  // this file stays minimal (just the model override).
+  // --- Per-runtime setup ---------------------------------------------------
+  // opencode: write a project-local `opencode.json` with a verified model
+  //   (deepseek) into the temp cwd — the host default (glm-4.7) only emits
+  //   thought chunks, no agent_message_chunk (text), so the text assertion
+  //   can't pass against it. ACP PromptRequest has no model field + execute()
+  //   ignores opts.model (Task 5 deferral), so the model MUST be set through
+  //   opencode's own config layer.
+  // claude: NO cwd config. Auth comes from the host (Claude Code OAuth or
+  //   ANTHROPIC_API_KEY). The adapter is SDK-based (not Claude Code CLI
+  //   native), so it likely needs ANTHROPIC_API_KEY — attempt + observe.
+  // codex: isolate CODEX_HOME — copy the ESSENTIAL config (auth.json +
+  //   config.toml) from ~/.codex into a temp dir, then set CODEX_HOME env to
+  //   that dir. codex-acp reads CODEX_HOME to locate its config. This tests
+  //   the isolation mechanism the daemon needs in Task 8. Do NOT copy
+  //   cache/sqlite/goals_* — keep it minimal.
   let modelLabel: string;
+  let env: Record<string, string> | undefined;
+
   if (runtime === 'opencode') {
     const model = process.argv[3] ?? DEFAULT_SMOKE_MODEL[runtime];
     writeFileSync(
@@ -78,7 +89,27 @@ async function main(): Promise<number> {
       `${JSON.stringify({ model }, null, 2)}\n`,
     );
     modelLabel = `${model} (via cwd opencode.json)`;
+  } else if (runtime === 'codex') {
+    const codexHomeSrc = join(homedir(), '.codex');
+    const codexHomeTmp = mkdtempSync(join(tmpdir(), 'acp-smoke-codex-home-'));
+    // Copy the essential config files (auth + model config). Skip cache,
+    // sqlite, goals_*, logs — keep the isolated home minimal.
+    const authSrc = join(codexHomeSrc, 'auth.json');
+    const configSrc = join(codexHomeSrc, 'config.toml');
+    if (existsSync(authSrc)) {
+      copyFileSync(authSrc, join(codexHomeTmp, 'auth.json'));
+    } else {
+      console.warn(`[smoke] WARNING: ${authSrc} not found — codex auth may fail`);
+    }
+    if (existsSync(configSrc)) {
+      copyFileSync(configSrc, join(codexHomeTmp, 'config.toml'));
+    } else {
+      console.warn(`[smoke] WARNING: ${configSrc} not found — codex model config may be missing`);
+    }
+    env = { CODEX_HOME: codexHomeTmp };
+    modelLabel = `(via isolated CODEX_HOME: ${codexHomeTmp})`;
   } else {
+    // claude (or any other runtime): no cwd config, no env override.
     modelLabel = '(runtime default)';
   }
 
@@ -88,16 +119,18 @@ async function main(): Promise<number> {
   console.log(`runtime:     ${runtime}`);
   console.log(`delivery:    ${entry.delivery}`);
   console.log(`cwd:         ${cwd}`);
+  if (env) console.log(`env:         ${JSON.stringify(env)}`);
   console.log(`launcher:    ${launcherStr}`);
   console.log(`prompt:      ${PROMPT}`);
   console.log(`model:       ${modelLabel}`);
   console.log(`timeout:     ${TURN_TIMEOUT_MS}ms`);
   console.log('');
 
-  // cwd is bound to the backend via createBackend (AcpBackend.o.cwd); execute
-  // reads it as `opts.cwd ?? this.o.cwd ?? process.cwd()`, so passing it again
-  // here would be redundant.
-  const backend = createBackend(entry, cwd);
+  // cwd + env are bound to the backend via createBackend. AcpBackend.execute()
+  // reads cwd as `opts.cwd ?? this.o.cwd ?? process.cwd()`, and merges env as
+  // `{ ...process.env, ...this.o.env, ...opts.env }` — so passing them again
+  // to execute() would be redundant.
+  const backend = createBackend(entry, { cwd, env });
 
   const run = backend.execute(PROMPT, {
     timeout: TURN_TIMEOUT_MS,

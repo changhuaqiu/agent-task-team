@@ -69,15 +69,24 @@ describe('AgentCatalog (loadCatalog + createBackend)', () => {
     expect(backend.capabilities.outputMode).toBe('events');
   });
 
-  it('createBackend passes cwd through to the AcpBackend', () => {
-    // AcpBackend stores opts.cwd; execute() falls back to it. We verify the
-    // backend constructs without error and retains the engine identity for
-    // each catalog runtime (the cwd path itself is exercised by the smoke).
+  it('createBackend passes cwd + env through to the AcpBackend', () => {
+    // AcpBackend stores opts.cwd + opts.env; execute() falls back to / merges
+    // them. We verify the backend constructs without error, retains the engine
+    // identity for each catalog runtime, and that env is plumbed through to
+    // the backend's options (the codex smoke + Task 8 daemon rely on this to
+    // isolate CODEX_HOME). The cwd/env values themselves are exercised by the
+    // real-runtime smoke; here we just confirm the wiring.
     const cwd = '/tmp/catalog-test-cwd';
+    const env = { CODEX_HOME: '/tmp/catalog-test-codex-home' };
     for (const entry of loadCatalog()) {
-      const backend = createBackend(entry, cwd);
+      const backend = createBackend(entry, { cwd, env });
       expect(backend).toBeInstanceOf(AcpBackend);
       expect(backend.capabilities.engine).toBe(entry.id);
+      // Access the private opts to confirm env passthrough (test file is
+      // excluded from tsc; vitest transpiles via esbuild without type-check).
+      const opts = (backend as unknown as { o: { cwd?: string; env?: Record<string, string> } }).o;
+      expect(opts.cwd).toBe(cwd);
+      expect(opts.env).toEqual(env);
     }
   });
 });

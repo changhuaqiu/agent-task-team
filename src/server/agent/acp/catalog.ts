@@ -62,16 +62,22 @@ export function loadCatalog(): AgentCatalogEntry[] {
  * `engine` identity on the resulting `CapabilitySet`.
  *
  * @param entry  Catalog entry to launch.
- * @param cwd    Optional working directory for the agent process + ACP session.
+ * @param opts   Optional `{ cwd, env }`:
+ *                 - `cwd`: working directory for the agent process + ACP session.
+ *                 - `env`: extra env vars merged on top of `process.env` when
+ *                   spawning the agent subprocess. Used by the codex smoke +
+ *                   daemon (Task 8) to isolate `CODEX_HOME` — codex-acp reads
+ *                   `CODEX_HOME` to locate its `auth.json` + `config.toml`.
  */
 export function createBackend(
   entry: AgentCatalogEntry,
-  cwd?: string,
+  opts?: { cwd?: string; env?: Record<string, string> },
 ): AgentBackend {
   return new AcpBackend({
     command: entry.launcher.command,
     args: entry.launcher.args,
-    cwd,
+    cwd: opts?.cwd,
+    env: opts?.env,
     engine: entry.id as EngineId,
   });
 }

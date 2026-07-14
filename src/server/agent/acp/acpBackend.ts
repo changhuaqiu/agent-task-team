@@ -233,6 +233,16 @@ export class AcpBackend implements AgentBackend {
     // --- Drive the turn (non-blocking; connectWith resolves when cb returns) ---
     clientApp
       .connectWith(stream, async (ctx) => {
+        // ACP protocol requires `initialize` before `session/new` (spec §5.2
+        // step 2). The mock agent and opencode are lenient (they handle
+        // session/new without a prior initialize), but the codex-acp and
+        // claude-agent-acp adapters enforce it — sending session/new first
+        // returns a JSON-RPC "Internal error" (-32603).
+        await ctx.request(acp.methods.agent.initialize, {
+          protocolVersion: acp.PROTOCOL_VERSION,
+          clientCapabilities: {},
+        });
+
         const session = await ctx.buildSession(cwd).start();
         sessionId = session.sessionId;
 
