@@ -687,7 +687,17 @@ export default function registerDaemon(io: IOServer) {
       let hasBackgroundChildActivity = false;
 
       // --- Timeout control ---
-      const timeoutMs = Number(process.env.CLI_TIMEOUT_MS || DEFAULT_TIMEOUT_MS);
+      // codex ACP startup ~117s (WebSocket→HTTPS fallback). Floor BOTH the
+      // daemon kill timer (resetTimeout, fired below) AND the backend per-turn
+      // timeout to ≥180s for codex ACP, so an operator-tuned CLI_TIMEOUT_MS
+      // below 180s cannot tree-kill the codex subprocess before the adapter
+      // finishes booting. The default (300s) is unchanged; 0 (disabled) is
+      // preserved. (Task 8 review fix: previously only backend.execute saw the
+      // floor via effectiveTimeoutMs, while resetTimeout closed over the raw
+      // value — the two timers disagreed.)
+      const rawTimeoutMs = Number(process.env.CLI_TIMEOUT_MS || DEFAULT_TIMEOUT_MS);
+      const isCodexAcp = engine === 'codex' && process.env.AGENT_BACKEND !== 'legacy';
+      const timeoutMs = isCodexAcp && rawTimeoutMs > 0 ? Math.max(rawTimeoutMs, 180_000) : rawTimeoutMs;
       let timeoutTimer: ReturnType<typeof setTimeout> | null = null;
 
       const resetTimeout = () => {
@@ -1186,12 +1196,14 @@ export default function registerDaemon(io: IOServer) {
         executeCwd = prepared.cwd;
         executeEnv = prepared.env;
         acpCleanup = prepared.cleanup;
-        // codex startup ~117s (WebSocket→HTTPS fallback). Ensure the per-turn
-        // timeout is ≥ 180s for the codex ACP path even if CLI_TIMEOUT_MS was
-        // set lower (Task 7 Minor #1).
-        const minTimeout = engine === 'codex' ? 180_000 : 0;
-        if (timeoutMs > 0 && timeoutMs < minTimeout) {
-          console.warn(`[daemon] raising timeout ${timeoutMs}ms → ${minTimeout}ms for codex ACP startup`);
+        // codex startup ~117s (WebSocket→HTTPS fallback). The kill timer +
+        // backend timeout are floored to ≥180s at the timeoutMs source for
+        // codex ACP (see ~L690). Warn only when codex actually routed to ACP
+        // AND the operator-tuned raw timeout was below the floor. (Task 8
+        // review fix: previously gated on engine==='codex' alone, warning for
+        // codex legacy too.)
+        if (choice.kind === 'acp' && engine === 'codex' && rawTimeoutMs > 0 && rawTimeoutMs < 180_000) {
+          console.warn(`[daemon] raising timeout ${rawTimeoutMs}ms → 180000ms for codex ACP startup`);
         }
         backend = createAcpBackend(choice.entry, {
           cwd: prepared.cwd,
@@ -1201,11 +1213,9 @@ export default function registerDaemon(io: IOServer) {
         backend = createLegacyBackend(engine, { executablePath: command });
       }
 
-      // The effective per-turn timeout (raised for codex ACP if needed).
-      const effectiveTimeoutMs =
-        choice.kind === 'acp' && engine === 'codex' && timeoutMs > 0
-          ? Math.max(timeoutMs, 180_000)
-          : timeoutMs;
+      // The per-turn timeout. timeoutMs already carries the codex-ACP floor
+      // (see ~L690), so resetTimeout, backend.execute, and the retry path all
+      // read this single floored value — no separate effectiveTimeoutMs needed.
 
       // CapabilityRouter：按 backend 能力降级（resume/systemPrompt/maxTurns/PTY）+ 警告
       const capsResult = checkCapabilities(backend, {
@@ -1214,7 +1224,7 @@ export default function registerDaemon(io: IOServer) {
           cwd: executeCwd,
           systemPrompt: systemPrompt || undefined,
           resumeSessionId: effectiveSessionId || undefined,
-          timeout: effectiveTimeoutMs > 0 ? effectiveTimeoutMs : undefined,
+          timeout: timeoutMs > 0 ? timeoutMs : undefined,
           env: executeEnv,
         },
       });
@@ -1262,7 +1272,7 @@ export default function registerDaemon(io: IOServer) {
               cwd: executeCwd,
               systemPrompt: systemPrompt || undefined,
               resumeSessionId: undefined,
-              timeout: effectiveTimeoutMs > 0 ? effectiveTimeoutMs : undefined,
+              timeout: timeoutMs > 0 ? timeoutMs : undefined,
               env: executeEnv,
             });
 
