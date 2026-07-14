@@ -112,14 +112,16 @@
 ### 当前有效规格
 
 - `specs/README.md`
-- `specs/unify-integration-config-center/`
-- `specs/default-team-collaboration-template/`
-- `specs/personality-led-autonomy/`
+- `specs/acp-runtime-integration/`
+- `specs/context-manager/`
+- `specs/team-simplification/`
+- `specs/system-control-plane/`
+- 其余活动规格及状态统一以 `specs/README.md` 的登记表为准
 
 说明：
 
-- `specs/unify-integration-config-center/` 当前为进行中规格，不应理解为全部完成
-- `specs/personality-led-autonomy/` 当前定义默认团队自治的角色人格闭环和派发回执边界；运行时守护实现仍在后续任务中
+- 已完成或被替代的规格统一位于 `docs/archive/specs/`，不得继续作为实施事实源
+- `docs/plans/` 和 `docs/technical/` 是支持材料，不替代 `specs/` 中的活动契约
 
 ### 稳定知识库
 

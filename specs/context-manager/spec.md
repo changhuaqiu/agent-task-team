@@ -2,7 +2,9 @@
 
 > 状态：草案 v2·**决策已拍板**（Q1–Q4 全按 recommended 落定，2026-07-13）｜ 日期：2026-07-13
 > 关联模块：`src/lib/agent-context/PromptComposer.ts`、`src/store/daemonStore.ts`、`src/server/daemon.ts`、`src/server/a2a/context-builder.ts`、`src/server/repositories/session-repo.ts`
-> 依赖规格：`context-budget-management/`（预算守护，已落地，被本 spec 复用）、`a2a-possession-contract/`（持球/交接包，语义不变）、`cli-bridge-layer/`（执行中转，正交）
+> 设计依据：`docs/technical/execution/context-layering.md`
+> 依赖规格：`a2a-possession-contract/`（持球/交接包，语义不变）、`acp-runtime-integration/`（执行协议，正交）
+> 历史基线：`docs/archive/specs/context-budget-management/`（预算组件已落地并由本 spec 继续演进）
 > **不在本期**：跨会话记忆系统（archival 存储 + recall/write 落地）—— 另立 spec
 > 一句话定位：**管"上下文怎么用"（选层 / 裁剪 / 预算 / 作用域 / 健康度 / 记忆接入点），不管"怎么存"（消息归 message-repo，记忆归未来 memory-repo）。**
 
@@ -119,9 +121,12 @@ interface AssembledContext {
 │  Provider 层 │ 取原料（只读）：messageRepo / taskRepo /   │
 │              │ roster / roleCard / teamPack / handoff     │
 ├─────────────────────────────────────────────────────────┤
-│  Layer 层    │ 现有 15 个 buildXxxLayer（复用，签名不变）  │
+│  Record 层   │ category / scope / private / importance    │
 ├─────────────────────────────────────────────────────────┤
-│  Budget 层   │ ContextBudget + BudgetGuard（复用，不重设） │
+│  Layer 层    │ system / tool / project 三个稳定性层        │
+├─────────────────────────────────────────────────────────┤
+│  Budget 层   │ system 不裁；tool 次之；project 先裁；      │
+│              │ 同层按 importance 从低到高裁剪              │
 ├─────────────────────────────────────────────────────────┤
 │  Memory Hook │ recall(scope,query)/write(artifact) 契约   │
 │              │ 本期 NoOp，记忆 spec 接入（见 5.6）         │
@@ -130,6 +135,9 @@ interface AssembledContext {
 │              │ usage_snapshot（激活空壳字段，见 5.5）      │
 └─────────────────────────────────────────────────────────┘
 ```
+
+`ContextRecord` 的 `category` 决定结构层，`scope/private` 决定可见性，`importance` 决定同层裁剪顺序。旧 P0–P4 priority 只保留为迁移兼容字段，不再作为新实现的事实源。
+
 **四类上下文来源（source）**：
 | source | 何时注入 | 来自 |
 |---|---|---|
@@ -159,15 +167,22 @@ interface ContextReport {
   tokensUsed: number;
   tokensBudget: number;
   saturation: number;              // tokensUsed / tokensBudget
-  layers: Array<{ layer: string; priority: number; tokens: number; trimmed: boolean }>;
-  p0Intact: boolean;               // P0 层（role/protocol/task/behavior）是否完整未裁剪
+  layers: Array<{
+    layer: string;
+    tier?: 'system' | 'tool' | 'project';
+    importance?: number;
+    priority?: number;             // 仅迁移兼容
+    tokens: number;
+    trimmed: boolean;
+  }>;
+  p0Intact: boolean;               // 兼容字段；现表示 system 层完整
   droppedLayers: string[];
   recalledArtifacts: number;       // 记忆命中数（本期恒 0）
 }
 ```
 **健康度判据**（写入 `context_health.summary`）：
 - `healthy`：saturation < 0.8 且 p0Intact = true
-- `saturated`：saturation ∈ [0.8, 1.0) 或 P3 层被压
+- `saturated`：saturation ∈ [0.8, 1.0) 或 project 层发生裁剪
 - `degraded`：saturation ≥ 1.0 或 p0Intact = false（告警）
 
 **回写**：每次 `assembleContext` 完成后 `sessionRepo.writeContextHealth(sessionId, report)` 原子写入 `context_health`（报告 JSON）+ `usage_snapshot`（token 快照）。这两个字段**第一次有真实写入方**。回写同步/异步见开放问题 Q3。

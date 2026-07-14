@@ -1,0 +1,168 @@
+# ACP 运行时统一接入
+
+> 状态：active
+> 日期：2026-07-14
+> 事实源：本目录
+> 替代：`docs/archive/specs/cli-bridge-layer/` 中按 CLI 分别适配的方案
+
+## 1. 目标
+
+Agent Task Team 使用一个 ACP 客户端驱动 OpenCode、Claude 和 Codex，停止在 daemon 中长期维护三套私有 CLI 输出解析与能力判断。
+
+本规格一次完成三种目标运行时的接入，但每种运行时必须独立通过兼容性验收后才能删除对应旧 backend。
+
+## 2. 已确认事实
+
+| 运行时 | ACP 交付方式 | 启动入口 | 所有权说明 |
+| --- | --- | --- | --- |
+| OpenCode | 原生 | `opencode acp` | OpenCode 自带 ACP server |
+| Claude | 适配器 | `npx -y @agentclientprotocol/claude-agent-acp` | ACP 组织维护，基于 Anthropic Claude Agent SDK；不是 Claude Code CLI 原生 ACP |
+| Codex | 适配器 | `npx -y @agentclientprotocol/codex-acp` | ACP 组织维护，内部启动 Codex App Server；不是 Codex CLI 原生 ACP |
+
+ACP 官方 Agents 列表将 Claude Agent 与 Codex CLI 明确标为通过 adapter 接入。适配器属于额外依赖，不能在产品或技术文档中描述成厂商 CLI 原生能力。
+
+参考：
+
+- <https://agentclientprotocol.com/get-started/agents>
+- <https://github.com/agentclientprotocol/claude-agent-acp>
+- <https://github.com/agentclientprotocol/codex-acp>
+
+## 3. 范围
+
+### 包含
+
+- 引入并固定 ACP TypeScript SDK 版本。
+- 实现统一 `AcpBackend`、stdio transport、ACP client callback 和事件映射。
+- 建立声明式 Agent Catalog，记录 launcher、原生/适配器交付方式、版本与已验证能力。
+- 接入 OpenCode、Claude 和 Codex。
+- 支持新会话、可用时恢复会话、流式文本、思考、工具事件、计划、权限请求、取消、错误和完成状态。
+- 保持 daemon、ContextManager、A2A 与任务编排只依赖内部 `AgentBackend` 契约。
+- 为三种运行时分别完成安装、认证、会话、取消、权限、工具与错误恢复验证。
+- 验收通过后删除三个 bespoke backend 及手工能力矩阵。
+
+### 不包含
+
+- 改写 A2A 协作语义。
+- 改写 ContextManager 的上下文分层。
+- 把 MCP 当成运行时控制协议；MCP 仅作为 agent 可使用的工具能力。
+- 首次迭代建设远程 ACP 托管平台。
+- 在用户主界面暴露“adapter/bridge/runtime/channel”等实现术语。
+
+## 4. 目标架构
+
+```text
+daemon / dispatch / A2A / ContextManager
+                    │
+                    ▼
+           AgentBackend（内部稳定契约）
+                    │
+                    ▼
+              AcpBackend（唯一实现）
+                    │
+          ACP JSON-RPC over stdio
+          ┌─────────┼──────────┐
+          ▼         ▼          ▼
+   opencode acp  claude-     codex-acp
+      原生        agent-acp    适配器
+                    │          │
+                    ▼          ▼
+              Claude SDK   Codex App Server
+```
+
+框架只理解 ACP 与内部 `AgentEvent`。启动差异只存在于 Catalog，不进入 daemon 分支。
+
+## 5. 核心契约
+
+### 5.1 Catalog
+
+```ts
+interface AgentCatalogEntry {
+  id: 'opencode' | 'claude' | 'codex' | string;
+  protocol: 'acp';
+  delivery: 'native' | 'adapter';
+  launcher: {
+    command: string;
+    args: string[];
+    package?: string;
+    version?: string;
+  };
+  legacyBackend?: 'opencode' | 'claude' | 'codex';
+  verifiedCapabilities: string[];
+}
+```
+
+约束：
+
+- Catalog 是启动事实源，factory 不再按 engine 写 `switch`。
+- 适配器和 SDK 必须锁定版本，不使用未记录版本的隐式漂移。
+- `legacyBackend` 只在迁移验收期间存在；退出条件满足后删除。
+- 能力以 ACP 初始化握手与实测结果为准，不按运行时名称猜测。
+
+### 5.2 AcpBackend
+
+`AcpBackend` 负责：
+
+1. 根据 Catalog 启动 ACP agent。
+2. 完成初始化与认证协商。
+3. 创建或恢复 session。
+4. 提交 ContextManager 产出的 prompt/context。
+5. 将 ACP update 映射为内部 `AgentEvent`。
+6. 处理 permission、cancel、进程退出、超时和协议错误。
+7. 关闭连接并回收子进程。
+
+daemon 不解析任何厂商专有 stdout，不判断某个厂商支持哪些参数。
+
+### 5.3 事件映射
+
+| ACP 事件 | 内部事件 |
+| --- | --- |
+| agent message chunk | `text` |
+| thought chunk | `thinking` |
+| tool call / update | `tool_use` / `tool_result` |
+| plan | `plan` 或等价结构化事件 |
+| permission request | 进入统一权限策略，不得无条件静默授权 |
+| prompt response | `done`，包含 stop reason |
+| transport/protocol failure | `error`，包含 runtime、阶段和可定位原因 |
+
+未知 ACP update 必须记录并安全忽略，不能导致整个 daemon 崩溃。
+
+## 6. 权限与安全
+
+- 复用现有账号与凭据存储，不把 token、API Key 或登录态写入 Catalog、日志和 spec。
+- permission request 必须经过统一策略：允许、拒绝或请求用户确认。
+- 无交互执行只能使用用户预先授权的策略；默认不采用“选择第一个选项自动授权”。
+- 子进程继承的环境变量采用白名单或现有安全环境策略。
+- 日志记录协议阶段、运行时、session/invocation 关联与错误码，不记录敏感请求正文。
+
+## 7. 迁移策略
+
+本规格作为一次完整实施交付，内部按以下顺序降低回归风险：
+
+1. 建立 ACP 基础设施与 mock agent 测试。
+2. 接入 OpenCode、Claude、Codex Catalog launcher。
+3. 让 daemon 通过同一选择器路由 ACP/legacy，并逐个运行兼容性套件。
+4. 某运行时通过验收后移除其 legacy 路径。
+5. 三者全部通过后删除 factory 分支、私有解析器与手工 CapabilitySet。
+
+这不是三期产品方案；所有步骤属于同一活动规格和同一次交付。临时 legacy 路径不得在规格完成后保留。
+
+## 8. 退出条件
+
+规格完成必须同时满足：
+
+- OpenCode、Claude、Codex 均通过各自真实运行时 smoke test。
+- daemon 对三者只有 ACP 路径。
+- bespoke `claude.ts`、`opencode.ts`、`codex.ts` 及其 factory 分支已删除。
+- session、cancel、permission、tool event、失败回收和进程退出有自动化测试。
+- Catalog 中记录实际安装方式、固定版本和验证能力。
+- `architecture/cli-integration.md` 与 `docs/wiki/04-backend-daemon.md` 已同步。
+- 安装、类型检查、构建和相关测试通过。
+
+## 9. 风险
+
+| 风险 | 处理方式 |
+| --- | --- |
+| Claude/Codex 适配器随上游变化 | 锁版本；兼容升级必须重新运行该运行时套件 |
+| ACP 能力与旧 CLI 行为不完全等价 | 以能力握手和真实 smoke test 为准；未过门禁不删除该 legacy backend |
+| permission 语义差异 | 统一映射到项目权限策略并覆盖拒绝、确认和无交互场景 |
+| 子进程泄漏或取消失效 | 为 cancel、超时、异常退出与 daemon shutdown 建立集成测试 |

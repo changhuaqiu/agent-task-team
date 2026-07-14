@@ -52,11 +52,11 @@
 - `PromptComposer.ts`：集成 BudgetGuard
 
 ### 七、相关 spec
-- `specs/cli-bridge-layer/`：CLI 中转层设计
-- `specs/context-budget-management/`：上下文预算管理设计
+- `docs/archive/specs/cli-bridge-layer/`：已被 ACP 规格替代的 CLI 中转层设计
+- `docs/archive/specs/context-budget-management/`：已并入 ContextManager 的上下文预算管理设计
 - `specs/agent-session-stability/`：agent session 稳定性设计
 - `specs/team-simplification/`：团队精简设计
-- `docs/superpowers/plans/2026-07-13-team-simplification.md`：实现计划
+- `docs/plans/2026-07-13-team-simplification.md`：实现计划
 
 ### 八、提交
 - feat 分支：`feat/agent-context-and-cli-bridge`

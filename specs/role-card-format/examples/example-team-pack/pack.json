@@ -1,0 +1,144 @@
+{
+  "specVersion": "team-pack/0.1",
+  "name": "example-team-pack",
+  "displayName": "Team Pack 格式示例",
+  "description": "用于验证 Planner、Coder、Reviewer 文件结构和协作字段的非内置示例",
+  "version": "1.0.0",
+  "author": {
+    "name": "Agent Task Hub",
+    "github": "agent-task-team"
+  },
+  "license": "MIT",
+  "tags": ["engineering", "planning", "coding", "review"],
+  "category": "team/engineering",
+  "roles": [
+    {
+      "id": "planner",
+      "displayName": "规划师",
+      "soul": "roles/planner/SOUL.md",
+      "required": true,
+      "description": "拆解任务、排优先级、梳理依赖"
+    },
+    {
+      "id": "coder",
+      "displayName": "实现者",
+      "soul": "roles/coder/SOUL.md",
+      "required": true,
+      "description": "写代码、调 bug、实现功能"
+    },
+    {
+      "id": "reviewer",
+      "displayName": "审查者",
+      "soul": "roles/reviewer/SOUL.md",
+      "required": true,
+      "description": "审查质量、发现问题、把关交付"
+    }
+  ],
+  "workflow": {
+    "type": "state_machine",
+    "description": "任务从规划到交付的完整流转",
+    "states": [
+      {
+        "name": "planning",
+        "role": "planner",
+        "description": "规划师拆解任务",
+        "transitions": [
+          {
+            "to": "implementing",
+            "condition": "任务拆解完成",
+            "trigger": "planner 发送任务列表"
+          }
+        ]
+      },
+      {
+        "name": "implementing",
+        "role": "coder",
+        "description": "实现者编写代码",
+        "transitions": [
+          {
+            "to": "reviewing",
+            "condition": "PR 提交",
+            "trigger": "coder 提交代码"
+          },
+          {
+            "to": "blocked",
+            "condition": "遇到阻塞",
+            "trigger": "coder 上报阻塞"
+          }
+        ]
+      },
+      {
+        "name": "reviewing",
+        "role": "reviewer",
+        "description": "审查者检查代码",
+        "transitions": [
+          {
+            "to": "done",
+            "condition": "审查通过",
+            "trigger": "reviewer 批准"
+          },
+          {
+            "to": "implementing",
+            "condition": "审查不通过",
+            "trigger": "reviewer 打回",
+            "feedback": "必须附带具体修改意见"
+          }
+        ]
+      },
+      {
+        "name": "blocked",
+        "role": "planner",
+        "description": "阻塞状态，规划师协调解决",
+        "transitions": [
+          {
+            "to": "implementing",
+            "condition": "阻塞解决",
+            "trigger": "planner 解除阻塞"
+          }
+        ]
+      },
+      {
+        "name": "done",
+        "terminal": true,
+        "description": "任务完成"
+      }
+    ]
+  },
+  "communication_matrix": {
+    "planner": {
+      "can_send_to": ["coder"],
+      "can_receive_from": ["reviewer", "coder"],
+      "can_escalate_to": ["human"]
+    },
+    "coder": {
+      "can_send_to": ["reviewer", "planner"],
+      "can_receive_from": ["planner", "reviewer"],
+      "can_escalate_to": ["planner"]
+    },
+    "reviewer": {
+      "can_send_to": ["planner", "coder"],
+      "can_receive_from": ["coder"],
+      "can_escalate_to": ["human"]
+    }
+  },
+  "shared_context": {
+    "files": [
+      "shared/PROJECT.md",
+      "shared/CONSTRAINTS.md"
+    ],
+    "state": [
+      "task_board",
+      "current_focus"
+    ],
+    "memory": [
+      "decisions_log",
+      "lessons_learned"
+    ]
+  },
+  "team_rules": {
+    "max_iterations": 3,
+    "escalation_timeout_hours": 2,
+    "require_evidence": true,
+    "auto_assign": true
+  }
+}

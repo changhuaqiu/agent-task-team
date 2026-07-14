@@ -9,5 +9,5 @@
 - [ ] Manual check: create project with 工程三件套, click each avatar, bind account, add skill.
 - [ ] Manual check: dispatch to planner/coder/reviewer uses selected account and includes Team Pack context.
 - [ ] Manual check: solidify a legacy TeamPack, export it, and confirm role snapshots are present in the JSON.
-- [x] Documentation updated in `docs/superpowers/specs/2026-05-05-team-pack-ecosystem-status.md`.
+- [x] Documentation baseline is captured in `docs/product/business/2026-05-05-role-card-ecosystem-analysis.md`.
 - [x] `pnpm test`

@@ -1,38 +1,61 @@
-# 规格目录
+# 活动规格目录
 
-`specs/` 是本项目统一的规格目录，也是所有 Agent 在执行前后都必须对齐的正式规格入口。
+`specs/` 只保存仍在指导实现、尚未完成退出条件的规格。完成、被替代或放弃的规格统一迁入 `docs/archive/specs/`。
 
-## 目录职责
+## 目录契约
 
-- `specs/` 只存放当前仍然有效、仍然指导实现的规格文档
-- 每个规格使用独立子目录管理，目录内默认包含：
-  - `spec.md`：目标、范围、约束、需求与影响面
-  - `tasks.md`：实施任务拆解
-  - `checklist.md`：验收与完成标准
-- 已完成、失效或仅保留历史参考价值的规格，不继续放在这里，迁入 `docs/archive/specs/`
+每个活动规格使用 `specs/<name>/`，默认包含：
 
-## Agent 统一约束
+- `spec.md`：目标、范围、约束、核心契约、风险和退出条件。
+- `tasks.md`：按依赖顺序维护的实施任务。
+- `checklist.md`：可验证的验收标准。
 
-- 所有 Agent 开始实现前，必须先阅读相关 `specs/` 文档
-- 所有实现完成前，必须同步更新对应规格与设计文档
-- 若代码行为已经变化，但 `specs/` 与设计文档未更新，则任务视为未完成
-- 不允许再把 `.trae/` 作为正式规格来源
+支持性设计放在 `docs/technical/` 或 `docs/product/`，实施计划放在 `docs/plans/`；它们不能替代本目录中的规范事实源。
 
-## 当前有效规格
+## 状态定义
 
-- `unify-integration-config-center/`：统一集成配置中心
-- `team-role-card-compatibility/`：Team Pack 动态角色与账号、角色卡、Skill、dispatch 的兼容模型
-- `team-runtime-contract/`：项目级团队运行时契约，统一 TeamPack、RoleCard、Account、Skill、Prompt、Dispatch 与 A2A 的事实源
-- `git-collaboration-skill-config/`：为内置 Agent 与 TeamPack 角色配置统一 Git 协作 Skill，包括 issue、PR/MR 与 review 工作流
-- `a2a-possession-contract/`：下一代 A2A 协作契约，用“持球/传球/交接包”替代原始 @mention 自动派发语义
-- `system-control-plane/`：整体控制平面契约，统一跨实例 runtime、dispatch、health、policy、proof 与 execution envelope
-- `frontend-runtime-performance-refactor/`：前端 Team Runtime 派生缓存与高订阅组件收敛重构
-- `group-chat-task-flow/`：群聊式多 Agent 协作体验与 Task Graph 任务流事实源契约
-- `default-team-collaboration-template/`：默认 Mario 6 人组协作样板，约束角色职责、交接规则与质量门禁
-- `personality-led-autonomy/`：人格驱动自治契约，约束 agent 闭环责任、文本调度与真实派发回执的边界，以及系统最小事实兜底
+| 状态 | 含义 | 所在位置 |
+| --- | --- | --- |
+| `draft` | 方向尚未冻结，不得据此大规模实施 | `specs/`，必须列出开放决策 |
+| `active` | 决策已冻结，正在实施或等待验收 | `specs/` |
+| `implemented` | 退出条件已满足，长期结论已回写 | `docs/archive/specs/` |
+| `superseded` | 已被新规格替代 | `docs/archive/specs/`，必须指向替代者 |
+| `abandoned` | 明确不再实施 | `docs/archive/specs/`，必须记录原因 |
 
-## 当前草案规格
+## 当前活动规格
 
-- `role-card-format/`：角色卡与 Team Pack 文件格式草案
-- `a2a-v2/`：链式 A2A 编排草案；核心实现存在，但协作语义将被 `a2a-possession-contract/` 取代
-- `context-manager/`：统一上下文管理器草案，收口主循环与 A2A 两条 prompt 管线，引入项目作用域与跨项目身份，A2A 降级为上下文来源协议；记忆系统另立 spec
+| 规格 | 状态 | 当前边界 |
+| --- | --- | --- |
+| [`acp-runtime-integration/`](acp-runtime-integration/) | active | 用统一 ACP client 一次接入 OpenCode 原生 ACP、Claude/Codex ACP 适配器，并删除 bespoke backend |
+| [`context-manager/`](context-manager/) | active | 统一上下文注入、项目隔离、可见性与 A2A 上下文来源；以 `docs/technical/execution/context-layering.md` 为设计依据 |
+| [`team-simplification/`](team-simplification/) | active | 默认团队从 6 人收敛到 4 人并清理旧 preset |
+| [`agent-session-stability/`](agent-session-stability/) | draft | 修正失败后的 session seal 与 ID 稳定性，实施前仍需对齐 ACP session 语义 |
+| [`system-control-plane/`](system-control-plane/) | active | 统一 dispatch、policy、proof、health 与跨实例状态权威 |
+| [`a2a-possession-contract/`](a2a-possession-contract/) | active | 完成持球、传球、交接包语义及控制平面接线 |
+| [`group-chat-task-flow/`](group-chat-task-flow/) | active | 已有 baseline，仍有任务图、wakeup 和持久化验收未完成 |
+| [`frontend-runtime-performance-refactor/`](frontend-runtime-performance-refactor/) | active | 完成剩余性能验收与订阅边界收敛 |
+| [`team-role-card-compatibility/`](team-role-card-compatibility/) | active | 自动化已完成，仍需三项人工兼容验收 |
+| [`role-card-format/`](role-card-format/) | draft | 冻结角色卡/Team Pack 文件格式并替换即将移除的示例 |
+
+## 依赖关系
+
+```text
+system-control-plane
+├── acp-runtime-integration
+├── agent-session-stability
+├── a2a-possession-contract
+│   └── group-chat-task-flow
+└── context-manager
+
+team-simplification
+├── team-role-card-compatibility
+└── role-card-format
+```
+
+## 使用规则
+
+- 开始实现前读取相关 `spec.md`、`tasks.md`、`checklist.md`。
+- 代码行为变化时同步更新活动规格和对应长期文档。
+- 规格完成时先将稳定结论回写到 `docs/`、`architecture/` 或 `decisions/`，再迁入归档。
+- 活动目录中不得保留“任务全部完成但仍列为 active”的规格。
+- 被新方案替代的内容不得继续作为并行事实源。

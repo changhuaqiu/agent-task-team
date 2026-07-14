@@ -77,13 +77,13 @@ review_gate + test_gate 合并为 quality_gate（Peach 一个人做评审+测试
 - DB seed 逻辑：只 seed default-team
 
 ### 4.5 Spec 清理
-- `specs/default-team-collaboration-template/`：更新为 4 人组
+- `docs/product/business/2026-05-17-default-team-collaboration-template.md`：更新为 4 人组当前事实
 - 已删除的 spec（前一步清理的 a2a-v2 等）不涉及
 
 ## 5. 不改
-- `cli-bridge`、`context-budget`、`agent-session-stability` spec（已完成）
+- ACP 运行时协议、ContextManager 上下文语义和 agent session 稳定性实现
 - DB 的 agent_session / chat_message / conversation（历史数据保留）
-- CapabilityRouter、BudgetGuard、ContextManager 等已修好的
+- BudgetGuard、ContextManager 的公共契约
 - team pack 系统**机制**（创建/选择/切换代码保留，只是默认只有 1 个团队）
 - 用户自建的 conversation/teamPack（保留运行时数据）
 

@@ -5,10 +5,10 @@
 
 ## P1 — 统一组装核心 + 项目作用域
 - [ ] T1 [schema 排查·只读] 检查 `src/server/db/migrate.ts` 的 `agents` / `agent_binding` / `conversation` 表，确认侦察标记的 ~2 个身份/作用域占位列；记录列名与现状，给出启用 / 替换 / 新增决策。**此任务只读不改**
-- [ ] T2 新增 `src/lib/agent-context/ContextManager.ts`：`assemble(opts) → { prompt, report }`，内部复用 `BudgetGuard`（先写测试：给定 sources + budget，输出含全部 P0 层、超预算时 P4 先压）
+- [ ] T2 完成 `ContextManager.assembleContext()`：内部复用 `BudgetGuard`，按 system/tool/project + importance 组装并返回 `{ systemPrompt?, userPrompt, report, sessionId }`
 - [ ] T3 `PromptComposer.composeUserPrompt` 改为委托 `ContextManager`（保持返回 `string`，调用方不破；既有 PromptComposer 测试须全绿）
 - [ ] T4 `project` 升级为 `{ id, name, path }`；`projectLayer` 增加 id 展示
-- [ ] T5 history / taskContext / teamPack 层按 `project_id` 过滤；新增 `scopeGuard.ts`，组装前断言所有 source 同 project_id（先写测试：跨 project_id 的 source 被断言拦截）
+- [ ] T5 history / taskContext / teamPack 层按 `project_id` 过滤；`scopeGuard.ts` 按 scope/private/接收者过滤并拒绝跨项目 source
 - [ ] T6 P1 测试：ContextManager / scopeGuard / 各层 project_id 过滤单测；PromptComposer 既有测试不破；build 通过
 
 ## P2 — A2A 协议化 + 跨项目身份

@@ -514,13 +514,9 @@ SOUL.md:
 - 友好耐心
 ```
 
-### 10.2 完整工程角色卡
+### 10.2 团队套件示例
 
-见 `examples/senior-frontend-engineer/`
-
-### 10.3 团队套件示例
-
-见 `examples/engineering-trio/`
+见 `examples/example-team-pack/`。该目录仅验证文件格式，不代表内置团队或产品预设。
 
 ---
 

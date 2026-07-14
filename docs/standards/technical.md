@@ -9,7 +9,7 @@
 - 阅读 `AGENTS.md`、`docs/README.md`、`specs/README.md`。
 - 识别受影响的活动规格，并阅读对应 `specs/<name>/spec.md`、`tasks.md`、`checklist.md`。
 - 若涉及 Next.js、API route、routing、rendering 或构建行为，先阅读 `node_modules/next/dist/docs/` 中对应指南。
-- 对非简单代码、架构、评审或测试任务，先使用 GitNexus 获取图谱上下文；至少查询相关功能、符号、流程或模块。
+- 对非简单代码、架构、评审或测试任务，先通过代码搜索、调用关系、现有测试和相关文档确认影响边界。
 - 检查当前工作区状态，避免覆盖并行任务改动。
 - 明确本轮改动的边界，不顺手重构无关模块。
 
@@ -24,23 +24,22 @@
 - **兼容迁移显式化**：临时兼容路径必须标注状态、退出条件和后续收敛方向。
 - **错误可解释**：失败必须有 reason code、可读消息和定位线索，不能退化为泛化超时。
 
-## 2.1. GitNexus Graph-First Gate
+## 2.1. 影响边界证据
 
-代码理解与影响面分析默认遵循 GitNexus 图谱优先：
+代码理解与影响面分析必须留下可复核依据：
 
-- **开始前**：用 `gitnexus query` 或 MCP `query` 找到相关功能、流程、cluster、文件和符号。
-- **改动前**：对核心符号或模块使用 `context` 或 `impact`，明确上游调用、下游依赖、跨模块关系和受影响流程。
-- **评审前**：Peach/DK 这类 review gate 必须检查 `impact` 或 `detect_changes` 结果，不能只看 diff。
-- **测试前**：Yoshi 这类 test gate 必须根据 affected processes、入口点和调用链制定测试范围。
-- **交付前**：涉及代码变更的 handoff 或总结必须包含 GitNexus evidence，例如查询词、符号名、流程名、impact 目标或 detect_changes 结论。
-- **不可用时**：如果 GitNexus 未安装、索引过期或查询失败，必须说明原因；能安全重建索引时先运行 `gitnexus analyze`，否则显式采用 `rg`、测试和人工代码阅读作为降级路径。
+- **开始前**：用 `rg`、模块入口、类型定义、调用点和相关规格定位功能边界。
+- **改动前**：确认核心符号的上游调用、下游依赖、持久化边界和跨模块关系。
+- **评审前**：结合 diff、调用点、数据流和测试覆盖判断风险，不能只看命令退出码。
+- **测试前**：根据受影响入口、状态流转、失败路径和兼容路径制定测试范围。
+- **交付前**：总结实际检查的模块、调用链、测试与仍未覆盖的风险。
 
 ## 2.2. Executable Delivery Gates
 
 任务状态流转必须由证据驱动，不由角色自述驱动：
 
-- **进入 `in_review`**：必须提交 `implementation_evidence`，至少包含 `installResult`、`buildResult`、`gitnexusEvidence`。
-- **标记 `done`**：必须提交 `delivery_evidence`，至少包含 `mergedToMain`、`mainInstallResult`、`mainBuildResult`、`mainTestResult`、`gitnexusDetectChangesResult`。
+- **进入 `in_review`**：必须提交 `implementation_evidence`，至少包含适用的依赖安装、类型检查、构建、测试和影响边界说明。
+- **标记 `done`**：必须提交 `delivery_evidence`，至少包含目标分支状态、安装、构建、测试和未覆盖风险。
 - **新增依赖**：视为门禁事件；实现者必须说明原因、替代方案判断、lockfile 一致性、install/build 结果，由 review gate 检查。
 - **CLI 成功退出**：不等于可以进入 review；系统只能记录运行成功，不能自动把任务推进到 `in_review`。
 - **缺证据时**：状态更新入口必须拒绝流转并记录 proof event；UI 或 agent 应显示缺少的证据字段。

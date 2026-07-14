@@ -3,9 +3,9 @@
 **Status:** Implemented
 **Date:** 2026-05-06
 **Related docs:**
-- `docs/superpowers/specs/2026-05-05-role-card-ecosystem-design.md`
-- `docs/superpowers/specs/2026-05-05-team-pack-ecosystem-status.md`
-- `docs/superpowers/plans/2026-05-06-dynamic-roster-for-team-packs.md`
+- `docs/product/business/2026-05-05-role-card-ecosystem-analysis.md`
+- `docs/product/business/2026-05-01-engineering-role-card-business-plan.md`
+- `docs/archive/specs/team-runtime-contract/spec.md`
 
 ## Problem
 

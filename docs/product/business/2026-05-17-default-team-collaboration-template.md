@@ -2,8 +2,8 @@
 
 > Status: Active
 > Date: 2026-05-17
-> Source spec: `specs/default-team-collaboration-template/`
-> Reference: `docs/superpowers/specs/2026-05-17-team-workflow-harness-refactor-design.md`
+> Historical source spec: `docs/archive/specs/default-team-collaboration-template/`
+> Active migration: `specs/team-simplification/`
 
 ## 产品判断
 
@@ -79,21 +79,11 @@
 
 并行管道必须按 `n/n dispatched` 口径确认；如果只启动了一部分，角色应重试或升级，而不是宣布全部开工。
 
-## GitNexus 图谱优先规则
-
-默认 6 人组是后续 TeamPack 的图谱优先样板：
-
-- Mario 拆任务前用 GitNexus 看相关流程、模块边界和依赖关系。
-- Luigi 和 Toad 实现前用 GitNexus 看目标功能、符号上下游和影响边界。
-- Peach 和 DK 做评审或架构判断时，必须引用 GitNexus impact、detect changes、cluster 或 process 证据。
-- Yoshi 做测试门禁时，测试范围应覆盖 GitNexus 识别出的 affected processes、入口点和风险调用链。
-- 每次非简单交接都应说明使用了哪些 GitNexus 查询、符号、流程或影响面结论；如果 GitNexus 不可用，必须说明降级依据。
-
 ## 可执行交付门禁
 
 默认团队不再把“运行结束”或“看板标记”当成交付完成：
 
-- Luigi/Toad 进入评审前必须提交 `implementation_evidence`，包含 install、build 和 GitNexus 证据。
+- Luigi/Toad 进入评审前必须提交 `implementation_evidence`，包含适用的 install、build、test 和影响边界说明。
 - Peach/DK 如果发现实现证据缺失，必须退回补证据，不能只凭代码阅读通过。
 - Yoshi 验收通过后只能进入 merge-ready，不能直接代表最终 done。
 - Mario 只有在完成主分支或目标集成分支验证后，才能提交 `delivery_evidence` 并标记 done。

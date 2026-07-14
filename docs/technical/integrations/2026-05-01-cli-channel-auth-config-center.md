@@ -3,7 +3,7 @@
 > 状态：设计稿，非完整落地现状
 > 更新：2026-05-02
 >
-> 当前代码已落地“模型账号 + 角色素材 + 独立配置中心 + Provider Profiles / Channels / Routing Policy + daemon 扩展参数通路”。阅读本稿时，请以 `specs/unify-integration-config-center/`、`src/components/settings/IntegrationSettingsPage.tsx` 和当前代码实现为准。
+> 当前代码已落地“模型账号 + 角色素材 + 独立配置中心 + Provider Profiles / Channels / Routing Policy + daemon 扩展参数通路”。原实施规格已归档至 `docs/archive/specs/unify-integration-config-center/`；当前事实以本稿、`src/components/settings/IntegrationSettingsPage.tsx` 和代码实现为准。
 
 ## 1. 当前代码事实
 
@@ -152,5 +152,5 @@
 ## 8. 当前结论
 
 - 这份文档保留为“目标设计稿”
-- 当前实现事实以 `specs/unify-integration-config-center/` 为准
+- 历史实施记录见 `docs/archive/specs/unify-integration-config-center/`
 - 如果代码继续演进，必须先更新该 spec，再更新本文档

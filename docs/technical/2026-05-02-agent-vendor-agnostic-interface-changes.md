@@ -1,8 +1,8 @@
 # Agent 厂商无关接口 — 实施变更总结
 
 > 日期: 2026-05-02
-> 关联 Spec: `docs/superpowers/specs/2026-05-02-agent-vendor-agnostic-interface-design.md`
-> 关联 Plan: `docs/superpowers/plans/2026-05-02-agent-vendor-agnostic-interface.md`
+> 当前替代规格：`specs/acp-runtime-integration/`
+> 历史说明：本文记录早期厂商无关接口变化，不再作为运行时接入的活动契约。
 
 ## 目标
 

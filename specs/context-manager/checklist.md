@@ -1,11 +1,11 @@
 # 验收清单 — 上下文管理器
 
 ## P1 — 统一组装 + 作用域
-- [ ] `ContextManager.assemble()` 存在，内部复用 `BudgetGuard`，返回 `{ prompt, report }`
+- [ ] `ContextManager.assembleContext()` 存在，内部复用 `BudgetGuard`，返回完整 `AssembledContext`
 - [ ] `PromptComposer.composeUserPrompt` 委托 ContextManager，仍返回 `string`（调用方不破）
 - [ ] `project` 含 `id`；`projectLayer` 展示 id
 - [ ] history / taskContext / teamPack 按 `project_id` 过滤
-- [ ] `scopeGuard` 组装前断言所有 source 同 project_id
+- [ ] `scopeGuard` 组装前按 project_id、scope、private 和接收者执行可见性过滤
 - [ ] PromptComposer 既有测试全绿；新增 scopeGuard / 过滤单测绿
 - [ ] build 通过
 
@@ -25,8 +25,8 @@
 
 ## 不破坏
 - [ ] `a2a-possession-contract/` 持球 / 交接 / 反回声语义不变
-- [ ] `BudgetGuard` / `ContextBudget` 接口不变（复用）
-- [ ] `cli-bridge-layer/` 不受影响
+- [ ] `BudgetGuard` 使用 system/tool/project + importance；旧 priority 仅保留兼容，不再驱动新记录
+- [ ] `acp-runtime-integration/` 的执行协议边界不受影响
 - [ ] build 通过；现有 A2A / context 测试不破
 
 ## 文档

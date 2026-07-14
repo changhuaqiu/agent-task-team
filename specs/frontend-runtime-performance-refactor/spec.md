@@ -4,8 +4,8 @@
 **Date:** 2026-05-15
 **Related docs:**
 - `docs/wiki/03-store-model.md`
-- `specs/team-runtime-contract/spec.md`
-- `specs/unify-integration-config-center/spec.md`
+- `docs/archive/specs/team-runtime-contract/spec.md`
+- `docs/archive/specs/unify-integration-config-center/spec.md`
 
 ## Problem
 

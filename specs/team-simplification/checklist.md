@@ -36,5 +36,5 @@
 
 ## 非目标确认
 - [ ] team pack 系统机制（创建/选择/切换）保留
-- [ ] 已完成的 spec（cli-bridge/context-budget/agent-session-stability）不碰
+- [ ] 不修改 ACP、ContextManager 或 agent session 的运行时语义
 - [ ] 历史 conversation/chat_message 数据保留
