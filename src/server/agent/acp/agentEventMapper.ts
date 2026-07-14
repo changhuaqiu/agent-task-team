@@ -11,6 +11,32 @@ import type { SessionUpdate } from '@agentclientprotocol/sdk';
 import type { AgentEvent } from '../types';
 
 /**
+ * Every SessionUpdate variant recognized by the installed ACP SDK schema
+ * (v1.2.1). Covers BOTH the mapped variants (agent_message_chunk, etc.) AND
+ * the known-safe-ignore variants (usage_update, plan, etc. — no AgentEventType
+ * slot, spec §5.3). AcpBackend uses this to gate its unmapped-update warning so
+ * it fires ONLY for genuinely-UNKNOWN `sessionUpdate` values (future protocol
+ * additions), not for the known-safe-ignore ones that real agents emit
+ * frequently. This module is the authority on what is handled, so the set
+ * lives here.
+ */
+export const KNOWN_SESSION_UPDATE_TYPES = new Set<string>([
+  'user_message_chunk',
+  'agent_message_chunk',
+  'agent_thought_chunk',
+  'tool_call',
+  'tool_call_update',
+  'plan',
+  'plan_update',
+  'plan_removed',
+  'available_commands_update',
+  'current_mode_update',
+  'config_option_update',
+  'session_info_update',
+  'usage_update',
+]);
+
+/**
  * Best-effort stringify for `unknown` raw tool input/output. ACP declares
  * `rawInput`/`rawOutput` as `unknown`; they may hold non-JSON-serializable
  * values (e.g. circular refs), so we must never let JSON.stringify throw.

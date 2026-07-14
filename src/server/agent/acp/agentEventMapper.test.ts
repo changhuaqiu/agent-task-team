@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { mapAcpUpdate } from './agentEventMapper';
+import { mapAcpUpdate, KNOWN_SESSION_UPDATE_TYPES } from './agentEventMapper';
 import type { AgentEvent } from '../types';
 
 // Test inputs use `as any` because we are constructing raw ACP SessionUpdate
@@ -204,6 +204,33 @@ describe('mapAcpUpdate', () => {
       } as any);
       expect(r).not.toBeUndefined();
       expect(r === null || (r as AgentEvent).type !== undefined).toBe(true);
+    });
+  });
+
+  describe('KNOWN_SESSION_UPDATE_TYPES', () => {
+    // Covers all 13 SDK-defined variants (mapped + known-safe-ignore). Used by
+    // AcpBackend to gate its unmapped-update warning so known-safe-ignore
+    // variants (e.g. usage_update) do not spam logs. See review Important #2.
+    it.each([
+      'user_message_chunk',
+      'agent_message_chunk',
+      'agent_thought_chunk',
+      'tool_call',
+      'tool_call_update',
+      'plan',
+      'plan_update',
+      'plan_removed',
+      'available_commands_update',
+      'current_mode_update',
+      'config_option_update',
+      'session_info_update',
+      'usage_update',
+    ])('includes known variant %s', (su) => {
+      expect(KNOWN_SESSION_UPDATE_TYPES.has(su)).toBe(true);
+    });
+
+    it('excludes unknown future variants', () => {
+      expect(KNOWN_SESSION_UPDATE_TYPES.has('some_future_thing')).toBe(false);
     });
   });
 });

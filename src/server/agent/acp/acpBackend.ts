@@ -22,7 +22,7 @@ import * as acp from '@agentclientprotocol/sdk';
 import treeKill from 'tree-kill';
 import { spawnCli } from '../cliBridge';
 import { withDoneGuarantee } from '../with-done-guarantee';
-import { mapAcpUpdate } from './agentEventMapper';
+import { mapAcpUpdate, KNOWN_SESSION_UPDATE_TYPES } from './agentEventMapper';
 import type {
   AgentBackend,
   AgentRun,
@@ -247,7 +247,22 @@ export class AcpBackend implements AgentBackend {
         sessionId = session.sessionId;
 
         // Start the prompt without awaiting so we can drain updates concurrently.
-        const promptP = session.prompt(promptText);
+        // Defensive sink: on kill()/timeout the stream breaks mid-turn, so
+        // nextUpdate() rejects and the callback throws at the drain loop BEFORE
+        // reaching `await promptP`. If the SDK then rejects the pending prompt
+        // request on transport close (common JSON-RPC behavior), that rejection
+        // is UNHANDLED — under Node's default --unhandled-rejections=throw
+        // (v15+), a routine cancel/timeout could terminate a long-running
+        // daemon. This sink swallows that orphaned rejection. On the happy path
+        // the catch never fires (promptP resolves with the PromptResponse), so
+        // `await promptP` below still receives the real response. See review
+        // Important #1.
+        const promptP = session.prompt(promptText).catch(() => {
+          // Swallowed: on kill/timeout the stream breaks before we await
+          // promptP. The result is resolved via the close handler; this sink
+          // prevents an unhandled rejection from terminating the daemon.
+          return undefined as never;
+        });
 
         // Drain session/update notifications until the stop message.
         for (;;) {
@@ -258,11 +273,18 @@ export class AcpBackend implements AgentBackend {
               if (e.sessionId === undefined) e.sessionId = sessionId;
               push(e);
             } else {
-              // Spec §5.3: unknown/unmapped updates must be logged + ignored.
-              console.warn(
-                '[acp] unmapped session update:',
-                msg.update.sessionUpdate,
-              );
+              // Spec §5.3: unknown/unmapped updates must be ignored (never
+              // throw). Warn ONLY for genuinely-UNKNOWN `sessionUpdate` values
+              // (future protocol additions) — known-safe-ignore variants
+              // (usage_update, plan, session_info_update, …) are intentionally
+              // null-mapped and emitted frequently by real agents, so warning
+              // on them would spam production logs. See review Important #2.
+              if (!KNOWN_SESSION_UPDATE_TYPES.has(msg.update.sessionUpdate)) {
+                console.warn(
+                  '[acp] unknown session update (safely ignored):',
+                  msg.update.sessionUpdate,
+                );
+              }
             }
           } else {
             // kind === "stop" — turn complete.
