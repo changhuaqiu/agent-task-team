@@ -53,18 +53,16 @@ const PERMISSION_OPTIONS: acp.PermissionOption[] = [
  *  1. `agent_message_chunk` (text "开始")
  *  2. `tool_call` (pending)
  *  3. `session/request_permission` (awaited; client selects allow/reject)
- *  4. `tool_call_update` (status = allowed ? "completed" : "cancelled")
+ *  4. `tool_call_update` (status = allowed ? "completed" : "failed")
  *  5. `agent_message_chunk` (text "完成")
  *  6. returns `{ stopReason: "end_turn" }`
  *
- * "cancelled" is the mock's rejection sentinel. It is NOT a member of the
- * SDK's `ToolCallStatus` union (`pending` | `in_progress` | `completed` |
- * `failed`), so the value is cast when constructing the update. Note: on the
- * receiving side the SDK's zod layer treats an unknown status as a parse
- * error and falls back to `undefined` (see `defaultOnError`), so clients
- * reading through `ActiveSession.nextUpdate()` observe `status === undefined`
- * for the rejected turn. The raw wire value emitted by the mock remains
- * `"cancelled"`.
+ * The reject path emits `"failed"` — a valid member of the SDK's
+ * `ToolCallStatus` union (`pending` | `in_progress` | `completed` | `failed`)
+ * — so it survives the receiving side's zod parsing and is observable through
+ * the standard `ActiveSession.nextUpdate()` stream (the path Task 5's
+ * `AcpBackend` uses). `"failed"` conveys that the tool call did not succeed
+ * (permission was rejected).
  */
 export function createMockAgentApp(): acp.AgentApp {
   return acp
@@ -77,6 +75,12 @@ export function createMockAgentApp(): acp.AgentApp {
       sessionId: 'mock-1',
     }))
     .onRequest(acp.methods.agent.authenticate, () => ({}))
+    // No-op handlers so Task 5's AcpBackend.kill() (session/cancel) and
+    // daemon mode switches (session/setMode) don't hit method-not-found.
+    // These are no-ops for the scripted turn; real cooperative cancellation
+    // is a later concern.
+    .onRequest(acp.methods.agent.session.setMode, () => ({}))
+    .onNotification(acp.methods.agent.session.cancel, () => {})
     .onRequest(acp.methods.agent.session.prompt, async (ctx) => {
       const sessionId = ctx.params.sessionId;
       const upd = (update: acp.SessionUpdate) =>
@@ -111,15 +115,14 @@ export function createMockAgentApp(): acp.AgentApp {
         perm.outcome.outcome === 'selected' && perm.outcome.optionId === 'allow';
 
       // 4. Report the tool call outcome.
-      //    "cancelled" is a mock-only sentinel — not a valid ACP
-      //    ToolCallStatus (pending|in_progress|completed|failed) — emitted to
-      //    signal permission rejection. Cast through unknown to satisfy the
-      //    discriminated-union type at compile time. NOTE: on the receiving
-      //    side, the SDK's zod layer falls back to `undefined` for an unknown
-      //    status value (see `defaultOnError` in schema-deserialize), so a
-      //    client reading via `ActiveSession.nextUpdate()` observes
-      //    `status === undefined` for the rejected turn.
-      const toolStatus = (allowed ? 'completed' : 'cancelled') as unknown as acp.ToolCallStatus;
+      //    On rejection emit "failed" — a valid ACP ToolCallStatus
+      //    (pending|in_progress|completed|failed) — so the value survives
+      //    the receiving side's zod parsing and is observable through the
+      //    standard ActiveSession.nextUpdate() stream (the path Task 5's
+      //    AcpBackend uses). "failed" conveys that the tool call did not
+      //    succeed (permission was rejected). No cast needed: "failed" is a
+      //    union member.
+      const toolStatus: acp.ToolCallStatus = allowed ? 'completed' : 'failed';
       await upd({
         sessionUpdate: 'tool_call_update',
         toolCallId: TOOL_CALL_ID,
