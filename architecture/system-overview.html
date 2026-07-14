@@ -234,30 +234,30 @@
         <text x="560" y="610" fill="white" font-size="11" font-weight="600" text-anchor="middle">terminal:start 全链路编排</text>
         <text x="560" y="625" fill="#94a3b8" font-size="8" text-anchor="middle">引擎选择 · 凭据注入 · session/invocation 持久化 · DispatchGateway 信封 · forwardAgentEvent 事件转发 · A2A 回调 · 心跳/自治守护/worktree-GC 定时器</text>
 
-        <!-- ========== L7 CLI Backend 工厂 ========== -->
+        <!-- ========== L7 ACP 执行通路（唯一 backend） ========== -->
         <rect x="40" y="654" width="1020" height="82" rx="8" fill="rgba(6, 78, 59, 0.10)" stroke="#34d399" stroke-width="1" stroke-dasharray="6,4"/>
-        <text x="52" y="672" fill="#34d399" font-size="10" font-weight="600">L7 · CLI Backend 工厂</text>
-        <text x="220" y="672" fill="#64748b" font-size="9">src/server/agent  ·  CLI 优先，不走 SDK  ·  统一 AgentEvent(text/thinking/tool_use/tool_result/error/done)</text>
-        <rect x="60" y="680" width="140" height="48" rx="6" fill="#0f172a"/>
-        <rect x="60" y="680" width="140" height="48" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
-        <text x="130" y="700" fill="white" font-size="11" font-weight="600" text-anchor="middle">factory.ts</text>
-        <text x="130" y="716" fill="#94a3b8" font-size="8" text-anchor="middle">createBackend(engine)</text>
-        <rect x="220" y="680" width="195" height="48" rx="6" fill="#0f172a"/>
-        <rect x="220" y="680" width="195" height="48" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
-        <text x="317" y="700" fill="white" font-size="11" font-weight="600" text-anchor="middle">OpenCodeBackend</text>
-        <text x="317" y="716" fill="#94a3b8" font-size="8" text-anchor="middle">Go 直连 / script PTY / Node 三级降级</text>
-        <rect x="435" y="680" width="195" height="48" rx="6" fill="#0f172a"/>
-        <rect x="435" y="680" width="195" height="48" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
-        <text x="532" y="700" fill="white" font-size="11" font-weight="600" text-anchor="middle">ClaudeBackend</text>
-        <text x="532" y="716" fill="#94a3b8" font-size="8" text-anchor="middle">stream-json in/out · resume</text>
-        <rect x="650" y="680" width="195" height="48" rx="6" fill="#0f172a"/>
-        <rect x="650" y="680" width="195" height="48" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
-        <text x="747" y="700" fill="white" font-size="11" font-weight="600" text-anchor="middle">CodexBackend</text>
-        <text x="747" y="716" fill="#94a3b8" font-size="8" text-anchor="middle">NDJSON · 无 resume</text>
-        <rect x="865" y="680" width="175" height="48" rx="6" fill="#0f172a"/>
-        <rect x="865" y="680" width="175" height="48" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#fbbf24" stroke-width="1.5" stroke-dasharray="4,3"/>
-        <text x="952" y="700" fill="#fbbf24" font-size="11" font-weight="600" text-anchor="middle">gemini / mock</text>
-        <text x="952" y="716" fill="#fbbf24" font-size="8" text-anchor="middle">→ 回退 OpenCode（未独立）</text>
+        <text x="52" y="672" fill="#34d399" font-size="10" font-weight="600">L7 · ACP 执行通路（唯一 backend）</text>
+        <text x="250" y="672" fill="#64748b" font-size="9">src/server/agent/acp  ·  ACP JSON-RPC over stdio  ·  统一 AgentEvent(text/thinking/tool_use/tool_result/error/done)</text>
+        <rect x="60" y="680" width="170" height="48" rx="6" fill="#0f172a"/>
+        <rect x="60" y="680" width="170" height="48" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="145" y="700" fill="white" font-size="11" font-weight="600" text-anchor="middle">catalog.ts</text>
+        <text x="145" y="716" fill="#94a3b8" font-size="8" text-anchor="middle">loadCatalog + createBackend(entry)</text>
+        <rect x="250" y="680" width="190" height="48" rx="6" fill="#0f172a"/>
+        <rect x="250" y="680" width="190" height="48" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="345" y="700" fill="white" font-size="11" font-weight="600" text-anchor="middle">AcpBackend（唯一实现）</text>
+        <text x="345" y="716" fill="#94a3b8" font-size="8" text-anchor="middle">initialize→newSession→prompt · tree-kill</text>
+        <rect x="460" y="680" width="160" height="48" rx="6" fill="#0f172a"/>
+        <rect x="460" y="680" width="160" height="48" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="540" y="700" fill="white" font-size="11" font-weight="600" text-anchor="middle">opencode（原生）</text>
+        <text x="540" y="716" fill="#94a3b8" font-size="8" text-anchor="middle">opencode acp</text>
+        <rect x="640" y="680" width="190" height="48" rx="6" fill="#0f172a"/>
+        <rect x="640" y="680" width="190" height="48" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="735" y="700" fill="white" font-size="11" font-weight="600" text-anchor="middle">claude（适配器）</text>
+        <text x="735" y="716" fill="#94a3b8" font-size="8" text-anchor="middle">claude-agent-acp@0.59.0 · OAuth</text>
+        <rect x="850" y="680" width="190" height="48" rx="6" fill="#0f172a"/>
+        <rect x="850" y="680" width="190" height="48" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="945" y="700" fill="white" font-size="11" font-weight="600" text-anchor="middle">codex（适配器）</text>
+        <text x="945" y="716" fill="#94a3b8" font-size="8" text-anchor="middle">codex-acp@1.1.2 · CODEX_HOME 隔离</text>
 
         <!-- ========== L8 数据层 ========== -->
         <rect x="40" y="754" width="1020" height="82" rx="8" fill="rgba(76, 29, 149, 0.12)" stroke="#a78bfa" stroke-width="1" stroke-dasharray="6,4"/>

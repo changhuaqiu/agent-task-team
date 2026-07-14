@@ -155,8 +155,8 @@ dispatchToAgent()
                 │   └─ 找到 → 使用 cli_session_id (--resume)
                 │   └─ 没找到 → 创建新 session
                 │
-                ├─ createBackend(engine).execute(prompt, opts)
-                │   └─ 返回 AsyncGenerator<AgentEvent>
+                ├─ loadCatalog().find(e => e.id === engine) → createAcpBackend(entry)
+                │   └─ AcpBackend.execute(prompt, opts) → 返回 AsyncGenerator<AgentEvent>（ACP JSON-RPC over stdio）
                 │
                 └─ for await (event of events)
                     ├─ 广播到前端 (agent:event)

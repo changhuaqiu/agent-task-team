@@ -136,7 +136,7 @@ Repository 当前覆盖的核心对象：
 - invocation 跟踪
 - account credential 注入
 - timeout 管理
-- bridge / tmux / 本地 CLI 多路径支持
+- ACP 统一通路：经 Agent Catalog 查表 → `AcpBackend` → ACP JSON-RPC over stdio 驱动运行时（见 4.6）
 - 任务创建经过 DispatchAdvisor 步骤，以编程式匹配将任务分配到 agent（基于 capability profiles、当前负载和 forbidden actions）
 - Dispatch 持久化：入队时写入 SQLite invocation 表，崩溃后可恢复；同 agent+task 的 dispatch 自动合并（coalescing）
 - Workdir 隔离：每次执行分配独立 `cwd`（`.ath/workspaces/{projectId}/{agentId}/task-{taskId}/workdir/`），跨 task 共享 `base/` 基础环境
@@ -251,7 +251,7 @@ Daemon 的边界是执行编排，不是团队规则解释器：
 
 server-originated handoff 现在先生成 `a2a_pass` 与 `a2a_handoff_packet`，再写入 `a2a_delivery` 并发出 `a2a:pass-offer`。现有客户端仍通过兼容 `a2a:dispatch` 启动 agent；客户端启动成功后回发 `a2a:agent-started`，daemon 才会把 worklist entry 标为 `executing` 并为目标 agent 打开 possession。兼容字段 `currentHolderId` 只表示最新启动的 holder，真正的持球资格由 open possession 判断，因此 fan-out 后多个 branch holder 可以独立完成或继续传球。客户端启动失败会回发 `a2a:dispatch-failed`，对应 pass 被标为 start 阶段 rejected，不再留下“看起来已执行但实际没人响应”的状态。
 
-daemon 会把本地 backend 的 `done` 事件和 OpenCode bridge 的流结束统一视为 agent 完成信号。完成信号会先把 `agentResponseBuffer` 中的文本交给 A2A scanner，再清理缓存；因此 bridge 模式下的 agent 输出同样可以触发后续 `@mention` 转交。OpenCode bridge 必须用与本地 backend 一致的参数顺序调用 `opencode run --format json <prompt>`，并保留 system prompt override envelope；如果 bridge 输出没有成功解析出结构化 text 事件，daemon 才使用清理后的原始输出作为 A2A 扫描兜底。
+daemon 会把 `AcpBackend` 的 `done` 事件视为 agent 完成信号。完成信号会先把 `agentResponseBuffer` 中的文本交给 A2A scanner，再清理缓存；因此 agent 输出可以触发后续 `@mention` 转交。所有运行时（opencode / claude / codex）现在统一经 ACP 产出 `AgentEvent`，不再有 per-engine 私有 stdout 解析。
 
 agent 输出中的 `@mention` 不再自动变成转交。A2A 只接受带明确行动意图的交接，例如“@reviewer 请审查…”、“交给 @coder 实现…”。普通引用、否定句、代码块中的 `@agent` 不会唤醒目标 agent。非 active holder 的输出即使包含交接语义也会被拦截；fan-out branch holder 的输出则合法，即使兼容 UI 的最新 holder 指向另一个 branch。
 
@@ -279,31 +279,38 @@ A2A v2 当前使用 invocation chain 作为一次用户触发内的临时协作�
 
 Possession 迁移期仍双写 `invocation_chain` / `chain_worklist` 与 `a2a_possession_*` 表。跨 possession chain、possession、pass、handoff packet 的状态转换必须包在 SQLite transaction 中；daemon 启动时会从 SQLite 重建 active agent 状态、entry/pass 映射、task handoff 映射、accepted pass 去重集合和 dedup/ripple 内存状态，避免重启后重复 dispatch 或链路状态分叉。stale chain 清理使用每条 chain 自己的 `maxDurationMs`，不再使用固定 5 分钟或旧 120 秒阈值。
 
-## 4.6 Agent Backend 抽象
+## 4.6 Agent Backend 抽象（ACP 统一通路）
 
-当前 daemon 已将多引擎逻辑从单体 if/else 中抽离。
+当前 daemon 已将多运行时逻辑收敛为 **ACP 单一通路**。历史上按引擎分别实现的 `OpenCodeBackend` / `ClaudeBackend` / `CodexBackend`、`factory.ts` 的 engine `switch`、以及 `gemini` / `mock` 回退路径已全部移除（spec §8 退出条件）。
 
 核心文件：
 
-- [`src/server/agent/types.ts`](../../src/server/agent/types.ts)
-- [`src/server/agent/factory.ts`](../../src/server/agent/factory.ts)
-- [`src/server/agent/opencode.ts`](../../src/server/agent/opencode.ts)
-- [`src/server/agent/claude.ts`](../../src/server/agent/claude.ts)
-- [`src/server/agent/codex.ts`](../../src/server/agent/codex.ts)
+- [`src/server/agent/types.ts`](../../src/server/agent/types.ts) — `AgentBackend` 契约、`AgentEvent`、`AgentRun`
+- [`src/server/agent/acp/acpBackend.ts`](../../src/server/agent/acp/acpBackend.ts) — **唯一** `AgentBackend` 实现，通过 ACP JSON-RPC over stdio 驱动运行时
+- [`src/server/agent/acp/catalog.ts`](../../src/server/agent/acp/catalog.ts) — `loadCatalog()` + `createBackend(entry)`
+- [`src/server/agent/acp/agentCatalog.seed.json`](../../src/server/agent/acp/agentCatalog.seed.json) — Catalog 启动事实源
+- [`src/server/agent/acp/agentEventMapper.ts`](../../src/server/agent/acp/agentEventMapper.ts) — ACP `SessionUpdate` → `AgentEvent`
+- [`src/server/agent/acp/runtimeSetup.ts`](../../src/server/agent/acp/runtimeSetup.ts) — `prepareAcpRuntime()` 每运行时文件系统 / 环境准备
+- [`src/server/agent/capabilityRouter.ts`](../../src/server/agent/capabilityRouter.ts) — 按能力降级
 
-当前模式：
+当前模式（catalog-driven，无 engine switch）：
 
-1. daemon 根据 `engine` 调用 `createBackend()`
-2. backend 输出统一 `AgentEvent`
-3. daemon 将 `AgentEvent`：
-   - 转为 socket 事件
-   - 写入 repo
-   - 更新 session / invocation
+1. daemon 根据 `engine` 在 Catalog 中查表（`loadCatalog().find(e => e.id === engine)`）；**找不到条目直接抛错**，不静默回退（`gemini` / `mock` 无条目，无法经 ACP 执行）。
+2. `prepareAcpRuntime(entry, ...)` 做每运行时准备：opencode 写 `opencode.json` 指定产 text 的模型；codex 隔离 `CODEX_HOME`（复制 `auth.json` + `config.toml` 到临时目录，turn 后清理）；claude passthrough（认证来自主机）。
+3. `createAcpBackend(entry, ...)` 构造 `AcpBackend`——经 `spawnCli`（cross-spawn，Windows .cmd/.bat 安全）spawn，完成 `initialize` → `session/new` → `prompt`，把 `session/update` 映射为统一 `AgentEvent`。
+4. daemon 将 `AgentEvent`：转为 socket 事件、写入 repo、更新 session / invocation。
 
-这样新增引擎只需要：
+Catalog 三个条目（spec §2 / §5.1）：
 
-- 增加一个 backend 文件
-- 在 factory 里注册
+| id | delivery | launcher | 认证 |
+| --- | --- | --- | --- |
+| `opencode` | 原生 | `opencode acp` | 主机 provider 配置 |
+| `claude` | 适配器 | `npx -y @agentclientprotocol/claude-agent-acp`@0.59.0 | Claude Code OAuth（非 API key） |
+| `codex` | 适配器 | `npx -y @agentclientprotocol/codex-acp`@1.1.2 | ChatGPT OAuth + 隔离 `CODEX_HOME` |
+
+适配器属于额外依赖（ACP 组织维护），不能描述成厂商 CLI 的原生 ACP 能力。适配器版本锁定。新增运行时只需在 Catalog 加条目并验证，不再写 per-engine 解析 backend。
+
+延迟项（坦诚记录）：会话恢复（`session/load` 未接线，`supportsResume:false`）；真实权限策略（`requestPermission` 当前是 auto-approve 占位，spec §6 的 allow/deny/confirm profile 后续做）；跨运行时模型规范化；MCP 桥接（`mcpServers:[]` 当前为空）。详见 `architecture/cli-integration.md` 与 `specs/acp-runtime-integration/spec.md`。
 
 ## 4.7 会话与调用追踪
 
@@ -326,23 +333,16 @@ daemon 当前已经具备会话级跟踪：
 - 某个项目下某个 agent 的会话链
 - 每次执行的输入、状态和退出结果
 
-## 4.8 Bridge / 本地 CLI / Mock
+## 4.8 执行通路（ACP-only）
 
-当前执行策略仍保留三类路径：
+当前 agent 执行只有一条通路：**ACP**。daemon 经 Catalog 查表 → `AcpBackend` → ACP JSON-RPC over stdio 驱动运行时（opencode 原生 / claude、codex 适配器）。具体职责见 4.6。
 
-1. Bridge
-   - 当 `opencodeBridgeUrl` 存在时优先使用
-2. 本地 CLI
-   - 通过不同命令执行 `opencode / claude / codex`
-3. Mock
-   - 用于开发演示与降级路径
-
-`tmux` 也已经作为可选观察/执行模式接入 daemon。
+历史上曾存在 Bridge（`opencodeBridgeUrl`）、本地 CLI per-engine 解析、`mock` / `gemini` 回退等并行路径；这些 bespoke backend 与 `factory.ts` 的 engine `switch` 已在 ACP 迁移中移除（spec §7 / §8）。`tmux` 作为可选观察/执行模式仍可接入 daemon，但 ACP 是 agent 执行的唯一 backend 通路。
 
 补充说明：
 
-- `gemini` 当前在工厂中仍回退到 `OpenCodeBackend`
-- 它不能被视为与 `opencode / claude / codex` 同等级的独立 backend
+- `gemini` / `mock` 没有 Catalog 条目，无法经 ACP 路径执行（不再是“回退到 OpenCodeBackend”，而是直接抛错）。
+- 适配器（claude / codex）的进程树是两层（`npx` → node 适配器 → 运行时），因此 `AcpBackend` 使用 `tree-kill` 清理，而非裸 `child.kill()`。
 
 ## 4.9 当前判断
 

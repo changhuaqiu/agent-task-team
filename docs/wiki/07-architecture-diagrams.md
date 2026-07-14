@@ -42,16 +42,14 @@ flowchart TB
     Repos["Repositories"]
     DB["SQLite / Drizzle"]
     Daemon["Socket.io Daemon"]
-    BackendFactory["Agent Backend Factory"]
+    Catalog["Agent Catalog (seed)"]
     FileWatcher["TaskFileWatcher"]
     FileService["TaskFileService"]
   end
 
-  subgraph Engines["Execution Backends"]
-    OpenCode["OpenCodeBackend"]
-    Claude["ClaudeBackend"]
-    Codex["CodexBackend"]
-    Bridge["Bridge Client Path"]
+  subgraph Engines["Execution Backend (ACP-only)"]
+    AcpBackend["AcpBackend (唯一实现)"]
+    AcpTransport["ACP JSON-RPC over stdio"]
   end
 
   subgraph Storage["Storage"]
@@ -62,8 +60,8 @@ flowchart TB
   end
 
   subgraph External["External Runtime"]
-    LocalCLI["Local CLI: opencode / claude / codex"]
-    OpencodeBridge["opencode-bridge.mjs"]
+    Native["opencode acp (原生)"]
+    Adapters["claude-agent-acp / codex-acp (适配器)"]
   end
 
   ClientHome --> TaskHubStore
@@ -91,7 +89,7 @@ flowchart TB
 
   SocketAPI --> Daemon
   Daemon --> Repos
-  Daemon --> BackendFactory
+  Daemon --> Catalog
   Daemon --> Accounts
   Daemon --> Credentials
   Daemon --> FileWatcher
@@ -101,15 +99,11 @@ flowchart TB
   FileWatcher --> Repos
   FileWatcher -->|task.sync| SocketAPI
 
-  BackendFactory --> OpenCode
-  BackendFactory --> Claude
-  BackendFactory --> Codex
-  Daemon --> Bridge
-
-  OpenCode --> LocalCLI
-  Claude --> LocalCLI
-  Codex --> LocalCLI
-  Bridge --> OpencodeBridge
+  Daemon --> AcpBackend
+  Catalog --> AcpBackend
+  AcpBackend --> AcpTransport
+  AcpTransport --> Native
+  AcpTransport --> Adapters
 ```
 
 ## 7.2 页面初始化与持久化链路
@@ -155,9 +149,9 @@ sequenceDiagram
   participant Accounts as accounts.json / credentials.json
   participant SessionRepo as sessionRepo
   participant InvRepo as invocationRepo
-  participant Factory as createBackend()
-  participant Backend as AgentBackend
-  participant CLI as Local CLI / Bridge
+  participant Catalog as loadCatalog()
+  participant Backend as AcpBackend
+  participant Runtime as ACP Runtime (opencode/适配器)
   participant MsgRepo as messageRepo + eventRepo
 
   User->>UI: 点击运行 / 派发任务
@@ -168,11 +162,12 @@ sequenceDiagram
   Daemon->>Accounts: 读取账号与凭据
   Daemon->>SessionRepo: 查找或创建 agent_session
   Daemon->>InvRepo: 创建 invocation
-  Daemon->>Factory: createBackend(engine, config)
-  Factory-->>Daemon: backend 实例
+  Daemon->>Catalog: find(e.id === engine)
+  Catalog-->>Daemon: catalog entry（无则抛错）
+  Daemon->>Backend: prepareAcpRuntime + createAcpBackend(entry)
   Daemon->>Backend: execute(prompt, opts)
-  Backend->>CLI: spawn 本地 CLI 或调用 Bridge
-  CLI-->>Backend: stdout / stderr / stream
+  Backend->>Runtime: spawn + ACP initialize/newSession/prompt (stdio JSON-RPC)
+  Runtime-->>Backend: session/update 流
   Backend-->>Daemon: AgentEvent 流
   Daemon->>MsgRepo: 持久化消息 / 事件
   Daemon-->>Socket: agent:event / terminal:data / agent:session / terminal:exit
@@ -284,9 +279,9 @@ flowchart LR
 - 前端不是直接读 localStorage，而是先经由 `GET /api/state` rehydrate
 - `taskHubStore` 是运行态编排层，不是唯一真相源
 - daemon 不只是终端桥接器，还承担 session、invocation、事件落库和 backend 选择
-- `opencode / claude / codex` 是当前独立 backend
-- `gemini / mock` 仍不是独立 backend
-- Bridge 仍可用，但不是当前前台主配置入口
+- agent 执行是 **ACP 单一通路**：`AcpBackend`（`AgentBackend` 唯一实现）通过 ACP JSON-RPC over stdio 驱动 opencode（原生）/ claude、codex（适配器）
+- daemon 经 Agent Catalog 查表决定启动方式（无 engine `switch` 工厂）；找不到条目直接抛错，不静默回退
+- `gemini / mock` 没有 Catalog 条目，无法经 ACP 路径执行
 - 账号与凭据当前走文件存储，不走 SQLite
 - **Skill System**：正交于 RoleCard 的能力模块层，通过 SkillLayer（Layer 2）注入 systemPrompt，支持 Git 导入与 agent 绑定
 - **TaskFileWatcher**：文件驱动同步管道的核心——Agent 写 MD → watcher 解析 → DB 创建/更新 → Socket 广播 → store 刷新。这是"文件即真相源"架构的关键桥梁

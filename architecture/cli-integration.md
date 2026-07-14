@@ -1,33 +1,31 @@
 ---
-topics: [architecture, cli, integration]
+topics: [architecture, cli, integration, acp]
 doc_kind: note
 created: 2026-02-26
 ---
 
-# CLI 集成架构：当前实现
+# Agent 执行集成架构：ACP 统一接入
 
-> 更新：2026-05-02
+> 更新：2026-07-15
 
 ## 概述
 
-当前仓库的 CLI 集成已经从“daemon 内部按引擎写死分支”演进为：
+当前仓库的 agent 执行集成已经从“daemon 内部按引擎写死分支 + 每引擎一套私有 CLI 解析 backend”演进为 **ACP（Agent Client Protocol）单一通路**：
 
 - daemon 负责执行编排、会话跟踪、socket 转发与持久化
-- backend 工厂负责按引擎创建具体执行器
-- 各 backend 负责把引擎私有输出归一化为统一 `AgentEvent`
+- daemon 通过 **Agent Catalog** 查表确定如何启动目标运行时（不再有 engine `switch` 工厂）
+- **`AcpBackend`** 是 `AgentBackend` 契约的**唯一实现**，通过 ACP JSON-RPC over stdio 驱动运行时
+- 各运行时的差异（原生 vs 适配器、启动参数、版本）只存在于 Catalog，不进入 daemon 分支
 
-当前正式支持的主要 backend：
+当前支持的三个运行时（均通过 ACP 接入）：
 
-- `opencode`
-- `claude`
-- `codex`
+- `opencode`（原生 ACP，`opencode acp`）
+- `claude`（ACP 组织适配器，`npx -y @agentclientprotocol/claude-agent-acp`）
+- `codex`（ACP 组织适配器，`npx -y @agentclientprotocol/codex-acp`）
 
-当前的兼容 / 回退路径：
+> **迁移已完成**：历史上按引擎分别实现的 `OpenCodeBackend` / `ClaudeBackend` / `CodexBackend`、`factory.ts` 的 engine `switch`、`gemini` / `mock` 回退到 `OpenCodeBackend` 的路径，以及 `AGENT_BACKEND` 迁移旗标，均已移除。daemon 当前是 ACP-only，不存在 legacy 并行路径。详见 `specs/acp-runtime-integration/spec.md` 与归档计划 `docs/archive/`。
 
-- `gemini`：暂时回退到 `OpenCodeBackend`
-- `mock`：暂时回退到 `OpenCodeBackend`
-
-因此本文档只描述当前代码里的真实架构，不再描述历史上不存在于本仓库的 `AgentService`、`packages/api/src` 等结构。
+本文档描述当前代码里的真实架构。
 
 ## 架构概览
 
@@ -35,212 +33,202 @@ created: 2026-02-26
 前端 store
   -> socket.emit('terminal:start')
     -> src/server/daemon.ts
-      -> createBackend(engine, config)
-        -> src/server/agent/<engine>.ts
-          -> AsyncGenerator<AgentEvent>
+      -> loadCatalog().find(e => e.id === engine)   // Catalog 查表，无 switch
+      -> prepareAcpRuntime(entry, ...)              // 每运行时文件系统/环境准备
+      -> createAcpBackend(entry, ...)               // 构造 AcpBackend（唯一实现）
+      -> checkCapabilities(backend, ...)            // CapabilityRouter 按能力降级
+      -> backend.execute(prompt, opts)              -> AgentBackend 契约
+                                                    -> AcpBackend
+                                                    -> ACP JSON-RPC over stdio
+                                                    -> 运行时（opencode acp / 适配器）
       -> forwardAgentEvent()
         -> socket.emit(...)
         -> messageRepo / eventRepo / invocationRepo / sessionRepo
 ```
 
+更细粒度的协议层流向（见 spec §4）：
+
+```text
+daemon / dispatch / A2A / ContextManager
+                    │
+                    ▼
+           AgentBackend（内部稳定契约，src/server/agent/types.ts）
+                    │
+                    ▼
+              AcpBackend（唯一实现，src/server/agent/acp/acpBackend.ts）
+                    │
+          ACP JSON-RPC over stdio
+          ┌─────────┼──────────┐
+          ▼         ▼          ▼
+   opencode acp  claude-      codex-acp
+    （原生）     agent-acp    （适配器）
+                    │          │
+                    ▼          ▼
+             Claude Code    Codex App Server
+              OAuth 认证    (CODEX_HOME 隔离)
+```
+
+框架只理解 ACP 与内部 `AgentEvent`。启动差异只存在于 Catalog，不进入 daemon 分支。
+
 关键文件：
 
-- `src/server/daemon.ts`
-- `src/server/agent/factory.ts`
-- `src/server/agent/types.ts`
-- `src/server/agent/opencode.ts`
-- `src/server/agent/claude.ts`
-- `src/server/agent/codex.ts`
+- `src/server/daemon.ts` — 编排、Catalog 查表、事件转发与持久化
+- `src/server/agent/types.ts` — `AgentBackend` 契约、`AgentEvent`、`AgentRun`
+- `src/server/agent/acp/acpBackend.ts` — 唯一 backend 实现
+- `src/server/agent/acp/catalog.ts` — `loadCatalog()` + `createBackend(entry)`
+- `src/server/agent/acp/agentCatalog.seed.json` — Catalog 启动事实源
+- `src/server/agent/acp/agentEventMapper.ts` — ACP `SessionUpdate` → `AgentEvent`
+- `src/server/agent/acp/runtimeSetup.ts` — `prepareAcpRuntime()` 每运行时准备
+- `src/server/agent/capabilityRouter.ts` — 按能力降级
+- `src/server/agent/capabilities.ts` — `CapabilitySet` 类型
+- `src/server/agent/cliBridge.ts` — `spawnCli`（cross-spawn，Windows .cmd/.bat 安全）
+- `src/server/agent/with-done-guarantee.ts` — 保证 `done` 事件最终发出
 
 ## 设计原则
 
-### 1. CLI 优先，不走 SDK
+### 1. ACP 统一通路，不再 per-engine 解析
 
-当前仍坚持 CLI 子进程模式，主要原因：
+坚持 ACP over stdio 模式，主要原因：
 
-1. 复用用户已有 CLI 环境与订阅
-2. 保持工具能力、文件操作和 session 语义
-3. 将各厂商差异隔离在 backend 内部
-4. 让 daemon 聚焦“编排”，而不是理解每个引擎的私有协议
+1. 用一套标准协议驱动所有运行时，停止在 daemon 中长期维护三套私有 CLI 输出解析。
+2. 复用用户已有的运行时环境与订阅（见下文“原生 vs 适配器”）。
+3. 将各运行时差异隔离在 Catalog 与 `AcpBackend` 内部。
+4. 让 daemon 聚焦“编排”，不理解每个运行时的私有协议。
 
 ### 2. 统一事件模型
 
-backend 不直接把原始 stdout 交给前端，而是统一产出 `AgentEvent`。
+`AcpBackend` 不把原始 stdout 交给前端，而是把 ACP `session/update` 通知映射为统一 `AgentEvent`（`agentEventMapper.ts`，spec §5.3）。
 
-当前主要事件类型：
+映射表：
 
-- `text`
-- `thinking`
-- `tool_use`
-- `tool_result`
-- `error`
-- `done`
+| ACP 事件 | 内部 `AgentEvent` |
+| --- | --- |
+| `agent_message_chunk`（text） | `text` |
+| `agent_thought_chunk`（text） | `thinking` |
+| `tool_call` | `tool_use` |
+| `tool_call_update` | `tool_result` |
+| `user_message_chunk` / `plan*` / `available_commands_update` / `session_info_update` / `usage_update` 等 | 安全忽略（返回 `null`，不抛错） |
+| 未知 / 未来 `sessionUpdate` | 记录 warning 并安全忽略 |
+| `PromptResponse`（stop） | `done`（含 stop reason） |
+| transport / 协议错误 | `error` |
 
-daemon 只消费统一事件，不再直接分支解析每一种 CLI 协议。
+daemon 只消费统一事件，不再分支解析每一种 CLI 协议。
 
 ### 3. 会话与调用分层
 
 当前区分两层状态：
 
-- `agent_session`
-  - conversation 级 / agent 级执行会话
-- `invocation`
-  - 单次执行记录
+- `agent_session` — conversation 级 / agent 级执行会话
+- `invocation` — 单次执行记录
 
 这让 session 复用和执行审计可以分开管理。
+
+## Catalog：启动事实源
+
+Catalog（`src/server/agent/acp/agentCatalog.seed.json`）是启动事实源（spec §5.1）。daemon 不再按 engine 写 `switch`，而是查表得到运行时的启动方式、交付方式与固定版本。
+
+三个条目：
+
+| id | delivery | launcher | 说明 |
+| --- | --- | --- | --- |
+| `opencode` | 原生（native） | `opencode acp` | OpenCode 自带 ACP server |
+| `claude` | 适配器（adapter） | `npx -y @agentclientprotocol/claude-agent-acp`@0.59.0 | ACP 组织维护，基于 Claude Agent SDK；复用主机 Claude Code OAuth，**非** Claude Code CLI 原生 ACP |
+| `codex` | 适配器（adapter） | `npx -y @agentclientprotocol/codex-acp`@1.1.2 | ACP 组织维护，内部启动 Codex App Server；复用 ChatGPT OAuth + 隔离 `CODEX_HOME`，**非** Codex CLI 原生 ACP |
+
+约束：
+
+- 适配器版本锁定（`package` + `version`），不使用未记录版本的隐式漂移。
+- 能力以 ACP `initialize` 握手与实测 smoke 为准，不按运行时名称猜测。
+- daemon 找不到 catalog 条目时**直接抛错**，不静默回退（例如 `gemini` / `mock` 没有 catalog 条目，无法经 ACP 路径执行）。
+
+## 原生 vs 适配器
+
+- **原生（opencode）**：运行时自带 ACP server，直接 `opencode acp` 启动，进程树只有一层。
+- **适配器（claude / codex）**：通过 ACP 组织维护的适配器接入。适配器是额外依赖，**不能**在产品或技术文档中描述成厂商 CLI 的原生 ACP 能力。
+  - `npx -y` 首次执行会拉取适配器，之后缓存。
+  - 进程树是两层（`npx` → node 适配器 → 运行时），因此 `AcpBackend` 的进程清理使用 `tree-kill`，而不是裸 `child.kill()`。
+  - 适配器的认证由主机提供：claude 复用 Claude Code OAuth（`~/.claude/`），codex 复用 ChatGPT OAuth（`CODEX_HOME` 下的 `auth.json`）。
+
+## AcpBackend 职责
+
+`AcpBackend`（spec §5.2）是 `AgentBackend` 的唯一实现，职责包括：
+
+1. 经 `spawnCli`（cross-spawn，Windows .cmd/.bat 安全）启动 ACP agent 子进程。
+2. ACP 协议握手：`initialize` → `session/new` → `prompt`。**必须先 `initialize` 再 `session/new`**——codex-acp / claude-agent-acp 适配器强制此顺序，违反会返回 JSON-RPC `-32603`。
+3. 消费 `session/update` 通知，经 `agentEventMapper` 映射为 `AgentEvent`，直到收到 stop 消息。
+4. 处理 `requestPermission`（**当前为 auto-approve 占位**——见下文“延迟项”）。
+5. 进程清理：`finally` / kill / 超时均用 `tree-kill` 清整棵进程树（npx → 适配器 → 运行时 ≥ 2 层）。
+6. 用 `withDoneGuarantee` 包装事件流，保证 `done` 事件最终发出。
+7. 基于原因的关闭语义：`kill()` → `cancelled`，超时 → `timeout`，其他异常退出 → `failed`（进程退出绝不会被判为 `completed`，因为 ACP turn 完成由 `PromptResponse`/stop 标识，而非进程退出）。
+
+返回 `AgentRun { events, result, kill }`：`events` 是 `AgentEvent` 的 `AsyncGenerator`，`result` 是一次性 resolve 的 `Promise<AgentResult>`，`kill` 是幂等的取消函数。
+
+## 每运行时准备（prepareAcpRuntime）
+
+`runtimeSetup.ts` 的 `prepareAcpRuntime(entry, opts)` 在 spawn 前做文件系统 / 环境准备（无 spawn 副作用）：
+
+- **opencode**：主机默认模型 `zhipuai-coding-plan/glm-4.7` 只产 thought、不产 text，因此向 cwd 写入 `opencode.json` 指定一个产 text 的模型（默认 `deepseek/deepseek-chat`）。若调用方（daemon）已设置 `env.OPENCODE_CONFIG`，则跳过（账号/配置路径优先）。
+- **codex**：隔离 `CODEX_HOME`——在临时目录复制必要的 `~/.codex/auth.json` + `config.toml`，返回 `cleanup` 在 turn 结束后清理。codex-acp 经 `CODEX_HOME` 读取 ChatGPT OAuth 认证。
+- **claude**：passthrough（认证来自主机 Claude Code OAuth 或 `ANTHROPIC_API_KEY`），无 cwd 配置、无 env 覆盖。
+
+## CapabilityRouter
+
+`capabilityRouter.ts` 在 `backend.execute` 之前根据 `backend.capabilities` 做能力降级（backend 无关，对 ACP 同样适用）：
+
+- `resumeSessionId` + `supportsResume:false` → 剔除 resume，开新会话
+- `systemPrompt` + `supportsSystemPrompt` → 拼进 prompt 头
+- `maxTurns` + `supportsMaxTurns:false` → 剔除
+- `requiresPty:true` 但环境无 PTY → best-effort 警告（ACP `requiresPty:false`，不会触发）
+
+ACP 的能力声明：`supportsResume:false`、`supportsModel:true`、`supportsSystemPrompt:true`（`systemPromptMode:'none'`，由 `AcpBackend` 自行拼进 prompt）、`requiresPty:false`。
 
 ## 当前执行流程
 
 ### 1. 前端发起执行
 
-前端通过 Socket 发送 `terminal:start`，当前 payload 包含：
-
-```ts
-{
-  projectId?,
-  taskId?,
-  agentId,
-  prompt,
-  sessionId?,
-  conversationId?,
-  allowMockRunner?,
-  opencodeBridgeUrl?,
-  engine?,
-  runtimeId?,
-  providerProfileId?,
-  channel?,
-  authContextId?,
-  accountIds?,
-  accountId?,
-  force?
-}
-```
-
-说明：
-
-- 当前真正决定执行路径的仍然是 `engine`、`runtimeId`、`accountId`、`opencodeBridgeUrl`
-- `providerProfileId / channel / authContextId` 目前主要是参数预留和透传，不是完整配置系统
+前端通过 Socket 发送 `terminal:start`，payload 包含 `agentId`、`prompt`、`engine`、`accountId`、`taskId`、`conversationId` 等。真正决定 ACP 路径的是 `engine`（用于在 Catalog 中查表）与 `accountId`（用于账号与凭据）。
 
 ### 2. daemon 编排
 
 daemon 的主要步骤：
 
-1. 解析执行上下文
+1. 解析执行上下文（engine / runtime / account）
 2. 根据 `accountId` 读取账号和凭据
-3. 查找或创建 `agent_session`
-4. 创建 `invocation`
-5. 根据 `engine` 调用 `createBackend()`
-6. 消费 backend 输出的 `AgentEvent`
-7. 写入 repo 并广播给前端
+3. 查找或创建 `agent_session`，创建 `invocation`
+4. `loadCatalog().find(e => e.id === engine)`——找不到条目直接抛错（不静默回退）
+5. `prepareAcpRuntime(entry, ...)` 做文件系统 / 环境准备
+6. `createAcpBackend(entry, ...)` 构造 backend
+7. `checkCapabilities(backend, ...)` 按能力降级
+8. `backend.execute(prompt, opts)`，消费 `AgentEvent` 流
+9. 写入 repo 并广播给前端
 
 ### 3. backend 执行
 
-每个 backend 都负责：
-
-- 生成 CLI 命令或进程配置
-- 解析自身输出协议
-- 转换为统一 `AgentEvent`
-
-## 工厂与 backend
-
-当前工厂实现见 `src/server/agent/factory.ts`：
-
-```ts
-switch (engine) {
-  case 'opencode': return new OpenCodeBackend(config);
-  case 'claude':   return new ClaudeBackend(config);
-  case 'codex':    return new CodexBackend(config);
-  case 'gemini':   return new OpenCodeBackend(config);
-  case 'mock':     return new OpenCodeBackend(config);
-}
-```
-
-这说明当前状态是：
-
-- `opencode / claude / codex`：独立 backend
-- `gemini / mock`：尚未独立实现
-
-## 当前各引擎状态
-
-### OpenCode
-
-- backend：`OpenCodeBackend`
-- 典型命令：`opencode run <prompt> --format json [--session <id>]`
-- 适合处理 NDJSON 风格输出
-
-### Claude
-
-- backend：`ClaudeBackend`
-- 典型命令：`claude -p <prompt> --output-format stream-json [--resume <id>]`
-- 会产生 `stream-json` 风格事件
-
-### Codex
-
-- backend：`CodexBackend`
-- 当前以最简模式接入
-- 使用 JSON 解析加纯文本 fallback
-
-### Gemini
-
-- 当前没有独立 backend
-- factory 中暂时回退到 `OpenCodeBackend`
-- 不能视为与 `claude / codex / opencode` 同等级落地
-
-## 运行时探测
-
-daemon 当前会主动探测的 CLI 只有：
-
-- `claude`
-- `codex`
-- `opencode`
-
-这意味着：
-
-- 前端并没有完整的统一 runtime catalog
-- `gemini` 当前也不在默认探测清单中
-
-## Bridge 与本地 CLI
-
-当前 daemon 支持两类主路径：
-
-### 1. Bridge 模式
-
-- 当 `opencodeBridgeUrl` 存在时优先走 bridge
-- daemon 通过 HTTP 调用 `{bridge}/run`
-- bridge 输出被逐行解析后再归一化为 `AgentEvent`
-
-### 2. 本地 CLI 模式
-
-- daemon 直接调用本地 `opencode / claude / codex`
-- backend 负责各自 stdout/stderr 解析
+`AcpBackend` 负责 spawn、ACP 握手、事件映射、权限占位、进程清理与结果 resolve（见上 文“AcpBackend 职责”）。
 
 ## 持久化职责
 
-daemon 当前不仅负责“转发”，还负责写入：
+daemon 不仅负责“转发”，还负责写入：
 
 - `sessionRepo`
 - `invocationRepo`
 - `messageRepo`
 - `eventRepo`
 
-因此 CLI 集成层现在已经是：
+因此执行集成层现在已经是：执行层 + 观测层 + 审计层，而不是单纯的 stdout 桥接器。
 
-- 执行层
-- 观测层
-- 审计层
+## 延迟项与已知限制（坦诚记录）
 
-而不是单纯的 stdout 桥接器。
+以下能力本期**未实现**，属于后续迭代：
 
-## 当前已知限制
-
-1. `gemini` 未独立实现
-2. `mock` 未独立实现
-3. 统一 runtime 管理 UI 尚未完成
-4. `providerProfileId / channel / authContextId` 仍然主要是参数预留
+1. **会话恢复（resume）**：`supportsResume:false`。ACP `session/load` 未接线，CapabilityRouter 会剔除 `resumeSessionId` 并开新会话。
+2. **真实权限策略**：`requestPermission` 当前是 **auto-approve 占位**（选首个 `allow_*` 选项，无则 `cancelled`）。spec §6 要求的 allow / deny / confirm profile 未实现——见 `acpBackend.ts` 的 `TODO` 注释。
+3. **模型规范化**：model ID 跨运行时不通用（如 codex 的 `openai/x` + `reasoning_effort`）；ContextManager → ACP 的模型选择按运行时规范化是开放项。ACP `PromptRequest` 无 model 字段，`AcpBackend.execute` 忽略 `opts.model`，模型须经各运行时自身配置层注入（见 opencode 的 `opencode.json`）。
+4. **MCP 桥接**：`newSession({ mcpServers: [] })` 当前为空；后续可把框架 MCP 工具显式桥接给 agent。
 
 ## 后续建议
 
-1. 为 `gemini` 增加独立 backend
-2. 为 `mock` 增加真正的 mock backend
-3. 将 runtime 检测、账号映射、backend 能力说明统一回写到配置中心文档
-4. 持续保持本文档与 `src/server/agent/*`、`src/server/daemon.ts` 一致
+1. 接线 `session/load` 以支持真正的会话恢复。
+2. 落地 spec §6 的真实权限策略（approve-all / deny / confirm profile），替换 auto-approve 占位。
+3. 推进跨运行时模型规范化。
+4. 持续保持本文档与 `src/server/agent/acp/*`、`src/server/daemon.ts` 一致。

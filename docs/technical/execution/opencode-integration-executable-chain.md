@@ -2,7 +2,9 @@
 
 ## Summary
 
-Agent Task Hub 通过 Agent Backend 抽象层对接多种 CLI 引擎（opencode / claude / codex），将各引擎的私有协议归一化为统一的 `AgentEvent` 流。Daemon 作为编排层负责 session 管理、invocation 跟踪和 socket 广播，Backend 只负责"spawn + 解析"。
+Agent Task Hub 通过 **ACP（Agent Client Protocol）单一通路**驱动所有运行时（opencode / claude / codex），经 `AcpBackend`（`AgentBackend` 的唯一实现）将 ACP `session/update` 归一化为统一的 `AgentEvent` 流。Daemon 作为编排层负责 session 管理、invocation 跟踪和 socket 广播；启动差异只存在于 Agent Catalog，不进入 daemon 分支。
+
+> 历史上曾按引擎分别实现 `OpenCodeBackend` / `ClaudeBackend` / `CodexBackend` 与 `factory.ts` 的 engine `switch`；这些 bespoke backend 已在 ACP 迁移中移除（spec §7 / §8）。当前权威架构见 `architecture/cli-integration.md`。
 
 ---
 
@@ -13,22 +15,25 @@ Agent Task Hub 通过 Agent Backend 抽象层对接多种 CLI 引擎（opencode 
   │  terminal:start (Socket)
   ▼
 Daemon (daemon.ts)
-  │  createBackend(engine, config)
+  │  loadCatalog().find(e => e.id === engine) → createAcpBackend(entry)
   ▼
-AgentBackend (interface)
-  │  execute(prompt, opts) → AgentRun
+AgentBackend (interface, src/server/agent/types.ts)
+  │  execute(prompt, opts) → AgentRun   （唯一实现：AcpBackend）
   ▼
-CLI 进程 (opencode / claude / codex)
+ACP JSON-RPC over stdio
+  │
+  ▼
+运行时（opencode acp 原生 / claude-agent-acp / codex-acp 适配器）
 ```
 
 **关键文件**：
 
 - Daemon 编排：[`src/server/daemon.ts`](../../src/server/daemon.ts)
-- Backend 接口：[`src/server/agent/types.ts`](../../src/server/agent/types.ts)
-- Backend 工厂：[`src/server/agent/factory.ts`](../../src/server/agent/factory.ts)
-- OpenCode 实现：[`src/server/agent/opencode.ts`](../../src/server/agent/opencode.ts)
-- Claude 实现：[`src/server/agent/claude.ts`](../../src/server/agent/claude.ts)
-- Codex 实现：[`src/server/agent/codex.ts`](../../src/server/agent/codex.ts)
+- Backend 契约：[`src/server/agent/types.ts`](../../src/server/agent/types.ts)
+- 唯一 backend 实现：[`src/server/agent/acp/acpBackend.ts`](../../src/server/agent/acp/acpBackend.ts)
+- Catalog（启动事实源）：[`src/server/agent/acp/catalog.ts`](../../src/server/agent/acp/catalog.ts) + [`agentCatalog.seed.json`](../../src/server/agent/acp/agentCatalog.seed.json)
+- 事件映射：[`src/server/agent/acp/agentEventMapper.ts`](../../src/server/agent/acp/agentEventMapper.ts)
+- 每运行时准备：[`src/server/agent/acp/runtimeSetup.ts`](../../src/server/agent/acp/runtimeSetup.ts)
 
 ## 2. Backend 接口
 
@@ -197,12 +202,12 @@ terminal:start
   ├─ Invocation 记录 (invocationRepo)
   ├─ Runtime config 生成 (opencode-config)
   │
-  ├─ 路径选择：
-  │   ├─ opencodeBridgeUrl → Bridge HTTP 模式
-  │   ├─ tmuxEnabled → tmux pane 模式
-  │   └─ 默认 → Backend 抽象执行
+  ├─ ACP 通路（agent 执行唯一 backend 路径）：
+  │   ├─ loadCatalog().find(e => e.id === engine)（无条目 → 抛错，不回退）
+  │   ├─ prepareAcpRuntime(entry, ...)（opencode 写 opencode.json / codex 隔离 CODEX_HOME / claude passthrough）
+  │   ├─ tmuxEnabled → tmux pane 模式（可选观察/执行，仍经 ACP backend）
+  │   └─ createAcpBackend(entry, opts)
   │
-  ├─ createBackend(engine, config)
   ├─ backend.execute(prompt, opts)
   │
   ├─ for await (event of events):

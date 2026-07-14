@@ -64,10 +64,10 @@ src/lib/agent-context/layers/skillLayer.ts
   └─ src/lib/agent-context/PromptComposer.ts
 
 src/server/daemon.ts
-  ├─ src/server/agent/factory.ts
+  ├─ src/server/agent/acp/catalog.ts (loadCatalog + createBackend)
+  ├─ src/server/agent/acp/acpBackend.ts (唯一 AgentBackend 实现)
   ├─ src/server/repositories/*
-  ├─ child_process / backend adapters
-  └─ fetch('{bridge}/run')（Bridge 模式）
+  └─ child_process (ACP stdio JSON-RPC)
 
 src/lib/agent-context/PromptComposer.ts
   ├─ src/lib/agent-context/layers/roleLayer.ts
