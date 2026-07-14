@@ -1,0 +1,173 @@
+// src/server/agent/acp/acpBackend.compat.test.ts
+//
+// Task 9 — 3-runtime compatibility suite (spec §8 acceptance automation).
+//
+// Spec §8 mandates automated tests for: session, cancel, permission, tool
+// event, failure recovery, and process exit. This file covers the
+// DETERMINISTIC, runtime-agnostic scenarios (cancel / timeout / abnormal-exit)
+// against the mock ACP agent acting as a stand-in for ANY ACP runtime.
+//
+// The contract under test is `AcpBackend`'s behavior — which is identical
+// regardless of which runtime (opencode / claude / codex) sits on the other
+// end of the JSON-RPC stream, because AcpBackend only speaks ACP. So a
+// mock-based suite is the right altitude for these scenarios: deterministic,
+// fast, and free of the real-runtimes' env/API/speed constraints.
+//
+// Coverage map (spec §8):
+//   - session          → mockAcpAgent.test.ts + acpBackend.test.ts (newSession)
+//   - permission       → mockAcpAgent.test.ts (allow/reject) + acpBackend.test.ts
+//                        (auto-approve → tool_result). DENY/CONFIRM deferred —
+//                        only an auto-approve placeholder exists this iteration
+//                        (Task 4 override), so there is no policy to deny.
+//   - tool event       → mockAcpAgent.test.ts + acpBackend.test.ts (tool_use/
+//                        tool_result).
+//   - cancel           → THIS FILE (scenario "slow" + kill()).
+//   - timeout          → THIS FILE (scenario "slow" + timeoutMs).
+//   - failure recovery → THIS FILE (scenario "error" → abnormal exit → failed).
+//   - process exit     → covered by all three above (the close handler is the
+//                        single abnormal-exit resolver; each path exercises it).
+//
+// Per-runtime basic acceptance (a real turn completes on each runtime) is
+// proven by the Task 6/7 smokes (scripts/smoke-acp-runtime.ts) — NOT re-run
+// here, because real-runtimes × many scenarios × real API calls would be slow,
+// flaky, and env-gated, with no extra contract coverage.
+//
+// Deferred this iteration (documented, not built):
+//   - resume: AcpBackend does newSession only (`supportsResume: false`;
+//     loadSession is not wired). Wiring resume is a later task.
+//   - permission deny/confirm: the auto-approve placeholder selects the first
+//     allow option; there is no deny/confirm policy to exercise yet.
+//
+// This file is excluded from tsc (tsconfig exclude **/*.test.ts); vitest
+// transpiles via esbuild without type-checking.
+
+import { describe, it, expect } from 'vitest';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { AcpBackend } from './acpBackend';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const mockPath = join(__dirname, 'mockAcpAgent.ts');
+
+/**
+ * Build an AcpBackend that spawns the mock ACP agent in the given scenario.
+ * Uses an isolated temp cwd (the mock doesn't read it, but AcpBackend passes
+ * it to spawn). `extraEnv` is merged on top of process.env via AcpBackend's
+ * `env` opt (which it forwards to the child process).
+ */
+function makeMockBackend(
+  scenario: 'normal' | 'slow' | 'error',
+  opts: { timeoutMs?: number } = {},
+): AcpBackend {
+  const cwd = mkdtempSync(join(tmpdir(), 'acp-compat-'));
+  return new AcpBackend({
+    command: 'npx',
+    args: ['tsx', mockPath],
+    engine: 'opencode',
+    cwd,
+    env: { MOCK_ACP_SCENARIO: scenario },
+    ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
+  });
+}
+
+/**
+ * Drain `run.events` to completion and collect the event types. Returns the
+ * collected types + the resolved AgentResult. Draining is required so the
+ * generator's `finally` runs (clearTimeout + killProcess) and the
+ * withDoneGuarantee wrapper emits the terminal `done`.
+ */
+async function drain(run: {
+  events: AsyncGenerator<{ type: string }>;
+  result: Promise<{ status: string; error?: string }>;
+}) {
+  const types: string[] = [];
+  for await (const event of run.events) {
+    types.push(event.type);
+  }
+  const result = await run.result;
+  return { types, result };
+}
+
+describe('AcpBackend compatibility suite (spec §8: cancel / timeout / failure)', () => {
+  // ---------------------------------------------------------------------------
+  // cancel 回收 (spec §8): kill() mid-turn → 'cancelled' + done + no zombie.
+  // ---------------------------------------------------------------------------
+  it('cancel: kill() mid-turn resolves cancelled and emits done (no zombie)', async () => {
+    // "slow" blocks for 60s after the opening text, so kill() at 1000ms always
+    // wins the race. Default timeout is 120s — comfortably longer than the
+    // kill window.
+    const backend = makeMockBackend('slow');
+
+    const run = backend.execute('hi', {});
+
+    // Give the agent time to start the turn and emit the opening text, then
+    // kill mid-turn (while it's blocked in the slow scenario's 60s sleep).
+    // 1000ms accommodates `npx tsx` startup + initialize + session/new + the
+    // first agent_message_chunk.
+    await new Promise((r) => setTimeout(r, 1000));
+    expect(() => run.kill()).not.toThrow();
+
+    const { types, result } = await drain(run);
+
+    // withDoneGuarantee must emit a terminal `done` even on kill.
+    expect(types).toContain('done');
+
+    // Cause-based close handler (Task 5 fix): kill() sets the `killed` flag →
+    // the close handler resolves 'cancelled', deterministically.
+    expect(result.status).toBe('cancelled');
+
+    // The result resolved at all => the close handler fired => the process
+    // exited (no zombie). tree-kill guarantees the child is reaped.
+    expect(result.error).toBe('killed by caller');
+  }, 15000);
+
+  // ---------------------------------------------------------------------------
+  // timeout (spec §8): timeoutMs fires mid-turn → 'timeout' (not killed).
+  // ---------------------------------------------------------------------------
+  it('timeout: short timeoutMs mid-turn resolves timeout and emits done', async () => {
+    // "slow" blocks for 60s. A 500ms backend timeout fires well before that —
+    // the timer wins, sets `timedOut`, and killProcess() triggers close whose
+    // handler resolves 'timeout'.
+    const backend = makeMockBackend('slow', { timeoutMs: 500 });
+
+    const run = backend.execute('hi', {});
+
+    const { types, result } = await drain(run);
+
+    expect(types).toContain('done');
+    // Timer wins → timedOut flag → close handler resolves 'timeout'.
+    expect(result.status).toBe('timeout');
+    expect(result.error).toBe('timeout');
+  }, 15000);
+
+  // ---------------------------------------------------------------------------
+  // 异常退出 / failure recovery (spec §8): agent exits mid-turn → 'failed'.
+  // ---------------------------------------------------------------------------
+  it('failure recovery: abnormal process exit mid-turn resolves failed with error', async () => {
+    // "error" emits the opening text then process.exit(1) mid-turn. The close
+    // handler fires with a non-zero exit code and no kill/timeout cause flags
+    // → resolves 'failed'. An `error` event is pushed before the result.
+    const backend = makeMockBackend('error');
+
+    const run = backend.execute('hi', {});
+
+    const { types, result } = await drain(run);
+
+    // The abnormal-exit path pushes an `error` event before resolving.
+    // (The stream closing mid-turn makes connectWith reject → the .catch
+    // handler pushes an error event and resolves 'failed'. The subsequent
+    // `close` handler is a no-op since resultResolved is already true. Both
+    // paths yield 'failed' — the contract under test.)
+    expect(types).toContain('error');
+    // Final terminal event still emits.
+    expect(types).toContain('done');
+
+    // No kill, no timeout → resolves 'failed'.
+    expect(result.status).toBe('failed');
+    // An error message describing the failure is present.
+    expect(result.error).toBeTruthy();
+  }, 15000);
+});

@@ -46,16 +46,44 @@ const PERMISSION_OPTIONS: acp.PermissionOption[] = [
 ];
 
 /**
+ * Scripted scenario the mock agent plays out on `session/prompt`.
+ *
+ *  - `"normal"` (default): the canonical Task 3/5 sequence —
+ *    text → tool_call → permission → tool_call_update → text → end_turn.
+ *    Existing tests (mockAcpAgent.test.ts, acpBackend.test.ts) depend on this
+ *    exact sequence, so it MUST stay unchanged.
+ *
+ *  - `"slow"`: emit the opening `agent_message_chunk` (text "开始"), then
+ *    BLOCK mid-turn for a long time (60s) before completing the rest of the
+ *    sequence. The point is an interruptible long turn: `AcpBackend.kill()`
+ *    or a short `timeoutMs` can fire while the agent is still mid-turn, so
+ *    the cause-based close handler resolves `cancelled` / `timeout`.
+ *    (Task 9 cancel/timeout compat tests.)
+ *
+ *  - `"error"`: emit the opening text chunk, then abnormally exit mid-turn
+ *    (`process.exit(1)`) — so `AcpBackend`'s `close` handler fires with an
+ *    abnormal exit and resolves `failed`. (Task 9 failure-recovery test.)
+ */
+export type MockScenario = 'normal' | 'slow' | 'error';
+
+/** How long the "slow" scenario blocks mid-turn before completing. */
+const SLOW_BLOCK_MS = 60_000;
+
+/**
  * Build the mock ACP agent app. Registers handlers for `initialize`,
  * `session/new`, `authenticate`, and `session/prompt`.
  *
- * On `session/prompt` the agent emits this scripted sequence:
+ * On `session/prompt` the agent emits this scripted sequence (for the default
+ * `"normal"` scenario):
  *  1. `agent_message_chunk` (text "开始")
  *  2. `tool_call` (pending)
  *  3. `session/request_permission` (awaited; client selects allow/reject)
  *  4. `tool_call_update` (status = allowed ? "completed" : "failed")
  *  5. `agent_message_chunk` (text "完成")
  *  6. returns `{ stopReason: "end_turn" }`
+ *
+ * The `"slow"` and `"error"` scenarios emit step 1 then interrupt (block /
+ * exit) before step 2, so kill/timeout/abnormal-exit paths can be exercised.
  *
  * The reject path emits `"failed"` — a valid member of the SDK's
  * `ToolCallStatus` union (`pending` | `in_progress` | `completed` | `failed`)
@@ -64,7 +92,9 @@ const PERMISSION_OPTIONS: acp.PermissionOption[] = [
  * `AcpBackend` uses). `"failed"` conveys that the tool call did not succeed
  * (permission was rejected).
  */
-export function createMockAgentApp(): acp.AgentApp {
+export function createMockAgentApp(
+  scenario: MockScenario = 'normal',
+): acp.AgentApp {
   return acp
     .agent({ name: 'mock-acp-agent' })
     .onRequest(acp.methods.agent.initialize, () => ({
@@ -94,6 +124,25 @@ export function createMockAgentApp(): acp.AgentApp {
         sessionUpdate: 'agent_message_chunk',
         content: { type: 'text', text: '开始' },
       });
+
+      // --- Scenario fork (Task 9): after the opening text, "slow" blocks
+      // mid-turn and "error" exits mid-turn, so kill/timeout/abnormal-exit
+      // paths fire while the turn is still in progress. Only the "normal"
+      // scenario continues to the tool/permission/end_turn sequence. ---
+      if (scenario === 'slow') {
+        // Block for a long time — long enough that kill()/timeout (which fire
+        // in ~500ms) always win the race. We never reach the tool/end_turn
+        // steps in this scenario; the process is tree-killed mid-await.
+        await new Promise((r) => setTimeout(r, SLOW_BLOCK_MS));
+        // If we somehow get here (block elapsed without kill), complete
+        // gracefully so the turn doesn't hang forever.
+        return { stopReason: 'end_turn' };
+      }
+      if (scenario === 'error') {
+        // Abnormally exit mid-turn. The client observes a process exit with a
+        // non-zero code → AcpBackend's close handler resolves 'failed'.
+        process.exit(1);
+      }
 
       // 2. Tool call created (pending).
       await upd({
@@ -144,11 +193,20 @@ export function createMockAgentApp(): acp.AgentApp {
 // Subprocess entry: `npx tsx src/server/agent/acp/mockAcpAgent.ts` serves an
 // ACP agent over NDJSON stdio. The client (e.g. AcpBackend in Task 5) spawns
 // this process and speaks ACP over stdin/stdout.
+//
+// The scenario is selected via the `MOCK_ACP_SCENARIO` env var (one of
+// "normal" | "slow" | "error"; default "normal"). AcpBackend passes its `env`
+// through to spawn, so compat tests set it on the backend opts.
 // ---------------------------------------------------------------------------
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const envScenario = process.env.MOCK_ACP_SCENARIO;
+  const scenario: MockScenario =
+    envScenario === 'slow' || envScenario === 'error' || envScenario === 'normal'
+      ? envScenario
+      : 'normal';
   const stream = acp.ndJsonStream(
     Writable.toWeb(process.stdout),
     Readable.toWeb(process.stdin) as ReadableStream<Uint8Array>,
   );
-  createMockAgentApp().connect(stream);
+  createMockAgentApp(scenario).connect(stream);
 }
