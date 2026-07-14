@@ -18,6 +18,7 @@
     "bridge:serve:win": "powershell -ExecutionPolicy Bypass -File .\\scripts\\opencode-bridge-start.ps1"
   },
   "dependencies": {
+    "@agentclientprotocol/sdk": "^1.2.1",
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
