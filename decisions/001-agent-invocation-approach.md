@@ -9,6 +9,8 @@ created: 2026-02-26
 ## 状态
 已更新（2026-04-11 修订）
 
+> ⚠️ **后续演进（2026-07-15）：已被 ACP 单一通路取代**。本 ADR 的“方案 B：CLI 子进程模式”（per-engine 直接 spawn `claude` / `codex` / `opencode` CLI 并各自维护私有输出解析）已在 ACP 迁移中移除。当前 agent 执行经 **ACP 单一通路**（daemon → Agent Catalog 查表 → `AcpBackend` → ACP JSON-RPC over stdio），不再为每引擎维护私有 CLI 解析 backend。现行权威架构见 [`architecture/cli-integration.md`](../architecture/cli-integration.md) 与 `specs/acp-runtime-integration/spec.md`。本 ADR 保留作历史决策记录。
+
 ## 日期
 2026-02-04（初始）/ 2026-02-06（修订）/ 2026-04-11（F159 修订）
 

@@ -33,58 +33,21 @@ pnpm dev
 5. 添加并验证账号，必要时在 `角色卡` 中完成账号绑定
 6. 在项目中创建任务并打开任务详情执行 CLI
 
-## 5.5 连接 Opencode（真实执行）
+## 5.5 连接 Agent 运行时（ACP）
 
-如果你的 Web 跑在远程环境/容器中，无法直接调用你本机安装的 `opencode`，推荐使用 **Opencode Bridge（本机转发）**。
+Agent 执行经 **ACP（Agent Client Protocol）单一通路**驱动（见 [`architecture/cli-integration.md`](../../architecture/cli-integration.md)）。daemon 通过 Agent Catalog 查表启动对应运行时，无需手工配置执行链路；需要在本机/运行环境准备的是各运行时自身的认证：
 
-### A) macOS / Linux：安装检查与启动 Bridge
+- **opencode**（原生 ACP）：本机安装 `opencode`，daemon 启动 `opencode acp`。
+- **claude**（ACP 适配器）：主机完成 Claude Code OAuth 登录（`~/.claude/`）或设置 `ANTHROPIC_API_KEY`；daemon 启动 `npx -y @agentclientprotocol/claude-agent-acp`。
+- **codex**（ACP 适配器）：主机完成 ChatGPT OAuth 登录（`~/.codex/auth.json`）；daemon 启动 `npx -y @agentclientprotocol/codex-acp`。
 
-安装检查（可选自动安装 opencode）：
+> ⚠️ **Opencode Bridge（本机转发）已不再是 daemon 的执行通路**。历史上 `scripts/opencode-bridge-install.*` / `scripts/opencode-bridge-start.*`（默认端口 `8787`）用于把远程 Web 的执行转发到本机 `opencode run`；ACP 迁移后 daemon 不再经 Bridge 调用 opencode CLI。这些脚本与 `bridge/` 组件仍保留在仓库中，可作为独立的开发/转发工具，但不再是推荐的产品执行路径。
+>
+> TODO：若需“远程 Web → 本机运行时”的执行能力，需基于 ACP runtime 重新设计远程编排方案（当前未定，不在本期范围）。
 
-```bash
-bash scripts/opencode-bridge-install.sh
-# 或自动安装：
-# bash scripts/opencode-bridge-install.sh --install-opencode
-```
+### 默认用户路径
 
-启动（run 模式）：
-
-```bash
-bash scripts/opencode-bridge-start.sh --port=8787 --mode=run
-```
-
-启动（attach 模式，可连接本机已有实例）：
-
-```bash
-bash scripts/opencode-bridge-start.sh --port=8787 --mode=attach --attach-url=http://localhost:4096
-```
-
-### B) Windows：安装检查与启动 Bridge
-
-安装检查（可选自动安装 opencode）：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\opencode-bridge-install.ps1
-# 或自动安装（示例）：
-# powershell -ExecutionPolicy Bypass -File .\scripts\opencode-bridge-install.ps1 -InstallOpencode -Method scoop
-```
-
-启动：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\opencode-bridge-start.ps1 -Port 8787 -Mode run
-```
-
-### C) 接入说明
-
-1. 将 `http://localhost:8787` 暴露成公网可访问 URL（推荐 https）
-2. 将该 URL 作为 daemon 或本地调试链路的一部分注入执行环境
-
-说明：
-
-- 当前前端没有完整的 Bridge 管理界面
-- Bridge 仍可用于开发链路或定制集成
-- 当前默认用户路径仍是“模型账号 / 角色卡”
+当前默认用户路径仍是：在「设置 → 模型账号」添加并验证账号，必要时在「角色卡」中完成账号绑定，然后在项目中创建任务并执行。
 
 ## 5.6 SQLite / 本地数据
 
@@ -145,7 +108,7 @@ pnpm build
 
 - 页面卡在初始化：优先检查 `/api/state` 是否报错，以及本地 SQLite / repo 初始化是否正常
 - 终端无输出：检查 daemon 是否连接成功、账号是否可用、执行链路是否选择到正确 engine
-- Bridge 不可用：确认公网 URL 可访问，且 `GET {url}/health` 返回 200
+- 运行时无输出：确认对应 runtime（opencode / claude / codex）已在本机安装并通过认证（OAuth / API Key）；daemon 经 ACP 启动子进程，认证缺失或 runtime 未安装会直接报错（不再经 Bridge 转发）
 - 某个 agent 一直 busy：检查是否存在旧 invocation 未结束，或 daemon 超时后未正确回收
 - Skill 导入失败：确认 Git 仓库 URL 可访问且包含 `skills/{name}/SKILL.md` 目录结构；检查目标仓库是否有 `..` 或绝对路径等非法路径
 - Skill 未注入 systemPrompt：确认 agent 已通过 `/api/agents/{id}/skills` 绑定 skill，且首次唤醒时 `isFirstWake` 为 true

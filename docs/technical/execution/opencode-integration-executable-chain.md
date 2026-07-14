@@ -75,6 +75,9 @@ interface AgentResult {
 
 ## 3. 各引擎协议适配
 
+> ⚠️ **已废弃（保留作历史参考；现行架构见 §1 / §5 与 `architecture/cli-integration.md`）**
+> 本节描述的 per-engine CLI 直接调用（`opencode run --format json` / `claude -p --output-format stream-json` / `codex -q --full-auto`）及每引擎私有输出解析，已在 ACP 迁移中移除（spec §7 / §8）。当前 agent 执行为 ACP 单一通路：daemon 经 Catalog 查表 → `AcpBackend` → ACP JSON-RPC over stdio 驱动运行时（opencode 原生 `opencode acp` / claude、codex 经 `@agentclientprotocol/*-acp` 适配器）。以下内容仅记录历史协议细节，不再反映当前代码。
+
 ### 3.1 OpenCode
 
 **CLI 调用**：`opencode run --format json [--model <m>] [--session <id>] [--prompt <sys>] <prompt>`
@@ -135,6 +138,9 @@ interface AgentResult {
 - 支持 `type: text` 和 `type: message` 两种格式
 
 ## 4. OpenCode Spawn 策略（跨平台）
+
+> ⚠️ **已废弃（保留作历史参考；现行架构见 §1 / §5 与 `architecture/cli-integration.md`）**
+> 本节的三级 Go-binary PTY spawn 策略（`resolveGoBinary()` / `script -q /dev/null` PTY 包装 / pipe 兜底）服务于已移除的 `opencode run` 直接调用路径。ACP 迁移后 daemon 不再直接 spawn opencode CLI 解析 stdout，而是经 `AcpBackend` 走 ACP JSON-RPC over stdio（`requiresPty:false`），本节描述的 PTY/Go-binary 处理不再出现在当前执行链路中。以下内容仅作历史记录保留。
 
 OpenCode 的 Go 二进制在检测到非 TTY stdout 时会抑制输出（上游已知 bug: `anomalyco/opencode#14948`）。参考外部同类实现对 PTY / pipe 的处理方式后，我们采用三级 fallback 策略：
 

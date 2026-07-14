@@ -168,7 +168,7 @@ Daemon 的边界是执行编排，不是团队规则解释器：
   sessionId?,
   conversationId?,
   allowMockRunner?,
-  opencodeBridgeUrl?,
+  opencodeBridgeUrl?, // ⚠️ legacy：Bridge 执行路径已移除（见 §4.8），字段保留但不再驱动执行
   engine?,
   runtimeId?,
   providerProfileId?,
@@ -189,7 +189,6 @@ Daemon 的边界是执行编排，不是团队规则解释器：
 - `conversationId`
 - `engine`
 - `accountId`
-- `opencodeBridgeUrl`
 - `force`
 
 ### 输出事件

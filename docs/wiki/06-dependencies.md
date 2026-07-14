@@ -82,12 +82,13 @@ src/lib/agent-context/PromptComposer.ts
 
 ## 6.4 外部集成点（真正的“系统边界”）
 
-- `opencode` CLI
-  - 本地可执行：daemon 直接调用 `opencode run --format json`
-  - Bridge：daemon 通过公网 URL 调用本机转发服务，将执行落到本机 opencode
-  - attach（可选）：Bridge 可用 attach 模式连接本机已有实例
+> 更新（ACP 迁移）：agent 执行为单一 ACP 通路（见 [`architecture/cli-integration.md`](../../architecture/cli-integration.md)）。历史上 daemon 曾直接调用 `opencode run --format json` 并支持 Bridge（默认端口 `8787`）转发到本机 opencode；这些 per-engine CLI 直接调用与 Bridge 执行路径已在 ACP 迁移中移除（spec §7 / §8）。
+
+- Agent 运行时（经 ACP 接入，daemon 唯一 backend 通路，与 6.3 的依赖树一致）
+  - `opencode`（原生 ACP）：daemon 启动 `opencode acp`
+  - `claude`（ACP 组织适配器）：daemon 启动 `npx -y @agentclientprotocol/claude-agent-acp`
+  - `codex`（ACP 组织适配器）：daemon 启动 `npx -y @agentclientprotocol/codex-acp`
 - 网络端口
   - Next.js：默认 `3000`（同时承载 UI + daemon）
-  - Bridge：默认 `8787`（本机进程，可改）
 - 数据库
   - SQLite：本地文件数据库，无需额外服务
