@@ -244,4 +244,26 @@ describe('proofLogRepo', () => {
     expect(proofLogRepo.getByConversation('conv-1')).toHaveLength(2);
     expect(proofLogRepo.getById(started.id)!.event_type).toBe('dispatch.started');
   });
+
+  it('finds persistent closure proofs by domain key', () => {
+    proofLogRepo.append({
+      eventType: 'chain_closure_dispatched',
+      conversationId: 'conv-1',
+      taskId: 'ROOT-1',
+      reasonCode: 'chain_ready_for_closure',
+    });
+    proofLogRepo.append({
+      eventType: 'chain_closure_dispatched',
+      conversationId: 'conv-1',
+      taskId: 'ROOT-2',
+      reasonCode: 'chain_ready_for_closure',
+    });
+
+    expect(proofLogRepo.findByType({
+      eventType: 'chain_closure_dispatched',
+      conversationId: 'conv-1',
+      taskId: 'ROOT-1',
+      reasonCode: 'chain_ready_for_closure',
+    })).toHaveLength(1);
+  });
 });

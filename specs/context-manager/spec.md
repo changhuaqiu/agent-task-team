@@ -1,6 +1,6 @@
 # 上下文管理器（Context Manager）— 作用域、身份与 A2A 协议化
 
-> 状态：草案 v2·**决策已拍板**（Q1–Q4 全按 recommended 落定，2026-07-13）｜ 日期：2026-07-13
+> 状态：有效·上下文注入策略 MVP 已评审（2026-07-16）｜ 初始日期：2026-07-13
 > 关联模块：`src/lib/agent-context/PromptComposer.ts`、`src/store/daemonStore.ts`、`src/server/daemon.ts`、`src/server/a2a/context-builder.ts`、`src/server/repositories/session-repo.ts`
 > 设计依据：`docs/technical/execution/context-layering.md`
 > 依赖规格：`a2a-possession-contract/`（持球/交接包，语义不变）、`acp-runtime-integration/`（执行协议，正交）
@@ -218,6 +218,18 @@ interface MemoryHook {
 - **P1（非破坏）**：`ContextManager` 接口 + 主循环改走它（PromptComposer 委托）+ `project_id` 作用域 + scopeGuard + Health 层回写 + MemoryHook 契约 NoOp。A2A 路径**暂不动**，并行运行。
 - **P2（迁移）**：A2A 派发改走 ContextManager，退役 `renderDispatchPrompt` 自建 prompt；跨项目身份契约（IdentitySnapshot/ScopedContext）落地。
 - **后续**：记忆 source 接入（另立 spec）。
+
+### 5.9 场景化注入策略 MVP（2026-07-16）
+
+本节是当前实现契约，详细设计见 `docs/technical/execution/context-injection-mvp.md`。
+
+- `ContextManager` 在组装前解析 `Scenario = init | iterate | handoff | wakeup | closure` 与 `Archetype = planner | reviewer | worker`，再按 `identity / protocol / capability / situation / focus / dialog` 六个信息簇执行 `include | omit`。
+- 场景优先级固定为：handoff；closure resume；其他 resume；首次 user turn；普通 iterate。系统唤醒通过 `ContextRequest.wakeup` 显式携带 `reasonCode` 和可选 closure 元数据。
+- 策略必须覆盖全部 `5 × 3 × 6` 组合；未知角色类别回退 worker；closure 非 planner 使用与 planner 相同的防御性策略，但正常路由只选择 planner/coordinator。
+- init 在调用方提供任务时保留任务卡，未提供时 focus 自然为空；handoff 与 wakeup 默认不注入 dialog；handoff 依赖 possession packet，wakeup 依赖任务卡与 reason metadata；closure 注入全景、任务子树及用户原始请求。
+- 平台以只观测、不阻断的方式检查三项约束：完整输出是否存在合法出口、handoff action 是否缺失、根任务子树是否应触发 closure。
+- closure 基于既有 `subtask_of`（child → parent）边递归判断，要求根未终态、后代非空且全部终态，并以 control proof event 持久去重。
+- `no_valid_exit`、`chain_closure_dispatched` 写 control proof log；`missing_action` 写 A2A audit log。除 closure 幂等查询外，本期不消费这些观测数据。
 
 ---
 

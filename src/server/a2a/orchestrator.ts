@@ -29,6 +29,12 @@ import { PossessionRepo } from './possession';
 import { taskGraphRepo } from '../repositories/task-graph-repo';
 
 const MIN_SUBSTANTIVE_LENGTH = 50;
+const ACTION_PLACEHOLDER = /^(?:收到|好的?|明白|了解|我看看|稍等|ok(?:ay)?|got it|ack|todo|tbd)[。.!！\s]*$/i;
+
+export function isMissingRequestedAction(content: string | undefined): boolean {
+  const text = content?.trim() ?? '';
+  return !text || ACTION_PLACEHOLDER.test(text);
+}
 
 function hasExplicitNoHandoffLanguage(text: string): boolean {
   return /(不需要|无需|不要|别|不必).*?(转交|交接|唤醒|派发|分配|指派|通知|@)/i.test(text);
@@ -161,6 +167,7 @@ export class Orchestrator {
     if (!chain || chain.status !== 'active') {
       return { allow: false, reason: 'chain not active or not found', silent: true };
     }
+    const missingAction = isMissingRequestedAction(req.content);
 
     const elapsedMs = Date.now() - new Date(chain.createdAt).getTime();
     if (elapsedMs > chain.config.maxDurationMs) {
@@ -338,6 +345,16 @@ export class Orchestrator {
       }),
     });
     this.entryPassIds.set(entry.id, pass.id);
+    if (missingAction) {
+      this.audit('missing_action', {
+        chainId: chain.id,
+        conversationId: chain.conversationId,
+        fromAgentId: req.fromAgentId,
+        toAgentId: req.toAgentId,
+        reason: 'requested action is empty or placeholder',
+        metadata: { passId: pass.id, rawAction: req.content.slice(0, 200) },
+      });
+    }
     if (req.taskId) {
       this.entryTaskIds.set(entry.id, req.taskId);
       taskGraphRepo.recordHandoffRequested({

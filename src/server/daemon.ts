@@ -38,6 +38,7 @@ import { DispatchGateway } from './control-plane/dispatch-gateway';
 import { runtimeNodeRepo } from './repositories/runtime-node-repo';
 import type { DispatchIntent, DispatchSource, RuntimeNodeKind } from './repositories/control-plane-types';
 import { taskRepo } from './repositories/task-repo';
+import { taskGraphRepo } from './repositories/task-graph-repo';
 import { executionEnvelopeRepo } from './repositories/execution-envelope-repo';
 import { proofLogRepo } from './repositories/proof-log-repo';
 import { resolveTaskNotificationAudience } from './task-flow/task-notification-publisher';
@@ -51,6 +52,8 @@ import {
   type HarnessDispatchPlan,
   type HarnessOutcome,
 } from './harness';
+import { checkValidExit } from './harness/valid-exit';
+import type { ContextScenario } from '../lib/agent-context/scenarioResolver';
 
 type TerminalStartPayload = {
   projectId?: string;
@@ -78,6 +81,7 @@ type TerminalStartPayload = {
   projectSlug?: string;
   projectPath?: string;
   useWorktree?: boolean;
+  contextScenario?: ContextScenario;
 };
 
 type AgentActivityStatus = 'running' | 'awaiting_children' | 'idle';
@@ -204,6 +208,7 @@ export default function registerDaemon(io: IOServer) {
           accountId: plan.accountId,
           projectPath: plan.projectPath,
           useWorktree: plan.useWorktree,
+          contextScenario: plan.contextScenario,
         }, (event, data) => io.to(plan.trigger.conversationId).emit(event, data));
         return { status: 'accepted' };
       },
@@ -244,12 +249,21 @@ export default function registerDaemon(io: IOServer) {
     for (const conversationId of conversationIds) {
       const conversationTasks = tasks.filter((task) => task.conversation_id === conversationId);
       const audience = resolveTaskNotificationAudience(conversationId);
+      const closureProofs = proofLogRepo.findByType({
+        eventType: 'chain_closure_dispatched',
+        conversationId,
+        reasonCode: 'chain_ready_for_closure',
+      });
       const wakeups = resolveAutonomyGuardWakeups({
         tasks: conversationTasks,
         envelopes: executionEnvelopeRepo.listByConversation(conversationId),
         coordinatorAgentIds: audience.coordinatorAgentIds,
         reviewAgentIds: audience.reviewAgentIds,
         qaAgentIds: audience.qaAgentIds,
+        edges: taskGraphRepo.listEdges(conversationId),
+        closureDispatchedRootTaskIds: closureProofs
+          .map((proof) => proof.task_id)
+          .filter((taskId): taskId is string => Boolean(taskId)),
       });
       for (const wakeup of wakeups) {
         const key = wakeup.metadata.idempotencyKey;
@@ -267,6 +281,24 @@ export default function registerDaemon(io: IOServer) {
           },
         });
         const submission = submitTaskWakeupToHarness(io, wakeup);
+        if (
+          wakeup.reasonCode === 'chain_ready_for_closure'
+          && submission?.handled
+          && submission.disposition === 'accepted'
+        ) {
+          proofLogRepo.append({
+            eventType: 'chain_closure_dispatched',
+            conversationId: wakeup.conversationId,
+            taskId: wakeup.metadata.rootTaskId ?? wakeup.taskId,
+            agentId: wakeup.agentId,
+            reasonCode: wakeup.reasonCode,
+            metadata: {
+              idempotencyKey: key,
+              subtreeSize: wakeup.metadata.subtreeSize,
+              partial: wakeup.metadata.partial,
+            },
+          });
+        }
         io.to(wakeup.conversationId).emit('task.wakeup', {
           ...wakeup,
           id: `wakeup-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -532,6 +564,7 @@ export default function registerDaemon(io: IOServer) {
         projectSlug,
         projectPath,
         useWorktree,
+        contextScenario,
       }: TerminalStartPayload, emitToRequester = broadcast) => {
       console.log(`[daemon] terminal:start agent=${agentId}, engine=${rawEngine}, accountId=${accountId ?? '(none)'}, force=${force}, busy=${activeProcesses.has(processKey(agentId, projectId))}`);
       console.log(`[daemon] systemPrompt=${systemPrompt ? `${systemPrompt.length} chars` : '(none)'}, prompt=${prompt ? `${prompt.length} chars` : '(none)'}`);
@@ -820,6 +853,24 @@ export default function registerDaemon(io: IOServer) {
 
         const accumulated = agentResponseBuffer.get(responseBufferKey) ?? finalContent;
         agentResponseBuffer.delete(responseBufferKey);
+        if (contextScenario) {
+          const exit = checkValidExit(contextScenario, accumulated);
+          if (!exit.valid) {
+            proofLogRepo.append({
+              eventType: 'no_valid_exit',
+              conversationId: sessionConvId,
+              taskId,
+              chainId,
+              passId,
+              agentId,
+              reasonCode: exit.reason,
+              metadata: {
+                scenario: contextScenario,
+                outcomeSummary: accumulated?.slice(0, 200) ?? '',
+              },
+            });
+          }
+        }
         if (accumulated && sessionConvId) {
           a2aMessenger.onAgentResponse(agentId, accumulated, {
             conversationId: sessionConvId,

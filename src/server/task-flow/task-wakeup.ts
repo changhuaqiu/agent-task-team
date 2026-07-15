@@ -12,7 +12,8 @@ export type TaskWakeupReasonCode =
   | 'missing_delivery_evidence'
   | 'stale_review_gate'
   | 'stale_test_gate'
-  | 'runnable_owned_idle';
+  | 'runnable_owned_idle'
+  | 'chain_ready_for_closure';
 export type TaskWakeupDispatchSource = 'workflow' | 'review_gate' | 'test_gate' | 'system';
 
 export interface ResolveTaskWakeupsInput {
@@ -47,6 +48,10 @@ export interface TaskWakeup {
     startsDispatch: true;
     gateName?: string;
     missingFields?: string[];
+    reasonSummary?: string;
+    rootTaskId?: string;
+    subtreeSize?: number;
+    partial?: boolean;
   };
   createdAt?: string;
   /** Accepted server-side wakeups are rendered by clients but never dispatched twice. */

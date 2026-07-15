@@ -22,3 +22,12 @@
 ## 收尾
 - [ ] T13 `specs/README.md` 状态由草案推进到有效（实现完成后）
 - [ ] T14 `docs/wiki/01-architecture.md` 上下文章节同步（ContextManager / 作用域 / 身份 / A2A 协议化）
+
+## P3 — 场景化注入策略 MVP
+
+- [x] T15 实现场景解析、角色原型映射、完整策略矩阵与协议提示段
+- [x] T16 `ContextManager` 按信息簇执行 include/omit，并在 report 暴露 scenario、archetype 与簇决策
+- [x] T17 TaskWakeup、harness plan、terminal payload 透传 wakeup metadata 与已解析 scenario
+- [x] T18 autonomy guard 读取 task graph，发现完整终态子树并通过 control proof event 持久去重后唤醒 planner
+- [x] T19 daemon 在完整输出聚合后记录 `no_valid_exit`；A2A orchestrator 对缺失 action 记录 `missing_action`，两者均不阻断
+- [x] T20 完成策略、场景边界、closure、持久幂等、A2A audit 与主循环回归测试，并同步长期技术文档

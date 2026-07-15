@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { ExecutionEnvelopeRow } from '@/server/repositories/execution-envelope-repo';
 import type { TaskRow } from '@/server/repositories/task-repo';
 import { resolveAutonomyGuardWakeups } from '@/server/task-flow/autonomy-guard';
+import type { TaskEdgeRow } from '@/server/repositories/task-graph-repo';
 
 function task(overrides: Partial<TaskRow> & Pick<TaskRow, 'id' | 'agent_id' | 'status'>): TaskRow {
   const now = '2026-05-21T00:00:00.000Z';
@@ -45,6 +46,16 @@ function envelope(overrides: Partial<ExecutionEnvelopeRow> & Pick<ExecutionEnvel
 }
 
 describe('autonomy guard wakeups', () => {
+  const subtaskEdge = (child: string, parent: string): TaskEdgeRow => ({
+    id: `${child}-${parent}`,
+    conversation_id: 'conv-1',
+    from_task_id: child,
+    to_task_id: parent,
+    type: 'subtask_of',
+    created_by_action_id: 'action-1',
+    created_at: '2026-05-21T00:00:00.000Z',
+  });
+
   it('wakes an owned pending task when dependencies are satisfied and no dispatch is active', () => {
     const wakeups = resolveAutonomyGuardWakeups({
       tasks: [
@@ -95,5 +106,45 @@ describe('autonomy guard wakeups', () => {
       expect.objectContaining({ taskId: 'TASK-003', agentId: 'peach', reasonCode: 'stale_review_gate' }),
       expect.objectContaining({ taskId: 'TASK-004', agentId: 'yoshi', reasonCode: 'stale_test_gate' }),
     ]));
+  });
+
+  it('wakes the coordinator once a complete descendant subtree is terminal', () => {
+    const base = {
+      tasks: [
+        task({ id: 'ROOT', agent_id: 'luigi', status: 'in_progress' }),
+        task({ id: 'CHILD', agent_id: 'toad', status: 'done' }),
+        task({ id: 'GRANDCHILD', agent_id: 'yoshi', status: 'cancelled' }),
+      ],
+      edges: [subtaskEdge('CHILD', 'ROOT'), subtaskEdge('GRANDCHILD', 'CHILD')],
+      envelopes: [],
+      coordinatorAgentIds: ['mario'],
+      reviewAgentIds: ['peach'],
+      qaAgentIds: ['yoshi'],
+    };
+    const wakeups = resolveAutonomyGuardWakeups(base);
+    expect(wakeups).toContainEqual(expect.objectContaining({
+      taskId: 'ROOT',
+      agentId: 'mario',
+      reasonCode: 'chain_ready_for_closure',
+      metadata: expect.objectContaining({ rootTaskId: 'ROOT', subtreeSize: 2, partial: true }),
+    }));
+
+    expect(resolveAutonomyGuardWakeups({ ...base, closureDispatchedRootTaskIds: ['ROOT'] }))
+      .not.toContainEqual(expect.objectContaining({ reasonCode: 'chain_ready_for_closure' }));
+  });
+
+  it('does not close a root while any descendant is nonterminal', () => {
+    const wakeups = resolveAutonomyGuardWakeups({
+      tasks: [
+        task({ id: 'ROOT', agent_id: 'mario', status: 'in_progress' }),
+        task({ id: 'CHILD', agent_id: 'toad', status: 'in_progress' }),
+      ],
+      edges: [subtaskEdge('CHILD', 'ROOT')],
+      envelopes: [],
+      coordinatorAgentIds: ['mario'],
+      reviewAgentIds: ['peach'],
+      qaAgentIds: ['yoshi'],
+    });
+    expect(wakeups).not.toContainEqual(expect.objectContaining({ reasonCode: 'chain_ready_for_closure' }));
   });
 });

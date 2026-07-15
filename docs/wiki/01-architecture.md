@@ -446,3 +446,11 @@ ACP Runtime Session (new once, load on later turns)
 ```
 
 这条边界让调度、上下文组装和执行记录属于平台层，而 OpenCode、Claude、Codex 等 runtime 可以替换；runtime identity 不得由浏览器缓存或单次 Invocation 改写。
+
+## 1.11 场景化上下文注入与收敛
+
+平台层已在唯一 `ContextManager` 网关中落地场景化注入。每轮先把 trigger 解析为 init、iterate、handoff、wakeup 或 closure，再把 RoleCard 映射为 planner、reviewer 或 worker，最后按 identity、protocol、capability、situation、focus、dialog 六簇选择内容。策略只决定簇是否进入既有组装管道，不改变各 layer、provider 或 BudgetGuard 的职责。
+
+系统唤醒从 `TaskWakeup` 经 Harness 显式携带 reason metadata，避免首次 workflow/review/test 唤醒被当成普通用户首轮。任务子树全部终态时，Autonomy Guard 根据既有 `subtask_of` 边唤醒 planner 输出 Closure Report，并用 control proof event 跨扫描周期去重。合法出口与 A2A action 检查在 MVP 阶段均为观测规则，不阻断 agent loop。
+
+权威设计与实现契约分别见 `docs/technical/execution/context-injection-mvp.md` 和 `specs/context-manager/spec.md`。

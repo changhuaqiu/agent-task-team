@@ -78,4 +78,21 @@ export const proofLogRepo = {
       .prepare('SELECT * FROM control_proof_event WHERE conversation_id = ? ORDER BY created_at ASC, id ASC LIMIT ?')
       .all(conversationId, limit) as ProofEventRow[];
   },
+
+  findByType(input: { eventType: string; conversationId: string; taskId?: string; reasonCode?: string }): ProofEventRow[] {
+    return getDb()
+      .prepare(`SELECT * FROM control_proof_event
+        WHERE event_type = ? AND conversation_id = ?
+          AND (? IS NULL OR task_id = ?)
+          AND (? IS NULL OR reason_code = ?)
+        ORDER BY created_at ASC, id ASC`)
+      .all(
+        input.eventType,
+        input.conversationId,
+        input.taskId ?? null,
+        input.taskId ?? null,
+        input.reasonCode ?? null,
+        input.reasonCode ?? null,
+      ) as ProofEventRow[];
+  },
 };

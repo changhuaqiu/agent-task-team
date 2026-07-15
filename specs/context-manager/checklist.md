@@ -32,3 +32,13 @@
 ## 文档
 - [ ] `specs/README.md` 状态更新
 - [ ] `docs/wiki/01-architecture.md` 上下文章节同步（ContextManager / 作用域 / 身份 / A2A 协议化）
+
+## P3 — 场景化注入策略 MVP
+
+- [x] 首次 handoff、首次系统 wakeup、closure resume、普通 resume、init 与 iterate 均按固定优先级正确识别
+- [x] `5 scenario × 3 archetype × 6 cluster` 策略完整且 ContextReport 可观测 include/omit
+- [x] handoff/wakeup/closure 协议提示段正确，init/iterate 不追加特殊提示
+- [x] workflow/review/test/system wakeup 不再因无 active session 被误判为 user turn
+- [x] closure 仅在根未终态、后代非空且全部终态时触发；partial 元数据正确；跨 tick 一次且仅一次
+- [x] `no_valid_exit` 与 `chain_closure_dispatched` 写 control proof log；`missing_action` 写 A2A audit log；均不阻断原流程
+- [x] 现有 context、harness、autonomy guard、A2A 测试通过，build 通过

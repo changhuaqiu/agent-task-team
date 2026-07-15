@@ -74,9 +74,11 @@ describe('RepositoryHarnessPlanner', () => {
       accountId: 'account-openai',
       runtimeId: 'codex-cli',
       projectPath: 'C:/workspace/project',
+      contextScenario: 'wakeup',
     });
     expect(result.plan.prompt).toContain('TASK-1');
-    expect(result.plan.systemPrompt).toContain('Luigi');
+    expect(result.plan.prompt).toContain('系统唤醒');
+    expect(result.plan.systemPrompt).toBeUndefined();
   });
 
   it('blocks with a stable reason when the role has no enabled runtime profile', async () => {

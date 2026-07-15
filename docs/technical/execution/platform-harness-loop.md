@@ -20,6 +20,8 @@ Task mutation / Autonomy Guard / A2A pass
      -> conversation + task
      -> TeamRuntime + enabled account
      -> ContextManager
+        -> resolve scenario + role archetype
+        -> apply cluster injection policy
   -> Harness Runtime Port
      -> daemon terminal execution compatibility entry
      -> DispatchGateway / ExecutionEnvelope / Proof
@@ -45,6 +47,7 @@ Task mutation / Autonomy Guard / A2A pass
 - 通过 TeamRuntime 解析角色与执行 profile；
 - 通过 ContextManager 组装 server-owned prompt；
 - 输出与具体 Runtime SDK 无关的 `HarnessDispatchPlan`。
+- 按 trigger source 区分 user turn、A2A handoff 与系统 resume，并把 wakeup reason 和已解析 scenario 透传到执行完成边界。
 
 ### Harness Runtime Port
 
@@ -58,6 +61,14 @@ Task mutation / Autonomy Guard / A2A pass
 - runtime accepted 可以把 ready owner 的 Task 从 pending 推进到 in_progress；
 - runtime success 只代表本轮执行结束，不代表实现证据或交付证据通过；
 - in_review/done 仍只能由结构化 task mutation/tool 经过 gate 后进入。
+
+### Context Policy 与闭环观测
+
+- `ContextManager` 以 `scenario × archetype` 选择六类信息簇，场景包括 init、iterate、handoff、wakeup、closure；
+- handoff/wakeup 默认省略 dialog，使用 possession packet 或任务卡作为本轮 focus；
+- daemon 在完整输出聚合后执行合法出口观测，失败只写 `no_valid_exit` proof，不重试、不阻断；
+- autonomy guard 按 `subtask_of` 的 child → parent 边递归判断完整子树，终态后唤醒 planner 收敛；
+- closure dispatch 写持久 proof，后续扫描以 `(conversationId, rootTaskId, reasonCode)` 去重。
 
 ## 兼容机制
 
@@ -102,7 +113,7 @@ Task mutation / Autonomy Guard / A2A pass
 
 ## 验证结果
 
-- Vitest：90 个测试文件、860 个测试全部通过；
+- Vitest：103 个测试文件、977 个测试全部通过；
 - TypeScript：`pnpm exec tsc --noEmit` 通过；
 - Production build：Next.js 16.2.4 `pnpm build` 通过；
 - Windows 测试夹具已统一处理路径分隔符、默认分支和 POSIX 权限差异。

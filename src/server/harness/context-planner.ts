@@ -80,12 +80,17 @@ export class RepositoryHarnessPlanner implements HarnessPlanner {
         ])),
       });
       const activeSession = sessionRepo.findActiveByConversation(trigger.agentId, trigger.conversationId);
+      const contextTrigger = trigger.source === 'a2a'
+        ? 'a2a_handoff' as const
+        : trigger.source === 'user'
+          ? (activeSession ? 'resume' as const : 'user_turn' as const)
+          : 'resume' as const;
       const context = await manager.assembleContext({
         agentId: trigger.agentId,
         conversationId: trigger.conversationId,
         taskId: trigger.taskId,
         rawPrompt: trigger.prompt,
-        trigger: trigger.source === 'a2a' ? 'a2a_handoff' : activeSession ? 'resume' : 'user_turn',
+        trigger: contextTrigger,
         a2aHandoff: trigger.source === 'a2a' ? {
           title: trigger.fromAgentId ?? 'agent',
           requestedAction: trigger.prompt,
@@ -97,7 +102,8 @@ export class RepositoryHarnessPlanner implements HarnessPlanner {
           forbiddenBehaviors: [],
           sourceMessageIds: [],
         } : undefined,
-        isFirstWake: !activeSession,
+        wakeup: trigger.wakeup,
+        isFirstWake: trigger.source === 'user' && !activeSession,
         project: {
           id: conversation.id,
           name: conversation.title,
@@ -116,6 +122,7 @@ export class RepositoryHarnessPlanner implements HarnessPlanner {
           prompt: context.userPrompt,
           projectPath: conversation.project_path ?? undefined,
           useWorktree: Boolean(conversation.use_worktree),
+          contextScenario: context.report.scenario,
         },
       };
     } catch (error) {

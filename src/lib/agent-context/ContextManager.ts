@@ -21,6 +21,9 @@ import { buildA2ALayer } from './layers/a2aLayer';
 import { buildTeamPackLayer } from './layers/teamPackLayer';
 import { buildCollaborationLayer } from './layers/collaborationLayer';
 import { extractToolsFromSkills, type SkillSummary } from './PromptComposer';
+import { getDirective, resolveArchetype, type ContextArchetype, type ContextCluster } from './injectionPolicy';
+import { buildProtocolHint } from './protocolHints';
+import { resolveScenario, type ContextScenario } from './scenarioResolver';
 
 // Provider 层（P1 只返回 mock，预留接口）
 export interface ContextProviders {
@@ -77,6 +80,13 @@ export interface ContextRequest {
   rawPrompt: string;
   trigger: 'user_turn' | 'a2a_handoff' | 'resume';
   a2aHandoff?: A2AHandoffPacket;   // 仅 trigger='a2a_handoff' 时带
+  wakeup?: {
+    reasonCode: string;
+    reasonSummary?: string;
+    rootTaskId?: string;
+    subtreeSize?: number;
+    partial?: boolean;
+  };
   isFirstWake: boolean;
   budgetOverride?: ContextBudget;  // 默认从 RoleCard / 项目配置推导
   project?: { id: string; name: string; path: string }; // P1 项目信息
@@ -85,6 +95,10 @@ export interface ContextRequest {
 // 健康度报告
 export interface ContextReport {
   trigger: 'user_turn' | 'a2a_handoff' | 'resume';
+  scenario: ContextScenario;
+  archetype: ContextArchetype;
+  includedClusters: ContextCluster[];
+  omittedClusters: ContextCluster[];
   tokensUsed: number;
   tokensBudget: number;
   saturation: number;              // tokensUsed / tokensBudget
@@ -134,6 +148,8 @@ export class ContextManager {
     const tasks = await this.providers.getTasks(req.conversationId);
     const teamPack = await this.providers.getTeamPack(req.agentId);
     const runtimeRoster = await this.providers.getRuntimeRoster(req.conversationId);
+    const scenario = resolveScenario(req);
+    const archetype = resolveArchetype(roleCard);
 
     // Memory Hook：recall（本期 NoOp）
     const artifacts = await this.memoryHook.recall({
@@ -148,11 +164,14 @@ export class ContextManager {
     const budget = req.budgetOverride ?? new ContextBudget();
 
     const push = (
+      cluster: ContextCluster,
       layer: string,
       content: string | null | undefined,
       opts: { tier: ContextTier; importance: number; scope?: string; private?: boolean },
     ) => {
-      if (content) parts.push({ layer, content, ...opts });
+      if (getDirective(scenario, archetype, cluster) === 'include' && content) {
+        parts.push({ layer, content, ...opts });
+      }
     };
 
     // Skills + tools (P3 — 能力，可按需 JIT)
@@ -161,8 +180,8 @@ export class ContextManager {
       ? providedSkills
       : (roleCard?.capabilities?.skills ?? []).map(skillName => ({ name: skillName, content: '' }));
     const tools = extractToolsFromSkills(skillSummaries);
-    push('skill', buildSkillLayer(skillSummaries), { tier: 'tool', importance: 0.6 });
-    push('tool', buildToolLayer(tools), { tier: 'tool', importance: 0.6 });
+    push('capability', 'skill', buildSkillLayer(skillSummaries), { tier: 'tool', importance: 0.6 });
+    push('capability', 'tool', buildToolLayer(tools), { tier: 'tool', importance: 0.6 });
 
     // Team roster (P2)
     const runtimeTeam = runtimeRoster?.length
@@ -177,39 +196,41 @@ export class ContextManager {
     const team = runtimeRoster !== undefined
       ? runtimeTeam
       : buildTeamLayer(req.agentId, allRoleCards ?? [], undefined);
-    push('team', team, { tier: 'project', importance: 0.5, scope: '/project' });
+    push('situation', 'team', team, { tier: 'project', importance: 0.5, scope: '/project' });
 
-    push('collaboration', buildCollaborationLayer(), { tier: 'system', importance: 0.8 });
+    push('protocol', 'collaboration', buildCollaborationLayer(), { tier: 'system', importance: 0.8 });
 
     // TeamPack context (P1)
     if (teamPack) {
-      push('teamPack', buildTeamPackLayer(req.agentId, teamPack), { tier: 'project', importance: 0.6, scope: '/project' });
+      push('situation', 'teamPack', buildTeamPackLayer(req.agentId, teamPack), { tier: 'project', importance: 0.6, scope: '/project' });
     }
 
     // Protocol layer (P0 — 约束，几乎不丢)
-    push('protocol', buildProtocolLayer({
+    const protocol = buildProtocolLayer({
       agentId: req.agentId,
       agentRole: deriveRoleFromCard(roleCard),
       projectPath: '', // P1 暂不传，待 TASK-004 升级
       hasTaskAssignment: !!task,
       isPlanner: roleCard?.category === 'planner',
-    }), { tier: 'system', importance: 0.8 });
+    });
+    const protocolHint = buildProtocolHint(scenario, req.wakeup);
+    push('protocol', 'protocol', [protocol, protocolHint].filter(Boolean).join('\n\n'), { tier: 'system', importance: 0.8 });
 
     // History (P4 — GSSC：按 query 相关性筛选)
     // 可见性标签；filterVisible/assertVisibility 强制执行在 P2 接入（见 spec §9）
-    push('history', buildHistoryLayer(messages, req.agentId, {
+    push('dialog', 'history', buildHistoryLayer(messages, req.agentId, {
       query: req.rawPrompt,
       limit: 10,
     }), { tier: 'project', importance: 0.3, scope: `/project/${req.agentId}`, private: true });
 
     // Task context (P0)
     if (task) {
-      push('task', buildTaskContextLayer(task), { tier: 'project', importance: 0.8, scope: '/project' });
+      push('focus', 'task', buildTaskContextLayer(task), { tier: 'project', importance: 0.8, scope: '/project' });
     }
 
     // A2A context (P1) or user message (P0)
     if (req.a2aHandoff) {
-      push('a2a', buildA2ALayer({
+      push('focus', 'a2a', buildA2ALayer({
         a2aFrom: req.a2aHandoff.title,
         a2aContent: req.a2aHandoff.possessionSummary,
         a2aContextSnapshot: JSON.stringify({
@@ -219,11 +240,11 @@ export class ContextManager {
       }), { tier: 'project', importance: 0.7, scope: '/project' });
     } else {
       // 可见性标签；filterVisible/assertVisibility 强制执行在 P2 接入（见 spec §9）
-      push('userMessage', buildUserMessageLayer(req.rawPrompt), { tier: 'project', importance: 0.9, scope: `/project/${req.agentId}`, private: true });
+      push('dialog', 'userMessage', buildUserMessageLayer(req.rawPrompt), { tier: 'project', importance: 0.9, scope: `/project/${req.agentId}`, private: true });
     }
 
     // Behavior (P0 — 闭环动作要求)
-    push('behavior', buildBehaviorLayer(), { tier: 'system', importance: 0.7 });
+    push('protocol', 'behavior', buildBehaviorLayer(), { tier: 'system', importance: 0.7 });
 
     // Budget 层：复用 BudgetGuard
     const { prompt: userPrompt, report: budgetReport } = composeWithBudget(parts, budget);
@@ -234,6 +255,12 @@ export class ContextManager {
 
     const report: ContextReport = {
       trigger: req.trigger,
+      scenario,
+      archetype,
+      includedClusters: (['identity', 'protocol', 'capability', 'situation', 'focus', 'dialog'] as ContextCluster[])
+        .filter(cluster => getDirective(scenario, archetype, cluster) === 'include'),
+      omittedClusters: (['identity', 'protocol', 'capability', 'situation', 'focus', 'dialog'] as ContextCluster[])
+        .filter(cluster => getDirective(scenario, archetype, cluster) === 'omit'),
       tokensUsed: budgetReport.totalTokens,
       tokensBudget: budget.maxTokens,
       saturation: budgetReport.totalTokens / budget.maxTokens,
@@ -252,7 +279,7 @@ export class ContextManager {
 
     // System prompt（仅首次唤醒）
     let systemPrompt: string | undefined;
-    if (req.isFirstWake) {
+    if (getDirective(scenario, archetype, 'identity') === 'include') {
       const rosterForStatus = (runtimeRoster ?? []).map((a) => ({ id: a.id, name: a.displayName, emoji: a.emoji ?? '🤖' })); // 花名册由 provider 供给（§4 唯一耦合面）；全局 store 兜底已按设计移除
 
       const projectStatus = tasks?.length
@@ -266,9 +293,11 @@ export class ContextManager {
 
       systemPrompt = [
         buildRoleLayer({ id: req.agentId, name: roleCard?.name ?? 'Agent' }, roleCard),
-        buildProjectLayer(req.project ?? { name: '', path: '', id: '' }),
-        buildCollaborationLayer(),
-        projectStatus,
+        getDirective(scenario, archetype, 'situation') === 'include'
+          ? buildProjectLayer(req.project ?? { name: '', path: '', id: '' })
+          : '',
+        getDirective(scenario, archetype, 'protocol') === 'include' ? buildCollaborationLayer() : '',
+        getDirective(scenario, archetype, 'situation') === 'include' ? projectStatus : '',
       ]
         .filter(Boolean)
         .join('\n\n');

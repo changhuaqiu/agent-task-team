@@ -150,7 +150,8 @@ export type AuditEventType =
   | 'chain_aborted'
   | 'chain_timeout'
   | 'cursor_advanced'
-  | 'chainless_handoff';
+  | 'chainless_handoff'
+  | 'missing_action';
 
 export interface AuditLogEntry {
   id: string;

@@ -25,6 +25,13 @@ export function submitTaskWakeupToHarness(io: IOServer | undefined, wakeup: Task
     agentId: wakeup.agentId,
     prompt: wakeup.prompt,
     idempotencyKey: wakeup.metadata.idempotencyKey,
+    wakeup: {
+      reasonCode: wakeup.reasonCode,
+      reasonSummary: wakeup.metadata.reasonSummary,
+      rootTaskId: wakeup.metadata.rootTaskId,
+      subtreeSize: wakeup.metadata.subtreeSize,
+      partial: wakeup.metadata.partial,
+    },
   });
 
   if (submission?.handled && submission.disposition === 'accepted') {

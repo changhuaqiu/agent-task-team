@@ -754,6 +754,27 @@ describe('A2A v2 integration', () => {
     expect(row.status).toBe('timeout');
   });
 
+  it('audits a placeholder requested action without blocking the pass', () => {
+    const chain = messenger.orchestrator.createChain({
+      conversationId: 'conv-1',
+      type: 'user_message',
+      messageId: 'msg-missing-action',
+    });
+
+    const decision = messenger.orchestrator.requestDispatch({
+      chainId: chain.id,
+      fromAgentId: 'user',
+      toAgentId: 'luigi',
+      content: '收到',
+      depth: 0,
+    });
+
+    expect(decision.allow).toBe(true);
+    const audit = db.prepare("SELECT metadata FROM a2a_audit_log WHERE event_type = 'missing_action'").get() as { metadata: string };
+    expect(JSON.parse(audit.metadata)).toMatchObject({ rawAction: '收到' });
+    expect(JSON.parse(audit.metadata).passId).toBeTruthy();
+  });
+
   it('emits phase-specific offer timeout messages', async () => {
     vi.useFakeTimers();
     try {

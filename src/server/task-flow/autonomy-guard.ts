@@ -1,5 +1,6 @@
 import type { ExecutionEnvelopeRow } from '../repositories/execution-envelope-repo';
 import type { TaskRow } from '../repositories/task-repo';
+import type { TaskEdgeRow } from '../repositories/task-graph-repo';
 import type { TaskWakeup } from './task-wakeup';
 import type { TaskWakeupReasonCode, TaskWakeupDispatchSource } from './task-wakeup';
 
@@ -9,6 +10,8 @@ export interface ResolveAutonomyGuardWakeupsInput {
   coordinatorAgentIds: string[];
   reviewAgentIds: string[];
   qaAgentIds: string[];
+  edges?: TaskEdgeRow[];
+  closureDispatchedRootTaskIds?: string[];
   now?: Date;
   staleMs?: number;
 }
@@ -42,6 +45,7 @@ function makeWakeup(input: {
   dispatchSource: TaskWakeupDispatchSource;
   prompt: string;
   content: string;
+  metadata?: Pick<TaskWakeup['metadata'], 'reasonSummary' | 'rootTaskId' | 'subtreeSize' | 'partial'>;
 }): TaskWakeup {
   return {
     conversationId: input.task.conversation_id,
@@ -60,6 +64,7 @@ function makeWakeup(input: {
       idempotencyKey: `${input.task.conversation_id}:${input.task.id}:${input.agentId}:${input.reasonCode}`,
       startsA2AHandoff: false,
       startsDispatch: true,
+      ...input.metadata,
     },
   };
 }
@@ -69,12 +74,65 @@ export function resolveAutonomyGuardWakeups(input: ResolveAutonomyGuardWakeupsIn
   const staleMs = input.staleMs ?? 30 * 60 * 1000;
   const tasksById = new Map(input.tasks.map((task) => [task.id, task]));
   const wakeups: TaskWakeup[] = [];
+  const terminalTaskStatuses = new Set(['done', 'abandoned', 'cancelled']);
+  const subtaskEdges = (input.edges ?? []).filter((edge) => edge.type === 'subtask_of');
+  const childrenByParent = new Map<string, string[]>();
+  const childIds = new Set<string>();
+  for (const edge of subtaskEdges) {
+    childrenByParent.set(edge.to_task_id, [...(childrenByParent.get(edge.to_task_id) ?? []), edge.from_task_id]);
+    childIds.add(edge.from_task_id);
+  }
+  const dispatchedRoots = new Set(input.closureDispatchedRootTaskIds ?? []);
+  const closureRootIds = new Set<string>();
   const pushOnce = (wakeup: TaskWakeup) => {
     if (wakeups.some((item) => item.metadata.idempotencyKey === wakeup.metadata.idempotencyKey)) return;
     wakeups.push(wakeup);
   };
 
+  const collectDescendants = (rootTaskId: string): TaskRow[] => {
+    const descendants: TaskRow[] = [];
+    const seen = new Set<string>();
+    const stack = [...(childrenByParent.get(rootTaskId) ?? [])];
+    while (stack.length > 0) {
+      const taskId = stack.pop()!;
+      if (seen.has(taskId)) continue;
+      seen.add(taskId);
+      const task = tasksById.get(taskId);
+      if (task) descendants.push(task);
+      stack.push(...(childrenByParent.get(taskId) ?? []));
+    }
+    return descendants;
+  };
+
+  for (const root of input.tasks) {
+    if (!childrenByParent.has(root.id) || childIds.has(root.id)) continue;
+    if (terminalTaskStatuses.has(root.status) || dispatchedRoots.has(root.id)) continue;
+    const descendants = collectDescendants(root.id);
+    if (descendants.length === 0 || !descendants.every((task) => terminalTaskStatuses.has(task.status))) continue;
+    const agentId = input.coordinatorAgentIds.includes(root.agent_id)
+      ? root.agent_id
+      : input.coordinatorAgentIds[0] ?? root.agent_id;
+    if (!agentId) continue;
+    const partial = descendants.some((task) => task.status === 'abandoned' || task.status === 'cancelled');
+    closureRootIds.add(root.id);
+    pushOnce(makeWakeup({
+      task: root,
+      agentId,
+      reasonCode: 'chain_ready_for_closure',
+      dispatchSource: 'system',
+      prompt: `根任务 ${root.id}: ${root.title} 的 ${descendants.length} 个后代任务已全部进入终态，请输出 Closure Report。`,
+      content: `系统唤醒 @${agentId}：任务链已可收敛，请完成根任务「${root.title}」的闭环报告。`,
+      metadata: {
+        reasonSummary: '根任务的全部后代任务已进入终态',
+        rootTaskId: root.id,
+        subtreeSize: descendants.length,
+        partial,
+      },
+    }));
+  }
+
   for (const task of input.tasks) {
+    if (closureRootIds.has(task.id)) continue;
     const updatedAt = task.updated_at ? new Date(task.updated_at).getTime() : 0;
     const isStale = updatedAt > 0 && now.getTime() - updatedAt >= staleMs;
     const activeDispatch = hasActiveDispatch(task.id, input.envelopes);

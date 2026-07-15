@@ -1,4 +1,6 @@
 import type { CliEngine } from '../types';
+import type { ContextRequest } from '../../lib/agent-context/ContextManager';
+import type { ContextScenario } from '../../lib/agent-context/scenarioResolver';
 
 export type HarnessTriggerSource = 'user' | 'a2a' | 'workflow' | 'review_gate' | 'test_gate' | 'system';
 
@@ -13,6 +15,7 @@ export interface HarnessTrigger {
   chainId?: string;
   passId?: string;
   idempotencyKey?: string;
+  wakeup?: ContextRequest['wakeup'];
 }
 export interface HarnessDispatchPlan {
   trigger: HarnessTrigger;
@@ -23,6 +26,7 @@ export interface HarnessDispatchPlan {
   prompt: string;
   projectPath?: string;
   useWorktree?: boolean;
+  contextScenario: ContextScenario;
 }
 
 export type HarnessReasonCode =

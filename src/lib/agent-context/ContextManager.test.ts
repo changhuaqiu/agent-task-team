@@ -122,4 +122,30 @@ describe('ContextManager', () => {
 
     expect(result.systemPrompt).toBeUndefined();
   });
+
+  it('按 wakeup 策略省略 dialog 并暴露簇决策', async () => {
+    mockProviders.getTask.mockResolvedValue({ id: 'task-1', title: '继续实现' });
+    const manager = new ContextManager(mockProviders, noOpMemoryHook);
+
+    const result = await manager.assembleContext({
+      agentId: 'toad',
+      conversationId: 'conv-123',
+      taskId: 'task-1',
+      rawPrompt: '这段原始对话不应被注入',
+      trigger: 'resume',
+      isFirstWake: true,
+      wakeup: { reasonCode: 'owner_ready', reasonSummary: '依赖已满足' },
+    });
+
+    expect(result.report).toMatchObject({
+      scenario: 'wakeup',
+      archetype: 'worker',
+      includedClusters: expect.arrayContaining(['protocol', 'capability', 'focus']),
+      omittedClusters: expect.arrayContaining(['identity', 'situation', 'dialog']),
+    });
+    expect(result.userPrompt).toContain('系统唤醒');
+    expect(result.userPrompt).toContain('继续实现');
+    expect(result.userPrompt).not.toContain('这段原始对话不应被注入');
+    expect(result.systemPrompt).toBeUndefined();
+  });
 });
