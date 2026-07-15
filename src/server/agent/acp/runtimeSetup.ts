@@ -7,9 +7,9 @@
 // `prepareAcpRuntime(entry, opts)` — per-runtime filesystem/env setup the
 // ACP path needs (extracted from scripts/smoke-acp-runtime.ts so the daemon
 // and smoke share one implementation):
-//   - opencode: writes a project-local `opencode.json` with a text-producing
-//     model (host default glm-4.7 is thought-only). Skipped when the caller
-//     already set `OPENCODE_CONFIG` (the daemon's account-config path wins).
+//   - opencode: writes an isolated temporary `opencode.json` with a
+//     text-producing model and injects it through OPENCODE_CONFIG. Skipped when
+//     the caller already set OPENCODE_CONFIG (account config wins).
 //   - codex:    isolates `CODEX_HOME` into a temp dir with the ESSENTIAL
 //     config (auth.json + config.toml), returns a cleanup fn that removes it.
 //   - claude:   passthrough (auth comes from the host).
@@ -17,6 +17,7 @@
 // This module has NO runtime spawn side effects — only filesystem/env prep.
 
 import {
+  chmodSync,
   copyFileSync,
   existsSync,
   mkdtempSync,
@@ -44,7 +45,7 @@ export interface PrepareAcpOptions {
   cwd: string;
   env: Record<string, string>;
   /**
-   * opencode model to write into the project-local `opencode.json` fallback.
+   * opencode model to write into the isolated temporary `opencode.json` fallback.
    * Defaults to `deepseek/deepseek-chat` — the host's configured default
    * (`zhipuai-coding-plan/glm-4.7`) emits only `agent_thought_chunk` with
    * ~1 output token and produces NO `agent_message_chunk` (text), so a
@@ -56,6 +57,41 @@ export interface PrepareAcpOptions {
 
 const DEFAULT_OPENCODE_MODEL = 'deepseek/deepseek-chat';
 
+function bestEffortChmod(path: string, mode: number): void {
+  try {
+    chmodSync(path, mode);
+  } catch {
+    // Windows and restricted filesystems may not expose POSIX modes.
+  }
+}
+
+function idempotentTempCleanup(path: string): () => void {
+  let cleaned = false;
+  let attempts = 0;
+  const maxAttempts = 6;
+  const cleanup = () => {
+    if (cleaned) return;
+    try {
+      rmSync(path, {
+        recursive: true,
+        force: true,
+        maxRetries: 2,
+        retryDelay: 100,
+      });
+      cleaned = true;
+    } catch (error) {
+      attempts += 1;
+      if (attempts < maxAttempts) {
+        const timer = setTimeout(cleanup, attempts * 250);
+        timer.unref?.();
+      } else {
+        console.warn(`[acp] temporary runtime cleanup failed: ${path}`, error);
+      }
+    }
+  };
+  return cleanup;
+}
+
 /**
  * The host opencode default model that ONLY emits thought chunks (no text).
  * Documented to explain why the fallback model is required.
@@ -65,21 +101,21 @@ export const HOST_THOUGHT_ONLY_OPENCODE_MODEL = 'zhipuai-coding-plan/glm-4.7';
 /**
  * Prepare the filesystem/env for an ACP runtime turn.
  *
- * Dispatches on `entry.legacyBackend ?? entry.id` so both native (opencode,
- * which has no `legacyBackend`) and adapter (claude/codex) entries map to the
- * right setup branch.
+ * Dispatches on the catalog runtime id so native (opencode) and adapter
+ * (claude/codex) entries map to the right setup branch.
  *
  * Side effects:
- *  - opencode: may write `{cwd}/opencode.json`.
+ *  - opencode: may create an isolated temporary OPENCODE_CONFIG.
  *  - codex:    creates a temp dir + copies `~/.codex/{auth.json,config.toml}`.
  *
- * Always returns a `PreparedRuntime`; `cleanup` is present only for codex.
+ * Always returns a `PreparedRuntime`; `cleanup` is present when temporary
+ * runtime configuration was created.
  */
 export function prepareAcpRuntime(
   entry: AgentCatalogEntry,
   opts: PrepareAcpOptions,
 ): PreparedRuntime {
-  const runtime = entry.legacyBackend ?? entry.id;
+  const runtime = entry.id;
 
   switch (runtime) {
     case 'opencode': {
@@ -90,10 +126,20 @@ export function prepareAcpRuntime(
       // host's thought-only default.
       if (!opts.env.OPENCODE_CONFIG) {
         const model = opts.opencodeModel ?? DEFAULT_OPENCODE_MODEL;
+        const configDir = mkdtempSync(join(tmpdir(), 'acp-opencode-config-'));
+        const configPath = join(configDir, 'opencode.json');
+        bestEffortChmod(configDir, 0o700);
         writeFileSync(
-          join(opts.cwd, 'opencode.json'),
+          configPath,
           `${JSON.stringify({ model }, null, 2)}\n`,
+          { mode: 0o600 },
         );
+        bestEffortChmod(configPath, 0o600);
+        return {
+          cwd: opts.cwd,
+          env: { ...opts.env, OPENCODE_CONFIG: configPath },
+          cleanup: idempotentTempCleanup(configDir),
+        };
       }
       return { cwd: opts.cwd, env: opts.env };
     }
@@ -105,18 +151,23 @@ export function prepareAcpRuntime(
       // The temp dir is cleaned up via the returned `cleanup` fn (Task 7 Minor).
       const codexHomeSrc = join(homedir(), '.codex');
       const codexHomeTmp = mkdtempSync(join(tmpdir(), 'acp-codex-home-'));
+      bestEffortChmod(codexHomeTmp, 0o700);
 
       const authSrc = join(codexHomeSrc, 'auth.json');
       const configSrc = join(codexHomeSrc, 'config.toml');
       if (existsSync(authSrc)) {
-        copyFileSync(authSrc, join(codexHomeTmp, 'auth.json'));
+        const authDest = join(codexHomeTmp, 'auth.json');
+        copyFileSync(authSrc, authDest);
+        bestEffortChmod(authDest, 0o600);
       } else {
         console.warn(
           `[acp] WARNING: ${authSrc} not found — codex auth may fail`,
         );
       }
       if (existsSync(configSrc)) {
-        copyFileSync(configSrc, join(codexHomeTmp, 'config.toml'));
+        const configDest = join(codexHomeTmp, 'config.toml');
+        copyFileSync(configSrc, configDest);
+        bestEffortChmod(configDest, 0o600);
       } else {
         console.warn(
           `[acp] WARNING: ${configSrc} not found — codex model config may be missing`,
@@ -126,13 +177,7 @@ export function prepareAcpRuntime(
       return {
         cwd: opts.cwd,
         env: { ...opts.env, CODEX_HOME: codexHomeTmp },
-        cleanup: () => {
-          try {
-            rmSync(codexHomeTmp, { recursive: true, force: true });
-          } catch {
-            /* best-effort cleanup */
-          }
-        },
+        cleanup: idempotentTempCleanup(codexHomeTmp),
       };
     }
 

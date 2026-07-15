@@ -105,6 +105,10 @@ const LOCAL_DAEMON_NODE_ID = 'daemon:local';
 const RUNTIME_HEARTBEAT_INTERVAL_MS = 5_000;
 const OPENCODE_PROJECT_SKILLS_DIR = join('.opencode', 'skills');
 
+function resolveAcpPermissionPolicy(): 'deny' | 'allow_once' {
+  return process.env.ACP_PERMISSION_MODE === 'allow_once' ? 'allow_once' : 'deny';
+}
+
 type AccountProvider = 'anthropic' | 'openai' | 'google' | 'kimi' | 'opencode' | 'other';
 
 async function resolveCredentialEnv(accountId?: string): Promise<Record<string, string>> {
@@ -1269,6 +1273,7 @@ export default function registerDaemon(io: IOServer) {
       const backend: AgentBackend = createAcpBackend(entry, {
         cwd: prepared.cwd,
         env: prepared.env,
+        permissionPolicy: resolveAcpPermissionPolicy(),
       });
 
       // The per-turn timeout. timeoutMs already carries the codex-ACP floor
@@ -1293,6 +1298,7 @@ export default function registerDaemon(io: IOServer) {
         );
       }
       const { events: rawEvents, result, kill } = backend.execute(capsResult.prompt, capsResult.opts);
+      const attemptedResume = Boolean(capsResult.opts.resumeSessionId);
 
       const events = withDoneGuarantee(rawEvents, result);
 
@@ -1324,7 +1330,7 @@ export default function registerDaemon(io: IOServer) {
           }
 
           // If we tried to resume but got no session, retry with fresh session
-          if (final.status === 'failed' && effectiveSessionId && !final.sessionId) {
+          if (final.status === 'failed' && attemptedResume && !final.sessionId) {
             console.log(`[daemon] session resume failed for ${agentId}, retrying with fresh session`);
             const retryRun = backend.execute(prompt || '', {
               cwd: executeCwd,
@@ -1343,7 +1349,7 @@ export default function registerDaemon(io: IOServer) {
           if (invocation) {
             invocationRepo.updateStatus(invocation.id, final.status === 'completed' ? 'succeeded' : 'failed', {
               exit_code: final.status === 'completed' ? 0 : 1,
-              reason_code: final.status === 'timeout' ? 'timeout' : undefined,
+              reason_code: final.reasonCode ?? (final.status === 'timeout' ? 'timeout' : undefined),
             });
           }
 
@@ -1353,7 +1359,7 @@ export default function registerDaemon(io: IOServer) {
             if (final.status === 'completed') {
               markEnvelopeCompleted();
             } else {
-              markEnvelopeFailed(final.status === 'timeout' ? 'timeout' : 'runtime_failed');
+              markEnvelopeFailed(final.reasonCode ?? (final.status === 'timeout' ? 'timeout' : 'runtime_failed'));
             }
           }
 
@@ -1361,7 +1367,7 @@ export default function registerDaemon(io: IOServer) {
             agentId,
             code: final.status === 'completed' ? 0 : 1,
             command,
-            reasonCode: final.status === 'timeout' ? 'timeout' : undefined,
+            reasonCode: final.reasonCode ?? (final.status === 'timeout' ? 'timeout' : undefined),
             conversationId: sessionConvId,
             activity: final.status === 'completed' && hasBackgroundChildActivity ? 'awaiting_children' : 'idle',
           });
@@ -1481,6 +1487,8 @@ export default function registerDaemon(io: IOServer) {
     stopWorktreeGCScheduler();
     clearInterval(runtimeHealthTimer);
     clearInterval(autonomyGuardTimer);
+    for (const active of activeProcesses.values()) active.kill();
+    activeProcesses.clear();
   };
   process.on('SIGTERM', shutdown);
   process.on('SIGINT', shutdown);

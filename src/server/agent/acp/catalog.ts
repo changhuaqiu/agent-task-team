@@ -9,11 +9,10 @@
 // once migration completes (Task 8).
 //
 // `createBackend` is the single bridge from a catalog entry to a live
-// `AgentBackend`. Per the Task 4 override, AcpBackend auto-approves permissions
-// inline — there is NO `permission` parameter here (the brief's 3-arg signature
-// was corrected to `createBackend(entry, cwd?)`).
+// `AgentBackend`. Permission decisions are injected explicitly; when omitted,
+// AcpBackend uses its fail-closed default policy.
 
-import { AcpBackend } from './acpBackend';
+import { AcpBackend, type AcpBackendOpts } from './acpBackend';
 import type { AgentBackend } from '../types';
 import type { EngineId } from '../capabilities';
 import seed from './agentCatalog.seed.json';
@@ -22,13 +21,13 @@ import seed from './agentCatalog.seed.json';
  * A single ACP runtime entry in the Agent Catalog (spec §5.1).
  *
  * The spec §5.1 fields (`id`, `protocol`, `delivery`, `launcher`,
- * `legacyBackend`, `verifiedCapabilities`) are authoritative. The seed also
+ * `verifiedCapabilities`) are authoritative. The seed also
  * carries descriptive fields (`protocolVersion`, `agentInfo`, `probeNote`); the
  * `[key: string]: unknown` index lets them coexist without forcing every
  * consumer to model them.
  */
 export interface AgentCatalogEntry {
-  id: string;
+  id: EngineId;
   protocol: 'acp';
   delivery: 'native' | 'adapter';
   launcher: {
@@ -37,7 +36,6 @@ export interface AgentCatalogEntry {
     package?: string;
     version?: string;
   };
-  legacyBackend?: 'opencode' | 'claude' | 'codex';
   verifiedCapabilities: string[];
   // Seed carries extra descriptive fields (protocolVersion, agentInfo,
   // probeNote). Allow them without making every consumer model them:
@@ -51,7 +49,49 @@ export interface AgentCatalogEntry {
  * `"native"`) required by the contract — the seed is hand-curated to conform.
  */
 export function loadCatalog(): AgentCatalogEntry[] {
-  return seed as unknown as AgentCatalogEntry[];
+  return validateCatalog(seed);
+}
+
+export function validateCatalog(value: unknown): AgentCatalogEntry[] {
+  if (!Array.isArray(value)) throw new Error('ACP catalog must be an array');
+  const ids = new Set<string>();
+  return value.map((candidate, index) => {
+    if (!candidate || typeof candidate !== 'object') {
+      throw new Error(`ACP catalog entry ${index} must be an object`);
+    }
+    const entry = candidate as Record<string, unknown>;
+    const launcher = entry.launcher as Record<string, unknown> | undefined;
+    const id = typeof entry.id === 'string' ? entry.id.trim() : '';
+    if (!id || ids.has(id)) throw new Error(`ACP catalog has invalid or duplicate id: ${id || index}`);
+    if (id !== 'opencode' && id !== 'claude' && id !== 'codex') {
+      throw new Error(`ACP catalog has unsupported runtime id: ${id}`);
+    }
+    ids.add(id);
+    if (entry.protocol !== 'acp') throw new Error(`ACP catalog ${id} has unsupported protocol`);
+    if (entry.delivery !== 'native' && entry.delivery !== 'adapter') {
+      throw new Error(`ACP catalog ${id} has invalid delivery`);
+    }
+    if (!launcher || typeof launcher.command !== 'string' || !launcher.command.trim()) {
+      throw new Error(`ACP catalog ${id} has no launcher command`);
+    }
+    if (!Array.isArray(launcher.args) || !launcher.args.every((arg) => typeof arg === 'string')) {
+      throw new Error(`ACP catalog ${id} has invalid launcher args`);
+    }
+    if (!Array.isArray(entry.verifiedCapabilities)) {
+      throw new Error(`ACP catalog ${id} has invalid verifiedCapabilities`);
+    }
+    if (entry.delivery === 'adapter') {
+      const packageName = typeof launcher.package === 'string' ? launcher.package : '';
+      const version = typeof launcher.version === 'string' ? launcher.version : '';
+      if (!packageName || !/^\d+\.\d+\.\d+(?:[-+][\w.-]+)?$/.test(version)) {
+        throw new Error(`ACP catalog ${id} adapter must declare an exact version`);
+      }
+      if (!(launcher.args as string[]).includes(`${packageName}@${version}`)) {
+        throw new Error(`ACP catalog ${id} launcher is not pinned to ${packageName}@${version}`);
+      }
+    }
+    return candidate as AgentCatalogEntry;
+  });
 }
 
 /**
@@ -71,13 +111,29 @@ export function loadCatalog(): AgentCatalogEntry[] {
  */
 export function createBackend(
   entry: AgentCatalogEntry,
-  opts?: { cwd?: string; env?: Record<string, string> },
+  opts?: Pick<
+    AcpBackendOpts,
+    | 'cwd'
+    | 'env'
+    | 'permissionPolicy'
+    | 'permissionTimeoutMs'
+    | 'cancelGraceMs'
+    | 'forceKillGraceMs'
+    | 'limits'
+    | 'timeoutMs'
+  >,
 ): AgentBackend {
   return new AcpBackend({
     command: entry.launcher.command,
     args: entry.launcher.args,
     cwd: opts?.cwd,
     env: opts?.env,
-    engine: entry.id as EngineId,
+    permissionPolicy: opts?.permissionPolicy,
+    permissionTimeoutMs: opts?.permissionTimeoutMs,
+    cancelGraceMs: opts?.cancelGraceMs,
+    forceKillGraceMs: opts?.forceKillGraceMs,
+    limits: opts?.limits,
+    timeoutMs: opts?.timeoutMs,
+    engine: entry.id,
   });
 }

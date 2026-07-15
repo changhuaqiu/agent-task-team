@@ -295,7 +295,7 @@ Possession 迁移期仍双写 `invocation_chain` / `chain_worklist` 与 `a2a_pos
 当前模式（catalog-driven，无 engine switch）：
 
 1. daemon 根据 `engine` 在 Catalog 中查表（`loadCatalog().find(e => e.id === engine)`）；**找不到条目直接抛错**，不静默回退（`gemini` / `mock` 无条目，无法经 ACP 执行）。
-2. `prepareAcpRuntime(entry, ...)` 做每运行时准备：opencode 写 `opencode.json` 指定产 text 的模型；codex 隔离 `CODEX_HOME`（复制 `auth.json` + `config.toml` 到临时目录，turn 后清理）；claude passthrough（认证来自主机）。
+2. `prepareAcpRuntime(entry, ...)` 做每运行时准备：opencode 在隔离临时目录写 fallback config 并通过 `OPENCODE_CONFIG` 注入，不修改项目文件；codex 隔离 `CODEX_HOME`（复制必要配置到收紧权限的临时目录，turn 后幂等清理）；claude passthrough（认证来自主机）。
 3. `createAcpBackend(entry, ...)` 构造 `AcpBackend`——经 `spawnCli`（cross-spawn，Windows .cmd/.bat 安全）spawn，完成 `initialize` → `session/new` → `prompt`，把 `session/update` 映射为统一 `AgentEvent`。
 4. daemon 将 `AgentEvent`：转为 socket 事件、写入 repo、更新 session / invocation。
 
@@ -304,12 +304,14 @@ Catalog 三个条目（spec §2 / §5.1）：
 | id | delivery | launcher | 认证 |
 | --- | --- | --- | --- |
 | `opencode` | 原生 | `opencode acp` | 主机 provider 配置 |
-| `claude` | 适配器 | `npx -y @agentclientprotocol/claude-agent-acp`@0.59.0 | Claude Code OAuth（非 API key） |
-| `codex` | 适配器 | `npx -y @agentclientprotocol/codex-acp`@1.1.2 | ChatGPT OAuth + 隔离 `CODEX_HOME` |
+| `claude` | 适配器 | `npx -y @agentclientprotocol/claude-agent-acp@0.59.0` | Claude Code OAuth（非 API key） |
+| `codex` | 适配器 | `npx -y @agentclientprotocol/codex-acp@1.1.2` | ChatGPT OAuth + 隔离 `CODEX_HOME` |
 
 适配器属于额外依赖（ACP 组织维护），不能描述成厂商 CLI 的原生 ACP 能力。适配器版本锁定。新增运行时只需在 Catalog 加条目并验证，不再写 per-engine 解析 backend。
 
-延迟项（坦诚记录）：会话恢复（`session/load` 未接线，`supportsResume:false`）；真实权限策略（`requestPermission` 当前是 auto-approve 占位，spec §6 的 allow/deny/confirm profile 后续做）；跨运行时模型规范化；MCP 桥接（`mcpServers:[]` 当前为空）。详见 `architecture/cli-integration.md` 与 `specs/acp-runtime-integration/spec.md`。
+运行时监督当前已落地：Catalog 运行时校验与实际 launcher 精确锁版本；权限默认 fail-closed，通过 `ACP_PERMISSION_MODE=allow_once` 才允许单次授权；取消采用 ACP cancel → TERM → KILL；result 不依赖 child `close` 才能解析；全局并发、事件队列、单事件、累计输出和 stderr tail 均有上限；stderr 只保留脱敏后的有界尾部；daemon shutdown 会终止全部活跃 run。
+
+延迟项（坦诚记录）：会话恢复（`session/load` 未接线，`supportsResume:false`）；需要人工交互的 confirm profile；跨运行时模型规范化；MCP 桥接（`mcpServers:[]` 当前为空）。CapabilityRouter 丢弃 resume 时 daemon 不再执行 fresh-session 自动重放，避免失败后重复副作用。详见 `architecture/cli-integration.md` 与 `specs/acp-runtime-integration/spec.md`。
 
 ## 4.7 会话与调用追踪
 

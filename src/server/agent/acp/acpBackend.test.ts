@@ -6,7 +6,7 @@
 //
 // Exercises the full path: spawnCli → ndJsonStream → client().connectWith →
 // buildSession → session.prompt → session/update* (mapped via mapAcpUpdate) →
-// session/request_permission (auto-approve → allow) → PromptResponse(end_turn).
+// session/request_permission (explicit allow-once policy) → PromptResponse(end_turn).
 //
 // This file is excluded from tsc (tsconfig exclude **/*.test.ts); vitest
 // transpiles via esbuild without type-checking.
@@ -27,6 +27,7 @@ describe('AcpBackend (subprocess integration with mockAcpAgent)', () => {
       args: ['tsx', mockPath],
       engine: 'opencode',
       cwd: process.cwd(),
+      permissionPolicy: 'allow_once',
     });
 
     const run = backend.execute('hi', {});
@@ -39,7 +40,7 @@ describe('AcpBackend (subprocess integration with mockAcpAgent)', () => {
     const result = await run.result;
 
     // Mock emits: agent_message_chunk "开始" → tool_call → (permission
-    // auto-approved allow) → tool_call_update completed → agent_message_chunk
+    // explicitly allowed once) → tool_call_update completed → agent_message_chunk
     // "完成" → end_turn. mapAcpUpdate converts to text/tool_use/tool_result/
     // text; withDoneGuarantee appends done.
     expect(types).toEqual(['text', 'tool_use', 'tool_result', 'text', 'done']);
@@ -59,6 +60,7 @@ describe('AcpBackend (subprocess integration with mockAcpAgent)', () => {
       args: ['tsx', mockPath],
       engine: 'opencode',
       cwd: process.cwd(),
+      permissionPolicy: 'allow_once',
     });
 
     const run = backend.execute('hi', {});

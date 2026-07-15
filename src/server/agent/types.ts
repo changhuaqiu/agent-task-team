@@ -31,6 +31,7 @@ export interface AgentResult {
   status: 'completed' | 'failed' | 'timeout' | 'cancelled';
   output: string;
   error?: string;
+  reasonCode?: string;
   durationMs: number;
   sessionId?: string;
   usage?: Record<string, { inputTokens: number; outputTokens: number }>;

@@ -13,6 +13,7 @@ OpenClaw 的运行时实现提供了可复用的工程原则：活跃 run 可取
 
 1. `AcpBackend` 成为每轮 ACP 子进程的唯一生命周期 owner，并通过一次性 finalize 收敛所有终态。
 2. 调用方取消和超时先发送 ACP cancel，再执行 TERM/KILL 分级回收；结果解析不依赖 `close` 必然到达。
+   Windows 上必须优先完成进程树终止，只有树终止失败时才直接终止 launcher，避免 `npx` 父进程先退出后无法枚举残留后代。
 3. 权限默认拒绝，只允许显式 `allow_once` 或注入策略；策略异常同样拒绝。
 4. 对并发 run、队列、事件、累计输出和 stderr tail 建立硬上限，超限返回稳定 reason code。
 5. adapter launcher 的实际参数必须精确包含 Catalog 版本；Catalog 在使用前运行时校验。

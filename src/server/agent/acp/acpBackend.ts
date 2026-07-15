@@ -1,117 +1,138 @@
-// src/server/agent/acp/acpBackend.ts
-//
-// AcpBackend — the single AgentBackend implementation that drives ACP agents
-// (opencode / claude / codex) over stdio JSON-RPC.
-//
-// Spec: specs/acp-runtime-integration/spec.md §5.2 (AcpBackend responsibilities).
-//
-// Architecture (corrections to task-5-brief pseudocode applied):
-//  - execute() returns an AgentRun ({ events, result, kill }) synchronously —
-//    NOT an async generator. Mirrors OpenCodeBackend's queue/resolve/kill shape.
-//  - Spawns via spawnCli (cross-spawn; resolves Windows .cmd/.bat).
-//  - Uses the MODERN SDK client API: client().connectWith(stream, cb) +
-//    ActiveSession.nextUpdate(). NOT the deprecated ClientSideConnection.
-//  - Auto-approves permissions inline (no permissionPolicy.ts this iteration).
-//  - Tree-kills the process on kill/finally/timeout (npx → adapter → runtime
-//    spawns 2+ layers; bare child.kill() only kills the top).
-//  - Wraps the events generator with withDoneGuarantee so a `done` event always
-//    emits even if the agent doesn't send one.
-
-import { Writable, Readable } from 'node:stream';
+import { existsSync, statSync } from 'node:fs';
+import { isAbsolute, resolve } from 'node:path';
+import { Readable, Writable } from 'node:stream';
 import * as acp from '@agentclientprotocol/sdk';
 import treeKill from 'tree-kill';
 import { spawnCli } from '../cliBridge';
 import { withDoneGuarantee } from '../with-done-guarantee';
 import { mapAcpUpdate, KNOWN_SESSION_UPDATE_TYPES } from './agentEventMapper';
+import {
+  createPermissionHandler,
+  type AcpPermissionPolicy,
+} from './permissionPolicy';
 import type {
   AgentBackend,
-  AgentRun,
   AgentEvent,
   AgentResult,
+  AgentRun,
   ExecOptions,
 } from '../types';
 import type { CapabilitySet, EngineId } from '../capabilities';
 
-// ---------------------------------------------------------------------------
-// Options
-// ---------------------------------------------------------------------------
+export type AcpFailureReasonCode =
+  | 'acp_cancelled'
+  | 'acp_concurrency_limit'
+  | 'acp_connection_failed'
+  | 'acp_event_limit'
+  | 'acp_invalid_runtime'
+  | 'acp_output_limit'
+  | 'acp_process_exited'
+  | 'acp_startup_failed'
+  | 'acp_timeout';
 
-export interface AcpBackendOpts {
-  /** Executable to spawn (e.g. 'npx', 'opencode', 'node'). */
-  command: string;
-  /** Args passed to command (e.g. ['tsx', path] or ['acp']). */
-  args: string[];
-  /** Working directory for the agent process + ACP session cwd. */
-  cwd?: string;
-  /** Engine identity for the CapabilitySet (which runtime this backend drives). */
-  engine: EngineId;
-  /** Per-turn timeout in ms (fallback if opts.timeout not set). Default 120s. */
-  timeoutMs?: number;
-  /** Extra env vars merged on top of process.env. */
-  env?: Record<string, string>;
+export interface AcpRuntimeLimits {
+  maxConcurrentRuns: number;
+  maxQueuedEvents: number;
+  maxEventChars: number;
+  maxOutputChars: number;
+  maxStderrChars: number;
 }
 
-// ---------------------------------------------------------------------------
-// Capabilities — ACP's key advantage: no PTY required.
-// ---------------------------------------------------------------------------
+export interface AcpBackendOpts {
+  command: string;
+  args: string[];
+  cwd?: string;
+  engine: EngineId;
+  timeoutMs?: number;
+  env?: Record<string, string>;
+  permissionPolicy?: AcpPermissionPolicy;
+  permissionTimeoutMs?: number;
+  cancelGraceMs?: number;
+  forceKillGraceMs?: number;
+  limits?: Partial<AcpRuntimeLimits>;
+}
 
 const ACP_CAPS_BASE = {
   promptMode: 'stdin-stream-json',
   outputMode: 'events',
-  supportsResume: false, // Task 9 wires resume
+  supportsResume: false,
   supportsModel: true,
   supportsSystemPrompt: true,
-  systemPromptMode: 'none', // prepended to prompt text in execute()
+  systemPromptMode: 'none',
   supportsMaxTurns: false,
   supportsPermissionMode: true,
   requiresPty: false,
 } satisfies Omit<CapabilitySet, 'engine'>;
 
-// ---------------------------------------------------------------------------
-// Permission auto-approve (inline — Task 4 overridden, folded into Task 5).
-// ---------------------------------------------------------------------------
+const DEFAULT_LIMITS: AcpRuntimeLimits = {
+  maxConcurrentRuns: 10,
+  maxQueuedEvents: 2_000,
+  maxEventChars: 64_000,
+  maxOutputChars: 1_000_000,
+  maxStderrChars: 4_000,
+};
 
-/**
- * Auto-approve a permission request by selecting the first allow option.
- *
- * TODO: real permission policy (approve-all / deny / confirm profile) per
- * spec §6 — deferred this iteration (plan "更新" #1).
- */
-function autoApprovePermission(
-  req: acp.RequestPermissionRequest,
-): acp.RequestPermissionResponse {
-  const allow = req.options.find(
-    (o) => o.kind === 'allow_once' || o.kind === 'allow_always',
-  );
-  return allow
-    ? { outcome: { outcome: 'selected', optionId: allow.optionId } }
-    : { outcome: { outcome: 'cancelled' } };
+function resolveLimits(overrides?: Partial<AcpRuntimeLimits>): AcpRuntimeLimits {
+  const merged = { ...DEFAULT_LIMITS, ...overrides };
+  const positiveInt = (value: number, fallback: number) =>
+    Number.isFinite(value) ? Math.max(1, Math.floor(value)) : fallback;
+  return {
+    maxConcurrentRuns: positiveInt(merged.maxConcurrentRuns, DEFAULT_LIMITS.maxConcurrentRuns),
+    maxQueuedEvents: positiveInt(merged.maxQueuedEvents, DEFAULT_LIMITS.maxQueuedEvents),
+    maxEventChars: positiveInt(merged.maxEventChars, DEFAULT_LIMITS.maxEventChars),
+    maxOutputChars: positiveInt(merged.maxOutputChars, DEFAULT_LIMITS.maxOutputChars),
+    maxStderrChars: positiveInt(merged.maxStderrChars, DEFAULT_LIMITS.maxStderrChars),
+  };
 }
 
-// ---------------------------------------------------------------------------
-// StopReason → AgentResult.status
-// ---------------------------------------------------------------------------
+let activeAcpRuns = 0;
 
-function stopReasonToStatus(
-  stopReason: acp.StopReason,
-): AgentResult['status'] {
-  switch (stopReason) {
-    case 'end_turn':
-      return 'completed';
-    case 'cancelled':
-      return 'cancelled';
-    case 'max_tokens':
-    case 'refusal':
-    case 'max_turn_requests':
-      return 'failed';
-    default:
-      return 'failed';
+export function getActiveAcpRunCount(): number {
+  return activeAcpRuns;
+}
+
+function stopReasonToStatus(stopReason: acp.StopReason): AgentResult['status'] {
+  return stopReason === 'end_turn'
+    ? 'completed'
+    : stopReason === 'cancelled'
+      ? 'cancelled'
+      : 'failed';
+}
+
+function failedRun(
+  message: string,
+  reasonCode: AcpFailureReasonCode,
+  startedAt = Date.now(),
+): AgentRun {
+  const result: AgentResult = {
+    status: 'failed',
+    output: '',
+    error: message,
+    reasonCode,
+    durationMs: Date.now() - startedAt,
+  };
+  const resultPromise = Promise.resolve(result);
+  async function* failureEvents(): AsyncGenerator<AgentEvent> {
+    yield { type: 'error', content: message };
   }
+  return {
+    events: withDoneGuarantee(failureEvents(), resultPromise),
+    result: resultPromise,
+    kill: () => {},
+  };
 }
 
-// ---------------------------------------------------------------------------
-// AcpBackend
-// ---------------------------------------------------------------------------
+export function sanitizeAcpDiagnostic(value: string): string {
+  return value
+    .replace(/(bearer\s+)[^\s"']+/gi, '$1[REDACTED]')
+    .replace(/\b(?:sk|rk|ghp|github_pat|xox[baprs])-[-_a-z0-9]{8,}\b/gi, '[REDACTED]')
+    .replace(/(["']?(?:api[_-]?key|access[_-]?token|password|secret)["']?\s*[:=]\s*["']?)[^"'\s]+/gi, '$1[REDACTED]');
+}
+
+function processExitMessage(code: number | null, signal: NodeJS.Signals | null, stderr: string): string {
+  const suffix = stderr.trim() ? `; stderr: ${sanitizeAcpDiagnostic(stderr.trim())}` : '';
+  return `ACP process exited (code ${code ?? 'null'}, signal ${signal ?? 'none'})${suffix}`;
+}
 
 export class AcpBackend implements AgentBackend {
   readonly capabilities: CapabilitySet;
@@ -122,317 +143,386 @@ export class AcpBackend implements AgentBackend {
 
   execute(prompt: string, opts: ExecOptions): AgentRun {
     const startTime = Date.now();
-    const cwd = opts.cwd ?? this.o.cwd ?? process.cwd();
+    const cwd = resolve(opts.cwd ?? this.o.cwd ?? process.cwd());
+    const limits = resolveLimits(this.o.limits);
 
-    // Since supportsSystemPrompt is true and systemPromptMode is 'none', we
-    // handle the system prompt ourselves by prepending it to the prompt text.
-    const promptText = opts.systemPrompt
-      ? `${opts.systemPrompt}\n\n${prompt}`
-      : prompt;
+    if (!this.o.command.trim() || !Array.isArray(this.o.args)) {
+      return failedRun('Invalid ACP launcher configuration', 'acp_invalid_runtime', startTime);
+    }
+    let cwdIsDirectory = false;
+    try {
+      cwdIsDirectory = isAbsolute(cwd) && existsSync(cwd) && statSync(cwd).isDirectory();
+    } catch {
+      cwdIsDirectory = false;
+    }
+    if (!cwdIsDirectory) {
+      return failedRun(`Invalid ACP working directory: ${cwd}`, 'acp_invalid_runtime', startTime);
+    }
+    if (activeAcpRuns >= limits.maxConcurrentRuns) {
+      return failedRun(
+        `ACP concurrency limit reached (${limits.maxConcurrentRuns})`,
+        'acp_concurrency_limit',
+        startTime,
+      );
+    }
 
+    activeAcpRuns += 1;
+    let slotReleased = false;
+    const releaseSlot = () => {
+      if (slotReleased) return;
+      slotReleased = true;
+      activeAcpRuns = Math.max(0, activeAcpRuns - 1);
+    };
+
+    const promptText = opts.systemPrompt ? `${opts.systemPrompt}\n\n${prompt}` : prompt;
     const env = {
       ...(process.env as Record<string, string>),
       ...this.o.env,
       ...opts.env,
     };
 
-    // --- Spawn the ACP agent subprocess (via cross-spawn) ---
-    const proc = spawnCli(this.o.command, this.o.args, {
-      cwd,
-      env: env as typeof process.env,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    let proc: ReturnType<typeof spawnCli>;
+    try {
+      proc = spawnCli(this.o.command, this.o.args, {
+        cwd,
+        env: env as typeof process.env,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+    } catch (error) {
+      releaseSlot();
+      return failedRun(
+        `ACP spawn failed: ${error instanceof Error ? error.message : String(error)}`,
+        'acp_startup_failed',
+        startTime,
+      );
+    }
 
-    // --- Event queue (mirrors OpenCodeBackend.createEventQueue) ---
     const queue: AgentEvent[] = [];
-    let resolveNext: ((v: IteratorResult<AgentEvent>) => void) | null = null;
-    let finished = false;
+    let resolveNext: ((value: IteratorResult<AgentEvent>) => void) | null = null;
+    let streamFinished = false;
     let output = '';
+    let projectedChars = 0;
     let sessionId: string | undefined;
-
-    // Cause flags for the abnormal-exit path. In ACP, turn completion is
-    // signaled by the PromptResponse/`stop` message, NOT process exit — so
-    // reaching the `close` handler with !resultResolved is always abnormal.
-    // These flags let the close handler resolve with the correct status:
-    // kill() → cancelled, timeout → timeout, otherwise → failed (never
-    // 'completed' for a bare process exit). Scoped per execute() call.
-    let killed = false;
-    let timedOut = false;
-
-    const push = (event: AgentEvent) => {
-      if (event.type === 'text') output += event.content;
-      if (resolveNext) {
-        resolveNext({ value: event, done: false });
-        resolveNext = null;
-      } else {
-        queue.push(event);
-      }
-    };
-
-    /** Wake a waiting generator consumer so it can drain + terminate. */
-    const wakeGenerator = () => {
-      finished = true;
-      if (resolveNext) {
-        resolveNext({ value: undefined, done: true } as IteratorResult<AgentEvent>);
-        resolveNext = null;
-      }
-    };
-
-    // --- Result promise (resolved once on turn completion / error / kill) ---
-    let resultResolve!: (r: AgentResult) => void;
-    const resultPromise = new Promise<AgentResult>((resolve) => {
-      resultResolve = resolve;
-    });
+    let session: acp.ActiveSession | undefined;
+    let clientContext: acp.ClientContext | undefined;
+    let stderrTail = '';
+    let initialized = false;
     let resultResolved = false;
+    let processClosed = false;
+    let terminationStarted = false;
+    let termTimer: NodeJS.Timeout | undefined;
+    let forceKillTimer: NodeJS.Timeout | undefined;
+    let cleanupReleaseTimer: NodeJS.Timeout | undefined;
 
-    const resolveResult = (r: AgentResult) => {
+    let resultResolve!: (result: AgentResult) => void;
+    const resultPromise = new Promise<AgentResult>((resolveResult) => {
+      resultResolve = resolveResult;
+    });
+
+    const wakeGenerator = () => {
+      streamFinished = true;
+      if (resolveNext) {
+        resolveNext({ value: undefined, done: true });
+        resolveNext = null;
+      }
+    };
+
+    const emit = (event: AgentEvent, bypassQueueLimit = false): boolean => {
+      if (resultResolved && event.type !== 'done') return false;
+      const content = event.content.length > limits.maxEventChars
+        ? `${event.content.slice(0, limits.maxEventChars)}\n[truncated]`
+        : event.content;
+      const boundedEvent = content === event.content ? event : { ...event, content };
+
+      if (boundedEvent.type === 'text') {
+        const remaining = limits.maxOutputChars - output.length;
+        if (remaining <= 0 || boundedEvent.content.length > remaining) return false;
+        output += boundedEvent.content;
+      }
+      if (resolveNext) {
+        resolveNext({ value: boundedEvent, done: false });
+        resolveNext = null;
+        return true;
+      }
+      if (!bypassQueueLimit && queue.length >= limits.maxQueuedEvents) return false;
+      queue.push(boundedEvent);
+      return true;
+    };
+
+    const signalTree = (signal: NodeJS.Signals) => {
+      if (processClosed) return;
+      const signalDirectChild = () => {
+        try {
+          proc.kill(signal);
+        } catch {
+          // Best effort. Finalization never waits on `close`.
+        }
+      };
+      if (typeof proc.pid === 'number') {
+        try {
+          // tree-kill is asynchronous. Killing the launcher immediately after
+          // starting it races tree discovery on Windows: `npx` may disappear
+          // before taskkill can enumerate its descendants. Only fall back to
+          // the direct child when tree signalling itself fails.
+          treeKill(proc.pid, signal, (error) => {
+            if (error) signalDirectChild();
+          });
+          return;
+        } catch {
+          // Fall through to direct child signalling.
+        }
+      }
+      signalDirectChild();
+    };
+
+    const stopProcess = (graceful: boolean) => {
+      if (terminationStarted) return;
+      terminationStarted = true;
+      if (graceful && clientContext && sessionId) {
+        void clientContext
+          .notify(acp.methods.agent.session.cancel, { sessionId })
+          .catch(() => {});
+      }
+      const cancelGraceMs = graceful ? Math.max(0, this.o.cancelGraceMs ?? 250) : 0;
+      const terminate = () => {
+        signalTree('SIGTERM');
+        const forceKillGraceMs = Math.max(1, this.o.forceKillGraceMs ?? 1_000);
+        forceKillTimer = setTimeout(() => signalTree('SIGKILL'), forceKillGraceMs);
+        forceKillTimer.unref?.();
+        cleanupReleaseTimer = setTimeout(releaseSlot, forceKillGraceMs + 250);
+        cleanupReleaseTimer.unref?.();
+      };
+      if (cancelGraceMs === 0) {
+        terminate();
+      } else {
+        termTimer = setTimeout(terminate, cancelGraceMs);
+        termTimer.unref?.();
+      }
+    };
+
+    const finalize = (
+      status: AgentResult['status'],
+      reasonCode?: AcpFailureReasonCode,
+      error?: string,
+      usage?: AgentResult['usage'],
+      gracefulCancel = false,
+    ) => {
       if (resultResolved) return;
       resultResolved = true;
-      resultResolve(r);
-    };
-
-    // --- Process cleanup (tree-kill for npx → adapter → runtime layers) ---
-    const killProcess = () => {
+      clearTimeout(timeoutTimer);
       try {
-        treeKill(proc.pid!, () => {});
+        session?.dispose();
       } catch {
-        /* best-effort */
+        // SDK routing cleanup is best effort.
       }
-      try {
-        proc.kill();
-      } catch {
-        /* best-effort */
-      }
-    };
-
-    // --- Timeout ---
-    const timeoutMs = opts.timeout ?? this.o.timeoutMs ?? 120000;
-    const timer = setTimeout(() => {
-      if (resultResolved || timedOut) return;
-      timedOut = true;
-      const msg = `ACP agent timed out after ${timeoutMs}ms`;
-      push({ type: 'error', content: msg, sessionId });
-      // Do NOT resolveResult here — killProcess() triggers `close`, whose
-      // handler resolves with the cause-based status (timeout).
-      killProcess();
-      wakeGenerator();
-    }, timeoutMs);
-
-    // --- Build the ACP client app with permission handler ---
-    const stream = acp.ndJsonStream(
-      Writable.toWeb(proc.stdin!),
-      Readable.toWeb(proc.stdout!) as ReadableStream<Uint8Array>,
-    );
-
-    const clientApp = acp
-      .client({ name: 'agent-task-team' })
-      .onRequest(acp.methods.client.session.requestPermission, (ctx) =>
-        autoApprovePermission(ctx.params),
-      );
-
-    // --- Drive the turn (non-blocking; connectWith resolves when cb returns) ---
-    clientApp
-      .connectWith(stream, async (ctx) => {
-        // ACP protocol requires `initialize` before `session/new` (spec §5.2
-        // step 2). The mock agent and opencode are lenient (they handle
-        // session/new without a prior initialize), but the codex-acp and
-        // claude-agent-acp adapters enforce it — sending session/new first
-        // returns a JSON-RPC "Internal error" (-32603).
-        await ctx.request(acp.methods.agent.initialize, {
-          protocolVersion: acp.PROTOCOL_VERSION,
-          clientCapabilities: {},
-        });
-
-        const session = await ctx.buildSession(cwd).start();
-        sessionId = session.sessionId;
-
-        // Start the prompt without awaiting so we can drain updates concurrently.
-        // Defensive sink: on kill()/timeout the stream breaks mid-turn, so
-        // nextUpdate() rejects and the callback throws at the drain loop BEFORE
-        // reaching `await promptP`. If the SDK then rejects the pending prompt
-        // request on transport close (common JSON-RPC behavior), that rejection
-        // is UNHANDLED — under Node's default --unhandled-rejections=throw
-        // (v15+), a routine cancel/timeout could terminate a long-running
-        // daemon. This sink swallows that orphaned rejection. On the happy path
-        // the catch never fires (promptP resolves with the PromptResponse), so
-        // `await promptP` below still receives the real response. See review
-        // Important #1.
-        const promptP = session.prompt(promptText).catch(() => {
-          // Swallowed: on kill/timeout the stream breaks before we await
-          // promptP. The result is resolved via the close handler; this sink
-          // prevents an unhandled rejection from terminating the daemon.
-          return undefined as never;
-        });
-
-        // Drain session/update notifications until the stop message.
-        for (;;) {
-          const msg = await session.nextUpdate();
-          if (msg.kind === 'session_update') {
-            const e = mapAcpUpdate(msg.update);
-            if (e) {
-              if (e.sessionId === undefined) e.sessionId = sessionId;
-              push(e);
-            } else {
-              // Spec §5.3: unknown/unmapped updates must be ignored (never
-              // throw). Warn ONLY for genuinely-UNKNOWN `sessionUpdate` values
-              // (future protocol additions) — known-safe-ignore variants
-              // (usage_update, plan, session_info_update, …) are intentionally
-              // null-mapped and emitted frequently by real agents, so warning
-              // on them would spam production logs. See review Important #2.
-              if (!KNOWN_SESSION_UPDATE_TYPES.has(msg.update.sessionUpdate)) {
-                console.warn(
-                  '[acp] unknown session update (safely ignored):',
-                  msg.update.sessionUpdate,
-                );
-              }
-            }
-          } else {
-            // kind === "stop" — turn complete.
-            break;
-          }
-        }
-
-        const resp = await promptP;
-
-        resolveResult({
-          status: stopReasonToStatus(resp.stopReason),
-          output,
-          durationMs: Date.now() - startTime,
-          sessionId,
-          usage: resp.usage
-            ? {
-                default: {
-                  inputTokens: resp.usage.inputTokens ?? 0,
-                  outputTokens: resp.usage.outputTokens ?? 0,
-                },
-              }
-            : undefined,
-        });
-
-        session.dispose();
-      })
-      .catch((err: unknown) => {
-        // connectWith rejects on stream error or if the cb throws.
-        if (resultResolved) return;
-        // If kill()/timeout broke the stream (process killed mid-turn), the
-        // `close` handler will resolve with the correct cause-based status.
-        // Do not clobber it with a 'failed' here.
-        if (killed || timedOut) return;
-        const errMsg = `ACP connection error: ${
-          err instanceof Error ? err.message : String(err)
-        }`;
-        push({ type: 'error', content: errMsg, sessionId });
-        resolveResult({
-          status: 'failed',
-          output,
-          error: errMsg,
-          durationMs: Date.now() - startTime,
-          sessionId,
-        });
-      })
-      .finally(() => {
-        // The turn callback completed (success or failure). Wake the generator
-        // so it drains remaining queued events and terminates.
-        wakeGenerator();
-      });
-
-    // --- Drain stderr (prevent OS pipe-buffer deadlock) ---
-    // stdio is piped on all three channels, but without a 'data' listener on
-    // stderr the OS pipe buffer (~64KB) can fill: real ACP agents (opencode
-    // acp) write diagnostics to stderr, and once the buffer fills the child's
-    // stderr writes block → deadlock (the mock writes nothing, so this only
-    // bites with real agents). Drain + log trimmed lines for debuggability.
-    // Best-effort: never throw. Mirrors OpenCodeBackend's pattern.
-    proc.stderr?.on('data', (chunk: Buffer) => {
-      const line = chunk.toString().trim();
-      if (line) console.warn('[acp] stderr:', line.slice(-500));
-    });
-
-    // --- Process error / exit handlers ---
-    proc.on('error', (err) => {
-      if (resultResolved) return;
-      const errMsg = `Spawn error: ${err.message}`;
-      push({ type: 'error', content: errMsg, sessionId });
-      resolveResult({
-        status: 'failed',
-        output,
-        error: errMsg,
-        durationMs: Date.now() - startTime,
-        sessionId,
-      });
-      wakeGenerator();
-    });
-
-    proc.on('close', (code) => {
-      // If the turn already completed, the result is resolved — nothing to do.
-      if (resultResolved) return;
-      // Abnormal exit: the turn did NOT complete via PromptResponse/`stop`.
-      // Resolve cause-based — process exit is never a successful ACP turn
-      // completion, so 'completed' is never used here.
-      const status: AgentResult['status'] = killed
-        ? 'cancelled'
-        : timedOut
-          ? 'timeout'
-          : 'failed';
-      const error = killed
-        ? 'killed by caller'
-        : timedOut
-          ? 'timeout'
-          : `process exited (code ${code})`;
-      resolveResult({
+      resultResolve({
         status,
         output,
-        error,
+        ...(error ? { error } : {}),
+        ...(reasonCode ? { reasonCode } : {}),
         durationMs: Date.now() - startTime,
         sessionId,
+        usage,
       });
       wakeGenerator();
+      stopProcess(gracefulCancel);
+    };
+
+    const failForLimit = (reasonCode: 'acp_output_limit' | 'acp_event_limit', message: string) => {
+      if (resultResolved) return;
+      if (queue.length >= limits.maxQueuedEvents) queue.shift();
+      emit({ type: 'error', content: message, sessionId }, true);
+      finalize('failed', reasonCode, message, undefined, true);
+    };
+
+    const timeoutMs = Math.max(1, opts.timeout ?? this.o.timeoutMs ?? 120_000);
+    const timeoutTimer = setTimeout(() => {
+      const message = `ACP turn timed out after ${timeoutMs}ms`;
+      emit({ type: 'error', content: message, sessionId }, true);
+      finalize('timeout', 'acp_timeout', message, undefined, true);
+    }, timeoutMs);
+    timeoutTimer.unref?.();
+
+    proc.stderr?.on('data', (chunk: Buffer | string) => {
+      stderrTail = `${stderrTail}${chunk.toString()}`.slice(-limits.maxStderrChars);
     });
 
-    // --- Events generator (mirrors OpenCodeBackend) ---
-    async function* generator(): AsyncGenerator<AgentEvent> {
+    proc.on('error', (error) => {
+      const message = `ACP spawn failed: ${error.message}`;
+      emit({ type: 'error', content: message, sessionId }, true);
+      finalize('failed', 'acp_startup_failed', message);
+    });
+
+    proc.on('close', (code, signal) => {
+      processClosed = true;
+      clearTimeout(termTimer);
+      clearTimeout(forceKillTimer);
+      clearTimeout(cleanupReleaseTimer);
+      releaseSlot();
+      if (resultResolved) return;
+      const message = processExitMessage(code, signal, stderrTail);
+      emit({ type: 'error', content: message, sessionId }, true);
+      finalize('failed', 'acp_process_exited', message);
+    });
+
+    const startConnection = () => {
+      if (resultResolved) return;
+      if (!proc.stdin || !proc.stdout) {
+        const message = 'ACP subprocess stdio is unavailable';
+        emit({ type: 'error', content: message }, true);
+        finalize('failed', 'acp_startup_failed', message);
+        return;
+      }
+
       try {
-        while (!finished) {
-          if (queue.length > 0) {
-            yield queue.shift()!;
-          } else {
-            const event = await new Promise<AgentEvent | undefined>((resolve) => {
-              resolveNext = (r) => {
-                if (r.done) {
-                  resolve(undefined);
+        const stream = acp.ndJsonStream(
+          Writable.toWeb(proc.stdin),
+          Readable.toWeb(proc.stdout) as ReadableStream<Uint8Array>,
+        );
+        const permissionHandler = createPermissionHandler(
+          this.o.permissionPolicy,
+          this.o.permissionTimeoutMs,
+        );
+        const clientApp = acp
+          .client({ name: 'agent-task-team' })
+          .onRequest(acp.methods.client.session.requestPermission, (ctx) =>
+            permissionHandler(ctx.params),
+          );
+
+        void clientApp
+          .connectWith(stream, async (ctx) => {
+            if (resultResolved) return;
+            clientContext = ctx;
+            await ctx.request(acp.methods.agent.initialize, {
+              protocolVersion: acp.PROTOCOL_VERSION,
+              clientCapabilities: {},
+            });
+            initialized = true;
+            if (resultResolved) return;
+
+            session = await ctx.buildSession(cwd).start();
+            sessionId = session.sessionId;
+            if (resultResolved) return;
+
+            let promptError: unknown;
+            const promptPromise = session.prompt(promptText).catch((error) => {
+              promptError = error;
+              return undefined;
+            });
+
+            for (;;) {
+              const message = await session.nextUpdate();
+              if (message.kind === 'stop') break;
+              const event = mapAcpUpdate(message.update);
+              if (event) {
+                if (event.sessionId === undefined) event.sessionId = sessionId;
+                if (event.content.length > limits.maxEventChars) {
+                  failForLimit(
+                    'acp_event_limit',
+                    `ACP event exceeded ${limits.maxEventChars} characters`,
+                  );
                   return;
                 }
-                resolve(r.value!);
-              };
-            });
-            if (event === undefined) break; // turn complete / process exited
-            yield event;
+                if (projectedChars + event.content.length > limits.maxOutputChars) {
+                  failForLimit(
+                    'acp_output_limit',
+                    `ACP output exceeded ${limits.maxOutputChars} characters`,
+                  );
+                  return;
+                }
+                if (!resolveNext && queue.length >= limits.maxQueuedEvents) {
+                  failForLimit(
+                    'acp_event_limit',
+                    `ACP event queue exceeded ${limits.maxQueuedEvents} events`,
+                  );
+                  return;
+                }
+                if (!emit(event)) {
+                  failForLimit(
+                    'acp_event_limit',
+                    'ACP event stream rejected an update',
+                  );
+                  return;
+                }
+                projectedChars += event.content.length;
+              } else if (!KNOWN_SESSION_UPDATE_TYPES.has(message.update.sessionUpdate)) {
+                console.warn('[acp] unknown session update ignored:', message.update.sessionUpdate);
+              }
+              if (resultResolved) return;
+            }
+
+            const response = await promptPromise;
+            if (!response) throw promptError ?? new Error('ACP prompt ended without a response');
+            finalize(
+              stopReasonToStatus(response.stopReason),
+              response.stopReason === 'cancelled' ? 'acp_cancelled' : undefined,
+              response.stopReason === 'end_turn' ? undefined : `ACP stopped: ${response.stopReason}`,
+              response.usage
+                ? {
+                    default: {
+                      inputTokens: response.usage.inputTokens ?? 0,
+                      outputTokens: response.usage.outputTokens ?? 0,
+                    },
+                  }
+                : undefined,
+            );
+          })
+          .catch((error: unknown) => {
+            if (resultResolved) return;
+            const message = `ACP connection failed: ${error instanceof Error ? error.message : String(error)}`;
+            emit({ type: 'error', content: message, sessionId }, true);
+            finalize(
+              'failed',
+              initialized ? 'acp_connection_failed' : 'acp_startup_failed',
+              message,
+            );
+          })
+          .finally(() => {
+            if (!resultResolved) {
+              const message = 'ACP connection closed before the turn completed';
+              emit({ type: 'error', content: message, sessionId }, true);
+              finalize('failed', 'acp_connection_failed', message);
+            }
+          });
+      } catch (error) {
+        const message = `ACP connection setup failed: ${error instanceof Error ? error.message : String(error)}`;
+        emit({ type: 'error', content: message }, true);
+        finalize('failed', 'acp_connection_failed', message);
+      }
+    };
+
+    // Wait for the child `spawn` event before binding stdio. A missing command
+    // emits `error` without `spawn`; starting the JSON-RPC client earlier races
+    // that event and misclassifies a launcher failure as a connection failure.
+    proc.once('spawn', startConnection);
+
+    async function* generator(): AsyncGenerator<AgentEvent> {
+      try {
+        while (!streamFinished) {
+          if (queue.length > 0) {
+            yield queue.shift()!;
+            continue;
           }
+          const event = await new Promise<AgentEvent | undefined>((resolveEvent) => {
+            resolveNext = (result) => resolveEvent(result.done ? undefined : result.value);
+          });
+          if (!event) break;
+          yield event;
         }
-        // Drain any remaining queued events.
         while (queue.length > 0) yield queue.shift()!;
       } finally {
-        clearTimeout(timer);
-        killProcess();
+        if (!resultResolved) {
+          finalize('cancelled', 'acp_cancelled', 'ACP event consumer stopped early', undefined, true);
+        }
       }
     }
 
-    // Wrap with withDoneGuarantee so a `done` event always emits.
-    const events = withDoneGuarantee(generator(), resultPromise);
-
     return {
-      events,
+      events: withDoneGuarantee(generator(), resultPromise),
       result: resultPromise,
       kill: () => {
-        // Idempotent: a second call (or one after the turn completed) is a
-        // no-op. Sets the cause flag so the `close` handler resolves as
-        // 'cancelled'; does NOT resolveResult directly (close is the single
-        // abnormal-exit resolver).
-        if (resultResolved || killed) return;
-        killed = true;
-        clearTimeout(timer);
-        killProcess();
-        wakeGenerator();
+        if (resultResolved) return;
+        finalize('cancelled', 'acp_cancelled', 'killed by caller', undefined, true);
       },
     };
   }

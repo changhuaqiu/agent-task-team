@@ -9,27 +9,28 @@
 // Usage:
 //   npx tsx scripts/smoke-acp-runtime.ts [runtimeId] [model?]
 //   # default runtime: opencode
-//   # model is optional — for opencode it is written to a project-local
-//   # opencode.json in the temp cwd (overrides the host default model).
+//   # model is optional — for opencode it is written to an isolated temporary
+//   # OPENCODE_CONFIG (overrides the host default model).
 //
 // This script is NOT part of the default `pnpm test` vitest suite — it spawns
 // a real agent subprocess and depends on host auth/config. Run on demand.
 // Exits 0 on pass, 1 on fail.
 
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { loadCatalog, createBackend } from '../src/server/agent/acp/catalog';
+import { getActiveAcpRunCount } from '../src/server/agent/acp/acpBackend';
 import { prepareAcpRuntime } from '../src/server/agent/acp/runtimeSetup';
 
 const PROMPT = 'Reply with a single short greeting sentence.';
 // Adapter startup (npx → adapter → runtime) can be slow even when the package
 // is installed locally; use a generous timeout (spec §8 acceptance).
-const TURN_TIMEOUT_MS = 120_000;
+const DEFAULT_TURN_TIMEOUT_MS = 120_000;
 
 /**
- * Default smoke model per runtime, applied via a project-local config file in
- * the temp cwd — NOT via execute() opts. AcpBackend.execute() ignores
+ * Default smoke model per runtime, applied via an isolated runtime config —
+ * NOT via execute() opts. AcpBackend.execute() ignores
  * `opts.model` (Task 5 deferral), and the ACP protocol's PromptRequest has no
  * per-prompt model field anyway, so the model MUST be set through the agent's
  * own config layer.
@@ -39,8 +40,8 @@ const TURN_TIMEOUT_MS = 120_000;
  * updates with ~1 output token and produces NO `agent_message_chunk` (text) —
  * so the text+done+completed assertion cannot pass against it. DeepSeek is the
  * verified credential on this host (`~/.local/share/opencode/auth.json`) and
- * produces a proper text response, so the smoke writes it into a cwd
- * `opencode.json` whose top-level `model` field overrides the host default.
+ * produces a proper text response, so the smoke writes it into a temporary
+ * `opencode.json` injected through `OPENCODE_CONFIG`.
  * Override with argv[3] if needed.
  *
  * Other runtimes (claude/codex) use their own provider default — no entry here.
@@ -61,8 +62,8 @@ async function main(): Promise<number> {
 
   // Use a MINIMAL temp cwd so the agent doesn't index a large project (the
   // worktree root is a Next.js project — opencode would index it, slowing the
-  // smoke). The temp dir is intentionally left in place for post-mortem
-  // inspection on failure.
+  // smoke). Set ACP_SMOKE_KEEP_TMP=1 only when post-mortem inspection is
+  // required; otherwise finally removes all temporary state.
   const cwd = mkdtempSync(join(tmpdir(), `acp-smoke-${runtime}-`));
 
   // --- Per-runtime setup (shared with the daemon via runtimeSetup) ---------
@@ -76,10 +77,12 @@ async function main(): Promise<number> {
     opencodeModel,
   });
 
+  try {
+
   const env = Object.keys(prepared.env).length > 0 ? prepared.env : undefined;
   let modelLabel: string;
   if (runtime === 'opencode') {
-    modelLabel = `${opencodeModel} (via cwd opencode.json)`;
+    modelLabel = `${opencodeModel} (via isolated OPENCODE_CONFIG)`;
   } else if (runtime === 'codex') {
     modelLabel = `(via isolated CODEX_HOME: ${prepared.env.CODEX_HOME ?? '(none)'})`;
   } else {
@@ -96,17 +99,22 @@ async function main(): Promise<number> {
   console.log(`launcher:    ${launcherStr}`);
   console.log(`prompt:      ${PROMPT}`);
   console.log(`model:       ${modelLabel}`);
-  console.log(`timeout:     ${TURN_TIMEOUT_MS}ms`);
+  const turnTimeoutMs = runtime === 'codex' ? 180_000 : DEFAULT_TURN_TIMEOUT_MS;
+  console.log(`timeout:     ${turnTimeoutMs}ms`);
   console.log('');
 
   // cwd + env are bound to the backend via createBackend. AcpBackend.execute()
   // reads cwd as `opts.cwd ?? this.o.cwd ?? process.cwd()`, and merges env as
   // `{ ...process.env, ...this.o.env, ...opts.env }` — so passing them again
   // to execute() would be redundant.
-  const backend = createBackend(entry, { cwd: prepared.cwd, env: prepared.env });
+  const backend = createBackend(entry, {
+    cwd: prepared.cwd,
+    env: prepared.env,
+    permissionPolicy: 'allow_once',
+  });
 
   const run = backend.execute(PROMPT, {
-    timeout: TURN_TIMEOUT_MS,
+    timeout: turnTimeoutMs,
   });
 
   const eventTypes: string[] = [];
@@ -183,6 +191,38 @@ async function main(): Promise<number> {
   console.log('=== FAIL ===');
   console.log(`reason:      ${failures.join('; ')}`);
   return 1;
+  } finally {
+    const cleanupDeadline = Date.now() + 3_000;
+    while (getActiveAcpRunCount() > 0 && Date.now() < cleanupDeadline) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    // On Windows the adapter process may close just before descendant handles
+    // release the temporary working directory. Give the OS a short bounded
+    // settling window before cleanup; rmSync retries remain the final guard.
+    if (process.platform === 'win32') {
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+    }
+    prepared.cleanup?.();
+    if (process.env.ACP_SMOKE_KEEP_TMP !== '1') {
+      try {
+        rmSync(cwd, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      } catch (error) {
+        console.warn('[smoke] temporary cwd cleanup failed:', error);
+      }
+    }
+  }
 }
 
-main().then((code) => process.exit(code));
+main()
+  .then((code) => {
+    process.exitCode = code;
+  })
+  .catch((error) => {
+    console.error('[smoke] fatal:', error);
+    process.exitCode = 1;
+  });

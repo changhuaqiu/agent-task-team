@@ -16,9 +16,8 @@
 // Coverage map (spec §8):
 //   - session          → mockAcpAgent.test.ts + acpBackend.test.ts (newSession)
 //   - permission       → mockAcpAgent.test.ts (allow/reject) + acpBackend.test.ts
-//                        (auto-approve → tool_result). DENY/CONFIRM deferred —
-//                        only an auto-approve placeholder exists this iteration
-//                        (Task 4 override), so there is no policy to deny.
+//                        (explicit allow-once → tool_result). DENY is covered;
+//                        interactive CONFIRM remains a later profile.
 //   - tool event       → mockAcpAgent.test.ts + acpBackend.test.ts (tool_use/
 //                        tool_result).
 //   - cancel           → THIS FILE (scenario "slow" + kill()).
@@ -35,22 +34,33 @@
 // Deferred this iteration (documented, not built):
 //   - resume: AcpBackend does newSession only (`supportsResume: false`;
 //     loadSession is not wired). Wiring resume is a later task.
-//   - permission deny/confirm: the auto-approve placeholder selects the first
-//     allow option; there is no deny/confirm policy to exercise yet.
+//   - permission confirm: policy selection is non-interactive in this iteration
+//     and therefore has no user-prompting profile to exercise yet.
 //
 // This file is excluded from tsc (tsconfig exclude **/*.test.ts); vitest
 // transpiles via esbuild without type-checking.
 
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect } from 'vitest';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { AcpBackend } from './acpBackend';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const mockPath = join(__dirname, 'mockAcpAgent.ts');
+const tempDirs = new Set<string>();
+
+afterEach(async () => {
+  if (process.platform === 'win32') {
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+  }
+  for (const path of tempDirs) {
+    rmSync(path, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    tempDirs.delete(path);
+  }
+});
 
 /**
  * Build an AcpBackend that spawns the mock ACP agent in the given scenario.
@@ -63,12 +73,14 @@ function makeMockBackend(
   opts: { timeoutMs?: number } = {},
 ): AcpBackend {
   const cwd = mkdtempSync(join(tmpdir(), 'acp-compat-'));
+  tempDirs.add(cwd);
   return new AcpBackend({
     command: 'npx',
     args: ['tsx', mockPath],
     engine: 'opencode',
     cwd,
     env: { MOCK_ACP_SCENARIO: scenario },
+    permissionPolicy: 'allow_once',
     ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
   });
 }
@@ -140,7 +152,8 @@ describe('AcpBackend compatibility suite (spec §8: cancel / timeout / failure)'
     expect(types).toContain('done');
     // Timer wins → timedOut flag → close handler resolves 'timeout'.
     expect(result.status).toBe('timeout');
-    expect(result.error).toBe('timeout');
+    expect(result.error).toContain('timed out');
+    expect(result.reasonCode).toBe('acp_timeout');
   }, 15000);
 
   // ---------------------------------------------------------------------------

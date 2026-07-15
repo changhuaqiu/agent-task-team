@@ -20,8 +20,8 @@ created: 2026-02-26
 当前支持的三个运行时（均通过 ACP 接入）：
 
 - `opencode`（原生 ACP，`opencode acp`）
-- `claude`（ACP 组织适配器，`npx -y @agentclientprotocol/claude-agent-acp`）
-- `codex`（ACP 组织适配器，`npx -y @agentclientprotocol/codex-acp`）
+- `claude`（ACP 组织适配器，`npx -y @agentclientprotocol/claude-agent-acp@0.59.0`）
+- `codex`（ACP 组织适配器，`npx -y @agentclientprotocol/codex-acp@1.1.2`）
 
 > **迁移已完成**：历史上按引擎分别实现的 `OpenCodeBackend` / `ClaudeBackend` / `CodexBackend`、`factory.ts` 的 engine `switch`、`gemini` / `mock` 回退到 `OpenCodeBackend` 的路径，以及 `AGENT_BACKEND` 迁移旗标，均已移除。daemon 当前是 ACP-only，不存在 legacy 并行路径。详见 `specs/acp-runtime-integration/spec.md` 与归档计划 `docs/archive/`。
 
@@ -132,8 +132,8 @@ Catalog（`src/server/agent/acp/agentCatalog.seed.json`）是启动事实源（s
 | id | delivery | launcher | 说明 |
 | --- | --- | --- | --- |
 | `opencode` | 原生（native） | `opencode acp` | OpenCode 自带 ACP server |
-| `claude` | 适配器（adapter） | `npx -y @agentclientprotocol/claude-agent-acp`@0.59.0 | ACP 组织维护，基于 Claude Agent SDK；复用主机 Claude Code OAuth，**非** Claude Code CLI 原生 ACP |
-| `codex` | 适配器（adapter） | `npx -y @agentclientprotocol/codex-acp`@1.1.2 | ACP 组织维护，内部启动 Codex App Server；复用 ChatGPT OAuth + 隔离 `CODEX_HOME`，**非** Codex CLI 原生 ACP |
+| `claude` | 适配器（adapter） | `npx -y @agentclientprotocol/claude-agent-acp@0.59.0` | ACP 组织维护，基于 Claude Agent SDK；复用主机 Claude Code OAuth，**非** Claude Code CLI 原生 ACP |
+| `codex` | 适配器（adapter） | `npx -y @agentclientprotocol/codex-acp@1.1.2` | ACP 组织维护，内部启动 Codex App Server；复用 ChatGPT OAuth + 隔离 `CODEX_HOME`，**非** Codex CLI 原生 ACP |
 
 约束：
 
@@ -145,7 +145,7 @@ Catalog（`src/server/agent/acp/agentCatalog.seed.json`）是启动事实源（s
 
 - **原生（opencode）**：运行时自带 ACP server，直接 `opencode acp` 启动，进程树只有一层。
 - **适配器（claude / codex）**：通过 ACP 组织维护的适配器接入。适配器是额外依赖，**不能**在产品或技术文档中描述成厂商 CLI 的原生 ACP 能力。
-  - `npx -y` 首次执行会拉取适配器，之后缓存。
+  - `npx -y` 的包参数包含精确版本；Catalog 加载时校验元数据版本与实际参数一致，禁止“元数据锁定但执行 latest”。
   - 进程树是两层（`npx` → node 适配器 → 运行时），因此 `AcpBackend` 的进程清理使用 `tree-kill`，而不是裸 `child.kill()`。
   - 适配器的认证由主机提供：claude 复用 Claude Code OAuth（`~/.claude/`），codex 复用 ChatGPT OAuth（`CODEX_HOME` 下的 `auth.json`）。
 
@@ -156,10 +156,11 @@ Catalog（`src/server/agent/acp/agentCatalog.seed.json`）是启动事实源（s
 1. 经 `spawnCli`（cross-spawn，Windows .cmd/.bat 安全）启动 ACP agent 子进程。
 2. ACP 协议握手：`initialize` → `session/new` → `prompt`。**必须先 `initialize` 再 `session/new`**——codex-acp / claude-agent-acp 适配器强制此顺序，违反会返回 JSON-RPC `-32603`。
 3. 消费 `session/update` 通知，经 `agentEventMapper` 映射为 `AgentEvent`，直到收到 stop 消息。
-4. 处理 `requestPermission`（**当前为 auto-approve 占位**——见下文“延迟项”）。
-5. 进程清理：`finally` / kill / 超时均用 `tree-kill` 清整棵进程树（npx → 适配器 → 运行时 ≥ 2 层）。
+4. 处理 `requestPermission`：默认拒绝；只有显式 `ACP_PERMISSION_MODE=allow_once` 或注入策略才选择单次授权，策略错误/超时继续拒绝。
+5. 进程清理：调用方取消/超时先发送 ACP `session/cancel`，再按宽限期执行 TERM → KILL；一次性 finalize 保证 result 不依赖 child `close` 才能解析。
 6. 用 `withDoneGuarantee` 包装事件流，保证 `done` 事件最终发出。
-7. 基于原因的关闭语义：`kill()` → `cancelled`，超时 → `timeout`，其他异常退出 → `failed`（进程退出绝不会被判为 `completed`，因为 ACP turn 完成由 `PromptResponse`/stop 标识，而非进程退出）。
+7. 基于原因的关闭语义：`kill()` → `cancelled`，超时 → `timeout`，其他异常退出 → `failed`，并携带稳定 `reasonCode`；进程退出绝不会被判为 `completed`。
+8. 资源上限：全局并发 run、待消费事件、单事件字符、累计流式字符和 stderr tail 均为有界；消费者提前停止读取会主动取消运行。
 
 返回 `AgentRun { events, result, kill }`：`events` 是 `AgentEvent` 的 `AsyncGenerator`，`result` 是一次性 resolve 的 `Promise<AgentResult>`，`kill` 是幂等的取消函数。
 
@@ -167,7 +168,7 @@ Catalog（`src/server/agent/acp/agentCatalog.seed.json`）是启动事实源（s
 
 `runtimeSetup.ts` 的 `prepareAcpRuntime(entry, opts)` 在 spawn 前做文件系统 / 环境准备（无 spawn 副作用）：
 
-- **opencode**：主机默认模型 `zhipuai-coding-plan/glm-4.7` 只产 thought、不产 text，因此向 cwd 写入 `opencode.json` 指定一个产 text 的模型（默认 `deepseek/deepseek-chat`）。若调用方（daemon）已设置 `env.OPENCODE_CONFIG`，则跳过（账号/配置路径优先）。
+- **opencode**：主机默认模型 `zhipuai-coding-plan/glm-4.7` 只产 thought、不产 text，因此在隔离临时目录写 fallback config（默认 `deepseek/deepseek-chat`）并通过 `OPENCODE_CONFIG` 注入，不修改项目 cwd。若调用方已设置 `OPENCODE_CONFIG`，账号配置优先。
 - **codex**：隔离 `CODEX_HOME`——在临时目录复制必要的 `~/.codex/auth.json` + `config.toml`，返回 `cleanup` 在 turn 结束后清理。codex-acp 经 `CODEX_HOME` 读取 ChatGPT OAuth 认证。
 - **claude**：passthrough（认证来自主机 Claude Code OAuth 或 `ANTHROPIC_API_KEY`），无 cwd 配置、无 env 覆盖。
 
@@ -222,13 +223,13 @@ daemon 不仅负责“转发”，还负责写入：
 以下能力本期**未实现**，属于后续迭代：
 
 1. **会话恢复（resume）**：`supportsResume:false`。ACP `session/load` 未接线，CapabilityRouter 会剔除 `resumeSessionId` 并开新会话。
-2. **真实权限策略**：`requestPermission` 当前是 **auto-approve 占位**（选首个 `allow_*` 选项，无则 `cancelled`）。spec §6 要求的 allow / deny / confirm profile 未实现——见 `acpBackend.ts` 的 `TODO` 注释。
+2. **人工确认权限策略**：deny 与显式 `allow_once` 已实现；需要浏览器/操作者参与的 confirm profile 尚未接入。
 3. **模型规范化**：model ID 跨运行时不通用（如 codex 的 `openai/x` + `reasoning_effort`）；ContextManager → ACP 的模型选择按运行时规范化是开放项。ACP `PromptRequest` 无 model 字段，`AcpBackend.execute` 忽略 `opts.model`，模型须经各运行时自身配置层注入（见 opencode 的 `opencode.json`）。
 4. **MCP 桥接**：`newSession({ mcpServers: [] })` 当前为空；后续可把框架 MCP 工具显式桥接给 agent。
 
 ## 后续建议
 
 1. 接线 `session/load` 以支持真正的会话恢复。
-2. 落地 spec §6 的真实权限策略（approve-all / deny / confirm profile），替换 auto-approve 占位。
+2. 在现有 fail-closed 权限策略上接入需要操作者参与的 confirm profile。
 3. 推进跨运行时模型规范化。
 4. 持续保持本文档与 `src/server/agent/acp/*`、`src/server/daemon.ts` 一致。

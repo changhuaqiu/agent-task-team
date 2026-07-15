@@ -38,17 +38,21 @@ describe('prepareAcpRuntime — per-runtime filesystem/env setup', () => {
     return d;
   };
 
-  it('opencode: writes cwd opencode.json with the fallback model when no OPENCODE_CONFIG', () => {
+  it('opencode: writes an isolated config without changing the project cwd', () => {
     const entry = loadCatalog().find((e) => e.id === 'opencode')!;
     const cwd = makeTempCwd();
     const result = prepareAcpRuntime(entry, { cwd, env: {} });
 
     expect(result.cwd).toBe(cwd);
-    expect(result.cleanup).toBeUndefined();
-    const configPath = join(cwd, 'opencode.json');
+    expect(typeof result.cleanup).toBe('function');
+    expect(existsSync(join(cwd, 'opencode.json'))).toBe(false);
+    const configPath = result.env.OPENCODE_CONFIG;
     expect(existsSync(configPath)).toBe(true);
     const config = JSON.parse(readFileSync(configPath, 'utf-8'));
     expect(config.model).toBe('deepseek/deepseek-chat');
+    result.cleanup?.();
+    expect(existsSync(configPath)).toBe(false);
+    expect(() => result.cleanup?.()).not.toThrow();
   });
 
   it('opencode: does NOT write opencode.json when env already has OPENCODE_CONFIG (account config wins)', () => {
@@ -66,13 +70,14 @@ describe('prepareAcpRuntime — per-runtime filesystem/env setup', () => {
   it('opencode: respects custom opencodeModel', () => {
     const entry = loadCatalog().find((e) => e.id === 'opencode')!;
     const cwd = makeTempCwd();
-    prepareAcpRuntime(entry, {
+    const result = prepareAcpRuntime(entry, {
       cwd,
       env: {},
       opencodeModel: 'anthropic/claude-sonnet-4',
     });
-    const config = JSON.parse(readFileSync(join(cwd, 'opencode.json'), 'utf-8'));
+    const config = JSON.parse(readFileSync(result.env.OPENCODE_CONFIG, 'utf-8'));
     expect(config.model).toBe('anthropic/claude-sonnet-4');
+    result.cleanup?.();
   });
 
   it('codex: isolates CODEX_HOME into a temp dir + returns a cleanup fn', () => {

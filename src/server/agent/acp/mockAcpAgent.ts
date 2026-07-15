@@ -64,7 +64,7 @@ const PERMISSION_OPTIONS: acp.PermissionOption[] = [
  *    (`process.exit(1)`) — so `AcpBackend`'s `close` handler fires with an
  *    abnormal exit and resolves `failed`. (Task 9 failure-recovery test.)
  */
-export type MockScenario = 'normal' | 'slow' | 'error';
+export type MockScenario = 'normal' | 'slow' | 'error' | 'flood' | 'large';
 
 /** How long the "slow" scenario blocks mid-turn before completing. */
 const SLOW_BLOCK_MS = 60_000;
@@ -141,7 +141,26 @@ export function createMockAgentApp(
       if (scenario === 'error') {
         // Abnormally exit mid-turn. The client observes a process exit with a
         // non-zero code → AcpBackend's close handler resolves 'failed'.
+        console.error('Authorization: Bearer test-secret-token');
         process.exit(1);
+      }
+
+      if (scenario === 'flood') {
+        for (let index = 0; index < 100; index += 1) {
+          await upd({
+            sessionUpdate: 'agent_message_chunk',
+            content: { type: 'text', text: `chunk-${index}` },
+          });
+        }
+        return { stopReason: 'end_turn' };
+      }
+
+      if (scenario === 'large') {
+        await upd({
+          sessionUpdate: 'agent_message_chunk',
+          content: { type: 'text', text: 'x'.repeat(10_000) },
+        });
+        return { stopReason: 'end_turn' };
       }
 
       // 2. Tool call created (pending).
@@ -195,13 +214,17 @@ export function createMockAgentApp(
 // this process and speaks ACP over stdin/stdout.
 //
 // The scenario is selected via the `MOCK_ACP_SCENARIO` env var (one of
-// "normal" | "slow" | "error"; default "normal"). AcpBackend passes its `env`
+// "normal" | "slow" | "error" | "flood" | "large"; default "normal"). AcpBackend passes its `env`
 // through to spawn, so compat tests set it on the backend opts.
 // ---------------------------------------------------------------------------
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   const envScenario = process.env.MOCK_ACP_SCENARIO;
   const scenario: MockScenario =
-    envScenario === 'slow' || envScenario === 'error' || envScenario === 'normal'
+    envScenario === 'slow'
+      || envScenario === 'error'
+      || envScenario === 'normal'
+      || envScenario === 'flood'
+      || envScenario === 'large'
       ? envScenario
       : 'normal';
   const stream = acp.ndJsonStream(

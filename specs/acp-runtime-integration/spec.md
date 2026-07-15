@@ -77,7 +77,7 @@ daemon / dispatch / A2A / ContextManager
 
 ```ts
 interface AgentCatalogEntry {
-  id: 'opencode' | 'claude' | 'codex' | string;
+  id: 'opencode' | 'claude' | 'codex';
   protocol: 'acp';
   delivery: 'native' | 'adapter';
   launcher: {
@@ -86,7 +86,6 @@ interface AgentCatalogEntry {
     package?: string;
     version?: string;
   };
-  legacyBackend?: 'opencode' | 'claude' | 'codex';
   verifiedCapabilities: string[];
 }
 ```
@@ -95,7 +94,7 @@ interface AgentCatalogEntry {
 
 - Catalog 是启动事实源，factory 不再按 engine 写 `switch`。
 - 适配器和 SDK 必须锁定版本，不使用未记录版本的隐式漂移。
-- `legacyBackend` 只在迁移验收期间存在；退出条件满足后删除。
+- Catalog 只接受当前已验收的 runtime id；新增 runtime 必须先扩展内部 `EngineId` 并通过兼容套件。
 - 能力以 ACP 初始化握手与实测结果为准，不按运行时名称猜测。
 
 ### 5.2 AcpBackend
@@ -157,6 +156,21 @@ daemon 不解析任何厂商专有 stdout，不判断某个厂商支持哪些参
 - Catalog 中记录实际安装方式、固定版本和验证能力。
 - `architecture/cli-integration.md` 与 `docs/wiki/04-backend-daemon.md` 已同步。
 - 安装、类型检查、构建和相关测试通过。
+
+## 8.1 健壮性加固契约
+
+ACP 是长生命周期 daemon 启动的外部进程边界，不能假设 adapter、SDK、stdio 或消费者始终正常。运行时必须满足：
+
+1. **启动可复现**：adapter 的实际 launcher 参数必须包含精确版本，不能只在 Catalog 元数据中记录版本后仍让 `npx` 拉取 latest；Catalog 加载时必须校验重复 id、空命令、协议类型和 adapter 版本一致性。
+2. **权限 fail-closed**：默认权限策略为拒绝。只有服务端显式配置 `allow_once` 或提供策略函数时才能授权；不得选择 `allow_always` 作为隐式降级，也不得在策略异常或超时时继续执行。
+3. **一次性终结**：每轮执行只有一个 finalize owner。成功、协议失败、spawn 失败、超时、调用方取消、输出过载和进程异常退出都必须在有界时间内解析 `result`、关闭事件流并释放并发配额，不能依赖子进程必然触发 `close`。
+4. **分级取消**：先发送 ACP `session/cancel`，再发送进程树 `SIGTERM`；宽限期后升级为强制终止。daemon shutdown 必须取消全部在途 run。
+5. **资源有界**：限制全局并发 run 数、待消费事件数、单事件字符数、累计文本输出和 stderr tail；超过上限时以稳定 reason code 失败并回收进程。
+6. **诊断不泄密**：stderr 只保留有界、脱敏的尾部用于失败定位；正常执行不把原始 stderr 逐块写入日志。
+7. **临时状态可回收**：OpenCode fallback config 和 Codex 隔离 home 均写入受控临时目录，权限尽可能收紧，cleanup 幂等；不得修改用户项目中的 `opencode.json`。
+8. **重试不重复副作用**：只有本轮实际尝试了 resume 且失败发生在 session 建立前，才允许 fresh-session 重试；被 capability router 丢弃的 resume 不能触发重复 prompt。
+
+该契约参考 OpenClaw 的工程原则：活跃 run 使用可取消控制器、会话/并发有上限、超时后执行 bounded cleanup、流式输出设置字符上限、权限与配置异常 fail-closed。这里复用原则，不引入 OpenClaw 的 Gateway 或 session store 实现。
 
 ## 9. 风险
 

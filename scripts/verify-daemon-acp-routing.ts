@@ -49,8 +49,8 @@ async function main(): Promise<number> {
 
   // --- Step 3: prepareAcpRuntime (daemon's per-runtime setup) ---
   // The daemon passes {cwd, env: {...credentialEnv, ...runtimeConfigEnv}}.
-  // Here env is empty (no account) — prepareAcpRuntime writes the fallback
-  // opencode.json with deepseek.
+  // Here env is empty (no account) — prepareAcpRuntime creates an isolated
+  // OPENCODE_CONFIG fallback with deepseek.
   const credentialEnv: Record<string, string> = {};
   const runtimeConfigEnv: Record<string, string> = {};
   const executeEnv = { ...credentialEnv, ...runtimeConfigEnv };
@@ -66,6 +66,7 @@ async function main(): Promise<number> {
   const backend = createBackend(entry, {
     cwd: prepared.cwd,
     env: prepared.env,
+    permissionPolicy: 'allow_once',
   });
 
   // --- Step 5: checkCapabilities + execute (daemon's execute path) ---
