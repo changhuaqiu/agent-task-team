@@ -121,6 +121,73 @@ export const sessionRepo = {
     })();
   },
 
+  confirmRuntimeSessionId(
+    id: string,
+    runtimeSessionId: string,
+    invocationId: string,
+  ): SessionIdentityBindResult {
+    return getDb().transaction(() => {
+      const row = sessionRepo.getById(id);
+      if (!row) throw new Error(`session_not_found: ${id}`);
+      const invocation = getDb()
+        .prepare('SELECT session_id FROM invocation WHERE id = ?')
+        .get(invocationId) as { session_id: string | null } | undefined;
+      if (!invocation || invocation.session_id !== id) {
+        throw new Error(`session_invocation_mismatch: ${invocationId}`);
+      }
+
+      let binding: SessionIdentityBindResult;
+      if (row.cli_session_id === runtimeSessionId) {
+        binding = { status: 'unchanged', current: runtimeSessionId };
+      } else if (row.cli_session_id) {
+        binding = { status: 'mismatch', current: row.cli_session_id };
+      } else {
+        const updated = getDb()
+          .prepare('UPDATE agent_session SET cli_session_id = ? WHERE id = ? AND cli_session_id IS NULL')
+          .run(runtimeSessionId, id);
+        if (updated.changes !== 1) {
+          const concurrent = sessionRepo.getById(id)?.cli_session_id;
+          binding = concurrent === runtimeSessionId
+            ? { status: 'unchanged', current: runtimeSessionId }
+            : { status: 'mismatch', current: concurrent ?? 'unbound' };
+        } else {
+          binding = { status: 'bound', current: runtimeSessionId };
+        }
+      }
+
+      if (binding.status === 'mismatch') return binding;
+      getDb()
+        .prepare(
+          `UPDATE invocation
+           SET status = 'succeeded', exit_code = 0, cli_session_id = ?, updated_at = ?
+           WHERE id = ?`,
+        )
+        .run(runtimeSessionId, new Date().toISOString(), invocationId);
+      return binding;
+    })();
+  },
+
+  releaseUnconfirmedRuntimeSessionId(id: string, runtimeSessionId: string): boolean {
+    return getDb().transaction(() => {
+      const history = getDb()
+        .prepare(
+          `SELECT COUNT(*) AS total,
+                  SUM(CASE WHEN status = 'succeeded' THEN 1 ELSE 0 END) AS succeeded
+           FROM invocation
+           WHERE session_id = ?`,
+        )
+        .get(id) as { total: number; succeeded: number | null };
+      if (history.total === 0 || (history.succeeded ?? 0) > 0) return false;
+
+      const cleared = getDb()
+        .prepare(
+          'UPDATE agent_session SET cli_session_id = NULL WHERE id = ? AND cli_session_id = ?',
+        )
+        .run(id, runtimeSessionId);
+      return cleared.changes === 1;
+    })();
+  },
+
   incrementMessageCount(id: string): void {
     getDb().prepare('UPDATE agent_session SET message_count = message_count + 1 WHERE id = ?').run(id);
   },

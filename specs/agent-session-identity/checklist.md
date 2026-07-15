@@ -13,6 +13,8 @@
 - [x] timeout、cancel、adapter 退出不会静默轮换 session。
 - [x] daemon/浏览器重启后仍恢复同一 session。
 - [x] load 失败不会自动执行 `session/new`。
+- [x] 未确认的新 Session 在首轮 cancel/timeout 后不会被当作可恢复资源。
+- [x] 已确认 Session 的 load 失败仍然失败关闭，不会静默轮换。
 
 ## 一致性
 

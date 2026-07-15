@@ -663,6 +663,20 @@ export default function registerDaemon(io: IOServer) {
           seq: nextSeq,
         });
       }
+      if (
+        !opencodeBridgeUrl
+        && !tmuxGateway
+        && existingSession.cli_session_id
+        && sessionRepo.releaseUnconfirmedRuntimeSessionId(
+          existingSession.id,
+          existingSession.cli_session_id,
+        )
+      ) {
+        console.warn(
+          `[daemon] released unconfirmed runtime session for ${agentId} in ${sessionConvId}`,
+        );
+        existingSession = sessionRepo.getById(existingSession.id)!;
+      }
       const agentSession: AgentSessionRow = existingSession;
 
       const invocation: InvocationRow = invocationRepo.create({
@@ -739,7 +753,9 @@ export default function registerDaemon(io: IOServer) {
 
       const mergedEnv: Record<string, string> = { ...process.env, ...credentialEnv, ...runtimeConfigEnv } as Record<string, string>;
 
-      let sessionEmitted = false;
+      let sessionAnnounced = false;
+      let invocationSessionRecorded = false;
+      let observedRuntimeSessionId: string | undefined;
       let hasBackgroundChildActivity = false;
 
       // --- Timeout control ---
@@ -899,7 +915,24 @@ export default function registerDaemon(io: IOServer) {
       }
 
       function eventSessionId(): string | undefined {
-        return agentSession?.cli_session_id ?? effectiveSessionId;
+        return effectiveSessionId;
+      }
+
+      function announceConfirmedSession(runtimeSessionId: string): void {
+        if (sessionAnnounced) return;
+        sessionAnnounced = true;
+        broadcast('agent:session', {
+          projectId: sessionConvId,
+          conversationId: sessionConvId,
+          agentId,
+          sessionId: runtimeSessionId,
+        });
+        if (taskId && projectId) {
+          workdirManager.writeSessionMeta(agentId, projectId, taskId, {
+            sessionId: runtimeSessionId,
+            updatedAt: '',
+          });
+        }
       }
 
       function handleCustomToolUse(
@@ -927,27 +960,26 @@ export default function registerDaemon(io: IOServer) {
       // --- Shared agent event forwarder ---
       const forwardAgentEvent = (event: AgentEvent) => {
         try {
-        // Register session ID
-        if (event.sessionId && !sessionEmitted) {
-          const binding = sessionRepo.bindRuntimeSessionId(agentSession.id, event.sessionId);
-          if (binding.status === 'mismatch') {
+        // Observe runtime identity during the turn, but do not persist a new
+        // binding until the Invocation completes successfully. Some adapters
+        // only make a new Session loadable after the first prompt commits.
+        if (event.sessionId) {
+          if (observedRuntimeSessionId && observedRuntimeSessionId !== event.sessionId) {
             throw new Error(
-              `session_identity_changed: expected ${binding.current}, received ${event.sessionId}`,
+              `session_identity_changed: expected ${observedRuntimeSessionId}, received ${event.sessionId}`,
             );
           }
-          sessionEmitted = true;
-          broadcast('agent:session', {
-            projectId: sessionConvId,
-            conversationId: sessionConvId,
-            agentId,
-            sessionId: event.sessionId,
-          });
-          if (invocation) {
+          if (effectiveSessionId && effectiveSessionId !== event.sessionId) {
+            throw new Error(
+              `session_identity_changed: expected ${effectiveSessionId}, received ${event.sessionId}`,
+            );
+          }
+          observedRuntimeSessionId = event.sessionId;
+          if (!invocationSessionRecorded) {
+            invocationSessionRecorded = true;
             invocationRepo.updateStatus(invocation.id, 'running', { cli_session_id: event.sessionId });
           }
-          if (taskId && projectId) {
-            workdirManager.writeSessionMeta(agentId, projectId, taskId, { sessionId: event.sessionId!, updatedAt: '' });
-          }
+          if (effectiveSessionId) announceConfirmedSession(event.sessionId);
         }
 
         if (event.type === 'tool_use' && event.tool?.name && isBackgroundChildTool(event.tool.name)) {
@@ -968,7 +1000,7 @@ export default function registerDaemon(io: IOServer) {
           content: event.content,
           tool: event.tool,
           usage: event.usage,
-          sessionId: event.sessionId,
+          sessionId: effectiveSessionId ? event.sessionId : undefined,
           conversationId: sessionConvId,
         });
 
@@ -1307,6 +1339,17 @@ export default function registerDaemon(io: IOServer) {
           clearProcessTimeout();
           clearInterval(heartbeatTimer);
 
+          const finalRuntimeSessionId = final.sessionId ?? observedRuntimeSessionId;
+          if (
+            final.sessionId
+            && observedRuntimeSessionId
+            && final.sessionId !== observedRuntimeSessionId
+          ) {
+            throw new Error(
+              `session_identity_changed: expected ${observedRuntimeSessionId}, received ${final.sessionId}`,
+            );
+          }
+
           // Persist token usage if available
           if (final.usage && Object.keys(final.usage).length > 0 && invocation) {
             invocationRepo.updateDispatchStatus(invocation.id, 'completed', {
@@ -1319,14 +1362,31 @@ export default function registerDaemon(io: IOServer) {
             workdirManager.writeGCMeta(agentId, projectId, taskId);
           }
 
-          if (invocation) {
-            invocationRepo.updateStatus(invocation.id, final.status === 'completed' ? 'succeeded' : 'failed', {
-              exit_code: final.status === 'completed' ? 0 : 1,
+          if (final.status === 'completed') {
+            if (!finalRuntimeSessionId) {
+              throw new Error('session_identity_missing: completed invocation returned no session id');
+            }
+            const binding = sessionRepo.confirmRuntimeSessionId(
+              agentSession.id,
+              finalRuntimeSessionId,
+              invocation.id,
+            );
+            if (binding.status === 'mismatch') {
+              throw new Error(
+                `session_identity_changed: expected ${binding.current}, received ${finalRuntimeSessionId}`,
+              );
+            }
+            announceConfirmedSession(finalRuntimeSessionId);
+          } else {
+            invocationRepo.updateStatus(invocation.id, 'failed', {
+              exit_code: 1,
               reason_code: final.reasonCode ?? (final.status === 'timeout' ? 'timeout' : undefined),
             });
           }
 
-          // 失败/超时不 seal session（保持 active，下次 @ resume，id 不变）—— specs/agent-session-stability
+          // Confirmed bindings survive failure/timeout. A new binding is not
+          // persisted until success, so a cancelled first turn provisions a
+          // fresh runtime Session on the next dispatch.
 
           if (controlEnvelopeId) {
             if (final.status === 'completed') {

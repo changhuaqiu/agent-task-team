@@ -18,6 +18,9 @@
 - [x] Session 首次绑定改为 compare-and-set，禁止静默覆盖。
 - [x] daemon 仅使用 server binding 作为 resume 来源。
 - [x] 删除自动 fresh-session retry 和正式路径的 client session fallback。
+- [x] 区分 confirmed 与 unconfirmed runtime binding。
+- [x] 首次 Invocation 未成功时 compare-and-clear unconfirmed binding。
+- [x] dispatch 前修复“有失败历史但从未成功”的遗留 binding。
 
 ## 前端
 
@@ -32,3 +35,4 @@
 - [x] timeout/cancel/load failure 测试。
 - [x] OpenCode、Claude、Codex 真实 resume smoke。
 - [x] 安装、类型检查、测试和构建通过。
+- [x] 首轮 cancel/timeout 后下一轮重新 provision 测试。

@@ -361,6 +361,50 @@ describe('session-repo', () => {
     });
   });
 
+  it('releases a failed unconfirmed runtime binding but not an unobserved binding', () => {
+    sessionRepo.create({ id: 'ses-1', conversationId: 'conv-1', agentId: 'agent-a', taskId: 'task-1' });
+    sessionRepo.bindRuntimeSessionId('ses-1', 'runtime-unconfirmed');
+
+    expect(sessionRepo.releaseUnconfirmedRuntimeSessionId('ses-1', 'runtime-unconfirmed')).toBe(false);
+
+    invocationRepo.create({
+      id: 'inv-1', conversation_id: 'conv-1', agent_id: 'agent-a', session_id: 'ses-1',
+    });
+    invocationRepo.updateStatus('inv-1', 'failed', { reason_code: 'acp_cancelled' });
+
+    expect(sessionRepo.releaseUnconfirmedRuntimeSessionId('ses-1', 'runtime-unconfirmed')).toBe(true);
+    expect(sessionRepo.getById('ses-1')?.cli_session_id).toBeNull();
+  });
+
+  it('atomically confirms runtime binding and successful invocation', () => {
+    sessionRepo.create({ id: 'ses-1', conversationId: 'conv-1', agentId: 'agent-a', taskId: 'task-1' });
+    invocationRepo.create({
+      id: 'inv-1', conversation_id: 'conv-1', agent_id: 'agent-a', session_id: 'ses-1',
+    });
+
+    expect(sessionRepo.confirmRuntimeSessionId('ses-1', 'runtime-confirmed', 'inv-1')).toEqual({
+      status: 'bound', current: 'runtime-confirmed',
+    });
+    expect(sessionRepo.getById('ses-1')?.cli_session_id).toBe('runtime-confirmed');
+    expect(invocationRepo.getById('inv-1')).toMatchObject({
+      status: 'succeeded', exit_code: 0, cli_session_id: 'runtime-confirmed',
+    });
+    expect(sessionRepo.releaseUnconfirmedRuntimeSessionId('ses-1', 'runtime-confirmed')).toBe(false);
+  });
+
+  it('does not confirm an invocation when runtime identity mismatches', () => {
+    sessionRepo.create({ id: 'ses-1', conversationId: 'conv-1', agentId: 'agent-a', taskId: 'task-1' });
+    sessionRepo.bindRuntimeSessionId('ses-1', 'runtime-confirmed');
+    invocationRepo.create({
+      id: 'inv-1', conversation_id: 'conv-1', agent_id: 'agent-a', session_id: 'ses-1',
+    });
+
+    expect(sessionRepo.confirmRuntimeSessionId('ses-1', 'runtime-other', 'inv-1')).toEqual({
+      status: 'mismatch', current: 'runtime-confirmed',
+    });
+    expect(invocationRepo.getById('inv-1')?.status).toBe('queued');
+  });
+
   it('keeps a two-project by two-agent identity matrix stable for three turns', () => {
     conversationRepo.create({ id: 'conv-2', title: 'Test 2' });
     const bindings = new Map<string, string>();

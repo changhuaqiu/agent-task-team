@@ -362,3 +362,5 @@ Daemon 不接受浏览器缓存作为会话恢复依据。正式 dispatch 必须
 每次 dispatch 先取得或原子创建 `(conversation_id, agent_id)` 唯一的 active Logical Agent Session，再创建引用它的 Invocation。Logical Session 尚未绑定 runtime id 时，ACP 使用 `session/new`，首个返回 id 通过 compare-and-set 写入；已经绑定时使用 `session/load`。任何不同 id 都视为 `session_identity_changed`，不会覆盖数据库状态。timeout、cancel 或 adapter 退出不会自动 seal Session，下一轮仍恢复原 id。
 
 前端 `agentSessions` 是服务端状态的显示缓存：hydrate 时以 `/api/state.activeSessions` 整体替换，不与 localStorage 合并，也不在 `terminal:start` 中回传 session id。
+
+首次 `session/new` 的 resource 可能直到 prompt 成功结束才由 adapter 持久化。因此新 binding 在首个 Invocation 成功前属于 unconfirmed：若该轮取消、超时或失败，daemon 清除该 binding；若 daemon 在清理前异常退出，下一次 dispatch 会根据“存在 Invocation 记录但从未成功”的证据做同样的预检修复。已经成功使用过的 confirmed binding 不执行此恢复，load 失败时保留原 identity 并向用户报告错误。

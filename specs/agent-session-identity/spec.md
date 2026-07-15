@@ -1,7 +1,7 @@
 # Agent Session Identity
 
 > 状态：active
-> 关联 Issue：[#7](https://github.com/changhuaqiu/agent-task-team/issues/7)
+> 关联 Issue：[#7](https://github.com/changhuaqiu/agent-task-team/issues/7)、[#8](https://github.com/changhuaqiu/agent-task-team/issues/8)
 
 ## 1. 目标
 
@@ -47,10 +47,12 @@ interface LogicalAgentSession {
 4. 不同项目、不同 Agent 的 runtime session id 必须相互独立。
 5. runtime 返回或通知的 session id 必须等于本轮绑定值；不一致时返回 `acp_session_identity_changed`，不得覆盖 DB 或前端缓存。
 6. ACP agent 未声明 `loadSession` 或加载失败时，返回可定位错误；不得自动降级为 `session/new`。
-7. timeout、cancel、adapter 退出不 seal 逻辑 Session；下一轮仍尝试恢复同一 runtime session。
-8. runtime/account 变化需要显式 rotate generation；本次不提供自动 rotate。
-9. 浏览器 Session 状态只用于展示；服务端缺值时不得使用 localStorage 值恢复执行。
-10. 禁止 `default` scope 参与正式项目 dispatch；缺少 project/conversation id 时必须拒绝。
+7. 已有成功 Invocation 确认的 runtime session 在 timeout、cancel、adapter 退出后不轮换；下一轮仍尝试恢复同一 runtime session。
+8. 新 runtime session 只有在至少一个 Invocation 成功完成后才视为 confirmed。首次 Invocation 失败、取消或超时时，该 binding 属于 unconfirmed，可以通过 compare-and-clear 释放；下一次执行重新 `session/new`，不得尝试加载未落盘的 resource。
+9. daemon 异常退出可能遗留 unconfirmed binding；下一次 dispatch 若确认该逻辑 Session 存在历史 Invocation 但从未成功，必须在创建新 Invocation 前清除该 binding。
+10. runtime/account 变化需要显式 rotate generation；本次不提供自动 rotate。
+11. 浏览器 Session 状态只用于展示；服务端缺值时不得使用 localStorage 值恢复执行。
+12. 禁止 `default` scope 参与正式项目 dispatch；缺少 project/conversation id 时必须拒绝。
 
 ## 4. ACP 执行契约
 
@@ -79,12 +81,13 @@ interface LogicalAgentSession {
 - 创建 partial unique index：`UNIQUE(conversation_id, agent_id) WHERE status = 'active'`。
 - repository 的 Session 创建采用事务；唯一冲突时读取已存在 active binding，不制造第二条 active row。
 - runtime session id 绑定采用 compare-and-set：仅允许 `NULL -> value` 或相同值重放。
+- unconfirmed runtime session id 释放采用 compare-and-clear：仅当当前值仍等于目标 id 且该逻辑 Session 至少有一次 Invocation、但没有成功 Invocation 时，才允许恢复为 `NULL`。
 
 ## 7. 非目标
 
 - 本次不拆分独立 Project 表与 Conversation 表。
 - 本次不自动跨 runtime/account 迁移上下文。
-- 本次不在 load 失败后自动创建新 session。
+- 已确认 Session 的 load 失败后不自动创建新 session；仅允许从未成功完成 Invocation 的 unconfirmed binding 在下一次 dispatch 前安全释放并重新 provision。
 - 本次不实现用户侧 Session 管理 UI。
 
 ## 8. 验收
@@ -96,3 +99,4 @@ interface LogicalAgentSession {
 5. resume capability 缺失、load 失败、identity mismatch 都有稳定 reason code。
 6. DB、invocation、socket 展示的 runtime session id 一致。
 7. 相关单元测试、集成测试、类型检查和构建通过。
+8. 首次 Invocation 被取消后，下一次 dispatch 不 load 未落盘 id，而是重新执行 `session/new`。
