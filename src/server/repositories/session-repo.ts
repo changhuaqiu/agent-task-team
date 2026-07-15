@@ -16,6 +16,10 @@ export interface AgentSessionRow {
   sealed_at: string | null;
 }
 
+export type SessionIdentityBindResult =
+  | { status: 'bound' | 'unchanged'; current: string }
+  | { status: 'mismatch'; current: string };
+
 export const sessionRepo = {
   findActive(agentId: string, taskId: string): AgentSessionRow | undefined {
     return getDb()
@@ -56,6 +60,27 @@ export const sessionRepo = {
     return sessionRepo.getById(input.id)!;
   },
 
+  getOrCreateActive(input: {
+    id: string;
+    conversationId: string;
+    agentId: string;
+    taskId?: string;
+    seq?: number;
+  }): AgentSessionRow {
+    return getDb().transaction(() => {
+      const existing = sessionRepo.findActiveByConversation(input.agentId, input.conversationId);
+      if (existing) return existing;
+      try {
+        return sessionRepo.create(input);
+      } catch (error) {
+        // A concurrent creator may have won the partial unique index race.
+        const winner = sessionRepo.findActiveByConversation(input.agentId, input.conversationId);
+        if (winner) return winner;
+        throw error;
+      }
+    })();
+  },
+
   getById(id: string): AgentSessionRow | undefined {
     return getDb().prepare('SELECT * FROM agent_session WHERE id = ?').get(id) as
       | AgentSessionRow
@@ -63,7 +88,37 @@ export const sessionRepo = {
   },
 
   updateCliSessionId(id: string, cliSessionId: string): void {
-    getDb().prepare('UPDATE agent_session SET cli_session_id = ? WHERE id = ?').run(cliSessionId, id);
+    const result = sessionRepo.bindRuntimeSessionId(id, cliSessionId);
+    if (result.status === 'mismatch') {
+      throw new Error(
+        `session_identity_changed: binding ${id} already uses ${result.current}, received ${cliSessionId}`,
+      );
+    }
+  },
+
+  bindRuntimeSessionId(id: string, runtimeSessionId: string): SessionIdentityBindResult {
+    return getDb().transaction(() => {
+      const row = sessionRepo.getById(id);
+      if (!row) throw new Error(`session_not_found: ${id}`);
+      if (row.cli_session_id === runtimeSessionId) {
+        return { status: 'unchanged', current: runtimeSessionId } as const;
+      }
+      if (row.cli_session_id) {
+        return { status: 'mismatch', current: row.cli_session_id } as const;
+      }
+      const updated = getDb()
+        .prepare('UPDATE agent_session SET cli_session_id = ? WHERE id = ? AND cli_session_id IS NULL')
+        .run(runtimeSessionId, id);
+      if (updated.changes === 1) {
+        return { status: 'bound', current: runtimeSessionId } as const;
+      }
+      const concurrent = sessionRepo.getById(id)?.cli_session_id;
+      if (concurrent === runtimeSessionId) {
+        return { status: 'unchanged', current: runtimeSessionId } as const;
+      }
+      if (concurrent) return { status: 'mismatch', current: concurrent } as const;
+      throw new Error(`session_bind_failed: ${id}`);
+    })();
   },
 
   incrementMessageCount(id: string): void {

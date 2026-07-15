@@ -292,8 +292,9 @@ describe('session-repo', () => {
   });
 
   it('seals sessions by agent and task', () => {
+    conversationRepo.create({ id: 'conv-2', title: 'Test 2' });
     sessionRepo.create({ id: 'ses-1', conversationId: 'conv-1', agentId: 'agent-a', taskId: 'task-1', seq: 0 });
-    sessionRepo.create({ id: 'ses-2', conversationId: 'conv-1', agentId: 'agent-a', taskId: 'task-1', seq: 1 });
+    sessionRepo.create({ id: 'ses-2', conversationId: 'conv-2', agentId: 'agent-a', taskId: 'task-1', seq: 1 });
     sessionRepo.sealByTask('agent-a', 'task-1', 'done');
     expect(sessionRepo.getById('ses-1')!.status).toBe('sealed');
     expect(sessionRepo.getById('ses-2')!.status).toBe('sealed');
@@ -306,9 +307,10 @@ describe('session-repo', () => {
   });
 
   it('lists active sessions by agent', () => {
-    taskRepo.create({ id: 'task-2', conversation_id: 'conv-1', title: 'T2', agent_id: 'agent-a' });
+    conversationRepo.create({ id: 'conv-2', title: 'Test 2' });
+    taskRepo.create({ id: 'task-2', conversation_id: 'conv-2', title: 'T2', agent_id: 'agent-a' });
     sessionRepo.create({ id: 'ses-1', conversationId: 'conv-1', agentId: 'agent-a', taskId: 'task-1' });
-    sessionRepo.create({ id: 'ses-2', conversationId: 'conv-1', agentId: 'agent-a', taskId: 'task-2' });
+    sessionRepo.create({ id: 'ses-2', conversationId: 'conv-2', agentId: 'agent-a', taskId: 'task-2' });
     sessionRepo.seal('ses-2', 'done');
     const active = sessionRepo.listActiveByAgent('agent-a');
     expect(active.length).toBe(1);
@@ -328,10 +330,62 @@ describe('session-repo', () => {
     }).toThrow();
   });
 
-  it('allows same agent+task with different seq', () => {
+  it('allows a new sequence after the prior project session is sealed', () => {
     sessionRepo.create({ id: 'ses-1', conversationId: 'conv-1', agentId: 'agent-a', taskId: 'task-1', seq: 0 });
+    sessionRepo.seal('ses-1', 'rotated');
     const ses2 = sessionRepo.create({ id: 'ses-2', conversationId: 'conv-1', agentId: 'agent-a', taskId: 'task-1', seq: 1 });
     expect(ses2.id).toBe('ses-2');
+  });
+
+  it('keeps one active logical session per project and agent', () => {
+    const first = sessionRepo.getOrCreateActive({
+      id: 'ses-1', conversationId: 'conv-1', agentId: 'agent-a', taskId: 'task-1', seq: 0,
+    });
+    const again = sessionRepo.getOrCreateActive({
+      id: 'ses-2', conversationId: 'conv-1', agentId: 'agent-a', taskId: 'task-1', seq: 1,
+    });
+    expect(again.id).toBe(first.id);
+    expect(sessionRepo.listActiveByConversation('conv-1')).toHaveLength(1);
+  });
+
+  it('binds runtime identity once and rejects replacement', () => {
+    sessionRepo.create({ id: 'ses-1', conversationId: 'conv-1', agentId: 'agent-a', taskId: 'task-1' });
+    expect(sessionRepo.bindRuntimeSessionId('ses-1', 'runtime-1')).toEqual({
+      status: 'bound', current: 'runtime-1',
+    });
+    expect(sessionRepo.bindRuntimeSessionId('ses-1', 'runtime-1')).toEqual({
+      status: 'unchanged', current: 'runtime-1',
+    });
+    expect(sessionRepo.bindRuntimeSessionId('ses-1', 'runtime-2')).toEqual({
+      status: 'mismatch', current: 'runtime-1',
+    });
+  });
+
+  it('keeps a two-project by two-agent identity matrix stable for three turns', () => {
+    conversationRepo.create({ id: 'conv-2', title: 'Test 2' });
+    const bindings = new Map<string, string>();
+
+    for (const projectId of ['conv-1', 'conv-2']) {
+      for (const agentId of ['agent-a', 'agent-b']) {
+        const key = `${projectId}:${agentId}`;
+        for (let turn = 0; turn < 3; turn += 1) {
+          const logical = sessionRepo.getOrCreateActive({
+            id: `ses-${projectId}-${agentId}-${turn}`,
+            conversationId: projectId,
+            agentId,
+            taskId: `task-${projectId}-${turn}`,
+            seq: turn,
+          });
+          const runtimeId = `runtime-${projectId}-${agentId}`;
+          sessionRepo.bindRuntimeSessionId(logical.id, runtimeId);
+          expect(sessionRepo.getById(logical.id)?.cli_session_id).toBe(runtimeId);
+          bindings.set(key, runtimeId);
+        }
+      }
+    }
+
+    expect(bindings.size).toBe(4);
+    expect(new Set(bindings.values()).size).toBe(4);
   });
 });
 

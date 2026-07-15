@@ -511,7 +511,6 @@ export default function registerDaemon(io: IOServer) {
         agentId,
         prompt,
         systemPrompt,
-        sessionId,
         conversationId,
         sourceNodeId,
         dispatchSource,
@@ -542,7 +541,10 @@ export default function registerDaemon(io: IOServer) {
       // but a later step throws before the execute IIFE takes over.
       let acpCleanup: (() => void) | undefined;
       try {
-      const sessionConvId = conversationId || projectId || 'default';
+      if (!conversationId && !projectId) {
+        throw new Error('session_scope_missing: terminal:start requires conversationId or projectId');
+      }
+      const sessionConvId = conversationId || projectId!;
       const responseBufferKey = processKey(agentId, sessionConvId);
       const emitDispatchReceipt = (
         phase: 'requested' | 'sent' | 'started' | 'completed' | 'blocked' | 'failed',
@@ -649,48 +651,35 @@ export default function registerDaemon(io: IOServer) {
 
       // --- Session & Invocation tracking (SQLite) ---
       // Use conversationId for session scoping (project-level session per agent)
-      let agentSession: AgentSessionRow | undefined;
-      let invocation: InvocationRow | undefined;
+      let existingSession = sessionRepo.findActiveByConversation(agentId, sessionConvId);
 
-      if (accountId) {
-        agentSession = sessionRepo.findActiveByConversation(agentId, sessionConvId);
-
-        if (!agentSession) {
-          // Seal any stale sessions for this agent+conversation to avoid UNIQUE constraint collision
-          try { sessionRepo.sealByConversation(agentId, sessionConvId, 'replaced'); } catch { /* ignore */ }
-
-          // Compute next seq to avoid UNIQUE(agent_id, task_id, seq) conflict
-          const nextSeq = sessionRepo.nextSeqForAgent(agentId, taskId || '');
-
-          const newSessionId = generateSortableId('ses');
-          agentSession = sessionRepo.create({
-            id: newSessionId,
-            conversationId: sessionConvId,
-            agentId,
-            taskId: taskId || undefined,
-            seq: nextSeq,
-          });
-        }
-
-        const invocationId = generateSortableId('inv');
-        invocation = invocationRepo.create({
-          id: invocationId,
-          conversation_id: sessionConvId,
-          task_id: taskId || '',
-          agent_id: agentId,
-          session_id: agentSession.id,
-          engine,
-          account_id: accountId,
-          prompt: prompt || '',
+      if (!existingSession) {
+        const nextSeq = sessionRepo.nextSeqForAgent(agentId, taskId || '');
+        existingSession = sessionRepo.getOrCreateActive({
+          id: generateSortableId('ses'),
+          conversationId: sessionConvId,
+          agentId,
+          taskId: taskId || undefined,
+          seq: nextSeq,
         });
       }
+      const agentSession: AgentSessionRow = existingSession;
+
+      const invocation: InvocationRow = invocationRepo.create({
+        id: generateSortableId('inv'),
+        conversation_id: sessionConvId,
+        task_id: taskId || '',
+        agent_id: agentId,
+        session_id: agentSession.id,
+        engine,
+        account_id: accountId,
+        prompt: prompt || '',
+      });
 
       // DB-backed project sessions are conversation-scoped. Do not fall back to a
       // client-provided sessionId for a newly created conversation session, or a
       // stale frontend cache can resume another project's CLI context.
-      const effectiveSessionId = agentSession
-        ? (agentSession.cli_session_id ?? undefined)
-        : sessionId;
+      const effectiveSessionId = agentSession.cli_session_id ?? undefined;
 
       // Build CLI args for non-Backend paths (tmux, bridge)
       const primaryArgs = (() => {
@@ -940,6 +929,12 @@ export default function registerDaemon(io: IOServer) {
         try {
         // Register session ID
         if (event.sessionId && !sessionEmitted) {
+          const binding = sessionRepo.bindRuntimeSessionId(agentSession.id, event.sessionId);
+          if (binding.status === 'mismatch') {
+            throw new Error(
+              `session_identity_changed: expected ${binding.current}, received ${event.sessionId}`,
+            );
+          }
           sessionEmitted = true;
           broadcast('agent:session', {
             projectId: sessionConvId,
@@ -947,9 +942,6 @@ export default function registerDaemon(io: IOServer) {
             agentId,
             sessionId: event.sessionId,
           });
-          if (agentSession && !agentSession.cli_session_id) {
-            sessionRepo.updateCliSessionId(agentSession.id, event.sessionId);
-          }
           if (invocation) {
             invocationRepo.updateStatus(invocation.id, 'running', { cli_session_id: event.sessionId });
           }
@@ -1049,7 +1041,7 @@ export default function registerDaemon(io: IOServer) {
             body: JSON.stringify({
               prompt: prompt || '',
               systemPrompt: systemPrompt || undefined,
-              sessionId,
+              sessionId: effectiveSessionId,
               engine,
               runtimeId,
               providerProfileId,
@@ -1298,8 +1290,6 @@ export default function registerDaemon(io: IOServer) {
         );
       }
       const { events: rawEvents, result, kill } = backend.execute(capsResult.prompt, capsResult.opts);
-      const attemptedResume = Boolean(capsResult.opts.resumeSessionId);
-
       const events = withDoneGuarantee(rawEvents, result);
 
       activeProcesses.set(processKey(agentId, projectId), { kill });
@@ -1313,7 +1303,7 @@ export default function registerDaemon(io: IOServer) {
           }
 
           // Wait for final result
-          let final = await result;
+          const final = await result;
           clearProcessTimeout();
           clearInterval(heartbeatTimer);
 
@@ -1327,23 +1317,6 @@ export default function registerDaemon(io: IOServer) {
           // Write GC meta for workdir cleanup
           if (taskId && projectId) {
             workdirManager.writeGCMeta(agentId, projectId, taskId);
-          }
-
-          // If we tried to resume but got no session, retry with fresh session
-          if (final.status === 'failed' && attemptedResume && !final.sessionId) {
-            console.log(`[daemon] session resume failed for ${agentId}, retrying with fresh session`);
-            const retryRun = backend.execute(prompt || '', {
-              cwd: executeCwd,
-              systemPrompt: systemPrompt || undefined,
-              resumeSessionId: undefined,
-              timeout: timeoutMs > 0 ? timeoutMs : undefined,
-              env: executeEnv,
-            });
-
-            for await (const retryEvent of retryRun.events) {
-              forwardAgentEvent(retryEvent);
-            }
-            final = await retryRun.result;
           }
 
           if (invocation) {

@@ -247,7 +247,6 @@ export const createDaemonSlice = (set: any, get: () => any) => {
       }
 
       const projectId = conversationId;
-      const sessionId = get().agentSessions[conversationId]?.[agentId];
       const runId = `run-${Date.now()}-${Math.random().toString(16).slice(2)}`;
       const agent = profile.agent;
       const effectiveIds = profile.agent.accountIds;
@@ -337,7 +336,6 @@ export const createDaemonSlice = (set: any, get: () => any) => {
         agentId,
         prompt: effectivePrompt,
         systemPrompt,
-        sessionId,
         allowMockRunner: get().enableMockRunner,
         opencodeBridgeUrl: undefined,
         engine: resolvedEngine,
@@ -460,14 +458,13 @@ export const createDaemonSlice = (set: any, get: () => any) => {
         },
       })),
 
-    simulateCliExecution: async (taskId: string, prompt: string, sessionId?: string) => {
+    simulateCliExecution: async (taskId: string, prompt: string) => {
       const state = get();
       const task = state.tasks.find((t: any) => t.id === taskId);
       if (!task) return;
       const agentId = task.agentId;
       const conversationId = task.conversationId;
       const projectId = conversationId;
-      const resolvedSessionId = sessionId || state.agentSessions[conversationId]?.[agentId];
       const profile = state.getAgentRuntimeProfile(agentId);
       if (!profile) {
         console.warn(`[simulate] ${agentId} aborted: no runtime profile or enabled account for conversation ${conversationId}`);
@@ -532,7 +529,6 @@ export const createDaemonSlice = (set: any, get: () => any) => {
         agentId,
         prompt,
         systemPrompt,
-        sessionId: resolvedSessionId,
         allowMockRunner: get().enableMockRunner,
         opencodeBridgeUrl: undefined,
         engine: resolvedEngine,

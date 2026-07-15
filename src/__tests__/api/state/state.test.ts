@@ -111,15 +111,15 @@ describe('GET /api/state', () => {
     conversationRepo.create({ id: 'conv-1', title: 'Test' });
     taskRepo.create({ id: 'task-1', conversation_id: 'conv-1', title: 'T1', agent_id: 'agent-a' });
     sessionRepo.create({ id: 'ses-1', conversationId: 'conv-1', agentId: 'agent-a', taskId: 'task-1' });
+    sessionRepo.seal('ses-1', 'done');
     sessionRepo.create({ id: 'ses-2', conversationId: 'conv-1', agentId: 'agent-a', taskId: 'task-1', seq: 1 });
-    sessionRepo.seal('ses-2', 'done');
 
     const req = mockReq('GET');
     const res = mockRes();
     await handler(req, res);
 
     expect(res._json.activeSessions.length).toBe(1);
-    expect(res._json.activeSessions[0].id).toBe('ses-1');
+    expect(res._json.activeSessions[0].id).toBe('ses-2');
   });
 
   it('returns dynamic agent skill bindings beyond preset agent ids', async () => {

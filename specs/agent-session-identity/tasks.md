@@ -1,0 +1,34 @@
+# Agent Session Identity Tasks
+
+## 契约与模型
+
+- [x] 建立活动规格并冻结 Session identity 不变量。
+- [x] 更新长期 Session 生命周期设计。
+
+## ACP
+
+- [x] 根据 initialize capability 实现 `session/load`。
+- [x] 忽略 load 阶段历史 replay，只转发当前 prompt updates。
+- [x] 增加 resume unsupported、load failed、identity changed reason code。
+- [x] 更新 mock agent 与 ACP resume/隔离测试。
+
+## Server 与数据库
+
+- [x] 增加 active `(conversation_id, agent_id)` 唯一约束及历史重复数据迁移。
+- [x] Session 首次绑定改为 compare-and-set，禁止静默覆盖。
+- [x] daemon 仅使用 server binding 作为 resume 来源。
+- [x] 删除自动 fresh-session retry 和正式路径的 client session fallback。
+
+## 前端
+
+- [x] hydration 以 server Session 数据替换本地缓存，不合并 persisted Session。
+- [x] 新项目初始化独立 Session 展示 scope。
+- [x] socket 收到 session id 时保持 conversation + agent 隔离。
+
+## 验证
+
+- [x] repository 并发/唯一性/identity 测试。
+- [x] 两项目 × 两 Agent × 多轮 Session 矩阵测试。
+- [x] timeout/cancel/load failure 测试。
+- [x] OpenCode、Claude、Codex 真实 resume smoke。
+- [x] 安装、类型检查、测试和构建通过。

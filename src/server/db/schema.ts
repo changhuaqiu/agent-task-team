@@ -5,7 +5,7 @@ import {
   index,
   uniqueIndex,
 } from 'drizzle-orm/sqlite-core';
-import type { InferSelectModel, InferInsertModel } from 'drizzle-orm';
+import { sql, type InferSelectModel, type InferInsertModel } from 'drizzle-orm';
 
 // ──────────────────────────────────────────────
 // conversation
@@ -93,6 +93,9 @@ export const agentSession = sqliteTable('agent_session', {
 }, (table) => [
   index('idx_session_agent_task').on(table.agentId, table.taskId),
   uniqueIndex('uq_session_agent_task_seq').on(table.agentId, table.taskId, table.seq),
+  uniqueIndex('uq_agent_session_active_project_agent')
+    .on(table.conversationId, table.agentId)
+    .where(sql`${table.status} = 'active'`),
 ]);
 
 // ──────────────────────────────────────────────

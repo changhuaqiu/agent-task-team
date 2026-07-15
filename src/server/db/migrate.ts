@@ -635,6 +635,33 @@ CREATE INDEX IF NOT EXISTS idx_agent_skill_skill ON agent_skill(skill_id);
     CREATE UNIQUE INDEX IF NOT EXISTS uq_a2a_delivery_entry ON a2a_delivery(entry_id);
     `,
   },
+  {
+    version: 20,
+    sql: `
+    -- Session identity: retain only the newest active binding for each
+    -- project(conversation) + agent before enforcing the business invariant.
+    UPDATE agent_session AS stale
+    SET status = 'sealed',
+        seal_reason = 'migration_duplicate_active',
+        sealed_at = COALESCE(sealed_at, datetime('now'))
+    WHERE stale.status = 'active'
+      AND EXISTS (
+        SELECT 1
+        FROM agent_session AS newer
+        WHERE newer.conversation_id = stale.conversation_id
+          AND newer.agent_id = stale.agent_id
+          AND newer.status = 'active'
+          AND (
+            newer.created_at > stale.created_at
+            OR (newer.created_at = stale.created_at AND newer.id > stale.id)
+          )
+      );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_agent_session_active_project_agent
+      ON agent_session(conversation_id, agent_id)
+      WHERE status = 'active';
+    `,
+  },
 ];
 
 export function applyMigrations(db: Database.Database): void {

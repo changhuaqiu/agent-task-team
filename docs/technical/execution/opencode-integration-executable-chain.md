@@ -262,3 +262,17 @@ Daemon 广播的 `agent:event` 格式：
 - 架构概览：[`docs/wiki/01-architecture.md`](../../docs/wiki/01-architecture.md)
 - 多 CLI 集成配置中心：[`docs/technical/integrations/2026-05-01-cli-channel-auth-config-center.md`](../integrations/2026-05-01-cli-channel-auth-config-center.md)
 - 参考分析：[`docs/plans/2026-05-02-multica-reference-analysis.md`](../../docs/plans/2026-05-02-multica-reference-analysis.md)
+
+## 9. Session Identity（当前实现）
+
+平台把一次 Agent 执行拆成三层身份：
+
+- Logical Agent Session：平台持久化对象；当前以 `(conversationId, agentId)` 作为唯一 active scope。
+- Runtime Session：ACP agent 返回的 session id，持久化在 `agent_session.cli_session_id`。
+- Invocation：单次执行记录，只引用 Logical Agent Session，无权更换其 Runtime Session。
+
+执行规则：首次执行使用 ACP `session/new`；已有 Runtime Session 时必须在 initialize 后确认 `loadSession` capability，并调用 `session/load`。加载失败、capability 缺失或 update 中 session id 不一致时均失败关闭，不自动降级为新会话。加载阶段可能产生的历史 replay 不进入当前 invocation 的事件流。
+
+Session binding 由服务端 repository 作为唯一事实源。浏览器只显示 `/api/state` 或 socket 返回的已确认绑定，不持久化并回传 session id 参与恢复决策。数据库通过 partial unique index 保证任一时刻每个 `(conversation_id, agent_id)` 最多只有一个 active Logical Agent Session；Runtime Session 第一次绑定使用 compare-and-set，禁止静默覆盖。
+
+真实 runtime 的恢复能力已验证：OpenCode 1.14.35 原生 ACP、Claude adapter 0.59.0、Codex adapter 1.1.2 均可完成跨 adapter 进程的 `session/new → session/load`，并保持 session id 不变。可通过 `ACP_SMOKE_RESUME=1 pnpm exec tsx scripts/smoke-acp-runtime.ts <runtime>` 复验。

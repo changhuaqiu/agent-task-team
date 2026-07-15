@@ -82,4 +82,83 @@ describe('AcpBackend (subprocess integration with mockAcpAgent)', () => {
     const result = await run.result;
     expect(result.status).toBe('cancelled');
   }, 30000);
+
+  it('loads an existing session and suppresses historical replay updates', async () => {
+    const backend = new AcpBackend({
+      command: 'npx',
+      args: ['tsx', mockPath],
+      engine: 'opencode',
+      cwd: process.cwd(),
+      permissionPolicy: 'allow_once',
+    });
+
+    const run = backend.execute('continue', { resumeSessionId: 'stable-session' });
+    const contents: string[] = [];
+    for await (const event of run.events) contents.push(event.content);
+    const result = await run.result;
+
+    expect(result).toMatchObject({ status: 'completed', sessionId: 'stable-session' });
+    expect(contents.join('')).not.toContain('历史回放');
+    expect(result.output).toContain('开始');
+  }, 30000);
+
+  it('fails closed when resume is unsupported instead of creating a new session', async () => {
+    const backend = new AcpBackend({
+      command: 'npx',
+      args: ['tsx', mockPath],
+      engine: 'opencode',
+      cwd: process.cwd(),
+      env: { MOCK_ACP_LOAD_SESSION: 'false' },
+    });
+
+    const run = backend.execute('continue', { resumeSessionId: 'stable-session' });
+    for await (const _event of run.events) {
+      // drain
+    }
+    expect(await run.result).toMatchObject({
+      status: 'failed',
+      sessionId: 'stable-session',
+      reasonCode: 'acp_resume_unsupported',
+    });
+  }, 30000);
+
+  it('does not replace a stable session when session/load fails', async () => {
+    const backend = new AcpBackend({
+      command: 'npx',
+      args: ['tsx', mockPath],
+      engine: 'opencode',
+      cwd: process.cwd(),
+      env: { MOCK_ACP_LOAD_FAIL: 'true' },
+    });
+
+    const run = backend.execute('continue', { resumeSessionId: 'stable-session' });
+    for await (const _event of run.events) {
+      // drain
+    }
+    expect(await run.result).toMatchObject({
+      status: 'failed',
+      sessionId: 'stable-session',
+      reasonCode: 'acp_session_load_failed',
+    });
+  }, 30000);
+
+  it('rejects a session update whose identity differs from the active binding', async () => {
+    const backend = new AcpBackend({
+      command: 'npx',
+      args: ['tsx', mockPath],
+      engine: 'opencode',
+      cwd: process.cwd(),
+      env: { MOCK_ACP_SCENARIO: 'wrong_session' },
+    });
+
+    const run = backend.execute('continue', { resumeSessionId: 'stable-session' });
+    for await (const _event of run.events) {
+      // drain
+    }
+    expect(await run.result).toMatchObject({
+      status: 'failed',
+      sessionId: 'stable-session',
+      reasonCode: 'acp_session_identity_changed',
+    });
+  }, 30000);
 });

@@ -1,0 +1,30 @@
+# Agent Session Identity Checklist
+
+## 隔离
+
+- [x] 新项目首次执行不携带其他项目 runtime session id。
+- [x] 同一项目不同 Agent 的 runtime session id 不同。
+- [x] 不同项目同一 Agent 的 runtime session id 不同。
+- [x] 缺少 project/conversation id 的正式 dispatch 被拒绝。
+
+## 稳定
+
+- [x] 同项目同 Agent 多轮执行始终 load 同一 runtime session id。
+- [x] timeout、cancel、adapter 退出不会静默轮换 session。
+- [x] daemon/浏览器重启后仍恢复同一 session。
+- [x] load 失败不会自动执行 `session/new`。
+
+## 一致性
+
+- [x] server repository 是唯一执行事实源。
+- [x] active `(conversation_id, agent_id)` 有数据库唯一约束。
+- [x] runtime session id 使用 compare-and-set 绑定。
+- [x] identity mismatch 返回稳定 reason code 且不覆盖状态。
+- [x] invocation、session binding 和 socket 展示一致。
+
+## 验证
+
+- [x] ACP resume 单元/集成测试通过。
+- [x] 两项目 × 两 Agent × 三轮矩阵通过。
+- [x] 三个真实 runtime 的 new + load smoke 通过。
+- [x] 类型检查、全量测试和生产构建通过。

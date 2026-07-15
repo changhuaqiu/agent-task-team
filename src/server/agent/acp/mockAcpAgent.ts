@@ -64,7 +64,7 @@ const PERMISSION_OPTIONS: acp.PermissionOption[] = [
  *    (`process.exit(1)`) — so `AcpBackend`'s `close` handler fires with an
  *    abnormal exit and resolves `failed`. (Task 9 failure-recovery test.)
  */
-export type MockScenario = 'normal' | 'slow' | 'error' | 'flood' | 'large';
+export type MockScenario = 'normal' | 'slow' | 'error' | 'flood' | 'large' | 'wrong_session';
 
 /** How long the "slow" scenario blocks mid-turn before completing. */
 const SLOW_BLOCK_MS = 60_000;
@@ -99,11 +99,26 @@ export function createMockAgentApp(
     .agent({ name: 'mock-acp-agent' })
     .onRequest(acp.methods.agent.initialize, () => ({
       protocolVersion: acp.PROTOCOL_VERSION,
-      agentCapabilities: { loadSession: false },
+      agentCapabilities: { loadSession: process.env.MOCK_ACP_LOAD_SESSION !== 'false' },
     }))
     .onRequest(acp.methods.agent.session.new, () => ({
       sessionId: 'mock-1',
     }))
+    .onRequest(acp.methods.agent.session.load, async (ctx) => {
+      if (process.env.MOCK_ACP_LOAD_FAIL === 'true') {
+        throw new Error('mock load failed');
+      }
+      // ACP load may replay history. The client must not append this content
+      // to the new invocation's event stream.
+      await ctx.client.notify(acp.methods.client.session.update, {
+        sessionId: ctx.params.sessionId,
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          content: { type: 'text', text: '历史回放' },
+        },
+      });
+      return {};
+    })
     .onRequest(acp.methods.agent.authenticate, () => ({}))
     // No-op handlers so Task 5's AcpBackend.kill() (session/cancel) and
     // daemon mode switches (session/setMode) don't hit method-not-found.
@@ -113,9 +128,10 @@ export function createMockAgentApp(
     .onNotification(acp.methods.agent.session.cancel, () => {})
     .onRequest(acp.methods.agent.session.prompt, async (ctx) => {
       const sessionId = ctx.params.sessionId;
+      const updateSessionId = scenario === 'wrong_session' ? 'mock-wrong' : sessionId;
       const upd = (update: acp.SessionUpdate) =>
         ctx.client.notify(acp.methods.client.session.update, {
-          sessionId,
+          sessionId: updateSessionId,
           update,
         });
 
@@ -225,6 +241,7 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
       || envScenario === 'normal'
       || envScenario === 'flood'
       || envScenario === 'large'
+      || envScenario === 'wrong_session'
       ? envScenario
       : 'normal';
   const stream = acp.ndJsonStream(

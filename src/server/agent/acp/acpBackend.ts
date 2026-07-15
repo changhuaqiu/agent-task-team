@@ -27,6 +27,9 @@ export type AcpFailureReasonCode =
   | 'acp_invalid_runtime'
   | 'acp_output_limit'
   | 'acp_process_exited'
+  | 'acp_resume_unsupported'
+  | 'acp_session_identity_changed'
+  | 'acp_session_load_failed'
   | 'acp_startup_failed'
   | 'acp_timeout';
 
@@ -55,7 +58,7 @@ export interface AcpBackendOpts {
 const ACP_CAPS_BASE = {
   promptMode: 'stdin-stream-json',
   outputMode: 'events',
-  supportsResume: false,
+  supportsResume: true,
   supportsModel: true,
   supportsSystemPrompt: true,
   systemPromptMode: 'none',
@@ -203,8 +206,8 @@ export class AcpBackend implements AgentBackend {
     let output = '';
     let projectedChars = 0;
     let sessionId: string | undefined;
-    let session: acp.ActiveSession | undefined;
     let clientContext: acp.ClientContext | undefined;
+    let acceptSessionUpdates = false;
     let stderrTail = '';
     let initialized = false;
     let resultResolved = false;
@@ -310,11 +313,6 @@ export class AcpBackend implements AgentBackend {
       if (resultResolved) return;
       resultResolved = true;
       clearTimeout(timeoutTimer);
-      try {
-        session?.dispose();
-      } catch {
-        // SDK routing cleanup is best effort.
-      }
       resultResolve({
         status,
         output,
@@ -365,6 +363,49 @@ export class AcpBackend implements AgentBackend {
       finalize('failed', 'acp_process_exited', message);
     });
 
+    const handleSessionUpdate = (notification: acp.SessionNotification) => {
+      if (resultResolved || !acceptSessionUpdates) return;
+      if (!sessionId || notification.sessionId !== sessionId) {
+        const message = `ACP session identity changed: expected ${sessionId ?? 'unbound'}, received ${notification.sessionId}`;
+        emit({ type: 'error', content: message, sessionId }, true);
+        finalize('failed', 'acp_session_identity_changed', message);
+        return;
+      }
+
+      const event = mapAcpUpdate(notification.update);
+      if (event) {
+        if (event.sessionId === undefined) event.sessionId = sessionId;
+        if (event.content.length > limits.maxEventChars) {
+          failForLimit(
+            'acp_event_limit',
+            `ACP event exceeded ${limits.maxEventChars} characters`,
+          );
+          return;
+        }
+        if (projectedChars + event.content.length > limits.maxOutputChars) {
+          failForLimit(
+            'acp_output_limit',
+            `ACP output exceeded ${limits.maxOutputChars} characters`,
+          );
+          return;
+        }
+        if (!resolveNext && queue.length >= limits.maxQueuedEvents) {
+          failForLimit(
+            'acp_event_limit',
+            `ACP event queue exceeded ${limits.maxQueuedEvents} events`,
+          );
+          return;
+        }
+        if (!emit(event)) {
+          failForLimit('acp_event_limit', 'ACP event stream rejected an update');
+          return;
+        }
+        projectedChars += event.content.length;
+      } else if (!KNOWN_SESSION_UPDATE_TYPES.has(notification.update.sessionUpdate)) {
+        console.warn('[acp] unknown session update ignored:', notification.update.sessionUpdate);
+      }
+    };
+
     const startConnection = () => {
       if (resultResolved) return;
       if (!proc.stdin || !proc.stdout) {
@@ -387,72 +428,60 @@ export class AcpBackend implements AgentBackend {
           .client({ name: 'agent-task-team' })
           .onRequest(acp.methods.client.session.requestPermission, (ctx) =>
             permissionHandler(ctx.params),
+          )
+          .onNotification(acp.methods.client.session.update, (ctx) =>
+            handleSessionUpdate(ctx.params),
           );
 
         void clientApp
           .connectWith(stream, async (ctx) => {
             if (resultResolved) return;
             clientContext = ctx;
-            await ctx.request(acp.methods.agent.initialize, {
+            const initializeResponse = await ctx.request(acp.methods.agent.initialize, {
               protocolVersion: acp.PROTOCOL_VERSION,
               clientCapabilities: {},
             });
             initialized = true;
             if (resultResolved) return;
 
-            session = await ctx.buildSession(cwd).start();
-            sessionId = session.sessionId;
-            if (resultResolved) return;
-
-            let promptError: unknown;
-            const promptPromise = session.prompt(promptText).catch((error) => {
-              promptError = error;
-              return undefined;
-            });
-
-            for (;;) {
-              const message = await session.nextUpdate();
-              if (message.kind === 'stop') break;
-              const event = mapAcpUpdate(message.update);
-              if (event) {
-                if (event.sessionId === undefined) event.sessionId = sessionId;
-                if (event.content.length > limits.maxEventChars) {
-                  failForLimit(
-                    'acp_event_limit',
-                    `ACP event exceeded ${limits.maxEventChars} characters`,
-                  );
-                  return;
-                }
-                if (projectedChars + event.content.length > limits.maxOutputChars) {
-                  failForLimit(
-                    'acp_output_limit',
-                    `ACP output exceeded ${limits.maxOutputChars} characters`,
-                  );
-                  return;
-                }
-                if (!resolveNext && queue.length >= limits.maxQueuedEvents) {
-                  failForLimit(
-                    'acp_event_limit',
-                    `ACP event queue exceeded ${limits.maxQueuedEvents} events`,
-                  );
-                  return;
-                }
-                if (!emit(event)) {
-                  failForLimit(
-                    'acp_event_limit',
-                    'ACP event stream rejected an update',
-                  );
-                  return;
-                }
-                projectedChars += event.content.length;
-              } else if (!KNOWN_SESSION_UPDATE_TYPES.has(message.update.sessionUpdate)) {
-                console.warn('[acp] unknown session update ignored:', message.update.sessionUpdate);
+            if (opts.resumeSessionId) {
+              sessionId = opts.resumeSessionId;
+              if (!initializeResponse.agentCapabilities?.loadSession) {
+                const message = `ACP runtime does not support loading session ${sessionId}`;
+                emit({ type: 'error', content: message, sessionId }, true);
+                finalize('failed', 'acp_resume_unsupported', message);
+                return;
               }
-              if (resultResolved) return;
+              try {
+                // ACP agents replay historical updates while session/load is in
+                // progress. Keep forwarding disabled until the load response so
+                // old conversation content is not appended to the current turn.
+                await ctx.request(acp.methods.agent.session.load, {
+                  sessionId,
+                  cwd,
+                  mcpServers: [],
+                });
+              } catch (error) {
+                const message = `ACP session load failed for ${sessionId}: ${error instanceof Error ? error.message : String(error)}`;
+                emit({ type: 'error', content: message, sessionId }, true);
+                finalize('failed', 'acp_session_load_failed', message);
+                return;
+              }
+            } else {
+              const newSession = await ctx.request(acp.methods.agent.session.new, {
+                cwd,
+                mcpServers: [],
+              });
+              sessionId = newSession.sessionId;
             }
+            if (resultResolved) return;
+            acceptSessionUpdates = true;
 
-            const response = await promptPromise;
-            if (!response) throw promptError ?? new Error('ACP prompt ended without a response');
+            const response = await ctx.request(acp.methods.agent.session.prompt, {
+              sessionId,
+              prompt: [{ type: 'text', text: promptText }],
+            });
+            if (resultResolved) return;
             finalize(
               stopReasonToStatus(response.stopReason),
               response.stopReason === 'cancelled' ? 'acp_cancelled' : undefined,

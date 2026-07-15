@@ -84,6 +84,54 @@ describe('SQLite Foundation', () => {
     }).toThrow();
   });
 
+  it('enforces one active session per conversation and agent', () => {
+    const now = new Date().toISOString();
+    db.prepare(
+      'INSERT INTO conversation (id, title, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
+    ).run('conv-active', 'Active Test', 'active', now, now);
+
+    db.prepare(
+      'INSERT INTO agent_session (id, conversation_id, agent_id, task_id, seq, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+    ).run('ses-active-1', 'conv-active', 'agent-1', 'task-a', 0, now);
+
+    expect(() => {
+      db.prepare(
+        'INSERT INTO agent_session (id, conversation_id, agent_id, task_id, seq, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+      ).run('ses-active-2', 'conv-active', 'agent-1', 'task-b', 1, now);
+    }).toThrow();
+
+    db.prepare("UPDATE agent_session SET status = 'sealed' WHERE id = 'ses-active-1'").run();
+    expect(() => {
+      db.prepare(
+        'INSERT INTO agent_session (id, conversation_id, agent_id, task_id, seq, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+      ).run('ses-active-2', 'conv-active', 'agent-1', 'task-b', 1, now);
+    }).not.toThrow();
+  });
+
+  it('migration seals duplicate active rows before restoring the unique index', () => {
+    const now = new Date().toISOString();
+    db.prepare(
+      'INSERT INTO conversation (id, title, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
+    ).run('conv-migrate', 'Migration Test', 'active', now, now);
+    db.exec('DROP INDEX uq_agent_session_active_project_agent');
+    db.prepare('DELETE FROM _schema_version WHERE version = 20').run();
+    const insert = db.prepare(
+      'INSERT INTO agent_session (id, conversation_id, agent_id, task_id, seq, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+    );
+    insert.run('ses-migrate-old', 'conv-migrate', 'agent-migrate', 'task-old', 0, '2026-01-01T00:00:00.000Z');
+    insert.run('ses-migrate-new', 'conv-migrate', 'agent-migrate', 'task-new', 1, '2026-01-02T00:00:00.000Z');
+
+    applyMigrations(db);
+
+    const rows = db.prepare(
+      'SELECT id, status, seal_reason FROM agent_session WHERE conversation_id = ? ORDER BY created_at',
+    ).all('conv-migrate') as Array<{ id: string; status: string; seal_reason: string | null }>;
+    expect(rows).toEqual([
+      { id: 'ses-migrate-old', status: 'sealed', seal_reason: 'migration_duplicate_active' },
+      { id: 'ses-migrate-new', status: 'active', seal_reason: null },
+    ]);
+  });
+
   it('migration is idempotent', () => {
     const before = db.prepare('SELECT MAX(version) as v FROM _schema_version').get() as {
       v: number;

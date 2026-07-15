@@ -549,28 +549,6 @@ function mapSessionsToState(sessions: any[]): Record<string, Record<string, stri
   return result;
 }
 
-function mergeSessions(
-  serverSessions: Record<string, Record<string, string | undefined>>,
-  persistedSessions: Record<string, Record<string, string | undefined>>,
-): Record<string, Record<string, string | undefined>> {
-  const result: Record<string, Record<string, string | undefined>> = {};
-  const allProjects = new Set([
-    ...Object.keys(serverSessions),
-    ...Object.keys(persistedSessions),
-  ]);
-  for (const project of allProjects) {
-    const server = serverSessions[project] || {};
-    const persisted = persistedSessions[project] || {};
-    const agents = new Set([...Object.keys(server), ...Object.keys(persisted)]);
-    const merged: Record<string, string | undefined> = {};
-    for (const agent of agents) {
-      merged[agent] = server[agent] || persisted[agent];
-    }
-    result[project] = merged;
-  }
-  return result;
-}
-
 // --- Store Interface (composed from all slices) ---
 
 export interface TaskHubState {
@@ -1151,13 +1129,16 @@ export const useTaskHubStore = create<TaskHubState>()(
               updatedAt: t.updated_at,
             }));
 
-            const mergedSessions = mergeSessions(
-              mapSessionsToState(data.activeSessions || []),
-              get().agentSessions,
-            );
+            // Server bindings are authoritative. Never revive a runtime
+            // session from persisted browser state when the server has no
+            // active binding for that project + agent.
+            const serverSessions = {
+              default: {},
+              ...mapSessionsToState(data.activeSessions || []),
+            };
 
             const hydratedNeedsFullCompose: Record<string, boolean> = {};
-            for (const [proj, agents] of Object.entries(mergedSessions)) {
+            for (const [proj, agents] of Object.entries(serverSessions)) {
               for (const [aid, sid] of Object.entries(agents || {})) {
                 if (sid) hydratedNeedsFullCompose[`${proj}:${aid}`] = false;
               }
@@ -1167,7 +1148,7 @@ export const useTaskHubStore = create<TaskHubState>()(
               conversations,
               tasks,
               chatMessagesByConversation: mapMessagesToState(data.recentMessages || {}),
-              agentSessions: mergedSessions,
+              agentSessions: serverSessions,
               needsFullCompose: hydratedNeedsFullCompose,
               hasHydrated: true,
             });
@@ -1293,6 +1274,10 @@ export const useTaskHubStore = create<TaskHubState>()(
             selectedProjectId: id,
             activeAgentIds: teamPackId ? [] : DEFAULT_ACTIVE_AGENT_IDS,
             currentTeamPack: null,
+            agentSessions: {
+              ...state.agentSessions,
+              [id]: {},
+            },
             eventsByConversation: {
               ...state.eventsByConversation,
               [id]: [
@@ -1380,12 +1365,14 @@ export const useTaskHubStore = create<TaskHubState>()(
           const { [conversationId]: _msgs, ...restMsgs } = state.chatMessagesByConversation;
           const { [conversationId]: _evts, ...restEvts } = state.eventsByConversation;
           const { [conversationId]: _blockers, ...restBlockers } = state.blockersByConversation;
+          const { [conversationId]: _sessions, ...restSessions } = state.agentSessions;
           set({
             conversations: state.conversations.filter((c) => c.id !== conversationId),
             tasks: state.tasks.filter((t: any) => t.conversationId !== conversationId),
             chatMessagesByConversation: restMsgs,
             eventsByConversation: restEvts,
             blockersByConversation: restBlockers,
+            agentSessions: { default: state.agentSessions.default ?? {}, ...restSessions },
           });
           fetch('/api/mutations', {
             method: 'POST',
@@ -1751,7 +1738,7 @@ export const useTaskHubStore = create<TaskHubState>()(
     },
     {
       name: 'agent-task-hub-store-clean',
-      version: 5,
+      version: 6,
       migrate: (persisted: any, version: number) => {
         if (version === 0) {
           const idMap: Record<string, string> = {
@@ -1811,6 +1798,9 @@ export const useTaskHubStore = create<TaskHubState>()(
           persisted.channelConfigs = persisted.channelConfigs ?? DEFAULT_CHANNEL_CONFIGS;
           persisted.routingPolicies = persisted.routingPolicies ?? DEFAULT_ROUTING_POLICIES;
         }
+        if (version < 6) {
+          persisted.agentSessions = { default: {} };
+        }
         return persisted;
       },
       partialize: (state) => ({
@@ -1821,7 +1811,6 @@ export const useTaskHubStore = create<TaskHubState>()(
         blockersByConversation: state.blockersByConversation,
         activeAgentIds: state.activeAgentIds,
         currentTeamPack: state.currentTeamPack,
-        agentSessions: state.agentSessions,
         agentAccountOverrides: state.agentAccountOverrides,
         enableMockRunner: state.enableMockRunner,
         roleCards: state.roleCards,

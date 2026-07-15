@@ -474,9 +474,11 @@ describe('POST /api/mutations', () => {
 
   it('session.sealByTask seals all active sessions for agent+task', async () => {
     await seedTask();
+    const { conversationRepo } = await import('@/server/repositories/conversation-repo');
     const { sessionRepo } = await import('@/server/repositories/session-repo');
+    conversationRepo.create({ id: 'conv-2', title: 'Second project' });
     sessionRepo.create({ id: 'ses-1', conversationId: 'conv-1', agentId: 'agent-a', taskId: 'task-1', seq: 0 });
-    sessionRepo.create({ id: 'ses-2', conversationId: 'conv-1', agentId: 'agent-a', taskId: 'task-1', seq: 1 });
+    sessionRepo.create({ id: 'ses-2', conversationId: 'conv-2', agentId: 'agent-a', taskId: 'task-1', seq: 1 });
 
     const req = mockReq('POST', {
       type: 'session.sealByTask',

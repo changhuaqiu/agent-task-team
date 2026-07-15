@@ -70,7 +70,7 @@ describe('project session scoping', () => {
     resetStoreForSessionScope();
   });
 
-  it('does not send a selected old project session when dispatching to a new conversation', async () => {
+  it('does not send browser-cached session identity for a new conversation', async () => {
     const emitSpy = vi.spyOn(socket, 'emit').mockImplementation(() => socket);
 
     const accepted = await useTaskHubStore.getState().dispatchToAgent({
@@ -80,15 +80,16 @@ describe('project session scoping', () => {
     });
 
     expect(accepted).toBe(true);
-    expect(emitSpy).toHaveBeenCalledWith('terminal:start', expect.objectContaining({
+    const payload = emitSpy.mock.calls.find(([event]) => event === 'terminal:start')?.[1];
+    expect(payload).toEqual(expect.objectContaining({
       projectId: 'conv-new',
       conversationId: 'conv-new',
       agentId: 'mario',
-      sessionId: undefined,
     }));
+    expect(payload).not.toHaveProperty('sessionId');
   });
 
-  it('uses the session cached for the dispatch conversation only', async () => {
+  it('does not let a browser cache choose the server runtime session', async () => {
     useTaskHubStore.setState((state) => ({
       agentSessions: {
         ...state.agentSessions,
@@ -103,11 +104,12 @@ describe('project session scoping', () => {
       conversationId: 'conv-new',
     });
 
-    expect(emitSpy).toHaveBeenCalledWith('terminal:start', expect.objectContaining({
+    const payload = emitSpy.mock.calls.find(([event]) => event === 'terminal:start')?.[1];
+    expect(payload).toEqual(expect.objectContaining({
       projectId: 'conv-new',
       conversationId: 'conv-new',
       agentId: 'mario',
-      sessionId: 'new-cli-session',
     }));
+    expect(payload).not.toHaveProperty('sessionId');
   });
 });

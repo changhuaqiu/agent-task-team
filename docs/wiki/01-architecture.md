@@ -429,3 +429,20 @@ DispatchAdvisor 基于 CapabilityProfile 进行匹配：
 - [规格目录](../../specs/)
 - [文档导航](../README.md)
 - [架构图](./07-architecture-diagrams.md)
+
+## 1.10 Agent Session Harness 边界
+
+平台层 harness 拥有 Agent 的逻辑连续性，底层 runtime 只提供可加载的执行会话。当前项目容器仍由 `Conversation` 承载，因此逻辑身份为 `(conversationId, agentId)`；未来拆分 Project/Conversation 时，应迁移 scope 字段而不是改变“一个项目中的一个角色只有一个 active 逻辑会话”这一约束。
+
+```text
+Project(Conversation) + Role Agent
+              |
+              v
+Logical Agent Session  --1:N--> Invocation
+              |
+              | compare-and-set binding
+              v
+ACP Runtime Session (new once, load on later turns)
+```
+
+这条边界让调度、上下文组装和执行记录属于平台层，而 OpenCode、Claude、Codex 等 runtime 可以替换；runtime identity 不得由浏览器缓存或单次 Invocation 改写。

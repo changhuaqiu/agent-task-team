@@ -8,6 +8,7 @@
 //
 // Usage:
 //   npx tsx scripts/smoke-acp-runtime.ts [runtimeId] [model?]
+//   ACP_SMOKE_RESUME=1 npx tsx scripts/smoke-acp-runtime.ts [runtimeId] [model?]
 //   # default runtime: opencode
 //   # model is optional — for opencode it is written to an isolated temporary
 //   # OPENCODE_CONFIG (overrides the host default model).
@@ -182,6 +183,47 @@ async function main(): Promise<number> {
     failures.push(`last event was "${lastType}", expected "done"`);
   if (!completed)
     failures.push(`result.status was "${result.status}", expected "completed"`);
+
+  if (failures.length === 0 && process.env.ACP_SMOKE_RESUME === '1') {
+    if (!result.sessionId) {
+      failures.push('first turn returned no session id for resume');
+    } else {
+      const closeDeadline = Date.now() + 10_000;
+      while (getActiveAcpRunCount() > 0 && Date.now() < closeDeadline) {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+
+      const resumeBackend = createBackend(entry, {
+        cwd: prepared.cwd,
+        env: prepared.env,
+        permissionPolicy: 'allow_once',
+      });
+      const resumeRun = resumeBackend.execute(
+        'Continue the same conversation and reply with one short sentence.',
+        { timeout: turnTimeoutMs, resumeSessionId: result.sessionId },
+      );
+      const resumeTypes: string[] = [];
+      for await (const event of resumeRun.events) resumeTypes.push(event.type);
+      const resumeResult = await resumeRun.result;
+
+      console.log('--- resume report ---');
+      console.log(`events seen: ${resumeTypes.join(', ') || '(none)'}`);
+      console.log(`result:      ${resumeResult.status}`);
+      console.log(`sessionId:   ${resumeResult.sessionId ?? '(none)'}`);
+      console.log('');
+
+      if (!resumeTypes.includes('text')) failures.push('resume produced no text event');
+      if (resumeTypes.at(-1) !== 'done') failures.push('resume did not end with done');
+      if (resumeResult.status !== 'completed') {
+        failures.push(`resume status was "${resumeResult.status}"`);
+      }
+      if (resumeResult.sessionId !== result.sessionId) {
+        failures.push(
+          `resume changed session id from "${result.sessionId}" to "${resumeResult.sessionId ?? '(none)'}"`,
+        );
+      }
+    }
+  }
 
   if (failures.length === 0) {
     console.log('=== PASS ===');

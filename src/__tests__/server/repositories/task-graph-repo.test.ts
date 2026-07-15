@@ -83,6 +83,22 @@ describe('task graph migrations', () => {
           created_at TEXT NOT NULL,
           updated_at TEXT NOT NULL
         );
+        CREATE TABLE agent_session (
+          id TEXT PRIMARY KEY,
+          cli_session_id TEXT,
+          conversation_id TEXT NOT NULL,
+          agent_id TEXT NOT NULL,
+          task_id TEXT NOT NULL,
+          seq INTEGER NOT NULL DEFAULT 0,
+          status TEXT NOT NULL DEFAULT 'active',
+          context_health TEXT,
+          usage_snapshot TEXT,
+          message_count INTEGER NOT NULL DEFAULT 0,
+          seal_reason TEXT,
+          created_at TEXT NOT NULL,
+          sealed_at TEXT,
+          UNIQUE(agent_id, task_id, seq)
+        );
       `);
       legacyDb.prepare('INSERT INTO conversation (id, created_at, updated_at) VALUES (?, ?, ?)')
         .run('legacy-conv', '2026-05-15T00:00:00.000Z', '2026-05-15T00:00:00.000Z');

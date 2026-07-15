@@ -31,9 +31,8 @@
 // here, because real-runtimes × many scenarios × real API calls would be slow,
 // flaky, and env-gated, with no extra contract coverage.
 //
-// Deferred this iteration (documented, not built):
-//   - resume: AcpBackend does newSession only (`supportsResume: false`;
-//     loadSession is not wired). Wiring resume is a later task.
+// Resume is covered by acpBackend.test.ts, including load failure and identity
+// mismatch. Deferred this iteration (documented, not built):
 //   - permission confirm: policy selection is non-interactive in this iteration
 //     and therefore has no user-prompting profile to exercise yet.
 //
@@ -45,7 +44,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { AcpBackend } from './acpBackend';
+import { AcpBackend, getActiveAcpRunCount } from './acpBackend';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -53,11 +52,15 @@ const mockPath = join(__dirname, 'mockAcpAgent.ts');
 const tempDirs = new Set<string>();
 
 afterEach(async () => {
+  const deadline = Date.now() + 5_000;
+  while (getActiveAcpRunCount() > 0 && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
   if (process.platform === 'win32') {
-    await new Promise((resolve) => setTimeout(resolve, 1_000));
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
   }
   for (const path of tempDirs) {
-    rmSync(path, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    rmSync(path, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
     tempDirs.delete(path);
   }
 });
