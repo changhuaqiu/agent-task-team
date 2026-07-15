@@ -14,11 +14,6 @@
 | ID | 标题 | 类型 | 层级 | 成熟度 | 标签 | 权威位置 |
 | --- | --- | --- | --- | --- | --- | --- |
 | `KG-001` | 知识资产需要分层、类型、成熟度和引用闭环 | `model` | `team` | `verified` | `knowledge-governance`, `standards`, `iteration` | `docs/standards/knowledge-governance.md` |
-| `LL-001` | 提炼教训前先做时效性验证 | `pitfall` | `technical` | `verified` | `lessons`, `freshness`, `validation` | `docs/knowledge/public-lessons.md` |
-| `LL-002` | Review 问题必须先 Red 再 Green，禁止先改后补测 | `process` | `team` | `verified` | `review`, `testing`, `red-green` | `docs/knowledge/public-lessons.md` |
-| `LL-003` | Reviewer 必须有立场，Author 必须技术性 push back | `guideline` | `team` | `verified` | `review`, `collaboration` | `docs/knowledge/public-lessons.md` |
-| `LL-004` | P1/P2 当轮清零，P3 当场决断，不挂债务 | `process` | `team` | `verified` | `review`, `risk`, `iteration` | `docs/knowledge/public-lessons.md` |
-| `LL-005` | 修完 review 后必须回给 reviewer 二次确认再合 main | `process` | `team` | `verified` | `review`, `merge-gate` | `docs/knowledge/public-lessons.md` |
 
 ## KG-001: 知识资产需要分层、类型、成熟度和引用闭环
 

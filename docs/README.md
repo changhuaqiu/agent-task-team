@@ -64,7 +64,6 @@
 
 - `docs/knowledge/catalog.md`：可复用知识索引
 - `docs/knowledge/templates/`：知识条目模板
-- `docs/knowledge/public-lessons.md`：既有 lessons learned
 
 ### 8. `design/`
 
@@ -90,7 +89,6 @@
 - `docs/product/ux/2026-05-01-ux-journey-and-gameplay-plan.md`
 - `docs/product/ux/2026-05-15-group-chat-task-flow.md`
 - `docs/product/business/2026-05-01-engineering-role-card-business-plan.md`
-- `docs/product/business/2026-05-17-default-team-collaboration-template.md`
 
 ### 技术设计
 
@@ -124,7 +122,6 @@
 ### 稳定知识库
 
 - `docs/wiki/`
-- `docs/knowledge/public-lessons.md`
 - `docs/knowledge/catalog.md`
 
 ### 项目规范

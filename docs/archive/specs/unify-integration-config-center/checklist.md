@@ -1,9 +1,0 @@
-- [x] 设置抽屉已提供 `模型账号` 分区
-- [x] 设置抽屉已提供 `角色卡` 分区
-- [x] 账号支持新增、编辑、删除、验证的最小闭环
-- [x] OAuth 与 API Key 两种模式的字段已按不同表单逻辑处理
-- [x] 角色卡支持浏览、详情、编辑与账号绑定
-- [x] 执行链路已支持 `accountId`，且保留 `runtimeId / providerProfileId / channel / authContextId` 参数通路
-- [x] daemon 已具备多 backend 能力，`opencode / claude / codex` 已独立接入
-- [x] 独立配置中心页面已落地
-- [x] `Provider Profiles / Channels / Routing Policy` 已落地

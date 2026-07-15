@@ -6,7 +6,6 @@
 
 - `docs/knowledge/catalog.md`：知识索引，先读这里，再按需打开具体条目。
 - `docs/knowledge/templates/knowledge-entry.md`：结构化知识条目模板。
-- `docs/knowledge/public-lessons.md`：既有 lessons learned 条目，后续应逐步纳入 catalog。
 
 ## 使用规则
 
@@ -21,7 +20,6 @@
 docs/knowledge/
   README.md
   catalog.md
-  public-lessons.md
   templates/
     knowledge-entry.md
 ```

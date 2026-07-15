@@ -77,7 +77,7 @@ review_gate + test_gate 合并为 quality_gate（Peach 一个人做评审+测试
 - DB seed 逻辑：只 seed default-team
 
 ### 4.5 Spec 清理
-- `docs/product/business/2026-05-17-default-team-collaboration-template.md`：更新为 4 人组当前事实
+- `docs/product/business/2026-05-17-default-team-collaboration-template.md`：已删除（描述废弃的 6 人模板，与 4 人组收敛冲突）
 - 已删除的 spec（前一步清理的 a2a-v2 等）不涉及
 
 ## 5. 不改

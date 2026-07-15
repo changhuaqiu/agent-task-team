@@ -46,7 +46,7 @@ Agent Task Hub 不是替你完成梦想，而是让你终于有机会带着自�
 ---
 
 **延伸阅读**
-- [教训沉淀](../knowledge/public-lessons.md) — 我们踩过的坑
+- [知识治理](../standards/knowledge-governance.md) — 项目知识如何沉淀与淘汰
 
 ---
 

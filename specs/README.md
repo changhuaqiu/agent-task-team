@@ -26,33 +26,20 @@
 
 | 规格 | 状态 | 当前边界 |
 | --- | --- | --- |
-| [`platform-harness-loop/`](platform-harness-loop/) | active | 服务端 Agent Loop 主规格：触发、角色解析、上下文、派发、执行观察与续接；其他执行/协作规格作为子契约 |
 | [`acp-runtime-integration/`](acp-runtime-integration/) | active | 用统一 ACP client 一次接入 OpenCode 原生 ACP、Claude/Codex ACP 适配器，并删除 bespoke backend |
 | [`context-manager/`](context-manager/) | active | 统一上下文注入、项目隔离、可见性与 A2A 上下文来源；以 `docs/technical/execution/context-layering.md` 为设计依据 |
 | [`team-simplification/`](team-simplification/) | active | 默认团队从 6 人收敛到 4 人并清理旧 preset |
-| [`agent-session-stability/`](agent-session-stability/) | draft | 修正失败后的 session seal 与 ID 稳定性，实施前仍需对齐 ACP session 语义 |
 | [`system-control-plane/`](system-control-plane/) | active | 统一 dispatch、policy、proof、health 与跨实例状态权威 |
 | [`a2a-possession-contract/`](a2a-possession-contract/) | active | 完成持球、传球、交接包语义及控制平面接线 |
-| [`group-chat-task-flow/`](group-chat-task-flow/) | active | 已有 baseline，仍有任务图、wakeup 和持久化验收未完成 |
-| [`frontend-runtime-performance-refactor/`](frontend-runtime-performance-refactor/) | active | 完成剩余性能验收与订阅边界收敛 |
 | [`team-role-card-compatibility/`](team-role-card-compatibility/) | active | 自动化已完成，仍需三项人工兼容验收 |
 | [`role-card-format/`](role-card-format/) | draft | 冻结角色卡/Team Pack 文件格式并替换即将移除的示例 |
 
 ## 依赖关系
 
 ```text
-platform-harness-loop
-├── system-control-plane
-├── context-manager
-├── acp-runtime-integration
-└── a2a-possession-contract
-    └── group-chat-task-flow
-
 system-control-plane
 ├── acp-runtime-integration
-├── agent-session-stability
 ├── a2a-possession-contract
-│   └── group-chat-task-flow
 └── context-manager
 
 team-simplification
