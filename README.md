@@ -137,7 +137,9 @@ pnpm start    # 启动
 | 状态 | Zustand 5 | 前端状态管理 |
 | 数据库 | SQLite | 本地持久化，零配置 |
 | 实时通信 | Socket.io | 双向 WebSocket |
-| Agent 执行 | 多 CLI 支持 | OpenCode / Claude / Codex（Gemini 回退到 OpenCode） |
+| Agent 执行 | ACP（Agent Client Protocol） | 单一 `AcpBackend` 经 stdio JSON-RPC 驱动 OpenCode（原生）/ Claude / Codex（适配器） |
+
+**统一 Agent 运行时（ACP）**：daemon 只通过一个 `AcpBackend`、用 Agent Client Protocol（stdio JSON-RPC）驱动三类运行时——OpenCode 原生 ACP、Claude / Codex 经 `@agentclientprotocol` 适配器接入。声明式 Catalog（`agentCatalog.seed.json`）是启动事实源，适配器版本锁定；daemon 不再为每个引擎写死分支或解析私有 CLI 输出。
 
 **会话级隔离**：每个项目中每个 Agent 维护独立会话，上下文不串。
 
