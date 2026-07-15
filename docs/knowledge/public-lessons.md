@@ -79,13 +79,13 @@ created: 2026-02-26
 - 防护：将时效性检查写入提炼标准；未通过检查的条目不得进入 P0 导入集。
 - 来源锚点：
   - *(internal reference removed)*
-  - `docs/decisions/005-hindsight-integration-decisions.md#L297`
+  - *(ADR-005 Hindsight 集成决策已于 2026-07-15 随 decisions/ 目录日落移除)*
 - 原理（可选）：知识沉淀是“状态同步问题”，不是“文档搬运问题”；任何结论都依赖其最新上下文状态。
 
 - 关联：
   - *(internal reference removed)*
   - *(internal reference removed)*
-  - `docs/decisions/005-hindsight-integration-decisions.md`
+  - *(ADR-005 Hindsight 集成决策已于 2026-07-15 随 decisions/ 目录日落移除)*
 
 ---
 
@@ -142,7 +142,7 @@ created: 2026-02-26
 - 原理（可选）：风险管理要“就地收敛”，延后会把局部风险变系统风险。
 
 - 关联：
-  - `docs/ROADMAP.md`
+  - `docs/roadmap.md`
   - `agent-hub-skills/merge-approval-gate/SKILL.md`
 
 ### LL-005: 修完 review 后必须回给 reviewer 二次确认再合 main
@@ -215,7 +215,7 @@ created: 2026-02-26
 
 - 关联：
   - `AGENTS.md`
-  - `docs/ROADMAP.md`
+  - `docs/roadmap.md`
   - `LL-011`
   - `LL-012`
 
@@ -466,7 +466,7 @@ created: 2026-02-26
   - *(internal reference removed)*
 - 原理：治理有效性不是“策略存在”，而是“策略被持续验证”。没有自动化检查的治理，等同于没有治理。
 
-- 关联：`docs/decisions/005-hindsight-integration-decisions.md` | `docs/ROADMAP.md` | Task 4 可观测检查
+- 关联：*(ADR-005 Hindsight 已于 2026-07-15 日落移除)* | `docs/roadmap.md` | Task 4 可观测检查
 
 ### LL-024: 状态字段多点写入会复发蜘蛛网
 - 状态：validated
@@ -478,7 +478,7 @@ created: 2026-02-26
 - 修复：`stage` 只保留在 `(legacy feature document removed)` 聚合文件的 Status 字段，不放入普通文档 frontmatter。聚合文件是 Feature 状态的唯一真相源。
 - 防护：ADR-011 明确记录此决策 + `feat-kickoff` / `feat-completion` skill 不在普通文档生成 `stage` 字段。
 - 来源锚点：
-  - `docs/decisions/011-metadata-contract.md` §D
+  - *(ADR-011 Metadata Contract 已于 2026-07-15 随 decisions/ 目录日落移除)* §D
   - `(legacy feature document removed)` Frontmatter Contract 章节
   - 2026-02-26 Admin讨论（4.6 提出此问题）
 - 原理：单点真相源原则——任何状态信息都应该只有一个权威来源。多点写入 = 同步负担 + 不一致风险。静态关联可以多点存（因为不变），动态状态必须单点存。
@@ -570,7 +570,7 @@ created: 2026-02-26
 - 防护：ADR-016 N3（profile 化取代纯 `.env` 感知）+ 启动摘要值来源标注 + sidecar 状态分层（disabled/launching/ready/failed）。
 - 来源锚点：
   - *(internal reference removed)*（C1 共识 + 4.1 决策）
-  - `docs/decisions/016-sync-runtime-negation-decisions.md`（N3 否决分叉脚本）
+  - *(ADR-016 Sync Runtime Negation 已于 2026-07-15 随 decisions/ 目录日落移除)*（N3 否决分叉脚本）
   - commit `553984d5`（Agent-M proxy kill 门禁修复）
 - 原理：共享基础设施的默认值是所有消费环境的隐式契约。改默认值 = 改所有环境的行为。必须同时补齐所有消费方的显式覆盖，并用真实启动验证——静态检查只能证明"代码合法"，不能证明"行为正确"。
 
@@ -1019,8 +1019,8 @@ created: 2026-02-26
   3. 定期 ADR 巡检（半年一次 `last_reviewed` 刷新）
 - 来源锚点：
   - 社区 issue：[agent-task-hub#386](https://github.com/zts212653/agent-task-hub/issues/386)
-  - ADR-009 drift 标注：`docs/decisions/009-agent-hub-skills-distribution.md`
-  - Successor ADR：`docs/decisions/025-skills-canonical-mount-policy.md`
+  - ADR-009 drift 标注：*(ADR-009 已于 2026-07-15 随 decisions/ 目录日落移除)*
+  - Successor ADR：*(从未创建；2026-07-15 decisions/ 目录整体日落)*
 - 原理：**知识也有保质期**。ADR 记录的是某个时间点的决策假设，后续架构演进可能悄悄推翻这些假设。如果只靠Agent的记忆发现漂移，检测延迟 = Feature 交付频率的倒数。必须在 Feature completion 工具层面做"知识影响扫描"，才能把漂移窗口从月级压到天级。
 
 - 关联：ADR-009 | ADR-025 | F070 | agent-task-hub#386 | `project_knowledge_lifecycle_gap.md`

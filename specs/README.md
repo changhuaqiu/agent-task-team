@@ -64,6 +64,6 @@ team-simplification
 
 - 开始实现前读取相关 `spec.md`、`tasks.md`、`checklist.md`。
 - 代码行为变化时同步更新活动规格和对应长期文档。
-- 规格完成时先将稳定结论回写到 `docs/`、`architecture/` 或 `decisions/`，再迁入归档。
+- 规格完成时先将稳定结论回写到 `docs/` 或 `architecture/`，再迁入归档。
 - 活动目录中不得保留“任务全部完成但仍列为 active”的规格。
 - 被新方案替代的内容不得继续作为并行事实源。

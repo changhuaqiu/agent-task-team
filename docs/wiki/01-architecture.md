@@ -424,9 +424,8 @@ DispatchAdvisor 基于 CapabilityProfile 进行匹配：
 
 ## 1.9 关联文档
 
-- [产品愿景](../../VISION.md)
-- [研发路线图](../../ROADMAP.md)
+- [产品愿景](../product/vision.md)
+- [研发路线图](../roadmap.md)
 - [规格目录](../../specs/)
 - [文档导航](../README.md)
 - [架构图](./07-architecture-diagrams.md)
-- [决策记录](../../decisions/)

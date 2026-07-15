@@ -12,9 +12,10 @@
 这些文档保留在项目根目录，作为全局入口：
 
 - `README.md`：项目总览与使用方式
-- `ROADMAP.md`：路线图与阶段目标
 - `AGENTS.md`：Agent 在本项目中的工作约束
-- `CLAUDE.md` / `GEMINI.md` / `TIPS.md`：模型/协作辅助说明
+- `CLAUDE.md`：模型/协作辅助说明
+
+其余长期文档统一收纳在 `docs/` 下（路线图、开发 SOP、使用 Tips、愿景等，见下方各小节）。
 
 ### 1.1. `docs/standards/`
 
@@ -25,7 +26,7 @@
 - `docs/standards/iteration-knowledge.md`：迭代知识沉淀规范，定义每轮结束时如何识别并沉淀可复用知识
 - `docs/standards/knowledge-governance.md`：知识治理规范，定义知识分层、类型、成熟度、证据、索引、引用和淘汰规则
 
-任何技术或业务动作开始前，都必须先判断动作类型并读取对应规范；每轮迭代结束前，都必须按知识沉淀规范判断是否需要更新 `docs/wiki/`、`docs/knowledge/`、`decisions/` 或相关规格。进入 `docs/knowledge/` 的条目必须遵守知识治理规范并同步更新 `docs/knowledge/catalog.md`。
+任何技术或业务动作开始前，都必须先判断动作类型并读取对应规范；每轮迭代结束前，都必须按知识沉淀规范判断是否需要更新 `docs/wiki/`、`docs/knowledge/` 或相关规格。进入 `docs/knowledge/` 的条目必须遵守知识治理规范并同步更新 `docs/knowledge/catalog.md`。
 
 ### 2. `docs/product/`
 
@@ -73,11 +74,7 @@
 
 架构主文档与系统结构说明。
 
-### 10. `decisions/`
-
-架构决策记录（ADR）与关键决策沉淀。
-
-### 11. `docs/archive/`
+### 10. `docs/archive/`
 
 已完成使命、但仍有历史参考价值的文档归档区。
 
@@ -171,7 +168,7 @@
 ### 1. 所有实现必须同步更新设计文档
 
 - 任何代码实现、交互调整、数据模型变更、执行链路修改，只要改变了系统实际行为，就必须同步更新对应设计文档后才算完成交付
-- 设计文档可位于 `docs/`、`design/`、`architecture/`、`decisions/`，应根据内容类型落到正确目录
+- 设计文档可位于 `docs/`、`design/`、`architecture/`，应根据内容类型落到正确目录
 - 不允许出现“代码已经改完，但设计文档仍停留在旧状态”的情况
 - 多 Agent 并行开发时，文档同步是强制交付门禁，不是可选动作
 - 项目正式文档必须位于仓库根目录可见的文档体系中，不应以 `.trae/` 作为正式交付位置
@@ -186,7 +183,7 @@
 
 ### 2. 先判断是否为“长期有效”
 
-- 长期有效：进入 `docs/`、`design/`、`architecture/`、`decisions/`
+- 长期有效：进入 `docs/`、`design/`、`architecture/`
 - 活动规格：统一进入 `specs/`
 - 一次性执行稿：优先放 `docs/plans/`
 - 已失效但有参考价值：迁入 `docs/archive/`

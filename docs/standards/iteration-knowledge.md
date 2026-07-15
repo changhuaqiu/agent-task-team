@@ -21,7 +21,7 @@
 | 当前实现事实 | `docs/wiki/` | 模块职责、数据流、运行方式、已落地行为 |
 | 长期技术设计 | `docs/technical/` 或 `architecture/` | 执行链路、控制面、存储模型、集成协议 |
 | 产品/业务原则 | `docs/product/` | 用户模型、业务对象、角色协作规则 |
-| 架构/产品决策 | `decisions/` | 事实源迁移、协作模型取舍、重大替代方案 |
+| 架构/产品决策 | `docs/technical/` 或 `architecture/` | 事实源迁移、协作模型取舍、重大替代方案 |
 | 活动实现契约 | `specs/<name>/` | 正在执行的功能规格、任务、验收清单 |
 | 可复用经验 | `docs/knowledge/` | lessons learned、排障经验、反模式 |
 | 已失效资料 | `docs/archive/` | 被替代但仍有历史参考价值的计划或规格 |

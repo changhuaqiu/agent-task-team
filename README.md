@@ -210,10 +210,11 @@ pnpm start    # 启动
 
 | 文档 | 说明 |
 |------|------|
-| [产品愿景](./VISION.md) | 为什么做这个项目 |
+| [产品愿景](./docs/product/vision.md) | 为什么做这个项目 |
 | [架构设计](./docs/wiki/01-architecture.md) | 技术架构详解 |
-| [开发规范](./SOP.md) | 如何参与贡献 |
+| [开发规范](./docs/sop.md) | 如何参与贡献 |
 | [Agent 指南](./AGENTS.md) | Agent 工作约束 |
+| [路线图](./docs/roadmap.md) | 阶段目标 |
 | [完整文档](./docs/README.md) | 文档导航 |
 
 ---

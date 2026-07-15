@@ -20,7 +20,7 @@
 3. **读取相关事实源**：按 `docs/README.md`、`specs/README.md` 和相关 `specs/<name>/` 对齐当前事实。
 4. **执行任务**：实现、分析或设计时遵守规范中的门禁。
 5. **同步文档**：任何行为、数据模型、UX、业务规则变化都必须回写对应文档。
-6. **识别可沉淀知识**：按迭代沉淀规范判断是否更新 `docs/wiki/`、`docs/knowledge/`、`decisions/` 或规格文档；若进入 `docs/knowledge/`，必须遵守知识治理规范。
+6. **识别可沉淀知识**：按迭代沉淀规范判断是否更新 `docs/wiki/`、`docs/knowledge/` 或规格文档；若进入 `docs/knowledge/`，必须遵守知识治理规范。
 
 ## 与其他入口的关系
 

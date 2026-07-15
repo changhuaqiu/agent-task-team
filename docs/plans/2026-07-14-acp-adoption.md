@@ -1,5 +1,7 @@
 # ACP 运行时统一接入 — 执行计划
 
+> 2026-07-15 更新：本计划中“权限本期搁置、auto-approve 占位”的临时覆盖已由 `docs/technical/execution/acp-runtime-fail-closed-supervision.md` 废止。当前事实以 `specs/acp-runtime-integration/` 和 `src/server/agent/acp/permissionPolicy.ts` 为准：默认拒绝，仅显式 `allow_once`。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: superpowers:subagent-driven-development（推荐）或 executing-plans 逐任务实现。步骤用 `- [ ]` 跟踪。
 > **事实源**：`specs/acp-runtime-integration/spec.md`（团队 spec，权威）。本计划是其 §7 迁移策略的 **TDD 逐步执行细节**，补 `tasks.md`（看板视角）之所缺。二者互补：spec=契约/策略，本计划=怎么一步步落地。
 > **重要**：本仓库有活跃 agent 团队并发迁移文档（staged 未提交）。本计划**只编辑、不提交**；提交时机由用户/团队在迁移落定后统一处理。

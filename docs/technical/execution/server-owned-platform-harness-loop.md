@@ -1,5 +1,7 @@
 # ADR-023: Server-Owned Platform Harness Loop
 
+> 同主题设计文档：[`platform-harness-loop.md`](./platform-harness-loop.md)（已落地状态说明）。本文件保留为该决策的 ADR 记录。
+
 ## 状态
 
 Accepted — 2026-07-14
