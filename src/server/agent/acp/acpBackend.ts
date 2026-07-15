@@ -34,6 +34,7 @@ export type AcpFailureReasonCode =
   | 'acp_resume_unsupported'
   | 'acp_session_identity_changed'
   | 'acp_session_load_failed'
+  | 'acp_session_not_found'
   | 'acp_startup_failed'
   | 'acp_timeout';
 
@@ -135,6 +136,13 @@ export function sanitizeAcpDiagnostic(value: string): string {
     .replace(/(bearer\s+)[^\s"']+/gi, '$1[REDACTED]')
     .replace(/\b(?:sk|rk|ghp|github_pat|xox[baprs])-[-_a-z0-9]{8,}\b/gi, '[REDACTED]')
     .replace(/(["']?(?:api[_-]?key|access[_-]?token|password|secret)["']?\s*[:=]\s*["']?)[^"'\s]+/gi, '$1[REDACTED]');
+}
+
+export function isAcpResourceNotFound(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const candidate = error as { code?: unknown; message?: unknown };
+  return candidate.code === -32002
+    || (typeof candidate.message === 'string' && /resource not found/i.test(candidate.message));
 }
 
 function processExitMessage(code: number | null, signal: NodeJS.Signals | null, stderr: string): string {
@@ -496,7 +504,11 @@ export class AcpBackend implements AgentBackend {
               } catch (error) {
                 const message = `ACP session load failed for ${sessionId}: ${error instanceof Error ? error.message : String(error)}`;
                 emit({ type: 'error', content: message, sessionId }, true);
-                finalize('failed', 'acp_session_load_failed', message);
+                finalize(
+                  'failed',
+                  isAcpResourceNotFound(error) ? 'acp_session_not_found' : 'acp_session_load_failed',
+                  message,
+                );
                 return;
               }
             } else {

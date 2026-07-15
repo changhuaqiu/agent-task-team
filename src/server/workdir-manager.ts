@@ -12,6 +12,11 @@ export interface GCMeta {
   completedAt: string;
 }
 
+/** Keep resumable ACP turns on one cwd when no task id is present. */
+export function stableWorkdirTaskKey(taskId?: string): string {
+  return taskId?.trim() || 'adhoc';
+}
+
 export class WorkdirManager {
   private root: string;
   private worktreeManager: WorktreeManager;

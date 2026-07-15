@@ -42,3 +42,4 @@
 - [x] 真正无活动的 turn 仍会在 idle timeout 后回收。
 - [x] hard max turn timeout 可终止持续产生更新但不结束的异常进程。
 - [x] 小写 runtime 原生工具不会触发平台自定义工具执行。
+- [x] 连续 ACP 文本 chunk 在历史消息中只形成一个逻辑文本段，工具边界前后不误合并。

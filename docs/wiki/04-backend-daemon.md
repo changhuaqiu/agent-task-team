@@ -252,6 +252,8 @@ server-originated handoff 现在先生成 `a2a_pass` 与 `a2a_handoff_packet`，
 
 daemon 会把 `AcpBackend` 的 `done` 事件视为 agent 完成信号。完成信号会先把 `agentResponseBuffer` 中的文本交给 A2A scanner，再清理缓存；因此 agent 输出可以触发后续 `@mention` 转交。所有运行时（opencode / claude / codex）现在统一经 ACP 产出 `AgentEvent`，不再有 per-engine 私有 stdout 解析。
 
+ACP 文本事件是增量流。daemon 继续把每个 chunk 实时广播给浏览器，但同一 Invocation 内连续的文本只持久化为一条 `chat_message`；工具、错误和完成事件会关闭当前文本段。这样实时体验不受影响，历史消息也不会按单字或 token 碎片化。
+
 agent 输出中的 `@mention` 不再自动变成转交。A2A 只接受带明确行动意图的交接，例如“@reviewer 请审查…”、“交给 @coder 实现…”。普通引用、否定句、代码块中的 `@agent` 不会唤醒目标 agent。非 active holder 的输出即使包含交接语义也会被拦截；fan-out branch holder 的输出则合法，即使兼容 UI 的最新 holder 指向另一个 branch。
 
 “派发 / 分配 / 指派 @agent”这类状态总结也属于明确交接意图。对于 Mario 这类上游 agent 输出的 compact table，例如“TASK-001 @toad 运行中”，只要上下文明确说明正在派发，parser 会把它转换成 handoff intent，而不是当作普通提及忽略。同一个 holder 响应中产生的多个 idle 目标会在同一轮 dispatch cycle 中发出执行请求，以支持批量交接和并行唤醒。
@@ -362,6 +364,8 @@ daemon 当前已经具备会话级跟踪：
 Daemon 不接受浏览器缓存作为会话恢复依据。正式 dispatch 必须携带 `conversationId` 或 `projectId`；缺失 scope 时返回 `session_scope_missing`，不再落入共享的 `default` scope。
 
 每次 dispatch 先取得或原子创建 `(conversation_id, agent_id)` 唯一的 active Logical Agent Session，再创建引用它的 Invocation。Logical Session 尚未绑定 runtime id 时，ACP 使用 `session/new`，首个返回 id 通过 compare-and-set 写入；已经绑定时使用 `session/load`。任何不同 id 都视为 `session_identity_changed`，不会覆盖数据库状态。timeout、cancel 或 adapter 退出不会自动 seal Session，下一轮仍恢复原 id。
+
+Runtime Session 的 cwd 也必须稳定：无 taskId 的同项目同 Agent 使用固定 `task-adhoc/workdir`，不能按 dispatch 时间戳换目录。ACP 明确返回 `Resource not found` 时使用 `acp_session_not_found`，daemon 将失效 generation 封存为 `runtime_resource_not_found`，下一次发送创建新 generation；普通 load 错误仍保留原绑定。
 
 前端 `agentSessions` 是服务端状态的显示缓存：hydrate 时以 `/api/state.activeSessions` 整体替换，不与 localStorage 合并，也不在 `terminal:start` 中回传 session id。
 

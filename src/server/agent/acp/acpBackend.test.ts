@@ -14,11 +14,19 @@
 import { describe, it, expect } from 'vitest';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { AcpBackend } from './acpBackend';
+import { AcpBackend, isAcpResourceNotFound } from './acpBackend';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const mockPath = join(__dirname, 'mockAcpAgent.ts');
+
+describe('isAcpResourceNotFound', () => {
+  it('recognizes ACP code and message without widening other load failures', () => {
+    expect(isAcpResourceNotFound({ code: -32002, message: 'missing' })).toBe(true);
+    expect(isAcpResourceNotFound(new Error('Resource not found: session-1'))).toBe(true);
+    expect(isAcpResourceNotFound(new Error('authentication failed'))).toBe(false);
+  });
+});
 
 describe('AcpBackend (subprocess integration with mockAcpAgent)', () => {
   it('drives a full turn: text → tool_use → tool_result → text → done, result completed', async () => {

@@ -21,6 +21,7 @@
 - [x] 区分 confirmed 与 unconfirmed runtime binding。
 - [x] 首次 Invocation 未成功时 compare-and-clear unconfirmed binding。
 - [x] dispatch 前修复“有失败历史但从未成功”的遗留 binding。
+- [x] 固定无 taskId 的 Session cwd，区分 `Resource not found` 并封存失效 generation。
 
 ## 前端
 
@@ -36,3 +37,4 @@
 - [x] OpenCode、Claude、Codex 真实 resume smoke。
 - [x] 安装、类型检查、测试和构建通过。
 - [x] 首轮 cancel/timeout 后下一轮重新 provision 测试。
+- [x] 稳定 cwd 与失效 runtime resource 自动换代测试。

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { WorkdirManager } from '@/server/workdir-manager';
+import { stableWorkdirTaskKey, WorkdirManager } from '@/server/workdir-manager';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
@@ -95,5 +95,17 @@ describe('WorkdirManager', () => {
       m.gc(24 * 3600 * 1000);
       expect(fs.existsSync(wd)).toBe(true);
     });
+  });
+});
+
+describe('stableWorkdirTaskKey', () => {
+  it('keeps ad-hoc turns on a stable cwd', () => {
+    expect(stableWorkdirTaskKey()).toBe('adhoc');
+    expect(stableWorkdirTaskKey('')).toBe('adhoc');
+    expect(stableWorkdirTaskKey('  ')).toBe('adhoc');
+  });
+
+  it('preserves explicit task identity', () => {
+    expect(stableWorkdirTaskKey('TASK-001')).toBe('TASK-001');
   });
 });

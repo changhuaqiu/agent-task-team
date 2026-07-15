@@ -337,6 +337,30 @@ describe('session-repo', () => {
     expect(ses2.id).toBe('ses-2');
   });
 
+  it('appends stream chunks to one text message', () => {
+    const id = messageRepo.append({
+      conversationId: 'conv-1',
+      senderType: 'agent',
+      senderId: 'a1',
+      content: '工作',
+    });
+    expect(messageRepo.appendTextChunk(id, '目录')).toBe(true);
+    expect(messageRepo.getByConversation('conv-1')).toMatchObject([
+      { id, content: '工作目录', content_type: 'text' },
+    ]);
+  });
+
+  it('does not append text chunks to tool messages', () => {
+    const id = messageRepo.append({
+      conversationId: 'conv-1',
+      senderType: 'agent',
+      senderId: 'a1',
+      content: 'tool',
+      contentType: 'tool_use',
+    });
+    expect(messageRepo.appendTextChunk(id, 'unexpected')).toBe(false);
+  });
+
   it('keeps one active logical session per project and agent', () => {
     const first = sessionRepo.getOrCreateActive({
       id: 'ses-1', conversationId: 'conv-1', agentId: 'agent-a', taskId: 'task-1', seq: 0,

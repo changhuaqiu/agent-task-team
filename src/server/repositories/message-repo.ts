@@ -55,6 +55,18 @@ export const messageRepo = {
     return id;
   },
 
+  appendTextChunk(id: string, chunk: string): boolean {
+    if (!chunk) return true;
+    const result = getDb()
+      .prepare(
+        `UPDATE chat_message
+         SET content = content || ?
+         WHERE id = ? AND content_type = 'text'`,
+      )
+      .run(chunk, id);
+    return result.changes === 1;
+  },
+
   getByConversation(
     convId: string,
     options?: { limit?: number; cursor?: string },

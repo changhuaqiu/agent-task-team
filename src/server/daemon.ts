@@ -29,7 +29,8 @@ import { checkCapabilities } from './agent/capabilityRouter';
 import type { AgentEvent, AgentBackend } from './agent/types';
 import { withDoneGuarantee } from './agent/with-done-guarantee';
 import { isNativeRuntimeTool } from './agent/nativeTools';
-import { WorkdirManager } from './workdir-manager';
+import { StreamTextPersistence } from './agent/streamTextPersistence';
+import { stableWorkdirTaskKey, WorkdirManager } from './workdir-manager';
 import { AgentMessenger } from './a2a';
 import { createRuntimeSnapshotProvider } from './a2a/runtime-snapshot-provider';
 import { getDb } from './db';
@@ -758,6 +759,22 @@ export default function registerDaemon(io: IOServer) {
       let invocationSessionRecorded = false;
       let observedRuntimeSessionId: string | undefined;
       let hasBackgroundChildActivity = false;
+      const persistedText = new StreamTextPersistence({
+        create(content) {
+          const id = messageRepo.append({
+            conversationId: sessionConvId,
+            taskId,
+            senderType: 'agent',
+            senderId: agentId,
+            content,
+            contentType: 'text',
+            metadata: { invocationId: invocation.id },
+          });
+          sessionRepo.incrementMessageCount(agentSession.id);
+          return id;
+        },
+        append: (messageId, content) => messageRepo.appendTextChunk(messageId, content),
+      });
 
       // --- Timeout control ---
       // codex ACP startup ~117s (WebSocket→HTTPS fallback). Floor BOTH the
@@ -952,6 +969,10 @@ export default function registerDaemon(io: IOServer) {
       // --- Shared agent event forwarder ---
       const forwardAgentEvent = (event: AgentEvent) => {
         try {
+        // Text updates are stream deltas. A non-text event closes the current
+        // persisted segment while socket delivery remains fully incremental.
+        if (event.type !== 'text') persistedText.closeSegment();
+
         // Observe runtime identity during the turn, but do not persist a new
         // binding until the Invocation completes successfully. Some adapters
         // only make a new Session loadable after the first prompt commits.
@@ -1005,15 +1026,7 @@ export default function registerDaemon(io: IOServer) {
         // Persist to message repo
         if (event.type === 'text' && event.content) {
           try {
-          messageRepo.append({
-            conversationId: sessionConvId,
-            taskId,
-            senderType: 'agent',
-            senderId: agentId,
-            content: event.content,
-            contentType: 'text',
-          });
-          if (agentSession) sessionRepo.incrementMessageCount(agentSession.id);
+          persistedText.appendChunk(event.content);
           } catch (dbErr) {
             console.error(`[daemon] Failed to persist text message for ${agentId}:`, dbErr);
           }
@@ -1237,7 +1250,7 @@ export default function registerDaemon(io: IOServer) {
       const wd = await workdirManager.resolveWorkdir(
         agentId,
         projectId || 'default',
-        taskId || `adhoc-${Date.now()}`,
+        stableWorkdirTaskKey(taskId),
         effectiveUseWorktree && effectiveSlug ? { useWorktree: true, projectSlug: effectiveSlug } : undefined,
       );
       const sessionMeta = taskId ? workdirManager.readSessionMeta(agentId, projectId || 'default', taskId) : null;
@@ -1374,6 +1387,9 @@ export default function registerDaemon(io: IOServer) {
               exit_code: 1,
               reason_code: final.reasonCode ?? (final.status === 'timeout' ? 'timeout' : undefined),
             });
+            if (final.reasonCode === 'acp_session_not_found') {
+              sessionRepo.seal(agentSession.id, 'runtime_resource_not_found');
+            }
           }
 
           // Confirmed bindings survive failure/timeout. A new binding is not

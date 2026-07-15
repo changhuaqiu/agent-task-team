@@ -40,3 +40,4 @@
 - [x] 将 ACP timeout 改为活动续期的 idle timeout，并增加独立 hard max。
 - [x] runtime 原生工具判断改为大小写无关，禁止重复拦截。
 - [x] 增加持续活动不触发 idle timeout、真正静默仍超时的测试。
+- [x] 合并同一 Invocation 内连续 ACP 文本 chunk，并保留工具事件边界。
