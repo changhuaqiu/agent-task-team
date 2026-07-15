@@ -125,6 +125,8 @@ daemon 不解析任何厂商专有 stdout，不判断某个厂商支持哪些参
 
 未知 ACP update 必须记录并安全忽略，不能导致整个 daemon 崩溃。
 
+ACP `tool_call_update` 可以只携带 `toolCallId`，不重复 `tool_call` 中的 title/kind。`AcpBackend` 必须在单次 execute 生命周期内维护 `toolCallId → tool name`，让同一调用的 `tool_use` 与所有 `tool_result` 使用一致名称；该映射不得跨 Invocation 或 Session 共享。只有从未见过的 call id 才使用中性 `Tool` 回退，不向 UI 输出 `unknown`。
+
 ## 6. 权限与安全
 
 - 复用现有账号与凭据存储，不把 token、API Key 或登录态写入 Catalog、日志和 spec。
@@ -169,6 +171,8 @@ ACP 是长生命周期 daemon 启动的外部进程边界，不能假设 adapter
 6. **诊断不泄密**：stderr 只保留有界、脱敏的尾部用于失败定位；正常执行不把原始 stderr 逐块写入日志。
 7. **临时状态可回收**：OpenCode fallback config 和 Codex 隔离 home 均写入受控临时目录，权限尽可能收紧，cleanup 幂等；不得修改用户项目中的 `opencode.json`。
 8. **重试不重复副作用**：只有本轮实际尝试了 resume 且失败发生在 session 建立前，才允许 fresh-session 重试；被 capability router 丢弃的 resume 不能触发重复 prompt。
+9. **空闲与总时长分离**：`ExecOptions.timeout` 表示无 ACP 协议活动的 idle timeout，任意 session update（包括不展示的 usage/plan update）均续期；另设独立 hard max turn timeout，防止持续产生无效更新的进程无限占用资源。
+10. **原生工具不重复拦截**：daemon 判断 runtime 原生工具时大小写无关；`Read/Write/Bash` 与 `read/write/bash` 语义相同，不得作为平台自定义工具再次调用。
 
 该契约参考 OpenClaw 的工程原则：活跃 run 使用可取消控制器、会话/并发有上限、超时后执行 bounded cleanup、流式输出设置字符上限、权限与配置异常 fail-closed。这里复用原则，不引入 OpenClaw 的 Gateway 或 session store 实现。
 

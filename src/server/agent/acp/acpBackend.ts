@@ -5,7 +5,10 @@ import * as acp from '@agentclientprotocol/sdk';
 import treeKill from 'tree-kill';
 import { spawnCli } from '../cliBridge';
 import { withDoneGuarantee } from '../with-done-guarantee';
-import { mapAcpUpdate, KNOWN_SESSION_UPDATE_TYPES } from './agentEventMapper';
+import {
+  createTurnScopedAcpEventMapper,
+  KNOWN_SESSION_UPDATE_TYPES,
+} from './agentEventMapper';
 import {
   createPermissionHandler,
   type AcpPermissionPolicy,
@@ -25,6 +28,7 @@ export type AcpFailureReasonCode =
   | 'acp_connection_failed'
   | 'acp_event_limit'
   | 'acp_invalid_runtime'
+  | 'acp_max_turn_timeout'
   | 'acp_output_limit'
   | 'acp_process_exited'
   | 'acp_resume_unsupported'
@@ -52,6 +56,7 @@ export interface AcpBackendOpts {
   permissionTimeoutMs?: number;
   cancelGraceMs?: number;
   forceKillGraceMs?: number;
+  maxTurnTimeoutMs?: number;
   limits?: Partial<AcpRuntimeLimits>;
 }
 
@@ -208,6 +213,7 @@ export class AcpBackend implements AgentBackend {
     let sessionId: string | undefined;
     let clientContext: acp.ClientContext | undefined;
     let acceptSessionUpdates = false;
+    const mapTurnUpdate = createTurnScopedAcpEventMapper();
     let stderrTail = '';
     let initialized = false;
     let resultResolved = false;
@@ -216,6 +222,8 @@ export class AcpBackend implements AgentBackend {
     let termTimer: NodeJS.Timeout | undefined;
     let forceKillTimer: NodeJS.Timeout | undefined;
     let cleanupReleaseTimer: NodeJS.Timeout | undefined;
+    let idleTimeoutTimer: NodeJS.Timeout | undefined;
+    let maxTurnTimeoutTimer: NodeJS.Timeout | undefined;
 
     let resultResolve!: (result: AgentResult) => void;
     const resultPromise = new Promise<AgentResult>((resolveResult) => {
@@ -312,7 +320,8 @@ export class AcpBackend implements AgentBackend {
     ) => {
       if (resultResolved) return;
       resultResolved = true;
-      clearTimeout(timeoutTimer);
+      clearTimeout(idleTimeoutTimer);
+      clearTimeout(maxTurnTimeoutTimer);
       resultResolve({
         status,
         output,
@@ -333,13 +342,30 @@ export class AcpBackend implements AgentBackend {
       finalize('failed', reasonCode, message, undefined, true);
     };
 
-    const timeoutMs = Math.max(1, opts.timeout ?? this.o.timeoutMs ?? 120_000);
-    const timeoutTimer = setTimeout(() => {
-      const message = `ACP turn timed out after ${timeoutMs}ms`;
-      emit({ type: 'error', content: message, sessionId }, true);
-      finalize('timeout', 'acp_timeout', message, undefined, true);
-    }, timeoutMs);
-    timeoutTimer.unref?.();
+    const idleTimeoutMs = Math.max(1, opts.timeout ?? this.o.timeoutMs ?? 120_000);
+    const maxTurnTimeoutMs = this.o.maxTurnTimeoutMs
+      ?? Math.max(idleTimeoutMs * 6, 30 * 60_000);
+    const armIdleTimeout = () => {
+      clearTimeout(idleTimeoutTimer);
+      idleTimeoutTimer = setTimeout(() => {
+        const message = `ACP turn idle timed out after ${idleTimeoutMs}ms without protocol activity`;
+        emit({ type: 'error', content: message, sessionId }, true);
+        finalize('timeout', 'acp_timeout', message, undefined, true);
+      }, idleTimeoutMs);
+      idleTimeoutTimer.unref?.();
+    };
+    const markProtocolActivity = () => {
+      if (!resultResolved) armIdleTimeout();
+    };
+    armIdleTimeout();
+    if (maxTurnTimeoutMs > 0) {
+      maxTurnTimeoutTimer = setTimeout(() => {
+        const message = `ACP turn exceeded hard limit of ${maxTurnTimeoutMs}ms`;
+        emit({ type: 'error', content: message, sessionId }, true);
+        finalize('timeout', 'acp_max_turn_timeout', message, undefined, true);
+      }, maxTurnTimeoutMs);
+      maxTurnTimeoutTimer.unref?.();
+    }
 
     proc.stderr?.on('data', (chunk: Buffer | string) => {
       stderrTail = `${stderrTail}${chunk.toString()}`.slice(-limits.maxStderrChars);
@@ -364,6 +390,7 @@ export class AcpBackend implements AgentBackend {
     });
 
     const handleSessionUpdate = (notification: acp.SessionNotification) => {
+      markProtocolActivity();
       if (resultResolved || !acceptSessionUpdates) return;
       if (!sessionId || notification.sessionId !== sessionId) {
         const message = `ACP session identity changed: expected ${sessionId ?? 'unbound'}, received ${notification.sessionId}`;
@@ -372,7 +399,7 @@ export class AcpBackend implements AgentBackend {
         return;
       }
 
-      const event = mapAcpUpdate(notification.update);
+      const event = mapTurnUpdate(notification.update);
       if (event) {
         if (event.sessionId === undefined) event.sessionId = sessionId;
         if (event.content.length > limits.maxEventChars) {
@@ -426,9 +453,12 @@ export class AcpBackend implements AgentBackend {
         );
         const clientApp = acp
           .client({ name: 'agent-task-team' })
-          .onRequest(acp.methods.client.session.requestPermission, (ctx) =>
-            permissionHandler(ctx.params),
-          )
+          .onRequest(acp.methods.client.session.requestPermission, async (ctx) => {
+            markProtocolActivity();
+            const response = await permissionHandler(ctx.params);
+            markProtocolActivity();
+            return response;
+          })
           .onNotification(acp.methods.client.session.update, (ctx) =>
             handleSessionUpdate(ctx.params),
           );
@@ -441,6 +471,7 @@ export class AcpBackend implements AgentBackend {
               protocolVersion: acp.PROTOCOL_VERSION,
               clientCapabilities: {},
             });
+            markProtocolActivity();
             initialized = true;
             if (resultResolved) return;
 
@@ -461,6 +492,7 @@ export class AcpBackend implements AgentBackend {
                   cwd,
                   mcpServers: [],
                 });
+                markProtocolActivity();
               } catch (error) {
                 const message = `ACP session load failed for ${sessionId}: ${error instanceof Error ? error.message : String(error)}`;
                 emit({ type: 'error', content: message, sessionId }, true);
@@ -472,6 +504,7 @@ export class AcpBackend implements AgentBackend {
                 cwd,
                 mcpServers: [],
               });
+              markProtocolActivity();
               sessionId = newSession.sessionId;
             }
             if (resultResolved) return;
@@ -481,6 +514,7 @@ export class AcpBackend implements AgentBackend {
               sessionId,
               prompt: [{ type: 'text', text: promptText }],
             });
+            markProtocolActivity();
             if (resultResolved) return;
             finalize(
               stopReasonToStatus(response.stopReason),

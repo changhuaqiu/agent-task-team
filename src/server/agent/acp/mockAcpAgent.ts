@@ -64,7 +64,7 @@ const PERMISSION_OPTIONS: acp.PermissionOption[] = [
  *    (`process.exit(1)`) — so `AcpBackend`'s `close` handler fires with an
  *    abnormal exit and resolves `failed`. (Task 9 failure-recovery test.)
  */
-export type MockScenario = 'normal' | 'slow' | 'error' | 'flood' | 'large' | 'wrong_session';
+export type MockScenario = 'normal' | 'slow' | 'active' | 'error' | 'flood' | 'large' | 'wrong_session';
 
 /** How long the "slow" scenario blocks mid-turn before completing. */
 const SLOW_BLOCK_MS = 60_000;
@@ -170,6 +170,16 @@ export function createMockAgentApp(
         }
         return { stopReason: 'end_turn' };
       }
+      if (scenario === 'active') {
+        for (let index = 0; index < 10; index += 1) {
+          await new Promise((resolve) => setTimeout(resolve, 250));
+          await upd({
+            sessionUpdate: 'agent_message_chunk',
+            content: { type: 'text', text: `active-${index}` },
+          });
+        }
+        return { stopReason: 'end_turn' };
+      }
 
       if (scenario === 'large') {
         await upd({
@@ -237,6 +247,7 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   const envScenario = process.env.MOCK_ACP_SCENARIO;
   const scenario: MockScenario =
     envScenario === 'slow'
+      || envScenario === 'active'
       || envScenario === 'error'
       || envScenario === 'normal'
       || envScenario === 'flood'

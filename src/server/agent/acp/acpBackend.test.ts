@@ -33,8 +33,10 @@ describe('AcpBackend (subprocess integration with mockAcpAgent)', () => {
     const run = backend.execute('hi', {});
 
     const types: string[] = [];
+    const toolNames: string[] = [];
     for await (const event of run.events) {
       types.push(event.type);
+      if (event.tool?.name) toolNames.push(event.tool.name);
     }
 
     const result = await run.result;
@@ -44,6 +46,7 @@ describe('AcpBackend (subprocess integration with mockAcpAgent)', () => {
     // "完成" → end_turn. mapAcpUpdate converts to text/tool_use/tool_result/
     // text; withDoneGuarantee appends done.
     expect(types).toEqual(['text', 'tool_use', 'tool_result', 'text', 'done']);
+    expect(toolNames).toEqual(['改文件', '改文件']);
 
     // Auto-approve selects "allow" → mock returns end_turn → completed.
     expect(result.status).toBe('completed');

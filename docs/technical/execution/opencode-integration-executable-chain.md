@@ -60,6 +60,8 @@ interface AgentRun {
 | `error` | 错误 | 错误信息 |
 | `done` | 单步完成 | 最终文本 |
 
+ACP 工具事件按 `toolCallId` 关联：`tool_call` 建立本轮调用名称，后续缺少 title 的 `tool_call_update` 继承该名称。关联状态只存在于单次 `AcpBackend.execute()`，不跨 Invocation 共享，避免 Claude adapter 的 result update 在 UI 中退化成 `unknown`。
+
 **统一结果类型**：
 
 ```typescript

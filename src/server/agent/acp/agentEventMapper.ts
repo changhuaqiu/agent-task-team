@@ -1,11 +1,10 @@
 // src/server/agent/acp/agentEventMapper.ts
 //
-// Pure mapper: converts an ACP `SessionUpdate` notification into the project's
-// internal `AgentEvent` (or null when the update has no internal representation).
+// Base mapper plus a turn-scoped correlator for ACP `SessionUpdate` events.
 //
 // Spec: specs/acp-runtime-integration/spec.md §5.3 (event mapping).
-// This module holds NO connection/state — it is a pure function. Task 5
-// (AcpBackend) will wire it into the live ACP notification stream.
+// `mapAcpUpdate` remains pure. `createTurnScopedAcpEventMapper` owns only the
+// toolCallId/name correlation needed during one AcpBackend execution.
 
 import type { SessionUpdate } from '@agentclientprotocol/sdk';
 import type { AgentEvent } from '../types';
@@ -121,4 +120,29 @@ export function mapAcpUpdate(update: SessionUpdate): AgentEvent | null {
     default:
       return null;
   }
+}
+
+/**
+ * Build a mapper for one ACP prompt turn.
+ *
+ * Claude-style adapters commonly omit `title` from `tool_call_update` and
+ * refer back to the original `tool_call` only by `toolCallId`. Keep that
+ * protocol correlation inside the backend boundary so every downstream
+ * consumer receives a stable tool name without carrying ACP state itself.
+ */
+export function createTurnScopedAcpEventMapper(): (update: SessionUpdate) => AgentEvent | null {
+  const toolNames = new Map<string, string>();
+
+  return (update: SessionUpdate): AgentEvent | null => {
+    const event = mapAcpUpdate(update);
+    const callId = event?.tool?.callId;
+    if (!event || !callId) return event;
+
+    if (event.type === 'tool_use') {
+      toolNames.set(callId, event.tool?.name || 'tool');
+    } else if (event.type === 'tool_result' && event.tool) {
+      event.tool.name = toolNames.get(callId) || event.tool.name || 'tool';
+    }
+    return event;
+  };
 }

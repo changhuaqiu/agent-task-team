@@ -6,6 +6,7 @@
 - [x] 建立 `src/server/agent/acp/` 公共模块与 mock ACP agent。
 - [x] 实现 stdio transport、连接生命周期和子进程回收。
 - [x] 实现 ACP update → `AgentEvent` 完整映射及未知事件保护。
+- [x] 在单次 turn 内关联 `toolCallId → tool name`，补全无 title 的 result update。
 - [x] 实现 permission、cancel、timeout、authentication 与 protocol error 处理。
 - [x] 建立声明式 Agent Catalog 和启动探测。
 
@@ -35,3 +36,7 @@
 - [x] OpenCode/Codex 临时配置使用隔离目录、收紧权限并幂等清理。
 - [x] daemon shutdown 终止全部在途 run；未实际 resume 时不得自动重放 prompt。
 - [x] 增加 spawn 失败、close 缺失、消费者提前退出、输出过载和并发过载测试。
+- [x] 增加 Claude 形态的 tool call/update 名称继承测试。
+- [x] 将 ACP timeout 改为活动续期的 idle timeout，并增加独立 hard max。
+- [x] runtime 原生工具判断改为大小写无关，禁止重复拦截。
+- [x] 增加持续活动不触发 idle timeout、真正静默仍超时的测试。

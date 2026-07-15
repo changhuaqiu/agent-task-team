@@ -20,7 +20,7 @@ function makeTempDir(): string {
 }
 
 function backend(
-  scenario: 'normal' | 'slow' | 'error' | 'flood' | 'large' | 'wrong_session',
+  scenario: 'normal' | 'slow' | 'active' | 'error' | 'flood' | 'large' | 'wrong_session',
   overrides: Partial<AcpBackendOpts> = {},
 ) {
   return new AcpBackend({

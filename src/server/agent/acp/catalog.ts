@@ -119,6 +119,7 @@ export function createBackend(
     | 'permissionTimeoutMs'
     | 'cancelGraceMs'
     | 'forceKillGraceMs'
+    | 'maxTurnTimeoutMs'
     | 'limits'
     | 'timeoutMs'
   >,
@@ -132,6 +133,7 @@ export function createBackend(
     permissionTimeoutMs: opts?.permissionTimeoutMs,
     cancelGraceMs: opts?.cancelGraceMs,
     forceKillGraceMs: opts?.forceKillGraceMs,
+    maxTurnTimeoutMs: opts?.maxTurnTimeoutMs,
     limits: opts?.limits,
     timeoutMs: opts?.timeoutMs,
     engine: entry.id,

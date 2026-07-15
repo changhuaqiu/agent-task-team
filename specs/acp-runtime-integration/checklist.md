@@ -12,6 +12,7 @@
 - [x] 三种运行时均能创建会话并流式返回文本。
 - [x] 支持时可恢复会话；不支持时返回明确能力错误或受控降级。
 - [x] tool call、tool result、thinking、plan、done 与 error 可持久化和展示。
+- [x] 同一 `toolCallId` 的 tool call 与多个 result update 始终显示相同工具名。
 - [x] cancel 能中止执行并回收连接及子进程。
 - [ ] permission 支持允许、拒绝和需要确认，不存在默认静默全授权。
 - [x] 认证失败、适配器缺失、协议不兼容和异常退出都有可定位错误。
@@ -37,3 +38,7 @@
 - [x] 临时 runtime 配置不污染项目目录，cleanup 可重复调用。
 - [x] daemon shutdown 会终止所有活跃 ACP 进程。
 - [x] 不支持 resume 的 backend 不会因失败重复执行 prompt。
+- [x] 有 ACP 活动的长 turn 不会在启动后固定 300 秒被终止。
+- [x] 真正无活动的 turn 仍会在 idle timeout 后回收。
+- [x] hard max turn timeout 可终止持续产生更新但不结束的异常进程。
+- [x] 小写 runtime 原生工具不会触发平台自定义工具执行。

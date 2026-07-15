@@ -72,19 +72,22 @@ afterEach(async () => {
  * `env` opt (which it forwards to the child process).
  */
 function makeMockBackend(
-  scenario: 'normal' | 'slow' | 'error',
-  opts: { timeoutMs?: number } = {},
+  scenario: 'normal' | 'slow' | 'active' | 'error',
+  opts: { timeoutMs?: number; maxTurnTimeoutMs?: number } = {},
 ): AcpBackend {
   const cwd = mkdtempSync(join(tmpdir(), 'acp-compat-'));
   tempDirs.add(cwd);
   return new AcpBackend({
-    command: 'npx',
-    args: ['tsx', mockPath],
+    // Node 24 executes erasable TypeScript directly. Avoiding the npx → tsx
+    // launcher removes unrelated startup variance from timeout semantics.
+    command: process.execPath,
+    args: [mockPath],
     engine: 'opencode',
     cwd,
     env: { MOCK_ACP_SCENARIO: scenario },
     permissionPolicy: 'allow_once',
     ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
+    ...(opts.maxTurnTimeoutMs !== undefined ? { maxTurnTimeoutMs: opts.maxTurnTimeoutMs } : {}),
   });
 }
 
@@ -157,6 +160,32 @@ describe('AcpBackend compatibility suite (spec §8: cancel / timeout / failure)'
     expect(result.status).toBe('timeout');
     expect(result.error).toContain('timed out');
     expect(result.reasonCode).toBe('acp_timeout');
+  }, 15000);
+
+  it('idle timeout renews while ACP updates continue', async () => {
+    const backend = makeMockBackend('active', {
+      timeoutMs: 1_500,
+      maxTurnTimeoutMs: 10_000,
+    });
+    const startedAt = Date.now();
+    const { result } = await drain(backend.execute('hi', {}));
+
+    expect(Date.now() - startedAt).toBeGreaterThan(1_500);
+    expect(result.status).toBe('completed');
+    expect(result.reasonCode).toBeUndefined();
+  }, 15000);
+
+  it('hard max ends a turn that remains active but never completes in time', async () => {
+    const backend = makeMockBackend('active', {
+      timeoutMs: 1_500,
+      maxTurnTimeoutMs: 1_000,
+    });
+    const { types, result } = await drain(backend.execute('hi', {}));
+
+    expect(types).toContain('done');
+    expect(result.status).toBe('timeout');
+    expect(result.reasonCode).toBe('acp_max_turn_timeout');
+    expect(result.error).toContain('hard limit');
   }, 15000);
 
   // ---------------------------------------------------------------------------

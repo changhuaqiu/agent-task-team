@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { mapAcpUpdate, KNOWN_SESSION_UPDATE_TYPES } from './agentEventMapper';
+import {
+  createTurnScopedAcpEventMapper,
+  mapAcpUpdate,
+  KNOWN_SESSION_UPDATE_TYPES,
+} from './agentEventMapper';
 import type { AgentEvent } from '../types';
 
 // Test inputs use `as any` because we are constructing raw ACP SessionUpdate
@@ -232,5 +236,48 @@ describe('mapAcpUpdate', () => {
     it('excludes unknown future variants', () => {
       expect(KNOWN_SESSION_UPDATE_TYPES.has('some_future_thing')).toBe(false);
     });
+  });
+});
+
+describe('createTurnScopedAcpEventMapper', () => {
+  it('inherits the original tool name across multiple title-less updates', () => {
+    const mapTurnUpdate = createTurnScopedAcpEventMapper();
+
+    const use = mapTurnUpdate({
+      sessionUpdate: 'tool_call',
+      toolCallId: 'claude-call-1',
+      title: 'Read File',
+      kind: 'read',
+      status: 'pending',
+    } as any);
+    const progress = mapTurnUpdate({
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'claude-call-1',
+      status: 'in_progress',
+    } as any);
+    const completed = mapTurnUpdate({
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'claude-call-1',
+      status: 'completed',
+      rawOutput: { ok: true },
+    } as any);
+
+    expect(use?.tool?.name).toBe('Read File');
+    expect(progress?.tool?.name).toBe('Read File');
+    expect(completed?.tool?.name).toBe('Read File');
+  });
+
+  it('uses a neutral fallback for an unseen call id and does not leak across turns', () => {
+    const firstTurn = createTurnScopedAcpEventMapper();
+    firstTurn({
+      sessionUpdate: 'tool_call', toolCallId: 'call-1', title: 'Terminal', status: 'pending',
+    } as any);
+
+    const secondTurn = createTurnScopedAcpEventMapper();
+    const result = secondTurn({
+      sessionUpdate: 'tool_call_update', toolCallId: 'call-1', status: 'completed',
+    } as any);
+
+    expect(result?.tool?.name).toBe('tool');
   });
 });

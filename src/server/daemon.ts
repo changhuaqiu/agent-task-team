@@ -28,6 +28,7 @@ import { createBackend as createAcpBackend } from './agent/acp/catalog';
 import { checkCapabilities } from './agent/capabilityRouter';
 import type { AgentEvent, AgentBackend } from './agent/types';
 import { withDoneGuarantee } from './agent/with-done-guarantee';
+import { isNativeRuntimeTool } from './agent/nativeTools';
 import { WorkdirManager } from './workdir-manager';
 import { AgentMessenger } from './a2a';
 import { createRuntimeSnapshotProvider } from './a2a/runtime-snapshot-provider';
@@ -885,17 +886,8 @@ export default function registerDaemon(io: IOServer) {
       };
 
       // --- Tool interception helpers for skill-defined tools ---
-      const NATIVE_TOOLS = new Set([
-        'Read', 'Write', 'Edit', 'Bash', 'Agent', 'Glob', 'Grep',
-        'TodoRead', 'TodoWrite', 'WebSearch', 'WebFetch',
-        'NotebookEdit', 'TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet',
-        'AskUserQuestion', 'EnterPlanMode', 'ExitPlanMode',
-        'CronCreate', 'CronDelete', 'CronList',
-        'Skill', 'ScheduleWakeup',
-      ]);
-
       function isNativeTool(name: string): boolean {
-        return NATIVE_TOOLS.has(name) || name.startsWith('mcp__');
+        return isNativeRuntimeTool(name);
       }
 
       function isBackgroundChildTool(name: string): boolean {

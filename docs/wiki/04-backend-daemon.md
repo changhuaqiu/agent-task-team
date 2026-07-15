@@ -311,6 +311,8 @@ Catalog 三个条目（spec §2 / §5.1）：
 
 运行时监督当前已落地：Catalog 运行时校验与实际 launcher 精确锁版本；权限默认 fail-closed，通过 `ACP_PERMISSION_MODE=allow_once` 才允许单次授权；取消采用 ACP cancel → TERM → KILL；result 不依赖 child `close` 才能解析；全局并发、事件队列、单事件、累计输出和 stderr tail 均有上限；stderr 只保留脱敏后的有界尾部；daemon shutdown 会终止全部活跃 run。
 
+ACP timeout 分为两层：平台配置的 `CLI_TIMEOUT_MS` 是 idle timeout，任意 ACP session update 都会续期；AcpBackend 另有独立 hard max turn timeout，限制持续产生更新但始终不结束的异常进程。daemon 对 runtime 原生工具采用大小写无关判断，避免 OpenCode 的小写 `read/write/bash` 被当成平台自定义工具重复执行。
+
 延迟项（坦诚记录）：会话恢复（`session/load` 未接线，`supportsResume:false`）；需要人工交互的 confirm profile；跨运行时模型规范化；MCP 桥接（`mcpServers:[]` 当前为空）。CapabilityRouter 丢弃 resume 时 daemon 不再执行 fresh-session 自动重放，避免失败后重复副作用。详见 `architecture/cli-integration.md` 与 `specs/acp-runtime-integration/spec.md`。
 
 ## 4.7 会话与调用追踪
