@@ -3,9 +3,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Activity, AlertTriangle, Clock3, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { SpanCallTree } from './SpanCallTree';
 
 type Target = { conversationId: string; invocationId?: string; traceId?: string; agentId?: string; timestamp?: string };
-type Span = { span_id: string; kind: string; name: string; status: string; started_at: string; durationMs?: number; parsedAttributes?: Record<string, unknown> };
+type Span = { span_id: string; parent_span_id: string | null; kind: string; name: string; status: string; started_at: string; durationMs?: number; parsedAttributes?: Record<string, unknown> };
 type Trace = { traceId: string; invocationId?: string; agentId?: string; startedAt: string; durationMs?: number; totalTokens: number; spans: Span[] };
 type Payload = { role: string; seq: number; content: string; byte_size: number; truncated: number };
 
@@ -28,6 +29,7 @@ export function AgentObservabilityDrawer() {
   const [trace, setTrace] = useState<Trace>();
   const [payloads, setPayloads] = useState<Record<string, Payload[]>>({});
   const [tab, setTab] = useState<'prompt' | 'tools' | 'response'>('prompt');
+  const [selectedSpanId, setSelectedSpanId] = useState<string>();
   const [error, setError] = useState<string>();
   const [loading, setLoading] = useState(false);
 
@@ -97,7 +99,7 @@ export function AgentObservabilityDrawer() {
 
   return <>
     <div className="fixed inset-0 z-40 bg-black/25 backdrop-blur-[2px]" onClick={close} />
-    <aside className="fixed bottom-0 right-0 top-0 z-50 flex w-[min(620px,94vw)] flex-col border-l-2 border-[hsl(var(--text-primary))] bg-[hsl(var(--bg-elevated))] shadow-[-4px_0_0_hsl(var(--text-primary))] animate-slide-in-r" aria-label="Agent 调用详情">
+    <aside className="fixed bottom-0 right-0 top-0 z-50 flex w-[min(820px,94vw)] flex-col border-l-2 border-[hsl(var(--text-primary))] bg-[hsl(var(--bg-elevated))] shadow-[-4px_0_0_hsl(var(--text-primary))] animate-slide-in-r" aria-label="Agent 调用详情">
       <header className="flex items-start justify-between border-b border-[hsl(var(--border))] px-5 py-4">
         <div><div className="flex items-center gap-2 text-sm font-bold"><Activity className="size-4" />Agent 调用详情</div><div className="mt-1 text-[10px] text-[hsl(var(--text-tertiary))]">{trace?.agentId ?? target.agentId ?? 'Agent'} · {target.invocationId ? '精确关联' : '历史就近匹配'}</div></div>
         <button type="button" onClick={close} aria-label="关闭调用详情" className="rounded p-1 hover:bg-[hsl(var(--bg-muted))]"><X className="size-4" /></button>
@@ -107,10 +109,24 @@ export function AgentObservabilityDrawer() {
         {error && <div className="flex gap-2 rounded-md border border-rose-300 bg-rose-50 p-2 text-[10px] text-rose-700"><AlertTriangle className="size-3.5 shrink-0" />{error}</div>}
         {!loading && !trace && !error && <div className="rounded-md border border-dashed p-5 text-center text-[10px] text-[hsl(var(--text-tertiary))]">未找到对应调用</div>}
         {trace && <>
-          <section><div className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold"><Clock3 className="size-3" />Waterfall</div><div className="space-y-1.5">{trace.spans.map(span => {
-            const offset = Math.max(0, new Date(span.started_at).getTime() - rootStart);
-            return <div key={span.span_id} className="grid grid-cols-[72px_1fr_48px] items-center gap-2 text-[8px]"><span className="truncate">{span.kind}</span><div className="relative h-2 rounded bg-[hsl(var(--bg-muted))]"><div className={cn('absolute h-2 rounded', span.status === 'error' ? 'bg-rose-500' : span.kind === 'tool' ? 'bg-amber-500' : span.kind === 'message' ? 'bg-cyan-500' : 'bg-violet-500')} style={{ left: `${Math.min(96, offset / total * 100)}%`, width: `${Math.max(2, Math.min(100 - offset / total * 100, (span.durationMs ?? 1) / total * 100))}%` }} /></div><span className="text-right tabular-nums">{span.durationMs === undefined ? '…' : `${span.durationMs}ms`}</span></div>;
-          })}</div></section>
+          <section><div className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold"><Clock3 className="size-3" />调用链</div>
+            <div className="rounded-md border border-[hsl(var(--border-subtle))] bg-[hsl(var(--bg-app))] p-2">
+              <SpanCallTree
+                spans={trace.spans}
+                rootStartedAt={trace.startedAt}
+                totalMs={total}
+                selectedSpanId={selectedSpanId}
+                onSelectSpan={(spanId) => {
+                  const span = trace.spans.find((s) => s.span_id === spanId);
+                  if (span?.kind === 'tool') setTab('tools');
+                  else if (span?.kind === 'message') setTab('response');
+                  else if (span?.kind === 'agent') setTab('prompt');
+                  setSelectedSpanId(spanId === selectedSpanId ? undefined : spanId);
+                }}
+              />
+              <div className="mt-1 px-1 text-[8px] text-[hsl(var(--text-tertiary))]">点 span 按 kind 切换到对应明细 tab</div>
+            </div>
+          </section>
           <div className="flex border-b border-[hsl(var(--border-subtle))]">{(['prompt', 'tools', 'response'] as const).map(key => <button key={key} type="button" onClick={() => setTab(key)} className={cn('px-3 py-2 text-[10px]', tab === key ? 'border-b-2 border-[hsl(var(--accent))] font-semibold text-[hsl(var(--accent))]' : 'text-[hsl(var(--text-tertiary))]')}>{key === 'prompt' ? '提示词' : key === 'tools' ? '工具' : '模型回复'}</button>)}</div>
           {tab === 'prompt' && relevantSpans.flatMap(span => payloads[span.span_id] || []).map(payload => <PayloadBlock key={`${payload.role}:${payload.seq}`} label={payload.role === 'system_prompt' ? 'System prompt' : 'Assembled prompt'} payload={payload} />)}
           {tab === 'tools' && relevantSpans.map(span => <section key={span.span_id} className="space-y-2"><div className="text-[10px] font-semibold">{String(span.parsedAttributes?.['gen_ai.tool.name'] ?? span.name)}</div>{(payloads[span.span_id] || []).map(payload => <PayloadBlock key={`${payload.role}:${payload.seq}`} label={payload.role === 'tool_input' ? '输入' : '输出'} payload={payload} />)}</section>)}

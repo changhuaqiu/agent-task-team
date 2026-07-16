@@ -161,7 +161,10 @@ export function ProjectRightPanel({ teamPackId }: { teamPackId: string }) {
         <aside className={cn(
           'shrink-0 h-full border-l border-[hsl(var(--border))]',
           'bg-[hsl(var(--bg-muted))] flex flex-col',
-          'w-full md:w-[360px] lg:w-[440px]',
+          // 信息密度自适应：调试 tab（调用链/甘特/payload 密度高）加宽到 560px，其余 440px
+          activeTab === 'debug'
+            ? 'w-full md:w-[460px] lg:w-[560px]'
+            : 'w-full md:w-[360px] lg:w-[440px]',
           'animate-slide-in-r',
         )}>
           {/* Tab Header - Team Info (始终显示) */}

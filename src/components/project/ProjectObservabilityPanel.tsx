@@ -5,6 +5,7 @@ import { Activity, ChevronDown, ChevronRight, Clock3, RefreshCw, Wrench } from '
 import { cn } from '@/lib/utils';
 import { AgentChainGraph, type ObservationChain } from './AgentChainGraph';
 import { openAgentObservabilityDrawer } from './AgentObservabilityDrawer';
+import { SpanCallTree } from './SpanCallTree';
 import { socket } from '@/store/daemonStore';
 
 type Span = {
@@ -36,6 +37,18 @@ function formatDuration(ms?: number): string {
   return `${(ms / 60_000).toFixed(1)}m`;
 }
 
+function payloadLabel(role: string): string {
+  switch (role) {
+    case 'system_prompt': return 'System prompt';
+    case 'assembled_prompt': return 'Assembled prompt';
+    case 'completion': return '模型回复';
+    case 'tool_input': return '工具输入';
+    case 'tool_output': return '工具输出';
+    case 'thinking': return 'Thinking';
+    default: return role;
+  }
+}
+
 function Metric({ label, value, danger }: { label: string; value: string | number; danger?: boolean }) {
   return <div className="rounded-lg border border-[hsl(var(--border-subtle))] bg-[hsl(var(--bg-app))] px-2 py-2">
     <div className={cn('text-sm font-bold tabular-nums', danger ? 'text-[hsl(var(--status-rejected))]' : 'text-[hsl(var(--text-primary))]')}>{value}</div>
@@ -48,6 +61,9 @@ export function ProjectObservabilityPanel({ conversationId }: { conversationId?:
   const [error, setError] = useState<string>();
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState<string>();
+  // 单 span 下钻：选中的 spanId（per-trace）+ payload 缓存
+  const [selectedSpanId, setSelectedSpanId] = useState<string>();
+  const [spanPayloads, setSpanPayloads] = useState<Record<string, Array<{ role: string; seq: number; content: string; byte_size: number; truncated: number }>>>();
 
   const load = async (signal?: AbortSignal) => {
     if (!conversationId) { setSnapshot(undefined); return; }
@@ -70,6 +86,23 @@ export function ProjectObservabilityPanel({ conversationId }: { conversationId?:
     socket.on('observability:updated', refresh);
     return () => { controller.abort(); window.clearTimeout(initialTimer); socket.off('observability:updated', refresh); };
   }, [conversationId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 单 span payload 懒加载：选中 span 时按需拉取（仅在未缓存时）
+  useEffect(() => {
+    if (!conversationId || !selectedSpanId || spanPayloads?.[selectedSpanId]) return;
+    let cancelled = false;
+    const params = new URLSearchParams({ conversationId, spanId: selectedSpanId });
+    fetch(`/api/observability/span-payload?${params}`, { cache: 'no-store' })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`payload HTTP ${response.status}`);
+        return (await response.json()).payloads as Array<{ role: string; seq: number; content: string; byte_size: number; truncated: number }>;
+      })
+      .then((payloads) => {
+        if (!cancelled) setSpanPayloads((current) => ({ ...current, [selectedSpanId]: payloads }));
+      })
+      .catch((cause) => { if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause)); });
+    return () => { cancelled = true; };
+  }, [conversationId, selectedSpanId, spanPayloads]);
 
   const maxSpanDuration = useMemo(() => Math.max(1, ...(snapshot?.traces.flatMap(trace => trace.spans.map(span => span.durationMs ?? 0)) ?? [1])), [snapshot]);
   if (!conversationId) return <div className="p-6 text-center text-xs text-[hsl(var(--text-tertiary))]">选择项目后查看调试数据</div>;
@@ -105,7 +138,33 @@ export function ProjectObservabilityPanel({ conversationId }: { conversationId?:
             {open && <div className="space-y-3 border-t border-[hsl(var(--border-subtle))] p-2.5">
               {trace.context && <div><div className="mb-1 text-[9px] font-semibold text-[hsl(var(--text-secondary))]">上下文 · {trace.context.scenario ?? 'unknown'} · {trace.context.tokensUsed ?? 0}/{trace.context.tokensBudget ?? 0}</div><div className="h-1.5 overflow-hidden rounded-full bg-[hsl(var(--bg-muted))]"><div className="h-full bg-[hsl(var(--accent))]" style={{ width: `${Math.min(100, (trace.context.saturation ?? 0) * 100)}%` }}/></div><div className="mt-1.5 flex flex-wrap gap-1">{trace.context.loadedSkills?.map(skill => <span key={skill} className="rounded bg-[hsl(var(--accent-soft))] px-1.5 py-0.5 text-[8px] text-[hsl(var(--accent))]">Skill · {skill}</span>)}</div></div>}
               {trace.tools.length > 0 && <div className="flex flex-wrap gap-1">{trace.tools.map(tool => <span key={tool} className="inline-flex items-center gap-1 rounded border border-[hsl(var(--border-subtle))] px-1.5 py-0.5 text-[8px]"><Wrench className="size-2.5"/>{tool}</span>)}</div>}
-              <div className="space-y-1">{trace.spans.map(span => <div key={span.span_id} className="grid grid-cols-[70px_1fr_45px] items-center gap-1 text-[8px]"><span className="truncate text-[hsl(var(--text-secondary))]">{span.kind}</span><div className="h-2 overflow-hidden rounded bg-[hsl(var(--bg-muted))]"><div className={cn('h-full rounded', span.status === 'error' ? 'bg-rose-500' : span.kind === 'tool' ? 'bg-amber-500' : span.kind === 'context' ? 'bg-violet-500' : 'bg-cyan-500')} style={{ width: `${Math.max(4, ((span.durationMs ?? 1) / maxSpanDuration) * 100)}%` }}/></div><span className="text-right tabular-nums text-[hsl(var(--text-tertiary))]">{formatDuration(span.durationMs)}</span></div>)}</div>
+              <div className="rounded-md border border-[hsl(var(--border-subtle))] bg-[hsl(var(--bg-app))] p-1.5">
+                <div className="mb-1 px-1.5 text-[9px] font-semibold text-[hsl(var(--text-secondary))]">调用链 · 点 span 查看明细</div>
+                <SpanCallTree
+                  spans={trace.spans}
+                  rootStartedAt={trace.startedAt}
+                  totalMs={trace.durationMs ?? maxSpanDuration}
+                  selectedSpanId={open ? selectedSpanId : undefined}
+                  onSelectSpan={(spanId) => setSelectedSpanId(spanId === selectedSpanId ? undefined : spanId)}
+                />
+              </div>
+              {/* 单 span payload 下钻浮层 */}
+              {open && selectedSpanId && (() => {
+                const span = trace.spans.find((s) => s.span_id === selectedSpanId);
+                const payloads = spanPayloads?.[selectedSpanId];
+                return span ? <div className="rounded-md border border-[hsl(var(--accent)/0.4)] bg-[hsl(var(--bg-app))] p-2">
+                  <div className="mb-1.5 flex items-center justify-between">
+                    <div className="text-[9px] font-semibold text-[hsl(var(--text-secondary))]">{span.kind === 'tool' ? (String(span.parsedAttributes?.['gen_ai.tool.name'] ?? span.name)) : span.name} · {span.kind}</div>
+                    {Boolean(span.parsedAttributes?.['gen_ai.tool.call.id']) && <span className="font-mono text-[8px] text-[hsl(var(--text-tertiary))]">callId {String(span.parsedAttributes?.['gen_ai.tool.call.id'])}</span>}
+                  </div>
+                  {!payloads && <div className="text-[9px] text-[hsl(var(--text-tertiary))]">加载明细…</div>}
+                  {payloads && payloads.length === 0 && <div className="text-[9px] text-[hsl(var(--text-tertiary))]">该 span 无明细 payload</div>}
+                  {payloads?.map((payload) => <div key={`${payload.role}:${payload.seq}`} className="mb-1.5 last:mb-0">
+                    <div className="flex items-center gap-1.5 text-[8px] font-semibold text-[hsl(var(--text-secondary))]"><span>{payloadLabel(payload.role)}</span>{Boolean(payload.truncated) && <span className="rounded bg-amber-500/10 px-1 text-[7px] text-amber-600">已截断</span>}</div>
+                    <pre className="mt-0.5 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded border border-[hsl(var(--border-subtle))] bg-[hsl(var(--bg-muted))] p-1.5 text-[8px] leading-relaxed text-[hsl(var(--text-secondary))]}">{payload.content}</pre>
+                  </div>)}
+                </div> : null;
+              })()}
               <details><summary className="cursor-pointer text-[8px] text-[hsl(var(--text-tertiary))]">技术标识</summary><div className="mt-1 break-all font-mono text-[8px] text-[hsl(var(--text-tertiary))]">trace {trace.traceId}<br/>invocation {trace.invocationId ?? '—'}</div></details>
             </div>}
           </article>;
