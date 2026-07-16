@@ -270,11 +270,9 @@ export function resolveTaskWakeups(input: ResolveTaskWakeupsInput): TaskWakeup[]
   }
 
   if (input.previousTask && input.previousTask.status !== 'done' && input.task.status === 'done') {
-    const tasksById = new Map(input.conversationTasks.map((task) => [task.id, task]));
-    for (const edge of input.edges) {
-      if (edge.type !== 'depends_on' || edge.from_task_id !== input.task.id) continue;
-      const downstream = tasksById.get(edge.to_task_id);
-      if (!downstream || downstream.status !== 'pending') continue;
+    for (const downstream of input.conversationTasks) {
+      if (!parseDependencyIds(downstream, input.edges).includes(input.task.id)) continue;
+      if (downstream.status !== 'pending') continue;
       if (!dependenciesSatisfied(downstream, input.conversationTasks, input.edges)) continue;
       addWakeup(wakeups, {
         task: downstream,
@@ -289,12 +287,10 @@ export function resolveTaskWakeups(input: ResolveTaskWakeupsInput): TaskWakeup[]
   // When a task becomes done, check downstream tasks that have no owner but all deps satisfied.
   // Notify coordinators so they can assign an owner.
   if (input.previousTask && input.previousTask.status !== 'done' && input.task.status === 'done') {
-    const tasksById = new Map(input.conversationTasks.map((task) => [task.id, task]));
     const downstreamNotified = new Set<string>();
-    for (const edge of input.edges) {
-      if (edge.type !== 'depends_on' || edge.from_task_id !== input.task.id) continue;
-      const downstream = tasksById.get(edge.to_task_id);
-      if (!downstream || downstream.status !== 'pending') continue;
+    for (const downstream of input.conversationTasks) {
+      if (!parseDependencyIds(downstream, input.edges).includes(input.task.id)) continue;
+      if (downstream.status !== 'pending') continue;
       if (!dependenciesSatisfied(downstream, input.conversationTasks, input.edges)) continue;
       if (downstream.agent_id) continue; // has owner — handled by dependency_resolved above
       const key = downstream.id;

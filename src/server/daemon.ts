@@ -29,8 +29,9 @@ import { checkCapabilities } from './agent/capabilityRouter';
 import type { AgentEvent, AgentBackend } from './agent/types';
 import { withDoneGuarantee } from './agent/with-done-guarantee';
 import { isNativeRuntimeTool } from './agent/nativeTools';
+import { isSkillTool } from './skill-tool-router';
 import { StreamTextPersistence } from './agent/streamTextPersistence';
-import { stableWorkdirTaskKey, WorkdirManager } from './workdir-manager';
+import { resolveNonWorktreeExecutionCwd, stableWorkdirTaskKey, WorkdirManager } from './workdir-manager';
 import { AgentMessenger } from './a2a';
 import { createRuntimeSnapshotProvider } from './a2a/runtime-snapshot-provider';
 import { getDb } from './db';
@@ -60,6 +61,7 @@ import { spanPayloadRepo } from './repositories/span-payload-repo';
 import { isThinkingCaptureEnabled } from './observability/redaction';
 import { teamLogProjection } from './team-log/TeamLogProjection';
 import { renderTeamLogEnvelope } from '../lib/agent-context/teamLog';
+import { ProcessStartGuard } from './process-start-guard';
 
 type TerminalStartPayload = {
   projectId?: string;
@@ -178,6 +180,7 @@ function resolveOpenCodeProjectSkillPaths(projectPath?: string): string[] {
 export default function registerDaemon(io: IOServer) {
   const activeProcesses = new Map<string, { kill: () => void }>();
   const processKey = (agentId: string, projectId?: string) => `${agentId}@${projectId || 'default'}`;
+  const processStartGuard = new ProcessStartGuard();
   const broadcast = (event: string, data: any) => io.emit(event, data);
   const agentResponseBuffer = new Map<string, string>();
   const dispatchGateway = new DispatchGateway();
@@ -281,7 +284,7 @@ export default function registerDaemon(io: IOServer) {
         tasks: conversationTasks,
         envelopes: executionEnvelopeRepo.listByConversation(conversationId),
         coordinatorAgentIds: audience.coordinatorAgentIds,
-        reviewAgentIds: audience.reviewAgentIds,
+        reviewAgentIds: audience.reviewGateAgentIds,
         qaAgentIds: audience.qaAgentIds,
         edges: taskGraphRepo.listEdges(conversationId),
         closureDispatchedRootTaskIds: closureProofs
@@ -592,6 +595,16 @@ export default function registerDaemon(io: IOServer) {
         traceId: requestedTraceId,
         contextReport,
       }: TerminalStartPayload, emitToRequester = broadcast) => {
+      const startKey = processKey(agentId, projectId || conversationId);
+      if (!processStartGuard.claim(startKey, activeProcesses.has(startKey), Boolean(force))) {
+        emitToRequester('agent:error', {
+          agentId,
+          message: 'Agent is already starting or running',
+          reasonCode: 'agent_busy',
+        });
+        emitToRequester('terminal:exit', { agentId, code: 1, command: 'dispatch', reasonCode: 'agent_busy' });
+        return;
+      }
       console.log(`[daemon] terminal:start agent=${agentId}, engine=${rawEngine}, accountId=${accountId ?? '(none)'}, force=${force}, busy=${activeProcesses.has(processKey(agentId, projectId))}`);
       console.log(`[daemon] systemPrompt=${systemPrompt ? `${systemPrompt.length} chars` : '(none)'}, prompt=${incomingPrompt ? `${incomingPrompt.length} chars` : '(none)'}`);
       let primaryCommand = 'unknown';
@@ -627,6 +640,7 @@ export default function registerDaemon(io: IOServer) {
         effectiveTeamLogUpToEntryId = envelope.upToEntryId;
       }
       const responseBufferKey = processKey(agentId, sessionConvId);
+      const sharedProjectDir = join(workspacesRoot, sessionConvId);
       const emitDispatchReceipt = (
         phase: 'requested' | 'sent' | 'started' | 'completed' | 'blocked' | 'failed',
         reasonCode?: string,
@@ -1038,6 +1052,13 @@ export default function registerDaemon(io: IOServer) {
 
         const accumulated = agentResponseBuffer.get(responseBufferKey) ?? finalContent;
         agentResponseBuffer.delete(responseBufferKey);
+        try {
+          // Watchers are best-effort on every platform. The completed-turn
+          // boundary is the consistency barrier before handoff scanning.
+          syncTasksToDb(sharedProjectDir, io);
+        } catch (error) {
+          console.warn(`[task-sync] completion barrier failed for ${sessionConvId}:`, error);
+        }
         if (contextScenario) {
           const exit = checkValidExit(contextScenario, accumulated);
           if (!exit.valid) {
@@ -1245,7 +1266,7 @@ export default function registerDaemon(io: IOServer) {
         }
 
         // Intercept tool_use events for skill-defined tools
-        if (event.type === 'tool_use' && event.tool?.name && !isNativeTool(event.tool.name)) {
+        if (event.type === 'tool_use' && event.tool?.name && isSkillTool(event.tool.name)) {
           handleCustomToolUse(agentId, projectId, event.tool);
         }
 
@@ -1269,7 +1290,8 @@ export default function registerDaemon(io: IOServer) {
                 'gen_ai.operation.name': 'execute_tool',
                 'gen_ai.tool.name': event.tool.name,
                 'gen_ai.tool.call.id': event.tool.callId,
-                'ath.tool.native': isNativeTool(event.tool.name),
+                'ath.tool.native': !isSkillTool(event.tool.name),
+                'ath.tool.platform': isSkillTool(event.tool.name),
               },
             });
             if (event.tool.input !== undefined) {
@@ -1385,6 +1407,7 @@ export default function registerDaemon(io: IOServer) {
         const url = String(opencodeBridgeUrl).trim().replace(/\/+$/, '');
         const controller = new AbortController();
         activeProcesses.set(processKey(agentId, projectId), { kill: () => controller.abort() });
+        processStartGuard.markStarted(startKey);
         markEnvelopeStarted();
 
         broadcast('terminal:data', {
@@ -1538,6 +1561,7 @@ export default function registerDaemon(io: IOServer) {
               agentPaneRegistry.remove(invocationId);
             },
           });
+          processStartGuard.markStarted(startKey);
           markEnvelopeStarted();
           return;
         } catch (err) {
@@ -1574,10 +1598,13 @@ export default function registerDaemon(io: IOServer) {
         stableWorkdirTaskKey(taskId),
         effectiveUseWorktree && effectiveSlug ? { useWorktree: true, projectSlug: effectiveSlug } : undefined,
       );
+      const runtimeWd = effectiveUseWorktree
+        ? wd
+        : resolveNonWorktreeExecutionCwd(projectPath, wd);
       const sessionMeta = taskId ? workdirManager.readSessionMeta(agentId, projectId || 'default', taskId) : null;
 
       // Start file watcher for project-level .ath/ directory
-      const projectDir = join(workspacesRoot, conversationId || projectId || 'default');
+      const projectDir = sharedProjectDir;
       startTaskWatcher(projectDir, io);
       for (const workspaceDir of new Set([projectDir, wd])) {
         try {
@@ -1603,7 +1630,7 @@ export default function registerDaemon(io: IOServer) {
       //
       // `executeCwd`/`executeEnv` flow into checkCapabilities opts below so the
       // ACP path's prepared cwd/env (e.g. codex CODEX_HOME) reach the spawn.
-      let executeCwd = wd;
+      let executeCwd = runtimeWd;
       let executeEnv: Record<string, string> = {
         ...credentialEnv,
         ...(runtimeConfigEnv || {}),
@@ -1616,7 +1643,7 @@ export default function registerDaemon(io: IOServer) {
         );
       }
       console.log(`[daemon] routing ${agentId} (${engine}) → ACP (${entry.delivery}/${entry.id})`);
-      const prepared = prepareAcpRuntime(entry, { cwd: wd, env: executeEnv });
+      const prepared = prepareAcpRuntime(entry, { cwd: runtimeWd, env: executeEnv });
       executeCwd = prepared.cwd;
       executeEnv = prepared.env;
       acpCleanup = prepared.cleanup;
@@ -1659,6 +1686,7 @@ export default function registerDaemon(io: IOServer) {
       const events = withDoneGuarantee(rawEvents, result);
 
       activeProcesses.set(processKey(agentId, projectId), { kill });
+      processStartGuard.markStarted(startKey);
       markEnvelopeStarted();
 
       // Consume events and forward to socket
@@ -1790,6 +1818,8 @@ export default function registerDaemon(io: IOServer) {
         activeProcesses.delete(processKey(agentId, projectId));
         if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
         acpCleanup?.();
+      } finally {
+        processStartGuard.release(startKey);
       }
     };
 

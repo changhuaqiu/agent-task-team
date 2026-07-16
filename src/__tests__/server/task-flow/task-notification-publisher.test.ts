@@ -6,7 +6,8 @@ import { conversationRepo } from '@/server/repositories/conversation-repo';
 import { messageRepo } from '@/server/repositories/message-repo';
 import { taskRepo } from '@/server/repositories/task-repo';
 import { seedPresetAgents } from '@/server/db/seed-agents';
-import { publishTaskChangeNotification, publishTaskNotification } from '@/server/task-flow/task-notification-publisher';
+import { teamPackRepo } from '@/server/repositories/team-pack-repo';
+import { publishTaskChangeNotification, publishTaskNotification, resolveTaskNotificationAudience } from '@/server/task-flow/task-notification-publisher';
 
 beforeEach(() => {
   setTestDb(createTestDb());
@@ -20,6 +21,36 @@ afterEach(() => {
 });
 
 describe('publishTaskNotification', () => {
+  it('uses the TeamPack quality gate owner without hiding advisory reviewers', () => {
+    const pack = teamPackRepo.create({
+      name: 'quality-owner-test',
+      displayName: 'Quality owner test',
+      description: 'Peach owns quality; DK is advisory',
+      roles: [
+        { id: 'peach', displayName: 'Quality', soul: '', required: true, roleCardId: 'preset-code-reviewer' },
+        { id: 'dk', displayName: 'Architecture', soul: '', required: true, roleCardId: 'preset-arch-reviewer' },
+      ],
+      teamMode: 'hub_spoke',
+      workflow: {
+        type: 'state_machine',
+        states: [
+          { name: 'quality_gate', role: 'peach', description: 'Peach review gate', transitions: [] },
+          { name: 'architecture_advisory', role: 'dk', description: 'On demand only', transitions: [] },
+        ],
+      },
+      communicationMatrix: {
+        peach: { canSendTo: ['dk'], canReceiveFrom: ['dk'] },
+        dk: { canSendTo: ['peach'], canReceiveFrom: ['peach'] },
+      },
+    });
+    conversationRepo.create({ id: 'conv-gate', title: 'Gate routing', team_pack_id: pack.id });
+
+    const audience = resolveTaskNotificationAudience('conv-gate');
+
+    expect(audience.reviewAgentIds).toEqual(expect.arrayContaining(['peach', 'dk']));
+    expect(audience.reviewGateAgentIds).toEqual(['peach']);
+  });
+
   it('persists a system notification and emits it to the conversation room', () => {
     const previousTask = taskRepo.create({
       id: 'TASK-003',

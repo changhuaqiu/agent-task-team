@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { stableWorkdirTaskKey, WorkdirManager } from '@/server/workdir-manager';
+import { resolveNonWorktreeExecutionCwd, safeWorkdirSegment, stableWorkdirTaskKey, WorkdirManager } from '@/server/workdir-manager';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
@@ -46,6 +46,14 @@ describe('WorkdirManager', () => {
       await m.resolveWorkdir('mario', 'proj-1', 'TASK-002');
       const basePath = path.join(tmpRoot, 'proj-1', 'mario', 'base');
       expect(fs.existsSync(basePath)).toBe(true);
+    });
+
+    it('encodes Windows-reserved characters in scoped task IDs', async () => {
+      const taskId = 'conv-1:TASK-001';
+      const wd = await mgr().resolveWorkdir('peach', 'conv-1', taskId);
+      expect(path.basename(path.dirname(wd))).toBe(`task-${safeWorkdirSegment(taskId)}`);
+      expect(wd).not.toContain(':TASK');
+      expect(fs.existsSync(wd)).toBe(true);
     });
   });
 
@@ -107,5 +115,19 @@ describe('stableWorkdirTaskKey', () => {
 
   it('preserves explicit task identity', () => {
     expect(stableWorkdirTaskKey('TASK-001')).toBe('TASK-001');
+  });
+});
+
+describe('resolveNonWorktreeExecutionCwd', () => {
+  it('uses an existing configured project directory', () => {
+    const projectDir = path.join(tmpRoot, 'real-project');
+    fs.mkdirSync(projectDir, { recursive: true });
+    expect(resolveNonWorktreeExecutionCwd(projectDir, path.join(tmpRoot, 'scratch'))).toBe(path.resolve(projectDir));
+  });
+
+  it('falls back to scratch when the project path is missing or invalid', () => {
+    const scratch = path.join(tmpRoot, 'scratch');
+    expect(resolveNonWorktreeExecutionCwd(undefined, scratch)).toBe(scratch);
+    expect(resolveNonWorktreeExecutionCwd(path.join(tmpRoot, 'missing'), scratch)).toBe(scratch);
   });
 });

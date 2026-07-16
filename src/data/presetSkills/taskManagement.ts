@@ -5,7 +5,13 @@ export const TASK_MANAGEMENT_SKILL: CreateSkillInput = {
   description: 'Task creation, assignment, and status management tools for coordinating team work',
   content: `# Task Management
 
-You can create, assign, and update tasks for your team. Use the provided tools to coordinate work.
+You can create, assign, and update tasks for your team through the platform fact source.
+
+Tool schemas in this skill are contracts, not proof that the current runtime registered them. Invoke only an exact platform tool name that the runtime explicitly exposes. If no exact platform task tool is exposed, edit the absolute TASKS.md path supplied by the platform.
+
+Never substitute runtime-native Task, Agent, SendMessage, TodoWrite, or TodoRead. Those tools belong to the underlying CLI and do not update the platform Task Graph or A2A possession state. Emit actionable A2A handoffs in your normal visible response instead of calling SendMessage.
+
+After emitting one actionable handoff, end the turn immediately. Do not execute the receiver's work, wait for a runtime-native child agent, or continue the same turn; the platform transfers possession only at the completed-turn boundary.
 
 ## Guidelines
 
@@ -13,6 +19,8 @@ You can create, assign, and update tasks for your team. Use the provided tools t
 - Assign tasks to the most appropriate teammate based on their capabilities
 - Update task status as work progresses
 - Status changes into in_review or done require gate evidence. Do not mark in_review without installResult, buildResult, and impactEvidence. Do not mark done without mergedToMain, mainInstallResult, mainBuildResult, mainTestResult, and mainImpactReviewResult.
+- A quality-gate reviewer explicitly woken for one in_review task may make a narrow decision on that task: PASS updates it to done with review evidence; REJECT updates it to rejected/blocked with the reason. This does not allow editing implementation content, title, owner, or unrelated tasks.
+- When an implementer updates a task to review/in_review, that transition already requests the configured quality gate. End the turn without a manual @reviewer A2A handoff. Create another pass only after an explicit platform wakeup failure or for a distinct specialist review.
 - Text scheduling is not execution. Do not claim a task lane is started unless a real dispatch receipt, A2A pass offer, task wakeup dispatch, or execution-start acknowledgement exists for the target agent and task.
 - For parallel dispatch, verify every target separately and report n/n dispatched. If only part of the fan-out starts, retry or escalate instead of saying all lanes started.
 - Each turn must close by updating task state with evidence, creating a real dispatch, creating/escalating a blocker, or naming an external wait condition with a recovery owner.

@@ -60,17 +60,44 @@ Task mutation / Autonomy Guard / A2A pass
 - 浏览器与 daemon 的 busy 快照可能短暂不一致。浏览器首发 dispatch 时必须暂存原始请求；若 daemon 返回 `agent_busy`，原始请求必须按 `(agentId, conversationId)` 恢复到 pending queue，不能只更新 UI 状态或展示“已排队”。
 - 角色没有可用账号或执行引擎时，派发必须在启动前终止并向聊天区写入可操作提示；内部 `invocation.aborted` 事件不能替代用户反馈。
 
+### 用户入口路由
+
+- 一条普通用户消息只能建立一个团队闭环入口。存在多个角色引用时，首个可解析的 `@Agent` 是本轮入口角色；后续 `@Agent` 只作为任务描述与协作上下文，不得被浏览器并行派发。
+- 下游角色必须由当前持有者通过正式 A2A handoff 唤醒，不能因为用户正文提到下游角色而绕过 possession、handoff packet 与通信策略。
+- 群发或并行启动属于独立的显式平台动作，必须由无歧义的 UI/协议字段表达；普通聊天正文中的多个 mention 不是群发协议。
+- `chat_message.mentions` 仍保留全部引用用于展示和检索，但 dispatch target 与 user→agent pass 只记录入口角色。
+
+### Runtime 工具与平台事实源边界
+
+- 底层 CLI 自带的 `Task`、`Agent`、`SendMessage`、`TodoWrite/TodoRead` 只属于该 runtime 的本地协作能力，不得被解释为平台 Task Graph、A2A possession 或 dispatch receipt。
+- 平台自定义工具只有在 runtime 实际暴露精确名称（例如 `task_create`）时才可调用；prompt 中的 schema 文本不等于工具已注册，Agent 不得用相似名称的原生工具替代。
+- ACP 尚未注册平台工具时，兼容路径以绝对 `.ath/TASKS.md` 作为结构化任务入口，以最终可见回复中的 actionable `@agent 请/需要 + 动作 + 对象` 作为 A2A pass draft。不得调用 runtime-native `SendMessage` 代替 A2A。
+- 当前持有者输出 actionable handoff 后必须立即结束本轮，不继续替目标角色读取、实现或等待底层子 agent；平台只在该轮完成边界扫描输出并转移 possession。
+- daemon 只把平台工具白名单转交给 `tool.invoke`；未知或 runtime-native 工具仅做观测，不得异步伪装成平台工具执行。
+
+### Runtime 工作目录
+
+- `use_worktree=true` 时，runtime cwd 使用 conversation 对应的 Git worktree。
+- `use_worktree=false` 且 conversation 配置了有效 `project_path` 时，runtime cwd 使用该真实项目路径，使项目文件和位于其子树内的绝对 TASKS 路径处于同一权限边界。
+- 只有 conversation 没有项目路径时才回退到 agent scratch workdir；scratch 不能覆盖一个已配置的真实项目根目录。
+
 ### Outcome Reducer
 
 - runtime accepted 可以把 ready owner 的 Task 从 pending 推进到 in_progress；
 - runtime success 只代表本轮执行结束，不代表实现证据或交付证据通过；
 - in_review/done 仍只能由结构化 task mutation/tool 经过 gate 后进入。
+- TASKS.md watcher 必须同时消费文件首次创建的 `add` 和后续更新的 `change`；watcher 先启动、Agent 后创建看板是新项目的正常路径，首个事件不能丢失。
+- Agent 完成边界在 A2A response scan 之前强制执行一次 TASKS.md → DB 同步，作为 watcher 的一致性屏障；handoff 不得在本轮任务状态尚未投影时先发生。
 
 ### Context Policy 与闭环观测
 
 - `ContextManager` 以 `scenario × archetype` 选择六类信息簇，场景包括 init、iterate、handoff、wakeup、closure；
 - handoff/wakeup 默认省略 dialog，使用 possession packet 或任务卡作为本轮 focus；
-- daemon 在完整输出聚合后执行合法出口观测，失败只写 `no_valid_exit` proof，不重试、不阻断；
+- daemon 在完整输出聚合后先同步 `TASKS.md`；首次出现的非默认任务状态也必须经过 Task Notification/Wakeup 决策，使 `review` 能立即进入 quality gate。随后执行合法出口观测，失败只写 `no_valid_exit` proof，不重试、不阻断；
+- TeamPack workflow state is the gate-routing authority: ordinary `quality_gate` work starts its configured owner once; advisory reviewers are not fanned out unless a risk-specific transition requests them.
+- Entering `review` / `in_review` is itself the quality-gate dispatch request. After writing that state, the implementer must end the turn without a manual `@reviewer` A2A handoff; only an explicit platform wakeup failure or a separately justified specialist review may create another pass.
+- Browser auto-proposal is only a human first-turn convenience. Agent, system, tool, and error messages cannot trigger it. Daemon process-start admission reserves `(conversation, agent)` before asynchronous setup so duplicate browser tabs cannot race-start the same role.
+- Workdir names encode project/agent/task IDs as safe path segments; raw business IDs, including scoped task IDs, are never concatenated directly into a Windows path.
 - autonomy guard 按 `subtask_of` 的 child → parent 边递归判断完整子树，终态后唤醒 planner 收敛；
 - closure dispatch 写持久 proof，后续扫描以 `(conversationId, rootTaskId, reasonCode)` 去重。
 
@@ -120,9 +147,19 @@ Task mutation / Autonomy Guard / A2A pass
 - Planner：真实 repository role/account/context 解析与缺配置错误。
 - Registry：无浏览器提交与显式 fallback。
 - Reducer：只允许 pending -> in_progress，不越过质量门禁。
+- File projection：当该任务已有已确认且尚未终止的 invocation 时，TASKS.md 中尚未来得及改写的 `todo/pending` 是 stale snapshot，不得把 reducer 已确认的 `in_progress` 回滚；invocation 终止后文件重新取得业务状态权威。
 - A2A：server-owned dispatch、启动确认和 client fallback。
+- A2A possession：当前 holder 的完成回复一旦产生下一棒，必须先把当前 possession 与入站 pass 置为 completed，再派发下一 worklist entry；后续 offer timeout 不得反向污染已成功的上游 pass。
+- A2A intent scope：先出现的完整 actionable 交接不会被后续“不要 @ reviewer”等另一对象约束反向否定；正向动作与否定约束都按局部子句判定。
+- A2A closure verbs：`汇总`、`总结`、`收口`、`给出结论` 是 coordinator 的合法可执行动作，与实现、评审、验证同样能够形成 pass intent。
 - Store：`handledByHarness` 不双派发，旧事件仍可执行。
-- Mention dispatch：busy-before-send 与 client/server busy race 都必须保持用户消息和 dispatch 请求不丢失；恢复入队后只在真正启动时登记 A2A chain。
+- Mention dispatch：多 mention 消息只派发首个有效入口角色；busy-before-send 与 client/server busy race 都必须保持用户消息和 dispatch 请求不丢失；恢复入队后只在真正启动时登记 A2A chain。
+- Tool boundary：runtime-native 协作工具不触发平台 `tool.invoke`；精确平台工具不可用时，prompt 明确回退 TASKS.md + 可见 A2A 文本。
+- Workdir：worktree、真实非 worktree 项目路径、无项目 scratch 三种决策分别覆盖；另覆盖 Windows 保留字符与 scoped task ID 的安全路径编码。
+- Dispatch admission：非 human 消息不触发 proposal；同一 `(conversation, agent)` 的并发 start 只有一个能进入异步 runtime setup。
+- Gate routing：默认团队普通 review 只启动 Peach，DK 保持按需。
+- Gate de-duplication：实现角色进入 review 后不得再手工 @ 默认 reviewer；Task Wakeup 是普通质量门的唯一启动事实。
+- Dependency de-duplication：Task Notification Publisher 同时理解 task edges 与 TASKS.md dependencies，并且是 dependency_resolved / unblocked_unassigned 的唯一 wakeup 生产者；watcher 不保留前端直发兼容分支。
 - Daemon smoke：使用隔离数据目录和已安装的 ACP test runtime 从 `terminal:start` 跑到 AgentEvent/`terminal:exit`，覆盖 payload 解构、preflight 日志和协议适配。
 
 ## 验证结果

@@ -3,7 +3,8 @@ import type { FSWatcher } from 'chokidar';
 import { basename } from 'path';
 import { readTasksMd } from './task-file-service';
 import { taskRepo } from './repositories/task-repo';
-import { publishTaskChangeNotification, resolveTaskNotificationAudience } from './task-flow/task-notification-publisher';
+import { invocationRepo } from './repositories/invocation-repo';
+import { publishTaskChangeNotification } from './task-flow/task-notification-publisher';
 import type { Server as IOServer } from 'socket.io';
 
 function conversationIdFromPath(projectPath: string): string {
@@ -23,23 +24,55 @@ function normalizeDependencyList(value: string | null | undefined): string {
   }
 }
 
+/**
+ * TASKS.md IDs are project-local labels, while the compatibility table still
+ * has a database-wide primary key. Preserve legacy IDs when safe and scope
+ * only collisions until the table can migrate to a composite identity.
+ */
+export function resolveTaskStorageIds(
+  conversationId: string,
+  localTaskIds: string[],
+): Map<string, string> {
+  return new Map(localTaskIds.map((localTaskId) => {
+    const existing = taskRepo.getById(localTaskId);
+    if (!existing || existing.conversation_id === conversationId) {
+      return [localTaskId, localTaskId];
+    }
+    return [localTaskId, `${conversationId}~${localTaskId}`];
+  }));
+}
+
+function hasActiveTaskInvocation(conversationId: string, taskId: string, agentId: string | null): boolean {
+  return invocationRepo.getByConversation(conversationId).some((invocation) => (
+    invocation.task_id === taskId
+    && invocation.agent_id === agentId
+    && !['succeeded', 'failed', 'canceled'].includes(invocation.status)
+  ));
+}
+
 export function startTaskWatcher(projectPath: string, io: IOServer): void {
   if (watchers.has(projectPath)) return;
 
   const tasksFile = `${projectPath}/.ath/TASKS.md`;
   const watcher = watch(tasksFile, {
     persistent: true,
-    ignoreInitial: true,
+    // Existing files must be reprojected after daemon restart; creation after
+    // startup is handled by the same `add` path.
+    ignoreInitial: false,
     awaitWriteFinish: { stabilityThreshold: 500 },
   });
 
-  watcher.on('change', () => {
+  const scheduleSync = () => {
     if (debounceTimers.has(projectPath)) clearTimeout(debounceTimers.get(projectPath)!);
     debounceTimers.set(projectPath, setTimeout(() => {
       debounceTimers.delete(projectPath);
       syncTasksToDb(projectPath, io);
     }, 500));
-  });
+  };
+
+  // Both a pre-existing file and the normal first-run creation are `add`.
+  watcher.on('add', scheduleSync);
+  watcher.on('change', scheduleSync);
 
   watchers.set(projectPath, watcher);
 }
@@ -83,23 +116,42 @@ export function syncTasksToDb(projectPath: string, io: IOServer): void {
     if (blockers.length === 0) return;
   }
 
-  const newlyDone: string[] = [];
   const conversationId = conversationIdFromPath(projectPath);
+  const storageIds = resolveTaskStorageIds(conversationId, parsed.map((task) => task.id));
 
   for (const t of parsed) {
-    const existing = taskRepo.getById(t.id);
+    const storageId = storageIds.get(t.id)!;
+    const storageDependencies = t.depends.map((dependencyId) => (
+      storageIds.get(dependencyId) ?? dependencyId
+    ));
+    const existing = taskRepo.getById(storageId);
     if (!existing) {
       try {
-        taskRepo.create({
-          id: t.id,
+        const created = taskRepo.create({
+          id: storageId,
           conversation_id: conversationId,
           title: t.title,
           description: t.deliverable || '',
           agent_id: t.agent || '',
-          dependencies: t.depends,
+          dependencies: storageDependencies,
         });
+        if (created.status !== t.status) {
+          taskRepo.updateStatus(storageId, t.status);
+          const updated = taskRepo.getById(storageId);
+          if (updated) {
+            publishTaskChangeNotification({
+              io,
+              kind: 'task.status_changed',
+              task: updated,
+              previousTask: created,
+              actorId: 'system',
+              actorType: 'system',
+              changedFields: ['status'],
+            });
+          }
+        }
       } catch (e) {
-        console.error(`[watcher] failed to create task ${t.id}:`, e);
+        console.error(`[watcher] failed to create task ${storageId}:`, e);
       }
       continue;
     }
@@ -107,10 +159,12 @@ export function syncTasksToDb(projectPath: string, io: IOServer): void {
     const updates: Record<string, unknown> = {};
     const changedFields: string[] = [];
 
-    if (existing.status !== t.status) {
+    const stalePendingDuringActiveInvocation = existing.status === 'in_progress'
+      && t.status === 'pending'
+      && hasActiveTaskInvocation(conversationId, storageId, existing.agent_id);
+    if (existing.status !== t.status && !stalePendingDuringActiveInvocation) {
       updates.status = t.status;
       changedFields.push('status');
-      if (t.status === 'done') newlyDone.push(t.id);
     }
     if (t.agent && existing.agent_id !== t.agent) {
       updates.agent_id = t.agent;
@@ -125,15 +179,15 @@ export function syncTasksToDb(projectPath: string, io: IOServer): void {
       updates.description = nextDescription;
       changedFields.push('description');
     }
-    const nextDependencies = JSON.stringify(t.depends);
+    const nextDependencies = JSON.stringify(storageDependencies);
     if (normalizeDependencyList(existing.dependencies) !== nextDependencies) {
       updates.dependencies = nextDependencies;
       changedFields.push('dependencies');
     }
 
     if (changedFields.length > 0) {
-      taskRepo.update(t.id, updates);
-      const updated = taskRepo.getById(t.id);
+      taskRepo.update(storageId, updates);
+      const updated = taskRepo.getById(storageId);
       if (updated) {
         publishTaskChangeNotification({
           io,
@@ -148,77 +202,6 @@ export function syncTasksToDb(projectPath: string, io: IOServer): void {
           actorType: 'system',
           changedFields,
         });
-      }
-    }
-  }
-
-  // Dependency resolution: check if any todo tasks are now unblocked
-  for (const doneId of newlyDone) {
-    for (const t of parsed) {
-      if (t.depends.includes(doneId) && t.status === 'pending' && t.agent) {
-        const allDone = t.depends.every((depId) => {
-          const dep = parsed.find((p) => p.id === depId);
-          return dep?.status === 'done';
-        });
-        if (allDone) {
-          io.to(conversationId).emit('task.wakeup', {
-            conversationId,
-            taskId: t.id,
-            agentId: t.agent,
-            reasonCode: 'dependency_resolved',
-            dispatchSource: 'workflow',
-            prompt: `依赖已满足，开始执行 ${t.id}: ${t.title}. ${t.deliverable || ''}`,
-            content: `系统轻推 @${t.agent}：${t.id}「${t.title}」依赖已满足，请继续处理。`,
-            metadata: {
-              taskId: t.id,
-              taskTitle: t.title,
-              taskStatus: t.status,
-              ownerAgentId: t.agent,
-              reasonCode: 'dependency_resolved',
-              idempotencyKey: `${conversationId}:${t.id}:${t.agent}:dependency_resolved`,
-              startsA2AHandoff: false,
-              startsDispatch: true,
-            },
-            createdAt: new Date().toISOString(),
-          });
-        }
-      }
-    }
-  }
-
-  // Notify coordinators when downstream tasks are unblocked but have no owner
-  for (const doneId of newlyDone) {
-    for (const t of parsed) {
-      if (t.depends.includes(doneId) && t.status === 'pending' && !t.agent) {
-        const allDone = t.depends.every((depId) => {
-          const dep = parsed.find((p) => p.id === depId);
-          return dep?.status === 'done';
-        });
-        if (allDone) {
-          const audience = resolveTaskNotificationAudience(conversationId);
-          for (const coordinatorId of audience.coordinatorAgentIds) {
-            io.to(conversationId).emit('task.wakeup', {
-              conversationId,
-              taskId: t.id,
-              agentId: coordinatorId,
-              reasonCode: 'unblocked_unassigned',
-              dispatchSource: 'workflow',
-              prompt: `请分配负责人：${t.id}: ${t.title} 的依赖已全部满足，但尚未分配负责人。请指定负责人并更新任务看板。`,
-              content: `系统轻推 @${coordinatorId}：${t.id}「${t.title}」依赖已满足，需要分配负责人。`,
-              metadata: {
-                taskId: t.id,
-                taskTitle: t.title,
-                taskStatus: t.status,
-                ownerAgentId: '',
-                reasonCode: 'unblocked_unassigned',
-                idempotencyKey: `${conversationId}:${t.id}:${coordinatorId}:unblocked_unassigned`,
-                startsA2AHandoff: false,
-                startsDispatch: true,
-              },
-              createdAt: new Date().toISOString(),
-            });
-          }
-        }
       }
     }
   }

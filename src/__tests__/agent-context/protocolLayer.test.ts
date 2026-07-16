@@ -35,4 +35,10 @@ describe('buildProtocolLayer', () => {
     const result = buildProtocolLayer({ agentId: 'luigi', agentRole: 'backend', projectPath: '/project', hasTaskAssignment: false, isPlanner: false });
     expect(result).toContain('自检');
   });
+
+  it('allows a reviewer to make only the assigned gate decision', () => {
+    const result = buildProtocolLayer({ agentId: 'peach', agentRole: 'testing', projectPath: '/project', hasTaskAssignment: true, isPlanner: false });
+    expect(result).toContain('PASS → done');
+    expect(result).toContain('唯一例外是 reviewer');
+  });
 });

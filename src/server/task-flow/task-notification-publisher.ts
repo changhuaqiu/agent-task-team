@@ -82,6 +82,7 @@ function isQa(roleCard?: RoleCard): boolean {
 export function resolveTaskNotificationAudience(conversationId: string): {
   coordinatorAgentIds: string[];
   reviewAgentIds: string[];
+  reviewGateAgentIds: string[];
   qaAgentIds: string[];
 } {
   const coordinatorAgentIds: string[] = [];
@@ -111,7 +112,23 @@ export function resolveTaskNotificationAudience(conversationId: string): {
       if (isReviewer(roleCard)) add(reviewAgentIds, role.id);
       if (isQa(roleCard)) add(qaAgentIds, role.id);
     }
-    return { coordinatorAgentIds, reviewAgentIds, qaAgentIds };
+    const workflowGateRoleIds = teamPack.workflow.states
+      ?.filter((state) => /(?:quality|review)[_-]?gate|review/i.test(`${state.name} ${state.description}`))
+      .map((state) => state.role)
+      .filter((roleId) => reviewAgentIds.includes(roleId)) ?? [];
+    const linearGateRoleIds = workflowGateRoleIds.length === 0
+      ? (teamPack.workflow.steps
+        ?.filter((step) => /quality|review|评审|质量/i.test(`${step.action} ${step.output}`))
+        .map((step) => step.role)
+        .filter((roleId) => reviewAgentIds.includes(roleId)) ?? [])
+      : [];
+    const configuredGateRoleIds = [...new Set([...workflowGateRoleIds, ...linearGateRoleIds])];
+    return {
+      coordinatorAgentIds,
+      reviewAgentIds,
+      reviewGateAgentIds: configuredGateRoleIds.length > 0 ? configuredGateRoleIds : reviewAgentIds,
+      qaAgentIds,
+    };
   }
 
   for (const agent of listAgents()) {
@@ -121,7 +138,7 @@ export function resolveTaskNotificationAudience(conversationId: string): {
     if (isQa(roleCard)) add(qaAgentIds, agent.id);
   }
 
-  return { coordinatorAgentIds, reviewAgentIds, qaAgentIds };
+  return { coordinatorAgentIds, reviewAgentIds, reviewGateAgentIds: reviewAgentIds, qaAgentIds };
 }
 
 export function publishTaskNotification(input: PublishTaskNotificationInput): TaskNotification | null {
@@ -201,7 +218,7 @@ export function publishTaskChangeNotification(input: PublishTaskChangeNotificati
     actorId: input.actorId,
     changedFields,
     coordinatorAgentIds: audience.coordinatorAgentIds,
-    reviewAgentIds: audience.reviewAgentIds,
+    reviewAgentIds: audience.reviewGateAgentIds,
     qaAgentIds: audience.qaAgentIds,
     conversationTasks: taskRepo.getByConversation(input.task.conversation_id),
     edges: taskGraphRepo.listEdges(input.task.conversation_id),

@@ -292,9 +292,19 @@ describe('A2A v2 integration', () => {
     `).get(pass.id) as any;
     expect(packet.requested_action).toContain('请实现前端登录组件');
     expect(packet.forbidden_behaviors).toContain('不要只回复确认收到');
+
+    const inboundPass = db.prepare(`
+      SELECT status FROM a2a_pass WHERE from_holder_id = 'user' AND to_agent_id = 'mario'
+    `).get() as { status: string };
+    expect(inboundPass.status).toBe('completed');
+
+    const marioPossession = db.prepare(`
+      SELECT status FROM a2a_possession WHERE holder_id = 'mario'
+    `).get() as { status: string };
+    expect(marioPossession.status).toBe('completed');
   });
 
-  it('routes dispatch summary table mentions as handoffs', async () => {
+  it('does not treat dispatch summary table mentions as executable handoffs', async () => {
     messenger.onUserMessage('conv-1', 'msg-1', 'mario', '请派发任务');
 
     await messenger.onAgentResponse('mario', [
@@ -310,10 +320,8 @@ describe('A2A v2 integration', () => {
     const luigiDispatches = io.emitted().filter(([e, p]) => e === 'a2a:dispatch' && p.agentId === 'luigi');
     const toadDispatches = io.emitted().filter(([e, p]) => e === 'a2a:dispatch' && p.agentId === 'toad');
 
-    expect(luigiDispatches).toHaveLength(1);
-    expect(toadDispatches).toHaveLength(1);
-    expect(luigiDispatches[0][1].prompt).toContain('重新派发完毕');
-    expect(toadDispatches[0][1].prompt).toContain('重新派发完毕');
+    expect(luigiDispatches).toHaveLength(0);
+    expect(toadDispatches).toHaveLength(0);
   });
 
   it('allows fan-out branch holders to complete independently', async () => {

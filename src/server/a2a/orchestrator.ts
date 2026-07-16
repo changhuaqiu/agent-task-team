@@ -602,6 +602,11 @@ export class Orchestrator {
       }
     }
 
+    // The current holder has finished its turn. Close its possession and
+    // inbound pass before offering the next worklist entry so a later offer
+    // timeout cannot rewrite already-successful upstream handoffs.
+    this.possessionRepo.completeHolder(chain.id, agentId, response.slice(0, 1000));
+
     // Dispatch next in worklist
     this.dispatchNext(chain.id, conversationId);
   }

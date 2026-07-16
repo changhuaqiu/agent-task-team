@@ -236,6 +236,34 @@ describe('task wakeup resolver', () => {
     }]);
   });
 
+  it('resolves downstream wakeups from compatibility dependency fields without task edges', () => {
+    const completed = task({ id: 'TASK-004', agent_id: 'toad', status: 'done' });
+    const downstream = task({
+      id: 'TASK-005',
+      agent_id: 'luigi',
+      status: 'pending',
+      dependencies: '["TASK-004"]',
+    });
+
+    const wakeups = resolveTaskWakeups({
+      task: completed,
+      previousTask: { ...completed, status: 'in_review' },
+      actorId: 'toad',
+      changedFields: ['status'],
+      coordinatorAgentIds: [],
+      reviewAgentIds: [],
+      conversationTasks: [completed, downstream],
+      edges: [],
+    });
+
+    expect(wakeups).toMatchObject([{
+      taskId: 'TASK-005',
+      agentId: 'luigi',
+      reasonCode: 'dependency_resolved',
+      dispatchSource: 'workflow',
+    }]);
+  });
+
   it('wakes coordinators when a downstream pending task has all dependencies met but no owner', () => {
     const completed = task({ id: 'TASK-004', agent_id: 'toad', status: 'done' });
     const downstream = task({ id: 'TASK-007', agent_id: '', status: 'pending' });

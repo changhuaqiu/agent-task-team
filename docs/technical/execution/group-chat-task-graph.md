@@ -73,6 +73,8 @@ Owns task-update awareness:
 
 It does not transfer possession or start an execution run.
 
+Task notifications may remain visible to every relevant reviewer. Execution wakeups are narrower: when a TeamPack workflow names a `quality_gate`/`review_gate` owner, only that owner is started for an ordinary review. Advisory architecture reviewers require an explicit architecture-risk transition or handoff.
+
 ### Wakeup Layer
 
 Owns minimal liveness nudges:
@@ -137,6 +139,21 @@ task_artifact_ref
 
 If existing task rows cannot represent all graph fields cleanly, add a `task_graph_node_meta` table rather than overloading chat metadata.
 
+### Project-scoped task identity compatibility
+
+Task identifiers written by agents in `.ath/TASKS.md` are project-local labels. Values such as `TASK-001` may therefore legitimately appear in many conversations and must never be treated as globally unique business identities.
+
+The current compatibility table still uses `task.id` as a database-wide primary key. Until that schema is migrated to a composite identity, the TASKS projector applies these rules:
+
+- if the local label is unused, or already belongs to the same conversation, preserve it for backward compatibility;
+- if the label belongs to another conversation, store the new row under a deterministic, filesystem-safe conversation-scoped ID (`<conversationId>~<localTaskId>`);
+- project dependency references, notifications, wakeups, invocations, and graph links through the same storage-ID mapping;
+- never update or attach data to a task row owned by a different conversation.
+
+The local label remains the authoring identifier in `TASKS.md`; the scoped storage ID is an internal compatibility detail. A later migration may replace this bridge with a composite `(conversation_id, local_task_id)` key, but it must preserve the same isolation behavior.
+
+Any component that derives a filesystem path from a business ID must still encode the path segment independently. Storage IDs are not a substitute for a path-safety boundary.
+
 ## Current Implementation Status
 
 - Migration version 18 creates `task_action`, `task_edge`, `task_artifact_ref`, and `chat_task_binding`, and backfills existing task rows as `task.created` actions.
@@ -161,6 +178,9 @@ If existing task rows cannot represent all graph fields cleanly, add a `task_gra
 - `src/server/task-flow/task-wakeup.ts` resolves lightweight owner/reviewer/dependency wakeups without making scheduler decisions.
 - `src/server/task-flow/task-notification-publisher.ts` also persists `task-wakeup` system messages and emits `task.wakeup` when an explicit next actor is already known.
 - `task.updateStatus`, `task.update`, task tool invocations, structured task graph actions, and `TASKS.md` watcher sync publish task notifications after durable task state changes.
+- `TASKS.md` projection treats file IDs as project-local and deterministically scopes collisions, so synchronizing one project cannot overwrite another project's task rows.
+- First projection is also a state transition: when a newly discovered file row is already `in_review`, `done`, or another non-default state, the projector publishes the same notification/wakeup decision as an update from `pending`; it must not silently skip the quality gate merely because the row was new.
+- Runtime admission may temporarily lead the file projection: while a task-correlated invocation is non-terminal, a stale file `todo/pending` row cannot regress an already confirmed `in_progress` task. Once that invocation is terminal, TASKS.md again has authority to reset the business status.
 - The frontend consumes `task.notification` as a system group-chat message instead of dispatching another agent run.
 - The frontend consumes `task.wakeup` as a system nudge; pending owners move to `in_progress`, and review wakeups dispatch reviewer roles through the review gate.
 - Targeted tests live in `src/__tests__/server/repositories/task-graph-repo.test.ts`.
@@ -188,6 +208,7 @@ created/planned/ready/blocked -> cancelled
 Rules:
 
 - `running` requires an owner.
+- A configured quality-gate reviewer may make a narrow decision on the specific `in_review` task that woke it: PASS advances that task to `done` with review evidence; REJECT advances it to `rejected`/`blocked` with a reason. This exception does not grant permission to edit the implementation, title, owner, or unrelated task rows.
 - `merged` requires a `merged_into` edge.
 - `waiting` should reference at least one dependency or blocker reason.
 - `reopened` must reference a review finding or corrective action.
@@ -246,6 +267,10 @@ Flow:
 6. The UI renders the notification in group chat without starting a new agent execution.
 
 This prevents the previous failure mode where an agent updated task state but related agents had no visible awareness signal unless the agent also attempted an A2A pass.
+
+Dependency wakeups have one producer: `TaskNotificationPublisher`. It resolves downstream relations from both normalized Task Graph edges and compatibility `task.dependencies` / TASKS.md `Depends` values, submits the server Harness once, and emits the resulting handled event for rendering. The file watcher must not emit a second legacy `task.wakeup`.
+
+For an ordinary quality gate, the `in_review` transition is also the complete execution request. The implementer must not repeat the same request as an A2A `@reviewer` handoff after updating the task. A second pass is allowed only when the platform reports that the configured gate wakeup failed, or when a distinct risk-specific reviewer is explicitly required.
 
 If an agent writes "通知 @agent" or "@agent 已完成/已写入 TASKS.md" in narrative output, A2A treats it as non-actionable awareness and emits a neutral scoped group-chat notice instead of an error-style handoff block. To wake another agent, the output must include an explicit execution request such as "`@agent 请评审 TASK-003`" or "`@agent 需要验证 TASK-010`".
 
@@ -342,3 +367,7 @@ The first implementation should include tests for:
 - review failure reopen
 - cycle rejection
 - chat message binding without state mutation
+- repeated local task labels across conversations without cross-project mutation
+- first projection of an `in_review` task dispatching the configured review gate
+- an implementer entering `in_review` ending its turn without a redundant A2A pass to the configured review-gate owner
+- reviewer PASS on an explicitly assigned `in_review` task resolving downstream dependencies

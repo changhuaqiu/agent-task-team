@@ -444,6 +444,22 @@ function resolveMentionAgentIds(state: TaskHubState, tokens: string[]): string[]
   return [...new Set(tokens.map((token) => byMention.get(token.toLowerCase())).filter(Boolean) as string[])];
 }
 
+/**
+ * A normal chat turn has one team-loop entry point. Later mentions describe
+ * downstream collaboration and must not bypass A2A possession by fan-out.
+ */
+export function selectUserEntryAgentIds(resolvedAgentIds: string[]): string[] {
+  return resolvedAgentIds.length > 0 ? [resolvedAgentIds[0]] : [];
+}
+
+export function shouldTriggerInitialProposal(
+  senderAgentId: string,
+  breakdownStatus: Conversation['breakdownStatus'],
+  mentionCount: number,
+): boolean {
+  return senderAgentId === 'human' && breakdownStatus === 'none' && mentionCount === 0;
+}
+
 function applyConversationTeamPack(
   get: () => TaskHubState,
   set: (partial: any) => void,
@@ -1556,7 +1572,10 @@ export const useTaskHubStore = create<TaskHubState>()(
           }
 
           const existingConv = get().conversations.find((c: Conversation) => c.id === conversationId);
-          if (existingConv && existingConv.breakdownStatus === 'none' && !mentions.length) {
+          if (
+            existingConv
+            && shouldTriggerInitialProposal(rest.agentId, existingConv.breakdownStatus, mentions.length)
+          ) {
             setTimeout(() => {
               const state = useTaskHubStore.getState();
               if (state.conversations.find((c: Conversation) => c.id === conversationId)?.breakdownStatus === 'none') {
@@ -1584,9 +1603,10 @@ export const useTaskHubStore = create<TaskHubState>()(
           }));
 
           if (rest.agentId === 'human') {
-            const uniqueMentions = resolveMentionAgentIds(get(), mentions);
-            const busyAgents = uniqueMentions.filter((id) => get().agentStatus[id] && get().agentStatus[id] !== 'idle');
-            const idleAgents = uniqueMentions.filter((id) => !get().agentStatus[id] || get().agentStatus[id] === 'idle');
+            const resolvedMentions = resolveMentionAgentIds(get(), mentions);
+            const entryAgentIds = selectUserEntryAgentIds(resolvedMentions);
+            const busyAgents = entryAgentIds.filter((id) => get().agentStatus[id] && get().agentStatus[id] !== 'idle');
+            const idleAgents = entryAgentIds.filter((id) => !get().agentStatus[id] || get().agentStatus[id] === 'idle');
             const acceptedAgentIds: string[] = [];
 
             for (const agentId of idleAgents) {

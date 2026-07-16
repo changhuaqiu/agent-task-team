@@ -53,6 +53,7 @@ This is closer to how expert teams work: a person finishes a coherent unit of th
 - A2A does not replace task assignment, Kanban status, or review gates.
 - A2A does not let any agent wake any other agent at any time.
 - A2A does not require every mention to become a pass.
+- A task transition to `review` / `in_review` delegates the ordinary quality-gate wakeup to Task Graph; the implementer must not emit a duplicate A2A pass to the configured gate owner.
 
 ## Core Concepts
 
@@ -563,6 +564,7 @@ During migration, this spec may still describe compatibility behavior using `a2a
 Dispatch receipt boundary:
 
 - A2A pass text is not by itself proof that the target is executing.
+- When the current holder finishes and creates one or more valid outgoing passes, its inbound pass and possession become `completed` before the next dispatch begins. A later branch offer timeout must never rewrite those completed upstream facts.
 - `a2a_delivery`, pass status, client acknowledgement, or future execution envelope status must provide the receipt.
 - Parallel handoffs require one receipt per target.
 - If receipt creation fails or only part of a fan-out succeeds, the current holder remains responsible for retrying or escalating.
@@ -609,14 +611,19 @@ Current implementation status:
 - Task-linked dispatch now records `task.handoff_requested` on pass creation and `task.handoff_accepted` only after the receiver start acknowledgement.
 - Agent-originated `@mention` scanning now requires actionable pass intent; ordinary mentions remain diagnostics and do not wake agents.
 - Non-actionable notification language such as "通知 @agent 查看结果" remains a task/group-chat awareness event, not an A2A handoff; the system emits a neutral scoped awareness notice rather than an error-style block message, and tells the agent to use "`@agent 请/需要 + 动作 + 交付物`" for execution requests.
+- Pass intent is clause-local in both directions: a later constraint such as "不要手工 @ reviewer" must not cancel an earlier complete "@worker 请启动..." handoff, just as an earlier roster mention must not borrow a later action.
+- Coordinator closure requests such as "@planner 请汇总/总结/收口/给出结论" are actionable pass intents, not notification-only mentions.
 - The prompt composer injects the collaboration protocol into agent prompts so agents learn the same boundary before they respond: task/status updates use Task Graph or `TASKS.md`; notification-style mentions are awareness only; A2A requires "`@agent 请/需要 + 动作 + 具体交付物`".
+- The same prompt explicitly tells implementers that `review` / `in_review` already schedules the configured quality gate. They end that turn without `@reviewer`, unless a recorded wakeup failure or a distinct specialist review requires an explicit pass.
 - Actionable pass intent recognizes common task-flow verbs including 启动、执行、完成、认领、推进, and English implementation verbs such as fix and update. Completed-state language remains non-actionable.
 - Dispatch summary language such as "重新派发/重新分配/重新指派 @agent" is treated as actionable handoff intent, including compact table-like summaries; completed-state text such as "已分配给 @agent" does not create a new pass.
 - Mention scanning now evaluates repeated mentions so a later actionable `@agent` request is not hidden by an earlier contextual mention.
+- Pass intent is evaluated only from the mention-local clause after the target token. Action words in an earlier paragraph, task summary, or another target's clause cannot be borrowed through a context window. The scanner retains up to 12 mentions before intent filtering so a later explicit handoff is not truncated by earlier contextual role references.
 - Generic explanatory placeholders such as `@mention`, `@agent`, and `@username` are ignored by unresolved-target diagnostics.
 - Multiple queued, idle targets created from the same holder response are offered in the same dispatch cycle so a batch handoff can wake parallel agents.
 - Multiple branch holders can complete independently; open possession rows, not the compatibility `currentHolderId`, decide whether an agent may respond or pass onward.
-- Client-driven direct user fan-out registers every successful target as an independent started pass instead of treating only the first target as holder.
+- A normal user chat turn has exactly one team-loop entry target: the first resolvable `@Agent`. Later mentions remain message context and do not create dispatches or passes. Explicit fan-out, if introduced, must use a separate unambiguous UI/protocol action rather than infer fan-out from chat prose.
+- Runtime-native collaboration tools such as Claude `Task`/`SendMessage` and OpenCode `TodoWrite` are never possession transitions. Until exact platform tools are registered through an ACP-consumable structured channel, the compatibility contract uses the shared TASKS.md projection for task state and an actionable mention in the agent's visible final response for pass drafting.
 - Server-originated compatibility dispatches are persisted in `a2a_delivery` and resent on conversation room join while still awaiting client acknowledgement.
 - Client busy feedback now defers and retries delivery instead of marking the pass failed immediately.
 - A2A socket events are scoped to the conversation room instead of global broadcast; clients join the selected conversation room on connect and conversation switch.

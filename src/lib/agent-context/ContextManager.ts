@@ -20,7 +20,7 @@ import { buildProtocolLayer, deriveRoleFromCard } from './layers/protocolLayer';
 import { buildA2ALayer } from './layers/a2aLayer';
 import { buildTeamPackLayer } from './layers/teamPackLayer';
 import { buildCollaborationLayer } from './layers/collaborationLayer';
-import { extractToolsFromSkills, type SkillSummary } from './PromptComposer';
+import { extractToolsFromSkills, type SkillSummary, type ToolDefinition } from './PromptComposer';
 import { getDirective, resolveArchetype, type ContextArchetype, type ContextCluster } from './injectionPolicy';
 import { buildProtocolHint } from './protocolHints';
 import { resolveScenario, type ContextScenario } from './scenarioResolver';
@@ -92,6 +92,8 @@ export interface ContextRequest {
   isFirstWake: boolean;
   budgetOverride?: ContextBudget;  // 默认从 RoleCard / 项目配置推导
   project?: { id: string; name: string; path: string }; // P1 项目信息
+  /** Exact platform tool names registered in the current runtime transport. */
+  registeredToolNames?: string[];
 }
 
 // 健康度报告
@@ -118,6 +120,14 @@ export interface AssembledContext {
   userPrompt: string;
   report: ContextReport;
   sessionId: string;
+}
+
+export function filterRegisteredTools(
+  declaredTools: ToolDefinition[],
+  registeredToolNames: string[] | undefined,
+): ToolDefinition[] {
+  const registered = new Set(registeredToolNames ?? []);
+  return declaredTools.filter(tool => registered.has(tool.name));
 }
 
 // A2A 交接包（P1 只定义类型，P2 接入）
@@ -189,7 +199,8 @@ export class ContextManager {
     const skillSummaries: SkillSummary[] = providedSkills.length
       ? providedSkills
       : (roleCard?.capabilities?.skills ?? []).map(skillName => ({ name: skillName, content: '' }));
-    const tools = extractToolsFromSkills(skillSummaries);
+    const declaredTools = extractToolsFromSkills(skillSummaries);
+    const tools = filterRegisteredTools(declaredTools, req.registeredToolNames);
     push('capability', 'skill', buildSkillLayer(skillSummaries), { tier: 'tool', importance: 0.6 });
     push('capability', 'tool', buildToolLayer(tools), { tier: 'tool', importance: 0.6 });
 

@@ -56,6 +56,7 @@ const ACTION_PATTERNS: Array<{ intent: PassIntent; patterns: RegExp[] }> = [
     intent: 'implement',
     patterns: [
       /请\s*(?:立即|马上|尽快)?\s*(实现|开发|修改|修复|落地|execute|implement|build|fix|update)/i,
+      /^\s*(实现|开发|修改|修复|落地|execute|implement|build|fix|update)/i,
       /请.*?(实现|开发|修改|修复|落地|execute|implement|build|fix|update)/i,
       /(开始|继续).*?(实现|开发|修改|修复|落地|execute|implement|build|fix|update)/i,
       /(交给|handoff to).*?(实现|开发|修改|修复|落地|execute|implement|build|fix|update)/i,
@@ -88,14 +89,30 @@ const ACTION_PATTERNS: Array<{ intent: PassIntent; patterns: RegExp[] }> = [
     patterns: [
       /(交给|转交|传给|派发|分配|指派|handoff to|delegate to|dispatch(?:ed)? to|assign(?:ed)? to)/i,
       /请\s*(?:立即|马上|尽快)?\s*(启动|执行|完成|认领|推进|处理|跟进|继续|接手)/i,
+      /^\s*(启动|执行|完成|认领|推进|处理|跟进|继续|接手)/i,
       /需要.*(启动|执行|完成|认领|推进|处理|跟进|继续|接手)/i,
       /(下一步|麻烦|请|需要).*?(启动|执行|完成|认领|推进)\s*(TASK-|任务|#)/i,
+      /请\s*(汇总|总结|收口|给出.{0,12}结论)/i,
+      /(汇总|总结|收口).{0,24}(结论|报告|证据|结果|原文)/i,
     ],
   },
 ];
 
+function detectPositiveIntent(content: string): PassIntent | null {
+  for (const group of ACTION_PATTERNS) {
+    if (group.patterns.some((pattern) => pattern.test(content))) return group.intent;
+  }
+  return null;
+}
+
 function detectIntent(content: string): PassIntent | null {
-  if (/(不需要|不要|无需|别).*?(转交|传给|交给|派发|分配|指派|启动|执行|完成|认领|推进|处理|跟进|接手|审查|审核|检查|实现|开发|修复|验证|测试|确认)/i.test(content)) {
+  const negativeActionPattern = /(不需要|不要|无需|别).*?(转交|传给|交给|派发|分配|指派|启动|执行|完成|认领|推进|处理|跟进|接手|审查|审核|检查|实现|开发|修复|验证|测试|确认)/i;
+  const negativeMatch = negativeActionPattern.exec(content);
+  if (negativeMatch && negativeMatch.index > 0) {
+    const leadingIntent = detectPositiveIntent(content.slice(0, negativeMatch.index));
+    if (leadingIntent) return leadingIntent;
+  }
+  if (negativeMatch) {
     return null;
   }
   if (/(已|已经|之前|刚才|当前|正在|完成|完毕|结束).*?(转交|传给|交给|派发|分配|指派|启动|执行|认领|推进|assigned?|dispatched?)/i.test(content)) {
@@ -104,21 +121,7 @@ function detectIntent(content: string): PassIntent | null {
   if (/(已|已经).*(完成|写入|更新|记录|提交).*?@[\p{L}\p{N}_-]+/iu.test(content)) {
     return null;
   }
-  for (const group of ACTION_PATTERNS) {
-    if (group.patterns.some((pattern) => pattern.test(content))) return group.intent;
-  }
-  return null;
-}
-
-function mentionContext(text: string, target: MentionTarget): string {
-  const start = Math.max(0, target.position - 160);
-  const localStart = target.position + (target.pattern?.length ?? 0);
-  const rest = text.slice(localStart);
-  const nextMentionMatch = /(^|[\s\p{P}])@[\p{L}\p{N}_-]+/u.exec(rest);
-  const end = nextMentionMatch
-    ? localStart + nextMentionMatch.index
-    : Math.min(text.length, target.position + 240);
-  return text.slice(start, end);
+  return detectPositiveIntent(content);
 }
 
 export function scanPassIntents(
@@ -131,12 +134,7 @@ export function scanPassIntents(
       const content = extractMentionContent(text, target);
       const directIntent = detectIntent(content);
       if (directIntent) return { ...target, content, intent: directIntent };
-
-      const context = mentionContext(text, target);
-      const contextIntent = detectIntent(context);
-      if (!contextIntent) return null;
-
-      return { ...target, content: context.trim(), intent: contextIntent };
+      return null;
     })
     .filter((target): target is PassIntentTarget => target !== null);
 }

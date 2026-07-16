@@ -58,9 +58,10 @@ todo → doing → review → done / blocked
 6. 遇到风险 → 在"风险 / 阻塞"区域新增一行
 7. 任务行变化会自动生成群聊通知；只有需要对方执行新动作时才用「@agent 请/需要 + 动作 + 具体交付物」发起 A2A 交接
 8. 纯 @mention、通知 @agent、@agent 已完成/已写入 TASKS.md 不会唤醒对方；下游依赖解除由系统自动调度（wakeup），无需手动通知
+9. quality gate reviewer 被明确唤醒评审某条 in_review 任务时，可以只裁决该任务：PASS → done 并追加评审证据；REJECT → rejected/blocked 并记录原因
 
 ### 禁止
-- 不改其他 Agent 的任务行
+- 不改其他 Agent 的实现内容、标题、负责人或无关任务；唯一例外是 reviewer 对本轮明确评审任务的受限状态裁决
 - 不跳过 review 直接标 done
 
 ### 资源位置
