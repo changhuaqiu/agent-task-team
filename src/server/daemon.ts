@@ -591,7 +591,7 @@ export default function registerDaemon(io: IOServer) {
         contextReport,
       }: TerminalStartPayload, emitToRequester = broadcast) => {
       console.log(`[daemon] terminal:start agent=${agentId}, engine=${rawEngine}, accountId=${accountId ?? '(none)'}, force=${force}, busy=${activeProcesses.has(processKey(agentId, projectId))}`);
-      console.log(`[daemon] systemPrompt=${systemPrompt ? `${systemPrompt.length} chars` : '(none)'}, prompt=${prompt ? `${prompt.length} chars` : '(none)'}`);
+      console.log(`[daemon] systemPrompt=${systemPrompt ? `${systemPrompt.length} chars` : '(none)'}, prompt=${incomingPrompt ? `${incomingPrompt.length} chars` : '(none)'}`);
       let primaryCommand = 'unknown';
       let runtimeConfigDir: string | undefined;
       let controlEnvelopeId: string | undefined;
@@ -1640,6 +1640,7 @@ export default function registerDaemon(io: IOServer) {
       })();
       } catch (err) {
         console.error(`[daemon] terminal:start error for agent=${agentId}:`, err);
+        finishObservation('error', 'internal_error');
         if (controlEnvelopeId) {
           dispatchGateway.markFailed(controlEnvelopeId, 'internal_error');
           const receiptConversationId = conversationId || projectId || 'default';

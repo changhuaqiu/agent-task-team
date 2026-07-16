@@ -4,6 +4,7 @@
 - [x] Context snapshot exposes scenario, budget, layers, loaded skills, and available tools.
 - [x] Tool use/result events are correlated by call id with name fallback.
 - [x] Observation write failures cannot block the agent loop.
+- [x] Observation diagnostics use explicit runtime payload values and cannot fail before the guarded execution path.
 - [x] Sensitive previews are redacted and truncated before persistence.
 - [x] Project query joins observation, invocation, Task Graph, and explicit A2A facts read-only.
 - [x] Project UI shows summary, Agent interactions, traces, context, tools, and waterfall timing.

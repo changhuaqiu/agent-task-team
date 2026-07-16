@@ -55,6 +55,7 @@ Task mutation / Autonomy Guard / A2A pass
 - 接收完整 plan 并提交执行；
 - 当前实现复用 daemon 已有执行入口；
 - ACP 分支只需实现相同端口，无需修改 Task、A2A 或 Context 层。
+- daemon 兼容入口的参数解构、诊断日志和 preflight 校验不得引用浏览器环境全局变量；所有日志字段必须来自显式 payload 或已解析 plan，且诊断代码不得位于可捕获错误边界之外而中断执行。
 
 ### Outcome Reducer
 
@@ -118,6 +119,7 @@ Task mutation / Autonomy Guard / A2A pass
 - Reducer：只允许 pending -> in_progress，不越过质量门禁。
 - A2A：server-owned dispatch、启动确认和 client fallback。
 - Store：`handledByHarness` 不双派发，旧事件仍可执行。
+- Daemon smoke：使用隔离数据目录和已安装的 ACP test runtime 从 `terminal:start` 跑到 AgentEvent/`terminal:exit`，覆盖 payload 解构、preflight 日志和协议适配。
 
 ## 验证结果
 
