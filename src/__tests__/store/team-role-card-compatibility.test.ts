@@ -282,11 +282,12 @@ describe('team role card compatibility', () => {
     expect(useTaskHubStore.getState().getAgentRuntimeProfile('planner')).not.toBe(firstProfile);
   });
 
-  it('records an aborted invocation event when dispatching a dynamic role without an executable profile', () => {
+  it('records an aborted invocation and shows recovery guidance when a user dispatch has no executable profile', async () => {
     const emitSpy = vi.spyOn(socket, 'emit');
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    vi.spyOn(global, 'fetch').mockResolvedValue({ ok: true } as Response);
 
-    useTaskHubStore.getState().dispatchToAgent({
+    await useTaskHubStore.getState().dispatchToAgent({
       agentId: 'planner',
       prompt: 'Draft a plan',
       conversationId: 'conv-team',
@@ -304,6 +305,10 @@ describe('team role card compatibility', () => {
         reasonCode: 'no_runtime_profile',
         message: '请先为该角色绑定可用账号或执行引擎',
       },
+    }));
+    expect(state.chatMessagesByConversation['conv-team']).toContainEqual(expect.objectContaining({
+      agentId: 'system',
+      content: '@planner 未启动：请先为该角色绑定可用账号或执行引擎。',
     }));
   });
 

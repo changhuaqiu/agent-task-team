@@ -12,7 +12,14 @@ import { createAgentSlice, AGENT_ROSTER } from './agentStore';
 import { loadAgents } from './agentStore';
 import type { Account, Agent, AgentRole } from './agentStore';
 import { createDaemonSlice } from './daemonStore';
-import { socket, resetWatchdog, clearWatchdog, registerBrowserRuntimeNode } from './daemonStore';
+import {
+  socket,
+  resetWatchdog,
+  clearWatchdog,
+  registerBrowserRuntimeNode,
+  clearInFlightDispatch,
+  takeInFlightDispatch,
+} from './daemonStore';
 import type { PendingDispatch } from './daemonStore';
 import { resolveRuntimeAgentProfile, resolveTeamRuntime } from '@/lib/team-runtime';
 import type { PresetRuntimeAgentInput, RuntimeAgentProfile, TeamRuntime } from '@/lib/team-runtime';
@@ -1553,96 +1560,51 @@ export const useTaskHubStore = create<TaskHubState>()(
             }, 500);
           }
 
+          // A user turn is a chat fact even when every target is busy. Persist
+          // it before dispatch admission so queueing can never make it vanish.
+          set((state: TaskHubState) => ({
+            chatMessagesByConversation: {
+              ...state.chatMessagesByConversation,
+              [conversationId]: [
+                ...(state.chatMessagesByConversation[conversationId] || []),
+                {
+                  ...rest,
+                  id: messageId,
+                  timestamp: new Date().toISOString(),
+                  mentions,
+                  intent,
+                },
+              ].sort((a: any, b: any) => (a.timestamp || '').localeCompare(b.timestamp || '')),
+            },
+          }));
+
           if (rest.agentId === 'human') {
             const uniqueMentions = resolveMentionAgentIds(get(), mentions);
+            const busyAgents = uniqueMentions.filter((id) => get().agentStatus[id] && get().agentStatus[id] !== 'idle');
+            const idleAgents = uniqueMentions.filter((id) => !get().agentStatus[id] || get().agentStatus[id] === 'idle');
+            const acceptedAgentIds: string[] = [];
 
-            if (uniqueMentions.length > 0) {
-              const busyAgents = uniqueMentions.filter((id) => get().agentStatus[id] && get().agentStatus[id] !== 'idle');
-              const idleAgents = uniqueMentions.filter((id) => !get().agentStatus[id] || get().agentStatus[id] === 'idle');
-
-              if (busyAgents.length === uniqueMentions.length) {
-                for (const agentId of busyAgents) {
-                  get().enqueueDispatch(agentId, { prompt: rest.content, referencedTaskId: rest.referencedTaskId, conversationId });
-                }
-                return;
-              }
-
-              set((state: TaskHubState) => ({
-                chatMessagesByConversation: {
-                  ...state.chatMessagesByConversation,
-                  [conversationId]: [
-                    ...(state.chatMessagesByConversation[conversationId] || []),
-                    {
-                      ...rest,
-                      id: messageId,
-                      timestamp: new Date().toISOString(),
-                      mentions,
-                      intent,
-                    },
-                  ].sort((a: any, b: any) => (a.timestamp || '').localeCompare(b.timestamp || '')),
-                },
-              }));
-
-              const acceptedAgentIds: string[] = [];
-              for (const agentId of idleAgents) {
-                const accepted = await get().dispatchToAgent({
-                  agentId,
-                  referencedTaskId: rest.referencedTaskId,
-                  prompt: rest.content,
-                  conversationId,
-                });
-                if (accepted) acceptedAgentIds.push(agentId);
-              }
-              socket.emit('a2a:user-turn-created', {
-                conversationId,
-                messageId,
-                targetAgentIds: acceptedAgentIds,
+            for (const agentId of idleAgents) {
+              const accepted = await get().dispatchToAgent({
+                agentId,
+                referencedTaskId: rest.referencedTaskId,
                 prompt: rest.content,
-                taskId: rest.referencedTaskId,
-              });
-              for (const agentId of busyAgents) {
-                get().enqueueDispatch(agentId, { prompt: rest.content, referencedTaskId: rest.referencedTaskId, conversationId });
-              }
-            } else {
-              socket.emit('a2a:user-turn-created', {
                 conversationId,
-                messageId,
-                targetAgentIds: [],
-                prompt: rest.content,
-                taskId: rest.referencedTaskId,
               });
-              set((state: TaskHubState) => ({
-                chatMessagesByConversation: {
-                  ...state.chatMessagesByConversation,
-                  [conversationId]: [
-                    ...(state.chatMessagesByConversation[conversationId] || []),
-                    {
-                      ...rest,
-                      id: messageId,
-                      timestamp: new Date().toISOString(),
-                      mentions,
-                      intent,
-                    },
-                  ].sort((a: any, b: any) => (a.timestamp || '').localeCompare(b.timestamp || '')),
-                },
-              }));
+              if (accepted) acceptedAgentIds.push(agentId);
             }
-          } else {
-            set((state: TaskHubState) => ({
-              chatMessagesByConversation: {
-                ...state.chatMessagesByConversation,
-                [conversationId]: [
-                  ...(state.chatMessagesByConversation[conversationId] || []),
-                  {
-                    ...rest,
-                    id: messageId,
-                    timestamp: new Date().toISOString(),
-                    mentions,
-                    intent,
-                  },
-                ],
-              },
-            }));
+
+            socket.emit('a2a:user-turn-created', {
+              conversationId,
+              messageId,
+              targetAgentIds: acceptedAgentIds,
+              prompt: rest.content,
+              taskId: rest.referencedTaskId,
+            });
+
+            for (const agentId of busyAgents) {
+              get().enqueueDispatch(agentId, { prompt: rest.content, referencedTaskId: rest.referencedTaskId, conversationId });
+            }
           }
 
           fetch('/api/mutations', {
@@ -2044,6 +2006,15 @@ socket.on('a2a:pass-offer', ({ agentId, fromAgentId, conversationId, chainId, pa
 
 socket.on('dispatch.receipt', (receipt: DispatchReceipt) => {
   if (!receipt?.conversationId || !receipt.receiptId || !receipt.targetAgentId) return;
+  if (
+    receipt.phase === 'sent'
+    || receipt.phase === 'started'
+    || receipt.phase === 'completed'
+    || receipt.phase === 'blocked'
+    || (receipt.phase === 'failed' && receipt.reasonCode !== 'agent_busy')
+  ) {
+    clearInFlightDispatch(receipt.targetAgentId, receipt.conversationId);
+  }
   useTaskHubStore.getState().recordDispatchReceipt(receipt);
 });
 
@@ -2266,13 +2237,22 @@ socket.on('a2a:dispatch', async ({ agentId, prompt, referencedTaskId, fromAgentI
 socket.on('agent:error', ({ agentId, message, reasonCode }: { agentId: string; message: string; reasonCode?: string }) => {
   const state = useTaskHubStore.getState();
 
-  if (message === 'Agent is busy, message queued') {
+  if (reasonCode === 'agent_busy' || message === 'Agent is busy, message queued') {
     const active = state.activeRunsByAgent[agentId];
     const convId = active?.conversationId || state.selectedConversationId;
     if (!convId) return;
     const key = `${agentId}:${convId}`;
+    const rejectedDispatch = takeInFlightDispatch(agentId, convId);
     const pending = state.pendingDispatches[key];
-    if (!pending || pending.length === 0) {
+    const alreadyQueued = rejectedDispatch && pending?.some((entry) =>
+      entry.prompt === rejectedDispatch.prompt
+      && entry.referencedTaskId === rejectedDispatch.referencedTaskId
+      && entry.source === rejectedDispatch.source
+      && entry.fromAgentId === rejectedDispatch.fromAgentId
+    );
+    if (rejectedDispatch && !alreadyQueued) {
+      state.enqueueDispatch(agentId, rejectedDispatch);
+    } else if (!rejectedDispatch && (!pending || pending.length === 0)) {
       useTaskHubStore.setState((s) => ({
         agentStatus: { ...s.agentStatus, [agentId]: 'busy' },
       }));

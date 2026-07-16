@@ -1,7 +1,7 @@
 # Agent Session Identity
 
 > 状态：active
-> 关联 Issue：[#7](https://github.com/changhuaqiu/agent-task-team/issues/7)、[#8](https://github.com/changhuaqiu/agent-task-team/issues/8)
+> 关联 Issue：[#7](https://github.com/changhuaqiu/agent-task-team/issues/7)、[#8](https://github.com/changhuaqiu/agent-task-team/issues/8)、[#12](https://github.com/changhuaqiu/agent-task-team/issues/12)
 
 ## 1. 目标
 
@@ -54,7 +54,8 @@ interface LogicalAgentSession {
 11. 浏览器 Session 状态只用于展示；服务端缺值时不得使用 localStorage 值恢复执行。
 12. 禁止 `default` scope 参与正式项目 dispatch；缺少 project/conversation id 时必须拒绝。
 13. Runtime Session 的工作目录是恢复身份的一部分。同一 Logical Agent Session 的所有 Invocation 必须使用稳定 cwd；无任务 ID 的发送不得用时间戳生成不同目录。
-14. 已确认 Session 的 `session/load` 若明确返回资源不存在，当前 Logical Agent Session 必须封存为 `runtime_resource_not_found`，下一次 dispatch 创建新 generation；其他加载失败仍 fail-closed，不得清除绑定。
+14. 已确认 Session 的 `session/load` 若明确返回资源不存在，当前 Logical Agent Session 必须封存为 `runtime_resource_not_found`，下一次 dispatch 创建新 generation。
+15. 普通 `acp_session_load_failed` 的当前 Invocation 仍须 fail-closed，禁止自动重放 prompt；但该失败必须持久化。下一次独立 dispatch 若发现同一 generation 的最近 Invocation 正是该失败，视为用户/调度器发起了新的恢复尝试：先封存为 `runtime_session_load_failed`，再创建新 generation。这样既不重复上一轮副作用，也不让 adapter 的非标准 `Internal error` 永久毒化项目 Agent。
 
 ## 4. ACP 执行契约
 
@@ -65,6 +66,7 @@ interface LogicalAgentSession {
 - 有 `resumeSessionId` 但 capability 为 false：失败，reason code 为 `acp_resume_unsupported`。
 - `session/load` 失败：失败，reason code 为 `acp_session_load_failed`。
 - `session/load` 明确返回 ACP `Resource not found`：失败，reason code 为 `acp_session_not_found`；daemon 封存当前 generation，下一次 dispatch 重新 provision。失败的当前 Invocation 不自动重放 prompt，避免未来 adapter 在错误响应前产生副作用时造成重复执行。
+- 若最近一次 Invocation 已持久化为 `acp_session_load_failed`，下一次 dispatch 在创建 Invocation 之前封存旧 generation 并重新 provision；不得在同一次失败 Invocation 内 fresh retry。
 - 当前 prompt 的所有 `session/update` 必须匹配绑定 id。
 
 三个 Catalog runtime 当前实测均声明 `loadSession: true`：OpenCode 1.14.35、Claude adapter 0.59.0、Codex adapter 1.1.2。
@@ -90,7 +92,7 @@ interface LogicalAgentSession {
 
 - 本次不拆分独立 Project 表与 Conversation 表。
 - 本次不自动跨 runtime/account 迁移上下文。
-- 已确认 Session 的普通 load 失败后不自动创建新 session；只有明确的 `Resource not found` 会封存当前 generation，下一次 dispatch 重新 provision。未成功完成 Invocation 的 unconfirmed binding 仍可在下一次 dispatch 前安全释放。
+- 已确认 Session 的普通 load 失败不会在同一次 Invocation 内自动创建新 session；该失败成为下一次独立 dispatch 的 generation 轮换依据。未成功完成 Invocation 的 unconfirmed binding 仍可在下一次 dispatch 前安全释放。
 - 本次不实现用户侧 Session 管理 UI。
 
 ## 8. 验收
@@ -104,3 +106,4 @@ interface LogicalAgentSession {
 7. 相关单元测试、集成测试、类型检查和构建通过。
 8. 首次 Invocation 被取消后，下一次 dispatch 不 load 未落盘 id，而是重新执行 `session/new`。
 9. 无 taskId 的同项目同 Agent 多轮执行使用同一 cwd；确认后的资源不存在只导致当前 generation 封存，不会永久重复 load 同一失效 id。
+10. adapter 仅返回 `Internal error` 的 load failure 不会自动重放当前 prompt；下一次独立 dispatch 会换代并成功进入 `session/new`。

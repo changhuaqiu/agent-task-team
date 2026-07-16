@@ -243,11 +243,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       case 'dispatch.enqueue': {
         const { invocationRepo } = await import('@/server/repositories/invocation-repo');
         const { generateSortableId } = await import('@/server/repositories/sortable-id');
-        const { agentId, prompt, referencedTaskId } = payload as any;
-        const { conversationId } = req.body as any;
+        const { agentId, conversationId, prompt, referencedTaskId } = payload as any;
+        if (typeof conversationId !== 'string' || !conversationId.trim()) {
+          return res.status(400).json({ ok: false, error: 'dispatch.enqueue requires conversationId' });
+        }
         invocationRepo.create({
           id: generateSortableId('disp'),
-          conversation_id: conversationId || 'default',
+          conversation_id: conversationId,
           agent_id: agentId,
           task_id: referencedTaskId || '',
           prompt,

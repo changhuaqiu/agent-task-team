@@ -718,7 +718,11 @@ export default function registerDaemon(io: IOServer) {
       // If agent is busy and not forcing, reject silently — client should have queued
       if (!force && activeProcesses.has(processKey(agentId, projectId))) {
         markEnvelopeFailed('agent_busy');
-        emitToRequester('agent:error', { agentId, message: 'Agent is busy, message queued' });
+        emitToRequester('agent:error', {
+          agentId,
+          message: 'Agent is busy, message queued',
+          reasonCode: 'agent_busy',
+        });
         return;
       }
       dispatchGateway.markSent(controlEnvelopeId);
@@ -729,6 +733,13 @@ export default function registerDaemon(io: IOServer) {
       // --- Session & Invocation tracking (SQLite) ---
       // Use conversationId for session scoping (project-level session per agent)
       let existingSession = sessionRepo.findActiveByConversation(agentId, sessionConvId);
+
+      if (existingSession && sessionRepo.sealIfLatestInvocationLoadFailed(existingSession.id)) {
+        console.warn(
+          `[daemon] rotating session ${existingSession.id} for ${agentId} in ${sessionConvId} after persisted ACP load failure`,
+        );
+        existingSession = undefined;
+      }
 
       if (!existingSession) {
         const nextSeq = sessionRepo.nextSeqForAgent(agentId, taskId || '');
@@ -1595,6 +1606,7 @@ export default function registerDaemon(io: IOServer) {
             invocationRepo.updateStatus(invocation.id, 'failed', {
               exit_code: 1,
               reason_code: final.reasonCode ?? (final.status === 'timeout' ? 'timeout' : undefined),
+              ...(final.error ? { error_message: final.error } : {}),
             });
             if (final.reasonCode === 'acp_session_not_found') {
               sessionRepo.seal(agentSession.id, 'runtime_resource_not_found');

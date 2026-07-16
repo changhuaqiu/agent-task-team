@@ -365,7 +365,7 @@ Daemon 不接受浏览器缓存作为会话恢复依据。正式 dispatch 必须
 
 每次 dispatch 先取得或原子创建 `(conversation_id, agent_id)` 唯一的 active Logical Agent Session，再创建引用它的 Invocation。Logical Session 尚未绑定 runtime id 时，ACP 使用 `session/new`，首个返回 id 通过 compare-and-set 写入；已经绑定时使用 `session/load`。任何不同 id 都视为 `session_identity_changed`，不会覆盖数据库状态。timeout、cancel 或 adapter 退出不会自动 seal Session，下一轮仍恢复原 id。
 
-Runtime Session 的 cwd 也必须稳定：无 taskId 的同项目同 Agent 使用固定 `task-adhoc/workdir`，不能按 dispatch 时间戳换目录。ACP 明确返回 `Resource not found` 时使用 `acp_session_not_found`，daemon 将失效 generation 封存为 `runtime_resource_not_found`，下一次发送创建新 generation；普通 load 错误仍保留原绑定。
+Runtime Session 的 cwd 也必须稳定：无 taskId 的同项目同 Agent 使用固定 `task-adhoc/workdir`，不能按 dispatch 时间戳换目录。ACP 明确返回 `Resource not found` 时使用 `acp_session_not_found`，daemon 将失效 generation 封存为 `runtime_resource_not_found`。若 adapter 只返回普通 `acp_session_load_failed`，当前 Invocation 仍失败关闭且不重放 prompt；下一次独立 dispatch 发现该持久失败后封存旧 generation 为 `runtime_session_load_failed`，再创建新 generation，避免永久重复加载已失效绑定。
 
 前端 `agentSessions` 是服务端状态的显示缓存：hydrate 时以 `/api/state.activeSessions` 整体替换，不与 localStorage 合并，也不在 `terminal:start` 中回传 session id。
 

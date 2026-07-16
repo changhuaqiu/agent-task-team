@@ -56,6 +56,9 @@ Task mutation / Autonomy Guard / A2A pass
 - 当前实现复用 daemon 已有执行入口；
 - ACP 分支只需实现相同端口，无需修改 Task、A2A 或 Context 层。
 - daemon 兼容入口的参数解构、诊断日志和 preflight 校验不得引用浏览器环境全局变量；所有日志字段必须来自显式 payload 或已解析 plan，且诊断代码不得位于可捕获错误边界之外而中断执行。
+- 用户消息必须先写入聊天事实源，再触发 dispatch；runtime 是否 busy 不能影响消息可见性和持久化。
+- 浏览器与 daemon 的 busy 快照可能短暂不一致。浏览器首发 dispatch 时必须暂存原始请求；若 daemon 返回 `agent_busy`，原始请求必须按 `(agentId, conversationId)` 恢复到 pending queue，不能只更新 UI 状态或展示“已排队”。
+- 角色没有可用账号或执行引擎时，派发必须在启动前终止并向聊天区写入可操作提示；内部 `invocation.aborted` 事件不能替代用户反馈。
 
 ### Outcome Reducer
 
@@ -85,7 +88,7 @@ Task mutation / Autonomy Guard / A2A pass
 
 以下情况显式回退旧客户端路径：
 
-- Agent 已 busy，需要沿用现有客户端排队；
+- Agent 已 busy，需要沿用现有客户端排队；队列项必须保留原始 prompt、task、source、fromAgentId 和 conversationId；
 - 服务端缺少 runtime profile；
 - 服务端上下文组装失败；
 - Runtime Port 在派发前拒绝请求。
@@ -119,11 +122,12 @@ Task mutation / Autonomy Guard / A2A pass
 - Reducer：只允许 pending -> in_progress，不越过质量门禁。
 - A2A：server-owned dispatch、启动确认和 client fallback。
 - Store：`handledByHarness` 不双派发，旧事件仍可执行。
+- Mention dispatch：busy-before-send 与 client/server busy race 都必须保持用户消息和 dispatch 请求不丢失；恢复入队后只在真正启动时登记 A2A chain。
 - Daemon smoke：使用隔离数据目录和已安装的 ACP test runtime 从 `terminal:start` 跑到 AgentEvent/`terminal:exit`，覆盖 payload 解构、preflight 日志和协议适配。
 
 ## 验证结果
 
-- Vitest：104 个测试文件、989 个测试全部通过；
+- Vitest：110 个测试文件、1004 个测试全部通过；
 - TypeScript：`pnpm exec tsc --noEmit` 通过；
 - Production build：Next.js 16.2.4 `pnpm build` 通过；
 - Windows 测试夹具已统一处理路径分隔符、默认分支和 POSIX 权限差异。

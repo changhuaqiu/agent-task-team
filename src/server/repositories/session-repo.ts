@@ -188,6 +188,36 @@ export const sessionRepo = {
     })();
   },
 
+  sealIfLatestInvocationLoadFailed(id: string): boolean {
+    return getDb().transaction(() => {
+      const session = sessionRepo.getById(id);
+      if (!session || session.status !== 'active' || !session.cli_session_id) return false;
+
+      const latest = getDb()
+        .prepare(
+          `SELECT status, reason_code
+           FROM invocation
+           WHERE session_id = ?
+           ORDER BY created_at DESC, id DESC
+           LIMIT 1`,
+        )
+        .get(id) as { status: string; reason_code: string | null } | undefined;
+      if (latest?.status !== 'failed' || latest.reason_code !== 'acp_session_load_failed') {
+        return false;
+      }
+
+      const now = new Date().toISOString();
+      const sealed = getDb()
+        .prepare(
+          `UPDATE agent_session
+           SET status = 'sealed', seal_reason = 'runtime_session_load_failed', sealed_at = ?
+           WHERE id = ? AND status = 'active'`,
+        )
+        .run(now, id);
+      return sealed.changes === 1;
+    })();
+  },
+
   incrementMessageCount(id: string): void {
     getDb().prepare('UPDATE agent_session SET message_count = message_count + 1 WHERE id = ?').run(id);
   },

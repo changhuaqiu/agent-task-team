@@ -532,6 +532,44 @@ describe('POST /api/mutations', () => {
     expect(invocationRepo.getById('inv-1')!.exit_code).toBe(0);
   });
 
+  it('dispatch.enqueue keeps the originating conversation scope', async () => {
+    await seedConversation();
+    const { invocationRepo } = await import('@/server/repositories/invocation-repo');
+    const req = mockReq('POST', {
+      type: 'dispatch.enqueue',
+      payload: {
+        agentId: 'agent-a',
+        conversationId: 'conv-1',
+        prompt: 'queued project turn',
+      },
+    });
+    const res = mockRes();
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(invocationRepo.getByConversation('conv-1')).toContainEqual(expect.objectContaining({
+      agent_id: 'agent-a',
+      prompt: 'queued project turn',
+    }));
+    expect(invocationRepo.getByConversation('default')).toHaveLength(0);
+  });
+
+  it('dispatch.enqueue rejects a missing conversation scope', async () => {
+    const { invocationRepo } = await import('@/server/repositories/invocation-repo');
+    const req = mockReq('POST', {
+      type: 'dispatch.enqueue',
+      payload: { agentId: 'agent-a', prompt: 'must not use default' },
+    });
+    const res = mockRes();
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(400);
+    expect(res._json).toEqual({ ok: false, error: 'dispatch.enqueue requires conversationId' });
+    expect(invocationRepo.getByConversation('default')).toHaveLength(0);
+  });
+
   it('event.append creates event', async () => {
     await seedTask();
     const req = mockReq('POST', {

@@ -14,9 +14,9 @@
 - [x] daemon/浏览器重启后仍恢复同一 session。
 - [x] load 失败不会自动执行 `session/new`。
 - [x] 未确认的新 Session 在首轮 cancel/timeout 后不会被当作可恢复资源。
-- [x] 已确认 Session 的 load 失败仍然失败关闭，不会静默轮换。
+- [x] 已确认 Session 的 load 失败仍然失败关闭，不在同一 Invocation 内静默轮换或重放 prompt。
 - [x] 无 taskId 的多轮执行不会因 cwd 漂移导致 runtime resource 丢失。
-- [x] 仅 `Resource not found` 会封存失效 generation；普通 load 错误保持原绑定。
+- [x] `Resource not found` 立即封存失效 generation；普通 load 错误持久化并只在下一次独立 dispatch 前换代。
 
 ## 一致性
 

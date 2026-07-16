@@ -409,6 +409,40 @@ describe('session-repo', () => {
     expect(sessionRepo.getById('ses-1')?.cli_session_id).toBeNull();
   });
 
+  it('seals a confirmed generation only when its latest invocation is a persisted ACP load failure', () => {
+    sessionRepo.create({ id: 'ses-1', conversationId: 'conv-1', agentId: 'agent-a', taskId: 'task-1' });
+    invocationRepo.create({
+      id: 'inv-1', conversation_id: 'conv-1', agent_id: 'agent-a', session_id: 'ses-1',
+    });
+    sessionRepo.confirmRuntimeSessionId('ses-1', 'runtime-confirmed', 'inv-1');
+    invocationRepo.create({
+      id: 'inv-2', conversation_id: 'conv-1', agent_id: 'agent-a', session_id: 'ses-1',
+    });
+    invocationRepo.updateStatus('inv-2', 'failed', { reason_code: 'acp_session_load_failed' });
+
+    expect(sessionRepo.sealIfLatestInvocationLoadFailed('ses-1')).toBe(true);
+    expect(sessionRepo.getById('ses-1')).toMatchObject({
+      status: 'sealed',
+      seal_reason: 'runtime_session_load_failed',
+      cli_session_id: 'runtime-confirmed',
+    });
+    expect(sessionRepo.getOrCreateActive({
+      id: 'ses-2', conversationId: 'conv-1', agentId: 'agent-a', taskId: 'task-1', seq: 1,
+    }).id).toBe('ses-2');
+  });
+
+  it('keeps a generation when the latest failure is unrelated to session loading', () => {
+    sessionRepo.create({ id: 'ses-1', conversationId: 'conv-1', agentId: 'agent-a', taskId: 'task-1' });
+    sessionRepo.bindRuntimeSessionId('ses-1', 'runtime-confirmed');
+    invocationRepo.create({
+      id: 'inv-1', conversation_id: 'conv-1', agent_id: 'agent-a', session_id: 'ses-1',
+    });
+    invocationRepo.updateStatus('inv-1', 'failed', { reason_code: 'acp_timeout' });
+
+    expect(sessionRepo.sealIfLatestInvocationLoadFailed('ses-1')).toBe(false);
+    expect(sessionRepo.getById('ses-1')?.status).toBe('active');
+  });
+
   it('atomically confirms runtime binding and successful invocation', () => {
     sessionRepo.create({ id: 'ses-1', conversationId: 'conv-1', agentId: 'agent-a', taskId: 'task-1' });
     invocationRepo.create({

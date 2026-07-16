@@ -399,6 +399,52 @@ describe('Team Pack Dynamic Roster', () => {
   });
 
   describe('human mentions in TeamPack projects', () => {
+    it('persists the user message before queueing when every mentioned agent is busy', async () => {
+      const dispatchToAgent = vi.fn();
+      const enqueueDispatch = vi.fn();
+      const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue({ ok: true } as Response);
+      const teamPack = makeTeamPack({
+        id: 'pack-busy-mentions',
+        roles: [makeRole({ id: 'coder', displayName: 'Coder' })],
+      });
+      useTaskHubStore.setState({
+        conversations: [{
+          id: 'conv-busy-mentions',
+          title: 'Busy Mentions',
+          goal: 'Queue without losing chat facts',
+          status: 'active',
+          priority: 'p1',
+          projectPath: '',
+          breakdownStatus: 'none',
+          teamPackId: 'pack-busy-mentions',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }],
+        selectedConversationId: 'conv-busy-mentions',
+        activeAgentIds: ['coder'],
+        currentTeamPack: teamPack,
+        agentStatus: { coder: 'busy' },
+        dispatchToAgent: dispatchToAgent as any,
+        enqueueDispatch: enqueueDispatch as any,
+      });
+
+      await useTaskHubStore.getState().addChatMessage({
+        agentId: 'human',
+        content: '@coder 请排队执行',
+      });
+
+      expect(useTaskHubStore.getState().chatMessagesByConversation['conv-busy-mentions'])
+        .toContainEqual(expect.objectContaining({ agentId: 'human', content: '@coder 请排队执行' }));
+      expect(enqueueDispatch).toHaveBeenCalledWith('coder', expect.objectContaining({
+        prompt: '@coder 请排队执行',
+        conversationId: 'conv-busy-mentions',
+      }));
+      expect(dispatchToAgent).not.toHaveBeenCalled();
+      expect(fetchSpy).toHaveBeenCalledWith('/api/mutations', expect.objectContaining({
+        body: expect.stringContaining('message.append'),
+      }));
+    });
+
     it('dispatches to dynamic TeamPack role ids from @mentions', () => {
       const dispatchToAgent = vi.fn();
       const teamPack = makeTeamPack({

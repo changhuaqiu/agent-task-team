@@ -194,7 +194,9 @@ Team Runtime 缓存是派生缓存，不是新的事实源。缓存只复用 `re
 - `/api/state` 返回持久化的全部 `agentSkillIds`，store 不能再假设只有固定六个 preset agent 才能绑定 Skill。
 - 项目创建后的方案分析不再固定派发给 Mario。普通项目仍使用 preset planner；TeamPack 项目等待对应 TeamPack 加载完成后，按 workflow 的首个可用角色发起 proposal。
 - 用户消息中的 `@agent` 也按 runtime roster 解析。TeamPack role id、当前角色名和角色素材显示名都可以作为 mention 目标，不再只接受静态 Mario 6 人组。
-- 用户消息写入时会先解析 `@agent` 并尝试执行派发。只有 `dispatchToAgent()` 成功启动或接收该派发后，store 才向 daemon 发送 `a2a:user-turn-created` 并登记本次用户触发的 A2A chain；未命中 agent 或没有成功启动任何目标时，只通知 daemon 终止旧 active chain。忙碌 agent 的用户派发先留在本地 pending queue，等真正 dequeue 并启动成功时再登记 chain，避免 server 把尚未执行的任务误标为 `executing` 后触发假超时。
+- 用户消息先进入 UI 和持久化事实源，再解析 `@agent` 并尝试派发，不能因为所有目标 busy 而提前返回。只有 `dispatchToAgent()` 成功启动或接收该派发后，store 才向 daemon 发送 `a2a:user-turn-created` 并登记本次用户触发的 A2A chain；未命中 agent 或没有成功启动任何目标时，只通知 daemon 终止旧 active chain。
+- 忙碌 agent 的用户派发先留在 conversation-scoped pending queue，等真正 dequeue 并启动成功时再登记 chain。由于浏览器 busy 快照可能落后于 daemon，`dispatchToAgent()` 首发时还要暂存本次请求；daemon 返回 `agent_busy` 时必须用该请求恢复入队，避免“消息已显示但没有 invocation”的静默丢失。相关缺陷由 [#15](https://github.com/changhuaqiu/agent-task-team/issues/15) 跟踪。
+- `getAgentRuntimeProfile()` 返回空时，store 既记录 `invocation.aborted/no_runtime_profile`，也在对应项目聊天区显示“为该角色绑定可用账号或执行引擎”的恢复提示；不能只留下控制台 warning。相关缺陷由 [#16](https://github.com/changhuaqiu/agent-task-team/issues/16) 跟踪。
 - A2A possession UI 状态由 `a2aByConversation` 缓存，记录当前持球者和最近交接事件。它只保留最近 8 条 handoff 作为 UI 时间线，是 socket runtime view，不作为项目任务状态事实源；任务进度仍以 SQLite task/TASKS.md 为准。
 
 这意味着 store 的职责边界是“缓存与适配”，不是“定义团队规则”。TeamPack 的通信规则、任务流程和角色解析都应保留在 Team Runtime Contract 或 server repository 边界内。

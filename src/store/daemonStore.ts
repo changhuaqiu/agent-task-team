@@ -151,16 +151,34 @@ export interface PendingDispatch {
   conversationId: string;
 }
 
+type InFlightDispatch = Omit<PendingDispatch, 'queuedAt'>;
+
+// Browser busy state is only a projection. Keep the request until daemon
+// confirms it was sent so an agent_busy response can recover it into the
+// conversation-scoped pending queue instead of dropping the user turn.
+const inFlightDispatches = new Map<string, InFlightDispatch>();
+
 /** Composite key for per-project queue isolation: agentId:conversationId */
 function queueKey(agentId: string, conversationId: string): string {
   return `${agentId}:${conversationId}`;
+}
+
+export function takeInFlightDispatch(agentId: string, conversationId: string): InFlightDispatch | undefined {
+  const key = queueKey(agentId, conversationId);
+  const dispatch = inFlightDispatches.get(key);
+  inFlightDispatches.delete(key);
+  return dispatch;
+}
+
+export function clearInFlightDispatch(agentId: string, conversationId: string): void {
+  inFlightDispatches.delete(queueKey(agentId, conversationId));
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- set/get typed as any to avoid circular dependency with TaskHubState
 export const createDaemonSlice = (set: any, get: () => any) => {
   const _resetWatchdog = (agentId: string) => resetWatchdog(agentId, get, set);
   const _scheduleFlush = () => scheduleBufferFlush(get, set);
-  const _recordNoRuntimeProfileAbort = (conversationId: string, agentId: string) => {
+  const _recordNoRuntimeProfileAbort = (conversationId: string, agentId: string, visibleToUser = false) => {
     get().addEvent({
       conversationId,
       type: 'invocation.aborted',
@@ -169,6 +187,14 @@ export const createDaemonSlice = (set: any, get: () => any) => {
         ...NO_RUNTIME_PROFILE_ABORT,
       },
     });
+    if (visibleToUser) {
+      get().addChatMessage({
+        agentId: 'system',
+        conversationId,
+        content: `@${agentId} 未启动：${NO_RUNTIME_PROFILE_ABORT.message}。`,
+        source: 'system',
+      });
+    }
   };
 
   return {
@@ -236,7 +262,7 @@ export const createDaemonSlice = (set: any, get: () => any) => {
       const profile = get().getAgentRuntimeProfile(agentId);
       if (!profile) {
         console.warn(`[dispatch] ${agentId} aborted: no runtime profile or enabled account for conversation ${conversationId}`);
-        _recordNoRuntimeProfileAbort(conversationId, agentId);
+        _recordNoRuntimeProfileAbort(conversationId, agentId, source === undefined || source === 'user');
         return false;
       }
 
@@ -323,6 +349,14 @@ export const createDaemonSlice = (set: any, get: () => any) => {
         payload: { runId, agentId, taskId: referencedTaskId, engine: resolvedEngine },
       });
 
+      inFlightDispatches.set(queueKey(agentId, conversationId), {
+        prompt,
+        referencedTaskId,
+        source,
+        fromAgentId,
+        conversationId,
+      });
+
       socket.emit('terminal:start', {
         projectId,
         taskId: referencedTaskId,
@@ -369,7 +403,7 @@ export const createDaemonSlice = (set: any, get: () => any) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           type: 'dispatch.enqueue',
-          payload: { agentId, prompt: payload.prompt, referencedTaskId: payload.referencedTaskId },
+          payload: { agentId, conversationId, prompt: payload.prompt, referencedTaskId: payload.referencedTaskId },
         }),
       }).catch(() => {});
     },

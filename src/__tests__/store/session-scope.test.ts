@@ -3,6 +3,10 @@ import { PRESET_ROLE_CARDS } from '@/data/presetRoleCards';
 import { socket } from '@/store/daemonStore';
 import { useTaskHubStore, type Account } from '@/store/taskHubStore';
 
+function emitServerEvent(event: string, payload: unknown) {
+  (socket as unknown as { emitEvent(args: unknown[]): void }).emitEvent([event, payload]);
+}
+
 function account(id: string): Account {
   return {
     id,
@@ -59,6 +63,7 @@ function resetStoreForSessionScope() {
     agentStatus: {},
     terminalLogs: {},
     activeRunsByAgent: {},
+    pendingDispatches: {},
     agentSessions: { 'conv-old': { mario: 'old-cli-session' } },
     needsFullCompose: {},
   });
@@ -111,5 +116,36 @@ describe('project session scoping', () => {
       agentId: 'mario',
     }));
     expect(payload).not.toHaveProperty('sessionId');
+  });
+
+  it('recovers the original dispatch into the project queue when daemon reports a busy race', async () => {
+    vi.spyOn(socket, 'emit').mockImplementation(() => socket);
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue({ ok: true } as Response);
+
+    const accepted = await useTaskHubStore.getState().dispatchToAgent({
+      agentId: 'mario',
+      prompt: 'race-safe user turn',
+      referencedTaskId: 'TASK-QUEUE',
+      conversationId: 'conv-new',
+    });
+    expect(accepted).toBe(true);
+
+    emitServerEvent('agent:error', {
+      agentId: 'mario',
+      message: 'Agent is busy, message queued',
+      reasonCode: 'agent_busy',
+    });
+
+    expect(useTaskHubStore.getState().pendingDispatches['mario:conv-new']).toContainEqual(expect.objectContaining({
+      prompt: 'race-safe user turn',
+      referencedTaskId: 'TASK-QUEUE',
+      conversationId: 'conv-new',
+    }));
+    const enqueueCall = fetchSpy.mock.calls.find(([, init]) => String(init?.body).includes('dispatch.enqueue'));
+    expect(enqueueCall).toBeDefined();
+    expect(JSON.parse(String(enqueueCall?.[1]?.body)).payload).toEqual(expect.objectContaining({
+      conversationId: 'conv-new',
+      prompt: 'race-safe user turn',
+    }));
   });
 });
