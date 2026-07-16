@@ -813,7 +813,11 @@ export class Orchestrator {
     const chain = this.chainRepo.getById(chainId);
     if (!chain || chain.status !== 'active') return;
 
-    this.chainRepo.markExecuting(entryId);
+    // Guard against the fire-and-forget race: if the ACP done event already
+    // arrived and onAgentDone marked this entry 'done', we must NOT roll the
+    // agent back to 'executing' — that would permanently block all future
+    // handoffs to this agent.
+    if (!this.chainRepo.markExecuting(entryId)) return;
     this.setAgentState(agentId, 'executing', chainId);
 
     const resolvedPassId = passId

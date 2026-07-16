@@ -112,10 +112,16 @@ export class ChainRepo {
     ).run(new Date().toISOString(), entryId);
   }
 
-  markExecuting(entryId: string): void {
-    this.db.prepare(
-      `UPDATE chain_worklist SET status = 'executing', started_at = COALESCE(started_at, ?) WHERE id = ?`
+  markExecuting(entryId: string): boolean {
+    const result = this.db.prepare(
+      `UPDATE chain_worklist SET status = 'executing', started_at = COALESCE(started_at, ?) WHERE id = ? AND status IN ('queued', 'dispatching', 'executing')`
     ).run(new Date().toISOString(), entryId);
+    // Returns false when the entry already transitioned to 'done' (e.g.
+    // onAgentDone marked it 'done' during the fire-and-forget race between
+    // harness completion and the ACP done event). The caller must NOT roll
+    // the agent back to 'executing' in that case. Including 'executing' in
+    // the WHERE clause makes this idempotent for re-entry.
+    return result.changes === 1;
   }
 
   markDone(entryId: string, outcome: WorklistOutcome): void {
