@@ -12,12 +12,22 @@ function durationMs(span: ObservationSpanRow): number | undefined {
   return Math.max(0, new Date(span.ended_at).getTime() - new Date(span.started_at).getTime());
 }
 
+function tokenNodeTotal(value: unknown): number {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return 0;
+  const entries = Object.entries(value as Record<string, unknown>);
+  const explicitTotal = entries.find(([key, item]) =>
+    typeof item === 'number' && /(?:total.*token|token.*total)/i.test(key),
+  );
+  if (explicitTotal) return explicitTotal[1] as number;
+
+  const direct = entries.reduce((sum, [key, item]) =>
+    sum + (/token/i.test(key) && typeof item === 'number' ? item : 0), 0);
+  const nested = entries.reduce((sum, [, item]) => sum + tokenNodeTotal(item), 0);
+  return direct + nested;
+}
+
 function tokenTotal(value: string | null): number {
-  const usage = parseJson<Record<string, unknown>>(value, {});
-  return Object.entries(usage).reduce((sum, [key, item]) => {
-    if (!/token/i.test(key) || typeof item !== 'number') return sum;
-    return /total/i.test(key) ? Math.max(sum, item) : sum + item;
-  }, 0);
+  return tokenNodeTotal(parseJson<Record<string, unknown>>(value, {}));
 }
 
 export interface ProjectObservationSnapshot {
@@ -57,18 +67,67 @@ export interface ProjectObservationSnapshot {
     tools: string[];
     spans: Array<ObservationSpanRow & { parsedAttributes: Record<string, unknown>; durationMs?: number }>;
   }>;
+  chains: Array<{
+    chainId: string;
+    status?: string;
+    taskIds: string[];
+    nodes: Array<{
+      id: string;
+      agentId: string;
+      traceId?: string;
+      invocationId?: string;
+      taskId?: string;
+      status?: string;
+      startedAt?: string;
+    }>;
+    edges: Array<{
+      id: string;
+      source: string;
+      target: string;
+      fromAgentId: string;
+      toAgentId: string;
+      passId?: string;
+      status?: string;
+      reason?: string;
+      eventType?: string;
+      createdAt?: string;
+    }>;
+  }>;
   workflow: {
     tasks: ReturnType<typeof taskGraphRepo.getGraph>['tasks'];
     taskEdges: ReturnType<typeof taskGraphRepo.getGraph>['edges'];
-    agentEdges: Array<{ fromAgentId: string; toAgentId: string; count: number; chainIds: string[]; passIds: string[] }>;
+    agentEdges: Array<{ fromAgentId: string; toAgentId: string; count: number; chainIds: string[]; passIds: string[]; auditEvents: string[] }>;
+    taskChains: Array<{ taskId: string; chainIds: string[]; agentIds: string[]; traceIds: string[] }>;
   };
 }
 
 type InvocationUsageRow = { id: string; token_usage: string | null; usage: string | null };
-type RawAgentEdge = { from_agent_id: string; to_agent_id: string; chain_id: string; pass_id: string | null };
+type RawAgentEdge = {
+  from_agent_id: string;
+  to_agent_id: string;
+  chain_id: string;
+  pass_id: string | null;
+  status: string | null;
+  reason: string | null;
+  created_at: string | null;
+};
+type RawAuditEvent = {
+  chain_id: string | null;
+  event_type: string;
+  from_agent_id: string | null;
+  to_agent_id: string | null;
+  reason: string | null;
+  created_at: string;
+};
+
+export interface ProjectObservationFilters {
+  traceId?: string;
+  invocationId?: string;
+  agentId?: string;
+}
 
 export const projectObservationProjection = {
-  build(conversationId: string, limit = 50): ProjectObservationSnapshot {
+  build(conversationId: string, limit = 50, filters: ProjectObservationFilters = {}): ProjectObservationSnapshot {
     const cappedLimit = Math.max(1, Math.min(limit, 100));
     const spans = observationSpanRepo.listByConversation(conversationId, 2_000);
     const traceGroups = new Map<string, ObservationSpanRow[]>();
@@ -77,7 +136,7 @@ export const projectObservationProjection = {
     const invocationUsage = new Map((getDb().prepare(`SELECT id, token_usage, usage FROM invocation
       WHERE conversation_id = ?`).all(conversationId) as InvocationUsageRow[]).map(row => [row.id, row]));
 
-    const traces = Array.from(traceGroups.entries()).map(([traceId, traceSpans]) => {
+    const allTraces = Array.from(traceGroups.entries()).map(([traceId, traceSpans]) => {
       const ordered = [...traceSpans].sort((a, b) => a.started_at.localeCompare(b.started_at) || a.span_id.localeCompare(b.span_id));
       const root = ordered.find(span => !span.parent_span_id && span.kind === 'agent') ?? ordered[0];
       const contextSpan = ordered.find(span => span.kind === 'context');
@@ -107,7 +166,12 @@ export const projectObservationProjection = {
         tools: Array.from(new Set(tools)),
         spans: ordered.map(span => ({ ...span, parsedAttributes: parseJson(span.attributes, {}), durationMs: durationMs(span) })),
       };
-    }).sort((a, b) => b.startedAt.localeCompare(a.startedAt)).slice(0, cappedLimit);
+    }).sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+    const traces = allTraces.filter(trace =>
+      (!filters.traceId || trace.traceId === filters.traceId)
+      && (!filters.invocationId || trace.invocationId === filters.invocationId)
+      && (!filters.agentId || trace.agentId === filters.agentId),
+    ).slice(0, cappedLimit);
 
     const agentMap = new Map<string, ProjectObservationSnapshot['agents'][number]>();
     for (const trace of traces) {
@@ -123,23 +187,97 @@ export const projectObservationProjection = {
     }
 
     const rawEdges = getDb().prepare(`
-      SELECT p.from_holder_id AS from_agent_id, p.to_agent_id, p.chain_id, p.id AS pass_id
+      SELECT p.from_holder_id AS from_agent_id, p.to_agent_id, p.chain_id, p.id AS pass_id,
+        p.status, p.reason, p.created_at
       FROM a2a_pass p JOIN a2a_possession_chain c ON c.id = p.chain_id
       WHERE c.conversation_id = ?
       UNION ALL
-      SELECT w.requested_by AS from_agent_id, w.agent_id AS to_agent_id, w.chain_id, NULL AS pass_id
+      SELECT w.requested_by AS from_agent_id, w.agent_id AS to_agent_id, w.chain_id, NULL AS pass_id,
+        w.status, NULL AS reason, w.queued_at AS created_at
       FROM chain_worklist w JOIN invocation_chain c ON c.id = w.chain_id
       WHERE c.conversation_id = ?
     `).all(conversationId, conversationId) as RawAgentEdge[];
+    const auditEvents = getDb().prepare(`SELECT chain_id, event_type, from_agent_id, to_agent_id, reason, created_at
+      FROM a2a_audit_log WHERE conversation_id = ? ORDER BY created_at, id`)
+      .all(conversationId) as RawAuditEvent[];
     const edgeMap = new Map<string, ProjectObservationSnapshot['workflow']['agentEdges'][number]>();
     for (const edge of rawEdges) {
       if (!edge.from_agent_id || !edge.to_agent_id || edge.from_agent_id === edge.to_agent_id) continue;
       const key = `${edge.from_agent_id}\0${edge.to_agent_id}`;
-      const current = edgeMap.get(key) ?? { fromAgentId: edge.from_agent_id, toAgentId: edge.to_agent_id, count: 0, chainIds: [], passIds: [] };
+      const current = edgeMap.get(key) ?? { fromAgentId: edge.from_agent_id, toAgentId: edge.to_agent_id, count: 0, chainIds: [], passIds: [], auditEvents: [] };
       current.count += 1;
       if (!current.chainIds.includes(edge.chain_id)) current.chainIds.push(edge.chain_id);
       if (edge.pass_id && !current.passIds.includes(edge.pass_id)) current.passIds.push(edge.pass_id);
+      for (const audit of auditEvents) {
+        if (audit.chain_id !== edge.chain_id || audit.from_agent_id !== edge.from_agent_id || audit.to_agent_id !== edge.to_agent_id) continue;
+        if (!current.auditEvents.includes(audit.event_type)) current.auditEvents.push(audit.event_type);
+      }
       edgeMap.set(key, current);
+    }
+
+    const chainIds = new Set<string>([
+      ...rawEdges.map(edge => edge.chain_id),
+      ...allTraces.map(trace => trace.chainId).filter((value): value is string => Boolean(value)),
+      ...auditEvents.map(event => event.chain_id).filter((value): value is string => Boolean(value)),
+    ]);
+    const chains: ProjectObservationSnapshot['chains'] = Array.from(chainIds).map(chainId => {
+      const chainTraces = allTraces.filter(trace => trace.chainId === chainId).sort((a, b) => a.startedAt.localeCompare(b.startedAt));
+      const nodes: ProjectObservationSnapshot['chains'][number]['nodes'] = chainTraces.map(trace => ({
+        id: `trace:${trace.traceId}`,
+        agentId: trace.agentId ?? 'agent',
+        traceId: trace.traceId,
+        invocationId: trace.invocationId,
+        taskId: trace.taskId,
+        status: trace.status,
+        startedAt: trace.startedAt,
+      }));
+      const nodeForAgent = (agentId: string, targetAgentId?: string) => {
+        const candidates = nodes.filter(node => node.agentId === agentId);
+        if (candidates.length) return targetAgentId ? candidates[candidates.length - 1] : candidates[0];
+        const id = `actor:${chainId}:${agentId}`;
+        const node = { id, agentId };
+        nodes.push(node);
+        return node;
+      };
+      const edges = rawEdges.filter(edge => edge.chain_id === chainId).map((edge, index) => {
+        const targetByPass = edge.pass_id
+          ? nodes.find(node => node.traceId && allTraces.find(trace => trace.traceId === node.traceId)?.passId === edge.pass_id)
+          : undefined;
+        const target = targetByPass ?? nodes.find(node => node.agentId === edge.to_agent_id) ?? nodeForAgent(edge.to_agent_id);
+        const sourceCandidates = nodes.filter(node => node.agentId === edge.from_agent_id && node.id !== target.id);
+        const source = sourceCandidates[sourceCandidates.length - 1] ?? nodeForAgent(edge.from_agent_id, edge.to_agent_id);
+        const audit = auditEvents.find(item => item.chain_id === chainId
+          && item.from_agent_id === edge.from_agent_id && item.to_agent_id === edge.to_agent_id);
+        return {
+          id: edge.pass_id ? `pass:${edge.pass_id}` : `work:${chainId}:${index}`,
+          source: source.id,
+          target: target.id,
+          fromAgentId: edge.from_agent_id,
+          toAgentId: edge.to_agent_id,
+          passId: edge.pass_id ?? undefined,
+          status: edge.status ?? undefined,
+          reason: edge.reason ?? audit?.reason ?? undefined,
+          eventType: audit?.event_type,
+          createdAt: edge.created_at ?? audit?.created_at,
+        };
+      });
+      const taskIds = Array.from(new Set(chainTraces.map(trace => trace.taskId).filter((value): value is string => Boolean(value))));
+      const status = edges.some(edge => edge.status === 'blocked' || edge.status === 'timeout') ? 'blocked'
+        : edges.length && edges.every(edge => edge.status === 'completed' || edge.status === 'done') ? 'completed' : 'active';
+      return { chainId, status, taskIds, nodes, edges };
+    }).sort((a, b) => a.chainId.localeCompare(b.chainId));
+
+    const taskChainMap = new Map<string, ProjectObservationSnapshot['workflow']['taskChains'][number]>();
+    for (const chain of chains) {
+      for (const taskId of chain.taskIds) {
+        const current = taskChainMap.get(taskId) ?? { taskId, chainIds: [], agentIds: [], traceIds: [] };
+        if (!current.chainIds.includes(chain.chainId)) current.chainIds.push(chain.chainId);
+        for (const node of chain.nodes) {
+          if (!current.agentIds.includes(node.agentId)) current.agentIds.push(node.agentId);
+          if (node.traceId && !current.traceIds.includes(node.traceId)) current.traceIds.push(node.traceId);
+        }
+        taskChainMap.set(taskId, current);
+      }
     }
 
     const graph = taskGraphRepo.getGraph(conversationId);
@@ -158,7 +296,13 @@ export const projectObservationProjection = {
       },
       agents: Array.from(agentMap.values()).sort((a, b) => b.lastActiveAt.localeCompare(a.lastActiveAt)),
       traces,
-      workflow: { tasks: graph.tasks, taskEdges: graph.edges, agentEdges: Array.from(edgeMap.values()) },
+      chains,
+      workflow: {
+        tasks: graph.tasks,
+        taskEdges: graph.edges,
+        agentEdges: Array.from(edgeMap.values()),
+        taskChains: Array.from(taskChainMap.values()),
+      },
     };
   },
 };

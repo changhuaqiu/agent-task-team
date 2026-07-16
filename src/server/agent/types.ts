@@ -6,6 +6,7 @@ import type { CapabilitySet } from './capabilities';
 export type AgentEventType =
   | 'text'
   | 'thinking'
+  | 'plan'
   | 'tool_use'
   | 'tool_result'
   | 'error'

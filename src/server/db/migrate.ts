@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3';
 
-const MIGRATIONS: { version: number; sql: string }[] = [
+const MIGRATIONS: { version: number; sql?: string; run?: (db: Database.Database) => void }[] = [
   {
     version: 1,
     sql: `
@@ -709,6 +709,35 @@ CREATE INDEX IF NOT EXISTS idx_agent_skill_skill ON agent_skill(skill_id);
       ON observation_span(agent_id, started_at);
     `,
   },
+  {
+    version: 23,
+    sql: `
+    CREATE TABLE IF NOT EXISTS observation_span_payload (
+      span_id TEXT NOT NULL REFERENCES observation_span(span_id) ON DELETE CASCADE,
+      role TEXT NOT NULL,
+      seq INTEGER NOT NULL DEFAULT 0,
+      content TEXT NOT NULL,
+      byte_size INTEGER NOT NULL,
+      truncated INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (span_id, role, seq)
+    );
+    CREATE INDEX IF NOT EXISTS idx_observation_span_payload_span
+      ON observation_span_payload(span_id);
+    `,
+  },
+  {
+    version: 24,
+    run(db) {
+      const table = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'chat_message'").get();
+      if (!table) return;
+      const columns = db.prepare('PRAGMA table_info(chat_message)').all() as Array<{ name: string }>;
+      if (!columns.some(column => column.name === 'invocation_id')) {
+        db.exec('ALTER TABLE chat_message ADD COLUMN invocation_id TEXT');
+      }
+      db.exec('CREATE INDEX IF NOT EXISTS idx_msg_invocation ON chat_message(invocation_id)');
+    },
+  },
 ];
 
 export function applyMigrations(db: Database.Database): void {
@@ -721,7 +750,8 @@ export function applyMigrations(db: Database.Database): void {
 
   for (const migration of MIGRATIONS) {
     if (migration.version > currentVersion) {
-      db.exec(migration.sql);
+      if (migration.sql) db.exec(migration.sql);
+      migration.run?.(db);
       db.prepare('INSERT INTO _schema_version (version) VALUES (?)').run(migration.version);
     }
   }

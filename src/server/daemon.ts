@@ -56,6 +56,8 @@ import { checkValidExit } from './harness/valid-exit';
 import type { ContextReport } from '../lib/agent-context/ContextManager';
 import type { ContextScenario } from '../lib/agent-context/scenarioResolver';
 import { generateSpanId, generateTraceId, observationSpanRepo } from './repositories/observation-span-repo';
+import { spanPayloadRepo } from './repositories/span-payload-repo';
+import { isThinkingCaptureEnabled } from './observability/redaction';
 import { teamLogProjection } from './team-log/TeamLogProjection';
 import { renderTeamLogEnvelope } from '../lib/agent-context/teamLog';
 
@@ -597,6 +599,10 @@ export default function registerDaemon(io: IOServer) {
       let controlEnvelopeId: string | undefined;
       let invocationTraceId = requestedTraceId;
       let rootObservationSpanId: string | undefined;
+      let messageObservationSpanId: string | undefined;
+      let completionObservationBuffer = '';
+      let thinkingObservationBuffer = '';
+      const captureThinking = isThinkingCaptureEnabled();
       const openToolSpans = new Map<string, string[]>();
       let finishObservation: (status: 'ok' | 'error' | 'cancelled', errorMessage?: string) => void = () => {};
       // ACP per-runtime cleanup (e.g. codex temp CODEX_HOME). Declared here so
@@ -778,6 +784,70 @@ export default function registerDaemon(io: IOServer) {
         prompt: prompt || '',
       });
 
+      const ensureMessageObservationSpan = () => {
+        if (messageObservationSpanId || !invocationTraceId || !rootObservationSpanId) return messageObservationSpanId;
+        try {
+          messageObservationSpanId = observationSpanRepo.start({
+            traceId: invocationTraceId,
+            parentSpanId: rootObservationSpanId,
+            name: 'agent.message',
+            kind: 'message',
+            conversationId: sessionConvId,
+            taskId,
+            agentId,
+            invocationId: invocation.id,
+            envelopeId: controlEnvelopeId,
+            chainId,
+            passId,
+            attributes: {
+              'ath.schema.version': 1,
+              'gen_ai.operation.name': 'chat',
+              'gen_ai.output.type': 'text',
+            },
+          }).span_id;
+        } catch (error) {
+          console.warn('[observability] failed to start message span:', error);
+        }
+        return messageObservationSpanId;
+      };
+
+      const capturePromptObservation = (assembledPrompt: string, effectiveSystemPrompt?: string) => {
+        if (!rootObservationSpanId) return;
+        try {
+          if (effectiveSystemPrompt) spanPayloadRepo.put(rootObservationSpanId, 'system_prompt', effectiveSystemPrompt);
+          spanPayloadRepo.put(rootObservationSpanId, 'assembled_prompt', assembledPrompt);
+          broadcast('observability:updated', { conversationId: sessionConvId, invocationId: invocation.id });
+        } catch (error) {
+          console.warn('[observability] failed to capture prompt payload:', error);
+        }
+      };
+
+      const finishMessageObservation = (
+        status: 'ok' | 'error' | 'cancelled',
+        fallbackOutput?: string,
+        usage?: Record<string, unknown>,
+        errorMessage?: string,
+      ) => {
+        const completion = completionObservationBuffer || fallbackOutput || '';
+        if (!completion && !thinkingObservationBuffer) return;
+        const spanId = ensureMessageObservationSpan();
+        if (!spanId) return;
+        try {
+          if (completion) spanPayloadRepo.put(spanId, 'completion', completion);
+          if (captureThinking && thinkingObservationBuffer) {
+            spanPayloadRepo.put(spanId, 'thinking', thinkingObservationBuffer);
+          }
+          observationSpanRepo.finish(spanId, status, {
+            outputPreview: completion,
+            errorMessage,
+            attributes: usage ? { 'gen_ai.usage': usage } : undefined,
+          });
+          broadcast('observability:updated', { conversationId: sessionConvId, invocationId: invocation.id });
+        } catch (error) {
+          console.warn('[observability] failed to finish message span:', error);
+        }
+      };
+
       // Observability is intentionally best-effort: a telemetry write must never
       // prevent the agent loop from running.
       try {
@@ -907,15 +977,16 @@ export default function registerDaemon(io: IOServer) {
       let observedRuntimeSessionId: string | undefined;
       let hasBackgroundChildActivity = false;
       const persistedText = new StreamTextPersistence({
-        create(content) {
-          const id = messageRepo.append({
+          create(content) {
+            const id = messageRepo.append({
             conversationId: sessionConvId,
             taskId,
             senderType: 'agent',
             senderId: agentId,
             content,
-            contentType: 'text',
-            metadata: { invocationId: invocation.id },
+              contentType: 'text',
+              invocationId: invocation.id,
+              metadata: { invocationId: invocation.id },
           });
           sessionRepo.incrementMessageCount(agentSession.id);
           return id;
@@ -1201,6 +1272,10 @@ export default function registerDaemon(io: IOServer) {
                 'ath.tool.native': isNativeTool(event.tool.name),
               },
             });
+            if (event.tool.input !== undefined) {
+              spanPayloadRepo.put(toolSpan.span_id, 'tool_input', event.tool.input);
+            }
+            broadcast('observability:updated', { conversationId: sessionConvId, invocationId: invocation.id });
             const key = event.tool.callId || event.tool.name;
             openToolSpans.set(key, [...(openToolSpans.get(key) ?? []), toolSpan.span_id]);
           } catch (error) {
@@ -1212,9 +1287,35 @@ export default function registerDaemon(io: IOServer) {
             const pending = openToolSpans.get(key) ?? [];
             const spanId = pending.shift();
             if (pending.length) openToolSpans.set(key, pending); else openToolSpans.delete(key);
-            if (spanId) observationSpanRepo.finish(spanId, 'ok', { outputPreview: event.content });
+            if (spanId) {
+              spanPayloadRepo.put(spanId, 'tool_output', event.content);
+              observationSpanRepo.finish(spanId, 'ok', { outputPreview: event.content });
+              broadcast('observability:updated', { conversationId: sessionConvId, invocationId: invocation.id });
+            }
           } catch (error) {
             console.warn(`[observability] failed to finish tool span:`, error);
+          }
+        } else if (event.type === 'plan' && invocationTraceId && rootObservationSpanId) {
+          try {
+            const planSpan = observationSpanRepo.start({
+              traceId: invocationTraceId,
+              parentSpanId: rootObservationSpanId,
+              name: 'agent.plan',
+              kind: 'workflow',
+              conversationId: sessionConvId,
+              taskId,
+              agentId,
+              invocationId: invocation.id,
+              envelopeId: controlEnvelopeId,
+              chainId,
+              passId,
+              inputPreview: event.content,
+              attributes: { 'ath.schema.version': 1, 'gen_ai.operation.name': 'plan' },
+            });
+            observationSpanRepo.finish(planSpan.span_id, 'ok');
+            broadcast('observability:updated', { conversationId: sessionConvId, invocationId: invocation.id });
+          } catch (error) {
+            console.warn('[observability] failed to capture plan span:', error);
           }
         }
 
@@ -1226,14 +1327,20 @@ export default function registerDaemon(io: IOServer) {
           content: event.content,
           tool: event.tool,
           usage: event.usage,
+          invocationId: invocation.id,
           sessionId: effectiveSessionId ? event.sessionId : undefined,
           conversationId: sessionConvId,
         });
 
         // Buffer agent text for A2A scanning
         if (event.type === 'text' && typeof event.content === 'string') {
+          ensureMessageObservationSpan();
+          completionObservationBuffer += event.content;
           const existing = agentResponseBuffer.get(responseBufferKey) ?? '';
           agentResponseBuffer.set(responseBufferKey, existing + event.content);
+        } else if (event.type === 'thinking' && captureThinking && typeof event.content === 'string') {
+          ensureMessageObservationSpan();
+          thinkingObservationBuffer += event.content;
         }
 
         // Persist to message repo
@@ -1252,6 +1359,7 @@ export default function registerDaemon(io: IOServer) {
             senderId: agentId,
             content: `🔧 使用工具：${event.tool.name}`,
             contentType: 'tool_use',
+            invocationId: invocation.id,
             metadata: { toolEvent: { type: 'tool_use', name: event.tool.name, input: event.tool.input?.slice(0, 500) } },
           });
           if (agentSession) sessionRepo.incrementMessageCount(agentSession.id);
@@ -1546,6 +1654,7 @@ export default function registerDaemon(io: IOServer) {
           capsResult.warnings.map((w) => `${w.field}→${w.action}`),
         );
       }
+      capturePromptObservation(capsResult.prompt, capsResult.opts.systemPrompt);
       const { events: rawEvents, result, kill } = backend.execute(capsResult.prompt, capsResult.opts);
       const events = withDoneGuarantee(rawEvents, result);
 
@@ -1613,16 +1722,21 @@ export default function registerDaemon(io: IOServer) {
             }
           }
 
+          finishMessageObservation(
+            final.status === 'completed' ? 'ok' : final.status === 'cancelled' ? 'cancelled' : 'error',
+            final.output,
+            final.usage,
+            final.error,
+          );
+
           // Confirmed bindings survive failure/timeout. A new binding is not
           // persisted until success, so a cancelled first turn provisions a
           // fresh runtime Session on the next dispatch.
 
-          if (controlEnvelopeId) {
-            if (final.status === 'completed') {
-              markEnvelopeCompleted();
-            } else {
-              markEnvelopeFailed(final.reasonCode ?? (final.status === 'timeout' ? 'timeout' : 'runtime_failed'));
-            }
+          if (final.status === 'completed') {
+            markEnvelopeCompleted();
+          } else {
+            markEnvelopeFailed(final.reasonCode ?? (final.status === 'timeout' ? 'timeout' : 'runtime_failed'));
           }
 
           broadcast('terminal:exit', {
@@ -1641,6 +1755,7 @@ export default function registerDaemon(io: IOServer) {
           clearProcessTimeout();
           clearInterval(heartbeatTimer);
           console.error(`[daemon][${agentId}] backend error:`, err);
+          finishMessageObservation('error', undefined, undefined, (err as Error)?.message || 'spawn_failed');
           // 失败不 seal session（保持 active，下次 @ resume，id 不变）—— specs/agent-session-stability
           markEnvelopeFailed('spawn_failed');
           broadcast('terminal:exit', { agentId, code: 1, command, reasonCode: 'spawn_failed' });

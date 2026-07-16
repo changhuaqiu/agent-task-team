@@ -179,9 +179,6 @@ describe('mapAcpUpdate', () => {
 
   describe('safe-ignore (spec §5.3: unknown ACP update must not crash)', () => {
     it.each([
-      'plan',
-      'plan_update',
-      'plan_removed',
       'available_commands_update',
       'current_mode_update',
       'config_option_update',
@@ -189,6 +186,17 @@ describe('mapAcpUpdate', () => {
       'usage_update',
     ])('%s -> null (no AgentEventType slot)', (su) => {
       expect(mapAcpUpdate({ sessionUpdate: su } as any)).toBeNull();
+    });
+
+    it('maps ACP plan updates to observable plan events', () => {
+      expect(mapAcpUpdate({ sessionUpdate: 'plan', entries: [] } as any)).toEqual({
+        type: 'plan',
+        content: JSON.stringify({ entries: [] }),
+      });
+      expect(mapAcpUpdate({ sessionUpdate: 'plan_removed', planId: 'p1' } as any)).toEqual({
+        type: 'plan',
+        content: JSON.stringify({ planId: 'p1', removed: true }),
+      });
     });
 
     it('unknown future sessionUpdate -> null', () => {

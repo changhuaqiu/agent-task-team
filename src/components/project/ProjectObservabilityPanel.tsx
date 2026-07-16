@@ -3,6 +3,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Activity, ChevronDown, ChevronRight, Clock3, RefreshCw, Wrench } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { AgentChainGraph, type ObservationChain } from './AgentChainGraph';
+import { openAgentObservabilityDrawer } from './AgentObservabilityDrawer';
+import { socket } from '@/store/daemonStore';
 
 type Span = {
   span_id: string; parent_span_id: string | null; name: string; kind: string; status: string;
@@ -19,7 +22,11 @@ type Snapshot = {
   summary: { traceCount: number; agentCount: number; toolCallCount: number; failedTraceCount: number; totalTokens: number; averageDurationMs: number };
   agents: Array<{ agentId: string; traceCount: number; toolCallCount: number; failedTraceCount: number }>;
   traces: Trace[];
-  workflow: { agentEdges: Array<{ fromAgentId: string; toAgentId: string; count: number }> };
+  chains: ObservationChain[];
+  workflow: {
+    agentEdges: Array<{ fromAgentId: string; toAgentId: string; count: number }>;
+    taskChains: Array<{ taskId: string; chainIds: string[]; agentIds: string[]; traceIds: string[] }>;
+  };
 };
 
 function formatDuration(ms?: number): string {
@@ -57,8 +64,11 @@ export function ProjectObservabilityPanel({ conversationId }: { conversationId?:
   useEffect(() => {
     const controller = new AbortController();
     const initialTimer = window.setTimeout(() => void load(controller.signal), 0);
-    const timer = window.setInterval(() => void load(controller.signal), 5_000);
-    return () => { controller.abort(); window.clearTimeout(initialTimer); window.clearInterval(timer); };
+    const refresh = (event: { conversationId?: string }) => {
+      if (event?.conversationId === conversationId) void load();
+    };
+    socket.on('observability:updated', refresh);
+    return () => { controller.abort(); window.clearTimeout(initialTimer); socket.off('observability:updated', refresh); };
   }, [conversationId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const maxSpanDuration = useMemo(() => Math.max(1, ...(snapshot?.traces.flatMap(trace => trace.spans.map(span => span.durationMs ?? 0)) ?? [1])), [snapshot]);
@@ -75,9 +85,13 @@ export function ProjectObservabilityPanel({ conversationId }: { conversationId?:
         <Metric label="Agent turns" value={snapshot.summary.traceCount}/><Metric label="工具调用" value={snapshot.summary.toolCallCount}/><Metric label="失败" value={snapshot.summary.failedTraceCount} danger={snapshot.summary.failedTraceCount > 0}/>
         <Metric label="活跃角色" value={snapshot.summary.agentCount}/><Metric label="Tokens" value={snapshot.summary.totalTokens}/><Metric label="平均耗时" value={formatDuration(snapshot.summary.averageDurationMs)}/>
       </div>
-      {snapshot.workflow.agentEdges.length > 0 && <section className="rounded-lg border border-[hsl(var(--border-subtle))] bg-[hsl(var(--bg-card))] p-2.5">
-        <div className="mb-2 text-[10px] font-semibold text-[hsl(var(--text-secondary))]">Agent 交互</div>
-        <div className="flex flex-wrap gap-1.5">{snapshot.workflow.agentEdges.map(edge => <span key={`${edge.fromAgentId}:${edge.toAgentId}`} className="rounded-full border border-[hsl(var(--border-subtle))] bg-[hsl(var(--bg-app))] px-2 py-1 text-[9px] text-[hsl(var(--text-secondary))]">{edge.fromAgentId} → {edge.toAgentId} · {edge.count}</span>)}</div>
+      <section className="space-y-2 rounded-lg border border-[hsl(var(--border-subtle))] bg-[hsl(var(--bg-card))] p-2.5">
+        <div><div className="text-[10px] font-semibold text-[hsl(var(--text-secondary))]">Agent 调用链</div><div className="text-[8px] text-[hsl(var(--text-tertiary))]">基于 chain / pass / audit 显式事实，不解析聊天正文</div></div>
+        <AgentChainGraph chains={snapshot.chains || []} onSelectTrace={traceId => openAgentObservabilityDrawer({ conversationId, traceId })} />
+      </section>
+      {(snapshot.workflow.taskChains?.length ?? 0) > 0 && <section className="rounded-lg border border-[hsl(var(--border-subtle))] bg-[hsl(var(--bg-card))] p-2.5">
+        <div className="mb-2 text-[10px] font-semibold text-[hsl(var(--text-secondary))]">Task × Chain</div>
+        <div className="space-y-1.5">{snapshot.workflow.taskChains.map(item => <div key={item.taskId} className="rounded-md border border-[hsl(var(--border-subtle))] bg-[hsl(var(--bg-app))] p-2"><div className="text-[9px] font-semibold">{item.taskId}</div><div className="mt-1 flex flex-wrap gap-1">{item.chainIds.map(chainId => <span key={chainId} className="rounded bg-[hsl(var(--accent-soft))] px-1.5 py-0.5 text-[8px] text-[hsl(var(--accent))]">{chainId}</span>)}{item.agentIds.map(agentId => <span key={agentId} className="rounded border border-[hsl(var(--border-subtle))] px-1.5 py-0.5 text-[8px]">{agentId}</span>)}</div></div>)}</div>
       </section>}
       <section className="space-y-1.5">
         <div className="text-[10px] font-semibold text-[hsl(var(--text-secondary))]">执行记录</div>

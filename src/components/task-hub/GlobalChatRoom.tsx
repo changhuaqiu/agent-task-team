@@ -15,6 +15,7 @@ import { Send, Hash, Clock, Zap, Shield } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAutoScroll } from '@/hooks/useAutoScroll';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { AgentObservabilityDrawer } from '@/components/project/AgentObservabilityDrawer';
 
 function formatDateSeparator(dateStr: string): string {
   const date = new Date(dateStr);
@@ -435,6 +436,7 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
           使用 #TASK-000 引用任务 · @Agent 提及智能体
         </p>
       </div>
+      <AgentObservabilityDrawer />
     </div>
   );
 }

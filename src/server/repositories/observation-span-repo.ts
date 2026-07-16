@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { getDb } from '../db';
 import { redactObservationPreview } from '../observability/redaction';
 
-export type ObservationSpanKind = 'agent' | 'context' | 'tool' | 'workflow' | 'handoff' | 'runtime';
+export type ObservationSpanKind = 'agent' | 'context' | 'tool' | 'message' | 'workflow' | 'handoff' | 'runtime';
 export type ObservationSpanStatus = 'running' | 'ok' | 'error' | 'cancelled';
 
 export interface ObservationSpanRow {

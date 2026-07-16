@@ -179,5 +179,6 @@ inside expandable technical details.
 ## 12. Iteration path
 
 - P1 (this spec): local durable spans, project projection, workbench, tests.
-- P2: span links table/event timeline, model latency breakdown, cost and evaluation feedback.
+- Drill-down extension (implemented): full redacted prompt/response/tool/thinking payloads, exact message-invocation correlation, message drawer, ReactFlow chain DAG, Task×Chain and socket refresh; see `specs/observability-drilldown/` and `docs/technical/execution/observability-drilldown.md`.
+- P2: externalized span links/event timeline, model latency breakdown, cost and evaluation feedback.
 - P3: OTLP exporter/collector adapter, sampling and retention policies, trace comparison/replay.

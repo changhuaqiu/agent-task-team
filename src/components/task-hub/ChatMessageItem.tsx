@@ -8,7 +8,8 @@ import { CliOutputBlock } from './CliOutputBlock';
 import { ProgressMessageCard } from './ProgressMessageCard';
 import { cn } from '@/lib/utils';
 import { parsePhaseBreakdown } from '@/lib/breakdownParser';
-import { User, Lightbulb, Play, Eye, Link2, Copy, ExternalLink } from 'lucide-react';
+import { User, Lightbulb, Play, Eye, Link2, Copy, ExternalLink, Activity } from 'lucide-react';
+import { openAgentObservabilityDrawer } from '@/components/project/AgentObservabilityDrawer';
 import { MarkdownContent } from './MarkdownContent';
 import { TokenBadge } from './TokenSummary';
 import { TaskStatusCard } from './TaskStatusCard';
@@ -111,6 +112,7 @@ export function ChatMessageItem({ message }: ChatMessageItemProps) {
 
   const setSelectedTaskId = useTaskHubStore((s) => s.setSelectedTaskId);
   const updateChatMessageStatus = useTaskHubStore((s) => s.updateChatMessageStatus);
+  const selectedConversationId = useTaskHubStore((s) => s.selectedConversationId);
 
   const isHuman = message.agentId === 'human';
   const agent = allAgents.find((a) => a.id === message.agentId);
@@ -272,6 +274,22 @@ export function ChatMessageItem({ message }: ChatMessageItemProps) {
           {/* Hover Action Bar */}
           {isHovered && (
             <div className="absolute -top-2 right-2 flex gap-0.5 bg-[hsl(var(--bg-card))] border border-[hsl(var(--border))] rounded-[var(--radius-sm)] p-0.5 shadow-sm z-10">
+              {!isHuman && (message.conversationId || selectedConversationId) && (
+                <button
+                  type="button"
+                  onClick={() => openAgentObservabilityDrawer({
+                    conversationId: message.conversationId || selectedConversationId!,
+                    invocationId: message.invocationId,
+                    agentId: message.agentId,
+                    timestamp: message.timestamp,
+                  })}
+                  className="p-1 text-[hsl(var(--text-tertiary))] hover:text-[hsl(var(--accent))] rounded-[2px] hover:bg-[hsl(var(--bg-muted))] transition-colors"
+                  title="查看这次 Agent 调用"
+                  aria-label="查看这次 Agent 调用"
+                >
+                  <Activity className="w-3.5 h-3.5" />
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => {

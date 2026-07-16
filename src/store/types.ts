@@ -12,6 +12,7 @@ export interface ChatMessage {
   content: string;
   timestamp: string;
   conversationId?: string;
+  invocationId?: string;
   isApprovalRequest?: boolean;
   referencedTaskId?: string;
   taskRefs?: {

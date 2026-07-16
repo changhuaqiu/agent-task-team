@@ -113,6 +113,49 @@ describe('AcpBackend (subprocess integration with mockAcpAgent)', () => {
     expect(result.output).toContain('开始');
   }, 30000);
 
+  it('recovers once when a tool turn ends without a final message', async () => {
+    const backend = new AcpBackend({
+      command: 'npx',
+      args: ['tsx', mockPath],
+      engine: 'opencode',
+      cwd: process.cwd(),
+      permissionPolicy: 'allow_once',
+      env: { MOCK_ACP_SCENARIO: 'tool_only' },
+    });
+
+    const run = backend.execute('use a tool and answer', {});
+    const contents: string[] = [];
+    for await (const event of run.events) {
+      if (event.type === 'text') contents.push(event.content);
+    }
+
+    expect(await run.result).toMatchObject({ status: 'completed' });
+    expect(contents.join('')).toBe('恢复后的最终答复');
+  }, 30000);
+
+  it('fails visibly when the bounded recovery is still empty', async () => {
+    const backend = new AcpBackend({
+      command: 'npx',
+      args: ['tsx', mockPath],
+      engine: 'opencode',
+      cwd: process.cwd(),
+      permissionPolicy: 'allow_once',
+      env: { MOCK_ACP_SCENARIO: 'tool_silent' },
+    });
+
+    const run = backend.execute('use a tool and answer', {});
+    const contents: string[] = [];
+    for await (const event of run.events) {
+      if (event.type === 'text') contents.push(event.content);
+    }
+
+    expect(await run.result).toMatchObject({
+      status: 'failed',
+      reasonCode: 'acp_empty_completion',
+    });
+    expect(contents.join('')).toContain('未返回最终文本');
+  }, 30000);
+
   it('fails closed when resume is unsupported instead of creating a new session', async () => {
     const backend = new AcpBackend({
       command: 'npx',

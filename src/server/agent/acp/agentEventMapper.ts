@@ -53,7 +53,7 @@ function safeStringify(v: unknown): string {
  *
  * Returns `null` for updates that have no `AgentEvent` slot:
  *  - `user_message_chunk` (user echo, not agent output)
- *  - `plan` / `plan_update` / `plan_removed` / `available_commands_update` /
+ *  - `available_commands_update` /
  *    `current_mode_update` / `config_option_update` / `session_info_update` /
  *    `usage_update` (no corresponding AgentEventType — safe-ignore per §5.3)
  *  - any unknown/future `sessionUpdate` value (MUST NOT throw)
@@ -61,6 +61,7 @@ function safeStringify(v: unknown): string {
  * Mapping table (authoritative — aligned with installed SDK v1.2.1):
  *  - `agent_message_chunk` (text)  -> `{ type: 'text', content }`
  *  - `agent_thought_chunk` (text)  -> `{ type: 'thinking', content }`
+ *  - `plan` / `plan_update` / `plan_removed` -> `{ type: 'plan', content }`
  *  - `tool_call`                   -> `{ type: 'tool_use', content: '', tool: { name, callId, input? } }`
  *  - `tool_call_update`            -> `{ type: 'tool_result', content, tool: { name, callId } }`
  */
@@ -104,11 +105,15 @@ export function mapAcpUpdate(update: SessionUpdate): AgentEvent | null {
       };
     }
 
+    case 'plan':
+      return { type: 'plan', content: safeStringify({ entries: update.entries }) };
+    case 'plan_update':
+      return { type: 'plan', content: safeStringify(update.plan) };
+    case 'plan_removed':
+      return { type: 'plan', content: safeStringify({ planId: update.planId, removed: true }) };
+
     // No AgentEventType slot for these — safe-ignore per spec §5.3.
     case 'user_message_chunk':
-    case 'plan':
-    case 'plan_update':
-    case 'plan_removed':
     case 'available_commands_update':
     case 'current_mode_update':
     case 'config_option_update':

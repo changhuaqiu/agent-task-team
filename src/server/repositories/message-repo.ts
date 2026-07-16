@@ -14,6 +14,7 @@ export interface MessageRow {
   intent: string | null;
   metadata: string | null;
   visibility: string;
+  invocation_id: string | null;
   created_at: string;
 }
 
@@ -28,6 +29,7 @@ export interface NewMessage {
   intent?: string;
   metadata?: Record<string, unknown>;
   visibility?: string;
+  invocationId?: string;
 }
 
 export const messageRepo = {
@@ -36,8 +38,8 @@ export const messageRepo = {
     const now = new Date().toISOString();
     getDb()
       .prepare(
-        `INSERT INTO chat_message (id, conversation_id, task_id, sender_type, sender_id, content, content_type, mentions, intent, metadata, visibility, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO chat_message (id, conversation_id, task_id, sender_type, sender_id, content, content_type, mentions, intent, metadata, visibility, invocation_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -51,6 +53,7 @@ export const messageRepo = {
         input.intent ?? null,
         input.metadata ? JSON.stringify(input.metadata) : null,
         input.visibility ?? 'public',
+        input.invocationId ?? null,
         now,
       );
     const entry = messageToTeamLogEntry({
@@ -65,6 +68,7 @@ export const messageRepo = {
       intent: input.intent ?? null,
       metadata: input.metadata ? JSON.stringify(input.metadata) : null,
       visibility: input.visibility ?? 'public',
+      invocation_id: input.invocationId ?? null,
       created_at: now,
     });
     if (entry) teamLogProjection.append(entry);

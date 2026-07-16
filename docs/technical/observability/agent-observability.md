@@ -20,6 +20,7 @@
 
 - Harness 负责建立 trace 身份并携带上下文报告。
 - Daemon/runtime adapter 负责记录真实开始、工具事件和终态。
+- Runtime adapter 只把 ACP update 规范化为 `AgentEvent`；daemon 拥有 trace/span 身份并通过 best-effort telemetry sink 落库，adapter 不直接依赖 SQLite。
 - Observation Projection 只读聚合 Task Graph、A2A、proof 和 spans。
 - Project UI 只通过查询 API 读取，不在前端推断执行成功或 Agent 关系。
 - 外部 OTLP/Phoenix/Jaeger/LangSmith 适配属于后续 exporter，不进入核心 loop。
@@ -31,6 +32,7 @@
 | 一次角色 Agent turn | root span / `invoke_agent` / `AGENT` |
 | ContextManager assemble | child span / prompt-context operation |
 | tool use/result | child span / `execute_tool` / `TOOL` |
+| agent response / runtime-exposed thought | child span / `message` + lazy payload |
 | workflow/chain | trace correlation + causal links |
 | project conversation | session/thread grouping |
 | proof event | span event or correlated audit log（当前保持事实表） |
@@ -46,5 +48,12 @@
 ## 演进约束
 
 新增 runtime 只需继续输出统一 `AgentEvent`，不得在可观测页面增加 runtime 专属查询分支。
+完整 payload 与列表预览分离；payload 查询必须携带 conversationId 并校验 span 归属。
+thinking 仅指 runtime 主动暴露的 reasoning summary，默认采集、可通过
+`ATH_OBSERVABILITY_CAPTURE_THINKING=false` 关闭；隐藏 chain-of-thought 永不采集。
 新增业务工作流必须先进入其权威事实表，再由 projection 读取；不得让 span 成为任务状态权威。
 当引入 OTLP exporter 时，本地 span id/trace id 与语义字段保持不变，exporter 只做映射和发送。
+
+## Agent loop 完成语义
+
+可观测性必须能区分“协议停止”和“用户收到答复”。当 ACP runtime 在工具调用后以 `end_turn` 结束但没有文本 completion 时，平台 harness 会在同一 session 内执行一次有界 completion recovery。恢复仍为空时，invocation 以 `acp_empty_completion` 失败，并生成明确的降级文本消息；因此 message span 不再出现空 completion 与 root `ok` 并存的假成功状态。该恢复属于平台层 agent loop 不变量，与具体 OpenCode、Claude 或 Codex adapter 无关。

@@ -1,4 +1,5 @@
 const PREVIEW_LIMIT = 2_000;
+const DEFAULT_PAYLOAD_LIMIT_BYTES = 256 * 1024;
 
 const SECRET_PATTERNS: RegExp[] = [
   /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/gi,
@@ -9,11 +10,38 @@ const SECRET_PATTERNS: RegExp[] = [
   /\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?):\/\/[^\s]+/gi,
 ];
 
-export function redactObservationPreview(value: unknown, limit = PREVIEW_LIMIT): string | undefined {
+function observationText(value: unknown): string | undefined {
   if (value === undefined || value === null) return undefined;
-  let text = typeof value === 'string' ? value : JSON.stringify(value);
+  let text: string;
+  try { text = typeof value === 'string' ? value : JSON.stringify(value); }
+  catch { text = String(value); }
   for (const pattern of SECRET_PATTERNS) {
     text = text.replace(pattern, (match, prefix?: string) => prefix ? `${prefix}[REDACTED]` : '[REDACTED]');
   }
+  return text;
+}
+
+export function redactObservationPreview(value: unknown, limit = PREVIEW_LIMIT): string | undefined {
+  const text = observationText(value);
+  if (text === undefined) return undefined;
   return text.length > limit ? `${text.slice(0, limit)}…` : text;
+}
+
+export function sanitizeObservationPayload(
+  value: unknown,
+  limitBytes = DEFAULT_PAYLOAD_LIMIT_BYTES,
+): { content: string; byteSize: number; truncated: boolean } | undefined {
+  const text = observationText(value);
+  if (text === undefined) return undefined;
+  const source = Buffer.from(text, 'utf8');
+  if (source.byteLength <= limitBytes) {
+    return { content: text, byteSize: source.byteLength, truncated: false };
+  }
+  let content = source.subarray(0, Math.max(0, limitBytes)).toString('utf8');
+  if (content.endsWith('\uFFFD')) content = content.slice(0, -1);
+  return { content, byteSize: Buffer.byteLength(content, 'utf8'), truncated: true };
+}
+
+export function isThinkingCaptureEnabled(value = process.env.ATH_OBSERVABILITY_CAPTURE_THINKING): boolean {
+  return value?.trim().toLowerCase() !== 'false';
 }

@@ -139,6 +139,7 @@ function sourceRowToEntry(row: SourceRow): TeamLogEntry | undefined {
       intent: row.intent,
       metadata: row.metadata,
       visibility: row.visibility ?? 'public',
+      invocation_id: null,
       created_at: row.created_at,
     });
   }

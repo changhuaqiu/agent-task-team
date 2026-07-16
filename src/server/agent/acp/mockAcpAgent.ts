@@ -64,7 +64,7 @@ const PERMISSION_OPTIONS: acp.PermissionOption[] = [
  *    (`process.exit(1)`) — so `AcpBackend`'s `close` handler fires with an
  *    abnormal exit and resolves `failed`. (Task 9 failure-recovery test.)
  */
-export type MockScenario = 'normal' | 'slow' | 'active' | 'error' | 'flood' | 'large' | 'wrong_session';
+export type MockScenario = 'normal' | 'slow' | 'active' | 'error' | 'flood' | 'large' | 'wrong_session' | 'tool_only' | 'tool_silent';
 
 /** How long the "slow" scenario blocks mid-turn before completing. */
 const SLOW_BLOCK_MS = 60_000;
@@ -95,6 +95,7 @@ const SLOW_BLOCK_MS = 60_000;
 export function createMockAgentApp(
   scenario: MockScenario = 'normal',
 ): acp.AgentApp {
+  let promptCount = 0;
   return acp
     .agent({ name: 'mock-acp-agent' })
     .onRequest(acp.methods.agent.initialize, () => ({
@@ -127,6 +128,7 @@ export function createMockAgentApp(
     .onRequest(acp.methods.agent.session.setMode, () => ({}))
     .onNotification(acp.methods.agent.session.cancel, () => {})
     .onRequest(acp.methods.agent.session.prompt, async (ctx) => {
+      promptCount += 1;
       const sessionId = ctx.params.sessionId;
       const updateSessionId = scenario === 'wrong_session' ? 'mock-wrong' : sessionId;
       const upd = (update: acp.SessionUpdate) =>
@@ -135,11 +137,22 @@ export function createMockAgentApp(
           update,
         });
 
-      // 1. Opening agent message.
-      await upd({
-        sessionUpdate: 'agent_message_chunk',
-        content: { type: 'text', text: '开始' },
-      });
+      if (scenario === 'tool_only' && promptCount > 1) {
+        await upd({
+          sessionUpdate: 'agent_message_chunk',
+          content: { type: 'text', text: '恢复后的最终答复' },
+        });
+        return { stopReason: 'end_turn' };
+      }
+
+      // 1. Opening agent message. Tool-only scenarios deliberately omit all
+      // text on the first turn so the harness completion invariant is tested.
+      if (scenario !== 'tool_only' && scenario !== 'tool_silent') {
+        await upd({
+          sessionUpdate: 'agent_message_chunk',
+          content: { type: 'text', text: '开始' },
+        });
+      }
 
       // --- Scenario fork (Task 9): after the opening text, "slow" blocks
       // mid-turn and "error" exits mid-turn, so kill/timeout/abnormal-exit
@@ -224,10 +237,12 @@ export function createMockAgentApp(
       });
 
       // 5. Closing agent message.
-      await upd({
-        sessionUpdate: 'agent_message_chunk',
-        content: { type: 'text', text: '完成' },
-      });
+      if (scenario !== 'tool_only' && scenario !== 'tool_silent') {
+        await upd({
+          sessionUpdate: 'agent_message_chunk',
+          content: { type: 'text', text: '完成' },
+        });
+      }
 
       // 6. Turn complete.
       return { stopReason: 'end_turn' };
@@ -253,6 +268,8 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
       || envScenario === 'flood'
       || envScenario === 'large'
       || envScenario === 'wrong_session'
+      || envScenario === 'tool_only'
+      || envScenario === 'tool_silent'
       ? envScenario
       : 'normal';
   const stream = acp.ndJsonStream(

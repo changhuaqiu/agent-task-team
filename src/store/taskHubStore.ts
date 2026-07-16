@@ -505,6 +505,7 @@ function mapMessagesToState(recentMessages: Record<string, any[]>): Record<strin
 
       if (isToolUse) {
         const meta = m.metadata ? (typeof m.metadata === 'string' ? JSON.parse(m.metadata) : m.metadata) : {};
+        const invocationId = m.invocation_id ?? meta?.invocationId;
         const toolEvent: ToolEvent = {
           id: m.id,
           type: 'tool_use',
@@ -513,7 +514,7 @@ function mapMessagesToState(recentMessages: Record<string, any[]>): Record<strin
           timestamp: m.created_at,
         };
         const prev = mapped[mapped.length - 1];
-        if (prev && prev.agentId === m.sender_id) {
+        if (prev && prev.agentId === m.sender_id && prev.invocationId === invocationId) {
           prev.toolEvents = [...(prev.toolEvents || []), toolEvent];
         } else {
           mapped.push({
@@ -521,6 +522,8 @@ function mapMessagesToState(recentMessages: Record<string, any[]>): Record<strin
             agentId: m.sender_id,
             content: '',
             timestamp: m.created_at,
+            conversationId: convId,
+            invocationId,
             toolEvents: [toolEvent],
           });
         }
@@ -531,6 +534,8 @@ function mapMessagesToState(recentMessages: Record<string, any[]>): Record<strin
           agentId: m.sender_type === 'human' ? 'human' : m.sender_id,
           content: m.content,
           timestamp: m.created_at,
+          conversationId: convId,
+          invocationId: m.invocation_id ?? meta?.invocationId,
           mentions: typeof m.mentions === 'string' ? JSON.parse(m.mentions || '[]') : (m.mentions || []),
           intent: m.intent,
           referencedTaskId: m.task_id,
@@ -666,7 +671,7 @@ export interface TaskHubState {
   clearPendingDispatches: (agentId: string, conversationId: string) => void;
   appendTerminalLog: (agentId: string, log: string) => void;
   simulateCliExecution: (taskId: string, prompt: string, sessionId?: string) => void;
-  ensureStreamMessage: (agentId: string, conversationId: string) => string;
+  ensureStreamMessage: (agentId: string, conversationId: string, invocationId?: string) => string;
   appendToStreamMessage: (messageId: string, patch: { content?: string; toolEvent?: ToolEvent }) => void;
   completeStreamMessage: (agentId: string) => void;
   cleanupStaleStreams: () => void;
@@ -1920,7 +1925,7 @@ socket.on('agent:activity', ({ conversationId, taskId, agentId, sessionId, statu
 });
 
 socket.on('agent:event', (event) => {
-  const { agentId, type, content, tool, sessionId, conversationId: eventConvId } = event;
+  const { agentId, type, content, tool, sessionId, invocationId, conversationId: eventConvId } = event;
   const state = useTaskHubStore.getState();
 
   const active = state.activeRunsByAgent[agentId];
@@ -1950,13 +1955,15 @@ socket.on('agent:event', (event) => {
 
   let activeId = state.activeStreamMessageId[agentId];
   if (!activeId) {
-    activeId = state.ensureStreamMessage(agentId, conversationId);
+    activeId = state.ensureStreamMessage(agentId, conversationId, invocationId);
   }
 
   if (type === 'text') {
     state.appendToStreamMessage(activeId, { content: content || '' });
   } else if (type === 'thinking') {
     // skip
+  } else if (type === 'plan') {
+    // Plan updates are projected in observability; they are not chat content.
   } else if (type === 'tool_use') {
     state.appendToStreamMessage(activeId, {
       toolEvent: {

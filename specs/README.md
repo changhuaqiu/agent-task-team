@@ -32,6 +32,7 @@
 | [`team-simplification/`](team-simplification/) | active | 默认团队从 6 人收敛到 4 人并清理旧 preset |
 | [`system-control-plane/`](system-control-plane/) | active | 统一 dispatch、policy、proof、health 与跨实例状态权威 |
 | [`agent-observability/`](agent-observability/) | active | 项目维度追踪 Agent turn、上下文、Skill、工具和显式 A2A/任务工作流 |
+| [`observability-drilldown/`](observability-drilldown/) | active | 在 agent-observability 之上补 ACP 边界的完整 prompt/工具/回复采集、消息卡下钻抽屉与调用链 DAG |
 | [`a2a-possession-contract/`](a2a-possession-contract/) | active | 完成持球、传球、交接包语义及控制平面接线 |
 | [`team-role-card-compatibility/`](team-role-card-compatibility/) | active | 自动化已完成，仍需三项人工兼容验收 |
 | [`role-card-format/`](role-card-format/) | draft | 冻结角色卡/Team Pack 文件格式并替换即将移除的示例 |
@@ -45,6 +46,7 @@ system-control-plane
 ├── a2a-possession-contract
 ├── context-manager
 └── agent-observability
+    └── observability-drilldown
 
 team-simplification
 ├── team-role-card-compatibility

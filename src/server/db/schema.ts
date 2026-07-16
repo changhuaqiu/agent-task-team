@@ -67,11 +67,13 @@ export const chatMessage = sqliteTable('chat_message', {
   intent: text('intent'),
   metadata: text('metadata'), // JSON text nullable
   visibility: text('visibility').notNull().default('public'),
+  invocationId: text('invocation_id'),
   createdAt: text('created_at').notNull(),
 }, (table) => [
   index('idx_msg_conv').on(table.conversationId),
   index('idx_msg_task').on(table.taskId),
   index('idx_msg_created').on(table.createdAt),
+  index('idx_msg_invocation').on(table.invocationId),
 ]);
 
 // ──────────────────────────────────────────────
@@ -505,6 +507,22 @@ export const observationSpan = sqliteTable('observation_span', {
 
 export type ObservationSpanRow = InferSelectModel<typeof observationSpan>;
 export type NewObservationSpanRow = InferInsertModel<typeof observationSpan>;
+
+export const observationSpanPayload = sqliteTable('observation_span_payload', {
+  spanId: text('span_id').notNull().references(() => observationSpan.spanId, { onDelete: 'cascade' }),
+  role: text('role').notNull(),
+  seq: integer('seq').notNull().default(0),
+  content: text('content').notNull(),
+  byteSize: integer('byte_size').notNull(),
+  truncated: integer('truncated', { mode: 'boolean' }).notNull().default(false),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.spanId, table.role, table.seq] }),
+  index('idx_observation_span_payload_span').on(table.spanId),
+]);
+
+export type ObservationSpanPayloadRow = InferSelectModel<typeof observationSpanPayload>;
+export type NewObservationSpanPayloadRow = InferInsertModel<typeof observationSpanPayload>;
 
 export const agentLogCursor = sqliteTable('agent_log_cursor', {
   agentId: text('agent_id').notNull(),

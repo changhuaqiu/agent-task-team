@@ -574,7 +574,7 @@ export const createDaemonSlice = (set: any, get: () => any) => {
       });
     },
 
-    ensureStreamMessage: (agentId: string, conversationId: string): string => {
+    ensureStreamMessage: (agentId: string, conversationId: string, invocationId?: string): string => {
       const existing = get().activeStreamMessageId[agentId];
       if (existing) {
         const existingConvId = get().activeStreamConversationId[agentId];
@@ -593,7 +593,7 @@ export const createDaemonSlice = (set: any, get: () => any) => {
           ...state.chatMessagesByConversation,
           [conversationId]: [
             ...(state.chatMessagesByConversation[conversationId] || []),
-            { id, agentId, content: '', timestamp: stamp, isStreaming: true, toolEvents: [] },
+            { id, agentId, content: '', timestamp: stamp, conversationId, invocationId, isStreaming: true, toolEvents: [] },
           ],
         },
       }));

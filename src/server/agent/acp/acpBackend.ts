@@ -26,6 +26,7 @@ export type AcpFailureReasonCode =
   | 'acp_cancelled'
   | 'acp_concurrency_limit'
   | 'acp_connection_failed'
+  | 'acp_empty_completion'
   | 'acp_event_limit'
   | 'acp_invalid_runtime'
   | 'acp_max_turn_timeout'
@@ -80,6 +81,13 @@ const DEFAULT_LIMITS: AcpRuntimeLimits = {
   maxOutputChars: 1_000_000,
   maxStderrChars: 4_000,
 };
+
+const EMPTY_COMPLETION_RECOVERY_PROMPT =
+  'The previous turn finished after tool execution without a final assistant message. '
+  + 'Provide the final answer to the original user request now. Do not repeat completed tool calls.';
+
+const EMPTY_COMPLETION_FALLBACK =
+  '⚠️ Agent 已完成工具调用，但 ACP runtime 未返回最终文本；本次调用已标记失败，请重试。';
 
 function resolveLimits(overrides?: Partial<AcpRuntimeLimits>): AcpRuntimeLimits {
   const merged = { ...DEFAULT_LIMITS, ...overrides };
@@ -217,6 +225,8 @@ export class AcpBackend implements AgentBackend {
     let resolveNext: ((value: IteratorResult<AgentEvent>) => void) | null = null;
     let streamFinished = false;
     let output = '';
+    let sawToolCall = false;
+    let hasTextAfterLastTool = false;
     let projectedChars = 0;
     let sessionId: string | undefined;
     let clientContext: acp.ClientContext | undefined;
@@ -257,6 +267,10 @@ export class AcpBackend implements AgentBackend {
         const remaining = limits.maxOutputChars - output.length;
         if (remaining <= 0 || boundedEvent.content.length > remaining) return false;
         output += boundedEvent.content;
+        if (sawToolCall && boundedEvent.content.trim()) hasTextAfterLastTool = true;
+      } else if (boundedEvent.type === 'tool_use') {
+        sawToolCall = true;
+        hasTextAfterLastTool = false;
       }
       if (resolveNext) {
         resolveNext({ value: boundedEvent, done: false });
@@ -522,21 +536,66 @@ export class AcpBackend implements AgentBackend {
             if (resultResolved) return;
             acceptSessionUpdates = true;
 
-            const response = await ctx.request(acp.methods.agent.session.prompt, {
+            let response = await ctx.request(acp.methods.agent.session.prompt, {
               sessionId,
               prompt: [{ type: 'text', text: promptText }],
             });
             markProtocolActivity();
             if (resultResolved) return;
+            let usage = response.usage;
+
+            if (
+              response.stopReason === 'end_turn'
+              && sawToolCall
+              && !hasTextAfterLastTool
+            ) {
+              const recovery = await ctx.request(acp.methods.agent.session.prompt, {
+                sessionId,
+                prompt: [{ type: 'text', text: EMPTY_COMPLETION_RECOVERY_PROMPT }],
+              });
+              markProtocolActivity();
+              if (resultResolved) return;
+              response = recovery;
+              if (usage || recovery.usage) {
+                usage = {
+                  inputTokens: (usage?.inputTokens ?? 0) + (recovery.usage?.inputTokens ?? 0),
+                  outputTokens: (usage?.outputTokens ?? 0) + (recovery.usage?.outputTokens ?? 0),
+                  totalTokens: (usage?.totalTokens ?? 0) + (recovery.usage?.totalTokens ?? 0),
+                };
+              }
+            }
+
+            if (
+              response.stopReason === 'end_turn'
+              && sawToolCall
+              && !hasTextAfterLastTool
+            ) {
+              emit({ type: 'text', content: EMPTY_COMPLETION_FALLBACK, sessionId }, true);
+              finalize(
+                'failed',
+                'acp_empty_completion',
+                'ACP ended after tool execution without a final assistant message',
+                usage
+                  ? {
+                      default: {
+                        inputTokens: usage.inputTokens ?? 0,
+                        outputTokens: usage.outputTokens ?? 0,
+                      },
+                    }
+                  : undefined,
+              );
+              return;
+            }
+
             finalize(
               stopReasonToStatus(response.stopReason),
               response.stopReason === 'cancelled' ? 'acp_cancelled' : undefined,
               response.stopReason === 'end_turn' ? undefined : `ACP stopped: ${response.stopReason}`,
-              response.usage
+              usage
                 ? {
                     default: {
-                      inputTokens: response.usage.inputTokens ?? 0,
-                      outputTokens: response.usage.outputTokens ?? 0,
+                      inputTokens: usage.inputTokens ?? 0,
+                      outputTokens: usage.outputTokens ?? 0,
                     },
                   }
                 : undefined,
