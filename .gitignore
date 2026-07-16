@@ -31,6 +31,11 @@
 # production
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 # testing
+# playwright e2e (真实浏览器测试产物)
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache
 # typescript
 # vercel
 next-env.d.ts
