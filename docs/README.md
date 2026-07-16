@@ -88,6 +88,7 @@
 
 - `docs/product/ux/2026-05-01-ux-journey-and-gameplay-plan.md`
 - `docs/product/ux/2026-05-15-group-chat-task-flow.md`
+- `docs/product/ux/2026-07-16-right-panel-ia-simplification.md`：项目右面板从 5 tab 精简为 2 tab（任务主视图 + 调试）的 IA 决策，含业务判断与技术约束
 - `docs/product/business/2026-05-01-engineering-role-card-business-plan.md`
 
 ### 技术设计
