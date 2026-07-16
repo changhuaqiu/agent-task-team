@@ -6,6 +6,7 @@ import { messageRepo, type MessageRow } from '../repositories/message-repo';
 import { taskRepo } from '../repositories/task-repo';
 import type { HarnessPlanResolution, HarnessPlanner, HarnessTrigger } from './types';
 import { resolveConversationRuntimeProfile } from './conversation-runtime';
+import { teamLogProjection } from '../team-log/TeamLogProjection';
 
 const RUNTIME_IDS = {
   opencode: 'opencode-local',
@@ -58,7 +59,7 @@ export class RepositoryHarnessPlanner implements HarnessPlanner {
         getRoleCard: async () => profile.prompt.roleCard,
         getAllRoleCards: async () => runtime.roster.map((agent) => agent.roleCard).filter(Boolean) as NonNullable<typeof profile.prompt.roleCard>[],
         getMessages: async (conversationId, limit) => messageRepo
-          .getByConversation(conversationId, { limit: limit ?? 10 })
+          .getByConversationAgent(conversationId, trigger.agentId, { limit: limit ?? 10 })
           .map(toChatMessage),
         getTask: async (taskId) => {
           const row = taskRepo.getById(taskId);
@@ -78,6 +79,8 @@ export class RepositoryHarnessPlanner implements HarnessPlanner {
           taskRepo.getByConversation(trigger.conversationId)
             .filter((item) => item.agent_id === agent.id && item.status === 'in_progress').length,
         ])),
+        getTeamLogEnvelope: async (conversationId, agentId, taskId) =>
+          teamLogProjection.buildEnvelope(conversationId, agentId, taskId ? { taskId } : undefined),
       });
       const activeSession = sessionRepo.findActiveByConversation(trigger.agentId, trigger.conversationId);
       const contextTrigger = trigger.source === 'a2a'
@@ -123,6 +126,7 @@ export class RepositoryHarnessPlanner implements HarnessPlanner {
           projectPath: conversation.project_path ?? undefined,
           useWorktree: Boolean(conversation.use_worktree),
           contextScenario: context.report.scenario,
+          teamLogUpToEntryId: context.report.teamLogUpToEntryId,
         },
       };
     } catch (error) {

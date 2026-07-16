@@ -4,6 +4,7 @@ import {
   integer,
   index,
   uniqueIndex,
+  primaryKey,
 } from 'drizzle-orm/sqlite-core';
 import { sql, type InferSelectModel, type InferInsertModel } from 'drizzle-orm';
 
@@ -473,6 +474,18 @@ export const controlProofEvent = sqliteTable('control_proof_event', {
 
 export type ControlProofEventRow = InferSelectModel<typeof controlProofEvent>;
 export type NewControlProofEventRow = InferInsertModel<typeof controlProofEvent>;
+
+export const agentLogCursor = sqliteTable('agent_log_cursor', {
+  agentId: text('agent_id').notNull(),
+  projectId: text('project_id').notNull(),
+  lastConsumedId: text('last_consumed_id').notNull(),
+  consumedAt: text('consumed_at').notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.agentId, table.projectId] }),
+  index('idx_agent_log_cursor_project').on(table.projectId),
+]);
+
+export type AgentLogCursorRow = InferSelectModel<typeof agentLogCursor>;
 
 // ──────────────────────────────────────────────
 // System Control Plane: runtime nodes

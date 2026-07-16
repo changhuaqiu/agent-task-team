@@ -215,6 +215,15 @@ describe('message-repo', () => {
     expect(msgs[0].content).toBe('From A');
   });
 
+  it('gets private history by conversation and agent in chronological order', () => {
+    conversationRepo.create({ id: 'conv-2', title: 'Other' });
+    messageRepo.append({ conversationId: 'conv-1', senderType: 'agent', senderId: 'agent-a', content: 'First' });
+    messageRepo.append({ conversationId: 'conv-1', senderType: 'agent', senderId: 'agent-b', content: 'Other agent' });
+    messageRepo.append({ conversationId: 'conv-1', senderType: 'agent', senderId: 'agent-a', content: 'Second' });
+    messageRepo.append({ conversationId: 'conv-2', senderType: 'agent', senderId: 'agent-a', content: 'Other project' });
+    expect(messageRepo.getByConversationAgent('conv-1', 'agent-a').map((row) => row.content)).toEqual(['First', 'Second']);
+  });
+
   it('counts messages by conversation', () => {
     messageRepo.append({ conversationId: 'conv-1', senderType: 'human', senderId: 'u1', content: 'A' });
     messageRepo.append({ conversationId: 'conv-1', senderType: 'human', senderId: 'u1', content: 'B' });

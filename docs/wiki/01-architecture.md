@@ -454,3 +454,11 @@ ACP Runtime Session (new once, load on later turns)
 系统唤醒从 `TaskWakeup` 经 Harness 显式携带 reason metadata，避免首次 workflow/review/test 唤醒被当成普通用户首轮。任务子树全部终态时，Autonomy Guard 根据既有 `subtask_of` 边唤醒 planner 输出 Closure Report，并用 control proof event 跨扫描周期去重。合法出口与 A2A action 检查在 MVP 阶段均为观测规则，不阻断 agent loop。
 
 权威设计与实现契约分别见 `docs/technical/execution/context-injection-mvp.md` 和 `specs/context-manager/spec.md`。
+
+## 1.12 团队日志读模型
+
+群聊协作上下文采用“信封 push + 正文 pull”。DB 中的 `chat_message` 与面向协作的 `control_proof_event` 是事实源；服务端 TeamLogProjection 派生 category、audience、task/chain 引用，并在每个 active execution workdir 物化只读 `.ath/team-log.md`。
+
+Agent prompt 只收到最多 5 条、≤150 token 的未消费 envelope。正文由 agent 按需 grep 文件；自身历史仍由 private historyLayer 提供。`agent_log_cursor` 以 `(project_id, agent_id)` 持久化消费位置，完成一轮执行时只推进到该轮 envelope 的快照末尾。
+
+文件温区为：hot（≤50 条、≤24h、≤5KB）、warm（7 天内按日文件）、cold（DB，文件侧仅 INDEX 摘要）。文件可以随时从 DB 重建，不承担写入或状态事实源职责。

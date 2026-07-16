@@ -48,10 +48,12 @@ export function buildHistoryLayer(
     ? filterByProjectId(messages, opts.projectId)
     : messages;
 
-  if (filteredMessages.length === 0) return '';
+  const selfMessages = filteredMessages.filter((message) => message.agentId === selfId);
+
+  if (selfMessages.length === 0) return '';
 
   // Gather：候选池（最近 CANDIDATE_POOL 条）
-  const candidates = filteredMessages.slice(-CANDIDATE_POOL);
+  const candidates = selfMessages.slice(-CANDIDATE_POOL);
 
   // Select：有 query + limit 且候选超 limit 时，按相关性+新近性评分选 top-limit
   let selected: ChatMessage[];

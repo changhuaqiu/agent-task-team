@@ -231,6 +231,16 @@ interface MemoryHook {
 - closure 基于既有 `subtask_of`（child → parent）边递归判断，要求根未终态、后代非空且全部终态，并以 control proof event 持久去重。
 - `no_valid_exit`、`chain_closure_dispatched` 写 control proof log；`missing_action` 写 A2A audit log。除 closure 幂等查询外，本期不消费这些观测数据。
 
+### 5.10 Team Log Projection（2026-07-16）
+
+- `chat_message` 与协作型 `control_proof_event` 是唯一事实源；`.ath/team-log.md` 是可重建 read model。
+- hot 保留最近 50 条且不超过 24 小时；其余 7 天内条目按日进入 `team-log-archive/`；更早内容只保留 INDEX 摘要与 DB cold source。
+- ContextManager 只注入 ≤150 token 的未消费 envelope；正文由 agent 按需读取文件。
+- envelope 携带 `upToEntryId`，daemon 只在本轮执行完成后将该快照末尾写入 per-project/per-agent cursor。
+- handoff/wakeup envelope 按 task 过滤；init/iterate/closure 使用 agent 可见的全部未消费条目。
+- historyLayer 只保留 agent 自身历史，群聊历史不再重复进入 dialog。
+- 详细数据模型、文件格式和归档规则以 `docs/technical/execution/context-injection-mvp.md` §16 为准。
+
 ---
 
 ## 6. 影响面

@@ -22,7 +22,7 @@ const initContributor = include('identity', 'protocol', 'capability', 'situation
 const iteratePlanner = include('protocol', 'situation', 'focus', 'dialog');
 const iterateContributor = include('protocol', 'capability', 'situation', 'focus', 'dialog');
 const handoff = include('protocol', 'capability', 'situation', 'focus');
-const wakeup = include('protocol', 'capability', 'focus');
+const wakeup = include('protocol', 'capability', 'situation', 'focus');
 const closure = include('protocol', 'situation', 'focus', 'dialog');
 
 export const INJECTION_POLICY: Record<ContextScenario, Record<ContextArchetype, Record<ContextCluster, InjectionDirective>>> = {

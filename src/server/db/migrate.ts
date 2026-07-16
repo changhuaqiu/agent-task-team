@@ -662,6 +662,19 @@ CREATE INDEX IF NOT EXISTS idx_agent_skill_skill ON agent_skill(skill_id);
       WHERE status = 'active';
     `,
   },
+  {
+    version: 21,
+    sql: `
+    CREATE TABLE IF NOT EXISTS agent_log_cursor (
+      agent_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      last_consumed_id TEXT NOT NULL,
+      consumed_at TEXT NOT NULL,
+      PRIMARY KEY (agent_id, project_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_log_cursor_project ON agent_log_cursor(project_id);
+    `,
+  },
 ];
 
 export function applyMigrations(db: Database.Database): void {

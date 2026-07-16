@@ -36,6 +36,12 @@ describe('ContextManager', () => {
       getRuntimeRoster: vi.fn().mockResolvedValue([]),
       getSkills: vi.fn().mockResolvedValue([]),
       getCurrentLoad: vi.fn().mockReturnValue({}),
+      getTeamLogEnvelope: vi.fn().mockResolvedValue({
+        unseenCount: 0,
+        entries: [],
+        filePath: '.ath/team-log.md',
+        totalTokens: 0,
+      }),
     };
   });
 
@@ -63,7 +69,7 @@ describe('ContextManager', () => {
     // 构造大量历史消息，确保会超过预算
     const largeMessages: ChatMessage[] = Array.from({ length: 100 }, (_, i) => ({
       id: `msg-${i}`,
-      agentId: 'user',
+      agentId: 'toad',
       content: 'a'.repeat(200),
       timestamp: '2024-01-01T00:00:00Z',
       conversationId: 'conv-123', // 与当前会话匹配，会进入历史
@@ -125,6 +131,13 @@ describe('ContextManager', () => {
 
   it('按 wakeup 策略省略 dialog 并暴露簇决策', async () => {
     mockProviders.getTask.mockResolvedValue({ id: 'task-1', title: '继续实现' });
+    mockProviders.getTeamLogEnvelope.mockResolvedValue({
+      unseenCount: 1,
+      entries: [{ sender: '@peach', category: 'review', taskRef: 'task-1', summary: '评审通过' }],
+      filePath: '.ath/team-log.md',
+      totalTokens: 30,
+      upToEntryId: 'msg-9',
+    });
     const manager = new ContextManager(mockProviders, noOpMemoryHook);
 
     const result = await manager.assembleContext({
@@ -141,10 +154,13 @@ describe('ContextManager', () => {
       scenario: 'wakeup',
       archetype: 'worker',
       includedClusters: expect.arrayContaining(['protocol', 'capability', 'focus']),
-      omittedClusters: expect.arrayContaining(['identity', 'situation', 'dialog']),
+      omittedClusters: expect.arrayContaining(['identity', 'dialog']),
+      teamLogUpToEntryId: 'msg-9',
     });
     expect(result.userPrompt).toContain('系统唤醒');
     expect(result.userPrompt).toContain('继续实现');
+    expect(result.userPrompt).toContain('团队动态');
+    expect(result.userPrompt).toContain('评审通过');
     expect(result.userPrompt).not.toContain('这段原始对话不应被注入');
     expect(result.systemPrompt).toBeUndefined();
   });

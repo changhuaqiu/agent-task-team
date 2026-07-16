@@ -42,3 +42,13 @@
 - [x] closure 仅在根未终态、后代非空且全部终态时触发；partial 元数据正确；跨 tick 一次且仅一次
 - [x] `no_valid_exit` 与 `chain_closure_dispatched` 写 control proof log；`missing_action` 写 A2A audit log；均不阻断原流程
 - [x] 现有 context、harness、autonomy guard、A2A 测试通过，build 通过
+
+## P4 — Team Log Projection
+
+- [x] message/proof 可稳定推导 TeamLogEntry，audience/category/task/chain 字段正确
+- [x] `.ath/team-log.md` 可从 DB 重建，hot ≤50 且 ≤24h，warm 按日分桶并只保留 7 天文件
+- [x] envelope 仅包含可见未消费条目、最多 5 条且 ≤150 token；handoff/wakeup 按 task 过滤
+- [x] agent 完成后只消费到本轮 `upToEntryId`，执行期间新增消息不会被误消费
+- [x] historyLayer 只包含 agent 自身历史，用户本轮输入与 A2A packet 不丢失
+- [x] active workdir 在 dispatch 前具备 `.ath/team-log.md`，文件丢失后可重建
+- [x] migration、repository、ContextManager、Harness/daemon、全量测试及 build 通过

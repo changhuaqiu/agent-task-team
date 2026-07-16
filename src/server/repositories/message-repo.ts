@@ -1,5 +1,6 @@
 import { getDb } from '../db/index';
 import { generateSortableId } from './sortable-id';
+import { messageToTeamLogEntry, teamLogProjection } from '../team-log/TeamLogProjection';
 
 export interface MessageRow {
   id: string;
@@ -52,7 +53,26 @@ export const messageRepo = {
         input.visibility ?? 'public',
         now,
       );
+    const entry = messageToTeamLogEntry({
+      id,
+      conversation_id: input.conversationId,
+      task_id: input.taskId ?? null,
+      sender_type: input.senderType,
+      sender_id: input.senderId,
+      content: input.content,
+      content_type: input.contentType ?? 'text',
+      mentions: input.mentions ? JSON.stringify(input.mentions) : null,
+      intent: input.intent ?? null,
+      metadata: input.metadata ? JSON.stringify(input.metadata) : null,
+      visibility: input.visibility ?? 'public',
+      created_at: now,
+    });
+    if (entry) teamLogProjection.append(entry);
     return id;
+  },
+
+  getById(id: string): MessageRow | undefined {
+    return getDb().prepare('SELECT * FROM chat_message WHERE id = ?').get(id) as MessageRow | undefined;
   },
 
   appendTextChunk(id: string, chunk: string): boolean {
@@ -97,6 +117,16 @@ export const messageRepo = {
     return getDb()
       .prepare('SELECT * FROM chat_message WHERE sender_id = ? ORDER BY created_at DESC LIMIT ?')
       .all(agentId, limit) as MessageRow[];
+  },
+
+  getByConversationAgent(convId: string, agentId: string, options?: { limit?: number }): MessageRow[] {
+    const limit = options?.limit ?? 10;
+    return getDb()
+      .prepare(`SELECT * FROM chat_message
+        WHERE conversation_id = ? AND sender_id = ?
+        ORDER BY created_at DESC, id DESC LIMIT ?`)
+      .all(convId, agentId, limit)
+      .reverse() as MessageRow[];
   },
 
   countByConversation(convId: string): number {

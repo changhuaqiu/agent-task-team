@@ -31,3 +31,11 @@
 - [x] T18 autonomy guard 读取 task graph，发现完整终态子树并通过 control proof event 持久去重后唤醒 planner
 - [x] T19 daemon 在完整输出聚合后记录 `no_valid_exit`；A2A orchestrator 对缺失 action 记录 `missing_action`，两者均不阻断
 - [x] T20 完成策略、场景边界、closure、持久幂等、A2A audit 与主循环回归测试，并同步长期技术文档
+
+## P4 — Team Log Projection
+
+- [x] T21 新增 `agent_log_cursor` migration/schema/repository，并支持 message/proof 混合源二元游标
+- [x] T22 实现 TeamLogEntry 推导、audience/category、hot/warm/cold 物化和只读文件格式
+- [x] T23 message/proof append 接入投影；daemon 注册真实 workdir、完成后按 envelope 快照更新游标
+- [x] T24 ContextManager 注入 ≤150 token envelope，handoff/wakeup 按 task 过滤，history 退化为 self-only
+- [x] T25 覆盖分类、可见性、游标、归档、文件重建、场景注入与回归测试，更新长期架构文档

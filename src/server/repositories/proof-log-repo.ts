@@ -1,5 +1,6 @@
 import { getDb } from '../db/index';
 import { generateSortableId } from './sortable-id';
+import { proofToTeamLogEntry, teamLogProjection } from '../team-log/TeamLogProjection';
 
 export interface ProofEventRow {
   id: string;
@@ -57,7 +58,10 @@ export const proofLogRepo = {
         input.metadata ? JSON.stringify(input.metadata) : null,
         now,
       );
-    return proofLogRepo.getById(id)!;
+    const row = proofLogRepo.getById(id)!;
+    const entry = proofToTeamLogEntry(row);
+    if (entry) teamLogProjection.append(entry);
+    return row;
   },
 
   getById(id: string): ProofEventRow | undefined {

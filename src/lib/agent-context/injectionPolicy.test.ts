@@ -22,5 +22,6 @@ describe('injection policy', () => {
     expect(getDirective('wakeup', 'reviewer', 'dialog')).toBe('omit');
     expect(getDirective('handoff', 'worker', 'focus')).toBe('include');
     expect(getDirective('wakeup', 'reviewer', 'focus')).toBe('include');
+    expect(getDirective('wakeup', 'reviewer', 'situation')).toBe('include');
   });
 });

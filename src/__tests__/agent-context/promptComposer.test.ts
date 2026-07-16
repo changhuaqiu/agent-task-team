@@ -252,27 +252,25 @@ describe('buildHistoryLayer', () => {
     expect(buildHistoryLayer([], 'mario')).toBe('');
   });
 
-  it('formats messages with timestamps and sender labels', () => {
+  it('formats only the current agent own history', () => {
     const messages: ChatMessage[] = [
       makeMessage({ agentId: 'human', content: '你好', timestamp: '2026-05-03T10:00:00Z' }),
       makeMessage({ agentId: 'mario', content: '收到', timestamp: '2026-05-03T10:01:00Z' }),
     ];
     const result = buildHistoryLayer(messages, 'mario');
-    expect(result).toContain('[对话历史 - 最近 2 条]');
+    expect(result).toContain('[对话历史 - 最近 1 条]');
     expect(result).toContain('[/对话历史]');
-    expect(result).toContain('用户');
     expect(result).toContain('你（之前）');
-    expect(result).toContain('你好');
+    expect(result).not.toContain('你好');
     expect(result).toContain('收到');
   });
 
-  it('shows agentId as sender for other agents', () => {
+  it('omits other agents from private history', () => {
     const messages: ChatMessage[] = [
       makeMessage({ agentId: 'luigi', content: 'hi', timestamp: '2026-05-03T10:00:00Z' }),
     ];
     const result = buildHistoryLayer(messages, 'mario');
-    expect(result).toContain('luigi');
-    expect(result).not.toContain('你（之前）');
+    expect(result).toBe('');
   });
 
   it('shows (工具调用) for empty content', () => {
@@ -287,7 +285,7 @@ describe('buildHistoryLayer', () => {
     const messages: ChatMessage[] = Array.from({ length: 15 }, (_, i) =>
       makeMessage({
         id: `msg-${i}`,
-        agentId: 'human',
+        agentId: 'mario',
         content: `message ${i}`,
         timestamp: `2026-05-03T10:${String(i).padStart(2, '0')}:00Z`,
       }),
@@ -304,7 +302,7 @@ describe('buildHistoryLayer', () => {
   it('truncates long content', () => {
     const longContent = 'a'.repeat(300);
     const messages: ChatMessage[] = [
-      makeMessage({ agentId: 'human', content: longContent, timestamp: '2026-05-03T10:00:00Z' }),
+      makeMessage({ agentId: 'mario', content: longContent, timestamp: '2026-05-03T10:00:00Z' }),
     ];
     const result = buildHistoryLayer(messages, 'mario');
     expect(result).toContain('[截断]');
@@ -429,9 +427,9 @@ describe('composeUserPrompt', () => {
     rawPrompt: '请开始工作',
   };
 
-  it('builds user prompt with history, message, and behavior on first wake', async () => {
+  it('builds user prompt with private self history, message, and behavior on first wake', async () => {
     const messages: ChatMessage[] = [
-      makeMessage({ agentId: 'human', content: '你好', timestamp: '2026-05-03T10:00:00Z' }),
+      makeMessage({ agentId: 'mario', content: '之前的工作记录', timestamp: '2026-05-03T10:00:00Z' }),
     ];
     const result = await composeUserPrompt({ ...baseOpts, messages });
     expect(result).toContain('[对话历史');
@@ -439,9 +437,9 @@ describe('composeUserPrompt', () => {
     expect(result).toContain('@agent 请/需要 + 动作 + 具体交付物');
   });
 
-  it('includes history on subsequent wake too', async () => {
+  it('includes private self history on subsequent wake too', async () => {
     const messages: ChatMessage[] = [
-      makeMessage({ agentId: 'human', content: '你好', timestamp: '2026-05-03T10:00:00Z' }),
+      makeMessage({ agentId: 'mario', content: '之前的工作记录', timestamp: '2026-05-03T10:00:00Z' }),
     ];
     const result = await composeUserPrompt({ ...baseOpts, isFirstWake: false, messages });
     expect(result).toContain('[对话历史');

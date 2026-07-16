@@ -24,6 +24,7 @@ import { extractToolsFromSkills, type SkillSummary } from './PromptComposer';
 import { getDirective, resolveArchetype, type ContextArchetype, type ContextCluster } from './injectionPolicy';
 import { buildProtocolHint } from './protocolHints';
 import { resolveScenario, type ContextScenario } from './scenarioResolver';
+import { renderTeamLogEnvelope, type TeamLogEnvelope } from './teamLog';
 
 // Provider 层（P1 只返回 mock，预留接口）
 export interface ContextProviders {
@@ -36,6 +37,7 @@ export interface ContextProviders {
   getRuntimeRoster(conversationId: string): Promise<RuntimeAgent[] | undefined>;
   getSkills(): Promise<SkillSummary[]>;
   getCurrentLoad(): Record<string, number>;  // P1: 当前负载 {agentId: taskCount}
+  getTeamLogEnvelope?(conversationId: string, agentId: string, taskId?: string): Promise<TeamLogEnvelope>;
 }
 
 // Memory Hook（本期 NoOp）
@@ -106,6 +108,7 @@ export interface ContextReport {
   p0Intact: boolean;               // P0 层是否完整未裁剪
   droppedLayers: string[];
   recalledArtifacts: number;       // 记忆命中数（本期恒 0）
+  teamLogUpToEntryId?: string;
 }
 
 export interface AssembledContext {
@@ -150,6 +153,11 @@ export class ContextManager {
     const runtimeRoster = await this.providers.getRuntimeRoster(req.conversationId);
     const scenario = resolveScenario(req);
     const archetype = resolveArchetype(roleCard);
+    const teamLogEnvelope = await this.providers.getTeamLogEnvelope?.(
+      req.conversationId,
+      req.agentId,
+      scenario === 'handoff' || scenario === 'wakeup' ? req.taskId : undefined,
+    );
 
     // Memory Hook：recall（本期 NoOp）
     const artifacts = await this.memoryHook.recall({
@@ -196,12 +204,21 @@ export class ContextManager {
     const team = runtimeRoster !== undefined
       ? runtimeTeam
       : buildTeamLayer(req.agentId, allRoleCards ?? [], undefined);
-    push('situation', 'team', team, { tier: 'project', importance: 0.5, scope: '/project' });
+    if (scenario !== 'wakeup') {
+      push('situation', 'team', team, { tier: 'project', importance: 0.5, scope: '/project' });
+    }
+
+    push('situation', 'teamLog', teamLogEnvelope ? renderTeamLogEnvelope(teamLogEnvelope) : '', {
+      tier: 'project',
+      importance: 0.75,
+      scope: '/project',
+      private: true,
+    });
 
     push('protocol', 'collaboration', buildCollaborationLayer(), { tier: 'system', importance: 0.8 });
 
     // TeamPack context (P1)
-    if (teamPack) {
+    if (teamPack && scenario !== 'wakeup') {
       push('situation', 'teamPack', buildTeamPackLayer(req.agentId, teamPack), { tier: 'project', importance: 0.6, scope: '/project' });
     }
 
@@ -275,6 +292,7 @@ export class ContextManager {
       p0Intact,
       droppedLayers: budgetReport.trimmed,
       recalledArtifacts: artifacts.length, // 本期恒 0
+      teamLogUpToEntryId: teamLogEnvelope?.upToEntryId,
     };
 
     // System prompt（仅首次唤醒）

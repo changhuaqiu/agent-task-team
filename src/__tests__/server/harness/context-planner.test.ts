@@ -7,6 +7,7 @@ import { seedPresetAgents } from '@/server/db/seed-agents';
 import { seedTeamPacks } from '@/server/seed-team-packs';
 import { conversationRepo } from '@/server/repositories/conversation-repo';
 import { taskRepo } from '@/server/repositories/task-repo';
+import { messageRepo } from '@/server/repositories/message-repo';
 import { teamPackRepo } from '@/server/repositories/team-pack-repo';
 import { writeAccount } from '@/server/accounts-file';
 import { RepositoryHarnessPlanner } from '@/server/harness/context-planner';
@@ -57,6 +58,15 @@ describe('RepositoryHarnessPlanner', () => {
       description: 'Move continuation to the server',
       agent_id: 'luigi',
     });
+    const teamLogEntryId = messageRepo.append({
+      conversationId: 'conv-1',
+      taskId: 'TASK-1',
+      senderType: 'agent',
+      senderId: 'peach',
+      content: 'TASK-1 评审已通过，可以继续实现',
+      mentions: ['luigi'],
+      intent: 'review',
+    });
 
     const result = await new RepositoryHarnessPlanner().prepare({
       id: 'trigger-1',
@@ -75,9 +85,11 @@ describe('RepositoryHarnessPlanner', () => {
       runtimeId: 'codex-cli',
       projectPath: 'C:/workspace/project',
       contextScenario: 'wakeup',
+      teamLogUpToEntryId: teamLogEntryId,
     });
     expect(result.plan.prompt).toContain('TASK-1');
     expect(result.plan.prompt).toContain('系统唤醒');
+    expect(result.plan.prompt).toContain('团队动态');
     expect(result.plan.systemPrompt).toBeUndefined();
   });
 

@@ -114,7 +114,7 @@ describe('SQLite Foundation', () => {
       'INSERT INTO conversation (id, title, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
     ).run('conv-migrate', 'Migration Test', 'active', now, now);
     db.exec('DROP INDEX uq_agent_session_active_project_agent');
-    db.prepare('DELETE FROM _schema_version WHERE version = 20').run();
+    db.prepare('DELETE FROM _schema_version WHERE version >= 20').run();
     const insert = db.prepare(
       'INSERT INTO agent_session (id, conversation_id, agent_id, task_id, seq, created_at) VALUES (?, ?, ?, ?, ?, ?)',
     );

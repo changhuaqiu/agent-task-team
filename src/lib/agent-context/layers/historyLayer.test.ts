@@ -50,11 +50,11 @@ describe('buildHistoryLayer', () => {
       expect(result).toBe('');
     });
 
-    it('should include all messages when projectId is not provided', () => {
+    it('should include only self messages when projectId is not provided', () => {
       const result = buildHistoryLayer(mockMessages, 'agent-1', {});
 
       expect(result).toContain('Hello from project A');
-      expect(result).toContain('Hello from project B');
+      expect(result).not.toContain('Hello from project B');
       expect(result).toContain('Another message from project A');
     });
 
@@ -77,14 +77,12 @@ describe('buildHistoryLayer', () => {
       expect(result).not.toContain('Message without project');
     });
 
-    it('should filter only messages from specified project', () => {
+    it('should return empty when the specified project has no self messages', () => {
       const result = buildHistoryLayer(mockMessages, 'agent-1', {
         projectId: 'proj-B',
       });
 
-      expect(result).toContain('Hello from project B');
-      expect(result).not.toContain('Hello from project A');
-      expect(result).not.toContain('Another message from project A');
+      expect(result).toBe('');
     });
   });
 
@@ -150,7 +148,7 @@ describe('buildHistoryLayer', () => {
       expect(result).toContain('你（之前）');
     });
 
-    it('should label system as "系统"', () => {
+    it('should omit system messages from private self history', () => {
       const messages: ChatMessage[] = [
         {
           id: 'msg-1',
@@ -165,10 +163,10 @@ describe('buildHistoryLayer', () => {
         projectId: 'proj-A',
       });
 
-      expect(result).toContain('系统');
+      expect(result).toBe('');
     });
 
-    it('should label human as "用户"', () => {
+    it('should omit human messages from private self history', () => {
       const messages: ChatMessage[] = [
         {
           id: 'msg-1',
@@ -183,7 +181,7 @@ describe('buildHistoryLayer', () => {
         projectId: 'proj-A',
       });
 
-      expect(result).toContain('用户');
+      expect(result).toBe('');
     });
   });
 

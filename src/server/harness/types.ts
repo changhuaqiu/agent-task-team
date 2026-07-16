@@ -27,6 +27,7 @@ export interface HarnessDispatchPlan {
   projectPath?: string;
   useWorktree?: boolean;
   contextScenario: ContextScenario;
+  teamLogUpToEntryId?: string;
 }
 
 export type HarnessReasonCode =

@@ -54,6 +54,8 @@ import {
 } from './harness';
 import { checkValidExit } from './harness/valid-exit';
 import type { ContextScenario } from '../lib/agent-context/scenarioResolver';
+import { teamLogProjection } from './team-log/TeamLogProjection';
+import { renderTeamLogEnvelope } from '../lib/agent-context/teamLog';
 
 type TerminalStartPayload = {
   projectId?: string;
@@ -82,6 +84,7 @@ type TerminalStartPayload = {
   projectPath?: string;
   useWorktree?: boolean;
   contextScenario?: ContextScenario;
+  teamLogUpToEntryId?: string;
 };
 
 type AgentActivityStatus = 'running' | 'awaiting_children' | 'idle';
@@ -209,6 +212,7 @@ export default function registerDaemon(io: IOServer) {
           projectPath: plan.projectPath,
           useWorktree: plan.useWorktree,
           contextScenario: plan.contextScenario,
+          teamLogUpToEntryId: plan.teamLogUpToEntryId,
         }, (event, data) => io.to(plan.trigger.conversationId).emit(event, data));
         return { status: 'accepted' };
       },
@@ -238,6 +242,7 @@ export default function registerDaemon(io: IOServer) {
   runtimeHealthTimer.unref();
 
   const autonomyWakeupPublishedAt = new Map<string, number>();
+  let lastTeamLogArchiveSweepAt = 0;
   const autonomyGuardTimer = setInterval(() => {
     const now = Date.now();
     for (const [key, timestamp] of autonomyWakeupPublishedAt) {
@@ -246,6 +251,16 @@ export default function registerDaemon(io: IOServer) {
 
     const tasks = taskRepo.list();
     const conversationIds = Array.from(new Set(tasks.map((task) => task.conversation_id)));
+    if (now - lastTeamLogArchiveSweepAt >= 24 * 60 * 60 * 1000) {
+      for (const conversationId of conversationIds) {
+        try {
+          teamLogProjection.materializeRegistered(conversationId);
+        } catch (error) {
+          console.warn(`[team-log] daily archive sweep failed for ${conversationId}:`, error);
+        }
+      }
+      lastTeamLogArchiveSweepAt = now;
+    }
     for (const conversationId of conversationIds) {
       const conversationTasks = tasks.filter((task) => task.conversation_id === conversationId);
       const audience = resolveTaskNotificationAudience(conversationId);
@@ -543,7 +558,7 @@ export default function registerDaemon(io: IOServer) {
         projectId,
         taskId,
         agentId,
-        prompt,
+        prompt: incomingPrompt,
         systemPrompt,
         conversationId,
         sourceNodeId,
@@ -565,6 +580,7 @@ export default function registerDaemon(io: IOServer) {
         projectPath,
         useWorktree,
         contextScenario,
+        teamLogUpToEntryId,
       }: TerminalStartPayload, emitToRequester = broadcast) => {
       console.log(`[daemon] terminal:start agent=${agentId}, engine=${rawEngine}, accountId=${accountId ?? '(none)'}, force=${force}, busy=${activeProcesses.has(processKey(agentId, projectId))}`);
       console.log(`[daemon] systemPrompt=${systemPrompt ? `${systemPrompt.length} chars` : '(none)'}, prompt=${prompt ? `${prompt.length} chars` : '(none)'}`);
@@ -580,6 +596,18 @@ export default function registerDaemon(io: IOServer) {
         throw new Error('session_scope_missing: terminal:start requires conversationId or projectId');
       }
       const sessionConvId = conversationId || projectId!;
+      let prompt = incomingPrompt;
+      let effectiveTeamLogUpToEntryId = teamLogUpToEntryId;
+      if (!effectiveTeamLogUpToEntryId) {
+        const envelope = teamLogProjection.buildEnvelope(
+          sessionConvId,
+          agentId,
+          dispatchSource && dispatchSource !== 'user' && taskId ? { taskId } : undefined,
+        );
+        const envelopeText = renderTeamLogEnvelope(envelope);
+        if (envelopeText) prompt = `${envelopeText}\n\n${prompt}`;
+        effectiveTeamLogUpToEntryId = envelope.upToEntryId;
+      }
       const responseBufferKey = processKey(agentId, sessionConvId);
       const emitDispatchReceipt = (
         phase: 'requested' | 'sent' | 'started' | 'completed' | 'blocked' | 'failed',
@@ -870,6 +898,14 @@ export default function registerDaemon(io: IOServer) {
               },
             });
           }
+        }
+        if (effectiveTeamLogUpToEntryId) {
+          teamLogProjection.markConsumed(sessionConvId, agentId, effectiveTeamLogUpToEntryId);
+        }
+        try {
+          teamLogProjection.materializeRegistered(sessionConvId);
+        } catch (error) {
+          console.warn(`[team-log] materialize after completion failed for ${sessionConvId}:`, error);
         }
         if (accumulated && sessionConvId) {
           a2aMessenger.onAgentResponse(agentId, accumulated, {
@@ -1309,6 +1345,13 @@ export default function registerDaemon(io: IOServer) {
       // Start file watcher for project-level .ath/ directory
       const projectDir = join(workspacesRoot, conversationId || projectId || 'default');
       startTaskWatcher(projectDir, io);
+      for (const workspaceDir of new Set([projectDir, wd])) {
+        try {
+          teamLogProjection.materialize(sessionConvId, workspaceDir);
+        } catch (error) {
+          console.warn(`[team-log] materialize failed for ${workspaceDir}:`, error);
+        }
+      }
 
       // Build prompt with worktree context if applicable
       let promptWithWorkdir = (prompt || '') + `\n\n[系统] 任务看板路径: ${join(projectDir, '.ath')}/TASKS.md`;

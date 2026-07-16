@@ -362,3 +362,285 @@ MVP 上线后基于以下信号决定下一轮设计：
 - **2026-07-15**：MVP 阶段三约束全部只记日志、不阻断
 - **2026-07-15**：`chain_ready_for_closure` 走 autonomy-guard 定时扫描，不改动 task-flow
 - **2026-07-15**：先设计（本文档），暂不立 spec、不动代码；spec 立项与否等本文档评审通过后决定
+- **2026-07-15**：群聊信息采用"信封 push + 正文 pull"模式，落地为 `.ath/team-log.md` 文件投影
+
+---
+
+## 16. 团队日志投影（Team Log Projection）
+
+> 定位：将群聊/协作信息从 context window push 模式迁移到 **文件 pull 模式**（信封 push + 正文 pull）。
+> 动机：每个 ACP session 自带 agent 上下文，群聊信息对多数 agent 信噪比极低；推送全量对话会撑爆 budget 且引入噪音。
+> 设计哲学：和 TASKS.md 一脉相承——平台维护结构化文件，agent 按需读取。
+
+### 16.1 核心抽象：TeamLogEntry
+
+```ts
+/**
+ * 团队日志条目 —— chat_message / proof_event 的面向 agent 的结构化投影
+ * Source of Truth 始终是 DB，文件是可重建的 materialized view
+ */
+interface TeamLogEntry {
+  id: string;                    // 复用 message_id 或 proof_event_id
+  ts: string;                    // ISO 8601
+  projectId: string;             // = conversation_id
+
+  // ─── Who ───
+  sender: {
+    id: string;                  // agent_id | 'user' | 'system'
+    type: 'agent' | 'user' | 'system';
+    label: string;               // 展示名（如 "🐸 Toad"）
+  };
+
+  // ─── To Whom ───
+  audience: 'all' | string[];    // 'all' = 全体可见；string[] = 指定 agentIds
+
+  // ─── What ───
+  category: TeamLogCategory;
+  taskId?: string;               // 关联任务 ID
+  chainId?: string;              // 关联 A2A chain
+
+  // ─── Content ───
+  summary: string;               // 单行摘要（≤ 80 字符，用于 envelope）
+  body: string;                  // 完整内容（写入文件）
+
+  // ─── References ───
+  refs?: {
+    taskIds?: string[];          // 涉及的其他任务
+    artifactPaths?: string[];    // 涉及的文件路径
+    decisionTag?: string;        // 决策标签（用于追溯）
+  };
+}
+
+type TeamLogCategory =
+  | 'discussion'     // 一般讨论
+  | 'decision'       // 架构/产品/技术决策
+  | 'status'         // 任务状态变更通知
+  | 'handoff'        // A2A 交接通知
+  | 'review'         // 评审结论
+  | 'approval'       // 用户审批结果
+  | 'system';        // 系统事件（唤醒、闭环等）
+```
+
+### 16.2 投影服务：TeamLogProjection
+
+```ts
+interface TeamLogProjection {
+  // 追加：新消息入库后同步调用
+  append(entry: TeamLogEntry): void;
+
+  // 物化：将最近 N 条写入 .ath/team-log.md
+  materialize(projectId: string, workspaceDir: string): void;
+
+  // 信封生成：为指定 agent 生成未消费摘要（注入 situationLayer）
+  buildEnvelope(projectId: string, agentId: string, options?: { taskId?: string }): TeamLogEnvelope;
+
+  // 游标管理：标记 agent 已消费到某条
+  markConsumed(projectId: string, agentId: string, upToEntryId: string): void;
+}
+
+interface TeamLogEnvelope {
+  unseenCount: number;
+  entries: Array<{
+    sender: string;              // "@dk"
+    category: TeamLogCategory;
+    taskRef?: string;            // "TASK-005"
+    summary: string;
+  }>;
+  filePath: string;              // ".ath/team-log.md"
+  totalTokens: number;           // envelope 本身 ≤ 150 tok
+  upToEntryId?: string;          // 本次 envelope 快照末尾；完成后只消费到这里
+}
+```
+
+### 16.3 Category 推导规则
+
+从现有 `MessageRow` / `ProofEventRow` 字段推导，不改 DB schema：
+
+```ts
+function deriveCategory(msg: MessageRow): TeamLogCategory {
+  if (msg.sender_type === 'system') return 'system';
+  if (msg.intent === 'review') return 'review';
+  if (parseMetadata(msg.metadata)?.approval) return 'approval';
+  if (parseMetadata(msg.metadata)?.handoffChainId) return 'handoff';
+  if (msg.intent === 'task_status' || msg.intent === 'progress') return 'status';
+  if (parseMetadata(msg.metadata)?.decisionTag) return 'decision';
+  return 'discussion';
+}
+```
+
+### 16.4 文件格式：`.ath/team-log.md`
+
+```markdown
+<!-- team-log | project: {projectId} | updated: {lastTs} | window: 50 entries -->
+<!-- agent 可用 grep 按 TASK-xxx、@agentId、[category] 过滤 -->
+
+---
+[10:32] @dk → @luigi | [review] | TASK-005
+架构评审通过，数据层 schema 确认。可以开始实现。
+
+---
+[10:45] @peach → all | [status] | TASK-003
+评审结论：逻辑正确，补充 edge case 测试后可合并。
+
+---
+[10:52] system → @toad | [system] | TASK-001
+chain_ready_for_closure: 3/3 子任务已完成，请执行收敛。
+
+---
+[11:03] user → all | [decision]
+确认：数据库迁移方案采用 Option B（增量 ALTER 而非重建）。
+```
+
+**格式设计约束**：
+- 每条以 `---` 分隔
+- 首行为结构化 header：`[HH:MM] @sender → @receiver | [category] | TASK-xxx`
+- 后续行为 body（≤ 500 字符，超长截断）
+- Agent 可按 `@agentId`、`TASK-xxx`、`[category]` 快速 grep
+
+### 16.5 信封模板（Push 部分，注入 situationLayer）
+
+```
+[团队动态 · {n} 条未消费 · 详见 .ath/team-log.md]
+- @dk→你: TASK-005 架构评审通过 [review]
+- system→你: TASK-001 等待闭环 [system]
+```
+
+**约束**：信封总 token ≤ 150；超过 5 条时只展示最近 5 条 + "另有 N 条"。
+
+### 16.6 归档策略：三温区模型
+
+```
+时间轴 ────────────────────────────────────────────────────────→
+
+  ┌── Hot（实时）──┐  ┌── Warm（近期）──┐  ┌── Cold（历史）──┐
+  │ team-log.md   │  │ archive/日期.md │  │   DB only      │
+  │ 最近 50 条     │  │ 按天分区         │  │  messageRepo   │
+  │ agent 常读     │  │ agent 可读       │  │  需 recall 工具 │
+  └───────────────┘  └────────────────┘  └───────────────┘
+       ≤ 50 条            7 天窗口            > 7 天
+```
+
+#### Hot → Warm 滚动归档
+
+| 维度 | 设计 |
+|------|------|
+| 触发条件 | `team-log.md` 条目数 > 50 或最老条目 > 24h（满足任一） |
+| 触发时机 | 每次 `append()` 后检查 |
+| 操作 | 超出窗口的条目按日期分桶写入 `.ath/team-log-archive/{date}.md` |
+| 截断 | 只保留最新 50 条重写 `team-log.md` |
+
+#### Warm → Cold 日摘要压缩
+
+| 维度 | 设计 |
+|------|------|
+| 触发条件 | archive 文件 > 7 天 |
+| 触发时机 | 每日一次（autonomy-guard 定时器捎带） |
+| 操作 | 删除过期文件前生成单行摘要写入 `INDEX.md` |
+| 摘要策略 | 优先保留 `decision` / `review` 类条目标题 + 完成的 taskId 列表 |
+
+#### Cold（DB 保留）
+
+| 维度 | 设计 |
+|------|------|
+| 保留期 | 90 天（与 chat_message 生命周期一致） |
+| 访问方式 | `recall` 工具从 DB 查询（JIT，未来迭代） |
+
+### 16.7 文件结构
+
+```
+.ath/
+├── TASKS.md                          # 任务状态快照（已有）
+├── team-log.md                       # Hot：最近 50 条（新增）
+└── team-log-archive/                 # Warm + Index（新增）
+    ├── INDEX.md                      # 过期日的单行摘要
+    ├── 2026-07-14.md                 # 按天归档
+    ├── 2026-07-13.md
+    └── ...                           # 最多 7 个文件
+```
+
+### 16.8 与现有模块的集成
+
+| 现有模块 | 改动 |
+|---------|------|
+| `messageRepo.append()` | 追加后触发 `teamLogProjection.append()` |
+| `daemon.ts`（系统事件） | proof_event 写入时同步生成 `system` 类型 entry |
+| `ContextManager.ts` | `situationLayer` 新增 envelope 注入 |
+| `historyLayer.ts` | **退化为只注入 agent 自身对话历史**（`sender_id = selfId`） |
+| `workdirManager` | `materialize()` 在 workspace 目录写 `.ath/team-log.md` |
+| `autonomy-guard` 定时器 | 捎带执行 Warm → Cold 清理 |
+
+### 16.9 数据流总览
+
+```
+┌────────────────────────────────────────────────────────┐
+│              chat_message / proof_event (DB)            │
+│                  ─── Source of Truth ───                │
+└──────────────────────────┬─────────────────────────────┘
+                           │ on insert
+                           ▼
+┌────────────────────────────────────────────────────────┐
+│            TeamLogProjection (server-side)              │
+│  ┌──────────────┐  ┌──────────────┐  ┌─────────────┐  │
+│  │ categorize() │  │ summarize()  │  │ audience()  │  │
+│  │ intent→type  │  │ 首行截取     │  │ mentions→   │  │
+│  │              │  │              │  │ filter      │  │
+│  └──────────────┘  └──────────────┘  └─────────────┘  │
+└──────────────────────────┬─────────────────────────────┘
+                           │
+             ┌─────────────┼─────────────┐
+             ▼                           ▼
+┌────────────────────┐        ┌──────────────────────────┐
+│  .ath/team-log.md  │        │  Envelope (~100 tok)     │
+│  (Pull · agent 读) │        │  注入 situationLayer     │
+│                    │        │  "有 N 条未读，见文件"    │
+└────────────────────┘        └──────────────────────────┘
+```
+
+### 16.10 设计约束与边界
+
+| 约束 | 说明 |
+|------|------|
+| 文件是 read model | agent **不应**编辑 `team-log.md`（与 TASKS.md 不同） |
+| 可重建性 | 文件丢失时从 DB `materialize()` 重建 |
+| 并发安全 | 单 daemon 进程串行写，无竞争 |
+| 与 TASKS.md 职责边界 | team-log 记"发生了什么"（事件流）；TASKS.md 记"当前状态是什么"（状态快照） |
+| 单条 body 上限 | 500 字符（超长截断 + 引用 message_id） |
+| Hot 文件总大小 | ≤ 5KB（50 条 × ~100 字符/条） |
+| 游标持久化 | per-agent per-project，存 DB（`agent_log_cursor` 表或复用 session metadata） |
+
+### 16.11 游标 Schema
+
+```sql
+CREATE TABLE IF NOT EXISTS agent_log_cursor (
+  agent_id TEXT NOT NULL,
+  project_id TEXT NOT NULL,
+  last_consumed_id TEXT NOT NULL,   -- 最后消费的 entry id
+  consumed_at TEXT NOT NULL,        -- ISO 8601
+  PRIMARY KEY (agent_id, project_id)
+);
+```
+
+游标更新时机：agent 被唤醒并完成执行后，daemon 将**本轮 envelope 构建时的 `upToEntryId`** 写入游标。不得读取“完成时最新 id”，否则执行期间新到的消息会被误标为已消费。下次 `buildEnvelope` 时只返回游标之后的条目。
+
+### 16.12 与 §6 策略矩阵的关系
+
+| 场景 | dialog 簇（原设计） | team-log 信封（新增） |
+|------|-------------------|---------------------|
+| init | ✅ 用户原始请求 | ✅ 全量未读 envelope |
+| iterate | ✅ 常规 | ✅ 增量未读 envelope |
+| handoff | ∅ omit | ✅ 仅与本 task 相关的未读 |
+| wakeup | ∅ omit | ✅ 仅与本 task 相关的未读 |
+| closure | ✅ 仅用户原始请求 | ✅ 全量未读 envelope |
+
+**关键变化**：`dialog` 簇中原来的"群聊历史"部分完全迁出到 team-log 文件；`historyLayer` 退化为仅保留 agent 自身会话历史（private scope）。Envelope 作为 `situation` 簇的一部分注入，≤ 150 tok。
+
+### 16.13 实现评审补充（2026-07-16）
+
+- `append(entry)` 只接受已经落入 `chat_message / control_proof_event` 的投影条目；它不是第二事实源。服务在 daemon 注册过的 workspace 上同步重建物化视图。
+- daemon 解析出真实执行目录后调用 `materialize(projectId, workspaceDir)`；同一 project 可注册多个 active workdir，后续 append 更新全部已注册视图。进程重启后首次 dispatch 会从 DB 重建。
+- `buildEnvelope(..., { taskId })` 仅在 handoff/wakeup 场景传 taskId；init/iterate/closure 返回该 agent 可见的全部未消费条目。
+- `historyLayer` 只保留 `sender_id === selfId` 的消息；用户本轮输入仍由 `userMessageLayer` 注入，不从 team log 反向复制。
+- wakeup 的 situation 簇为轻量模式：只注入 team-log envelope，不重新注入团队花名册和 TeamPack 全景。
+- `agent_log_cursor.last_consumed_id` 可以指向 message 或 proof。查询时先定位该源记录的 `(created_at, id)`，再以二元游标读取后续条目；不同 id prefix 不直接比较。
+- proof 投影只接受面向协作的系统事件（wakeup、closure、合法出口异常），控制平面内部流水不进入 team log。
+- 用户直发仍走浏览器 compose 的兼容阶段，daemon `terminal:start` 在 payload 未携带 `teamLogUpToEntryId` 时执行一次 server-side envelope 补位；Harness 路径已携带快照时不重复注入。该兼容逻辑随用户直发完全迁入 Harness 后删除。

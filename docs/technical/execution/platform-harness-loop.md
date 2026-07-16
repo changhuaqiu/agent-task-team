@@ -70,6 +70,14 @@ Task mutation / Autonomy Guard / A2A pass
 - autonomy guard 按 `subtask_of` 的 child → parent 边递归判断完整子树，终态后唤醒 planner 收敛；
 - closure dispatch 写持久 proof，后续扫描以 `(conversationId, rootTaskId, reasonCode)` 去重。
 
+### Team Log Projection
+
+- `chat_message` 与协作型 `control_proof_event` 保持事实源地位，TeamLogProjection 将其物化为 active workdir 内的只读 `.ath/team-log.md`；
+- ContextManager 不再推送群聊正文，只在 situation 簇注入 ≤150 token 的未消费摘要信封；handoff/wakeup 按当前 task 过滤；
+- Harness plan 携带本轮 envelope 的 `upToEntryId`，daemon 仅在本轮完成后推进 `agent_log_cursor`，不会误消费执行期间新到的消息；
+- hot 视图受 50 条、24 小时和 5KB 三重上限控制；7 天内溢出按日归档，更早内容进入 INDEX 摘要并继续以 DB 为 cold source；
+- 用户直发尚未完全迁入 Harness 时，daemon 对缺少 envelope snapshot 的 terminal payload 做一次兼容补位；迁移完成后删除该分支。
+
 ## 兼容机制
 
 服务端接受 wakeup/A2A 后，Socket 事件携带 `handledByHarness=true`。浏览器仍展示事件，但不会再调用 `dispatchToAgent`。
@@ -113,7 +121,7 @@ Task mutation / Autonomy Guard / A2A pass
 
 ## 验证结果
 
-- Vitest：103 个测试文件、977 个测试全部通过；
+- Vitest：104 个测试文件、989 个测试全部通过；
 - TypeScript：`pnpm exec tsc --noEmit` 通过；
 - Production build：Next.js 16.2.4 `pnpm build` 通过；
 - Windows 测试夹具已统一处理路径分隔符、默认分支和 POSIX 权限差异。
