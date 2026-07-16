@@ -7,6 +7,7 @@ import { taskRepo } from '../repositories/task-repo';
 import type { HarnessPlanResolution, HarnessPlanner, HarnessTrigger } from './types';
 import { resolveConversationRuntimeProfile } from './conversation-runtime';
 import { teamLogProjection } from '../team-log/TeamLogProjection';
+import { generateTraceId } from '../repositories/observation-span-repo';
 
 const RUNTIME_IDS = {
   opencode: 'opencode-local',
@@ -127,6 +128,8 @@ export class RepositoryHarnessPlanner implements HarnessPlanner {
           useWorktree: Boolean(conversation.use_worktree),
           contextScenario: context.report.scenario,
           teamLogUpToEntryId: context.report.teamLogUpToEntryId,
+          traceId: generateTraceId(),
+          contextReport: context.report,
         },
       };
     } catch (error) {

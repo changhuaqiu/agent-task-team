@@ -475,6 +475,37 @@ export const controlProofEvent = sqliteTable('control_proof_event', {
 export type ControlProofEventRow = InferSelectModel<typeof controlProofEvent>;
 export type NewControlProofEventRow = InferInsertModel<typeof controlProofEvent>;
 
+// Agent observability: OTel-compatible local span projection.
+export const observationSpan = sqliteTable('observation_span', {
+  spanId: text('span_id').primaryKey(),
+  traceId: text('trace_id').notNull(),
+  parentSpanId: text('parent_span_id'),
+  name: text('name').notNull(),
+  kind: text('kind').notNull(),
+  status: text('status').notNull().default('running'),
+  conversationId: text('conversation_id').notNull(),
+  taskId: text('task_id'),
+  agentId: text('agent_id'),
+  invocationId: text('invocation_id'),
+  envelopeId: text('envelope_id'),
+  chainId: text('chain_id'),
+  passId: text('pass_id'),
+  attributes: text('attributes').notNull().default('{}'),
+  inputPreview: text('input_preview'),
+  outputPreview: text('output_preview'),
+  errorMessage: text('error_message'),
+  startedAt: text('started_at').notNull(),
+  endedAt: text('ended_at'),
+}, (table) => [
+  index('idx_observation_span_trace').on(table.traceId, table.startedAt),
+  index('idx_observation_span_conv').on(table.conversationId, table.startedAt),
+  index('idx_observation_span_invocation').on(table.invocationId),
+  index('idx_observation_span_agent').on(table.agentId, table.startedAt),
+]);
+
+export type ObservationSpanRow = InferSelectModel<typeof observationSpan>;
+export type NewObservationSpanRow = InferInsertModel<typeof observationSpan>;
+
 export const agentLogCursor = sqliteTable('agent_log_cursor', {
   agentId: text('agent_id').notNull(),
   projectId: text('project_id').notNull(),

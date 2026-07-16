@@ -675,6 +675,40 @@ CREATE INDEX IF NOT EXISTS idx_agent_skill_skill ON agent_skill(skill_id);
     CREATE INDEX IF NOT EXISTS idx_agent_log_cursor_project ON agent_log_cursor(project_id);
     `,
   },
+  {
+    version: 22,
+    sql: `
+    CREATE TABLE IF NOT EXISTS observation_span (
+      span_id TEXT PRIMARY KEY,
+      trace_id TEXT NOT NULL,
+      parent_span_id TEXT,
+      name TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'running',
+      conversation_id TEXT NOT NULL,
+      task_id TEXT,
+      agent_id TEXT,
+      invocation_id TEXT,
+      envelope_id TEXT,
+      chain_id TEXT,
+      pass_id TEXT,
+      attributes TEXT NOT NULL DEFAULT '{}',
+      input_preview TEXT,
+      output_preview TEXT,
+      error_message TEXT,
+      started_at TEXT NOT NULL,
+      ended_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_observation_span_trace
+      ON observation_span(trace_id, started_at);
+    CREATE INDEX IF NOT EXISTS idx_observation_span_conv
+      ON observation_span(conversation_id, started_at);
+    CREATE INDEX IF NOT EXISTS idx_observation_span_invocation
+      ON observation_span(invocation_id);
+    CREATE INDEX IF NOT EXISTS idx_observation_span_agent
+      ON observation_span(agent_id, started_at);
+    `,
+  },
 ];
 
 export function applyMigrations(db: Database.Database): void {

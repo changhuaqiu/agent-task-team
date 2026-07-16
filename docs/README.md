@@ -96,6 +96,7 @@
 - `docs/technical/execution/opencode-integration-executable-chain.md`
 - `docs/technical/execution/group-chat-task-graph.md`
 - `docs/technical/execution/platform-harness-loop.md`
+- `docs/technical/observability/agent-observability.md`
 
 说明：
 

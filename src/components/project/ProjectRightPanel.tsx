@@ -5,11 +5,12 @@ import { useTaskHubStore, type Task } from '@/store/taskHubStore';
 import { useShallow } from 'zustand/react/shallow';
 import { useTeamPackStore } from '@/store/teamPackStore';
 import { MiniKanban } from './MiniKanban';
+import { ProjectObservabilityPanel } from './ProjectObservabilityPanel';
 import { TaskGraphMap, type TaskGraphMapView } from '@/components/task-hub/TaskGraphMap';
 import { useTaskGraph } from '@/components/task-hub/useTaskGraph';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/Tabs';
 import { cn } from '@/lib/utils';
-import { AlertTriangle, Briefcase, Layout, PanelRightClose, PanelRightOpen, Sparkles, Users, ShieldCheck, CheckCircle } from 'lucide-react';
+import { AlertTriangle, Briefcase, Layout, PanelRightClose, PanelRightOpen, Sparkles, CheckCircle } from 'lucide-react';
 
 type NextItem = {
   label: string;
@@ -70,7 +71,7 @@ export function ProjectRightPanel({ teamPackId }: { teamPackId: string }) {
     const scopedBlockers = blockers.filter((blocker) => blocker.conversationId === selectedConversationId);
     return scopedTasks.length > 0 || scopedBlockers.length > 0;
   });
-  const [activeTab, setActiveTab] = useState<'board' | 'map' | 'tasks' | 'risks'>('board');
+  const [activeTab, setActiveTab] = useState<'board' | 'map' | 'tasks' | 'risks' | 'debug'>('board');
   const { graph: remoteGraph, isLoading: graphLoading, error: graphError } = useTaskGraph(selectedConversationId);
 
   const scopedTasks = useMemo(
@@ -133,10 +134,11 @@ export function ProjectRightPanel({ teamPackId }: { teamPackId: string }) {
     { value: 'map', label: '地图', count: scopedTasks.length },
     { value: 'tasks', label: '待办', count: nextItems.length },
     { value: 'risks', label: '风险', count: openBlockers.length },
+    { value: 'debug', label: '调试' },
   ];
 
   const handleTabChange = (v: string) => {
-    setActiveTab(v as 'board' | 'map' | 'tasks' | 'risks');
+    setActiveTab(v as 'board' | 'map' | 'tasks' | 'risks' | 'debug');
   };
 
   return (
@@ -315,6 +317,10 @@ export function ProjectRightPanel({ teamPackId }: { teamPackId: string }) {
                   </div>
                 </section>
               )}
+            </TabsContent>
+
+            <TabsContent value="debug" className="flex-1 overflow-y-auto scrollbar-thin p-3">
+              <ProjectObservabilityPanel conversationId={selectedConversationId ?? undefined} />
             </TabsContent>
           </Tabs>
         </aside>

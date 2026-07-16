@@ -1,5 +1,5 @@
 import type { CliEngine } from '../types';
-import type { ContextRequest } from '../../lib/agent-context/ContextManager';
+import type { ContextReport, ContextRequest } from '../../lib/agent-context/ContextManager';
 import type { ContextScenario } from '../../lib/agent-context/scenarioResolver';
 
 export type HarnessTriggerSource = 'user' | 'a2a' | 'workflow' | 'review_gate' | 'test_gate' | 'system';
@@ -28,6 +28,8 @@ export interface HarnessDispatchPlan {
   useWorktree?: boolean;
   contextScenario: ContextScenario;
   teamLogUpToEntryId?: string;
+  traceId: string;
+  contextReport: ContextReport;
 }
 
 export type HarnessReasonCode =

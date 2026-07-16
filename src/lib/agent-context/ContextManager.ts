@@ -109,6 +109,8 @@ export interface ContextReport {
   droppedLayers: string[];
   recalledArtifacts: number;       // 记忆命中数（本期恒 0）
   teamLogUpToEntryId?: string;
+  loadedSkills: string[];
+  availableTools: string[];
 }
 
 export interface AssembledContext {
@@ -293,6 +295,8 @@ export class ContextManager {
       droppedLayers: budgetReport.trimmed,
       recalledArtifacts: artifacts.length, // 本期恒 0
       teamLogUpToEntryId: teamLogEnvelope?.upToEntryId,
+      loadedSkills: skillSummaries.map(skill => skill.name),
+      availableTools: tools.map(tool => tool.name),
     };
 
     // System prompt（仅首次唤醒）

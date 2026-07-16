@@ -53,7 +53,9 @@ import {
   type HarnessOutcome,
 } from './harness';
 import { checkValidExit } from './harness/valid-exit';
+import type { ContextReport } from '../lib/agent-context/ContextManager';
 import type { ContextScenario } from '../lib/agent-context/scenarioResolver';
+import { generateSpanId, generateTraceId, observationSpanRepo } from './repositories/observation-span-repo';
 import { teamLogProjection } from './team-log/TeamLogProjection';
 import { renderTeamLogEnvelope } from '../lib/agent-context/teamLog';
 
@@ -85,6 +87,8 @@ type TerminalStartPayload = {
   useWorktree?: boolean;
   contextScenario?: ContextScenario;
   teamLogUpToEntryId?: string;
+  traceId?: string;
+  contextReport?: ContextReport;
 };
 
 type AgentActivityStatus = 'running' | 'awaiting_children' | 'idle';
@@ -213,6 +217,8 @@ export default function registerDaemon(io: IOServer) {
           useWorktree: plan.useWorktree,
           contextScenario: plan.contextScenario,
           teamLogUpToEntryId: plan.teamLogUpToEntryId,
+          traceId: plan.traceId,
+          contextReport: plan.contextReport,
         }, (event, data) => io.to(plan.trigger.conversationId).emit(event, data));
         return { status: 'accepted' };
       },
@@ -581,12 +587,18 @@ export default function registerDaemon(io: IOServer) {
         useWorktree,
         contextScenario,
         teamLogUpToEntryId,
+        traceId: requestedTraceId,
+        contextReport,
       }: TerminalStartPayload, emitToRequester = broadcast) => {
       console.log(`[daemon] terminal:start agent=${agentId}, engine=${rawEngine}, accountId=${accountId ?? '(none)'}, force=${force}, busy=${activeProcesses.has(processKey(agentId, projectId))}`);
       console.log(`[daemon] systemPrompt=${systemPrompt ? `${systemPrompt.length} chars` : '(none)'}, prompt=${prompt ? `${prompt.length} chars` : '(none)'}`);
       let primaryCommand = 'unknown';
       let runtimeConfigDir: string | undefined;
       let controlEnvelopeId: string | undefined;
+      let invocationTraceId = requestedTraceId;
+      let rootObservationSpanId: string | undefined;
+      const openToolSpans = new Map<string, string[]>();
+      let finishObservation: (status: 'ok' | 'error' | 'cancelled', errorMessage?: string) => void = () => {};
       // ACP per-runtime cleanup (e.g. codex temp CODEX_HOME). Declared here so
       // the outer catch (terminal:start error) can clean up if setup succeeds
       // but a later step throws before the execute IIFE takes over.
@@ -633,11 +645,13 @@ export default function registerDaemon(io: IOServer) {
         emitDispatchReceipt('started');
       };
       const markEnvelopeCompleted = () => {
+        finishObservation('ok');
         if (!controlEnvelopeId) return;
         dispatchGateway.markCompleted(controlEnvelopeId);
         emitDispatchReceipt('completed');
       };
       const markEnvelopeFailed = (reasonCode: string) => {
+        finishObservation(reasonCode === 'cancelled' ? 'cancelled' : 'error', reasonCode);
         if (!controlEnvelopeId) return;
         dispatchGateway.markFailed(controlEnvelopeId, reasonCode);
         emitDispatchReceipt('failed', reasonCode);
@@ -752,6 +766,67 @@ export default function registerDaemon(io: IOServer) {
         account_id: accountId,
         prompt: prompt || '',
       });
+
+      // Observability is intentionally best-effort: a telemetry write must never
+      // prevent the agent loop from running.
+      try {
+        invocationTraceId ??= generateTraceId();
+        rootObservationSpanId = generateSpanId();
+        observationSpanRepo.start({
+          spanId: rootObservationSpanId,
+          traceId: invocationTraceId,
+          name: 'agent.invoke',
+          kind: 'agent',
+          conversationId: sessionConvId,
+          taskId,
+          agentId,
+          invocationId: invocation.id,
+          envelopeId: controlEnvelopeId,
+          chainId,
+          passId,
+          inputPreview: incomingPrompt,
+          attributes: {
+            'ath.schema.version': 1,
+            'gen_ai.operation.name': 'invoke_agent',
+            'gen_ai.agent.name': agentId,
+            'ath.runtime.engine': engine,
+            'ath.runtime.id': runtimeId ?? engine,
+            'ath.dispatch.source': dispatchSource ?? 'user',
+            'ath.context.scenario': contextScenario,
+          },
+        });
+        if (contextReport) {
+          const contextSpan = observationSpanRepo.start({
+            traceId: invocationTraceId,
+            parentSpanId: rootObservationSpanId,
+            name: 'context.assemble',
+            kind: 'context',
+            conversationId: sessionConvId,
+            taskId,
+            agentId,
+            invocationId: invocation.id,
+            envelopeId: controlEnvelopeId,
+            chainId,
+            passId,
+            attributes: {
+              'ath.schema.version': 1,
+              report: contextReport,
+              loadedSkills: contextReport.loadedSkills,
+              availableTools: contextReport.availableTools,
+            },
+          });
+          observationSpanRepo.finish(contextSpan.span_id, 'ok');
+        }
+        finishObservation = (status, errorMessage) => {
+          try {
+            observationSpanRepo.finishOpenByInvocation(invocation.id, status, errorMessage);
+          } catch (error) {
+            console.warn(`[observability] failed to finish ${invocation.id}:`, error);
+          }
+        };
+      } catch (error) {
+        console.warn(`[observability] failed to start ${invocation.id}:`, error);
+      }
 
       // DB-backed project sessions are conversation-scoped. Do not fall back to a
       // client-provided sessionId for a newly created conversation session, or a
@@ -1090,6 +1165,46 @@ export default function registerDaemon(io: IOServer) {
         // Intercept tool_use events for skill-defined tools
         if (event.type === 'tool_use' && event.tool?.name && !isNativeTool(event.tool.name)) {
           handleCustomToolUse(agentId, projectId, event.tool);
+        }
+
+        if (event.type === 'tool_use' && event.tool?.name && invocationTraceId && rootObservationSpanId) {
+          try {
+            const toolSpan = observationSpanRepo.start({
+              traceId: invocationTraceId,
+              parentSpanId: rootObservationSpanId,
+              name: 'tool.execute',
+              kind: 'tool',
+              conversationId: sessionConvId,
+              taskId,
+              agentId,
+              invocationId: invocation.id,
+              envelopeId: controlEnvelopeId,
+              chainId,
+              passId,
+              inputPreview: event.tool.input,
+              attributes: {
+                'ath.schema.version': 1,
+                'gen_ai.operation.name': 'execute_tool',
+                'gen_ai.tool.name': event.tool.name,
+                'gen_ai.tool.call.id': event.tool.callId,
+                'ath.tool.native': isNativeTool(event.tool.name),
+              },
+            });
+            const key = event.tool.callId || event.tool.name;
+            openToolSpans.set(key, [...(openToolSpans.get(key) ?? []), toolSpan.span_id]);
+          } catch (error) {
+            console.warn(`[observability] failed to start tool span:`, error);
+          }
+        } else if (event.type === 'tool_result' && event.tool) {
+          try {
+            const key = event.tool.callId || event.tool.name || '';
+            const pending = openToolSpans.get(key) ?? [];
+            const spanId = pending.shift();
+            if (pending.length) openToolSpans.set(key, pending); else openToolSpans.delete(key);
+            if (spanId) observationSpanRepo.finish(spanId, 'ok', { outputPreview: event.content });
+          } catch (error) {
+            console.warn(`[observability] failed to finish tool span:`, error);
+          }
         }
 
         // Forward to client
