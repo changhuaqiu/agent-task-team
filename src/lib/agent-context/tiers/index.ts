@@ -26,7 +26,7 @@ export function renderAllTiers(ctx: TierContext): BudgetPart[] {
     cluster: ContextCluster,
     layer: string,
     content: string | null | undefined,
-    opts: { tier: BudgetPart['tier']; importance: number; scope?: string; private?: boolean },
+    opts: { tier: BudgetPart['tier']; importance: number; scope?: string; private?: boolean; source?: string },
   ) => {
     if (getDirective(ctx.scenario, ctx.archetype, cluster) === 'include' && content) {
       parts.push({ layer, content, ...opts });

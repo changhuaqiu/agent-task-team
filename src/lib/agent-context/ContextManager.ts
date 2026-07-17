@@ -183,7 +183,7 @@ export class ContextManager {
     const declaredTools = extractToolsFromSkills(skillSummaries);
     const tools = filterRegisteredTools(declaredTools, req.registeredToolNames);
 
-    const parts: BudgetPart[] = renderAllTiers({
+    const allParts: BudgetPart[] = renderAllTiers({
       req,
       scenario,
       archetype,
@@ -199,6 +199,21 @@ export class ContextManager {
       skillSummaries,
       tools,
       teamLogEnvelope,
+    });
+
+    // Visibility stage — enforce scope/private labels as a real filter
+    // (spec §9). Rule: a private part whose source is another agent is
+    // dropped before budget trimming. Previously these labels were written
+    // but never enforced (P2 placeholder). Non-private parts always pass.
+    const visibilityFiltered: string[] = [];
+    const parts = allParts.filter((p) => {
+      if (!p.private) return true;
+      if (p.source === undefined) return true; // private but unclaimed — keep (no leak provenance)
+      if (p.source !== req.agentId) {
+        visibilityFiltered.push(p.layer);
+        return false;
+      }
+      return true;
     });
 
     // Budget 层：复用 BudgetGuard
@@ -228,7 +243,7 @@ export class ContextManager {
         trimmed: budgetReport.trimmed.includes(p.layer),
       })),
       p0Intact,
-      droppedLayers: budgetReport.trimmed,
+      droppedLayers: [...visibilityFiltered, ...budgetReport.trimmed],
       recalledArtifacts: artifacts.length, // 本期恒 0
       teamLogUpToEntryId: teamLogEnvelope?.upToEntryId,
       loadedSkills: skillSummaries.map(skill => skill.name),

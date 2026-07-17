@@ -12,6 +12,8 @@ export interface BudgetPart {
   importance?: number; // 0..1，越大越后裁
   scope?: string;
   private?: boolean;
+  /** 产生该 part 的 agentId，私有可见性过滤用（spec §9） */
+  source?: string;
 }
 
 export interface BudgetReport {

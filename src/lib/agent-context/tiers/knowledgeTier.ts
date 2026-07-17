@@ -44,10 +44,9 @@ export function renderKnowledgeTier({ ctx, push }: TierRenderInput): void {
     push('situation', 'teamPack', buildTeamPackLayer(ctx.agentId, teamPack), { tier: 'project', importance: 0.6, scope: '/project' });
   }
 
-  // History — agent's own trajectory memory. Private.
-  // 可见性标签；filterVisible/assertVisibility 强制执行在 P2 接入（见 spec §9）
+  // History — agent's own trajectory memory. Private to this agent.
   push('dialog', 'history', buildHistoryLayer(messages, req.agentId, {
     query: req.rawPrompt,
     limit: 10,
-  }), { tier: 'project', importance: 0.3, scope: `/project/${req.agentId}`, private: true });
+  }), { tier: 'project', importance: 0.3, scope: `/project/${req.agentId}`, private: true, source: req.agentId });
 }

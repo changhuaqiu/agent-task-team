@@ -19,12 +19,12 @@ export function renderInteractionTier({ ctx, push }: TierRenderInput): void {
     importance: 0.75,
     scope: '/project',
     private: true,
+    source: req.agentId,
   });
 
   // User message — only when this is not an A2A handoff turn (handoff turns
-  // carry their own focus via taskTier).
+  // carry their own focus via taskTier). Private to this agent.
   if (!req.a2aHandoff) {
-    // 可见性标签；filterVisible/assertVisibility 强制执行在 P2 接入（见 spec §9）
-    push('dialog', 'userMessage', buildUserMessageLayer(req.rawPrompt), { tier: 'project', importance: 0.9, scope: `/project/${req.agentId}`, private: true });
+    push('dialog', 'userMessage', buildUserMessageLayer(req.rawPrompt), { tier: 'project', importance: 0.9, scope: `/project/${req.agentId}`, private: true, source: req.agentId });
   }
 }
