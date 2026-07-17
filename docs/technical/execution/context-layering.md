@@ -50,6 +50,32 @@ Tier 3 项目层   [可裁]
 
 ---
 
+## 2.1 四层语义分组（代码组织层，2026-07-17 落地）
+
+> 状态：已落地（`src/lib/agent-context/tiers/`）。与 §2 的稳定性三层是**正交**关系：三层管"裁剪顺序"，四层管"代码怎么组织 + 谁负责哪些 layer"。
+
+§2 的三层模型解决了"先裁谁"，但留下一个问题：15 个 `buildXxxLayer` 在 `assembleContext` 里扁平堆叠，新增一个 layer 要改 4 处（文件 / import / push / descriptor），且语义边界只在维护者脑子里。2026-07-17 的四层重构把它们按**语义职责**收进 4 个深模块（tier renderer），每个 tier 是一个 `render(ctx) → BudgetPart[]` 纯函数，内部管自己的 push（gated by injectionPolicy）。
+
+```
+SystemTier      role / collaboration / protocol / behavior          ← 你是谁 + 协作规则
+KnowledgeTier   skill / tool / team / teamPack / history            ← 你知道什么（能力 + 记忆）
+TaskTier        task / a2a                                          ← 你在做什么（焦点 + 交接包）
+InteractionTier userMessage / teamLog                               ← 当前这轮说什么
+```
+
+**关键约束：tier 不改变 BudgetPart.tier 的值。** 四层是代码组织分组；BudgetGuard 仍按 §2 的 system/tool/project 三层裁剪。一个 layer 属于哪个语义 tier（代码放哪）和它带什么 tier 标签（怎么裁）是两个独立决策。
+
+**修正了三处历史归属错误**（评估稿 `docs/plans/2026-07-17-agent-context-architecture-review.md` 诊断）：
+- `projectStatus`：曾混在系统层 → 现归任务上下文（看板状态高频变化，不是身份）
+- `history`：曾属 dialog → 现归知识层 memory（对话历史是"记忆"，不是"交互"）
+- `teamLog` 投影：曾属知识层 → 现归交互层（每轮不同的增量，不是稳定知识）
+
+**收益**：新增 layer 只改一个 tier 文件（深模块的 locality）；assembleContext 从 254 行的扁平 push 清单收敛为 ~20 行编排；可见性标签（scope/private/source）接线成 BudgetGuard 之前的真正 stage（spec §9，此前只写不读）。
+
+**待办**：`PromptComposer.ts` 的删除（消除首次唤醒双组装 + 循环依赖）留到下一轮，届时 daemonStore 改为直接构造 ContextManager。当前 PromptComposer 作为兼容包装仍存在。
+
+---
+
 ## 3. scope / private / importance 标签机制（CrewAI 校准）
 
 参考 CrewAI 的 `MemoryRecord`（`memory/types.py`），把"目标共享/轨迹隔离"从**结构切分**升级为**字段标签**——更灵活，且直接回答"谁看到什么"：
@@ -87,10 +113,10 @@ interface ContextRecord {
 
 ### IN（本模块拥有，高内聚）
 
-1. 分层组装（系统/工具/项目三层）
-2. 可见性过滤（scope 路径 + private 标志）
+1. 分层组装（系统/工具/项目三层裁剪 × 系统/知识/任务/交互四层语义组织，见 §2.1）
+2. 可见性过滤（scope 路径 + private 标志 + source 归属，2026-07-17 接线为真正的 stage）
 3. 预算裁剪（importance 复合分）
-4. 上下文打标（每条带 scope/private/importance/category）
+4. 上下文打标（每条带 scope/private/importance/category/source）
 5. 健康报告（`ContextReport` → `context_health` / `usage_snapshot`）
 6. 组装契约 + 标签 schema（`ContextRecord`，版本化契约）
 
