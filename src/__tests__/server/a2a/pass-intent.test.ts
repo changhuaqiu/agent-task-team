@@ -92,6 +92,8 @@ describe('scanPassIntents', () => {
     expect(scanPassIntents('分派 @peach 做代码评审然后知会 @dk 关注结果。', AGENTS, 'mario')).toMatchObject([
       { agentId: 'peach', intent: 'delegate' },
     ]);
+    expect(scanPassIntents('知会 @peach 请审查 PR。', AGENTS, 'mario')).toEqual([]);
+    expect(scanPassIntents('不要 @luigi 实现这个改动。', AGENTS, 'mario')).toEqual([]);
   });
 
   it('keeps an actionable worker handoff when a later clause forbids manual reviewer handoff', () => {

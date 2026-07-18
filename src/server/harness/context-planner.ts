@@ -7,10 +7,11 @@ import { taskRepo } from '../repositories/task-repo';
 import type { HarnessPlanResolution, HarnessPlanner, HarnessReasonCode, HarnessTrigger } from './types';
 import { resolveConversationRuntimeProfile } from './conversation-runtime';
 import { teamLogProjection } from '../team-log/TeamLogProjection';
-import { generateTraceId } from '../repositories/observation-span-repo';
+import { generateTraceId, observationSpanRepo } from '../repositories/observation-span-repo';
 import { proofLogRepo } from '../repositories/proof-log-repo';
 import { resolveExternalReferences } from './reference-resolver';
 import { SkillRuntimeError, skillRuntime } from '../skills/skill-runtime';
+import { skillRepo } from '../repositories/skill-repo';
 
 const RUNTIME_IDS = {
   opencode: 'opencode-local',
@@ -56,9 +57,12 @@ export class RepositoryHarnessPlanner implements HarnessPlanner {
     if (!resolution.profile) {
       return { ok: false, outcome: { status: 'blocked', reasonCode: 'runtime_profile_missing' } };
     }
+    const { runtime, profile } = resolution;
+    const traceId = generateTraceId();
+    const activeSession = sessionRepo.findActiveByConversation(trigger.agentId, trigger.conversationId);
+    const isFirstWake = !activeSession;
 
     try {
-      const { runtime, profile } = resolution;
       const boundSkillIds = profile.prompt.skills
         .map(skill => skill.id)
         .filter((skillId): skillId is string => Boolean(skillId));
@@ -100,8 +104,6 @@ export class RepositoryHarnessPlanner implements HarnessPlanner {
         getTeamLogEnvelope: async (conversationId, agentId, taskId) =>
           teamLogProjection.buildEnvelope(conversationId, agentId, taskId ? { taskId } : undefined),
       });
-      const activeSession = sessionRepo.findActiveByConversation(trigger.agentId, trigger.conversationId);
-      const isFirstWake = !activeSession;
       const referenceResolution = await resolveExternalReferences({
         prompt: trigger.prompt,
         projectPath: conversation.project_path,
@@ -164,7 +166,7 @@ export class RepositoryHarnessPlanner implements HarnessPlanner {
           useWorktree: Boolean(conversation.use_worktree),
           contextScenario: context.report.scenario,
           teamLogUpToEntryId: context.report.teamLogUpToEntryId,
-          traceId: generateTraceId(),
+          traceId,
           contextReport: context.report,
         },
       };
@@ -179,6 +181,62 @@ export class RepositoryHarnessPlanner implements HarnessPlanner {
         : error instanceof Error && error.message.startsWith('required_skill_not_loaded')
           ? 'required_skill_not_loaded'
           : 'context_assembly_failed';
+      if (reasonCode !== 'context_assembly_failed') {
+        const decisions = profile.prompt.skills
+          .filter((skill): skill is typeof skill & { id: string } => Boolean(skill.id))
+          .map((skill) => {
+            const revision = skillRepo.getActiveRevision(skill.id);
+            return {
+              skillId: skill.id,
+              name: skill.name,
+              revision: revision?.id ?? 'uninstalled',
+              contentHash: revision?.content_hash ?? 'unknown',
+              outcome: 'failed' as const,
+              reasonCode,
+              activationReason: 'agent_binding' as const,
+              tokens: 0,
+            };
+          });
+        try {
+          const span = observationSpanRepo.start({
+            traceId,
+            name: 'context.compile',
+            kind: 'context',
+            conversationId: trigger.conversationId,
+            taskId: trigger.taskId,
+            agentId: trigger.agentId,
+            chainId: trigger.chainId,
+            passId: trigger.passId,
+            attributes: {
+              reasonCode,
+              report: {
+                scenario: isFirstWake ? 'init' : trigger.source === 'a2a' ? 'handoff' : 'iterate',
+                tokensUsed: 0,
+                tokensBudget: 0,
+                saturation: 0,
+                loadedSkills: [],
+                eligibleSkills: decisions.map(({ skillId, name, revision }) => ({ skillId, name, revision })),
+                activatedSkills: decisions.map(({ skillId, name, revision, activationReason }) => ({ skillId, name, revision, activationReason })),
+                skillDecisions: decisions,
+                availableTools: [],
+              },
+            },
+          });
+          observationSpanRepo.finish(span.span_id, 'error', { errorMessage: reasonCode });
+          proofLogRepo.append({
+            eventType: 'context.skill.failed',
+            conversationId: trigger.conversationId,
+            taskId: trigger.taskId,
+            chainId: trigger.chainId,
+            passId: trigger.passId,
+            agentId: trigger.agentId,
+            reasonCode,
+            metadata: { traceId, skills: decisions.map(({ skillId, revision }) => ({ skillId, revision })) },
+          });
+        } catch {
+          // Observability must not replace the authoritative dispatch failure.
+        }
+      }
       return {
         ok: false,
         outcome: {

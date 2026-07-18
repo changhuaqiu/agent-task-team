@@ -130,7 +130,7 @@ export const skillRepo = {
       values.push(value);
     }
     if (sets.length === 0) return;
-    if ('name' in updates || 'description' in updates || 'content' in updates) {
+    if ('name' in updates || 'description' in updates || 'content' in updates || 'config' in updates) {
       sets.push('active_revision_id = NULL');
     }
     sets.push('updated_at = ?');

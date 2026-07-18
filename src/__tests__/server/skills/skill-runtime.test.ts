@@ -82,6 +82,34 @@ describe('RepositorySkillRuntime', () => {
     expect(compiled.activated[0].config).toBe('{"tools":["Read","Write"]}');
   });
 
+  it('migrates legacy display names without changing ids or colliding package paths', async () => {
+    const runtime = new RepositorySkillRuntime();
+    const legacyNames = ['Code Review', '代码审查', '代码 审查'];
+    const skills = legacyNames.map((name) => skillRepo.create({ name, description: `${name} description`, content: `Use ${name}.` }));
+
+    const compiled = await runtime.compile({ skillIds: skills.map((skill) => skill.id) });
+
+    expect(compiled.activated.map((skill) => skill.skillId)).toEqual(skills.map((skill) => skill.id));
+    expect(compiled.activated.map((skill) => skill.name)).toEqual(legacyNames);
+    const packagePaths = skills.map((skill) => skillRepo.getActiveRevision(skill.id)?.package_path);
+    expect(packagePaths.every(Boolean)).toBe(true);
+    expect(new Set(packagePaths).size).toBe(legacyNames.length);
+    for (const skill of skills) expect(skillRepo.getActiveRevision(skill.id)).toBeDefined();
+  });
+
+  it('rebuilds the active revision after a config-only edit', async () => {
+    const runtime = new RepositorySkillRuntime();
+    const first = await runtime.install(packageFromLegacyInput({
+      name: 'config-edit', description: 'Config edit', content: 'Use tools.', files: [], config: '{"tools":["Read"]}',
+    }));
+    skillRepo.update(first.skillId, { config: '{"tools":["Write"]}' });
+
+    const compiled = await runtime.compile({ skillIds: [first.skillId] });
+
+    expect(compiled.activated[0].revision).not.toBe(first.revision);
+    expect(compiled.activated[0].config).toBe('{"tools":["Write"]}');
+  });
+
   it('fails closed when a required binding is missing or the installed package is modified', async () => {
     const runtime = new RepositorySkillRuntime();
     await expect(runtime.compile({ skillIds: ['missing'] })).rejects.toMatchObject({ reasonCode: 'required_skill_not_loaded' });

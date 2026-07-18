@@ -129,7 +129,8 @@ function extractIntentClause(text: string, position: number): string {
 
 function hasNotificationPredicateBeforeMention(text: string, position: number): boolean {
   const before = text.slice(Math.max(0, position - 40), position);
-  return /(?:并|然后|同时|仅)?\s*(?:知会|通知|告知|同步给?|抄送)\s*$/i.test(before);
+  return /(?:并|然后|同时|仅)?\s*(?:知会|通知|告知|同步给?|抄送)\s*$/i.test(before)
+    || /(?:不要|不需要|无需|别|禁止)\s*$/i.test(before);
 }
 
 export function scanPassIntents(
@@ -149,9 +150,9 @@ export function scanPassIntents(
         );
         if (boundary >= 0) directContent = directContent.slice(0, boundary);
       }
+      if (hasNotificationPredicateBeforeMention(text, target.position)) return null;
       const directIntent = detectIntent(directContent);
       if (directIntent) return { ...target, content: directContent, intent: directIntent };
-      if (hasNotificationPredicateBeforeMention(text, target.position)) return null;
       const clause = extractIntentClause(text, target.position);
       const clauseIntent = detectIntent(clause);
       if (clauseIntent) return { ...target, content: clause, intent: clauseIntent };

@@ -24,4 +24,30 @@ describe('ProjectObservabilityPanel', () => {
     fireEvent.click(screen.getAllByText('planner').at(-1)!);
     expect(screen.getByText(/已绑定 1 · 本轮激活 1 · 已编入 1/)).toBeDefined(); expect(screen.getByText(/Skill · review · 已加载/)).toBeDefined(); expect(screen.getByText('Read')).toBeDefined(); expect(screen.getByText(/上下文 · iterate/)).toBeDefined();
   });
+
+  it('renders a failed Skill decision from a context compilation trace', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({
+      generatedAt: '2026-07-18T00:00:00Z',
+      summary: { traceCount: 1, agentCount: 1, toolCallCount: 0, failedTraceCount: 1, totalTokens: 0, averageDurationMs: 0 },
+      agents: [{ agentId: 'peach', traceCount: 1, toolCallCount: 0, failedTraceCount: 1 }],
+      workflow: { agentEdges: [], taskChains: [] },
+      chains: [],
+      traces: [{
+        traceId: 'c'.repeat(32), agentId: 'peach', status: 'error', startedAt: '2026-07-18T00:00:00Z', totalTokens: 0, tools: [],
+        context: {
+          scenario: 'init', tokensUsed: 0, tokensBudget: 0, saturation: 0, loadedSkills: [],
+          eligibleSkills: [{ skillId: 'skill-bad', name: 'tamper-guard', revision: 'skill-rev-bad' }],
+          activatedSkills: [{ skillId: 'skill-bad', name: 'tamper-guard', revision: 'skill-rev-bad', activationReason: 'agent_binding' }],
+          skillDecisions: [{ skillId: 'skill-bad', name: 'tamper-guard', revision: 'skill-rev-bad', outcome: 'failed', reasonCode: 'skill_manifest_invalid' }],
+        },
+        spans: [{ span_id: 'd'.repeat(16), parent_span_id: null, name: 'context.compile', kind: 'context', status: 'error', started_at: '2026-07-18T00:00:00Z', parsedAttributes: {} }],
+      }],
+    }) })) as unknown as typeof fetch);
+
+    render(<ProjectObservabilityPanel conversationId="conv-failed-skill" />);
+    await waitFor(() => expect(screen.getAllByText('peach').length).toBeGreaterThan(0));
+    fireEvent.click(screen.getAllByText('peach').at(-1)!);
+    await waitFor(() => expect(document.querySelector('[title="skill_manifest_invalid"]')).not.toBeNull());
+    expect(document.querySelector('[title="skill_manifest_invalid"]')?.textContent).toContain('tamper-guard');
+  });
 });

@@ -5,7 +5,6 @@ import {
   generateRuntimeConfig,
   cleanupRuntimeConfig,
   makeInvocationId,
-  type AccountProvider,
   type RuntimeConfigInput,
 } from './opencode-config';
 
@@ -162,6 +161,24 @@ describe('generateRuntimeConfig: config JSON structure', () => {
     expect(config.instructions).toHaveLength(1);
     expect(config.skills.paths).toEqual(['/repo/.opencode/skills']);
     expect(result.env.ATH_OC_API_KEY).toBeUndefined();
+  });
+
+  it('preserves native-only Skills and filters only managed overlaps', () => {
+    const nativeRoot = path.join(TEST_DATA_DIR, 'project-skills');
+    fs.mkdirSync(path.join(nativeRoot, 'native-only'), { recursive: true });
+    fs.mkdirSync(path.join(nativeRoot, 'managed-skill'), { recursive: true });
+    fs.writeFileSync(path.join(nativeRoot, 'native-only', 'SKILL.md'), 'native');
+    fs.writeFileSync(path.join(nativeRoot, 'managed-skill', 'SKILL.md'), 'overlap');
+
+    const result = generate({
+      skillPaths: [nativeRoot],
+      managedSkillNames: ['managed-skill'],
+    });
+
+    const config = JSON.parse(fs.readFileSync(result.configPath!, 'utf-8'));
+    const filteredRoot = config.skills.paths[0];
+    expect(fs.existsSync(path.join(filteredRoot, 'native-only', 'SKILL.md'))).toBe(true);
+    expect(fs.existsSync(path.join(filteredRoot, 'managed-skill'))).toBe(false);
   });
 
   it('uses {env:ATH_OC_API_KEY} placeholder — never raw API key', () => {

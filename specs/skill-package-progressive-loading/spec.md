@@ -51,6 +51,8 @@
 
 新增深模块 `SkillRuntime`，外部接口只暴露 `install()` 和 `compile()`。ContextManager 不解析目录或查询 Skill 仓储。
 
+所有浏览器 `terminal:start` 请求只携带原始用户输入，必须先进入服务端 Harness planner；客户端组装的 prompt、system prompt、Skill 列表或 revision 证据均不具权威性。只有 planner 成功后，daemon runtime port 才能执行。
+
 ### 4.4 第一阶段激活
 
 Agent 绑定的全部 Skill 进入本轮 activation plan。`SKILL.md` 正文编入 capability context，资源目录只作为 references。后续规格再拆分 eligible 与 activated。
@@ -74,6 +76,8 @@ Agent 绑定的全部 Skill 进入本轮 activation plan。`SKILL.md` 正文编�
 - 旧导入 API 保持兼容，但内部改走 `SkillRuntime.install()`；
 - Runtime profile 不再长期携带全量 Skill 正文；
 - OpenCode 原生 `skillPaths` 必须与平台注入去重，不能双份加载。
+- 兼容迁移使用独立、稳定且防碰撞的 package slug；用户可见 Skill 名称及既有 ID/绑定保持不变，空格、大写、Unicode 名称均可迁移。
+- Skill 的 config 参与 revision hash；config-only 修改也必须使 active revision 失效并在下次编译时生成新 revision。
 
 ## 6. 安全
 
@@ -82,6 +86,10 @@ Agent 绑定的全部 Skill 进入本轮 activation plan。`SKILL.md` 正文编�
 - assets 不进入 Prompt；
 - 日志只记录路径、hash 和有界摘要，不记录敏感正文；
 - 安装失败不得留下可被绑定的半成品 revision。
+
+### 6.1 失败证据
+
+required Skill 在 package 校验、revision/hash 检查或预算门禁失败时，planner 必须在返回 blocked/failed 前写入有界 context failure span/proof。证据包含 Skill ID、已知 revision、reason code 与失败 decision，不保存 Skill 正文；调试页通过同一 observability projection 展示。
 
 ## 7. 退出条件
 

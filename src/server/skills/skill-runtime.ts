@@ -102,15 +102,25 @@ function revisionToInstalled(skill: SkillRow, revision: SkillRevisionRow): Insta
   };
 }
 
+function legacyPackageSlug(skill: SkillRow): string {
+  const normalized = skill.name.normalize('NFKD').toLowerCase()
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'legacy-skill';
+  const suffix = sha256(Buffer.from(skill.id, 'utf8')).slice(0, 12);
+  return `${normalized.slice(0, 48).replace(/-+$/g, '')}-${suffix}`;
+}
+
 function legacyPackage(skill: SkillRow): SkillPackageInput {
   const description = skill.description?.trim() || `Use the ${skill.name} skill when its assigned role handles this work.`;
   const files = skillRepo.listFiles(skill.id).map(file => ({
     path: normalizeSkillRelativePath(file.path),
     content: Buffer.from(file.content, 'utf8'),
   }));
-  const skillMarkdown = canonicalSkillMarkdown(skill.name, description, skill.content);
+  const packageName = legacyPackageSlug(skill);
+  const skillMarkdown = canonicalSkillMarkdown(packageName, description, skill.content);
   return {
-    name: skill.name,
+    name: packageName,
     description,
     body: skill.content.trim(),
     skillMarkdown,
@@ -176,7 +186,26 @@ export class RepositorySkillRuntime implements SkillRuntimeInterface {
   private async ensureRevision(skill: SkillRow): Promise<InstalledSkillRevision> {
     const active = skillRepo.getActiveRevision(skill.id);
     if (!active) {
-      return this.install(legacyPackage(skill));
+      const input = validateSkillPackage(legacyPackage(skill));
+      const contentHash = computeSkillPackageHash(input);
+      const packagePath = await writePackageAtomically(input, contentHash);
+      return getDb().transaction(() => {
+        const revision = skillRepo.createOrActivateRevision({
+          skillId: skill.id,
+          contentHash,
+          description: input.description,
+          body: input.body,
+          packagePath,
+          config: input.config,
+          files: input.files.map(file => ({
+            path: normalizeSkillRelativePath(file.path),
+            kind: classifySkillResource(file.path),
+            content_hash: sha256(file.content),
+            byte_size: file.content.byteLength,
+          })),
+        });
+        return revisionToInstalled(skillRepo.getById(skill.id)!, revision);
+      })();
     }
     const packageStat = await fs.stat(active.package_path).catch(() => undefined);
     if (!packageStat?.isDirectory()) {

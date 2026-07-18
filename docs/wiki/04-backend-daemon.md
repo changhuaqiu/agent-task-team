@@ -363,9 +363,9 @@ daemon 当前已经具备会话级跟踪：
 
 Skill 执行当前不再直接依赖 runtime 原生目录发现。`src/server/skills/skill-runtime.ts` 是统一入口：安装时校验 `<name>/SKILL.md`、生成稳定 content hash、写入受管不可变目录并记录 revision；执行时根据 `agent_skill` 绑定编译固定版本。
 
-每轮 dispatch 在 runtime 选择之前完成 Skill 编译。`SKILL.md` 正文进入 capability context，`references/`、`scripts/`、`assets/` 只成为按需路径索引。ContextReport 记录 eligible、activated、loaded、revision、hash、reason 和 token；必需 Skill 未实际进入最终 Prompt 时阻断执行。平台托管 dispatch 不再挂载 OpenCode 项目原生 skillPaths，所有 runtime 只接受平台编译证据。
+每轮 dispatch 在 runtime 选择之前完成 Skill 编译。浏览器 Socket 派发也只提交原始输入并统一进入服务端 Harness，不能直接调用 runtime。`SKILL.md` 正文进入 capability context，`references/`、`scripts/`、`assets/` 只成为按需路径索引。ContextReport 记录 eligible、activated、loaded、revision、hash、reason 和 token；必需 Skill 未实际进入最终 Prompt 时阻断执行。OpenCode 项目原生 skillPaths 会过滤掉与平台本轮托管 Skill 重名的目录，非重名原生 Skill 保持可发现。
 
-旧 `skill.content + skill_file` 仍是兼容编辑入口；内容变化会使活动 revision 失效，并在下一次使用时生成新版本。工具 config 纳入 revision hash 并随 revision 固化。包校验失败已阻断执行并返回稳定 reason code；失败 decision 投影到调试页仍是待补观测能力。长期设计与错误码见 `docs/technical/execution/skill-package-progressive-loading.md`。
+旧 `skill.content + skill_file` 仍是兼容编辑入口；名称、描述、正文、config 或文件变化会使活动 revision 失效，并在下一次使用时生成新版本。旧名称迁移使用稳定、防碰撞的 package slug，不改变 Skill ID、显示名或绑定。工具 config 纳入 revision hash并随 revision 固化。包校验失败会写入有界失败 span/proof、阻断执行并返回稳定 reason code，失败 decision 已可从观测投影和调试页查看。长期设计与错误码见 `docs/technical/execution/skill-package-progressive-loading.md`。
 
 ## 4.4 Agent Session 身份边界
 

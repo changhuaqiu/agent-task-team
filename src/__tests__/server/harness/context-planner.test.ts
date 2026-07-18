@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createTestDb, resetDb, setTestDb } from '@/server/db';
@@ -14,6 +14,9 @@ import { writeAccount } from '@/server/accounts-file';
 import { RepositoryHarnessPlanner } from '@/server/harness/context-planner';
 import { skillRepo } from '@/server/repositories/skill-repo';
 import { RepositorySkillRuntime, packageFromLegacyInput } from '@/server/skills/skill-runtime';
+import { HarnessCoordinator } from '@/server/harness/coordinator';
+import { submitSocketTerminalStart } from '@/server/daemon';
+import { projectObservationProjection } from '@/server/observability/ProjectObservationProjection';
 
 let dataDir: string;
 let previousDataDir: string | undefined;
@@ -187,5 +190,47 @@ describe('RepositoryHarnessPlanner', () => {
     expect(result.plan.contextReport.skillDecisions[0]).toMatchObject({
       skillId: revision.skillId, revision: revision.revision, contentHash: revision.contentHash, outcome: 'loaded',
     });
+  });
+
+  it('routes every browser dispatch source through required-Skill validation', async () => {
+    const pack = teamPackRepo.getByName('default-team')!;
+    teamPackRepo.updateRoleConfig(pack.id, 'peach', { accountIds: ['account-openai'] });
+    writeAccount({
+      id: 'account-openai', name: 'OpenAI', authMode: 'oauth', provider: 'openai', models: [],
+      enabled: true, status: 'valid', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    });
+    conversationRepo.create({ id: 'conv-socket-skill', title: 'Socket Skill Guard', team_pack_id: pack.id });
+    const revision = await new RepositorySkillRuntime().install(packageFromLegacyInput({
+      name: 'required-guard', description: 'Required guard', content: 'Validate before dispatch.', files: [],
+    }));
+    skillRepo.assignToAgent('peach', revision.skillId);
+    writeFileSync(join(revision.packagePath, 'SKILL.md'), 'tampered', 'utf8');
+    const execute = vi.fn();
+    const coordinator = new HarnessCoordinator({
+      planner: new RepositoryHarnessPlanner(),
+      runtime: { isBusy: () => false, execute },
+      recordProof: vi.fn(),
+    });
+
+    for (const source of ['user', 'workflow', 'review_gate', 'a2a'] as const) {
+      const submission = submitSocketTerminalStart(coordinator, {
+        dispatchId: `socket-${source}`,
+        conversationId: 'conv-socket-skill',
+        agentId: 'peach',
+        prompt: `dispatch ${source}`,
+        dispatchSource: source,
+      });
+      await expect(submission.completion).resolves.toMatchObject({
+        status: 'failed',
+        reasonCode: 'skill_manifest_invalid',
+      });
+    }
+    expect(execute).not.toHaveBeenCalled();
+    const snapshot = projectObservationProjection.build('conv-socket-skill', 10);
+    expect(snapshot.traces).toHaveLength(4);
+    expect(snapshot.traces.every((trace) => trace.status === 'error')).toBe(true);
+    expect(snapshot.traces[0].context?.skillDecisions).toMatchObject([
+      { skillId: revision.skillId, outcome: 'failed', reasonCode: 'skill_manifest_invalid' },
+    ]);
   });
 });

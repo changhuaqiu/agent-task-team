@@ -115,6 +115,28 @@ describe('PATCH /api/skills/:id', () => {
     expect(getRes._json.files).toHaveLength(1);
     expect(getRes._json.files[0].path).toBe('new.md');
   });
+
+  it('invalidates and rebuilds the active revision after a config-only update', async () => {
+    const runtime = new RepositorySkillRuntime();
+    const first = await runtime.install(packageFromLegacyInput({
+      name: 'config-api-update',
+      description: 'Config API update',
+      content: 'Use configured tools.',
+      files: [],
+      config: '{"tools":["Read"]}',
+    }));
+
+    const patchRes = mockRes();
+    await detailHandler(
+      mockReq('PATCH', { config: '{"tools":["Write"]}' }, { id: first.skillId }),
+      patchRes,
+    );
+    expect(patchRes.statusCode).toBe(200);
+
+    const compiled = await runtime.compile({ skillIds: [first.skillId] });
+    expect(compiled.activated[0].revision).not.toBe(first.revision);
+    expect(compiled.activated[0].config).toBe('{"tools":["Write"]}');
+  });
 });
 
 describe('DELETE /api/skills/:id', () => {
