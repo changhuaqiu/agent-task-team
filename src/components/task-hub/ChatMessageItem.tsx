@@ -1,7 +1,6 @@
 'use client';
 
-import { useTaskHubStore, selectActiveAgents, selectAvailableRoster, type ChatMessage } from '@/store/taskHubStore';
-import { useShallow } from 'zustand/react/shallow';
+import { useTaskHubStore, type ChatMessage } from '@/store/taskHubStore';
 import { useMemo, useState } from 'react';
 import { PixelAvatar } from './PixelAvatar';
 import { CliOutputBlock } from './CliOutputBlock';
@@ -18,6 +17,8 @@ import { TaskActionCard, type TaskActionCardRef } from './TaskActionCard';
 import { ChatPhaseProposals } from './ChatPhaseProposals';
 import { ChatApprovalActions } from './ChatApprovalActions';
 import type { AgentTheme } from '@/store/agentStore';
+import { EngineeringCollaborationCard } from './EngineeringCollaborationCard';
+import { isEngineeringCollaborationCard } from '@/lib/engineering-collaboration/types';
 
 interface ChatMessageItemProps {
   message: ChatMessage;
@@ -123,6 +124,9 @@ export function ChatMessageItem({ message }: ChatMessageItemProps) {
   const hasToolEvents = (message.toolEvents?.length ?? 0) > 0;
   const taskRefs = useMemo(() => taskRefsFromMessage(message), [message]);
   const taskActions = useMemo(() => taskActionsFromMessage(message), [message]);
+  const collaborationCard = isEngineeringCollaborationCard(message.metadata?.collaborationCard)
+    ? message.metadata.collaborationCard
+    : undefined;
 
   const [isHovered, setIsHovered] = useState(false);
 
@@ -259,6 +263,10 @@ export function ChatMessageItem({ message }: ChatMessageItemProps) {
                 />
               ))}
             </div>
+          )}
+
+          {collaborationCard && (
+            <EngineeringCollaborationCard card={collaborationCard} onSelectTask={setSelectedTaskId} />
           )}
 
           {message.isApprovalRequest && (

@@ -225,6 +225,7 @@ export function publishTaskChangeNotification(input: PublishTaskChangeNotificati
   });
 
   for (const wakeup of wakeups) {
+    if (!input.io) continue;
     if (!wakeupDeduper.shouldPublish(wakeup)) continue;
     const id = messageRepo.append({
       conversationId: wakeup.conversationId,

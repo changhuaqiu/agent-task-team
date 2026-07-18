@@ -5,6 +5,7 @@ export type TaskWakeupReasonCode =
   | 'owner_ready'
   | 'review_requested'
   | 'review_decision_ready'
+  | 'review_rejected'
   | 'test_requested'
   | 'dependency_resolved'
   | 'unblocked_unassigned'
@@ -121,6 +122,8 @@ function addWakeup(wakeups: TaskWakeup[], input: {
 
   const actionText = input.reasonCode === 'review_requested'
     ? '请开始评审'
+    : input.reasonCode === 'review_rejected'
+      ? '评审已拒绝，请按评论修复并继续使用同一 PR'
     : input.reasonCode === 'review_decision_ready'
       ? '请确认评审结论'
       : input.reasonCode === 'test_requested'
@@ -217,6 +220,20 @@ export function resolveTaskWakeups(input: ResolveTaskWakeupsInput): TaskWakeup[]
       actorId: input.actorId,
       reasonCode: 'owner_ready',
       dispatchSource: 'workflow',
+    });
+  }
+
+  if (
+    input.task.status === 'rejected' &&
+    input.previousTask?.status !== 'rejected' &&
+    changedFields.includes('status')
+  ) {
+    addWakeup(wakeups, {
+      task: input.task,
+      agentId: input.task.agent_id,
+      actorId: input.actorId,
+      reasonCode: 'review_rejected',
+      dispatchSource: 'review_gate',
     });
   }
 

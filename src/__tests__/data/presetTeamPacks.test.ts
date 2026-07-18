@@ -23,19 +23,17 @@ describe('default team collaboration template', () => {
   it('uses Harness stages instead of a role-by-role serial flow', () => {
     const states = defaultTeam().workflow.states ?? [];
 
-    expect(states.map((state) => state.role).filter(Boolean)).toEqual([
-      'mario',
-      'luigi',
-      'peach',
-    ]);
+    expect(new Set(states.map((state) => state.role).filter(Boolean))).toEqual(new Set(['mario', 'luigi', 'peach']));
     expect(states.map((state) => state.name)).toEqual([
       'planning',
       'implementing',
       'quality_gate',
+      'merge_verify',
       'done',
     ]);
     expect(states.find((state) => state.name === 'implementing')?.description).toContain('全栈实现');
     expect(states.find((state) => state.name === 'quality_gate')?.description).toContain('DK');
+    expect(states.find((state) => state.name === 'merge_verify')?.description).toContain('main');
   });
 
   it('allows critical Harness responsibility paths without making every path open', () => {
@@ -83,6 +81,6 @@ describe('default team collaboration template', () => {
     }
 
     expect(roles.find((role) => role.id === 'mario')?.soul).toContain('宣布“管道已启动”前');
-    expect(roles.find((role) => role.id === 'peach')?.soul).toContain('test_gate 已形成结构化唤醒');
+    expect(roles.find((role) => role.id === 'peach')?.soul).toContain('collaboration_record_review');
   });
 });

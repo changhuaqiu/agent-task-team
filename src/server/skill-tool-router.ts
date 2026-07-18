@@ -12,6 +12,9 @@ const HANDLER_MAP: Record<string, HandlerMapping> = {
   'api://tasks/create': { method: 'POST', mutationType: 'task.create',       toolName: 'task_create' },
   'api://tasks/update': { method: 'POST', mutationType: 'task.updateStatus', toolName: 'task_update_status' },
   'api://tasks/assign': { method: 'POST', mutationType: 'task.update',       toolName: 'task_assign' },
+  'api://collaboration/pull-request': { method: 'POST', toolName: 'collaboration_record_pr' },
+  'api://collaboration/review': { method: 'POST', toolName: 'collaboration_record_review' },
+  'api://collaboration/merge': { method: 'POST', toolName: 'collaboration_record_merge' },
 };
 
 const TOOL_NAME_MAP: Record<string, string> = {
@@ -19,6 +22,9 @@ const TOOL_NAME_MAP: Record<string, string> = {
   task_create: 'api://tasks/create',
   task_update_status: 'api://tasks/update',
   task_assign: 'api://tasks/assign',
+  collaboration_record_pr: 'api://collaboration/pull-request',
+  collaboration_record_review: 'api://collaboration/review',
+  collaboration_record_merge: 'api://collaboration/merge',
 };
 
 export function resolveHandler(handlerUrl: string): HandlerMapping | null {

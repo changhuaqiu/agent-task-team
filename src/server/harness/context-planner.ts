@@ -12,6 +12,7 @@ import { proofLogRepo } from '../repositories/proof-log-repo';
 import { resolveExternalReferences } from './reference-resolver';
 import { SkillRuntimeError, skillRuntime } from '../skills/skill-runtime';
 import { skillRepo } from '../repositories/skill-repo';
+import { getSupportedToolNames } from '../skill-tool-router';
 
 const RUNTIME_IDS = {
   opencode: 'opencode-local',
@@ -132,6 +133,7 @@ export class RepositoryHarnessPlanner implements HarnessPlanner {
         conversationId: trigger.conversationId,
         taskId: trigger.taskId,
         rawPrompt: referenceResolution.prompt,
+        registeredToolNames: getSupportedToolNames(),
         trigger: contextTrigger,
         a2aHandoff: trigger.source === 'a2a' ? {
           title: trigger.fromAgentId ?? 'agent',

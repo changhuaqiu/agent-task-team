@@ -30,6 +30,7 @@ import type { AgentEvent, AgentBackend } from './agent/types';
 import { withDoneGuarantee } from './agent/with-done-guarantee';
 import { isNativeRuntimeTool } from './agent/nativeTools';
 import { isSkillTool } from './skill-tool-router';
+import { executeSkillTool } from './skill-tool-executor';
 import { StreamTextPersistence } from './agent/streamTextPersistence';
 import { resolveNonWorktreeExecutionCwd, stableWorkdirTaskKey, WorkdirManager } from './workdir-manager';
 import { AgentMessenger } from './a2a';
@@ -1173,7 +1174,7 @@ export default function registerDaemon(io: IOServer) {
           return !!text;
         } else if (type === 'tool_use') {
           const toolName = typeof part?.tool === 'string' ? part.tool : undefined;
-          if (toolName) forwardAgentEvent({ type: 'tool_use', content: '', tool: { name: toolName, input: typeof part?.input === 'object' ? JSON.stringify(part.input).slice(0, 200) : undefined }, sessionId });
+          if (toolName) forwardAgentEvent({ type: 'tool_use', content: '', tool: { name: toolName, input: typeof part?.input === 'object' ? JSON.stringify(part.input) : undefined }, sessionId });
           return !!toolName;
         } else if (type === 'error') {
           const errorObj = (obj.error && typeof obj.error === 'object') ? (obj.error as Record<string, unknown>) : undefined;
@@ -1238,19 +1239,21 @@ export default function registerDaemon(io: IOServer) {
         tool: { name: string; callId?: string; input?: string },
       ): void {
         try {
+          if ((tool.input?.length ?? 0) > 64 * 1024) throw new Error('tool input exceeds 64 KiB');
           const input = tool.input ? JSON.parse(tool.input) : {};
-          fetch('http://localhost:3000/api/mutations', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              type: 'tool.invoke',
-              payload: { toolName: tool.name, agentId, projectId, input },
-            }),
-          }).catch((err) => {
-            console.error(`[daemon] tool invocation failed for ${tool.name}:`, err);
+          void executeSkillTool({
+            toolName: tool.name,
+            agentId,
+            projectId,
+            conversationId: sessionConvId,
+            taskId,
+            input,
+            io,
+          }).then((result) => {
+            if (!result.success) console.error(`[daemon] tool invocation failed for ${tool.name}: ${result.error}`);
           });
-        } catch {
-          console.error(`[daemon] failed to parse tool input for ${tool.name}`);
+        } catch (error) {
+          console.error(`[daemon] failed to parse tool input for ${tool.name}:`, error);
         }
       }
 

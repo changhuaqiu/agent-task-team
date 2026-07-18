@@ -512,7 +512,7 @@ function applyConversationTeamPack(
     });
 }
 
-function mapMessagesToState(recentMessages: Record<string, any[]>): Record<string, ChatMessage[]> {
+export function mapMessagesToState(recentMessages: Record<string, any[]>): Record<string, ChatMessage[]> {
   const result: Record<string, ChatMessage[]> = {};
   for (const [convId, msgs] of Object.entries(recentMessages)) {
     const mapped: ChatMessage[] = [];
@@ -557,6 +557,8 @@ function mapMessagesToState(recentMessages: Record<string, any[]>): Record<strin
           referencedTaskId: m.task_id,
           source: meta?.source,
           fromAgentId: meta?.fromAgentId,
+          metadata: meta,
+          taskActionIds: Array.isArray(meta?.taskActionIds) ? meta.taskActionIds : undefined,
         });
       }
     }
@@ -2166,13 +2168,13 @@ socket.on('terminal:exit', ({ agentId, code, command, reasonCode, conversationId
         taskId,
         type: 'gate_fail',
         gateId: 'build',
-        reasonSummary: '等待实现证据：进入 review_gate 前必须提供 installResult、buildResult 和 impactEvidence。',
+        reasonSummary: '等待开发交付（implementation_evidence）：需要已验证 PR，以及 installResult、buildResult、testResult、impactEvidence。',
         evidenceRef: runId ? `run:${runId}` : (command ? `cli:${command}` : undefined),
       });
       missingEvidenceRecovery = {
         taskId,
         conversationId: task.conversationId,
-        prompt: `请补齐 ${taskId}: ${task.title} 的 implementation_evidence：installResult、buildResult、impactEvidence。补齐后用 task_update_status 将任务推进到 in_review。`,
+        prompt: `请补齐 ${taskId}: ${task.title} 的 implementation_evidence：创建 PR 并记录已验证回执，同时提供 installResult、buildResult、testResult、impactEvidence。完成后由平台推进到 in_review。`,
       };
     }
   }

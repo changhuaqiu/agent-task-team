@@ -292,6 +292,7 @@ describe('POST /api/mutations', () => {
         evidence: {
           installResult: 'pnpm install passed',
           buildResult: 'pnpm build passed',
+          testResult: 'pnpm test passed',
           impactEvidence: 'repository query: task update status',
         },
       },
@@ -348,6 +349,31 @@ describe('POST /api/mutations', () => {
         missingFields: expect.arrayContaining(['installResult', 'buildResult', 'impactEvidence']),
       }),
     }));
+  });
+
+  it('task.updateStatus cannot fabricate done for a Git-backed task', async () => {
+    await seedTask();
+    const { conversationRepo } = await import('@/server/repositories/conversation-repo');
+    conversationRepo.update('conv-1', { git_repo_root: 'C:/repo' });
+    const req = mockReq('POST', {
+      type: 'task.updateStatus',
+      payload: {
+        id: 'task-1', status: 'done', actorId: 'mario', actorType: 'agent',
+        evidence: {
+          mergedToMain: true, mainInstallResult: 'passed', mainBuildResult: 'passed',
+          mainTestResult: 'passed', mainImpactReviewResult: 'passed',
+        },
+      },
+    });
+    const res = mockRes();
+    res.socket = { server: { io: { to: vi.fn(() => ({ emit: vi.fn() })) } } };
+
+    await handler(req, res);
+
+    const { taskRepo } = await import('@/server/repositories/task-repo');
+    expect(res.statusCode).toBe(403);
+    expect(res._json.error).toContain('mergeReceipt');
+    expect(taskRepo.getById('task-1')?.status).not.toBe('done');
   });
 
   it('task.updateStatus with reviewNote', async () => {

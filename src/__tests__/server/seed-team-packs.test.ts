@@ -107,7 +107,7 @@ describe('seedTeamPacks', () => {
 
     const reconciled = teamPackRepo.getById(pack.id)!;
     expect(reconciled.roles.map((role) => role.id)).toEqual(['dk', 'luigi', 'mario', 'peach']);
-    expect(reconciled.workflow.states?.map((state) => state.name)).toEqual(['planning', 'implementing', 'quality_gate', 'done']);
+    expect(reconciled.workflow.states?.map((state) => state.name)).toEqual(['planning', 'implementing', 'quality_gate', 'merge_verify', 'done']);
     expect(JSON.stringify(reconciled.communicationMatrix)).not.toMatch(/toad|yoshi/);
     expect(reconciled.roles.find((role) => role.id === 'mario')?.accountIds).toEqual(['acct-mario']);
     expect(reconciled.roles.find((role) => role.id === 'mario')?.skillIds).toEqual(['skill-plan']);

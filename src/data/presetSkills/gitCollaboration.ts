@@ -75,6 +75,14 @@ Rules:
 - Link everything: issue ↔ PR/MR ↔ task ID ↔ test evidence.
 - Do not open duplicate issues for the same finding; update the existing issue instead.
 
+## Provider-verified task receipts
+
+- For a Git-backed task, Luigi must call \`collaboration_record_pr\` after commit, push and PR creation. A pasted URL or prose claim cannot move the task to review.
+- Peach must review the exact head SHA from the delivery card, leave a real provider review/comment, then call \`collaboration_record_review\` with that canonical URL, test evidence, and an explicit qualityDecision. Provider state and Agent quality decision are separate because shared provider accounts cannot approve their own PR.
+- A new commit invalidates the previous review. Luigi records the same PR again; Peach must review the new SHA.
+- Mario calls \`collaboration_record_merge\` only after an authorized merge and main-branch install/build/test/impact verification. This verified receipt is the only Git-backed closure path.
+- Do not call \`task_update_status\` to imitate these transitions; the receipt tools atomically update Task Graph, proof log and chat cards.
+
 ## Issue Workflow
 
 - Create or draft an issue only when the task asks for tracking, reporting, or follow-up.
@@ -107,5 +115,40 @@ Rules:
 - If provider tooling or authentication is unavailable, report the exact blocker and the next command or setup step.
 - Record unresolved risks, failing checks, and pending human decisions in the final handoff.
 - Avoid exposing internal runtime, routing, provider hint, or session terminology to users.`,
+  config: JSON.stringify({
+    tools: [
+      {
+        name: 'collaboration_record_pr',
+        description: 'Verify a GitHub pull request and publish the task delivery card',
+        parameters: [
+          { name: 'task_id', type: 'string', required: true, description: 'Task ID owned by the calling implementer' },
+          { name: 'pull_request_url', type: 'string', required: true, description: 'Canonical GitHub pull request URL' },
+          { name: 'evidence', type: 'object', required: true, description: 'installResult, buildResult, testResult, impactEvidence, and optional riskSummary' },
+        ],
+        handler: 'api://collaboration/pull-request',
+      },
+      {
+        name: 'collaboration_record_review',
+        description: 'Verify a real GitHub review or comment on the current PR head and publish the review card',
+        parameters: [
+          { name: 'task_id', type: 'string', required: true, description: 'Task ID in review' },
+          { name: 'pull_request_url', type: 'string', required: true, description: 'Canonical GitHub pull request URL' },
+          { name: 'review_url', type: 'string', required: true, description: 'Canonical GitHub review or comment URL' },
+          { name: 'evidence', type: 'object', required: true, description: 'testResult, blockerCount, summary, and qualityDecision (pass, reject, or comment)' },
+        ],
+        handler: 'api://collaboration/review',
+      },
+      {
+        name: 'collaboration_record_merge',
+        description: 'Verify the reviewed PR merge and publish the main-branch closure card',
+        parameters: [
+          { name: 'task_id', type: 'string', required: true, description: 'Task ID awaiting merge closure' },
+          { name: 'pull_request_url', type: 'string', required: true, description: 'Canonical GitHub pull request URL' },
+          { name: 'evidence', type: 'object', required: true, description: 'mergedToMain plus main install, build, test and impact verification results' },
+        ],
+        handler: 'api://collaboration/merge',
+      },
+    ],
+  }),
   isPreset: true,
 };
