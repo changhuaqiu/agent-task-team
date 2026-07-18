@@ -30,3 +30,4 @@
 - [x] REJECT 后 Luigi 在同一 PR 修复，Peach 对新 SHA 重审
 - [x] GitHub、Task Graph、聊天卡片和 observability 的 task/PR/SHA 一致
 - [x] Chrome Web E2E、生产构建和相关测试通过
+- [x] 真实 ACP 调用注册 MCP 工具后，Task Graph、runtime TASKS.md 与 Web 页面保持同一权威状态

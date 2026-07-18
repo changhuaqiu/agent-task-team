@@ -1,15 +1,21 @@
-import { exec } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 export const BRANCH_PREFIX = 'worktree';
 
 export interface WorktreeInfo {
   path: string;
   branch: string;
+  head: string;
+}
+
+interface RegisteredWorktree {
+  path: string;
+  branch?: string;
   head: string;
 }
 
@@ -28,7 +34,7 @@ export class WorktreeManager {
 
   static async isGitRepo(dirPath: string): Promise<boolean> {
     try {
-      await execAsync('git rev-parse --is-inside-work-tree', { cwd: dirPath });
+      await execFileAsync('git', ['rev-parse', '--is-inside-work-tree'], { cwd: dirPath });
       return true;
     } catch {
       return false;
@@ -37,7 +43,7 @@ export class WorktreeManager {
 
   static async getRepoRoot(dirPath: string): Promise<string | null> {
     try {
-      const { stdout } = await execAsync('git rev-parse --show-toplevel', { cwd: dirPath });
+      const { stdout } = await execFileAsync('git', ['rev-parse', '--show-toplevel'], { cwd: dirPath });
       return stdout.trim() || null;
     } catch {
       return null;
@@ -46,7 +52,7 @@ export class WorktreeManager {
 
   static async getHead(dirPath: string): Promise<string | null> {
     try {
-      const { stdout } = await execAsync('git rev-parse HEAD', { cwd: dirPath });
+      const { stdout } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: dirPath });
       const head = stdout.trim();
       return /^[0-9a-f]{40}$/i.test(head) ? head : null;
     } catch {
@@ -57,17 +63,41 @@ export class WorktreeManager {
   // ── Worktree CRUD ──────────────────────────────────
 
   async createWorktree(projectSlug: string, startPoint = 'main'): Promise<WorktreeInfo> {
-    if (await this.exists(projectSlug)) {
+    const branchName = `${BRANCH_PREFIX}/${projectSlug}`;
+    const worktreePath = path.join(this.worktreeBase, projectSlug);
+    const allWorktrees = await this.listAllWorktrees();
+    const targetRegistration = allWorktrees.find(
+      (worktree) => path.resolve(worktree.path) === path.resolve(worktreePath),
+    );
+    if (fs.existsSync(worktreePath)) {
+      if (targetRegistration?.branch === branchName) {
+        return this.getWorktreeInfo(projectSlug);
+      }
+      throw new Error(`worktree_target_exists: ${worktreePath}`);
+    }
+
+    const registered = allWorktrees.find((worktree) => worktree.branch === branchName);
+    if (registered) {
+      return this.migrateRegisteredWorktree(registered as WorktreeInfo, worktreePath, startPoint);
+    }
+    const detachedLegacy = allWorktrees.find((worktree) => (
+      !worktree.branch
+      && path.basename(path.resolve(worktree.path)) === projectSlug
+      && path.resolve(worktree.path) !== path.resolve(worktreePath)
+    ));
+    if (detachedLegacy) {
+      throw new Error(`legacy_worktree_detached: ${detachedLegacy.path}`);
+    }
+
+    const existingBranchHead = await this.getBranchHead(branchName);
+    if (existingBranchHead) {
+      await this.assertCompatibleHistory(existingBranchHead, startPoint);
+      await execFileAsync('git', ['worktree', 'add', worktreePath, branchName], { cwd: this.repoRoot });
+      await this.fastForwardIfBehind(worktreePath, existingBranchHead, startPoint);
       return this.getWorktreeInfo(projectSlug);
     }
 
-    const branchName = `${BRANCH_PREFIX}/${projectSlug}`;
-    const worktreePath = path.join(this.worktreeBase, projectSlug);
-
-    await execAsync(
-      `git worktree add -b "${branchName}" "${worktreePath}" "${startPoint}"`,
-      { cwd: this.repoRoot },
-    );
+    await execFileAsync('git', ['worktree', 'add', '-b', branchName, worktreePath, startPoint], { cwd: this.repoRoot });
 
     return {
       path: worktreePath,
@@ -77,31 +107,11 @@ export class WorktreeManager {
   }
 
   async listWorktrees(): Promise<WorktreeInfo[]> {
-    const { stdout } = await execAsync('git worktree list --porcelain', { cwd: this.repoRoot });
-
-    const worktrees: WorktreeInfo[] = [];
-    const lines = stdout.split('\n');
-
-    let current: Partial<WorktreeInfo> = {};
-    for (const line of lines) {
-      if (line.startsWith('worktree ')) {
-        if (current.path) {
-          worktrees.push(current as WorktreeInfo);
-        }
-        current = { path: line.slice(9) };
-      } else if (line.startsWith('HEAD ')) {
-        current.head = line.slice(5);
-      } else if (line.startsWith('branch ')) {
-        current.branch = line.slice(7).replace('refs/heads/', '');
-      }
-    }
-
-    if (current.path) {
-      worktrees.push(current as WorktreeInfo);
-    }
+    const worktrees = await this.listAllWorktrees();
 
     const base = path.resolve(this.worktreeBase);
-    return worktrees.filter((worktree) => {
+    return worktrees.filter((worktree): worktree is WorktreeInfo => {
+      if (!worktree.branch) return false;
       const relative = path.relative(base, path.resolve(worktree.path));
       return relative.length > 0 && !relative.startsWith('..') && !path.isAbsolute(relative);
     });
@@ -111,9 +121,9 @@ export class WorktreeManager {
     const branchName = `${BRANCH_PREFIX}/${projectSlug}`;
     const worktreePath = path.join(this.worktreeBase, projectSlug);
 
-    await execAsync(`git worktree remove "${worktreePath}"`, { cwd: this.repoRoot });
+    await execFileAsync('git', ['worktree', 'remove', worktreePath], { cwd: this.repoRoot });
     try {
-      await execAsync(`git branch -d "${branchName}"`, { cwd: this.repoRoot });
+      await execFileAsync('git', ['branch', '-d', branchName], { cwd: this.repoRoot });
     } catch {
       // Branch might not be merged yet
     }
@@ -121,7 +131,12 @@ export class WorktreeManager {
 
   async exists(projectSlug: string): Promise<boolean> {
     const worktreePath = path.join(this.worktreeBase, projectSlug);
-    return fs.existsSync(worktreePath);
+    if (!fs.existsSync(worktreePath)) return false;
+    const branchName = this.getBranchName(projectSlug);
+    return (await this.listAllWorktrees()).some((worktree) => (
+      path.resolve(worktree.path) === path.resolve(worktreePath)
+      && worktree.branch === branchName
+    ));
   }
 
   getWorktreePath(projectSlug: string): string {
@@ -144,7 +159,95 @@ export class WorktreeManager {
   }
 
   private async getHead(worktreePath: string): Promise<string> {
-    const { stdout } = await execAsync('git rev-parse HEAD', { cwd: worktreePath });
+    const { stdout } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: worktreePath });
     return stdout.trim();
+  }
+
+  private async listAllWorktrees(): Promise<RegisteredWorktree[]> {
+    const { stdout } = await execFileAsync('git', ['worktree', 'list', '--porcelain'], { cwd: this.repoRoot });
+    const worktrees: RegisteredWorktree[] = [];
+    let current: Partial<RegisteredWorktree> = {};
+
+    for (const line of stdout.split('\n')) {
+      if (line.startsWith('worktree ')) {
+        if (current.path && current.head) worktrees.push(current as RegisteredWorktree);
+        current = { path: line.slice(9) };
+      } else if (line.startsWith('HEAD ')) {
+        current.head = line.slice(5);
+      } else if (line.startsWith('branch ')) {
+        current.branch = line.slice(7).replace('refs/heads/', '');
+      }
+    }
+    if (current.path && current.head) worktrees.push(current as RegisteredWorktree);
+    return worktrees;
+  }
+
+  private async getBranchHead(branchName: string): Promise<string | null> {
+    try {
+      const { stdout } = await execFileAsync('git', ['rev-parse', '--verify', `refs/heads/${branchName}`], { cwd: this.repoRoot });
+      const head = stdout.trim();
+      return /^[0-9a-f]{40}$/i.test(head) ? head : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async isAncestor(ancestor: string, descendant: string): Promise<boolean> {
+    try {
+      await execFileAsync('git', ['merge-base', '--is-ancestor', ancestor, descendant], { cwd: this.repoRoot });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private async assertCompatibleHistory(existingHead: string, startPoint: string): Promise<void> {
+    if (existingHead === startPoint) return;
+    const existingIsAncestor = await this.isAncestor(existingHead, startPoint);
+    const startIsAncestor = await this.isAncestor(startPoint, existingHead);
+    if (!existingIsAncestor && !startIsAncestor) {
+      throw new Error(`worktree_history_diverged: existing ${existingHead} is not compatible with baseline ${startPoint}`);
+    }
+  }
+
+  private async fastForwardIfBehind(worktreePath: string, existingHead: string, startPoint: string): Promise<void> {
+    if (existingHead === startPoint || !await this.isAncestor(existingHead, startPoint)) return;
+    const { stdout } = await execFileAsync('git', ['status', '--porcelain', '--untracked-files=all'], { cwd: worktreePath });
+    if (stdout.trim()) {
+      throw new Error('legacy_worktree_dirty: cannot fast-forward a worktree with uncommitted changes');
+    }
+    await execFileAsync('git', ['merge', '--ff-only', startPoint], { cwd: worktreePath });
+  }
+
+  private async migrateRegisteredWorktree(
+    registered: WorktreeInfo,
+    targetPath: string,
+    startPoint: string,
+  ): Promise<WorktreeInfo> {
+    if (path.resolve(registered.path) === path.resolve(targetPath)) {
+      return {
+        ...registered,
+        head: await this.getHead(targetPath),
+      };
+    }
+    if (fs.existsSync(targetPath)) {
+      throw new Error(`worktree_target_exists: ${targetPath}`);
+    }
+
+    await this.assertCompatibleHistory(registered.head, startPoint);
+    if (registered.head !== startPoint && await this.isAncestor(registered.head, startPoint)) {
+      const { stdout } = await execFileAsync('git', ['status', '--porcelain', '--untracked-files=all'], { cwd: registered.path });
+      if (stdout.trim()) {
+        throw new Error('legacy_worktree_dirty: cannot migrate and fast-forward a worktree with uncommitted changes');
+      }
+    }
+
+    await execFileAsync('git', ['worktree', 'move', registered.path, targetPath], { cwd: this.repoRoot });
+    await this.fastForwardIfBehind(targetPath, registered.head, startPoint);
+    return {
+      path: targetPath,
+      branch: registered.branch,
+      head: await this.getHead(targetPath),
+    };
   }
 }

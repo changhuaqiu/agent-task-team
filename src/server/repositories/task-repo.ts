@@ -10,6 +10,7 @@ export interface TaskRow {
   dependencies: string | null;
   artifacts: string | null;
   review_note: string | null;
+  work_dir: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -73,7 +74,7 @@ export const taskRepo = {
     }
   },
 
-  update(id: string, updates: Partial<Pick<TaskRow, 'title' | 'description' | 'status' | 'agent_id' | 'dependencies' | 'artifacts' | 'review_note'>>): void {
+  update(id: string, updates: Partial<Pick<TaskRow, 'title' | 'description' | 'status' | 'agent_id' | 'dependencies' | 'artifacts' | 'review_note' | 'work_dir'>>): void {
     const sets: string[] = [];
     const values: unknown[] = [];
     for (const [key, value] of Object.entries(updates)) {

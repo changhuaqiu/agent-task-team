@@ -50,6 +50,10 @@ worktree manager 把“Git repository root”和“worktree storage root”作�
 
 Git-backed conversation 或显式 worktree 派发在 repository root / HEAD 探测失败时必须 fail closed；不得回退到 scratch 或直接在原项目目录执行。
 
+从旧版无 repository hash 的存储布局升级时，同一 Git repository 中可能已经存在并检出 `worktree/<conversation>`。新 manager 必须从 Git worktree registry 识别该会话：分支与新基线相等或存在祖先关系时，把已检出的 worktree 移动到新的 repository-scoped storage；旧 head 落后且工作区干净时只允许 fast-forward，已有会话提交领先时原样保留。旧 worktree 有未提交改动且需要推进基线，或历史分支与当前基线已经分叉时必须 fail closed，不能删除、覆盖用户工作，也不能用同名分支再次执行 `git worktree add -b`。
+
+Task Graph / Harness 是任务状态推进和 Agent 派发的唯一服务端边界。Web 客户端只消费任务投影，不得根据遗留 socket 事件自行把 `pending` 改为 `in_progress`，也不得重复触发 Agent dispatch。daemon 解析出唯一 runtime task path 后把它持久化到 task；Harness 接受 owner dispatch 并推进 `pending → in_progress` 时，在通知页面前同步更新该 runtime `TASKS.md`。watcher 显式接收 conversation identity，并以 conversation + runtime path 共同隔离 watcher/debounce 生命周期，不能从目录 basename 猜测任务域。`TASKS.md` watcher 在完成兼容文件解析、质量门禁和数据库更新后，必须从 Task Graph 重新读取权威任务状态再发布 `task.sync`；原始文件中的过期状态即使被主动 invocation 或 receipt gate 拒绝，也不能通过广播回流并覆盖页面。
+
 ## 事实源
 
 - PR/review/merge 的当前事实：Git provider；

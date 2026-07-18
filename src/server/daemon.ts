@@ -1082,7 +1082,7 @@ export default function registerDaemon(io: IOServer) {
         try {
           // Watchers are best-effort on every platform. The completed-turn
           // boundary is the consistency barrier before handoff scanning.
-          syncTasksToDb(taskProjectDir, io);
+          syncTasksToDb(taskProjectDir, sessionConvId, io);
         } catch (error) {
           console.warn(`[task-sync] completion barrier failed for ${sessionConvId}:`, error);
         }
@@ -1619,8 +1619,11 @@ export default function registerDaemon(io: IOServer) {
         : resolveNonWorktreeExecutionCwd(projectPath, wd);
       // Runtime, task projection, watcher, and prompt share one writable fact source.
       taskProjectDir = runtimeWd;
+      if (taskId && taskRepo.getById(taskId)?.conversation_id === sessionConvId) {
+        taskRepo.update(taskId, { work_dir: taskProjectDir });
+      }
       ensureTasksMdProjection(taskProjectDir, taskRepo.getByConversation(sessionConvId));
-      startTaskWatcher(taskProjectDir, io);
+      startTaskWatcher(taskProjectDir, sessionConvId, io);
       for (const workspaceDir of new Set([sharedProjectDir, wd])) {
         try {
           teamLogProjection.materialize(sessionConvId, workspaceDir);

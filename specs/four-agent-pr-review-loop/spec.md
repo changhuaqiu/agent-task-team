@@ -115,6 +115,11 @@ Agent 正文中的 Markdown 链接仍可显示，但不具有状态转换权威�
 - 页面加载不得为旧 shared workspace 启动并行 watcher；receipt transaction 提交后的 runtime 投影失败必须作为 reconciliation 告警，不得把已提交 mutation 返回为失败并诱发重复提交；
 - worktree 的 Git 命令必须在用户 `projectPath` 对应的真实 repository root 执行，worktree 存储位置与 repository root 分离并按仓库隔离，不能隐式使用应用自身仓库；
 - Git-backed conversation 或显式 worktree 派发无法解析 repository root / exact HEAD 时必须 fail closed，不能退回 scratch 或原项目目录；
+- repository-scoped storage 上线前已经存在的同名 conversation worktree 必须通过 Git worktree registry 安全迁移：兼容相同/祖先基线并保留领先提交；需要 fast-forward 时工作区必须干净，分叉或可能覆盖未提交工作时 fail closed。不得删除旧工作或重复创建已存在的 branch；
+- task 状态推进与 Agent 派发只能由服务端 Task Graph / Harness 决定；Web 客户端不得根据兼容事件自行把 `pending` 改为 `in_progress` 或再次派发 Agent；
+- daemon 解析出本轮唯一 runtime task path 后必须把它绑定到 task；Harness 接受 owner dispatch 并推进 `pending → in_progress` 时，必须在发布通知前把权威状态投影到该路径；
+- watcher 必须显式接收 conversation identity，并以 conversation + runtime path 共同隔离 watcher/debounce 生命周期；不得从目录 basename 猜测任务域；
+- watcher 完成文件门禁与数据库更新后，`task.sync` 必须广播 Task Graph 的权威状态投影，不能把被拒绝或被主动 invocation 保护的原始 `TASKS.md` 状态重新覆盖到页面；
 - worktree、Task Graph、聊天与 observability 必须记录同一 conversation/task 身份，路径缺失或基线不一致时 fail closed。
 
 ## 6. 失败回路

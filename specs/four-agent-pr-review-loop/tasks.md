@@ -30,3 +30,4 @@
 - [x] T17 runtime worktree、TASKS.md、watcher 与 completion barrier 收敛到同一精确 HEAD 工作目录
 - [x] T18 通过逐 invocation、loopback、短期授权 MCP 向 ACP 注册真实平台工具
 - [x] T19 Git-backed task 的 TASKS.md `in_review` / `done` 绕过被拒绝并回写权威状态
+- [x] T20 真实 ACP 平台工具、旧 worktree 迁移与 Task Graph/文件/Web 状态收敛验证
