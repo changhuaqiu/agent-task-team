@@ -12,6 +12,7 @@ export interface RuntimeConfigInput {
   defaultModel?: string;
   systemPrompt?: string;
   skillPaths?: string[];
+  managedSkillNames?: string[];
 }
 
 export interface RuntimeConfigResult {
@@ -48,19 +49,34 @@ export function generateRuntimeConfig(
   invocationId: string,
   input: RuntimeConfigInput,
 ): RuntimeConfigResult {
-  const skillPaths = Array.from(new Set(input.skillPaths ?? [])).filter(Boolean);
+  const requestedSkillPaths = Array.from(new Set(input.skillPaths ?? [])).filter(Boolean);
   const hasProviderCredentials = !!input.provider && !!input.apiKey;
   const isNative = input.provider ? NATIVE_PROVIDERS.includes(input.provider) : false;
   const needsProviderConfig = hasProviderCredentials && (!isNative || !!input.baseUrl);
 
   // Generate config if we need provider config, have a system prompt to inject,
   // or need to mount project-local OpenCode skills from an Agent Task Team workdir.
-  if (!needsProviderConfig && !input.systemPrompt && skillPaths.length === 0) {
+  if (!needsProviderConfig && !input.systemPrompt && requestedSkillPaths.length === 0) {
     return { generated: false, env: {} };
   }
 
   const configDir = path.join(getDataDir(), `oc-config-${invocationId}`);
   const configPath = path.join(configDir, 'opencode.json');
+  const managedNames = new Set((input.managedSkillNames ?? []).map(name => name.toLocaleLowerCase('en-US')));
+  const skillPaths = managedNames.size === 0
+    ? requestedSkillPaths
+    : requestedSkillPaths.flatMap((skillRoot, rootIndex) => {
+        if (!fs.existsSync(skillRoot) || !fs.statSync(skillRoot).isDirectory()) return [];
+        const destination = path.join(configDir, 'native-skills', `root-${rootIndex}`);
+        let copied = 0;
+        for (const entry of fs.readdirSync(skillRoot, { withFileTypes: true })) {
+          if (!entry.isDirectory() || managedNames.has(entry.name.toLocaleLowerCase('en-US'))) continue;
+          fs.mkdirSync(destination, { recursive: true });
+          fs.cpSync(path.join(skillRoot, entry.name), path.join(destination, entry.name), { recursive: true });
+          copied += 1;
+        }
+        return copied > 0 ? [destination] : [];
+      });
 
   const config: Record<string, unknown> = {
     $schema: 'https://opencode.ai/config.json',

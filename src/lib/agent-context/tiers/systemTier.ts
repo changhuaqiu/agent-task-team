@@ -35,9 +35,7 @@ export function renderSystemTier({ ctx, push, isIncluded }: TierRenderInput): vo
   const protocol = buildProtocolLayer({
     agentId: req.agentId,
     agentRole: deriveRoleFromCard(roleCard),
-    projectPath: '', // P1 暂不传，待 TASK-004 升级
     hasTaskAssignment: !!task,
-    isPlanner: roleCard?.category === 'planner',
   });
   const protocolHint = buildProtocolHint(ctx.scenario, req.wakeup);
   push('protocol', 'protocol', [protocol, protocolHint].filter(Boolean).join('\n\n'), { tier: 'system', importance: 0.8 });

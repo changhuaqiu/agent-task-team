@@ -1,35 +1,8 @@
 import type { TeamPack } from '@/types/teamPack';
-import { filterByProjectId, scopeGuard, type ScopedItem } from '../scopeGuard';
-
-const HARNESS_STAGE_GUIDANCE: Record<string, string> = {
-  mario: [
-    '你是 planning owner：拆解任务、排列依赖、分派到 Luigi。',
-    '不要在正常 quality_gate reject 中充当中转；只有范围不清、反复失败、架构或产品取舍时处理升级。',
-    '最终总结只在 quality_gate 通过或用户要求时进行。',
-  ].join('\n'),
-  luigi: [
-    '你在 implementing 阶段负责全栈实现（前端 + 后端 + API 契约 + 数据模型）。',
-    '完成后必须提交变更摘要和证据，并 @peach 请评审；不要直接宣称 done。',
-    '涉及架构/schema/安全风险时 @dk 请评估。',
-    '收到 Peach/DK reject 时，按问题修复并重新 @peach 请评审。',
-  ].join('\n'),
-  peach: [
-    '你是 quality_gate owner：先审查代码质量、安全、回归风险，然后亲自做集成测试验证。',
-    '评审不通过时直接 @luigi 请修正；发现架构/schema/安全风险时 @dk 请评估。',
-    '评审 + 测试都通过后再允许任务进入 done。',
-  ].join('\n'),
-  dk: [
-    '你是按需架构门禁，不是常规实现者。',
-    '只在架构、schema、安全、性能、跨模块边界或 Peach/Luigi/Mario 明确请求时介入。',
-    '架构反馈 @luigi 请按建议调整；需要范围取舍时 @mario 请决策。',
-    '不要直接修改代码，除非用户明确改变你的角色权限。',
-  ].join('\n'),
-};
 
 export function buildTeamPackLayer(
   agentId: string,
   teamPack: TeamPack | undefined,
-  projectId?: string
 ): string {
   if (!teamPack) return '';
 
@@ -71,11 +44,6 @@ export function buildTeamPackLayer(
       'Peach 是 quality_gate owner（评审 + 测试），DK 是按需架构 gate。',
       'Reject 直接打回 Luigi；只有范围不清、反复失败或需要取舍时升级给 Mario。',
     ].join('\n'));
-    const guidance = HARNESS_STAGE_GUIDANCE[agentId];
-    if (guidance) {
-      parts.push(`### 你的 Harness 职责`);
-      parts.push(guidance);
-    }
   }
 
   // Communication matrix for this agent

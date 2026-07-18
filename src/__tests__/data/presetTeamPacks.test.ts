@@ -47,6 +47,17 @@ describe('default team collaboration template', () => {
     expect(matrix.luigi.canSendTo).not.toContain('dk');
   });
 
+  it('keeps every communication target inside the four-role roster', () => {
+    const pack = defaultTeam();
+    const roleIds = new Set(pack.roles.map((role) => role.id));
+    for (const [roleId, rule] of Object.entries(pack.communicationMatrix)) {
+      expect(roleIds.has(roleId)).toBe(true);
+      for (const target of [...rule.canSendTo, ...rule.canReceiveFrom]) {
+        expect(roleIds.has(target)).toBe(true);
+      }
+    }
+  });
+
   it('requires repository impact evidence in each default role prompt', () => {
     const roles = defaultTeam().roles;
 

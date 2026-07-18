@@ -1,4 +1,17 @@
 import { test, expect } from '@playwright/test';
+import path from 'node:path';
+import { rmSync, writeFileSync } from 'node:fs';
+import { io as createSocket } from 'socket.io-client';
+import { RepositoryHarnessPlanner } from '@/server/harness/context-planner';
+import { resolveConversationRuntimeProfile } from '@/server/harness/conversation-runtime';
+import { getDb } from '@/server/db';
+import { conversationRepo } from '@/server/repositories/conversation-repo';
+import { observationSpanRepo } from '@/server/repositories/observation-span-repo';
+import { teamPackRepo } from '@/server/repositories/team-pack-repo';
+import { capturePromptPayloads } from '@/server/observability/prompt-observation';
+import { deleteAccount, writeAccount } from '@/server/accounts-file';
+import { skillRepo } from '@/server/repositories/skill-repo';
+import { RepositorySkillRuntime, packageFromLegacyInput } from '@/server/skills/skill-runtime';
 
 /**
  * 群聊发任务全链路 E2E
@@ -21,7 +34,14 @@ const INPUT_PLACEHOLDER = '发送消息或 @智能体…';
 test.describe('群聊发任务全链路', () => {
   test.beforeEach(async ({ page }) => {
     // 拦截并记录关键 API，用于断言链路被触发（不 mock，仅观测）
-    await page.goto('/', { waitUntil: 'networkidle' });
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        await page.goto('/', { waitUntil: 'domcontentloaded' });
+        break;
+      } catch (error) {
+        if (attempt === 2 || !String(error).includes('ERR_ABORTED')) throw error;
+      }
+    }
   });
 
   test('首页加载，聊天输入框与提示文案可见', async ({ page }) => {
@@ -84,5 +104,184 @@ test.describe('群聊发任务全链路', () => {
     // 切回看板，看板标题应回来（MiniKanban.tsx:265 "看板"）
     await boardTab.click();
     await expect(page.getByText('看板').first()).toBeVisible();
+  });
+
+  test('首次 A2A 经 daemon 共用采集边界在真实观测页面完整展示', async ({ page }) => {
+    const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const conversationId = `e2e-first-a2a-${suffix}`;
+    const accountId = `e2e-account-${suffix}`;
+    const handoff = `E2E-FIRST-A2A-${suffix}：请执行首次质量评审`;
+    const pack = teamPackRepo.getByName('default-team')!;
+    const agentId = 'peach';
+    const originalAccountIds = pack.roles.find((role) => role.id === agentId)?.accountIds ?? [];
+    writeAccount({
+      id: accountId,
+      name: 'E2E OpenAI account',
+      authMode: 'oauth',
+      provider: 'openai',
+      models: [],
+      enabled: true,
+      status: 'valid',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    teamPackRepo.updateRoleConfig(pack.id, agentId, { accountIds: [accountId] });
+    conversationRepo.create({
+      id: conversationId,
+      title: 'E2E first A2A observability',
+      team_pack_id: pack.id,
+      project_path: process.cwd(),
+    });
+
+    let traceId: string | undefined;
+    try {
+      expect(resolveConversationRuntimeProfile(conversationId, agentId)?.profile).toBeTruthy();
+      const resolution = await new RepositoryHarnessPlanner().prepare({
+        id: `trigger-${suffix}`,
+        source: 'a2a',
+        conversationId,
+        agentId,
+        fromAgentId: 'mario',
+        prompt: handoff,
+      });
+      expect(resolution.ok).toBe(true);
+      if (!resolution.ok) return;
+      expect(resolution.plan.contextScenario).toBe('init');
+      expect(resolution.plan.systemPrompt).toBeTruthy();
+      expect(resolution.plan.prompt).toContain(handoff);
+      traceId = resolution.plan.traceId;
+
+      const span = observationSpanRepo.start({
+        traceId,
+        name: 'agent.invoke',
+        kind: 'agent',
+        conversationId,
+        agentId,
+        chainId: `chain-${suffix}`,
+        passId: `pass-${suffix}`,
+        attributes: { 'ath.dispatch.source': 'a2a', 'ath.context.scenario': 'init' },
+      });
+      capturePromptPayloads({
+        spanId: span.span_id,
+        systemPrompt: resolution.plan.systemPrompt,
+        assembledPrompt: resolution.plan.prompt,
+      });
+      observationSpanRepo.finish(span.span_id, 'ok');
+
+      const drawer = page.getByRole('complementary', { name: 'Agent 调用详情' });
+      await expect(async () => {
+        await page.evaluate((detail) => {
+          window.dispatchEvent(new CustomEvent('observability:open', { detail }));
+        }, { conversationId, traceId });
+        await expect(drawer).toBeVisible({ timeout: 2_000 });
+      }).toPass({ timeout: 15_000 });
+      await expect(drawer.getByText('System prompt', { exact: true })).toBeVisible({ timeout: 15_000 });
+      await expect(drawer.getByText('Assembled prompt', { exact: true })).toBeVisible({ timeout: 15_000 });
+      await expect(drawer.locator('pre').filter({ hasText: handoff })).toBeVisible();
+    } finally {
+      if (traceId) getDb().prepare('DELETE FROM observation_span WHERE trace_id = ?').run(traceId);
+      conversationRepo.delete(conversationId);
+      teamPackRepo.updateRoleConfig(pack.id, agentId, { accountIds: originalAccountIds });
+      deleteAccount(accountId);
+    }
+  });
+
+  test('browser socket dispatch fails closed through Harness and exposes the failed Skill decision', async ({ page }) => {
+    const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const conversationId = `e2e-socket-skill-${suffix}`;
+    const dispatchId = `dispatch-${suffix}`;
+    const pack = teamPackRepo.getByName('default-team')!;
+    const agentId = 'peach';
+    const accountId = `e2e-socket-account-${suffix}`;
+    const originalAccountIds = pack.roles.find((role) => role.id === agentId)?.accountIds ?? [];
+    let skillId: string | undefined;
+    let packagePath: string | undefined;
+    const socket = createSocket(process.env.E2E_BASE_URL ?? 'http://localhost:3000', {
+      path: '/api/socketio',
+      transports: ['websocket'],
+      forceNew: true,
+      autoConnect: false,
+    });
+
+    try {
+      writeAccount({
+        id: accountId,
+        name: 'E2E socket OpenAI account',
+        authMode: 'oauth',
+        provider: 'openai',
+        models: [],
+        enabled: true,
+        status: 'valid',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+      teamPackRepo.updateRoleConfig(pack.id, agentId, { accountIds: [accountId] });
+      conversationRepo.create({
+        id: conversationId,
+        title: 'E2E socket Harness Skill failure',
+        team_pack_id: pack.id,
+        project_path: process.cwd(),
+      });
+      const revision = await new RepositorySkillRuntime().install(packageFromLegacyInput({
+        name: `e2e-tampered-${suffix}`,
+        description: 'Required Skill tamper guard',
+        content: 'This package must remain immutable.',
+        files: [],
+      }));
+      skillId = revision.skillId;
+      packagePath = revision.packagePath;
+      skillRepo.assignToAgent(agentId, skillId);
+      writeFileSync(path.join(packagePath, 'SKILL.md'), 'tampered after install', 'utf8');
+
+      await page.request.get('/api/socketio');
+      const connected = new Promise<void>((resolve, reject) => {
+        socket.once('connect', () => resolve());
+        socket.once('connect_error', reject);
+      });
+      socket.connect();
+      await connected;
+
+      const terminalExit = new Promise<{ reasonCode?: string }>((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('terminal:exit timeout')), 15_000);
+        socket.on('terminal:exit', (payload: { agentId?: string; reasonCode?: string }) => {
+          if (payload.agentId !== agentId) return;
+          clearTimeout(timeout);
+          resolve(payload);
+        });
+      });
+      socket.emit('terminal:start', {
+        dispatchId,
+        conversationId,
+        agentId,
+        prompt: `Review the tampered Skill package ${suffix}`,
+        dispatchSource: 'a2a',
+        fromAgentId: 'mario',
+      });
+      await expect(terminalExit).resolves.toMatchObject({ reasonCode: 'skill_manifest_invalid' });
+
+      await expect.poll(async () => {
+        const response = await page.request.get(`/api/observability?conversationId=${encodeURIComponent(conversationId)}`);
+        const projection = await response.json() as {
+          traces?: Array<{
+            status?: string;
+            context?: { skillDecisions?: Array<{ skillId?: string; outcome?: string; reasonCode?: string }> };
+          }>;
+        };
+        return projection.traces?.some((trace) => trace.status === 'error'
+          && trace.context?.skillDecisions?.some((decision) => decision.skillId === skillId
+            && decision.outcome === 'failed'
+            && decision.reasonCode === 'skill_manifest_invalid')) ?? false;
+      }, { timeout: 15_000 }).toBe(true);
+    } finally {
+      socket.disconnect();
+      if (skillId) {
+        skillRepo.removeAgentAssignment(agentId, skillId);
+        skillRepo.delete(skillId);
+      }
+      if (packagePath) rmSync(packagePath, { recursive: true, force: true });
+      conversationRepo.delete(conversationId);
+      teamPackRepo.updateRoleConfig(pack.id, agentId, { accountIds: originalAccountIds });
+      deleteAccount(accountId);
+    }
   });
 });

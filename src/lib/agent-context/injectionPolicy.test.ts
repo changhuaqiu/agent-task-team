@@ -24,4 +24,14 @@ describe('injection policy', () => {
     expect(getDirective('wakeup', 'reviewer', 'focus')).toBe('include');
     expect(getDirective('wakeup', 'reviewer', 'situation')).toBe('include');
   });
+
+  it('always includes bound capabilities so required skills cannot disappear by scenario', () => {
+    const scenarios: ContextScenario[] = ['init', 'iterate', 'handoff', 'wakeup', 'closure'];
+    const archetypes = ['planner', 'reviewer', 'worker'] as const;
+    for (const scenario of scenarios) {
+      for (const archetype of archetypes) {
+        expect(getDirective(scenario, archetype, 'capability')).toBe('include');
+      }
+    }
+  });
 });

@@ -1,16 +1,22 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createTestDb, resetDb, setTestDb } from '@/server/db';
+import { createTestDb, getDb, resetDb, setTestDb } from '@/server/db';
 import { seedPresetAgents } from '@/server/db/seed-agents';
 import { seedTeamPacks } from '@/server/seed-team-packs';
 import { conversationRepo } from '@/server/repositories/conversation-repo';
 import { taskRepo } from '@/server/repositories/task-repo';
 import { messageRepo } from '@/server/repositories/message-repo';
 import { teamPackRepo } from '@/server/repositories/team-pack-repo';
+import { sessionRepo } from '@/server/repositories/session-repo';
 import { writeAccount } from '@/server/accounts-file';
 import { RepositoryHarnessPlanner } from '@/server/harness/context-planner';
+import { skillRepo } from '@/server/repositories/skill-repo';
+import { RepositorySkillRuntime, packageFromLegacyInput } from '@/server/skills/skill-runtime';
+import { HarnessCoordinator } from '@/server/harness/coordinator';
+import { submitSocketTerminalStart } from '@/server/daemon';
+import { projectObservationProjection } from '@/server/observability/ProjectObservationProjection';
 
 let dataDir: string;
 let previousDataDir: string | undefined;
@@ -31,6 +37,53 @@ afterEach(() => {
 });
 
 describe('RepositoryHarnessPlanner', () => {
+  it('bootstraps identity for a first A2A handoff and keeps later handoffs lean', async () => {
+    const pack = teamPackRepo.getByName('default-team')!;
+    teamPackRepo.updateRoleConfig(pack.id, 'peach', { accountIds: ['account-openai'] });
+    writeAccount({
+      id: 'account-openai',
+      name: 'OpenAI',
+      authMode: 'oauth',
+      provider: 'openai',
+      models: [],
+      enabled: true,
+      status: 'valid',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    conversationRepo.create({ id: 'conv-a2a', title: 'First Handoff', team_pack_id: pack.id });
+
+    const first = await new RepositoryHarnessPlanner().prepare({
+      id: 'trigger-a2a-first',
+      source: 'a2a',
+      conversationId: 'conv-a2a',
+      agentId: 'peach',
+      fromAgentId: 'mario',
+      prompt: '请评审 PR #32 的代码质量',
+    });
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    expect(first.plan.contextScenario).toBe('init');
+    expect(first.plan.systemPrompt).toContain('Peach');
+    expect(first.plan.prompt).toContain('A2A');
+    expect(first.plan.prompt).toContain('请评审 PR #32');
+
+    sessionRepo.create({ id: 'session-peach', conversationId: 'conv-a2a', agentId: 'peach', taskId: '' });
+    const later = await new RepositoryHarnessPlanner().prepare({
+      id: 'trigger-a2a-later',
+      source: 'a2a',
+      conversationId: 'conv-a2a',
+      agentId: 'peach',
+      fromAgentId: 'mario',
+      prompt: '请复核修复结果',
+    });
+    expect(later.ok).toBe(true);
+    if (!later.ok) return;
+    expect(later.plan.contextScenario).toBe('handoff');
+    expect(later.plan.systemPrompt).toBeUndefined();
+    expect(later.plan.prompt).toContain('请复核修复结果');
+  });
+
   it('resolves role, account, context and project data on the server', async () => {
     const pack = teamPackRepo.getByName('default-team')!;
     teamPackRepo.updateRoleConfig(pack.id, 'luigi', { accountIds: ['account-openai'] });
@@ -109,5 +162,100 @@ describe('RepositoryHarnessPlanner', () => {
       ok: false,
       outcome: { status: 'blocked', reasonCode: 'runtime_profile_missing' },
     });
+  });
+
+  it('compiles an assigned Skill revision into the dispatch context with evidence', async () => {
+    const pack = teamPackRepo.getByName('default-team')!;
+    teamPackRepo.updateRoleConfig(pack.id, 'luigi', { accountIds: ['account-openai'] });
+    writeAccount({
+      id: 'account-openai', name: 'OpenAI', authMode: 'oauth', provider: 'openai', models: [],
+      enabled: true, status: 'valid', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    });
+    conversationRepo.create({ id: 'conv-skill', title: 'Skill Dispatch', team_pack_id: pack.id });
+    const revision = await new RepositorySkillRuntime().install(packageFromLegacyInput({
+      name: 'review-safely', description: 'Review changes safely', content: 'Always inspect the diff before approval.',
+      files: [{ path: 'references/checklist.md', content: 'Long checklist stays on demand.' }],
+    }));
+    skillRepo.assignToAgent('luigi', revision.skillId);
+
+    const result = await new RepositoryHarnessPlanner().prepare({
+      id: 'trigger-skill', source: 'user', conversationId: 'conv-skill', agentId: 'luigi', prompt: 'Review this change',
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(`${result.plan.systemPrompt ?? ''}\n${result.plan.prompt}`).toContain('Always inspect the diff before approval.');
+    expect(result.plan.prompt).toContain('checklist.md');
+    expect(result.plan.prompt).not.toContain('Long checklist stays on demand.');
+    expect(result.plan.contextReport.skillDecisions[0]).toMatchObject({
+      skillId: revision.skillId, revision: revision.revision, contentHash: revision.contentHash, outcome: 'loaded',
+    });
+  });
+
+  it('routes every browser dispatch source through required-Skill validation', async () => {
+    const pack = teamPackRepo.getByName('default-team')!;
+    teamPackRepo.updateRoleConfig(pack.id, 'peach', { accountIds: ['account-openai'] });
+    writeAccount({
+      id: 'account-openai', name: 'OpenAI', authMode: 'oauth', provider: 'openai', models: [],
+      enabled: true, status: 'valid', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    });
+    conversationRepo.create({ id: 'conv-socket-skill', title: 'Socket Skill Guard', team_pack_id: pack.id });
+    const revision = await new RepositorySkillRuntime().install(packageFromLegacyInput({
+      name: 'required-guard', description: 'Required guard', content: 'Validate before dispatch.', files: [],
+    }));
+    skillRepo.assignToAgent('peach', revision.skillId);
+    writeFileSync(join(revision.packagePath, 'SKILL.md'), 'tampered', 'utf8');
+    const execute = vi.fn();
+    const coordinator = new HarnessCoordinator({
+      planner: new RepositoryHarnessPlanner(),
+      runtime: { isBusy: () => false, execute },
+      recordProof: vi.fn(),
+    });
+
+    for (const source of ['user', 'workflow', 'review_gate', 'a2a'] as const) {
+      const submission = submitSocketTerminalStart(coordinator, {
+        dispatchId: `socket-${source}`,
+        conversationId: 'conv-socket-skill',
+        agentId: 'peach',
+        prompt: `dispatch ${source}`,
+        dispatchSource: source,
+      });
+      await expect(submission.completion).resolves.toMatchObject({
+        status: 'failed',
+        reasonCode: 'skill_manifest_invalid',
+      });
+    }
+    expect(execute).not.toHaveBeenCalled();
+    const snapshot = projectObservationProjection.build('conv-socket-skill', 10);
+    expect(snapshot.traces).toHaveLength(4);
+    expect(snapshot.traces.every((trace) => trace.status === 'error')).toBe(true);
+    expect(snapshot.traces[0].context?.skillDecisions).toMatchObject([
+      { skillId: revision.skillId, outcome: 'failed', reasonCode: 'skill_manifest_invalid' },
+    ]);
+  });
+
+  it('observes an invalid legacy Skill file path as a bounded Skill failure', async () => {
+    const pack = teamPackRepo.getByName('default-team')!;
+    teamPackRepo.updateRoleConfig(pack.id, 'peach', { accountIds: ['account-openai'] });
+    writeAccount({
+      id: 'account-openai', name: 'OpenAI', authMode: 'oauth', provider: 'openai', models: [],
+      enabled: true, status: 'valid', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    });
+    conversationRepo.create({ id: 'conv-legacy-path', title: 'Legacy path guard', team_pack_id: pack.id });
+    const skill = skillRepo.create({ name: 'Legacy Review', description: 'Legacy review', content: 'Review safely.' });
+    getDb().prepare('INSERT INTO skill_file (id, skill_id, path, content) VALUES (?, ?, ?, ?)')
+      .run('sf-legacy-invalid', skill.id, 'C:\\secret.md', 'must not load');
+    skillRepo.assignToAgent('peach', skill.id);
+
+    const result = await new RepositoryHarnessPlanner().prepare({
+      id: 'trigger-legacy-path', source: 'user', conversationId: 'conv-legacy-path', agentId: 'peach', prompt: 'Review',
+    });
+
+    expect(result).toMatchObject({ ok: false, outcome: { status: 'failed', reasonCode: 'skill_path_invalid' } });
+    const snapshot = projectObservationProjection.build('conv-legacy-path', 10);
+    expect(snapshot.traces).toHaveLength(1);
+    expect(snapshot.traces[0]).toMatchObject({ status: 'error', context: {
+      skillDecisions: [{ skillId: skill.id, outcome: 'failed', reasonCode: 'skill_path_invalid' }],
+    } });
   });
 });

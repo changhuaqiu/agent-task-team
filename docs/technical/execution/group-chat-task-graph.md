@@ -257,6 +257,8 @@ Current implementation notes:
 
 Task updates are informational unless the actor asks another agent to perform new work.
 
+An informational `知会 @agent` is a chat-plane notification: it records awareness but never creates an A2A possession pass and never means execution has started. A new possession state such as `standby` is intentionally not introduced because awareness and execution have different authorities. Explicit execution language may appear before or after the target mention (for example `分派 @peach 做代码质量评审` or `把架构评审拆给 @dk`) and must be recognized as a handoff.
+
 Flow:
 
 1. A task mutation is applied through `/api/mutations`, `/api/task-graph`, an intercepted task tool, or `TASKS.md` watcher sync.
@@ -297,6 +299,8 @@ Flow:
 This is intentionally not a central scheduler. If there is no explicit owner or reviewer, the framework does not guess. It only leaves a visible notification for the planner/coordinator to decide.
 
 Wakeup copy uses “系统轻推” so users understand this as a gentle nudge, not hidden orchestration.
+
+Automatic wakeup applies only to an already-modeled Task Graph node whose owner/reviewer and dependency state are known. A chat mention, an unresolved external reference, or a task that has not been created cannot rely on dependency wakeup and must not be described as “the system will schedule it automatically”.
 
 ## Chat Binding
 

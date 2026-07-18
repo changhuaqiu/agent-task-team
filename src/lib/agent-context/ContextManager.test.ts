@@ -176,4 +176,46 @@ describe('ContextManager', () => {
     // 被整体丢弃。之前用 !req.isFirstWake 做 guard 导致此处出现 0 次。
     expect(result.userPrompt).toContain('## Agent 协作协议');
   });
+
+  it('编译绑定 Skill 并在报告中记录版本与交付结果', async () => {
+    mockProviders.getSkillCompilation = vi.fn().mockResolvedValue({
+      catalog: [{ skillId: 'skill-1', name: 'code-review', description: 'Review safely', revision: 'skill-rev-1' }],
+      activated: [{
+        skillId: 'skill-1', name: 'code-review', description: 'Review safely', revision: 'skill-rev-1',
+        contentHash: 'hash-1', body: 'Check correctness first.', resourceRefs: ['/skills/code-review/references/guide.md'],
+        reason: 'agent_binding', required: true,
+      }],
+      decisions: [],
+    });
+    const manager = new ContextManager(mockProviders, noOpMemoryHook);
+
+    const result = await manager.assembleContext({
+      agentId: 'toad', conversationId: 'conv-123', rawPrompt: 'review this', trigger: 'user_turn', isFirstWake: false,
+    });
+
+    expect(result.userPrompt).toContain('## Skill: code-review');
+    expect(result.userPrompt).toContain('Revision: skill-rev-1');
+    expect(result.userPrompt).toContain('/skills/code-review/references/guide.md');
+    expect(result.report.loadedSkills).toEqual(['code-review']);
+    expect(result.report.skillDecisions[0]).toMatchObject({
+      name: 'code-review', revision: 'skill-rev-1', outcome: 'loaded', reasonCode: 'compiled_into_context',
+    });
+  });
+
+  it('必需 Skill 被预算裁剪时阻断执行', async () => {
+    mockProviders.getSkillCompilation = vi.fn().mockResolvedValue({
+      catalog: [{ skillId: 'skill-1', name: 'large-skill', description: 'Large', revision: 'skill-rev-1' }],
+      activated: [{
+        skillId: 'skill-1', name: 'large-skill', description: 'Large', revision: 'skill-rev-1',
+        contentHash: 'hash-1', body: 'x'.repeat(20_000), resourceRefs: [], reason: 'agent_binding', required: true,
+      }],
+      decisions: [],
+    });
+    const manager = new ContextManager(mockProviders, noOpMemoryHook);
+
+    await expect(manager.assembleContext({
+      agentId: 'toad', conversationId: 'conv-123', rawPrompt: 'continue', trigger: 'user_turn', isFirstWake: false,
+      budgetOverride: new ContextBudget({ maxTokens: 1_000 }),
+    })).rejects.toThrow('required_skill_not_loaded: large-skill');
+  });
 });

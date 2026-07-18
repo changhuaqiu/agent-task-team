@@ -15,7 +15,14 @@ type Span = {
 type Trace = {
   traceId: string; agentId?: string; taskId?: string; invocationId?: string; status: string;
   startedAt: string; durationMs?: number; engine?: string; totalTokens: number; tools: string[];
-  context?: { scenario?: string; tokensUsed?: number; tokensBudget?: number; saturation?: number; loadedSkills?: string[]; availableTools?: string[]; layers?: Array<{ layer: string; tokens: number; trimmed: boolean }> };
+  context?: {
+    scenario?: string; tokensUsed?: number; tokensBudget?: number; saturation?: number;
+    loadedSkills?: string[]; availableTools?: string[];
+    eligibleSkills?: Array<{ skillId: string; name: string; revision: string }>;
+    activatedSkills?: Array<{ skillId: string; name: string; revision: string; activationReason: string }>;
+    skillDecisions?: Array<{ skillId: string; name: string; revision: string; outcome: 'loaded' | 'omitted' | 'trimmed' | 'failed'; reasonCode: string }>;
+    layers?: Array<{ layer: string; tokens: number; trimmed: boolean }>;
+  };
   spans: Span[];
 };
 type Snapshot = {
@@ -55,6 +62,8 @@ function Metric({ label, value, danger }: { label: string; value: string | numbe
     <div className="mt-0.5 text-[9px] text-[hsl(var(--text-tertiary))]">{label}</div>
   </div>;
 }
+
+const SKILL_OUTCOME_LABEL = { loaded: '已加载', omitted: '未加载', trimmed: '已裁剪', failed: '失败' } as const;
 
 export function ProjectObservabilityPanel({ conversationId }: { conversationId?: string }) {
   const [snapshot, setSnapshot] = useState<Snapshot>();
@@ -136,7 +145,7 @@ export function ProjectObservabilityPanel({ conversationId }: { conversationId?:
               <div className="min-w-0 flex-1"><div className="flex items-center gap-1.5"><span className={cn('size-1.5 rounded-full', trace.status === 'ok' ? 'bg-emerald-500' : trace.status === 'error' ? 'bg-rose-500' : 'bg-amber-500')}/><span className="truncate text-[11px] font-semibold">{trace.agentId ?? 'Agent'}</span>{trace.engine && <span className="text-[9px] text-[hsl(var(--text-tertiary))]">{trace.engine}</span>}</div><div className="mt-1 flex gap-2 text-[9px] text-[hsl(var(--text-tertiary))]"><span className="inline-flex items-center gap-0.5"><Clock3 className="size-2.5"/>{formatDuration(trace.durationMs)}</span><span>{trace.totalTokens} tokens</span>{trace.taskId && <span>{trace.taskId}</span>}</div></div>
             </button>
             {open && <div className="space-y-3 border-t border-[hsl(var(--border-subtle))] p-2.5">
-              {trace.context && <div><div className="mb-1 text-[9px] font-semibold text-[hsl(var(--text-secondary))]">上下文 · {trace.context.scenario ?? 'unknown'} · {trace.context.tokensUsed ?? 0}/{trace.context.tokensBudget ?? 0}</div><div className="h-1.5 overflow-hidden rounded-full bg-[hsl(var(--bg-muted))]"><div className="h-full bg-[hsl(var(--accent))]" style={{ width: `${Math.min(100, (trace.context.saturation ?? 0) * 100)}%` }}/></div><div className="mt-1.5 flex flex-wrap gap-1">{trace.context.loadedSkills?.map(skill => <span key={skill} className="rounded bg-[hsl(var(--accent-soft))] px-1.5 py-0.5 text-[8px] text-[hsl(var(--accent))]">Skill · {skill}</span>)}</div></div>}
+              {trace.context && <div><div className="mb-1 text-[9px] font-semibold text-[hsl(var(--text-secondary))]">上下文 · {trace.context.scenario ?? 'unknown'} · {trace.context.tokensUsed ?? 0}/{trace.context.tokensBudget ?? 0}</div><div className="h-1.5 overflow-hidden rounded-full bg-[hsl(var(--bg-muted))]"><div className="h-full bg-[hsl(var(--accent))]" style={{ width: `${Math.min(100, (trace.context.saturation ?? 0) * 100)}%` }}/></div>{trace.context.eligibleSkills && <div className="mt-1 text-[8px] text-[hsl(var(--text-tertiary))]">已绑定 {trace.context.eligibleSkills.length} · 本轮激活 {trace.context.activatedSkills?.length ?? 0} · 已编入 {trace.context.skillDecisions?.filter(item => item.outcome === 'loaded').length ?? trace.context.loadedSkills?.length ?? 0}</div>}<div className="mt-1.5 flex flex-wrap gap-1">{trace.context.skillDecisions?.length ? trace.context.skillDecisions.map(skill => <span key={`${skill.skillId}:${skill.revision}`} title={skill.reasonCode} className={cn('rounded border px-1.5 py-0.5 text-[8px]', skill.outcome === 'loaded' ? 'border-[hsl(var(--accent)/0.3)] bg-[hsl(var(--accent-soft))] text-[hsl(var(--accent))]' : skill.outcome === 'failed' ? 'border-[hsl(var(--status-rejected-border))] bg-[hsl(var(--status-rejected-bg))] text-[hsl(var(--status-rejected))]' : 'border-[hsl(var(--border-subtle))] text-[hsl(var(--text-tertiary))]')}>Skill · {skill.name} · {SKILL_OUTCOME_LABEL[skill.outcome]} · 版本 {skill.revision.slice(0, 12)}</span>) : trace.context.loadedSkills?.map(skill => <span key={skill} className="rounded bg-[hsl(var(--accent-soft))] px-1.5 py-0.5 text-[8px] text-[hsl(var(--accent))]">Skill · {skill}</span>)}</div></div>}
               {trace.tools.length > 0 && <div className="flex flex-wrap gap-1">{trace.tools.map(tool => <span key={tool} className="inline-flex items-center gap-1 rounded border border-[hsl(var(--border-subtle))] px-1.5 py-0.5 text-[8px]"><Wrench className="size-2.5"/>{tool}</span>)}</div>}
               <div className="rounded-md border border-[hsl(var(--border-subtle))] bg-[hsl(var(--bg-app))] p-1.5">
                 <div className="mb-1 px-1.5 text-[9px] font-semibold text-[hsl(var(--text-secondary))]">调用链 · 点 span 查看明细</div>

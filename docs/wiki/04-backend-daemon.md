@@ -254,7 +254,7 @@ daemon 会把 `AcpBackend` 的 `done` 事件视为 agent 完成信号。完成�
 
 ACP 文本事件是增量流。daemon 继续把每个 chunk 实时广播给浏览器，但同一 Invocation 内连续的文本只持久化为一条 `chat_message`；工具、错误和完成事件会关闭当前文本段。这样实时体验不受影响，历史消息也不会按单字或 token 碎片化。
 
-agent 输出中的 `@mention` 不再自动变成转交。A2A 只接受带明确行动意图的交接，例如“@reviewer 请审查…”、“交给 @coder 实现…”。普通引用、否定句、代码块中的 `@agent` 不会唤醒目标 agent。非 active holder 的输出即使包含交接语义也会被拦截；fan-out branch holder 的输出则合法，即使兼容 UI 的最新 holder 指向另一个 branch。
+agent 输出中的 `@mention` 不再自动变成转交。A2A 只接受带明确行动意图的交接，例如“@reviewer 请审查…”、“交给 @coder 实现…”。普通引用、通知、前置或后置明确否定（包括“不要”“不用/不必执行”“请勿/切勿”）以及代码块中的 `@agent` 不会唤醒目标 agent。非 active holder 的输出即使包含交接语义也会被拦截；fan-out branch holder 的输出则合法，即使兼容 UI 的最新 holder 指向另一个 branch。
 
 “派发 / 分配 / 指派 @agent”这类状态总结也属于明确交接意图。对于 Mario 这类上游 agent 输出的 compact table，例如“TASK-001 @toad 运行中”，只要上下文明确说明正在派发，parser 会把它转换成 handoff intent，而不是当作普通提及忽略。同一个 holder 响应中产生的多个 idle 目标会在同一轮 dispatch cycle 中发出执行请求，以支持批量交接和并行唤醒。
 
@@ -358,6 +358,14 @@ daemon 当前已经具备会话级跟踪：
 - 一个支持多引擎执行的 daemon 编排层
 
 不再是旧文档中“前端维护业务，daemon 只负责桥接”的简单结构。
+
+## 4.10 Skill 包与运行时编译
+
+Skill 执行当前不再直接依赖 runtime 原生目录发现。`src/server/skills/skill-runtime.ts` 是统一入口：安装时校验 `<name>/SKILL.md`、生成稳定 content hash、写入受管不可变目录并记录 revision；执行时根据 `agent_skill` 绑定编译固定版本。
+
+每轮 dispatch 在 runtime 选择之前完成 Skill 编译。浏览器 Socket 派发也只提交原始输入并统一进入服务端 Harness，不能直接调用 runtime。`SKILL.md` 正文进入 capability context，`references/`、`scripts/`、`assets/` 只成为按需路径索引。ContextReport 记录 eligible、activated、loaded、revision、hash、reason 和 token；必需 Skill 未实际进入最终 Prompt 时阻断执行。OpenCode 项目原生 skillPaths 会过滤掉与平台本轮托管 Skill 重名的目录，非重名原生 Skill 保持可发现。
+
+旧 `skill.content + skill_file` 仍是兼容编辑入口；名称、描述、正文、config 或文件变化会使活动 revision 失效，并在下一次使用时生成新版本。旧名称迁移使用稳定、防碰撞的 package slug，不改变 Skill ID、显示名或绑定。工具 config 纳入 revision hash并随 revision 固化。包校验失败会写入有界失败 span/proof、阻断执行并返回稳定 reason code，失败 decision 已可从观测投影和调试页查看。长期设计与错误码见 `docs/technical/execution/skill-package-progressive-loading.md`。
 
 ## 4.4 Agent Session 身份边界
 

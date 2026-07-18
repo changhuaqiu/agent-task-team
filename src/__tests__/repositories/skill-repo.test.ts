@@ -32,6 +32,13 @@ describe('skill tables exist after migration', () => {
     const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='agent_skill'").all();
     expect(tables).toHaveLength(1);
   });
+
+  it('has immutable revision tables and active revision pointer', () => {
+    expect(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='skill_revision'").all()).toHaveLength(1);
+    expect(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='skill_revision_file'").all()).toHaveLength(1);
+    const columns = db.prepare('PRAGMA table_info(skill)').all() as Array<{ name: string }>;
+    expect(columns.map(column => column.name)).toContain('active_revision_id');
+  });
 });
 
 describe('skillRepo', () => {

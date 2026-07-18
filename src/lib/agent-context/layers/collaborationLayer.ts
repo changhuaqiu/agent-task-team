@@ -6,6 +6,10 @@ export function buildCollaborationLayer(): string {
 2. 知会某人：可以写「知会 @agent：...」，但这只是群聊信息，不会启动对方执行。
 3. 需要别人执行新动作：才发起 A2A 交接。
 
+### 自动唤醒边界
+- 自动 wakeup 只适用于已经建模到 Task Graph、负责人或评审者明确、依赖状态可计算的任务。
+- 未创建的任务、纯聊天 mention、未解析的 PR/外部引用都不会被系统自动调度；遇到这些情况必须显式建任务、发起可执行 A2A，或说明阻塞。
+
 ### 平台能力边界
 - 你是平台角色，底层 CLI 只是执行端口。CLI 自带的 Task、Agent、SendMessage、TodoWrite/TodoRead 不属于平台 Task Graph 或 A2A。
 - 禁止用这些 CLI 原生协作工具创建子 agent、维护本地 todo 或给角色发消息；它们不会改变平台任务和持有权。

@@ -1,3 +1,6 @@
+import os from 'node:os';
+import path from 'node:path';
+import { promises as fs } from 'node:fs';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createTestDb, setTestDb, resetDb } from '@/server/db/index';
 import { resetSeq } from '@/server/repositories/sortable-id';
@@ -5,9 +8,24 @@ import { mockReq, mockRes } from '@/test-helpers/mock-api';
 import handler from '@/pages/api/skills/index';
 import detailHandler from '@/pages/api/skills/[id]';
 import agentSkillsHandler from '@/pages/api/agents/[agentId]/skills';
+import { RepositorySkillRuntime, packageFromLegacyInput } from '@/server/skills/skill-runtime';
 
-beforeEach(() => { setTestDb(createTestDb()); resetSeq(); });
-afterEach(() => { resetDb(); });
+let skillDataDir: string;
+let previousSkillDataDir: string | undefined;
+
+beforeEach(async () => {
+  setTestDb(createTestDb());
+  resetSeq();
+  previousSkillDataDir = process.env.ATH_DATA_DIR;
+  skillDataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'ath-skill-api-'));
+  process.env.ATH_DATA_DIR = skillDataDir;
+});
+afterEach(async () => {
+  resetDb();
+  if (previousSkillDataDir === undefined) delete process.env.ATH_DATA_DIR;
+  else process.env.ATH_DATA_DIR = previousSkillDataDir;
+  await fs.rm(skillDataDir, { recursive: true, force: true });
+});
 
 describe('GET /api/skills', () => {
   it('returns empty list', async () => {
@@ -65,6 +83,18 @@ describe('GET /api/skills/:id', () => {
     expect(res._json.files).toHaveLength(1);
   });
 
+  it('returns the active installed revision without exposing package paths', async () => {
+    const revision = await new RepositorySkillRuntime().install(packageFromLegacyInput({
+      name: 'installed-detail', description: 'Installed detail', content: 'Use it.',
+      files: [{ path: 'references/guide.md', content: 'guide' }],
+    }));
+    const res = mockRes();
+    await detailHandler(mockReq('GET', undefined, { id: revision.skillId }), res);
+    expect(res._json.activeRevision).toMatchObject({ id: revision.revision, contentHash: revision.contentHash });
+    expect(res._json.activeRevision.files[0]).toMatchObject({ path: 'references/guide.md', kind: 'reference' });
+    expect(res._json.activeRevision.packagePath).toBeUndefined();
+  });
+
   it('returns 404 for missing skill', async () => {
     const res = mockRes();
     await detailHandler(mockReq('GET', undefined, { id: 'nonexistent' }), res);
@@ -84,6 +114,28 @@ describe('PATCH /api/skills/:id', () => {
     await detailHandler(mockReq('GET', undefined, { id }), getRes);
     expect(getRes._json.files).toHaveLength(1);
     expect(getRes._json.files[0].path).toBe('new.md');
+  });
+
+  it('invalidates and rebuilds the active revision after a config-only update', async () => {
+    const runtime = new RepositorySkillRuntime();
+    const first = await runtime.install(packageFromLegacyInput({
+      name: 'config-api-update',
+      description: 'Config API update',
+      content: 'Use configured tools.',
+      files: [],
+      config: '{"tools":["Read"]}',
+    }));
+
+    const patchRes = mockRes();
+    await detailHandler(
+      mockReq('PATCH', { config: '{"tools":["Write"]}' }, { id: first.skillId }),
+      patchRes,
+    );
+    expect(patchRes.statusCode).toBe(200);
+
+    const compiled = await runtime.compile({ skillIds: [first.skillId] });
+    expect(compiled.activated[0].revision).not.toBe(first.revision);
+    expect(compiled.activated[0].config).toBe('{"tools":["Write"]}');
   });
 });
 

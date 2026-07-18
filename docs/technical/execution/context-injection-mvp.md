@@ -110,16 +110,16 @@ wakeup?: {
 
 |  | identity | protocol | capability | situation | focus | dialog |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|
-| **init × planner** | ✅ | ✅ | ∅ | ✅ 全景 | ✅ 有任务时注入 | ✅ 用户原始请求 |
+| **init × planner** | ✅ | ✅ | ✅ | ✅ 全景 | ✅ 有任务时注入 | ✅ 用户原始请求 |
 | **init × reviewer** | ✅ | ✅ | ✅ | ✅ 全景 | ✅ 有任务时注入 | ✅ 用户原始请求 |
 | **init × worker** | ✅ | ✅ | ✅ | ✅ 全景 | ✅ 有任务时注入 | ✅ 用户原始请求 |
-| **iterate × planner** | ∅ | ✅ | ∅ | ✅ 轻量 | ✅ 任务图 | ✅ 常规 |
+| **iterate × planner** | ∅ | ✅ | ✅ | ✅ 轻量 | ✅ 任务图 | ✅ 常规 |
 | **iterate × reviewer** | ∅ | ✅ | ✅ | ✅ 轻量 | ✅ 当前任务 | ✅ 常规 |
 | **iterate × worker** | ∅ | ✅ | ✅ | ✅ 轻量 | ✅ 当前任务 | ✅ 常规 |
 | **handoff × any** | ∅ | ✅ + 回声防护段 | ✅ | ✅ 轻量 | ✅ packet 满血 | ∅ |
 | **wakeup × any** | ∅ | ✅ + wakeup 提示段 | ✅ | ∅ | ✅ 任务卡满血 | ∅ |
-| **closure × planner** | ∅ | ✅ + closure 提示段 | ∅ | ✅ 全景 | ✅ 整棵任务子树 | ✅ 仅用户原始请求 |
-| **closure × reviewer/worker** | ∅ | ✅ + closure 提示段 | ∅ | ✅ 全景 | ✅ 整棵任务子树 | ✅ 仅用户原始请求 |
+| **closure × planner** | ∅ | ✅ + closure 提示段 | ✅ | ✅ 全景 | ✅ 整棵任务子树 | ✅ 仅用户原始请求 |
+| **closure × reviewer/worker** | ∅ | ✅ + closure 提示段 | ✅ | ✅ 全景 | ✅ 整棵任务子树 | ✅ 仅用户原始请求 |
 
 **关键差异化**（其余全部复用现有内容）：
 
@@ -127,6 +127,7 @@ wakeup?: {
 2. **`handoff`**：dialog **默认关闭**（防动作漂移 / 回声回流 / 过程污染），focus 走 `a2aLayer` 满血；protocol 追加回声防护段。
 3. **`wakeup` / `closure`**：protocol 追加对应提示段（§8），让 LLM 一眼识别本轮不是普通对话。
 4. **策略是全函数**：所有 `scenario × archetype × cluster` 都有确定值；closure 正常只派给 planner，reviewer/worker 行是防御性回退，避免未知或错误路由时退回通用注入。
+5. **绑定 Skill 不随场景消失**：capability 在所有 scenario/archetype 中均为 include。若必需 Skill 因预算裁剪或包校验失败未进入最终上下文，dispatch 必须 fail closed。
 
 ---
 

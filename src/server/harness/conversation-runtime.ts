@@ -20,9 +20,10 @@ function uniqueRoleCards() {
 
 function skillsMap(): Record<string, RuntimeSkillSummary> {
   return Object.fromEntries(skillRepo.list().map((skill) => [skill.id, {
+    id: skill.id,
     name: skill.name,
-    content: skill.content,
-    files: skillRepo.listFiles(skill.id).map((file) => ({ path: file.path, content: file.content })),
+    description: skill.description ?? undefined,
+    version: skill.version,
     config: skill.config ?? undefined,
   }]));
 }

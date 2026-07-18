@@ -108,7 +108,7 @@ export const teamPackRepo = {
 
     db.prepare(
       `INSERT INTO team_pack (id, name, display_name, description, version, author, license, tags, category, team_mode, workflow, communication_matrix, shared_context, rules, source, is_preset, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       id,
       input.name,
@@ -125,6 +125,7 @@ export const teamPackRepo = {
       input.sharedContext ? JSON.stringify(input.sharedContext) : null,
       input.rules ? JSON.stringify(input.rules) : null,
       input.source ? JSON.stringify(input.source) : null,
+      input.isPreset ? 1 : 0,
       now,
       now
     );
@@ -185,6 +186,7 @@ export const teamPackRepo = {
   update(id: string, updates: Partial<CreateTeamPackInput>): void {
     const db = getDb();
     const now = new Date().toISOString();
+    const applyUpdate = db.transaction(() => {
     const sets: string[] = [];
     const values: unknown[] = [];
 
@@ -199,6 +201,7 @@ export const teamPackRepo = {
     if (updates.communicationMatrix !== undefined) { sets.push('communication_matrix = ?'); values.push(JSON.stringify(updates.communicationMatrix)); }
     if (updates.sharedContext !== undefined) { sets.push('shared_context = ?'); values.push(updates.sharedContext ? JSON.stringify(updates.sharedContext) : null); }
     if (updates.rules !== undefined) { sets.push('rules = ?'); values.push(updates.rules ? JSON.stringify(updates.rules) : null); }
+    if (updates.isPreset !== undefined) { sets.push('is_preset = ?'); values.push(updates.isPreset ? 1 : 0); }
 
     if (sets.length > 0) {
       sets.push('updated_at = ?');
@@ -235,6 +238,8 @@ export const teamPackRepo = {
         );
       }
     }
+    });
+    applyUpdate();
   },
 
   delete(id: string): void {

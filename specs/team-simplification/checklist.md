@@ -5,6 +5,7 @@
 - [ ] presetTeamPacks 只有 default-team（4 人 workflow），无 engineering-trio/research-team
 - [ ] presetRoleCards 无 toad/yoshi 专用 roleCard
 - [ ] seed-team-packs 只 seed default-team 4 人
+- [x] 已有 default-team 数据库副本会幂等升级，communication matrix 仅引用 mario/dk/luigi/peach，并保留账号/技能绑定
 
 ## 提示词层
 - [ ] roleLayer planner 分支：提 Luigi（不提"前端角色/后端角色"分离）

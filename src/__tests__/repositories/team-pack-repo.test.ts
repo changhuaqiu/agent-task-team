@@ -228,6 +228,30 @@ describe('teamPackRepo.update', () => {
     expect(updated.workflow.steps?.[0].role).toBe('writer');
     expect(updated.communicationMatrix.writer.canSendTo).toEqual(['reviewer']);
   });
+
+  it('rolls back metadata and roles when role replacement fails', () => {
+    const pack = teamPackRepo.create({
+      name: 'atomic-pack',
+      displayName: 'Before',
+      description: 'Atomic update',
+      roles: [{ id: 'planner', displayName: '规划师', soul: '# 规划师', required: true }],
+      teamMode: 'pipeline',
+      workflow: { type: 'linear' },
+      communicationMatrix: {},
+    });
+
+    expect(() => teamPackRepo.update(pack.id, {
+      displayName: 'Should Roll Back',
+      roles: [
+        { id: 'duplicate', displayName: 'A', soul: '# A', required: true },
+        { id: 'duplicate', displayName: 'B', soul: '# B', required: true },
+      ],
+    })).toThrow();
+
+    const unchanged = teamPackRepo.getById(pack.id)!;
+    expect(unchanged.displayName).toBe('Before');
+    expect(unchanged.roles.map((role) => role.id)).toEqual(['planner']);
+  });
 });
 
 describe('teamPackRepo.updateRoleConfig', () => {

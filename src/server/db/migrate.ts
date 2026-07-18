@@ -738,6 +738,43 @@ CREATE INDEX IF NOT EXISTS idx_agent_skill_skill ON agent_skill(skill_id);
       db.exec('CREATE INDEX IF NOT EXISTS idx_msg_invocation ON chat_message(invocation_id)');
     },
   },
+  {
+    version: 25,
+    run(db) {
+      const skillTable = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'skill'").get();
+      if (!skillTable) return;
+      const skillColumns = db.prepare('PRAGMA table_info(skill)').all() as Array<{ name: string }>;
+      if (!skillColumns.some(column => column.name === 'active_revision_id')) {
+        db.exec('ALTER TABLE skill ADD COLUMN active_revision_id TEXT');
+      }
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS skill_revision (
+          id TEXT PRIMARY KEY,
+          skill_id TEXT NOT NULL REFERENCES skill(id) ON DELETE CASCADE,
+          content_hash TEXT NOT NULL,
+          description TEXT NOT NULL,
+          body TEXT NOT NULL,
+          package_path TEXT NOT NULL,
+          config TEXT,
+          created_at TEXT NOT NULL,
+          UNIQUE(skill_id, content_hash)
+        );
+        CREATE INDEX IF NOT EXISTS idx_skill_revision_skill ON skill_revision(skill_id, created_at);
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_skill_revision_hash ON skill_revision(skill_id, content_hash);
+
+        CREATE TABLE IF NOT EXISTS skill_revision_file (
+          id TEXT PRIMARY KEY,
+          revision_id TEXT NOT NULL REFERENCES skill_revision(id) ON DELETE CASCADE,
+          path TEXT NOT NULL,
+          kind TEXT NOT NULL,
+          content_hash TEXT NOT NULL,
+          byte_size INTEGER NOT NULL,
+          UNIQUE(revision_id, path)
+        );
+        CREATE INDEX IF NOT EXISTS idx_skill_revision_file_revision ON skill_revision_file(revision_id, path);
+      `);
+    },
+  },
 ];
 
 export function applyMigrations(db: Database.Database): void {

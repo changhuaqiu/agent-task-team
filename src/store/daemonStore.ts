@@ -2,9 +2,6 @@
 
 import { io } from 'socket.io-client';
 import type { DetectedRuntime, CliEngine } from '@/server/types';
-import { composeSystemPrompt, composeUserPrompt } from '@/lib/agent-context/PromptComposer';
-import type { ComposeOptions } from '@/lib/agent-context/PromptComposer';
-import type { RuntimeAgent } from '@/lib/team-runtime';
 
 // --- Shared socket instance ---
 export const socket = io(undefined, { path: '/api/socketio', autoConnect: false });
@@ -274,64 +271,13 @@ export const createDaemonSlice = (set: any, get: () => any) => {
 
       const projectId = conversationId;
       const runId = `run-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-      const agent = profile.agent;
       const effectiveIds = profile.agent.accountIds;
       const resolvedEngine = profile.execution.engine;
 
       console.log(`[dispatch] ${agentId} → engine=${resolvedEngine}, accountId=${profile.execution.accountId ?? '(none)'}, convId=${conversationId}`);
 
-      const roleCard = profile.prompt.roleCard;
       const conv = get().conversations.find((c: any) => c.id === conversationId);
-      const task = referencedTaskId ? get().getTaskById(referencedTaskId) : undefined;
-      const phase = task?.phaseId ? get().phases.find((p: any) => p.id === task.phaseId) : undefined;
-
       const composeKey = `${conversationId}:${agentId}`;
-      const isFirstWake = get().needsFullCompose[composeKey] !== false;
-
-      const composeOpts: ComposeOptions = {
-        agent: { id: agent.id, name: agent.displayName },
-        roleCard,
-        allRoleCards: get().roleCards,
-        project: { id: conversationId, name: conv?.title ?? '', path: conv?.projectPath ?? '' },
-        isFirstWake,
-        messages: get().chatMessagesByConversation[conversationId] ?? [],
-        task: task ? {
-          id: task.id, title: task.title,
-          description: task.description,
-          phase: phase ? { title: phase.title } : undefined,
-        } : undefined,
-        rawPrompt: prompt,
-        currentLoad: Object.fromEntries(
-          profile.prompt.roster.map((rosterAgent: RuntimeAgent) => [
-            rosterAgent.id,
-            get().tasks.filter(
-              (t: any) =>
-                t.agentId === rosterAgent.id &&
-                (t.status === 'in_progress' || t.status === 'pending'),
-            ).length,
-          ]),
-        ),
-        tasks: get().tasks
-          .filter((t: any) => t.conversationId === conversationId)
-          .map((t: any) => ({
-            id: t.id,
-            title: t.title,
-            agentId: t.agentId,
-            status: t.status,
-          })),
-        skills: profile.prompt.skills,
-        a2a: source === 'a2a' && fromAgentId ? {
-          from: fromAgentId,
-          content: prompt,
-        } : undefined,
-        teamPack: profile.prompt.teamPack,
-        runtimeRoster: profile.prompt.roster,
-      };
-
-      const systemPrompt = await composeSystemPrompt(composeOpts);
-      const effectivePrompt = await composeUserPrompt(composeOpts);
-
-      console.log(`[dispatch] ${agentId} isFirstWake=${composeOpts.isFirstWake}, systemPrompt=${systemPrompt ? `${systemPrompt.length} chars` : 'undefined'}, roleCard=${composeOpts.roleCard?.id ?? '(none)'}`);
 
       set((state: any) => ({
         agentStatus: { ...state.agentStatus, [agentId]: 'busy' },
@@ -358,6 +304,7 @@ export const createDaemonSlice = (set: any, get: () => any) => {
       });
 
       socket.emit('terminal:start', {
+        dispatchId: runId,
         projectId,
         taskId: referencedTaskId,
         conversationId,
@@ -368,8 +315,7 @@ export const createDaemonSlice = (set: any, get: () => any) => {
         chainId,
         passId,
         agentId,
-        prompt: effectivePrompt,
-        systemPrompt,
+        prompt,
         allowMockRunner: get().enableMockRunner,
         opencodeBridgeUrl: undefined,
         engine: resolvedEngine,
@@ -507,38 +453,11 @@ export const createDaemonSlice = (set: any, get: () => any) => {
       }
 
       const runId = `run-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-      const agent = profile.agent;
       const effectiveIds = profile.agent.accountIds;
       const resolvedEngine = profile.execution.engine;
 
-      const simRoleCard = profile.prompt.roleCard;
       const simComposeKey = `${projectId}:${agentId}`;
-      const simIsFirstWake = state.needsFullCompose[simComposeKey] !== false;
       const conv = state.conversations.find((c: any) => c.id === conversationId);
-
-      const simOpts: ComposeOptions = {
-        agent: { id: agent.id, name: agent.displayName },
-        roleCard: simRoleCard,
-        allRoleCards: state.roleCards,
-        project: { id: conversationId, name: conv?.title ?? '', path: conv?.projectPath ?? '' },
-        isFirstWake: simIsFirstWake,
-        rawPrompt: prompt,
-        currentLoad: Object.fromEntries(
-          profile.prompt.roster.map((rosterAgent: RuntimeAgent) => [
-            rosterAgent.id,
-            state.tasks.filter(
-              (t: any) =>
-                t.agentId === rosterAgent.id &&
-                (t.status === 'in_progress' || t.status === 'pending'),
-            ).length,
-          ]),
-        ),
-        skills: profile.prompt.skills,
-        teamPack: profile.prompt.teamPack,
-        runtimeRoster: profile.prompt.roster,
-      };
-
-      const systemPrompt = await composeSystemPrompt(simOpts);
 
       set((s: any) => ({
         agentStatus: { ...s.agentStatus, [agentId]: 'busy' },
@@ -557,12 +476,14 @@ export const createDaemonSlice = (set: any, get: () => any) => {
       });
 
       socket.emit('terminal:start', {
+        dispatchId: runId,
         projectId,
         taskId,
         conversationId,
         agentId,
         prompt,
-        systemPrompt,
+        dispatchSource: 'workflow',
+        dispatchIntent: 'implement',
         allowMockRunner: get().enableMockRunner,
         opencodeBridgeUrl: undefined,
         engine: resolvedEngine,

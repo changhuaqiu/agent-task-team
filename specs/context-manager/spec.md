@@ -241,6 +241,12 @@ interface MemoryHook {
 - historyLayer 只保留 agent 自身历史，群聊历史不再重复进入 dialog。
 - 详细数据模型、文件格式和归档规则以 `docs/technical/execution/context-injection-mvp.md` §16 为准。
 
+### 5.11 首次 A2A Bootstrap（2026-07-18）
+
+- `trigger` 表示上下文来源，`scenario` 表示注入策略；两者不再一一绑定。
+- A2A 接收方在当前项目没有 active session 时采用 `init` scenario，生成 identity/system prompt；同时继续携带 `a2aHandoff` focus artifact。
+- 接收方已有 active session 时仍采用 `handoff` scenario，省略 identity，避免重复 bootstrap。
+
 ---
 
 ## 6. 影响面

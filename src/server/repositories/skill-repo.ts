@@ -15,6 +15,7 @@ export interface SkillRow {
   version: number;
   created_at: string;
   updated_at: string;
+  active_revision_id: string | null;
 }
 
 export interface SkillFileRow {
@@ -26,6 +27,36 @@ export interface SkillFileRow {
 
 export interface SkillWithFiles extends SkillRow {
   files: SkillFileRow[];
+}
+
+export interface SkillRevisionRow {
+  id: string;
+  skill_id: string;
+  content_hash: string;
+  description: string;
+  body: string;
+  package_path: string;
+  config: string | null;
+  created_at: string;
+}
+
+export interface SkillRevisionFileRow {
+  id: string;
+  revision_id: string;
+  path: string;
+  kind: string;
+  content_hash: string;
+  byte_size: number;
+}
+
+export interface CreateSkillRevisionInput {
+  skillId: string;
+  contentHash: string;
+  description: string;
+  body: string;
+  packagePath: string;
+  config?: string;
+  files: Array<Pick<SkillRevisionFileRow, 'path' | 'kind' | 'content_hash' | 'byte_size'>>;
 }
 
 export interface CreateSkillInput {
@@ -99,6 +130,9 @@ export const skillRepo = {
       values.push(value);
     }
     if (sets.length === 0) return;
+    if ('name' in updates || 'description' in updates || 'content' in updates || 'config' in updates) {
+      sets.push('active_revision_id = NULL');
+    }
     sets.push('updated_at = ?');
     values.push(new Date().toISOString());
     values.push(id);
@@ -121,6 +155,8 @@ export const skillRepo = {
          ON CONFLICT(skill_id, path) DO UPDATE SET content = excluded.content`,
       )
       .run(id, skillId, file.path, file.content);
+    getDb().prepare('UPDATE skill SET active_revision_id = NULL, updated_at = ? WHERE id = ?')
+      .run(new Date().toISOString(), skillId);
   },
 
   listFiles(skillId: string): SkillFileRow[] {
@@ -142,6 +178,8 @@ export const skillRepo = {
         validateFilePath(file.path);
         insert.run(generateSortableId('sf'), skillId, file.path, file.content);
       }
+      db.prepare('UPDATE skill SET active_revision_id = NULL, updated_at = ? WHERE id = ?')
+        .run(new Date().toISOString(), skillId);
     })();
   },
 
@@ -212,5 +250,64 @@ export const skillRepo = {
       result[row.agent_id] = [...(result[row.agent_id] ?? []), row.skill_id];
     }
     return result;
+  },
+
+  // ── Immutable installed revisions ───────────
+
+  getRevisionById(id: string): SkillRevisionRow | undefined {
+    return getDb().prepare('SELECT * FROM skill_revision WHERE id = ?').get(id) as SkillRevisionRow | undefined;
+  },
+
+  getRevisionByHash(skillId: string, contentHash: string): SkillRevisionRow | undefined {
+    return getDb()
+      .prepare('SELECT * FROM skill_revision WHERE skill_id = ? AND content_hash = ?')
+      .get(skillId, contentHash) as SkillRevisionRow | undefined;
+  },
+
+  getActiveRevision(skillId: string): SkillRevisionRow | undefined {
+    return getDb()
+      .prepare(`SELECT r.* FROM skill s JOIN skill_revision r ON r.id = s.active_revision_id WHERE s.id = ?`)
+      .get(skillId) as SkillRevisionRow | undefined;
+  },
+
+  listRevisionFiles(revisionId: string): SkillRevisionFileRow[] {
+    return getDb()
+      .prepare('SELECT * FROM skill_revision_file WHERE revision_id = ? ORDER BY path ASC')
+      .all(revisionId) as SkillRevisionFileRow[];
+  },
+
+  createOrActivateRevision(input: CreateSkillRevisionInput): SkillRevisionRow {
+    const db = getDb();
+    const existing = skillRepo.getRevisionByHash(input.skillId, input.contentHash);
+    if (existing) {
+      db.prepare('UPDATE skill SET active_revision_id = ? WHERE id = ?').run(existing.id, input.skillId);
+      return existing;
+    }
+
+    const revisionId = generateSortableId('skill-rev');
+    const now = new Date().toISOString();
+    db.transaction(() => {
+      db.prepare(`
+        INSERT INTO skill_revision (id, skill_id, content_hash, description, body, package_path, config, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(revisionId, input.skillId, input.contentHash, input.description, input.body, input.packagePath, input.config ?? null, now);
+      const insertFile = db.prepare(`
+        INSERT INTO skill_revision_file (id, revision_id, path, kind, content_hash, byte_size)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `);
+      for (const file of input.files) {
+        insertFile.run(
+          generateSortableId('skill-rev-file'),
+          revisionId,
+          file.path,
+          file.kind,
+          file.content_hash,
+          file.byte_size,
+        );
+      }
+      db.prepare('UPDATE skill SET active_revision_id = ?, version = version + 1, updated_at = ? WHERE id = ?')
+        .run(revisionId, now, input.skillId);
+    })();
+    return skillRepo.getRevisionById(revisionId)!;
   },
 };

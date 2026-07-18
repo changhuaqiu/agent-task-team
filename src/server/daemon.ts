@@ -52,6 +52,7 @@ import {
   submitTaskWakeupToHarness,
   type HarnessDispatchPlan,
   type HarnessOutcome,
+  type HarnessSubmission,
 } from './harness';
 import { checkValidExit } from './harness/valid-exit';
 import type { ContextReport } from '../lib/agent-context/ContextManager';
@@ -59,11 +60,13 @@ import type { ContextScenario } from '../lib/agent-context/scenarioResolver';
 import { generateSpanId, generateTraceId, observationSpanRepo } from './repositories/observation-span-repo';
 import { spanPayloadRepo } from './repositories/span-payload-repo';
 import { isThinkingCaptureEnabled } from './observability/redaction';
+import { capturePromptPayloads } from './observability/prompt-observation';
 import { teamLogProjection } from './team-log/TeamLogProjection';
 import { renderTeamLogEnvelope } from '../lib/agent-context/teamLog';
 import { ProcessStartGuard } from './process-start-guard';
 
 type TerminalStartPayload = {
+  dispatchId?: string;
   projectId?: string;
   taskId?: string;
   agentId: string;
@@ -94,6 +97,26 @@ type TerminalStartPayload = {
   traceId?: string;
   contextReport?: ContextReport;
 };
+
+export function submitSocketTerminalStart(
+  coordinator: Pick<HarnessCoordinator, 'submit'>,
+  payload: TerminalStartPayload,
+): HarnessSubmission {
+  const conversationId = payload.conversationId?.trim();
+  if (!conversationId) throw new Error('conversation_missing: terminal:start requires conversationId');
+  return coordinator.submit({
+    id: payload.dispatchId?.trim() || `socket:${Date.now()}:${Math.random().toString(36).slice(2, 10)}`,
+    idempotencyKey: payload.dispatchId?.trim() || undefined,
+    source: payload.dispatchSource ?? 'user',
+    conversationId,
+    taskId: payload.taskId,
+    agentId: payload.agentId,
+    prompt: payload.prompt,
+    fromAgentId: payload.fromAgentId,
+    chainId: payload.chainId,
+    passId: payload.passId,
+  });
+}
 
 type AgentActivityStatus = 'running' | 'awaiting_children' | 'idle';
 
@@ -162,18 +185,13 @@ async function detectAvailableRuntimes(): Promise<DetectedRuntime[]> {
 function resolveOpenCodeProjectSkillPaths(projectPath?: string): string[] {
   const candidates = [projectPath, /*turbopackIgnore: true*/ process.cwd()]
     .filter((candidate): candidate is string => !!candidate?.trim());
-
   const paths = new Set<string>();
   for (const candidate of candidates) {
     const skillDir = path.resolve(/*turbopackIgnore: true*/ candidate, OPENCODE_PROJECT_SKILLS_DIR);
-    if (
-      fs.existsSync(/*turbopackIgnore: true*/ skillDir)
-      && fs.statSync(/*turbopackIgnore: true*/ skillDir).isDirectory()
-    ) {
+    if (fs.existsSync(/*turbopackIgnore: true*/ skillDir) && fs.statSync(/*turbopackIgnore: true*/ skillDir).isDirectory()) {
       paths.add(skillDir);
     }
   }
-
   return Array.from(paths);
 }
 
@@ -184,6 +202,8 @@ export default function registerDaemon(io: IOServer) {
   const broadcast = (event: string, data: any) => io.emit(event, data);
   const agentResponseBuffer = new Map<string, string>();
   const dispatchGateway = new DispatchGateway();
+  // Deferred until after the Harness port is constructed; the port closes over this handler.
+  // eslint-disable-next-line prefer-const
   let handleTerminalStart: ((payload: TerminalStartPayload, emitToRequester?: (event: string, data: unknown) => void) => Promise<void>) | undefined;
 
   const harnessCoordinator = new HarnessCoordinator({
@@ -584,7 +604,6 @@ export default function registerDaemon(io: IOServer) {
         providerProfileId,
         channel,
         authContextId,
-        accountIds,
         accountId,
         force,
         projectSlug,
@@ -828,9 +847,12 @@ export default function registerDaemon(io: IOServer) {
       const capturePromptObservation = (assembledPrompt: string, effectiveSystemPrompt?: string) => {
         if (!rootObservationSpanId) return;
         try {
-          if (effectiveSystemPrompt) spanPayloadRepo.put(rootObservationSpanId, 'system_prompt', effectiveSystemPrompt);
-          spanPayloadRepo.put(rootObservationSpanId, 'assembled_prompt', assembledPrompt);
-          broadcast('observability:updated', { conversationId: sessionConvId, invocationId: invocation.id });
+          capturePromptPayloads({
+            spanId: rootObservationSpanId,
+            assembledPrompt,
+            systemPrompt: effectiveSystemPrompt,
+            onCaptured: () => broadcast('observability:updated', { conversationId: sessionConvId, invocationId: invocation.id }),
+          });
         } catch (error) {
           console.warn('[observability] failed to capture prompt payload:', error);
         }
@@ -976,6 +998,7 @@ export default function registerDaemon(io: IOServer) {
             defaultModel: account?.models?.[0],
             systemPrompt: systemPrompt || undefined,
             skillPaths: projectSkillPaths,
+            managedSkillNames: contextReport?.loadedSkills ?? [],
           });
           if (result.generated) {
             runtimeConfigDir = result.configDir;
@@ -1825,7 +1848,18 @@ export default function registerDaemon(io: IOServer) {
 
   io.on('connection', (socket: Socket) => {
     socket.on('terminal:start', (payload: TerminalStartPayload) => {
-      void handleTerminalStart?.(payload, (event, data) => socket.emit(event, data));
+      try {
+        const submission = submitSocketTerminalStart(harnessCoordinator, payload);
+        void submission.completion.then((outcome) => {
+          if (outcome.status === 'accepted') return;
+          const reasonCode = 'reasonCode' in outcome ? outcome.reasonCode : 'internal_error';
+          socket.emit('agent:error', { agentId: payload.agentId, message: `派发被服务端阻止：${reasonCode}` });
+          socket.emit('terminal:exit', { agentId: payload.agentId, code: 1, command: 'harness', reasonCode });
+        });
+      } catch (error) {
+        socket.emit('agent:error', { agentId: payload.agentId, message: (error as Error).message });
+        socket.emit('terminal:exit', { agentId: payload.agentId, code: 1, command: 'harness', reasonCode: 'conversation_missing' });
+      }
     });
 
     // Force-kill a running agent process

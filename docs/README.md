@@ -90,6 +90,7 @@
 - `docs/product/ux/2026-05-15-group-chat-task-flow.md`
 - `docs/product/ux/2026-07-16-right-panel-ia-simplification.md`：项目右面板从 5 tab 精简为 2 tab（任务主视图 + 调试）的 IA 决策，含业务判断与技术约束
 - `docs/product/business/2026-05-01-engineering-role-card-business-plan.md`
+- `docs/product/business/2026-07-18-skill-package-runtime-model.md`：Skill 包、安装版本、Agent 绑定与本轮使用证据的产品模型
 
 ### 技术设计
 
@@ -97,6 +98,7 @@
 - `docs/technical/execution/opencode-integration-executable-chain.md`
 - `docs/technical/execution/group-chat-task-graph.md`
 - `docs/technical/execution/platform-harness-loop.md`
+- `docs/technical/execution/skill-package-progressive-loading.md`：标准 Skill 目录、不可变 revision、确定性编译与渐进加载设计
 - `docs/technical/observability/agent-observability.md`
 
 说明：

@@ -17,13 +17,13 @@ const include = (...clusters: ContextCluster[]): Record<ContextCluster, Injectio
   };
 };
 
-const initPlanner = include('identity', 'protocol', 'situation', 'focus', 'dialog');
+const initPlanner = include('identity', 'protocol', 'capability', 'situation', 'focus', 'dialog');
 const initContributor = include('identity', 'protocol', 'capability', 'situation', 'focus', 'dialog');
-const iteratePlanner = include('protocol', 'situation', 'focus', 'dialog');
+const iteratePlanner = include('protocol', 'capability', 'situation', 'focus', 'dialog');
 const iterateContributor = include('protocol', 'capability', 'situation', 'focus', 'dialog');
 const handoff = include('protocol', 'capability', 'situation', 'focus');
 const wakeup = include('protocol', 'capability', 'situation', 'focus');
-const closure = include('protocol', 'situation', 'focus', 'dialog');
+const closure = include('protocol', 'capability', 'situation', 'focus', 'dialog');
 
 export const INJECTION_POLICY: Record<ContextScenario, Record<ContextArchetype, Record<ContextCluster, InjectionDirective>>> = {
   init: { planner: initPlanner, reviewer: initContributor, worker: initContributor },

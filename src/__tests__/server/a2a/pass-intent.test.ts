@@ -62,6 +62,42 @@ describe('scanPassIntents', () => {
     expect(result).toEqual([]);
   });
 
+  it('recognizes explicit delegation before one or multiple mentions', () => {
+    expect(scanPassIntents('把代码质量评审拆给 @peach，并把架构评审安排给 @dk。', AGENTS, 'mario')).toMatchObject([
+      { agentId: 'peach', intent: 'delegate' },
+      { agentId: 'dk', intent: 'delegate' },
+    ]);
+    expect(scanPassIntents('按深度评审拆成 PHASE/TASK，分派 @peach 做代码质量评审和 @dk 做架构评审。', AGENTS, 'mario')).toMatchObject([
+      { agentId: 'peach', intent: 'delegate' },
+      { agentId: 'dk', intent: 'delegate' },
+    ]);
+  });
+
+  it('does not turn a notification or completed delegation into execution', () => {
+    expect(scanPassIntents('知会 @peach：PR 材料还没准备好，请先不用执行。', AGENTS, 'mario')).toEqual([]);
+    expect(scanPassIntents('已经分派 @peach，当前正在等待结果。', AGENTS, 'mario')).toEqual([]);
+  });
+
+  it('binds an action only to mentions in the same local clause', () => {
+    expect(scanPassIntents('分派 @peach 做质量评审，并知会 @dk。', AGENTS, 'mario')).toMatchObject([
+      { agentId: 'peach', intent: 'delegate' },
+    ]);
+    expect(scanPassIntents('请 @peach 了解背景，安排 @dk 做架构评审。', AGENTS, 'mario')).toMatchObject([
+      { agentId: 'dk', intent: 'delegate' },
+    ]);
+    expect(scanPassIntents('关于测试安排，@peach 已经知会，不需要执行。', AGENTS, 'mario')).toEqual([]);
+    expect(scanPassIntents('分派 @peach 做代码评审并知会 @dk 关注结果。', AGENTS, 'mario')).toMatchObject([
+      { agentId: 'peach', intent: 'delegate' },
+    ]);
+    expect(scanPassIntents('分派 @peach 做代码评审然后知会 @dk 关注结果。', AGENTS, 'mario')).toMatchObject([
+      { agentId: 'peach', intent: 'delegate' },
+    ]);
+    expect(scanPassIntents('知会 @peach 请审查 PR。', AGENTS, 'mario')).toEqual([]);
+    expect(scanPassIntents('不要 @luigi 实现这个改动。', AGENTS, 'mario')).toEqual([]);
+    expect(scanPassIntents('分派 @peach 但不用执行。', AGENTS, 'mario')).toEqual([]);
+    expect(scanPassIntents('请勿 @luigi 实现这个改动。', AGENTS, 'mario')).toEqual([]);
+  });
+
   it('keeps an actionable worker handoff when a later clause forbids manual reviewer handoff', () => {
     const response = '@luigi 请启动 HOT-001：读取 package.json 并写 implementation.md，完成后置 review 并立即结束本轮——不要手工 @ 任何 reviewer，复核唤醒由平台自动处理。';
 

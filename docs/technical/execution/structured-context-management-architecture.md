@@ -356,6 +356,8 @@ ContextReport + CheckpointPatch
 - Skill / 大 Artifact / 历史正文按需读取；
 - MemoryHook 接入 durable memory，但 recall 结果仍经过 Artifact policy。
 
+Skill 的 C3 落地由 `specs/skill-package-progressive-loading/` 负责。第一阶段先采用“Agent 绑定即激活”，由平台确定性编译 `SKILL.md` 正文并只暴露附属资源引用；在加载证据稳定后，再把候选 Skill 与本轮激活 Skill 分离。
+
 完成标志：长任务中上下文增长趋于有界，压缩前后关键任务状态可回归验证。
 
 ### C4：分布式一致性

@@ -41,3 +41,4 @@
 - [ ] T23 grep 确认无 toad/yoshi/engineering-trio/research-team 残留
 - [ ] T24 DB 清理（删除 engineering-trio/research-team 的 team_pack + team_pack_role）
 - [ ] T25 重启 server，UI 显示 4 人组（mario⭐/dk⚙️/luigi⚡/peach🌸）
+- [x] T26 `seedTeamPacks` 幂等收敛已有 default-team 的 workflow、communication matrix、roles 与 role-card snapshot，同时保留 account/skill 绑定
