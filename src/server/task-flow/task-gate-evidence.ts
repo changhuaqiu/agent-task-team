@@ -14,6 +14,8 @@ export interface EvaluateTaskStatusEvidenceInput {
   nextStatus: string;
   actorId?: string;
   evidence?: unknown;
+  pullRequestRequired?: boolean;
+  verifiedPullRequest?: boolean;
 }
 
 const EVIDENCE_REQUIRED_REASON = 'task_graph.gate_evidence_required';
@@ -44,8 +46,10 @@ export function evaluateTaskStatusEvidenceGate(input: EvaluateTaskStatusEvidence
     const missingFields = missing(evidence, [
       'installResult',
       'buildResult',
+      'testResult',
       'impactEvidence',
     ]);
+    if (input.pullRequestRequired && !input.verifiedPullRequest) missingFields.push('pullRequestReceipt');
     if (missingFields.length > 0) {
       return {
         allowed: false,

@@ -8,6 +8,8 @@ import { isSkillTool } from './skill-tool-router';
 import { generateSortableId } from './repositories/sortable-id';
 import { proofLogRepo } from './repositories/proof-log-repo';
 import { evaluateTaskStatusEvidenceGate } from './task-flow/task-gate-evidence';
+import { conversationRepo } from './repositories/conversation-repo';
+import { taskGraphRepo } from './repositories/task-graph-repo';
 
 // ── Types ──────────────────────────────────────
 
@@ -148,6 +150,8 @@ function executeTaskUpdateStatus(invocation: ToolInvocation): ToolResult {
     nextStatus: status,
     actorId: invocation.agentId,
     evidence,
+    pullRequestRequired: Boolean(conversationRepo.getById(existing.conversation_id)?.git_repo_root),
+    verifiedPullRequest: taskGraphRepo.listActionsForTask(taskId).some((action) => action.type === 'task.pull_request_submitted'),
   });
   if (!gateDecision.allowed) {
     proofLogRepo.append({

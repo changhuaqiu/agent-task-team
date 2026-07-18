@@ -6,6 +6,8 @@ describe('task status evidence gates', () => {
     const decision = evaluateTaskStatusEvidenceGate({
       nextStatus: 'in_review',
       evidence: { installResult: 'pnpm install passed' },
+      pullRequestRequired: true,
+      verifiedPullRequest: false,
     });
 
     expect(decision).toMatchObject({
@@ -13,7 +15,7 @@ describe('task status evidence gates', () => {
       required: true,
       gateName: 'implementation_evidence',
       reasonCode: 'task_graph.gate_evidence_required',
-      missingFields: ['buildResult', 'impactEvidence'],
+      missingFields: ['buildResult', 'testResult', 'impactEvidence', 'pullRequestReceipt'],
     });
   });
 
@@ -23,8 +25,11 @@ describe('task status evidence gates', () => {
       evidence: {
         installResult: 'pnpm install passed',
         buildResult: 'pnpm build passed',
+        testResult: 'pnpm test passed',
         impactEvidence: 'repository query: task status gate',
       },
+      pullRequestRequired: true,
+      verifiedPullRequest: true,
     });
 
     expect(decision).toMatchObject({
@@ -32,6 +37,18 @@ describe('task status evidence gates', () => {
       required: true,
       gateName: 'implementation_evidence',
     });
+  });
+
+  it('blocks a Git-backed task from entering review without a verified PR receipt', () => {
+    const decision = evaluateTaskStatusEvidenceGate({
+      nextStatus: 'in_review',
+      evidence: {
+        installResult: 'passed', buildResult: 'passed', testResult: 'passed', impactEvidence: 'checked',
+      },
+      pullRequestRequired: true,
+      verifiedPullRequest: false,
+    });
+    expect(decision).toMatchObject({ allowed: false, missingFields: ['pullRequestReceipt'] });
   });
 
   it('blocks done without delivery evidence', () => {

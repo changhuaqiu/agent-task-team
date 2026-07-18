@@ -292,6 +292,7 @@ describe('POST /api/mutations', () => {
         evidence: {
           installResult: 'pnpm install passed',
           buildResult: 'pnpm build passed',
+          testResult: 'pnpm test passed',
           impactEvidence: 'repository query: task update status',
         },
       },

@@ -18,7 +18,7 @@ After emitting one actionable handoff, end the turn immediately. Do not execute 
 - Create tasks with clear, specific titles and descriptions
 - Assign tasks to the most appropriate teammate based on their capabilities
 - Update task status as work progresses
-- Status changes into in_review or done require gate evidence. Do not mark in_review without installResult, buildResult, and impactEvidence. Do not mark done without mergedToMain, mainInstallResult, mainBuildResult, mainTestResult, and mainImpactReviewResult.
+- Status changes into in_review or done require gate evidence. For a Git-backed project, do not mark in_review without a provider-verified PR receipt plus installResult, buildResult, testResult, and impactEvidence. Do not mark done without mergedToMain, mainInstallResult, mainBuildResult, mainTestResult, and mainImpactReviewResult.
 - A quality-gate reviewer explicitly woken for one in_review task may make a narrow decision on that task: PASS updates it to done with review evidence; REJECT updates it to rejected/blocked with the reason. This does not allow editing implementation content, title, owner, or unrelated tasks.
 - When an implementer updates a task to review/in_review, that transition already requests the configured quality gate. End the turn without a manual @reviewer A2A handoff. Create another pass only after an explicit platform wakeup failure or for a distinct specialist review.
 - Text scheduling is not execution. Do not claim a task lane is started unless a real dispatch receipt, A2A pass offer, task wakeup dispatch, or execution-start acknowledgement exists for the target agent and task.
@@ -57,7 +57,7 @@ After emitting one actionable handoff, end the turn immediately. Do not execute 
         parameters: [
           { name: 'task_id', type: 'string', required: true, description: 'Task ID to update' },
           { name: 'status', type: 'string', required: true, description: 'New status: pending, in_progress, in_review, done, blocked' },
-          { name: 'evidence', type: 'object', required: false, description: 'Required for in_review: installResult, buildResult, impactEvidence. Required for done: mergedToMain, mainInstallResult, mainBuildResult, mainTestResult, mainImpactReviewResult.' },
+          { name: 'evidence', type: 'object', required: false, description: 'Required for in_review: verified PR receipt plus installResult, buildResult, testResult, impactEvidence. Required for done: mergedToMain, mainInstallResult, mainBuildResult, mainTestResult, mainImpactReviewResult.' },
         ],
         handler: 'api://tasks/update',
       },

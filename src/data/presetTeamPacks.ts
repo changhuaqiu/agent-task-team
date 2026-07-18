@@ -29,7 +29,7 @@ const IMPACT_ANALYSIS_ROLE_GUIDANCE = {
     IMPACT_ANALYSIS_PROTOCOL,
     PERSONALITY_AUTONOMY_PROTOCOL,
     '- 全栈实现前通过仓库搜索、调用链和相关测试确认目标组件、状态与入口；改动保持在已识别影响边界内。',
-    '- 进入 quality_gate 前必须提交 implementation_evidence：installResult、buildResult、impactEvidence。',
+    '- 进入 quality_gate 前必须提交已验证 PR 回执和 implementation_evidence：installResult、buildResult、testResult、impactEvidence。',
   ].join('\n'),
   peach: [
     IMPACT_ANALYSIS_PROTOCOL,

@@ -13,6 +13,9 @@ export type TaskActionType =
   | 'task.resumed'
   | 'task.artifact_attached'
   | 'task.review_requested'
+  | 'task.pull_request_submitted'
+  | 'task.review_recorded'
+  | 'task.pull_request_merged'
   | 'task.merge_requested'
   | 'task.merged'
   | 'task.reopened'
@@ -27,7 +30,7 @@ export type TaskEdgeType =
   | 'review_of'
   | 'reopens';
 
-export type ArtifactKind = 'file' | 'diff' | 'test' | 'doc' | 'design' | 'url' | 'log' | 'proof';
+export type ArtifactKind = 'file' | 'diff' | 'test' | 'doc' | 'design' | 'url' | 'log' | 'proof' | 'pull_request' | 'review' | 'merge';
 
 export interface TaskActionRow {
   id: string;

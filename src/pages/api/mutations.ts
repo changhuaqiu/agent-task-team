@@ -88,6 +88,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         const { publishTaskChangeNotification } = await import('@/server/task-flow/task-notification-publisher');
         const { proofLogRepo } = await import('@/server/repositories/proof-log-repo');
         const { evaluateTaskStatusEvidenceGate } = await import('@/server/task-flow/task-gate-evidence');
+        const { conversationRepo } = await import('@/server/repositories/conversation-repo');
+        const { taskGraphRepo } = await import('@/server/repositories/task-graph-repo');
         const { id, status, reviewNote, evidence, actorId, actorType } = payload as any;
         const previousTask = taskRepo.getById(id);
         const gateDecision = evaluateTaskStatusEvidenceGate({
@@ -95,6 +97,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
           nextStatus: status,
           actorId,
           evidence,
+          pullRequestRequired: Boolean(previousTask && conversationRepo.getById(previousTask.conversation_id)?.git_repo_root),
+          verifiedPullRequest: Boolean(previousTask && taskGraphRepo.listActionsForTask(id).some((action) => action.type === 'task.pull_request_submitted')),
         });
         if (!gateDecision.allowed) {
           proofLogRepo.append({
@@ -335,12 +339,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         } else if (toolName === 'task_update_status') {
           const { evaluateTaskStatusEvidenceGate } = await import('@/server/task-flow/task-gate-evidence');
           const { proofLogRepo } = await import('@/server/repositories/proof-log-repo');
+          const { conversationRepo } = await import('@/server/repositories/conversation-repo');
+          const { taskGraphRepo } = await import('@/server/repositories/task-graph-repo');
           const previousTask = taskRepo.getById(input.task_id);
           const gateDecision = evaluateTaskStatusEvidenceGate({
             task: previousTask,
             nextStatus: input.status,
             actorId: toolAgentId,
             evidence: input.evidence,
+            pullRequestRequired: Boolean(previousTask && conversationRepo.getById(previousTask.conversation_id)?.git_repo_root),
+            verifiedPullRequest: Boolean(previousTask && taskGraphRepo.listActionsForTask(input.task_id).some((action) => action.type === 'task.pull_request_submitted')),
           });
           if (!gateDecision.allowed) {
             proofLogRepo.append({
