@@ -1,4 +1,5 @@
 import type { TaskRow } from '../repositories/task-repo';
+import type { TaskActionRow } from '../repositories/task-graph-repo';
 
 export interface TaskGateEvidenceDecision {
   allowed: boolean;
@@ -20,6 +21,29 @@ export interface EvaluateTaskStatusEvidenceInput {
 }
 
 const EVIDENCE_REQUIRED_REASON = 'task_graph.gate_evidence_required';
+
+function actionPayload(action: Pick<TaskActionRow, 'payload'>): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(action.payload);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
+  } catch {
+    return {};
+  }
+}
+
+export function hasCurrentVerifiedMerge(actions: Array<Pick<TaskActionRow, 'id' | 'type' | 'payload'>>): boolean {
+  const pullRequestAction = actions.filter((action) => action.type === 'task.pull_request_submitted').at(-1);
+  const mergeAction = actions.filter((action) => action.type === 'task.pull_request_merged').at(-1);
+  if (!pullRequestAction || !mergeAction) return false;
+  const pullRequestReceipt = actionPayload(pullRequestAction).receipt as { headSha?: unknown } | undefined;
+  const mergePayload = actionPayload(mergeAction);
+  const mergeReceipt = mergePayload.receipt as { headSha?: unknown; mergeSha?: unknown } | undefined;
+  return mergePayload.pullRequestActionId === pullRequestAction.id
+    && typeof pullRequestReceipt?.headSha === 'string'
+    && mergeReceipt?.headSha === pullRequestReceipt.headSha
+    && typeof mergeReceipt.mergeSha === 'string'
+    && mergeReceipt.mergeSha.length > 0;
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);

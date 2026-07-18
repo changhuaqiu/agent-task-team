@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { evaluateTaskStatusEvidenceGate } from '@/server/task-flow/task-gate-evidence';
+import { evaluateTaskStatusEvidenceGate, hasCurrentVerifiedMerge } from '@/server/task-flow/task-gate-evidence';
 
 describe('task status evidence gates', () => {
   it('blocks review entry without implementation evidence', () => {
@@ -80,6 +80,15 @@ describe('task status evidence gates', () => {
     });
 
     expect(decision).toMatchObject({ allowed: false, missingFields: ['mergeReceipt'] });
+  });
+
+  it('accepts only a merge receipt linked to the latest PR action and exact head', () => {
+    const pr1 = { id: 'pr-1', type: 'task.pull_request_submitted' as const, payload: JSON.stringify({ receipt: { headSha: 'a' } }) };
+    const merge1 = { id: 'merge-1', type: 'task.pull_request_merged' as const, payload: JSON.stringify({ pullRequestActionId: 'pr-1', receipt: { headSha: 'a', mergeSha: 'm1' } }) };
+    expect(hasCurrentVerifiedMerge([pr1, merge1])).toBe(true);
+
+    const pr2 = { id: 'pr-2', type: 'task.pull_request_submitted' as const, payload: JSON.stringify({ receipt: { headSha: 'b' } }) };
+    expect(hasCurrentVerifiedMerge([pr1, merge1, pr2])).toBe(false);
   });
 });
 

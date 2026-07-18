@@ -87,7 +87,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         const { taskRepo } = await import('@/server/repositories/task-repo');
         const { publishTaskChangeNotification } = await import('@/server/task-flow/task-notification-publisher');
         const { proofLogRepo } = await import('@/server/repositories/proof-log-repo');
-        const { evaluateTaskStatusEvidenceGate } = await import('@/server/task-flow/task-gate-evidence');
+        const { evaluateTaskStatusEvidenceGate, hasCurrentVerifiedMerge } = await import('@/server/task-flow/task-gate-evidence');
         const { conversationRepo } = await import('@/server/repositories/conversation-repo');
         const { taskGraphRepo } = await import('@/server/repositories/task-graph-repo');
         const { id, status, reviewNote, evidence, actorId, actorType } = payload as any;
@@ -99,7 +99,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
           evidence,
           pullRequestRequired: Boolean(previousTask && conversationRepo.getById(previousTask.conversation_id)?.git_repo_root),
           verifiedPullRequest: Boolean(previousTask && taskGraphRepo.listActionsForTask(id).some((action) => action.type === 'task.pull_request_submitted')),
-          verifiedMerge: Boolean(previousTask && taskGraphRepo.listActionsForTask(id).some((action) => action.type === 'task.pull_request_merged')),
+          verifiedMerge: Boolean(previousTask && hasCurrentVerifiedMerge(taskGraphRepo.listActionsForTask(id))),
         });
         if (!gateDecision.allowed) {
           proofLogRepo.append({
@@ -338,7 +338,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
           result = task;
         } else if (toolName === 'task_update_status') {
-          const { evaluateTaskStatusEvidenceGate } = await import('@/server/task-flow/task-gate-evidence');
+          const { evaluateTaskStatusEvidenceGate, hasCurrentVerifiedMerge } = await import('@/server/task-flow/task-gate-evidence');
           const { proofLogRepo } = await import('@/server/repositories/proof-log-repo');
           const { conversationRepo } = await import('@/server/repositories/conversation-repo');
           const { taskGraphRepo } = await import('@/server/repositories/task-graph-repo');
@@ -350,7 +350,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
             evidence: input.evidence,
             pullRequestRequired: Boolean(previousTask && conversationRepo.getById(previousTask.conversation_id)?.git_repo_root),
             verifiedPullRequest: Boolean(previousTask && taskGraphRepo.listActionsForTask(input.task_id).some((action) => action.type === 'task.pull_request_submitted')),
-            verifiedMerge: Boolean(previousTask && taskGraphRepo.listActionsForTask(input.task_id).some((action) => action.type === 'task.pull_request_merged')),
+            verifiedMerge: Boolean(previousTask && hasCurrentVerifiedMerge(taskGraphRepo.listActionsForTask(input.task_id))),
           });
           if (!gateDecision.allowed) {
             proofLogRepo.append({

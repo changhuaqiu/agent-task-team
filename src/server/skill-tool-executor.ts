@@ -7,7 +7,7 @@ import { eventRepo } from './repositories/event-repo';
 import { isSkillTool } from './skill-tool-router';
 import { join } from 'node:path';
 import { proofLogRepo } from './repositories/proof-log-repo';
-import { evaluateTaskStatusEvidenceGate } from './task-flow/task-gate-evidence';
+import { evaluateTaskStatusEvidenceGate, hasCurrentVerifiedMerge } from './task-flow/task-gate-evidence';
 import { conversationRepo } from './repositories/conversation-repo';
 import { taskGraphRepo } from './repositories/task-graph-repo';
 import { EngineeringCollaborationService } from './engineering-collaboration/service';
@@ -156,7 +156,7 @@ function executeTaskUpdateStatus(invocation: ToolInvocation): ToolResult {
     evidence,
     pullRequestRequired: Boolean(conversationRepo.getById(existing.conversation_id)?.git_repo_root),
     verifiedPullRequest: taskGraphRepo.listActionsForTask(taskId).some((action) => action.type === 'task.pull_request_submitted'),
-    verifiedMerge: taskGraphRepo.listActionsForTask(taskId).some((action) => action.type === 'task.pull_request_merged'),
+    verifiedMerge: hasCurrentVerifiedMerge(taskGraphRepo.listActionsForTask(taskId)),
   });
   if (!gateDecision.allowed) {
     proofLogRepo.append({
