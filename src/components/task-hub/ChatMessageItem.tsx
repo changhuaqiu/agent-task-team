@@ -1,7 +1,6 @@
 'use client';
 
-import { useTaskHubStore, selectActiveAgents, selectAvailableRoster, type ChatMessage } from '@/store/taskHubStore';
-import { useShallow } from 'zustand/react/shallow';
+import { useTaskHubStore, type ChatMessage } from '@/store/taskHubStore';
 import { useMemo, useState } from 'react';
 import { PixelAvatar } from './PixelAvatar';
 import { CliOutputBlock } from './CliOutputBlock';

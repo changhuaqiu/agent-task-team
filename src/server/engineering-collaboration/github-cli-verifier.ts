@@ -181,12 +181,13 @@ export class GhCliGitProviderVerifier implements GitProviderVerifier {
       };
     }
     const comment = raw.comments?.find((item) => item.url === input.reviewUrl || input.reviewUrl.endsWith(String(item.id ?? '')));
-    if (comment && providerCommentAppliesToHead({ commentCreatedAt: comment.createdAt, headSha: raw.headRefOid, commits: raw.commits })) {
+    const headSha = raw.headRefOid;
+    if (comment && headSha && providerCommentAppliesToHead({ commentCreatedAt: comment.createdAt, headSha, commits: raw.commits })) {
       return {
         provider: 'github', repository: identity.repository, pullRequestNumber: identity.number,
         pullRequestUrl: input.pullRequestUrl, reviewId: comment.id ?? input.reviewUrl,
         reviewUrl: comment.url ?? input.reviewUrl, providerActor: comment.author?.login ?? 'unknown',
-        decision: 'commented', headSha: raw.headRefOid,
+        decision: 'commented', headSha,
         submittedAt: comment.createdAt ?? new Date().toISOString(), verifiedAt: new Date().toISOString(),
       };
     }

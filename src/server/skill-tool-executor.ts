@@ -5,7 +5,7 @@ import { taskRepo } from './repositories/task-repo';
 import type { TaskRow } from './repositories/task-repo';
 import { eventRepo } from './repositories/event-repo';
 import { isSkillTool } from './skill-tool-router';
-import { generateSortableId } from './repositories/sortable-id';
+import { join } from 'node:path';
 import { proofLogRepo } from './repositories/proof-log-repo';
 import { evaluateTaskStatusEvidenceGate } from './task-flow/task-gate-evidence';
 import { conversationRepo } from './repositories/conversation-repo';
@@ -13,6 +13,7 @@ import { taskGraphRepo } from './repositories/task-graph-repo';
 import { EngineeringCollaborationService } from './engineering-collaboration/service';
 import { GhCliGitProviderVerifier } from './engineering-collaboration/github-cli-verifier';
 import type { ImplementationEvidence, MergeEvidence, ReviewEvidence } from '@/lib/engineering-collaboration/types';
+import { readTasksMd, updateTaskInMd, writeTasksMd } from './task-file-service';
 
 // ── Types ──────────────────────────────────────
 
@@ -112,8 +113,6 @@ function executeTaskCreate(invocation: ToolInvocation): ToolResult {
 
   // Also write to TASKS.md
   try {
-    const { readTasksMd, writeTasksMd } = require('./task-file-service');
-    const { join } = require('path');
     const wsRoot = process.env.ATH_WORKSPACES_ROOT || join(process.cwd(), '.ath', 'workspaces');
     const projectDir = join(wsRoot, invocation.conversationId || 'default');
     const role = (invocation.input.role as string) || 'worker';
@@ -189,8 +188,6 @@ function executeTaskUpdateStatus(invocation: ToolInvocation): ToolResult {
 
   // Also update TASKS.md
   try {
-    const { updateTaskInMd } = require('./task-file-service');
-    const { join } = require('path');
     const wsRoot = process.env.ATH_WORKSPACES_ROOT || join(process.cwd(), '.ath', 'workspaces');
     const projectDir = join(wsRoot, existing.conversation_id || 'default');
     const STATUS_FILE: Record<string, string> = {
