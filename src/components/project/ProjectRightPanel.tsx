@@ -183,7 +183,7 @@ export function ProjectRightPanel({ teamPackId }: { teamPackId: string }) {
           </div>
 
           {/* Tab Content */}
-          <Tabs value={activeTab} onValueChange={handleTabChange} className="flex-1 flex flex-col">
+          <Tabs value={activeTab} onValueChange={handleTabChange} className="flex-1 min-h-0 flex flex-col">
             <TabsList className="shrink-0 px-4 py-2 border-b border-[hsl(var(--border-subtle))] bg-[hsl(var(--bg-card))]">
               {tabs.map((tab) => (
                 <TabsTrigger key={tab.value} value={tab.value} count={tab.count}>

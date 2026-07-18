@@ -170,7 +170,7 @@ export function ProjectObservabilityPanel({ conversationId }: { conversationId?:
                   {payloads && payloads.length === 0 && <div className="text-[9px] text-[hsl(var(--text-tertiary))]">该 span 无明细 payload</div>}
                   {payloads?.map((payload) => <div key={`${payload.role}:${payload.seq}`} className="mb-1.5 last:mb-0">
                     <div className="flex items-center gap-1.5 text-[8px] font-semibold text-[hsl(var(--text-secondary))]"><span>{payloadLabel(payload.role)}</span>{Boolean(payload.truncated) && <span className="rounded bg-amber-500/10 px-1 text-[7px] text-amber-600">已截断</span>}</div>
-                    <pre className="mt-0.5 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded border border-[hsl(var(--border-subtle))] bg-[hsl(var(--bg-muted))] p-1.5 text-[8px] leading-relaxed text-[hsl(var(--text-secondary))]}">{payload.content}</pre>
+                    <pre className="mt-0.5 whitespace-pre-wrap break-words rounded border border-[hsl(var(--border-subtle))] bg-[hsl(var(--bg-muted))] p-1.5 text-[8px] leading-relaxed text-[hsl(var(--text-secondary))]">{payload.content}</pre>
                   </div>)}
                 </div> : null;
               })()}
