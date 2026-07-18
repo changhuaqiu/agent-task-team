@@ -19,6 +19,7 @@ import type { GitProviderVerifier } from './git-provider';
 
 export type EngineeringCollaborationReasonCode =
   | 'task_not_found'
+  | 'task_conversation_mismatch'
   | 'task_actor_mismatch'
   | 'task_not_reviewable'
   | 'pull_request_not_open'
@@ -59,6 +60,12 @@ function latestPullRequestAction(taskId: string): TaskActionRow | undefined {
   return taskGraphRepo.listActionsForTask(taskId)
     .filter((action) => action.type === 'task.pull_request_submitted')
     .at(-1);
+}
+
+function assertConversation(task: TaskRow, expectedConversationId: string | undefined): void {
+  if (expectedConversationId !== undefined && task.conversation_id !== expectedConversationId) {
+    throw new EngineeringCollaborationError('task_conversation_mismatch', `Task ${task.id} does not belong to the invoking conversation`);
+  }
 }
 
 function gitRepoRoot(task: TaskRow): string {
@@ -128,11 +135,13 @@ export class EngineeringCollaborationService {
 
   async recordPullRequest(input: {
     taskId: string;
+    expectedConversationId?: string;
     actorAgentId: string;
     pullRequestUrl: string;
     evidence: ImplementationEvidence;
   }): Promise<{ receipt: PullRequestReceipt; card: EngineeringCollaborationCard; messageId: string }> {
     const task = assertTask(input.taskId);
+    assertConversation(task, input.expectedConversationId);
     if (task.agent_id !== input.actorAgentId) {
       throw new EngineeringCollaborationError('task_actor_mismatch', 'Only the task implementer can submit its pull request');
     }
@@ -240,12 +249,14 @@ export class EngineeringCollaborationService {
 
   async recordReview(input: {
     taskId: string;
+    expectedConversationId?: string;
     actorAgentId: string;
     pullRequestUrl: string;
     reviewUrl: string;
     evidence: ReviewEvidence;
   }): Promise<{ receipt: ReviewReceipt; card: EngineeringCollaborationCard; messageId: string }> {
     const task = assertTask(input.taskId);
+    assertConversation(task, input.expectedConversationId);
     if (task.status !== 'in_review') {
       throw new EngineeringCollaborationError('task_not_reviewable', `Task ${task.id} is not in review`);
     }
@@ -340,11 +351,13 @@ export class EngineeringCollaborationService {
 
   async recordMerge(input: {
     taskId: string;
+    expectedConversationId?: string;
     actorAgentId: string;
     pullRequestUrl: string;
     evidence: MergeEvidence;
   }): Promise<{ receipt: MergeReceipt; card: EngineeringCollaborationCard; messageId: string }> {
     const task = assertTask(input.taskId);
+    assertConversation(task, input.expectedConversationId);
     if (task.status !== 'in_review') {
       throw new EngineeringCollaborationError('task_not_reviewable', `Task ${task.id} is not awaiting merge`);
     }

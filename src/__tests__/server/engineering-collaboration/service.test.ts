@@ -92,7 +92,9 @@ describe('EngineeringCollaborationService', () => {
   });
 
   it('records a real quality-gate review and returns rejected work to the implementer', async () => {
-    const service = new EngineeringCollaborationService(verifier());
+    const emit = vi.fn();
+    const to = vi.fn(() => ({ emit }));
+    const service = new EngineeringCollaborationService(verifier(), { to } as never);
     await service.recordPullRequest({
       taskId: 'TASK-PR', actorAgentId: 'luigi', pullRequestUrl: pullRequest.url,
       evidence: { installResult: 'ok', buildResult: 'ok', testResult: 'ok', impactEvidence: 'ok' },
@@ -111,6 +113,12 @@ describe('EngineeringCollaborationService', () => {
     expect(JSON.parse(messageRepo.getById(result.messageId)!.metadata!)).toMatchObject({ collaborationCard: {
       kind: 'review', receipt: { decision: 'changes_requested', headSha: pullRequest.headSha },
     } });
+    expect(emit).toHaveBeenCalledWith('task.wakeup', expect.objectContaining({
+      taskId: 'TASK-PR', agentId: 'peach', reasonCode: 'review_requested',
+    }));
+    expect(emit).toHaveBeenCalledWith('task.wakeup', expect.objectContaining({
+      taskId: 'TASK-PR', agentId: 'luigi', reasonCode: 'review_rejected',
+    }));
   });
 
   it('fails closed when a review targets a different head SHA', async () => {
@@ -149,21 +157,6 @@ describe('EngineeringCollaborationService', () => {
       evidence: { installResult: 'ok', buildResult: 'ok', testResult: 'ok', impactEvidence: 'ok' },
     })).rejects.toMatchObject<Partial<EngineeringCollaborationError>>({ reasonCode: 'pull_request_checks_failed' });
     expect(taskRepo.getById('TASK-PR')?.status).toBe('in_progress');
-  });
-
-  it('emits the PR review wakeup through the injected server coordinator boundary', async () => {
-    const emit = vi.fn();
-    const to = vi.fn(() => ({ emit }));
-    const service = new EngineeringCollaborationService(verifier(), { to } as never);
-    await service.recordPullRequest({
-      taskId: 'TASK-PR', actorAgentId: 'luigi', pullRequestUrl: pullRequest.url,
-      evidence: { installResult: 'ok', buildResult: 'ok', testResult: 'ok', impactEvidence: 'ok' },
-    });
-
-    expect(to).toHaveBeenCalledWith('conv-pr-loop');
-    expect(emit).toHaveBeenCalledWith('task.wakeup', expect.objectContaining({
-      taskId: 'TASK-PR', agentId: 'peach', reasonCode: 'review_requested',
-    }));
   });
 
   it('records a new head on the same PR and publishes the previous review as stale', async () => {

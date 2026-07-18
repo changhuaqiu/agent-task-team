@@ -32,7 +32,7 @@ interface EngineeringCollaborationService {
 
 Git Collaboration Skill 暴露三个结构化入口：`collaboration_record_pr`、`collaboration_record_review`、`collaboration_record_merge`。它们直接进入同一个服务边界；Agent 不能用普通状态更新模拟 provider 回执。
 
-生产 Agent 身份来自 daemon/Harness 的已绑定 invocation，服务把同一 `io` coordinator 注入通知边界以提交 wakeup。HTTP receipt endpoint 只供开发/E2E；生产环境默认返回 404，避免请求体中的 `actorAgentId` 成为身份源。
+生产 Agent 身份和 conversation scope 来自 daemon/Harness 的已绑定 invocation，服务把同一 `io` coordinator 注入通知边界以提交 wakeup。HTTP receipt endpoint 只供开发/E2E；生产环境默认返回 404，即使显式启用也只接受 loopback，避免请求体中的 `actorAgentId` 成为远程身份源。
 
 ## 事实源
 

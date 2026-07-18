@@ -50,7 +50,9 @@ function mergeEvidence(value: unknown): MergeEvidence | undefined {
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (process.env.NODE_ENV === 'production' && process.env.ATH_ENABLE_COLLABORATION_TEST_API !== '1') {
+  const remoteAddress = req.socket.remoteAddress ?? '';
+  const loopback = remoteAddress === '::1' || remoteAddress === '127.0.0.1' || remoteAddress === '::ffff:127.0.0.1';
+  if (process.env.NODE_ENV === 'production' && (process.env.ATH_ENABLE_COLLABORATION_TEST_API !== '1' || !loopback)) {
     return res.status(404).json({ error: 'Not found' });
   }
   if (req.method !== 'POST') {
@@ -60,10 +62,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (!isRecord(req.body)) return res.status(400).json({ error: 'Invalid request body' });
   const kind = text(req.body.kind);
   const taskId = text(req.body.taskId);
+  const conversationId = text(req.body.conversationId);
   const actorAgentId = text(req.body.actorAgentId);
   const pullRequestUrl = text(req.body.pullRequestUrl);
-  if (!taskId || !actorAgentId || !pullRequestUrl) {
-    return res.status(400).json({ error: 'taskId, actorAgentId and pullRequestUrl are required' });
+  if (!taskId || !conversationId || !actorAgentId || !pullRequestUrl) {
+    return res.status(400).json({ error: 'taskId, conversationId, actorAgentId and pullRequestUrl are required' });
   }
 
   const service = new EngineeringCollaborationService(new GhCliGitProviderVerifier(), (res.socket as typeof res.socket & { server?: { io?: import('socket.io').Server } }).server?.io);
@@ -71,20 +74,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (kind === 'pull_request') {
       const evidence = implementationEvidence(req.body.evidence);
       if (!evidence) return res.status(400).json({ error: 'Complete implementation evidence is required' });
-      const result = await service.recordPullRequest({ taskId, actorAgentId, pullRequestUrl, evidence });
+      const result = await service.recordPullRequest({ taskId, expectedConversationId: conversationId, actorAgentId, pullRequestUrl, evidence });
       return res.status(201).json(result);
     }
     if (kind === 'review') {
       const reviewUrl = text(req.body.reviewUrl);
       const evidence = reviewEvidence(req.body.evidence);
       if (!reviewUrl || !evidence) return res.status(400).json({ error: 'reviewUrl and complete review evidence are required' });
-      const result = await service.recordReview({ taskId, actorAgentId, pullRequestUrl, reviewUrl, evidence });
+      const result = await service.recordReview({ taskId, expectedConversationId: conversationId, actorAgentId, pullRequestUrl, reviewUrl, evidence });
       return res.status(201).json(result);
     }
     if (kind === 'merge') {
       const evidence = mergeEvidence(req.body.evidence);
       if (!evidence) return res.status(400).json({ error: 'Complete main-branch delivery evidence is required' });
-      const result = await service.recordMerge({ taskId, actorAgentId, pullRequestUrl, evidence });
+      const result = await service.recordMerge({ taskId, expectedConversationId: conversationId, actorAgentId, pullRequestUrl, evidence });
       return res.status(201).json(result);
     }
     return res.status(400).json({ error: 'kind must be pull_request, review or merge' });
