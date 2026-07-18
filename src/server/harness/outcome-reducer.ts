@@ -1,6 +1,7 @@
 import type { Server as IOServer } from 'socket.io';
 import { proofLogRepo } from '../repositories/proof-log-repo';
 import { taskRepo } from '../repositories/task-repo';
+import { updateTaskInMd } from '../task-file-service';
 import type { TaskWakeup } from '../task-flow/task-wakeup';
 
 /**
@@ -16,6 +17,36 @@ export async function reduceAcceptedWakeup(io: IOServer, wakeup: TaskWakeup): Pr
   taskRepo.updateStatus(wakeup.taskId, 'in_progress');
   const task = taskRepo.getById(wakeup.taskId);
   if (!task) return;
+  let projected = false;
+  let projectionFailureCause = task.work_dir ? 'task_entry_missing' : 'work_dir_missing';
+  if (task.work_dir) {
+    try {
+      projected = updateTaskInMd(task.work_dir, wakeup.taskId, { status: 'in_progress' });
+    } catch (error) {
+      projectionFailureCause = error instanceof Error ? error.message : String(error);
+    }
+  }
+  if (!projected) {
+    proofLogRepo.append({
+      eventType: 'task_graph.runtime_projection.failed',
+      conversationId: wakeup.conversationId,
+      taskId: wakeup.taskId,
+      agentId: wakeup.agentId,
+      actorId: 'platform-harness',
+      reasonCode: 'runtime_projection_failed',
+      metadata: {
+        taskProjectDir: task.work_dir,
+        status: 'in_progress',
+        failureCause: projectionFailureCause,
+      },
+    });
+    io.to(wakeup.conversationId).emit('task.sync_error', {
+      conversationId: wakeup.conversationId,
+      taskId: wakeup.taskId,
+      reasonCode: 'runtime_projection_failed',
+      message: 'Task dispatch was accepted, but the runtime TASKS.md projection needs reconciliation.',
+    });
+  }
   proofLogRepo.append({
     eventType: 'harness.task.started',
     conversationId: wakeup.conversationId,

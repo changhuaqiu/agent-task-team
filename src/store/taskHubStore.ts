@@ -2555,20 +2555,6 @@ socket.on('task.sync', ({ projectPath, conversationId, tasks: syncedTasks, block
   }
 });
 
-socket.on('task.ready', ({ taskId, agentId }: { taskId: string; agentId: string }) => {
-  const store = useTaskHubStore.getState();
-  const task = store.getTaskById(taskId);
-  if (!task || task.status !== 'pending') return;
-
-  store.updateTaskStatus(taskId, 'in_progress');
-  store.dispatchToAgent({
-    agentId,
-    referencedTaskId: taskId,
-    source: 'workflow',
-    prompt: `依赖已满足，开始执行 ${taskId}: ${task.title}. ${task.description || ''}`,
-  });
-});
-
 socket.on('task.sync_error', ({ conversationId, message }: { conversationId: string; message: string }) => {
   useTaskHubStore.setState({
     taskSyncError: { message, timestamp: new Date().toISOString(), conversationId },

@@ -1,7 +1,7 @@
 import { watch } from 'chokidar';
 import type { FSWatcher } from 'chokidar';
 import { existsSync, readFileSync } from 'node:fs';
-import { basename, join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { readTasksMd, updateTaskInMd } from './task-file-service';
 import { taskRepo } from './repositories/task-repo';
 import { invocationRepo } from './repositories/invocation-repo';
@@ -12,12 +12,12 @@ import { hasCurrentVerifiedMerge } from './task-flow/task-gate-evidence';
 import { publishTaskChangeNotification } from './task-flow/task-notification-publisher';
 import type { Server as IOServer } from 'socket.io';
 
-function conversationIdFromPath(projectPath: string): string {
-  return basename(projectPath);
-}
-
 const watchers = new Map<string, FSWatcher>();
 const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+function watcherKey(projectPath: string, conversationId: string): string {
+  return `${conversationId}\0${resolve(projectPath)}`;
+}
 
 function normalizeDependencyList(value: string | null | undefined): string {
   if (!value) return '[]';
@@ -101,8 +101,9 @@ function rejectGitProjectionTransition(input: {
   updateTaskInMd(input.projectPath, input.localTaskId, { status: input.authoritativeStatus });
 }
 
-export function startTaskWatcher(projectPath: string, io: IOServer): void {
-  if (watchers.has(projectPath)) return;
+export function startTaskWatcher(projectPath: string, conversationId: string, io: IOServer): void {
+  const key = watcherKey(projectPath, conversationId);
+  if (watchers.has(key)) return;
 
   const tasksFile = `${projectPath}/.ath/TASKS.md`;
   const watcher = watch(tasksFile, {
@@ -114,10 +115,10 @@ export function startTaskWatcher(projectPath: string, io: IOServer): void {
   });
 
   const scheduleSync = () => {
-    if (debounceTimers.has(projectPath)) clearTimeout(debounceTimers.get(projectPath)!);
-    debounceTimers.set(projectPath, setTimeout(() => {
-      debounceTimers.delete(projectPath);
-      syncTasksToDb(projectPath, io);
+    if (debounceTimers.has(key)) clearTimeout(debounceTimers.get(key)!);
+    debounceTimers.set(key, setTimeout(() => {
+      debounceTimers.delete(key);
+      syncTasksToDb(projectPath, conversationId, io);
     }, 500));
   };
 
@@ -125,23 +126,24 @@ export function startTaskWatcher(projectPath: string, io: IOServer): void {
   watcher.on('add', scheduleSync);
   watcher.on('change', scheduleSync);
 
-  watchers.set(projectPath, watcher);
+  watchers.set(key, watcher);
 }
 
-export function stopTaskWatcher(projectPath: string): void {
-  const watcher = watchers.get(projectPath);
+export function stopTaskWatcher(projectPath: string, conversationId: string): void {
+  const key = watcherKey(projectPath, conversationId);
+  const watcher = watchers.get(key);
   if (watcher) {
     watcher.close();
-    watchers.delete(projectPath);
+    watchers.delete(key);
   }
-  const timer = debounceTimers.get(projectPath);
+  const timer = debounceTimers.get(key);
   if (timer) {
     clearTimeout(timer);
-    debounceTimers.delete(projectPath);
+    debounceTimers.delete(key);
   }
 }
 
-export function syncTasksToDb(projectPath: string, io: IOServer): void {
+export function syncTasksToDb(projectPath: string, conversationId: string, io: IOServer): void {
   const tasksFile = join(projectPath, '.ath', 'TASKS.md');
 
   const { tasks: parsed, blockers } = readTasksMd(projectPath);
@@ -153,7 +155,6 @@ export function syncTasksToDb(projectPath: string, io: IOServer): void {
       const nonEmptyLines = raw.split('\n').filter((l: string) => l.trim().length > 0);
       if (nonEmptyLines.length > 2) {
         console.warn(`[task-watcher] TASKS.md has ${nonEmptyLines.length} lines but parsed 0 tasks — possible format issue at ${tasksFile}`);
-        const conversationId = conversationIdFromPath(projectPath);
         io.to(conversationId).emit('task.sync_error', {
           projectPath,
           conversationId,
@@ -165,7 +166,6 @@ export function syncTasksToDb(projectPath: string, io: IOServer): void {
     if (blockers.length === 0) return;
   }
 
-  const conversationId = conversationIdFromPath(projectPath);
   const storageIds = resolveTaskStorageIds(conversationId, parsed.map((task) => task.id));
 
   for (const t of parsed) {
@@ -278,5 +278,23 @@ export function syncTasksToDb(projectPath: string, io: IOServer): void {
     }
   }
 
-  io.to(conversationId).emit('task.sync', { projectPath, conversationId, tasks: parsed, blockers });
+  const authoritativeTasks = parsed.map((task) => {
+    const storageId = storageIds.get(task.id)!;
+    const authoritative = taskRepo.getById(storageId);
+    if (!authoritative) return task;
+    return {
+      ...task,
+      title: authoritative.title,
+      deliverable: authoritative.description ?? '',
+      status: authoritative.status,
+      agent: authoritative.agent_id ?? '',
+    };
+  });
+
+  io.to(conversationId).emit('task.sync', {
+    projectPath,
+    conversationId,
+    tasks: authoritativeTasks,
+    blockers,
+  });
 }

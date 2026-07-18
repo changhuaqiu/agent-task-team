@@ -94,6 +94,122 @@ describe('WorktreeManager', () => {
     }
   });
 
+  it('migrates a legacy registered worktree instead of recreating its existing branch', async () => {
+    const legacy = await manager.createWorktree('conv-migrate');
+    await execAsync('git commit --allow-empty -m "new baseline"', { cwd: testRepo });
+    const currentHead = await WorktreeManager.getHead(testRepo);
+    const storageRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'worktree-migrated-storage-'));
+    try {
+      const scopedManager = new WorktreeManager(testRepo, storageRoot);
+      const migrated = await scopedManager.createWorktree('conv-migrate', currentHead!);
+
+      expect(fs.existsSync(legacy.path)).toBe(false);
+      expect(path.dirname(migrated.path)).toBe(fs.realpathSync(storageRoot));
+      expect(migrated.branch).toBe(`${BRANCH_PREFIX}/conv-migrate`);
+      expect(migrated.head).toBe(currentHead);
+    } finally {
+      fs.rmSync(storageRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('fails closed when a dirty legacy worktree would need a baseline fast-forward', async () => {
+    fs.writeFileSync(path.join(testRepo, 'tracked.txt'), 'base');
+    await execAsync('git add tracked.txt && git commit -m "tracked base"', { cwd: testRepo });
+    const legacy = await manager.createWorktree('conv-dirty');
+    fs.writeFileSync(path.join(legacy.path, 'tracked.txt'), 'local change');
+    await execAsync('git commit --allow-empty -m "new baseline"', { cwd: testRepo });
+    const currentHead = await WorktreeManager.getHead(testRepo);
+    const storageRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'worktree-dirty-storage-'));
+    try {
+      const scopedManager = new WorktreeManager(testRepo, storageRoot);
+      await expect(scopedManager.createWorktree('conv-dirty', currentHead!))
+        .rejects.toThrow('legacy_worktree_dirty');
+      expect(fs.existsSync(legacy.path)).toBe(true);
+      expect(fs.existsSync(path.join(storageRoot, 'conv-dirty'))).toBe(false);
+    } finally {
+      fs.rmSync(storageRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('preserves committed history that is ahead of the requested baseline', async () => {
+    const baseline = await WorktreeManager.getHead(testRepo);
+    const legacy = await manager.createWorktree('conv-ahead');
+    await execAsync('git commit --allow-empty -m "conversation work"', { cwd: legacy.path });
+    const aheadHead = await WorktreeManager.getHead(legacy.path);
+    const storageRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'worktree-ahead-storage-'));
+    try {
+      const migrated = await new WorktreeManager(testRepo, storageRoot)
+        .createWorktree('conv-ahead', baseline!);
+      expect(migrated.head).toBe(aheadHead);
+      expect(fs.existsSync(legacy.path)).toBe(false);
+    } finally {
+      fs.rmSync(storageRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('fails closed without moving a diverged legacy worktree', async () => {
+    const legacy = await manager.createWorktree('conv-diverged');
+    await execAsync('git commit --allow-empty -m "conversation work"', { cwd: legacy.path });
+    await execAsync('git commit --allow-empty -m "new incompatible baseline"', { cwd: testRepo });
+    const currentHead = await WorktreeManager.getHead(testRepo);
+    const legacyHead = await WorktreeManager.getHead(legacy.path);
+    const storageRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'worktree-diverged-storage-'));
+    try {
+      const scopedManager = new WorktreeManager(testRepo, storageRoot);
+      await expect(scopedManager.createWorktree('conv-diverged', currentHead!))
+        .rejects.toThrow('worktree_history_diverged');
+      expect(await WorktreeManager.getHead(legacy.path)).toBe(legacyHead);
+      expect(fs.existsSync(path.join(storageRoot, 'conv-diverged'))).toBe(false);
+    } finally {
+      fs.rmSync(storageRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('attaches an existing unregistered conversation branch', async () => {
+    const currentHead = await WorktreeManager.getHead(testRepo);
+    await execAsync(`git branch "${BRANCH_PREFIX}/conv-unregistered" "${currentHead}"`, { cwd: testRepo });
+    const storageRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'worktree-unregistered-storage-'));
+    try {
+      const attached = await new WorktreeManager(testRepo, storageRoot)
+        .createWorktree('conv-unregistered', currentHead!);
+      expect(attached.branch).toBe(`${BRANCH_PREFIX}/conv-unregistered`);
+      expect(attached.head).toBe(currentHead);
+    } finally {
+      fs.rmSync(storageRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('fails closed when the matching legacy worktree is detached', async () => {
+    const legacy = await manager.createWorktree('conv-detached');
+    await execAsync('git checkout --detach', { cwd: legacy.path });
+    const currentHead = await WorktreeManager.getHead(testRepo);
+    const storageRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'worktree-detached-storage-'));
+    try {
+      const scopedManager = new WorktreeManager(testRepo, storageRoot);
+      await expect(scopedManager.createWorktree('conv-detached', currentHead!))
+        .rejects.toThrow('legacy_worktree_detached');
+      expect(fs.existsSync(legacy.path)).toBe(true);
+      expect(fs.existsSync(path.join(storageRoot, 'conv-detached'))).toBe(false);
+    } finally {
+      fs.rmSync(storageRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('moves a dirty legacy worktree without losing edits when no fast-forward is needed', async () => {
+    const legacy = await manager.createWorktree('conv-dirty-equal');
+    fs.writeFileSync(path.join(legacy.path, 'uncommitted.txt'), 'preserve me');
+    const currentHead = await WorktreeManager.getHead(testRepo);
+    const storageRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'worktree-dirty-equal-storage-'));
+    try {
+      const migrated = await new WorktreeManager(testRepo, storageRoot)
+        .createWorktree('conv-dirty-equal', currentHead!);
+      expect(fs.readFileSync(path.join(migrated.path, 'uncommitted.txt'), 'utf8')).toBe('preserve me');
+      expect(fs.existsSync(legacy.path)).toBe(false);
+    } finally {
+      fs.rmSync(storageRoot, { recursive: true, force: true });
+    }
+  });
+
   it('should only list worktrees under .worktrees directory', async () => {
     await manager.createWorktree('conv-filter');
     const worktrees = await manager.listWorktrees();

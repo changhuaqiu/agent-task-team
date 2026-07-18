@@ -21,12 +21,13 @@ beforeEach(() => {
   setTestDb(createTestDb());
   resetSeq();
   conversationRepo.create({ id: 'conv-1', title: 'Watcher Conv' });
-  projectPath = join(tmpdir(), `ath-task-watcher-${Date.now()}-${Math.random().toString(36).slice(2)}`, 'conv-1');
+  projectPath = join(tmpdir(), `ath-task-watcher-${Date.now()}-${Math.random().toString(36).slice(2)}`, 'runtime-dir');
   mkdirSync(join(projectPath, '.ath'), { recursive: true });
 });
 
 afterEach(() => {
-  stopTaskWatcher(projectPath);
+  stopTaskWatcher(projectPath, 'conv-1');
+  stopTaskWatcher(projectPath, 'conv-other');
   rmSync(projectPath, { recursive: true, force: true });
   resetDb();
   resetSeq();
@@ -46,7 +47,7 @@ describe('syncTasksToDb', () => {
     const emit = vi.fn();
     const io = { to: vi.fn(() => ({ emit })), emit: vi.fn() };
 
-    startTaskWatcher(projectPath, io as unknown as IOServer);
+    startTaskWatcher(projectPath, 'conv-1', io as unknown as IOServer);
     await new Promise(resolve => setTimeout(resolve, 100));
     writeTasksMd('doing');
 
@@ -74,7 +75,7 @@ describe('syncTasksToDb', () => {
     const emit = vi.fn();
     const io = { to: vi.fn(() => ({ emit })), emit: vi.fn() };
 
-    startTaskWatcher(projectPath, io as unknown as IOServer);
+    startTaskWatcher(projectPath, 'conv-1', io as unknown as IOServer);
 
     const deadline = Date.now() + 5_000;
     while (!taskRepo.getById('TASK-003') && Date.now() < deadline) {
@@ -106,7 +107,7 @@ describe('syncTasksToDb', () => {
     const emit = vi.fn();
     const io = { to: vi.fn(() => ({ emit })), emit: vi.fn() };
 
-    syncTasksToDb(projectPath, io as unknown as IOServer);
+    syncTasksToDb(projectPath, 'conv-1', io as unknown as IOServer);
 
     const updated = taskRepo.getById('TASK-003')!;
     expect(updated.status).toBe('in_review');
@@ -127,6 +128,33 @@ describe('syncTasksToDb', () => {
     }));
   });
 
+  it('keeps watcher identity explicit when two conversations share a runtime path', async () => {
+    conversationRepo.create({ id: 'conv-other', title: 'Other watcher conversation' });
+    const emitOne = vi.fn();
+    const emitOther = vi.fn();
+    const ioOne = { to: vi.fn(() => ({ emit: emitOne })), emit: vi.fn() };
+    const ioOther = { to: vi.fn(() => ({ emit: emitOther })), emit: vi.fn() };
+
+    startTaskWatcher(projectPath, 'conv-1', ioOne as unknown as IOServer);
+    await new Promise(resolve => setTimeout(resolve, 100));
+    writeTasksMd('todo');
+
+    const firstDeadline = Date.now() + 5_000;
+    while (!taskRepo.getByConversation('conv-1').length && Date.now() < firstDeadline) {
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    startTaskWatcher(projectPath, 'conv-other', ioOther as unknown as IOServer);
+    const secondDeadline = Date.now() + 5_000;
+    while (!taskRepo.getByConversation('conv-other').length && Date.now() < secondDeadline) {
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+
+    expect(ioOne.to).toHaveBeenCalledWith('conv-1');
+    expect(ioOther.to).toHaveBeenCalledWith('conv-other');
+    expect(taskRepo.getByConversation('conv-1')).toHaveLength(1);
+    expect(taskRepo.getByConversation('conv-other')).toHaveLength(1);
+  }, 15_000);
+
   it('rejects Git quality-gate transitions written directly to TASKS.md', () => {
     conversationRepo.update('conv-1', { git_repo_root: projectPath });
     taskRepo.create({
@@ -140,7 +168,7 @@ describe('syncTasksToDb', () => {
 
     const emit = vi.fn();
     const io = { to: vi.fn(() => ({ emit })), emit: vi.fn() };
-    syncTasksToDb(projectPath, io as unknown as IOServer);
+    syncTasksToDb(projectPath, 'conv-1', io as unknown as IOServer);
 
     expect(taskRepo.getById('TASK-003')).toMatchObject({
       status: 'in_progress',
@@ -180,7 +208,7 @@ describe('syncTasksToDb', () => {
 
     const emit = vi.fn();
     const io = { to: vi.fn(() => ({ emit })), emit: vi.fn() };
-    syncTasksToDb(projectPath, io as unknown as IOServer);
+    syncTasksToDb(projectPath, 'conv-1', io as unknown as IOServer);
 
     expect(taskRepo.getById('TASK-003')?.status).toBe('in_review');
     expect(readTasksMd(projectPath).tasks[0].status).toBe('in_review');
@@ -208,16 +236,25 @@ describe('syncTasksToDb', () => {
 
     const emit = vi.fn();
     const io = { to: vi.fn(() => ({ emit })), emit: vi.fn() };
-    syncTasksToDb(projectPath, io as unknown as IOServer);
+    syncTasksToDb(projectPath, 'conv-1', io as unknown as IOServer);
 
     expect(taskRepo.getById('TASK-003')?.status).toBe('in_progress');
     expect(emit).not.toHaveBeenCalledWith('task.notification', expect.objectContaining({
       taskId: 'TASK-003',
       previousStatus: 'in_progress',
     }));
+    expect(emit).toHaveBeenCalledWith('task.sync', expect.objectContaining({
+      conversationId: 'conv-1',
+      tasks: [
+        expect.objectContaining({
+          id: 'TASK-003',
+          status: 'in_progress',
+        }),
+      ],
+    }));
 
     invocationRepo.updateStatus('inv-active', 'succeeded');
-    syncTasksToDb(projectPath, io as unknown as IOServer);
+    syncTasksToDb(projectPath, 'conv-1', io as unknown as IOServer);
     expect(taskRepo.getById('TASK-003')?.status).toBe('pending');
   });
 
@@ -234,7 +271,7 @@ describe('syncTasksToDb', () => {
 
     const emit = vi.fn();
     const io = { to: vi.fn(() => ({ emit })), emit: vi.fn() };
-    syncTasksToDb(projectPath, io as unknown as IOServer);
+    syncTasksToDb(projectPath, 'conv-1', io as unknown as IOServer);
 
     expect(taskRepo.getById('TASK-003')).toMatchObject({
       conversation_id: 'conv-other',
@@ -252,7 +289,7 @@ describe('syncTasksToDb', () => {
     });
 
     writeTasksMd('done', 'done.md');
-    syncTasksToDb(projectPath, io as unknown as IOServer);
+    syncTasksToDb(projectPath, 'conv-1', io as unknown as IOServer);
 
     expect(taskRepo.getById('TASK-003')?.status).toBe('pending');
     expect(taskRepo.getById('conv-1~TASK-003')).toMatchObject({
