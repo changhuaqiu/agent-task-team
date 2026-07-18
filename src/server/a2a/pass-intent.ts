@@ -87,7 +87,7 @@ const ACTION_PATTERNS: Array<{ intent: PassIntent; patterns: RegExp[] }> = [
   {
     intent: 'delegate',
     patterns: [
-      /(交给|转交|传给|派发|分配|指派|handoff to|delegate to|dispatch(?:ed)? to|assign(?:ed)? to)/i,
+      /(交给|转交|传给|派发|分派|分发|分配|指派|安排|拆给|拆分给|handoff to|delegate to|dispatch(?:ed)? to|assign(?:ed)? to)/i,
       /请\s*(?:立即|马上|尽快)?\s*(启动|执行|完成|认领|推进|处理|跟进|继续|接手)/i,
       /^\s*(启动|执行|完成|认领|推进|处理|跟进|继续|接手)/i,
       /需要.*(启动|执行|完成|认领|推进|处理|跟进|继续|接手)/i,
@@ -106,16 +106,10 @@ function detectPositiveIntent(content: string): PassIntent | null {
 }
 
 function detectIntent(content: string): PassIntent | null {
-  const negativeActionPattern = /(不需要|不要|无需|别).*?(转交|传给|交给|派发|分配|指派|启动|执行|完成|认领|推进|处理|跟进|接手|审查|审核|检查|实现|开发|修复|验证|测试|确认)/i;
+  const negativeActionPattern = /(不需要|不要|无需|别).*?(转交|传给|交给|派发|分派|分发|分配|指派|安排|拆给|拆分给|启动|执行|完成|认领|推进|处理|跟进|接手|审查|审核|检查|实现|开发|修复|验证|测试|确认)/i;
   const negativeMatch = negativeActionPattern.exec(content);
-  if (negativeMatch && negativeMatch.index > 0) {
-    const leadingIntent = detectPositiveIntent(content.slice(0, negativeMatch.index));
-    if (leadingIntent) return leadingIntent;
-  }
-  if (negativeMatch) {
-    return null;
-  }
-  if (/(已|已经|之前|刚才|当前|正在|完成|完毕|结束).*?(转交|传给|交给|派发|分配|指派|启动|执行|认领|推进|assigned?|dispatched?)/i.test(content)) {
+  if (negativeMatch) return null;
+  if (/(已|已经|之前|刚才|当前|正在|完成|完毕|结束).*?(转交|传给|交给|派发|分派|分发|分配|指派|安排|启动|执行|认领|推进|assigned?|dispatched?)/i.test(content)) {
     return null;
   }
   if (/(已|已经).*(完成|写入|更新|记录|提交).*?@[\p{L}\p{N}_-]+/iu.test(content)) {
@@ -124,16 +118,43 @@ function detectIntent(content: string): PassIntent | null {
   return detectPositiveIntent(content);
 }
 
+function extractIntentClause(text: string, position: number): string {
+  const boundaries = /[，,；;。！？!?\n]/;
+  let start = position;
+  let end = position;
+  while (start > 0 && !boundaries.test(text[start - 1])) start -= 1;
+  while (end < text.length && !boundaries.test(text[end])) end += 1;
+  return text.slice(start, end).trim();
+}
+
+function hasNotificationPredicateBeforeMention(text: string, position: number): boolean {
+  const before = text.slice(Math.max(0, position - 40), position);
+  return /(?:并|然后|同时|仅)?\s*(?:知会|通知|告知|同步给?|抄送)\s*$/i.test(before);
+}
+
 export function scanPassIntents(
   text: string,
   agents: AgentMentionConfig[],
   selfAgentId = '',
 ): PassIntentTarget[] {
-  return scanMentions(text, agents, selfAgentId)
-    .map((target) => {
-      const content = extractMentionContent(text, target);
-      const directIntent = detectIntent(content);
-      if (directIntent) return { ...target, content, intent: directIntent };
+  const targets = scanMentions(text, agents, selfAgentId);
+  return targets
+    .map((target, index) => {
+      let directContent = extractMentionContent(text, target);
+      if (targets[index + 1]) {
+        const boundary = Math.max(
+          directContent.lastIndexOf('，'), directContent.lastIndexOf(','),
+          directContent.lastIndexOf('；'), directContent.lastIndexOf(';'),
+          directContent.lastIndexOf('。'), directContent.lastIndexOf('\n'),
+        );
+        if (boundary >= 0) directContent = directContent.slice(0, boundary);
+      }
+      const directIntent = detectIntent(directContent);
+      if (directIntent) return { ...target, content: directContent, intent: directIntent };
+      if (hasNotificationPredicateBeforeMention(text, target.position)) return null;
+      const clause = extractIntentClause(text, target.position);
+      const clauseIntent = detectIntent(clause);
+      if (clauseIntent) return { ...target, content: clause, intent: clauseIntent };
       return null;
     })
     .filter((target): target is PassIntentTarget => target !== null);

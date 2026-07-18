@@ -25,6 +25,14 @@ npm run e2e:report
 
 > 若本地未起 `npm run dev`，`playwright.config.ts` 的 `webServer` 会自动拉起一个。
 
+如果 3000 端口已经运行了其他版本，使用独立端口验证当前工作树：
+
+```powershell
+$env:E2E_BASE_URL='http://127.0.0.1:3100'
+$env:E2E_WEB_SERVER_COMMAND='pnpm exec next dev --webpack -p 3100'
+pnpm e2e
+```
+
 ## 配置要点（`playwright.config.ts`）
 
 - **`channel: 'chrome'`**：用系统已装的 Chrome，不额外下载 chromium headless shell。
@@ -52,9 +60,10 @@ npm run e2e:report
 - 发消息触发 `POST /api/mutations`
 - 右面板展开与 tab 可达
 - 看板 ↔ 地图 tab 切换
+- 现场创建无 active session 的会话，经真实 Harness planner 生成首次 A2A，通过 daemon 共用的 prompt capture 边界采集，并按精确 conversation/trace 在观测抽屉验证 System 与 Assembled prompt；用例结束后清理自己的数据
 
 ## 已知边界
 
 - E2E 依赖 dev server + 数据库现有数据（种子 agent + 已配账号）。
 - 涉及 OAuth/外部登录的流程不在本目录覆盖范围（沙箱网络隔离）。
-- 不 mock 后端，观测真实链路；因此测试稳定性取决于 dev server 状态。
+- 不 mock 后端，观测真实链路；首次 A2A 用例不搜索历史 trace，但仍需要默认团队至少一个成员已绑定有效账号。

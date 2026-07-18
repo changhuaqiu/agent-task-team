@@ -59,6 +59,7 @@ import type { ContextScenario } from '../lib/agent-context/scenarioResolver';
 import { generateSpanId, generateTraceId, observationSpanRepo } from './repositories/observation-span-repo';
 import { spanPayloadRepo } from './repositories/span-payload-repo';
 import { isThinkingCaptureEnabled } from './observability/redaction';
+import { capturePromptPayloads } from './observability/prompt-observation';
 import { teamLogProjection } from './team-log/TeamLogProjection';
 import { renderTeamLogEnvelope } from '../lib/agent-context/teamLog';
 import { ProcessStartGuard } from './process-start-guard';
@@ -828,9 +829,12 @@ export default function registerDaemon(io: IOServer) {
       const capturePromptObservation = (assembledPrompt: string, effectiveSystemPrompt?: string) => {
         if (!rootObservationSpanId) return;
         try {
-          if (effectiveSystemPrompt) spanPayloadRepo.put(rootObservationSpanId, 'system_prompt', effectiveSystemPrompt);
-          spanPayloadRepo.put(rootObservationSpanId, 'assembled_prompt', assembledPrompt);
-          broadcast('observability:updated', { conversationId: sessionConvId, invocationId: invocation.id });
+          capturePromptPayloads({
+            spanId: rootObservationSpanId,
+            assembledPrompt,
+            systemPrompt: effectiveSystemPrompt,
+            onCaptured: () => broadcast('observability:updated', { conversationId: sessionConvId, invocationId: invocation.id }),
+          });
         } catch (error) {
           console.warn('[observability] failed to capture prompt payload:', error);
         }

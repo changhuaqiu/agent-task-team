@@ -162,6 +162,12 @@ describe('buildRoleLayer', () => {
     expect(result).not.toContain('只能提出建议，不能直接修改代码');
   });
 
+  it('keeps the planner persona voice internally consistent', () => {
+    const result = buildRoleLayer({ id: 'mario', name: 'Mario' }, PRESET_ROLE_CARD_MAP['preset-planner']);
+    expect(result).toContain('沉稳');
+    expect(result).not.toContain('走！');
+  });
+
   it('includes confirmation constraint', () => {
     const rc = makeRoleCard({ requiresConfirmation: ['架构变更', '数据库迁移'] });
     const result = buildRoleLayer(agent, rc);
@@ -364,10 +370,11 @@ describe('buildUserMessageLayer', () => {
 // behaviorLayer
 // ===========================================================================
 describe('buildBehaviorLayer', () => {
-  it('returns decision nudge text', () => {
+  it('keeps only close-the-loop guidance and does not duplicate A2A selection', () => {
     const result = buildBehaviorLayer();
-    expect(result).toContain('@agent 请/需要 + 动作 + 具体交付物');
-    expect(result).toContain('是否需要请求用户确认');
+    expect(result).toContain('可核验结果或明确阻塞');
+    expect(result).toContain('需要用户确认');
+    expect(result).not.toContain('@agent');
   });
 });
 
@@ -434,7 +441,7 @@ describe('composeUserPrompt', () => {
     const result = await composeUserPrompt({ ...baseOpts, messages });
     expect(result).toContain('[对话历史');
     expect(result).toContain('请开始工作');
-    expect(result).toContain('@agent 请/需要 + 动作 + 具体交付物');
+    expect(result).toContain('@agent 请/需要 + 动作 + 具体对象/交付物');
   });
 
   it('includes private self history on subsequent wake too', async () => {
@@ -444,7 +451,7 @@ describe('composeUserPrompt', () => {
     const result = await composeUserPrompt({ ...baseOpts, isFirstWake: false, messages });
     expect(result).toContain('[对话历史');
     expect(result).toContain('请开始工作');
-    expect(result).toContain('@agent 请/需要 + 动作 + 具体交付物');
+    expect(result).toContain('@agent 请/需要 + 动作 + 具体对象/交付物');
   });
 
   it('includes team roster on every dispatch', async () => {
@@ -455,7 +462,7 @@ describe('composeUserPrompt', () => {
   it('injects collaboration protocol into every user prompt dispatch', async () => {
     const result = await composeUserPrompt(baseOpts);
     expect(result).toContain('## Agent 协作协议');
-    expect(result).toContain('只有需要其他角色执行新动作时');
+    expect(result).toContain('需要别人执行新动作：才发起 A2A 交接');
     expect(result).toContain('通知 @mario 查看结果');
   });
 
@@ -569,7 +576,8 @@ describe('composeUserPrompt with skills', () => {
   it('includes protocol layer', async () => {
     const result = await composeUserPrompt(baseOpts);
     expect(result).toContain('任务协作协议');
-    expect(result).toContain('.ath/TASKS.md');
+    expect(result).toContain('任务看板绝对路径');
+    expect(result).not.toContain('.ath/TASKS.md');
   });
 
   it('includes collaboration protocol in the first system prompt', async () => {

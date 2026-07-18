@@ -338,3 +338,9 @@ L3 跨项目身份：scope 升到 /agent/<id>（身份全局只读），项目�
 - **`specs/context-manager/spec.md`**：实现 spec，本设计是其**分层与边界的重构依据**。落地时该 spec 的 §5.2（对内分层）、§5.5（健康度）需按本设计更新；P0–P4 优先级被 §8 取代。
 - **`docs/daily/2026-07-14-collab-efficiency-retro.md`**：元病灶来源。本设计的 §3 标签机制 + §10 L2 衔接直接对应 retro 的 M8（HandoffSnapshot）与"上下文管理器"元论点。
 - **`hello-agents/context-management-research.md`**：调研基线（Claude / OpenCode / MemGPT / mem0 分类），本设计在其分类框架内选定"显式管理派 + 稳定性分层"。
+# 2026-07-18 线上缺陷修正规则
+
+- `trigger` 表示输入来源，`scenario` 表示注入策略。目标 agent 在当前项目没有 active session 时，无论来源是 user 还是 A2A，都必须采用 `init` 注入策略。
+- 首次 A2A 仍保留 handoff artifact，因此 bootstrap identity/system prompt 与交接 focus 必须同时存在；已有 session 的 A2A 才省略 identity。
+- 会话资源路径只能由 runtime 注入绝对路径。protocol layer 不得硬编码 `.ath/TASKS.md` 等相对路径。
+- role、teamPack、protocol、collaboration、behavior 的职责边界以 `specs/open-issues-33-35/spec.md` §3.3 为准，禁止在多个 layer 重复同一动作规则。

@@ -89,6 +89,10 @@ review_gate + test_gate 合并为 quality_gate（Peach 一个人做评审+测试
 
 ## 6. 验收指向
 
+### 6.1 受管预设升级契约（2026-07-18 补充）
+
+`default-team` 不仅要在静态源码中保持 4 人，已有数据库副本也必须在 seed 时幂等收敛：workflow、communication matrix、角色集合、soul 与 role-card snapshot 全部以当前预设为准；同名角色已有的 account/skill 绑定必须保留。矩阵不得引用 mario/dk/luigi/peach 之外的角色。
+
 详见 `checklist.md`。核心：
 1. 项目 build 通过，无 toad/yoshi/engineering-trio/research-team 残留引用
 2. 4 人组（mario/dk/luigi/peach）在 UI 正确显示（头像/theme/名字）

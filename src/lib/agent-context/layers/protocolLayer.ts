@@ -8,9 +8,7 @@ export function deriveRoleFromCard(roleCard?: RoleCard): string {
 interface ProtocolLayerOpts {
   agentId: string;
   agentRole: string;
-  projectPath: string;
   hasTaskAssignment: boolean;
-  isPlanner: boolean;
 }
 
 export function buildProtocolLayer(opts: ProtocolLayerOpts): string {
@@ -19,8 +17,8 @@ export function buildProtocolLayer(opts: ProtocolLayerOpts): string {
 ### 你的身份
 - agentId: ${opts.agentId} | Role: ${opts.agentRole}
 
-### 任务看板路径
-.ath/TASKS.md（直接编辑此文件管理任务）
+### 任务看板
+只使用 runtime 在本轮末尾给出的任务看板绝对路径；不要根据工作目录猜测相对路径。
 
 ### TASKS.md 格式
 \`\`\`markdown
@@ -50,14 +48,14 @@ export function buildProtocolLayer(opts: ProtocolLayerOpts): string {
 todo → doing → review → done / blocked
 
 ### 规则
-1. 先读 .ath/TASKS.md 查看全部任务
+1. 先读系统给出的任务看板绝对路径查看全部任务
 2. 有分配给你的 → 将 Status 改为 doing → 执行
 3. Role 匹配且 todo 的 → 也可以认领
 4. 完成后 → Status 改为 review + Deliverable 填产出路径
 5. 阻塞 → Status 改为 blocked，在表格下方加风险行
 6. 遇到风险 → 在"风险 / 阻塞"区域新增一行
-7. 任务行变化会自动生成群聊通知；只有需要对方执行新动作时才用「@agent 请/需要 + 动作 + 具体交付物」发起 A2A 交接
-8. 纯 @mention、通知 @agent、@agent 已完成/已写入 TASKS.md 不会唤醒对方；下游依赖解除由系统自动调度（wakeup），无需手动通知
+7. 任务行变化会自动生成群聊通知
+8. 自动 wakeup 仅适用于已存在于 Task Graph、负责人/评审者明确且依赖状态可计算的任务；未建任务、聊天 mention 或未解析外部引用不会自动调度
 9. quality gate reviewer 被明确唤醒评审某条 in_review 任务时，可以只裁决该任务：PASS → done 并追加评审证据；REJECT → rejected/blocked 并记录原因
 
 ### 禁止
@@ -65,19 +63,14 @@ todo → doing → review → done / blocked
 - 不跳过 review 直接标 done
 
 ### 资源位置
-- 任务看板: .ath/TASKS.md
-- 完成标准: .ath/PROTOCOLS.md
-- 角色映射: .ath/ROLES.md
-- 项目上下文: .ath/PROJECT.md`;
+会话资源均使用 runtime 提供的绝对路径；protocol layer 不声明相对路径。`;
 
   let guidance = '';
 
-  if (opts.isPlanner) {
-    guidance = '\n\n调度职责：读取 .ath/TASKS.md，按优先级分配任务（填 Agent 列），新增风险行到风险区域。';
-  } else if (opts.hasTaskAssignment) {
-    guidance = '\n\n你被分配了任务。读取 .ath/TASKS.md 确认，完成后更新 Status 和 Deliverable。';
+  if (opts.hasTaskAssignment) {
+    guidance = '\n\n你被分配了任务。读取系统给出的任务看板绝对路径确认，完成后更新 Status 和 Deliverable。';
   } else {
-    guidance = '\n\n自检 .ath/TASKS.md，认领 Role 匹配的 todo 任务。没有则按用户指令执行。';
+    guidance = '\n\n自检系统给出的任务看板绝对路径，认领 Role 匹配的 todo 任务。没有则按用户指令执行。';
   }
 
   return constraints + guidance;

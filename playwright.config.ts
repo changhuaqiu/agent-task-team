@@ -1,5 +1,8 @@
 import { defineConfig, devices } from '@playwright/test';
 
+const baseURL = process.env.E2E_BASE_URL ?? 'http://localhost:3000';
+const webServerCommand = process.env.E2E_WEB_SERVER_COMMAND ?? 'npm run dev';
+
 /**
  * Playwright E2E 配置
  *
@@ -26,7 +29,7 @@ export default defineConfig({
   expect: { timeout: 15_000 },
 
   use: {
-    baseURL: 'http://localhost:3000',
+    baseURL,
     channel: 'chrome', // 用系统 Chrome
     headless: true,
     trace: 'retain-on-failure',
@@ -38,8 +41,8 @@ export default defineConfig({
 
   // dev server：已运行则复用，未运行则自动起（next dev --webpack）
   webServer: {
-    command: 'npm run dev',
-    url: 'http://localhost:3000',
+    command: webServerCommand,
+    url: baseURL,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
   },

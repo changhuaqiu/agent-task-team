@@ -8,6 +8,8 @@ import type { HarnessPlanResolution, HarnessPlanner, HarnessTrigger } from './ty
 import { resolveConversationRuntimeProfile } from './conversation-runtime';
 import { teamLogProjection } from '../team-log/TeamLogProjection';
 import { generateTraceId } from '../repositories/observation-span-repo';
+import { proofLogRepo } from '../repositories/proof-log-repo';
+import { resolveExternalReferences } from './reference-resolver';
 
 const RUNTIME_IDS = {
   opencode: 'opencode-local',
@@ -84,6 +86,25 @@ export class RepositoryHarnessPlanner implements HarnessPlanner {
           teamLogProjection.buildEnvelope(conversationId, agentId, taskId ? { taskId } : undefined),
       });
       const activeSession = sessionRepo.findActiveByConversation(trigger.agentId, trigger.conversationId);
+      const isFirstWake = !activeSession;
+      const referenceResolution = await resolveExternalReferences({
+        prompt: trigger.prompt,
+        projectPath: conversation.project_path,
+      });
+      for (const record of referenceResolution.records) {
+        proofLogRepo.append({
+          eventType: record.status === 'resolved'
+            ? 'context.reference.resolved'
+            : 'context.reference.resolution_failed',
+          conversationId: trigger.conversationId,
+          taskId: trigger.taskId,
+          chainId: trigger.chainId,
+          passId: trigger.passId,
+          agentId: trigger.agentId,
+          reasonCode: record.reasonCode,
+          metadata: { reference: record.reference, status: record.status, url: record.url },
+        });
+      }
       const contextTrigger = trigger.source === 'a2a'
         ? 'a2a_handoff' as const
         : trigger.source === 'user'
@@ -93,12 +114,12 @@ export class RepositoryHarnessPlanner implements HarnessPlanner {
         agentId: trigger.agentId,
         conversationId: trigger.conversationId,
         taskId: trigger.taskId,
-        rawPrompt: trigger.prompt,
+        rawPrompt: referenceResolution.prompt,
         trigger: contextTrigger,
         a2aHandoff: trigger.source === 'a2a' ? {
           title: trigger.fromAgentId ?? 'agent',
-          requestedAction: trigger.prompt,
-          possessionSummary: trigger.prompt,
+          requestedAction: referenceResolution.prompt,
+          possessionSummary: referenceResolution.prompt,
           relevantDecisions: [],
           evidenceRefs: [],
           constraints: [],
@@ -107,7 +128,7 @@ export class RepositoryHarnessPlanner implements HarnessPlanner {
           sourceMessageIds: [],
         } : undefined,
         wakeup: trigger.wakeup,
-        isFirstWake: trigger.source === 'user' && !activeSession,
+        isFirstWake,
         project: {
           id: conversation.id,
           name: conversation.title,

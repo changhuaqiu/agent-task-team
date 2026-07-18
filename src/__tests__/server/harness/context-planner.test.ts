@@ -9,6 +9,7 @@ import { conversationRepo } from '@/server/repositories/conversation-repo';
 import { taskRepo } from '@/server/repositories/task-repo';
 import { messageRepo } from '@/server/repositories/message-repo';
 import { teamPackRepo } from '@/server/repositories/team-pack-repo';
+import { sessionRepo } from '@/server/repositories/session-repo';
 import { writeAccount } from '@/server/accounts-file';
 import { RepositoryHarnessPlanner } from '@/server/harness/context-planner';
 
@@ -31,6 +32,53 @@ afterEach(() => {
 });
 
 describe('RepositoryHarnessPlanner', () => {
+  it('bootstraps identity for a first A2A handoff and keeps later handoffs lean', async () => {
+    const pack = teamPackRepo.getByName('default-team')!;
+    teamPackRepo.updateRoleConfig(pack.id, 'peach', { accountIds: ['account-openai'] });
+    writeAccount({
+      id: 'account-openai',
+      name: 'OpenAI',
+      authMode: 'oauth',
+      provider: 'openai',
+      models: [],
+      enabled: true,
+      status: 'valid',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    conversationRepo.create({ id: 'conv-a2a', title: 'First Handoff', team_pack_id: pack.id });
+
+    const first = await new RepositoryHarnessPlanner().prepare({
+      id: 'trigger-a2a-first',
+      source: 'a2a',
+      conversationId: 'conv-a2a',
+      agentId: 'peach',
+      fromAgentId: 'mario',
+      prompt: '请评审 PR #32 的代码质量',
+    });
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    expect(first.plan.contextScenario).toBe('init');
+    expect(first.plan.systemPrompt).toContain('Peach');
+    expect(first.plan.prompt).toContain('A2A');
+    expect(first.plan.prompt).toContain('请评审 PR #32');
+
+    sessionRepo.create({ id: 'session-peach', conversationId: 'conv-a2a', agentId: 'peach', taskId: '' });
+    const later = await new RepositoryHarnessPlanner().prepare({
+      id: 'trigger-a2a-later',
+      source: 'a2a',
+      conversationId: 'conv-a2a',
+      agentId: 'peach',
+      fromAgentId: 'mario',
+      prompt: '请复核修复结果',
+    });
+    expect(later.ok).toBe(true);
+    if (!later.ok) return;
+    expect(later.plan.contextScenario).toBe('handoff');
+    expect(later.plan.systemPrompt).toBeUndefined();
+    expect(later.plan.prompt).toContain('请复核修复结果');
+  });
+
   it('resolves role, account, context and project data on the server', async () => {
     const pack = teamPackRepo.getByName('default-team')!;
     teamPackRepo.updateRoleConfig(pack.id, 'luigi', { accountIds: ['account-openai'] });

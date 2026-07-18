@@ -36,6 +36,7 @@
 | [`a2a-possession-contract/`](a2a-possession-contract/) | active | 完成持球、传球、交接包语义及控制平面接线 |
 | [`team-role-card-compatibility/`](team-role-card-compatibility/) | active | 自动化已完成，仍需三项人工兼容验收 |
 | [`role-card-format/`](role-card-format/) | draft | 冻结角色卡/Team Pack 文件格式并替换即将移除的示例 |
+| [`open-issues-33-35/`](open-issues-33-35/) | active | 复现并修复线上 #33–#35：A2A 意图、首次交接身份、预设升级与上下文去重 |
 
 ## 依赖关系
 

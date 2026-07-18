@@ -129,4 +129,5 @@ export interface CreateTeamPackInput {
     url?: string;
     importedAt: string;
   };
+  isPreset?: boolean;
 }

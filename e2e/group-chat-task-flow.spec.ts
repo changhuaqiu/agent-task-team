@@ -1,4 +1,11 @@
 import { test, expect } from '@playwright/test';
+import { RepositoryHarnessPlanner } from '@/server/harness/context-planner';
+import { resolveConversationRuntimeProfile } from '@/server/harness/conversation-runtime';
+import { getDb } from '@/server/db';
+import { conversationRepo } from '@/server/repositories/conversation-repo';
+import { observationSpanRepo } from '@/server/repositories/observation-span-repo';
+import { teamPackRepo } from '@/server/repositories/team-pack-repo';
+import { capturePromptPayloads } from '@/server/observability/prompt-observation';
 
 /**
  * 群聊发任务全链路 E2E
@@ -21,7 +28,14 @@ const INPUT_PLACEHOLDER = '发送消息或 @智能体…';
 test.describe('群聊发任务全链路', () => {
   test.beforeEach(async ({ page }) => {
     // 拦截并记录关键 API，用于断言链路被触发（不 mock，仅观测）
-    await page.goto('/', { waitUntil: 'networkidle' });
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        await page.goto('/', { waitUntil: 'domcontentloaded' });
+        break;
+      } catch (error) {
+        if (attempt === 2 || !String(error).includes('ERR_ABORTED')) throw error;
+      }
+    }
   });
 
   test('首页加载，聊天输入框与提示文案可见', async ({ page }) => {
@@ -84,5 +98,69 @@ test.describe('群聊发任务全链路', () => {
     // 切回看板，看板标题应回来（MiniKanban.tsx:265 "看板"）
     await boardTab.click();
     await expect(page.getByText('看板').first()).toBeVisible();
+  });
+
+  test('首次 A2A 经 daemon 共用采集边界在真实观测页面完整展示', async ({ page }) => {
+    const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const conversationId = `e2e-first-a2a-${suffix}`;
+    const handoff = `E2E-FIRST-A2A-${suffix}：请执行首次质量评审`;
+    const pack = teamPackRepo.getByName('default-team')!;
+    conversationRepo.create({
+      id: conversationId,
+      title: 'E2E first A2A observability',
+      team_pack_id: pack.id,
+      project_path: process.cwd(),
+    });
+
+    let traceId: string | undefined;
+    try {
+      const agentId = pack.roles.find((role) => resolveConversationRuntimeProfile(conversationId, role.id)?.profile)?.id;
+      expect(agentId, 'E2E 环境需要至少一个已绑定有效账号的默认团队成员').toBeDefined();
+      const resolution = await new RepositoryHarnessPlanner().prepare({
+        id: `trigger-${suffix}`,
+        source: 'a2a',
+        conversationId,
+        agentId: agentId!,
+        fromAgentId: 'mario',
+        prompt: handoff,
+      });
+      expect(resolution.ok).toBe(true);
+      if (!resolution.ok) return;
+      expect(resolution.plan.contextScenario).toBe('init');
+      expect(resolution.plan.systemPrompt).toBeTruthy();
+      expect(resolution.plan.prompt).toContain(handoff);
+      traceId = resolution.plan.traceId;
+
+      const span = observationSpanRepo.start({
+        traceId,
+        name: 'agent.invoke',
+        kind: 'agent',
+        conversationId,
+        agentId,
+        chainId: `chain-${suffix}`,
+        passId: `pass-${suffix}`,
+        attributes: { 'ath.dispatch.source': 'a2a', 'ath.context.scenario': 'init' },
+      });
+      capturePromptPayloads({
+        spanId: span.span_id,
+        systemPrompt: resolution.plan.systemPrompt,
+        assembledPrompt: resolution.plan.prompt,
+      });
+      observationSpanRepo.finish(span.span_id, 'ok');
+
+      const drawer = page.getByRole('complementary', { name: 'Agent 调用详情' });
+      await expect(async () => {
+        await page.evaluate((detail) => {
+          window.dispatchEvent(new CustomEvent('observability:open', { detail }));
+        }, { conversationId, traceId });
+        await expect(drawer).toBeVisible({ timeout: 2_000 });
+      }).toPass({ timeout: 15_000 });
+      await expect(drawer.getByText('System prompt', { exact: true })).toBeVisible({ timeout: 15_000 });
+      await expect(drawer.getByText('Assembled prompt', { exact: true })).toBeVisible({ timeout: 15_000 });
+      await expect(drawer.locator('pre').filter({ hasText: handoff })).toBeVisible();
+    } finally {
+      if (traceId) getDb().prepare('DELETE FROM observation_span WHERE trace_id = ?').run(traceId);
+      conversationRepo.delete(conversationId);
+    }
   });
 });
