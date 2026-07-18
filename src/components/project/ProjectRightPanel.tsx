@@ -193,7 +193,7 @@ export function ProjectRightPanel({ teamPackId }: { teamPackId: string }) {
             </TabsList>
 
             {/* Board Tab */}
-            <TabsContent value="board" className="flex-1 overflow-y-auto scrollbar-thin p-3">
+            <TabsContent value="board" className="flex-1 min-h-0 overflow-y-auto scrollbar-thin p-3">
               {/* Team Info */}
               {teamPack && (
                 <section className="rounded-xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--bg-card))] shadow-sm p-3 mb-3">
@@ -240,7 +240,7 @@ export function ProjectRightPanel({ teamPackId }: { teamPackId: string }) {
             </TabsContent>
 
             {/* Map Tab */}
-            <TabsContent value="map" className="flex-1 overflow-y-auto scrollbar-thin p-3">
+            <TabsContent value="map" className="flex-1 min-h-0 overflow-y-auto scrollbar-thin p-3">
               {graphError && (
                 <div className="mb-2 rounded-md border border-[hsl(var(--status-rejected-border))] bg-[hsl(var(--status-rejected-bg))] px-2 py-1.5 text-xs text-[hsl(var(--status-rejected))]">
                   {graphError}，已显示本地任务视图。
@@ -253,7 +253,7 @@ export function ProjectRightPanel({ teamPackId }: { teamPackId: string }) {
             </TabsContent>
 
             {/* Tasks Tab */}
-            <TabsContent value="tasks" className="flex-1 overflow-y-auto scrollbar-thin p-3">
+            <TabsContent value="tasks" className="flex-1 min-h-0 overflow-y-auto scrollbar-thin p-3">
               <section className="rounded-xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--bg-card))] shadow-sm overflow-hidden">
                 <div className="px-3 py-2 border-b border-[hsl(var(--border-subtle))] flex items-center justify-between">
                   <div className="text-[11px] font-bold tracking-[0.16em] uppercase text-[hsl(var(--text-tertiary))]">下一步</div>
@@ -281,7 +281,7 @@ export function ProjectRightPanel({ teamPackId }: { teamPackId: string }) {
             </TabsContent>
 
             {/* Risks Tab */}
-            <TabsContent value="risks" className="flex-1 overflow-y-auto scrollbar-thin p-3">
+            <TabsContent value="risks" className="flex-1 min-h-0 overflow-y-auto scrollbar-thin p-3">
               {openBlockers.length === 0 ? (
                 <div className="text-center py-8">
                   <CheckCircle className="w-12 h-12 mx-auto text-[hsl(var(--status-done))] mb-3" />
@@ -322,7 +322,7 @@ export function ProjectRightPanel({ teamPackId }: { teamPackId: string }) {
               )}
             </TabsContent>
 
-            <TabsContent value="debug" className="flex-1 overflow-y-auto scrollbar-thin p-3">
+            <TabsContent value="debug" className="flex-1 min-h-0 overflow-y-auto scrollbar-thin p-3">
               <ProjectObservabilityPanel conversationId={selectedConversationId ?? undefined} />
             </TabsContent>
           </Tabs>

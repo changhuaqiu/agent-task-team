@@ -193,7 +193,7 @@ export function AgentTaskGroup({ agent }: AgentTaskGroupProps) {
       </div>
 
       {/* ── Task List ── */}
-      <div className="flex-1 flex flex-col gap-2.5 overflow-y-auto p-3 scrollbar-thin">
+      <div className="flex-1 min-h-0 flex flex-col gap-2.5 overflow-y-auto p-3 scrollbar-thin">
         {showBinding && (
           <AgentBindingPanel agentId={agent.id} agentName={agent.name} />
         )}

@@ -246,7 +246,7 @@ function TeamPackEditorDialog({
             </button>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-5 space-y-5">
+          <div className="flex-1 min-h-0 overflow-y-auto p-5 space-y-5">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <label className="space-y-1.5">
                 <span className="text-[11px] font-semibold uppercase tracking-wider text-[hsl(var(--text-tertiary))]">名称</span>

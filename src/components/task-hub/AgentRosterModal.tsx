@@ -82,7 +82,7 @@ export function AgentRosterModal() {
         </div>
 
         {/* Content */}
-        <div className="p-6 overflow-y-auto flex-1 bg-[url('/noise.png')]">
+        <div className="p-6 min-h-0 overflow-y-auto flex-1 bg-[url('/noise.png')]">
           {availableAgents.length === 0 ? (
             <div className="text-center py-12 text-[hsl(var(--text-tertiary))] font-bold uppercase tracking-widest">
               所有可用智能体已招募完成！

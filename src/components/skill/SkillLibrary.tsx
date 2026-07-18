@@ -89,7 +89,7 @@ export function SkillLibrary() {
         </div>
 
         {/* List items */}
-        <div className="flex-1 overflow-y-auto scrollbar-thin">
+        <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin">
           {listLoading ? (
             <div className="flex items-center justify-center py-8">
               <Loader2 className="w-4 h-4 text-[hsl(var(--text-tertiary))] animate-spin" />

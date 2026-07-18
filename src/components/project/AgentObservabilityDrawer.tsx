@@ -104,7 +104,7 @@ export function AgentObservabilityDrawer() {
         <div><div className="flex items-center gap-2 text-sm font-bold"><Activity className="size-4" />Agent 调用详情</div><div className="mt-1 text-[10px] text-[hsl(var(--text-tertiary))]">{trace?.agentId ?? target.agentId ?? 'Agent'} · {target.invocationId ? '精确关联' : '历史就近匹配'}</div></div>
         <button type="button" onClick={close} aria-label="关闭调用详情" className="rounded p-1 hover:bg-[hsl(var(--bg-muted))]"><X className="size-4" /></button>
       </header>
-      <div className="flex-1 space-y-4 overflow-y-auto p-5">
+      <div className="flex-1 min-h-0 space-y-4 overflow-y-auto p-5">
         {loading && <div className="flex items-center gap-2 text-xs text-[hsl(var(--text-tertiary))]"><Activity className="size-4 animate-pulse" />加载调用链…</div>}
         {error && <div className="flex gap-2 rounded-md border border-rose-300 bg-rose-50 p-2 text-[10px] text-rose-700"><AlertTriangle className="size-3.5 shrink-0" />{error}</div>}
         {!loading && !trace && !error && <div className="rounded-md border border-dashed p-5 text-center text-[10px] text-[hsl(var(--text-tertiary))]">未找到对应调用</div>}
