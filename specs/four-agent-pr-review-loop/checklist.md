@@ -31,3 +31,6 @@
 - [x] GitHub、Task Graph、聊天卡片和 observability 的 task/PR/SHA 一致
 - [x] Chrome Web E2E、生产构建和相关测试通过
 - [x] 真实 ACP 调用注册 MCP 工具后，Task Graph、runtime TASKS.md 与 Web 页面保持同一权威状态
+- [x] runtime 投影失败矩阵证明已接受状态不回滚，并记录结构化 proof 与同步错误
+- [x] 真实 Git worktree 集成测试在全量并发压力下使用明确的有界超时且稳定通过
+- [x] ACP 并发限制测试始终回收首个运行，且 Windows 临时目录无占用泄漏

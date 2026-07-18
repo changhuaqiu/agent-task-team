@@ -92,6 +92,8 @@ Task Graph / Harness 是任务状态推进和 Agent 派发的唯一服务端边�
 
 - 纯服务测试：actor authority、repo mismatch、head stale、reject/approve、事务回滚；
 - API/tool 集成：真实 task/action/artifact/message/proof 一致；
+- Harness reconciliation：覆盖 task 不存在的 stale wakeup no-op、runtime path 缺失、任务条目缺失与文件 I/O 异常，并断言权威状态、单一 proof、稳定 failureCause 和 `task.sync_error`；持久化异常文本移除换行并限制为 512 字符；
+- ACP hardening：测试使用直接 Node/tsx launcher，并在断言成功或失败时都回收首个运行，避免 launcher 子进程占用临时目录；
 - React：三类卡片与 stale/error；
 - Playwright：浏览器中提交 receipt、卡片跳转与状态变化；
 - 真实演练：测试仓库 PR + GitHub review/comment，并核对 exact task/PR/SHA。

@@ -11,6 +11,7 @@ import {
 } from './acpBackend';
 
 const mockPath = join(dirname(fileURLToPath(import.meta.url)), 'mockAcpAgent.ts');
+const tsxCliPath = fileURLToPath(import.meta.resolve('tsx/cli'));
 const tempDirs = new Set<string>();
 
 function makeTempDir(): string {
@@ -24,8 +25,8 @@ function backend(
   overrides: Partial<AcpBackendOpts> = {},
 ) {
   return new AcpBackend({
-    command: 'npx',
-    args: ['tsx', mockPath],
+    command: process.execPath,
+    args: [tsxCliPath, mockPath],
     engine: 'opencode',
     cwd: makeTempDir(),
     env: { MOCK_ACP_SCENARIO: scenario },
@@ -44,6 +45,9 @@ async function waitForNoActiveRuns(timeoutMs = 3_000) {
   const deadline = Date.now() + timeoutMs;
   while (getActiveAcpRunCount() > 0 && Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  if (getActiveAcpRunCount() > 0) {
+    throw new Error(`ACP test leaked ${getActiveAcpRunCount()} active run(s) after ${timeoutMs}ms`);
   }
 }
 
@@ -95,14 +99,17 @@ describe('AcpBackend hardening', () => {
 
   it('rejects a second run when the global concurrency limit is reached', async () => {
     const first = backend('slow', { limits: { maxConcurrentRuns: 1 } }).execute('one', {});
-    expect(getActiveAcpRunCount()).toBe(1);
-    const second = backend('normal', { limits: { maxConcurrentRuns: 1 } }).execute('two', {});
-    await expect(second.result).resolves.toMatchObject({
-      status: 'failed',
-      reasonCode: 'acp_concurrency_limit',
-    });
-    first.kill();
-    await drain(first);
+    try {
+      expect(getActiveAcpRunCount()).toBe(1);
+      const second = backend('normal', { limits: { maxConcurrentRuns: 1 } }).execute('two', {});
+      await expect(second.result).resolves.toMatchObject({
+        status: 'failed',
+        reasonCode: 'acp_concurrency_limit',
+      });
+    } finally {
+      first.kill();
+      await drain(first);
+    }
     await waitForNoActiveRuns();
     expect(getActiveAcpRunCount()).toBe(0);
   });
