@@ -30,6 +30,16 @@ export function NewTaskDialog() {
     }
   }, [isOpen]);
 
+  // Reset the default agent each time the dialog opens, so the selection tracks
+  // the current project's roster instead of being frozen at first mount (issue #38).
+  useEffect(() => {
+    if (!isOpen) return;
+    const stillValid = activeAgents.some((a) => a.id === agentId);
+    if (!stillValid) {
+      setAgentId(activeAgents[0]?.id ?? '');
+    }
+  }, [isOpen, activeAgents, agentId]);
+
   // Close on Escape
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {

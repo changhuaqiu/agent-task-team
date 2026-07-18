@@ -1555,7 +1555,14 @@ export const useTaskHubStore = create<TaskHubState>()(
           }
 
           const { conversationId: conv, ...rest } = msg as any;
-          const conversationId = conv ?? get().selectedConversationId;
+          let conversationId = conv ?? get().selectedConversationId;
+          // Fallback: if no conversation is selected but some exist, auto-select
+          // the first one instead of silently dropping the message (issue #38).
+          if (!conversationId && get().conversations.length > 0) {
+            const first = get().conversations[0];
+            conversationId = first.id;
+            set({ selectedConversationId: first.id });
+          }
           if (!conversationId) return;
 
           const mentions = extractMentionTokens(rest.content);

@@ -208,7 +208,7 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
           <EmptyState
             icon={Hash}
             title="准备好开始"
-            description={`@jean 可以帮你分析项目、出技术方案，或直接 @Agent 下达指令`}
+            description={`@Mario 可以帮你分析项目、出技术方案，或直接 @Agent 下达指令`}
             actions={[
               { label: '@Mario 帮我规划一下…', value: '@Mario 帮我规划一下…' },
               { label: '@Luigi 直接开始…', value: '@Luigi 直接开始…' },
