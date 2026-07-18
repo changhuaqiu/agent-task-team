@@ -20,7 +20,7 @@ function PayloadBlock({ label, payload }: { label: string; payload?: Payload }) 
     <div className="flex items-center gap-2 text-[10px] font-semibold text-[hsl(var(--text-secondary))]">
       <span>{label}</span>{Boolean(payload.truncated) && <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[8px] text-amber-600">已按上限截断</span>}
     </div>
-    <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-md border border-[hsl(var(--border-subtle))] bg-[hsl(var(--bg-app))] p-2.5 text-[9px] leading-relaxed text-[hsl(var(--text-secondary))]">{payload.content}</pre>
+    <pre className="whitespace-pre-wrap break-words rounded-md border border-[hsl(var(--border-subtle))] bg-[hsl(var(--bg-app))] p-2.5 text-[9px] leading-relaxed text-[hsl(var(--text-secondary))]">{payload.content}</pre>
   </section>;
 }
 
