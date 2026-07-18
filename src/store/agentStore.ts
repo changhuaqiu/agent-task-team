@@ -2,7 +2,7 @@
 
 import type { RoleCard } from '@/types/roleCard';
 import type { TeamPackRole } from '@/types/teamPack';
-import type { SkillSummary } from '@/lib/agent-context/PromptComposer';
+import type { SkillSummary } from '@/lib/agent-context/types';
 import type { CliEngine } from '@/server/types';
 import { PRESET_ROLE_CARDS } from '@/data/presetRoleCards';
 

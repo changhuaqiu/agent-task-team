@@ -8,23 +8,15 @@ import { ContextBudget } from './ContextBudget';
 import { composeWithBudget, type BudgetPart, type ContextTier } from './BudgetGuard';
 import { buildRoleLayer } from './layers/roleLayer';
 import { buildProjectLayer } from './layers/projectLayer';
-import { buildTeamLayer } from './layers/teamLayer';
 import { buildProjectStatusLayer } from './layers/projectStatusLayer';
-import { buildHistoryLayer } from './layers/historyLayer';
-import { buildTaskContextLayer } from './layers/taskContextLayer';
-import { buildUserMessageLayer } from './layers/userMessageLayer';
-import { buildBehaviorLayer } from './layers/behaviorLayer';
-import { buildSkillLayer } from './layers/skillLayer';
-import { buildToolLayer } from './layers/toolLayer';
-import { buildProtocolLayer, deriveRoleFromCard } from './layers/protocolLayer';
-import { buildA2ALayer } from './layers/a2aLayer';
-import { buildTeamPackLayer } from './layers/teamPackLayer';
 import { buildCollaborationLayer } from './layers/collaborationLayer';
-import { extractToolsFromSkills, type SkillSummary, type ToolDefinition } from './PromptComposer';
+import { renderAllTiers } from './tiers';
+import type { TierContext } from './tiers';
+import { extractToolsFromSkills } from './skillTools';
+import type { SkillSummary, ToolDefinition } from './types';
 import { getDirective, resolveArchetype, type ContextArchetype, type ContextCluster } from './injectionPolicy';
-import { buildProtocolHint } from './protocolHints';
 import { resolveScenario, type ContextScenario } from './scenarioResolver';
-import { renderTeamLogEnvelope, type TeamLogEnvelope } from './teamLog';
+import type { TeamLogEnvelope } from './teamLog';
 
 // Provider 层（P1 只返回 mock，预留接口）
 export interface ContextProviders {
@@ -179,102 +171,50 @@ export class ContextManager {
       limit: 10,
     });
 
-    // Layer 层：复用现有 15 个 buildXxxLayer
-    const parts: BudgetPart[] = [];
+    // Layer 层：交给四层 tier 渲染器组装（system/knowledge/task/interaction）。
+    // 每个 tier 内部复用 buildXxxLayer 并管自己的 push（gated by injectionPolicy）。
     const budget = req.budgetOverride ?? new ContextBudget();
 
-    const push = (
-      cluster: ContextCluster,
-      layer: string,
-      content: string | null | undefined,
-      opts: { tier: ContextTier; importance: number; scope?: string; private?: boolean },
-    ) => {
-      if (getDirective(scenario, archetype, cluster) === 'include' && content) {
-        parts.push({ layer, content, ...opts });
-      }
-    };
-
-    // Skills + tools (P3 — 能力，可按需 JIT)
+    // Skills + tools — 在 tier 外预计算，report 也要用。
     const providedSkills = await this.providers.getSkills();
     const skillSummaries: SkillSummary[] = providedSkills.length
       ? providedSkills
       : (roleCard?.capabilities?.skills ?? []).map(skillName => ({ name: skillName, content: '' }));
     const declaredTools = extractToolsFromSkills(skillSummaries);
     const tools = filterRegisteredTools(declaredTools, req.registeredToolNames);
-    push('capability', 'skill', buildSkillLayer(skillSummaries), { tier: 'tool', importance: 0.6 });
-    push('capability', 'tool', buildToolLayer(tools), { tier: 'tool', importance: 0.6 });
 
-    // Team roster (P2)
-    const runtimeTeam = runtimeRoster?.length
-      ? [
-          '## 当前团队',
-          ...runtimeRoster.map((member) => {
-            const marker = member.id === req.agentId ? '（当前角色）' : '';
-            return `- ${member.displayName} @${member.id}${marker}`;
-          }),
-        ].join('\n')
-      : '';
-    const team = runtimeRoster !== undefined
-      ? runtimeTeam
-      : buildTeamLayer(req.agentId, allRoleCards ?? [], undefined);
-    if (scenario !== 'wakeup') {
-      push('situation', 'team', team, { tier: 'project', importance: 0.5, scope: '/project' });
-    }
-
-    push('situation', 'teamLog', teamLogEnvelope ? renderTeamLogEnvelope(teamLogEnvelope) : '', {
-      tier: 'project',
-      importance: 0.75,
-      scope: '/project',
-      private: true,
-    });
-
-    push('protocol', 'collaboration', buildCollaborationLayer(), { tier: 'system', importance: 0.8 });
-
-    // TeamPack context (P1)
-    if (teamPack && scenario !== 'wakeup') {
-      push('situation', 'teamPack', buildTeamPackLayer(req.agentId, teamPack), { tier: 'project', importance: 0.6, scope: '/project' });
-    }
-
-    // Protocol layer (P0 — 约束，几乎不丢)
-    const protocol = buildProtocolLayer({
+    const allParts: BudgetPart[] = renderAllTiers({
+      req,
+      scenario,
+      archetype,
       agentId: req.agentId,
-      agentRole: deriveRoleFromCard(roleCard),
-      projectPath: '', // P1 暂不传，待 TASK-004 升级
-      hasTaskAssignment: !!task,
-      isPlanner: roleCard?.category === 'planner',
+      conversationId: req.conversationId,
+      roleCard,
+      allRoleCards: allRoleCards ?? [],
+      messages,
+      task,
+      tasks,
+      teamPack,
+      runtimeRoster,
+      skillSummaries,
+      tools,
+      teamLogEnvelope,
     });
-    const protocolHint = buildProtocolHint(scenario, req.wakeup);
-    push('protocol', 'protocol', [protocol, protocolHint].filter(Boolean).join('\n\n'), { tier: 'system', importance: 0.8 });
 
-    // History (P4 — GSSC：按 query 相关性筛选)
-    // 可见性标签；filterVisible/assertVisibility 强制执行在 P2 接入（见 spec §9）
-    push('dialog', 'history', buildHistoryLayer(messages, req.agentId, {
-      query: req.rawPrompt,
-      limit: 10,
-    }), { tier: 'project', importance: 0.3, scope: `/project/${req.agentId}`, private: true });
-
-    // Task context (P0)
-    if (task) {
-      push('focus', 'task', buildTaskContextLayer(task), { tier: 'project', importance: 0.8, scope: '/project' });
-    }
-
-    // A2A context (P1) or user message (P0)
-    if (req.a2aHandoff) {
-      push('focus', 'a2a', buildA2ALayer({
-        a2aFrom: req.a2aHandoff.title,
-        a2aContent: req.a2aHandoff.possessionSummary,
-        a2aContextSnapshot: JSON.stringify({
-          ...req.a2aHandoff,
-          possessionSummary: undefined,
-        }),
-      }), { tier: 'project', importance: 0.7, scope: '/project' });
-    } else {
-      // 可见性标签；filterVisible/assertVisibility 强制执行在 P2 接入（见 spec §9）
-      push('dialog', 'userMessage', buildUserMessageLayer(req.rawPrompt), { tier: 'project', importance: 0.9, scope: `/project/${req.agentId}`, private: true });
-    }
-
-    // Behavior (P0 — 闭环动作要求)
-    push('protocol', 'behavior', buildBehaviorLayer(), { tier: 'system', importance: 0.7 });
+    // Visibility stage — enforce scope/private labels as a real filter
+    // (spec §9). Rule: a private part whose source is another agent is
+    // dropped before budget trimming. Previously these labels were written
+    // but never enforced (P2 placeholder). Non-private parts always pass.
+    const visibilityFiltered: string[] = [];
+    const parts = allParts.filter((p) => {
+      if (!p.private) return true;
+      if (p.source === undefined) return true; // private but unclaimed — keep (no leak provenance)
+      if (p.source !== req.agentId) {
+        visibilityFiltered.push(p.layer);
+        return false;
+      }
+      return true;
+    });
 
     // Budget 层：复用 BudgetGuard
     const { prompt: userPrompt, report: budgetReport } = composeWithBudget(parts, budget);
@@ -303,7 +243,7 @@ export class ContextManager {
         trimmed: budgetReport.trimmed.includes(p.layer),
       })),
       p0Intact,
-      droppedLayers: budgetReport.trimmed,
+      droppedLayers: [...visibilityFiltered, ...budgetReport.trimmed],
       recalledArtifacts: artifacts.length, // 本期恒 0
       teamLogUpToEntryId: teamLogEnvelope?.upToEntryId,
       loadedSkills: skillSummaries.map(skill => skill.name),

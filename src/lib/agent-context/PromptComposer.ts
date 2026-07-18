@@ -23,42 +23,12 @@ import type { ContextRequest } from './ContextManager';
 import { ContextManager } from './ContextManager';
 import { noOpMemoryHook } from './MemoryHook';
 
-export interface ParamDef {
-  name: string;
-  type: 'string' | 'number' | 'boolean';
-  required: boolean;
-  description: string;
-}
-
-export interface ToolDefinition {
-  name: string;
-  description: string;
-  parameters: ParamDef[];
-  handler: string;
-}
-
-export interface SkillSummary {
-  name: string;
-  content: string;
-  files?: { path: string; content: string }[];
-  config?: string;
-}
-
-export function extractToolsFromSkills(skills: SkillSummary[]): ToolDefinition[] {
-  const tools: ToolDefinition[] = [];
-  for (const skill of skills) {
-    if (!skill.config) continue;
-    try {
-      const parsed = JSON.parse(skill.config);
-      if (Array.isArray(parsed.tools)) {
-        tools.push(...parsed.tools);
-      }
-    } catch {
-      // invalid config JSON — skip
-    }
-  }
-  return tools;
-}
+// Types + extractToolsFromSkills now live in neutral files to break the
+// ContextManager ↔ PromptComposer cycle. Re-exported here so existing
+// callers keep compiling until Step 4 removes PromptComposer entirely.
+export type { ParamDef, ToolDefinition, SkillSummary } from './types';
+export { extractToolsFromSkills } from './skillTools';
+import type { SkillSummary } from './types';
 
 export interface ComposeOptions {
   agent: { id: string; name: string };

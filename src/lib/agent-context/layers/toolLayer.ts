@@ -1,4 +1,4 @@
-import type { ToolDefinition } from '../PromptComposer';
+import type { ToolDefinition } from '../types';
 
 export function buildToolLayer(tools: ToolDefinition[]): string {
   if (tools.length === 0) return '';

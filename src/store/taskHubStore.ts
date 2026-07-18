@@ -35,7 +35,7 @@ import {
 } from '@/types/integrationConfig';
 import type { Phase } from '@/types/phase';
 import type { PhaseProposal } from '@/lib/breakdownParser';
-import type { SkillSummary } from '@/lib/agent-context/PromptComposer';
+import type { SkillSummary } from '@/lib/agent-context/types';
 import type { DetectedRuntime, CliEngine } from '@/server/types';
 import type { A2AHandoffStatus, A2APossessionView, ChatMessage, ToolEvent } from './types';
 export type { A2AHandoffStatus, A2AHandoffView, A2APossessionView, ChatMessage, ToolEvent } from './types';
