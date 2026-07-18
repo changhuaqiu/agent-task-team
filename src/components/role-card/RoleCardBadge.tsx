@@ -6,10 +6,12 @@ import { cn } from '@/lib/utils';
 const CATEGORY_CONFIG: Record<RoleCardCategory, { emoji: string; themeVar: string; label: string }> = {
   planner:       { emoji: '⭐', themeVar: '--agent-mario',  label: '规划' },
   frontend:      { emoji: '⚡', themeVar: '--agent-luigi',  label: '前端' },
-  backend:       { emoji: '🛡️', themeVar: '--agent-toad',   label: '后端' },
+  // backend/qa 在 4 人组里由 luigi（全栈）和 peach（评审+测试）承担；
+  // toad/yoshi 已随 team-simplification 删除，不再有独立 agent（issue #36/#34）。
+  backend:       { emoji: '⚡', themeVar: '--agent-luigi',  label: '后端' },
   code_reviewer: { emoji: '🌸', themeVar: '--agent-peach',  label: '评审' },
   arch_reviewer: { emoji: '⚙️', themeVar: '--agent-dk',     label: '架构' },
-  qa:            { emoji: '🎵', themeVar: '--agent-yoshi',  label: '质检' },
+  qa:            { emoji: '🌸', themeVar: '--agent-peach',  label: '质检' },
 };
 
 export function getCategoryConfig(category: RoleCardCategory) {

@@ -180,7 +180,7 @@ export function IntegrationSettingsPage() {
                 集成配置中心
               </h1>
               <p className="mt-3 max-w-[720px] text-[14px] leading-7 text-[hsl(var(--text-secondary))]">
-                汇总模型账号、供应商档案、使用场景渠道、默认执行策略、角色素材、技能、团队套件与执行环境状态。编辑仍保持轻量，避免复制账号和团队套件的深层编辑流程。
+                汇总模型账号、角色卡、技能和团队套件。编辑请在左侧抽屉完成，这里提供全局概览。
               </p>
             </div>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:w-[520px]">
@@ -259,7 +259,7 @@ export function IntegrationSettingsPage() {
               icon={<Sparkles className="h-5 w-5 text-[hsl(var(--text-primary))]" />}
               title="技能库"
               status="已接入"
-              description="技能可以绑定到 preset agent 或 TeamPack 成员，运行时由 Team Runtime Contract 合并解析。"
+              description="技能可以绑定到角色或团队套件成员，运行时自动合并生效。"
             >
               {Object.keys(skillsMap).length === 0 ? (
                 <EmptyLine>还没有导入技能。</EmptyLine>
@@ -278,7 +278,7 @@ export function IntegrationSettingsPage() {
               icon={<Route className="h-5 w-5 text-[hsl(var(--text-primary))]" />}
               title="供应商档案"
               status="已接入"
-              description="供应商档案把账号、可用模型和默认模型收口为可被渠道与路由策略引用的配置对象。"
+              description="把账号、可用模型和默认模型收口为统一的配置，供不同使用场景引用。"
             >
               <div className="grid gap-3 md:grid-cols-2">
                 {providerProfiles.map((profile) => {
@@ -340,11 +340,11 @@ export function IntegrationSettingsPage() {
               icon={<Cable className="h-5 w-5 text-[hsl(var(--text-primary))]" />}
               title="执行环境"
               status="部分接入"
-              description="daemon 已能探测并接入多类 CLI backend，但这里暂时只展示健康状态。"
+              description="后台已能探测并接入多类运行时，这里展示它们的健康状态。"
             >
               <div className="space-y-2">
                 {daemonRuntimes.length === 0 ? (
-                  <EmptyLine>尚未探测到执行环境。启动 daemon 后会显示状态。</EmptyLine>
+                  <EmptyLine>尚未探测到运行时。启动后台服务后会显示状态。</EmptyLine>
                 ) : daemonRuntimes.map((runtime) => (
                   <div key={runtime.engine} className="flex items-center justify-between rounded-[var(--radius-md)] border border-[hsl(var(--border))] bg-[hsl(var(--bg-app))] px-3 py-2">
                     <div>
@@ -363,7 +363,7 @@ export function IntegrationSettingsPage() {
               icon={<Route className="h-5 w-5 text-[hsl(var(--text-primary))]" />}
               title="渠道与默认策略"
               status="已接入"
-              description="使用场景渠道决定默认执行环境和供应商档案；路由策略决定聊天、执行与评审的默认路径。"
+              description="不同使用场景决定默认使用哪个运行时和配置；策略决定聊天、执行与评审的默认走向。"
             >
               <div className="space-y-4">
                 <div className="space-y-2">
