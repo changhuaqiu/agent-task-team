@@ -29,6 +29,9 @@ importers:
       '@dnd-kit/utilities':
         specifier: ^3.2.2
         version: 3.2.2(react@19.2.4)
+      '@modelcontextprotocol/sdk':
+        specifier: 1.29.0
+        version: 1.29.0(zod@4.3.6)
       '@tailwindcss/typography':
         specifier: ^0.5.19
         version: 0.5.19(tailwindcss@4.2.4)

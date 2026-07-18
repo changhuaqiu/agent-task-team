@@ -68,6 +68,32 @@ describe('WorktreeManager', () => {
     expect(info.head).toMatch(/^[0-9a-f]{40}$/);
   });
 
+  it('creates a conversation worktree from the configured project HEAD instead of stale main', async () => {
+    await execAsync('git checkout -b current-project', { cwd: testRepo });
+    await execAsync('git commit --allow-empty -m "project head"', { cwd: testRepo });
+    const projectHead = await WorktreeManager.getHead(testRepo);
+
+    const info = await manager.createWorktree('conv-project-head', projectHead!);
+
+    expect(info.head).toBe(projectHead);
+  });
+
+  it('keeps Git operations in the configured repository while storing worktrees elsewhere', async () => {
+    const storageRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'worktree-storage-'));
+    try {
+      const externalManager = new WorktreeManager(testRepo, storageRoot);
+      const expectedHead = await WorktreeManager.getHead(testRepo);
+      const info = await externalManager.createWorktree('conv-external', expectedHead!);
+
+      expect(path.dirname(info.path)).toBe(fs.realpathSync(storageRoot));
+      expect(info.head).toBe(expectedHead);
+      const { stdout } = await execAsync(`git branch --list "${BRANCH_PREFIX}/conv-external"`, { cwd: testRepo });
+      expect(stdout).toContain(`${BRANCH_PREFIX}/conv-external`);
+    } finally {
+      fs.rmSync(storageRoot, { recursive: true, force: true });
+    }
+  });
+
   it('should only list worktrees under .worktrees directory', async () => {
     await manager.createWorktree('conv-filter');
     const worktrees = await manager.listWorktrees();

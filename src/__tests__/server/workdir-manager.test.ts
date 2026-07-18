@@ -3,6 +3,10 @@ import { resolveNonWorktreeExecutionCwd, safeWorkdirSegment, stableWorkdirTaskKe
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import { exec } from 'node:child_process';
+import { promisify } from 'node:util';
+
+const execAsync = promisify(exec);
 
 const tmpRoot = path.join(os.tmpdir(), `ath-wd-test-${Date.now()}`);
 
@@ -54,6 +58,24 @@ describe('WorkdirManager', () => {
       expect(path.basename(path.dirname(wd))).toBe(`task-${safeWorkdirSegment(taskId)}`);
       expect(wd).not.toContain(':TASK');
       expect(fs.existsSync(wd)).toBe(true);
+    });
+
+    it('creates an isolated worktree from the configured external repository', async () => {
+      const repoRoot = path.join(tmpRoot, 'external-repo');
+      fs.mkdirSync(repoRoot, { recursive: true });
+      await execAsync('git init -b main', { cwd: repoRoot });
+      await execAsync('git commit --allow-empty -m "init"', { cwd: repoRoot });
+
+      const m = mgr();
+      const wd = await m.resolveWorkdir('mario', 'proj-1', 'TASK-EXT', {
+        useWorktree: true,
+        projectSlug: 'conv-external',
+        startPoint: 'HEAD',
+        repoRoot,
+      });
+
+      expect(wd).toContain(path.join('.worktrees', ''));
+      expect(path.resolve(await m.getWorktreeManager(repoRoot).getWorktreePath('conv-external'))).toBe(path.resolve(wd));
     });
   });
 

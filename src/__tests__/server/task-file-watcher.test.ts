@@ -9,7 +9,11 @@ import { conversationRepo } from '@/server/repositories/conversation-repo';
 import { messageRepo } from '@/server/repositories/message-repo';
 import { taskRepo } from '@/server/repositories/task-repo';
 import { invocationRepo } from '@/server/repositories/invocation-repo';
+import { proofLogRepo } from '@/server/repositories/proof-log-repo';
+import { taskGraphRepo } from '@/server/repositories/task-graph-repo';
+import { readTasksMd } from '@/server/task-file-service';
 import { startTaskWatcher, stopTaskWatcher, syncTasksToDb } from '@/server/task-file-watcher';
+import type { Server as IOServer } from 'socket.io';
 
 let projectPath: string;
 
@@ -42,7 +46,7 @@ describe('syncTasksToDb', () => {
     const emit = vi.fn();
     const io = { to: vi.fn(() => ({ emit })), emit: vi.fn() };
 
-    startTaskWatcher(projectPath, io as any);
+    startTaskWatcher(projectPath, io as unknown as IOServer);
     await new Promise(resolve => setTimeout(resolve, 100));
     writeTasksMd('doing');
 
@@ -70,7 +74,7 @@ describe('syncTasksToDb', () => {
     const emit = vi.fn();
     const io = { to: vi.fn(() => ({ emit })), emit: vi.fn() };
 
-    startTaskWatcher(projectPath, io as any);
+    startTaskWatcher(projectPath, io as unknown as IOServer);
 
     const deadline = Date.now() + 5_000;
     while (!taskRepo.getById('TASK-003') && Date.now() < deadline) {
@@ -102,7 +106,7 @@ describe('syncTasksToDb', () => {
     const emit = vi.fn();
     const io = { to: vi.fn(() => ({ emit })), emit: vi.fn() };
 
-    syncTasksToDb(projectPath, io as any);
+    syncTasksToDb(projectPath, io as unknown as IOServer);
 
     const updated = taskRepo.getById('TASK-003')!;
     expect(updated.status).toBe('in_review');
@@ -120,6 +124,69 @@ describe('syncTasksToDb', () => {
     expect(emit).toHaveBeenCalledWith('task.notification', expect.objectContaining({
       taskId: 'TASK-003',
       recipients: ['toad'],
+    }));
+  });
+
+  it('rejects Git quality-gate transitions written directly to TASKS.md', () => {
+    conversationRepo.update('conv-1', { git_repo_root: projectPath });
+    taskRepo.create({
+      id: 'TASK-003',
+      conversation_id: 'conv-1',
+      title: '修复 A2A 通知',
+      agent_id: 'toad',
+    });
+    taskRepo.updateStatus('TASK-003', 'in_progress');
+    writeTasksMd('review', 'attempted bypass');
+
+    const emit = vi.fn();
+    const io = { to: vi.fn(() => ({ emit })), emit: vi.fn() };
+    syncTasksToDb(projectPath, io as unknown as IOServer);
+
+    expect(taskRepo.getById('TASK-003')).toMatchObject({
+      status: 'in_progress',
+      description: 'attempted bypass',
+    });
+    expect(readTasksMd(projectPath).tasks[0].status).toBe('in_progress');
+    expect(proofLogRepo.findByType({
+      eventType: 'task_graph.gate_evidence.blocked',
+      conversationId: 'conv-1',
+      taskId: 'TASK-003',
+      reasonCode: 'task_graph.file_projection_gate_bypass',
+    })).toHaveLength(1);
+    expect(emit).toHaveBeenCalledWith('task.sync_error', expect.objectContaining({
+      taskId: 'TASK-003',
+      reasonCode: 'task_graph.file_projection_gate_bypass',
+    }));
+  });
+
+  it('does not let a stale file roll a Git receipt state backward', () => {
+    conversationRepo.update('conv-1', { git_repo_root: projectPath });
+    taskRepo.create({
+      id: 'TASK-003',
+      conversation_id: 'conv-1',
+      title: 'Keep receipt state',
+      agent_id: 'toad',
+    });
+    taskRepo.updateStatus('TASK-003', 'in_review');
+    taskGraphRepo.appendAction({
+      conversationId: 'conv-1',
+      actorId: 'luigi',
+      actorType: 'agent',
+      type: 'task.pull_request_submitted',
+      taskIds: ['TASK-003'],
+      payload: { receipt: { headSha: 'abc123' } },
+    });
+    writeTasksMd('doing', 'stale runtime projection');
+
+    const emit = vi.fn();
+    const io = { to: vi.fn(() => ({ emit })), emit: vi.fn() };
+    syncTasksToDb(projectPath, io as unknown as IOServer);
+
+    expect(taskRepo.getById('TASK-003')?.status).toBe('in_review');
+    expect(readTasksMd(projectPath).tasks[0].status).toBe('in_review');
+    expect(emit).toHaveBeenCalledWith('task.sync_error', expect.objectContaining({
+      taskId: 'TASK-003',
+      reasonCode: 'task_graph.file_projection_gate_bypass',
     }));
   });
 
@@ -141,7 +208,7 @@ describe('syncTasksToDb', () => {
 
     const emit = vi.fn();
     const io = { to: vi.fn(() => ({ emit })), emit: vi.fn() };
-    syncTasksToDb(projectPath, io as any);
+    syncTasksToDb(projectPath, io as unknown as IOServer);
 
     expect(taskRepo.getById('TASK-003')?.status).toBe('in_progress');
     expect(emit).not.toHaveBeenCalledWith('task.notification', expect.objectContaining({
@@ -150,7 +217,7 @@ describe('syncTasksToDb', () => {
     }));
 
     invocationRepo.updateStatus('inv-active', 'succeeded');
-    syncTasksToDb(projectPath, io as any);
+    syncTasksToDb(projectPath, io as unknown as IOServer);
     expect(taskRepo.getById('TASK-003')?.status).toBe('pending');
   });
 
@@ -167,7 +234,7 @@ describe('syncTasksToDb', () => {
 
     const emit = vi.fn();
     const io = { to: vi.fn(() => ({ emit })), emit: vi.fn() };
-    syncTasksToDb(projectPath, io as any);
+    syncTasksToDb(projectPath, io as unknown as IOServer);
 
     expect(taskRepo.getById('TASK-003')).toMatchObject({
       conversation_id: 'conv-other',
@@ -185,7 +252,7 @@ describe('syncTasksToDb', () => {
     });
 
     writeTasksMd('done', 'done.md');
-    syncTasksToDb(projectPath, io as any);
+    syncTasksToDb(projectPath, io as unknown as IOServer);
 
     expect(taskRepo.getById('TASK-003')?.status).toBe('pending');
     expect(taskRepo.getById('conv-1~TASK-003')).toMatchObject({

@@ -8,12 +8,30 @@ import {
   formatBlockersMd,
   readTasksMd,
   initProjectDir,
+  ensureTasksMdProjection,
 } from '@/server/task-file-service';
 
 const TMP = join(__dirname, '__tmp_task_file_service__');
 
 beforeEach(() => { mkdirSync(TMP, { recursive: true }); });
 afterEach(() => { rmSync(TMP, { recursive: true, force: true }); });
+
+describe('ensureTasksMdProjection', () => {
+  it('materializes current Task Graph rows into the runtime worktree once', () => {
+    expect(ensureTasksMdProjection(TMP, [{
+      id: 'TASK-PR', title: 'Review PR evidence', status: 'in_review', agent_id: 'peach',
+      dependencies: JSON.stringify(['TASK-BASE']),
+    }])).toBe(true);
+
+    expect(readTasksMd(TMP).tasks).toEqual([expect.objectContaining({
+      id: 'TASK-PR', status: 'in_review', agent: 'peach', depends: ['TASK-BASE'],
+    })]);
+    expect(ensureTasksMdProjection(TMP, [{
+      id: 'TASK-NEW', title: 'Do not overwrite', status: 'pending', agent_id: 'luigi', dependencies: null,
+    }])).toBe(false);
+    expect(readTasksMd(TMP).tasks.map((task) => task.id)).toEqual(['TASK-PR']);
+  });
+});
 
 describe('parseTasksMd', () => {
   it('parses new 8-col format with Phase', () => {

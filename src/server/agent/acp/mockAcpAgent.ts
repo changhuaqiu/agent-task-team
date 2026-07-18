@@ -64,7 +64,7 @@ const PERMISSION_OPTIONS: acp.PermissionOption[] = [
  *    (`process.exit(1)`) — so `AcpBackend`'s `close` handler fires with an
  *    abnormal exit and resolves `failed`. (Task 9 failure-recovery test.)
  */
-export type MockScenario = 'normal' | 'slow' | 'active' | 'error' | 'flood' | 'large' | 'wrong_session' | 'tool_only' | 'tool_silent';
+export type MockScenario = 'normal' | 'slow' | 'active' | 'error' | 'flood' | 'large' | 'wrong_session' | 'tool_only' | 'tool_silent' | 'mcp_echo' | 'platform_mcp_permission';
 
 /** How long the "slow" scenario blocks mid-turn before completing. */
 const SLOW_BLOCK_MS = 60_000;
@@ -96,16 +96,19 @@ export function createMockAgentApp(
   scenario: MockScenario = 'normal',
 ): acp.AgentApp {
   let promptCount = 0;
+  let sessionMcpServers: acp.McpServer[] = [];
   return acp
     .agent({ name: 'mock-acp-agent' })
     .onRequest(acp.methods.agent.initialize, () => ({
       protocolVersion: acp.PROTOCOL_VERSION,
       agentCapabilities: { loadSession: process.env.MOCK_ACP_LOAD_SESSION !== 'false' },
     }))
-    .onRequest(acp.methods.agent.session.new, () => ({
-      sessionId: 'mock-1',
-    }))
+    .onRequest(acp.methods.agent.session.new, (ctx) => {
+      sessionMcpServers = ctx.params.mcpServers;
+      return { sessionId: 'mock-1' };
+    })
     .onRequest(acp.methods.agent.session.load, async (ctx) => {
+      sessionMcpServers = ctx.params.mcpServers;
       if (process.env.MOCK_ACP_LOAD_FAIL === 'true') {
         throw new Error('mock load failed');
       }
@@ -136,6 +139,14 @@ export function createMockAgentApp(
           sessionId: updateSessionId,
           update,
         });
+
+      if (scenario === 'mcp_echo') {
+        await upd({
+          sessionUpdate: 'agent_message_chunk',
+          content: { type: 'text', text: JSON.stringify(sessionMcpServers) },
+        });
+        return { stopReason: 'end_turn' };
+      }
 
       if (scenario === 'tool_only' && promptCount > 1) {
         await upd({
@@ -202,10 +213,14 @@ export function createMockAgentApp(
         return { stopReason: 'end_turn' };
       }
 
+      const activeToolCall = scenario === 'platform_mcp_permission'
+        ? { ...TOOL_CALL, title: 'mcp.agent-task-team.task_create' }
+        : TOOL_CALL;
+
       // 2. Tool call created (pending).
       await upd({
         sessionUpdate: 'tool_call',
-        ...TOOL_CALL,
+        ...activeToolCall,
       });
 
       // 3. Request permission and await the client's decision.
@@ -213,7 +228,8 @@ export function createMockAgentApp(
         acp.methods.client.session.requestPermission,
         {
           sessionId,
-          toolCall: { ...TOOL_CALL },
+          toolCall: { ...activeToolCall, ...(scenario === 'platform_mcp_permission' ? { title: undefined } : {}) },
+          ...(scenario === 'platform_mcp_permission' ? { _meta: { is_mcp_tool_approval: true } } : {}),
           options: PERMISSION_OPTIONS,
         },
       );
@@ -235,6 +251,13 @@ export function createMockAgentApp(
         toolCallId: TOOL_CALL_ID,
         status: toolStatus,
       });
+
+      if (scenario === 'platform_mcp_permission') {
+        await upd({
+          sessionUpdate: 'agent_message_chunk',
+          content: { type: 'text', text: allowed ? 'platform-allowed' : 'platform-denied' },
+        });
+      }
 
       // 5. Closing agent message.
       if (scenario !== 'tool_only' && scenario !== 'tool_silent') {
@@ -270,6 +293,8 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
       || envScenario === 'wrong_session'
       || envScenario === 'tool_only'
       || envScenario === 'tool_silent'
+      || envScenario === 'mcp_echo'
+      || envScenario === 'platform_mcp_permission'
       ? envScenario
       : 'normal';
   const stream = acp.ndJsonStream(

@@ -11,6 +11,7 @@ import { readCredential } from './credentials';
 import { buildProbeEnv } from './cli-probe';
 import { generateRuntimeConfig, cleanupRuntimeConfig, makeInvocationId } from './opencode-config';
 import { startTaskWatcher, syncTasksToDb } from './task-file-watcher';
+import { ensureTasksMdProjection } from './task-file-service';
 import type { AccountProvider as RuntimeAccountProvider } from './opencode-config';
 import type { CliEngine, DetectedRuntime } from './types';
 import { sessionRepo } from './repositories/session-repo';
@@ -28,9 +29,8 @@ import { createBackend as createAcpBackend } from './agent/acp/catalog';
 import { checkCapabilities } from './agent/capabilityRouter';
 import type { AgentEvent, AgentBackend } from './agent/types';
 import { withDoneGuarantee } from './agent/with-done-guarantee';
-import { isNativeRuntimeTool } from './agent/nativeTools';
 import { isSkillTool } from './skill-tool-router';
-import { executeSkillTool } from './skill-tool-executor';
+import { registerAcpSkillMcpGrant, resolveAcpMcpLoopbackOrigin } from './acp-skill-mcp';
 import { StreamTextPersistence } from './agent/streamTextPersistence';
 import { resolveNonWorktreeExecutionCwd, stableWorkdirTaskKey, WorkdirManager } from './workdir-manager';
 import { AgentMessenger } from './a2a';
@@ -40,6 +40,7 @@ import { DispatchGateway } from './control-plane/dispatch-gateway';
 import { runtimeNodeRepo } from './repositories/runtime-node-repo';
 import type { DispatchIntent, DispatchSource, RuntimeNodeKind } from './repositories/control-plane-types';
 import { taskRepo } from './repositories/task-repo';
+import { conversationRepo } from './repositories/conversation-repo';
 import { taskGraphRepo } from './repositories/task-graph-repo';
 import { executionEnvelopeRepo } from './repositories/execution-envelope-repo';
 import { proofLogRepo } from './repositories/proof-log-repo';
@@ -200,7 +201,7 @@ export default function registerDaemon(io: IOServer) {
   const activeProcesses = new Map<string, { kill: () => void }>();
   const processKey = (agentId: string, projectId?: string) => `${agentId}@${projectId || 'default'}`;
   const processStartGuard = new ProcessStartGuard();
-  const broadcast = (event: string, data: any) => io.emit(event, data);
+  const broadcast = (event: string, data: unknown) => io.emit(event, data);
   const agentResponseBuffer = new Map<string, string>();
   const dispatchGateway = new DispatchGateway();
   // Deferred until after the Harness port is constructed; the port closes over this handler.
@@ -642,6 +643,7 @@ export default function registerDaemon(io: IOServer) {
       // the outer catch (terminal:start error) can clean up if setup succeeds
       // but a later step throws before the execute IIFE takes over.
       let acpCleanup: (() => void) | undefined;
+      let revokeAcpTools: (() => void) | undefined;
       try {
       if (!conversationId && !projectId) {
         throw new Error('session_scope_missing: terminal:start requires conversationId or projectId');
@@ -661,6 +663,7 @@ export default function registerDaemon(io: IOServer) {
       }
       const responseBufferKey = processKey(agentId, sessionConvId);
       const sharedProjectDir = join(workspacesRoot, sessionConvId);
+      let taskProjectDir = sharedProjectDir;
       const emitDispatchReceipt = (
         phase: 'requested' | 'sent' | 'started' | 'completed' | 'blocked' | 'failed',
         reasonCode?: string,
@@ -1079,7 +1082,7 @@ export default function registerDaemon(io: IOServer) {
         try {
           // Watchers are best-effort on every platform. The completed-turn
           // boundary is the consistency barrier before handoff scanning.
-          syncTasksToDb(sharedProjectDir, io);
+          syncTasksToDb(taskProjectDir, io);
         } catch (error) {
           console.warn(`[task-sync] completion barrier failed for ${sessionConvId}:`, error);
         }
@@ -1191,11 +1194,6 @@ export default function registerDaemon(io: IOServer) {
         return false;
       };
 
-      // --- Tool interception helpers for skill-defined tools ---
-      function isNativeTool(name: string): boolean {
-        return isNativeRuntimeTool(name);
-      }
-
       function isBackgroundChildTool(name: string): boolean {
         const normalized = name.trim().toLowerCase();
         return normalized === 'agent' || normalized === 'task';
@@ -1233,30 +1231,6 @@ export default function registerDaemon(io: IOServer) {
         }
       }
 
-      function handleCustomToolUse(
-        agentId: string,
-        projectId: string | undefined,
-        tool: { name: string; callId?: string; input?: string },
-      ): void {
-        try {
-          if ((tool.input?.length ?? 0) > 64 * 1024) throw new Error('tool input exceeds 64 KiB');
-          const input = tool.input ? JSON.parse(tool.input) : {};
-          void executeSkillTool({
-            toolName: tool.name,
-            agentId,
-            projectId,
-            conversationId: sessionConvId,
-            taskId,
-            input,
-            io,
-          }).then((result) => {
-            if (!result.success) console.error(`[daemon] tool invocation failed for ${tool.name}: ${result.error}`);
-          });
-        } catch (error) {
-          console.error(`[daemon] failed to parse tool input for ${tool.name}:`, error);
-        }
-      }
-
       // --- Shared agent event forwarder ---
       const forwardAgentEvent = (event: AgentEvent) => {
         try {
@@ -1289,11 +1263,6 @@ export default function registerDaemon(io: IOServer) {
         if (event.type === 'tool_use' && event.tool?.name && isBackgroundChildTool(event.tool.name)) {
           hasBackgroundChildActivity = true;
           broadcastAgentActivity('awaiting_children', `tool:${event.tool.name}`);
-        }
-
-        // Intercept tool_use events for skill-defined tools
-        if (event.type === 'tool_use' && event.tool?.name && isSkillTool(event.tool.name)) {
-          handleCustomToolUse(agentId, projectId, event.tool);
         }
 
         if (event.type === 'tool_use' && event.tool?.name && invocationTraceId && rootObservationSpanId) {
@@ -1603,36 +1572,56 @@ export default function registerDaemon(io: IOServer) {
       // Auto-detect git repo and resolve worktree
       let effectiveSlug = projectSlug;
       let effectiveUseWorktree = useWorktree ?? false;
+      let worktreeStartPoint: string | undefined;
+      let worktreeRepoRoot: string | undefined;
+      const requiresGitWorktree = effectiveUseWorktree
+        || Boolean(conversationRepo.getById(sessionConvId)?.git_repo_root);
 
-      if (!effectiveSlug && projectPath) {
+      if (projectPath) {
         try {
           const { WorktreeManager } = await import('./worktree-manager');
           const isGit = await WorktreeManager.isGitRepo(projectPath);
+          if (!isGit && requiresGitWorktree) {
+            throw new Error('configured project path is not a Git worktree');
+          }
           if (isGit) {
-            effectiveSlug = conversationId || projectId || 'default';
+            const detectedRepoRoot = await WorktreeManager.getRepoRoot(projectPath) ?? undefined;
+            const detectedHead = await WorktreeManager.getHead(projectPath) ?? undefined;
+            if (!detectedRepoRoot || !detectedHead) {
+              throw new Error('git repo root or HEAD could not be resolved');
+            }
+            effectiveSlug ??= conversationId || projectId || 'default';
             effectiveUseWorktree = true;
-            console.log(`[daemon] git repo detected at ${projectPath}, using worktree slug=${effectiveSlug}`);
+            worktreeRepoRoot = detectedRepoRoot;
+            worktreeStartPoint = detectedHead;
+            console.log(`[daemon] git repo detected at ${worktreeRepoRoot}, using worktree slug=${effectiveSlug}`);
           }
         } catch (e) {
-          console.warn(`[daemon] git detection failed for ${projectPath}, falling back to non-worktree mode:`, (e as Error).message);
+          if (requiresGitWorktree) {
+            throw new Error(`worktree_baseline_unavailable: ${(e as Error).message}`);
+          }
+          console.warn(`[daemon] git detection failed for ${projectPath}, using configured non-Git directory:`, (e as Error).message);
         }
+      } else if (requiresGitWorktree) {
+        throw new Error('worktree_baseline_unavailable: Git-backed dispatch requires projectPath');
       }
 
       const wd = await workdirManager.resolveWorkdir(
         agentId,
         projectId || 'default',
         stableWorkdirTaskKey(taskId),
-        effectiveUseWorktree && effectiveSlug ? { useWorktree: true, projectSlug: effectiveSlug } : undefined,
+        effectiveUseWorktree && effectiveSlug
+          ? { useWorktree: true, projectSlug: effectiveSlug, startPoint: worktreeStartPoint, repoRoot: worktreeRepoRoot }
+          : undefined,
       );
       const runtimeWd = effectiveUseWorktree
         ? wd
         : resolveNonWorktreeExecutionCwd(projectPath, wd);
-      const sessionMeta = taskId ? workdirManager.readSessionMeta(agentId, projectId || 'default', taskId) : null;
-
-      // Start file watcher for project-level .ath/ directory
-      const projectDir = sharedProjectDir;
-      startTaskWatcher(projectDir, io);
-      for (const workspaceDir of new Set([projectDir, wd])) {
+      // Runtime, task projection, watcher, and prompt share one writable fact source.
+      taskProjectDir = runtimeWd;
+      ensureTasksMdProjection(taskProjectDir, taskRepo.getByConversation(sessionConvId));
+      startTaskWatcher(taskProjectDir, io);
+      for (const workspaceDir of new Set([sharedProjectDir, wd])) {
         try {
           teamLogProjection.materialize(sessionConvId, workspaceDir);
         } catch (error) {
@@ -1641,9 +1630,9 @@ export default function registerDaemon(io: IOServer) {
       }
 
       // Build prompt with worktree context if applicable
-      let promptWithWorkdir = (prompt || '') + `\n\n[系统] 任务看板路径: ${join(projectDir, '.ath')}/TASKS.md`;
+      let promptWithWorkdir = (prompt || '') + `\n\n[系统] 任务看板路径: ${join(taskProjectDir, '.ath')}/TASKS.md`;
       if (effectiveUseWorktree && effectiveSlug) {
-        const branchName = workdirManager.getWorktreeManager().getBranchName(effectiveSlug);
+        const branchName = workdirManager.getWorktreeManager(worktreeRepoRoot).getBranchName(effectiveSlug);
         promptWithWorkdir += `\n[系统] 当前在 Git Worktree 分支 ${branchName} 下工作，工作目录: ${wd}`;
       }
 
@@ -1673,6 +1662,23 @@ export default function registerDaemon(io: IOServer) {
       executeCwd = prepared.cwd;
       executeEnv = prepared.env;
       acpCleanup = prepared.cleanup;
+      const permittedAcpTools = (contextReport?.availableTools ?? []).filter(isSkillTool);
+      const mcpOrigin = resolveAcpMcpLoopbackOrigin(io);
+      if (permittedAcpTools.length > 0 && !mcpOrigin) {
+        throw new Error('acp_skill_mcp_unavailable: daemon HTTP listener has no loopback address');
+      }
+      const acpToolGrant = mcpOrigin
+        ? registerAcpSkillMcpGrant({
+          agentId,
+          conversationId: sessionConvId,
+          projectId,
+          taskId,
+          taskProjectDir,
+          permittedTools: permittedAcpTools,
+          io,
+        }, mcpOrigin)
+        : undefined;
+      revokeAcpTools = acpToolGrant?.revoke;
       // codex startup ~117s (WebSocket→HTTPS fallback). The kill timer +
       // backend timeout are floored to ≥180s at the timeoutMs source for codex
       // ACP (see ~L690). Warn when the operator-tuned raw timeout was below
@@ -1684,6 +1690,8 @@ export default function registerDaemon(io: IOServer) {
         cwd: prepared.cwd,
         env: prepared.env,
         permissionPolicy: resolveAcpPermissionPolicy(),
+        mcpServers: acpToolGrant ? [acpToolGrant.mcpServer] : [],
+        autoApproveMcpToolNames: acpToolGrant?.autoApproveToolNames ?? [],
       });
 
       // The per-turn timeout. timeoutMs already carries the codex-ACP floor
@@ -1805,6 +1813,7 @@ export default function registerDaemon(io: IOServer) {
           activeProcesses.delete(processKey(agentId, projectId));
           if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
           acpCleanup?.();
+          revokeAcpTools?.();
         } catch (err) {
           clearProcessTimeout();
           clearInterval(heartbeatTimer);
@@ -1817,6 +1826,7 @@ export default function registerDaemon(io: IOServer) {
           activeProcesses.delete(processKey(agentId, projectId));
           if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
           acpCleanup?.();
+          revokeAcpTools?.();
         }
       })();
       } catch (err) {
@@ -1844,6 +1854,7 @@ export default function registerDaemon(io: IOServer) {
         activeProcesses.delete(processKey(agentId, projectId));
         if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
         acpCleanup?.();
+        revokeAcpTools?.();
       } finally {
         processStartGuard.release(startKey);
       }
@@ -1897,7 +1908,7 @@ export default function registerDaemon(io: IOServer) {
       try {
         const worktrees = await workdirManager.getWorktreeManager().listWorktrees();
         callback?.({ worktrees });
-      } catch (error) {
+      } catch {
         callback?.({ error: 'Failed to list worktrees' });
       }
     });
@@ -1906,7 +1917,7 @@ export default function registerDaemon(io: IOServer) {
       try {
         const worktree = await workdirManager.getWorktreeManager().createWorktree(slug);
         callback?.({ worktree });
-      } catch (error) {
+      } catch {
         callback?.({ error: 'Failed to create worktree' });
       }
     });
@@ -1915,16 +1926,11 @@ export default function registerDaemon(io: IOServer) {
       try {
         await workdirManager.getWorktreeManager().removeWorktree(slug);
         callback?.({ success: true });
-      } catch (error) {
+      } catch {
         callback?.({ error: 'Failed to remove worktree' });
       }
     });
 
-    socket.on('task.request_sync', ({ conversationId: reqConvId }: { conversationId: string }) => {
-      const dir = join(workspacesRoot, reqConvId || 'default');
-      startTaskWatcher(dir, io);
-      syncTasksToDb(dir, io);
-    });
   });
 
   // Graceful shutdown

@@ -29,6 +29,50 @@ describe('isAcpResourceNotFound', () => {
 });
 
 describe('AcpBackend (subprocess integration with mockAcpAgent)', () => {
+  it('passes configured MCP servers into a new ACP session', async () => {
+    const backend = new AcpBackend({
+      command: 'npx',
+      args: ['tsx', mockPath],
+      engine: 'opencode',
+      cwd: process.cwd(),
+      env: { MOCK_ACP_SCENARIO: 'mcp_echo' },
+      permissionPolicy: 'allow_once',
+      mcpServers: [{
+        name: 'agent-task-team',
+        type: 'http',
+        url: 'http://127.0.0.1:3110/api/acp-tools',
+        headers: [{ name: 'Authorization', value: 'Bearer test-token' }],
+      }],
+    });
+    const run = backend.execute('echo MCP config', {});
+    for await (const event of run.events) { void event; }
+    const result = await run.result;
+
+    expect(result.status).toBe('completed');
+    expect(JSON.parse(result.output)).toEqual([expect.objectContaining({
+      name: 'agent-task-team',
+      type: 'http',
+      url: 'http://127.0.0.1:3110/api/acp-tools',
+    })]);
+  });
+
+  it('allows a correlated platform MCP call without widening the deny policy', async () => {
+    const backend = new AcpBackend({
+      command: 'npx',
+      args: ['tsx', mockPath],
+      engine: 'opencode',
+      cwd: process.cwd(),
+      env: { MOCK_ACP_SCENARIO: 'platform_mcp_permission' },
+      permissionPolicy: 'deny',
+      autoApproveMcpToolNames: ['mcp.agent-task-team.task_create'],
+    });
+    const run = backend.execute('call scoped platform MCP', {});
+    for await (const event of run.events) { void event; }
+    const result = await run.result;
+
+    expect(result.status).toBe('completed');
+    expect(result.output).toContain('platform-allowed');
+  }, 15_000);
   it('drives a full turn: text → tool_use → tool_result → text → done, result completed', async () => {
     const backend = new AcpBackend({
       command: 'npx',
@@ -166,8 +210,8 @@ describe('AcpBackend (subprocess integration with mockAcpAgent)', () => {
     });
 
     const run = backend.execute('continue', { resumeSessionId: 'stable-session' });
-    for await (const _event of run.events) {
-      // drain
+    for await (const event of run.events) {
+      void event;
     }
     expect(await run.result).toMatchObject({
       status: 'failed',
@@ -186,8 +230,8 @@ describe('AcpBackend (subprocess integration with mockAcpAgent)', () => {
     });
 
     const run = backend.execute('continue', { resumeSessionId: 'stable-session' });
-    for await (const _event of run.events) {
-      // drain
+    for await (const event of run.events) {
+      void event;
     }
     expect(await run.result).toMatchObject({
       status: 'failed',
@@ -206,8 +250,8 @@ describe('AcpBackend (subprocess integration with mockAcpAgent)', () => {
     });
 
     const run = backend.execute('continue', { resumeSessionId: 'stable-session' });
-    for await (const _event of run.events) {
-      // drain
+    for await (const event of run.events) {
+      void event;
     }
     expect(await run.result).toMatchObject({
       status: 'failed',

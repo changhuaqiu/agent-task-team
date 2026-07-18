@@ -23,7 +23,10 @@
 ## Phase 4：验证
 
 - [x] T12 receipt/gate/rejection/stale/merge 单元与集成测试
-- [ ] T13 Web E2E 验证三类卡片和失败状态
-- [ ] T14 在真实 GitHub PR 上完成 Luigi 提交、Peach 评论、修复和重审
-- [ ] T15 四个真实 Agent runtime 完成一次从规划到闭环的协作演练
-- [ ] T16 生产构建、全量测试、独立复审与长期文档同步
+- [x] T13 Web E2E 验证三类卡片和失败状态
+- [x] T14 在真实 GitHub PR 上完成 Luigi 提交、Peach 评论、修复和重审
+- [x] T15 四角色 runtime 完成一次真实规划、按需架构判断、Luigi 执行与 Peach 评审演练
+- [x] T16 生产构建、全量测试、独立复审与长期文档同步
+- [x] T17 runtime worktree、TASKS.md、watcher 与 completion barrier 收敛到同一精确 HEAD 工作目录
+- [x] T18 通过逐 invocation、loopback、短期授权 MCP 向 ACP 注册真实平台工具
+- [x] T19 Git-backed task 的 TASKS.md `in_review` / `done` 绕过被拒绝并回写权威状态

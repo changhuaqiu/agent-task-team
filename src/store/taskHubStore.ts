@@ -1248,13 +1248,6 @@ export const useTaskHubStore = create<TaskHubState>()(
 
             get().loadSkills();
 
-            // Request fresh file sync for active conversations
-            if (socket.connected) {
-              const activeConvs = get().conversations.filter((c: Conversation) => c.status === 'active');
-              for (const conv of activeConvs.slice(0, 5)) {
-                socket.emit('task.request_sync', { conversationId: conv.id });
-              }
-            }
           } catch (err) {
             console.error('[loadFromServer] Failed:', err);
             set({ hasHydrated: true });

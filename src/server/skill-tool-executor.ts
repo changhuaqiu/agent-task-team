@@ -25,6 +25,8 @@ export interface ToolInvocation {
   conversationId: string;
   projectId?: string;
   taskId?: string;
+  taskProjectDir?: string;
+  rateLimitKey?: string;
   io?: IOServer;
 }
 
@@ -41,16 +43,59 @@ export interface ToolResult {
 const MAX_OPERATIONS_PER_INVOCATION = 10;
 const operationCounts = new Map<string, number>();
 
-function checkRateLimit(agentId: string): void {
-  const current = operationCounts.get(agentId) ?? 0;
+function checkRateLimit(rateLimitKey: string): void {
+  const current = operationCounts.get(rateLimitKey) ?? 0;
   if (current >= MAX_OPERATIONS_PER_INVOCATION) {
-    throw new Error(`Rate limit exceeded: max ${MAX_OPERATIONS_PER_INVOCATION} task operations per invocation for agent ${agentId}`);
+    throw new Error(`Rate limit exceeded: max ${MAX_OPERATIONS_PER_INVOCATION} task operations per invocation`);
   }
-  operationCounts.set(agentId, current + 1);
+  operationCounts.set(rateLimitKey, current + 1);
 }
 
 export function resetRateLimit(agentId: string): void {
   operationCounts.delete(agentId);
+}
+
+function resolveTaskProjectDir(invocation: ToolInvocation, conversationId = invocation.conversationId): string {
+  if (invocation.taskProjectDir) return invocation.taskProjectDir;
+  const wsRoot = process.env.ATH_WORKSPACES_ROOT || join(process.cwd(), '.ath', 'workspaces');
+  return join(wsRoot, conversationId || 'default');
+}
+
+function projectAuthoritativeTask(invocation: ToolInvocation, taskId: string): void {
+  const task = taskRepo.getById(taskId);
+  if (!task) return;
+  const projected = updateTaskInMd(resolveTaskProjectDir(invocation, task.conversation_id), taskId, {
+    status: task.status,
+    agent: task.agent_id ?? '',
+  });
+  if (!projected) throw new Error(`Runtime TASKS.md does not contain ${taskId}`);
+}
+
+function reconcileAuthoritativeTaskProjection(invocation: ToolInvocation, taskId: string): void {
+  try {
+    projectAuthoritativeTask(invocation, taskId);
+  } catch (error) {
+    const task = taskRepo.getById(taskId);
+    console.error('[skill-tool] runtime TASKS.md reconciliation failed after committed mutation:', error);
+    try {
+      proofLogRepo.append({
+        eventType: 'task_graph.runtime_projection.failed',
+        conversationId: task?.conversation_id ?? invocation.conversationId,
+        taskId,
+        actorId: invocation.agentId,
+        reasonCode: 'runtime_projection_failed',
+        metadata: { taskProjectDir: invocation.taskProjectDir, error: error instanceof Error ? error.message : String(error) },
+      });
+      invocation.io?.to(task?.conversation_id ?? invocation.conversationId).emit('task.sync_error', {
+        conversationId: task?.conversation_id ?? invocation.conversationId,
+        taskId,
+        reasonCode: 'runtime_projection_failed',
+        message: 'Task receipt was committed, but the runtime TASKS.md projection needs reconciliation.',
+      });
+    } catch (proofError) {
+      console.error('[skill-tool] failed to persist runtime projection reconciliation proof:', proofError);
+    }
+  }
 }
 
 // ── Security: validate tool invocation ─────────
@@ -115,8 +160,7 @@ function executeTaskCreate(invocation: ToolInvocation): ToolResult {
 
   // Also write to TASKS.md
   try {
-    const wsRoot = process.env.ATH_WORKSPACES_ROOT || join(process.cwd(), '.ath', 'workspaces');
-    const projectDir = join(wsRoot, invocation.conversationId || 'default');
+    const projectDir = resolveTaskProjectDir(invocation);
     const role = (invocation.input.role as string) || 'worker';
     const phase = (invocation.input.phase as string) || '';
     const deliverable = (invocation.input.deliverable as string) || '';
@@ -191,8 +235,7 @@ function executeTaskUpdateStatus(invocation: ToolInvocation): ToolResult {
 
   // Also update TASKS.md
   try {
-    const wsRoot = process.env.ATH_WORKSPACES_ROOT || join(process.cwd(), '.ath', 'workspaces');
-    const projectDir = join(wsRoot, existing.conversation_id || 'default');
+    const projectDir = resolveTaskProjectDir(invocation, existing.conversation_id);
     const STATUS_FILE: Record<string, string> = {
       pending: 'todo', in_progress: 'doing', in_review: 'review', done: 'done', blocked: 'blocked', rejected: 'rejected',
     };
@@ -218,6 +261,11 @@ function executeTaskAssign(invocation: ToolInvocation): ToolResult {
   }
 
   taskRepo.update(taskId, { agent_id: targetAgentId });
+  try {
+    projectAuthoritativeTask(invocation, taskId);
+  } catch (e) {
+    console.error('[task_assign] failed to update TASKS.md:', e);
+  }
   return { success: true, data: { id: taskId, agent_id: targetAgentId } };
 }
 
@@ -273,6 +321,7 @@ async function executeRecordPullRequest(invocation: ToolInvocation): Promise<Too
   const evidence = implementationEvidenceInput(invocation.input.evidence);
   if (!taskId || !pullRequestUrl || !evidence) return { success: false, error: 'task_id, pull_request_url and evidence are required' };
   const data = await collaborationService(invocation.io).recordPullRequest({ taskId, expectedConversationId: invocation.conversationId, actorAgentId: invocation.agentId, pullRequestUrl, evidence });
+  reconcileAuthoritativeTaskProjection(invocation, taskId);
   return { success: true, data };
 }
 
@@ -283,6 +332,7 @@ async function executeRecordReview(invocation: ToolInvocation): Promise<ToolResu
   const evidence = reviewEvidenceInput(invocation.input.evidence);
   if (!taskId || !pullRequestUrl || !reviewUrl || !evidence) return { success: false, error: 'task_id, pull_request_url, review_url and evidence are required' };
   const data = await collaborationService(invocation.io).recordReview({ taskId, expectedConversationId: invocation.conversationId, actorAgentId: invocation.agentId, pullRequestUrl, reviewUrl, evidence });
+  reconcileAuthoritativeTaskProjection(invocation, taskId);
   return { success: true, data };
 }
 
@@ -292,6 +342,7 @@ async function executeRecordMerge(invocation: ToolInvocation): Promise<ToolResul
   const evidence = mergeEvidenceInput(invocation.input.evidence);
   if (!taskId || !pullRequestUrl || !evidence) return { success: false, error: 'task_id, pull_request_url and evidence are required' };
   const data = await collaborationService(invocation.io).recordMerge({ taskId, expectedConversationId: invocation.conversationId, actorAgentId: invocation.agentId, pullRequestUrl, evidence });
+  reconcileAuthoritativeTaskProjection(invocation, taskId);
   return { success: true, data };
 }
 
@@ -312,7 +363,7 @@ const TOOL_EXECUTORS: Record<string, (invocation: ToolInvocation) => ToolResult 
 export async function executeSkillTool(invocation: ToolInvocation): Promise<ToolResult> {
   try {
     validateInvocation(invocation);
-    checkRateLimit(invocation.agentId);
+    checkRateLimit(invocation.rateLimitKey ?? invocation.agentId);
 
     const executor = TOOL_EXECUTORS[invocation.toolName];
     if (!executor) {
