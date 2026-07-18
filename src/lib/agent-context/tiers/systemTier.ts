@@ -17,8 +17,14 @@ import type { TierRenderInput } from './tierContext';
 export function renderSystemTier({ ctx, push }: TierRenderInput): void {
   const { req, roleCard, task } = ctx;
 
-  // Stable collaboration contract — included in every turn.
-  push('protocol', 'collaboration', buildCollaborationLayer(), { tier: 'system', importance: 0.8 });
+  // Stable collaboration contract. On first wake the systemPrompt (bootstrap
+  // channel) already includes buildCollaborationLayer(), so skip it here to
+  // avoid the collaboration protocol appearing twice in the merged prompt.
+  // On subsequent turns systemPrompt is undefined, so the message channel
+  // carries the protocol.
+  if (!req.isFirstWake) {
+    push('protocol', 'collaboration', buildCollaborationLayer(), { tier: 'system', importance: 0.8 });
+  }
 
   // Protocol hints per scenario (wakeup reason, dispatch intent, …).
   const protocol = buildProtocolLayer({

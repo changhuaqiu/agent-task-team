@@ -111,6 +111,13 @@ describe('ContextManager', () => {
 
     expect(result.systemPrompt).toBeDefined();
     // P1: 只验证 systemPrompt 存在，不检查具体内容（可能不含 roleCard.name）
+
+    // 去重校验：首次唤醒时，collaboration 协议在 systemPrompt（bootstrap
+    // channel）已注入，systemTier 不应再 push 一份。合并后文本里
+    // "## Agent 协作协议" 只应出现一次（A 类修复：消除平行路径重复）。
+    const merged = `${result.systemPrompt ?? ''}\n\n${result.userPrompt}`;
+    const collaborationOccurrences = (merged.match(/## Agent 协作协议/g) ?? []).length;
+    expect(collaborationOccurrences).toBe(1);
   });
 
   it('非首次唤醒不返回 systemPrompt', async () => {
