@@ -7,6 +7,8 @@ import { taskRepo } from './repositories/task-repo';
 import { invocationRepo } from './repositories/invocation-repo';
 import { conversationRepo } from './repositories/conversation-repo';
 import { proofLogRepo } from './repositories/proof-log-repo';
+import { taskGraphRepo } from './repositories/task-graph-repo';
+import { hasCurrentVerifiedMerge } from './task-flow/task-gate-evidence';
 import { publishTaskChangeNotification } from './task-flow/task-notification-publisher';
 import type { Server as IOServer } from 'socket.io';
 
@@ -56,6 +58,15 @@ function hasActiveTaskInvocation(conversationId: string, taskId: string, agentId
 function isProtectedGitProjectionTransition(conversationId: string, nextStatus: string): boolean {
   if (nextStatus !== 'in_review' && nextStatus !== 'done') return false;
   return Boolean(conversationRepo.getById(conversationId)?.git_repo_root);
+}
+
+function isProtectedGitReceiptRollback(conversationId: string, taskId: string, authoritativeStatus: string): boolean {
+  if (!conversationRepo.getById(conversationId)?.git_repo_root) return false;
+  const actions = taskGraphRepo.listActionsForTask(taskId);
+  if (authoritativeStatus === 'in_review') {
+    return actions.some((action) => action.type === 'task.pull_request_submitted');
+  }
+  return authoritativeStatus === 'done' && hasCurrentVerifiedMerge(actions);
 }
 
 function rejectGitProjectionTransition(input: {
@@ -211,7 +222,8 @@ export function syncTasksToDb(projectPath: string, io: IOServer): void {
       && t.status === 'pending'
       && hasActiveTaskInvocation(conversationId, storageId, existing.agent_id);
     const protectedGitTransition = existing.status !== t.status
-      && isProtectedGitProjectionTransition(conversationId, t.status);
+      && (isProtectedGitProjectionTransition(conversationId, t.status)
+        || isProtectedGitReceiptRollback(conversationId, storageId, existing.status));
     if (protectedGitTransition) {
       rejectGitProjectionTransition({
         projectPath,

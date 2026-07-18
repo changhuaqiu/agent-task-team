@@ -78,6 +78,22 @@ describe('WorktreeManager', () => {
     expect(info.head).toBe(projectHead);
   });
 
+  it('keeps Git operations in the configured repository while storing worktrees elsewhere', async () => {
+    const storageRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'worktree-storage-'));
+    try {
+      const externalManager = new WorktreeManager(testRepo, storageRoot);
+      const expectedHead = await WorktreeManager.getHead(testRepo);
+      const info = await externalManager.createWorktree('conv-external', expectedHead!);
+
+      expect(path.dirname(info.path)).toBe(fs.realpathSync(storageRoot));
+      expect(info.head).toBe(expectedHead);
+      const { stdout } = await execAsync(`git branch --list "${BRANCH_PREFIX}/conv-external"`, { cwd: testRepo });
+      expect(stdout).toContain(`${BRANCH_PREFIX}/conv-external`);
+    } finally {
+      fs.rmSync(storageRoot, { recursive: true, force: true });
+    }
+  });
+
   it('should only list worktrees under .worktrees directory', async () => {
     await manager.createWorktree('conv-filter');
     const worktrees = await manager.listWorktrees();

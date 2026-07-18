@@ -38,7 +38,13 @@ Git Collaboration Skill 暴露三个结构化入口：`collaboration_record_pr`�
 
 平台工具通过 loopback-only Streamable HTTP MCP 暴露给 ACP。每次 invocation 使用随机 bearer token 和随机 MCP server name，服务端从 token 恢复可信的 conversation、agent、task 与通知上下文，只暴露该角色上下文中实际允许的工具，并在 turn 完成后撤销 token。ACP 的 session new/load 都必须携带同一 MCP server 配置，保证首次派发与恢复会话行为一致。权限处理器先从已映射的精确 `mcp.<随机 server>.<白名单工具>` 事件登记一次性 tool call id，再只对相同 call id 的 MCP 审批选择 `allow_once`；shell、文件编辑和任何其他 MCP server 仍使用全局 deny/allow-once 策略，不能因为平台注册而扩大运行时权限。
 
+MCP HTTP handler 是平台 mutation 的唯一执行入口，daemon 收到的 namespaced `tool_use` 只进入聊天和 observability，不做第二次执行。操作额度以随机 grant key 计数，并在 token revoke 时清理，避免跨 invocation 污染或并发会话互相耗尽额度。
+
 Git-backed task 的 `.ath/TASKS.md` 是兼容投影而非质量门写入口。文件同步若尝试把权威状态推进到 `in_review` 或 `done`，服务端记录 gate rejection、发出同步错误，并把文件状态回写为 Task Graph 当前值；PR/review/merge 状态只由结构化协作回执原子推进。
+
+保护同时覆盖反向降级：Task Graph 一旦由当前 verified receipt 进入 `in_review` 或 `done`，旧文件里的 pending/in_progress/rejected 等状态不能覆盖它。task 与 receipt 工具从 invocation grant 接收同一个 runtime task path，并在返回前把权威 DB 状态投影到该文件，因此 completion barrier 不会读取 sibling scratch 或旧状态。
+
+worktree manager 把“Git repository root”和“worktree storage root”作为两个参数。repository root 从用户 `projectPath` 的 `git rev-parse --show-toplevel` 得到；storage root 位于平台 workspace，并用 repository root hash 隔离。这样任意用户仓库都在自己的 Git 上创建分支，同时不会与其他仓库的同名 conversation 冲突。
 
 ## 事实源
 

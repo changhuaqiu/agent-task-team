@@ -29,9 +29,7 @@ import { createBackend as createAcpBackend } from './agent/acp/catalog';
 import { checkCapabilities } from './agent/capabilityRouter';
 import type { AgentEvent, AgentBackend } from './agent/types';
 import { withDoneGuarantee } from './agent/with-done-guarantee';
-import { isNativeRuntimeTool } from './agent/nativeTools';
 import { isSkillTool } from './skill-tool-router';
-import { executeSkillTool } from './skill-tool-executor';
 import { registerAcpSkillMcpGrant, resolveAcpMcpLoopbackOrigin } from './acp-skill-mcp';
 import { StreamTextPersistence } from './agent/streamTextPersistence';
 import { resolveNonWorktreeExecutionCwd, stableWorkdirTaskKey, WorkdirManager } from './workdir-manager';
@@ -202,7 +200,7 @@ export default function registerDaemon(io: IOServer) {
   const activeProcesses = new Map<string, { kill: () => void }>();
   const processKey = (agentId: string, projectId?: string) => `${agentId}@${projectId || 'default'}`;
   const processStartGuard = new ProcessStartGuard();
-  const broadcast = (event: string, data: any) => io.emit(event, data);
+  const broadcast = (event: string, data: unknown) => io.emit(event, data);
   const agentResponseBuffer = new Map<string, string>();
   const dispatchGateway = new DispatchGateway();
   // Deferred until after the Harness port is constructed; the port closes over this handler.
@@ -1195,11 +1193,6 @@ export default function registerDaemon(io: IOServer) {
         return false;
       };
 
-      // --- Tool interception helpers for skill-defined tools ---
-      function isNativeTool(name: string): boolean {
-        return isNativeRuntimeTool(name);
-      }
-
       function isBackgroundChildTool(name: string): boolean {
         const normalized = name.trim().toLowerCase();
         return normalized === 'agent' || normalized === 'task';
@@ -1237,30 +1230,6 @@ export default function registerDaemon(io: IOServer) {
         }
       }
 
-      function handleCustomToolUse(
-        agentId: string,
-        projectId: string | undefined,
-        tool: { name: string; callId?: string; input?: string },
-      ): void {
-        try {
-          if ((tool.input?.length ?? 0) > 64 * 1024) throw new Error('tool input exceeds 64 KiB');
-          const input = tool.input ? JSON.parse(tool.input) : {};
-          void executeSkillTool({
-            toolName: tool.name,
-            agentId,
-            projectId,
-            conversationId: sessionConvId,
-            taskId,
-            input,
-            io,
-          }).then((result) => {
-            if (!result.success) console.error(`[daemon] tool invocation failed for ${tool.name}: ${result.error}`);
-          });
-        } catch (error) {
-          console.error(`[daemon] failed to parse tool input for ${tool.name}:`, error);
-        }
-      }
-
       // --- Shared agent event forwarder ---
       const forwardAgentEvent = (event: AgentEvent) => {
         try {
@@ -1293,11 +1262,6 @@ export default function registerDaemon(io: IOServer) {
         if (event.type === 'tool_use' && event.tool?.name && isBackgroundChildTool(event.tool.name)) {
           hasBackgroundChildActivity = true;
           broadcastAgentActivity('awaiting_children', `tool:${event.tool.name}`);
-        }
-
-        // Intercept tool_use events for skill-defined tools
-        if (event.type === 'tool_use' && event.tool?.name && isSkillTool(event.tool.name)) {
-          handleCustomToolUse(agentId, projectId, event.tool);
         }
 
         if (event.type === 'tool_use' && event.tool?.name && invocationTraceId && rootObservationSpanId) {
@@ -1608,16 +1572,23 @@ export default function registerDaemon(io: IOServer) {
       let effectiveSlug = projectSlug;
       let effectiveUseWorktree = useWorktree ?? false;
       let worktreeStartPoint: string | undefined;
+      let worktreeRepoRoot: string | undefined;
 
-      if (!effectiveSlug && projectPath) {
+      if (projectPath) {
         try {
           const { WorktreeManager } = await import('./worktree-manager');
           const isGit = await WorktreeManager.isGitRepo(projectPath);
           if (isGit) {
-            effectiveSlug = conversationId || projectId || 'default';
+            const detectedRepoRoot = await WorktreeManager.getRepoRoot(projectPath) ?? undefined;
+            const detectedHead = await WorktreeManager.getHead(projectPath) ?? undefined;
+            if (!detectedRepoRoot || !detectedHead) {
+              throw new Error('git repo root or HEAD could not be resolved');
+            }
+            effectiveSlug ??= conversationId || projectId || 'default';
             effectiveUseWorktree = true;
-            worktreeStartPoint = await WorktreeManager.getHead(projectPath) ?? undefined;
-            console.log(`[daemon] git repo detected at ${projectPath}, using worktree slug=${effectiveSlug}`);
+            worktreeRepoRoot = detectedRepoRoot;
+            worktreeStartPoint = detectedHead;
+            console.log(`[daemon] git repo detected at ${worktreeRepoRoot}, using worktree slug=${effectiveSlug}`);
           }
         } catch (e) {
           console.warn(`[daemon] git detection failed for ${projectPath}, falling back to non-worktree mode:`, (e as Error).message);
@@ -1629,14 +1600,12 @@ export default function registerDaemon(io: IOServer) {
         projectId || 'default',
         stableWorkdirTaskKey(taskId),
         effectiveUseWorktree && effectiveSlug
-          ? { useWorktree: true, projectSlug: effectiveSlug, startPoint: worktreeStartPoint }
+          ? { useWorktree: true, projectSlug: effectiveSlug, startPoint: worktreeStartPoint, repoRoot: worktreeRepoRoot }
           : undefined,
       );
       const runtimeWd = effectiveUseWorktree
         ? wd
         : resolveNonWorktreeExecutionCwd(projectPath, wd);
-      const sessionMeta = taskId ? workdirManager.readSessionMeta(agentId, projectId || 'default', taskId) : null;
-
       // Runtime, task projection, watcher, and prompt share one writable fact source.
       taskProjectDir = runtimeWd;
       ensureTasksMdProjection(taskProjectDir, taskRepo.getByConversation(sessionConvId));
@@ -1652,7 +1621,7 @@ export default function registerDaemon(io: IOServer) {
       // Build prompt with worktree context if applicable
       let promptWithWorkdir = (prompt || '') + `\n\n[系统] 任务看板路径: ${join(taskProjectDir, '.ath')}/TASKS.md`;
       if (effectiveUseWorktree && effectiveSlug) {
-        const branchName = workdirManager.getWorktreeManager().getBranchName(effectiveSlug);
+        const branchName = workdirManager.getWorktreeManager(worktreeRepoRoot).getBranchName(effectiveSlug);
         promptWithWorkdir += `\n[系统] 当前在 Git Worktree 分支 ${branchName} 下工作，工作目录: ${wd}`;
       }
 
@@ -1693,6 +1662,7 @@ export default function registerDaemon(io: IOServer) {
           conversationId: sessionConvId,
           projectId,
           taskId,
+          taskProjectDir,
           permittedTools: permittedAcpTools,
           io,
         }, mcpOrigin)
@@ -1927,7 +1897,7 @@ export default function registerDaemon(io: IOServer) {
       try {
         const worktrees = await workdirManager.getWorktreeManager().listWorktrees();
         callback?.({ worktrees });
-      } catch (error) {
+      } catch {
         callback?.({ error: 'Failed to list worktrees' });
       }
     });
@@ -1936,7 +1906,7 @@ export default function registerDaemon(io: IOServer) {
       try {
         const worktree = await workdirManager.getWorktreeManager().createWorktree(slug);
         callback?.({ worktree });
-      } catch (error) {
+      } catch {
         callback?.({ error: 'Failed to create worktree' });
       }
     });
@@ -1945,7 +1915,7 @@ export default function registerDaemon(io: IOServer) {
       try {
         await workdirManager.getWorktreeManager().removeWorktree(slug);
         callback?.({ success: true });
-      } catch (error) {
+      } catch {
         callback?.({ error: 'Failed to remove worktree' });
       }
     });

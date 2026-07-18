@@ -4,7 +4,7 @@ import type { Server as IOServer } from 'socket.io';
 import type { McpServer } from '@agentclientprotocol/sdk';
 import { TASK_MANAGEMENT_SKILL } from '@/data/presetSkills/taskManagement';
 import { GIT_COLLABORATION_SKILL } from '@/data/presetSkills/gitCollaboration';
-import { executeSkillTool, type ToolResult } from './skill-tool-executor';
+import { executeSkillTool, resetRateLimit, type ToolResult } from './skill-tool-executor';
 import { isSkillTool } from './skill-tool-router';
 
 type SkillParameter = {
@@ -36,12 +36,14 @@ export type AcpSkillMcpScope = {
   conversationId: string;
   projectId?: string;
   taskId?: string;
+  taskProjectDir?: string;
   permittedTools: string[];
   io?: IOServer;
 };
 
 type StoredGrant = AcpSkillMcpScope & {
   expiresAt: number;
+  rateLimitKey: string;
 };
 
 const REGISTRY_KEY = Symbol.for('agent-task-team.acp-skill-mcp-grants');
@@ -103,9 +105,11 @@ export function registerAcpSkillMcpGrant(
 
   const token = randomBytes(32).toString('base64url');
   const serverName = `agent-task-team-${randomBytes(8).toString('hex')}`;
+  const rateLimitKey = `acp-grant:${serverName}`;
   grantRegistry().set(token, {
     ...scope,
     permittedTools,
+    rateLimitKey,
     expiresAt: Date.now() + Math.max(1, ttlMs),
   });
   return {
@@ -116,7 +120,10 @@ export function registerAcpSkillMcpGrant(
       headers: [{ name: 'Authorization', value: `Bearer ${token}` }],
     },
     autoApproveToolNames: permittedTools.map((toolName) => `mcp.${serverName}.${toolName}`),
-    revoke: () => grantRegistry().delete(token),
+    revoke: () => {
+      grantRegistry().delete(token);
+      resetRateLimit(rateLimitKey);
+    },
   };
 }
 
@@ -128,6 +135,7 @@ export function resolveAcpSkillMcpGrant(authorization: string | undefined): Stor
   if (!grant) return undefined;
   if (grant.expiresAt <= Date.now()) {
     registry.delete(match[1]);
+    resetRateLimit(grant.rateLimitKey);
     return undefined;
   }
   return grant;
@@ -148,6 +156,8 @@ export async function executeAcpSkillMcpTool(
     conversationId: grant.conversationId,
     projectId: grant.projectId,
     taskId: grant.taskId,
+    taskProjectDir: grant.taskProjectDir,
+    rateLimitKey: grant.rateLimitKey,
     io: grant.io,
   });
 }
@@ -159,5 +169,7 @@ export function resolveAcpMcpLoopbackOrigin(io: IOServer): string | undefined {
 }
 
 export function clearAcpSkillMcpGrantsForTests(): void {
-  grantRegistry().clear();
+  const registry = grantRegistry();
+  for (const grant of registry.values()) resetRateLimit(grant.rateLimitKey);
+  registry.clear();
 }

@@ -109,7 +109,10 @@ Agent 正文中的 Markdown 链接仍可显示，但不具有状态转换权威�
 - 本轮 Agent 的执行目录、可写 `TASKS.md`、task watcher 与完成边界同步必须引用同一个实际 worktree；
 - 平台在首次派发前必须把当前会话 Task Graph 投影到该 worktree 的 `.ath/TASKS.md`，不能要求 Agent 创建一个位于执行目录之外的兼容文件；
 - ACP session 必须通过短期、逐 invocation 授权的 loopback MCP endpoint 注册平台工具；token 必须绑定 conversation、agent、task 与允许的工具名，MCP server name 必须逐 invocation 随机化，并在 turn 结束后撤销。ACP 权限层只能对该随机 server 上本次白名单内的精确 tool call id 选择一次性放行，shell、文件和其他 MCP 工具继续遵守全局策略。上下文不得把未真实注册的工具描述为可用；
+- MCP HTTP handler 是 ACP 平台工具的唯一执行入口；daemon 的流式 `tool_use` 事件只用于观测，不能再次执行 mutation。工具次数额度必须绑定 invocation/grant 并在 revoke 后释放；
 - 对 Git-backed task，`.ath/TASKS.md` 仅是兼容投影：任何从文件侧发起的 `in_review` 或 `done` 跃迁必须被拒绝并回写 Task Graph 权威状态。只有 `collaboration_record_pr`、`collaboration_record_review`、`collaboration_record_merge` 的原子 provider 回执路径可以推进质量门状态；
+- 已验证 receipt 形成的 `in_review` / `done` 同样不能被旧文件投影反向降级；所有平台 task/receipt 工具必须把结果投影到本次 invocation 的实际 runtime task path，completion barrier 只能读取该路径；
+- worktree 的 Git 命令必须在用户 `projectPath` 对应的真实 repository root 执行，worktree 存储位置与 repository root 分离并按仓库隔离，不能隐式使用应用自身仓库；
 - worktree、Task Graph、聊天与 observability 必须记录同一 conversation/task 身份，路径缺失或基线不一致时 fail closed。
 
 ## 6. 失败回路

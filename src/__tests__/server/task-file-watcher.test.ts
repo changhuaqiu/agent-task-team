@@ -10,6 +10,7 @@ import { messageRepo } from '@/server/repositories/message-repo';
 import { taskRepo } from '@/server/repositories/task-repo';
 import { invocationRepo } from '@/server/repositories/invocation-repo';
 import { proofLogRepo } from '@/server/repositories/proof-log-repo';
+import { taskGraphRepo } from '@/server/repositories/task-graph-repo';
 import { readTasksMd } from '@/server/task-file-service';
 import { startTaskWatcher, stopTaskWatcher, syncTasksToDb } from '@/server/task-file-watcher';
 import type { Server as IOServer } from 'socket.io';
@@ -152,6 +153,37 @@ describe('syncTasksToDb', () => {
       taskId: 'TASK-003',
       reasonCode: 'task_graph.file_projection_gate_bypass',
     })).toHaveLength(1);
+    expect(emit).toHaveBeenCalledWith('task.sync_error', expect.objectContaining({
+      taskId: 'TASK-003',
+      reasonCode: 'task_graph.file_projection_gate_bypass',
+    }));
+  });
+
+  it('does not let a stale file roll a Git receipt state backward', () => {
+    conversationRepo.update('conv-1', { git_repo_root: projectPath });
+    taskRepo.create({
+      id: 'TASK-003',
+      conversation_id: 'conv-1',
+      title: 'Keep receipt state',
+      agent_id: 'toad',
+    });
+    taskRepo.updateStatus('TASK-003', 'in_review');
+    taskGraphRepo.appendAction({
+      conversationId: 'conv-1',
+      actorId: 'luigi',
+      actorType: 'agent',
+      type: 'task.pull_request_submitted',
+      taskIds: ['TASK-003'],
+      payload: { receipt: { headSha: 'abc123' } },
+    });
+    writeTasksMd('doing', 'stale runtime projection');
+
+    const emit = vi.fn();
+    const io = { to: vi.fn(() => ({ emit })), emit: vi.fn() };
+    syncTasksToDb(projectPath, io as unknown as IOServer);
+
+    expect(taskRepo.getById('TASK-003')?.status).toBe('in_review');
+    expect(readTasksMd(projectPath).tasks[0].status).toBe('in_review');
     expect(emit).toHaveBeenCalledWith('task.sync_error', expect.objectContaining({
       taskId: 'TASK-003',
       reasonCode: 'task_graph.file_projection_gate_bypass',

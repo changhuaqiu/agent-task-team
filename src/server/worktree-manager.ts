@@ -17,9 +17,9 @@ export class WorktreeManager {
   private repoRoot: string;
   private worktreeBase: string;
 
-  constructor(repoRoot: string) {
+  constructor(repoRoot: string, worktreeBase?: string) {
     this.repoRoot = repoRoot;
-    const raw = path.join(repoRoot, '.worktrees');
+    const raw = worktreeBase ?? path.join(repoRoot, '.worktrees');
     fs.mkdirSync(raw, { recursive: true });
     this.worktreeBase = fs.realpathSync(raw);
   }

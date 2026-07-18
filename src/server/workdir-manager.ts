@@ -50,6 +50,7 @@ export function resolveNonWorktreeExecutionCwd(projectPath: string | undefined, 
 export class WorkdirManager {
   private root: string;
   private worktreeManager: WorktreeManager;
+  private repoWorktreeManagers = new Map<string, WorktreeManager>();
   private activeDirs: Set<string> = new Set();
 
   constructor(root: string, repoRoot?: string) {
@@ -58,28 +59,41 @@ export class WorkdirManager {
     this.worktreeManager = new WorktreeManager(repoRoot || root);
   }
 
-  async resolveProjectWorkdir(projectSlug: string, startPoint?: string): Promise<string> {
-    const worktreePath = this.worktreeManager.getWorktreePath(projectSlug);
+  private managerForRepo(repoRoot?: string): WorktreeManager {
+    if (!repoRoot) return this.worktreeManager;
+    const normalizedRoot = path.resolve(repoRoot);
+    const repoKey = process.platform === 'win32' ? normalizedRoot.toLowerCase() : normalizedRoot;
+    const existing = this.repoWorktreeManagers.get(repoKey);
+    if (existing) return existing;
+    const repoHash = crypto.createHash('sha256').update(repoKey).digest('hex').slice(0, 12);
+    const manager = new WorktreeManager(normalizedRoot, path.join(this.root, '.worktrees', repoHash));
+    this.repoWorktreeManagers.set(repoKey, manager);
+    return manager;
+  }
 
-    if (!await this.worktreeManager.exists(projectSlug)) {
-      await this.worktreeManager.createWorktree(projectSlug, startPoint);
+  async resolveProjectWorkdir(projectSlug: string, startPoint?: string, repoRoot?: string): Promise<string> {
+    const manager = this.managerForRepo(repoRoot);
+    const worktreePath = manager.getWorktreePath(projectSlug);
+
+    if (!await manager.exists(projectSlug)) {
+      await manager.createWorktree(projectSlug, startPoint);
     }
 
     return worktreePath;
   }
 
-  getWorktreeManager(): WorktreeManager {
-    return this.worktreeManager;
+  getWorktreeManager(repoRoot?: string): WorktreeManager {
+    return this.managerForRepo(repoRoot);
   }
 
   async resolveWorkdir(
     agentId: string,
     projectId: string,
     taskId: string,
-    options?: { useWorktree?: boolean; projectSlug?: string; startPoint?: string },
+    options?: { useWorktree?: boolean; projectSlug?: string; startPoint?: string; repoRoot?: string },
   ): Promise<string> {
     if (options?.useWorktree && options?.projectSlug) {
-      return this.resolveProjectWorkdir(options.projectSlug, options.startPoint);
+      return this.resolveProjectWorkdir(options.projectSlug, options.startPoint, options.repoRoot);
     }
 
     const safeProjectId = safeWorkdirSegment(projectId);
@@ -165,17 +179,19 @@ export class WorkdirManager {
   }
 
   async gcWorktrees(activeSlugs: Set<string>): Promise<string[]> {
-    const allWorktrees = await this.worktreeManager.listWorktrees();
     const removed: string[] = [];
 
-    for (const wt of allWorktrees) {
-      const slug = wt.branch.replace('worktree/', '');
-      if (activeSlugs.has(slug)) continue;
-      try {
-        await this.worktreeManager.removeWorktree(slug);
-        removed.push(slug);
-      } catch {
-        // Worktree might be locked or have unmerged changes
+    for (const manager of new Set([this.worktreeManager, ...this.repoWorktreeManagers.values()])) {
+      const allWorktrees = await manager.listWorktrees();
+      for (const wt of allWorktrees) {
+        const slug = wt.branch.replace('worktree/', '');
+        if (activeSlugs.has(slug)) continue;
+        try {
+          await manager.removeWorktree(slug);
+          removed.push(slug);
+        } catch {
+          // Worktree might be locked or have unmerged changes
+        }
       }
     }
 
