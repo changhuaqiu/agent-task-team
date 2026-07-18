@@ -254,7 +254,7 @@ daemon 会把 `AcpBackend` 的 `done` 事件视为 agent 完成信号。完成�
 
 ACP 文本事件是增量流。daemon 继续把每个 chunk 实时广播给浏览器，但同一 Invocation 内连续的文本只持久化为一条 `chat_message`；工具、错误和完成事件会关闭当前文本段。这样实时体验不受影响，历史消息也不会按单字或 token 碎片化。
 
-agent 输出中的 `@mention` 不再自动变成转交。A2A 只接受带明确行动意图的交接，例如“@reviewer 请审查…”、“交给 @coder 实现…”。普通引用、否定句、代码块中的 `@agent` 不会唤醒目标 agent。非 active holder 的输出即使包含交接语义也会被拦截；fan-out branch holder 的输出则合法，即使兼容 UI 的最新 holder 指向另一个 branch。
+agent 输出中的 `@mention` 不再自动变成转交。A2A 只接受带明确行动意图的交接，例如“@reviewer 请审查…”、“交给 @coder 实现…”。普通引用、通知、前置或后置明确否定（包括“不要”“不用/不必执行”“请勿/切勿”）以及代码块中的 `@agent` 不会唤醒目标 agent。非 active holder 的输出即使包含交接语义也会被拦截；fan-out branch holder 的输出则合法，即使兼容 UI 的最新 holder 指向另一个 branch。
 
 “派发 / 分配 / 指派 @agent”这类状态总结也属于明确交接意图。对于 Mario 这类上游 agent 输出的 compact table，例如“TASK-001 @toad 运行中”，只要上下文明确说明正在派发，parser 会把它转换成 handoff intent，而不是当作普通提及忽略。同一个 holder 响应中产生的多个 idle 目标会在同一轮 dispatch cycle 中发出执行请求，以支持批量交接和并行唤醒。
 

@@ -106,7 +106,7 @@ function detectPositiveIntent(content: string): PassIntent | null {
 }
 
 function detectIntent(content: string): PassIntent | null {
-  const negativeActionPattern = /(不需要|不要|无需|别).*?(转交|传给|交给|派发|分派|分发|分配|指派|安排|拆给|拆分给|启动|执行|完成|认领|推进|处理|跟进|接手|审查|审核|检查|实现|开发|修复|验证|测试|确认)/i;
+  const negativeActionPattern = /(不需要|不要|无需|不用|不必|请勿|切勿|别|禁止).*?(转交|传给|交给|派发|分派|分发|分配|指派|安排|拆给|拆分给|启动|执行|完成|认领|推进|处理|跟进|接手|审查|审核|检查|实现|开发|修复|验证|测试|确认)/i;
   const negativeMatch = negativeActionPattern.exec(content);
   if (negativeMatch) return null;
   if (/(已|已经|之前|刚才|当前|正在|完成|完毕|结束).*?(转交|传给|交给|派发|分派|分发|分配|指派|安排|启动|执行|认领|推进|assigned?|dispatched?)/i.test(content)) {
@@ -130,7 +130,7 @@ function extractIntentClause(text: string, position: number): string {
 function hasNotificationPredicateBeforeMention(text: string, position: number): boolean {
   const before = text.slice(Math.max(0, position - 40), position);
   return /(?:并|然后|同时|仅)?\s*(?:知会|通知|告知|同步给?|抄送)\s*$/i.test(before)
-    || /(?:不要|不需要|无需|别|禁止)\s*$/i.test(before);
+    || /(?:不要|不需要|无需|不用|不必|请勿|切勿|别|禁止)\s*$/i.test(before);
 }
 
 export function scanPassIntents(

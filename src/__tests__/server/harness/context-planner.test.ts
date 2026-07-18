@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createTestDb, resetDb, setTestDb } from '@/server/db';
+import { createTestDb, getDb, resetDb, setTestDb } from '@/server/db';
 import { seedPresetAgents } from '@/server/db/seed-agents';
 import { seedTeamPacks } from '@/server/seed-team-packs';
 import { conversationRepo } from '@/server/repositories/conversation-repo';
@@ -232,5 +232,30 @@ describe('RepositoryHarnessPlanner', () => {
     expect(snapshot.traces[0].context?.skillDecisions).toMatchObject([
       { skillId: revision.skillId, outcome: 'failed', reasonCode: 'skill_manifest_invalid' },
     ]);
+  });
+
+  it('observes an invalid legacy Skill file path as a bounded Skill failure', async () => {
+    const pack = teamPackRepo.getByName('default-team')!;
+    teamPackRepo.updateRoleConfig(pack.id, 'peach', { accountIds: ['account-openai'] });
+    writeAccount({
+      id: 'account-openai', name: 'OpenAI', authMode: 'oauth', provider: 'openai', models: [],
+      enabled: true, status: 'valid', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    });
+    conversationRepo.create({ id: 'conv-legacy-path', title: 'Legacy path guard', team_pack_id: pack.id });
+    const skill = skillRepo.create({ name: 'Legacy Review', description: 'Legacy review', content: 'Review safely.' });
+    getDb().prepare('INSERT INTO skill_file (id, skill_id, path, content) VALUES (?, ?, ?, ?)')
+      .run('sf-legacy-invalid', skill.id, 'C:\\secret.md', 'must not load');
+    skillRepo.assignToAgent('peach', skill.id);
+
+    const result = await new RepositoryHarnessPlanner().prepare({
+      id: 'trigger-legacy-path', source: 'user', conversationId: 'conv-legacy-path', agentId: 'peach', prompt: 'Review',
+    });
+
+    expect(result).toMatchObject({ ok: false, outcome: { status: 'failed', reasonCode: 'skill_path_invalid' } });
+    const snapshot = projectObservationProjection.build('conv-legacy-path', 10);
+    expect(snapshot.traces).toHaveLength(1);
+    expect(snapshot.traces[0]).toMatchObject({ status: 'error', context: {
+      skillDecisions: [{ skillId: skill.id, outcome: 'failed', reasonCode: 'skill_path_invalid' }],
+    } });
   });
 });

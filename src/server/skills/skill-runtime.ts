@@ -186,7 +186,15 @@ export class RepositorySkillRuntime implements SkillRuntimeInterface {
   private async ensureRevision(skill: SkillRow): Promise<InstalledSkillRevision> {
     const active = skillRepo.getActiveRevision(skill.id);
     if (!active) {
-      const input = validateSkillPackage(legacyPackage(skill));
+      let input: SkillPackageInput;
+      try {
+        input = validateSkillPackage(legacyPackage(skill));
+      } catch (error) {
+        if (error instanceof SkillPackageError) {
+          throw new SkillRuntimeError(error.reasonCode, error.message);
+        }
+        throw error;
+      }
       const contentHash = computeSkillPackageHash(input);
       const packagePath = await writePackageAtomically(input, contentHash);
       return getDb().transaction(() => {
