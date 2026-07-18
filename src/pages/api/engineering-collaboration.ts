@@ -26,8 +26,10 @@ function reviewEvidence(value: unknown): ReviewEvidence | undefined {
   const testResult = text(value.testResult);
   const summary = text(value.summary);
   const blockerCount = value.blockerCount;
+  const qualityDecision = value.qualityDecision;
   if (!testResult || !summary || typeof blockerCount !== 'number' || !Number.isInteger(blockerCount) || blockerCount < 0) return undefined;
-  return { testResult, summary, blockerCount };
+  if (qualityDecision !== 'pass' && qualityDecision !== 'reject' && qualityDecision !== 'comment') return undefined;
+  return { testResult, summary, blockerCount, qualityDecision };
 }
 
 function mergeEvidence(value: unknown): MergeEvidence | undefined {
@@ -48,6 +50,9 @@ function mergeEvidence(value: unknown): MergeEvidence | undefined {
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  if (process.env.NODE_ENV === 'production' && process.env.ATH_ENABLE_COLLABORATION_TEST_API !== '1') {
+    return res.status(404).json({ error: 'Not found' });
+  }
   if (req.method !== 'POST') {
     res.setHeader('Allow', ['POST']);
     return res.status(405).json({ error: 'Method not allowed' });
@@ -61,7 +66,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(400).json({ error: 'taskId, actorAgentId and pullRequestUrl are required' });
   }
 
-  const service = new EngineeringCollaborationService(new GhCliGitProviderVerifier());
+  const service = new EngineeringCollaborationService(new GhCliGitProviderVerifier(), (res.socket as typeof res.socket & { server?: { io?: import('socket.io').Server } }).server?.io);
   try {
     if (kind === 'pull_request') {
       const evidence = implementationEvidence(req.body.evidence);

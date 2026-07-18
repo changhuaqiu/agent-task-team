@@ -67,5 +67,19 @@ describe('task status evidence gates', () => {
       missingFields: ['mainInstallResult', 'mainTestResult', 'mainImpactReviewResult'],
     });
   });
+
+  it('blocks a Git-backed done transition without a verified merge receipt', () => {
+    const decision = evaluateTaskStatusEvidenceGate({
+      nextStatus: 'done',
+      pullRequestRequired: true,
+      verifiedMerge: false,
+      evidence: {
+        mergedToMain: true, mainInstallResult: 'passed', mainBuildResult: 'passed',
+        mainTestResult: 'passed', mainImpactReviewResult: 'passed',
+      },
+    });
+
+    expect(decision).toMatchObject({ allowed: false, missingFields: ['mergeReceipt'] });
+  });
 });
 

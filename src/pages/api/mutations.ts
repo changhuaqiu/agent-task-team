@@ -99,6 +99,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
           evidence,
           pullRequestRequired: Boolean(previousTask && conversationRepo.getById(previousTask.conversation_id)?.git_repo_root),
           verifiedPullRequest: Boolean(previousTask && taskGraphRepo.listActionsForTask(id).some((action) => action.type === 'task.pull_request_submitted')),
+          verifiedMerge: Boolean(previousTask && taskGraphRepo.listActionsForTask(id).some((action) => action.type === 'task.pull_request_merged')),
         });
         if (!gateDecision.allowed) {
           proofLogRepo.append({
@@ -349,6 +350,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
             evidence: input.evidence,
             pullRequestRequired: Boolean(previousTask && conversationRepo.getById(previousTask.conversation_id)?.git_repo_root),
             verifiedPullRequest: Boolean(previousTask && taskGraphRepo.listActionsForTask(input.task_id).some((action) => action.type === 'task.pull_request_submitted')),
+            verifiedMerge: Boolean(previousTask && taskGraphRepo.listActionsForTask(input.task_id).some((action) => action.type === 'task.pull_request_merged')),
           });
           if (!gateDecision.allowed) {
             proofLogRepo.append({

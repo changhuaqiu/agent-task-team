@@ -22,6 +22,12 @@ const REVIEW_LABEL = {
   commented: '已评论',
 } as const;
 
+const QUALITY_LABEL = {
+  pass: '质量门禁通过',
+  reject: '质量门禁拒绝',
+  comment: '仅记录评审证据',
+} as const;
+
 function ShortSha({ value }: { value: string }) {
   return <span className="font-mono">{value.slice(0, 12)}</span>;
 }
@@ -63,13 +69,14 @@ export function EngineeringCollaborationCard({ card, onSelectTask }: Engineering
 
   if (card.kind === 'review') {
     const { receipt, evidence } = card;
-    const rejected = receipt.decision === 'changes_requested';
+    const qualityDecision = evidence.qualityDecision ?? (receipt.decision === 'changes_requested' ? 'reject' : 'comment');
+    const rejected = receipt.decision === 'changes_requested' || qualityDecision === 'reject';
     return (
       <section className={cn('mt-2 overflow-hidden rounded-[6px] border text-[11px]', rejected ? 'border-rose-400/40 bg-rose-500/10' : 'border-emerald-400/40 bg-emerald-500/10')} data-testid="review-collaboration-card">
         <header className={cn('flex items-center justify-between gap-2 border-b px-3 py-2', rejected ? 'border-rose-400/20 text-rose-700' : 'border-emerald-400/20 text-emerald-700')}>
           <div className="flex items-center gap-1.5 font-bold">
             {rejected ? <XCircle className="h-4 w-4" /> : <ShieldCheck className="h-4 w-4" />}
-            <span>代码评审 · {REVIEW_LABEL[receipt.decision]}</span>
+            <span>代码评审 · {QUALITY_LABEL[qualityDecision]}（GitHub {REVIEW_LABEL[receipt.decision]}）</span>
           </div>
           <a href={receipt.reviewUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-semibold hover:underline">查看真实评论 <ExternalLink className="h-3 w-3" /></a>
         </header>

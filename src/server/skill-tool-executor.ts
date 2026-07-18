@@ -13,6 +13,7 @@ import { taskGraphRepo } from './repositories/task-graph-repo';
 import { EngineeringCollaborationService } from './engineering-collaboration/service';
 import { GhCliGitProviderVerifier } from './engineering-collaboration/github-cli-verifier';
 import type { ImplementationEvidence, MergeEvidence, ReviewEvidence } from '@/lib/engineering-collaboration/types';
+import type { Server as IOServer } from 'socket.io';
 import { readTasksMd, updateTaskInMd, writeTasksMd } from './task-file-service';
 
 // ── Types ──────────────────────────────────────
@@ -24,6 +25,7 @@ export interface ToolInvocation {
   conversationId: string;
   projectId?: string;
   taskId?: string;
+  io?: IOServer;
 }
 
 export interface ToolResult {
@@ -154,6 +156,7 @@ function executeTaskUpdateStatus(invocation: ToolInvocation): ToolResult {
     evidence,
     pullRequestRequired: Boolean(conversationRepo.getById(existing.conversation_id)?.git_repo_root),
     verifiedPullRequest: taskGraphRepo.listActionsForTask(taskId).some((action) => action.type === 'task.pull_request_submitted'),
+    verifiedMerge: taskGraphRepo.listActionsForTask(taskId).some((action) => action.type === 'task.pull_request_merged'),
   });
   if (!gateDecision.allowed) {
     proofLogRepo.append({
@@ -246,7 +249,8 @@ function implementationEvidenceInput(value: unknown): ImplementationEvidence | u
 function reviewEvidenceInput(value: unknown): ReviewEvidence | undefined {
   const input = recordInput(value);
   if (!input || !nonEmptyText(input.testResult) || !nonEmptyText(input.summary) || !Number.isInteger(input.blockerCount) || Number(input.blockerCount) < 0) return undefined;
-  return { testResult: input.testResult.trim(), summary: input.summary.trim(), blockerCount: Number(input.blockerCount) };
+  if (input.qualityDecision !== 'pass' && input.qualityDecision !== 'reject' && input.qualityDecision !== 'comment') return undefined;
+  return { testResult: input.testResult.trim(), summary: input.summary.trim(), blockerCount: Number(input.blockerCount), qualityDecision: input.qualityDecision };
 }
 
 function mergeEvidenceInput(value: unknown): MergeEvidence | undefined {
@@ -259,8 +263,8 @@ function mergeEvidenceInput(value: unknown): MergeEvidence | undefined {
   };
 }
 
-function collaborationService(): EngineeringCollaborationService {
-  return new EngineeringCollaborationService(new GhCliGitProviderVerifier());
+function collaborationService(io?: IOServer): EngineeringCollaborationService {
+  return new EngineeringCollaborationService(new GhCliGitProviderVerifier(), io);
 }
 
 async function executeRecordPullRequest(invocation: ToolInvocation): Promise<ToolResult> {
@@ -268,7 +272,7 @@ async function executeRecordPullRequest(invocation: ToolInvocation): Promise<Too
   const pullRequestUrl = invocation.input.pull_request_url as string;
   const evidence = implementationEvidenceInput(invocation.input.evidence);
   if (!taskId || !pullRequestUrl || !evidence) return { success: false, error: 'task_id, pull_request_url and evidence are required' };
-  const data = await collaborationService().recordPullRequest({ taskId, actorAgentId: invocation.agentId, pullRequestUrl, evidence });
+  const data = await collaborationService(invocation.io).recordPullRequest({ taskId, actorAgentId: invocation.agentId, pullRequestUrl, evidence });
   return { success: true, data };
 }
 
@@ -278,7 +282,7 @@ async function executeRecordReview(invocation: ToolInvocation): Promise<ToolResu
   const reviewUrl = invocation.input.review_url as string;
   const evidence = reviewEvidenceInput(invocation.input.evidence);
   if (!taskId || !pullRequestUrl || !reviewUrl || !evidence) return { success: false, error: 'task_id, pull_request_url, review_url and evidence are required' };
-  const data = await collaborationService().recordReview({ taskId, actorAgentId: invocation.agentId, pullRequestUrl, reviewUrl, evidence });
+  const data = await collaborationService(invocation.io).recordReview({ taskId, actorAgentId: invocation.agentId, pullRequestUrl, reviewUrl, evidence });
   return { success: true, data };
 }
 
@@ -287,7 +291,7 @@ async function executeRecordMerge(invocation: ToolInvocation): Promise<ToolResul
   const pullRequestUrl = invocation.input.pull_request_url as string;
   const evidence = mergeEvidenceInput(invocation.input.evidence);
   if (!taskId || !pullRequestUrl || !evidence) return { success: false, error: 'task_id, pull_request_url and evidence are required' };
-  const data = await collaborationService().recordMerge({ taskId, actorAgentId: invocation.agentId, pullRequestUrl, evidence });
+  const data = await collaborationService(invocation.io).recordMerge({ taskId, actorAgentId: invocation.agentId, pullRequestUrl, evidence });
   return { success: true, data };
 }
 

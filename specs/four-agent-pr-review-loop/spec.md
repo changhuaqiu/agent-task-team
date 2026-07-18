@@ -98,6 +98,7 @@ Agent 正文中的 Markdown 链接仍可显示，但不具有状态转换权威�
 - 没有已验证 PR 不能进入 `in_review`；
 - 没有真实 provider review/comment 不能记录评审决定；
 - review head SHA 与当前 PR head SHA 不同视为 `review_stale`；
+- provider 的 `commented` 只证明外部评论存在；必须由可信 Peach invocation 同时记录 `qualityDecision=pass` 且 blocker 为 0 才能进入 merge wait，`qualityDecision=comment` 不具备放行权；
 - PR 关闭但未合并视为交付失败，不能 `done`；
 - reviewer 和 implementer Agent ID 必须不同；
 - merge 后必须在目标分支复验，不能复用 PR 分支测试冒充 main 证据。

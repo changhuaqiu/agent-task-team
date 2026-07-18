@@ -16,6 +16,7 @@ export interface EvaluateTaskStatusEvidenceInput {
   evidence?: unknown;
   pullRequestRequired?: boolean;
   verifiedPullRequest?: boolean;
+  verifiedMerge?: boolean;
 }
 
 const EVIDENCE_REQUIRED_REASON = 'task_graph.gate_evidence_required';
@@ -72,6 +73,7 @@ export function evaluateTaskStatusEvidenceGate(input: EvaluateTaskStatusEvidence
       'mainTestResult',
       'mainImpactReviewResult',
     ]);
+    if (input.pullRequestRequired && !input.verifiedMerge) missingFields.push('mergeReceipt');
     if (missingFields.length > 0) {
       return {
         allowed: false,

@@ -192,6 +192,33 @@ describe('RepositoryHarnessPlanner', () => {
     });
   });
 
+  it('advertises only registered collaboration tools declared by an assigned Skill', async () => {
+    const pack = teamPackRepo.getByName('default-team')!;
+    teamPackRepo.updateRoleConfig(pack.id, 'luigi', { accountIds: ['account-openai'] });
+    writeAccount({
+      id: 'account-openai', name: 'OpenAI', authMode: 'oauth', provider: 'openai', models: [],
+      enabled: true, status: 'valid', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    });
+    conversationRepo.create({ id: 'conv-collab-tool', title: 'Collaboration Tool', team_pack_id: pack.id });
+    const revision = await new RepositorySkillRuntime().install(packageFromLegacyInput({
+      name: 'collaboration-tools', description: 'Provider receipts', content: 'Use the exact platform tool.', files: [],
+      config: JSON.stringify({ tools: [{
+        name: 'collaboration_record_pr', description: 'Record PR', handler: 'api://collaboration/pull-request',
+        parameters: [{ name: 'task_id', type: 'string', required: true, description: 'Task ID' }],
+      }] }),
+    }));
+    skillRepo.assignToAgent('luigi', revision.skillId);
+
+    const result = await new RepositoryHarnessPlanner().prepare({
+      id: 'trigger-collab-tool', source: 'user', conversationId: 'conv-collab-tool', agentId: 'luigi', prompt: 'Submit PR',
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.plan.contextReport.availableTools).toContain('collaboration_record_pr');
+    expect(`${result.plan.systemPrompt ?? ''}\n${result.plan.prompt}`).toContain('collaboration_record_pr');
+  });
+
   it('routes every browser dispatch source through required-Skill validation', async () => {
     const pack = teamPackRepo.getByName('default-team')!;
     teamPackRepo.updateRoleConfig(pack.id, 'peach', { accountIds: ['account-openai'] });

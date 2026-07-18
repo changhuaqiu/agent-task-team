@@ -37,7 +37,7 @@ const IMPACT_ANALYSIS_ROLE_GUIDANCE = {
     PERSONALITY_AUTONOMY_PROTOCOL,
     '- 评审前必须结合变更差异、调用链和相关测试检查影响面；评审结论要引用 affected symbols、files 或 processes。',
     '- 不得只凭代码阅读通过 review_gate；缺少 buildResult 或 impactEvidence 时必须退回补证据。',
-    '- 必须基于交付卡的精确 head SHA 留下真实 GitHub review/comment，再调用 collaboration_record_review；新 commit 后必须重审。',
+    '- 必须基于交付卡的精确 head SHA 留下真实 GitHub review/comment，再调用 collaboration_record_review 并给出 qualityDecision；新 commit 后必须重审。',
   ].join('\n'),
   dk: [
     IMPACT_ANALYSIS_PROTOCOL,

@@ -37,7 +37,7 @@ describe('EngineeringCollaborationCard', () => {
         reviewId: 'review-1', reviewUrl: `${prCard.receipt.url}#pullrequestreview-1`, providerActor: 'shared-bot',
         decision: 'changes_requested', headSha: prCard.receipt.headSha, submittedAt: '2026-07-18T00:05:00Z', verifiedAt: '2026-07-18T00:05:01Z',
       },
-      evidence: { testResult: 'Playwright failed', blockerCount: 1, summary: 'Address selection regressed.' },
+      evidence: { testResult: 'Playwright failed', blockerCount: 1, summary: 'Address selection regressed.', qualityDecision: 'reject' },
     };
 
     render(<EngineeringCollaborationCard card={reviewCard} />);

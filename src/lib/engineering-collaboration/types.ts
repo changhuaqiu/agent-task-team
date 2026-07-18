@@ -57,6 +57,7 @@ export interface ReviewEvidence {
   testResult: string;
   blockerCount: number;
   summary: string;
+  qualityDecision: 'pass' | 'reject' | 'comment';
 }
 
 export interface MergeEvidence {

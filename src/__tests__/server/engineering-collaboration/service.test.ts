@@ -100,7 +100,7 @@ describe('EngineeringCollaborationService', () => {
 
     const result = await service.recordReview({
       taskId: 'TASK-PR', actorAgentId: 'peach', pullRequestUrl: pullRequest.url, reviewUrl: review.reviewUrl,
-      evidence: { testResult: 'Playwright failed on checkout', blockerCount: 1, summary: 'Checkout loses the selected address.' },
+      evidence: { testResult: 'Playwright failed on checkout', blockerCount: 1, summary: 'Checkout loses the selected address.', qualityDecision: 'reject' },
     });
 
     expect(result.receipt).toEqual(review);
@@ -123,9 +123,47 @@ describe('EngineeringCollaborationService', () => {
 
     await expect(service.recordReview({
       taskId: 'TASK-PR', actorAgentId: 'peach', pullRequestUrl: pullRequest.url, reviewUrl: staleReview.reviewUrl,
-      evidence: { testResult: 'ok', blockerCount: 0, summary: 'Looks good' },
+      evidence: { testResult: 'ok', blockerCount: 0, summary: 'Looks good', qualityDecision: 'pass' },
     })).rejects.toMatchObject<Partial<EngineeringCollaborationError>>({ reasonCode: 'pull_request_head_changed' });
     expect(taskGraphRepo.listArtifacts('conv-pr-loop').filter((artifact) => artifact.kind === 'review')).toHaveLength(0);
+  });
+
+  it('fails closed without an authoritative Git repository context', async () => {
+    conversationRepo.create({ id: 'conv-no-repo', title: 'No repository' });
+    taskRepo.create({ id: 'TASK-NO-REPO', conversation_id: 'conv-no-repo', title: 'Unsafe receipt', agent_id: 'luigi' });
+    taskRepo.updateStatus('TASK-NO-REPO', 'in_progress');
+    const service = new EngineeringCollaborationService(verifier());
+
+    await expect(service.recordPullRequest({
+      taskId: 'TASK-NO-REPO', actorAgentId: 'luigi', pullRequestUrl: pullRequest.url,
+      evidence: { installResult: 'ok', buildResult: 'ok', testResult: 'ok', impactEvidence: 'ok' },
+    })).rejects.toMatchObject<Partial<EngineeringCollaborationError>>({ reasonCode: 'repository_context_missing' });
+  });
+
+  it('rejects a PR with failing provider checks', async () => {
+    const failingPullRequest = { ...pullRequest, checks: 'failing' as const };
+    const service = new EngineeringCollaborationService(verifier({ getPullRequest: vi.fn(async () => failingPullRequest) }));
+
+    await expect(service.recordPullRequest({
+      taskId: 'TASK-PR', actorAgentId: 'luigi', pullRequestUrl: pullRequest.url,
+      evidence: { installResult: 'ok', buildResult: 'ok', testResult: 'ok', impactEvidence: 'ok' },
+    })).rejects.toMatchObject<Partial<EngineeringCollaborationError>>({ reasonCode: 'pull_request_checks_failed' });
+    expect(taskRepo.getById('TASK-PR')?.status).toBe('in_progress');
+  });
+
+  it('emits the PR review wakeup through the injected server coordinator boundary', async () => {
+    const emit = vi.fn();
+    const to = vi.fn(() => ({ emit }));
+    const service = new EngineeringCollaborationService(verifier(), { to } as never);
+    await service.recordPullRequest({
+      taskId: 'TASK-PR', actorAgentId: 'luigi', pullRequestUrl: pullRequest.url,
+      evidence: { installResult: 'ok', buildResult: 'ok', testResult: 'ok', impactEvidence: 'ok' },
+    });
+
+    expect(to).toHaveBeenCalledWith('conv-pr-loop');
+    expect(emit).toHaveBeenCalledWith('task.wakeup', expect.objectContaining({
+      taskId: 'TASK-PR', agentId: 'peach', reasonCode: 'review_requested',
+    }));
   });
 
   it('records a new head on the same PR and publishes the previous review as stale', async () => {
@@ -136,7 +174,7 @@ describe('EngineeringCollaborationService', () => {
     });
     await service.recordReview({
       taskId: 'TASK-PR', actorAgentId: 'peach', pullRequestUrl: pullRequest.url, reviewUrl: review.reviewUrl,
-      evidence: { testResult: 'failed', blockerCount: 1, summary: 'Fix it' },
+      evidence: { testResult: 'failed', blockerCount: 1, summary: 'Fix it', qualityDecision: 'reject' },
     });
     const nextPullRequest = { ...pullRequest, headSha: 'b'.repeat(40) };
     const refreshService = new EngineeringCollaborationService(verifier({ getPullRequest: vi.fn(async () => nextPullRequest) }));
@@ -156,15 +194,15 @@ describe('EngineeringCollaborationService', () => {
   });
 
   it('closes only from a verified merge on the reviewed head with main evidence', async () => {
-    const approvedReview = { ...review, decision: 'approved' as const };
-    const service = new EngineeringCollaborationService(verifier({ getReview: vi.fn(async () => approvedReview) }));
+    const passingComment = { ...review, decision: 'commented' as const };
+    const service = new EngineeringCollaborationService(verifier({ getReview: vi.fn(async () => passingComment) }));
     await service.recordPullRequest({
       taskId: 'TASK-PR', actorAgentId: 'luigi', pullRequestUrl: pullRequest.url,
       evidence: { installResult: 'ok', buildResult: 'ok', testResult: 'ok', impactEvidence: 'ok' },
     });
     await service.recordReview({
       taskId: 'TASK-PR', actorAgentId: 'peach', pullRequestUrl: pullRequest.url, reviewUrl: review.reviewUrl,
-      evidence: { testResult: 'passed', blockerCount: 0, summary: 'Approved' },
+      evidence: { testResult: 'passed', blockerCount: 0, summary: 'Approved', qualityDecision: 'pass' },
     });
 
     const result = await service.recordMerge({
@@ -183,5 +221,26 @@ describe('EngineeringCollaborationService', () => {
     expect(JSON.parse(messageRepo.getById(result.messageId)!.metadata!)).toMatchObject({ collaborationCard: {
       kind: 'merge', receipt: { mergeSha: merge.mergeSha }, evidence: { mainTestResult: 'all passed' },
     } });
+  });
+
+  it('does not let an evidence-only comment authorize merge closure', async () => {
+    const commentReview = { ...review, decision: 'commented' as const };
+    const service = new EngineeringCollaborationService(verifier({ getReview: vi.fn(async () => commentReview) }));
+    await service.recordPullRequest({
+      taskId: 'TASK-PR', actorAgentId: 'luigi', pullRequestUrl: pullRequest.url,
+      evidence: { installResult: 'ok', buildResult: 'ok', testResult: 'ok', impactEvidence: 'ok' },
+    });
+    await service.recordReview({
+      taskId: 'TASK-PR', actorAgentId: 'peach', pullRequestUrl: pullRequest.url, reviewUrl: review.reviewUrl,
+      evidence: { testResult: 'not a decision', blockerCount: 0, summary: 'Evidence only', qualityDecision: 'comment' },
+    });
+
+    await expect(service.recordMerge({
+      taskId: 'TASK-PR', actorAgentId: 'mario', pullRequestUrl: pullRequest.url,
+      evidence: {
+        mergedToMain: true, mainInstallResult: 'ok', mainBuildResult: 'ok',
+        mainTestResult: 'ok', mainImpactReviewResult: 'ok',
+      },
+    })).rejects.toMatchObject<Partial<EngineeringCollaborationError>>({ reasonCode: 'review_approval_missing' });
   });
 });

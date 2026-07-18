@@ -32,6 +32,8 @@ interface EngineeringCollaborationService {
 
 Git Collaboration Skill 暴露三个结构化入口：`collaboration_record_pr`、`collaboration_record_review`、`collaboration_record_merge`。它们直接进入同一个服务边界；Agent 不能用普通状态更新模拟 provider 回执。
 
+生产 Agent 身份来自 daemon/Harness 的已绑定 invocation，服务把同一 `io` coordinator 注入通知边界以提交 wakeup。HTTP receipt endpoint 只供开发/E2E；生产环境默认返回 404，避免请求体中的 `actorAgentId` 成为身份源。
+
 ## 事实源
 
 - PR/review/merge 的当前事实：Git provider；
@@ -58,8 +60,12 @@ Git Collaboration Skill 暴露三个结构化入口：`collaboration_record_pr`�
 - URL 必须属于 conversation 的 `git_repo_root` remote；
 - 不持久化 token、完整 diff 或评论正文，只存有界摘要和 canonical URL；
 - review 必须匹配当前 PR head SHA；
+- GitHub issue comment 没有原生 commit 绑定，只有评论时间不早于精确 head commit 时间时才可作为该 head 的外部证据；缺时间戳时失败关闭；
+- provider review state 与平台质量决定分离：共享 provider 账号可能只能 `commented`，Peach 仍须从可信 invocation 提交 `qualityDecision=pass|reject|comment`；仅 `comment` 不能授权合并；
 - 同一 PR 出现新 head SHA 时可再次记录交付；系统追加 stale 评审投影并保持 `in_review`，旧结论不能用于合并；
 - 合并闭环要求当前 head 的 provider-backed review、零 blocker、provider merged receipt 和完整 main 复验证据；
+- Git-backed task 的普通 `task_update_status(done)` 还必须找到 `task.pull_request_merged` action，否则即使字符串证据齐全也拒绝；
+- draft PR 允许进入评审；checks=`failing` 拒绝，`pending`/`unknown` 保留在卡片上交由质量门禁判断（兼容未配置 CI 的仓库）；
 - provider 不可达时失败关闭，不接受调用者自报字段。
 
 ## 测试策略

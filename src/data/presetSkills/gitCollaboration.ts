@@ -78,7 +78,7 @@ Rules:
 ## Provider-verified task receipts
 
 - For a Git-backed task, Luigi must call \`collaboration_record_pr\` after commit, push and PR creation. A pasted URL or prose claim cannot move the task to review.
-- Peach must review the exact head SHA from the delivery card, leave a real provider review/comment, then call \`collaboration_record_review\` with that canonical URL and test evidence.
+- Peach must review the exact head SHA from the delivery card, leave a real provider review/comment, then call \`collaboration_record_review\` with that canonical URL, test evidence, and an explicit qualityDecision. Provider state and Agent quality decision are separate because shared provider accounts cannot approve their own PR.
 - A new commit invalidates the previous review. Luigi records the same PR again; Peach must review the new SHA.
 - Mario calls \`collaboration_record_merge\` only after an authorized merge and main-branch install/build/test/impact verification. This verified receipt is the only Git-backed closure path.
 - Do not call \`task_update_status\` to imitate these transitions; the receipt tools atomically update Task Graph, proof log and chat cards.
@@ -134,7 +134,7 @@ Rules:
           { name: 'task_id', type: 'string', required: true, description: 'Task ID in review' },
           { name: 'pull_request_url', type: 'string', required: true, description: 'Canonical GitHub pull request URL' },
           { name: 'review_url', type: 'string', required: true, description: 'Canonical GitHub review or comment URL' },
-          { name: 'evidence', type: 'object', required: true, description: 'testResult, blockerCount, and summary' },
+          { name: 'evidence', type: 'object', required: true, description: 'testResult, blockerCount, summary, and qualityDecision (pass, reject, or comment)' },
         ],
         handler: 'api://collaboration/review',
       },

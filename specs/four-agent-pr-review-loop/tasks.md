@@ -11,7 +11,7 @@
 
 - [x] T5 为 Git Collaboration Skill 增加结构化 `collaboration_record_pr` / `collaboration_record_review` / `collaboration_record_merge` 工具
 - [x] T6 更新 Mario、DK、Luigi、Peach 的角色约束和 TeamPack workflow
-- [ ] T7 接通 PR 提交→Peach wakeup、REJECT→Luigi wakeup、merge→Mario closure
+- [x] T7 接通 PR 提交→Peach wakeup、REJECT→Luigi wakeup、merge→Mario closure
 
 ## Phase 3：聊天卡片
 

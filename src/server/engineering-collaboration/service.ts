@@ -7,13 +7,14 @@ import type {
   ReviewEvidence,
   ReviewReceipt,
 } from '@/lib/engineering-collaboration/types';
+import type { Server as IOServer } from 'socket.io';
 import { getDb } from '../db';
 import { conversationRepo } from '../repositories/conversation-repo';
 import { messageRepo } from '../repositories/message-repo';
 import { proofLogRepo } from '../repositories/proof-log-repo';
 import { taskGraphRepo, type TaskActionRow } from '../repositories/task-graph-repo';
 import { taskRepo, type TaskRow } from '../repositories/task-repo';
-import { publishTaskChangeNotification, resolveTaskNotificationAudience } from '../task-flow/task-notification-publisher';
+import { publishTaskChangeNotification, resolveTaskNotificationAudience, type PublishTaskChangeNotificationInput } from '../task-flow/task-notification-publisher';
 import type { GitProviderVerifier } from './git-provider';
 
 export type EngineeringCollaborationReasonCode =
@@ -28,7 +29,9 @@ export type EngineeringCollaborationReasonCode =
   | 'review_receipt_mismatch'
   | 'merge_actor_not_allowed'
   | 'merge_receipt_mismatch'
-  | 'review_approval_missing';
+  | 'review_approval_missing'
+  | 'repository_context_missing'
+  | 'pull_request_checks_failed';
 
 export class EngineeringCollaborationError extends Error {
   constructor(public readonly reasonCode: EngineeringCollaborationReasonCode, message: string) {
@@ -56,6 +59,14 @@ function latestPullRequestAction(taskId: string): TaskActionRow | undefined {
   return taskGraphRepo.listActionsForTask(taskId)
     .filter((action) => action.type === 'task.pull_request_submitted')
     .at(-1);
+}
+
+function gitRepoRoot(task: TaskRow): string {
+  const root = conversationRepo.getById(task.conversation_id)?.git_repo_root?.trim();
+  if (!root) {
+    throw new EngineeringCollaborationError('repository_context_missing', 'The conversation must configure an authoritative Git repository before recording collaboration receipts');
+  }
+  return root;
 }
 
 function latestReviewAction(taskId: string): TaskActionRow | undefined {
@@ -92,8 +103,28 @@ function appendCardMessage(input: {
   return messageId;
 }
 
+function publishAfterCommit(io: IOServer | undefined, input: PublishTaskChangeNotificationInput): void {
+  try {
+    publishTaskChangeNotification({ ...input, io });
+  } catch (error) {
+    console.error('[engineering-collaboration] notification failed after receipt commit', error);
+    try {
+      proofLogRepo.append({
+        eventType: 'engineering.notification.failed',
+        conversationId: input.task.conversation_id,
+        taskId: input.task.id,
+        actorId: input.actorId,
+        reasonCode: 'notification_delivery_failed',
+        metadata: { kind: input.kind },
+      });
+    } catch (proofError) {
+      console.error('[engineering-collaboration] failed to persist notification failure proof', proofError);
+    }
+  }
+}
+
 export class EngineeringCollaborationService {
-  constructor(private readonly verifier: GitProviderVerifier) {}
+  constructor(private readonly verifier: GitProviderVerifier, private readonly io?: IOServer) {}
 
   async recordPullRequest(input: {
     taskId: string;
@@ -108,11 +139,13 @@ export class EngineeringCollaborationService {
     if (!['in_progress', 'in_review', 'rejected'].includes(task.status)) {
       throw new EngineeringCollaborationError('task_not_reviewable', `Task ${task.id} is not ready for pull request submission from ${task.status}`);
     }
-    const conversation = conversationRepo.getById(task.conversation_id);
-    const cwd = conversation?.git_repo_root ?? conversation?.project_path ?? undefined;
+    const cwd = gitRepoRoot(task);
     const receipt = await this.verifier.getPullRequest({ url: input.pullRequestUrl, cwd });
     if (receipt.state !== 'open') {
       throw new EngineeringCollaborationError('pull_request_not_open', `Pull request #${receipt.number} is ${receipt.state}`);
+    }
+    if (receipt.checks === 'failing') {
+      throw new EngineeringCollaborationError('pull_request_checks_failed', `Pull request #${receipt.number} has failing checks`);
     }
     const previousPullRequestAction = latestPullRequestAction(task.id);
     const previousPullRequestPayload = previousPullRequestAction ? parsePayload(previousPullRequestAction) : undefined;
@@ -194,7 +227,7 @@ export class EngineeringCollaborationService {
       return { card, messageId };
     })();
     const updatedTask = taskRepo.getById(task.id)!;
-    publishTaskChangeNotification({
+    publishAfterCommit(this.io, {
       kind: 'task.status_changed',
       task: updatedTask,
       previousTask,
@@ -232,8 +265,7 @@ export class EngineeringCollaborationService {
     if (!pullRequest?.headSha || pullRequest.url !== input.pullRequestUrl) {
       throw new EngineeringCollaborationError('review_receipt_mismatch', 'Review does not match the task pull request receipt');
     }
-    const conversation = conversationRepo.getById(task.conversation_id);
-    const cwd = conversation?.git_repo_root ?? conversation?.project_path ?? undefined;
+    const cwd = gitRepoRoot(task);
     const receipt = await this.verifier.getReview({
       pullRequestUrl: input.pullRequestUrl,
       reviewUrl: input.reviewUrl,
@@ -280,7 +312,7 @@ export class EngineeringCollaborationService {
         card,
         action,
       });
-      if (receipt.decision === 'changes_requested') {
+      if (receipt.decision === 'changes_requested' || input.evidence.qualityDecision === 'reject') {
         taskRepo.updateStatus(task.id, 'rejected', input.evidence.summary);
       } else {
         taskRepo.update(task.id, { review_note: input.evidence.summary });
@@ -295,13 +327,13 @@ export class EngineeringCollaborationService {
       return { card, messageId };
     })();
     const updatedTask = taskRepo.getById(task.id)!;
-    publishTaskChangeNotification({
+    publishAfterCommit(this.io, {
       kind: 'task.status_changed',
       task: updatedTask,
       previousTask,
       actorId: input.actorAgentId,
       actorType: 'agent',
-      changedFields: receipt.decision === 'changes_requested' ? ['status', 'review_note'] : ['review_note'],
+      changedFields: receipt.decision === 'changes_requested' || input.evidence.qualityDecision === 'reject' ? ['status', 'review_note'] : ['review_note'],
     });
     return { receipt, ...result };
   }
@@ -332,11 +364,10 @@ export class EngineeringCollaborationService {
     if (!pullRequest || pullRequest.url !== input.pullRequestUrl) {
       throw new EngineeringCollaborationError('merge_receipt_mismatch', 'Merge does not match the task pull request receipt');
     }
-    if (!review || review.headSha !== pullRequest.headSha || review.decision === 'changes_requested' || (reviewEvidence?.blockerCount ?? 1) > 0) {
+    if (!review || review.headSha !== pullRequest.headSha || review.decision === 'changes_requested' || reviewEvidence?.qualityDecision !== 'pass' || (reviewEvidence?.blockerCount ?? 1) > 0) {
       throw new EngineeringCollaborationError('review_approval_missing', 'A current provider-backed review with zero blockers is required before merge closure');
     }
-    const conversation = conversationRepo.getById(task.conversation_id);
-    const cwd = conversation?.git_repo_root ?? conversation?.project_path ?? undefined;
+    const cwd = gitRepoRoot(task);
     const receipt = await this.verifier.getMerge({ pullRequestUrl: input.pullRequestUrl, cwd });
     if (receipt.pullRequestUrl !== pullRequest.url || receipt.pullRequestNumber !== pullRequest.number || receipt.headSha !== pullRequest.headSha) {
       throw new EngineeringCollaborationError('merge_receipt_mismatch', 'Provider merge receipt does not match the current pull request head');
@@ -387,7 +418,7 @@ export class EngineeringCollaborationService {
       return { card, messageId };
     })();
     const updatedTask = taskRepo.getById(task.id)!;
-    publishTaskChangeNotification({
+    publishAfterCommit(this.io, {
       kind: 'task.status_changed',
       task: updatedTask,
       previousTask,
