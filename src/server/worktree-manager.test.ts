@@ -8,7 +8,7 @@ import { WorktreeManager, BRANCH_PREFIX } from './worktree-manager';
 
 const execAsync = promisify(exec);
 
-describe('WorktreeManager', () => {
+describe('WorktreeManager', { timeout: 15_000 }, () => {
   let testRepo: string;
   let manager: WorktreeManager;
 

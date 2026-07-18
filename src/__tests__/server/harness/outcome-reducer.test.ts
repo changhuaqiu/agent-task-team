@@ -7,7 +7,11 @@ import { createTestDb, resetDb, setTestDb } from '@/server/db';
 import { conversationRepo } from '@/server/repositories/conversation-repo';
 import { taskRepo } from '@/server/repositories/task-repo';
 import { proofLogRepo } from '@/server/repositories/proof-log-repo';
-import { reduceAcceptedWakeup } from '@/server/harness/outcome-reducer';
+import {
+  PROJECTION_ERROR_MESSAGE_LIMIT,
+  reduceAcceptedWakeup,
+  sanitizeProjectionErrorMessage,
+} from '@/server/harness/outcome-reducer';
 import { readTasksMd, writeTasksMd } from '@/server/task-file-service';
 import type { TaskWakeup } from '@/server/task-flow/task-wakeup';
 
@@ -47,6 +51,21 @@ function wakeup(reasonCode: 'owner_ready' | 'dependency_resolved' | 'review_requ
 }
 
 describe('Harness outcome reducer', () => {
+  function projectionFailures() {
+    return proofLogRepo.findByType({
+      eventType: 'task_graph.runtime_projection.failed',
+      conversationId: 'conv-1',
+      taskId: 'TASK-1',
+      reasonCode: 'runtime_projection_failed',
+    });
+  }
+
+  function singleProjectionFailure() {
+    const failures = projectionFailures();
+    expect(failures).toHaveLength(1);
+    return failures[0];
+  }
+
   it('moves only an accepted ready owner from pending to in_progress', async () => {
     taskRepo.create({ id: 'TASK-1', conversation_id: 'conv-1', title: 'Server loop', agent_id: 'luigi' });
     taskRepo.update('TASK-1', { work_dir: projectPath });
@@ -91,13 +110,7 @@ describe('Harness outcome reducer', () => {
     await reduceAcceptedWakeup(io, wakeup('owner_ready'));
 
     expect(taskRepo.getById('TASK-1')?.status).toBe('in_progress');
-    const failures = proofLogRepo.findByType({
-      eventType: 'task_graph.runtime_projection.failed',
-      conversationId: 'conv-1',
-      taskId: 'TASK-1',
-      reasonCode: 'runtime_projection_failed',
-    });
-    expect(JSON.parse(failures[0].metadata ?? '{}')).toMatchObject({
+    expect(JSON.parse(singleProjectionFailure().metadata ?? '{}')).toMatchObject({
       failureCause: 'work_dir_missing',
       status: 'in_progress',
     });
@@ -109,5 +122,88 @@ describe('Harness outcome reducer', () => {
       taskId: 'TASK-1',
       actorId: 'platform-harness',
     }));
+  });
+
+  it('ignores an accepted wakeup whose task no longer exists', async () => {
+    const emit = vi.fn();
+    const io = { to: vi.fn(() => ({ emit })) } as unknown as IOServer;
+
+    await reduceAcceptedWakeup(io, wakeup('owner_ready'));
+
+    expect(taskRepo.getById('TASK-1')).toBeUndefined();
+    expect(projectionFailures()).toHaveLength(0);
+    expect(io.to).not.toHaveBeenCalled();
+    expect(emit).not.toHaveBeenCalled();
+  });
+
+  it('records a missing runtime task entry without rolling back the accepted transition', async () => {
+    taskRepo.create({ id: 'TASK-1', conversation_id: 'conv-1', title: 'Server loop', agent_id: 'luigi' });
+    taskRepo.update('TASK-1', { work_dir: projectPath });
+    writeTasksMd(projectPath, [{
+      id: 'TASK-OTHER',
+      title: 'Other task',
+      phase: '',
+      role: 'worker',
+      agent: 'luigi',
+      status: 'pending',
+      depends: [],
+      deliverable: '',
+    }]);
+    const emit = vi.fn();
+    const io = { to: vi.fn(() => ({ emit })) } as unknown as IOServer;
+
+    await reduceAcceptedWakeup(io, wakeup('owner_ready'));
+
+    expect(taskRepo.getById('TASK-1')?.status).toBe('in_progress');
+    expect(readTasksMd(projectPath).tasks).toEqual([
+      expect.objectContaining({ id: 'TASK-OTHER', status: 'pending' }),
+    ]);
+    expect(JSON.parse(singleProjectionFailure().metadata ?? '{}')).toMatchObject({
+      failureCause: 'task_entry_missing',
+      status: 'in_progress',
+    });
+    expect(emit).toHaveBeenCalledWith('task.sync_error', expect.objectContaining({
+      taskId: 'TASK-1',
+      reasonCode: 'runtime_projection_failed',
+    }));
+    expect(emit).toHaveBeenCalledWith('task.notification', expect.objectContaining({
+      taskId: 'TASK-1',
+      actorId: 'platform-harness',
+    }));
+  });
+
+  it('records a stable I/O failure cause without rolling back the accepted transition', async () => {
+    taskRepo.create({ id: 'TASK-1', conversation_id: 'conv-1', title: 'Server loop', agent_id: 'luigi' });
+    taskRepo.update('TASK-1', { work_dir: projectPath });
+    mkdirSync(join(projectPath, '.ath', 'TASKS.md'), { recursive: true });
+    const emit = vi.fn();
+    const io = { to: vi.fn(() => ({ emit })) } as unknown as IOServer;
+
+    await reduceAcceptedWakeup(io, wakeup('owner_ready'));
+
+    expect(taskRepo.getById('TASK-1')?.status).toBe('in_progress');
+    expect(JSON.parse(singleProjectionFailure().metadata ?? '{}')).toMatchObject({
+      failureCause: 'io_error',
+      status: 'in_progress',
+      errorMessage: expect.any(String),
+    });
+    expect(emit).toHaveBeenCalledWith('task.sync_error', expect.objectContaining({
+      taskId: 'TASK-1',
+      reasonCode: 'runtime_projection_failed',
+    }));
+    expect(emit).toHaveBeenCalledWith('task.notification', expect.objectContaining({
+      taskId: 'TASK-1',
+      actorId: 'platform-harness',
+    }));
+  });
+
+  it('bounds and normalizes durable projection error messages', () => {
+    const message = sanitizeProjectionErrorMessage(
+      new Error(`${'x'.repeat(PROJECTION_ERROR_MESSAGE_LIMIT + 100)}\r\nsecret-tail`),
+    );
+
+    expect(message).toHaveLength(PROJECTION_ERROR_MESSAGE_LIMIT);
+    expect(message).not.toMatch(/[\r\n\t]/);
+    expect(message).not.toContain('secret-tail');
   });
 });

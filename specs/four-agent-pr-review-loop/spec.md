@@ -120,6 +120,7 @@ Agent 正文中的 Markdown 链接仍可显示，但不具有状态转换权威�
 - daemon 解析出本轮唯一 runtime task path 后必须把它绑定到 task；Harness 接受 owner dispatch 并推进 `pending → in_progress` 时，必须在发布通知前把权威状态投影到该路径；
 - watcher 必须显式接收 conversation identity，并以 conversation + runtime path 共同隔离 watcher/debounce 生命周期；不得从目录 basename 猜测任务域；
 - watcher 完成文件门禁与数据库更新后，`task.sync` 必须广播 Task Graph 的权威状态投影，不能把被拒绝或被主动 invocation 保护的原始 `TASKS.md` 状态重新覆盖到页面；
+- Harness runtime 投影测试必须覆盖 task 已不存在的 stale wakeup no-op，以及 `work_dir` 缺失、`TASKS.md` 中缺少目标 task、任务文件 I/O 异常三类 reconciliation failure；投影失败不能回滚已接受的 Task Graph 转换，必须留下单一、可操作的 proof 与 `task.sync_error`，持久化异常文本须净化并限制长度；
 - worktree、Task Graph、聊天与 observability 必须记录同一 conversation/task 身份，路径缺失或基线不一致时 fail closed。
 
 ## 6. 失败回路

@@ -4,6 +4,13 @@ import { taskRepo } from '../repositories/task-repo';
 import { updateTaskInMd } from '../task-file-service';
 import type { TaskWakeup } from '../task-flow/task-wakeup';
 
+export const PROJECTION_ERROR_MESSAGE_LIMIT = 512;
+
+export function sanitizeProjectionErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.replace(/[\r\n\t]+/g, ' ').slice(0, PROJECTION_ERROR_MESSAGE_LIMIT);
+}
+
 /**
  * Runtime acceptance is execution evidence, not review/delivery evidence. The
  * only automatic business transition is pending -> in_progress for a ready
@@ -19,11 +26,13 @@ export async function reduceAcceptedWakeup(io: IOServer, wakeup: TaskWakeup): Pr
   if (!task) return;
   let projected = false;
   let projectionFailureCause = task.work_dir ? 'task_entry_missing' : 'work_dir_missing';
+  let projectionErrorMessage: string | undefined;
   if (task.work_dir) {
     try {
       projected = updateTaskInMd(task.work_dir, wakeup.taskId, { status: 'in_progress' });
     } catch (error) {
-      projectionFailureCause = error instanceof Error ? error.message : String(error);
+      projectionFailureCause = 'io_error';
+      projectionErrorMessage = sanitizeProjectionErrorMessage(error);
     }
   }
   if (!projected) {
@@ -38,6 +47,7 @@ export async function reduceAcceptedWakeup(io: IOServer, wakeup: TaskWakeup): Pr
         taskProjectDir: task.work_dir,
         status: 'in_progress',
         failureCause: projectionFailureCause,
+        ...(projectionErrorMessage ? { errorMessage: projectionErrorMessage } : {}),
       },
     });
     io.to(wakeup.conversationId).emit('task.sync_error', {
