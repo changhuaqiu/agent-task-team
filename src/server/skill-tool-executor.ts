@@ -64,10 +64,38 @@ function resolveTaskProjectDir(invocation: ToolInvocation, conversationId = invo
 function projectAuthoritativeTask(invocation: ToolInvocation, taskId: string): void {
   const task = taskRepo.getById(taskId);
   if (!task) return;
-  updateTaskInMd(resolveTaskProjectDir(invocation, task.conversation_id), taskId, {
+  const projected = updateTaskInMd(resolveTaskProjectDir(invocation, task.conversation_id), taskId, {
     status: task.status,
     agent: task.agent_id ?? '',
   });
+  if (!projected) throw new Error(`Runtime TASKS.md does not contain ${taskId}`);
+}
+
+function reconcileAuthoritativeTaskProjection(invocation: ToolInvocation, taskId: string): void {
+  try {
+    projectAuthoritativeTask(invocation, taskId);
+  } catch (error) {
+    const task = taskRepo.getById(taskId);
+    console.error('[skill-tool] runtime TASKS.md reconciliation failed after committed mutation:', error);
+    try {
+      proofLogRepo.append({
+        eventType: 'task_graph.runtime_projection.failed',
+        conversationId: task?.conversation_id ?? invocation.conversationId,
+        taskId,
+        actorId: invocation.agentId,
+        reasonCode: 'runtime_projection_failed',
+        metadata: { taskProjectDir: invocation.taskProjectDir, error: error instanceof Error ? error.message : String(error) },
+      });
+      invocation.io?.to(task?.conversation_id ?? invocation.conversationId).emit('task.sync_error', {
+        conversationId: task?.conversation_id ?? invocation.conversationId,
+        taskId,
+        reasonCode: 'runtime_projection_failed',
+        message: 'Task receipt was committed, but the runtime TASKS.md projection needs reconciliation.',
+      });
+    } catch (proofError) {
+      console.error('[skill-tool] failed to persist runtime projection reconciliation proof:', proofError);
+    }
+  }
 }
 
 // ── Security: validate tool invocation ─────────
@@ -293,7 +321,7 @@ async function executeRecordPullRequest(invocation: ToolInvocation): Promise<Too
   const evidence = implementationEvidenceInput(invocation.input.evidence);
   if (!taskId || !pullRequestUrl || !evidence) return { success: false, error: 'task_id, pull_request_url and evidence are required' };
   const data = await collaborationService(invocation.io).recordPullRequest({ taskId, expectedConversationId: invocation.conversationId, actorAgentId: invocation.agentId, pullRequestUrl, evidence });
-  projectAuthoritativeTask(invocation, taskId);
+  reconcileAuthoritativeTaskProjection(invocation, taskId);
   return { success: true, data };
 }
 
@@ -304,7 +332,7 @@ async function executeRecordReview(invocation: ToolInvocation): Promise<ToolResu
   const evidence = reviewEvidenceInput(invocation.input.evidence);
   if (!taskId || !pullRequestUrl || !reviewUrl || !evidence) return { success: false, error: 'task_id, pull_request_url, review_url and evidence are required' };
   const data = await collaborationService(invocation.io).recordReview({ taskId, expectedConversationId: invocation.conversationId, actorAgentId: invocation.agentId, pullRequestUrl, reviewUrl, evidence });
-  projectAuthoritativeTask(invocation, taskId);
+  reconcileAuthoritativeTaskProjection(invocation, taskId);
   return { success: true, data };
 }
 
@@ -314,7 +342,7 @@ async function executeRecordMerge(invocation: ToolInvocation): Promise<ToolResul
   const evidence = mergeEvidenceInput(invocation.input.evidence);
   if (!taskId || !pullRequestUrl || !evidence) return { success: false, error: 'task_id, pull_request_url and evidence are required' };
   const data = await collaborationService(invocation.io).recordMerge({ taskId, expectedConversationId: invocation.conversationId, actorAgentId: invocation.agentId, pullRequestUrl, evidence });
-  projectAuthoritativeTask(invocation, taskId);
+  reconcileAuthoritativeTaskProjection(invocation, taskId);
   return { success: true, data };
 }
 

@@ -112,7 +112,9 @@ Agent 正文中的 Markdown 链接仍可显示，但不具有状态转换权威�
 - MCP HTTP handler 是 ACP 平台工具的唯一执行入口；daemon 的流式 `tool_use` 事件只用于观测，不能再次执行 mutation。工具次数额度必须绑定 invocation/grant 并在 revoke 后释放；
 - 对 Git-backed task，`.ath/TASKS.md` 仅是兼容投影：任何从文件侧发起的 `in_review` 或 `done` 跃迁必须被拒绝并回写 Task Graph 权威状态。只有 `collaboration_record_pr`、`collaboration_record_review`、`collaboration_record_merge` 的原子 provider 回执路径可以推进质量门状态；
 - 已验证 receipt 形成的 `in_review` / `done` 同样不能被旧文件投影反向降级；所有平台 task/receipt 工具必须把结果投影到本次 invocation 的实际 runtime task path，completion barrier 只能读取该路径；
+- 页面加载不得为旧 shared workspace 启动并行 watcher；receipt transaction 提交后的 runtime 投影失败必须作为 reconciliation 告警，不得把已提交 mutation 返回为失败并诱发重复提交；
 - worktree 的 Git 命令必须在用户 `projectPath` 对应的真实 repository root 执行，worktree 存储位置与 repository root 分离并按仓库隔离，不能隐式使用应用自身仓库；
+- Git-backed conversation 或显式 worktree 派发无法解析 repository root / exact HEAD 时必须 fail closed，不能退回 scratch 或原项目目录；
 - worktree、Task Graph、聊天与 observability 必须记录同一 conversation/task 身份，路径缺失或基线不一致时 fail closed。
 
 ## 6. 失败回路

@@ -411,12 +411,13 @@ export function ensureTasksMdProjection(projectPath: string, rows: TaskProjectio
   return true;
 }
 
-export function updateTaskInMd(projectPath: string, taskId: string, updates: Partial<Pick<ParsedTask, 'status' | 'agent' | 'deliverable'>>): void {
+export function updateTaskInMd(projectPath: string, taskId: string, updates: Partial<Pick<ParsedTask, 'status' | 'agent' | 'deliverable'>>): boolean {
   const { tasks, blockers } = readTasksMd(projectPath);
   const idx = tasks.findIndex((t) => t.id === taskId);
-  if (idx === -1) return;
+  if (idx === -1) return false;
   Object.assign(tasks[idx], updates);
   writeTasksMd(projectPath, tasks, blockers);
+  return true;
 }
 
 export function initProjectDir(projectPath: string, meta: ProjectMeta): void {

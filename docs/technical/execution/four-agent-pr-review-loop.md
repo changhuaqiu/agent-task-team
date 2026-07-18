@@ -44,7 +44,11 @@ Git-backed task 的 `.ath/TASKS.md` 是兼容投影而非质量门写入口。�
 
 保护同时覆盖反向降级：Task Graph 一旦由当前 verified receipt 进入 `in_review` 或 `done`，旧文件里的 pending/in_progress/rejected 等状态不能覆盖它。task 与 receipt 工具从 invocation grant 接收同一个 runtime task path，并在返回前把权威 DB 状态投影到该文件，因此 completion barrier 不会读取 sibling scratch 或旧状态。
 
+页面 hydration 只读取 Task Graph/API 权威状态，不得为历史 `workspaces/<conversation>` 目录启动第二个 watcher。协作回执事务提交后，runtime 文件投影属于 reconciliation：投影失败必须记录 proof/同步告警，但 MCP 仍返回已提交的权威成功结果，避免调用方重试形成重复 action/card。
+
 worktree manager 把“Git repository root”和“worktree storage root”作为两个参数。repository root 从用户 `projectPath` 的 `git rev-parse --show-toplevel` 得到；storage root 位于平台 workspace，并用 repository root hash 隔离。这样任意用户仓库都在自己的 Git 上创建分支，同时不会与其他仓库的同名 conversation 冲突。
+
+Git-backed conversation 或显式 worktree 派发在 repository root / HEAD 探测失败时必须 fail closed；不得回退到 scratch 或直接在原项目目录执行。
 
 ## 事实源
 

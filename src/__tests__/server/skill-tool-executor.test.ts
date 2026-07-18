@@ -1,12 +1,14 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTestDb, setTestDb } from '@/server/db';
 import { conversationRepo } from '@/server/repositories/conversation-repo';
 import { taskRepo } from '@/server/repositories/task-repo';
 import { executeSkillTool, resetRateLimit } from '@/server/skill-tool-executor';
 import { readTasksMd } from '@/server/task-file-service';
-import { mkdirSync, rmSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { GhCliGitProviderVerifier } from '@/server/engineering-collaboration/github-cli-verifier';
+import { proofLogRepo } from '@/server/repositories/proof-log-repo';
 
 describe('skill tool collaboration gates', () => {
   beforeEach(() => {
@@ -72,5 +74,37 @@ describe('skill tool collaboration gates', () => {
     for (let index = 0; index < 10; index += 1) expect((await invoke('grant-a')).success).toBe(true);
     expect(await invoke('grant-a')).toMatchObject({ success: false, error: expect.stringContaining('Rate limit exceeded') });
     expect((await invoke('grant-b')).success).toBe(true);
+  });
+
+  it('returns committed receipt success when runtime projection needs reconciliation', async () => {
+    taskRepo.updateStatus('TASK-GIT', 'in_progress');
+    vi.spyOn(GhCliGitProviderVerifier.prototype, 'getPullRequest').mockResolvedValue({
+      provider: 'github', repository: 'acme/widget', number: 1, title: 'Ship safely',
+      url: 'https://github.com/acme/widget/pull/1', state: 'open', draft: false, author: 'luigi',
+      baseRef: 'main', headRef: 'task/ship', headSha: 'a'.repeat(40), checks: 'passing',
+      verifiedAt: '2026-07-18T00:00:00.000Z',
+    });
+    const invalidProjectPath = join(tmpdir(), `skill-runtime-file-${Date.now()}`);
+    writeFileSync(invalidProjectPath, 'not a directory');
+    try {
+      const result = await executeSkillTool({
+        toolName: 'collaboration_record_pr', agentId: 'luigi', conversationId: 'conv-git',
+        taskProjectDir: invalidProjectPath,
+        input: {
+          task_id: 'TASK-GIT', pull_request_url: 'https://github.com/acme/widget/pull/1',
+          evidence: { installResult: 'ok', buildResult: 'ok', testResult: 'ok', impactEvidence: 'ok' },
+        },
+      });
+
+      expect(result.success).toBe(true);
+      expect(taskRepo.getById('TASK-GIT')?.status).toBe('in_review');
+      expect(proofLogRepo.findByType({
+        eventType: 'task_graph.runtime_projection.failed', conversationId: 'conv-git', taskId: 'TASK-GIT',
+        reasonCode: 'runtime_projection_failed',
+      })).toHaveLength(1);
+    } finally {
+      rmSync(invalidProjectPath, { force: true });
+      vi.restoreAllMocks();
+    }
   });
 });

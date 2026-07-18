@@ -40,6 +40,7 @@ import { DispatchGateway } from './control-plane/dispatch-gateway';
 import { runtimeNodeRepo } from './repositories/runtime-node-repo';
 import type { DispatchIntent, DispatchSource, RuntimeNodeKind } from './repositories/control-plane-types';
 import { taskRepo } from './repositories/task-repo';
+import { conversationRepo } from './repositories/conversation-repo';
 import { taskGraphRepo } from './repositories/task-graph-repo';
 import { executionEnvelopeRepo } from './repositories/execution-envelope-repo';
 import { proofLogRepo } from './repositories/proof-log-repo';
@@ -1573,11 +1574,16 @@ export default function registerDaemon(io: IOServer) {
       let effectiveUseWorktree = useWorktree ?? false;
       let worktreeStartPoint: string | undefined;
       let worktreeRepoRoot: string | undefined;
+      const requiresGitWorktree = effectiveUseWorktree
+        || Boolean(conversationRepo.getById(sessionConvId)?.git_repo_root);
 
       if (projectPath) {
         try {
           const { WorktreeManager } = await import('./worktree-manager');
           const isGit = await WorktreeManager.isGitRepo(projectPath);
+          if (!isGit && requiresGitWorktree) {
+            throw new Error('configured project path is not a Git worktree');
+          }
           if (isGit) {
             const detectedRepoRoot = await WorktreeManager.getRepoRoot(projectPath) ?? undefined;
             const detectedHead = await WorktreeManager.getHead(projectPath) ?? undefined;
@@ -1591,8 +1597,13 @@ export default function registerDaemon(io: IOServer) {
             console.log(`[daemon] git repo detected at ${worktreeRepoRoot}, using worktree slug=${effectiveSlug}`);
           }
         } catch (e) {
-          console.warn(`[daemon] git detection failed for ${projectPath}, falling back to non-worktree mode:`, (e as Error).message);
+          if (requiresGitWorktree) {
+            throw new Error(`worktree_baseline_unavailable: ${(e as Error).message}`);
+          }
+          console.warn(`[daemon] git detection failed for ${projectPath}, using configured non-Git directory:`, (e as Error).message);
         }
+      } else if (requiresGitWorktree) {
+        throw new Error('worktree_baseline_unavailable: Git-backed dispatch requires projectPath');
       }
 
       const wd = await workdirManager.resolveWorkdir(
@@ -1920,11 +1931,6 @@ export default function registerDaemon(io: IOServer) {
       }
     });
 
-    socket.on('task.request_sync', ({ conversationId: reqConvId }: { conversationId: string }) => {
-      const dir = join(workspacesRoot, reqConvId || 'default');
-      startTaskWatcher(dir, io);
-      syncTasksToDb(dir, io);
-    });
   });
 
   // Graceful shutdown
