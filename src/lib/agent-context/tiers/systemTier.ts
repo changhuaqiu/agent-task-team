@@ -1,12 +1,13 @@
 // src/lib/agent-context/tiers/systemTier.ts
 //
-// System tier — who you are + stable collaboration protocol. Never trimmed
-// by BudgetGuard (parts here carry tier='system'). Holds the layers that
-// define identity and protocol: collaboration, protocol, behavior.
+// System tier — stable collaboration protocol + per-turn protocol hints +
+// behaviour. Never trimmed by BudgetGuard (parts here carry tier='system').
 //
-// Note: role/project/projectStatus are rendered separately as the
-// systemPrompt (bootstrap channel) from assembleContext; this tier handles
-// the message-channel protocol layers that ship in every turn.
+// collaboration dedup: when the 'identity' cluster is included, the
+// bootstrap channel (systemPrompt, built by assembleContext) already carries
+// buildCollaborationLayer(), so this tier skips it to avoid duplication.
+// When identity is omitted (wakeup/closure/iterate), systemPrompt is not
+// built, so the protocol rides this message channel.
 
 import { buildCollaborationLayer } from '../layers/collaborationLayer';
 import { buildProtocolLayer, deriveRoleFromCard } from '../layers/protocolLayer';
@@ -14,15 +15,19 @@ import { buildBehaviorLayer } from '../layers/behaviorLayer';
 import { buildProtocolHint } from '../protocolHints';
 import type { TierRenderInput } from './tierContext';
 
-export function renderSystemTier({ ctx, push }: TierRenderInput): void {
+export function renderSystemTier({ ctx, push, isIncluded }: TierRenderInput): void {
   const { req, roleCard, task } = ctx;
 
-  // Stable collaboration contract. On first wake the systemPrompt (bootstrap
-  // channel) already includes buildCollaborationLayer(), so skip it here to
-  // avoid the collaboration protocol appearing twice in the merged prompt.
-  // On subsequent turns systemPrompt is undefined, so the message channel
-  // carries the protocol.
-  if (!req.isFirstWake) {
+  // Stable collaboration contract. Dedup against the bootstrap channel:
+  // assembleContext builds systemPrompt (which carries buildCollaborationLayer)
+  // ONLY when the 'identity' cluster is included. So skip the message-channel
+  // push exactly when identity is included — that is the real condition under
+  // which the protocol would otherwise appear twice. Keying on identity (not
+  // isFirstWake) is correct because isFirstWake and the identity directive are
+  // independent: a wakeup/closure first-wake has identity=omit, so its
+  // systemPrompt is never built and the protocol must ride this channel.
+  const identityCarriesCollaboration = isIncluded('identity');
+  if (!identityCarriesCollaboration) {
     push('protocol', 'collaboration', buildCollaborationLayer(), { tier: 'system', importance: 0.8 });
   }
 

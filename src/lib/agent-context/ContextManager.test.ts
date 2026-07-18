@@ -170,5 +170,10 @@ describe('ContextManager', () => {
     expect(result.userPrompt).toContain('评审通过');
     expect(result.userPrompt).not.toContain('这段原始对话不应被注入');
     expect(result.systemPrompt).toBeUndefined();
+
+    // 回归校验：wakeup 首次唤醒（identity omit → systemPrompt 不构建），
+    // collaboration 协议仍必须经 message channel 注入，不能因为 isFirstWake
+    // 被整体丢弃。之前用 !req.isFirstWake 做 guard 导致此处出现 0 次。
+    expect(result.userPrompt).toContain('## Agent 协作协议');
   });
 });
