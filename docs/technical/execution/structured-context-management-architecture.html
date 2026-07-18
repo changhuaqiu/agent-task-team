@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Agent Team 结构化上下文管理架构</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js" integrity="sha384-ZZ1pncU3bQe8y31yfZdMFdSpttDoPmOZg2wguVK9almUodir1PghgT0eY7Mrty8H" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js" integrity="sha384-en/ztfPSRkGfME4KIm05joYXynqzUgbsG5nMrj/xEFAHXkeZfO3yMK8QQ+mP7p1/" crossorigin="anonymous"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'JetBrains Mono', 'Microsoft YaHei', monospace; background: #020617; min-height: 100vh; padding: 2rem; color: white; }
+    .container { max-width: 1480px; margin: 0 auto; }
+    .header { margin-bottom: 2rem; }
+    .header-row { display: flex; align-items: center; gap: 1rem; margin-bottom: .5rem; }
+    .pulse-dot { width: 12px; height: 12px; background: #22d3ee; border-radius: 50%; animation: pulse 2s infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
+    h1 { font-size: 1.5rem; font-weight: 700; letter-spacing: -.025em; }
+    .subtitle { color: #94a3b8; font-size: .875rem; margin-left: 1.75rem; }
+    .diagram-container { background: rgba(15,23,42,.5); border-radius: 1rem; border: 1px solid #1e293b; padding: 1.5rem; overflow-x: auto; }
+    svg { width: 100%; min-width: 1120px; display: block; }
+    .cards { display: grid; grid-template-columns: repeat(auto-fit,minmax(300px,1fr)); gap: 1rem; margin-top: 2rem; }
+    .card { background: rgba(15,23,42,.5); border-radius: .75rem; border: 1px solid #1e293b; padding: 1.25rem; }
+    .card-header { display: flex; align-items: center; gap: .5rem; margin-bottom: .75rem; }
+    .card-dot { width: 8px; height: 8px; border-radius: 50%; }
+    .cyan { background: #22d3ee; } .emerald { background: #34d399; } .violet { background: #a78bfa; } .amber { background: #fbbf24; }
+    .card h3 { font-size: .875rem; font-weight: 600; }
+    .card ul { list-style: none; color: #94a3b8; font-size: .75rem; }
+    .card li { margin-bottom: .375rem; }
+    .footer { text-align: center; margin-top: 1.5rem; color: #475569; font-size: .75rem; }
+    .toolbar { display: flex; gap: .5rem; margin-left: auto; flex-shrink: 0; align-items: center; }
+    .toolbar-toggle { background: transparent; border: none; color: #475569; cursor: pointer; font-size: 1.25rem; line-height: 1; padding: .25rem .5rem; border-radius: .375rem; transition: color .2s,background .2s; }
+    .toolbar-toggle:hover { color: #94a3b8; background: rgba(30,41,59,.5); }
+    .toolbar-actions { display: none; gap: .5rem; }
+    .toolbar.expanded .toolbar-actions { display: flex; }
+    .toolbar-actions button { background: rgba(30,41,59,.8); border: 1px solid #334155; color: #94a3b8; padding: .375rem .75rem; border-radius: .375rem; font-family: inherit; font-size: .75rem; cursor: pointer; white-space: nowrap; }
+    .toolbar-actions button:hover { background: rgba(51,65,85,.8); color: white; border-color: #475569; }
+    @media print { body { background: #020617; padding: 1rem; } .toolbar { display: none !important; } }
+  </style>
+</head>
+<body>
+  <div class="container" id="report-container">
+    <div class="header">
+      <div class="header-row">
+        <div class="pulse-dot"></div>
+        <h1>Agent Team · 结构化上下文控制面</h1>
+        <div class="toolbar">
+          <div class="toolbar-actions">
+            <button onclick="copyAsImage(this)">📋 Copy</button>
+            <button onclick="downloadPNG(this)">🖼️ PNG</button>
+            <button onclick="downloadPDF(this)">📄 PDF</button>
+          </div>
+          <button class="toolbar-toggle" onclick="this.parentElement.classList.toggle('expanded')" title="Export options" aria-label="Export options">⋯</button>
+        </div>
+      </div>
+      <p class="subtitle">语义、来源、生命周期、可见性、一致性与交付策略解耦；ContextManager 从字符串拼装器演进为 Context Compiler</p>
+    </div>
+
+    <div class="diagram-container">
+      <svg viewBox="0 0 1200 760" role="img" aria-label="结构化上下文管理架构方框图">
+        <defs>
+          <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,10 3.5,0 7" fill="#64748b"/></marker>
+          <marker id="arrow-cyan" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,10 3.5,0 7" fill="#22d3ee"/></marker>
+          <marker id="arrow-orange" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,10 3.5,0 7" fill="#fb923c"/></marker>
+          <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0L0 0 0 40" fill="none" stroke="#1e293b" stroke-width=".5"/></pattern>
+        </defs>
+        <rect width="100%" height="100%" fill="url(#grid)"/>
+
+        <!-- Connections first so boxes mask them. -->
+        <path d="M230 115 H320" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path d="M230 225 H320" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path d="M230 335 H320" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path d="M230 445 H320" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path d="M230 555 H320" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path d="M460 140 V185" fill="none" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path d="M460 265 V310" fill="none" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path d="M460 390 V435" fill="none" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path d="M460 515 V560" fill="none" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path d="M600 350 H770" fill="none" stroke="#22d3ee" stroke-width="2" marker-end="url(#arrow-cyan)"/>
+        <path d="M930 170 H1010" fill="none" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)"/>
+        <path d="M930 280 H1010" fill="none" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)"/>
+        <path d="M930 390 H1010" fill="none" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)"/>
+        <path d="M930 500 H1010" fill="none" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)"/>
+        <path d="M1085 535 V610 H620" fill="none" stroke="#fb923c" stroke-width="1.5" stroke-dasharray="5,4" marker-end="url(#arrow-orange)"/>
+        <path d="M600 600 H770" fill="none" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+
+        <!-- Source boundary -->
+        <rect x="20" y="50" width="230" height="600" rx="12" fill="rgba(30,41,59,.16)" stroke="#94a3b8" stroke-width="1" stroke-dasharray="8,4"/>
+        <text x="35" y="72" fill="#94a3b8" font-size="10" font-weight="600">FACT SOURCES · 各领域事实源</text>
+
+        <!-- Source boxes -->
+        <g>
+          <rect x="40" y="85" width="190" height="60" rx="6" fill="#0f172a"/><rect x="40" y="85" width="190" height="60" rx="6" fill="rgba(136,19,55,.4)" stroke="#fb7185" stroke-width="1.5"/>
+          <text x="135" y="108" fill="white" font-size="11" font-weight="600" text-anchor="middle">S0 · 系统与角色</text><text x="135" y="126" fill="#94a3b8" font-size="8" text-anchor="middle">RoleCard · 安全边界 · 基础协议</text><text x="135" y="139" fill="#fb7185" font-size="7" text-anchor="middle">static · bootstrap · strong</text>
+        </g>
+        <g>
+          <rect x="40" y="195" width="190" height="60" rx="6" fill="#0f172a"/><rect x="40" y="195" width="190" height="60" rx="6" fill="rgba(120,53,15,.3)" stroke="#fbbf24" stroke-width="1.5"/>
+          <text x="135" y="218" fill="white" font-size="11" font-weight="600" text-anchor="middle">S1 · 能力与规范</text><text x="135" y="236" fill="#94a3b8" font-size="8" text-anchor="middle">Tool Registry · Skill · TeamPack</text><text x="135" y="249" fill="#fbbf24" font-size="7" text-anchor="middle">versioned · on-change / JIT</text>
+        </g>
+        <g>
+          <rect x="40" y="305" width="190" height="60" rx="6" fill="#0f172a"/><rect x="40" y="305" width="190" height="60" rx="6" fill="rgba(76,29,149,.4)" stroke="#a78bfa" stroke-width="1.5"/>
+          <text x="135" y="328" fill="white" font-size="11" font-weight="600" text-anchor="middle">S2 · 工作状态</text><text x="135" y="346" fill="#94a3b8" font-size="8" text-anchor="middle">Task Graph · Possession · Decisions</text><text x="135" y="359" fill="#a78bfa" font-size="7" text-anchor="middle">snapshot · strong / causal</text>
+        </g>
+        <g>
+          <rect x="40" y="415" width="190" height="60" rx="6" fill="#0f172a"/><rect x="40" y="415" width="190" height="60" rx="6" fill="rgba(251,146,60,.3)" stroke="#fb923c" stroke-width="1.5"/>
+          <text x="135" y="438" fill="white" font-size="11" font-weight="600" text-anchor="middle">S3 · 交互事件流</text><text x="135" y="456" fill="#94a3b8" font-size="8" text-anchor="middle">User/A2A · Team Log · Tool Result</text><text x="135" y="469" fill="#fb923c" font-size="7" text-anchor="middle">event · delta · causal / eventual</text>
+        </g>
+        <g>
+          <rect x="40" y="525" width="190" height="60" rx="6" fill="#0f172a"/><rect x="40" y="525" width="190" height="60" rx="6" fill="rgba(6,78,59,.4)" stroke="#34d399" stroke-width="1.5"/>
+          <text x="135" y="548" fill="white" font-size="11" font-weight="600" text-anchor="middle">长期记忆与产物</text><text x="135" y="566" fill="#94a3b8" font-size="8" text-anchor="middle">Artifact · Notes · Durable Memory</text><text x="135" y="579" fill="#34d399" font-size="7" text-anchor="middle">reference-first · JIT recall</text>
+        </g>
+
+        <!-- Control plane boundary -->
+        <rect x="280" y="50" width="360" height="600" rx="12" fill="rgba(6,78,59,.08)" stroke="#34d399" stroke-width="1" stroke-dasharray="8,4"/>
+        <text x="295" y="72" fill="#34d399" font-size="10" font-weight="600">CONTEXT CONTROL PLANE · Harness 所有</text>
+
+        <g>
+          <rect x="320" y="85" width="280" height="55" rx="6" fill="#0f172a"/><rect x="320" y="85" width="280" height="55" rx="6" fill="rgba(6,78,59,.4)" stroke="#34d399" stroke-width="1.5"/>
+          <text x="460" y="107" fill="white" font-size="11" font-weight="600" text-anchor="middle">1 · Manifest Resolver</text><text x="460" y="125" fill="#94a3b8" font-size="8" text-anchor="middle">revision · hash · watermark · authority</text>
+        </g>
+        <g>
+          <rect x="320" y="185" width="280" height="80" rx="6" fill="#0f172a"/><rect x="320" y="185" width="280" height="80" rx="6" fill="rgba(6,78,59,.4)" stroke="#34d399" stroke-width="1.5"/>
+          <text x="460" y="207" fill="white" font-size="11" font-weight="600" text-anchor="middle">2 · Policy Engine</text><text x="460" y="226" fill="#94a3b8" font-size="8" text-anchor="middle">scenario + role + lifecycle + visibility</text><text x="460" y="242" fill="#94a3b8" font-size="8" text-anchor="middle">consistency + freshness + delivery mode</text><text x="460" y="257" fill="#34d399" font-size="7" text-anchor="middle">include · omit · delta · reference · stale</text>
+        </g>
+        <g>
+          <rect x="320" y="310" width="280" height="80" rx="6" fill="#0f172a"/><rect x="320" y="310" width="280" height="80" rx="6" fill="rgba(6,78,59,.4)" stroke="#34d399" stroke-width="1.5"/>
+          <text x="460" y="332" fill="white" font-size="11" font-weight="600" text-anchor="middle">3 · Context Compiler</text><text x="460" y="351" fill="#94a3b8" font-size="8" text-anchor="middle">required floor → dedupe → utility ranking</text><text x="460" y="367" fill="#94a3b8" font-size="8" text-anchor="middle">snapshot replace · delta select · JIT reference</text><text x="460" y="382" fill="#34d399" font-size="7" text-anchor="middle">结构化 Artifact → Runtime Envelope</text>
+        </g>
+        <g>
+          <rect x="320" y="435" width="280" height="80" rx="6" fill="#0f172a"/><rect x="320" y="435" width="280" height="80" rx="6" fill="rgba(76,29,149,.4)" stroke="#a78bfa" stroke-width="1.5"/>
+          <text x="460" y="457" fill="white" font-size="11" font-weight="600" text-anchor="middle">4 · Agent Context Checkpoint</text><text x="460" y="476" fill="#94a3b8" font-size="8" text-anchor="middle">per project × agent × session</text><text x="460" y="492" fill="#94a3b8" font-size="8" text-anchor="middle">delivered revisions · cursors · cache key</text><text x="460" y="507" fill="#a78bfa" font-size="7" text-anchor="middle">成功 dispatch 边界幂等提交</text>
+        </g>
+        <g>
+          <rect x="320" y="560" width="280" height="55" rx="6" fill="#0f172a"/><rect x="320" y="560" width="280" height="55" rx="6" fill="rgba(8,51,68,.4)" stroke="#22d3ee" stroke-width="1.5"/>
+          <text x="460" y="582" fill="white" font-size="11" font-weight="600" text-anchor="middle">5 · Context Report / Trace</text><text x="460" y="600" fill="#94a3b8" font-size="8" text-anchor="middle">给了什么 · 为什么 · 来源 · revision · 成本</text>
+        </g>
+
+        <!-- Runtime envelope -->
+        <rect x="750" y="80" width="210" height="500" rx="12" fill="rgba(8,51,68,.08)" stroke="#22d3ee" stroke-width="1" stroke-dasharray="8,4"/>
+        <text x="765" y="102" fill="#22d3ee" font-size="10" font-weight="600">RUNTIME ENVELOPE</text>
+        <g>
+          <rect x="780" y="135" width="150" height="70" rx="6" fill="#0f172a"/><rect x="780" y="135" width="150" height="70" rx="6" fill="rgba(120,53,15,.3)" stroke="#fbbf24" stroke-width="1.5"/>
+          <text x="855" y="158" fill="white" font-size="11" font-weight="600" text-anchor="middle">TOOLS</text><text x="855" y="177" fill="#94a3b8" font-size="8" text-anchor="middle">ACP / MCP 注册 schema</text><text x="855" y="192" fill="#fbbf24" font-size="7" text-anchor="middle">真实能力 · 稳定排序</text>
+        </g>
+        <g>
+          <rect x="780" y="245" width="150" height="70" rx="6" fill="#0f172a"/><rect x="780" y="245" width="150" height="70" rx="6" fill="rgba(136,19,55,.4)" stroke="#fb7185" stroke-width="1.5"/>
+          <text x="855" y="268" fill="white" font-size="11" font-weight="600" text-anchor="middle">SYSTEM</text><text x="855" y="287" fill="#94a3b8" font-size="8" text-anchor="middle">bootstrap + on-change</text><text x="855" y="302" fill="#fb7185" font-size="7" text-anchor="middle">角色 · 安全 · 协议 revision</text>
+        </g>
+        <g>
+          <rect x="780" y="355" width="150" height="70" rx="6" fill="#0f172a"/><rect x="780" y="355" width="150" height="70" rx="6" fill="rgba(251,146,60,.3)" stroke="#fb923c" stroke-width="1.5"/>
+          <text x="855" y="378" fill="white" font-size="11" font-weight="600" text-anchor="middle">MESSAGE</text><text x="855" y="397" fill="#94a3b8" font-size="8" text-anchor="middle">工作快照 + 当前触发</text><text x="855" y="412" fill="#fb923c" font-size="7" text-anchor="middle">interaction delta · watermark</text>
+        </g>
+        <g>
+          <rect x="780" y="465" width="150" height="70" rx="6" fill="#0f172a"/><rect x="780" y="465" width="150" height="70" rx="6" fill="rgba(76,29,149,.4)" stroke="#a78bfa" stroke-width="1.5"/>
+          <text x="855" y="488" fill="white" font-size="11" font-weight="600" text-anchor="middle">REFERENCES</text><text x="855" y="507" fill="#94a3b8" font-size="8" text-anchor="middle">Artifact · 文件 · Memory URI</text><text x="855" y="522" fill="#a78bfa" font-size="7" text-anchor="middle">渐进披露 · 按需读取</text>
+        </g>
+
+        <!-- Agent runtimes -->
+        <rect x="990" y="80" width="190" height="500" rx="12" fill="rgba(30,41,59,.16)" stroke="#94a3b8" stroke-width="1" stroke-dasharray="8,4"/>
+        <text x="1005" y="102" fill="#94a3b8" font-size="10" font-weight="600">DISTRIBUTED AGENTS</text>
+        <g>
+          <rect x="1010" y="140" width="150" height="60" rx="6" fill="#0f172a"/><rect x="1010" y="140" width="150" height="60" rx="6" fill="rgba(8,51,68,.4)" stroke="#22d3ee" stroke-width="1.5"/>
+          <text x="1085" y="164" fill="white" font-size="11" font-weight="600" text-anchor="middle">Planner Agent</text><text x="1085" y="182" fill="#94a3b8" font-size="8" text-anchor="middle">shared goal · coordination</text>
+        </g>
+        <g>
+          <rect x="1010" y="250" width="150" height="60" rx="6" fill="#0f172a"/><rect x="1010" y="250" width="150" height="60" rx="6" fill="rgba(8,51,68,.4)" stroke="#22d3ee" stroke-width="1.5"/>
+          <text x="1085" y="274" fill="white" font-size="11" font-weight="600" text-anchor="middle">Worker Agent</text><text x="1085" y="292" fill="#94a3b8" font-size="8" text-anchor="middle">private working set</text>
+        </g>
+        <g>
+          <rect x="1010" y="360" width="150" height="60" rx="6" fill="#0f172a"/><rect x="1010" y="360" width="150" height="60" rx="6" fill="rgba(8,51,68,.4)" stroke="#22d3ee" stroke-width="1.5"/>
+          <text x="1085" y="384" fill="white" font-size="11" font-weight="600" text-anchor="middle">Reviewer Agent</text><text x="1085" y="402" fill="#94a3b8" font-size="8" text-anchor="middle">evidence · acceptance</text>
+        </g>
+        <g>
+          <rect x="1010" y="470" width="150" height="60" rx="6" fill="#0f172a"/><rect x="1010" y="470" width="150" height="60" rx="6" fill="rgba(8,51,68,.4)" stroke="#22d3ee" stroke-width="1.5"/>
+          <text x="1085" y="494" fill="white" font-size="11" font-weight="600" text-anchor="middle">Any ACP Runtime</text><text x="1085" y="512" fill="#94a3b8" font-size="8" text-anchor="middle">Claude · Codex · OpenCode</text>
+        </g>
+
+        <!-- Shared blackboard -->
+        <rect x="670" y="600" width="490" height="50" rx="6" fill="#0f172a"/><rect x="670" y="600" width="490" height="50" rx="6" fill="rgba(76,29,149,.4)" stroke="#a78bfa" stroke-width="1.5"/>
+        <text x="915" y="620" fill="white" font-size="11" font-weight="600" text-anchor="middle">SHARED BLACKBOARD · 共享目标，不共享完整轨迹</text>
+        <text x="915" y="638" fill="#94a3b8" font-size="8" text-anchor="middle">Task Graph · Decisions · Acceptance Evidence · Artifact Index · Structured Handoff</text>
+
+        <!-- Legend outside all boundaries -->
+        <text x="25" y="700" fill="white" font-size="10" font-weight="600">LEGEND</text>
+        <rect x="90" y="690" width="16" height="10" rx="2" fill="rgba(136,19,55,.4)" stroke="#fb7185"/><text x="112" y="698" fill="#94a3b8" font-size="8">系统 / 安全</text>
+        <rect x="210" y="690" width="16" height="10" rx="2" fill="rgba(120,53,15,.3)" stroke="#fbbf24"/><text x="232" y="698" fill="#94a3b8" font-size="8">能力 / 工具</text>
+        <rect x="330" y="690" width="16" height="10" rx="2" fill="rgba(76,29,149,.4)" stroke="#a78bfa"/><text x="352" y="698" fill="#94a3b8" font-size="8">状态 / 存储</text>
+        <rect x="450" y="690" width="16" height="10" rx="2" fill="rgba(251,146,60,.3)" stroke="#fb923c"/><text x="472" y="698" fill="#94a3b8" font-size="8">事件 / 增量</text>
+        <rect x="570" y="690" width="16" height="10" rx="2" fill="rgba(6,78,59,.4)" stroke="#34d399"/><text x="592" y="698" fill="#94a3b8" font-size="8">控制面</text>
+        <line x1="710" y1="695" x2="735" y2="695" stroke="#fb923c" stroke-dasharray="5,4"/><text x="742" y="698" fill="#94a3b8" font-size="8">Agent 产出回写事实源</text>
+        <text x="25" y="726" fill="#64748b" font-size="8">六维 Artifact：semantic · source · lifecycle · visibility · consistency · delivery</text>
+      </svg>
+    </div>
+
+    <div class="cards">
+      <div class="card"><div class="card-header"><div class="card-dot emerald"></div><h3>核心变化</h3></div><ul><li>• Layer 不是事实模型，Artifact 才是</li><li>• 场景矩阵成为策略输入，不再包办注入</li><li>• revision/hash/watermark 驱动失效与增量</li><li>• ContextManager 演进为可观测 Compiler</li></ul></div>
+      <div class="card"><div class="card-header"><div class="card-dot amber"></div><h3>效率来源</h3></div><ul><li>• 稳定前缀 bootstrap + on-change</li><li>• 工具与 Skill 按需发现，避免全量 schema</li><li>• 工作状态用快照替换，交互用游标增量</li><li>• 大正文留引用，运行时渐进读取</li></ul></div>
+      <div class="card"><div class="card-header"><div class="card-dot violet"></div><h3>多 Agent 不变量</h3></div><ul><li>• 共享目标、决策、证据和 Artifact</li><li>• 私有对话、工具轨迹和思考默认隔离</li><li>• Handoff 带 causal parent 与 source revisions</li><li>• Task/possession 强一致，日志最终一致</li></ul></div>
+    </div>
+    <p class="footer">Agent Task Team · Structured Context Management · Analysis Draft · 2026-07-17</p>
+  </div>
+
+  <script>
+    async function capture() { const el=document.getElementById('report-container'); const r=el.getBoundingClientRect(); const pad=32; return html2canvas(document.body,{backgroundColor:'#020617',scale:2,useCORS:true,ignoreElements:e=>e.classList&&e.classList.contains('toolbar'),x:r.left+window.scrollX-pad,y:r.top+window.scrollY-pad,width:r.width+pad*2,height:r.height+pad*2}); }
+    async function copyAsImage(btn){const orig=btn.textContent;try{const canvas=await capture();const blob=await new Promise(r=>canvas.toBlob(r,'image/png'));await navigator.clipboard.write([new ClipboardItem({'image/png':blob})]);btn.textContent='✓ Copied!';}catch(e){btn.textContent='✗ Failed';}setTimeout(()=>btn.textContent=orig,2000);}
+    async function downloadPNG(btn){const orig=btn.textContent;btn.textContent='⏳ ...';try{const canvas=await capture();const link=document.createElement('a');link.download='structured-context-management-architecture.png';link.href=canvas.toDataURL('image/png');link.click();btn.textContent='✓ Done!';}catch(e){btn.textContent='✗ Failed';}setTimeout(()=>btn.textContent=orig,2000);}
+    async function downloadPDF(btn){const orig=btn.textContent;btn.textContent='⏳ ...';try{const canvas=await capture();const imgData=canvas.toDataURL('image/png');const{jsPDF}=window.jspdf;const orientation=canvas.width>canvas.height?'landscape':'portrait';const pdf=new jsPDF({orientation,unit:'px',format:[canvas.width,canvas.height],hotfixes:['px_scaling']});pdf.addImage(imgData,'PNG',0,0,canvas.width,canvas.height);pdf.save('structured-context-management-architecture.pdf');btn.textContent='✓ Done!';}catch(e){btn.textContent='✗ Failed';}setTimeout(()=>btn.textContent=orig,2000);}
+  </script>
+</body>
+</html>

@@ -4,6 +4,8 @@
 !.yarn/releases
 !.yarn/versions
 .ath/
+.claude/
+.zcode/
 .DS_Store
 .env*
 .pnp.*
