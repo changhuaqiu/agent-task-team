@@ -20,8 +20,16 @@ export interface ToolDefinition {
 }
 
 export interface SkillSummary {
+  id?: string;
   name: string;
+  description?: string;
   content: string;
+  revision?: string;
+  contentHash?: string;
+  resourceRefs?: string[];
+  activationReason?: 'agent_binding' | 'explicit' | 'task' | 'handoff' | 'rule' | 'semantic';
+  required?: boolean;
+  /** Compatibility-only. New execution paths expose resourceRefs instead. */
   files?: { path: string; content: string }[];
   config?: string;
 }

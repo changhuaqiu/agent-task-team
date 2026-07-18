@@ -6,8 +6,11 @@ export type RuntimeAgentTheme = 'mario' | 'luigi' | 'peach' | 'dk';
 export type RuntimeCliEngine = 'opencode' | 'claude' | 'codex' | 'gemini' | 'mock';
 
 export interface RuntimeSkillSummary {
+  id?: string;
   name: string;
-  content: string;
+  description?: string;
+  version?: number;
+  content?: string;
   files?: { path: string; content: string }[];
   config?: string;
 }

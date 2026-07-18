@@ -19,6 +19,12 @@ export interface SkillDetailData {
   version: number;
   created_at: string;
   updated_at: string;
+  activeRevision?: {
+    id: string;
+    contentHash: string;
+    createdAt: string;
+    files: Array<{ path: string; kind: string; contentHash: string; byteSize: number }>;
+  } | null;
 }
 
 interface SkillDetailProps {
@@ -88,6 +94,13 @@ export function SkillDetail({ skill, loading, onDelete }: SkillDetailProps) {
             <span className="text-[10px] text-[hsl(var(--text-tertiary))]">
               v{skill.version}
             </span>
+            {skill.activeRevision ? (
+              <span className="text-[10px] text-[hsl(var(--text-tertiary))]" title={skill.activeRevision.contentHash}>
+                执行版本 {skill.activeRevision.id.slice(0, 16)}
+              </span>
+            ) : (
+              <span className="text-[10px] text-amber-600">执行版本将在首次使用时生成</span>
+            )}
           </div>
         </div>
 
@@ -151,6 +164,21 @@ export function SkillDetail({ skill, loading, onDelete }: SkillDetailProps) {
                     : file.content}
                 </pre>
               </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {skill.activeRevision && skill.activeRevision.files.length > 0 && (
+        <div className="space-y-2">
+          <label className="text-[11px] font-semibold uppercase tracking-wider text-[hsl(var(--text-tertiary))]">
+            已安装资源 ({skill.activeRevision.files.length})
+          </label>
+          <div className="flex flex-wrap gap-1.5">
+            {skill.activeRevision.files.map(file => (
+              <span key={file.path} title={file.contentHash} className="rounded border border-[hsl(var(--border-subtle))] px-2 py-1 text-[10px] text-[hsl(var(--text-secondary))]">
+                {file.path} · {file.kind} · {file.byteSize} B
+              </span>
             ))}
           </div>
         </div>

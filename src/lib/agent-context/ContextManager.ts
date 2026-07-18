@@ -17,6 +17,7 @@ import type { SkillSummary, ToolDefinition } from './types';
 import { getDirective, resolveArchetype, type ContextArchetype, type ContextCluster } from './injectionPolicy';
 import { resolveScenario, type ContextScenario } from './scenarioResolver';
 import type { TeamLogEnvelope } from './teamLog';
+import type { SkillCompileResult, SkillDeliveryDecision } from '@/lib/skills/types';
 
 // Provider 层（P1 只返回 mock，预留接口）
 export interface ContextProviders {
@@ -28,6 +29,7 @@ export interface ContextProviders {
   getTeamPack(agentId: string): Promise<TeamPack | undefined>;
   getRuntimeRoster(conversationId: string): Promise<RuntimeAgent[] | undefined>;
   getSkills(): Promise<SkillSummary[]>;
+  getSkillCompilation?(): Promise<SkillCompileResult>;
   getCurrentLoad(): Record<string, number>;  // P1: 当前负载 {agentId: taskCount}
   getTeamLogEnvelope?(conversationId: string, agentId: string, taskId?: string): Promise<TeamLogEnvelope>;
 }
@@ -104,6 +106,9 @@ export interface ContextReport {
   recalledArtifacts: number;       // 记忆命中数（本期恒 0）
   teamLogUpToEntryId?: string;
   loadedSkills: string[];
+  eligibleSkills: Array<{ skillId: string; name: string; revision: string }>;
+  activatedSkills: Array<{ skillId: string; name: string; revision: string; activationReason: string }>;
+  skillDecisions: SkillDeliveryDecision[];
   availableTools: string[];
 }
 
@@ -176,10 +181,26 @@ export class ContextManager {
     const budget = req.budgetOverride ?? new ContextBudget();
 
     // Skills + tools — 在 tier 外预计算，report 也要用。
-    const providedSkills = await this.providers.getSkills();
-    const skillSummaries: SkillSummary[] = providedSkills.length
-      ? providedSkills
-      : (roleCard?.capabilities?.skills ?? []).map(skillName => ({ name: skillName, content: '' }));
+    const skillCompilation = this.providers.getSkillCompilation
+      ? await this.providers.getSkillCompilation()
+      : undefined;
+    const providedSkills = skillCompilation ? [] : await this.providers.getSkills();
+    const skillSummaries: SkillSummary[] = skillCompilation
+      ? skillCompilation.activated.map(skill => ({
+          id: skill.skillId,
+          name: skill.name,
+          description: skill.description,
+          content: skill.body,
+          revision: skill.revision,
+          contentHash: skill.contentHash,
+          resourceRefs: skill.resourceRefs,
+          activationReason: skill.reason,
+          required: skill.required,
+          config: skill.config,
+        }))
+      : providedSkills.length
+        ? providedSkills
+        : (roleCard?.capabilities?.skills ?? []).map(skillName => ({ name: skillName, content: '' }));
     const declaredTools = extractToolsFromSkills(skillSummaries);
     const tools = filterRegisteredTools(declaredTools, req.registeredToolNames);
 
@@ -219,6 +240,41 @@ export class ContextManager {
     // Budget 层：复用 BudgetGuard
     const { prompt: userPrompt, report: budgetReport } = composeWithBudget(parts, budget);
 
+    const capabilityIncluded = getDirective(scenario, archetype, 'capability') === 'include';
+    const skillDecisions: SkillDeliveryDecision[] = skillSummaries.map(skill => {
+      const skillId = skill.id ?? skill.name;
+      const layer = `skill:${skillId}`;
+      const skillPart = parts.find(part => part.layer === layer);
+      const layerPresent = Boolean(skillPart);
+      const trimmed = budgetReport.trimmed.includes(layer);
+      const outcome = !capabilityIncluded || !layerPresent ? 'omitted' : trimmed ? 'trimmed' : 'loaded';
+      const reasonCode = !capabilityIncluded
+        ? 'capability_policy_omitted'
+        : !layerPresent
+          ? 'skill_body_empty'
+          : trimmed
+            ? 'skill_body_trimmed'
+            : 'compiled_into_context';
+      return {
+        skillId,
+        name: skill.name,
+        revision: skill.revision ?? 'legacy-unversioned',
+        contentHash: skill.contentHash ?? 'legacy-unversioned',
+        outcome,
+        reasonCode,
+        activationReason: skill.activationReason ?? 'agent_binding',
+        tokens: skillPart ? Math.ceil(skillPart.content.length / 4) : 0,
+      };
+    });
+    const missingRequired = skillSummaries.find(skill => {
+      if (!skill.required || !capabilityIncluded) return false;
+      const decision = skillDecisions.find(item => item.skillId === (skill.id ?? skill.name));
+      return decision?.outcome !== 'loaded';
+    });
+    if (missingRequired) {
+      throw new Error(`required_skill_not_loaded: ${missingRequired.name}`);
+    }
+
     // Health 层：生成 ContextReport
     const systemLayers = parts.filter(p => p.tier === 'system');
     const p0Intact = systemLayers.every(l => !budgetReport.trimmed.includes(l.layer)); // system 层完整（字段名保留兼容）// 注：p0Intact 现指 system 层完整；userMessage 等 former-P0 已归 project 层
@@ -246,7 +302,20 @@ export class ContextManager {
       droppedLayers: [...visibilityFiltered, ...budgetReport.trimmed],
       recalledArtifacts: artifacts.length, // 本期恒 0
       teamLogUpToEntryId: teamLogEnvelope?.upToEntryId,
-      loadedSkills: skillSummaries.map(skill => skill.name),
+      loadedSkills: skillDecisions.filter(decision => decision.outcome === 'loaded').map(decision => decision.name),
+      eligibleSkills: (skillCompilation?.catalog ?? skillSummaries.map(skill => ({
+        skillId: skill.id ?? skill.name,
+        name: skill.name,
+        description: skill.description ?? '',
+        revision: skill.revision ?? 'legacy-unversioned',
+      }))).map(skill => ({ skillId: skill.skillId, name: skill.name, revision: skill.revision })),
+      activatedSkills: skillSummaries.map(skill => ({
+        skillId: skill.id ?? skill.name,
+        name: skill.name,
+        revision: skill.revision ?? 'legacy-unversioned',
+        activationReason: skill.activationReason ?? 'agent_binding',
+      })),
+      skillDecisions,
       availableTools: tools.map(tool => tool.name),
     };
 

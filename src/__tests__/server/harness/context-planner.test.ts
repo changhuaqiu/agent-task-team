@@ -12,6 +12,8 @@ import { teamPackRepo } from '@/server/repositories/team-pack-repo';
 import { sessionRepo } from '@/server/repositories/session-repo';
 import { writeAccount } from '@/server/accounts-file';
 import { RepositoryHarnessPlanner } from '@/server/harness/context-planner';
+import { skillRepo } from '@/server/repositories/skill-repo';
+import { RepositorySkillRuntime, packageFromLegacyInput } from '@/server/skills/skill-runtime';
 
 let dataDir: string;
 let previousDataDir: string | undefined;
@@ -156,6 +158,34 @@ describe('RepositoryHarnessPlanner', () => {
     expect(result).toEqual({
       ok: false,
       outcome: { status: 'blocked', reasonCode: 'runtime_profile_missing' },
+    });
+  });
+
+  it('compiles an assigned Skill revision into the dispatch context with evidence', async () => {
+    const pack = teamPackRepo.getByName('default-team')!;
+    teamPackRepo.updateRoleConfig(pack.id, 'luigi', { accountIds: ['account-openai'] });
+    writeAccount({
+      id: 'account-openai', name: 'OpenAI', authMode: 'oauth', provider: 'openai', models: [],
+      enabled: true, status: 'valid', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    });
+    conversationRepo.create({ id: 'conv-skill', title: 'Skill Dispatch', team_pack_id: pack.id });
+    const revision = await new RepositorySkillRuntime().install(packageFromLegacyInput({
+      name: 'review-safely', description: 'Review changes safely', content: 'Always inspect the diff before approval.',
+      files: [{ path: 'references/checklist.md', content: 'Long checklist stays on demand.' }],
+    }));
+    skillRepo.assignToAgent('luigi', revision.skillId);
+
+    const result = await new RepositoryHarnessPlanner().prepare({
+      id: 'trigger-skill', source: 'user', conversationId: 'conv-skill', agentId: 'luigi', prompt: 'Review this change',
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(`${result.plan.systemPrompt ?? ''}\n${result.plan.prompt}`).toContain('Always inspect the diff before approval.');
+    expect(result.plan.prompt).toContain('checklist.md');
+    expect(result.plan.prompt).not.toContain('Long checklist stays on demand.');
+    expect(result.plan.contextReport.skillDecisions[0]).toMatchObject({
+      skillId: revision.skillId, revision: revision.revision, contentHash: revision.contentHash, outcome: 'loaded',
     });
   });
 });

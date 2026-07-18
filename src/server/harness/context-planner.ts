@@ -4,12 +4,13 @@ import { sessionRepo } from '../repositories/session-repo';
 import { conversationRepo } from '../repositories/conversation-repo';
 import { messageRepo, type MessageRow } from '../repositories/message-repo';
 import { taskRepo } from '../repositories/task-repo';
-import type { HarnessPlanResolution, HarnessPlanner, HarnessTrigger } from './types';
+import type { HarnessPlanResolution, HarnessPlanner, HarnessReasonCode, HarnessTrigger } from './types';
 import { resolveConversationRuntimeProfile } from './conversation-runtime';
 import { teamLogProjection } from '../team-log/TeamLogProjection';
 import { generateTraceId } from '../repositories/observation-span-repo';
 import { proofLogRepo } from '../repositories/proof-log-repo';
 import { resolveExternalReferences } from './reference-resolver';
+import { SkillRuntimeError, skillRuntime } from '../skills/skill-runtime';
 
 const RUNTIME_IDS = {
   opencode: 'opencode-local',
@@ -58,6 +59,12 @@ export class RepositoryHarnessPlanner implements HarnessPlanner {
 
     try {
       const { runtime, profile } = resolution;
+      const boundSkillIds = profile.prompt.skills
+        .map(skill => skill.id)
+        .filter((skillId): skillId is string => Boolean(skillId));
+      const skillCompilation = boundSkillIds.length > 0
+        ? await skillRuntime.compile({ skillIds: boundSkillIds })
+        : undefined;
       const manager = new ContextManager({
         getRoleCard: async () => profile.prompt.roleCard,
         getAllRoleCards: async () => runtime.roster.map((agent) => agent.roleCard).filter(Boolean) as NonNullable<typeof profile.prompt.roleCard>[],
@@ -76,7 +83,15 @@ export class RepositoryHarnessPlanner implements HarnessPlanner {
         })),
         getTeamPack: async () => runtime.teamPack,
         getRuntimeRoster: async () => runtime.roster,
-        getSkills: async () => profile.prompt.skills,
+        getSkills: async () => profile.prompt.skills.map(skill => ({
+          id: skill.id,
+          name: skill.name,
+          description: skill.description,
+          content: skill.content ?? '',
+          files: skill.files,
+          config: skill.config,
+        })),
+        ...(skillCompilation ? { getSkillCompilation: async () => skillCompilation } : {}),
         getCurrentLoad: () => Object.fromEntries(runtime.roster.map((agent) => [
           agent.id,
           taskRepo.getByConversation(trigger.conversationId)
@@ -154,11 +169,21 @@ export class RepositoryHarnessPlanner implements HarnessPlanner {
         },
       };
     } catch (error) {
+      const skillReasonCodes: HarnessReasonCode[] = [
+        'required_skill_not_loaded', 'skill_manifest_invalid', 'skill_package_missing',
+        'skill_path_invalid', 'skill_path_duplicate', 'skill_revision_mismatch',
+      ];
+      const reasonCode: HarnessReasonCode = error instanceof SkillRuntimeError
+        && skillReasonCodes.includes(error.reasonCode as HarnessReasonCode)
+        ? error.reasonCode as HarnessReasonCode
+        : error instanceof Error && error.message.startsWith('required_skill_not_loaded')
+          ? 'required_skill_not_loaded'
+          : 'context_assembly_failed';
       return {
         ok: false,
         outcome: {
           status: 'failed',
-          reasonCode: 'context_assembly_failed',
+          reasonCode,
           message: error instanceof Error ? error.message : String(error),
         },
       };

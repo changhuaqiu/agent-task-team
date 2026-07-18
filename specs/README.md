@@ -29,6 +29,7 @@
 | [`acp-runtime-integration/`](acp-runtime-integration/) | active | 用统一 ACP client 一次接入 OpenCode 原生 ACP、Claude/Codex ACP 适配器，并删除 bespoke backend |
 | [`agent-session-identity/`](agent-session-identity/) | active | 保证项目 × Agent 的 Session 隔离、ACP resume 稳定性与服务端唯一事实源 |
 | [`context-manager/`](context-manager/) | active | 统一上下文注入、项目隔离、可见性与 A2A 上下文来源；以 `docs/technical/execution/context-layering.md` 为设计依据 |
+| [`skill-package-progressive-loading/`](skill-package-progressive-loading/) | active | 用标准 Skill 目录、不可变安装 revision、确定性上下文编译和加载证据保证 Agent 真正获得已绑定 Skill |
 | [`team-simplification/`](team-simplification/) | active | 默认团队从 6 人收敛到 4 人并清理旧 preset |
 | [`system-control-plane/`](system-control-plane/) | active | 统一 dispatch、policy、proof、health 与跨实例状态权威 |
 | [`agent-observability/`](agent-observability/) | active | 项目维度追踪 Agent turn、上下文、Skill、工具和显式 A2A/任务工作流 |
@@ -48,6 +49,11 @@ system-control-plane
 ├── context-manager
 └── agent-observability
     └── observability-drilldown
+
+skill-package-progressive-loading
+├── context-manager
+├── agent-observability
+└── acp-runtime-integration
 
 team-simplification
 ├── team-role-card-compatibility

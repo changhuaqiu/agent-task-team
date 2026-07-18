@@ -39,6 +39,12 @@ export type HarnessReasonCode =
   | 'task_missing'
   | 'agent_not_in_team'
   | 'runtime_profile_missing'
+  | 'required_skill_not_loaded'
+  | 'skill_manifest_invalid'
+  | 'skill_package_missing'
+  | 'skill_path_invalid'
+  | 'skill_path_duplicate'
+  | 'skill_revision_mismatch'
   | 'context_assembly_failed'
   | 'runtime_rejected'
   | 'internal_error';

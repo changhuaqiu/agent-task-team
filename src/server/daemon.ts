@@ -121,7 +121,6 @@ const DEFAULT_TIMEOUT_MS = 300_000; // 5 min
 const STRIP_ANSI_RE = /\x1b\[[0-9;]*[a-zA-Z]|\x1b\].*?\x07|\x1b[()>]|\r/g;
 const LOCAL_DAEMON_NODE_ID = 'daemon:local';
 const RUNTIME_HEARTBEAT_INTERVAL_MS = 5_000;
-const OPENCODE_PROJECT_SKILLS_DIR = join('.opencode', 'skills');
 
 function resolveAcpPermissionPolicy(): 'deny' | 'allow_once' {
   return process.env.ACP_PERMISSION_MODE === 'allow_once' ? 'allow_once' : 'deny';
@@ -158,24 +157,6 @@ async function detectAvailableRuntimes(): Promise<DetectedRuntime[]> {
     }
   }
   return results;
-}
-
-function resolveOpenCodeProjectSkillPaths(projectPath?: string): string[] {
-  const candidates = [projectPath, /*turbopackIgnore: true*/ process.cwd()]
-    .filter((candidate): candidate is string => !!candidate?.trim());
-
-  const paths = new Set<string>();
-  for (const candidate of candidates) {
-    const skillDir = path.resolve(/*turbopackIgnore: true*/ candidate, OPENCODE_PROJECT_SKILLS_DIR);
-    if (
-      fs.existsSync(/*turbopackIgnore: true*/ skillDir)
-      && fs.statSync(/*turbopackIgnore: true*/ skillDir).isDirectory()
-    ) {
-      paths.add(skillDir);
-    }
-  }
-
-  return Array.from(paths);
 }
 
 export default function registerDaemon(io: IOServer) {
@@ -967,7 +948,10 @@ export default function registerDaemon(io: IOServer) {
       let runtimeConfigEnv: Record<string, string> = {};
 
       if (engine === 'opencode') {
-        const projectSkillPaths = resolveOpenCodeProjectSkillPaths(projectPath);
+        // Bound skills are already compiled into the platform-owned context.
+        // Avoid mounting OpenCode's native discovery path in the same invocation,
+        // otherwise the same skill can be delivered twice with different semantics.
+        const projectSkillPaths: string[] = [];
         const account = accountId ? await readAccount(accountId) : undefined;
         const cred = accountId ? await readCredential(accountId) : undefined;
         if ((account && cred?.apiKey) || systemPrompt || projectSkillPaths.length > 0) {

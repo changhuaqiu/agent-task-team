@@ -7,6 +7,9 @@ import { describe, it, expect } from 'vitest';
 interface SkillInput {
   name: string;
   content: string;
+  revision?: string;
+  contentHash?: string;
+  resourceRefs?: string[];
   files?: { path: string; content: string }[];
 }
 
@@ -50,53 +53,20 @@ describe('buildSkillLayer', () => {
     expect(result).toContain('\n\n---\n\n');
   });
 
-  it('includes skill files under 10KB with file header and code block', () => {
+  it('renders revision metadata and resource references without loading their bodies', () => {
     const skill = makeSkill({
       name: 'with-files',
       content: 'Has files.',
+      revision: 'skill-rev-1',
+      contentHash: 'abc123',
+      resourceRefs: ['/managed/with-files/references/guide.md'],
       files: [{ path: 'src/utils.ts', content: 'export const x = 1;' }],
     });
     const result = buildSkillLayer([skill]);
-    expect(result).toContain('### File: src/utils.ts');
-    expect(result).toContain('```\nexport const x = 1;\n```');
-  });
-
-  it('skips skill files over 10KB (10_001 chars)', () => {
-    const bigContent = 'x'.repeat(10_001);
-    const skill = makeSkill({
-      name: 'big-file-skill',
-      content: 'Has a big file.',
-      files: [{ path: 'huge.ts', content: bigContent }],
-    });
-    const result = buildSkillLayer([skill]);
-    expect(result).not.toContain('### File: huge.ts');
-    expect(result).not.toContain(bigContent);
-  });
-
-  it('includes multiple files for a single skill', () => {
-    const skill = makeSkill({
-      name: 'multi-file',
-      content: 'Multi-file skill.',
-      files: [
-        { path: 'a.ts', content: 'const a = 1;' },
-        { path: 'b.ts', content: 'const b = 2;' },
-      ],
-    });
-    const result = buildSkillLayer([skill]);
-    expect(result).toContain('### File: a.ts');
-    expect(result).toContain('const a = 1;');
-    expect(result).toContain('### File: b.ts');
-    expect(result).toContain('const b = 2;');
-  });
-
-  it('includes files exactly at 10KB boundary (10_000 chars)', () => {
-    const exactContent = 'x'.repeat(10_000);
-    const skill = makeSkill({
-      name: 'boundary-skill',
-      content: 'Boundary test.',
-      files: [{ path: 'boundary.ts', content: exactContent }],
-    });
-    const result = buildSkillLayer([skill]);
-    expect(result).toContain('### File: boundary.ts');
+    expect(result).toContain('Revision: skill-rev-1');
+    expect(result).toContain('Content hash: abc123');
+    expect(result).toContain('### 按需资源');
+    expect(result).toContain('/managed/with-files/references/guide.md');
+    expect(result).not.toContain('export const x = 1;');
   });
 });

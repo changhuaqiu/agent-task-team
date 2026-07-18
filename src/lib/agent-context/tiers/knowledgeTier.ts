@@ -15,11 +15,14 @@ import { buildHistoryLayer } from '../layers/historyLayer';
 import type { TierRenderInput } from './tierContext';
 
 export function renderKnowledgeTier({ ctx, push }: TierRenderInput): void {
-  const { req, roleCard, allRoleCards, runtimeRoster, teamPack, messages, skillSummaries, tools, scenario } = ctx;
+  const { req, allRoleCards, runtimeRoster, teamPack, messages, skillSummaries, tools, scenario } = ctx;
 
-  // Capability — skills + tools. Archetype-differentiated (planner omits
-  // capability in init/iterate, per injectionPolicy).
-  push('capability', 'skill', buildSkillLayer(skillSummaries), { tier: 'tool', importance: 0.6 });
+  // Capability — bound skills are scenario-invariant so required delivery can
+  // be proven; tools share the same capability cluster.
+  for (const skill of skillSummaries) {
+    const layerId = skill.id ?? skill.name;
+    push('capability', `skill:${layerId}`, buildSkillLayer([skill]), { tier: 'tool', importance: 0.6 });
+  }
   push('capability', 'tool', buildToolLayer(tools), { tier: 'tool', importance: 0.6 });
 
   // Team roster — situation awareness. Omitted in wakeup.
