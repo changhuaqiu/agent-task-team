@@ -6,6 +6,7 @@ import { conversationRepo } from '@/server/repositories/conversation-repo';
 import { observationSpanRepo } from '@/server/repositories/observation-span-repo';
 import { teamPackRepo } from '@/server/repositories/team-pack-repo';
 import { capturePromptPayloads } from '@/server/observability/prompt-observation';
+import { deleteAccount, writeAccount } from '@/server/accounts-file';
 
 /**
  * 群聊发任务全链路 E2E
@@ -103,8 +104,23 @@ test.describe('群聊发任务全链路', () => {
   test('首次 A2A 经 daemon 共用采集边界在真实观测页面完整展示', async ({ page }) => {
     const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const conversationId = `e2e-first-a2a-${suffix}`;
+    const accountId = `e2e-account-${suffix}`;
     const handoff = `E2E-FIRST-A2A-${suffix}：请执行首次质量评审`;
     const pack = teamPackRepo.getByName('default-team')!;
+    const agentId = 'peach';
+    const originalAccountIds = pack.roles.find((role) => role.id === agentId)?.accountIds ?? [];
+    writeAccount({
+      id: accountId,
+      name: 'E2E OpenAI account',
+      authMode: 'oauth',
+      provider: 'openai',
+      models: [],
+      enabled: true,
+      status: 'valid',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    teamPackRepo.updateRoleConfig(pack.id, agentId, { accountIds: [accountId] });
     conversationRepo.create({
       id: conversationId,
       title: 'E2E first A2A observability',
@@ -114,13 +130,12 @@ test.describe('群聊发任务全链路', () => {
 
     let traceId: string | undefined;
     try {
-      const agentId = pack.roles.find((role) => resolveConversationRuntimeProfile(conversationId, role.id)?.profile)?.id;
-      expect(agentId, 'E2E 环境需要至少一个已绑定有效账号的默认团队成员').toBeDefined();
+      expect(resolveConversationRuntimeProfile(conversationId, agentId)?.profile).toBeTruthy();
       const resolution = await new RepositoryHarnessPlanner().prepare({
         id: `trigger-${suffix}`,
         source: 'a2a',
         conversationId,
-        agentId: agentId!,
+        agentId,
         fromAgentId: 'mario',
         prompt: handoff,
       });
@@ -161,6 +176,8 @@ test.describe('群聊发任务全链路', () => {
     } finally {
       if (traceId) getDb().prepare('DELETE FROM observation_span WHERE trace_id = ?').run(traceId);
       conversationRepo.delete(conversationId);
+      teamPackRepo.updateRoleConfig(pack.id, agentId, { accountIds: originalAccountIds });
+      deleteAccount(accountId);
     }
   });
 });
