@@ -231,7 +231,7 @@ export function ProjectSidebar() {
           </div>
         )}
 
-        <div className="flex-1 overflow-y-auto scrollbar-thin">
+        <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin">
           {isExpanded ? (
             <>
               {/* Undo bar */}

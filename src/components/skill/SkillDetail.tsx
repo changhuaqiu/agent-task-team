@@ -73,7 +73,7 @@ export function SkillDetail({ skill, loading, onDelete }: SkillDetailProps) {
   );
 
   return (
-    <div className="flex-1 overflow-y-auto p-5 space-y-5">
+    <div className="flex-1 min-h-0 overflow-y-auto p-5 space-y-5">
       {/* Header */}
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">

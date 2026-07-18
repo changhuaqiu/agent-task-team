@@ -205,7 +205,7 @@ export function RoleCardEditor() {
           </div>
 
           {/* Body */}
-          <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4 scrollbar-thin">
+          <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-4 scrollbar-thin">
             {/* Section 1: Identity (always open) */}
             <div className="space-y-3">
               <div className="grid grid-cols-2 gap-3">
