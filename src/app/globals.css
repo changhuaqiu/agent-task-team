@@ -150,6 +150,24 @@
     --color-foreground: hsl(var(--text-primary));
     --font-sans: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
     --font-mono: var(--font-geist-mono), 'Courier New', Courier, monospace;
+
+    /* shadcn semantic classes → project variables (issue #36).
+       Components use bg-card/bg-muted/text-primary/text-secondary etc.
+       Without these bridges Tailwind v4 resolves them to empty (transparent). */
+    --color-card: hsl(var(--bg-card));
+    --color-muted: hsl(var(--bg-muted));
+    /* NOTE: text-primary in this codebase means "primary text" (charcoal),
+       NOT a brand/primary button color. Map it to text-primary so 220
+       text-primary usages render correctly. bg-primary is unused (0 hits)
+       so there is no conflict. */
+    --color-primary: hsl(var(--text-primary));
+    --color-secondary: hsl(var(--bg-muted));
+    --color-muted-foreground: hsl(var(--text-secondary));
+    --color-accent: hsl(var(--accent-soft));
+    --color-popover: hsl(var(--bg-elevated));
+    --color-border: hsl(var(--border));
+    --color-destructive: hsl(var(--status-rejected));
+    --color-ring: hsl(var(--ring));
   }
 
   /* --- Base Styles --- */

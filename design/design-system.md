@@ -11,6 +11,8 @@ created: 2026-02-26
 > **Last Updated**: 2026-05-04
 > **Inspiration**: [multica-ai/multica design.md](https://github.com/multica-ai/multica/blob/master/docs/design.md)
 
+> ⚠️ **实现状态（2026-07-18 校准，issue #36）**：本文档下文的 Agent 体系（Opus / Codex / Gemini / Owner，token `--agent-opus` 等）是**早期设计稿**，**代码实际跑的是 Mario / Luigi / Peach / Donkey Kong 体系**（token `--agent-mario` 等，见 `src/app/globals.css` + `src/store/agentStore.ts`）。下文凡涉及 Opus/Codex/Gemini 的 token 名、头像形状、职责描述，均以代码为准（`--agent-mario/luigi/peach/dk`）。文档全文的 Agent 命名待统一更新；在阅读下文时请做 Opus→Mario、Codex→Luigi/Peach、Gemini→DK 的心智映射。颜色哲学、间距、字号、阴影等非 Agent 命名部分仍有效。
+
 ---
 
 ## 1. 设计哲学
