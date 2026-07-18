@@ -1,6 +1,6 @@
 # 四 Agent PR 交付与评审技术设计
 
-> 状态：第一阶段实施中
+> 状态：基础闭环已实现，真实合并演练中
 
 ## 背景
 
@@ -30,6 +30,8 @@ interface EngineeringCollaborationService {
 6. 通过现有 task mutation/wakeup 边界推进状态；
 7. 追加 proof event。
 
+Git Collaboration Skill 暴露三个结构化入口：`collaboration_record_pr`、`collaboration_record_review`、`collaboration_record_merge`。它们直接进入同一个服务边界；Agent 不能用普通状态更新模拟 provider 回执。
+
 ## 事实源
 
 - PR/review/merge 的当前事实：Git provider；
@@ -56,7 +58,8 @@ interface EngineeringCollaborationService {
 - URL 必须属于 conversation 的 `git_repo_root` remote；
 - 不持久化 token、完整 diff 或评论正文，只存有界摘要和 canonical URL；
 - review 必须匹配当前 PR head SHA；
-- 新 head SHA 出现时，approved card 标记 stale 并重新打开 gate；
+- 同一 PR 出现新 head SHA 时可再次记录交付；系统追加 stale 评审投影并保持 `in_review`，旧结论不能用于合并；
+- 合并闭环要求当前 head 的 provider-backed review、零 blocker、provider merged receipt 和完整 main 复验证据；
 - provider 不可达时失败关闭，不接受调用者自报字段。
 
 ## 测试策略

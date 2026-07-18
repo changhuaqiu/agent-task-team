@@ -91,9 +91,11 @@ export function EngineeringCollaborationCard({ card, onSelectTask }: Engineering
   return (
     <section className="mt-2 rounded-[6px] border border-cyan-400/40 bg-cyan-500/10 px-3 py-2.5 text-[11px]" data-testid="merge-collaboration-card">
       <div className="flex items-center gap-1.5 font-bold text-cyan-700"><GitMerge className="h-4 w-4" />合并闭环</div>
-      <div className="mt-1 text-[hsl(var(--text-primary))]">{card.repository}#{card.pullRequestNumber} 已进入 main · <ShortSha value={card.mergeSha} /></div>
-      <div className="mt-1 text-[10px] text-[hsl(var(--text-secondary))]">{card.mainVerification}</div>
-      <div className="mt-2 flex gap-3"><a href={card.pullRequestUrl} target="_blank" rel="noreferrer" className="font-semibold text-cyan-700 hover:underline">打开 PR</a><button type="button" onClick={() => onSelectTask?.(card.taskId)} className="font-mono font-bold text-cyan-700 hover:underline">查看 {card.taskId}</button></div>
+      <div className="mt-1 text-[hsl(var(--text-primary))]">{card.receipt.repository}#{card.receipt.pullRequestNumber} 已进入 {card.receipt.baseRef} · <ShortSha value={card.receipt.mergeSha} /></div>
+      <div className="mt-1 text-[10px] text-[hsl(var(--text-secondary))]">{card.evidence.mainTestResult}</div>
+      <div className="mt-1 text-[10px] text-[hsl(var(--text-secondary))]">{card.evidence.mainImpactReviewResult}</div>
+      {card.evidence.remainingRisk && <div className="mt-1 text-[10px] text-amber-700">剩余风险：{card.evidence.remainingRisk}</div>}
+      <div className="mt-2 flex gap-3"><a href={card.receipt.pullRequestUrl} target="_blank" rel="noreferrer" className="font-semibold text-cyan-700 hover:underline">打开 PR</a><button type="button" onClick={() => onSelectTask?.(card.taskId)} className="font-mono font-bold text-cyan-700 hover:underline">查看 {card.taskId}</button></div>
     </section>
   );
 }

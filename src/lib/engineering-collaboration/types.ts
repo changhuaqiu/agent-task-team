@@ -32,6 +32,19 @@ export interface ReviewReceipt {
   verifiedAt: string;
 }
 
+export interface MergeReceipt {
+  provider: GitProvider;
+  repository: string;
+  pullRequestNumber: number;
+  pullRequestUrl: string;
+  headSha: string;
+  mergeSha: string;
+  baseRef: string;
+  mergedBy: string;
+  mergedAt: string;
+  verifiedAt: string;
+}
+
 export interface ImplementationEvidence {
   installResult: string;
   buildResult: string;
@@ -44,6 +57,15 @@ export interface ReviewEvidence {
   testResult: string;
   blockerCount: number;
   summary: string;
+}
+
+export interface MergeEvidence {
+  mergedToMain: true;
+  mainInstallResult: string;
+  mainBuildResult: string;
+  mainTestResult: string;
+  mainImpactReviewResult: string;
+  remainingRisk?: string;
 }
 
 interface CollaborationCardBase {
@@ -68,11 +90,8 @@ export interface ReviewCollaborationCard extends CollaborationCardBase {
 
 export interface MergeCollaborationCard extends CollaborationCardBase {
   kind: 'merge';
-  repository: string;
-  pullRequestNumber: number;
-  pullRequestUrl: string;
-  mergeSha: string;
-  mainVerification: string;
+  receipt: MergeReceipt;
+  evidence: MergeEvidence;
 }
 
 export type EngineeringCollaborationCard =

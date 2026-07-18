@@ -1,6 +1,8 @@
 import type {
   EngineeringCollaborationCard,
   ImplementationEvidence,
+  MergeEvidence,
+  MergeReceipt,
   PullRequestReceipt,
   ReviewEvidence,
   ReviewReceipt,
@@ -23,7 +25,10 @@ export type EngineeringCollaborationReasonCode =
   | 'pull_request_head_changed'
   | 'review_actor_not_allowed'
   | 'review_actor_matches_implementer'
-  | 'review_receipt_mismatch';
+  | 'review_receipt_mismatch'
+  | 'merge_actor_not_allowed'
+  | 'merge_receipt_mismatch'
+  | 'review_approval_missing';
 
 export class EngineeringCollaborationError extends Error {
   constructor(public readonly reasonCode: EngineeringCollaborationReasonCode, message: string) {
@@ -50,6 +55,12 @@ function assertTask(taskId: string): TaskRow {
 function latestPullRequestAction(taskId: string): TaskActionRow | undefined {
   return taskGraphRepo.listActionsForTask(taskId)
     .filter((action) => action.type === 'task.pull_request_submitted')
+    .at(-1);
+}
+
+function latestReviewAction(taskId: string): TaskActionRow | undefined {
+  return taskGraphRepo.listActionsForTask(taskId)
+    .filter((action) => action.type === 'task.review_recorded')
     .at(-1);
 }
 
@@ -94,7 +105,7 @@ export class EngineeringCollaborationService {
     if (task.agent_id !== input.actorAgentId) {
       throw new EngineeringCollaborationError('task_actor_mismatch', 'Only the task implementer can submit its pull request');
     }
-    if (!['in_progress', 'rejected'].includes(task.status)) {
+    if (!['in_progress', 'in_review', 'rejected'].includes(task.status)) {
       throw new EngineeringCollaborationError('task_not_reviewable', `Task ${task.id} is not ready for pull request submission from ${task.status}`);
     }
     const conversation = conversationRepo.getById(task.conversation_id);
@@ -103,6 +114,21 @@ export class EngineeringCollaborationService {
     if (receipt.state !== 'open') {
       throw new EngineeringCollaborationError('pull_request_not_open', `Pull request #${receipt.number} is ${receipt.state}`);
     }
+    const previousPullRequestAction = latestPullRequestAction(task.id);
+    const previousPullRequestPayload = previousPullRequestAction ? parsePayload(previousPullRequestAction) : undefined;
+    const previousPullRequest = previousPullRequestPayload?.receipt as PullRequestReceipt | undefined;
+    if (task.status === 'in_review') {
+      if (!previousPullRequest || previousPullRequest.url !== receipt.url) {
+        throw new EngineeringCollaborationError('review_receipt_mismatch', 'An in-review task must keep using its verified pull request');
+      }
+      if (previousPullRequest.headSha === receipt.headSha) {
+        throw new EngineeringCollaborationError('task_not_reviewable', 'The pull request head has not changed');
+      }
+    }
+    const previousReviewAction = latestReviewAction(task.id);
+    const previousReviewPayload = previousReviewAction ? parsePayload(previousReviewAction) : undefined;
+    const previousReview = previousReviewPayload?.receipt as ReviewReceipt | undefined;
+    const previousReviewEvidence = previousReviewPayload?.evidence as ReviewEvidence | undefined;
 
     const previousTask = task;
     const result = getDb().transaction(() => {
@@ -138,6 +164,25 @@ export class EngineeringCollaborationService {
         card,
         action,
       });
+      if (previousReview && previousReviewEvidence && previousReview.headSha !== receipt.headSha) {
+        const staleCard: EngineeringCollaborationCard = {
+          version: 1,
+          kind: 'review',
+          taskId: task.id,
+          actorAgentId: previousReviewAction?.actor_id ?? 'reviewer',
+          createdAt: new Date().toISOString(),
+          receipt: previousReview,
+          evidence: previousReviewEvidence,
+          stale: true,
+        };
+        appendCardMessage({
+          task,
+          actorAgentId: staleCard.actorAgentId,
+          content: `PR #${receipt.number} 已有新提交，上一轮评审需要对 ${receipt.headSha.slice(0, 12)} 重新执行。`,
+          card: staleCard,
+          action,
+        });
+      }
       taskRepo.updateStatus(task.id, 'in_review');
       proofLogRepo.append({
         eventType: 'engineering.pull_request.verified',
@@ -257,6 +302,98 @@ export class EngineeringCollaborationService {
       actorId: input.actorAgentId,
       actorType: 'agent',
       changedFields: receipt.decision === 'changes_requested' ? ['status', 'review_note'] : ['review_note'],
+    });
+    return { receipt, ...result };
+  }
+
+  async recordMerge(input: {
+    taskId: string;
+    actorAgentId: string;
+    pullRequestUrl: string;
+    evidence: MergeEvidence;
+  }): Promise<{ receipt: MergeReceipt; card: EngineeringCollaborationCard; messageId: string }> {
+    const task = assertTask(input.taskId);
+    if (task.status !== 'in_review') {
+      throw new EngineeringCollaborationError('task_not_reviewable', `Task ${task.id} is not awaiting merge`);
+    }
+    const audience = resolveTaskNotificationAudience(task.conversation_id);
+    if (!audience.coordinatorAgentIds.includes(input.actorAgentId)) {
+      throw new EngineeringCollaborationError('merge_actor_not_allowed', `${input.actorAgentId} is not the configured coordinator`);
+    }
+    const pullRequestAction = latestPullRequestAction(task.id);
+    const reviewAction = latestReviewAction(task.id);
+    if (!pullRequestAction) {
+      throw new EngineeringCollaborationError('pull_request_receipt_missing', 'A verified pull request receipt is required before merge closure');
+    }
+    const pullRequest = parsePayload(pullRequestAction).receipt as PullRequestReceipt | undefined;
+    const reviewPayload = reviewAction ? parsePayload(reviewAction) : undefined;
+    const review = reviewPayload?.receipt as ReviewReceipt | undefined;
+    const reviewEvidence = reviewPayload?.evidence as ReviewEvidence | undefined;
+    if (!pullRequest || pullRequest.url !== input.pullRequestUrl) {
+      throw new EngineeringCollaborationError('merge_receipt_mismatch', 'Merge does not match the task pull request receipt');
+    }
+    if (!review || review.headSha !== pullRequest.headSha || review.decision === 'changes_requested' || (reviewEvidence?.blockerCount ?? 1) > 0) {
+      throw new EngineeringCollaborationError('review_approval_missing', 'A current provider-backed review with zero blockers is required before merge closure');
+    }
+    const conversation = conversationRepo.getById(task.conversation_id);
+    const cwd = conversation?.git_repo_root ?? conversation?.project_path ?? undefined;
+    const receipt = await this.verifier.getMerge({ pullRequestUrl: input.pullRequestUrl, cwd });
+    if (receipt.pullRequestUrl !== pullRequest.url || receipt.pullRequestNumber !== pullRequest.number || receipt.headSha !== pullRequest.headSha) {
+      throw new EngineeringCollaborationError('merge_receipt_mismatch', 'Provider merge receipt does not match the current pull request head');
+    }
+
+    const previousTask = task;
+    const result = getDb().transaction(() => {
+      const action = taskGraphRepo.appendAction({
+        conversationId: task.conversation_id,
+        actorId: input.actorAgentId,
+        actorType: 'agent',
+        type: 'task.pull_request_merged',
+        taskIds: [task.id],
+        payload: { receipt, evidence: input.evidence, pullRequestActionId: pullRequestAction.id, reviewActionId: reviewAction?.id },
+      });
+      taskGraphRepo.addArtifact({
+        conversationId: task.conversation_id,
+        taskId: task.id,
+        kind: 'merge',
+        label: `merged ${receipt.mergeSha.slice(0, 12)} to ${receipt.baseRef}`,
+        url: receipt.pullRequestUrl,
+        createdByActionId: action.id,
+      });
+      const card: EngineeringCollaborationCard = {
+        version: 1,
+        kind: 'merge',
+        taskId: task.id,
+        actorAgentId: input.actorAgentId,
+        createdAt: new Date().toISOString(),
+        receipt,
+        evidence: input.evidence,
+      };
+      const messageId = appendCardMessage({
+        task,
+        actorAgentId: input.actorAgentId,
+        content: `${task.id} 已合并到 ${receipt.baseRef} 并完成主分支复验。`,
+        card,
+        action,
+      });
+      taskRepo.updateStatus(task.id, 'done');
+      proofLogRepo.append({
+        eventType: 'engineering.merge.verified',
+        conversationId: task.conversation_id,
+        taskId: task.id,
+        actorId: input.actorAgentId,
+        metadata: { mergeSha: receipt.mergeSha, headSha: receipt.headSha, actionId: action.id },
+      });
+      return { card, messageId };
+    })();
+    const updatedTask = taskRepo.getById(task.id)!;
+    publishTaskChangeNotification({
+      kind: 'task.status_changed',
+      task: updatedTask,
+      previousTask,
+      actorId: input.actorAgentId,
+      actorType: 'agent',
+      changedFields: ['status'],
     });
     return { receipt, ...result };
   }

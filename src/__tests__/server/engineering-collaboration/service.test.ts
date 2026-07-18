@@ -10,7 +10,7 @@ import { taskRepo } from '@/server/repositories/task-repo';
 import { teamPackRepo } from '@/server/repositories/team-pack-repo';
 import { EngineeringCollaborationError, EngineeringCollaborationService } from '@/server/engineering-collaboration/service';
 import type { GitProviderVerifier } from '@/server/engineering-collaboration/git-provider';
-import type { PullRequestReceipt, ReviewReceipt } from '@/lib/engineering-collaboration/types';
+import type { MergeReceipt, PullRequestReceipt, ReviewReceipt } from '@/lib/engineering-collaboration/types';
 
 const pullRequest: PullRequestReceipt = {
   provider: 'github', repository: 'acme/widget', number: 42, title: 'Fix checkout',
@@ -27,10 +27,18 @@ const review: ReviewReceipt = {
   submittedAt: '2026-07-18T00:05:00.000Z', verifiedAt: '2026-07-18T00:05:01.000Z',
 };
 
+const merge: MergeReceipt = {
+  provider: 'github', repository: 'acme/widget', pullRequestNumber: 42,
+  pullRequestUrl: pullRequest.url, headSha: pullRequest.headSha, mergeSha: 'c'.repeat(40),
+  baseRef: 'main', mergedBy: 'maintainer', mergedAt: '2026-07-18T00:10:00.000Z',
+  verifiedAt: '2026-07-18T00:10:01.000Z',
+};
+
 function verifier(overrides?: Partial<GitProviderVerifier>): GitProviderVerifier {
   return {
     getPullRequest: vi.fn(async () => pullRequest),
     getReview: vi.fn(async () => review),
+    getMerge: vi.fn(async () => merge),
     ...overrides,
   };
 }
@@ -118,5 +126,62 @@ describe('EngineeringCollaborationService', () => {
       evidence: { testResult: 'ok', blockerCount: 0, summary: 'Looks good' },
     })).rejects.toMatchObject<Partial<EngineeringCollaborationError>>({ reasonCode: 'pull_request_head_changed' });
     expect(taskGraphRepo.listArtifacts('conv-pr-loop').filter((artifact) => artifact.kind === 'review')).toHaveLength(0);
+  });
+
+  it('records a new head on the same PR and publishes the previous review as stale', async () => {
+    const service = new EngineeringCollaborationService(verifier());
+    await service.recordPullRequest({
+      taskId: 'TASK-PR', actorAgentId: 'luigi', pullRequestUrl: pullRequest.url,
+      evidence: { installResult: 'ok', buildResult: 'ok', testResult: 'ok', impactEvidence: 'ok' },
+    });
+    await service.recordReview({
+      taskId: 'TASK-PR', actorAgentId: 'peach', pullRequestUrl: pullRequest.url, reviewUrl: review.reviewUrl,
+      evidence: { testResult: 'failed', blockerCount: 1, summary: 'Fix it' },
+    });
+    const nextPullRequest = { ...pullRequest, headSha: 'b'.repeat(40) };
+    const refreshService = new EngineeringCollaborationService(verifier({ getPullRequest: vi.fn(async () => nextPullRequest) }));
+    const result = await refreshService.recordPullRequest({
+      taskId: 'TASK-PR', actorAgentId: 'luigi', pullRequestUrl: pullRequest.url,
+      evidence: { installResult: 'ok', buildResult: 'ok', testResult: 'fixed', impactEvidence: 'rechecked' },
+    });
+
+    expect(result.receipt.headSha).toBe(nextPullRequest.headSha);
+    expect(taskRepo.getById('TASK-PR')?.status).toBe('in_review');
+    const cards = messageRepo.getByConversation('conv-pr-loop')
+      .map((message) => message.metadata ? JSON.parse(message.metadata).collaborationCard : undefined)
+      .filter(Boolean);
+    expect(cards).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'review', stale: true, receipt: expect.objectContaining({ headSha: pullRequest.headSha }) }),
+    ]));
+  });
+
+  it('closes only from a verified merge on the reviewed head with main evidence', async () => {
+    const approvedReview = { ...review, decision: 'approved' as const };
+    const service = new EngineeringCollaborationService(verifier({ getReview: vi.fn(async () => approvedReview) }));
+    await service.recordPullRequest({
+      taskId: 'TASK-PR', actorAgentId: 'luigi', pullRequestUrl: pullRequest.url,
+      evidence: { installResult: 'ok', buildResult: 'ok', testResult: 'ok', impactEvidence: 'ok' },
+    });
+    await service.recordReview({
+      taskId: 'TASK-PR', actorAgentId: 'peach', pullRequestUrl: pullRequest.url, reviewUrl: review.reviewUrl,
+      evidence: { testResult: 'passed', blockerCount: 0, summary: 'Approved' },
+    });
+
+    const result = await service.recordMerge({
+      taskId: 'TASK-PR', actorAgentId: 'mario', pullRequestUrl: pullRequest.url,
+      evidence: {
+        mergedToMain: true, mainInstallResult: 'ok', mainBuildResult: 'ok',
+        mainTestResult: 'all passed', mainImpactReviewResult: 'main verified',
+      },
+    });
+
+    expect(result.receipt).toEqual(merge);
+    expect(taskRepo.getById('TASK-PR')?.status).toBe('done');
+    expect(taskGraphRepo.listArtifacts('conv-pr-loop')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'merge', url: pullRequest.url }),
+    ]));
+    expect(JSON.parse(messageRepo.getById(result.messageId)!.metadata!)).toMatchObject({ collaborationCard: {
+      kind: 'merge', receipt: { mergeSha: merge.mergeSha }, evidence: { mainTestResult: 'all passed' },
+    } });
   });
 });

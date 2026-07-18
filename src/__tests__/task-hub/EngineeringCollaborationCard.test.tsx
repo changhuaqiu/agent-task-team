@@ -45,4 +45,24 @@ describe('EngineeringCollaborationCard', () => {
     expect(screen.getByText('Blocker 1')).toBeDefined();
     expect(screen.getByRole('link', { name: /查看真实评论/ }).getAttribute('href')).toBe(reviewCard.receipt.reviewUrl);
   });
+
+  it('renders a merge closure with merge SHA and main verification', () => {
+    const mergeCard: Card = {
+      version: 1, kind: 'merge', taskId: 'TASK-PR', actorAgentId: 'mario', createdAt: '2026-07-18T00:10:00Z',
+      receipt: {
+        provider: 'github', repository: 'acme/widget', pullRequestNumber: 42, pullRequestUrl: prCard.receipt.url,
+        headSha: prCard.receipt.headSha, mergeSha: 'c'.repeat(40), baseRef: 'main', mergedBy: 'maintainer',
+        mergedAt: '2026-07-18T00:10:00Z', verifiedAt: '2026-07-18T00:10:01Z',
+      },
+      evidence: {
+        mergedToMain: true, mainInstallResult: 'ok', mainBuildResult: 'ok',
+        mainTestResult: '1082 tests passed on main', mainImpactReviewResult: 'Impact rechecked',
+      },
+    };
+
+    render(<EngineeringCollaborationCard card={mergeCard} />);
+    expect(screen.getByTestId('merge-collaboration-card').textContent).toContain('cccccccccccc');
+    expect(screen.getByText('1082 tests passed on main')).toBeDefined();
+    expect(screen.getByRole('link', { name: '打开 PR' }).getAttribute('href')).toBe(prCard.receipt.url);
+  });
 });

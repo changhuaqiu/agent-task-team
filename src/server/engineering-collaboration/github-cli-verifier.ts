@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import type { PullRequestChecks, PullRequestReceipt, ReviewDecision, ReviewReceipt } from '@/lib/engineering-collaboration/types';
+import type { MergeReceipt, PullRequestChecks, PullRequestReceipt, ReviewDecision, ReviewReceipt } from '@/lib/engineering-collaboration/types';
 import type { GitProviderVerifier } from './git-provider';
 
 const execFileAsync = promisify(execFile);
@@ -9,6 +9,7 @@ export type GitProviderVerificationReasonCode =
   | 'git_provider_auth_missing'
   | 'git_provider_unavailable'
   | 'pull_request_not_found'
+  | 'pull_request_not_merged'
   | 'review_receipt_missing'
   | 'repository_mismatch'
   | 'git_provider_response_invalid';
@@ -33,6 +34,9 @@ interface GhPullRequest {
   statusCheckRollup?: GhCheck[];
   title?: string;
   url?: string;
+  mergeCommit?: { oid?: string };
+  mergedAt?: string;
+  mergedBy?: GhAuthor;
 }
 
 interface GhReview {
@@ -49,6 +53,24 @@ interface GhComment {
   url?: string;
   author?: GhAuthor;
   createdAt?: string;
+}
+
+interface GhCommit {
+  oid?: string;
+  committedDate?: string;
+}
+
+export function providerCommentAppliesToHead(input: {
+  commentCreatedAt?: string;
+  headSha?: string;
+  commits?: GhCommit[];
+}): boolean {
+  if (!input.commentCreatedAt || !input.headSha) return false;
+  const headCommit = input.commits?.find((commit) => commit.oid === input.headSha);
+  if (!headCommit?.committedDate) return false;
+  const commentTime = Date.parse(input.commentCreatedAt);
+  const commitTime = Date.parse(headCommit.committedDate);
+  return Number.isFinite(commentTime) && Number.isFinite(commitTime) && commentTime >= commitTime;
 }
 
 function parseGitHubUrl(url: string): { repository: string; number: number } {
@@ -146,8 +168,8 @@ export class GhCliGitProviderVerifier implements GitProviderVerifier {
     const identity = parseGitHubUrl(input.pullRequestUrl);
     await this.assertRepository(identity.repository, input.cwd);
     const raw = await this.gh([
-      'pr', 'view', input.pullRequestUrl, '--json', 'headRefOid,reviews,comments',
-    ], input.cwd) as { headRefOid?: string; reviews?: GhReview[]; comments?: GhComment[] };
+      'pr', 'view', input.pullRequestUrl, '--json', 'headRefOid,reviews,comments,commits',
+    ], input.cwd) as { headRefOid?: string; reviews?: GhReview[]; comments?: GhComment[]; commits?: GhCommit[] };
     const review = raw.reviews?.find((item) => item.url === input.reviewUrl || input.reviewUrl.endsWith(String(item.id ?? '')));
     if (review) {
       return {
@@ -159,7 +181,7 @@ export class GhCliGitProviderVerifier implements GitProviderVerifier {
       };
     }
     const comment = raw.comments?.find((item) => item.url === input.reviewUrl || input.reviewUrl.endsWith(String(item.id ?? '')));
-    if (comment && raw.headRefOid) {
+    if (comment && providerCommentAppliesToHead({ commentCreatedAt: comment.createdAt, headSha: raw.headRefOid, commits: raw.commits })) {
       return {
         provider: 'github', repository: identity.repository, pullRequestNumber: identity.number,
         pullRequestUrl: input.pullRequestUrl, reviewId: comment.id ?? input.reviewUrl,
@@ -169,5 +191,32 @@ export class GhCliGitProviderVerifier implements GitProviderVerifier {
       };
     }
     throw new GitProviderVerificationError('review_receipt_missing', 'The GitHub review or comment could not be verified');
+  }
+
+  async getMerge(input: { pullRequestUrl: string; cwd?: string }): Promise<MergeReceipt> {
+    const identity = parseGitHubUrl(input.pullRequestUrl);
+    await this.assertRepository(identity.repository, input.cwd);
+    const raw = await this.gh([
+      'pr', 'view', input.pullRequestUrl, '--json',
+      'baseRefName,headRefOid,mergeCommit,mergedAt,mergedBy,number,state,url',
+    ], input.cwd) as GhPullRequest;
+    if (raw.state !== 'MERGED') {
+      throw new GitProviderVerificationError('pull_request_not_merged', 'The pull request has not been merged');
+    }
+    if (!raw.url || raw.number !== identity.number || !raw.headRefOid || !raw.baseRefName || !raw.mergeCommit?.oid || !raw.mergedAt) {
+      throw new GitProviderVerificationError('git_provider_response_invalid', 'GitHub returned an incomplete merge response');
+    }
+    return {
+      provider: 'github',
+      repository: identity.repository,
+      pullRequestNumber: raw.number,
+      pullRequestUrl: raw.url,
+      headSha: raw.headRefOid,
+      mergeSha: raw.mergeCommit.oid,
+      baseRef: raw.baseRefName,
+      mergedBy: raw.mergedBy?.login ?? 'unknown',
+      mergedAt: raw.mergedAt,
+      verifiedAt: new Date().toISOString(),
+    };
   }
 }

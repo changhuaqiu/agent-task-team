@@ -1,7 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { EngineeringCollaborationError, EngineeringCollaborationService } from '@/server/engineering-collaboration/service';
 import { GhCliGitProviderVerifier, GitProviderVerificationError } from '@/server/engineering-collaboration/github-cli-verifier';
-import type { ImplementationEvidence, ReviewEvidence } from '@/lib/engineering-collaboration/types';
+import type { ImplementationEvidence, MergeEvidence, ReviewEvidence } from '@/lib/engineering-collaboration/types';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -28,6 +28,23 @@ function reviewEvidence(value: unknown): ReviewEvidence | undefined {
   const blockerCount = value.blockerCount;
   if (!testResult || !summary || typeof blockerCount !== 'number' || !Number.isInteger(blockerCount) || blockerCount < 0) return undefined;
   return { testResult, summary, blockerCount };
+}
+
+function mergeEvidence(value: unknown): MergeEvidence | undefined {
+  if (!isRecord(value) || value.mergedToMain !== true) return undefined;
+  const mainInstallResult = text(value.mainInstallResult);
+  const mainBuildResult = text(value.mainBuildResult);
+  const mainTestResult = text(value.mainTestResult);
+  const mainImpactReviewResult = text(value.mainImpactReviewResult);
+  if (!mainInstallResult || !mainBuildResult || !mainTestResult || !mainImpactReviewResult) return undefined;
+  return {
+    mergedToMain: true,
+    mainInstallResult,
+    mainBuildResult,
+    mainTestResult,
+    mainImpactReviewResult,
+    remainingRisk: text(value.remainingRisk),
+  };
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -59,7 +76,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const result = await service.recordReview({ taskId, actorAgentId, pullRequestUrl, reviewUrl, evidence });
       return res.status(201).json(result);
     }
-    return res.status(400).json({ error: 'kind must be pull_request or review' });
+    if (kind === 'merge') {
+      const evidence = mergeEvidence(req.body.evidence);
+      if (!evidence) return res.status(400).json({ error: 'Complete main-branch delivery evidence is required' });
+      const result = await service.recordMerge({ taskId, actorAgentId, pullRequestUrl, evidence });
+      return res.status(201).json(result);
+    }
+    return res.status(400).json({ error: 'kind must be pull_request, review or merge' });
   } catch (error) {
     if (error instanceof EngineeringCollaborationError || error instanceof GitProviderVerificationError) {
       return res.status(409).json({ error: error.message, reasonCode: error.reasonCode });

@@ -10,6 +10,9 @@ import { proofLogRepo } from './repositories/proof-log-repo';
 import { evaluateTaskStatusEvidenceGate } from './task-flow/task-gate-evidence';
 import { conversationRepo } from './repositories/conversation-repo';
 import { taskGraphRepo } from './repositories/task-graph-repo';
+import { EngineeringCollaborationService } from './engineering-collaboration/service';
+import { GhCliGitProviderVerifier } from './engineering-collaboration/github-cli-verifier';
+import type { ImplementationEvidence, MergeEvidence, ReviewEvidence } from '@/lib/engineering-collaboration/types';
 
 // ── Types ──────────────────────────────────────
 
@@ -218,13 +221,89 @@ function executeTaskAssign(invocation: ToolInvocation): ToolResult {
   return { success: true, data: { id: taskId, agent_id: targetAgentId } };
 }
 
+function recordInput(value: unknown): Record<string, unknown> | undefined {
+  if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>;
+  if (typeof value !== 'string') return undefined;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function nonEmptyText(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+function implementationEvidenceInput(value: unknown): ImplementationEvidence | undefined {
+  const input = recordInput(value);
+  if (!input || !nonEmptyText(input.installResult) || !nonEmptyText(input.buildResult) || !nonEmptyText(input.testResult) || !nonEmptyText(input.impactEvidence)) return undefined;
+  return {
+    installResult: input.installResult.trim(), buildResult: input.buildResult.trim(),
+    testResult: input.testResult.trim(), impactEvidence: input.impactEvidence.trim(),
+    riskSummary: nonEmptyText(input.riskSummary) ? input.riskSummary.trim() : undefined,
+  };
+}
+
+function reviewEvidenceInput(value: unknown): ReviewEvidence | undefined {
+  const input = recordInput(value);
+  if (!input || !nonEmptyText(input.testResult) || !nonEmptyText(input.summary) || !Number.isInteger(input.blockerCount) || Number(input.blockerCount) < 0) return undefined;
+  return { testResult: input.testResult.trim(), summary: input.summary.trim(), blockerCount: Number(input.blockerCount) };
+}
+
+function mergeEvidenceInput(value: unknown): MergeEvidence | undefined {
+  const input = recordInput(value);
+  if (!input || input.mergedToMain !== true || !nonEmptyText(input.mainInstallResult) || !nonEmptyText(input.mainBuildResult) || !nonEmptyText(input.mainTestResult) || !nonEmptyText(input.mainImpactReviewResult)) return undefined;
+  return {
+    mergedToMain: true, mainInstallResult: input.mainInstallResult.trim(), mainBuildResult: input.mainBuildResult.trim(),
+    mainTestResult: input.mainTestResult.trim(), mainImpactReviewResult: input.mainImpactReviewResult.trim(),
+    remainingRisk: nonEmptyText(input.remainingRisk) ? input.remainingRisk.trim() : undefined,
+  };
+}
+
+function collaborationService(): EngineeringCollaborationService {
+  return new EngineeringCollaborationService(new GhCliGitProviderVerifier());
+}
+
+async function executeRecordPullRequest(invocation: ToolInvocation): Promise<ToolResult> {
+  const taskId = invocation.input.task_id as string;
+  const pullRequestUrl = invocation.input.pull_request_url as string;
+  const evidence = implementationEvidenceInput(invocation.input.evidence);
+  if (!taskId || !pullRequestUrl || !evidence) return { success: false, error: 'task_id, pull_request_url and evidence are required' };
+  const data = await collaborationService().recordPullRequest({ taskId, actorAgentId: invocation.agentId, pullRequestUrl, evidence });
+  return { success: true, data };
+}
+
+async function executeRecordReview(invocation: ToolInvocation): Promise<ToolResult> {
+  const taskId = invocation.input.task_id as string;
+  const pullRequestUrl = invocation.input.pull_request_url as string;
+  const reviewUrl = invocation.input.review_url as string;
+  const evidence = reviewEvidenceInput(invocation.input.evidence);
+  if (!taskId || !pullRequestUrl || !reviewUrl || !evidence) return { success: false, error: 'task_id, pull_request_url, review_url and evidence are required' };
+  const data = await collaborationService().recordReview({ taskId, actorAgentId: invocation.agentId, pullRequestUrl, reviewUrl, evidence });
+  return { success: true, data };
+}
+
+async function executeRecordMerge(invocation: ToolInvocation): Promise<ToolResult> {
+  const taskId = invocation.input.task_id as string;
+  const pullRequestUrl = invocation.input.pull_request_url as string;
+  const evidence = mergeEvidenceInput(invocation.input.evidence);
+  if (!taskId || !pullRequestUrl || !evidence) return { success: false, error: 'task_id, pull_request_url and evidence are required' };
+  const data = await collaborationService().recordMerge({ taskId, actorAgentId: invocation.agentId, pullRequestUrl, evidence });
+  return { success: true, data };
+}
+
 // ── Tool dispatch map ──────────────────────────
 
-const TOOL_EXECUTORS: Record<string, (invocation: ToolInvocation) => ToolResult> = {
+const TOOL_EXECUTORS: Record<string, (invocation: ToolInvocation) => ToolResult | Promise<ToolResult>> = {
   task_list: executeTaskList,
   task_create: executeTaskCreate,
   task_update_status: executeTaskUpdateStatus,
   task_assign: executeTaskAssign,
+  collaboration_record_pr: executeRecordPullRequest,
+  collaboration_record_review: executeRecordReview,
+  collaboration_record_merge: executeRecordMerge,
 };
 
 // ── Main entry point ───────────────────────────
@@ -239,7 +318,7 @@ export async function executeSkillTool(invocation: ToolInvocation): Promise<Tool
       return { success: false, error: `No executor for tool: ${invocation.toolName}` };
     }
 
-    const result = executor(invocation);
+    const result = await executor(invocation);
 
     // Audit log: record tool invocation as agent_event
     eventRepo.append({
