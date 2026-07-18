@@ -34,6 +34,12 @@ Git Collaboration Skill 暴露三个结构化入口：`collaboration_record_pr`�
 
 生产 Agent 身份和 conversation scope 来自 daemon/Harness 的已绑定 invocation，服务把同一 `io` coordinator 注入通知边界以提交 wakeup。HTTP receipt endpoint 只供开发/E2E；生产环境默认返回 404，即使显式启用也只接受 loopback，避免请求体中的 `actorAgentId` 成为远程身份源。
 
+真实运行时的文件入口同样必须收敛：daemon 先以用户当前 `projectPath` 的精确 `HEAD` 创建会话 worktree，再把该会话 Task Graph 首次投影到实际 worktree 的 `.ath/TASKS.md`。Agent 执行目录、prompt 中的绝对任务路径、task watcher 和 turn-completion 同步都引用这个目录。不得从陈旧本地 `main` 创建会话分支，也不得把 sibling scratch 目录写进 prompt 后要求受限 runtime 跨边界编辑。
+
+平台工具通过 loopback-only Streamable HTTP MCP 暴露给 ACP。每次 invocation 使用随机 bearer token 和随机 MCP server name，服务端从 token 恢复可信的 conversation、agent、task 与通知上下文，只暴露该角色上下文中实际允许的工具，并在 turn 完成后撤销 token。ACP 的 session new/load 都必须携带同一 MCP server 配置，保证首次派发与恢复会话行为一致。权限处理器先从已映射的精确 `mcp.<随机 server>.<白名单工具>` 事件登记一次性 tool call id，再只对相同 call id 的 MCP 审批选择 `allow_once`；shell、文件编辑和任何其他 MCP server 仍使用全局 deny/allow-once 策略，不能因为平台注册而扩大运行时权限。
+
+Git-backed task 的 `.ath/TASKS.md` 是兼容投影而非质量门写入口。文件同步若尝试把权威状态推进到 `in_review` 或 `done`，服务端记录 gate rejection、发出同步错误，并把文件状态回写为 Task Graph 当前值；PR/review/merge 状态只由结构化协作回执原子推进。
+
 ## 事实源
 
 - PR/review/merge 的当前事实：Git provider；

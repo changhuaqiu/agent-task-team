@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createPermissionHandler } from './permissionPolicy';
+import { createCorrelatedPlatformMcpPermissionPolicy, createPermissionHandler } from './permissionPolicy';
 import type { RequestPermissionRequest } from '@agentclientprotocol/sdk';
 
 const request = {
@@ -55,6 +55,35 @@ describe('ACP permission policy', () => {
       options: request.options.filter((option) => option.kind !== 'allow_once'),
     } as RequestPermissionRequest;
     await expect(createPermissionHandler('allow_once')(noOneShotAllow)).resolves.toEqual({
+      outcome: { outcome: 'selected', optionId: 'reject' },
+    });
+  });
+
+  it('allows only a correlated one-shot platform MCP approval', async () => {
+    const policy = createCorrelatedPlatformMcpPermissionPolicy('deny', new Set(['platform-call']));
+    const platformRequest = {
+      ...request,
+      toolCall: { ...request.toolCall, toolCallId: 'platform-call', title: undefined },
+      _meta: { is_mcp_tool_approval: true },
+    } as RequestPermissionRequest;
+    const replayedRequest = {
+      ...request,
+      toolCall: { ...request.toolCall, toolCallId: 'platform-call', title: undefined },
+      _meta: { is_mcp_tool_approval: true },
+    } as RequestPermissionRequest;
+    const otherMcpServer = {
+      ...request,
+      toolCall: { ...request.toolCall, toolCallId: 'other-call', title: undefined },
+      _meta: { is_mcp_tool_approval: true },
+    } as RequestPermissionRequest;
+
+    await expect(createPermissionHandler(policy)(platformRequest)).resolves.toEqual({
+      outcome: { outcome: 'selected', optionId: 'allow-once' },
+    });
+    await expect(createPermissionHandler(policy)(replayedRequest)).resolves.toEqual({
+      outcome: { outcome: 'selected', optionId: 'reject' },
+    });
+    await expect(createPermissionHandler(policy)(otherMcpServer)).resolves.toEqual({
       outcome: { outcome: 'selected', optionId: 'reject' },
     });
   });

@@ -122,6 +122,8 @@ export function createBackend(
     | 'maxTurnTimeoutMs'
     | 'limits'
     | 'timeoutMs'
+    | 'mcpServers'
+    | 'autoApproveMcpToolNames'
   >,
 ): AgentBackend {
   return new AcpBackend({
@@ -136,6 +138,8 @@ export function createBackend(
     maxTurnTimeoutMs: opts?.maxTurnTimeoutMs,
     limits: opts?.limits,
     timeoutMs: opts?.timeoutMs,
+    mcpServers: opts?.mcpServers,
+    autoApproveMcpToolNames: opts?.autoApproveMcpToolNames,
     engine: entry.id,
   });
 }

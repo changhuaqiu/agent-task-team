@@ -1,9 +1,12 @@
 import { watch } from 'chokidar';
 import type { FSWatcher } from 'chokidar';
-import { basename } from 'path';
-import { readTasksMd } from './task-file-service';
+import { existsSync, readFileSync } from 'node:fs';
+import { basename, join } from 'node:path';
+import { readTasksMd, updateTaskInMd } from './task-file-service';
 import { taskRepo } from './repositories/task-repo';
 import { invocationRepo } from './repositories/invocation-repo';
+import { conversationRepo } from './repositories/conversation-repo';
+import { proofLogRepo } from './repositories/proof-log-repo';
 import { publishTaskChangeNotification } from './task-flow/task-notification-publisher';
 import type { Server as IOServer } from 'socket.io';
 
@@ -50,6 +53,43 @@ function hasActiveTaskInvocation(conversationId: string, taskId: string, agentId
   ));
 }
 
+function isProtectedGitProjectionTransition(conversationId: string, nextStatus: string): boolean {
+  if (nextStatus !== 'in_review' && nextStatus !== 'done') return false;
+  return Boolean(conversationRepo.getById(conversationId)?.git_repo_root);
+}
+
+function rejectGitProjectionTransition(input: {
+  projectPath: string;
+  conversationId: string;
+  localTaskId: string;
+  storageTaskId: string;
+  attemptedStatus: string;
+  authoritativeStatus: string;
+  io: IOServer;
+}): void {
+  const reasonCode = 'task_graph.file_projection_gate_bypass';
+  proofLogRepo.append({
+    eventType: 'task_graph.gate_evidence.blocked',
+    conversationId: input.conversationId,
+    taskId: input.storageTaskId,
+    actorId: 'task-file-watcher',
+    reasonCode,
+    metadata: {
+      attemptedStatus: input.attemptedStatus,
+      authoritativeStatus: input.authoritativeStatus,
+      source: 'TASKS.md',
+    },
+  });
+  input.io.to(input.conversationId).emit('task.sync_error', {
+    projectPath: input.projectPath,
+    conversationId: input.conversationId,
+    taskId: input.storageTaskId,
+    reasonCode,
+    message: `Git 任务 ${input.localTaskId} 不能通过 TASKS.md 进入 ${input.attemptedStatus}；请使用结构化 PR/review/merge 回执。状态已恢复为 ${input.authoritativeStatus}。`,
+  });
+  updateTaskInMd(input.projectPath, input.localTaskId, { status: input.authoritativeStatus });
+}
+
 export function startTaskWatcher(projectPath: string, io: IOServer): void {
   if (watchers.has(projectPath)) return;
 
@@ -91,8 +131,6 @@ export function stopTaskWatcher(projectPath: string): void {
 }
 
 export function syncTasksToDb(projectPath: string, io: IOServer): void {
-  const { existsSync, readFileSync } = require('fs');
-  const { join } = require('path');
   const tasksFile = join(projectPath, '.ath', 'TASKS.md');
 
   const { tasks: parsed, blockers } = readTasksMd(projectPath);
@@ -135,7 +173,17 @@ export function syncTasksToDb(projectPath: string, io: IOServer): void {
           agent_id: t.agent || '',
           dependencies: storageDependencies,
         });
-        if (created.status !== t.status) {
+        if (created.status !== t.status && isProtectedGitProjectionTransition(conversationId, t.status)) {
+          rejectGitProjectionTransition({
+            projectPath,
+            conversationId,
+            localTaskId: t.id,
+            storageTaskId: storageId,
+            attemptedStatus: t.status,
+            authoritativeStatus: created.status,
+            io,
+          });
+        } else if (created.status !== t.status) {
           taskRepo.updateStatus(storageId, t.status);
           const updated = taskRepo.getById(storageId);
           if (updated) {
@@ -162,7 +210,19 @@ export function syncTasksToDb(projectPath: string, io: IOServer): void {
     const stalePendingDuringActiveInvocation = existing.status === 'in_progress'
       && t.status === 'pending'
       && hasActiveTaskInvocation(conversationId, storageId, existing.agent_id);
-    if (existing.status !== t.status && !stalePendingDuringActiveInvocation) {
+    const protectedGitTransition = existing.status !== t.status
+      && isProtectedGitProjectionTransition(conversationId, t.status);
+    if (protectedGitTransition) {
+      rejectGitProjectionTransition({
+        projectPath,
+        conversationId,
+        localTaskId: t.id,
+        storageTaskId: storageId,
+        attemptedStatus: t.status,
+        authoritativeStatus: existing.status,
+        io,
+      });
+    } else if (existing.status !== t.status && !stalePendingDuringActiveInvocation) {
       updates.status = t.status;
       changedFields.push('status');
     }

@@ -103,6 +103,15 @@ Agent 正文中的 Markdown 链接仍可显示，但不具有状态转换权威�
 - reviewer 和 implementer Agent ID 必须不同；
 - merge 后必须在目标分支复验，不能复用 PR 分支测试冒充 main 证据。
 
+### 5.1 运行时工作目录与任务入口
+
+- 会话启用 Git worktree 时，新 worktree 必须从用户当前项目路径的精确 `HEAD` 建立，不能从可能陈旧的本地 `main` 猜测基线；
+- 本轮 Agent 的执行目录、可写 `TASKS.md`、task watcher 与完成边界同步必须引用同一个实际 worktree；
+- 平台在首次派发前必须把当前会话 Task Graph 投影到该 worktree 的 `.ath/TASKS.md`，不能要求 Agent 创建一个位于执行目录之外的兼容文件；
+- ACP session 必须通过短期、逐 invocation 授权的 loopback MCP endpoint 注册平台工具；token 必须绑定 conversation、agent、task 与允许的工具名，MCP server name 必须逐 invocation 随机化，并在 turn 结束后撤销。ACP 权限层只能对该随机 server 上本次白名单内的精确 tool call id 选择一次性放行，shell、文件和其他 MCP 工具继续遵守全局策略。上下文不得把未真实注册的工具描述为可用；
+- 对 Git-backed task，`.ath/TASKS.md` 仅是兼容投影：任何从文件侧发起的 `in_review` 或 `done` 跃迁必须被拒绝并回写 Task Graph 权威状态。只有 `collaboration_record_pr`、`collaboration_record_review`、`collaboration_record_merge` 的原子 provider 回执路径可以推进质量门状态；
+- worktree、Task Graph、聊天与 observability 必须记录同一 conversation/task 身份，路径缺失或基线不一致时 fail closed。
+
 ## 6. 失败回路
 
 - GitHub 未认证：`git_provider_auth_missing`，卡片不创建，任务保持原状态；

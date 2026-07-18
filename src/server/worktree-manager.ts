@@ -44,9 +44,19 @@ export class WorktreeManager {
     }
   }
 
+  static async getHead(dirPath: string): Promise<string | null> {
+    try {
+      const { stdout } = await execAsync('git rev-parse HEAD', { cwd: dirPath });
+      const head = stdout.trim();
+      return /^[0-9a-f]{40}$/i.test(head) ? head : null;
+    } catch {
+      return null;
+    }
+  }
+
   // ── Worktree CRUD ──────────────────────────────────
 
-  async createWorktree(projectSlug: string): Promise<WorktreeInfo> {
+  async createWorktree(projectSlug: string, startPoint = 'main'): Promise<WorktreeInfo> {
     if (await this.exists(projectSlug)) {
       return this.getWorktreeInfo(projectSlug);
     }
@@ -55,7 +65,7 @@ export class WorktreeManager {
     const worktreePath = path.join(this.worktreeBase, projectSlug);
 
     await execAsync(
-      `git worktree add -b "${branchName}" "${worktreePath}" main`,
+      `git worktree add -b "${branchName}" "${worktreePath}" "${startPoint}"`,
       { cwd: this.repoRoot },
     );
 

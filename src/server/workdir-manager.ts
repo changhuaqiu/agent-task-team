@@ -58,11 +58,11 @@ export class WorkdirManager {
     this.worktreeManager = new WorktreeManager(repoRoot || root);
   }
 
-  async resolveProjectWorkdir(projectSlug: string): Promise<string> {
+  async resolveProjectWorkdir(projectSlug: string, startPoint?: string): Promise<string> {
     const worktreePath = this.worktreeManager.getWorktreePath(projectSlug);
 
     if (!await this.worktreeManager.exists(projectSlug)) {
-      await this.worktreeManager.createWorktree(projectSlug);
+      await this.worktreeManager.createWorktree(projectSlug, startPoint);
     }
 
     return worktreePath;
@@ -76,10 +76,10 @@ export class WorkdirManager {
     agentId: string,
     projectId: string,
     taskId: string,
-    options?: { useWorktree?: boolean; projectSlug?: string },
+    options?: { useWorktree?: boolean; projectSlug?: string; startPoint?: string },
   ): Promise<string> {
     if (options?.useWorktree && options?.projectSlug) {
-      return this.resolveProjectWorkdir(options.projectSlug);
+      return this.resolveProjectWorkdir(options.projectSlug, options.startPoint);
     }
 
     const safeProjectId = safeWorkdirSegment(projectId);

@@ -10,6 +10,18 @@ export type AcpPermissionPolicy =
       | AcpPermissionDecision
       | Promise<AcpPermissionDecision>);
 
+export function createCorrelatedPlatformMcpPermissionPolicy(
+  basePolicy: AcpPermissionPolicy,
+  approvedToolCallIds: Set<string>,
+): AcpPermissionPolicy {
+  return async (request) => {
+    const isPlatformMcpApproval = request._meta?.is_mcp_tool_approval === true
+      && approvedToolCallIds.delete(request.toolCall.toolCallId);
+    if (isPlatformMcpApproval) return 'allow_once';
+    return typeof basePolicy === 'function' ? basePolicy(request) : basePolicy;
+  };
+}
+
 const DEFAULT_POLICY_TIMEOUT_MS = 5_000;
 
 function deny(request: RequestPermissionRequest): RequestPermissionResponse {

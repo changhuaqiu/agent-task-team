@@ -10,6 +10,7 @@ import {
   KNOWN_SESSION_UPDATE_TYPES,
 } from './agentEventMapper';
 import {
+  createCorrelatedPlatformMcpPermissionPolicy,
   createPermissionHandler,
   type AcpPermissionPolicy,
 } from './permissionPolicy';
@@ -60,6 +61,8 @@ export interface AcpBackendOpts {
   forceKillGraceMs?: number;
   maxTurnTimeoutMs?: number;
   limits?: Partial<AcpRuntimeLimits>;
+  mcpServers?: acp.McpServer[];
+  autoApproveMcpToolNames?: string[];
 }
 
 const ACP_CAPS_BASE = {
@@ -232,6 +235,8 @@ export class AcpBackend implements AgentBackend {
     let clientContext: acp.ClientContext | undefined;
     let acceptSessionUpdates = false;
     const mapTurnUpdate = createTurnScopedAcpEventMapper();
+    const approvedMcpToolCallIds = new Set<string>();
+    const autoApprovedMcpToolNames = new Set(this.o.autoApproveMcpToolNames ?? []);
     let stderrTail = '';
     let initialized = false;
     let resultResolved = false;
@@ -423,6 +428,13 @@ export class AcpBackend implements AgentBackend {
 
       const event = mapTurnUpdate(notification.update);
       if (event) {
+        if (
+          event.type === 'tool_use'
+          && event.tool?.callId
+          && autoApprovedMcpToolNames.has(event.tool.name)
+        ) {
+          approvedMcpToolCallIds.add(event.tool.callId);
+        }
         if (event.sessionId === undefined) event.sessionId = sessionId;
         if (event.content.length > limits.maxEventChars) {
           failForLimit(
@@ -470,7 +482,10 @@ export class AcpBackend implements AgentBackend {
           Readable.toWeb(proc.stdout) as ReadableStream<Uint8Array>,
         );
         const permissionHandler = createPermissionHandler(
-          this.o.permissionPolicy,
+          createCorrelatedPlatformMcpPermissionPolicy(
+            this.o.permissionPolicy ?? 'deny',
+            approvedMcpToolCallIds,
+          ),
           this.o.permissionTimeoutMs,
         );
         const clientApp = acp
@@ -512,7 +527,7 @@ export class AcpBackend implements AgentBackend {
                 await ctx.request(acp.methods.agent.session.load, {
                   sessionId,
                   cwd,
-                  mcpServers: [],
+                  mcpServers: this.o.mcpServers ?? [],
                 });
                 markProtocolActivity();
               } catch (error) {
@@ -528,7 +543,7 @@ export class AcpBackend implements AgentBackend {
             } else {
               const newSession = await ctx.request(acp.methods.agent.session.new, {
                 cwd,
-                mcpServers: [],
+                mcpServers: this.o.mcpServers ?? [],
               });
               markProtocolActivity();
               sessionId = newSession.sessionId;

@@ -68,6 +68,16 @@ describe('WorktreeManager', () => {
     expect(info.head).toMatch(/^[0-9a-f]{40}$/);
   });
 
+  it('creates a conversation worktree from the configured project HEAD instead of stale main', async () => {
+    await execAsync('git checkout -b current-project', { cwd: testRepo });
+    await execAsync('git commit --allow-empty -m "project head"', { cwd: testRepo });
+    const projectHead = await WorktreeManager.getHead(testRepo);
+
+    const info = await manager.createWorktree('conv-project-head', projectHead!);
+
+    expect(info.head).toBe(projectHead);
+  });
+
   it('should only list worktrees under .worktrees directory', async () => {
     await manager.createWorktree('conv-filter');
     const worktrees = await manager.listWorktrees();

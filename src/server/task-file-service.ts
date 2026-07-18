@@ -27,6 +27,14 @@ export interface ProjectMeta {
   constraints: string[];
 }
 
+export interface TaskProjectionSource {
+  id: string;
+  title: string;
+  status: string;
+  agent_id: string;
+  dependencies: string | null;
+}
+
 const STATUS_MAP: Record<string, string> = {
   todo: 'pending',
   pending: 'pending',
@@ -375,6 +383,32 @@ export function writeTasksMd(projectPath: string, tasks: ParsedTask[], blockers?
     content += '\n' + formatBlockersMd(blockers);
   }
   writeFileSync(join(dir, 'TASKS.md'), content, 'utf-8');
+}
+
+function projectionDependencies(value: string | null): string[] {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : [];
+  } catch {
+    return value.split(',').map((item) => item.trim()).filter(Boolean);
+  }
+}
+
+/** Materialize the compatibility task entry once without overwriting runtime edits. */
+export function ensureTasksMdProjection(projectPath: string, rows: TaskProjectionSource[]): boolean {
+  if (existsSync(join(projectPath, '.ath', 'TASKS.md'))) return false;
+  writeTasksMd(projectPath, rows.map((row) => ({
+    id: row.id,
+    title: row.title,
+    phase: '',
+    role: 'worker',
+    agent: row.agent_id,
+    status: row.status,
+    depends: projectionDependencies(row.dependencies),
+    deliverable: '',
+  })));
+  return true;
 }
 
 export function updateTaskInMd(projectPath: string, taskId: string, updates: Partial<Pick<ParsedTask, 'status' | 'agent' | 'deliverable'>>): void {

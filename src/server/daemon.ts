@@ -11,6 +11,7 @@ import { readCredential } from './credentials';
 import { buildProbeEnv } from './cli-probe';
 import { generateRuntimeConfig, cleanupRuntimeConfig, makeInvocationId } from './opencode-config';
 import { startTaskWatcher, syncTasksToDb } from './task-file-watcher';
+import { ensureTasksMdProjection } from './task-file-service';
 import type { AccountProvider as RuntimeAccountProvider } from './opencode-config';
 import type { CliEngine, DetectedRuntime } from './types';
 import { sessionRepo } from './repositories/session-repo';
@@ -31,6 +32,7 @@ import { withDoneGuarantee } from './agent/with-done-guarantee';
 import { isNativeRuntimeTool } from './agent/nativeTools';
 import { isSkillTool } from './skill-tool-router';
 import { executeSkillTool } from './skill-tool-executor';
+import { registerAcpSkillMcpGrant, resolveAcpMcpLoopbackOrigin } from './acp-skill-mcp';
 import { StreamTextPersistence } from './agent/streamTextPersistence';
 import { resolveNonWorktreeExecutionCwd, stableWorkdirTaskKey, WorkdirManager } from './workdir-manager';
 import { AgentMessenger } from './a2a';
@@ -642,6 +644,7 @@ export default function registerDaemon(io: IOServer) {
       // the outer catch (terminal:start error) can clean up if setup succeeds
       // but a later step throws before the execute IIFE takes over.
       let acpCleanup: (() => void) | undefined;
+      let revokeAcpTools: (() => void) | undefined;
       try {
       if (!conversationId && !projectId) {
         throw new Error('session_scope_missing: terminal:start requires conversationId or projectId');
@@ -661,6 +664,7 @@ export default function registerDaemon(io: IOServer) {
       }
       const responseBufferKey = processKey(agentId, sessionConvId);
       const sharedProjectDir = join(workspacesRoot, sessionConvId);
+      let taskProjectDir = sharedProjectDir;
       const emitDispatchReceipt = (
         phase: 'requested' | 'sent' | 'started' | 'completed' | 'blocked' | 'failed',
         reasonCode?: string,
@@ -1079,7 +1083,7 @@ export default function registerDaemon(io: IOServer) {
         try {
           // Watchers are best-effort on every platform. The completed-turn
           // boundary is the consistency barrier before handoff scanning.
-          syncTasksToDb(sharedProjectDir, io);
+          syncTasksToDb(taskProjectDir, io);
         } catch (error) {
           console.warn(`[task-sync] completion barrier failed for ${sessionConvId}:`, error);
         }
@@ -1603,6 +1607,7 @@ export default function registerDaemon(io: IOServer) {
       // Auto-detect git repo and resolve worktree
       let effectiveSlug = projectSlug;
       let effectiveUseWorktree = useWorktree ?? false;
+      let worktreeStartPoint: string | undefined;
 
       if (!effectiveSlug && projectPath) {
         try {
@@ -1611,6 +1616,7 @@ export default function registerDaemon(io: IOServer) {
           if (isGit) {
             effectiveSlug = conversationId || projectId || 'default';
             effectiveUseWorktree = true;
+            worktreeStartPoint = await WorktreeManager.getHead(projectPath) ?? undefined;
             console.log(`[daemon] git repo detected at ${projectPath}, using worktree slug=${effectiveSlug}`);
           }
         } catch (e) {
@@ -1622,17 +1628,20 @@ export default function registerDaemon(io: IOServer) {
         agentId,
         projectId || 'default',
         stableWorkdirTaskKey(taskId),
-        effectiveUseWorktree && effectiveSlug ? { useWorktree: true, projectSlug: effectiveSlug } : undefined,
+        effectiveUseWorktree && effectiveSlug
+          ? { useWorktree: true, projectSlug: effectiveSlug, startPoint: worktreeStartPoint }
+          : undefined,
       );
       const runtimeWd = effectiveUseWorktree
         ? wd
         : resolveNonWorktreeExecutionCwd(projectPath, wd);
       const sessionMeta = taskId ? workdirManager.readSessionMeta(agentId, projectId || 'default', taskId) : null;
 
-      // Start file watcher for project-level .ath/ directory
-      const projectDir = sharedProjectDir;
-      startTaskWatcher(projectDir, io);
-      for (const workspaceDir of new Set([projectDir, wd])) {
+      // Runtime, task projection, watcher, and prompt share one writable fact source.
+      taskProjectDir = runtimeWd;
+      ensureTasksMdProjection(taskProjectDir, taskRepo.getByConversation(sessionConvId));
+      startTaskWatcher(taskProjectDir, io);
+      for (const workspaceDir of new Set([sharedProjectDir, wd])) {
         try {
           teamLogProjection.materialize(sessionConvId, workspaceDir);
         } catch (error) {
@@ -1641,7 +1650,7 @@ export default function registerDaemon(io: IOServer) {
       }
 
       // Build prompt with worktree context if applicable
-      let promptWithWorkdir = (prompt || '') + `\n\n[系统] 任务看板路径: ${join(projectDir, '.ath')}/TASKS.md`;
+      let promptWithWorkdir = (prompt || '') + `\n\n[系统] 任务看板路径: ${join(taskProjectDir, '.ath')}/TASKS.md`;
       if (effectiveUseWorktree && effectiveSlug) {
         const branchName = workdirManager.getWorktreeManager().getBranchName(effectiveSlug);
         promptWithWorkdir += `\n[系统] 当前在 Git Worktree 分支 ${branchName} 下工作，工作目录: ${wd}`;
@@ -1673,6 +1682,22 @@ export default function registerDaemon(io: IOServer) {
       executeCwd = prepared.cwd;
       executeEnv = prepared.env;
       acpCleanup = prepared.cleanup;
+      const permittedAcpTools = (contextReport?.availableTools ?? []).filter(isSkillTool);
+      const mcpOrigin = resolveAcpMcpLoopbackOrigin(io);
+      if (permittedAcpTools.length > 0 && !mcpOrigin) {
+        throw new Error('acp_skill_mcp_unavailable: daemon HTTP listener has no loopback address');
+      }
+      const acpToolGrant = mcpOrigin
+        ? registerAcpSkillMcpGrant({
+          agentId,
+          conversationId: sessionConvId,
+          projectId,
+          taskId,
+          permittedTools: permittedAcpTools,
+          io,
+        }, mcpOrigin)
+        : undefined;
+      revokeAcpTools = acpToolGrant?.revoke;
       // codex startup ~117s (WebSocket→HTTPS fallback). The kill timer +
       // backend timeout are floored to ≥180s at the timeoutMs source for codex
       // ACP (see ~L690). Warn when the operator-tuned raw timeout was below
@@ -1684,6 +1709,8 @@ export default function registerDaemon(io: IOServer) {
         cwd: prepared.cwd,
         env: prepared.env,
         permissionPolicy: resolveAcpPermissionPolicy(),
+        mcpServers: acpToolGrant ? [acpToolGrant.mcpServer] : [],
+        autoApproveMcpToolNames: acpToolGrant?.autoApproveToolNames ?? [],
       });
 
       // The per-turn timeout. timeoutMs already carries the codex-ACP floor
@@ -1805,6 +1832,7 @@ export default function registerDaemon(io: IOServer) {
           activeProcesses.delete(processKey(agentId, projectId));
           if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
           acpCleanup?.();
+          revokeAcpTools?.();
         } catch (err) {
           clearProcessTimeout();
           clearInterval(heartbeatTimer);
@@ -1817,6 +1845,7 @@ export default function registerDaemon(io: IOServer) {
           activeProcesses.delete(processKey(agentId, projectId));
           if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
           acpCleanup?.();
+          revokeAcpTools?.();
         }
       })();
       } catch (err) {
@@ -1844,6 +1873,7 @@ export default function registerDaemon(io: IOServer) {
         activeProcesses.delete(processKey(agentId, projectId));
         if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
         acpCleanup?.();
+        revokeAcpTools?.();
       } finally {
         processStartGuard.release(startKey);
       }
