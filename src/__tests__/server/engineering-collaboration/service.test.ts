@@ -159,6 +159,84 @@ describe('EngineeringCollaborationService', () => {
     expect(taskRepo.getById('TASK-PR')?.status).toBe('in_progress');
   });
 
+  it('fails closed when rejected work tries to switch to another pull request', async () => {
+    const service = new EngineeringCollaborationService(verifier());
+    await service.recordPullRequest({
+      taskId: 'TASK-PR', actorAgentId: 'luigi', pullRequestUrl: pullRequest.url,
+      evidence: { installResult: 'ok', buildResult: 'ok', testResult: 'ok', impactEvidence: 'ok' },
+    });
+    await service.recordReview({
+      taskId: 'TASK-PR', actorAgentId: 'peach', pullRequestUrl: pullRequest.url, reviewUrl: review.reviewUrl,
+      evidence: { testResult: 'failed', blockerCount: 1, summary: 'Fix it', qualityDecision: 'reject' },
+    });
+    const replacementPullRequest = {
+      ...pullRequest,
+      number: 43,
+      url: 'https://github.com/acme/widget/pull/43',
+      headRef: 'task/replacement',
+      headSha: 'b'.repeat(40),
+    };
+    const before = {
+      actions: taskGraphRepo.listActionsForTask('TASK-PR').length,
+      artifacts: taskGraphRepo.listArtifacts('conv-pr-loop').length,
+      messages: messageRepo.getByConversation('conv-pr-loop').length,
+      proofs: proofLogRepo.findByType({
+        eventType: 'engineering.pull_request.verified',
+        conversationId: 'conv-pr-loop',
+        taskId: 'TASK-PR',
+      }).length,
+    };
+    const replacementService = new EngineeringCollaborationService(verifier({
+      getPullRequest: vi.fn(async () => replacementPullRequest),
+    }));
+
+    await expect(replacementService.recordPullRequest({
+      taskId: 'TASK-PR', actorAgentId: 'luigi', pullRequestUrl: replacementPullRequest.url,
+      evidence: { installResult: 'ok', buildResult: 'ok', testResult: 'claimed fixed', impactEvidence: 'rechecked' },
+    })).rejects.toMatchObject<Partial<EngineeringCollaborationError>>({ reasonCode: 'pull_request_changed' });
+
+    expect(taskRepo.getById('TASK-PR')?.status).toBe('rejected');
+    expect({
+      actions: taskGraphRepo.listActionsForTask('TASK-PR').length,
+      artifacts: taskGraphRepo.listArtifacts('conv-pr-loop').length,
+      messages: messageRepo.getByConversation('conv-pr-loop').length,
+      proofs: proofLogRepo.findByType({
+        eventType: 'engineering.pull_request.verified',
+        conversationId: 'conv-pr-loop',
+        taskId: 'TASK-PR',
+      }).length,
+    }).toEqual(before);
+  });
+
+  it('fails closed when rejected work resubmits the same pull request head', async () => {
+    const service = new EngineeringCollaborationService(verifier());
+    await service.recordPullRequest({
+      taskId: 'TASK-PR', actorAgentId: 'luigi', pullRequestUrl: pullRequest.url,
+      evidence: { installResult: 'ok', buildResult: 'ok', testResult: 'ok', impactEvidence: 'ok' },
+    });
+    await service.recordReview({
+      taskId: 'TASK-PR', actorAgentId: 'peach', pullRequestUrl: pullRequest.url, reviewUrl: review.reviewUrl,
+      evidence: { testResult: 'failed', blockerCount: 1, summary: 'Fix it', qualityDecision: 'reject' },
+    });
+    const before = {
+      actions: taskGraphRepo.listActionsForTask('TASK-PR').length,
+      artifacts: taskGraphRepo.listArtifacts('conv-pr-loop').length,
+      messages: messageRepo.getByConversation('conv-pr-loop').length,
+    };
+
+    await expect(service.recordPullRequest({
+      taskId: 'TASK-PR', actorAgentId: 'luigi', pullRequestUrl: pullRequest.url,
+      evidence: { installResult: 'ok', buildResult: 'ok', testResult: 'claimed fixed', impactEvidence: 'rechecked' },
+    })).rejects.toMatchObject<Partial<EngineeringCollaborationError>>({ reasonCode: 'pull_request_head_unchanged' });
+
+    expect(taskRepo.getById('TASK-PR')?.status).toBe('rejected');
+    expect({
+      actions: taskGraphRepo.listActionsForTask('TASK-PR').length,
+      artifacts: taskGraphRepo.listArtifacts('conv-pr-loop').length,
+      messages: messageRepo.getByConversation('conv-pr-loop').length,
+    }).toEqual(before);
+  });
+
   it('records a new head on the same PR and publishes the previous review as stale', async () => {
     const service = new EngineeringCollaborationService(verifier());
     await service.recordPullRequest({

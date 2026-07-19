@@ -13,8 +13,8 @@
 - [x] review receipt 指向真实 GitHub review/comment URL
 - [x] review receipt 绑定精确 head SHA
 - [x] 新 commit 会使旧 approval stale
-- [ ] REJECT 后换 PR 被 `pull_request_changed` 拒绝且不产生任何持久化副作用
-- [ ] REJECT 后原样重报同一 head 被 `pull_request_head_unchanged` 拒绝
+- [x] REJECT 后换 PR 被 `pull_request_changed` 拒绝且不产生任何持久化副作用
+- [x] REJECT 后原样重报同一 head 被 `pull_request_head_unchanged` 拒绝
 - [x] merged/main evidence 齐全前不能 done
 
 ## UX
