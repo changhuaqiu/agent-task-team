@@ -88,6 +88,29 @@ describe('WorkdirManager', () => {
       expect(meta?.sessionId).toBe('sess-abc');
     });
 
+    it('creates scoped metadata directories when execution uses a shared Git worktree', async () => {
+      const repoRoot = path.join(tmpRoot, 'metadata-repo');
+      fs.mkdirSync(repoRoot, { recursive: true });
+      await execAsync('git init -b main', { cwd: repoRoot });
+      await execAsync('git commit --allow-empty -m "init"', { cwd: repoRoot });
+
+      const m = mgr();
+      await m.resolveWorkdir('dk', 'conv-git', 'TASK-008', {
+        useWorktree: true,
+        projectSlug: 'conv-git',
+        startPoint: 'HEAD',
+        repoRoot,
+      });
+
+      m.writeSessionMeta('dk', 'conv-git', 'TASK-008', { sessionId: 'sess-git' });
+      m.writeGCMeta('dk', 'conv-git', 'TASK-008');
+
+      const taskRoot = path.join(tmpRoot, 'conv-git', 'dk', 'task-TASK-008');
+      expect(fs.existsSync(path.join(taskRoot, '.session.json'))).toBe(true);
+      expect(fs.existsSync(path.join(taskRoot, '.gc_meta.json'))).toBe(true);
+      expect(m.readSessionMeta('dk', 'conv-git', 'TASK-008')?.sessionId).toBe('sess-git');
+    });
+
     it('returns null when no session metadata exists', () => {
       const meta = mgr().readSessionMeta('mario', 'proj-1', 'TASK-999');
       expect(meta).toBeNull();

@@ -97,6 +97,8 @@ Agent 正文中的 Markdown 链接仍可显示，但不具有状态转换权威�
 
 - 没有已验证 PR 不能进入 `in_review`；
 - 没有真实 provider review/comment 不能记录评审决定；
+- 一个任务一旦产生已验证 PR receipt，后续交付必须继续使用同一 canonical PR；`rejected` 后换 PR 必须以 `pull_request_changed` 失败关闭；
+- `in_review` 或 `rejected` 的后续交付必须包含不同于上一条 receipt 的新 head SHA；原样重报同一 SHA 必须以 `pull_request_head_unchanged` 失败关闭；
 - review head SHA 与当前 PR head SHA 不同视为 `review_stale`；
 - provider 的 `commented` 只证明外部评论存在；必须由可信 Peach invocation 同时记录 `qualityDecision=pass` 且 blocker 为 0 才能进入 merge wait，`qualityDecision=comment` 不具备放行权；
 - PR 关闭但未合并视为交付失败，不能 `done`；
@@ -117,7 +119,11 @@ Agent 正文中的 Markdown 链接仍可显示，但不具有状态转换权威�
 - Git-backed conversation 或显式 worktree 派发无法解析 repository root / exact HEAD 时必须 fail closed，不能退回 scratch 或原项目目录；
 - repository-scoped storage 上线前已经存在的同名 conversation worktree 必须通过 Git worktree registry 安全迁移：兼容相同/祖先基线并保留领先提交；需要 fast-forward 时工作区必须干净，分叉或可能覆盖未提交工作时 fail closed。不得删除旧工作或重复创建已存在的 branch；
 - task 状态推进与 Agent 派发只能由服务端 Task Graph / Harness 决定；Web 客户端不得根据兼容事件自行把 `pending` 改为 `in_progress` 或再次派发 Agent；
+- Web 客户端调用 `task.updateStatus` 时可以先做可回滚的乐观状态展示，但成功聊天卡、`task.status_changed` 事件和 `in_progress` Agent 派发只能在服务端返回 `response.ok` 后发布；403、其他非 2xx 与网络异常必须恢复原任务状态、展示包含服务端或网络错误的 blocker，且不得留下任何成功副作用；
+- Agent 回复中的 PHASE/TASK roster 及 owner `@mention` 只是任务投影，不得触发即时 A2A；显式交接引用目标 task 时，服务端必须校验 owner 与 `depends_on`，依赖未完成时失败关闭，目标 task 已在执行/评审时幂等拒绝重复派发；
+- 显式交接中的每个可解析 task 引用都必须先与目标 Agent 的权威 owner 对齐；只要存在 owner mismatch，就在创建 pass/worklist 前以稳定 reason code 失败关闭，不能把“目标名下没有该 task”降级成无 task 约束的普通文本 A2A；
 - daemon 解析出本轮唯一 runtime task path 后必须把它绑定到 task；Harness 接受 owner dispatch 并推进 `pending → in_progress` 时，必须在发布通知前把权威状态投影到该路径；
+- Git worktree 模式可以复用 conversation 级执行目录，但 session/GC 元数据仍按 conversation/agent/task 隔离；元数据写入口必须自行创建 scoped task root，且元数据目录缺失不能把已经完成的 Agent invocation 误报为 `spawn_failed`；
 - watcher 必须显式接收 conversation identity，并以 conversation + runtime path 共同隔离 watcher/debounce 生命周期；不得从目录 basename 猜测任务域；
 - watcher 完成文件门禁与数据库更新后，`task.sync` 必须广播 Task Graph 的权威状态投影，不能把被拒绝或被主动 invocation 保护的原始 `TASKS.md` 状态重新覆盖到页面；
 - Harness runtime 投影测试必须覆盖 task 已不存在的 stale wakeup no-op，以及 `work_dir` 缺失、`TASKS.md` 中缺少目标 task、任务文件 I/O 异常三类 reconciliation failure；投影失败不能回滚已接受的 Task Graph 转换，必须留下单一、可操作的 proof 与 `task.sync_error`，持久化异常文本须净化并限制长度；
@@ -127,6 +133,8 @@ Agent 正文中的 Markdown 链接仍可显示，但不具有状态转换权威�
 
 - GitHub 未认证：`git_provider_auth_missing`，卡片不创建，任务保持原状态；
 - PR 不存在或仓库不匹配：`pull_request_not_found` / `repository_mismatch`；
+- REJECT 后换 PR：`pull_request_changed`，保留原任务状态与回执；
+- REJECT 后原样重报同一 head：`pull_request_head_unchanged`，保留原任务状态与回执；
 - PR head 已变化：`pull_request_head_changed`，旧评审失效并重新唤醒 Peach；
 - review 未落到 provider：`review_receipt_missing`；
 - checks 失败：`pull_request_checks_failed`，退回 Luigi；
@@ -150,3 +158,4 @@ Agent 正文中的 Markdown 链接仍可显示，但不具有状态转换权威�
 - 真实 GitHub PR 上能看到 Peach 产生的评论或 review；
 - REJECT→Luigi 修复→同一 PR 重审以及新 commit 使旧批准失效均有自动化覆盖；
 - 使用四个真实 Agent runtime 完成一次浏览器端到端协作并可从 Task Graph、GitHub、聊天卡片和 observability 交叉验证。
+- 浏览器演练中，当前持球顺序必须服从 Task Graph 依赖；计划清单 mention、重复 wakeup 或 `agent_busy` 竞态不能提前启动下游角色。

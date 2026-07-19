@@ -30,6 +30,7 @@ import { taskGraphRepo } from '../repositories/task-graph-repo';
 
 const MIN_SUBSTANTIVE_LENGTH = 50;
 const ACTION_PLACEHOLDER = /^(?:收到|好的?|明白|了解|我看看|稍等|ok(?:ay)?|got it|ack|todo|tbd)[。.!！\s]*$/i;
+const ACTIVE_TASK_STATUSES = new Set(['in_progress', 'in_review']);
 
 export function isMissingRequestedAction(content: string | undefined): boolean {
   const text = content?.trim() ?? '';
@@ -69,6 +70,16 @@ function formatDispatchBlockReason(reason: string): string {
     return `本轮 A2A 链路已达到最大转交次数，请收束当前任务或让用户/统筹开启新一轮。`;
   }
   return reason;
+}
+
+function resolveReferencedTasks(
+  content: string,
+  tasks: TaskSummary[],
+): TaskSummary[] {
+  const taskIds = Array.from(content.matchAll(/\bTASK-\d+\b/gi), (match) => match[0].toUpperCase());
+  return taskIds
+    .map((taskId) => tasks.find((task) => task.id.toUpperCase() === taskId))
+    .filter((task): task is TaskSummary => task !== undefined);
 }
 
 export interface OrchestratorConfig {
@@ -205,6 +216,84 @@ export class Orchestrator {
       });
       this.emitPassBlocked(chain.conversationId, chain.id, req.fromAgentId, req.toAgentId, reason);
       return { allow: false, reason, silent: false };
+    }
+
+    const conversationTasks = this.config.getTasksForConversation(chain.conversationId);
+    const referencedTasks = resolveReferencedTasks(req.content, conversationTasks);
+    const ownerMismatchTask = referencedTasks.find((task) => task.agentId !== req.toAgentId);
+    if (ownerMismatchTask) {
+      const reason = `task ${ownerMismatchTask.id} is owned by ${ownerMismatchTask.agentId}, not ${req.toAgentId}`;
+      this.possessionRepo.createBlockedPass({
+        chainId: chain.id,
+        fromHolderId: req.fromAgentId,
+        toAgentId: req.toAgentId,
+        intent: req.intent ?? 'delegate',
+        phase: 'policy',
+        reason,
+      });
+      this.audit('dispatch_blocked', {
+        chainId: chain.id,
+        conversationId: chain.conversationId,
+        fromAgentId: req.fromAgentId,
+        toAgentId: req.toAgentId,
+        reason,
+        metadata: {
+          blockedBy: 'task_owner_mismatch',
+          taskId: ownerMismatchTask.id,
+          taskOwnerAgentId: ownerMismatchTask.agentId,
+          targetAgentId: req.toAgentId,
+        },
+      });
+      this.emitPassBlocked(chain.conversationId, chain.id, req.fromAgentId, req.toAgentId, reason);
+      return { allow: false, reason, silent: false };
+    }
+    const referencedTargetTask = referencedTasks.find((task) => task.agentId === req.toAgentId);
+    if (referencedTargetTask && ACTIVE_TASK_STATUSES.has(referencedTargetTask.status)) {
+      const reason = `task ${referencedTargetTask.id} is already ${referencedTargetTask.status}`;
+      this.audit('dispatch_blocked', {
+        chainId: chain.id,
+        conversationId: chain.conversationId,
+        fromAgentId: req.fromAgentId,
+        toAgentId: req.toAgentId,
+        reason,
+        metadata: {
+          blockedBy: 'task_already_active',
+          taskId: referencedTargetTask.id,
+          taskStatus: referencedTargetTask.status,
+        },
+      });
+      return { allow: false, reason, silent: true };
+    }
+    if (referencedTargetTask?.dependencyIds?.length) {
+      const taskById = new Map(conversationTasks.map((task) => [task.id, task]));
+      const unmetDependencyIds = referencedTargetTask.dependencyIds.filter(
+        (taskId) => taskById.get(taskId)?.status !== 'done',
+      );
+      if (unmetDependencyIds.length > 0) {
+        const reason = `task ${referencedTargetTask.id} dependencies unmet: ${unmetDependencyIds.join(', ')}`;
+        this.possessionRepo.createBlockedPass({
+          chainId: chain.id,
+          fromHolderId: req.fromAgentId,
+          toAgentId: req.toAgentId,
+          intent: req.intent ?? 'delegate',
+          phase: 'policy',
+          reason,
+        });
+        this.audit('dispatch_blocked', {
+          chainId: chain.id,
+          conversationId: chain.conversationId,
+          fromAgentId: req.fromAgentId,
+          toAgentId: req.toAgentId,
+          reason,
+          metadata: {
+            blockedBy: 'task_dependencies',
+            taskId: referencedTargetTask.id,
+            unmetDependencyIds,
+          },
+        });
+        this.emitPassBlocked(chain.conversationId, chain.id, req.fromAgentId, req.toAgentId, reason);
+        return { allow: false, reason, silent: false };
+      }
     }
 
     // Depth check

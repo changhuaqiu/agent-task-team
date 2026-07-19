@@ -186,4 +186,25 @@ describe('scanPassIntents', () => {
 
     expect(results).toHaveLength(0);
   });
+
+  it('treats phased task rosters as projections and keeps only the explicit current handoff', () => {
+    const response = [
+      '依赖链：TASK-002 → TASK-003 → TASK-004 → TASK-005。',
+      'PHASE P1 — architecture_gate',
+      '- TASK: TASK-002 核验 PR 连续性门禁与证据边界 @dk',
+      'PHASE P2 — implementing',
+      '- TASK: TASK-003 检查现有实现、自测并记录 PR 回执 @luigi',
+      'PHASE P3 — quality_gate',
+      '- TASK: TASK-004 基于真实 diff 提出 blocker 并 REJECT @peach',
+      '@dk 请立即启动 TASK-002，完成架构评审并更新任务状态。',
+    ].join('\n');
+
+    expect(scanPassIntents(response, AGENTS, 'mario')).toMatchObject([
+      {
+        agentId: 'dk',
+        intent: 'delegate',
+        content: expect.stringContaining('请立即启动 TASK-002'),
+      },
+    ]);
+  });
 });

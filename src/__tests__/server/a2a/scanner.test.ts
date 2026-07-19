@@ -92,12 +92,11 @@ describe('extractMentionContent', () => {
     expect(content).not.toContain('BUG-7 done');
   });
 
-  it('falls back to full text when mention content is too short', () => {
+  it('keeps trailing mention content empty instead of borrowing the full response', () => {
     const text = '内容 @luigi';
     const targets = scanMentions(text, AGENTS, 'mario');
     const content = extractMentionContent(text, targets[0]);
-    // No content after mention, falls back to full text
-    expect(content).toBe(text);
+    expect(content).toBe('');
   });
 
   it('stops at next @mention', () => {

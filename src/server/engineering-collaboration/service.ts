@@ -23,6 +23,8 @@ export type EngineeringCollaborationReasonCode =
   | 'task_actor_mismatch'
   | 'task_not_reviewable'
   | 'pull_request_not_open'
+  | 'pull_request_changed'
+  | 'pull_request_head_unchanged'
   | 'pull_request_receipt_missing'
   | 'pull_request_head_changed'
   | 'review_actor_not_allowed'
@@ -159,12 +161,15 @@ export class EngineeringCollaborationService {
     const previousPullRequestAction = latestPullRequestAction(task.id);
     const previousPullRequestPayload = previousPullRequestAction ? parsePayload(previousPullRequestAction) : undefined;
     const previousPullRequest = previousPullRequestPayload?.receipt as PullRequestReceipt | undefined;
-    if (task.status === 'in_review') {
-      if (!previousPullRequest || previousPullRequest.url !== receipt.url) {
+    if (task.status === 'in_review' || task.status === 'rejected') {
+      if (!previousPullRequest) {
         throw new EngineeringCollaborationError('review_receipt_mismatch', 'An in-review task must keep using its verified pull request');
       }
+      if (previousPullRequest.url !== receipt.url) {
+        throw new EngineeringCollaborationError('pull_request_changed', 'Rejected or in-review work must keep using its verified pull request');
+      }
       if (previousPullRequest.headSha === receipt.headSha) {
-        throw new EngineeringCollaborationError('task_not_reviewable', 'The pull request head has not changed');
+        throw new EngineeringCollaborationError('pull_request_head_unchanged', 'The pull request head has not changed');
       }
     }
     const previousReviewAction = latestReviewAction(task.id);
