@@ -2,7 +2,7 @@
 
 > 状态：执行中
 > 日期：2026-07-19
-> 关联 Issue：[#54](https://github.com/changhuaqiu/agent-task-team/issues/54)、[#55](https://github.com/changhuaqiu/agent-task-team/issues/55)
+> 关联 Issue：[#54](https://github.com/changhuaqiu/agent-task-team/issues/54)、[#55](https://github.com/changhuaqiu/agent-task-team/issues/55)、[#56](https://github.com/changhuaqiu/agent-task-team/issues/56)
 > 演练分支：`codex/git-collaboration-e2e-20260719`
 
 ## 1. 目标
@@ -38,6 +38,7 @@
 | E2E-GIT-04 | Peach | 基于真实 PR diff、自测和 CI 证据执行 REJECT / PASS 两轮评审 |
 | E2E-GIT-05 | Mario | 授权合并后在 main 复验并核对 merge receipt |
 | E2E-GIT-06 | Luigi | 修复 package manifest 与 pnpm lockfile 不一致，并复验 frozen install |
+| E2E-GIT-07 | Luigi | 将 ACP 测试直接使用的 `tsx` 声明为 devDependency，并复验 subprocess 测试 |
 
 ## 3. 架构评审记录（G1）
 
@@ -76,12 +77,26 @@
 
 ## 4. 验收
 
-- [ ] Issue #54 在开发前创建并关联 PR
-- [ ] Issue #55 的 lockfile 一致性缺陷已修复，干净 worktree 的 frozen install 通过
-- [ ] 规格与长期技术设计先于实现更新
-- [ ] 两条失败路径先由回归测试证明
-- [ ] 定向测试、全量测试、类型检查、构建通过
+- [x] Issue #54 在开发前创建；PR 创建后补关联
+- [x] Issue #55 的 lockfile 一致性缺陷已修复，干净 worktree 的 frozen install 通过
+- [x] Issue #56 的测试依赖缺口已修复，ACP subprocess/hardening 测试 19/19 通过
+- [x] 规格与长期技术设计先于实现更新
+- [x] 两条失败路径先由回归测试证明
+- [x] 定向测试 28/28、全量测试 1126/1126、类型检查和生产构建通过
 - [ ] 真实 PR 上完成一次 REJECT → 修复 → PASS
 - [ ] 新 commit 使旧评审失效，并由当前 head 的新评审放行
 - [ ] 合并后在 `main` 复验并记录 provider merge receipt
 - [ ] GitHub、Task Graph、PR/review/merge SHA 可交叉核对
+
+## 5. 开发自测证据
+
+| 门禁 | 结果 |
+| --- | --- |
+| `pnpm install --frozen-lockfile` | PASS；Issue #55 修复后干净安装成功 |
+| 门禁回归（修复前） | 2 条新增用例按预期失败，证明换 PR 和同 SHA 重报均可绕过 |
+| 协作相关定向测试 | 5 files / 28 tests PASS |
+| ACP subprocess/hardening | 2 files / 19 tests PASS；Issue #56 收敛 |
+| TypeScript | `pnpm exec tsc --noEmit` PASS |
+| Scoped ESLint | 目标 service 与 test PASS |
+| Production build | `pnpm build` PASS |
+| 全量 Vitest | 126 files / 1126 tests PASS |
