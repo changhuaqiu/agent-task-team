@@ -2,7 +2,7 @@
 
 > 状态：执行中
 > 日期：2026-07-19
-> 关联 Issue：[#54](https://github.com/changhuaqiu/agent-task-team/issues/54)
+> 关联 Issue：[#54](https://github.com/changhuaqiu/agent-task-team/issues/54)、[#55](https://github.com/changhuaqiu/agent-task-team/issues/55)
 > 演练分支：`codex/git-collaboration-e2e-20260719`
 
 ## 1. 目标
@@ -37,6 +37,7 @@
 | E2E-GIT-03 | Luigi | 实现同一 PR / 新 head 门禁与回归测试 |
 | E2E-GIT-04 | Peach | 基于真实 PR diff、自测和 CI 证据执行 REJECT / PASS 两轮评审 |
 | E2E-GIT-05 | Mario | 授权合并后在 main 复验并核对 merge receipt |
+| E2E-GIT-06 | Luigi | 修复 package manifest 与 pnpm lockfile 不一致，并复验 frozen install |
 
 ## 3. 架构评审记录（G1）
 
@@ -76,6 +77,7 @@
 ## 4. 验收
 
 - [ ] Issue #54 在开发前创建并关联 PR
+- [ ] Issue #55 的 lockfile 一致性缺陷已修复，干净 worktree 的 frozen install 通过
 - [ ] 规格与长期技术设计先于实现更新
 - [ ] 两条失败路径先由回归测试证明
 - [ ] 定向测试、全量测试、类型检查、构建通过
