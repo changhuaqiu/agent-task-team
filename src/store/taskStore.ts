@@ -192,7 +192,7 @@ export const createTaskSlice = (set: any, get: () => any) => {
       }).catch((err: any) => console.error('[mutation] task.update failed:', err));
     },
 
-    updateTaskStatus: (taskId: string, status: TaskStatus, reviewNote?: string, evidence?: Record<string, unknown>) => {
+    updateTaskStatus: async (taskId: string, status: TaskStatus, reviewNote?: string, evidence?: Record<string, unknown>) => {
       const prev = get().getTaskById(taskId);
       if (!prev) return;
       const conversationId = prev.conversationId;
@@ -210,19 +210,7 @@ export const createTaskSlice = (set: any, get: () => any) => {
         ),
       }));
 
-      get().addEvent({
-        conversationId,
-        type: 'task.status_changed',
-        payload: { taskId, status, reviewNote },
-      });
-
-      fetch('/api/mutations', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ type: 'task.updateStatus', payload: { id: taskId, status, reviewNote, evidence } }),
-      }).then(async (response) => {
-        if (response.ok) return;
-        const body = await response.json().catch(() => ({}));
+      const rollbackWithBlocker = (reasonSummary: string) => {
         set((state: any) => ({
           tasks: state.tasks.map((task: Task) =>
             task.id === taskId
@@ -240,11 +228,36 @@ export const createTaskSlice = (set: any, get: () => any) => {
           taskId,
           type: 'gate_fail',
           gateId: status === 'done' ? 'build' : 'unit',
-          reasonSummary: body.error || `状态流转到 ${status} 被门禁拒绝。`,
+          reasonSummary,
         });
-      }).catch((err: any) => console.error('[mutation] task.updateStatus failed:', err));
+      };
 
-      if (prev && status === 'in_progress') {
+      try {
+        const response = await fetch('/api/mutations', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ type: 'task.updateStatus', payload: { id: taskId, status, reviewNote, evidence } }),
+        });
+        if (!response.ok) {
+          const body = await response.json().catch(() => ({}));
+          const responseError = typeof body?.error === 'string' ? body.error : '';
+          const httpError = `HTTP ${response.status}${response.statusText ? ` ${response.statusText}` : ''}`;
+          rollbackWithBlocker(responseError || `状态流转到 ${status} 被服务端拒绝（${httpError}）。`);
+          return;
+        }
+      } catch (error) {
+        const networkError = error instanceof Error ? error.message : String(error);
+        rollbackWithBlocker(`状态流转到 ${status} 失败：${networkError}`);
+        return;
+      }
+
+      get().addEvent({
+        conversationId,
+        type: 'task.status_changed',
+        payload: { taskId, status, reviewNote },
+      });
+
+      if (status === 'in_progress') {
         get().dispatchToAgent({
           agentId: prev.agentId,
           referencedTaskId: prev.id,
@@ -252,26 +265,24 @@ export const createTaskSlice = (set: any, get: () => any) => {
         });
       }
 
-      // Emit task status card in chat
       const updated = get().getTaskById(taskId);
-      if (updated) {
-        const convId = updated.conversationId;
-        const msg = {
-          id: `msg-${Date.now()}-ts-${taskId}`,
-          agentId: updated.agentId || 'system',
-          content: `${taskId} status → ${status}`,
-          timestamp: new Date().toISOString(),
-          intent: 'task_status' as const,
-          conversationId: convId,
-          metadata: { taskId, title: updated.title, status, agentId: updated.agentId },
-        };
-        set((s: any) => ({
-          chatMessagesByConversation: {
-            ...s.chatMessagesByConversation,
-            [convId]: [...(s.chatMessagesByConversation[convId] || []), msg],
-          },
-        }));
-      }
+      if (!updated) return;
+      const convId = updated.conversationId;
+      const msg = {
+        id: `msg-${Date.now()}-ts-${taskId}`,
+        agentId: updated.agentId || 'system',
+        content: `${taskId} status → ${status}`,
+        timestamp: new Date().toISOString(),
+        intent: 'task_status' as const,
+        conversationId: convId,
+        metadata: { taskId, title: updated.title, status, agentId: updated.agentId },
+      };
+      set((s: any) => ({
+        chatMessagesByConversation: {
+          ...s.chatMessagesByConversation,
+          [convId]: [...(s.chatMessagesByConversation[convId] || []), msg],
+        },
+      }));
     },
 
     upsertPhase: (phaseData: Omit<Phase, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }): string => {

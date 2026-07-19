@@ -665,7 +665,7 @@ export interface TaskHubState {
   fixBlocker: (conversationId: string, blockerId: string) => void;
   inviteAgent:      (agentId: string) => void;
   dismissAgent:     (agentId: string) => void;
-  updateTaskStatus: (taskId: string, status: TaskStatus, reviewNote?: string, evidence?: Record<string, unknown>) => void;
+  updateTaskStatus: (taskId: string, status: TaskStatus, reviewNote?: string, evidence?: Record<string, unknown>) => Promise<void>;
   addTask:          (taskData: Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'conversationId' | 'phaseId'> & { phaseId?: string }) => void;
   removeTask:       (taskId: string) => void;
   updateTask:       (taskId: string, patch: Partial<Pick<Task, 'title' | 'description' | 'agentId' | 'dependencies' | 'artifacts'>>) => void;

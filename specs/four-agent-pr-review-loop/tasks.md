@@ -33,6 +33,7 @@
 - [x] T20 真实 ACP 平台工具、旧 worktree 迁移与 Task Graph/文件/Web 状态收敛验证
 - [x] T21 补齐 Harness runtime 投影失败矩阵，并稳定全量并发下的 Git worktree 与 ACP 子进程生命周期测试
 - [x] T22 修复 REJECT 后可换 PR 或原样重报同一 head SHA 的回执连续性门禁（Issue #54）
-- [ ] T23 阻止 Agent 计划清单 mention 绕过 Task Graph 依赖，并收敛 task_assign/A2A 重复派发竞态（Issue #58）
-- [ ] T24 显式 A2A 引用错误 owner 的 task 时在创建 pass 前失败关闭（Issue #59）
-- [ ] T25 Git worktree 运行完成后安全写入 scoped session/GC 元数据，不再误报 spawn_failed（Issue #60）
+- [x] T23 阻止 Agent 计划清单 mention 绕过 Task Graph 依赖，并收敛 task_assign/A2A 重复派发竞态（Issue #58）
+- [x] T24 显式 A2A 引用错误 owner 的 task 时在创建 pass 前失败关闭（Issue #59）
+- [x] T25 Git worktree 运行完成后安全写入 scoped session/GC 元数据，不再误报 spawn_failed（Issue #60）
+- [x] T26 Web 客户端任务状态成功副作用等待服务端确认，拒绝或网络异常只回滚并展示 blocker（Issue #61）

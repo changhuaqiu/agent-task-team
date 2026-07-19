@@ -80,9 +80,9 @@
 - [x] Issue #54 在开发前创建；PR 创建后补关联
 - [x] Issue #55 的 lockfile 一致性缺陷已修复，干净 worktree 的 frozen install 通过
 - [x] Issue #56 的测试依赖缺口已修复，ACP subprocess/hardening 测试 19/19 通过
-- [ ] Issue #58：Web UI 发现计划清单 mention 可绕过 Task Graph 依赖并触发重复派发；先冻结门禁设计，再补回归和页面复验
-- [ ] Issue #59：显式 A2A 引用真实存在但 owner 不属于目标 Agent 的 task 时没有失败关闭
-- [ ] Issue #60：Git worktree turn 完成后 session/GC 元数据目录缺失，ENOENT 将正常完成误报为 spawn_failed
+- [x] Issue #58：Web UI 发现计划清单 mention 可绕过 Task Graph 依赖并触发重复派发；先冻结门禁设计，再补回归和页面复验
+- [x] Issue #59：显式 A2A 引用真实存在但 owner 不属于目标 Agent 的 task 时没有失败关闭
+- [x] Issue #60：Git worktree turn 完成后 session/GC 元数据目录缺失，ENOENT 将正常完成误报为 spawn_failed
 - [x] 规格与长期技术设计先于实现更新
 - [x] 两条失败路径先由回归测试证明
 - [x] 定向测试 28/28、全量测试 1126/1126、类型检查和生产构建通过
@@ -120,7 +120,7 @@
 | TypeScript | `pnpm exec tsc --noEmit` PASS |
 | Scoped ESLint | 新增 scanner、intent、snapshot 源码与定向测试 PASS；既有 integration/orchestrator 文件仍有历史 `no-explicit-any` 基线 |
 | Production build | PASS；保留既有 worktree-manager NFT tracing warning |
-| Web UI 回归 | 待新 head 推送后，以全新 conversation 验证持球顺序 |
+| Web UI 回归 | PASS；第二轮全新 conversation 仅 DK 启动，下游未提前持球 |
 
 ## 7. Web UI 运行时完成边界回归（Issue #59 / #60）
 
@@ -134,3 +134,16 @@
 - owner mismatch 不创建 pass、worklist 或 dispatch，并留下稳定 `task_owner_mismatch` 审计证据；
 - session/GC 元数据写入在非 worktree 与共享 Git worktree 模式都自行确保 scoped task root；
 - Web UI 中 Agent 正常结束后不再出现由元数据 ENOENT 导致的 `spawn_failed`。
+
+## 8. Web UI 客户端确认边界回归（Issue #61）
+
+第三轮使用全新 Web UI 项目和唯一任务 `TASK-015`，专门验证同一任务、同一 PR 在门禁拒绝后的状态一致性：
+
+- Luigi 通过平台工具登记 PR #57，平台校验 head `8bb36273fa760bd70faccf08c9cde85c7def0710` 后将任务推进到 review；
+- Peach 复用真实 GitHub 评论并通过平台工具登记 REJECT，平台校验评论作者、PR、head 与决策后，将同一任务退回 rejected 并自动唤醒 Luigi；
+- 真实阻塞问题为 [Issue #61](https://github.com/changhuaqiu/agent-task-team/issues/61)，对应拒绝评论为 [PR #57 comment](https://github.com/changhuaqiu/agent-task-team/pull/57#issuecomment-5014203721)；
+- 根因是 Web 客户端在服务端确认任务状态前就发布 `task.status_changed`、成功聊天卡和后续调度，导致 403 或网络失败仍残留“已完成”叙事；
+- 修复将任务状态更新改为异步确认边界：只乐观更新任务实体，成功副作用等待 `response.ok`；非 2xx 与网络异常统一回滚并展示 blocker，不再发布成功回执或触发下游；
+- 定向回归覆盖 pending-success、403 和网络异常三个分支，共 3 项通过；TypeScript 类型检查与 `git diff --check` 通过。
+
+当前等待把修复提交到同一 PR 的新 head；旧 head 不得重新提交，也不得绕过 Peach 的新一轮复审。
