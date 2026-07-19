@@ -72,15 +72,14 @@ function formatDispatchBlockReason(reason: string): string {
   return reason;
 }
 
-function resolveReferencedTargetTask(
+function resolveReferencedTasks(
   content: string,
-  targetAgentId: string,
   tasks: TaskSummary[],
-): TaskSummary | undefined {
+): TaskSummary[] {
   const taskIds = Array.from(content.matchAll(/\bTASK-\d+\b/gi), (match) => match[0].toUpperCase());
   return taskIds
     .map((taskId) => tasks.find((task) => task.id.toUpperCase() === taskId))
-    .find((task) => task?.agentId === targetAgentId);
+    .filter((task): task is TaskSummary => task !== undefined);
 }
 
 export interface OrchestratorConfig {
@@ -220,7 +219,35 @@ export class Orchestrator {
     }
 
     const conversationTasks = this.config.getTasksForConversation(chain.conversationId);
-    const referencedTargetTask = resolveReferencedTargetTask(req.content, req.toAgentId, conversationTasks);
+    const referencedTasks = resolveReferencedTasks(req.content, conversationTasks);
+    const ownerMismatchTask = referencedTasks.find((task) => task.agentId !== req.toAgentId);
+    if (ownerMismatchTask) {
+      const reason = `task ${ownerMismatchTask.id} is owned by ${ownerMismatchTask.agentId}, not ${req.toAgentId}`;
+      this.possessionRepo.createBlockedPass({
+        chainId: chain.id,
+        fromHolderId: req.fromAgentId,
+        toAgentId: req.toAgentId,
+        intent: req.intent ?? 'delegate',
+        phase: 'policy',
+        reason,
+      });
+      this.audit('dispatch_blocked', {
+        chainId: chain.id,
+        conversationId: chain.conversationId,
+        fromAgentId: req.fromAgentId,
+        toAgentId: req.toAgentId,
+        reason,
+        metadata: {
+          blockedBy: 'task_owner_mismatch',
+          taskId: ownerMismatchTask.id,
+          taskOwnerAgentId: ownerMismatchTask.agentId,
+          targetAgentId: req.toAgentId,
+        },
+      });
+      this.emitPassBlocked(chain.conversationId, chain.id, req.fromAgentId, req.toAgentId, reason);
+      return { allow: false, reason, silent: false };
+    }
+    const referencedTargetTask = referencedTasks.find((task) => task.agentId === req.toAgentId);
     if (referencedTargetTask && ACTIVE_TASK_STATUSES.has(referencedTargetTask.status)) {
       const reason = `task ${referencedTargetTask.id} is already ${referencedTargetTask.status}`;
       this.audit('dispatch_blocked', {

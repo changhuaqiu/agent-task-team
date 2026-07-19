@@ -86,6 +86,15 @@ export class WorkdirManager {
     return this.managerForRepo(repoRoot);
   }
 
+  private taskRoot(agentId: string, projectId: string, taskId: string): string {
+    return path.join(
+      this.root,
+      safeWorkdirSegment(projectId),
+      safeWorkdirSegment(agentId),
+      `task-${safeWorkdirSegment(taskId)}`,
+    );
+  }
+
   async resolveWorkdir(
     agentId: string,
     projectId: string,
@@ -110,35 +119,21 @@ export class WorkdirManager {
   }
 
   writeSessionMeta(agentId: string, projectId: string, taskId: string, meta: SessionMeta): void {
-    const taskRoot = path.join(
-      this.root,
-      safeWorkdirSegment(projectId),
-      safeWorkdirSegment(agentId),
-      `task-${safeWorkdirSegment(taskId)}`,
-    );
+    const taskRoot = this.taskRoot(agentId, projectId, taskId);
+    fs.mkdirSync(taskRoot, { recursive: true });
     const metaPath = path.join(taskRoot, '.session.json');
     fs.writeFileSync(metaPath, JSON.stringify({ ...meta, updatedAt: new Date().toISOString() }));
   }
 
   readSessionMeta(agentId: string, projectId: string, taskId: string): SessionMeta | null {
-    const metaPath = path.join(
-      this.root,
-      safeWorkdirSegment(projectId),
-      safeWorkdirSegment(agentId),
-      `task-${safeWorkdirSegment(taskId)}`,
-      '.session.json',
-    );
+    const metaPath = path.join(this.taskRoot(agentId, projectId, taskId), '.session.json');
     if (!fs.existsSync(metaPath)) return null;
     return JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
   }
 
   writeGCMeta(agentId: string, projectId: string, taskId: string): void {
-    const taskRoot = path.join(
-      this.root,
-      safeWorkdirSegment(projectId),
-      safeWorkdirSegment(agentId),
-      `task-${safeWorkdirSegment(taskId)}`,
-    );
+    const taskRoot = this.taskRoot(agentId, projectId, taskId);
+    fs.mkdirSync(taskRoot, { recursive: true });
     const gcPath = path.join(taskRoot, '.gc_meta.json');
     fs.writeFileSync(gcPath, JSON.stringify({
       taskId,

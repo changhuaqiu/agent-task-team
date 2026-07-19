@@ -298,6 +298,51 @@ describe('A2A v2 integration', () => {
     expect(unblockedDispatches).toHaveLength(1);
   });
 
+  it('fails closed when an explicit handoff references a task owned by another agent', async () => {
+    testTasks = [
+      { id: 'TASK-002', title: '质量评审', status: 'pending', agent_id: 'peach' },
+    ];
+    messenger.onUserMessage('conv-1', 'msg-task-owner-gate', 'mario', '按任务 owner 推进');
+
+    await messenger.onAgentResponse('mario', '@luigi 请立即执行 TASK-002，开始质量评审。', {
+      conversationId: 'conv-1',
+      chainDepth: 0,
+    });
+
+    const luigiDispatches = io.emitted().filter(
+      ([event, payload]) => event === 'a2a:dispatch' && payload.agentId === 'luigi',
+    );
+    expect(luigiDispatches).toHaveLength(0);
+
+    const blockedPass = db.prepare(`
+      SELECT status, phase, reason
+      FROM a2a_pass
+      WHERE to_agent_id = 'luigi'
+      ORDER BY created_at DESC
+      LIMIT 1
+    `).get() as { status: string; phase: string; reason: string };
+    expect(blockedPass).toMatchObject({
+      status: 'blocked',
+      phase: 'policy',
+    });
+    expect(blockedPass.reason).toContain('TASK-002');
+    expect(blockedPass.reason).toContain('peach');
+
+    const blockedAudit = db.prepare(`
+      SELECT metadata
+      FROM a2a_audit_log
+      WHERE event_type = 'dispatch_blocked'
+      ORDER BY created_at DESC
+      LIMIT 1
+    `).get() as { metadata: string };
+    expect(JSON.parse(blockedAudit.metadata)).toMatchObject({
+      blockedBy: 'task_owner_mismatch',
+      taskId: 'TASK-002',
+      taskOwnerAgentId: 'peach',
+      targetAgentId: 'luigi',
+    });
+  });
+
   it('treats a handoff to an already-running target task as an idempotent no-op', async () => {
     testTasks = [
       { id: 'TASK-002', title: '架构评审', status: 'in_progress', agent_id: 'luigi' },

@@ -34,3 +34,5 @@
 - [x] T21 补齐 Harness runtime 投影失败矩阵，并稳定全量并发下的 Git worktree 与 ACP 子进程生命周期测试
 - [x] T22 修复 REJECT 后可换 PR 或原样重报同一 head SHA 的回执连续性门禁（Issue #54）
 - [ ] T23 阻止 Agent 计划清单 mention 绕过 Task Graph 依赖，并收敛 task_assign/A2A 重复派发竞态（Issue #58）
+- [ ] T24 显式 A2A 引用错误 owner 的 task 时在创建 pass 前失败关闭（Issue #59）
+- [ ] T25 Git worktree 运行完成后安全写入 scoped session/GC 元数据，不再误报 spawn_failed（Issue #60）

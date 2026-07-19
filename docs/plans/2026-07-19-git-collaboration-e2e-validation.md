@@ -81,6 +81,8 @@
 - [x] Issue #55 的 lockfile 一致性缺陷已修复，干净 worktree 的 frozen install 通过
 - [x] Issue #56 的测试依赖缺口已修复，ACP subprocess/hardening 测试 19/19 通过
 - [ ] Issue #58：Web UI 发现计划清单 mention 可绕过 Task Graph 依赖并触发重复派发；先冻结门禁设计，再补回归和页面复验
+- [ ] Issue #59：显式 A2A 引用真实存在但 owner 不属于目标 Agent 的 task 时没有失败关闭
+- [ ] Issue #60：Git worktree turn 完成后 session/GC 元数据目录缺失，ENOENT 将正常完成误报为 spawn_failed
 - [x] 规格与长期技术设计先于实现更新
 - [x] 两条失败路径先由回归测试证明
 - [x] 定向测试 28/28、全量测试 1126/1126、类型检查和生产构建通过
@@ -119,3 +121,16 @@
 | Scoped ESLint | 新增 scanner、intent、snapshot 源码与定向测试 PASS；既有 integration/orchestrator 文件仍有历史 `no-explicit-any` 基线 |
 | Production build | PASS；保留既有 worktree-manager NFT tracing warning |
 | Web UI 回归 | 待新 head 推送后，以全新 conversation 验证持球顺序 |
+
+## 7. Web UI 运行时完成边界回归（Issue #59 / #60）
+
+第二轮浏览器演练证明依赖门禁已阻止下游提前启动，但又暴露两个完成边界缺陷：
+
+1. 架构评审发现显式 A2A 若引用非目标 Agent 所属 task，当前解析会先按目标 owner 过滤并降级成普通 A2A，违反 fail-closed 约束；
+2. DK 正常完成后，`writeGCMeta` 向尚未创建的 `workspaces/<conversation>/<agent>/task-<id>` 写入 `.gc_meta.json`，触发 ENOENT；Mario 的 `.session.json` / `.gc_meta.json` 同样复现，页面最终显示 `spawn_failed`。
+
+修复验收：
+
+- owner mismatch 不创建 pass、worklist 或 dispatch，并留下稳定 `task_owner_mismatch` 审计证据；
+- session/GC 元数据写入在非 worktree 与共享 Git worktree 模式都自行确保 scoped task root；
+- Web UI 中 Agent 正常结束后不再出现由元数据 ENOENT 导致的 `spawn_failed`。

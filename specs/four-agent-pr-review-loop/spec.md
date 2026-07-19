@@ -120,7 +120,9 @@ Agent 正文中的 Markdown 链接仍可显示，但不具有状态转换权威�
 - repository-scoped storage 上线前已经存在的同名 conversation worktree 必须通过 Git worktree registry 安全迁移：兼容相同/祖先基线并保留领先提交；需要 fast-forward 时工作区必须干净，分叉或可能覆盖未提交工作时 fail closed。不得删除旧工作或重复创建已存在的 branch；
 - task 状态推进与 Agent 派发只能由服务端 Task Graph / Harness 决定；Web 客户端不得根据兼容事件自行把 `pending` 改为 `in_progress` 或再次派发 Agent；
 - Agent 回复中的 PHASE/TASK roster 及 owner `@mention` 只是任务投影，不得触发即时 A2A；显式交接引用目标 task 时，服务端必须校验 owner 与 `depends_on`，依赖未完成时失败关闭，目标 task 已在执行/评审时幂等拒绝重复派发；
+- 显式交接中的每个可解析 task 引用都必须先与目标 Agent 的权威 owner 对齐；只要存在 owner mismatch，就在创建 pass/worklist 前以稳定 reason code 失败关闭，不能把“目标名下没有该 task”降级成无 task 约束的普通文本 A2A；
 - daemon 解析出本轮唯一 runtime task path 后必须把它绑定到 task；Harness 接受 owner dispatch 并推进 `pending → in_progress` 时，必须在发布通知前把权威状态投影到该路径；
+- Git worktree 模式可以复用 conversation 级执行目录，但 session/GC 元数据仍按 conversation/agent/task 隔离；元数据写入口必须自行创建 scoped task root，且元数据目录缺失不能把已经完成的 Agent invocation 误报为 `spawn_failed`；
 - watcher 必须显式接收 conversation identity，并以 conversation + runtime path 共同隔离 watcher/debounce 生命周期；不得从目录 basename 猜测任务域；
 - watcher 完成文件门禁与数据库更新后，`task.sync` 必须广播 Task Graph 的权威状态投影，不能把被拒绝或被主动 invocation 保护的原始 `TASKS.md` 状态重新覆盖到页面；
 - Harness runtime 投影测试必须覆盖 task 已不存在的 stale wakeup no-op，以及 `work_dir` 缺失、`TASKS.md` 中缺少目标 task、任务文件 I/O 异常三类 reconciliation failure；投影失败不能回滚已接受的 Task Graph 转换，必须留下单一、可操作的 proof 与 `task.sync_error`，持久化异常文本须净化并限制长度；

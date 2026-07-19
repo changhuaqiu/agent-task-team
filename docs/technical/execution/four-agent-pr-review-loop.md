@@ -56,6 +56,10 @@ Task Graph / Harness 是任务状态推进和 Agent 派发的唯一服务端边�
 
 A2A 文本交接不能成为 Task Graph 门禁的旁路。Agent 回复中的 PHASE/TASK 清单属于计划投影，其中的 owner `@mention` 只用于说明归属，不得被识别为即时派发；真正的主动交接必须是独立、明确的执行句。若交接文本引用了目标 Agent 名下的 task，A2A Orchestrator 必须在写入 worklist 前校验该 task 的依赖：依赖未完成时失败关闭；目标 task 已经处于执行或评审状态时按幂等重复派发静默拒绝。这样 `task_assign` 的自动 wakeup 与 Agent 文本交接发生竞态时，不会产生第二次运行，也不会在首个目标 busy 后继续启动下游角色。
 
+这里的 owner 校验必须先于“目标 task 解析”：Orchestrator 先解析文本中所有真实存在的 task 引用，只要任一 task 的权威 owner 不是目标 Agent，就以 `task_owner_mismatch` 失败关闭并停止创建 pass。不能先按目标 Agent 过滤再把结果为空解释成“普通无 task A2A”，否则错误 owner 会绕过 Task Graph。
+
+worktree 运行时还要区分两个目录契约：Agent 命令在 conversation 级 Git worktree 执行；`.session.json` / `.gc_meta.json` 则保存在平台 workspace 的 conversation/agent/task 隔离目录。共享 worktree 路径存在不代表后者已经创建，所有元数据写入口必须原子确保 scoped task root 存在。元数据目录缺失不得在业务 turn 已完成后抛出 ENOENT，并把完成结果覆盖为 `spawn_failed`。
+
 ## 事实源
 
 - PR/review/merge 的当前事实：Git provider；
