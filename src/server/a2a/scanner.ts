@@ -126,7 +126,8 @@ export function extractMentionContent(fullText: string, target: MentionTarget): 
   const end = nextMentionMatch ? contentStart + nextMentionMatch.index : stripped.length;
   const content = stripped.slice(contentStart, end).trim();
 
-  // If we extracted mention-local content, keep it local; falling back to the
-  // full response can make an earlier contextual mention borrow a later action.
-  return content.length > 0 ? content : fullText;
+  // Keep the result local even when the mention ends the clause. Falling back
+  // to the full response lets a roster mention borrow a later action or reject
+  // keyword and turns a status projection into a real dispatch.
+  return content;
 }

@@ -121,7 +121,13 @@ function createMessengerWithPolicy(policy: CommunicationPolicy): AgentMessenger 
 let db: Database.Database;
 let io: ReturnType<typeof mockIO>;
 let messenger: AgentMessenger;
-let testTasks: { id: string; title: string; status: string; agent_id: string }[];
+let testTasks: {
+  id: string;
+  title: string;
+  status: string;
+  agent_id: string;
+  dependencies?: string[];
+}[];
 
 beforeEach(() => {
   db = new Database(':memory:');
@@ -244,6 +250,78 @@ describe('A2A v2 integration', () => {
       SELECT * FROM a2a_pass WHERE to_agent_id = 'luigi'
     `).all() as any[];
     expect(passes).toHaveLength(0);
+  });
+
+  it('blocks an explicit task handoff while its Task Graph dependencies are unmet', async () => {
+    testTasks = [
+      { id: 'TASK-001', title: '架构评审', status: 'in_progress', agent_id: 'mario' },
+      {
+        id: 'TASK-002',
+        title: '开发实现',
+        status: 'pending',
+        agent_id: 'luigi',
+        dependencies: ['TASK-001'],
+      },
+    ];
+    messenger.onUserMessage('conv-1', 'msg-task-gate', 'mario', '先完成架构评审');
+
+    await messenger.onAgentResponse('mario', '@luigi 请立即执行 TASK-002，开始开发实现。', {
+      conversationId: 'conv-1',
+      chainDepth: 0,
+    });
+
+    const luigiDispatches = io.emitted().filter(([event, payload]) => event === 'a2a:dispatch' && payload.agentId === 'luigi');
+    expect(luigiDispatches).toHaveLength(0);
+    const blockedPass = db.prepare(`
+      SELECT status, phase, reason
+      FROM a2a_pass
+      WHERE to_agent_id = 'luigi'
+      ORDER BY created_at DESC
+      LIMIT 1
+    `).get() as { status: string; phase: string; reason: string };
+    expect(blockedPass).toMatchObject({
+      status: 'blocked',
+      phase: 'policy',
+    });
+    expect(blockedPass.reason).toContain('TASK-001');
+
+    testTasks[0].status = 'done';
+    messenger.onUserMessage('conv-1', 'msg-task-gate-retry', 'mario', '架构评审已完成');
+    await messenger.onAgentResponse('mario', '@luigi 请立即执行 TASK-002，开始开发实现。', {
+      conversationId: 'conv-1',
+      chainDepth: 0,
+    });
+
+    const unblockedDispatches = io.emitted().filter(
+      ([event, payload]) => event === 'a2a:dispatch' && payload.agentId === 'luigi',
+    );
+    expect(unblockedDispatches).toHaveLength(1);
+  });
+
+  it('treats a handoff to an already-running target task as an idempotent no-op', async () => {
+    testTasks = [
+      { id: 'TASK-002', title: '架构评审', status: 'in_progress', agent_id: 'luigi' },
+    ];
+    messenger.onUserMessage('conv-1', 'msg-task-active', 'mario', '检查当前架构任务');
+
+    await messenger.onAgentResponse('mario', '@luigi 请立即执行 TASK-002，继续架构评审。', {
+      conversationId: 'conv-1',
+      chainDepth: 0,
+    });
+
+    const luigiDispatches = io.emitted().filter(([event, payload]) => event === 'a2a:dispatch' && payload.agentId === 'luigi');
+    expect(luigiDispatches).toHaveLength(0);
+    const duplicateAudit = db.prepare(`
+      SELECT metadata
+      FROM a2a_audit_log
+      WHERE event_type = 'dispatch_blocked'
+      ORDER BY created_at DESC
+      LIMIT 1
+    `).get() as { metadata: string };
+    expect(JSON.parse(duplicateAudit.metadata)).toMatchObject({
+      blockedBy: 'task_already_active',
+      taskId: 'TASK-002',
+    });
   });
 
   it('renders notification-style mentions as group-chat awareness without waking the mentioned agent', async () => {

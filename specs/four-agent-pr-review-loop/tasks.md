@@ -33,3 +33,4 @@
 - [x] T20 真实 ACP 平台工具、旧 worktree 迁移与 Task Graph/文件/Web 状态收敛验证
 - [x] T21 补齐 Harness runtime 投影失败矩阵，并稳定全量并发下的 Git worktree 与 ACP 子进程生命周期测试
 - [x] T22 修复 REJECT 后可换 PR 或原样重报同一 head SHA 的回执连续性门禁（Issue #54）
+- [ ] T23 阻止 Agent 计划清单 mention 绕过 Task Graph 依赖，并收敛 task_assign/A2A 重复派发竞态（Issue #58）

@@ -6,9 +6,16 @@ import type { CommunicationPolicy } from '@/lib/team-runtime';
 import type { AgentMentionConfig, TaskSummary } from './types-v2';
 import { Orchestrator, type OrchestratorConfig } from './orchestrator';
 import { taskRepo } from '../repositories/task-repo';
+import { taskGraphRepo } from '../repositories/task-graph-repo';
 
 export interface KanbanSnapshotProvider {
-  getTasks(conversationId: string): { id: string; title: string; status: string; agent_id: string }[];
+  getTasks(conversationId: string): {
+    id: string;
+    title: string;
+    status: string;
+    agent_id: string;
+    dependencies?: string | string[] | null;
+  }[];
   getCommunicationPolicy?: (conversationId: string) => CommunicationPolicy | undefined;
   getAgentMentionConfigs?: (conversationId: string) => AgentMentionConfig[] | undefined;
 }
@@ -32,11 +39,37 @@ export class AgentMessenger {
     const provider = snapshotProvider ?? defaultSnapshotProvider;
     this.orchestrator = new Orchestrator(db, io, agentConfigs, {
       getTasksForConversation: (conversationId: string): TaskSummary[] => {
-        return provider.getTasks(conversationId).map(t => ({
+        const rows = provider.getTasks(conversationId);
+        const dependencyIdsByTask = new Map<string, Set<string>>();
+        for (const row of rows) {
+          const dependencies = Array.isArray(row.dependencies)
+            ? row.dependencies
+            : (() => {
+                if (!row.dependencies) return [];
+                try {
+                  const parsed = JSON.parse(row.dependencies);
+                  return Array.isArray(parsed) ? parsed : [];
+                } catch {
+                  return row.dependencies.split(',');
+                }
+              })();
+          dependencyIdsByTask.set(
+            row.id,
+            new Set(dependencies.filter((item): item is string => typeof item === 'string' && Boolean(item.trim())).map((item) => item.trim())),
+          );
+        }
+        for (const edge of taskGraphRepo.listEdges(conversationId)) {
+          if (edge.type !== 'depends_on') continue;
+          const dependencyIds = dependencyIdsByTask.get(edge.to_task_id) ?? new Set<string>();
+          dependencyIds.add(edge.from_task_id);
+          dependencyIdsByTask.set(edge.to_task_id, dependencyIds);
+        }
+        return rows.map(t => ({
           id: t.id,
           title: t.title,
           status: t.status,
           agentId: t.agent_id,
+          dependencyIds: Array.from(dependencyIdsByTask.get(t.id) ?? []),
         }));
       },
       getCommunicationPolicy: provider.getCommunicationPolicy?.bind(provider),

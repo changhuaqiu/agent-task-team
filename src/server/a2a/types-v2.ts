@@ -116,6 +116,7 @@ export interface TaskSummary {
   title: string;
   status: string;
   agentId: string;
+  dependencyIds?: string[];
 }
 
 export interface MessageSummary {

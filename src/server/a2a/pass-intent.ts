@@ -127,6 +127,10 @@ function extractIntentClause(text: string, position: number): string {
   return text.slice(start, end).trim();
 }
 
+function isTaskRosterClause(content: string): boolean {
+  return /^\s*(?:[-*]\s*)?(?:TASK\s*:\s*)?TASK-\d+\b.*@[\p{L}\p{N}_-]+\s*$/iu.test(content);
+}
+
 function hasNotificationPredicateBeforeMention(text: string, position: number): boolean {
   const before = text.slice(Math.max(0, position - 40), position);
   return /(?:并|然后|同时|仅)?\s*(?:知会|通知|告知|同步给?|抄送)\s*$/i.test(before)
@@ -154,6 +158,7 @@ export function scanPassIntents(
       const directIntent = detectIntent(directContent);
       if (directIntent) return { ...target, content: directContent, intent: directIntent };
       const clause = extractIntentClause(text, target.position);
+      if (isTaskRosterClause(clause)) return null;
       const clauseIntent = detectIntent(clause);
       if (clauseIntent) return { ...target, content: clause, intent: clauseIntent };
       return null;

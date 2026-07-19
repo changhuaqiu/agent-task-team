@@ -80,6 +80,7 @@
 - [x] Issue #54 在开发前创建；PR 创建后补关联
 - [x] Issue #55 的 lockfile 一致性缺陷已修复，干净 worktree 的 frozen install 通过
 - [x] Issue #56 的测试依赖缺口已修复，ACP subprocess/hardening 测试 19/19 通过
+- [ ] Issue #58：Web UI 发现计划清单 mention 可绕过 Task Graph 依赖并触发重复派发；先冻结门禁设计，再补回归和页面复验
 - [x] 规格与长期技术设计先于实现更新
 - [x] 两条失败路径先由回归测试证明
 - [x] 定向测试 28/28、全量测试 1126/1126、类型检查和生产构建通过
@@ -100,3 +101,21 @@
 | Scoped ESLint | 目标 service 与 test PASS |
 | Production build | `pnpm build` PASS |
 | 全量 Vitest | 126 files / 1126 tests PASS |
+
+## 6. Web UI 门禁绕过回归（Issue #58）
+
+浏览器首次演练中，Mario 已写入严格依赖图并只启动 `TASK-002`，但回复内 PHASE/TASK 清单末尾的 owner mention 被 A2A 扫描器误判为即时交接；`@peach` 从同一回复中借用了 `REJECT` 动词，提前成为当前持球者，同时 `task_assign` 与显式 `@dk` 产生重复派发。
+
+修复把“文本意图识别”和“Task Graph 运行门禁”分成两层：
+
+1. trailing mention 不再回退借用整段响应，PHASE/TASK roster clause 不产生 pass intent；
+2. 显式交接引用目标 task 时，Orchestrator 校验 owner、依赖和 active 状态；依赖未完成时拒绝，已运行时幂等 no-op。
+
+| 门禁 | 结果 |
+| --- | --- |
+| 失败复现 | 新增 roster 用例修复前稳定选中 `@peach` / `reject`，证明可绕过依赖 |
+| Scanner / Pass Intent / A2A Integration | 3 files / 75 tests PASS |
+| TypeScript | `pnpm exec tsc --noEmit` PASS |
+| Scoped ESLint | 新增 scanner、intent、snapshot 源码与定向测试 PASS；既有 integration/orchestrator 文件仍有历史 `no-explicit-any` 基线 |
+| Production build | PASS；保留既有 worktree-manager NFT tracing warning |
+| Web UI 回归 | 待新 head 推送后，以全新 conversation 验证持球顺序 |

@@ -54,6 +54,8 @@ Git-backed conversation 或显式 worktree 派发在 repository root / HEAD 探�
 
 Task Graph / Harness 是任务状态推进和 Agent 派发的唯一服务端边界。Web 客户端只消费任务投影，不得根据遗留 socket 事件自行把 `pending` 改为 `in_progress`，也不得重复触发 Agent dispatch。daemon 解析出唯一 runtime task path 后把它持久化到 task；Harness 接受 owner dispatch 并推进 `pending → in_progress` 时，在通知页面前同步更新该 runtime `TASKS.md`。watcher 显式接收 conversation identity，并以 conversation + runtime path 共同隔离 watcher/debounce 生命周期，不能从目录 basename 猜测任务域。`TASKS.md` watcher 在完成兼容文件解析、质量门禁和数据库更新后，必须从 Task Graph 重新读取权威任务状态再发布 `task.sync`；原始文件中的过期状态即使被主动 invocation 或 receipt gate 拒绝，也不能通过广播回流并覆盖页面。
 
+A2A 文本交接不能成为 Task Graph 门禁的旁路。Agent 回复中的 PHASE/TASK 清单属于计划投影，其中的 owner `@mention` 只用于说明归属，不得被识别为即时派发；真正的主动交接必须是独立、明确的执行句。若交接文本引用了目标 Agent 名下的 task，A2A Orchestrator 必须在写入 worklist 前校验该 task 的依赖：依赖未完成时失败关闭；目标 task 已经处于执行或评审状态时按幂等重复派发静默拒绝。这样 `task_assign` 的自动 wakeup 与 Agent 文本交接发生竞态时，不会产生第二次运行，也不会在首个目标 busy 后继续启动下游角色。
+
 ## 事实源
 
 - PR/review/merge 的当前事实：Git provider；

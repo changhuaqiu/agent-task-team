@@ -119,6 +119,7 @@ Agent 正文中的 Markdown 链接仍可显示，但不具有状态转换权威�
 - Git-backed conversation 或显式 worktree 派发无法解析 repository root / exact HEAD 时必须 fail closed，不能退回 scratch 或原项目目录；
 - repository-scoped storage 上线前已经存在的同名 conversation worktree 必须通过 Git worktree registry 安全迁移：兼容相同/祖先基线并保留领先提交；需要 fast-forward 时工作区必须干净，分叉或可能覆盖未提交工作时 fail closed。不得删除旧工作或重复创建已存在的 branch；
 - task 状态推进与 Agent 派发只能由服务端 Task Graph / Harness 决定；Web 客户端不得根据兼容事件自行把 `pending` 改为 `in_progress` 或再次派发 Agent；
+- Agent 回复中的 PHASE/TASK roster 及 owner `@mention` 只是任务投影，不得触发即时 A2A；显式交接引用目标 task 时，服务端必须校验 owner 与 `depends_on`，依赖未完成时失败关闭，目标 task 已在执行/评审时幂等拒绝重复派发；
 - daemon 解析出本轮唯一 runtime task path 后必须把它绑定到 task；Harness 接受 owner dispatch 并推进 `pending → in_progress` 时，必须在发布通知前把权威状态投影到该路径；
 - watcher 必须显式接收 conversation identity，并以 conversation + runtime path 共同隔离 watcher/debounce 生命周期；不得从目录 basename 猜测任务域；
 - watcher 完成文件门禁与数据库更新后，`task.sync` 必须广播 Task Graph 的权威状态投影，不能把被拒绝或被主动 invocation 保护的原始 `TASKS.md` 状态重新覆盖到页面；
@@ -154,3 +155,4 @@ Agent 正文中的 Markdown 链接仍可显示，但不具有状态转换权威�
 - 真实 GitHub PR 上能看到 Peach 产生的评论或 review；
 - REJECT→Luigi 修复→同一 PR 重审以及新 commit 使旧批准失效均有自动化覆盖；
 - 使用四个真实 Agent runtime 完成一次浏览器端到端协作并可从 Task Graph、GitHub、聊天卡片和 observability 交叉验证。
+- 浏览器演练中，当前持球顺序必须服从 Task Graph 依赖；计划清单 mention、重复 wakeup 或 `agent_busy` 竞态不能提前启动下游角色。
