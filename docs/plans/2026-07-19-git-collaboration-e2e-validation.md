@@ -1,0 +1,85 @@
+# Git 协作闭环真实演练计划
+
+> 状态：执行中
+> 日期：2026-07-19
+> 关联 Issue：[#54](https://github.com/changhuaqiu/agent-task-team/issues/54)
+> 演练分支：`codex/git-collaboration-e2e-20260719`
+
+## 1. 目标
+
+在真实 GitHub 仓库上验证当前四 Agent Git 协作闭环：
+
+```text
+任务拆解
+  → 架构评审
+  → 开发与自测
+  → commit / push / draft PR
+  → 基于 PR 精确 head SHA 的质量评审
+  → REJECT + linked Issue
+  → 同一 PR 新 commit 修复
+  → 重审 PASS
+  → 授权合并
+  → main 复验与 merge receipt
+```
+
+关键转换必须同时留下 GitHub URL、commit SHA、Task Graph action、结构化回执或可重复执行的测试证据，不能只依赖自然语言自述。
+
+## 2. 审计结论与问题拆解
+
+当前实现已经具备 PR、Review、Merge 三类 provider 回执和 Task Graph 门禁，但 `recordPullRequest()` 的后续回执连续性校验只覆盖 `in_review`，没有覆盖 `rejected`。这允许被打回的任务换 PR 或原样重报同一 head SHA。
+
+本轮拆为以下任务：
+
+| 任务 | Owner 视角 | 交付 |
+| --- | --- | --- |
+| E2E-GIT-01 | Mario | 冻结范围、验收标准、证据链 |
+| E2E-GIT-02 | DK | 评审回执连续性门禁的位置、失败语义和兼容边界 |
+| E2E-GIT-03 | Luigi | 实现同一 PR / 新 head 门禁与回归测试 |
+| E2E-GIT-04 | Peach | 基于真实 PR diff、自测和 CI 证据执行 REJECT / PASS 两轮评审 |
+| E2E-GIT-05 | Mario | 授权合并后在 main 复验并核对 merge receipt |
+
+## 3. 架构评审记录（G1）
+
+### 3.1 评审范围
+
+- 权威入口：`EngineeringCollaborationService.recordPullRequest()`
+- 事实来源：`GitProviderVerifier` 返回的 canonical PR URL 和 head SHA
+- 状态范围：已经存在 PR 回执、且任务处于 `in_review` 或 `rejected`
+- 失败原子性：校验必须发生在数据库事务和消息/卡片写入前
+
+### 3.2 方案比较
+
+| 方案 | 结论 | 原因 |
+| --- | --- | --- |
+| 仅更新 Luigi prompt / Skill 文案 | 否决 | 只能约束模型意图，不能形成可验证门禁 |
+| 在 API 或 ACP 工具入口分别校验 | 否决 | 多入口会重复规则，后续入口容易绕过 |
+| 在 `EngineeringCollaborationService` 统一校验 | 采用 | API、ACP Skill 和测试 seam 共享同一事实边界 |
+| 新建 receipt 专用表和数据库唯一约束 | 暂不采用 | 当前 action log 已是权威历史；为两个连续性不变量引入新表过重 |
+
+### 3.3 冻结约束
+
+1. 后续回执必须沿用上一条已验证 receipt 的 canonical PR URL。
+2. 后续回执的 head SHA 必须不同于上一条 receipt。
+3. 换 PR 返回 `pull_request_changed`；同 SHA 返回 `pull_request_head_unchanged`。
+4. 失败时 task status、action、artifact、card、proof 都不得变化。
+5. 正常的同 PR 新 head 修复流程保持兼容，并继续使旧 Review 变为 stale。
+
+### 3.4 可测性评审
+
+- 使用注入式 `GitProviderVerifier` 构造另一个 PR、相同 head 和新 head；
+- 断言稳定 reason code；
+- 同时断言失败前后的 task status 与 action/artifact/message/proof 数量；
+- 保留真实 GitHub PR 的 provider 回执演练，避免只验证 mock。
+
+本记录由当前执行者按项目 G1 的架构、边界、安全和可测性检查项完成；它不伪造为另一个 GitHub 身份的独立批准。后续独立质量判断以真实 PR 评论和可重复测试证据为准。
+
+## 4. 验收
+
+- [ ] Issue #54 在开发前创建并关联 PR
+- [ ] 规格与长期技术设计先于实现更新
+- [ ] 两条失败路径先由回归测试证明
+- [ ] 定向测试、全量测试、类型检查、构建通过
+- [ ] 真实 PR 上完成一次 REJECT → 修复 → PASS
+- [ ] 新 commit 使旧评审失效，并由当前 head 的新评审放行
+- [ ] 合并后在 `main` 复验并记录 provider merge receipt
+- [ ] GitHub、Task Graph、PR/review/merge SHA 可交叉核对

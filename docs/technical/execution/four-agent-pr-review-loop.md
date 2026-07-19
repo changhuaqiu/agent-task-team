@@ -82,6 +82,8 @@ Task Graph / Harness 是任务状态推进和 Agent 派发的唯一服务端边�
 - review 必须匹配当前 PR head SHA；
 - GitHub issue comment 没有原生 commit 绑定，只有评论时间不早于精确 head commit 时间时才可作为该 head 的外部证据；缺时间戳时失败关闭；
 - provider review state 与平台质量决定分离：共享 provider 账号可能只能 `commented`，Peach 仍须从可信 invocation 提交 `qualityDecision=pass|reject|comment`；仅 `comment` 不能授权合并；
+- 一个 task 首次产生已验证 PR receipt 后，后续回执形成连续交付链：`in_review` / `rejected` 状态只能沿用同一 canonical PR，并且必须出现新的 head SHA；换 PR 以 `pull_request_changed` 失败关闭，原样重报同一 SHA 以 `pull_request_head_unchanged` 失败关闭；
+- 回执连续性校验位于 `EngineeringCollaborationService` 的 provider 查询之后、事务写入之前；失败不得新增 Task Action、Artifact、Card 或 Proof，也不得改变任务状态；
 - 同一 PR 出现新 head SHA 时可再次记录交付；系统追加 stale 评审投影并保持 `in_review`，旧结论不能用于合并；
 - 合并闭环要求当前 head 的 provider-backed review、零 blocker、provider merged receipt 和完整 main 复验证据；
 - Git-backed task 的普通 `task_update_status(done)` 还必须找到 `task.pull_request_merged` action，否则即使字符串证据齐全也拒绝；
@@ -90,7 +92,7 @@ Task Graph / Harness 是任务状态推进和 Agent 派发的唯一服务端边�
 
 ## 测试策略
 
-- 纯服务测试：actor authority、repo mismatch、head stale、reject/approve、事务回滚；
+- 纯服务测试：actor authority、repo mismatch、head stale、reject/approve、REJECT 后同 PR 新 head、换 PR、同 SHA 重报和事务回滚；
 - API/tool 集成：真实 task/action/artifact/message/proof 一致；
 - Harness reconciliation：覆盖 task 不存在的 stale wakeup no-op、runtime path 缺失、任务条目缺失与文件 I/O 异常，并断言权威状态、单一 proof、稳定 failureCause 和 `task.sync_error`；持久化异常文本移除换行并限制为 512 字符；
 - ACP hardening：测试使用直接 Node/tsx launcher，并在断言成功或失败时都回收首个运行，避免 launcher 子进程占用临时目录；

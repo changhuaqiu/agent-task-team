@@ -97,6 +97,8 @@ Agent 正文中的 Markdown 链接仍可显示，但不具有状态转换权威�
 
 - 没有已验证 PR 不能进入 `in_review`；
 - 没有真实 provider review/comment 不能记录评审决定；
+- 一个任务一旦产生已验证 PR receipt，后续交付必须继续使用同一 canonical PR；`rejected` 后换 PR 必须以 `pull_request_changed` 失败关闭；
+- `in_review` 或 `rejected` 的后续交付必须包含不同于上一条 receipt 的新 head SHA；原样重报同一 SHA 必须以 `pull_request_head_unchanged` 失败关闭；
 - review head SHA 与当前 PR head SHA 不同视为 `review_stale`；
 - provider 的 `commented` 只证明外部评论存在；必须由可信 Peach invocation 同时记录 `qualityDecision=pass` 且 blocker 为 0 才能进入 merge wait，`qualityDecision=comment` 不具备放行权；
 - PR 关闭但未合并视为交付失败，不能 `done`；
@@ -127,6 +129,8 @@ Agent 正文中的 Markdown 链接仍可显示，但不具有状态转换权威�
 
 - GitHub 未认证：`git_provider_auth_missing`，卡片不创建，任务保持原状态；
 - PR 不存在或仓库不匹配：`pull_request_not_found` / `repository_mismatch`；
+- REJECT 后换 PR：`pull_request_changed`，保留原任务状态与回执；
+- REJECT 后原样重报同一 head：`pull_request_head_unchanged`，保留原任务状态与回执；
 - PR head 已变化：`pull_request_head_changed`，旧评审失效并重新唤醒 Peach；
 - review 未落到 provider：`review_receipt_missing`；
 - checks 失败：`pull_request_checks_failed`，退回 Luigi；
