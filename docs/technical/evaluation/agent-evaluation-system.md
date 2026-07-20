@@ -9,7 +9,7 @@
 - `snapshot-builder.ts` 按 conversation/root task/optional chain/cutoff 冻结多 trace 证据，排除 thinking 和评估自身 proof，并记录代码、RoleCard、Skill、脱敏模型配置摘要、rubric 与 evaluator revision。
 - `deterministic-evaluator.ts` 先计算硬门禁，再计算完成、交付、可靠性和工具执行指标；`deterministic-v2` 把工具执行成功与离线用例定义的工具名称/必需参数匹配拆开，没有工具预期时正确性为 `not_applicable`。
 - `judge.ts` 只允许项目显式选择的 OpenAI/Anthropic API Key 账号，无工具权限；没有账号、超预算、Provider 被禁或调用失败时保留确定性结果并转 `partial`。
-- migration 26–37 提供数据库级不可变 rubric/snapshot/score/attempt、ApplicationSnapshot、case execution、带 fencing token 的 job、原子预算预留、双 Judge 复核队列、盲测换序、项目域标注、数据集/实验、gap、policy 与 change proposal 表。
+- migration 27–38 提供数据库级不可变 rubric/snapshot/score/attempt、ApplicationSnapshot、case execution、带 fencing token 的 job、原子预算预留、双 Judge 复核队列、盲测换序、项目域标注、数据集/实验、gap、policy 与 change proposal 表；migration 41 为已执行过旧迁移的数据库补齐自主交付 `revision` 字段，迁移执行器按版本排序，避免并行功能分支合并后的声明顺序影响升级结果。
 - 关闭轮次在 valid exit 后于本地事务内冻结快照并提交 job；后台 worker 只消费冻结快照并执行评估，主 Agent loop 不等待 Judge。
 - Pages API 的规范入口为 `/api/eval/*`；`/api/evaluations/*` 保留为当前 UI 的兼容入口。
 - 平台项目主内容区提供“协作 / 评估”工作模式；评估不是外部控制台，也不占用项目右侧调试栏。
@@ -75,6 +75,7 @@ Task/A2A/Proof/Observation facts
 
 - Judge token 在外部调用前通过 `eval_budget_reservation` 原子预留，预留带过期时间；OpenAI/Anthropic 输出均设置上限。
 - 全局数据集可以复用 case，但 `eval_annotation.conversation_id` 隔离各项目的标签与 kappa。
+- 删除项目会话时，先按聚合依赖顺序清理评估实验、运行、快照和项目数据集，再删除任务与会话；新建数据库同时用外键级联兜底，兼容早期数据库中仍是 `NO ACTION` 的评估外键。
 - 当前公开 API 的审核者名称不可验证，因此一致性结果明确返回 `identity_unverified`，不能把 rubric 标成 calibrated；这不是临时伪造 RBAC，而是对平台身份能力缺口的诚实呈现。
 - pairwise 换序与人工裁决算法保留为内部验证能力，但公开 pairwise API 返回 `pairwise_blind_integrity_unavailable`。可信 case runner 已接通；当前剩余问题是同一平台操作者仍能从 experiment/run 相邻接口反推 A/B，因此统一身份接通前不对外宣称真正盲测。
 - pairwise 客户端只拿到 opaque `subjectToken`，不能从响应获得 run id 或 application manifest；换序不一致必须人工裁决并回写权威 winner。

@@ -539,7 +539,7 @@ Experiment
 
 已落地：
 
-- migration 26–37、Drizzle schema、数据库不可变约束、ApplicationSnapshot/case execution、原子预算预留、默认 rubric 与 12 个 train/tune/held-out 中英校准案例；
+- migration 27–38、Drizzle schema、数据库不可变约束、ApplicationSnapshot/case execution、原子预算预留、默认 rubric 与 12 个 train/tune/held-out 中英校准案例；migration 41 兼容已执行旧迁移但缺少自主交付 `revision` 的数据库，迁移按版本号排序执行；
 - 提交事务内冻结的 snapshot builder、硬门禁/确定性 evaluator、锚点式无工具 Judge adapter、持久 job/lease token/retry、原子 report/gap/replay；
 - closure valid-exit 后异步提交与 `eval.*` proof；
 - `/api/eval/runs`、datasets、annotations、experiments、pairwise、reviews、proposals、policy、operations；
