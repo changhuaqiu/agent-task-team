@@ -21,6 +21,9 @@ npm run e2e:headed
 
 # 看上次运行的 HTML 报告
 npm run e2e:report
+
+# 自主交付完整闭环：独立服务、失败修复、进程重启恢复
+pnpm e2e:autonomous
 ```
 
 > 若本地未起 `npm run dev`，`playwright.config.ts` 的 `webServer` 会自动拉起一个。
@@ -61,6 +64,18 @@ pnpm e2e
 - 右面板展开与 tab 可达
 - 看板 ↔ 地图 tab 切换
 - 现场创建无 active session 的会话，经真实 Harness planner 生成首次 A2A，通过 daemon 共用的 prompt capture 边界采集，并按精确 conversation/trace 在观测抽屉验证 System 与 Assembled prompt；用例结束后清理自己的数据
+
+`autonomous-delivery-full-loop.spec.ts`：自主交付发布级黑盒闭环
+
+- 只通过 Web UI 创建项目、目标和验收标准，不直接写 Conversation/Run/Task/Receipt
+- 真实经过 RepositoryHarnessPlanner、Context Manager、Harness Coordinator 与 Task Tool
+- 第一次 Browser/Playwright 验收提交失败回执，触发有界 `repair_verification`
+- repair 执行中终止独立 dev server，等待 lease 过期后重启
+- startup reconcile 回收 abandoned Attempt，复用同一 repair Action 并继续验证
+- 第二次 Web UI 验收通过后，由 Closure Invariant 生成 DeliveryBundle 并在完成卡片展示
+- 外部 LLM/ACP 仅在 HarnessRuntimePort 使用确定性测试适配器；该能力在生产环境始终返回 404
+- 服务源码、SQLite 数据、被验收项目和 Web E2E 报告全部位于同一临时根目录，不向开发者
+  原工作区写入 `.ath` 或验收证据
 
 ## 已知边界
 

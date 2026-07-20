@@ -25,6 +25,6 @@ export function renderInteractionTier({ ctx, push }: TierRenderInput): void {
   // User message — only when this is not an A2A handoff turn (handoff turns
   // carry their own focus via taskTier). Private to this agent.
   if (!req.a2aHandoff) {
-    push('dialog', 'userMessage', buildUserMessageLayer(req.rawPrompt), { tier: 'project', importance: 0.9, scope: `/project/${req.agentId}`, private: true, source: req.agentId });
+    push('focus', 'userMessage', buildUserMessageLayer(req.rawPrompt), { tier: 'project', importance: 0.9, scope: `/project/${req.agentId}`, private: true, source: req.agentId });
   }
 }

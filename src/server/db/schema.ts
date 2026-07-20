@@ -792,3 +792,80 @@ export const agentTeamPack = sqliteTable('agent_team_pack', {
 
 export type AgentTeamPackRow = InferSelectModel<typeof agentTeamPack>;
 export type NewAgentTeamPackRow = InferInsertModel<typeof agentTeamPack>;
+
+export const autonomousDeliveryRun = sqliteTable('autonomous_delivery_run', {
+  id: text('id').primaryKey(),
+  conversationId: text('conversation_id').notNull().references(() => conversation.id, { onDelete: 'cascade' }),
+  rootTaskId: text('root_task_id').references(() => task.id, { onDelete: 'set null' }),
+  status: text('status').notNull(),
+  currentStage: text('current_stage').notNull(),
+  goalContractJson: text('goal_contract_json').notNull(),
+  repairCycle: integer('repair_cycle').notNull(),
+  revision: integer('revision').notNull().default(0),
+  escalationCode: text('escalation_code'),
+  escalationDetail: text('escalation_detail'),
+  deliveryBundleJson: text('delivery_bundle_json'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+  completedAt: text('completed_at'),
+}, (table) => [
+  index('idx_autonomous_delivery_run_conversation').on(table.conversationId, table.createdAt),
+  index('idx_autonomous_delivery_run_reconcile').on(table.status, table.updatedAt),
+]);
+
+export const autonomousDeliveryAction = sqliteTable('autonomous_delivery_action', {
+  id: text('id').primaryKey(),
+  runId: text('run_id').notNull().references(() => autonomousDeliveryRun.id, { onDelete: 'cascade' }),
+  kind: text('kind').notNull(),
+  subjectType: text('subject_type'),
+  subjectId: text('subject_id'),
+  idempotencyKey: text('idempotency_key').notNull(),
+  status: text('status').notNull(),
+  notBefore: text('not_before').notNull(),
+  attemptCount: integer('attempt_count').notNull(),
+  maxAttempts: integer('max_attempts').notNull(),
+  lastFailureCode: text('last_failure_code'),
+  lastFailureDetail: text('last_failure_detail'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  uniqueIndex('uq_autonomous_delivery_action_key').on(table.idempotencyKey),
+  index('idx_autonomous_delivery_action_claim').on(table.runId, table.status, table.notBefore, table.createdAt),
+]);
+
+export const autonomousDeliveryAttempt = sqliteTable('autonomous_delivery_attempt', {
+  id: text('id').primaryKey(),
+  actionId: text('action_id').notNull().references(() => autonomousDeliveryAction.id, { onDelete: 'cascade' }),
+  attemptNo: integer('attempt_no').notNull(),
+  status: text('status').notNull(),
+  leaseOwner: text('lease_owner').notNull(),
+  leaseExpiresAt: text('lease_expires_at').notNull(),
+  heartbeatAt: text('heartbeat_at').notNull(),
+  workdirRef: text('workdir_ref'),
+  sessionGeneration: integer('session_generation'),
+  executionEnvelopeId: text('execution_envelope_id').references(() => executionEnvelope.id),
+  failureCode: text('failure_code'),
+  failureDetail: text('failure_detail'),
+  createdAt: text('created_at').notNull(),
+  startedAt: text('started_at'),
+  completedAt: text('completed_at'),
+}, (table) => [
+  uniqueIndex('uq_autonomous_delivery_attempt_no').on(table.actionId, table.attemptNo),
+  index('idx_autonomous_delivery_attempt_lease').on(table.status, table.leaseExpiresAt),
+]);
+
+export const autonomousDeliveryReceipt = sqliteTable('autonomous_delivery_receipt', {
+  id: text('id').primaryKey(),
+  runId: text('run_id').notNull().references(() => autonomousDeliveryRun.id, { onDelete: 'cascade' }),
+  actionId: text('action_id').references(() => autonomousDeliveryAction.id, { onDelete: 'cascade' }),
+  attemptId: text('attempt_id').references(() => autonomousDeliveryAttempt.id, { onDelete: 'cascade' }),
+  kind: text('kind').notNull(),
+  externalId: text('external_id'),
+  status: text('status').notNull(),
+  payloadJson: text('payload_json').notNull(),
+  idempotencyKey: text('idempotency_key').notNull(),
+  observedAt: text('observed_at').notNull(),
+}, (table) => [
+  uniqueIndex('uq_autonomous_delivery_receipt_key').on(table.idempotencyKey),
+  index('idx_autonomous_delivery_receipt_run').on(table.runId, table.kind, table.observedAt),
+]);

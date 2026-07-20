@@ -66,6 +66,8 @@ import { capturePromptPayloads } from './observability/prompt-observation';
 import { teamLogProjection } from './team-log/TeamLogProjection';
 import { renderTeamLogEnvelope } from '../lib/agent-context/teamLog';
 import { ProcessStartGuard } from './process-start-guard';
+import { ensureAutonomousDeliveryRuntime } from './autonomous-delivery/bootstrap';
+import { registerAutonomousDeliveryE2EDriver } from './testing/autonomous-delivery-e2e-driver';
 
 type TerminalStartPayload = {
   dispatchId?: string;
@@ -252,6 +254,8 @@ export default function registerDaemon(io: IOServer) {
     },
   });
   registerHarnessCoordinator(io, harnessCoordinator);
+  registerAutonomousDeliveryE2EDriver(io);
+  ensureAutonomousDeliveryRuntime(io, `daemon:${LOCAL_DAEMON_NODE_ID}`);
 
   dispatchGateway.ensureRuntimeNode({
     id: LOCAL_DAEMON_NODE_ID,

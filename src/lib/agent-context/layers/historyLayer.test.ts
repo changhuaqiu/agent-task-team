@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { buildHistoryLayer, type HistoryLayerOpts } from './historyLayer';
+import { buildHistoryLayer } from './historyLayer';
 import type { ChatMessage } from '@/store/types';
 
 describe('buildHistoryLayer', () => {

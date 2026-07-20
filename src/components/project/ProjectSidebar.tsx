@@ -74,7 +74,6 @@ export function ProjectSidebar() {
   const selectedConversationId = useTaskHubStore((s) => s.selectedConversationId);
   const setSelectedConversationId = useTaskHubStore((s) => s.setSelectedConversationId);
   const deleteConversation = useTaskHubStore((s) => s.deleteConversation);
-  const restoreConversation = useTaskHubStore((s) => s.restoreConversation);
   const tasks = useTaskHubStore((s) => s.tasks);
   const blockers = useTaskHubStore((s) => s.blockersByConversation);
 
@@ -82,8 +81,8 @@ export function ProjectSidebar() {
   const [isExpanded, setIsExpanded] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
-  const [recentlyDeleted, setRecentlyDeleted] = useState<{ id: string; data: Conversation } | null>(null);
-  const undoTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
+  const [deletedNotice, setDeletedNotice] = useState<Conversation | null>(null);
+  const deleteNoticeTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
 
   const statsByConversation = useMemo(() => {
     const taskStats = new Map<
@@ -129,20 +128,17 @@ export function ProjectSidebar() {
 
   const showSearch = sorted.length >= 5;
 
-  function handleDelete(id: string) {
+  async function handleDelete(id: string) {
     const conv = conversations.find((c) => c.id === id);
     if (!conv) return;
-    deleteConversation(id);
-    setRecentlyDeleted({ id, data: conv });
-    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
-    undoTimerRef.current = setTimeout(() => setRecentlyDeleted(null), 5000);
-  }
-
-  function handleUndo() {
-    if (!recentlyDeleted) return;
-    restoreConversation(recentlyDeleted.data);
-    setRecentlyDeleted(null);
-    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+    const deleted = await deleteConversation(id);
+    if (!deleted) {
+      setDeletedNotice(null);
+      return;
+    }
+    setDeletedNotice(conv);
+    if (deleteNoticeTimerRef.current) clearTimeout(deleteNoticeTimerRef.current);
+    deleteNoticeTimerRef.current = setTimeout(() => setDeletedNotice(null), 5000);
   }
 
   function toggleGroup(key: string) {
@@ -234,19 +230,11 @@ export function ProjectSidebar() {
         <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin">
           {isExpanded ? (
             <>
-              {/* Undo bar */}
-              {recentlyDeleted && (
+              {deletedNotice && (
                 <div className="mx-3 my-1 px-3 py-2 rounded-[var(--radius-md)] bg-[hsl(var(--status-pending-bg))] border border-[hsl(var(--status-pending-border))] flex items-center gap-2 text-[11px]">
                   <span className="text-[hsl(var(--text-secondary))] truncate min-w-0">
-                    已删除「{recentlyDeleted.data.title}」
+                    已删除「{deletedNotice.title}」
                   </span>
-                  <button
-                    type="button"
-                    onClick={handleUndo}
-                    className="text-[hsl(var(--accent))] font-semibold hover:underline shrink-0"
-                  >
-                    撤销
-                  </button>
                 </div>
               )}
 

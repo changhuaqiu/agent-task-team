@@ -23,6 +23,7 @@ export function ProjectCreateDialog({
   onClose: () => void;
 }) {
   const createConversation = useTaskHubStore((s) => s.createConversation);
+  const deleteConversation = useTaskHubStore((s) => s.deleteConversation);
   const { teamPacks, fetchTeamPacks } = useTeamPackStore();
   const titleRef = useRef<HTMLInputElement>(null);
   const [title, setTitle] = useState('');
@@ -32,6 +33,12 @@ export function ProjectCreateDialog({
   const [gitDetected, setGitDetected] = useState(false);
   const [gitRepoRoot, setGitRepoRoot] = useState<string | null>(null);
   const [gitChecking, setGitChecking] = useState(false);
+  const [autonomous, setAutonomous] = useState(true);
+  const [acceptanceCriteria, setAcceptanceCriteria] = useState('');
+  const [allowAutoMerge, setAllowAutoMerge] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState('');
+  const [teamChoiceTouched, setTeamChoiceTouched] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -49,13 +56,8 @@ export function ProjectCreateDialog({
   }, [open, onClose]);
 
   useEffect(() => {
-    if (!projectPath) {
-      setGitDetected(false);
-      setGitRepoRoot(null);
-      return;
-    }
+    if (!projectPath) return;
     let cancelled = false;
-    setGitChecking(true);
     fetch('/api/git/detect', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -80,25 +82,116 @@ export function ProjectCreateDialog({
 
   if (!open) return null;
 
-  const handleCreate = () => {
+  const defaultTeamPackId = (teamPacks.find((pack) => pack.isPreset) ?? teamPacks[0])?.id ?? null;
+  const effectiveTeamPackId = selectedTeamPackId
+    ?? (autonomous && !teamChoiceTouched ? defaultTeamPackId : null);
+
+  const handleCreate = async () => {
     const trimmedTitle = title.trim();
     const trimmedGoal = goal.trim();
     if (!trimmedTitle || !trimmedGoal) return;
-    createConversation({
-      title: trimmedTitle,
-      goal: trimmedGoal,
-      projectPath: projectPath || undefined,
-      teamPackId: selectedTeamPackId ?? undefined,
-      useWorktree: gitDetected || undefined,
-      gitRepoRoot: gitRepoRoot ?? undefined,
-    });
-    setTitle('');
-    setGoal('');
-    setProjectPath('');
-    setSelectedTeamPackId(null);
-    setGitDetected(false);
-    setGitRepoRoot(null);
-    onClose();
+    const criteria = acceptanceCriteria
+      .split('\n')
+      .map((item) => item.trim())
+      .filter(Boolean);
+    if (autonomous && criteria.length === 0) {
+      setCreateError('自主交付至少需要一条验收标准');
+      return;
+    }
+    if (autonomous && !projectPath.trim()) {
+      setCreateError('自主交付需要选择项目目录');
+      return;
+    }
+    if (autonomous && !effectiveTeamPackId) {
+      setCreateError('自主交付需要选择一个 Agent 团队');
+      return;
+    }
+    setCreating(true);
+    setCreateError('');
+    let createdConversationId: string | undefined;
+    try {
+      const conversationId = await createConversation({
+        title: trimmedTitle,
+        goal: trimmedGoal,
+        projectPath: projectPath || undefined,
+        teamPackId: effectiveTeamPackId ?? undefined,
+        useWorktree: gitDetected || undefined,
+        gitRepoRoot: gitRepoRoot ?? undefined,
+        autonomous,
+      });
+      if (!conversationId) {
+        throw new Error('创建项目失败，请稍后重试');
+      }
+      createdConversationId = conversationId;
+      if (autonomous) {
+        const response = await fetch('/api/autonomous-delivery', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            action: 'start',
+            contract: {
+              goal: trimmedGoal,
+              acceptanceCriteria: criteria,
+              scope: {
+                conversationId,
+                projectPath: projectPath || undefined,
+                repository: gitRepoRoot ?? undefined,
+              },
+              authorization: {
+                allowCodeChanges: true,
+                allowPush: gitDetected,
+                allowPullRequest: gitDetected,
+                allowAutoMerge: gitDetected && allowAutoMerge,
+                allowedBranches: [],
+              },
+              recoveryPolicy: {
+                maxAttemptsPerAction: 3,
+                maxRepairCycles: 2,
+                stallTimeoutMs: 30 * 60 * 1000,
+              },
+              deliveryPolicy: {
+                requireReview: true,
+                requireWebE2E: true,
+                requireMerge: gitDetected && allowAutoMerge,
+              },
+            },
+          }),
+        });
+        if (!response.ok) {
+          const body = await response.json().catch(() => ({}));
+          throw new Error(body.error ?? '启动自主交付失败');
+        }
+      }
+      setTitle('');
+      setGoal('');
+      setProjectPath('');
+      setSelectedTeamPackId(null);
+      setGitDetected(false);
+      setGitRepoRoot(null);
+      setAcceptanceCriteria('');
+      setAllowAutoMerge(false);
+      setAutonomous(true);
+      setTeamChoiceTouched(false);
+      onClose();
+    } catch (error) {
+      let createFailure = error instanceof Error ? error.message : String(error);
+      if (createdConversationId) {
+        const runCheck = await fetch(
+          `/api/autonomous-delivery?conversationId=${encodeURIComponent(createdConversationId)}`,
+        ).catch(() => undefined);
+        if (runCheck?.ok) {
+          onClose();
+          return;
+        }
+        const rolledBack = await deleteConversation(createdConversationId);
+        if (!rolledBack) {
+          createFailure = `${createFailure}；自动回滚失败，项目已保留，请稍后重试或手动删除`;
+        }
+      }
+      setCreateError(createFailure);
+    } finally {
+      setCreating(false);
+    }
   };
 
   return (
@@ -145,7 +238,19 @@ export function ProjectCreateDialog({
             </div>
 
             <div className="space-y-1.5">
-              <FolderPicker value={projectPath} onChange={setProjectPath} />
+              <FolderPicker
+                value={projectPath}
+                onChange={(nextPath) => {
+                  setProjectPath(nextPath);
+                  if (nextPath) {
+                    setGitChecking(true);
+                  } else {
+                    setGitDetected(false);
+                    setGitRepoRoot(null);
+                    setGitChecking(false);
+                  }
+                }}
+              />
               {projectPath && gitChecking && (
                 <div className="text-[11px] text-[hsl(var(--text-tertiary))]">检测中…</div>
               )}
@@ -165,10 +270,13 @@ export function ProjectCreateDialog({
                 <div className="grid gap-2">
                   <button
                     type="button"
-                    onClick={() => setSelectedTeamPackId(null)}
+                    onClick={() => {
+                      setTeamChoiceTouched(true);
+                      setSelectedTeamPackId(null);
+                    }}
                     className={cn(
                       'relative flex items-center gap-3 px-3 py-2.5 rounded-[var(--radius-md)] border text-left transition-colors',
-                      selectedTeamPackId === null
+                      effectiveTeamPackId === null
                         ? 'border-[hsl(var(--accent))] bg-[hsl(var(--accent))]/5'
                         : 'border-[hsl(var(--border))] bg-[hsl(var(--bg-muted))] hover:border-[hsl(var(--text-tertiary))]'
                     )}
@@ -181,7 +289,7 @@ export function ProjectCreateDialog({
                         使用默认配置创建项目
                       </div>
                     </div>
-                    {selectedTeamPackId === null && (
+                    {effectiveTeamPackId === null && (
                       <Check className="w-4 h-4 text-[hsl(var(--accent))] shrink-0" />
                     )}
                   </button>
@@ -192,10 +300,13 @@ export function ProjectCreateDialog({
                       <button
                         key={pack.id}
                         type="button"
-                        onClick={() => setSelectedTeamPackId(pack.id)}
+                        onClick={() => {
+                          setTeamChoiceTouched(true);
+                          setSelectedTeamPackId(pack.id);
+                        }}
                         className={cn(
                           'relative flex items-start gap-3 px-3 py-2.5 rounded-[var(--radius-md)] border text-left transition-colors',
-                          selectedTeamPackId === pack.id
+                          effectiveTeamPackId === pack.id
                             ? 'border-[hsl(var(--accent))] bg-[hsl(var(--accent))]/5'
                             : 'border-[hsl(var(--border))] bg-[hsl(var(--bg-muted))] hover:border-[hsl(var(--text-tertiary))]'
                         )}
@@ -216,7 +327,7 @@ export function ProjectCreateDialog({
                             {pack.description}
                           </div>
                         </div>
-                        {selectedTeamPackId === pack.id && (
+                        {effectiveTeamPackId === pack.id && (
                           <Check className="w-4 h-4 text-[hsl(var(--accent))] shrink-0 mt-0.5" />
                         )}
                       </button>
@@ -238,6 +349,59 @@ export function ProjectCreateDialog({
                 className="w-full px-3 py-2 rounded-[var(--radius-md)] border border-[hsl(var(--border))] bg-[hsl(var(--bg-muted))] text-[13px] font-medium outline-none resize-none focus:border-[hsl(var(--accent))]"
               />
             </div>
+
+            <div className="rounded-[var(--radius-md)] border border-[hsl(var(--border))] bg-[hsl(var(--bg-muted))] p-3">
+              <label className="flex cursor-pointer items-start gap-2.5">
+                <input
+                  data-testid="autonomous-delivery-toggle"
+                  type="checkbox"
+                  checked={autonomous}
+                  onChange={(event) => setAutonomous(event.target.checked)}
+                  className="mt-0.5"
+                />
+                <span>
+                  <span className="block text-[12px] font-semibold text-[hsl(var(--text-primary))]">
+                    由 Agent 团队自主交付
+                  </span>
+                  <span className="mt-0.5 block text-[11px] text-[hsl(var(--text-tertiary))]">
+                    创建后自动规划、执行、评审和验收；你只需查看最终结果或处理真正的例外。
+                  </span>
+                </span>
+              </label>
+
+              {autonomous && (
+                <div className="mt-3 space-y-3 border-t border-[hsl(var(--border-subtle))] pt-3">
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-semibold text-[hsl(var(--text-secondary))]">
+                      验收标准（每行一条）
+                    </label>
+                    <textarea
+                      data-testid="autonomous-acceptance-criteria"
+                      value={acceptanceCriteria}
+                      onChange={(event) => setAcceptanceCriteria(event.target.value)}
+                      placeholder={'例如：\n用户可以通过 Web UI 完成核心流程\n构建、测试和端到端测试全部通过'}
+                      rows={3}
+                      className="w-full resize-none rounded-[var(--radius-md)] border border-[hsl(var(--border))] bg-[hsl(var(--bg-card))] px-3 py-2 text-[12px] outline-none focus:border-[hsl(var(--accent))]"
+                    />
+                  </div>
+                  {gitDetected && (
+                    <label className="flex cursor-pointer items-center gap-2 text-[11px] text-[hsl(var(--text-secondary))]">
+                      <input
+                        data-testid="autonomous-auto-merge"
+                        type="checkbox"
+                        checked={allowAutoMerge}
+                        onChange={(event) => setAllowAutoMerge(event.target.checked)}
+                      />
+                      验收通过后允许自动合并
+                    </label>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {createError && (
+              <div className="text-[11px] font-medium text-red-500">{createError}</div>
+            )}
           </div>
 
           <div className="flex justify-end gap-2 px-5 py-4 border-t border-[hsl(var(--border))] shrink-0">
@@ -251,7 +415,7 @@ export function ProjectCreateDialog({
             <button
               type="button"
               onClick={handleCreate}
-              disabled={!title.trim() || !goal.trim()}
+              disabled={!title.trim() || !goal.trim() || creating}
               className={cn(
                 'inline-flex items-center gap-1.5 h-9 px-4 rounded-[var(--radius-md)] text-[12px] font-semibold',
                 'bg-[hsl(var(--text-primary))] text-[hsl(var(--text-inverse))] hover:opacity-90',
@@ -259,7 +423,7 @@ export function ProjectCreateDialog({
               )}
             >
               <Plus className="w-3.5 h-3.5" />
-              创建项目
+              {creating ? '正在创建…' : '创建项目'}
             </button>
           </div>
         </div>

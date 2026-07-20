@@ -22,6 +22,7 @@ import {
   type TaskWakeup,
 } from './task-wakeup';
 import { submitTaskWakeupToHarness } from '../harness/registry';
+import { reconcileAutonomousDeliveryConversation } from '../autonomous-delivery/registry';
 
 export interface PublishTaskNotificationInput {
   io?: IOServer;
@@ -55,6 +56,11 @@ function emitToConversation(io: IOServer | undefined, conversationId: string, no
 function emitWakeupToConversation(io: IOServer | undefined, conversationId: string, wakeup: TaskWakeup): void {
   if (!io) return;
   io.to(conversationId).emit('task.wakeup', wakeup);
+}
+
+export function emitTaskState(io: IOServer | undefined, task: TaskRow): void {
+  if (!io) return;
+  io.to(task.conversation_id).emit('task.state', { task });
 }
 
 function isCoordinator(agentId: string, displayName: string | undefined, roleCard?: RoleCard): boolean {
@@ -183,6 +189,7 @@ export function publishTaskNotification(input: PublishTaskNotificationInput): Ta
 }
 
 export function publishTaskChangeNotification(input: PublishTaskChangeNotificationInput): TaskNotification | null {
+  emitTaskState(input.io, input.task);
   const changedFields = input.changedFields?.length
     ? input.changedFields
     : getChangedTaskFields(input.task, input.previousTask);
@@ -249,6 +256,13 @@ export function publishTaskChangeNotification(input: PublishTaskChangeNotificati
       createdAt: new Date().toISOString(),
     });
   }
+
+  void reconcileAutonomousDeliveryConversation(input.io, input.task.conversation_id, {
+    kind: 'fact_changed',
+    ref: input.task.id,
+  })?.catch((error) => {
+    console.warn('[autonomous-delivery] task fact reconciliation failed:', error);
+  });
 
   return notification;
 }

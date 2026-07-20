@@ -307,13 +307,13 @@ ContextReport + CheckpointPatch
 | protocol 每轮重复 | 安全但成本高 | 拆成稳定规则 + 当前场景 hint |
 | history 最近 10 条 | 仍是窗口截断 | self delta + structured checkpoint + reference |
 | MemoryHook NoOp | 可接受的迭代占位 | 待工作态稳定后再接 durable memory |
-| `ContextReport` | C0 已补 source revision、delivery reason 和无正文 Artifact 清单 | 后续补 freshness、cache key 与 checkpoint |
+| `ContextReport` | 已补 Snapshot id、Artifact revision、omission、missing-required 与 Skill delivery evidence | 后续补 cache key 与 checkpoint |
 
-当前还有一个重要事实：C0 已把非空候选内容包装为 `ContextArtifact`，再通过兼容 adapter 转成 `BudgetPart`，但 `ContextRecord/filterVisible` 尚未成为统一入口；因此 audience、authority 和 consistency 仍是可观测元数据，尚未全部成为执行门禁。
+当前实现以 `ContextFragment` 作为 Contributor 接入格式，在 Registry 边界归一化为六维 `ContextArtifact`，再进入 scenario、预算和 Snapshot 管线。project/global scope、agent/role/team visibility、freshness 和 required 已成为机械门禁；consistency 当前完成分类，强一致读模型与 checkpoint 仍属于后续阶段。
 
 ## 9. 可迭代落地路线
 
-### C0：先补契约和可观测，不改变行为（已完成）
+### C0：统一 Artifact 契约、选择门禁与可观测（已完成）
 
 - 定义 `ContextArtifact`、`SourceRevision`、`DeliveryDecision`；
 - 用 adapter 把现有每个 layer 包装成 artifact；
@@ -324,11 +324,20 @@ ContextReport + CheckpointPatch
 
 落地证据：
 
-- `src/lib/agent-context/contextArtifact.ts` 定义六维 Artifact、source revision、稳定诊断 hash 与无正文 decision；
-- `ContextManager` 对 system/message 候选统一生成 Artifact，并保留原有排序、预算与 prompt 渲染；
+- `src/lib/agent-context/context-contracts.ts` 定义 Fragment、六维 Artifact、Query、Contributor 与 Snapshot；
+- `src/lib/agent-context/context-registry.ts` 负责同步/异步失败隔离、结构校验、归一化、去重、scope/visibility/freshness 门禁；
+- `ContextManager` 保持唯一组装入口，把 legacy Tier、Memory 与业务 Contributor 统一送入 Artifact 管线；
 - Task Graph 上下文从 SQLite read model 读取 `updated_at` 原生 revision，Team Log 使用已消费水位作为 delta revision；
 - `context.assemble` observation span 保存完整 `ContextReport`，现有“Agent 调试”执行记录显示来源、revision、生命周期、通道、结果与 reason code；
-- 2026-07-17 全量验证：118 个测试文件、1043 个测试通过，Next production build 通过。
+- 2026-07-19 定向验证覆盖跨项目 Task、全局伪装、私有/角色可见性、过期、重复版本、异常脱敏、场景省略和 required fail-closed；全量结果以当次迭代验证记录为准。
+
+2026-07-19 的生产边界复审进一步冻结以下规则：
+
+- 无 `conversationId` 的历史消息不再作为“可能属于当前项目”的兼容数据注入，而是与跨项目消息一样 fail closed；
+- Contributor 的注册 id 是可信生产者身份，Fragment 不能通过自报 `producer` 冒名，未注册的 required Contributor 也必须被报告为缺失；
+- ContextManager 先生成 assembly snapshot，Daemon 在 transport、workdir 指令和 system prompt 通道确定后再生成 runtime snapshot；调试 UI 以 runtime snapshot 为本轮实际输入凭证；
+- assembly manifest 包含 Fragment 的 `kind / semantic`，runtime manifest 额外包含 prompt、system prompt、transport 与投递通道摘要；
+- OpenCode 选择 `instructions` 文件作为 system context 通道后，ACP prompt 与 tmux 参数不再重复内联同一内容。
 
 ### C1：稳定态 / 版本态 / 动态态分流
 

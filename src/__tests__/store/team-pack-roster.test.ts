@@ -522,5 +522,61 @@ describe('Team Pack Dynamic Roster', () => {
         conversationId: 'conv-cjk-mentions',
       }));
     });
+
+    it('restores the optimistic project removal when the server delete fails', async () => {
+      const conversation = {
+        id: 'conv-delete-failed',
+        title: 'Delete failure',
+        goal: 'Keep local and server state aligned',
+        status: 'active' as const,
+        priority: 'p1' as const,
+        projectPath: '',
+        breakdownStatus: 'none' as const,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      const task = {
+        id: 'TASK-DELETE-FAILED',
+        conversationId: conversation.id,
+        phaseId: '',
+        title: 'Existing task',
+        description: '',
+        status: 'pending' as const,
+        agentId: 'mario',
+        dependencies: [],
+        artifacts: [],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      useTaskHubStore.setState({
+        conversations: [conversation],
+        selectedConversationId: conversation.id,
+        selectedProjectId: conversation.id,
+        tasks: [task],
+        chatMessagesByConversation: {
+          [conversation.id]: [{
+            id: 'msg-delete-failed',
+            conversationId: conversation.id,
+            agentId: 'human',
+            content: 'keep me',
+            timestamp: new Date().toISOString(),
+          }],
+        },
+      });
+      vi.spyOn(global, 'fetch').mockResolvedValue({
+        ok: false,
+        status: 500,
+        json: async () => ({ error: 'foreign key blocked delete' }),
+      } as Response);
+
+      const deleted = await useTaskHubStore.getState().deleteConversation(conversation.id);
+
+      expect(deleted).toBe(false);
+      const restored = useTaskHubStore.getState();
+      expect(restored.selectedConversationId).toBe(conversation.id);
+      expect(restored.conversations).toContainEqual(conversation);
+      expect(restored.tasks).toContainEqual(task);
+      expect(restored.chatMessagesByConversation[conversation.id]).toHaveLength(1);
+    });
   });
 });

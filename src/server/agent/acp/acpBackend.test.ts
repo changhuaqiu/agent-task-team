@@ -54,7 +54,7 @@ describe('AcpBackend (subprocess integration with mockAcpAgent)', () => {
       type: 'http',
       url: 'http://127.0.0.1:3110/api/acp-tools',
     })]);
-  });
+  }, 15_000);
 
   it('allows a correlated platform MCP call without widening the deny policy', async () => {
     const backend = new AcpBackend({

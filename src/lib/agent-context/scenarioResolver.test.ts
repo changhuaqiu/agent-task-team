@@ -15,4 +15,12 @@ describe('resolveScenario', () => {
   it('treats resume without metadata as wakeup', () => {
     expect(resolveScenario({ trigger: 'resume', isFirstWake: false })).toBe('wakeup');
   });
+
+  it('优先采用调用方显式声明的 Team Harness 场景', () => {
+    expect(resolveScenario({
+      trigger: 'resume',
+      isFirstWake: false,
+      scenario: 'verification',
+    })).toBe('verification');
+  });
 });

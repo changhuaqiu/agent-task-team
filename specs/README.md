@@ -39,6 +39,7 @@
 | [`role-card-format/`](role-card-format/) | draft | 冻结角色卡/Team Pack 文件格式并替换即将移除的示例 |
 | [`four-agent-pr-review-loop/`](four-agent-pr-review-loop/) | active | Mario→DK→Luigi PR→Peach 真实评审/测试→合并闭环，使用 provider 回执和聊天卡片作为证据 |
 | [`open-issues-33-35/`](open-issues-33-35/) | active | 复现并修复线上 #33–#35：A2A 意图、首次交接身份、预设升级与上下文去重 |
+| [`autonomous-delivery-loop/`](autonomous-delivery-loop/) | active | 用户提交一次 GoalContract 后，由持久化 Supervisor 自主推进到最终 DeliveryBundle |
 
 ## 依赖关系
 

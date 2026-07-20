@@ -6,7 +6,7 @@ import { PRESET_ROLE_CARDS } from '@/data/presetRoleCards';
 
 // Sub-store slice creators
 import { createTaskSlice } from './taskStore';
-import type { TaskStatus, Task } from './taskStore';
+import type { TaskStatus, Task, TaskArtifact } from './taskStore';
 import { setTaskCounter, STATUS_LABELS, STATUS_ORDER } from './taskStore';
 import { createAgentSlice, AGENT_ROSTER } from './agentStore';
 import { loadAgents } from './agentStore';
@@ -655,9 +655,12 @@ export interface TaskHubState {
 
   loadFromServer: () => Promise<void>;
 
-  createConversation: (input: { title: string; goal: string; projectPath?: string; priority?: Conversation['priority']; teamPackId?: string; useWorktree?: boolean; gitRepoRoot?: string }) => void;
+  createConversation: (input: { title: string; goal: string; projectPath?: string; priority?: Conversation['priority']; teamPackId?: string; useWorktree?: boolean; gitRepoRoot?: string; autonomous?: boolean }) => Promise<string>;
   setSelectedConversationId: (conversationId: string | null) => void;
-  deleteConversation: (conversationId: string) => void;
+  deleteConversation: (
+    conversationId: string,
+    options?: { persist?: boolean },
+  ) => Promise<boolean>;
   restoreConversation: (conversation: Conversation) => void;
   addSupervisorOutput: (output: SupervisorOutputEnvelope) => void;
   addEvent: (event: Omit<InternalEvent, 'id' | 'timestamp'> & { id?: string; timestamp?: string }) => void;
@@ -1273,7 +1276,7 @@ export const useTaskHubStore = create<TaskHubState>()(
           }));
         },
 
-        createConversation: ({ title, goal, projectPath, priority, teamPackId, useWorktree, gitRepoRoot }: { title: string; goal: string; projectPath?: string; priority?: Conversation['priority']; teamPackId?: string; useWorktree?: boolean; gitRepoRoot?: string }) => {
+        createConversation: async ({ title, goal, projectPath, priority, teamPackId, useWorktree, gitRepoRoot, autonomous }: { title: string; goal: string; projectPath?: string; priority?: Conversation['priority']; teamPackId?: string; useWorktree?: boolean; gitRepoRoot?: string; autonomous?: boolean }) => {
           const id = makeId('conv');
           const stamp = new Date().toISOString();
           const conversation: Conversation = {
@@ -1340,15 +1343,26 @@ export const useTaskHubStore = create<TaskHubState>()(
             },
           });
 
-          fetch('/api/mutations', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ type: 'conversation.create', payload: { id, title, goal, priority: priority ?? 'p1', project_path: projectPath, team_pack_id: teamPackId, use_worktree: useWorktree, git_repo_root: gitRepoRoot } }),
-          }).catch((err) => console.error('[mutation] conversation.create failed:', err));
+          try {
+            const response = await fetch('/api/mutations', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ type: 'conversation.create', payload: { id, title, goal, priority: priority ?? 'p1', project_path: projectPath, team_pack_id: teamPackId, use_worktree: useWorktree, git_repo_root: gitRepoRoot } }),
+            });
+            if (!response.ok) {
+              const body = await response.json().catch(() => ({}));
+              throw new Error(body.error ?? '创建项目失败');
+            }
+          } catch (error) {
+            await get().deleteConversation(id, { persist: false });
+            console.error('[mutation] conversation.create failed:', error);
+            return '';
+          }
 
-          if (!teamPackId) {
+          if (!teamPackId && !autonomous) {
             setTimeout(() => get().triggerProposal(id), 500);
           }
+          return id;
         },
 
         setSelectedConversationId: (conversationId: string | null) => {
@@ -1380,8 +1394,18 @@ export const useTaskHubStore = create<TaskHubState>()(
           });
         },
 
-        deleteConversation: (conversationId: string) => {
+        deleteConversation: async (
+          conversationId: string,
+          options?: { persist?: boolean },
+        ) => {
           const state = get();
+          const removedConversation = state.conversations.find((item) => item.id === conversationId);
+          const removedTasks = state.tasks.filter((item) => item.conversationId === conversationId);
+          const removedMessages = state.chatMessagesByConversation[conversationId];
+          const removedEvents = state.eventsByConversation[conversationId];
+          const removedBlockers = state.blockersByConversation[conversationId];
+          const removedSessions = state.agentSessions[conversationId];
+          const wasSelected = state.selectedConversationId === conversationId;
           if (state.selectedConversationId === conversationId) {
             set({ selectedConversationId: null, selectedProjectId: 'default' });
           }
@@ -1391,17 +1415,55 @@ export const useTaskHubStore = create<TaskHubState>()(
           const { [conversationId]: _sessions, ...restSessions } = state.agentSessions;
           set({
             conversations: state.conversations.filter((c) => c.id !== conversationId),
-            tasks: state.tasks.filter((t: any) => t.conversationId !== conversationId),
+            tasks: state.tasks.filter((task) => task.conversationId !== conversationId),
             chatMessagesByConversation: restMsgs,
             eventsByConversation: restEvts,
             blockersByConversation: restBlockers,
             agentSessions: { default: state.agentSessions.default ?? {}, ...restSessions },
           });
-          fetch('/api/mutations', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ type: 'conversation.delete', payload: { id: conversationId } }),
-          }).catch(() => {});
+          if (options?.persist === false) return true;
+
+          try {
+            const response = await fetch('/api/mutations', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ type: 'conversation.delete', payload: { id: conversationId } }),
+            });
+            if (!response.ok) {
+              const body = await response.json().catch(() => ({}));
+              throw new Error(body.error ?? `删除项目失败（HTTP ${response.status}）`);
+            }
+            return true;
+          } catch (error) {
+            set((current) => ({
+              conversations: removedConversation
+                && !current.conversations.some((item) => item.id === conversationId)
+                ? [...current.conversations, removedConversation]
+                : current.conversations,
+              tasks: [
+                ...current.tasks,
+                ...removedTasks.filter(
+                  (removed) => !current.tasks.some((item) => item.id === removed.id),
+                ),
+              ],
+              chatMessagesByConversation: removedMessages
+                ? { ...current.chatMessagesByConversation, [conversationId]: removedMessages }
+                : current.chatMessagesByConversation,
+              eventsByConversation: removedEvents
+                ? { ...current.eventsByConversation, [conversationId]: removedEvents }
+                : current.eventsByConversation,
+              blockersByConversation: removedBlockers
+                ? { ...current.blockersByConversation, [conversationId]: removedBlockers }
+                : current.blockersByConversation,
+              agentSessions: removedSessions
+                ? { ...current.agentSessions, [conversationId]: removedSessions }
+                : current.agentSessions,
+              selectedConversationId: wasSelected ? conversationId : current.selectedConversationId,
+              selectedProjectId: wasSelected ? conversationId : current.selectedProjectId,
+            }));
+            console.error('[mutation] conversation.delete failed:', error);
+            return false;
+          }
         },
 
         restoreConversation: (conversation: Conversation) => {
@@ -2324,6 +2386,51 @@ socket.on('task.assigned', ({ taskId, agentId, conversationId }: { taskId: strin
     referencedTaskId: taskId,
     source: 'workflow',
     prompt: `你被分配了 ${taskId}: ${task.title}. ${task.description || ''}`,
+  });
+});
+
+interface TaskStateSocketRow {
+  id?: string;
+  conversation_id?: string;
+  phase_id?: string;
+  title?: string;
+  description?: string;
+  status?: TaskStatus;
+  agent_id?: string;
+  dependencies?: string | string[];
+  artifacts?: string | TaskArtifact[];
+  review_note?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+socket.on('task.state', ({ task: row }: { task?: TaskStateSocketRow }) => {
+  if (!row?.id || !row.conversation_id) return;
+  const task: Task = {
+    id: row.id,
+    conversationId: row.conversation_id,
+    phaseId: row.phase_id || '',
+    title: row.title || '',
+    description: row.description || '',
+    status: row.status || 'pending',
+    agentId: row.agent_id || '',
+    dependencies: typeof row.dependencies === 'string'
+      ? JSON.parse(row.dependencies || '[]')
+      : (row.dependencies || []),
+    artifacts: typeof row.artifacts === 'string'
+      ? JSON.parse(row.artifacts || '[]')
+      : (row.artifacts || []),
+    reviewNote: row.review_note || undefined,
+    createdAt: row.created_at || new Date().toISOString(),
+    updatedAt: row.updated_at || new Date().toISOString(),
+  };
+  useTaskHubStore.setState((state) => {
+    const exists = state.tasks.some((item) => item.id === task.id);
+    return {
+      tasks: exists
+        ? state.tasks.map((item) => item.id === task.id ? task : item)
+        : [...state.tasks, task],
+    };
   });
 });
 

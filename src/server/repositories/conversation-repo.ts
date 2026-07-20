@@ -55,4 +55,73 @@ export const conversationRepo = {
   delete(id: string): void {
     getDb().prepare('DELETE FROM conversation WHERE id = ?').run(id);
   },
+
+  deleteAggregate(id: string): boolean {
+    const db = getDb();
+    return db.transaction(() => {
+      const exists = db.prepare('SELECT 1 FROM conversation WHERE id = ?').get(id);
+      if (!exists) return false;
+
+      // Autonomous runs own their actions, attempts and receipts through CASCADE.
+      // Remove them before tasks so root_task_id cannot block aggregate deletion.
+      db.prepare('DELETE FROM autonomous_delivery_run WHERE conversation_id = ?').run(id);
+
+      // Task Graph dependents reference both task and task_action without legacy cascades.
+      db.prepare('DELETE FROM chat_task_binding WHERE conversation_id = ?').run(id);
+      db.prepare('DELETE FROM task_artifact_ref WHERE conversation_id = ?').run(id);
+      db.prepare('DELETE FROM task_edge WHERE conversation_id = ?').run(id);
+      db.prepare('DELETE FROM task_action WHERE conversation_id = ?').run(id);
+
+      // A2A delivery references invocation worklist rows, while possession packets
+      // reference passes. Delete leaves before their owning chains.
+      db.prepare('DELETE FROM a2a_delivery WHERE conversation_id = ?').run(id);
+      db.prepare(
+        `DELETE FROM a2a_handoff_packet
+         WHERE chain_id IN (
+           SELECT id FROM a2a_possession_chain WHERE conversation_id = ?
+         )`,
+      ).run(id);
+      db.prepare(
+        `DELETE FROM a2a_pass
+         WHERE chain_id IN (
+           SELECT id FROM a2a_possession_chain WHERE conversation_id = ?
+         )`,
+      ).run(id);
+      db.prepare(
+        `DELETE FROM a2a_possession
+         WHERE chain_id IN (
+           SELECT id FROM a2a_possession_chain WHERE conversation_id = ?
+         )`,
+      ).run(id);
+      db.prepare('DELETE FROM a2a_possession_chain WHERE conversation_id = ?').run(id);
+      db.prepare(
+        `DELETE FROM chain_worklist
+         WHERE chain_id IN (
+           SELECT id FROM invocation_chain WHERE conversation_id = ?
+         )`,
+      ).run(id);
+      db.prepare('DELETE FROM invocation_chain WHERE conversation_id = ?').run(id);
+
+      // Runtime/control-plane and observability projections.
+      db.prepare('DELETE FROM agent_binding WHERE conversation_id = ?').run(id);
+      db.prepare('DELETE FROM execution_envelope WHERE conversation_id = ?').run(id);
+      db.prepare('DELETE FROM control_proof_event WHERE conversation_id = ?').run(id);
+      db.prepare('DELETE FROM observation_span WHERE conversation_id = ?').run(id);
+      db.prepare('DELETE FROM agent_log_cursor WHERE project_id = ?').run(id);
+
+      // Remaining project-scoped records have no transitive dependents.
+      db.prepare('DELETE FROM agent_mailbox WHERE conversation_id = ?').run(id);
+      db.prepare('DELETE FROM delivery_cursor WHERE conversation_id = ?').run(id);
+      db.prepare('DELETE FROM a2a_audit_log WHERE conversation_id = ?').run(id);
+      db.prepare('DELETE FROM phase WHERE conversation_id = ?').run(id);
+      db.prepare('DELETE FROM agent_session WHERE conversation_id = ?').run(id);
+      db.prepare('DELETE FROM invocation WHERE conversation_id = ?').run(id);
+      db.prepare('DELETE FROM agent_event WHERE conversation_id = ?').run(id);
+      db.prepare('DELETE FROM chat_message WHERE conversation_id = ?').run(id);
+      db.prepare('DELETE FROM task WHERE conversation_id = ?').run(id);
+
+      const deleted = db.prepare('DELETE FROM conversation WHERE id = ?').run(id);
+      return deleted.changes === 1;
+    })();
+  },
 };

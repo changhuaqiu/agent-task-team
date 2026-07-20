@@ -24,6 +24,14 @@ const iterateContributor = include('protocol', 'capability', 'situation', 'focus
 const handoff = include('protocol', 'capability', 'situation', 'focus');
 const wakeup = include('protocol', 'capability', 'situation', 'focus');
 const closure = include('protocol', 'capability', 'situation', 'focus', 'dialog');
+const goalIntake = include('identity', 'protocol', 'capability', 'situation', 'focus', 'dialog');
+const planning = include('protocol', 'capability', 'situation', 'focus', 'dialog');
+const architectureReview = include('protocol', 'capability', 'situation', 'focus');
+const execution = include('protocol', 'capability', 'situation', 'focus');
+const codeReview = include('protocol', 'capability', 'situation', 'focus');
+const verification = include('protocol', 'capability', 'situation', 'focus');
+const recovery = include('protocol', 'capability', 'situation', 'focus');
+const escalation = include('protocol', 'capability', 'situation', 'focus');
 
 export const INJECTION_POLICY: Record<ContextScenario, Record<ContextArchetype, Record<ContextCluster, InjectionDirective>>> = {
   init: { planner: initPlanner, reviewer: initContributor, worker: initContributor },
@@ -31,6 +39,14 @@ export const INJECTION_POLICY: Record<ContextScenario, Record<ContextArchetype, 
   handoff: { planner: handoff, reviewer: handoff, worker: handoff },
   wakeup: { planner: wakeup, reviewer: wakeup, worker: wakeup },
   closure: { planner: closure, reviewer: closure, worker: closure },
+  goal_intake: { planner: goalIntake, reviewer: goalIntake, worker: goalIntake },
+  planning: { planner: planning, reviewer: planning, worker: planning },
+  architecture_review: { planner: architectureReview, reviewer: architectureReview, worker: architectureReview },
+  execution: { planner: execution, reviewer: execution, worker: execution },
+  code_review: { planner: codeReview, reviewer: codeReview, worker: codeReview },
+  verification: { planner: verification, reviewer: verification, worker: verification },
+  recovery: { planner: recovery, reviewer: recovery, worker: recovery },
+  escalation: { planner: escalation, reviewer: escalation, worker: escalation },
 };
 
 export function resolveArchetype(roleCard?: RoleCard): ContextArchetype {
