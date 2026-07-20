@@ -39,3 +39,12 @@
 - [x] T23 message/proof append 接入投影；daemon 注册真实 workdir、完成后按 envelope 快照更新游标
 - [x] T24 ContextManager 注入 ≤150 token envelope，handoff/wakeup 按 task 过滤，history 退化为 self-only
 - [x] T25 覆盖分类、可见性、游标、归档、文件重建、场景注入与回归测试，更新长期架构文档
+
+## P5 — Team Harness Context Snapshot
+
+- [x] T26 定义 ContextFragment / ContextArtifact / ContextQuery / ContextSnapshot / ContextContributor 契约
+- [x] T27 在 ContextManager 内实现 Contributor Registry、失败隔离、去重、作用域、可见性与 freshness 选择
+- [x] T28 将现有 Tier 输出和 MemoryHook 接入统一 Fragment → Artifact 管线，不新增平行 Prompt 出口
+- [x] T29 扩展完整 Team Harness 场景，并保留 init/iterate/wakeup 兼容解析
+- [x] T30 AssembledContext、ContextReport 与 Harness plan 暴露 snapshot id、fragment refs、omission 和 missing-required
+- [x] T31 通过 ContextManager 外部 seam 覆盖跨项目、私有、角色、过期、重复、Contributor 失败和预算裁剪测试

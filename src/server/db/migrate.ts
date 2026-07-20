@@ -776,6 +776,379 @@ CREATE INDEX IF NOT EXISTS idx_agent_skill_skill ON agent_skill(skill_id);
     },
   },
   {
+    version: 27,
+    sql: `
+CREATE TABLE IF NOT EXISTS eval_rubric (
+  id TEXT PRIMARY KEY, name TEXT NOT NULL, owner_id TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'active', created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS eval_rubric_revision (
+  id TEXT PRIMARY KEY, rubric_id TEXT NOT NULL REFERENCES eval_rubric(id),
+  revision INTEGER NOT NULL, definition TEXT NOT NULL, content_hash TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'published', published_by TEXT NOT NULL,
+  published_at TEXT NOT NULL, created_at TEXT NOT NULL,
+  UNIQUE(rubric_id, revision), UNIQUE(rubric_id, content_hash)
+);
+CREATE TABLE IF NOT EXISTS eval_subject_snapshot (
+  id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL REFERENCES conversation(id) ON DELETE CASCADE,
+  root_task_id TEXT, chain_id TEXT, mode TEXT NOT NULL, evidence_cutoff_at TEXT NOT NULL,
+  collected_at TEXT NOT NULL, snapshot_hash TEXT NOT NULL UNIQUE,
+  evidence_refs TEXT NOT NULL, evidence_payload TEXT NOT NULL, app_manifest TEXT NOT NULL,
+  data_quality TEXT NOT NULL, task_type TEXT NOT NULL DEFAULT 'unknown',
+  difficulty TEXT NOT NULL DEFAULT 'unknown', language TEXT NOT NULL DEFAULT 'unknown'
+);
+CREATE TABLE IF NOT EXISTS eval_run (
+  id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL REFERENCES conversation(id) ON DELETE CASCADE,
+  snapshot_id TEXT REFERENCES eval_subject_snapshot(id),
+  rubric_revision_id TEXT NOT NULL REFERENCES eval_rubric_revision(id),
+  mode TEXT NOT NULL, idempotency_key TEXT NOT NULL UNIQUE, status TEXT NOT NULL DEFAULT 'queued',
+  gate_status TEXT NOT NULL DEFAULT 'unknown', evidence_coverage REAL NOT NULL DEFAULT 0,
+  overall_score REAL, evaluator_bundle_digest TEXT NOT NULL,
+  error_code TEXT, error_message TEXT, started_at TEXT, completed_at TEXT,
+  created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS eval_job (
+  id TEXT PRIMARY KEY, run_id TEXT NOT NULL UNIQUE REFERENCES eval_run(id) ON DELETE CASCADE,
+  request_payload TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'queued',
+  attempt_count INTEGER NOT NULL DEFAULT 0, max_attempts INTEGER NOT NULL DEFAULT 3,
+  next_attempt_at TEXT NOT NULL, lease_until TEXT, last_error TEXT,
+  created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS eval_score (
+  id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES eval_run(id) ON DELETE CASCADE,
+  dimension_key TEXT NOT NULL, evaluator_kind TEXT NOT NULL, evaluator_revision TEXT NOT NULL,
+  applicability TEXT NOT NULL, raw_score REAL, normalized_score REAL, label TEXT NOT NULL,
+  rationale TEXT NOT NULL, evidence_refs TEXT NOT NULL, created_at TEXT NOT NULL,
+  UNIQUE(run_id, dimension_key, evaluator_kind)
+);
+CREATE TABLE IF NOT EXISTS eval_judge_attempt (
+  id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES eval_run(id) ON DELETE CASCADE,
+  score_id TEXT REFERENCES eval_score(id), dimension_key TEXT NOT NULL,
+  judge_account_id TEXT, provider TEXT, model TEXT, prompt_digest TEXT NOT NULL,
+  request_params TEXT NOT NULL, response_payload TEXT, parse_status TEXT NOT NULL,
+  prompt_tokens INTEGER, completion_tokens INTEGER, latency_ms INTEGER,
+  error_code TEXT, error_message TEXT, created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS eval_gap (
+  id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES eval_run(id) ON DELETE CASCADE,
+  dimension_key TEXT NOT NULL, severity TEXT NOT NULL, description TEXT NOT NULL,
+  suggestion TEXT NOT NULL, target_type TEXT, target_ref TEXT,
+  status TEXT NOT NULL DEFAULT 'open', evidence_refs TEXT NOT NULL,
+  created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS eval_policy (
+  conversation_id TEXT PRIMARY KEY REFERENCES conversation(id) ON DELETE CASCADE,
+  enabled INTEGER NOT NULL DEFAULT 1, sampling_rate REAL NOT NULL DEFAULT 1,
+  daily_token_budget INTEGER NOT NULL DEFAULT 50000, judge_account_id TEXT,
+  allowed_providers TEXT NOT NULL DEFAULT '["openai","anthropic"]',
+  retention_days INTEGER NOT NULL DEFAULT 180, fail_strategy TEXT NOT NULL DEFAULT 'partial',
+  updated_by TEXT NOT NULL DEFAULT 'project-admin', updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS eval_dataset (
+  id TEXT PRIMARY KEY, conversation_id TEXT REFERENCES conversation(id) ON DELETE CASCADE,
+  name TEXT NOT NULL, description TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 1,
+  status TEXT NOT NULL DEFAULT 'active', created_by TEXT NOT NULL,
+  created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(conversation_id, name, revision)
+);
+CREATE TABLE IF NOT EXISTS eval_case (
+  id TEXT PRIMARY KEY, dataset_id TEXT NOT NULL REFERENCES eval_dataset(id) ON DELETE CASCADE,
+  case_key TEXT NOT NULL, split TEXT NOT NULL, source_type TEXT NOT NULL, source_ref TEXT,
+  input_payload TEXT NOT NULL, expected_labels TEXT NOT NULL, metadata TEXT NOT NULL,
+  content_hash TEXT NOT NULL, redaction_status TEXT NOT NULL DEFAULT 'redacted',
+  created_at TEXT NOT NULL, UNIQUE(dataset_id, case_key)
+);
+CREATE TABLE IF NOT EXISTS eval_annotation (
+  id TEXT PRIMARY KEY, case_id TEXT NOT NULL REFERENCES eval_case(id) ON DELETE CASCADE,
+  run_id TEXT REFERENCES eval_run(id), rubric_revision_id TEXT NOT NULL REFERENCES eval_rubric_revision(id),
+  reviewer_id TEXT NOT NULL, dimension_key TEXT NOT NULL, label TEXT NOT NULL,
+  rationale TEXT NOT NULL, blind_batch_id TEXT, status TEXT NOT NULL DEFAULT 'submitted',
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_eval_run_conversation ON eval_run(conversation_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_eval_job_claim ON eval_job(status, next_attempt_at, lease_until);
+CREATE INDEX IF NOT EXISTS idx_eval_score_run ON eval_score(run_id);
+CREATE INDEX IF NOT EXISTS idx_eval_gap_run ON eval_gap(run_id, status);
+CREATE INDEX IF NOT EXISTS idx_eval_case_dataset ON eval_case(dataset_id, split);
+`,
+  },
+  {
+    version: 28,
+    sql: `
+CREATE TABLE IF NOT EXISTS eval_experiment (
+  id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL REFERENCES conversation(id) ON DELETE CASCADE,
+  dataset_id TEXT NOT NULL REFERENCES eval_dataset(id), dataset_revision INTEGER NOT NULL,
+  rubric_revision_id TEXT NOT NULL REFERENCES eval_rubric_revision(id),
+  evaluator_bundle_digest TEXT NOT NULL, name TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'draft',
+  baseline_manifest TEXT NOT NULL, candidate_manifest TEXT NOT NULL, summary TEXT,
+  created_by TEXT NOT NULL, started_at TEXT, completed_at TEXT, error_code TEXT, created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS eval_experiment_item (
+  id TEXT PRIMARY KEY, experiment_id TEXT NOT NULL REFERENCES eval_experiment(id) ON DELETE CASCADE,
+  case_id TEXT NOT NULL REFERENCES eval_case(id), baseline_run_id TEXT REFERENCES eval_run(id),
+  candidate_run_id TEXT REFERENCES eval_run(id), winner TEXT, score_delta REAL,
+  details TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL,
+  UNIQUE(experiment_id, case_id)
+);
+CREATE TABLE IF NOT EXISTS eval_change_proposal (
+  id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL REFERENCES conversation(id) ON DELETE CASCADE,
+  gap_id TEXT REFERENCES eval_gap(id), target_type TEXT NOT NULL, target_ref TEXT,
+  hypothesis TEXT NOT NULL, proposed_change TEXT NOT NULL, risk TEXT NOT NULL,
+  owner_id TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'draft', approval_by TEXT,
+  approved_at TEXT, regression_experiment_id TEXT REFERENCES eval_experiment(id),
+  apply_evidence TEXT, revert_evidence TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_eval_experiment_conversation ON eval_experiment(conversation_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_eval_change_proposal_conversation ON eval_change_proposal(conversation_id, status);
+`,
+  },
+  {
+    version: 29,
+    run(db) {
+      const columns = db.prepare('PRAGMA table_info(eval_job)').all() as Array<{ name: string }>;
+      if (!columns.some((column) => column.name === 'lease_token')) {
+        db.exec('ALTER TABLE eval_job ADD COLUMN lease_token TEXT');
+      }
+    },
+  },
+  {
+    version: 30,
+    run(db) {
+      const columns = db.prepare('PRAGMA table_info(eval_run)').all() as Array<{ name: string }>;
+      if (!columns.some((column) => column.name === 'case_id')) db.exec('ALTER TABLE eval_run ADD COLUMN case_id TEXT');
+      if (!columns.some((column) => column.name === 'application_manifest_digest')) {
+        db.exec('ALTER TABLE eval_run ADD COLUMN application_manifest_digest TEXT');
+      }
+      db.exec('CREATE INDEX IF NOT EXISTS idx_eval_run_case ON eval_run(case_id, application_manifest_digest)');
+    },
+  },
+  {
+    version: 31,
+    run(db) {
+      const policyColumns = db.prepare('PRAGMA table_info(eval_policy)').all() as Array<{ name: string }>;
+      if (!policyColumns.some((column) => column.name === 'secondary_judge_account_id')) {
+        db.exec('ALTER TABLE eval_policy ADD COLUMN secondary_judge_account_id TEXT');
+      }
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS eval_review_queue (
+          id TEXT PRIMARY KEY,
+          conversation_id TEXT NOT NULL REFERENCES conversation(id) ON DELETE CASCADE,
+          run_id TEXT REFERENCES eval_run(id) ON DELETE CASCADE,
+          experiment_id TEXT REFERENCES eval_experiment(id) ON DELETE CASCADE,
+          case_id TEXT REFERENCES eval_case(id),
+          dimension_key TEXT,
+          reason_code TEXT NOT NULL,
+          primary_label TEXT,
+          secondary_label TEXT,
+          status TEXT NOT NULL DEFAULT 'pending',
+          assigned_to TEXT,
+          resolution TEXT,
+          resolved_by TEXT,
+          resolved_at TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_eval_review_queue_conversation
+          ON eval_review_queue(conversation_id, status, created_at);
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_eval_review_queue_run_dimension
+          ON eval_review_queue(run_id, dimension_key, reason_code)
+          WHERE run_id IS NOT NULL;
+
+        CREATE TABLE IF NOT EXISTS eval_pairwise_round (
+          id TEXT PRIMARY KEY,
+          conversation_id TEXT NOT NULL REFERENCES conversation(id) ON DELETE CASCADE,
+          experiment_id TEXT NOT NULL REFERENCES eval_experiment(id) ON DELETE CASCADE,
+          case_id TEXT NOT NULL REFERENCES eval_case(id),
+          blind_seed TEXT NOT NULL,
+          first_order TEXT NOT NULL,
+          first_choice TEXT,
+          first_judge_id TEXT,
+          swapped_choice TEXT,
+          swapped_judge_id TEXT,
+          resolved_winner TEXT,
+          consistency_status TEXT NOT NULL DEFAULT 'pending_first',
+          review_queue_id TEXT REFERENCES eval_review_queue(id),
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          UNIQUE(experiment_id, case_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_eval_pairwise_round_experiment
+          ON eval_pairwise_round(experiment_id, consistency_status);
+      `);
+    },
+  },
+  {
+    version: 32,
+    run(db) {
+      const policyColumns = db.prepare('PRAGMA table_info(eval_policy)').all() as Array<{ name: string }>;
+      if (!policyColumns.some((column) => column.name === 'max_concurrency')) {
+        db.exec('ALTER TABLE eval_policy ADD COLUMN max_concurrency INTEGER NOT NULL DEFAULT 2');
+      }
+      db.exec(`
+        CREATE TRIGGER IF NOT EXISTS trg_eval_rubric_revision_immutable
+        BEFORE UPDATE ON eval_rubric_revision
+        BEGIN SELECT RAISE(ABORT, 'published rubric revisions are immutable'); END;
+        CREATE TRIGGER IF NOT EXISTS trg_eval_subject_snapshot_immutable
+        BEFORE UPDATE ON eval_subject_snapshot
+        BEGIN SELECT RAISE(ABORT, 'evaluation snapshots are immutable'); END;
+        CREATE TRIGGER IF NOT EXISTS trg_eval_score_immutable
+        BEFORE UPDATE ON eval_score
+        BEGIN SELECT RAISE(ABORT, 'evaluation scores are immutable'); END;
+        CREATE TRIGGER IF NOT EXISTS trg_eval_judge_attempt_immutable
+        BEFORE UPDATE ON eval_judge_attempt
+        BEGIN SELECT RAISE(ABORT, 'Judge attempts are immutable'); END;
+      `);
+    },
+  },
+  {
+    version: 33,
+    run(db) {
+      const reviewColumns = db.prepare('PRAGMA table_info(eval_review_queue)').all() as Array<{ name: string }>;
+      if (!reviewColumns.some((column) => column.name === 'request_payload')) {
+        db.exec("ALTER TABLE eval_review_queue ADD COLUMN request_payload TEXT NOT NULL DEFAULT '{}'");
+      }
+    },
+  },
+  {
+    version: 34,
+    run(db) {
+      const annotationColumns = db.prepare('PRAGMA table_info(eval_annotation)').all() as Array<{ name: string }>;
+      if (!annotationColumns.some((column) => column.name === 'conversation_id')) {
+        db.exec('ALTER TABLE eval_annotation ADD COLUMN conversation_id TEXT');
+        db.exec(`
+          UPDATE eval_annotation
+          SET conversation_id=(
+            SELECT d.conversation_id FROM eval_case c
+            JOIN eval_dataset d ON d.id=c.dataset_id
+            WHERE c.id=eval_annotation.case_id
+          )
+          WHERE conversation_id IS NULL
+        `);
+      }
+      const itemColumns = db.prepare('PRAGMA table_info(eval_experiment_item)').all() as Array<{ name: string }>;
+      if (!itemColumns.some((column) => column.name === 'execution_verified')) {
+        db.exec('ALTER TABLE eval_experiment_item ADD COLUMN execution_verified INTEGER NOT NULL DEFAULT 0');
+      }
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_eval_snapshot_conversation
+          ON eval_subject_snapshot(conversation_id, evidence_cutoff_at);
+        CREATE INDEX IF NOT EXISTS idx_eval_annotation_scope
+          ON eval_annotation(conversation_id, case_id, dimension_key, reviewer_id);
+        CREATE TRIGGER IF NOT EXISTS trg_eval_annotation_conversation_insert
+        BEFORE INSERT ON eval_annotation
+        WHEN NEW.conversation_id IS NULL
+          OR NOT EXISTS (SELECT 1 FROM conversation WHERE id=NEW.conversation_id)
+        BEGIN SELECT RAISE(ABORT, 'annotation conversation does not exist'); END;
+        CREATE TRIGGER IF NOT EXISTS trg_eval_annotation_conversation_update
+        BEFORE UPDATE OF conversation_id ON eval_annotation
+        WHEN NEW.conversation_id IS NULL
+          OR NOT EXISTS (SELECT 1 FROM conversation WHERE id=NEW.conversation_id)
+        BEGIN SELECT RAISE(ABORT, 'annotation conversation does not exist'); END;
+        CREATE TABLE IF NOT EXISTS eval_budget_reservation (
+          id TEXT PRIMARY KEY,
+          conversation_id TEXT NOT NULL REFERENCES conversation(id) ON DELETE CASCADE,
+          run_id TEXT NOT NULL REFERENCES eval_run(id) ON DELETE CASCADE,
+          reservation_key TEXT NOT NULL UNIQUE,
+          reserved_tokens INTEGER NOT NULL,
+          expires_at TEXT NOT NULL,
+          created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_eval_budget_reservation_scope
+          ON eval_budget_reservation(conversation_id, expires_at);
+      `);
+    },
+  },
+  {
+    version: 35,
+    sql: `
+CREATE TABLE IF NOT EXISTS eval_application_snapshot (
+  id TEXT PRIMARY KEY,
+  conversation_id TEXT NOT NULL REFERENCES conversation(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  source TEXT NOT NULL,
+  project_path TEXT NOT NULL,
+  code_revision TEXT NOT NULL,
+  team_manifest TEXT NOT NULL,
+  agent_manifest TEXT NOT NULL,
+  manifest_digest TEXT NOT NULL,
+  created_by TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE(conversation_id, manifest_digest)
+);
+CREATE TABLE IF NOT EXISTS eval_case_execution (
+  id TEXT PRIMARY KEY,
+  conversation_id TEXT NOT NULL REFERENCES conversation(id) ON DELETE CASCADE,
+  experiment_id TEXT REFERENCES eval_experiment(id) ON DELETE CASCADE,
+  case_id TEXT NOT NULL REFERENCES eval_case(id),
+  application_snapshot_id TEXT NOT NULL REFERENCES eval_application_snapshot(id),
+  variant TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'queued',
+  task_id TEXT REFERENCES task(id) ON DELETE SET NULL,
+  harness_trigger_id TEXT,
+  invocation_id TEXT REFERENCES invocation(id),
+  trace_id TEXT,
+  eval_run_id TEXT REFERENCES eval_run(id),
+  proof_event_id TEXT REFERENCES control_proof_event(id),
+  target_manifest_digest TEXT NOT NULL,
+  observed_manifest_digest TEXT,
+  execution_verified INTEGER NOT NULL DEFAULT 0,
+  error_code TEXT,
+  error_message TEXT,
+  created_at TEXT NOT NULL,
+  started_at TEXT,
+  completed_at TEXT,
+  updated_at TEXT NOT NULL,
+  UNIQUE(experiment_id, case_id, variant)
+);
+CREATE INDEX IF NOT EXISTS idx_eval_application_snapshot_conversation
+  ON eval_application_snapshot(conversation_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_eval_case_execution_claim
+  ON eval_case_execution(status, created_at);
+CREATE INDEX IF NOT EXISTS idx_eval_case_execution_experiment
+  ON eval_case_execution(experiment_id, case_id);
+CREATE TRIGGER IF NOT EXISTS trg_eval_application_snapshot_immutable
+BEFORE UPDATE ON eval_application_snapshot
+BEGIN SELECT RAISE(ABORT, 'application snapshots are immutable'); END;
+`,
+  },
+  {
+    version: 36,
+    run(db) {
+      const columns = db.prepare('PRAGMA table_info(agent_session)').all() as Array<{ name: string }>;
+      if (!columns.some((column) => column.name === 'isolation_key')) {
+        db.exec("ALTER TABLE agent_session ADD COLUMN isolation_key TEXT NOT NULL DEFAULT ''");
+      }
+      db.exec(`
+        DROP INDEX IF EXISTS uq_agent_session_active_project_agent;
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_agent_session_active_project_agent
+          ON agent_session(conversation_id, agent_id, isolation_key)
+          WHERE status='active';
+      `);
+    },
+  },
+  {
+    version: 37,
+    run(db) {
+      const columns = db.prepare('PRAGMA table_info(eval_experiment)').all() as Array<{ name: string }>;
+      if (!columns.some((column) => column.name === 'baseline_snapshot_id')) {
+        db.exec('ALTER TABLE eval_experiment ADD COLUMN baseline_snapshot_id TEXT');
+      }
+      if (!columns.some((column) => column.name === 'candidate_snapshot_id')) {
+        db.exec('ALTER TABLE eval_experiment ADD COLUMN candidate_snapshot_id TEXT');
+      }
+    },
+  },
+  {
+    version: 38,
+    run(db) {
+      const columns = db.prepare('PRAGMA table_info(eval_case_execution)').all() as Array<{ name: string }>;
+      if (!columns.some((column) => column.name === 'agent_id')) {
+        db.exec('ALTER TABLE eval_case_execution ADD COLUMN agent_id TEXT');
+      }
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_eval_case_execution_agent
+        ON eval_case_execution(conversation_id,agent_id,status)`);
+    },
+  },
+  {
     version: 26,
     sql: `
 CREATE TABLE IF NOT EXISTS autonomous_delivery_run (
@@ -862,6 +1235,44 @@ CREATE INDEX IF NOT EXISTS idx_autonomous_delivery_receipt_run
   ON autonomous_delivery_receipt(run_id, kind, observed_at);
 `,
   },
+  {
+    version: 40,
+    sql: `
+CREATE TABLE IF NOT EXISTS github_issue_ingress (
+  id TEXT PRIMARY KEY,
+  delivery_id TEXT NOT NULL UNIQUE,
+  repository_full_name TEXT NOT NULL,
+  issue_number INTEGER NOT NULL,
+  issue_node_id TEXT NOT NULL,
+  issue_url TEXT NOT NULL,
+  action TEXT NOT NULL,
+  payload_digest TEXT NOT NULL,
+  conversation_id TEXT NOT NULL REFERENCES conversation(id) ON DELETE CASCADE,
+  delivery_run_id TEXT NOT NULL REFERENCES autonomous_delivery_run(id) ON DELETE CASCADE,
+  status TEXT NOT NULL CHECK(status IN ('started')),
+  received_at TEXT NOT NULL,
+  processed_at TEXT NOT NULL,
+  UNIQUE(repository_full_name, issue_number)
+);
+CREATE INDEX IF NOT EXISTS idx_github_issue_ingress_run
+  ON github_issue_ingress(delivery_run_id);
+`,
+  },
+  {
+    // Compatibility for databases initialized by the unpublished checkpoint,
+    // where the autonomous-delivery table existed without optimistic revision.
+    version: 41,
+    run(db) {
+      const table = db.prepare(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='autonomous_delivery_run'",
+      ).get();
+      if (!table) return;
+      const columns = db.prepare('PRAGMA table_info(autonomous_delivery_run)').all() as Array<{ name: string }>;
+      if (!columns.some((column) => column.name === 'revision')) {
+        db.exec('ALTER TABLE autonomous_delivery_run ADD COLUMN revision INTEGER NOT NULL DEFAULT 0');
+      }
+    },
+  },
 ];
 
 export function applyMigrations(db: Database.Database): void {
@@ -872,11 +1283,13 @@ export function applyMigrations(db: Database.Database): void {
   };
   const currentVersion = current?.v ?? 0;
 
-  for (const migration of MIGRATIONS) {
+  for (const migration of [...MIGRATIONS].sort((left, right) => left.version - right.version)) {
     if (migration.version > currentVersion) {
-      if (migration.sql) db.exec(migration.sql);
-      migration.run?.(db);
-      db.prepare('INSERT INTO _schema_version (version) VALUES (?)').run(migration.version);
+      db.transaction(() => {
+        if (migration.sql) db.exec(migration.sql);
+        migration.run?.(db);
+        db.prepare('INSERT INTO _schema_version (version) VALUES (?)').run(migration.version);
+      })();
     }
   }
 }

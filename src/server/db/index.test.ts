@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import type Database from 'better-sqlite3';
+import Database from 'better-sqlite3';
 import { createTestDb } from './index';
 import { applyMigrations } from './migrate';
 
@@ -25,6 +25,9 @@ describe('SQLite Foundation', () => {
     expect(tableNames).toContain('agent_session');
     expect(tableNames).toContain('invocation');
     expect(tableNames).toContain('agent_event');
+    expect(tableNames).toContain('eval_review_queue');
+    expect(tableNames).toContain('eval_pairwise_round');
+    expect(tableNames).toContain('github_issue_ingress');
   });
 
   it('creates indexes', () => {
@@ -44,6 +47,24 @@ describe('SQLite Foundation', () => {
       v: number;
     };
     expect(row.v).toBeGreaterThanOrEqual(1);
+  });
+
+  it('enforces GitHub Issue delivery and repository Issue uniqueness', () => {
+    const indexes = db.prepare(
+      "PRAGMA index_list('github_issue_ingress')",
+    ).all() as Array<{ name: string; unique: number }>;
+    const uniqueColumns = indexes
+      .filter((index) => index.unique === 1)
+      .map((index) => (
+        db.prepare(`PRAGMA index_info('${index.name.replaceAll("'", "''")}')`)
+          .all() as Array<{ seqno: number; name: string }>
+      )
+        .sort((left, right) => left.seqno - right.seqno)
+        .map((column) => column.name)
+        .join(','));
+
+    expect(uniqueColumns).toContain('delivery_id');
+    expect(uniqueColumns).toContain('repository_full_name,issue_number');
   });
 
   it('can insert and query a conversation', () => {
@@ -142,5 +163,35 @@ describe('SQLite Foundation', () => {
     };
     expect(before.v).toBeGreaterThanOrEqual(1);
     expect(after.v).toBe(before.v);
+  });
+
+  it('upgrades an unpublished checkpoint database with autonomous run revisions', () => {
+    const checkpoint = new Database(':memory:');
+    try {
+      checkpoint.exec(`
+        CREATE TABLE _schema_version (version INTEGER PRIMARY KEY);
+        INSERT INTO _schema_version (version) VALUES (40);
+        CREATE TABLE autonomous_delivery_run (
+          id TEXT PRIMARY KEY,
+          status TEXT NOT NULL
+        );
+      `);
+
+      applyMigrations(checkpoint);
+
+      const columns = checkpoint.prepare('PRAGMA table_info(autonomous_delivery_run)')
+        .all() as Array<{ name: string }>;
+      expect(columns.some((column) => column.name === 'revision')).toBe(true);
+      expect(checkpoint.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
+        .toEqual({ version: 41 });
+    } finally {
+      checkpoint.close();
+    }
+  });
+
+  it('enforces immutability of published evaluation revisions', () => {
+    const revision = db.prepare('SELECT id FROM eval_rubric_revision LIMIT 1').get() as { id: string };
+    expect(() => db.prepare('UPDATE eval_rubric_revision SET definition=? WHERE id=?')
+      .run('{"tampered":true}', revision.id)).toThrow('published rubric revisions are immutable');
   });
 });

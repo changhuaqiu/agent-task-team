@@ -449,7 +449,11 @@ ACP Runtime Session (new once, load on later turns)
 
 ## 1.11 场景化上下文注入与收敛
 
-平台层已在唯一 `ContextManager` 网关中落地场景化注入。每轮先把 trigger 解析为 init、iterate、handoff、wakeup 或 closure，再把 RoleCard 映射为 planner、reviewer 或 worker，最后按 identity、protocol、capability、situation、focus、dialog 六簇选择内容。策略只决定簇是否进入既有组装管道，不改变各 layer、provider 或 BudgetGuard 的职责。
+平台层已在唯一 `ContextManager` 网关中落地场景化注入。每轮先把 trigger 解析为 `goal_intake / planning / architecture_review / execution / handoff / code_review / verification / recovery / closure / escalation`；旧 `init / iterate / wakeup` 继续兼容。RoleCard 映射为 planner、reviewer 或 worker，再按 identity、protocol、capability、situation、focus、dialog 六簇选择内容。
+
+业务事实通过 `ContextContributor` 提供轻量 Fragment；Registry 统一校验并归一化为六维 `ContextArtifact`，完成 project/global scope、visibility、freshness、去重和失败隔离。当前动作属于 focus，不再和可省略的历史 dialog 混用。任何 required Artifact 或 required Skill 被场景/预算裁掉都会 fail closed。每轮输出基于完整脱敏 manifest 的 SHA-256 `ContextSnapshot`，记录实际加载的 Artifact revision、scope、subject、source、delivery、omission、能力与约束，并随 Harness plan 和观测 Span 留证；required 失败也写 error context span。
+
+Capability Plane 复用 Skill Runtime、ACP/MCP 实际工具目录、Browser/Playwright 和 Provider 官方适配器；Harness 只增加场景选择、权限、幂等、Receipt 与恢复，不重复实现工具执行内核。
 
 系统唤醒从 `TaskWakeup` 经 Harness 显式携带 reason metadata，避免首次 workflow/review/test 唤醒被当成普通用户首轮。任务子树全部终态时，Autonomy Guard 根据既有 `subtask_of` 边唤醒 planner 输出 Closure Report，并用 control proof event 跨扫描周期去重。合法出口与 A2A action 检查在 MVP 阶段均为观测规则，不阻断 agent loop。
 

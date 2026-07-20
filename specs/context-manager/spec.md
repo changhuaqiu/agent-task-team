@@ -247,6 +247,81 @@ interface MemoryHook {
 - A2A 接收方在当前项目没有 active session 时采用 `init` scenario，生成 identity/system prompt；同时继续携带 `a2aHandoff` focus artifact。
 - 接收方已有 active session 时仍采用 `handoff` scenario，省略 identity，避免重复 bootstrap。
 
+### 5.12 Team Harness Context Snapshot（2026-07-19）
+
+> 状态：implemented。该阶段把 ContextManager 从“固定 Provider 的 Prompt Composer”推进为 Team Harness 的一等上下文模块。
+
+#### 决策
+
+`assembleContext()` 继续作为唯一外部 seam。调用方不直接操作 Registry、排序器或 Prompt Part；ContextManager 内部新增：
+
+1. `ContextContributor`：业务模块只贡献带来源、作用域、版本、时效性和可见性的轻量 `ContextFragment`。
+2. Contributor Registry：并行收集、结构校验、去重、作用域/可见性/时效性过滤和失败隔离，并把 Fragment 统一归一化为既有六维 `ContextArtifact`，业务模块不重复实现生命周期、一致性和交付策略。
+3. Scenario Selection：显式支持 `goal_intake / planning / architecture_review / execution / handoff / code_review / verification / recovery / closure / escalation`；旧 `init / iterate / wakeup` 作为兼容场景保留。
+4. `ContextSnapshot`：每次组装返回版本化只读快照，记录实际加载的 Artifact、缺失必需上下文、裁剪/过期/越域原因、能力、约束和最终编译文本。
+
+#### 核心契约
+
+```ts
+interface ContextContributor {
+  readonly id: string;
+  contribute(query: ContextQuery): Promise<ContextFragment[]>;
+}
+
+interface ContextFragment {
+  id: string;
+  kind: string;
+  cluster: ContextCluster;
+  scope: ContextScope;
+  subject: ContextSubject;
+  producer: string;
+  version: string;
+  content: string | { artifactRef: string; summary?: string };
+  visibility: ContextVisibility;
+  freshness: { observedAt: string; expiresAt?: string };
+  evidenceRefs: string[];
+  required?: boolean;
+}
+
+interface ContextArtifact extends ContextFragment {
+  semantic: { kind: string; cluster: ContextCluster };
+  source: { provider: string; owner: string; revision: string; observedAt: string };
+  lifecycle: { class: 'static' | 'versioned' | 'event' | 'snapshot' | 'ephemeral'; expiresAt?: string };
+  consistency: 'strong' | 'causal' | 'eventual';
+  delivery: {
+    mode: 'bootstrap' | 'on_change' | 'always' | 'delta' | 'jit';
+    channel: 'tools' | 'system' | 'message' | 'reference';
+    required: boolean;
+    importance: number;
+  };
+}
+```
+
+#### 兼容迁移
+
+- 现有四层 Tier 渲染结果先通过 `LegacyTierContributor` 适配成 Fragment，再进入同一选择、预算与 Snapshot 管线。
+- `MemoryHook` 通过内建 Memory Contributor 接入，不再在主流程里作为特殊分支处理。
+- 新业务模块不得直接修改 `rawPrompt` 或追加 Prompt 字符串；只允许注册 Contributor。
+- 兼容适配器的退出条件：role/project/task/team/history/tool 等现有来源全部改为原生 Contributor，且 PromptComposer 兼容包装无调用方。
+
+#### 不变量
+
+- project fragment 的 projectId 必须与 query.conversationId 一致。
+- global scope 只允许 identity、protocol、capability；不得携带项目工作事实。
+- global scope 的 subject 只允许 agent/team；task/project/goal/artifact 即使伪装为 identity 也必须拒绝。
+- agent-private fragment 只对目标 agent 可见；role fragment 只对匹配 archetype 可见。
+- 过期 fragment 不进入 Prompt；Contributor 失败不得让其他来源丢失，但必须进入 omission 与 missing-required 报告。
+- 当前动作、验收目标、授权约束和 required Skill 是必需上下文；被场景策略或预算裁掉时必须 fail closed。
+- Task 必须属于当前 conversation/project；越域 Task 在 ContextManager 与 Harness Planner 两层拒绝。
+- Snapshot id 对完整脱敏 manifest 使用 SHA-256；manifest 必须包含 scope、subject、visibility、source、consistency 与 delivery 投影。
+- required 失败也必须生成 error context span，提供脱敏的 missing-required 与 omission 观测证据。
+- Snapshot 只描述实际送入本轮 Agent 的上下文，不把“策略允许”误报为“内容已经存在”。
+- Provider 返回的历史消息必须显式携带当前 `conversationId`；无作用域消息与跨项目消息同样 fail closed，不允许兼容层猜测归属。
+- `ContextContributor.id` 是 Registry 认证的生产者身份。Contributor 返回的每个 Fragment，其 `producer` 必须与注册 id 一致；请求声明的 required Contributor 即使未注册，也必须进入 missing-required。
+- ContextManager 生成 assembly snapshot；Daemon 在确定 transport、workdir 指令与 system prompt 投递通道后生成 runtime snapshot。对外观测使用 runtime snapshot id，确保 id 覆盖实际输入。
+- Snapshot manifest 必须包含 Fragment `kind / semantic`。运行时哈希必须包含 prompt、system prompt、transport 与 system prompt channel 的摘要。
+- 同一 system context 在一个 Runtime 中只能通过一个通道投递。OpenCode 使用配置文件 `instructions` 时，ACP prompt、tmux 参数与普通 prompt 不得再次内联同一 system context。
+
 ---
 
 ## 6. 影响面

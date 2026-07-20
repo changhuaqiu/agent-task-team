@@ -189,6 +189,33 @@ describe('POST /api/mutations', () => {
       .get('conv-1')).toEqual({ count: 0 });
   });
 
+  it('conversation.delete removes project-scoped evaluation data', async () => {
+    await seedConversation();
+    const { getDb } = await import('@/server/db');
+    const db = getDb();
+    const now = new Date().toISOString();
+    db.prepare(`INSERT INTO eval_dataset
+      (id,conversation_id,name,description,revision,status,created_by,created_at,updated_at)
+      VALUES (?,?,?,?,1,'active','test',?,?)`)
+      .run('dataset-delete', 'conv-1', 'Delete fixture', 'Project-scoped fixture', now, now);
+    db.prepare(`INSERT INTO eval_case
+      (id,dataset_id,case_key,split,source_type,input_payload,expected_labels,metadata,
+       content_hash,redaction_status,created_at)
+      VALUES (?,?,?,?,?,'{}','{}','{}',?,'redacted',?)`)
+      .run('case-delete', 'dataset-delete', 'case-1', 'held_out', 'manual', 'hash-delete', now);
+
+    const req = mockReq('POST', { type: 'conversation.delete', payload: { id: 'conv-1' } });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res._json.ok).toBe(true);
+    expect(db.prepare('SELECT COUNT(*) AS count FROM eval_dataset WHERE conversation_id=?')
+      .get('conv-1')).toEqual({ count: 0 });
+    expect(db.prepare('SELECT COUNT(*) AS count FROM eval_case WHERE dataset_id=?')
+      .get('dataset-delete')).toEqual({ count: 0 });
+  });
+
   it('conversation.delete rolls back the whole aggregate when an unexpected foreign key blocks commit', async () => {
     await seedTask();
     const { getDb } = await import('@/server/db');

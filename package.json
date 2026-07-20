@@ -2,6 +2,7 @@
   "name": "agent-task-hub",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "pnpm@10.33.2",
   "scripts": {
     "setup": "bash setup.sh",
     "dev": "next dev --webpack",
@@ -14,6 +15,7 @@
     "e2e:autonomous": "playwright test --config=playwright.autonomous.config.ts",
     "e2e:headed": "playwright test --headed",
     "e2e:report": "playwright show-report",
+    "hook:github:install": "node scripts/install-github-issue-hook.mjs",
     "bridge:install": "bash bridge/install.sh",
     "bridge:start": "node bridge/opencode-bridge.mjs",
     "bridge:check": "bash scripts/opencode-bridge-install.sh",

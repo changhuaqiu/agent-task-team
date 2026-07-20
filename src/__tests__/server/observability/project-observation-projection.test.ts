@@ -30,6 +30,49 @@ describe('projectObservationProjection', () => {
     expect(snapshot.chains[0]).toMatchObject({ chainId: 'chain-1', taskIds: ['task-1'] });
     expect(snapshot.chains[0].edges[0]).toMatchObject({ fromAgentId: 'planner', toAgentId: 'reviewer' });
     expect(snapshot.workflow.taskChains[0]).toMatchObject({ taskId: 'task-1', chainIds: ['chain-1'], agentIds: expect.arrayContaining(['planner', 'reviewer']) });
+    expect(projectObservationProjection.build('conv-obs', 50, { taskId: 'task-1' }).summary.traceCount).toBe(1);
+    expect(projectObservationProjection.build('conv-obs', 50, { chainId: 'chain-1' }).summary.traceCount).toBe(1);
     expect(projectObservationProjection.build('conv-obs', 50, { invocationId: 'missing' }).summary.traceCount).toBe(0);
+  });
+
+  it('prefers the runtime-bound Context Snapshot over the assembly snapshot', () => {
+    invocationRepo.create({ id: 'inv-runtime', conversation_id: 'conv-obs', agent_id: 'coder' });
+    const traceId = generateTraceId();
+    const root = observationSpanRepo.start({
+      traceId,
+      name: 'agent.invoke',
+      kind: 'agent',
+      conversationId: 'conv-obs',
+      agentId: 'coder',
+      invocationId: 'inv-runtime',
+    });
+    const assembly = observationSpanRepo.start({
+      traceId,
+      parentSpanId: root.span_id,
+      name: 'context.assemble',
+      kind: 'context',
+      conversationId: 'conv-obs',
+      agentId: 'coder',
+      invocationId: 'inv-runtime',
+      attributes: { report: { scenario: 'execution', snapshotId: 'ctx_assembly' } },
+    });
+    observationSpanRepo.finish(assembly.span_id, 'ok');
+    const runtime = observationSpanRepo.start({
+      traceId,
+      parentSpanId: root.span_id,
+      name: 'context.runtime',
+      kind: 'context',
+      conversationId: 'conv-obs',
+      agentId: 'coder',
+      invocationId: 'inv-runtime',
+      attributes: { report: { scenario: 'execution', snapshotId: 'ctx_runtime' } },
+    });
+    observationSpanRepo.finish(runtime.span_id, 'ok');
+    observationSpanRepo.finish(root.span_id, 'ok');
+
+    expect(projectObservationProjection.build('conv-obs').traces[0].context).toMatchObject({
+      scenario: 'execution',
+      snapshotId: 'ctx_runtime',
+    });
   });
 });

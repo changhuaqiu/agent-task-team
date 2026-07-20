@@ -91,4 +91,27 @@ describe('DispatchGateway', () => {
     expect(JSON.parse(envelope.payload).prompt).toBe('[BLOCKED: secret]');
     expect(proofLogRepo.getByEnvelope(envelope.id).map((event) => event.event_type)).toContain('policy.secret.blocked');
   });
+
+  it('does not treat an sk- substring inside a normal identifier as a secret', () => {
+    const gateway = new DispatchGateway();
+    gateway.ensureRuntimeNode({ id: 'browser-1', kind: 'browser', label: 'Browser' });
+    gateway.ensureRuntimeNode({ id: 'daemon-1', kind: 'daemon', label: 'Daemon' });
+
+    const envelope = gateway.requestDispatch({
+      source: 'workflow',
+      intent: 'implement',
+      conversationId: 'conv-1',
+      fromNodeId: 'browser-1',
+      toNodeId: 'daemon-1',
+      toAgentId: 'mario',
+      runtimeId: 'opencode-local',
+      payload: {
+        prompt: 'Inspect task-notification-publisher and task-graph-policy before editing.',
+        contextRefs: [],
+      },
+    });
+
+    expect(envelope.status).toBe('routed');
+    expect(envelope.reason_code).toBeNull();
+  });
 });

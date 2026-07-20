@@ -124,6 +124,9 @@ export interface ProjectObservationFilters {
   traceId?: string;
   invocationId?: string;
   agentId?: string;
+  taskId?: string;
+  chainId?: string;
+  passId?: string;
 }
 
 export const projectObservationProjection = {
@@ -139,7 +142,10 @@ export const projectObservationProjection = {
     const allTraces = Array.from(traceGroups.entries()).map(([traceId, traceSpans]) => {
       const ordered = [...traceSpans].sort((a, b) => a.started_at.localeCompare(b.started_at) || a.span_id.localeCompare(b.span_id));
       const root = ordered.find(span => !span.parent_span_id && span.kind === 'agent') ?? ordered[0];
-      const contextSpan = ordered.find(span => span.kind === 'context');
+      // Prefer the later runtime-bound snapshot over the assembly snapshot.
+      // Required-context failures still expose their single assembly error span.
+      const contextSpan = ordered.find(span => span.name === 'context.runtime')
+        ?? ordered.find(span => span.kind === 'context');
       const rootAttributes = parseJson<Record<string, unknown>>(root.attributes, {});
       const contextAttributes = parseJson<Record<string, unknown>>(contextSpan?.attributes, {});
       const usage = root.invocation_id ? invocationUsage.get(root.invocation_id) : undefined;
@@ -170,7 +176,10 @@ export const projectObservationProjection = {
     const traces = allTraces.filter(trace =>
       (!filters.traceId || trace.traceId === filters.traceId)
       && (!filters.invocationId || trace.invocationId === filters.invocationId)
-      && (!filters.agentId || trace.agentId === filters.agentId),
+      && (!filters.agentId || trace.agentId === filters.agentId)
+      && (!filters.taskId || trace.taskId === filters.taskId)
+      && (!filters.chainId || trace.chainId === filters.chainId)
+      && (!filters.passId || trace.passId === filters.passId),
     ).slice(0, cappedLimit);
 
     const agentMap = new Map<string, ProjectObservationSnapshot['agents'][number]>();

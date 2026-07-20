@@ -89,9 +89,12 @@
 - `docs/product/ux/2026-05-01-ux-journey-and-gameplay-plan.md`
 - `docs/product/ux/2026-05-15-group-chat-task-flow.md`
 - `docs/product/ux/2026-07-16-right-panel-ia-simplification.md`：项目右面板从 5 tab 精简为 2 tab（任务主视图 + 调试）的 IA 决策，含业务判断与技术约束
+- `docs/product/ux/2026-07-19-evaluation-platform-workspace.md`：评估作为当前项目内建工作模式、而非外部系统或右侧栏附属页的 IA 决策
 - `docs/product/business/2026-05-01-engineering-role-card-business-plan.md`
 - `docs/product/business/2026-07-18-skill-package-runtime-model.md`：Skill 包、安装版本、Agent 绑定与本轮使用证据的产品模型
 - `docs/product/business/2026-07-19-autonomous-delivery-contract.md`：一次提交、系统自主推进、只交付最终结果或最小异常的产品契约
+- `docs/product/business/2026-07-19-evaluation-object-model.md`：评估测试集、被测对象、任务执行与结果展示的产品对象模型
+- `docs/product/business/2026-07-20-github-issue-agent-trigger.md`：GitHub Issue 作为自主交付来源、但不替代内部项目与 Task Graph 的产品决策
 
 ### 技术设计
 
@@ -102,6 +105,8 @@
 - `docs/technical/execution/context-layering.md`：统一 Context Manager、分层预算、项目隔离与场景化上下文注入
 - `docs/technical/execution/structured-context-management-architecture.md`：结构化上下文快照、Contributor 注册和可追溯组装架构
 - `docs/technical/execution/autonomous-delivery-loop.md`：持久化 DeliveryRun、Action/Attempt/Receipt、恢复与最终收口设计
+- `docs/technical/evaluation/agent-evaluation-system.md`：任务级跨 trace 冻结快照、四层判定、在线诊断与离线回归的目标架构
+- `docs/technical/integrations/github-issue-agent-hook.md`：GitHub Issue webhook 验签、幂等映射与 GoalContract 接入设计
 - `docs/technical/execution/skill-package-progressive-loading.md`：标准 Skill 目录、不可变 revision、确定性编译与渐进加载设计
 - `docs/technical/observability/agent-observability.md`
 

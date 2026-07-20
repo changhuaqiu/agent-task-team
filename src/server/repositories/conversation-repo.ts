@@ -66,6 +66,46 @@ export const conversationRepo = {
       // Remove them before tasks so root_task_id cannot block aggregate deletion.
       db.prepare('DELETE FROM autonomous_delivery_run WHERE conversation_id = ?').run(id);
 
+      // Evaluation tables were introduced across multiple local migration drafts.
+      // Delete the aggregate explicitly so both CASCADE-enabled databases and
+      // older checkpoint databases with NO ACTION foreign keys remain deletable.
+      db.prepare('DELETE FROM eval_pairwise_round WHERE conversation_id = ?').run(id);
+      db.prepare('DELETE FROM eval_review_queue WHERE conversation_id = ?').run(id);
+      db.prepare('DELETE FROM eval_case_execution WHERE conversation_id = ?').run(id);
+      db.prepare(
+        `DELETE FROM eval_experiment_item
+         WHERE experiment_id IN (SELECT id FROM eval_experiment WHERE conversation_id = ?)`,
+      ).run(id);
+      db.prepare('DELETE FROM eval_change_proposal WHERE conversation_id = ?').run(id);
+      db.prepare('DELETE FROM eval_budget_reservation WHERE conversation_id = ?').run(id);
+      db.prepare('DELETE FROM eval_annotation WHERE conversation_id = ?').run(id);
+      db.prepare(
+        `DELETE FROM eval_judge_attempt
+         WHERE run_id IN (SELECT id FROM eval_run WHERE conversation_id = ?)`,
+      ).run(id);
+      db.prepare(
+        `DELETE FROM eval_score
+         WHERE run_id IN (SELECT id FROM eval_run WHERE conversation_id = ?)`,
+      ).run(id);
+      db.prepare(
+        `DELETE FROM eval_gap
+         WHERE run_id IN (SELECT id FROM eval_run WHERE conversation_id = ?)`,
+      ).run(id);
+      db.prepare(
+        `DELETE FROM eval_job
+         WHERE run_id IN (SELECT id FROM eval_run WHERE conversation_id = ?)`,
+      ).run(id);
+      db.prepare('DELETE FROM eval_experiment WHERE conversation_id = ?').run(id);
+      db.prepare('DELETE FROM eval_run WHERE conversation_id = ?').run(id);
+      db.prepare('DELETE FROM eval_subject_snapshot WHERE conversation_id = ?').run(id);
+      db.prepare(
+        `DELETE FROM eval_case
+         WHERE dataset_id IN (SELECT id FROM eval_dataset WHERE conversation_id = ?)`,
+      ).run(id);
+      db.prepare('DELETE FROM eval_dataset WHERE conversation_id = ?').run(id);
+      db.prepare('DELETE FROM eval_application_snapshot WHERE conversation_id = ?').run(id);
+      db.prepare('DELETE FROM eval_policy WHERE conversation_id = ?').run(id);
+
       // Task Graph dependents reference both task and task_action without legacy cascades.
       db.prepare('DELETE FROM chat_task_binding WHERE conversation_id = ?').run(id);
       db.prepare('DELETE FROM task_artifact_ref WHERE conversation_id = ?').run(id);

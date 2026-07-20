@@ -5,6 +5,7 @@ export interface AgentSessionRow {
   cli_session_id: string | null;
   conversation_id: string;
   agent_id: string;
+  isolation_key: string;
   task_id: string;
   seq: number;
   status: string;
@@ -29,12 +30,12 @@ export const sessionRepo = {
       .get(agentId, taskId, 'active') as AgentSessionRow | undefined;
   },
 
-  findActiveByConversation(agentId: string, conversationId: string): AgentSessionRow | undefined {
+  findActiveByConversation(agentId: string, conversationId: string, isolationKey = ''): AgentSessionRow | undefined {
     return getDb()
       .prepare(
-        'SELECT * FROM agent_session WHERE agent_id = ? AND conversation_id = ? AND status = ? ORDER BY seq DESC LIMIT 1',
+        'SELECT * FROM agent_session WHERE agent_id = ? AND conversation_id = ? AND isolation_key = ? AND status = ? ORDER BY seq DESC LIMIT 1',
       )
-      .get(agentId, conversationId, 'active') as AgentSessionRow | undefined;
+      .get(agentId, conversationId, isolationKey, 'active') as AgentSessionRow | undefined;
   },
 
   findByAgentAndTask(agentId: string, taskId: string): AgentSessionRow[] {
@@ -49,14 +50,15 @@ export const sessionRepo = {
     agentId: string;
     taskId?: string;
     seq?: number;
+    isolationKey?: string;
   }): AgentSessionRow {
     const now = new Date().toISOString();
     getDb()
       .prepare(
-        `INSERT INTO agent_session (id, conversation_id, agent_id, task_id, seq, status, created_at)
-         VALUES (?, ?, ?, ?, ?, 'active', ?)`,
+        `INSERT INTO agent_session (id, conversation_id, agent_id, isolation_key, task_id, seq, status, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, 'active', ?)`,
       )
-      .run(input.id, input.conversationId, input.agentId, input.taskId ?? '', input.seq ?? 0, now);
+      .run(input.id, input.conversationId, input.agentId, input.isolationKey ?? '', input.taskId ?? '', input.seq ?? 0, now);
     return sessionRepo.getById(input.id)!;
   },
 
@@ -66,15 +68,24 @@ export const sessionRepo = {
     agentId: string;
     taskId?: string;
     seq?: number;
+    isolationKey?: string;
   }): AgentSessionRow {
     return getDb().transaction(() => {
-      const existing = sessionRepo.findActiveByConversation(input.agentId, input.conversationId);
+      const existing = sessionRepo.findActiveByConversation(
+        input.agentId,
+        input.conversationId,
+        input.isolationKey ?? '',
+      );
       if (existing) return existing;
       try {
         return sessionRepo.create(input);
       } catch (error) {
         // A concurrent creator may have won the partial unique index race.
-        const winner = sessionRepo.findActiveByConversation(input.agentId, input.conversationId);
+        const winner = sessionRepo.findActiveByConversation(
+          input.agentId,
+          input.conversationId,
+          input.isolationKey ?? '',
+        );
         if (winner) return winner;
         throw error;
       }

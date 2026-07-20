@@ -1,9 +1,9 @@
 <div align="center">
   <sub><b>English</b> | <a href="./README.md">简体中文</a></sub>
   <h1>🐈 Agent Task Hub</h1>
-  <h3>From idea to a running product · Adopt your AI engineering team</h3>
+  <h3>An Agent OS for software delivery</h3>
   <p>
-    <strong>What stands between an idea and a product isn't a programmer — it's the power to ship.</strong>
+    <strong>Move AI from writing code to taking responsibility for delivery.</strong>
   </p>
   <p>
     <a href="#-why-agent-task-hub">Why</a> •
@@ -20,23 +20,19 @@
 
 ## 🎯 Why Agent Task Hub
 
-**Ever been here?**
+Today's coding agents can produce a lot of code. But writing code is not the same as delivering a result.
 
-You have a brilliant idea — a product, a tool, a demo. But you're stuck:
+Once work spans dozens of steps, multiple roles, several tools, and hours or days, the hard questions change:
 
-- Hire a developer? Too expensive, and the communication overhead is huge.
-- Learn it yourself? Not enough time, and you don't want to become a programmer.
-- Use an AI tool? Every time you start from scratch — last conversation, last lessons, last pitfalls, all gone.
+- Does context stay focused on the goal instead of degrading over time?
+- Can responsibility and critical facts move cleanly between agents?
+- Can work resume after a process, session, or tool failure?
+- Did review, testing, and acceptance actually happen, or did an agent merely say they did?
+- Can the team retain skills and lessons, then prove the next version is better?
 
-**The problem isn't that you lack a stronger AI. It's that you lack a team.**
+**The missing piece is not only a stronger model. It is an operating system in which an agent team can work reliably.**
 
-Traditional AI tools are "one-off assistants" — used once, forgotten, restarted next time. A real team is different:
-
-- They **remember** every decision you made together.
-- They **accumulate** the collaboration rhythm you built through practice.
-- They **grow** — from 80-point general skills into a 100-point setup that's uniquely yours.
-
-**Agent Task Hub is where you "adopt" a team like that.**
+Models and execution engines resemble high-performance CPUs: strong at reasoning and generation, but without native memory management, scheduling, durable state, communication, security boundaries, or recovery. Agent Task Hub supplies that Agent OS layer.
 
 ---
 
@@ -44,23 +40,25 @@ Traditional AI tools are "one-off assistants" — used once, forgotten, restarte
 
 Agent Task Hub is not another AI chat tool.
 
-It's a **multi-agent collaboration platform** — you and multiple AI agents form a virtual engineering team that turns ideas into running products together.
+It is an **Agent OS for software delivery**. It organizes Claude, Codex, OpenCode, and other execution capabilities into a team that can keep moving through planning, implementation, review, verification, repair, and delivery.
+
+The **Team Harness is the execution kernel** of this Agent OS. It drives the team's continuous loop, while the wider OS manages context, tasks, communication, capabilities, authorization, durable state, recovery, evidence, and evolution.
+
+You do not create a collection of chat windows. You create **a delivery**: define the goal, acceptance criteria, scope, and authorization; the system keeps going until it returns evidence-backed results or asks one question that truly requires your judgment.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                                                             │
-│    You (Human)                                              │
-│    ├── Provide the vision                                   │
-│    ├── Make the calls                                       │
-│    └── Walk into the crowd with your work                   │
-│                                                             │
-│    Agent Team                                               │
-│    ├── ⭐ Mario   — Coordination, task breakdown, escalation│
-│    ├── ⚡ Luigi   — Full-stack dev (frontend + backend + API)│
-│    ├── 🌸 Peach   — Quality (review + integration testing)  │
-│    └── ⚙️ DK      — Architecture (on-demand gatekeeping)    │
-│                                                             │
-│    Practice, grow, and ship together                        │
+│  You: goal + acceptance criteria + scope + authorization    │
+│                         ↓                                   │
+│  Agent Task Hub · Software Delivery Agent OS                │
+│  ├── Memory: relevant context, budgets, and Skills          │
+│  ├── Scheduling: task graph, ownership, autonomous progress │
+│  ├── IPC: A2A handoffs, packets, and team logs              │
+│  ├── Safety: authorization, gates, durable state, recovery  │
+│  └── Evolution: evidence, observability, evals, versions    │
+│                         ↓                                   │
+│  Delivery: changes + criterion-level evidence + limitations │
 │                                                             │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -69,27 +67,37 @@ It's a **multi-agent collaboration platform** — you and multiple AI agents for
 
 ## 💡 Core philosophy
 
-### 1. Between idea and product stands the power to ship
+### 1. Agents need an operating system, not more containers
 
-> What's stuck is not the idea — it's the ability to make it run. Coding is the most direct form of that power today.
+> Multiple agents running at once do not automatically form a reliable team.
 
-Ideas used to travel on slide decks. In the future they travel as POCs and demos that actually run. You don't need a stronger AI tool — you need a team that turns ideas into products.
+Task Graph and Dispatch provide scheduling; layered context provides memory management; project workspaces and durable facts provide a filesystem; A2A provides inter-process communication; authorization, gates, and recovery provide safety and fault tolerance.
 
-### 2. Adopt a team, don't configure a tool
+### 2. Move from completed chats to completed goals
 
-> Tools are forgotten after use; teams get stronger with practice.
+> Chat is the entry point. Delivery is the outcome.
 
-The collaboration rules you shape together, the pitfalls you hit, the skills you accumulate — they all stay. Reuse them in the next project, and keep growing from a generic 80 to your own 100.
+Goals, acceptance criteria, tasks, handoffs, reviews, tests, and external outcomes form a delivery. One finished agent turn does not mean the work is finished.
 
-### 3. Peer collaboration, shared memory
+### 3. Systems engineering matters more than a longer prompt
 
-> No boss agent. Each has a perspective; free judgment, structured delivery.
+> Do not rely on the model to remember every rule. Build an environment where mistakes are harder to make.
 
-Four agents, each with an expertise — coordination, full-stack dev, quality, architecture — each decides whether and how to respond. Execution stays disciplined: TDD, code review, quality gates. Agents share context, so you never have to say "but I already told the last agent."
+Relevant information appears on demand, legal actions are clear, exact data moves through the system, important state survives failures, and risky actions respect authorization.
 
-### 4. AI doesn't sideline you — it puts you on stage
+### 4. Let models judge; let the system preserve certainty
 
-Agent Task Hub doesn't finish your dream for you. It finally gives you a chance to bring your own team and turn ideas into a running world. No resources, no team, no stage before — now agents build it with you, so you can walk into the crowd with your work.
+> Agents handle understanding, design, and implementation. The system handles state, boundaries, and proof.
+
+Agents remain free to make open-ended technical decisions. Ownership, exact data transfer, authorization, idempotency, recovery, and completion gates do not depend on model compliance or a single boss agent.
+
+### 5. Humans make decisions, not scheduling glue
+
+Humans own goals, taste, boundaries, and final responsibility. The team handles planning, implementation, review, verification, and recovery. The system asks for help only when knowledge, authorization, or safe judgment is genuinely missing.
+
+### 6. Evidence outranks self-report; improvement must be measurable
+
+Without real review, testing, acceptance, and external receipts, the product cannot claim delivery is complete. Rules, lessons, and Skills can persist, but evaluation and version comparison must prove whether the team actually improved.
 
 ---
 
@@ -97,10 +105,11 @@ Agent Task Hub doesn't finish your dream for you. It finally gives you a chance 
 
 | Scenario | How |
 |----------|-----|
-| **Build a product prototype** | Describe what you want; the team takes it from 0 to 1 |
-| **Improve an existing project** | Connect the codebase; the team analyzes, refactors, adds features |
-| **Learn a new technology** | Let the team walk you through a real project, learning as you go |
-| **Automate repetitive work** | Tell the team the flow; trigger it with one sentence later |
+| **Deliver a product goal** | Define the goal and acceptance criteria; the team advances to a verifiable result |
+| **Change an existing codebase** | Analyze, implement, review, test, and close out changes in a real project |
+| **Run long-lived work** | Continue across sessions, restarts, and repair cycles instead of relying on one long chat |
+| **Improve an agent team** | Compare RoleCards, Skills, models, and context policies to find gains or regressions |
+| **Connect external task sources** | Feed structured goals such as GitHub Issues into the same delivery loop |
 
 ---
 
@@ -108,38 +117,40 @@ Agent Task Hub doesn't finish your dream for you. It finally gives you a chance 
 
 ### Prerequisites
 
-- **Node.js 18+** (`setup.sh` validates the version)
-- **pnpm** (installed automatically by `setup.sh` if missing)
-- **At least one agent runtime**: OpenCode (native) / Claude / Codex CLI — to actually drive the agents.
+- **Git**
+- **Node.js 20.9+**
+- **At least one agent runtime**: OpenCode, Claude, or Codex
 
-### One-command install
+### Clone from GitHub and start
+
+macOS, Linux, or Git Bash:
 
 ```bash
-git clone https://github.com/<owner>/agent-task-hub.git
-cd agent-task-hub
+git clone https://github.com/changhuaqiu/agent-task-team.git
+cd agent-task-team
 ./setup.sh    # install dependencies + build
-pnpm start    # start (production mode, requires a build first)
+pnpm start
 ```
 
-> **Windows users**: `setup.sh` is a bash script — run it in Git Bash / WSL, or run `pnpm install; pnpm build` manually.
->
-> For development (hot reload) use `pnpm dev`, no build needed.
+Windows PowerShell:
 
-Open http://localhost:3000 and start adopting your team.
-
-### Three steps
-
-```
-Step 1: Create a project
-  └── Tell the team what you want to build
-
-Step 2: Configure accounts
-  └── Connect OpenCode / Claude / Codex so the team can call AI
-
-Step 3: Start collaborating
-  └── Send messages, assign tasks, watch progress
+```powershell
+git clone https://github.com/changhuaqiu/agent-task-team.git
+cd agent-task-team
+npm install -g pnpm@10.33.2   # skip if pnpm is already installed
+pnpm install
+pnpm build
+pnpm start
 ```
 
+For local development, replace the final two commands with `pnpm dev`.
+
+Open [http://localhost:3000](http://localhost:3000), then follow the actual first-use flow:
+
+1. Connect and verify an OpenCode, Claude, or Codex account in Settings.
+2. Create a project and select the local code directory and agent team.
+3. Choose autonomous team delivery and enter the goal, criterion-level acceptance checks, and authorization.
+4. Start the delivery, follow its stage, and handle only exceptions that require your decision.
 ---
 
 ## 🏗️ Architecture
@@ -170,12 +181,12 @@ If you're a developer, you may care about these:
 
 | Aspect | Traditional AI tools | Agent Task Hub |
 |--------|----------------------|----------------|
-| **Collaboration** | 1-on-1, single-threaded | Multi-agent, parallel |
-| **Memory** | Forgotten after use | Persistent, across sessions |
-| **Experience** | Start from scratch each time | Gets stronger with practice |
-| **Context** | Only the current chat | Shared across the project |
-| **Quality** | None | TDD + code review + gates |
-| **Use case** | Simple Q&A | Full product development |
+| **Primary object** | A chat or invocation | A delivery with goals and acceptance criteria |
+| **Context** | Long-chat memory | Layered, relevant, budgeted project context |
+| **Collaboration** | Manual copy/paste or temporary subagents | Task graph, ownership, structured handoffs |
+| **Failure handling** | Prompt again and rerun | Durable state, bounded retries, resume from the original workspace |
+| **Completion** | Agent self-report | Review, tests, acceptance evidence, and external receipts |
+| **Evolution** | Change the prompt or model | Versioned Skills, RoleCards, knowledge, and evaluations |
 
 ---
 
@@ -184,7 +195,7 @@ If you're a developer, you may care about these:
 **Delivered**
 
 - ✅ Project workspace UI
-- ✅ Multi-agent collaboration
+- ✅ Task Graph and multi-agent collaboration
 - ✅ Session-level isolation
 - ✅ SQLite persistence
 - ✅ Skill system
@@ -192,9 +203,14 @@ If you're a developer, you may care about these:
 
 **In progress**
 
-- 🚧 Unified integration config center — account models + role-card binding
-- 🚧 Role Card ecosystem — TeamPack data model + GitHub import + orchestration
-- 🚧 Security scanning — prompt injection / secret / dangerous-instruction detection
+- 🚧 A2A ownership, handoff packets, and control-plane integration
+- 🚧 Agent, context, tool, and collaboration observability
+- 🚧 Unified ACP runtime for OpenCode, Claude, and Codex
+- 🚧 Layered context management, progressive loading, and budget gates
+- 🚧 System control plane for dispatch, policy, proof, health, and recovery
+- 🚧 Persistent autonomous delivery from GoalContract to DeliveryBundle
+- 🚧 Agent evaluation with executable regression suites and version experiments
+- 🚧 GitHub Issue intake through the same delivery loop
 
 > See the [roadmap doc](./docs/roadmap.md) for full stage goals.
 
@@ -231,8 +247,8 @@ MIT License
 ---
 
 <div align="center">
-  <h3>"Adopt a team, and grow a world together."</h3>
+  <h3>"Define the goal once. Deliver it with evidence."</h3>
   <p>
-    <sub>So everyone gets a chance to bring their own team and turn ideas into reality.</sub>
+    <sub>Move AI from writing code to taking responsibility for delivery.</sub>
   </p>
 </div>

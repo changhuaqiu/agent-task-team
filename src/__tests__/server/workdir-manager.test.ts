@@ -115,6 +115,18 @@ describe('WorkdirManager', () => {
       const meta = mgr().readSessionMeta('mario', 'proj-1', 'TASK-999');
       expect(meta).toBeNull();
     });
+
+    it('creates metadata directories when execution uses an external worktree', () => {
+      const m = mgr();
+      m.writeSessionMeta('mario', 'proj-worktree', 'TASK-WT', { sessionId: 'sess-wt' });
+      m.writeGCMeta('mario', 'proj-worktree', 'TASK-WT');
+
+      const taskRoot = path.join(tmpRoot, 'proj-worktree', 'mario', 'task-TASK-WT');
+      expect(JSON.parse(fs.readFileSync(path.join(taskRoot, '.session.json'), 'utf8')))
+        .toMatchObject({ sessionId: 'sess-wt' });
+      expect(JSON.parse(fs.readFileSync(path.join(taskRoot, '.gc_meta.json'), 'utf8')))
+        .toMatchObject({ taskId: 'TASK-WT' });
+    });
   });
 
   describe('gc', () => {

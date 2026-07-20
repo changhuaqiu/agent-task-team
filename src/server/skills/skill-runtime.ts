@@ -248,7 +248,33 @@ export class RepositorySkillRuntime implements SkillRuntimeInterface {
         }
         continue;
       }
-      installed.push(await this.ensureRevision(skill));
+      const requestedRevisionId = input.revisionIds?.[skillId];
+      if (!requestedRevisionId) {
+        installed.push(await this.ensureRevision(skill));
+        continue;
+      }
+      const revision = skillRepo.getRevisionById(requestedRevisionId);
+      if (!revision || revision.skill_id !== skillId) {
+        throw new SkillRuntimeError(
+          'skill_revision_mismatch',
+          `Requested revision ${requestedRevisionId} does not belong to skill ${skillId}`,
+        );
+      }
+      const packageStat = await fs.stat(revision.package_path).catch(() => undefined);
+      if (!packageStat?.isDirectory()) {
+        throw new SkillRuntimeError('skill_package_missing', `Installed package is missing for skill ${skill.name}`);
+      }
+      const installedHash = await computeInstalledPackageHash(revision.package_path, revision.config ?? undefined)
+        .catch(error => {
+          if (error instanceof SkillPackageError) {
+            throw new SkillRuntimeError(error.reasonCode, error.message);
+          }
+          throw error;
+        });
+      if (installedHash !== revision.content_hash) {
+        throw new SkillRuntimeError('skill_revision_mismatch', `Installed package hash mismatch for skill ${skill.name}`);
+      }
+      installed.push(revisionToInstalled(skill, revision));
     }
 
     return {
