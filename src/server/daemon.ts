@@ -1805,8 +1805,6 @@ export default function registerDaemon(io: IOServer) {
           observedManifestDigest: evaluationObservedDigest,
         });
       }
-      const sessionMeta = taskId ? workdirManager.readSessionMeta(agentId, projectId || 'default', taskId) : null;
-
       for (const workspaceDir of new Set(evaluation ? [taskProjectDir] : [sharedProjectDir, wd])) {
         try {
           teamLogProjection.materialize(sessionConvId, workspaceDir);
