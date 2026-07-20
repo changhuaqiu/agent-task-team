@@ -42,6 +42,7 @@
 | [`autonomous-delivery-loop/`](autonomous-delivery-loop/) | active | 用户提交一次 GoalContract 后，由持久化 Supervisor 自主推进到最终 DeliveryBundle |
 | [`agent-eval-system/`](agent-eval-system/) | draft | 任务全链路评估：客观维度规则计算 + 主观维度 LLM-as-Judge 套 rubric，结果回流优化 RoleCard/Skill |
 | [`github-issue-agent-hook/`](github-issue-agent-hook/) | active | GitHub Issue 验签后幂等创建项目与 DeliveryRun，并复用现有自主交付链完成任务拆解和推进 |
+| [`project-context-bootstrap/`](project-context-bootstrap/) | active | 代码目录识别、项目上下文初始化、分层知识索引、同目录工作项目冲突摘要与增量注入 |
 
 ## 依赖关系
 

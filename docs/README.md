@@ -95,6 +95,7 @@
 - `docs/product/business/2026-07-19-autonomous-delivery-contract.md`：一次提交、系统自主推进、只交付最终结果或最小异常的产品契约
 - `docs/product/business/2026-07-19-evaluation-object-model.md`：评估测试集、被测对象、任务执行与结果展示的产品对象模型
 - `docs/product/business/2026-07-20-github-issue-agent-trigger.md`：GitHub Issue 作为自主交付来源、但不替代内部项目与 Task Graph 的产品决策
+- `docs/product/business/2026-07-20-project-context-bootstrap.md`：从目录选择到可复用项目上下文的产品对象、双场景流程与共享边界
 
 ### 技术设计
 
@@ -109,6 +110,7 @@
 - `docs/technical/integrations/github-issue-agent-hook.md`：GitHub Issue webhook 验签、幂等映射与 GoalContract 接入设计
 - `docs/technical/execution/skill-package-progressive-loading.md`：标准 Skill 目录、不可变 revision、确定性编译与渐进加载设计
 - `docs/technical/observability/agent-observability.md`
+- `docs/technical/execution/project-context-bootstrap.md`：代码库发现、分层知识索引、workstream 投影、增量刷新和 ContextManager 接线设计
 
 说明：
 
