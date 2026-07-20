@@ -55,6 +55,7 @@ function makeMessage(overrides: Partial<ChatMessage> = {}): ChatMessage {
     agentId: 'human',
     content: 'hello',
     timestamp: '2026-05-03T10:00:00Z',
+    conversationId: 'project-testapp',
     ...overrides,
   };
 }
@@ -385,7 +386,7 @@ describe('composeSystemPrompt', () => {
   const baseOpts: ComposeOptions = {
     agent: { id: 'mario', name: 'Mario' },
     allRoleCards: [],
-    project: { name: 'TestApp', path: '/tmp/test' },
+    project: { id: 'project-testapp', name: 'TestApp', path: '/tmp/test' },
     isFirstWake: true,
     rawPrompt: 'hello',
   };
@@ -429,7 +430,7 @@ describe('composeUserPrompt', () => {
   const baseOpts: ComposeOptions = {
     agent: { id: 'mario', name: 'Mario' },
     allRoleCards: [],
-    project: { name: 'TestApp', path: '/tmp/test' },
+    project: { id: 'project-testapp', name: 'TestApp', path: '/tmp/test' },
     isFirstWake: true,
     rawPrompt: '请开始工作',
   };
@@ -508,7 +509,13 @@ describe('composeUserPrompt', () => {
   it('includes task context when task provided', async () => {
     const result = await composeUserPrompt({
       ...baseOpts,
-      task: { id: 'T-1', title: 'Build feature', description: 'desc', phase: { title: '开发' } },
+      task: {
+        id: 'T-1',
+        title: 'Build feature',
+        conversationId: baseOpts.project.id,
+        description: 'desc',
+        phase: { title: '开发' },
+      },
     });
     expect(result).toContain('[任务: T-1 Build feature]');
     expect(result).toContain('[阶段: 开发]');
@@ -555,7 +562,7 @@ describe('composeUserPrompt with skills', () => {
   const baseOpts: ComposeOptions = {
     agent: { id: 'mario', name: 'Mario' },
     allRoleCards: [],
-    project: { name: 'TestApp', path: '/tmp/test' },
+    project: { id: 'project-testapp', name: 'TestApp', path: '/tmp/test' },
     isFirstWake: true,
     rawPrompt: 'hello',
   };

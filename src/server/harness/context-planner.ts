@@ -1,4 +1,8 @@
-import { ContextManager } from '@/lib/agent-context/ContextManager';
+import {
+  ContextManager,
+  noOpMemoryHook,
+  RequiredContextError,
+} from '@/lib/agent-context/ContextManager';
 import type { ChatMessage } from '@/store/types';
 import { sessionRepo } from '../repositories/session-repo';
 import { conversationRepo } from '../repositories/conversation-repo';
@@ -13,6 +17,7 @@ import { resolveExternalReferences } from './reference-resolver';
 import { SkillRuntimeError, skillRuntime } from '../skills/skill-runtime';
 import { skillRepo } from '../repositories/skill-repo';
 import { getSupportedToolNames } from '../skill-tool-router';
+import { autonomousDeliveryContextContributor } from '../autonomous-delivery/context-contributor';
 
 const RUNTIME_IDS = {
   opencode: 'opencode-local',
@@ -50,6 +55,9 @@ export class RepositoryHarnessPlanner implements HarnessPlanner {
     if (trigger.taskId && !task) {
       return { ok: false, outcome: { status: 'blocked', reasonCode: 'task_missing' } };
     }
+    if (task && task.conversation_id !== trigger.conversationId) {
+      return { ok: false, outcome: { status: 'blocked', reasonCode: 'task_scope_mismatch' } };
+    }
 
     const resolution = resolveConversationRuntimeProfile(trigger.conversationId, trigger.agentId);
     if (!resolution?.runtime.roster.some((agent) => agent.id === trigger.agentId)) {
@@ -78,7 +86,12 @@ export class RepositoryHarnessPlanner implements HarnessPlanner {
           .map(toChatMessage),
         getTask: async (taskId) => {
           const row = taskRepo.getById(taskId);
-          return row ? { id: row.id, title: row.title, description: row.description ?? undefined } : undefined;
+          return row ? {
+            id: row.id,
+            title: row.title,
+            conversationId: row.conversation_id,
+            description: row.description ?? undefined,
+          } : undefined;
         },
         getTasks: async (conversationId) => taskRepo.getByConversation(conversationId).map((row) => ({
           id: row.id,
@@ -104,6 +117,8 @@ export class RepositoryHarnessPlanner implements HarnessPlanner {
         ])),
         getTeamLogEnvelope: async (conversationId, agentId, taskId) =>
           teamLogProjection.buildEnvelope(conversationId, agentId, taskId ? { taskId } : undefined),
+      }, noOpMemoryHook, {
+        contributors: [autonomousDeliveryContextContributor],
       });
       const referenceResolution = await resolveExternalReferences({
         prompt: trigger.prompt,
@@ -132,9 +147,11 @@ export class RepositoryHarnessPlanner implements HarnessPlanner {
         agentId: trigger.agentId,
         conversationId: trigger.conversationId,
         taskId: trigger.taskId,
+        deliveryRunId: trigger.deliveryRunId,
         rawPrompt: referenceResolution.prompt,
         registeredToolNames: getSupportedToolNames(),
         trigger: contextTrigger,
+        scenario: trigger.contextScenario,
         a2aHandoff: trigger.source === 'a2a' ? {
           title: trigger.fromAgentId ?? 'agent',
           requestedAction: referenceResolution.prompt,
@@ -170,6 +187,7 @@ export class RepositoryHarnessPlanner implements HarnessPlanner {
           teamLogUpToEntryId: context.report.teamLogUpToEntryId,
           traceId,
           contextReport: context.report,
+          contextSnapshot: context.snapshot,
         },
       };
     } catch (error) {
@@ -182,8 +200,10 @@ export class RepositoryHarnessPlanner implements HarnessPlanner {
         ? error.reasonCode as HarnessReasonCode
         : error instanceof Error && error.message.startsWith('required_skill_not_loaded')
           ? 'required_skill_not_loaded'
+          : error instanceof RequiredContextError
+            ? 'required_context_missing'
           : 'context_assembly_failed';
-      if (reasonCode !== 'context_assembly_failed') {
+      if (skillReasonCodes.includes(reasonCode)) {
         const decisions = profile.prompt.skills
           .filter((skill): skill is typeof skill & { id: string } => Boolean(skill.id))
           .map((skill) => {
@@ -234,6 +254,63 @@ export class RepositoryHarnessPlanner implements HarnessPlanner {
             agentId: trigger.agentId,
             reasonCode,
             metadata: { traceId, skills: decisions.map(({ skillId, revision }) => ({ skillId, revision })) },
+          });
+        } catch {
+          // Observability must not replace the authoritative dispatch failure.
+        }
+      }
+      if (reasonCode === 'required_context_missing') {
+        try {
+          const requiredError = error instanceof RequiredContextError ? error : undefined;
+          const failedScenario = trigger.contextScenario
+            ?? (isFirstWake ? 'init' : trigger.source === 'a2a' ? 'handoff' : 'iterate');
+          const snapshotId = `ctx_failed_${traceId.slice(0, 24)}`;
+          const span = observationSpanRepo.start({
+            traceId,
+            name: 'context.compile',
+            kind: 'context',
+            conversationId: trigger.conversationId,
+            taskId: trigger.taskId,
+            agentId: trigger.agentId,
+            chainId: trigger.chainId,
+            passId: trigger.passId,
+            attributes: {
+              reasonCode,
+              report: {
+                scenario: failedScenario,
+                tokensUsed: 0,
+                tokensBudget: 0,
+                saturation: 0,
+                loadedSkills: [],
+                availableTools: [],
+                snapshotId,
+                fragmentCount: 0,
+                missingRequired: requiredError?.missingRequired.slice(0, 20) ?? [],
+                omissions: requiredError?.omissions.slice(0, 50).map(item => ({
+                  fragmentId: item.fragmentId,
+                  producer: item.producer,
+                  reason: item.reason,
+                  required: item.required,
+                })) ?? [],
+              },
+            },
+          });
+          observationSpanRepo.finish(span.span_id, 'error', { errorMessage: reasonCode });
+          proofLogRepo.append({
+            eventType: 'context.required.missing',
+            conversationId: trigger.conversationId,
+            taskId: trigger.taskId,
+            chainId: trigger.chainId,
+            passId: trigger.passId,
+            agentId: trigger.agentId,
+            reasonCode,
+            metadata: {
+              traceId,
+              deliveryRunId: trigger.deliveryRunId,
+              missingRequired: requiredError
+                ? requiredError.missingRequired.slice(0, 20)
+                : [],
+            },
           });
         } catch {
           // Observability must not replace the authoritative dispatch failure.

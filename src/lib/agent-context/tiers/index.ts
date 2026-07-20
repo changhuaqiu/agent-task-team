@@ -10,7 +10,6 @@
 
 import type { ContextCluster } from '../injectionPolicy';
 import type { BudgetPart } from '../BudgetGuard';
-import { getDirective } from '../injectionPolicy';
 import type { TierContext } from './tierContext';
 import { renderSystemTier } from './systemTier';
 import { renderKnowledgeTier } from './knowledgeTier';
@@ -19,8 +18,12 @@ import { renderInteractionTier } from './interactionTier';
 
 export type { TierContext } from './tierContext';
 
-export function renderAllTiers(ctx: TierContext): BudgetPart[] {
-  const parts: BudgetPart[] = [];
+export interface ContextAssemblyPart extends BudgetPart {
+  cluster: ContextCluster;
+}
+
+export function renderAllTiers(ctx: TierContext): ContextAssemblyPart[] {
+  const parts: ContextAssemblyPart[] = [];
 
   const push = (
     cluster: ContextCluster,
@@ -28,15 +31,12 @@ export function renderAllTiers(ctx: TierContext): BudgetPart[] {
     content: string | null | undefined,
     opts: { tier: BudgetPart['tier']; importance: number; scope?: string; private?: boolean; source?: string },
   ) => {
-    if (getDirective(ctx.scenario, ctx.archetype, cluster) === 'include' && content) {
-      parts.push({ layer, content, ...opts });
+    if (content) {
+      parts.push({ cluster, layer, content, ...opts });
     }
   };
 
-  const isIncluded = (cluster: ContextCluster) =>
-    getDirective(ctx.scenario, ctx.archetype, cluster) === 'include';
-
-  const input = { ctx, push, isIncluded };
+  const input = { ctx, push };
 
   renderSystemTier(input);
   renderKnowledgeTier(input);

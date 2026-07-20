@@ -775,6 +775,93 @@ CREATE INDEX IF NOT EXISTS idx_agent_skill_skill ON agent_skill(skill_id);
       `);
     },
   },
+  {
+    version: 26,
+    sql: `
+CREATE TABLE IF NOT EXISTS autonomous_delivery_run (
+  id TEXT PRIMARY KEY,
+  conversation_id TEXT NOT NULL REFERENCES conversation(id) ON DELETE CASCADE,
+  root_task_id TEXT REFERENCES task(id) ON DELETE SET NULL,
+  status TEXT NOT NULL CHECK(status IN (
+    'submitted','planning','executing','reviewing','verifying','integrating',
+    'delivering','recovering','completed','escalated','cancelled'
+  )),
+  current_stage TEXT NOT NULL,
+  goal_contract_json TEXT NOT NULL,
+  repair_cycle INTEGER NOT NULL DEFAULT 0,
+  revision INTEGER NOT NULL DEFAULT 0,
+  escalation_code TEXT,
+  escalation_detail TEXT,
+  delivery_bundle_json TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  completed_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_autonomous_delivery_run_conversation
+  ON autonomous_delivery_run(conversation_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_autonomous_delivery_run_reconcile
+  ON autonomous_delivery_run(status, updated_at);
+
+CREATE TABLE IF NOT EXISTS autonomous_delivery_action (
+  id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL REFERENCES autonomous_delivery_run(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,
+  subject_type TEXT,
+  subject_id TEXT,
+  idempotency_key TEXT NOT NULL UNIQUE,
+  status TEXT NOT NULL CHECK(status IN (
+    'ready','claimed','running','retry_wait','succeeded','failed','cancelled'
+  )),
+  not_before TEXT NOT NULL,
+  attempt_count INTEGER NOT NULL DEFAULT 0,
+  max_attempts INTEGER NOT NULL,
+  last_failure_code TEXT,
+  last_failure_detail TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_autonomous_delivery_action_claim
+  ON autonomous_delivery_action(run_id, status, not_before, created_at);
+
+CREATE TABLE IF NOT EXISTS autonomous_delivery_attempt (
+  id TEXT PRIMARY KEY,
+  action_id TEXT NOT NULL REFERENCES autonomous_delivery_action(id) ON DELETE CASCADE,
+  attempt_no INTEGER NOT NULL,
+  status TEXT NOT NULL CHECK(status IN (
+    'claimed','running','succeeded','failed','abandoned'
+  )),
+  lease_owner TEXT NOT NULL,
+  lease_expires_at TEXT NOT NULL,
+  heartbeat_at TEXT NOT NULL,
+  workdir_ref TEXT,
+  session_generation INTEGER,
+  execution_envelope_id TEXT REFERENCES execution_envelope(id),
+  failure_code TEXT,
+  failure_detail TEXT,
+  created_at TEXT NOT NULL,
+  started_at TEXT,
+  completed_at TEXT,
+  UNIQUE(action_id, attempt_no)
+);
+CREATE INDEX IF NOT EXISTS idx_autonomous_delivery_attempt_lease
+  ON autonomous_delivery_attempt(status, lease_expires_at);
+
+CREATE TABLE IF NOT EXISTS autonomous_delivery_receipt (
+  id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL REFERENCES autonomous_delivery_run(id) ON DELETE CASCADE,
+  action_id TEXT REFERENCES autonomous_delivery_action(id) ON DELETE CASCADE,
+  attempt_id TEXT REFERENCES autonomous_delivery_attempt(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,
+  external_id TEXT,
+  status TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  idempotency_key TEXT NOT NULL UNIQUE,
+  observed_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_autonomous_delivery_receipt_run
+  ON autonomous_delivery_receipt(run_id, kind, observed_at);
+`,
+  },
 ];
 
 export function applyMigrations(db: Database.Database): void {

@@ -56,11 +56,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       }
       case 'conversation.delete': {
         const { conversationRepo } = await import('@/server/repositories/conversation-repo');
-        const { taskRepo } = await import('@/server/repositories/task-repo');
-        const tasks = taskRepo.getByConversation(payload.id as string);
-        for (const t of tasks) taskRepo.delete(t.id);
-        conversationRepo.delete(payload.id as string);
-        result = { id: payload.id };
+        const id = payload.id as string;
+        result = { id, deleted: conversationRepo.deleteAggregate(id) };
         break;
       }
       case 'task.create': {

@@ -3,8 +3,23 @@ import { getDirective, INJECTION_POLICY } from './injectionPolicy';
 import type { ContextScenario } from './scenarioResolver';
 
 describe('injection policy', () => {
+  const scenarios: ContextScenario[] = [
+    'init',
+    'iterate',
+    'wakeup',
+    'goal_intake',
+    'planning',
+    'architecture_review',
+    'execution',
+    'handoff',
+    'code_review',
+    'verification',
+    'recovery',
+    'closure',
+    'escalation',
+  ];
+
   it('is total for every scenario, archetype and cluster', () => {
-    const scenarios: ContextScenario[] = ['init', 'iterate', 'handoff', 'wakeup', 'closure'];
     const archetypes = ['planner', 'reviewer', 'worker'] as const;
     const clusters = ['identity', 'protocol', 'capability', 'situation', 'focus', 'dialog'] as const;
     for (const scenario of scenarios) {
@@ -14,7 +29,7 @@ describe('injection policy', () => {
         }
       }
     }
-    expect(Object.keys(INJECTION_POLICY)).toHaveLength(5);
+    expect(Object.keys(INJECTION_POLICY)).toHaveLength(scenarios.length);
   });
 
   it('omits dialog for handoff and wakeup but includes focus', () => {
@@ -26,7 +41,6 @@ describe('injection policy', () => {
   });
 
   it('always includes bound capabilities so required skills cannot disappear by scenario', () => {
-    const scenarios: ContextScenario[] = ['init', 'iterate', 'handoff', 'wakeup', 'closure'];
     const archetypes = ['planner', 'reviewer', 'worker'] as const;
     for (const scenario of scenarios) {
       for (const archetype of archetypes) {

@@ -4,6 +4,7 @@ import { useMemo } from 'react';
 import { useTaskHubStore, type TaskStatus, STATUS_LABELS } from '@/store/taskHubStore';
 import { GlobalChatRoom } from '@/components/task-hub/GlobalChatRoom';
 import { AgentBar } from '@/components/task-hub/AgentBar';
+import { AutonomousDeliveryPanel } from './AutonomousDeliveryPanel';
 
 const order: TaskStatus[] = ['blocked', 'rejected', 'in_progress', 'in_review', 'pending', 'done'];
 
@@ -12,7 +13,6 @@ export function ProjectChatPanel() {
   const selectedConversation = useTaskHubStore((s) => s.getSelectedConversation());
   const getEffectiveRoster = useTaskHubStore((s) => s.getEffectiveRoster);
   const tasks = useTaskHubStore((s) => s.tasks);
-  const phases = useTaskHubStore((s) => s.phases);
   const proposalAgent = getEffectiveRoster()[0];
   const proposalAgentName = proposalAgent?.name ?? '当前团队';
 
@@ -83,6 +83,9 @@ export function ProjectChatPanel() {
       </div>
 
       <div className="flex-1 min-h-0">
+        {selectedConversationId && (
+          <AutonomousDeliveryPanel conversationId={selectedConversationId} />
+        )}
         <GlobalChatRoom variant="embedded" />
       </div>
     </section>

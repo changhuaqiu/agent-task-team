@@ -15,7 +15,7 @@ import { buildHistoryLayer } from '../layers/historyLayer';
 import type { TierRenderInput } from './tierContext';
 
 export function renderKnowledgeTier({ ctx, push }: TierRenderInput): void {
-  const { req, allRoleCards, runtimeRoster, teamPack, messages, skillSummaries, tools, scenario } = ctx;
+  const { req, allRoleCards, runtimeRoster, teamPack, messages, skillSummaries, tools } = ctx;
 
   // Capability — bound skills are scenario-invariant so required delivery can
   // be proven; tools share the same capability cluster.
@@ -26,7 +26,7 @@ export function renderKnowledgeTier({ ctx, push }: TierRenderInput): void {
   push('capability', 'tool', buildToolLayer(tools), { tier: 'tool', importance: 0.6 });
 
   // Team roster — situation awareness. Omitted in wakeup.
-  if (scenario !== 'wakeup') {
+  {
     const runtimeTeam = runtimeRoster?.length
       ? [
           '## 当前团队',
@@ -43,7 +43,7 @@ export function renderKnowledgeTier({ ctx, push }: TierRenderInput): void {
   }
 
   // Team-pack context. Omitted in wakeup.
-  if (teamPack && scenario !== 'wakeup') {
+  if (teamPack) {
     push('situation', 'teamPack', buildTeamPackLayer(ctx.agentId, teamPack), { tier: 'project', importance: 0.6, scope: '/project' });
   }
 

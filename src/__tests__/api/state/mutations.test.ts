@@ -134,6 +134,83 @@ describe('POST /api/mutations', () => {
     expect(taskRepo.getById('task-1')).toBeUndefined();
   });
 
+  it('conversation.delete removes an autonomous run whose root task belongs to the project', async () => {
+    await seedConversation();
+    const { groupChatTaskFlow } = await import('@/server/task-flow/group-chat-task-flow');
+    const root = groupChatTaskFlow.createRootTask({
+      conversationId: 'conv-1',
+      title: 'Root task',
+      description: 'Creates task_action and task bindings',
+      ownerAgentId: 'agent-a',
+      actorId: 'agent-a',
+      actorType: 'agent',
+    });
+    const { AutonomousDeliveryRepository } = await import('@/server/autonomous-delivery/repository');
+    const repo = new AutonomousDeliveryRepository();
+    const run = repo.createRun({
+      goal: '删除自主交付项目',
+      acceptanceCriteria: ['项目及运行事实均被删除'],
+      scope: { conversationId: 'conv-1', projectPath: process.cwd() },
+      authorization: {
+        allowCodeChanges: true,
+        allowPush: false,
+        allowPullRequest: false,
+        allowAutoMerge: false,
+      },
+      recoveryPolicy: {
+        maxAttemptsPerAction: 2,
+        maxRepairCycles: 1,
+        stallTimeoutMs: 60_000,
+      },
+      deliveryPolicy: {
+        requireReview: true,
+        requireWebE2E: true,
+        requireMerge: false,
+      },
+    });
+    repo.updateRun({
+      runId: run.run.id,
+      status: 'executing',
+      stage: 'executing',
+      rootTaskId: root.task.id,
+    });
+
+    const req = mockReq('POST', { type: 'conversation.delete', payload: { id: 'conv-1' } });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res._json.ok).toBe(true);
+    expect(repo.getSnapshot(run.run.id)).toBeUndefined();
+    const { getDb } = await import('@/server/db');
+    expect(getDb().prepare('SELECT COUNT(*) AS count FROM task_action WHERE conversation_id=?')
+      .get('conv-1')).toEqual({ count: 0 });
+    expect(getDb().prepare('SELECT COUNT(*) AS count FROM task WHERE conversation_id=?')
+      .get('conv-1')).toEqual({ count: 0 });
+  });
+
+  it('conversation.delete rolls back the whole aggregate when an unexpected foreign key blocks commit', async () => {
+    await seedTask();
+    const { getDb } = await import('@/server/db');
+    getDb().exec(`
+      CREATE TABLE conversation_delete_guard (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL REFERENCES conversation(id)
+      );
+      INSERT INTO conversation_delete_guard (id, conversation_id) VALUES ('guard-1', 'conv-1');
+    `);
+
+    const req = mockReq('POST', { type: 'conversation.delete', payload: { id: 'conv-1' } });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(500);
+    const { conversationRepo } = await import('@/server/repositories/conversation-repo');
+    const { taskRepo } = await import('@/server/repositories/task-repo');
+    expect(conversationRepo.getById('conv-1')).toBeDefined();
+    expect(taskRepo.getById('task-1')).toBeDefined();
+  });
+
   it('task.create creates task under conversation', async () => {
     await seedConversation();
     const req = mockReq('POST', {

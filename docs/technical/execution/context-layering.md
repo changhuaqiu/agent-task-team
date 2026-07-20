@@ -344,3 +344,75 @@ L3 跨项目身份：scope 升到 /agent/<id>（身份全局只读），项目�
 - 首次 A2A 仍保留 handoff artifact，因此 bootstrap identity/system prompt 与交接 focus 必须同时存在；已有 session 的 A2A 才省略 identity。
 - 会话资源路径只能由 runtime 注入绝对路径。protocol layer 不得硬编码 `.ath/TASKS.md` 等相对路径。
 - role、teamPack、protocol、collaboration、behavior 的职责边界以 `specs/open-issues-33-35/spec.md` §3.3 为准，禁止在多个 layer 重复同一动作规则。
+
+---
+
+## 15. Team Harness Context Module（2026-07-19，已落地第一阶段）
+
+### 背景
+
+当前 ContextManager 已统一预算、四层渲染、可见性和场景策略，但固定 `ContextProviders` 仍让新增业务上下文必须修改 Manager；`ContextReport` 主要描述 Prompt layer，无法证明本轮使用了哪一版事实、哪些事实过期或缺失。
+
+### 决策
+
+保持 `assembleContext(request)` 这个深模块 interface 不变，在内部增加 Fragment 管线：
+
+```text
+Legacy Tier Adapter ─┐
+Memory Contributor ──┼─> Contributor Registry
+Delivery/Review/... ─┘       ↓
+                        validate / normalize
+                  Fragment → six-dimensional Artifact
+                              ↓
+                            dedupe
+                        scope / visibility
+                        freshness / scenario
+                        budget / required gate
+                              ↓
+                       ContextSnapshot
+                              ↓
+                    compiled prompt + report
+```
+
+Context State 由各事实域拥有；ContextManager 不复制事实源，只在 dispatch 时生成场景化只读 Snapshot。Contributor 是多个事实域接入同一 seam 的 adapter，不拥有 Prompt 排版权。`ContextFragment` 是接入格式，Registry 会把它归一化为 `semantic/source/lifecycle/visibility/consistency/delivery` 六维 `ContextArtifact`，复用既有结构化上下文设计，不形成第二套模型。
+
+### 事实源与责任
+
+| 事实 | Owner | Context 模块责任 |
+|---|---|---|
+| Task、Ownership、Blocker | Task/A2A 模块 | 查询并选择相关 Fragment |
+| Repo、文档、ADR | Project Knowledge | 按场景、freshness 和预算投影 |
+| Decision、Fact、Lesson | Memory | recall 后作为 Fragment 进入统一过滤 |
+| Tool、账号、权限 | Capability/Control Plane | 注入本轮可用能力与限制 |
+| Review、Web UI E2E、CI | Evidence Plane | 注入精确 Receipt 引用，不复制结果真相 |
+| Prompt / ContextSnapshot | ContextManager | 唯一组装权与本轮投影事实 |
+
+### 替代方案
+
+- **新增第二个 Context Service**：拒绝。会形成新旧两条 Prompt 管线，调用方需要理解两套接口。
+- **让每个业务模块返回 Prompt 字符串**：拒绝。作用域、时效、预算和可见性规则会重新散落。
+- **一次性重写所有 Tier**：拒绝。先用 Legacy Tier Adapter 进入统一 Fragment 管线，再按事实域逐步替换；退出条件写入活动规格。
+
+### 后果
+
+- 新上下文来源只需实现 Contributor，ContextManager 主流程保持稳定。
+- Snapshot 成为 Harness 的可观察输入证据，可支持 no-progress、恢复和调试。
+- 迁移期仍保留 Legacy Tier Adapter，但所有最终内容必须经过相同选择与预算管线。
+- 当前动作、Goal/验收、授权约束和 required Skill 缺失时 fail closed；不能为了“让 Loop 继续”牺牲正确环境。
+- Task/project 双层隔离、global subject 白名单和错误脱敏属于 Registry 的机械边界，不交给 Prompt 自觉。
+- 成功 Snapshot 使用完整脱敏 manifest 的 SHA-256 标识，并暴露 scope、subject、visibility、source owner、consistency 与 delivery 元数据。
+- required 失败在 dispatch 前写入脱敏 error context span，调试页可以直接看到场景、缺失项和 omission，而不是只在后端日志中失败。
+
+### 15.1 能力复用边界
+
+Harness 不重新实现成熟执行能力，只建设“能力发现、场景选择、权限门禁、调用回执和失败恢复”的环境层：
+
+| 能力 | 复用事实源 | Harness 增量责任 |
+|---|---|---|
+| 任务方法 | 版本化 Skill Runtime | 激活、revision/hash 校验、按需资源引用、required fail-closed |
+| 工具接入 | ACP/MCP runtime 实际注册目录 | Capability Snapshot、scope/policy 门禁、调用回执 |
+| Web UI 验证 | Browser/Playwright | 验收步骤、浏览器级 Receipt、失败分类 |
+| Provider 操作 | 官方 API/CLI/Provider Adapter | 幂等键、权限边界、终态 reconcile |
+| 项目知识 | repo/docs/ADR/测试入口 | 索引、freshness、provenance、JIT 引用 |
+
+平台不复制这些工具的执行内核；只保证 Agent 在自己的 Loop 中拿到正确能力，并把结果写回下一轮可消费的事实。

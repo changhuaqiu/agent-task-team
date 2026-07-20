@@ -1,5 +1,5 @@
 import type { CliEngine } from '../types';
-import type { ContextReport, ContextRequest } from '../../lib/agent-context/ContextManager';
+import type { ContextReport, ContextRequest, ContextSnapshot } from '../../lib/agent-context/ContextManager';
 import type { ContextScenario } from '../../lib/agent-context/scenarioResolver';
 
 export type HarnessTriggerSource = 'user' | 'a2a' | 'workflow' | 'review_gate' | 'test_gate' | 'system';
@@ -11,10 +11,12 @@ export interface HarnessTrigger {
   agentId: string;
   prompt: string;
   taskId?: string;
+  deliveryRunId?: string;
   fromAgentId?: string;
   chainId?: string;
   passId?: string;
   idempotencyKey?: string;
+  contextScenario?: ContextScenario;
   wakeup?: ContextRequest['wakeup'];
 }
 export interface HarnessDispatchPlan {
@@ -30,6 +32,7 @@ export interface HarnessDispatchPlan {
   teamLogUpToEntryId?: string;
   traceId: string;
   contextReport: ContextReport;
+  contextSnapshot?: ContextSnapshot;
 }
 
 export type HarnessReasonCode =
@@ -37,6 +40,7 @@ export type HarnessReasonCode =
   | 'duplicate_trigger'
   | 'conversation_missing'
   | 'task_missing'
+  | 'task_scope_mismatch'
   | 'agent_not_in_team'
   | 'runtime_profile_missing'
   | 'required_skill_not_loaded'
@@ -45,6 +49,7 @@ export type HarnessReasonCode =
   | 'skill_path_invalid'
   | 'skill_path_duplicate'
   | 'skill_revision_mismatch'
+  | 'required_context_missing'
   | 'context_assembly_failed'
   | 'runtime_rejected'
   | 'internal_error';

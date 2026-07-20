@@ -17,6 +17,7 @@ import { RepositorySkillRuntime, packageFromLegacyInput } from '@/server/skills/
 import { HarnessCoordinator } from '@/server/harness/coordinator';
 import { submitSocketTerminalStart } from '@/server/daemon';
 import { projectObservationProjection } from '@/server/observability/ProjectObservationProjection';
+import { autonomousDeliveryRepo } from '@/server/autonomous-delivery/repository';
 
 let dataDir: string;
 let previousDataDir: string | undefined;
@@ -37,6 +38,33 @@ afterEach(() => {
 });
 
 describe('RepositoryHarnessPlanner', () => {
+  it('blocks a task that belongs to another project before context assembly', async () => {
+    const pack = teamPackRepo.getByName('default-team')!;
+    conversationRepo.create({ id: 'conv-scope-a', title: 'Scope A', team_pack_id: pack.id });
+    conversationRepo.create({ id: 'conv-scope-b', title: 'Scope B', team_pack_id: pack.id });
+    taskRepo.create({
+      id: 'TASK-SCOPE-B',
+      conversation_id: 'conv-scope-b',
+      title: 'Private task from B',
+      description: 'must never enter project A context',
+      agent_id: 'luigi',
+    });
+
+    const result = await new RepositoryHarnessPlanner().prepare({
+      id: 'trigger-cross-project',
+      source: 'workflow',
+      conversationId: 'conv-scope-a',
+      taskId: 'TASK-SCOPE-B',
+      agentId: 'luigi',
+      prompt: 'continue',
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      outcome: { status: 'blocked', reasonCode: 'task_scope_mismatch' },
+    });
+  });
+
   it('bootstraps identity for a first A2A handoff and keeps later handoffs lean', async () => {
     const pack = teamPackRepo.getByName('default-team')!;
     teamPackRepo.updateRoleConfig(pack.id, 'peach', { accountIds: ['account-openai'] });
@@ -144,6 +172,99 @@ describe('RepositoryHarnessPlanner', () => {
     expect(result.plan.prompt).toContain('系统唤醒');
     expect(result.plan.prompt).toContain('团队动态');
     expect(result.plan.systemPrompt).toBeUndefined();
+  });
+
+  it('injects the active DeliveryRun through the production Context Contributor', async () => {
+    const pack = teamPackRepo.getByName('default-team')!;
+    teamPackRepo.updateRoleConfig(pack.id, 'luigi', { accountIds: ['account-openai'] });
+    writeAccount({
+      id: 'account-openai',
+      name: 'OpenAI',
+      authMode: 'oauth',
+      provider: 'openai',
+      models: [],
+      enabled: true,
+      status: 'valid',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    conversationRepo.create({
+      id: 'conv-delivery-context',
+      title: 'Delivery Context',
+      team_pack_id: pack.id,
+      project_path: 'C:/workspace/delivery-context',
+    });
+    const delivery = autonomousDeliveryRepo.createRun({
+      goal: '完成真实 Team Harness',
+      acceptanceCriteria: ['Context Snapshot 可追溯', '必须通过 Web UI E2E'],
+      scope: { conversationId: 'conv-delivery-context', projectPath: 'C:/workspace/delivery-context' },
+      authorization: {
+        allowCodeChanges: true,
+        allowPush: false,
+        allowPullRequest: false,
+        allowAutoMerge: false,
+      },
+      recoveryPolicy: {
+        maxAttemptsPerAction: 3,
+        maxRepairCycles: 2,
+        stallTimeoutMs: 60_000,
+      },
+      deliveryPolicy: {
+        requireReview: true,
+        requireWebE2E: true,
+        requireMerge: false,
+      },
+    });
+
+    const result = await new RepositoryHarnessPlanner().prepare({
+      id: 'trigger-delivery-context',
+      source: 'workflow',
+      conversationId: 'conv-delivery-context',
+      agentId: 'luigi',
+      prompt: '开始规划',
+      contextScenario: 'planning',
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.plan.contextScenario).toBe('planning');
+    expect(result.plan.prompt).toContain('## 自主交付目标');
+    expect(result.plan.prompt).toContain('完成真实 Team Harness');
+    expect(result.plan.prompt).toContain('必须通过 Web UI E2E');
+    expect(result.plan.prompt).toContain('## 自主交付约束');
+    expect(result.plan.contextSnapshot?.fragmentRefs).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: `delivery-goal:${delivery.run.id}`,
+        producer: 'autonomous-delivery',
+      }),
+    ]));
+    expect(result.plan.contextReport.snapshotId).toBe(result.plan.contextSnapshot?.id);
+
+    const missing = await new RepositoryHarnessPlanner().prepare({
+      id: 'trigger-delivery-context-missing',
+      source: 'workflow',
+      conversationId: 'conv-delivery-context',
+      agentId: 'luigi',
+      prompt: '继续执行',
+      contextScenario: 'execution',
+      deliveryRunId: 'delivery-missing',
+    });
+    expect(missing).toMatchObject({
+      ok: false,
+      outcome: {
+        status: 'failed',
+        reasonCode: 'required_context_missing',
+      },
+    });
+    const observation = projectObservationProjection.build('conv-delivery-context', 10);
+    expect(observation.traces).toContainEqual(expect.objectContaining({
+      status: 'error',
+      context: expect.objectContaining({
+        scenario: 'execution',
+        missingRequired: ['contributor:autonomous-delivery'],
+        snapshotId: expect.stringMatching(/^ctx_failed_/),
+      }),
+    }));
   });
 
   it('blocks with a stable reason when the role has no enabled runtime profile', async () => {
