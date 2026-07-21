@@ -460,15 +460,54 @@ export function shouldTriggerInitialProposal(
   return senderAgentId === 'human' && breakdownStatus === 'none' && mentionCount === 0;
 }
 
+export const RUNTIME_HYDRATION_TIMEOUT_MS = 15_000;
+
+async function resolveRuntimeDependency<T>(
+  label: string,
+  operation: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
+  const controller = new AbortController();
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(new Error(`${label}加载超时，请重试。`));
+      controller.abort();
+    }, RUNTIME_HYDRATION_TIMEOUT_MS);
+  });
+
+  try {
+    return await Promise.race([
+      operation(controller.signal),
+      timeout,
+    ]);
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('加载超时')) throw error;
+    throw new Error(`${label}加载失败，请重试。`);
+  } finally {
+    if (timeoutId !== undefined) clearTimeout(timeoutId);
+  }
+}
+
+async function fetchRuntimeJson<T>(
+  input: RequestInfo | URL,
+  label: string,
+): Promise<T> {
+  return resolveRuntimeDependency(label, async (signal) => {
+    const response = await fetch(input, { signal });
+    if (!response.ok) throw new Error(`${label}加载失败，请重试。`);
+    const data = await response.json();
+    return data as T;
+  });
+}
+
 function applyConversationTeamPack(
   get: () => TaskHubState,
   set: (partial: any) => void,
   conversationId: string | null,
   teamPackId: string,
-  options: { triggerProposalAfterLoad?: boolean } = {},
-) {
-  fetch(`/api/team-packs/${teamPackId}`)
-    .then((res) => res.ok ? res.json() : null)
+  options: { triggerProposalAfterLoad?: boolean; propagateFailure?: boolean } = {},
+): Promise<void> {
+  return fetchRuntimeJson<TeamPack>(`/api/team-packs/${teamPackId}`, '团队运行配置')
     .then((teamPack) => {
       const current = get().conversations.find((c) => c.id === conversationId);
       if (
@@ -490,18 +529,10 @@ function applyConversationTeamPack(
           setTimeout(() => get().triggerProposal(conversationId), 500);
         }
       } else {
-        set({
-          selectedConversationId: conversationId,
-          selectedProjectId: conversationId || 'default',
-          activeAgentIds: DEFAULT_ACTIVE_AGENT_IDS,
-          currentTeamPack: null,
-        });
-        if (options.triggerProposalAfterLoad && conversationId) {
-          setTimeout(() => get().triggerProposal(conversationId), 500);
-        }
+        throw new Error('团队运行配置无效，请重试或重新绑定账号。');
       }
     })
-    .catch(() => {
+    .catch((error: unknown) => {
       if (get().selectedConversationId !== conversationId) return;
       set({
         selectedConversationId: conversationId,
@@ -509,6 +540,7 @@ function applyConversationTeamPack(
         activeAgentIds: DEFAULT_ACTIVE_AGENT_IDS,
         currentTeamPack: null,
       });
+      if (options.propagateFailure) throw error;
     });
 }
 
@@ -584,6 +616,7 @@ function mapSessionsToState(sessions: any[]): Record<string, Record<string, stri
 export interface TaskHubState {
   agentRoster: Agent[];
   hasHydrated: boolean;
+  runtimeHydrationError: string | null;
   setHasHydrated: (hydrated: boolean) => void;
   refreshRuntimeCatalog: () => void;
   mergeLegacyChatMessages: (legacyMessages: ChatMessage[]) => void;
@@ -762,10 +795,12 @@ export const useTaskHubStore = create<TaskHubState>()(
   persist(
     (...a) => {
       const [set, get] = a;
+      let loadFromServerInFlight: Promise<void> | null = null;
 
       // App slice (conversations, chat, events, blockers, accounts, settings, hydration)
       const appSlice = {
         hasHydrated: false,
+        runtimeHydrationError: null as string | null,
         setHasHydrated: (hydrated: boolean) => set({ hasHydrated: hydrated }),
 
         isSettingsOpen: false,
@@ -852,11 +887,11 @@ export const useTaskHubStore = create<TaskHubState>()(
           }));
         },
         loadAccounts: async () => {
-          try {
-            const res = await fetch('/api/accounts');
-            const data = await res.json();
-            set({ accounts: data.accounts });
-          } catch {}
+          const data = await fetchRuntimeJson<{ accounts?: unknown }>('/api/accounts', '账号配置');
+          if (!Array.isArray(data.accounts)) {
+            throw new Error('账号配置响应无效，请重试。');
+          }
+          set({ accounts: data.accounts });
         },
 
         selectedProjectId: 'default' as ProjectId,
@@ -1083,8 +1118,12 @@ export const useTaskHubStore = create<TaskHubState>()(
           set((state: TaskHubState) => updateCurrentTeamRole(state, agentId, data.role));
         },
 
-        loadFromServer: async () => {
-          try {
+        loadFromServer: () => {
+          if (loadFromServerInFlight) return loadFromServerInFlight;
+
+          const hydration = (async () => {
+            set({ hasHydrated: false, runtimeHydrationError: null });
+            try {
             const oldData = localStorage.getItem('agent-task-hub-store-clean');
             if (oldData) {
               try {
@@ -1125,12 +1164,10 @@ export const useTaskHubStore = create<TaskHubState>()(
               }
             }
 
-            const res = await fetch('/api/state');
-            if (!res.ok) {
-              set({ hasHydrated: true });
-              return;
-            }
-            const data = await res.json();
+            const data = await fetchRuntimeJson<Awaited<ReturnType<Response['json']>>>(
+              '/api/state',
+              '项目状态',
+            );
 
             const conversations: Conversation[] = (data.conversations || []).map((c: any) => ({
               id: c.id,
@@ -1183,16 +1220,22 @@ export const useTaskHubStore = create<TaskHubState>()(
               chatMessagesByConversation: mapMessagesToState(data.recentMessages || {}),
               agentSessions: serverSessions,
               needsFullCompose: hydratedNeedsFullCompose,
-              hasHydrated: true,
             });
 
-            // Auto-select first conversation if none selected
-            if (!get().selectedConversationId && conversations.length > 0) {
-              const recent = conversations.reduce((a, b) =>
-                a.updatedAt > b.updatedAt ? a : b
-              );
-              set({ selectedConversationId: recent.id, selectedProjectId: recent.id });
-            }
+            // Keep a still-valid selection, otherwise use the most recently
+            // updated conversation. Runtime dependencies are hydrated below
+            // before the page becomes interactive.
+            const selectedConversation = conversations.find((conversation) => (
+              conversation.id === get().selectedConversationId
+            )) ?? (conversations.length > 0
+              ? conversations.reduce((a, b) => a.updatedAt > b.updatedAt ? a : b)
+              : undefined);
+            set({
+              selectedConversationId: selectedConversation?.id ?? null,
+              selectedProjectId: selectedConversation?.id ?? 'default',
+              activeAgentIds: selectedConversation?.teamPackId ? [] : DEFAULT_ACTIVE_AGENT_IDS,
+              currentTeamPack: null,
+            });
 
             if (tasks.length) {
               const max = tasks.reduce((acc, t) => {
@@ -1220,12 +1263,12 @@ export const useTaskHubStore = create<TaskHubState>()(
                 const allPhases: Phase[] = [];
                 for (const conv of conversations) {
                   try {
-                    const phaseRes = await fetch(`/api/phases?conversationId=${conv.id}`);
-                    if (phaseRes.ok) {
-                      const phaseData = await phaseRes.json();
-                      if (Array.isArray(phaseData)) {
-                        allPhases.push(...phaseData);
-                      }
+                    const phaseData = await fetchRuntimeJson<unknown>(
+                      `/api/phases?conversationId=${conv.id}`,
+                      '项目阶段',
+                    );
+                    if (Array.isArray(phaseData)) {
+                      allPhases.push(...phaseData);
                     }
                   } catch {}
                 }
@@ -1237,9 +1280,12 @@ export const useTaskHubStore = create<TaskHubState>()(
               console.error('[loadFromServer] phase hydration failed:', phaseErr);
             }
 
-            get().loadAccounts();
+            await get().loadAccounts();
 
-            await loadAgents();
+            await resolveRuntimeDependency(
+              '智能体配置',
+              signal => loadAgents({ signal, propagateFailure: true }),
+            );
 
             get().refreshRuntimeCatalog();
 
@@ -1251,10 +1297,39 @@ export const useTaskHubStore = create<TaskHubState>()(
 
             get().loadSkills();
 
+            // A team-backed conversation is not dispatch-ready until both
+            // accounts and its Team Pack have been resolved. Keep the loading
+            // skeleton visible until this gate completes so the first user
+            // turn cannot be rejected with a false no_runtime_profile.
+            if (selectedConversation?.teamPackId) {
+              await applyConversationTeamPack(
+                get,
+                set,
+                selectedConversation.id,
+                selectedConversation.teamPackId,
+                { propagateFailure: true },
+              );
+            }
+
+            set({ hasHydrated: true, runtimeHydrationError: null });
           } catch (err) {
             console.error('[loadFromServer] Failed:', err);
-            set({ hasHydrated: true });
-          }
+            set({
+              hasHydrated: true,
+              runtimeHydrationError: err instanceof Error
+                ? err.message
+                : 'Agent 运行配置加载失败，请重试。',
+            });
+            }
+          })();
+
+          const published = hydration.finally(() => {
+            if (loadFromServerInFlight === published) {
+              loadFromServerInFlight = null;
+            }
+          });
+          loadFromServerInFlight = published;
+          return published;
         },
 
         mergeLegacyChatMessages: (legacyMessages: ChatMessage[]) => {

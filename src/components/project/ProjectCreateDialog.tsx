@@ -8,6 +8,22 @@ import { cn } from '@/lib/utils';
 import { FolderPicker } from '@/components/ui/FolderPicker';
 import type { TeamPack } from '@/types/teamPack';
 
+type ProjectContextClassification =
+  | 'codebase'
+  | 'empty'
+  | 'existing_context'
+  | 'single_candidate'
+  | 'ambiguous_workspace';
+
+interface ProjectContextInspectionState {
+  selectedPath: string;
+  classification: ProjectContextClassification;
+  existingContext: boolean;
+  activeWorkstreamCount: number;
+  candidates: string[];
+  projectName: string;
+}
+
 const TEAM_MODE_CONFIG: Record<TeamPack['teamMode'], { emoji: string; label: string }> = {
   pipeline: { emoji: '🔄', label: '流水线' },
   parallel: { emoji: '⚡', label: '并行' },
@@ -33,6 +49,8 @@ export function ProjectCreateDialog({
   const [gitDetected, setGitDetected] = useState(false);
   const [gitRepoRoot, setGitRepoRoot] = useState<string | null>(null);
   const [gitChecking, setGitChecking] = useState(false);
+  const [contextInspection, setContextInspection] = useState<ProjectContextInspectionState | null>(null);
+  const [contextCheckFailure, setContextCheckFailure] = useState<{ path: string; message: string } | null>(null);
   const [autonomous, setAutonomous] = useState(true);
   const [acceptanceCriteria, setAcceptanceCriteria] = useState('');
   const [allowAutoMerge, setAllowAutoMerge] = useState(false);
@@ -80,6 +98,41 @@ export function ProjectCreateDialog({
     return () => { cancelled = true; };
   }, [projectPath]);
 
+  useEffect(() => {
+    if (!projectPath) return;
+    let cancelled = false;
+    fetch('/api/project-context', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ path: projectPath }),
+    })
+      .then(async (response) => {
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok || !body.ok) throw new Error(body.error ?? '项目目录检查失败');
+        return body.inspection as ProjectContextInspectionState;
+      })
+      .then((inspection) => {
+        if (cancelled) return;
+        setContextInspection(inspection);
+        setContextCheckFailure(null);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setContextCheckFailure({
+          path: projectPath,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      });
+    return () => { cancelled = true; };
+  }, [projectPath]);
+
+  const contextCheckError = contextCheckFailure?.path === projectPath
+    ? contextCheckFailure.message
+    : '';
+  const contextChecking = Boolean(projectPath)
+    && contextInspection?.selectedPath !== projectPath
+    && contextCheckFailure?.path !== projectPath;
+
   if (!open) return null;
 
   const defaultTeamPackId = (teamPacks.find((pack) => pack.isPreset) ?? teamPacks[0])?.id ?? null;
@@ -104,6 +157,21 @@ export function ProjectCreateDialog({
     }
     if (autonomous && !effectiveTeamPackId) {
       setCreateError('自主交付需要选择一个 Agent 团队');
+      return;
+    }
+    if (projectPath && contextChecking) {
+      setCreateError('正在识别项目目录，请稍候');
+      return;
+    }
+    if (projectPath && contextCheckError) {
+      setCreateError(contextCheckError);
+      return;
+    }
+    if (
+      contextInspection?.classification === 'ambiguous_workspace'
+      || contextInspection?.classification === 'single_candidate'
+    ) {
+      setCreateError('请选择具体的代码项目目录后再创建');
       return;
     }
     setCreating(true);
@@ -168,6 +236,8 @@ export function ProjectCreateDialog({
       setSelectedTeamPackId(null);
       setGitDetected(false);
       setGitRepoRoot(null);
+      setContextInspection(null);
+      setContextCheckFailure(null);
       setAcceptanceCriteria('');
       setAllowAutoMerge(false);
       setAutonomous(true);
@@ -259,6 +329,41 @@ export function ProjectCreateDialog({
                   <GitBranch className="w-3.5 h-3.5" />
                   Git 仓库已检测到，将创建独立 worktree 开发
                 </div>
+              )}
+              {projectPath && contextChecking && (
+                <div className="text-[11px] text-[hsl(var(--text-tertiary))]">
+                  正在识别项目规范、约束和代码结构…
+                </div>
+              )}
+              {projectPath && !contextChecking && contextInspection?.classification === 'existing_context' && (
+                <div className="text-[11px] font-medium text-[hsl(var(--accent))]">
+                  已找到 {contextInspection.projectName} 的项目知识，将直接复用
+                  {contextInspection.activeWorkstreamCount > 0
+                    ? `；同目录有 ${contextInspection.activeWorkstreamCount} 个进行中项目`
+                    : ''}
+                </div>
+              )}
+              {projectPath && !contextChecking && contextInspection?.classification === 'codebase' && (
+                <div className="text-[11px] text-[hsl(var(--text-secondary))]">
+                  创建时将自动建立分层项目知识，包括规范、约束、代码 Topology、开发命令和评测证据
+                </div>
+              )}
+              {projectPath && !contextChecking && contextInspection?.classification === 'empty' && (
+                <div className="text-[11px] text-[hsl(var(--text-secondary))]">
+                  这是一个新目录，将从当前目标建立项目边界，不会扫描父目录
+                </div>
+              )}
+              {projectPath && !contextChecking && (
+                contextInspection?.classification === 'ambiguous_workspace'
+                || contextInspection?.classification === 'single_candidate'
+              ) && (
+                <div className="text-[11px] font-medium text-red-500">
+                  该目录包含独立代码项目，请选择具体项目目录
+                  {contextInspection.candidates[0] ? `（例如 ${contextInspection.candidates[0]}）` : ''}
+                </div>
+              )}
+              {projectPath && !contextChecking && contextCheckError && (
+                <div className="text-[11px] font-medium text-red-500">{contextCheckError}</div>
               )}
             </div>
 
@@ -415,7 +520,15 @@ export function ProjectCreateDialog({
             <button
               type="button"
               onClick={handleCreate}
-              disabled={!title.trim() || !goal.trim() || creating}
+              disabled={
+                !title.trim()
+                || !goal.trim()
+                || creating
+                || contextChecking
+                || Boolean(contextCheckError)
+                || contextInspection?.classification === 'ambiguous_workspace'
+                || contextInspection?.classification === 'single_candidate'
+              }
               className={cn(
                 'inline-flex items-center gap-1.5 h-9 px-4 rounded-[var(--radius-md)] text-[12px] font-semibold',
                 'bg-[hsl(var(--text-primary))] text-[hsl(var(--text-inverse))] hover:opacity-90',

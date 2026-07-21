@@ -105,12 +105,15 @@
 - `docs/technical/execution/platform-harness-loop.md`
 - `docs/technical/execution/context-layering.md`：统一 Context Manager、分层预算、项目隔离与场景化上下文注入
 - `docs/technical/execution/structured-context-management-architecture.md`：结构化上下文快照、Contributor 注册和可追溯组装架构
-- `docs/technical/execution/autonomous-delivery-loop.md`：持久化 DeliveryRun、Action/Attempt/Receipt、恢复与最终收口设计
-- `docs/technical/evaluation/agent-evaluation-system.md`：任务级跨 trace 冻结快照、四层判定、在线诊断与离线回归的目标架构
-- `docs/technical/integrations/github-issue-agent-hook.md`：GitHub Issue webhook 验签、幂等映射与 GoalContract 接入设计
 - `docs/technical/execution/skill-package-progressive-loading.md`：标准 Skill 目录、不可变 revision、确定性编译与渐进加载设计
 - `docs/technical/observability/agent-observability.md`
+- `docs/technical/evaluation/agent-evaluation-system.md`：任务级跨 trace 冻结快照、四层判定、在线诊断与离线回归的目标架构
+- `docs/technical/evaluation/README.md`：所有变更的 V/C/E 评测分级、Why→Industry→Measure→Decision 证据链与记录模板
+- `docs/technical/evaluation/2026-07-20-project-context-bootstrap-evaluation.md`：项目上下文初始化的前后效率、相关性和交接复用评测记录
+- `docs/technical/execution/autonomous-delivery-loop.md`：持久化 DeliveryRun、Action/Attempt/Receipt、恢复与最终收口设计
+- `docs/technical/integrations/github-issue-agent-hook.md`：GitHub Issue webhook 验签、幂等映射与 GoalContract 接入设计
 - `docs/technical/execution/project-context-bootstrap.md`：代码库发现、分层知识索引、workstream 投影、增量刷新和 ContextManager 接线设计
+- `docs/wiki/project-context.md`：Project Context 的当前入口、生成布局、dispatch 数据流、安全边界与验证命令
 
 说明：
 

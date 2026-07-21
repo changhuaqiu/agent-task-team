@@ -31,6 +31,8 @@ interface MutationResponse {
   ok: boolean;
   result?: unknown;
   error?: string;
+  reasonCode?: string;
+  candidates?: string[];
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse<MutationResponse>) {
@@ -44,7 +46,79 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     switch (type) {
       case 'conversation.create': {
         const { conversationRepo } = await import('@/server/repositories/conversation-repo');
-        result = conversationRepo.create(payload as any);
+        const conversation = conversationRepo.create(payload as any);
+        try {
+          if (conversation.project_path) {
+            const { projectContextService } = await import('@/server/project-context');
+            const path = await import('node:path');
+            const identity = (value: string) => {
+              const resolved = path.resolve(value);
+              return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+            };
+            const selectedIdentity = identity(conversation.project_path);
+            const resolveWorkstreams = () => conversationRepo.list()
+              .filter(row => (
+                Boolean(row.project_path) && identity(row.project_path!) === selectedIdentity
+              ))
+              .map(row => ({
+                id: row.id,
+                title: row.title,
+                goal: row.goal,
+                status: row.status,
+                createdAt: row.created_at,
+                updatedAt: row.updated_at,
+              }));
+            await projectContextService.prepare({
+              mode: 'initialize',
+              projectPath: conversation.project_path,
+              conversation: {
+                id: conversation.id,
+                title: conversation.title,
+                goal: conversation.goal,
+                status: conversation.status,
+                createdAt: conversation.created_at,
+                updatedAt: conversation.updated_at,
+              },
+              resolveWorkstreams,
+              requestText: conversation.goal ?? conversation.title,
+            });
+          }
+          result = conversation;
+        } catch (error) {
+          conversationRepo.delete(conversation.id);
+          if (conversation.project_path) {
+            try {
+              const { projectContextService } = await import('@/server/project-context');
+              const path = await import('node:path');
+              const identity = (value: string) => {
+                const resolved = path.resolve(value);
+                return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+              };
+              const selectedIdentity = identity(conversation.project_path);
+              const resolveWorkstreams = () => conversationRepo.list()
+                .filter(row => (
+                  Boolean(row.project_path) && identity(row.project_path!) === selectedIdentity
+                ))
+                .map(row => ({
+                  id: row.id,
+                  title: row.title,
+                  goal: row.goal,
+                  status: row.status,
+                  createdAt: row.created_at,
+                  updatedAt: row.updated_at,
+                }));
+              await projectContextService.prepare({
+                mode: 'rollback',
+                projectPath: conversation.project_path,
+                conversationId: conversation.id,
+                resolveWorkstreams,
+              });
+            } catch (rollbackError) {
+              console.error('[api/mutations] project context rollback failed:', rollbackError);
+            }
+          }
+          throw error;
+        }
         break;
       }
       case 'conversation.update': {
@@ -503,6 +577,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   } catch (error) {
     console.error(`[api/mutations] Error in ${type}:`, error);
     if ((res as any).headersSent) return;
+    const { ProjectContextError } = await import('@/server/project-context');
+    if (error instanceof ProjectContextError) {
+      const status = error.reasonCode === 'ambiguous_workspace'
+        || error.reasonCode === 'project_root_required'
+        ? 409
+        : error.reasonCode.startsWith('project_path_')
+          ? 400
+          : 500;
+      return res.status(status).json({
+        ok: false,
+        error: error.message,
+        reasonCode: error.reasonCode,
+        candidates: error.candidates,
+      });
+    }
     res.status(500).json({ ok: false, error: (error as Error).message });
   }
 }

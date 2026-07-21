@@ -40,6 +40,13 @@
 
 - **进入 `in_review`**：必须提交 `implementation_evidence`，至少包含适用的依赖安装、类型检查、构建、测试和影响边界说明。
 - **标记 `done`**：必须提交 `delivery_evidence`，至少包含目标分支状态、安装、构建、测试和未覆盖风险。
+
+### 变更评测证据
+
+- 所有修改都必须说明 `Why → What → Measure → Result`，并留下与影响相称的验证证据。
+- 性能、上下文、Harness、检索、工作流、API 行为和重要 UX 变更必须有落地前后基线、指标定义、可重复命令、原始数据、行业依据和局限。
+- 声称 Agent/Prompt/RoleCard/Skill/协作策略“更好”时，必须使用固定测试集与 baseline/candidate ApplicationSnapshot 做成对实验；组件代理指标不得冒充 Agent 质量结论。
+- 具体 V/C/E 分级、Change Evaluation Record 模板和证据治理遵循 `docs/technical/evaluation/README.md`。
 - **新增依赖**：视为门禁事件；实现者必须说明原因、替代方案判断、lockfile 一致性、install/build 结果，由 review gate 检查。
 - **CLI 成功退出**：不等于可以进入 review；系统只能记录运行成功，不能自动把任务推进到 `in_review`。
 - **缺证据时**：状态更新入口必须拒绝流转并记录 proof event；UI 或 agent 应显示缺少的证据字段。

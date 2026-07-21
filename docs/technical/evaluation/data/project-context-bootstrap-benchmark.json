@@ -1,0 +1,211 @@
+{
+  "schemaVersion": 1,
+  "changeId": "CE-20260720-project-context-bootstrap",
+  "evaluatorRevision": "project-context-benchmark-v1",
+  "generatedAt": "2026-07-21T01:19:58.882Z",
+  "environment": {
+    "platform": "win32",
+    "arch": "x64",
+    "node": "v24.14.0",
+    "cpu": "13th Gen Intel(R) Core(TM) i5-13600KF",
+    "logicalCpuCount": 20,
+    "agentRuns": 8,
+    "fixture": {
+      "sourceModules": 246,
+      "dependencyEdges": 241,
+      "knowledgeDocuments": 42
+    }
+  },
+  "baseline": {
+    "model": "each agent recursively enumerates and reads all candidate source/docs",
+    "perAgentMedian": {
+      "entriesVisited": 305,
+      "filesRead": 290,
+      "bytesRead": 148165,
+      "promptChars": 156721,
+      "estimatedTokens": 39181,
+      "durationMs": 80.651
+    },
+    "totals": {
+      "entriesVisited": 2440,
+      "filesRead": 2320,
+      "bytesRead": 1185320,
+      "promptChars": 1253768,
+      "estimatedTokens": 313442,
+      "durationMs": 857.063
+    }
+  },
+  "candidate": {
+    "model": "one bounded index plus request-aware capsule and finite freshness checks",
+    "cold": {
+      "cacheHit": false,
+      "entriesVisited": 314,
+      "filesRead": 289,
+      "bytesRead": 148146,
+      "indexedDocuments": 42,
+      "indexedModules": 246,
+      "selectedKnowledgeCount": 5,
+      "freshnessChecks": 0,
+      "durationMs": 285.345,
+      "truncated": false,
+      "freshnessCoverage": "complete",
+      "wallDurationMs": 285.47,
+      "promptChars": 3045,
+      "estimatedTokens": 762,
+      "revision": 1
+    },
+    "warmMedian": {
+      "entriesVisited": 315,
+      "filesRead": 2,
+      "bytesRead": 602,
+      "promptChars": 2978,
+      "estimatedTokens": 745,
+      "durationMs": 20.607
+    },
+    "totals": {
+      "entriesVisited": 2519,
+      "filesRead": 303,
+      "bytesRead": 152360,
+      "promptChars": 24054,
+      "estimatedTokens": 6014,
+      "durationMs": 431.247
+    }
+  },
+  "comparison": {
+    "amortizedAcrossAgents": {
+      "entriesVisitedReductionPct": -3.24,
+      "filesReadReductionPct": 86.94,
+      "bytesReadReductionPct": 87.15,
+      "promptCharsReductionPct": 98.08,
+      "estimatedTokensReductionPct": 98.08,
+      "durationReductionPct": 49.68
+    },
+    "warmVsBaselinePerAgent": {
+      "filesReadReductionPct": 99.31,
+      "bytesReadReductionPct": 99.59,
+      "promptCharsReductionPct": 98.1,
+      "durationReductionPct": 74.45
+    },
+    "coldDurationOverheadPct": 253.96
+  },
+  "relevance": {
+    "k": 5,
+    "recallAtK": 1,
+    "cases": [
+      {
+        "query": "authentication security login token",
+        "expected": "docs/security/authentication.md",
+        "selected": [
+          "docs/security/authentication.md",
+          "docs/technical/evaluation/accessibility-evaluation.md",
+          "AGENTS.md",
+          "docs/standards/testing.md",
+          "docs/architecture/database.md"
+        ],
+        "hit": true
+      },
+      {
+        "query": "database schema migration transaction",
+        "expected": "docs/architecture/database.md",
+        "selected": [
+          "docs/architecture/database.md",
+          "docs/technical/evaluation/accessibility-evaluation.md",
+          "AGENTS.md",
+          "docs/standards/testing.md",
+          "docs/runbook/deployment.md"
+        ],
+        "hit": true
+      },
+      {
+        "query": "frontend accessibility evaluation keyboard",
+        "expected": "docs/technical/evaluation/accessibility-evaluation.md",
+        "selected": [
+          "docs/technical/evaluation/accessibility-evaluation.md",
+          "AGENTS.md",
+          "docs/standards/testing.md",
+          "docs/architecture/database.md",
+          "docs/runbook/deployment.md"
+        ],
+        "hit": true
+      },
+      {
+        "query": "deployment release rollback receipt",
+        "expected": "docs/runbook/deployment.md",
+        "selected": [
+          "docs/runbook/deployment.md",
+          "docs/technical/evaluation/accessibility-evaluation.md",
+          "AGENTS.md",
+          "docs/standards/testing.md",
+          "docs/architecture/database.md"
+        ],
+        "hit": true
+      },
+      {
+        "query": "contribution deterministic test standard",
+        "expected": "docs/standards/testing.md",
+        "selected": [
+          "docs/standards/testing.md",
+          "docs/technical/evaluation/accessibility-evaluation.md",
+          "AGENTS.md",
+          "docs/architecture/database.md",
+          "docs/runbook/deployment.md"
+        ],
+        "hit": true
+      }
+    ]
+  },
+  "handoff": {
+    "sharedRevisionReused": true,
+    "cacheHit": true,
+    "siblingFieldWhitelist": [
+      "conversationId",
+      "createdAt",
+      "goalSummary",
+      "schemaVersion",
+      "status",
+      "title",
+      "updatedAt"
+    ]
+  },
+  "staleRefresh": {
+    "cacheHit": false,
+    "previousRevision": 1,
+    "refreshedRevision": 2,
+    "revisionIncremented": true,
+    "filesRead": 293,
+    "bytesRead": 149310,
+    "durationMs": 187.963
+  },
+  "integrity": {
+    "ownerDocumentsUnchanged": true,
+    "warmDiagnosticsIncludePreflightIO": true,
+    "ownerHashesBefore": {
+      "docs/security/authentication.md": "e0a224939d67ac34e05895340e43de73cdbe57141b0905686fbceb21d8f77e55",
+      "docs/architecture/database.md": "62b1a34ab1c38d9c0f432fed06122b1a871dda57dd096047db7c74cd27478a03",
+      "docs/technical/evaluation/accessibility-evaluation.md": "1ef0898521a3629a388cb8d9683da3d60b919fed281f85813454e5986125b4a7",
+      "docs/runbook/deployment.md": "0725f654758cd3586e8bbd88ab0ac9c6512f553ad39d08bd0272ce8c0239c600",
+      "docs/standards/testing.md": "780c12de32b9ba4eeef9cc78649869aa044b63531982b233e87ef5b39021fb5e"
+    },
+    "ownerHashesAfter": {
+      "docs/security/authentication.md": "e0a224939d67ac34e05895340e43de73cdbe57141b0905686fbceb21d8f77e55",
+      "docs/architecture/database.md": "62b1a34ab1c38d9c0f432fed06122b1a871dda57dd096047db7c74cd27478a03",
+      "docs/technical/evaluation/accessibility-evaluation.md": "1ef0898521a3629a388cb8d9683da3d60b919fed281f85813454e5986125b4a7",
+      "docs/runbook/deployment.md": "0725f654758cd3586e8bbd88ab0ac9c6512f553ad39d08bd0272ce8c0239c600",
+      "docs/standards/testing.md": "780c12de32b9ba4eeef9cc78649869aa044b63531982b233e87ef5b39021fb5e"
+    }
+  },
+  "thresholds": {
+    "warmFilesReadReductionAtLeast80Pct": true,
+    "warmBytesReadReductionAtLeast80Pct": true,
+    "recallAt5EqualsOne": true,
+    "handoffSharedRevision": true,
+    "staleChangeIncrementsRevision": true,
+    "ownerDocumentsUnchanged": true,
+    "warmDiagnosticsIncludePreflightIO": true
+  },
+  "artifactDigest": {
+    "algorithm": "sha256",
+    "scope": "canonical JSON before artifactDigest field",
+    "value": "e143343bd209f4cfc537e258b3bd8b188c94c6890ff077b6177dd2ff35a1b555"
+  }
+}
