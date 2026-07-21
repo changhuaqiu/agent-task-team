@@ -135,6 +135,7 @@ Supervisor 每次基于 `facts.observe(snapshot)` 写回状态时，必须携带
 更新成功后原子递增版本。若等待外部事实期间 Run 已被取消、升级或由其他 worker 推进，
 旧决策写回失败并重新读取当前事实，不能把终态回退为非终态。`root_task_id` 在 Task
 删除时使用 `ON DELETE SET NULL`，项目删除再由 `conversation_id` 级联清理整个 Run。
+对曾运行未发布 checkpoint 的数据库，不能只相信 `_schema_version` 水位；前向结构修复迁移会补建缺失表，并在关闭外键校验的单事务中重建旧 Run 表，提交前执行 `foreign_key_check`，保证已有 Run/Action 不丢失。
 项目删除入口必须使用 Conversation 聚合事务：先按依赖顺序清理 Task Graph、A2A、
 运行时与观测投影，再删除 Task 和 Conversation；任一未知外键阻塞时整体回滚，禁止留下
 “Task 已删但项目/Run 仍存在”的部分状态。前端只有在该事务成功后才展示删除成功提示；

@@ -8,6 +8,7 @@ import {
 } from './application-snapshot';
 import { createRunnerExperiment, EvaluationCaseRunner } from './case-runner';
 import { DEFAULT_RUBRIC_REVISION_ID, EVALUATOR_BUNDLE_REVISION, digest } from './defaults';
+import { buildSubjectSnapshot } from './snapshot-builder';
 
 const now = '2026-07-19T00:00:00.000Z';
 
@@ -106,6 +107,50 @@ describe('application snapshot and case execution', () => {
       observedManifestDigest: String(snapshot.manifest_digest),
     });
     expect(completed.execution_verified).toBe(1);
+  });
+
+  it('builds offline provenance from the frozen application manifest instead of mutable project state', () => {
+    const snapshot = freezeApplicationSnapshot({
+      conversationId: 'conv-runner', name: 'baseline', source: 'published',
+    });
+    const execution = createCaseExecution({
+      conversationId: 'conv-runner',
+      caseId: seedHeldOutCase(),
+      applicationSnapshotId: String(snapshot.id),
+      variant: 'baseline',
+    });
+    getDb().prepare(`UPDATE eval_case_execution
+      SET observed_manifest_digest=?,status='running' WHERE id=?`)
+      .run(snapshot.manifest_digest, execution.id);
+    getDb().prepare(`UPDATE team_pack_role
+      SET role_card_snapshot=?,skill_ids='["mutable-skill"]' WHERE pack_id='team-runner'`)
+      .run(JSON.stringify({ snapshotVersion: 99, snapshottedAt: '2099-01-01', displayName: 'Mutated' }));
+    getDb().prepare("UPDATE conversation SET project_path='C:/mutable/current/head' WHERE id='conv-runner'").run();
+
+    const subject = buildSubjectSnapshot({
+      conversationId: 'conv-runner',
+      triggerId: String(execution.id),
+      caseId: 'case-runner',
+      mode: 'offline',
+      applicationManifest: snapshot.manifest,
+    });
+
+    expect(subject.appManifest).toMatchObject({
+      gitRevision: snapshot.manifest.codeRevision,
+      teamPackId: snapshot.manifest.team.id,
+      applicationSnapshotId: snapshot.id,
+      targetManifestDigest: snapshot.manifest_digest,
+      observedManifestDigest: snapshot.manifest_digest,
+      applicationVariant: snapshot.manifest,
+    });
+    expect(subject.appManifest.roleCardSnapshots).toEqual([
+      expect.objectContaining({
+        roleId: 'agent-runner',
+        snapshotDigest: digest(snapshot.manifest.team.roles[0]?.roleCardSnapshot),
+      }),
+    ]);
+    expect(JSON.stringify(subject.appManifest)).not.toContain('mutable-skill');
+    expect(JSON.stringify(subject.appManifest)).not.toContain('C:/mutable/current/head');
   });
 
   it('creates both isolated variants and records a blocked Harness dispatch', async () => {

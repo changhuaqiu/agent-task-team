@@ -9,7 +9,7 @@
 - `snapshot-builder.ts` 按 conversation/root task/optional chain/cutoff 冻结多 trace 证据，排除 thinking 和评估自身 proof，并记录代码、RoleCard、Skill、脱敏模型配置摘要、rubric 与 evaluator revision。
 - `deterministic-evaluator.ts` 先计算硬门禁，再计算完成、交付、可靠性和工具执行指标；`deterministic-v2` 把工具执行成功与离线用例定义的工具名称/必需参数匹配拆开，没有工具预期时正确性为 `not_applicable`。
 - `judge.ts` 只允许项目显式选择的 OpenAI/Anthropic API Key 账号，无工具权限；没有账号、超预算、Provider 被禁或调用失败时保留确定性结果并转 `partial`。
-- migration 27–38 提供数据库级不可变 rubric/snapshot/score/attempt、ApplicationSnapshot、case execution、带 fencing token 的 job、原子预算预留、双 Judge 复核队列、盲测换序、项目域标注、数据集/实验、gap、policy 与 change proposal 表；migration 41 为已执行过旧迁移的数据库补齐自主交付 `revision` 字段，迁移执行器按版本排序，避免并行功能分支合并后的声明顺序影响升级结果。
+- migration 27–38 提供数据库级不可变 rubric/snapshot/score/attempt、ApplicationSnapshot、case execution、带 fencing token 的 job、原子预算预留、双 Judge 复核队列、盲测换序、项目域标注、数据集/实验、gap、policy 与 change proposal 表；migration 41 补齐自主交付 `revision`，migration 42 不信任旧 checkpoint 的版本水位，按实际结构补建自主交付表并把旧 `root_task_id` 外键重建为 `ON DELETE SET NULL`。
 - 关闭轮次在 valid exit 后于本地事务内冻结快照并提交 job；后台 worker 只消费冻结快照并执行评估，主 Agent loop 不等待 Judge。
 - Pages API 的规范入口为 `/api/eval/*`；`/api/evaluations/*` 保留为当前 UI 的兼容入口。
 - 平台项目主内容区提供“协作 / 评估”工作模式；评估不是外部控制台，也不占用项目右侧调试栏。
@@ -91,7 +91,8 @@ Task/A2A/Proof/Observation facts
 - `eval_application_snapshot` 保存 Git commit、TeamPack/RoleCard 快照、显式 Skill revision、engine/runtime/account 引用和规范化 digest；不保存凭据。
 - `eval_case_execution` 保存某个 held-out case 在 baseline/candidate 快照上的状态、task、Harness trigger、invocation、trace、EvalRun、target/observed digest 与错误。
 - Harness 的普通模式继续解析当前 conversation 配置；评估模式必须从 `ApplicationSnapshot` 构造 runtime profile，并按显式 revision 编译 Skill，禁止回退到 active revision。
-- Daemon 为每个执行创建独立 detached worktree 和新 session。执行工作目录的实际 Git HEAD、实际 Skill revision、RoleCard/TeamPack digest、engine/runtime/account 构成 observed manifest。
+- Daemon 为每个执行创建独立 detached worktree 和新 session。评估 worktree 只投影当前 case task，不启动生产 Task watcher、不写入团队日志、不加载当前项目本地 Skill，也不授予共享项目目录访问权。
+- 执行工作目录的实际 Git HEAD、实际 Skill revision、RoleCard/TeamPack digest、engine/runtime/account 构成 observed manifest；离线 `EvalSubjectSnapshot.appManifest` 只从冻结 `ApplicationSnapshot` 与已验证的 target/observed digest 构造，不重新读取当前项目 HEAD、TeamPack、RoleCard 或 active Skill。
 - 只有 observed digest 与 target digest 一致，且 invocation、trace、任务证据和 EvalRun 均已绑定时，执行才可标记 verified；否则实验仅供诊断。
 
 这保持了系统边界：评估与平台在一起，执行能力只实现一次；可信性由“冻结输入 + 隔离执行 + 实际来源校验”提供。

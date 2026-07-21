@@ -4,6 +4,7 @@ import { getDb } from '../db';
 import { listAccounts } from '../accounts-file';
 import { redactObservationPreview } from '../observability/redaction';
 import { DEFAULT_RUBRIC_REVISION_ID, EVALUATOR_BUNDLE_REVISION, digest } from './defaults';
+import type { ApplicationManifest } from './application-snapshot';
 import type { EvaluationRequest, EvidenceRef, SubjectSnapshot } from './types';
 
 type Row = Record<string, unknown>;
@@ -73,6 +74,20 @@ function gitRevision(projectPath: unknown): string | undefined {
   } catch { return undefined; }
 }
 
+function frozenApplicationManifest(value: unknown): ApplicationManifest | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const candidate = value as Partial<ApplicationManifest>;
+  if (
+    candidate.schemaVersion !== 1
+    || typeof candidate.projectPath !== 'string'
+    || typeof candidate.codeRevision !== 'string'
+    || !candidate.team
+    || !Array.isArray(candidate.team.roles)
+    || !Array.isArray(candidate.agents)
+  ) return undefined;
+  return candidate as ApplicationManifest;
+}
+
 function collectTruncatedPaths(value: unknown, path = '$', result: string[] = []): string[] {
   if (result.length >= 200) return result;
   if (typeof value === 'string' && (value.length >= 4_000 || value === '[TRUNCATED_DEPTH]')) result.push(path);
@@ -88,6 +103,9 @@ function collectTruncatedPaths(value: unknown, path = '$', result: string[] = []
 export function buildSubjectSnapshot(request: EvaluationRequest): SubjectSnapshot {
   const db = getDb();
   const cutoff = request.evidenceCutoffAt ?? new Date().toISOString();
+  const frozenApplication = request.mode === 'offline'
+    ? frozenApplicationManifest(request.applicationManifest)
+    : undefined;
   const conversation = db.prepare('SELECT * FROM conversation WHERE id = ?').get(request.conversationId) as Row | undefined;
   if (!conversation) throw new Error('Conversation not found');
   if (request.chainId) {
@@ -155,39 +173,72 @@ export function buildSubjectSnapshot(request: EvaluationRequest): SubjectSnapsho
       .get(request.caseId, request.conversationId) as Row | undefined
     : undefined;
 
-  const roleRows = conversation.team_pack_id
+  const roleRows = !frozenApplication && conversation.team_pack_id
     ? rows('SELECT role_id,role_card_id,role_card_snapshot,account_ids,skill_ids FROM team_pack_role WHERE pack_id=? ORDER BY role_id',
         conversation.team_pack_id)
     : [];
-  const skillIds = [...new Set(roleRows.flatMap((role) => {
-    const ids = parse(role.skill_ids, []) as unknown[];
-    return ids.map(String);
-  }))];
-  const skillRevisions = skillIds.length
-    ? rows(`SELECT id,active_revision_id,updated_at FROM skill WHERE id IN (${skillIds.map(() => '?').join(',')}) ORDER BY id`, ...skillIds)
-    : [];
-  const revision = gitRevision(conversation.project_path);
-  const executionAccountIds = [...new Set(invocations.map((item) => item.account_id).filter(Boolean).map(String))];
-  const accountById = new Map(listAccounts().map((account) => [account.id, account]));
-  const executionAccountConfigs = executionAccountIds.flatMap((accountId) => {
-    const account = accountById.get(accountId);
-    return account ? [{
-      accountId,
-      configDigest: digest({
-        provider: account.provider,
-        authMode: account.authMode,
-        baseUrl: account.baseUrl,
-        models: account.models,
-      }),
-    }] : [];
-  });
+  const skillIds = frozenApplication
+    ? [...new Set(frozenApplication.agents.flatMap((agent) =>
+      agent.skillRevisions.map((skill) => skill.skillId)))]
+    : [...new Set(roleRows.flatMap((role) => {
+      const ids = parse(role.skill_ids, []) as unknown[];
+      return ids.map(String);
+    }))];
+  const skillRevisions = frozenApplication
+    ? frozenApplication.agents.flatMap((agent) => agent.skillRevisions.map((skill) => ({
+      id: skill.skillId,
+      active_revision_id: skill.revisionId,
+      content_hash: skill.contentHash,
+      agent_id: agent.agentId,
+      updated_at: undefined,
+    })))
+    : skillIds.length
+      ? rows(`SELECT id,active_revision_id,updated_at FROM skill WHERE id IN (${skillIds.map(() => '?').join(',')}) ORDER BY id`, ...skillIds)
+      : [];
+  const revision = frozenApplication?.codeRevision ?? gitRevision(conversation.project_path);
+  const executionAccountIds = frozenApplication
+    ? [...new Set(frozenApplication.agents.flatMap((agent) => agent.accountId ? [agent.accountId] : []))]
+    : [...new Set(invocations.map((item) => item.account_id).filter(Boolean).map(String))];
+  const accountById = frozenApplication ? new Map() : new Map(listAccounts().map((account) => [account.id, account]));
+  const executionAccountConfigs = frozenApplication
+    ? [...new Map(frozenApplication.agents.flatMap((agent) => agent.accountId ? [[agent.accountId, {
+      accountId: agent.accountId,
+      configDigest: agent.accountConfigDigest,
+    }] as const] : [])).values()]
+    : executionAccountIds.flatMap((accountId) => {
+      const account = accountById.get(accountId);
+      return account ? [{
+        accountId,
+        configDigest: digest({
+          provider: account.provider,
+          authMode: account.authMode,
+          baseUrl: account.baseUrl,
+          models: account.models,
+        }),
+      }] : [];
+    });
+  const executionProvenance = request.mode === 'offline' && request.triggerId
+    ? db.prepare(`SELECT application_snapshot_id,target_manifest_digest,observed_manifest_digest
+        FROM eval_case_execution WHERE id=? AND conversation_id=?`)
+      .get(request.triggerId, request.conversationId) as Row | undefined
+    : undefined;
+  const frozenManifestDigest = frozenApplication ? digest(frozenApplication) : undefined;
+  if (executionProvenance && frozenManifestDigest) {
+    const targetDigest = String(executionProvenance.target_manifest_digest ?? '');
+    const observedDigest = String(executionProvenance.observed_manifest_digest ?? '');
+    if (targetDigest !== frozenManifestDigest || observedDigest !== frozenManifestDigest) {
+      throw new Error('Evaluation execution provenance does not match the frozen application manifest');
+    }
+  }
   const missing: string[] = [];
   if (tasks.length === 0) missing.push('tasks');
   if (spans.length === 0) missing.push('spans');
   if (proofs.length === 0) missing.push('proofs');
   if (request.chainId && passes.length === 0) missing.push('handoff_receipts');
   if (!revision) missing.push('code_revision');
-  if (!conversation.team_pack_id || roleRows.length === 0) missing.push('team_configuration_revision');
+  if (frozenApplication ? frozenApplication.team.roles.length === 0 : !conversation.team_pack_id || roleRows.length === 0) {
+    missing.push('team_configuration_revision');
+  }
   if (skillIds.length && skillRevisions.some((skill) => !skill.active_revision_id)) missing.push('skill_revision');
   if (executionAccountConfigs.length !== executionAccountIds.length) missing.push('model_configuration_revision');
   const byDimension: Record<string, number> = {
@@ -199,7 +250,8 @@ export function buildSubjectSnapshot(request: EvaluationRequest): SubjectSnapsho
     instruction_following: messages.length || payloads.length ? 1 : 0,
     collaboration: request.chainId ? (passes.length ? 1 : 0) : 1,
     clarity: messages.length || payloads.length ? 1 : 0,
-    configuration: revision && conversation.team_pack_id && roleRows.length &&
+    configuration: revision && (frozenApplication?.team.id ?? conversation.team_pack_id) &&
+      (frozenApplication?.team.roles.length ?? roleRows.length) &&
       executionAccountConfigs.length === executionAccountIds.length ? 1 : 0,
   };
   const coverage = Object.values(byDimension).reduce((sum, value) => sum + value, 0) / Object.keys(byDimension).length;
@@ -229,22 +281,39 @@ export function buildSubjectSnapshot(request: EvaluationRequest): SubjectSnapsho
   ];
   const appManifest = {
     gitRevision: revision,
-    teamPackId: conversation.team_pack_id ?? undefined,
-    roleCardSnapshots: roleRows.map((role) => ({
-      roleId: role.role_id, roleCardId: role.role_card_id,
-      snapshotDigest: role.role_card_snapshot ? digest(parse(role.role_card_snapshot, {})) : undefined,
-      accountIds: parse(role.account_ids, []), skillIds: parse(role.skill_ids, []),
-    })),
+    teamPackId: frozenApplication?.team.id ?? conversation.team_pack_id ?? undefined,
+    roleCardSnapshots: frozenApplication
+      ? frozenApplication.team.roles.map((role) => ({
+        roleId: role.id,
+        roleCardId: role.roleCardId,
+        snapshotDigest: role.roleCardSnapshot ? digest(role.roleCardSnapshot) : undefined,
+        accountIds: role.accountIds ?? [],
+        skillIds: role.skillIds ?? [],
+      }))
+      : roleRows.map((role) => ({
+        roleId: role.role_id, roleCardId: role.role_card_id,
+        snapshotDigest: role.role_card_snapshot ? digest(parse(role.role_card_snapshot, {})) : undefined,
+        accountIds: parse(role.account_ids, []), skillIds: parse(role.skill_ids, []),
+      })),
     skillRevisions: skillRevisions.map((skill) => ({
-      skillId: skill.id, revisionId: skill.active_revision_id, fallbackUpdatedAt: skill.updated_at,
+      skillId: skill.id,
+      revisionId: skill.active_revision_id,
+      contentHash: skill.content_hash,
+      agentId: skill.agent_id,
+      fallbackUpdatedAt: skill.updated_at,
     })),
     executionAccounts: executionAccountIds,
     executionAccountConfigs,
-    engines: [...new Set(invocations.map((item) => item.engine).filter(Boolean))],
+    engines: frozenApplication
+      ? [...new Set(frozenApplication.agents.map((agent) => agent.engine))]
+      : [...new Set(invocations.map((item) => item.engine).filter(Boolean))],
     rubricRevisionId: DEFAULT_RUBRIC_REVISION_ID,
     evaluatorBundleDigest: digest(EVALUATOR_BUNDLE_REVISION),
     evaluationCaseId: request.caseId,
-    applicationVariant: request.applicationManifest,
+    applicationVariant: frozenApplication ?? request.applicationManifest,
+    applicationSnapshotId: executionProvenance?.application_snapshot_id,
+    targetManifestDigest: executionProvenance?.target_manifest_digest ?? frozenManifestDigest,
+    observedManifestDigest: executionProvenance?.observed_manifest_digest,
   };
   const hashInput = {
     subject: {

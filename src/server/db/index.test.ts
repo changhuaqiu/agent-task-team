@@ -165,28 +165,92 @@ describe('SQLite Foundation', () => {
     expect(after.v).toBe(before.v);
   });
 
-  it('upgrades an unpublished checkpoint database with autonomous run revisions', () => {
-    const checkpoint = new Database(':memory:');
-    try {
-      checkpoint.exec(`
-        CREATE TABLE _schema_version (version INTEGER PRIMARY KEY);
-        INSERT INTO _schema_version (version) VALUES (40);
-        CREATE TABLE autonomous_delivery_run (
-          id TEXT PRIMARY KEY,
-          status TEXT NOT NULL
-        );
-      `);
+  it('repairs v26-v40 checkpoints whose migration collision skipped autonomous delivery tables', () => {
+    for (const watermark of [26, 30, 37, 40]) {
+      const checkpoint = createTestDb();
+      try {
+        checkpoint.pragma('foreign_keys = OFF');
+        checkpoint.exec(`
+          DROP TABLE autonomous_delivery_receipt;
+          DROP TABLE autonomous_delivery_attempt;
+          DROP TABLE autonomous_delivery_action;
+          DROP TABLE autonomous_delivery_run;
+          DELETE FROM _schema_version WHERE version > ${watermark};
+        `);
+        checkpoint.pragma('foreign_keys = ON');
 
-      applyMigrations(checkpoint);
+        applyMigrations(checkpoint);
 
-      const columns = checkpoint.prepare('PRAGMA table_info(autonomous_delivery_run)')
-        .all() as Array<{ name: string }>;
-      expect(columns.some((column) => column.name === 'revision')).toBe(true);
-      expect(checkpoint.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-        .toEqual({ version: 41 });
-    } finally {
-      checkpoint.close();
+        const tables = checkpoint.prepare(
+          "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'autonomous_delivery_%'",
+        ).all() as Array<{ name: string }>;
+        expect(new Set(tables.map((table) => table.name))).toEqual(new Set([
+          'autonomous_delivery_run',
+          'autonomous_delivery_action',
+          'autonomous_delivery_attempt',
+          'autonomous_delivery_receipt',
+        ]));
+        expect(checkpoint.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
+          .toEqual({ version: 42 });
+        expect(checkpoint.pragma('foreign_key_check')).toEqual([]);
+      } finally {
+        checkpoint.close();
+      }
     }
+  });
+
+  it('rebuilds the old root task FK while preserving autonomous run and action rows', () => {
+    db.pragma('foreign_keys = OFF');
+    db.exec(`
+      DROP TABLE autonomous_delivery_run;
+      CREATE TABLE autonomous_delivery_run (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL REFERENCES conversation(id) ON DELETE CASCADE,
+        root_task_id TEXT REFERENCES task(id),
+        status TEXT NOT NULL,
+        current_stage TEXT NOT NULL,
+        goal_contract_json TEXT NOT NULL,
+        repair_cycle INTEGER NOT NULL DEFAULT 0,
+        escalation_code TEXT,
+        escalation_detail TEXT,
+        delivery_bundle_json TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        completed_at TEXT
+      );
+      DELETE FROM _schema_version WHERE version >= 41;
+    `);
+    db.pragma('foreign_keys = ON');
+    const now = new Date().toISOString();
+    db.prepare(`INSERT INTO conversation (id,title,status,created_at,updated_at)
+      VALUES ('conv-checkpoint','Checkpoint','active',?,?)`).run(now, now);
+    db.prepare(`INSERT INTO task (id,conversation_id,title,status,agent_id,created_at,updated_at)
+      VALUES ('task-checkpoint','conv-checkpoint','Root','pending','agent',?,?)`).run(now, now);
+    db.prepare(`INSERT INTO autonomous_delivery_run
+      (id,conversation_id,root_task_id,status,current_stage,goal_contract_json,created_at,updated_at)
+      VALUES ('run-checkpoint','conv-checkpoint','task-checkpoint','executing','executing','{}',?,?)`)
+      .run(now, now);
+    db.prepare(`INSERT INTO autonomous_delivery_action
+      (id,run_id,kind,idempotency_key,status,not_before,max_attempts,created_at,updated_at)
+      VALUES ('action-checkpoint','run-checkpoint','advance_tasks','checkpoint-action','ready',?,3,?,?)`)
+      .run(now, now, now);
+
+    applyMigrations(db);
+
+    const rootTaskForeignKey = (db.pragma('foreign_key_list(autonomous_delivery_run)') as Array<{
+      from: string;
+      on_delete: string;
+    }>).find((foreignKey) => foreignKey.from === 'root_task_id');
+    expect(rootTaskForeignKey?.on_delete).toBe('SET NULL');
+    expect(db.prepare('SELECT revision FROM autonomous_delivery_run WHERE id=?').get('run-checkpoint'))
+      .toEqual({ revision: 0 });
+    expect(db.prepare('SELECT run_id FROM autonomous_delivery_action WHERE id=?').get('action-checkpoint'))
+      .toEqual({ run_id: 'run-checkpoint' });
+
+    db.prepare('DELETE FROM task WHERE id=?').run('task-checkpoint');
+    expect(db.prepare('SELECT root_task_id FROM autonomous_delivery_run WHERE id=?').get('run-checkpoint'))
+      .toEqual({ root_task_id: null });
+    expect(db.pragma('foreign_key_check')).toEqual([]);
   });
 
   it('enforces immutability of published evaluation revisions', () => {

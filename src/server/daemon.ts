@@ -1069,7 +1069,10 @@ export default function registerDaemon(io: IOServer) {
       let runtimeConfigEnv: Record<string, string> = {};
 
       if (engine === 'opencode') {
-        const projectSkillPaths = resolveOpenCodeProjectSkillPaths(projectPath);
+        // Offline evaluation must use only the frozen Harness context. Loading
+        // project-local Skills or authorizing the live shared workspace would
+        // leak mutable production state into the isolated worktree.
+        const projectSkillPaths = evaluation ? [] : resolveOpenCodeProjectSkillPaths(projectPath);
         const account = accountId ? await readAccount(accountId) : undefined;
         const cred = accountId ? await readCredential(accountId) : undefined;
         const invocationId = makeInvocationId(agentId);
@@ -1082,7 +1085,7 @@ export default function registerDaemon(io: IOServer) {
           systemPrompt: systemPrompt || undefined,
           skillPaths: projectSkillPaths,
           managedSkillNames: contextReport?.loadedSkills ?? [],
-          allowedExternalDirectories: [sharedProjectDir],
+          allowedExternalDirectories: evaluation ? [] : [sharedProjectDir],
         });
         if (result.generated) {
           runtimeConfigDir = result.configDir;
@@ -1158,12 +1161,14 @@ export default function registerDaemon(io: IOServer) {
 
         const accumulated = agentResponseBuffer.get(responseBufferKey) ?? finalContent;
         agentResponseBuffer.delete(responseBufferKey);
-        try {
-          // Watchers are best-effort on every platform. The completed-turn
-          // boundary is the consistency barrier before handoff scanning.
-          syncTasksToDb(taskProjectDir, sessionConvId, io);
-        } catch (error) {
-          console.warn(`[task-sync] completion barrier failed for ${sessionConvId}:`, error);
+        if (!evaluation) {
+          try {
+            // Watchers are best-effort on every platform. The completed-turn
+            // boundary is the consistency barrier before handoff scanning.
+            syncTasksToDb(taskProjectDir, sessionConvId, io);
+          } catch (error) {
+            console.warn(`[task-sync] completion barrier failed for ${sessionConvId}:`, error);
+          }
         }
         let validExit = true;
         if (contextScenario) {
@@ -1765,8 +1770,11 @@ export default function registerDaemon(io: IOServer) {
       if (taskId && taskRepo.getById(taskId)?.conversation_id === sessionConvId) {
         taskRepo.update(taskId, { work_dir: taskProjectDir });
       }
-      ensureTasksMdProjection(taskProjectDir, taskRepo.getByConversation(sessionConvId));
-      startTaskWatcher(taskProjectDir, sessionConvId, io);
+      const projectedTasks = evaluation
+        ? taskRepo.getByConversation(sessionConvId).filter((item) => item.id === taskId)
+        : taskRepo.getByConversation(sessionConvId);
+      ensureTasksMdProjection(taskProjectDir, projectedTasks);
+      if (!evaluation) startTaskWatcher(taskProjectDir, sessionConvId, io);
       if (evaluation && effectiveSlug) {
         const { WorktreeManager } = await import('./worktree-manager');
         const observedHead = await WorktreeManager.getHead(wd);
@@ -1805,7 +1813,7 @@ export default function registerDaemon(io: IOServer) {
           observedManifestDigest: evaluationObservedDigest,
         });
       }
-      for (const workspaceDir of new Set(evaluation ? [taskProjectDir] : [sharedProjectDir, wd])) {
+      for (const workspaceDir of new Set(evaluation ? [] : [sharedProjectDir, wd])) {
         try {
           teamLogProjection.materialize(sessionConvId, workspaceDir);
         } catch (error) {

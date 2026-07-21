@@ -480,9 +480,11 @@ Experiment
 1. case 输入只由服务端从冻结 dataset revision 读取；
 2. baseline/candidate 不复用 session、task 或可写 worktree；
 3. Harness 不回退到当前激活配置；
-4. Daemon 记录实际工作目录 HEAD 与实际加载的配置清单；
+4. Daemon 记录实际工作目录 HEAD 与实际加载的配置清单；评估 worktree 只拥有当前 case task 的最小投影，不能读取生产 Task Graph、团队日志、当前项目本地 Skill 或共享项目目录；
 5. target/observed manifest digest 完全一致；
 6. invocation、trace、proof 与后续 `EvalRun` 可相互追溯。
+
+离线评估报告的应用 provenance 必须直接来自冻结 `ApplicationSnapshot` 和已经校验的 observed digest；不得在评分时重新读取可变的项目 HEAD、TeamPack、RoleCard 或 active Skill。
 
 任何一步缺失都可以保留为诊断运行，但不得进入发布门。
 
@@ -539,7 +541,7 @@ Experiment
 
 已落地：
 
-- migration 27–38、Drizzle schema、数据库不可变约束、ApplicationSnapshot/case execution、原子预算预留、默认 rubric 与 12 个 train/tune/held-out 中英校准案例；migration 41 兼容已执行旧迁移但缺少自主交付 `revision` 的数据库，迁移按版本号排序执行；
+- migration 27–38、Drizzle schema、数据库不可变约束、ApplicationSnapshot/case execution、原子预算预留、默认 rubric 与 12 个 train/tune/held-out 中英校准案例；migration 41 补齐旧库自主交付 `revision`，migration 42 按结构审计补建被历史版本碰撞跳过的自主交付表并修复旧 `root_task_id` 外键；
 - 提交事务内冻结的 snapshot builder、硬门禁/确定性 evaluator、锚点式无工具 Judge adapter、持久 job/lease token/retry、原子 report/gap/replay；
 - closure valid-exit 后异步提交与 `eval.*` proof；
 - `/api/eval/runs`、datasets、annotations、experiments、pairwise、reviews、proposals、policy、operations；
