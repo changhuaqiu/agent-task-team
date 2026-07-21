@@ -8,10 +8,11 @@ import { SettingsDrawer } from '@/components/task-hub/SettingsDrawer';
 import { ProjectWorkspace } from '@/components/project/ProjectWorkspace';
 import { LoadingSkeleton } from '@/components/ui/LoadingSkeleton';
 import { useEffect } from 'react';
-import { Plus, Settings } from 'lucide-react';
+import { AlertTriangle, Plus, RefreshCw, Settings } from 'lucide-react';
 
 export default function ClientHome() {
   const hasHydrated = useTaskHubStore((s) => s.hasHydrated);
+  const runtimeHydrationError = useTaskHubStore((s) => s.runtimeHydrationError);
   const selectedTaskId = useTaskHubStore((s) => s.selectedTaskId);
   const selectedConversationId = useTaskHubStore((s) => s.selectedConversationId);
   const isNewTaskDialogOpen = useTaskHubStore((s) => s.isNewTaskDialogOpen);
@@ -70,6 +71,28 @@ export default function ClientHome() {
           </button>
         </div>
       </header>
+
+      {runtimeHydrationError && (
+        <div
+          role="alert"
+          className="mx-4 mt-3 flex items-center justify-between gap-3 rounded-[var(--radius-md)] border border-amber-300 bg-amber-50 px-3 py-2 text-[12px] text-amber-950"
+        >
+          <div className="flex min-w-0 items-center gap-2">
+            <AlertTriangle className="size-4 shrink-0" />
+            <span className="truncate">
+              部分项目或智能体账号信息加载失败：{runtimeHydrationError}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => void loadFromServer()}
+            className="inline-flex shrink-0 items-center gap-1 rounded-[var(--radius-sm)] border border-amber-400 bg-white px-2.5 py-1.5 font-semibold hover:bg-amber-100"
+          >
+            <RefreshCw className="size-3.5" />
+            重试
+          </button>
+        </div>
+      )}
 
       <ProjectWorkspace />
 

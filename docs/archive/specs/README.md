@@ -14,4 +14,4 @@
 | `platform-harness-loop/` | implemented | 服务端闭环第一阶段已落地（2026-07-14）；tasks/checklist 全勾，长期事实见 `docs/technical/execution/platform-harness-loop.md` 与 ADR-023 |
 | `frontend-runtime-performance-refactor/` | implemented | 运行时缓存、订阅边界与性能验收 P1–P3 全部完成；仅剩 Non-Goals 的后续工作 |
 | `group-chat-task-flow/` | implemented | baseline 已实现（tasks 全勾），roadmap 已标 done；长期事实见 `docs/technical/execution/group-chat-task-graph.md` |
-
+| `project-context-bootstrap/` | implemented | 分层项目上下文、增量加载、同路径 workstream、Harness 接线和 C 级评测已完成；长期事实见 `docs/technical/execution/project-context-bootstrap.md` 与 `docs/wiki/project-context.md` |

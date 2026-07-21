@@ -11,6 +11,8 @@
     "lint": "eslint",
     "test": "vitest run",
     "test:watch": "vitest",
+    "eval:project-context": "node scripts/run-project-context-benchmark.mjs",
+    "eval:project-context:live": "node scripts/collect-project-context-live-e2e.mjs",
     "e2e": "playwright test",
     "e2e:autonomous": "playwright test --config=playwright.autonomous.config.ts",
     "e2e:headed": "playwright test --headed",

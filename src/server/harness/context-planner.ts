@@ -19,6 +19,7 @@ import { skillRepo } from '../repositories/skill-repo';
 import { getSupportedToolNames } from '../skill-tool-router';
 import { autonomousDeliveryContextContributor } from '../autonomous-delivery/context-contributor';
 import { resolveApplicationSnapshotRuntime } from '../evaluation/application-snapshot';
+import { projectContextContributor } from '../project-context/context-contributor';
 
 const RUNTIME_IDS = {
   opencode: 'opencode-local',
@@ -156,7 +157,9 @@ export class RepositoryHarnessPlanner implements HarnessPlanner {
           ? { unseenCount: 0, entries: [], filePath: '.ath/team-log.md', totalTokens: 0 }
           : teamLogProjection.buildEnvelope(conversationId, agentId, taskId ? { taskId } : undefined),
       }, noOpMemoryHook, {
-        contributors: trigger.evaluation ? [] : [autonomousDeliveryContextContributor],
+        contributors: trigger.evaluation
+          ? []
+          : [projectContextContributor, autonomousDeliveryContextContributor],
       });
       const referenceResolution = trigger.evaluation
         ? { prompt: trigger.prompt, records: [] }

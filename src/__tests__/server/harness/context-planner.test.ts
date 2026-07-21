@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createTestDb, getDb, resetDb, setTestDb } from '@/server/db';
@@ -126,11 +126,17 @@ describe('RepositoryHarnessPlanner', () => {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     });
+    const projectRoot = join(dataDir, 'harness-project');
+    mkdirSync(projectRoot, { recursive: true });
+    writeFileSync(join(projectRoot, 'package.json'), JSON.stringify({
+      name: 'harness-project',
+      scripts: { test: 'vitest run' },
+    }), 'utf8');
     conversationRepo.create({
       id: 'conv-1',
       title: 'Harness Project',
       team_pack_id: pack.id,
-      project_path: 'C:/workspace/project',
+      project_path: projectRoot,
     });
     taskRepo.create({
       id: 'TASK-1',
@@ -164,13 +170,17 @@ describe('RepositoryHarnessPlanner', () => {
       engine: 'codex',
       accountId: 'account-openai',
       runtimeId: 'codex-cli',
-      projectPath: 'C:/workspace/project',
+      projectPath: projectRoot,
       contextScenario: 'wakeup',
       teamLogUpToEntryId: teamLogEntryId,
     });
     expect(result.plan.prompt).toContain('TASK-1');
     expect(result.plan.prompt).toContain('系统唤醒');
     expect(result.plan.prompt).toContain('团队动态');
+    expect(result.plan.prompt).toContain('## 项目上下文入口');
+    expect(result.plan.contextSnapshot?.fragmentRefs).toEqual(expect.arrayContaining([
+      expect.objectContaining({ producer: 'project-context', version: expect.stringMatching(/^r1:/) }),
+    ]));
     expect(result.plan.systemPrompt).toBeUndefined();
   });
 
@@ -188,16 +198,22 @@ describe('RepositoryHarnessPlanner', () => {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     });
+    const projectRoot = join(dataDir, 'delivery-context');
+    mkdirSync(projectRoot, { recursive: true });
+    writeFileSync(join(projectRoot, 'package.json'), JSON.stringify({
+      name: 'delivery-context',
+      scripts: { test: 'vitest run' },
+    }), 'utf8');
     conversationRepo.create({
       id: 'conv-delivery-context',
       title: 'Delivery Context',
       team_pack_id: pack.id,
-      project_path: 'C:/workspace/delivery-context',
+      project_path: projectRoot,
     });
     const delivery = autonomousDeliveryRepo.createRun({
       goal: '完成真实 Team Harness',
       acceptanceCriteria: ['Context Snapshot 可追溯', '必须通过 Web UI E2E'],
-      scope: { conversationId: 'conv-delivery-context', projectPath: 'C:/workspace/delivery-context' },
+      scope: { conversationId: 'conv-delivery-context', projectPath: projectRoot },
       authorization: {
         allowCodeChanges: true,
         allowPush: false,

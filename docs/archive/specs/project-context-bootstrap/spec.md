@@ -1,6 +1,7 @@
 # 项目上下文初始化（Project Context Bootstrap）
 
-> 状态：active
+> 状态：implemented
+> 归档日期：2026-07-20
 > 日期：2026-07-20
 > 关联模块：`src/server/project-context/`、`src/server/harness/context-planner.ts`、`src/pages/api/project-context.ts`、`src/pages/api/mutations.ts`、`src/components/project/ProjectCreateDialog.tsx`
 > 依赖规格：`context-manager/`（唯一注入网关）、`a2a-possession-contract/`（任务交接语义不变）
@@ -73,7 +74,7 @@ Topology 不是目录罗列。机器索引至少包含：
 - 模块入度、出度和 entrypoint 标记；
 - 解析精度、截断与未解析依赖诊断。
 
-首版对 TypeScript/JavaScript 和 Python 做启发式提取，对其他语言保留 manifest/目录级模块。启发式结果必须标记 `precision='heuristic'`，不得伪装成编译器精确事实。
+首版对 TypeScript/JavaScript 和 Python 做启发式提取，对其他语言保留 manifest/目录级模块。TypeScript/JavaScript 支持 NodeNext 源文件以 `.js` 运行时扩展名引用 `.ts/.tsx/.mts/.cts` owner 文件；Python 在仓库内 owner module 存在时解析相对和绝对模块路径。启发式结果必须标记 `precision='heuristic'`，不得伪装成编译器精确事实。
 
 请求侧 repo map 采用确定性排序：词项相关性 + entrypoint boost + 入度中心性 + 路径稳定排序。在字符预算内只呈现相关模块、导出符号和邻接边；完整 `topology.json` 不进入 prompt。
 
@@ -109,6 +110,8 @@ Topology 不是目录罗列。机器索引至少包含：
 
 ```text
 <codebase>/.ath/context/
+├── .project-context-owner.json   # 生成器 ownership；缺失时拒绝覆盖已有内容
+├── .prepare.lock                 # 更新期间存在，完成后移除
 ├── manifest.json
 ├── topology.json
 ├── INDEX.md
@@ -127,8 +130,10 @@ Topology 不是目录罗列。机器索引至少包含：
 所有文件均为生成型 read model：
 
 - 人工权威文档仍位于代码库原位置。
+- 首次初始化仅能认领空的 `.ath/context`；已有内容没有有效 ownership marker 时 fail closed，不能覆盖同名普通文件。
 - 生成文件使用原子替换写入；初始化不得覆盖非生成型文档。
-- `manifest.json` 带 `schemaVersion`、`revision`、`sourceFingerprint`、`freshnessInputs`、六层 catalog 和扫描诊断。
+- 同一 root 的更新以进程内 single-flight + 跨进程独占锁串行化；`topology.json` 和其他投影先发布，带 topology digest 的 `manifest.json` 作为 checkpoint 最后发布。
+- `manifest.json` 带 `schemaVersion`、`revision`、`sourceFingerprint`、`freshnessInputs`、topology digest、六层 catalog 和扫描诊断。
 - `topology.json` 保存完整有界代码图，`project/topology.md` 是为人和 Agent 准备的摘要投影。
 - `.ath/context/` 可删除后重建；删除不影响 conversation、Task Graph 或原始文档。
 
@@ -142,9 +147,21 @@ interface ProjectContextService {
 type ProjectContextPrepareInput =
   | { mode: 'inspect'; projectPath: string }
   | {
+      /** 创建链内部补偿动作，不是 UI 功能。 */
+      mode: 'rollback';
+      projectPath: string;
+      conversationId: string;
+      workstreams?: Array<{ id: string; title: string; goal?: string; status?: string }>;
+      resolveWorkstreams?: () => Promise<Array<{ id: string; title: string; goal?: string; status?: string }>>;
+    }
+  | {
       mode: 'initialize' | 'load' | 'refresh';
       projectPath: string;
       conversation: { id: string; title: string; goal?: string; status?: string };
+      /** 完整的同 codebase 工作项目集合；由 DB adapter 提供，用于同步生成投影。 */
+      workstreams?: Array<{ id: string; title: string; goal?: string; status?: string }>;
+      /** 并发安全路径：在持有 per-root lock 后重新读取 DB 权威集合。 */
+      resolveWorkstreams?: () => Promise<Array<{ id: string; title: string; goal?: string; status?: string }>>;
       requestText?: string;
     };
 ```
@@ -155,10 +172,11 @@ interface 保持单一；目录发现、扫描、fingerprint、知识排序、�
 
 1. `inspect` 只读，不写文件。
 2. `initialize` 在创建 conversation 时执行；不存在 manifest 时全量建立，存在时只注册/更新 workstream。
-3. `load` 是 harness 路径；先用 manifest 的有限 `freshnessInputs` 做 O(k) 检查。未变化时直接命中缓存。
-4. fingerprint 过期或 schema 不兼容时，`load` 自动执行一次受限刷新。
-5. `refresh` 显式重建共享索引，但保留 workstream 投影。
+3. `load` 是 harness 路径；先用 manifest 的有限 `freshnessInputs` 做 O(k) 检查。项目 root 本身是 required input，因此根目录新增/删除文件也会触发刷新；未变化时直接命中缓存。
+4. fingerprint 过期时，`load` 自动执行一次受限刷新；扫描截断或 freshness 集合因仓库过大无法完整覆盖时，不允许命中 warm cache，每次执行有界刷新，优先正确性。
+5. `refresh` 显式重建共享索引并可从损坏/不兼容 manifest 恢复，但保留 workstream 投影。
 6. 扫描跳过 `.git`、`.ath`、`node_modules`、构建产物、依赖缓存和符号链接，并受最大深度、条目数、文档数和单文件读取上限约束。
+7. `inspect` 遇到损坏或不兼容的已有 context 必须返回稳定错误，不能把“文件存在”误报为可复用。
 
 ## 9. 渐进式加载
 
@@ -168,10 +186,10 @@ Context Capsule 固定包含：
 - 当前工作项目的标题与目标摘要。
 - 生效顺序明确的必读规范与硬约束入口。
 - 面向当前请求的紧凑 repo map 和可信命令。
-- 同目录其他 active workstream 的最小冲突摘要。
+- 同目录其他 active workstream 的最小冲突摘要；标题、状态和目标先移除控制字符并限长，再包在显式 `untrusted-workstream-collision-data` JSON 边界中，不能作为指令。
 - 依据 `requestText` 排序后的少量 Knowledge Entry。
 
-Capsule 不包含完整文档或源代码。Agent 只有在 capsule 不足时才读取被列出的具体文件，并在仍不足时做窄范围搜索。
+Capsule 不包含完整文档或源代码。路径级 instruction 只在任务词项实际命中的 repo-map 路径落入其 `applyTo` 时进入规范段和知识 Top-K；硬约束超出预算时整体失败，不能静默截断。Agent 只有在 capsule 不足时才读取被列出的具体文件，并在仍不足时做窄范围搜索。
 
 ## 10. ContextManager 接线
 
@@ -190,14 +208,26 @@ Capsule 不包含完整文档或源代码。Agent 只有在 capsule 不足时才
 | `project_path_missing` | 输入路径为空 | 选择代码目录 |
 | `project_path_not_found` | 目录不存在 | 重新选择有效目录 |
 | `project_path_not_directory` | 路径不是目录 | 选择目录而不是文件 |
+| `project_root_required` | 所选目录只是一个独立代码项目的上层容器 | 选择返回的具体项目根 |
 | `ambiguous_workspace` | 容器目录下有多个独立代码库 | 选择具体代码项目目录 |
-| `project_context_unreadable` | manifest 或来源不可读 | 检查权限后重试/刷新 |
+| `project_context_unreadable` | manifest/topology、digest 或来源不可读 | 检查权限后显式刷新 |
 | `project_context_write_failed` | 初始化投影失败 | 检查 `.ath` 写权限 |
 | `project_context_schema_unsupported` | manifest 版本不兼容 | 显式刷新 |
 
 错误必须包含 reason code、可读消息和候选项目根（适用时）。
 
 ## 12. 评测契约
+
+本变更属于 `docs/technical/evaluation/README.md` 定义的 C 级变更。评测不是收尾附录，而是设计输入和发布门：
+
+```text
+Why（重复探索/交接重扫）
+  → Industry（分层指令、repo map、docs-as-code、代码导航）
+  → Baseline（每个 Agent 递归发现）
+  → Candidate（一次索引 + freshness check + request-aware capsule）
+  → Measures（I/O、token proxy、Recall@K、revision reuse）
+  → Decision（accepted/rejected/inconclusive）
+```
 
 评测必须同时覆盖：
 
@@ -207,6 +237,7 @@ Capsule 不包含完整文档或源代码。Agent 只有在 capsule 不足时才
 4. 相关文档 `Recall@K`。
 5. 第二个 Agent 接手时是否无需递归扫描即可获得相同 revision、当前 workstream 和相关入口。
 6. 结果区分确定性代理指标与真实模型质量，记录局限。
+7. 每项核心实现决策在 Change Evaluation Record 中能追溯到原因、行业依据、指标、原始数据和最终结论。
 
 评测 fixture、命令、原始数据和报告必须进入仓库。
 
@@ -216,4 +247,5 @@ Capsule 不包含完整文档或源代码。Agent 只有在 capsule 不足时才
 - 长期产品/技术文档与当前实现一致。
 - 目标场景、兼容路径和失败路径均有自动化测试。
 - 评测脚本可重复执行，报告包含实施前后量化对比与局限。
+- 对抗测试覆盖链接/重解析点逃逸、跨实例并发发布、损坏缓存恢复、不完整 freshness、路径级 instruction、提示注入和创建补偿回滚。
 - 稳定知识完成迭代沉淀判断后，本 spec 迁入 `docs/archive/specs/` 并在 `specs/README.md` 标记 implemented。

@@ -89,12 +89,18 @@ const ROLE_LABEL_MAP: Record<string, string> = {
   'preset-arch-reviewer': '架构工程',
 };
 
-export async function loadAgents(): Promise<void> {
+export interface LoadAgentsOptions {
+  signal?: AbortSignal;
+  propagateFailure?: boolean;
+}
+
+export async function loadAgents(options: LoadAgentsOptions = {}): Promise<void> {
   try {
-    const res = await fetch('/api/agents');
-    if (!res.ok) return;
+    const res = await fetch('/api/agents', { signal: options.signal });
+    if (!res.ok) throw new Error('智能体配置加载失败');
     const data = await res.json();
-    if (!Array.isArray(data.agents) || data.agents.length === 0) return;
+    if (!Array.isArray(data.agents)) throw new Error('智能体配置响应无效');
+    if (data.agents.length === 0) return;
 
     const prevOnline: Record<string, boolean> = {};
     const prevCliEngine: Record<string, CliEngine | undefined> = {};
@@ -125,6 +131,7 @@ export async function loadAgents(): Promise<void> {
     } catch {}
   } catch (err) {
     console.error('[loadAgents] Failed, using fallback:', err);
+    if (options.propagateFailure) throw err;
   }
 }
 

@@ -1,0 +1,365 @@
+{
+  "schemaVersion": 1,
+  "evaluatorRevision": "project-context-live-e2e-v1",
+  "generatedAt": "2026-07-20T23:47:56.515Z",
+  "environment": {
+    "platform": "win32",
+    "arch": "x64",
+    "node": "v24.14.0"
+  },
+  "method": {
+    "cases": [
+      "blank",
+      "existing"
+    ],
+    "dispatch": "browser UI to real configured Agent account",
+    "probeConstraint": "no tools, no directory reads, no file modifications",
+    "oracle": "manifest + invocation prompt + context.assemble span + Agent response"
+  },
+  "baseline": {
+    "conversationId": "conv-e2e-existing-20260721-073234",
+    "invocationId": "inv-0001784590734241-067600-8f2451d2",
+    "status": "succeeded",
+    "engine": "claude",
+    "promptChars": 13460,
+    "promptSha256": "cc61c2ed63c4ca2a24f7713dc4b014678d77b94b55194aeabc1e19aa4387157c",
+    "generatedCapsuleHeadingPresent": false,
+    "projectContextLayers": [],
+    "contextTokensUsed": 3355,
+    "response": "收到，探针指令已明确：本轮不调用任何工具、不扫描目录、不改文件，仅依据本次系统/Harness 注入的 Project Context 如实逐行回报。\n\n我确实收到了系统注入的「项目上下文」段落（含项目 ID/名称/工作目录/CLAUDE.md·AGENTS.md 提示）以及 [系统] 给出的任务看板路径——属「已收到 Project Context」，故走逐行返回而非 MISSING_CONTEXT。注入内容中未提供 MODULES / REVISION / TEST_COMMAND，我不编造，按 NONE 如实标注。\n\n```text\nPROBE=EXISTING\nPROJECT_NAME=E2E 已有代码上下文 20260721-073234\nKIND=existing\nREVISION=NONE\nMODULES=NONE\nTEST_COMMAND=NONE\nCONTEXT_SOURCE=系统提示注入的项目上下文段落（项目ID=conv-e2e-existing-20260721-073234 / 项目名 / 工作目录 / CLAUDE.md·AGENTS.md 规范提示）+[系统]任务看板路径\n```\n\n说明：本次注入未包含代码模块清单、版本号、测试命令等技术字段；如需补全这些字段，下一步应授权我读取工作目录（含 CLAUDE.md / AGENTS.md 及源码）后再回报——但那超出本轮「禁止扫描」约束，需你放行后执行。",
+    "responseSha256": "70da3c677ca4e6dcb3f0918022cddc7b498c2b5d4772451f4b0d893bb0526d57",
+    "preflightFailure": {
+      "systemMessage": "@mario 未启动：请先为该角色绑定可用账号或执行引擎。",
+      "systemMessageAt": "2026-07-20T23:35:29.747Z",
+      "humanPromptSha256": "d2a072418d0a9373859549d84cdb3b0fa01269e33a284d2c63f4fb729a1705ab",
+      "humanPromptAt": "2026-07-20T23:35:29.750Z",
+      "nextHumanPromptAt": "2026-07-20T23:38:54.208Z",
+      "invocationsBeforeNextHuman": 0,
+      "observedFailure": true
+    },
+    "observedFailure": true
+  },
+  "candidateCases": [
+    {
+      "label": "blank",
+      "conversationId": "conv-live-blank-20260721-074500",
+      "fixtureName": "blank-project",
+      "binding": {
+        "conversationProjectPathHash": "f07af560ead8769de50b2f110c6e9e3ffc5e72eda7d6b455a8252c0f18f4dbb4",
+        "suppliedProjectPathHash": "f07af560ead8769de50b2f110c6e9e3ffc5e72eda7d6b455a8252c0f18f4dbb4",
+        "manifestRootHash": "f07af560ead8769de50b2f110c6e9e3ffc5e72eda7d6b455a8252c0f18f4dbb4"
+      },
+      "manifest": {
+        "sha256": "e5127e485900de8c3898dd8b47afa17fb3ccd9f357d6a99bd8e3eb894487d29a",
+        "project": {
+          "root": "<fixture>/blank-project",
+          "name": "blank-project",
+          "kind": "empty",
+          "technologies": []
+        },
+        "revision": 1,
+        "moduleCount": 0,
+        "edgeCount": 0,
+        "commandCount": 0,
+        "buildCommand": null,
+        "testCommand": null,
+        "knowledgePaths": [],
+        "diagnostics": {
+          "cacheHit": false,
+          "entriesVisited": 1,
+          "filesRead": 0,
+          "bytesRead": 0,
+          "indexedDocuments": 0,
+          "indexedModules": 0,
+          "selectedKnowledgeCount": 0,
+          "freshnessChecks": 0,
+          "durationMs": 1.943,
+          "truncated": false,
+          "freshnessCoverage": "complete"
+        }
+      },
+      "execution": {
+        "invocationId": "inv-0001784591247065-000089-17c76372",
+        "status": "succeeded",
+        "engine": "claude",
+        "accountRefHash": "91d1df9f4eb6",
+        "createdAt": "2026-07-20T23:47:27.065Z",
+        "updatedAt": "2026-07-20T23:47:56.515Z",
+        "durationMs": 29450,
+        "tokenUsage": {
+          "default": {
+            "inputTokens": 23356,
+            "outputTokens": 1647
+          }
+        },
+        "promptChars": 14073,
+        "promptSha256": "cbdfe1a72afbefbd8e5cb3f434f249ff3c6a4c9bb61302439276bafb6075cf24",
+        "promptTopologyItems": 0,
+        "response": "PROBE=BLANK; PROJECT_NAME=blank-project; KIND=empty; REVISION=1; TOPOLOGY_ITEMS=0; TRUSTED_COMMANDS=NONE; PARENT_SCAN_ALLOWED=NO; CONTEXT_HEADING=项目上下文入口",
+        "responseSha256": "86445c785a735f4afe8ee4b6fbf4f2e9a99e52a04a285e1569e9716d94891d9f",
+        "observationSpans": [
+          {
+            "name": "agent.invoke",
+            "kind": "agent",
+            "status": "ok"
+          },
+          {
+            "name": "context.assemble",
+            "kind": "context",
+            "status": "ok"
+          },
+          {
+            "name": "context.runtime",
+            "kind": "context",
+            "status": "ok"
+          },
+          {
+            "name": "agent.message",
+            "kind": "message",
+            "status": "ok"
+          }
+        ],
+        "observedToolSpans": [],
+        "durableToolUseMessages": []
+      },
+      "contextAssembly": {
+        "spanId": "df984f73406f8eb6",
+        "startedAt": "2026-07-20T23:47:27.069Z",
+        "endedAt": "2026-07-20T23:47:27.070Z",
+        "tokensUsed": 3509,
+        "tokenBudget": 8000,
+        "projectContextLayers": [
+          {
+            "layer": "fragment:project-context:project-context:conv-live-blank-20260721-074500",
+            "tier": "project",
+            "importance": 0.6,
+            "tokens": 188,
+            "trimmed": false
+          }
+        ],
+        "projectContextFragmentRefs": [
+          {
+            "id": "project-context:conv-live-blank-20260721-074500",
+            "kind": "project.context.capsule",
+            "producer": "project-context",
+            "version": "r1:367961da1151:2026-07-20T23:43:38.472Z",
+            "evidenceRefs": [
+              "<fixture>/.ath/context/manifest.json",
+              "<fixture>/.ath/context/topology.json"
+            ],
+            "lifecycle": "snapshot",
+            "consistency": "eventual",
+            "deliveryMode": "always",
+            "scope": {
+              "kind": "project",
+              "projectId": "conv-live-blank-20260721-074500"
+            },
+            "subject": {
+              "kind": "project",
+              "id": "conv-live-blank-20260721-074500"
+            },
+            "visibility": {
+              "kind": "team"
+            },
+            "sourceOwner": "project-context",
+            "deliveryChannel": "message",
+            "importance": 0.6
+          }
+        ]
+      },
+      "checks": {
+        "invocationSucceeded": true,
+        "realRuntimeSelected": true,
+        "noObservedToolSpans": true,
+        "noDurableToolUseMessages": true,
+        "contextSpanComplete": true,
+        "conversationProjectPathMatches": true,
+        "manifestRootMatches": true,
+        "projectContextLayerPresent": true,
+        "projectContextLayerUntrimmed": true,
+        "snapshotConversationMatches": true,
+        "projectContextFragmentRefMatches": true,
+        "projectContextEvidenceMatches": true,
+        "promptContainsGeneratedCapsule": true,
+        "manifestCaseMatches": true,
+        "responseProbeMatches": true,
+        "responseProjectMatches": true,
+        "responseKindMatches": true,
+        "responseRevisionMatches": true,
+        "responseTopologyMatches": true,
+        "responseCaseContractMatches": true
+      },
+      "passed": true
+    },
+    {
+      "label": "existing",
+      "conversationId": "conv-live-existing-v2-20260721-074500",
+      "fixtureName": "existing-code-project-v2",
+      "binding": {
+        "conversationProjectPathHash": "24266a19ba9276c9334afe76cb511b59f916c6c92f1e49a3ff99b5a5e5d37ee2",
+        "suppliedProjectPathHash": "24266a19ba9276c9334afe76cb511b59f916c6c92f1e49a3ff99b5a5e5d37ee2",
+        "manifestRootHash": "24266a19ba9276c9334afe76cb511b59f916c6c92f1e49a3ff99b5a5e5d37ee2"
+      },
+      "manifest": {
+        "sha256": "4ce432bf834b6ec2b1c52485e93b1571d45fa3dc11474c5d241ae7c85d749d88",
+        "project": {
+          "root": "<fixture>/existing-code-project-v2",
+          "name": "agent-task-hub",
+          "kind": "codebase",
+          "technologies": [
+            "Next.js",
+            "React",
+            "TypeScript"
+          ]
+        },
+        "revision": 1,
+        "moduleCount": 11,
+        "edgeCount": 15,
+        "commandCount": 19,
+        "buildCommand": "npm run build",
+        "testCommand": "npm run test",
+        "knowledgePaths": [
+          "README.md",
+          "docs/technical/execution/project-context-bootstrap.md"
+        ],
+        "diagnostics": {
+          "cacheHit": false,
+          "entriesVisited": 27,
+          "filesRead": 14,
+          "bytesRead": 153769,
+          "indexedDocuments": 2,
+          "indexedModules": 11,
+          "selectedKnowledgeCount": 0,
+          "freshnessChecks": 0,
+          "durationMs": 127.824,
+          "truncated": false,
+          "freshnessCoverage": "complete"
+        }
+      },
+      "execution": {
+        "invocationId": "inv-0001784591147564-000035-d7d57ceb",
+        "status": "succeeded",
+        "engine": "claude",
+        "accountRefHash": "91d1df9f4eb6",
+        "createdAt": "2026-07-20T23:45:47.564Z",
+        "updatedAt": "2026-07-20T23:46:30.306Z",
+        "durationMs": 42742,
+        "tokenUsage": {
+          "default": {
+            "inputTokens": 32540,
+            "outputTokens": 2551
+          }
+        },
+        "promptChars": 17838,
+        "promptSha256": "fe838997e2410302e25ef54129819244a8abb3e6fc097ae939377e7cde4d0ebf",
+        "promptTopologyItems": 11,
+        "response": "PROBE=EXISTING; PROJECT_NAME=agent-task-hub; KIND=codebase; REVISION=1; TOPOLOGY_ITEMS=11; BUILD_COMMAND=npm run build; CONTEXT_HEADING=## 任务相关 Code Topology",
+        "responseSha256": "eb7bf82f86df6aace221d0895727097b406ae0adf0521cc6267b64d0752bc344",
+        "observationSpans": [
+          {
+            "name": "agent.invoke",
+            "kind": "agent",
+            "status": "ok"
+          },
+          {
+            "name": "context.assemble",
+            "kind": "context",
+            "status": "ok"
+          },
+          {
+            "name": "context.runtime",
+            "kind": "context",
+            "status": "ok"
+          },
+          {
+            "name": "agent.message",
+            "kind": "message",
+            "status": "ok"
+          }
+        ],
+        "observedToolSpans": [],
+        "durableToolUseMessages": []
+      },
+      "contextAssembly": {
+        "spanId": "23ae5d91089646e9",
+        "startedAt": "2026-07-20T23:45:47.586Z",
+        "endedAt": "2026-07-20T23:45:47.587Z",
+        "tokensUsed": 4449,
+        "tokenBudget": 8000,
+        "projectContextLayers": [
+          {
+            "layer": "fragment:project-context:project-context:conv-live-existing-v2-20260721-074500",
+            "tier": "project",
+            "importance": 0.6,
+            "tokens": 1140,
+            "trimmed": false
+          }
+        ],
+        "projectContextFragmentRefs": [
+          {
+            "id": "project-context:conv-live-existing-v2-20260721-074500",
+            "kind": "project.context.capsule",
+            "producer": "project-context",
+            "version": "r1:8b43cc365768:2026-07-20T23:44:17.870Z",
+            "evidenceRefs": [
+              "<fixture>/.ath/context/manifest.json",
+              "<fixture>/.ath/context/topology.json",
+              "<fixture>/docs/technical/execution/project-context-bootstrap.md",
+              "<fixture>/README.md"
+            ],
+            "lifecycle": "snapshot",
+            "consistency": "eventual",
+            "deliveryMode": "always",
+            "scope": {
+              "kind": "project",
+              "projectId": "conv-live-existing-v2-20260721-074500"
+            },
+            "subject": {
+              "kind": "project",
+              "id": "conv-live-existing-v2-20260721-074500"
+            },
+            "visibility": {
+              "kind": "team"
+            },
+            "sourceOwner": "project-context",
+            "deliveryChannel": "message",
+            "importance": 0.6
+          }
+        ]
+      },
+      "checks": {
+        "invocationSucceeded": true,
+        "realRuntimeSelected": true,
+        "noObservedToolSpans": true,
+        "noDurableToolUseMessages": true,
+        "contextSpanComplete": true,
+        "conversationProjectPathMatches": true,
+        "manifestRootMatches": true,
+        "projectContextLayerPresent": true,
+        "projectContextLayerUntrimmed": true,
+        "snapshotConversationMatches": true,
+        "projectContextFragmentRefMatches": true,
+        "projectContextEvidenceMatches": true,
+        "promptContainsGeneratedCapsule": true,
+        "manifestCaseMatches": true,
+        "responseProbeMatches": true,
+        "responseProjectMatches": true,
+        "responseKindMatches": true,
+        "responseRevisionMatches": true,
+        "responseTopologyMatches": true,
+        "responseCaseContractMatches": true
+      },
+      "passed": true
+    }
+  ],
+  "summary": {
+    "passedCases": 2,
+    "totalCases": 2,
+    "passedChecks": 40,
+    "totalChecks": 40,
+    "allPassed": true,
+    "baselineFailureObserved": true,
+    "preflightFailureObserved": true
+  },
+  "payloadSha256": "1f0db07c313196d2e0dd2e8492d5ab463c48672cd54fec0c0fdb4b98f351a669"
+}
