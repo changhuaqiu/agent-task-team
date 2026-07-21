@@ -64,3 +64,12 @@ When multiple agents are running in parallel on this project, adhere strictly to
 - **Documenting Decisions**: If an agent makes a significant architectural, UX, or business decision during execution, it MUST update the relevant document in `docs/` (or create a new one following the taxonomy in `docs/README.md`) before concluding the task.
 - **Avoid Overlapping Features**: Ensure your current task scope is clearly defined in the corresponding `specs/` document and related design docs. Do not modify components outside your designated scope unless absolutely necessary for integration.
 - **Unified Terminology**: All agents must use consistent terminology defined in the product/business docs (e.g., clearly distinguishing between OAuth and API Key, and avoiding internal jargon like `bridge` in UX).
+
+### 3. Git & Worktree Isolation Is Mandatory
+- **Formal Standard**: Before any action that changes repository files, read and follow `docs/standards/git-worktree.md`.
+- **One Task, One Branch**: Use one named `codex/<task-name>` branch per task. Use a dedicated worktree whenever another task is active or multiple agents work in parallel. Keep `main` as an integration baseline, not a mixed development workspace.
+- **Explicit Staging Only**: Stage verified task paths explicitly. Do not use `git add .`, `git add -A`, or `git commit -am` on a mixed workspace.
+- **Atomic Scope**: A commit may contain one feature's code, tests, specs, and docs; it must not combine independent feature scopes.
+- **Reachability Gate**: A commit is not safely preserved unless a named branch points to it. Do not remove a worktree or delete its branch until the commit is merged, pushed when required, or explicitly abandoned by the user.
+- **No Forced Cleanup of Unknown Changes**: Never force-remove a dirty worktree, force-switch away from unknown changes, or delete untracked files without explicit authorization covering the exact paths.
+- **Precise Reporting**: Report staged, unstaged, and untracked files by feature. Git status entries are not tasks. Clearly distinguish local commit, remote push, and target-branch merge.

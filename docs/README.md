@@ -22,6 +22,7 @@
 项目级规范入口，定义所有开发动作和业务分析动作必须遵守的双层规范：
 
 - `docs/standards/technical.md`：技术规范，覆盖代码、架构、数据模型、接口、测试、运行时与集成变更
+- `docs/standards/git-worktree.md`：Git 与 Worktree 变更隔离规范，覆盖分支、暂存、提交、并行开发与安全清理
 - `docs/standards/business.md`：业务规范，覆盖需求分析、产品抽象、UX、角色协作机制与业务文案
 - `docs/standards/iteration-knowledge.md`：迭代知识沉淀规范，定义每轮结束时如何识别并沉淀可复用知识
 - `docs/standards/knowledge-governance.md`：知识治理规范，定义知识分层、类型、成熟度、证据、索引、引用和淘汰规则
@@ -147,6 +148,7 @@
 
 - `docs/standards/README.md`
 - `docs/standards/technical.md`
+- `docs/standards/git-worktree.md`
 - `docs/standards/business.md`
 - `docs/standards/iteration-knowledge.md`
 - `docs/standards/knowledge-governance.md`
