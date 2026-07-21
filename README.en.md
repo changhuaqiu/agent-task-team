@@ -1,10 +1,12 @@
 <div align="center">
   <sub><b>English</b> | <a href="./README.md">简体中文</a></sub>
-  <h1>🐈 Agent Task Hub</h1>
+  <h1>Agent Task Hub</h1>
   <h3>An Agent OS for software delivery</h3>
   <p>
     <strong>Move AI from writing code to taking responsibility for delivery.</strong>
   </p>
+  <img src="docs/assets/brand/agent-task-hub-harness-habitat-hero.png" alt="Four elemental Agent roles plan, architect, build, and verify a software delivery inside the Team Harness environment" width="860" />
+  <p><sub>Team Harness is the environment where Agents work together: you define the goal, the team keeps moving, and the system protects delivery with evidence.</sub></p>
   <p>
     <a href="#-why-agent-task-hub">Why</a> •
     <a href="#-what-it-is">What it is</a> •
@@ -12,8 +14,6 @@
     <a href="#-quick-start">Quick start</a> •
     <a href="#-docs">Docs</a>
   </p>
-  <!-- Replace the image below with a real "team collaboration" screenshot or a 15s GIF (recommended width 1280px) -->
-  <img src="docs/assets/hero.png" alt="Agent Task Hub — multi-agent collaboration workspace" width="820" />
 </div>
 
 ---

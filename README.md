@@ -1,9 +1,11 @@
 <div align="center">
-  <h1>🐈 Agent Task Hub</h1>
+  <h1>Agent Task Hub</h1>
   <h3>面向软件交付的 Agent OS</h3>
   <p>
     <strong>让 AI 从会写代码，进化到能负责交付。</strong>
   </p>
+  <img src="docs/assets/brand/agent-task-hub-harness-habitat-hero.png" alt="四个不同元素的 Agent 角色在 Team Harness 环境中规划、架构、实现和验证一项软件交付" width="860" />
+  <p><sub>Team Harness 是 Agent 共同工作的环境：人定义目标，团队持续推进，系统用证据守住交付。</sub></p>
   <p>
     <a href="#-为什么需要-agent-task-hub">为什么需要</a> •
     <a href="#-它是什么">它是什么</a> •
