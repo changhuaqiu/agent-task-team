@@ -72,7 +72,7 @@ InteractionTier userMessage / teamLog                               ← 当前�
 
 **收益**：新增 layer 只改一个 tier 文件（深模块的 locality）；assembleContext 从 254 行的扁平 push 清单收敛为 ~20 行编排；可见性标签（scope/private/source）接线成 BudgetGuard 之前的真正 stage（spec §9，此前只写不读）。
 
-**待办**：`PromptComposer.ts` 的删除（消除首次唤醒双组装 + 循环依赖）留到下一轮，届时 daemonStore 改为直接构造 ContextManager。当前 PromptComposer 作为兼容包装仍存在。
+**退役记录（2026-07-22）**：主循环与 harness 已通过 `context-planner → ContextManager` 直接组装；生产代码与公共导出零调用审计通过后，`PromptComposer.ts` 兼容包装及只验证包装的测试已删除。仍有效的 role/team/collaboration/user-message/behavior layer 行为测试保留在各 layer 的同目录测试中，防止兼容层退役造成语义覆盖下降。
 
 ---
 

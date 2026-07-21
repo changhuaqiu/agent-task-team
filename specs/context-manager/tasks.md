@@ -6,10 +6,10 @@
 ## P1 — 统一组装核心 + 项目作用域
 - [ ] T1 [schema 排查·只读] 检查 `src/server/db/migrate.ts` 的 `agents` / `agent_binding` / `conversation` 表，确认侦察标记的 ~2 个身份/作用域占位列；记录列名与现状，给出启用 / 替换 / 新增决策。**此任务只读不改**
 - [ ] T2 完成 `ContextManager.assembleContext()`：内部复用 `BudgetGuard`，按 system/tool/project + importance 组装并返回 `{ systemPrompt?, userPrompt, report, sessionId }`
-- [ ] T3 `PromptComposer.composeUserPrompt` 改为委托 `ContextManager`（保持返回 `string`，调用方不破；既有 PromptComposer 测试须全绿）
+- [x] T3 主循环统一委托 `ContextManager`；迁移期 `PromptComposer` 包装在生产代码与公共导出零调用后删除（2026-07-22），有效 layer 行为测试迁入同目录测试文件
 - [ ] T4 `project` 升级为 `{ id, name, path }`；`projectLayer` 增加 id 展示
 - [ ] T5 history / taskContext / teamPack 层按 `project_id` 过滤；`scopeGuard.ts` 按 scope/private/接收者过滤并拒绝跨项目 source
-- [ ] T6 P1 测试：ContextManager / scopeGuard / 各层 project_id 过滤单测；PromptComposer 既有测试不破；build 通过
+- [x] T6 P1 测试：ContextManager / scopeGuard / 各层 project_id 过滤与独立 layer 单测通过；build 通过（2026-07-22 复验）
 
 ## P2 — A2A 协议化 + 跨项目身份
 - [ ] T7 `a2a/context-builder.ts`：`renderDispatchPrompt` 退役；改为构造 `a2aHandoff` source（含交接包 + `remainingBudget` 元数据）

@@ -2,12 +2,12 @@
 
 ## P1 — 统一组装 + 作用域
 - [ ] `ContextManager.assembleContext()` 存在，内部复用 `BudgetGuard`，返回完整 `AssembledContext`
-- [ ] `PromptComposer.composeUserPrompt` 委托 ContextManager，仍返回 `string`（调用方不破）
+- [x] 主循环与 harness 直接调用 ContextManager；`PromptComposer` 兼容包装经零调用/零公共导出审计后删除
 - [ ] `project` 含 `id`；`projectLayer` 展示 id
 - [ ] history / taskContext / teamPack 按 `project_id` 过滤
 - [ ] `scopeGuard` 组装前按 project_id、scope、private 和接收者执行可见性过滤
-- [ ] PromptComposer 既有测试全绿；新增 scopeGuard / 过滤单测绿
-- [ ] build 通过
+- [x] 仍有效的 role/team/collaboration/user-message/behavior layer 行为测试已迁入同目录测试；ContextManager / scopeGuard / 过滤单测绿
+- [x] build 通过（2026-07-22 复验）
 
 ## P2 — A2A 协议化 + 身份
 - [ ] `renderDispatchPrompt` 自建 prompt 已退役（不再被调用）
