@@ -1,9 +1,8 @@
 // src/lib/agent-context/types.ts
 //
-// Neutral home for shared agent-context types. Extracted from PromptComposer
-// to break the circular dependency (ContextManager ↔ PromptComposer).
-// These describe capability payloads (skills/tools) used by layers and the
-// context composer — they carry no behaviour.
+// Neutral home for shared agent-context types. These describe capability
+// payloads (skills/tools) used by layers and the context composer — they
+// carry no behaviour.
 
 export interface ParamDef {
   name: string;

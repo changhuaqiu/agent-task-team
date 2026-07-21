@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { buildToolLayer } from '@/lib/agent-context/layers/toolLayer';
 import { filterRegisteredTools } from '@/lib/agent-context/ContextManager';
 import { buildCollaborationLayer } from '@/lib/agent-context/layers/collaborationLayer';
-import type { ToolDefinition } from '@/lib/agent-context/PromptComposer';
+import type { ToolDefinition } from '@/lib/agent-context/types';
 
 describe('buildToolLayer', () => {
   it('returns empty string for empty tools array', () => {

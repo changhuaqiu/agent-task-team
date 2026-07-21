@@ -1,8 +1,6 @@
 // src/lib/agent-context/skillTools.ts
 //
-// Extracted from PromptComposer to break the circular dependency
-// (ContextManager ↔ PromptComposer). Pure utility: pulls declared tool
-// definitions out of skill config JSON.
+// Pure utility: pulls declared tool definitions out of skill config JSON.
 
 import type { SkillSummary, ToolDefinition } from './types';
 
