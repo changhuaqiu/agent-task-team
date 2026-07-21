@@ -92,7 +92,7 @@ Task/A2A/Proof/Observation facts
 - `eval_case_execution` 保存某个 held-out case 在 baseline/candidate 快照上的状态、task、Harness trigger、invocation、trace、EvalRun、target/observed digest 与错误。
 - Harness 的普通模式继续解析当前 conversation 配置；评估模式必须从 `ApplicationSnapshot` 构造 runtime profile，并按显式 revision 编译 Skill，禁止回退到 active revision。
 - Daemon 为每个执行创建独立 detached worktree 和新 session。评估 worktree 只投影当前 case task，不启动生产 Task watcher、不写入团队日志、不加载当前项目本地 Skill，也不授予共享项目目录访问权。
-- 执行工作目录的实际 Git HEAD、实际 Skill revision、RoleCard/TeamPack digest、engine/runtime/account 构成 observed manifest；离线 `EvalSubjectSnapshot.appManifest` 只从冻结 `ApplicationSnapshot` 与已验证的 target/observed digest 构造，不重新读取当前项目 HEAD、TeamPack、RoleCard 或 active Skill。缺少有效快照、case execution 或 observed digest 时必须 fail-closed，不能回退到当前配置，也不能复用旧的无 provenance 快照。
+- 执行工作目录的实际 Git HEAD、实际 Skill revision、RoleCard/TeamPack digest、engine/runtime/account 构成 observed manifest；离线 `EvalSubjectSnapshot.appManifest` 只从冻结 `ApplicationSnapshot` 与已验证的 target/observed digest 构造，不重新读取当前项目 HEAD、TeamPack、RoleCard 或 active Skill。离线请求的 case、root task、Harness trigger、invocation 与 trace 必须和同一条运行中/评估中的 case execution 完整绑定；缺少有效快照、绑定或 observed digest 时必须 fail-closed，不能回退到当前配置，也不能复用旧的无 provenance 快照。
 - 评估输出只进入 invocation/observation/evaluation 证据，不写入生产 `chat_message`，也不触发 TeamLog 物化、消费游标、`@mention` 扫描或 A2A chain 推进；因此 held-out case 不会反向污染后续生产 Agent 上下文和协作状态。
 - 只有 observed digest 与 target digest 一致，且 invocation、trace、任务证据和 EvalRun 均已绑定时，执行才可标记 verified；否则实验仅供诊断。
 

@@ -119,8 +119,12 @@ export function assertOfflineEvaluationProvenance(request: EvaluationRequest): {
   if (!request.triggerId?.trim()) {
     throw new Error('Offline evaluation requires a bound case execution');
   }
+  if (!request.caseId?.trim() || !request.rootTaskId?.trim()) {
+    throw new Error('Offline evaluation requires a bound case and root task');
+  }
   const execution = getDb().prepare(`SELECT
-      x.application_snapshot_id,x.case_id,x.target_manifest_digest,x.observed_manifest_digest,x.status,
+      x.application_snapshot_id,x.case_id,x.task_id,x.harness_trigger_id,x.invocation_id,x.trace_id,
+      x.target_manifest_digest,x.observed_manifest_digest,x.status,
       s.manifest_digest AS snapshot_manifest_digest,s.project_path,s.code_revision,s.team_manifest,s.agent_manifest
     FROM eval_case_execution x
     JOIN eval_application_snapshot s ON s.id=x.application_snapshot_id AND s.conversation_id=x.conversation_id
@@ -129,8 +133,20 @@ export function assertOfflineEvaluationProvenance(request: EvaluationRequest): {
   if (!execution) {
     throw new Error('Offline evaluation requires valid case execution provenance');
   }
-  if (request.caseId && String(execution.case_id) !== request.caseId) {
+  if (String(execution.case_id) !== request.caseId) {
     throw new Error('Offline evaluation case does not match the bound execution');
+  }
+  if (String(execution.task_id ?? '') !== request.rootTaskId) {
+    throw new Error('Offline evaluation root task does not match the bound execution');
+  }
+  if (String(execution.harness_trigger_id ?? '') !== request.triggerId) {
+    throw new Error('Offline evaluation Harness trigger does not match the bound execution');
+  }
+  if (!['running', 'evaluating'].includes(String(execution.status))) {
+    throw new Error('Offline evaluation requires a running or evaluating case execution');
+  }
+  if (!execution.invocation_id || !execution.trace_id) {
+    throw new Error('Offline evaluation requires a bound invocation and trace');
   }
   const storedManifest = frozenApplicationManifest({
     schemaVersion: 1,

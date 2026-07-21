@@ -9,6 +9,7 @@ import {
 import { createRunnerExperiment, EvaluationCaseRunner } from './case-runner';
 import { DEFAULT_RUBRIC_REVISION_ID, EVALUATOR_BUNDLE_REVISION, digest } from './defaults';
 import { buildSubjectSnapshot } from './snapshot-builder';
+import { taskRepo } from '../repositories/task-repo';
 
 const now = '2026-07-19T00:00:00.000Z';
 
@@ -51,6 +52,37 @@ function seedHeldOutCase(): string {
     (id,dataset_id,case_key,split,source_type,input_payload,expected_labels,metadata,content_hash,redaction_status,created_at)
     VALUES ('case-runner','dataset-runner','case','held_out','manual','{}','{}','{}','hash','redacted',?)`).run(now);
   return 'case-runner';
+}
+
+function bindRunningExecution(executionId: string, manifestDigest: string, observed = true): string {
+  const taskId = `eval-task-${executionId}`;
+  const sessionId = `session-${executionId}`;
+  const invocationId = `invocation-${executionId}`;
+  taskRepo.create({
+    id: taskId,
+    conversation_id: 'conv-runner',
+    title: 'Held-out evaluation task',
+    agent_id: 'agent-runner',
+  });
+  getDb().prepare(`INSERT INTO agent_session
+    (id,conversation_id,agent_id,isolation_key,task_id,seq,status,created_at)
+    VALUES (?,?,?,'evaluation:test',?,0,'active',?)`)
+    .run(sessionId, 'conv-runner', 'agent-runner', taskId, now);
+  getDb().prepare(`INSERT INTO invocation
+    (id,conversation_id,task_id,agent_id,session_id,status,created_at,updated_at)
+    VALUES (?,?,?,?,?,'running',?,?)`)
+    .run(invocationId, 'conv-runner', taskId, 'agent-runner', sessionId, now, now);
+  getDb().prepare(`UPDATE eval_case_execution SET
+      task_id=?,harness_trigger_id=?,invocation_id=?,trace_id=?,observed_manifest_digest=?,status='running'
+    WHERE id=?`).run(
+    taskId,
+    executionId,
+    invocationId,
+    `trace-${executionId}`,
+    observed ? manifestDigest : null,
+    executionId,
+  );
+  return taskId;
 }
 
 describe('application snapshot and case execution', () => {
@@ -119,9 +151,7 @@ describe('application snapshot and case execution', () => {
       applicationSnapshotId: String(snapshot.id),
       variant: 'baseline',
     });
-    getDb().prepare(`UPDATE eval_case_execution
-      SET observed_manifest_digest=?,status='running' WHERE id=?`)
-      .run(snapshot.manifest_digest, execution.id);
+    const taskId = bindRunningExecution(String(execution.id), String(snapshot.manifest_digest));
     getDb().prepare(`UPDATE team_pack_role
       SET role_card_snapshot=?,skill_ids='["mutable-skill"]' WHERE pack_id='team-runner'`)
       .run(JSON.stringify({ snapshotVersion: 99, snapshottedAt: '2099-01-01', displayName: 'Mutated' }));
@@ -131,6 +161,7 @@ describe('application snapshot and case execution', () => {
       conversationId: 'conv-runner',
       triggerId: String(execution.id),
       caseId: 'case-runner',
+      rootTaskId: taskId,
       mode: 'offline',
       applicationManifest: snapshot.manifest,
     });
@@ -174,10 +205,35 @@ describe('application snapshot and case execution', () => {
       applicationSnapshotId: String(snapshot.id),
       variant: 'baseline',
     });
+    const taskId = bindRunningExecution(String(execution.id), String(snapshot.manifest_digest), false);
+    expect(() => buildSubjectSnapshot({
+      conversationId: 'conv-runner',
+      triggerId: String(execution.id),
+      rootTaskId: taskId,
+      mode: 'offline',
+      applicationManifest: snapshot.manifest,
+    })).toThrow(/bound case and root task/);
+    expect(() => buildSubjectSnapshot({
+      conversationId: 'conv-runner',
+      triggerId: String(execution.id),
+      caseId: 'another-case',
+      rootTaskId: taskId,
+      mode: 'offline',
+      applicationManifest: snapshot.manifest,
+    })).toThrow(/case does not match/);
     expect(() => buildSubjectSnapshot({
       conversationId: 'conv-runner',
       triggerId: String(execution.id),
       caseId: 'case-runner',
+      rootTaskId: 'another-task',
+      mode: 'offline',
+      applicationManifest: snapshot.manifest,
+    })).toThrow(/root task does not match/);
+    expect(() => buildSubjectSnapshot({
+      conversationId: 'conv-runner',
+      triggerId: String(execution.id),
+      caseId: 'case-runner',
+      rootTaskId: taskId,
       mode: 'offline',
       applicationManifest: snapshot.manifest,
     })).toThrow(/observed application manifest digest/);
