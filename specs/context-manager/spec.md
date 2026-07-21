@@ -1,7 +1,7 @@
 # 上下文管理器（Context Manager）— 作用域、身份与 A2A 协议化
 
-> 状态：有效·上下文注入策略 MVP 已评审（2026-07-16）｜ 四层语义分组已落地（2026-07-17，见 `context-layering.md` §2.1）｜ 初始日期：2026-07-13
-> 关联模块：`src/lib/agent-context/ContextManager.ts`（编排）、`src/lib/agent-context/tiers/`（system/knowledge/task/interaction 四层渲染器）、`src/lib/agent-context/types.ts` + `skillTools.ts`（中立类型，解循环依赖）、`src/lib/agent-context/PromptComposer.ts`（兼容包装，待删——见 context-layering.md §2.1 待办）、`src/store/daemonStore.ts`、`src/server/daemon.ts`、`src/server/a2a/context-builder.ts`、`src/server/repositories/session-repo.ts`
+> 状态：有效·上下文注入策略 MVP 已评审（2026-07-16）｜ 四层语义分组已落地（2026-07-17，见 `context-layering.md` §2.1）｜ `PromptComposer` 兼容包装已退役（2026-07-22）｜ 初始日期：2026-07-13
+> 关联模块：`src/lib/agent-context/ContextManager.ts`（唯一组装入口）、`src/lib/agent-context/tiers/`（system/knowledge/task/interaction 四层渲染器）、`src/lib/agent-context/types.ts` + `skillTools.ts`（中立类型）、`src/server/harness/context-planner.ts`（派发接入）、`src/server/daemon.ts`、`src/server/a2a/context-builder.ts`、`src/server/repositories/session-repo.ts`
 > 设计依据：`docs/technical/execution/context-layering.md`
 > 依赖规格：`a2a-possession-contract/`（持球/交接包，语义不变）、`acp-runtime-integration/`（执行协议，正交）
 > 历史基线：`docs/archive/specs/context-budget-management/`（预算组件已落地并由本 spec 继续演进）
@@ -14,7 +14,7 @@
 
 建立一个**统一的上下文管理器（ContextManager）**，作为 agent prompt 组装的唯一权威，解决四件事：
 
-1. **收口两条并行的 prompt 管线**：当前「主循环（用户→agent）」走 `PromptComposer`（前端 `daemonStore.ts:306-307` 调用），「A2A 派发（agent→agent）」走 `a2a/context-builder.ts:35-73` 自拼，两套格式、两套预算、互不复用。ContextManager 让两者走同一组装出口。
+1. **收口两条并行的 prompt 管线**：初始基线中「主循环（用户→agent）」走 `PromptComposer`、「A2A 派发（agent→agent）」由 `a2a/context-builder.ts` 自拼。当前两者统一经 `context-planner → ContextManager.assembleContext()` 组装；零调用的 `PromptComposer` 兼容包装已删除。
 2. **项目作用域（项目隔离）**：上下文按 `project_id`（= `conversationId`）隔离，agent 在项目 A 的历史/任务/团队不渗到项目 B。
 3. **跨项目身份**：同一 agent（如 mario）可出现在 N 个项目，跨项目**只保留身份**（角色卡 / agentId / 人格 / 基础能力），项目上下文不跟随。
 4. **填两个空壳字段**：`agent_session.context_health` 与 `usage_snapshot`（`schema.ts:87-88`）声明后全代码库零写入——本 spec 让它们成为上下文健康度的真实载体。
@@ -25,7 +25,7 @@
 
 ## 2. 背景与现状
 
-### 2.1 两条独立 prompt 管线（核心问题）
+### 2.1 两条独立 prompt 管线（初始基线，历史）
 | 路径 | 触发 | 组装器 | 预算 | 作用域 | 身份 |
 |---|---|---|---|---|---|
 | 主循环 | 用户 @ / user_turn | `PromptComposer.composeUserPrompt`（15 层 + `BudgetGuard` + GSSC history） | `ContextBudget`（token） | `project = {name, path}`（仅标签） | `agent.id`（局部） |
@@ -37,8 +37,8 @@
 
 **架构味道**：prompt 组装当前在前端 Zustand store（`daemonStore`）里完成，而非服务端。本 spec P1 先在 lib 层建立抽象供前端调用（低风险），完全服务端化列为开放问题 Q1（P2 候选）。
 
-### 2.2 项目隔离现状
-`projectId === conversationId`（`daemonStore.ts:249`、`daemon.ts` 全链路），所有业务表以 `conversation_id` 为隔离键——**隔离主键已天然存在**。但 `PromptComposer` 的 `project` 只有 `{name, path}`，`buildProjectLayer` 只打印两行字符串；history / task / teamPack 各层**未显式按 project_id 断言过滤**。agent 在多项目间串话没有结构性阻断。
+### 2.2 项目隔离初始基线（历史）
+`projectId === conversationId`，所有业务表以 `conversation_id` 为隔离键——**隔离主键已天然存在**。本规格启动前，旧兼容入口的 `project` 只有 `{name, path}`，history / task / teamPack 各层也未显式按 `project_id` 断言过滤；这些缺口现由 `ContextManager`、`scopeGuard` 与对应 layer 测试约束。
 
 ### 2.3 跨项目身份现状
 身份三层建模已存在：`agents` 表（DB，`schema.ts:180`）→ `AGENT_ROSTER`（内存全局单例，`agentStore.ts:98`）→ `RuntimeAgent`（运行时）。RoleCard / TeamPack 全局共享。**身份全局 + 运行态按 conversation 隔离的事实已经成立**，但缺一条显式契约保证"跨项目只带身份"。本 spec 把这条事实上升为契约并钉死边界测试。
@@ -58,7 +58,7 @@ usageSnapshot: text('usage_snapshot'),    // JSON，仅 tokens/summary API 读�
 ## 3. 范围
 
 ### 3.1 包含（本期 P1 + P2）
-- **P1 统一组装核心**：`ContextManager` 接口 + 主循环路径改走它（`PromptComposer` 退为渲染器，不破坏现有调用方，沿用 `composeUserPrompt` 返回 `string` 的向后兼容）
+- **P1 统一组装核心**：`ContextManager` 接口 + 主循环路径直接调用 `assembleContext()`；迁移期的 `PromptComposer` 包装在零调用审计后退役
 - **P1 项目作用域**：`project` 升级为 `{id, name, path}`，history / task / teamPack 按 `project_id` 过滤，新增 `scopeGuard` 断言
 - **P1 健康度**：Health 层 + `ContextReport`，回写 `context_health` / `usage_snapshot`（激活空壳字段）
 - **P1 记忆接入点**：冻结 `MemoryHook.recall/write` 契约签名，NoOp 实现
@@ -76,7 +76,7 @@ usageSnapshot: text('usage_snapshot'),    // JSON，仅 tokens/summary API 读�
 
 ## 4. 约束
 
-- 技术栈 TypeScript / Next.js，**不破坏 `PromptComposer.composeUserPrompt()` 返回 `string` 的对外契约**（沿用 context-budget-management 向后兼容策略）
+- 技术栈 TypeScript / Next.js；`ContextManager.assembleContext()` 是唯一组装契约，不再新增或恢复平行兼容入口
 - A2A 语义**不变**：`a2a-possession-contract/` 的持球 / 交接 / 反回声规则不动，本规格只改"交接包如何变成 prompt"
 - 项目作用域 = **按 `project_id` 过滤**，不做跨项目 join
 - 身份跨项目共享 = **只读快照**（角色卡 / agentId / 人格），项目内状态不写回身份
@@ -210,12 +210,12 @@ interface MemoryHook {
 **为什么本期就要冻结签名**：记忆 spec 落地时只替换 `MemoryHook` 实现（接 memory-repo），组装管线零改动。签名在 P1 钉死 → 记忆系统是"插入式"工程，不返工组装层。
 
 ### 5.7 A2A 协议化（D4，降级）
-- **降级前**：A2A 派发自建 prompt（`renderDispatchPrompt`），独立预算（chain depth 8），绕过 PromptComposer
+- **降级前**：A2A 派发自建 prompt（`renderDispatchPrompt`），独立预算（chain depth 8），绕过统一的 ContextManager 管线
 - **降级后**：A2A 只产出交接包（possession contract 不变）；派发时以 `trigger=a2a_handoff` + `a2aHandoff` source 调 ContextManager；chain depth 作为 source 内元数据保留（交接包内 `remainingBudget`），不再作为顶层预算
 - 收益：A2A 派发的 prompt 与主循环**同享预算、层优先级、作用域、身份**；"一半战场"补齐
 
 ### 5.8 分阶段
-- **P1（非破坏）**：`ContextManager` 接口 + 主循环改走它（PromptComposer 委托）+ `project_id` 作用域 + scopeGuard + Health 层回写 + MemoryHook 契约 NoOp。A2A 路径**暂不动**，并行运行。
+- **P1（非破坏迁移，已完成）**：`ContextManager` 接口 + 主循环改走它 + `project_id` 作用域 + scopeGuard + Health 层回写 + MemoryHook 契约 NoOp；迁移期先由 PromptComposer 委托，确认零调用后于 2026-07-22 删除包装。
 - **P2（迁移）**：A2A 派发改走 ContextManager，退役 `renderDispatchPrompt` 自建 prompt；跨项目身份契约（IdentitySnapshot/ScopedContext）落地。
 - **后续**：记忆 source 接入（另立 spec）。
 
@@ -302,7 +302,7 @@ interface ContextArtifact extends ContextFragment {
 - 现有四层 Tier 渲染结果先通过 `LegacyTierContributor` 适配成 Fragment，再进入同一选择、预算与 Snapshot 管线。
 - `MemoryHook` 通过内建 Memory Contributor 接入，不再在主流程里作为特殊分支处理。
 - 新业务模块不得直接修改 `rawPrompt` 或追加 Prompt 字符串；只允许注册 Contributor。
-- 兼容适配器的退出条件：role/project/task/team/history/tool 等现有来源全部改为原生 Contributor，且 PromptComposer 兼容包装无调用方。
+- PromptComposer 兼容包装的退出条件是生产代码与公共导出均无调用方，已于 2026-07-22 满足并删除；`LegacyTierContributor` 的退出条件仍是 role/project/task/team/history/tool 等现有来源全部改为原生 Contributor。
 
 #### 不变量
 
@@ -327,7 +327,8 @@ interface ContextArtifact extends ContextFragment {
 ## 6. 影响面
 
 - **新增**：`src/lib/agent-context/ContextManager.ts`、`ContextProviders.ts`、`MemoryHook.ts`、`ContextReport.ts`、`scopeGuard.ts`、`IdentitySnapshot` 类型
-- **改**：`PromptComposer.ts`（委托 ContextManager）、`src/store/daemonStore.ts`（dispatch 改调 `assembleContext` + 显式传 budget）、`layers/projectLayer.ts`（加 id + scope）、`layers/historyLayer.ts` / `taskContextLayer.ts` / `teamPackLayer.ts`（按 project_id 过滤）、`src/server/repositories/session-repo.ts`（新增 `writeContextHealth`）
+- **改**：dispatch 经 `context-planner` 调 `assembleContext` + 显式传 budget；`layers/projectLayer.ts` 增加 id + scope；`layers/historyLayer.ts` / `taskContextLayer.ts` / `teamPackLayer.ts` 按 project_id 过滤；`src/server/repositories/session-repo.ts` 新增 `writeContextHealth`
+- **退役**：`src/lib/agent-context/PromptComposer.ts` 及只验证该包装的测试；仍有效的 role/team/collaboration/user-message/behavior layer 行为迁入各 layer 的同目录测试
 - **P2 改**：`src/server/a2a/context-builder.ts`（`renderDispatchPrompt` 退役，改为构造 a2aHandoff source）、`daemon.ts`（A2A 派发点改调 ContextManager）
 - **不改**：`a2a-possession-contract/` 语义、`BudgetGuard` / `ContextBudget` 算法（复用）、`cli-bridge-layer/`、15 个 `buildXxxLayer` 签名
 - **测试**：ContextManager / scopeGuard / identity 边界 / ContextReport / MemoryHook NoOp 各配套 `.test.ts`；A2A 派发 prompt 等价性测试（降级前后行为对齐，P2）
@@ -351,7 +352,7 @@ interface ContextArtifact extends ContextFragment {
 
 | 风险 | 缓解 |
 |---|---|
-| 主循环收口回归面大（前端 dispatch 是主路径） | P1 保留 `PromptComposer` 旧入口灰度，feature flag 切换 |
+| 主循环收口回归面大 | 迁移期保留兼容入口；零调用审计与上游回归通过后删除，并由各 layer + ContextManager + harness 测试持续守护 |
 | A2A 降级改变派发 prompt 文案，影响 agent 行为 | P2 先加等价性测试（关键段不丢），灰度 |
 | project_id 过滤漏掉某层 → 串话 | scopeGuard 断言 + 每层单测；history/task/teamPack 逐层验证 |
 | 健康度回写拖慢 dispatch | Q3 选异步 fire-and-forget |
