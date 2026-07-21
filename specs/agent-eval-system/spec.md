@@ -484,7 +484,9 @@ Experiment
 5. target/observed manifest digest 完全一致；
 6. invocation、trace、proof 与后续 `EvalRun` 可相互追溯。
 
-离线评估报告的应用 provenance 必须直接来自冻结 `ApplicationSnapshot` 和已经校验的 observed digest；不得在评分时重新读取可变的项目 HEAD、TeamPack、RoleCard 或 active Skill。
+离线评估报告的应用 provenance 必须直接来自冻结 `ApplicationSnapshot` 和已经校验的 observed digest；不得在评分时重新读取可变的项目 HEAD、TeamPack、RoleCard 或 active Skill。`mode=offline` 必须绑定有效的 `eval_case_execution`、不可变应用快照以及与 target digest 一致的 observed digest；任一证据缺失或不匹配都 fail-closed，且不得命中历史无 provenance 的复用快照。
+
+隔离不仅约束 worktree 读侧，也约束协作写侧：held-out 输出只保存在 invocation/observation/评估证据中，不写生产 `chat_message`，不物化或消费 TeamLog，不解析 `@mention`，不创建或推进生产 A2A chain。
 
 任何一步缺失都可以保留为诊断运行，但不得进入发布门。
 

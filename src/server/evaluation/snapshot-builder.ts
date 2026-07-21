@@ -80,12 +80,82 @@ function frozenApplicationManifest(value: unknown): ApplicationManifest | undefi
   if (
     candidate.schemaVersion !== 1
     || typeof candidate.projectPath !== 'string'
+    || !candidate.projectPath.trim()
     || typeof candidate.codeRevision !== 'string'
+    || !candidate.codeRevision.trim()
     || !candidate.team
     || !Array.isArray(candidate.team.roles)
     || !Array.isArray(candidate.agents)
+    || candidate.agents.length === 0
+    || candidate.agents.some((agent) => !agent
+      || typeof agent.agentId !== 'string'
+      || !agent.agentId.trim()
+      || typeof agent.engine !== 'string'
+      || !Array.isArray(agent.skillRevisions)
+      || agent.skillRevisions.some((skill) => !skill
+        || typeof skill.skillId !== 'string'
+        || typeof skill.revisionId !== 'string'
+        || typeof skill.contentHash !== 'string'))
   ) return undefined;
   return candidate as ApplicationManifest;
+}
+
+interface OfflineExecutionProvenance extends Row {
+  application_snapshot_id: string;
+  target_manifest_digest: string;
+  observed_manifest_digest: string;
+  snapshot_manifest_digest: string;
+}
+
+export function assertOfflineEvaluationProvenance(request: EvaluationRequest): {
+  manifest: ApplicationManifest;
+  execution: OfflineExecutionProvenance;
+} | undefined {
+  if (request.mode !== 'offline') return undefined;
+  const manifest = frozenApplicationManifest(request.applicationManifest);
+  if (!manifest) {
+    throw new Error('Offline evaluation requires a valid frozen application manifest');
+  }
+  if (!request.triggerId?.trim()) {
+    throw new Error('Offline evaluation requires a bound case execution');
+  }
+  const execution = getDb().prepare(`SELECT
+      x.application_snapshot_id,x.case_id,x.target_manifest_digest,x.observed_manifest_digest,x.status,
+      s.manifest_digest AS snapshot_manifest_digest,s.project_path,s.code_revision,s.team_manifest,s.agent_manifest
+    FROM eval_case_execution x
+    JOIN eval_application_snapshot s ON s.id=x.application_snapshot_id AND s.conversation_id=x.conversation_id
+    WHERE x.id=? AND x.conversation_id=?`)
+    .get(request.triggerId, request.conversationId) as OfflineExecutionProvenance | undefined;
+  if (!execution) {
+    throw new Error('Offline evaluation requires valid case execution provenance');
+  }
+  if (request.caseId && String(execution.case_id) !== request.caseId) {
+    throw new Error('Offline evaluation case does not match the bound execution');
+  }
+  const storedManifest = frozenApplicationManifest({
+    schemaVersion: 1,
+    projectPath: execution.project_path,
+    codeRevision: execution.code_revision,
+    team: parse(execution.team_manifest, null),
+    agents: parse(execution.agent_manifest, null),
+  });
+  if (!storedManifest || digest(storedManifest) !== String(execution.snapshot_manifest_digest)) {
+    throw new Error('Offline evaluation application snapshot is invalid');
+  }
+  const frozenManifestDigest = digest(manifest);
+  const targetDigest = String(execution.target_manifest_digest ?? '');
+  const observedDigest = String(execution.observed_manifest_digest ?? '');
+  if (!observedDigest) {
+    throw new Error('Offline evaluation requires an observed application manifest digest');
+  }
+  if (
+    frozenManifestDigest !== String(execution.snapshot_manifest_digest)
+    || targetDigest !== frozenManifestDigest
+    || observedDigest !== frozenManifestDigest
+  ) {
+    throw new Error('Evaluation execution provenance does not match the frozen application manifest');
+  }
+  return { manifest, execution };
 }
 
 function collectTruncatedPaths(value: unknown, path = '$', result: string[] = []): string[] {
@@ -103,9 +173,8 @@ function collectTruncatedPaths(value: unknown, path = '$', result: string[] = []
 export function buildSubjectSnapshot(request: EvaluationRequest): SubjectSnapshot {
   const db = getDb();
   const cutoff = request.evidenceCutoffAt ?? new Date().toISOString();
-  const frozenApplication = request.mode === 'offline'
-    ? frozenApplicationManifest(request.applicationManifest)
-    : undefined;
+  const offlineProvenance = assertOfflineEvaluationProvenance(request);
+  const frozenApplication = offlineProvenance?.manifest;
   const conversation = db.prepare('SELECT * FROM conversation WHERE id = ?').get(request.conversationId) as Row | undefined;
   if (!conversation) throw new Error('Conversation not found');
   if (request.chainId) {
@@ -217,19 +286,8 @@ export function buildSubjectSnapshot(request: EvaluationRequest): SubjectSnapsho
         }),
       }] : [];
     });
-  const executionProvenance = request.mode === 'offline' && request.triggerId
-    ? db.prepare(`SELECT application_snapshot_id,target_manifest_digest,observed_manifest_digest
-        FROM eval_case_execution WHERE id=? AND conversation_id=?`)
-      .get(request.triggerId, request.conversationId) as Row | undefined
-    : undefined;
+  const executionProvenance = offlineProvenance?.execution;
   const frozenManifestDigest = frozenApplication ? digest(frozenApplication) : undefined;
-  if (executionProvenance && frozenManifestDigest) {
-    const targetDigest = String(executionProvenance.target_manifest_digest ?? '');
-    const observedDigest = String(executionProvenance.observed_manifest_digest ?? '');
-    if (targetDigest !== frozenManifestDigest || observedDigest !== frozenManifestDigest) {
-      throw new Error('Evaluation execution provenance does not match the frozen application manifest');
-    }
-  }
   const missing: string[] = [];
   if (tasks.length === 0) missing.push('tasks');
   if (spans.length === 0) missing.push('spans');

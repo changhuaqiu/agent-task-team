@@ -11,7 +11,7 @@ import {
 } from './defaults';
 import { evaluateDeterministically } from './deterministic-evaluator';
 import { AccountJudgeAdapter, type JudgePort, type JudgeResult } from './judge';
-import { buildSubjectSnapshot } from './snapshot-builder';
+import { assertOfflineEvaluationProvenance, buildSubjectSnapshot } from './snapshot-builder';
 import type { EvaluationReport, EvaluationRequest, EvaluationScore, SubjectSnapshot } from './types';
 import { proofLogRepo } from '../repositories/proof-log-repo';
 
@@ -253,6 +253,9 @@ export class AgentEvaluation {
     const mode = request.mode ?? 'online';
     const cutoff = request.evidenceCutoffAt ?? new Date().toISOString();
     const normalized = { ...request, mode, evidenceCutoffAt: cutoff };
+    // Validate before idempotency lookup or snapshot reuse so an offline call
+    // can never inherit a legacy snapshot without verified execution evidence.
+    assertOfflineEvaluationProvenance(normalized);
     const key = digest({ conversationId: request.conversationId, rootTaskId: request.rootTaskId ?? null,
       chainId: request.chainId ?? null, triggerId: request.triggerId ?? cutoff, mode,
       caseId: request.caseId ?? null,

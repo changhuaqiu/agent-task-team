@@ -72,6 +72,10 @@ import { agentEvaluation, startEvaluationWorker } from './evaluation/agent-evalu
 import { digest } from './evaluation/defaults';
 import { transitionCaseExecution } from './evaluation/application-snapshot';
 import { EvaluationCaseRunner } from './evaluation/case-runner';
+import {
+  allowsProductionCollaborationEffects,
+  evaluationSafeTextSink,
+} from './evaluation/runtime-isolation';
 import { ensureAutonomousDeliveryRuntime } from './autonomous-delivery/bootstrap';
 import { registerAutonomousDeliveryE2EDriver } from './testing/autonomous-delivery-e2e-driver';
 
@@ -1099,8 +1103,9 @@ export default function registerDaemon(io: IOServer) {
       let invocationSessionRecorded = false;
       let observedRuntimeSessionId: string | undefined;
       let hasBackgroundChildActivity = false;
-      const persistedText = new StreamTextPersistence({
-          create(content) {
+      const allowsProductionEffects = allowsProductionCollaborationEffects(evaluation);
+      const persistedText = new StreamTextPersistence(evaluationSafeTextSink(evaluation, {
+        create(content) {
             const id = messageRepo.append({
             conversationId: sessionConvId,
             taskId,
@@ -1115,7 +1120,7 @@ export default function registerDaemon(io: IOServer) {
           return id;
         },
         append: (messageId, content) => messageRepo.appendTextChunk(messageId, content),
-      });
+      }));
 
       // --- Timeout control ---
       // codex ACP startup ~117s (WebSocket→HTTPS fallback). Floor BOTH the
@@ -1161,14 +1166,17 @@ export default function registerDaemon(io: IOServer) {
 
         const accumulated = agentResponseBuffer.get(responseBufferKey) ?? finalContent;
         agentResponseBuffer.delete(responseBufferKey);
-        if (!evaluation) {
-          try {
-            // Watchers are best-effort on every platform. The completed-turn
-            // boundary is the consistency barrier before handoff scanning.
-            syncTasksToDb(taskProjectDir, sessionConvId, io);
-          } catch (error) {
-            console.warn(`[task-sync] completion barrier failed for ${sessionConvId}:`, error);
-          }
+        // Held-out output must never drive the production collaboration loop.
+        // Evaluation completion is reconciled through eval_case_execution after
+        // the invocation finishes; it must not materialize TeamLog entries,
+        // consume production cursors, scan @mentions, or advance A2A chains.
+        if (!allowsProductionEffects) return;
+        try {
+          // Watchers are best-effort on every platform. The completed-turn
+          // boundary is the consistency barrier before handoff scanning.
+          syncTasksToDb(taskProjectDir, sessionConvId, io);
+        } catch (error) {
+          console.warn(`[task-sync] completion barrier failed for ${sessionConvId}:`, error);
         }
         let validExit = true;
         if (contextScenario) {
@@ -1489,7 +1497,7 @@ export default function registerDaemon(io: IOServer) {
           } catch (dbErr) {
             console.error(`[daemon] Failed to persist text message for ${agentId}:`, dbErr);
           }
-        } else if (event.type === 'tool_use' && event.tool) {
+        } else if (allowsProductionEffects && event.type === 'tool_use' && event.tool) {
           try {
           messageRepo.append({
             conversationId: sessionConvId,

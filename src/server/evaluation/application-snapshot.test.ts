@@ -153,6 +153,36 @@ describe('application snapshot and case execution', () => {
     expect(JSON.stringify(subject.appManifest)).not.toContain('C:/mutable/current/head');
   });
 
+  it('fails closed when offline evaluation provenance is missing or unobserved', () => {
+    expect(() => buildSubjectSnapshot({
+      conversationId: 'conv-runner',
+      mode: 'offline',
+    })).toThrow(/valid frozen application manifest/);
+
+    const snapshot = freezeApplicationSnapshot({
+      conversationId: 'conv-runner', name: 'baseline', source: 'published',
+    });
+    expect(() => buildSubjectSnapshot({
+      conversationId: 'conv-runner',
+      mode: 'offline',
+      applicationManifest: snapshot.manifest,
+    })).toThrow(/bound case execution/);
+
+    const execution = createCaseExecution({
+      conversationId: 'conv-runner',
+      caseId: seedHeldOutCase(),
+      applicationSnapshotId: String(snapshot.id),
+      variant: 'baseline',
+    });
+    expect(() => buildSubjectSnapshot({
+      conversationId: 'conv-runner',
+      triggerId: String(execution.id),
+      caseId: 'case-runner',
+      mode: 'offline',
+      applicationManifest: snapshot.manifest,
+    })).toThrow(/observed application manifest digest/);
+  });
+
   it('creates both isolated variants and records a blocked Harness dispatch', async () => {
     const baseline = freezeApplicationSnapshot({
       conversationId: 'conv-runner', name: 'baseline', source: 'published',
