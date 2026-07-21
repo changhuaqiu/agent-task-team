@@ -72,7 +72,7 @@ function prepareServerCopy(): void {
     filter(source) {
       const rel = relative(workspace, source);
       if (!rel) return true;
-      return !excludedRoots.has(rel.split(/[\\/]/)[0]);
+      return !rel.split(/[\\/]/).some((segment) => excludedRoots.has(segment));
     },
   });
   symlinkSync(join(workspace, 'node_modules'), join(serverCwd, 'node_modules'), 'junction');

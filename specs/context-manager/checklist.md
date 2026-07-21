@@ -52,3 +52,22 @@
 - [x] historyLayer 只包含 agent 自身历史，用户本轮输入与 A2A packet 不丢失
 - [x] active workdir 在 dispatch 前具备 `.ath/team-log.md`，文件丢失后可重建
 - [x] migration、repository、ContextManager、Harness/daemon、全量测试及 build 通过
+
+## P5 — Team Harness Context Snapshot
+
+- [x] 调用方仍只通过 `ContextManager.assembleContext()` 组装上下文
+- [x] 新模块可通过 `ContextContributor` 注入 fragment，无需修改 ContextManager 主流程
+- [x] Fragment 在 Registry 边界统一归一化为六维 `ContextArtifact`
+- [x] 现有 Tier 与 Memory 来源也进入统一 fragment 选择和 Snapshot 管线
+- [x] project/global scope、agent/role/team visibility 与 freshness 被机械过滤
+- [x] 重复 fragment 只保留确定性的最新版本，并报告被替换项
+- [x] Contributor 同步/异步失败被隔离并可观察，不吞掉其他上下文或泄露原始错误
+- [x] Snapshot 能区分实际加载、预算裁剪、策略省略、过期、越域和必需上下文缺失
+- [x] 必需上下文被场景或预算裁掉时 fail closed
+- [x] planning/execution/review/verification/recovery/escalation 等场景可显式选择
+- [x] Harness plan 可携带本轮 ContextSnapshot
+- [x] 新增 ContextManager seam 测试、相关回归测试与类型检查通过
+- [x] 无 `conversationId` 的历史消息与跨项目消息均 fail closed
+- [x] required Contributor 未注册、返回空结果或伪造 producer 时均 fail closed
+- [x] assembly snapshot 哈希包含 kind/semantic，Daemon 生成覆盖最终 Runtime 输入的 runtime snapshot
+- [x] OpenCode system context 仅通过 instructions 投递一次

@@ -2,6 +2,7 @@ import {
   sqliteTable,
   text,
   integer,
+  real,
   index,
   uniqueIndex,
   primaryKey,
@@ -84,6 +85,7 @@ export const agentSession = sqliteTable('agent_session', {
   cliSessionId: text('cli_session_id'),
   conversationId: text('conversation_id').notNull(),
   agentId: text('agent_id').notNull(),
+  isolationKey: text('isolation_key').notNull().default(''),
   taskId: text('task_id').notNull(),
   seq: integer('seq').notNull().default(0),
   status: text('status').notNull().default('active'),
@@ -97,7 +99,7 @@ export const agentSession = sqliteTable('agent_session', {
   index('idx_session_agent_task').on(table.agentId, table.taskId),
   uniqueIndex('uq_session_agent_task_seq').on(table.agentId, table.taskId, table.seq),
   uniqueIndex('uq_agent_session_active_project_agent')
-    .on(table.conversationId, table.agentId)
+    .on(table.conversationId, table.agentId, table.isolationKey)
     .where(sql`${table.status} = 'active'`),
 ]);
 
@@ -793,6 +795,231 @@ export const agentTeamPack = sqliteTable('agent_team_pack', {
 export type AgentTeamPackRow = InferSelectModel<typeof agentTeamPack>;
 export type NewAgentTeamPackRow = InferInsertModel<typeof agentTeamPack>;
 
+// Agent evaluation: immutable evidence, scores, calibration, experiments, and governed changes.
+export const evalRubric = sqliteTable('eval_rubric', {
+  id: text('id').primaryKey(), name: text('name').notNull(), ownerId: text('owner_id').notNull(),
+  status: text('status').notNull(), createdAt: text('created_at').notNull(), updatedAt: text('updated_at').notNull(),
+});
+export const evalRubricRevision = sqliteTable('eval_rubric_revision', {
+  id: text('id').primaryKey(), rubricId: text('rubric_id').notNull().references(() => evalRubric.id),
+  revision: integer('revision').notNull(), definition: text('definition').notNull(),
+  contentHash: text('content_hash').notNull(), status: text('status').notNull(),
+  publishedBy: text('published_by').notNull(), publishedAt: text('published_at').notNull(),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  uniqueIndex('uq_eval_rubric_revision').on(table.rubricId, table.revision),
+  uniqueIndex('uq_eval_rubric_hash').on(table.rubricId, table.contentHash),
+]);
+export const evalSubjectSnapshot = sqliteTable('eval_subject_snapshot', {
+  id: text('id').primaryKey(), conversationId: text('conversation_id').notNull().references(() => conversation.id, { onDelete: 'cascade' }),
+  rootTaskId: text('root_task_id'), chainId: text('chain_id'), mode: text('mode').notNull(),
+  evidenceCutoffAt: text('evidence_cutoff_at').notNull(), collectedAt: text('collected_at').notNull(),
+  snapshotHash: text('snapshot_hash').notNull(), evidenceRefs: text('evidence_refs').notNull(),
+  evidencePayload: text('evidence_payload').notNull(), appManifest: text('app_manifest').notNull(),
+  dataQuality: text('data_quality').notNull(), taskType: text('task_type').notNull(),
+  difficulty: text('difficulty').notNull(), language: text('language').notNull(),
+}, (table) => [
+  uniqueIndex('uq_eval_snapshot_hash').on(table.snapshotHash),
+  index('idx_eval_snapshot_conversation').on(table.conversationId, table.evidenceCutoffAt),
+]);
+export const evalRun = sqliteTable('eval_run', {
+  id: text('id').primaryKey(), conversationId: text('conversation_id').notNull().references(() => conversation.id, { onDelete: 'cascade' }),
+  snapshotId: text('snapshot_id').references(() => evalSubjectSnapshot.id),
+  rubricRevisionId: text('rubric_revision_id').notNull().references(() => evalRubricRevision.id),
+  mode: text('mode').notNull(), idempotencyKey: text('idempotency_key').notNull(), status: text('status').notNull(),
+  gateStatus: text('gate_status').notNull(), evidenceCoverage: real('evidence_coverage').notNull(),
+  overallScore: real('overall_score'), evaluatorBundleDigest: text('evaluator_bundle_digest').notNull(),
+  caseId: text('case_id'), applicationManifestDigest: text('application_manifest_digest'),
+  errorCode: text('error_code'), errorMessage: text('error_message'), startedAt: text('started_at'),
+  completedAt: text('completed_at'), createdAt: text('created_at').notNull(), updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  uniqueIndex('uq_eval_run_idempotency').on(table.idempotencyKey),
+  index('idx_eval_run_conversation').on(table.conversationId, table.createdAt),
+]);
+export const evalJob = sqliteTable('eval_job', {
+  id: text('id').primaryKey(), runId: text('run_id').notNull().references(() => evalRun.id, { onDelete: 'cascade' }),
+  requestPayload: text('request_payload').notNull(), status: text('status').notNull(),
+  attemptCount: integer('attempt_count').notNull(), maxAttempts: integer('max_attempts').notNull(),
+  nextAttemptAt: text('next_attempt_at').notNull(), leaseUntil: text('lease_until'), lastError: text('last_error'),
+  leaseToken: text('lease_token'),
+  createdAt: text('created_at').notNull(), updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  uniqueIndex('uq_eval_job_run').on(table.runId),
+  index('idx_eval_job_claim').on(table.status, table.nextAttemptAt, table.leaseUntil),
+]);
+export const evalScore = sqliteTable('eval_score', {
+  id: text('id').primaryKey(), runId: text('run_id').notNull().references(() => evalRun.id, { onDelete: 'cascade' }),
+  dimensionKey: text('dimension_key').notNull(), evaluatorKind: text('evaluator_kind').notNull(),
+  evaluatorRevision: text('evaluator_revision').notNull(), applicability: text('applicability').notNull(),
+  rawScore: real('raw_score'), normalizedScore: real('normalized_score'), label: text('label').notNull(),
+  rationale: text('rationale').notNull(), evidenceRefs: text('evidence_refs').notNull(), createdAt: text('created_at').notNull(),
+}, (table) => [
+  uniqueIndex('uq_eval_score_dimension').on(table.runId, table.dimensionKey, table.evaluatorKind),
+  index('idx_eval_score_run').on(table.runId),
+]);
+export const evalJudgeAttempt = sqliteTable('eval_judge_attempt', {
+  id: text('id').primaryKey(), runId: text('run_id').notNull().references(() => evalRun.id, { onDelete: 'cascade' }),
+  scoreId: text('score_id').references(() => evalScore.id), dimensionKey: text('dimension_key').notNull(),
+  judgeAccountId: text('judge_account_id'), provider: text('provider'), model: text('model'),
+  promptDigest: text('prompt_digest').notNull(), requestParams: text('request_params').notNull(),
+  responsePayload: text('response_payload'), parseStatus: text('parse_status').notNull(),
+  promptTokens: integer('prompt_tokens'), completionTokens: integer('completion_tokens'),
+  latencyMs: integer('latency_ms'), errorCode: text('error_code'), errorMessage: text('error_message'),
+  createdAt: text('created_at').notNull(),
+});
+export const evalGap = sqliteTable('eval_gap', {
+  id: text('id').primaryKey(), runId: text('run_id').notNull().references(() => evalRun.id, { onDelete: 'cascade' }),
+  dimensionKey: text('dimension_key').notNull(), severity: text('severity').notNull(),
+  description: text('description').notNull(), suggestion: text('suggestion').notNull(),
+  targetType: text('target_type'), targetRef: text('target_ref'), status: text('status').notNull(),
+  evidenceRefs: text('evidence_refs').notNull(), createdAt: text('created_at').notNull(), updatedAt: text('updated_at').notNull(),
+}, (table) => [index('idx_eval_gap_run').on(table.runId, table.status)]);
+export const evalPolicy = sqliteTable('eval_policy', {
+  conversationId: text('conversation_id').primaryKey().references(() => conversation.id, { onDelete: 'cascade' }),
+  enabled: integer('enabled', { mode: 'boolean' }).notNull(), samplingRate: real('sampling_rate').notNull(),
+  dailyTokenBudget: integer('daily_token_budget').notNull(), judgeAccountId: text('judge_account_id'),
+  secondaryJudgeAccountId: text('secondary_judge_account_id'),
+  maxConcurrency: integer('max_concurrency').notNull(),
+  allowedProviders: text('allowed_providers').notNull(), retentionDays: integer('retention_days').notNull(),
+  failStrategy: text('fail_strategy').notNull(), updatedBy: text('updated_by').notNull(), updatedAt: text('updated_at').notNull(),
+});
+export const evalDataset = sqliteTable('eval_dataset', {
+  id: text('id').primaryKey(), conversationId: text('conversation_id').references(() => conversation.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(), description: text('description').notNull(), revision: integer('revision').notNull(),
+  status: text('status').notNull(), createdBy: text('created_by').notNull(),
+  createdAt: text('created_at').notNull(), updatedAt: text('updated_at').notNull(),
+}, (table) => [uniqueIndex('uq_eval_dataset_revision').on(table.conversationId, table.name, table.revision)]);
+export const evalCase = sqliteTable('eval_case', {
+  id: text('id').primaryKey(), datasetId: text('dataset_id').notNull().references(() => evalDataset.id, { onDelete: 'cascade' }),
+  caseKey: text('case_key').notNull(), split: text('split').notNull(), sourceType: text('source_type').notNull(),
+  sourceRef: text('source_ref'), inputPayload: text('input_payload').notNull(),
+  expectedLabels: text('expected_labels').notNull(), metadata: text('metadata').notNull(),
+  contentHash: text('content_hash').notNull(), redactionStatus: text('redaction_status').notNull(),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  uniqueIndex('uq_eval_case_key').on(table.datasetId, table.caseKey),
+  index('idx_eval_case_dataset').on(table.datasetId, table.split),
+]);
+export const evalAnnotation = sqliteTable('eval_annotation', {
+  id: text('id').primaryKey(), caseId: text('case_id').notNull().references(() => evalCase.id, { onDelete: 'cascade' }),
+  // Added after the initial table; SQLite migration enforces this relation with insert/update triggers.
+  conversationId: text('conversation_id'),
+  runId: text('run_id').references(() => evalRun.id), rubricRevisionId: text('rubric_revision_id').notNull().references(() => evalRubricRevision.id),
+  reviewerId: text('reviewer_id').notNull(), dimensionKey: text('dimension_key').notNull(),
+  label: text('label').notNull(), rationale: text('rationale').notNull(), blindBatchId: text('blind_batch_id'),
+  status: text('status').notNull(), createdAt: text('created_at').notNull(),
+});
+export const evalExperiment = sqliteTable('eval_experiment', {
+  id: text('id').primaryKey(), conversationId: text('conversation_id').notNull().references(() => conversation.id, { onDelete: 'cascade' }),
+  datasetId: text('dataset_id').notNull().references(() => evalDataset.id), datasetRevision: integer('dataset_revision').notNull(),
+  rubricRevisionId: text('rubric_revision_id').notNull().references(() => evalRubricRevision.id),
+  evaluatorBundleDigest: text('evaluator_bundle_digest').notNull(), name: text('name').notNull(),
+  status: text('status').notNull(), baselineManifest: text('baseline_manifest').notNull(),
+  candidateManifest: text('candidate_manifest').notNull(), summary: text('summary'), createdBy: text('created_by').notNull(),
+  // SQLite adds these after the original experiment table; ownership is validated by the service.
+  baselineSnapshotId: text('baseline_snapshot_id'),
+  candidateSnapshotId: text('candidate_snapshot_id'),
+  startedAt: text('started_at'), completedAt: text('completed_at'), errorCode: text('error_code'), createdAt: text('created_at').notNull(),
+}, (table) => [index('idx_eval_experiment_conversation').on(table.conversationId, table.createdAt)]);
+export const evalExperimentItem = sqliteTable('eval_experiment_item', {
+  id: text('id').primaryKey(), experimentId: text('experiment_id').notNull().references(() => evalExperiment.id, { onDelete: 'cascade' }),
+  caseId: text('case_id').notNull().references(() => evalCase.id), baselineRunId: text('baseline_run_id').references(() => evalRun.id),
+  candidateRunId: text('candidate_run_id').references(() => evalRun.id), winner: text('winner'),
+  scoreDelta: real('score_delta'), executionVerified: integer('execution_verified', { mode: 'boolean' }).notNull(),
+  details: text('details').notNull(), createdAt: text('created_at').notNull(),
+}, (table) => [uniqueIndex('uq_eval_experiment_case').on(table.experimentId, table.caseId)]);
+export const evalApplicationSnapshot = sqliteTable('eval_application_snapshot', {
+  id: text('id').primaryKey(),
+  conversationId: text('conversation_id').notNull().references(() => conversation.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  source: text('source').notNull(),
+  projectPath: text('project_path').notNull(),
+  codeRevision: text('code_revision').notNull(),
+  teamManifest: text('team_manifest').notNull(),
+  agentManifest: text('agent_manifest').notNull(),
+  manifestDigest: text('manifest_digest').notNull(),
+  createdBy: text('created_by').notNull(),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  uniqueIndex('uq_eval_application_snapshot_digest').on(table.conversationId, table.manifestDigest),
+  index('idx_eval_application_snapshot_conversation').on(table.conversationId, table.createdAt),
+]);
+export const evalCaseExecution = sqliteTable('eval_case_execution', {
+  id: text('id').primaryKey(),
+  conversationId: text('conversation_id').notNull().references(() => conversation.id, { onDelete: 'cascade' }),
+  experimentId: text('experiment_id').references(() => evalExperiment.id, { onDelete: 'cascade' }),
+  caseId: text('case_id').notNull().references(() => evalCase.id),
+  applicationSnapshotId: text('application_snapshot_id').notNull().references(() => evalApplicationSnapshot.id),
+  agentId: text('agent_id'),
+  variant: text('variant').notNull(),
+  status: text('status').notNull(),
+  taskId: text('task_id').references(() => task.id, { onDelete: 'set null' }),
+  harnessTriggerId: text('harness_trigger_id'),
+  invocationId: text('invocation_id').references(() => invocation.id),
+  traceId: text('trace_id'),
+  evalRunId: text('eval_run_id').references(() => evalRun.id),
+  proofEventId: text('proof_event_id').references(() => controlProofEvent.id),
+  targetManifestDigest: text('target_manifest_digest').notNull(),
+  observedManifestDigest: text('observed_manifest_digest'),
+  executionVerified: integer('execution_verified', { mode: 'boolean' }).notNull(),
+  errorCode: text('error_code'),
+  errorMessage: text('error_message'),
+  createdAt: text('created_at').notNull(),
+  startedAt: text('started_at'),
+  completedAt: text('completed_at'),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  uniqueIndex('uq_eval_case_execution_variant').on(table.experimentId, table.caseId, table.variant),
+  index('idx_eval_case_execution_claim').on(table.status, table.createdAt),
+  index('idx_eval_case_execution_experiment').on(table.experimentId, table.caseId),
+  index('idx_eval_case_execution_agent').on(table.conversationId, table.agentId, table.status),
+]);
+export const evalBudgetReservation = sqliteTable('eval_budget_reservation', {
+  id: text('id').primaryKey(),
+  conversationId: text('conversation_id').notNull().references(() => conversation.id, { onDelete: 'cascade' }),
+  runId: text('run_id').notNull().references(() => evalRun.id, { onDelete: 'cascade' }),
+  reservationKey: text('reservation_key').notNull(),
+  reservedTokens: integer('reserved_tokens').notNull(),
+  expiresAt: text('expires_at').notNull(),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  uniqueIndex('uq_eval_budget_reservation_key').on(table.reservationKey),
+  index('idx_eval_budget_reservation_scope').on(table.conversationId, table.expiresAt),
+]);
+export const evalChangeProposal = sqliteTable('eval_change_proposal', {
+  id: text('id').primaryKey(), conversationId: text('conversation_id').notNull().references(() => conversation.id, { onDelete: 'cascade' }),
+  gapId: text('gap_id').references(() => evalGap.id), targetType: text('target_type').notNull(), targetRef: text('target_ref'),
+  hypothesis: text('hypothesis').notNull(), proposedChange: text('proposed_change').notNull(), risk: text('risk').notNull(),
+  ownerId: text('owner_id').notNull(), status: text('status').notNull(), approvalBy: text('approval_by'),
+  approvedAt: text('approved_at'), regressionExperimentId: text('regression_experiment_id').references(() => evalExperiment.id),
+  applyEvidence: text('apply_evidence'), revertEvidence: text('revert_evidence'),
+  createdAt: text('created_at').notNull(), updatedAt: text('updated_at').notNull(),
+}, (table) => [index('idx_eval_change_proposal_conversation').on(table.conversationId, table.status)]);
+export const evalReviewQueue = sqliteTable('eval_review_queue', {
+  id: text('id').primaryKey(), conversationId: text('conversation_id').notNull().references(() => conversation.id, { onDelete: 'cascade' }),
+  runId: text('run_id').references(() => evalRun.id, { onDelete: 'cascade' }),
+  experimentId: text('experiment_id').references(() => evalExperiment.id, { onDelete: 'cascade' }),
+  caseId: text('case_id').references(() => evalCase.id), dimensionKey: text('dimension_key'),
+  reasonCode: text('reason_code').notNull(), primaryLabel: text('primary_label'), secondaryLabel: text('secondary_label'),
+  status: text('status').notNull(), assignedTo: text('assigned_to'), resolution: text('resolution'),
+  requestPayload: text('request_payload').notNull(),
+  resolvedBy: text('resolved_by'), resolvedAt: text('resolved_at'),
+  createdAt: text('created_at').notNull(), updatedAt: text('updated_at').notNull(),
+}, (table) => [index('idx_eval_review_queue_conversation').on(table.conversationId, table.status, table.createdAt)]);
+export const evalPairwiseRound = sqliteTable('eval_pairwise_round', {
+  id: text('id').primaryKey(), conversationId: text('conversation_id').notNull().references(() => conversation.id, { onDelete: 'cascade' }),
+  experimentId: text('experiment_id').notNull().references(() => evalExperiment.id, { onDelete: 'cascade' }),
+  caseId: text('case_id').notNull().references(() => evalCase.id), blindSeed: text('blind_seed').notNull(),
+  firstOrder: text('first_order').notNull(), firstChoice: text('first_choice'), firstJudgeId: text('first_judge_id'),
+  swappedChoice: text('swapped_choice'), swappedJudgeId: text('swapped_judge_id'),
+  resolvedWinner: text('resolved_winner'), consistencyStatus: text('consistency_status').notNull(),
+  reviewQueueId: text('review_queue_id').references(() => evalReviewQueue.id),
+  createdAt: text('created_at').notNull(), updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  uniqueIndex('uq_eval_pairwise_round_case').on(table.experimentId, table.caseId),
+  index('idx_eval_pairwise_round_experiment').on(table.experimentId, table.consistencyStatus),
+]);
+
 export const autonomousDeliveryRun = sqliteTable('autonomous_delivery_run', {
   id: text('id').primaryKey(),
   conversationId: text('conversation_id').notNull().references(() => conversation.id, { onDelete: 'cascade' }),
@@ -868,4 +1095,24 @@ export const autonomousDeliveryReceipt = sqliteTable('autonomous_delivery_receip
 }, (table) => [
   uniqueIndex('uq_autonomous_delivery_receipt_key').on(table.idempotencyKey),
   index('idx_autonomous_delivery_receipt_run').on(table.runId, table.kind, table.observedAt),
+]);
+
+export const githubIssueIngress = sqliteTable('github_issue_ingress', {
+  id: text('id').primaryKey(),
+  deliveryId: text('delivery_id').notNull(),
+  repositoryFullName: text('repository_full_name').notNull(),
+  issueNumber: integer('issue_number').notNull(),
+  issueNodeId: text('issue_node_id').notNull(),
+  issueUrl: text('issue_url').notNull(),
+  action: text('action').notNull(),
+  payloadDigest: text('payload_digest').notNull(),
+  conversationId: text('conversation_id').notNull().references(() => conversation.id, { onDelete: 'cascade' }),
+  deliveryRunId: text('delivery_run_id').notNull().references(() => autonomousDeliveryRun.id, { onDelete: 'cascade' }),
+  status: text('status').notNull(),
+  receivedAt: text('received_at').notNull(),
+  processedAt: text('processed_at').notNull(),
+}, (table) => [
+  uniqueIndex('uq_github_issue_ingress_delivery').on(table.deliveryId),
+  uniqueIndex('uq_github_issue_ingress_issue').on(table.repositoryFullName, table.issueNumber),
+  index('idx_github_issue_ingress_run').on(table.deliveryRunId),
 ]);

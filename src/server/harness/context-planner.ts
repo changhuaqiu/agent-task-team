@@ -18,6 +18,7 @@ import { SkillRuntimeError, skillRuntime } from '../skills/skill-runtime';
 import { skillRepo } from '../repositories/skill-repo';
 import { getSupportedToolNames } from '../skill-tool-router';
 import { autonomousDeliveryContextContributor } from '../autonomous-delivery/context-contributor';
+import { resolveApplicationSnapshotRuntime } from '../evaluation/application-snapshot';
 
 const RUNTIME_IDS = {
   opencode: 'opencode-local',
@@ -59,7 +60,29 @@ export class RepositoryHarnessPlanner implements HarnessPlanner {
       return { ok: false, outcome: { status: 'blocked', reasonCode: 'task_scope_mismatch' } };
     }
 
-    const resolution = resolveConversationRuntimeProfile(trigger.conversationId, trigger.agentId);
+    const evaluationResolution = trigger.evaluation
+      ? resolveApplicationSnapshotRuntime(
+        trigger.evaluation.applicationSnapshotId,
+        trigger.conversationId,
+        trigger.agentId,
+      )
+      : undefined;
+    if (trigger.evaluation && !evaluationResolution) {
+      return { ok: false, outcome: { status: 'blocked', reasonCode: 'runtime_profile_missing' } };
+    }
+    if (evaluationResolution
+      && evaluationResolution.snapshot.manifest_digest !== trigger.evaluation?.targetManifestDigest) {
+      return {
+        ok: false,
+        outcome: {
+          status: 'blocked',
+          reasonCode: 'runtime_profile_missing',
+          message: 'Application snapshot digest does not match the evaluation trigger',
+        },
+      };
+    }
+    const resolution = evaluationResolution
+      ?? resolveConversationRuntimeProfile(trigger.conversationId, trigger.agentId);
     if (!resolution?.runtime.roster.some((agent) => agent.id === trigger.agentId)) {
       return { ok: false, outcome: { status: 'blocked', reasonCode: 'agent_not_in_team' } };
     }
@@ -68,7 +91,11 @@ export class RepositoryHarnessPlanner implements HarnessPlanner {
     }
     const { runtime, profile } = resolution;
     const traceId = generateTraceId();
-    const activeSession = sessionRepo.findActiveByConversation(trigger.agentId, trigger.conversationId);
+    const activeSession = sessionRepo.findActiveByConversation(
+      trigger.agentId,
+      trigger.conversationId,
+      trigger.evaluation ? `evaluation:${trigger.evaluation.executionId}` : '',
+    );
     const isFirstWake = !activeSession;
 
     try {
@@ -76,14 +103,22 @@ export class RepositoryHarnessPlanner implements HarnessPlanner {
         .map(skill => skill.id)
         .filter((skillId): skillId is string => Boolean(skillId));
       const skillCompilation = boundSkillIds.length > 0
-        ? await skillRuntime.compile({ skillIds: boundSkillIds })
+        ? await skillRuntime.compile({
+          skillIds: boundSkillIds,
+          revisionIds: evaluationResolution
+            ? Object.fromEntries(evaluationResolution.snapshot.manifest.agents
+              .find((agent) => agent.agentId === trigger.agentId)?.skillRevisions
+              .map((skill) => [skill.skillId, skill.revisionId]) ?? [])
+            : undefined,
+        })
         : undefined;
       const manager = new ContextManager({
         getRoleCard: async () => profile.prompt.roleCard,
         getAllRoleCards: async () => runtime.roster.map((agent) => agent.roleCard).filter(Boolean) as NonNullable<typeof profile.prompt.roleCard>[],
-        getMessages: async (conversationId, limit) => messageRepo
-          .getByConversationAgent(conversationId, trigger.agentId, { limit: limit ?? 10 })
-          .map(toChatMessage),
+        getMessages: async (conversationId, limit) => trigger.evaluation
+          ? []
+          : messageRepo.getByConversationAgent(conversationId, trigger.agentId, { limit: limit ?? 10 })
+            .map(toChatMessage),
         getTask: async (taskId) => {
           const row = taskRepo.getById(taskId);
           return row ? {
@@ -93,12 +128,14 @@ export class RepositoryHarnessPlanner implements HarnessPlanner {
             description: row.description ?? undefined,
           } : undefined;
         },
-        getTasks: async (conversationId) => taskRepo.getByConversation(conversationId).map((row) => ({
-          id: row.id,
-          title: row.title,
-          agentId: row.agent_id,
-          status: row.status,
-        })),
+        getTasks: async (conversationId) => taskRepo.getByConversation(conversationId)
+          .filter((row) => !trigger.evaluation || row.id === trigger.taskId)
+          .map((row) => ({
+            id: row.id,
+            title: row.title,
+            agentId: row.agent_id,
+            status: row.status,
+          })),
         getTeamPack: async () => runtime.teamPack,
         getRuntimeRoster: async () => runtime.roster,
         getSkills: async () => profile.prompt.skills.map(skill => ({
@@ -115,15 +152,18 @@ export class RepositoryHarnessPlanner implements HarnessPlanner {
           taskRepo.getByConversation(trigger.conversationId)
             .filter((item) => item.agent_id === agent.id && item.status === 'in_progress').length,
         ])),
-        getTeamLogEnvelope: async (conversationId, agentId, taskId) =>
-          teamLogProjection.buildEnvelope(conversationId, agentId, taskId ? { taskId } : undefined),
+        getTeamLogEnvelope: async (conversationId, agentId, taskId) => trigger.evaluation
+          ? { unseenCount: 0, entries: [], filePath: '.ath/team-log.md', totalTokens: 0 }
+          : teamLogProjection.buildEnvelope(conversationId, agentId, taskId ? { taskId } : undefined),
       }, noOpMemoryHook, {
-        contributors: [autonomousDeliveryContextContributor],
+        contributors: trigger.evaluation ? [] : [autonomousDeliveryContextContributor],
       });
-      const referenceResolution = await resolveExternalReferences({
-        prompt: trigger.prompt,
-        projectPath: conversation.project_path,
-      });
+      const referenceResolution = trigger.evaluation
+        ? { prompt: trigger.prompt, records: [] }
+        : await resolveExternalReferences({
+          prompt: trigger.prompt,
+          projectPath: conversation.project_path,
+        });
       for (const record of referenceResolution.records) {
         proofLogRepo.append({
           eventType: record.status === 'resolved'
@@ -188,6 +228,10 @@ export class RepositoryHarnessPlanner implements HarnessPlanner {
           traceId,
           contextReport: context.report,
           contextSnapshot: context.snapshot,
+          evaluation: evaluationResolution ? {
+            ...trigger.evaluation!,
+            applicationManifest: evaluationResolution.snapshot.manifest,
+          } : undefined,
         },
       };
     } catch (error) {

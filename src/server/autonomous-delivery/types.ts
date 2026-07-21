@@ -34,9 +34,22 @@ export type DeliveryActionStatus =
 
 export type DeliveryAttemptStatus = 'claimed' | 'running' | 'succeeded' | 'failed' | 'abandoned';
 
+export interface GitHubIssueGoalSource {
+  kind: 'github_issue';
+  externalId: string;
+  url: string;
+  title: string;
+  description: string;
+  repository: string;
+  issueNumber: number;
+  labels: string[];
+  sender: string;
+}
+
 export interface GoalContract {
   goal: string;
   acceptanceCriteria: string[];
+  source?: GitHubIssueGoalSource;
   scope: {
     conversationId: string;
     projectPath?: string;

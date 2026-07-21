@@ -284,4 +284,67 @@ test.describe('群聊发任务全链路', () => {
       deleteAccount(accountId);
     }
   });
+
+  test('required Context failure is visible in the real Web UI debug projection', async ({ page }) => {
+    const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const conversationId = `e2e-required-context-${suffix}`;
+    const title = `E2E required context ${suffix}`;
+    const accountId = `e2e-required-context-account-${suffix}`;
+    const pack = teamPackRepo.getByName('default-team')!;
+    const agentId = 'luigi';
+    const originalAccountIds = pack.roles.find((role) => role.id === agentId)?.accountIds ?? [];
+
+    try {
+      writeAccount({
+        id: accountId,
+        name: 'E2E required context account',
+        authMode: 'oauth',
+        provider: 'openai',
+        models: [],
+        enabled: true,
+        status: 'valid',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+      teamPackRepo.updateRoleConfig(pack.id, agentId, { accountIds: [accountId] });
+      conversationRepo.create({
+        id: conversationId,
+        title,
+        team_pack_id: pack.id,
+        project_path: process.cwd(),
+      });
+
+      const resolution = await new RepositoryHarnessPlanner().prepare({
+        id: `required-context-${suffix}`,
+        source: 'workflow',
+        conversationId,
+        agentId,
+        prompt: 'Continue the delivery loop',
+        deliveryRunId: `missing-delivery-${suffix}`,
+        contextScenario: 'execution',
+      });
+      expect(resolution).toMatchObject({
+        ok: false,
+        outcome: { status: 'failed', reasonCode: 'required_context_missing' },
+      });
+
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      await page.getByRole('button', { name: title, exact: true }).click();
+      await page.locator('[title="展开面板"]').click().catch(() => {});
+      await page.getByRole('tab', { name: '调试', exact: true }).click();
+      await expect(page.getByText('Agent 调试', { exact: true })).toBeVisible();
+
+      const trace = page.locator('article').filter({ hasText: agentId });
+      await expect(trace).toHaveCount(1);
+      await trace.getByRole('button').click();
+      await expect(trace.getByText('必需缺失 1', { exact: true })).toBeVisible();
+      await expect(trace.getByText('省略 1', { exact: true })).toBeVisible();
+      await expect(trace.getByText(/Snapshot ctx_failed_/)).toBeVisible();
+    } finally {
+      getDb().prepare('DELETE FROM observation_span WHERE conversation_id = ?').run(conversationId);
+      conversationRepo.delete(conversationId);
+      teamPackRepo.updateRoleConfig(pack.id, agentId, { accountIds: originalAccountIds });
+      deleteAccount(accountId);
+    }
+  });
 });

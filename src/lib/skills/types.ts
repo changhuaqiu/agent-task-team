@@ -77,6 +77,8 @@ export interface SkillCompileResult {
 export interface SkillCompileRequest {
   skillIds: string[];
   requiredSkillIds?: string[];
+  /** Evaluation/replay mode: require these immutable revisions instead of current active revisions. */
+  revisionIds?: Record<string, string>;
 }
 
 export interface SkillRuntime {

@@ -29,6 +29,7 @@ pnpm dev
 | [06-依赖与集成](./06-dependencies.md) | 第三方依赖、集成点 |
 | [07-架构图](./07-architecture-diagrams.md) | 可视化架构图 |
 | [08-开发规范](./08-review-protocols.md) | 代码审查、发布流程 |
+| [Agent 评估](./agent-evaluation.md) | 冻结快照、持久评估任务、Judge 降级、实验与提案的当前实现 |
 
 ## 快速定位
 

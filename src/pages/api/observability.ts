@@ -11,7 +11,7 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!conversationId) return res.status(400).json({ error: 'conversationId is required' });
   const requestedLimit = typeof req.query.limit === 'string' ? Number(req.query.limit) : 50;
   if (!Number.isFinite(requestedLimit) || requestedLimit < 1) return res.status(400).json({ error: 'limit must be a positive number' });
-  const readFilter = (key: 'agentId' | 'traceId' | 'invocationId') => {
+  const readFilter = (key: 'agentId' | 'traceId' | 'invocationId' | 'taskId' | 'chainId' | 'passId') => {
     const value = req.query[key];
     if (value === undefined) return undefined;
     if (typeof value !== 'string' || !value.trim() || value.length > 200) return null;
@@ -21,6 +21,9 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
     agentId: readFilter('agentId'),
     traceId: readFilter('traceId'),
     invocationId: readFilter('invocationId'),
+    taskId: readFilter('taskId'),
+    chainId: readFilter('chainId'),
+    passId: readFilter('passId'),
   };
   if (Object.values(filters).some(value => value === null)) {
     return res.status(400).json({ error: 'invalid observability filter' });
@@ -29,6 +32,9 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
     agentId: filters.agentId ?? undefined,
     traceId: filters.traceId ?? undefined,
     invocationId: filters.invocationId ?? undefined,
+    taskId: filters.taskId ?? undefined,
+    chainId: filters.chainId ?? undefined,
+    passId: filters.passId ?? undefined,
   };
   if (!conversationRepo.getById(conversationId)) {
     res.setHeader('Cache-Control', 'no-store');

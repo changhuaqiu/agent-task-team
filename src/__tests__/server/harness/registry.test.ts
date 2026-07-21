@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Server as IOServer } from 'socket.io';
-import { registerHarnessCoordinator, submitTaskWakeupToHarness } from '@/server/harness/registry';
+import {
+  registerHarnessCoordinator,
+  scenarioForWakeup,
+  submitTaskWakeupToHarness,
+} from '@/server/harness/registry';
 import type { HarnessCoordinator } from '@/server/harness/coordinator';
 import type { TaskWakeup } from '@/server/task-flow/task-wakeup';
 
@@ -26,6 +30,28 @@ const wakeup: TaskWakeup = {
 };
 
 describe('Harness registry', () => {
+  it.each([
+    ['chain_ready_for_closure', 'system', 'closure'],
+    ['stale_review_gate', 'review_gate', 'recovery'],
+    ['stale_test_gate', 'test_gate', 'recovery'],
+    ['runnable_owned_idle', 'workflow', 'recovery'],
+    ['missing_implementation_evidence', 'system', 'recovery'],
+    ['missing_delivery_evidence', 'system', 'recovery'],
+    ['unblocked_unassigned', 'workflow', 'planning'],
+    ['review_decision_ready', 'review_gate', 'planning'],
+    ['review_requested', 'review_gate', 'code_review'],
+    ['test_requested', 'test_gate', 'verification'],
+    ['owner_ready', 'workflow', 'execution'],
+    ['dependency_resolved', 'workflow', 'execution'],
+  ] as const)('maps %s wakeups to %s', (reasonCode, dispatchSource, scenario) => {
+    expect(scenarioForWakeup({
+      ...wakeup,
+      reasonCode,
+      dispatchSource,
+      metadata: { ...wakeup.metadata, reasonCode },
+    })).toBe(scenario);
+  });
+
   it('submits wakeups without a browser and emits an explicit fallback on planning failure', async () => {
     const emit = vi.fn();
     const io = { to: vi.fn(() => ({ emit })) } as unknown as IOServer;
@@ -41,6 +67,7 @@ describe('Harness registry', () => {
       conversationId: 'conv-1',
       taskId: 'TASK-1',
       agentId: 'luigi',
+      contextScenario: 'execution',
     }));
     await completion;
     await Promise.resolve();

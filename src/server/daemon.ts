@@ -27,6 +27,7 @@ import {
 } from './agent/acp/runtimeSetup';
 import { createBackend as createAcpBackend } from './agent/acp/catalog';
 import { checkCapabilities } from './agent/capabilityRouter';
+import { buildOpenCodeRunArgs } from './agent/opencode-prompt-delivery';
 import type { AgentEvent, AgentBackend } from './agent/types';
 import { withDoneGuarantee } from './agent/with-done-guarantee';
 import { isSkillTool } from './skill-tool-router';
@@ -56,8 +57,9 @@ import {
   type HarnessOutcome,
   type HarnessSubmission,
 } from './harness';
+import { finalizeRuntimeContextSnapshot } from './harness/runtime-context-snapshot';
 import { checkValidExit } from './harness/valid-exit';
-import type { ContextReport } from '../lib/agent-context/ContextManager';
+import type { ContextReport, ContextSnapshot } from '../lib/agent-context/ContextManager';
 import type { ContextScenario } from '../lib/agent-context/scenarioResolver';
 import { generateSpanId, generateTraceId, observationSpanRepo } from './repositories/observation-span-repo';
 import { spanPayloadRepo } from './repositories/span-payload-repo';
@@ -66,6 +68,14 @@ import { capturePromptPayloads } from './observability/prompt-observation';
 import { teamLogProjection } from './team-log/TeamLogProjection';
 import { renderTeamLogEnvelope } from '../lib/agent-context/teamLog';
 import { ProcessStartGuard } from './process-start-guard';
+import { agentEvaluation, startEvaluationWorker } from './evaluation/agent-evaluation';
+import { digest } from './evaluation/defaults';
+import { transitionCaseExecution } from './evaluation/application-snapshot';
+import { EvaluationCaseRunner } from './evaluation/case-runner';
+import {
+  allowsProductionCollaborationEffects,
+  evaluationSafeTextSink,
+} from './evaluation/runtime-isolation';
 import { ensureAutonomousDeliveryRuntime } from './autonomous-delivery/bootstrap';
 import { registerAutonomousDeliveryE2EDriver } from './testing/autonomous-delivery-e2e-driver';
 
@@ -100,6 +110,8 @@ type TerminalStartPayload = {
   teamLogUpToEntryId?: string;
   traceId?: string;
   contextReport?: ContextReport;
+  contextSnapshot?: ContextSnapshot;
+  evaluation?: HarnessDispatchPlan['evaluation'];
 };
 
 export function submitSocketTerminalStart(
@@ -200,6 +212,7 @@ function resolveOpenCodeProjectSkillPaths(projectPath?: string): string[] {
 }
 
 export default function registerDaemon(io: IOServer) {
+  startEvaluationWorker();
   const activeProcesses = new Map<string, { kill: () => void }>();
   const processKey = (agentId: string, projectId?: string) => `${agentId}@${projectId || 'default'}`;
   const processStartGuard = new ProcessStartGuard();
@@ -248,6 +261,8 @@ export default function registerDaemon(io: IOServer) {
           teamLogUpToEntryId: plan.teamLogUpToEntryId,
           traceId: plan.traceId,
           contextReport: plan.contextReport,
+          contextSnapshot: plan.contextSnapshot,
+          evaluation: plan.evaluation,
         }, (event, data) => io.to(plan.trigger.conversationId).emit(event, data));
         return { status: 'accepted' };
       },
@@ -256,6 +271,15 @@ export default function registerDaemon(io: IOServer) {
   registerHarnessCoordinator(io, harnessCoordinator);
   registerAutonomousDeliveryE2EDriver(io);
   ensureAutonomousDeliveryRuntime(io, `daemon:${LOCAL_DAEMON_NODE_ID}`);
+  const evaluationCaseRunner = new EvaluationCaseRunner(harnessCoordinator);
+  const evaluationRunnerTimer = setInterval(() => {
+    try {
+      evaluationCaseRunner.pump();
+    } catch (error) {
+      console.error('[evaluation] case runner error:', error);
+    }
+  }, 2_000);
+  evaluationRunnerTimer.unref();
 
   dispatchGateway.ensureRuntimeNode({
     id: LOCAL_DAEMON_NODE_ID,
@@ -619,6 +643,8 @@ export default function registerDaemon(io: IOServer) {
         teamLogUpToEntryId,
         traceId: requestedTraceId,
         contextReport,
+        contextSnapshot,
+        evaluation,
       }: TerminalStartPayload, emitToRequester = broadcast) => {
       const startKey = processKey(agentId, projectId || conversationId);
       if (!processStartGuard.claim(startKey, activeProcesses.has(startKey), Boolean(force))) {
@@ -639,7 +665,9 @@ export default function registerDaemon(io: IOServer) {
       let rootObservationSpanId: string | undefined;
       let messageObservationSpanId: string | undefined;
       let completionObservationBuffer = '';
+      let evaluationObservedDigest: string | undefined;
       let thinkingObservationBuffer = '';
+      let runtimeContextObservationRecorded = false;
       const captureThinking = isThinkingCaptureEnabled();
       const openToolSpans = new Map<string, string[]>();
       let finishObservation: (status: 'ok' | 'error' | 'cancelled', errorMessage?: string) => void = () => {};
@@ -655,7 +683,7 @@ export default function registerDaemon(io: IOServer) {
       const sessionConvId = conversationId || projectId!;
       let prompt = incomingPrompt;
       let effectiveTeamLogUpToEntryId = teamLogUpToEntryId;
-      if (!effectiveTeamLogUpToEntryId) {
+      if (!effectiveTeamLogUpToEntryId && !evaluation) {
         const envelope = teamLogProjection.buildEnvelope(
           sessionConvId,
           agentId,
@@ -779,7 +807,8 @@ export default function registerDaemon(io: IOServer) {
 
       // --- Session & Invocation tracking (SQLite) ---
       // Use conversationId for session scoping (project-level session per agent)
-      let existingSession = sessionRepo.findActiveByConversation(agentId, sessionConvId);
+      const sessionIsolationKey = evaluation ? `evaluation:${evaluation.executionId}` : '';
+      let existingSession = sessionRepo.findActiveByConversation(agentId, sessionConvId, sessionIsolationKey);
 
       if (existingSession && sessionRepo.sealIfLatestInvocationLoadFailed(existingSession.id)) {
         console.warn(
@@ -796,6 +825,7 @@ export default function registerDaemon(io: IOServer) {
           agentId,
           taskId: taskId || undefined,
           seq: nextSeq,
+          isolationKey: sessionIsolationKey,
         });
       }
       if (
@@ -863,6 +893,55 @@ export default function registerDaemon(io: IOServer) {
           });
         } catch (error) {
           console.warn('[observability] failed to capture prompt payload:', error);
+        }
+      };
+
+      const recordRuntimeContextObservation = (input: {
+        transport: 'bridge' | 'tmux' | 'acp';
+        systemPromptChannel: 'none' | 'bridge' | 'instructions' | 'backend' | 'inline';
+        prompt: string;
+        systemPrompt?: string;
+      }) => {
+        if (
+          runtimeContextObservationRecorded
+          || !contextReport
+          || !invocationTraceId
+          || !rootObservationSpanId
+        ) return;
+        try {
+          const runtimeSnapshot = contextSnapshot
+            ? finalizeRuntimeContextSnapshot(contextSnapshot, input)
+            : undefined;
+          const contextSpan = observationSpanRepo.start({
+            traceId: invocationTraceId,
+            parentSpanId: rootObservationSpanId,
+            name: 'context.runtime',
+            kind: 'context',
+            conversationId: sessionConvId,
+            taskId,
+            agentId,
+            invocationId: invocation.id,
+            envelopeId: controlEnvelopeId,
+            chainId,
+            passId,
+            attributes: {
+              'ath.schema.version': 1,
+              report: {
+                ...contextReport,
+                snapshotId: runtimeSnapshot?.id ?? contextReport.snapshotId,
+              },
+              snapshot: runtimeSnapshot ? {
+                ...runtimeSnapshot,
+                compiledPrompt: undefined,
+              } : undefined,
+              loadedSkills: contextReport.loadedSkills,
+              availableTools: contextReport.availableTools,
+            },
+          });
+          observationSpanRepo.finish(contextSpan.span_id, 'ok');
+          runtimeContextObservationRecorded = true;
+        } catch (error) {
+          console.warn('[observability] failed to record runtime context:', error);
         }
       };
 
@@ -936,6 +1015,10 @@ export default function registerDaemon(io: IOServer) {
             attributes: {
               'ath.schema.version': 1,
               report: contextReport,
+              snapshot: contextSnapshot ? {
+                ...contextSnapshot,
+                compiledPrompt: undefined,
+              } : undefined,
               loadedSkills: contextReport.loadedSkills,
               availableTools: contextReport.availableTools,
             },
@@ -962,13 +1045,10 @@ export default function registerDaemon(io: IOServer) {
       const primaryArgs = (() => {
         switch (engine) {
           case 'opencode': {
-            const a = ['run', '--format', 'json'];
-            if (effectiveSessionId) a.push('--session', effectiveSessionId);
-            const merged = systemPrompt
-              ? `<user-directive priority="override">\nIDENTITY OVERRIDE — per your own rule "User instructions override these defaults":\n${systemPrompt}\n</user-directive>\n\n${prompt || ''}`
-              : (prompt || '');
-            a.push(merged);
-            return a;
+            return buildOpenCodeRunArgs({
+              prompt: prompt || '',
+              sessionId: effectiveSessionId,
+            });
           }
           case 'claude': {
             const a = ['-p', prompt || '', '--output-format', 'stream-json'];
@@ -993,25 +1073,27 @@ export default function registerDaemon(io: IOServer) {
       let runtimeConfigEnv: Record<string, string> = {};
 
       if (engine === 'opencode') {
-        const projectSkillPaths = resolveOpenCodeProjectSkillPaths(projectPath);
+        // Offline evaluation must use only the frozen Harness context. Loading
+        // project-local Skills or authorizing the live shared workspace would
+        // leak mutable production state into the isolated worktree.
+        const projectSkillPaths = evaluation ? [] : resolveOpenCodeProjectSkillPaths(projectPath);
         const account = accountId ? await readAccount(accountId) : undefined;
         const cred = accountId ? await readCredential(accountId) : undefined;
-        if ((account && cred?.apiKey) || systemPrompt || projectSkillPaths.length > 0) {
-          const invocationId = makeInvocationId(agentId);
-          const result = generateRuntimeConfig(invocationId, {
-            provider: account?.provider as RuntimeAccountProvider | undefined,
-            apiKey: cred?.apiKey,
-            baseUrl: account?.baseUrl,
-            models: account?.models,
-            defaultModel: account?.models?.[0],
-            systemPrompt: systemPrompt || undefined,
-            skillPaths: projectSkillPaths,
-            managedSkillNames: contextReport?.loadedSkills ?? [],
-          });
-          if (result.generated) {
-            runtimeConfigDir = result.configDir;
-            runtimeConfigEnv = result.env;
-          }
+        const invocationId = makeInvocationId(agentId);
+        const result = generateRuntimeConfig(invocationId, {
+          provider: account?.provider as RuntimeAccountProvider | undefined,
+          apiKey: cred?.apiKey,
+          baseUrl: account?.baseUrl,
+          models: account?.models,
+          defaultModel: account?.models?.[0],
+          systemPrompt: systemPrompt || undefined,
+          skillPaths: projectSkillPaths,
+          managedSkillNames: contextReport?.loadedSkills ?? [],
+          allowedExternalDirectories: evaluation ? [] : [sharedProjectDir],
+        });
+        if (result.generated) {
+          runtimeConfigDir = result.configDir;
+          runtimeConfigEnv = result.env;
         }
       }
 
@@ -1021,8 +1103,9 @@ export default function registerDaemon(io: IOServer) {
       let invocationSessionRecorded = false;
       let observedRuntimeSessionId: string | undefined;
       let hasBackgroundChildActivity = false;
-      const persistedText = new StreamTextPersistence({
-          create(content) {
+      const allowsProductionEffects = allowsProductionCollaborationEffects(evaluation);
+      const persistedText = new StreamTextPersistence(evaluationSafeTextSink(evaluation, {
+        create(content) {
             const id = messageRepo.append({
             conversationId: sessionConvId,
             taskId,
@@ -1037,7 +1120,7 @@ export default function registerDaemon(io: IOServer) {
           return id;
         },
         append: (messageId, content) => messageRepo.appendTextChunk(messageId, content),
-      });
+      }));
 
       // --- Timeout control ---
       // codex ACP startup ~117s (WebSocket→HTTPS fallback). Floor BOTH the
@@ -1083,6 +1166,11 @@ export default function registerDaemon(io: IOServer) {
 
         const accumulated = agentResponseBuffer.get(responseBufferKey) ?? finalContent;
         agentResponseBuffer.delete(responseBufferKey);
+        // Held-out output must never drive the production collaboration loop.
+        // Evaluation completion is reconciled through eval_case_execution after
+        // the invocation finishes; it must not materialize TeamLog entries,
+        // consume production cursors, scan @mentions, or advance A2A chains.
+        if (!allowsProductionEffects) return;
         try {
           // Watchers are best-effort on every platform. The completed-turn
           // boundary is the consistency barrier before handoff scanning.
@@ -1090,8 +1178,10 @@ export default function registerDaemon(io: IOServer) {
         } catch (error) {
           console.warn(`[task-sync] completion barrier failed for ${sessionConvId}:`, error);
         }
+        let validExit = true;
         if (contextScenario) {
           const exit = checkValidExit(contextScenario, accumulated);
+          validExit = exit.valid;
           if (!exit.valid) {
             proofLogRepo.append({
               eventType: 'no_valid_exit',
@@ -1106,6 +1196,42 @@ export default function registerDaemon(io: IOServer) {
                 outcomeSummary: accumulated?.slice(0, 200) ?? '',
               },
             });
+          }
+        }
+        if (contextScenario === 'closure' && validExit && sessionConvId && taskId) {
+          try {
+            const closureProof = proofLogRepo.findByType({
+              eventType: 'chain_closure_dispatched',
+              conversationId: sessionConvId,
+              taskId,
+            }).at(-1);
+            const evaluationTriggerId = closureProof?.id ?? `closure:${sessionConvId}:${taskId}:${chainId ?? 'no-chain'}`;
+            const sampling = agentEvaluation.shouldEvaluateClosure(sessionConvId, evaluationTriggerId);
+            if (!sampling.allowed) {
+              proofLogRepo.append({
+                eventType: 'eval.skipped',
+                conversationId: sessionConvId,
+                taskId,
+                chainId,
+                reasonCode: sampling.reason,
+                metadata: { triggerId: evaluationTriggerId },
+              });
+            } else {
+              const submitted = agentEvaluation.submit({
+                conversationId: sessionConvId,
+                triggerId: evaluationTriggerId,
+                rootTaskId: taskId,
+                chainId,
+                evidenceCutoffAt: new Date().toISOString(),
+                mode: 'online',
+              });
+              io.to(sessionConvId).emit('evaluation:queued', {
+                conversationId: sessionConvId,
+                runId: submitted.runId,
+              });
+            }
+          } catch (error) {
+            console.warn(`[evaluation] closure submit failed for ${sessionConvId}/${taskId}:`, error);
           }
         }
         if (effectiveTeamLogUpToEntryId) {
@@ -1371,7 +1497,7 @@ export default function registerDaemon(io: IOServer) {
           } catch (dbErr) {
             console.error(`[daemon] Failed to persist text message for ${agentId}:`, dbErr);
           }
-        } else if (event.type === 'tool_use' && event.tool) {
+        } else if (allowsProductionEffects && event.type === 'tool_use' && event.tool) {
           try {
           messageRepo.append({
             conversationId: sessionConvId,
@@ -1413,6 +1539,13 @@ export default function registerDaemon(io: IOServer) {
           agentId,
           data: `\x1b[33m$ opencode-bridge ${url}\x1b[0m\r\n`,
         });
+        recordRuntimeContextObservation({
+          transport: 'bridge',
+          systemPromptChannel: systemPrompt ? 'bridge' : 'none',
+          prompt: prompt || '',
+          systemPrompt: systemPrompt || undefined,
+        });
+        capturePromptObservation(prompt || '', systemPrompt || undefined);
 
         try {
           const r = await fetch(`${url}/run`, {
@@ -1526,6 +1659,13 @@ export default function registerDaemon(io: IOServer) {
           agentPaneRegistry.register(invocationId, worktreeId, paneId, 'daemon');
 
           const envExports = Object.entries(mergedEnv).filter(([k]) => k !== 'PATH' && k !== 'HOME' && k !== 'USER').map(([k, v]) => `${k}='${String(v).replace(/'/g, "'\\''")}'`).join(' ');
+          recordRuntimeContextObservation({
+            transport: 'tmux',
+            systemPromptChannel: engine === 'opencode' && systemPrompt ? 'instructions' : 'inline',
+            prompt: JSON.stringify({ command: primaryCommand, args: primaryArgs }),
+            systemPrompt: systemPrompt || undefined,
+          });
+          capturePromptObservation(prompt || '', systemPrompt || undefined);
           const shellCmd = `${envExports ? envExports + ' ' : ''}${[primaryCommand, ...primaryArgs].map((s) => `'${s.replace(/'/g, "'\\''")}'`).join(' ')}`;
           await tmuxGateway.execInPane(worktreeId, paneId, shellCmd);
           await tmuxGateway.setPaneReadOnly(worktreeId, paneId, true);
@@ -1578,33 +1718,45 @@ export default function registerDaemon(io: IOServer) {
       let effectiveUseWorktree = useWorktree ?? false;
       let worktreeStartPoint: string | undefined;
       let worktreeRepoRoot: string | undefined;
+      let effectiveRepoRoot = projectPath;
+      if (evaluation) {
+        effectiveSlug = `eval-${evaluation.executionId}`.replace(/[^A-Za-z0-9._-]/g, '-');
+        effectiveUseWorktree = true;
+        effectiveRepoRoot = String(
+          (evaluation.applicationManifest as { projectPath?: unknown }).projectPath ?? projectPath ?? '',
+        ).trim() || undefined;
+        worktreeStartPoint = String(
+          (evaluation.applicationManifest as { codeRevision?: unknown }).codeRevision ?? '',
+        ).trim() || undefined;
+      }
       const requiresGitWorktree = effectiveUseWorktree
-        || Boolean(conversationRepo.getById(sessionConvId)?.git_repo_root);
+        || Boolean(conversationRepo.getById(sessionConvId)?.git_repo_root)
+        || Boolean(evaluation);
 
-      if (projectPath) {
+      if (effectiveRepoRoot) {
         try {
           const { WorktreeManager } = await import('./worktree-manager');
-          const isGit = await WorktreeManager.isGitRepo(projectPath);
+          const isGit = await WorktreeManager.isGitRepo(effectiveRepoRoot);
           if (!isGit && requiresGitWorktree) {
             throw new Error('configured project path is not a Git worktree');
           }
           if (isGit) {
-            const detectedRepoRoot = await WorktreeManager.getRepoRoot(projectPath) ?? undefined;
-            const detectedHead = await WorktreeManager.getHead(projectPath) ?? undefined;
+            const detectedRepoRoot = await WorktreeManager.getRepoRoot(effectiveRepoRoot) ?? undefined;
+            const detectedHead = await WorktreeManager.getHead(effectiveRepoRoot) ?? undefined;
             if (!detectedRepoRoot || !detectedHead) {
               throw new Error('git repo root or HEAD could not be resolved');
             }
             effectiveSlug ??= conversationId || projectId || 'default';
             effectiveUseWorktree = true;
             worktreeRepoRoot = detectedRepoRoot;
-            worktreeStartPoint = detectedHead;
+            worktreeStartPoint ??= detectedHead;
             console.log(`[daemon] git repo detected at ${worktreeRepoRoot}, using worktree slug=${effectiveSlug}`);
           }
         } catch (e) {
           if (requiresGitWorktree) {
             throw new Error(`worktree_baseline_unavailable: ${(e as Error).message}`);
           }
-          console.warn(`[daemon] git detection failed for ${projectPath}, using configured non-Git directory:`, (e as Error).message);
+          console.warn(`[daemon] git detection failed for ${effectiveRepoRoot}, using configured non-Git directory:`, (e as Error).message);
         }
       } else if (requiresGitWorktree) {
         throw new Error('worktree_baseline_unavailable: Git-backed dispatch requires projectPath');
@@ -1626,9 +1778,50 @@ export default function registerDaemon(io: IOServer) {
       if (taskId && taskRepo.getById(taskId)?.conversation_id === sessionConvId) {
         taskRepo.update(taskId, { work_dir: taskProjectDir });
       }
-      ensureTasksMdProjection(taskProjectDir, taskRepo.getByConversation(sessionConvId));
-      startTaskWatcher(taskProjectDir, sessionConvId, io);
-      for (const workspaceDir of new Set([sharedProjectDir, wd])) {
+      const projectedTasks = evaluation
+        ? taskRepo.getByConversation(sessionConvId).filter((item) => item.id === taskId)
+        : taskRepo.getByConversation(sessionConvId);
+      ensureTasksMdProjection(taskProjectDir, projectedTasks);
+      if (!evaluation) startTaskWatcher(taskProjectDir, sessionConvId, io);
+      if (evaluation && effectiveSlug) {
+        const { WorktreeManager } = await import('./worktree-manager');
+        const observedHead = await WorktreeManager.getHead(wd);
+        if (!observedHead) {
+          throw new Error('evaluation_manifest_mismatch: worktree HEAD is unavailable');
+        }
+        const targetManifest = evaluation.applicationManifest as Record<string, unknown>;
+        evaluationObservedDigest = digest({ ...targetManifest, codeRevision: observedHead });
+        if (evaluationObservedDigest !== evaluation.targetManifestDigest) {
+          throw new Error(
+            `evaluation_manifest_mismatch: target=${evaluation.targetManifestDigest}, observed=${evaluationObservedDigest}`,
+          );
+        }
+        const proof = proofLogRepo.append({
+          eventType: 'eval.execution.started',
+          conversationId: sessionConvId,
+          taskId,
+          agentId,
+          metadata: {
+            executionId: evaluation.executionId,
+            applicationSnapshotId: evaluation.applicationSnapshotId,
+            targetManifestDigest: evaluation.targetManifestDigest,
+            observedManifestDigest: evaluationObservedDigest,
+            worktreeHead: observedHead,
+          },
+        });
+        transitionCaseExecution({
+          id: evaluation.executionId,
+          conversationId: sessionConvId,
+          status: 'running',
+          taskId,
+          harnessTriggerId: evaluation.executionId,
+          invocationId: invocation.id,
+          traceId: invocationTraceId,
+          proofEventId: proof.id,
+          observedManifestDigest: evaluationObservedDigest,
+        });
+      }
+      for (const workspaceDir of new Set(evaluation ? [] : [sharedProjectDir, wd])) {
         try {
           teamLogProjection.materialize(sessionConvId, workspaceDir);
         } catch (error) {
@@ -1637,10 +1830,16 @@ export default function registerDaemon(io: IOServer) {
       }
 
       // Build prompt with worktree context if applicable
-      let promptWithWorkdir = (prompt || '') + `\n\n[系统] 任务看板路径: ${join(taskProjectDir, '.ath')}/TASKS.md`;
+      let promptWithWorkdir = evaluation
+        ? `${prompt || ''}\n\n[系统] 这是隔离评估任务。只使用当前 worktree 和本次任务上下文，不读取项目中的其他会话状态。`
+        : (prompt || '') + `\n\n[系统] 任务看板路径: ${join(taskProjectDir, '.ath')}/TASKS.md`;
       if (effectiveUseWorktree && effectiveSlug) {
-        const branchName = workdirManager.getWorktreeManager(worktreeRepoRoot).getBranchName(effectiveSlug);
-        promptWithWorkdir += `\n[系统] 当前在 Git Worktree 分支 ${branchName} 下工作，工作目录: ${wd}`;
+        if (evaluation) {
+          promptWithWorkdir += `\n[系统] 当前在绑定快照 commit 的隔离 Git Worktree 中执行，工作目录: ${wd}`;
+        } else {
+          const branchName = workdirManager.getWorktreeManager(worktreeRepoRoot).getBranchName(effectiveSlug);
+          promptWithWorkdir += `\n[系统] 当前在 Git Worktree 分支 ${branchName} 下工作，工作目录: ${wd}`;
+        }
       }
 
       // --- ACP-only backend construction (Task 10, spec §7.4/§8) ---
@@ -1710,7 +1909,9 @@ export default function registerDaemon(io: IOServer) {
         prompt: promptWithWorkdir,
         opts: {
           cwd: executeCwd,
-          systemPrompt: systemPrompt || undefined,
+          // OpenCode loads the same system context from OPENCODE_CONFIG
+          // instructions. Other ACP runtimes keep the backend system channel.
+          systemPrompt: engine === 'opencode' ? undefined : systemPrompt || undefined,
           resumeSessionId: effectiveSessionId || undefined,
           timeout: timeoutMs > 0 ? timeoutMs : undefined,
           env: executeEnv,
@@ -1722,7 +1923,22 @@ export default function registerDaemon(io: IOServer) {
           capsResult.warnings.map((w) => `${w.field}→${w.action}`),
         );
       }
-      capturePromptObservation(capsResult.prompt, capsResult.opts.systemPrompt);
+      recordRuntimeContextObservation({
+        transport: 'acp',
+        systemPromptChannel: engine === 'opencode' && systemPrompt
+          ? 'instructions'
+          : capsResult.opts.systemPrompt
+            ? 'backend'
+            : 'none',
+        prompt: capsResult.prompt,
+        systemPrompt: engine === 'opencode'
+          ? systemPrompt || undefined
+          : capsResult.opts.systemPrompt,
+      });
+      capturePromptObservation(
+        capsResult.prompt,
+        engine === 'opencode' ? systemPrompt || undefined : capsResult.opts.systemPrompt,
+      );
       const { events: rawEvents, result, kill } = backend.execute(capsResult.prompt, capsResult.opts);
       const events = withDoneGuarantee(rawEvents, result);
 
@@ -1804,8 +2020,43 @@ export default function registerDaemon(io: IOServer) {
 
           if (final.status === 'completed') {
             markEnvelopeCompleted();
+            if (evaluation) {
+              if (taskId) taskRepo.updateStatus(taskId, 'completed');
+              const submitted = agentEvaluation.submit({
+                conversationId: sessionConvId,
+                rootTaskId: taskId,
+                triggerId: evaluation.executionId,
+                caseId: evaluation.caseId,
+                applicationManifest: evaluation.applicationManifest as Record<string, unknown>,
+                mode: 'offline',
+              });
+              transitionCaseExecution({
+                id: evaluation.executionId,
+                conversationId: sessionConvId,
+                status: 'evaluating',
+                invocationId: invocation.id,
+                traceId: invocationTraceId,
+                evalRunId: submitted.runId,
+                observedManifestDigest: evaluationObservedDigest,
+              });
+              sessionRepo.seal(agentSession.id, 'evaluation_execution_completed');
+            }
           } else {
             markEnvelopeFailed(final.reasonCode ?? (final.status === 'timeout' ? 'timeout' : 'runtime_failed'));
+            if (evaluation) {
+              if (taskId) taskRepo.updateStatus(taskId, 'blocked', final.error ?? final.reasonCode);
+              transitionCaseExecution({
+                id: evaluation.executionId,
+                conversationId: sessionConvId,
+                status: 'failed',
+                invocationId: invocation.id,
+                traceId: invocationTraceId,
+                observedManifestDigest: evaluationObservedDigest,
+                errorCode: final.reasonCode ?? 'runtime_failed',
+                errorMessage: final.error,
+              });
+              sessionRepo.seal(agentSession.id, 'evaluation_execution_failed');
+            }
           }
 
           broadcast('terminal:exit', {
@@ -1828,6 +2079,24 @@ export default function registerDaemon(io: IOServer) {
           finishMessageObservation('error', undefined, undefined, (err as Error)?.message || 'spawn_failed');
           // 失败不 seal session（保持 active，下次 @ resume，id 不变）—— specs/agent-session-stability
           markEnvelopeFailed('spawn_failed');
+          if (evaluation) {
+            try {
+              if (taskId) taskRepo.updateStatus(taskId, 'blocked', (err as Error)?.message);
+              transitionCaseExecution({
+                id: evaluation.executionId,
+                conversationId: sessionConvId,
+                status: 'failed',
+                invocationId: invocation.id,
+                traceId: invocationTraceId,
+                observedManifestDigest: evaluationObservedDigest,
+                errorCode: 'spawn_failed',
+                errorMessage: (err as Error)?.message,
+              });
+              sessionRepo.seal(agentSession.id, 'evaluation_execution_failed');
+            } catch (transitionError) {
+              console.error('[evaluation] failed to record execution failure:', transitionError);
+            }
+          }
           broadcast('terminal:exit', { agentId, code: 1, command, reasonCode: 'spawn_failed' });
           agentResponseBuffer.delete(responseBufferKey);
           activeProcesses.delete(processKey(agentId, projectId));
@@ -1839,6 +2108,24 @@ export default function registerDaemon(io: IOServer) {
       } catch (err) {
         console.error(`[daemon] terminal:start error for agent=${agentId}:`, err);
         finishObservation('error', 'internal_error');
+        if (evaluation) {
+          try {
+            const current = getDb().prepare('SELECT status FROM eval_case_execution WHERE id=?')
+              .get(evaluation.executionId) as { status: string } | undefined;
+            if (current && !['completed', 'failed', 'cancelled'].includes(current.status)) {
+              transitionCaseExecution({
+                id: evaluation.executionId,
+                conversationId: conversationId || projectId || '',
+                status: 'failed',
+                observedManifestDigest: evaluationObservedDigest,
+                errorCode: 'internal_error',
+                errorMessage: (err as Error)?.message,
+              });
+            }
+          } catch (transitionError) {
+            console.error('[evaluation] failed to record terminal setup failure:', transitionError);
+          }
+        }
         if (controlEnvelopeId) {
           dispatchGateway.markFailed(controlEnvelopeId, 'internal_error');
           const receiptConversationId = conversationId || projectId || 'default';

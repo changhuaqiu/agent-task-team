@@ -149,6 +149,39 @@ describe('generateRuntimeConfig: config JSON structure', () => {
     expect(config.permission).toEqual({ skill: { '*': 'allow' } });
   });
 
+  it('allows only the current conversation workspace as an external directory', () => {
+    const result = generate({
+      systemPrompt: 'system',
+      allowedExternalDirectories: [
+        '/var/lib/agent-task-team/workspaces/conversation-1/',
+        '/var/lib/agent-task-team/workspaces/conversation-1/',
+      ],
+    });
+
+    const config = JSON.parse(fs.readFileSync(result.configPath!, 'utf-8'));
+    expect(config.permission).toEqual({
+      external_directory: {
+        '/var/lib/agent-task-team/workspaces/conversation-1/**': 'allow',
+      },
+    });
+  });
+
+  it('combines skill and scoped external-directory permissions', () => {
+    const result = generate({
+      systemPrompt: 'system',
+      skillPaths: ['/repo/.opencode/skills'],
+      allowedExternalDirectories: ['/workspace/conversation-1'],
+    });
+
+    const config = JSON.parse(fs.readFileSync(result.configPath!, 'utf-8'));
+    expect(config.permission).toEqual({
+      skill: { '*': 'allow' },
+      external_directory: {
+        '/workspace/conversation-1/**': 'allow',
+      },
+    });
+  });
+
   it('can generate skill-only config without provider credentials', () => {
     const result = generate({
       systemPrompt: 'system',

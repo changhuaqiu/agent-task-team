@@ -5,6 +5,7 @@ import { applyMigrations } from './migrate';
 import { seedPresetSkills } from '../seed-skills';
 import { seedPresetAgents } from './seed-agents';
 import { seedTeamPacks } from '../seed-team-packs';
+import { seedEvaluationDefaults } from '../evaluation/defaults';
 
 let db: Database.Database | null = null;
 
@@ -27,6 +28,7 @@ export function getDb(): Database.Database {
   seedPresetAgents();
   seedPresetSkills();
   seedTeamPacks();
+  seedEvaluationDefaults(db);
   return db;
 }
 
@@ -43,6 +45,7 @@ export function createTestDb(): Database.Database {
   testDb.pragma('foreign_keys = ON');
   testDb.pragma('busy_timeout = 5000');
   applyMigrations(testDb);
+  seedEvaluationDefaults(testDb);
   return testDb;
 }
 

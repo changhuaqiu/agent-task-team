@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import type Database from 'better-sqlite3';
+import Database from 'better-sqlite3';
 import { createTestDb } from './index';
 import { applyMigrations } from './migrate';
 
@@ -25,6 +25,9 @@ describe('SQLite Foundation', () => {
     expect(tableNames).toContain('agent_session');
     expect(tableNames).toContain('invocation');
     expect(tableNames).toContain('agent_event');
+    expect(tableNames).toContain('eval_review_queue');
+    expect(tableNames).toContain('eval_pairwise_round');
+    expect(tableNames).toContain('github_issue_ingress');
   });
 
   it('creates indexes', () => {
@@ -44,6 +47,24 @@ describe('SQLite Foundation', () => {
       v: number;
     };
     expect(row.v).toBeGreaterThanOrEqual(1);
+  });
+
+  it('enforces GitHub Issue delivery and repository Issue uniqueness', () => {
+    const indexes = db.prepare(
+      "PRAGMA index_list('github_issue_ingress')",
+    ).all() as Array<{ name: string; unique: number }>;
+    const uniqueColumns = indexes
+      .filter((index) => index.unique === 1)
+      .map((index) => (
+        db.prepare(`PRAGMA index_info('${index.name.replaceAll("'", "''")}')`)
+          .all() as Array<{ seqno: number; name: string }>
+      )
+        .sort((left, right) => left.seqno - right.seqno)
+        .map((column) => column.name)
+        .join(','));
+
+    expect(uniqueColumns).toContain('delivery_id');
+    expect(uniqueColumns).toContain('repository_full_name,issue_number');
   });
 
   it('can insert and query a conversation', () => {
@@ -142,5 +163,99 @@ describe('SQLite Foundation', () => {
     };
     expect(before.v).toBeGreaterThanOrEqual(1);
     expect(after.v).toBe(before.v);
+  });
+
+  it('repairs v26-v40 checkpoints whose migration collision skipped autonomous delivery tables', () => {
+    for (const watermark of [26, 30, 37, 40]) {
+      const checkpoint = createTestDb();
+      try {
+        checkpoint.pragma('foreign_keys = OFF');
+        checkpoint.exec(`
+          DROP TABLE autonomous_delivery_receipt;
+          DROP TABLE autonomous_delivery_attempt;
+          DROP TABLE autonomous_delivery_action;
+          DROP TABLE autonomous_delivery_run;
+          DELETE FROM _schema_version WHERE version > ${watermark};
+        `);
+        checkpoint.pragma('foreign_keys = ON');
+
+        applyMigrations(checkpoint);
+
+        const tables = checkpoint.prepare(
+          "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'autonomous_delivery_%'",
+        ).all() as Array<{ name: string }>;
+        expect(new Set(tables.map((table) => table.name))).toEqual(new Set([
+          'autonomous_delivery_run',
+          'autonomous_delivery_action',
+          'autonomous_delivery_attempt',
+          'autonomous_delivery_receipt',
+        ]));
+        expect(checkpoint.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
+          .toEqual({ version: 42 });
+        expect(checkpoint.pragma('foreign_key_check')).toEqual([]);
+      } finally {
+        checkpoint.close();
+      }
+    }
+  });
+
+  it('rebuilds the old root task FK while preserving autonomous run and action rows', () => {
+    db.pragma('foreign_keys = OFF');
+    db.exec(`
+      DROP TABLE autonomous_delivery_run;
+      CREATE TABLE autonomous_delivery_run (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL REFERENCES conversation(id) ON DELETE CASCADE,
+        root_task_id TEXT REFERENCES task(id),
+        status TEXT NOT NULL,
+        current_stage TEXT NOT NULL,
+        goal_contract_json TEXT NOT NULL,
+        repair_cycle INTEGER NOT NULL DEFAULT 0,
+        escalation_code TEXT,
+        escalation_detail TEXT,
+        delivery_bundle_json TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        completed_at TEXT
+      );
+      DELETE FROM _schema_version WHERE version >= 41;
+    `);
+    db.pragma('foreign_keys = ON');
+    const now = new Date().toISOString();
+    db.prepare(`INSERT INTO conversation (id,title,status,created_at,updated_at)
+      VALUES ('conv-checkpoint','Checkpoint','active',?,?)`).run(now, now);
+    db.prepare(`INSERT INTO task (id,conversation_id,title,status,agent_id,created_at,updated_at)
+      VALUES ('task-checkpoint','conv-checkpoint','Root','pending','agent',?,?)`).run(now, now);
+    db.prepare(`INSERT INTO autonomous_delivery_run
+      (id,conversation_id,root_task_id,status,current_stage,goal_contract_json,created_at,updated_at)
+      VALUES ('run-checkpoint','conv-checkpoint','task-checkpoint','executing','executing','{}',?,?)`)
+      .run(now, now);
+    db.prepare(`INSERT INTO autonomous_delivery_action
+      (id,run_id,kind,idempotency_key,status,not_before,max_attempts,created_at,updated_at)
+      VALUES ('action-checkpoint','run-checkpoint','advance_tasks','checkpoint-action','ready',?,3,?,?)`)
+      .run(now, now, now);
+
+    applyMigrations(db);
+
+    const rootTaskForeignKey = (db.pragma('foreign_key_list(autonomous_delivery_run)') as Array<{
+      from: string;
+      on_delete: string;
+    }>).find((foreignKey) => foreignKey.from === 'root_task_id');
+    expect(rootTaskForeignKey?.on_delete).toBe('SET NULL');
+    expect(db.prepare('SELECT revision FROM autonomous_delivery_run WHERE id=?').get('run-checkpoint'))
+      .toEqual({ revision: 0 });
+    expect(db.prepare('SELECT run_id FROM autonomous_delivery_action WHERE id=?').get('action-checkpoint'))
+      .toEqual({ run_id: 'run-checkpoint' });
+
+    db.prepare('DELETE FROM task WHERE id=?').run('task-checkpoint');
+    expect(db.prepare('SELECT root_task_id FROM autonomous_delivery_run WHERE id=?').get('run-checkpoint'))
+      .toEqual({ root_task_id: null });
+    expect(db.pragma('foreign_key_check')).toEqual([]);
+  });
+
+  it('enforces immutability of published evaluation revisions', () => {
+    const revision = db.prepare('SELECT id FROM eval_rubric_revision LIMIT 1').get() as { id: string };
+    expect(() => db.prepare('UPDATE eval_rubric_revision SET definition=? WHERE id=?')
+      .run('{"tampered":true}', revision.id)).toThrow('published rubric revisions are immutable');
   });
 });

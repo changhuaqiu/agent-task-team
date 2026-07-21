@@ -217,7 +217,9 @@ function detectSecret(payload?: ExecutionEnvelopePayload): string | undefined {
     ['private_key', /-----BEGIN (?:RSA |OPENSSH |EC |DSA )?PRIVATE KEY-----/i],
     ['bearer_token', /Bearer\s+[A-Za-z0-9._~+/=-]{20,}/i],
     ['github_token', /gh[pousr]_[A-Za-z0-9_]{20,}/],
-    ['openai_key', /sk-[A-Za-z0-9_-]{20,}/],
+    // OpenAI keys may appear after JSON/string delimiters, but never in the
+    // middle of an identifier such as "task-notification-publisher".
+    ['openai_key', /(?<![A-Za-z0-9])sk-[A-Za-z0-9_-]{20,}/],
     ['aws_access_key', /AKIA[0-9A-Z]{16}/],
     ['database_url', /(postgres|mysql|mongodb):\/\/[^\\s"'<>]+/i],
     ['api_key_assignment', /(api[_-]?key|token|secret|password)\s*[:=]\s*["']?[A-Za-z0-9._~+/=-]{16,}/i],

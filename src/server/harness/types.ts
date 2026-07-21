@@ -18,6 +18,12 @@ export interface HarnessTrigger {
   idempotencyKey?: string;
   contextScenario?: ContextScenario;
   wakeup?: ContextRequest['wakeup'];
+  evaluation?: {
+    executionId: string;
+    caseId: string;
+    applicationSnapshotId: string;
+    targetManifestDigest: string;
+  };
 }
 export interface HarnessDispatchPlan {
   trigger: HarnessTrigger;
@@ -33,6 +39,9 @@ export interface HarnessDispatchPlan {
   traceId: string;
   contextReport: ContextReport;
   contextSnapshot?: ContextSnapshot;
+  evaluation?: HarnessTrigger['evaluation'] & {
+    applicationManifest: object;
+  };
 }
 
 export type HarnessReasonCode =

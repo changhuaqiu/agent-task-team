@@ -1,15 +1,6 @@
 import type { NextApiRequest } from 'next';
 import type { NextApiResponse } from 'next';
-import { Server as IOServer } from 'socket.io';
-import registerDaemon from '@/server/daemon';
-
-type NextApiResponseWithSocket = NextApiResponse & {
-  socket: NextApiResponse['socket'] & {
-    server: {
-      io?: IOServer;
-    };
-  } & Record<string, any>;
-};
+import { ensureProjectSocketRuntime } from '@/server/socket-runtime';
 
 export const config = {
   api: {
@@ -17,13 +8,11 @@ export const config = {
   },
 };
 
-export default function handler(req: NextApiRequest, res: NextApiResponseWithSocket) {
-  if (!res.socket.server.io) {
-    const io = new IOServer(res.socket.server as any, { path: '/api/socketio', cors: { origin: '*' } });
-    res.socket.server.io = io;
-    registerDaemon(io);
+export default function handler(req: NextApiRequest, res: NextApiResponse) {
+  if (!ensureProjectSocketRuntime(res)) {
+    return res.status(503).json({ ok: false, error: 'Socket runtime is not available' });
   }
 
-  res.status(200).json({ ok: true });
+  return res.status(200).json({ ok: true });
 }
 

@@ -13,6 +13,7 @@ export interface RuntimeConfigInput {
   systemPrompt?: string;
   skillPaths?: string[];
   managedSkillNames?: string[];
+  allowedExternalDirectories?: string[];
 }
 
 export interface RuntimeConfigResult {
@@ -50,13 +51,21 @@ export function generateRuntimeConfig(
   input: RuntimeConfigInput,
 ): RuntimeConfigResult {
   const requestedSkillPaths = Array.from(new Set(input.skillPaths ?? [])).filter(Boolean);
+  const allowedExternalDirectories = Array.from(
+    new Set(input.allowedExternalDirectories ?? []),
+  ).filter(Boolean);
   const hasProviderCredentials = !!input.provider && !!input.apiKey;
   const isNative = input.provider ? NATIVE_PROVIDERS.includes(input.provider) : false;
   const needsProviderConfig = hasProviderCredentials && (!isNative || !!input.baseUrl);
 
   // Generate config if we need provider config, have a system prompt to inject,
   // or need to mount project-local OpenCode skills from an Agent Task Team workdir.
-  if (!needsProviderConfig && !input.systemPrompt && requestedSkillPaths.length === 0) {
+  if (
+    !needsProviderConfig
+    && !input.systemPrompt
+    && requestedSkillPaths.length === 0
+    && allowedExternalDirectories.length === 0
+  ) {
     return { generated: false, env: {} };
   }
 
@@ -110,12 +119,20 @@ export function generateRuntimeConfig(
 
   if (skillPaths.length > 0) {
     config.skills = { paths: skillPaths };
-    config.permission = {
-      skill: {
-        '*': 'allow',
-      },
-    };
   }
+  const permission: Record<string, unknown> = {};
+  if (skillPaths.length > 0) {
+    permission.skill = { '*': 'allow' };
+  }
+  if (allowedExternalDirectories.length > 0) {
+    permission.external_directory = Object.fromEntries(
+      allowedExternalDirectories.map((directory) => [
+        `${directory.replace(/[\\/]+$/, '')}/**`,
+        'allow',
+      ]),
+    );
+  }
+  if (Object.keys(permission).length > 0) config.permission = permission;
 
   // System prompt as instructions file
   if (input.systemPrompt) {

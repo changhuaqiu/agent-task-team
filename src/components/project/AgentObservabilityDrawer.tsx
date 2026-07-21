@@ -5,7 +5,16 @@ import { Activity, AlertTriangle, Clock3, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { SpanCallTree } from './SpanCallTree';
 
-type Target = { conversationId: string; invocationId?: string; traceId?: string; agentId?: string; timestamp?: string };
+type Target = {
+  conversationId: string;
+  invocationId?: string;
+  traceId?: string;
+  agentId?: string;
+  taskId?: string;
+  chainId?: string;
+  passId?: string;
+  timestamp?: string;
+};
 type Span = { span_id: string; parent_span_id: string | null; kind: string; name: string; status: string; started_at: string; durationMs?: number; parsedAttributes?: Record<string, unknown> };
 type Trace = { traceId: string; invocationId?: string; agentId?: string; startedAt: string; durationMs?: number; totalTokens: number; spans: Span[] };
 type Payload = { role: string; seq: number; content: string; byte_size: number; truncated: number };
@@ -37,7 +46,7 @@ export function AgentObservabilityDrawer() {
     const open = (event: Event) => {
       const detail = (event as CustomEvent<Target>).detail;
       if (!detail?.conversationId) return;
-      setTarget(detail); setTrace(undefined); setPayloads({}); setTab('prompt'); setError(undefined);
+      setTarget(detail); setTrace(undefined); setPayloads({}); setTab('prompt'); setError(undefined); setLoading(true);
     };
     window.addEventListener('observability:open', open);
     return () => window.removeEventListener('observability:open', open);
@@ -46,11 +55,13 @@ export function AgentObservabilityDrawer() {
   useEffect(() => {
     if (!target) return;
     const controller = new AbortController();
-    setLoading(true);
     const params = new URLSearchParams({ conversationId: target.conversationId, limit: '100' });
     if (target.invocationId) params.set('invocationId', target.invocationId);
     else if (target.traceId) params.set('traceId', target.traceId);
     else if (target.agentId) params.set('agentId', target.agentId);
+    else if (target.passId) params.set('passId', target.passId);
+    else if (target.taskId) params.set('taskId', target.taskId);
+    else if (target.chainId) params.set('chainId', target.chainId);
     fetch(`/api/observability?${params}`, { cache: 'no-store', signal: controller.signal })
       .then(async response => {
         if (!response.ok) throw new Error((await response.json()).error || `HTTP ${response.status}`);

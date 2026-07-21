@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Agent 评估系统 · 在线诊断与离线回归双环</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js" integrity="sha384-ZZ1pncU3bQe8y31yfZdMFdSpttDoPmOZg2wguVK9almUodir1PghgT0eY7Mrty8H" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js" integrity="sha384-en/ztfPSRkGfME4KIm05joYXynqzUgbsG5nMrj/xEFAHXkeZfO3yMK8QQ+mP7p1/" crossorigin="anonymous"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { min-height: 100vh; padding: 32px; color: #f8fafc; background: #020617; font-family: "JetBrains Mono", monospace; }
+    .container { width: min(1480px, 100%); margin: 0 auto; }
+    .header-row { display: flex; align-items: center; gap: 14px; }
+    .pulse-dot { width: 11px; height: 11px; border-radius: 50%; background: #fbbf24; animation: pulse 2s infinite; }
+    @keyframes pulse { 50% { opacity: .35; } }
+    h1 { font-size: 24px; letter-spacing: -.025em; }
+    .subtitle { margin: 9px 0 22px 25px; color: #94a3b8; font-size: 13px; }
+    .diagram { padding: 22px; overflow-x: auto; border: 1px solid #1e293b; border-radius: 16px; background: rgba(15,23,42,.55); }
+    svg { display: block; width: 100%; min-width: 1320px; }
+    .cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-top: 18px; }
+    .card { min-height: 142px; padding: 17px; border: 1px solid #1e293b; border-radius: 12px; background: rgba(15,23,42,.55); }
+    .card-header { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+    .card-dot { width: 8px; height: 8px; border-radius: 50%; }
+    .card h3 { font-size: 13px; }
+    .card ul { list-style: none; color: #94a3b8; font-size: 11px; line-height: 1.65; }
+    .footer { margin-top: 18px; color: #475569; text-align: center; font-size: 11px; }
+    .toolbar { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+    .toolbar-actions { display: none; gap: 6px; }
+    .toolbar.expanded .toolbar-actions { display: flex; }
+    .toolbar button { cursor: pointer; border-radius: 6px; font-family: inherit; }
+    .toolbar-actions button { padding: 6px 10px; color: #94a3b8; border: 1px solid #334155; background: rgba(30,41,59,.8); font-size: 11px; }
+    .toolbar-toggle { padding: 4px 8px; color: #64748b; border: 0; background: transparent; font-size: 20px; }
+    @media (max-width: 1000px) { .cards { grid-template-columns: 1fr 1fr; } }
+    @media print { body { padding: 12px; } .toolbar { display: none !important; } }
+  </style>
+</head>
+<body>
+  <div class="container" id="report-container">
+    <header>
+      <div class="header-row">
+        <div class="pulse-dot"></div>
+        <h1>Agent 评估系统 · 在线诊断与离线回归双环</h1>
+        <div class="toolbar">
+          <div class="toolbar-actions">
+            <button onclick="copyAsImage(this)">📋 Copy</button>
+            <button onclick="downloadPNG(this)">🖼️ PNG</button>
+            <button onclick="downloadPDF(this)">📄 PDF</button>
+          </div>
+          <button class="toolbar-toggle" onclick="this.parentElement.classList.toggle('expanded')" title="导出" aria-label="导出">⋯</button>
+        </div>
+      </div>
+      <p class="subtitle">2026-07-19 平台内建基线 · 同一项目的协作 / 评估双工作模式 · Harness/Daemon 评估执行模式 · 双快照隔离回归 · 发布门 fail-closed</p>
+    </header>
+
+    <main class="diagram">
+      <svg viewBox="0 0 1400 1120" role="img" aria-labelledby="title desc">
+        <title id="title">Agent 评估系统实施与目标架构</title>
+        <desc id="desc">展示事实源、冻结快照、四层评估、在线诊断、离线实验、反馈治理和版本链。</desc>
+        <defs>
+          <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+            <path d="M40 0H0V40" fill="none" stroke="#1e293b" stroke-width=".5"/>
+          </pattern>
+          <marker id="a" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,10 3.5,0 7" fill="#64748b"/></marker>
+          <marker id="ac" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,10 3.5,0 7" fill="#22d3ee"/></marker>
+          <marker id="ae" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,10 3.5,0 7" fill="#34d399"/></marker>
+          <marker id="av" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,10 3.5,0 7" fill="#a78bfa"/></marker>
+          <marker id="aa" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,10 3.5,0 7" fill="#fbbf24"/></marker>
+          <marker id="ar" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,10 3.5,0 7" fill="#fb7185"/></marker>
+        </defs>
+        <rect width="1400" height="1120" fill="url(#grid)"/>
+
+        <!-- arrows behind boxes -->
+        <path d="M270 195H330" stroke="#22d3ee" stroke-width="2" marker-end="url(#ac)"/>
+        <path d="M270 295H330" stroke="#22d3ee" stroke-width="2" marker-end="url(#ac)"/>
+        <path d="M270 395H330" stroke="#22d3ee" stroke-width="2" marker-end="url(#ac)"/>
+        <path d="M270 495H330" stroke="#22d3ee" stroke-width="2" marker-end="url(#ac)"/>
+        <path d="M570 345H625" stroke="#fbbf24" stroke-width="2" marker-end="url(#aa)"/>
+        <path d="M850 195H900" stroke="#64748b" stroke-width="2" marker-end="url(#a)"/>
+        <path d="M850 295H900" stroke="#64748b" stroke-width="2" marker-end="url(#a)"/>
+        <path d="M850 395H900" stroke="#64748b" stroke-width="2" marker-end="url(#a)"/>
+        <path d="M850 495H900" stroke="#64748b" stroke-width="2" marker-end="url(#a)"/>
+        <path d="M1140 345H1200" stroke="#34d399" stroke-width="2" marker-end="url(#ae)"/>
+        <path d="M285 735H395" stroke="#a78bfa" stroke-width="2" marker-end="url(#av)"/>
+        <path d="M550 735H660" stroke="#a78bfa" stroke-width="2" marker-end="url(#av)"/>
+        <path d="M815 735H915" stroke="#a78bfa" stroke-width="2" marker-end="url(#av)"/>
+        <path d="M175 675V640H450V552" fill="none" stroke="#a78bfa" stroke-width="1.8" marker-end="url(#av)"/>
+        <path d="M987 795V835H175V870" fill="none" stroke="#22d3ee" stroke-width="1.8" stroke-dasharray="6 4" marker-end="url(#ac)"/>
+        <path d="M285 815H395" stroke="#34d399" stroke-width="2" marker-end="url(#ae)"/>
+        <path d="M550 815H660" stroke="#34d399" stroke-width="2" marker-end="url(#ae)"/>
+        <path d="M815 815H915" stroke="#34d399" stroke-width="2" marker-end="url(#ae)"/>
+        <path d="M1060 815H1195" stroke="#34d399" stroke-width="2" marker-end="url(#ae)"/>
+        <path d="M1260 955V1022H1055" fill="none" stroke="#fb7185" stroke-width="2" marker-end="url(#ar)"/>
+        <path d="M900 1022H745" stroke="#fb7185" stroke-width="2" marker-end="url(#ar)"/>
+        <path d="M590 1022H435" stroke="#fb7185" stroke-width="2" marker-end="url(#ar)"/>
+        <path d="M280 1022H170V955" fill="none" stroke="#fb7185" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#ar)"/>
+
+        <text x="45" y="54" fill="#22d3ee" font-size="14" font-weight="700">① 权威事实：完整任务跨多个 trace</text>
+        <text x="330" y="90" fill="#fbbf24" font-size="14" font-weight="700">② 冻结评估对象</text>
+        <text x="625" y="90" fill="#94a3b8" font-size="14" font-weight="700">③ 四层判定</text>
+        <text x="1200" y="90" fill="#34d399" font-size="14" font-weight="700">④ 报告</text>
+
+        <!-- facts -->
+        <rect x="45" y="140" width="225" height="110" rx="8" fill="#0f172a"/>
+        <rect x="45" y="140" width="225" height="110" rx="8" fill="rgba(8,51,68,.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="157" y="168" fill="#fff" font-size="12" font-weight="600" text-anchor="middle">Task Graph</text>
+        <text x="157" y="190" fill="#94a3b8" font-size="9" text-anchor="middle">root task · edges · status</text>
+        <text x="157" y="208" fill="#94a3b8" font-size="9" text-anchor="middle">build / test / review evidence</text>
+        <text x="157" y="228" fill="#64748b" font-size="8" text-anchor="middle">状态与交付门事实源</text>
+
+        <rect x="45" y="260" width="225" height="110" rx="8" fill="#0f172a"/>
+        <rect x="45" y="260" width="225" height="110" rx="8" fill="rgba(8,51,68,.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="157" y="288" fill="#fff" font-size="12" font-weight="600" text-anchor="middle">A2A Collaboration</text>
+        <text x="157" y="310" fill="#94a3b8" font-size="9" text-anchor="middle">chain · possession · pass</text>
+        <text x="157" y="328" fill="#94a3b8" font-size="9" text-anchor="middle">handoff packet · receipts</text>
+        <text x="157" y="348" fill="#64748b" font-size="8" text-anchor="middle">协作与责任事实源</text>
+
+        <rect x="45" y="380" width="225" height="110" rx="8" fill="#0f172a"/>
+        <rect x="45" y="380" width="225" height="110" rx="8" fill="rgba(8,51,68,.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="157" y="408" fill="#fff" font-size="12" font-weight="600" text-anchor="middle">Observation</text>
+        <text x="157" y="430" fill="#94a3b8" font-size="9" text-anchor="middle">many traces · spans · payload</text>
+        <text x="157" y="448" fill="#94a3b8" font-size="9" text-anchor="middle">tools · context · output</text>
+        <text x="157" y="468" fill="#64748b" font-size="8" text-anchor="middle">执行观测投影</text>
+
+        <rect x="45" y="500" width="225" height="110" rx="8" fill="#0f172a"/>
+        <rect x="45" y="500" width="225" height="110" rx="8" fill="rgba(8,51,68,.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="157" y="528" fill="#fff" font-size="12" font-weight="600" text-anchor="middle">Control Proof + Config</text>
+        <text x="157" y="550" fill="#94a3b8" font-size="9" text-anchor="middle">closure · dispatch · failures</text>
+        <text x="157" y="568" fill="#94a3b8" font-size="9" text-anchor="middle">code / role / skill revisions</text>
+        <text x="157" y="588" fill="#64748b" font-size="8" text-anchor="middle">控制证据与运行清单</text>
+
+        <!-- snapshot -->
+        <rect x="330" y="140" width="240" height="410" rx="10" fill="#0f172a"/>
+        <rect x="330" y="140" width="240" height="410" rx="10" fill="rgba(120,53,15,.25)" stroke="#fbbf24" stroke-width="2"/>
+        <text x="450" y="176" fill="#fff" font-size="13" font-weight="700" text-anchor="middle">EvalSubjectSnapshot</text>
+        <text x="450" y="202" fill="#fbbf24" font-size="9" text-anchor="middle">rootTask + chain? + cutoffAt</text>
+        <line x1="360" y1="222" x2="540" y2="222" stroke="#78350f"/>
+        <text x="355" y="252" fill="#94a3b8" font-size="9">• traceIds[]（不是主键）</text>
+        <text x="355" y="278" fill="#94a3b8" font-size="9">• task / pass / proof refs</text>
+        <text x="355" y="304" fill="#94a3b8" font-size="9">• 脱敏、裁剪证据包</text>
+        <text x="355" y="330" fill="#94a3b8" font-size="9">• task type / difficulty</text>
+        <text x="355" y="356" fill="#94a3b8" font-size="9">• code / Role / Skill revision</text>
+        <text x="355" y="382" fill="#94a3b8" font-size="9">• data quality / coverage</text>
+        <text x="355" y="408" fill="#94a3b8" font-size="9">• immutable snapshotHash</text>
+        <rect x="355" y="445" width="190" height="65" rx="6" fill="rgba(136,19,55,.25)" stroke="#fb7185"/>
+        <text x="450" y="470" fill="#fb7185" font-size="9" font-weight="600" text-anchor="middle">证据不足 ≠ 0 分</text>
+        <text x="450" y="489" fill="#94a3b8" font-size="8" text-anchor="middle">unknown / N/A 必须显式</text>
+
+        <!-- four evaluation layers -->
+        <rect x="625" y="140" width="225" height="110" rx="8" fill="#0f172a"/>
+        <rect x="625" y="140" width="225" height="110" rx="8" fill="rgba(136,19,55,.35)" stroke="#fb7185" stroke-width="1.5"/>
+        <text x="737" y="168" fill="#fff" font-size="12" font-weight="600" text-anchor="middle">1 · 关键门</text>
+        <text x="737" y="192" fill="#fb7185" font-size="9" text-anchor="middle">pass / fail / unknown / N/A</text>
+        <text x="737" y="213" fill="#94a3b8" font-size="8" text-anchor="middle">build · test · review · security</text>
+        <text x="737" y="230" fill="#64748b" font-size="8" text-anchor="middle">不能被总分覆盖</text>
+
+        <rect x="625" y="260" width="225" height="110" rx="8" fill="#0f172a"/>
+        <rect x="625" y="260" width="225" height="110" rx="8" fill="rgba(6,78,59,.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="737" y="288" fill="#fff" font-size="12" font-weight="600" text-anchor="middle">2 · 确定性指标</text>
+        <text x="737" y="312" fill="#34d399" font-size="9" text-anchor="middle">规则计算 · 可重现</text>
+        <text x="737" y="333" fill="#94a3b8" font-size="8" text-anchor="middle">result · tool · handoff · retry</text>
+        <text x="737" y="350" fill="#64748b" font-size="8" text-anchor="middle">效率只在同 cohort 比较</text>
+
+        <rect x="625" y="380" width="225" height="110" rx="8" fill="#0f172a"/>
+        <rect x="625" y="380" width="225" height="110" rx="8" fill="rgba(76,29,149,.4)" stroke="#a78bfa" stroke-width="1.5"/>
+        <text x="737" y="408" fill="#fff" font-size="12" font-weight="600" text-anchor="middle">3 · 模型裁判</text>
+        <text x="737" y="432" fill="#a78bfa" font-size="9" text-anchor="middle">锚点等级 · 无工具 · 结构化</text>
+        <text x="737" y="453" fill="#94a3b8" font-size="8" text-anchor="middle">scope · decomposition · evidence</text>
+        <text x="737" y="470" fill="#64748b" font-size="8" text-anchor="middle">证据引用必须可验证</text>
+
+        <rect x="625" y="500" width="225" height="110" rx="8" fill="#0f172a"/>
+        <rect x="625" y="500" width="225" height="110" rx="8" fill="rgba(120,53,15,.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="737" y="528" fill="#fff" font-size="12" font-weight="600" text-anchor="middle">4 · 人工校准</text>
+        <text x="737" y="552" fill="#fbbf24" font-size="9" text-anchor="middle">盲审 · 仲裁 · held-out</text>
+        <text x="737" y="573" fill="#94a3b8" font-size="8" text-anchor="middle">kappa / alpha · 漂移</text>
+        <text x="737" y="590" fill="#64748b" font-size="8" text-anchor="middle">自报 confidence 不作门槛</text>
+
+        <!-- persistence -->
+        <rect x="900" y="140" width="240" height="110" rx="8" fill="#0f172a"/>
+        <rect x="900" y="140" width="240" height="110" rx="8" fill="rgba(76,29,149,.4)" stroke="#a78bfa" stroke-width="1.5"/>
+        <text x="1020" y="168" fill="#fff" font-size="12" font-weight="600" text-anchor="middle">Rubric Revision</text>
+        <text x="1020" y="192" fill="#94a3b8" font-size="9" text-anchor="middle">不可变 · 等级锚点 · 适用性</text>
+        <text x="1020" y="213" fill="#94a3b8" font-size="8" text-anchor="middle">evaluator bundle digest</text>
+        <text x="1020" y="230" fill="#64748b" font-size="8" text-anchor="middle">发布后不原地更新</text>
+
+        <rect x="900" y="260" width="240" height="110" rx="8" fill="#0f172a"/>
+        <rect x="900" y="260" width="240" height="110" rx="8" fill="rgba(251,146,60,.22)" stroke="#fb923c" stroke-width="1.5"/>
+        <text x="1020" y="288" fill="#fff" font-size="12" font-weight="600" text-anchor="middle">Durable Eval Job</text>
+        <text x="1020" y="312" fill="#fb923c" font-size="9" text-anchor="middle">queued · retry · replay · budget</text>
+        <text x="1020" y="333" fill="#94a3b8" font-size="8" text-anchor="middle">idempotency key + outbox</text>
+        <text x="1020" y="350" fill="#64748b" font-size="8" text-anchor="middle">不在 daemon 内跑 Judge</text>
+
+        <rect x="900" y="380" width="240" height="110" rx="8" fill="#0f172a"/>
+        <rect x="900" y="380" width="240" height="110" rx="8" fill="rgba(76,29,149,.4)" stroke="#a78bfa" stroke-width="1.5"/>
+        <text x="1020" y="408" fill="#fff" font-size="12" font-weight="600" text-anchor="middle">Score + Judge Attempt</text>
+        <text x="1020" y="432" fill="#94a3b8" font-size="9" text-anchor="middle">label · rationale · evidence</text>
+        <text x="1020" y="453" fill="#94a3b8" font-size="8" text-anchor="middle">model snapshot · prompt digest</text>
+        <text x="1020" y="470" fill="#64748b" font-size="8" text-anchor="middle">raw response 脱敏限长</text>
+
+        <rect x="900" y="500" width="240" height="110" rx="8" fill="#0f172a"/>
+        <rect x="900" y="500" width="240" height="110" rx="8" fill="rgba(76,29,149,.4)" stroke="#a78bfa" stroke-width="1.5"/>
+        <text x="1020" y="528" fill="#fff" font-size="12" font-weight="600" text-anchor="middle">Dataset + Annotation</text>
+        <text x="1020" y="552" fill="#94a3b8" font-size="9" text-anchor="middle">revision · split · provenance</text>
+        <text x="1020" y="573" fill="#94a3b8" font-size="8" text-anchor="middle">train/tune ≠ held-out</text>
+        <text x="1020" y="590" fill="#64748b" font-size="8" text-anchor="middle">真实失败经审核晋升</text>
+
+        <!-- report -->
+        <rect x="1200" y="140" width="155" height="410" rx="10" fill="#0f172a"/>
+        <rect x="1200" y="140" width="155" height="410" rx="10" fill="rgba(6,78,59,.4)" stroke="#34d399" stroke-width="2"/>
+        <text x="1277" y="178" fill="#fff" font-size="13" font-weight="700" text-anchor="middle">Eval Report</text>
+        <text x="1277" y="216" fill="#fb7185" font-size="9" text-anchor="middle">gate status</text>
+        <text x="1277" y="252" fill="#34d399" font-size="9" text-anchor="middle">dimensions</text>
+        <text x="1277" y="288" fill="#22d3ee" font-size="9" text-anchor="middle">coverage</text>
+        <text x="1277" y="324" fill="#fbbf24" font-size="9" text-anchor="middle">data quality</text>
+        <text x="1277" y="360" fill="#a78bfa" font-size="9" text-anchor="middle">evidence</text>
+        <text x="1277" y="396" fill="#94a3b8" font-size="9" text-anchor="middle">overall?</text>
+        <line x1="1225" y1="418" x2="1330" y2="418" stroke="#14532d"/>
+        <text x="1277" y="448" fill="#fff" font-size="9" font-weight="600" text-anchor="middle">项目评估视图</text>
+        <text x="1277" y="473" fill="#94a3b8" font-size="8" text-anchor="middle">先门槛，再分数</text>
+        <text x="1277" y="497" fill="#94a3b8" font-size="8" text-anchor="middle">证据可下钻</text>
+        <text x="1277" y="521" fill="#64748b" font-size="8" text-anchor="middle">gap ≠ 自动变更</text>
+
+        <!-- online loop -->
+        <text x="45" y="660" fill="#a78bfa" font-size="14" font-weight="700">⑤ 在线诊断环：发现真实问题与候选案例</text>
+        <rect x="65" y="675" width="220" height="120" rx="8" fill="#0f172a"/>
+        <rect x="65" y="675" width="220" height="120" rx="8" fill="rgba(76,29,149,.35)" stroke="#a78bfa" stroke-width="1.5"/>
+        <text x="175" y="705" fill="#fff" font-size="11" font-weight="600" text-anchor="middle">Closure Proof</text>
+        <text x="175" y="729" fill="#94a3b8" font-size="8" text-anchor="middle">只提交幂等 job</text>
+        <text x="175" y="749" fill="#94a3b8" font-size="8" text-anchor="middle">P95 &lt; 500ms</text>
+        <text x="175" y="771" fill="#64748b" font-size="8" text-anchor="middle">主链不等待 Judge</text>
+
+        <rect x="395" y="675" width="155" height="120" rx="8" fill="#0f172a"/>
+        <rect x="395" y="675" width="155" height="120" rx="8" fill="rgba(76,29,149,.35)" stroke="#a78bfa" stroke-width="1.5"/>
+        <text x="472" y="705" fill="#fff" font-size="11" font-weight="600" text-anchor="middle">Online Run</text>
+        <text x="472" y="729" fill="#94a3b8" font-size="8" text-anchor="middle">completed / partial</text>
+        <text x="472" y="749" fill="#94a3b8" font-size="8" text-anchor="middle">failed / replayed</text>
+        <text x="472" y="771" fill="#64748b" font-size="8" text-anchor="middle">预算与采样</text>
+
+        <rect x="660" y="675" width="155" height="120" rx="8" fill="#0f172a"/>
+        <rect x="660" y="675" width="155" height="120" rx="8" fill="rgba(76,29,149,.35)" stroke="#a78bfa" stroke-width="1.5"/>
+        <text x="737" y="705" fill="#fff" font-size="11" font-weight="600" text-anchor="middle">Triage</text>
+        <text x="737" y="729" fill="#94a3b8" font-size="8" text-anchor="middle">高风险 / 分歧</text>
+        <text x="737" y="749" fill="#94a3b8" font-size="8" text-anchor="middle">证据不足 / 异常</text>
+        <text x="737" y="771" fill="#64748b" font-size="8" text-anchor="middle">进入人工队列</text>
+
+        <rect x="915" y="675" width="145" height="120" rx="8" fill="#0f172a"/>
+        <rect x="915" y="675" width="145" height="120" rx="8" fill="rgba(76,29,149,.35)" stroke="#a78bfa" stroke-width="1.5"/>
+        <text x="987" y="705" fill="#fff" font-size="11" font-weight="600" text-anchor="middle">Curate</text>
+        <text x="987" y="729" fill="#94a3b8" font-size="8" text-anchor="middle">脱敏 + 审核</text>
+        <text x="987" y="749" fill="#94a3b8" font-size="8" text-anchor="middle">标注 + split</text>
+        <text x="987" y="771" fill="#64748b" font-size="8" text-anchor="middle">晋升 EvalCase</text>
+
+        <!-- offline loop -->
+        <text x="45" y="850" fill="#34d399" font-size="14" font-weight="700">⑥ 离线回归环：固定数据集上的公平比较</text>
+        <rect x="65" y="870" width="220" height="85" rx="8" fill="#0f172a"/>
+        <rect x="65" y="870" width="220" height="85" rx="8" fill="rgba(6,78,59,.35)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="175" y="897" fill="#fff" font-size="11" font-weight="600" text-anchor="middle">Dataset Revision</text>
+        <text x="175" y="920" fill="#94a3b8" font-size="8" text-anchor="middle">representative + edge + held-out</text>
+        <text x="175" y="941" fill="#64748b" font-size="8" text-anchor="middle">类型 / 难度 / 语言 / 拓扑</text>
+
+        <rect x="395" y="870" width="155" height="85" rx="8" fill="#0f172a"/>
+        <rect x="395" y="870" width="155" height="85" rx="8" fill="rgba(6,78,59,.35)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="472" y="897" fill="#fff" font-size="11" font-weight="600" text-anchor="middle">ApplicationSnapshot A/B</text>
+        <text x="472" y="920" fill="#94a3b8" font-size="8" text-anchor="middle">commit · Role · Skill · model</text>
+        <text x="472" y="941" fill="#64748b" font-size="8" text-anchor="middle">凭据只保存 account 引用</text>
+
+        <rect x="660" y="870" width="155" height="85" rx="8" fill="#0f172a"/>
+        <rect x="660" y="870" width="155" height="85" rx="8" fill="rgba(6,78,59,.35)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="737" y="897" fill="#fff" font-size="11" font-weight="600" text-anchor="middle">Harness / Daemon</text>
+        <text x="737" y="920" fill="#94a3b8" font-size="8" text-anchor="middle">同一 case × 两个隔离 worktree</text>
+        <text x="737" y="941" fill="#64748b" font-size="8" text-anchor="middle">独立 task · session · trace</text>
+
+        <rect x="915" y="870" width="145" height="85" rx="8" fill="#0f172a"/>
+        <rect x="915" y="870" width="145" height="85" rx="8" fill="rgba(6,78,59,.35)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="987" y="897" fill="#fff" font-size="11" font-weight="600" text-anchor="middle">Verified Paired Diff</text>
+        <text x="987" y="920" fill="#94a3b8" font-size="8" text-anchor="middle">target = observed 才计入</text>
+        <text x="987" y="941" fill="#64748b" font-size="8" text-anchor="middle">win/tie/loss + CI + 分层</text>
+
+        <rect x="1195" y="870" width="165" height="85" rx="8" fill="#0f172a"/>
+        <rect x="1195" y="870" width="165" height="85" rx="8" fill="rgba(6,78,59,.35)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="1277" y="897" fill="#fff" font-size="11" font-weight="600" text-anchor="middle">Regression Gate</text>
+        <text x="1277" y="920" fill="#94a3b8" font-size="8" text-anchor="middle">不可退化门 + 最小提升</text>
+        <text x="1277" y="941" fill="#64748b" font-size="8" text-anchor="middle">样本不足 → 不下结论</text>
+
+        <!-- controlled feedback -->
+        <text x="45" y="985" fill="#fb7185" font-size="14" font-weight="700">⑦ 受控改进：gap → 假设 → 提案 → 审批 → held-out 回归 → apply / revert</text>
+        <rect x="280" y="995" width="155" height="55" rx="8" fill="#0f172a"/>
+        <rect x="280" y="995" width="155" height="55" rx="8" fill="rgba(136,19,55,.35)" stroke="#fb7185" stroke-width="1.5"/>
+        <text x="357" y="1018" fill="#fff" font-size="10" font-weight="600" text-anchor="middle">Evidence-backed Gap</text>
+        <text x="357" y="1038" fill="#94a3b8" font-size="8" text-anchor="middle">不是改配置命令</text>
+
+        <rect x="590" y="995" width="155" height="55" rx="8" fill="#0f172a"/>
+        <rect x="590" y="995" width="155" height="55" rx="8" fill="rgba(136,19,55,.35)" stroke="#fb7185" stroke-width="1.5"/>
+        <text x="667" y="1018" fill="#fff" font-size="10" font-weight="600" text-anchor="middle">Change Proposal</text>
+        <text x="667" y="1038" fill="#94a3b8" font-size="8" text-anchor="middle">假设 · 风险 · owner</text>
+
+        <rect x="900" y="995" width="155" height="55" rx="8" fill="#0f172a"/>
+        <rect x="900" y="995" width="155" height="55" rx="8" fill="rgba(136,19,55,.35)" stroke="#fb7185" stroke-width="1.5"/>
+        <text x="977" y="1018" fill="#fff" font-size="10" font-weight="600" text-anchor="middle">Human Approval</text>
+        <text x="977" y="1038" fill="#94a3b8" font-size="8" text-anchor="middle">授权 · 审计 · 可回退</text>
+
+        <!-- legend outside flow boundaries -->
+        <rect x="65" y="1070" width="1295" height="34" rx="6" fill="rgba(30,41,59,.55)" stroke="#334155"/>
+        <circle cx="90" cy="1087" r="5" fill="#22d3ee"/><text x="104" y="1091" fill="#94a3b8" font-size="8">事实/输入</text>
+        <circle cx="225" cy="1087" r="5" fill="#fbbf24"/><text x="239" y="1091" fill="#94a3b8" font-size="8">冻结/版本</text>
+        <circle cx="375" cy="1087" r="5" fill="#a78bfa"/><text x="389" y="1091" fill="#94a3b8" font-size="8">Judge/在线</text>
+        <circle cx="540" cy="1087" r="5" fill="#34d399"/><text x="554" y="1091" fill="#94a3b8" font-size="8">离线实验</text>
+        <circle cx="690" cy="1087" r="5" fill="#fb7185"/><text x="704" y="1091" fill="#94a3b8" font-size="8">门槛/治理</text>
+        <text x="1335" y="1091" fill="#64748b" font-size="8" text-anchor="end">关键原则：线上发现问题，离线证明改进；分数不能覆盖失败与未知</text>
+      </svg>
+    </main>
+
+    <section class="cards">
+      <div class="card">
+        <div class="card-header"><div class="card-dot" style="background:#fbbf24"></div><h3>最重要的纠偏</h3></div>
+        <ul><li>• 完整任务跨多个 trace</li><li>• rootTask/chain/cutoff 定义对象</li><li>• snapshot 冻结历史证据</li></ul>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-dot" style="background:#fb7185"></div><h3>评分可信性</h3></div>
+        <ul><li>• 关键门不被总分覆盖</li><li>• N/A 与证据不足显式</li><li>• Judge 必须对人校准</li></ul>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-dot" style="background:#34d399"></div><h3>成熟评估双环</h3></div>
+        <ul><li>• 线上：诊断与案例发现</li><li>• 离线：Harness 双快照执行</li><li>• 来源校验后计算成对差异</li></ul>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-dot" style="background:#a78bfa"></div><h3>安全反馈闭环</h3></div>
+        <ul><li>• gap 只形成候选提案</li><li>• 审批 + held-out 回归</li><li>• apply 后观察且可 revert</li></ul>
+      </div>
+    </section>
+    <p class="footer">Agent Task Hub · Agent Evaluation System target architecture · 2026-07-19 · spec D1–D14</p>
+  </div>
+
+  <script>
+    const capture = async () => {
+      const el = document.getElementById('report-container');
+      const r = el.getBoundingClientRect();
+      const pad = 32;
+      return html2canvas(document.body, {
+        backgroundColor: '#020617', scale: 2, useCORS: true,
+        ignoreElements: e => e.classList && e.classList.contains('toolbar'),
+        x: r.left + window.scrollX - pad, y: r.top + window.scrollY - pad,
+        width: r.width + pad * 2, height: r.height + pad * 2
+      });
+    };
+    async function copyAsImage(btn) {
+      const old = btn.textContent;
+      try {
+        const canvas = await capture();
+        const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+        btn.textContent = '✓ Copied';
+      } catch { btn.textContent = '✗ Failed'; }
+      setTimeout(() => btn.textContent = old, 2000);
+    }
+    async function downloadPNG(btn) {
+      const old = btn.textContent; btn.textContent = '⏳';
+      try {
+        const canvas = await capture();
+        const link = document.createElement('a');
+        link.download = 'agent-evaluation-architecture.png';
+        link.href = canvas.toDataURL('image/png');
+        link.click(); btn.textContent = '✓ Done';
+      } catch { btn.textContent = '✗ Failed'; }
+      setTimeout(() => btn.textContent = old, 2000);
+    }
+    async function downloadPDF(btn) {
+      const old = btn.textContent; btn.textContent = '⏳';
+      try {
+        const canvas = await capture();
+        const { jsPDF } = window.jspdf;
+        const pdf = new jsPDF({ orientation: canvas.width > canvas.height ? 'landscape' : 'portrait', unit: 'px', format: [canvas.width, canvas.height], hotfixes: ['px_scaling'] });
+        pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, canvas.width, canvas.height);
+        pdf.save('agent-evaluation-architecture.pdf'); btn.textContent = '✓ Done';
+      } catch { btn.textContent = '✗ Failed'; }
+      setTimeout(() => btn.textContent = old, 2000);
+    }
+  </script>
+</body>
+</html>
