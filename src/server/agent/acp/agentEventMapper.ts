@@ -90,18 +90,31 @@ export function mapAcpUpdate(update: SessionUpdate): AgentEvent | null {
       return {
         type: 'tool_use',
         content: '',
-        tool: { name, callId: update.toolCallId, ...(input !== undefined && { input }) },
+        tool: {
+          name,
+          callId: update.toolCallId,
+          ...(input !== undefined && { input }),
+          ...(update.status != null && { status: update.status }),
+        },
       };
     }
 
     case 'tool_call_update': {
       const name = update.title || '';
-      const content =
+      const input =
+        update.rawInput != null ? safeStringify(update.rawInput) : undefined;
+      const output =
         update.rawOutput != null ? safeStringify(update.rawOutput) : '';
       return {
         type: 'tool_result',
-        content,
-        tool: { name, callId: update.toolCallId },
+        content: output,
+        tool: {
+          name,
+          callId: update.toolCallId,
+          ...(input !== undefined && { input }),
+          ...(update.rawOutput != null && { output }),
+          ...(update.status != null && { status: update.status }),
+        },
       };
     }
 
@@ -136,7 +149,7 @@ export function mapAcpUpdate(update: SessionUpdate): AgentEvent | null {
  * consumer receives a stable tool name without carrying ACP state itself.
  */
 export function createTurnScopedAcpEventMapper(): (update: SessionUpdate) => AgentEvent | null {
-  const toolNames = new Map<string, string>();
+  const toolCalls = new Map<string, { name: string; input?: string }>();
 
   return (update: SessionUpdate): AgentEvent | null => {
     const event = mapAcpUpdate(update);
@@ -144,9 +157,30 @@ export function createTurnScopedAcpEventMapper(): (update: SessionUpdate) => Age
     if (!event || !callId) return event;
 
     if (event.type === 'tool_use') {
-      toolNames.set(callId, event.tool?.name || 'tool');
+      toolCalls.set(callId, {
+        name: event.tool?.name || 'tool',
+        ...(event.tool?.input !== undefined && { input: event.tool.input }),
+      });
     } else if (event.type === 'tool_result' && event.tool) {
-      event.tool.name = toolNames.get(callId) || event.tool.name || 'tool';
+      const previous = toolCalls.get(callId);
+      const name = previous?.name || event.tool.name || 'tool';
+      const input = event.tool.input ?? previous?.input;
+      toolCalls.set(callId, { name, ...(input !== undefined && { input }) });
+      event.tool.name = name;
+      if (input !== undefined) event.tool.input = input;
+
+      // Claude can refine a permission-surfaced tool_call with the real input
+      // before execution finishes. Keep the refinement turn-local and wait for
+      // an explicit terminal status instead of manufacturing a successful
+      // tool_result from an in-progress update.
+      if (
+        event.tool.status !== 'completed'
+        && event.tool.status !== 'failed'
+        && event.tool.output === undefined
+      ) {
+        return null;
+      }
+      toolCalls.delete(callId);
     }
     return event;
   };

@@ -133,6 +133,29 @@ describe('mapAcpUpdate', () => {
       } as any);
       expect(r).toMatchObject({ type: 'tool_result', tool: { callId: 'c1' } });
       expect((r as AgentEvent).content).toBe(JSON.stringify({ ok: true }));
+      expect((r as AgentEvent).tool?.output).toBe(JSON.stringify({ ok: true }));
+      expect((r as AgentEvent).tool?.status).toBe('completed');
+    });
+
+    it('preserves refined rawInput and a failed terminal status', () => {
+      const r = mapAcpUpdate({
+        sessionUpdate: 'tool_call_update',
+        toolCallId: 'c-failed',
+        status: 'failed',
+        rawInput: { file_path: 'plan.md', content: '# Plan' },
+        rawOutput: 'permission denied',
+      } as any);
+
+      expect(r).toMatchObject({
+        type: 'tool_result',
+        content: JSON.stringify('permission denied'),
+        tool: {
+          callId: 'c-failed',
+          input: JSON.stringify({ file_path: 'plan.md', content: '# Plan' }),
+          output: JSON.stringify('permission denied'),
+          status: 'failed',
+        },
+      });
     });
 
     it('content empty when rawOutput absent', () => {
@@ -248,7 +271,7 @@ describe('mapAcpUpdate', () => {
 });
 
 describe('createTurnScopedAcpEventMapper', () => {
-  it('inherits the original tool name across multiple title-less updates', () => {
+  it('merges Claude input refinement and emits only the terminal result', () => {
     const mapTurnUpdate = createTurnScopedAcpEventMapper();
 
     const use = mapTurnUpdate({
@@ -257,11 +280,13 @@ describe('createTurnScopedAcpEventMapper', () => {
       title: 'Read File',
       kind: 'read',
       status: 'pending',
+      rawInput: {},
     } as any);
-    const progress = mapTurnUpdate({
+    const refinement = mapTurnUpdate({
       sessionUpdate: 'tool_call_update',
       toolCallId: 'claude-call-1',
       status: 'in_progress',
+      rawInput: { file_path: 'README.md' },
     } as any);
     const completed = mapTurnUpdate({
       sessionUpdate: 'tool_call_update',
@@ -271,8 +296,63 @@ describe('createTurnScopedAcpEventMapper', () => {
     } as any);
 
     expect(use?.tool?.name).toBe('Read File');
-    expect(progress?.tool?.name).toBe('Read File');
+    expect(refinement).toBeNull();
     expect(completed?.tool?.name).toBe('Read File');
+    expect(completed?.tool?.input).toBe(JSON.stringify({ file_path: 'README.md' }));
+    expect(completed?.tool?.status).toBe('completed');
+  });
+
+  it('keeps a failed Claude result failed instead of manufacturing success', () => {
+    const mapTurnUpdate = createTurnScopedAcpEventMapper();
+    mapTurnUpdate({
+      sessionUpdate: 'tool_call',
+      toolCallId: 'claude-denied-1',
+      title: 'Write',
+      status: 'pending',
+      rawInput: {},
+    } as any);
+    expect(mapTurnUpdate({
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'claude-denied-1',
+      rawInput: { file_path: 'plan.md', content: '# Plan' },
+    } as any)).toBeNull();
+
+    const failed = mapTurnUpdate({
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'claude-denied-1',
+      status: 'failed',
+      rawOutput: 'permission denied',
+    } as any);
+
+    expect(failed).toMatchObject({
+      type: 'tool_result',
+      tool: {
+        name: 'Write',
+        input: JSON.stringify({ file_path: 'plan.md', content: '# Plan' }),
+        status: 'failed',
+      },
+    });
+  });
+
+  it('preserves adapters that send a final rawOutput without a status', () => {
+    const mapTurnUpdate = createTurnScopedAcpEventMapper();
+    mapTurnUpdate({
+      sessionUpdate: 'tool_call',
+      toolCallId: 'output-only-1',
+      title: 'Search',
+      status: 'pending',
+    } as any);
+
+    const result = mapTurnUpdate({
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'output-only-1',
+      rawOutput: { matches: 2 },
+    } as any);
+
+    expect(result).toMatchObject({
+      type: 'tool_result',
+      tool: { name: 'Search', output: JSON.stringify({ matches: 2 }) },
+    });
   });
 
   it('uses a neutral fallback for an unseen call id and does not leak across turns', () => {

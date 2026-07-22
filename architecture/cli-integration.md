@@ -156,11 +156,12 @@ Catalog（`src/server/agent/acp/agentCatalog.seed.json`）是启动事实源（s
 1. 经 `spawnCli`（cross-spawn，Windows .cmd/.bat 安全）启动 ACP agent 子进程。
 2. ACP 协议握手：`initialize` → `session/new` → `prompt`。**必须先 `initialize` 再 `session/new`**——codex-acp / claude-agent-acp 适配器强制此顺序，违反会返回 JSON-RPC `-32603`。
 3. 消费 `session/update` 通知，经 `agentEventMapper` 映射为 `AgentEvent`，直到收到 stop 消息。
-4. 处理 `requestPermission`：默认拒绝；只有显式 `ACP_PERMISSION_MODE=allow_once` 或注入策略才选择单次授权，策略错误/超时继续拒绝。
+4. 处理 `requestPermission`：默认拒绝；活跃自主 DeliveryRun 的 `GoalContract.authorization.allowCodeChanges=true` 会为本 Conversation/Invocation 注入一次性策略，`ACP_PERMISSION_MODE=allow_once` 可由运维显式放行、`ACP_PERMISSION_MODE=deny` 可强制拒绝；策略错误/超时继续拒绝，授权不得跨 Conversation 泄漏。
 5. 进程清理：调用方取消/超时先发送 ACP `session/cancel`，再按宽限期执行 TERM → KILL；一次性 finalize 保证 result 不依赖 child `close` 才能解析。
 6. 用 `withDoneGuarantee` 包装事件流，保证 `done` 事件最终发出。
 7. 基于原因的关闭语义：`kill()` → `cancelled`，超时 → `timeout`，其他异常退出 → `failed`，并携带稳定 `reasonCode`；进程退出绝不会被判为 `completed`。
 8. 资源上限：全局并发 run、待消费事件、单事件字符、累计流式字符和 stderr tail 均为有界；消费者提前停止读取会主动取消运行。
+9. 工具事件关联：Claude 权限阶段的占位 `tool_call` 与后续 `rawInput` refinement 按 `toolCallId` 合并；只有终态 update 关闭工具 span，`failed` 必须关闭为 error 并在 UI 显示失败。
 
 返回 `AgentRun { events, result, kill }`：`events` 是 `AgentEvent` 的 `AsyncGenerator`，`result` 是一次性 resolve 的 `Promise<AgentResult>`，`kill` 是幂等的取消函数。
 

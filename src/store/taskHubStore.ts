@@ -2143,9 +2143,9 @@ socket.on('agent:event', (event) => {
     state.appendToStreamMessage(activeId, {
       toolEvent: {
         id: `te-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        type: 'tool_result',
+        type: tool?.status === 'failed' ? 'error' : 'tool_result',
         label: tool?.name || 'unknown',
-        detail: tool?.output,
+        detail: tool?.output || content,
         timestamp: new Date().toISOString(),
       },
     });

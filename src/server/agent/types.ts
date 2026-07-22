@@ -20,6 +20,7 @@ export interface AgentEvent {
     callId?: string;
     input?: string;
     output?: string;
+    status?: 'pending' | 'in_progress' | 'completed' | 'failed';
   };
   usage?: {
     inputTokens: number;

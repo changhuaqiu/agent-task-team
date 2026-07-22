@@ -43,3 +43,5 @@
 - [x] hard max turn timeout 可终止持续产生更新但不结束的异常进程。
 - [x] 小写 runtime 原生工具不会触发平台自定义工具执行。
 - [x] 连续 ACP 文本 chunk 在历史消息中只形成一个逻辑文本段，工具边界前后不误合并。
+- [ ] 活跃自主 DeliveryRun 的 `allowCodeChanges=true` 可授权本 Invocation 的原生工具，其他 Conversation 不受影响且默认拒绝。
+- [ ] Claude `tool_call → rawInput refinement → failed/completed` 顺序保留最终输入，并让失败在 span 与 UI 中显示为失败。

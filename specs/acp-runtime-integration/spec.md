@@ -127,6 +127,8 @@ daemon 不解析任何厂商专有 stdout，不判断某个厂商支持哪些参
 
 ACP `tool_call_update` 可以只携带 `toolCallId`，不重复 `tool_call` 中的 title/kind。`AcpBackend` 必须在单次 execute 生命周期内维护 `toolCallId → tool name`，让同一调用的 `tool_use` 与所有 `tool_result` 使用一致名称；该映射不得跨 Invocation 或 Session 共享。只有从未见过的 call id 才使用中性 `Tool` 回退，不向 UI 输出 `unknown`。
 
+Claude adapter 的权限阶段可能先发送仅含占位 `rawInput` 的 `tool_call`，再以 `tool_call_update` 补齐真实 `rawInput`；该 refinement 不是工具完成。映射层必须按 `toolCallId` 合并名称与最终输入，只在 `status=completed|failed`（或收到明确输出）时产生终态结果。`status=failed` 必须向下游保留，观测 span 与 UI 都不得将拒绝或执行失败显示为成功。
+
 ACP 文本更新是流式增量，不是独立聊天消息。daemon 可以逐 chunk 广播以保持实时反馈，但持久化时必须在单次 Invocation 内合并连续 `text` chunk；`tool_use`、`tool_result`、`error` 与 `done` 构成文本段边界，禁止把每个汉字或 token 写成一条 `chat_message`。
 
 ## 6. 权限与安全
@@ -134,6 +136,8 @@ ACP 文本更新是流式增量，不是独立聊天消息。daemon 可以逐 ch
 - 复用现有账号与凭据存储，不把 token、API Key 或登录态写入 Catalog、日志和 spec。
 - permission request 必须经过统一策略：允许、拒绝或请求用户确认。
 - 无交互执行只能使用用户预先授权的策略；默认不采用“选择第一个选项自动授权”。
+- 活跃自主交付的 `GoalContract.authorization.allowCodeChanges=true` 是该 DeliveryRun 内一次性原生工具授权的显式来源；daemon 必须按 Conversation/Invocation 读取它，而不是要求用户额外设置全局环境变量。没有活跃授权的调用继续默认拒绝。
+- `ACP_PERMISSION_MODE=allow_once` 只保留为运维级显式放行覆盖，`ACP_PERMISSION_MODE=deny` 可强制拒绝；它们不能替代逐 DeliveryRun 授权，也不能把一个任务的授权泄漏给其他 Conversation。
 - 子进程继承的环境变量采用白名单或现有安全环境策略。
 - 日志记录协议阶段、运行时、session/invocation 关联与错误码，不记录敏感请求正文。
 
@@ -176,6 +180,7 @@ ACP 是长生命周期 daemon 启动的外部进程边界，不能假设 adapter
 9. **空闲与总时长分离**：`ExecOptions.timeout` 表示无 ACP 协议活动的 idle timeout，任意 session update（包括不展示的 usage/plan update）均续期；另设独立 hard max turn timeout，防止持续产生无效更新的进程无限占用资源。
 10. **原生工具不重复拦截**：daemon 判断 runtime 原生工具时大小写无关；`Read/Write/Bash` 与 `read/write/bash` 语义相同，不得作为平台自定义工具再次调用。
 11. **流式增量不是消息边界**：实时 socket 保留增量，聊天持久化按 Invocation 合并连续文本；工具和终止事件会关闭当前文本段。
+12. **授权与工具终态可追溯**：自主 `GoalContract` 的代码修改授权必须接到本 Invocation 的 ACP 单次权限策略；工具 refinement 必须保留最终输入，`failed` 终态必须关闭为 error，不能因全局默认拒绝或状态丢失形成“空调用成功”。
 
 该契约参考 OpenClaw 的工程原则：活跃 run 使用可取消控制器、会话/并发有上限、超时后执行 bounded cleanup、流式输出设置字符上限、权限与配置异常 fail-closed。这里复用原则，不引入 OpenClaw 的 Gateway 或 session store 实现。
 

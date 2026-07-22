@@ -41,3 +41,5 @@
 - [x] runtime 原生工具判断改为大小写无关，禁止重复拦截。
 - [x] 增加持续活动不触发 idle timeout、真正静默仍超时的测试。
 - [x] 合并同一 Invocation 内连续 ACP 文本 chunk，并保留工具事件边界。
+- [ ] 将活跃自主 DeliveryRun 的显式代码修改授权接入逐 Invocation ACP 单次权限策略，未授权路径保持 fail-closed。
+- [ ] 合并 Claude 权限阶段的工具输入 refinement，并把 `failed` 终态投影为观测/UI 错误。

@@ -84,7 +84,9 @@ import {
   evaluationSafeTextSink,
 } from './evaluation/runtime-isolation';
 import { ensureAutonomousDeliveryRuntime } from './autonomous-delivery/bootstrap';
+import { autonomousDeliveryRepo } from './autonomous-delivery/repository';
 import { registerAutonomousDeliveryE2EDriver } from './testing/autonomous-delivery-e2e-driver';
+import { resolveAcpDispatchPermissionPolicy } from './agent/acp/dispatchPermissionPolicy';
 
 type TerminalStartPayload = {
   dispatchId?: string;
@@ -182,8 +184,17 @@ class DispatchExpiredBeforeStartError extends Error {
   }
 }
 
-function resolveAcpPermissionPolicy(): 'deny' | 'allow_once' {
-  return process.env.ACP_PERMISSION_MODE === 'allow_once' ? 'allow_once' : 'deny';
+function resolveAcpPermissionPolicy(conversationId: string): 'deny' | 'allow_once' {
+  const delivery = autonomousDeliveryRepo.getLatestByConversation(conversationId);
+  return resolveAcpDispatchPermissionPolicy({
+    operatorMode: process.env.ACP_PERMISSION_MODE,
+    autonomous: delivery
+      ? {
+        status: delivery.run.status,
+        allowCodeChanges: delivery.contract.authorization.allowCodeChanges,
+      }
+      : undefined,
+  });
 }
 
 type AccountProvider = 'anthropic' | 'openai' | 'google' | 'kimi' | 'opencode' | 'other';
@@ -1633,8 +1644,16 @@ export default function registerDaemon(io: IOServer) {
             const spanId = pending.shift();
             if (pending.length) openToolSpans.set(key, pending); else openToolSpans.delete(key);
             if (spanId) {
+              if (event.tool.input !== undefined) {
+                spanPayloadRepo.put(spanId, 'tool_input', event.tool.input);
+              }
               spanPayloadRepo.put(spanId, 'tool_output', event.content);
-              observationSpanRepo.finish(spanId, 'ok', { outputPreview: event.content });
+              const failed = event.tool.status === 'failed';
+              observationSpanRepo.finish(spanId, failed ? 'error' : 'ok', {
+                outputPreview: event.content,
+                ...(failed && { errorMessage: event.content || 'ACP tool call failed' }),
+                attributes: { 'gen_ai.tool.status': event.tool.status ?? 'completed' },
+              });
               broadcast('observability:updated', { conversationId: sessionConvId, invocationId: invocation.id });
             }
           } catch (error) {
@@ -2201,7 +2220,7 @@ export default function registerDaemon(io: IOServer) {
       const backend: AgentBackend = createAcpBackend(entry, {
         cwd: prepared.cwd,
         env: prepared.env,
-        permissionPolicy: resolveAcpPermissionPolicy(),
+        permissionPolicy: resolveAcpPermissionPolicy(sessionConvId),
         mcpServers: acpToolGrant ? [acpToolGrant.mcpServer] : [],
         autoApproveMcpToolNames: acpToolGrant?.autoApproveToolNames ?? [],
       });
