@@ -147,4 +147,45 @@ describe('autonomy guard wakeups', () => {
     });
     expect(wakeups).not.toContainEqual(expect.objectContaining({ reasonCode: 'chain_ready_for_closure' }));
   });
+
+  it('does not recover an active delivery root while a nonterminal child exists without graph edges', () => {
+    const wakeups = resolveAutonomyGuardWakeups({
+      tasks: [
+        task({ id: 'ROOT', agent_id: 'mario', status: 'in_progress' }),
+        task({ id: 'CHILD', agent_id: 'luigi', status: 'in_progress' }),
+      ],
+      edges: [],
+      envelopes: [],
+      coordinatorAgentIds: ['mario'],
+      reviewAgentIds: ['peach'],
+      qaAgentIds: ['yoshi'],
+      activeDeliveryRootTaskIds: ['ROOT'],
+      now: new Date('2026-05-21T00:31:00.000Z'),
+      staleMs: 30 * 60 * 1000,
+    });
+
+    expect(wakeups).not.toContainEqual(expect.objectContaining({
+      taskId: 'ROOT',
+      reasonCode: 'runnable_owned_idle',
+    }));
+  });
+
+  it('still recovers an active delivery root before it has any child tasks', () => {
+    const wakeups = resolveAutonomyGuardWakeups({
+      tasks: [task({ id: 'ROOT', agent_id: 'mario', status: 'in_progress' })],
+      edges: [],
+      envelopes: [],
+      coordinatorAgentIds: ['mario'],
+      reviewAgentIds: ['peach'],
+      qaAgentIds: ['yoshi'],
+      activeDeliveryRootTaskIds: ['ROOT'],
+      now: new Date('2026-05-21T00:31:00.000Z'),
+      staleMs: 30 * 60 * 1000,
+    });
+
+    expect(wakeups).toContainEqual(expect.objectContaining({
+      taskId: 'ROOT',
+      reasonCode: 'runnable_owned_idle',
+    }));
+  });
 });

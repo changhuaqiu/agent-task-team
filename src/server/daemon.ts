@@ -378,6 +378,7 @@ export default function registerDaemon(io: IOServer) {
 
     const tasks = taskRepo.list();
     const conversationIds = Array.from(new Set(tasks.map((task) => task.conversation_id)));
+    const activeDeliveryRuns = autonomousDeliveryRepo.listActive();
     if (now - lastTeamLogArchiveSweepAt >= 24 * 60 * 60 * 1000) {
       for (const conversationId of conversationIds) {
         try {
@@ -405,6 +406,10 @@ export default function registerDaemon(io: IOServer) {
         edges: taskGraphRepo.listEdges(conversationId),
         closureDispatchedRootTaskIds: closureProofs
           .map((proof) => proof.task_id)
+          .filter((taskId): taskId is string => Boolean(taskId)),
+        activeDeliveryRootTaskIds: activeDeliveryRuns
+          .filter((run) => run.conversation_id === conversationId)
+          .map((run) => run.root_task_id)
           .filter((taskId): taskId is string => Boolean(taskId)),
       });
       for (const wakeup of wakeups) {
