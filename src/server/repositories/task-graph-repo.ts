@@ -32,6 +32,8 @@ export type TaskEdgeType =
 
 export type ArtifactKind = 'file' | 'diff' | 'test' | 'doc' | 'design' | 'url' | 'log' | 'proof' | 'pull_request' | 'review' | 'merge';
 
+const TERMINAL_TASK_STATUSES = new Set(['done', 'abandoned', 'cancelled']);
+
 export interface TaskActionRow {
   id: string;
   conversation_id: string;
@@ -357,8 +359,11 @@ export const taskGraphRepo = {
     passId?: string;
     possessionId?: string;
     status?: string;
-  }): TaskActionRow {
+  }): TaskActionRow | undefined {
     assertTaskInConversation(input.taskId, input.conversationId);
+    const task = taskRepo.getById(input.taskId)!;
+    if (TERMINAL_TASK_STATUSES.has(task.status)) return undefined;
+
     taskRepo.update(input.taskId, {
       agent_id: input.toAgentId,
       status: input.status ?? 'in_progress',

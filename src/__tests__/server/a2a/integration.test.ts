@@ -1159,4 +1159,48 @@ describe('Chainless handoff (Plan B)', () => {
     const chains = db.prepare("SELECT * FROM invocation_chain WHERE root_trigger_type = 'agent_handoff'").all();
     expect(chains).toHaveLength(0);
   });
+
+  it('does not turn reviewer advisory and negated escalation text into a chainless handoff', async () => {
+    await messenger.onAgentResponse(
+      'peach',
+      '评审 PASS，3 条 advisory 已记录，供 @luigi 后续优化。无阻断项，无需升级 @toad。',
+      { conversationId: 'conv-1', chainDepth: 0 },
+    );
+
+    expect(io.emitted().filter(([event]) => event === 'a2a:dispatch')).toHaveLength(0);
+    expect(db.prepare("SELECT * FROM invocation_chain WHERE root_trigger_type = 'agent_handoff'").all()).toHaveLength(0);
+  });
+
+  it('routes chainless requests through task policy and preserves terminal task facts', async () => {
+    const now = new Date().toISOString();
+    db.prepare(`
+      INSERT INTO task (id, conversation_id, title, description, status, agent_id, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run('TASK-014', 'conv-1', '已通过评审的实现', '', 'done', 'luigi', now, now);
+    testTasks = [
+      { id: 'TASK-014', title: '已通过评审的实现', status: 'done', agent_id: 'luigi' },
+    ];
+
+    await messenger.onAgentResponse('peach', '@toad 请处理 TASK-014 的阻断问题。', {
+      conversationId: 'conv-1',
+      taskId: 'TASK-014',
+      chainDepth: 0,
+    });
+
+    expect(io.emitted().filter(([event, payload]) => event === 'a2a:dispatch' && payload.agentId === 'toad')).toHaveLength(0);
+    expect(db.prepare('SELECT status, agent_id FROM task WHERE id = ?').get('TASK-014')).toEqual({
+      status: 'done',
+      agent_id: 'luigi',
+    });
+    const audit = db.prepare(`
+      SELECT metadata FROM a2a_audit_log
+      WHERE event_type = 'dispatch_blocked' AND to_agent_id = 'toad'
+      ORDER BY created_at DESC LIMIT 1
+    `).get() as { metadata: string };
+    expect(JSON.parse(audit.metadata)).toMatchObject({
+      blockedBy: 'task_terminal',
+      taskId: 'TASK-014',
+      taskStatus: 'done',
+    });
+  });
 });

@@ -257,7 +257,11 @@ Current implementation notes:
 
 Task updates are informational unless the actor asks another agent to perform new work.
 
-An informational `知会 @agent` is a chat-plane notification: it records awareness but never creates an A2A possession pass and never means execution has started. A new possession state such as `standby` is intentionally not introduced because awareness and execution have different authorities. Explicit execution language may appear before or after the target mention (for example `分派 @peach 做代码质量评审` or `把架构评审拆给 @dk`) and must be recognized as a handoff.
+An informational `知会 @agent` is a chat-plane notification: it records awareness but never creates an A2A possession pass and never means execution has started. A new possession state such as `standby` is intentionally not introduced because awareness and execution have different authorities. Explicit execution language may appear before or after the target mention (for example `分派 @peach 做代码质量评审` or `把架构评审拆给 @dk`) and must be recognized as a handoff. Negation takes precedence over nearby action verbs: `无需升级 @dk`, `不需要 @agent 处理`, and advisory text such as `供 @luigi 后续优化` are not execution requests.
+
+Workflow-dispatched agent responses may create a chain on demand, but that chainless compatibility path uses the same dispatch admission function as an existing possession chain. It must not directly append worklist entries or passes, because doing so would bypass communication policy, task ownership/dependency checks, budgets, and deduplication.
+
+Task-linked A2A is not a reopen API. If the linked task is terminal (`done`, `abandoned`, or `cancelled`), dispatch admission is blocked and a late handoff acceptance leaves both status and owner unchanged. Completed work can only be revisited through the explicit Task Graph reopen flow, which creates a separate corrective branch and preserves the original terminal history.
 
 Flow:
 

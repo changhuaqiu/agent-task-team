@@ -78,6 +78,16 @@ describe('scanPassIntents', () => {
     expect(scanPassIntents('已经分派 @peach，当前正在等待结果。', AGENTS, 'mario')).toEqual([]);
   });
 
+  it('gives negation precedence over escalation and execution verbs', () => {
+    expect(scanPassIntents('无阻断项，无需升级 @dk。', AGENTS, 'peach')).toEqual([]);
+    expect(scanPassIntents('不需要 @luigi 处理，后续由任务图自动推进。', AGENTS, 'peach')).toEqual([]);
+    expect(scanPassIntents('不用找 @dk 介入，这只是 advisory。', AGENTS, 'peach')).toEqual([]);
+    expect(scanPassIntents('3 条 advisory 已记录，供 @luigi 后续优化。', AGENTS, 'peach')).toEqual([]);
+    expect(scanPassIntents('@dk 请处理 TASK-014 的阻断问题。', AGENTS, 'peach')).toMatchObject([
+      { agentId: 'dk', intent: 'delegate' },
+    ]);
+  });
+
   it('binds an action only to mentions in the same local clause', () => {
     expect(scanPassIntents('分派 @peach 做质量评审，并知会 @dk。', AGENTS, 'mario')).toMatchObject([
       { agentId: 'peach', intent: 'delegate' },

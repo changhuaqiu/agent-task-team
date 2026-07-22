@@ -287,9 +287,31 @@ describe('taskGraphRepo handoffs, artifacts, and chat bindings', () => {
       passId: 'pass-1',
     });
 
-    expect(accepted.type).toBe('task.handoff_accepted');
+    expect(accepted).toBeDefined();
+    expect(accepted!.type).toBe('task.handoff_accepted');
     expect(taskRepo.getById('task-ui')!.agent_id).toBe('frontend');
     expect(taskRepo.getById('task-ui')!.status).toBe('in_progress');
+  });
+
+  it('does not let handoff acceptance reopen or reassign a terminal task', () => {
+    createTask('task-done', 'Reviewed work', 'frontend');
+    taskRepo.updateStatus('task-done', 'done', 'PASS');
+
+    const accepted = taskGraphRepo.recordHandoffAccepted({
+      conversationId: 'conv-1',
+      taskId: 'task-done',
+      fromAgentId: 'reviewer',
+      toAgentId: 'architect',
+      passId: 'pass-terminal',
+    });
+
+    expect(accepted).toBeUndefined();
+    expect(taskRepo.getById('task-done')).toMatchObject({
+      status: 'done',
+      agent_id: 'frontend',
+      review_note: 'PASS',
+    });
+    expect(taskGraphRepo.listActions('conv-1').some((action) => action.pass_id === 'pass-terminal')).toBe(false);
   });
 
   it('links chat messages, actions, and artifacts without changing task facts', () => {

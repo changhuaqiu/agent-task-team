@@ -27,10 +27,12 @@ import { scanPassIntents } from './pass-intent';
 import { buildHandoffPacketDraft } from './handoff-packet';
 import { PossessionRepo } from './possession';
 import { taskGraphRepo } from '../repositories/task-graph-repo';
+import { taskRepo, type TaskRow } from '../repositories/task-repo';
 
 const MIN_SUBSTANTIVE_LENGTH = 50;
 const ACTION_PLACEHOLDER = /^(?:收到|好的?|明白|了解|我看看|稍等|ok(?:ay)?|got it|ack|todo|tbd)[。.!！\s]*$/i;
 const ACTIVE_TASK_STATUSES = new Set(['in_progress', 'in_review']);
+const TERMINAL_TASK_STATUSES = new Set(['done', 'abandoned', 'cancelled']);
 
 export function isMissingRequestedAction(content: string | undefined): boolean {
   const text = content?.trim() ?? '';
@@ -80,6 +82,15 @@ function resolveReferencedTasks(
   return taskIds
     .map((taskId) => tasks.find((task) => task.id.toUpperCase() === taskId))
     .filter((task): task is TaskSummary => task !== undefined);
+}
+
+function resolveTerminalLinkedTask(taskId: string | undefined, conversationId: string): TaskRow | undefined {
+  if (!taskId) return undefined;
+  const task = taskRepo.getById(taskId);
+  if (!task || task.conversation_id !== conversationId || !TERMINAL_TASK_STATUSES.has(task.status)) {
+    return undefined;
+  }
+  return task;
 }
 
 export interface OrchestratorConfig {
@@ -213,6 +224,33 @@ export class Orchestrator {
         toAgentId: req.toAgentId,
         reason,
         metadata: { blockedBy: 'current_holder' },
+      });
+      this.emitPassBlocked(chain.conversationId, chain.id, req.fromAgentId, req.toAgentId, reason);
+      return { allow: false, reason, silent: false };
+    }
+
+    const terminalLinkedTask = resolveTerminalLinkedTask(req.taskId, chain.conversationId);
+    if (terminalLinkedTask) {
+      const reason = `task ${terminalLinkedTask.id} is terminal (${terminalLinkedTask.status}); use the explicit Task Graph reopen flow`;
+      this.possessionRepo.createBlockedPass({
+        chainId: chain.id,
+        fromHolderId: req.fromAgentId,
+        toAgentId: req.toAgentId,
+        intent: req.intent ?? 'delegate',
+        phase: 'policy',
+        reason,
+      });
+      this.audit('dispatch_blocked', {
+        chainId: chain.id,
+        conversationId: chain.conversationId,
+        fromAgentId: req.fromAgentId,
+        toAgentId: req.toAgentId,
+        reason,
+        metadata: {
+          blockedBy: 'task_terminal',
+          taskId: terminalLinkedTask.id,
+          taskStatus: terminalLinkedTask.status,
+        },
       });
       this.emitPassBlocked(chain.conversationId, chain.id, req.fromAgentId, req.toAgentId, reason);
       return { allow: false, reason, silent: false };
@@ -520,45 +558,30 @@ export class Orchestrator {
       this.possessionRepo.startPass(holderPass.id);
       // NOTE: don't completeHolder yet — createPass below needs an open possession for agentId
 
-      // Process @mention targets — leave entries as 'queued', let dispatchNext handle state
-      const startedPassIds: string[] = [];
+      // Process targets through the same holder/policy/task/budget/dedup gate as
+      // an already-active chain. Chainless compatibility must not write
+      // worklist/pass rows directly because that bypasses task lifecycle rules.
       for (const target of targets) {
-        const contentHash = computeContentHash(agentId, target.agentId, target.content);
-        const entry = this.chainRepo.appendWorklist(chain.id, target.agentId, agentId, target.content, contentHash, 1);
-        if (!entry) continue;
-        if (taskId) this.entryTaskIds.set(entry.id, taskId);
-        const { pass: targetPass } = this.possessionRepo.createPass({
+        const decision = this.requestDispatch({
           chainId: chain.id,
-          fromHolderId: agentId,
-          toAgentId: target.agentId,
-          intent: target.intent,
-          packet: buildHandoffPacketDraft({
-            fromHolderId: agentId,
-            toAgentId: target.agentId,
-            content: target.content,
-            intent: target.intent,
-            sourceMessageIds: [],
-          }),
-        });
-        this.entryPassIds.set(entry.id, targetPass.id);
-        startedPassIds.push(targetPass.id);
-        this.audit('dispatch_allowed', {
-          chainId: chain.id,
-          conversationId,
           fromAgentId: agentId,
           toAgentId: target.agentId,
-          contentHash,
-          metadata: { chainlessHandoff: true },
+          content: target.content,
+          depth: 1,
+          intent: target.intent,
+          taskId,
         });
+        if (!decision.allow && !decision.silent) {
+          this.io.to(conversationId).emit('agent:event', {
+            type: 'system',
+            content: `A2A 拦截：${formatDispatchBlockReason(decision.reason)}`,
+            conversationId,
+          });
+        }
       }
 
-      // Complete the source agent's possession, then start target passes and dispatch
+      // Complete the source possession before offering validated target passes.
       this.possessionRepo.completeHolder(chain.id, agentId, response.slice(0, 1000));
-      for (const passId of startedPassIds) {
-        this.possessionRepo.startPass(passId);
-        this.clearPassTimer(passId);
-      }
-
       this.dispatchNext(chain.id, conversationId);
       return;
     }
@@ -796,6 +819,28 @@ export class Orchestrator {
         return;
       }
 
+      const terminalLinkedTask = resolveTerminalLinkedTask(this.entryTaskIds.get(next.id), conversationId);
+      if (terminalLinkedTask) {
+        const reason = `task ${terminalLinkedTask.id} became terminal (${terminalLinkedTask.status}) before dispatch`;
+        this.chainRepo.markDone(next.id, 'error');
+        const passId = this.entryPassIds.get(next.id);
+        if (passId) this.possessionRepo.updatePassStatus(passId, 'rejected', reason, 'policy');
+        this.audit('dispatch_blocked', {
+          chainId,
+          conversationId,
+          fromAgentId: next.requestedBy,
+          toAgentId: next.agentId,
+          reason,
+          metadata: {
+            blockedBy: 'task_terminal',
+            taskId: terminalLinkedTask.id,
+            taskStatus: terminalLinkedTask.status,
+          },
+        });
+        this.emitPassBlocked(conversationId, chainId, next.requestedBy, next.agentId, reason);
+        continue;
+      }
+
       // Check if target agent is idle
       const state = this.getAgentState(next.agentId);
       if (state.status !== 'idle') {
@@ -906,6 +951,29 @@ export class Orchestrator {
   ): void {
     const chain = this.chainRepo.getById(chainId);
     if (!chain || chain.status !== 'active') return;
+
+    const terminalLinkedTask = resolveTerminalLinkedTask(this.entryTaskIds.get(entryId), conversationId);
+    if (terminalLinkedTask) {
+      const reason = `task ${terminalLinkedTask.id} became terminal (${terminalLinkedTask.status}) before handoff acceptance`;
+      this.chainRepo.markDone(entryId, 'error');
+      const resolvedPassId = passId ?? this.entryPassIds.get(entryId);
+      if (resolvedPassId) this.possessionRepo.updatePassStatus(resolvedPassId, 'rejected', reason, 'start');
+      this.setAgentState(agentId, 'idle');
+      this.audit('dispatch_blocked', {
+        chainId,
+        conversationId,
+        toAgentId: agentId,
+        reason,
+        metadata: {
+          blockedBy: 'task_terminal',
+          taskId: terminalLinkedTask.id,
+          taskStatus: terminalLinkedTask.status,
+        },
+      });
+      this.emitPassBlocked(conversationId, chainId, undefined, agentId, reason);
+      this.dispatchNext(chainId, conversationId);
+      return;
+    }
 
     // Guard against the fire-and-forget race: if the ACP done event already
     // arrived and onAgentDone marked this entry 'done', we must NOT roll the

@@ -57,6 +57,8 @@
 - [x] Treat dispatch summary language as actionable handoff intent.
 - [x] Ignore completed-state dispatch summaries such as "已分配给 @agent".
 - [x] Evaluate repeated mentions so later actionable mentions are not missed.
+- [x] Reject negated action-before-target mentions and route chainless handoffs through the standard dispatch policy.
+- [x] Prevent task-linked A2A from implicitly reopening or reassigning terminal tasks.
 - [ ] Add diagnostics for uncertain mentions.
 - [x] Block non-holder pass attempts.
 - [x] Add loop and fanout budget checks.
