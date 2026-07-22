@@ -191,7 +191,7 @@ describe('SQLite Foundation', () => {
           'autonomous_delivery_receipt',
         ]));
         expect(checkpoint.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-          .toEqual({ version: 42 });
+          .toEqual({ version: 43 });
         expect(checkpoint.pragma('foreign_key_check')).toEqual([]);
       } finally {
         checkpoint.close();
@@ -199,7 +199,7 @@ describe('SQLite Foundation', () => {
     }
   });
 
-  it('rebuilds the old root task FK while preserving autonomous run and action rows', () => {
+  it('repairs a v42-watermarked Run table while preserving autonomous run and action rows', () => {
     db.pragma('foreign_keys = OFF');
     db.exec(`
       DROP TABLE autonomous_delivery_run;
@@ -218,7 +218,7 @@ describe('SQLite Foundation', () => {
         updated_at TEXT NOT NULL,
         completed_at TEXT
       );
-      DELETE FROM _schema_version WHERE version >= 41;
+      DELETE FROM _schema_version WHERE version >= 43;
     `);
     db.pragma('foreign_keys = ON');
     const now = new Date().toISOString();
@@ -236,6 +236,9 @@ describe('SQLite Foundation', () => {
       .run(now, now, now);
 
     applyMigrations(db);
+
+    expect(db.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
+      .toEqual({ version: 43 });
 
     const rootTaskForeignKey = (db.pragma('foreign_key_list(autonomous_delivery_run)') as Array<{
       from: string;

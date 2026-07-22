@@ -45,6 +45,7 @@
 - [x] Playwright Web UI E2E。
 - [x] repair verification 进程重启恢复 Web UI E2E。
 - [x] executing / verifying / integrating 三阶段持久化重启恢复集成测试。
+- [x] v42 水位但 Run 表缺少 `revision` 的 checkpoint 可前向修复，并保留既有 Run/Action。
 
 ## 全链路证据
 
@@ -68,6 +69,13 @@
   lease 回收 / startup reconcile → Web UI E2E PASS → DeliveryBundle 完成卡片。
 - 黑盒测试选择的是临时复制项目；源码、数据库、报告和 `.ath` 证据随测试临时根目录清理，
   不依赖或污染开发者的原工作区。
+
+## 现场恢复记录（2026-07-22）
+
+- 生产数据库已处于 v42 水位但 Run 表缺少 `revision`；v43 启动迁移后保留原 DeliveryRun，
+  `foreign_key_check` 无违规，Supervisor 将该 Run 从 `submitted/planning` 推进到 `executing`。
+- 恢复后已生成根任务、`plan_goal` / `advance_tasks` 两个持久化 Action 及对应 Attempt，
+  Run `revision` 从 0 单调递增到 4，证明真实 `getDb()` → startup reconcile 链路可用。
 - `pnpm build`（Next.js 16.2.4 / Turbopack）通过，TypeScript 与页面生成均成功。
 - 独立 MR 工作树基于最新 `origin/main` 验证：`pnpm test` 全量 135 个测试文件、
   1192 条用例全部通过，无 unhandled rejection。

@@ -14,6 +14,7 @@
 - [x] 实现 DeliveryBundle 先持久化、后幂等发布。
 - [x] Web UI 支持提交 GoalContract、查看运行状态、查看最终交付。
 - [x] 正常路径 Web UI E2E 证明用户只发送一次。
+- [x] 修复 v42 水位与 Run 表结构不一致时 Supervisor 无法启动，并增加数据保留回归测试。
 
 ## P1：恢复与安全
 

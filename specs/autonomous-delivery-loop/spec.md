@@ -99,6 +99,10 @@ Run 保存单调递增的 `revision`。所有由旧快照推导的状态写回�
 且终态不接受 Supervisor 的非终态写回；因此并发 reconcile、人工升级和慢速 facts
 观察不能把 `completed/escalated/cancelled` 回退后继续创建或执行 Action。
 
+数据库升级不能仅以 `_schema_version` 的最大值证明 Run 表结构有效。兼容未发布 checkpoint 时，
+迁移必须覆盖“水位已到 v42、但 `revision` 缺失或 `root_task_id` 并非 `ON DELETE SET NULL`”
+的状态；修复须保留 Run/Action 数据并通过 `foreign_key_check`，否则 Supervisor 不得开始 reconcile。
+
 ### 3.3 DeliveryAction / DeliveryAttempt
 
 - `DeliveryAction`：Supervisor 推导出的逻辑动作，例如 `plan_goal`、`dispatch_task`、`request_review`、`run_web_e2e`、`create_pr`、`merge_pr`、`publish_delivery`。

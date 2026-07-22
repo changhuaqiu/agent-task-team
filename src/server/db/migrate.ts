@@ -1287,67 +1287,86 @@ CREATE INDEX IF NOT EXISTS idx_github_issue_ingress_run
     version: 42,
     foreignKeysOff: true,
     run(db) {
-      const migration = MIGRATIONS.find((item) => item.version === 26);
-      if (!migration?.sql) throw new Error('autonomous delivery schema migration is unavailable');
-      db.exec(migration.sql);
-
-      const columns = db.prepare('PRAGMA table_info(autonomous_delivery_run)')
-        .all() as Array<{ name: string }>;
-      if (!columns.some((column) => column.name === 'revision')) {
-        db.exec('ALTER TABLE autonomous_delivery_run ADD COLUMN revision INTEGER NOT NULL DEFAULT 0');
-      }
-
-      const rootTaskForeignKey = (db.prepare("PRAGMA foreign_key_list('autonomous_delivery_run')")
-        .all() as Array<{ from: string; table: string; on_delete: string }>)
-        .find((foreignKey) => foreignKey.from === 'root_task_id' && foreignKey.table === 'task');
-      if (rootTaskForeignKey?.on_delete.toUpperCase() !== 'SET NULL') {
-        db.exec(`
-          DROP TABLE IF EXISTS autonomous_delivery_run_v42;
-          CREATE TABLE autonomous_delivery_run_v42 (
-            id TEXT PRIMARY KEY,
-            conversation_id TEXT NOT NULL REFERENCES conversation(id) ON DELETE CASCADE,
-            root_task_id TEXT REFERENCES task(id) ON DELETE SET NULL,
-            status TEXT NOT NULL CHECK(status IN (
-              'submitted','planning','executing','reviewing','verifying','integrating',
-              'delivering','recovering','completed','escalated','cancelled'
-            )),
-            current_stage TEXT NOT NULL,
-            goal_contract_json TEXT NOT NULL,
-            repair_cycle INTEGER NOT NULL DEFAULT 0,
-            revision INTEGER NOT NULL DEFAULT 0,
-            escalation_code TEXT,
-            escalation_detail TEXT,
-            delivery_bundle_json TEXT,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL,
-            completed_at TEXT
-          );
-          INSERT INTO autonomous_delivery_run_v42 (
-            id,conversation_id,root_task_id,status,current_stage,goal_contract_json,
-            repair_cycle,revision,escalation_code,escalation_detail,delivery_bundle_json,
-            created_at,updated_at,completed_at
-          )
-          SELECT
-            id,conversation_id,root_task_id,status,current_stage,goal_contract_json,
-            repair_cycle,revision,escalation_code,escalation_detail,delivery_bundle_json,
-            created_at,updated_at,completed_at
-          FROM autonomous_delivery_run;
-          DROP TABLE autonomous_delivery_run;
-          ALTER TABLE autonomous_delivery_run_v42 RENAME TO autonomous_delivery_run;
-          CREATE INDEX IF NOT EXISTS idx_autonomous_delivery_run_conversation
-            ON autonomous_delivery_run(conversation_id, created_at);
-          CREATE INDEX IF NOT EXISTS idx_autonomous_delivery_run_reconcile
-            ON autonomous_delivery_run(status, updated_at);
-        `);
-      }
-
-      const violations = db.pragma('foreign_key_check') as Array<Record<string, unknown>>;
-      if (violations.length > 0) {
-        throw new Error(`migration 42 foreign key check failed: ${JSON.stringify(violations.slice(0, 10))}`);
-      }
+      repairAutonomousDeliverySchema(db, 42);
+    },
+  },
+  {
+    // Some unpublished checkpoints already recorded v42 while retaining the
+    // pre-revision Run table. A later migration must re-run the structural
+    // invariant checks instead of trusting that historical watermark.
+    version: 43,
+    foreignKeysOff: true,
+    run(db) {
+      repairAutonomousDeliverySchema(db, 43);
     },
   },
 ];
+
+function repairAutonomousDeliverySchema(
+  db: Database.Database,
+  migrationVersion: number,
+): void {
+  const migration = MIGRATIONS.find((item) => item.version === 26);
+  if (!migration?.sql) throw new Error('autonomous delivery schema migration is unavailable');
+  db.exec(migration.sql);
+
+  const columns = db.prepare('PRAGMA table_info(autonomous_delivery_run)')
+    .all() as Array<{ name: string }>;
+  if (!columns.some((column) => column.name === 'revision')) {
+    db.exec('ALTER TABLE autonomous_delivery_run ADD COLUMN revision INTEGER NOT NULL DEFAULT 0');
+  }
+
+  const rootTaskForeignKey = (db.prepare("PRAGMA foreign_key_list('autonomous_delivery_run')")
+    .all() as Array<{ from: string; table: string; on_delete: string }>)
+    .find((foreignKey) => foreignKey.from === 'root_task_id' && foreignKey.table === 'task');
+  if (rootTaskForeignKey?.on_delete.toUpperCase() !== 'SET NULL') {
+    db.exec(`
+      DROP TABLE IF EXISTS autonomous_delivery_run_repair;
+      CREATE TABLE autonomous_delivery_run_repair (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL REFERENCES conversation(id) ON DELETE CASCADE,
+        root_task_id TEXT REFERENCES task(id) ON DELETE SET NULL,
+        status TEXT NOT NULL CHECK(status IN (
+          'submitted','planning','executing','reviewing','verifying','integrating',
+          'delivering','recovering','completed','escalated','cancelled'
+        )),
+        current_stage TEXT NOT NULL,
+        goal_contract_json TEXT NOT NULL,
+        repair_cycle INTEGER NOT NULL DEFAULT 0,
+        revision INTEGER NOT NULL DEFAULT 0,
+        escalation_code TEXT,
+        escalation_detail TEXT,
+        delivery_bundle_json TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        completed_at TEXT
+      );
+      INSERT INTO autonomous_delivery_run_repair (
+        id,conversation_id,root_task_id,status,current_stage,goal_contract_json,
+        repair_cycle,revision,escalation_code,escalation_detail,delivery_bundle_json,
+        created_at,updated_at,completed_at
+      )
+      SELECT
+        id,conversation_id,root_task_id,status,current_stage,goal_contract_json,
+        repair_cycle,revision,escalation_code,escalation_detail,delivery_bundle_json,
+        created_at,updated_at,completed_at
+      FROM autonomous_delivery_run;
+      DROP TABLE autonomous_delivery_run;
+      ALTER TABLE autonomous_delivery_run_repair RENAME TO autonomous_delivery_run;
+      CREATE INDEX IF NOT EXISTS idx_autonomous_delivery_run_conversation
+        ON autonomous_delivery_run(conversation_id, created_at);
+      CREATE INDEX IF NOT EXISTS idx_autonomous_delivery_run_reconcile
+        ON autonomous_delivery_run(status, updated_at);
+    `);
+  }
+
+  const violations = db.pragma('foreign_key_check') as Array<Record<string, unknown>>;
+  if (violations.length > 0) {
+    throw new Error(
+      `migration ${migrationVersion} foreign key check failed: ${JSON.stringify(violations.slice(0, 10))}`,
+    );
+  }
+}
 
 export function applyMigrations(db: Database.Database): void {
   db.exec(`CREATE TABLE IF NOT EXISTS _schema_version (version INTEGER PRIMARY KEY)`);
