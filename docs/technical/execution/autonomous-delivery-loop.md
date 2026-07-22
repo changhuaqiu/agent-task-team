@@ -224,6 +224,10 @@ Supervisor 只接受当前 TeamPack 质量门负责人提交的 `evidence.review
 
 项目清单中的命令只能证明“命令入口存在”，不能证明它会形成一次性门禁证据。基础任务协议和 Project Context 的可信命令段都必须提醒 Agent：测试、构建与安装只有在进程正常退出时有效；watch 模式即使先打印 PASS，随后超时或被终止仍是失败。发现 `npm test` 等脚本进入 watch 后，应使用 runner 的 one-shot 形式（例如 `npx vitest run`）重新执行。
 
+命令证据的事实来源是与当前 DeliveryRun、Task 和 Agent 绑定的真实 Shell observation span。门禁只解析该 Shell 调用输入的顶层 `command`/`cmd` 字段，并使用同类命令的最新真实执行结果；状态工具、评审工具或其他非 Shell 工具中作为说明文本出现的命令不得参与匹配。这样可以避免 `task_update_status` 自身携带的 evidence 命令描述被误识别为失败执行，并反向锁死 `in_review` 流转。
+
+对于非 Git 实现任务，Agent 提交的 `installResult`、`buildResult`、`testResult`、`impactEvidence` 是面向评审的非空字符串摘要，不是执行事实本身；门禁同时要求这些摘要完整，并要求对应 Shell span 正常退出。结构化对象中的自报 `exitCode` 不得代替真实 span。
+
 Action kind 不是执行场景的唯一来源。`advance_tasks` 取到 review/test wakeup 时必须分别使用 `code_review` / `verification` 场景，保证恢复派发仍保留角色边界和工具契约。
 
 ### 重启恢复

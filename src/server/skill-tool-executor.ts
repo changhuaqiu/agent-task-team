@@ -234,14 +234,36 @@ function autonomousImplementationExecutionError(
     && span.agent_id === invocation.agentId
     && span.started_at >= snapshot.run.created_at
   );
-  const command = (spanId: string) => spanPayloadRepo.get(spanId, 'tool_input')?.content ?? '';
+  const command = (spanId: string): string | undefined => {
+    const content = spanPayloadRepo.get(spanId, 'tool_input')?.content.trim();
+    if (!content) return undefined;
+    try {
+      const input = JSON.parse(content) as unknown;
+      if (typeof input === 'string') return input.trim() || undefined;
+      const record = recordInput(input);
+      if (!record) return undefined;
+      const value = nonEmptyText(record.command)
+        ? record.command
+        : nonEmptyText(record.cmd) ? record.cmd : undefined;
+      return value?.trim() || undefined;
+    } catch {
+      // A truncated or malformed structured payload is not authoritative command
+      // evidence. Plain legacy command payloads remain supported.
+      return content.startsWith('{') || content.startsWith('[') || content.startsWith('"')
+        ? undefined
+        : content;
+    }
+  };
   const categories = [
     ['install', /\b(?:npm|pnpm|yarn|bun)\s+(?:install|i|ci)\b/i],
     ['build', /\b(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?build\b|\b(?:npx\s+)?tsc\b/i],
     ['test', /\b(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?test\b|\b(?:npx\s+)?(?:vitest|jest|playwright)\b/i],
   ] as const;
   const invalid = categories.flatMap(([name, pattern]) => {
-    const latest = spans.find((span) => pattern.test(command(span.span_id)));
+    const latest = spans.find((span) => {
+      const value = command(span.span_id);
+      return value ? pattern.test(value) : false;
+    });
     return latest?.status === 'ok' && latest.ended_at ? [] : [name];
   });
   return invalid.length > 0

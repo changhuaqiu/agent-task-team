@@ -224,6 +224,21 @@ describe('skill tool collaboration gates', () => {
     expect(taskRepo.getById(task.id)?.status).toBe('in_progress');
 
     addCommand('span-test-4', 'npx vitest run', 'ok');
+    const statusSpan = observationSpanRepo.start({
+      spanId: 'span-status-5', traceId: 'trace-exec-proof', name: 'tool.execute', kind: 'tool',
+      conversationId: 'conv-exec-proof', taskId: task.id, agentId: 'luigi', invocationId: 'inv-proof',
+      startedAt: new Date(Date.now() + 5).toISOString(),
+    });
+    spanPayloadRepo.put(statusSpan.span_id, 'tool_input', {
+      task_id: task.id,
+      status: 'in_review',
+      evidence: {
+        installResult: { command: 'npm install', exitCode: 0 },
+        buildResult: { command: 'npm run build', exitCode: 0 },
+        testResult: { command: 'npx vitest run', exitCode: 0 },
+      },
+    });
+    observationSpanRepo.finish(statusSpan.span_id, 'error', { outputPreview: 'gate rejected' });
     const accepted = await executeSkillTool({
       toolName: 'task_update_status', agentId: 'luigi', conversationId: 'conv-exec-proof',
       deliveryRunId: run.run.id, input: { task_id: task.id, status: 'in_review', evidence },

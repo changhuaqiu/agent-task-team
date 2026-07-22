@@ -130,6 +130,7 @@ ACP `tool_call_update` 可以只携带 `toolCallId`，不重复 `tool_call` 中�
 Claude adapter 的权限阶段可能先发送仅含占位 `rawInput` 的 `tool_call`，再以 `tool_call_update` 补齐真实 `rawInput`；该 refinement 不是工具完成。映射层必须按 `toolCallId` 累积名称、最终输入与输出。只在累计状态明确为 `completed|failed` 时产生终态结果；仅当 adapter 完全不提供 `status` 时，带 `rawOutput` 的兼容更新才可视为终态。显式 `pending|in_progress` 即使带 `rawOutput` 也只是进度，不能关闭关联或工具 span。`status=failed` 必须向下游保留，观测 span 与实时 CLI UI 都必须展示 refinement 后的最终输入，并不得将拒绝或执行失败显示为成功。
 
 Adapter 报告“工具 RPC 已完成”不等于被调用进程成功。映射层还必须检查结构化 `rawOutput` 中的退出信息与 shell 终止元数据；非零退出、拒绝、超时或被 supervisor 终止都必须把内部 `tool_result` 和 observation span 收口为失败。尤其是测试 runner 已打印 PASS、随后停在 watch 模式并被超时终止时，不能生成成功执行证据，也不能被 implementation/verification gate 当作正常退出。
+下游门禁识别 ACP Shell 命令时必须解析工具输入的顶层 `command`/`cmd` 字段，而不是在完整 JSON 中做正则全文搜索。非 Shell 工具即使在 evidence 或说明字段中包含命令字符串，也不能成为或覆盖进程退出证据。
 
 ACP 文本更新是流式增量，不是独立聊天消息。daemon 可以逐 chunk 广播以保持实时反馈，但持久化时必须在单次 Invocation 内合并连续 `text` chunk；`tool_use`、`tool_result`、`error` 与 `done` 构成文本段边界，禁止把每个汉字或 token 写成一条 `chat_message`。
 
