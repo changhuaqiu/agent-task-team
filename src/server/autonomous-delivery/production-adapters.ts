@@ -592,6 +592,31 @@ export class HarnessDeliveryActionAdapter implements DeliveryActionPort {
         ? this.verificationWakeup(snapshot, task, claim.action.kind)
         : this.findWakeup(snapshot, task.id);
     if (!wakeup) {
+      const rootScope = rootRecoveryScope(
+        taskRepo.getByConversation(snapshot.run.conversation_id),
+        snapshot.run.root_task_id,
+      );
+      if (
+        task.id === snapshot.run.root_task_id
+        && rootScope.hasNonTerminalChildren
+      ) {
+        return {
+          status: 'succeeded',
+          receipts: [{
+            kind: 'harness.dispatch.skipped',
+            status: 'succeeded',
+            externalId: task.id,
+            payload: {
+              taskId: task.id,
+              reasonCode: 'root_superseded_by_active_children',
+              activeChildTaskIds: rootScope.childTasks
+                .filter((child) => !TERMINAL_TASK_STATUSES.has(child.status))
+                .map((child) => child.id),
+            },
+            idempotencyKey: `${claim.action.idempotency_key}:root-superseded`,
+          }],
+        };
+      }
       return {
         status: 'failed',
         failureCode: 'transient_runtime',

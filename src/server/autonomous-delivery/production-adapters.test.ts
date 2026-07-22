@@ -15,6 +15,7 @@ import {
   HarnessDeliveryActionAdapter,
   RepositoryDeliveryFactsAdapter,
 } from './production-adapters';
+import { AutonomousDeliverySupervisor } from './supervisor';
 import type { GoalContract } from './types';
 
 const contract: GoalContract = {
@@ -248,10 +249,87 @@ describe('RepositoryDeliveryFactsAdapter', () => {
     );
 
     expect(result).toMatchObject({
-      status: 'failed',
-      failureCode: 'transient_runtime',
-      retryable: true,
+      status: 'succeeded',
+      receipts: [{
+        kind: 'harness.dispatch.skipped',
+        status: 'succeeded',
+        externalId: root.id,
+        payload: {
+          reasonCode: 'root_superseded_by_active_children',
+          activeChildTaskIds: ['task-child-existing-action'],
+        },
+      }],
     });
+    expect(submitted).toBeUndefined();
+  });
+
+  it('Supervisor 将活跃子任务取代的旧 root action 成功 no-op，而不是耗尽后升级 Run', async () => {
+    const repo = new AutonomousDeliveryRepository();
+    const run = repo.createRun(contract);
+    const root = taskRepo.create({
+      id: 'task-root-supervisor-noop',
+      conversation_id: contract.scope.conversationId,
+      title: contract.goal,
+      agent_id: 'mario',
+    });
+    const child = taskRepo.create({
+      id: 'task-child-supervisor-noop',
+      conversation_id: contract.scope.conversationId,
+      title: '实现登录 UI',
+      agent_id: 'peach',
+    });
+    taskRepo.updateStatus(root.id, 'in_progress');
+    repo.updateRun({
+      runId: run.run.id,
+      status: 'executing',
+      stage: 'executing',
+      rootTaskId: root.id,
+    });
+    const staleRootAction = repo.ensureAction({
+      runId: run.run.id,
+      kind: 'advance_tasks',
+      subjectType: 'task',
+      subjectId: root.id,
+      idempotencyKey: `${run.run.id}:advance_tasks:pre-child-root`,
+      maxAttempts: 1,
+    });
+    let submitted: HarnessTrigger | undefined;
+    const io = { to: () => ({ emit: () => undefined }) } as unknown as IOServer;
+    registerHarnessCoordinator(io, {
+      submit(trigger: HarnessTrigger) {
+        submitted = trigger;
+        return {
+          disposition: 'accepted',
+          handled: true,
+          completion: Promise.resolve({ status: 'accepted' }),
+        };
+      },
+    } as unknown as HarnessCoordinator);
+    const supervisor = new AutonomousDeliverySupervisor({
+      repository: repo,
+      facts: new RepositoryDeliveryFactsAdapter(),
+      actions: new HarnessDeliveryActionAdapter(io),
+      workerId: 'root-noop-supervisor',
+      maxActionsPerAdvance: 1,
+    });
+
+    const result = await supervisor.advance(run.run.id, { kind: 'periodic_reconcile' });
+    const snapshot = repo.getSnapshot(run.run.id)!;
+
+    expect(result.disposition).toBe('acted');
+    expect(snapshot.run.status).not.toBe('escalated');
+    expect(snapshot.actions.find((action) => action.id === staleRootAction.id)?.status)
+      .toBe('succeeded');
+    expect(snapshot.actions).toContainEqual(expect.objectContaining({
+      subject_id: child.id,
+      kind: 'advance_tasks',
+      status: 'ready',
+    }));
+    expect(snapshot.receipts).toContainEqual(expect.objectContaining({
+      action_id: staleRootAction.id,
+      kind: 'harness.dispatch.skipped',
+      status: 'succeeded',
+    }));
     expect(submitted).toBeUndefined();
   });
 

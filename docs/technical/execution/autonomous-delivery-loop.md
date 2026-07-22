@@ -257,6 +257,9 @@ Repository 按稳定子任务 ID 集合写入一次不可变 `root.children.conv
 的 `observed_at` 开启新的根恢复 epoch；后续 `done → done` 或 artifacts/evidence 更新不能刷新
 epoch。epoch 前的历史 Envelope 不消耗收口预算，再由 chain closure 或新的根恢复完成收口。
 只有尚未拆出子 Task 的根执行从一开始就使用普通 Envelope 恢复预算。
+若子任务出现前已持久化旧 root `advance_tasks` Action，Action adapter 以成功 no-op 和
+`harness.dispatch.skipped` Receipt 将其收口；不得用 `transient_runtime` 消耗该 Action 的预算，
+否则 max-attempts 内核会把已被子任务取代的旧动作误升级为整个 Run 失败。
 
 长任务执行期间，Supervisor 按 lease 的固定分数周期刷新 `heartbeat_at` 和
 `lease_expires_at`。Attempt 完成或失败时，Repository 还会校验它仍是 Action 的当前
