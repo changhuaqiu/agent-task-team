@@ -381,6 +381,7 @@ Invocation 引用，并在 tmux 启动前持久化 pane 引用。重启只能处
 daemon/bridge 的三类状态收口必须位于同一事务，且 Binding 只在仍指向旧 Envelope 时释放；事务或 tmux
 枚举/确认失败时保留恢复责任并由 periodic 重试。旧 tmux 集合清零及持久化回收完成前，daemon 不得接受
 新 dispatch，以阻断 pane ID 复用竞态；就绪屏障必须在事实观察和恢复派发之前解除。
+任一 pre-reconcile ownership hook 失败必须立即中止当前 cycle，且不得过期 Envelope、移除 restart node 或开放 readiness。
 tmux 在创建 pane 前必须持久化每个 Envelope 独占的 server 引用；pane 创建命令原子返回 pane ID，
 后置设置失败由 gateway 严格清理或把引用交还 daemon。sent/started 及因 TTL/dispatch 过期但仍带 cleanup
 record 的 Envelope 都参与启动清理，确保后续 bind 持续失败和 daemon 再次崩溃时仍可按专属 server 回收。

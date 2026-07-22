@@ -233,6 +233,7 @@ daemon/bridge 的 Envelope、Invocation 与仍指向该旧 Envelope 的 AgentBin
 事务失败时保留启动节点的待恢复标记，由 periodic reconcile 重试。tmux 首次枚举失败也必须保持未就绪并在
 periodic 重新枚举。旧 tmux 集合未全部严格清理前，daemon 的 dispatch readiness barrier 不开放，
 避免新 pane 与旧 pane 清理并发或复用 pane ID；该 barrier 在执行事实观察/重新派发之前释放，避免恢复自锁。
+任一 pre-reconcile 所有权检查失败必须中止整轮回收，不能继续过期 Envelope、删除待恢复节点或开放 readiness。
 所有 reconcile cycle 必须串行；事务恢复成功后必须先移除旧节点恢复责任，再开放 readiness，防止重入周期
 把本进程新创建的 Envelope 当作旧进程遗留项。tmux 创建命令必须通过同一命令原子返回 pane ID；后置设置
 失败时由 gateway 自行严格清理，无法确认时必须把 pane 引用带回 daemon 保留 ownership。

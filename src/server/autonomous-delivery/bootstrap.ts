@@ -26,6 +26,21 @@ interface RuntimeOptions {
   afterEnvelopeRecovery?: (reason: ReconcileReason) => void | Promise<void>;
 }
 
+export async function runBeforeReconcileHooks(
+  hooks: Iterable<NonNullable<RuntimeOptions['beforeReconcile']>>,
+  reason: ReconcileReason,
+): Promise<boolean> {
+  for (const hook of hooks) {
+    try {
+      await hook(reason);
+    } catch (error) {
+      console.error(`[autonomous-delivery] ${reason} pre-reconcile hook failed:`, error);
+      return false;
+    }
+  }
+  return true;
+}
+
 function deliveryLeaseMs(): number {
   const configured = Number(process.env.AUTONOMOUS_DELIVERY_LEASE_MS);
   return Number.isFinite(configured) && configured > 0 ? configured : 60_000;
@@ -98,13 +113,10 @@ export function ensureAutonomousDeliveryRuntime(
 
   const runReconcile = async (reason: ReconcileReason) => {
     const execute = async () => {
-      for (const hook of hooks) {
-        try {
-          await hook(reason);
-        } catch (error) {
-          console.error(`[autonomous-delivery] ${reason} pre-reconcile hook failed:`, error);
-        }
-      }
+      // A failed ownership check is a hard safety barrier. Do not expire
+      // envelopes, remove the pending restart generation, or release dispatch
+      // readiness until every pre-reconcile hook succeeds in a later cycle.
+      if (!await runBeforeReconcileHooks(hooks, reason)) return;
       const attemptedRestartNodes = [...pendingRestartNodes];
       await reconcileActiveRuns(supervisor, reason, attemptedRestartNodes, async () => {
         // The transactional restart recovery succeeded. Remove the old node

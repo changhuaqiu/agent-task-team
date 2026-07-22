@@ -7,7 +7,7 @@ import { agentBindingRepo } from '../repositories/agent-binding-repo';
 import { runtimeNodeRepo } from '../repositories/runtime-node-repo';
 import { resetSeq } from '../repositories/sortable-id';
 import { taskRepo } from '../repositories/task-repo';
-import { reconcileActiveRuns } from './bootstrap';
+import { reconcileActiveRuns, runBeforeReconcileHooks } from './bootstrap';
 import { RepositoryDeliveryFactsAdapter } from './production-adapters';
 import { AutonomousDeliveryRepository } from './repository';
 import type { AutonomousDeliverySupervisor } from './supervisor';
@@ -47,6 +47,21 @@ afterEach(() => {
 });
 
 describe('autonomous delivery bootstrap reconcile', () => {
+  it('aborts the reconcile cycle when an ownership pre-check fails', async () => {
+    const failed = vi.fn(async () => { throw new Error('legacy ownership is unknown'); });
+    const mustNotRun = vi.fn();
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    await expect(runBeforeReconcileHooks([failed, mustNotRun], 'startup')).resolves.toBe(false);
+
+    expect(failed).toHaveBeenCalledWith('startup');
+    expect(mustNotRun).not.toHaveBeenCalled();
+    expect(console.error).toHaveBeenCalledWith(
+      '[autonomous-delivery] startup pre-reconcile hook failed:',
+      expect.any(Error),
+    );
+  });
+
   it('expires a stale started envelope before advancing active runs', async () => {
     const repository = new AutonomousDeliveryRepository();
     const run = repository.createRun(contract);
