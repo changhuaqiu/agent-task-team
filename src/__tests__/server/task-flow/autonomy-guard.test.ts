@@ -188,4 +188,38 @@ describe('autonomy guard wakeups', () => {
       reasonCode: 'runnable_owned_idle',
     }));
   });
+
+  it('never hands an escalated delivery root back to the generic guard', () => {
+    for (const status of ['pending', 'in_progress'] as const) {
+      const wakeups = resolveAutonomyGuardWakeups({
+        tasks: [task({ id: 'ROOT', agent_id: 'mario', status })],
+        edges: [],
+        envelopes: [],
+        coordinatorAgentIds: ['mario'],
+        reviewAgentIds: ['peach'],
+        qaAgentIds: ['yoshi'],
+        deliveryControlledRootTaskIds: ['ROOT'],
+        suspendedDeliveryRootTaskIds: ['ROOT'],
+        now: new Date('2026-05-21T00:31:00.000Z'),
+        staleMs: 30 * 60 * 1000,
+      });
+
+      expect(wakeups).toEqual([]);
+    }
+
+    const closureWakeups = resolveAutonomyGuardWakeups({
+      tasks: [
+        task({ id: 'ROOT', agent_id: 'mario', status: 'in_progress' }),
+        task({ id: 'CHILD', agent_id: 'luigi', status: 'done' }),
+      ],
+      edges: [subtaskEdge('CHILD', 'ROOT')],
+      envelopes: [],
+      coordinatorAgentIds: ['mario'],
+      reviewAgentIds: ['peach'],
+      qaAgentIds: ['yoshi'],
+      deliveryControlledRootTaskIds: ['ROOT'],
+      suspendedDeliveryRootTaskIds: ['ROOT'],
+    });
+    expect(closureWakeups).toEqual([]);
+  });
 });

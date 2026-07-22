@@ -413,6 +413,10 @@ export default function registerDaemon(io: IOServer) {
           .filter((run) => run.conversation_id === conversationId)
           .map((run) => run.root_task_id)
           .filter((taskId): taskId is string => Boolean(taskId)),
+        suspendedDeliveryRootTaskIds: rootGuardedDeliveryRuns
+          .filter((run) => run.conversation_id === conversationId && run.status === 'escalated')
+          .map((run) => run.root_task_id)
+          .filter((taskId): taskId is string => Boolean(taskId)),
       });
       for (const wakeup of wakeups) {
         const key = wakeup.metadata.idempotencyKey;

@@ -13,6 +13,7 @@ export interface ResolveAutonomyGuardWakeupsInput {
   edges?: TaskEdgeRow[];
   closureDispatchedRootTaskIds?: string[];
   deliveryControlledRootTaskIds?: string[];
+  suspendedDeliveryRootTaskIds?: string[];
   now?: Date;
   staleMs?: number;
 }
@@ -77,6 +78,7 @@ export function resolveAutonomyGuardWakeups(input: ResolveAutonomyGuardWakeupsIn
   const wakeups: TaskWakeup[] = [];
   const terminalTaskStatuses = new Set(['done', 'abandoned', 'cancelled']);
   const deliveryControlledRootTaskIds = new Set(input.deliveryControlledRootTaskIds ?? []);
+  const suspendedDeliveryRootTaskIds = new Set(input.suspendedDeliveryRootTaskIds ?? []);
   const subtaskEdges = (input.edges ?? []).filter((edge) => edge.type === 'subtask_of');
   const childrenByParent = new Map<string, string[]>();
   const childIds = new Set<string>();
@@ -108,6 +110,7 @@ export function resolveAutonomyGuardWakeups(input: ResolveAutonomyGuardWakeupsIn
 
   for (const root of input.tasks) {
     if (!childrenByParent.has(root.id) || childIds.has(root.id)) continue;
+    if (suspendedDeliveryRootTaskIds.has(root.id)) continue;
     if (terminalTaskStatuses.has(root.status) || dispatchedRoots.has(root.id)) continue;
     const descendants = collectDescendants(root.id);
     if (descendants.length === 0 || !descendants.every((task) => terminalTaskStatuses.has(task.status))) continue;
@@ -134,6 +137,7 @@ export function resolveAutonomyGuardWakeups(input: ResolveAutonomyGuardWakeupsIn
   }
 
   for (const task of input.tasks) {
+    if (suspendedDeliveryRootTaskIds.has(task.id)) continue;
     if (closureRootIds.has(task.id)) continue;
     const updatedAt = task.updated_at ? new Date(task.updated_at).getTime() : 0;
     const isStale = updatedAt > 0 && now.getTime() - updatedAt >= staleMs;
