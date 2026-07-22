@@ -235,6 +235,49 @@ describe('server hydration runtime gate', () => {
     expect(hydrated.getAgentRuntimeProfile('mario')?.execution.accountId).toBe(ACCOUNT_ID);
   });
 
+  it('keeps an interactive workspace mounted while runtime state refreshes', async () => {
+    useTaskHubStore.setState({ hasHydrated: true });
+
+    let resolveState!: (response: Response) => void;
+    let markStateRequested!: () => void;
+    const stateResponse = new Promise<Response>((resolve) => {
+      resolveState = resolve;
+    });
+    const stateRequested = new Promise<void>((resolve) => {
+      markStateRequested = resolve;
+    });
+
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === '/api/state') {
+        markStateRequested();
+        return stateResponse;
+      }
+      if (url === '/api/accounts') return json({ accounts: [] });
+      if (url === '/api/agents') return json({ agents: [] });
+      if (url === '/api/skills' || url.includes('/skills')) return json([]);
+      return json({});
+    }));
+
+    const refresh = useTaskHubStore.getState().loadFromServer();
+    await stateRequested;
+
+    // ClientHome swaps the entire workspace for LoadingSkeleton whenever this
+    // flag is false, which destroys the chat textarea's local draft and focus.
+    expect(useTaskHubStore.getState().hasHydrated).toBe(true);
+
+    resolveState(json({
+      conversations: [],
+      tasks: [],
+      phases: [],
+      recentMessages: {},
+      activeSessions: [],
+    }));
+    await refresh;
+
+    expect(useTaskHubStore.getState().hasHydrated).toBe(true);
+  });
+
   it('exits the loading skeleton with a retryable error when accounts time out', async () => {
     vi.useFakeTimers();
     let markAccountsRequested!: () => void;

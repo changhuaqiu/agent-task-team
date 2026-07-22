@@ -1131,7 +1131,12 @@ export const useTaskHubStore = create<TaskHubState>()(
           if (loadFromServerInFlight) return loadFromServerInFlight;
 
           const hydration = (async () => {
-            set({ hasHydrated: false, runtimeHydrationError: null });
+            // Keep readiness monotonic once the workspace is interactive.
+            // ClientHome replaces the entire workspace when hasHydrated is
+            // false, so regressing it during a refresh destroys local UI state
+            // such as the chat draft and focus. On the first load the initial
+            // value is already false; later loads only clear the prior error.
+            set({ runtimeHydrationError: null });
             try {
             const oldData = localStorage.getItem('agent-task-hub-store-clean');
             if (oldData) {
