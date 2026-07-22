@@ -1171,6 +1171,17 @@ describe('Chainless handoff (Plan B)', () => {
     expect(db.prepare("SELECT * FROM invocation_chain WHERE root_trigger_type = 'agent_handoff'").all()).toHaveLength(0);
   });
 
+  it('does not let a passive gate mention borrow a later conditional escalation', async () => {
+    await messenger.onAgentResponse(
+      'mario',
+      '@dk 架构 gate 按需待命——方案已定，若评审或 E2E 暴露结构性问题再升级，不预占线路。',
+      { conversationId: 'conv-1', chainDepth: 0 },
+    );
+
+    expect(io.emitted().filter(([event]) => event === 'a2a:dispatch')).toHaveLength(0);
+    expect(db.prepare("SELECT * FROM invocation_chain WHERE root_trigger_type = 'agent_handoff'").all()).toHaveLength(0);
+  });
+
   it('routes chainless requests through task policy and preserves terminal task facts', async () => {
     const now = new Date().toISOString();
     db.prepare(`

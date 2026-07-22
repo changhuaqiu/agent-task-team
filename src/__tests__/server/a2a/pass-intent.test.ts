@@ -88,6 +88,17 @@ describe('scanPassIntents', () => {
     ]);
   });
 
+  it('does not let a passive gate mention borrow a later conditional action', () => {
+    expect(scanPassIntents(
+      '@dk 架构 gate 按需待命——贪吃蛇方案已定，若评审或 E2E 暴露结构性问题再升级，不预占线路。',
+      AGENTS,
+      'mario',
+    )).toEqual([]);
+    expect(scanPassIntents('@dk，请审查当前架构边界。', AGENTS, 'mario')).toMatchObject([
+      { agentId: 'dk', intent: 'review' },
+    ]);
+  });
+
   it('binds an action only to mentions in the same local clause', () => {
     expect(scanPassIntents('分派 @peach 做质量评审，并知会 @dk。', AGENTS, 'mario')).toMatchObject([
       { agentId: 'peach', intent: 'delegate' },

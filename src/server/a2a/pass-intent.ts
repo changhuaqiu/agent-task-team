@@ -1,6 +1,6 @@
 import type { AgentMentionConfig, MentionTarget } from './types-v2';
 import type { PassIntent } from './types-possession';
-import { extractMentionContent, scanMentions } from './scanner';
+import { scanMentions } from './scanner';
 
 export interface PassIntentTarget extends MentionTarget {
   content: string;
@@ -118,12 +118,35 @@ function detectIntent(content: string): PassIntent | null {
   return detectPositiveIntent(content);
 }
 
-function extractIntentClause(text: string, position: number): string {
+function extractIntentClause(text: string, target: MentionTarget): string {
   const boundaries = /[，,；;。！？!?\n]/;
-  let start = position;
-  let end = position;
+  const requestContinuation = /^(?:请|please\b|pls\b)/i;
+  let start = target.position;
+  let end = target.position;
   while (start > 0 && !boundaries.test(text[start - 1])) start -= 1;
-  while (end < text.length && !boundaries.test(text[end])) end += 1;
+  const mentionEnd = target.position + (target.pattern?.length ?? 0);
+  while (end < text.length) {
+    if (!boundaries.test(text[end])) {
+      end += 1;
+      continue;
+    }
+    if (text[end] === '\n') break;
+    // A comma can delimit either the mention itself ("@agent，请...") or
+    // an explicit follow-up request ("@agent 发现问题，请审查"). Cross only
+    // in those two cases; conditional later clauses cannot lend action words.
+    const afterMentionBeforeBoundary = text.slice(mentionEnd, end);
+    const nextSegment = text.slice(end + 1).trimStart();
+    const isComma = text[end] === '，' || text[end] === ',';
+    if (isComma && (
+      !/[\p{L}\p{N}]/u.test(afterMentionBeforeBoundary)
+      || requestContinuation.test(nextSegment)
+    )) {
+      end += 1;
+      while (end < text.length && /\s/.test(text[end])) end += 1;
+      continue;
+    }
+    break;
+  }
   return text.slice(start, end).trim();
 }
 
@@ -144,20 +167,9 @@ export function scanPassIntents(
 ): PassIntentTarget[] {
   const targets = scanMentions(text, agents, selfAgentId);
   return targets
-    .map((target, index) => {
-      let directContent = extractMentionContent(text, target);
-      if (targets[index + 1]) {
-        const boundary = Math.max(
-          directContent.lastIndexOf('，'), directContent.lastIndexOf(','),
-          directContent.lastIndexOf('；'), directContent.lastIndexOf(';'),
-          directContent.lastIndexOf('。'), directContent.lastIndexOf('\n'),
-        );
-        if (boundary >= 0) directContent = directContent.slice(0, boundary);
-      }
+    .map((target) => {
       if (hasNotificationPredicateBeforeMention(text, target.position)) return null;
-      const directIntent = detectIntent(directContent);
-      if (directIntent) return { ...target, content: directContent, intent: directIntent };
-      const clause = extractIntentClause(text, target.position);
+      const clause = extractIntentClause(text, target);
       if (isTaskRosterClause(clause)) return null;
       const clauseIntent = detectIntent(clause);
       if (clauseIntent) return { ...target, content: clause, intent: clauseIntent };
