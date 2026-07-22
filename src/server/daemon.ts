@@ -129,6 +129,32 @@ type ActiveProcess = {
   onTerminated?: (reasonCode: string) => void | Promise<void>;
 };
 
+export interface DaemonActiveRunSnapshot {
+  agentId: string;
+  taskId?: string;
+  conversationId: string;
+}
+
+export function projectDaemonActiveRuns(
+  processKeys: Iterable<string>,
+  findSession: (agentId: string, conversationId: string) => { task_id?: string | null } | undefined,
+): DaemonActiveRunSnapshot[] {
+  const snapshots: DaemonActiveRunSnapshot[] = [];
+  for (const key of processKeys) {
+    const separator = key.indexOf('@');
+    const agentId = separator >= 0 ? key.slice(0, separator) : key;
+    const conversationId = separator >= 0 ? key.slice(separator + 1) : 'default';
+    if (conversationId === 'default') continue;
+    const session = findSession(agentId, conversationId);
+    snapshots.push({
+      agentId,
+      taskId: session?.task_id || undefined,
+      conversationId,
+    });
+  }
+  return snapshots;
+}
+
 export function submitSocketTerminalStart(
   coordinator: Pick<HarnessCoordinator, 'submit'>,
   payload: TerminalStartPayload,
@@ -1368,6 +1394,7 @@ export default function registerDaemon(io: IOServer) {
               if (!active.onTerminated) markEnvelopeFailed('timeout');
               broadcast('agent:error', {
                 agentId,
+                conversationId: sessionConvId,
                 message: `CLI 响应超时 (${Math.round(timeoutMs / 1000)}s)，已自动终止。`,
                 reasonCode: 'timeout' as const,
               });
@@ -1770,6 +1797,7 @@ export default function registerDaemon(io: IOServer) {
 
         broadcast('terminal:data', {
           agentId,
+          conversationId: sessionConvId,
           data: `\x1b[33m$ opencode-bridge ${url}\x1b[0m\r\n`,
         });
         recordRuntimeContextObservation({
@@ -1800,12 +1828,13 @@ export default function registerDaemon(io: IOServer) {
           if (!r.ok || !r.body) {
             broadcast('agent:error', {
               agentId,
+              conversationId: sessionConvId,
               message: `Bridge 连接失败 (HTTP ${r.status})`,
               reasonCode: 'spawn_failed' as const,
             });
             // 失败不 seal session（保持 active，下次 @ resume，id 不变）—— specs/agent-session-stability
             markEnvelopeFailed('spawn_failed');
-            broadcast('terminal:exit', { agentId, code: 127, command: 'bridge', reasonCode: 'spawn_failed' });
+            broadcast('terminal:exit', { agentId, code: 127, command: 'bridge', reasonCode: 'spawn_failed', conversationId: sessionConvId });
             deleteOwnedActiveProcess(bridgeActive);
             if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
             return;
@@ -1820,7 +1849,7 @@ export default function registerDaemon(io: IOServer) {
             const { done, value } = await reader.read();
             if (done) break;
             const str = decoder.decode(value, { stream: true });
-            broadcast('terminal:data', { agentId, data: str.replace(/\n/g, '\r\n') });
+            broadcast('terminal:data', { agentId, conversationId: sessionConvId, data: str.replace(/\n/g, '\r\n') });
             resetTimeout();
             buffer += str;
             let idx = buffer.indexOf('\n');
@@ -1866,12 +1895,13 @@ export default function registerDaemon(io: IOServer) {
           const msg = String((e as Error)?.message || e);
           broadcast('agent:error', {
             agentId,
+            conversationId: sessionConvId,
             message: `Bridge 错误：${msg}`,
             reasonCode: 'spawn_failed' as const,
           });
           // 失败不 seal session（保持 active，下次 @ resume，id 不变）—— specs/agent-session-stability
           markEnvelopeFailed('spawn_failed');
-          broadcast('terminal:exit', { agentId, code: 127, command: 'bridge', reasonCode: 'spawn_failed' });
+          broadcast('terminal:exit', { agentId, code: 127, command: 'bridge', reasonCode: 'spawn_failed', conversationId: sessionConvId });
           deleteOwnedActiveProcess(bridgeActive);
           if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
           return;
@@ -1935,6 +1965,7 @@ export default function registerDaemon(io: IOServer) {
 
           broadcast('terminal:data', {
             agentId,
+            conversationId: sessionConvId,
             data: `\x1b[33m$ [tmux:${paneId}] ${primaryCommand} ${primaryArgs.join(' ')}\x1b[0m\r\n`,
           });
 
@@ -1968,7 +1999,7 @@ export default function registerDaemon(io: IOServer) {
             }
             try {
               const content = await dispatchTmuxGateway.capturePane(serverId, paneId);
-              broadcast('terminal:data', { agentId, data: content.replace(/\n/g, '\r\n') });
+              broadcast('terminal:data', { agentId, conversationId: sessionConvId, data: content.replace(/\n/g, '\r\n') });
             } catch { /* pane gone */ }
           }, 2000);
           registerActiveProcess(tmuxActive);
@@ -2440,7 +2471,7 @@ export default function registerDaemon(io: IOServer) {
               console.error('[evaluation] failed to record execution failure:', transitionError);
             }
           }
-          broadcast('terminal:exit', { agentId, code: 1, command, reasonCode: 'spawn_failed' });
+          broadcast('terminal:exit', { agentId, code: 1, command, reasonCode: 'spawn_failed', conversationId: sessionConvId });
           deleteOwnedActiveProcess(acpActive);
           if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
           acpCleanup?.();
@@ -2488,6 +2519,7 @@ export default function registerDaemon(io: IOServer) {
         }
         broadcast('agent:error', {
           agentId,
+          conversationId: conversationId || projectId || 'default',
           message: dispatchExpired
             ? '派发在运行实例启动前已过期，系统将自动恢复。'
             : `内部错误：${(err as Error)?.message || '未知'}`,
@@ -2497,6 +2529,7 @@ export default function registerDaemon(io: IOServer) {
           code: 1,
           command: primaryCommand,
           reasonCode: terminalReasonCode,
+          conversationId: conversationId || projectId || 'default',
         });
         deleteOwnedActiveProcess();
         if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
@@ -2514,12 +2547,14 @@ export default function registerDaemon(io: IOServer) {
         void submission.completion.then((outcome) => {
           if (outcome.status === 'accepted') return;
           const reasonCode = 'reasonCode' in outcome ? outcome.reasonCode : 'internal_error';
-          socket.emit('agent:error', { agentId: payload.agentId, message: `派发被服务端阻止：${reasonCode}` });
-          socket.emit('terminal:exit', { agentId: payload.agentId, code: 1, command: 'harness', reasonCode });
+          const conversationId = payload.conversationId || payload.projectId;
+          socket.emit('agent:error', { agentId: payload.agentId, conversationId, message: `派发被服务端阻止：${reasonCode}` });
+          socket.emit('terminal:exit', { agentId: payload.agentId, conversationId, code: 1, command: 'harness', reasonCode });
         });
       } catch (error) {
-        socket.emit('agent:error', { agentId: payload.agentId, message: (error as Error).message });
-        socket.emit('terminal:exit', { agentId: payload.agentId, code: 1, command: 'harness', reasonCode: 'conversation_missing' });
+        const conversationId = payload.conversationId || payload.projectId;
+        socket.emit('agent:error', { agentId: payload.agentId, conversationId, message: (error as Error).message });
+        socket.emit('terminal:exit', { agentId: payload.agentId, conversationId, code: 1, command: 'harness', reasonCode: 'conversation_missing' });
       }
     });
 
@@ -2532,28 +2567,19 @@ export default function registerDaemon(io: IOServer) {
           await active.kill();
           await active.onTerminated?.(force ? 'force_killed' : 'killed');
           deleteIfCurrent(activeProcesses, key, active);
-          socket.emit('terminal:exit', { agentId, code: 0, command: 'kill', reasonCode: force ? 'force_killed' : 'killed' });
+          socket.emit('terminal:exit', { agentId, conversationId: killProjectId, code: 0, command: 'kill', reasonCode: force ? 'force_killed' : 'killed' });
         } catch (error) {
-          socket.emit('agent:error', { agentId, message: `无法确认运行实例已停止：${(error as Error).message}` });
+          socket.emit('agent:error', { agentId, conversationId: killProjectId, message: `无法确认运行实例已停止：${(error as Error).message}` });
         }
       }
     });
 
     socket.on('daemon:status', (callback) => {
-      const activeAgents: Record<string, { taskId?: string; conversationId?: string }> = {};
-      for (const [key] of activeProcesses) {
-        const agentId = key.split('@')[0];
-        const session = sessionRepo.findLatestActiveByAgent(agentId);
-        if (session) {
-          activeAgents[agentId] = {
-            taskId: session.task_id || undefined,
-            conversationId: session.conversation_id || undefined,
-          };
-        } else {
-          activeAgents[agentId] = {};
-        }
-      }
-      callback?.({ activeAgents });
+      const activeRuns = projectDaemonActiveRuns(
+        activeProcesses.keys(),
+        (agentId, conversationId) => sessionRepo.findActiveByConversation(agentId, conversationId),
+      );
+      callback?.({ activeRuns });
     });
 
     // --- Worktree management events ---

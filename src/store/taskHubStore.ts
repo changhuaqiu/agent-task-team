@@ -19,6 +19,9 @@ import {
   registerBrowserRuntimeNode,
   clearInFlightDispatch,
   takeInFlightDispatch,
+  agentRuntimeKey,
+  getActiveRunForConversation,
+  getAgentStatusForConversation,
 } from './daemonStore';
 import type { PendingDispatch } from './daemonStore';
 import { resolveRuntimeAgentProfile, resolveTeamRuntime } from '@/lib/team-runtime';
@@ -724,11 +727,11 @@ export interface TaskHubState {
   enqueueDispatch: (agentId: string, payload: Omit<PendingDispatch, 'queuedAt'>) => void;
   dequeueNextPending: (agentId: string, conversationId: string) => void;
   clearPendingDispatches: (agentId: string, conversationId: string) => void;
-  appendTerminalLog: (agentId: string, log: string) => void;
+  appendTerminalLog: (agentId: string, log: string, conversationId?: string) => void;
   simulateCliExecution: (taskId: string, prompt: string, sessionId?: string) => void;
   ensureStreamMessage: (agentId: string, conversationId: string, invocationId?: string) => string;
   appendToStreamMessage: (messageId: string, patch: { content?: string; toolEvent?: ToolEvent }) => void;
-  completeStreamMessage: (agentId: string) => void;
+  completeStreamMessage: (agentId: string, conversationId?: string) => void;
   cleanupStaleStreams: () => void;
   selectedTaskId: string | null;
   setSelectedTaskId: (id: string | null) => void;
@@ -1750,8 +1753,14 @@ export const useTaskHubStore = create<TaskHubState>()(
           if (rest.agentId === 'human') {
             const resolvedMentions = resolveMentionAgentIds(get(), mentions);
             const entryAgentIds = selectUserEntryAgentIds(resolvedMentions);
-            const busyAgents = entryAgentIds.filter((id) => get().agentStatus[id] && get().agentStatus[id] !== 'idle');
-            const idleAgents = entryAgentIds.filter((id) => !get().agentStatus[id] || get().agentStatus[id] === 'idle');
+            const busyAgents = entryAgentIds.filter((id) => {
+              const status = getAgentStatusForConversation(get(), conversationId, id);
+              return status && status !== 'idle';
+            });
+            const idleAgents = entryAgentIds.filter((id) => {
+              const status = getAgentStatusForConversation(get(), conversationId, id);
+              return !status || status === 'idle';
+            });
             const acceptedAgentIds: string[] = [];
 
             for (const agentId of idleAgents) {
@@ -1998,20 +2007,26 @@ socket.on('connect', () => {
     }
   });
 
-  socket.emit('daemon:status', (response: { activeAgents: Record<string, { taskId?: string; conversationId?: string }> }) => {
-    if (!response?.activeAgents) return;
+  socket.emit('daemon:status', (response: {
+    activeRuns?: Array<{ agentId: string; taskId?: string; conversationId: string }>;
+    activeAgents?: Record<string, { taskId?: string; conversationId?: string }>;
+  }) => {
+    const activeRuns = response?.activeRuns
+      ?? Object.entries(response?.activeAgents ?? {}).flatMap(([agentId, info]) =>
+        info.conversationId ? [{ agentId, taskId: info.taskId, conversationId: info.conversationId }] : [],
+      );
+    if (activeRuns.length === 0) return;
     const statusUpdate: Record<string, AgentRunStatus> = {};
     const runsUpdate: Record<string, ActiveAgentRun | undefined> = {};
-    for (const [agentId, info] of Object.entries(response.activeAgents)) {
-      statusUpdate[agentId] = 'busy';
-      runsUpdate[agentId] = info.conversationId
-        ? {
-            runId: `recovered-${agentId}`,
-            taskId: info.taskId,
-            conversationId: info.conversationId,
-            startedAt: new Date().toISOString(),
-          }
-        : undefined;
+    for (const info of activeRuns) {
+      const scopeKey = agentRuntimeKey(info.conversationId, info.agentId);
+      statusUpdate[scopeKey] = 'busy';
+      runsUpdate[scopeKey] = {
+        runId: `recovered-${info.agentId}-${info.conversationId}`,
+        taskId: info.taskId,
+        conversationId: info.conversationId,
+        startedAt: new Date().toISOString(),
+      };
     }
     useTaskHubStore.setState((state) => ({
       agentStatus: { ...state.agentStatus, ...statusUpdate },
@@ -2034,8 +2049,8 @@ socket.on('runtimes:update', ({ runtimes }: { runtimes: import('@/server/types')
   useTaskHubStore.getState().setDaemonRuntimes(runtimes);
 });
 
-socket.on('terminal:data', ({ agentId, data }) => {
-  useTaskHubStore.getState().appendTerminalLog(agentId, data);
+socket.on('terminal:data', ({ agentId, data, conversationId }: { agentId: string; data: string; conversationId?: string }) => {
+  useTaskHubStore.getState().appendTerminalLog(agentId, data, conversationId);
 });
 
 socket.on('agent:session', ({ projectId, conversationId, agentId, sessionId }) => {
@@ -2052,18 +2067,19 @@ socket.on('agent:activity', ({ conversationId, taskId, agentId, sessionId, statu
 }) => {
   if (!conversationId) return;
   const state = useTaskHubStore.getState();
+  const scopeKey = agentRuntimeKey(conversationId, agentId);
   if (sessionId) {
     state.upsertAgentSession(conversationId, agentId, sessionId);
   }
 
   if (status === 'awaiting_children') {
-    clearWatchdog(agentId);
-    const existing = state.activeRunsByAgent[agentId];
+    clearWatchdog(agentId, conversationId);
+    const existing = getActiveRunForConversation(state, conversationId, agentId);
     useTaskHubStore.setState((s) => ({
-      agentStatus: { ...s.agentStatus, [agentId]: 'background' },
+      agentStatus: { ...s.agentStatus, [scopeKey]: 'background' },
       activeRunsByAgent: {
         ...s.activeRunsByAgent,
-        [agentId]: {
+        [scopeKey]: {
           runId: existing?.runId ?? `background-${agentId}-${Date.now()}`,
           taskId: taskId ?? existing?.taskId,
           conversationId,
@@ -2082,10 +2098,10 @@ socket.on('agent:activity', ({ conversationId, taskId, agentId, sessionId, statu
 
   if (status === 'idle') {
     useTaskHubStore.setState((s) => ({
-      agentStatus: { ...s.agentStatus, [agentId]: 'idle' },
-      activeRunsByAgent: { ...s.activeRunsByAgent, [agentId]: undefined },
+      agentStatus: { ...s.agentStatus, [scopeKey]: 'idle' },
+      activeRunsByAgent: { ...s.activeRunsByAgent, [scopeKey]: undefined },
     }));
-    state.completeStreamMessage(agentId);
+    state.completeStreamMessage(agentId, conversationId);
   }
 });
 
@@ -2093,7 +2109,9 @@ socket.on('agent:event', (event) => {
   const { agentId, type, content, tool, sessionId, invocationId, conversationId: eventConvId } = event;
   const state = useTaskHubStore.getState();
 
-  const active = state.activeRunsByAgent[agentId];
+  const active = eventConvId && eventConvId !== 'default'
+    ? getActiveRunForConversation(state, eventConvId, agentId)
+    : undefined;
   let conversationId: string | undefined;
   if (eventConvId && eventConvId !== 'default') {
     conversationId = eventConvId;
@@ -2109,16 +2127,17 @@ socket.on('agent:event', (event) => {
   }
 
   if (type === 'heartbeat') {
-    resetWatchdog(agentId, useTaskHubStore.getState, useTaskHubStore.setState);
+    resetWatchdog(agentId, conversationId, useTaskHubStore.getState, useTaskHubStore.setState);
     return;
   }
 
   if (type === 'done') {
-    state.completeStreamMessage(agentId);
+    state.completeStreamMessage(agentId, conversationId);
     return;
   }
 
-  let activeId = state.activeStreamMessageId[agentId];
+  const streamScopeKey = agentRuntimeKey(conversationId, agentId);
+  let activeId = state.activeStreamMessageId[streamScopeKey];
   if (!activeId) {
     activeId = state.ensureStreamMessage(agentId, conversationId, invocationId);
   }
@@ -2229,7 +2248,9 @@ socket.on('terminal:exit', ({ agentId, code, command, reasonCode, conversationId
   activity?: 'awaiting_children' | 'idle';
 }) => {
   const store = useTaskHubStore.getState();
-  const active = store.activeRunsByAgent[agentId];
+  const active = exitConvId
+    ? getActiveRunForConversation(store, exitConvId, agentId)
+    : store.activeRunsByAgent[agentId];
   const conversationId =
     exitConvId ||
     active?.conversationId ||
@@ -2238,9 +2259,10 @@ socket.on('terminal:exit', ({ agentId, code, command, reasonCode, conversationId
   const runId = active?.runId;
   const taskId = active?.taskId;
   const backgroundWaiting = code === 0 && (activity === 'awaiting_children' || active?.activity === 'awaiting_children');
+  const scopeKey = conversationId ? agentRuntimeKey(conversationId, agentId) : agentId;
   let missingEvidenceRecovery: { taskId: string; conversationId: string; prompt: string } | undefined;
 
-  store.appendTerminalLog(agentId, `\r\n\x1b[36m[process exited with code ${code}]\x1b[0m\r\n`);
+  store.appendTerminalLog(agentId, `\r\n\x1b[36m[process exited with code ${code}]\x1b[0m\r\n`, conversationId ?? undefined);
 
   if (runId && conversationId && !backgroundWaiting) {
     store.addEvent({
@@ -2251,7 +2273,7 @@ socket.on('terminal:exit', ({ agentId, code, command, reasonCode, conversationId
   }
 
   if (backgroundWaiting && conversationId) {
-    clearWatchdog(agentId);
+    clearWatchdog(agentId, conversationId);
     if (active?.activity !== 'awaiting_children') {
       store.addEvent({
         conversationId,
@@ -2260,10 +2282,10 @@ socket.on('terminal:exit', ({ agentId, code, command, reasonCode, conversationId
       });
     }
     useTaskHubStore.setState((state) => ({
-      agentStatus: { ...state.agentStatus, [agentId]: 'background' },
+      agentStatus: { ...state.agentStatus, [scopeKey]: 'background' },
       activeRunsByAgent: {
         ...state.activeRunsByAgent,
-        [agentId]: active
+        [scopeKey]: active
           ? { ...active, conversationId, activity: 'awaiting_children' }
           : {
               runId: `background-${agentId}-${Date.now()}`,
@@ -2326,17 +2348,18 @@ socket.on('terminal:exit', ({ agentId, code, command, reasonCode, conversationId
   const exitComposeKey = `${exitProjectId}:${agentId}`;
 
   useTaskHubStore.setState((state) => ({
-    agentStatus: { ...state.agentStatus, [agentId]: 'idle' },
-    activeRunsByAgent: { ...state.activeRunsByAgent, [agentId]: undefined },
+    agentStatus: { ...state.agentStatus, [scopeKey]: 'idle' },
+    activeRunsByAgent: { ...state.activeRunsByAgent, [scopeKey]: undefined },
     needsFullCompose: { ...state.needsFullCompose, [exitComposeKey]: true },
   }));
-  useTaskHubStore.getState().completeStreamMessage(agentId);
+  useTaskHubStore.getState().completeStreamMessage(agentId, conversationId ?? undefined);
 
   if (missingEvidenceRecovery) {
     const recovery = missingEvidenceRecovery;
     setTimeout(() => {
       const current = useTaskHubStore.getState();
-      if (current.agentStatus[agentId] && current.agentStatus[agentId] !== 'idle') {
+      const status = getAgentStatusForConversation(current, recovery.conversationId, agentId);
+      if (status && status !== 'idle') {
         current.enqueueDispatch(agentId, {
           prompt: recovery.prompt,
           referencedTaskId: recovery.taskId,
@@ -2371,7 +2394,10 @@ socket.on('a2a:dispatch', async ({ agentId, prompt, referencedTaskId, fromAgentI
   if (handledByHarness) return;
   console.log(`[a2a:v2] chain=${chainId} dispatch ${fromAgentId} → ${agentId}`);
   const state = useTaskHubStore.getState();
-  if (state.agentStatus[agentId] && state.agentStatus[agentId] !== 'idle') {
+  const scopedStatus = conversationId
+    ? getAgentStatusForConversation(state, conversationId, agentId)
+    : undefined;
+  if (scopedStatus && scopedStatus !== 'idle') {
     if (chainId && entryId && conversationId) {
       socket.emit('a2a:dispatch-deferred', {
         chainId,
@@ -2413,13 +2439,15 @@ socket.on('a2a:dispatch', async ({ agentId, prompt, referencedTaskId, fromAgentI
   }
 });
 
-socket.on('agent:error', ({ agentId, message, reasonCode }: { agentId: string; message: string; reasonCode?: string }) => {
+socket.on('agent:error', ({ agentId, message, reasonCode, conversationId: errorConversationId }: { agentId: string; message: string; reasonCode?: string; conversationId?: string }) => {
   const state = useTaskHubStore.getState();
 
   if (reasonCode === 'agent_busy' || message === 'Agent is busy, message queued') {
-    const active = state.activeRunsByAgent[agentId];
-    const convId = active?.conversationId || state.selectedConversationId;
+    const activeForAgent = Object.entries(state.activeRunsByAgent)
+      .find(([key, run]) => key.endsWith(`\0${agentId}`) && Boolean(run))?.[1];
+    const convId = errorConversationId || activeForAgent?.conversationId || state.selectedConversationId;
     if (!convId) return;
+    const scopeKey = agentRuntimeKey(convId, agentId);
     const key = `${agentId}:${convId}`;
     const rejectedDispatch = takeInFlightDispatch(agentId, convId);
     const pending = state.pendingDispatches[key];
@@ -2433,27 +2461,29 @@ socket.on('agent:error', ({ agentId, message, reasonCode }: { agentId: string; m
       state.enqueueDispatch(agentId, rejectedDispatch);
     } else if (!rejectedDispatch && (!pending || pending.length === 0)) {
       useTaskHubStore.setState((s) => ({
-        agentStatus: { ...s.agentStatus, [agentId]: 'busy' },
+        agentStatus: { ...s.agentStatus, [scopeKey]: 'busy' },
       }));
     }
     const errConvId = convId;
     setTimeout(() => {
       const current = useTaskHubStore.getState();
-      if (current.agentStatus[agentId] === 'idle' && current.pendingDispatches[key]?.length) {
+      if (getAgentStatusForConversation(current, errConvId, agentId) === 'idle' && current.pendingDispatches[key]?.length) {
         current.dequeueNextPending(agentId, errConvId);
       }
     }, 2000);
     return;
   }
 
-  const activeId = state.activeStreamMessageId[agentId];
+  const convId = errorConversationId || state.selectedConversationId;
+  const activeId = convId ? state.activeStreamMessageId[agentRuntimeKey(convId, agentId)] : undefined;
   if (activeId) {
     state.appendToStreamMessage(activeId, { content: `\n⚠️ ${message}` });
-    state.completeStreamMessage(agentId);
+    state.completeStreamMessage(agentId, convId ?? undefined);
   } else {
     state.addChatMessage({
       agentId: agentId || 'system',
       content: `⚠️ ${message}`,
+      conversationId: convId ?? undefined,
     });
   }
 });

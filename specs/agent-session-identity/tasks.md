@@ -29,6 +29,8 @@
 - [x] hydration 以 server Session 数据替换本地缓存，不合并 persisted Session。
 - [x] 新项目初始化独立 Session 展示 scope。
 - [x] socket 收到 session id 时保持 conversation + agent 隔离。
+- [ ] 将 Agent 实时状态、active run、stream、CLI Trace 与 watchdog 改为 conversation + agent 作用域。
+- [ ] 修复成员条目只从当前 conversation 选择执行中任务。
 
 ## 验证
 
@@ -40,3 +42,4 @@
 - [x] 首轮 cancel/timeout 后下一轮重新 provision 测试。
 - [x] 稳定 cwd 与失效 runtime resource 自动换代测试。
 - [x] `Internal error` load failure 后下一次 dispatch 的 generation 换代测试。
+- [ ] 两项目同名 Agent 并发 event/activity/exit 与 UI 切换回归测试。

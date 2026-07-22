@@ -176,6 +176,7 @@ export interface Task {
 - store 发送 dispatch intent，不直接判定跨实例投递成功。
 - store 订阅 `RuntimeNode`、`AgentBinding`、`ExecutionEnvelope` 与 `ProofLog` 派生状态。
 - `agentStatus` 只能作为 UI 快照；runtime health 与 agent binding 事实必须来自 Control Plane。
+- Agent 实时 UI 快照不能只按 `agentId` 建键。同一角色可以在多个项目并发运行，busy/background/idle、active run、stream、CLI Trace 与 watchdog 的最小键是 `(conversationId, agentId)`；`invocationId` 可在该作用域内进一步区分执行。
 - `a2aByConversation` 仍可缓存当前协作视图，但 handoff delivery 成败由 Dispatch Gateway 和 Proof Log 决定。
 - 用户消息、A2A、workflow 自动派发最终应走同一个 server-side dispatch path。
 
@@ -263,11 +264,13 @@ store 监听 daemon 推送的实时事件，并将其映射成前端状态：
   - 写入 `terminalLogs`
 - `agent:event`
   - 映射到聊天流、tool event、streaming content、进度信息
+  - 必须按事件携带的 `conversationId + agentId` 定位 stream；不得把另一个项目中同名 Agent 的事件追加到当前流
 - `agent:session`
   - 更新执行会话，并写入 `agentSessions[conversationId][agentId]`
   - 前端成员配置面板读取该缓存展示调试用 CLI session id，避免普通配置流程依赖实现细节
 - `terminal:exit`
   - 更新 agentStatus 与退出信息
+  - 只完成相同 `conversationId + agentId` 的 active run/stream；不得结束同名 Agent 在其他项目中的运行
 - `task.sync`
   - 文件变更触发的任务同步事件（来自 TaskFileWatcher）
   - payload: `{ projectPath, conversationId, tasks: ParsedTask[], blockers: ParsedBlocker[] }`

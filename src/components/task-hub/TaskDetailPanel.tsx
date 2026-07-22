@@ -6,6 +6,7 @@ import {
   useTaskHubStore,
   resolveAgentEngine,
 } from '@/store/taskHubStore';
+import { getAgentStatusForConversation } from '@/store/daemonStore';
 import { useShallow } from 'zustand/react/shallow';
 import { StatusBadge } from './StatusBadge';
 import { TerminalView } from './TerminalView';
@@ -129,7 +130,9 @@ export function TaskDetailPanel() {
   const task = tasks.find((t) => t.id === selectedTaskId);
   const { graph, isLoading: graphLoading, error: graphError, refresh: refreshGraph } = useTaskGraph(task?.conversationId);
   const agent = task ? getEffectiveRoster().find((a) => a.id === task.agentId) : null;
-  const agentRunStatus = agent ? agentStatus[agent.id] : undefined;
+  const agentRunStatus = agent && task
+    ? getAgentStatusForConversation({ agentStatus }, task.conversationId, agent.id)
+    : undefined;
   const isRunning = agentRunStatus === 'busy' || agentRunStatus === 'background';
   const isBackgroundRunning = agentRunStatus === 'background';
 

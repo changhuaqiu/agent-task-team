@@ -56,6 +56,7 @@ interface LogicalAgentSession {
 13. Runtime Session 的工作目录是恢复身份的一部分。同一 Logical Agent Session 的所有 Invocation 必须使用稳定 cwd；无任务 ID 的发送不得用时间戳生成不同目录。
 14. 已确认 Session 的 `session/load` 若明确返回资源不存在，当前 Logical Agent Session 必须封存为 `runtime_resource_not_found`，下一次 dispatch 创建新 generation。
 15. 普通 `acp_session_load_failed` 的当前 Invocation 仍须 fail-closed，禁止自动重放 prompt；但该失败必须持久化。下一次独立 dispatch 若发现同一 generation 的最近 Invocation 正是该失败，视为用户/调度器发起了新的恢复尝试：先封存为 `runtime_session_load_failed`，再创建新 generation。这样既不重复上一轮副作用，也不让 adapter 的非标准 `Internal error` 永久毒化项目 Agent。
+16. 浏览器中的实时运行投影（busy/background/idle、active run、stream message、CLI Trace、watchdog）必须使用 `(conversationId, agentId)` 作为最小作用域。另一个项目中同名 Agent 的 event/activity/exit 不得覆盖、完成或追加到当前项目的运行视图。
 
 ## 4. ACP 执行契约
 
@@ -78,6 +79,8 @@ interface LogicalAgentSession {
 - 第一次 runtime session id 通过 compare-and-set 绑定；已绑定后再次收到不同值必须失败。
 - `/api/state` 返回服务端 active binding；前端 hydration 直接替换 Session 展示缓存，不与 persisted Session 合并。
 - socket event 可以刷新展示，但只能接受 server 已确认的 binding。
+- daemon 重连快照必须保留全部 active `(conversationId, agentId)`，不得压缩成仅以 `agentId` 为键的单值映射。
+- `agent:event`、`agent:activity`、`terminal:exit` 与 stream watchdog 必须使用同一 conversation-scoped runtime key；`invocationId` 用于细分同一作用域内的执行，不替代项目作用域。
 
 ## 6. 数据约束与迁移
 
@@ -107,3 +110,4 @@ interface LogicalAgentSession {
 8. 首次 Invocation 被取消后，下一次 dispatch 不 load 未落盘 id，而是重新执行 `session/new`。
 9. 无 taskId 的同项目同 Agent 多轮执行使用同一 cwd；确认后的资源不存在只导致当前 generation 封存，不会永久重复 load 同一失效 id。
 10. adapter 仅返回 `Internal error` 的 load failure 不会自动重放当前 prompt；下一次独立 dispatch 会换代并成功进入 `session/new`。
+11. 两个项目中的同名 Agent 并发执行时，双方 busy 状态、任务标题、Live Output、CLI Trace、tool event 与终态互不串线；切换项目后只展示目标 conversation 的持久化消息和实时投影。

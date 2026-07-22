@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { socket } from '@/store/daemonStore';
+import { agentRuntimeKey, socket } from '@/store/daemonStore';
 import { useTaskHubStore } from '@/store/taskHubStore';
 
 function emitServerEvent(event: string, payload: unknown) {
@@ -7,6 +7,7 @@ function emitServerEvent(event: string, payload: unknown) {
 }
 
 function resetBackgroundSessionStore() {
+  const scopeKey = agentRuntimeKey('conv-bg', 'mario');
   useTaskHubStore.setState({
     conversations: [{
       id: 'conv-bg',
@@ -37,10 +38,10 @@ function resetBackgroundSessionStore() {
     chatMessagesByConversation: {},
     eventsByConversation: {},
     blockersByConversation: {},
-    agentStatus: { mario: 'busy' },
+    agentStatus: { [scopeKey]: 'busy' },
     terminalLogs: {},
     activeRunsByAgent: {
-      mario: {
+      [scopeKey]: {
         runId: 'run-bg',
         taskId: 'task-bg',
         conversationId: 'conv-bg',
@@ -71,8 +72,9 @@ describe('background session activity', () => {
     });
 
     const state = useTaskHubStore.getState();
-    expect(state.agentStatus.mario).toBe('background');
-    expect(state.activeRunsByAgent.mario).toMatchObject({
+    const scopeKey = agentRuntimeKey('conv-bg', 'mario');
+    expect(state.agentStatus[scopeKey]).toBe('background');
+    expect(state.activeRunsByAgent[scopeKey]).toMatchObject({
       runId: 'run-bg',
       taskId: 'task-bg',
       conversationId: 'conv-bg',
@@ -102,8 +104,9 @@ describe('background session activity', () => {
     });
 
     const state = useTaskHubStore.getState();
-    expect(state.agentStatus.mario).toBe('background');
-    expect(state.activeRunsByAgent.mario?.activity).toBe('awaiting_children');
+    const scopeKey = agentRuntimeKey('conv-bg', 'mario');
+    expect(state.agentStatus[scopeKey]).toBe('background');
+    expect(state.activeRunsByAgent[scopeKey]?.activity).toBe('awaiting_children');
     expect(state.getTaskById('task-bg')?.status).toBe('in_progress');
     expect(state.eventsByConversation['conv-bg'].some((event) => event.type === 'run.finished')).toBe(false);
   });

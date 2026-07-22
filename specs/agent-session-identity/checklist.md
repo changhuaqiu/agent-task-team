@@ -25,6 +25,8 @@
 - [x] runtime session id 使用 compare-and-set 绑定。
 - [x] identity mismatch 返回稳定 reason code 且不覆盖状态。
 - [x] invocation、session binding 和 socket 展示一致。
+- [ ] 同名 Agent 的实时状态、stream、CLI Trace 与退出事件不会跨 conversation 覆盖。
+- [ ] daemon 重连快照不会丢失同名 Agent 的并发项目运行。
 
 ## 验证
 
@@ -32,3 +34,4 @@
 - [x] 两项目 × 两 Agent × 三轮矩阵通过。
 - [x] 三个真实 runtime 的 new + load smoke 通过。
 - [x] 类型检查、全量测试和生产构建通过。
+- [ ] 真实 Web 双项目并发运行只展示当前 conversation 的轨迹。

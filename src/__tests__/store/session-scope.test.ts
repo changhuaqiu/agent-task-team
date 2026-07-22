@@ -132,6 +132,7 @@ describe('project session scoping', () => {
 
     emitServerEvent('agent:error', {
       agentId: 'mario',
+      conversationId: 'conv-new',
       message: 'Agent is busy, message queued',
       reasonCode: 'agent_busy',
     });

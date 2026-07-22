@@ -41,6 +41,30 @@ const streamWatchdogs: Record<string, ReturnType<typeof setTimeout>> = {};
 const streamBuffer: Record<string, string> = {};
 let bufferFlushScheduled = false;
 
+/** UI runtime state must never collapse the same agent across conversations. */
+export function agentRuntimeKey(conversationId: string, agentId: string): string {
+  return `${conversationId}\0${agentId}`;
+}
+
+export function getAgentStatusForConversation(
+  state: { agentStatus: Record<string, AgentRunStatus | undefined> },
+  conversationId: string,
+  agentId: string,
+): AgentRunStatus | undefined {
+  return state.agentStatus[agentRuntimeKey(conversationId, agentId)] ?? state.agentStatus[agentId];
+}
+
+export function getActiveRunForConversation(
+  state: { activeRunsByAgent: Record<string, ActiveAgentRun | undefined> },
+  conversationId: string,
+  agentId: string,
+): ActiveAgentRun | undefined {
+  const scoped = state.activeRunsByAgent[agentRuntimeKey(conversationId, agentId)];
+  if (scoped) return scoped;
+  const legacy = state.activeRunsByAgent[agentId];
+  return legacy?.conversationId === conversationId ? legacy : undefined;
+}
+
 const NO_RUNTIME_PROFILE_ABORT = {
   reasonCode: 'no_runtime_profile',
   message: '请先为该角色绑定可用账号或执行引擎',
@@ -55,30 +79,37 @@ type ActiveAgentRun = {
   activity?: 'foreground' | 'awaiting_children';
 };
 
-export function resetWatchdog(agentId: string, getState: () => any, setState: (partial: any) => void) {
-  if (streamWatchdogs[agentId]) clearTimeout(streamWatchdogs[agentId]);
-  streamWatchdogs[agentId] = setTimeout(() => {
+export function resetWatchdog(
+  agentId: string,
+  conversationId: string,
+  getState: () => any,
+  setState: (partial: any) => void,
+) {
+  const scopeKey = agentRuntimeKey(conversationId, agentId);
+  if (streamWatchdogs[scopeKey]) clearTimeout(streamWatchdogs[scopeKey]);
+  streamWatchdogs[scopeKey] = setTimeout(() => {
     const state = getState();
-    if (state.activeRunsByAgent[agentId]?.activity === 'awaiting_children') {
-      delete streamWatchdogs[agentId];
+    if (getActiveRunForConversation(state, conversationId, agentId)?.activity === 'awaiting_children') {
+      delete streamWatchdogs[scopeKey];
       return;
     }
-    if (state.activeStreamMessageId[agentId]) {
-      console.warn(`[watchdog] Stream for ${agentId} timed out after ${STREAM_WATCHDOG_MS / 1000}s, auto-completing`);
+    if (state.activeStreamMessageId[scopeKey]) {
+      console.warn(`[watchdog] Stream for ${conversationId}/${agentId} timed out after ${STREAM_WATCHDOG_MS / 1000}s, auto-completing`);
       setState((s: any) => ({
-        agentStatus: { ...s.agentStatus, [agentId]: 'idle' },
-        activeRunsByAgent: { ...s.activeRunsByAgent, [agentId]: undefined },
+        agentStatus: { ...s.agentStatus, [scopeKey]: 'idle' },
+        activeRunsByAgent: { ...s.activeRunsByAgent, [scopeKey]: undefined },
       }));
-      getState().completeStreamMessage(agentId);
+      getState().completeStreamMessage(agentId, conversationId);
     }
-    delete streamWatchdogs[agentId];
+    delete streamWatchdogs[scopeKey];
   }, STREAM_WATCHDOG_MS);
 }
 
-export function clearWatchdog(agentId: string) {
-  if (streamWatchdogs[agentId]) {
-    clearTimeout(streamWatchdogs[agentId]);
-    delete streamWatchdogs[agentId];
+export function clearWatchdog(agentId: string, conversationId: string) {
+  const scopeKey = agentRuntimeKey(conversationId, agentId);
+  if (streamWatchdogs[scopeKey]) {
+    clearTimeout(streamWatchdogs[scopeKey]);
+    delete streamWatchdogs[scopeKey];
   }
 }
 
@@ -173,7 +204,8 @@ export function clearInFlightDispatch(agentId: string, conversationId: string): 
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- set/get typed as any to avoid circular dependency with TaskHubState
 export const createDaemonSlice = (set: any, get: () => any) => {
-  const _resetWatchdog = (agentId: string) => resetWatchdog(agentId, get, set);
+  const _resetWatchdog = (agentId: string, conversationId: string) =>
+    resetWatchdog(agentId, conversationId, get, set);
   const _scheduleFlush = () => scheduleBufferFlush(get, set);
   const _recordNoRuntimeProfileAbort = (conversationId: string, agentId: string, visibleToUser = false) => {
     get().addEvent({
@@ -263,7 +295,9 @@ export const createDaemonSlice = (set: any, get: () => any) => {
         return false;
       }
 
-      if (get().agentStatus[agentId] && get().agentStatus[agentId] !== 'idle') {
+      const scopeKey = agentRuntimeKey(conversationId, agentId);
+      const scopedStatus = getAgentStatusForConversation(get(), conversationId, agentId);
+      if (scopedStatus && scopedStatus !== 'idle') {
         console.log(`[dispatch] ${agentId} busy, enqueuing for conversation ${conversationId}`);
         get().enqueueDispatch(agentId, { prompt, referencedTaskId, source, fromAgentId, conversationId });
         return true;
@@ -280,12 +314,12 @@ export const createDaemonSlice = (set: any, get: () => any) => {
       const composeKey = `${conversationId}:${agentId}`;
 
       set((state: any) => ({
-        agentStatus: { ...state.agentStatus, [agentId]: 'busy' },
-        terminalLogs: { ...state.terminalLogs, [agentId]: [] },
+        agentStatus: { ...state.agentStatus, [scopeKey]: 'busy' },
+        terminalLogs: { ...state.terminalLogs, [scopeKey]: [] },
         needsFullCompose: { ...state.needsFullCompose, [composeKey]: false },
         activeRunsByAgent: {
           ...state.activeRunsByAgent,
-          [agentId]: { runId, taskId: referencedTaskId, conversationId, startedAt: new Date().toISOString(), activity: 'foreground' },
+          [scopeKey]: { runId, taskId: referencedTaskId, conversationId, startedAt: new Date().toISOString(), activity: 'foreground' },
         },
       }));
 
@@ -418,25 +452,29 @@ export const createDaemonSlice = (set: any, get: () => any) => {
 
     forceSendDispatch: ({ agentId, prompt, referencedTaskId, conversationId: explicitConvId }: { agentId: string; prompt: string; referencedTaskId?: string; conversationId?: string }) => {
       const conversationId = explicitConvId ?? get().selectedConversationId ?? '';
+      const scopeKey = agentRuntimeKey(conversationId, agentId);
       socket.emit('terminal:kill', { agentId, projectId: conversationId || get().selectedProjectId, force: true });
       if (conversationId) get().clearPendingDispatches(agentId, conversationId);
-      get().completeStreamMessage(agentId);
+      get().completeStreamMessage(agentId, conversationId);
       set((state: any) => ({
-        agentStatus: { ...state.agentStatus, [agentId]: 'idle' },
-        activeRunsByAgent: { ...state.activeRunsByAgent, [agentId]: undefined },
+        agentStatus: { ...state.agentStatus, [scopeKey]: 'idle' },
+        activeRunsByAgent: { ...state.activeRunsByAgent, [scopeKey]: undefined },
       }));
       setTimeout(() => {
         get().dispatchToAgent({ agentId, prompt, referencedTaskId, conversationId });
       }, 500);
     },
 
-    appendTerminalLog: (agentId: string, log: string) =>
+    appendTerminalLog: (agentId: string, log: string, conversationId?: string) => {
+      const resolvedConversationId = conversationId ?? get().selectedConversationId ?? 'default';
+      const scopeKey = agentRuntimeKey(resolvedConversationId, agentId);
       set((state: any) => ({
         terminalLogs: {
           ...state.terminalLogs,
-          [agentId]: [...(state.terminalLogs[agentId] || []), log],
+          [scopeKey]: [...(state.terminalLogs[scopeKey] || []), log],
         },
-      })),
+      }));
+    },
 
     simulateCliExecution: async (taskId: string, prompt: string) => {
       const state = get();
@@ -444,6 +482,7 @@ export const createDaemonSlice = (set: any, get: () => any) => {
       if (!task) return;
       const agentId = task.agentId;
       const conversationId = task.conversationId;
+      const scopeKey = agentRuntimeKey(conversationId, agentId);
       const projectId = conversationId;
       const profile = state.getAgentRuntimeProfile(agentId);
       if (!profile) {
@@ -460,12 +499,12 @@ export const createDaemonSlice = (set: any, get: () => any) => {
       const conv = state.conversations.find((c: any) => c.id === conversationId);
 
       set((s: any) => ({
-        agentStatus: { ...s.agentStatus, [agentId]: 'busy' },
-        terminalLogs: { ...s.terminalLogs, [agentId]: [] },
+        agentStatus: { ...s.agentStatus, [scopeKey]: 'busy' },
+        terminalLogs: { ...s.terminalLogs, [scopeKey]: [] },
         needsFullCompose: { ...s.needsFullCompose, [simComposeKey]: false },
         activeRunsByAgent: {
           ...s.activeRunsByAgent,
-          [agentId]: { runId, taskId, conversationId, startedAt: new Date().toISOString(), activity: 'foreground' },
+          [scopeKey]: { runId, taskId, conversationId, startedAt: new Date().toISOString(), activity: 'foreground' },
         },
       }));
 
@@ -496,20 +535,21 @@ export const createDaemonSlice = (set: any, get: () => any) => {
     },
 
     ensureStreamMessage: (agentId: string, conversationId: string, invocationId?: string): string => {
-      const existing = get().activeStreamMessageId[agentId];
+      const scopeKey = agentRuntimeKey(conversationId, agentId);
+      const existing = get().activeStreamMessageId[scopeKey];
       if (existing) {
-        const existingConvId = get().activeStreamConversationId[agentId];
+        const existingConvId = get().activeStreamConversationId[scopeKey];
         const msgs = get().chatMessagesByConversation[existingConvId ?? conversationId] ?? [];
         if (msgs.some((m: any) => m.id === existing)) {
-          _resetWatchdog(agentId);
+          _resetWatchdog(agentId, conversationId);
           return existing;
         }
       }
-      const id = `msg-${Date.now()}-${agentId}`;
+      const id = `msg-${Date.now()}-${conversationId}-${agentId}`;
       const stamp = new Date().toISOString();
       set((state: any) => ({
-        activeStreamMessageId: { ...state.activeStreamMessageId, [agentId]: id },
-        activeStreamConversationId: { ...state.activeStreamConversationId, [agentId]: conversationId },
+        activeStreamMessageId: { ...state.activeStreamMessageId, [scopeKey]: id },
+        activeStreamConversationId: { ...state.activeStreamConversationId, [scopeKey]: conversationId },
         chatMessagesByConversation: {
           ...state.chatMessagesByConversation,
           [conversationId]: [
@@ -518,7 +558,7 @@ export const createDaemonSlice = (set: any, get: () => any) => {
           ],
         },
       }));
-      _resetWatchdog(agentId);
+      _resetWatchdog(agentId, conversationId);
       return id;
     },
 
@@ -526,7 +566,12 @@ export const createDaemonSlice = (set: any, get: () => any) => {
       const agentEntry = Object.entries(get().activeStreamMessageId).find(([, id]) => id === messageId);
       const trackedConvId = agentEntry ? get().activeStreamConversationId[agentEntry[0]] : undefined;
       if (!trackedConvId) return;
-      if (agentEntry) _resetWatchdog(agentEntry[0]);
+      if (agentEntry) {
+        const streamKey = agentEntry[0];
+        const convId = get().activeStreamConversationId[streamKey];
+        const streamAgentId = streamKey.slice(streamKey.indexOf('\0') + 1);
+        if (convId) _resetWatchdog(streamAgentId, convId);
+      }
 
       if (patch.content != null) {
         appendToStreamBuffer(messageId, patch.content);
@@ -551,17 +596,22 @@ export const createDaemonSlice = (set: any, get: () => any) => {
       }
     },
 
-    completeStreamMessage: (agentId: string) => {
-      const activeId = get().activeStreamMessageId[agentId];
+    completeStreamMessage: (agentId: string, conversationId?: string) => {
+      const resolvedConversationId = conversationId ?? get().selectedConversationId;
+      const scopeKey = resolvedConversationId
+        ? agentRuntimeKey(resolvedConversationId, agentId)
+        : Object.keys(get().activeStreamMessageId).find((key) => key.endsWith(`\0${agentId}`));
+      if (!scopeKey) return;
+      const activeId = get().activeStreamMessageId[scopeKey];
       if (!activeId) return;
-      clearWatchdog(agentId);
-      const trackedConvId = get().activeStreamConversationId[agentId];
+      const trackedConvId = get().activeStreamConversationId[scopeKey];
+      if (trackedConvId) clearWatchdog(agentId, trackedConvId);
       if (trackedConvId) {
         flushStreamBufferForMessage(activeId, trackedConvId, set);
       }
       set((state: any) => {
-        const { [agentId]: _, ...restMsgIds } = state.activeStreamMessageId;
-        const { [agentId]: __, ...restConvIds } = state.activeStreamConversationId;
+        const { [scopeKey]: _, ...restMsgIds } = state.activeStreamMessageId;
+        const { [scopeKey]: __, ...restConvIds } = state.activeStreamConversationId;
         if (!trackedConvId) return { activeStreamMessageId: restMsgIds, activeStreamConversationId: restConvIds };
         const msgs = state.chatMessagesByConversation[trackedConvId];
         return {

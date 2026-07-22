@@ -12,6 +12,7 @@ export function AgentBar() {
   const accounts = useTaskHubStore((s) => s.accounts);
   const setRosterModalOpen = useTaskHubStore((s) => s.setRosterModalOpen);
   const tasks = useTaskHubStore((s) => s.tasks);
+  const selectedConversationId = useTaskHubStore((s) => s.selectedConversationId);
   const getEffectiveRoster = useTaskHubStore((s) => s.getEffectiveRoster);
   const getAgentRuntimeProfile = useTaskHubStore((s) => s.getAgentRuntimeProfile);
 
@@ -54,7 +55,11 @@ export function AgentBar() {
             return acc?.status === 'valid';
           });
           const isExpanded = expandedAgent === agent.id;
-          const currentTask = tasks.find((t: { agentId: string; status: string }) => t.agentId === agent.id && t.status === 'in_progress');
+          const currentTask = tasks.find((t) =>
+            t.conversationId === selectedConversationId
+            && t.agentId === agent.id
+            && t.status === 'in_progress',
+          );
 
           return (
             <div key={agent.id} className="relative">

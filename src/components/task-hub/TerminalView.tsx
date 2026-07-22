@@ -3,6 +3,7 @@ import { useEffect, useRef } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { useTaskHubStore } from '@/store/taskHubStore';
+import { agentRuntimeKey } from '@/store/daemonStore';
 import '@xterm/xterm/css/xterm.css';
 
 export function TerminalView({ agentId }: { agentId: string }) {
@@ -10,7 +11,10 @@ export function TerminalView({ agentId }: { agentId: string }) {
   const termInstance = useRef<Terminal | null>(null);
   const fitAddon = useRef<FitAddon | null>(null);
   
-  const logs = useTaskHubStore((s) => s.terminalLogs[agentId]);
+  const logs = useTaskHubStore((s) => {
+    const conversationId = s.selectedConversationId ?? 'default';
+    return s.terminalLogs[agentRuntimeKey(conversationId, agentId)];
+  });
 
   useEffect(() => {
     if (!terminalRef.current) return;
