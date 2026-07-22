@@ -222,6 +222,8 @@ Supervisor 只接受当前 TeamPack 质量门负责人提交的 `evidence.review
 
 `TASKS.md` 在所有 prompt 层中都必须保持只读投影语义。若当前 transport 没有注册所需的精确任务工具，Agent 只能报告结构化 blocker；任何“缺工具时直接编辑 TASKS.md”的兼容提示都属于失效路径，不能再次进入运行时上下文。
 
+项目清单中的命令只能证明“命令入口存在”，不能证明它会形成一次性门禁证据。基础任务协议和 Project Context 的可信命令段都必须提醒 Agent：测试、构建与安装只有在进程正常退出时有效；watch 模式即使先打印 PASS，随后超时或被终止仍是失败。发现 `npm test` 等脚本进入 watch 后，应使用 runner 的 one-shot 形式（例如 `npx vitest run`）重新执行。
+
 Action kind 不是执行场景的唯一来源。`advance_tasks` 取到 review/test wakeup 时必须分别使用 `code_review` / `verification` 场景，保证恢复派发仍保留角色边界和工具契约。
 
 ### 重启恢复

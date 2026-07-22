@@ -57,6 +57,7 @@ todo → doing → review → done / blocked
 7. 任务行变化会自动生成群聊通知
 8. 自动 wakeup 仅适用于已存在于 Task Graph、负责人/评审者明确且依赖状态可计算的任务；未建任务、聊天 mention 或未解析外部引用不会自动调度
 9. quality gate reviewer 被明确唤醒评审某条 in_review 任务时，可以只通过 task_update_status 裁决该任务：PASS → done；REJECT → rejected/blocked。两者都必须提交 evidence.reviewReceipt，禁止仅在回复中写结论或编辑任务看板
+10. 安装、构建和测试证据必须来自正常退出的进程。watch 模式即使先打印 PASS，随后超时、被终止或非零退出仍是失败；发现测试脚本进入 watch 后，改用一次性命令（例如 npx vitest run）重新执行
 
 ### 禁止
 - 不改其他 Agent 的实现内容、标题、负责人或无关任务；唯一例外是 reviewer 对本轮明确评审任务的受限状态裁决

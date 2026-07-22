@@ -22,6 +22,8 @@ describe('buildProtocolLayer', () => {
     expect(result).not.toContain('.ath/TASKS.md');
     expect(result).toContain('任务看板是只读投影');
     expect(result).toContain('禁止用原生文件编辑');
+    expect(result).toContain('npx vitest run');
+    expect(result).toContain('watch 模式即使先打印 PASS');
   });
 
   it('includes task assignment guidance when hasTaskAssignment=true', () => {
@@ -45,5 +47,6 @@ describe('buildProtocolLayer', () => {
     expect(result).toContain('唯一例外是 reviewer');
     expect(result).toContain('evidence.reviewReceipt');
     expect(result).toContain('task_update_status');
+    expect(result).toContain('正常退出的进程');
   });
 });

@@ -688,6 +688,7 @@ function compileCapsule(
         `- \`${command.command}\`（来源：${command.source}）`
       ))
       : ['- 未从项目清单发现可信命令；不要凭经验编造命令。']),
+    '- 以上清单只证明入口存在。门禁证据要求进程正常退出；若测试命令进入 watch，改用 runner 的一次性形式（例如 `npx vitest run`），超时或被终止不能视为通过。',
     '',
   ], CAPSULE_CHARACTER_BUDGET);
 

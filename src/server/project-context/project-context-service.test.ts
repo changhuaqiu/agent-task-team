@@ -189,6 +189,8 @@ describe('ProjectContextService', () => {
     });
     expect(result.capsule?.content).toContain('AGENTS.md');
     expect(result.capsule?.content).toContain('src/auth.ts');
+    expect(result.capsule?.content).toContain('npx vitest run');
+    expect(result.capsule?.content).toContain('超时或被终止不能视为通过');
     expect(result.capsule?.selectedKnowledge.map(entry => entry.path))
       .toContain('docs/technical/evaluation/auth-evaluation.md');
     expect(result.capsule?.content.length).toBeLessThanOrEqual(12_000);
