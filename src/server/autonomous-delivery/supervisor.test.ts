@@ -62,6 +62,22 @@ afterEach(() => {
 });
 
 describe('AutonomousDeliveryRepository', () => {
+  it('lists distinct conversation ids for state hydration', () => {
+    const repo = new AutonomousDeliveryRepository();
+    conversationRepo.create({ id: 'conv-autonomous-second', title: '第二个自主项目' });
+    repo.createRun(contract);
+    repo.createRun(contract);
+    repo.createRun({
+      ...contract,
+      scope: { ...contract.scope, conversationId: 'conv-autonomous-second' },
+    });
+
+    expect(repo.listConversationIds()).toEqual([
+      'conv-autonomous',
+      'conv-autonomous-second',
+    ]);
+  });
+
   it('原子 claim 同一逻辑动作且不会产生重复 attempt', () => {
     const repo = new AutonomousDeliveryRepository();
     const run = repo.createRun(contract);

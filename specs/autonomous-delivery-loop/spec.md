@@ -356,6 +356,10 @@ Team Harness 不重复实现模型、Skill、工具协议、浏览器驱动或 P
 ### 正常路径
 
 用户在 Web UI 创建交付目标并发送一次。此后不再发送消息。系统完成任务拆解、开发、Review、Web UI E2E、修复、PR/合并（若授权），最后 UI 展示 DeliveryBundle。
+创建时可以异步加载 Team Pack，但 `autonomous=true` 时不得再触发普通 Conversation 的初始 proposal；
+首个规划调用必须来自持久化的 `plan_goal` Action/Attempt。非自主项目的既有 proposal 行为保持不变。
+页面刷新后，自主标记必须由持久化 DeliveryRun 重新水合；创建定时器、聊天自动提案和
+`triggerProposal` 统一入口都必须拒绝为该 Conversation 派发 legacy proposal。
 
 ### 重启恢复
 

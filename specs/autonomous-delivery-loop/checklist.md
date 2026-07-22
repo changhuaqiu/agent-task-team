@@ -46,6 +46,7 @@
 - [x] repair verification 进程重启恢复 Web UI E2E。
 - [x] executing / verifying / integrating 三阶段持久化重启恢复集成测试。
 - [x] v42 水位但 Run 表缺少 `revision` 的 checkpoint 可前向修复，并保留既有 Run/Action。
+- [x] 自主项目创建不触发 legacy proposal；普通 Team Pack 项目仍自动启动初始分析。
 
 ## 全链路证据
 
@@ -79,3 +80,10 @@
 - `pnpm build`（Next.js 16.2.4 / Turbopack）通过，TypeScript 与页面生成均成功。
 - 独立 MR 工作树基于最新 `origin/main` 验证：`pnpm test` 全量 135 个测试文件、
   1192 条用例全部通过，无 unhandled rejection。
+
+## Legacy proposal 隔离现场记录（2026-07-22）
+
+- 在修复版生产构建中刷新浏览器后，通过真实 Web UI 新建空目录自主项目，只提交一次目标，未发送后续消息或手工指派 Agent。
+- `/api/state` 将新会话水合为 `autonomous: true`；数据库只出现由 Supervisor 根任务关联的 Mario invocation。
+- 等待超过 500ms 旧提案定时器窗口后，空 `task_id` invocation 数仍为 0；`plan_goal` 与 `advance_tasks` Action 均成功，页面没有 legacy proposal 队列。
+- 回归测试同时覆盖普通 Team Pack 项目创建及显式重新生成 proposal，确认非自主交互路径未被禁用。

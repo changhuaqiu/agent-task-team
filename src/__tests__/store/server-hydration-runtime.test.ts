@@ -107,6 +107,7 @@ describe('server hydration runtime gate', () => {
             priority: 'p1',
             project_path: 'C:/fixture',
             team_pack_id: TEAM_PACK_ID,
+            autonomous: true,
             created_at: '2026-07-21T00:00:00.000Z',
             updated_at: '2026-07-21T00:00:00.000Z',
           }],
@@ -146,6 +147,7 @@ describe('server hydration runtime gate', () => {
     const state = useTaskHubStore.getState();
     expect(state.hasHydrated).toBe(true);
     expect(state.selectedConversationId).toBe(CONVERSATION_ID);
+    expect(state.conversations[0]?.autonomous).toBe(true);
     expect(state.currentTeamPack?.id).toBe(TEAM_PACK_ID);
     expect(state.activeAgentIds).toEqual(['mario']);
     expect(state.getAgentRuntimeProfile('mario')?.execution).toMatchObject({
