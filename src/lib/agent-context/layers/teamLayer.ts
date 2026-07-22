@@ -19,7 +19,7 @@ const DISPATCH_RULES = `## 分派规则
 const COLLABORATION_RULES = `## 协作规则
 - 遇到超出职责范围且需要别人执行的新动作，才发起 A2A 交接
 - A2A 必须写成「@agent 请/需要 + 动作 + 具体对象/交付物」，不要只写行首 @agentId
-- 通知 @agent、知会 @agent、@agent 已完成/已写入 TASKS.md 都只是群聊信息，不会唤醒执行
+- 通知 @agent、知会 @agent、@agent 已完成/任务状态已更新 都只是群聊信息，不会唤醒执行
 - 关键架构变更、数据库 schema 变更前必须请求用户确认
 - 评审意见必须附带具体代码引用和修复方向
 - 如果需要其他 agent 协助，在回复中另起一行写明确请求，例如「@peach 请评审 TASK-003 的后端改动」`;

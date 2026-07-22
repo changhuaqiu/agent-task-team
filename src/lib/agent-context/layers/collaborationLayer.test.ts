@@ -12,5 +12,8 @@ describe('buildCollaborationLayer', () => {
     expect(result).toContain('fix、update、implement、build、execute');
     expect(result).toContain('通知 @mario 查看结果');
     expect(result).toContain('不会唤醒对方');
+    expect(result).toContain('TASKS.md 只是只读投影');
+    expect(result).toContain('提交结构化 blocker');
+    expect(result).not.toContain('直接编辑系统给出的绝对 TASKS.md 路径');
   });
 });

@@ -218,6 +218,10 @@ Supervisor 只接受当前 TeamPack 质量门负责人提交的 `evidence.review
 
 普通 Task Graph quality gate 使用同一“结构化事实优先”原则：Agent 只读 `.ath/TASKS.md` 投影，状态裁决通过 `task_update_status` 写入 Task Graph。被唤醒的 gate owner 只能裁决目标 `in_review` Task；PASS/REJECT 必须携带结构化 review receipt。平台在一次权威 mutation 中保存状态与 review note、发布通知并触发下一 wakeup。REJECT 进入 `rejected|blocked` 并唤醒原实现者；Invocation 仅输出 REJECT 文本不构成裁决，也不得导致 reviewer 以普通 execution 场景无限重派。
 
+任务控制面能力由 Harness 按 invocation 授予，而不是由用户是否给某个 Agent 绑定 `task-management` Skill 决定。绑定精确 Task 的实现者、评审者和验证者获得 `task_list` / `task_update_status`；planner 角色额外获得 `task_create` / `task_assign`。Context Manager 将这些基础能力与 Skill 工具去重后，再与当前 transport 的真实注册名求交集，最终清单同时用于 prompt、观测和 ACP MCP grant。这样 Skill 负责专业策略，平台基础工具负责不可缺失的控制面契约。
+
+`TASKS.md` 在所有 prompt 层中都必须保持只读投影语义。若当前 transport 没有注册所需的精确任务工具，Agent 只能报告结构化 blocker；任何“缺工具时直接编辑 TASKS.md”的兼容提示都属于失效路径，不能再次进入运行时上下文。
+
 Action kind 不是执行场景的唯一来源。`advance_tasks` 取到 review/test wakeup 时必须分别使用 `code_review` / `verification` 场景，保证恢复派发仍保留角色边界和工具契约。
 
 ### 重启恢复

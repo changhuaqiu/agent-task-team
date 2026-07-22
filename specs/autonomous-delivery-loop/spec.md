@@ -187,6 +187,8 @@ interface AcceptanceReviewReceipt {
 - “任务已 done”、实现者自评或只有 `mainImpactReviewResult` 文本均不能让 Review 通过；
 - 无回执时创建独立 `request_review`，失败回执触发有界 `repair_review`。
 - Task Graph 的普通 quality-gate 评审同样必须通过结构化任务工具提交裁决。`.ath/TASKS.md` 只是只读兼容投影，不是 Agent 的写入入口；评审者不得通过原生文件编辑伪造状态变化。
+- 平台任务工具是 Task Graph 控制面的基础能力，不以 Agent 是否手工绑定 `task-management` Skill 为前提。任何绑定到精确 Task 的实现、评审或验证 invocation 至少必须获得 `task_list` 与 `task_update_status`；planner 角色可以获得创建与分派工具。授权清单必须按本次 invocation 的 Task/角色收窄，并继续经过 runtime 注册名校验。
+- 所有上下文层必须一致声明 `TASKS.md` 为只读投影；缺少精确平台任务工具时，Agent 必须提交结构化 blocker，不能回退到文件编辑。
 - 被明确唤醒的 gate owner 对目标 `in_review` Task 提交 PASS/REJECT 后，平台必须在同一权威 mutation 中持久化 review note/evidence、发布任务变化并派发下一合法负责人。REJECT 必须离开 `in_review` 进入 `rejected|blocked`，并唤醒原实现者；不得因评审 Invocation 正常结束但状态未写回而用 `execution` 场景重复派发同一评审者。
 - `advance_tasks` 的运行场景由实际 wakeup 语义决定：`review_requested` 必须使用 `code_review`，`test_requested` 必须使用 `verification`，不能仅按外层 Action kind 统一降级为 `execution`。
 

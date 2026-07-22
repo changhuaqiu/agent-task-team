@@ -51,6 +51,8 @@
 - [x] 自主项目创建不触发 legacy proposal；普通 Team Pack 项目仍自动启动初始分析。
 - [ ] Claude ACP 双下划线工具名可命中当前平台 grant，未知 MCP/普通工具仍拒绝。
 - [x] reviewer 通过 `task_update_status` 提交结构化 REJECT 后，任务原子进入 `rejected|blocked`、保存 review note，并只唤醒原实现者；不会再次以 execution 场景派发 reviewer。
+- [x] 未绑定 `task-management` Skill 的实现者/评审者在精确 Task invocation 中仍获得最小任务工具；planner 保留创建/分派能力，其他角色不会获得这两项扩权工具。
+- [x] Context、A2A 与 daemon 注入文本都不再允许直接编辑 `TASKS.md`；工具缺失时只允许结构化 blocker。
 - [x] `npm test` 打印 PASS 后停在 watch 并超时，tool span 为 error，且不能通过实现/验证门禁；`vitest run` 正常退出后才可通过。
 
 ## 全链路证据

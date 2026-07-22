@@ -61,7 +61,7 @@ export function buildHandoffPacketDraft(input: BuildHandoffPacketInput) {
     relevantDecisions: extractRelevantDecisions(input.content),
     evidenceRefs: extractEvidenceRefs(input.content),
     constraints: [
-      '以项目任务系统和 TASKS.md 为项目状态事实源。',
+      '以平台 Task Graph 为项目状态事实源；TASKS.md 只作为只读投影。',
       '只执行交接包中的具体请求，不要把普通 @提及当作新派发。',
     ],
     openQuestions: extractOpenQuestions(input.content),

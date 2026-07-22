@@ -18,6 +18,7 @@
 - [x] 自主项目加载 Team Pack 时禁止 legacy proposal，确保 `plan_goal` 是唯一规划入口。
 - [ ] 归一化 ACP 平台 MCP 工具名，确保自主规划器可以调用已授权的 `task_create`。
 - [x] 收口 quality-gate 任务裁决：任务工具成为唯一权威写入口，结构化 REJECT 持久化并立即打回实现者，重派保持 `code_review` 场景。
+- [x] 将任务工具从个人 Skill 绑定中解耦：按 invocation Task/角色授予基础平台能力，并移除所有 `TASKS.md` 文件写入回退提示。
 
 ## P1：恢复与安全
 

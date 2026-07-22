@@ -200,6 +200,13 @@ describe('RepositoryHarnessPlanner', () => {
     expect(result.plan.prompt).toContain('系统唤醒');
     expect(result.plan.prompt).toContain('团队动态');
     expect(result.plan.prompt).toContain('## 项目上下文入口');
+    expect(result.plan.contextReport.availableTools).toEqual(expect.arrayContaining([
+      'task_list',
+      'task_update_status',
+    ]));
+    expect(result.plan.contextReport.availableTools).not.toContain('task_create');
+    expect(result.plan.contextReport.availableTools).not.toContain('task_assign');
+    expect(result.plan.prompt).toContain('### task_update_status');
     expect(result.plan.contextSnapshot?.fragmentRefs).toEqual(expect.arrayContaining([
       expect.objectContaining({ producer: 'project-context', version: expect.stringMatching(/^r1:/) }),
     ]));

@@ -77,5 +77,8 @@ describe('runtime tool registration boundary', () => {
     expect(prompt).toContain('交接后立即结束本轮');
     expect(prompt).toContain('更新为 review/in_review 后立即正常结束本轮');
     expect(prompt).toContain('不要再手工 @ 默认 reviewer');
+    expect(prompt).toContain('TASKS.md 只是只读投影');
+    expect(prompt).toContain('提交结构化 blocker');
+    expect(prompt).not.toContain('直接编辑系统给出的绝对 TASKS.md 路径');
   });
 });

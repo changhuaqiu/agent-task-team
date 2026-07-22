@@ -89,6 +89,8 @@ export interface ContextRequest {
   project?: { id: string; name: string; path: string }; // P1 项目信息
   /** Exact platform tool names registered in the current runtime transport. */
   registeredToolNames?: string[];
+  /** Platform-native capability contracts granted for this exact invocation. */
+  platformTools?: ToolDefinition[];
 }
 
 // 健康度报告
@@ -331,7 +333,8 @@ export class ContextManager {
       : providedSkills.length
         ? providedSkills
         : (roleCard?.capabilities?.skills ?? []).map(skillName => ({ name: skillName, content: '' }));
-    const declaredTools = extractToolsFromSkills(skillSummaries);
+    const declaredTools = [...(req.platformTools ?? []), ...extractToolsFromSkills(skillSummaries)]
+      .filter((tool, index, all) => all.findIndex((candidate) => candidate.name === tool.name) === index);
     const tools = filterRegisteredTools(declaredTools, req.registeredToolNames);
     // Semantic scenarios and session bootstrap are orthogonal. Legacy callers
     // keep their historical policy; explicit Team Harness scenarios bootstrap

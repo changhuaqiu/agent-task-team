@@ -2210,7 +2210,7 @@ export default function registerDaemon(io: IOServer) {
       // Build prompt with worktree context if applicable
       let promptWithWorkdir = evaluation
         ? `${prompt || ''}\n\n[系统] 这是隔离评估任务。只使用当前 worktree 和本次任务上下文，不读取项目中的其他会话状态。`
-        : (prompt || '') + `\n\n[系统] 任务看板路径: ${join(taskProjectDir, '.ath')}/TASKS.md`;
+        : (prompt || '') + `\n\n[系统] 任务看板只读投影路径: ${join(taskProjectDir, '.ath')}/TASKS.md；不要直接编辑，状态与证据只通过本轮明确暴露的平台任务工具提交。`;
       if (effectiveUseWorktree && effectiveSlug) {
         if (evaluation) {
           promptWithWorkdir += `\n[系统] 当前在绑定快照 commit 的隔离 Git Worktree 中执行，工作目录: ${wd}`;

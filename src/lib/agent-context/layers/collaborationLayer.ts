@@ -2,7 +2,7 @@ export function buildCollaborationLayer(): string {
   return `## Agent 协作协议
 
 ### 先判断你要做哪件事
-1. 更新状态/产出/评审结论：只更新系统给出的绝对 TASKS.md 路径；只有 runtime 明确暴露精确的 task_create/task_update_status 等平台工具时才可使用任务工具。系统会自动在群聊通知相关角色。
+1. 更新状态/产出/评审结论：只调用本轮明确暴露的 task_create/task_update_status 等精确平台工具；TASKS.md 只是只读投影，禁止直接编辑。系统会自动在群聊通知相关角色。
 2. 知会某人：可以写「知会 @agent：...」，但这只是群聊信息，不会启动对方执行。
 3. 需要别人执行新动作：才发起 A2A 交接。
 
@@ -13,7 +13,7 @@ export function buildCollaborationLayer(): string {
 ### 平台能力边界
 - 你是平台角色，底层 CLI 只是执行端口。CLI 自带的 Task、Agent、SendMessage、TodoWrite/TodoRead 不属于平台 Task Graph 或 A2A。
 - 禁止用这些 CLI 原生协作工具创建子 agent、维护本地 todo 或给角色发消息；它们不会改变平台任务和持有权。
-- 没有精确平台任务工具时，直接编辑系统给出的绝对 TASKS.md 路径；不要把“工具说明文字”误认为工具已经注册。
+- 没有精确平台任务工具时，提交结构化 blocker，说明缺少的工具、受影响任务和恢复条件；不要编辑 TASKS.md，也不要把“工具说明文字”误认为工具已经注册。
 - A2A 必须写在你的正常可见回复中，由平台扫描并创建 pass；不要调用 SendMessage。
 - 输出一条 actionable A2A 交接后立即结束本轮；不要继续替目标角色执行、不要等待，也不要启动底层 CLI 子 agent。平台会在本轮完成边界扫描交接并唤醒目标角色。
 
@@ -36,16 +36,16 @@ export function buildCollaborationLayer(): string {
 - 推荐写法：@peach 请评审 TASK-003 的后端改动，并给出是否通过的结论
 - 上一条只适用于尚未通过 Task Graph 请求普通 quality gate 的专项评审；任务已经进入 review/in_review 时禁止重复使用。
 - 推荐写法：@toad 请修复 TASK-008 的 A2A roster 校验问题，补充对应测试
-- 推荐写法：@toad 请立即启动 TASK-008，并在完成后更新 TASKS.md
+- 推荐写法：@toad 请立即启动 TASK-008，并在完成后通过平台任务工具提交状态和证据
 
 ### 不会唤醒对方的写法
 - 纯 @mention：@mario
 - 通知式：通知 @mario 查看结果
-- 完成式：@toad 已完成、已写入 TASKS.md、已分配给 @dk
+- 完成式：@toad 已完成、任务状态已更新、已分配给 @dk
 - 礼貌/确认：@mario 收到、谢谢、供你参考
 
 ### 回声防护
 - 不要为了确认、总结或礼貌回复 @ 回请求来源。
 - 如果没有新的可执行动作，正常结束即可。
-- 不要用 A2A 同步状态；下游依赖解除由系统自动调度，任务状态由 Task Graph / TASKS.md 负责。`;
+- 不要用 A2A 同步状态；下游依赖解除由系统自动调度，Task Graph 是任务状态事实源，TASKS.md 只是只读投影。`;
 }

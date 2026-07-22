@@ -8,22 +8,15 @@ const RESPONSE_GUIDANCE = `规则：
 - 每轮结束必须留下闭环动作：更新任务状态并提交证据、真实派发并确认 receipt、创建 blocker 并升级、或说明外部等待条件和恢复负责人
 - 文本 @mention 或“已通知/已启动”不算派发；只有真实 dispatch receipt、A2A pass offer、task wakeup dispatch 或执行启动回执才算启动
 - 并行管道必须核对 n/n dispatched；部分派发失败时立即重试或升级给协调者，不要宣布全部启动
-- 下游任务的依赖解除由系统自动调度（wakeup 机制），但你仍要确保本轮闭环动作已经发生。状态/产出更新请写 TASKS.md，系统会自动处理后续调度
+- 下游任务的依赖解除由系统自动调度（wakeup 机制），但你仍要确保本轮闭环动作已经发生。状态/产出必须通过本轮明确暴露的平台任务工具更新，系统会自动处理后续调度
 - 不要确认收到（没有 ack 机制，确认无意义）
 - 只做实际工作或报告无法执行的原因
 - 不要为了确认、总结或礼貌性回复 @ 回请求来源，避免 A2A 回声
 - 如果需要主动安排新工作（非依赖解除场景），用「@agent 请/需要 + 动作 + 具体交付物」发起 A2A 交接，例如「@peach 请评审 TASK-003 的后端改动」
-- 纯 @mention、通知 @agent、@agent 已完成/已写入 TASKS.md 只会被视为群聊信息，不会唤醒对方
+- 纯 @mention、通知 @agent、@agent 已完成/任务状态已更新只会被视为群聊信息，不会唤醒对方
 - 删除文件内容后，必须立即搜索确认关键内容仍然存在；如果误删，立即恢复
 - 不要编辑其他 agent 正在编辑的文件（见下方"编辑互斥"段落）
-
-TASKS.md 编辑格式（必须严格遵守）：
-| ID | Title | Phase | Role | Agent | Status | Depends | Deliverable |
-- 每行必须用 | 分隔，保持 8 列完整
-- Status 只能是: todo, doing, review, done, blocked
-- Depends 用逗号分隔任务ID，无依赖填 -
-- 不要在表格中间插入空行或注释行
-- 不要修改表头行`;
+- TASKS.md 是只读兼容投影，禁止直接编辑；如果精确平台任务工具缺失，提交结构化 blocker，写明工具名、任务 ID 和恢复条件`;
 
 export interface ContextBuilderDeps {
   chainRepo: ChainRepo;

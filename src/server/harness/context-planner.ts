@@ -20,6 +20,7 @@ import { getSupportedToolNames } from '../skill-tool-router';
 import { autonomousDeliveryContextContributor } from '../autonomous-delivery/context-contributor';
 import { resolveApplicationSnapshotRuntime } from '../evaluation/application-snapshot';
 import { projectContextContributor } from '../project-context/context-contributor';
+import { resolvePlatformTaskTools } from './platform-tool-policy';
 
 const RUNTIME_IDS = {
   opencode: 'opencode-local',
@@ -193,6 +194,11 @@ export class RepositoryHarnessPlanner implements HarnessPlanner {
         deliveryRunId: trigger.deliveryRunId,
         rawPrompt: referenceResolution.prompt,
         registeredToolNames: getSupportedToolNames(),
+        platformTools: resolvePlatformTaskTools({
+          hasTask: Boolean(task),
+          roleCategory: profile.prompt.roleCard?.category,
+          evaluation: Boolean(trigger.evaluation),
+        }),
         trigger: contextTrigger,
         scenario: trigger.contextScenario,
         a2aHandoff: trigger.source === 'a2a' ? {
