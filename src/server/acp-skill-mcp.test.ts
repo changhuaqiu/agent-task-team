@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   clearAcpSkillMcpGrantsForTests,
+  buildAcpSkillMcpTurnInstruction,
   executeAcpSkillMcpTool,
   listAcpSkillToolDefinitions,
   registerAcpSkillMcpGrant,
@@ -28,6 +29,11 @@ describe('ACP skill MCP grants', () => {
       `mcp.${grant.mcpServer.name}.task_list`,
       `mcp.${grant.mcpServer.name}.collaboration_record_pr`,
     ]);
+    expect(grant.promptInstruction).toContain(`server name: ${grant.mcpServer.name}`);
+    expect(grant.promptInstruction).toContain('task_list, collaboration_record_pr');
+    expect(grant.promptInstruction).toContain('其他 agent-task-team-* server/tool 名称均已撤销');
+    expect(grant.promptInstruction).not.toContain('unknown_tool');
+    expect(grant.promptInstruction).not.toContain(grant.mcpServer.headers[0].value);
     const authorization = grant.mcpServer.headers[0].value;
     const resolved = resolveAcpSkillMcpGrant(authorization)!;
     expect(resolved).toMatchObject({
@@ -45,6 +51,20 @@ describe('ACP skill MCP grants', () => {
 
     grant.revoke();
     expect(resolveAcpSkillMcpGrant(authorization)).toBeUndefined();
+  });
+
+  it('describes only the current invocation server without carrying an old random name', () => {
+    const instruction = buildAcpSkillMcpTurnInstruction(
+      'agent-task-team-current123456',
+      ['task_list', 'task_update_status', 'not_a_platform_tool'],
+    );
+
+    expect(instruction).toContain('agent-task-team-current123456_task_list');
+    expect(instruction).toContain('mcp__agent-task-team-current123456__<tool>');
+    expect(instruction).toContain('task_list, task_update_status');
+    expect(instruction).not.toContain('not_a_platform_tool');
+    expect(instruction).not.toContain('agent-task-team-previous');
+    expect(instruction).not.toMatch(/Bearer\s+/);
   });
 
   it('rejects expired tokens', () => {

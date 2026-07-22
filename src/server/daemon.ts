@@ -2300,6 +2300,9 @@ export default function registerDaemon(io: IOServer) {
         }, mcpOrigin)
         : undefined;
       revokeAcpTools = acpToolGrant?.revoke;
+      if (acpToolGrant) {
+        promptWithWorkdir += `\n\n${acpToolGrant.promptInstruction}`;
+      }
       // codex startup ~117s (WebSocket→HTTPS fallback). The kill timer +
       // backend timeout are floored to ≥180s at the timeoutMs source for codex
       // ACP (see ~L690). Warn when the operator-tuned raw timeout was below

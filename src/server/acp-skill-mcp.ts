@@ -97,11 +97,30 @@ export function listAcpSkillToolDefinitions(permittedTools: string[]): AcpSkillT
     .filter((tool): tool is AcpSkillToolDefinition => Boolean(tool));
 }
 
+export function buildAcpSkillMcpTurnInstruction(
+  serverName: string,
+  permittedTools: string[],
+): string {
+  const logicalTools = [...new Set(permittedTools.filter(isSkillTool))];
+  return [
+    `[系统] 本轮平台 MCP server name: ${serverName}。`,
+    '恢复会话历史中其他 agent-task-team-* server/tool 名称均已撤销，禁止复用。',
+    `仅使用当前工具面板中 server name 完全匹配 ${serverName} 的平台工具；本轮逻辑工具白名单: ${logicalTools.join(', ')}。`,
+    `OpenCode 常见显示名: ${logicalTools.map((tool) => `${serverName}_${tool}`).join(', ')}。`,
+    `其他 ACP 运行时可能显示为 mcp__${serverName}__<tool>；以当前工具面板为准。`,
+  ].join('\n');
+}
+
 export function registerAcpSkillMcpGrant(
   scope: AcpSkillMcpScope,
   origin: string,
   ttlMs = DEFAULT_GRANT_TTL_MS,
-): { mcpServer: McpServer; autoApproveToolNames: string[]; revoke: () => void } | undefined {
+): {
+  mcpServer: McpServer;
+  autoApproveToolNames: string[];
+  promptInstruction: string;
+  revoke: () => void;
+} | undefined {
   const permittedTools = [...new Set(scope.permittedTools.filter(isSkillTool))];
   if (permittedTools.length === 0) return undefined;
 
@@ -122,6 +141,7 @@ export function registerAcpSkillMcpGrant(
       headers: [{ name: 'Authorization', value: `Bearer ${token}` }],
     },
     autoApproveToolNames: permittedTools.map((toolName) => `mcp.${serverName}.${toolName}`),
+    promptInstruction: buildAcpSkillMcpTurnInstruction(serverName, permittedTools),
     revoke: () => {
       grantRegistry().delete(token);
       resetRateLimit(rateLimitKey);

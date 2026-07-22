@@ -36,7 +36,7 @@ Git Collaboration Skill 暴露三个结构化入口：`collaboration_record_pr`�
 
 真实运行时的文件入口同样必须收敛：daemon 先以用户当前 `projectPath` 的精确 `HEAD` 创建会话 worktree，再把该会话 Task Graph 首次投影到实际 worktree 的 `.ath/TASKS.md`。Agent 执行目录、prompt 中的绝对任务路径、task watcher 和 turn-completion 同步都引用这个目录。不得从陈旧本地 `main` 创建会话分支，也不得把 sibling scratch 目录写进 prompt 后要求受限 runtime 跨边界编辑。
 
-平台工具通过 loopback-only Streamable HTTP MCP 暴露给 ACP。每次 invocation 使用随机 bearer token 和随机 MCP server name，服务端从 token 恢复可信的 conversation、agent、task 与通知上下文，只暴露该角色上下文中实际允许的工具，并在 turn 完成后撤销 token。ACP 的 session new/load 都必须携带同一 MCP server 配置，保证首次派发与恢复会话行为一致。权限处理器先从已映射的精确 `mcp.<随机 server>.<白名单工具>` 事件登记一次性 tool call id，再只对相同 call id 的 MCP 审批选择 `allow_once`；shell、文件编辑和任何其他 MCP server 仍使用全局 deny/allow-once 策略，不能因为平台注册而扩大运行时权限。
+平台工具通过 loopback-only Streamable HTTP MCP 暴露给 ACP。每次 invocation 使用随机 bearer token 和随机 MCP server name，服务端从 token 恢复可信的 conversation、agent、task 与通知上下文，只暴露该角色上下文中实际允许的工具，并在 turn 完成后撤销 token。ACP 的 session new/load 都必须携带同一 MCP server 配置，保证首次派发与恢复会话行为一致。恢复会话还会保留历史 tool call 名称，因此每个 turn 必须把本轮真实 server name、逻辑工具白名单以及“历史 `agent-task-team-*` 名称已撤销”写入 prompt；不得暴露 bearer token。权限处理器先从已映射的精确 `mcp.<随机 server>.<白名单工具>` 事件登记一次性 tool call id，再只对相同 call id 的 MCP 审批选择 `allow_once`；shell、文件编辑和任何其他 MCP server 仍使用全局 deny/allow-once 策略，不能因为平台注册而扩大运行时权限。
 
 MCP HTTP handler 是平台 mutation 的唯一执行入口，daemon 收到的 namespaced `tool_use` 只进入聊天和 observability，不做第二次执行。操作额度以随机 grant key 计数，并在 token revoke 时清理，避免跨 invocation 污染或并发会话互相耗尽额度。
 
