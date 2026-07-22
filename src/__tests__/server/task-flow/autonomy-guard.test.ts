@@ -170,6 +170,25 @@ describe('autonomy guard wakeups', () => {
     }));
   });
 
+  it('quarantines every explicitly controlled delivery task before graph edges exist', () => {
+    const wakeups = resolveAutonomyGuardWakeups({
+      tasks: [
+        task({ id: 'ROOT', agent_id: 'mario', status: 'in_progress' }),
+        task({ id: 'EDGELESS-CHILD', agent_id: 'luigi', status: 'pending' }),
+      ],
+      edges: [],
+      envelopes: [],
+      coordinatorAgentIds: ['mario'],
+      reviewAgentIds: ['peach'],
+      qaAgentIds: ['yoshi'],
+      deliveryControlledTaskIds: ['ROOT', 'EDGELESS-CHILD'],
+      now: new Date('2026-05-21T00:31:00.000Z'),
+      staleMs: 30 * 60 * 1000,
+    });
+
+    expect(wakeups).toEqual([]);
+  });
+
   it('leaves an active delivery root to the Supervisor before it has child tasks', () => {
     const wakeups = resolveAutonomyGuardWakeups({
       tasks: [task({ id: 'ROOT', agent_id: 'mario', status: 'in_progress' })],

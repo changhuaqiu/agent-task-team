@@ -12,6 +12,7 @@ export interface ResolveAutonomyGuardWakeupsInput {
   qaAgentIds: string[];
   edges?: TaskEdgeRow[];
   closureDispatchedRootTaskIds?: string[];
+  deliveryControlledTaskIds?: string[];
   deliveryControlledRootTaskIds?: string[];
   suspendedDeliveryRootTaskIds?: string[];
   now?: Date;
@@ -107,7 +108,7 @@ export function resolveAutonomyGuardWakeups(input: ResolveAutonomyGuardWakeupsIn
     return descendants;
   };
 
-  const deliveryControlledTaskIds = new Set<string>();
+  const deliveryControlledTaskIds = new Set(input.deliveryControlledTaskIds ?? []);
   for (const rootTaskId of deliveryControlledRootTaskIds) {
     deliveryControlledTaskIds.add(rootTaskId);
     for (const descendant of collectDescendants(rootTaskId)) {

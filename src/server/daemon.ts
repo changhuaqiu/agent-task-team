@@ -381,6 +381,7 @@ export default function registerDaemon(io: IOServer) {
     const tasks = taskRepo.list();
     const conversationIds = Array.from(new Set(tasks.map((task) => task.conversation_id)));
     const rootGuardedDeliveryRuns = autonomousDeliveryRepo.listRootGuarded();
+    const deliveryControlledConversationIds = new Set(autonomousDeliveryRepo.listConversationIds());
     if (now - lastTeamLogArchiveSweepAt >= 24 * 60 * 60 * 1000) {
       for (const conversationId of conversationIds) {
         try {
@@ -409,6 +410,9 @@ export default function registerDaemon(io: IOServer) {
         closureDispatchedRootTaskIds: closureProofs
           .map((proof) => proof.task_id)
           .filter((taskId): taskId is string => Boolean(taskId)),
+        deliveryControlledTaskIds: deliveryControlledConversationIds.has(conversationId)
+          ? conversationTasks.map((task) => task.id)
+          : [],
         deliveryControlledRootTaskIds: rootGuardedDeliveryRuns
           .filter((run) => run.conversation_id === conversationId)
           .map((run) => run.root_task_id)

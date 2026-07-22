@@ -233,8 +233,14 @@ Supervisor 只接受当前 TeamPack 质量门负责人提交的 `evidence.review
 只有实际执行、协议、权限、配置或 lease 失败才消耗恢复预算。
 
 Delivery-bound wakeup 的 `agent_busy` 重试权始终留在 Supervisor。Task Notification Publisher 对浏览器仍展示 wakeup，
-但必须把它标记为 server-owned，禁止浏览器 compatibility dispatch/pending queue 再派同一 Task。通用 Autonomy Guard
-也不参与任何活跃或终态 DeliveryRun 的根任务及 `subtask_of` 后代；整个交付子图只有一个调度所有者。
+但必须把它标记为 server-owned，禁止浏览器 compatibility dispatch/pending queue 再派同一 Task。只要 Conversation
+绑定过 DeliveryRun，daemon 的通用 Autonomy Guard 就隔离该 Conversation 的全部 Task，而不能只隔离根任务和当前
+`subtask_of` 后代；否则 Agent 通过平台工具刚创建、边尚未投影的 Task 会被通用守卫抢先派发。Supervisor 的 facts adapter
+可以在隔离边界内复用相同 wakeup 规则计算 runnable Task，但唯一允许持久化和执行 dispatch 的仍是 Delivery Action。
+
+平台 `task_create` 必须把 Task、`task.created` Action、Delivery 根 `subtask_of` 边以及声明依赖对应的 `depends_on` 边
+作为一次权威数据库事务提交。边方向分别是“新 Task → 根 Task”和“依赖 Task → 新 Task”。事务提交后才更新
+`.ath/TASKS.md` 兼容投影；文件写入失败不得回滚或取代 Task Graph 事实。
 
 项目清单中的命令只能证明“命令入口存在”，不能证明它会形成一次性门禁证据。基础任务协议和 Project Context 的可信命令段都必须提醒 Agent：测试、构建与安装只有在进程正常退出时有效；watch 模式即使先打印 PASS，随后超时或被终止仍是失败。发现 `npm test` 等脚本进入 watch 后，应使用 runner 的 one-shot 形式（例如 `npx vitest run`）重新执行。
 

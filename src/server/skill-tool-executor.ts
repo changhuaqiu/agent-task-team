@@ -22,6 +22,7 @@ import {
   publishTaskChangeNotification,
   resolveTaskNotificationAudience,
 } from './task-flow/task-notification-publisher';
+import { getDb } from './db';
 
 // ── Types ──────────────────────────────────────
 
@@ -306,18 +307,72 @@ function executeTaskCreate(invocation: ToolInvocation): ToolResult {
   const taskCount = taskRepo.list().length;
   const id = `TASK-${String(taskCount + 1).padStart(3, '0')}`;
   const agentId = (invocation.input.agent_id as string) || invocation.agentId;
-  const dependencies = typeof invocation.input.dependencies === 'string'
-    ? (invocation.input.dependencies as string).split(',').map((s) => s.trim()).filter(Boolean)
-    : [];
+  const dependencies = [...new Set(typeof invocation.input.dependencies === 'string'
+    ? invocation.input.dependencies.split(',').map((s) => s.trim()).filter(Boolean)
+    : strings(invocation.input.dependencies).map((dependency) => dependency.trim()))];
+  for (const dependencyId of dependencies) {
+    const dependency = taskRepo.getById(dependencyId);
+    if (!dependency) return { success: false, error: `Dependency task not found: ${dependencyId}` };
+    if (dependency.conversation_id !== invocation.conversationId) {
+      return { success: false, error: `Dependency task ${dependencyId} does not belong to the invoking conversation` };
+    }
+  }
 
-  const task = taskRepo.create({
-    id,
-    conversation_id: invocation.conversationId,
-    title,
-    description: (invocation.input.description as string) || '',
-    agent_id: agentId,
-    dependencies,
-  });
+  const deliveryRootTaskId = invocation.deliveryRunId
+    ? autonomousDeliveryRepo.getSnapshot(invocation.deliveryRunId)?.run.root_task_id
+    : undefined;
+  if (invocation.deliveryRunId && !deliveryRootTaskId) {
+    return { success: false, error: 'DeliveryRun root task is not available' };
+  }
+
+  let task: TaskRow;
+  try {
+    task = getDb().transaction(() => {
+      const created = taskRepo.create({
+        id,
+        conversation_id: invocation.conversationId,
+        title,
+        description: (invocation.input.description as string) || '',
+        agent_id: agentId,
+        dependencies,
+      });
+      const action = taskGraphRepo.appendAction({
+        conversationId: invocation.conversationId,
+        actorId: invocation.agentId,
+        actorType: 'agent',
+        type: 'task.created',
+        taskIds: [id],
+        payload: {
+          title,
+          description: created.description,
+          agentId,
+          dependencies,
+          deliveryRunId: invocation.deliveryRunId,
+        },
+      });
+      if (deliveryRootTaskId) {
+        taskGraphRepo.addEdge({
+          conversationId: invocation.conversationId,
+          fromTaskId: id,
+          toTaskId: deliveryRootTaskId,
+          type: 'subtask_of',
+          createdByActionId: action.id,
+        });
+      }
+      for (const dependencyId of dependencies) {
+        taskGraphRepo.addEdge({
+          conversationId: invocation.conversationId,
+          fromTaskId: dependencyId,
+          toTaskId: id,
+          type: 'depends_on',
+          createdByActionId: action.id,
+        });
+      }
+      return created;
+    })();
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
+  }
 
   // Also write to TASKS.md
   try {

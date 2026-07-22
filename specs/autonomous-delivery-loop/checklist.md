@@ -54,6 +54,7 @@
 - [x] 未绑定 `task-management` Skill 的实现者/评审者在精确 Task invocation 中仍获得最小任务工具；planner 保留创建/分派能力，其他角色不会获得这两项扩权工具。
 - [x] Context、A2A 与 daemon 注入文本都不再允许直接编辑 `TASKS.md`；工具缺失时只允许结构化 blocker。
 - [x] `npm test` 打印 PASS 后停在 watch 并超时，tool span 为 error，且不能通过实现/验证门禁；`vitest run` 正常退出后才可通过。
+- [x] Delivery-bound `task_create` 在单一事务内形成 `task.created`、根 `subtask_of` 和依赖 `depends_on`；即使边缺失，daemon 通用守卫也不会派发 Delivery Conversation 的任一 Task，Supervisor 内部仍能据任务事实产生唯一 Action。
 
 ## 全链路证据
 

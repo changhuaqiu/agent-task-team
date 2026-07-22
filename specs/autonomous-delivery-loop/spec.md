@@ -199,8 +199,13 @@ interface AcceptanceReviewReceipt {
 - `TASKS.md` watcher 只能执行 Task Graph → 文件的投影校正。对于数据库中已经存在的 Task，文件中的状态、负责人、
   标题、依赖或产出描述均不得回写 Task Graph；发现漂移时记录 proof、恢复权威投影。Agent、旧 session 或迟到 I/O
   写入的 `doing/review/done/blocked` 都不能回滚或越过结构化任务工具已确认的状态。
-- 活跃 DeliveryRun 的根任务及全部 `subtask_of` 后代由 Supervisor 独占调度；通用 Autonomy Guard 不得派发该子图。
-  Run 进入 `escalated/cancelled/completed` 后该隔离仍保持，尤其不能在动态工具授权已撤销后启动后代 Task。
+- 只要 Conversation 绑定过 DeliveryRun，该 Conversation 的全部 Task（包含尚未写入 `subtask_of` 边的新建 Task）都由
+  Supervisor 独占调度；daemon 的通用 Autonomy Guard 不得派发其中任何 Task。Run 进入
+  `escalated/cancelled/completed` 后该隔离仍保持，尤其不能在动态工具授权已撤销后启动后代 Task。Supervisor 的内部
+  facts adapter 可以在隔离边界内复用 wakeup 解析器计算 runnable Task，但只有 Supervisor 可以把结果持久化为 Delivery Action。
+- 平台 `task_create` 是 Task Graph 的权威 mutation：创建 Task 时必须在同一数据库事务中追加 `task.created` Action；
+  Delivery-bound 创建还必须写入新 Task → Delivery 根 Task 的 `subtask_of` 边，并把每个声明依赖写成
+  依赖 Task → 新 Task 的 `depends_on` 边。`.ath/TASKS.md` 只能在事务提交后作为兼容投影更新，不能先于或代替图谱事实。
 - 实现、评审与验证上下文必须明确区分“清单中存在的测试脚本”和“可形成门禁证据的一次性执行”。进入 watch、超时、被终止或非零退出的命令都不是成功证据；若项目 `test` script 默认进入 watch，必须改用对应 runner 的 one-shot 形式（例如 `npx vitest run`）并等待正常退出。
 - 自主 Invocation 通过平台任务工具提交状态后，由任务通知链路立即产生的 review/test wakeup 必须沿可信调用栈携带该 Invocation 绑定的精确 `deliveryRunId`。不得通过 Conversation 的“最新 Run”推断；文件 watcher、手动任务变更或其他无绑定来源继续保持无授权、fail-closed。这样通知抢先于 Supervisor reconciliation 派发时，Reviewer/QA 仍能在同一活跃 Run 的动态授权边界内使用 Terminal、Browser 等原生工具。
 - ReviewReceipt 的状态枚举是协议字段而不是自然语言结论：PASS 必须使用任务 `status=done` 且 `reviewReceipt.status="passed"`；REJECT 必须使用任务 `status=rejected|blocked` 且 `reviewReceipt.status="failed"`。该精确枚举与 findings 字段结构必须同时出现在基础协议、wakeup contract 和工具描述中；校验失败须返回期望值，不能只返回模糊字段名导致 Agent 在 `pass/approved/done` 间猜测重试。

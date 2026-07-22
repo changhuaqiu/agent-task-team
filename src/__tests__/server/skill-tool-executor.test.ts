@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTestDb, setTestDb } from '@/server/db';
 import { conversationRepo } from '@/server/repositories/conversation-repo';
 import { taskRepo } from '@/server/repositories/task-repo';
+import type { TaskRow } from '@/server/repositories/task-repo';
 import { executeSkillTool, resetRateLimit } from '@/server/skill-tool-executor';
 import { readTasksMd } from '@/server/task-file-service';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -19,6 +20,7 @@ import type { GoalContract } from '@/server/autonomous-delivery/types';
 import { observationSpanRepo } from '@/server/repositories/observation-span-repo';
 import { spanPayloadRepo } from '@/server/repositories/span-payload-repo';
 import { seedPresetAgents } from '@/server/db/seed-agents';
+import { taskGraphRepo } from '@/server/repositories/task-graph-repo';
 
 describe('skill tool collaboration gates', () => {
   beforeEach(() => {
@@ -116,6 +118,81 @@ describe('skill tool collaboration gates', () => {
       rmSync(invalidProjectPath, { force: true });
       vi.restoreAllMocks();
     }
+  });
+
+  it('atomically records delivery task creation and graph ownership', async () => {
+    conversationRepo.create({ id: 'conv-delivery-create', title: 'Delivery project' });
+    const deliveryRepo = new AutonomousDeliveryRepository();
+    const delivery = deliveryRepo.createRun({
+      goal: 'Build it', acceptanceCriteria: ['Done'],
+      scope: { conversationId: 'conv-delivery-create', projectPath: process.cwd() },
+      authorization: { allowCodeChanges: true, allowPush: false, allowPullRequest: false, allowAutoMerge: false },
+      recoveryPolicy: { maxAttemptsPerAction: 3, maxRepairCycles: 2, stallTimeoutMs: 60_000 },
+      deliveryPolicy: { requireReview: true, requireWebE2E: false, requireMerge: false },
+    });
+    taskRepo.create({ id: 'ROOT', conversation_id: 'conv-delivery-create', title: 'Root', agent_id: 'mario' });
+    deliveryRepo.updateRun({
+      runId: delivery.run.id,
+      status: 'executing',
+      stage: 'executing',
+      rootTaskId: 'ROOT',
+    });
+    taskRepo.create({ id: 'DEPENDENCY', conversation_id: 'conv-delivery-create', title: 'Dependency', agent_id: 'dk' });
+    const taskProjectDir = join(tmpdir(), `skill-delivery-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    mkdirSync(taskProjectDir, { recursive: true });
+    try {
+      const result = await executeSkillTool({
+        toolName: 'task_create', agentId: 'mario', conversationId: 'conv-delivery-create',
+        deliveryRunId: delivery.run.id, taskProjectDir,
+        input: { title: 'Implement', agent_id: 'luigi', dependencies: 'DEPENDENCY' },
+      });
+
+      expect(result.success).toBe(true);
+      const created = result.data as TaskRow;
+      const actions = taskGraphRepo.listActions('conv-delivery-create');
+      expect(actions).toContainEqual(expect.objectContaining({
+        type: 'task.created', actor_id: 'mario', task_ids: JSON.stringify([created.id]),
+      }));
+      expect(taskGraphRepo.listEdges('conv-delivery-create')).toEqual(expect.arrayContaining([
+        expect.objectContaining({ from_task_id: created.id, to_task_id: 'ROOT', type: 'subtask_of' }),
+        expect.objectContaining({ from_task_id: 'DEPENDENCY', to_task_id: created.id, type: 'depends_on' }),
+      ]));
+    } finally {
+      rmSync(taskProjectDir, { recursive: true, force: true });
+    }
+  });
+
+  it('rolls back the task and action when delivery graph creation fails', async () => {
+    conversationRepo.create({ id: 'conv-delivery-rollback', title: 'Delivery rollback' });
+    const deliveryRepo = new AutonomousDeliveryRepository();
+    const delivery = deliveryRepo.createRun({
+      goal: 'Build it', acceptanceCriteria: ['Done'],
+      scope: { conversationId: 'conv-delivery-rollback', projectPath: process.cwd() },
+      authorization: { allowCodeChanges: true, allowPush: false, allowPullRequest: false, allowAutoMerge: false },
+      recoveryPolicy: { maxAttemptsPerAction: 3, maxRepairCycles: 2, stallTimeoutMs: 60_000 },
+      deliveryPolicy: { requireReview: true, requireWebE2E: false, requireMerge: false },
+    });
+    taskRepo.create({ id: 'ROLLBACK-ROOT', conversation_id: 'conv-delivery-rollback', title: 'Root', agent_id: 'mario' });
+    deliveryRepo.updateRun({
+      runId: delivery.run.id,
+      status: 'executing',
+      stage: 'executing',
+      rootTaskId: 'ROLLBACK-ROOT',
+    });
+    vi.spyOn(taskGraphRepo, 'addEdge').mockImplementationOnce(() => {
+      throw new Error('edge write failed');
+    });
+
+    const result = await executeSkillTool({
+      toolName: 'task_create', agentId: 'mario', conversationId: 'conv-delivery-rollback',
+      deliveryRunId: delivery.run.id,
+      input: { title: 'Must roll back', agent_id: 'luigi' },
+    });
+
+    expect(result).toEqual({ success: false, error: 'edge write failed' });
+    expect(taskRepo.getByConversation('conv-delivery-rollback').map((task) => task.id)).toEqual(['ROLLBACK-ROOT']);
+    expect(taskGraphRepo.listActions('conv-delivery-rollback')).toEqual([]);
+    vi.restoreAllMocks();
   });
 
   it('persists a structured reviewer REJECT and immediately dispatches the implementer', async () => {
