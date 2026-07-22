@@ -57,6 +57,7 @@ interface LogicalAgentSession {
 14. 已确认 Session 的 `session/load` 若明确返回资源不存在，当前 Logical Agent Session 必须封存为 `runtime_resource_not_found`，下一次 dispatch 创建新 generation。
 15. 普通 `acp_session_load_failed` 的当前 Invocation 仍须 fail-closed，禁止自动重放 prompt；但该失败必须持久化。下一次独立 dispatch 若发现同一 generation 的最近 Invocation 正是该失败，视为用户/调度器发起了新的恢复尝试：先封存为 `runtime_session_load_failed`，再创建新 generation。这样既不重复上一轮副作用，也不让 adapter 的非标准 `Internal error` 永久毒化项目 Agent。
 16. 浏览器中的实时运行投影（busy/background/idle、active run、stream message、CLI Trace、watchdog）必须使用 `(conversationId, agentId)` 作为最小作用域。另一个项目中同名 Agent 的 event/activity/exit 不得覆盖、完成或追加到当前项目的运行视图。
+17. 由 conversation-scoped API 异步加载的面板快照必须在 `conversationId` 变化时同步清空旧值，再请求新 scope；新 scope 返回 404/非成功响应时也保持为空。不得在请求窗口继续渲染上一项目的 DeliveryRun、升级提示、评审或交付结果。
 
 ## 4. ACP 执行契约
 
@@ -111,3 +112,4 @@ interface LogicalAgentSession {
 9. 无 taskId 的同项目同 Agent 多轮执行使用同一 cwd；确认后的资源不存在只导致当前 generation 封存，不会永久重复 load 同一失效 id。
 10. adapter 仅返回 `Internal error` 的 load failure 不会自动重放当前 prompt；下一次独立 dispatch 会换代并成功进入 `session/new`。
 11. 两个项目中的同名 Agent 并发执行时，双方 busy 状态、任务标题、Live Output、CLI Trace、tool event 与终态互不串线；切换项目后只展示目标 conversation 的持久化消息和实时投影。
+12. 从已升级或已完成的自主交付项目切换到一个尚无 DeliveryRun 的新项目时，不显示旧项目的“需要你的决策”或交付结果；新项目自己的 Run 到达后才显示对应状态。

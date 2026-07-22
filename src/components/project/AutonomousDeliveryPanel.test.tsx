@@ -149,4 +149,49 @@ describe('AutonomousDeliveryPanel', () => {
     expect(screen.getByText('review/report.md')).toBeDefined();
     expect(screen.queryByText(/receipt|runtime|lease|session/i)).toBeNull();
   });
+
+  it('切换项目后立即清除上一项目的自主交付快照', async () => {
+    const escalatedSnapshot = {
+      run: {
+        id: 'delivery-old',
+        conversation_id: 'conv-old',
+        root_task_id: 'task-old',
+        status: 'escalated',
+        current_stage: 'executing',
+        goal_contract_json: JSON.stringify(contract),
+        repair_cycle: 0,
+        revision: 3,
+        escalation_code: 'poisoned_session',
+        escalation_detail: '旧项目需要你的决策',
+        delivery_bundle_json: null,
+        created_at: '2026-07-19T00:00:00.000Z',
+        updated_at: '2026-07-19T00:10:00.000Z',
+        completed_at: null,
+      },
+      contract,
+      actions: [],
+      attempts: [],
+      receipts: [],
+    } satisfies DeliveryRunSnapshot;
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(async (url: string) => {
+      if (url.includes('conv-old')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => escalatedSnapshot,
+        };
+      }
+      return { ok: false, status: 404 };
+    }));
+
+    const { rerender } = render(<AutonomousDeliveryPanel conversationId="conv-old" />);
+    expect(await screen.findByText('旧项目需要你的决策')).toBeDefined();
+
+    rerender(<AutonomousDeliveryPanel conversationId="conv-new" />);
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('autonomous-delivery-escalated')).toBeNull();
+      expect(screen.queryByText('旧项目需要你的决策')).toBeNull();
+    });
+  });
 });

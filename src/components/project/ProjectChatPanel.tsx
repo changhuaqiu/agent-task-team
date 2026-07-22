@@ -84,7 +84,10 @@ export function ProjectChatPanel() {
 
       <div className="flex-1 min-h-0">
         {selectedConversationId && (
-          <AutonomousDeliveryPanel conversationId={selectedConversationId} />
+          <AutonomousDeliveryPanel
+            key={selectedConversationId}
+            conversationId={selectedConversationId}
+          />
         )}
         <GlobalChatRoom variant="embedded" />
       </div>

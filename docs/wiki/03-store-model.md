@@ -177,6 +177,7 @@ export interface Task {
 - store 订阅 `RuntimeNode`、`AgentBinding`、`ExecutionEnvelope` 与 `ProofLog` 派生状态。
 - `agentStatus` 只能作为 UI 快照；runtime health 与 agent binding 事实必须来自 Control Plane。
 - Agent 实时 UI 快照不能只按 `agentId` 建键。同一角色可以在多个项目并发运行，busy/background/idle、active run、stream、CLI Trace 与 watchdog 的最小键是 `(conversationId, agentId)`；`invocationId` 可在该作用域内进一步区分执行。
+- conversation-scoped API 面板的本地快照同样不能跨项目复用。组件收到新的 `conversationId` 时先清空旧 snapshot，再发起请求；404 或失败响应不能保留上一项目的 DeliveryRun、升级提示或完成卡片。
 - `a2aByConversation` 仍可缓存当前协作视图，但 handoff delivery 成败由 Dispatch Gateway 和 Proof Log 决定。
 - 用户消息、A2A、workflow 自动派发最终应走同一个 server-side dispatch path。
 

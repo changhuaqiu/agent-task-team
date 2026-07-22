@@ -42,7 +42,10 @@ function EvidenceRef({ value }: { value: string }) {
 }
 
 export function AutonomousDeliveryPanel({ conversationId }: { conversationId: string }) {
-  const [snapshot, setSnapshot] = useState<DeliveryRunSnapshot>();
+  const [snapshotState, setSnapshotState] = useState<{
+    conversationId: string;
+    snapshot: DeliveryRunSnapshot;
+  }>();
 
   useEffect(() => {
     let disposed = false;
@@ -51,7 +54,10 @@ export function AutonomousDeliveryPanel({ conversationId }: { conversationId: st
         `/api/autonomous-delivery?conversationId=${encodeURIComponent(conversationId)}`,
       );
       if (disposed || response.status === 404 || !response.ok) return;
-      setSnapshot(await response.json() as DeliveryRunSnapshot);
+      setSnapshotState({
+        conversationId,
+        snapshot: await response.json() as DeliveryRunSnapshot,
+      });
     };
     void load();
     const timer = window.setInterval(() => void load(), 3_000);
@@ -61,6 +67,9 @@ export function AutonomousDeliveryPanel({ conversationId }: { conversationId: st
     };
   }, [conversationId]);
 
+  const snapshot = snapshotState?.conversationId === conversationId
+    ? snapshotState.snapshot
+    : undefined;
   if (!snapshot) return null;
   const { run, contract, bundle } = snapshot;
 
