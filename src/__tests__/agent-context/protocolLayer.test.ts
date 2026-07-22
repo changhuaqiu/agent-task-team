@@ -46,6 +46,8 @@ describe('buildProtocolLayer', () => {
     expect(result).toContain('PASS → done');
     expect(result).toContain('唯一例外是 reviewer');
     expect(result).toContain('evidence.reviewReceipt');
+    expect(result).toContain('reviewReceipt.status="passed"');
+    expect(result).toContain('reviewReceipt.status="failed"');
     expect(result).toContain('task_update_status');
     expect(result).toContain('正常退出的进程');
   });

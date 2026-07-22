@@ -191,6 +191,7 @@ interface AcceptanceReviewReceipt {
 - 所有上下文层必须一致声明 `TASKS.md` 为只读投影；缺少精确平台任务工具时，Agent 必须提交结构化 blocker，不能回退到文件编辑。
 - 实现、评审与验证上下文必须明确区分“清单中存在的测试脚本”和“可形成门禁证据的一次性执行”。进入 watch、超时、被终止或非零退出的命令都不是成功证据；若项目 `test` script 默认进入 watch，必须改用对应 runner 的 one-shot 形式（例如 `npx vitest run`）并等待正常退出。
 - 自主 Invocation 通过平台任务工具提交状态后，由任务通知链路立即产生的 review/test wakeup 必须沿可信调用栈携带该 Invocation 绑定的精确 `deliveryRunId`。不得通过 Conversation 的“最新 Run”推断；文件 watcher、手动任务变更或其他无绑定来源继续保持无授权、fail-closed。这样通知抢先于 Supervisor reconciliation 派发时，Reviewer/QA 仍能在同一活跃 Run 的动态授权边界内使用 Terminal、Browser 等原生工具。
+- ReviewReceipt 的状态枚举是协议字段而不是自然语言结论：PASS 必须使用任务 `status=done` 且 `reviewReceipt.status="passed"`；REJECT 必须使用任务 `status=rejected|blocked` 且 `reviewReceipt.status="failed"`。该精确枚举与 findings 字段结构必须同时出现在基础协议、wakeup contract 和工具描述中；校验失败须返回期望值，不能只返回模糊字段名导致 Agent 在 `pass/approved/done` 间猜测重试。
 - 实现门禁选择 install/build/test 运行证据时，只能解析真实 Shell 工具调用输入的顶层 `command`/`cmd` 字段，并按同类命令的最新一次真实执行终态裁决。不得全文搜索任意工具输入，也不得让 `task_update_status` evidence 内嵌的命令描述反向遮蔽已经正常退出的 Shell span。
 - 非 Git 实现任务进入 `in_review` 时，`task_update_status.evidence` 的 `installResult`、`buildResult`、`testResult`、`impactEvidence` 必须是非空摘要字符串；命令是否真实成功仍由上述 Shell span 独立校验，Agent 自报的对象或退出码不能替代运行事实。
 - 被明确唤醒的 gate owner 对目标 `in_review` Task 提交 PASS/REJECT 后，平台必须在同一权威 mutation 中持久化 review note/evidence、发布任务变化并派发下一合法负责人。REJECT 必须离开 `in_review` 进入 `rejected|blocked`，并唤醒原实现者；不得因评审 Invocation 正常结束但状态未写回而用 `execution` 场景重复派发同一评审者。

@@ -154,6 +154,26 @@ describe('skill tool collaboration gates', () => {
       },
     } as unknown as HarnessCoordinator);
 
+    const invalid = await executeSkillTool({
+      toolName: 'task_update_status', agentId: 'peach', conversationId: 'conv-review-tool', io,
+      deliveryRunId: reviewRun.run.id,
+      input: {
+        task_id: 'TASK-REVIEW', status: 'done', evidence: { reviewReceipt: {
+          schemaVersion: 1,
+          deliveryRunId: reviewRun.run.id,
+          status: 'pass',
+          reviewerAgentId: 'peach',
+          summary: 'Looks good',
+          evidenceRefs: ['src/game.ts:1'],
+          findings: [],
+        } },
+      },
+    });
+    expect(invalid).toMatchObject({
+      success: false,
+      error: expect.stringContaining('reviewReceipt.status must equal "passed"'),
+    });
+
     const result = await executeSkillTool({
       toolName: 'task_update_status', agentId: 'peach', conversationId: 'conv-review-tool', io,
       deliveryRunId: reviewRun.run.id,

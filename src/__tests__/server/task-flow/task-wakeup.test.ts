@@ -98,6 +98,8 @@ describe('task wakeup resolver', () => {
     });
     expect(wakeups[0].prompt).toContain('task_update_status');
     expect(wakeups[0].prompt).toContain('evidence.reviewReceipt');
+    expect(wakeups[0].prompt).toContain('reviewReceipt.status="passed"');
+    expect(wakeups[0].prompt).toContain('reviewReceipt.status="failed"');
     expect(wakeups[0].prompt).toContain('不要编辑 TASKS.md');
   });
 

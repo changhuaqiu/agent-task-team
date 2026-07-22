@@ -74,5 +74,5 @@ todo → doing → review → done / blocked
     guidance = '\n\n自检系统给出的任务看板绝对路径，认领 Role 匹配的 todo 任务。没有则按用户指令执行。';
   }
 
-  return constraints + guidance;
+  return constraints + guidance + '\n\nReviewReceipt contract: PASS => task status=done and reviewReceipt.status="passed"; REJECT => task status=rejected|blocked and reviewReceipt.status="failed". Each findings entry uses severity=blocking|important|advisory, status=open|resolved, a non-empty description, and non-empty evidenceRefs.';
 }

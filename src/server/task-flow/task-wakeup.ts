@@ -146,7 +146,10 @@ function addWakeup(wakeups: TaskWakeup[], input: {
     : input.reasonCode === 'test_requested'
       ? ' 仅通过 task_update_status 提交结构化验证回执；测试命令必须正常退出，watch 模式超时、权限拒绝或非零退出不能作为通过证据。'
       : '';
-  const prompt = `${actionText} ${input.task.id}: ${input.task.title}. ${input.task.description ?? ''}${gateContract}`.trim();
+  const reviewReceiptContract = input.reasonCode === 'review_requested'
+    ? ' ReviewReceipt contract: PASS => task status=done and reviewReceipt.status="passed"; REJECT => task status=rejected|blocked and reviewReceipt.status="failed". Each findings entry uses severity=blocking|important|advisory, status=open|resolved, a non-empty description, and non-empty evidenceRefs.'
+    : '';
+  const prompt = `${actionText} ${input.task.id}: ${input.task.title}. ${input.task.description ?? ''}${gateContract}${reviewReceiptContract}`.trim();
   const idempotencyKey = `${input.task.conversation_id}:${input.task.id}:${agentId}:${input.reasonCode}`;
 
   wakeups.push({

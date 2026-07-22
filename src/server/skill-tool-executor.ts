@@ -172,7 +172,9 @@ function taskReviewReceiptDecision(
     errors.push('deliveryRunId');
   }
   const expectedReceiptStatus = nextStatus === 'done' ? 'passed' : 'failed';
-  if (receipt.status !== expectedReceiptStatus) errors.push('status');
+  if (receipt.status !== expectedReceiptStatus) {
+    errors.push(`reviewReceipt.status must equal "${expectedReceiptStatus}" when task status is "${nextStatus}"`);
+  }
   const summary = typeof receipt.summary === 'string' ? receipt.summary.trim() : '';
   if (!summary) errors.push('summary');
   if (strings(receipt.evidenceRefs).length === 0) errors.push('evidenceRefs');
@@ -194,7 +196,9 @@ function taskReviewReceiptDecision(
       description: finding.description.trim(),
     }];
   });
-  if (findings.length !== rawFindings.length) errors.push('findings');
+  if (findings.length !== rawFindings.length) {
+    errors.push('each finding requires severity=blocking|important|advisory, status=open|resolved, non-empty description and evidenceRefs');
+  }
   const unresolvedMaterial = findings.filter((finding) =>
     finding.status === 'open' && ['blocking', 'important'].includes(finding.severity)
   );
