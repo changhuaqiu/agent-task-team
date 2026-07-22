@@ -63,7 +63,7 @@ export const taskRepo = {
       .all(agentId) as TaskRow[];
   },
 
-  updateStatus(id: string, status: string, reviewNote?: string): void {
+  updateStatus(id: string, status: string, reviewNote?: string | null): void {
     const now = new Date().toISOString();
     if (reviewNote !== undefined) {
       getDb()

@@ -152,6 +152,7 @@ Supervisor 每次基于 `facts.observe(snapshot)` 写回状态时，必须携带
 - `status`
 - `not_before`
 - `attempt_count`
+- `failure_count`
 - `max_attempts`
 - `last_failure_code`
 - `created_at / updated_at`
@@ -221,6 +222,19 @@ Supervisor 只接受当前 TeamPack 质量门负责人提交的 `evidence.review
 任务控制面能力由 Harness 按 invocation 授予，而不是由用户是否给某个 Agent 绑定 `task-management` Skill 决定。绑定精确 Task 的实现者、评审者和验证者获得 `task_list` / `task_update_status`；planner 角色额外获得 `task_create` / `task_assign`。Context Manager 将这些基础能力与 Skill 工具去重后，再与当前 transport 的真实注册名求交集，最终清单同时用于 prompt、观测和 ACP MCP grant。这样 Skill 负责专业策略，平台基础工具负责不可缺失的控制面契约。
 
 `TASKS.md` 在所有 prompt 层中都必须保持只读投影语义。若当前 transport 没有注册所需的精确任务工具，Agent 只能报告结构化 blocker；任何“缺工具时直接编辑 TASKS.md”的兼容提示都属于失效路径，不能再次进入运行时上下文。
+
+文件 watcher 也服从同一权威边界：数据库中已有 Task 时，watcher 只比较并恢复 Task Graph → `TASKS.md` 的投影，
+不从文件导入状态、负责人、标题、依赖或产出描述。文件漂移形成只读投影 proof/诊断，不形成 task mutation 或 wakeup。
+这样旧 session、迟到写入和并发文件 I/O 都不能把 `in_review/done` 回滚为 `doing/blocked`，也不能绕过 gate。
+
+`attempt_count` 是单调递增的 Attempt fencing 序号，不等同于失败次数。真正的恢复预算由 `failure_count` 与
+`max_attempts` 决定。`HarnessOutcome=deferred` 且 `reasonCode=agent_busy` 时，Supervisor 将当前 Attempt 释放为
+非失败终态，并按有界退避重排同一 Action；该结果不增加 `failure_count`，也不把 Run 切到 `recovering/escalated`。
+只有实际执行、协议、权限、配置或 lease 失败才消耗恢复预算。
+
+Delivery-bound wakeup 的 `agent_busy` 重试权始终留在 Supervisor。Task Notification Publisher 对浏览器仍展示 wakeup，
+但必须把它标记为 server-owned，禁止浏览器 compatibility dispatch/pending queue 再派同一 Task。通用 Autonomy Guard
+也不参与任何活跃或终态 DeliveryRun 的根任务及 `subtask_of` 后代；整个交付子图只有一个调度所有者。
 
 项目清单中的命令只能证明“命令入口存在”，不能证明它会形成一次性门禁证据。基础任务协议和 Project Context 的可信命令段都必须提醒 Agent：测试、构建与安装只有在进程正常退出时有效；watch 模式即使先打印 PASS，随后超时或被终止仍是失败。发现 `npm test` 等脚本进入 watch 后，应使用 runner 的 one-shot 形式（例如 `npx vitest run`）重新执行。
 

@@ -277,6 +277,57 @@ describe('RepositoryDeliveryFactsAdapter', () => {
     expect(submitted).toBeUndefined();
   });
 
+  it('maps Harness agent_busy backpressure to a non-failure deferred result', async () => {
+    const repo = new AutonomousDeliveryRepository();
+    const run = repo.createRun(contract);
+    const task = taskRepo.create({
+      id: 'task-busy-owner',
+      conversation_id: contract.scope.conversationId,
+      title: contract.goal,
+      agent_id: 'mario',
+    });
+    repo.updateRun({
+      runId: run.run.id,
+      status: 'executing',
+      stage: 'executing',
+      rootTaskId: task.id,
+    });
+    repo.ensureAction({
+      runId: run.run.id,
+      kind: 'advance_tasks',
+      subjectType: 'task',
+      subjectId: task.id,
+      idempotencyKey: `${run.run.id}:advance_tasks:busy-owner`,
+      maxAttempts: 3,
+    });
+    const claim = repo.claimNext({
+      runId: run.run.id,
+      workerId: 'busy-owner-test',
+      leaseMs: 30_000,
+    })!;
+    const io = { to: () => ({ emit: () => undefined }) } as unknown as IOServer;
+    registerHarnessCoordinator(io, {
+      submit() {
+        return {
+          disposition: 'deferred',
+          handled: false,
+          completion: Promise.resolve({ status: 'deferred', reasonCode: 'agent_busy' }),
+        };
+      },
+    } as unknown as HarnessCoordinator);
+
+    const result = await new HarnessDeliveryActionAdapter(io).execute(
+      claim,
+      repo.getSnapshot(run.run.id)!,
+    );
+
+    expect(result).toEqual({
+      status: 'deferred',
+      reasonCode: 'agent_busy',
+      detail: 'Harness 暂缓派发：agent_busy',
+    });
+  });
+
   it('Supervisor 将活跃子任务取代的旧 root action 成功 no-op，而不是耗尽后升级 Run', async () => {
     const repo = new AutonomousDeliveryRepository();
     const run = repo.createRun(contract);

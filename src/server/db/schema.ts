@@ -1050,6 +1050,7 @@ export const autonomousDeliveryAction = sqliteTable('autonomous_delivery_action'
   status: text('status').notNull(),
   notBefore: text('not_before').notNull(),
   attemptCount: integer('attempt_count').notNull(),
+  failureCount: integer('failure_count').notNull().default(0),
   maxAttempts: integer('max_attempts').notNull(),
   lastFailureCode: text('last_failure_code'),
   lastFailureDetail: text('last_failure_detail'),

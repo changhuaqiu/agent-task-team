@@ -170,7 +170,7 @@ describe('autonomy guard wakeups', () => {
     }));
   });
 
-  it('still recovers an active delivery root before it has any child tasks', () => {
+  it('leaves an active delivery root to the Supervisor before it has child tasks', () => {
     const wakeups = resolveAutonomyGuardWakeups({
       tasks: [task({ id: 'ROOT', agent_id: 'mario', status: 'in_progress' })],
       edges: [],
@@ -183,13 +183,10 @@ describe('autonomy guard wakeups', () => {
       staleMs: 30 * 60 * 1000,
     });
 
-    expect(wakeups).toContainEqual(expect.objectContaining({
-      taskId: 'ROOT',
-      reasonCode: 'runnable_owned_idle',
-    }));
+    expect(wakeups).toEqual([]);
   });
 
-  it('never hands an escalated delivery root back to the generic guard', () => {
+  it('never hands an escalated delivery subtree back to the generic guard', () => {
     for (const status of ['pending', 'in_progress'] as const) {
       const wakeups = resolveAutonomyGuardWakeups({
         tasks: [task({ id: 'ROOT', agent_id: 'mario', status })],
@@ -210,9 +207,10 @@ describe('autonomy guard wakeups', () => {
     const closureWakeups = resolveAutonomyGuardWakeups({
       tasks: [
         task({ id: 'ROOT', agent_id: 'mario', status: 'in_progress' }),
-        task({ id: 'CHILD', agent_id: 'luigi', status: 'done' }),
+        task({ id: 'CHILD', agent_id: 'luigi', status: 'pending' }),
+        task({ id: 'GRANDCHILD', agent_id: 'peach', status: 'in_progress' }),
       ],
-      edges: [subtaskEdge('CHILD', 'ROOT')],
+      edges: [subtaskEdge('CHILD', 'ROOT'), subtaskEdge('GRANDCHILD', 'CHILD')],
       envelopes: [],
       coordinatorAgentIds: ['mario'],
       reviewAgentIds: ['peach'],

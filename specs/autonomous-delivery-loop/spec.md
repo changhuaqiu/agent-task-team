@@ -110,6 +110,13 @@ Run 保存单调递增的 `revision`。所有由旧快照推导的状态写回�
 - Action 以 `idempotency_key` 唯一；Attempt 记录 claim、lease、started、heartbeat、terminal 和 failure taxonomy。
 - Supervisor 在副作用执行期间按 lease 的固定分数周期续租；Attempt 终态写入必须同时校验
   `attempt_no == Action.attempt_count`。过期 Attempt 的迟到结果不得改变当前 Action，也不得写入 Receipt。
+- `attempt_count` 只用于 Attempt 编号和 fencing；恢复预算由独立的 `failure_count / max_attempts` 约束。Harness 返回
+  `deferred / agent_busy` 表示正常背压：本次已 claim 的 Attempt 必须被释放并保留审计记录，但不得增加
+  `failure_count`、不得触发 `recovering/escalated`。Supervisor 使用有界退避等待同一 Agent 空闲后继续；只有真实执行、
+  协议、权限或配置失败才消耗失败预算。
+- 与 DeliveryRun 精确绑定的 wakeup 一旦得到 `deferred / agent_busy`，仍由 Supervisor 持有重试责任；对浏览器发出的
+  可见 wakeup 必须标记为 server-owned，禁止启动兼容派发。一个 Task 的同一 wakeup 不得同时进入 Delivery Action
+  重试队列与浏览器 pending queue。
 
 ### 3.4 Receipt
 
@@ -189,6 +196,11 @@ interface AcceptanceReviewReceipt {
 - Task Graph 的普通 quality-gate 评审同样必须通过结构化任务工具提交裁决。`.ath/TASKS.md` 只是只读兼容投影，不是 Agent 的写入入口；评审者不得通过原生文件编辑伪造状态变化。
 - 平台任务工具是 Task Graph 控制面的基础能力，不以 Agent 是否手工绑定 `task-management` Skill 为前提。任何绑定到精确 Task 的实现、评审或验证 invocation 至少必须获得 `task_list` 与 `task_update_status`；planner 角色可以获得创建与分派工具。授权清单必须按本次 invocation 的 Task/角色收窄，并继续经过 runtime 注册名校验。
 - 所有上下文层必须一致声明 `TASKS.md` 为只读投影；缺少精确平台任务工具时，Agent 必须提交结构化 blocker，不能回退到文件编辑。
+- `TASKS.md` watcher 只能执行 Task Graph → 文件的投影校正。对于数据库中已经存在的 Task，文件中的状态、负责人、
+  标题、依赖或产出描述均不得回写 Task Graph；发现漂移时记录 proof、恢复权威投影。Agent、旧 session 或迟到 I/O
+  写入的 `doing/review/done/blocked` 都不能回滚或越过结构化任务工具已确认的状态。
+- 活跃 DeliveryRun 的根任务及全部 `subtask_of` 后代由 Supervisor 独占调度；通用 Autonomy Guard 不得派发该子图。
+  Run 进入 `escalated/cancelled/completed` 后该隔离仍保持，尤其不能在动态工具授权已撤销后启动后代 Task。
 - 实现、评审与验证上下文必须明确区分“清单中存在的测试脚本”和“可形成门禁证据的一次性执行”。进入 watch、超时、被终止或非零退出的命令都不是成功证据；若项目 `test` script 默认进入 watch，必须改用对应 runner 的 one-shot 形式（例如 `npx vitest run`）并等待正常退出。
 - 自主 Invocation 通过平台任务工具提交状态后，由任务通知链路立即产生的 review/test wakeup 必须沿可信调用栈携带该 Invocation 绑定的精确 `deliveryRunId`。不得通过 Conversation 的“最新 Run”推断；文件 watcher、手动任务变更或其他无绑定来源继续保持无授权、fail-closed。这样通知抢先于 Supervisor reconciliation 派发时，Reviewer/QA 仍能在同一活跃 Run 的动态授权边界内使用 Terminal、Browser 等原生工具。
 - ReviewReceipt 的状态枚举是协议字段而不是自然语言结论：PASS 必须使用任务 `status=done` 且 `reviewReceipt.status="passed"`；REJECT 必须使用任务 `status=rejected|blocked` 且 `reviewReceipt.status="failed"`。该精确枚举与 findings 字段结构必须同时出现在基础协议、wakeup contract 和工具描述中；校验失败须返回期望值，不能只返回模糊字段名导致 Agent 在 `pass/approved/done` 间猜测重试。

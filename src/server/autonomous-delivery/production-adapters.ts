@@ -654,28 +654,38 @@ export class HarnessDeliveryActionAdapter implements DeliveryActionPort {
       snapshot.run.id,
     );
     if (!submission?.handled) {
+      if (submission?.disposition === 'deferred') {
+        return {
+          status: 'deferred',
+          reasonCode: 'agent_busy',
+          detail: 'Harness 暂缓派发：agent_busy',
+        };
+      }
       return {
         status: 'failed',
-        failureCode: submission?.disposition === 'deferred'
-          ? 'transient_runtime'
-          : 'permanent_configuration',
+        failureCode: 'permanent_configuration',
         detail: submission
           ? `Harness 未接收任务：${submission.disposition}`
           : 'Harness Coordinator 尚未注册',
-        retryable: submission?.disposition === 'deferred',
+        retryable: false,
       };
     }
     const outcome = await submission.completion;
     if (outcome.status !== 'accepted') {
+      if (outcome.status === 'deferred') {
+        return {
+          status: 'deferred',
+          reasonCode: 'agent_busy',
+          detail: outcome.reasonCode,
+        };
+      }
       return {
         status: 'failed',
-        failureCode: outcome.status === 'deferred'
-          ? 'transient_runtime'
-          : outcome.reasonCode === 'required_context_missing'
+        failureCode: outcome.reasonCode === 'required_context_missing'
             ? 'permanent_configuration'
             : 'unknown',
         detail: 'message' in outcome ? outcome.message : outcome.reasonCode,
-        retryable: outcome.status === 'deferred',
+        retryable: false,
       };
     }
     return {

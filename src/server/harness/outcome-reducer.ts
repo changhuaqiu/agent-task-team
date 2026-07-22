@@ -21,7 +21,7 @@ export async function reduceAcceptedWakeup(io: IOServer, wakeup: TaskWakeup): Pr
   const previousTask = taskRepo.getById(wakeup.taskId);
   if (!previousTask || previousTask.status !== 'pending' || previousTask.agent_id !== wakeup.agentId) return;
 
-  taskRepo.updateStatus(wakeup.taskId, 'in_progress');
+  taskRepo.updateStatus(wakeup.taskId, 'in_progress', null);
   const task = taskRepo.getById(wakeup.taskId);
   if (!task) return;
   let projected = false;

@@ -7,6 +7,8 @@ import { messageRepo } from '@/server/repositories/message-repo';
 import { taskRepo } from '@/server/repositories/task-repo';
 import { seedPresetAgents } from '@/server/db/seed-agents';
 import { teamPackRepo } from '@/server/repositories/team-pack-repo';
+import type { HarnessCoordinator } from '@/server/harness/coordinator';
+import { registerHarnessCoordinator } from '@/server/harness/registry';
 import { publishTaskChangeNotification, publishTaskNotification, resolveTaskNotificationAudience } from '@/server/task-flow/task-notification-publisher';
 
 beforeEach(() => {
@@ -135,6 +137,46 @@ describe('publishTaskNotification', () => {
 
     const messages = messageRepo.getByConversation('conv-1');
     expect(messages.some((message) => message.sender_id === 'task-wakeup')).toBe(true);
+  });
+
+  it('keeps a delivery-bound deferred wakeup server-owned instead of starting browser fallback', () => {
+    const previousTask = taskRepo.create({
+      id: 'TASK-BUSY',
+      conversation_id: 'conv-1',
+      title: 'Queued behind review',
+      agent_id: 'toad',
+    });
+    taskRepo.updateStatus(previousTask.id, 'blocked');
+    const blocked = taskRepo.getById(previousTask.id)!;
+    taskRepo.updateStatus(previousTask.id, 'pending');
+    const ready = taskRepo.getById(previousTask.id)!;
+    const emit = vi.fn();
+    const io = { to: vi.fn(() => ({ emit })), emit: vi.fn() } as unknown as IOServer;
+    registerHarnessCoordinator(io, {
+      submit() {
+        return {
+          disposition: 'deferred',
+          handled: false,
+          completion: Promise.resolve({ status: 'deferred', reasonCode: 'agent_busy' }),
+        };
+      },
+    } as unknown as HarnessCoordinator);
+
+    publishTaskChangeNotification({
+      io,
+      deliveryRunId: 'delivery-bound-run',
+      kind: 'task.status_changed',
+      task: ready,
+      previousTask: blocked,
+      actorId: 'system',
+      actorType: 'system',
+      changedFields: ['status'],
+    });
+
+    expect(emit).toHaveBeenCalledWith('task.wakeup', expect.objectContaining({
+      taskId: 'TASK-BUSY',
+      handledByHarness: true,
+    }));
   });
 
   it('publishes a coordinator wakeup when a reviewer submits a review decision', () => {

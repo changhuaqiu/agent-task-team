@@ -65,13 +65,13 @@ export class AutonomousDeliveryRepository {
 
   /**
    * Runs whose root task is still owned by the Delivery state machine.
-   * Escalation stops Supervisor advancement, but it must not hand the root
-   * back to the generic task autonomy guard.
+   * Escalation/cancellation stops Supervisor advancement, but it must not
+   * hand the delivery subtree back to the generic task autonomy guard.
    */
   listRootGuarded(): DeliveryRunRow[] {
     return getDb().prepare(
       `SELECT * FROM autonomous_delivery_run
-       WHERE status NOT IN ('completed','cancelled')
+       WHERE status <> 'completed'
          AND root_task_id IS NOT NULL
        ORDER BY updated_at ASC, id ASC`,
     ).all() as DeliveryRunRow[];
@@ -198,7 +198,7 @@ export class AutonomousDeliveryRepository {
            AND run.status NOT IN ('completed','escalated','cancelled')
            AND action.status IN ('ready','retry_wait')
            AND action.not_before<=?
-           AND action.attempt_count<action.max_attempts
+           AND action.failure_count<action.max_attempts
          ORDER BY action.created_at ASC, action.id ASC
          LIMIT 1`,
       ).get(input.runId, timestamp) as DeliveryActionRow | undefined;
@@ -210,7 +210,7 @@ export class AutonomousDeliveryRepository {
          WHERE id=?
            AND status IN ('ready','retry_wait')
            AND not_before<=?
-           AND attempt_count<max_attempts`,
+           AND failure_count<max_attempts`,
       ).run(timestamp, candidate.id, timestamp);
       if (claimed.changes !== 1) return undefined;
 
@@ -392,7 +392,8 @@ export class AutonomousDeliveryRepository {
       const action = db.prepare('SELECT * FROM autonomous_delivery_action WHERE id=?')
         .get(input.actionId) as DeliveryActionRow | undefined;
       if (!action) throw new Error(`Delivery action not found: ${input.actionId}`);
-      const retry = Boolean(input.retryAt) && action.attempt_count < action.max_attempts;
+      const nextFailureCount = action.failure_count + 1;
+      const retry = Boolean(input.retryAt) && nextFailureCount < action.max_attempts;
       const failed = db.prepare(
         `UPDATE autonomous_delivery_attempt
          SET status='failed', completed_at=?, heartbeat_at=?, failure_code=?, failure_detail=?
@@ -415,7 +416,8 @@ export class AutonomousDeliveryRepository {
       if (failed.changes !== 1) return 'stale';
       const actionFailed = db.prepare(
         `UPDATE autonomous_delivery_action
-         SET status=?, not_before=?, last_failure_code=?, last_failure_detail=?, updated_at=?
+         SET status=?, not_before=?, failure_count=failure_count+1,
+             last_failure_code=?, last_failure_detail=?, updated_at=?
          WHERE id=? AND status IN ('claimed','running')
            AND attempt_count=(
              SELECT attempt_no FROM autonomous_delivery_attempt WHERE id=?
@@ -433,6 +435,52 @@ export class AutonomousDeliveryRepository {
         throw new Error(`Delivery action lost ownership while failing: ${input.actionId}`);
       }
       return retry ? 'retry_wait' : 'failed';
+    })();
+  }
+
+  deferAttempt(input: {
+    actionId: string;
+    attemptId: string;
+    reasonCode: 'agent_busy';
+    detail?: string;
+    retryAt: Date;
+    now?: Date;
+  }): boolean {
+    const timestamp = nowIso(input.now);
+    const db = getDb();
+    return db.transaction(() => {
+      const released = db.prepare(
+        `UPDATE autonomous_delivery_attempt
+         SET status='abandoned', completed_at=?, heartbeat_at=?, failure_code=?, failure_detail=?
+         WHERE id=? AND action_id=? AND status IN ('claimed','running')
+           AND EXISTS (
+             SELECT 1 FROM autonomous_delivery_action current_action
+             WHERE current_action.id=?
+               AND current_action.status IN ('claimed','running')
+               AND current_action.attempt_count=autonomous_delivery_attempt.attempt_no
+           )`,
+      ).run(
+        timestamp,
+        timestamp,
+        input.reasonCode,
+        input.detail ?? null,
+        input.attemptId,
+        input.actionId,
+        input.actionId,
+      );
+      if (released.changes !== 1) return false;
+      const rescheduled = db.prepare(
+        `UPDATE autonomous_delivery_action
+         SET status='retry_wait', not_before=?, updated_at=?
+         WHERE id=? AND status IN ('claimed','running')
+           AND attempt_count=(
+             SELECT attempt_no FROM autonomous_delivery_attempt WHERE id=?
+           )`,
+      ).run(nowIso(input.retryAt), timestamp, input.actionId, input.attemptId);
+      if (rescheduled.changes !== 1) {
+        throw new Error(`Delivery action lost ownership while deferring: ${input.actionId}`);
+      }
+      return true;
     })();
   }
 
@@ -454,7 +502,8 @@ export class AutonomousDeliveryRepository {
         ).run(timestamp, attempt.id);
         db.prepare(
           `UPDATE autonomous_delivery_action
-           SET status=CASE WHEN attempt_count<max_attempts THEN 'retry_wait' ELSE 'failed' END,
+           SET failure_count=failure_count+1,
+               status=CASE WHEN failure_count+1<max_attempts THEN 'retry_wait' ELSE 'failed' END,
                not_before=?, last_failure_code='transient_runtime',
                last_failure_detail='attempt lease expired', updated_at=?
            WHERE id=? AND status IN ('claimed','running')`,

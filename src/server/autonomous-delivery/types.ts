@@ -160,6 +160,7 @@ export interface DeliveryActionRow {
   status: DeliveryActionStatus;
   not_before: string;
   attempt_count: number;
+  failure_count: number;
   max_attempts: number;
   last_failure_code: string | null;
   last_failure_detail: string | null;

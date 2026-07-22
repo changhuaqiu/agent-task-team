@@ -415,7 +415,9 @@ function executeTaskUpdateStatus(invocation: ToolInvocation): ToolResult {
       };
     }
 
-    taskRepo.updateStatus(taskId, status);
+    // A new structured transition supersedes stale execution/review text.
+    // Review decisions above always replace this with their own receipt note.
+    taskRepo.updateStatus(taskId, status, null);
     if (gateDecision.required) {
       proofLogRepo.append({
         eventType: 'task_graph.gate_evidence.accepted',

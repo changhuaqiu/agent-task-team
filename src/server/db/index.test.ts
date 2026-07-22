@@ -191,7 +191,7 @@ describe('SQLite Foundation', () => {
           'autonomous_delivery_receipt',
         ]));
         expect(checkpoint.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-          .toEqual({ version: 43 });
+          .toEqual({ version: 44 });
         expect(checkpoint.pragma('foreign_key_check')).toEqual([]);
       } finally {
         checkpoint.close();
@@ -238,7 +238,7 @@ describe('SQLite Foundation', () => {
     applyMigrations(db);
 
     expect(db.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-      .toEqual({ version: 43 });
+      .toEqual({ version: 44 });
 
     const rootTaskForeignKey = (db.pragma('foreign_key_list(autonomous_delivery_run)') as Array<{
       from: string;
@@ -249,6 +249,8 @@ describe('SQLite Foundation', () => {
       .toEqual({ revision: 0 });
     expect(db.prepare('SELECT run_id FROM autonomous_delivery_action WHERE id=?').get('action-checkpoint'))
       .toEqual({ run_id: 'run-checkpoint' });
+    expect(db.prepare('SELECT failure_count FROM autonomous_delivery_action WHERE id=?').get('action-checkpoint'))
+      .toEqual({ failure_count: 0 });
 
     db.prepare('DELETE FROM task WHERE id=?').run('task-checkpoint');
     expect(db.prepare('SELECT root_task_id FROM autonomous_delivery_run WHERE id=?').get('run-checkpoint'))

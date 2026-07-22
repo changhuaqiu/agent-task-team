@@ -433,7 +433,7 @@ export function initProjectDir(projectPath: string, meta: ProjectMeta): void {
   }
 
   if (!existsSync(join(dir, 'PROTOCOLS.md'))) {
-    writeFileSync(join(dir, 'PROTOCOLS.md'), `# 任务流转协议\n\n## 状态机\ntodo → doing → review → done / blocked\n\n## 完成标准 (DoD)\n### backend 角色\n- 代码可编译运行\n- 包含类型定义\n- 无 lint 错误\n\n### frontend 角色\n- 组件可渲染\n- 符合 design-system.md 规范\n\n### testing 角色\n- 测试覆盖率 > 80%\n- 所有用例通过\n\n## 交付规则\n- 完成任务后：将 TASKS.md 中 Status 改为 review\n- 在 Deliverable 列填写产出文件路径\n- 如果阻塞：将 Status 改为 blocked，在表格下方说明原因\n`, 'utf-8');
+    writeFileSync(join(dir, 'PROTOCOLS.md'), `# 任务流转协议\n\n## 状态机\ntodo → doing → review → done / blocked\n\n## 完成标准 (DoD)\n### backend 角色\n- 代码可编译运行\n- 包含类型定义\n- 无 lint 错误\n\n### frontend 角色\n- 组件可渲染\n- 符合 design-system.md 规范\n\n### testing 角色\n- 测试覆盖率 > 80%\n- 所有用例通过\n\n## 交付规则\n- TASKS.md 是平台生成的只读投影，禁止直接编辑任务状态、负责人或产出\n- 完成任务后：调用本轮明确暴露的 task_update_status 工具提交 review 状态和结构化证据\n- 如果阻塞：通过平台任务工具提交 blocked 与证据；缺少精确工具时报告结构化 blocker\n`, 'utf-8');
   }
 
   if (!existsSync(join(dir, 'ROLES.md'))) {

@@ -1194,6 +1194,7 @@ CREATE TABLE IF NOT EXISTS autonomous_delivery_action (
   )),
   not_before TEXT NOT NULL,
   attempt_count INTEGER NOT NULL DEFAULT 0,
+  failure_count INTEGER NOT NULL DEFAULT 0,
   max_attempts INTEGER NOT NULL,
   last_failure_code TEXT,
   last_failure_detail TEXT,
@@ -1298,6 +1299,33 @@ CREATE INDEX IF NOT EXISTS idx_github_issue_ingress_run
     foreignKeysOff: true,
     run(db) {
       repairAutonomousDeliverySchema(db, 43);
+    },
+  },
+  {
+    // attempt_count is the monotonic fencing sequence. Normal Harness
+    // backpressure must not consume the independent failure budget.
+    version: 44,
+    run(db) {
+      const table = db.prepare(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='autonomous_delivery_action'",
+      ).get();
+      if (!table) return;
+      const columns = db.prepare('PRAGMA table_info(autonomous_delivery_action)')
+        .all() as Array<{ name: string }>;
+      if (!columns.some((column) => column.name === 'failure_count')) {
+        db.exec('ALTER TABLE autonomous_delivery_action ADD COLUMN failure_count INTEGER NOT NULL DEFAULT 0');
+        db.exec(`
+          UPDATE autonomous_delivery_action
+          SET failure_count = (
+            SELECT COUNT(*)
+            FROM autonomous_delivery_attempt attempt
+            WHERE attempt.action_id = autonomous_delivery_action.id
+              AND attempt.status IN ('failed','abandoned')
+              AND COALESCE(attempt.failure_code, '') <> 'agent_busy'
+              AND COALESCE(attempt.failure_detail, '') NOT LIKE '%Harness 未接收任务：deferred%'
+          )
+        `);
+      }
     },
   },
 ];

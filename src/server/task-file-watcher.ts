@@ -2,14 +2,9 @@ import { watch } from 'chokidar';
 import type { FSWatcher } from 'chokidar';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { readTasksMd, updateTaskInMd } from './task-file-service';
+import { readTasksMd, writeTasksMd, type ParsedTask } from './task-file-service';
 import { taskRepo } from './repositories/task-repo';
-import { invocationRepo } from './repositories/invocation-repo';
-import { conversationRepo } from './repositories/conversation-repo';
 import { proofLogRepo } from './repositories/proof-log-repo';
-import { taskGraphRepo } from './repositories/task-graph-repo';
-import { hasCurrentVerifiedMerge } from './task-flow/task-gate-evidence';
-import { publishTaskChangeNotification } from './task-flow/task-notification-publisher';
 import type { Server as IOServer } from 'socket.io';
 
 const watchers = new Map<string, FSWatcher>();
@@ -47,58 +42,13 @@ export function resolveTaskStorageIds(
   }));
 }
 
-function hasActiveTaskInvocation(conversationId: string, taskId: string, agentId: string | null): boolean {
-  return invocationRepo.getByConversation(conversationId).some((invocation) => (
-    invocation.task_id === taskId
-    && invocation.agent_id === agentId
-    && !['succeeded', 'failed', 'canceled'].includes(invocation.status)
-  ));
+function localTaskId(conversationId: string, storageTaskId: string): string {
+  const prefix = `${conversationId}~`;
+  return storageTaskId.startsWith(prefix) ? storageTaskId.slice(prefix.length) : storageTaskId;
 }
 
-function isProtectedGitProjectionTransition(conversationId: string, nextStatus: string): boolean {
-  if (nextStatus !== 'in_review' && nextStatus !== 'done') return false;
-  return Boolean(conversationRepo.getById(conversationId)?.git_repo_root);
-}
-
-function isProtectedGitReceiptRollback(conversationId: string, taskId: string, authoritativeStatus: string): boolean {
-  if (!conversationRepo.getById(conversationId)?.git_repo_root) return false;
-  const actions = taskGraphRepo.listActionsForTask(taskId);
-  if (authoritativeStatus === 'in_review') {
-    return actions.some((action) => action.type === 'task.pull_request_submitted');
-  }
-  return authoritativeStatus === 'done' && hasCurrentVerifiedMerge(actions);
-}
-
-function rejectGitProjectionTransition(input: {
-  projectPath: string;
-  conversationId: string;
-  localTaskId: string;
-  storageTaskId: string;
-  attemptedStatus: string;
-  authoritativeStatus: string;
-  io: IOServer;
-}): void {
-  const reasonCode = 'task_graph.file_projection_gate_bypass';
-  proofLogRepo.append({
-    eventType: 'task_graph.gate_evidence.blocked',
-    conversationId: input.conversationId,
-    taskId: input.storageTaskId,
-    actorId: 'task-file-watcher',
-    reasonCode,
-    metadata: {
-      attemptedStatus: input.attemptedStatus,
-      authoritativeStatus: input.authoritativeStatus,
-      source: 'TASKS.md',
-    },
-  });
-  input.io.to(input.conversationId).emit('task.sync_error', {
-    projectPath: input.projectPath,
-    conversationId: input.conversationId,
-    taskId: input.storageTaskId,
-    reasonCode,
-    message: `Git 任务 ${input.localTaskId} 不能通过 TASKS.md 进入 ${input.attemptedStatus}；请使用结构化 PR/review/merge 回执。状态已恢复为 ${input.authoritativeStatus}。`,
-  });
-  updateTaskInMd(input.projectPath, input.localTaskId, { status: input.authoritativeStatus });
+function projectionEquals(left: ParsedTask[], right: ParsedTask[]): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
 }
 
 export function startTaskWatcher(projectPath: string, conversationId: string, io: IOServer): void {
@@ -163,133 +113,68 @@ export function syncTasksToDb(projectPath: string, conversationId: string, io: I
         });
       }
     }
-    if (blockers.length === 0) return;
   }
 
   const storageIds = resolveTaskStorageIds(conversationId, parsed.map((task) => task.id));
+  const parsedByStorageId = new Map(parsed.map((task) => [storageIds.get(task.id)!, task]));
+  const authoritativeRows = taskRepo.getByConversation(conversationId);
+  const authoritativeIds = new Set(authoritativeRows.map((task) => task.id));
+  const drifts: Array<{ taskId: string; attempted?: ParsedTask; authoritative?: ParsedTask }> = [];
 
-  for (const t of parsed) {
-    const storageId = storageIds.get(t.id)!;
-    const storageDependencies = t.depends.map((dependencyId) => (
-      storageIds.get(dependencyId) ?? dependencyId
-    ));
-    const existing = taskRepo.getById(storageId);
-    if (!existing) {
-      try {
-        const created = taskRepo.create({
-          id: storageId,
-          conversation_id: conversationId,
-          title: t.title,
-          description: t.deliverable || '',
-          agent_id: t.agent || '',
-          dependencies: storageDependencies,
-        });
-        if (created.status !== t.status && isProtectedGitProjectionTransition(conversationId, t.status)) {
-          rejectGitProjectionTransition({
-            projectPath,
-            conversationId,
-            localTaskId: t.id,
-            storageTaskId: storageId,
-            attemptedStatus: t.status,
-            authoritativeStatus: created.status,
-            io,
-          });
-        } else if (created.status !== t.status) {
-          taskRepo.updateStatus(storageId, t.status);
-          const updated = taskRepo.getById(storageId);
-          if (updated) {
-            publishTaskChangeNotification({
-              io,
-              kind: 'task.status_changed',
-              task: updated,
-              previousTask: created,
-              actorId: 'system',
-              actorType: 'system',
-              changedFields: ['status'],
-            });
-          }
-        }
-      } catch (e) {
-        console.error(`[watcher] failed to create task ${storageId}:`, e);
-      }
-      continue;
-    }
-
-    const updates: Record<string, unknown> = {};
-    const changedFields: string[] = [];
-
-    const stalePendingDuringActiveInvocation = existing.status === 'in_progress'
-      && t.status === 'pending'
-      && hasActiveTaskInvocation(conversationId, storageId, existing.agent_id);
-    const protectedGitTransition = existing.status !== t.status
-      && (isProtectedGitProjectionTransition(conversationId, t.status)
-        || isProtectedGitReceiptRollback(conversationId, storageId, existing.status));
-    if (protectedGitTransition) {
-      rejectGitProjectionTransition({
-        projectPath,
-        conversationId,
-        localTaskId: t.id,
-        storageTaskId: storageId,
-        attemptedStatus: t.status,
-        authoritativeStatus: existing.status,
-        io,
-      });
-    } else if (existing.status !== t.status && !stalePendingDuringActiveInvocation) {
-      updates.status = t.status;
-      changedFields.push('status');
-    }
-    if (t.agent && existing.agent_id !== t.agent) {
-      updates.agent_id = t.agent;
-      changedFields.push('agent_id');
-    }
-    if (existing.title !== t.title) {
-      updates.title = t.title;
-      changedFields.push('title');
-    }
-    const nextDescription = t.deliverable || '';
-    if ((existing.description ?? '') !== nextDescription) {
-      updates.description = nextDescription;
-      changedFields.push('description');
-    }
-    const nextDependencies = JSON.stringify(storageDependencies);
-    if (normalizeDependencyList(existing.dependencies) !== nextDependencies) {
-      updates.dependencies = nextDependencies;
-      changedFields.push('dependencies');
-    }
-
-    if (changedFields.length > 0) {
-      taskRepo.update(storageId, updates);
-      const updated = taskRepo.getById(storageId);
-      if (updated) {
-        publishTaskChangeNotification({
-          io,
-          kind: changedFields.includes('agent_id')
-            ? 'task.assigned'
-            : changedFields.includes('status')
-              ? 'task.status_changed'
-              : 'task.file_synced',
-          task: updated,
-          previousTask: existing,
-          actorId: 'system',
-          actorType: 'system',
-          changedFields,
-        });
-      }
+  for (const task of parsed) {
+    const storageId = storageIds.get(task.id)!;
+    if (!authoritativeIds.has(storageId)) {
+      drifts.push({ taskId: storageId, attempted: task });
     }
   }
 
-  const authoritativeTasks = parsed.map((task) => {
-    const storageId = storageIds.get(task.id)!;
-    const authoritative = taskRepo.getById(storageId);
-    if (!authoritative) return task;
-    return {
-      ...task,
-      title: authoritative.title,
-      deliverable: authoritative.description ?? '',
-      status: authoritative.status,
-      agent: authoritative.agent_id ?? '',
+  const authoritativeTasks = authoritativeRows.map((row): ParsedTask => {
+    const prior = parsedByStorageId.get(row.id);
+    const dependencyIds = JSON.parse(normalizeDependencyList(row.dependencies)) as string[];
+    const projection: ParsedTask = {
+      id: prior?.id ?? localTaskId(conversationId, row.id),
+      title: row.title,
+      phase: prior?.phase ?? '',
+      role: prior?.role ?? 'worker',
+      agent: row.agent_id ?? '',
+      status: row.status,
+      depends: dependencyIds.map((dependencyId) => localTaskId(conversationId, dependencyId)),
+      deliverable: row.description ?? '',
     };
+    if (!prior || !projectionEquals([prior], [projection])) {
+      drifts.push({ taskId: row.id, attempted: prior, authoritative: projection });
+    }
+    return projection;
   });
+
+  if (!projectionEquals(parsed, authoritativeTasks)) {
+    writeTasksMd(projectPath, authoritativeTasks, blockers);
+  }
+
+  for (const drift of drifts) {
+    proofLogRepo.append({
+      eventType: 'task_graph.file_projection.reconciled',
+      conversationId,
+      taskId: drift.taskId,
+      actorId: 'task-file-watcher',
+      reasonCode: 'task_graph.file_projection_read_only',
+      metadata: {
+        source: 'TASKS.md',
+        attempted: drift.attempted,
+        authoritative: drift.authoritative,
+      },
+    });
+  }
+
+  if (drifts.length > 0) {
+    io.to(conversationId).emit('task.sync_error', {
+      projectPath,
+      conversationId,
+      reasonCode: 'task_graph.file_projection_read_only',
+      taskIds: drifts.map((drift) => drift.taskId),
+      message: 'TASKS.md 是只读投影；文件漂移已按 Task Graph 权威状态恢复。',
+    });
+  }
 
   io.to(conversationId).emit('task.sync', {
     projectPath,

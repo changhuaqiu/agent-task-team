@@ -401,6 +401,68 @@ describe('AutonomousDeliverySupervisor', () => {
     expect(second.snapshot.run.status).toBe('executing');
     expect(second.snapshot.actions).toHaveLength(1);
     expect(second.snapshot.attempts).toHaveLength(2);
+    expect(second.snapshot.actions[0]).toMatchObject({
+      attempt_count: 2,
+      failure_count: 1,
+    });
+  });
+
+  it('agent_busy 延迟不消耗失败预算，超过 maxAttempts 后仍可自然成功', async () => {
+    let executions = 0;
+    let planning: 'pending' | 'completed' = 'pending';
+    let current = new Date('2026-07-19T00:00:00.000Z');
+    const repository = new AutonomousDeliveryRepository();
+    const supervisor = new AutonomousDeliverySupervisor({
+      repository,
+      facts: {
+        observe: async () => ({
+          planning,
+          taskGraph: 'running',
+          review: 'pending',
+          verification: 'pending',
+          integration: 'not_required',
+          delivery: 'pending',
+        }),
+      },
+      actions: {
+        execute: async () => {
+          executions += 1;
+          if (executions <= 3) {
+            return { status: 'deferred', reasonCode: 'agent_busy' };
+          }
+          planning = 'completed';
+          return { status: 'succeeded' };
+        },
+      },
+      workerId: 'busy-backpressure-worker',
+      now: () => current,
+    });
+    const started = supervisor.start(contract);
+
+    for (const timestamp of [1_000, 3_000]) {
+      const result = await supervisor.advance(started.run.id);
+      expect(result.disposition).toBe('waiting');
+      expect(result.snapshot.run.status).not.toBe('escalated');
+      current = new Date(`2026-07-19T00:00:0${timestamp / 1_000}.000Z`);
+    }
+    const third = await supervisor.advance(started.run.id);
+    expect(third.disposition).toBe('waiting');
+    expect(third.snapshot.actions[0]).toMatchObject({
+      status: 'retry_wait',
+      attempt_count: 3,
+      failure_count: 0,
+      max_attempts: 2,
+    });
+    expect(third.snapshot.run.status).not.toBe('escalated');
+
+    current = new Date('2026-07-19T00:00:07.000Z');
+    const completedDeferral = await supervisor.advance(started.run.id);
+    expect(completedDeferral.snapshot.run.status).not.toBe('escalated');
+    expect(completedDeferral.snapshot.actions[0]).toMatchObject({
+      status: 'succeeded',
+      attempt_count: 4,
+      failure_count: 0,
+    });
   });
 
   it('长动作执行期间自动续租，周期 reconcile 不会并发派发第二个 attempt', async () => {

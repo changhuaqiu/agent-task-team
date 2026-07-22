@@ -3,16 +3,17 @@ import { mkdirSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { createTestDb, resetDb, setTestDb } from '@/server/db/index';
-import { upsertAgent } from '@/server/db/agentQueries';
 import { resetSeq } from '@/server/repositories/sortable-id';
 import { conversationRepo } from '@/server/repositories/conversation-repo';
-import { messageRepo } from '@/server/repositories/message-repo';
 import { taskRepo } from '@/server/repositories/task-repo';
-import { invocationRepo } from '@/server/repositories/invocation-repo';
 import { proofLogRepo } from '@/server/repositories/proof-log-repo';
-import { taskGraphRepo } from '@/server/repositories/task-graph-repo';
 import { readTasksMd } from '@/server/task-file-service';
-import { startTaskWatcher, stopTaskWatcher, syncTasksToDb } from '@/server/task-file-watcher';
+import {
+  resolveTaskStorageIds,
+  startTaskWatcher,
+  stopTaskWatcher,
+  syncTasksToDb,
+} from '@/server/task-file-watcher';
 import type { Server as IOServer } from 'socket.io';
 
 let projectPath: string;
@@ -33,232 +34,169 @@ afterEach(() => {
   resetSeq();
 });
 
-function writeTasksMd(status: string, deliverable = '-'): void {
+function writeTasksMd(status: string, deliverable = '-', overrides?: { title?: string; agent?: string }): void {
   writeFileSync(join(projectPath, '.ath', 'TASKS.md'), `# 任务看板
 
 | ID | Title | Phase | Role | Agent | Status | Depends | Deliverable |
 |----|-------|-------|------|-------|--------|---------|-------------|
-| TASK-003 | 修复 A2A 通知 | P1 | backend | toad | ${status} | - | ${deliverable} |
+| TASK-003 | ${overrides?.title ?? 'File task'} | P1 | backend | ${overrides?.agent ?? 'toad'} | ${status} | - | ${deliverable} |
 `, 'utf-8');
 }
 
+function ioDouble() {
+  const emit = vi.fn();
+  return { emit, io: { to: vi.fn(() => ({ emit })), emit: vi.fn() } as unknown as IOServer };
+}
+
 describe('syncTasksToDb', () => {
-  it('projects TASKS.md when the watched file is created for the first time', async () => {
-    const emit = vi.fn();
-    const io = { to: vi.fn(() => ({ emit })), emit: vi.fn() };
-
-    startTaskWatcher(projectPath, 'conv-1', io as unknown as IOServer);
-    await new Promise(resolve => setTimeout(resolve, 100));
-    writeTasksMd('doing');
-
-    const deadline = Date.now() + 5_000;
-    while (!taskRepo.getById('TASK-003') && Date.now() < deadline) {
-      await new Promise(resolve => setTimeout(resolve, 50));
-    }
-
-    expect(taskRepo.getById('TASK-003')).toMatchObject({
+  it('reconciles the first created TASKS.md from Task Graph without importing file state', async () => {
+    taskRepo.create({
+      id: 'TASK-003',
       conversation_id: 'conv-1',
-      status: 'in_progress',
-      agent_id: 'toad',
+      title: 'Authoritative task',
+      description: 'authoritative.md',
+      agent_id: 'peach',
     });
-  });
+    taskRepo.updateStatus('TASK-003', 'in_review');
+    const { io } = ioDouble();
 
-  it('reprojects an existing TASKS.md when the watcher starts after a restart', async () => {
-    upsertAgent({
-      id: 'peach',
-      name: 'Peach',
-      roleCardId: 'preset-code-reviewer',
-      theme: 'peach',
-      emoji: '🌸',
-    });
-    writeTasksMd('review', 'review.md');
-    const emit = vi.fn();
-    const io = { to: vi.fn(() => ({ emit })), emit: vi.fn() };
-
-    startTaskWatcher(projectPath, 'conv-1', io as unknown as IOServer);
+    startTaskWatcher(projectPath, 'conv-1', io);
+    await new Promise(resolve => setTimeout(resolve, 100));
+    writeTasksMd('doing', 'stale.md');
 
     const deadline = Date.now() + 5_000;
-    while (!taskRepo.getById('TASK-003') && Date.now() < deadline) {
+    while (readTasksMd(projectPath).tasks[0]?.status !== 'in_review' && Date.now() < deadline) {
       await new Promise(resolve => setTimeout(resolve, 50));
     }
 
     expect(taskRepo.getById('TASK-003')).toMatchObject({
       status: 'in_review',
-      description: 'review.md',
+      agent_id: 'peach',
+      description: 'authoritative.md',
     });
-    expect(emit).toHaveBeenCalledWith('task.wakeup', expect.objectContaining({
-      agentId: 'peach',
-      reasonCode: 'review_requested',
-      taskId: 'TASK-003',
-    }));
+    expect(readTasksMd(projectPath).tasks[0]).toMatchObject({
+      title: 'Authoritative task',
+      status: 'in_review',
+      agent: 'peach',
+      deliverable: 'authoritative.md',
+    });
   });
 
-  it('publishes task notifications when TASKS.md changes status or deliverable', () => {
+  it('reprojects an existing stale TASKS.md when the watcher starts after a restart', async () => {
     taskRepo.create({
       id: 'TASK-003',
       conversation_id: 'conv-1',
-      title: '修复 A2A 通知',
-      description: '',
-      agent_id: 'toad',
+      title: 'Persisted task',
+      description: 'persisted.md',
+      agent_id: 'peach',
     });
-    taskRepo.updateStatus('TASK-003', 'in_progress');
-    writeTasksMd('review', 'src/server/task-flow/task-notifications.ts');
+    taskRepo.updateStatus('TASK-003', 'done', 'PASS: persisted review');
+    writeTasksMd('doing', 'stale.md');
+    const { io } = ioDouble();
 
-    const emit = vi.fn();
-    const io = { to: vi.fn(() => ({ emit })), emit: vi.fn() };
+    startTaskWatcher(projectPath, 'conv-1', io);
 
-    syncTasksToDb(projectPath, 'conv-1', io as unknown as IOServer);
-
-    const updated = taskRepo.getById('TASK-003')!;
-    expect(updated.status).toBe('in_review');
-    expect(updated.description).toBe('src/server/task-flow/task-notifications.ts');
-
-    const messages = messageRepo.getByConversation('conv-1');
-    expect(messages).toHaveLength(1);
-    expect(messages[0].content).toContain('@toad');
-    expect(JSON.parse(messages[0].metadata ?? '{}')).toMatchObject({
-      startsA2AHandoff: false,
-      taskId: 'TASK-003',
-      changedFields: ['status', 'description'],
-    });
-    expect(io.to).toHaveBeenCalledWith('conv-1');
-    expect(emit).toHaveBeenCalledWith('task.notification', expect.objectContaining({
-      taskId: 'TASK-003',
-      recipients: ['toad'],
-    }));
-  });
-
-  it('keeps watcher identity explicit when two conversations share a runtime path', async () => {
-    conversationRepo.create({ id: 'conv-other', title: 'Other watcher conversation' });
-    const emitOne = vi.fn();
-    const emitOther = vi.fn();
-    const ioOne = { to: vi.fn(() => ({ emit: emitOne })), emit: vi.fn() };
-    const ioOther = { to: vi.fn(() => ({ emit: emitOther })), emit: vi.fn() };
-
-    startTaskWatcher(projectPath, 'conv-1', ioOne as unknown as IOServer);
-    await new Promise(resolve => setTimeout(resolve, 100));
-    writeTasksMd('todo');
-
-    const firstDeadline = Date.now() + 5_000;
-    while (!taskRepo.getByConversation('conv-1').length && Date.now() < firstDeadline) {
+    const deadline = Date.now() + 5_000;
+    while (readTasksMd(projectPath).tasks[0]?.status !== 'done' && Date.now() < deadline) {
       await new Promise(resolve => setTimeout(resolve, 50));
     }
-    startTaskWatcher(projectPath, 'conv-other', ioOther as unknown as IOServer);
-    const secondDeadline = Date.now() + 5_000;
-    while (!taskRepo.getByConversation('conv-other').length && Date.now() < secondDeadline) {
-      await new Promise(resolve => setTimeout(resolve, 50));
-    }
-
-    expect(ioOne.to).toHaveBeenCalledWith('conv-1');
-    expect(ioOther.to).toHaveBeenCalledWith('conv-other');
-    expect(taskRepo.getByConversation('conv-1')).toHaveLength(1);
-    expect(taskRepo.getByConversation('conv-other')).toHaveLength(1);
-  }, 15_000);
-
-  it('rejects Git quality-gate transitions written directly to TASKS.md', () => {
-    conversationRepo.update('conv-1', { git_repo_root: projectPath });
-    taskRepo.create({
-      id: 'TASK-003',
-      conversation_id: 'conv-1',
-      title: '修复 A2A 通知',
-      agent_id: 'toad',
-    });
-    taskRepo.updateStatus('TASK-003', 'in_progress');
-    writeTasksMd('review', 'attempted bypass');
-
-    const emit = vi.fn();
-    const io = { to: vi.fn(() => ({ emit })), emit: vi.fn() };
-    syncTasksToDb(projectPath, 'conv-1', io as unknown as IOServer);
 
     expect(taskRepo.getById('TASK-003')).toMatchObject({
-      status: 'in_progress',
-      description: 'attempted bypass',
+      status: 'done',
+      review_note: 'PASS: persisted review',
     });
-    expect(readTasksMd(projectPath).tasks[0].status).toBe('in_progress');
-    expect(proofLogRepo.findByType({
-      eventType: 'task_graph.gate_evidence.blocked',
-      conversationId: 'conv-1',
-      taskId: 'TASK-003',
-      reasonCode: 'task_graph.file_projection_gate_bypass',
-    })).toHaveLength(1);
-    expect(emit).toHaveBeenCalledWith('task.sync_error', expect.objectContaining({
-      taskId: 'TASK-003',
-      reasonCode: 'task_graph.file_projection_gate_bypass',
-    }));
+    expect(readTasksMd(projectPath).tasks[0]).toMatchObject({ status: 'done', deliverable: 'persisted.md' });
   });
 
-  it('does not let a stale file roll a Git receipt state backward', () => {
-    conversationRepo.update('conv-1', { git_repo_root: projectPath });
+  it('does not let TASKS.md mutate any existing Task Graph field', () => {
     taskRepo.create({
       id: 'TASK-003',
       conversation_id: 'conv-1',
-      title: 'Keep receipt state',
+      title: 'Authoritative title',
+      description: 'authoritative.md',
+      agent_id: 'peach',
+      dependencies: ['TASK-002'],
+    });
+    taskRepo.updateStatus('TASK-003', 'in_progress');
+    writeTasksMd('review', 'stale.md', { title: 'Forged title', agent: 'toad' });
+    const { emit, io } = ioDouble();
+
+    syncTasksToDb(projectPath, 'conv-1', io);
+
+    expect(taskRepo.getById('TASK-003')).toMatchObject({
+      title: 'Authoritative title',
+      description: 'authoritative.md',
+      status: 'in_progress',
+      agent_id: 'peach',
+      dependencies: '["TASK-002"]',
+    });
+    expect(emit).not.toHaveBeenCalledWith('task.notification', expect.anything());
+    expect(emit).toHaveBeenCalledWith('task.sync_error', expect.objectContaining({
+      reasonCode: 'task_graph.file_projection_read_only',
+      taskIds: ['TASK-003'],
+    }));
+  });
+
+  it('keeps storage identity conversation-scoped when local IDs collide', () => {
+    conversationRepo.create({ id: 'conv-other', title: 'Other conversation' });
+    taskRepo.create({
+      id: 'TASK-003',
+      conversation_id: 'conv-other',
+      title: 'Other task',
+      agent_id: 'mario',
+    });
+
+    expect(resolveTaskStorageIds('conv-1', ['TASK-003']).get('TASK-003')).toBe('conv-1~TASK-003');
+    expect(resolveTaskStorageIds('conv-other', ['TASK-003']).get('TASK-003')).toBe('TASK-003');
+  });
+
+  it('does not let a stale file roll an accepted review state backward', () => {
+    taskRepo.create({
+      id: 'TASK-003',
+      conversation_id: 'conv-1',
+      title: 'Keep review state',
       agent_id: 'toad',
     });
     taskRepo.updateStatus('TASK-003', 'in_review');
-    taskGraphRepo.appendAction({
-      conversationId: 'conv-1',
-      actorId: 'luigi',
-      actorType: 'agent',
-      type: 'task.pull_request_submitted',
-      taskIds: ['TASK-003'],
-      payload: { receipt: { headSha: 'abc123' } },
-    });
     writeTasksMd('doing', 'stale runtime projection');
+    const { emit, io } = ioDouble();
 
-    const emit = vi.fn();
-    const io = { to: vi.fn(() => ({ emit })), emit: vi.fn() };
-    syncTasksToDb(projectPath, 'conv-1', io as unknown as IOServer);
+    syncTasksToDb(projectPath, 'conv-1', io);
 
     expect(taskRepo.getById('TASK-003')?.status).toBe('in_review');
     expect(readTasksMd(projectPath).tasks[0].status).toBe('in_review');
     expect(emit).toHaveBeenCalledWith('task.sync_error', expect.objectContaining({
-      taskId: 'TASK-003',
-      reasonCode: 'task_graph.file_projection_gate_bypass',
+      taskIds: ['TASK-003'],
+      reasonCode: 'task_graph.file_projection_read_only',
     }));
+    expect(proofLogRepo.findByType({
+      eventType: 'task_graph.file_projection.reconciled',
+      conversationId: 'conv-1',
+      taskId: 'TASK-003',
+      reasonCode: 'task_graph.file_projection_read_only',
+    })).toHaveLength(1);
   });
 
-  it('does not let a stale todo file regress a task with an active invocation', () => {
+  it('never restores file authority after an invocation boundary', () => {
     taskRepo.create({
       id: 'TASK-003',
       conversation_id: 'conv-1',
-      title: '修复 A2A 通知',
+      title: 'Read-only projection',
       agent_id: 'toad',
     });
     taskRepo.updateStatus('TASK-003', 'in_progress');
-    invocationRepo.create({
-      id: 'inv-active',
-      conversation_id: 'conv-1',
-      task_id: 'TASK-003',
-      agent_id: 'toad',
-    });
-    writeTasksMd('todo');
+    const { io } = ioDouble();
 
-    const emit = vi.fn();
-    const io = { to: vi.fn(() => ({ emit })), emit: vi.fn() };
-    syncTasksToDb(projectPath, 'conv-1', io as unknown as IOServer);
+    writeTasksMd('todo');
+    syncTasksToDb(projectPath, 'conv-1', io);
+    writeTasksMd('todo');
+    syncTasksToDb(projectPath, 'conv-1', io);
 
     expect(taskRepo.getById('TASK-003')?.status).toBe('in_progress');
-    expect(emit).not.toHaveBeenCalledWith('task.notification', expect.objectContaining({
-      taskId: 'TASK-003',
-      previousStatus: 'in_progress',
-    }));
-    expect(emit).toHaveBeenCalledWith('task.sync', expect.objectContaining({
-      conversationId: 'conv-1',
-      tasks: [
-        expect.objectContaining({
-          id: 'TASK-003',
-          status: 'in_progress',
-        }),
-      ],
-    }));
-
-    invocationRepo.updateStatus('inv-active', 'succeeded');
-    syncTasksToDb(projectPath, 'conv-1', io as unknown as IOServer);
-    expect(taskRepo.getById('TASK-003')?.status).toBe('pending');
+    expect(readTasksMd(projectPath).tasks[0].status).toBe('in_progress');
   });
 
-  it('scopes duplicate TASKS.md IDs without mutating another conversation', () => {
+  it('scopes duplicate file IDs without mutating another conversation', () => {
     conversationRepo.create({ id: 'conv-other', title: 'Other Conv' });
     taskRepo.create({
       id: 'TASK-003',
@@ -267,34 +205,47 @@ describe('syncTasksToDb', () => {
       description: 'must remain unchanged',
       agent_id: 'mario',
     });
-    writeTasksMd('review', 'review.md');
+    taskRepo.create({
+      id: 'conv-1~TASK-003',
+      conversation_id: 'conv-1',
+      title: 'Scoped authoritative task',
+      description: 'authoritative.md',
+      agent_id: 'peach',
+    });
+    taskRepo.updateStatus('conv-1~TASK-003', 'in_review');
+    writeTasksMd('done', 'forged.md');
+    const { io } = ioDouble();
 
-    const emit = vi.fn();
-    const io = { to: vi.fn(() => ({ emit })), emit: vi.fn() };
-    syncTasksToDb(projectPath, 'conv-1', io as unknown as IOServer);
+    syncTasksToDb(projectPath, 'conv-1', io);
 
     expect(taskRepo.getById('TASK-003')).toMatchObject({
       conversation_id: 'conv-other',
-      title: 'Other project task',
-      description: 'must remain unchanged',
-      agent_id: 'mario',
       status: 'pending',
+      description: 'must remain unchanged',
     });
     expect(taskRepo.getById('conv-1~TASK-003')).toMatchObject({
       conversation_id: 'conv-1',
-      title: '修复 A2A 通知',
-      description: 'review.md',
-      agent_id: 'toad',
       status: 'in_review',
+      description: 'authoritative.md',
     });
-
-    writeTasksMd('done', 'done.md');
-    syncTasksToDb(projectPath, 'conv-1', io as unknown as IOServer);
-
-    expect(taskRepo.getById('TASK-003')?.status).toBe('pending');
-    expect(taskRepo.getById('conv-1~TASK-003')).toMatchObject({
-      status: 'done',
-      description: 'done.md',
+    expect(readTasksMd(projectPath).tasks[0]).toMatchObject({
+      id: 'TASK-003',
+      status: 'in_review',
+      deliverable: 'authoritative.md',
     });
+  });
+
+  it('ignores unknown file-only tasks instead of creating Task Graph facts', () => {
+    writeTasksMd('done', 'forged.md');
+    const { emit, io } = ioDouble();
+
+    syncTasksToDb(projectPath, 'conv-1', io);
+
+    expect(taskRepo.getByConversation('conv-1')).toHaveLength(0);
+    expect(readTasksMd(projectPath).tasks).toHaveLength(0);
+    expect(emit).toHaveBeenCalledWith('task.sync_error', expect.objectContaining({
+      reasonCode: 'task_graph.file_projection_read_only',
+      taskIds: ['TASK-003'],
+    }));
   });
 });

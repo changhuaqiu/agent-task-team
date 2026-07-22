@@ -18,6 +18,11 @@ export type DeliveryExecutionResult =
       receipts?: DeliveryActionReceipt[];
     }
   | {
+      status: 'deferred';
+      reasonCode: 'agent_busy';
+      detail?: string;
+    }
+  | {
       status: 'failed';
       failureCode: DeliveryFailureCode;
       detail?: string;
@@ -238,6 +243,29 @@ export class AutonomousDeliverySupervisor {
           };
         }
         continue;
+      }
+
+      if (result.status === 'deferred') {
+        const deferred = !leaseLost && this.repository.deferAttempt({
+          actionId: claim.action.id,
+          attemptId: claim.attempt.id,
+          reasonCode: result.reasonCode,
+          detail: result.detail,
+          retryAt: new Date(this.now().getTime() + retryDelayMs(claim.action.attempt_count)),
+          now: this.now(),
+        });
+        if (!deferred) {
+          return {
+            disposition: 'busy',
+            snapshot: this.repository.getSnapshot(runId)!,
+            actionId: lastActionId,
+          };
+        }
+        return {
+          disposition: 'waiting',
+          snapshot: this.repository.getSnapshot(runId)!,
+          actionId: lastActionId,
+        };
       }
 
       const retryAt = result.retryable

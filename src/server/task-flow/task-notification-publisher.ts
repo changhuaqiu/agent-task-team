@@ -259,10 +259,13 @@ export function publishTaskChangeNotification(input: PublishTaskChangeNotificati
       scenarioForWakeup(wakeup),
       input.deliveryRunId,
     );
+    const serverOwnsDeferredDelivery = Boolean(
+      input.deliveryRunId && submission?.disposition === 'deferred',
+    );
     emitWakeupToConversation(input.io, wakeup.conversationId, {
       ...wakeup,
       id,
-      handledByHarness: submission?.handled ?? false,
+      handledByHarness: Boolean(submission?.handled || serverOwnsDeferredDelivery),
       createdAt: new Date().toISOString(),
     });
   }

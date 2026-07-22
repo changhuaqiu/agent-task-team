@@ -216,7 +216,7 @@ describe('skill tool collaboration gates', () => {
     const task = taskRepo.create({
       id: 'TASK-EXEC-PROOF', conversation_id: 'conv-exec-proof', title: 'Build it', agent_id: 'luigi',
     });
-    taskRepo.updateStatus(task.id, 'in_progress');
+    taskRepo.updateStatus(task.id, 'in_progress', '执行失败（退出码 1）。');
     const contract: GoalContract = {
       goal: 'Build it', acceptanceCriteria: ['Works'],
       scope: { conversationId: 'conv-exec-proof', projectPath: process.cwd() },
@@ -275,7 +275,10 @@ describe('skill tool collaboration gates', () => {
       deliveryRunId: run.run.id, io, input: { task_id: task.id, status: 'in_review', evidence },
     });
     expect(accepted.success).toBe(true);
-    expect(taskRepo.getById(task.id)?.status).toBe('in_review');
+    expect(taskRepo.getById(task.id)).toMatchObject({
+      status: 'in_review',
+      review_note: null,
+    });
     expect(submitted).toMatchObject({
       deliveryRunId: run.run.id,
       taskId: task.id,

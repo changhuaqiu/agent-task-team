@@ -78,7 +78,6 @@ export function resolveAutonomyGuardWakeups(input: ResolveAutonomyGuardWakeupsIn
   const wakeups: TaskWakeup[] = [];
   const terminalTaskStatuses = new Set(['done', 'abandoned', 'cancelled']);
   const deliveryControlledRootTaskIds = new Set(input.deliveryControlledRootTaskIds ?? []);
-  const suspendedDeliveryRootTaskIds = new Set(input.suspendedDeliveryRootTaskIds ?? []);
   const subtaskEdges = (input.edges ?? []).filter((edge) => edge.type === 'subtask_of');
   const childrenByParent = new Map<string, string[]>();
   const childIds = new Set<string>();
@@ -108,9 +107,17 @@ export function resolveAutonomyGuardWakeups(input: ResolveAutonomyGuardWakeupsIn
     return descendants;
   };
 
+  const deliveryControlledTaskIds = new Set<string>();
+  for (const rootTaskId of deliveryControlledRootTaskIds) {
+    deliveryControlledTaskIds.add(rootTaskId);
+    for (const descendant of collectDescendants(rootTaskId)) {
+      deliveryControlledTaskIds.add(descendant.id);
+    }
+  }
+
   for (const root of input.tasks) {
     if (!childrenByParent.has(root.id) || childIds.has(root.id)) continue;
-    if (suspendedDeliveryRootTaskIds.has(root.id)) continue;
+    if (deliveryControlledTaskIds.has(root.id)) continue;
     if (terminalTaskStatuses.has(root.status) || dispatchedRoots.has(root.id)) continue;
     const descendants = collectDescendants(root.id);
     if (descendants.length === 0 || !descendants.every((task) => terminalTaskStatuses.has(task.status))) continue;
@@ -137,15 +144,11 @@ export function resolveAutonomyGuardWakeups(input: ResolveAutonomyGuardWakeupsIn
   }
 
   for (const task of input.tasks) {
-    if (suspendedDeliveryRootTaskIds.has(task.id)) continue;
+    if (deliveryControlledTaskIds.has(task.id)) continue;
     if (closureRootIds.has(task.id)) continue;
     const updatedAt = task.updated_at ? new Date(task.updated_at).getTime() : 0;
     const isStale = updatedAt > 0 && now.getTime() - updatedAt >= staleMs;
     const activeDispatch = hasActiveDispatch(task.id, input.envelopes);
-    const isDeliveryControlledRootWithNonTerminalChildren = deliveryControlledRootTaskIds.has(task.id)
-      && input.tasks.some((candidate) =>
-        candidate.id !== task.id && !terminalTaskStatuses.has(candidate.status)
-      );
 
     if (task.status === 'pending' && task.agent_id && dependenciesSatisfied(task, tasksById) && !activeDispatch) {
       pushOnce(makeWakeup({
@@ -164,7 +167,6 @@ export function resolveAutonomyGuardWakeups(input: ResolveAutonomyGuardWakeupsIn
       && task.agent_id
       && isStale
       && !activeDispatch
-      && !isDeliveryControlledRootWithNonTerminalChildren
     ) {
       pushOnce(makeWakeup({
         task,
