@@ -44,9 +44,9 @@ function roleCardById(roleCards: RoleCard[], id: string | undefined): RoleCard |
 function presetRuntimeAgent(agent: PresetRuntimeAgentInput, input: ResolveTeamRuntimeInput): RuntimeAgent {
   const roleCardId = input.agentRoleCardOverrides[agent.id] ?? agent.roleCardId;
   const roleCard = roleCardById(input.roleCards, roleCardId);
-  const accountIds = roleCard?.accountIds?.length
-    ? roleCard.accountIds
-    : (input.agentAccountOverrides[agent.id] ?? agent.accountIds ?? []);
+  const accountIds = Object.prototype.hasOwnProperty.call(input.agentAccountOverrides, agent.id)
+    ? input.agentAccountOverrides[agent.id]
+    : (agent.accountIds ?? []);
   return {
     id: agent.id,
     displayName: roleCard?.displayName ?? agent.name,
@@ -99,11 +99,9 @@ function teamRoleRuntimeAgents(input: ResolveTeamRuntimeInput): RuntimeAgent[] {
       : globalRoleCard;
     const accountIds = role.accountIds?.length
       ? role.accountIds
-      : roleCard?.accountIds?.length
-        ? roleCard.accountIds
-        : input.agentAccountOverrides[role.id]?.length
-          ? input.agentAccountOverrides[role.id]
-          : (presetAgent?.accountIds ?? []);
+      : Object.prototype.hasOwnProperty.call(input.agentAccountOverrides, role.id)
+        ? input.agentAccountOverrides[role.id]
+        : (presetAgent?.accountIds ?? []);
 
     return {
       id: role.id,

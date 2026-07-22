@@ -172,6 +172,22 @@ describe('resolveTeamRuntime', () => {
     expect(runtime.roster[0]).toMatchObject({ id: 'mario', accountIds: ['acc-agent'] });
   });
 
+  it('does not resurrect stale Role Card accounts over an authoritative empty Agent binding', () => {
+    const staleCard = { ...roleCard('rc-planner', 'Planner'), accountIds: ['stale-account'] };
+    const runtime = resolveTeamRuntime({
+      conversationId: 'conv-stale-role-account',
+      presetAgents: [{ ...presetAgent, accountIds: [] }],
+      activeAgentIds: ['mario'],
+      roleCards: [staleCard],
+      skillsMap: {},
+      agentSkillIds: {},
+      agentAccountOverrides: { mario: [] },
+      agentRoleCardOverrides: {},
+    });
+
+    expect(runtime.roster[0]).toMatchObject({ id: 'mario', accountIds: [] });
+  });
+
   it('lets TeamPack role card overrides replace default role cards', () => {
     const defaultCard = roleCard('rc-default', 'Default Planner');
     const overrideCard = roleCard('rc-override', 'Override Planner');

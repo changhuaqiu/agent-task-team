@@ -209,7 +209,8 @@ interface AcceptanceReviewReceipt {
 - Agent 的账号绑定必须由服务端持久化并成为客户端与 Harness 的共同事实。Team Pack role 未配置非空
   `accountIds` 时，按稳定 role ID 继承对应全局 Agent 的账号；Team Pack 显式绑定优先。自主创建入口在提交
   Conversation/DeliveryRun 前验证全部 required role 均能解析可用账号；验证失败不得留下 Conversation、根 Task、
-  DeliveryRun 或项目上下文，只返回面向用户的缺失成员列表和配置入口。
+  DeliveryRun 或项目上下文，只返回面向用户的缺失成员列表和配置入口。Role Card 的历史 `accountIds` 仅作为
+  一次性兼容迁移输入，不能覆盖服务端 Agent 的权威空数组，也不能在刷新后复活已经失效的账号。
 - 实现、评审与验证上下文必须明确区分“清单中存在的测试脚本”和“可形成门禁证据的一次性执行”。进入 watch、超时、被终止或非零退出的命令都不是成功证据；若项目 `test` script 默认进入 watch，必须改用对应 runner 的 one-shot 形式（例如 `npx vitest run`）并等待正常退出。
 - 自主 Invocation 通过平台任务工具提交状态后，由任务通知链路立即产生的 review/test wakeup 必须沿可信调用栈携带该 Invocation 绑定的精确 `deliveryRunId`。不得通过 Conversation 的“最新 Run”推断；文件 watcher、手动任务变更或其他无绑定来源继续保持无授权、fail-closed。这样通知抢先于 Supervisor reconciliation 派发时，Reviewer/QA 仍能在同一活跃 Run 的动态授权边界内使用 Terminal、Browser 等原生工具。
 - ReviewReceipt 的状态枚举是协议字段而不是自然语言结论：PASS 必须使用任务 `status=done` 且 `reviewReceipt.status="passed"`；REJECT 必须使用任务 `status=rejected|blocked` 且 `reviewReceipt.status="failed"`。该精确枚举与 findings 字段结构必须同时出现在基础协议、wakeup contract 和工具描述中；校验失败须返回期望值，不能只返回模糊字段名导致 Agent 在 `pass/approved/done` 间猜测重试。

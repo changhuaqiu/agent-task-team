@@ -244,7 +244,8 @@ Delivery-bound wakeup 的 `agent_busy` 重试权始终留在 Supervisor。Task N
 
 Agent 运行账号是服务端权威配置，不能只存在浏览器 Zustand/localStorage。`agents.account_ids` 保存全局绑定；
 解析 Team Pack role 时采用 `role.accountIds`（非空显式覆盖）→ 同 ID 全局 Agent `accountIds` 的优先级，
-客户端与 `resolveConversationRuntimeProfile` 必须使用同一规则。自主创建 API 在写入 Conversation、项目上下文和
+客户端与 `resolveConversationRuntimeProfile` 必须使用同一规则；Role Card 中遗留的 `accountIds` 只允许用于一次性
+迁移，不能覆盖服务端 Agent 的空绑定或重新参与运行画像。自主创建 API 在写入 Conversation、项目上下文和
 DeliveryRun 前对全部 required role 执行相同的可用账号解析；缺失时返回成员名称列表并保持零副作用。
 
 项目清单中的命令只能证明“命令入口存在”，不能证明它会形成一次性门禁证据。基础任务协议和 Project Context 的可信命令段都必须提醒 Agent：测试、构建与安装只有在进程正常退出时有效；watch 模式即使先打印 PASS，随后超时或被终止仍是失败。发现 `npm test` 等脚本进入 watch 后，应使用 runner 的 one-shot 形式（例如 `npx vitest run`）重新执行。

@@ -137,7 +137,7 @@ describe('team role card compatibility', () => {
     expect(profile?.execution).toMatchObject({ engine: 'codex', accountId: 'acc-openai' });
   });
 
-  it('uses role card override accounts before agent account overrides', () => {
+  it('keeps authoritative agent accounts when a Role Card carries a stale account snapshot', () => {
     useTaskHubStore.setState((state) => ({
       roleCards: [{
         ...state.roleCards[0],
@@ -153,7 +153,7 @@ describe('team role card compatibility', () => {
     const profile = useTaskHubStore.getState().getAgentRuntimeProfile('planner');
 
     expect(profile?.prompt.roleCard?.id).toBe('rc-planner');
-    expect(profile?.agent.accountIds).toEqual(['acc-role']);
+    expect(profile?.agent.accountIds).toEqual(['acc-openai']);
   });
 
   it('stores role card switching for dynamic roles in overrides', () => {
@@ -166,7 +166,7 @@ describe('team role card compatibility', () => {
 
     const state = useTaskHubStore.getState();
     expect(state.agentRoleCardOverrides.planner).toBe(cardId);
-    expect(state.getAgentRuntimeProfile('planner')?.prompt.roleCard?.id).toBe(cardId);
+    expect(state.getEffectiveRoster().find((agent) => agent.id === 'planner')?.roleCardId).toBe(cardId);
   });
 
   it('loads skill assignments for effective roster IDs', async () => {
