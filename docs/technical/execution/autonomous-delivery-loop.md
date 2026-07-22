@@ -216,6 +216,10 @@ Supervisor 只接受当前 TeamPack 质量门负责人提交的 `evidence.review
 合法回执持久化为 `review.acceptance` Receipt；无回执创建独立 `request_review`，
 失败或非法回执进入有界 `repair_review`。
 
+普通 Task Graph quality gate 使用同一“结构化事实优先”原则：Agent 只读 `.ath/TASKS.md` 投影，状态裁决通过 `task_update_status` 写入 Task Graph。被唤醒的 gate owner 只能裁决目标 `in_review` Task；PASS/REJECT 必须携带结构化 review receipt。平台在一次权威 mutation 中保存状态与 review note、发布通知并触发下一 wakeup。REJECT 进入 `rejected|blocked` 并唤醒原实现者；Invocation 仅输出 REJECT 文本不构成裁决，也不得导致 reviewer 以普通 execution 场景无限重派。
+
+Action kind 不是执行场景的唯一来源。`advance_tasks` 取到 review/test wakeup 时必须分别使用 `code_review` / `verification` 场景，保证恢复派发仍保留角色边界和工具契约。
+
 ### 重启恢复
 
 服务启动时立即扫描所有非终态 DeliveryRun，并在周期对账之前先执行一次 reconcile。

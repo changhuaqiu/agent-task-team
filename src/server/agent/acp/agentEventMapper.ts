@@ -48,6 +48,59 @@ function safeStringify(v: unknown): string {
   }
 }
 
+function record(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function failedExitValue(value: unknown): boolean {
+  if (value === null) return true;
+  if (typeof value === 'number') return !Number.isFinite(value) || value !== 0;
+  if (typeof value === 'string' && /^-?\d+$/.test(value.trim())) return Number(value) !== 0;
+  return false;
+}
+
+/**
+ * ACP `completed` means the tool RPC returned, not that a process launched by
+ * a shell tool exited successfully. Normalize portable structured results
+ * before they reach observability or an evidence gate.
+ */
+export function inferAcpToolResultStatus(
+  rawOutput: unknown,
+  explicitStatus?: NonNullable<AgentEvent['tool']>['status'],
+): NonNullable<AgentEvent['tool']>['status'] | undefined {
+  if (explicitStatus === 'failed') return 'failed';
+
+  const inspect = (value: unknown, depth = 0): boolean => {
+    if (depth > 3) return false;
+    if (typeof value === 'string') {
+      if (
+        /user refused permission|permission denied|timed? out/i.test(value)
+        || /<shell_metadata>[\s\S]*?(?:terminated|timeout|exceeding timeout)[\s\S]*?<\/shell_metadata>/i.test(value)
+      ) return true;
+      try {
+        const parsed = JSON.parse(value);
+        return parsed !== value && inspect(parsed, depth + 1);
+      } catch {
+        return false;
+      }
+    }
+    const candidate = record(value);
+    if (!candidate) return false;
+    if (candidate.success === false || candidate.ok === false) return true;
+    if (typeof candidate.error === 'string' && candidate.error.trim()) return true;
+    for (const key of ['exit', 'exitCode', 'code']) {
+      if (key in candidate && failedExitValue(candidate[key])) return true;
+    }
+    return ['metadata', 'result', 'data', 'output'].some((key) =>
+      key in candidate && inspect(candidate[key], depth + 1)
+    );
+  };
+
+  return inspect(rawOutput) ? 'failed' : explicitStatus;
+}
+
 /**
  * Map an ACP `SessionUpdate` to an internal `AgentEvent`.
  *
@@ -105,6 +158,7 @@ export function mapAcpUpdate(update: SessionUpdate): AgentEvent | null {
         update.rawInput != null ? safeStringify(update.rawInput) : undefined;
       const output =
         update.rawOutput != null ? safeStringify(update.rawOutput) : '';
+      const status = inferAcpToolResultStatus(update.rawOutput, update.status ?? undefined);
       return {
         type: 'tool_result',
         content: output,
@@ -113,7 +167,7 @@ export function mapAcpUpdate(update: SessionUpdate): AgentEvent | null {
           callId: update.toolCallId,
           ...(input !== undefined && { input }),
           ...(update.rawOutput != null && { output }),
-          ...(update.status != null && { status: update.status }),
+          ...(status != null && { status }),
         },
       };
     }

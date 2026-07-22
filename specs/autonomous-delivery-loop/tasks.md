@@ -17,6 +17,7 @@
 - [x] 修复 v42 水位与 Run 表结构不一致时 Supervisor 无法启动，并增加数据保留回归测试。
 - [x] 自主项目加载 Team Pack 时禁止 legacy proposal，确保 `plan_goal` 是唯一规划入口。
 - [ ] 归一化 ACP 平台 MCP 工具名，确保自主规划器可以调用已授权的 `task_create`。
+- [x] 收口 quality-gate 任务裁决：任务工具成为唯一权威写入口，结构化 REJECT 持久化并立即打回实现者，重派保持 `code_review` 场景。
 
 ## P1：恢复与安全
 
@@ -28,6 +29,7 @@
 - [x] Provider action allowlist、目标仓库/分支校验和审计。
 - [x] 进程重启场景集成测试。
 - [ ] 非终态子 Task 存在时，根 Task 的历史/重复 Envelope 不参与 no-progress 恢复耗尽与 `poisoned_session` 升级。
+- [x] ACP shell 的 RPC 完成与进程成功分离；超时、非零退出和 watch-mode termination 不能形成成功验证证据。
 
 ## P2：扩展
 

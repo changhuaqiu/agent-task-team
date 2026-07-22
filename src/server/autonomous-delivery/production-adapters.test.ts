@@ -14,6 +14,7 @@ import { AutonomousDeliveryRepository } from './repository';
 import {
   HarnessDeliveryActionAdapter,
   RepositoryDeliveryFactsAdapter,
+  scenarioForDeliveryAction,
 } from './production-adapters';
 import { AutonomousDeliverySupervisor } from './supervisor';
 import type { GoalContract } from './types';
@@ -39,6 +40,19 @@ const contract: GoalContract = {
     requireMerge: false,
   },
 };
+
+describe('scenarioForDeliveryAction', () => {
+  it('preserves review and verification semantics for generic advance actions', () => {
+    expect(scenarioForDeliveryAction('advance_tasks', {
+      dispatchSource: 'review_gate',
+      reasonCode: 'review_requested',
+    })).toBe('code_review');
+    expect(scenarioForDeliveryAction('advance_tasks', {
+      dispatchSource: 'test_gate',
+      reasonCode: 'test_requested',
+    })).toBe('verification');
+  });
+});
 
 beforeEach(() => {
   setTestDb(createTestDb());

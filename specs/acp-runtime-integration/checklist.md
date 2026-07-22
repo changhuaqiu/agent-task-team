@@ -45,3 +45,4 @@
 - [x] 连续 ACP 文本 chunk 在历史消息中只形成一个逻辑文本段，工具边界前后不误合并。
 - [ ] 活跃自主 DeliveryRun 的 `allowCodeChanges=true` 可授权本 Invocation 的原生工具，其他 Conversation 不受影响且默认拒绝。
 - [ ] Claude `tool_call → rawInput refinement → failed/completed` 顺序保留最终输入，并让失败在 span 与 UI 中显示为失败。
+- [x] Shell 输出包含非零退出、权限拒绝或 timeout/termination 元数据时，即使 ACP 状态为 `completed`，内部 tool result 与 span 仍为失败；watch 模式 PASS 后超时不得成为验证成功证据。

@@ -15,6 +15,13 @@ import { GhCliGitProviderVerifier } from './engineering-collaboration/github-cli
 import type { ImplementationEvidence, MergeEvidence, ReviewEvidence } from '@/lib/engineering-collaboration/types';
 import type { Server as IOServer } from 'socket.io';
 import { readTasksMd, updateTaskInMd, writeTasksMd } from './task-file-service';
+import { autonomousDeliveryRepo } from './autonomous-delivery/repository';
+import { observationSpanRepo } from './repositories/observation-span-repo';
+import { spanPayloadRepo } from './repositories/span-payload-repo';
+import {
+  publishTaskChangeNotification,
+  resolveTaskNotificationAudience,
+} from './task-flow/task-notification-publisher';
 
 // ── Types ──────────────────────────────────────
 
@@ -23,6 +30,8 @@ export interface ToolInvocation {
   input: Record<string, unknown>;
   agentId: string;
   conversationId: string;
+  invocationId?: string;
+  deliveryRunId?: string;
   projectId?: string;
   taskId?: string;
   taskProjectDir?: string;
@@ -105,6 +114,17 @@ function validateInvocation(invocation: ToolInvocation): void {
     throw new Error(`Unknown skill tool: ${invocation.toolName}`);
   }
 
+  if (invocation.deliveryRunId) {
+    const delivery = autonomousDeliveryRepo.getSnapshot(invocation.deliveryRunId);
+    if (
+      !delivery
+      || delivery.run.conversation_id !== invocation.conversationId
+      || ['completed', 'escalated', 'cancelled'].includes(delivery.run.status)
+    ) {
+      throw new Error('DeliveryRun authorization is missing, mismatched, or no longer active');
+    }
+  }
+
   // Self-dispatch guard: agent cannot assign a task to itself
   if (invocation.toolName === 'task_assign') {
     const targetAgentId = invocation.input.agent_id as string | undefined;
@@ -112,6 +132,121 @@ function validateInvocation(invocation: ToolInvocation): void {
       throw new Error('Agent cannot assign tasks to itself (self-dispatch prevention)');
     }
   }
+}
+
+type TaskReviewReceiptDecision =
+  | { applicable: false }
+  | { applicable: true; allowed: false; error: string }
+  | { applicable: true; allowed: true; reviewNote: string };
+
+function strings(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    : [];
+}
+
+function taskReviewReceiptDecision(
+  invocation: ToolInvocation,
+  task: TaskRow,
+  nextStatus: string,
+  evidence: unknown,
+): TaskReviewReceiptDecision {
+  if (task.status !== 'in_review' || !['done', 'blocked', 'rejected'].includes(nextStatus)) {
+    return { applicable: false };
+  }
+  const audience = resolveTaskNotificationAudience(task.conversation_id);
+  if (!audience.reviewGateAgentIds.includes(invocation.agentId)) return { applicable: false };
+
+  const receipt = recordInput(recordInput(evidence)?.reviewReceipt);
+  if (!receipt) {
+    return {
+      applicable: true,
+      allowed: false,
+      error: 'Quality-gate decisions require evidence.reviewReceipt',
+    };
+  }
+  const errors: string[] = [];
+  if (receipt.schemaVersion !== 1) errors.push('schemaVersion');
+  if (receipt.reviewerAgentId !== invocation.agentId) errors.push('reviewerAgentId');
+  if (invocation.deliveryRunId && receipt.deliveryRunId !== invocation.deliveryRunId) {
+    errors.push('deliveryRunId');
+  }
+  const expectedReceiptStatus = nextStatus === 'done' ? 'passed' : 'failed';
+  if (receipt.status !== expectedReceiptStatus) errors.push('status');
+  const summary = typeof receipt.summary === 'string' ? receipt.summary.trim() : '';
+  if (!summary) errors.push('summary');
+  if (strings(receipt.evidenceRefs).length === 0) errors.push('evidenceRefs');
+
+  const rawFindings = Array.isArray(receipt.findings) ? receipt.findings : [];
+  const findings = rawFindings.flatMap((value) => {
+    const finding = recordInput(value);
+    if (
+      !finding
+      || !['blocking', 'important', 'advisory'].includes(String(finding.severity))
+      || !['open', 'resolved'].includes(String(finding.status))
+      || typeof finding.description !== 'string'
+      || !finding.description.trim()
+      || strings(finding.evidenceRefs).length === 0
+    ) return [];
+    return [{
+      severity: String(finding.severity),
+      status: String(finding.status),
+      description: finding.description.trim(),
+    }];
+  });
+  if (findings.length !== rawFindings.length) errors.push('findings');
+  const unresolvedMaterial = findings.filter((finding) =>
+    finding.status === 'open' && ['blocking', 'important'].includes(finding.severity)
+  );
+  if (expectedReceiptStatus === 'passed' && unresolvedMaterial.length > 0) {
+    errors.push('unresolvedMaterialFinding');
+  }
+  if (expectedReceiptStatus === 'failed' && unresolvedMaterial.length === 0) {
+    errors.push('openMaterialFinding');
+  }
+  if (errors.length > 0) {
+    return {
+      applicable: true,
+      allowed: false,
+      error: `Invalid quality-gate review receipt: ${errors.join(', ')}`,
+    };
+  }
+  const findingSummary = unresolvedMaterial.map((finding) => finding.description).join('; ');
+  return {
+    applicable: true,
+    allowed: true,
+    reviewNote: `${expectedReceiptStatus === 'passed' ? 'PASS' : 'REJECT'}: ${summary}${findingSummary ? ` — ${findingSummary}` : ''}`,
+  };
+}
+
+function autonomousImplementationExecutionError(
+  invocation: ToolInvocation,
+  task: TaskRow,
+): string | undefined {
+  if (!invocation.deliveryRunId) return undefined;
+  const snapshot = autonomousDeliveryRepo.getSnapshot(invocation.deliveryRunId);
+  if (!snapshot || snapshot.run.conversation_id !== task.conversation_id) {
+    return 'Autonomous implementation evidence is not bound to the current DeliveryRun';
+  }
+  const spans = observationSpanRepo.listByConversation(task.conversation_id).filter((span) =>
+    span.kind === 'tool'
+    && span.task_id === task.id
+    && span.agent_id === invocation.agentId
+    && span.started_at >= snapshot.run.created_at
+  );
+  const command = (spanId: string) => spanPayloadRepo.get(spanId, 'tool_input')?.content ?? '';
+  const categories = [
+    ['install', /\b(?:npm|pnpm|yarn|bun)\s+(?:install|i|ci)\b/i],
+    ['build', /\b(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?build\b|\b(?:npx\s+)?tsc\b/i],
+    ['test', /\b(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?test\b|\b(?:npx\s+)?(?:vitest|jest|playwright)\b/i],
+  ] as const;
+  const invalid = categories.flatMap(([name, pattern]) => {
+    const latest = spans.find((span) => pattern.test(command(span.span_id)));
+    return latest?.status === 'ok' && latest.ended_at ? [] : [name];
+  });
+  return invalid.length > 0
+    ? `Autonomous implementation evidence requires normally exited install/build/test commands; missing or failed: ${invalid.join(', ')}`
+    : undefined;
 }
 
 // ── Tool implementations (direct DB) ──────────
@@ -191,46 +326,83 @@ function executeTaskUpdateStatus(invocation: ToolInvocation): ToolResult {
   if (!existing) {
     return { success: false, error: `Task not found: ${taskId}` };
   }
-
-  const evidence = invocation.input.evidence;
-  const gateDecision = evaluateTaskStatusEvidenceGate({
-    task: existing,
-    nextStatus: status,
-    actorId: invocation.agentId,
-    evidence,
-    pullRequestRequired: Boolean(conversationRepo.getById(existing.conversation_id)?.git_repo_root),
-    verifiedPullRequest: taskGraphRepo.listActionsForTask(taskId).some((action) => action.type === 'task.pull_request_submitted'),
-    verifiedMerge: hasCurrentVerifiedMerge(taskGraphRepo.listActionsForTask(taskId)),
-  });
-  if (!gateDecision.allowed) {
-    proofLogRepo.append({
-      eventType: 'task_graph.gate_evidence.blocked',
-      conversationId: existing.conversation_id,
-      taskId,
-      actorId: invocation.agentId,
-      reasonCode: gateDecision.reasonCode,
-      metadata: {
-        status,
-        gateName: gateDecision.gateName,
-        missingFields: gateDecision.missingFields,
-      },
-    });
-    return { success: false, error: gateDecision.message ?? 'Task gate evidence is required' };
+  if (existing.conversation_id !== invocation.conversationId) {
+    return { success: false, error: `Task ${taskId} does not belong to the invoking conversation` };
   }
 
-  taskRepo.updateStatus(taskId, status);
-  if (gateDecision.required) {
+  const evidence = invocation.input.evidence;
+  const reviewDecision = taskReviewReceiptDecision(invocation, existing, status, evidence);
+  if (reviewDecision.applicable && !reviewDecision.allowed) {
     proofLogRepo.append({
-      eventType: 'task_graph.gate_evidence.accepted',
+      eventType: 'task_graph.review_decision.blocked',
       conversationId: existing.conversation_id,
       taskId,
       actorId: invocation.agentId,
+      reasonCode: 'task_graph.review_receipt_invalid',
       metadata: {
         status,
-        gateName: gateDecision.gateName,
-        evidence,
+        error: reviewDecision.error,
       },
     });
+    return { success: false, error: reviewDecision.error };
+  }
+
+  if (reviewDecision.applicable) {
+    taskRepo.updateStatus(taskId, status, reviewDecision.reviewNote);
+    proofLogRepo.append({
+      eventType: 'task_graph.review_decision.accepted',
+      conversationId: existing.conversation_id,
+      taskId,
+      actorId: invocation.agentId,
+      metadata: { status, gateName: 'task_review_decision', evidence },
+    });
+  } else {
+    const gateDecision = evaluateTaskStatusEvidenceGate({
+      task: existing,
+      nextStatus: status,
+      actorId: invocation.agentId,
+      evidence,
+      pullRequestRequired: Boolean(conversationRepo.getById(existing.conversation_id)?.git_repo_root),
+      verifiedPullRequest: taskGraphRepo.listActionsForTask(taskId).some((action) => action.type === 'task.pull_request_submitted'),
+      verifiedMerge: hasCurrentVerifiedMerge(taskGraphRepo.listActionsForTask(taskId)),
+    });
+    const executionError = status === 'in_review'
+      ? autonomousImplementationExecutionError(invocation, existing)
+      : undefined;
+    if (!gateDecision.allowed || executionError) {
+      proofLogRepo.append({
+        eventType: 'task_graph.gate_evidence.blocked',
+        conversationId: existing.conversation_id,
+        taskId,
+        actorId: invocation.agentId,
+        reasonCode: executionError ? 'task_graph.verification_execution_failed' : gateDecision.reasonCode,
+        metadata: {
+          status,
+          gateName: gateDecision.gateName,
+          missingFields: gateDecision.missingFields,
+          executionError,
+        },
+      });
+      return {
+        success: false,
+        error: executionError ?? gateDecision.message ?? 'Task gate evidence is required',
+      };
+    }
+
+    taskRepo.updateStatus(taskId, status);
+    if (gateDecision.required) {
+      proofLogRepo.append({
+        eventType: 'task_graph.gate_evidence.accepted',
+        conversationId: existing.conversation_id,
+        taskId,
+        actorId: invocation.agentId,
+        metadata: {
+          status,
+          gateName: gateDecision.gateName,
+          evidence,
+        },
+      });
+    }
   }
 
   // Also update TASKS.md
@@ -244,7 +416,20 @@ function executeTaskUpdateStatus(invocation: ToolInvocation): ToolResult {
     console.error('[task_update_status] failed to update TASKS.md:', e);
   }
 
-  return { success: true, data: { id: taskId, status } };
+  const updated = taskRepo.getById(taskId)!;
+  publishTaskChangeNotification({
+    io: invocation.io,
+    kind: 'task.status_changed',
+    task: updated,
+    previousTask: existing,
+    actorId: invocation.agentId,
+    actorType: 'agent',
+    changedFields: updated.review_note !== existing.review_note
+      ? ['status', 'review_note']
+      : ['status'],
+  });
+
+  return { success: true, data: { id: taskId, status, reviewNote: updated.review_note } };
 }
 
 function executeTaskAssign(invocation: ToolInvocation): ToolResult {

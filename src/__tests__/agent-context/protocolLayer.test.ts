@@ -20,6 +20,8 @@ describe('buildProtocolLayer', () => {
     expect(result).toContain('Role: backend');
     expect(result).toContain('任务看板绝对路径');
     expect(result).not.toContain('.ath/TASKS.md');
+    expect(result).toContain('任务看板是只读投影');
+    expect(result).toContain('禁止用原生文件编辑');
   });
 
   it('includes task assignment guidance when hasTaskAssignment=true', () => {
@@ -41,5 +43,7 @@ describe('buildProtocolLayer', () => {
     const result = buildProtocolLayer({ agentId: 'peach', agentRole: 'testing', hasTaskAssignment: true });
     expect(result).toContain('PASS → done');
     expect(result).toContain('唯一例外是 reviewer');
+    expect(result).toContain('evidence.reviewReceipt');
+    expect(result).toContain('task_update_status');
   });
 });

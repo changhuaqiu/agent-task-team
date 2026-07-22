@@ -141,7 +141,12 @@ function addWakeup(wakeups: TaskWakeup[], input: {
                   : input.reasonCode === 'runnable_owned_idle'
                     ? '任务可继续但没有活跃派发，请恢复执行或说明阻塞'
                     : '请继续处理';
-  const prompt = `${actionText} ${input.task.id}: ${input.task.title}. ${input.task.description ?? ''}`.trim();
+  const gateContract = input.reasonCode === 'review_requested'
+    ? ' 仅通过 task_update_status 提交裁决，不要编辑 TASKS.md：PASS 使用 status=done，REJECT 使用 status=rejected 或 blocked；两者都必须提供 evidence.reviewReceipt（schemaVersion=1、当前 deliveryRunId、status、reviewerAgentId、summary、evidenceRefs、findings）。仅输出评审文字不算完成。'
+    : input.reasonCode === 'test_requested'
+      ? ' 仅通过 task_update_status 提交结构化验证回执；测试命令必须正常退出，watch 模式超时、权限拒绝或非零退出不能作为通过证据。'
+      : '';
+  const prompt = `${actionText} ${input.task.id}: ${input.task.title}. ${input.task.description ?? ''}${gateContract}`.trim();
   const idempotencyKey = `${input.task.conversation_id}:${input.task.id}:${agentId}:${input.reasonCode}`;
 
   wakeups.push({

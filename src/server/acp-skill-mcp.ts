@@ -34,6 +34,8 @@ export type AcpSkillToolDefinition = {
 export type AcpSkillMcpScope = {
   agentId: string;
   conversationId: string;
+  invocationId?: string;
+  deliveryRunId?: string;
   projectId?: string;
   taskId?: string;
   taskProjectDir?: string;
@@ -154,6 +156,8 @@ export async function executeAcpSkillMcpTool(
     input,
     agentId: grant.agentId,
     conversationId: grant.conversationId,
+    invocationId: grant.invocationId,
+    deliveryRunId: grant.deliveryRunId,
     projectId: grant.projectId,
     taskId: grant.taskId,
     taskProjectDir: grant.taskProjectDir,

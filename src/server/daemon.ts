@@ -2255,6 +2255,8 @@ export default function registerDaemon(io: IOServer) {
         ? registerAcpSkillMcpGrant({
           agentId,
           conversationId: sessionConvId,
+          invocationId: invocation.id,
+          deliveryRunId,
           projectId,
           taskId,
           taskProjectDir,

@@ -96,6 +96,9 @@ describe('task wakeup resolver', () => {
       reasonCode: 'review_requested',
       dispatchSource: 'review_gate',
     });
+    expect(wakeups[0].prompt).toContain('task_update_status');
+    expect(wakeups[0].prompt).toContain('evidence.reviewReceipt');
+    expect(wakeups[0].prompt).toContain('不要编辑 TASKS.md');
   });
 
   it('wakes coordinators when a reviewer submits a review decision', () => {

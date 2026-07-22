@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   createTurnScopedAcpEventMapper,
+  inferAcpToolResultStatus,
   mapAcpUpdate,
   KNOWN_SESSION_UPDATE_TYPES,
 } from './agentEventMapper';
@@ -156,6 +157,25 @@ describe('mapAcpUpdate', () => {
           status: 'failed',
         },
       });
+    });
+
+    it('fails a completed shell RPC when the process timed out in watch mode', () => {
+      const r = mapAcpUpdate({
+        sessionUpdate: 'tool_call_update',
+        toolCallId: 'watch-timeout',
+        status: 'completed',
+        rawOutput: {
+          output: '79 passed\nPASS Waiting for file changes...\n<shell_metadata>\nshell tool terminated command after exceeding timeout 120000 ms.\n</shell_metadata>',
+          metadata: { exit: null, description: 'Run unit tests' },
+        },
+      } as any) as AgentEvent;
+
+      expect(r.tool?.status).toBe('failed');
+    });
+
+    it('fails non-zero structured shell exits and preserves exit zero', () => {
+      expect(inferAcpToolResultStatus({ metadata: { exit: 1 } }, 'completed')).toBe('failed');
+      expect(inferAcpToolResultStatus({ metadata: { exit: 0 } }, 'completed')).toBe('completed');
     });
 
     it('content empty when rawOutput absent', () => {

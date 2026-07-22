@@ -7,7 +7,7 @@ export const TASK_MANAGEMENT_SKILL: CreateSkillInput = {
 
 You can create, assign, and update tasks for your team through the platform fact source.
 
-Tool schemas in this skill are contracts, not proof that the current runtime registered them. Invoke only an exact platform tool name that the runtime explicitly exposes. If no exact platform task tool is exposed, edit the absolute TASKS.md path supplied by the platform.
+Tool schemas in this skill are contracts, not proof that the current runtime registered them. Invoke only an exact platform tool name that the runtime explicitly exposes. TASKS.md is a read-only compatibility projection: never edit it to change task facts. If no exact platform task tool is exposed, report a structured blocker instead of fabricating a file-side transition.
 
 Never substitute runtime-native Task, Agent, SendMessage, TodoWrite, or TodoRead. Those tools belong to the underlying CLI and do not update the platform Task Graph or A2A possession state. Emit actionable A2A handoffs in your normal visible response instead of calling SendMessage.
 
@@ -21,7 +21,8 @@ After emitting one actionable handoff, end the turn immediately. Do not execute 
 - Status changes into in_review or done require gate evidence. For a Git-backed project, use the Git Collaboration receipt tools; do not call task_update_status to imitate in_review or done. Non-Git tasks still require the applicable implementation or delivery evidence.
 - When a Team Harness review wakeup requests evidence.reviewReceipt, preserve the task's done status and submit the exact structured receipt requested by the wakeup. A PASS requires real review evidence and no unresolved blocking or important finding; implementer self-review is not an independent gate.
 - When a Team Harness verification wakeup requests evidence.verificationReceipt, preserve the task's done status and submit the exact structured receipt requested by the wakeup. For Web UI acceptance, use Browser/Playwright end to end; API-only checks are not equivalent. Every acceptance criterion needs its own real evidenceRefs, and a missing report must be reported as failed.
-- A quality-gate reviewer explicitly woken for one in_review task may make a narrow decision on that task: PASS updates it to done with review evidence; REJECT updates it to rejected/blocked with the reason. This does not allow editing implementation content, title, owner, or unrelated tasks.
+- A quality-gate reviewer explicitly woken for one in_review task may make a narrow decision on that task only through task_update_status. PASS updates it to done; REJECT updates it to rejected/blocked. Both require evidence.reviewReceipt with schemaVersion=1, the exact deliveryRunId when present, status=passed|failed, reviewerAgentId, summary, evidenceRefs and findings. This does not allow editing implementation content, TASKS.md, title, owner, or unrelated tasks.
+- Test/build evidence is valid only when its command tool result reports a normal successful process exit. PASS text followed by watch mode, timeout, termination, permission refusal, or a non-zero exit must be treated as failed and rerun with a one-shot command such as \`vitest run\`.
 - When an implementer updates a task to review/in_review, that transition already requests the configured quality gate. End the turn without a manual @reviewer A2A handoff. Create another pass only after an explicit platform wakeup failure or for a distinct specialist review.
 - Text scheduling is not execution. Do not claim a task lane is started unless a real dispatch receipt, A2A pass offer, task wakeup dispatch, or execution-start acknowledgement exists for the target agent and task.
 - For parallel dispatch, verify every target separately and report n/n dispatched. If only part of the fan-out starts, retry or escalate instead of saying all lanes started.
@@ -58,7 +59,7 @@ After emitting one actionable handoff, end the turn immediately. Do not execute 
         description: 'Update a task status',
         parameters: [
           { name: 'task_id', type: 'string', required: true, description: 'Task ID to update' },
-          { name: 'status', type: 'string', required: true, description: 'New status: pending, in_progress, in_review, done, blocked' },
+          { name: 'status', type: 'string', required: true, description: 'New status: pending, in_progress, in_review, done, blocked, rejected' },
           { name: 'evidence', type: 'object', required: false, description: 'Evidence for non-Git task gates. Git-backed in_review/done transitions require collaboration_record_pr or collaboration_record_merge instead. A review wakeup additionally requires reviewReceipt; a verification wakeup additionally requires verificationReceipt with deliveryRunId, verifierAgentId, method, tool, real reportRef/specRefs files, and criterion-specific acceptanceResults/evidenceRefs.' },
         ],
         handler: 'api://tasks/update',

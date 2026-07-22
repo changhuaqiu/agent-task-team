@@ -46,11 +46,20 @@ const TERMINAL_TASK_STATUSES = new Set(['done', 'abandoned', 'cancelled']);
 const ACTIVE_ENVELOPE_STATUSES = new Set(['drafted', 'validated', 'queued', 'routed', 'sent', 'started']);
 const RECOVERABLE_ENVELOPE_STATUSES = new Set(['blocked', 'failed', 'expired']);
 
-function scenarioForDeliveryAction(kind: DeliveryActionKind): 'planning' | 'execution' | 'code_review' | 'verification' | 'recovery' {
+export function scenarioForDeliveryAction(
+  kind: DeliveryActionKind,
+  wakeup?: Pick<TaskWakeup, 'dispatchSource' | 'reasonCode'>,
+): 'planning' | 'execution' | 'code_review' | 'verification' | 'recovery' {
   if (kind === 'request_review') return 'code_review';
   if (kind === 'run_verification') return 'verification';
   if (kind === 'repair_review' || kind === 'repair_verification') return 'recovery';
   if (kind === 'plan_goal') return 'planning';
+  if (wakeup?.dispatchSource === 'review_gate' || wakeup?.reasonCode === 'review_requested') {
+    return 'code_review';
+  }
+  if (wakeup?.dispatchSource === 'test_gate' || wakeup?.reasonCode === 'test_requested') {
+    return 'verification';
+  }
   return 'execution';
 }
 
@@ -641,7 +650,7 @@ export class HarnessDeliveryActionAdapter implements DeliveryActionPort {
           idempotencyKey: claim.action.idempotency_key,
         },
       },
-      scenarioForDeliveryAction(claim.action.kind),
+      scenarioForDeliveryAction(claim.action.kind, wakeup),
       snapshot.run.id,
     );
     if (!submission?.handled) {
