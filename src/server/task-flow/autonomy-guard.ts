@@ -12,7 +12,7 @@ export interface ResolveAutonomyGuardWakeupsInput {
   qaAgentIds: string[];
   edges?: TaskEdgeRow[];
   closureDispatchedRootTaskIds?: string[];
-  activeDeliveryRootTaskIds?: string[];
+  deliveryControlledRootTaskIds?: string[];
   now?: Date;
   staleMs?: number;
 }
@@ -76,7 +76,7 @@ export function resolveAutonomyGuardWakeups(input: ResolveAutonomyGuardWakeupsIn
   const tasksById = new Map(input.tasks.map((task) => [task.id, task]));
   const wakeups: TaskWakeup[] = [];
   const terminalTaskStatuses = new Set(['done', 'abandoned', 'cancelled']);
-  const activeDeliveryRootTaskIds = new Set(input.activeDeliveryRootTaskIds ?? []);
+  const deliveryControlledRootTaskIds = new Set(input.deliveryControlledRootTaskIds ?? []);
   const subtaskEdges = (input.edges ?? []).filter((edge) => edge.type === 'subtask_of');
   const childrenByParent = new Map<string, string[]>();
   const childIds = new Set<string>();
@@ -138,7 +138,7 @@ export function resolveAutonomyGuardWakeups(input: ResolveAutonomyGuardWakeupsIn
     const updatedAt = task.updated_at ? new Date(task.updated_at).getTime() : 0;
     const isStale = updatedAt > 0 && now.getTime() - updatedAt >= staleMs;
     const activeDispatch = hasActiveDispatch(task.id, input.envelopes);
-    const isActiveDeliveryRootWithNonTerminalChildren = activeDeliveryRootTaskIds.has(task.id)
+    const isDeliveryControlledRootWithNonTerminalChildren = deliveryControlledRootTaskIds.has(task.id)
       && input.tasks.some((candidate) =>
         candidate.id !== task.id && !terminalTaskStatuses.has(candidate.status)
       );
@@ -160,7 +160,7 @@ export function resolveAutonomyGuardWakeups(input: ResolveAutonomyGuardWakeupsIn
       && task.agent_id
       && isStale
       && !activeDispatch
-      && !isActiveDeliveryRootWithNonTerminalChildren
+      && !isDeliveryControlledRootWithNonTerminalChildren
     ) {
       pushOnce(makeWakeup({
         task,

@@ -276,7 +276,7 @@ Agent 文本中的“完成了”不参与该判断。
 - `permanent_configuration`：缺少账号、凭证或工具；升级。
 - `unknown`：有限重试后升级。
 
-根 Task 是交付编排承诺，不是每个子任务执行期间都必须持续产生状态变化的普通工作项。只要存在任一非终态的非根 Task，Supervisor 不得把根 Task 的 completed/failed/expired Envelope 计入 no-progress 恢复耗尽，也不得从 autonomy-guard 或 action 执行旁路重新派发根 Task；执行恢复必须由实际负责推进的子 Task 承担。该约束必须覆盖 daemon 全局 autonomy-guard 定时扫描：扫描必须从持久化的 active DeliveryRun 得到根 Task 抑制集合，不能只依赖可选的 `subtask_of` 边，因为自主交付任务可能尚未写入这些边。若数据库中已经存在一个待执行的旧 root `advance_tasks` Action，Action adapter 必须将它以带 skipped/superseded Receipt 的成功 no-op 收口，不能返回可重试失败并把整个 Run 升级。全部子 Task 首次进入终态时，Repository 为当前稳定子任务集合写入不可变、幂等的收敛 Receipt，并以其 `observed_at` 作为新的根恢复 epoch；`done → done`、补 artifacts/evidence 等后续可变更新时间不得刷新 epoch。epoch 之前的历史 Envelope 不消耗收口预算；根 Task随后由 chain-closure 或 epoch 后的新根恢复推进。根 Task 尚未拆出子 Task 时仍走普通恢复。
+根 Task 是交付编排承诺，不是每个子任务执行期间都必须持续产生状态变化的普通工作项。只要存在任一非终态的非根 Task，Supervisor 不得把根 Task 的 completed/failed/expired Envelope 计入 no-progress 恢复耗尽，也不得从 autonomy-guard 或 action 执行旁路重新派发根 Task；执行恢复必须由实际负责推进的子 Task 承担。该约束必须覆盖 daemon 全局 autonomy-guard 定时扫描：扫描必须从持久化的、尚未 `completed|cancelled` 的 DeliveryRun 得到根 Task 抑制集合，`escalated` Run 仍由 Delivery 控制且不能退回普通 Task 恢复；不能只依赖可选的 `subtask_of` 边，因为自主交付任务可能尚未写入这些边。若数据库中已经存在一个待执行的旧 root `advance_tasks` Action，Action adapter 必须将它以带 skipped/superseded Receipt 的成功 no-op 收口，不能返回可重试失败并把整个 Run 升级。全部子 Task 首次进入终态时，Repository 为当前稳定子任务集合写入不可变、幂等的收敛 Receipt，并以其 `observed_at` 作为新的根恢复 epoch；`done → done`、补 artifacts/evidence 等后续可变更新时间不得刷新 epoch。epoch 之前的历史 Envelope 不消耗收口预算；根 Task随后由 chain-closure 或 epoch 后的新根恢复推进。根 Task 尚未拆出子 Task 时仍走普通恢复。
 
 同一 repair cycle 的 Action 处于 `ready/claimed/running/retry_wait` 时必须复用原 cycle；
 只有该 Action `succeeded` 但外部失败事实仍存在时才进入下一 cycle。repair Action 自身

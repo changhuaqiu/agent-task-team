@@ -159,7 +159,7 @@ describe('autonomy guard wakeups', () => {
       coordinatorAgentIds: ['mario'],
       reviewAgentIds: ['peach'],
       qaAgentIds: ['yoshi'],
-      activeDeliveryRootTaskIds: ['ROOT'],
+      deliveryControlledRootTaskIds: ['ROOT'],
       now: new Date('2026-05-21T00:31:00.000Z'),
       staleMs: 30 * 60 * 1000,
     });
@@ -178,7 +178,7 @@ describe('autonomy guard wakeups', () => {
       coordinatorAgentIds: ['mario'],
       reviewAgentIds: ['peach'],
       qaAgentIds: ['yoshi'],
-      activeDeliveryRootTaskIds: ['ROOT'],
+      deliveryControlledRootTaskIds: ['ROOT'],
       now: new Date('2026-05-21T00:31:00.000Z'),
       staleMs: 30 * 60 * 1000,
     });

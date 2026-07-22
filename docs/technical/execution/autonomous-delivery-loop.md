@@ -270,8 +270,9 @@ idempotency key，在剩余预算内创建新 Attempt。恢复不依赖进程内
 根 Task 代表整次交付的编排承诺。存在非终态子 Task 时，根 Task 的历史、重启过期或
 completed-without-status-change Envelope 不进入 no-progress 恢复计数，autonomy guard 与
 Action executor 也不得从旁路重新唤醒根 Task，避免把仍在推进的 DeliveryRun 升级为
-`poisoned_session`。daemon 的全局 autonomy-guard 定时扫描必须按 active DeliveryRun 计算并传入
-根 Task 恢复抑制集合；不能只用 `subtask_of` 边判断，因为自主交付子任务可能尚未投影这些边。
+`poisoned_session`。daemon 的全局 autonomy-guard 定时扫描必须按尚未 `completed|cancelled` 的
+DeliveryRun 计算并传入根 Task 恢复抑制集合；`escalated` 仍是 Delivery 控制态，不能回落为普通
+Task 的 `runnable_owned_idle`。不能只用 `subtask_of` 边判断，因为自主交付子任务可能尚未投影这些边。
 此时由子 Task 的 Envelope/Task 状态承担执行恢复。全部子 Task 首次终态后，
 Repository 按稳定子任务 ID 集合写入一次不可变 `root.children.converged` Receipt，以该 Receipt
 的 `observed_at` 开启新的根恢复 epoch；后续 `done → done` 或 artifacts/evidence 更新不能刷新

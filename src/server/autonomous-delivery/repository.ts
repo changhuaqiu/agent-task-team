@@ -63,6 +63,20 @@ export class AutonomousDeliveryRepository {
     ).all() as DeliveryRunRow[];
   }
 
+  /**
+   * Runs whose root task is still owned by the Delivery state machine.
+   * Escalation stops Supervisor advancement, but it must not hand the root
+   * back to the generic task autonomy guard.
+   */
+  listRootGuarded(): DeliveryRunRow[] {
+    return getDb().prepare(
+      `SELECT * FROM autonomous_delivery_run
+       WHERE status NOT IN ('completed','cancelled')
+         AND root_task_id IS NOT NULL
+       ORDER BY updated_at ASC, id ASC`,
+    ).all() as DeliveryRunRow[];
+  }
+
   getSnapshot(runId: string): DeliveryRunSnapshot | undefined {
     const run = this.getRun(runId);
     if (!run) return undefined;

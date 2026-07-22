@@ -47,6 +47,37 @@ afterEach(() => {
 });
 
 describe('autonomous delivery bootstrap reconcile', () => {
+  it('keeps an escalated run root-guarded without treating it as active', () => {
+    const repository = new AutonomousDeliveryRepository();
+    const run = repository.createRun(contract);
+    const root = taskRepo.create({
+      id: 'root-escalated',
+      conversation_id: contract.scope.conversationId,
+      title: 'delivery root',
+      agent_id: 'mario',
+    });
+    repository.updateRun({
+      runId: run.run.id,
+      status: 'executing',
+      stage: 'executing',
+      rootTaskId: root.id,
+    });
+    repository.updateRun({
+      runId: run.run.id,
+      status: 'escalated',
+      stage: 'executing',
+      escalationCode: 'poisoned_session',
+      escalationDetail: 'child runtime exhausted',
+    });
+
+    expect(repository.listActive()).toEqual([]);
+    expect(repository.listRootGuarded()).toContainEqual(expect.objectContaining({
+      id: run.run.id,
+      root_task_id: root.id,
+      status: 'escalated',
+    }));
+  });
+
   it('aborts the reconcile cycle when an ownership pre-check fails', async () => {
     const failed = vi.fn(async () => { throw new Error('legacy ownership is unknown'); });
     const mustNotRun = vi.fn();
