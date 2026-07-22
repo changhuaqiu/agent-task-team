@@ -18,6 +18,7 @@ import { AutonomousDeliveryRepository } from '@/server/autonomous-delivery/repos
 import type { GoalContract } from '@/server/autonomous-delivery/types';
 import { observationSpanRepo } from '@/server/repositories/observation-span-repo';
 import { spanPayloadRepo } from '@/server/repositories/span-payload-repo';
+import { seedPresetAgents } from '@/server/db/seed-agents';
 
 describe('skill tool collaboration gates', () => {
   beforeEach(() => {
@@ -179,6 +180,7 @@ describe('skill tool collaboration gates', () => {
     });
     expect(submitted).toMatchObject({
       taskId: 'TASK-REVIEW', agentId: 'luigi', contextScenario: 'code_review',
+      deliveryRunId: reviewRun.run.id,
       wakeup: { reasonCode: 'review_rejected' },
     });
     expect(proofLogRepo.findByType({
@@ -189,6 +191,7 @@ describe('skill tool collaboration gates', () => {
   });
 
   it('rejects autonomous implementation evidence until install, build and test all exit normally', async () => {
+    seedPresetAgents();
     conversationRepo.create({ id: 'conv-exec-proof', title: 'Execution proof' });
     const task = taskRepo.create({
       id: 'TASK-EXEC-PROOF', conversation_id: 'conv-exec-proof', title: 'Build it', agent_id: 'luigi',
@@ -239,11 +242,25 @@ describe('skill tool collaboration gates', () => {
       },
     });
     observationSpanRepo.finish(statusSpan.span_id, 'error', { outputPreview: 'gate rejected' });
+    let submitted: HarnessTrigger | undefined;
+    const io = { to: () => ({ emit: () => undefined }) } as unknown as IOServer;
+    registerHarnessCoordinator(io, {
+      submit(trigger: HarnessTrigger) {
+        submitted = trigger;
+        return { disposition: 'accepted', handled: true, completion: new Promise(() => undefined) };
+      },
+    } as unknown as HarnessCoordinator);
     const accepted = await executeSkillTool({
       toolName: 'task_update_status', agentId: 'luigi', conversationId: 'conv-exec-proof',
-      deliveryRunId: run.run.id, input: { task_id: task.id, status: 'in_review', evidence },
+      deliveryRunId: run.run.id, io, input: { task_id: task.id, status: 'in_review', evidence },
     });
     expect(accepted.success).toBe(true);
     expect(taskRepo.getById(task.id)?.status).toBe('in_review');
+    expect(submitted).toMatchObject({
+      deliveryRunId: run.run.id,
+      taskId: task.id,
+      contextScenario: 'code_review',
+      wakeup: { reasonCode: 'review_requested' },
+    });
   });
 });

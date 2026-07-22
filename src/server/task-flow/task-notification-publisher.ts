@@ -21,7 +21,7 @@ import {
   resolveTaskWakeups,
   type TaskWakeup,
 } from './task-wakeup';
-import { submitTaskWakeupToHarness } from '../harness/registry';
+import { scenarioForWakeup, submitTaskWakeupToHarness } from '../harness/registry';
 import { reconcileAutonomousDeliveryConversation } from '../autonomous-delivery/registry';
 
 export interface PublishTaskNotificationInput {
@@ -37,6 +37,11 @@ export interface PublishTaskNotificationInput {
 
 export interface PublishTaskChangeNotificationInput {
   io?: IOServer;
+  /**
+   * Trusted DeliveryRun binding from the Invocation that committed this task
+   * mutation. Callers must not infer it from the latest Conversation run.
+   */
+  deliveryRunId?: string;
   kind: TaskNotificationKind;
   task: TaskRow;
   previousTask?: TaskRow;
@@ -248,7 +253,12 @@ export function publishTaskChangeNotification(input: PublishTaskChangeNotificati
         prompt: wakeup.prompt,
       },
     });
-    const submission = submitTaskWakeupToHarness(input.io, { ...wakeup, id });
+    const submission = submitTaskWakeupToHarness(
+      input.io,
+      { ...wakeup, id },
+      scenarioForWakeup(wakeup),
+      input.deliveryRunId,
+    );
     emitWakeupToConversation(input.io, wakeup.conversationId, {
       ...wakeup,
       id,

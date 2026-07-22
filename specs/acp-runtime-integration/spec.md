@@ -140,6 +140,7 @@ ACP 文本更新是流式增量，不是独立聊天消息。daemon 可以逐 ch
 - permission request 必须经过统一策略：允许、拒绝或请求用户确认。
 - 无交互执行只能使用用户预先授权的策略；默认不采用“选择第一个选项自动授权”。
 - 活跃自主交付的 `GoalContract.authorization.allowCodeChanges=true` 是该 DeliveryRun 内一次性原生工具授权的显式来源。Harness 必须把精确 `deliveryRunId` 传到 Invocation；daemon 只能读取该 Run，并同时校验 `run.id`、`conversation_id` 与当前 Invocation，禁止用“同一 Conversation 最新 Run”推断授权。手动调用、缺少 Run 绑定、Run/Conversation 不匹配均默认拒绝。
+- 平台任务工具引发的即时 review/test gate wakeup 必须复用调用 Invocation 的同一精确 `deliveryRunId`；Task Notification Publisher 不得丢失该绑定，也不得自行查询“最新 Run”。否则即使 prompt 展示了 Run 文本，Reviewer/QA 的原生工具仍必须被权限层拒绝。
 - 自主授权必须在每次 permission request 时重新读取 Run 状态；Run 一旦 `completed`、`escalated` 或 `cancelled`，已经创建的 backend 也必须立即失去授权。
 - `ACP_PERMISSION_MODE=allow_once` 只保留为运维级显式放行覆盖，`ACP_PERMISSION_MODE=deny` 是所有 ACP 权限请求的硬拒绝，连已相关的平台 MCP 单次批准也不得绕过；它们不能替代逐 DeliveryRun 授权，也不能把一个任务的授权泄漏给其他 Conversation 或 Invocation。
 - 子进程继承的环境变量采用白名单或现有安全环境策略。宿主服务的部署语义不得污染项目执行：`AcpBackend` 默认从继承环境中移除宿主 `NODE_ENV`，避免生产模式让 Agent 执行的 `npm install` 静默跳过 devDependencies；runtime 或单次 turn 显式提供的 `NODE_ENV` 仍可覆盖并传入。

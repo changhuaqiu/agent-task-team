@@ -441,6 +441,7 @@ function executeTaskUpdateStatus(invocation: ToolInvocation): ToolResult {
   const updated = taskRepo.getById(taskId)!;
   publishTaskChangeNotification({
     io: invocation.io,
+    deliveryRunId: invocation.deliveryRunId,
     kind: 'task.status_changed',
     task: updated,
     previousTask: existing,
