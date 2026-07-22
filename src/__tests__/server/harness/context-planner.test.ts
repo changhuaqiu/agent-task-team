@@ -38,6 +38,28 @@ afterEach(() => {
 });
 
 describe('RepositoryHarnessPlanner', () => {
+  it('does not trust a socket-supplied DeliveryRun binding for a manual invocation', () => {
+    const submit = vi.fn(() => ({
+      disposition: 'accepted' as const,
+      handled: true,
+      completion: Promise.resolve({ status: 'accepted' as const }),
+    }));
+
+    submitSocketTerminalStart(
+      { submit } as unknown as Pick<HarnessCoordinator, 'submit'>,
+      {
+        dispatchId: 'socket-forged-run',
+        conversationId: 'conv-1',
+        deliveryRunId: 'forged-run',
+        agentId: 'luigi',
+        prompt: 'manual invocation',
+      },
+    );
+
+    expect(submit).toHaveBeenCalledOnce();
+    expect(submit.mock.calls[0][0]).not.toHaveProperty('deliveryRunId');
+  });
+
   it('blocks a task that belongs to another project before context assembly', async () => {
     const pack = teamPackRepo.getByName('default-team')!;
     conversationRepo.create({ id: 'conv-scope-a', title: 'Scope A', team_pack_id: pack.id });

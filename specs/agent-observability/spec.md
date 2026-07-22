@@ -94,7 +94,7 @@ reasoning. Prompt previews are optional, redacted, and bounded.
 
 - `tool_use` starts a tool span.
 - `tool_result` closes the matching span by call id; name is a fallback only.
-- Invocation termination closes any unmatched tool span with the invocation terminal status.
+- Invocation error/cancellation closes unmatched tool spans with the invocation terminal status. If the Invocation itself succeeds while a tool never emitted a terminal update, that tool span closes as `error` with `acp_tool_terminal_missing`; the parent/message spans may still close as `ok`.
 - Unknown tool names remain observable; the workbench does not reinterpret or execute them.
 
 ### 5.5 Causal workflow projection

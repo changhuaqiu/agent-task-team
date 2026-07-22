@@ -108,4 +108,19 @@ export const observationSpanRepo = {
       .all(invocationId) as { span_id: string }[];
     for (const row of rows) observationSpanRepo.finish(row.span_id, status, { errorMessage });
   },
+
+  finishOpenToolsByInvocation(invocationId: string, errorCode: string): void {
+    const rows = getDb().prepare(`SELECT span_id FROM observation_span
+      WHERE invocation_id = ? AND kind = 'tool' AND status = 'running'
+      ORDER BY started_at DESC`).all(invocationId) as { span_id: string }[];
+    for (const row of rows) {
+      observationSpanRepo.finish(row.span_id, 'error', {
+        errorMessage: errorCode,
+        attributes: {
+          'gen_ai.tool.status': 'failed',
+          'ath.error.code': errorCode,
+        },
+      });
+    }
+  },
 };

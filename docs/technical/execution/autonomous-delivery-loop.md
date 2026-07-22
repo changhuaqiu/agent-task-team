@@ -330,6 +330,11 @@ ACP 平台工具授权使用 grant 内的规范名 `mcp.<server>.<tool>`。不�
 未知 tool、普通文件/终端工具以及重放的 call ID 继续 fail closed。相关性不得依赖 adapter 私有
 `_meta`：Claude ACP 的 permission request 不携带 Codex ACP 的 MCP approval 标记。
 
+原生工具授权必须由 Harness 将精确 `deliveryRunId` 贯穿到 Invocation。daemon 不得按 Conversation 查找
+“最新 Run”替代该绑定，并须在每次 permission request 时重新读取该 Run、校验 Conversation 一致且
+Run 仍为非终态；手动调用、缺失/错误绑定和已取消 Run 一律拒绝。运维级
+`ACP_PERMISSION_MODE=deny` 是硬拒绝，优先于平台 MCP 的相关性单次批准。
+
 该接缝的边界是“Agent 如何决定并调用工具”，不是“系统是否完成”。测试适配器不得直接更新
 DeliveryRun、Action、Attempt、Receipt 或最终 Bundle；这些事实仍由生产 Repository、Task Tool
 和 Closure Policy 生成。测试控制端只负责把真实浏览器观察转换为 Agent 本应提交的结构化验证回执。

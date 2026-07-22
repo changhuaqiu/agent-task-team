@@ -123,6 +123,29 @@ describe('ACP permission policy', () => {
     });
   });
 
+  it('lets an operator hard deny override a correlated platform MCP approval', async () => {
+    const approvals = new CorrelatedPlatformMcpApprovalTracker();
+    approvals.observe('session-1', 'platform-call', true);
+    const platformRequest = {
+      ...request,
+      toolCall: { ...request.toolCall, toolCallId: 'platform-call' },
+    } as RequestPermissionRequest;
+
+    const hardDeny = createCorrelatedPlatformMcpPermissionPolicy(
+      'deny',
+      approvals,
+      { hardDeny: true },
+    );
+    await expect(createPermissionHandler(hardDeny)(platformRequest)).resolves.toEqual({
+      outcome: { outcome: 'selected', optionId: 'reject' },
+    });
+
+    const normalPolicy = createCorrelatedPlatformMcpPermissionPolicy('deny', approvals);
+    await expect(createPermissionHandler(normalPolicy)(platformRequest)).resolves.toEqual({
+      outcome: { outcome: 'selected', optionId: 'allow-once' },
+    });
+  });
+
   it('permanently invalidates a repeated or conflicting tool call id', async () => {
     const replayed = new CorrelatedPlatformMcpApprovalTracker();
     replayed.observe('session-1', 'replayed-call', true);

@@ -136,8 +136,9 @@ ACP 文本更新是流式增量，不是独立聊天消息。daemon 可以逐 ch
 - 复用现有账号与凭据存储，不把 token、API Key 或登录态写入 Catalog、日志和 spec。
 - permission request 必须经过统一策略：允许、拒绝或请求用户确认。
 - 无交互执行只能使用用户预先授权的策略；默认不采用“选择第一个选项自动授权”。
-- 活跃自主交付的 `GoalContract.authorization.allowCodeChanges=true` 是该 DeliveryRun 内一次性原生工具授权的显式来源；daemon 必须按 Conversation/Invocation 读取它，而不是要求用户额外设置全局环境变量。没有活跃授权的调用继续默认拒绝。
-- `ACP_PERMISSION_MODE=allow_once` 只保留为运维级显式放行覆盖，`ACP_PERMISSION_MODE=deny` 可强制拒绝；它们不能替代逐 DeliveryRun 授权，也不能把一个任务的授权泄漏给其他 Conversation。
+- 活跃自主交付的 `GoalContract.authorization.allowCodeChanges=true` 是该 DeliveryRun 内一次性原生工具授权的显式来源。Harness 必须把精确 `deliveryRunId` 传到 Invocation；daemon 只能读取该 Run，并同时校验 `run.id`、`conversation_id` 与当前 Invocation，禁止用“同一 Conversation 最新 Run”推断授权。手动调用、缺少 Run 绑定、Run/Conversation 不匹配均默认拒绝。
+- 自主授权必须在每次 permission request 时重新读取 Run 状态；Run 一旦 `completed`、`escalated` 或 `cancelled`，已经创建的 backend 也必须立即失去授权。
+- `ACP_PERMISSION_MODE=allow_once` 只保留为运维级显式放行覆盖，`ACP_PERMISSION_MODE=deny` 是所有 ACP 权限请求的硬拒绝，连已相关的平台 MCP 单次批准也不得绕过；它们不能替代逐 DeliveryRun 授权，也不能把一个任务的授权泄漏给其他 Conversation 或 Invocation。
 - 子进程继承的环境变量采用白名单或现有安全环境策略。
 - 日志记录协议阶段、运行时、session/invocation 关联与错误码，不记录敏感请求正文。
 
@@ -180,7 +181,7 @@ ACP 是长生命周期 daemon 启动的外部进程边界，不能假设 adapter
 9. **空闲与总时长分离**：`ExecOptions.timeout` 表示无 ACP 协议活动的 idle timeout，任意 session update（包括不展示的 usage/plan update）均续期；另设独立 hard max turn timeout，防止持续产生无效更新的进程无限占用资源。
 10. **原生工具不重复拦截**：daemon 判断 runtime 原生工具时大小写无关；`Read/Write/Bash` 与 `read/write/bash` 语义相同，不得作为平台自定义工具再次调用。
 11. **流式增量不是消息边界**：实时 socket 保留增量，聊天持久化按 Invocation 合并连续文本；工具和终止事件会关闭当前文本段。
-12. **授权与工具终态可追溯**：自主 `GoalContract` 的代码修改授权必须接到本 Invocation 的 ACP 单次权限策略；工具 refinement 必须保留最终输入，`failed` 终态必须关闭为 error，不能因全局默认拒绝或状态丢失形成“空调用成功”。
+12. **授权与工具终态可追溯**：自主 `GoalContract` 的代码修改授权必须绑定精确 DeliveryRun 与本 Invocation，并在每次权限请求时重验 Run 仍为非终态；工具 refinement 必须保留最终输入，`failed` 终态必须关闭为 error。若 Invocation 成功结束但工具从未产生终态，未闭合工具 span 必须以稳定错误 `acp_tool_terminal_missing` 关闭，不能被 Invocation 的成功收尾批量改写为成功。
 
 该契约参考 OpenClaw 的工程原则：活跃 run 使用可取消控制器、会话/并发有上限、超时后执行 bounded cleanup、流式输出设置字符上限、权限与配置异常 fail-closed。这里复用原则，不引入 OpenClaw 的 Gateway 或 session store 实现。
 

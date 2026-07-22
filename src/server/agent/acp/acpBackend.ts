@@ -58,6 +58,7 @@ export interface AcpBackendOpts {
   timeoutMs?: number;
   env?: Record<string, string>;
   permissionPolicy?: AcpPermissionPolicy;
+  hardDenyPermissions?: boolean;
   permissionTimeoutMs?: number;
   cancelGraceMs?: number;
   forceKillGraceMs?: number;
@@ -489,6 +490,7 @@ export class AcpBackend implements AgentBackend {
           createCorrelatedPlatformMcpPermissionPolicy(
             this.o.permissionPolicy ?? 'deny',
             platformMcpApprovals,
+            { hardDeny: this.o.hardDenyPermissions },
           ),
           this.o.permissionTimeoutMs,
         );

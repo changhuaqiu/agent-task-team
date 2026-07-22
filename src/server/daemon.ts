@@ -86,12 +86,13 @@ import {
 import { ensureAutonomousDeliveryRuntime } from './autonomous-delivery/bootstrap';
 import { autonomousDeliveryRepo } from './autonomous-delivery/repository';
 import { registerAutonomousDeliveryE2EDriver } from './testing/autonomous-delivery-e2e-driver';
-import { resolveAcpDispatchPermissionPolicy } from './agent/acp/dispatchPermissionPolicy';
+import { createAcpDispatchPermissionPolicy } from './agent/acp/dispatchPermissionPolicy';
 
 type TerminalStartPayload = {
   dispatchId?: string;
   projectId?: string;
   taskId?: string;
+  deliveryRunId?: string;
   agentId: string;
   prompt: string;
   systemPrompt?: string;
@@ -184,16 +185,20 @@ class DispatchExpiredBeforeStartError extends Error {
   }
 }
 
-function resolveAcpPermissionPolicy(conversationId: string): 'deny' | 'allow_once' {
-  const delivery = autonomousDeliveryRepo.getLatestByConversation(conversationId);
-  return resolveAcpDispatchPermissionPolicy({
+function resolveAcpPermissionPolicy(conversationId: string, deliveryRunId?: string) {
+  return createAcpDispatchPermissionPolicy({
     operatorMode: process.env.ACP_PERMISSION_MODE,
-    autonomous: delivery
-      ? {
+    deliveryRunId,
+    conversationId,
+    getAuthorization(runId) {
+      const delivery = autonomousDeliveryRepo.getSnapshot(runId);
+      return delivery ? {
+        runId: delivery.run.id,
+        conversationId: delivery.run.conversation_id,
         status: delivery.run.status,
         allowCodeChanges: delivery.contract.authorization.allowCodeChanges,
-      }
-      : undefined,
+      } : undefined;
+    },
   });
 }
 
@@ -272,6 +277,7 @@ export default function registerDaemon(io: IOServer) {
           projectId: plan.trigger.conversationId,
           conversationId: plan.trigger.conversationId,
           taskId: plan.trigger.taskId,
+          deliveryRunId: plan.trigger.deliveryRunId,
           agentId: plan.trigger.agentId,
           prompt: plan.prompt,
           systemPrompt: plan.systemPrompt,
@@ -753,6 +759,7 @@ export default function registerDaemon(io: IOServer) {
   handleTerminalStart = async ({
         projectId,
         taskId,
+        deliveryRunId,
         agentId,
         prompt: incomingPrompt,
         systemPrompt,
@@ -1226,6 +1233,16 @@ export default function registerDaemon(io: IOServer) {
           observationSpanRepo.finish(contextSpan.span_id, 'ok');
         }
         finishObservation = (status, errorMessage) => {
+          if (status === 'ok') {
+            try {
+              observationSpanRepo.finishOpenToolsByInvocation(
+                invocation.id,
+                'acp_tool_terminal_missing',
+              );
+            } catch (error) {
+              console.warn(`[observability] failed to close incomplete tools for ${invocation.id}:`, error);
+            }
+          }
           try {
             observationSpanRepo.finishOpenByInvocation(invocation.id, status, errorMessage);
           } catch (error) {
@@ -2220,7 +2237,8 @@ export default function registerDaemon(io: IOServer) {
       const backend: AgentBackend = createAcpBackend(entry, {
         cwd: prepared.cwd,
         env: prepared.env,
-        permissionPolicy: resolveAcpPermissionPolicy(sessionConvId),
+        permissionPolicy: resolveAcpPermissionPolicy(sessionConvId, deliveryRunId),
+        hardDenyPermissions: process.env.ACP_PERMISSION_MODE === 'deny',
         mcpServers: acpToolGrant ? [acpToolGrant.mcpServer] : [],
         autoApproveMcpToolNames: acpToolGrant?.autoApproveToolNames ?? [],
       });

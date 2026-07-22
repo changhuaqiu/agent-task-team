@@ -116,6 +116,7 @@ export function createBackend(
     | 'cwd'
     | 'env'
     | 'permissionPolicy'
+    | 'hardDenyPermissions'
     | 'permissionTimeoutMs'
     | 'cancelGraceMs'
     | 'forceKillGraceMs'
@@ -132,6 +133,7 @@ export function createBackend(
     cwd: opts?.cwd,
     env: opts?.env,
     permissionPolicy: opts?.permissionPolicy,
+    hardDenyPermissions: opts?.hardDenyPermissions,
     permissionTimeoutMs: opts?.permissionTimeoutMs,
     cancelGraceMs: opts?.cancelGraceMs,
     forceKillGraceMs: opts?.forceKillGraceMs,

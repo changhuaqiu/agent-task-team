@@ -31,4 +31,41 @@ describe('observationSpanRepo', () => {
     expect(span.input_preview!.length).toBeLessThanOrEqual(2_001);
     expect(span.input_preview).not.toContain('abcdefghijklmnopqrstuvwxyz');
   });
+
+  it('closes a tool missing its terminal update as an error before a successful invocation finishes', () => {
+    invocationRepo.create({ id: 'inv-missing-tool', conversation_id: 'conv-obs', agent_id: 'reviewer' });
+    const traceId = generateTraceId();
+    const root = observationSpanRepo.start({
+      traceId,
+      name: 'agent.invoke',
+      kind: 'agent',
+      conversationId: 'conv-obs',
+      invocationId: 'inv-missing-tool',
+    });
+    const tool = observationSpanRepo.start({
+      traceId,
+      parentSpanId: root.span_id,
+      name: 'tool.execute',
+      kind: 'tool',
+      conversationId: 'conv-obs',
+      invocationId: 'inv-missing-tool',
+      attributes: { 'gen_ai.tool.call.id': 'tool-without-terminal' },
+    });
+
+    observationSpanRepo.finishOpenToolsByInvocation(
+      'inv-missing-tool',
+      'acp_tool_terminal_missing',
+    );
+    observationSpanRepo.finishOpenByInvocation('inv-missing-tool', 'ok');
+
+    expect(observationSpanRepo.get(tool.span_id)).toMatchObject({
+      status: 'error',
+      error_message: 'acp_tool_terminal_missing',
+    });
+    expect(JSON.parse(observationSpanRepo.get(tool.span_id)!.attributes)).toMatchObject({
+      'gen_ai.tool.status': 'failed',
+      'ath.error.code': 'acp_tool_terminal_missing',
+    });
+    expect(observationSpanRepo.get(root.span_id)).toMatchObject({ status: 'ok' });
+  });
 });

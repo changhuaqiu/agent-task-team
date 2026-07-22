@@ -48,8 +48,12 @@ export class CorrelatedPlatformMcpApprovalTracker {
 export function createCorrelatedPlatformMcpPermissionPolicy(
   basePolicy: AcpPermissionPolicy,
   approvals: CorrelatedPlatformMcpApprovalTracker,
+  options?: { hardDeny?: boolean },
 ): AcpPermissionPolicy {
   return async (request) => {
+    // An operator hard deny is an emergency boundary for every ACP permission
+    // request, including otherwise valid platform MCP approvals.
+    if (options?.hardDeny) return 'deny';
     // Claude ACP does not attach Codex ACP's private
     // `_meta.is_mcp_tool_approval` marker. The preceding `tool_call` event is
     // the portable protocol signal: AcpBackend records this call id only after
