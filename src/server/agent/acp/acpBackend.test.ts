@@ -14,7 +14,7 @@
 import { describe, it, expect } from 'vitest';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { AcpBackend, isAcpResourceNotFound } from './acpBackend';
+import { AcpBackend, buildAcpSpawnEnvironment, isAcpResourceNotFound } from './acpBackend';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -25,6 +25,28 @@ describe('isAcpResourceNotFound', () => {
     expect(isAcpResourceNotFound({ code: -32002, message: 'missing' })).toBe(true);
     expect(isAcpResourceNotFound(new Error('Resource not found: session-1'))).toBe(true);
     expect(isAcpResourceNotFound(new Error('authentication failed'))).toBe(false);
+  });
+});
+
+describe('buildAcpSpawnEnvironment', () => {
+  it('removes host deployment NODE_ENV while preserving ordinary host variables', () => {
+    expect(buildAcpSpawnEnvironment({
+      NODE_ENV: 'production',
+      PATH: 'C:\\bin',
+    }, {
+      RUNTIME_FLAG: 'enabled',
+    })).toEqual({
+      PATH: 'C:\\bin',
+      RUNTIME_FLAG: 'enabled',
+    });
+  });
+
+  it('allows runtime and turn configuration to set NODE_ENV explicitly', () => {
+    expect(buildAcpSpawnEnvironment(
+      { NODE_ENV: 'production' },
+      { NODE_ENV: 'test' },
+      { NODE_ENV: 'development' },
+    ).NODE_ENV).toBe('development');
   });
 });
 

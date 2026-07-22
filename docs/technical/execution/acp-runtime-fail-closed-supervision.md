@@ -19,6 +19,7 @@ OpenClaw 的运行时实现提供了可复用的工程原则：活跃 run 可取
 5. adapter launcher 的实际参数必须精确包含 Catalog 版本；Catalog 在使用前运行时校验。
 6. Runtime 临时配置只能写入受控临时目录并由幂等 cleanup 回收。
 7. daemon 关闭时终止所有活跃 run；只有真正尝试过 resume 的调用才可进行 fresh-session 恢复。
+8. ACP 子进程使用清洗后的宿主环境：默认移除 Next/daemon 部署用的 `NODE_ENV`，防止生产服务语义改变 Agent 项目的依赖安装；仅 runtime 或 turn 显式声明时传递该变量。
 
 ## 替代方案
 

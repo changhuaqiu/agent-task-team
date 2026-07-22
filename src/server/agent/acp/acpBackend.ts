@@ -114,6 +114,19 @@ export function getActiveAcpRunCount(): number {
   return activeAcpRuns;
 }
 
+export function buildAcpSpawnEnvironment(
+  hostEnv: NodeJS.ProcessEnv,
+  backendEnv?: Record<string, string>,
+  turnEnv?: Record<string, string>,
+): Record<string, string | undefined> {
+  const { NODE_ENV: _hostDeploymentMode, ...sanitizedHostEnv } = hostEnv;
+  return {
+    ...sanitizedHostEnv,
+    ...backendEnv,
+    ...turnEnv,
+  };
+}
+
 function stopReasonToStatus(stopReason: acp.StopReason): AgentResult['status'] {
   return stopReason === 'end_turn'
     ? 'completed'
@@ -205,17 +218,13 @@ export class AcpBackend implements AgentBackend {
     };
 
     const promptText = opts.systemPrompt ? `${opts.systemPrompt}\n\n${prompt}` : prompt;
-    const env = {
-      ...(process.env as Record<string, string>),
-      ...this.o.env,
-      ...opts.env,
-    };
+    const env = buildAcpSpawnEnvironment(process.env, this.o.env, opts.env);
 
     let proc: ReturnType<typeof spawnCli>;
     try {
       proc = spawnCli(this.o.command, this.o.args, {
         cwd,
-        env: env as typeof process.env,
+        env: env as NodeJS.ProcessEnv,
         stdio: ['pipe', 'pipe', 'pipe'],
       });
     } catch (error) {
