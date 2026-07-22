@@ -55,6 +55,7 @@
 - [x] Context、A2A 与 daemon 注入文本都不再允许直接编辑 `TASKS.md`；工具缺失时只允许结构化 blocker。
 - [x] `npm test` 打印 PASS 后停在 watch 并超时，tool span 为 error，且不能通过实现/验证门禁；`vitest run` 正常退出后才可通过。
 - [x] Delivery-bound `task_create` 在单一事务内形成 `task.created`、根 `subtask_of` 和依赖 `depends_on`；即使边缺失，daemon 通用守卫也不会派发 Delivery Conversation 的任一 Task，Supervisor 内部仍能据任务事实产生唯一 Action。
+- [x] 全局 Agent 账号绑定刷新/重启后仍存在；Team Pack 显式账号优先、空账号继承同 ID Agent；required 成员缺账号时自主创建不产生 Conversation/DeliveryRun，并返回可操作错误。
 
 ## 全链路证据
 

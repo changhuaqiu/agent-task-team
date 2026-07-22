@@ -5,6 +5,7 @@ import { resolveRuntimeAgentProfile, resolveTeamRuntime } from '@/lib/team-runti
 import type { RuntimeAgentProfile, RuntimeSkillSummary, TeamRuntime } from '@/lib/team-runtime';
 import type { TeamPack } from '@/types/teamPack';
 import { getDb } from '../db';
+import { listAgents, parseAgentAccountIds } from '../db/agentQueries';
 import { listAccounts } from '../accounts-file';
 import { conversationRepo } from '../repositories/conversation-repo';
 import { skillRepo } from '../repositories/skill-repo';
@@ -82,7 +83,13 @@ function frozenAgents(
   const runtime = resolveTeamRuntime({
     conversationId,
     teamPack: team,
-    presetAgents: [],
+    presetAgents: listAgents().map((agent) => ({
+      id: agent.id,
+      name: agent.name,
+      roleCardId: agent.role_card_id,
+      accountIds: parseAgentAccountIds(agent),
+      emoji: agent.emoji,
+    })),
     activeAgentIds: team.roles.map((role) => role.id),
     roleCards: [],
     skillsMap: allSkills,

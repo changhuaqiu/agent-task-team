@@ -165,6 +165,24 @@ describe('SQLite Foundation', () => {
     expect(after.v).toBe(before.v);
   });
 
+  it('adds durable Agent account bindings to a v44 database without losing agents', () => {
+    db.exec(`
+      ALTER TABLE agents DROP COLUMN account_ids;
+      DELETE FROM _schema_version WHERE version >= 45;
+    `);
+    const now = new Date().toISOString();
+    db.prepare(`INSERT INTO agents
+      (id,name,role_card_id,theme,emoji,is_preset,created_at,updated_at)
+      VALUES ('mario','Mario','preset-planner','mario','⭐',1,?,?)`).run(now, now);
+
+    applyMigrations(db);
+
+    expect(db.prepare('SELECT id,account_ids FROM agents WHERE id=?').get('mario'))
+      .toEqual({ id: 'mario', account_ids: '[]' });
+    expect(db.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
+      .toEqual({ version: 45 });
+  });
+
   it('repairs v26-v40 checkpoints whose migration collision skipped autonomous delivery tables', () => {
     for (const watermark of [26, 30, 37, 40]) {
       const checkpoint = createTestDb();
@@ -191,7 +209,7 @@ describe('SQLite Foundation', () => {
           'autonomous_delivery_receipt',
         ]));
         expect(checkpoint.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-          .toEqual({ version: 44 });
+          .toEqual({ version: 45 });
         expect(checkpoint.pragma('foreign_key_check')).toEqual([]);
       } finally {
         checkpoint.close();
@@ -238,7 +256,7 @@ describe('SQLite Foundation', () => {
     applyMigrations(db);
 
     expect(db.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-      .toEqual({ version: 44 });
+      .toEqual({ version: 45 });
 
     const rootTaskForeignKey = (db.pragma('foreign_key_list(autonomous_delivery_run)') as Array<{
       from: string;
@@ -251,6 +269,8 @@ describe('SQLite Foundation', () => {
       .toEqual({ run_id: 'run-checkpoint' });
     expect(db.prepare('SELECT failure_count FROM autonomous_delivery_action WHERE id=?').get('action-checkpoint'))
       .toEqual({ failure_count: 0 });
+    expect((db.prepare("PRAGMA table_info('agents')").all() as Array<{ name: string }>)
+      .some((column) => column.name === 'account_ids')).toBe(true);
 
     db.prepare('DELETE FROM task WHERE id=?').run('task-checkpoint');
     expect(db.prepare('SELECT root_task_id FROM autonomous_delivery_run WHERE id=?').get('run-checkpoint'))

@@ -121,13 +121,18 @@ export async function loadAgents(options: LoadAgentsOptions = {}): Promise<void>
       emoji: row.emoji,
       isOnline: prevOnline[row.id] ?? false,
       cliEngine: prevCliEngine[row.id],
-      accountIds: prevAccountIds[row.id] ?? [],
+      accountIds: Array.isArray(row.accountIds) ? row.accountIds : (prevAccountIds[row.id] ?? []),
     }));
 
     // Sync to Zustand state for reactivity
     try {
       const { useTaskHubStore } = await import('./taskHubStore');
-      useTaskHubStore.setState({ agentRoster: [...AGENT_ROSTER] });
+      useTaskHubStore.setState({
+        agentRoster: [...AGENT_ROSTER],
+        agentAccountOverrides: Object.fromEntries(
+          AGENT_ROSTER.map((agent) => [agent.id, agent.accountIds]),
+        ),
+      });
     } catch {}
   } catch (err) {
     console.error('[loadAgents] Failed, using fallback:', err);
@@ -271,20 +276,38 @@ export const createAgentSlice = (set: any, get: () => any) => {
     // Agent account bindings
     agentAccountOverrides: {} as Record<string, string[]>,
     agentRoleCardOverrides: {} as Record<string, string>,
-    setAgentAccountIds: (agentId: string, accountIds: string[]) => {
+    setAgentAccountIds: async (agentId: string, accountIds: string[]) => {
       const teamRole = typeof get().getSelectedConversation === 'function'
         ? get().currentTeamPack?.roles?.find((role: TeamPackRole) => role.id === agentId)
         : undefined;
       if (teamRole && typeof get().setTeamRoleAccountIds === 'function') {
-        void get().setTeamRoleAccountIds(agentId, accountIds);
+        await get().setTeamRoleAccountIds(agentId, accountIds);
         return;
       }
+      const normalized = [...new Set(accountIds.map((item) => item.trim()).filter(Boolean))];
+      const previous = get().agentAccountOverrides?.[agentId] ?? [];
+      const rosterIndex = AGENT_ROSTER.findIndex((agent) => agent.id === agentId);
+      if (rosterIndex >= 0) (AGENT_ROSTER as Agent[])[rosterIndex].accountIds = normalized;
       set((state: any) => ({
+        agentRoster: [...AGENT_ROSTER],
         agentAccountOverrides: {
           ...state.agentAccountOverrides,
-          [agentId]: accountIds,
+          [agentId]: normalized,
         },
       }));
+      const response = await fetch(`/api/agents/${encodeURIComponent(agentId)}/accounts`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ accountIds: normalized }),
+      });
+      if (response.ok) return;
+      if (rosterIndex >= 0) (AGENT_ROSTER as Agent[])[rosterIndex].accountIds = previous;
+      set((state: any) => ({
+        agentRoster: [...AGENT_ROSTER],
+        agentAccountOverrides: { ...state.agentAccountOverrides, [agentId]: previous },
+      }));
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body.error ?? 'Failed to update agent accounts');
     },
 
     // Invite / dismiss

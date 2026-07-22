@@ -1,6 +1,6 @@
 import { resolveTeamRuntime } from '@/lib/team-runtime';
 import type { TeamRuntime } from '@/lib/team-runtime';
-import { listAgents } from '@/server/db/agentQueries';
+import { listAgents, parseAgentAccountIds } from '@/server/db/agentQueries';
 import { conversationRepo } from '@/server/repositories/conversation-repo';
 import { taskRepo } from '@/server/repositories/task-repo';
 import { teamPackRepo } from '@/server/repositories/team-pack-repo';
@@ -23,6 +23,7 @@ function resolveConversationRuntime(conversationId: string): TeamRuntime {
     id: agent.id,
     name: agent.name,
     roleCardId: agent.role_card_id,
+    accountIds: parseAgentAccountIds(agent),
     cliEngine: undefined,
     emoji: agent.emoji,
   }));

@@ -2,7 +2,7 @@ import { PRESET_ROLE_CARDS } from '@/data/presetRoleCards';
 import { resolveRuntimeAgentProfile, resolveTeamRuntime } from '@/lib/team-runtime';
 import type { RuntimeAgentProfile, RuntimeSkillSummary, TeamRuntime } from '@/lib/team-runtime';
 import { listAccounts } from '../accounts-file';
-import { listAgents } from '../db/agentQueries';
+import { listAgents, parseAgentAccountIds } from '../db/agentQueries';
 import { loadAllRoleCards } from '../db/roleCardQueries';
 import { conversationRepo } from '../repositories/conversation-repo';
 import { skillRepo } from '../repositories/skill-repo';
@@ -28,6 +28,59 @@ function skillsMap(): Record<string, RuntimeSkillSummary> {
   }]));
 }
 
+function presetAgents() {
+  return listAgents().map((agent) => ({
+    id: agent.id,
+    name: agent.name,
+    roleCardId: agent.role_card_id,
+    accountIds: parseAgentAccountIds(agent),
+    emoji: agent.emoji,
+  }));
+}
+
+function runtimeAccounts() {
+  return listAccounts().map((account) => ({
+    id: account.id,
+    provider: account.provider,
+    enabled: account.enabled,
+  }));
+}
+
+function resolveServerTeamRuntime(conversationId: string, teamPackId?: string | null): TeamRuntime {
+  const teamPack = teamPackId ? teamPackRepo.getById(teamPackId) : undefined;
+  const agents = presetAgents();
+  return resolveTeamRuntime({
+    conversationId,
+    teamPack,
+    presetAgents: agents,
+    activeAgentIds: teamPack?.roles.map((role) => role.id) ?? agents.map((agent) => agent.id),
+    roleCards: uniqueRoleCards(),
+    skillsMap: skillsMap(),
+    agentSkillIds: skillRepo.getAllAgentSkillIds(),
+    agentAccountOverrides: {},
+    agentRoleCardOverrides: {},
+  });
+}
+
+export interface TeamRuntimeReadiness {
+  ready: boolean;
+  missingRoles: Array<{ id: string; displayName: string }>;
+  error?: string;
+}
+
+export function resolveTeamPackRuntimeReadiness(teamPackId: string): TeamRuntimeReadiness {
+  const teamPack = teamPackRepo.getById(teamPackId);
+  if (!teamPack) {
+    return { ready: false, missingRoles: [], error: '所选 Agent 团队不存在，请重新选择' };
+  }
+  const runtime = resolveServerTeamRuntime(`team-readiness:${teamPackId}`, teamPackId);
+  const accounts = runtimeAccounts();
+  const missingRoles = teamPack.roles
+    .filter((role) => role.required && !resolveRuntimeAgentProfile(runtime, role.id, accounts))
+    .map((role) => ({ id: role.id, displayName: role.displayName }));
+  return { ready: missingRoles.length === 0, missingRoles };
+}
+
 export function resolveConversationRuntimeProfile(
   conversationId: string,
   agentId: string,
@@ -35,31 +88,9 @@ export function resolveConversationRuntimeProfile(
   const conversation = conversationRepo.getById(conversationId);
   if (!conversation) return undefined;
 
-  const teamPack = conversation.team_pack_id ? teamPackRepo.getById(conversation.team_pack_id) : undefined;
-  const presetAgents = listAgents().map((agent) => ({
-    id: agent.id,
-    name: agent.name,
-    roleCardId: agent.role_card_id,
-    emoji: agent.emoji,
-  }));
-  const runtime = resolveTeamRuntime({
-    conversationId,
-    teamPack,
-    presetAgents,
-    activeAgentIds: teamPack?.roles.map((role) => role.id) ?? presetAgents.map((agent) => agent.id),
-    roleCards: uniqueRoleCards(),
-    skillsMap: skillsMap(),
-    agentSkillIds: skillRepo.getAllAgentSkillIds(),
-    agentAccountOverrides: {},
-    agentRoleCardOverrides: {},
-  });
-  const accounts = listAccounts().map((account) => ({
-    id: account.id,
-    provider: account.provider,
-    enabled: account.enabled,
-  }));
+  const runtime = resolveServerTeamRuntime(conversationId, conversation.team_pack_id);
   return {
     runtime,
-    profile: resolveRuntimeAgentProfile(runtime, agentId, accounts),
+    profile: resolveRuntimeAgentProfile(runtime, agentId, runtimeAccounts()),
   };
 }

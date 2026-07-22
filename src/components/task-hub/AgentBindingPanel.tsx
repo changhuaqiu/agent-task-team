@@ -40,7 +40,6 @@ export function AgentBindingPanel({ agentId, agentName }: AgentBindingPanelProps
     setTeamRoleAccountIds,
     setTeamRoleSkillIds,
     setTeamRoleCardSnapshot,
-    setRoleCardAccountIds,
     conversations,
     selectedConversationId,
     selectedProjectId,
@@ -59,7 +58,6 @@ export function AgentBindingPanel({ agentId, agentName }: AgentBindingPanelProps
     setTeamRoleAccountIds: s.setTeamRoleAccountIds,
     setTeamRoleSkillIds: s.setTeamRoleSkillIds,
     setTeamRoleCardSnapshot: s.setTeamRoleCardSnapshot,
-    setRoleCardAccountIds: s.setRoleCardAccountIds,
     conversations: s.conversations,
     selectedConversationId: s.selectedConversationId,
     selectedProjectId: s.selectedProjectId,
@@ -154,13 +152,7 @@ export function AgentBindingPanel({ agentId, agentName }: AgentBindingPanelProps
   };
 
   const writeAccountBinding = (nextIds: string[]) => {
-    if (isCurrentTeamRole) {
-      void setTeamRoleAccountIds(agentId, nextIds);
-    } else if (currentRoleCard) {
-      setRoleCardAccountIds(currentRoleCard.id, nextIds);
-    } else {
-      void setTeamRoleAccountIds(agentId, nextIds);
-    }
+    void setTeamRoleAccountIds(agentId, nextIds);
   };
 
   const handleUnbind = (accountId: string) => {

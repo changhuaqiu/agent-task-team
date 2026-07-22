@@ -1,10 +1,24 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { listAgents, upsertAgent, deleteAgent } from '@/server/db/agentQueries';
+import { deleteAgent, listAgents, parseAgentAccountIds, upsertAgent } from '@/server/db/agentQueries';
+
+function serializeAgent<T extends ReturnType<typeof listAgents>[number]>(agent: T) {
+  return {
+    id: agent.id,
+    name: agent.name,
+    role_card_id: agent.role_card_id,
+    theme: agent.theme,
+    emoji: agent.emoji,
+    is_preset: agent.is_preset,
+    created_at: agent.created_at,
+    updated_at: agent.updated_at,
+    accountIds: parseAgentAccountIds(agent),
+  };
+}
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
     if (req.method === 'GET') {
-      const agents = listAgents();
+      const agents = listAgents().map(serializeAgent);
       return res.status(200).json({ agents });
     }
 
@@ -14,7 +28,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return res.status(400).json({ error: 'id, name, roleCardId, theme, and emoji are required' });
       }
       const result = upsertAgent({ id, name, roleCardId, theme, emoji, isPreset });
-      return res.status(200).json({ agent: result });
+      return res.status(200).json({ agent: serializeAgent(result) });
     }
 
     if (req.method === 'DELETE') {

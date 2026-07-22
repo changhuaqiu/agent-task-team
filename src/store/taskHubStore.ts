@@ -742,7 +742,7 @@ export interface TaskHubState {
 
   agentAccountOverrides: Record<string, string[]>;
   agentRoleCardOverrides: Record<string, string>;
-  setAgentAccountIds: (agentId: string, accountIds: string[]) => void;
+  setAgentAccountIds: (agentId: string, accountIds: string[]) => Promise<void>;
 
   createProgressMessage: (params: {
     taskId: string;
@@ -1067,7 +1067,7 @@ export const useTaskHubStore = create<TaskHubState>()(
           const teamRole = findCurrentTeamRole(get(), agentId);
           const packId = teamRole ? get().currentTeamPack?.id : undefined;
           if (!packId) {
-            get().setAgentAccountIds(agentId, accountIds);
+            await get().setAgentAccountIds(agentId, accountIds);
             return;
           }
           const res = await fetch(`/api/team-packs/${packId}/roles/${agentId}`, {
@@ -1287,10 +1287,25 @@ export const useTaskHubStore = create<TaskHubState>()(
 
             await get().loadAccounts();
 
+            const legacyAgentAccountOverrides = { ...get().agentAccountOverrides };
             await resolveRuntimeDependency(
               '智能体配置',
               signal => loadAgents({ signal, propagateFailure: true }),
             );
+            const serverAgentsById = new Map(get().agentRoster.map((agent) => [agent.id, agent]));
+            await Promise.all(Object.entries(legacyAgentAccountOverrides).map(async ([agentId, accountIds]) => {
+              if (!Array.isArray(accountIds) || accountIds.length === 0) return;
+              if ((serverAgentsById.get(agentId)?.accountIds.length ?? 0) > 0) return;
+              const knownAccountIds = accountIds.filter((accountId) =>
+                get().accounts.some((account) => account.id === accountId),
+              );
+              if (knownAccountIds.length === 0) return;
+              try {
+                await get().setAgentAccountIds(agentId, knownAccountIds);
+              } catch (error) {
+                console.warn(`[agent-account] legacy binding backfill failed for ${agentId}:`, error);
+              }
+            }));
 
             get().refreshRuntimeCatalog();
 
@@ -1879,7 +1894,7 @@ export const useTaskHubStore = create<TaskHubState>()(
     },
     {
       name: 'agent-task-hub-store-clean',
-      version: 6,
+      version: 7,
       migrate: (persisted: any, version: number) => {
         if (version === 0) {
           const idMap: Record<string, string> = {
@@ -1941,6 +1956,23 @@ export const useTaskHubStore = create<TaskHubState>()(
         }
         if (version < 6) {
           persisted.agentSessions = { default: {} };
+        }
+        if (version < 7) {
+          const roleCardAgentIds: Record<string, string> = {
+            'preset-planner': 'mario',
+            'preset-frontend': 'luigi',
+            'preset-code-reviewer': 'peach',
+            'preset-arch-reviewer': 'dk',
+          };
+          const overrides = { ...(persisted.agentAccountOverrides ?? {}) };
+          for (const card of Array.isArray(persisted.roleCards) ? persisted.roleCards : []) {
+            const agentId = roleCardAgentIds[card?.id];
+            if (!agentId || !Array.isArray(card?.accountIds) || card.accountIds.length === 0) continue;
+            if (!Array.isArray(overrides[agentId]) || overrides[agentId].length === 0) {
+              overrides[agentId] = card.accountIds;
+            }
+          }
+          persisted.agentAccountOverrides = overrides;
         }
         return persisted;
       },

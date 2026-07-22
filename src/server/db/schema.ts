@@ -191,6 +191,7 @@ export const agents = sqliteTable('agents', {
   roleCardId: text('role_card_id').notNull(),
   theme: text('theme').notNull(),
   emoji: text('emoji').notNull(),
+  accountIds: text('account_ids').notNull().default('[]'),
   isPreset: integer('is_preset', { mode: 'boolean' }).notNull().default(false),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),

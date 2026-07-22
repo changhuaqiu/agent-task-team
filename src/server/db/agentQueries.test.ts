@@ -1,6 +1,13 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createTestDb, setTestDb } from './index';
-import { listAgents, getAgentById, upsertAgent, deleteAgent } from './agentQueries';
+import {
+  deleteAgent,
+  getAgentById,
+  listAgents,
+  parseAgentAccountIds,
+  updateAgentAccountIds,
+  upsertAgent,
+} from './agentQueries';
 import { seedPresetAgents } from './seed-agents';
 
 describe('agentQueries', () => {
@@ -144,6 +151,15 @@ describe('agentQueries', () => {
 
       expect(result.created_at).toBeTruthy();
       expect(result.updated_at).toBeTruthy();
+    });
+
+    it('persists account bindings and preserves them across preset reseeding', () => {
+      seedPresetAgents();
+      expect(updateAgentAccountIds('mario', ['acc-1', 'acc-1', 'acc-2'])).toBeDefined();
+      expect(parseAgentAccountIds(getAgentById('mario')!)).toEqual(['acc-1', 'acc-2']);
+
+      seedPresetAgents();
+      expect(parseAgentAccountIds(getAgentById('mario')!)).toEqual(['acc-1', 'acc-2']);
     });
   });
 

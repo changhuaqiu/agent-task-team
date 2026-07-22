@@ -242,6 +242,11 @@ Delivery-bound wakeup 的 `agent_busy` 重试权始终留在 Supervisor。Task N
 作为一次权威数据库事务提交。边方向分别是“新 Task → 根 Task”和“依赖 Task → 新 Task”。事务提交后才更新
 `.ath/TASKS.md` 兼容投影；文件写入失败不得回滚或取代 Task Graph 事实。
 
+Agent 运行账号是服务端权威配置，不能只存在浏览器 Zustand/localStorage。`agents.account_ids` 保存全局绑定；
+解析 Team Pack role 时采用 `role.accountIds`（非空显式覆盖）→ 同 ID 全局 Agent `accountIds` 的优先级，
+客户端与 `resolveConversationRuntimeProfile` 必须使用同一规则。自主创建 API 在写入 Conversation、项目上下文和
+DeliveryRun 前对全部 required role 执行相同的可用账号解析；缺失时返回成员名称列表并保持零副作用。
+
 项目清单中的命令只能证明“命令入口存在”，不能证明它会形成一次性门禁证据。基础任务协议和 Project Context 的可信命令段都必须提醒 Agent：测试、构建与安装只有在进程正常退出时有效；watch 模式即使先打印 PASS，随后超时或被终止仍是失败。发现 `npm test` 等脚本进入 watch 后，应使用 runner 的 one-shot 形式（例如 `npx vitest run`）重新执行。
 
 任务状态变更还有一条低延迟通知路径：平台任务工具提交状态后，Task Notification Publisher 会先于 Supervisor 的下一次 reconciliation 生成 review/test wakeup。该路径必须直接传递当前 Invocation 已验证的精确 `deliveryRunId`，让 Reviewer/QA 的 Terminal、Browser 等原生工具仍处于同一 Run 的动态授权边界。只把 Run ID 写进 prompt 不构成授权；无绑定的 watcher、手动变更与普通协作通知不得查询或猜测 Conversation 的“最新 Run”，并继续 fail-closed。

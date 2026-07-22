@@ -152,6 +152,26 @@ describe('resolveTeamRuntime', () => {
     });
   });
 
+  it('inherits a global Agent account when the matching TeamPack role has no explicit binding', () => {
+    const inheritedPack: TeamPack = {
+      ...teamPack,
+      roles: [{ id: 'mario', displayName: 'Mario Planner', soul: '', required: true }],
+    };
+    const runtime = resolveTeamRuntime({
+      conversationId: 'conv-team-inherit',
+      teamPack: inheritedPack,
+      presetAgents: [presetAgent],
+      activeAgentIds: ['mario'],
+      roleCards: [],
+      skillsMap: {},
+      agentSkillIds: {},
+      agentAccountOverrides: {},
+      agentRoleCardOverrides: {},
+    });
+
+    expect(runtime.roster[0]).toMatchObject({ id: 'mario', accountIds: ['acc-agent'] });
+  });
+
   it('lets TeamPack role card overrides replace default role cards', () => {
     const defaultCard = roleCard('rc-default', 'Default Planner');
     const overrideCard = roleCard('rc-override', 'Override Planner');

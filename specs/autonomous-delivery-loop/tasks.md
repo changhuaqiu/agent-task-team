@@ -20,6 +20,7 @@
 - [x] 收口 quality-gate 任务裁决：任务工具成为唯一权威写入口，结构化 REJECT 持久化并立即打回实现者，重派保持 `code_review` 场景。
 - [x] 将任务工具从个人 Skill 绑定中解耦：按 invocation Task/角色授予基础平台能力，并移除所有 `TASKS.md` 文件写入回退提示。
 - [x] Delivery-bound `task_create` 原子写入 `task.created`、`subtask_of` 与 `depends_on`；daemon 通用守卫按整个 Delivery Conversation 隔离，避免边尚未投影时双调度。
+- [x] 服务端持久化 Agent 账号绑定；Team Pack 空绑定继承同 ID Agent，并在自主创建前 fail-fast 校验 required 成员，避免创建后立即 `runtime_profile_missing`。
 
 ## P1：恢复与安全
 

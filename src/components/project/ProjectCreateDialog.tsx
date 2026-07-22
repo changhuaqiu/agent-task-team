@@ -178,6 +178,17 @@ export function ProjectCreateDialog({
     setCreateError('');
     let createdConversationId: string | undefined;
     try {
+      if (autonomous && effectiveTeamPackId) {
+        const preflight = await fetch('/api/autonomous-delivery', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ action: 'preflight', teamPackId: effectiveTeamPackId }),
+        });
+        if (!preflight.ok) {
+          const body = await preflight.json().catch(() => ({}));
+          throw new Error(body.error ?? '所选 Agent 团队尚未准备好');
+        }
+      }
       const conversationId = await createConversation({
         title: trimmedTitle,
         goal: trimmedGoal,

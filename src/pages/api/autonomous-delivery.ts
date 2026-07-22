@@ -8,6 +8,7 @@ import {
 import type { GoalContract } from '@/server/autonomous-delivery/types';
 import { conversationRepo } from '@/server/repositories/conversation-repo';
 import { ensureAutonomousDeliveryRuntime } from '@/server/autonomous-delivery/bootstrap';
+import { resolveTeamPackRuntimeReadiness } from '@/server/harness/conversation-runtime';
 
 function socketServer(res: NextApiResponse): IOServer | undefined {
   return (res.socket as typeof res.socket & { server?: { io?: IOServer } } | null)?.server?.io;
@@ -23,6 +24,10 @@ function isGoalContract(value: unknown): value is GoalContract {
     && typeof contract.authorization === 'object'
     && typeof contract.recoveryPolicy === 'object'
     && typeof contract.deliveryPolicy === 'object';
+}
+
+function teamReadinessError(missingRoles: Array<{ displayName: string }>): string {
+  return `请先为以下团队成员绑定可用账号：${missingRoles.map((role) => role.displayName).join('、')}`;
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -46,6 +51,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   const action = typeof req.body?.action === 'string' ? req.body.action : 'start';
+  if (action === 'preflight') {
+    const teamPackId = typeof req.body?.teamPackId === 'string' ? req.body.teamPackId : '';
+    if (!teamPackId) return res.status(400).json({ error: 'teamPackId is required' });
+    const readiness = resolveTeamPackRuntimeReadiness(teamPackId);
+    if (!readiness.ready) {
+      return res.status(409).json({
+        error: readiness.error ?? teamReadinessError(readiness.missingRoles),
+        reasonCode: 'team_runtime_profile_missing',
+        missingRoles: readiness.missingRoles,
+      });
+    }
+    return res.status(200).json(readiness);
+  }
   const io = socketServer(res);
   if (!io) return res.status(503).json({ error: 'Delivery supervisor is not ready' });
   ensureAutonomousDeliveryRuntime(io);
@@ -63,8 +81,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (!isGoalContract(contract)) {
       return res.status(400).json({ error: 'Invalid GoalContract' });
     }
-    if (!conversationRepo.getById(contract.scope.conversationId)) {
+    const conversation = conversationRepo.getById(contract.scope.conversationId);
+    if (!conversation) {
       return res.status(404).json({ error: 'Conversation not found' });
+    }
+    if (conversation.team_pack_id) {
+      const readiness = resolveTeamPackRuntimeReadiness(conversation.team_pack_id);
+      if (!readiness.ready) {
+        return res.status(409).json({
+          error: readiness.error ?? teamReadinessError(readiness.missingRoles),
+          reasonCode: 'team_runtime_profile_missing',
+          missingRoles: readiness.missingRoles,
+        });
+      }
     }
     const existing = autonomousDeliveryRepo.getLatestByConversation(contract.scope.conversationId);
     if (existing && !['completed', 'escalated', 'cancelled'].includes(existing.run.status)) {

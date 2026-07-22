@@ -83,6 +83,7 @@ function teamRoleRuntimeAgents(input: ResolveTeamRuntimeInput): RuntimeAgent[] {
   const teamPack = input.teamPack;
   if (!teamPack) return [];
   return teamPack.roles.map((role) => {
+    const presetAgent = input.presetAgents.find((agent) => agent.id === role.id);
     const overrideRoleCardId = input.agentRoleCardOverrides[role.id];
     const roleCardId = overrideRoleCardId ?? role.roleCardId;
     const globalRoleCard = roleCardById(input.roleCards, roleCardId);
@@ -100,7 +101,9 @@ function teamRoleRuntimeAgents(input: ResolveTeamRuntimeInput): RuntimeAgent[] {
       ? role.accountIds
       : roleCard?.accountIds?.length
         ? roleCard.accountIds
-        : (input.agentAccountOverrides[role.id] ?? []);
+        : input.agentAccountOverrides[role.id]?.length
+          ? input.agentAccountOverrides[role.id]
+          : (presetAgent?.accountIds ?? []);
 
     return {
       id: role.id,
@@ -110,6 +113,7 @@ function teamRoleRuntimeAgents(input: ResolveTeamRuntimeInput): RuntimeAgent[] {
       roleCard,
       accountIds,
       skills: skillsFromIds([...(role.skillIds ?? []), ...(input.agentSkillIds[role.id] ?? [])], input.skillsMap),
+      cliEngine: presetAgent?.cliEngine,
       emoji: emojiForRole(role),
     };
   });

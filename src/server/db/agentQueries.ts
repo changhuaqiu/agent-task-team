@@ -6,6 +6,7 @@ export interface AgentDbRow {
   role_card_id: string;
   theme: string;
   emoji: string;
+  account_ids: string;
   is_preset: number;
   created_at: string;
   updated_at: string;
@@ -19,6 +20,25 @@ export function listAgents(): AgentDbRow[] {
 export function getAgentById(id: string): AgentDbRow | undefined {
   const db = getDb();
   return db.prepare('SELECT * FROM agents WHERE id = ?').get(id) as AgentDbRow | undefined;
+}
+
+export function parseAgentAccountIds(agent: Pick<AgentDbRow, 'account_ids'>): string[] {
+  try {
+    const parsed = JSON.parse(agent.account_ids);
+    return Array.isArray(parsed)
+      ? parsed.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+export function updateAgentAccountIds(id: string, accountIds: string[]): AgentDbRow | undefined {
+  const normalized = [...new Set(accountIds.map((item) => item.trim()).filter(Boolean))];
+  const result = getDb().prepare(
+    'UPDATE agents SET account_ids = ?, updated_at = ? WHERE id = ?',
+  ).run(JSON.stringify(normalized), new Date().toISOString(), id);
+  return result.changes === 1 ? getAgentById(id) : undefined;
 }
 
 export function upsertAgent(agent: {

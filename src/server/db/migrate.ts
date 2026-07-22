@@ -1328,6 +1328,22 @@ CREATE INDEX IF NOT EXISTS idx_github_issue_ingress_run
       }
     },
   },
+  {
+    // Agent account bindings are runtime configuration and must survive
+    // browser refreshes, process restarts, and Team Pack selection.
+    version: 45,
+    run(db) {
+      const table = db.prepare(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='agents'",
+      ).get();
+      if (!table) return;
+      const columns = db.prepare('PRAGMA table_info(agents)')
+        .all() as Array<{ name: string }>;
+      if (!columns.some((column) => column.name === 'account_ids')) {
+        db.exec("ALTER TABLE agents ADD COLUMN account_ids TEXT NOT NULL DEFAULT '[]'");
+      }
+    },
+  },
 ];
 
 function repairAutonomousDeliverySchema(
