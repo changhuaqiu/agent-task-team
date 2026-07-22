@@ -111,21 +111,85 @@ describe('background session activity', () => {
     expect(state.eventsByConversation['conv-bg'].some((event) => event.type === 'run.finished')).toBe(false);
   });
 
-  it('keeps a successful foreground run in progress until implementation evidence is supplied', () => {
+  it('keeps terminal exit as a runtime projection without mutating task facts', () => {
     emitServerEvent('terminal:exit', {
       conversationId: 'conv-bg',
       agentId: 'mario',
+      taskId: 'task-bg',
+      invocationId: 'run-bg',
       code: 0,
       command: 'opencode',
     });
 
     const state = useTaskHubStore.getState();
     expect(state.getTaskById('task-bg')?.status).toBe('in_progress');
-    expect(state.blockersByConversation['conv-bg']).toContainEqual(expect.objectContaining({
-      taskId: 'task-bg',
-      type: 'gate_fail',
-      gateId: 'build',
-      reasonSummary: expect.stringContaining('installResult'),
+    expect(state.blockersByConversation['conv-bg'] ?? []).toEqual([]);
+  });
+
+  it('rebinds a reused agent to the running invocation and ignores stale exits', () => {
+    const baseTask = useTaskHubStore.getState().getTaskById('task-bg')!;
+    useTaskHubStore.setState((state) => ({
+      tasks: [
+        { ...baseTask, id: 'task-old', status: 'done' },
+        { ...baseTask, id: 'task-new', status: 'in_progress' },
+      ],
+      activeRunsByAgent: {
+        ...state.activeRunsByAgent,
+        [agentRuntimeKey('conv-bg', 'mario')]: {
+          runId: 'inv-old',
+          taskId: 'task-old',
+          conversationId: 'conv-bg',
+          startedAt: '2026-05-17T00:00:00.000Z',
+          activity: 'foreground',
+        },
+      },
+    }));
+
+    emitServerEvent('agent:activity', {
+      conversationId: 'conv-bg',
+      taskId: 'task-new',
+      invocationId: 'inv-new',
+      agentId: 'mario',
+      status: 'running',
+    });
+
+    const scopeKey = agentRuntimeKey('conv-bg', 'mario');
+    expect(useTaskHubStore.getState().activeRunsByAgent[scopeKey]).toMatchObject({
+      runId: 'inv-new',
+      taskId: 'task-new',
+      activity: 'foreground',
+    });
+
+    emitServerEvent('terminal:exit', {
+      conversationId: 'conv-bg',
+      taskId: 'task-old',
+      invocationId: 'inv-old',
+      agentId: 'mario',
+      code: 1,
+      reasonCode: 'acp_timeout',
+    });
+
+    let state = useTaskHubStore.getState();
+    expect(state.activeRunsByAgent[scopeKey]?.runId).toBe('inv-new');
+    expect(state.getTaskById('task-old')?.status).toBe('done');
+    expect(state.getTaskById('task-new')?.status).toBe('in_progress');
+
+    emitServerEvent('terminal:exit', {
+      conversationId: 'conv-bg',
+      taskId: 'task-new',
+      invocationId: 'inv-new',
+      agentId: 'mario',
+      code: 1,
+      reasonCode: 'acp_timeout',
+    });
+
+    state = useTaskHubStore.getState();
+    expect(state.activeRunsByAgent[scopeKey]).toBeUndefined();
+    expect(state.getTaskById('task-old')?.status).toBe('done');
+    expect(state.getTaskById('task-new')?.status).toBe('in_progress');
+    expect(state.eventsByConversation['conv-bg']).toContainEqual(expect.objectContaining({
+      type: 'run.finished',
+      payload: expect.objectContaining({ runId: 'inv-new', taskId: 'task-new', code: 1 }),
     }));
   });
 });

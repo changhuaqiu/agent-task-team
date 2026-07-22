@@ -559,6 +559,20 @@ describe('invocation-repo', () => {
     expect(active[0].id).toBe('inv-1');
   });
 
+  it('finds the current invocation binding instead of the long-lived session task', () => {
+    invocationRepo.create({ id: 'inv-old', conversation_id: 'conv-1', agent_id: 'agent-a', task_id: 'task-1' });
+    invocationRepo.updateStatus('inv-old', 'succeeded');
+    taskRepo.create({ id: 'task-2', conversation_id: 'conv-1', title: 'T2', agent_id: 'agent-a' });
+    invocationRepo.create({ id: 'inv-new', conversation_id: 'conv-1', agent_id: 'agent-a', task_id: 'task-2' });
+    invocationRepo.updateStatus('inv-new', 'running');
+
+    expect(invocationRepo.findActiveForAgentInConversation('agent-a', 'conv-1')).toMatchObject({
+      id: 'inv-new',
+      task_id: 'task-2',
+      status: 'running',
+    });
+  });
+
   it('allows retry: failed→running', () => {
     invocationRepo.create({ id: 'inv-1', conversation_id: 'conv-1', agent_id: 'agent-a' });
     invocationRepo.updateStatus('inv-1', 'running');

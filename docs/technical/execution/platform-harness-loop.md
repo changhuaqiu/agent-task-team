@@ -139,7 +139,7 @@ Task mutation / Autonomy Guard / A2A pass
 - 用户直接 @Agent 仍由浏览器首发；Task Wakeup、Autonomy Guard 和 A2A 已优先走服务端。
 - busy 时仍回退浏览器内存队列；下一阶段应替换为持久 dispatch inbox。
 - daemon 仍包含 legacy backend、bridge 和 tmux 分支；ACP 完成后应收敛到单一 Runtime Port。
-- `terminal:exit` 中仍有部分客户端兼容恢复逻辑，待所有触发迁移后删除。
+- `terminal:exit` 仅用于客户端运行态与日志投影；任务阻塞、恢复和补证据派发均由服务端 Harness、Dispatch Gateway 与 Supervisor 负责，客户端不得保留兼容性写回或恢复逻辑。
 
 ## 测试策略
 

@@ -111,6 +111,19 @@ export const invocationRepo = {
       .all() as InvocationRow[];
   },
 
+  findActiveForAgentInConversation(agentId: string, conversationId: string): InvocationRow | undefined {
+    return getDb()
+      .prepare(`
+        SELECT * FROM invocation
+        WHERE agent_id = ?
+          AND conversation_id = ?
+          AND status NOT IN ('succeeded', 'failed', 'canceled')
+        ORDER BY created_at DESC
+        LIMIT 1
+      `)
+      .get(agentId, conversationId) as InvocationRow | undefined;
+  },
+
   failIfNonTerminal(id: string, updates?: InvocationUpdateFields): boolean {
     const now = new Date().toISOString();
     const sets: string[] = ["status = 'failed'", 'updated_at = ?'];

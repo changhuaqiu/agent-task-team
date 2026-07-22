@@ -132,12 +132,13 @@ type ActiveProcess = {
 export interface DaemonActiveRunSnapshot {
   agentId: string;
   taskId?: string;
+  invocationId?: string;
   conversationId: string;
 }
 
 export function projectDaemonActiveRuns(
   processKeys: Iterable<string>,
-  findSession: (agentId: string, conversationId: string) => { task_id?: string | null } | undefined,
+  findInvocation: (agentId: string, conversationId: string) => { id?: string; task_id?: string | null } | undefined,
 ): DaemonActiveRunSnapshot[] {
   const snapshots: DaemonActiveRunSnapshot[] = [];
   for (const key of processKeys) {
@@ -145,10 +146,11 @@ export function projectDaemonActiveRuns(
     const agentId = separator >= 0 ? key.slice(0, separator) : key;
     const conversationId = separator >= 0 ? key.slice(separator + 1) : 'default';
     if (conversationId === 'default') continue;
-    const session = findSession(agentId, conversationId);
+    const invocation = findInvocation(agentId, conversationId);
     snapshots.push({
       agentId,
-      taskId: session?.task_id || undefined,
+      taskId: invocation?.task_id || undefined,
+      invocationId: invocation?.id || undefined,
       conversationId,
     });
   }
@@ -828,7 +830,14 @@ export default function registerDaemon(io: IOServer) {
           message: 'Agent is already starting or running',
           reasonCode: 'agent_busy',
         });
-        emitToRequester('terminal:exit', { agentId, code: 1, command: 'dispatch', reasonCode: 'agent_busy' });
+        emitToRequester('terminal:exit', {
+          agentId,
+          taskId,
+          conversationId: conversationId || projectId,
+          code: 1,
+          command: 'dispatch',
+          reasonCode: 'agent_busy',
+        });
         return;
       }
       console.log(`[daemon] terminal:start agent=${agentId}, engine=${rawEngine}, accountId=${accountId ?? '(none)'}, force=${force}, busy=${activeProcesses.has(processKey(agentId, projectId))}`);
@@ -1082,6 +1091,14 @@ export default function registerDaemon(io: IOServer) {
         prompt: prompt || '',
       });
       trackedInvocationId = invocation.id;
+      broadcast('agent:activity', {
+        conversationId: sessionConvId,
+        taskId,
+        agentId,
+        invocationId: invocation.id,
+        sessionId: agentSession.cli_session_id || undefined,
+        status: 'running',
+      });
       const tmuxWorktreeId = projectId || 'default';
       const tmuxServerId = useTmuxTransport
         ? `${tmuxWorktreeId}--${controlEnvelopeId}`
@@ -1839,7 +1856,15 @@ export default function registerDaemon(io: IOServer) {
             });
             // 失败不 seal session（保持 active，下次 @ resume，id 不变）—— specs/agent-session-stability
             markEnvelopeFailed('spawn_failed');
-            broadcast('terminal:exit', { agentId, code: 127, command: 'bridge', reasonCode: 'spawn_failed', conversationId: sessionConvId });
+            broadcast('terminal:exit', {
+              agentId,
+              taskId,
+              invocationId: invocation.id,
+              code: 127,
+              command: 'bridge',
+              reasonCode: 'spawn_failed',
+              conversationId: sessionConvId,
+            });
             deleteOwnedActiveProcess(bridgeActive);
             if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
             return;
@@ -1886,6 +1911,8 @@ export default function registerDaemon(io: IOServer) {
           // Don't seal on successful completion — session stays active for --resume reuse
           broadcast('terminal:exit', {
             agentId,
+            taskId,
+            invocationId: invocation.id,
             code: 0,
             command: 'bridge',
             conversationId: sessionConvId,
@@ -1906,7 +1933,15 @@ export default function registerDaemon(io: IOServer) {
           });
           // 失败不 seal session（保持 active，下次 @ resume，id 不变）—— specs/agent-session-stability
           markEnvelopeFailed('spawn_failed');
-          broadcast('terminal:exit', { agentId, code: 127, command: 'bridge', reasonCode: 'spawn_failed', conversationId: sessionConvId });
+          broadcast('terminal:exit', {
+            agentId,
+            taskId,
+            invocationId: invocation.id,
+            code: 127,
+            command: 'bridge',
+            reasonCode: 'spawn_failed',
+            conversationId: sessionConvId,
+          });
           deleteOwnedActiveProcess(bridgeActive);
           if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
           return;
@@ -2443,6 +2478,8 @@ export default function registerDaemon(io: IOServer) {
 
           broadcast('terminal:exit', {
             agentId,
+            taskId,
+            invocationId: invocation.id,
             code: final.status === 'completed' ? 0 : 1,
             command,
             reasonCode: final.reasonCode ?? (final.status === 'timeout' ? 'timeout' : undefined),
@@ -2478,7 +2515,15 @@ export default function registerDaemon(io: IOServer) {
               console.error('[evaluation] failed to record execution failure:', transitionError);
             }
           }
-          broadcast('terminal:exit', { agentId, code: 1, command, reasonCode: 'spawn_failed', conversationId: sessionConvId });
+          broadcast('terminal:exit', {
+            agentId,
+            taskId,
+            invocationId: invocation.id,
+            code: 1,
+            command,
+            reasonCode: 'spawn_failed',
+            conversationId: sessionConvId,
+          });
           deleteOwnedActiveProcess(acpActive);
           if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
           acpCleanup?.();
@@ -2533,6 +2578,8 @@ export default function registerDaemon(io: IOServer) {
         });
         broadcast('terminal:exit', {
           agentId,
+          taskId,
+          invocationId: trackedInvocationId,
           code: 1,
           command: primaryCommand,
           reasonCode: terminalReasonCode,
@@ -2556,12 +2603,26 @@ export default function registerDaemon(io: IOServer) {
           const reasonCode = 'reasonCode' in outcome ? outcome.reasonCode : 'internal_error';
           const conversationId = payload.conversationId || payload.projectId;
           socket.emit('agent:error', { agentId: payload.agentId, conversationId, message: `派发被服务端阻止：${reasonCode}` });
-          socket.emit('terminal:exit', { agentId: payload.agentId, conversationId, code: 1, command: 'harness', reasonCode });
+          socket.emit('terminal:exit', {
+            agentId: payload.agentId,
+            taskId: payload.taskId,
+            conversationId,
+            code: 1,
+            command: 'harness',
+            reasonCode,
+          });
         });
       } catch (error) {
         const conversationId = payload.conversationId || payload.projectId;
         socket.emit('agent:error', { agentId: payload.agentId, conversationId, message: (error as Error).message });
-        socket.emit('terminal:exit', { agentId: payload.agentId, conversationId, code: 1, command: 'harness', reasonCode: 'conversation_missing' });
+        socket.emit('terminal:exit', {
+          agentId: payload.agentId,
+          taskId: payload.taskId,
+          conversationId,
+          code: 1,
+          command: 'harness',
+          reasonCode: 'conversation_missing',
+        });
       }
     });
 
@@ -2584,7 +2645,7 @@ export default function registerDaemon(io: IOServer) {
     socket.on('daemon:status', (callback) => {
       const activeRuns = projectDaemonActiveRuns(
         activeProcesses.keys(),
-        (agentId, conversationId) => sessionRepo.findActiveByConversation(agentId, conversationId),
+        (agentId, conversationId) => invocationRepo.findActiveForAgentInConversation(agentId, conversationId),
       );
       callback?.({ activeRuns });
     });

@@ -206,8 +206,7 @@ describe('review gate wakeup', () => {
     expect(emitSpy).not.toHaveBeenCalledWith('a2a:agent-started', expect.anything());
   });
 
-  it('re-dispatches the implementer to collect evidence after a successful run exits in progress', async () => {
-    vi.useFakeTimers();
+  it('leaves evidence recovery to the server after a successful run exits in progress', async () => {
     const emitSpy = vi.spyOn(socket, 'emit').mockImplementation(() => socket);
     useTaskHubStore.setState((state) => ({
       activeRunsByAgent: {
@@ -225,22 +224,20 @@ describe('review gate wakeup', () => {
 
     emitServerEvent('terminal:exit', {
       agentId: 'mario',
+      taskId: 'TASK-001',
+      invocationId: 'run-1',
       code: 0,
       command: 'opencode',
       conversationId: 'conv-review',
       activity: 'idle',
     });
 
-    await vi.advanceTimersByTimeAsync(350);
+    await Promise.resolve();
 
-    expect(emitSpy).toHaveBeenCalledWith('terminal:start', expect.objectContaining({
-      conversationId: 'conv-review',
-      taskId: 'TASK-001',
-      agentId: 'mario',
-      dispatchSource: 'system',
-      prompt: expect.stringContaining('implementation_evidence'),
-    }));
-    vi.useRealTimers();
+    const state = useTaskHubStore.getState();
+    expect(emitSpy).not.toHaveBeenCalledWith('terminal:start', expect.anything());
+    expect(state.getTaskById('TASK-001')?.status).toBe('in_progress');
+    expect(state.blockersByConversation['conv-review'] ?? []).toEqual([]);
   });
 });
 

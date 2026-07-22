@@ -125,6 +125,8 @@ daemon 不解析任何厂商专有 stdout，不判断某个厂商支持哪些参
 
 未知 ACP update 必须记录并安全忽略，不能导致整个 daemon 崩溃。
 
+运行生命周期事件必须使用当前 Invocation 的精确身份。`agent:activity(running)` 和 `terminal:exit` 至少携带 `conversationId`、`agentId`、`taskId`、`invocationId`；daemon 状态快照从活动 Invocation 获取任务绑定，禁止从跨任务复用的长期 Session `task_id` 推断。Web 客户端只投影运行状态和日志，不得根据 `terminal:exit`、本地 `activeRunsByAgent` 或缺失字段猜测并写回 Task Graph。进程失败如何恢复、阻塞或重试由服务端 Dispatch Gateway、Proof Log 与 Supervisor 决定。即使收到陈旧退出事件，也不能把 `done` 任务回退为 `blocked`，也不能清除同一 Agent 已开始的更新 Invocation。
+
 ACP `tool_call_update` 可以只携带 `toolCallId`，不重复 `tool_call` 中的 title/kind。`AcpBackend` 必须在单次 execute 生命周期内维护 `toolCallId → tool name`，让同一调用的 `tool_use` 与所有 `tool_result` 使用一致名称；该映射不得跨 Invocation 或 Session 共享。只有从未见过的 call id 才使用中性 `Tool` 回退，不向 UI 输出 `unknown`。
 
 Claude adapter 的权限阶段可能先发送仅含占位 `rawInput` 的 `tool_call`，再以 `tool_call_update` 补齐真实 `rawInput`；该 refinement 不是工具完成。映射层必须按 `toolCallId` 累积名称、最终输入与输出。只在累计状态明确为 `completed|failed` 时产生终态结果；仅当 adapter 完全不提供 `status` 时，带 `rawOutput` 的兼容更新才可视为终态。显式 `pending|in_progress` 即使带 `rawOutput` 也只是进度，不能关闭关联或工具 span。`status=failed` 必须向下游保留，观测 span 与实时 CLI UI 都必须展示 refinement 后的最终输入，并不得将拒绝或执行失败显示为成功。

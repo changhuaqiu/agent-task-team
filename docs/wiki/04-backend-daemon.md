@@ -202,6 +202,8 @@ Daemon 的边界是执行编排，不是团队规则解释器：
 - `task.assigned` — 任务分配通知（来自 task_assign 工具，触发 dispatchToAgent）
 - `task.ready` — 依赖满足通知（来自 TaskFileWatcher 依赖解析，触发自动 dispatch）
 
+`agent:activity(running)` 与 `terminal:exit` 使用 Invocation 级绑定，携带当前 `taskId` 和 `invocationId`。`daemon:status` 同样从活动 Invocation 投影，不读取长期 Agent Session 的初始 task；Session 可以跨多个任务复用，不能作为当前任务身份源。浏览器只使用这些事件展示运行状态/日志，不基于退出码直接修改 Task Graph。
+
 ## 4.5 A2A 编排与团队协作规则
 
 [`src/server/a2a/orchestrator.ts`](../../src/server/a2a/orchestrator.ts) 当前进入 possession migration：链式 A2A 不再只按消息路由理解，而是按“active holder → 显式交接 → 一个或多个 branch holder”的控制转移模型推进。

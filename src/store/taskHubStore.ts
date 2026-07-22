@@ -2008,12 +2008,14 @@ socket.on('connect', () => {
   });
 
   socket.emit('daemon:status', (response: {
-    activeRuns?: Array<{ agentId: string; taskId?: string; conversationId: string }>;
+    activeRuns?: Array<{ agentId: string; taskId?: string; invocationId?: string; conversationId: string }>;
     activeAgents?: Record<string, { taskId?: string; conversationId?: string }>;
   }) => {
     const activeRuns = response?.activeRuns
       ?? Object.entries(response?.activeAgents ?? {}).flatMap(([agentId, info]) =>
-        info.conversationId ? [{ agentId, taskId: info.taskId, conversationId: info.conversationId }] : [],
+        info.conversationId
+          ? [{ agentId, taskId: info.taskId, invocationId: undefined, conversationId: info.conversationId }]
+          : [],
       );
     if (activeRuns.length === 0) return;
     const statusUpdate: Record<string, AgentRunStatus> = {};
@@ -2022,7 +2024,7 @@ socket.on('connect', () => {
       const scopeKey = agentRuntimeKey(info.conversationId, info.agentId);
       statusUpdate[scopeKey] = 'busy';
       runsUpdate[scopeKey] = {
-        runId: `recovered-${info.agentId}-${info.conversationId}`,
+        runId: info.invocationId ?? `recovered-${info.agentId}-${info.conversationId}`,
         taskId: info.taskId,
         conversationId: info.conversationId,
         startedAt: new Date().toISOString(),
@@ -2057,10 +2059,11 @@ socket.on('agent:session', ({ projectId, conversationId, agentId, sessionId }) =
   useTaskHubStore.getState().upsertAgentSession(conversationId || projectId || 'default', agentId, sessionId);
 });
 
-socket.on('agent:activity', ({ conversationId, taskId, agentId, sessionId, status, reason }: {
+socket.on('agent:activity', ({ conversationId, taskId, agentId, invocationId, sessionId, status, reason }: {
   conversationId?: string;
   taskId?: string;
   agentId: string;
+  invocationId?: string;
   sessionId?: string;
   status: 'running' | 'awaiting_children' | 'idle';
   reason?: string;
@@ -2070,6 +2073,24 @@ socket.on('agent:activity', ({ conversationId, taskId, agentId, sessionId, statu
   const scopeKey = agentRuntimeKey(conversationId, agentId);
   if (sessionId) {
     state.upsertAgentSession(conversationId, agentId, sessionId);
+  }
+
+  if (status === 'running') {
+    const existing = getActiveRunForConversation(state, conversationId, agentId);
+    useTaskHubStore.setState((s) => ({
+      agentStatus: { ...s.agentStatus, [scopeKey]: 'busy' },
+      activeRunsByAgent: {
+        ...s.activeRunsByAgent,
+        [scopeKey]: {
+          runId: invocationId ?? existing?.runId ?? `running-${agentId}-${Date.now()}`,
+          taskId: taskId ?? existing?.taskId,
+          conversationId,
+          startedAt: new Date().toISOString(),
+          activity: 'foreground',
+        },
+      },
+    }));
+    return;
   }
 
   if (status === 'awaiting_children') {
@@ -2239,8 +2260,10 @@ socket.on('a2a:pass-blocked', ({ conversationId, chainId, passId, fromAgentId, t
   });
 });
 
-socket.on('terminal:exit', ({ agentId, code, command, reasonCode, conversationId: exitConvId, activity }: {
+socket.on('terminal:exit', ({ agentId, taskId: exitTaskId, invocationId, code, command, reasonCode, conversationId: exitConvId, activity }: {
   agentId: string;
+  taskId?: string;
+  invocationId?: string;
   code: number;
   command?: string;
   reasonCode?: string;
@@ -2256,11 +2279,14 @@ socket.on('terminal:exit', ({ agentId, code, command, reasonCode, conversationId
     active?.conversationId ||
     (active?.taskId ? store.getTaskById(active.taskId)?.conversationId : null) ||
     store.selectedConversationId;
-  const runId = active?.runId;
-  const taskId = active?.taskId;
+  const runId = invocationId ?? active?.runId;
+  const taskId = exitTaskId ?? active?.taskId;
   const backgroundWaiting = code === 0 && (activity === 'awaiting_children' || active?.activity === 'awaiting_children');
   const scopeKey = conversationId ? agentRuntimeKey(conversationId, agentId) : agentId;
-  let missingEvidenceRecovery: { taskId: string; conversationId: string; prompt: string } | undefined;
+  const isCurrentRun = !invocationId
+    || !active
+    || active.runId === invocationId
+    || active.runId.startsWith('recovered-');
 
   store.appendTerminalLog(agentId, `\r\n\x1b[36m[process exited with code ${code}]\x1b[0m\r\n`, conversationId ?? undefined);
 
@@ -2271,6 +2297,10 @@ socket.on('terminal:exit', ({ agentId, code, command, reasonCode, conversationId
       payload: { runId, agentId, taskId, code, reasonCode },
     });
   }
+
+  // terminal:exit is a runtime projection, never a Task Graph mutation. A
+  // late exit from an older Invocation must also leave the newer run intact.
+  if (!isCurrentRun) return;
 
   if (backgroundWaiting && conversationId) {
     clearWatchdog(agentId, conversationId);
@@ -2288,7 +2318,7 @@ socket.on('terminal:exit', ({ agentId, code, command, reasonCode, conversationId
         [scopeKey]: active
           ? { ...active, conversationId, activity: 'awaiting_children' }
           : {
-              runId: `background-${agentId}-${Date.now()}`,
+              runId: runId ?? `background-${agentId}-${Date.now()}`,
               taskId,
               conversationId,
               startedAt: new Date().toISOString(),
@@ -2297,51 +2327,6 @@ socket.on('terminal:exit', ({ agentId, code, command, reasonCode, conversationId
       },
     }));
     return;
-  }
-
-  if (typeof code === 'number' && code !== 0 && taskId && conversationId) {
-    let blockerType: Blocker['type'] = 'execution_failure';
-    let reasonSummary = `执行失败（退出码 ${code}）。`;
-
-    if (reasonCode === 'not_found') {
-      reasonSummary = 'CLI 工具未找到，请检查安装。';
-    } else if (reasonCode === 'timeout') {
-      blockerType = 'timeout';
-      reasonSummary = '执行超时，Agent 已自动终止。';
-    } else if (reasonCode === 'spawn_failed') {
-      reasonSummary = '进程启动失败。';
-    }
-
-    store.updateTaskStatus(taskId, 'blocked', reasonSummary);
-    store.openBlocker({
-      conversationId,
-      taskId,
-      type: blockerType,
-      reasonSummary,
-      evidenceRef: runId ? `run:${runId}` : (command ? `cli:${command}` : undefined),
-    });
-
-  }
-
-  // CLI success does not prove review readiness. The implementer must submit
-  // explicit install/build/impact evidence before the task can enter review.
-  if (code === 0 && taskId) {
-      const task = store.getTaskById(taskId);
-      if (task && task.status === 'in_progress') {
-        store.openBlocker({
-        conversationId: task.conversationId,
-        taskId,
-        type: 'gate_fail',
-        gateId: 'build',
-        reasonSummary: '等待开发交付（implementation_evidence）：需要已验证 PR，以及 installResult、buildResult、testResult、impactEvidence。',
-        evidenceRef: runId ? `run:${runId}` : (command ? `cli:${command}` : undefined),
-      });
-      missingEvidenceRecovery = {
-        taskId,
-        conversationId: task.conversationId,
-        prompt: `请补齐 ${taskId}: ${task.title} 的 implementation_evidence：创建 PR 并记录已验证回执，同时提供 installResult、buildResult、testResult、impactEvidence。完成后由平台推进到 in_review。`,
-      };
-    }
   }
 
   const exitProjectId = conversationId || useTaskHubStore.getState().selectedProjectId || 'default';
@@ -2353,30 +2338,6 @@ socket.on('terminal:exit', ({ agentId, code, command, reasonCode, conversationId
     needsFullCompose: { ...state.needsFullCompose, [exitComposeKey]: true },
   }));
   useTaskHubStore.getState().completeStreamMessage(agentId, conversationId ?? undefined);
-
-  if (missingEvidenceRecovery) {
-    const recovery = missingEvidenceRecovery;
-    setTimeout(() => {
-      const current = useTaskHubStore.getState();
-      const status = getAgentStatusForConversation(current, recovery.conversationId, agentId);
-      if (status && status !== 'idle') {
-        current.enqueueDispatch(agentId, {
-          prompt: recovery.prompt,
-          referencedTaskId: recovery.taskId,
-          source: 'system',
-          conversationId: recovery.conversationId,
-        });
-        return;
-      }
-      current.dispatchToAgent({
-        agentId,
-        referencedTaskId: recovery.taskId,
-        conversationId: recovery.conversationId,
-        source: 'system',
-        prompt: recovery.prompt,
-      });
-    }, 300);
-  }
 
   if (conversationId) {
     const key = `${agentId}:${conversationId}`;
