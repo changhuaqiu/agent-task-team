@@ -16,6 +16,7 @@
 - [x] 正常路径 Web UI E2E 证明用户只发送一次。
 - [x] 修复 v42 水位与 Run 表结构不一致时 Supervisor 无法启动，并增加数据保留回归测试。
 - [x] 自主项目加载 Team Pack 时禁止 legacy proposal，确保 `plan_goal` 是唯一规划入口。
+- [ ] 归一化 ACP 平台 MCP 工具名，确保自主规划器可以调用已授权的 `task_create`。
 
 ## P1：恢复与安全
 

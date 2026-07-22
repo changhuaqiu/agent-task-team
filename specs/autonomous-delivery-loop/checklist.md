@@ -47,6 +47,7 @@
 - [x] executing / verifying / integrating 三阶段持久化重启恢复集成测试。
 - [x] v42 水位但 Run 表缺少 `revision` 的 checkpoint 可前向修复，并保留既有 Run/Action。
 - [x] 自主项目创建不触发 legacy proposal；普通 Team Pack 项目仍自动启动初始分析。
+- [ ] Claude ACP 双下划线工具名可命中当前平台 grant，未知 MCP/普通工具仍拒绝。
 
 ## 全链路证据
 

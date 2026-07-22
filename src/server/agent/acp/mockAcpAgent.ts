@@ -214,7 +214,11 @@ export function createMockAgentApp(
       }
 
       const activeToolCall = scenario === 'platform_mcp_permission'
-        ? { ...TOOL_CALL, title: 'mcp.agent-task-team.task_create' }
+        ? {
+            ...TOOL_CALL,
+            title: process.env.MOCK_ACP_PLATFORM_TOOL_NAME
+              ?? 'mcp.agent-task-team.task_create',
+          }
         : TOOL_CALL;
 
       // 2. Tool call created (pending).
@@ -227,9 +231,14 @@ export function createMockAgentApp(
       const perm = await ctx.client.request(
         acp.methods.client.session.requestPermission,
         {
-          sessionId,
+          sessionId: scenario === 'platform_mcp_permission'
+            ? process.env.MOCK_ACP_PLATFORM_PERMISSION_SESSION_ID ?? sessionId
+            : sessionId,
           toolCall: { ...activeToolCall, ...(scenario === 'platform_mcp_permission' ? { title: undefined } : {}) },
-          ...(scenario === 'platform_mcp_permission' ? { _meta: { is_mcp_tool_approval: true } } : {}),
+          ...(scenario === 'platform_mcp_permission'
+            && process.env.MOCK_ACP_PLATFORM_PERMISSION_META === 'true'
+            ? { _meta: { is_mcp_tool_approval: true } }
+            : {}),
           options: PERMISSION_OPTIONS,
         },
       );

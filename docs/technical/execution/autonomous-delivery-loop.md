@@ -291,6 +291,12 @@ Web UI 创建 GoalContract
 前端的 `Conversation.autonomous` 不是新的持久化事实，而是创建时的即时标记，并在服务端水合时
 由“该 Conversation 是否存在 DeliveryRun”重新推导；统一 `triggerProposal` 入口必须据此拒绝绕过。
 
+ACP 平台工具授权使用 grant 内的规范名 `mcp.<server>.<tool>`。不同 ACP adapter 可能把同一个工具
+报告为 `mcp__<server>__<tool>`；进入权限相关性判断前必须先归一化为规范名，再与当前 grant 的
+精确 allowlist 比较。只有当前 session 事件中首次观察到的同一 tool call ID 可以获得一次性放行；未知 server、
+未知 tool、普通文件/终端工具以及重放的 call ID 继续 fail closed。相关性不得依赖 adapter 私有
+`_meta`：Claude ACP 的 permission request 不携带 Codex ACP 的 MCP approval 标记。
+
 该接缝的边界是“Agent 如何决定并调用工具”，不是“系统是否完成”。测试适配器不得直接更新
 DeliveryRun、Action、Attempt、Receipt 或最终 Bundle；这些事实仍由生产 Repository、Task Tool
 和 Closure Policy 生成。测试控制端只负责把真实浏览器观察转换为 Agent 本应提交的结构化验证回执。

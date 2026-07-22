@@ -73,6 +73,70 @@ describe('AcpBackend (subprocess integration with mockAcpAgent)', () => {
     expect(result.status).toBe('completed');
     expect(result.output).toContain('platform-allowed');
   }, 15_000);
+
+  it('allows the Claude ACP spelling and metadata-free permission shape of the same grant-scoped platform MCP tool', async () => {
+    const backend = new AcpBackend({
+      command: 'npx',
+      args: ['tsx', mockPath],
+      engine: 'claude',
+      cwd: process.cwd(),
+      env: {
+        MOCK_ACP_SCENARIO: 'platform_mcp_permission',
+        MOCK_ACP_PLATFORM_TOOL_NAME: 'mcp__agent-task-team-a1b2__task_create',
+      },
+      permissionPolicy: 'deny',
+      autoApproveMcpToolNames: ['mcp.agent-task-team-a1b2.task_create'],
+    });
+    const run = backend.execute('call scoped platform MCP', {});
+    for await (const event of run.events) { void event; }
+    const result = await run.result;
+
+    expect(result.status).toBe('completed');
+    expect(result.output).toContain('platform-allowed');
+  }, 15_000);
+
+  it('keeps an ungranted Claude-style MCP tool denied', async () => {
+    const backend = new AcpBackend({
+      command: 'npx',
+      args: ['tsx', mockPath],
+      engine: 'claude',
+      cwd: process.cwd(),
+      env: {
+        MOCK_ACP_SCENARIO: 'platform_mcp_permission',
+        MOCK_ACP_PLATFORM_TOOL_NAME: 'mcp__another-server__task_create',
+      },
+      permissionPolicy: 'deny',
+      autoApproveMcpToolNames: ['mcp.agent-task-team-a1b2.task_create'],
+    });
+    const run = backend.execute('call ungranted platform MCP', {});
+    for await (const event of run.events) { void event; }
+    const result = await run.result;
+
+    expect(result.status).toBe('completed');
+    expect(result.output).toContain('platform-denied');
+  }, 15_000);
+
+  it('keeps a granted metadata-free MCP call denied when permission names another session', async () => {
+    const backend = new AcpBackend({
+      command: 'npx',
+      args: ['tsx', mockPath],
+      engine: 'claude',
+      cwd: process.cwd(),
+      env: {
+        MOCK_ACP_SCENARIO: 'platform_mcp_permission',
+        MOCK_ACP_PLATFORM_TOOL_NAME: 'mcp__agent-task-team-a1b2__task_create',
+        MOCK_ACP_PLATFORM_PERMISSION_SESSION_ID: 'different-session',
+      },
+      permissionPolicy: 'deny',
+      autoApproveMcpToolNames: ['mcp.agent-task-team-a1b2.task_create'],
+    });
+    const run = backend.execute('call scoped platform MCP from another session', {});
+    for await (const event of run.events) { void event; }
+    const result = await run.result;
+
+    expect(result.status).toBe('completed');
+    expect(result.output).toContain('platform-denied');
+  }, 15_000);
   it('drives a full turn: text → tool_use → tool_result → text → done, result completed', async () => {
     const backend = new AcpBackend({
       command: 'npx',

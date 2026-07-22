@@ -360,6 +360,9 @@ Team Harness 不重复实现模型、Skill、工具协议、浏览器驱动或 P
 首个规划调用必须来自持久化的 `plan_goal` Action/Attempt。非自主项目的既有 proposal 行为保持不变。
 页面刷新后，自主标记必须由持久化 DeliveryRun 重新水合；创建定时器、聊天自动提案和
 `triggerProposal` 统一入口都必须拒绝为该 Conversation 派发 legacy proposal。
+平台 MCP 工具授权必须兼容 adapter 对同一工具的点号名与双下划线名，但归一化后仍只允许
+当前 grant 明确列出的 server/tool，并只对当前 session 首次出现的相关 tool call ID 单次生效；
+重复、冲突或跨 session 的 call ID 必须拒绝，不得因此扩大普通工具权限。
 
 ### 重启恢复
 

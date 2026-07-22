@@ -10,8 +10,10 @@ import {
   KNOWN_SESSION_UPDATE_TYPES,
 } from './agentEventMapper';
 import {
+  CorrelatedPlatformMcpApprovalTracker,
   createCorrelatedPlatformMcpPermissionPolicy,
   createPermissionHandler,
+  normalizeAcpMcpToolName,
   type AcpPermissionPolicy,
 } from './permissionPolicy';
 import type {
@@ -235,8 +237,10 @@ export class AcpBackend implements AgentBackend {
     let clientContext: acp.ClientContext | undefined;
     let acceptSessionUpdates = false;
     const mapTurnUpdate = createTurnScopedAcpEventMapper();
-    const approvedMcpToolCallIds = new Set<string>();
-    const autoApprovedMcpToolNames = new Set(this.o.autoApproveMcpToolNames ?? []);
+    const platformMcpApprovals = new CorrelatedPlatformMcpApprovalTracker();
+    const autoApprovedMcpToolNames = new Set(
+      (this.o.autoApproveMcpToolNames ?? []).map(normalizeAcpMcpToolName),
+    );
     let stderrTail = '';
     let initialized = false;
     let resultResolved = false;
@@ -428,12 +432,12 @@ export class AcpBackend implements AgentBackend {
 
       const event = mapTurnUpdate(notification.update);
       if (event) {
-        if (
-          event.type === 'tool_use'
-          && event.tool?.callId
-          && autoApprovedMcpToolNames.has(event.tool.name)
-        ) {
-          approvedMcpToolCallIds.add(event.tool.callId);
+        if (event.type === 'tool_use' && event.tool?.callId) {
+          platformMcpApprovals.observe(
+            sessionId,
+            event.tool.callId,
+            autoApprovedMcpToolNames.has(normalizeAcpMcpToolName(event.tool.name)),
+          );
         }
         if (event.sessionId === undefined) event.sessionId = sessionId;
         if (event.content.length > limits.maxEventChars) {
@@ -484,7 +488,7 @@ export class AcpBackend implements AgentBackend {
         const permissionHandler = createPermissionHandler(
           createCorrelatedPlatformMcpPermissionPolicy(
             this.o.permissionPolicy ?? 'deny',
-            approvedMcpToolCallIds,
+            platformMcpApprovals,
           ),
           this.o.permissionTimeoutMs,
         );

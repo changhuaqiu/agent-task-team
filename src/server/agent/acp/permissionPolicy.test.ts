@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { createCorrelatedPlatformMcpPermissionPolicy, createPermissionHandler } from './permissionPolicy';
+import {
+  CorrelatedPlatformMcpApprovalTracker,
+  createCorrelatedPlatformMcpPermissionPolicy,
+  createPermissionHandler,
+  normalizeAcpMcpToolName,
+} from './permissionPolicy';
 import type { RequestPermissionRequest } from '@agentclientprotocol/sdk';
 
 const request = {
@@ -18,6 +23,15 @@ const request = {
 } as RequestPermissionRequest;
 
 describe('ACP permission policy', () => {
+  it('normalizes only the Claude ACP spelling of a platform MCP tool name', () => {
+    expect(normalizeAcpMcpToolName('mcp__agent-task-team-a1b2__task_create'))
+      .toBe('mcp.agent-task-team-a1b2.task_create');
+    expect(normalizeAcpMcpToolName('mcp.agent-task-team-a1b2.task_create'))
+      .toBe('mcp.agent-task-team-a1b2.task_create');
+    expect(normalizeAcpMcpToolName('mcp__untrusted server__task_create'))
+      .toBe('mcp__untrusted server__task_create');
+  });
+
   it('denies by default', async () => {
     await expect(createPermissionHandler()(request)).resolves.toEqual({
       outcome: { outcome: 'selected', optionId: 'reject' },
@@ -59,22 +73,21 @@ describe('ACP permission policy', () => {
     });
   });
 
-  it('allows only a correlated one-shot platform MCP approval', async () => {
-    const policy = createCorrelatedPlatformMcpPermissionPolicy('deny', new Set(['platform-call']));
+  it('allows only a same-session one-shot platform MCP approval without adapter-specific metadata', async () => {
+    const approvals = new CorrelatedPlatformMcpApprovalTracker();
+    approvals.observe('session-1', 'platform-call', true);
+    const policy = createCorrelatedPlatformMcpPermissionPolicy('deny', approvals);
     const platformRequest = {
       ...request,
       toolCall: { ...request.toolCall, toolCallId: 'platform-call', title: undefined },
-      _meta: { is_mcp_tool_approval: true },
     } as RequestPermissionRequest;
     const replayedRequest = {
       ...request,
       toolCall: { ...request.toolCall, toolCallId: 'platform-call', title: undefined },
-      _meta: { is_mcp_tool_approval: true },
     } as RequestPermissionRequest;
     const otherMcpServer = {
       ...request,
       toolCall: { ...request.toolCall, toolCallId: 'other-call', title: undefined },
-      _meta: { is_mcp_tool_approval: true },
     } as RequestPermissionRequest;
 
     await expect(createPermissionHandler(policy)(platformRequest)).resolves.toEqual({
@@ -86,5 +99,40 @@ describe('ACP permission policy', () => {
     await expect(createPermissionHandler(policy)(otherMcpServer)).resolves.toEqual({
       outcome: { outcome: 'selected', optionId: 'reject' },
     });
+  });
+
+  it('does not let a different session consume an armed call id', async () => {
+    const approvals = new CorrelatedPlatformMcpApprovalTracker();
+    approvals.observe('session-1', 'platform-call', true);
+    const policy = createCorrelatedPlatformMcpPermissionPolicy('deny', approvals);
+    const wrongSession = {
+      ...request,
+      sessionId: 'session-2',
+      toolCall: { ...request.toolCall, toolCallId: 'platform-call' },
+    } as RequestPermissionRequest;
+    const correctSession = {
+      ...request,
+      toolCall: { ...request.toolCall, toolCallId: 'platform-call' },
+    } as RequestPermissionRequest;
+
+    await expect(createPermissionHandler(policy)(wrongSession)).resolves.toEqual({
+      outcome: { outcome: 'selected', optionId: 'reject' },
+    });
+    await expect(createPermissionHandler(policy)(correctSession)).resolves.toEqual({
+      outcome: { outcome: 'selected', optionId: 'allow-once' },
+    });
+  });
+
+  it('permanently invalidates a repeated or conflicting tool call id', async () => {
+    const replayed = new CorrelatedPlatformMcpApprovalTracker();
+    replayed.observe('session-1', 'replayed-call', true);
+    expect(replayed.consume('session-1', 'replayed-call')).toBe(true);
+    replayed.observe('session-1', 'replayed-call', true);
+    expect(replayed.consume('session-1', 'replayed-call')).toBe(false);
+
+    const conflicting = new CorrelatedPlatformMcpApprovalTracker();
+    conflicting.observe('session-1', 'conflicting-call', true);
+    conflicting.observe('session-1', 'conflicting-call', false);
+    expect(conflicting.consume('session-1', 'conflicting-call')).toBe(false);
   });
 });
