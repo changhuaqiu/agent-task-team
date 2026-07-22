@@ -4,7 +4,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
-import { TmuxGateway } from './tmux-gateway';
+import { TmuxGateway, TmuxPaneSetupError } from './tmux-gateway';
+import {
+  recoverRestartedTmuxExecutions,
+  parseRestartedTmuxExecution,
+  RestartedTmuxRecoveryTracker,
+  terminateTmuxPaneBeforeRecovery,
+  type RestartedTmuxExecution,
+} from './tmux-dispatch-lifecycle';
 import { AgentPaneRegistry } from './agent-pane-registry';
 import { readAccount } from './accounts-file';
 import { readCredential } from './credentials';
@@ -67,7 +74,7 @@ import { isThinkingCaptureEnabled } from './observability/redaction';
 import { capturePromptPayloads } from './observability/prompt-observation';
 import { teamLogProjection } from './team-log/TeamLogProjection';
 import { renderTeamLogEnvelope } from '../lib/agent-context/teamLog';
-import { ProcessStartGuard } from './process-start-guard';
+import { deleteIfCurrent, ProcessStartGuard } from './process-start-guard';
 import { agentEvaluation, startEvaluationWorker } from './evaluation/agent-evaluation';
 import { digest } from './evaluation/defaults';
 import { transitionCaseExecution } from './evaluation/application-snapshot';
@@ -112,6 +119,11 @@ type TerminalStartPayload = {
   contextReport?: ContextReport;
   contextSnapshot?: ContextSnapshot;
   evaluation?: HarnessDispatchPlan['evaluation'];
+};
+
+type ActiveProcess = {
+  kill: () => void | Promise<void>;
+  onTerminated?: (reasonCode: string) => void | Promise<void>;
 };
 
 export function submitSocketTerminalStart(
@@ -160,6 +172,15 @@ const STRIP_ANSI_RE = /\x1b\[[0-9;]*[a-zA-Z]|\x1b\].*?\x07|\x1b[()>]|\r/g;
 const LOCAL_DAEMON_NODE_ID = 'daemon:local';
 const RUNTIME_HEARTBEAT_INTERVAL_MS = 5_000;
 const OPENCODE_PROJECT_SKILLS_DIR = join('.opencode', 'skills');
+
+class DispatchExpiredBeforeStartError extends Error {
+  readonly reasonCode = 'dispatch_expired';
+
+  constructor() {
+    super('Dispatch expired before runtime start');
+    this.name = 'DispatchExpiredBeforeStartError';
+  }
+}
 
 function resolveAcpPermissionPolicy(): 'deny' | 'allow_once' {
   return process.env.ACP_PERMISSION_MODE === 'allow_once' ? 'allow_once' : 'deny';
@@ -213,12 +234,15 @@ function resolveOpenCodeProjectSkillPaths(projectPath?: string): string[] {
 
 export default function registerDaemon(io: IOServer) {
   startEvaluationWorker();
-  const activeProcesses = new Map<string, { kill: () => void }>();
+  const activeProcesses = new Map<string, ActiveProcess>();
   const processKey = (agentId: string, projectId?: string) => `${agentId}@${projectId || 'default'}`;
   const processStartGuard = new ProcessStartGuard();
   const broadcast = (event: string, data: unknown) => io.emit(event, data);
-  const agentResponseBuffer = new Map<string, string>();
   const dispatchGateway = new DispatchGateway();
+  let resolveDispatchStartupReady: (() => void) | undefined;
+  const dispatchStartupReady = new Promise<void>((resolve) => {
+    resolveDispatchStartupReady = resolve;
+  });
   // Deferred until after the Harness port is constructed; the port closes over this handler.
   // eslint-disable-next-line prefer-const
   let handleTerminalStart: ((payload: TerminalStartPayload, emitToRequester?: (event: string, data: unknown) => void) => Promise<void>) | undefined;
@@ -270,7 +294,6 @@ export default function registerDaemon(io: IOServer) {
   });
   registerHarnessCoordinator(io, harnessCoordinator);
   registerAutonomousDeliveryE2EDriver(io);
-  ensureAutonomousDeliveryRuntime(io, `daemon:${LOCAL_DAEMON_NODE_ID}`);
   const evaluationCaseRunner = new EvaluationCaseRunner(harnessCoordinator);
   const evaluationRunnerTimer = setInterval(() => {
     try {
@@ -405,6 +428,107 @@ export default function registerDaemon(io: IOServer) {
       tmuxGateway = undefined;
     }
   }
+
+  let restartedTmuxRecovery = Promise.resolve();
+  let daemonStartupReconcileObserved = false;
+  let tmuxRecoveryReady = false;
+  let restartedTmuxTracker: RestartedTmuxRecoveryTracker | undefined;
+  const ensureRestartedTmuxTracker = (): RestartedTmuxRecoveryTracker | undefined => {
+    const unclassifiedStarted = executionEnvelopeRepo
+      .listUnclassifiedStartedForNode(LOCAL_DAEMON_NODE_ID);
+    // Legacy rows cannot prove whether the old executor was an in-process
+    // daemon or a tmux pane. Fail closed even when tmux is disabled now: the
+    // flag may have changed across the restart while the old pane survived.
+    if (unclassifiedStarted.length > 0) {
+      tmuxRecoveryReady = false;
+      throw new Error(
+        `startup recovery blocked by ${unclassifiedStarted.length} legacy started execution(s) without ownership metadata`,
+      );
+    }
+    const persistedTmuxRecoveryRequired = executionEnvelopeRepo
+      .listRecoverableTmux(LOCAL_DAEMON_NODE_ID).length > 0;
+    if (!tmuxEnabled && !persistedTmuxRecoveryRequired) {
+      tmuxRecoveryReady = true;
+      return undefined;
+    }
+    if (!tmuxGateway || !agentPaneRegistry) {
+      try {
+        tmuxGateway = new TmuxGateway();
+        agentPaneRegistry = new AgentPaneRegistry();
+        console.log('[daemon] tmux integration recovered for startup reconciliation');
+      } catch (error) {
+        const stranded = executionEnvelopeRepo.listRecoverableTmux(LOCAL_DAEMON_NODE_ID);
+        if (stranded.length > 0) {
+          tmuxRecoveryReady = false;
+          throw new Error(
+            `tmux unavailable with ${stranded.length} recoverable execution(s): ${(error as Error).message}`,
+          );
+        }
+        tmuxRecoveryReady = true;
+        return undefined;
+      }
+    }
+    if (!tmuxGateway || !agentPaneRegistry) {
+      tmuxRecoveryReady = true;
+      return undefined;
+    }
+    restartedTmuxTracker ??= new RestartedTmuxRecoveryTracker(() => {
+      const staleEnvelopes = executionEnvelopeRepo.listRecoverableTmux(LOCAL_DAEMON_NODE_ID);
+      const parsedExecutions = staleEnvelopes.map((envelope) => (
+        parseRestartedTmuxExecution(envelope, LOCAL_DAEMON_NODE_ID)
+      ));
+      if (parsedExecutions.some((execution) => !execution)) {
+        throw new Error('started tmux envelope is missing a recoverable executor reference');
+      }
+      return parsedExecutions as RestartedTmuxExecution[];
+    });
+    if (daemonStartupReconcileObserved) restartedTmuxTracker.observeStartup();
+    return restartedTmuxTracker;
+  };
+  const reconcileRestartedTmux = async (reason: 'startup' | 'periodic') => {
+    if (reason === 'startup') daemonStartupReconcileObserved = true;
+    if (!daemonStartupReconcileObserved) return;
+    const recover = async () => {
+      const tracker = ensureRestartedTmuxTracker();
+      if (!tracker || !tmuxGateway || !agentPaneRegistry) return;
+      await tracker.reconcile(reason, (executions) => (
+        recoverRestartedTmuxExecutions({
+          executions,
+          gateway: tmuxGateway!,
+          registry: agentPaneRegistry!,
+          expire: (envelopeId) => {
+            const expired = executionEnvelopeRepo.recoverTmuxAfterRestart(envelopeId, 'process_restarted');
+            if (!expired) return false;
+            proofLogRepo.append({
+              eventType: 'dispatch.expired',
+              conversationId: expired.conversation_id,
+              taskId: expired.task_id ?? undefined,
+              chainId: expired.chain_id ?? undefined,
+              passId: expired.pass_id ?? undefined,
+              envelopeId: expired.id,
+              nodeId: expired.to_node_id,
+              agentId: expired.to_agent_id,
+              actorId: expired.from_agent_id ?? expired.from_node_id,
+              reasonCode: 'process_restarted',
+            });
+            return true;
+          },
+        })
+      ));
+      tmuxRecoveryReady = tracker.isReady();
+    };
+    restartedTmuxRecovery = restartedTmuxRecovery.then(recover, recover);
+    await restartedTmuxRecovery;
+  };
+  ensureAutonomousDeliveryRuntime(io, `daemon:${LOCAL_DAEMON_NODE_ID}`, {
+    beforeReconcile: reconcileRestartedTmux,
+    afterEnvelopeRecovery: () => {
+      if (!daemonStartupReconcileObserved) return;
+      if (!tmuxRecoveryReady) return;
+      resolveDispatchStartupReady?.();
+      resolveDispatchStartupReady = undefined;
+    },
+  });
 
   // Read agents from DB for A2A mention patterns
   const db = getDb();
@@ -646,8 +770,10 @@ export default function registerDaemon(io: IOServer) {
         contextSnapshot,
         evaluation,
       }: TerminalStartPayload, emitToRequester = broadcast) => {
+      await dispatchStartupReady;
       const startKey = processKey(agentId, projectId || conversationId);
-      if (!processStartGuard.claim(startKey, activeProcesses.has(startKey), Boolean(force))) {
+      const activeKey = processKey(agentId, projectId);
+      if (!processStartGuard.claim(startKey, activeProcesses.has(activeKey), Boolean(force))) {
         emitToRequester('agent:error', {
           agentId,
           message: 'Agent is already starting or running',
@@ -661,6 +787,7 @@ export default function registerDaemon(io: IOServer) {
       let primaryCommand = 'unknown';
       let runtimeConfigDir: string | undefined;
       let controlEnvelopeId: string | undefined;
+      let trackedInvocationId: string | undefined;
       let invocationTraceId = requestedTraceId;
       let rootObservationSpanId: string | undefined;
       let messageObservationSpanId: string | undefined;
@@ -676,6 +803,14 @@ export default function registerDaemon(io: IOServer) {
       // but a later step throws before the execute IIFE takes over.
       let acpCleanup: (() => void) | undefined;
       let revokeAcpTools: (() => void) | undefined;
+      let ownedActiveProcess: ActiveProcess | undefined;
+      const registerActiveProcess = (active: ActiveProcess) => {
+        ownedActiveProcess = active;
+        activeProcesses.set(activeKey, active);
+      };
+      const deleteOwnedActiveProcess = (active = ownedActiveProcess) => (
+        active ? deleteIfCurrent(activeProcesses, activeKey, active) : false
+      );
       try {
       if (!conversationId && !projectId) {
         throw new Error('session_scope_missing: terminal:start requires conversationId or projectId');
@@ -693,7 +828,6 @@ export default function registerDaemon(io: IOServer) {
         if (envelopeText) prompt = `${envelopeText}\n\n${prompt}`;
         effectiveTeamLogUpToEntryId = envelope.upToEntryId;
       }
-      const responseBufferKey = processKey(agentId, sessionConvId);
       const sharedProjectDir = join(workspacesRoot, sessionConvId);
       let taskProjectDir = sharedProjectDir;
       const emitDispatchReceipt = (
@@ -714,22 +848,47 @@ export default function registerDaemon(io: IOServer) {
           createdAt: new Date().toISOString(),
         });
       };
-      const markEnvelopeStarted = () => {
-        if (!controlEnvelopeId) return;
-        dispatchGateway.markStarted(controlEnvelopeId);
+      const markEnvelopeStarted = (): boolean => {
+        if (!controlEnvelopeId) return true;
+        const started = dispatchGateway.markStarted(controlEnvelopeId);
+        if (!started) {
+          invocationRepo.updateStatus(invocation.id, 'failed', {
+            reason_code: 'dispatch_expired',
+            error_message: 'Dispatch expired before runtime start',
+          });
+          emitDispatchReceipt('failed', 'dispatch_expired');
+          throw new DispatchExpiredBeforeStartError();
+        }
         emitDispatchReceipt('started');
+        return true;
       };
       const markEnvelopeCompleted = () => {
+        if (!controlEnvelopeId) {
+          finishObservation('ok');
+          return true;
+        }
+        if (!dispatchGateway.markCompleted(controlEnvelopeId)) return false;
         finishObservation('ok');
-        if (!controlEnvelopeId) return;
-        dispatchGateway.markCompleted(controlEnvelopeId);
         emitDispatchReceipt('completed');
+        return true;
       };
       const markEnvelopeFailed = (reasonCode: string) => {
+        if (!controlEnvelopeId) {
+          finishObservation(reasonCode === 'cancelled' ? 'cancelled' : 'error', reasonCode);
+          return true;
+        }
+        if (!dispatchGateway.markFailed(
+          controlEnvelopeId,
+          reasonCode,
+          'idle',
+          trackedInvocationId ? {
+            id: trackedInvocationId,
+            errorMessage: `execution terminated: ${reasonCode}`,
+          } : undefined,
+        )) return false;
         finishObservation(reasonCode === 'cancelled' ? 'cancelled' : 'error', reasonCode);
-        if (!controlEnvelopeId) return;
-        dispatchGateway.markFailed(controlEnvelopeId, reasonCode);
         emitDispatchReceipt('failed', reasonCode);
+        return true;
       };
 
       const engineFromRuntime =
@@ -741,6 +900,14 @@ export default function registerDaemon(io: IOServer) {
       const targetNodeId = opencodeBridgeUrl
         ? `bridge:${String(opencodeBridgeUrl).trim().replace(/\/+$/, '')}`
         : LOCAL_DAEMON_NODE_ID;
+      const useTmuxTransport = Boolean(
+        tmuxEnabled && tmuxGateway && agentPaneRegistry && !opencodeBridgeUrl,
+      );
+      const executorKind = opencodeBridgeUrl
+        ? 'bridge_proxy'
+        : useTmuxTransport
+          ? 'tmux_pane'
+          : 'daemon_process';
       if (opencodeBridgeUrl) {
         dispatchGateway.ensureRuntimeNode({
           id: targetNodeId,
@@ -766,6 +933,8 @@ export default function registerDaemon(io: IOServer) {
         runtimeId: runtimeId ?? engine,
         payload: {
           prompt: prompt || '',
+          executorKind,
+          executorOwnerNodeId: LOCAL_DAEMON_NODE_ID,
           contextRefs: [
             ...(taskId ? [`task:${taskId}`] : []),
             ...(chainId ? [`chain:${chainId}`] : []),
@@ -787,8 +956,13 @@ export default function registerDaemon(io: IOServer) {
       }
 
       // Only kill existing process on explicit force send
-      if (force && activeProcesses.has(processKey(agentId, projectId))) {
-        activeProcesses.get(processKey(agentId, projectId))?.kill();
+      if (force) {
+        const forced = activeProcesses.get(activeKey);
+        if (forced) {
+          await forced.kill();
+          await forced.onTerminated?.('force_killed');
+          deleteIfCurrent(activeProcesses, activeKey, forced);
+        }
       }
       // If agent is busy and not forcing, reject silently — client should have queued
       if (!force && activeProcesses.has(processKey(agentId, projectId))) {
@@ -800,7 +974,11 @@ export default function registerDaemon(io: IOServer) {
         });
         return;
       }
-      dispatchGateway.markSent(controlEnvelopeId);
+      const sentEnvelope = dispatchGateway.markSent(controlEnvelopeId);
+      if (!sentEnvelope) {
+        emitDispatchReceipt('failed', 'dispatch_expired');
+        throw new DispatchExpiredBeforeStartError();
+      }
       emitDispatchReceipt('sent');
 
       const credentialEnv = await resolveCredentialEnv(accountId);
@@ -854,6 +1032,17 @@ export default function registerDaemon(io: IOServer) {
         account_id: accountId,
         prompt: prompt || '',
       });
+      trackedInvocationId = invocation.id;
+      const tmuxWorktreeId = projectId || 'default';
+      const tmuxServerId = useTmuxTransport
+        ? `${tmuxWorktreeId}--${controlEnvelopeId}`
+        : undefined;
+      const boundExecutor = dispatchGateway.bindExecutor(controlEnvelopeId, {
+        invocationId: invocation.id,
+        scopeId: projectId || sessionConvId,
+        ...(tmuxServerId ? { worktreeId: tmuxWorktreeId, tmuxServerId } : {}),
+      });
+      if (!boundExecutor) markEnvelopeStarted();
 
       const ensureMessageObservationSpan = () => {
         if (messageObservationSpanId || !invocationTraceId || !rootObservationSpanId) return messageObservationSpanId;
@@ -1141,16 +1330,23 @@ export default function registerDaemon(io: IOServer) {
         if (timeoutMs === 0) return;
         if (timeoutTimer) clearTimeout(timeoutTimer);
         timeoutTimer = setTimeout(() => {
-          const active = activeProcesses.get(processKey(agentId, projectId));
-          if (active) {
-            active.kill();
-            markEnvelopeFailed('timeout');
-            broadcast('agent:error', {
-              agentId,
-              message: `CLI 响应超时 (${Math.round(timeoutMs / 1000)}s)，已自动终止。`,
-              reasonCode: 'timeout' as const,
-            });
-          }
+          void (async () => {
+            const active = ownedActiveProcess;
+            if (!active || activeProcesses.get(activeKey) !== active) return;
+            try {
+              await active.kill();
+              await active.onTerminated?.('timeout');
+              deleteOwnedActiveProcess(active);
+              if (!active.onTerminated) markEnvelopeFailed('timeout');
+              broadcast('agent:error', {
+                agentId,
+                message: `CLI 响应超时 (${Math.round(timeoutMs / 1000)}s)，已自动终止。`,
+                reasonCode: 'timeout' as const,
+              });
+            } catch (error) {
+              console.error('[daemon] timeout could not confirm process termination:', error);
+            }
+          })();
         }, timeoutMs);
         if (timeoutTimer) timeoutTimer.unref();
       };
@@ -1164,8 +1360,10 @@ export default function registerDaemon(io: IOServer) {
         if (a2aCompletionHandled) return;
         a2aCompletionHandled = true;
 
-        const accumulated = agentResponseBuffer.get(responseBufferKey) ?? finalContent;
-        agentResponseBuffer.delete(responseBufferKey);
+        // This buffer belongs to this invocation. A process-level map keyed by
+        // agent/session lets a replaced invocation consume or erase the new
+        // invocation's response while its async completion is still unwinding.
+        const accumulated = completionObservationBuffer || finalContent;
         // Held-out output must never drive the production collaboration loop.
         // Evaluation completion is reconciled through eval_case_execution after
         // the invocation finishes; it must not materialize TeamLog entries,
@@ -1483,8 +1681,6 @@ export default function registerDaemon(io: IOServer) {
         if (event.type === 'text' && typeof event.content === 'string') {
           ensureMessageObservationSpan();
           completionObservationBuffer += event.content;
-          const existing = agentResponseBuffer.get(responseBufferKey) ?? '';
-          agentResponseBuffer.set(responseBufferKey, existing + event.content);
         } else if (event.type === 'thinking' && captureThinking && typeof event.content === 'string') {
           ensureMessageObservationSpan();
           thinkingObservationBuffer += event.content;
@@ -1531,9 +1727,10 @@ export default function registerDaemon(io: IOServer) {
       if (opencodeBridgeUrl) {
         const url = String(opencodeBridgeUrl).trim().replace(/\/+$/, '');
         const controller = new AbortController();
-        activeProcesses.set(processKey(agentId, projectId), { kill: () => controller.abort() });
-        processStartGuard.markStarted(startKey);
         markEnvelopeStarted();
+        const bridgeActive: ActiveProcess = { kill: () => controller.abort() };
+        registerActiveProcess(bridgeActive);
+        processStartGuard.markStarted(startKey);
 
         broadcast('terminal:data', {
           agentId,
@@ -1573,8 +1770,7 @@ export default function registerDaemon(io: IOServer) {
             // 失败不 seal session（保持 active，下次 @ resume，id 不变）—— specs/agent-session-stability
             markEnvelopeFailed('spawn_failed');
             broadcast('terminal:exit', { agentId, code: 127, command: 'bridge', reasonCode: 'spawn_failed' });
-            agentResponseBuffer.delete(responseBufferKey);
-            activeProcesses.delete(processKey(agentId, projectId));
+            deleteOwnedActiveProcess(bridgeActive);
             if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
             return;
           }
@@ -1625,8 +1821,7 @@ export default function registerDaemon(io: IOServer) {
             conversationId: sessionConvId,
             activity: hasBackgroundChildActivity ? 'awaiting_children' : 'idle',
           });
-          agentResponseBuffer.delete(responseBufferKey);
-          activeProcesses.delete(processKey(agentId, projectId));
+          deleteOwnedActiveProcess(bridgeActive);
           if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
           return;
         } catch (e) {
@@ -1641,22 +1836,52 @@ export default function registerDaemon(io: IOServer) {
           // 失败不 seal session（保持 active，下次 @ resume，id 不变）—— specs/agent-session-stability
           markEnvelopeFailed('spawn_failed');
           broadcast('terminal:exit', { agentId, code: 127, command: 'bridge', reasonCode: 'spawn_failed' });
-          agentResponseBuffer.delete(responseBufferKey);
-          activeProcesses.delete(processKey(agentId, projectId));
+          deleteOwnedActiveProcess(bridgeActive);
           if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
           return;
         }
       }
 
       // --- Local spawn mode ---
-      if (tmuxGateway && agentPaneRegistry) {
+      const dispatchTmuxGateway = tmuxGateway;
+      const dispatchPaneRegistry = agentPaneRegistry;
+      if (useTmuxTransport && dispatchTmuxGateway && dispatchPaneRegistry) {
         // tmux pane mode: agent runs inside a tmux pane with remain-on-exit
+        let tmuxDispatchStarted = false;
+        let tmuxOwnershipPersisted = Boolean(boundExecutor);
+        let tmuxPane: {
+          worktreeId: string;
+          tmuxServerId: string;
+          paneId: string;
+          invocationId: string;
+        } | undefined;
         try {
-          const worktreeId = projectId || 'default';
-          await tmuxGateway.ensureServer(worktreeId);
-          const paneId = await tmuxGateway.createAgentPane(worktreeId);
-          const invocationId = `${agentId}-${Date.now()}`;
-          agentPaneRegistry.register(invocationId, worktreeId, paneId, 'daemon');
+          const serverId = tmuxServerId!;
+          await dispatchTmuxGateway.ensureServer(serverId);
+          const invocationId = invocation.id;
+          let paneId: string;
+          try {
+            paneId = await dispatchTmuxGateway.createAgentPane(serverId);
+          } catch (error) {
+            if (error instanceof TmuxPaneSetupError && !error.cleanupConfirmed) {
+              paneId = error.paneId;
+              dispatchPaneRegistry.register(invocationId, tmuxWorktreeId, paneId, 'daemon');
+              tmuxPane = { worktreeId: tmuxWorktreeId, tmuxServerId: serverId, paneId, invocationId };
+            }
+            throw error;
+          }
+          dispatchPaneRegistry.register(invocationId, tmuxWorktreeId, paneId, 'daemon');
+          tmuxPane = { worktreeId: tmuxWorktreeId, tmuxServerId: serverId, paneId, invocationId };
+
+          const bound = dispatchGateway.bindExecutor(controlEnvelopeId, {
+            invocationId,
+            worktreeId: tmuxWorktreeId,
+            tmuxServerId: serverId,
+            paneId,
+            scopeId: projectId || sessionConvId,
+          });
+          if (!bound) markEnvelopeStarted();
+          tmuxOwnershipPersisted = true;
 
           const envExports = Object.entries(mergedEnv).filter(([k]) => k !== 'PATH' && k !== 'HOME' && k !== 'USER').map(([k, v]) => `${k}='${String(v).replace(/'/g, "'\\''")}'`).join(' ');
           recordRuntimeContextObservation({
@@ -1667,45 +1892,126 @@ export default function registerDaemon(io: IOServer) {
           });
           capturePromptObservation(prompt || '', systemPrompt || undefined);
           const shellCmd = `${envExports ? envExports + ' ' : ''}${[primaryCommand, ...primaryArgs].map((s) => `'${s.replace(/'/g, "'\\''")}'`).join(' ')}`;
-          await tmuxGateway.execInPane(worktreeId, paneId, shellCmd);
-          await tmuxGateway.setPaneReadOnly(worktreeId, paneId, true);
+          markEnvelopeStarted();
+          tmuxDispatchStarted = true;
+          await dispatchTmuxGateway.execInPane(serverId, paneId, shellCmd);
+          await dispatchTmuxGateway.setPaneReadOnly(serverId, paneId, true);
 
           broadcast('terminal:data', {
             agentId,
             data: `\x1b[33m$ [tmux:${paneId}] ${primaryCommand} ${primaryArgs.join(' ')}\x1b[0m\r\n`,
           });
 
-          // Poll pane output for terminal:data events
+          const tmuxActive: ActiveProcess = {
+            kill: async () => {
+              clearInterval(pollInterval);
+              try {
+                await dispatchTmuxGateway.execInPane(serverId, paneId, 'C-c');
+                await new Promise((r) => setTimeout(r, 3000));
+              } catch { /* pane dead */ }
+              const stopped = await terminateTmuxPaneBeforeRecovery({
+                gateway: dispatchTmuxGateway,
+                registry: dispatchPaneRegistry,
+                worktreeId: tmuxWorktreeId,
+                tmuxServerId: serverId,
+                paneId,
+                invocationId,
+              });
+              if (!stopped) throw new Error('tmux pane termination could not be confirmed');
+            },
+            onTerminated: async (reasonCode) => {
+              markEnvelopeFailed(reasonCode);
+            },
+          };
+          // Poll pane output for terminal:data events while this invocation is
+          // still the registered owner for the agent/project key.
           const pollInterval = setInterval(async () => {
-            if (!activeProcesses.has(processKey(agentId, projectId))) {
+            if (activeProcesses.get(activeKey) !== tmuxActive) {
               clearInterval(pollInterval);
               return;
             }
             try {
-              const content = await tmuxGateway.capturePane(worktreeId, paneId);
+              const content = await dispatchTmuxGateway.capturePane(serverId, paneId);
               broadcast('terminal:data', { agentId, data: content.replace(/\n/g, '\r\n') });
             } catch { /* pane gone */ }
           }, 2000);
-
-          activeProcesses.set(processKey(agentId, projectId), {
-            kill: async () => {
-              clearInterval(pollInterval);
-              try {
-                await tmuxGateway.execInPane(worktreeId, paneId, 'C-c');
-                await new Promise((r) => setTimeout(r, 3000));
-              } catch { /* pane dead */ }
-              try {
-                await tmuxGateway.killPane(worktreeId, paneId);
-              } catch { /* already dead */ }
-              agentPaneRegistry.remove(invocationId);
-            },
-          });
+          registerActiveProcess(tmuxActive);
           processStartGuard.markStarted(startKey);
-          markEnvelopeStarted();
           return;
         } catch (err) {
           console.error('[daemon] tmux pane creation failed, falling back to direct spawn:', (err as Error).message);
-          if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
+          if (tmuxPane) {
+            const paneStopped = await terminateTmuxPaneBeforeRecovery({
+              gateway: dispatchTmuxGateway,
+              registry: dispatchPaneRegistry,
+              ...tmuxPane,
+            });
+            if (!paneStopped) {
+              const strandedPane = tmuxPane;
+              const dispatchExpired = err instanceof DispatchExpiredBeforeStartError;
+              let recoveryOwnershipStarted = tmuxDispatchStarted;
+              if (!dispatchExpired && !recoveryOwnershipStarted) {
+                try {
+                  if (!tmuxOwnershipPersisted) {
+                    tmuxOwnershipPersisted = Boolean(dispatchGateway.bindExecutor(controlEnvelopeId, {
+                      invocationId: strandedPane.invocationId,
+                      worktreeId: strandedPane.worktreeId,
+                      tmuxServerId: strandedPane.tmuxServerId,
+                      paneId: strandedPane.paneId,
+                      scopeId: projectId || sessionConvId,
+                    }));
+                  }
+                  if (tmuxOwnershipPersisted) {
+                    markEnvelopeStarted();
+                    recoveryOwnershipStarted = true;
+                  }
+                } catch (ownershipError) {
+                  console.error('[daemon] failed to persist stranded tmux ownership:', ownershipError);
+                }
+              }
+              const strandedTmuxActive: ActiveProcess = {
+                kill: async () => {
+                  const stopped = await terminateTmuxPaneBeforeRecovery({
+                    gateway: dispatchTmuxGateway,
+                    registry: dispatchPaneRegistry,
+                    ...strandedPane,
+                  });
+                  if (!stopped) throw new Error('tmux pane termination could not be confirmed');
+                },
+                onTerminated: async (reasonCode) => {
+                  // A failed sent->started CAS already terminalized the
+                  // envelope/invocation as dispatch_expired. The stranded pane
+                  // is only an idle shell, so later cleanup must not overwrite
+                  // that durable recovery fact.
+                  if (!dispatchExpired) {
+                    markEnvelopeFailed(reasonCode);
+                  }
+                },
+              };
+              registerActiveProcess(strandedTmuxActive);
+              if (!dispatchExpired && recoveryOwnershipStarted) {
+                invocationRepo.updateStatus(invocation.id, 'running', {
+                  reason_code: 'tmux_cleanup_failed',
+                  error_message: 'tmux pane could not be stopped after startup failure',
+                });
+              }
+              processStartGuard.markStarted(startKey);
+              return;
+            }
+          }
+          if (err instanceof DispatchExpiredBeforeStartError) throw err;
+          if (tmuxDispatchStarted) {
+            invocationRepo.updateStatus(invocation.id, 'failed', {
+              reason_code: 'spawn_failed',
+              error_message: (err as Error).message,
+            });
+            throw err;
+          }
+          invocationRepo.updateStatus(invocation.id, 'failed', {
+            reason_code: 'tmux_startup_failed',
+            error_message: (err as Error).message,
+          });
+          throw err;
         }
       }
 
@@ -1939,12 +2245,13 @@ export default function registerDaemon(io: IOServer) {
         capsResult.prompt,
         engine === 'opencode' ? systemPrompt || undefined : capsResult.opts.systemPrompt,
       );
+      markEnvelopeStarted();
       const { events: rawEvents, result, kill } = backend.execute(capsResult.prompt, capsResult.opts);
       const events = withDoneGuarantee(rawEvents, result);
 
-      activeProcesses.set(processKey(agentId, projectId), { kill });
+      const acpActive: ActiveProcess = { kill };
+      registerActiveProcess(acpActive);
       processStartGuard.markStarted(startKey);
-      markEnvelopeStarted();
 
       // Consume events and forward to socket
       (async () => {
@@ -1997,7 +2304,7 @@ export default function registerDaemon(io: IOServer) {
             }
             announceConfirmedSession(finalRuntimeSessionId);
           } else {
-            invocationRepo.updateStatus(invocation.id, 'failed', {
+            invocationRepo.failIfNonTerminal(invocation.id, {
               exit_code: 1,
               reason_code: final.reasonCode ?? (final.status === 'timeout' ? 'timeout' : undefined),
               ...(final.error ? { error_message: final.error } : {}),
@@ -2067,8 +2374,7 @@ export default function registerDaemon(io: IOServer) {
             conversationId: sessionConvId,
             activity: final.status === 'completed' && hasBackgroundChildActivity ? 'awaiting_children' : 'idle',
           });
-          agentResponseBuffer.delete(responseBufferKey);
-          activeProcesses.delete(processKey(agentId, projectId));
+          deleteOwnedActiveProcess(acpActive);
           if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
           acpCleanup?.();
           revokeAcpTools?.();
@@ -2098,16 +2404,17 @@ export default function registerDaemon(io: IOServer) {
             }
           }
           broadcast('terminal:exit', { agentId, code: 1, command, reasonCode: 'spawn_failed' });
-          agentResponseBuffer.delete(responseBufferKey);
-          activeProcesses.delete(processKey(agentId, projectId));
+          deleteOwnedActiveProcess(acpActive);
           if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
           acpCleanup?.();
           revokeAcpTools?.();
         }
       })();
       } catch (err) {
+        const dispatchExpired = err instanceof DispatchExpiredBeforeStartError;
+        const terminalReasonCode = dispatchExpired ? err.reasonCode : 'internal_error';
         console.error(`[daemon] terminal:start error for agent=${agentId}:`, err);
-        finishObservation('error', 'internal_error');
+        finishObservation(dispatchExpired ? 'cancelled' : 'error', terminalReasonCode);
         if (evaluation) {
           try {
             const current = getDb().prepare('SELECT status FROM eval_case_execution WHERE id=?')
@@ -2118,7 +2425,7 @@ export default function registerDaemon(io: IOServer) {
                 conversationId: conversationId || projectId || '',
                 status: 'failed',
                 observedManifestDigest: evaluationObservedDigest,
-                errorCode: 'internal_error',
+                errorCode: terminalReasonCode,
                 errorMessage: (err as Error)?.message,
               });
             }
@@ -2126,7 +2433,7 @@ export default function registerDaemon(io: IOServer) {
             console.error('[evaluation] failed to record terminal setup failure:', transitionError);
           }
         }
-        if (controlEnvelopeId) {
+        if (controlEnvelopeId && !dispatchExpired) {
           dispatchGateway.markFailed(controlEnvelopeId, 'internal_error');
           const receiptConversationId = conversationId || projectId || 'default';
           io.to(receiptConversationId).emit('dispatch.receipt', {
@@ -2142,10 +2449,19 @@ export default function registerDaemon(io: IOServer) {
             createdAt: new Date().toISOString(),
           });
         }
-        broadcast('agent:error', { agentId, message: `内部错误：${(err as Error)?.message || '未知'}` });
-        broadcast('terminal:exit', { agentId, code: 1, command: primaryCommand, reasonCode: 'internal_error' });
-        agentResponseBuffer.delete(processKey(agentId, conversationId || projectId || 'default'));
-        activeProcesses.delete(processKey(agentId, projectId));
+        broadcast('agent:error', {
+          agentId,
+          message: dispatchExpired
+            ? '派发在运行实例启动前已过期，系统将自动恢复。'
+            : `内部错误：${(err as Error)?.message || '未知'}`,
+        });
+        broadcast('terminal:exit', {
+          agentId,
+          code: 1,
+          command: primaryCommand,
+          reasonCode: terminalReasonCode,
+        });
+        deleteOwnedActiveProcess();
         if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
         acpCleanup?.();
         revokeAcpTools?.();
@@ -2171,12 +2487,18 @@ export default function registerDaemon(io: IOServer) {
     });
 
     // Force-kill a running agent process
-    socket.on('terminal:kill', ({ agentId, projectId: killProjectId, force }: { agentId: string; projectId?: string; force?: boolean }) => {
+    socket.on('terminal:kill', async ({ agentId, projectId: killProjectId, force }: { agentId: string; projectId?: string; force?: boolean }) => {
       const key = processKey(agentId, killProjectId);
-      if (activeProcesses.has(key)) {
-        activeProcesses.get(key)?.kill();
-        activeProcesses.delete(key);
-        socket.emit('terminal:exit', { agentId, code: 0, command: 'kill', reasonCode: force ? 'force_killed' : 'killed' });
+      const active = activeProcesses.get(key);
+      if (active) {
+        try {
+          await active.kill();
+          await active.onTerminated?.(force ? 'force_killed' : 'killed');
+          deleteIfCurrent(activeProcesses, key, active);
+          socket.emit('terminal:exit', { agentId, code: 0, command: 'kill', reasonCode: force ? 'force_killed' : 'killed' });
+        } catch (error) {
+          socket.emit('agent:error', { agentId, message: `无法确认运行实例已停止：${(error as Error).message}` });
+        }
       }
     });
 
@@ -2228,13 +2550,21 @@ export default function registerDaemon(io: IOServer) {
   });
 
   // Graceful shutdown
-  const shutdown = () => {
+  const shutdown = async () => {
     stopWorktreeGCScheduler();
     clearInterval(runtimeHealthTimer);
     clearInterval(autonomyGuardTimer);
-    for (const active of activeProcesses.values()) active.kill();
-    activeProcesses.clear();
+    const entries = [...activeProcesses.entries()];
+    await Promise.all(entries.map(async ([key, active]) => {
+      try {
+        await active.kill();
+        await active.onTerminated?.('process_shutdown');
+        deleteIfCurrent(activeProcesses, key, active);
+      } catch (error) {
+        console.error(`[daemon] shutdown could not confirm termination for ${key}:`, error);
+      }
+    }));
   };
-  process.on('SIGTERM', shutdown);
-  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', () => { void shutdown(); });
+  process.on('SIGINT', () => { void shutdown(); });
 }

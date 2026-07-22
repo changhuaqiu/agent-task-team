@@ -157,35 +157,49 @@ export class DispatchGateway {
     return executionEnvelopeRepo.getById(envelope.id)!;
   }
 
-  markSent(envelopeId: string): void {
-    const envelope = executionEnvelopeRepo.updateStatus(envelopeId, 'sent');
-    if (!envelope) return;
+  markSent(envelopeId: string): ExecutionEnvelopeRow | undefined {
+    const envelope = executionEnvelopeRepo.sendIfRoutedAndLive(envelopeId);
+    if (!envelope) return undefined;
     proofLogRepo.append(this.eventFromEnvelope(envelope, 'dispatch.sent'));
+    return envelope;
   }
 
-  markStarted(envelopeId: string): void {
-    const envelope = executionEnvelopeRepo.updateStatus(envelopeId, 'started');
-    if (!envelope) return;
+  markStarted(envelopeId: string): ExecutionEnvelopeRow | undefined {
+    const envelope = executionEnvelopeRepo.startIfSentAndLive(envelopeId);
+    if (!envelope) return undefined;
     agentBindingRepo.markStarted(envelope.conversation_id, envelope.to_agent_id, envelope.id);
     proofLogRepo.append(this.eventFromEnvelope(envelope, 'dispatch.started'));
+    return envelope;
   }
 
-  markCompleted(envelopeId: string): void {
-    const envelope = executionEnvelopeRepo.updateStatus(envelopeId, 'completed');
-    if (!envelope) return;
-    agentBindingRepo.markFinished(envelope.conversation_id, envelope.to_agent_id);
+  bindExecutor(
+    envelopeId: string,
+    executorRef: NonNullable<ExecutionEnvelopePayload['executorRef']>,
+  ): ExecutionEnvelopeRow | undefined {
+    return executionEnvelopeRepo.bindExecutor(envelopeId, executorRef);
+  }
+
+  markCompleted(envelopeId: string): ExecutionEnvelopeRow | undefined {
+    const envelope = executionEnvelopeRepo.completeIfStarted(envelopeId);
+    if (!envelope) return undefined;
     proofLogRepo.append(this.eventFromEnvelope(envelope, 'dispatch.completed'));
+    return envelope;
   }
 
-  markFailed(envelopeId: string, reasonCode: string, bindingStatus: AgentBindingStatus = 'idle'): void {
-    const envelope = executionEnvelopeRepo.updateStatus(envelopeId, 'failed', reasonCode);
-    if (!envelope) return;
-    if (bindingStatus === 'idle') {
-      agentBindingRepo.markFinished(envelope.conversation_id, envelope.to_agent_id);
-    } else {
-      agentBindingRepo.markError(envelope.conversation_id, envelope.to_agent_id, bindingStatus, reasonCode);
-    }
+  markFailed(
+    envelopeId: string,
+    reasonCode: string,
+    bindingStatus: AgentBindingStatus = 'idle',
+    invocation?: { id: string; errorMessage?: string },
+  ): ExecutionEnvelopeRow | undefined {
+    const envelope = executionEnvelopeRepo.failIfNonTerminal(envelopeId, reasonCode, {
+      bindingStatus,
+      invocationId: invocation?.id,
+      invocationErrorMessage: invocation?.errorMessage,
+    });
+    if (!envelope) return undefined;
     proofLogRepo.append(this.eventFromEnvelope(envelope, 'dispatch.failed', reasonCode));
+    return envelope;
   }
 
   private block(envelopeId: string, reasonCode: string): ExecutionEnvelopeRow {

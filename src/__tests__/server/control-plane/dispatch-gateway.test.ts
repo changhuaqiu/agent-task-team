@@ -5,6 +5,7 @@ import { DispatchGateway } from '@/server/control-plane/dispatch-gateway';
 import { runtimeNodeRepo } from '@/server/repositories/runtime-node-repo';
 import { executionEnvelopeRepo } from '@/server/repositories/execution-envelope-repo';
 import { proofLogRepo } from '@/server/repositories/proof-log-repo';
+import { invocationRepo } from '@/server/repositories/invocation-repo';
 
 beforeEach(() => {
   setTestDb(createTestDb());
@@ -113,5 +114,109 @@ describe('DispatchGateway', () => {
 
     expect(envelope.status).toBe('routed');
     expect(envelope.reason_code).toBeNull();
+  });
+
+  it('does not send, start, or revive a routed dispatch after its TTL expires', () => {
+    const gateway = new DispatchGateway();
+    gateway.ensureRuntimeNode({ id: 'browser-1', kind: 'browser', label: 'Browser' });
+    gateway.ensureRuntimeNode({ id: 'daemon-1', kind: 'daemon', label: 'Daemon' });
+    const envelope = gateway.requestDispatch({
+      source: 'workflow',
+      intent: 'implement',
+      conversationId: 'conv-1',
+      fromNodeId: 'browser-1',
+      toNodeId: 'daemon-1',
+      toAgentId: 'luigi',
+      runtimeId: 'claude-local',
+      ttlMs: -1,
+    });
+    expect(gateway.markSent(envelope.id)).toBeUndefined();
+    executionEnvelopeRepo.expireStalePending();
+
+    expect(gateway.markStarted(envelope.id)).toBeUndefined();
+    expect(executionEnvelopeRepo.getById(envelope.id)?.status).toBe('expired');
+    expect(proofLogRepo.getByEnvelope(envelope.id).map((event) => event.event_type))
+      .not.toContain('dispatch.sent');
+    expect(proofLogRepo.getByEnvelope(envelope.id).map((event) => event.event_type))
+      .not.toContain('dispatch.started');
+  });
+
+  it('does not let late terminal callbacks overwrite an existing terminal state', () => {
+    const gateway = new DispatchGateway();
+    gateway.ensureRuntimeNode({ id: 'browser-1', kind: 'browser', label: 'Browser' });
+    gateway.ensureRuntimeNode({ id: 'daemon-1', kind: 'daemon', label: 'Daemon' });
+    const completed = gateway.requestDispatch({
+      source: 'workflow',
+      intent: 'implement',
+      conversationId: 'conv-1',
+      fromNodeId: 'browser-1',
+      toNodeId: 'daemon-1',
+      toAgentId: 'luigi',
+      runtimeId: 'claude-local',
+    });
+    gateway.markSent(completed.id);
+    gateway.markStarted(completed.id);
+    gateway.markCompleted(completed.id);
+
+    expect(gateway.markFailed(completed.id, 'late_timeout')).toBeUndefined();
+    expect(executionEnvelopeRepo.getById(completed.id)?.status).toBe('completed');
+
+    const failed = gateway.requestDispatch({
+      source: 'workflow',
+      intent: 'verify',
+      conversationId: 'conv-1',
+      fromNodeId: 'browser-1',
+      toNodeId: 'daemon-1',
+      toAgentId: 'peach',
+      runtimeId: 'claude-local',
+    });
+    gateway.markSent(failed.id);
+    gateway.markStarted(failed.id);
+    gateway.markFailed(failed.id, 'timeout');
+
+    expect(gateway.markCompleted(failed.id)).toBeUndefined();
+    expect(executionEnvelopeRepo.getById(failed.id)).toMatchObject({ status: 'failed', reason_code: 'timeout' });
+  });
+
+  it('lets only the envelope terminal CAS winner update the invocation reason', () => {
+    const gateway = new DispatchGateway();
+    gateway.ensureRuntimeNode({ id: 'browser-1', kind: 'browser', label: 'Browser' });
+    gateway.ensureRuntimeNode({ id: 'daemon-1', kind: 'daemon', label: 'Daemon' });
+    const envelope = gateway.requestDispatch({
+      source: 'workflow',
+      intent: 'implement',
+      conversationId: 'conv-1',
+      fromNodeId: 'browser-1',
+      toNodeId: 'daemon-1',
+      toAgentId: 'luigi',
+      runtimeId: 'claude-local',
+    });
+    gateway.markSent(envelope.id);
+    invocationRepo.create({ id: 'inv-terminal-race', conversation_id: 'conv-1', agent_id: 'luigi' });
+    invocationRepo.updateStatus('inv-terminal-race', 'running');
+    gateway.markStarted(envelope.id);
+
+    expect(gateway.markFailed(
+      envelope.id,
+      'killed',
+      'idle',
+      { id: 'inv-terminal-race', errorMessage: 'first terminal callback' },
+    )).toBeDefined();
+    expect(gateway.markFailed(
+      envelope.id,
+      'timeout',
+      'idle',
+      { id: 'inv-terminal-race', errorMessage: 'late terminal callback' },
+    )).toBeUndefined();
+
+    expect(executionEnvelopeRepo.getById(envelope.id)).toMatchObject({
+      status: 'failed',
+      reason_code: 'killed',
+    });
+    expect(invocationRepo.getById('inv-terminal-race')).toMatchObject({
+      status: 'failed',
+      reason_code: 'killed',
+      error_message: 'first terminal callback',
+    });
   });
 });

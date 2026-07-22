@@ -167,13 +167,16 @@ export const sessionRepo = {
       }
 
       if (binding.status === 'mismatch') return binding;
-      getDb()
+      const invocationSucceeded = getDb()
         .prepare(
           `UPDATE invocation
            SET status = 'succeeded', exit_code = 0, cli_session_id = ?, updated_at = ?
-           WHERE id = ?`,
+           WHERE id = ? AND status NOT IN ('succeeded', 'failed', 'canceled')`,
         )
         .run(runtimeSessionId, new Date().toISOString(), invocationId);
+      if (invocationSucceeded.changes !== 1) {
+        throw new Error(`invocation_terminal: ${invocationId}`);
+      }
       return binding;
     })();
   },

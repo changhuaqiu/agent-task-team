@@ -96,6 +96,23 @@ export const agentBindingRepo = {
     return agentBindingRepo.get(conversationId, agentId);
   },
 
+  markFinishedIfEnvelope(
+    conversationId: string,
+    agentId: string,
+    envelopeId: string,
+    status: AgentBindingStatus = 'idle',
+  ): AgentBindingRow | undefined {
+    const now = new Date().toISOString();
+    getDb()
+      .prepare(
+        `UPDATE agent_binding
+         SET status = ?, active_envelope_id = NULL, last_finished_at = ?, updated_at = ?
+         WHERE conversation_id = ? AND agent_id = ? AND active_envelope_id = ?`,
+      )
+      .run(status, now, now, conversationId, agentId, envelopeId);
+    return agentBindingRepo.get(conversationId, agentId);
+  },
+
   markError(conversationId: string, agentId: string, status: AgentBindingStatus, error: string): AgentBindingRow | undefined {
     const now = new Date().toISOString();
     getDb()

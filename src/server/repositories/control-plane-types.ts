@@ -26,4 +26,13 @@ export interface ExecutionEnvelopePayload {
   prompt?: string;
   handoffPacketId?: string;
   contextRefs: string[];
+  executorKind?: 'daemon_process' | 'bridge_proxy' | 'tmux_pane';
+  executorOwnerNodeId?: string;
+  executorRef?: {
+    invocationId: string;
+    scopeId: string;
+    worktreeId?: string;
+    tmuxServerId?: string;
+    paneId?: string;
+  };
 }

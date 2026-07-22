@@ -210,9 +210,180 @@ describe('executionEnvelopeRepo', () => {
     });
     executionEnvelopeRepo.updateStatus(terminal.id, 'completed');
 
-    expect(executionEnvelopeRepo.expireStale()).toBe(1);
+    expect(executionEnvelopeRepo.expireStalePending()).toBe(1);
     expect(executionEnvelopeRepo.getById(stale.id)!.status).toBe('expired');
     expect(executionEnvelopeRepo.getById(terminal.id)!.status).toBe('completed');
+  });
+
+  it('expires started envelopes only across a process restart boundary', () => {
+    const envelope = executionEnvelopeRepo.create({
+      source: 'workflow',
+      intent: 'implement',
+      conversationId: 'conv-1',
+      fromNodeId: 'system',
+      toNodeId: 'node-local',
+      toAgentId: 'luigi',
+      ttlMs: 60_000,
+    });
+    executionEnvelopeRepo.updateStatus(envelope.id, 'started');
+    const remote = executionEnvelopeRepo.create({
+      source: 'workflow',
+      intent: 'implement',
+      conversationId: 'conv-1',
+      fromNodeId: 'system',
+      toNodeId: 'node-remote',
+      toAgentId: 'mario',
+      ttlMs: 60_000,
+    });
+    executionEnvelopeRepo.updateStatus(remote.id, 'started');
+    const bridge = executionEnvelopeRepo.create({
+      source: 'workflow',
+      intent: 'implement',
+      conversationId: 'conv-1',
+      fromNodeId: 'daemon:local',
+      toNodeId: 'bridge:http://127.0.0.1:4096',
+      toAgentId: 'peach',
+      payload: {
+        contextRefs: [],
+        executorKind: 'bridge_proxy',
+        executorOwnerNodeId: 'node-local',
+      },
+      ttlMs: 60_000,
+    });
+    executionEnvelopeRepo.updateStatus(bridge.id, 'started');
+    const tmux = executionEnvelopeRepo.create({
+      source: 'workflow',
+      intent: 'implement',
+      conversationId: 'conv-1',
+      fromNodeId: 'daemon:local',
+      toNodeId: 'node-local',
+      toAgentId: 'yoshi',
+      payload: { contextRefs: [], executorKind: 'tmux_pane' },
+      ttlMs: 60_000,
+    });
+    executionEnvelopeRepo.updateStatus(tmux.id, 'started');
+
+    expect(executionEnvelopeRepo.expireStalePending(new Date(Date.now() + 120_000))).toBe(0);
+    expect(executionEnvelopeRepo.getById(envelope.id)?.status).toBe('started');
+    expect(executionEnvelopeRepo.expireStartedAfterRestart('node-local')).toHaveLength(2);
+
+    expect(executionEnvelopeRepo.getById(envelope.id)).toMatchObject({
+      status: 'expired',
+      reason_code: 'process_restarted',
+    });
+    expect(executionEnvelopeRepo.getById(remote.id)?.status).toBe('started');
+    expect(executionEnvelopeRepo.getById(bridge.id)).toMatchObject({
+      status: 'expired',
+      reason_code: 'process_restarted',
+    });
+    expect(executionEnvelopeRepo.getById(tmux.id)?.status).toBe('started');
+  });
+
+  it('starts only a live sent envelope and cannot revive an expired dispatch', () => {
+    const live = executionEnvelopeRepo.create({
+      source: 'workflow',
+      intent: 'implement',
+      conversationId: 'conv-1',
+      fromNodeId: 'system',
+      toNodeId: 'node-local',
+      toAgentId: 'luigi',
+      ttlMs: 60_000,
+    });
+    executionEnvelopeRepo.updateStatus(live.id, 'sent');
+    expect(executionEnvelopeRepo.startIfSentAndLive(live.id)?.status).toBe('started');
+
+    const expired = executionEnvelopeRepo.create({
+      source: 'workflow',
+      intent: 'implement',
+      conversationId: 'conv-1',
+      fromNodeId: 'system',
+      toNodeId: 'node-local',
+      toAgentId: 'mario',
+      ttlMs: -1,
+    });
+    executionEnvelopeRepo.updateStatus(expired.id, 'sent');
+    executionEnvelopeRepo.expireStalePending();
+
+    expect(executionEnvelopeRepo.startIfSentAndLive(expired.id)).toBeUndefined();
+    expect(executionEnvelopeRepo.getById(expired.id)?.status).toBe('expired');
+  });
+
+  it('persists an executor reference only while the dispatch is sent', () => {
+    const envelope = executionEnvelopeRepo.create({
+      source: 'workflow',
+      intent: 'implement',
+      conversationId: 'conv-1',
+      fromNodeId: 'system',
+      toNodeId: 'node-local',
+      toAgentId: 'luigi',
+      payload: { contextRefs: [], executorKind: 'tmux_pane' },
+    });
+    executionEnvelopeRepo.updateStatus(envelope.id, 'sent');
+    const bound = executionEnvelopeRepo.bindExecutor(envelope.id, {
+      invocationId: 'inv-1',
+      scopeId: 'conv-1',
+      worktreeId: 'worktree-1',
+      paneId: '%1',
+    });
+
+    expect(JSON.parse(bound!.payload)).toMatchObject({
+      executorKind: 'tmux_pane',
+      executorRef: { invocationId: 'inv-1', worktreeId: 'worktree-1', paneId: '%1' },
+    });
+    executionEnvelopeRepo.updateStatus(envelope.id, 'started');
+    expect(executionEnvelopeRepo.bindExecutor(envelope.id, {
+      invocationId: 'inv-2',
+      scopeId: 'conv-1',
+    })).toBeUndefined();
+    expect(executionEnvelopeRepo.listRecoverableTmux().map((row) => row.id)).toEqual([envelope.id]);
+  });
+
+  it('keeps a durable pre-start tmux cleanup record after TTL expiry', () => {
+    const envelope = executionEnvelopeRepo.create({
+      source: 'workflow',
+      intent: 'implement',
+      conversationId: 'conv-1',
+      fromNodeId: 'system',
+      toNodeId: 'node-local',
+      toAgentId: 'luigi',
+      payload: {
+        contextRefs: [],
+        executorKind: 'tmux_pane',
+        executorOwnerNodeId: 'node-local',
+      },
+      ttlMs: -1,
+    });
+    executionEnvelopeRepo.updateStatus(envelope.id, 'sent');
+    executionEnvelopeRepo.bindExecutor(envelope.id, {
+      invocationId: 'inv-prestart',
+      scopeId: 'conv-1',
+      worktreeId: 'worktree-1',
+      tmuxServerId: `worktree-1--${envelope.id}`,
+    });
+    const neverCreated = executionEnvelopeRepo.create({
+      source: 'workflow',
+      intent: 'implement',
+      conversationId: 'conv-1',
+      fromNodeId: 'system',
+      toNodeId: 'node-local',
+      toAgentId: 'peach',
+      payload: {
+        contextRefs: [],
+        executorKind: 'tmux_pane',
+        executorOwnerNodeId: 'node-local',
+      },
+      ttlMs: -1,
+    });
+    executionEnvelopeRepo.updateStatus(neverCreated.id, 'sent');
+    executionEnvelopeRepo.expireStalePending();
+
+    expect(executionEnvelopeRepo.listRecoverableTmux('node-local').map((row) => row.id)).toEqual([
+      envelope.id,
+    ]);
+    expect(executionEnvelopeRepo.recoverTmuxAfterRestart(envelope.id)).toMatchObject({
+      status: 'expired',
+      reason_code: 'process_restarted',
+    });
   });
 });
 

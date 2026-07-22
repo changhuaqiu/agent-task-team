@@ -219,6 +219,31 @@ Supervisor 只接受当前 TeamPack 质量门负责人提交的 `evidence.review
 ### 重启恢复
 
 服务启动时立即扫描所有非终态 DeliveryRun，并在周期对账之前先执行一次 reconcile。
+startup reconcile 在读取运行事实前必须把前一个本地 daemon 进程遗留的 `started` ExecutionEnvelope
+（包括该 daemon 代理的 `bridge:*` 调用）持久化为 `expired`；否则它会永久伪装成活跃执行，阻止恢复 wakeup。periodic reconcile 只按 TTL
+回收尚未 started 的派发状态，不得把当前进程内的正常长任务按初始 TTL 误判为中断。
+Envelope payload 必须记录 `executorKind`、执行所有者节点和 Invocation 引用；`tmux_pane` 还必须在启动前
+持久化 worktree 与每个 Envelope 独占的 tmux server 引用，pane ID 在原子创建返回后补写。即使 pane
+创建后的补写失败或 pre-start Envelope 已按 TTL 过期，专属 server 引用仍是可恢复的 cleanup record。
+重启只扫描启动瞬间已有的 tmux 执行，并在严格终止、再次查询确认 pane/server
+不存在后才回收；kill 失败但独立查询确认 pane 已不存在可视为成功，查询不确定则保留 started/busy
+所有权并在后续周期重试。重启后新建的 pane 不进入该重试集合。
+Envelope 回收必须同步终结关联 Invocation 并释放 AgentBinding，不能留下外围 `running`/`busy` 假状态。
+daemon/bridge 的 Envelope、Invocation 与仍指向该旧 Envelope 的 AgentBinding 必须在同一数据库事务内收口；
+事务失败时保留启动节点的待恢复标记，由 periodic reconcile 重试。tmux 首次枚举失败也必须保持未就绪并在
+periodic 重新枚举。旧 tmux 集合未全部严格清理前，daemon 的 dispatch readiness barrier 不开放，
+避免新 pane 与旧 pane 清理并发或复用 pane ID；该 barrier 在执行事实观察/重新派发之前释放，避免恢复自锁。
+所有 reconcile cycle 必须串行；事务恢复成功后必须先移除旧节点恢复责任，再开放 readiness，防止重入周期
+把本进程新创建的 Envelope 当作旧进程遗留项。tmux 创建命令必须通过同一命令原子返回 pane ID；后置设置
+失败时由 gateway 自行严格清理，无法确认时必须把 pane 引用带回 daemon 保留 ownership。
+`routed -> sent` 与 `sent -> started` 都必须使用“前置状态仍匹配且 TTL 未过期”的原子条件更新；
+失败的旧启动链立即停止，不得把已被 reconcile 回收的 envelope 复活。
+`started -> completed` 及非终态到 `failed` 同样采用条件更新；迟到的完成/失败回调不得覆盖
+`expired` 或其他既有终态，也不得重复写入回执与释放所有权。
+失败终态的 Envelope、仍指向它的 Binding 与关联 Invocation 必须由同一事务的 CAS 胜者更新；并发
+kill/timeout/shutdown 的败者不得改写 Invocation 的终态原因。
+无法证明执行器类型的 legacy `started` 记录必须始终 fail closed，不能依据重启后的 tmux 开关猜测；
+进程内执行句柄与输出缓存按 Invocation 隔离，所有异步清理均校验句柄仍是当前所有者，force 也不得绕过同 key 的启动锁。
 运行中 Attempt 的 lease 过期后会被持久化为 `abandoned`；恢复过程复用原 Action 的
 idempotency key，在剩余预算内创建新 Attempt。恢复不依赖进程内 Map，也不会创建第二个
 逻辑 Action。

@@ -111,6 +111,26 @@ export const invocationRepo = {
       .all() as InvocationRow[];
   },
 
+  failIfNonTerminal(id: string, updates?: InvocationUpdateFields): boolean {
+    const now = new Date().toISOString();
+    const sets: string[] = ["status = 'failed'", 'updated_at = ?'];
+    const values: unknown[] = [now];
+    if (updates) {
+      for (const [key, value] of Object.entries(updates)) {
+        if (key === 'status') continue;
+        sets.push(`${key} = ?`);
+        values.push(value);
+      }
+    }
+    values.push(id);
+    return getDb()
+      .prepare(
+        `UPDATE invocation SET ${sets.join(', ')}
+         WHERE id = ? AND status NOT IN ('succeeded', 'failed', 'canceled')`,
+      )
+      .run(...values).changes === 1;
+  },
+
   listRecent(options?: { limit?: number }): InvocationRow[] {
     const limit = options?.limit ?? 50;
     return getDb()

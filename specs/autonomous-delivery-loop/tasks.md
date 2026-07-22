@@ -23,6 +23,7 @@
 - [x] failure taxonomy 与 bounded exponential backoff。
 - [ ] poisoned session 保留 workdir、切换 session generation。
 - [x] runtime offline / lost response reclaim。
+- [ ] startup 回收前一进程遗留的 started ExecutionEnvelope；periodic 只回收 pre-start 超时项。
 - [x] policy denied / missing authorization 最小升级。
 - [x] Provider action allowlist、目标仓库/分支校验和审计。
 - [x] 进程重启场景集成测试。

@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { getDb } from '../db/index';
 import { generateSortableId } from './sortable-id';
 import type {
+  AgentBindingStatus,
   DispatchIntent,
   DispatchSource,
   ExecutionEnvelopePayload,
@@ -112,13 +113,303 @@ export const executionEnvelopeRepo = {
     return executionEnvelopeRepo.getById(id);
   },
 
-  expireStale(now = new Date()): number {
+  sendIfRoutedAndLive(id: string, now = new Date()): ExecutionEnvelopeRow | undefined {
+    const current = now.toISOString();
+    const db = getDb();
+    const result = db
+      .prepare(
+        `UPDATE execution_envelope
+         SET status = 'sent', reason_code = NULL, updated_at = ?
+         WHERE id = ? AND status = 'routed' AND expires_at >= ?`,
+      )
+      .run(current, id, current);
+    if (result.changes === 1) return executionEnvelopeRepo.getById(id);
+    db.prepare(
+      `UPDATE execution_envelope
+       SET status = 'expired', reason_code = 'ttl_expired', updated_at = ?
+       WHERE id = ? AND status = 'routed' AND expires_at < ?`,
+    ).run(current, id, current);
+    return undefined;
+  },
+
+  listRecoverableTmux(ownerNodeId?: string): ExecutionEnvelopeRow[] {
+    return getDb()
+      .prepare(
+        `SELECT * FROM execution_envelope
+         WHERE json_extract(payload, '$.executorKind') = 'tmux_pane'
+           AND (
+             status = 'started'
+             OR (
+               (status = 'sent' OR (status = 'expired' AND reason_code IN ('ttl_expired', 'dispatch_expired')))
+               AND json_extract(payload, '$.executorRef.tmuxServerId') IS NOT NULL
+             )
+           )
+           AND (
+             ? IS NULL
+             OR json_extract(payload, '$.executorOwnerNodeId') = ?
+             OR json_extract(payload, '$.executorOwnerNodeId') IS NULL
+           )
+         ORDER BY created_at ASC, id ASC`,
+      )
+      .all(ownerNodeId ?? null, ownerNodeId ?? null) as ExecutionEnvelopeRow[];
+  },
+
+  listUnclassifiedStartedForNode(nodeId: string): ExecutionEnvelopeRow[] {
+    return getDb()
+      .prepare(
+        `SELECT * FROM execution_envelope
+         WHERE status = 'started' AND to_node_id = ?
+           AND json_extract(payload, '$.executorKind') IS NULL
+         ORDER BY created_at ASC, id ASC`,
+      )
+      .all(nodeId) as ExecutionEnvelopeRow[];
+  },
+
+  startIfSentAndLive(id: string, now = new Date()): ExecutionEnvelopeRow | undefined {
+    const current = now.toISOString();
+    const result = getDb()
+      .prepare(
+        `UPDATE execution_envelope
+         SET status = 'started', reason_code = NULL, updated_at = ?
+         WHERE id = ? AND status = 'sent' AND expires_at >= ?`,
+      )
+      .run(current, id, current);
+    return result.changes === 1 ? executionEnvelopeRepo.getById(id) : undefined;
+  },
+
+  completeIfStarted(id: string): ExecutionEnvelopeRow | undefined {
+    const now = new Date().toISOString();
+    const db = getDb();
+    return db.transaction(() => {
+      const result = db.prepare(
+        `UPDATE execution_envelope
+         SET status = 'completed', reason_code = NULL, updated_at = ?
+         WHERE id = ? AND status = 'started'`,
+      ).run(now, id);
+      if (result.changes !== 1) return undefined;
+      const envelope = executionEnvelopeRepo.getById(id)!;
+      db.prepare(
+        `UPDATE agent_binding
+         SET status = 'idle', active_envelope_id = NULL,
+             last_finished_at = ?, updated_at = ?
+         WHERE conversation_id = ? AND agent_id = ? AND active_envelope_id = ?`,
+      ).run(now, now, envelope.conversation_id, envelope.to_agent_id, envelope.id);
+      return envelope;
+    })();
+  },
+
+  failIfNonTerminal(
+    id: string,
+    reasonCode: string,
+    options?: {
+      bindingStatus?: AgentBindingStatus;
+      invocationId?: string;
+      invocationErrorMessage?: string;
+    },
+  ): ExecutionEnvelopeRow | undefined {
+    const now = new Date().toISOString();
+    const db = getDb();
+    return db.transaction(() => {
+      const result = db.prepare(
+        `UPDATE execution_envelope
+         SET status = 'failed', reason_code = ?, updated_at = ?
+         WHERE id = ?
+           AND status IN ('drafted', 'validated', 'queued', 'routed', 'sent', 'started')`,
+      ).run(reasonCode, now, id);
+      if (result.changes !== 1) return undefined;
+      const envelope = executionEnvelopeRepo.getById(id)!;
+      const bindingStatus = options?.bindingStatus ?? 'idle';
+      if (bindingStatus === 'idle') {
+        db.prepare(
+          `UPDATE agent_binding
+           SET status = 'idle', active_envelope_id = NULL,
+               last_finished_at = ?, updated_at = ?
+           WHERE conversation_id = ? AND agent_id = ? AND active_envelope_id = ?`,
+        ).run(now, now, envelope.conversation_id, envelope.to_agent_id, envelope.id);
+      } else {
+        db.prepare(
+          `UPDATE agent_binding
+           SET status = ?, active_envelope_id = NULL, last_error = ?,
+               last_finished_at = ?, updated_at = ?
+           WHERE conversation_id = ? AND agent_id = ? AND active_envelope_id = ?`,
+        ).run(
+          bindingStatus,
+          reasonCode,
+          now,
+          now,
+          envelope.conversation_id,
+          envelope.to_agent_id,
+          envelope.id,
+        );
+      }
+      if (options?.invocationId) {
+        db.prepare(
+          `UPDATE invocation
+           SET status = 'failed', reason_code = ?, error_message = ?, updated_at = ?
+           WHERE id = ? AND status NOT IN ('succeeded', 'failed', 'canceled')`,
+        ).run(
+          reasonCode,
+          options.invocationErrorMessage ?? `execution failed: ${reasonCode}`,
+          now,
+          options.invocationId,
+        );
+      }
+      return envelope;
+    })();
+  },
+
+  bindExecutor(
+    id: string,
+    executorRef: NonNullable<ExecutionEnvelopePayload['executorRef']>,
+  ): ExecutionEnvelopeRow | undefined {
+    const envelope = executionEnvelopeRepo.getById(id);
+    if (!envelope || envelope.status !== 'sent') return undefined;
+    const payload = JSON.parse(envelope.payload) as ExecutionEnvelopePayload;
+    const now = new Date().toISOString();
+    const result = getDb()
+      .prepare(
+        `UPDATE execution_envelope
+         SET payload = ?, updated_at = ?
+         WHERE id = ? AND status = 'sent'`,
+      )
+      .run(JSON.stringify({ ...payload, executorRef }), now, id);
+    return result.changes === 1 ? executionEnvelopeRepo.getById(id) : undefined;
+  },
+
+  recoverTmuxAfterRestart(id: string, reasonCode = 'process_restarted'): ExecutionEnvelopeRow | undefined {
+    const now = new Date().toISOString();
+    const db = getDb();
+    const candidate = executionEnvelopeRepo.getById(id);
+    if (!candidate) return undefined;
+    let payload: ExecutionEnvelopePayload;
+    try {
+      payload = JSON.parse(candidate.payload) as ExecutionEnvelopePayload;
+    } catch {
+      return undefined;
+    }
+    if (payload.executorKind !== 'tmux_pane') return undefined;
+    return db.transaction(() => {
+      const result = db
+        .prepare(
+        `UPDATE execution_envelope
+         SET status = 'expired', reason_code = ?, updated_at = ?
+         WHERE id = ?
+           AND (status IN ('sent', 'started') OR (status = 'expired' AND reason_code IN ('ttl_expired', 'dispatch_expired', ?)))
+           AND json_extract(payload, '$.executorKind') = 'tmux_pane'`,
+        )
+        .run(reasonCode, now, id, reasonCode);
+      const existing = executionEnvelopeRepo.getById(id);
+      if (
+        result.changes !== 1
+        && !(existing?.status === 'expired' && existing.reason_code === reasonCode)
+      ) return undefined;
+      db.prepare(
+        `UPDATE agent_binding
+         SET status = 'idle', active_envelope_id = NULL,
+             last_finished_at = ?, updated_at = ?
+         WHERE conversation_id = ? AND agent_id = ? AND active_envelope_id = ?`,
+      ).run(now, now, candidate.conversation_id, candidate.to_agent_id, candidate.id);
+      if (payload.executorRef?.invocationId) {
+        db.prepare(
+          `UPDATE invocation
+           SET status = 'failed', reason_code = ?,
+               error_message = 'tmux execution was terminated after daemon restart', updated_at = ?
+           WHERE id = ? AND status NOT IN ('succeeded', 'failed', 'canceled')`,
+        ).run(reasonCode, now, payload.executorRef.invocationId);
+      }
+      return executionEnvelopeRepo.getById(id);
+    })();
+  },
+
+  expireStartedAfterRestart(
+    nodeId: string,
+    includeLegacyLocal = true,
+    now = new Date(),
+  ): ExecutionEnvelopeRow[] {
+    const current = now.toISOString();
+    const db = getDb();
+    const candidates = db
+      .prepare(
+        `SELECT * FROM execution_envelope
+         WHERE status = 'started'
+           AND (
+             (json_extract(payload, '$.executorKind') = 'daemon_process' AND to_node_id = ?)
+             OR (
+               json_extract(payload, '$.executorKind') = 'bridge_proxy'
+               AND json_extract(payload, '$.executorOwnerNodeId') = ?
+             )
+             OR (
+               json_extract(payload, '$.executorKind') IS NULL
+               AND (to_node_id LIKE 'bridge:%' OR (? = 1 AND to_node_id = ?))
+             )
+           )`,
+      )
+      .all(nodeId, nodeId, includeLegacyLocal ? 1 : 0, nodeId) as ExecutionEnvelopeRow[];
+    const expire = db.prepare(
+      `UPDATE execution_envelope
+       SET status = 'expired', reason_code = 'process_restarted', updated_at = ?
+       WHERE id = ? AND status = 'started'`,
+    );
+    const finishBinding = db.prepare(
+      `UPDATE agent_binding
+       SET status = 'idle', active_envelope_id = NULL,
+           last_finished_at = ?, updated_at = ?
+       WHERE conversation_id = ? AND agent_id = ? AND active_envelope_id = ?`,
+    );
+    const failInvocationById = db.prepare(
+      `UPDATE invocation
+       SET status = 'failed', reason_code = 'process_restarted',
+           error_message = 'execution owner process restarted', updated_at = ?
+       WHERE id = ? AND status NOT IN ('succeeded', 'failed', 'canceled')`,
+    );
+    const failLegacyInvocations = db.prepare(
+      `UPDATE invocation
+       SET status = 'failed', reason_code = 'process_restarted',
+           error_message = 'execution owner process restarted', updated_at = ?
+       WHERE conversation_id = ? AND agent_id = ?
+         AND status NOT IN ('succeeded', 'failed', 'canceled')
+         AND (? IS NULL OR task_id = ?)
+         AND created_at >= ?`,
+    );
+    return db.transaction(() => candidates.filter((candidate) => {
+      if (expire.run(current, candidate.id).changes !== 1) return false;
+      finishBinding.run(
+        current,
+        current,
+        candidate.conversation_id,
+        candidate.to_agent_id,
+        candidate.id,
+      );
+      let invocationId: string | undefined;
+      try {
+        const payload = JSON.parse(candidate.payload) as { executorRef?: { invocationId?: unknown } };
+        if (typeof payload.executorRef?.invocationId === 'string') {
+          invocationId = payload.executorRef.invocationId;
+        }
+      } catch { /* legacy payload falls back to execution scope */ }
+      if (invocationId) {
+        failInvocationById.run(current, invocationId);
+      } else {
+        failLegacyInvocations.run(
+          current,
+          candidate.conversation_id,
+          candidate.to_agent_id,
+          candidate.task_id,
+          candidate.task_id,
+          candidate.created_at,
+        );
+      }
+      return true;
+    }))();
+  },
+
+  expireStalePending(now = new Date()): number {
     const current = now.toISOString();
     const result = getDb()
       .prepare(
         `UPDATE execution_envelope
          SET status = 'expired', reason_code = 'ttl_expired', updated_at = ?
-         WHERE expires_at < ? AND status NOT IN ('completed', 'failed', 'blocked', 'expired')`,
+         WHERE expires_at < ? AND status IN ('drafted', 'validated', 'queued', 'routed', 'sent')`,
       )
       .run(current, current);
     return result.changes;

@@ -369,6 +369,25 @@ Team Harness 不重复实现模型、Skill、工具协议、浏览器驱动或 P
 在 executing、verifying、integrating 各阶段重启进程。重启后启动 reconcile 能立即从数据库、
 worktree 和 Provider Receipt 恢复；过期 Attempt 被标记为 abandoned，同一个幂等 Action
 创建下一次 Attempt，既不丢任务也不重复逻辑动作或外部副作用。
+startup reconcile 必须在观察事实前把前一本地 daemon 进程遗留（含本地代理 bridge）的 started ExecutionEnvelope 持久化为
+`expired`，使中断任务能够产生受恢复预算约束的重新派发，而不是永久停在 running。periodic
+reconcile 只能按 TTL 回收 pre-start 状态，不得把当前进程内的正常长任务误判为中断并重复派发。
+`routed -> sent` 与 `sent -> started` 必须要求前置状态与 TTL 同时满足原子 CAS；CAS 失败的旧 handler 必须中止。
+完成与失败也必须使用终态保护 CAS，迟到回调不得覆盖 `expired`/`completed`/`failed` 等既有终态。
+Envelope 必须区分 `daemon_process`、`bridge_proxy` 与 `tmux_pane` 执行所有权，记录执行所有者节点、
+Invocation 引用，并在 tmux 启动前持久化 pane 引用。重启只能处理启动瞬间捕获的旧 pane；tmux
+只有在严格终止并经独立查询确认 pane 不存在后才可进入失败恢复，查询不确定时必须 fail closed 并周期重试，
+不得把重启后新建的 pane 纳入旧执行清理。回收同时终结 Invocation 并释放 AgentBinding。
+daemon/bridge 的三类状态收口必须位于同一事务，且 Binding 只在仍指向旧 Envelope 时释放；事务或 tmux
+枚举/确认失败时保留恢复责任并由 periodic 重试。旧 tmux 集合清零及持久化回收完成前，daemon 不得接受
+新 dispatch，以阻断 pane ID 复用竞态；就绪屏障必须在事实观察和恢复派发之前解除。
+tmux 在创建 pane 前必须持久化每个 Envelope 独占的 server 引用；pane 创建命令原子返回 pane ID，
+后置设置失败由 gateway 严格清理或把引用交还 daemon。sent/started 及因 TTL/dispatch 过期但仍带 cleanup
+record 的 Envelope 都参与启动清理，确保后续 bind 持续失败和 daemon 再次崩溃时仍可按专属 server 回收。
+reconcile cycle 必须串行，恢复责任在开放 readiness 前删除。失败 CAS 的胜者在同一事务中收口 Envelope、
+旧 Binding 与 Invocation，迟到的 kill/timeout/shutdown 不得覆盖 Invocation 原因。
+无法识别执行器类型的 legacy `started` 必须不依赖当前 tmux flag 一律 fail closed；运行中的进程句柄和
+响应缓存按 Invocation 隔离，异步超时、终止、完成及 shutdown 只能清理仍由自身持有的 key。
 
 ### 失败修复
 
