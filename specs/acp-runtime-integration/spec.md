@@ -127,7 +127,7 @@ daemon 不解析任何厂商专有 stdout，不判断某个厂商支持哪些参
 
 ACP `tool_call_update` 可以只携带 `toolCallId`，不重复 `tool_call` 中的 title/kind。`AcpBackend` 必须在单次 execute 生命周期内维护 `toolCallId → tool name`，让同一调用的 `tool_use` 与所有 `tool_result` 使用一致名称；该映射不得跨 Invocation 或 Session 共享。只有从未见过的 call id 才使用中性 `Tool` 回退，不向 UI 输出 `unknown`。
 
-Claude adapter 的权限阶段可能先发送仅含占位 `rawInput` 的 `tool_call`，再以 `tool_call_update` 补齐真实 `rawInput`；该 refinement 不是工具完成。映射层必须按 `toolCallId` 合并名称与最终输入，只在 `status=completed|failed`（或收到明确输出）时产生终态结果。`status=failed` 必须向下游保留，观测 span 与 UI 都不得将拒绝或执行失败显示为成功。
+Claude adapter 的权限阶段可能先发送仅含占位 `rawInput` 的 `tool_call`，再以 `tool_call_update` 补齐真实 `rawInput`；该 refinement 不是工具完成。映射层必须按 `toolCallId` 累积名称、最终输入与输出。只在累计状态明确为 `completed|failed` 时产生终态结果；仅当 adapter 完全不提供 `status` 时，带 `rawOutput` 的兼容更新才可视为终态。显式 `pending|in_progress` 即使带 `rawOutput` 也只是进度，不能关闭关联或工具 span。`status=failed` 必须向下游保留，观测 span 与实时 CLI UI 都必须展示 refinement 后的最终输入，并不得将拒绝或执行失败显示为成功。
 
 ACP 文本更新是流式增量，不是独立聊天消息。daemon 可以逐 chunk 广播以保持实时反馈，但持久化时必须在单次 Invocation 内合并连续 `text` chunk；`tool_use`、`tool_result`、`error` 与 `done` 构成文本段边界，禁止把每个汉字或 token 写成一条 `chat_message`。
 

@@ -149,7 +149,12 @@ export function mapAcpUpdate(update: SessionUpdate): AgentEvent | null {
  * consumer receives a stable tool name without carrying ACP state itself.
  */
 export function createTurnScopedAcpEventMapper(): (update: SessionUpdate) => AgentEvent | null {
-  const toolCalls = new Map<string, { name: string; input?: string }>();
+  const toolCalls = new Map<string, {
+    name: string;
+    input?: string;
+    output?: string;
+    status?: NonNullable<AgentEvent['tool']>['status'];
+  }>();
 
   return (update: SessionUpdate): AgentEvent | null => {
     const event = mapAcpUpdate(update);
@@ -160,24 +165,38 @@ export function createTurnScopedAcpEventMapper(): (update: SessionUpdate) => Age
       toolCalls.set(callId, {
         name: event.tool?.name || 'tool',
         ...(event.tool?.input !== undefined && { input: event.tool.input }),
+        ...(event.tool?.output !== undefined && { output: event.tool.output }),
+        ...(event.tool?.status !== undefined && { status: event.tool.status }),
       });
     } else if (event.type === 'tool_result' && event.tool) {
       const previous = toolCalls.get(callId);
       const name = previous?.name || event.tool.name || 'tool';
       const input = event.tool.input ?? previous?.input;
-      toolCalls.set(callId, { name, ...(input !== undefined && { input }) });
+      const output = event.tool.output ?? previous?.output;
+      const status = event.tool.status ?? previous?.status;
+      toolCalls.set(callId, {
+        name,
+        ...(input !== undefined && { input }),
+        ...(output !== undefined && { output }),
+        ...(status !== undefined && { status }),
+      });
       event.tool.name = name;
       if (input !== undefined) event.tool.input = input;
+      if (output !== undefined) {
+        event.tool.output = output;
+        event.content = output;
+      }
+      if (status !== undefined) event.tool.status = status;
 
       // Claude can refine a permission-surfaced tool_call with the real input
-      // before execution finishes. Keep the refinement turn-local and wait for
-      // an explicit terminal status instead of manufacturing a successful
-      // tool_result from an in-progress update.
-      if (
-        event.tool.status !== 'completed'
-        && event.tool.status !== 'failed'
-        && event.tool.output === undefined
-      ) {
+      // or partial output before execution finishes. Any explicitly
+      // non-terminal cumulative status remains progress even when rawOutput is
+      // present. Only status-less adapters may use rawOutput as the terminal
+      // compatibility signal.
+      if (status === 'pending' || status === 'in_progress') {
+        return null;
+      }
+      if (status !== 'completed' && status !== 'failed' && output === undefined) {
         return null;
       }
       toolCalls.delete(callId);

@@ -332,6 +332,38 @@ export class AutonomousDeliveryRepository {
     ) as DeliveryReceiptRow;
   }
 
+  /**
+   * Persist an immutable fact once. Unlike recordReceipt, a repeated call with
+   * the same idempotency key does not rewrite payload or observed_at.
+   */
+  ensureReceipt(input: {
+    runId: string;
+    receipt: DeliveryActionReceipt & { idempotencyKey: string };
+    now?: Date;
+  }): DeliveryReceiptRow {
+    const timestamp = nowIso(input.now);
+    const id = generateSortableId('delivery-receipt');
+    getDb().prepare(
+      `INSERT INTO autonomous_delivery_receipt (
+        id, run_id, action_id, attempt_id, kind, external_id, status,
+        payload_json, idempotency_key, observed_at
+      ) VALUES (?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(idempotency_key) DO NOTHING`,
+    ).run(
+      id,
+      input.runId,
+      input.receipt.kind,
+      input.receipt.externalId ?? null,
+      input.receipt.status,
+      JSON.stringify(input.receipt.payload ?? {}),
+      input.receipt.idempotencyKey,
+      timestamp,
+    );
+    return getDb().prepare(
+      'SELECT * FROM autonomous_delivery_receipt WHERE idempotency_key=?',
+    ).get(input.receipt.idempotencyKey) as DeliveryReceiptRow;
+  }
+
   failAttempt(input: {
     actionId: string;
     attemptId: string;

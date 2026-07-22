@@ -188,7 +188,10 @@ export function CliOutputBlock({ events, isStreaming, streamText }: CliOutputBlo
 
   const toolEvents = events.filter((e) => e.type === 'tool_use' || e.type === 'tool_result');
   const errorCount = events.filter((e) => e.type === 'error').length;
-  const activeTool = isStreaming ? toolEvents[toolEvents.length - 1] : undefined;
+  const latestEvent = events[events.length - 1];
+  const activeTool = isStreaming && latestEvent?.type === 'tool_use'
+    ? latestEvent
+    : undefined;
   const needsCollapse = events.length > 5;
   const visibleEvents = bodyExpanded ? events : events.slice(-5);
 

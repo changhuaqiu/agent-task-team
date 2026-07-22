@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Server as IOServer } from 'socket.io';
-import { createTestDb, resetDb, setTestDb } from '../db';
+import { createTestDb, getDb, resetDb, setTestDb } from '../db';
 import type { HarnessCoordinator } from '../harness/coordinator';
 import { registerHarnessCoordinator } from '../harness/registry';
 import type { HarnessTrigger } from '../harness/types';
@@ -157,6 +157,104 @@ describe('RepositoryDeliveryFactsAdapter', () => {
     expect(facts.runnableTask?.taskId).not.toBe(root.id);
   });
 
+  it('根任务已 stale 时仍优先唤醒可执行子任务而不是从 autonomy guard 旁路恢复根任务', async () => {
+    const repo = new AutonomousDeliveryRepository();
+    const run = repo.createRun(contract);
+    const root = taskRepo.create({
+      id: 'task-stale-root',
+      conversation_id: contract.scope.conversationId,
+      title: contract.goal,
+      agent_id: 'mario',
+    });
+    const child = taskRepo.create({
+      id: 'task-ready-child',
+      conversation_id: contract.scope.conversationId,
+      title: '实现登录 UI',
+      agent_id: 'peach',
+    });
+    taskRepo.updateStatus(root.id, 'in_progress');
+    getDb().prepare('UPDATE task SET updated_at=? WHERE id=?')
+      .run('2026-01-01T00:00:00.000Z', root.id);
+    repo.updateRun({
+      runId: run.run.id,
+      status: 'executing',
+      stage: 'executing',
+      rootTaskId: root.id,
+    });
+
+    const facts = await new RepositoryDeliveryFactsAdapter().observe(repo.getSnapshot(run.run.id)!);
+
+    expect(facts.blockerCode).toBeUndefined();
+    expect(facts.runnableTask).toMatchObject({
+      taskId: child.id,
+      agentId: 'peach',
+      reasonCode: 'owner_ready',
+    });
+  });
+
+  it('已存在的根 advance action 在子任务活跃时也不能从 action executor 旁路派发', async () => {
+    const repo = new AutonomousDeliveryRepository();
+    const run = repo.createRun(contract);
+    const root = taskRepo.create({
+      id: 'task-root-existing-action',
+      conversation_id: contract.scope.conversationId,
+      title: contract.goal,
+      agent_id: 'mario',
+    });
+    taskRepo.create({
+      id: 'task-child-existing-action',
+      conversation_id: contract.scope.conversationId,
+      title: '实现登录 UI',
+      agent_id: 'peach',
+    });
+    taskRepo.updateStatus(root.id, 'in_progress');
+    getDb().prepare('UPDATE task SET updated_at=? WHERE id=?')
+      .run('2026-01-01T00:00:00.000Z', root.id);
+    repo.updateRun({
+      runId: run.run.id,
+      status: 'executing',
+      stage: 'executing',
+      rootTaskId: root.id,
+    });
+    repo.ensureAction({
+      runId: run.run.id,
+      kind: 'advance_tasks',
+      subjectType: 'task',
+      subjectId: root.id,
+      idempotencyKey: `${run.run.id}:advance_tasks:stale-root`,
+      maxAttempts: 1,
+    });
+    const claim = repo.claimNext({
+      runId: run.run.id,
+      workerId: 'root-bypass-test',
+      leaseMs: 30_000,
+    })!;
+    let submitted: HarnessTrigger | undefined;
+    const io = { to: () => ({ emit: () => undefined }) } as unknown as IOServer;
+    registerHarnessCoordinator(io, {
+      submit(trigger: HarnessTrigger) {
+        submitted = trigger;
+        return {
+          disposition: 'accepted',
+          handled: true,
+          completion: Promise.resolve({ status: 'accepted' }),
+        };
+      },
+    } as unknown as HarnessCoordinator);
+
+    const result = await new HarnessDeliveryActionAdapter(io).execute(
+      claim,
+      repo.getSnapshot(run.run.id)!,
+    );
+
+    expect(result).toMatchObject({
+      status: 'failed',
+      failureCode: 'transient_runtime',
+      retryable: true,
+    });
+    expect(submitted).toBeUndefined();
+  });
+
   it('根任务尚未拆出子任务时仍恢复失败的根执行', async () => {
     const repo = new AutonomousDeliveryRepository();
     const run = repo.createRun(contract);
@@ -194,7 +292,7 @@ describe('RepositoryDeliveryFactsAdapter', () => {
     });
   });
 
-  it('子任务全部终态后以收敛时刻重置根任务恢复预算', async () => {
+  it('子任务全部终态后以不可变收敛 Receipt 重置且不会反复刷新根任务恢复预算', async () => {
     const repo = new AutonomousDeliveryRepository();
     const run = repo.createRun(contract);
     const root = taskRepo.create({
@@ -240,6 +338,40 @@ describe('RepositoryDeliveryFactsAdapter', () => {
       agentId: 'mario',
       reasonCode: 'runnable_owned_idle',
     });
+
+    const convergence = repo.getSnapshot(run.run.id)!.receipts.find((receipt) =>
+      receipt.kind === 'root.children.converged'
+    );
+    expect(convergence).toBeDefined();
+    const epoch = new Date(convergence!.observed_at).getTime();
+
+    for (const [index, status] of ['failed', 'expired', 'failed'].entries()) {
+      const envelope = executionEnvelopeRepo.create({
+        source: 'system',
+        intent: 'implement',
+        conversationId: contract.scope.conversationId,
+        taskId: root.id,
+        fromNodeId: 'daemon:local',
+        toNodeId: 'agent:mario',
+        toAgentId: 'mario',
+      });
+      executionEnvelopeRepo.updateStatus(envelope.id, status as 'failed' | 'expired');
+      getDb().prepare('UPDATE execution_envelope SET updated_at=? WHERE id=?')
+        .run(new Date(epoch + (index + 1) * 1_000).toISOString(), envelope.id);
+    }
+
+    taskRepo.updateStatus(child.id, 'done');
+    getDb().prepare('UPDATE task SET updated_at=? WHERE id=?')
+      .run(new Date(epoch + 10_000).toISOString(), child.id);
+    const exhausted = await new RepositoryDeliveryFactsAdapter()
+      .observe(repo.getSnapshot(run.run.id)!);
+    const stableConvergence = repo.getSnapshot(run.run.id)!.receipts.find((receipt) =>
+      receipt.idempotency_key === convergence!.idempotency_key
+    );
+
+    expect(stableConvergence?.observed_at).toBe(convergence!.observed_at);
+    expect(exhausted.blockerCode).toBe('poisoned_session');
+    expect(exhausted.blockerDetail).toContain(root.id);
   });
 
   it('只有任务全 done 且交付证据被 gate 接受时才通过 Web UI 验收', async () => {

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { Server as IOServer } from 'socket.io';
 import { executionEnvelopeRepo } from '../repositories/execution-envelope-repo';
 import { proofLogRepo, type ProofEventRow } from '../repositories/proof-log-repo';
@@ -79,20 +80,54 @@ interface ExecutionRecovery {
   exhaustedTask?: TaskRow;
 }
 
+function rootRecoveryScope(tasks: TaskRow[], rootTaskId?: string | null) {
+  const childTasks = rootTaskId ? tasks.filter((task) => task.id !== rootTaskId) : [];
+  return {
+    childTasks,
+    hasNonTerminalChildren: childTasks.some((task) =>
+      !TERMINAL_TASK_STATUSES.has(task.status)
+    ),
+  };
+}
+
+function ensureRootRecoveryEpoch(
+  snapshot: DeliveryRunSnapshot,
+  tasks: TaskRow[],
+): string | undefined {
+  const rootTaskId = snapshot.run.root_task_id;
+  const scope = rootRecoveryScope(tasks, rootTaskId);
+  if (!rootTaskId || scope.childTasks.length === 0 || scope.hasNonTerminalChildren) {
+    return undefined;
+  }
+  const childTaskIds = scope.childTasks.map((task) => task.id).sort();
+  const childSetDigest = createHash('sha256')
+    .update(JSON.stringify(childTaskIds))
+    .digest('hex')
+    .slice(0, 16);
+  return autonomousDeliveryRepo.ensureReceipt({
+    runId: snapshot.run.id,
+    receipt: {
+      kind: 'root.children.converged',
+      status: 'succeeded',
+      externalId: rootTaskId,
+      payload: { rootTaskId, childTaskIds },
+      idempotencyKey: `${snapshot.run.id}:root.children.converged:${rootTaskId}:${childSetDigest}`,
+    },
+  }).observed_at;
+}
+
 function executionRecovery(
   tasks: TaskRow[],
   envelopes: ReturnType<typeof executionEnvelopeRepo.listByConversation>,
   maxRecoveries: number,
   rootTaskId?: string | null,
+  rootRecoveryEpoch?: string,
 ): ExecutionRecovery {
   const taskById = new Map(tasks.map((task) => [task.id, task]));
-  const rootChildren = rootTaskId ? tasks.filter((task) => task.id !== rootTaskId) : [];
-  const rootHasNonTerminalChildren = rootChildren.some((task) =>
-    !TERMINAL_TASK_STATUSES.has(task.status)
+  const { hasNonTerminalChildren: rootHasNonTerminalChildren } = rootRecoveryScope(
+    tasks,
+    rootTaskId,
   );
-  const rootRecoveryEpoch = rootChildren.length > 0 && !rootHasNonTerminalChildren
-    ? rootChildren.reduce((latest, task) => task.updated_at > latest ? task.updated_at : latest, '')
-    : undefined;
   for (const envelope of [...envelopes].reverse()) {
     if (
       !envelope.task_id
@@ -285,13 +320,23 @@ export class RepositoryDeliveryFactsAdapter implements DeliveryFactsPort {
         reasonCode: 'chain_ready_for_closure',
       }).map((proof) => proof.task_id).filter((taskId): taskId is string => Boolean(taskId)),
     });
+    const rootScope = rootRecoveryScope(tasks, snapshot.run.root_task_id);
+    const rootRecoveryEpoch = ensureRootRecoveryEpoch(snapshot, tasks);
     const recovery = executionRecovery(
       tasks,
       envelopes,
       snapshot.contract.recoveryPolicy.maxAttemptsPerAction,
       snapshot.run.root_task_id,
+      rootRecoveryEpoch,
     );
-    const nextWakeup = recovery.wakeup ?? wakeups[0];
+    const eligibleGuardWakeups = rootScope.hasNonTerminalChildren
+      ? wakeups.filter((wakeup) => wakeup.taskId !== snapshot.run.root_task_id)
+      : wakeups;
+    const eligibleRecoveryWakeup = rootScope.hasNonTerminalChildren
+      && recovery.wakeup?.taskId === snapshot.run.root_task_id
+      ? undefined
+      : recovery.wakeup;
+    const nextWakeup = eligibleRecoveryWakeup ?? eligibleGuardWakeups[0];
     const hasActiveEnvelope = envelopes.some((envelope) => ACTIVE_ENVELOPE_STATUSES.has(envelope.status));
     const allDone = tasks.length > 0 && tasks.every((task) => task.status === 'done');
     const deliveryEvidence = acceptedDeliveryEvidence(proofs);
@@ -719,17 +764,31 @@ export class HarnessDeliveryActionAdapter implements DeliveryActionPort {
     const audience = resolveTaskNotificationAudience(conversationId);
     const tasks = taskRepo.getByConversation(conversationId);
     const envelopes = executionEnvelopeRepo.listByConversation(conversationId);
-    return executionRecovery(
+    const rootScope = rootRecoveryScope(tasks, snapshot.run.root_task_id);
+    const rootRecoveryEpoch = ensureRootRecoveryEpoch(snapshot, tasks);
+    const recoveryWakeup = executionRecovery(
       tasks,
       envelopes,
       snapshot.contract.recoveryPolicy.maxAttemptsPerAction,
-    ).wakeup ?? resolveAutonomyGuardWakeups({
+      snapshot.run.root_task_id,
+      rootRecoveryEpoch,
+    ).wakeup;
+    if (
+      recoveryWakeup?.taskId === taskId
+      && !(rootScope.hasNonTerminalChildren && taskId === snapshot.run.root_task_id)
+    ) {
+      return recoveryWakeup;
+    }
+    return resolveAutonomyGuardWakeups({
       tasks,
       envelopes,
       coordinatorAgentIds: audience.coordinatorAgentIds,
       reviewAgentIds: audience.reviewGateAgentIds,
       qaAgentIds: audience.qaAgentIds,
       edges: taskGraphRepo.listEdges(conversationId),
-    }).find((wakeup) => wakeup.taskId === taskId);
+    }).find((wakeup) =>
+      wakeup.taskId === taskId
+      && !(rootScope.hasNonTerminalChildren && taskId === snapshot.run.root_task_id)
+    );
   }
 }

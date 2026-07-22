@@ -313,7 +313,7 @@ Catalog 三个条目（spec §2 / §5.1）：
 
 运行时监督当前已落地：Catalog 运行时校验与实际 launcher 精确锁版本；权限默认 fail-closed，活跃自主 DeliveryRun 的 `GoalContract.authorization.allowCodeChanges=true` 只为绑定该精确 `deliveryRunId`、Conversation 与 Invocation 的权限请求提供一次性原生工具授权，并在每次请求时重验 Run 仍为非终态；`ACP_PERMISSION_MODE=allow_once` 可显式放行，`ACP_PERMISSION_MODE=deny` 对原生工具和已相关的平台 MCP 调用都执行硬拒绝；取消采用 ACP cancel → TERM → KILL；result 不依赖 child `close` 才能解析；全局并发、事件队列、单事件、累计输出和 stderr tail 均有上限；stderr 只保留脱敏后的有界尾部；daemon shutdown 会终止全部活跃 run。
 
-ACP 工具事件按 `toolCallId` 合并权限阶段占位调用与后续输入 refinement。只有 `completed` / `failed` 终态正常关闭工具 span；`failed` 会写入 error span并在 CLI Trace 中显示失败。若 Invocation 成功结束但 adapter 遗漏工具终态，残留工具 span 以 `acp_tool_terminal_missing` 错误关闭，不能随 Invocation 被误记成功。
+ACP 工具事件按 `toolCallId` 累积权限阶段占位调用、后续输入 refinement 与进度输出。显式 `pending` / `in_progress` 即使携带 `rawOutput` 也不关闭关联；只有 `completed` / `failed`（或无 status adapter 的最终输出兼容路径）正常关闭工具 span。`failed` 会写入 error span，并在 CLI Trace 中连同 refinement 后的最终输入显示失败。若 Invocation 成功结束但 adapter 遗漏工具终态，残留工具 span 以 `acp_tool_terminal_missing` 错误关闭，不能随 Invocation 被误记成功。
 
 ACP timeout 分为两层：平台配置的 `CLI_TIMEOUT_MS` 是 idle timeout，任意 ACP session update 都会续期；AcpBackend 另有独立 hard max turn timeout，限制持续产生更新但始终不结束的异常进程。daemon 对 runtime 原生工具采用大小写无关判断，避免 OpenCode 的小写 `read/write/bash` 被当成平台自定义工具重复执行。
 

@@ -340,7 +340,6 @@ describe('createTurnScopedAcpEventMapper', () => {
       sessionUpdate: 'tool_call',
       toolCallId: 'output-only-1',
       title: 'Search',
-      status: 'pending',
     } as any);
 
     const result = mapTurnUpdate({
@@ -352,6 +351,42 @@ describe('createTurnScopedAcpEventMapper', () => {
     expect(result).toMatchObject({
       type: 'tool_result',
       tool: { name: 'Search', output: JSON.stringify({ matches: 2 }) },
+    });
+  });
+
+  it('keeps in-progress rawOutput correlated until an explicit failed terminal update', () => {
+    const mapTurnUpdate = createTurnScopedAcpEventMapper();
+    mapTurnUpdate({
+      sessionUpdate: 'tool_call',
+      toolCallId: 'progress-output-1',
+      title: 'Write',
+      status: 'pending',
+      rawInput: {},
+    } as any);
+
+    expect(mapTurnUpdate({
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'progress-output-1',
+      status: 'in_progress',
+      rawInput: { file_path: 'README.md' },
+      rawOutput: 'partial progress',
+    } as any)).toBeNull();
+
+    const failed = mapTurnUpdate({
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'progress-output-1',
+      status: 'failed',
+    } as any);
+
+    expect(failed).toMatchObject({
+      type: 'tool_result',
+      content: JSON.stringify('partial progress'),
+      tool: {
+        name: 'Write',
+        input: JSON.stringify({ file_path: 'README.md' }),
+        output: JSON.stringify('partial progress'),
+        status: 'failed',
+      },
     });
   });
 

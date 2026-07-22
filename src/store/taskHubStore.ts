@@ -2140,12 +2140,19 @@ socket.on('agent:event', (event) => {
       },
     });
   } else if (type === 'tool_result') {
+    const resultOutput = tool?.output || content;
+    const resultDetail = tool?.input !== undefined
+      ? [
+        `Input:\n${tool.input}`,
+        ...(resultOutput ? [`Output:\n${resultOutput}`] : []),
+      ].join('\n\n')
+      : resultOutput;
     state.appendToStreamMessage(activeId, {
       toolEvent: {
         id: `te-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         type: tool?.status === 'failed' ? 'error' : 'tool_result',
         label: tool?.name || 'unknown',
-        detail: tool?.output || content,
+        detail: resultDetail,
         timestamp: new Date().toISOString(),
       },
     });
