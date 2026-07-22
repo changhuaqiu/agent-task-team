@@ -27,6 +27,7 @@
 - [x] policy denied / missing authorization 最小升级。
 - [x] Provider action allowlist、目标仓库/分支校验和审计。
 - [x] 进程重启场景集成测试。
+- [ ] 非终态子 Task 存在时，根 Task 的历史/重复 Envelope 不参与 no-progress 恢复耗尽与 `poisoned_session` 升级。
 
 ## P2：扩展
 

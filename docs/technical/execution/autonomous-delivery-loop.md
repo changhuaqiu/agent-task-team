@@ -249,6 +249,13 @@ kill/timeout/shutdown 的败者不得改写 Invocation 的终态原因。
 idempotency key，在剩余预算内创建新 Attempt。恢复不依赖进程内 Map，也不会创建第二个
 逻辑 Action。
 
+根 Task 代表整次交付的编排承诺。存在非终态子 Task 时，根 Task 的历史、重启过期或
+completed-without-status-change Envelope 不进入 no-progress 恢复计数，也不能把仍在推进的
+DeliveryRun 升级为 `poisoned_session`。此时由子 Task 的 Envelope/Task 状态承担执行恢复；
+全部子 Task 终态后以最晚子 Task 更新时间开启新的根恢复 epoch，epoch 前的历史 Envelope
+不消耗收口预算，再由 chain closure 或新的根恢复完成收口。只有尚未拆出子 Task 的根执行
+从一开始就使用普通 Envelope 恢复预算。
+
 长任务执行期间，Supervisor 按 lease 的固定分数周期刷新 `heartbeat_at` 和
 `lease_expires_at`。Attempt 完成或失败时，Repository 还会校验它仍是 Action 的当前
 `attempt_no`；已被回收的旧进程即使迟到返回，也无法覆盖新 Attempt 或追加 Receipt。

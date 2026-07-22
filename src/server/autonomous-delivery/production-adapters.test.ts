@@ -5,6 +5,7 @@ import type { HarnessCoordinator } from '../harness/coordinator';
 import { registerHarnessCoordinator } from '../harness/registry';
 import type { HarnessTrigger } from '../harness/types';
 import { conversationRepo } from '../repositories/conversation-repo';
+import { executionEnvelopeRepo } from '../repositories/execution-envelope-repo';
 import { proofLogRepo } from '../repositories/proof-log-repo';
 import { resetSeq } from '../repositories/sortable-id';
 import { taskRepo } from '../repositories/task-repo';
@@ -108,6 +109,136 @@ describe('RepositoryDeliveryFactsAdapter', () => {
       taskId: task.id,
       agentId: 'mario',
       reasonCode: 'owner_ready',
+    });
+  });
+
+  it('子任务仍在推进时不让根任务历史 Envelope 耗尽整个 DeliveryRun', async () => {
+    const repo = new AutonomousDeliveryRepository();
+    const run = repo.createRun(contract);
+    const root = taskRepo.create({
+      id: 'task-root-orchestration',
+      conversation_id: contract.scope.conversationId,
+      title: contract.goal,
+      agent_id: 'mario',
+    });
+    const child = taskRepo.create({
+      id: 'task-child-implementation',
+      conversation_id: contract.scope.conversationId,
+      title: '实现登录 UI',
+      agent_id: 'peach',
+    });
+    taskRepo.updateStatus(root.id, 'in_progress');
+    taskRepo.updateStatus(child.id, 'in_progress');
+    repo.updateRun({
+      runId: run.run.id,
+      status: 'executing',
+      stage: 'executing',
+      rootTaskId: root.id,
+    });
+
+    for (const [index, status] of ['expired', 'completed', 'failed'].entries()) {
+      const envelope = executionEnvelopeRepo.create({
+        source: 'system',
+        intent: 'implement',
+        conversationId: contract.scope.conversationId,
+        taskId: root.id,
+        fromNodeId: 'daemon:local',
+        toNodeId: 'agent:mario',
+        toAgentId: 'mario',
+        payload: { contextRefs: [`attempt:${index + 1}`] },
+      });
+      executionEnvelopeRepo.updateStatus(envelope.id, status as 'expired' | 'completed' | 'failed');
+    }
+
+    const facts = await new RepositoryDeliveryFactsAdapter().observe(repo.getSnapshot(run.run.id)!);
+
+    expect(facts.blockerCode).toBeUndefined();
+    expect(facts.taskGraph).not.toBe('blocked');
+    expect(facts.runnableTask?.taskId).not.toBe(root.id);
+  });
+
+  it('根任务尚未拆出子任务时仍恢复失败的根执行', async () => {
+    const repo = new AutonomousDeliveryRepository();
+    const run = repo.createRun(contract);
+    const root = taskRepo.create({
+      id: 'task-root-recoverable',
+      conversation_id: contract.scope.conversationId,
+      title: contract.goal,
+      agent_id: 'mario',
+    });
+    taskRepo.updateStatus(root.id, 'in_progress');
+    repo.updateRun({
+      runId: run.run.id,
+      status: 'executing',
+      stage: 'executing',
+      rootTaskId: root.id,
+    });
+    const envelope = executionEnvelopeRepo.create({
+      source: 'system',
+      intent: 'implement',
+      conversationId: contract.scope.conversationId,
+      taskId: root.id,
+      fromNodeId: 'daemon:local',
+      toNodeId: 'agent:mario',
+      toAgentId: 'mario',
+    });
+    executionEnvelopeRepo.updateStatus(envelope.id, 'failed', 'acp_startup_failed');
+
+    const facts = await new RepositoryDeliveryFactsAdapter().observe(repo.getSnapshot(run.run.id)!);
+
+    expect(facts.blockerCode).toBeUndefined();
+    expect(facts.runnableTask).toMatchObject({
+      taskId: root.id,
+      agentId: 'mario',
+      reasonCode: 'runnable_owned_idle',
+    });
+  });
+
+  it('子任务全部终态后以收敛时刻重置根任务恢复预算', async () => {
+    const repo = new AutonomousDeliveryRepository();
+    const run = repo.createRun(contract);
+    const root = taskRepo.create({
+      id: 'task-root-after-children',
+      conversation_id: contract.scope.conversationId,
+      title: contract.goal,
+      agent_id: 'mario',
+    });
+    const child = taskRepo.create({
+      id: 'task-finished-child',
+      conversation_id: contract.scope.conversationId,
+      title: '完成登录 UI',
+      agent_id: 'peach',
+    });
+    taskRepo.updateStatus(root.id, 'in_progress');
+    taskRepo.updateStatus(child.id, 'in_progress');
+    repo.updateRun({
+      runId: run.run.id,
+      status: 'executing',
+      stage: 'executing',
+      rootTaskId: root.id,
+    });
+
+    for (const status of ['expired', 'completed', 'failed'] as const) {
+      const envelope = executionEnvelopeRepo.create({
+        source: 'system',
+        intent: 'implement',
+        conversationId: contract.scope.conversationId,
+        taskId: root.id,
+        fromNodeId: 'daemon:local',
+        toNodeId: 'agent:mario',
+        toAgentId: 'mario',
+      });
+      executionEnvelopeRepo.updateStatus(envelope.id, status);
+    }
+    taskRepo.updateStatus(child.id, 'done');
+
+    const facts = await new RepositoryDeliveryFactsAdapter().observe(repo.getSnapshot(run.run.id)!);
+
+    expect(facts.blockerCode).toBeUndefined();
+    expect(facts.runnableTask).toMatchObject({
+      taskId: root.id,
+      agentId: 'mario',
+      reasonCode: 'runnable_owned_idle',
     });
   });
 

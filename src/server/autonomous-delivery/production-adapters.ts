@@ -83,8 +83,16 @@ function executionRecovery(
   tasks: TaskRow[],
   envelopes: ReturnType<typeof executionEnvelopeRepo.listByConversation>,
   maxRecoveries: number,
+  rootTaskId?: string | null,
 ): ExecutionRecovery {
   const taskById = new Map(tasks.map((task) => [task.id, task]));
+  const rootChildren = rootTaskId ? tasks.filter((task) => task.id !== rootTaskId) : [];
+  const rootHasNonTerminalChildren = rootChildren.some((task) =>
+    !TERMINAL_TASK_STATUSES.has(task.status)
+  );
+  const rootRecoveryEpoch = rootChildren.length > 0 && !rootHasNonTerminalChildren
+    ? rootChildren.reduce((latest, task) => task.updated_at > latest ? task.updated_at : latest, '')
+    : undefined;
   for (const envelope of [...envelopes].reverse()) {
     if (
       !envelope.task_id
@@ -95,6 +103,12 @@ function executionRecovery(
     ) continue;
     const task = taskById.get(envelope.task_id);
     if (!task || TERMINAL_TASK_STATUSES.has(task.status)) continue;
+    // The root task is the long-lived delivery orchestration contract. While
+    // child tasks are still pending/running/reviewing, root-level review or
+    // coordinator envelopes are not evidence that delivery execution has
+    // stalled. Recover the child lanes instead and let chain closure wake the
+    // root after the task graph converges.
+    if (task.id === rootTaskId && rootHasNonTerminalChildren) continue;
     if (envelope.status === 'completed' && envelope.updated_at <= task.updated_at) continue;
     const hasNewerViableEnvelope = envelopes.some((candidate) =>
       candidate.task_id === envelope.task_id
@@ -107,6 +121,11 @@ function executionRecovery(
     if (hasNewerViableEnvelope) continue;
     const terminalAttempts = envelopes.filter((candidate) =>
       candidate.task_id === task.id
+      && (
+        task.id !== rootTaskId
+        || !rootRecoveryEpoch
+        || candidate.updated_at > rootRecoveryEpoch
+      )
       && (
         RECOVERABLE_ENVELOPE_STATUSES.has(candidate.status)
         || (
@@ -270,6 +289,7 @@ export class RepositoryDeliveryFactsAdapter implements DeliveryFactsPort {
       tasks,
       envelopes,
       snapshot.contract.recoveryPolicy.maxAttemptsPerAction,
+      snapshot.run.root_task_id,
     );
     const nextWakeup = recovery.wakeup ?? wakeups[0];
     const hasActiveEnvelope = envelopes.some((envelope) => ACTIVE_ENVELOPE_STATUSES.has(envelope.status));

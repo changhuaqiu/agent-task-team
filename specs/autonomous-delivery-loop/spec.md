@@ -266,6 +266,8 @@ Agent 文本中的“完成了”不参与该判断。
 - `permanent_configuration`：缺少账号、凭证或工具；升级。
 - `unknown`：有限重试后升级。
 
+根 Task 是交付编排承诺，不是每个子任务执行期间都必须持续产生状态变化的普通工作项。只要存在任一非终态的非根 Task，Supervisor 不得把根 Task 的 completed/failed/expired Envelope 计入 no-progress 恢复耗尽，也不得据此升级为 `poisoned_session`；执行恢复必须由实际负责推进的子 Task 承担。全部子 Task 进入终态后，以最晚子 Task 更新时间作为新的根恢复 epoch，epoch 之前的历史 Envelope 不消耗收口预算；根 Task 随后由 chain-closure/autonomy-guard 或一次新的收口恢复推进。根 Task 尚未拆出子 Task 时仍走普通恢复。
+
 同一 repair cycle 的 Action 处于 `ready/claimed/running/retry_wait` 时必须复用原 cycle；
 只有该 Action `succeeded` 但外部失败事实仍存在时才进入下一 cycle。repair Action 自身
 `failed/cancelled` 时直接升级，不能用新 cycle 掩盖执行失败。

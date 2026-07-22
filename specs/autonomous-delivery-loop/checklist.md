@@ -46,6 +46,7 @@
 - [x] repair verification 进程重启恢复 Web UI E2E。
 - [x] executing / verifying / integrating 三阶段持久化重启恢复集成测试。
 - [ ] 服务重启遗留的 started ExecutionEnvelope 自动恢复，当前进程正常长任务不被周期误回收。
+- [ ] 根 Task 在子 Task 仍 pending/running/review 时不会因自身 Envelope 次数耗尽而升级；无子 Task 的根执行仍可恢复。
 - [x] v42 水位但 Run 表缺少 `revision` 的 checkpoint 可前向修复，并保留既有 Run/Action。
 - [x] 自主项目创建不触发 legacy proposal；普通 Team Pack 项目仍自动启动初始分析。
 - [ ] Claude ACP 双下划线工具名可命中当前平台 grant，未知 MCP/普通工具仍拒绝。
