@@ -1347,18 +1347,63 @@ CREATE INDEX IF NOT EXISTS idx_github_issue_ingress_run
       }
     },
   },
+  {
+    version: 44,
+    sql: `
+CREATE TABLE IF NOT EXISTS platform_event (
+  id TEXT PRIMARY KEY,
+  type TEXT NOT NULL,
+  category TEXT NOT NULL CHECK(category IN (
+    'domain','coordination','runtime_lifecycle','runtime_activity'
+  )),
+  schema_version INTEGER NOT NULL CHECK(schema_version = 1),
+  project_id TEXT NOT NULL REFERENCES conversation(id) ON DELETE CASCADE,
+  stream_key TEXT NOT NULL,
+  stream_sequence INTEGER NOT NULL CHECK(stream_sequence > 0),
+  aggregate_type TEXT NOT NULL,
+  aggregate_id TEXT NOT NULL,
+  aggregate_version INTEGER,
+  actor_type TEXT NOT NULL CHECK(actor_type IN ('user','agent','system','runtime')),
+  actor_id TEXT NOT NULL,
+  subject_type TEXT,
+  subject_id TEXT,
+  project_agent_id TEXT,
+  invocation_id TEXT,
+  inbox_item_id TEXT,
+  correlation_id TEXT NOT NULL,
+  causation_id TEXT,
+  dedupe_key TEXT,
+  payload TEXT NOT NULL,
+  occurred_at TEXT NOT NULL,
+  recorded_at TEXT NOT NULL,
+  UNIQUE(stream_key, stream_sequence),
+  UNIQUE(dedupe_key)
+);
+CREATE INDEX IF NOT EXISTS idx_platform_event_project
+  ON platform_event(project_id, recorded_at, id);
+CREATE INDEX IF NOT EXISTS idx_platform_event_stream
+  ON platform_event(stream_key, stream_sequence);
+CREATE INDEX IF NOT EXISTS idx_platform_event_invocation
+  ON platform_event(invocation_id, stream_sequence);
+CREATE INDEX IF NOT EXISTS idx_platform_event_project_agent
+  ON platform_event(project_id, project_agent_id, recorded_at);
+`,
+  },
 ];
 
 export function applyMigrations(db: Database.Database): void {
   db.exec(`CREATE TABLE IF NOT EXISTS _schema_version (version INTEGER PRIMARY KEY)`);
 
-  const current = db.prepare('SELECT MAX(version) as v FROM _schema_version').get() as {
-    v: number | null;
-  };
-  const currentVersion = current?.v ?? 0;
+  // Migrations can land from isolated task branches. Checking every recorded
+  // version, instead of trusting only MAX(version), keeps a later-numbered
+  // migration from permanently masking a lower version merged afterwards.
+  const appliedVersions = new Set(
+    (db.prepare('SELECT version FROM _schema_version').all() as Array<{ version: number }>)
+      .map((row) => row.version),
+  );
 
   for (const migration of [...MIGRATIONS].sort((left, right) => left.version - right.version)) {
-    if (migration.version > currentVersion) {
+    if (!appliedVersions.has(migration.version)) {
       const apply = () => {
         if (migration.sql) db.exec(migration.sql);
         migration.run?.(db);
@@ -1376,6 +1421,7 @@ export function applyMigrations(db: Database.Database): void {
       } finally {
         if (foreignKeysEnabled) db.pragma('foreign_keys = ON');
       }
+      appliedVersions.add(migration.version);
     }
   }
 }

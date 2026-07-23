@@ -73,6 +73,9 @@ import { digest } from './evaluation/defaults';
 import { transitionCaseExecution } from './evaluation/application-snapshot';
 import { EvaluationCaseRunner } from './evaluation/case-runner';
 import {
+  AcpRuntimeEventCoordinator,
+} from './platform-events';
+import {
   allowsProductionCollaborationEffects,
   evaluationSafeTextSink,
 } from './evaluation/runtime-isolation';
@@ -676,6 +679,8 @@ export default function registerDaemon(io: IOServer) {
       // but a later step throws before the execute IIFE takes over.
       let acpCleanup: (() => void) | undefined;
       let revokeAcpTools: (() => void) | undefined;
+      let runtimeEventCoordinator: AcpRuntimeEventCoordinator | undefined;
+
       try {
       if (!conversationId && !projectId) {
         throw new Error('session_scope_missing: terminal:start requires conversationId or projectId');
@@ -1372,6 +1377,7 @@ export default function registerDaemon(io: IOServer) {
         // binding until the Invocation completes successfully. Some adapters
         // only make a new Session loadable after the first prompt commits.
         if (event.sessionId) {
+          const firstRuntimeSessionObservation = !observedRuntimeSessionId;
           if (observedRuntimeSessionId && observedRuntimeSessionId !== event.sessionId) {
             throw new Error(
               `session_identity_changed: expected ${observedRuntimeSessionId}, received ${event.sessionId}`,
@@ -1383,12 +1389,20 @@ export default function registerDaemon(io: IOServer) {
             );
           }
           observedRuntimeSessionId = event.sessionId;
+          if (firstRuntimeSessionObservation) {
+            runtimeEventCoordinator?.bindSession(
+              agentSession.id,
+              event.sessionId,
+              effectiveSessionId ? 'resumed' : 'created',
+            );
+          }
           if (!invocationSessionRecorded) {
             invocationSessionRecorded = true;
             invocationRepo.updateStatus(invocation.id, 'running', { cli_session_id: event.sessionId });
           }
           if (effectiveSessionId) announceConfirmedSession(event.sessionId);
         }
+        runtimeEventCoordinator?.adapterEvent(event);
 
         if (event.type === 'tool_use' && event.tool?.name && isBackgroundChildTool(event.tool.name)) {
           hasBackgroundChildActivity = true;
@@ -1899,6 +1913,28 @@ export default function registerDaemon(io: IOServer) {
         mcpServers: acpToolGrant ? [acpToolGrant.mcpServer] : [],
         autoApproveMcpToolNames: acpToolGrant?.autoApproveToolNames ?? [],
       });
+      runtimeEventCoordinator = new AcpRuntimeEventCoordinator({
+        context: {
+          projectId: sessionConvId,
+          projectAgentId: agentId,
+          invocationId: invocation.id,
+          logicalSessionId: agentSession.id,
+          runtimeActorId: LOCAL_DAEMON_NODE_ID,
+          correlationId: controlEnvelopeId ?? invocationTraceId ?? invocation.id,
+          causationId: controlEnvelopeId,
+        },
+        engine: entry.id,
+        runtimeNodeId: LOCAL_DAEMON_NODE_ID,
+        envelopeId: controlEnvelopeId,
+        isPlatformTool: isSkillTool,
+        onPublishError: (type, error) => {
+          console.warn(
+            `[platform-event] failed to publish ${type} for ${invocation.id}:`,
+            error,
+          );
+        },
+      });
+      runtimeEventCoordinator.accept();
 
       // The per-turn timeout. timeoutMs already carries the codex-ACP floor
       // (see ~L690), so resetTimeout, backend.execute, and the retry path all
@@ -1940,6 +1976,7 @@ export default function registerDaemon(io: IOServer) {
         engine === 'opencode' ? systemPrompt || undefined : capsResult.opts.systemPrompt,
       );
       const { events: rawEvents, result, kill } = backend.execute(capsResult.prompt, capsResult.opts);
+      runtimeEventCoordinator.start();
       const events = withDoneGuarantee(rawEvents, result);
 
       activeProcesses.set(processKey(agentId, projectId), { kill });
@@ -1995,6 +2032,9 @@ export default function registerDaemon(io: IOServer) {
                 `session_identity_changed: expected ${binding.current}, received ${finalRuntimeSessionId}`,
               );
             }
+            if (binding.status === 'bound') {
+              runtimeEventCoordinator?.confirmSession(finalRuntimeSessionId);
+            }
             announceConfirmedSession(finalRuntimeSessionId);
           } else {
             invocationRepo.updateStatus(invocation.id, 'failed', {
@@ -2013,6 +2053,13 @@ export default function registerDaemon(io: IOServer) {
             final.usage,
             final.error,
           );
+          runtimeEventCoordinator?.terminate({
+            status: final.status,
+            reasonCode: final.reasonCode,
+            durationMs: final.durationMs,
+            sessionId: finalRuntimeSessionId,
+            usage: final.usage,
+          });
 
           // Confirmed bindings survive failure/timeout. A new binding is not
           // persisted until success, so a cancelled first turn provisions a
@@ -2077,6 +2124,7 @@ export default function registerDaemon(io: IOServer) {
           clearInterval(heartbeatTimer);
           console.error(`[daemon][${agentId}] backend error:`, err);
           finishMessageObservation('error', undefined, undefined, (err as Error)?.message || 'spawn_failed');
+          runtimeEventCoordinator?.failSetup('spawn_failed', observedRuntimeSessionId);
           // 失败不 seal session（保持 active，下次 @ resume，id 不变）—— specs/agent-session-stability
           markEnvelopeFailed('spawn_failed');
           if (evaluation) {
@@ -2108,6 +2156,7 @@ export default function registerDaemon(io: IOServer) {
       } catch (err) {
         console.error(`[daemon] terminal:start error for agent=${agentId}:`, err);
         finishObservation('error', 'internal_error');
+        runtimeEventCoordinator?.failSetup('internal_error');
         if (evaluation) {
           try {
             const current = getDb().prepare('SELECT status FROM eval_case_execution WHERE id=?')

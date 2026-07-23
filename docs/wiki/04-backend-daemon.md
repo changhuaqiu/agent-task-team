@@ -299,7 +299,36 @@ Possession 迁移期仍双写 `invocation_chain` / `chain_worklist` 与 `a2a_pos
 1. daemon 根据 `engine` 在 Catalog 中查表（`loadCatalog().find(e => e.id === engine)`）；**找不到条目直接抛错**，不静默回退（`gemini` / `mock` 无条目，无法经 ACP 执行）。
 2. `prepareAcpRuntime(entry, ...)` 做每运行时准备：opencode 在隔离临时目录写 fallback config 并通过 `OPENCODE_CONFIG` 注入，不修改项目文件；codex 隔离 `CODEX_HOME`（复制必要配置到收紧权限的临时目录，turn 后幂等清理）；claude passthrough（认证来自主机）。
 3. `createAcpBackend(entry, ...)` 构造 `AcpBackend`——经 `spawnCli`（cross-spawn，Windows .cmd/.bat 安全）spawn，完成 `initialize` → `session/new` → `prompt`，把 `session/update` 映射为统一 `AgentEvent`。
-4. daemon 将 `AgentEvent`：转为 socket 事件、写入 repo、更新 session / invocation。
+4. daemon 通过 `AcpRuntimeEventCoordinator` 驱动生命周期，并由其内部
+   `RuntimeAgentEventBridge` 将 `AgentEvent` 双写为 canonical
+   `runtime.*` Platform Event，同时保留现有 socket、消息、session、invocation、
+   A2A 和 observation 兼容投影。
+
+### 4.6.1 Platform Event 第一切片
+
+`platform_event` 是新的统一事件日志。事件使用 `stream_key + stream_sequence` 做局部
+严格排序，使用 `dedupe_key` 做幂等写入，并保留 project、ProjectAgent、Invocation、
+aggregate、actor、correlation 和 causation 引用。migration 按 `_schema_version`
+实际已记录集合判断缺失版本，不再只依赖最大版本号，避免隔离分支先合入高版本后永久
+跳过较低 migration。
+
+当前只接入 ACP Runtime 垂直切片：
+
+- `AcpRuntimeEventCoordinator` 是 daemon 的单一双写接缝，覆盖 Invocation
+  accepted、started、Session binding/confirm、活动、正常终态与启动失败终态；
+- `RuntimeEventPublisher` 在 SQLite immediate transaction 内按持久事件校验状态，
+  即使多个 publisher 实例竞争，也不会在 terminated 后追加活动；
+- `RuntimeAgentEventBridge` 把现有 text/thinking/plan/tool/error/usage 信号归一化为
+  Runtime 活动事件，并维护 turn-scoped segment 与 legacy tool call 关联；文本和
+  thinking delta 只实时广播，事件日志仅写完成的合并段；ACP 工具中间状态不生成
+  终态，`failed` 与 `completed` 分别写入失败和完成事实；
+- Runtime publisher 拒绝 accepted 前的活动和 terminated 后的新活动；
+- daemon 双写失败当前只记录 warning，不改变现有用户执行行为。
+
+这是明确的兼容阶段，`platform_event` 尚未成为唯一执行事实源。后续必须把 Message、
+UI、Observability、Harness Outcome 和 Session 逐个迁移为事件 projection，再删除
+`forwardAgentEvent()` 中的业务副作用和旧 `agent_event` 写入。长期契约见
+[`platform-runtime-event-model.md`](../technical/execution/platform-runtime-event-model.md)。
 
 Catalog 三个条目（spec §2 / §5.1）：
 

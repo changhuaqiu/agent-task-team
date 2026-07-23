@@ -148,6 +148,47 @@ export const agentEvent = sqliteTable('agent_event', {
 ]);
 
 // ──────────────────────────────────────────────
+// platform_event
+// ──────────────────────────────────────────────
+export const platformEvent = sqliteTable('platform_event', {
+  id: text('id').primaryKey(),
+  type: text('type').notNull(),
+  category: text('category').notNull(),
+  schemaVersion: integer('schema_version').notNull(),
+  projectId: text('project_id').notNull()
+    .references(() => conversation.id, { onDelete: 'cascade' }),
+  streamKey: text('stream_key').notNull(),
+  streamSequence: integer('stream_sequence').notNull(),
+  aggregateType: text('aggregate_type').notNull(),
+  aggregateId: text('aggregate_id').notNull(),
+  aggregateVersion: integer('aggregate_version'),
+  actorType: text('actor_type').notNull(),
+  actorId: text('actor_id').notNull(),
+  subjectType: text('subject_type'),
+  subjectId: text('subject_id'),
+  projectAgentId: text('project_agent_id'),
+  invocationId: text('invocation_id'),
+  inboxItemId: text('inbox_item_id'),
+  correlationId: text('correlation_id').notNull(),
+  causationId: text('causation_id'),
+  dedupeKey: text('dedupe_key'),
+  payload: text('payload').notNull(),
+  occurredAt: text('occurred_at').notNull(),
+  recordedAt: text('recorded_at').notNull(),
+}, (table) => [
+  uniqueIndex('uq_platform_event_stream_sequence').on(table.streamKey, table.streamSequence),
+  uniqueIndex('uq_platform_event_dedupe').on(table.dedupeKey),
+  index('idx_platform_event_project').on(table.projectId, table.recordedAt, table.id),
+  index('idx_platform_event_stream').on(table.streamKey, table.streamSequence),
+  index('idx_platform_event_invocation').on(table.invocationId, table.streamSequence),
+  index('idx_platform_event_project_agent').on(
+    table.projectId,
+    table.projectAgentId,
+    table.recordedAt,
+  ),
+]);
+
+// ──────────────────────────────────────────────
 // role_cards
 // ──────────────────────────────────────────────
 export const roleCards = sqliteTable('role_cards', {

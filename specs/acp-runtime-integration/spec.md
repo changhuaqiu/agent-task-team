@@ -127,6 +127,10 @@ daemon 不解析任何厂商专有 stdout，不判断某个厂商支持哪些参
 
 ACP `tool_call_update` 可以只携带 `toolCallId`，不重复 `tool_call` 中的 title/kind。`AcpBackend` 必须在单次 execute 生命周期内维护 `toolCallId → tool name`，让同一调用的 `tool_use` 与所有 `tool_result` 使用一致名称；该映射不得跨 Invocation 或 Session 共享。只有从未见过的 call id 才使用中性 `Tool` 回退，不向 UI 输出 `unknown`。
 
+`tool_call_update.status` 必须保留到内部 `AgentEvent.tool.status`。`pending` 与
+`in_progress` 只是中间状态，不得生成工具终态；`completed` 与 `failed` 必须分别
+归一化为成功和失败事实，禁止把失败调用记录为完成。
+
 ACP 文本更新是流式增量，不是独立聊天消息。daemon 可以逐 chunk 广播以保持实时反馈，但持久化时必须在单次 Invocation 内合并连续 `text` chunk；`tool_use`、`tool_result`、`error` 与 `done` 构成文本段边界，禁止把每个汉字或 token 写成一条 `chat_message`。
 
 ## 6. 权限与安全
