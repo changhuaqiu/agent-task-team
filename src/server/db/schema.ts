@@ -336,6 +336,52 @@ export const autonomousDeliveryAdvancementRequest = sqliteTable(
   ],
 );
 
+export const runtimeMessageProjection = sqliteTable('runtime_message_projection', {
+  eventId: text('event_id').primaryKey()
+    .references(() => platformEvent.id, { onDelete: 'cascade' }),
+  messageId: text('message_id')
+    .references(() => chatMessage.id, { onDelete: 'set null' }),
+  projectedAt: text('projected_at').notNull(),
+});
+
+export const runtimeObservabilityProjection = sqliteTable('runtime_observability_projection', {
+  eventId: text('event_id').primaryKey()
+    .references(() => platformEvent.id, { onDelete: 'cascade' }),
+  projectedAt: text('projected_at').notNull(),
+});
+
+export const runtimeCompletionContext = sqliteTable('runtime_completion_context', {
+  invocationId: text('invocation_id').primaryKey()
+    .references(() => invocation.id, { onDelete: 'cascade' }),
+  conversationId: text('conversation_id').notNull()
+    .references(() => conversation.id, { onDelete: 'cascade' }),
+  agentId: text('agent_id').notNull(),
+  taskId: text('task_id'),
+  chainId: text('chain_id'),
+  passId: text('pass_id'),
+  contextScenario: text('context_scenario'),
+  teamLogUpToEntryId: text('team_log_up_to_entry_id'),
+  taskProjectDir: text('task_project_dir').notNull(),
+  evaluationExecutionId: text('evaluation_execution_id'),
+  sourceEventId: text('source_event_id').unique()
+    .references(() => platformEvent.id, { onDelete: 'set null' }),
+  status: text('status').notNull().default('pending'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+  completedAt: text('completed_at'),
+});
+
+export const runtimeCompletionStepReceipt = sqliteTable(
+  'runtime_completion_step_receipt',
+  {
+    eventId: text('event_id').notNull()
+      .references(() => platformEvent.id, { onDelete: 'cascade' }),
+    step: text('step').notNull(),
+    completedAt: text('completed_at').notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.eventId, table.step] })],
+);
+
 // ──────────────────────────────────────────────
 // role_cards
 // ──────────────────────────────────────────────
@@ -407,7 +453,6 @@ export type Invocation = InferSelectModel<typeof invocation>;
 export type NewInvocation = InferInsertModel<typeof invocation>;
 
 export type AgentEvent = InferSelectModel<typeof agentEvent>;
-export type NewAgentEvent = InferInsertModel<typeof agentEvent>;
 
 // ──────────────────────────────────────────────
 // agent_mailbox

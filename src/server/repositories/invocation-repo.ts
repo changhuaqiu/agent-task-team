@@ -72,6 +72,7 @@ export const invocationRepo = {
         type: 'invocation.queued',
         projectId: input.conversation_id,
         aggregate: { type: 'invocation', id: input.id },
+        streamKey: `domain-invocation:${input.id}`,
         projectAgentId: input.agent_id,
         dedupeKey: `invocation:${input.id}:queued`,
         occurredAt: now,
@@ -119,6 +120,7 @@ export const invocationRepo = {
         type,
         projectId: previous.conversation_id,
         aggregate: { type: 'invocation', id },
+        streamKey: `domain-invocation:${id}`,
         projectAgentId: previous.agent_id,
         occurredAt: now,
         payload: {

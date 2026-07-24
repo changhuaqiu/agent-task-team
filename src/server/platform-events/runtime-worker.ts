@@ -5,6 +5,12 @@ import {
   DeliveryProcessManager,
   type DeliveryAdvancementPort,
 } from './delivery-process-manager';
+import { RuntimeMessageProjection } from './runtime-message-projection';
+import { RuntimeObservabilityProjection } from './runtime-observability-projection';
+import {
+  RuntimeCompletionProcessManager,
+  type RuntimeCompletionPort,
+} from './runtime-completion-process-manager';
 
 let worker: PlatformEventRuntimeWorker | undefined;
 
@@ -18,6 +24,8 @@ export interface PlatformEventRuntimeWorkerOptions {
   dispatcher?: WorkerDispatcher;
   projection?: RuntimeInvocationProjection;
   deliveryAdvancement?: DeliveryAdvancementPort;
+  onObservabilityUpdated?: (projectId: string, invocationId: string) => void;
+  runtimeCompletion?: RuntimeCompletionPort;
 }
 
 export class PlatformEventRuntimeWorker {
@@ -41,6 +49,36 @@ export class PlatformEventRuntimeWorker {
       reliability: 'durable',
       handle: (event, { signal }) => this.projection.handle(event, signal),
     });
+    const messageProjection = new RuntimeMessageProjection();
+    this.dispatcher.register({
+      id: 'runtime-message-projection:v1',
+      pattern: 'runtime.*',
+      stereotype: 'projection',
+      reliability: 'durable',
+      handle: messageProjection.handle,
+    });
+    const observabilityProjection = new RuntimeObservabilityProjection({
+      onUpdated: resolved.onObservabilityUpdated,
+    });
+    this.dispatcher.register({
+      id: 'runtime-observability-projection:v1',
+      pattern: 'runtime.*',
+      stereotype: 'projection',
+      reliability: 'durable',
+      handle: observabilityProjection.handle,
+    });
+    if (resolved.runtimeCompletion) {
+      const completionProcessManager = new RuntimeCompletionProcessManager(
+        resolved.runtimeCompletion,
+      );
+      this.dispatcher.register({
+        id: 'runtime-completion-process-manager:v1',
+        pattern: 'runtime.invocation.terminated',
+        stereotype: 'process_manager',
+        reliability: 'durable',
+        handle: completionProcessManager.handle,
+      });
+    }
     const taskWakeupRouter = new TaskWakeupRouter();
     this.dispatcher.register({
       id: 'task-wakeup-router:v1',

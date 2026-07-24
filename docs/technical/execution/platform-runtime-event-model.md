@@ -1,13 +1,14 @@
 # Platform Runtime 事件模型
 
 > 日期：2026-07-24
-> 状态：目标设计；基础设施第一切片实施中
-> 活动规格：`specs/platform-runtime-events/spec.md`（规范事实源）
+> 状态：已实施；长期设计与 ADR
+> 历史规格：`docs/archive/specs/platform-runtime-events/spec.md`
 > 依赖：`acp-runtime-integration`、`system-control-plane`、`agent-session-identity`
 
 本文是平台事件驱动 Runtime 的**顶层技术设计与架构决策记录**。它承载长期设计动机、
-关键决策的 ADR 记录，以及现状到目标的差距分析。可实施的契约条款以
-`specs/platform-runtime-events/spec.md` 为事实源，本文为它的支持材料与设计背景。
+关键决策的 ADR 记录，以及现状到目标的差距分析。实施期契约已经完成并归档到
+`docs/archive/specs/platform-runtime-events/`，本文与 `docs/wiki/04-backend-daemon.md`
+共同承载长期事实。
 
 ---
 
@@ -375,11 +376,11 @@ A 调工具 requestHandoff({to:B, prompt, contextRef})
 
 ---
 
-## 9. 现状 → 目标差距分析
+## 9. 迁移基线 → 已实施结果
 
-### 9.1 核心矛盾：有"事件"但无"事件驱动"
+### 9.1 迁移前核心矛盾：有"事件"但无"事件驱动"
 
-平台现在到处都是"事件"，但没有一个真正的事件驱动系统：
+以下是 2026-07-24 设计评审时的迁移基线，不再描述当前实现：
 
 - **没有 EventBus**（全代码库确认）。现在所谓"事件"只有三种落地：写 append-only 表
   （`agent_event`/`control_proof_event`/`a2a_audit_log`/`task_action`）、插 `chat_message`、
@@ -389,18 +390,18 @@ A 调工具 requestHandoff({to:B, prompt, contextRef})
 - **唯一的"事件驱动"是 `daemon.forwardAgentEvent`**——它是 shallow 透传，同时做持久化/
   观测/A2A 扫描/Session 确认/UI 投影六重职责（spec §1 批判的就是它）。
 
-用 OS 隐喻说：**现在的系统有中断源、有中断处理逻辑，但缺中断向量表**。你要的"全平台
-事件驱动"，本质就是补上这个中断向量表（Dispatcher）。
+用 OS 隐喻说：迁移前系统有中断源、有中断处理逻辑，但缺中断向量表。当前
+`PlatformEventDispatcher` 已承担该分发职责。
 
 ### 9.2 生产侧缺口（牌桌 A）
 
 | 事件类 | 状态 | 说明 |
 | --- | --- | --- |
-| runtime_lifecycle / runtime_activity | ✓ 信封+归一化已就位，✓ 已接 daemon（兼容双写） | 切片 0/1 产物 |
+| runtime_lifecycle / runtime_activity | ✓ canonical 信封、归一化与 daemon 接线 | 兼容双写已在切片 6 删除 |
 | domain（9 领域） | ✓ typed 目录 + 领域事务内 inline seam | task/review/delivery/a2a/envelope/binding/node/session/invocation |
 | coordination | ✓ 持久 Inbox + enqueued/claimed/recovered 已落地 | migration 49；Scheduler 经 Harness 提交 |
 
-### 9.3 domain 事件缺口清单（按业务价值排序）
+### 9.3 domain 事件迁移清单（已完成）
 
 > **ADR-004：全领域转 domain 事件（第一阶段）**
 > 详见 §11 ADR-004。
@@ -420,14 +421,14 @@ A 调工具 requestHandoff({to:B, prompt, contextRef})
 **可复用的准事件源**（已是 append-only，加 fan-out 即变 domain 事件）：`task_action`
 （16 个 `task.*` 动作）、`control_proof_event`、`a2a_audit_log`、`agent_event`。
 
-### 9.4 消费侧缺口（牌桌 B）
+### 9.4 消费侧结果（牌桌 B）
 
 | 角色 | 状态 | 缺口 |
 | --- | --- | --- |
 | ①Router | ✓ 通用 domain→Inbox Router 已落地；具体领域 resolver 随切片 4 接入 | Router 只创建 Command，不启动 Runtime |
-| ②Reducer | ◐ runtime 侧已有 publisher 守护（生产侧 Reducer）；消费侧 Reducer 缺 | 无人读 runtime 事件重建态，daemon 仍直接查表 |
+| ②Reducer | ✓ Runtime publisher 同步守护；RuntimeInvocationProjection 按 sequence 幂等重建 | 领域表仍是事实源，不强制全领域 event sourcing |
 | ③Process Manager | ✓ task/review domain event durable handler | 仅调用 delivery advancement port；port 持久接纳后由 delivery worker 推进 |
-| ④Projection | ✗ 全部错位 | 读 AgentEvent/ACP 原始信号，spec §10 要求迁 |
+| ④Projection | ✓ Invocation/Message/Observability durable projection；Socket live projection | text/thinking delta 是明确的瞬态传输例外 |
 
 ### 9.5 Process Manager 错位（精确落点）
 
@@ -457,7 +458,7 @@ delivery advancement request；delivery 模块持久接纳后，由自己的 wor
 delivery queue 重试。bootstrap 的周期 reconcile 保留为兜底恢复触发器，不与事件驱动入口
 争夺事实 owner。
 
-### 9.6 forwardAgentEvent 六重职责（待拆）
+### 9.6 forwardAgentEvent 六重职责（已拆除）
 
 `daemon.ts:1365-1528`，六重职责精确定位：
 
@@ -468,9 +469,12 @@ delivery queue 重试。bootstrap 的周期 reconcile 保留为兜底恢复触�
 5. UI 投影/socket 广播（1425/1440/1463/1469-1480）
 6. 背景子活动标记 + 心跳重置（1393-1396, 1527）
 
-拆分方向：接入 `AcpRuntimeEventCoordinator` 后，1-4 的副作用迁移到对应 handler
-（②Reducer/③PM/④Projection），5 退化为纯 Projection，6 下沉到 invocation 生命周期。
-forwardAgentEvent 最终退化成兼容 shim，在双写退出后删除。
+落地结果：消息与 observability 由 durable projection 消费；plan/tool/warning/usage/
+terminal UI 由 `RuntimeSocketProjection` 消费；A2A/closure outcome 由 durable
+`runtime-completion-process-manager:v1` 从 canonical 完成消息段重建；
+Session 身份仍由 coordinator 上半部守护；背景活动与 heartbeat 留在 invocation 控制层。
+低延迟 text/thinking delta 使用独立瞬态 `agent:delta` 通道。`forwardAgentEvent` 与生产
+`agent_event` 写入均已删除。
 
 ---
 
@@ -479,12 +483,12 @@ forwardAgentEvent 最终退化成兼容 shim，在双写退出后删除。
 > 详细切片依赖与退出条件见 spec §9 与 `tasks.md`。
 
 ```text
-切片1: 接入 daemon（已完成，待补 daemon 边界回归）
-  AcpRuntimeEventCoordinator 接进 daemon.execute 路径，双写 fail-open
+切片1: 接入 daemon（已完成）
+  AcpRuntimeEventCoordinator 接进 daemon.execute 路径
   退出: daemon ACP 路径产生可查询 Runtime 事件（spec §10）
 
-切片2: Durable Dispatcher + 第一个 Projection
-  建立持久投递/恢复，再把 UI/Message 投影从读 AgentEvent 改为读 runtime 事件
+切片2: Durable Dispatcher + 第一个 Projection（已完成）
+  建立持久投递/恢复与 RuntimeInvocationProjection
   退出: 至少一个投影从 Runtime Event 重建（spec §10）
 
 切片3: Agent Inbox + coordination 事件（已完成）
@@ -501,8 +505,12 @@ forwardAgentEvent 最终退化成兼容 shim，在双写退出后删除。
   delivery 阶段推进抽成 handler，复用 AutonomousDeliverySupervisor.advance 深模块
   退出: delivery 协调不再依赖 task-notification-publisher 尾部硬编码
 
-切片6: 退出双写
+切片6: 退出双写（已完成）
   删除 forwardAgentEvent 业务副作用 + 旧 agent_event 写入
+  Message/Observability 使用 durable projection；Socket 消费 canonical stream
+  A2A/closure outcome 由 source event 幂等 context + eventId/step receipt + durable PM 恢复推进
+  A2A 下游执行先持久写 Agent Inbox，提交后才由 Scheduler 调 Harness
+  migration 51 回填旧事件 receipt，避免切换时重复投影
   退出: 长期设计与 wiki 已同步，兼容双写已删除（spec §10）
 ```
 

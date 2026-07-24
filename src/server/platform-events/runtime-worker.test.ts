@@ -37,7 +37,7 @@ describe('PlatformEventRuntimeWorker', () => {
     worker.start();
     worker.start();
     await vi.advanceTimersByTimeAsync(100);
-    expect(calls).toEqual({ register: 2, recover: 1, discover: 1, drain: 1 });
+    expect(calls).toEqual({ register: 4, recover: 1, discover: 1, drain: 1 });
 
     releaseDrain();
     await vi.advanceTimersByTimeAsync(10);
@@ -54,6 +54,29 @@ describe('PlatformEventRuntimeWorker', () => {
     expect(calls.recover).toBe(2);
     expect(calls.drain).toBe(3);
     worker.stop();
+  });
+
+  it('registers the durable Runtime completion process manager when a port is supplied', () => {
+    const registrations: Array<{ id: string; pattern: string }> = [];
+    const dispatcher = {
+      register(registration: { id: string; pattern: string }) {
+        registrations.push(registration);
+      },
+      recover() { return { enqueued: 0, abandonedAttempts: 0 }; },
+      discover() { return 0; },
+      async drain() { return { succeeded: 0, failed: 0, deadLettered: 0 }; },
+    };
+
+    new PlatformEventRuntimeWorker({
+      dispatcher,
+      runtimeCompletion: { complete() {} },
+    });
+
+    expect(registrations).toEqual(expect.arrayContaining([expect.objectContaining({
+      id: 'runtime-completion-process-manager:v1',
+      pattern: 'runtime.invocation.terminated',
+    })]));
+    expect(registrations).toHaveLength(5);
   });
 
   it('retries startup recovery before incremental discovery', async () => {

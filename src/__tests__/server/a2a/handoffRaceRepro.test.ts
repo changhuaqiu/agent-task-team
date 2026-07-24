@@ -96,7 +96,7 @@ describe('A2A handoff race: harness completion vs ACP done event', () => {
     const luigiAfterCompletion = messenger.orchestrator.getAgentState('luigi');
     console.log('[race] luigi after completion:', luigiAfterCompletion?.status);
 
-    // Simulate ACP done event for luigi (completeAgentA2A → onAgentDone)
+    // Simulate durable Runtime completion for luigi (completion PM → onAgentDone)
     messenger.orchestrator.onAgentDone('luigi', convId);
     await new Promise((r) => setTimeout(r, 50));
 
@@ -139,12 +139,12 @@ describe('A2A handoff race: harness completion vs ACP done event', () => {
 
     // At this point luigi is 'queued' (setAgentState at dispatchNext L713).
     // completion hasn't resolved yet. Now simulate ACP done arriving FIRST.
-    // In real daemon: done event → completeAgentA2A → onAgentResponse (markDone)
+    // In real daemon: Runtime terminal → completion PM → onAgentResponse (markDone)
     //   → onAgentDone (setAgentState idle).
     const luigiBeforeDone = messenger.orchestrator.getAgentState('luigi');
     console.log('[race2] luigi before done (should be queued):', luigiBeforeDone?.status);
 
-    // Simulate completeAgentA2A: first onAgentResponse (marks entry done),
+    // Simulate completion PM: first onAgentResponse (marks entry done),
     // then onAgentDone (sets idle). This is the real daemon order.
     await messenger.onAgentResponse('luigi', 'Done implementing login form.', {
       conversationId: convId,

@@ -842,8 +842,7 @@ describe('POST /api/mutations', () => {
     expect(new AgentInbox().listQueued('default')).toHaveLength(0);
   });
 
-  it('event.append creates event', async () => {
-    await seedTask();
+  it('rejects the removed legacy event.append mutation', async () => {
     const req = mockReq('POST', {
       type: 'event.append',
       payload: { conversationId: 'conv-1', agentId: 'agent-a', type: 'agent.text', payload: { text: 'Hello' } },
@@ -851,10 +850,9 @@ describe('POST /api/mutations', () => {
     const res = mockRes();
     await handler(req, res);
 
-    expect(res.statusCode).toBe(200);
-    expect(res._json.ok).toBe(true);
-    expect(res._json.result.id).toBeTruthy();
-    expect(res._json.result.id.startsWith('evt-')).toBe(true);
+    expect(res.statusCode).toBe(400);
+    expect(res._json.ok).toBe(false);
+    expect(res._json.error).toContain('Unknown mutation type');
   });
 
   it('unknown mutation type returns 400', async () => {

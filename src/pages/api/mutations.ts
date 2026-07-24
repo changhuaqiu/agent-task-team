@@ -17,7 +17,6 @@ type MutationType =
   | 'invocation.updateStatus'
   | 'dispatch.enqueue'
   | 'dispatch.cancel'
-  | 'event.append'
   | 'tool.invoke'
   | 'phase.upsert'
   | 'phase.delete'
@@ -412,12 +411,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
           ? inbox.getByIdempotencyKey(conversationId, agentId, idempotencyKey)
           : undefined;
         result = { cancelled, status: item?.status ?? 'missing' };
-        break;
-      }
-      case 'event.append': {
-        const { eventRepo } = await import('@/server/repositories/event-repo');
-        const id = eventRepo.append(payload as any);
-        result = { id };
         break;
       }
       case 'phase.upsert': {

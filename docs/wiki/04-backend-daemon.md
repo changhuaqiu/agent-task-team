@@ -250,9 +250,25 @@ Daemon 的边界是执行编排，不是团队规则解释器：
 
 server-originated handoff 现在先生成 `a2a_pass` 与 `a2a_handoff_packet`，再写入 `a2a_delivery` 并发出 `a2a:pass-offer`。现有客户端仍通过兼容 `a2a:dispatch` 启动 agent；客户端启动成功后回发 `a2a:agent-started`，daemon 才会把 worklist entry 标为 `executing` 并为目标 agent 打开 possession。兼容字段 `currentHolderId` 只表示最新启动的 holder，真正的持球资格由 open possession 判断，因此 fan-out 后多个 branch holder 可以独立完成或继续传球。客户端启动失败会回发 `a2a:dispatch-failed`，对应 pass 被标为 start 阶段 rejected，不再留下“看起来已执行但实际没人响应”的状态。
 
-daemon 会把 `AcpBackend` 的 `done` 事件视为 agent 完成信号。完成信号会先把 `agentResponseBuffer` 中的文本交给 A2A scanner，再清理缓存；因此 agent 输出可以触发后续 `@mention` 转交。所有运行时（opencode / claude / codex）现在统一经 ACP 产出 `AgentEvent`，不再有 per-engine 私有 stdout 解析。
+服务端执行入口已改为先写 `AgentInbox`：A2A 使用
+`a2a:<chainId>:<entryId>:<agentId>` 稳定幂等键持久接纳 Command，Inbox Scheduler 在事务
+提交后才调用 Harness。durable admission 不会提前把 entry 标成 `executing`；实际
+agent response 或客户端 ACK 才确认 started。兼容 socket 仍保留，但不再是服务端执行事实源。
 
-ACP 文本事件是增量流。daemon 继续把每个 chunk 实时广播给浏览器，但同一 Invocation 内连续的文本只持久化为一条 `chat_message`；工具、错误和完成事件会关闭当前文本段。这样实时体验不受影响，历史消息也不会按单字或 token 碎片化。
+daemon 将 `runtime.invocation.terminated` 交给 durable
+`runtime-completion-process-manager:v1`。handler 从同一 Invocation 的 canonical 完成消息段
+重建输出，再推进 TeamLog cursor/materialize、closure evaluation、A2A scanner 与
+`onAgentDone`；completion context 以 source event id 幂等绑定，每个持久副作用再以
+`eventId + step` 原子写入 step receipt。后序步骤失败时，Dispatcher 重试会跳过已提交步骤，
+也能在 append 后进程退出时恢复推进。A2A dispatch 在该事务内只写稳定
+`chainId/entryId` 的 Agent Inbox Command；Inbox Scheduler 在提交后才调用 Harness，
+因此不存在外部执行先于 completion receipt 提交的窗口。所有运行时
+（opencode / claude / codex）统一经 ACP 产出
+`AgentEvent` 并归一化入流，不再有 per-engine 私有 stdout 解析。
+
+ACP 文本事件是增量流。daemon 继续通过 `agent:delta` 把每个 chunk 实时广播给浏览器；
+`RuntimeAgentEventBridge` 在工具、错误和完成边界关闭文本段，durable Message projection
+再把完成段写成 `chat_message`。这样实时体验不受影响，历史消息也不会按单字或 token 碎片化。
 
 agent 输出中的 `@mention` 不再自动变成转交。A2A 只接受带明确行动意图的交接，例如“@reviewer 请审查…”、“交给 @coder 实现…”。普通引用、通知、前置或后置明确否定（包括“不要”“不用/不必执行”“请勿/切勿”）以及代码块中的 `@agent` 不会唤醒目标 agent。非 active holder 的输出即使包含交接语义也会被拦截；fan-out branch holder 的输出则合法，即使兼容 UI 的最新 holder 指向另一个 branch。
 
@@ -299,12 +315,12 @@ Possession 迁移期仍双写 `invocation_chain` / `chain_worklist` 与 `a2a_pos
 1. daemon 根据 `engine` 在 Catalog 中查表（`loadCatalog().find(e => e.id === engine)`）；**找不到条目直接抛错**，不静默回退（`gemini` / `mock` 无条目，无法经 ACP 执行）。
 2. `prepareAcpRuntime(entry, ...)` 做每运行时准备：opencode 在隔离临时目录写 fallback config 并通过 `OPENCODE_CONFIG` 注入，不修改项目文件；codex 隔离 `CODEX_HOME`（复制必要配置到收紧权限的临时目录，turn 后幂等清理）；claude passthrough（认证来自主机）。
 3. `createAcpBackend(entry, ...)` 构造 `AcpBackend`——经 `spawnCli`（cross-spawn，Windows .cmd/.bat 安全）spawn，完成 `initialize` → `session/new` → `prompt`，把 `session/update` 映射为统一 `AgentEvent`。
-4. daemon 通过 `AcpRuntimeEventCoordinator` 驱动生命周期，并由其内部
-   `RuntimeAgentEventBridge` 将 `AgentEvent` 双写为 canonical
-   `runtime.*` Platform Event，同时保留现有 socket、消息、session、invocation、
-   A2A 和 observation 兼容投影。
+4. daemon 通过 `AcpRuntimeEventCoordinator` 驱动 canonical 生命周期，并由其内部
+   `RuntimeAgentEventBridge` 将 `AgentEvent` 归一化为 `runtime.*` Platform Event。
+   Socket、消息、Invocation、A2A outcome 与 observation 均从该事件流消费；原始
+   text/thinking delta 仅作为低延迟瞬态传输，不是持久事实。
 
-### 4.6.1 Platform Event 第一切片
+### 4.6.1 Platform Event Runtime
 
 `platform_event` 是新的统一事件日志。事件使用 `stream_key + stream_sequence` 做局部
 严格排序，使用 `dedupe_key` 做幂等写入，并保留 project、ProjectAgent、Invocation、
@@ -312,9 +328,9 @@ aggregate、actor、correlation 和 causation 引用。migration 按 `_schema_ve
 实际已记录集合判断缺失版本，不再只依赖最大版本号，避免隔离分支先合入高版本后永久
 跳过较低 migration。
 
-当前只接入 ACP Runtime 垂直切片：
+当前生产链路：
 
-- `AcpRuntimeEventCoordinator` 是 daemon 的单一双写接缝，覆盖 Invocation
+- `AcpRuntimeEventCoordinator` 是 daemon 的 canonical 接缝，覆盖 Invocation
   accepted、started、Session binding/confirm、活动、正常终态与启动失败终态；
 - `RuntimeEventPublisher` 在 SQLite immediate transaction 内按持久事件校验状态，
   即使多个 publisher 实例竞争，也不会在 terminated 后追加活动；
@@ -323,17 +339,26 @@ aggregate、actor、correlation 和 causation 引用。migration 按 `_schema_ve
   thinking delta 只实时广播，事件日志仅写完成的合并段；ACP 工具中间状态不生成
   终态，`failed` 与 `completed` 分别写入失败和完成事实；
 - Runtime publisher 拒绝 accepted 前的活动和 terminated 后的新活动；
-- daemon 双写失败当前只记录 warning，不改变现有用户执行行为。
+- canonical append 失败会终止当前执行路径；Socket live projection 失败仍与事实写入隔离。
 
 daemon 启动时同时启动 `PlatformEventRuntimeWorker`。worker 注册稳定 handler id，启动时
 从 `platform_event` 回补缺失 delivery、回收过期 lease并建立基于 AUTOINCREMENT ingestion
 offset 的 handler cursor；运行期只发现 cursor 之后的新事件，再以 generation-fenced
 单一自调度循环 drain durable handler，不重复全表扫描或叠加 poll。启动 recovery 失败会在
 后续 tick 重试，成功前不进入增量模式。
-首个生产投影 `RuntimeInvocationProjection` 只消费
+`RuntimeInvocationProjection` 只消费
 `runtime.invocation.accepted/started/terminated`，维护可查询的 Invocation 生命周期视图；
 该表可清空后完全从 `platform_event` 重建，不是新的事实源。handler 执行以 attempt token
 fencing，活跃期间续租，超时通过 `AbortSignal` 协作取消后才允许同 stream 重试。
+`RuntimeMessageProjection` 与 `RuntimeObservabilityProjection` 也是 durable、按 event id
+幂等的可重建读模型。migration 51 为切换前已由旧链路处理的 Runtime Event 回填 projection
+receipt，避免首次启动时重复生成历史消息或 span；切换后的新事件由 Dispatcher 投影。
+该 cutover 以升级时现有消息/span 读模型为权威快照；它不会自动猜测旧链路曾被
+best-effort catch 掩盖的单条副作用缺口。若审计发现这类遗留缺口，应在受控 rebuild 中
+删除对应 receipt/读模型后重放，而不是在正常启动时全量补写。
+`RuntimeSocketProjection` 从 canonical 事件产生 plan/tool/warning/usage/terminal UI 事件；
+text/thinking delta 与 heartbeat 使用独立 `agent:delta` 通道，完成段仍以
+`runtime.*.segment.completed` 持久化。
 
 daemon 还启动持久 `AgentInboxScheduler`。`agent_inbox_item` 是 Agent Command 的服务端
 事实源：按 project + ProjectAgent 保证同一 Agent 同时最多一个 claim，并禁止延迟的队首
@@ -361,9 +386,10 @@ event 幂等持久接纳请求，delivery worker 在 `AutonomousDeliverySupervis
 `task-notification-publisher` 尾部的 delivery 直接 reconcile 已删除，startup/periodic
 reconcile 仅保留为 crash/retry 恢复触发器。
 
-这是明确的兼容阶段，`platform_event` 尚未成为唯一执行事实源。后续必须把 Message、
-UI、Observability、Harness Outcome 和 Session 逐个迁移为事件 projection，再删除
-`forwardAgentEvent()` 中的业务副作用和旧 `agent_event` 写入。长期契约见
+兼容双写已经退出：daemon 不再持久化 `agent_event`，`event.append` mutation 已删除，
+`forwardAgentEvent()` 的消息、UI、observability 与 A2A 缓冲副作用已由 canonical 消费者
+替代。A2A completion 从该 Invocation 的完成消息段重建输出，不再读取进程内文本缓冲。
+长期契约见
 [`platform-runtime-event-model.md`](../technical/execution/platform-runtime-event-model.md)。
 
 Catalog 三个条目（spec §2 / §5.1）：

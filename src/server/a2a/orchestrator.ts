@@ -97,7 +97,8 @@ export interface OrchestratorConfig {
     passId?: string;
   }) => {
     handled: boolean;
-    completion: Promise<{ status: 'accepted' | 'deferred' | 'blocked' | 'failed'; reasonCode?: string }>;
+    admitted?: boolean;
+    completion?: Promise<{ status: 'accepted' | 'deferred' | 'blocked' | 'failed'; reasonCode?: string }>;
   } | undefined;
 }
 
@@ -876,7 +877,7 @@ export class Orchestrator {
         payload: dispatchPayload,
       });
 
-      if (serverSubmission?.handled) {
+      if (serverSubmission?.handled && serverSubmission.completion) {
         void serverSubmission.completion.then((outcome) => {
           if (outcome.status === 'accepted') {
             this.markDispatchStarted(chainId, next.id, conversationId, next.agentId, passId);

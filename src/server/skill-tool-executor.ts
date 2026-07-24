@@ -3,7 +3,6 @@
 
 import { taskRepo } from './repositories/task-repo';
 import type { TaskRow } from './repositories/task-repo';
-import { eventRepo } from './repositories/event-repo';
 import { isSkillTool } from './skill-tool-router';
 import { join } from 'node:path';
 import { proofLogRepo } from './repositories/proof-log-repo';
@@ -372,15 +371,13 @@ export async function executeSkillTool(invocation: ToolInvocation): Promise<Tool
 
     const result = await executor(invocation);
 
-    // Audit log: record tool invocation as agent_event
-    eventRepo.append({
+    proofLogRepo.append({
+      eventType: 'skill.tool.invoked',
       conversationId: invocation.conversationId,
       taskId: invocation.taskId,
       agentId: invocation.agentId,
-      type: 'skill_tool_invocation',
-      payload: {
+      metadata: {
         toolName: invocation.toolName,
-        input: invocation.input,
         success: result.success,
       },
     });

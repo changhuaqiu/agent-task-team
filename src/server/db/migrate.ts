@@ -1542,6 +1542,56 @@ CREATE INDEX IF NOT EXISTS idx_delivery_advancement_claim
   ON autonomous_delivery_advancement_request(status, available_at, created_at, id);
 `,
   },
+  {
+    version: 51,
+    sql: `
+CREATE TABLE IF NOT EXISTS runtime_message_projection (
+  event_id TEXT PRIMARY KEY REFERENCES platform_event(id) ON DELETE CASCADE,
+  message_id TEXT REFERENCES chat_message(id) ON DELETE SET NULL,
+  projected_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS runtime_observability_projection (
+  event_id TEXT PRIMARY KEY REFERENCES platform_event(id) ON DELETE CASCADE,
+  projected_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS runtime_completion_context (
+  invocation_id TEXT PRIMARY KEY REFERENCES invocation(id) ON DELETE CASCADE,
+  conversation_id TEXT NOT NULL REFERENCES conversation(id) ON DELETE CASCADE,
+  agent_id TEXT NOT NULL,
+  task_id TEXT,
+  chain_id TEXT,
+  pass_id TEXT,
+  context_scenario TEXT,
+  team_log_up_to_entry_id TEXT,
+  task_project_dir TEXT NOT NULL,
+  evaluation_execution_id TEXT,
+  source_event_id TEXT UNIQUE REFERENCES platform_event(id) ON DELETE SET NULL,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','completed')),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  completed_at TEXT
+);
+CREATE TABLE IF NOT EXISTS runtime_completion_step_receipt (
+  event_id TEXT NOT NULL REFERENCES platform_event(id) ON DELETE CASCADE,
+  step TEXT NOT NULL,
+  completed_at TEXT NOT NULL,
+  PRIMARY KEY(event_id,step)
+);
+
+-- Events recorded before this projection existed already produced their legacy
+-- message and observability rows. Mark them as projected at the cutover so the
+-- durable dispatcher does not duplicate historical read models on first boot.
+INSERT OR IGNORE INTO runtime_message_projection (event_id,message_id,projected_at)
+SELECT id,NULL,recorded_at
+FROM platform_event
+WHERE type IN ('runtime.message.segment.completed','runtime.tool.started');
+
+INSERT OR IGNORE INTO runtime_observability_projection (event_id,projected_at)
+SELECT id,recorded_at
+FROM platform_event
+WHERE type LIKE 'runtime.%';
+`,
+  },
 ];
 
 export function applyMigrations(db: Database.Database): void {

@@ -201,7 +201,7 @@ describe('domain event inline seam', () => {
     sessionRepo.seal('session-1', 'completed');
     sessionRepo.seal('session-1', 'late_duplicate');
 
-    expect(log.listStream('invocation:invocation-1').map((event) => event.type)).toEqual([
+    expect(log.listStream('domain-invocation:invocation-1').map((event) => event.type)).toEqual([
       'invocation.queued',
       'invocation.claimed',
       'invocation.succeeded',
@@ -216,7 +216,7 @@ describe('domain event inline seam', () => {
     invocationRepo.updateStatus('invocation-retry', 'succeeded');
     expect(invocationRepo.getById('invocation-retry')?.status).toBe('failed');
     invocationRepo.updateStatus('invocation-retry', 'running');
-    expect(log.listStream('invocation:invocation-retry').map((event) => event.type)).toEqual([
+    expect(log.listStream('domain-invocation:invocation-retry').map((event) => event.type)).toEqual([
       'invocation.queued',
       'invocation.failed',
       'invocation.claimed',

@@ -5,7 +5,7 @@ import {
   RuntimeEventPublisher,
   type RuntimeEventPublisherContext,
 } from './runtime-event-publisher';
-import type { RuntimeEventPayload, RuntimeEventType } from './types';
+import type { PlatformEvent, RuntimeEventPayload, RuntimeEventType } from './types';
 
 export interface AcpRuntimeEventCoordinatorOptions {
   context: RuntimeEventPublisherContext;
@@ -16,11 +16,12 @@ export interface AcpRuntimeEventCoordinatorOptions {
   isPlatformTool?: (toolName: string) => boolean;
   now?: () => number;
   onPublishError?: (type: RuntimeEventType, error: unknown) => void;
+  onPublished?: (event: PlatformEvent<RuntimeEventType, RuntimeEventPayload<RuntimeEventType>>) => void;
 }
 
 /**
- * Owns the compatibility dual-write lifecycle for one ACP Invocation.
- * Daemon code supplies execution facts; this module preserves their ordering,
+ * Owns the canonical Runtime Event lifecycle for one ACP Invocation. Daemon
+ * code supplies execution facts; this module preserves their ordering,
  * terminal uniqueness and adapter-to-canonical normalization.
  */
 export class AcpRuntimeEventCoordinator {
@@ -28,6 +29,7 @@ export class AcpRuntimeEventCoordinator {
   private readonly bridge: RuntimeAgentEventBridge;
   private readonly now: () => number;
   private acceptedAtMs?: number;
+  private terminated = false;
 
   constructor(private readonly options: AcpRuntimeEventCoordinatorOptions) {
     this.publisher = new RuntimeEventPublisher(
@@ -81,6 +83,7 @@ export class AcpRuntimeEventCoordinator {
     AgentResult,
     'status' | 'reasonCode' | 'durationMs' | 'sessionId' | 'usage'
   >): void {
+    if (this.terminated) return;
     this.bridge.flush();
     this.publish('runtime.invocation.terminated', {
       outcome: final.status === 'timeout' ? 'timed_out' : final.status,
@@ -89,9 +92,11 @@ export class AcpRuntimeEventCoordinator {
       runtimeSessionId: final.sessionId,
       usage: final.usage,
     });
+    this.terminated = true;
   }
 
   failSetup(reasonCode: string, runtimeSessionId?: string): void {
+    if (this.terminated) return;
     this.bridge.flush();
     this.publish('runtime.invocation.terminated', {
       outcome: 'failed',
@@ -101,6 +106,7 @@ export class AcpRuntimeEventCoordinator {
         : Math.max(0, this.now() - this.acceptedAtMs),
       runtimeSessionId,
     });
+    this.terminated = true;
   }
 
   private publish<TType extends RuntimeEventType>(
@@ -108,11 +114,17 @@ export class AcpRuntimeEventCoordinator {
     payload: RuntimeEventPayload<TType>,
   ): void {
     try {
-      this.publisher.publish(type, payload);
+      const event = this.publisher.publish(type, payload);
+      try {
+        this.options.onPublished?.(
+          event as PlatformEvent<RuntimeEventType, RuntimeEventPayload<RuntimeEventType>>,
+        );
+      } catch (error) {
+        this.options.onPublishError?.(type, error);
+      }
     } catch (error) {
-      // Compatibility dual-write remains fail-open until Runtime projections
-      // become authoritative.
       this.options.onPublishError?.(type, error);
+      throw error;
     }
   }
 }

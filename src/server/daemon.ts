@@ -18,8 +18,6 @@ import { sessionRepo } from './repositories/session-repo';
 import type { AgentSessionRow } from './repositories/session-repo';
 import { invocationRepo } from './repositories/invocation-repo';
 import type { InvocationRow } from './repositories/invocation-repo';
-import { messageRepo } from './repositories/message-repo';
-import { eventRepo } from './repositories/event-repo';
 import { generateSortableId } from './repositories/sortable-id';
 import { loadCatalog } from './agent/acp/catalog';
 import {
@@ -32,7 +30,6 @@ import type { AgentEvent, AgentBackend } from './agent/types';
 import { withDoneGuarantee } from './agent/with-done-guarantee';
 import { isSkillTool } from './skill-tool-router';
 import { registerAcpSkillMcpGrant, resolveAcpMcpLoopbackOrigin } from './acp-skill-mcp';
-import { StreamTextPersistence } from './agent/streamTextPersistence';
 import { resolveNonWorktreeExecutionCwd, stableWorkdirTaskKey, WorkdirManager } from './workdir-manager';
 import { AgentMessenger } from './a2a';
 import { createRuntimeSnapshotProvider } from './a2a/runtime-snapshot-provider';
@@ -62,8 +59,6 @@ import { checkValidExit } from './harness/valid-exit';
 import type { ContextReport, ContextSnapshot } from '../lib/agent-context/ContextManager';
 import type { ContextScenario } from '../lib/agent-context/scenarioResolver';
 import { generateSpanId, generateTraceId, observationSpanRepo } from './repositories/observation-span-repo';
-import { spanPayloadRepo } from './repositories/span-payload-repo';
-import { isThinkingCaptureEnabled } from './observability/redaction';
 import { capturePromptPayloads } from './observability/prompt-observation';
 import { teamLogProjection } from './team-log/TeamLogProjection';
 import { renderTeamLogEnvelope } from '../lib/agent-context/teamLog';
@@ -74,13 +69,14 @@ import { transitionCaseExecution } from './evaluation/application-snapshot';
 import { EvaluationCaseRunner } from './evaluation/case-runner';
 import {
   AcpRuntimeEventCoordinator,
+  AgentInbox,
   AgentInboxScheduler,
+  runRuntimeCompletionStep,
+  runtimeCompletionContextRepo,
+  type RuntimeCompletionContext,
+  RuntimeSocketProjection,
   startPlatformEventRuntime,
 } from './platform-events';
-import {
-  allowsProductionCollaborationEffects,
-  evaluationSafeTextSink,
-} from './evaluation/runtime-isolation';
 import { ensureAutonomousDeliveryRuntime } from './autonomous-delivery/bootstrap';
 import { deliveryAdvancementQueue } from './autonomous-delivery/advancement-queue';
 import { registerAutonomousDeliveryE2EDriver } from './testing/autonomous-delivery-e2e-driver';
@@ -223,7 +219,7 @@ export default function registerDaemon(io: IOServer) {
   const processKey = (agentId: string, projectId?: string) => `${agentId}@${projectId || 'default'}`;
   const processStartGuard = new ProcessStartGuard();
   const broadcast = (event: string, data: unknown) => io.emit(event, data);
-  const agentResponseBuffer = new Map<string, string>();
+  const runtimeSocketProjection = new RuntimeSocketProjection({ emit: broadcast });
   const dispatchGateway = new DispatchGateway();
   // Deferred until after the Harness port is constructed; the port closes over this handler.
   // eslint-disable-next-line prefer-const
@@ -275,26 +271,14 @@ export default function registerDaemon(io: IOServer) {
     },
   });
   registerHarnessCoordinator(io, harnessCoordinator);
+  const agentInbox = new AgentInbox();
   const agentInboxScheduler = new AgentInboxScheduler({
+    inbox: agentInbox,
     submit: (trigger) => harnessCoordinator.submit(trigger),
   });
   agentInboxScheduler.start();
   registerAutonomousDeliveryE2EDriver(io);
   ensureAutonomousDeliveryRuntime(io, `daemon:${LOCAL_DAEMON_NODE_ID}`);
-  startPlatformEventRuntime({
-    deliveryAdvancement: {
-      advanceProject: (projectId, cause, signal, sourceEventId) => {
-        if (signal.aborted) {
-          throw signal.reason ?? new Error('delivery_advancement_admission_aborted');
-        }
-        deliveryAdvancementQueue.enqueue({
-          sourceEventId,
-          projectId,
-          cause,
-        });
-      },
-    },
-  });
   const evaluationCaseRunner = new EvaluationCaseRunner(harnessCoordinator);
   const evaluationRunnerTimer = setInterval(() => {
     try {
@@ -440,21 +424,134 @@ export default function registerDaemon(io: IOServer) {
     })),
     createRuntimeSnapshotProvider(),
     (input) => {
-      const submission = harnessCoordinator.submit({
-        id: `a2a:${input.entryId}`,
-        source: 'a2a',
-        conversationId: input.conversationId,
-        taskId: input.referencedTaskId,
-        agentId: input.agentId,
-        prompt: input.prompt,
-        fromAgentId: input.fromAgentId,
-        chainId: input.chainId,
-        passId: input.passId,
+      agentInbox.enqueue({
+        projectId: input.conversationId,
+        projectAgentId: input.agentId,
         idempotencyKey: `a2a:${input.chainId}:${input.entryId}:${input.agentId}`,
+        command: {
+          source: 'a2a',
+          prompt: input.prompt,
+          taskId: input.referencedTaskId,
+          fromAgentId: input.fromAgentId,
+          chainId: input.chainId,
+          passId: input.passId,
+        },
       });
-      return { handled: submission.handled, completion: submission.completion };
+      return {
+        handled: true,
+        admitted: true,
+      };
     },
   );
+
+  startPlatformEventRuntime({
+    onObservabilityUpdated: (projectId, invocationId) => {
+      io.to(projectId).emit('observability:updated', { conversationId: projectId, invocationId });
+    },
+    deliveryAdvancement: {
+      advanceProject: (projectId, cause, signal, sourceEventId) => {
+        if (signal.aborted) {
+          throw signal.reason ?? new Error('delivery_advancement_admission_aborted');
+        }
+        deliveryAdvancementQueue.enqueue({ sourceEventId, projectId, cause });
+      },
+    },
+    runtimeCompletion: {
+      complete(context: RuntimeCompletionContext, output, event, signal) {
+        if (signal.aborted) throw signal.reason ?? new Error('runtime_completion_aborted');
+        // Held-out evaluation output must not enter the production collaboration loop.
+        if (context.evaluation_execution_id) return;
+        runRuntimeCompletionStep(event.eventId, 'task-sync', () => {
+          try {
+            syncTasksToDb(context.task_project_dir, context.conversation_id, io);
+          } catch (error) {
+            console.warn(`[task-sync] completion barrier failed for ${context.conversation_id}:`, error);
+          }
+        });
+        let validExit = true;
+        const scenario = context.context_scenario as ContextScenario | null;
+        if (scenario) {
+          const exit = checkValidExit(scenario, output);
+          validExit = exit.valid;
+          if (!exit.valid) {
+            runRuntimeCompletionStep(event.eventId, 'valid-exit-proof', () => {
+              proofLogRepo.append({
+                eventType: 'no_valid_exit',
+                conversationId: context.conversation_id,
+                taskId: context.task_id ?? undefined,
+                chainId: context.chain_id ?? undefined,
+                passId: context.pass_id ?? undefined,
+                agentId: context.agent_id,
+                reasonCode: exit.reason,
+                metadata: {
+                  scenario,
+                  outcomeSummary: output.slice(0, 200),
+                },
+              });
+            });
+          }
+        }
+        if (scenario === 'closure' && validExit && context.task_id) {
+          runRuntimeCompletionStep(event.eventId, 'closure-evaluation', () => {
+            const closureProof = proofLogRepo.findByType({
+              eventType: 'chain_closure_dispatched',
+              conversationId: context.conversation_id,
+              taskId: context.task_id!,
+            }).at(-1);
+            const triggerId = closureProof?.id
+              ?? `closure:${context.conversation_id}:${context.task_id}:${context.chain_id ?? 'no-chain'}`;
+            const sampling = agentEvaluation.shouldEvaluateClosure(context.conversation_id, triggerId);
+            if (!sampling.allowed) {
+              proofLogRepo.append({
+                eventType: 'eval.skipped',
+                conversationId: context.conversation_id,
+                taskId: context.task_id!,
+                chainId: context.chain_id ?? undefined,
+                reasonCode: sampling.reason,
+                metadata: { triggerId },
+              });
+              return;
+            }
+            const submitted = agentEvaluation.submit({
+              conversationId: context.conversation_id,
+              triggerId,
+              rootTaskId: context.task_id!,
+              chainId: context.chain_id ?? undefined,
+              evidenceCutoffAt: new Date().toISOString(),
+              mode: 'online',
+            });
+            io.to(context.conversation_id).emit('evaluation:queued', {
+              conversationId: context.conversation_id,
+              runId: submitted.runId,
+            });
+          });
+        }
+        runRuntimeCompletionStep(event.eventId, 'team-log', () => {
+          if (context.team_log_up_to_entry_id) {
+            teamLogProjection.markConsumed(
+              context.conversation_id,
+              context.agent_id,
+              context.team_log_up_to_entry_id,
+            );
+          }
+          teamLogProjection.materializeRegistered(context.conversation_id);
+        });
+        if (output) {
+          runRuntimeCompletionStep(event.eventId, 'a2a-response', () => {
+            a2aMessenger.orchestrator.onAgentResponse(
+              context.agent_id,
+              output,
+              context.conversation_id,
+              context.task_id ?? undefined,
+            );
+          });
+        }
+        runRuntimeCompletionStep(event.eventId, 'a2a-done', () => {
+          a2aMessenger.orchestrator.onAgentDone(context.agent_id, context.conversation_id);
+        });
+      },
+    },
+  });
 
   // Expire stale A2A chains on startup
   const expired = a2aMessenger.expireStale();
@@ -687,13 +784,8 @@ export default function registerDaemon(io: IOServer) {
       let controlEnvelopeId: string | undefined;
       let invocationTraceId = requestedTraceId;
       let rootObservationSpanId: string | undefined;
-      let messageObservationSpanId: string | undefined;
-      let completionObservationBuffer = '';
       let evaluationObservedDigest: string | undefined;
-      let thinkingObservationBuffer = '';
       let runtimeContextObservationRecorded = false;
-      const captureThinking = isThinkingCaptureEnabled();
-      const openToolSpans = new Map<string, string[]>();
       let finishObservation: (status: 'ok' | 'error' | 'cancelled', errorMessage?: string) => void = () => {};
       // ACP per-runtime cleanup (e.g. codex temp CODEX_HOME). Declared here so
       // the outer catch (terminal:start error) can clean up if setup succeeds
@@ -719,7 +811,6 @@ export default function registerDaemon(io: IOServer) {
         if (envelopeText) prompt = `${envelopeText}\n\n${prompt}`;
         effectiveTeamLogUpToEntryId = envelope.upToEntryId;
       }
-      const responseBufferKey = processKey(agentId, sessionConvId);
       const sharedProjectDir = join(workspacesRoot, sessionConvId);
       let taskProjectDir = sharedProjectDir;
       const emitDispatchReceipt = (
@@ -880,33 +971,18 @@ export default function registerDaemon(io: IOServer) {
         account_id: accountId,
         prompt: prompt || '',
       });
-
-      const ensureMessageObservationSpan = () => {
-        if (messageObservationSpanId || !invocationTraceId || !rootObservationSpanId) return messageObservationSpanId;
-        try {
-          messageObservationSpanId = observationSpanRepo.start({
-            traceId: invocationTraceId,
-            parentSpanId: rootObservationSpanId,
-            name: 'agent.message',
-            kind: 'message',
-            conversationId: sessionConvId,
-            taskId,
-            agentId,
-            invocationId: invocation.id,
-            envelopeId: controlEnvelopeId,
-            chainId,
-            passId,
-            attributes: {
-              'ath.schema.version': 1,
-              'gen_ai.operation.name': 'chat',
-              'gen_ai.output.type': 'text',
-            },
-          }).span_id;
-        } catch (error) {
-          console.warn('[observability] failed to start message span:', error);
-        }
-        return messageObservationSpanId;
-      };
+      runtimeCompletionContextRepo.create({
+        invocationId: invocation.id,
+        conversationId: sessionConvId,
+        agentId,
+        taskId,
+        chainId,
+        passId,
+        contextScenario,
+        teamLogUpToEntryId: effectiveTeamLogUpToEntryId,
+        taskProjectDir,
+        evaluationExecutionId: evaluation?.executionId,
+      });
 
       const capturePromptObservation = (assembledPrompt: string, effectiveSystemPrompt?: string) => {
         if (!rootObservationSpanId) return;
@@ -968,32 +1044,6 @@ export default function registerDaemon(io: IOServer) {
           runtimeContextObservationRecorded = true;
         } catch (error) {
           console.warn('[observability] failed to record runtime context:', error);
-        }
-      };
-
-      const finishMessageObservation = (
-        status: 'ok' | 'error' | 'cancelled',
-        fallbackOutput?: string,
-        usage?: Record<string, unknown>,
-        errorMessage?: string,
-      ) => {
-        const completion = completionObservationBuffer || fallbackOutput || '';
-        if (!completion && !thinkingObservationBuffer) return;
-        const spanId = ensureMessageObservationSpan();
-        if (!spanId) return;
-        try {
-          if (completion) spanPayloadRepo.put(spanId, 'completion', completion);
-          if (captureThinking && thinkingObservationBuffer) {
-            spanPayloadRepo.put(spanId, 'thinking', thinkingObservationBuffer);
-          }
-          observationSpanRepo.finish(spanId, status, {
-            outputPreview: completion,
-            errorMessage,
-            attributes: usage ? { 'gen_ai.usage': usage } : undefined,
-          });
-          broadcast('observability:updated', { conversationId: sessionConvId, invocationId: invocation.id });
-        } catch (error) {
-          console.warn('[observability] failed to finish message span:', error);
         }
       };
 
@@ -1125,29 +1175,10 @@ export default function registerDaemon(io: IOServer) {
 
       const mergedEnv: Record<string, string> = { ...process.env, ...credentialEnv, ...runtimeConfigEnv } as Record<string, string>;
 
-      let sessionAnnounced = false;
+      let announcedRuntimeSessionId: string | undefined;
       let invocationSessionRecorded = false;
       let observedRuntimeSessionId: string | undefined;
       let hasBackgroundChildActivity = false;
-      const allowsProductionEffects = allowsProductionCollaborationEffects(evaluation);
-      const persistedText = new StreamTextPersistence(evaluationSafeTextSink(evaluation, {
-        create(content) {
-            const id = messageRepo.append({
-            conversationId: sessionConvId,
-            taskId,
-            senderType: 'agent',
-            senderId: agentId,
-            content,
-              contentType: 'text',
-              invocationId: invocation.id,
-              metadata: { invocationId: invocation.id },
-          });
-          sessionRepo.incrementMessageCount(agentSession.id);
-          return id;
-        },
-        append: (messageId, content) => messageRepo.appendTextChunk(messageId, content),
-      }));
-
       // --- Timeout control ---
       // codex ACP startup ~117s (WebSocket→HTTPS fallback). Floor BOTH the
       // daemon kill timer (resetTimeout, fired below) AND the backend per-turn
@@ -1185,111 +1216,15 @@ export default function registerDaemon(io: IOServer) {
         if (timeoutTimer) { clearTimeout(timeoutTimer); timeoutTimer = null; }
       };
 
-      let a2aCompletionHandled = false;
-      const completeAgentA2A = (finalContent?: string) => {
-        if (a2aCompletionHandled) return;
-        a2aCompletionHandled = true;
-
-        const accumulated = agentResponseBuffer.get(responseBufferKey) ?? finalContent;
-        agentResponseBuffer.delete(responseBufferKey);
-        // Held-out output must never drive the production collaboration loop.
-        // Evaluation completion is reconciled through eval_case_execution after
-        // the invocation finishes; it must not materialize TeamLog entries,
-        // consume production cursors, scan @mentions, or advance A2A chains.
-        if (!allowsProductionEffects) return;
-        try {
-          // Watchers are best-effort on every platform. The completed-turn
-          // boundary is the consistency barrier before handoff scanning.
-          syncTasksToDb(taskProjectDir, sessionConvId, io);
-        } catch (error) {
-          console.warn(`[task-sync] completion barrier failed for ${sessionConvId}:`, error);
-        }
-        let validExit = true;
-        if (contextScenario) {
-          const exit = checkValidExit(contextScenario, accumulated);
-          validExit = exit.valid;
-          if (!exit.valid) {
-            proofLogRepo.append({
-              eventType: 'no_valid_exit',
-              conversationId: sessionConvId,
-              taskId,
-              chainId,
-              passId,
-              agentId,
-              reasonCode: exit.reason,
-              metadata: {
-                scenario: contextScenario,
-                outcomeSummary: accumulated?.slice(0, 200) ?? '',
-              },
-            });
-          }
-        }
-        if (contextScenario === 'closure' && validExit && sessionConvId && taskId) {
-          try {
-            const closureProof = proofLogRepo.findByType({
-              eventType: 'chain_closure_dispatched',
-              conversationId: sessionConvId,
-              taskId,
-            }).at(-1);
-            const evaluationTriggerId = closureProof?.id ?? `closure:${sessionConvId}:${taskId}:${chainId ?? 'no-chain'}`;
-            const sampling = agentEvaluation.shouldEvaluateClosure(sessionConvId, evaluationTriggerId);
-            if (!sampling.allowed) {
-              proofLogRepo.append({
-                eventType: 'eval.skipped',
-                conversationId: sessionConvId,
-                taskId,
-                chainId,
-                reasonCode: sampling.reason,
-                metadata: { triggerId: evaluationTriggerId },
-              });
-            } else {
-              const submitted = agentEvaluation.submit({
-                conversationId: sessionConvId,
-                triggerId: evaluationTriggerId,
-                rootTaskId: taskId,
-                chainId,
-                evidenceCutoffAt: new Date().toISOString(),
-                mode: 'online',
-              });
-              io.to(sessionConvId).emit('evaluation:queued', {
-                conversationId: sessionConvId,
-                runId: submitted.runId,
-              });
-            }
-          } catch (error) {
-            console.warn(`[evaluation] closure submit failed for ${sessionConvId}/${taskId}:`, error);
-          }
-        }
-        if (effectiveTeamLogUpToEntryId) {
-          teamLogProjection.markConsumed(sessionConvId, agentId, effectiveTeamLogUpToEntryId);
-        }
-        try {
-          teamLogProjection.materializeRegistered(sessionConvId);
-        } catch (error) {
-          console.warn(`[team-log] materialize after completion failed for ${sessionConvId}:`, error);
-        }
-        if (accumulated && sessionConvId) {
-          a2aMessenger.onAgentResponse(agentId, accumulated, {
-            conversationId: sessionConvId,
-            taskId,
-            triggerMessageId: undefined,
-            chainDepth: 0,
-            epochId: undefined,
-          }).catch(err => console.error('[a2a] onAgentResponse error:', err));
-        }
-        if (sessionConvId) {
-          a2aMessenger.orchestrator.onAgentDone(agentId, sessionConvId);
-        }
-      };
-
       // --- Heartbeat: keep client watchdog alive while process is running ---
       const HEARTBEAT_INTERVAL_MS = 30_000;
       const heartbeatTimer = setInterval(() => {
         if (activeProcesses.has(processKey(agentId, projectId))) {
-          broadcast('agent:event', {
+          broadcast('agent:delta', {
             agentId,
             sessionId: agentSession?.cli_session_id,
-            event: { type: 'heartbeat' },
+            conversationId: sessionConvId,
+            type: 'heartbeat',
           });
         } else {
           clearInterval(heartbeatTimer);
@@ -1318,33 +1253,24 @@ export default function registerDaemon(io: IOServer) {
           (typeof part?.sessionID === 'string' ? part.sessionID : undefined) ||
           (typeof part?.sessionId === 'string' ? part.sessionId : undefined);
 
-        // Persist raw event
-        eventRepo.append({
-          conversationId: sessionConvId,
-          taskId,
-          agentId,
-          type: type || 'unknown',
-          payload: obj,
-        });
-
         if (type === 'text' || type === 'message' || type === 'assistant') {
           const text = (typeof part?.text === 'string' ? part.text : undefined) || (typeof obj.content === 'string' ? obj.content : undefined);
-          if (text) forwardAgentEvent({ type: 'text', content: text, sessionId });
+          if (text) handleAdapterSignal({ type: 'text', content: text, sessionId });
           return !!text;
         } else if (type === 'tool_use') {
           const toolName = typeof part?.tool === 'string' ? part.tool : undefined;
-          if (toolName) forwardAgentEvent({ type: 'tool_use', content: '', tool: { name: toolName, input: typeof part?.input === 'object' ? JSON.stringify(part.input) : undefined }, sessionId });
+          if (toolName) handleAdapterSignal({ type: 'tool_use', content: '', tool: { name: toolName, input: typeof part?.input === 'object' ? JSON.stringify(part.input) : undefined }, sessionId });
           return !!toolName;
         } else if (type === 'error') {
           const errorObj = (obj.error && typeof obj.error === 'object') ? (obj.error as Record<string, unknown>) : undefined;
           const errorName = typeof errorObj?.name === 'string' ? errorObj.name : '未知错误';
-          forwardAgentEvent({ type: 'error', content: errorName, sessionId });
+          handleAdapterSignal({ type: 'error', content: errorName, sessionId });
           return true;
         } else if (type === 'done' || type === 'result') {
           const resultText = typeof obj.result === 'string'
             ? obj.result
             : (typeof obj.content === 'string' ? obj.content : '');
-          forwardAgentEvent({ type: 'done', content: resultText, sessionId });
+          handleAdapterSignal({ type: 'done', content: resultText, sessionId });
           return true;
         }
         return false;
@@ -1371,8 +1297,8 @@ export default function registerDaemon(io: IOServer) {
       }
 
       function announceConfirmedSession(runtimeSessionId: string): void {
-        if (sessionAnnounced) return;
-        sessionAnnounced = true;
+        if (announcedRuntimeSessionId === runtimeSessionId) return;
+        announcedRuntimeSessionId = runtimeSessionId;
         broadcast('agent:session', {
           projectId: sessionConvId,
           conversationId: sessionConvId,
@@ -1387,13 +1313,10 @@ export default function registerDaemon(io: IOServer) {
         }
       }
 
-      // --- Shared agent event forwarder ---
-      const forwardAgentEvent = (event: AgentEvent) => {
-        try {
-        // Text updates are stream deltas. A non-text event closes the current
-        // persisted segment while socket delivery remains fully incremental.
-        if (event.type !== 'text') persistedText.closeSegment();
-
+      // Adapter signals enter the Runtime coordinator first. Text/thinking
+      // deltas stay on a transient transport; durable consumers only observe
+      // the canonical Platform Events emitted by the coordinator.
+      const handleAdapterSignal = (event: AgentEvent) => {
         // Observe runtime identity during the turn, but do not persist a new
         // binding until the Invocation completes successfully. Some adapters
         // only make a new Session loadable after the first prompt commits.
@@ -1421,7 +1344,6 @@ export default function registerDaemon(io: IOServer) {
             invocationSessionRecorded = true;
             invocationRepo.updateStatus(invocation.id, 'running', { cli_session_id: event.sessionId });
           }
-          if (effectiveSessionId) announceConfirmedSession(event.sessionId);
         }
         runtimeEventCoordinator?.adapterEvent(event);
 
@@ -1430,137 +1352,71 @@ export default function registerDaemon(io: IOServer) {
           broadcastAgentActivity('awaiting_children', `tool:${event.tool.name}`);
         }
 
-        if (event.type === 'tool_use' && event.tool?.name && invocationTraceId && rootObservationSpanId) {
-          try {
-            const toolSpan = observationSpanRepo.start({
-              traceId: invocationTraceId,
-              parentSpanId: rootObservationSpanId,
-              name: 'tool.execute',
-              kind: 'tool',
-              conversationId: sessionConvId,
-              taskId,
-              agentId,
-              invocationId: invocation.id,
-              envelopeId: controlEnvelopeId,
-              chainId,
-              passId,
-              inputPreview: event.tool.input,
-              attributes: {
-                'ath.schema.version': 1,
-                'gen_ai.operation.name': 'execute_tool',
-                'gen_ai.tool.name': event.tool.name,
-                'gen_ai.tool.call.id': event.tool.callId,
-                'ath.tool.native': !isSkillTool(event.tool.name),
-                'ath.tool.platform': isSkillTool(event.tool.name),
-              },
-            });
-            if (event.tool.input !== undefined) {
-              spanPayloadRepo.put(toolSpan.span_id, 'tool_input', event.tool.input);
-            }
-            broadcast('observability:updated', { conversationId: sessionConvId, invocationId: invocation.id });
-            const key = event.tool.callId || event.tool.name;
-            openToolSpans.set(key, [...(openToolSpans.get(key) ?? []), toolSpan.span_id]);
-          } catch (error) {
-            console.warn(`[observability] failed to start tool span:`, error);
-          }
-        } else if (event.type === 'tool_result' && event.tool) {
-          try {
-            const key = event.tool.callId || event.tool.name || '';
-            const pending = openToolSpans.get(key) ?? [];
-            const spanId = pending.shift();
-            if (pending.length) openToolSpans.set(key, pending); else openToolSpans.delete(key);
-            if (spanId) {
-              spanPayloadRepo.put(spanId, 'tool_output', event.content);
-              observationSpanRepo.finish(spanId, 'ok', { outputPreview: event.content });
-              broadcast('observability:updated', { conversationId: sessionConvId, invocationId: invocation.id });
-            }
-          } catch (error) {
-            console.warn(`[observability] failed to finish tool span:`, error);
-          }
-        } else if (event.type === 'plan' && invocationTraceId && rootObservationSpanId) {
-          try {
-            const planSpan = observationSpanRepo.start({
-              traceId: invocationTraceId,
-              parentSpanId: rootObservationSpanId,
-              name: 'agent.plan',
-              kind: 'workflow',
-              conversationId: sessionConvId,
-              taskId,
-              agentId,
-              invocationId: invocation.id,
-              envelopeId: controlEnvelopeId,
-              chainId,
-              passId,
-              inputPreview: event.content,
-              attributes: { 'ath.schema.version': 1, 'gen_ai.operation.name': 'plan' },
-            });
-            observationSpanRepo.finish(planSpan.span_id, 'ok');
-            broadcast('observability:updated', { conversationId: sessionConvId, invocationId: invocation.id });
-          } catch (error) {
-            console.warn('[observability] failed to capture plan span:', error);
-          }
-        }
-
-        // Forward to client
-        broadcast('agent:event', {
-          taskId,
-          agentId,
-          type: event.type,
-          content: event.content,
-          tool: event.tool,
-          usage: event.usage,
-          invocationId: invocation.id,
-          sessionId: effectiveSessionId ? event.sessionId : undefined,
-          conversationId: sessionConvId,
-        });
-
-        // Buffer agent text for A2A scanning
-        if (event.type === 'text' && typeof event.content === 'string') {
-          ensureMessageObservationSpan();
-          completionObservationBuffer += event.content;
-          const existing = agentResponseBuffer.get(responseBufferKey) ?? '';
-          agentResponseBuffer.set(responseBufferKey, existing + event.content);
-        } else if (event.type === 'thinking' && captureThinking && typeof event.content === 'string') {
-          ensureMessageObservationSpan();
-          thinkingObservationBuffer += event.content;
-        }
-
-        // Persist to message repo
-        if (event.type === 'text' && event.content) {
-          try {
-          persistedText.appendChunk(event.content);
-          } catch (dbErr) {
-            console.error(`[daemon] Failed to persist text message for ${agentId}:`, dbErr);
-          }
-        } else if (allowsProductionEffects && event.type === 'tool_use' && event.tool) {
-          try {
-          messageRepo.append({
-            conversationId: sessionConvId,
+        if (event.type === 'text' || event.type === 'thinking') {
+          broadcast('agent:delta', {
             taskId,
-            senderType: 'agent',
-            senderId: agentId,
-            content: `🔧 使用工具：${event.tool.name}`,
-            contentType: 'tool_use',
+            agentId,
+            type: event.type,
+            content: event.content,
             invocationId: invocation.id,
-            metadata: { toolEvent: { type: 'tool_use', name: event.tool.name, input: event.tool.input?.slice(0, 500) } },
+            conversationId: sessionConvId,
           });
-          if (agentSession) sessionRepo.incrementMessageCount(agentSession.id);
-          } catch (dbErr) {
-            console.error(`[daemon] Failed to persist tool_use message for ${agentId}:`, dbErr);
-          }
-        }
-        } catch (err) {
-          console.error(`[daemon] forwardAgentEvent error for ${agentId}:`, err);
-        }
-
-        // A2A v2: on agent completion, let orchestrator scan for @mentions and advance chain
-        if (event.type === 'done') {
-          completeAgentA2A(event.content);
         }
 
         // Reset timeout on each event
         resetTimeout();
       };
+
+      const canonicalEngine = (
+        engine === 'opencode' || engine === 'claude' || engine === 'codex'
+      ) ? engine : undefined;
+      const runtimeStartedAtMs = Date.now();
+      const createRuntimeEventCoordinator = () => {
+        if (!canonicalEngine) return undefined;
+        return new AcpRuntimeEventCoordinator({
+          context: {
+            projectId: sessionConvId,
+            projectAgentId: agentId,
+            invocationId: invocation.id,
+            logicalSessionId: agentSession.id,
+            runtimeActorId: targetNodeId,
+            correlationId: controlEnvelopeId ?? invocationTraceId ?? invocation.id,
+            causationId: controlEnvelopeId,
+          },
+          engine: canonicalEngine,
+          runtimeNodeId: targetNodeId,
+          envelopeId: controlEnvelopeId,
+          isPlatformTool: isSkillTool,
+          onPublished: (event) => {
+            if (
+              event.type === 'runtime.session.bound'
+              || event.type === 'runtime.session.confirmed'
+            ) {
+              const payload = event.payload as {
+                runtimeSessionId?: string;
+                binding?: 'created' | 'resumed';
+              };
+              const canAnnounce = event.type === 'runtime.session.confirmed'
+                || payload.binding === 'resumed';
+              if (canAnnounce && payload.runtimeSessionId) {
+                announceConfirmedSession(payload.runtimeSessionId);
+              }
+            } else {
+              runtimeSocketProjection.project(event);
+            }
+          },
+          onPublishError: (type, error) => {
+            console.warn(
+              `[platform-event] failed to publish/project ${type} for ${invocation.id}:`,
+              error,
+            );
+          },
+        });
+      };
+      if (canonicalEngine && !tmuxGateway) {
+        runtimeEventCoordinator = createRuntimeEventCoordinator();
+        runtimeEventCoordinator?.accept();
+      }
 
       // --- Bridge mode (remote opencode via HTTP proxy) ---
       if (opencodeBridgeUrl) {
@@ -1569,6 +1425,7 @@ export default function registerDaemon(io: IOServer) {
         activeProcesses.set(processKey(agentId, projectId), { kill: () => controller.abort() });
         processStartGuard.markStarted(startKey);
         markEnvelopeStarted();
+        runtimeEventCoordinator?.start();
 
         broadcast('terminal:data', {
           agentId,
@@ -1606,9 +1463,9 @@ export default function registerDaemon(io: IOServer) {
               reasonCode: 'spawn_failed' as const,
             });
             // 失败不 seal session（保持 active，下次 @ resume，id 不变）—— specs/agent-session-stability
+            runtimeEventCoordinator?.failSetup('spawn_failed', observedRuntimeSessionId);
             markEnvelopeFailed('spawn_failed');
             broadcast('terminal:exit', { agentId, code: 127, command: 'bridge', reasonCode: 'spawn_failed' });
-            agentResponseBuffer.delete(responseBufferKey);
             activeProcesses.delete(processKey(agentId, projectId));
             if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
             return;
@@ -1648,7 +1505,14 @@ export default function registerDaemon(io: IOServer) {
             }
           }
 
-          completeAgentA2A(parsedAgentText ? undefined : rawTextFallback.join('\n'));
+          if (!parsedAgentText && rawTextFallback.length > 0) {
+            handleAdapterSignal({ type: 'text', content: rawTextFallback.join('\n') });
+          }
+          runtimeEventCoordinator?.terminate({
+            status: 'completed',
+            durationMs: Math.max(0, Date.now() - runtimeStartedAtMs),
+            sessionId: observedRuntimeSessionId ?? effectiveSessionId,
+          });
           clearProcessTimeout();
           clearInterval(heartbeatTimer);
           markEnvelopeCompleted();
@@ -1660,7 +1524,6 @@ export default function registerDaemon(io: IOServer) {
             conversationId: sessionConvId,
             activity: hasBackgroundChildActivity ? 'awaiting_children' : 'idle',
           });
-          agentResponseBuffer.delete(responseBufferKey);
           activeProcesses.delete(processKey(agentId, projectId));
           if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
           return;
@@ -1674,9 +1537,9 @@ export default function registerDaemon(io: IOServer) {
             reasonCode: 'spawn_failed' as const,
           });
           // 失败不 seal session（保持 active，下次 @ resume，id 不变）—— specs/agent-session-stability
+          runtimeEventCoordinator?.failSetup('spawn_failed', observedRuntimeSessionId);
           markEnvelopeFailed('spawn_failed');
           broadcast('terminal:exit', { agentId, code: 127, command: 'bridge', reasonCode: 'spawn_failed' });
-          agentResponseBuffer.delete(responseBufferKey);
           activeProcesses.delete(processKey(agentId, projectId));
           if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
           return;
@@ -1745,6 +1608,10 @@ export default function registerDaemon(io: IOServer) {
       }
 
       // --- Execute via Backend abstraction ---
+      if (!runtimeEventCoordinator && canonicalEngine) {
+        runtimeEventCoordinator = createRuntimeEventCoordinator();
+        runtimeEventCoordinator?.accept();
+      }
       // `command` is retained for the terminal:exit broadcast payload below.
       const command = ENGINE_COMMAND[engine] || 'opencode';
 
@@ -1810,6 +1677,7 @@ export default function registerDaemon(io: IOServer) {
         : resolveNonWorktreeExecutionCwd(projectPath, wd);
       // Runtime, task projection, watcher, and prompt share one writable fact source.
       taskProjectDir = runtimeWd;
+      runtimeCompletionContextRepo.updateTaskProjectDir(invocation.id, runtimeWd);
       if (taskId && taskRepo.getById(taskId)?.conversation_id === sessionConvId) {
         taskRepo.update(taskId, { work_dir: taskProjectDir });
       }
@@ -1934,28 +1802,6 @@ export default function registerDaemon(io: IOServer) {
         mcpServers: acpToolGrant ? [acpToolGrant.mcpServer] : [],
         autoApproveMcpToolNames: acpToolGrant?.autoApproveToolNames ?? [],
       });
-      runtimeEventCoordinator = new AcpRuntimeEventCoordinator({
-        context: {
-          projectId: sessionConvId,
-          projectAgentId: agentId,
-          invocationId: invocation.id,
-          logicalSessionId: agentSession.id,
-          runtimeActorId: LOCAL_DAEMON_NODE_ID,
-          correlationId: controlEnvelopeId ?? invocationTraceId ?? invocation.id,
-          causationId: controlEnvelopeId,
-        },
-        engine: entry.id,
-        runtimeNodeId: LOCAL_DAEMON_NODE_ID,
-        envelopeId: controlEnvelopeId,
-        isPlatformTool: isSkillTool,
-        onPublishError: (type, error) => {
-          console.warn(
-            `[platform-event] failed to publish ${type} for ${invocation.id}:`,
-            error,
-          );
-        },
-      });
-      runtimeEventCoordinator.accept();
 
       // The per-turn timeout. timeoutMs already carries the codex-ACP floor
       // (see ~L690), so resetTimeout, backend.execute, and the retry path all
@@ -1997,7 +1843,7 @@ export default function registerDaemon(io: IOServer) {
         engine === 'opencode' ? systemPrompt || undefined : capsResult.opts.systemPrompt,
       );
       const { events: rawEvents, result, kill } = backend.execute(capsResult.prompt, capsResult.opts);
-      runtimeEventCoordinator.start();
+      runtimeEventCoordinator?.start();
       const events = withDoneGuarantee(rawEvents, result);
 
       activeProcesses.set(processKey(agentId, projectId), { kill });
@@ -2008,7 +1854,7 @@ export default function registerDaemon(io: IOServer) {
       (async () => {
         try {
           for await (const event of events) {
-            forwardAgentEvent(event);
+            handleAdapterSignal(event);
           }
 
           // Wait for final result
@@ -2056,7 +1902,6 @@ export default function registerDaemon(io: IOServer) {
             if (binding.status === 'bound') {
               runtimeEventCoordinator?.confirmSession(finalRuntimeSessionId);
             }
-            announceConfirmedSession(finalRuntimeSessionId);
           } else {
             invocationRepo.updateStatus(invocation.id, 'failed', {
               exit_code: 1,
@@ -2068,12 +1913,6 @@ export default function registerDaemon(io: IOServer) {
             }
           }
 
-          finishMessageObservation(
-            final.status === 'completed' ? 'ok' : final.status === 'cancelled' ? 'cancelled' : 'error',
-            final.output,
-            final.usage,
-            final.error,
-          );
           runtimeEventCoordinator?.terminate({
             status: final.status,
             reasonCode: final.reasonCode,
@@ -2135,7 +1974,6 @@ export default function registerDaemon(io: IOServer) {
             conversationId: sessionConvId,
             activity: final.status === 'completed' && hasBackgroundChildActivity ? 'awaiting_children' : 'idle',
           });
-          agentResponseBuffer.delete(responseBufferKey);
           activeProcesses.delete(processKey(agentId, projectId));
           if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
           acpCleanup?.();
@@ -2144,7 +1982,6 @@ export default function registerDaemon(io: IOServer) {
           clearProcessTimeout();
           clearInterval(heartbeatTimer);
           console.error(`[daemon][${agentId}] backend error:`, err);
-          finishMessageObservation('error', undefined, undefined, (err as Error)?.message || 'spawn_failed');
           runtimeEventCoordinator?.failSetup('spawn_failed', observedRuntimeSessionId);
           // 失败不 seal session（保持 active，下次 @ resume，id 不变）—— specs/agent-session-stability
           markEnvelopeFailed('spawn_failed');
@@ -2167,7 +2004,6 @@ export default function registerDaemon(io: IOServer) {
             }
           }
           broadcast('terminal:exit', { agentId, code: 1, command, reasonCode: 'spawn_failed' });
-          agentResponseBuffer.delete(responseBufferKey);
           activeProcesses.delete(processKey(agentId, projectId));
           if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
           acpCleanup?.();
@@ -2214,7 +2050,6 @@ export default function registerDaemon(io: IOServer) {
         }
         broadcast('agent:error', { agentId, message: `内部错误：${(err as Error)?.message || '未知'}` });
         broadcast('terminal:exit', { agentId, code: 1, command: primaryCommand, reasonCode: 'internal_error' });
-        agentResponseBuffer.delete(processKey(agentId, conversationId || projectId || 'default'));
         activeProcesses.delete(processKey(agentId, projectId));
         if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
         acpCleanup?.();

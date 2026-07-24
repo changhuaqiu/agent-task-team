@@ -19,6 +19,25 @@ export {
   type RuntimeInvocationProjectionRow,
 } from './runtime-invocation-projection';
 export {
+  RuntimeMessageProjection,
+  type RuntimeMessageProjectionOptions,
+} from './runtime-message-projection';
+export {
+  RuntimeObservabilityProjection,
+  type RuntimeObservabilityProjectionOptions,
+} from './runtime-observability-projection';
+export {
+  RuntimeSocketProjection,
+  type RuntimeSocketProjectionPort,
+} from './runtime-socket-projection';
+export {
+  RuntimeCompletionProcessManager,
+  runRuntimeCompletionStep,
+  runtimeCompletionContextRepo,
+  type RuntimeCompletionContext,
+  type RuntimeCompletionPort,
+} from './runtime-completion-process-manager';
+export {
   PlatformEventRuntimeWorker,
   startPlatformEventRuntime,
 } from './runtime-worker';

@@ -1581,20 +1581,6 @@ export const useTaskHubStore = create<TaskHubState>()(
             },
           }));
 
-          if (record.conversationId) {
-            const payloadObj = (record.payload && typeof record.payload === 'object') ? record.payload as Record<string, unknown> : {};
-            fetch('/api/mutations', {
-              method: 'POST',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({ type: 'event.append', payload: {
-                conversationId: record.conversationId,
-                taskId: (payloadObj?.taskId as string) || undefined,
-                agentId: (payloadObj?.agentId as string) || 'system',
-                type: record.type,
-                payload: record.payload,
-              }}),
-            }).catch((err) => console.error('[mutation] event.append failed:', err));
-          }
         },
 
         addSupervisorOutput: (output: SupervisorOutputEnvelope) => {
@@ -2160,6 +2146,25 @@ socket.on('agent:event', (event) => {
   } else {
     state.appendToStreamMessage(activeId, { content: content || '' });
   }
+});
+
+socket.on('agent:delta', (event) => {
+  const { agentId, type, content, sessionId, invocationId, conversationId: eventConvId } = event;
+  const state = useTaskHubStore.getState();
+  const active = state.activeRunsByAgent[agentId];
+  const conversationId = eventConvId && eventConvId !== 'default'
+    ? eventConvId
+    : active?.conversationId ?? state.selectedConversationId ?? undefined;
+  if (!conversationId) return;
+  if (sessionId) state.upsertAgentSession(conversationId, agentId, sessionId);
+  if (type === 'heartbeat') {
+    resetWatchdog(agentId, useTaskHubStore.getState, useTaskHubStore.setState);
+    return;
+  }
+  if (type !== 'text') return;
+  const activeId = state.activeStreamMessageId[agentId]
+    ?? state.ensureStreamMessage(agentId, conversationId, invocationId);
+  state.appendToStreamMessage(activeId, { content: content || '' });
 });
 
 socket.on('a2a:pass-offer', ({ agentId, fromAgentId, conversationId, chainId, passId }: { agentId: string; fromAgentId?: string; conversationId?: string; chainId?: string; passId?: string }) => {

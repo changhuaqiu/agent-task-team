@@ -1,5 +1,7 @@
 # 实施任务
 
+> 状态：implemented
+
 任务按 spec §9 的 6 切片组织。每切片落地前另起 plan，不在本文件锁定实现细节。
 对齐 spec §10 退出条件与 checklist.md 验收项。
 
@@ -11,12 +13,12 @@
 - [x] T4 实现 typed Runtime Event publisher 和生命周期不变量。
 - [x] T4b 实现 AcpRuntimeEventCoordinator + RuntimeAgentEventBridge（归一化与兼容桥）。
 
-## 切片 1：接入 daemon（代码已接入，待补边界回归）
+## 切片 1：接入 daemon（已完成）
 
-- [ ] T5 daemon 对 Runtime 活动与终态执行兼容双写（经 AcpRuntimeEventCoordinator）。
+- [x] T5 daemon 对 Runtime 活动与终态接入 AcpRuntimeEventCoordinator。
   - daemon.execute 路径持有 coordinator：accept → backend.execute → terminate
   - 同步启动失败复用 failSetup
-  - 双写 fail-open，标记退出条件（不得永久双事实源）
+  - 切片 6 前保留兼容路径，并标记退出条件
   - 退出：daemon ACP 路径产生可查询 Runtime 事件
 
 ## 切片 2：Durable Dispatcher + 第一个 Projection（已完成）
@@ -56,10 +58,11 @@
   - Platform Event delivery 以持久接纳为成功边界；实际推进失败由 delivery queue 重试
   - 退出：delivery 协调不再依赖 task-notification-publisher 尾部硬编码；现有 delivery 测试无回归
 
-## 切片 6：退出双写（待开始）
+## 切片 6：退出双写（已完成）
 
-- [ ] T10 删除 forwardAgentEvent 业务副作用 + 旧 agent_event 写入。
+- [x] T10 删除 forwardAgentEvent 业务副作用 + 旧 agent_event 写入。
   - 前置：切片 2/3/4/5 全部完成
   - 迁移 Message、UI、Observability、Harness Outcome 消费者
+  - Runtime terminal outcome 由 durable completion Process Manager 恢复，并按 source event 幂等
   - 退出：长期设计与 wiki 已同步，兼容双写已删除
-- [ ] T11 完成全量验证、长期事实回写并归档规格。
+- [x] T11 完成全量验证、长期事实回写并归档规格。

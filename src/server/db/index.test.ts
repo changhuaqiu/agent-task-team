@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { createTestDb } from './index';
 import { applyMigrations } from './migrate';
+import { PlatformEventLog } from '../platform-events/event-log';
 
 describe('SQLite Foundation', () => {
   let db: Database.Database;
@@ -31,6 +32,10 @@ describe('SQLite Foundation', () => {
     expect(tableNames).toContain('platform_event_handler_cursor');
     expect(tableNames).toContain('platform_event_ingestion');
     expect(tableNames).toContain('runtime_invocation_projection');
+    expect(tableNames).toContain('runtime_message_projection');
+    expect(tableNames).toContain('runtime_observability_projection');
+    expect(tableNames).toContain('runtime_completion_context');
+    expect(tableNames).toContain('runtime_completion_step_receipt');
     expect(tableNames).toContain('agent_inbox_item');
     expect(tableNames).toContain('eval_review_queue');
     expect(tableNames).toContain('eval_pairwise_round');
@@ -172,6 +177,36 @@ describe('SQLite Foundation', () => {
     expect(after.v).toBe(before.v);
   });
 
+  it('marks pre-cutover Runtime events as already projected', () => {
+    const now = '2026-07-25T04:00:00.000Z';
+    db.prepare(
+      'INSERT INTO conversation (id, title, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
+    ).run('conv-cutover', 'Cutover', 'active', now, now);
+    new PlatformEventLog({ db }).append({
+      type: 'runtime.message.segment.completed',
+      category: 'runtime_activity',
+      projectId: 'conv-cutover',
+      streamKey: 'invocation:inv-cutover',
+      aggregate: { type: 'invocation', id: 'inv-cutover' },
+      actor: { type: 'runtime', id: 'daemon' },
+      invocationId: 'inv-cutover',
+      correlationId: 'trace-cutover',
+      payload: { segmentId: 'segment-1', text: 'already projected' },
+    });
+    db.exec(`
+      DROP TABLE runtime_message_projection;
+      DROP TABLE runtime_observability_projection;
+      DELETE FROM _schema_version WHERE version=51;
+    `);
+
+    applyMigrations(db);
+
+    expect(db.prepare('SELECT COUNT(*) count FROM runtime_message_projection').get())
+      .toEqual({ count: 1 });
+    expect(db.prepare('SELECT COUNT(*) count FROM runtime_observability_projection').get())
+      .toEqual({ count: 1 });
+  });
+
   it('applies a missing lower migration even when a higher version is recorded', () => {
     db.prepare('DELETE FROM _schema_version WHERE version = 40').run();
 
@@ -180,7 +215,7 @@ describe('SQLite Foundation', () => {
     expect(db.prepare('SELECT version FROM _schema_version WHERE version = 40').get())
       .toEqual({ version: 40 });
     expect(db.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-      .toEqual({ version: 50 });
+      .toEqual({ version: 51 });
   });
 
   it('repairs v26-v40 checkpoints whose migration collision skipped autonomous delivery tables', () => {
@@ -210,7 +245,7 @@ describe('SQLite Foundation', () => {
           'autonomous_delivery_advancement_request',
         ]));
         expect(checkpoint.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-          .toEqual({ version: 50 });
+          .toEqual({ version: 51 });
         expect(checkpoint.pragma('foreign_key_check')).toEqual([]);
       } finally {
         checkpoint.close();

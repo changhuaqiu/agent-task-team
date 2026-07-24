@@ -87,6 +87,7 @@ export interface PublishDomainEventInput<TType extends DomainEventType> {
   causationId?: string;
   dedupeKey?: string;
   occurredAt?: string;
+  streamKey?: string;
   payload: DomainEventPayloadMap[TType];
 }
 
@@ -104,7 +105,7 @@ export class DomainEventPublisher {
       type: input.type,
       category: 'domain',
       projectId: input.projectId,
-      streamKey: `${input.aggregate.type}:${input.aggregate.id}`,
+      streamKey: input.streamKey ?? `${input.aggregate.type}:${input.aggregate.id}`,
       aggregate: input.aggregate,
       actor: input.actor ?? { type: 'system', id: `${input.aggregate.type}-domain` },
       subject: input.subject,

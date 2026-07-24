@@ -6,7 +6,7 @@ import { createTestDb } from '../db';
 import { AcpRuntimeEventCoordinator } from './acp-runtime-event-coordinator';
 import { PlatformEventLog } from './event-log';
 
-describe('ACP Runtime event dual-write integration', () => {
+describe('ACP Runtime event integration', () => {
   let db: Database.Database;
   let log: PlatformEventLog;
   let coordinator: AcpRuntimeEventCoordinator;
@@ -111,5 +111,10 @@ describe('ACP Runtime event dual-write integration', () => {
       'runtime.invocation.accepted',
       'runtime.invocation.terminated',
     ]);
+  });
+
+  it('does not fail open when the canonical Runtime append is rejected', () => {
+    expect(() => coordinator.start()).toThrow('before invocation acceptance');
+    expect(log.listByInvocation('inv-1')).toEqual([]);
   });
 });

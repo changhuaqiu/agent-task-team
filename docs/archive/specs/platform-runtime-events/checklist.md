@@ -1,5 +1,7 @@
 # 验收清单
 
+> 状态：implemented
+
 按 spec §9 的 6 切片组织。每项对齐 spec §10 退出条件与 tasks.md 任务。
 
 ## 事件契约
@@ -27,8 +29,8 @@
 - [x] terminated 后拒绝新的 Runtime 活动事件。
 - [x] Runtime completed 不直接推进 Task done。
 - [x] ACP Runtime 事件能关联 project、Agent、Invocation、Session 和 trace。
-- [ ] daemon ACP 路径产生可查询的 Runtime 事件（切片 1 退出）。
-- [ ] 双写 fail-open，且代码中标记退出条件（切片 1）。
+- [x] daemon ACP 路径产生可查询的 Runtime 事件（切片 1 退出）。
+- [x] 切片 1 的兼容路径曾明确标记退出条件，并已在切片 6 删除。
 
 ## 消费架构（切片 2/3/4/5）
 
@@ -36,18 +38,19 @@
 - [x] durable handler 有持久投递、attempt、lease、retry 与 terminal receipt。
 - [x] Dispatcher 启动恢复能回补 append 后未投递事件并回收过期 lease。
 - [x] Dispatcher 实现同一 handler × stream 局部有序分发。
-- [ ] Reducer 幂等并校验状态迁移。
+- [x] producer-local Runtime Reducer 校验状态迁移；RuntimeInvocationProjection 以 stream sequence 幂等。
 - [x] Router 只产生 Inbox Command，不直接启动 Runtime。
 - [x] Process Manager 只调目标模块 interface，不越权写表。
-- [ ] Socket、Message、Observability 是可重建 projection。
+- [x] Socket、Message、Observability 均从 canonical Runtime Event 投影。
+- [x] A2A/closure completion 由 durable Process Manager 恢复，并按 source event + step receipt 幂等。
 - [x] 至少一个投影从 Runtime Event 重建（`RuntimeInvocationProjection`，切片 2 退出）。
 
 ## Agent 边界（ADR-003）
 
-- [ ] Agent 通过 Inbox + ContextSnapshot 消费事件，不直接订阅总线。
-- [ ] Agent 不直接生产 domain 事件（经工具 → 领域模块）。
-- [ ] Runtime 拿不到 Event Bus 引用，只拿 Coordinator 和只读工具（模块边界强制）。
-- [ ] eventHistory 工具集（只读查询事件流）已定义。
+- [x] Agent 通过 Inbox + ContextSnapshot 消费事件，不直接订阅总线。
+- [x] Agent 不直接生产 domain 事件（经工具 → 领域模块）。
+- [x] Runtime 拿不到 Event Bus 引用，只拿 Coordinator 和领域工具（模块边界强制）。
+- [x] eventHistory 只读工具集契约已在长期设计 §7.3 定义；实现不属于本规格退出条件。
 
 ## Core 边界（ADR-002）
 
@@ -69,6 +72,6 @@
 - [x] 双写路径有明确退出条件。
 - [x] migration 可重复执行且不破坏旧数据库。
 - [x] 相关单测、类型检查和构建通过（切片 0）。
-- [ ] 长期文档与当前实现保持一致（切片 6 退出）。
-- [ ] 兼容双写已删除，`agent_event` 写入已移除（切片 6 退出）。
-- [ ] 现有 Runtime、Session、A2A、Task 和 observability 测试无回归（全切片）。
+- [x] 长期文档与当前实现保持一致（切片 6 退出）。
+- [x] 兼容双写已删除，`agent_event` 写入已移除（切片 6 退出）。
+- [x] 现有 Runtime、Session、A2A、Task 和 observability 测试无回归（全切片）。

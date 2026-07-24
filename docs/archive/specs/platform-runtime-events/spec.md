@@ -1,7 +1,8 @@
 # 平台 Runtime 事件模型
 
-> 状态：active
+> 状态：implemented
 > 日期：2026-07-24
+> 完成日期：2026-07-25
 > 事实源：本目录
 > 依赖：`system-control-plane`、`acp-runtime-integration`、`agent-session-identity`
 > 设计文档：`docs/technical/execution/platform-runtime-event-model.md`（顶层设计 + ADR）
@@ -31,9 +32,9 @@
 3. Runtime 生命周期事件：一次 Invocation 的状态；
 4. Runtime 活动事件：Invocation 内的消息、工具、权限和用量活动。
 
-四类事件都是主线，不分先后。第一实现切片先落地通用事件日志和 Runtime 事件发布器，
-并由 daemon 对现有 `AgentEvent` 路径做兼容双写；随后按切片 2-6 迁移协调事件、
-领域事件、消费者与 Process Manager（见 §9）。
+四类事件都是主线，不分先后。实施先落地通用事件日志和 Runtime 事件发布器，
+再经临时兼容期按切片 2-6 迁移协调事件、领域事件、消费者与 Process Manager；
+兼容路径现已删除（见 §9）。
 
 事实源立场：事件 = 协调信号，领域表仍是事实源。详见设计文档 ADR-001。
 
@@ -263,7 +264,8 @@ Dispatcher
 - 同一 stream 局部有序；跨 stream 用 `correlationId` 和 `causationId` 关联。
 - Runtime 终态后禁止产生新的 Runtime 活动事件。
 - Runtime completed 只表示本轮执行结束，不得直接推出 Task done。
-- 兼容双写期间，`platform_event` 是新事实流；旧投影仍保持现有用户行为。
+- `platform_event` 是 canonical 执行事件流；低延迟 text/thinking delta 是明确的瞬态
+  transport exception，不构成第二持久事实源。
 
 ## 9. 迁移策略
 
@@ -272,15 +274,15 @@ Dispatcher
 
 | 切片 | 内容 | 依赖 | 退出条件（对应 §10） |
 | --- | --- | --- | --- |
-| 1 接入 daemon | `AcpRuntimeEventCoordinator` 接进 daemon.execute 路径，双写 fail-open（已接入，补边界回归） | 切片 0（platform_event 表 + 日志 + publisher，已就位） | daemon ACP 路径产生可查询 Runtime 事件 |
+| 1 接入 daemon | `AcpRuntimeEventCoordinator` 接进 daemon.execute 路径（已完成） | 切片 0（platform_event 表 + 日志 + publisher，已就位） | daemon ACP 路径产生可查询 Runtime 事件 |
 | 2 Durable Dispatcher + 第一个 Projection | 先建立持久投递/恢复，再让 UI/Message 投影从读 AgentEvent 改为读 runtime 事件 | 切片 1 | Dispatcher 可恢复；至少一个投影从 Runtime Event 重建 |
 | 3 Inbox + coordination | 建立持久 Agent Inbox + coordination 事件，替换浏览器内存队列 | 切片 1 | Agent Inbox 能由领域事件幂等产生、claim、恢复 |
 | 4 domain inline seam | 9 领域状态变更 inline 发 domain 事件，从 task 开始 | 切片 3（Inbox 消费 domain） | 四类事件契约和 owner 有自动化测试 |
 | 5 PM 触发迁移 | task/review Process Manager 把推进请求持久接纳到 delivery 队列；delivery worker 调用 `AutonomousDeliverySupervisor.advance()` 深模块（ADR-005） | 切片 4（delivery domain 事件） | delivery 协调不再依赖 task-notification-publisher 尾部硬编码；接口失败可恢复重试 |
 | 6 退出双写 | 删除 forwardAgentEvent 业务副作用 + 旧 agent_event 写入 | 切片 2/3/4/5 全部完成 | 长期设计与 wiki 已同步，兼容双写已删除 |
 
-兼容双写必须在代码与长期文档中标记退出条件，不得形成永久双事实源。切片 6 是双写的
-唯一删除点，在 2/3/4/5 全部完成前不得提前删除旧路径。
+切片 6 已在 2/3/4/5 完成后删除兼容双写。migration 51 为切换前的 Runtime Event 回填
+Message/Observability projection receipt，避免首次恢复重复历史读模型。
 
 ## 10. 退出条件
 
