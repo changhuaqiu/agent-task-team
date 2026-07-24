@@ -188,6 +188,53 @@ export const platformEvent = sqliteTable('platform_event', {
   ),
 ]);
 
+export const platformEventDelivery = sqliteTable('platform_event_delivery', {
+  id: text('id').primaryKey(),
+  handlerId: text('handler_id').notNull(),
+  eventId: text('event_id').notNull()
+    .references(() => platformEvent.id, { onDelete: 'cascade' }),
+  streamKey: text('stream_key').notNull(),
+  streamSequence: integer('stream_sequence').notNull(),
+  status: text('status').notNull(),
+  attemptCount: integer('attempt_count').notNull().default(0),
+  nextAttemptAt: text('next_attempt_at').notNull(),
+  leaseOwner: text('lease_owner'),
+  leaseExpiresAt: text('lease_expires_at'),
+  lastError: text('last_error'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+  completedAt: text('completed_at'),
+}, (table) => [
+  uniqueIndex('uq_platform_event_delivery_handler_event').on(table.handlerId, table.eventId),
+  index('idx_platform_event_delivery_claim').on(
+    table.status,
+    table.nextAttemptAt,
+    table.handlerId,
+    table.streamKey,
+    table.streamSequence,
+  ),
+  index('idx_platform_event_delivery_stream').on(
+    table.handlerId,
+    table.streamKey,
+    table.streamSequence,
+  ),
+]);
+
+export const platformEventDeliveryAttempt = sqliteTable('platform_event_delivery_attempt', {
+  id: text('id').primaryKey(),
+  deliveryId: text('delivery_id').notNull()
+    .references(() => platformEventDelivery.id, { onDelete: 'cascade' }),
+  attemptNo: integer('attempt_no').notNull(),
+  workerId: text('worker_id').notNull(),
+  status: text('status').notNull(),
+  startedAt: text('started_at').notNull(),
+  finishedAt: text('finished_at'),
+  error: text('error'),
+}, (table) => [
+  uniqueIndex('uq_platform_event_delivery_attempt_no').on(table.deliveryId, table.attemptNo),
+  index('idx_platform_event_delivery_attempt_delivery').on(table.deliveryId, table.attemptNo),
+]);
+
 // ──────────────────────────────────────────────
 // role_cards
 // ──────────────────────────────────────────────

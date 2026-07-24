@@ -4,6 +4,16 @@ export {
   type PlatformEventLogOptions,
 } from './event-log';
 export {
+  PlatformEventDispatcher,
+  type DispatcherDrainResult,
+  type DispatcherRecoveryResult,
+  type PlatformEventDispatcherOptions,
+  type PlatformEventHandler,
+  type PlatformEventHandlerRegistration,
+  type PlatformEventHandlerReliability,
+  type PlatformEventHandlerStereotype,
+} from './dispatcher';
+export {
   AcpRuntimeEventCoordinator,
   type AcpRuntimeEventCoordinatorOptions,
 } from './acp-runtime-event-coordinator';

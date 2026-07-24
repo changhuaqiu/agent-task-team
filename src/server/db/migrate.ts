@@ -1389,6 +1389,46 @@ CREATE INDEX IF NOT EXISTS idx_platform_event_project_agent
   ON platform_event(project_id, project_agent_id, recorded_at);
 `,
   },
+  {
+    version: 45,
+    sql: `
+CREATE TABLE IF NOT EXISTS platform_event_delivery (
+  id TEXT PRIMARY KEY,
+  handler_id TEXT NOT NULL,
+  event_id TEXT NOT NULL REFERENCES platform_event(id) ON DELETE CASCADE,
+  stream_key TEXT NOT NULL,
+  stream_sequence INTEGER NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('queued','running','succeeded','dead_letter')),
+  attempt_count INTEGER NOT NULL DEFAULT 0 CHECK(attempt_count >= 0),
+  next_attempt_at TEXT NOT NULL,
+  lease_owner TEXT,
+  lease_expires_at TEXT,
+  last_error TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  completed_at TEXT,
+  UNIQUE(handler_id, event_id)
+);
+CREATE INDEX IF NOT EXISTS idx_platform_event_delivery_claim
+  ON platform_event_delivery(status, next_attempt_at, handler_id, stream_key, stream_sequence);
+CREATE INDEX IF NOT EXISTS idx_platform_event_delivery_stream
+  ON platform_event_delivery(handler_id, stream_key, stream_sequence);
+
+CREATE TABLE IF NOT EXISTS platform_event_delivery_attempt (
+  id TEXT PRIMARY KEY,
+  delivery_id TEXT NOT NULL REFERENCES platform_event_delivery(id) ON DELETE CASCADE,
+  attempt_no INTEGER NOT NULL CHECK(attempt_no > 0),
+  worker_id TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('running','succeeded','failed','abandoned')),
+  started_at TEXT NOT NULL,
+  finished_at TEXT,
+  error TEXT,
+  UNIQUE(delivery_id, attempt_no)
+);
+CREATE INDEX IF NOT EXISTS idx_platform_event_delivery_attempt_delivery
+  ON platform_event_delivery_attempt(delivery_id, attempt_no);
+`,
+  },
 ];
 
 export function applyMigrations(db: Database.Database): void {
