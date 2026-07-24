@@ -35,7 +35,7 @@ Platform Runtime 就是归一化层，把 Runtime 原始信号收敛成有严格
 | 运行中的系统 | 平台 runtime（整个运行时） | 平台本身 |
 | 中断源（时钟/磁盘/网卡） | 事件源（ACP 进程/领域模块/用户命令） | runtime 源✓ 领域源✗ |
 | 中断 = 信号 | `PlatformEvent` 信封 | ✓ 已有 |
-| **中断向量表** | **Durable Dispatcher + handler 注册表** | **✗ 缺，这是枢纽** |
+| **中断向量表** | **Durable Dispatcher + handler 注册表** | **✓ 已实现并接 production worker** |
 | ISR（中断服务程序） | Handler（四角色） | spec §7 已定义角色 |
 | 上半部/下半部 | 同步 guard / 异步 fan-out | guard✓ fan-out✗ |
 | 中断屏蔽/优先级 | handler 分级 | 待定 |
@@ -124,7 +124,7 @@ spec §7 的四角色就是这"不同方法"的分类。
          │                         │
          │                         ▼ (下半部 fan-out，异步)
          │     ┌────────────────────────────────────────────────┐
-         │     │   ★ Durable Dispatcher（中断向量表）—— 待补的枢纽 │
+         │     │   ★ Durable Dispatcher（中断向量表）               │
          │     │   register(type, handler) / recover() / drain() │
          │     │   持久投递 · 错误隔离 · 局部顺序 · 恢复/重试       │
          │     └────┬───────────┬──────────────┬───────────────┬──┘

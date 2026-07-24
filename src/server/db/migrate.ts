@@ -1430,6 +1430,26 @@ CREATE INDEX IF NOT EXISTS idx_platform_event_delivery_attempt_delivery
   ON platform_event_delivery_attempt(delivery_id, attempt_no);
 `,
   },
+  {
+    version: 46,
+    sql: `
+CREATE TABLE IF NOT EXISTS runtime_invocation_projection (
+  invocation_id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES conversation(id) ON DELETE CASCADE,
+  project_agent_id TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('accepted','running','terminated')),
+  outcome TEXT,
+  reason_code TEXT,
+  accepted_at TEXT NOT NULL,
+  started_at TEXT,
+  terminated_at TEXT,
+  last_stream_sequence INTEGER NOT NULL CHECK(last_stream_sequence > 0),
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_runtime_invocation_projection_project
+  ON runtime_invocation_projection(project_id, project_agent_id, updated_at);
+`,
+  },
 ];
 
 export function applyMigrations(db: Database.Database): void {

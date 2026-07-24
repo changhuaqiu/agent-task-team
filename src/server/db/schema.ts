@@ -236,6 +236,27 @@ export const platformEventDeliveryAttempt = sqliteTable('platform_event_delivery
   index('idx_platform_event_delivery_attempt_delivery').on(table.deliveryId, table.attemptNo),
 ]);
 
+export const runtimeInvocationProjection = sqliteTable('runtime_invocation_projection', {
+  invocationId: text('invocation_id').primaryKey(),
+  projectId: text('project_id').notNull()
+    .references(() => conversation.id, { onDelete: 'cascade' }),
+  projectAgentId: text('project_agent_id').notNull(),
+  status: text('status').notNull(),
+  outcome: text('outcome'),
+  reasonCode: text('reason_code'),
+  acceptedAt: text('accepted_at').notNull(),
+  startedAt: text('started_at'),
+  terminatedAt: text('terminated_at'),
+  lastStreamSequence: integer('last_stream_sequence').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  index('idx_runtime_invocation_projection_project').on(
+    table.projectId,
+    table.projectAgentId,
+    table.updatedAt,
+  ),
+]);
+
 // ──────────────────────────────────────────────
 // role_cards
 // ──────────────────────────────────────────────

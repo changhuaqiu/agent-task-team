@@ -19,14 +19,14 @@
   - 双写 fail-open，标记退出条件（不得永久双事实源）
   - 退出：daemon ACP 路径产生可查询 Runtime 事件
 
-## 切片 2：Durable Dispatcher + 第一个 Projection（待开始）
+## 切片 2：Durable Dispatcher + 第一个 Projection（已完成）
 
-- [ ] T6 建立 Durable Dispatcher，并增加 Runtime Event 查询与首个 projection。
+- [x] T6 建立 Durable Dispatcher，并增加 Runtime Event 查询与首个 projection。
   - durable handler 使用持久投递、attempt、lease、retry 与 receipt
   - recover 能回补 append 后未投递事件并回收过期 lease
   - best-effort handler 错误隔离但不承诺重试
   - 同一 handler × stream 保证局部顺序
-  - 选定一个投影（建议 UI/Message）从读 AgentEvent 改为读 runtime 事件
+  - 首个投影选定 `RuntimeInvocationProjection`，只从 `platform_event` 生命周期事件构建
   - 退出：至少一个投影从 Runtime Event 重建，而非读取 ACP/AgentEvent 原始信号
 
 ## 切片 3：Agent Inbox + coordination 事件（待开始）

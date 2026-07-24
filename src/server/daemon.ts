@@ -74,6 +74,7 @@ import { transitionCaseExecution } from './evaluation/application-snapshot';
 import { EvaluationCaseRunner } from './evaluation/case-runner';
 import {
   AcpRuntimeEventCoordinator,
+  startPlatformEventRuntime,
 } from './platform-events';
 import {
   allowsProductionCollaborationEffects,
@@ -216,6 +217,7 @@ function resolveOpenCodeProjectSkillPaths(projectPath?: string): string[] {
 
 export default function registerDaemon(io: IOServer) {
   startEvaluationWorker();
+  startPlatformEventRuntime();
   const activeProcesses = new Map<string, { kill: () => void }>();
   const processKey = (agentId: string, projectId?: string) => `${agentId}@${projectId || 'default'}`;
   const processStartGuard = new ProcessStartGuard();

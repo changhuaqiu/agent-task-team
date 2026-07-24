@@ -325,6 +325,13 @@ aggregate、actor、correlation 和 causation 引用。migration 按 `_schema_ve
 - Runtime publisher 拒绝 accepted 前的活动和 terminated 后的新活动；
 - daemon 双写失败当前只记录 warning，不改变现有用户执行行为。
 
+daemon 启动时同时启动 `PlatformEventRuntimeWorker`。worker 注册稳定 handler id，
+从 `platform_event` 回补缺失 delivery，回收过期 lease，并持续 drain durable handler。
+首个生产投影 `RuntimeInvocationProjection` 只消费
+`runtime.invocation.accepted/started/terminated`，维护可查询的 Invocation 生命周期视图；
+该表可清空后完全从 `platform_event` 重建，不是新的事实源。handler 执行以 attempt token
+fencing，活跃期间续租，超时通过 `AbortSignal` 协作取消后才允许同 stream 重试。
+
 这是明确的兼容阶段，`platform_event` 尚未成为唯一执行事实源。后续必须把 Message、
 UI、Observability、Harness Outcome 和 Session 逐个迁移为事件 projection，再删除
 `forwardAgentEvent()` 中的业务副作用和旧 `agent_event` 写入。长期契约见

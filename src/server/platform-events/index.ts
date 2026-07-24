@@ -15,6 +15,14 @@ export {
   type PlatformEventHandlerStereotype,
 } from './dispatcher';
 export {
+  RuntimeInvocationProjection,
+  type RuntimeInvocationProjectionRow,
+} from './runtime-invocation-projection';
+export {
+  PlatformEventRuntimeWorker,
+  startPlatformEventRuntime,
+} from './runtime-worker';
+export {
   AcpRuntimeEventCoordinator,
   type AcpRuntimeEventCoordinatorOptions,
 } from './acp-runtime-event-coordinator';
