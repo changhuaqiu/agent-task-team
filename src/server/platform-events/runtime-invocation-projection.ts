@@ -92,7 +92,7 @@ export class RuntimeInvocationProjection {
             'runtime.invocation.terminated'
           )
           ${projectId ? 'AND project_id=?' : ''}
-        ORDER BY recorded_at ASC, id ASC
+        ORDER BY stream_key ASC, stream_sequence ASC
       `).all(...(projectId ? [projectId] : [])) as Array<{ id: string }>;
       const log = new PlatformEventLog({ db });
       for (const row of rows) this.handle(log.getById(row.id)!);

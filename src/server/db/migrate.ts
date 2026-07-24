@@ -1450,6 +1450,16 @@ CREATE INDEX IF NOT EXISTS idx_runtime_invocation_projection_project
   ON runtime_invocation_projection(project_id, project_agent_id, updated_at);
 `,
   },
+  {
+    version: 47,
+    sql: `
+CREATE TABLE IF NOT EXISTS platform_event_handler_cursor (
+  handler_id TEXT PRIMARY KEY,
+  last_event_rowid INTEGER NOT NULL DEFAULT 0 CHECK(last_event_rowid >= 0),
+  updated_at TEXT NOT NULL
+);
+`,
+  },
 ];
 
 export function applyMigrations(db: Database.Database): void {

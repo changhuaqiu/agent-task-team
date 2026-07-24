@@ -75,6 +75,13 @@ describe('RuntimeInvocationProjection', () => {
   });
 
   it('rebuilds the same projection solely from platform_event', () => {
+    let reverseId = 0;
+    const reverseIds = ['z-event', 'a-event', 'm-event'];
+    log = new PlatformEventLog({
+      db,
+      now: () => new Date('2026-07-25T00:00:00.000Z'),
+      idFactory: () => reverseIds[reverseId++]!,
+    });
     publishLifecycle();
     projection.rebuild();
     const before = projection.listByProject('project-1');

@@ -257,6 +257,12 @@ export const runtimeInvocationProjection = sqliteTable('runtime_invocation_proje
   ),
 ]);
 
+export const platformEventHandlerCursor = sqliteTable('platform_event_handler_cursor', {
+  handlerId: text('handler_id').primaryKey(),
+  lastEventRowid: integer('last_event_rowid').notNull().default(0),
+  updatedAt: text('updated_at').notNull(),
+});
+
 // ──────────────────────────────────────────────
 // role_cards
 // ──────────────────────────────────────────────

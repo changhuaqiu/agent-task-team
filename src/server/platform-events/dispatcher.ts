@@ -131,10 +131,11 @@ export class PlatformEventDispatcher {
 
       let enqueued = 0;
       const events = db.prepare(`
-        SELECT id, type, stream_key, stream_sequence, recorded_at
+        SELECT rowid AS event_rowid, id, type, stream_key, stream_sequence, recorded_at
         FROM platform_event
-        ORDER BY recorded_at ASC, id ASC
+        ORDER BY rowid ASC
       `).all() as Array<{
+        event_rowid: number;
         id: string;
         type: string;
         stream_key: string;
@@ -163,8 +164,72 @@ export class PlatformEventDispatcher {
           );
           enqueued += result.changes;
         }
+        const lastEventRowid = events.at(-1)?.event_rowid ?? 0;
+        db.prepare(`
+          INSERT INTO platform_event_handler_cursor (handler_id,last_event_rowid,updated_at)
+          VALUES (?, ?, ?)
+          ON CONFLICT(handler_id) DO UPDATE SET
+            last_event_rowid=excluded.last_event_rowid,
+            updated_at=excluded.updated_at
+        `).run(registration.id, lastEventRowid, now);
       }
       return { enqueued, abandonedAttempts: expired.length };
+    }).immediate();
+  }
+
+  discover(): number {
+    const db = this.database ?? getDb();
+    const now = this.now().toISOString();
+    return db.transaction(() => {
+      let enqueued = 0;
+      const insert = db.prepare(`
+        INSERT OR IGNORE INTO platform_event_delivery (
+          id, handler_id, event_id, stream_key, stream_sequence, status,
+          attempt_count, next_attempt_at, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, 'queued', 0, ?, ?, ?)
+      `);
+      for (const registration of this.registrations.values()) {
+        if (registration.reliability !== 'durable') continue;
+        const cursor = db.prepare(`
+          SELECT last_event_rowid FROM platform_event_handler_cursor WHERE handler_id=?
+        `).get(registration.id) as { last_event_rowid: number } | undefined;
+        const events = db.prepare(`
+          SELECT rowid AS event_rowid, id, type, stream_key, stream_sequence, recorded_at
+          FROM platform_event
+          WHERE rowid > ?
+          ORDER BY rowid ASC
+        `).all(cursor?.last_event_rowid ?? 0) as Array<{
+          event_rowid: number;
+          id: string;
+          type: string;
+          stream_key: string;
+          stream_sequence: number;
+          recorded_at: string;
+        }>;
+        for (const event of events) {
+          if (!matches(registration.pattern, event.type)) continue;
+          enqueued += insert.run(
+            this.idFactory('ped'),
+            registration.id,
+            event.id,
+            event.stream_key,
+            event.stream_sequence,
+            event.recorded_at,
+            event.recorded_at,
+            event.recorded_at,
+          ).changes;
+        }
+        if (events.length > 0) {
+          db.prepare(`
+            INSERT INTO platform_event_handler_cursor (handler_id,last_event_rowid,updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(handler_id) DO UPDATE SET
+              last_event_rowid=excluded.last_event_rowid,
+              updated_at=excluded.updated_at
+          `).run(registration.id, events.at(-1)!.event_rowid, now);
+        }
+      }
+      return enqueued;
     }).immediate();
   }
 

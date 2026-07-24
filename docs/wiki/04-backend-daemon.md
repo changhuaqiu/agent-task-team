@@ -325,8 +325,9 @@ aggregate、actor、correlation 和 causation 引用。migration 按 `_schema_ve
 - Runtime publisher 拒绝 accepted 前的活动和 terminated 后的新活动；
 - daemon 双写失败当前只记录 warning，不改变现有用户执行行为。
 
-daemon 启动时同时启动 `PlatformEventRuntimeWorker`。worker 注册稳定 handler id，
-从 `platform_event` 回补缺失 delivery，回收过期 lease，并持续 drain durable handler。
+daemon 启动时同时启动 `PlatformEventRuntimeWorker`。worker 注册稳定 handler id，启动时
+从 `platform_event` 回补缺失 delivery、回收过期 lease并建立 handler cursor；运行期只发现
+cursor 之后的新事件，再以单一自调度循环 drain durable handler，不重复全表扫描或叠加 poll。
 首个生产投影 `RuntimeInvocationProjection` 只消费
 `runtime.invocation.accepted/started/terminated`，维护可查询的 Invocation 生命周期视图；
 该表可清空后完全从 `platform_event` 重建，不是新的事实源。handler 执行以 attempt token

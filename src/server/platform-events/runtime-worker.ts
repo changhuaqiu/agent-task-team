@@ -3,12 +3,29 @@ import { RuntimeInvocationProjection } from './runtime-invocation-projection';
 
 let worker: PlatformEventRuntimeWorker | undefined;
 
-export class PlatformEventRuntimeWorker {
-  private readonly dispatcher = new PlatformEventDispatcher();
-  private readonly projection = new RuntimeInvocationProjection();
-  private timer?: ReturnType<typeof setInterval>;
+type WorkerDispatcher = Pick<
+  PlatformEventDispatcher,
+  'register' | 'recover' | 'discover' | 'drain'
+>;
 
-  constructor(private readonly intervalMs = 250) {
+export interface PlatformEventRuntimeWorkerOptions {
+  intervalMs?: number;
+  dispatcher?: WorkerDispatcher;
+  projection?: RuntimeInvocationProjection;
+}
+
+export class PlatformEventRuntimeWorker {
+  private readonly dispatcher: WorkerDispatcher;
+  private readonly projection: RuntimeInvocationProjection;
+  private readonly intervalMs: number;
+  private timer?: ReturnType<typeof setTimeout>;
+  private stopped = true;
+
+  constructor(options: number | PlatformEventRuntimeWorkerOptions = 250) {
+    const resolved = typeof options === 'number' ? { intervalMs: options } : options;
+    this.intervalMs = resolved.intervalMs ?? 250;
+    this.dispatcher = resolved.dispatcher ?? new PlatformEventDispatcher();
+    this.projection = resolved.projection ?? new RuntimeInvocationProjection();
     this.dispatcher.register({
       id: 'runtime-invocation-projection:v1',
       pattern: 'runtime.invocation.*',
@@ -19,25 +36,37 @@ export class PlatformEventRuntimeWorker {
   }
 
   start(): void {
-    if (this.timer) return;
-    this.tick();
-    this.timer = setInterval(() => this.tick(), this.intervalMs);
-    this.timer.unref?.();
+    if (!this.stopped) return;
+    this.stopped = false;
+    try {
+      this.dispatcher.recover();
+    } catch (error) {
+      console.error('[platform-event] dispatcher recovery failed:', error);
+    }
+    this.schedule(0);
   }
 
   stop(): void {
-    if (this.timer) clearInterval(this.timer);
+    this.stopped = true;
+    if (this.timer) clearTimeout(this.timer);
     this.timer = undefined;
   }
 
-  private tick(): void {
+  private schedule(delayMs: number): void {
+    if (this.stopped) return;
+    this.timer = setTimeout(() => {
+      this.timer = undefined;
+      void this.tick().finally(() => this.schedule(this.intervalMs));
+    }, delayMs);
+    this.timer.unref?.();
+  }
+
+  private async tick(): Promise<void> {
     try {
-      this.dispatcher.recover();
-      void this.dispatcher.drain().catch((error) => {
-        console.error('[platform-event] dispatcher drain failed:', error);
-      });
+      this.dispatcher.discover();
+      await this.dispatcher.drain();
     } catch (error) {
-      console.error('[platform-event] dispatcher recovery failed:', error);
+      console.error('[platform-event] dispatcher tick failed:', error);
     }
   }
 }

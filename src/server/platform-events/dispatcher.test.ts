@@ -81,6 +81,27 @@ describe('PlatformEventDispatcher', () => {
     ]);
   });
 
+  it('discovers only events beyond the persisted handler cursor', () => {
+    append('task.assigned', 'task:1');
+    const dispatcher = createDispatcher();
+    dispatcher.register({
+      id: 'incremental-router',
+      pattern: 'task.*',
+      stereotype: 'router',
+      reliability: 'durable',
+      handle: () => undefined,
+    });
+    expect(dispatcher.recover().enqueued).toBe(1);
+    expect(dispatcher.discover()).toBe(0);
+    append('runtime.warning.raised', 'invocation:1');
+    append('task.assigned', 'task:2');
+    expect(dispatcher.discover()).toBe(1);
+    expect(dispatcher.discover()).toBe(0);
+    expect(db.prepare(`
+      SELECT last_event_rowid FROM platform_event_handler_cursor WHERE handler_id='incremental-router'
+    `).get()).toEqual({ last_event_rowid: 3 });
+  });
+
   it('isolates a failed stream, retries it, and continues another stream', async () => {
     append('task.assigned', 'task:1');
     append('task.in_progress', 'task:1');
