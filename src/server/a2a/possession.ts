@@ -11,6 +11,7 @@ import type {
   PossessionHolderType,
   PossessionStatus,
 } from './types-possession';
+import { DomainEventPublisher } from '../platform-events/domain-events';
 
 function genId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -96,14 +97,26 @@ export class PossessionRepo {
 
   completeChain(chainId: string): void {
     const now = new Date().toISOString();
-    this.db.prepare(`
+    this.db.transaction(() => {
+      const chain = this.getById(chainId);
+      if (!chain || chain.status !== 'active') return;
+      const result = this.db.prepare(`
       UPDATE a2a_possession_chain SET status = 'completed', completed_at = ?
       WHERE id = ? AND status = 'active'
-    `).run(now, chainId);
-    this.db.prepare(`
+      `).run(now, chainId);
+      if (result.changes !== 1) return;
+      this.db.prepare(`
       UPDATE a2a_possession SET status = 'completed', completed_at = COALESCE(completed_at, ?)
       WHERE chain_id = ? AND status = 'open'
-    `).run(now, chainId);
+      `).run(now, chainId);
+      new DomainEventPublisher(this.db).publish({
+        type: 'a2a.possession.completed',
+        projectId: chain.conversationId,
+        aggregate: { type: 'a2a_possession_chain', id: chainId },
+        occurredAt: now,
+        payload: { chainId },
+      });
+    }).immediate();
   }
 
   timeoutChain(chainId: string, phase: PassBlockPhase, reason: string): void {
@@ -267,23 +280,42 @@ export class PossessionRepo {
     if (!pass) return null;
     if (pass.status === 'started') return pass;
     const now = new Date().toISOString();
-    const source = this.getPossession(pass.fromPossessionId);
-    if (source) {
-      this.db.prepare(`
+    return this.db.transaction(() => {
+      const chain = this.getById(pass.chainId);
+      if (!chain || chain.status !== 'active') return null;
+      const started = this.db.prepare(`
+        UPDATE a2a_pass SET status = 'started', updated_at = ?
+        WHERE id = ? AND status NOT IN ('started', 'completed')
+      `).run(now, pass.id);
+      if (started.changes !== 1) return this.getPass(pass.id);
+      const source = this.getPossession(pass.fromPossessionId);
+      if (source) {
+        this.db.prepare(`
         UPDATE a2a_possession SET status = 'completed', completed_at = COALESCE(completed_at, ?)
         WHERE id = ?
-      `).run(now, source.id);
-    }
-    this.db.prepare(`
-      UPDATE a2a_pass SET status = 'started', updated_at = ?
-      WHERE id = ?
-    `).run(now, pass.id);
-    this.db.prepare(`
+        `).run(now, source.id);
+      }
+      const moved = this.db.prepare(`
       UPDATE a2a_possession_chain SET current_holder_id = ?
       WHERE id = ? AND status = 'active'
-    `).run(pass.toAgentId, pass.chainId);
-    this.createPossession({ chainId: pass.chainId, holderId: pass.toAgentId, holderType: 'agent' });
-    return { ...pass, status: 'started', updatedAt: now };
+      `).run(pass.toAgentId, pass.chainId);
+      if (moved.changes !== 1) throw new Error(`a2a_chain_not_active:${pass.chainId}`);
+      this.createPossession({ chainId: pass.chainId, holderId: pass.toAgentId, holderType: 'agent' });
+      new DomainEventPublisher(this.db).publish({
+        type: 'a2a.possession.passed',
+        projectId: chain.conversationId,
+        aggregate: { type: 'a2a_pass', id: pass.id },
+        projectAgentId: pass.toAgentId,
+        occurredAt: now,
+        payload: {
+          chainId: pass.chainId,
+          fromAgentId: pass.fromHolderId,
+          toAgentId: pass.toAgentId,
+          passId: pass.id,
+        },
+      });
+      return { ...pass, status: 'started' as const, updatedAt: now };
+    }).immediate();
   }
 
   completeHolder(chainId: string, holderId: string, summary?: string): void {

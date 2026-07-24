@@ -22,7 +22,6 @@ import {
   type TaskWakeup,
 } from './task-wakeup';
 import { submitTaskWakeupToHarness } from '../harness/registry';
-import { reconcileAutonomousDeliveryConversation } from '../autonomous-delivery/registry';
 
 export interface PublishTaskNotificationInput {
   io?: IOServer;
@@ -248,7 +247,13 @@ export function publishTaskChangeNotification(input: PublishTaskChangeNotificati
         prompt: wakeup.prompt,
       },
     });
-    const submission = submitTaskWakeupToHarness(input.io, { ...wakeup, id });
+    // Rejected-task execution is now owned by the durable task Wakeup Router.
+    // Keep emitting the compatibility notification, but never start a second
+    // Harness execution from this legacy publisher.
+    const routedByPlatformEvent = wakeup.metadata.reasonCode === 'review_rejected';
+    const submission = routedByPlatformEvent
+      ? { handled: true }
+      : submitTaskWakeupToHarness(input.io, { ...wakeup, id });
     emitWakeupToConversation(input.io, wakeup.conversationId, {
       ...wakeup,
       id,
@@ -256,13 +261,6 @@ export function publishTaskChangeNotification(input: PublishTaskChangeNotificati
       createdAt: new Date().toISOString(),
     });
   }
-
-  void reconcileAutonomousDeliveryConversation(input.io, input.task.conversation_id, {
-    kind: 'fact_changed',
-    ref: input.task.id,
-  })?.catch((error) => {
-    console.warn('[autonomous-delivery] task fact reconciliation failed:', error);
-  });
 
   return notification;
 }

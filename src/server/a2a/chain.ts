@@ -10,6 +10,7 @@ import type {
   WorklistOutcome,
 } from './types-v2';
 import { DEFAULT_CHAIN_CONFIG } from './types-v2';
+import { DomainEventPublisher } from '../platform-events/domain-events';
 
 function genId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -47,35 +48,77 @@ export class ChainRepo {
 
   complete(chainId: string): void {
     const now = new Date().toISOString();
-    this.db.prepare(
-      `UPDATE invocation_chain SET status = 'completed', completed_at = ? WHERE id = ?`
-    ).run(now, chainId);
+    this.db.transaction(() => {
+      const chain = this.getById(chainId);
+      if (!chain || chain.status !== 'active') return;
+      const result = this.db.prepare(
+        `UPDATE invocation_chain SET status = 'completed', completed_at = ? WHERE id = ? AND status = 'active'`
+      ).run(now, chainId);
+      if (result.changes !== 1) return;
+      new DomainEventPublisher(this.db).publish({
+        type: 'a2a.chain.completed',
+        projectId: chain.conversationId,
+        aggregate: { type: 'a2a_chain', id: chainId },
+        occurredAt: now,
+        payload: { status: 'completed' },
+      });
+    }).immediate();
   }
 
   abort(chainId: string, status: 'aborted' | 'timeout' = 'aborted'): void {
     const now = new Date().toISOString();
-    this.db.prepare(
+    this.db.transaction(() => {
+      const chain = this.getById(chainId);
+      if (!chain || chain.status !== 'active') return;
+      const result = this.db.prepare(
       `UPDATE invocation_chain SET status = ?, completed_at = ? WHERE id = ? AND status = 'active'`
-    ).run(status, now, chainId);
-    // Abort all pending worklist entries
-    this.db.prepare(
+      ).run(status, now, chainId);
+      if (result.changes !== 1) return;
+      this.db.prepare(
       `UPDATE chain_worklist SET status = 'aborted' WHERE chain_id = ? AND status IN ('queued', 'dispatching')`
-    ).run(chainId);
+      ).run(chainId);
+      new DomainEventPublisher(this.db).publish({
+        type: 'a2a.chain.aborted',
+        projectId: chain.conversationId,
+        aggregate: { type: 'a2a_chain', id: chainId },
+        occurredAt: now,
+        payload: { status },
+      });
+    }).immediate();
   }
 
   abortAllActive(conversationId: string): number {
     const now = new Date().toISOString();
-    const result = this.db.prepare(
-      `UPDATE invocation_chain SET status = 'aborted', completed_at = ? WHERE conversation_id = ? AND status = 'active'`
-    ).run(now, conversationId);
-    if (result.changes > 0) {
-      this.db.prepare(
-        `UPDATE chain_worklist SET status = 'aborted'
-         WHERE chain_id IN (SELECT id FROM invocation_chain WHERE conversation_id = ? AND status = 'aborted')
-         AND status IN ('queued', 'dispatching')`
-      ).run(conversationId);
-    }
-    return result.changes;
+    return this.db.transaction(() => {
+      const chains = this.db.prepare(
+        `SELECT id FROM invocation_chain
+         WHERE conversation_id = ? AND status = 'active'
+         ORDER BY created_at ASC, id ASC`,
+      ).all(conversationId) as Array<{ id: string }>;
+      if (chains.length === 0) return 0;
+      const result = this.db.prepare(
+        `UPDATE invocation_chain SET status = 'aborted', completed_at = ?
+         WHERE conversation_id = ? AND status = 'active'`,
+      ).run(now, conversationId);
+      if (result.changes > 0) {
+        this.db.prepare(
+          `UPDATE chain_worklist SET status = 'aborted'
+           WHERE chain_id IN (SELECT id FROM invocation_chain WHERE conversation_id = ? AND status = 'aborted')
+           AND status IN ('queued', 'dispatching')`,
+        ).run(conversationId);
+      }
+      const publisher = new DomainEventPublisher(this.db);
+      for (const chain of chains) {
+        publisher.publish({
+          type: 'a2a.chain.aborted',
+          projectId: conversationId,
+          aggregate: { type: 'a2a_chain', id: chain.id },
+          occurredAt: now,
+          payload: { status: 'aborted' },
+        });
+      }
+      return result.changes;
+    }).immediate();
   }
 
   // ── Worklist operations ──
@@ -125,9 +168,28 @@ export class ChainRepo {
   }
 
   markDone(entryId: string, outcome: WorklistOutcome): void {
-    this.db.prepare(
-      `UPDATE chain_worklist SET status = 'done', outcome = ?, completed_at = ? WHERE id = ?`
-    ).run(outcome, new Date().toISOString(), entryId);
+    const now = new Date().toISOString();
+    this.db.transaction(() => {
+      const entry = this.db.prepare(
+        `SELECT worklist.chain_id, chain.conversation_id, worklist.status
+         FROM chain_worklist worklist
+         JOIN invocation_chain chain ON chain.id=worklist.chain_id
+         WHERE worklist.id=?`,
+      ).get(entryId) as { chain_id: string; conversation_id: string; status: string } | undefined;
+      if (!entry || !['queued', 'dispatching', 'executing'].includes(entry.status)) return;
+      const result = this.db.prepare(
+      `UPDATE chain_worklist SET status = 'done', outcome = ?, completed_at = ?
+       WHERE id = ? AND status IN ('queued', 'dispatching', 'executing')`
+      ).run(outcome, now, entryId);
+      if (result.changes !== 1) return;
+      new DomainEventPublisher(this.db).publish({
+        type: 'a2a.chain.entry_done',
+        projectId: entry.conversation_id,
+        aggregate: { type: 'a2a_chain_entry', id: entryId },
+        occurredAt: now,
+        payload: { chainId: entry.chain_id, outcome },
+      });
+    }).immediate();
   }
 
   getWorklistForChain(chainId: string): WorklistEntry[] {

@@ -308,6 +308,34 @@ export const agentInboxItem = sqliteTable('agent_inbox_item', {
   ),
 ]);
 
+export const autonomousDeliveryAdvancementRequest = sqliteTable(
+  'autonomous_delivery_advancement_request',
+  {
+    id: text('id').primaryKey(),
+    sourceEventId: text('source_event_id').notNull()
+      .references(() => platformEvent.id, { onDelete: 'cascade' }),
+    projectId: text('project_id').notNull()
+      .references(() => conversation.id, { onDelete: 'cascade' }),
+    causeJson: text('cause_json').notNull(),
+    status: text('status').notNull(),
+    attemptCount: integer('attempt_count').notNull().default(0),
+    availableAt: text('available_at').notNull(),
+    lastError: text('last_error'),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+    completedAt: text('completed_at'),
+  },
+  (table) => [
+    uniqueIndex('uq_delivery_advancement_source_event').on(table.sourceEventId),
+    index('idx_delivery_advancement_claim').on(
+      table.status,
+      table.availableAt,
+      table.createdAt,
+      table.id,
+    ),
+  ],
+);
+
 // ──────────────────────────────────────────────
 // role_cards
 // ──────────────────────────────────────────────

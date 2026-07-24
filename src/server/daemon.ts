@@ -82,6 +82,7 @@ import {
   evaluationSafeTextSink,
 } from './evaluation/runtime-isolation';
 import { ensureAutonomousDeliveryRuntime } from './autonomous-delivery/bootstrap';
+import { deliveryAdvancementQueue } from './autonomous-delivery/advancement-queue';
 import { registerAutonomousDeliveryE2EDriver } from './testing/autonomous-delivery-e2e-driver';
 
 type TerminalStartPayload = {
@@ -218,7 +219,6 @@ function resolveOpenCodeProjectSkillPaths(projectPath?: string): string[] {
 
 export default function registerDaemon(io: IOServer) {
   startEvaluationWorker();
-  startPlatformEventRuntime();
   const activeProcesses = new Map<string, { kill: () => void }>();
   const processKey = (agentId: string, projectId?: string) => `${agentId}@${projectId || 'default'}`;
   const processStartGuard = new ProcessStartGuard();
@@ -281,6 +281,20 @@ export default function registerDaemon(io: IOServer) {
   agentInboxScheduler.start();
   registerAutonomousDeliveryE2EDriver(io);
   ensureAutonomousDeliveryRuntime(io, `daemon:${LOCAL_DAEMON_NODE_ID}`);
+  startPlatformEventRuntime({
+    deliveryAdvancement: {
+      advanceProject: (projectId, cause, signal, sourceEventId) => {
+        if (signal.aborted) {
+          throw signal.reason ?? new Error('delivery_advancement_admission_aborted');
+        }
+        deliveryAdvancementQueue.enqueue({
+          sourceEventId,
+          projectId,
+          cause,
+        });
+      },
+    },
+  });
   const evaluationCaseRunner = new EvaluationCaseRunner(harnessCoordinator);
   const evaluationRunnerTimer = setInterval(() => {
     try {

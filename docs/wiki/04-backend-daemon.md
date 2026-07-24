@@ -346,8 +346,20 @@ Scheduler claim 后才通过 Harness 提交执行。`dispatch.enqueue` API 已�
 写入使用稳定 idempotency key 确认并重试；请求失败只表示提交结果未知，不被当成服务端未写入，
 未确认项不会因 Runtime 终态被移除。移除、清空和强制发送均先按 project + ProjectAgent +
 idempotency key 由服务端确认取消并重新查询；终态后浏览器也以 scoped 查询刷新，不再按本地
-FIFO 猜测或自行重派发。具体领域事件 resolver
-在 domain inline seam 切片注册。
+FIFO 猜测或自行重派发。
+
+9 个领域 owner 现已在领域表写入事务内同步追加 typed domain event：task、review、
+autonomous delivery、A2A、execution envelope、agent binding、runtime node、
+invocation 与 session。inline seam 只做状态守护和事件 append，不做网络 I/O 或 fan-out；
+`DomainEventPublisher` 失败会回滚对应领域写入。Dispatcher 下半部注册
+`task-wakeup-router:v1` 以及 task/review 两个稳定的 delivery Process Manager handler：
+Router 只创建 Inbox Command，并在恢复历史事件时核对当前 task 状态；终态事实会取消尚未
+claim 的旧命令。Process Manager 只调用 delivery advancement port；该 port 以 source
+event 幂等持久接纳请求，delivery worker 在 `AutonomousDeliverySupervisor.advance()`
+真正成功前不确认完成，失败会重新排队。Supervisor 继续封装 claim、lease、执行与动作
+重试规则。
+`task-notification-publisher` 尾部的 delivery 直接 reconcile 已删除，startup/periodic
+reconcile 仅保留为 crash/retry 恢复触发器。
 
 这是明确的兼容阶段，`platform_event` 尚未成为唯一执行事实源。后续必须把 Message、
 UI、Observability、Harness Outcome 和 Session 逐个迁移为事件 projection，再删除

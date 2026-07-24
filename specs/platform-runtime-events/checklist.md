@@ -8,7 +8,7 @@
 - [x] 每个命名空间有唯一 canonical producer。
 - [x] Command 与 Event 在命名和类型上分离。
 - [x] Domain Event 不携带泛化 audience；路由结果进入 Agent Inbox。
-- [ ] domain 事件目录覆盖 9 领域（task/review/delivery/a2a/envelope/binding/node/session/invocation）。
+- [x] domain 事件目录覆盖 9 领域（task/review/delivery/a2a/envelope/binding/node/session/invocation）。
 - [x] coordination 事件目录覆盖 enqueued/claimed/recovered。
 
 ## 事件日志
@@ -38,7 +38,7 @@
 - [x] Dispatcher 实现同一 handler × stream 局部有序分发。
 - [ ] Reducer 幂等并校验状态迁移。
 - [x] Router 只产生 Inbox Command，不直接启动 Runtime。
-- [ ] Process Manager 只调目标模块 interface，不越权写表。
+- [x] Process Manager 只调目标模块 interface，不越权写表。
 - [ ] Socket、Message、Observability 是可重建 projection。
 - [x] 至少一个投影从 Runtime Event 重建（`RuntimeInvocationProjection`，切片 2 退出）。
 
@@ -51,17 +51,18 @@
 
 ## Core 边界（ADR-002）
 
-- [ ] 上半部（终态守护、状态校验、dedupe）作为 producer-local invariant 在 append/UPDATE 事务内同步执行，不注册到 Dispatcher。
-- [ ] 下半部（Router/Reducer/PM/Projection）在事务外异步 fan-out。
-- [ ] 上半部不做 I/O、不 fan-out。
+- [x] 上半部（终态守护、状态校验、dedupe）作为 producer-local invariant 在 append/UPDATE 事务内同步执行，不注册到 Dispatcher。
+- [x] 下半部（Router/Reducer/PM/Projection）在事务外异步 fan-out。
+- [x] 上半部不做 I/O、不 fan-out。
 
 ## Process Manager（切片 5，ADR-005）
 
-- [ ] delivery 协调不再依赖 task-notification-publisher.ts:260 尾部硬编码。
-- [ ] bootstrap.ts 周期 reconcile 仅作为 crash/retry 恢复触发器。
-- [ ] PM handler 只把事件映射为 `advance(runId, cause)`。
-- [ ] `advance()` 继续隐藏状态推导、claim、lease、执行、重试与收口规则。
-- [ ] 现有 delivery 测试无回归。
+- [x] delivery 协调不再依赖 task-notification-publisher.ts:260 尾部硬编码。
+- [x] bootstrap.ts 周期 reconcile 仅作为 crash/retry 恢复触发器。
+- [x] PM handler 只把 task/review 事件映射为持久 advancement request。
+- [x] delivery advancement queue 在 `advance()` 成功前不确认完成，接口失败可恢复重试。
+- [x] `advance()` 继续隐藏状态推导、claim、lease、执行、重试与收口规则。
+- [x] 现有 delivery 测试无回归。
 
 ## 兼容与验证
 

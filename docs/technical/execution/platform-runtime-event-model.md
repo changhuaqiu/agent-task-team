@@ -397,7 +397,7 @@ A 调工具 requestHandoff({to:B, prompt, contextRef})
 | 事件类 | 状态 | 说明 |
 | --- | --- | --- |
 | runtime_lifecycle / runtime_activity | ✓ 信封+归一化已就位，✓ 已接 daemon（兼容双写） | 切片 0/1 产物 |
-| domain（9 领域） | ✗ 全静默纯表写入 | 最大缺口，详见 9.3 |
+| domain（9 领域） | ✓ typed 目录 + 领域事务内 inline seam | task/review/delivery/a2a/envelope/binding/node/session/invocation |
 | coordination | ✓ 持久 Inbox + enqueued/claimed/recovered 已落地 | migration 49；Scheduler 经 Harness 提交 |
 
 ### 9.3 domain 事件缺口清单（按业务价值排序）
@@ -410,7 +410,7 @@ A 调工具 requestHandoff({to:B, prompt, contextRef})
 | autonomous-delivery | run: `submitted→planning→executing→reviewing→verifying→delivering→completed/escalated`；attempt `succeeded/failed` | `delivery.run.submitted/phase_advanced/completed/escalated` |
 | a2a possession | `startPass`（控制权转移）、`createPass`、`completeChain` | `a2a.possession.passed/completed` |
 | a2a chain | `markDone`、`complete/abort` | `a2a.chain.entry_done/completed` |
-| execution_envelope | 10 态：`drafted→...→completed/expired` | `envelope.validated/queued/routed/sent/...` |
+| execution_envelope | 10 态：`drafted→...→blocked/completed/failed/expired`，终态不可逆 | `envelope.validated/blocked/queued/routed/sent/...` |
 | task | `updateStatus`、`recordHandoffAccepted` | `task.assigned/in_progress/in_review/done`（最成熟，有 `task_action` 准事件源） |
 | agent_binding | `markStarted/markFinished/markError` | `binding.started/finished/error` |
 | runtime_node | `recordMiss`（`reachable→stale→unreachable`） | `node.stale/unreachable` |
@@ -426,7 +426,7 @@ A 调工具 requestHandoff({to:B, prompt, contextRef})
 | --- | --- | --- |
 | ①Router | ✓ 通用 domain→Inbox Router 已落地；具体领域 resolver 随切片 4 接入 | Router 只创建 Command，不启动 Runtime |
 | ②Reducer | ◐ runtime 侧已有 publisher 守护（生产侧 Reducer）；消费侧 Reducer 缺 | 无人读 runtime 事件重建态，daemon 仍直接查表 |
-| ③Process Manager | ✗ 完全缺，职责错位 | 见 9.5 |
+| ③Process Manager | ✓ task/review domain event durable handler | 仅调用 delivery advancement port；port 持久接纳后由 delivery worker 推进 |
 | ④Projection | ✗ 全部错位 | 读 AgentEvent/ACP 原始信号，spec §10 要求迁 |
 
 ### 9.5 Process Manager 错位（精确落点）
@@ -443,15 +443,18 @@ delivery 的阶段推进不是"硬编码在 daemon"（之前的判断有误）�
   `expectedRevision`，`repository.ts:111-112`）。
 - **错位点**（需重构的两处）：
   1. **入口硬编码时序**：`task-notification-publisher.ts:260` 尾部 `void reconcile...`
-     把 delivery 协调挂在 task 通知函数尾部，与 task 通知耦合。应抽成 task 事件订阅 handler。
+     把 delivery 协调挂在 task 通知函数尾部，与 task 通知耦合。应抽成 task/review
+     事件订阅 handler。
   2. **触发原因未利用**：`cause` 参数被 `void` 掉（`supervisor.ts:85`），事件因果没有进入
      可观察证据。
 
 `AutonomousDeliverySupervisor.advance()` 已是深模块：它用一个小 interface 隐藏状态推导、
 claim、lease、重试、恢复、并发控制和收口规则；这与
 `specs/autonomous-delivery-loop/spec.md` 的既有契约一致。事件迁移不得为了“handler 化”
-把这些内部职责泄露成多个浅 interface。事件 handler 只负责把 event 映射为
-`advance(runId, cause)`。bootstrap 的周期 reconcile 保留为恢复触发器，不与事件驱动入口
+把这些内部职责泄露成多个浅 interface。事件 handler 只负责把 event 映射为幂等的
+delivery advancement request；delivery 模块持久接纳后，由自己的 worker 调用
+`advance(runId, cause)`。Platform Event delivery 的成功边界是持久接纳，实际推进失败由
+delivery queue 重试。bootstrap 的周期 reconcile 保留为兜底恢复触发器，不与事件驱动入口
 争夺事实 owner。
 
 ### 9.6 forwardAgentEvent 六重职责（待拆）
@@ -490,11 +493,11 @@ forwardAgentEvent 最终退化成兼容 shim，在双写退出后删除。
   浏览器投影按 project 恢复，持久化确认/重试和取消均以服务端 Inbox 为准
   退出: Agent Inbox 能由领域事件幂等产生、claim、恢复（spec §10）
 
-切片4: domain 事件 inline seam
+切片4: domain 事件 inline seam（已完成）
   从 task 开始（最成熟的 task_action 准事件源），证明 inline 模式可行，再扩展全领域
   退出: 四类事件契约和 owner 有自动化测试（spec §10）
 
-切片5: Process Manager 触发入口迁移
+切片5: Process Manager 触发入口迁移（已完成）
   delivery 阶段推进抽成 handler，复用 AutonomousDeliverySupervisor.advance 深模块
   退出: delivery 协调不再依赖 task-notification-publisher 尾部硬编码
 
@@ -565,9 +568,10 @@ forwardAgentEvent 最终退化成兼容 shim，在双写退出后删除。
 - **背景**：delivery 阶段推进的触发职责错位——入口硬编码在
   task-notification-publisher 尾部；但 `advance()` 本身已经是符合既有 active spec 的
   深模块。
-- **决策**：立即迁移触发入口（不保留通知尾部双写）。task 事件 handler 调用
-  `advance(runId, cause)`；周期 reconcile 保留为 crash/retry 恢复触发器。Supervisor 内部
-  的状态推导、claim、lease、执行、重试与收口继续隐藏在同一 interface 后。
+- **决策**：立即迁移触发入口（不保留通知尾部双写）。task/review 事件 handler 以
+  source event 幂等持久接纳 advancement request；delivery worker 调用
+  `advance(runId, cause)`，失败重新排队。周期 reconcile 保留为 crash/retry 兜底恢复触发器。
+  Supervisor 内部的状态推导、claim、lease、执行、重试与收口继续隐藏在同一 interface 后。
 - **替代方案**：①保留通知尾部触发，否决原因是继续耦合 Projection 与协调逻辑；
   ②把 Supervisor 拆成 PM handler + worker 公共 interface，否决原因是与
   `autonomous-delivery-loop` 事实源冲突并降低模块深度。

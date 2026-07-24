@@ -41,6 +41,21 @@ export {
   type AgentInboxRouterOptions,
 } from './agent-inbox-router';
 export {
+  TaskWakeupRouter,
+  type TaskWakeupRouterOptions,
+} from './task-wakeup-router';
+export {
+  DomainEventPublisher,
+  DOMAIN_EVENT_TYPES_BY_OWNER,
+  type DomainEventPayloadMap,
+  type DomainEventType,
+  type PublishDomainEventInput,
+} from './domain-events';
+export {
+  DeliveryProcessManager,
+  type DeliveryAdvancementPort,
+} from './delivery-process-manager';
+export {
   AcpRuntimeEventCoordinator,
   type AcpRuntimeEventCoordinatorOptions,
 } from './acp-runtime-event-coordinator';

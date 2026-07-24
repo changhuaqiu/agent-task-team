@@ -38,20 +38,22 @@
   - 通用 Router 把领域事实解析为 Inbox Command，具体领域 resolver 在切片 4 注册
   - 退出：Agent Inbox 能由领域事件幂等产生、claim、恢复
 
-## 切片 4：domain 事件 inline seam（待开始）
+## 切片 4：domain 事件 inline seam（已完成）
 
-- [ ] T8 9 领域状态变更 inline 发 domain 事件，从 task 开始。
+- [x] T8 9 领域状态变更 inline 发 domain 事件，从 task 开始。
   - 先 task（task_action 准事件源最成熟），再 delivery / a2a / envelope / binding / node / session / invocation / review
   - inline seam：领域模块表写入动作同事务发事件（ADR-001）
   - 接入 Wakeup Router（domain 事件 → Inbox）
   - 退出：四类事件契约和 owner 有自动化测试
 
-## 切片 5：Process Manager 触发入口迁移（待开始）
+## 切片 5：Process Manager 触发入口迁移（已完成）
 
-- [ ] T9 delivery 阶段推进抽成 Process Manager handler（ADR-005，立即迁移触发入口）。
-  - task-notification-publisher.ts:260 硬编码抽成 task 事件订阅 handler
+- [x] T9 delivery 阶段推进抽成 Process Manager handler（ADR-005，立即迁移触发入口）。
+  - task-notification-publisher.ts:260 硬编码抽成 task/review 事件订阅 handler
   - bootstrap.ts 周期 reconcile 保留为 crash/retry 恢复触发器
-  - handler 复用 AutonomousDeliverySupervisor.advance() 深模块，不复制其内部规则
+  - handler 以 source event 幂等写入 delivery advancement queue
+  - delivery worker 复用 AutonomousDeliverySupervisor.advance() 深模块，不复制其内部规则
+  - Platform Event delivery 以持久接纳为成功边界；实际推进失败由 delivery queue 重试
   - 退出：delivery 协调不再依赖 task-notification-publisher 尾部硬编码；现有 delivery 测试无回归
 
 ## 切片 6：退出双写（待开始）

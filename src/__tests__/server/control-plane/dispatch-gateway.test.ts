@@ -7,7 +7,11 @@ import { executionEnvelopeRepo } from '@/server/repositories/execution-envelope-
 import { proofLogRepo } from '@/server/repositories/proof-log-repo';
 
 beforeEach(() => {
-  setTestDb(createTestDb());
+  const db = createTestDb();
+  setTestDb(db);
+  const now = new Date().toISOString();
+  db.prepare(`INSERT INTO conversation (id,title,status,created_at,updated_at)
+    VALUES ('conv-1','Dispatch gateway','active',?,?)`).run(now, now);
 });
 
 afterEach(() => {
@@ -36,6 +40,7 @@ describe('DispatchGateway', () => {
     gateway.markSent(envelope.id);
     gateway.markStarted(envelope.id);
     gateway.markCompleted(envelope.id);
+    gateway.markFailed(envelope.id, 'late_evaluation_failure');
 
     expect(executionEnvelopeRepo.getById(envelope.id)!.status).toBe('completed');
     expect(proofLogRepo.getByEnvelope(envelope.id).map((event) => event.event_type)).toEqual([

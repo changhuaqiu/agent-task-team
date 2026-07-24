@@ -148,7 +148,7 @@ notification 默认只进入有界诊断。
 | review | `review.submitted`、`review.approved`、`review.rejected`、`review.merged` | task 进入 `in_review`/`rejected`/`done`；来源 `control_proof_event` |
 | delivery | `delivery.run.submitted`、`delivery.run.phase_advanced`、`delivery.run.completed`、`delivery.run.escalated`、`delivery.run.cancelled`、`delivery.action.claimed`、`delivery.action.succeeded`、`delivery.action.failed` | `DeliveryRunStatus` / `DeliveryActionStatus` |
 | a2a | `a2a.possession.passed`、`a2a.possession.completed`、`a2a.chain.entry_done`、`a2a.chain.completed`、`a2a.chain.aborted` | possession / chain / worklist 状态机 |
-| envelope | `envelope.validated`、`envelope.queued`、`envelope.routed`、`envelope.sent`、`envelope.started`、`envelope.completed`、`envelope.failed`、`envelope.expired` | `ExecutionEnvelopeStatus` 10 态 |
+| envelope | `envelope.validated`、`envelope.blocked`、`envelope.queued`、`envelope.routed`、`envelope.sent`、`envelope.started`、`envelope.completed`、`envelope.failed`、`envelope.expired` | `ExecutionEnvelopeStatus` 10 态 |
 | binding | `binding.started`、`binding.finished`、`binding.error` | `AgentBindingStatus` |
 | node | `node.stale`、`node.unreachable` | `RuntimeNodeStatus`（`recordMiss`） |
 | invocation | `invocation.queued`、`invocation.claimed`、`invocation.succeeded`、`invocation.failed` | `invocation.status` |
@@ -276,7 +276,7 @@ Dispatcher
 | 2 Durable Dispatcher + 第一个 Projection | 先建立持久投递/恢复，再让 UI/Message 投影从读 AgentEvent 改为读 runtime 事件 | 切片 1 | Dispatcher 可恢复；至少一个投影从 Runtime Event 重建 |
 | 3 Inbox + coordination | 建立持久 Agent Inbox + coordination 事件，替换浏览器内存队列 | 切片 1 | Agent Inbox 能由领域事件幂等产生、claim、恢复 |
 | 4 domain inline seam | 9 领域状态变更 inline 发 domain 事件，从 task 开始 | 切片 3（Inbox 消费 domain） | 四类事件契约和 owner 有自动化测试 |
-| 5 PM 触发迁移 | delivery 阶段推进抽成 Process Manager handler，复用 `AutonomousDeliverySupervisor.advance()` 深模块（ADR-005） | 切片 4（delivery domain 事件） | delivery 协调不再依赖 task-notification-publisher 尾部硬编码 |
+| 5 PM 触发迁移 | task/review Process Manager 把推进请求持久接纳到 delivery 队列；delivery worker 调用 `AutonomousDeliverySupervisor.advance()` 深模块（ADR-005） | 切片 4（delivery domain 事件） | delivery 协调不再依赖 task-notification-publisher 尾部硬编码；接口失败可恢复重试 |
 | 6 退出双写 | 删除 forwardAgentEvent 业务副作用 + 旧 agent_event 写入 | 切片 2/3/4/5 全部完成 | 长期设计与 wiki 已同步，兼容双写已删除 |
 
 兼容双写必须在代码与长期文档中标记退出条件，不得形成永久双事实源。切片 6 是双写的

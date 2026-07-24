@@ -1,4 +1,5 @@
 import { getDb } from '../db/index';
+import { DomainEventPublisher } from '../platform-events/domain-events';
 import type { RuntimeNodeKind, RuntimeNodeStatus, RuntimeTrustLevel } from './control-plane-types';
 
 export interface RuntimeNodeRow {
@@ -86,8 +87,11 @@ export const runtimeNodeRepo = {
     const staleMisses = thresholds?.staleMisses ?? 2;
     const unreachableMisses = thresholds?.unreachableMisses ?? 3;
     const now = new Date().toISOString();
-    getDb()
-      .prepare(
+    const db = getDb();
+    return db.transaction(() => {
+      const previous = runtimeNodeRepo.getById(id);
+      if (!previous) return undefined;
+      db.prepare(
         `UPDATE runtime_node
          SET missed_heartbeats = missed_heartbeats + 1,
              status = CASE
@@ -99,14 +103,68 @@ export const runtimeNodeRepo = {
          WHERE id = ? AND status != 'suspended'`,
       )
       .run(unreachableMisses, staleMisses, now, id);
-    return runtimeNodeRepo.getById(id);
+      const current = runtimeNodeRepo.getById(id);
+      if (
+        current
+        && current.status !== previous.status
+        && (current.status === 'stale' || current.status === 'unreachable')
+      ) {
+        const projects = db.prepare(
+          `SELECT DISTINCT conversation_id, agent_id FROM agent_binding WHERE node_id=?`,
+        ).all(id) as Array<{ conversation_id: string; agent_id: string }>;
+        const publisher = new DomainEventPublisher(db);
+        for (const project of projects) {
+          const type = current.status === 'stale' ? 'node.stale' : 'node.unreachable';
+          publisher.publish({
+            type,
+            projectId: project.conversation_id,
+            aggregate: { type: 'node', id },
+            projectAgentId: project.agent_id,
+            occurredAt: now,
+            payload: {
+              previousStatus: previous.status,
+              status: current.status,
+              missedHeartbeats: current.missed_heartbeats,
+            },
+          });
+        }
+      }
+      return current;
+    }).immediate();
   },
 
   setStatus(id: string, status: RuntimeNodeStatus): RuntimeNodeRow | undefined {
+    const db = getDb();
     const now = new Date().toISOString();
-    getDb()
-      .prepare('UPDATE runtime_node SET status = ?, updated_at = ? WHERE id = ?')
-      .run(status, now, id);
-    return runtimeNodeRepo.getById(id);
+    return db.transaction(() => {
+      const previous = runtimeNodeRepo.getById(id);
+      if (!previous || previous.status === status) return previous;
+      const result = db
+        .prepare('UPDATE runtime_node SET status = ?, updated_at = ? WHERE id = ? AND status = ?')
+        .run(status, now, id, previous.status);
+      if (result.changes !== 1) return undefined;
+      const current = runtimeNodeRepo.getById(id)!;
+      if (status === 'stale' || status === 'unreachable') {
+        const projects = db.prepare(
+          `SELECT DISTINCT conversation_id, agent_id FROM agent_binding WHERE node_id=?`,
+        ).all(id) as Array<{ conversation_id: string; agent_id: string }>;
+        const publisher = new DomainEventPublisher(db);
+        for (const project of projects) {
+          publisher.publish({
+            type: status === 'stale' ? 'node.stale' : 'node.unreachable',
+            projectId: project.conversation_id,
+            aggregate: { type: 'node', id },
+            projectAgentId: project.agent_id,
+            occurredAt: now,
+            payload: {
+              previousStatus: previous.status,
+              status,
+              missedHeartbeats: current.missed_heartbeats,
+            },
+          });
+        }
+      }
+      return current;
+    }).immediate();
   },
 };

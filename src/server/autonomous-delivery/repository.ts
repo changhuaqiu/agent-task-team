@@ -1,5 +1,6 @@
 import { getDb } from '../db';
 import { generateSortableId } from '../repositories/sortable-id';
+import { DomainEventPublisher } from '../platform-events/domain-events';
 import type {
   ClaimedDeliveryAction,
   DeliveryActionKind,
@@ -26,13 +27,24 @@ export class AutonomousDeliveryRepository {
   createRun(contract: GoalContract, now: Date = new Date()): DeliveryRunSnapshot {
     const timestamp = nowIso(now);
     const id = generateSortableId('delivery');
-    getDb().prepare(
+    const db = getDb();
+    return db.transaction(() => {
+      db.prepare(
       `INSERT INTO autonomous_delivery_run (
         id, conversation_id, status, current_stage, goal_contract_json,
         repair_cycle, created_at, updated_at
       ) VALUES (?, ?, 'submitted', 'planning', ?, 0, ?, ?)`,
-    ).run(id, contract.scope.conversationId, JSON.stringify(contract), timestamp, timestamp);
-    return this.getSnapshot(id)!;
+      ).run(id, contract.scope.conversationId, JSON.stringify(contract), timestamp, timestamp);
+      new DomainEventPublisher(db).publish({
+        type: 'delivery.run.submitted',
+        projectId: contract.scope.conversationId,
+        aggregate: { type: 'delivery_run', id },
+        dedupeKey: `delivery:${id}:submitted`,
+        occurredAt: timestamp,
+        payload: { status: 'submitted', stage: 'planning' },
+      });
+      return this.getSnapshot(id)!;
+    }).immediate();
   }
 
   getRun(runId: string): DeliveryRunRow | undefined {
@@ -97,7 +109,34 @@ export class AutonomousDeliveryRepository {
   }): DeliveryRunRow | undefined {
     const timestamp = nowIso(input.now);
     const completedAt = input.status === 'completed' ? timestamp : null;
-    const result = getDb().prepare(
+    const db = getDb();
+    return db.transaction(() => {
+      const previous = this.getRun(input.runId);
+      if (!previous) return undefined;
+      if (
+        input.expectedRevision !== undefined
+        && input.expectedRevision !== previous.revision
+      ) return undefined;
+      if (
+        input.expectedRevision !== undefined
+        && ['completed', 'escalated', 'cancelled'].includes(previous.status)
+      ) return undefined;
+      const nextRootTaskId = input.rootTaskId ?? previous.root_task_id;
+      const nextRepairCycle = input.repairCycle ?? previous.repair_cycle;
+      const nextEscalationCode = input.escalationCode ?? null;
+      const nextEscalationDetail = input.escalationDetail ?? null;
+      const nextBundleJson = input.bundle
+        ? JSON.stringify(input.bundle)
+        : previous.delivery_bundle_json;
+      const unchanged = previous.status === input.status
+        && previous.current_stage === input.stage
+        && previous.root_task_id === nextRootTaskId
+        && previous.repair_cycle === nextRepairCycle
+        && previous.escalation_code === nextEscalationCode
+        && previous.escalation_detail === nextEscalationDetail
+        && previous.delivery_bundle_json === nextBundleJson;
+      if (unchanged) return previous;
+      const result = db.prepare(
       `UPDATE autonomous_delivery_run
        SET status=?, current_stage=?,
            root_task_id=COALESCE(?, root_task_id),
@@ -124,8 +163,44 @@ export class AutonomousDeliveryRepository {
       input.expectedRevision ?? null,
       input.expectedRevision ?? null,
       input.expectedRevision ?? null,
-    );
-    return result.changes === 1 ? this.getRun(input.runId) : undefined;
+      );
+      if (result.changes !== 1) return undefined;
+      const current = this.getRun(input.runId)!;
+      if (
+        previous.status !== current.status
+        || previous.current_stage !== current.current_stage
+      ) {
+        const type = current.status === 'completed'
+          ? 'delivery.run.completed'
+          : current.status === 'escalated'
+            ? 'delivery.run.escalated'
+            : current.status === 'cancelled'
+              ? 'delivery.run.cancelled'
+              : 'delivery.run.phase_advanced';
+        new DomainEventPublisher(db).publish({
+          type,
+          projectId: current.conversation_id,
+          aggregate: { type: 'delivery_run', id: current.id, version: current.revision },
+          occurredAt: timestamp,
+          payload: type === 'delivery.run.phase_advanced'
+            ? {
+                previousStatus: previous.status,
+                status: current.status,
+                previousStage: previous.current_stage,
+                stage: current.current_stage,
+              }
+            : {
+                previousStatus: previous.status,
+                status: current.status,
+                stage: current.current_stage,
+                ...(type === 'delivery.run.escalated' && current.escalation_code
+                  ? { code: current.escalation_code }
+                  : {}),
+              } as never,
+        });
+      }
+      return current;
+    }).immediate();
   }
 
   ensureAction(input: {
@@ -212,6 +287,19 @@ export class AutonomousDeliveryRepository {
         timestamp,
         timestamp,
       );
+      new DomainEventPublisher(db).publish({
+        type: 'delivery.action.claimed',
+        projectId: (db.prepare(
+          'SELECT conversation_id FROM autonomous_delivery_run WHERE id=?',
+        ).get(input.runId) as { conversation_id: string }).conversation_id,
+        aggregate: { type: 'delivery_action', id: action.id },
+        occurredAt: timestamp,
+        payload: {
+          runId: input.runId,
+          attemptId,
+          attemptNo: action.attempt_count,
+        },
+      });
       return {
         action,
         attempt: db.prepare('SELECT * FROM autonomous_delivery_attempt WHERE id=?')
@@ -290,6 +378,14 @@ export class AutonomousDeliveryRepository {
       if (actionCompleted.changes !== 1) {
         throw new Error(`Delivery action lost ownership while completing: ${input.actionId}`);
       }
+      const run = this.getRun(input.runId)!;
+      new DomainEventPublisher(db).publish({
+        type: 'delivery.action.succeeded',
+        projectId: run.conversation_id,
+        aggregate: { type: 'delivery_action', id: input.actionId },
+        occurredAt: timestamp,
+        payload: { runId: input.runId, attemptId: input.attemptId },
+      });
       for (const [index, receipt] of (input.receipts ?? []).entries()) {
         this.appendReceipt({
           runId: input.runId,
@@ -380,6 +476,24 @@ export class AutonomousDeliveryRepository {
       if (actionFailed.changes !== 1) {
         throw new Error(`Delivery action lost ownership while failing: ${input.actionId}`);
       }
+      const run = db.prepare(
+        `SELECT run.conversation_id, action.run_id
+         FROM autonomous_delivery_action action
+         JOIN autonomous_delivery_run run ON run.id=action.run_id
+         WHERE action.id=?`,
+      ).get(input.actionId) as { conversation_id: string; run_id: string };
+      new DomainEventPublisher(db).publish({
+        type: 'delivery.action.failed',
+        projectId: run.conversation_id,
+        aggregate: { type: 'delivery_action', id: input.actionId },
+        occurredAt: timestamp,
+        payload: {
+          runId: run.run_id,
+          attemptId: input.attemptId,
+          failureCode: input.failureCode,
+          retrying: retry,
+        },
+      });
       return retry ? 'retry_wait' : 'failed';
     })();
   }

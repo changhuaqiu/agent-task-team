@@ -10,6 +10,9 @@ let db: Database.Database;
 beforeEach(() => {
   db = createTestDb();
   setTestDb(db);
+  const now = new Date().toISOString();
+  db.prepare(`INSERT INTO conversation (id,title,status,created_at,updated_at)
+    VALUES ('conv-1','Dispatch queue','active',?,?)`).run(now, now);
 });
 
 afterEach(() => {

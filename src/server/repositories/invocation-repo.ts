@@ -1,4 +1,5 @@
 import { getDb } from '../db/index';
+import { DomainEventPublisher } from '../platform-events/domain-events';
 
 export interface InvocationRow {
   id: string;
@@ -49,8 +50,9 @@ type InvocationUpdateFields = Partial<
 export const invocationRepo = {
   create(input: NewInvocation): InvocationRow {
     const now = new Date().toISOString();
-    getDb()
-      .prepare(
+    const db = getDb();
+    return db.transaction(() => {
+      db.prepare(
         `INSERT INTO invocation (id, conversation_id, task_id, agent_id, session_id, status, engine, account_id, prompt, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?)`,
       )
@@ -66,7 +68,17 @@ export const invocationRepo = {
         now,
         now,
       );
-    return invocationRepo.getById(input.id)!;
+      new DomainEventPublisher(db).publish({
+        type: 'invocation.queued',
+        projectId: input.conversation_id,
+        aggregate: { type: 'invocation', id: input.id },
+        projectAgentId: input.agent_id,
+        dedupeKey: `invocation:${input.id}:queued`,
+        occurredAt: now,
+        payload: { status: 'queued', taskId: input.task_id },
+      });
+      return invocationRepo.getById(input.id)!;
+    }).immediate();
   },
 
   getById(id: string): InvocationRow | undefined {
@@ -87,7 +99,35 @@ export const invocationRepo = {
       }
     }
     values.push(id);
-    getDb().prepare(`UPDATE invocation SET ${sets.join(', ')} WHERE id = ?`).run(...values);
+    const db = getDb();
+    db.transaction(() => {
+      const previous = invocationRepo.getById(id);
+      if (!previous || previous.status === status) return;
+      if (['succeeded', 'cancelled', 'canceled'].includes(previous.status)) return;
+      if (previous.status === 'failed' && status !== 'running') return;
+      const result = db.prepare(`UPDATE invocation SET ${sets.join(', ')} WHERE id = ?`).run(...values);
+      if (result.changes !== 1) return;
+      const type = status === 'running'
+        ? 'invocation.claimed'
+        : status === 'succeeded'
+          ? 'invocation.succeeded'
+          : status === 'failed' || status === 'canceled' || status === 'cancelled'
+            ? 'invocation.failed'
+            : undefined;
+      if (!type) return;
+      new DomainEventPublisher(db).publish({
+        type,
+        projectId: previous.conversation_id,
+        aggregate: { type: 'invocation', id },
+        projectAgentId: previous.agent_id,
+        occurredAt: now,
+        payload: {
+          previousStatus: previous.status,
+          status,
+          ...((updates?.reason_code) ? { reasonCode: updates.reason_code } : {}),
+        } as never,
+      });
+    }).immediate();
   },
 
   getByAgent(agentId: string, options?: { limit?: number }): InvocationRow[] {

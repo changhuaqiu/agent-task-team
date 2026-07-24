@@ -1522,6 +1522,26 @@ CREATE INDEX IF NOT EXISTS idx_agent_inbox_agent
   ON agent_inbox_item(project_id, project_agent_id, status, created_at);
 `,
   },
+  {
+    version: 50,
+    sql: `
+CREATE TABLE IF NOT EXISTS autonomous_delivery_advancement_request (
+  id TEXT PRIMARY KEY,
+  source_event_id TEXT NOT NULL UNIQUE REFERENCES platform_event(id) ON DELETE CASCADE,
+  project_id TEXT NOT NULL REFERENCES conversation(id) ON DELETE CASCADE,
+  cause_json TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('queued','running','completed')),
+  attempt_count INTEGER NOT NULL DEFAULT 0 CHECK(attempt_count >= 0),
+  available_at TEXT NOT NULL,
+  last_error TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  completed_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_delivery_advancement_claim
+  ON autonomous_delivery_advancement_request(status, available_at, created_at, id);
+`,
+  },
 ];
 
 export function applyMigrations(db: Database.Database): void {

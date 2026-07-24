@@ -1,5 +1,10 @@
 import { PlatformEventDispatcher } from './dispatcher';
 import { RuntimeInvocationProjection } from './runtime-invocation-projection';
+import { TaskWakeupRouter } from './task-wakeup-router';
+import {
+  DeliveryProcessManager,
+  type DeliveryAdvancementPort,
+} from './delivery-process-manager';
 
 let worker: PlatformEventRuntimeWorker | undefined;
 
@@ -12,6 +17,7 @@ export interface PlatformEventRuntimeWorkerOptions {
   intervalMs?: number;
   dispatcher?: WorkerDispatcher;
   projection?: RuntimeInvocationProjection;
+  deliveryAdvancement?: DeliveryAdvancementPort;
 }
 
 export class PlatformEventRuntimeWorker {
@@ -35,6 +41,33 @@ export class PlatformEventRuntimeWorker {
       reliability: 'durable',
       handle: (event, { signal }) => this.projection.handle(event, signal),
     });
+    const taskWakeupRouter = new TaskWakeupRouter();
+    this.dispatcher.register({
+      id: 'task-wakeup-router:v1',
+      pattern: 'task.*',
+      stereotype: 'router',
+      reliability: 'durable',
+      handle: taskWakeupRouter.handle,
+    });
+    if (resolved.deliveryAdvancement) {
+      const deliveryProcessManager = new DeliveryProcessManager(resolved.deliveryAdvancement);
+      this.dispatcher.register({
+        id: 'delivery-process-manager-task:v1',
+        pattern: 'task.*',
+        stereotype: 'process_manager',
+        reliability: 'durable',
+        timeoutMs: 5_000,
+        handle: deliveryProcessManager.handle,
+      });
+      this.dispatcher.register({
+        id: 'delivery-process-manager-review:v1',
+        pattern: 'review.*',
+        stereotype: 'process_manager',
+        reliability: 'durable',
+        timeoutMs: 5_000,
+        handle: deliveryProcessManager.handle,
+      });
+    }
   }
 
   start(): void {
@@ -75,8 +108,10 @@ export class PlatformEventRuntimeWorker {
   }
 }
 
-export function startPlatformEventRuntime(intervalMs = 250): PlatformEventRuntimeWorker {
-  worker ??= new PlatformEventRuntimeWorker(intervalMs);
+export function startPlatformEventRuntime(
+  options: number | PlatformEventRuntimeWorkerOptions = 250,
+): PlatformEventRuntimeWorker {
+  worker ??= new PlatformEventRuntimeWorker(options);
   worker.start();
   return worker;
 }

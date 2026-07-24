@@ -326,6 +326,16 @@ export class AgentInbox {
     return result.changes;
   }
 
+  cancelQueuedForTask(projectId: string, taskId: string): number {
+    const now = this.now().toISOString();
+    return (this.database ?? getDb()).prepare(`
+      UPDATE agent_inbox_item
+      SET status='cancelled', last_error='task_terminal', updated_at=?, completed_at=?
+      WHERE project_id=? AND status='queued'
+        AND json_extract(command_json, '$.taskId')=?
+    `).run(now, now, projectId, taskId).changes;
+  }
+
   private finish(
     itemId: string,
     leaseToken: string,

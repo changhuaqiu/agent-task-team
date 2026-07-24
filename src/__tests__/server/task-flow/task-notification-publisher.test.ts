@@ -8,6 +8,7 @@ import { taskRepo } from '@/server/repositories/task-repo';
 import { seedPresetAgents } from '@/server/db/seed-agents';
 import { teamPackRepo } from '@/server/repositories/team-pack-repo';
 import { publishTaskChangeNotification, publishTaskNotification, resolveTaskNotificationAudience } from '@/server/task-flow/task-notification-publisher';
+import { registerHarnessCoordinator } from '@/server/harness/registry';
 
 beforeEach(() => {
   setTestDb(createTestDb());
@@ -188,6 +189,41 @@ describe('publishTaskNotification', () => {
         startsDispatch: true,
       });
     }
+  });
+
+  it('does not directly submit a rejected task after the durable router owns it', () => {
+    const task = taskRepo.create({
+      id: 'TASK-REJECTED',
+      conversation_id: 'conv-1',
+      title: 'Needs correction',
+      agent_id: 'toad',
+    });
+    const previous = taskRepo.getById(task.id)!;
+    taskRepo.updateStatus(task.id, 'rejected', 'Fix the race');
+    const rejected = taskRepo.getById(task.id)!;
+    const emit = vi.fn();
+    const io = {
+      to: vi.fn(() => ({ emit })),
+      emit: vi.fn(),
+    } as unknown as IOServer;
+    const submit = vi.fn();
+    registerHarnessCoordinator(io, { submit } as never);
+
+    publishTaskChangeNotification({
+      io,
+      kind: 'task.status_changed',
+      task: rejected,
+      previousTask: previous,
+      actorId: 'peach',
+      actorType: 'agent',
+      changedFields: ['status', 'review_note'],
+    });
+
+    expect(submit).not.toHaveBeenCalled();
+    expect(emit).toHaveBeenCalledWith('task.wakeup', expect.objectContaining({
+      reasonCode: 'review_rejected',
+      handledByHarness: true,
+    }));
   });
 
   it('skips publish when there are no related recipients', () => {

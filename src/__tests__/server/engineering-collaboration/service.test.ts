@@ -11,6 +11,7 @@ import { teamPackRepo } from '@/server/repositories/team-pack-repo';
 import { EngineeringCollaborationError, EngineeringCollaborationService } from '@/server/engineering-collaboration/service';
 import type { GitProviderVerifier } from '@/server/engineering-collaboration/git-provider';
 import type { MergeReceipt, PullRequestReceipt, ReviewReceipt } from '@/lib/engineering-collaboration/types';
+import { PlatformEventLog } from '@/server/platform-events/event-log';
 
 const pullRequest: PullRequestReceipt = {
   provider: 'github', repository: 'acme/widget', number: 42, title: 'Fix checkout',
@@ -81,6 +82,10 @@ describe('EngineeringCollaborationService', () => {
       kind: 'pull_request', taskId: 'TASK-PR', receipt: { headSha: pullRequest.headSha },
     } });
     expect(proofLogRepo.findByType({ eventType: 'engineering.pull_request.verified', conversationId: 'conv-pr-loop', taskId: 'TASK-PR' })).toHaveLength(1);
+    const submitted = new PlatformEventLog().listByProjectAgent('conv-pr-loop', 'luigi')
+      .find((event) => event.type === 'review.submitted')!;
+    expect(submitted.actor).toEqual({ type: 'agent', id: 'luigi' });
+    expect(submitted.payload).toEqual({ taskId: 'TASK-PR' });
   });
 
   it('rejects PR submission from an agent that does not own the task', async () => {
@@ -119,6 +124,13 @@ describe('EngineeringCollaborationService', () => {
     expect(emit).toHaveBeenCalledWith('task.wakeup', expect.objectContaining({
       taskId: 'TASK-PR', agentId: 'luigi', reasonCode: 'review_rejected',
     }));
+    const rejectedEvent = new PlatformEventLog().listByProjectAgent('conv-pr-loop', 'peach')
+      .find((event) => event.type === 'review.rejected')!;
+    expect(rejectedEvent.actor).toEqual({ type: 'agent', id: 'peach' });
+    expect(rejectedEvent.payload).toMatchObject({
+      taskId: 'TASK-PR',
+      reviewerId: 'peach',
+    });
   });
 
   it('fails closed when a review targets a different head SHA', async () => {
@@ -292,6 +304,13 @@ describe('EngineeringCollaborationService', () => {
     expect(JSON.parse(messageRepo.getById(result.messageId)!.metadata!)).toMatchObject({ collaborationCard: {
       kind: 'merge', receipt: { mergeSha: merge.mergeSha }, evidence: { mainTestResult: 'all passed' },
     } });
+    const mergedEvent = new PlatformEventLog().listByProjectAgent('conv-pr-loop', 'mario')
+      .find((event) => event.type === 'review.merged')!;
+    expect(mergedEvent.actor).toEqual({ type: 'agent', id: 'mario' });
+    expect(mergedEvent.payload).toMatchObject({
+      taskId: 'TASK-PR',
+      reviewerId: 'peach',
+    });
   });
 
   it('does not let an evidence-only comment authorize merge closure', async () => {

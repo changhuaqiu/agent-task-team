@@ -1,4 +1,5 @@
 import { getDb } from '../db/index';
+import { DomainEventPublisher } from '../platform-events/domain-events';
 import { generateSortableId } from './sortable-id';
 import type { AgentBindingStatus } from './control-plane-types';
 
@@ -74,37 +75,82 @@ export const agentBindingRepo = {
 
   markStarted(conversationId: string, agentId: string, envelopeId: string): AgentBindingRow | undefined {
     const now = new Date().toISOString();
-    getDb()
-      .prepare(
+    const db = getDb();
+    return db.transaction(() => {
+      const previous = agentBindingRepo.get(conversationId, agentId);
+      if (!previous) return undefined;
+      if (previous.status === 'busy' && previous.active_envelope_id === envelopeId) return previous;
+      const result = db.prepare(
         `UPDATE agent_binding
          SET status = 'busy', active_envelope_id = ?, last_started_at = ?, last_error = NULL, updated_at = ?
          WHERE conversation_id = ? AND agent_id = ?`,
       )
       .run(envelopeId, now, now, conversationId, agentId);
-    return agentBindingRepo.get(conversationId, agentId);
+      if (result.changes !== 1) return undefined;
+      new DomainEventPublisher(db).publish({
+        type: 'binding.started',
+        projectId: conversationId,
+        aggregate: { type: 'binding', id: previous.id },
+        projectAgentId: agentId,
+        occurredAt: now,
+        payload: { previousStatus: previous.status, status: 'busy', envelopeId },
+      });
+      return agentBindingRepo.get(conversationId, agentId);
+    }).immediate();
   },
 
   markFinished(conversationId: string, agentId: string, status: AgentBindingStatus = 'idle'): AgentBindingRow | undefined {
     const now = new Date().toISOString();
-    getDb()
-      .prepare(
+    const db = getDb();
+    return db.transaction(() => {
+      const previous = agentBindingRepo.get(conversationId, agentId);
+      if (!previous || (previous.status === status && previous.active_envelope_id === null)) return previous;
+      const result = db.prepare(
         `UPDATE agent_binding
          SET status = ?, active_envelope_id = NULL, last_finished_at = ?, updated_at = ?
          WHERE conversation_id = ? AND agent_id = ?`,
       )
       .run(status, now, now, conversationId, agentId);
-    return agentBindingRepo.get(conversationId, agentId);
+      if (result.changes !== 1) return undefined;
+      new DomainEventPublisher(db).publish({
+        type: status === 'idle' ? 'binding.finished' : 'binding.error',
+        projectId: conversationId,
+        aggregate: { type: 'binding', id: previous.id },
+        projectAgentId: agentId,
+        occurredAt: now,
+        payload: { previousStatus: previous.status, status },
+      });
+      return agentBindingRepo.get(conversationId, agentId);
+    }).immediate();
   },
 
   markError(conversationId: string, agentId: string, status: AgentBindingStatus, error: string): AgentBindingRow | undefined {
     const now = new Date().toISOString();
-    getDb()
-      .prepare(
+    const db = getDb();
+    return db.transaction(() => {
+      const previous = agentBindingRepo.get(conversationId, agentId);
+      if (!previous) return undefined;
+      if (
+        previous.status === status
+        && previous.last_error === error
+        && previous.active_envelope_id === null
+      ) return previous;
+      const result = db.prepare(
         `UPDATE agent_binding
          SET status = ?, active_envelope_id = NULL, last_error = ?, last_finished_at = ?, updated_at = ?
          WHERE conversation_id = ? AND agent_id = ?`,
       )
       .run(status, error, now, now, conversationId, agentId);
-    return agentBindingRepo.get(conversationId, agentId);
+      if (result.changes !== 1) return undefined;
+      new DomainEventPublisher(db).publish({
+        type: 'binding.error',
+        projectId: conversationId,
+        aggregate: { type: 'binding', id: previous.id },
+        projectAgentId: agentId,
+        occurredAt: now,
+        payload: { previousStatus: previous.status, status },
+      });
+      return agentBindingRepo.get(conversationId, agentId);
+    }).immediate();
   },
 };

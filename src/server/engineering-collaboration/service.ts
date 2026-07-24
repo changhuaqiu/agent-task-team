@@ -16,6 +16,7 @@ import { taskGraphRepo, type TaskActionRow } from '../repositories/task-graph-re
 import { taskRepo, type TaskRow } from '../repositories/task-repo';
 import { publishTaskChangeNotification, resolveTaskNotificationAudience, type PublishTaskChangeNotificationInput } from '../task-flow/task-notification-publisher';
 import type { GitProviderVerifier } from './git-provider';
+import { DomainEventPublisher } from '../platform-events/domain-events';
 
 export type EngineeringCollaborationReasonCode =
   | 'task_not_found'
@@ -231,6 +232,16 @@ export class EngineeringCollaborationService {
         });
       }
       taskRepo.updateStatus(task.id, 'in_review');
+      new DomainEventPublisher(getDb()).publish({
+        type: 'review.submitted',
+        projectId: task.conversation_id,
+        aggregate: { type: 'review', id: action.id },
+        subject: { type: 'task', id: task.id },
+        actor: { type: 'agent', id: input.actorAgentId },
+        projectAgentId: input.actorAgentId,
+        occurredAt: card.createdAt,
+        payload: { taskId: task.id },
+      });
       proofLogRepo.append({
         eventType: 'engineering.pull_request.verified',
         conversationId: task.conversation_id,
@@ -333,6 +344,22 @@ export class EngineeringCollaborationService {
       } else {
         taskRepo.update(task.id, { review_note: input.evidence.summary });
       }
+      const rejected = receipt.decision === 'changes_requested'
+        || input.evidence.qualityDecision === 'reject';
+      new DomainEventPublisher(getDb()).publish({
+        type: rejected ? 'review.rejected' : 'review.approved',
+        projectId: task.conversation_id,
+        aggregate: { type: 'review', id: action.id },
+        subject: { type: 'task', id: task.id },
+        actor: { type: 'agent', id: input.actorAgentId },
+        projectAgentId: input.actorAgentId,
+        occurredAt: card.createdAt,
+        payload: {
+          taskId: task.id,
+          reviewerId: input.actorAgentId,
+          ...(rejected ? { reason: input.evidence.summary } : {}),
+        } as never,
+      });
       proofLogRepo.append({
         eventType: 'engineering.review.verified',
         conversationId: task.conversation_id,
@@ -426,6 +453,16 @@ export class EngineeringCollaborationService {
         action,
       });
       taskRepo.updateStatus(task.id, 'done');
+      new DomainEventPublisher(getDb()).publish({
+        type: 'review.merged',
+        projectId: task.conversation_id,
+        aggregate: { type: 'review', id: action.id },
+        subject: { type: 'task', id: task.id },
+        actor: { type: 'agent', id: input.actorAgentId },
+        projectAgentId: input.actorAgentId,
+        occurredAt: card.createdAt,
+        payload: { taskId: task.id, reviewerId: reviewAction?.actor_id },
+      });
       proofLogRepo.append({
         eventType: 'engineering.merge.verified',
         conversationId: task.conversation_id,

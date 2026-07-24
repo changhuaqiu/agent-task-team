@@ -6,12 +6,15 @@ import {
 import { autonomousDeliveryRepo } from './repository';
 import {
   getAutonomousDeliverySupervisor,
+  reconcileAutonomousDeliveryConversation,
   registerAutonomousDeliverySupervisor,
 } from './registry';
 import { AutonomousDeliverySupervisor } from './supervisor';
 import { GitHubProviderActionAdapter } from './provider-actions';
+import { deliveryAdvancementQueue } from './advancement-queue';
 
 const RECONCILE_TIMER_KEY = Symbol.for('agent-task-hub.autonomous-delivery.reconcile-timer');
+const ADVANCEMENT_TIMER_KEY = Symbol.for('agent-task-hub.autonomous-delivery.advancement-timer');
 
 function deliveryLeaseMs(): number {
   const configured = Number(process.env.AUTONOMOUS_DELIVERY_LEASE_MS);
@@ -56,6 +59,28 @@ export function ensureAutonomousDeliveryRuntime(
     }, Number(process.env.AUTONOMOUS_DELIVERY_RECONCILE_MS || 15_000));
     timer.unref();
     shared[RECONCILE_TIMER_KEY] = timer;
+  }
+  if (!shared[ADVANCEMENT_TIMER_KEY]) {
+    deliveryAdvancementQueue.recover();
+    let draining = false;
+    const drain = async () => {
+      if (draining) return;
+      draining = true;
+      try {
+        for (let count = 0; count < 100; count += 1) {
+          const handled = await deliveryAdvancementQueue.runNext(
+            (projectId, cause) => reconcileAutonomousDeliveryConversation(io, projectId, cause),
+          );
+          if (!handled) break;
+        }
+      } finally {
+        draining = false;
+      }
+    };
+    void drain();
+    const timer = setInterval(() => void drain(), 250);
+    timer.unref();
+    shared[ADVANCEMENT_TIMER_KEY] = timer;
   }
   return supervisor;
 }

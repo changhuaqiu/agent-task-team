@@ -1,4 +1,6 @@
 import { getDb } from '../db/index';
+import { DomainEventPublisher } from '../platform-events/domain-events';
+import { invocationRepo } from './invocation-repo';
 
 export interface AgentSessionRow {
   id: string;
@@ -167,13 +169,10 @@ export const sessionRepo = {
       }
 
       if (binding.status === 'mismatch') return binding;
-      getDb()
-        .prepare(
-          `UPDATE invocation
-           SET status = 'succeeded', exit_code = 0, cli_session_id = ?, updated_at = ?
-           WHERE id = ?`,
-        )
-        .run(runtimeSessionId, new Date().toISOString(), invocationId);
+      invocationRepo.updateStatus(invocationId, 'succeeded', {
+        exit_code: 0,
+        cli_session_id: runtimeSessionId,
+      });
       return binding;
     })();
   },
@@ -217,15 +216,8 @@ export const sessionRepo = {
         return false;
       }
 
-      const now = new Date().toISOString();
-      const sealed = getDb()
-        .prepare(
-          `UPDATE agent_session
-           SET status = 'sealed', seal_reason = 'runtime_session_load_failed', sealed_at = ?
-           WHERE id = ? AND status = 'active'`,
-        )
-        .run(now, id);
-      return sealed.changes === 1;
+      sessionRepo.seal(id, 'runtime_session_load_failed');
+      return sessionRepo.getById(id)?.status === 'sealed';
     })();
   },
 
@@ -235,27 +227,42 @@ export const sessionRepo = {
 
   seal(id: string, reason: string): void {
     const now = new Date().toISOString();
-    getDb()
-      .prepare('UPDATE agent_session SET status = ?, seal_reason = ?, sealed_at = ? WHERE id = ?')
-      .run('sealed', reason, now, id);
+    const db = getDb();
+    db.transaction(() => {
+      const previous = sessionRepo.getById(id);
+      if (!previous || previous.status !== 'active') return;
+      const result = db
+        .prepare('UPDATE agent_session SET status = ?, seal_reason = ?, sealed_at = ? WHERE id = ? AND status = ?')
+        .run('sealed', reason, now, id, 'active');
+      if (result.changes !== 1) return;
+      new DomainEventPublisher(db).publish({
+        type: 'session.sealed',
+        projectId: previous.conversation_id,
+        aggregate: { type: 'session', id },
+        projectAgentId: previous.agent_id,
+        dedupeKey: `session:${id}:sealed`,
+        occurredAt: now,
+        payload: { previousStatus: previous.status, status: 'sealed', reason },
+      });
+    }).immediate();
   },
 
   sealByTask(agentId: string, taskId: string, reason: string): void {
-    const now = new Date().toISOString();
-    getDb()
-      .prepare(
-        'UPDATE agent_session SET status = ?, seal_reason = ?, sealed_at = ? WHERE agent_id = ? AND task_id = ? AND status = ?',
-      )
-      .run('sealed', reason, now, agentId, taskId, 'active');
+    const db = getDb();
+    db.transaction(() => {
+      const sessions = sessionRepo.findByAgentAndTask(agentId, taskId)
+        .filter((session) => session.status === 'active');
+      for (const session of sessions) sessionRepo.seal(session.id, reason);
+    }).immediate();
   },
 
   sealByConversation(agentId: string, conversationId: string, reason: string): void {
-    const now = new Date().toISOString();
-    getDb()
-      .prepare(
-        'UPDATE agent_session SET status = ?, seal_reason = ?, sealed_at = ? WHERE agent_id = ? AND conversation_id = ? AND status = ?',
-      )
-      .run('sealed', reason, now, agentId, conversationId, 'active');
+    const db = getDb();
+    db.transaction(() => {
+      const sessions = sessionRepo.listActiveByConversation(conversationId)
+        .filter((session) => session.agent_id === agentId);
+      for (const session of sessions) sessionRepo.seal(session.id, reason);
+    }).immediate();
   },
 
   countByAgentAndConversation(agentId: string, conversationId: string): number {
