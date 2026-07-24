@@ -11,7 +11,7 @@
 - [x] T4 实现 typed Runtime Event publisher 和生命周期不变量。
 - [x] T4b 实现 AcpRuntimeEventCoordinator + RuntimeAgentEventBridge（归一化与兼容桥）。
 
-## 切片 1：接入 daemon（待开始）
+## 切片 1：接入 daemon（代码已接入，待补边界回归）
 
 - [ ] T5 daemon 对 Runtime 活动与终态执行兼容双写（经 AcpRuntimeEventCoordinator）。
   - daemon.execute 路径持有 coordinator：accept → backend.execute → terminate
@@ -19,9 +19,13 @@
   - 双写 fail-open，标记退出条件（不得永久双事实源）
   - 退出：daemon ACP 路径产生可查询 Runtime 事件
 
-## 切片 2：第一个 Projection（待开始）
+## 切片 2：Durable Dispatcher + 第一个 Projection（待开始）
 
-- [ ] T6 增加 Runtime Event 查询与首个 projection。
+- [ ] T6 建立 Durable Dispatcher，并增加 Runtime Event 查询与首个 projection。
+  - durable handler 使用持久投递、attempt、lease、retry 与 receipt
+  - recover 能回补 append 后未投递事件并回收过期 lease
+  - best-effort handler 错误隔离但不承诺重试
+  - 同一 handler × stream 保证局部顺序
   - 选定一个投影（建议 UI/Message）从读 AgentEvent 改为读 runtime 事件
   - 退出：至少一个投影从 Runtime Event 重建，而非读取 ACP/AgentEvent 原始信号
 
@@ -40,12 +44,12 @@
   - 接入 Wakeup Router（domain 事件 → Inbox）
   - 退出：四类事件契约和 owner 有自动化测试
 
-## 切片 5：Process Manager 迁出（待开始）
+## 切片 5：Process Manager 触发入口迁移（待开始）
 
-- [ ] T9 delivery 阶段推进抽成 Process Manager handler（ADR-005，立即重构）。
+- [ ] T9 delivery 阶段推进抽成 Process Manager handler（ADR-005，立即迁移触发入口）。
   - task-notification-publisher.ts:260 硬编码抽成 task 事件订阅 handler
-  - bootstrap.ts 兜底 PM 与事件驱动入口合并
-  - advance 拆分：PM handler 只取快照 → decide → 派发 action；执行编排下沉 worker
+  - bootstrap.ts 周期 reconcile 保留为 crash/retry 恢复触发器
+  - handler 复用 AutonomousDeliverySupervisor.advance() 深模块，不复制其内部规则
   - 退出：delivery 协调不再依赖 task-notification-publisher 尾部硬编码；现有 delivery 测试无回归
 
 ## 切片 6：退出双写（待开始）

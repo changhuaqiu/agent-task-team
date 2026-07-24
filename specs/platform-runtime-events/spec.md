@@ -190,13 +190,16 @@ Agent 可经两种合法方式消费事件信息（pull，非订阅）：① cla
 
 ```text
 Dispatcher
-  register(type | pattern, handler, { stereotype, phase })
-  dispatch(event)
+  register(type | pattern, handler, { id, stereotype, reliability })
+  recover()
+  drain()
 ```
 
-- `register`：按事件 type（或匹配 pattern）注册 handler，标注 stereotype
-  （router/reducer/process_manager/projection）与 phase（upper/lower）。
-- `dispatch`：事件 append 提交后调用；按注册表查表，把事件分发给匹配的 handler。
+- `register`：按事件 type（或匹配 pattern）注册下半部 handler，标注稳定 `id`、
+  stereotype（router/reducer/process_manager/projection）与 reliability
+  （durable/best_effort）。
+- `recover`：从事件日志回补 durable handler 缺失的持久投递事实，并回收过期 lease。
+- `drain`：claim 可执行投递并调用 handler；成功后记录 receipt，失败按策略重试。
 
 ### Handler stereotype 约束（同 §7 四角色）
 
@@ -205,15 +208,19 @@ Dispatcher
 | router | domain 事件 | 给 ProjectAgent 创建 Inbox item | 只发 Command，不直接启动 Runtime | 入队失败重试，幂等（按 eventId） |
 | reducer | 事件流 | 重建聚合当前态 | 幂等，拒绝非法迁移 | 非法迁移拒绝并记录 |
 | process_manager | domain 事件 | 跨领域协调闭环 | 只调目标模块 interface，不越权写表 | interface 调用失败重试 |
-| projection | 事件 | 刷新 UI/socket/统计 | 可重建，不是事实源 | 失败可丢，下次重建 |
+| projection | 事件 | 刷新 UI/socket/统计 | 可重建，不是事实源 | durable 投影重试；best-effort 实时推送可丢 |
 
 ### Dispatcher 实现要求
 
-- **错误隔离**：一个 handler 抛错或挂起，不得影响其他 handler 或阻塞 dispatch。
-- **顺序保证**：同一 stream 内事件按 `streamSequence` 局部有序分发给 handler；
+- **持久投递**：durable handler 使用 event × handler 投递事实、attempt、lease、
+  next-attempt 与 terminal receipt；append 后崩溃必须可由 `recover()` 回补。
+- **错误隔离**：一个 handler 抛错或挂起，不得影响其他 handler。
+- **顺序保证**：同一 handler 的同一 stream 按 `streamSequence` 局部有序分发；
   跨 stream 用 `correlationId`/`causationId` 关联，不保证全局顺序。
-- **重试**：下半部 handler 失败按 at-least-once 重试，消费者按 `eventId` 幂等。
-- **上半部 handler 在 append 事务内同步执行**（见 §7c），下半部在事务提交后异步。
+- **重试**：durable handler 按 at-least-once 重试，消费者按 `eventId` 幂等；
+  best-effort handler 不承诺重试。
+- **上半部不是 Dispatcher handler**：producer-local invariant 在领域事务内同步执行
+  （见 §7c）；Dispatcher 只运行事务提交后的下半部。
 
 ## 7c. Runtime Core 边界：上半部/下半部
 
@@ -238,14 +245,16 @@ Dispatcher
 
 ### 边界判据
 
-凡"拒绝非法迁移"和"保证唯一终态"属上半部，必须在事务内同步执行。凡 I/O、跨模块
+凡"拒绝非法迁移"和"保证唯一终态"属上半部，必须在 producer-local 事务内同步执行，
+不得通过 Dispatcher 注册。凡 I/O、跨模块
 调用、fan-out 属下半部，必须在事务外异步执行。把下半部逻辑塞进事务会破坏 Core
 轻量与可测；把上半部校验放到事后异步会错过难纠正。
 
 ## 8. 一致性与投递
 
 - 事件先持久化，再向 Socket 或其他消费者发布。
-- 投递语义为 at-least-once，消费者按 `eventId` 幂等。
+- durable handler 投递语义为 at-least-once，消费者按 `eventId` 幂等；
+  best-effort 实时投影允许丢失且必须可重建。
 - 同一 stream 局部有序；跨 stream 用 `correlationId` 和 `causationId` 关联。
 - Runtime 终态后禁止产生新的 Runtime 活动事件。
 - Runtime completed 只表示本轮执行结束，不得直接推出 Task done。
@@ -258,11 +267,11 @@ Dispatcher
 
 | 切片 | 内容 | 依赖 | 退出条件（对应 §10） |
 | --- | --- | --- | --- |
-| 1 接入 daemon | `AcpRuntimeEventCoordinator` 接进 daemon.execute 路径，双写 fail-open | 切片 0（platform_event 表 + 日志 + publisher，已就位） | daemon ACP 路径产生可查询 Runtime 事件 |
-| 2 第一个 Projection | UI/Message 投影从读 AgentEvent 改为读 runtime 事件 | 切片 1 | 至少一个投影从 Runtime Event 重建 |
+| 1 接入 daemon | `AcpRuntimeEventCoordinator` 接进 daemon.execute 路径，双写 fail-open（已接入，补边界回归） | 切片 0（platform_event 表 + 日志 + publisher，已就位） | daemon ACP 路径产生可查询 Runtime 事件 |
+| 2 Durable Dispatcher + 第一个 Projection | 先建立持久投递/恢复，再让 UI/Message 投影从读 AgentEvent 改为读 runtime 事件 | 切片 1 | Dispatcher 可恢复；至少一个投影从 Runtime Event 重建 |
 | 3 Inbox + coordination | 建立持久 Agent Inbox + coordination 事件，替换浏览器内存队列 | 切片 1 | Agent Inbox 能由领域事件幂等产生、claim、恢复 |
 | 4 domain inline seam | 9 领域状态变更 inline 发 domain 事件，从 task 开始 | 切片 3（Inbox 消费 domain） | 四类事件契约和 owner 有自动化测试 |
-| 5 PM 迁出 | delivery 阶段推进抽成 Process Manager handler，执行编排下沉 worker（ADR-005） | 切片 4（delivery domain 事件） | delivery 协调不再依赖 task-notification-publisher 尾部硬编码 |
+| 5 PM 触发迁移 | delivery 阶段推进抽成 Process Manager handler，复用 `AutonomousDeliverySupervisor.advance()` 深模块（ADR-005） | 切片 4（delivery domain 事件） | delivery 协调不再依赖 task-notification-publisher 尾部硬编码 |
 | 6 退出双写 | 删除 forwardAgentEvent 业务副作用 + 旧 agent_event 写入 | 切片 2/3/4/5 全部完成 | 长期设计与 wiki 已同步，兼容双写已删除 |
 
 兼容双写必须在代码与长期文档中标记退出条件，不得形成永久双事实源。切片 6 是双写的

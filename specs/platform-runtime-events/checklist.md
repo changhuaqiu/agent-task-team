@@ -33,7 +33,9 @@
 ## 消费架构（切片 2/3/4/5）
 
 - [ ] Dispatcher 实现错误隔离（一个 handler 挂不影响其他）。
-- [ ] Dispatcher 实现同 stream 局部有序分发。
+- [ ] durable handler 有持久投递、attempt、lease、retry 与 terminal receipt。
+- [ ] Dispatcher 启动恢复能回补 append 后未投递事件并回收过期 lease。
+- [ ] Dispatcher 实现同一 handler × stream 局部有序分发。
 - [ ] Reducer 幂等并校验状态迁移。
 - [ ] Router 只产生 Inbox Command，不直接启动 Runtime。
 - [ ] Process Manager 只调目标模块 interface，不越权写表。
@@ -49,16 +51,16 @@
 
 ## Core 边界（ADR-002）
 
-- [ ] 上半部（终态守护、状态校验、dedupe）在 append/UPDATE 事务内同步执行。
+- [ ] 上半部（终态守护、状态校验、dedupe）作为 producer-local invariant 在 append/UPDATE 事务内同步执行，不注册到 Dispatcher。
 - [ ] 下半部（Router/Reducer/PM/Projection）在事务外异步 fan-out。
 - [ ] 上半部不做 I/O、不 fan-out。
 
 ## Process Manager（切片 5，ADR-005）
 
 - [ ] delivery 协调不再依赖 task-notification-publisher.ts:260 尾部硬编码。
-- [ ] bootstrap.ts 兜底 PM 与事件驱动入口合并，无重复。
-- [ ] advance 拆分：PM handler 只取快照 → decide → 派发 action。
-- [ ] 执行编排（lease/heartbeat/retry）下沉独立 worker。
+- [ ] bootstrap.ts 周期 reconcile 仅作为 crash/retry 恢复触发器。
+- [ ] PM handler 只把事件映射为 `advance(runId, cause)`。
+- [ ] `advance()` 继续隐藏状态推导、claim、lease、执行、重试与收口规则。
 - [ ] 现有 delivery 测试无回归。
 
 ## 兼容与验证

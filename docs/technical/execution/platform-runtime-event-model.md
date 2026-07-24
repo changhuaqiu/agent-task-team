@@ -23,7 +23,8 @@ Runtime Node 身份等）。本设计统一收敛到一个心智模型：
 > 都是 runtime 运行过程中的**事件源**，不是 runtime 本身。
 
 这对应 spec §4 中"canonical `runtime.*` 事件的唯一生产者 Platform Runtime"这一概念——
-Platform Runtime 就是归一化层，把所有事件源的原始信号收敛成有严格语义的事件流。
+Platform Runtime 就是归一化层，把 Runtime 原始信号收敛成有严格语义的 `runtime.*`
+事件流。领域事件仍由对应领域模块生产，Platform Runtime 不代理领域 owner。
 
 ### 1.2 OS 中断模型隐喻
 
@@ -34,7 +35,7 @@ Platform Runtime 就是归一化层，把所有事件源的原始信号收敛成
 | 运行中的系统 | 平台 runtime（整个运行时） | 平台本身 |
 | 中断源（时钟/磁盘/网卡） | 事件源（ACP 进程/领域模块/用户命令） | runtime 源✓ 领域源✗ |
 | 中断 = 信号 | `PlatformEvent` 信封 | ✓ 已有 |
-| **中断向量表** | **Dispatcher + handler 注册表** | **✗ 缺，这是枢纽** |
+| **中断向量表** | **Durable Dispatcher + handler 注册表** | **✗ 缺，这是枢纽** |
 | ISR（中断服务程序） | Handler（四角色） | spec §7 已定义角色 |
 | 上半部/下半部 | 同步 guard / 异步 fan-out | guard✓ fan-out✗ |
 | 中断屏蔽/优先级 | handler 分级 | 待定 |
@@ -118,14 +119,14 @@ spec §7 的四角色就是这"不同方法"的分类。
 │        │           PlatformEventLog                                   │
 │        │           ─ stream 顺序 ─ dedupe 幂等 ─ 冲突检测              │
 │        │           ─ 唯一终态守护 ─ schema 校验                        │
-│        │     [上半部 ISR：同步，在 append 事务内，拒绝非法迁移]         │
+│        │     [生产侧上半部：同步，在领域事务内，拒绝非法迁移]           │
 └────────┼─────────────────────────┬────────────────────────────────────┘
          │                         │
          │                         ▼ (下半部 fan-out，异步)
          │     ┌────────────────────────────────────────────────┐
-         │     │        ★ Dispatcher（中断向量表）—— 待补的枢纽   │
-         │     │        register(type, handler) / dispatch(ev)   │
-         │     │        错误隔离 · 顺序保证 · 重试                  │
+         │     │   ★ Durable Dispatcher（中断向量表）—— 待补的枢纽 │
+         │     │   register(type, handler) / recover() / drain() │
+         │     │   持久投递 · 错误隔离 · 局部顺序 · 恢复/重试       │
          │     └────┬───────────┬──────────────┬───────────────┬──┘
          │          ▼           ▼              ▼               ▼
          │     ┌────────┐  ┌─────────┐   ┌───────────┐   ┌──────────┐
@@ -202,7 +203,7 @@ spec §7 的四种消费方式（Reducer / Router / Process Manager / Projection
 | ①Router | domain 事件 | 给 ProjectAgent 创建 Inbox item | 只发 Command，不直接启动 Runtime | 入队失败重试，幂等（按 eventId） |
 | ②Reducer | 事件流 | 重建聚合当前态 | 幂等，拒绝非法迁移 | 非法迁移拒绝并记录 |
 | ③Process Manager | domain 事件 | 跨领域协调闭环 | 只调目标模块 interface，不越权写表 | interface 调用失败重试 |
-| ④Projection | 事件 | 刷新 UI/socket/统计 | 可重建，不是事实源 | 失败可丢，下次重建 |
+| ④Projection | 事件 | 刷新 UI/socket/统计 | 可重建，不是事实源 | durable 投影重试；best-effort 实时推送可丢 |
 
 ---
 
@@ -232,7 +233,19 @@ spec §7 的四种消费方式（Reducer / Router / Process Manager / Projection
 ```
 
 `RuntimeEventPublisher` 的 guard 已示范了上半部 ISR 模式（在 append 事务内拒绝非法迁移）。
-domain 表的状态校验应当镜像这一模式：领域模块的状态机校验与事件追加在同一事务内完成。
+domain 表的状态校验应当镜像这一模式：领域模块的状态机校验、表写入与事件追加在同一事务内
+完成。上半部是 producer-local invariant，不注册到 Dispatcher；Dispatcher 只负责提交后的
+下半部 fan-out。
+
+### 6.1 下半部可靠性
+
+仅有进程内 `dispatch(event)` 无法提供 at-least-once：进程可能在事件提交后、回调执行前
+退出。因此 durable handler 必须有持久投递事实（event × handler）、attempt、lease、
+next-attempt 与 terminal receipt；启动恢复会从 `platform_event` 回补缺失投递，再 claim
+执行。best-effort handler 仅用于可重建或允许丢失的实时通知，不承诺重试。
+
+同一 handler 对同一 stream 串行消费，只有前序事件成功或明确 dead-letter 后才推进；
+不同 stream 可以并行。handler 必须按 `eventId` 幂等。
 
 ---
 
@@ -379,7 +392,7 @@ A 调工具 requestHandoff({to:B, prompt, contextRef})
 
 | 事件类 | 状态 | 说明 |
 | --- | --- | --- |
-| runtime_lifecycle / runtime_activity | ✓ 信封+归一化已就位，✗ 未接 daemon | 第一切片产物 |
+| runtime_lifecycle / runtime_activity | ✓ 信封+归一化已就位，✓ 已接 daemon（兼容双写） | 切片 0/1 产物 |
 | domain（9 领域） | ✗ 全静默纯表写入 | 最大缺口，详见 9.3 |
 | coordination | ✗ Inbox 未建 | 信封已预留 `inboxItemId` 字段 |
 
@@ -414,7 +427,7 @@ A 调工具 requestHandoff({to:B, prompt, contextRef})
 
 ### 9.5 Process Manager 错位（精确落点）
 
-> **ADR-005：立即重构 Process Manager，从 daemon/supervisor 迁出**
+> **ADR-005：立即解耦 Process Manager 触发入口，保留 Supervisor 深模块**
 > 详见 §11 ADR-005。
 
 delivery 的阶段推进不是"硬编码在 daemon"（之前的判断有误）。精确结构：
@@ -424,14 +437,18 @@ delivery 的阶段推进不是"硬编码在 daemon"（之前的判断有误）�
 - `advance` 已有良好分层：纯函数决策 `decideDeliveryNext`（`policy.ts:90`）+ 端口适配
   （`DeliveryFactsPort`/`DeliveryActionPort`）+ 乐观锁串行化（`updateRun` 用
   `expectedRevision`，`repository.ts:111-112`）。
-- **错位点**（需重构的三处）：
+- **错位点**（需重构的两处）：
   1. **入口硬编码时序**：`task-notification-publisher.ts:260` 尾部 `void reconcile...`
      把 delivery 协调挂在 task 通知函数尾部，与 task 通知耦合。应抽成 task 事件订阅 handler。
-  2. **兜底 PM 重复**：`bootstrap.ts:54-56` 的 `setInterval`（15s）+ 启动 reconcile 是兜底
-     PM，与事件驱动入口职责重叠。
-  3. **advance 职责过重**：同时是 PM 驱动器 + 执行器 + 重试调度器。`cause` 参数被
-     `void` 掉（`supervisor.ts:85`），PM 入口语义没被利用。应把执行编排（lease/heartbeat/
-     retry）下沉到独立 worker，PM handler 只负责"取快照 → decide → 派发 action"。
+  2. **触发原因未利用**：`cause` 参数被 `void` 掉（`supervisor.ts:85`），事件因果没有进入
+     可观察证据。
+
+`AutonomousDeliverySupervisor.advance()` 已是深模块：它用一个小 interface 隐藏状态推导、
+claim、lease、重试、恢复、并发控制和收口规则；这与
+`specs/autonomous-delivery-loop/spec.md` 的既有契约一致。事件迁移不得为了“handler 化”
+把这些内部职责泄露成多个浅 interface。事件 handler 只负责把 event 映射为
+`advance(runId, cause)`。bootstrap 的周期 reconcile 保留为恢复触发器，不与事件驱动入口
+争夺事实 owner。
 
 ### 9.6 forwardAgentEvent 六重职责（待拆）
 
@@ -455,12 +472,12 @@ forwardAgentEvent 最终退化成兼容 shim，在双写退出后删除。
 > 详细切片依赖与退出条件见 spec §9 与 `tasks.md`。
 
 ```text
-切片1: 接入 daemon
+切片1: 接入 daemon（已完成，待补 daemon 边界回归）
   AcpRuntimeEventCoordinator 接进 daemon.execute 路径，双写 fail-open
   退出: daemon ACP 路径产生可查询 Runtime 事件（spec §10）
 
-切片2: 第一个 Projection
-  UI/Message 投影从读 AgentEvent 改为读 runtime 事件
+切片2: Durable Dispatcher + 第一个 Projection
+  建立持久投递/恢复，再把 UI/Message 投影从读 AgentEvent 改为读 runtime 事件
   退出: 至少一个投影从 Runtime Event 重建（spec §10）
 
 切片3: Agent Inbox + coordination 事件
@@ -471,8 +488,8 @@ forwardAgentEvent 最终退化成兼容 shim，在双写退出后删除。
   从 task 开始（最成熟的 task_action 准事件源），证明 inline 模式可行，再扩展全领域
   退出: 四类事件契约和 owner 有自动化测试（spec §10）
 
-切片5: Process Manager 从 daemon/supervisor 迁出
-  delivery 阶段推进抽成 PM handler，执行编排下沉 worker
+切片5: Process Manager 触发入口迁移
+  delivery 阶段推进抽成 handler，复用 AutonomousDeliverySupervisor.advance 深模块
   退出: delivery 协调不再依赖 task-notification-publisher 尾部硬编码
 
 切片6: 退出双写
@@ -505,9 +522,10 @@ forwardAgentEvent 最终退化成兼容 shim，在双写退出后删除。
 
 - **背景**：事件生产与消费混在一起会导致：要么把 I/O 塞进事务（事务变重），要么关键
   校验放到事后异步（错过难纠正）。
-- **决策**：上半部（同步，append 事务内）只做"拒绝非法"和"保证唯一"——终态守护、状态机
-  非法迁移拒绝、dedupe 冲突检测。下半部（异步，append 后 fan-out）做 Router/Reducer/
-  PM/Projection。一个 handler 挂不影响别的（错误隔离）。
+- **决策**：上半部（同步，producer-local 领域事务内）只做"拒绝非法"和"保证唯一"——
+  终态守护、状态机非法迁移拒绝、dedupe 冲突检测；它不是 Dispatcher handler。下半部
+  （提交后 fan-out）做 Router/Reducer/PM/Projection。durable handler 通过持久投递事实
+  at-least-once 恢复，best-effort handler 允许丢失；一个 handler 挂不影响别的。
 - **替代方案**：全部异步。否决原因：终态唯一性和状态机校验错过就难纠正。
 - **后果**：RuntimeEventPublisher 的 guard 已示范上半部模式；domain 表状态校验应镜像。
 - **退出条件**：无。
@@ -536,16 +554,19 @@ forwardAgentEvent 最终退化成兼容 shim，在双写退出后删除。
 - **后果**：domain 事件目录见 spec §6。`task_action` 等准事件源加 fan-out 即可复用。
 - **退出条件**：四类事件契约和 owner 有自动化测试（spec §10）。
 
-### ADR-005：立即重构 Process Manager，从 daemon/supervisor 迁出
+### ADR-005：立即解耦 Process Manager 触发入口，保留 Supervisor 深模块
 
-- **背景**：delivery 阶段推进的 PM 职责错位——入口硬编码在 task-notification-publisher
-  尾部，兜底 PM 重复，advance 职责过重。
-- **决策**：立即重构（不双写渐进）。①task-notification-publisher:260 的硬编码抽成
-  task 事件订阅 handler。②bootstrap.ts 的兜底 PM 与事件驱动入口合并。③advance 拆分：
-  PM handler 只负责"取快照 → decide → 派发 action"，执行编排下沉 worker。
-- **替代方案**：双写渐进迁移（Process Manager 作为订阅者并存，daemon 逻辑逐步迁移）。
-  否决原因：用户明确选"立即重构"。
-- **后果**：daemon 退化成纯 Runtime 执行器。delivery 协调可独立测试。
+- **背景**：delivery 阶段推进的触发职责错位——入口硬编码在
+  task-notification-publisher 尾部；但 `advance()` 本身已经是符合既有 active spec 的
+  深模块。
+- **决策**：立即迁移触发入口（不保留通知尾部双写）。task 事件 handler 调用
+  `advance(runId, cause)`；周期 reconcile 保留为 crash/retry 恢复触发器。Supervisor 内部
+  的状态推导、claim、lease、执行、重试与收口继续隐藏在同一 interface 后。
+- **替代方案**：①保留通知尾部触发，否决原因是继续耦合 Projection 与协调逻辑；
+  ②把 Supervisor 拆成 PM handler + worker 公共 interface，否决原因是与
+  `autonomous-delivery-loop` 事实源冲突并降低模块深度。
+- **后果**：daemon 仍是纯 Runtime 执行器；delivery 协调可通过 Supervisor interface 独立
+  测试；事件 handler 很薄但不复制业务规则。
 - **退出条件**：delivery 协调不再依赖 task-notification-publisher 尾部硬编码；现有 delivery
   测试无回归。
 
