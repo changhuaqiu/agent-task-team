@@ -1,13 +1,57 @@
 # 实施任务
 
+任务按 spec §9 的 6 切片组织。每切片落地前另起 plan，不在本文件锁定实现细节。
+对齐 spec §10 退出条件与 checklist.md 验收项。
+
+## 切片 0：基础设施（已完成）
+
 - [x] T1 建立活动规格与长期技术设计，冻结事件分类、owner、信封和消费方式。
 - [x] T2 增加 `platform_event` schema 与 forward-only migration。
 - [x] T3 实现事件日志：自动 ID/时间、stream sequence、dedupe 幂等和冲突检测。
 - [x] T4 实现 typed Runtime Event publisher 和生命周期不变量。
-- [x] T5 daemon 对 Runtime 活动与终态执行兼容双写。
+- [x] T4b 实现 AcpRuntimeEventCoordinator + RuntimeAgentEventBridge（归一化与兼容桥）。
+
+## 切片 1：接入 daemon（待开始）
+
+- [ ] T5 daemon 对 Runtime 活动与终态执行兼容双写（经 AcpRuntimeEventCoordinator）。
+  - daemon.execute 路径持有 coordinator：accept → backend.execute → terminate
+  - 同步启动失败复用 failSetup
+  - 双写 fail-open，标记退出条件（不得永久双事实源）
+  - 退出：daemon ACP 路径产生可查询 Runtime 事件
+
+## 切片 2：第一个 Projection（待开始）
+
 - [ ] T6 增加 Runtime Event 查询与首个 projection。
-- [ ] T7 建立持久 Agent Inbox 与 coordination 事件。
-- [ ] T8 接入第一组领域事件和 Wakeup Router。
-- [ ] T9 迁移 Message、UI、Observability、Harness Outcome 消费者。
-- [ ] T10 删除旧 `AgentEvent` 业务副作用与 `agent_event` 兼容写入。
+  - 选定一个投影（建议 UI/Message）从读 AgentEvent 改为读 runtime 事件
+  - 退出：至少一个投影从 Runtime Event 重建，而非读取 ACP/AgentEvent 原始信号
+
+## 切片 3：Agent Inbox + coordination 事件（待开始）
+
+- [ ] T7 建立持久 Agent Inbox 与 coordination 事件，替换浏览器内存队列。
+  - AgentInbox module：enqueue(domainEvent) → InboxItem + claim(projectAgentId) → InboxItem | null + recover()
+  - coordination 事件：agent.work.enqueued / claimed / recovered
+  - 退出：Agent Inbox 能由领域事件幂等产生、claim、恢复
+
+## 切片 4：domain 事件 inline seam（待开始）
+
+- [ ] T8 9 领域状态变更 inline 发 domain 事件，从 task 开始。
+  - 先 task（task_action 准事件源最成熟），再 delivery / a2a / envelope / binding / node / session / invocation / review
+  - inline seam：领域模块表写入动作同事务发事件（ADR-001）
+  - 接入 Wakeup Router（domain 事件 → Inbox）
+  - 退出：四类事件契约和 owner 有自动化测试
+
+## 切片 5：Process Manager 迁出（待开始）
+
+- [ ] T9 delivery 阶段推进抽成 Process Manager handler（ADR-005，立即重构）。
+  - task-notification-publisher.ts:260 硬编码抽成 task 事件订阅 handler
+  - bootstrap.ts 兜底 PM 与事件驱动入口合并
+  - advance 拆分：PM handler 只取快照 → decide → 派发 action；执行编排下沉 worker
+  - 退出：delivery 协调不再依赖 task-notification-publisher 尾部硬编码；现有 delivery 测试无回归
+
+## 切片 6：退出双写（待开始）
+
+- [ ] T10 删除 forwardAgentEvent 业务副作用 + 旧 agent_event 写入。
+  - 前置：切片 2/3/4/5 全部完成
+  - 迁移 Message、UI、Observability、Harness Outcome 消费者
+  - 退出：长期设计与 wiki 已同步，兼容双写已删除
 - [ ] T11 完成全量验证、长期事实回写并归档规格。
