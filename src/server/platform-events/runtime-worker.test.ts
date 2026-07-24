@@ -55,4 +55,60 @@ describe('PlatformEventRuntimeWorker', () => {
     expect(calls.drain).toBe(3);
     worker.stop();
   });
+
+  it('retries startup recovery before incremental discovery', async () => {
+    vi.useFakeTimers();
+    let recoverCalls = 0;
+    const dispatcher = {
+      register() {},
+      recover() {
+        recoverCalls += 1;
+        if (recoverCalls === 1) throw new Error('temporary');
+        return { enqueued: 0, abandonedAttempts: 0 };
+      },
+      discover: vi.fn(() => 0),
+      drain: vi.fn(async () => ({ succeeded: 0, failed: 0, deadLettered: 0 })),
+    };
+    const worker = new PlatformEventRuntimeWorker({ intervalMs: 10, dispatcher });
+    worker.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(dispatcher.discover).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(10);
+    expect(recoverCalls).toBe(2);
+    expect(dispatcher.discover).toHaveBeenCalledTimes(1);
+    worker.stop();
+  });
+
+  it('fences an old in-flight tick across stop and restart', async () => {
+    vi.useFakeTimers();
+    let releaseOld!: () => void;
+    const oldDrain = new Promise<void>((resolve) => {
+      releaseOld = resolve;
+    });
+    let drainCalls = 0;
+    const dispatcher = {
+      register() {},
+      recover: vi.fn(() => ({ enqueued: 0, abandonedAttempts: 0 })),
+      discover: vi.fn(() => 0),
+      async drain() {
+        drainCalls += 1;
+        if (drainCalls === 1) await oldDrain;
+        return { succeeded: 0, failed: 0, deadLettered: 0 };
+      },
+    };
+    const worker = new PlatformEventRuntimeWorker({ intervalMs: 10, dispatcher });
+    worker.start();
+    await vi.advanceTimersByTimeAsync(0);
+    worker.stop();
+    worker.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(drainCalls).toBe(2);
+
+    releaseOld();
+    await vi.advanceTimersByTimeAsync(10);
+    expect(drainCalls).toBe(3);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(drainCalls).toBe(4);
+    worker.stop();
+  });
 });

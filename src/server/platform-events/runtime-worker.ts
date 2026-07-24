@@ -20,6 +20,8 @@ export class PlatformEventRuntimeWorker {
   private readonly intervalMs: number;
   private timer?: ReturnType<typeof setTimeout>;
   private stopped = true;
+  private generation = 0;
+  private recovered = false;
 
   constructor(options: number | PlatformEventRuntimeWorkerOptions = 250) {
     const resolved = typeof options === 'number' ? { intervalMs: options } : options;
@@ -38,31 +40,33 @@ export class PlatformEventRuntimeWorker {
   start(): void {
     if (!this.stopped) return;
     this.stopped = false;
-    try {
-      this.dispatcher.recover();
-    } catch (error) {
-      console.error('[platform-event] dispatcher recovery failed:', error);
-    }
-    this.schedule(0);
+    this.generation += 1;
+    this.recovered = false;
+    this.schedule(0, this.generation);
   }
 
   stop(): void {
     this.stopped = true;
+    this.generation += 1;
     if (this.timer) clearTimeout(this.timer);
     this.timer = undefined;
   }
 
-  private schedule(delayMs: number): void {
-    if (this.stopped) return;
+  private schedule(delayMs: number, generation: number): void {
+    if (this.stopped || generation !== this.generation) return;
     this.timer = setTimeout(() => {
       this.timer = undefined;
-      void this.tick().finally(() => this.schedule(this.intervalMs));
+      void this.tick().finally(() => this.schedule(this.intervalMs, generation));
     }, delayMs);
     this.timer.unref?.();
   }
 
   private async tick(): Promise<void> {
     try {
+      if (!this.recovered) {
+        this.dispatcher.recover();
+        this.recovered = true;
+      }
       this.dispatcher.discover();
       await this.dispatcher.drain();
     } catch (error) {

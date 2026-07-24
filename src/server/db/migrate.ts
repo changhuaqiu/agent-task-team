@@ -1460,6 +1460,40 @@ CREATE TABLE IF NOT EXISTS platform_event_handler_cursor (
 );
 `,
   },
+  {
+    version: 48,
+    sql: `
+CREATE TABLE IF NOT EXISTS platform_event_ingestion (
+  ingestion_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_id TEXT NOT NULL UNIQUE REFERENCES platform_event(id) ON DELETE CASCADE
+);
+INSERT OR IGNORE INTO platform_event_ingestion (event_id)
+  SELECT id FROM platform_event ORDER BY recorded_at ASC, id ASC;
+`,
+    run: (db) => {
+      const cursorTable = db.prepare(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='platform_event_handler_cursor'",
+      ).get();
+      if (!cursorTable) {
+        db.exec(`
+          CREATE TABLE platform_event_handler_cursor (
+            handler_id TEXT PRIMARY KEY,
+            last_ingestion_id INTEGER NOT NULL DEFAULT 0 CHECK(last_ingestion_id >= 0),
+            updated_at TEXT NOT NULL
+          )
+        `);
+        return;
+      }
+      const columns = db.prepare('PRAGMA table_info(platform_event_handler_cursor)')
+        .all() as Array<{ name: string }>;
+      if (columns.some((column) => column.name === 'last_event_rowid')) {
+        db.exec(`
+          ALTER TABLE platform_event_handler_cursor
+          RENAME COLUMN last_event_rowid TO last_ingestion_id
+        `);
+      }
+    },
+  },
 ];
 
 export function applyMigrations(db: Database.Database): void {

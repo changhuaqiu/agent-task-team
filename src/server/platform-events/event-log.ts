@@ -201,6 +201,9 @@ export class PlatformEventLog {
         input.occurredAt ?? recordedAt,
         recordedAt,
       );
+      db.prepare(`
+        INSERT INTO platform_event_ingestion (event_id) VALUES (?)
+      `).run(eventId);
 
       return this.getById<TType, TPayload>(eventId)!;
     });

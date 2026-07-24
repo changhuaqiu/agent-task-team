@@ -131,11 +131,13 @@ export class PlatformEventDispatcher {
 
       let enqueued = 0;
       const events = db.prepare(`
-        SELECT rowid AS event_rowid, id, type, stream_key, stream_sequence, recorded_at
-        FROM platform_event
-        ORDER BY rowid ASC
+        SELECT ingestion.ingestion_id, event.id, event.type, event.stream_key,
+               event.stream_sequence, event.recorded_at
+        FROM platform_event_ingestion ingestion
+        JOIN platform_event event ON event.id=ingestion.event_id
+        ORDER BY ingestion.ingestion_id ASC
       `).all() as Array<{
-        event_rowid: number;
+        ingestion_id: number;
         id: string;
         type: string;
         stream_key: string;
@@ -164,14 +166,14 @@ export class PlatformEventDispatcher {
           );
           enqueued += result.changes;
         }
-        const lastEventRowid = events.at(-1)?.event_rowid ?? 0;
+        const lastIngestionId = events.at(-1)?.ingestion_id ?? 0;
         db.prepare(`
-          INSERT INTO platform_event_handler_cursor (handler_id,last_event_rowid,updated_at)
+          INSERT INTO platform_event_handler_cursor (handler_id,last_ingestion_id,updated_at)
           VALUES (?, ?, ?)
           ON CONFLICT(handler_id) DO UPDATE SET
-            last_event_rowid=excluded.last_event_rowid,
+            last_ingestion_id=excluded.last_ingestion_id,
             updated_at=excluded.updated_at
-        `).run(registration.id, lastEventRowid, now);
+        `).run(registration.id, lastIngestionId, now);
       }
       return { enqueued, abandonedAttempts: expired.length };
     }).immediate();
@@ -191,15 +193,17 @@ export class PlatformEventDispatcher {
       for (const registration of this.registrations.values()) {
         if (registration.reliability !== 'durable') continue;
         const cursor = db.prepare(`
-          SELECT last_event_rowid FROM platform_event_handler_cursor WHERE handler_id=?
-        `).get(registration.id) as { last_event_rowid: number } | undefined;
+          SELECT last_ingestion_id FROM platform_event_handler_cursor WHERE handler_id=?
+        `).get(registration.id) as { last_ingestion_id: number } | undefined;
         const events = db.prepare(`
-          SELECT rowid AS event_rowid, id, type, stream_key, stream_sequence, recorded_at
-          FROM platform_event
-          WHERE rowid > ?
-          ORDER BY rowid ASC
-        `).all(cursor?.last_event_rowid ?? 0) as Array<{
-          event_rowid: number;
+          SELECT ingestion.ingestion_id, event.id, event.type, event.stream_key,
+                 event.stream_sequence, event.recorded_at
+          FROM platform_event_ingestion ingestion
+          JOIN platform_event event ON event.id=ingestion.event_id
+          WHERE ingestion.ingestion_id > ?
+          ORDER BY ingestion.ingestion_id ASC
+        `).all(cursor?.last_ingestion_id ?? 0) as Array<{
+          ingestion_id: number;
           id: string;
           type: string;
           stream_key: string;
@@ -221,12 +225,12 @@ export class PlatformEventDispatcher {
         }
         if (events.length > 0) {
           db.prepare(`
-            INSERT INTO platform_event_handler_cursor (handler_id,last_event_rowid,updated_at)
+            INSERT INTO platform_event_handler_cursor (handler_id,last_ingestion_id,updated_at)
             VALUES (?, ?, ?)
             ON CONFLICT(handler_id) DO UPDATE SET
-              last_event_rowid=excluded.last_event_rowid,
+              last_ingestion_id=excluded.last_ingestion_id,
               updated_at=excluded.updated_at
-          `).run(registration.id, events.at(-1)!.event_rowid, now);
+          `).run(registration.id, events.at(-1)!.ingestion_id, now);
         }
       }
       return enqueued;

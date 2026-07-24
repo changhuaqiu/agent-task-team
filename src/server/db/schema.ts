@@ -259,9 +259,17 @@ export const runtimeInvocationProjection = sqliteTable('runtime_invocation_proje
 
 export const platformEventHandlerCursor = sqliteTable('platform_event_handler_cursor', {
   handlerId: text('handler_id').primaryKey(),
-  lastEventRowid: integer('last_event_rowid').notNull().default(0),
+  lastIngestionId: integer('last_ingestion_id').notNull().default(0),
   updatedAt: text('updated_at').notNull(),
 });
+
+export const platformEventIngestion = sqliteTable('platform_event_ingestion', {
+  ingestionId: integer('ingestion_id').primaryKey({ autoIncrement: true }),
+  eventId: text('event_id').notNull()
+    .references(() => platformEvent.id, { onDelete: 'cascade' }),
+}, (table) => [
+  uniqueIndex('uq_platform_event_ingestion_event').on(table.eventId),
+]);
 
 // ──────────────────────────────────────────────
 // role_cards

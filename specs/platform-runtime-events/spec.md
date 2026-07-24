@@ -199,7 +199,8 @@ Dispatcher
   stereotype（router/reducer/process_manager/projection）与 reliability
   （durable/best_effort）。
 - `recover`：启动时从事件日志回补 durable handler 缺失的持久投递事实、回收过期 lease，
-  并建立 handler cursor；运行期按 cursor 增量发现新事件，不轮询全量历史。
+  并建立 handler cursor；cursor 基于不可复用的 AUTOINCREMENT ingestion offset，
+  运行期据此增量发现新事件，不轮询全量历史。
 - `drain`：claim 可执行投递并调用 handler；成功后记录 receipt，失败按策略重试。
 
 ### Handler stereotype 约束（同 §7 四角色）

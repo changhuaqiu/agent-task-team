@@ -98,8 +98,18 @@ describe('PlatformEventDispatcher', () => {
     expect(dispatcher.discover()).toBe(1);
     expect(dispatcher.discover()).toBe(0);
     expect(db.prepare(`
-      SELECT last_event_rowid FROM platform_event_handler_cursor WHERE handler_id='incremental-router'
-    `).get()).toEqual({ last_event_rowid: 3 });
+      SELECT last_ingestion_id FROM platform_event_handler_cursor WHERE handler_id='incremental-router'
+    `).get()).toEqual({ last_ingestion_id: 3 });
+
+    const latest = db.prepare(`
+      SELECT event_id FROM platform_event_ingestion ORDER BY ingestion_id DESC LIMIT 1
+    `).get() as { event_id: string };
+    db.prepare('DELETE FROM platform_event WHERE id=?').run(latest.event_id);
+    append('task.assigned', 'task:3');
+    expect(dispatcher.discover()).toBe(1);
+    expect(db.prepare(`
+      SELECT last_ingestion_id FROM platform_event_handler_cursor WHERE handler_id='incremental-router'
+    `).get()).toEqual({ last_ingestion_id: 4 });
   });
 
   it('isolates a failed stream, retries it, and continues another stream', async () => {
