@@ -11,7 +11,13 @@ export type PlatformEventHandlerStereotype =
   | 'projection';
 
 export type PlatformEventHandlerReliability = 'durable' | 'best_effort';
-export type PlatformEventHandler = (event: PlatformEvent) => void | Promise<void>;
+export interface PlatformEventHandlerContext {
+  signal: AbortSignal;
+}
+export type PlatformEventHandler = (
+  event: PlatformEvent,
+  context: PlatformEventHandlerContext,
+) => void | Promise<void>;
 
 export interface PlatformEventHandlerRegistration {
   id: string;
@@ -170,7 +176,7 @@ export class PlatformEventDispatcher {
       ),
     );
     const results = await Promise.allSettled(
-      handlers.map((registration) => this.runHandler(registration, event)),
+      handlers.map((registration) => this.runBestEffortHandler(registration, event)),
     );
     return results.flatMap((result, index) => (
       result.status === 'rejected'
@@ -181,6 +187,12 @@ export class PlatformEventDispatcher {
 
   async drain(maxDeliveries = 100): Promise<DispatcherDrainResult> {
     const result: DispatcherDrainResult = { succeeded: 0, failed: 0, deadLettered: 0 };
+    const claims: Array<{
+      delivery: DeliveryRow;
+      attemptId: string;
+      registration: PlatformEventHandlerRegistration;
+      event: PlatformEvent;
+    }> = [];
     for (let index = 0; index < maxDeliveries; index += 1) {
       const claim = this.claimNext();
       if (!claim) break;
@@ -191,15 +203,18 @@ export class PlatformEventDispatcher {
         result.failed += 1;
         continue;
       }
-      try {
-        await this.runHandler(registration, event);
-        if (this.succeed(claim.delivery, claim.attemptId)) result.succeeded += 1;
-      } catch (error) {
-        const deadLettered = this.fail(claim.delivery, claim.attemptId, registration, error);
-        result.failed += 1;
-        if (deadLettered) result.deadLettered += 1;
-      }
+      claims.push({ ...claim, registration, event });
     }
+    await Promise.all(claims.map(async ({ delivery, attemptId, registration, event }) => {
+      try {
+        await this.runDurableHandler(registration, event, delivery, attemptId);
+        if (this.succeed(delivery, attemptId)) result.succeeded += 1;
+      } catch (error) {
+        const transition = this.fail(delivery, attemptId, registration, error);
+        if (transition !== 'fenced') result.failed += 1;
+        if (transition === 'dead_lettered') result.deadLettered += 1;
+      }
+    }));
     return result;
   }
 
@@ -278,7 +293,7 @@ export class PlatformEventDispatcher {
     attemptId: string,
     registration: PlatformEventHandlerRegistration,
     error: unknown,
-  ): boolean {
+  ): 'fenced' | 'retry_queued' | 'dead_lettered' {
     const db = this.database ?? getDb();
     const now = this.now();
     const nowIso = now.toISOString();
@@ -305,17 +320,17 @@ export class PlatformEventDispatcher {
         this.workerId,
         attemptId,
       );
-      if (updated.changes !== 1) return false;
+      if (updated.changes !== 1) return 'fenced' as const;
       db.prepare(`
         UPDATE platform_event_delivery_attempt
         SET status = 'failed', finished_at = ?, error = ?
         WHERE id = ? AND status = 'running'
       `).run(nowIso, message, attemptId);
-      return deadLettered;
+      return deadLettered ? 'dead_lettered' as const : 'retry_queued' as const;
     }).immediate();
   }
 
-  private async runHandler(
+  private async runBestEffortHandler(
     registration: PlatformEventHandlerRegistration,
     event: PlatformEvent,
   ): Promise<void> {
@@ -324,12 +339,16 @@ export class PlatformEventDispatcher {
       throw new Error(`platform_event_handler_timeout_invalid:${registration.id}`);
     }
     let timer: ReturnType<typeof setTimeout> | undefined;
+    const controller = new AbortController();
     try {
       await Promise.race([
-        Promise.resolve().then(() => registration.handle(event)),
+        Promise.resolve().then(() => registration.handle(event, { signal: controller.signal })),
         new Promise<never>((_, reject) => {
           timer = setTimeout(
-            () => reject(new Error(`platform_event_handler_timed_out:${registration.id}`)),
+            () => {
+              controller.abort();
+              reject(new Error(`platform_event_handler_timed_out:${registration.id}`));
+            },
             timeoutMs,
           );
         }),
@@ -337,5 +356,53 @@ export class PlatformEventDispatcher {
     } finally {
       if (timer) clearTimeout(timer);
     }
+  }
+
+  private async runDurableHandler(
+    registration: PlatformEventHandlerRegistration,
+    event: PlatformEvent,
+    delivery: DeliveryRow,
+    attemptId: string,
+  ): Promise<void> {
+    const timeoutMs = registration.timeoutMs ?? this.leaseMs;
+    if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+      throw new Error(`platform_event_handler_timeout_invalid:${registration.id}`);
+    }
+    const controller = new AbortController();
+    let timedOut = false;
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, timeoutMs);
+    const heartbeat = setInterval(
+      () => this.extendLease(delivery.id, attemptId),
+      Math.max(10, Math.floor(this.leaseMs / 3)),
+    );
+    try {
+      await registration.handle(event, { signal: controller.signal });
+      if (timedOut) {
+        throw new Error(`platform_event_handler_timed_out:${registration.id}`);
+      }
+    } finally {
+      clearTimeout(timeout);
+      clearInterval(heartbeat);
+    }
+  }
+
+  private extendLease(deliveryId: string, attemptId: string): void {
+    const db = this.database ?? getDb();
+    const now = this.now();
+    db.prepare(`
+      UPDATE platform_event_delivery
+      SET lease_expires_at = ?, updated_at = ?
+      WHERE id = ? AND status = 'running' AND lease_owner = ?
+        AND current_attempt_id = ?
+    `).run(
+      new Date(now.getTime() + this.leaseMs).toISOString(),
+      now.toISOString(),
+      deliveryId,
+      this.workerId,
+      attemptId,
+    );
   }
 }

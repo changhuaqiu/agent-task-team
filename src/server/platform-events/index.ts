@@ -9,6 +9,7 @@ export {
   type DispatcherRecoveryResult,
   type PlatformEventDispatcherOptions,
   type PlatformEventHandler,
+  type PlatformEventHandlerContext,
   type PlatformEventHandlerRegistration,
   type PlatformEventHandlerReliability,
   type PlatformEventHandlerStereotype,

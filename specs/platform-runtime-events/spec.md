@@ -219,6 +219,9 @@ Dispatcher
   跨 stream 用 `correlationId`/`causationId` 关联，不保证全局顺序。
 - **重试**：durable handler 按 at-least-once 重试，消费者按 `eventId` 幂等；
   best-effort handler 不承诺重试。
+- **取消与串行**：handler 接收 `AbortSignal`。durable handler 超时后必须先协作停止并
+  释放本次执行，Dispatcher 才能把同 stream 投递交给下一 attempt；执行期间按 claim token
+  续租，进程退出后才由 lease recovery 接管。每个 production durable handler 必须有取消测试。
 - **上半部不是 Dispatcher handler**：producer-local invariant 在领域事务内同步执行
   （见 §7c）；Dispatcher 只运行事务提交后的下半部。
 

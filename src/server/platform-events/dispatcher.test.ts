@@ -68,7 +68,8 @@ describe('PlatformEventDispatcher', () => {
 
     expect(dispatcher.recover()).toEqual({ enqueued: 2, abandonedAttempts: 0 });
     expect(dispatcher.recover()).toEqual({ enqueued: 0, abandonedAttempts: 0 });
-    expect(await dispatcher.drain()).toEqual({ succeeded: 2, failed: 0, deadLettered: 0 });
+    expect(await dispatcher.drain()).toEqual({ succeeded: 1, failed: 0, deadLettered: 0 });
+    expect(await dispatcher.drain()).toEqual({ succeeded: 1, failed: 0, deadLettered: 0 });
     expect(handled).toEqual(['task:1:1', 'task:1:2']);
 
     const deliveries = db.prepare(`
@@ -106,7 +107,8 @@ describe('PlatformEventDispatcher', () => {
     expect(new Set(handled)).toEqual(new Set(['task:1:1', 'task:2:1']));
 
     now = new Date(now.getTime() + 1_000);
-    expect(await dispatcher.drain()).toEqual({ succeeded: 2, failed: 0, deadLettered: 0 });
+    expect(await dispatcher.drain()).toEqual({ succeeded: 1, failed: 0, deadLettered: 0 });
+    expect(await dispatcher.drain()).toEqual({ succeeded: 1, failed: 0, deadLettered: 0 });
     expect(handled.slice(2)).toEqual(['task:1:1', 'task:1:2']);
   });
 
@@ -262,5 +264,35 @@ describe('PlatformEventDispatcher', () => {
     expect(db.prepare(`
       SELECT status, completed_at FROM platform_event_delivery
     `).get()).toEqual({ status: 'dead_letter', completed_at: now.toISOString() });
+  });
+
+  it('cooperatively aborts a timed-out durable handler before retrying its stream', async () => {
+    append('task.assigned', 'task:1');
+    let active = 0;
+    let maxActive = 0;
+    const dispatcher = createDispatcher();
+    dispatcher.register({
+      id: 'abortable-router',
+      pattern: 'task.*',
+      stereotype: 'router',
+      reliability: 'durable',
+      timeoutMs: 5,
+      maxAttempts: 2,
+      handle: (_event, { signal }) => new Promise<void>((resolve) => {
+        active += 1;
+        maxActive = Math.max(maxActive, active);
+        signal.addEventListener('abort', () => {
+          active -= 1;
+          resolve();
+        }, { once: true });
+      }),
+    });
+    dispatcher.recover();
+
+    expect(await dispatcher.drain(1)).toEqual({ succeeded: 0, failed: 1, deadLettered: 0 });
+    now = new Date(now.getTime() + 1_000);
+    expect(await dispatcher.drain(1)).toEqual({ succeeded: 0, failed: 1, deadLettered: 1 });
+    expect(maxActive).toBe(1);
+    expect(active).toBe(0);
   });
 });

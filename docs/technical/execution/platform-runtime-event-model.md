@@ -245,7 +245,9 @@ next-attempt 与 terminal receipt；启动恢复会从 `platform_event` 回补�
 执行。best-effort handler 仅用于可重建或允许丢失的实时通知，不承诺重试。
 
 同一 handler 对同一 stream 串行消费，只有前序事件成功或明确 dead-letter 后才推进；
-不同 stream 可以并行。handler 必须按 `eventId` 幂等。
+不同 stream 可以并行。handler 必须按 `eventId` 幂等，并接受 `AbortSignal`：超时只触发
+协作取消，Dispatcher 必须等本次执行真正释放后才重试同 stream；活跃执行用 claim token
+续租，只有进程退出后才允许 lease recovery 接管。
 
 ---
 
