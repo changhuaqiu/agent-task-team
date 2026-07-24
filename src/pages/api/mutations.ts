@@ -16,6 +16,7 @@ type MutationType =
   | 'invocation.create'
   | 'invocation.updateStatus'
   | 'dispatch.enqueue'
+  | 'dispatch.cancel'
   | 'event.append'
   | 'tool.invoke'
   | 'phase.upsert'
@@ -38,7 +39,13 @@ interface MutationResponse {
 export default async function handler(req: NextApiRequest, res: NextApiResponse<MutationResponse>) {
   if (req.method !== 'POST') return res.status(405).json({ ok: false, error: 'Method not allowed' });
 
-  const { type, payload } = req.body as MutationRequest;
+  if (!req.body || typeof req.body !== 'object') {
+    return res.status(400).json({ ok: false, error: 'Request body must be an object' });
+  }
+  const { type, payload } = req.body as Partial<MutationRequest>;
+  if (typeof type !== 'string' || !payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return res.status(400).json({ ok: false, error: 'Request body requires type and payload' });
+  }
 
   try {
     let result: unknown;
@@ -317,21 +324,94 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         break;
       }
       case 'dispatch.enqueue': {
-        const { invocationRepo } = await import('@/server/repositories/invocation-repo');
-        const { generateSortableId } = await import('@/server/repositories/sortable-id');
-        const { agentId, conversationId, prompt, referencedTaskId } = payload as any;
+        const { AgentInbox } = await import('@/server/platform-events/agent-inbox');
+        const {
+          agentId,
+          conversationId,
+          prompt,
+          referencedTaskId,
+          source,
+          fromAgentId,
+          idempotencyKey,
+        } = payload as Record<string, unknown>;
         if (typeof conversationId !== 'string' || !conversationId.trim()) {
           return res.status(400).json({ ok: false, error: 'dispatch.enqueue requires conversationId' });
         }
-        invocationRepo.create({
-          id: generateSortableId('disp'),
-          conversation_id: conversationId,
-          agent_id: agentId,
-          task_id: referencedTaskId || '',
-          prompt,
-          engine: '',
+        if (typeof agentId !== 'string' || !agentId.trim()) {
+          return res.status(400).json({ ok: false, error: 'dispatch.enqueue requires agentId' });
+        }
+        if (typeof prompt !== 'string' || !prompt.trim()) {
+          return res.status(400).json({ ok: false, error: 'dispatch.enqueue requires prompt' });
+        }
+        if (typeof idempotencyKey !== 'string' || !idempotencyKey.trim()) {
+          return res.status(400).json({ ok: false, error: 'dispatch.enqueue requires idempotencyKey' });
+        }
+        if (referencedTaskId !== undefined && typeof referencedTaskId !== 'string') {
+          return res.status(400).json({ ok: false, error: 'dispatch.enqueue referencedTaskId must be a string' });
+        }
+        if (fromAgentId !== undefined && typeof fromAgentId !== 'string') {
+          return res.status(400).json({ ok: false, error: 'dispatch.enqueue fromAgentId must be a string' });
+        }
+        const allowedSources = ['user', 'a2a', 'workflow', 'review_gate', 'test_gate', 'system'];
+        if (source !== undefined && (typeof source !== 'string' || !allowedSources.includes(source))) {
+          return res.status(400).json({ ok: false, error: 'dispatch.enqueue source is invalid' });
+        }
+        const { conversationRepo } = await import('@/server/repositories/conversation-repo');
+        if (!conversationRepo.getById(conversationId)) {
+          return res.status(404).json({ ok: false, error: 'dispatch.enqueue conversation not found' });
+        }
+        const { resolveConversationRuntimeProfile } = await import('@/server/harness/conversation-runtime');
+        const runtime = resolveConversationRuntimeProfile(conversationId, agentId)?.runtime;
+        if (!runtime?.roster.some((agent) => agent.id === agentId)) {
+          return res.status(404).json({ ok: false, error: 'dispatch.enqueue project agent not found' });
+        }
+        if (typeof referencedTaskId === 'string' && referencedTaskId) {
+          const { taskRepo } = await import('@/server/repositories/task-repo');
+          const task = taskRepo.getById(referencedTaskId);
+          if (!task) {
+            return res.status(404).json({ ok: false, error: 'dispatch.enqueue task not found' });
+          }
+          if (task.conversation_id !== conversationId) {
+            return res.status(409).json({ ok: false, error: 'dispatch.enqueue task scope mismatch' });
+          }
+        }
+        const commandSource = (source ?? 'user') as
+          'user' | 'a2a' | 'workflow' | 'review_gate' | 'test_gate' | 'system';
+        result = new AgentInbox().enqueue({
+          projectId: conversationId,
+          projectAgentId: agentId,
+          idempotencyKey,
+          command: {
+            source: commandSource,
+            prompt,
+            taskId: typeof referencedTaskId === 'string' ? referencedTaskId : undefined,
+            fromAgentId: typeof fromAgentId === 'string' ? fromAgentId : undefined,
+          },
         });
-        result = { ok: true };
+        break;
+      }
+      case 'dispatch.cancel': {
+        const { AgentInbox } = await import('@/server/platform-events/agent-inbox');
+        const { agentId, conversationId, idempotencyKey } = payload as Record<string, unknown>;
+        if (typeof conversationId !== 'string' || !conversationId.trim()) {
+          return res.status(400).json({ ok: false, error: 'dispatch.cancel requires conversationId' });
+        }
+        if (typeof agentId !== 'string' || !agentId.trim()) {
+          return res.status(400).json({ ok: false, error: 'dispatch.cancel requires agentId' });
+        }
+        if (idempotencyKey !== undefined && typeof idempotencyKey !== 'string') {
+          return res.status(400).json({ ok: false, error: 'dispatch.cancel idempotencyKey must be a string' });
+        }
+        const inbox = new AgentInbox();
+        const cancelled = inbox.cancelQueued(
+          conversationId,
+          agentId,
+          typeof idempotencyKey === 'string' && idempotencyKey ? idempotencyKey : undefined,
+        );
+        const item = typeof idempotencyKey === 'string' && idempotencyKey
+          ? inbox.getByIdempotencyKey(conversationId, agentId, idempotencyKey)
+          : undefined;
+        result = { cancelled, status: item?.status ?? 'missing' };
         break;
       }
       case 'event.append': {
@@ -590,6 +670,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         error: error.message,
         reasonCode: error.reasonCode,
         candidates: error.candidates,
+      });
+    }
+    if (
+      error instanceof Error
+      && 'reasonCode' in error
+      && error.reasonCode === 'agent_inbox_idempotency_conflict'
+    ) {
+      return res.status(409).json({
+        ok: false,
+        error: error.message,
+        reasonCode: error.reasonCode,
       });
     }
     res.status(500).json({ ok: false, error: (error as Error).message });

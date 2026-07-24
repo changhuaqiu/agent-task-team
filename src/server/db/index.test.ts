@@ -31,6 +31,7 @@ describe('SQLite Foundation', () => {
     expect(tableNames).toContain('platform_event_handler_cursor');
     expect(tableNames).toContain('platform_event_ingestion');
     expect(tableNames).toContain('runtime_invocation_projection');
+    expect(tableNames).toContain('agent_inbox_item');
     expect(tableNames).toContain('eval_review_queue');
     expect(tableNames).toContain('eval_pairwise_round');
     expect(tableNames).toContain('github_issue_ingress');
@@ -179,7 +180,7 @@ describe('SQLite Foundation', () => {
     expect(db.prepare('SELECT version FROM _schema_version WHERE version = 40').get())
       .toEqual({ version: 40 });
     expect(db.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-      .toEqual({ version: 48 });
+      .toEqual({ version: 49 });
   });
 
   it('repairs v26-v40 checkpoints whose migration collision skipped autonomous delivery tables', () => {
@@ -208,7 +209,7 @@ describe('SQLite Foundation', () => {
           'autonomous_delivery_receipt',
         ]));
         expect(checkpoint.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-          .toEqual({ version: 48 });
+          .toEqual({ version: 49 });
         expect(checkpoint.pragma('foreign_key_check')).toEqual([]);
       } finally {
         checkpoint.close();

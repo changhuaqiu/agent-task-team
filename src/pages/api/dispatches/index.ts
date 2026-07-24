@@ -1,24 +1,14 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { getDb } from '@/server/db/index';
+import { AgentInbox } from '@/server/platform-events/agent-inbox';
 
 export default function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const agents = ['mario', 'luigi', 'toad', 'peach', 'dk', 'yoshi'];
-  const all: Array<{ id: string; agent_id: string; task_id: string | null; prompt: string | null; dispatch_status: string | null; created_at: string }> = [];
-
-  const db = getDb();
-  for (const agentId of agents) {
-    const rows = db.prepare(`
-      SELECT id, agent_id, task_id, prompt, dispatch_status, created_at
-      FROM invocation
-      WHERE agent_id = ? AND (dispatch_status = 'queued' OR dispatch_status IS NULL)
-      ORDER BY created_at ASC
-    `).all(agentId) as any[];
-    all.push(...rows);
+  const rawProjectId = req.query.conversationId;
+  if (Array.isArray(rawProjectId) || typeof rawProjectId !== 'string' || !rawProjectId.trim()) {
+    return res.status(400).json({ error: 'conversationId is required and must be a single value' });
   }
-
-  return res.json(all);
+  return res.json(new AgentInbox().listQueued(rawProjectId));
 }

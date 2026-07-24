@@ -42,6 +42,18 @@ beforeEach(() => {
   resetSeq();
 });
 
+async function seedAgent() {
+  const { upsertAgent } = await import('@/server/db/agentQueries');
+  upsertAgent({
+    id: 'mario',
+    name: 'Mario',
+    roleCardId: 'developer',
+    theme: 'red',
+    emoji: '🍄',
+    isPreset: true,
+  });
+}
+
 afterEach(() => {
   resetDb();
 });
@@ -91,6 +103,134 @@ describe('POST /api/mutations', () => {
     const res = mockRes();
     await handler(req, res);
     expect(res.statusCode).toBe(405);
+  });
+
+  it('rejects malformed mutation bodies', async () => {
+    const res = mockRes();
+    await handler(mockReq('POST', { type: 'dispatch.enqueue' }), res);
+    expect(res.statusCode).toBe(400);
+    expect(res._json.ok).toBe(false);
+  });
+
+  it('dispatch.enqueue persists an idempotent Agent Inbox command', async () => {
+    await seedAgent();
+    await seedTask();
+    const body = {
+      type: 'dispatch.enqueue',
+      payload: {
+        agentId: 'mario',
+        conversationId: 'conv-1',
+        prompt: 'Continue the task',
+        referencedTaskId: 'task-1',
+        source: 'workflow',
+        idempotencyKey: 'browser-request-1',
+      },
+    };
+    const first = mockRes();
+    const second = mockRes();
+
+    await handler(mockReq('POST', body), first);
+    await handler(mockReq('POST', body), second);
+
+    expect(first.statusCode).toBe(200);
+    expect(second.statusCode).toBe(200);
+    expect(second._json.result.id).toBe(first._json.result.id);
+    expect(first._json.result.command).toMatchObject({
+      source: 'workflow',
+      prompt: 'Continue the task',
+      taskId: 'task-1',
+    });
+    const { getDb } = await import('@/server/db/index');
+    expect(getDb().prepare('SELECT COUNT(*) AS count FROM agent_inbox_item').get())
+      .toEqual({ count: 1 });
+    expect(getDb().prepare('SELECT COUNT(*) AS count FROM invocation').get())
+      .toEqual({ count: 0 });
+  });
+
+  it('dispatch.enqueue reports an idempotency conflict', async () => {
+    await seedAgent();
+    await seedConversation();
+    const first = {
+      type: 'dispatch.enqueue',
+      payload: {
+        agentId: 'mario',
+        conversationId: 'conv-1',
+        prompt: 'First',
+        idempotencyKey: 'same-key',
+      },
+    };
+    await handler(mockReq('POST', first), mockRes());
+    const conflict = mockRes();
+
+    await handler(mockReq('POST', {
+      ...first,
+      payload: { ...first.payload, prompt: 'Different' },
+    }), conflict);
+
+    expect(conflict.statusCode).toBe(409);
+    expect(conflict._json.reasonCode).toBe('agent_inbox_idempotency_conflict');
+  });
+
+  it('dispatch.enqueue validates source and task scope before persisting', async () => {
+    await seedAgent();
+    await seedTask();
+    const invalidSource = mockRes();
+    await handler(mockReq('POST', {
+      type: 'dispatch.enqueue',
+      payload: {
+        agentId: 'mario',
+        conversationId: 'conv-1',
+        prompt: 'Invalid',
+        source: 'socket',
+        idempotencyKey: 'invalid-source',
+      },
+    }), invalidSource);
+    expect(invalidSource.statusCode).toBe(400);
+
+    const { conversationRepo } = await import('@/server/repositories/conversation-repo');
+    conversationRepo.create({ id: 'conv-2', title: 'Other' });
+    const mismatch = mockRes();
+    await handler(mockReq('POST', {
+      type: 'dispatch.enqueue',
+      payload: {
+        agentId: 'mario',
+        conversationId: 'conv-2',
+        referencedTaskId: 'task-1',
+        prompt: 'Wrong project',
+        idempotencyKey: 'wrong-project',
+      },
+    }), mismatch);
+    expect(mismatch.statusCode).toBe(409);
+  });
+
+  it('dispatch.cancel changes only queued Inbox work', async () => {
+    await seedAgent();
+    await seedConversation();
+    const enqueue = {
+      type: 'dispatch.enqueue',
+      payload: {
+        agentId: 'mario',
+        conversationId: 'conv-1',
+        prompt: 'Cancel me',
+        idempotencyKey: 'cancel-me',
+      },
+    };
+    await handler(mockReq('POST', enqueue), mockRes());
+    const cancelled = mockRes();
+
+    await handler(mockReq('POST', {
+      type: 'dispatch.cancel',
+      payload: {
+        agentId: 'mario',
+        conversationId: 'conv-1',
+        idempotencyKey: 'cancel-me',
+      },
+    }), cancelled);
+
+    expect(cancelled.statusCode).toBe(200);
+    expect(cancelled._json.result).toEqual({ cancelled: 1, status: 'cancelled' });
+    const { AgentInbox } = await import('@/server/platform-events/agent-inbox');
+    expect(new AgentInbox().listQueued('conv-1')).toHaveLength(0);
   });
 
   it('conversation.create returns conversation', async () => {
@@ -663,14 +803,16 @@ describe('POST /api/mutations', () => {
   });
 
   it('dispatch.enqueue keeps the originating conversation scope', async () => {
+    await seedAgent();
     await seedConversation();
-    const { invocationRepo } = await import('@/server/repositories/invocation-repo');
+    const { AgentInbox } = await import('@/server/platform-events/agent-inbox');
     const req = mockReq('POST', {
       type: 'dispatch.enqueue',
       payload: {
-        agentId: 'agent-a',
+        agentId: 'mario',
         conversationId: 'conv-1',
         prompt: 'queued project turn',
+        idempotencyKey: 'queued-project-turn',
       },
     });
     const res = mockRes();
@@ -678,15 +820,15 @@ describe('POST /api/mutations', () => {
     await handler(req, res);
 
     expect(res.statusCode).toBe(200);
-    expect(invocationRepo.getByConversation('conv-1')).toContainEqual(expect.objectContaining({
-      agent_id: 'agent-a',
-      prompt: 'queued project turn',
+    expect(new AgentInbox().listQueued('conv-1')).toContainEqual(expect.objectContaining({
+      projectAgentId: 'mario',
+      command: expect.objectContaining({ prompt: 'queued project turn' }),
     }));
-    expect(invocationRepo.getByConversation('default')).toHaveLength(0);
+    expect(new AgentInbox().listQueued('default')).toHaveLength(0);
   });
 
   it('dispatch.enqueue rejects a missing conversation scope', async () => {
-    const { invocationRepo } = await import('@/server/repositories/invocation-repo');
+    const { AgentInbox } = await import('@/server/platform-events/agent-inbox');
     const req = mockReq('POST', {
       type: 'dispatch.enqueue',
       payload: { agentId: 'agent-a', prompt: 'must not use default' },
@@ -697,7 +839,7 @@ describe('POST /api/mutations', () => {
 
     expect(res.statusCode).toBe(400);
     expect(res._json).toEqual({ ok: false, error: 'dispatch.enqueue requires conversationId' });
-    expect(invocationRepo.getByConversation('default')).toHaveLength(0);
+    expect(new AgentInbox().listQueued('default')).toHaveLength(0);
   });
 
   it('event.append creates event', async () => {

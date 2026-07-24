@@ -66,9 +66,9 @@ pnpm dev
 ### 队列隔离
 
 跨项目的排队消息完全隔离：
-- 队列键：`agentId:conversationId`
+- 服务端事实源：`agent_inbox_item`，按 `projectId + projectAgentId` claim
 - 项目 A 的 Agent busy 不影响项目 B
-- dequeue 时正确匹配 conversationId
+- 浏览器队列仅作显示投影，不负责启动下一次执行
 
 ### Agent Backend
 

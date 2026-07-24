@@ -9,7 +9,7 @@
 - [x] Command 与 Event 在命名和类型上分离。
 - [x] Domain Event 不携带泛化 audience；路由结果进入 Agent Inbox。
 - [ ] domain 事件目录覆盖 9 领域（task/review/delivery/a2a/envelope/binding/node/session/invocation）。
-- [ ] coordination 事件目录覆盖 enqueued/claimed/recovered。
+- [x] coordination 事件目录覆盖 enqueued/claimed/recovered。
 
 ## 事件日志
 
@@ -37,7 +37,7 @@
 - [x] Dispatcher 启动恢复能回补 append 后未投递事件并回收过期 lease。
 - [x] Dispatcher 实现同一 handler × stream 局部有序分发。
 - [ ] Reducer 幂等并校验状态迁移。
-- [ ] Router 只产生 Inbox Command，不直接启动 Runtime。
+- [x] Router 只产生 Inbox Command，不直接启动 Runtime。
 - [ ] Process Manager 只调目标模块 interface，不越权写表。
 - [ ] Socket、Message、Observability 是可重建 projection。
 - [x] 至少一个投影从 Runtime Event 重建（`RuntimeInvocationProjection`，切片 2 退出）。

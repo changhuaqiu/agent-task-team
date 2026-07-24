@@ -273,7 +273,6 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
               if (!queue || queue.length === 0) return null;
               const agent = effectiveRoster.find((a) => a.id === agentId);
               const convId = selectedConversationId ?? '';
-              const key = `${agentId}:${convId}`;
               return (
                 <div key={agentId} className="flex items-start gap-2">
                   <div className="flex items-center gap-1.5 shrink-0 mt-0.5">
@@ -290,44 +289,54 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
                         className="flex items-center gap-1.5 text-[10px] text-[hsl(var(--text-tertiary))] bg-[hsl(var(--bg-card))] rounded-[2px] border border-[hsl(var(--border-subtle))] px-2 py-1"
                       >
                         <span className="truncate flex-1 text-[hsl(var(--text-primary))]">{item.prompt.slice(0, 80)}{item.prompt.length > 80 ? '…' : ''}</span>
-                        {i === 0 && (
+                        {item.persistenceStatus !== 'persisted' && (
+                          <span className={item.persistenceStatus === 'failed' ? 'text-red-400' : 'text-amber-400'}>
+                            {item.persistenceStatus === 'failed' ? 'not saved' : 'saving…'}
+                          </span>
+                        )}
+                        {i === 0 && item.persistenceStatus === 'persisted' && (
                           <button
                             type="button"
-                            onClick={() => forceSendDispatch({ agentId, prompt: item.prompt, referencedTaskId: item.referencedTaskId, conversationId: convId })}
+                            onClick={() => {
+                              void forceSendDispatch({
+                                agentId,
+                                prompt: item.prompt,
+                                referencedTaskId: item.referencedTaskId,
+                                conversationId: convId,
+                                queuedIdempotencyKey: item.idempotencyKey,
+                              }).catch((error) => console.error('[dispatch] force send failed:', error));
+                            }}
                             className="shrink-0 text-[hsl(var(--text-tertiary))] hover:text-amber-400"
                             title="强制发送（中断当前任务）"
                           >
                             <Zap className="w-3 h-3" />
                           </button>
                         )}
-                        <button
+                        {item.persistenceStatus !== 'persisting' && <button
                           type="button"
                           onClick={() => {
-                            const next = queue.filter((_, j) => j !== i);
-                            const pd = { ...useTaskHubStore.getState().pendingDispatches };
-                            if (next.length > 0) {
-                              pd[key] = next;
-                            } else {
-                              delete pd[key];
-                            }
-                            useTaskHubStore.setState({ pendingDispatches: pd });
+                            void clearPendingDispatches(agentId, convId, item.idempotencyKey)
+                              .catch((error) => console.error('[dispatch] cancel failed:', error));
                           }}
                           className="shrink-0 text-[hsl(var(--text-tertiary))] hover:text-[hsl(var(--status-rejected))]"
                           title="移除此条"
                         >
                           ×
-                        </button>
+                        </button>}
                       </div>
                     ))}
                   </div>
-                  <button
+                  {queue.every((item) => item.persistenceStatus !== 'persisting') && <button
                     type="button"
-                    onClick={() => clearPendingDispatches(agentId, convId)}
+                    onClick={() => {
+                      void clearPendingDispatches(agentId, convId)
+                        .catch((error) => console.error('[dispatch] cancel all failed:', error));
+                    }}
                     className="shrink-0 text-[9px] text-[hsl(var(--text-tertiary))] hover:text-[hsl(var(--status-rejected))] mt-0.5"
                     title="清空全部"
                   >
                     全部清空
-                  </button>
+                  </button>}
                 </div>
               );
             })}

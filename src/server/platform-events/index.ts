@@ -23,6 +23,24 @@ export {
   startPlatformEventRuntime,
 } from './runtime-worker';
 export {
+  AgentInbox,
+  AgentInboxConflictError,
+  type AgentInboxItem,
+  type AgentInboxOptions,
+  type AgentWorkCommand,
+  type EnqueueAgentWorkInput,
+} from './agent-inbox';
+export {
+  AgentInboxScheduler,
+  type AgentInboxSchedulerOptions,
+} from './agent-inbox-scheduler';
+export {
+  AgentInboxRouter,
+  type AgentInboxRoute,
+  type AgentInboxRouteResolver,
+  type AgentInboxRouterOptions,
+} from './agent-inbox-router';
+export {
   AcpRuntimeEventCoordinator,
   type AcpRuntimeEventCoordinatorOptions,
 } from './acp-runtime-event-coordinator';

@@ -1,0 +1,159 @@
+import type Database from 'better-sqlite3';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { createTestDb } from '../db';
+import { AgentInbox, AgentInboxConflictError } from './agent-inbox';
+import { PlatformEventLog } from './event-log';
+
+describe('AgentInbox', () => {
+  let db: Database.Database;
+  let log: PlatformEventLog;
+  let inbox: AgentInbox;
+  let now: Date;
+  let id = 0;
+
+  beforeEach(() => {
+    db = createTestDb();
+    now = new Date('2026-07-25T01:00:00.000Z');
+    db.prepare(`
+      INSERT INTO conversation (id,title,status,created_at,updated_at)
+      VALUES ('project-1','Project','active',?,?)
+    `).run(now.toISOString(), now.toISOString());
+    log = new PlatformEventLog({
+      db,
+      now: () => now,
+      idFactory: () => `pev-${++id}`,
+    });
+    inbox = new AgentInbox({
+      db,
+      eventLog: log,
+      now: () => now,
+      idFactory: (prefix) => `${prefix}-${++id}`,
+    });
+  });
+
+  afterEach(() => db.close());
+
+  it('enqueues idempotently and emits coordination in the same transaction', () => {
+    const input = {
+      projectId: 'project-1',
+      projectAgentId: 'implementer',
+      idempotencyKey: 'user-turn-1',
+      command: { source: 'user' as const, prompt: 'Implement it' },
+    };
+    const first = inbox.enqueue(input);
+    expect(inbox.enqueue(input)).toEqual(first);
+    expect(log.listStream('agent-work:project-1:implementer').map((event) => event.type))
+      .toEqual(['agent.work.enqueued']);
+    expect(() => inbox.enqueue({
+      ...input,
+      command: { source: 'user', prompt: 'Different' },
+    })).toThrow(AgentInboxConflictError);
+  });
+
+  it('claims one item per project agent and preserves FIFO order', () => {
+    const first = inbox.enqueue({
+      projectId: 'project-1',
+      projectAgentId: 'implementer',
+      idempotencyKey: 'one',
+      command: { source: 'user', prompt: 'One' },
+    });
+    now = new Date(now.getTime() + 1);
+    const second = inbox.enqueue({
+      projectId: 'project-1',
+      projectAgentId: 'implementer',
+      idempotencyKey: 'two',
+      command: { source: 'user', prompt: 'Two' },
+    });
+    const claim = inbox.claimNext()!;
+    expect(claim.id).toBe(first.id);
+    expect(claim.status).toBe('claimed');
+    expect(inbox.claimNext()).toBeUndefined();
+    expect(inbox.complete(claim.id, claim.leaseToken!)).toBe(true);
+    expect(inbox.claimNext()!.id).toBe(second.id);
+  });
+
+  it('does not let later work overtake a released FIFO predecessor', () => {
+    const first = inbox.enqueue({
+      projectId: 'project-1',
+      projectAgentId: 'implementer',
+      idempotencyKey: 'fifo-one',
+      command: { source: 'user', prompt: 'One' },
+    });
+    now = new Date(now.getTime() + 1);
+    inbox.enqueue({
+      projectId: 'project-1',
+      projectAgentId: 'implementer',
+      idempotencyKey: 'fifo-two',
+      command: { source: 'user', prompt: 'Two' },
+    });
+    const claim = inbox.claimNext()!;
+    expect(claim.id).toBe(first.id);
+    inbox.release(claim.id, claim.leaseToken!, 100, 'agent_busy');
+
+    expect(inbox.claimNext()).toBeUndefined();
+    now = new Date(now.getTime() + 100);
+    expect(inbox.claimNext()!.id).toBe(first.id);
+  });
+
+  it('recovers an expired lease and fences stale completion', () => {
+    const item = inbox.enqueue({
+      projectId: 'project-1',
+      projectAgentId: 'reviewer',
+      idempotencyKey: 'review-1',
+      command: { source: 'review_gate', prompt: 'Review' },
+    });
+    const claim = inbox.claimNext(10)!;
+    now = new Date(now.getTime() + 11);
+    expect(inbox.recoverExpired()).toBe(1);
+    expect(inbox.complete(item.id, claim.leaseToken!)).toBe(false);
+    const replacement = inbox.claimNext()!;
+    expect(replacement.attemptCount).toBe(2);
+    expect(log.listStream('agent-work:project-1:reviewer').map((event) => event.type))
+      .toEqual([
+        'agent.work.enqueued',
+        'agent.work.claimed',
+        'agent.work.recovered',
+        'agent.work.claimed',
+      ]);
+  });
+
+  it('renews only the active fenced lease', () => {
+    const item = inbox.enqueue({
+      projectId: 'project-1',
+      projectAgentId: 'reviewer',
+      idempotencyKey: 'review-heartbeat',
+      command: { source: 'review_gate', prompt: 'Review' },
+    });
+    const claim = inbox.claimNext(10)!;
+    now = new Date(now.getTime() + 5);
+
+    expect(inbox.renew(item.id, 'stale-token', 20)).toBe(false);
+    expect(inbox.renew(item.id, claim.leaseToken!, 20)).toBe(true);
+    now = new Date(now.getTime() + 6);
+    expect(inbox.recoverExpired()).toBe(0);
+    now = new Date(now.getTime() + 15);
+    expect(inbox.recoverExpired()).toBe(1);
+  });
+
+  it('cancels queued work without cancelling an active claim', () => {
+    const active = inbox.enqueue({
+      projectId: 'project-1',
+      projectAgentId: 'implementer',
+      idempotencyKey: 'active',
+      command: { source: 'user', prompt: 'Active' },
+    });
+    inbox.claimNext();
+    inbox.enqueue({
+      projectId: 'project-1',
+      projectAgentId: 'implementer',
+      idempotencyKey: 'queued',
+      command: { source: 'user', prompt: 'Queued' },
+    });
+
+    expect(inbox.cancelQueued('project-1', 'implementer')).toBe(1);
+    expect(inbox.get(active.id)?.status).toBe('claimed');
+    expect(inbox.listQueued('project-1')).toEqual([
+      expect.objectContaining({ id: active.id, status: 'claimed' }),
+    ]);
+  });
+});

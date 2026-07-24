@@ -140,6 +140,9 @@ export function appendToStreamBuffer(messageId: string, content: string) {
 // --- Daemon Slice Creator ---
 
 export interface PendingDispatch {
+  idempotencyKey: string;
+  inboxItemId?: string;
+  persistenceStatus: 'persisting' | 'persisted' | 'failed';
   prompt: string;
   referencedTaskId?: string;
   queuedAt: string;
@@ -148,7 +151,10 @@ export interface PendingDispatch {
   conversationId: string;
 }
 
-type InFlightDispatch = Omit<PendingDispatch, 'queuedAt'>;
+type InFlightDispatch = Omit<
+  PendingDispatch,
+  'queuedAt' | 'idempotencyKey' | 'inboxItemId' | 'persistenceStatus'
+>;
 
 // Browser busy state is only a projection. Keep the request until daemon
 // confirms it was sent so an agent_busy response can recover it into the
@@ -193,6 +199,63 @@ export const createDaemonSlice = (set: any, get: () => any) => {
       });
     }
   };
+  const _updatePendingPersistence = (
+    agentId: string,
+    conversationId: string,
+    idempotencyKey: string,
+    patch: Partial<Pick<PendingDispatch, 'persistenceStatus' | 'inboxItemId'>>,
+  ) => {
+    const key = queueKey(agentId, conversationId);
+    set((state: any) => ({
+      pendingDispatches: {
+        ...state.pendingDispatches,
+        [key]: (state.pendingDispatches[key] || []).map((item: PendingDispatch) =>
+          item.idempotencyKey === idempotencyKey ? { ...item, ...patch } : item),
+      },
+    }));
+  };
+  const _persistPendingDispatch = async (
+    agentId: string,
+    entry: PendingDispatch,
+    attemptsRemaining = 3,
+  ): Promise<void> => {
+    try {
+      const response = await fetch('/api/mutations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'dispatch.enqueue',
+          payload: {
+            agentId,
+            conversationId: entry.conversationId,
+            prompt: entry.prompt,
+            referencedTaskId: entry.referencedTaskId,
+            source: entry.source,
+            fromAgentId: entry.fromAgentId,
+            idempotencyKey: entry.idempotencyKey,
+          },
+        }),
+      });
+      if (!response.ok) throw new Error(`dispatch_enqueue_http_${response.status}`);
+      const body = typeof response.json === 'function'
+        ? await response.json() as { result?: { id?: string } }
+        : {};
+      _updatePendingPersistence(agentId, entry.conversationId, entry.idempotencyKey, {
+        persistenceStatus: 'persisted',
+        inboxItemId: body.result?.id,
+      });
+    } catch {
+      if (attemptsRemaining > 1) {
+        setTimeout(() => {
+          void _persistPendingDispatch(agentId, entry, attemptsRemaining - 1);
+        }, 500);
+        return;
+      }
+      _updatePendingPersistence(agentId, entry.conversationId, entry.idempotencyKey, {
+        persistenceStatus: 'failed',
+      });
+    }
+  };
 
   return {
     daemonConnection: { status: 'disconnected' as 'disconnected' | 'connecting' | 'connected', error: undefined as string | undefined },
@@ -228,11 +291,64 @@ export const createDaemonSlice = (set: any, get: () => any) => {
     connectDaemon: () => {
       if (socket.connected) return;
       get().setDaemonConnection({ status: 'connecting' });
+      const conversationId = get().selectedConversationId;
+      if (conversationId) {
+        void get().refreshPendingDispatches(conversationId).catch((error: unknown) => {
+          console.error('[dispatch] failed to hydrate Agent Inbox projection:', error);
+        });
+      }
       fetch('/api/daemon/init')
         .catch((e: any) => {
           get().setDaemonConnection({ status: 'disconnected', error: String((e as any)?.message || e) });
         })
         .finally(() => socket.connect());
+    },
+
+    refreshPendingDispatches: async (conversationId: string) => {
+      const response = await fetch(`/api/dispatches?conversationId=${encodeURIComponent(conversationId)}`);
+      if (!response.ok) throw new Error(`dispatch_list_http_${response.status}`);
+      const items = await response.json() as Array<{
+        id: string;
+        projectAgentId: string;
+        idempotencyKey: string;
+        command: {
+          prompt: string;
+          taskId?: string;
+          source?: PendingDispatch['source'];
+          fromAgentId?: string;
+        };
+        createdAt: string;
+      }>;
+      const current = get().pendingDispatches as Record<string, PendingDispatch[]>;
+      const next = Object.fromEntries(
+        Object.entries(current).filter(([, queue]) => queue[0]?.conversationId !== conversationId),
+      ) as Record<string, PendingDispatch[]>;
+      for (const [key, queue] of Object.entries(current)) {
+        const unconfirmed = queue.filter((item) =>
+          item.conversationId === conversationId && item.persistenceStatus !== 'persisted');
+        if (unconfirmed.length) next[key] = unconfirmed;
+      }
+      for (const item of items) {
+        const key = queueKey(item.projectAgentId, conversationId);
+        const queue = next[key] ??= [];
+        const projected: PendingDispatch = {
+          idempotencyKey: item.idempotencyKey,
+          inboxItemId: item.id,
+          persistenceStatus: 'persisted',
+          prompt: item.command.prompt,
+          referencedTaskId: item.command.taskId,
+          source: item.command.source,
+          fromAgentId: item.command.fromAgentId,
+          conversationId,
+          queuedAt: item.createdAt,
+        };
+        const existingIndex = queue.findIndex(
+          (candidate) => candidate.idempotencyKey === item.idempotencyKey,
+        );
+        if (existingIndex >= 0) queue[existingIndex] = projected;
+        else queue.push(projected);
+      }
+      set({ pendingDispatches: next });
     },
 
     upsertAgentSession: (projectId: string, agentId: string, sessionId: string) =>
@@ -328,13 +444,21 @@ export const createDaemonSlice = (set: any, get: () => any) => {
       return true;
     },
 
-    enqueueDispatch: (agentId: string, payload: Omit<PendingDispatch, 'queuedAt'>) => {
+    enqueueDispatch: (agentId: string, payload: Omit<PendingDispatch, 'queuedAt' | 'idempotencyKey' | 'inboxItemId' | 'persistenceStatus'> & { idempotencyKey?: string }) => {
       const conversationId = payload.conversationId
         ?? (payload.referencedTaskId ? get().getTaskById(payload.referencedTaskId)?.conversationId : undefined)
         ?? get().selectedConversationId;
       if (!conversationId) return;
 
-      const entry: PendingDispatch = { ...payload, queuedAt: new Date().toISOString(), conversationId };
+      const idempotencyKey = payload.idempotencyKey
+        ?? `browser:${conversationId}:${agentId}:${Date.now()}:${Math.random().toString(36).slice(2, 10)}`;
+      const entry: PendingDispatch = {
+        ...payload,
+        idempotencyKey,
+        persistenceStatus: 'persisting',
+        queuedAt: new Date().toISOString(),
+        conversationId,
+      };
       const key = queueKey(agentId, conversationId);
 
       set((state: any) => ({
@@ -344,89 +468,81 @@ export const createDaemonSlice = (set: any, get: () => any) => {
         },
       }));
 
-      fetch('/api/mutations', {
+      void _persistPendingDispatch(agentId, entry);
+    },
+
+    clearPendingDispatches: async (agentId: string, conversationId: string, idempotencyKey?: string) => {
+      const key = queueKey(agentId, conversationId);
+      const currentQueue = (get().pendingDispatches[key] || []) as PendingDispatch[];
+      const target = idempotencyKey
+        ? currentQueue.find((item) => item.idempotencyKey === idempotencyKey)
+        : undefined;
+      if (
+        target?.persistenceStatus === 'persisting'
+        || (!idempotencyKey && currentQueue.some((item) => item.persistenceStatus === 'persisting'))
+      ) {
+        throw new Error('dispatch_persistence_in_progress');
+      }
+      const response = await fetch('/api/mutations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          type: 'dispatch.enqueue',
-          payload: { agentId, conversationId, prompt: payload.prompt, referencedTaskId: payload.referencedTaskId },
+          type: 'dispatch.cancel',
+          payload: { agentId, conversationId, idempotencyKey },
         }),
-      }).catch(() => {});
-    },
-
-    dequeueNextPending: (agentId: string, conversationId: string) => {
-      const key = queueKey(agentId, conversationId);
-      const queue = get().pendingDispatches[key];
-      if (!queue || queue.length === 0) return;
-      const [next, ...rest] = queue;
-      const nextPending = { ...get().pendingDispatches };
-      if (rest.length > 0) {
-        nextPending[key] = rest;
-      } else {
-        delete nextPending[key];
-      }
-      set({ pendingDispatches: nextPending });
-      const nextConvId = next.conversationId
-        ?? (next.referencedTaskId ? get().getTaskById(next.referencedTaskId)?.conversationId : undefined)
-        ?? get().selectedConversationId;
-      if (nextConvId) {
-        set((state: any) => ({
-          chatMessagesByConversation: {
-            ...state.chatMessagesByConversation,
-            [nextConvId]: [
-              ...(state.chatMessagesByConversation[nextConvId] || []),
-              {
-                id: `msg-${Date.now()}`,
-                agentId: next.source === 'a2a' ? (next.fromAgentId ?? 'system') : 'human',
-                content: next.prompt,
-                referencedTaskId: next.referencedTaskId,
-                timestamp: new Date().toISOString(),
-                mentions: [agentId],
-                intent: 'general' as const,
-                source: next.source ?? 'user',
-                fromAgentId: next.fromAgentId,
-              },
-            ],
-          },
-        }));
-      }
-      const accepted = get().dispatchToAgent({
-        agentId,
-        prompt: next.prompt,
-        referencedTaskId: next.referencedTaskId,
-        source: next.source,
-        fromAgentId: next.fromAgentId,
-        conversationId: nextConvId,
       });
-      if (accepted && next.source !== 'a2a' && nextConvId) {
-        socket.emit('a2a:user-turn-created', {
-          conversationId: nextConvId,
-          messageId: `queued-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-          targetAgentIds: [agentId],
-          prompt: next.prompt,
-          taskId: next.referencedTaskId,
-        });
+      if (!response.ok) throw new Error(`dispatch_cancel_http_${response.status}`);
+      const cancellation = typeof response.json === 'function'
+        ? await response.json() as { result?: { cancelled?: number; status?: string } }
+        : {};
+      await get().refreshPendingDispatches(conversationId);
+      const terminalOrAbsent = cancellation.result?.status === 'missing'
+        || cancellation.result?.status === 'cancelled'
+        || cancellation.result?.status === 'completed'
+        || cancellation.result?.status === 'failed';
+      if (
+        idempotencyKey
+        && terminalOrAbsent
+      ) {
+        const nextPending = { ...get().pendingDispatches };
+        const remaining = ((nextPending[key] || []) as PendingDispatch[])
+          .filter((item) => item.idempotencyKey !== idempotencyKey);
+        if (remaining.length) nextPending[key] = remaining;
+        else delete nextPending[key];
+        set({ pendingDispatches: nextPending });
+      } else if (!idempotencyKey) {
+        const nextPending = { ...get().pendingDispatches };
+        const remaining = ((nextPending[key] || []) as PendingDispatch[])
+          .filter((item) => item.persistenceStatus !== 'failed');
+        if (remaining.length) nextPending[key] = remaining;
+        else delete nextPending[key];
+        set({ pendingDispatches: nextPending });
+      }
+      if (
+        idempotencyKey
+        && (
+          cancellation.result?.status === 'claimed'
+          || ((get().pendingDispatches[key] || []) as PendingDispatch[])
+            .some((item) => item.idempotencyKey === idempotencyKey)
+        )
+      ) {
+        throw new Error('dispatch_not_cancellable');
       }
     },
 
-    clearPendingDispatches: (agentId: string, conversationId: string) => {
-      const key = queueKey(agentId, conversationId);
-      const nextPending = { ...get().pendingDispatches };
-      delete nextPending[key];
-      set({ pendingDispatches: nextPending });
-    },
-
-    forceSendDispatch: ({ agentId, prompt, referencedTaskId, conversationId: explicitConvId }: { agentId: string; prompt: string; referencedTaskId?: string; conversationId?: string }) => {
+    forceSendDispatch: async ({ agentId, prompt, referencedTaskId, conversationId: explicitConvId, queuedIdempotencyKey }: { agentId: string; prompt: string; referencedTaskId?: string; conversationId?: string; queuedIdempotencyKey?: string }) => {
       const conversationId = explicitConvId ?? get().selectedConversationId ?? '';
+      if (conversationId) {
+        await get().clearPendingDispatches(agentId, conversationId, queuedIdempotencyKey);
+      }
       socket.emit('terminal:kill', { agentId, projectId: conversationId || get().selectedProjectId, force: true });
-      if (conversationId) get().clearPendingDispatches(agentId, conversationId);
       get().completeStreamMessage(agentId);
       set((state: any) => ({
         agentStatus: { ...state.agentStatus, [agentId]: 'idle' },
         activeRunsByAgent: { ...state.activeRunsByAgent, [agentId]: undefined },
       }));
       setTimeout(() => {
-        get().dispatchToAgent({ agentId, prompt, referencedTaskId, conversationId });
+        void get().dispatchToAgent({ agentId, prompt, referencedTaskId, conversationId });
       }, 500);
     },
 

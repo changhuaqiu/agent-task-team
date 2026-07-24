@@ -148,4 +148,153 @@ describe('project session scoping', () => {
       prompt: 'race-safe user turn',
     }));
   });
+
+  it('hydrates the browser queue as a scoped projection of Agent Inbox', async () => {
+    vi.spyOn(global, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => [{
+        id: 'inbox-1',
+        projectAgentId: 'mario',
+        idempotencyKey: 'server-command-1',
+        command: { source: 'workflow', prompt: 'Persisted work', taskId: 'TASK-1' },
+        createdAt: '2026-05-17T00:01:00.000Z',
+      }],
+    } as Response);
+
+    useTaskHubStore.setState({
+      pendingDispatches: {
+        'mario:conv-new': [{
+          idempotencyKey: 'local-unconfirmed',
+          persistenceStatus: 'failed',
+          prompt: 'Retry locally',
+          conversationId: 'conv-new',
+          queuedAt: '2026-05-17T00:00:30.000Z',
+        }],
+      },
+    });
+    await useTaskHubStore.getState().refreshPendingDispatches('conv-new');
+
+    expect(useTaskHubStore.getState().pendingDispatches['mario:conv-new']).toEqual([
+      expect.objectContaining({
+        idempotencyKey: 'local-unconfirmed',
+        persistenceStatus: 'failed',
+      }),
+      expect.objectContaining({
+        inboxItemId: 'inbox-1',
+        idempotencyKey: 'server-command-1',
+        persistenceStatus: 'persisted',
+        conversationId: 'conv-new',
+        prompt: 'Persisted work',
+      }),
+    ]);
+  });
+
+  it('confirms a failed persistence outcome with the server before removing it', async () => {
+    useTaskHubStore.setState({
+      pendingDispatches: {
+        'mario:conv-new': [{
+          idempotencyKey: 'unknown-outcome',
+          persistenceStatus: 'failed',
+          prompt: 'May already be durable',
+          conversationId: 'conv-new',
+          queuedAt: '2026-05-17T00:00:30.000Z',
+        }],
+      },
+    });
+    const fetchSpy = vi.spyOn(global, 'fetch')
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ result: { cancelled: 1, status: 'cancelled' } }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => [],
+      } as Response);
+
+    await useTaskHubStore.getState().clearPendingDispatches(
+      'mario',
+      'conv-new',
+      'unknown-outcome',
+    );
+
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(String(fetchSpy.mock.calls[0][1]?.body)).toContain('dispatch.cancel');
+    expect(useTaskHubStore.getState().pendingDispatches['mario:conv-new']).toBeUndefined();
+  });
+
+  it('removes a failed local projection when the server confirms a terminal item', async () => {
+    useTaskHubStore.setState({
+      pendingDispatches: {
+        'mario:conv-new': [{
+          idempotencyKey: 'already-completed',
+          persistenceStatus: 'failed',
+          prompt: 'Completed remotely',
+          conversationId: 'conv-new',
+          queuedAt: '2026-05-17T00:00:30.000Z',
+        }],
+      },
+    });
+    vi.spyOn(global, 'fetch')
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ result: { cancelled: 0, status: 'completed' } }),
+      } as Response)
+      .mockResolvedValueOnce({ ok: true, json: async () => [] } as Response);
+
+    await useTaskHubStore.getState().clearPendingDispatches(
+      'mario',
+      'conv-new',
+      'already-completed',
+    );
+
+    expect(useTaskHubStore.getState().pendingDispatches['mario:conv-new']).toBeUndefined();
+  });
+
+  it('bulk clear removes unknown ghosts but keeps server-confirmed active work', async () => {
+    useTaskHubStore.setState({
+      pendingDispatches: {
+        'mario:conv-new': [
+          {
+            idempotencyKey: 'unknown-ghost',
+            persistenceStatus: 'failed',
+            prompt: 'No server item',
+            conversationId: 'conv-new',
+            queuedAt: '2026-05-17T00:00:30.000Z',
+          },
+          {
+            idempotencyKey: 'active-remotely',
+            persistenceStatus: 'failed',
+            prompt: 'May be active',
+            conversationId: 'conv-new',
+            queuedAt: '2026-05-17T00:00:31.000Z',
+          },
+        ],
+      },
+    });
+    vi.spyOn(global, 'fetch')
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ result: { cancelled: 0, status: 'missing' } }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => [{
+          id: 'inbox-active',
+          projectAgentId: 'mario',
+          idempotencyKey: 'active-remotely',
+          command: { source: 'system', prompt: 'May be active' },
+          createdAt: '2026-05-17T00:00:31.000Z',
+        }],
+      } as Response);
+
+    await useTaskHubStore.getState().clearPendingDispatches('mario', 'conv-new');
+
+    expect(useTaskHubStore.getState().pendingDispatches['mario:conv-new']).toEqual([
+      expect.objectContaining({
+        idempotencyKey: 'active-remotely',
+        inboxItemId: 'inbox-active',
+        persistenceStatus: 'persisted',
+      }),
+    ]);
+  });
 });

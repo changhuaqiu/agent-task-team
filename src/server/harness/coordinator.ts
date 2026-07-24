@@ -22,6 +22,7 @@ export class HarnessCoordinator {
   private readonly recordProof: typeof proofLogRepo.append;
   private readonly acceptedAt = new Map<string, number>();
   private readonly inFlight = new Map<string, Promise<HarnessOutcome>>();
+  private readonly completedOutcomes = new Map<string, HarnessOutcome>();
 
   constructor(options: HarnessCoordinatorOptions) {
     this.planner = options.planner;
@@ -36,13 +37,16 @@ export class HarnessCoordinator {
     this.cleanupDedupe();
 
     const existing = this.inFlight.get(key);
-    if (existing || this.acceptedAt.has(key)) {
-      const completion = existing ?? Promise.resolve({
-        status: 'blocked',
-        reasonCode: 'duplicate_trigger',
-      } as const);
+    const completed = this.completedOutcomes.get(key);
+    if (existing || completed) {
+      const completion = existing ?? Promise.resolve(completed!);
       this.proof(trigger, 'harness.trigger.duplicate', 'duplicate_trigger');
-      return { disposition: 'duplicate', handled: true, completion };
+      return {
+        disposition: 'duplicate',
+        handled: true,
+        completion,
+        duplicateInFlight: Boolean(existing),
+      };
     }
 
     if (this.runtime.isBusy(trigger.agentId, trigger.conversationId)) {
@@ -63,6 +67,10 @@ export class HarnessCoordinator {
         reasonCode: 'internal_error',
         message: error instanceof Error ? error.message : String(error),
       }))
+      .then((outcome) => {
+        this.completedOutcomes.set(key, outcome);
+        return outcome;
+      })
       .finally(() => {
         this.inFlight.delete(key);
       });
@@ -96,6 +104,7 @@ export class HarnessCoordinator {
     for (const [key, timestamp] of this.acceptedAt) {
       if (now - timestamp > this.dedupeTtlMs && !this.inFlight.has(key)) {
         this.acceptedAt.delete(key);
+        this.completedOutcomes.delete(key);
       }
     }
   }

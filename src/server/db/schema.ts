@@ -271,6 +271,43 @@ export const platformEventIngestion = sqliteTable('platform_event_ingestion', {
   uniqueIndex('uq_platform_event_ingestion_event').on(table.eventId),
 ]);
 
+export const agentInboxItem = sqliteTable('agent_inbox_item', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull()
+    .references(() => conversation.id, { onDelete: 'cascade' }),
+  projectAgentId: text('project_agent_id').notNull(),
+  sourceEventId: text('source_event_id')
+    .references(() => platformEvent.id, { onDelete: 'set null' }),
+  idempotencyKey: text('idempotency_key').notNull(),
+  commandJson: text('command_json').notNull(),
+  status: text('status').notNull(),
+  attemptCount: integer('attempt_count').notNull().default(0),
+  availableAt: text('available_at').notNull(),
+  leaseToken: text('lease_token'),
+  leaseExpiresAt: text('lease_expires_at'),
+  lastError: text('last_error'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+  claimedAt: text('claimed_at'),
+  completedAt: text('completed_at'),
+}, (table) => [
+  uniqueIndex('uq_agent_inbox_idempotency').on(table.idempotencyKey),
+  uniqueIndex('uq_agent_inbox_source_agent').on(table.sourceEventId, table.projectAgentId),
+  index('idx_agent_inbox_claim').on(
+    table.status,
+    table.availableAt,
+    table.projectId,
+    table.projectAgentId,
+    table.createdAt,
+  ),
+  index('idx_agent_inbox_agent').on(
+    table.projectId,
+    table.projectAgentId,
+    table.status,
+    table.createdAt,
+  ),
+]);
+
 // ──────────────────────────────────────────────
 // role_cards
 // ──────────────────────────────────────────────

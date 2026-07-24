@@ -335,6 +335,20 @@ offset 的 handler cursor；运行期只发现 cursor 之后的新事件，再�
 该表可清空后完全从 `platform_event` 重建，不是新的事实源。handler 执行以 attempt token
 fencing，活跃期间续租，超时通过 `AbortSignal` 协作取消后才允许同 stream 重试。
 
+daemon 还启动持久 `AgentInboxScheduler`。`agent_inbox_item` 是 Agent Command 的服务端
+事实源：按 project + ProjectAgent 保证同一 Agent 同时最多一个 claim，并禁止延迟的队首
+被后续 item 超车；使用 lease token 隔离过期 worker，Harness 异步接管期间持续 heartbeat，
+在 lease 过期或 Harness 返回 busy 时重新排队。不同 Agent 的 settlement 可并发。enqueue、claim 和恢复
+分别与 `agent.work.enqueued/claimed/recovered` coordination 事件同事务写入。
+`AgentInboxRouter` 只把 domain event 解析为幂等 Inbox Command，不直接启动 Runtime；
+Scheduler claim 后才通过 Harness 提交执行。`dispatch.enqueue` API 已改为写 Inbox，
+不再伪造空引擎 invocation；浏览器 `pendingDispatches` 仅是按项目从服务端恢复的显示投影，
+写入使用稳定 idempotency key 确认并重试；请求失败只表示提交结果未知，不被当成服务端未写入，
+未确认项不会因 Runtime 终态被移除。移除、清空和强制发送均先按 project + ProjectAgent +
+idempotency key 由服务端确认取消并重新查询；终态后浏览器也以 scoped 查询刷新，不再按本地
+FIFO 猜测或自行重派发。具体领域事件 resolver
+在 domain inline seam 切片注册。
+
 这是明确的兼容阶段，`platform_event` 尚未成为唯一执行事实源。后续必须把 Message、
 UI、Observability、Harness Outcome 和 Session 逐个迁移为事件 projection，再删除
 `forwardAgentEvent()` 中的业务副作用和旧 `agent_event` 写入。长期契约见

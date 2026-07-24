@@ -29,11 +29,13 @@
   - 首个投影选定 `RuntimeInvocationProjection`，只从 `platform_event` 生命周期事件构建
   - 退出：至少一个投影从 Runtime Event 重建，而非读取 ACP/AgentEvent 原始信号
 
-## 切片 3：Agent Inbox + coordination 事件（待开始）
+## 切片 3：Agent Inbox + coordination 事件（已完成）
 
-- [ ] T7 建立持久 Agent Inbox 与 coordination 事件，替换浏览器内存队列。
+- [x] T7 建立持久 Agent Inbox 与 coordination 事件，替换浏览器内存队列。
   - AgentInbox module：enqueue(domainEvent) → InboxItem + claim(projectAgentId) → InboxItem | null + recover()
   - coordination 事件：agent.work.enqueued / claimed / recovered
+  - Scheduler 仅 claim Inbox 后调用 Harness；浏览器队列只作显示投影，不再触发执行
+  - 通用 Router 把领域事实解析为 Inbox Command，具体领域 resolver 在切片 4 注册
   - 退出：Agent Inbox 能由领域事件幂等产生、claim、恢复
 
 ## 切片 4：domain 事件 inline seam（待开始）

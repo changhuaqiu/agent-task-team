@@ -398,7 +398,7 @@ A 调工具 requestHandoff({to:B, prompt, contextRef})
 | --- | --- | --- |
 | runtime_lifecycle / runtime_activity | ✓ 信封+归一化已就位，✓ 已接 daemon（兼容双写） | 切片 0/1 产物 |
 | domain（9 领域） | ✗ 全静默纯表写入 | 最大缺口，详见 9.3 |
-| coordination | ✗ Inbox 未建 | 信封已预留 `inboxItemId` 字段 |
+| coordination | ✓ 持久 Inbox + enqueued/claimed/recovered 已落地 | migration 49；Scheduler 经 Harness 提交 |
 
 ### 9.3 domain 事件缺口清单（按业务价值排序）
 
@@ -424,7 +424,7 @@ A 调工具 requestHandoff({to:B, prompt, contextRef})
 
 | 角色 | 状态 | 缺口 |
 | --- | --- | --- |
-| ①Router | ✗ Inbox 未建，靠浏览器内存队列 | spec §1 批判点 |
+| ①Router | ✓ 通用 domain→Inbox Router 已落地；具体领域 resolver 随切片 4 接入 | Router 只创建 Command，不启动 Runtime |
 | ②Reducer | ◐ runtime 侧已有 publisher 守护（生产侧 Reducer）；消费侧 Reducer 缺 | 无人读 runtime 事件重建态，daemon 仍直接查表 |
 | ③Process Manager | ✗ 完全缺，职责错位 | 见 9.5 |
 | ④Projection | ✗ 全部错位 | 读 AgentEvent/ACP 原始信号，spec §10 要求迁 |
@@ -484,8 +484,10 @@ forwardAgentEvent 最终退化成兼容 shim，在双写退出后删除。
   建立持久投递/恢复，再把 UI/Message 投影从读 AgentEvent 改为读 runtime 事件
   退出: 至少一个投影从 Runtime Event 重建（spec §10）
 
-切片3: Agent Inbox + coordination 事件
-  建立持久 Inbox，替换浏览器内存队列
+切片3: Agent Inbox + coordination 事件（已完成）
+  持久 Inbox 已替换浏览器执行队列；前端仅保留临时显示投影
+  Scheduler claim 后经 Harness 提交；严格 FIFO、heartbeat、lease 恢复与 token fencing
+  浏览器投影按 project 恢复，持久化确认/重试和取消均以服务端 Inbox 为准
   退出: Agent Inbox 能由领域事件幂等产生、claim、恢复（spec §10）
 
 切片4: domain 事件 inline seam

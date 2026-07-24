@@ -82,6 +82,7 @@ export interface DispatchToAgentInput {
   passId?: string;
   contextSnapshot?: string;
   epochId?: string;
+  queuedIdempotencyKey?: string;
 }
 
 export interface DispatchReceipt {
@@ -717,12 +718,12 @@ export interface TaskHubState {
   dispatchReceiptsByConversation: Record<string, DispatchReceipt[]>;
 
   connectDaemon: () => void;
+  refreshPendingDispatches: (conversationId: string) => Promise<void>;
   upsertAgentSession: (projectId: ProjectId, agentId: string, sessionId: string) => void;
   dispatchToAgent: (input: DispatchToAgentInput) => Promise<boolean>;
-  forceSendDispatch: (input: DispatchToAgentInput) => void;
-  enqueueDispatch: (agentId: string, payload: Omit<PendingDispatch, 'queuedAt'>) => void;
-  dequeueNextPending: (agentId: string, conversationId: string) => void;
-  clearPendingDispatches: (agentId: string, conversationId: string) => void;
+  forceSendDispatch: (input: DispatchToAgentInput) => Promise<void>;
+  enqueueDispatch: (agentId: string, payload: Omit<PendingDispatch, 'queuedAt' | 'idempotencyKey' | 'inboxItemId' | 'persistenceStatus'> & { idempotencyKey?: string }) => void;
+  clearPendingDispatches: (agentId: string, conversationId: string, idempotencyKey?: string) => Promise<void>;
   appendTerminalLog: (agentId: string, log: string) => void;
   simulateCliExecution: (taskId: string, prompt: string, sessionId?: string) => void;
   ensureStreamMessage: (agentId: string, conversationId: string, invocationId?: string) => string;
@@ -1448,6 +1449,9 @@ export const useTaskHubStore = create<TaskHubState>()(
           }
           if (conversationId) {
             socket.emit('conversation:join', { conversationId });
+            void get().refreshPendingDispatches(conversationId).catch((error: unknown) => {
+              console.error('[dispatch] failed to refresh Agent Inbox projection:', error);
+            });
           }
 
           if (conv?.teamPackId) {
@@ -2348,7 +2352,8 @@ socket.on('terminal:exit', ({ agentId, code, command, reasonCode, conversationId
     if (pending && pending.length > 0) {
       const exitConvId = conversationId;
       setTimeout(() => {
-        useTaskHubStore.getState().dequeueNextPending(agentId, exitConvId);
+        void useTaskHubStore.getState().refreshPendingDispatches(exitConvId)
+          .catch((error: unknown) => console.error('[dispatch] exit refresh failed:', error));
       }, 300);
     }
   }
@@ -2427,7 +2432,8 @@ socket.on('agent:error', ({ agentId, message, reasonCode }: { agentId: string; m
     setTimeout(() => {
       const current = useTaskHubStore.getState();
       if (current.agentStatus[agentId] === 'idle' && current.pendingDispatches[key]?.length) {
-        current.dequeueNextPending(agentId, errConvId);
+        void current.refreshPendingDispatches(errConvId)
+          .catch((error: unknown) => console.error('[dispatch] busy refresh failed:', error));
       }
     }, 2000);
     return;

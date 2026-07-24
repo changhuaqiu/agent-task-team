@@ -74,6 +74,7 @@ import { transitionCaseExecution } from './evaluation/application-snapshot';
 import { EvaluationCaseRunner } from './evaluation/case-runner';
 import {
   AcpRuntimeEventCoordinator,
+  AgentInboxScheduler,
   startPlatformEventRuntime,
 } from './platform-events';
 import {
@@ -274,6 +275,10 @@ export default function registerDaemon(io: IOServer) {
     },
   });
   registerHarnessCoordinator(io, harnessCoordinator);
+  const agentInboxScheduler = new AgentInboxScheduler({
+    submit: (trigger) => harnessCoordinator.submit(trigger),
+  });
+  agentInboxScheduler.start();
   registerAutonomousDeliveryE2EDriver(io);
   ensureAutonomousDeliveryRuntime(io, `daemon:${LOCAL_DAEMON_NODE_ID}`);
   const evaluationCaseRunner = new EvaluationCaseRunner(harnessCoordinator);
@@ -2280,6 +2285,7 @@ export default function registerDaemon(io: IOServer) {
 
   // Graceful shutdown
   const shutdown = () => {
+    agentInboxScheduler.stop();
     stopWorktreeGCScheduler();
     clearInterval(runtimeHealthTimer);
     clearInterval(autonomyGuardTimer);

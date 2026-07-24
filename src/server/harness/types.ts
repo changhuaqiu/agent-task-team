@@ -94,4 +94,5 @@ export interface HarnessSubmission {
   disposition: 'accepted' | 'duplicate' | 'deferred';
   handled: boolean;
   completion: Promise<HarnessOutcome>;
+  duplicateInFlight?: boolean;
 }

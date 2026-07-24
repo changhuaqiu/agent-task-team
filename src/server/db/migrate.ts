@@ -1494,6 +1494,34 @@ INSERT OR IGNORE INTO platform_event_ingestion (event_id)
       }
     },
   },
+  {
+    version: 49,
+    sql: `
+CREATE TABLE IF NOT EXISTS agent_inbox_item (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES conversation(id) ON DELETE CASCADE,
+  project_agent_id TEXT NOT NULL,
+  source_event_id TEXT REFERENCES platform_event(id) ON DELETE SET NULL,
+  idempotency_key TEXT NOT NULL UNIQUE,
+  command_json TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('queued','claimed','completed','failed','cancelled')),
+  attempt_count INTEGER NOT NULL DEFAULT 0 CHECK(attempt_count >= 0),
+  available_at TEXT NOT NULL,
+  lease_token TEXT,
+  lease_expires_at TEXT,
+  last_error TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  claimed_at TEXT,
+  completed_at TEXT,
+  UNIQUE(source_event_id, project_agent_id)
+);
+CREATE INDEX IF NOT EXISTS idx_agent_inbox_claim
+  ON agent_inbox_item(status, available_at, project_id, project_agent_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_agent_inbox_agent
+  ON agent_inbox_item(project_id, project_agent_id, status, created_at);
+`,
+  },
 ];
 
 export function applyMigrations(db: Database.Database): void {
