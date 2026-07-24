@@ -173,4 +173,94 @@ describe('PlatformEventDispatcher', () => {
     expect(db.prepare('SELECT COUNT(*) AS count FROM platform_event_delivery').get())
       .toEqual({ count: 0 });
   });
+
+  it('times out a hung handler so unrelated best-effort handlers still settle', async () => {
+    const event = append('runtime.warning.raised', 'invocation:1');
+    const dispatcher = createDispatcher();
+    dispatcher.register({
+      id: 'hung',
+      pattern: 'runtime.*',
+      stereotype: 'projection',
+      reliability: 'best_effort',
+      timeoutMs: 5,
+      handle: () => new Promise(() => undefined),
+    });
+    dispatcher.register({
+      id: 'healthy',
+      pattern: 'runtime.*',
+      stereotype: 'projection',
+      reliability: 'best_effort',
+      handle: () => undefined,
+    });
+
+    const failures = await dispatcher.dispatchBestEffort(event);
+    expect(failures.map((failure) => failure.handlerId)).toEqual(['hung']);
+  });
+
+  it('fences a stale completion after the delivery is recovered and reclaimed', async () => {
+    append('task.assigned', 'task:1');
+    let releaseOld!: () => void;
+    const oldHandler = new Promise<void>((resolve) => {
+      releaseOld = resolve;
+    });
+    const first = createDispatcher();
+    first.register({
+      id: 'task-router',
+      pattern: 'task.*',
+      stereotype: 'router',
+      reliability: 'durable',
+      timeoutMs: 100,
+      handle: () => oldHandler,
+    });
+    first.recover();
+    const oldDrain = first.drain(1);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    now = new Date(now.getTime() + 6_000);
+    const replacement = createDispatcher();
+    replacement.register({
+      id: 'task-router',
+      pattern: 'task.*',
+      stereotype: 'router',
+      reliability: 'durable',
+      handle: () => undefined,
+    });
+    expect(replacement.recover().abandonedAttempts).toBe(1);
+    expect(await replacement.drain(1)).toEqual({ succeeded: 1, failed: 0, deadLettered: 0 });
+
+    releaseOld();
+    expect(await oldDrain).toEqual({ succeeded: 0, failed: 0, deadLettered: 0 });
+    expect(db.prepare(`
+      SELECT status, attempt_count FROM platform_event_delivery
+    `).get()).toEqual({ status: 'succeeded', attempt_count: 2 });
+  });
+
+  it('dead-letters an expired claim that exhausted its attempt budget', () => {
+    append('task.assigned', 'task:1');
+    const dispatcher = createDispatcher();
+    dispatcher.register({
+      id: 'task-pm',
+      pattern: 'task.*',
+      stereotype: 'process_manager',
+      reliability: 'durable',
+      maxAttempts: 1,
+      handle: () => undefined,
+    });
+    dispatcher.recover();
+    db.prepare(`
+      UPDATE platform_event_delivery
+      SET status='running', attempt_count=1, lease_owner='dead-worker',
+          lease_expires_at=?, current_attempt_id='attempt-dead'
+    `).run(new Date(now.getTime() - 1_000).toISOString());
+    db.prepare(`
+      INSERT INTO platform_event_delivery_attempt (
+        id,delivery_id,attempt_no,worker_id,status,started_at
+      ) SELECT 'attempt-dead',id,1,'dead-worker','running',? FROM platform_event_delivery
+    `).run(new Date(now.getTime() - 2_000).toISOString());
+
+    expect(dispatcher.recover()).toEqual({ enqueued: 0, abandonedAttempts: 1 });
+    expect(db.prepare(`
+      SELECT status, completed_at FROM platform_event_delivery
+    `).get()).toEqual({ status: 'dead_letter', completed_at: now.toISOString() });
+  });
 });

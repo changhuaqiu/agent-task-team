@@ -20,6 +20,7 @@ export interface PlatformEventHandlerRegistration {
   reliability: PlatformEventHandlerReliability;
   handle: PlatformEventHandler;
   maxAttempts?: number;
+  timeoutMs?: number;
 }
 
 export interface PlatformEventDispatcherOptions {
@@ -73,7 +74,8 @@ export class PlatformEventDispatcher {
   constructor(options: PlatformEventDispatcherOptions = {}) {
     this.database = options.db;
     this.eventLog = options.eventLog ?? new PlatformEventLog({ db: options.db });
-    this.workerId = options.workerId ?? `platform-event-worker:${process.pid}`;
+    this.workerId = options.workerId
+      ?? `platform-event-worker:${process.pid}:${generateSortableId('pew')}`;
     this.now = options.now ?? (() => new Date());
     this.idFactory = options.idFactory ?? ((prefix) => generateSortableId(prefix));
     this.leaseMs = options.leaseMs ?? 30_000;
@@ -95,10 +97,12 @@ export class PlatformEventDispatcher {
     const now = this.now().toISOString();
     return db.transaction(() => {
       const expired = db.prepare(`
-        SELECT id FROM platform_event_delivery
+        SELECT id, handler_id, attempt_count FROM platform_event_delivery
         WHERE status = 'running' AND lease_expires_at <= ?
-      `).all(now) as Array<{ id: string }>;
+      `).all(now) as Array<{ id: string; handler_id: string; attempt_count: number }>;
       for (const delivery of expired) {
+        const registration = this.registrations.get(delivery.handler_id);
+        const exhausted = delivery.attempt_count >= (registration?.maxAttempts ?? 5);
         db.prepare(`
           UPDATE platform_event_delivery_attempt
           SET status = 'abandoned', finished_at = ?
@@ -106,10 +110,17 @@ export class PlatformEventDispatcher {
         `).run(now, delivery.id);
         db.prepare(`
           UPDATE platform_event_delivery
-          SET status = 'queued', lease_owner = NULL, lease_expires_at = NULL,
-              next_attempt_at = ?, updated_at = ?
+          SET status = ?, lease_owner = NULL, lease_expires_at = NULL,
+              current_attempt_id = NULL, next_attempt_at = ?, updated_at = ?,
+              completed_at = ?
           WHERE id = ? AND status = 'running'
-        `).run(now, now, delivery.id);
+        `).run(
+          exhausted ? 'dead_letter' : 'queued',
+          now,
+          now,
+          exhausted ? now : null,
+          delivery.id,
+        );
       }
 
       let enqueued = 0;
@@ -159,7 +170,7 @@ export class PlatformEventDispatcher {
       ),
     );
     const results = await Promise.allSettled(
-      handlers.map((registration) => Promise.resolve().then(() => registration.handle(event))),
+      handlers.map((registration) => this.runHandler(registration, event)),
     );
     return results.flatMap((result, index) => (
       result.status === 'rejected'
@@ -181,9 +192,8 @@ export class PlatformEventDispatcher {
         continue;
       }
       try {
-        await registration.handle(event);
-        this.succeed(claim.delivery, claim.attemptId);
-        result.succeeded += 1;
+        await this.runHandler(registration, event);
+        if (this.succeed(claim.delivery, claim.attemptId)) result.succeeded += 1;
       } catch (error) {
         const deadLettered = this.fail(claim.delivery, claim.attemptId, registration, error);
         result.failed += 1;
@@ -222,14 +232,14 @@ export class PlatformEventDispatcher {
       if (!delivery) return undefined;
       const leaseExpiresAt = new Date(now.getTime() + this.leaseMs).toISOString();
       const attemptNo = delivery.attempt_count + 1;
+      const attemptId = this.idFactory('pea');
       const claimed = db.prepare(`
         UPDATE platform_event_delivery
         SET status = 'running', attempt_count = ?, lease_owner = ?,
-            lease_expires_at = ?, updated_at = ?
+            lease_expires_at = ?, current_attempt_id = ?, updated_at = ?
         WHERE id = ? AND status = 'queued'
-      `).run(attemptNo, this.workerId, leaseExpiresAt, nowIso, delivery.id);
+      `).run(attemptNo, this.workerId, leaseExpiresAt, attemptId, nowIso, delivery.id);
       if (claimed.changes !== 1) return undefined;
-      const attemptId = this.idFactory('pea');
       db.prepare(`
         INSERT INTO platform_event_delivery_attempt (
           id, delivery_id, attempt_no, worker_id, status, started_at
@@ -242,21 +252,24 @@ export class PlatformEventDispatcher {
     }).immediate();
   }
 
-  private succeed(delivery: DeliveryRow, attemptId: string): void {
+  private succeed(delivery: DeliveryRow, attemptId: string): boolean {
     const db = this.database ?? getDb();
     const now = this.now().toISOString();
-    db.transaction(() => {
+    return db.transaction(() => {
+      const updated = db.prepare(`
+        UPDATE platform_event_delivery
+        SET status = 'succeeded', lease_owner = NULL, lease_expires_at = NULL,
+            current_attempt_id = NULL, last_error = NULL, updated_at = ?, completed_at = ?
+        WHERE id = ? AND status = 'running' AND lease_owner = ?
+          AND current_attempt_id = ?
+      `).run(now, now, delivery.id, this.workerId, attemptId);
+      if (updated.changes !== 1) return false;
       db.prepare(`
         UPDATE platform_event_delivery_attempt
         SET status = 'succeeded', finished_at = ?
         WHERE id = ? AND status = 'running'
       `).run(now, attemptId);
-      db.prepare(`
-        UPDATE platform_event_delivery
-        SET status = 'succeeded', lease_owner = NULL, lease_expires_at = NULL,
-            last_error = NULL, updated_at = ?, completed_at = ?
-        WHERE id = ? AND status = 'running' AND lease_owner = ?
-      `).run(now, now, delivery.id, this.workerId);
+      return true;
     }).immediate();
   }
 
@@ -274,18 +287,14 @@ export class PlatformEventDispatcher {
     const nextAttemptAt = deadLettered
       ? nowIso
       : new Date(now.getTime() + this.retryDelayMs(delivery.attempt_count)).toISOString();
-    db.transaction(() => {
-      db.prepare(`
-        UPDATE platform_event_delivery_attempt
-        SET status = 'failed', finished_at = ?, error = ?
-        WHERE id = ? AND status = 'running'
-      `).run(nowIso, message, attemptId);
-      db.prepare(`
+    return db.transaction(() => {
+      const updated = db.prepare(`
         UPDATE platform_event_delivery
         SET status = ?, lease_owner = NULL, lease_expires_at = NULL,
-            next_attempt_at = ?, last_error = ?, updated_at = ?,
+            current_attempt_id = NULL, next_attempt_at = ?, last_error = ?, updated_at = ?,
             completed_at = ?
         WHERE id = ? AND status = 'running' AND lease_owner = ?
+          AND current_attempt_id = ?
       `).run(
         deadLettered ? 'dead_letter' : 'queued',
         nextAttemptAt,
@@ -294,8 +303,39 @@ export class PlatformEventDispatcher {
         deadLettered ? nowIso : null,
         delivery.id,
         this.workerId,
+        attemptId,
       );
+      if (updated.changes !== 1) return false;
+      db.prepare(`
+        UPDATE platform_event_delivery_attempt
+        SET status = 'failed', finished_at = ?, error = ?
+        WHERE id = ? AND status = 'running'
+      `).run(nowIso, message, attemptId);
+      return deadLettered;
     }).immediate();
-    return deadLettered;
+  }
+
+  private async runHandler(
+    registration: PlatformEventHandlerRegistration,
+    event: PlatformEvent,
+  ): Promise<void> {
+    const timeoutMs = registration.timeoutMs ?? this.leaseMs;
+    if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+      throw new Error(`platform_event_handler_timeout_invalid:${registration.id}`);
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        Promise.resolve().then(() => registration.handle(event)),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(
+            () => reject(new Error(`platform_event_handler_timed_out:${registration.id}`)),
+            timeoutMs,
+          );
+        }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
 }

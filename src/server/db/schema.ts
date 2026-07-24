@@ -200,6 +200,7 @@ export const platformEventDelivery = sqliteTable('platform_event_delivery', {
   nextAttemptAt: text('next_attempt_at').notNull(),
   leaseOwner: text('lease_owner'),
   leaseExpiresAt: text('lease_expires_at'),
+  currentAttemptId: text('current_attempt_id'),
   lastError: text('last_error'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),

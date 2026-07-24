@@ -1403,6 +1403,7 @@ CREATE TABLE IF NOT EXISTS platform_event_delivery (
   next_attempt_at TEXT NOT NULL,
   lease_owner TEXT,
   lease_expires_at TEXT,
+  current_attempt_id TEXT,
   last_error TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
