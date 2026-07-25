@@ -286,7 +286,8 @@ A2A response/done 六个 daemon 内联步骤迁入 Effect Adapter；Process Mana
 proof、closure evaluation、A2A response/done 使用 transactional adapter。A2A 的领域状态与
 Inbox admission 和 success receipt 同事务，Socket、内存状态与 timer 延迟到 commit 后；
 evaluation 的 Socket 通知同样只在事务提交后 best-effort 发出。lease recovery 计入 attempt
-预算，到限直接 dead-letter 并释放 lane。完整实施契约已归档到
+预算，到限直接 dead-letter 并释放 lane。完整架构、状态模型、失败窗口和扩展规则见
+[`durable-effect-outbox.md`](durable-effect-outbox.md)；历史实施契约归档于
 `docs/archive/specs/durable-effect-outbox/spec.md`。
 
 ---
@@ -644,7 +645,8 @@ Session 身份仍由 coordinator 上半部守护；背景活动与 heartbeat 留
   执行意图不是已经发生的事实，会污染事件目录与 owner。
 - **后果**：daemon 不再拥有 Runtime completion 的重试编排；数据库动作获得 action/receipt
   原子性，外部动作明确依赖稳定幂等键；Socket 保持 commit 后 best-effort。
-- **退出条件**：已满足；实施契约归档于
+- **退出条件**：已满足；长期设计见
+  [`durable-effect-outbox.md`](durable-effect-outbox.md)，实施契约归档于
   `docs/archive/specs/durable-effect-outbox/spec.md` §10。
 
 ---

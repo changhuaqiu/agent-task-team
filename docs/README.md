@@ -112,6 +112,7 @@
 - `docs/technical/evaluation/README.md`：所有变更的 V/C/E 评测分级、Why→Industry→Measure→Decision 证据链与记录模板
 - `docs/technical/evaluation/2026-07-20-project-context-bootstrap-evaluation.md`：项目上下文初始化的前后效率、相关性和交接复用评测记录
 - `docs/technical/execution/autonomous-delivery-loop.md`：持久化 DeliveryRun、Action/Attempt/Receipt、恢复与最终收口设计
+- `docs/technical/execution/durable-effect-outbox.md`：Process Manager 副作用的原子接纳、lane 顺序、两类执行语义、崩溃恢复与 Runtime completion 首个采用者设计
 - `docs/technical/integrations/github-issue-agent-hook.md`：GitHub Issue webhook 验签、幂等映射与 GoalContract 接入设计
 - `docs/technical/execution/project-context-bootstrap.md`：代码库发现、分层知识索引、workstream 投影、增量刷新和 ContextManager 接线设计
 - `docs/wiki/project-context.md`：Project Context 的当前入口、生成布局、dispatch 数据流、安全边界与验证命令

@@ -268,7 +268,9 @@ transactional adapter；task-sync、TeamLog 使用稳定幂等键或可收敛写
 A2A 的 chain/worklist/possession 与稳定 `chainId/entryId` Agent Inbox Command 同事务写入，
 Socket、内存状态和 timer 延迟到提交后，Inbox Scheduler 再调用 Harness。
 migration 52 建立通用 Effect Outbox 表，将 v51 已完成 step 转为只读 suppression 后删除旧
-completion step receipt，pending context 不会重放已提交步骤。所有运行时
+completion step receipt，pending context 不会重放已提交步骤。完整设计、状态机、崩溃窗口
+与新 Adapter 接入规则见
+`docs/technical/execution/durable-effect-outbox.md`。所有运行时
 （opencode / claude / codex）统一经 ACP 产出
 `AgentEvent` 并归一化入流，不再有 per-engine 私有 stdout 解析。
 

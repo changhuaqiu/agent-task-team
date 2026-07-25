@@ -6,7 +6,7 @@
 > 历史实施契约：本目录
 > 依赖：已归档 `platform-runtime-events`、`a2a-possession-contract`、
 > `autonomous-delivery-loop`、`agent-observability`
-> 长期设计：`docs/technical/execution/platform-runtime-event-model.md`
+> 长期设计：`docs/technical/execution/durable-effect-outbox.md`
 
 ## 1. 问题
 
