@@ -143,8 +143,14 @@ export function stopTaskWatcher(projectPath: string, conversationId: string): vo
   }
 }
 
-export function syncTasksToDb(projectPath: string, conversationId: string, io: IOServer): void {
+export function syncTasksToDb(
+  projectPath: string,
+  conversationId: string,
+  io: IOServer,
+  options: { throwOnError?: boolean } = {},
+): void {
   const tasksFile = join(projectPath, '.ath', 'TASKS.md');
+  const failures: Error[] = [];
 
   const { tasks: parsed, blockers } = readTasksMd(projectPath);
 
@@ -211,6 +217,7 @@ export function syncTasksToDb(projectPath: string, conversationId: string, io: I
         }
       } catch (e) {
         console.error(`[watcher] failed to create task ${storageId}:`, e);
+        failures.push(e instanceof Error ? e : new Error(String(e)));
       }
       continue;
     }
@@ -276,6 +283,10 @@ export function syncTasksToDb(projectPath: string, conversationId: string, io: I
         });
       }
     }
+  }
+
+  if (options.throwOnError && failures.length > 0) {
+    throw new AggregateError(failures, `task_sync_failed:${failures.length}`);
   }
 
   const authoritativeTasks = parsed.map((task) => {

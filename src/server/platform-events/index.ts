@@ -32,11 +32,43 @@ export {
 } from './runtime-socket-projection';
 export {
   RuntimeCompletionProcessManager,
-  runRuntimeCompletionStep,
   runtimeCompletionContextRepo,
   type RuntimeCompletionContext,
-  type RuntimeCompletionPort,
 } from './runtime-completion-process-manager';
+export {
+  DurableEffectConflictError,
+  DurableEffectOutbox,
+  DurableEffectRegistrationError,
+  type DurableEffect,
+  type DurableEffectAfterCommit,
+  type DurableEffectDrainResult,
+  type DurableEffectExecution,
+  type DurableEffectExecutionContext,
+  type DurableEffectOutboxOptions,
+  type DurableEffectRecoveryResult,
+  type DurableEffectRegistration,
+  type DurableEffectStatus,
+  type EnqueueDurableEffect,
+  type EnqueueDurableEffectBatch,
+} from './durable-effect-outbox';
+export {
+  planRuntimeCompletionEffects,
+  registerRuntimeCompletionEffectAdapters,
+  RUNTIME_COMPLETION_EFFECT_TYPES,
+  type RuntimeA2ADoneEffectPayload,
+  type RuntimeA2AResponseEffectPayload,
+  type RuntimeClosureEvaluationEffectPayload,
+  type RuntimeClosureEvaluationResult,
+  type RuntimeCompletionEffectAdapters,
+  type RuntimeCompletionEffectPayloadMap,
+  type RuntimeTaskSyncEffectPayload,
+  type RuntimeTeamLogEffectPayload,
+  type RuntimeValidExitProofEffectPayload,
+} from './runtime-completion-effects';
+export {
+  registerProductionRuntimeCompletionEffects,
+  type ProductionRuntimeCompletionEffectOptions,
+} from './runtime-completion-effect-adapters';
 export {
   PlatformEventRuntimeWorker,
   startPlatformEventRuntime,

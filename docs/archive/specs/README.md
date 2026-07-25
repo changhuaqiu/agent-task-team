@@ -16,3 +16,4 @@
 | `group-chat-task-flow/` | implemented | baseline 已实现（tasks 全勾），roadmap 已标 done；长期事实见 `docs/technical/execution/group-chat-task-graph.md` |
 | `project-context-bootstrap/` | implemented | 分层项目上下文、增量加载、同路径 workstream、Harness 接线和 C 级评测已完成；长期事实见 `docs/technical/execution/project-context-bootstrap.md` 与 `docs/wiki/project-context.md` |
 | `platform-runtime-events/` | implemented | 四类平台事件、Durable Dispatcher、Agent Inbox、9 领域 inline seam、delivery Process Manager 与 Runtime 消费者迁移已完成；长期事实见 `docs/technical/execution/platform-runtime-event-model.md` 与 `docs/wiki/04-backend-daemon.md` |
+| `durable-effect-outbox/` | implemented | 通用 Effect Outbox、Runtime completion 六类 adapter、v51 suppression bridge 与 A2A 事务边界已完成；长期事实见 `docs/technical/execution/platform-runtime-event-model.md` 与 `docs/wiki/04-backend-daemon.md` |

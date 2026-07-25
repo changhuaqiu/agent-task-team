@@ -2,7 +2,8 @@ import type Database from 'better-sqlite3';
 import { getDb } from '../db';
 import { PlatformEventLog } from './event-log';
 import type { PlatformEventHandler } from './dispatcher';
-import type { PlatformEvent } from './types';
+import type { DurableEffectOutbox } from './durable-effect-outbox';
+import { planRuntimeCompletionEffects } from './runtime-completion-effects';
 
 export interface RuntimeCompletionContext {
   invocation_id: string;
@@ -19,39 +20,9 @@ export interface RuntimeCompletionContext {
   status: 'pending' | 'completed';
 }
 
-export interface RuntimeCompletionPort {
-  complete(
-    context: RuntimeCompletionContext,
-    output: string,
-    event: PlatformEvent,
-    signal: AbortSignal,
-  ): void | Promise<void>;
-}
-
-export function runRuntimeCompletionStep(
-  eventId: string,
-  step: string,
-  action: () => void,
-  database?: Database.Database,
-): boolean {
-  const db = database ?? getDb();
-  return db.transaction(() => {
-    const existing = db.prepare(`
-      SELECT 1 FROM runtime_completion_step_receipt WHERE event_id=? AND step=?
-    `).get(eventId, step);
-    if (existing) return false;
-    action();
-    db.prepare(`
-      INSERT INTO runtime_completion_step_receipt (event_id,step,completed_at)
-      VALUES (?,?,?)
-    `).run(eventId, step, new Date().toISOString());
-    return true;
-  }).immediate();
-}
-
 export class RuntimeCompletionProcessManager {
   constructor(
-    private readonly port: RuntimeCompletionPort,
+    private readonly effects: Pick<DurableEffectOutbox, 'enqueueBatch'>,
     private readonly database?: Database.Database,
     private readonly eventLog?: PlatformEventLog,
   ) {}
@@ -60,36 +31,52 @@ export class RuntimeCompletionProcessManager {
     if (event.type !== 'runtime.invocation.terminated' || !event.invocationId) return;
     if (signal.aborted) throw signal.reason ?? new Error('runtime_completion_aborted');
     const db = this.database ?? getDb();
-    const context = db.prepare(
-      `SELECT * FROM runtime_completion_context WHERE invocation_id=?`,
-    ).get(event.invocationId) as RuntimeCompletionContext | undefined;
-    // Historical Runtime Events predate durable completion contexts and were
-    // already handled by the compatibility path.
-    if (!context || context.status === 'completed') return;
-    db.prepare(`
-      UPDATE runtime_completion_context
-      SET source_event_id=COALESCE(source_event_id,?), updated_at=?
-      WHERE invocation_id=? AND (source_event_id IS NULL OR source_event_id=?)
-    `).run(event.eventId, new Date().toISOString(), event.invocationId, event.eventId);
-    const bound = db.prepare(
-      `SELECT * FROM runtime_completion_context WHERE invocation_id=?`,
-    ).get(event.invocationId) as RuntimeCompletionContext;
-    if (bound.source_event_id !== event.eventId) {
-      throw new Error('runtime_completion_source_event_conflict');
-    }
-    const output = (this.eventLog ?? new PlatformEventLog({ db }))
-      .listStream(event.streamKey)
-      .filter((item) => item.type === 'runtime.message.segment.completed')
-      .map((item) => (item.payload as { text?: string }).text ?? '')
-      .join('');
-    await this.port.complete(bound, output, event, signal);
-    if (signal.aborted) throw signal.reason ?? new Error('runtime_completion_aborted');
-    const now = new Date().toISOString();
-    db.prepare(`
-      UPDATE runtime_completion_context
-      SET status='completed', completed_at=?, updated_at=?
-      WHERE invocation_id=? AND source_event_id=? AND status='pending'
-    `).run(now, now, event.invocationId, event.eventId);
+    db.transaction(() => {
+      const context = db.prepare(
+        `SELECT * FROM runtime_completion_context WHERE invocation_id=?`,
+      ).get(event.invocationId!) as RuntimeCompletionContext | undefined;
+      // Historical Runtime Events predate durable completion contexts and were
+      // already handled by the compatibility path.
+      if (!context || context.status === 'completed') return;
+      const now = new Date().toISOString();
+      db.prepare(`
+        UPDATE runtime_completion_context
+        SET source_event_id=COALESCE(source_event_id,?), updated_at=?
+        WHERE invocation_id=? AND (source_event_id IS NULL OR source_event_id=?)
+      `).run(event.eventId, now, event.invocationId, event.eventId);
+      const bound = db.prepare(
+        `SELECT * FROM runtime_completion_context WHERE invocation_id=?`,
+      ).get(event.invocationId!) as RuntimeCompletionContext;
+      if (bound.source_event_id !== event.eventId) {
+        throw new Error('runtime_completion_source_event_conflict');
+      }
+      const output = (this.eventLog ?? new PlatformEventLog({ db }))
+        .listStream(event.streamKey)
+        .filter((item) => item.type === 'runtime.message.segment.completed')
+        .map((item) => (item.payload as { text?: string }).text ?? '')
+        .join('');
+      const suppressed = new Set((
+        db.prepare(`
+          SELECT effect_type FROM runtime_completion_legacy_effect_suppression
+          WHERE event_id=?
+        `).all(event.eventId) as Array<{ effect_type: string }>
+      ).map((row) => row.effect_type));
+      const planned = planRuntimeCompletionEffects(bound, output, event)
+        .filter((effect) => !suppressed.has(effect.type));
+      if (planned.length > 0) {
+        this.effects.enqueueBatch({
+          sourceEventId: event.eventId,
+          laneKey: `runtime-completion:${event.invocationId}`,
+          effects: planned,
+        });
+      }
+      if (signal.aborted) throw signal.reason ?? new Error('runtime_completion_aborted');
+      db.prepare(`
+        UPDATE runtime_completion_context
+        SET status='completed', completed_at=?, updated_at=?
+        WHERE invocation_id=? AND source_event_id=? AND status='pending'
+      `).run(now, now, event.invocationId, event.eventId);
+    }).immediate();
   };
 }
 

@@ -83,6 +83,29 @@ const CHAIN_MAX_DISPATCHES = 8;
 // Per-agent last dispatch timestamp
 const lastDispatchTime = new Map<string, number>();
 
+export interface DedupStateSnapshot {
+  rippleEntries: Array<[string, string[]]>;
+  dispatchEntries: Array<[string, number]>;
+}
+
+export function captureDedupState(): DedupStateSnapshot {
+  return {
+    rippleEntries: [...rippleTracker].map(([key, requesters]) => [key, [...requesters]]),
+    dispatchEntries: [...lastDispatchTime],
+  };
+}
+
+export function restoreDedupState(snapshot: DedupStateSnapshot): void {
+  rippleTracker.clear();
+  for (const [key, requesters] of snapshot.rippleEntries) {
+    rippleTracker.set(key, new Set(requesters));
+  }
+  lastDispatchTime.clear();
+  for (const [agentId, recordedAt] of snapshot.dispatchEntries) {
+    lastDispatchTime.set(agentId, recordedAt);
+  }
+}
+
 export function checkRateLimit(agentId: string): { pass: boolean; reason?: string } {
   const last = lastDispatchTime.get(agentId);
   if (last && Date.now() - last < RATE_LIMIT_WINDOW_MS) {

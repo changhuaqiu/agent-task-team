@@ -56,7 +56,7 @@ describe('PlatformEventRuntimeWorker', () => {
     worker.stop();
   });
 
-  it('registers the durable Runtime completion process manager when a port is supplied', () => {
+  it('registers the durable Runtime completion process manager when an effect outbox is supplied', () => {
     const registrations: Array<{ id: string; pattern: string }> = [];
     const dispatcher = {
       register(registration: { id: string; pattern: string }) {
@@ -67,9 +67,19 @@ describe('PlatformEventRuntimeWorker', () => {
       async drain() { return { succeeded: 0, failed: 0, deadLettered: 0 }; },
     };
 
+    const effects = {
+      enqueueBatch: vi.fn(() => []),
+      recover: vi.fn(() => ({ recovered: 0, abandonedAttempts: 0, deadLettered: 0 })),
+      drain: vi.fn(async () => ({
+        succeeded: 0,
+        failed: 0,
+        deadLettered: 0,
+        fenced: 0,
+      })),
+    };
     new PlatformEventRuntimeWorker({
       dispatcher,
-      runtimeCompletion: { complete() {} },
+      effectOutbox: effects,
     });
 
     expect(registrations).toEqual(expect.arrayContaining([expect.objectContaining({
@@ -100,6 +110,54 @@ describe('PlatformEventRuntimeWorker', () => {
     expect(recoverCalls).toBe(2);
     expect(dispatcher.discover).toHaveBeenCalledTimes(1);
     worker.stop();
+  });
+
+  it('recovers and drains durable effects after event dispatch', async () => {
+    vi.useFakeTimers();
+    const order: string[] = [];
+    const dispatcher = {
+      register() {},
+      recover() {
+        order.push('event-recover');
+        return { enqueued: 0, abandonedAttempts: 0 };
+      },
+      discover() {
+        order.push('event-discover');
+        return 0;
+      },
+      async drain() {
+        order.push('event-drain');
+        return { succeeded: 0, failed: 0, deadLettered: 0 };
+      },
+    };
+    const effects = {
+      enqueueBatch: vi.fn(() => []),
+      recover() {
+        order.push('effect-recover');
+        return { recovered: 0, abandonedAttempts: 0, deadLettered: 0 };
+      },
+      async drain() {
+        order.push('effect-drain');
+        return { succeeded: 0, failed: 0, deadLettered: 0, fenced: 0 };
+      },
+    };
+    const worker = new PlatformEventRuntimeWorker({
+      intervalMs: 10,
+      dispatcher,
+      effectOutbox: effects,
+    });
+
+    worker.start();
+    await vi.advanceTimersByTimeAsync(0);
+    worker.stop();
+
+    expect(order).toEqual([
+      'event-recover',
+      'effect-recover',
+      'event-discover',
+      'event-drain',
+      'effect-drain',
+    ]);
   });
 
   it('fences an old in-flight tick across stop and restart', async () => {

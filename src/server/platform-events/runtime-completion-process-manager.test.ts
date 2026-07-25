@@ -2,27 +2,34 @@ import type Database from 'better-sqlite3';
 import type { Server as IOServer } from 'socket.io';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AgentMessenger } from '../a2a';
+import { captureDedupState } from '../a2a/dedup';
 import { createTestDb, resetDb, setTestDb } from '../db';
 import { invocationRepo } from '../repositories/invocation-repo';
-import { proofLogRepo } from '../repositories/proof-log-repo';
 import { PlatformEventDispatcher } from './dispatcher';
+import { DurableEffectOutbox } from './durable-effect-outbox';
 import { AgentInbox } from './agent-inbox';
 import { PlatformEventLog } from './event-log';
 import {
   RuntimeCompletionProcessManager,
-  runRuntimeCompletionStep,
   runtimeCompletionContextRepo,
 } from './runtime-completion-process-manager';
+import {
+  registerRuntimeCompletionEffectAdapters,
+  RUNTIME_COMPLETION_EFFECT_TYPES,
+} from './runtime-completion-effects';
 import { RuntimeEventPublisher } from './runtime-event-publisher';
 
 describe('RuntimeCompletionProcessManager', () => {
   let db: Database.Database;
   let log: PlatformEventLog;
+  let outbox: DurableEffectOutbox;
+  let nextId: number;
 
   beforeEach(() => {
     db = createTestDb();
     setTestDb(db);
     const now = '2026-07-25T05:00:00.000Z';
+    nextId = 0;
     db.prepare(`
       INSERT INTO conversation (id,title,status,created_at,updated_at)
       VALUES ('project-1','Project','active',?,?)
@@ -40,6 +47,12 @@ describe('RuntimeCompletionProcessManager', () => {
       taskProjectDir: 'C:\\workspace\\project-1',
     });
     log = new PlatformEventLog({ db });
+    outbox = new DurableEffectOutbox({
+      db,
+      workerId: 'effect-worker',
+      retryDelayMs: () => 0,
+      idFactory: (prefix) => `${prefix}-${++nextId}`,
+    });
   });
 
   afterEach(() => {
@@ -67,10 +80,9 @@ describe('RuntimeCompletionProcessManager', () => {
     });
   }
 
-  it('recovers an appended terminal and executes its completion once', async () => {
+  it('recovers an appended terminal and atomically accepts its effect lane once', async () => {
     const terminal = publishCompletedTrace();
-    const complete = vi.fn();
-    const manager = new RuntimeCompletionProcessManager({ complete }, db, log);
+    const manager = new RuntimeCompletionProcessManager(outbox, db, log);
     const dispatcher = new PlatformEventDispatcher({ db, eventLog: log });
     dispatcher.register({
       id: 'runtime-completion-process-manager:v1',
@@ -82,79 +94,68 @@ describe('RuntimeCompletionProcessManager', () => {
 
     expect(dispatcher.recover().enqueued).toBe(1);
     expect(await dispatcher.drain()).toMatchObject({ succeeded: 1, failed: 0 });
-    expect(complete).toHaveBeenCalledTimes(1);
-    expect(complete).toHaveBeenCalledWith(
-      expect.objectContaining({ invocation_id: 'inv-1', source_event_id: terminal.eventId }),
-      'handoff @reviewer',
-      expect.objectContaining({ eventId: terminal.eventId }),
-      expect.any(AbortSignal),
-    );
+    expect(outbox.listBySourceEvent(terminal.eventId).map((effect) => effect.type)).toEqual([
+      RUNTIME_COMPLETION_EFFECT_TYPES.taskSync,
+      RUNTIME_COMPLETION_EFFECT_TYPES.teamLog,
+      RUNTIME_COMPLETION_EFFECT_TYPES.a2aResponse,
+      RUNTIME_COMPLETION_EFFECT_TYPES.a2aDone,
+    ]);
 
     await manager.handle(terminal, { signal: new AbortController().signal });
-    expect(complete).toHaveBeenCalledTimes(1);
+    expect(outbox.listBySourceEvent(terminal.eventId)).toHaveLength(4);
     expect(db.prepare(`
       SELECT status,source_event_id FROM runtime_completion_context WHERE invocation_id='inv-1'
     `).get()).toEqual({ status: 'completed', source_event_id: terminal.eventId });
   });
 
-  it('leaves completion pending when the port fails so Dispatcher can retry', async () => {
+  it('rolls back source binding and completion when effect admission fails', async () => {
     const terminal = publishCompletedTrace();
-    const complete = vi.fn()
-      .mockRejectedValueOnce(new Error('temporary'))
-      .mockResolvedValue(undefined);
-    const manager = new RuntimeCompletionProcessManager({ complete }, db, log);
+    const manager = new RuntimeCompletionProcessManager({
+      enqueueBatch() {
+        throw new Error('effect_outbox_unavailable');
+      },
+    }, db, log);
 
     await expect(manager.handle(terminal, { signal: new AbortController().signal }))
-      .rejects.toThrow('temporary');
+      .rejects.toThrow('effect_outbox_unavailable');
     expect(db.prepare(`
       SELECT status,source_event_id FROM runtime_completion_context WHERE invocation_id='inv-1'
-    `).get()).toEqual({ status: 'pending', source_event_id: terminal.eventId });
+    `).get()).toEqual({ status: 'pending', source_event_id: null });
+  });
+
+  it('completes held-out evaluation context without production effects', async () => {
+    db.prepare(`
+      UPDATE runtime_completion_context SET evaluation_execution_id='execution-1'
+      WHERE invocation_id='inv-1'
+    `).run();
+    const terminal = publishCompletedTrace('held-out output');
+    const manager = new RuntimeCompletionProcessManager(outbox, db, log);
 
     await manager.handle(terminal, { signal: new AbortController().signal });
-    expect(complete).toHaveBeenCalledTimes(2);
+
+    expect(outbox.listBySourceEvent(terminal.eventId)).toEqual([]);
     expect(db.prepare(`
       SELECT status FROM runtime_completion_context WHERE invocation_id='inv-1'
     `).get()).toEqual({ status: 'completed' });
   });
 
-  it('does not repeat an earlier persisted step when a later step fails', () => {
-    const terminal = publishCompletedTrace();
-    const firstStep = () => runRuntimeCompletionStep(terminal.eventId, 'proof', () => {
-      proofLogRepo.append({
-        eventType: 'runtime.completion.test-proof',
-        conversationId: 'project-1',
-        agentId: 'implementer',
-      });
-    }, db);
-    const laterStep = vi.fn()
-      .mockImplementationOnce(() => {
-        throw new Error('later step failed');
-      })
-      .mockImplementation(() => {});
+  it('suppresses v51 steps that were already committed before upgrade', async () => {
+    const terminal = publishCompletedTrace('@reviewer 请审查这个实现');
+    db.prepare(`
+      INSERT INTO runtime_completion_legacy_effect_suppression (event_id,effect_type)
+      VALUES (?, 'runtime.task_sync'), (?, 'runtime.a2a_response')
+    `).run(terminal.eventId, terminal.eventId);
+    const manager = new RuntimeCompletionProcessManager(outbox, db, log);
 
-    expect(firstStep()).toBe(true);
-    expect(() => runRuntimeCompletionStep(
-      terminal.eventId,
-      'a2a-done',
-      laterStep,
-      db,
-    )).toThrow('later step failed');
+    await manager.handle(terminal, { signal: new AbortController().signal });
 
-    expect(firstStep()).toBe(false);
-    expect(runRuntimeCompletionStep(terminal.eventId, 'a2a-done', laterStep, db)).toBe(true);
-    expect(proofLogRepo.findByType({
-      eventType: 'runtime.completion.test-proof',
-      conversationId: 'project-1',
-    })).toHaveLength(1);
-    expect(db.prepare(`
-      SELECT step FROM runtime_completion_step_receipt WHERE event_id=? ORDER BY step
-    `).all(terminal.eventId)).toEqual([
-      { step: 'a2a-done' },
-      { step: 'proof' },
+    expect(outbox.listBySourceEvent(terminal.eventId).map((effect) => effect.type)).toEqual([
+      'runtime.team_log',
+      'runtime.a2a_done',
     ]);
   });
 
-  it('keeps one stable chain and Inbox command when a later completion step retries', async () => {
+  it('keeps one stable A2A chain and Inbox command when response execution retries', async () => {
     const terminal = publishCompletedTrace('@reviewer 请审查这个实现');
     const inbox = new AgentInbox({ db });
     const emit = vi.fn();
@@ -184,36 +185,58 @@ describe('RuntimeCompletionProcessManager', () => {
             passId: input.passId,
           },
         });
-        return {
-          handled: true,
-          admitted: true,
-        };
+        return { handled: true, admitted: true };
       },
+      true,
     );
     let failAfterResponse = true;
-    const manager = new RuntimeCompletionProcessManager({
-      complete(context, output, event) {
-        runRuntimeCompletionStep(event.eventId, 'a2a-response', () => {
-          messenger.orchestrator.onAgentResponse(
-            context.agent_id,
-            output,
-            context.conversation_id,
-            context.task_id ?? undefined,
-          );
-        }, db);
+    let failAfterDone = true;
+    const dedupBeforeFailure = captureDedupState();
+    registerRuntimeCompletionEffectAdapters(outbox, {
+      syncTasks() {},
+      recordInvalidExit() {},
+      queueClosureEvaluation: () => ({ queued: false }),
+      notifyEvaluationQueued() {},
+      updateTeamLog() {},
+      recordA2AResponse(payload) {
+        const application = messenger.orchestrator.applyRuntimeResponse(
+          payload.agentId,
+          payload.output,
+          payload.conversationId,
+          payload.taskId,
+        );
         if (failAfterResponse) {
           failAfterResponse = false;
           throw new Error('after response');
         }
-        runRuntimeCompletionStep(event.eventId, 'a2a-done', () => {
-          messenger.orchestrator.onAgentDone(context.agent_id, context.conversation_id);
-        }, db);
+        return application;
       },
-    }, db, log);
-
-    await expect(manager.handle(terminal, { signal: new AbortController().signal }))
-      .rejects.toThrow('after response');
+      recordA2ADone(payload) {
+        const application = messenger.orchestrator.applyRuntimeDone(
+          payload.agentId,
+          payload.conversationId,
+        );
+        if (failAfterDone) {
+          failAfterDone = false;
+          throw new Error('after done');
+        }
+        return application;
+      },
+    });
+    const manager = new RuntimeCompletionProcessManager(outbox, db, log);
     await manager.handle(terminal, { signal: new AbortController().signal });
+
+    expect(await outbox.drain()).toMatchObject({ succeeded: 1 }); // task sync
+    expect(await outbox.drain()).toMatchObject({ succeeded: 1 }); // team log
+    expect(await outbox.drain()).toMatchObject({ failed: 1 }); // response acknowledgement lost
+    expect(db.prepare(`SELECT COUNT(*) count FROM invocation_chain`).get())
+      .toEqual({ count: 0 });
+    expect(inbox.listQueued('project-1')).toHaveLength(0);
+    expect(emit).not.toHaveBeenCalled();
+    expect(captureDedupState()).toEqual(dedupBeforeFailure);
+    expect(await outbox.drain()).toMatchObject({ succeeded: 1 }); // response retry
+    expect(await outbox.drain()).toMatchObject({ failed: 1 }); // done acknowledgement lost
+    expect(await outbox.drain()).toMatchObject({ succeeded: 1 }); // done retry
 
     expect(db.prepare(`SELECT COUNT(*) count FROM invocation_chain`).get()).toEqual({ count: 1 });
     expect(db.prepare(`
@@ -224,5 +247,8 @@ describe('RuntimeCompletionProcessManager', () => {
       projectAgentId: 'reviewer',
       command: { source: 'a2a', chainId: expect.any(String) },
     });
+    expect(outbox.listBySourceEvent(terminal.eventId).every(
+      (effect) => effect.status === 'succeeded',
+    )).toBe(true);
   });
 });

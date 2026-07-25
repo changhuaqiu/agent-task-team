@@ -9,8 +9,8 @@ import { RuntimeMessageProjection } from './runtime-message-projection';
 import { RuntimeObservabilityProjection } from './runtime-observability-projection';
 import {
   RuntimeCompletionProcessManager,
-  type RuntimeCompletionPort,
 } from './runtime-completion-process-manager';
+import { DurableEffectOutbox } from './durable-effect-outbox';
 
 let worker: PlatformEventRuntimeWorker | undefined;
 
@@ -18,6 +18,7 @@ type WorkerDispatcher = Pick<
   PlatformEventDispatcher,
   'register' | 'recover' | 'discover' | 'drain'
 >;
+type WorkerEffects = Pick<DurableEffectOutbox, 'enqueueBatch' | 'recover' | 'drain'>;
 
 export interface PlatformEventRuntimeWorkerOptions {
   intervalMs?: number;
@@ -25,12 +26,13 @@ export interface PlatformEventRuntimeWorkerOptions {
   projection?: RuntimeInvocationProjection;
   deliveryAdvancement?: DeliveryAdvancementPort;
   onObservabilityUpdated?: (projectId: string, invocationId: string) => void;
-  runtimeCompletion?: RuntimeCompletionPort;
+  effectOutbox?: WorkerEffects;
 }
 
 export class PlatformEventRuntimeWorker {
   private readonly dispatcher: WorkerDispatcher;
   private readonly projection: RuntimeInvocationProjection;
+  private readonly effects?: WorkerEffects;
   private readonly intervalMs: number;
   private timer?: ReturnType<typeof setTimeout>;
   private stopped = true;
@@ -42,6 +44,7 @@ export class PlatformEventRuntimeWorker {
     this.intervalMs = resolved.intervalMs ?? 250;
     this.dispatcher = resolved.dispatcher ?? new PlatformEventDispatcher();
     this.projection = resolved.projection ?? new RuntimeInvocationProjection();
+    this.effects = resolved.effectOutbox;
     this.dispatcher.register({
       id: 'runtime-invocation-projection:v1',
       pattern: 'runtime.invocation.*',
@@ -67,9 +70,9 @@ export class PlatformEventRuntimeWorker {
       reliability: 'durable',
       handle: observabilityProjection.handle,
     });
-    if (resolved.runtimeCompletion) {
+    if (resolved.effectOutbox) {
       const completionProcessManager = new RuntimeCompletionProcessManager(
-        resolved.runtimeCompletion,
+        resolved.effectOutbox,
       );
       this.dispatcher.register({
         id: 'runtime-completion-process-manager:v1',
@@ -136,10 +139,12 @@ export class PlatformEventRuntimeWorker {
     try {
       if (!this.recovered) {
         this.dispatcher.recover();
+        this.effects?.recover();
         this.recovered = true;
       }
       this.dispatcher.discover();
       await this.dispatcher.drain();
+      await this.effects?.drain();
     } catch (error) {
       console.error('[platform-event] dispatcher tick failed:', error);
     }

@@ -271,6 +271,58 @@ export const platformEventIngestion = sqliteTable('platform_event_ingestion', {
   uniqueIndex('uq_platform_event_ingestion_event').on(table.eventId),
 ]);
 
+export const platformEffectOutbox = sqliteTable('platform_effect_outbox', {
+  id: text('id').primaryKey(),
+  sourceEventId: text('source_event_id').notNull()
+    .references(() => platformEvent.id, { onDelete: 'cascade' }),
+  effectType: text('effect_type').notNull(),
+  targetKey: text('target_key').notNull(),
+  laneKey: text('lane_key').notNull(),
+  laneSequence: integer('lane_sequence').notNull(),
+  idempotencyKey: text('idempotency_key').notNull(),
+  payload: text('payload').notNull(),
+  status: text('status').notNull(),
+  attemptCount: integer('attempt_count').notNull().default(0),
+  nextAttemptAt: text('next_attempt_at').notNull(),
+  leaseOwner: text('lease_owner'),
+  leaseExpiresAt: text('lease_expires_at'),
+  currentAttemptId: text('current_attempt_id'),
+  lastError: text('last_error'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+  completedAt: text('completed_at'),
+}, (table) => [
+  uniqueIndex('uq_platform_effect_idempotency').on(table.idempotencyKey),
+  uniqueIndex('uq_platform_effect_lane_sequence').on(table.laneKey, table.laneSequence),
+  index('idx_platform_effect_claim').on(
+    table.status,
+    table.nextAttemptAt,
+    table.effectType,
+    table.laneKey,
+    table.laneSequence,
+  ),
+  index('idx_platform_effect_source').on(
+    table.sourceEventId,
+    table.laneKey,
+    table.laneSequence,
+  ),
+]);
+
+export const platformEffectAttempt = sqliteTable('platform_effect_attempt', {
+  id: text('id').primaryKey(),
+  effectId: text('effect_id').notNull()
+    .references(() => platformEffectOutbox.id, { onDelete: 'cascade' }),
+  attemptNo: integer('attempt_no').notNull(),
+  workerId: text('worker_id').notNull(),
+  status: text('status').notNull(),
+  startedAt: text('started_at').notNull(),
+  finishedAt: text('finished_at'),
+  error: text('error'),
+}, (table) => [
+  uniqueIndex('uq_platform_effect_attempt_no').on(table.effectId, table.attemptNo),
+  index('idx_platform_effect_attempt_effect').on(table.effectId, table.attemptNo),
+]);
+
 export const agentInboxItem = sqliteTable('agent_inbox_item', {
   id: text('id').primaryKey(),
   projectId: text('project_id').notNull()
@@ -371,15 +423,14 @@ export const runtimeCompletionContext = sqliteTable('runtime_completion_context'
   completedAt: text('completed_at'),
 });
 
-export const runtimeCompletionStepReceipt = sqliteTable(
-  'runtime_completion_step_receipt',
+export const runtimeCompletionLegacyEffectSuppression = sqliteTable(
+  'runtime_completion_legacy_effect_suppression',
   {
     eventId: text('event_id').notNull()
       .references(() => platformEvent.id, { onDelete: 'cascade' }),
-    step: text('step').notNull(),
-    completedAt: text('completed_at').notNull(),
+    effectType: text('effect_type').notNull(),
   },
-  (table) => [primaryKey({ columns: [table.eventId, table.step] })],
+  (table) => [primaryKey({ columns: [table.eventId, table.effectType] })],
 );
 
 // ──────────────────────────────────────────────

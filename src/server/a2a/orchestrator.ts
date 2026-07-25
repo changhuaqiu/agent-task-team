@@ -18,7 +18,15 @@ import type {
 } from './types-v2';
 import { ChainRepo } from './chain';
 import { CursorRepo } from './cursor';
-import { computeContentHash, runAllDedupLayers, recordDispatchTime, clearRippleForChain, resetAllDedupState } from './dedup';
+import {
+  captureDedupState,
+  clearRippleForChain,
+  computeContentHash,
+  recordDispatchTime,
+  resetAllDedupState,
+  restoreDedupState,
+  runAllDedupLayers,
+} from './dedup';
 import type { ChainDedupOptions } from './dedup';
 import { resolveTaskNotificationAudience } from '../task-flow/task-notification-publisher';
 import { buildDispatchContext, renderDispatchPrompt } from './context-builder';
@@ -100,6 +108,11 @@ export interface OrchestratorConfig {
     admitted?: boolean;
     completion?: Promise<{ status: 'accepted' | 'deferred' | 'blocked' | 'failed'; reasonCode?: string }>;
   } | undefined;
+  transactionalDispatchAdmission?: boolean;
+}
+
+export interface DurableA2AApplication {
+  afterCommit(): void;
 }
 
 export class Orchestrator {
@@ -113,6 +126,7 @@ export class Orchestrator {
   private entryPassIds: Map<string, string> = new Map();
   private entryTaskIds: Map<string, string> = new Map();
   private config: OrchestratorConfig;
+  private deferredSideEffects?: Array<() => void>;
 
   constructor(
     private db: Database.Database,
@@ -126,6 +140,89 @@ export class Orchestrator {
     this.agents = agentConfigs;
     this.config = config;
     this.rebuildStateFromDB();
+  }
+
+  applyRuntimeResponse(
+    agentId: string,
+    response: string,
+    conversationId: string,
+    taskId?: string,
+  ): DurableA2AApplication {
+    return this.stageDurableApplication(() => {
+      this.onAgentResponse(agentId, response, conversationId, taskId);
+    });
+  }
+
+  applyRuntimeDone(agentId: string, conversationId: string): DurableA2AApplication {
+    return this.stageDurableApplication(() => {
+      this.onAgentDone(agentId, conversationId);
+    });
+  }
+
+  private stageDurableApplication(action: () => void): DurableA2AApplication {
+    if (this.deferredSideEffects) throw new Error('a2a_durable_application_nested');
+    const originalAgentStates = this.agentStates;
+    const originalEntryPassIds = this.entryPassIds;
+    const originalEntryTaskIds = this.entryTaskIds;
+    const stagedAgentStates = new Map(originalAgentStates);
+    const stagedEntryPassIds = new Map(originalEntryPassIds);
+    const stagedEntryTaskIds = new Map(originalEntryTaskIds);
+    const originalDedupState = captureDedupState();
+    let stagedDedupState = originalDedupState;
+    const sideEffects: Array<() => void> = [];
+    this.agentStates = stagedAgentStates;
+    this.entryPassIds = stagedEntryPassIds;
+    this.entryTaskIds = stagedEntryTaskIds;
+    this.deferredSideEffects = sideEffects;
+    try {
+      action();
+    } finally {
+      stagedDedupState = captureDedupState();
+      restoreDedupState(originalDedupState);
+      this.agentStates = originalAgentStates;
+      this.entryPassIds = originalEntryPassIds;
+      this.entryTaskIds = originalEntryTaskIds;
+      this.deferredSideEffects = undefined;
+    }
+    return {
+      afterCommit: () => {
+        this.agentStates = stagedAgentStates;
+        this.entryPassIds = stagedEntryPassIds;
+        this.entryTaskIds = stagedEntryTaskIds;
+        restoreDedupState(stagedDedupState);
+        let firstError: unknown;
+        for (const sideEffect of sideEffects) {
+          try {
+            sideEffect();
+          } catch (error) {
+            firstError ??= error;
+          }
+        }
+        if (firstError) throw firstError;
+      },
+    };
+  }
+
+  private deferSideEffect(action: () => void): void {
+    if (this.deferredSideEffects) {
+      this.deferredSideEffects.push(action);
+      return;
+    }
+    action();
+  }
+
+  private emit(conversationId: string, event: string, payload: unknown): void {
+    this.deferSideEffect(() => {
+      this.io.to(conversationId).emit(event, payload);
+    });
+  }
+
+  private rememberDispatch(agentId: string): void {
+    this.deferSideEffect(() => recordDispatchTime(agentId));
+  }
+
+  private clearRipple(chainId: string): void {
+    this.deferSideEffect(() => clearRippleForChain(chainId));
   }
 
   // ──────────────────────────────────────────────
@@ -187,7 +284,7 @@ export class Orchestrator {
       this.chainRepo.abort(chain.id, 'timeout');
       this.possessionRepo.timeoutChain(chain.id, 'run', reason);
       this.clearChainTimer(chain.id);
-      clearRippleForChain(chain.id);
+      this.clearRipple(chain.id);
       this.audit('chain_timeout', { chainId: chain.id, conversationId: chain.conversationId, reason });
       this.emitPassBlocked(chain.conversationId, chain.id, req.fromAgentId, req.toAgentId, reason, 'timeout');
       return { allow: false, reason, silent: false };
@@ -373,7 +470,7 @@ export class Orchestrator {
       if (dedupResult.failedLayer === 'chain_lifetime') {
         this.chainRepo.abort(chain.id, 'timeout');
         this.clearChainTimer(chain.id);
-        clearRippleForChain(chain.id);
+        this.clearRipple(chain.id);
       }
       this.audit('dispatch_blocked', {
         chainId: chain.id,
@@ -620,7 +717,7 @@ export class Orchestrator {
           reason,
           metadata: { blockedBy: 'unknown_mention_target', mention: token },
         });
-        this.io.to(conversationId).emit('agent:event', {
+        this.emit(conversationId, 'agent:event', {
           type: 'system',
           content: `A2A 拦截：${reason}`,
           conversationId,
@@ -646,7 +743,7 @@ export class Orchestrator {
             notificationStyle,
           },
         });
-        this.io.to(conversationId).emit('agent:event', {
+        this.emit(conversationId, 'agent:event', {
           type: 'system',
           content: reason,
           conversationId,
@@ -682,7 +779,7 @@ export class Orchestrator {
 
       if (!decision.allow && !decision.silent) {
         const displayReason = formatDispatchBlockReason(decision.reason);
-        this.io.to(conversationId).emit('agent:event', {
+        this.emit(conversationId, 'agent:event', {
           type: 'system',
           content: decision.escalatedToAgentId
             ? `A2A 拦截：${displayReason} 已升级给 @${decision.escalatedToAgentId} 协调。`
@@ -761,7 +858,7 @@ export class Orchestrator {
       startedPassIds.push(pass.id);
       this.chainRepo.markExecuting(entry.id);
       this.setAgentState(targetAgentId, 'executing', chain.id);
-      recordDispatchTime(targetAgentId);
+      this.rememberDispatch(targetAgentId);
       this.audit('dispatch_allowed', {
         chainId: chain.id,
         conversationId,
@@ -806,7 +903,7 @@ export class Orchestrator {
 
       this.chainRepo.markDispatching(next.id);
       this.setAgentState(next.agentId, 'queued', chainId);
-      recordDispatchTime(next.agentId);
+      this.rememberDispatch(next.agentId);
 
       // Build context
       const ctx = buildDispatchContext(
@@ -842,10 +939,16 @@ export class Orchestrator {
         passId,
       };
 
-      this.io.to(conversationId).emit('a2a:pass-offer', passOfferPayload);
+      this.emit(conversationId, 'a2a:pass-offer', passOfferPayload);
 
       // Compatibility event for the current client. The client must ACK with
       // a2a:agent-started before this becomes executing in the possession model.
+      if (
+        this.deferredSideEffects
+        && (!this.config.submitDispatch || !this.config.transactionalDispatchAdmission)
+      ) {
+        throw new Error('a2a_durable_dispatch_admission_not_transactional');
+      }
       const serverSubmission = this.config.submitDispatch?.({
         agentId: next.agentId,
         prompt,
@@ -856,6 +959,16 @@ export class Orchestrator {
         entryId: next.id,
         passId,
       });
+      if (
+        this.deferredSideEffects
+        && (
+          !serverSubmission?.handled
+          || !serverSubmission.admitted
+          || serverSubmission.completion
+        )
+      ) {
+        throw new Error('a2a_durable_dispatch_admission_not_committed');
+      }
       const dispatchPayload = {
         agentId: next.agentId,
         prompt,
@@ -867,7 +980,7 @@ export class Orchestrator {
         passId,
         handledByHarness: serverSubmission?.handled ?? false,
       };
-      this.io.to(conversationId).emit('a2a:dispatch', dispatchPayload);
+      this.emit(conversationId, 'a2a:dispatch', dispatchPayload);
       this.recordDeliverySent({
         conversationId,
         chainId,
@@ -886,7 +999,7 @@ export class Orchestrator {
           // A server-side profile/context may be unavailable while an older
           // browser still has a compatible snapshot. Re-emit explicitly as a
           // compatibility fallback instead of losing the A2A handoff.
-          this.io.to(conversationId).emit('a2a:dispatch', {
+          this.emit(conversationId, 'a2a:dispatch', {
             ...dispatchPayload,
             handledByHarness: false,
             harnessFallbackReasonCode: outcome.reasonCode ?? outcome.status,
@@ -933,7 +1046,7 @@ export class Orchestrator {
           passId: resolvedPassId,
         });
       }
-      this.io.to(conversationId).emit('a2a:possession-changed', {
+      this.emit(conversationId, 'a2a:possession-changed', {
         chainId,
         conversationId,
         currentHolderId: agentId,
@@ -1122,7 +1235,7 @@ export class Orchestrator {
       this.chainRepo.complete(chainId);
       this.possessionRepo.completeChain(chainId);
       this.clearChainTimer(chainId);
-      clearRippleForChain(chainId);
+      this.clearRipple(chainId);
       this.audit('chain_completed', { chainId, conversationId: '' });
     }
   }
@@ -1137,6 +1250,10 @@ export class Orchestrator {
     fromAgentId: string,
     toAgentId: string,
   ): void {
+    if (this.deferredSideEffects) {
+      this.deferSideEffect(() => this.startOfferTimer(chain, passId, fromAgentId, toAgentId));
+      return;
+    }
     const timeoutMs = chain.config.offerTimeoutMs;
     if (!timeoutMs || timeoutMs <= 0) return;
 
@@ -1151,7 +1268,7 @@ export class Orchestrator {
       this.chainRepo.abort(chain.id, 'timeout');
       this.possessionRepo.timeoutChain(chain.id, 'offer', reason);
       this.clearChainTimer(chain.id);
-      clearRippleForChain(chain.id);
+      this.clearRipple(chain.id);
       this.audit('chain_timeout', {
         chainId: chain.id,
         conversationId: chain.conversationId,
@@ -1160,7 +1277,7 @@ export class Orchestrator {
         reason,
         metadata: { phase: 'offer', passId },
       });
-      this.io.to(chain.conversationId).emit('agent:event', {
+      this.emit(chain.conversationId, 'agent:event', {
         type: 'system',
         content: `A2A offer 阶段超时：${reason}`,
         conversationId: chain.conversationId,
@@ -1173,6 +1290,10 @@ export class Orchestrator {
   }
 
   private clearPassTimer(passId: string): void {
+    if (this.deferredSideEffects) {
+      this.deferSideEffect(() => this.clearPassTimer(passId));
+      return;
+    }
     const timer = this.passTimers.get(passId);
     if (timer) {
       clearTimeout(timer);
@@ -1181,6 +1302,10 @@ export class Orchestrator {
   }
 
   private startChainTimer(chain: InvocationChain): void {
+    if (this.deferredSideEffects) {
+      this.deferSideEffect(() => this.startChainTimer(chain));
+      return;
+    }
     const timer = setTimeout(() => {
       this.chainTimers.delete(chain.id);
       const current = this.chainRepo.getById(chain.id);
@@ -1191,9 +1316,9 @@ export class Orchestrator {
           'run',
           `A2A 执行阶段超时 (${chain.config.maxDurationMs / 1000}s)`,
         );
-        clearRippleForChain(chain.id);
+        this.clearRipple(chain.id);
         this.audit('chain_timeout', { chainId: chain.id, conversationId: chain.conversationId });
-        this.io.to(chain.conversationId).emit('agent:event', {
+        this.emit(chain.conversationId, 'agent:event', {
           type: 'system',
           content: `A2A 执行阶段超时：当前持球者未在 ${chain.config.maxDurationMs / 1000}s 内完成或交接`,
           conversationId: chain.conversationId,
@@ -1214,6 +1339,10 @@ export class Orchestrator {
   }
 
   private clearChainTimer(chainId: string): void {
+    if (this.deferredSideEffects) {
+      this.deferSideEffect(() => this.clearChainTimer(chainId));
+      return;
+    }
     const timer = this.chainTimers.get(chainId);
     if (timer) {
       clearTimeout(timer);
@@ -1229,7 +1358,7 @@ export class Orchestrator {
     reason: string,
     status: 'blocked' | 'timeout' = 'blocked',
   ): void {
-    this.io.to(conversationId).emit('a2a:pass-blocked', {
+    this.emit(conversationId, 'a2a:pass-blocked', {
       conversationId,
       chainId,
       fromAgentId,
@@ -1271,7 +1400,7 @@ export class Orchestrator {
   private rebuildStateFromDB(): void {
     const activeChains = this.db.prepare(`
       SELECT * FROM invocation_chain WHERE status = 'active'
-    `).all() as any[];
+    `).all() as Array<{ id: string }>;
 
     for (const row of activeChains) {
       const chain = this.chainRepo.getById(row.id);
@@ -1352,7 +1481,7 @@ export class Orchestrator {
       this.chainRepo.abort(chain.id, 'timeout');
       this.possessionRepo.timeoutChain(chain.id, 'run', 'stale active chain expired on startup');
       this.clearChainTimer(chain.id);
-      clearRippleForChain(chain.id);
+      this.clearRipple(chain.id);
     }
     return stale.length;
   }
@@ -1368,7 +1497,7 @@ export class Orchestrator {
     toAgentId?: string;
     contentHash?: string;
     reason?: string;
-    metadata?: any;
+    metadata?: Record<string, unknown>;
   }): void {
     const id = `audit-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     try {

@@ -43,6 +43,25 @@ function writeTasksMd(status: string, deliverable = '-'): void {
 }
 
 describe('syncTasksToDb', () => {
+  it('throws in strict mode so a durable task-sync effect can retry', () => {
+    writeTasksMd('doing');
+    const emit = vi.fn();
+    const io = { to: vi.fn(() => ({ emit })), emit: vi.fn() };
+    const create = vi.spyOn(taskRepo, 'create')
+      .mockImplementationOnce(() => {
+        throw new Error('temporary database failure');
+      });
+
+    expect(() => syncTasksToDb(
+      projectPath,
+      'conv-1',
+      io as unknown as IOServer,
+      { throwOnError: true },
+    )).toThrow('task_sync_failed:1');
+    expect(taskRepo.getById('TASK-003')).toBeUndefined();
+    create.mockRestore();
+  });
+
   it('projects TASKS.md when the watched file is created for the first time', async () => {
     const emit = vi.fn();
     const io = { to: vi.fn(() => ({ emit })), emit: vi.fn() };

@@ -1592,6 +1592,76 @@ FROM platform_event
 WHERE type LIKE 'runtime.%';
 `,
   },
+  {
+    version: 52,
+    sql: `
+CREATE TABLE IF NOT EXISTS platform_effect_outbox (
+  id TEXT PRIMARY KEY,
+  source_event_id TEXT NOT NULL REFERENCES platform_event(id) ON DELETE CASCADE,
+  effect_type TEXT NOT NULL,
+  target_key TEXT NOT NULL,
+  lane_key TEXT NOT NULL,
+  lane_sequence INTEGER NOT NULL CHECK(lane_sequence > 0),
+  idempotency_key TEXT NOT NULL UNIQUE,
+  payload TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('queued','running','succeeded','dead_letter')),
+  attempt_count INTEGER NOT NULL DEFAULT 0 CHECK(attempt_count >= 0),
+  next_attempt_at TEXT NOT NULL,
+  lease_owner TEXT,
+  lease_expires_at TEXT,
+  current_attempt_id TEXT,
+  last_error TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  completed_at TEXT,
+  UNIQUE(lane_key,lane_sequence)
+);
+CREATE INDEX IF NOT EXISTS idx_platform_effect_claim
+  ON platform_effect_outbox(status,next_attempt_at,effect_type,lane_key,lane_sequence);
+CREATE INDEX IF NOT EXISTS idx_platform_effect_source
+  ON platform_effect_outbox(source_event_id,lane_key,lane_sequence);
+
+CREATE TABLE IF NOT EXISTS platform_effect_attempt (
+  id TEXT PRIMARY KEY,
+  effect_id TEXT NOT NULL REFERENCES platform_effect_outbox(id) ON DELETE CASCADE,
+  attempt_no INTEGER NOT NULL CHECK(attempt_no > 0),
+  worker_id TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('running','succeeded','failed','abandoned')),
+  started_at TEXT NOT NULL,
+  finished_at TEXT,
+  error TEXT,
+  UNIQUE(effect_id,attempt_no)
+);
+CREATE INDEX IF NOT EXISTS idx_platform_effect_attempt_effect
+  ON platform_effect_attempt(effect_id,attempt_no);
+
+CREATE TABLE IF NOT EXISTS runtime_completion_legacy_effect_suppression (
+  event_id TEXT NOT NULL REFERENCES platform_event(id) ON DELETE CASCADE,
+  effect_type TEXT NOT NULL,
+  PRIMARY KEY(event_id,effect_type)
+);
+INSERT OR IGNORE INTO runtime_completion_legacy_effect_suppression (event_id,effect_type)
+SELECT event_id,
+  CASE step
+    WHEN 'task-sync' THEN 'runtime.task_sync'
+    WHEN 'valid-exit-proof' THEN 'runtime.valid_exit_proof'
+    WHEN 'closure-evaluation' THEN 'runtime.closure_evaluation'
+    WHEN 'team-log' THEN 'runtime.team_log'
+    WHEN 'a2a-response' THEN 'runtime.a2a_response'
+    WHEN 'a2a-done' THEN 'runtime.a2a_done'
+  END
+FROM runtime_completion_step_receipt
+WHERE step IN (
+  'task-sync',
+  'valid-exit-proof',
+  'closure-evaluation',
+  'team-log',
+  'a2a-response',
+  'a2a-done'
+);
+DROP TABLE IF EXISTS runtime_completion_step_receipt;
+`,
+  },
 ];
 
 export function applyMigrations(db: Database.Database): void {

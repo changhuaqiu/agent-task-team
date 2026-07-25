@@ -257,12 +257,18 @@ agent response 或客户端 ACK 才确认 started。兼容 socket 仍保留，�
 
 daemon 将 `runtime.invocation.terminated` 交给 durable
 `runtime-completion-process-manager:v1`。handler 从同一 Invocation 的 canonical 完成消息段
-重建输出，再推进 TeamLog cursor/materialize、closure evaluation、A2A scanner 与
-`onAgentDone`；completion context 以 source event id 幂等绑定，每个持久副作用再以
-`eventId + step` 原子写入 step receipt。后序步骤失败时，Dispatcher 重试会跳过已提交步骤，
-也能在 append 后进程退出时恢复推进。A2A dispatch 在该事务内只写稳定
-`chainId/entryId` 的 Agent Inbox Command；Inbox Scheduler 在提交后才调用 Harness，
-因此不存在外部执行先于 completion receipt 提交的窗口。所有运行时
+重建输出，并在同一事务中按 `runtime-completion:<invocationId>` lane 接纳 task-sync、
+valid-exit proof、closure evaluation、TeamLog、A2A response/done Effect Commands，再将
+completion context 标为已接纳。这里的 `completed` 表示命令已持久化，不表示副作用已经执行。
+
+独立 Effect Worker 按 lane 严格有序执行，统一处理 attempt、lease、fencing、重试和
+dead letter；lease recovery 也消耗 attempt 预算，到限直接 dead-letter 并释放后序。
+proof、closure evaluation 与 A2A response/done 使用 SQLite action/receipt 同事务的
+transactional adapter；task-sync、TeamLog 使用稳定幂等键或可收敛写入的 idempotent adapter。
+A2A 的 chain/worklist/possession 与稳定 `chainId/entryId` Agent Inbox Command 同事务写入，
+Socket、内存状态和 timer 延迟到提交后，Inbox Scheduler 再调用 Harness。
+migration 52 建立通用 Effect Outbox 表，将 v51 已完成 step 转为只读 suppression 后删除旧
+completion step receipt，pending context 不会重放已提交步骤。所有运行时
 （opencode / claude / codex）统一经 ACP 产出
 `AgentEvent` 并归一化入流，不再有 per-engine 私有 stdout 解析。
 

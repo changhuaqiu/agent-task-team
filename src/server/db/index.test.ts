@@ -35,7 +35,10 @@ describe('SQLite Foundation', () => {
     expect(tableNames).toContain('runtime_message_projection');
     expect(tableNames).toContain('runtime_observability_projection');
     expect(tableNames).toContain('runtime_completion_context');
-    expect(tableNames).toContain('runtime_completion_step_receipt');
+    expect(tableNames).toContain('platform_effect_outbox');
+    expect(tableNames).toContain('platform_effect_attempt');
+    expect(tableNames).toContain('runtime_completion_legacy_effect_suppression');
+    expect(tableNames).not.toContain('runtime_completion_step_receipt');
     expect(tableNames).toContain('agent_inbox_item');
     expect(tableNames).toContain('eval_review_queue');
     expect(tableNames).toContain('eval_pairwise_round');
@@ -207,6 +210,81 @@ describe('SQLite Foundation', () => {
       .toEqual({ count: 1 });
   });
 
+  it('migrates partial v51 completion receipts into effect suppressions', () => {
+    const now = '2026-07-25T04:30:00.000Z';
+    db.prepare(
+      'INSERT INTO conversation (id, title, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
+    ).run('conv-effect-upgrade', 'Effect upgrade', 'active', now, now);
+    const terminal = new PlatformEventLog({ db }).append({
+      type: 'runtime.invocation.terminated',
+      category: 'runtime_lifecycle',
+      projectId: 'conv-effect-upgrade',
+      streamKey: 'invocation:inv-effect-upgrade',
+      aggregate: { type: 'invocation', id: 'inv-effect-upgrade' },
+      actor: { type: 'runtime', id: 'daemon' },
+      invocationId: 'inv-effect-upgrade',
+      correlationId: 'trace-effect-upgrade',
+      payload: { status: 'completed' },
+    });
+    db.prepare(`
+      INSERT INTO invocation (
+        id,conversation_id,agent_id,status,engine,created_at,updated_at
+      ) VALUES (?,?,?,'completed','codex',?,?)
+    `).run(
+      'inv-effect-upgrade',
+      'conv-effect-upgrade',
+      'implementer',
+      now,
+      now,
+    );
+    db.prepare(`
+      INSERT INTO runtime_completion_context (
+        invocation_id,conversation_id,agent_id,task_project_dir,status,created_at,updated_at
+      ) VALUES (?,?,?,?,'pending',?,?)
+    `).run(
+      'inv-effect-upgrade',
+      'conv-effect-upgrade',
+      'implementer',
+      'C:/tmp/effect-upgrade',
+      now,
+      now,
+    );
+    db.exec(`
+      DROP TABLE platform_effect_attempt;
+      DROP TABLE platform_effect_outbox;
+      DROP TABLE runtime_completion_legacy_effect_suppression;
+      CREATE TABLE runtime_completion_step_receipt (
+        event_id TEXT NOT NULL REFERENCES platform_event(id) ON DELETE CASCADE,
+        step TEXT NOT NULL,
+        completed_at TEXT NOT NULL,
+        PRIMARY KEY(event_id,step)
+      );
+      DELETE FROM _schema_version WHERE version=52;
+    `);
+    const insertReceipt = db.prepare(`
+      INSERT INTO runtime_completion_step_receipt (event_id,step,completed_at) VALUES (?,?,?)
+    `);
+    insertReceipt.run(terminal.eventId, 'task-sync', now);
+    insertReceipt.run(terminal.eventId, 'a2a-response', now);
+
+    applyMigrations(db);
+
+    expect(db.prepare(`
+      SELECT effect_type FROM runtime_completion_legacy_effect_suppression
+      WHERE event_id=? ORDER BY effect_type
+    `).all(terminal.eventId)).toEqual([
+      { effect_type: 'runtime.a2a_response' },
+      { effect_type: 'runtime.task_sync' },
+    ]);
+    expect(db.prepare(`
+      SELECT status FROM runtime_completion_context WHERE invocation_id='inv-effect-upgrade'
+    `).get()).toEqual({ status: 'pending' });
+    expect(db.prepare(`
+      SELECT name FROM sqlite_master
+      WHERE type='table' AND name='runtime_completion_step_receipt'
+    `).get()).toBeUndefined();
+  });
+
   it('applies a missing lower migration even when a higher version is recorded', () => {
     db.prepare('DELETE FROM _schema_version WHERE version = 40').run();
 
@@ -215,7 +293,7 @@ describe('SQLite Foundation', () => {
     expect(db.prepare('SELECT version FROM _schema_version WHERE version = 40').get())
       .toEqual({ version: 40 });
     expect(db.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-      .toEqual({ version: 51 });
+      .toEqual({ version: 52 });
   });
 
   it('repairs v26-v40 checkpoints whose migration collision skipped autonomous delivery tables', () => {
@@ -245,7 +323,7 @@ describe('SQLite Foundation', () => {
           'autonomous_delivery_advancement_request',
         ]));
         expect(checkpoint.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-          .toEqual({ version: 51 });
+          .toEqual({ version: 52 });
         expect(checkpoint.pragma('foreign_key_check')).toEqual([]);
       } finally {
         checkpoint.close();

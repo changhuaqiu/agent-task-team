@@ -35,6 +35,7 @@ export class AgentMessenger {
     agentConfigs: AgentMentionConfig[],
     snapshotProvider?: KanbanSnapshotProvider,
     submitDispatch?: NonNullable<OrchestratorConfig['submitDispatch']>,
+    transactionalDispatchAdmission = false,
   ) {
     const provider = snapshotProvider ?? defaultSnapshotProvider;
     this.orchestrator = new Orchestrator(db, io, agentConfigs, {
@@ -75,6 +76,7 @@ export class AgentMessenger {
       getCommunicationPolicy: provider.getCommunicationPolicy?.bind(provider),
       getAgentMentionConfigs: provider.getAgentMentionConfigs?.bind(provider),
       submitDispatch,
+      transactionalDispatchAdmission,
     });
   }
 

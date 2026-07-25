@@ -10,7 +10,7 @@ import { readAccount } from './accounts-file';
 import { readCredential } from './credentials';
 import { buildProbeEnv } from './cli-probe';
 import { generateRuntimeConfig, cleanupRuntimeConfig, makeInvocationId } from './opencode-config';
-import { startTaskWatcher, syncTasksToDb } from './task-file-watcher';
+import { startTaskWatcher } from './task-file-watcher';
 import { ensureTasksMdProjection } from './task-file-service';
 import type { AccountProvider as RuntimeAccountProvider } from './opencode-config';
 import type { CliEngine, DetectedRuntime } from './types';
@@ -55,7 +55,6 @@ import {
   type HarnessSubmission,
 } from './harness';
 import { finalizeRuntimeContextSnapshot } from './harness/runtime-context-snapshot';
-import { checkValidExit } from './harness/valid-exit';
 import type { ContextReport, ContextSnapshot } from '../lib/agent-context/ContextManager';
 import type { ContextScenario } from '../lib/agent-context/scenarioResolver';
 import { generateSpanId, generateTraceId, observationSpanRepo } from './repositories/observation-span-repo';
@@ -71,9 +70,9 @@ import {
   AcpRuntimeEventCoordinator,
   AgentInbox,
   AgentInboxScheduler,
-  runRuntimeCompletionStep,
+  DurableEffectOutbox,
+  registerProductionRuntimeCompletionEffects,
   runtimeCompletionContextRepo,
-  type RuntimeCompletionContext,
   RuntimeSocketProjection,
   startPlatformEventRuntime,
 } from './platform-events';
@@ -442,7 +441,14 @@ export default function registerDaemon(io: IOServer) {
         admitted: true,
       };
     },
+    true,
   );
+
+  const effectOutbox = new DurableEffectOutbox();
+  registerProductionRuntimeCompletionEffects(effectOutbox, {
+    io,
+    messenger: a2aMessenger,
+  });
 
   startPlatformEventRuntime({
     onObservabilityUpdated: (projectId, invocationId) => {
@@ -456,101 +462,7 @@ export default function registerDaemon(io: IOServer) {
         deliveryAdvancementQueue.enqueue({ sourceEventId, projectId, cause });
       },
     },
-    runtimeCompletion: {
-      complete(context: RuntimeCompletionContext, output, event, signal) {
-        if (signal.aborted) throw signal.reason ?? new Error('runtime_completion_aborted');
-        // Held-out evaluation output must not enter the production collaboration loop.
-        if (context.evaluation_execution_id) return;
-        runRuntimeCompletionStep(event.eventId, 'task-sync', () => {
-          try {
-            syncTasksToDb(context.task_project_dir, context.conversation_id, io);
-          } catch (error) {
-            console.warn(`[task-sync] completion barrier failed for ${context.conversation_id}:`, error);
-          }
-        });
-        let validExit = true;
-        const scenario = context.context_scenario as ContextScenario | null;
-        if (scenario) {
-          const exit = checkValidExit(scenario, output);
-          validExit = exit.valid;
-          if (!exit.valid) {
-            runRuntimeCompletionStep(event.eventId, 'valid-exit-proof', () => {
-              proofLogRepo.append({
-                eventType: 'no_valid_exit',
-                conversationId: context.conversation_id,
-                taskId: context.task_id ?? undefined,
-                chainId: context.chain_id ?? undefined,
-                passId: context.pass_id ?? undefined,
-                agentId: context.agent_id,
-                reasonCode: exit.reason,
-                metadata: {
-                  scenario,
-                  outcomeSummary: output.slice(0, 200),
-                },
-              });
-            });
-          }
-        }
-        if (scenario === 'closure' && validExit && context.task_id) {
-          runRuntimeCompletionStep(event.eventId, 'closure-evaluation', () => {
-            const closureProof = proofLogRepo.findByType({
-              eventType: 'chain_closure_dispatched',
-              conversationId: context.conversation_id,
-              taskId: context.task_id!,
-            }).at(-1);
-            const triggerId = closureProof?.id
-              ?? `closure:${context.conversation_id}:${context.task_id}:${context.chain_id ?? 'no-chain'}`;
-            const sampling = agentEvaluation.shouldEvaluateClosure(context.conversation_id, triggerId);
-            if (!sampling.allowed) {
-              proofLogRepo.append({
-                eventType: 'eval.skipped',
-                conversationId: context.conversation_id,
-                taskId: context.task_id!,
-                chainId: context.chain_id ?? undefined,
-                reasonCode: sampling.reason,
-                metadata: { triggerId },
-              });
-              return;
-            }
-            const submitted = agentEvaluation.submit({
-              conversationId: context.conversation_id,
-              triggerId,
-              rootTaskId: context.task_id!,
-              chainId: context.chain_id ?? undefined,
-              evidenceCutoffAt: new Date().toISOString(),
-              mode: 'online',
-            });
-            io.to(context.conversation_id).emit('evaluation:queued', {
-              conversationId: context.conversation_id,
-              runId: submitted.runId,
-            });
-          });
-        }
-        runRuntimeCompletionStep(event.eventId, 'team-log', () => {
-          if (context.team_log_up_to_entry_id) {
-            teamLogProjection.markConsumed(
-              context.conversation_id,
-              context.agent_id,
-              context.team_log_up_to_entry_id,
-            );
-          }
-          teamLogProjection.materializeRegistered(context.conversation_id);
-        });
-        if (output) {
-          runRuntimeCompletionStep(event.eventId, 'a2a-response', () => {
-            a2aMessenger.orchestrator.onAgentResponse(
-              context.agent_id,
-              output,
-              context.conversation_id,
-              context.task_id ?? undefined,
-            );
-          });
-        }
-        runRuntimeCompletionStep(event.eventId, 'a2a-done', () => {
-          a2aMessenger.orchestrator.onAgentDone(context.agent_id, context.conversation_id);
-        });
-      },
-    },
+    effectOutbox,
   });
 
   // Expire stale A2A chains on startup

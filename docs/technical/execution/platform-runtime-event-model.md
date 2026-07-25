@@ -38,7 +38,7 @@ Platform Runtime 就是归一化层，把 Runtime 原始信号收敛成有严格
 | 中断 = 信号 | `PlatformEvent` 信封 | ✓ 已有 |
 | **中断向量表** | **Durable Dispatcher + handler 注册表** | **✓ 已实现并接 production worker** |
 | ISR（中断服务程序） | Handler（四角色） | spec §7 已定义角色 |
-| 上半部/下半部 | 同步 guard / 异步 fan-out | guard✓ fan-out✗ |
+| 上半部/下半部 | 同步 guard / 异步 fan-out | guard✓ fan-out✓ effect✓ |
 | 中断屏蔽/优先级 | handler 分级 | 待定 |
 
 **核心推论**：平台"事件驱动"的全部难度在**消费者如何响应**，不在生产者发事件。
@@ -251,6 +251,43 @@ next-attempt 与 terminal receipt；启动恢复会从 `platform_event` 回补�
 不同 stream 可以并行。handler 必须按 `eventId` 幂等，并接受 `AbortSignal`：超时只触发
 协作取消，Dispatcher 必须等本次执行真正释放后才重试同 stream；活跃执行用 claim token
 续租，只有进程退出后才允许 lease recovery 接管。
+
+### 6.2 Process Manager 到 I/O：Durable Effect Outbox（已实施）
+
+Durable Dispatcher 只保证事件会至少一次交给 handler，不能自动保证 handler 决定的
+文件系统、Socket 或远程副作用与 SQLite receipt 原子。Process Manager 因此不得直接把
+不可回滚 I/O 包在本地 step receipt 事务里。正式 seam 是 Durable Effect Outbox：
+
+```text
+Platform Event
+  → Process Manager（纯规划）
+  → 同事务写领域状态 + Effect Commands
+  → Effect Worker
+  → Effect Adapter
+  → success / retry / dead letter
+```
+
+Effect Command 不是第五类 Platform Event，也不是领域事实；它是由事实推导出的持久执行意图。
+Outbox 按 source event 幂等接纳、按 lane 局部有序、用 attempt token 与 lease fencing 恢复。
+
+执行分两类：
+
+1. **transactional**：同步数据库动作与 effect success receipt 在同一 SQLite 事务提交；
+   Socket 等实时通知只能作为 commit 后 best-effort 回调。
+2. **idempotent**：文件系统或远程动作不能加入 SQLite 事务，Adapter 必须接收稳定幂等键，
+   或证明动作本身可安全重复；系统承诺 at-least-once，不虚构 exactly-once。
+
+首个采用者是 Runtime completion。原 task-sync、proof、evaluation、team-log、
+A2A response/done 六个 daemon 内联步骤迁入 Effect Adapter；Process Manager 的成功边界
+收敛为“全部 Effect Commands 已原子接纳”，不再表示这些 Effect 已执行完成。migration 52
+建立 `platform_effect_outbox` 与 `platform_effect_attempt`，并退出旧
+`runtime_completion_step_receipt`；升级时已提交的旧步骤先转成只读 effect suppression，
+避免 pending completion 重放。task-sync、team-log 使用可安全重放的 idempotent adapter；
+proof、closure evaluation、A2A response/done 使用 transactional adapter。A2A 的领域状态与
+Inbox admission 和 success receipt 同事务，Socket、内存状态与 timer 延迟到 commit 后；
+evaluation 的 Socket 通知同样只在事务提交后 best-effort 发出。lease recovery 计入 attempt
+预算，到限直接 dead-letter 并释放 lane。完整实施契约已归档到
+`docs/archive/specs/durable-effect-outbox/spec.md`。
 
 ---
 
@@ -508,10 +545,16 @@ Session 身份仍由 coordinator 上半部守护；背景活动与 heartbeat 留
 切片6: 退出双写（已完成）
   删除 forwardAgentEvent 业务副作用 + 旧 agent_event 写入
   Message/Observability 使用 durable projection；Socket 消费 canonical stream
-  A2A/closure outcome 由 source event 幂等 context + eventId/step receipt + durable PM 恢复推进
+  A2A/closure outcome 由 source event 幂等 context + Durable Effect Outbox 恢复推进
   A2A 下游执行先持久写 Agent Inbox，提交后才由 Scheduler 调 Harness
   migration 51 回填旧事件 receipt，避免切换时重复投影
   退出: 长期设计与 wiki 已同步，兼容双写已删除（spec §10）
+
+切片7: Process Manager 副作用可靠性（已完成）
+  Runtime completion handler 只重建 canonical 输出并原子接纳有序 Effect Commands
+  Effect Worker 统一拥有 lane、attempt、lease、fencing、退避与 dead letter
+  migration 52 将旧 receipt 转为 suppression 后删表；事务型动作与 receipt 同事务
+  退出: 六类 completion 副作用迁移完成，故障注入、恢复和端到端测试通过
 ```
 
 每切片满足 spec §10 的某个退出条件，且不破坏兼容。各切片在落地前另起 plan，
@@ -588,6 +631,22 @@ Session 身份仍由 coordinator 上半部守护；背景活动与 heartbeat 留
 - **退出条件**：delivery 协调不再依赖 task-notification-publisher 尾部硬编码；现有 delivery
   测试无回归。
 
+### ADR-006：Process Manager 只规划 Effect，Outbox 拥有执行可靠性
+
+- **背景**：Dispatcher 的至少一次投递止于 handler interface。把外部 I/O 与本地 receipt
+  包在同一 SQLite transaction 中，无法覆盖“外部成功、receipt 未提交”的崩溃窗口；
+  捕获错误后提交 receipt 还会永久吞掉可恢复失败。
+- **决策**：Process Manager 只返回持久 Effect Commands。Effect Outbox 原子接纳命令，
+  隐藏 lane、attempt、lease、fencing、退避和 dead letter；Adapter 显式选择
+  transactional 或 idempotent 执行语义。
+- **替代方案**：①继续为每个 Process Manager 手写 step receipt，否决原因是可靠性知识
+  散落且外部 I/O 语义错误；②把 Effect Command 做成第五类 Platform Event，否决原因是
+  执行意图不是已经发生的事实，会污染事件目录与 owner。
+- **后果**：daemon 不再拥有 Runtime completion 的重试编排；数据库动作获得 action/receipt
+  原子性，外部动作明确依赖稳定幂等键；Socket 保持 commit 后 best-effort。
+- **退出条件**：已满足；实施契约归档于
+  `docs/archive/specs/durable-effect-outbox/spec.md` §10。
+
 ---
 
 ## 12. 设计不变量
@@ -602,3 +661,4 @@ Session 身份仍由 coordinator 上半部守护；背景活动与 heartbeat 留
 8. Agent 不 push-订阅 Event Bus（靠模块边界强制，非纪律）。
 9. Runtime Core（上半部）只做"拒绝非法"和"保证唯一"，不做 I/O、不 fan-out。
 10. 领域表是事实源；事件是协调信号；sourcing 仅作高价值聚合例外。
+11. Process Manager 只持久规划 Effect；不可回滚 I/O 不得伪装成 SQLite 原子事务。
