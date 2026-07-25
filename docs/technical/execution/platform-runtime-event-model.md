@@ -10,6 +10,9 @@
 `docs/archive/specs/platform-runtime-events/`，本文与 `docs/wiki/04-backend-daemon.md`
 共同承载长期事实。
 
+当前实现的分层、主链路及重试边界可直接查看
+[`Platform Runtime 当前架构图`](platform-runtime-current-architecture.html)。
+
 ---
 
 ## 1. 定位：runtime 是整个平台运行时
