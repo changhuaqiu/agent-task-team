@@ -3,403 +3,333 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Platform Runtime 当前架构图</title>
+  <title>Agent Task Hub · Platform Runtime 当前架构</title>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js" integrity="sha384-ZZ1pncU3bQe8y31yfZdMFdSpttDoPmOZg2wguVK9almUodir1PghgT0eY7Mrty8H" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js" integrity="sha384-en/ztfPSRkGfME4KIm05joYXynqzUgbsG5nMrj/xEFAHXkeZfO3yMK8QQ+mP7p1/" crossorigin="anonymous"></script>
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
+    * { box-sizing: border-box; }
     body {
-      min-height: 100vh;
-      padding: 2rem;
-      color: #f8fafc;
-      background: #020617;
+      margin: 0; min-height: 100vh; padding: 32px;
+      color: #f8fafc; background: #020617;
       font-family: "JetBrains Mono", "Microsoft YaHei", monospace;
     }
-    .container { max-width: 1500px; margin: 0 auto; }
-    .header { margin-bottom: 1.5rem; }
-    .header-row { display: flex; align-items: center; gap: 0.9rem; }
-    .pulse-dot {
-      width: 12px; height: 12px; border-radius: 50%;
-      background: #22d3ee; animation: pulse 2s infinite;
+    #report-container { max-width: 1500px; margin: 0 auto; }
+    header { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 20px; }
+    .signal {
+      width: 12px; height: 12px; margin-top: 8px; border-radius: 50%;
+      background: #22d3ee; box-shadow: 0 0 20px #22d3ee; animation: pulse 2s infinite;
     }
-    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
-    h1 { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.03em; }
-    .subtitle { margin: 0.55rem 0 0 1.75rem; color: #94a3b8; font-size: 0.82rem; }
-    .diagram-container {
-      overflow-x: auto;
-      padding: 1.25rem;
-      border: 1px solid #1e293b;
-      border-radius: 1rem;
-      background: rgba(15, 23, 42, 0.55);
-    }
-    svg { display: block; width: 100%; min-width: 1180px; }
-    .cards {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-      gap: 1rem;
-      margin-top: 1.25rem;
-    }
-    .card {
-      padding: 1.1rem 1.2rem;
-      border: 1px solid #1e293b;
-      border-radius: 0.75rem;
-      background: rgba(15, 23, 42, 0.58);
-    }
-    .card-header { display: flex; align-items: center; gap: 0.55rem; margin-bottom: 0.7rem; }
-    .card-dot { width: 8px; height: 8px; border-radius: 50%; }
-    .card-dot.cyan { background: #22d3ee; }
-    .card-dot.orange { background: #fb923c; }
-    .card-dot.violet { background: #a78bfa; }
-    .card-dot.rose { background: #fb7185; }
-    .card h3 { font-size: 0.84rem; font-weight: 600; }
-    .card ul { list-style: none; color: #94a3b8; font-size: 0.73rem; line-height: 1.65; }
-    .card li::before { content: "• "; color: #64748b; }
-    .footer { margin-top: 1.2rem; text-align: center; color: #475569; font-size: 0.7rem; }
-    .toolbar {
-      display: flex; align-items: center; gap: 0.5rem;
-      margin-left: auto; flex-shrink: 0;
-    }
-    .toolbar-toggle {
-      padding: 0.25rem 0.5rem; border: 0; border-radius: 0.375rem;
-      color: #64748b; background: transparent; cursor: pointer;
-      font: 1.2rem/1 inherit;
-    }
-    .toolbar-toggle:hover { color: #cbd5e1; background: rgba(30, 41, 59, 0.6); }
-    .toolbar-actions { display: none; gap: 0.45rem; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
+    h1 { margin: 0; font-size: 24px; letter-spacing: -.04em; }
+    .subtitle { margin: 7px 0 0; color: #94a3b8; font-size: 12px; line-height: 1.65; }
+    .toolbar { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+    .toolbar-actions { display: none; gap: 8px; }
     .toolbar.expanded .toolbar-actions { display: flex; }
-    .toolbar-actions button {
-      padding: 0.36rem 0.68rem;
-      border: 1px solid #334155; border-radius: 0.375rem;
-      color: #94a3b8; background: rgba(30, 41, 59, 0.85);
-      font: 0.7rem inherit; cursor: pointer;
+    button {
+      border: 1px solid #334155; border-radius: 6px; padding: 7px 11px;
+      color: #cbd5e1; background: #0f172a; font: 11px inherit; cursor: pointer;
     }
-    .toolbar-actions button:hover { color: white; border-color: #475569; }
-    @media print {
-      body { padding: 1rem; background: #020617; }
-      .toolbar { display: none !important; }
+    button:hover { color: #fff; border-color: #64748b; }
+    .toolbar-toggle { border: 0; padding: 4px 8px; color: #64748b; background: transparent; font-size: 20px; }
+    .canvas {
+      overflow-x: auto; padding: 18px; border: 1px solid #1e293b;
+      border-radius: 14px; background: rgba(15, 23, 42, .55);
     }
+    svg { display: block; width: 100%; min-width: 1280px; }
+    .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 16px; }
+    .card { padding: 16px; border: 1px solid #1e293b; border-radius: 10px; background: rgba(15,23,42,.55); }
+    .card h2 { margin: 0 0 10px; font-size: 12px; }
+    .card ul { margin: 0; padding-left: 18px; color: #94a3b8; font-size: 10px; line-height: 1.75; }
+    .cyan { color: #22d3ee; } .green { color: #34d399; } .amber { color: #fbbf24; }
+    footer { margin-top: 16px; color: #475569; text-align: center; font-size: 10px; }
+    @media (max-width: 900px) { .cards { grid-template-columns: 1fr; } }
+    @media print { body { padding: 12px; } .toolbar { display: none !important; } }
   </style>
 </head>
 <body>
-  <div class="container" id="report-container">
-    <div class="header">
-      <div class="header-row">
-        <div class="pulse-dot"></div>
-        <h1>Platform Runtime 当前架构</h1>
-        <div class="toolbar">
-          <div class="toolbar-actions">
-            <button onclick="copyAsImage(this)">复制 PNG</button>
-            <button onclick="downloadPNG(this)">下载 PNG</button>
-            <button onclick="downloadPDF(this)">下载 PDF</button>
-          </div>
-          <button class="toolbar-toggle" onclick="this.parentElement.classList.toggle('expanded')" title="导出选项" aria-label="导出选项">⋯</button>
+  <main id="report-container">
+    <header>
+      <div class="signal"></div>
+      <div>
+        <h1>Agent Task Hub · Platform Runtime</h1>
+        <p class="subtitle">一条主线：工作进入 Inbox → Agent 执行 → 形成平台事件 → 响应事件 → 完成终态后的可靠待办</p>
+      </div>
+      <div class="toolbar">
+        <div class="toolbar-actions">
+          <button onclick="copyAsImage(this)">📋 复制图片</button>
+          <button onclick="downloadPNG(this)">🖼️ 下载 PNG</button>
+          <button onclick="downloadPDF(this)">📄 下载 PDF</button>
         </div>
+        <button class="toolbar-toggle" onclick="this.parentElement.classList.toggle('expanded')" title="导出选项" aria-label="导出选项">⋯</button>
       </div>
-      <p class="subtitle">按当前代码绘制 · 重点区分 Agent 执行、事件投递重试与终态后 Effect 重试</p>
-    </div>
+    </header>
 
-    <div class="diagram-container">
-      <svg viewBox="0 0 1400 930" role="img" aria-labelledby="diagram-title diagram-desc">
-        <title id="diagram-title">Platform Runtime 当前架构图</title>
-        <desc id="diagram-desc">展示 Agent 从 Inbox 被调度执行、Runtime 事件归一化和持久分发，以及 Agent 终态后 Effect Outbox 的完整链路。</desc>
+    <section class="canvas">
+      <svg viewBox="0 0 1400 980" role="img" aria-label="Platform Runtime 当前架构图">
         <defs>
-          <marker id="arrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
-            <polygon points="0 0,10 3.5,0 7" fill="#64748b"/>
-          </marker>
-          <marker id="arrow-cyan" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
-            <polygon points="0 0,10 3.5,0 7" fill="#22d3ee"/>
-          </marker>
-          <marker id="arrow-orange" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
-            <polygon points="0 0,10 3.5,0 7" fill="#fb923c"/>
-          </marker>
-          <marker id="arrow-violet" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
-            <polygon points="0 0,10 3.5,0 7" fill="#a78bfa"/>
-          </marker>
           <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
-            <path d="M40 0L0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/>
+            <path d="M40 0H0V40" fill="none" stroke="#1e293b" stroke-width=".5"/>
           </pattern>
+          <marker id="arrow-cyan" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><path d="M0 0L10 3.5 0 7Z" fill="#22d3ee"/></marker>
+          <marker id="arrow-green" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><path d="M0 0L10 3.5 0 7Z" fill="#34d399"/></marker>
+          <marker id="arrow-orange" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><path d="M0 0L10 3.5 0 7Z" fill="#fb923c"/></marker>
+          <marker id="arrow-violet" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><path d="M0 0L10 3.5 0 7Z" fill="#a78bfa"/></marker>
         </defs>
+        <rect width="1400" height="980" fill="url(#grid)"/>
 
-        <rect width="1400" height="930" fill="url(#grid)"/>
+        <!-- 主线和分支先画，组件用不透明底色遮住穿线。 -->
+        <path d="M190 137V174M430 137V174M670 137V174M190 174H670" fill="none" stroke="#22d3ee" stroke-width="2"/>
+        <path d="M300 174V205" fill="none" stroke="#22d3ee" stroke-width="2" marker-end="url(#arrow-cyan)"/>
+        <path d="M430 240H500" fill="none" stroke="#34d399" stroke-width="2" marker-end="url(#arrow-green)"/>
+        <path d="M730 240H800" fill="none" stroke="#34d399" stroke-width="2" marker-end="url(#arrow-green)"/>
+        <path d="M1030 240H1208" fill="none" stroke="#a78bfa" stroke-width="2" marker-end="url(#arrow-violet)"/>
+        <path d="M1290 480H1150V390H1030" fill="none" stroke="#22d3ee" stroke-width="2" marker-end="url(#arrow-cyan)"/>
+        <path d="M800 390H730" fill="none" stroke="#a78bfa" stroke-width="2" marker-end="url(#arrow-violet)"/>
+        <path d="M500 390H430" fill="none" stroke="#fb923c" stroke-width="2" marker-end="url(#arrow-orange)"/>
+        <path d="M300 430V505" fill="none" stroke="#fb923c" stroke-width="2" marker-end="url(#arrow-orange)"/>
 
-        <!-- Connections are painted before boxes so they remain behind them. -->
-        <path d="M265 143H318" fill="none" stroke="#22d3ee" stroke-width="2" marker-end="url(#arrow-cyan)"/>
-        <path d="M530 143H583" fill="none" stroke="#22d3ee" stroke-width="2" marker-end="url(#arrow-cyan)"/>
-        <path d="M795 143H848" fill="none" stroke="#22d3ee" stroke-width="2" marker-end="url(#arrow-cyan)"/>
-        <path d="M1060 143H1113" fill="none" stroke="#22d3ee" stroke-width="2" marker-end="url(#arrow-cyan)"/>
+        <path d="M300 565V600H205V625" fill="none" stroke="#34d399" stroke-width="1.7" marker-end="url(#arrow-green)"/>
+        <path d="M300 565V600H410V625" fill="none" stroke="#34d399" stroke-width="1.7" marker-end="url(#arrow-green)"/>
+        <path d="M300 565V600H615V625" fill="none" stroke="#34d399" stroke-width="1.7" marker-end="url(#arrow-green)"/>
+        <path d="M300 565V600H820V625" fill="none" stroke="#34d399" stroke-width="1.7" marker-end="url(#arrow-green)"/>
 
-        <path d="M1218 181V330H535" fill="none" stroke="#22d3ee" stroke-width="2" marker-end="url(#arrow-cyan)"/>
-        <path d="M265 395H428" fill="none" stroke="#34d399" stroke-width="2" marker-end="url(#arrow)"/>
-        <path d="M640 395H693" fill="none" stroke="#a78bfa" stroke-width="2" marker-end="url(#arrow-violet)"/>
-        <path d="M905 395H958" fill="none" stroke="#fb923c" stroke-width="2" marker-end="url(#arrow-orange)"/>
+        <path d="M205 690V735" fill="none" stroke="#22d3ee" stroke-width="1.7" marker-end="url(#arrow-cyan)"/>
+        <path d="M410 690V735" fill="none" stroke="#34d399" stroke-width="1.7" marker-end="url(#arrow-green)"/>
+        <path d="M615 690V735" fill="none" stroke="#34d399" stroke-width="1.7" marker-end="url(#arrow-green)"/>
+        <path d="M905 657H940" fill="none" stroke="#a78bfa" stroke-width="2" marker-end="url(#arrow-violet)"/>
+        <path d="M1045 705V735" fill="none" stroke="#a78bfa" stroke-width="2" marker-end="url(#arrow-violet)"/>
+        <path d="M930 785H865" fill="none" stroke="#34d399" stroke-width="1.7" marker-end="url(#arrow-green)"/>
+        <path d="M1160 785H1205" fill="none" stroke="#22d3ee" stroke-width="1.7" marker-end="url(#arrow-cyan)"/>
 
-        <path d="M1170 360V326" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>
-        <path d="M1170 430V466" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>
-        <path d="M1062 500H1018V548" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>
-        <path d="M1278 500H1322V548" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>
+        <!-- Router 和 A2A Effect 都可能产生下一次 Inbox 工作。 -->
+        <path d="M410 795V845H105V240H168" fill="none" stroke="#22d3ee" stroke-width="1.7" stroke-dasharray="6 5" marker-end="url(#arrow-cyan)"/>
+        <path d="M750 785V860H130V260H168" fill="none" stroke="#a78bfa" stroke-width="1.5" stroke-dasharray="6 5" marker-end="url(#arrow-violet)"/>
 
-        <path d="M1170 536V640H265" fill="none" stroke="#fb923c" stroke-width="2" marker-end="url(#arrow-orange)"/>
-        <path d="M265 690H348" fill="none" stroke="#a78bfa" stroke-width="2" marker-end="url(#arrow-violet)"/>
-        <path d="M560 690H643" fill="none" stroke="#a78bfa" stroke-width="2" marker-end="url(#arrow-violet)"/>
-        <path d="M855 690H918" fill="none" stroke="#a78bfa" stroke-width="2" marker-end="url(#arrow-violet)"/>
-        <path d="M1130 670H1188" fill="none" stroke="#34d399" stroke-width="1.7" marker-end="url(#arrow)"/>
-        <path d="M1130 710H1188" fill="none" stroke="#22d3ee" stroke-width="1.7" marker-end="url(#arrow-cyan)"/>
-        <path d="M1024 730V788" fill="none" stroke="#fb7185" stroke-width="1.5" stroke-dasharray="5,5" marker-end="url(#arrow)"/>
+        <!-- 结构化触发 -->
+        <rect x="65" y="40" width="720" height="115" rx="12" fill="rgba(8,51,68,.10)" stroke="#22d3ee" stroke-width="1.3" stroke-dasharray="8 5"/>
+        <text x="85" y="67" fill="#22d3ee" font-size="11" font-weight="700">结构化触发 · 为什么开始</text>
+        <g>
+          <rect x="105" y="88" width="170" height="49" rx="7" fill="#0f172a" stroke="#22d3ee" stroke-width="1.5"/>
+          <rect x="345" y="88" width="170" height="49" rx="7" fill="#0f172a" stroke="#22d3ee" stroke-width="1.5"/>
+          <rect x="585" y="88" width="170" height="49" rx="7" fill="#0f172a" stroke="#22d3ee" stroke-width="1.5"/>
+          <text x="190" y="108" fill="white" font-size="10.5" font-weight="600" text-anchor="middle">领域状态变化</text>
+          <text x="190" y="126" fill="#94a3b8" font-size="8" text-anchor="middle">Task / Review / Delivery</text>
+          <text x="430" y="108" fill="white" font-size="10.5" font-weight="600" text-anchor="middle">A2A 交接</text>
+          <text x="430" y="126" fill="#94a3b8" font-size="8" text-anchor="middle">持球者 + 交接包</text>
+          <text x="670" y="108" fill="white" font-size="10.5" font-weight="600" text-anchor="middle">用户 / 系统命令</text>
+          <text x="670" y="126" fill="#94a3b8" font-size="8" text-anchor="middle">明确激活某个 Agent</text>
+        </g>
 
-        <!-- Task router loops work back to the Inbox. -->
-        <path d="M1062 500H1000V565H140V181" fill="none" stroke="#fb923c" stroke-width="1.6" stroke-dasharray="6,4" marker-end="url(#arrow-orange)"/>
-        <!-- A2A transactional adapter may persist a new Inbox command. -->
-        <path d="M1294 670V590H110V181" fill="none" stroke="#a78bfa" stroke-width="1.4" stroke-dasharray="5,5" marker-end="url(#arrow-violet)"/>
+        <!-- Platform Runtime 主边界 -->
+        <rect x="65" y="180" width="1095" height="675" rx="15" fill="rgba(6,78,59,.07)" stroke="#34d399" stroke-width="1.4" stroke-dasharray="8 5"/>
+        <text x="765" y="201" fill="#34d399" font-size="11" font-weight="700">Platform Runtime · 接活、执行、记录事实、协调后续</text>
 
-        <!-- Plane boundaries -->
-        <rect x="25" y="35" width="1350" height="220" rx="12" fill="rgba(8,51,68,0.08)" stroke="#22d3ee" stroke-width="1" stroke-dasharray="8,4"/>
-        <text x="43" y="58" fill="#22d3ee" font-size="11" font-weight="700">A · AGENT 执行面</text>
-        <text x="188" y="58" fill="#64748b" font-size="8">一次 Invocation 的启动与实时信号</text>
+        <!-- 第一段：接活并启动 -->
+        <rect x="168" y="205" width="262" height="70" rx="8" fill="#0f172a"/>
+        <rect x="168" y="205" width="262" height="70" rx="8" fill="rgba(6,78,59,.35)" stroke="#34d399" stroke-width="2"/>
+        <text x="299" y="229" fill="white" font-size="12" font-weight="700" text-anchor="middle">Agent Inbox</text>
+        <text x="299" y="249" fill="#94a3b8" font-size="8" text-anchor="middle">持久 Command · claim · lease</text>
+        <text x="299" y="266" fill="#34d399" font-size="8" text-anchor="middle">回答“谁接这份工作”</text>
 
-        <rect x="25" y="285" width="1350" height="290" rx="12" fill="rgba(251,146,60,0.05)" stroke="#fb923c" stroke-width="1" stroke-dasharray="8,4"/>
-        <text x="43" y="308" fill="#fb923c" font-size="11" font-weight="700">B · PLATFORM EVENT 协调面</text>
-        <text x="250" y="308" fill="#64748b" font-size="8">事件先持久化，再由 Dispatcher 可靠 fan-out</text>
+        <rect x="500" y="205" width="230" height="70" rx="8" fill="#0f172a"/>
+        <rect x="500" y="205" width="230" height="70" rx="8" fill="rgba(6,78,59,.35)" stroke="#34d399" stroke-width="1.6"/>
+        <text x="615" y="229" fill="white" font-size="11" font-weight="700" text-anchor="middle">Scheduler + Harness</text>
+        <text x="615" y="249" fill="#94a3b8" font-size="8" text-anchor="middle">上下文快照 · Skill · Policy</text>
+        <text x="615" y="266" fill="#34d399" font-size="8" text-anchor="middle">回答“带什么去做”</text>
 
-        <rect x="25" y="610" width="1350" height="180" rx="12" fill="rgba(167,139,250,0.05)" stroke="#a78bfa" stroke-width="1" stroke-dasharray="8,4"/>
-        <text x="43" y="633" fill="#a78bfa" font-size="11" font-weight="700">C · 终态后 EFFECT 执行面</text>
-        <text x="225" y="633" fill="#64748b" font-size="8">只负责 Agent 终态之后的持久待办</text>
+        <rect x="800" y="205" width="230" height="70" rx="8" fill="#0f172a"/>
+        <rect x="800" y="205" width="230" height="70" rx="8" fill="rgba(6,78,59,.35)" stroke="#34d399" stroke-width="1.6"/>
+        <text x="915" y="229" fill="white" font-size="11" font-weight="700" text-anchor="middle">ACP Runtime Port</text>
+        <text x="915" y="249" fill="#94a3b8" font-size="8" text-anchor="middle">Session + 单次 Invocation</text>
+        <text x="915" y="266" fill="#34d399" font-size="8" text-anchor="middle">回答“如何执行”</text>
 
-        <!-- Top plane components -->
-        <rect x="55" y="103" width="210" height="80" rx="7" fill="#0f172a"/>
-        <rect x="55" y="103" width="210" height="80" rx="7" fill="rgba(76,29,149,0.4)" stroke="#a78bfa" stroke-width="1.5"/>
-        <text x="160" y="129" fill="white" font-size="12" font-weight="700" text-anchor="middle">Agent Inbox</text>
-        <text x="160" y="149" fill="#c4b5fd" font-size="8.5" text-anchor="middle">持久 Command 队列</text>
-        <text x="160" y="166" fill="#94a3b8" font-size="8" text-anchor="middle">claim / lease / complete</text>
+        <!-- 第二段：执行结果变成事件事实 -->
+        <rect x="800" y="350" width="230" height="80" rx="8" fill="#0f172a"/>
+        <rect x="800" y="350" width="230" height="80" rx="8" fill="rgba(8,51,68,.35)" stroke="#22d3ee" stroke-width="1.7"/>
+        <text x="915" y="375" fill="white" font-size="11" font-weight="700" text-anchor="middle">Runtime Coordinator</text>
+        <text x="915" y="395" fill="#94a3b8" font-size="8" text-anchor="middle">原始 AgentEvent → runtime.*</text>
+        <text x="915" y="413" fill="#22d3ee" font-size="8" text-anchor="middle">顺序归一化 · 一次终态</text>
 
-        <rect x="320" y="103" width="210" height="80" rx="7" fill="#0f172a"/>
-        <rect x="320" y="103" width="210" height="80" rx="7" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
-        <text x="425" y="129" fill="white" font-size="12" font-weight="700" text-anchor="middle">Scheduler + Harness</text>
-        <text x="425" y="149" fill="#6ee7b7" font-size="8.5" text-anchor="middle">领取工作、编译上下文</text>
-        <text x="425" y="166" fill="#94a3b8" font-size="8" text-anchor="middle">ContextSnapshot / policy</text>
+        <rect x="500" y="350" width="230" height="80" rx="8" fill="#0f172a"/>
+        <rect x="500" y="350" width="230" height="80" rx="8" fill="rgba(76,29,149,.35)" stroke="#a78bfa" stroke-width="1.7"/>
+        <text x="615" y="375" fill="white" font-size="11" font-weight="700" text-anchor="middle">PlatformEventLog</text>
+        <text x="615" y="395" fill="#94a3b8" font-size="8" text-anchor="middle">canonical 事件先写入 SQLite</text>
+        <text x="615" y="413" fill="#a78bfa" font-size="8" text-anchor="middle">stream 顺序 · dedupe · guard</text>
 
-        <rect x="585" y="103" width="210" height="80" rx="7" fill="#0f172a"/>
-        <rect x="585" y="103" width="210" height="80" rx="7" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
-        <text x="690" y="129" fill="white" font-size="12" font-weight="700" text-anchor="middle">ACP Runtime Adapter</text>
-        <text x="690" y="149" fill="#6ee7b7" font-size="8.5" text-anchor="middle">创建 / 恢复 Session</text>
-        <text x="690" y="166" fill="#94a3b8" font-size="8" text-anchor="middle">启动本次 Invocation</text>
+        <rect x="168" y="350" width="262" height="80" rx="8" fill="#0f172a"/>
+        <rect x="168" y="350" width="262" height="80" rx="8" fill="rgba(251,146,60,.13)" stroke="#fb923c" stroke-width="1.7"/>
+        <text x="299" y="375" fill="white" font-size="11" font-weight="700" text-anchor="middle">Durable Dispatcher</text>
+        <text x="299" y="395" fill="#94a3b8" font-size="8" text-anchor="middle">按事件类型寻找 Handler</text>
+        <text x="299" y="413" fill="#fb923c" font-size="8" text-anchor="middle">可靠交付 · 失败重试 · 局部顺序</text>
 
-        <rect x="850" y="103" width="210" height="80" rx="7" fill="#0f172a"/>
-        <rect x="850" y="103" width="210" height="80" rx="7" fill="rgba(30,41,59,0.5)" stroke="#94a3b8" stroke-width="1.5"/>
-        <text x="955" y="129" fill="white" font-size="12" font-weight="700" text-anchor="middle">Agent 进程</text>
-        <text x="955" y="149" fill="#cbd5e1" font-size="8.5" text-anchor="middle">Claude / Codex / OpenCode</text>
-        <text x="955" y="166" fill="#94a3b8" font-size="8" text-anchor="middle">产生 AgentEvent / Result</text>
+        <rect x="175" y="505" width="250" height="60" rx="8" fill="#0f172a"/>
+        <rect x="175" y="505" width="250" height="60" rx="8" fill="rgba(251,146,60,.13)" stroke="#fb923c" stroke-width="1.3" stroke-dasharray="6 5"/>
+        <text x="300" y="529" fill="#fb923c" font-size="10" font-weight="700" text-anchor="middle">重试范围 1</text>
+        <text x="300" y="549" fill="#94a3b8" font-size="8" text-anchor="middle">保证 Event 最终交给 Handler</text>
 
-        <rect x="1115" y="103" width="210" height="80" rx="7" fill="#0f172a"/>
-        <rect x="1115" y="103" width="210" height="80" rx="7" fill="rgba(8,51,68,0.4)" stroke="#22d3ee" stroke-width="1.5"/>
-        <text x="1220" y="126" fill="white" font-size="11.5" font-weight="700" text-anchor="middle">Runtime Coordinator</text>
-        <text x="1220" y="146" fill="#67e8f9" font-size="8.5" text-anchor="middle">Bridge：原始信号归一化</text>
-        <text x="1220" y="164" fill="#94a3b8" font-size="8" text-anchor="middle">保证一次终态</text>
+        <!-- 四种响应方式 -->
+        <rect x="125" y="600" width="795" height="110" rx="10" fill="rgba(6,78,59,.08)" stroke="#34d399" stroke-width="1.2"/>
+        <text x="145" y="620" fill="#34d399" font-size="9" font-weight="700">事件发生后，平台用四种方式响应</text>
+        <g>
+          <rect x="135" y="625" width="140" height="65" rx="7" fill="#0f172a" stroke="#34d399"/>
+          <rect x="340" y="625" width="140" height="65" rx="7" fill="#0f172a" stroke="#34d399"/>
+          <rect x="545" y="625" width="140" height="65" rx="7" fill="#0f172a" stroke="#34d399"/>
+          <rect x="750" y="625" width="155" height="65" rx="7" fill="#0f172a" stroke="#34d399"/>
+          <text x="205" y="650" fill="white" font-size="10" font-weight="600" text-anchor="middle">Projection</text>
+          <text x="205" y="671" fill="#94a3b8" font-size="8" text-anchor="middle">刷新消息 / 观测 / UI</text>
+          <text x="410" y="650" fill="white" font-size="10" font-weight="600" text-anchor="middle">Router</text>
+          <text x="410" y="671" fill="#94a3b8" font-size="8" text-anchor="middle">产生下一份 Inbox 工作</text>
+          <text x="615" y="650" fill="white" font-size="10" font-weight="600" text-anchor="middle">Process Manager</text>
+          <text x="615" y="671" fill="#94a3b8" font-size="8" text-anchor="middle">推进 Delivery 等跨域流程</text>
+          <text x="827" y="650" fill="white" font-size="10" font-weight="600" text-anchor="middle">Completion PM</text>
+          <text x="827" y="671" fill="#94a3b8" font-size="8" text-anchor="middle">只响应 Agent 终态</text>
+        </g>
 
-        <rect x="817" y="203" width="276" height="36" rx="6" fill="rgba(136,19,55,0.26)" stroke="#fb7185" stroke-width="1" stroke-dasharray="4,4"/>
-        <text x="955" y="219" fill="#fb7185" font-size="8.5" font-weight="700" text-anchor="middle">当前没有：Agent 自动重启 / checkpoint 恢复</text>
-        <text x="955" y="232" fill="#94a3b8" font-size="7.5" text-anchor="middle">Outbox 不覆盖这个失败域</text>
+        <!-- 终态后的待办，作为 Completion PM 的下游，不冒充 Agent 重试 -->
+        <rect x="940" y="520" width="190" height="185" rx="11" fill="rgba(76,29,149,.08)" stroke="#a78bfa" stroke-width="1.3" stroke-dasharray="8 5"/>
+        <text x="1035" y="544" fill="#a78bfa" font-size="10" font-weight="700" text-anchor="middle">终态后可靠待办</text>
+        <rect x="960" y="560" width="150" height="55" rx="7" fill="#0f172a" stroke="#a78bfa" stroke-width="1.5"/>
+        <text x="1035" y="582" fill="white" font-size="10" font-weight="600" text-anchor="middle">Effect Outbox</text>
+        <text x="1035" y="600" fill="#94a3b8" font-size="8" text-anchor="middle">动态生成 0–6 个 Todo</text>
+        <rect x="960" y="635" width="150" height="55" rx="7" fill="#0f172a" stroke="#fb923c" stroke-width="1.5"/>
+        <text x="1035" y="657" fill="white" font-size="10" font-weight="600" text-anchor="middle">Effect Worker</text>
+        <text x="1035" y="675" fill="#94a3b8" font-size="8" text-anchor="middle">claim · retry · recovery</text>
 
-        <!-- Middle plane components -->
-        <rect x="55" y="355" width="210" height="80" rx="7" fill="#0f172a"/>
-        <rect x="55" y="355" width="210" height="80" rx="7" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
-        <text x="160" y="381" fill="white" font-size="12" font-weight="700" text-anchor="middle">领域模块</text>
-        <text x="160" y="401" fill="#6ee7b7" font-size="8.5" text-anchor="middle">Task / Review / Delivery / A2A</text>
-        <text x="160" y="418" fill="#94a3b8" font-size="8" text-anchor="middle">领域表是事实源</text>
+        <!-- 结果去向 -->
+        <rect x="125" y="735" width="740" height="80" rx="9" fill="rgba(6,78,59,.08)" stroke="#34d399" stroke-width="1.3"/>
+        <text x="145" y="759" fill="#34d399" font-size="9" font-weight="700">Handler / Effect 的结果回到明确的 owner</text>
+        <text x="145" y="782" fill="#94a3b8" font-size="8">Projection → UI / Observability　 Router → Agent Inbox　 Process Manager → Delivery 状态</text>
+        <text x="145" y="802" fill="#94a3b8" font-size="8">Effect → Task Sync / Proof / Evaluation / Team Log / A2A Response &amp; Done</text>
 
-        <rect x="430" y="355" width="210" height="80" rx="7" fill="#0f172a"/>
-        <rect x="430" y="355" width="210" height="80" rx="7" fill="rgba(8,51,68,0.4)" stroke="#22d3ee" stroke-width="1.5"/>
-        <text x="535" y="378" fill="white" font-size="11.5" font-weight="700" text-anchor="middle">RuntimeEventPublisher</text>
-        <text x="535" y="398" fill="#67e8f9" font-size="8.5" text-anchor="middle">上半部同步 Guard</text>
-        <text x="535" y="416" fill="#94a3b8" font-size="8" text-anchor="middle">顺序 / 去重 / 终态唯一</text>
+        <rect x="930" y="735" width="230" height="80" rx="9" fill="#0f172a"/>
+        <rect x="930" y="735" width="230" height="80" rx="9" fill="rgba(76,29,149,.30)" stroke="#a78bfa" stroke-width="1.5"/>
+        <text x="1045" y="759" fill="white" font-size="10.5" font-weight="700" text-anchor="middle">Effect Adapters</text>
+        <text x="1045" y="779" fill="#94a3b8" font-size="8" text-anchor="middle">数据库事务型 / 外部幂等型</text>
+        <text x="1045" y="798" fill="#a78bfa" font-size="8" text-anchor="middle">完成 Todo，不重跑 Agent</text>
 
-        <rect x="695" y="355" width="210" height="80" rx="7" fill="#0f172a"/>
-        <rect x="695" y="355" width="210" height="80" rx="7" fill="rgba(76,29,149,0.4)" stroke="#a78bfa" stroke-width="1.5"/>
-        <text x="800" y="379" fill="white" font-size="12" font-weight="700" text-anchor="middle">PlatformEventLog</text>
-        <text x="800" y="399" fill="#c4b5fd" font-size="8.5" text-anchor="middle">SQLite canonical event log</text>
-        <text x="800" y="416" fill="#94a3b8" font-size="8" text-anchor="middle">stream 顺序 / dedupe</text>
+        <!-- 右侧执行层 -->
+        <rect x="1205" y="180" width="170" height="650" rx="12" fill="rgba(76,29,149,.08)" stroke="#a78bfa" stroke-width="1.4" stroke-dasharray="8 5"/>
+        <text x="1290" y="207" fill="#a78bfa" font-size="11" font-weight="700" text-anchor="middle">Agent 执行层</text>
+        <rect x="1222" y="225" width="136" height="65" rx="7" fill="#0f172a" stroke="#a78bfa" stroke-width="1.5"/>
+        <text x="1290" y="249" fill="white" font-size="10" font-weight="700" text-anchor="middle">ACP Backend</text>
+        <text x="1290" y="270" fill="#94a3b8" font-size="8" text-anchor="middle">JSON-RPC / stdio</text>
+        <g>
+          <rect x="1222" y="325" width="136" height="52" rx="7" fill="#0f172a" stroke="#a78bfa"/>
+          <rect x="1222" y="397" width="136" height="52" rx="7" fill="#0f172a" stroke="#a78bfa"/>
+          <rect x="1222" y="469" width="136" height="52" rx="7" fill="#0f172a" stroke="#a78bfa"/>
+          <text x="1290" y="347" fill="white" font-size="10" font-weight="600" text-anchor="middle">OpenCode</text>
+          <text x="1290" y="365" fill="#94a3b8" font-size="8" text-anchor="middle">原生 ACP</text>
+          <text x="1290" y="419" fill="white" font-size="10" font-weight="600" text-anchor="middle">Claude</text>
+          <text x="1290" y="437" fill="#94a3b8" font-size="8" text-anchor="middle">ACP 适配器</text>
+          <text x="1290" y="491" fill="white" font-size="10" font-weight="600" text-anchor="middle">Codex</text>
+          <text x="1290" y="509" fill="#94a3b8" font-size="8" text-anchor="middle">ACP 适配器</text>
+        </g>
+        <rect x="1222" y="565" width="136" height="92" rx="7" fill="#0f172a" stroke="#fb7185" stroke-width="1.3" stroke-dasharray="5 4"/>
+        <text x="1290" y="590" fill="#fb7185" font-size="9" font-weight="700" text-anchor="middle">当前监督能力</text>
+        <text x="1290" y="610" fill="#94a3b8" font-size="7" text-anchor="middle">权限 · 超时 · 取消</text>
+        <text x="1290" y="628" fill="#94a3b8" font-size="7" text-anchor="middle">TERM → KILL</text>
+        <text x="1290" y="646" fill="#94a3b8" font-size="7" text-anchor="middle">产生 failed / timed_out 终态</text>
+        <rect x="1222" y="690" width="136" height="92" rx="7" fill="rgba(136,19,55,.16)" stroke="#fb7185" stroke-width="1.3" stroke-dasharray="5 4"/>
+        <text x="1290" y="714" fill="#fb7185" font-size="9" font-weight="700" text-anchor="middle">尚未解决</text>
+        <text x="1290" y="735" fill="#94a3b8" font-size="7" text-anchor="middle">Agent durable retry</text>
+        <text x="1290" y="753" fill="#94a3b8" font-size="7" text-anchor="middle">checkpoint 恢复</text>
+        <text x="1290" y="771" fill="#94a3b8" font-size="7" text-anchor="middle">新旧 Invocation fencing</text>
 
-        <rect x="960" y="355" width="210" height="80" rx="7" fill="#0f172a"/>
-        <rect x="960" y="355" width="210" height="80" rx="7" fill="rgba(251,146,60,0.3)" stroke="#fb923c" stroke-width="1.5"/>
-        <text x="1065" y="378" fill="white" font-size="11.5" font-weight="700" text-anchor="middle">Durable Dispatcher</text>
-        <text x="1065" y="398" fill="#fdba74" font-size="8.5" text-anchor="middle">event × handler 持久投递</text>
-        <text x="1065" y="416" fill="#94a3b8" font-size="8" text-anchor="middle">lease / retry / stream 顺序</text>
+        <!-- 持久事实 -->
+        <rect x="125" y="875" width="1035" height="65" rx="9" fill="rgba(76,29,149,.08)" stroke="#a78bfa" stroke-width="1.3"/>
+        <text x="145" y="899" fill="#a78bfa" font-size="10" font-weight="700">持久事实</text>
+        <text x="145" y="921" fill="#94a3b8" font-size="8">SQLite：Agent Inbox · Platform Events · Event Deliveries / Attempts · Completion Context · Effect Outbox / Attempts · 领域状态</text>
 
-        <rect x="1062" y="292" width="216" height="34" rx="5" fill="rgba(251,146,60,0.16)" stroke="#fb923c" stroke-width="1"/>
-        <text x="1170" y="313" fill="#fdba74" font-size="8.5" font-weight="700" text-anchor="middle">重试范围①：事件交给 Handler</text>
-
-        <rect x="1062" y="466" width="216" height="70" rx="7" fill="#0f172a"/>
-        <rect x="1062" y="466" width="216" height="70" rx="7" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
-        <text x="1170" y="488" fill="white" font-size="10.5" font-weight="700" text-anchor="middle">Handler 注册表</text>
-        <text x="1170" y="506" fill="#6ee7b7" font-size="8" text-anchor="middle">Projection · Router · Reducer</text>
-        <text x="1170" y="522" fill="#94a3b8" font-size="8" text-anchor="middle">Process Manager</text>
-
-        <rect x="918" y="548" width="200" height="28" rx="5" fill="rgba(30,41,59,0.72)" stroke="#64748b" stroke-width="1"/>
-        <text x="1018" y="566" fill="#cbd5e1" font-size="8" text-anchor="middle">UI / Observability Projections</text>
-        <rect x="1222" y="548" width="200" height="28" rx="5" fill="rgba(30,41,59,0.72)" stroke="#64748b" stroke-width="1"/>
-        <text x="1322" y="566" fill="#cbd5e1" font-size="8" text-anchor="middle">Task Router / Delivery PM</text>
-
-        <!-- Bottom plane components -->
-        <rect x="55" y="650" width="210" height="80" rx="7" fill="#0f172a"/>
-        <rect x="55" y="650" width="210" height="80" rx="7" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
-        <text x="160" y="674" fill="white" font-size="11" font-weight="700" text-anchor="middle">Runtime Completion PM</text>
-        <text x="160" y="694" fill="#6ee7b7" font-size="8.5" text-anchor="middle">仅消费 invocation.terminated</text>
-        <text x="160" y="712" fill="#94a3b8" font-size="8" text-anchor="middle">读取 Context，规划 0–6 个 Effect</text>
-
-        <rect x="350" y="650" width="210" height="80" rx="7" fill="#0f172a"/>
-        <rect x="350" y="650" width="210" height="80" rx="7" fill="rgba(76,29,149,0.4)" stroke="#a78bfa" stroke-width="1.5"/>
-        <text x="455" y="674" fill="white" font-size="11.5" font-weight="700" text-anchor="middle">Effect Outbox</text>
-        <text x="455" y="694" fill="#c4b5fd" font-size="8.5" text-anchor="middle">持久 Todo / lane 顺序</text>
-        <text x="455" y="712" fill="#94a3b8" font-size="8" text-anchor="middle">与 completion context 原子提交</text>
-
-        <rect x="645" y="650" width="210" height="80" rx="7" fill="#0f172a"/>
-        <rect x="645" y="650" width="210" height="80" rx="7" fill="rgba(251,146,60,0.3)" stroke="#fb923c" stroke-width="1.5"/>
-        <text x="750" y="674" fill="white" font-size="11.5" font-weight="700" text-anchor="middle">Effect Worker</text>
-        <text x="750" y="694" fill="#fdba74" font-size="8.5" text-anchor="middle">claim / attempt / fencing</text>
-        <text x="750" y="712" fill="#94a3b8" font-size="8" text-anchor="middle">retry / recovery / dead letter</text>
-
-        <rect x="918" y="650" width="212" height="80" rx="7" fill="#0f172a"/>
-        <rect x="918" y="650" width="212" height="80" rx="7" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
-        <text x="1024" y="674" fill="white" font-size="11.5" font-weight="700" text-anchor="middle">Effect Adapters</text>
-        <text x="1024" y="694" fill="#6ee7b7" font-size="8.2" text-anchor="middle">proof / evaluation / A2A</text>
-        <text x="1024" y="712" fill="#94a3b8" font-size="8" text-anchor="middle">task sync / team log</text>
-
-        <rect x="1188" y="648" width="210" height="44" rx="6" fill="#0f172a"/>
-        <rect x="1188" y="648" width="210" height="44" rx="6" fill="rgba(76,29,149,0.4)" stroke="#a78bfa" stroke-width="1.2"/>
-        <text x="1293" y="666" fill="white" font-size="9.5" font-weight="700" text-anchor="middle">SQLite 事务型动作</text>
-        <text x="1293" y="682" fill="#94a3b8" font-size="7.5" text-anchor="middle">领域状态 + receipt 一起提交</text>
-
-        <rect x="1188" y="704" width="210" height="44" rx="6" fill="#0f172a"/>
-        <rect x="1188" y="704" width="210" height="44" rx="6" fill="rgba(8,51,68,0.4)" stroke="#22d3ee" stroke-width="1.2"/>
-        <text x="1293" y="722" fill="white" font-size="9.5" font-weight="700" text-anchor="middle">外部幂等动作</text>
-        <text x="1293" y="738" fill="#94a3b8" font-size="7.5" text-anchor="middle">文件 / 远程服务，at-least-once</text>
-
-        <rect x="865" y="792" width="318" height="42" rx="6" fill="rgba(136,19,55,0.22)" stroke="#fb7185" stroke-width="1" stroke-dasharray="4,4"/>
-        <text x="1024" y="809" fill="#fb7185" font-size="8.5" font-weight="700" text-anchor="middle">AfterCommit：Socket / 内存 / Timer</text>
-        <text x="1024" y="824" fill="#94a3b8" font-size="7.5" text-anchor="middle">best-effort，不决定 Effect 是否成功</text>
-
-        <rect x="350" y="752" width="505" height="28" rx="5" fill="rgba(76,29,149,0.16)" stroke="#a78bfa" stroke-width="1"/>
-        <text x="602" y="770" fill="#c4b5fd" font-size="8.5" font-weight="700" text-anchor="middle">重试范围②：Agent 终态之后的 Todo / Effect，不是 Agent 本身</text>
-
-        <!-- Legend outside all plane boundaries -->
-        <text x="45" y="868" fill="white" font-size="10" font-weight="700">图例</text>
-        <rect x="95" y="856" width="18" height="11" rx="2" fill="rgba(8,51,68,0.4)" stroke="#22d3ee"/>
-        <text x="121" y="866" fill="#94a3b8" font-size="8">Runtime / 适配层</text>
-        <rect x="255" y="856" width="18" height="11" rx="2" fill="rgba(6,78,59,0.4)" stroke="#34d399"/>
-        <text x="281" y="866" fill="#94a3b8" font-size="8">业务处理 / 执行</text>
-        <rect x="415" y="856" width="18" height="11" rx="2" fill="rgba(76,29,149,0.4)" stroke="#a78bfa"/>
-        <text x="441" y="866" fill="#94a3b8" font-size="8">持久化</text>
-        <rect x="535" y="856" width="18" height="11" rx="2" fill="rgba(251,146,60,0.3)" stroke="#fb923c"/>
-        <text x="561" y="866" fill="#94a3b8" font-size="8">可靠投递 Worker</text>
-        <rect x="725" y="856" width="18" height="11" rx="2" fill="rgba(136,19,55,0.3)" stroke="#fb7185"/>
-        <text x="751" y="866" fill="#94a3b8" font-size="8">非保证 / 失败边界</text>
-
-        <text x="45" y="902" fill="#475569" font-size="7.5">事实依据：src/server/platform-events/*、src/server/daemon.ts · 2026-07-26</text>
+        <!-- 图例在所有边界之外 -->
+        <text x="75" y="967" fill="white" font-size="10" font-weight="700">图例</text>
+        <line x1="130" y1="963" x2="170" y2="963" stroke="#34d399" stroke-width="2" marker-end="url(#arrow-green)"/>
+        <text x="182" y="967" fill="#94a3b8" font-size="8">已落地主链</text>
+        <line x1="280" y1="963" x2="320" y2="963" stroke="#22d3ee" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#arrow-cyan)"/>
+        <text x="332" y="967" fill="#94a3b8" font-size="8">形成下一轮工作</text>
+        <rect x="475" y="954" width="19" height="13" rx="2" fill="rgba(251,146,60,.13)" stroke="#fb923c"/>
+        <text x="504" y="967" fill="#94a3b8" font-size="8">Event 投递重试</text>
+        <rect x="635" y="954" width="19" height="13" rx="2" fill="rgba(76,29,149,.3)" stroke="#a78bfa"/>
+        <text x="664" y="967" fill="#94a3b8" font-size="8">持久化 / Effect</text>
       </svg>
-    </div>
+    </section>
 
-    <div class="cards">
-      <div class="card">
-        <div class="card-header"><div class="card-dot cyan"></div><h3>主链路</h3></div>
+    <section class="cards">
+      <article class="card">
+        <h2 class="cyan">怎么读这张图</h2>
         <ul>
-          <li>Inbox 中的 Command 激活 Agent，而不是 Agent 订阅 Event Bus</li>
-          <li>Coordinator 把 ACP 原始信号归一化为 canonical runtime.* 事件</li>
-          <li>领域表仍是 Task、Review、Delivery、A2A 的事实源</li>
+          <li>从左上角触发开始，沿实线进入 Inbox 和 ACP 执行层</li>
+          <li>执行信号先变成 PlatformEvent，再由 Dispatcher 分发</li>
+          <li>Router 和 A2A Effect 可以产生下一轮 Inbox 工作</li>
         </ul>
-      </div>
-      <div class="card">
-        <div class="card-header"><div class="card-dot orange"></div><h3>事件投递可靠性</h3></div>
+      </article>
+      <article class="card">
+        <h2 class="green">两层可靠执行</h2>
         <ul>
-          <li>EventLog 先保存事件，Dispatcher 再异步分发</li>
-          <li>Dispatcher 重试的是 event × handler delivery</li>
-          <li>它不等于重新运行 Agent，也不保证 Handler 的外部 I/O 原子性</li>
+          <li>Dispatcher 重试 Event → Handler 的投递</li>
+          <li>Effect Outbox 重试 Agent 终态后的 Todo</li>
+          <li>两者都用持久 attempt、lease 和有界重试</li>
         </ul>
-      </div>
-      <div class="card">
-        <div class="card-header"><div class="card-dot violet"></div><h3>Effect Outbox 边界</h3></div>
+      </article>
+      <article class="card">
+        <h2 class="amber">必须保持的边界</h2>
         <ul>
-          <li>只在 runtime.invocation.terminated 之后规划执行后待办</li>
-          <li>当前覆盖 task sync、proof、evaluation、team log、A2A response/done</li>
-          <li>提供 Todo 的恢复与重试，不提供 Agent invocation 的自动重启</li>
+          <li>Runtime 终态不等于 Task 已完成</li>
+          <li>Effect Command 是执行意图，不是第五类事件</li>
+          <li>当前没有实现 Agent 本身的 durable retry / checkpoint 恢复</li>
         </ul>
-      </div>
-      <div class="card">
-        <div class="card-header"><div class="card-dot rose"></div><h3>当前缺口</h3></div>
-        <ul>
-          <li>Agent 执行中崩溃后的 durable retry 尚未由 Outbox 解决</li>
-          <li>若要补齐，需要 Invocation lease、重启策略、checkpoint 与新旧执行 fencing</li>
-          <li>Socket、进程内状态和 timer 仍属于提交后的 best-effort 通知</li>
-        </ul>
-      </div>
-    </div>
-
-    <p class="footer">Agent Task Team · Platform Runtime current-state architecture · generated from the implementation</p>
-  </div>
+      </article>
+    </section>
+    <footer>Agent Task Hub · Platform Runtime 当前架构 · 2026-07-26 · 实线为已落地主链，虚线为回环或边界</footer>
+  </main>
 
   <script>
-    async function captureReport() {
-      const el = document.getElementById("report-container");
-      const r = el.getBoundingClientRect();
-      const pad = 32;
+    async function capture() {
+      const target = document.getElementById('report-container');
+      const rect = target.getBoundingClientRect();
+      const padding = 32;
       return html2canvas(document.body, {
-        backgroundColor: "#020617",
-        scale: 2,
-        useCORS: true,
-        ignoreElements: (e) => e.classList && e.classList.contains("toolbar"),
-        x: r.left + window.scrollX - pad,
-        y: r.top + window.scrollY - pad,
-        width: r.width + pad * 2,
-        height: r.height + pad * 2
+        backgroundColor: '#020617', scale: 2, useCORS: true,
+        ignoreElements: element => element.classList && element.classList.contains('toolbar'),
+        x: rect.left + window.scrollX - padding,
+        y: rect.top + window.scrollY - padding,
+        width: rect.width + padding * 2, height: rect.height + padding * 2
       });
     }
-    async function copyAsImage(btn) {
-      const original = btn.textContent;
+    async function copyAsImage(button) {
+      const label = button.textContent;
       try {
-        const canvas = await captureReport();
-        const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
-        await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
-        btn.textContent = "已复制";
-      } catch {
-        btn.textContent = "复制失败";
-      }
-      setTimeout(() => { btn.textContent = original; }, 2000);
+        const canvas = await capture();
+        const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+        button.textContent = '✓ 已复制';
+      } catch { button.textContent = '✗ 复制失败'; }
+      setTimeout(() => button.textContent = label, 1800);
     }
-    async function downloadPNG(btn) {
-      const original = btn.textContent;
-      btn.textContent = "生成中";
+    async function downloadPNG(button) {
+      const label = button.textContent;
       try {
-        const canvas = await captureReport();
-        const link = document.createElement("a");
-        link.download = "platform-runtime-current-architecture.png";
-        link.href = canvas.toDataURL("image/png");
+        const canvas = await capture();
+        const link = document.createElement('a');
+        link.download = 'platform-runtime-current-architecture.png';
+        link.href = canvas.toDataURL('image/png');
         link.click();
-        btn.textContent = "已下载";
-      } catch {
-        btn.textContent = "下载失败";
-      }
-      setTimeout(() => { btn.textContent = original; }, 2000);
+        button.textContent = '✓ 已下载';
+      } catch { button.textContent = '✗ 下载失败'; }
+      setTimeout(() => button.textContent = label, 1800);
     }
-    async function downloadPDF(btn) {
-      const original = btn.textContent;
-      btn.textContent = "生成中";
+    async function downloadPDF(button) {
+      const label = button.textContent;
       try {
-        const canvas = await captureReport();
-        const imageData = canvas.toDataURL("image/png");
+        const canvas = await capture();
         const { jsPDF } = window.jspdf;
-        const orientation = canvas.width > canvas.height ? "landscape" : "portrait";
-        const pdf = new jsPDF({
-          orientation,
-          unit: "px",
-          format: [canvas.width, canvas.height],
-          hotfixes: ["px_scaling"]
-        });
-        pdf.addImage(imageData, "PNG", 0, 0, canvas.width, canvas.height);
-        pdf.save("platform-runtime-current-architecture.pdf");
-        btn.textContent = "已下载";
-      } catch {
-        btn.textContent = "下载失败";
-      }
-      setTimeout(() => { btn.textContent = original; }, 2000);
+        const orientation = canvas.width > canvas.height ? 'landscape' : 'portrait';
+        const pdf = new jsPDF({ orientation, unit: 'px', format: [canvas.width, canvas.height], hotfixes: ['px_scaling'] });
+        pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, canvas.width, canvas.height);
+        pdf.save('platform-runtime-current-architecture.pdf');
+        button.textContent = '✓ 已下载';
+      } catch { button.textContent = '✗ 下载失败'; }
+      setTimeout(() => button.textContent = label, 1800);
     }
   </script>
 </body>
