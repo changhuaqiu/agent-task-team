@@ -93,6 +93,6 @@ Socket 断线不通过重放命令恢复；持久部分重新查询事实，瞬�
 5. **系统通道不夹带项目事实**：`io.emit` 仅允许真正的系统 catalog/health 信号；项目运行、任务、协作、observability 和错误必须 room-scoped。
 6. **兼容路径有生命周期**：每条兼容路径必须有当前生产者、原因、退出条件和测试；否则删除。已实施 spec 必须迁入 `docs/archive/specs/`。
 
-实施期契约已经归档到 [`docs/archive/specs/webui-passive-project-projection/`](../../archive/specs/webui-passive-project-projection/)；全仓一致性整改由 [`specs/runtime-architecture-integrity-audit/`](../../../specs/runtime-architecture-integrity-audit/) 跟踪。
+实施期契约已经归档到 [`docs/archive/specs/webui-passive-project-projection/`](../../archive/specs/webui-passive-project-projection/)；全仓一致性整改记录已归档到 [`docs/archive/specs/runtime-architecture-integrity-audit/`](../../archive/specs/runtime-architecture-integrity-audit/)。
 
 配套架构图见 [`platform-runtime-webui-current-architecture.html`](./platform-runtime-webui-current-architecture.html)。图中将人的主动 Command 通路与 WebUI 自动展示消费通路分开表达。

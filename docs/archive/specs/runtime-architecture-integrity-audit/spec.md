@@ -1,6 +1,6 @@
 # Runtime 架构一致性审计
 
-状态：active
+状态：implemented
 
 ## 1. 目标
 
