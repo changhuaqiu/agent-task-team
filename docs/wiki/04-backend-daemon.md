@@ -193,14 +193,12 @@ Daemon 的边界是执行编排，不是团队规则解释器：
 
 ### 输出事件
 
-- `terminal:data`
-- `agent:event`
-- `agent:session`
-- `terminal:exit`
-- `agent:error`
+- `project:view` — 带版本和 `projectId` 的 Runtime/ACP/tmux 展示信封，只向项目 room 投递
 - `task.sync` — 任务文件变更同步（来自 TaskFileWatcher，含 tasks + blockers + conversationId）
-- `task.assigned` — 任务分配通知（来自 task_assign 工具，触发 dispatchToAgent）
-- `task.ready` — 依赖满足通知（来自 TaskFileWatcher 依赖解析，触发自动 dispatch）
+- `task.state` / `task.notification` / `task.wakeup` — 项目任务展示事件；浏览器不负责自动 dispatch
+- `a2a:*` / `dispatch.receipt` — 项目协作展示事件；执行和失败处理留在服务端
+
+除系统级 `runtimes:update` 外，项目事实不得使用全局 `io.emit`；必须携带 `projectId` 并投递到同名 room。
 
 ## 4.5 A2A 编排与团队协作规则
 

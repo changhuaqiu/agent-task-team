@@ -92,6 +92,7 @@ function rejectGitProjectionTransition(input: {
     },
   });
   input.io.to(input.conversationId).emit('task.sync_error', {
+    projectId: input.conversationId,
     projectPath: input.projectPath,
     conversationId: input.conversationId,
     taskId: input.storageTaskId,
@@ -162,6 +163,7 @@ export function syncTasksToDb(
       if (nonEmptyLines.length > 2) {
         console.warn(`[task-watcher] TASKS.md has ${nonEmptyLines.length} lines but parsed 0 tasks — possible format issue at ${tasksFile}`);
         io.to(conversationId).emit('task.sync_error', {
+          projectId: conversationId,
           projectPath,
           conversationId,
           message: `TASKS.md 解析失败：文件有 ${nonEmptyLines.length} 行内容但未识别到任何任务。请检查表格格式。`,
@@ -303,6 +305,7 @@ export function syncTasksToDb(
   });
 
   io.to(conversationId).emit('task.sync', {
+    projectId: conversationId,
     projectPath,
     conversationId,
     tasks: authoritativeTasks,

@@ -118,7 +118,7 @@ describe('project session scoping', () => {
     expect(payload).not.toHaveProperty('sessionId');
   });
 
-  it('recovers the original dispatch into the project queue when daemon reports a busy race', async () => {
+  it('does not turn a display error back into a browser-side retry command', async () => {
     vi.spyOn(socket, 'emit').mockImplementation(() => socket);
     const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue({ ok: true } as Response);
 
@@ -131,22 +131,15 @@ describe('project session scoping', () => {
     expect(accepted).toBe(true);
 
     emitServerEvent('agent:error', {
+      projectId: 'conv-old',
       agentId: 'mario',
       message: 'Agent is busy, message queued',
       reasonCode: 'agent_busy',
     });
 
-    expect(useTaskHubStore.getState().pendingDispatches['mario:conv-new']).toContainEqual(expect.objectContaining({
-      prompt: 'race-safe user turn',
-      referencedTaskId: 'TASK-QUEUE',
-      conversationId: 'conv-new',
-    }));
+    expect(useTaskHubStore.getState().pendingDispatches['mario:conv-new']).toBeUndefined();
     const enqueueCall = fetchSpy.mock.calls.find(([, init]) => String(init?.body).includes('dispatch.enqueue'));
-    expect(enqueueCall).toBeDefined();
-    expect(JSON.parse(String(enqueueCall?.[1]?.body)).payload).toEqual(expect.objectContaining({
-      conversationId: 'conv-new',
-      prompt: 'race-safe user turn',
-    }));
+    expect(enqueueCall).toBeUndefined();
   });
 
   it('hydrates the browser queue as a scoped projection of Agent Inbox', async () => {

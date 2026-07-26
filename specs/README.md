@@ -42,6 +42,7 @@
 | [`autonomous-delivery-loop/`](autonomous-delivery-loop/) | active | 用户提交一次 GoalContract 后，由持久化 Supervisor 自主推进到最终 DeliveryBundle |
 | [`agent-eval-system/`](agent-eval-system/) | draft | 任务全链路评估：客观维度规则计算 + 主观维度 LLM-as-Judge 套 rubric，结果回流优化 RoleCard/Skill |
 | [`github-issue-agent-hook/`](github-issue-agent-hook/) | active | GitHub Issue 验签后幂等创建项目与 DeliveryRun，并复用现有自主交付链完成任务拆解和推进 |
+| [`webui-passive-project-projection/`](webui-passive-project-projection/) | active | WebUI 自动事件消费者只更新严格按项目隔离的展示投影；人的显式操作通过独立 Command 入口进入服务端 |
 
 ## 依赖关系
 

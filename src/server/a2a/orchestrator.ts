@@ -213,7 +213,10 @@ export class Orchestrator {
 
   private emit(conversationId: string, event: string, payload: unknown): void {
     this.deferSideEffect(() => {
-      this.io.to(conversationId).emit(event, payload);
+      const scopedPayload = payload && typeof payload === 'object'
+        ? { ...(payload as Record<string, unknown>), projectId: conversationId }
+        : { projectId: conversationId, value: payload };
+      this.io.to(conversationId).emit(event, scopedPayload);
     });
   }
 
@@ -996,14 +999,13 @@ export class Orchestrator {
             this.markDispatchStarted(chainId, next.id, conversationId, next.agentId, passId);
             return;
           }
-          // A server-side profile/context may be unavailable while an older
-          // browser still has a compatible snapshot. Re-emit explicitly as a
-          // compatibility fallback instead of losing the A2A handoff.
-          this.emit(conversationId, 'a2a:dispatch', {
-            ...dispatchPayload,
-            handledByHarness: false,
-            harnessFallbackReasonCode: outcome.reasonCode ?? outcome.status,
-          });
+          this.markDispatchFailed(
+            chainId,
+            next.id,
+            conversationId,
+            next.agentId,
+            outcome.reasonCode ?? outcome.status,
+          );
         });
       }
 

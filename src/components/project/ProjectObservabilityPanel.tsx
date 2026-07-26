@@ -93,8 +93,8 @@ export function ProjectObservabilityPanel({ conversationId }: { conversationId?:
   useEffect(() => {
     const controller = new AbortController();
     const initialTimer = window.setTimeout(() => void load(controller.signal), 0);
-    const refresh = (event: { conversationId?: string }) => {
-      if (event?.conversationId === conversationId) void load();
+    const refresh = (event: { projectId?: string; conversationId?: string }) => {
+      if ((event?.projectId ?? event?.conversationId) === conversationId) void load();
     };
     socket.on('observability:updated', refresh);
     return () => { controller.abort(); window.clearTimeout(initialTimer); socket.off('observability:updated', refresh); };

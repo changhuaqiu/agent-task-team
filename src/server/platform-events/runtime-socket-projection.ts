@@ -1,7 +1,8 @@
 import type { PlatformEvent } from './types';
+import type { ProjectViewEventInput } from '../../shared/project-view-events';
 
 export interface RuntimeSocketProjectionPort {
-  emit(event: string, payload: unknown): void;
+  publish(projectId: string, event: ProjectViewEventInput): unknown;
 }
 
 /**
@@ -14,39 +15,38 @@ export class RuntimeSocketProjection {
 
   project(event: PlatformEvent): void {
     const base = {
-      conversationId: event.projectId,
       agentId: event.projectAgentId,
       invocationId: event.invocationId,
+      eventId: event.eventId,
+      occurredAt: event.occurredAt,
     };
     if (event.type === 'runtime.session.bound' || event.type === 'runtime.session.confirmed') {
       const payload = event.payload as { runtimeSessionId?: string; binding?: 'created' | 'resumed' };
       const canAnnounce = event.type === 'runtime.session.confirmed' || payload.binding === 'resumed';
       if (canAnnounce && payload.runtimeSessionId && event.projectAgentId) {
-        this.port.emit('agent:session', {
-          projectId: event.projectId,
-          conversationId: event.projectId,
-          agentId: event.projectAgentId,
-          sessionId: payload.runtimeSessionId,
+        this.port.publish(event.projectId, {
+          ...base,
+          kind: 'runtime.session',
+          payload: { sessionId: payload.runtimeSessionId },
         });
       }
       return;
     }
     if (event.type === 'runtime.plan.updated') {
-      this.port.emit('agent:event', {
+      this.port.publish(event.projectId, {
         ...base,
-        type: 'plan',
-        content: (event.payload as { content?: string }).content ?? '',
+        kind: 'runtime.plan',
+        payload: { content: (event.payload as { content?: string }).content ?? '' },
       });
     } else if (event.type === 'runtime.tool.started') {
       const payload = event.payload as { callId: string; toolName: string; input?: string };
-      this.port.emit('agent:event', {
+      this.port.publish(event.projectId, {
         ...base,
-        type: 'tool_use',
-        tool: {
+        kind: 'runtime.tool.started',
+        payload: {
           callId: payload.callId,
-          name: payload.toolName,
+          toolName: payload.toolName,
           input: payload.input,
-          status: 'in_progress',
         },
       });
     } else if (event.type === 'runtime.tool.completed' || event.type === 'runtime.tool.failed') {
@@ -56,31 +56,35 @@ export class RuntimeSocketProjection {
         output?: string;
         message?: string;
       };
-      this.port.emit('agent:event', {
+      this.port.publish(event.projectId, {
         ...base,
-        type: 'tool_result',
-        content: payload.output ?? payload.message ?? '',
-        tool: {
+        kind: event.type === 'runtime.tool.failed'
+          ? 'runtime.tool.failed'
+          : 'runtime.tool.completed',
+        payload: {
           callId: payload.callId,
-          name: payload.toolName,
+          toolName: payload.toolName,
           output: payload.output ?? payload.message,
-          status: event.type === 'runtime.tool.failed' ? 'failed' : 'completed',
         },
       });
     } else if (event.type === 'runtime.warning.raised') {
-      this.port.emit('agent:event', {
+      this.port.publish(event.projectId, {
         ...base,
-        type: 'error',
-        content: (event.payload as { message?: string }).message ?? '',
+        kind: 'runtime.warning',
+        payload: event.payload as Record<string, unknown>,
       });
     } else if (event.type === 'runtime.usage.updated') {
-      this.port.emit('agent:event', {
+      this.port.publish(event.projectId, {
         ...base,
-        type: 'usage',
-        usage: event.payload,
+        kind: 'runtime.usage',
+        payload: event.payload as Record<string, unknown>,
       });
     } else if (event.type === 'runtime.invocation.terminated') {
-      this.port.emit('agent:event', { ...base, type: 'done' });
+      this.port.publish(event.projectId, {
+        ...base,
+        kind: 'runtime.completed',
+        payload: event.payload as Record<string, unknown>,
+      });
     }
   }
 }

@@ -51,6 +51,7 @@ export async function reduceAcceptedWakeup(io: IOServer, wakeup: TaskWakeup): Pr
       },
     });
     io.to(wakeup.conversationId).emit('task.sync_error', {
+      projectId: wakeup.conversationId,
       conversationId: wakeup.conversationId,
       taskId: wakeup.taskId,
       reasonCode: 'runtime_projection_failed',

@@ -6,6 +6,17 @@ function emitServerEvent(event: string, payload: unknown) {
   (socket as unknown as { emitEvent(args: unknown[]): void }).emitEvent([event, payload]);
 }
 
+function emitProjectView(kind: string, payload: Record<string, unknown>) {
+  emitServerEvent('project:view', {
+    version: 1,
+    projectId: 'conv-bg',
+    occurredAt: '2026-05-17T00:00:00.000Z',
+    kind,
+    agentId: 'mario',
+    payload,
+  });
+}
+
 function resetBackgroundSessionStore() {
   useTaskHubStore.setState({
     conversations: [{
@@ -61,10 +72,8 @@ describe('background session activity', () => {
   });
 
   it('marks an agent as background when the runtime reports child-agent activity', () => {
-    emitServerEvent('agent:activity', {
-      conversationId: 'conv-bg',
+    emitProjectView('runtime.activity', {
       taskId: 'task-bg',
-      agentId: 'mario',
       sessionId: 'session-bg',
       status: 'awaiting_children',
       reason: 'tool:Agent',
@@ -85,17 +94,13 @@ describe('background session activity', () => {
   });
 
   it('does not clear the run or auto-advance review when the parent process exits while children are pending', () => {
-    emitServerEvent('agent:activity', {
-      conversationId: 'conv-bg',
+    emitProjectView('runtime.activity', {
       taskId: 'task-bg',
-      agentId: 'mario',
       status: 'awaiting_children',
       reason: 'tool:Task',
     });
 
-    emitServerEvent('terminal:exit', {
-      conversationId: 'conv-bg',
-      agentId: 'mario',
+    emitProjectView('terminal.exited', {
       code: 0,
       command: 'opencode',
       activity: 'awaiting_children',
@@ -108,21 +113,14 @@ describe('background session activity', () => {
     expect(state.eventsByConversation['conv-bg'].some((event) => event.type === 'run.finished')).toBe(false);
   });
 
-  it('keeps a successful foreground run in progress until implementation evidence is supplied', () => {
-    emitServerEvent('terminal:exit', {
-      conversationId: 'conv-bg',
-      agentId: 'mario',
+  it('keeps a successful foreground run display-only and leaves evidence handling to the server', () => {
+    emitProjectView('terminal.exited', {
       code: 0,
       command: 'opencode',
     });
 
     const state = useTaskHubStore.getState();
     expect(state.getTaskById('task-bg')?.status).toBe('in_progress');
-    expect(state.blockersByConversation['conv-bg']).toContainEqual(expect.objectContaining({
-      taskId: 'task-bg',
-      type: 'gate_fail',
-      gateId: 'build',
-      reasonSummary: expect.stringContaining('installResult'),
-    }));
+    expect(state.blockersByConversation['conv-bg']).toBeUndefined();
   });
 });

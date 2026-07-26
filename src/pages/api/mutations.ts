@@ -208,6 +208,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
             if (wakeup) {
               (res.socket as any)?.server?.io?.to(previousTask.conversation_id).emit('task.wakeup', {
                 ...wakeup,
+                projectId: previousTask.conversation_id,
                 id: `wakeup-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
                 createdAt: new Date().toISOString(),
               });
@@ -524,8 +525,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
                 missingFields: gateDecision.missingFields,
               });
               if (wakeup) {
-                (res.socket as any)?.server?.io?.to(previousTask.conversation_id || conversationId).emit('task.wakeup', {
+                const wakeupProjectId = previousTask.conversation_id || conversationId;
+                (res.socket as any)?.server?.io?.to(wakeupProjectId).emit('task.wakeup', {
                   ...wakeup,
+                  projectId: wakeupProjectId,
                   id: `wakeup-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
                   createdAt: new Date().toISOString(),
                 });
@@ -605,15 +608,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
             console.error('[task_assign] failed to update .ath/TASKS.md:', e);
           }
 
-          // Broadcast task.assigned for store to trigger dispatchToAgent
-          const io = (res.socket as any)?.server?.io;
-          if (io) {
-            io.to(conversationId || 'default').emit('task.assigned', {
-              taskId: input.task_id,
-              agentId: input.agent_id,
-              conversationId,
-            });
-          }
+          // publishTaskChangeNotification already emits the project-scoped
+          // task.state projection. Agent execution is owned by Inbox/Harness,
+          // never by a browser task.assigned listener.
         } else {
           return res.status(400).json({ ok: false, error: `Unknown tool: ${toolName}` });
         }

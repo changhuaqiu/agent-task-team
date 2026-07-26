@@ -76,7 +76,7 @@ describe('review gate wakeup', () => {
     resetReviewGateStore();
   });
 
-  it('dispatches coordinator review confirmation without joining an existing A2A chain', async () => {
+  it('renders coordinator review confirmation without browser dispatch', async () => {
     const emitSpy = vi.spyOn(socket, 'emit').mockImplementation(() => socket);
 
     emitServerEvent('task.wakeup', {
@@ -94,15 +94,8 @@ describe('review gate wakeup', () => {
       },
     });
 
-    await vi.waitFor(() => expect(emitSpy).toHaveBeenCalledWith('terminal:start', expect.objectContaining({
-      conversationId: 'conv-review',
-      projectId: 'conv-review',
-      taskId: 'TASK-001',
-      agentId: 'mario',
-      dispatchSource: 'review_gate',
-      chainId: undefined,
-      passId: undefined,
-    })));
+    await Promise.resolve();
+    expect(emitSpy).not.toHaveBeenCalledWith('terminal:start', expect.anything());
     expect(useTaskHubStore.getState().chatMessagesByConversation['conv-review']).toContainEqual(expect.objectContaining({
       id: 'msg-review-ready',
       mentions: ['mario'],
@@ -113,7 +106,7 @@ describe('review gate wakeup', () => {
     }));
   });
 
-  it('dispatches QA through test gate when a passing review wakeup arrives', async () => {
+  it('renders a QA wakeup without browser dispatch', async () => {
     useTaskHubStore.setState((state) => ({
       activeAgentIds: ['mario', 'dk', 'peach'],
       agentAccountOverrides: {
@@ -138,15 +131,8 @@ describe('review gate wakeup', () => {
       },
     });
 
-    await vi.waitFor(() => expect(emitSpy).toHaveBeenCalledWith('terminal:start', expect.objectContaining({
-      conversationId: 'conv-review',
-      projectId: 'conv-review',
-      taskId: 'TASK-001',
-      agentId: 'peach',
-      dispatchSource: 'test_gate',
-      chainId: undefined,
-      passId: undefined,
-    })));
+    await Promise.resolve();
+    expect(emitSpy).not.toHaveBeenCalledWith('terminal:start', expect.anything());
   });
 
   it('records dispatch receipts from the daemon', () => {
@@ -206,7 +192,7 @@ describe('review gate wakeup', () => {
     expect(emitSpy).not.toHaveBeenCalledWith('a2a:agent-started', expect.anything());
   });
 
-  it('re-dispatches the implementer to collect evidence after a successful run exits in progress', async () => {
+  it('does not re-dispatch the implementer from a successful exit projection', async () => {
     vi.useFakeTimers();
     const emitSpy = vi.spyOn(socket, 'emit').mockImplementation(() => socket);
     useTaskHubStore.setState((state) => ({
@@ -223,23 +209,22 @@ describe('review gate wakeup', () => {
       tasks: state.tasks.map((task) => task.id === 'TASK-001' ? { ...task, status: 'in_progress', agentId: 'mario' } : task),
     }));
 
-    emitServerEvent('terminal:exit', {
+    emitServerEvent('project:view', {
+      version: 1,
+      projectId: 'conv-review',
+      occurredAt: '2026-05-17T00:00:00.000Z',
+      kind: 'terminal.exited',
       agentId: 'mario',
-      code: 0,
-      command: 'opencode',
-      conversationId: 'conv-review',
-      activity: 'idle',
+      payload: {
+        code: 0,
+        command: 'opencode',
+        activity: 'idle',
+      },
     });
 
     await vi.advanceTimersByTimeAsync(350);
 
-    expect(emitSpy).toHaveBeenCalledWith('terminal:start', expect.objectContaining({
-      conversationId: 'conv-review',
-      taskId: 'TASK-001',
-      agentId: 'mario',
-      dispatchSource: 'system',
-      prompt: expect.stringContaining('implementation_evidence'),
-    }));
+    expect(emitSpy).not.toHaveBeenCalledWith('terminal:start', expect.anything());
     vi.useRealTimers();
   });
 });
@@ -271,7 +256,7 @@ describe('dependency_resolved wakeup', () => {
     }));
   });
 
-  it('dispatches agent and updates status when dependency_resolved wakeup arrives', async () => {
+  it('renders dependency_resolved without dispatching or changing domain state', async () => {
     const emitSpy = vi.spyOn(socket, 'emit').mockImplementation(() => socket);
 
     emitServerEvent('task.wakeup', {
@@ -289,13 +274,8 @@ describe('dependency_resolved wakeup', () => {
       },
     });
 
-    await vi.waitFor(() => expect(emitSpy).toHaveBeenCalledWith('terminal:start', expect.objectContaining({
-      conversationId: 'conv-review',
-      projectId: 'conv-review',
-      taskId: 'TASK-007',
-      agentId: 'luigi',
-      dispatchSource: 'workflow',
-    })));
+    await Promise.resolve();
+    expect(emitSpy).not.toHaveBeenCalledWith('terminal:start', expect.anything());
 
     expect(useTaskHubStore.getState().chatMessagesByConversation['conv-review']).toContainEqual(expect.objectContaining({
       id: 'msg-dep-resolved',
@@ -306,6 +286,6 @@ describe('dependency_resolved wakeup', () => {
     }));
 
     const task = useTaskHubStore.getState().getTaskById('TASK-007');
-    expect(task?.status).toBe('in_progress');
+    expect(task?.status).toBe('pending');
   });
 });

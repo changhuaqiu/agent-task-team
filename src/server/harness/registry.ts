@@ -79,8 +79,9 @@ export function submitTaskWakeupToHarness(
       io.to(wakeup.conversationId).emit('task.wakeup', {
         ...wakeup,
         id: `${wakeup.id ?? 'wakeup'}:fallback`,
-        content: undefined,
-        handledByHarness: false,
+        projectId: wakeup.conversationId,
+        content: `服务端未能启动 @${wakeup.agentId}：${outcome.reasonCode}`,
+        handledByHarness: true,
         harnessFallbackReasonCode: outcome.reasonCode,
         createdAt: new Date().toISOString(),
       });

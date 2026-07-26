@@ -49,17 +49,20 @@ const wakeupDeduper = createTaskWakeupDeduper();
 function emitToConversation(io: IOServer | undefined, conversationId: string, notification: TaskNotification): void {
   if (!io) return;
   const room = io.to(conversationId);
-  room.emit('task.notification', notification);
+  room.emit('task.notification', { ...notification, projectId: conversationId });
 }
 
 function emitWakeupToConversation(io: IOServer | undefined, conversationId: string, wakeup: TaskWakeup): void {
   if (!io) return;
-  io.to(conversationId).emit('task.wakeup', wakeup);
+  io.to(conversationId).emit('task.wakeup', { ...wakeup, projectId: conversationId });
 }
 
 export function emitTaskState(io: IOServer | undefined, task: TaskRow): void {
   if (!io) return;
-  io.to(task.conversation_id).emit('task.state', { task });
+  io.to(task.conversation_id).emit('task.state', {
+    projectId: task.conversation_id,
+    task,
+  });
 }
 
 function isCoordinator(agentId: string, displayName: string | undefined, roleCard?: RoleCard): boolean {

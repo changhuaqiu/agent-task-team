@@ -79,6 +79,7 @@ import {
 import { ensureAutonomousDeliveryRuntime } from './autonomous-delivery/bootstrap';
 import { deliveryAdvancementQueue } from './autonomous-delivery/advancement-queue';
 import { registerAutonomousDeliveryE2EDriver } from './testing/autonomous-delivery-e2e-driver';
+import { ProjectViewPublisher } from './project-view/project-view-publisher';
 
 type TerminalStartPayload = {
   dispatchId?: string;
@@ -218,7 +219,10 @@ export default function registerDaemon(io: IOServer) {
   const processKey = (agentId: string, projectId?: string) => `${agentId}@${projectId || 'default'}`;
   const processStartGuard = new ProcessStartGuard();
   const broadcast = (event: string, data: unknown) => io.emit(event, data);
-  const runtimeSocketProjection = new RuntimeSocketProjection({ emit: broadcast });
+  const projectViewPublisher = new ProjectViewPublisher(io);
+  const runtimeSocketProjection = new RuntimeSocketProjection({
+    publish: (projectId, event) => projectViewPublisher.publish(projectId, event),
+  });
   const dispatchGateway = new DispatchGateway();
   // Deferred until after the Harness port is constructed; the port closes over this handler.
   // eslint-disable-next-line prefer-const
@@ -384,6 +388,7 @@ export default function registerDaemon(io: IOServer) {
         }
         io.to(wakeup.conversationId).emit('task.wakeup', {
           ...wakeup,
+          projectId: wakeup.conversationId,
           id: `wakeup-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
           handledByHarness: submission?.handled ?? false,
           createdAt: new Date().toISOString(),
@@ -452,7 +457,11 @@ export default function registerDaemon(io: IOServer) {
 
   startPlatformEventRuntime({
     onObservabilityUpdated: (projectId, invocationId) => {
-      io.to(projectId).emit('observability:updated', { conversationId: projectId, invocationId });
+      io.to(projectId).emit('observability:updated', {
+        projectId,
+        conversationId: projectId,
+        invocationId,
+      });
     },
     deliveryAdvancement: {
       advanceProject: (projectId, cause, signal, sourceEventId) => {
@@ -681,12 +690,28 @@ export default function registerDaemon(io: IOServer) {
       }: TerminalStartPayload, emitToRequester = broadcast) => {
       const startKey = processKey(agentId, projectId || conversationId);
       if (!processStartGuard.claim(startKey, activeProcesses.has(startKey), Boolean(force))) {
-        emitToRequester('agent:error', {
-          agentId,
-          message: 'Agent is already starting or running',
-          reasonCode: 'agent_busy',
-        });
-        emitToRequester('terminal:exit', { agentId, code: 1, command: 'dispatch', reasonCode: 'agent_busy' });
+        const busyProjectId = conversationId?.trim() || projectId?.trim();
+        if (busyProjectId) {
+          projectViewPublisher.publish(busyProjectId, {
+            kind: 'runtime.warning',
+            agentId,
+            payload: {
+              message: 'Agent is already starting or running',
+              reasonCode: 'agent_busy',
+            },
+          });
+          projectViewPublisher.publish(busyProjectId, {
+            kind: 'terminal.exited',
+            agentId,
+            payload: { code: 1, command: 'dispatch', reasonCode: 'agent_busy' },
+          });
+        } else {
+          emitToRequester('agent:error', {
+            agentId,
+            message: 'Agent is already starting or running',
+            reasonCode: 'agent_busy',
+          });
+        }
         return;
       }
       console.log(`[daemon] terminal:start agent=${agentId}, engine=${rawEngine}, accountId=${accountId ?? '(none)'}, force=${force}, busy=${activeProcesses.has(processKey(agentId, projectId))}`);
@@ -711,6 +736,32 @@ export default function registerDaemon(io: IOServer) {
         throw new Error('session_scope_missing: terminal:start requires conversationId or projectId');
       }
       const sessionConvId = conversationId || projectId!;
+      const publishRuntimeWarning = (message: string, reasonCode?: string) => {
+        projectViewPublisher.publish(sessionConvId, {
+          kind: 'runtime.warning',
+          agentId,
+          payload: { message, reasonCode },
+        });
+      };
+      const publishTerminalOutput = (data: string) => {
+        projectViewPublisher.publish(sessionConvId, {
+          kind: 'terminal.output',
+          agentId,
+          payload: { data },
+        });
+      };
+      const publishTerminalExit = (input: {
+        code: number;
+        command: string;
+        reasonCode?: string;
+        activity?: AgentActivityStatus;
+      }) => {
+        projectViewPublisher.publish(sessionConvId, {
+          kind: 'terminal.exited',
+          agentId,
+          payload: input,
+        });
+      };
       let prompt = incomingPrompt;
       let effectiveTeamLogUpToEntryId = teamLogUpToEntryId;
       if (!effectiveTeamLogUpToEntryId && !evaluation) {
@@ -731,6 +782,7 @@ export default function registerDaemon(io: IOServer) {
       ) => {
         if (!controlEnvelopeId) return;
         io.to(sessionConvId).emit('dispatch.receipt', {
+          projectId: sessionConvId,
           receiptId: `${controlEnvelopeId}:${phase}`,
           conversationId: sessionConvId,
           taskId,
@@ -807,11 +859,10 @@ export default function registerDaemon(io: IOServer) {
 
       if (envelope.status === 'blocked') {
         emitDispatchReceipt('blocked', envelope.reason_code ?? 'runtime_blocked');
-        emitToRequester('agent:error', {
-          agentId,
-          message: `目标运行实例不可达：${envelope.reason_code ?? 'blocked'}`,
-          reasonCode: envelope.reason_code ?? 'runtime_blocked',
-        });
+        publishRuntimeWarning(
+          `目标运行实例不可达：${envelope.reason_code ?? 'blocked'}`,
+          envelope.reason_code ?? 'runtime_blocked',
+        );
         return;
       }
 
@@ -822,11 +873,7 @@ export default function registerDaemon(io: IOServer) {
       // If agent is busy and not forcing, reject silently — client should have queued
       if (!force && activeProcesses.has(processKey(agentId, projectId))) {
         markEnvelopeFailed('agent_busy');
-        emitToRequester('agent:error', {
-          agentId,
-          message: 'Agent is busy, message queued',
-          reasonCode: 'agent_busy',
-        });
+        publishRuntimeWarning('Agent is busy, message queued', 'agent_busy');
         return;
       }
       dispatchGateway.markSent(controlEnvelopeId);
@@ -903,7 +950,11 @@ export default function registerDaemon(io: IOServer) {
             spanId: rootObservationSpanId,
             assembledPrompt,
             systemPrompt: effectiveSystemPrompt,
-            onCaptured: () => broadcast('observability:updated', { conversationId: sessionConvId, invocationId: invocation.id }),
+            onCaptured: () => io.to(sessionConvId).emit('observability:updated', {
+              projectId: sessionConvId,
+              conversationId: sessionConvId,
+              invocationId: invocation.id,
+            }),
           });
         } catch (error) {
           console.warn('[observability] failed to capture prompt payload:', error);
@@ -1114,11 +1165,10 @@ export default function registerDaemon(io: IOServer) {
           if (active) {
             active.kill();
             markEnvelopeFailed('timeout');
-            broadcast('agent:error', {
-              agentId,
-              message: `CLI 响应超时 (${Math.round(timeoutMs / 1000)}s)，已自动终止。`,
-              reasonCode: 'timeout' as const,
-            });
+            publishRuntimeWarning(
+              `CLI 响应超时 (${Math.round(timeoutMs / 1000)}s)，已自动终止。`,
+              'timeout',
+            );
           }
         }, timeoutMs);
         if (timeoutTimer) timeoutTimer.unref();
@@ -1132,11 +1182,15 @@ export default function registerDaemon(io: IOServer) {
       const HEARTBEAT_INTERVAL_MS = 30_000;
       const heartbeatTimer = setInterval(() => {
         if (activeProcesses.has(processKey(agentId, projectId))) {
-          broadcast('agent:delta', {
+          projectViewPublisher.publish(sessionConvId, {
+            kind: 'runtime.activity',
             agentId,
-            sessionId: agentSession?.cli_session_id,
-            conversationId: sessionConvId,
-            type: 'heartbeat',
+            invocationId: invocation.id,
+            payload: {
+              status: 'running',
+              sessionId: agentSession?.cli_session_id,
+              reason: 'heartbeat',
+            },
           });
         } else {
           clearInterval(heartbeatTimer);
@@ -1194,13 +1248,16 @@ export default function registerDaemon(io: IOServer) {
       }
 
       function broadcastAgentActivity(status: AgentActivityStatus, reason?: string): void {
-        broadcast('agent:activity', {
-          conversationId: sessionConvId,
-          taskId,
+        projectViewPublisher.publish(sessionConvId, {
+          kind: 'runtime.activity',
           agentId,
-          sessionId: eventSessionId(),
-          status,
-          reason,
+          invocationId: invocation.id,
+          payload: {
+            taskId,
+            sessionId: eventSessionId(),
+            status,
+            reason,
+          },
         });
       }
 
@@ -1211,11 +1268,11 @@ export default function registerDaemon(io: IOServer) {
       function announceConfirmedSession(runtimeSessionId: string): void {
         if (announcedRuntimeSessionId === runtimeSessionId) return;
         announcedRuntimeSessionId = runtimeSessionId;
-        broadcast('agent:session', {
-          projectId: sessionConvId,
-          conversationId: sessionConvId,
+        projectViewPublisher.publish(sessionConvId, {
+          kind: 'runtime.session',
           agentId,
-          sessionId: runtimeSessionId,
+          invocationId: invocation.id,
+          payload: { sessionId: runtimeSessionId },
         });
         if (taskId && projectId) {
           workdirManager.writeSessionMeta(agentId, projectId, taskId, {
@@ -1265,13 +1322,16 @@ export default function registerDaemon(io: IOServer) {
         }
 
         if (event.type === 'text' || event.type === 'thinking') {
-          broadcast('agent:delta', {
-            taskId,
+          projectViewPublisher.publish(sessionConvId, {
+            kind: event.type === 'text'
+              ? 'runtime.text.delta'
+              : 'runtime.thinking.delta',
             agentId,
-            type: event.type,
-            content: event.content,
             invocationId: invocation.id,
-            conversationId: sessionConvId,
+            payload: {
+              taskId,
+              content: event.content,
+            },
           });
         }
 
@@ -1339,10 +1399,7 @@ export default function registerDaemon(io: IOServer) {
         markEnvelopeStarted();
         runtimeEventCoordinator?.start();
 
-        broadcast('terminal:data', {
-          agentId,
-          data: `\x1b[33m$ opencode-bridge ${url}\x1b[0m\r\n`,
-        });
+        publishTerminalOutput(`\x1b[33m$ opencode-bridge ${url}\x1b[0m\r\n`);
         recordRuntimeContextObservation({
           transport: 'bridge',
           systemPromptChannel: systemPrompt ? 'bridge' : 'none',
@@ -1369,15 +1426,11 @@ export default function registerDaemon(io: IOServer) {
           });
 
           if (!r.ok || !r.body) {
-            broadcast('agent:error', {
-              agentId,
-              message: `Bridge 连接失败 (HTTP ${r.status})`,
-              reasonCode: 'spawn_failed' as const,
-            });
+            publishRuntimeWarning(`Bridge 连接失败 (HTTP ${r.status})`, 'spawn_failed');
             // 失败不 seal session（保持 active，下次 @ resume，id 不变）—— specs/agent-session-stability
             runtimeEventCoordinator?.failSetup('spawn_failed', observedRuntimeSessionId);
             markEnvelopeFailed('spawn_failed');
-            broadcast('terminal:exit', { agentId, code: 127, command: 'bridge', reasonCode: 'spawn_failed' });
+            publishTerminalExit({ code: 127, command: 'bridge', reasonCode: 'spawn_failed' });
             activeProcesses.delete(processKey(agentId, projectId));
             if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
             return;
@@ -1392,7 +1445,7 @@ export default function registerDaemon(io: IOServer) {
             const { done, value } = await reader.read();
             if (done) break;
             const str = decoder.decode(value, { stream: true });
-            broadcast('terminal:data', { agentId, data: str.replace(/\n/g, '\r\n') });
+            publishTerminalOutput(str.replace(/\n/g, '\r\n'));
             resetTimeout();
             buffer += str;
             let idx = buffer.indexOf('\n');
@@ -1429,11 +1482,9 @@ export default function registerDaemon(io: IOServer) {
           clearInterval(heartbeatTimer);
           markEnvelopeCompleted();
           // Don't seal on successful completion — session stays active for --resume reuse
-          broadcast('terminal:exit', {
-            agentId,
+          publishTerminalExit({
             code: 0,
             command: 'bridge',
-            conversationId: sessionConvId,
             activity: hasBackgroundChildActivity ? 'awaiting_children' : 'idle',
           });
           activeProcesses.delete(processKey(agentId, projectId));
@@ -1443,15 +1494,11 @@ export default function registerDaemon(io: IOServer) {
           clearProcessTimeout();
           clearInterval(heartbeatTimer);
           const msg = String((e as Error)?.message || e);
-          broadcast('agent:error', {
-            agentId,
-            message: `Bridge 错误：${msg}`,
-            reasonCode: 'spawn_failed' as const,
-          });
+          publishRuntimeWarning(`Bridge 错误：${msg}`, 'spawn_failed');
           // 失败不 seal session（保持 active，下次 @ resume，id 不变）—— specs/agent-session-stability
           runtimeEventCoordinator?.failSetup('spawn_failed', observedRuntimeSessionId);
           markEnvelopeFailed('spawn_failed');
-          broadcast('terminal:exit', { agentId, code: 127, command: 'bridge', reasonCode: 'spawn_failed' });
+          publishTerminalExit({ code: 127, command: 'bridge', reasonCode: 'spawn_failed' });
           activeProcesses.delete(processKey(agentId, projectId));
           if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
           return;
@@ -1480,10 +1527,9 @@ export default function registerDaemon(io: IOServer) {
           await tmuxGateway.execInPane(worktreeId, paneId, shellCmd);
           await tmuxGateway.setPaneReadOnly(worktreeId, paneId, true);
 
-          broadcast('terminal:data', {
-            agentId,
-            data: `\x1b[33m$ [tmux:${paneId}] ${primaryCommand} ${primaryArgs.join(' ')}\x1b[0m\r\n`,
-          });
+          publishTerminalOutput(
+            `\x1b[33m$ [tmux:${paneId}] ${primaryCommand} ${primaryArgs.join(' ')}\x1b[0m\r\n`,
+          );
 
           // Poll pane output for terminal:data events
           const pollInterval = setInterval(async () => {
@@ -1493,7 +1539,7 @@ export default function registerDaemon(io: IOServer) {
             }
             try {
               const content = await tmuxGateway.capturePane(worktreeId, paneId);
-              broadcast('terminal:data', { agentId, data: content.replace(/\n/g, '\r\n') });
+              publishTerminalOutput(content.replace(/\n/g, '\r\n'));
             } catch { /* pane gone */ }
           }, 2000);
 
@@ -1878,12 +1924,10 @@ export default function registerDaemon(io: IOServer) {
             }
           }
 
-          broadcast('terminal:exit', {
-            agentId,
+          publishTerminalExit({
             code: final.status === 'completed' ? 0 : 1,
             command,
             reasonCode: final.reasonCode ?? (final.status === 'timeout' ? 'timeout' : undefined),
-            conversationId: sessionConvId,
             activity: final.status === 'completed' && hasBackgroundChildActivity ? 'awaiting_children' : 'idle',
           });
           activeProcesses.delete(processKey(agentId, projectId));
@@ -1915,7 +1959,7 @@ export default function registerDaemon(io: IOServer) {
               console.error('[evaluation] failed to record execution failure:', transitionError);
             }
           }
-          broadcast('terminal:exit', { agentId, code: 1, command, reasonCode: 'spawn_failed' });
+          publishTerminalExit({ code: 1, command, reasonCode: 'spawn_failed' });
           activeProcesses.delete(processKey(agentId, projectId));
           if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
           acpCleanup?.();
@@ -1948,6 +1992,7 @@ export default function registerDaemon(io: IOServer) {
           dispatchGateway.markFailed(controlEnvelopeId, 'internal_error');
           const receiptConversationId = conversationId || projectId || 'default';
           io.to(receiptConversationId).emit('dispatch.receipt', {
+            projectId: receiptConversationId,
             receiptId: `${controlEnvelopeId}:failed`,
             conversationId: receiptConversationId,
             taskId,
@@ -1960,8 +2005,31 @@ export default function registerDaemon(io: IOServer) {
             createdAt: new Date().toISOString(),
           });
         }
-        broadcast('agent:error', { agentId, message: `内部错误：${(err as Error)?.message || '未知'}` });
-        broadcast('terminal:exit', { agentId, code: 1, command: primaryCommand, reasonCode: 'internal_error' });
+        const failureProjectId = conversationId?.trim() || projectId?.trim();
+        if (failureProjectId) {
+          projectViewPublisher.publish(failureProjectId, {
+            kind: 'runtime.warning',
+            agentId,
+            payload: {
+              message: `内部错误：${(err as Error)?.message || '未知'}`,
+              reasonCode: 'internal_error',
+            },
+          });
+          projectViewPublisher.publish(failureProjectId, {
+            kind: 'terminal.exited',
+            agentId,
+            payload: {
+              code: 1,
+              command: primaryCommand,
+              reasonCode: 'internal_error',
+            },
+          });
+        } else {
+          emitToRequester('agent:error', {
+            agentId,
+            message: `内部错误：${(err as Error)?.message || '未知'}`,
+          });
+        }
         activeProcesses.delete(processKey(agentId, projectId));
         if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
         acpCleanup?.();
@@ -1978,8 +2046,18 @@ export default function registerDaemon(io: IOServer) {
         void submission.completion.then((outcome) => {
           if (outcome.status === 'accepted') return;
           const reasonCode = 'reasonCode' in outcome ? outcome.reasonCode : 'internal_error';
-          socket.emit('agent:error', { agentId: payload.agentId, message: `派发被服务端阻止：${reasonCode}` });
-          socket.emit('terminal:exit', { agentId: payload.agentId, code: 1, command: 'harness', reasonCode });
+          const projectId = payload.conversationId?.trim() || payload.projectId?.trim();
+          if (!projectId) return;
+          projectViewPublisher.publish(projectId, {
+            kind: 'runtime.warning',
+            agentId: payload.agentId,
+            payload: { message: `派发被服务端阻止：${reasonCode}`, reasonCode },
+          });
+          projectViewPublisher.publish(projectId, {
+            kind: 'terminal.exited',
+            agentId: payload.agentId,
+            payload: { code: 1, command: 'harness', reasonCode },
+          });
         });
       } catch (error) {
         socket.emit('agent:error', { agentId: payload.agentId, message: (error as Error).message });
@@ -1989,19 +2067,39 @@ export default function registerDaemon(io: IOServer) {
 
     // Force-kill a running agent process
     socket.on('terminal:kill', ({ agentId, projectId: killProjectId, force }: { agentId: string; projectId?: string; force?: boolean }) => {
+      if (!killProjectId?.trim()) {
+        socket.emit('command:error', { command: 'terminal:kill', reasonCode: 'project_id_required' });
+        return;
+      }
       const key = processKey(agentId, killProjectId);
       if (activeProcesses.has(key)) {
         activeProcesses.get(key)?.kill();
         activeProcesses.delete(key);
-        socket.emit('terminal:exit', { agentId, code: 0, command: 'kill', reasonCode: force ? 'force_killed' : 'killed' });
+        projectViewPublisher.publish(killProjectId, {
+          kind: 'terminal.exited',
+          agentId,
+          payload: {
+            code: 0,
+            command: 'kill',
+            reasonCode: force ? 'force_killed' : 'killed',
+          },
+        });
       }
     });
 
-    socket.on('daemon:status', (callback) => {
+    socket.on('daemon:status', ({ projectId }: { projectId?: string }, callback) => {
       const activeAgents: Record<string, { taskId?: string; conversationId?: string }> = {};
+      const normalizedProjectId = projectId?.trim();
+      if (!normalizedProjectId) {
+        callback?.({ activeAgents, error: 'project_id_required' });
+        return;
+      }
       for (const [key] of activeProcesses) {
-        const agentId = key.split('@')[0];
-        const session = sessionRepo.findLatestActiveByAgent(agentId);
+        const separator = key.lastIndexOf('@');
+        const agentId = separator >= 0 ? key.slice(0, separator) : key;
+        const activeProjectId = separator >= 0 ? key.slice(separator + 1) : 'default';
+        if (activeProjectId !== normalizedProjectId) continue;
+        const session = sessionRepo.findActiveByConversation(agentId, normalizedProjectId, '');
         if (session) {
           activeAgents[agentId] = {
             taskId: session.task_id || undefined,

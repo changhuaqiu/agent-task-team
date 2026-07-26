@@ -52,7 +52,7 @@ describe('Harness registry', () => {
     })).toBe(scenario);
   });
 
-  it('submits wakeups without a browser and emits an explicit fallback on planning failure', async () => {
+  it('submits wakeups without a browser and emits a passive failure projection', async () => {
     const emit = vi.fn();
     const io = { to: vi.fn(() => ({ emit })) } as unknown as IOServer;
     const completion = Promise.resolve({ status: 'blocked', reasonCode: 'runtime_profile_missing' } as const);
@@ -72,8 +72,10 @@ describe('Harness registry', () => {
     await completion;
     await Promise.resolve();
     expect(emit).toHaveBeenCalledWith('task.wakeup', expect.objectContaining({
-      handledByHarness: false,
+      projectId: 'conv-1',
+      handledByHarness: true,
       harnessFallbackReasonCode: 'runtime_profile_missing',
+      content: expect.stringContaining('runtime_profile_missing'),
     }));
   });
 });

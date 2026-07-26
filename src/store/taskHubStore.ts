@@ -18,9 +18,13 @@ import {
   clearWatchdog,
   registerBrowserRuntimeNode,
   clearInFlightDispatch,
-  takeInFlightDispatch,
 } from './daemonStore';
 import type { PendingDispatch } from './daemonStore';
+import {
+  isProjectViewEnvelope,
+  PROJECT_VIEW_CHANNEL,
+  type ProjectViewEnvelope,
+} from '@/shared/project-view-events';
 import { resolveRuntimeAgentProfile, resolveTeamRuntime } from '@/lib/team-runtime';
 import type { PresetRuntimeAgentInput, RuntimeAgentProfile, TeamRuntime } from '@/lib/team-runtime';
 import type { RoleCard } from '@/types/roleCard';
@@ -156,7 +160,10 @@ export type InternalEventType =
   | 'invocation.finished'
   | 'invocation.aborted'
   | 'invocation.worklist_pushed'
-  | 'invocation.worklist_skipped';
+  | 'invocation.worklist_skipped'
+  | 'runtime.plan'
+  | 'runtime.usage'
+  | 'a2a.dispatch_requested';
 
 export interface InternalEvent {
   id: string;
@@ -1446,11 +1453,32 @@ export const useTaskHubStore = create<TaskHubState>()(
           const conv = get().conversations.find((c) => c.id === conversationId);
           if (previousConversationId && previousConversationId !== conversationId) {
             socket.emit('conversation:leave', { conversationId: previousConversationId });
+            for (const agentId of Object.keys(get().agentStatus)) {
+              clearWatchdog(agentId);
+            }
           }
           if (conversationId) {
             socket.emit('conversation:join', { conversationId });
             void get().refreshPendingDispatches(conversationId).catch((error: unknown) => {
               console.error('[dispatch] failed to refresh Agent Inbox projection:', error);
+            });
+            socket.emit('daemon:status', { projectId: conversationId }, (response: {
+              activeAgents?: Record<string, { taskId?: string; conversationId?: string }>;
+            }) => {
+              if (get().selectedConversationId !== conversationId || !response?.activeAgents) return;
+              const statusUpdate: Record<string, AgentRunStatus> = {};
+              const runsUpdate: Record<string, ActiveAgentRun | undefined> = {};
+              for (const [agentId, info] of Object.entries(response.activeAgents)) {
+                if (info.conversationId !== conversationId) continue;
+                statusUpdate[agentId] = 'busy';
+                runsUpdate[agentId] = {
+                  runId: `recovered-${agentId}`,
+                  taskId: info.taskId,
+                  conversationId,
+                  startedAt: new Date().toISOString(),
+                };
+              }
+              set({ agentStatus: statusUpdate, activeRunsByAgent: runsUpdate });
             });
           }
 
@@ -1460,6 +1488,11 @@ export const useTaskHubStore = create<TaskHubState>()(
               selectedProjectId: conversationId || 'default',
               activeAgentIds: [],
               currentTeamPack: null,
+              terminalLogs: {},
+              agentStatus: {},
+              activeRunsByAgent: {},
+              activeStreamMessageId: {},
+              activeStreamConversationId: {},
             });
             applyConversationTeamPack(get, set, conversationId, conv.teamPackId);
             return;
@@ -1470,6 +1503,11 @@ export const useTaskHubStore = create<TaskHubState>()(
             selectedProjectId: conversationId || 'default',
             activeAgentIds: DEFAULT_ACTIVE_AGENT_IDS,
             currentTeamPack: null,
+            terminalLogs: {},
+            agentStatus: {},
+            activeRunsByAgent: {},
+            activeStreamMessageId: {},
+            activeStreamConversationId: {},
           });
         },
 
@@ -1982,11 +2020,12 @@ socket.on('connect', () => {
     }
   });
 
-  socket.emit('daemon:status', (response: { activeAgents: Record<string, { taskId?: string; conversationId?: string }> }) => {
+  if (selectedConversationId) socket.emit('daemon:status', { projectId: selectedConversationId }, (response: { activeAgents: Record<string, { taskId?: string; conversationId?: string }> }) => {
     if (!response?.activeAgents) return;
     const statusUpdate: Record<string, AgentRunStatus> = {};
     const runsUpdate: Record<string, ActiveAgentRun | undefined> = {};
     for (const [agentId, info] of Object.entries(response.activeAgents)) {
+      if (info.conversationId !== selectedConversationId) continue;
       statusUpdate[agentId] = 'busy';
       runsUpdate[agentId] = info.conversationId
         ? {
@@ -2018,28 +2057,44 @@ socket.on('runtimes:update', ({ runtimes }: { runtimes: import('@/server/types')
   useTaskHubStore.getState().setDaemonRuntimes(runtimes);
 });
 
-socket.on('terminal:data', ({ agentId, data }) => {
+function isCurrentProject(projectId: string | undefined): projectId is string {
+  return !!projectId && useTaskHubStore.getState().selectedConversationId === projectId;
+}
+
+function handleTerminalData({ agentId, data }: { agentId: string; data: string }): void {
   useTaskHubStore.getState().appendTerminalLog(agentId, data);
-});
+}
 
-socket.on('agent:session', ({ projectId, conversationId, agentId, sessionId }) => {
-  useTaskHubStore.getState().upsertAgentSession(conversationId || projectId || 'default', agentId, sessionId);
-});
+function appendStructuredTerminalLine(agentId: string, label: string, detail = ''): void {
+  const suffix = detail ? ` ${detail}` : '';
+  handleTerminalData({ agentId, data: `\r\n[${label}]${suffix}\r\n` });
+}
 
-socket.on('agent:activity', ({ conversationId, taskId, agentId, sessionId, status, reason }: {
-  conversationId?: string;
+function handleAgentSession(input: {
+  projectId: string;
+  agentId: string;
+  sessionId: string;
+}): void {
+  useTaskHubStore.getState().upsertAgentSession(input.projectId, input.agentId, input.sessionId);
+}
+
+function handleAgentActivity({ projectId, taskId, agentId, sessionId, status, reason }: {
+  projectId: string;
   taskId?: string;
   agentId: string;
   sessionId?: string;
   status: 'running' | 'awaiting_children' | 'idle';
   reason?: string;
-}) => {
-  if (!conversationId) return;
+}): void {
   const state = useTaskHubStore.getState();
   if (sessionId) {
-    state.upsertAgentSession(conversationId, agentId, sessionId);
+    state.upsertAgentSession(projectId, agentId, sessionId);
   }
 
+  if (status === 'running') {
+    resetWatchdog(agentId, useTaskHubStore.getState, useTaskHubStore.setState);
+    return;
+  }
   if (status === 'awaiting_children') {
     clearWatchdog(agentId);
     const existing = state.activeRunsByAgent[agentId];
@@ -2050,14 +2105,14 @@ socket.on('agent:activity', ({ conversationId, taskId, agentId, sessionId, statu
         [agentId]: {
           runId: existing?.runId ?? `background-${agentId}-${Date.now()}`,
           taskId: taskId ?? existing?.taskId,
-          conversationId,
+          conversationId: projectId,
           startedAt: existing?.startedAt ?? new Date().toISOString(),
           activity: 'awaiting_children',
         },
       },
     }));
     state.addEvent({
-      conversationId,
+      conversationId: projectId,
       type: 'run.background_waiting',
       payload: { agentId, taskId, sessionId, reason },
     });
@@ -2071,9 +2126,17 @@ socket.on('agent:activity', ({ conversationId, taskId, agentId, sessionId, statu
     }));
     state.completeStreamMessage(agentId);
   }
-});
+}
 
-socket.on('agent:event', (event) => {
+function handleAgentEvent(event: {
+  agentId: string;
+  type: string;
+  content?: string;
+  tool?: { name?: string; input?: string; output?: string };
+  sessionId?: string;
+  invocationId?: string;
+  conversationId?: string;
+}): void {
   const { agentId, type, content, tool, sessionId, invocationId, conversationId: eventConvId } = event;
   const state = useTaskHubStore.getState();
 
@@ -2146,29 +2209,176 @@ socket.on('agent:event', (event) => {
   } else {
     state.appendToStreamMessage(activeId, { content: content || '' });
   }
+}
+
+// Compatibility-only A2A/system notices. Canonical Runtime events use
+// project:view and must pass the current-project gate below.
+socket.on('agent:event', (event) => {
+  if (!isCurrentProject(event?.conversationId)) return;
+  handleAgentEvent(event);
 });
 
-socket.on('agent:delta', (event) => {
-  const { agentId, type, content, sessionId, invocationId, conversationId: eventConvId } = event;
+function handleAgentDelta(event: {
+  projectId: string;
+  agentId: string;
+  type: 'text' | 'thinking' | 'heartbeat';
+  content?: string;
+  sessionId?: string;
+  invocationId?: string;
+}): void {
+  const { projectId, agentId, type, content, sessionId, invocationId } = event;
   const state = useTaskHubStore.getState();
-  const active = state.activeRunsByAgent[agentId];
-  const conversationId = eventConvId && eventConvId !== 'default'
-    ? eventConvId
-    : active?.conversationId ?? state.selectedConversationId ?? undefined;
-  if (!conversationId) return;
-  if (sessionId) state.upsertAgentSession(conversationId, agentId, sessionId);
+  if (sessionId) state.upsertAgentSession(projectId, agentId, sessionId);
   if (type === 'heartbeat') {
     resetWatchdog(agentId, useTaskHubStore.getState, useTaskHubStore.setState);
     return;
   }
   if (type !== 'text') return;
   const activeId = state.activeStreamMessageId[agentId]
-    ?? state.ensureStreamMessage(agentId, conversationId, invocationId);
+    ?? state.ensureStreamMessage(agentId, projectId, invocationId);
   state.appendToStreamMessage(activeId, { content: content || '' });
-});
+}
+
+export function consumeProjectViewEvent(envelope: unknown): boolean {
+  if (!isProjectViewEnvelope(envelope) || !isCurrentProject(envelope.projectId)) {
+    return false;
+  }
+  const event = envelope as ProjectViewEnvelope;
+  const payload = event.payload;
+  const agentId = event.agentId;
+
+  if (event.kind === 'runtime.session' && agentId && typeof payload.sessionId === 'string') {
+    handleAgentSession({
+      projectId: event.projectId,
+      agentId,
+      sessionId: payload.sessionId,
+    });
+  } else if (event.kind === 'runtime.activity' && agentId) {
+    const status = payload.status;
+    if (status === 'running' || status === 'awaiting_children' || status === 'idle') {
+      handleAgentActivity({
+        projectId: event.projectId,
+        agentId,
+        taskId: typeof payload.taskId === 'string' ? payload.taskId : undefined,
+        sessionId: typeof payload.sessionId === 'string' ? payload.sessionId : undefined,
+        status,
+        reason: typeof payload.reason === 'string' ? payload.reason : undefined,
+      });
+    }
+  } else if (
+    (event.kind === 'runtime.text.delta' || event.kind === 'runtime.thinking.delta')
+    && agentId
+  ) {
+    handleAgentDelta({
+      projectId: event.projectId,
+      agentId,
+      type: event.kind === 'runtime.text.delta' ? 'text' : 'thinking',
+      content: typeof payload.content === 'string' ? payload.content : '',
+      invocationId: event.invocationId,
+    });
+    if (event.kind === 'runtime.text.delta' && typeof payload.content === 'string') {
+      handleTerminalData({ agentId, data: payload.content });
+    }
+  } else if (event.kind === 'runtime.plan' && agentId) {
+    useTaskHubStore.getState().addEvent({
+      conversationId: event.projectId,
+      type: 'runtime.plan',
+      payload: { ...payload, agentId, invocationId: event.invocationId },
+    });
+    appendStructuredTerminalLine(
+      agentId,
+      'plan',
+      typeof payload.content === 'string' ? payload.content : '',
+    );
+  } else if (event.kind === 'runtime.tool.started' && agentId) {
+    handleAgentEvent({
+      agentId,
+      type: 'tool_use',
+      conversationId: event.projectId,
+      invocationId: event.invocationId,
+      tool: {
+        name: typeof payload.toolName === 'string' ? payload.toolName : 'unknown',
+        input: typeof payload.input === 'string' ? payload.input : undefined,
+      },
+    });
+    appendStructuredTerminalLine(
+      agentId,
+      'tool:start',
+      typeof payload.toolName === 'string' ? payload.toolName : 'unknown',
+    );
+  } else if (
+    (event.kind === 'runtime.tool.completed' || event.kind === 'runtime.tool.failed')
+    && agentId
+  ) {
+    handleAgentEvent({
+      agentId,
+      type: event.kind === 'runtime.tool.failed' ? 'error' : 'tool_result',
+      conversationId: event.projectId,
+      invocationId: event.invocationId,
+      content: typeof payload.output === 'string' ? payload.output : undefined,
+      tool: {
+        name: typeof payload.toolName === 'string' ? payload.toolName : 'unknown',
+        output: typeof payload.output === 'string' ? payload.output : undefined,
+      },
+    });
+    appendStructuredTerminalLine(
+      agentId,
+      event.kind === 'runtime.tool.failed' ? 'tool:failed' : 'tool:completed',
+      typeof payload.toolName === 'string' ? payload.toolName : 'unknown',
+    );
+  } else if (event.kind === 'runtime.warning' && agentId) {
+    const message = typeof payload.message === 'string' ? payload.message : 'Runtime warning';
+    const state = useTaskHubStore.getState();
+    const activeId = state.activeStreamMessageId[agentId];
+    if (activeId) {
+      state.appendToStreamMessage(activeId, { content: `\n⚠️ ${message}` });
+      state.completeStreamMessage(agentId);
+    } else {
+      state.addChatMessage({
+        agentId,
+        content: `⚠️ ${message}`,
+        conversationId: event.projectId,
+      });
+    }
+    appendStructuredTerminalLine(agentId, 'warning', message);
+  } else if (event.kind === 'runtime.usage') {
+    useTaskHubStore.getState().addEvent({
+      conversationId: event.projectId,
+      type: 'runtime.usage',
+      payload: { ...payload, agentId, invocationId: event.invocationId },
+    });
+  } else if (event.kind === 'runtime.completed' && agentId) {
+    handleAgentEvent({
+      agentId,
+      type: 'done',
+      conversationId: event.projectId,
+      invocationId: event.invocationId,
+    });
+    appendStructuredTerminalLine(
+      agentId,
+      'runtime:completed',
+      typeof payload.outcome === 'string' ? payload.outcome : '',
+    );
+  } else if (event.kind === 'terminal.output' && agentId && typeof payload.data === 'string') {
+    handleTerminalData({ agentId, data: payload.data });
+  } else if (event.kind === 'terminal.exited' && agentId && typeof payload.code === 'number') {
+    const activity = payload.activity;
+    handleTerminalExit({
+      projectId: event.projectId,
+      agentId,
+      code: payload.code,
+      command: typeof payload.command === 'string' ? payload.command : undefined,
+      reasonCode: typeof payload.reasonCode === 'string' ? payload.reasonCode : undefined,
+      activity: activity === 'awaiting_children' || activity === 'idle' ? activity : undefined,
+    });
+  }
+  return true;
+}
+
+socket.on(PROJECT_VIEW_CHANNEL, consumeProjectViewEvent);
 
 socket.on('a2a:pass-offer', ({ agentId, fromAgentId, conversationId, chainId, passId }: { agentId: string; fromAgentId?: string; conversationId?: string; chainId?: string; passId?: string }) => {
-  if (!conversationId || !chainId) return;
+  if (!conversationId || !chainId || !isCurrentProject(conversationId)) return;
   useTaskHubStore.getState().recordA2APassOffer({
     conversationId,
     chainId,
@@ -2181,6 +2391,7 @@ socket.on('a2a:pass-offer', ({ agentId, fromAgentId, conversationId, chainId, pa
 
 socket.on('dispatch.receipt', (receipt: DispatchReceipt) => {
   if (!receipt?.conversationId || !receipt.receiptId || !receipt.targetAgentId) return;
+  if (!isCurrentProject(receipt.conversationId)) return;
   if (
     receipt.phase === 'sent'
     || receipt.phase === 'started'
@@ -2195,6 +2406,7 @@ socket.on('dispatch.receipt', (receipt: DispatchReceipt) => {
 
 socket.on('a2a:possession-changed', ({ chainId, conversationId, currentHolderId, passId }: { chainId?: string; conversationId?: string; currentHolderId?: string; passId?: string }) => {
   if (!conversationId || !chainId || !currentHolderId) return;
+  if (!isCurrentProject(conversationId)) return;
   useTaskHubStore.getState().recordA2APossessionChanged({
     conversationId,
     chainId,
@@ -2205,6 +2417,7 @@ socket.on('a2a:possession-changed', ({ chainId, conversationId, currentHolderId,
 
 socket.on('a2a:pass-blocked', ({ conversationId, chainId, passId, fromAgentId, toAgentId, reason, status }: { conversationId?: string; chainId?: string; passId?: string; fromAgentId?: string; toAgentId?: string; reason?: string; status?: A2AHandoffStatus }) => {
   if (!conversationId || !reason) return;
+  if (!isCurrentProject(conversationId)) return;
   useTaskHubStore.getState().recordA2APassBlocked({
     conversationId,
     chainId,
@@ -2216,41 +2429,35 @@ socket.on('a2a:pass-blocked', ({ conversationId, chainId, passId, fromAgentId, t
   });
 });
 
-socket.on('terminal:exit', ({ agentId, code, command, reasonCode, conversationId: exitConvId, activity }: {
+function handleTerminalExit({ projectId, agentId, code, command, reasonCode, activity }: {
+  projectId: string;
   agentId: string;
   code: number;
   command?: string;
   reasonCode?: string;
-  conversationId?: string;
   activity?: 'awaiting_children' | 'idle';
-}) => {
+}): void {
   const store = useTaskHubStore.getState();
   const active = store.activeRunsByAgent[agentId];
-  const conversationId =
-    exitConvId ||
-    active?.conversationId ||
-    (active?.taskId ? store.getTaskById(active.taskId)?.conversationId : null) ||
-    store.selectedConversationId;
   const runId = active?.runId;
   const taskId = active?.taskId;
   const backgroundWaiting = code === 0 && (activity === 'awaiting_children' || active?.activity === 'awaiting_children');
-  let missingEvidenceRecovery: { taskId: string; conversationId: string; prompt: string } | undefined;
 
   store.appendTerminalLog(agentId, `\r\n\x1b[36m[process exited with code ${code}]\x1b[0m\r\n`);
 
-  if (runId && conversationId && !backgroundWaiting) {
+  if (runId && !backgroundWaiting) {
     store.addEvent({
-      conversationId,
+      conversationId: projectId,
       type: 'run.finished',
       payload: { runId, agentId, taskId, code, reasonCode },
     });
   }
 
-  if (backgroundWaiting && conversationId) {
+  if (backgroundWaiting) {
     clearWatchdog(agentId);
     if (active?.activity !== 'awaiting_children') {
       store.addEvent({
-        conversationId,
+        conversationId: projectId,
         type: 'run.background_waiting',
         payload: { runId, agentId, taskId, command, reasonCode: reasonCode ?? 'awaiting_children' },
       });
@@ -2260,11 +2467,11 @@ socket.on('terminal:exit', ({ agentId, code, command, reasonCode, conversationId
       activeRunsByAgent: {
         ...state.activeRunsByAgent,
         [agentId]: active
-          ? { ...active, conversationId, activity: 'awaiting_children' }
+          ? { ...active, conversationId: projectId, activity: 'awaiting_children' }
           : {
               runId: `background-${agentId}-${Date.now()}`,
               taskId,
-              conversationId,
+              conversationId: projectId,
               startedAt: new Date().toISOString(),
               activity: 'awaiting_children',
             },
@@ -2273,53 +2480,7 @@ socket.on('terminal:exit', ({ agentId, code, command, reasonCode, conversationId
     return;
   }
 
-  if (typeof code === 'number' && code !== 0 && taskId && conversationId) {
-    let blockerType: Blocker['type'] = 'execution_failure';
-    let reasonSummary = `执行失败（退出码 ${code}）。`;
-
-    if (reasonCode === 'not_found') {
-      reasonSummary = 'CLI 工具未找到，请检查安装。';
-    } else if (reasonCode === 'timeout') {
-      blockerType = 'timeout';
-      reasonSummary = '执行超时，Agent 已自动终止。';
-    } else if (reasonCode === 'spawn_failed') {
-      reasonSummary = '进程启动失败。';
-    }
-
-    store.updateTaskStatus(taskId, 'blocked', reasonSummary);
-    store.openBlocker({
-      conversationId,
-      taskId,
-      type: blockerType,
-      reasonSummary,
-      evidenceRef: runId ? `run:${runId}` : (command ? `cli:${command}` : undefined),
-    });
-
-  }
-
-  // CLI success does not prove review readiness. The implementer must submit
-  // explicit install/build/impact evidence before the task can enter review.
-  if (code === 0 && taskId) {
-      const task = store.getTaskById(taskId);
-      if (task && task.status === 'in_progress') {
-        store.openBlocker({
-        conversationId: task.conversationId,
-        taskId,
-        type: 'gate_fail',
-        gateId: 'build',
-        reasonSummary: '等待开发交付（implementation_evidence）：需要已验证 PR，以及 installResult、buildResult、testResult、impactEvidence。',
-        evidenceRef: runId ? `run:${runId}` : (command ? `cli:${command}` : undefined),
-      });
-      missingEvidenceRecovery = {
-        taskId,
-        conversationId: task.conversationId,
-        prompt: `请补齐 ${taskId}: ${task.title} 的 implementation_evidence：创建 PR 并记录已验证回执，同时提供 installResult、buildResult、testResult、impactEvidence。完成后由平台推进到 in_review。`,
-      };
-    }
-  }
-
-  const exitProjectId = conversationId || useTaskHubStore.getState().selectedProjectId || 'default';
-  const exitComposeKey = `${exitProjectId}:${agentId}`;
+  const exitComposeKey = `${projectId}:${agentId}`;
 
   useTaskHubStore.setState((state) => ({
     agentStatus: { ...state.agentStatus, [agentId]: 'idle' },
@@ -2327,122 +2488,21 @@ socket.on('terminal:exit', ({ agentId, code, command, reasonCode, conversationId
     needsFullCompose: { ...state.needsFullCompose, [exitComposeKey]: true },
   }));
   useTaskHubStore.getState().completeStreamMessage(agentId);
+}
 
-  if (missingEvidenceRecovery) {
-    const recovery = missingEvidenceRecovery;
-    setTimeout(() => {
-      const current = useTaskHubStore.getState();
-      if (current.agentStatus[agentId] && current.agentStatus[agentId] !== 'idle') {
-        current.enqueueDispatch(agentId, {
-          prompt: recovery.prompt,
-          referencedTaskId: recovery.taskId,
-          source: 'system',
-          conversationId: recovery.conversationId,
-        });
-        return;
-      }
-      current.dispatchToAgent({
-        agentId,
-        referencedTaskId: recovery.taskId,
-        conversationId: recovery.conversationId,
-        source: 'system',
-        prompt: recovery.prompt,
-      });
-    }, 300);
-  }
-
-  if (conversationId) {
-    const key = `${agentId}:${conversationId}`;
-    const pending = useTaskHubStore.getState().pendingDispatches[key];
-    if (pending && pending.length > 0) {
-      const exitConvId = conversationId;
-      setTimeout(() => {
-        void useTaskHubStore.getState().refreshPendingDispatches(exitConvId)
-          .catch((error: unknown) => console.error('[dispatch] exit refresh failed:', error));
-      }, 300);
-    }
-  }
-});
-
-socket.on('a2a:dispatch', async ({ agentId, prompt, referencedTaskId, fromAgentId, conversationId, chainId, entryId, passId, handledByHarness }: { agentId: string; prompt: string; referencedTaskId?: string; fromAgentId: string; conversationId?: string; chainId?: string; entryId?: string; passId?: string; handledByHarness?: boolean; harnessFallbackReasonCode?: string }) => {
-  if (handledByHarness) return;
+socket.on('a2a:dispatch', ({ agentId, referencedTaskId, fromAgentId, conversationId, chainId, entryId, passId }: { agentId: string; referencedTaskId?: string; fromAgentId: string; conversationId?: string; chainId?: string; entryId?: string; passId?: string }) => {
+  if (!isCurrentProject(conversationId)) return;
   console.log(`[a2a:v2] chain=${chainId} dispatch ${fromAgentId} → ${agentId}`);
-  const state = useTaskHubStore.getState();
-  if (state.agentStatus[agentId] && state.agentStatus[agentId] !== 'idle') {
-    if (chainId && entryId && conversationId) {
-      socket.emit('a2a:dispatch-deferred', {
-        chainId,
-        entryId,
-        conversationId,
-        agentId,
-        passId,
-        reason: 'target agent is busy',
-      });
-    }
-    return;
-  }
-  const accepted = await state.dispatchToAgent({
-    agentId,
-    prompt,
-    referencedTaskId,
-    source: 'a2a',
-    fromAgentId,
+  useTaskHubStore.getState().addEvent({
     conversationId,
-    chainId,
-    passId,
+    type: 'a2a.dispatch_requested',
+    payload: { agentId, referencedTaskId, fromAgentId, chainId, entryId, passId },
   });
-  if (accepted && chainId && entryId && conversationId) {
-    socket.emit('a2a:agent-started', {
-      chainId,
-      entryId,
-      conversationId,
-      agentId,
-      passId,
-    });
-  } else if (!accepted && chainId && entryId && conversationId) {
-    socket.emit('a2a:dispatch-failed', {
-      chainId,
-      entryId,
-      conversationId,
-      agentId,
-      reason: 'no runtime profile or conversation context',
-    });
-  }
 });
 
-socket.on('agent:error', ({ agentId, message, reasonCode }: { agentId: string; message: string; reasonCode?: string }) => {
+socket.on('agent:error', ({ projectId, agentId, message }: { projectId?: string; agentId: string; message: string }) => {
+  if (!isCurrentProject(projectId)) return;
   const state = useTaskHubStore.getState();
-
-  if (reasonCode === 'agent_busy' || message === 'Agent is busy, message queued') {
-    const active = state.activeRunsByAgent[agentId];
-    const convId = active?.conversationId || state.selectedConversationId;
-    if (!convId) return;
-    const key = `${agentId}:${convId}`;
-    const rejectedDispatch = takeInFlightDispatch(agentId, convId);
-    const pending = state.pendingDispatches[key];
-    const alreadyQueued = rejectedDispatch && pending?.some((entry) =>
-      entry.prompt === rejectedDispatch.prompt
-      && entry.referencedTaskId === rejectedDispatch.referencedTaskId
-      && entry.source === rejectedDispatch.source
-      && entry.fromAgentId === rejectedDispatch.fromAgentId
-    );
-    if (rejectedDispatch && !alreadyQueued) {
-      state.enqueueDispatch(agentId, rejectedDispatch);
-    } else if (!rejectedDispatch && (!pending || pending.length === 0)) {
-      useTaskHubStore.setState((s) => ({
-        agentStatus: { ...s.agentStatus, [agentId]: 'busy' },
-      }));
-    }
-    const errConvId = convId;
-    setTimeout(() => {
-      const current = useTaskHubStore.getState();
-      if (current.agentStatus[agentId] === 'idle' && current.pendingDispatches[key]?.length) {
-        void current.refreshPendingDispatches(errConvId)
-          .catch((error: unknown) => console.error('[dispatch] busy refresh failed:', error));
-      }
-    }, 2000);
-    return;
-  }
 
   const activeId = state.activeStreamMessageId[agentId];
   if (activeId) {
@@ -2457,6 +2517,7 @@ socket.on('agent:error', ({ agentId, message, reasonCode }: { agentId: string; m
 });
 
 socket.on('task.assigned', ({ taskId, agentId, conversationId }: { taskId: string; agentId: string; conversationId: string }) => {
+  if (!isCurrentProject(conversationId)) return;
   const store = useTaskHubStore.getState();
   const task = store.getTaskById(taskId);
   if (!task) return;
@@ -2467,12 +2528,6 @@ socket.on('task.assigned', ({ taskId, agentId, conversationId }: { taskId: strin
     ),
   }));
 
-  store.dispatchToAgent({
-    agentId,
-    referencedTaskId: taskId,
-    source: 'workflow',
-    prompt: `你被分配了 ${taskId}: ${task.title}. ${task.description || ''}`,
-  });
 });
 
 interface TaskStateSocketRow {
@@ -2492,6 +2547,7 @@ interface TaskStateSocketRow {
 
 socket.on('task.state', ({ task: row }: { task?: TaskStateSocketRow }) => {
   if (!row?.id || !row.conversation_id) return;
+  if (!isCurrentProject(row.conversation_id)) return;
   const task: Task = {
     id: row.id,
     conversationId: row.conversation_id,
@@ -2534,6 +2590,7 @@ socket.on('task.notification', (notification: {
   const conversationId = notification.conversationId;
   const content = notification.content;
   if (!conversationId || !content) return;
+  if (!isCurrentProject(conversationId)) return;
 
   useTaskHubStore.setState((state) => {
     const existing = state.chatMessagesByConversation[conversationId] || [];
@@ -2581,6 +2638,7 @@ socket.on('task.wakeup', (wakeup: {
   const taskId = wakeup.taskId;
   const agentId = wakeup.agentId;
   if (!conversationId || !taskId || !agentId) return;
+  if (!isCurrentProject(conversationId)) return;
 
   if (wakeup.content) {
     useTaskHubStore.setState((state) => {
@@ -2612,70 +2670,12 @@ socket.on('task.wakeup', (wakeup: {
     });
   }
 
-  // The service-side Harness owns continuation after admission. The wakeup
-  // remains visible in chat, but the browser must not start a duplicate run.
-  if (wakeup.handledByHarness) return;
-
-  const store = useTaskHubStore.getState();
-  const task = store.getTaskById(taskId);
-  if (!task) return;
-
-  if ((wakeup.reasonCode === 'owner_ready' || wakeup.reasonCode === 'dependency_resolved') && task.status === 'pending') {
-    store.dispatchToAgent({
-      agentId,
-      referencedTaskId: taskId,
-      conversationId,
-      source: 'workflow',
-      prompt: wakeup.prompt || `依赖已满足，开始执行 ${taskId}: ${task.title}. ${task.description || ''}`,
-    });
-    store.updateTaskStatus(taskId, 'in_progress');
-    return;
-  }
-
-  if (wakeup.reasonCode === 'review_requested' || wakeup.reasonCode === 'review_decision_ready' || wakeup.reasonCode === 'test_requested') {
-    store.dispatchToAgent({
-      agentId,
-      referencedTaskId: taskId,
-      conversationId,
-      source: wakeup.reasonCode === 'test_requested' ? 'test_gate' : 'review_gate',
-      prompt: wakeup.prompt || (
-        wakeup.reasonCode === 'review_decision_ready'
-          ? `请确认 ${taskId}: ${task.title} 的评审结论，并决定是否通过或退回修改。${task.description || ''}`
-          : wakeup.reasonCode === 'test_requested'
-            ? `请开始测试 ${taskId}: ${task.title}. ${task.description || ''}`
-          : `请开始评审 ${taskId}: ${task.title}. ${task.description || ''}`
-      ),
-    });
-  }
-
-  if (
-    wakeup.reasonCode === 'missing_implementation_evidence' ||
-    wakeup.reasonCode === 'missing_delivery_evidence' ||
-    wakeup.reasonCode === 'stale_review_gate' ||
-    wakeup.reasonCode === 'stale_test_gate' ||
-    wakeup.reasonCode === 'runnable_owned_idle'
-  ) {
-    store.dispatchToAgent({
-      agentId,
-      referencedTaskId: taskId,
-      conversationId,
-      source: 'system',
-      prompt: wakeup.prompt || `请恢复处理 ${taskId}: ${task.title}. ${task.description || ''}`,
-    });
-  }
-
-  if (wakeup.reasonCode === 'unblocked_unassigned') {
-    store.dispatchToAgent({
-      agentId,
-      referencedTaskId: taskId,
-      conversationId,
-      source: 'workflow',
-      prompt: wakeup.prompt || `请分配负责人：${taskId}「${task.title}」的依赖已全部满足，但尚未分配负责人。`,
-    });
-  }
+  // The service-side Harness owns every continuation. The browser only keeps
+  // the wakeup visible; handledByHarness is display metadata, not a fallback switch.
 });
 
-socket.on('task.sync', ({ projectPath, conversationId, tasks: syncedTasks, blockers: syncedBlockers }: { projectPath: string; conversationId: string; tasks: any[]; blockers?: any[] }) => {
+socket.on('task.sync', ({ projectPath: _projectPath, conversationId, tasks: syncedTasks, blockers: syncedBlockers }: { projectPath: string; conversationId: string; tasks: any[]; blockers?: any[] }) => {
+  if (!isCurrentProject(conversationId)) return;
   useTaskHubStore.setState({ lastTaskSyncAt: new Date().toISOString(), taskSyncError: null });
   const store = useTaskHubStore.getState();
 
@@ -2749,6 +2749,7 @@ socket.on('task.sync', ({ projectPath, conversationId, tasks: syncedTasks, block
 });
 
 socket.on('task.sync_error', ({ conversationId, message }: { conversationId: string; message: string }) => {
+  if (!isCurrentProject(conversationId)) return;
   useTaskHubStore.setState({
     taskSyncError: { message, timestamp: new Date().toISOString(), conversationId },
   });

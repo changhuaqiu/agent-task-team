@@ -85,8 +85,10 @@ function reconcileAuthoritativeTaskProjection(invocation: ToolInvocation, taskId
         reasonCode: 'runtime_projection_failed',
         metadata: { taskProjectDir: invocation.taskProjectDir, error: error instanceof Error ? error.message : String(error) },
       });
-      invocation.io?.to(task?.conversation_id ?? invocation.conversationId).emit('task.sync_error', {
-        conversationId: task?.conversation_id ?? invocation.conversationId,
+      const projectionProjectId = task?.conversation_id ?? invocation.conversationId;
+      invocation.io?.to(projectionProjectId).emit('task.sync_error', {
+        projectId: projectionProjectId,
+        conversationId: projectionProjectId,
         taskId,
         reasonCode: 'runtime_projection_failed',
         message: 'Task receipt was committed, but the runtime TASKS.md projection needs reconciliation.',

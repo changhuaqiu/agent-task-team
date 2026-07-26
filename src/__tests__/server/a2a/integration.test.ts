@@ -196,7 +196,7 @@ describe('A2A v2 integration', () => {
     expect(entry.status).toBe('executing');
   });
 
-  it('re-emits an explicit client fallback when server-side A2A planning is blocked', async () => {
+  it('records a server-side failure without delegating execution to the browser', async () => {
     const serverMessenger = new AgentMessenger(db, io as any, AGENTS, {
       getTasks: () => testTasks,
     }, () => ({
@@ -210,12 +210,16 @@ describe('A2A v2 integration', () => {
     await Promise.resolve();
 
     const dispatches = io.emitted().filter(([event, payload]) => event === 'a2a:dispatch' && payload.agentId === 'luigi');
-    expect(dispatches).toHaveLength(2);
+    expect(dispatches).toHaveLength(1);
     expect(dispatches[0][1].handledByHarness).toBe(true);
-    expect(dispatches[1][1]).toMatchObject({
-      handledByHarness: false,
-      harnessFallbackReasonCode: 'runtime_profile_missing',
-    });
+    expect(io.emitted()).toContainEqual([
+      'a2a:pass-blocked',
+      expect.objectContaining({
+        projectId: 'conv-1',
+        toAgentId: 'luigi',
+        reason: 'runtime_profile_missing',
+      }),
+    ]);
   });
 
   it('agent @mention creates worklist entry and dispatches', async () => {

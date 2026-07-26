@@ -121,19 +121,24 @@ describe('Runtime Event consumer projections', () => {
     ]);
   });
 
-  it('keeps text segments off the canonical socket channel', () => {
-    const emit = vi.fn();
-    const projection = new RuntimeSocketProjection({ emit });
+  it('projects structured runtime events through the isolated project view channel', () => {
+    const publish = vi.fn();
+    const projection = new RuntimeSocketProjection({ publish });
     for (const event of recordTrace(true)) projection.project(event);
 
-    expect(emit.mock.calls.filter(([channel]) => channel === 'agent:session')).toHaveLength(1);
-    expect(emit).toHaveBeenCalledWith('agent:event', expect.objectContaining({
-      type: 'tool_use',
+    expect(publish).toHaveBeenCalledWith('project-1', expect.objectContaining({
+      kind: 'runtime.session',
+      agentId: 'implementer',
+    }));
+    expect(publish).toHaveBeenCalledWith('project-1', expect.objectContaining({
+      kind: 'runtime.tool.started',
       invocationId: 'inv-1',
     }));
-    expect(emit).toHaveBeenCalledWith('agent:event', expect.objectContaining({ type: 'done' }));
-    expect(emit.mock.calls.some(([channel, payload]) => (
-      channel === 'agent:event' && (payload as { type?: string }).type === 'text'
+    expect(publish).toHaveBeenCalledWith('project-1', expect.objectContaining({
+      kind: 'runtime.completed',
+    }));
+    expect(publish.mock.calls.some(([, event]) => (
+      (event as { kind?: string }).kind === 'runtime.text.delta'
     ))).toBe(false);
   });
 });

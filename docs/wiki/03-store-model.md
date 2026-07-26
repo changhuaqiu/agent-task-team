@@ -259,15 +259,16 @@ Team Runtime 缓存是派生缓存，不是新的事实源。缓存只复用 `re
 
 store 监听 daemon 推送的实时事件，并将其映射成前端状态：
 
-- `terminal:data`
-  - 写入 `terminalLogs`
-- `agent:event`
-  - 映射到聊天流、tool event、streaming content、进度信息
-- `agent:session`
-  - 更新执行会话，并写入 `agentSessions[conversationId][agentId]`
+- `project:view`
+  - 统一接收 Runtime/ACP/tmux 的项目展示信封
+  - 先校验 `version` 和 `projectId === selectedConversationId`
+  - `runtime.*` 映射到聊天流、tool event、活动态和 session
+  - `terminal.output` 写入 `terminalLogs`
+  - `terminal.exited` 只更新浏览器展示态，不推进任务或重新派发
+  - 执行控制由服务端 Inbox/Harness 拥有
+- `runtime.session`
+  - 通过 `project:view` 更新执行会话，并写入 `agentSessions[conversationId][agentId]`
   - 前端成员配置面板读取该缓存展示调试用 CLI session id，避免普通配置流程依赖实现细节
-- `terminal:exit`
-  - 更新 agentStatus 与退出信息
 - `task.sync`
   - 文件变更触发的任务同步事件（来自 TaskFileWatcher）
   - payload: `{ projectPath, conversationId, tasks: ParsedTask[], blockers: ParsedBlocker[] }`
@@ -276,11 +277,10 @@ store 监听 daemon 推送的实时事件，并将其映射成前端状态：
   - 新 blocker → 调用 `openBlocker()`
 - `task.assigned`
   - 任务分配事件（来自 `task_assign` 工具调用）
-  - store 收到后触发 `dispatchToAgent({ agentId, referencedTaskId })`
-- `task.ready`
-  - 依赖满足事件（来自 TaskFileWatcher 依赖解析）
-  - 当任务的所有依赖都 `done` 且该任务有 Agent 分配时触发
-  - store 收到后自动将 `pending` → `in_progress` 并 dispatch Agent
+  - store 收到后只更新展示；服务端 wakeup/Harness 负责执行
+- `task.wakeup`
+  - owner ready、依赖满足、review/test/recovery 等服务端提示
+  - store 收到后只展示，不派发 Agent、不改变领域状态
 
 这使得”执行输出”不再只是终端文本，也会体现在聊天和持久化记录里。
 
