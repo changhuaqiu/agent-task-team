@@ -156,6 +156,27 @@ export function isAcpResourceNotFound(error: unknown): boolean {
     || (typeof candidate.message === 'string' && /resource not found/i.test(candidate.message));
 }
 
+export function describeAcpSessionLoadFailure(error: unknown, sessionId: string): {
+  diagnostic: string;
+  visibleMessage: string;
+  reasonCode: Extract<
+    AcpFailureReasonCode,
+    'acp_session_not_found' | 'acp_session_load_failed'
+  >;
+} {
+  const diagnostic = `ACP session load failed for ${sessionId}: ${
+    error instanceof Error ? error.message : String(error)
+  }`;
+  const resourceNotFound = isAcpResourceNotFound(error);
+  return {
+    diagnostic,
+    visibleMessage: resourceNotFound
+      ? '之前的 Agent 会话已失效，系统已重置会话。请重新发送本条消息。'
+      : diagnostic,
+    reasonCode: resourceNotFound ? 'acp_session_not_found' : 'acp_session_load_failed',
+  };
+}
+
 function processExitMessage(code: number | null, signal: NodeJS.Signals | null, stderr: string): string {
   const suffix = stderr.trim() ? `; stderr: ${sanitizeAcpDiagnostic(stderr.trim())}` : '';
   return `ACP process exited (code ${code ?? 'null'}, signal ${signal ?? 'none'})${suffix}`;
@@ -531,12 +552,16 @@ export class AcpBackend implements AgentBackend {
                 });
                 markProtocolActivity();
               } catch (error) {
-                const message = `ACP session load failed for ${sessionId}: ${error instanceof Error ? error.message : String(error)}`;
-                emit({ type: 'error', content: message, sessionId }, true);
+                const failure = describeAcpSessionLoadFailure(error, sessionId);
+                emit({
+                  type: 'error',
+                  content: failure.visibleMessage,
+                  sessionId,
+                }, true);
                 finalize(
                   'failed',
-                  isAcpResourceNotFound(error) ? 'acp_session_not_found' : 'acp_session_load_failed',
-                  message,
+                  failure.reasonCode,
+                  failure.diagnostic,
                 );
                 return;
               }

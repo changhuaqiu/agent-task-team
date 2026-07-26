@@ -443,6 +443,114 @@ describe('session-repo', () => {
     expect(sessionRepo.getById('ses-1')?.status).toBe('active');
   });
 
+  it('backfills a compatible legacy generation from its latest successful invocation', () => {
+    sessionRepo.create({
+      id: 'ses-1',
+      conversationId: 'conv-1',
+      agentId: 'agent-a',
+      taskId: 'task-1',
+    });
+    invocationRepo.create({
+      id: 'inv-1',
+      conversation_id: 'conv-1',
+      agent_id: 'agent-a',
+      session_id: 'ses-1',
+      engine: 'codex',
+      account_id: 'account-openai',
+    });
+    sessionRepo.confirmRuntimeSessionId('ses-1', 'codex-session', 'inv-1');
+
+    expect(sessionRepo.sealIfExecutionProfileChanged('ses-1', {
+      engine: 'codex',
+      runtimeId: 'codex-cli',
+      accountId: 'account-openai',
+    })).toBe(false);
+    expect(sessionRepo.getById('ses-1')).toMatchObject({
+      status: 'active',
+      engine: 'codex',
+      runtime_id: 'codex-cli',
+      account_id: 'account-openai',
+    });
+  });
+
+  it('treats blank and absent account ids as the same execution profile', () => {
+    sessionRepo.create({
+      id: 'ses-1',
+      conversationId: 'conv-1',
+      agentId: 'agent-a',
+      taskId: 'task-1',
+      executionProfile: {
+        engine: 'codex',
+        runtimeId: 'codex-cli',
+      },
+    });
+
+    expect(sessionRepo.sealIfExecutionProfileChanged('ses-1', {
+      engine: 'codex',
+      runtimeId: 'codex-cli',
+      accountId: '',
+    })).toBe(false);
+    expect(sessionRepo.getById('ses-1')?.status).toBe('active');
+  });
+
+  it('seals a Codex generation before Claude can load its runtime session id', () => {
+    sessionRepo.create({
+      id: 'ses-1',
+      conversationId: 'conv-1',
+      agentId: 'agent-a',
+      taskId: 'task-1',
+    });
+    invocationRepo.create({
+      id: 'inv-1',
+      conversation_id: 'conv-1',
+      agent_id: 'agent-a',
+      session_id: 'ses-1',
+      engine: 'codex',
+      account_id: 'account-openai',
+    });
+    sessionRepo.confirmRuntimeSessionId('ses-1', 'codex-session', 'inv-1');
+
+    expect(sessionRepo.sealIfExecutionProfileChanged('ses-1', {
+      engine: 'claude',
+      runtimeId: 'claude-cli',
+      accountId: 'account-anthropic',
+    })).toBe(true);
+    expect(sessionRepo.getById('ses-1')).toMatchObject({
+      status: 'sealed',
+      seal_reason: 'runtime_profile_changed',
+      cli_session_id: 'codex-session',
+    });
+  });
+
+  it.each([
+    {
+      label: 'runtime',
+      next: { engine: 'codex', runtimeId: 'codex-remote', accountId: 'account-openai' },
+    },
+    {
+      label: 'account',
+      next: { engine: 'codex', runtimeId: 'codex-cli', accountId: 'account-other' },
+    },
+  ])('seals an established generation when its $label changes', ({ next }) => {
+    sessionRepo.create({
+      id: 'ses-1',
+      conversationId: 'conv-1',
+      agentId: 'agent-a',
+      taskId: 'task-1',
+      executionProfile: {
+        engine: 'codex',
+        runtimeId: 'codex-cli',
+        accountId: 'account-openai',
+      },
+    });
+
+    expect(sessionRepo.sealIfExecutionProfileChanged('ses-1', next)).toBe(true);
+    expect(sessionRepo.getById('ses-1')).toMatchObject({
+      status: 'sealed',
+      seal_reason: 'runtime_profile_changed',
+    });
+  });
+
   it('atomically confirms runtime binding and successful invocation', () => {
     sessionRepo.create({ id: 'ses-1', conversationId: 'conv-1', agentId: 'agent-a', taskId: 'task-1' });
     invocationRepo.create({

@@ -64,6 +64,43 @@ describe('SQLite Foundation', () => {
     expect(row.v).toBeGreaterThanOrEqual(1);
   });
 
+  it('backfills legacy session engine and account from the latest successful invocation', () => {
+    const now = new Date().toISOString();
+    db.prepare(
+      'INSERT INTO conversation (id,title,status,created_at,updated_at) VALUES (?,?,?,?,?)',
+    ).run('conv-profile', 'Profile', 'active', now, now);
+    db.prepare(
+      `INSERT INTO agent_session (
+        id,conversation_id,agent_id,task_id,seq,status,created_at,engine,runtime_id,account_id
+      ) VALUES (?,?,?,?,?,'active',?,NULL,NULL,NULL)`,
+    ).run('ses-profile', 'conv-profile', 'mario', 'task-profile', 0, now);
+    db.prepare(
+      `INSERT INTO invocation (
+        id,conversation_id,agent_id,session_id,status,engine,account_id,created_at,updated_at
+      ) VALUES (?,?,?,?,'succeeded',?,?,?,?)`,
+    ).run(
+      'inv-profile',
+      'conv-profile',
+      'mario',
+      'ses-profile',
+      'codex',
+      'account-openai',
+      now,
+      now,
+    );
+    db.prepare('DELETE FROM _schema_version WHERE version=53').run();
+
+    applyMigrations(db);
+
+    expect(db.prepare(
+      'SELECT engine,runtime_id,account_id FROM agent_session WHERE id=?',
+    ).get('ses-profile')).toEqual({
+      engine: 'codex',
+      runtime_id: null,
+      account_id: 'account-openai',
+    });
+  });
+
   it('enforces GitHub Issue delivery and repository Issue uniqueness', () => {
     const indexes = db.prepare(
       "PRAGMA index_list('github_issue_ingress')",
@@ -293,7 +330,7 @@ describe('SQLite Foundation', () => {
     expect(db.prepare('SELECT version FROM _schema_version WHERE version = 40').get())
       .toEqual({ version: 40 });
     expect(db.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-      .toEqual({ version: 52 });
+      .toEqual({ version: 53 });
   });
 
   it('repairs v26-v40 checkpoints whose migration collision skipped autonomous delivery tables', () => {
@@ -323,7 +360,7 @@ describe('SQLite Foundation', () => {
           'autonomous_delivery_advancement_request',
         ]));
         expect(checkpoint.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-          .toEqual({ version: 52 });
+          .toEqual({ version: 53 });
         expect(checkpoint.pragma('foreign_key_check')).toEqual([]);
       } finally {
         checkpoint.close();

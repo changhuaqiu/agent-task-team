@@ -7,6 +7,9 @@ export interface AgentSessionRow {
   cli_session_id: string | null;
   conversation_id: string;
   agent_id: string;
+  engine: string | null;
+  runtime_id: string | null;
+  account_id: string | null;
   isolation_key: string;
   task_id: string;
   seq: number;
@@ -22,6 +25,12 @@ export interface AgentSessionRow {
 export type SessionIdentityBindResult =
   | { status: 'bound' | 'unchanged'; current: string }
   | { status: 'mismatch'; current: string };
+
+export interface SessionExecutionProfile {
+  engine: string;
+  runtimeId: string;
+  accountId?: string;
+}
 
 export const sessionRepo = {
   findActive(agentId: string, taskId: string): AgentSessionRow | undefined {
@@ -53,14 +62,29 @@ export const sessionRepo = {
     taskId?: string;
     seq?: number;
     isolationKey?: string;
+    executionProfile?: SessionExecutionProfile;
   }): AgentSessionRow {
     const now = new Date().toISOString();
     getDb()
       .prepare(
-        `INSERT INTO agent_session (id, conversation_id, agent_id, isolation_key, task_id, seq, status, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, 'active', ?)`,
+        `INSERT INTO agent_session (
+          id, conversation_id, agent_id, engine, runtime_id, account_id,
+          isolation_key, task_id, seq, status, created_at
+        )
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)`,
       )
-      .run(input.id, input.conversationId, input.agentId, input.isolationKey ?? '', input.taskId ?? '', input.seq ?? 0, now);
+      .run(
+        input.id,
+        input.conversationId,
+        input.agentId,
+        input.executionProfile?.engine ?? null,
+        input.executionProfile?.runtimeId ?? null,
+        input.executionProfile?.accountId ?? null,
+        input.isolationKey ?? '',
+        input.taskId ?? '',
+        input.seq ?? 0,
+        now,
+      );
     return sessionRepo.getById(input.id)!;
   },
 
@@ -71,6 +95,7 @@ export const sessionRepo = {
     taskId?: string;
     seq?: number;
     isolationKey?: string;
+    executionProfile?: SessionExecutionProfile;
   }): AgentSessionRow {
     return getDb().transaction(() => {
       const existing = sessionRepo.findActiveByConversation(
@@ -218,6 +243,51 @@ export const sessionRepo = {
 
       sessionRepo.seal(id, 'runtime_session_load_failed');
       return sessionRepo.getById(id)?.status === 'sealed';
+    })();
+  },
+
+  sealIfExecutionProfileChanged(id: string, profile: SessionExecutionProfile): boolean {
+    return getDb().transaction(() => {
+      const session = sessionRepo.getById(id);
+      if (!session || session.status !== 'active') return false;
+
+      const latestSuccessful = getDb()
+        .prepare(
+          `SELECT engine,account_id
+           FROM invocation
+           WHERE session_id = ? AND status = 'succeeded'
+           ORDER BY created_at DESC,id DESC
+           LIMIT 1`,
+        )
+        .get(id) as { engine: string | null; account_id: string | null } | undefined;
+      const establishedEngine = session.engine ?? latestSuccessful?.engine ?? null;
+      const establishedAccountIdValue = session.engine !== null
+        ? session.account_id
+        : latestSuccessful?.account_id ?? null;
+      const establishedAccountId = establishedAccountIdValue?.trim() || null;
+      const requestedAccountId = profile.accountId?.trim() || null;
+      const incompatible = (
+        (establishedEngine !== null && establishedEngine !== profile.engine)
+        || (session.runtime_id !== null && session.runtime_id !== profile.runtimeId)
+        || (
+          establishedEngine !== null
+          && establishedAccountId !== requestedAccountId
+        )
+      );
+
+      if (incompatible) {
+        sessionRepo.seal(id, 'runtime_profile_changed');
+        return sessionRepo.getById(id)?.status === 'sealed';
+      }
+
+      getDb()
+        .prepare(
+          `UPDATE agent_session
+           SET engine = ?, runtime_id = ?, account_id = ?
+           WHERE id = ? AND status = 'active'`,
+        )
+        .run(profile.engine, profile.runtimeId, requestedAccountId, id);
+      return false;
     })();
   },
 

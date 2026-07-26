@@ -23,6 +23,7 @@
 - [x] dispatch 前修复“有失败历史但从未成功”的遗留 binding。
 - [x] 固定无 taskId 的 Session cwd，区分 `Resource not found` 并封存失效 generation。
 - [x] 将持久化的普通 load failure 作为下一次独立 dispatch 的安全换代依据。
+- [x] 持久化 Session 执行 Profile，并在 engine/runtime/account 改变时于 dispatch 前自动换代。
 
 ## 前端
 

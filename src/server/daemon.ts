@@ -156,6 +156,14 @@ const RUNTIME_ENGINE_MAP: Record<string, CliEngine> = {
   'mock-runtime': 'mock',
 };
 
+const DEFAULT_RUNTIME_ID_BY_ENGINE: Record<CliEngine, string> = {
+  opencode: 'opencode-local',
+  claude: 'claude-cli',
+  codex: 'codex-cli',
+  gemini: 'gemini-cli',
+  mock: 'mock-runtime',
+};
+
 /** Default CLI idle timeout (ms). Configurable via CLI_TIMEOUT_MS env. 0 = disabled. */
 const DEFAULT_TIMEOUT_MS = 300_000; // 5 min
 const STRIP_ANSI_RE = /\x1b\[[0-9;]*[a-zA-Z]|\x1b\].*?\x07|\x1b[()>]|\r/g;
@@ -751,6 +759,7 @@ export default function registerDaemon(io: IOServer) {
         runtimeId && runtimeId in RUNTIME_ENGINE_MAP ? RUNTIME_ENGINE_MAP[runtimeId] : undefined;
       const engine: CliEngine =
         engineFromRuntime || (rawEngine && rawEngine in ENGINE_COMMAND ? rawEngine : 'opencode');
+      const effectiveRuntimeId = runtimeId?.trim() || DEFAULT_RUNTIME_ID_BY_ENGINE[engine];
       primaryCommand = ENGINE_COMMAND[engine];
 
       const targetNodeId = opencodeBridgeUrl
@@ -778,7 +787,7 @@ export default function registerDaemon(io: IOServer) {
         fromAgentId,
         toNodeId: targetNodeId,
         toAgentId: agentId,
-        runtimeId: runtimeId ?? engine,
+        runtimeId: effectiveRuntimeId,
         payload: {
           prompt: prompt || '',
           contextRefs: [
@@ -818,7 +827,25 @@ export default function registerDaemon(io: IOServer) {
       // --- Session & Invocation tracking (SQLite) ---
       // Use conversationId for session scoping (project-level session per agent)
       const sessionIsolationKey = evaluation ? `evaluation:${evaluation.executionId}` : '';
+      const sessionExecutionProfile = {
+        engine,
+        runtimeId: effectiveRuntimeId,
+        accountId: accountId?.trim() || undefined,
+      };
       let existingSession = sessionRepo.findActiveByConversation(agentId, sessionConvId, sessionIsolationKey);
+
+      if (
+        existingSession
+        && sessionRepo.sealIfExecutionProfileChanged(
+          existingSession.id,
+          sessionExecutionProfile,
+        )
+      ) {
+        console.warn(
+          `[daemon] rotating session ${existingSession.id} for ${agentId} in ${sessionConvId} after runtime profile change`,
+        );
+        existingSession = undefined;
+      }
 
       if (existingSession && sessionRepo.sealIfLatestInvocationLoadFailed(existingSession.id)) {
         console.warn(
@@ -836,6 +863,7 @@ export default function registerDaemon(io: IOServer) {
           taskId: taskId || undefined,
           seq: nextSeq,
           isolationKey: sessionIsolationKey,
+          executionProfile: sessionExecutionProfile,
         });
       }
       if (
@@ -967,7 +995,7 @@ export default function registerDaemon(io: IOServer) {
             'gen_ai.operation.name': 'invoke_agent',
             'gen_ai.agent.name': agentId,
             'ath.runtime.engine': engine,
-            'ath.runtime.id': runtimeId ?? engine,
+            'ath.runtime.id': effectiveRuntimeId,
             'ath.dispatch.source': dispatchSource ?? 'user',
             'ath.context.scenario': contextScenario,
           },

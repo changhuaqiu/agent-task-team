@@ -50,7 +50,10 @@ interface LogicalAgentSession {
 7. 已有成功 Invocation 确认的 runtime session 在 timeout、cancel、adapter 退出后不轮换；下一轮仍尝试恢复同一 runtime session。
 8. 新 runtime session 只有在至少一个 Invocation 成功完成后才视为 confirmed。首次 Invocation 失败、取消或超时时，该 binding 属于 unconfirmed，可以通过 compare-and-clear 释放；下一次执行重新 `session/new`，不得尝试加载未落盘的 resource。
 9. daemon 异常退出可能遗留 unconfirmed binding；下一次 dispatch 若确认该逻辑 Session 存在历史 Invocation 但从未成功，必须在创建新 Invocation 前清除该 binding。
-10. runtime/account 变化需要显式 rotate generation；本次不提供自动 rotate。
+10. Runtime Session 必须绑定创建它的执行 Profile（`engine + runtimeId + accountId`）。下一次 dispatch
+    选择的执行 Profile 与当前 generation 不同时，daemon 必须在创建 Invocation、调用
+    `session/load` 之前封存旧 generation 为 `runtime_profile_changed`，并创建新 generation；
+    禁止把一个 Codex/OpenCode/Claude 或其他账号创建的 runtime session id 交给另一个执行 Profile 加载。
 11. 浏览器 Session 状态只用于展示；服务端缺值时不得使用 localStorage 值恢复执行。
 12. 禁止 `default` scope 参与正式项目 dispatch；缺少 project/conversation id 时必须拒绝。
 13. Runtime Session 的工作目录是恢复身份的一部分。同一 Logical Agent Session 的所有 Invocation 必须使用稳定 cwd；无任务 ID 的发送不得用时间戳生成不同目录。
@@ -66,6 +69,9 @@ interface LogicalAgentSession {
 - 有 `resumeSessionId` 但 capability 为 false：失败，reason code 为 `acp_resume_unsupported`。
 - `session/load` 失败：失败，reason code 为 `acp_session_load_failed`。
 - `session/load` 明确返回 ACP `Resource not found`：失败，reason code 为 `acp_session_not_found`；daemon 封存当前 generation，下一次 dispatch 重新 provision。失败的当前 Invocation 不自动重放 prompt，避免未来 adapter 在错误响应前产生副作用时造成重复执行。
+- dispatch 前比较当前 generation 记录的 `engine + runtimeId + accountId` 与本次解析出的执行 Profile；
+  不一致时先换代再执行 `session/new`。历史 generation 若尚未记录 Profile，则用最近一次成功
+  Invocation 的 engine/account 校验；兼容时补记当前 Profile，不兼容时直接换代。
 - 若最近一次 Invocation 已持久化为 `acp_session_load_failed`，下一次 dispatch 在创建 Invocation 之前封存旧 generation 并重新 provision；不得在同一次失败 Invocation 内 fresh retry。
 - 当前 prompt 的所有 `session/update` 必须匹配绑定 id。
 
@@ -107,3 +113,5 @@ interface LogicalAgentSession {
 8. 首次 Invocation 被取消后，下一次 dispatch 不 load 未落盘 id，而是重新执行 `session/new`。
 9. 无 taskId 的同项目同 Agent 多轮执行使用同一 cwd；确认后的资源不存在只导致当前 generation 封存，不会永久重复 load 同一失效 id。
 10. adapter 仅返回 `Internal error` 的 load failure 不会自动重放当前 prompt；下一次独立 dispatch 会换代并成功进入 `session/new`。
+11. Codex 创建并确认的 session 在 Agent 改绑 Claude（或更换 runtime/account）后，下一次 dispatch
+    不调用旧 id 的 `session/load`，而是在当前 Invocation 前换代并执行 `session/new`。

@@ -17,6 +17,7 @@
 - [x] 已确认 Session 的 load 失败仍然失败关闭，不在同一 Invocation 内静默轮换或重放 prompt。
 - [x] 无 taskId 的多轮执行不会因 cwd 漂移导致 runtime resource 丢失。
 - [x] `Resource not found` 立即封存失效 generation；普通 load 错误持久化并只在下一次独立 dispatch 前换代。
+- [x] 执行 Profile 改变时先封存旧 generation，禁止跨 engine/runtime/account 加载 runtime session id。
 
 ## 一致性
 
@@ -31,4 +32,5 @@
 - [x] ACP resume 单元/集成测试通过。
 - [x] 两项目 × 两 Agent × 三轮矩阵通过。
 - [x] 三个真实 runtime 的 new + load smoke 通过。
+- [x] 历史 Profile 回填、相同 Profile 复用及跨 Profile dispatch 前换代测试。
 - [x] 类型检查、全量测试和生产构建通过。

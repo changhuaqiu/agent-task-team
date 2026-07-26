@@ -278,6 +278,12 @@ Session binding 由服务端 repository 作为唯一事实源。浏览器只显�
 
 同一 Logical Agent Session 的 cwd 是恢复契约的一部分。无 taskId dispatch 使用稳定的 `adhoc` workdir key，而不是时间戳目录。`session/load` 的 ACP `Resource not found` 单独映射为 `acp_session_not_found` 并封存失效 generation；普通协议、认证或暂时性加载失败的当前 Invocation 继续 fail-closed。若下一次独立 dispatch 发现最近 Invocation 已持久化为 `acp_session_load_failed`，它会先封存旧 generation 再 fresh provision，但不会重放失败的上一轮 prompt。
 
+Runtime Session 只能由创建它的执行 Profile 恢复。Logical Session generation 持久化
+`engine + runtimeId + accountId`；dispatch 解析出不同 Profile 时必须在创建 Invocation 前封存
+旧 generation 并 fresh provision，不能等另一个 ACP adapter 对旧 id 返回
+`Resource not found`。历史 generation 通过最近一次成功 Invocation 的 engine/account 完成
+兼容性校验与 Profile 补记。
+
 Runtime Session binding 分为 unconfirmed 与 confirmed 两个生命周期阶段：首次 `session/new` 返回的 id 会用于当前 Invocation，但只有 Invocation 成功完成后才被视为可恢复资源。若首次 Invocation 被取消、超时或失败，daemon 使用 compare-and-clear 释放该 unconfirmed binding；下一轮重新 `session/new`。已经有成功 Invocation 的 binding 属于 confirmed；普通 load 失败仍然失败关闭，只有 runtime 明确确认资源不存在时才封存失效 generation，且不在失败 Invocation 内自动重放 prompt。
 
 ACP `agent_message_chunk` 是文本增量而非消息边界。socket 逐 chunk 广播；持久化层在 Invocation 内合并连续文本，并以工具、错误和 done 作为分段边界。

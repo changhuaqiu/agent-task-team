@@ -14,7 +14,11 @@
 import { describe, it, expect } from 'vitest';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { AcpBackend, isAcpResourceNotFound } from './acpBackend';
+import {
+  AcpBackend,
+  describeAcpSessionLoadFailure,
+  isAcpResourceNotFound,
+} from './acpBackend';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -25,6 +29,17 @@ describe('isAcpResourceNotFound', () => {
     expect(isAcpResourceNotFound({ code: -32002, message: 'missing' })).toBe(true);
     expect(isAcpResourceNotFound(new Error('Resource not found: session-1'))).toBe(true);
     expect(isAcpResourceNotFound(new Error('authentication failed'))).toBe(false);
+  });
+
+  it('keeps the raw diagnostic internal and gives the user an actionable retry message', () => {
+    expect(describeAcpSessionLoadFailure(
+      new Error('Resource not found: missing-session'),
+      'missing-session',
+    )).toEqual({
+      diagnostic: 'ACP session load failed for missing-session: Resource not found: missing-session',
+      visibleMessage: '之前的 Agent 会话已失效，系统已重置会话。请重新发送本条消息。',
+      reasonCode: 'acp_session_not_found',
+    });
   });
 });
 

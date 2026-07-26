@@ -490,6 +490,13 @@ Daemon 不接受浏览器缓存作为会话恢复依据。正式 dispatch 必须
 
 Runtime Session 的 cwd 也必须稳定：无 taskId 的同项目同 Agent 使用固定 `task-adhoc/workdir`，不能按 dispatch 时间戳换目录。ACP 明确返回 `Resource not found` 时使用 `acp_session_not_found`，daemon 将失效 generation 封存为 `runtime_resource_not_found`。若 adapter 只返回普通 `acp_session_load_failed`，当前 Invocation 仍失败关闭且不重放 prompt；下一次独立 dispatch 发现该持久失败后封存旧 generation 为 `runtime_session_load_failed`，再创建新 generation，避免永久重复加载已失效绑定。
 
+Runtime Session 还绑定创建它的执行 Profile：`engine + runtimeId + accountId`。daemon 在创建
+Invocation 前比较本次解析出的 Profile；任一字段变化都先把旧 generation 封存为
+`runtime_profile_changed`，再创建新 generation 并走 `session/new`。历史 Session 的 Profile
+由最近一次成功 Invocation 的 engine/account 安全回填；不匹配时不尝试 `session/load`。这避免
+把 Codex 创建的 session id 交给 Claude（或把一个账号的 session id 交给另一个账号）后才收到
+`Resource not found`。
+
 前端 `agentSessions` 是服务端状态的显示缓存：hydrate 时以 `/api/state.activeSessions` 整体替换，不与 localStorage 合并，也不在 `terminal:start` 中回传 session id。
 
 首次 `session/new` 的 resource 可能直到 prompt 成功结束才由 adapter 持久化。因此新 binding 在首个 Invocation 成功前属于 unconfirmed：若该轮取消、超时或失败，daemon 清除该 binding；若 daemon 在清理前异常退出，下一次 dispatch 会根据“存在 Invocation 记录但从未成功”的证据做同样的预检修复。已经成功使用过的 confirmed binding 不执行此恢复，load 失败时保留原 identity 并向用户报告错误。

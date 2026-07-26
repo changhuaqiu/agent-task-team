@@ -1662,6 +1662,38 @@ WHERE step IN (
 DROP TABLE IF EXISTS runtime_completion_step_receipt;
 `,
   },
+  {
+    version: 53,
+    run: (db) => {
+      const columns = new Set(
+        (db.prepare('PRAGMA table_info(agent_session)').all() as Array<{ name: string }>)
+          .map((column) => column.name),
+      );
+      if (!columns.has('engine')) db.exec('ALTER TABLE agent_session ADD COLUMN engine TEXT');
+      if (!columns.has('runtime_id')) db.exec('ALTER TABLE agent_session ADD COLUMN runtime_id TEXT');
+      if (!columns.has('account_id')) db.exec('ALTER TABLE agent_session ADD COLUMN account_id TEXT');
+      db.exec(`
+        UPDATE agent_session
+        SET engine = (
+              SELECT invocation.engine
+              FROM invocation
+              WHERE invocation.session_id = agent_session.id
+                AND invocation.status = 'succeeded'
+              ORDER BY invocation.created_at DESC, invocation.id DESC
+              LIMIT 1
+            ),
+            account_id = (
+              SELECT invocation.account_id
+              FROM invocation
+              WHERE invocation.session_id = agent_session.id
+                AND invocation.status = 'succeeded'
+              ORDER BY invocation.created_at DESC, invocation.id DESC
+              LIMIT 1
+            )
+        WHERE engine IS NULL
+      `);
+    },
+  },
 ];
 
 export function applyMigrations(db: Database.Database): void {
