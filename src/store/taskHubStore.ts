@@ -625,6 +625,7 @@ function mapSessionsToState(sessions: any[]): Record<string, Record<string, stri
 export interface TaskHubState {
   agentRoster: Agent[];
   hasHydrated: boolean;
+  runtimeRefreshInProgress: boolean;
   runtimeHydrationError: string | null;
   setHasHydrated: (hydrated: boolean) => void;
   refreshRuntimeCatalog: () => void;
@@ -809,6 +810,7 @@ export const useTaskHubStore = create<TaskHubState>()(
       // App slice (conversations, chat, events, blockers, accounts, settings, hydration)
       const appSlice = {
         hasHydrated: false,
+        runtimeRefreshInProgress: false,
         runtimeHydrationError: null as string | null,
         setHasHydrated: (hydrated: boolean) => set({ hasHydrated: hydrated }),
 
@@ -1131,12 +1133,16 @@ export const useTaskHubStore = create<TaskHubState>()(
           if (loadFromServerInFlight) return loadFromServerInFlight;
 
           const hydration = (async () => {
+            const isBackgroundRefresh = get().hasHydrated;
             // Keep readiness monotonic once the workspace is interactive.
             // ClientHome replaces the entire workspace when hasHydrated is
             // false, so regressing it during a refresh destroys local UI state
             // such as the chat draft and focus. On the first load the initial
             // value is already false; later loads only clear the prior error.
-            set({ runtimeHydrationError: null });
+            set({
+              runtimeHydrationError: null,
+              runtimeRefreshInProgress: isBackgroundRefresh,
+            });
             try {
             const oldData = localStorage.getItem('agent-task-hub-store-clean');
             if (oldData) {
@@ -1334,6 +1340,8 @@ export const useTaskHubStore = create<TaskHubState>()(
                 ? err.message
                 : 'Agent 运行配置加载失败，请重试。',
             });
+            } finally {
+              set({ runtimeRefreshInProgress: false });
             }
           })();
 

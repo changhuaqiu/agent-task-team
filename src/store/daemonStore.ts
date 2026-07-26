@@ -363,6 +363,10 @@ export const createDaemonSlice = (set: any, get: () => any) => {
       })),
 
     dispatchToAgent: async ({ agentId, prompt, referencedTaskId, source, fromAgentId, conversationId: explicitConvId, chainId, passId }: { agentId: string; prompt: string; referencedTaskId?: string; source?: 'user' | 'a2a' | 'workflow' | 'review_gate' | 'test_gate' | 'system'; fromAgentId?: string; conversationId?: string; chainId?: string; passId?: string }) => {
+      if ((source === undefined || source === 'user') && get().runtimeRefreshInProgress) {
+        console.warn(`[dispatch] ${agentId} deferred: runtime configuration refresh in progress`);
+        return false;
+      }
       const conversationId =
         explicitConvId ??
         (referencedTaskId ? get().getTaskById(referencedTaskId)?.conversationId : undefined) ??

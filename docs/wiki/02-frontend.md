@@ -28,7 +28,7 @@
 1. 调用 `loadFromServer()` 从 API rehydrate
 2. 完成后调用 `connectDaemon()`
 3. 首次数据尚未 settled 时展示“初始化中”状态
-4. 页面进入可交互态后，后续 `loadFromServer()` 作为后台刷新运行，不得让 `hasHydrated` 回退或卸载 `ProjectWorkspace`，以保留聊天草稿和焦点
+4. 页面进入可交互态后，后续 `loadFromServer()` 作为后台刷新运行，不得让 `hasHydrated` 回退或卸载 `ProjectWorkspace`，以保留聊天草稿和焦点；刷新期间 `runtimeRefreshInProgress=true`，输入仍可编辑但暂缓发送
 
 主界面结构：
 

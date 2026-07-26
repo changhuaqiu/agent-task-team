@@ -31,6 +31,7 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
   const selectedConversationId = useTaskHubStore((s) => s.selectedConversationId);
   const chatMessages = useTaskHubStore((s) => s.getChatMessagesForSelectedConversation());
   const addChatMessage = useTaskHubStore((s) => s.addChatMessage);
+  const runtimeRefreshInProgress = useTaskHubStore((s) => s.runtimeRefreshInProgress);
   const pendingDispatches = useTaskHubStore(useShallow((s) => s.pendingDispatches));
   const clearPendingDispatches = useTaskHubStore((s) => s.clearPendingDispatches);
   const forceSendDispatch = useTaskHubStore((s) => s.forceSendDispatch);
@@ -78,7 +79,7 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
   }, []);
 
   const handleSend = () => {
-    if (!inputValue.trim()) return;
+    if (!inputValue.trim() || runtimeRefreshInProgress) return;
 
     // Basic regex to detect `#TASK-XXX` references
     const taskRefMatch = inputValue.match(/#TASK-\d{3}/i);
@@ -427,7 +428,8 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
           <EmojiPickerButton onEmojiSelect={handleEmojiInsert} placement="top-end" />
           <button
             onClick={handleSend}
-            disabled={!inputValue.trim()}
+            disabled={!inputValue.trim() || runtimeRefreshInProgress}
+            title={runtimeRefreshInProgress ? '运行配置刷新完成后即可发送' : '发送消息'}
             className={cn(
               'shrink-0 flex items-center justify-center w-11 h-11 rounded-[4px] transition-all',
               'bg-[hsl(var(--accent))] text-[hsl(var(--bg-app))]',
@@ -441,7 +443,9 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
           </button>
         </div>
         <p className="text-[9px] font-medium text-[hsl(var(--text-tertiary))] mt-2 ml-1">
-          使用 #TASK-000 引用任务 · @Agent 提及智能体
+          {runtimeRefreshInProgress
+            ? '正在刷新运行配置，草稿会保留，刷新完成后即可发送'
+            : '使用 #TASK-000 引用任务 · @Agent 提及智能体'}
         </p>
       </div>
     </div>

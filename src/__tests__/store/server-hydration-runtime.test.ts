@@ -72,6 +72,7 @@ describe('server hydration runtime gate', () => {
     localStorage.clear();
     useTaskHubStore.setState({
       hasHydrated: false,
+      runtimeRefreshInProgress: false,
       runtimeHydrationError: null,
       conversations: [],
       selectedConversationId: null,
@@ -276,6 +277,67 @@ describe('server hydration runtime gate', () => {
     await refresh;
 
     expect(useTaskHubStore.getState().hasHydrated).toBe(true);
+  });
+
+  it('holds a Human Command while an interactive runtime refresh is in progress', async () => {
+    useTaskHubStore.setState({
+      hasHydrated: true,
+      conversations: [{
+        id: CONVERSATION_ID,
+        title: 'Interactive project',
+        goal: '',
+        status: 'active',
+        priority: 'p1',
+        projectPath: 'C:/fixture',
+        breakdownStatus: 'none',
+        createdAt: '2026-07-21T00:00:00.000Z',
+        updatedAt: '2026-07-21T00:00:00.000Z',
+      }],
+      selectedConversationId: CONVERSATION_ID,
+      selectedProjectId: CONVERSATION_ID,
+    });
+
+    let resolveState!: (response: Response) => void;
+    let markStateRequested!: () => void;
+    const stateResponse = new Promise<Response>((resolve) => { resolveState = resolve; });
+    const stateRequested = new Promise<void>((resolve) => { markStateRequested = resolve; });
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === '/api/state') {
+        markStateRequested();
+        return stateResponse;
+      }
+      if (url === '/api/accounts') return json({ accounts: [] });
+      if (url === '/api/agents') return json({ agents: [] });
+      if (url === '/api/skills' || url.includes('/skills')) return json([]);
+      return json({});
+    }));
+
+    const refresh = useTaskHubStore.getState().loadFromServer();
+    await stateRequested;
+    expect(useTaskHubStore.getState()).toMatchObject({
+      hasHydrated: true,
+      runtimeRefreshInProgress: true,
+    });
+
+    const accepted = await useTaskHubStore.getState().dispatchToAgent({
+      agentId: 'mario',
+      prompt: 'keep this human command in the composer',
+      conversationId: CONVERSATION_ID,
+      source: 'user',
+    });
+    expect(accepted).toBe(false);
+    expect(useTaskHubStore.getState().chatMessagesByConversation[CONVERSATION_ID]).toBeUndefined();
+
+    resolveState(json({
+      conversations: [],
+      tasks: [],
+      phases: [],
+      recentMessages: {},
+      activeSessions: [],
+    }));
+    await refresh;
+    expect(useTaskHubStore.getState().runtimeRefreshInProgress).toBe(false);
   });
 
   it('exits the loading skeleton with a retryable error when accounts time out', async () => {
