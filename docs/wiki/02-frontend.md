@@ -88,6 +88,7 @@ WebUI 有两个明确分离的入口：
   - 展示当前项目标题、goal、拆解状态
   - 聚合当前项目任务数
   - 内嵌 [`GlobalChatRoom.tsx`](../../src/components/task-hub/GlobalChatRoom.tsx)
+  - 自主交付状态与聊天区必须位于同一受限高度的纵向布局中；状态区使用自然高度但最多占工作区剩余高度的 40%，内容超出时在状态区内滚动；聊天区占剩余高度，Human Command 输入区必须始终留在工作区视口内
 - [`AgentBar.tsx`](../../src/components/task-hub/AgentBar.tsx)
   - 展示当前参与 Agent 与绑定状态
   - Agent 成员配置面板中保留调试用 CLI session id 展示与复制入口，便于排查 session 续接问题
