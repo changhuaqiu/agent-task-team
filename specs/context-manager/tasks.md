@@ -48,3 +48,4 @@
 - [x] T29 扩展完整 Team Harness 场景，并保留 init/iterate/wakeup 兼容解析
 - [x] T30 AssembledContext、ContextReport 与 Harness plan 暴露 snapshot id、fragment refs、omission 和 missing-required
 - [x] T31 通过 ContextManager 外部 seam 覆盖跨项目、私有、角色、过期、重复、Contributor 失败和预算裁剪测试
+- [x] T32 BudgetGuard 落实 required floor，防止可选上下文挤掉 required Project Context

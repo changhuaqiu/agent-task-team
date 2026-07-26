@@ -62,6 +62,34 @@ describe('BudgetGuard — tier + importance 语义', () => {
     expect(report.trimmed).toContain('tool');
   });
 
+  it('reserves the available budget for required context before optional context', () => {
+    const parts = [
+      {
+        layer: 'optional-tool',
+        content: 'T'.repeat(320),
+        tier: 'tool' as const,
+        importance: 1,
+      },
+      {
+        layer: 'required-project-context',
+        content: 'P'.repeat(160),
+        tier: 'project' as const,
+        importance: 0.1,
+        required: true,
+      },
+    ];
+
+    const { prompt, report } = composeWithBudget(
+      parts,
+      new ContextBudget({ maxTokens: 100, reserveRatio: 0 }),
+    );
+
+    expect(prompt).toContain('P'.repeat(160));
+    expect(prompt).not.toContain('T'.repeat(320));
+    expect(report.trimmed).toContain('optional-tool');
+    expect(report.trimmed).not.toContain('required-project-context');
+  });
+
   it('未超预算时所有层保留（legacy priority 调用方）', () => {
     const parts = [
       { layer: 'role', content: 'ROLE', priority: 0 },

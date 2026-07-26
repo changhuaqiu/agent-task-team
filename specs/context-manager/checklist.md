@@ -64,6 +64,7 @@
 - [x] Contributor 同步/异步失败被隔离并可观察，不吞掉其他上下文或泄露原始错误
 - [x] Snapshot 能区分实际加载、预算裁剪、策略省略、过期、越域和必需上下文缺失
 - [x] 必需上下文被场景或预算裁掉时 fail closed
+- [x] 可选 tool/project 上下文不能先占预算并挤掉 required 上下文
 - [x] planning/execution/review/verification/recovery/escalation 等场景可显式选择
 - [x] Harness plan 可携带本轮 ContextSnapshot
 - [x] 新增 ContextManager seam 测试、相关回归测试与类型检查通过

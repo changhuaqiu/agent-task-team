@@ -289,6 +289,13 @@ ContextReport + CheckpointPatch
 6. 大内容退化为 reference，而不是直接消失；
 7. 报告每项为何 included / omitted / referenced / stale。
 
+当前预算编译已落实 required floor：system 层按既有规则处理后，所有 required
+tool/project part 先于可选 part 竞争剩余预算；可选工具或项目上下文不得挤掉
+required Project Context、当前用户动作或交接内容。若 required 内容自身仍无法装入
+预算，则继续 fail closed，并通过 `missing-required` 与 `budget_trimmed` 暴露原因。
+required Skill 保留既有 `required_skill_not_loaded` 专用 reason code，但同样先参与
+required floor，并在自身无法装入时 fail closed。
+
 不能继续把“system 永不裁”理解为可无限增长。正确约束是：system 必须有独立硬预算，超过预算属于配置错误，应在 dispatch 前失败或降级，而不是带着 overflow 继续运行。
 
 ## 8. 当前实现对照

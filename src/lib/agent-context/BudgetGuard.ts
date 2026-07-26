@@ -12,6 +12,8 @@ export interface BudgetPart {
   importance?: number; // 0..1，越大越后裁
   scope?: string;
   private?: boolean;
+  /** Required parts reserve budget before optional tool/project context. */
+  required?: boolean;
   /** 产生该 part 的 agentId，私有可见性过滤用（spec §9） */
   source?: string;
 }
@@ -54,6 +56,12 @@ export function composeWithBudget(
   const available = budget.availableTokens();
   const ranked = parts.map(rank);
   const sorted = [...ranked].sort((a, b) => {
+    if (a.tier === 'system' || b.tier === 'system') {
+      return INCLUDE_ORDER[a.tier] - INCLUDE_ORDER[b.tier];
+    }
+    if (Boolean(a.part.required) !== Boolean(b.part.required)) {
+      return a.part.required ? -1 : 1;
+    }
     if (INCLUDE_ORDER[a.tier] !== INCLUDE_ORDER[b.tier]) {
       return INCLUDE_ORDER[a.tier] - INCLUDE_ORDER[b.tier];
     }

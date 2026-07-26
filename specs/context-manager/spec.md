@@ -312,6 +312,9 @@ interface ContextArtifact extends ContextFragment {
 - agent-private fragment 只对目标 agent 可见；role fragment 只对匹配 archetype 可见。
 - 过期 fragment 不进入 Prompt；Contributor 失败不得让其他来源丢失，但必须进入 omission 与 missing-required 报告。
 - 当前动作、验收目标、授权约束和 required Skill 是必需上下文；被场景策略或预算裁掉时必须 fail closed。
+- 预算选择必须先建立 required floor：system 规则处理后，required tool/project part
+  先于所有可选 part 占用剩余预算；只有 required 集合本身无法装入预算时才允许
+  `budget_trimmed` 并 fail closed，可选内容不得导致 `required_context_missing`。
 - Task 必须属于当前 conversation/project；越域 Task 在 ContextManager 与 Harness Planner 两层拒绝。
 - Snapshot id 对完整脱敏 manifest 使用 SHA-256；manifest 必须包含 scope、subject、visibility、source、consistency 与 delivery 投影。
 - required 失败也必须生成 error context span，提供脱敏的 missing-required 与 omission 观测证据。
@@ -330,7 +333,7 @@ interface ContextArtifact extends ContextFragment {
 - **改**：dispatch 经 `context-planner` 调 `assembleContext` + 显式传 budget；`layers/projectLayer.ts` 增加 id + scope；`layers/historyLayer.ts` / `taskContextLayer.ts` / `teamPackLayer.ts` 按 project_id 过滤；`src/server/repositories/session-repo.ts` 新增 `writeContextHealth`
 - **退役**：`src/lib/agent-context/PromptComposer.ts` 及只验证该包装的测试；仍有效的 role/team/collaboration/user-message/behavior layer 行为迁入各 layer 的同目录测试
 - **P2 改**：`src/server/a2a/context-builder.ts`（`renderDispatchPrompt` 退役，改为构造 a2aHandoff source）、`daemon.ts`（A2A 派发点改调 ContextManager）
-- **不改**：`a2a-possession-contract/` 语义、`BudgetGuard` / `ContextBudget` 算法（复用）、`cli-bridge-layer/`、15 个 `buildXxxLayer` 签名
+- **不改**：`a2a-possession-contract/` 语义、`ContextBudget` 容量模型、`cli-bridge-layer/`、15 个 `buildXxxLayer` 签名；`BudgetGuard` 在既有 tier + importance 选择前补 required floor
 - **测试**：ContextManager / scopeGuard / identity 边界 / ContextReport / MemoryHook NoOp 各配套 `.test.ts`；A2A 派发 prompt 等价性测试（降级前后行为对齐，P2）
 - **文档**：`specs/README.md`（草案→生效）、`docs/wiki/01-architecture.md` 上下文章节同步（AGENTS.md：实现必先改设计文档）
 
