@@ -81,3 +81,10 @@
 
 验证证据：静态架构测试、项目隔离/零副作用行为测试、服务端 Inbox/Harness
 测试、TypeScript、生产构建，以及全量 509 suites / 1410 passed / 1 skipped。
+
+## 8. 独立评审补充
+
+- Observability 面板的 snapshot、错误和异步返回按项目标识隔离；切换项目时旧项目数据不再可见。
+- span payload 缓存键由单独的 `spanId` 改为 `projectId + spanId`，防止不同项目复用相同 span id 时串数据。
+- `task.sync` 的查找和更新同时匹配 `projectId + taskId`，防止项目内局部 Task ID 跨项目串改。
+- 回归测试覆盖慢/失败加载、重复 span id 和重复 task id。

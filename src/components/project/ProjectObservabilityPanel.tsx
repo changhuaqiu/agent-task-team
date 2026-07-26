@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Activity, ChevronDown, ChevronRight, Clock3, RefreshCw, Wrench } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { AgentChainGraph, type ObservationChain } from './AgentChainGraph';
@@ -70,27 +70,47 @@ function Metric({ label, value, danger }: { label: string; value: string | numbe
 const SKILL_OUTCOME_LABEL = { loaded: '已加载', omitted: '未加载', trimmed: '已裁剪', failed: '失败' } as const;
 
 export function ProjectObservabilityPanel({ conversationId }: { conversationId?: string }) {
-  const [snapshot, setSnapshot] = useState<Snapshot>();
-  const [error, setError] = useState<string>();
-  const [loading, setLoading] = useState(false);
+  const activeProjectRef = useRef(conversationId);
+  activeProjectRef.current = conversationId;
+  const [snapshotState, setSnapshotState] = useState<{ projectId: string; snapshot: Snapshot }>();
+  const [errorState, setErrorState] = useState<{ projectId: string; message: string }>();
+  const [loadingProjectId, setLoadingProjectId] = useState<string>();
   const [expanded, setExpanded] = useState<string>();
   // 单 span 下钻：选中的 spanId（per-trace）+ payload 缓存
   const [selectedSpanId, setSelectedSpanId] = useState<string>();
   const [spanPayloads, setSpanPayloads] = useState<Record<string, Array<{ role: string; seq: number; content: string; byte_size: number; truncated: number }>>>();
+  const snapshot = snapshotState && snapshotState.projectId === conversationId ? snapshotState.snapshot : undefined;
+  const error = errorState && errorState.projectId === conversationId ? errorState.message : undefined;
+  const loading = loadingProjectId === conversationId;
 
   const load = async (signal?: AbortSignal) => {
-    if (!conversationId) { setSnapshot(undefined); return; }
-    setLoading(true);
+    const requestedProjectId = conversationId;
+    if (!requestedProjectId) { setSnapshotState(undefined); return; }
+    setLoadingProjectId(requestedProjectId);
     try {
-      const response = await fetch(`/api/observability?conversationId=${encodeURIComponent(conversationId)}`, { signal, cache: 'no-store' });
+      const response = await fetch(`/api/observability?conversationId=${encodeURIComponent(requestedProjectId)}`, { signal, cache: 'no-store' });
       if (!response.ok) throw new Error((await response.json()).error ?? `HTTP ${response.status}`);
-      setSnapshot(await response.json()); setError(undefined);
+      const nextSnapshot = await response.json() as Snapshot;
+      if (activeProjectRef.current === requestedProjectId && !signal?.aborted) {
+        setSnapshotState({ projectId: requestedProjectId, snapshot: nextSnapshot });
+        setErrorState(undefined);
+      }
     } catch (cause) {
-      if ((cause as Error).name !== 'AbortError') setError(cause instanceof Error ? cause.message : String(cause));
-    } finally { if (!signal?.aborted) setLoading(false); }
+      if ((cause as Error).name !== 'AbortError' && activeProjectRef.current === requestedProjectId) {
+        setErrorState({ projectId: requestedProjectId, message: cause instanceof Error ? cause.message : String(cause) });
+      }
+    } finally {
+      if (!signal?.aborted && activeProjectRef.current === requestedProjectId) setLoadingProjectId(undefined);
+    }
   };
 
   useEffect(() => {
+    setSnapshotState(undefined);
+    setErrorState(undefined);
+    setLoadingProjectId(conversationId);
+    setExpanded(undefined);
+    setSelectedSpanId(undefined);
+    setSpanPayloads(undefined);
     const controller = new AbortController();
     const initialTimer = window.setTimeout(() => void load(controller.signal), 0);
     const refresh = (event: { projectId?: string; conversationId?: string }) => {
@@ -108,7 +128,9 @@ export function ProjectObservabilityPanel({ conversationId }: { conversationId?:
 
   // 单 span payload 懒加载：选中 span 时按需拉取（仅在未缓存时）
   useEffect(() => {
-    if (!conversationId || !selectedSpanId || spanPayloads?.[selectedSpanId]) return;
+    if (!conversationId || !selectedSpanId) return;
+    const payloadCacheKey = `${conversationId}:${selectedSpanId}`;
+    if (spanPayloads?.[payloadCacheKey]) return;
     let cancelled = false;
     const params = new URLSearchParams({ conversationId, spanId: selectedSpanId });
     fetch(`/api/observability/span-payload?${params}`, { cache: 'no-store' })
@@ -117,9 +139,15 @@ export function ProjectObservabilityPanel({ conversationId }: { conversationId?:
         return (await response.json()).payloads as Array<{ role: string; seq: number; content: string; byte_size: number; truncated: number }>;
       })
       .then((payloads) => {
-        if (!cancelled) setSpanPayloads((current) => ({ ...current, [selectedSpanId]: payloads }));
+        if (!cancelled && activeProjectRef.current === conversationId) {
+          setSpanPayloads((current) => ({ ...current, [payloadCacheKey]: payloads }));
+        }
       })
-      .catch((cause) => { if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause)); });
+      .catch((cause) => {
+        if (!cancelled && activeProjectRef.current === conversationId) {
+          setErrorState({ projectId: conversationId, message: cause instanceof Error ? cause.message : String(cause) });
+        }
+      });
     return () => { cancelled = true; };
   }, [conversationId, selectedSpanId, spanPayloads]);
 
@@ -181,7 +209,7 @@ export function ProjectObservabilityPanel({ conversationId }: { conversationId?:
               {/* 单 span payload 下钻浮层 */}
               {open && selectedSpanId && (() => {
                 const span = trace.spans.find((s) => s.span_id === selectedSpanId);
-                const payloads = spanPayloads?.[selectedSpanId];
+                const payloads = spanPayloads?.[`${conversationId}:${selectedSpanId}`];
                 return span ? <div className="rounded-md border border-[hsl(var(--accent)/0.4)] bg-[hsl(var(--bg-app))] p-2">
                   <div className="mb-1.5 flex items-center justify-between">
                     <div className="text-[9px] font-semibold text-[hsl(var(--text-secondary))]">{span.kind === 'tool' ? (String(span.parsedAttributes?.['gen_ai.tool.name'] ?? span.name)) : span.name} · {span.kind}</div>

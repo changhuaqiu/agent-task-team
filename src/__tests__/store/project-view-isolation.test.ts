@@ -230,4 +230,40 @@ describe('project view isolation', () => {
       dispatchSource: 'user',
     }));
   });
+  it('scopes task.sync updates by project when task ids collide', () => {
+    const unchangedAt = '2026-07-26T00:00:00.000Z';
+    useTaskHubStore.setState({
+      tasks: [
+        {
+          id: 'TASK-001', conversationId: 'project-a', phaseId: '', title: 'A task',
+          description: '', status: 'pending', agentId: '', dependencies: [], artifacts: [],
+          createdAt: unchangedAt, updatedAt: unchangedAt,
+        },
+        {
+          id: 'TASK-001', conversationId: 'project-b', phaseId: '', title: 'B task',
+          description: '', status: 'pending', agentId: '', dependencies: [], artifacts: [],
+          createdAt: unchangedAt, updatedAt: unchangedAt,
+        },
+      ],
+    });
+
+    emitServerEvent('task.sync', {
+      projectId: 'project-a',
+      conversationId: 'project-a',
+      projectPath: 'C:/project-a',
+      tasks: [{
+        id: 'TASK-001', title: 'A task updated', deliverable: 'A only',
+        status: 'done', agent: 'mario', depends: [],
+      }],
+      blockers: [],
+    });
+
+    const state = useTaskHubStore.getState();
+    expect(state.tasks.find((task) => task.conversationId === 'project-a')).toMatchObject({
+      title: 'A task updated', description: 'A only', status: 'done', agentId: 'mario',
+    });
+    expect(state.tasks.find((task) => task.conversationId === 'project-b')).toMatchObject({
+      title: 'B task', description: '', status: 'pending', agentId: '', updatedAt: unchangedAt,
+    });
+  });
 });

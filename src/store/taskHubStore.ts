@@ -2698,7 +2698,7 @@ socket.on('task.sync', ({ projectId, projectPath: _projectPath, conversationId, 
   const store = useTaskHubStore.getState();
 
   for (const synced of syncedTasks) {
-    const existing = store.getTaskById(synced.id);
+    const existing = store.tasks.find((task) => task.id === synced.id && task.conversationId === projectId);
     if (!existing) {
       // New task from file — add to store
       useTaskHubStore.setState((state) => ({
@@ -2730,7 +2730,7 @@ socket.on('task.sync', ({ projectId, projectPath: _projectPath, conversationId, 
     if (changed) {
       useTaskHubStore.setState((state) => ({
         tasks: state.tasks.map((t) =>
-          t.id === synced.id
+          t.id === synced.id && t.conversationId === projectId
             ? {
                 ...t,
                 title: synced.title || t.title,

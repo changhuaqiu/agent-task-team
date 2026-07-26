@@ -7,6 +7,35 @@ vi.mock('@/components/project/AgentChainGraph', () => ({
   AgentChainGraph: ({ chains }: { chains: Array<{ nodes: Array<{ agentId: string }> }> }) => <div data-testid="agent-chain-graph">{chains.flatMap(chain => chain.nodes).map(node => node.agentId).join(' → ')}</div>,
 }));
 
+function snapshot(agentId: string, spanId = 'shared-span') {
+  return {
+    generatedAt: '2026-07-26T00:00:00Z',
+    summary: { traceCount: 1, agentCount: 1, toolCallCount: 0, failedTraceCount: 0, totalTokens: 1, averageDurationMs: 1 },
+    agents: [{ agentId, traceCount: 1, toolCallCount: 0, failedTraceCount: 0 }],
+    workflow: { agentEdges: [], taskChains: [] },
+    chains: [],
+    traces: [{
+      traceId: `${agentId}-trace`,
+      agentId,
+      status: 'ok',
+      startedAt: '2026-07-26T00:00:00Z',
+      durationMs: 1,
+      totalTokens: 1,
+      tools: [],
+      spans: [{
+        span_id: spanId,
+        parent_span_id: null,
+        name: 'agent.invoke',
+        kind: 'agent',
+        status: 'ok',
+        started_at: '2026-07-26T00:00:00Z',
+        durationMs: 1,
+        parsedAttributes: {},
+      }],
+    }],
+  };
+}
+
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 describe('ProjectObservabilityPanel', () => {
@@ -84,5 +113,56 @@ describe('ProjectObservabilityPanel', () => {
     expect(screen.getByText('必需缺失 1')).toBeDefined();
     expect(screen.getByText('省略 1')).toBeDefined();
     expect(screen.getByText(/Snapshot ctx_failed_trace/)).toBeDefined();
+  });
+  it('hides the previous project snapshot while the next project load is slow and then fails', async () => {
+    let resolveProjectB!: (value: Response) => void;
+    const projectBResponse = new Promise<Response>((resolve) => { resolveProjectB = resolve; });
+    vi.stubGlobal('fetch', vi.fn((input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes('conversationId=project-a')) {
+        return Promise.resolve({ ok: true, json: async () => snapshot('alpha') } as Response);
+      }
+      return projectBResponse;
+    }) as unknown as typeof fetch);
+
+    const view = render(<ProjectObservabilityPanel conversationId="project-a" />);
+    await waitFor(() => expect(screen.getAllByText('alpha').length).toBeGreaterThan(0));
+
+    view.rerender(<ProjectObservabilityPanel conversationId="project-b" />);
+    expect(screen.queryByText('alpha')).toBeNull();
+
+    resolveProjectB({ ok: false, status: 503, json: async () => ({ error: 'project-b unavailable' }) } as Response);
+    await waitFor(() => expect(screen.getByText('project-b unavailable')).toBeDefined());
+    expect(screen.queryByText('alpha')).toBeNull();
+  });
+
+  it('does not reuse a span payload when two projects have the same span id', async () => {
+    const payloadRequests: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes('/span-payload')) {
+        payloadRequests.push(url);
+        const content = url.includes('conversationId=project-a') ? 'payload from A' : 'payload from B';
+        return { ok: true, json: async () => ({ payloads: [{ role: 'completion', seq: 0, content, byte_size: content.length, truncated: 0 }] }) } as Response;
+      }
+      const agentId = url.includes('conversationId=project-a') ? 'alpha' : 'beta';
+      return { ok: true, json: async () => snapshot(agentId) } as Response;
+    }) as unknown as typeof fetch);
+
+    const view = render(<ProjectObservabilityPanel conversationId="project-a" />);
+    await waitFor(() => expect(screen.getAllByText('alpha').length).toBeGreaterThan(0));
+    fireEvent.click(screen.getAllByText('alpha').at(-1)!);
+    fireEvent.click(document.querySelector('button[title$="agent.invoke"]')!);
+    await waitFor(() => expect(screen.getByText('payload from A')).toBeDefined());
+
+    view.rerender(<ProjectObservabilityPanel conversationId="project-b" />);
+    await waitFor(() => expect(screen.getAllByText('beta').length).toBeGreaterThan(0));
+    fireEvent.click(screen.getAllByText('beta').at(-1)!);
+    fireEvent.click(document.querySelector('button[title$="agent.invoke"]')!);
+    await waitFor(() => expect(screen.getByText('payload from B')).toBeDefined());
+
+    expect(screen.queryByText('payload from A')).toBeNull();
+    expect(payloadRequests.some((url) => url.includes('conversationId=project-a'))).toBe(true);
+    expect(payloadRequests.some((url) => url.includes('conversationId=project-b'))).toBe(true);
   });
 });
