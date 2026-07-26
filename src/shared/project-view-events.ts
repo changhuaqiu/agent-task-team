@@ -13,6 +13,7 @@ export type ProjectViewEventKind =
   | 'runtime.warning'
   | 'runtime.usage'
   | 'runtime.completed'
+  | 'chat.message.persisted'
   | 'terminal.output'
   | 'terminal.exited';
 

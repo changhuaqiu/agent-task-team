@@ -94,7 +94,8 @@ describe('Runtime Event consumer projections', () => {
 
   it('projects messages and observability exactly once under replay', async () => {
     const events = recordTrace();
-    const messages = new RuntimeMessageProjection({ db });
+    const onProjected = vi.fn();
+    const messages = new RuntimeMessageProjection({ db, onProjected });
     const observability = new RuntimeObservabilityProjection({ db });
     const context = { signal: new AbortController().signal };
 
@@ -109,6 +110,11 @@ describe('Runtime Event consumer projections', () => {
     ]);
     expect(db.prepare('SELECT COUNT(*) count FROM runtime_message_projection').get())
       .toEqual({ count: 2 });
+    expect(onProjected).toHaveBeenCalledTimes(2);
+    expect(onProjected.mock.calls.map(([message]) => message.content)).toEqual([
+      'hello',
+      '🔧 使用工具：Shell',
+    ]);
     expect(db.prepare('SELECT COUNT(*) count FROM runtime_observability_projection').get())
       .toEqual({ count: events.length });
     expect(db.prepare(`

@@ -107,6 +107,21 @@ export const messageRepo = {
       .prepare(
         'SELECT * FROM chat_message WHERE conversation_id = ? ORDER BY created_at ASC, id ASC LIMIT ?',
       )
+        .all(convId, limit) as MessageRow[];
+  },
+
+  getLatestByConversation(convId: string, options?: { limit?: number }): MessageRow[] {
+    const limit = options?.limit ?? 50;
+    return getDb()
+      .prepare(
+        `SELECT * FROM (
+          SELECT * FROM chat_message
+          WHERE conversation_id = ?
+          ORDER BY created_at DESC, id DESC
+          LIMIT ?
+        )
+        ORDER BY created_at ASC, id ASC`,
+      )
       .all(convId, limit) as MessageRow[];
   },
 

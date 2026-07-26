@@ -11,6 +11,7 @@ import {
   RuntimeCompletionProcessManager,
 } from './runtime-completion-process-manager';
 import { DurableEffectOutbox } from './durable-effect-outbox';
+import type { MessageRow } from '../repositories/message-repo';
 
 let worker: PlatformEventRuntimeWorker | undefined;
 
@@ -26,6 +27,7 @@ export interface PlatformEventRuntimeWorkerOptions {
   projection?: RuntimeInvocationProjection;
   deliveryAdvancement?: DeliveryAdvancementPort;
   onObservabilityUpdated?: (projectId: string, invocationId: string) => void;
+  onMessageProjected?: (message: MessageRow) => void;
   effectOutbox?: WorkerEffects;
 }
 
@@ -52,7 +54,9 @@ export class PlatformEventRuntimeWorker {
       reliability: 'durable',
       handle: (event, { signal }) => this.projection.handle(event, signal),
     });
-    const messageProjection = new RuntimeMessageProjection();
+    const messageProjection = new RuntimeMessageProjection({
+      onProjected: resolved.onMessageProjected,
+    });
     this.dispatcher.register({
       id: 'runtime-message-projection:v1',
       pattern: 'runtime.*',

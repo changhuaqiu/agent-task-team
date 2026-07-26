@@ -1,19 +1,22 @@
 import type Database from 'better-sqlite3';
 import { getDb } from '../db';
 import { invocationRepo } from '../repositories/invocation-repo';
-import { messageRepo } from '../repositories/message-repo';
+import { messageRepo, type MessageRow } from '../repositories/message-repo';
 import { sessionRepo } from '../repositories/session-repo';
 import type { PlatformEventHandler } from './dispatcher';
 
 export interface RuntimeMessageProjectionOptions {
   db?: Database.Database;
+  onProjected?: (message: MessageRow) => void;
 }
 
 export class RuntimeMessageProjection {
   private readonly database?: Database.Database;
+  private readonly onProjected?: (message: MessageRow) => void;
 
   constructor(options: RuntimeMessageProjectionOptions = {}) {
     this.database = options.db;
+    this.onProjected = options.onProjected;
   }
 
   readonly handle: PlatformEventHandler = (event, { signal }) => {
@@ -24,11 +27,11 @@ export class RuntimeMessageProjection {
     const invocationId = event.invocationId;
     const projectAgentId = event.projectAgentId;
     const db = this.database ?? getDb();
-    db.transaction(() => {
+    const messageId = db.transaction(() => {
       const projected = db.prepare(
         `SELECT 1 FROM runtime_message_projection WHERE event_id=?`,
       ).get(event.eventId);
-      if (projected) return;
+      if (projected) return undefined;
       const evaluation = db.prepare(
         `SELECT 1 FROM eval_case_execution WHERE invocation_id=? LIMIT 1`,
       ).get(invocationId);
@@ -57,7 +60,18 @@ export class RuntimeMessageProjection {
         INSERT INTO runtime_message_projection (event_id,message_id,projected_at)
         VALUES (?, ?, ?)
       `).run(event.eventId, messageId ?? null, new Date().toISOString());
+      return messageId;
     }).immediate();
+    if (messageId) {
+      const message = messageRepo.getById(messageId);
+      if (message && this.onProjected) {
+        try {
+          this.onProjected(message);
+        } catch (error) {
+          console.warn('[runtime-message-projection] post-persistence notification failed:', error);
+        }
+      }
+    }
   };
 
   private messageContent(event: Parameters<PlatformEventHandler>[0]): {

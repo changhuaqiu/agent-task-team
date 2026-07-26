@@ -55,6 +55,17 @@ WebUI 只通过 `consumeProjectViewEvent(envelope)` 接收 Runtime 展示流。�
 结构化 Runtime 事件、ACP delta、tmux/bridge 原始输出可以共享该展示信封，但必须使用明确的 `kind`，不得继续把 plan/tool/usage/error/system 混入无约束的 `agent:event`。终端视图同时投影 ACP 文本与结构化 plan/tool/warning/completion 时间线，因此不再只对 tmux/bridge 有内容。
 
 Socket 断线不通过重放命令恢复；持久部分重新查询事实，瞬态 delta 和终端字节允许丢失。
+消息展示必须采用“实时提示 + 持久对账”：
+
+- Runtime 文本 delta 只负责低延迟显示，不是消息事实；
+- `RuntimeMessageProjection` 提交 `chat_message` 后发布 `chat.message.persisted` 展示通知，WebUI 按稳定消息 ID 和 Invocation 幂等合并；
+- WebUI 在 Socket 连接/重连及项目切换后调用只读消息快照接口，补齐断线或未订阅 room 期间错过的通知；快照返回最新有界窗口并保持时间升序，不能因会话超过窗口上限而永久遗漏最新消息；
+- 首屏或后台水合不得整表覆盖刷新期间刚收到的实时消息；服务端快照必须与当前展示投影合并，并在持久消息到达后替换同一 Invocation 的临时流式消息。
+- 每条持久消息（包括工具消息）必须映射为批次无关的稳定展示 ID；单条落库通知与整批快照不得生成不同展示形状。
+
+因此，刷新页面不是消息可见性的恢复协议。即使 `project:view` 丢失，持久 `chat_message`
+也会在重连或项目切换时被重新投影；即使快照请求与 Socket delta 并发，已显示消息也不会被
+旧快照回滚。
 
 ## 4. 项目隔离不变量
 
@@ -92,6 +103,7 @@ Socket 断线不通过重放命令恢复；持久部分重新查询事实，瞬�
 4. **项目事实双重隔离**：服务端只发项目 room 且信封携带 `projectId`；浏览器在变更 Store 前校验当前项目。
 5. **系统通道不夹带项目事实**：`io.emit` 仅允许真正的系统 catalog/health 信号；项目运行、任务、协作、observability 和错误必须 room-scoped。
 6. **兼容路径有生命周期**：每条兼容路径必须有当前生产者、原因、退出条件和测试；否则删除。已实施 spec 必须迁入 `docs/archive/specs/`。
+7. **持久消息最终可见**：`chat_message` 是消息事实源；`project:view` 只提供低延迟提示。连接恢复、项目切换和持久投影通知必须触发只读对账，且对账不得覆盖并发到达的实时消息。
 
 实施期契约已经归档到 [`docs/archive/specs/webui-passive-project-projection/`](../../archive/specs/webui-passive-project-projection/)；全仓一致性整改记录已归档到 [`docs/archive/specs/runtime-architecture-integrity-audit/`](../../archive/specs/runtime-architecture-integrity-audit/)。
 

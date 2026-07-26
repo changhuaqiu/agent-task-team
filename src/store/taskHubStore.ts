@@ -570,20 +570,16 @@ export function mapMessagesToState(recentMessages: Record<string, any[]>): Recor
           detail: meta?.toolEvent?.input || undefined,
           timestamp: m.created_at,
         };
-        const prev = mapped[mapped.length - 1];
-        if (prev && prev.agentId === m.sender_id && prev.invocationId === invocationId) {
-          prev.toolEvents = [...(prev.toolEvents || []), toolEvent];
-        } else {
-          mapped.push({
-            id: `synth-${m.id}`,
-            agentId: m.sender_id,
-            content: '',
-            timestamp: m.created_at,
-            conversationId: convId,
-            invocationId,
-            toolEvents: [toolEvent],
-          });
-        }
+        mapped.push({
+          id: m.id,
+          agentId: m.sender_id,
+          content: '',
+          timestamp: m.created_at,
+          conversationId: convId,
+          invocationId,
+          metadata: meta,
+          toolEvents: [toolEvent],
+        });
       } else {
         const meta = m.metadata ? (typeof m.metadata === 'string' ? JSON.parse(m.metadata) : m.metadata) : {};
         mapped.push({
@@ -606,6 +602,77 @@ export function mapMessagesToState(recentMessages: Record<string, any[]>): Recor
     result[convId] = mapped;
   }
   return result;
+}
+
+function isSameOptimisticMessage(local: ChatMessage, durable: ChatMessage): boolean {
+  if (local.invocationId || durable.invocationId) return false;
+  if (local.agentId !== durable.agentId || local.content !== durable.content) return false;
+  const localTime = Date.parse(local.timestamp);
+  const durableTime = Date.parse(durable.timestamp);
+  return Number.isFinite(localTime)
+    && Number.isFinite(durableTime)
+    && Math.abs(localTime - durableTime) <= 10_000;
+}
+
+function isProvisionalRuntimeMessage(message: ChatMessage): boolean {
+  return !!message.invocationId && message.isStreaming !== undefined;
+}
+
+export function reconcileConversationMessages(
+  localMessages: ChatMessage[],
+  durableMessages: ChatMessage[],
+  activeStreamMessageIds: ReadonlySet<string> = new Set(),
+): ChatMessage[] {
+  if (durableMessages.length === 0) return localMessages;
+
+  const localIds = new Set(localMessages.map((message) => message.id));
+  const durableIds = new Set(durableMessages.map((message) => message.id));
+  const durableInvocationIds = new Set(
+    durableMessages
+      .map((message) => message.invocationId)
+      .filter((value): value is string => !!value),
+  );
+  const unmatchedDurable = durableMessages.filter((message) => !localIds.has(message.id));
+  const retainedLocal = localMessages.filter((local) => {
+    if (durableIds.has(local.id)) return false;
+    if (
+      isProvisionalRuntimeMessage(local)
+      && local.invocationId
+      && durableInvocationIds.has(local.invocationId)
+      && !activeStreamMessageIds.has(local.id)
+    ) {
+      return false;
+    }
+    const optimisticMatch = unmatchedDurable.findIndex((durable) => (
+      isSameOptimisticMessage(local, durable)
+    ));
+    if (optimisticMatch >= 0) {
+      unmatchedDurable.splice(optimisticMatch, 1);
+      return false;
+    }
+    return true;
+  });
+
+  return [...retainedLocal, ...durableMessages].sort((left, right) => {
+    const timeOrder = left.timestamp.localeCompare(right.timestamp);
+    return timeOrder !== 0 ? timeOrder : left.id.localeCompare(right.id);
+  });
+}
+
+function reconcileHydratedMessageMaps(
+  localByConversation: Record<string, ChatMessage[]>,
+  durableByConversation: Record<string, ChatMessage[]>,
+  activeStreamMessageIds: ReadonlySet<string>,
+): Record<string, ChatMessage[]> {
+  const merged = { ...localByConversation };
+  for (const [conversationId, durableMessages] of Object.entries(durableByConversation)) {
+    merged[conversationId] = reconcileConversationMessages(
+      localByConversation[conversationId] ?? [],
+      durableMessages,
+      activeStreamMessageIds,
+    );
+  }
+  return merged;
 }
 
 function mapSessionsToState(sessions: any[]): Record<string, Record<string, string | undefined>> {
@@ -697,6 +764,7 @@ export interface TaskHubState {
   recordA2APassBlocked: (payload: { conversationId: string; chainId?: string; passId?: string; fromAgentId?: string; toAgentId?: string; reason: string; status?: A2AHandoffStatus }) => void;
 
   loadFromServer: () => Promise<void>;
+  refreshConversationMessages: (conversationId: string) => Promise<void>;
 
   createConversation: (input: { title: string; goal: string; projectPath?: string; priority?: Conversation['priority']; teamPackId?: string; useWorktree?: boolean; gitRepoRoot?: string; autonomous?: boolean }) => Promise<string>;
   setSelectedConversationId: (conversationId: string | null) => void;
@@ -806,6 +874,7 @@ export const useTaskHubStore = create<TaskHubState>()(
     (...a) => {
       const [set, get] = a;
       let loadFromServerInFlight: Promise<void> | null = null;
+      const messageRefreshesInFlight = new Map<string, Promise<void>>();
 
       // App slice (conversations, chat, events, blockers, accounts, settings, hydration)
       const appSlice = {
@@ -1234,13 +1303,17 @@ export const useTaskHubStore = create<TaskHubState>()(
               }
             }
 
-            set({
+            set((state: TaskHubState) => ({
               conversations,
               tasks,
-              chatMessagesByConversation: mapMessagesToState(data.recentMessages || {}),
+              chatMessagesByConversation: reconcileHydratedMessageMaps(
+                state.chatMessagesByConversation,
+                mapMessagesToState(data.recentMessages || {}),
+                new Set(Object.values(state.activeStreamMessageId).filter(Boolean)),
+              ),
               agentSessions: serverSessions,
               needsFullCompose: hydratedNeedsFullCompose,
-            });
+            }));
 
             // Keep a still-valid selection, otherwise use the most recently
             // updated conversation. Runtime dependencies are hydrated below
@@ -1351,6 +1424,47 @@ export const useTaskHubStore = create<TaskHubState>()(
             }
           });
           loadFromServerInFlight = published;
+          return published;
+        },
+
+        refreshConversationMessages: (conversationId: string) => {
+          const normalizedConversationId = conversationId.trim();
+          if (!normalizedConversationId) return Promise.resolve();
+          const existing = messageRefreshesInFlight.get(normalizedConversationId);
+          if (existing) return existing;
+
+          const refresh = (async () => {
+            const response = await fetch(
+              `/api/messages?conversationId=${encodeURIComponent(normalizedConversationId)}`,
+              { cache: 'no-store' },
+            );
+            if (!response.ok) {
+              throw new Error(`message_snapshot_http_${response.status}`);
+            }
+            const body = await response.json() as { messages?: unknown };
+            if (!Array.isArray(body.messages)) {
+              throw new Error('message_snapshot_invalid');
+            }
+            const durableMessages = mapMessagesToState({
+              [normalizedConversationId]: body.messages,
+            })[normalizedConversationId] ?? [];
+            set((state: TaskHubState) => ({
+              chatMessagesByConversation: {
+                ...state.chatMessagesByConversation,
+                [normalizedConversationId]: reconcileConversationMessages(
+                  state.chatMessagesByConversation[normalizedConversationId] ?? [],
+                  durableMessages,
+                  new Set(Object.values(state.activeStreamMessageId).filter(Boolean)),
+                ),
+              },
+            }));
+          })();
+          const published = refresh.finally(() => {
+            if (messageRefreshesInFlight.get(normalizedConversationId) === published) {
+              messageRefreshesInFlight.delete(normalizedConversationId);
+            }
+          });
+          messageRefreshesInFlight.set(normalizedConversationId, published);
           return published;
         },
 
@@ -1473,6 +1587,9 @@ export const useTaskHubStore = create<TaskHubState>()(
           }
           if (conversationId) {
             socket.emit('conversation:join', { conversationId });
+            void get().refreshConversationMessages(conversationId).catch((error: unknown) => {
+              console.error('[messages] failed to reconcile selected project:', error);
+            });
             void get().refreshPendingDispatches(conversationId).catch((error: unknown) => {
               console.error('[dispatch] failed to refresh Agent Inbox projection:', error);
             });
@@ -2026,6 +2143,10 @@ socket.on('connect', () => {
   const selectedConversationId = useTaskHubStore.getState().selectedConversationId;
   if (selectedConversationId) {
     socket.emit('conversation:join', { conversationId: selectedConversationId });
+    void useTaskHubStore.getState().refreshConversationMessages(selectedConversationId)
+      .catch((error: unknown) => {
+        console.error('[messages] failed to reconcile after reconnect:', error);
+      });
   }
 
   socket.emit('runtimes:list', (response: { runtimes: import('@/server/types').DetectedRuntime[] }) => {
@@ -2108,6 +2229,23 @@ function appendProjectedChatMessage(projectId: string, agentId: string, content:
       [projectId]: [...(state.chatMessagesByConversation[projectId] || []), message],
     },
   }));
+}
+
+function reconcileProjectedInvocation(projectId: string, invocationId: string): void {
+  useTaskHubStore.setState((state) => {
+    const current = state.chatMessagesByConversation[projectId] ?? [];
+    const durable = current.filter((message) => (
+      message.invocationId === invocationId
+      && typeof message.metadata?.sourceEventId === 'string'
+    ));
+    if (durable.length === 0) return {};
+    return {
+      chatMessagesByConversation: {
+        ...state.chatMessagesByConversation,
+        [projectId]: reconcileConversationMessages(current, durable),
+      },
+    };
+  });
 }
 
 function handleAgentSession(input: {
@@ -2390,6 +2528,22 @@ export function consumeProjectViewEvent(envelope: unknown): boolean {
       type: 'runtime.usage',
       payload: { ...payload, agentId, invocationId: event.invocationId },
     });
+  } else if (event.kind === 'chat.message.persisted') {
+    const rawMessage = payload.message;
+    if (!rawMessage || typeof rawMessage !== 'object') return false;
+    const durableMessages = mapMessagesToState({
+      [event.projectId]: [rawMessage],
+    })[event.projectId] ?? [];
+    useTaskHubStore.setState((state) => ({
+      chatMessagesByConversation: {
+        ...state.chatMessagesByConversation,
+        [event.projectId]: reconcileConversationMessages(
+          state.chatMessagesByConversation[event.projectId] ?? [],
+          durableMessages,
+          new Set(Object.values(state.activeStreamMessageId).filter(Boolean)),
+        ),
+      },
+    }));
   } else if (event.kind === 'runtime.completed' && agentId) {
     handleAgentEvent({
       agentId,
@@ -2402,6 +2556,9 @@ export function consumeProjectViewEvent(envelope: unknown): boolean {
       'runtime:completed',
       typeof payload.outcome === 'string' ? payload.outcome : '',
     );
+    if (event.invocationId) {
+      reconcileProjectedInvocation(event.projectId, event.invocationId);
+    }
   } else if (event.kind === 'terminal.output' && agentId && typeof payload.data === 'string') {
     handleTerminalData({ agentId, data: payload.data });
   } else if (event.kind === 'terminal.exited' && agentId && typeof payload.code === 'number') {

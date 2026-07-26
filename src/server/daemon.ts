@@ -460,6 +460,14 @@ export default function registerDaemon(io: IOServer) {
   });
 
   startPlatformEventRuntime({
+    onMessageProjected: (message) => {
+      projectViewPublisher.publish(message.conversation_id, {
+        kind: 'chat.message.persisted',
+        agentId: message.sender_id,
+        invocationId: message.invocation_id ?? undefined,
+        payload: { message },
+      });
+    },
     onObservabilityUpdated: (projectId, invocationId) => {
       io.to(projectId).emit('observability:updated', {
         projectId,
