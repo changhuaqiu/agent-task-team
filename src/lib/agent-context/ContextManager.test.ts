@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   ContextManager,
   noOpMemoryHook,
+  RequiredContextError,
   type ContextContributor,
   type ContextFragment,
   type ContextProviders,
@@ -307,6 +308,113 @@ describe('ContextManager', () => {
       snapshotId: result.snapshot.id,
       fragmentCount: result.snapshot.fragmentRefs.length,
     });
+  });
+
+  it('does not let optional contributor content evict required project context', async () => {
+    const manager = new ContextManager(mockProviders, noOpMemoryHook, {
+      contributors: [
+        {
+          id: 'optional-tools',
+          contribute: async (query) => [{
+            id: 'optional:large-tool-catalog',
+            kind: 'tool.catalog',
+            cluster: 'capability',
+            scope: { kind: 'project', projectId: query.conversationId },
+            subject: { kind: 'project', id: query.conversationId },
+            producer: 'optional-tools',
+            version: '1',
+            content: `OPTIONAL:${'x'.repeat(8_000)}`,
+            visibility: { kind: 'team' },
+            freshness: { observedAt: query.now },
+            evidenceRefs: [],
+          }],
+        },
+        {
+          id: 'project-context',
+          required: true,
+          contribute: async (query) => [{
+            id: `project-context:${query.conversationId}`,
+            kind: 'project.context.capsule',
+            cluster: 'situation',
+            scope: { kind: 'project', projectId: query.conversationId },
+            subject: { kind: 'project', id: query.conversationId },
+            producer: 'project-context',
+            version: '1',
+            content: `REQUIRED_PROJECT_CONTEXT:${'p'.repeat(400)}`,
+            visibility: { kind: 'team' },
+            freshness: { observedAt: query.now },
+            evidenceRefs: [],
+            required: true,
+          }],
+        },
+      ],
+    });
+
+    const result = await manager.assembleContext({
+      agentId: 'toad',
+      conversationId: 'conv-123',
+      rawPrompt: 'continue',
+      trigger: 'resume',
+      scenario: 'execution',
+      isFirstWake: false,
+      budgetOverride: new ContextBudget({ maxTokens: 2_000 }),
+    });
+
+    expect(result.userPrompt).toContain('REQUIRED_PROJECT_CONTEXT:');
+    expect(result.userPrompt).not.toContain('OPTIONAL:');
+    expect(result.snapshot.missingRequired).toEqual([]);
+    expect(result.snapshot.omissions).toContainEqual(expect.objectContaining({
+      fragmentId: 'optional:large-tool-catalog',
+      reason: 'budget_trimmed',
+      required: false,
+    }));
+  });
+
+  it('still fails closed when required contributor content itself exceeds the budget', async () => {
+    const manager = new ContextManager(mockProviders, noOpMemoryHook, {
+      contributors: [{
+        id: 'project-context',
+        required: true,
+        contribute: async (query) => [{
+          id: `project-context:${query.conversationId}`,
+          kind: 'project.context.capsule',
+          cluster: 'situation',
+          scope: { kind: 'project', projectId: query.conversationId },
+          subject: { kind: 'project', id: query.conversationId },
+          producer: 'project-context',
+          version: '1',
+          content: 'p'.repeat(8_000),
+          visibility: { kind: 'team' },
+          freshness: { observedAt: query.now },
+          evidenceRefs: [],
+          required: true,
+        }],
+      }],
+    });
+
+    let thrown: unknown;
+    try {
+      await manager.assembleContext({
+        agentId: 'toad',
+        conversationId: 'conv-123',
+        rawPrompt: 'continue',
+        trigger: 'resume',
+        scenario: 'execution',
+        isFirstWake: false,
+        budgetOverride: new ContextBudget({ maxTokens: 1_000 }),
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(RequiredContextError);
+    expect((thrown as RequiredContextError).missingRequired)
+      .toContain('project-context:conv-123');
+    expect((thrown as RequiredContextError).omissions).toContainEqual(expect.objectContaining({
+      fragmentId: 'project-context:conv-123',
+      reason: 'budget_trimmed',
+      required: true,
+    }));
   });
 
   it('显式 Team Harness 场景在首个 session 仍完成身份 bootstrap', async () => {

@@ -247,16 +247,18 @@ interface BudgetPart {
   layer: string; content: string;
   tier: 'system' | 'tool' | 'project';   // 结构层（硬约束）
   importance: number;                      // 0–1（层内排序）
+  required?: boolean;                      // 必需内容先建立预算最低配额
   scope: string; private: boolean;         // 可见性（不影响裁剪，影响谁见）
 }
 ```
 > `tier` 是**组装单元的元数据**，由 `category` 在组装时派生（identity/protocol→system、capability→tool、task/kanban/history/...→project）；`ContextRecord`（§3 数据模型）只存 category，不存 tier。
 
 裁剪规则（取代 P0–P4 排序 + P0 硬上限 50%）：
-1. `system` 层永不裁；
-2. `tool` 层极度紧张才裁，按 importance 升序；
-3. `project` 层先裁，按 importance 升序——轨迹(0.3)先于目标(0.8)；
-4. token 估算（字符/4）与"保持原呈现顺序"逻辑保留。
+1. `system` 层按既有规则先处理；
+2. required tool/project part 先建立预算最低配额，跨层先于所有可选 part；
+3. 剩余可选内容仍按 `tool` → `project`、同层 importance 降序选择；
+4. required 集合自身无法装入时仍裁剪并 fail closed；
+5. token 估算（字符/4）与"保持原呈现顺序"逻辑保留。
 
 `ContextBudget`（maxTokens/reserveRatio）不动，消费方从 `priority` 改读 `tier + importance`。
 

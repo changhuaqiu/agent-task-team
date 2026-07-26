@@ -252,6 +252,7 @@ function fragmentToBudgetPart(fragment: ContextArtifact): BudgetPart {
       ? `/project/${fragment.scope.projectId}`
       : `/global/${fragment.scope.key}`,
     private: fragment.visibility.kind !== 'team',
+    required: fragment.required === true,
     source: fragment.visibility.kind === 'agent' ? fragment.visibility.agentId : undefined,
   };
 }
@@ -454,7 +455,10 @@ export class ContextManager {
     const parts = scenarioFragments
       .filter(fragment => fragment.id !== bootstrapFragmentId)
       .map(fragment => {
-        const part = legacyPartByFragmentId.get(fragment.id) ?? fragmentToBudgetPart(fragment);
+        const legacyPart = legacyPartByFragmentId.get(fragment.id);
+        const part = legacyPart
+          ? { ...legacyPart, required: fragment.required === true }
+          : fragmentToBudgetPart(fragment);
         fragmentByLayer.set(part.layer, fragment);
         return part;
       });
