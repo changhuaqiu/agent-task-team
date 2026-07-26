@@ -54,6 +54,7 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
 
   const hasPending = Object.keys(currentPending).length > 0;
   const [inputValue, setInputValue] = useState('');
+  const [draftConversationId, setDraftConversationId] = useState<string | null>(null);
   const [filter, setFilter] = useState<ChatFilter>({ intent: null, agentId: null, userOnly: false, search: '' });
   const [mentionOpen, setMentionOpen] = useState(false);
   const ime = useIMEGuard();
@@ -73,13 +74,17 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail;
       setInputValue(`> ${detail}\n\n`);
+      setDraftConversationId(selectedConversationId);
     };
     window.addEventListener('chat:quote', handler);
     return () => window.removeEventListener('chat:quote', handler);
-  }, []);
+  }, [selectedConversationId]);
+
+  const draftTargetMismatch = Boolean(inputValue.trim())
+    && draftConversationId !== selectedConversationId;
 
   const handleSend = () => {
-    if (!inputValue.trim() || runtimeRefreshInProgress) return;
+    if (!inputValue.trim() || runtimeRefreshInProgress || draftTargetMismatch) return;
 
     // Basic regex to detect `#TASK-XXX` references
     const taskRefMatch = inputValue.match(/#TASK-\d{3}/i);
@@ -92,6 +97,7 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
     });
 
     setInputValue('');
+    setDraftConversationId(null);
   };
 
   const handleMentionSelect = (agentId: string) => {
@@ -113,6 +119,7 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
   };
 
   const handleEmojiInsert = useCallback((emoji: string) => {
+    if (!inputValue.trim()) setDraftConversationId(selectedConversationId);
     const textarea = textareaRef.current;
     if (!textarea) {
       setInputValue((prev) => prev + emoji);
@@ -127,7 +134,7 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
       textarea.focus();
       textarea.setSelectionRange(pos, pos);
     });
-  }, [inputValue]);
+  }, [inputValue, selectedConversationId]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey && !ime.isComposing()) {
@@ -366,7 +373,11 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
             ref={textareaRef}
             value={inputValue}
             onChange={(e) => {
+              const wasEmpty = !inputValue.trim();
+              const isEmpty = !e.target.value.trim();
               setInputValue(e.target.value);
+              if (isEmpty) setDraftConversationId(null);
+              else if (wasEmpty) setDraftConversationId(selectedConversationId);
               setCursorPos(e.target.selectionStart ?? e.target.value.length);
               const textBefore = e.target.value.slice(0, e.target.selectionStart ?? e.target.value.length);
               const atMatch = textBefore.match(/@([\w\u4e00-\u9fff-]*)$/);
@@ -428,8 +439,14 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
           <EmojiPickerButton onEmojiSelect={handleEmojiInsert} placement="top-end" />
           <button
             onClick={handleSend}
-            disabled={!inputValue.trim() || runtimeRefreshInProgress}
-            title={runtimeRefreshInProgress ? '运行配置刷新完成后即可发送' : '发送消息'}
+            disabled={!inputValue.trim() || runtimeRefreshInProgress || draftTargetMismatch}
+            title={
+              draftTargetMismatch
+                ? '草稿属于先前项目，请切回原项目或清空后重写'
+                : runtimeRefreshInProgress
+                  ? '运行配置刷新完成后即可发送'
+                  : '发送消息'
+            }
             className={cn(
               'shrink-0 flex items-center justify-center w-11 h-11 rounded-[4px] transition-all',
               'bg-[hsl(var(--accent))] text-[hsl(var(--bg-app))]',
@@ -443,9 +460,11 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
           </button>
         </div>
         <p className="text-[9px] font-medium text-[hsl(var(--text-tertiary))] mt-2 ml-1">
-          {runtimeRefreshInProgress
-            ? '正在刷新运行配置，草稿会保留，刷新完成后即可发送'
-            : '使用 #TASK-000 引用任务 · @Agent 提及智能体'}
+          {draftTargetMismatch
+            ? '草稿属于先前项目，请切回原项目或清空后重写'
+            : runtimeRefreshInProgress
+              ? '正在刷新运行配置，草稿会保留，刷新完成后即可发送'
+              : '使用 #TASK-000 引用任务 · @Agent 提及智能体'}
         </p>
       </div>
     </div>

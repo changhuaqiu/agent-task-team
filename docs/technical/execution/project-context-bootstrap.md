@@ -378,7 +378,7 @@ Evaluation application snapshot 必须冻结输入，不注册该可变 contribu
 
 冷启动选择沿用仍存在的当前 conversation；不存在时选择最近更新的 conversation。原子 readiness gate 中所有被 `await` 的远程依赖——state、phases、accounts、Agent roster 与 Team Pack——都必须把 `fetch + status validation + response body parsing` 整体置于同一个 15 秒超时和 AbortController 生命周期，不能让已返回 headers 但永久 pending 的 body 把页面停在 skeleton。超时、拒绝或无效 Team Pack 都结束 skeleton、写入 `runtimeHydrationError`，在主页面显示“Agent 运行配置暂不可用”的可重试告警；所以 `hasHydrated=true` 表示首次水合尝试已经 settled，不等价于 runtime ready，后者还要求 `runtimeHydrationError=null` 且 profile 可解析。
 
-`hasHydrated` 是页面生命周期内单调的交互就绪门：首次加载前为 `false`，首次成功或失败 settled 后转为 `true`，此后不得回退。页面已经可交互时再次调用 `loadFromServer()`，包括用户重试或组件重新挂载触发的刷新，只清除上一轮错误并复用 single-flight 加载；`ProjectWorkspace` 必须保持挂载，避免销毁聊天输入框的本地草稿和焦点。后台刷新由 `runtimeRefreshInProgress` 显式标记：输入框保持可编辑，Human Command 发送入口在标记清除前拒绝提交，避免读取分阶段写入的运行配置；草稿不被清空，用户可在刷新完成后原样发送。刷新失败更新 `runtimeHydrationError`，刷新成功替换服务端权威状态；两条路径都不能重新展示全屏 skeleton。该修复由 [#67](https://github.com/changhuaqiu/agent-task-team/issues/67) 跟踪。
+`hasHydrated` 是页面生命周期内单调的交互就绪门：首次加载前为 `false`，首次成功或失败 settled 后转为 `true`，此后不得回退。页面已经可交互时再次调用 `loadFromServer()`，包括用户重试或组件重新挂载触发的刷新，只清除上一轮错误并复用 single-flight 加载；`ProjectWorkspace` 必须保持挂载，避免销毁聊天输入框的本地草稿和焦点。后台刷新由 `runtimeRefreshInProgress` 显式标记：输入框保持可编辑，Human Command 发送入口在标记清除前拒绝提交，避免读取分阶段写入的运行配置；草稿不被清空，用户可在刷新完成后原样发送。草稿同时绑定开始输入时的 `conversationId`；若刷新改变或移除选择，发送入口保持关闭，直到用户切回原项目或清空草稿，禁止后台状态变化重定向人的命令。刷新失败更新 `runtimeHydrationError`，刷新成功替换服务端权威状态；两条路径都不能重新展示全屏 skeleton。该修复由 [#67](https://github.com/changhuaqiu/agent-task-team/issues/67) 跟踪。
 
 ## 12. 安全与可观察
 
