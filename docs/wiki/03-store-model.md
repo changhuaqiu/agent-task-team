@@ -195,7 +195,10 @@ Team Runtime 缓存是派生缓存，不是新的事实源。缓存只复用 `re
 - 项目创建后的方案分析不再固定派发给 Mario。普通项目仍使用 preset planner；TeamPack 项目等待对应 TeamPack 加载完成后，按 workflow 的首个可用角色发起 proposal。
 - 用户消息中的 `@agent` 也按 runtime roster 解析。TeamPack role id、当前角色名和角色素材显示名都可以作为 mention 目标，不再只接受静态 Mario 6 人组。
 - 用户消息先进入 UI 和持久化事实源，再解析 `@agent` 并尝试派发，不能因为所有目标 busy 而提前返回。只有 `dispatchToAgent()` 成功启动或接收该派发后，store 才向 daemon 发送 `a2a:user-turn-created` 并登记本次用户触发的 A2A chain；未命中 agent 或没有成功启动任何目标时，只通知 daemon 终止旧 active chain。
-- 忙碌 agent 的用户派发先留在 conversation-scoped pending queue，等真正 dequeue 并启动成功时再登记 chain。由于浏览器 busy 快照可能落后于 daemon，`dispatchToAgent()` 首发时还要暂存本次请求；daemon 返回 `agent_busy` 时必须用该请求恢复入队，避免“消息已显示但没有 invocation”的静默丢失。相关缺陷由 [#15](https://github.com/changhuaqiu/agent-task-team/issues/15) 跟踪。
+- 忙碌 agent 的人工派发通过 `dispatch.enqueue` 写入服务端 Agent Inbox；浏览器
+  `pendingDispatches` 只是按 `agentId:conversationId` 查询得到的展示投影。浏览器 busy
+  快照可能落后于 daemon，因此最终 admission、排队和重试结果以服务端为准；收到
+  `agent_busy` 展示事件不会在浏览器侧再次入队或重试。
 - `getAgentRuntimeProfile()` 返回空时，store 既记录 `invocation.aborted/no_runtime_profile`，也在对应项目聊天区显示“为该角色绑定可用账号或执行引擎”的恢复提示；不能只留下控制台 warning。相关缺陷由 [#16](https://github.com/changhuaqiu/agent-task-team/issues/16) 跟踪。
 - A2A possession UI 状态由 `a2aByConversation` 缓存，记录当前持球者和最近交接事件。它只保留最近 8 条 handoff 作为 UI 时间线，是 socket runtime view，不作为项目任务状态事实源；任务进度仍以 SQLite task/TASKS.md 为准。
 
@@ -271,13 +274,14 @@ store 监听 daemon 推送的实时事件，并将其映射成前端状态：
   - 前端成员配置面板读取该缓存展示调试用 CLI session id，避免普通配置流程依赖实现细节
 - `task.sync`
   - 文件变更触发的任务同步事件（来自 TaskFileWatcher）
-  - payload: `{ projectPath, conversationId, tasks: ParsedTask[], blockers: ParsedBlocker[] }`
+  - payload: `{ projectId, projectPath, conversationId, tasks, blockers }`
+  - 要求 `projectId === conversationId === selectedConversationId`
   - 新任务 → 加入 `tasks[]`（之前被跳过，现已修复）
   - 已有任务 → 更新 `status` / `agentId`
   - 新 blocker → 调用 `openBlocker()`
-- `task.assigned`
-  - 任务分配事件（来自 `task_assign` 工具调用）
-  - store 收到后只更新展示；服务端 wakeup/Harness 负责执行
+- `task.state`
+  - Repository 发布的完整任务展示行，替代旧的直连 `task.assigned` Socket 事件
+  - 只更新本地任务投影；服务端 wakeup/Harness 负责执行
 - `task.wakeup`
   - owner ready、依赖满足、review/test/recovery 等服务端提示
   - store 收到后只展示，不派发 Agent、不改变领域状态
@@ -286,12 +290,12 @@ store 监听 daemon 推送的实时事件，并将其映射成前端状态：
 
 ## 3.6 当前判断
 
-如果要理解这个项目，不能再把 `taskHubStore` 当成简单状态容器看待，而应把它理解为：
+`taskHubStore` 同时承载两条明确分离的前端边界：
 
-- 前端状态机
-- API 客户端编排层
-- Socket 事件适配层
-- 工作台 UI 的统一入口
-- Team Runtime 的前端缓存与展示适配层
+- Human Command adapter：只由人的点击、输入和确认调用，向服务端提交命令。
+- Display projection adapter：消费项目事件并更新本地展示 Store，不发执行命令。
+- Team Runtime 的前端缓存与工作台展示模型。
+
+它不是自动执行状态机；Task wakeup、A2A、恢复和重试的 owner 在服务端。
 
 它不应成为 RoleCard、TeamPack workflow、通信矩阵或账号执行规则的最终事实源。

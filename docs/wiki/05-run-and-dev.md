@@ -59,7 +59,8 @@ Agent 执行经 **ACP（Agent Client Protocol）单一通路**驱动（见 [`arc
 - mutation 会写入 SQLite
 - session / invocation / event 也会持续写入数据库
 - 首次初始化时（migration v2），4 个预设 skill（code-review、tdd、debugging、brainstorm）会被自动种子到数据库；migration v5 后 task-management skill 也会被种子并自动分配给 Mario
-- dispatch 持久化：`pendingDispatches` 现在同步写入 SQLite invocation 表，进程崩溃后可恢复
+- dispatch 持久化：服务端 `agent_inbox_item` 保存待执行 Command，进程崩溃后由
+  Inbox Scheduler 恢复；浏览器 `pendingDispatches` 只是项目展示投影
 - dispatch 去重：同 agent+task 的追加指令会自动合并，不会创建重复 dispatch
 
 文件系统结构（新增）：

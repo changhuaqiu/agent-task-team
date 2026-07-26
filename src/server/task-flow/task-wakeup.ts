@@ -53,11 +53,9 @@ export interface TaskWakeup {
     rootTaskId?: string;
     subtreeSize?: number;
     partial?: boolean;
+    executionReasonCode?: string;
   };
   createdAt?: string;
-  /** Accepted server-side wakeups are rendered by clients but never dispatched twice. */
-  handledByHarness?: boolean;
-  harnessFallbackReasonCode?: string;
 }
 
 export interface TaskWakeupDeduper {

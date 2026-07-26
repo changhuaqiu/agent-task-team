@@ -250,17 +250,16 @@ export function publishTaskChangeNotification(input: PublishTaskChangeNotificati
         prompt: wakeup.prompt,
       },
     });
-    // Rejected-task execution is now owned by the durable task Wakeup Router.
-    // Keep emitting the compatibility notification, but never start a second
-    // Harness execution from this legacy publisher.
+    // Rejected-task execution is owned by the durable task Wakeup Router.
+    // This publisher emits the display projection but never starts a second
+    // Harness execution.
     const routedByPlatformEvent = wakeup.metadata.reasonCode === 'review_rejected';
-    const submission = routedByPlatformEvent
-      ? { handled: true }
-      : submitTaskWakeupToHarness(input.io, { ...wakeup, id });
+    if (!routedByPlatformEvent) {
+      submitTaskWakeupToHarness(input.io, { ...wakeup, id });
+    }
     emitWakeupToConversation(input.io, wakeup.conversationId, {
       ...wakeup,
       id,
-      handledByHarness: submission?.handled ?? false,
       createdAt: new Date().toISOString(),
     });
   }

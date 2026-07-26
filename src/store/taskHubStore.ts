@@ -90,6 +90,7 @@ export interface DispatchToAgentInput {
 }
 
 export interface DispatchReceipt {
+  projectId: string;
   receiptId: string;
   conversationId: string;
   taskId?: string;
@@ -2061,6 +2062,13 @@ function isCurrentProject(projectId: string | undefined): projectId is string {
   return !!projectId && useTaskHubStore.getState().selectedConversationId === projectId;
 }
 
+function isCurrentProjectEvent(
+  projectId: string | undefined,
+  conversationId: string | undefined,
+): projectId is string {
+  return !!conversationId && projectId === conversationId && isCurrentProject(projectId);
+}
+
 function handleTerminalData({ agentId, data }: { agentId: string; data: string }): void {
   useTaskHubStore.getState().appendTerminalLog(agentId, data);
 }
@@ -2230,11 +2238,18 @@ function handleAgentEvent(event: {
   }
 }
 
-// Compatibility-only A2A/system notices. Canonical Runtime events use
-// project:view and must pass the current-project gate below.
-socket.on('agent:event', (event) => {
-  if (!isCurrentProject(event?.conversationId)) return;
-  handleAgentEvent(event);
+socket.on('a2a:notice', ({
+  projectId,
+  conversationId,
+  content,
+}: {
+  projectId?: string;
+  conversationId?: string;
+  kind?: string;
+  content?: string;
+}) => {
+  if (!isCurrentProjectEvent(projectId, conversationId) || !content) return;
+  appendProjectedChatMessage(projectId, 'system', content);
 });
 
 function handleAgentDelta(event: {
@@ -2394,10 +2409,10 @@ export function consumeProjectViewEvent(envelope: unknown): boolean {
 
 socket.on(PROJECT_VIEW_CHANNEL, consumeProjectViewEvent);
 
-socket.on('a2a:pass-offer', ({ agentId, fromAgentId, conversationId, chainId, passId }: { agentId: string; fromAgentId?: string; conversationId?: string; chainId?: string; passId?: string }) => {
-  if (!conversationId || !chainId || !isCurrentProject(conversationId)) return;
+socket.on('a2a:pass-offer', ({ projectId, agentId, fromAgentId, conversationId, chainId, passId }: { projectId?: string; agentId: string; fromAgentId?: string; conversationId?: string; chainId?: string; passId?: string }) => {
+  if (!isCurrentProjectEvent(projectId, conversationId) || !chainId) return;
   useTaskHubStore.getState().recordA2APassOffer({
-    conversationId,
+    conversationId: projectId,
     chainId,
     passId,
     fromAgentId,
@@ -2407,8 +2422,8 @@ socket.on('a2a:pass-offer', ({ agentId, fromAgentId, conversationId, chainId, pa
 });
 
 socket.on('dispatch.receipt', (receipt: DispatchReceipt) => {
-  if (!receipt?.conversationId || !receipt.receiptId || !receipt.targetAgentId) return;
-  if (!isCurrentProject(receipt.conversationId)) return;
+  if (!receipt || !isCurrentProjectEvent(receipt.projectId, receipt.conversationId)) return;
+  if (!receipt.receiptId || !receipt.targetAgentId) return;
   if (
     receipt.phase === 'sent'
     || receipt.phase === 'started'
@@ -2421,22 +2436,20 @@ socket.on('dispatch.receipt', (receipt: DispatchReceipt) => {
   useTaskHubStore.getState().recordDispatchReceipt(receipt);
 });
 
-socket.on('a2a:possession-changed', ({ chainId, conversationId, currentHolderId, passId }: { chainId?: string; conversationId?: string; currentHolderId?: string; passId?: string }) => {
-  if (!conversationId || !chainId || !currentHolderId) return;
-  if (!isCurrentProject(conversationId)) return;
+socket.on('a2a:possession-changed', ({ projectId, chainId, conversationId, currentHolderId, passId }: { projectId?: string; chainId?: string; conversationId?: string; currentHolderId?: string; passId?: string }) => {
+  if (!isCurrentProjectEvent(projectId, conversationId) || !chainId || !currentHolderId) return;
   useTaskHubStore.getState().recordA2APossessionChanged({
-    conversationId,
+    conversationId: projectId,
     chainId,
     currentHolderId,
     passId,
   });
 });
 
-socket.on('a2a:pass-blocked', ({ conversationId, chainId, passId, fromAgentId, toAgentId, reason, status }: { conversationId?: string; chainId?: string; passId?: string; fromAgentId?: string; toAgentId?: string; reason?: string; status?: A2AHandoffStatus }) => {
-  if (!conversationId || !reason) return;
-  if (!isCurrentProject(conversationId)) return;
+socket.on('a2a:pass-blocked', ({ projectId, conversationId, chainId, passId, fromAgentId, toAgentId, reason, status }: { projectId?: string; conversationId?: string; chainId?: string; passId?: string; fromAgentId?: string; toAgentId?: string; reason?: string; status?: A2AHandoffStatus }) => {
+  if (!isCurrentProjectEvent(projectId, conversationId) || !reason) return;
   useTaskHubStore.getState().recordA2APassBlocked({
-    conversationId,
+    conversationId: projectId,
     chainId,
     passId,
     fromAgentId,
@@ -2507,17 +2520,22 @@ function handleTerminalExit({ projectId, agentId, code, command, reasonCode, act
   useTaskHubStore.getState().completeStreamMessage(agentId);
 }
 
-socket.on('a2a:dispatch', ({ agentId, referencedTaskId, fromAgentId, conversationId, chainId, entryId, passId }: { agentId: string; referencedTaskId?: string; fromAgentId: string; conversationId?: string; chainId?: string; entryId?: string; passId?: string }) => {
-  if (!isCurrentProject(conversationId)) return;
+socket.on('a2a:dispatch', ({ projectId, agentId, referencedTaskId, fromAgentId, conversationId, chainId, entryId, passId }: { projectId?: string; agentId: string; referencedTaskId?: string; fromAgentId: string; conversationId?: string; chainId?: string; entryId?: string; passId?: string }) => {
+  if (!isCurrentProjectEvent(projectId, conversationId)) return;
   console.log(`[a2a:v2] chain=${chainId} dispatch ${fromAgentId} → ${agentId}`);
   useTaskHubStore.getState().addEvent({
-    conversationId,
+    conversationId: projectId,
     type: 'a2a.dispatch_requested',
     payload: { agentId, referencedTaskId, fromAgentId, chainId, entryId, passId },
   });
 });
 
-socket.on('agent:error', ({ projectId, agentId, message }: { projectId?: string; agentId: string; message: string }) => {
+socket.on('command:error', ({ projectId, agentId, message }: {
+  projectId?: string;
+  agentId?: string;
+  message?: string;
+}) => {
+  if (!agentId || !message) return;
   if (!isCurrentProject(projectId)) return;
   const state = useTaskHubStore.getState();
 
@@ -2528,20 +2546,6 @@ socket.on('agent:error', ({ projectId, agentId, message }: { projectId?: string;
   } else {
     appendProjectedChatMessage(projectId, agentId || 'system', `⚠️ ${message}`);
   }
-});
-
-socket.on('task.assigned', ({ taskId, agentId, conversationId }: { taskId: string; agentId: string; conversationId: string }) => {
-  if (!isCurrentProject(conversationId)) return;
-  const store = useTaskHubStore.getState();
-  const task = store.getTaskById(taskId);
-  if (!task) return;
-
-  useTaskHubStore.setState((state) => ({
-    tasks: state.tasks.map((t) =>
-      t.id === taskId ? { ...t, agentId, updatedAt: new Date().toISOString() } : t
-    ),
-  }));
-
 });
 
 interface TaskStateSocketRow {
@@ -2559,9 +2563,9 @@ interface TaskStateSocketRow {
   updated_at?: string;
 }
 
-socket.on('task.state', ({ task: row }: { task?: TaskStateSocketRow }) => {
+socket.on('task.state', ({ projectId, task: row }: { projectId?: string; task?: TaskStateSocketRow }) => {
   if (!row?.id || !row.conversation_id) return;
-  if (!isCurrentProject(row.conversation_id)) return;
+  if (!isCurrentProjectEvent(projectId, row.conversation_id)) return;
   const task: Task = {
     id: row.id,
     conversationId: row.conversation_id,
@@ -2591,6 +2595,7 @@ socket.on('task.state', ({ task: row }: { task?: TaskStateSocketRow }) => {
 });
 
 socket.on('task.notification', (notification: {
+  projectId?: string;
   id?: string;
   conversationId?: string;
   taskId?: string;
@@ -2601,20 +2606,20 @@ socket.on('task.notification', (notification: {
   changedFields?: string[];
   metadata?: Record<string, any>;
 }) => {
+  const projectId = notification.projectId;
   const conversationId = notification.conversationId;
   const content = notification.content;
-  if (!conversationId || !content) return;
-  if (!isCurrentProject(conversationId)) return;
+  if (!isCurrentProjectEvent(projectId, conversationId) || !content) return;
 
   useTaskHubStore.setState((state) => {
-    const existing = state.chatMessagesByConversation[conversationId] || [];
+    const existing = state.chatMessagesByConversation[projectId] || [];
     if (notification.id && existing.some((message) => message.id === notification.id)) return {};
     const message: ChatMessage = {
       id: notification.id || `msg-${Date.now()}-task-notify`,
       agentId: 'system',
       content,
       timestamp: notification.createdAt || new Date().toISOString(),
-      conversationId,
+      conversationId: projectId,
       referencedTaskId: notification.taskId,
       mentions: notification.recipients || [],
       intent: 'task_status',
@@ -2628,13 +2633,14 @@ socket.on('task.notification', (notification: {
     return {
       chatMessagesByConversation: {
         ...state.chatMessagesByConversation,
-        [conversationId]: [...existing, message],
+        [projectId]: [...existing, message],
       },
     };
   });
 });
 
 socket.on('task.wakeup', (wakeup: {
+  projectId?: string;
   id?: string;
   conversationId?: string;
   taskId?: string;
@@ -2645,25 +2651,23 @@ socket.on('task.wakeup', (wakeup: {
   content?: string;
   createdAt?: string;
   metadata?: Record<string, any>;
-  handledByHarness?: boolean;
-  harnessFallbackReasonCode?: string;
 }) => {
+  const projectId = wakeup.projectId;
   const conversationId = wakeup.conversationId;
   const taskId = wakeup.taskId;
   const agentId = wakeup.agentId;
-  if (!conversationId || !taskId || !agentId) return;
-  if (!isCurrentProject(conversationId)) return;
+  if (!isCurrentProjectEvent(projectId, conversationId) || !taskId || !agentId) return;
 
   if (wakeup.content) {
     useTaskHubStore.setState((state) => {
-      const existing = state.chatMessagesByConversation[conversationId] || [];
+      const existing = state.chatMessagesByConversation[projectId] || [];
       if (wakeup.id && existing.some((message) => message.id === wakeup.id)) return {};
       const message: ChatMessage = {
         id: wakeup.id || `msg-${Date.now()}-task-wakeup`,
         agentId: 'system',
         content: wakeup.content!,
         timestamp: wakeup.createdAt || new Date().toISOString(),
-        conversationId,
+        conversationId: projectId,
         referencedTaskId: taskId,
         mentions: [agentId],
         intent: 'task_status',
@@ -2678,18 +2682,18 @@ socket.on('task.wakeup', (wakeup: {
       return {
         chatMessagesByConversation: {
           ...state.chatMessagesByConversation,
-          [conversationId]: [...existing, message],
+          [projectId]: [...existing, message],
         },
       };
     });
   }
 
   // The service-side Harness owns every continuation. The browser only keeps
-  // the wakeup visible; handledByHarness is display metadata, not a fallback switch.
+  // the wakeup visible.
 });
 
-socket.on('task.sync', ({ projectPath: _projectPath, conversationId, tasks: syncedTasks, blockers: syncedBlockers }: { projectPath: string; conversationId: string; tasks: any[]; blockers?: any[] }) => {
-  if (!isCurrentProject(conversationId)) return;
+socket.on('task.sync', ({ projectId, projectPath: _projectPath, conversationId, tasks: syncedTasks, blockers: syncedBlockers }: { projectId?: string; projectPath: string; conversationId: string; tasks: any[]; blockers?: any[] }) => {
+  if (!isCurrentProjectEvent(projectId, conversationId)) return;
   useTaskHubStore.setState({ lastTaskSyncAt: new Date().toISOString(), taskSyncError: null });
   const store = useTaskHubStore.getState();
 
@@ -2762,8 +2766,8 @@ socket.on('task.sync', ({ projectPath: _projectPath, conversationId, tasks: sync
   }
 });
 
-socket.on('task.sync_error', ({ conversationId, message }: { conversationId: string; message: string }) => {
-  if (!isCurrentProject(conversationId)) return;
+socket.on('task.sync_error', ({ projectId, conversationId, message }: { projectId?: string; conversationId: string; message: string }) => {
+  if (!isCurrentProjectEvent(projectId, conversationId)) return;
   useTaskHubStore.setState({
     taskSyncError: { message, timestamp: new Date().toISOString(), conversationId },
   });

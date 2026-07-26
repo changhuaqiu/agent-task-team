@@ -73,9 +73,10 @@ describe('Harness registry', () => {
     await Promise.resolve();
     expect(emit).toHaveBeenCalledWith('task.wakeup', expect.objectContaining({
       projectId: 'conv-1',
-      handledByHarness: true,
-      harnessFallbackReasonCode: 'runtime_profile_missing',
       content: expect.stringContaining('runtime_profile_missing'),
+      metadata: expect.objectContaining({
+        executionReasonCode: 'runtime_profile_missing',
+      }),
     }));
   });
 });

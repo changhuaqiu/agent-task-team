@@ -7,8 +7,8 @@ export interface RuntimeSocketProjectionPort {
 
 /**
  * Live, best-effort Socket projection from canonical Runtime Events. Text and
- * thinking deltas intentionally remain on the separate transient delta path;
- * their durable boundary is runtime.*.segment.completed.
+ * thinking deltas are published by the live bridge through the same project:view
+ * envelope; their durable boundary remains runtime.*.segment.completed.
  */
 export class RuntimeSocketProjection {
   constructor(private readonly port: RuntimeSocketProjectionPort) {}

@@ -6,7 +6,7 @@
 - [x] Add `a2a_possession` table with holder, status, summary, start, and completion fields.
 - [x] Add `a2a_pass` table with phase-specific status, target, reason, and packet references.
 - [x] Add `a2a_handoff_packet` table for compact handoff payloads and source message ids.
-- [x] Add `a2a_delivery` table for compatibility dispatch outbox, attempts, and deferred retry state.
+- [x] Add `a2a_delivery` table for service dispatch history, attempts, and deferred retry state.
 - [x] Add indexes by conversation, chain, holder, pass status, and created time.
 
 ## Phase 2: Orchestrator State Machine
@@ -25,10 +25,10 @@
 ## Phase 3: Event Protocol
 
 - [x] Replace `a2a:user-message` semantics with `user_turn_created`.
-- [x] Replace `a2a:dispatch` with `pass_offer`.
-- [x] Add client ACK event for `accepted` and `rejected`.
-- [x] Add client busy/deferred event that returns delivery to the retry queue.
-- [ ] Add execution events for `agent_starting`, `agent_started`, and `agent_completed`.
+- [x] Add `pass_offer` as a project-scoped WebUI projection.
+- [x] Remove browser ACK events; Harness/runtime owns accepted, rejected and started facts.
+- [x] Move busy/deferred handling to Agent Inbox / Harness.
+- [ ] Add canonical service execution events for `agent_starting`, `agent_started`, and `agent_completed`.
 - [x] Add blocked and timeout server events with phase-specific reason codes.
 - [x] Scope A2A socket events to the conversation room.
 
@@ -37,7 +37,7 @@
 - [ ] Make `dispatchToAgent()` return structured rejection reasons.
 - [ ] Report missing runtime/account before pass acceptance.
 - [x] Report process spawn success as `agent_started`.
-- [x] Retry busy A2A compatibility dispatches after the target becomes idle.
+- [x] Retry busy A2A dispatches from the service-side scheduler after the target becomes idle.
 - [ ] Report process exit or backend `done` as `agent_completed`.
 - [x] Remove any path that marks work `executing` before real start.
 
@@ -67,7 +67,7 @@
 - [x] Show handoff sequence as user-facing collaboration history.
 - [x] Show blocked pass reasons with product language.
 - [x] Add expandable recent handoff timeline.
-- [x] Distinguish offer, run, and holder idle timeouts in compatibility mode; keep start timeout configuration for the accepted/start split.
+- [x] Distinguish offer, run, and holder idle timeouts; keep start timeout configuration for the admitted/start split.
 - [x] Avoid primary UX labels such as runtime, routing, worklist, chain, or provider.
 
 ## Phase 8: Migration
@@ -85,8 +85,8 @@
 - [x] Integration test user -> agent -> agent pass.
 - [x] Integration test batch dispatch summary wakes multiple agents.
 - [x] Integration test branch holders can complete independently after fan-out.
-- [x] Integration test client-driven user fan-out registers independent holders.
-- [x] Integration test busy dispatch defers and retries from the delivery outbox.
+- [x] Integration test a human user turn can register independent holders.
+- [x] Integration test service-owned busy dispatch defers and retries.
 - [ ] Integration test multi-turn holder buffer collapsed into one handoff.
 - [ ] Integration test missing runtime rejects before accepted.
 - [x] Integration test non-holder cannot pass.

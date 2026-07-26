@@ -3,6 +3,10 @@ import { PRESET_ROLE_CARDS } from '@/data/presetRoleCards';
 import { socket } from '@/store/daemonStore';
 import { consumeProjectViewEvent, useTaskHubStore, type Account } from '@/store/taskHubStore';
 
+function emitServerEvent(event: string, payload: unknown) {
+  (socket as unknown as { emitEvent(args: unknown[]): void }).emitEvent([event, payload]);
+}
+
 function envelope(projectId: string, kind: 'terminal.output' | 'runtime.text.delta') {
   return {
     version: 1 as const,
@@ -133,6 +137,48 @@ describe('project view isolation', () => {
       payload: {},
     })).toBe(false);
     expect(useTaskHubStore.getState()).toBe(before);
+  });
+
+  it('requires matching project identifiers for non-runtime projections', () => {
+    emitServerEvent('a2a:notice', {
+      projectId: 'project-a',
+      conversationId: 'project-b',
+      kind: 'dispatch.blocked',
+      content: 'must stay invisible',
+    });
+    emitServerEvent('dispatch.receipt', {
+      projectId: 'project-a',
+      conversationId: 'project-b',
+      receiptId: 'receipt-mismatch',
+      targetAgentId: 'mario',
+      phase: 'started',
+      createdAt: '2026-07-26T00:00:00.000Z',
+    });
+
+    const state = useTaskHubStore.getState();
+    expect(state.chatMessagesByConversation['project-a']).toBeUndefined();
+    expect(state.dispatchReceiptsByConversation['project-b']).toBeUndefined();
+  });
+
+  it('renders a matching A2A notice without emitting a command or writing an API', () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+    const emitSpy = vi.spyOn(socket, 'emit').mockImplementation(() => socket);
+
+    emitServerEvent('a2a:notice', {
+      projectId: 'project-a',
+      conversationId: 'project-a',
+      kind: 'dispatch.blocked',
+      content: 'display-only A2A notice',
+    });
+
+    expect(useTaskHubStore.getState().chatMessagesByConversation['project-a'])
+      .toContainEqual(expect.objectContaining({
+        agentId: 'system',
+        content: 'display-only A2A notice',
+      }));
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(emitSpy).not.toHaveBeenCalled();
   });
 
   it('clears transient runtime projections when the selected project changes', () => {

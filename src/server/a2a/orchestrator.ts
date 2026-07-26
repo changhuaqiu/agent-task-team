@@ -720,8 +720,8 @@ export class Orchestrator {
           reason,
           metadata: { blockedBy: 'unknown_mention_target', mention: token },
         });
-        this.emit(conversationId, 'agent:event', {
-          type: 'system',
+        this.emit(conversationId, 'a2a:notice', {
+          kind: 'dispatch.blocked',
           content: `A2A 拦截：${reason}`,
           conversationId,
         });
@@ -746,8 +746,8 @@ export class Orchestrator {
             notificationStyle,
           },
         });
-        this.emit(conversationId, 'agent:event', {
-          type: 'system',
+        this.emit(conversationId, 'a2a:notice', {
+          kind: 'mention.informational',
           content: reason,
           conversationId,
         });
@@ -782,8 +782,8 @@ export class Orchestrator {
 
       if (!decision.allow && !decision.silent) {
         const displayReason = formatDispatchBlockReason(decision.reason);
-        this.emit(conversationId, 'agent:event', {
-          type: 'system',
+        this.emit(conversationId, 'a2a:notice', {
+          kind: decision.escalatedToAgentId ? 'dispatch.escalated' : 'dispatch.blocked',
           content: decision.escalatedToAgentId
             ? `A2A 拦截：${displayReason} 已升级给 @${decision.escalatedToAgentId} 协调。`
             : `A2A 拦截：${displayReason}`,
@@ -944,8 +944,8 @@ export class Orchestrator {
 
       this.emit(conversationId, 'a2a:pass-offer', passOfferPayload);
 
-      // Compatibility event for the current client. The client must ACK with
-      // a2a:agent-started before this becomes executing in the possession model.
+      // The offer is a display projection. The server-side Harness submission
+      // below owns admission and execution state; the browser sends no ACK.
       if (
         this.deferredSideEffects
         && (!this.config.submitDispatch || !this.config.transactionalDispatchAdmission)
@@ -981,7 +981,6 @@ export class Orchestrator {
         chainId,
         entryId: next.id,
         passId,
-        handledByHarness: serverSubmission?.handled ?? false,
       };
       this.emit(conversationId, 'a2a:dispatch', dispatchPayload);
       this.recordDeliverySent({
@@ -1279,8 +1278,8 @@ export class Orchestrator {
         reason,
         metadata: { phase: 'offer', passId },
       });
-      this.emit(chain.conversationId, 'agent:event', {
-        type: 'system',
+      this.emit(chain.conversationId, 'a2a:notice', {
+        kind: 'offer.timeout',
         content: `A2A offer 阶段超时：${reason}`,
         conversationId: chain.conversationId,
       });
@@ -1320,8 +1319,8 @@ export class Orchestrator {
         );
         this.clearRipple(chain.id);
         this.audit('chain_timeout', { chainId: chain.id, conversationId: chain.conversationId });
-        this.emit(chain.conversationId, 'agent:event', {
-          type: 'system',
+        this.emit(chain.conversationId, 'a2a:notice', {
+          kind: 'execution.timeout',
           content: `A2A 执行阶段超时：当前持球者未在 ${chain.config.maxDurationMs / 1000}s 内完成或交接`,
           conversationId: chain.conversationId,
         });

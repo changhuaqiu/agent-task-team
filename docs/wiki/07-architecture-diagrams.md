@@ -156,9 +156,9 @@ sequenceDiagram
 
   User->>UI: 点击运行 / 派发任务
   UI->>Store: dispatchToAgent() / simulateCliExecution()
-  Store->>Store: 根据账号绑定推导 engine/accountId，ComposeOptions.skills 注入 skill 指令
-  Store->>Socket: emit terminal:start
-  Socket->>Daemon: terminal:start
+  Store->>Socket: 提交 terminal:start Command（显式人工意图）
+  Socket->>Daemon: 校验并接纳 Command
+  Daemon->>Daemon: Harness + DispatchGateway 创建 execution envelope
   Daemon->>Accounts: 读取账号与凭据
   Daemon->>SessionRepo: 查找或创建 agent_session
   Daemon->>InvRepo: 创建 invocation
@@ -169,12 +169,16 @@ sequenceDiagram
   Backend->>Runtime: spawn + ACP initialize/newSession/prompt (stdio JSON-RPC)
   Runtime-->>Backend: session/update 流
   Backend-->>Daemon: AgentEvent 流
-  Daemon->>MsgRepo: 持久化消息 / 事件
-  Daemon-->>Socket: agent:event / terminal:data / agent:session / terminal:exit
-  Socket-->>Store: socket 事件
-  Store->>Store: 更新聊天 / 终端 / 状态
+  Daemon->>MsgRepo: 写 canonical Platform Event 与持久投影
+  Daemon-->>Socket: project:view（项目 room + projectId）
+  Socket-->>Store: 被动展示事件
+  Store->>Store: 校验当前项目，更新聊天 / 终端 / 状态
   Store-->>UI: 重渲染
 ```
+
+自动来源（A2A、workflow、review/test gate、恢复与重试）直接从服务端
+Agent Inbox / Harness 进入 DispatchGateway，不经过浏览器。收到 `project:view`、
+`task.*` 或 `a2a.*` 不会让 Store 再次派发。
 
 ## 7.3.1 任务文件同步链路
 

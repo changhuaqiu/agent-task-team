@@ -294,9 +294,12 @@ Flow:
    - `dependency_resolved`: a dependency task reaches `done`, unblocking downstream pending owners.
 4. A `task-wakeup` system message is persisted with `startsA2AHandoff: false` and `startsDispatch: true`.
 5. `task.wakeup` is emitted to `io.to(conversationId)`.
-6. The browser runtime starts the known next actor if available; if busy, the existing dispatch queue handles sequencing.
+6. The server-side Agent Inbox and Harness start the known next actor; busy,
+   retry and recovery remain in the service. The browser only renders the wakeup.
 
-This is intentionally not a central scheduler. If there is no explicit owner or reviewer, the framework does not guess. It only leaves a visible notification for the planner/coordinator to decide.
+This is intentionally a narrow server-side scheduler, not a general planner. If
+there is no explicit owner or reviewer, the framework does not guess. It only
+leaves a visible notification for the planner/coordinator to decide.
 
 Wakeup copy uses “系统轻推” so users understand this as a gentle nudge, not hidden orchestration.
 

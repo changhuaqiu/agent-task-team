@@ -597,7 +597,6 @@ describe('POST /api/mutations', () => {
       taskId: 'task-1',
       agentId: 'agent-a',
       reasonCode: 'missing_implementation_evidence',
-      handledByHarness: true,
       metadata: expect.objectContaining({
         missingFields: expect.arrayContaining(['installResult', 'buildResult', 'impactEvidence']),
       }),
@@ -647,7 +646,6 @@ describe('POST /api/mutations', () => {
     }));
     expect(emit).toHaveBeenCalledWith('task.wakeup', expect.objectContaining({
       projectId: 'conv-1',
-      handledByHarness: true,
     }));
   });
 

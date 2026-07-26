@@ -130,8 +130,9 @@ describe('project session scoping', () => {
     });
     expect(accepted).toBe(true);
 
-    emitServerEvent('agent:error', {
+    emitServerEvent('command:error', {
       projectId: 'conv-old',
+      command: 'terminal:start',
       agentId: 'mario',
       message: 'Agent is busy, message queued',
       reasonCode: 'agent_busy',

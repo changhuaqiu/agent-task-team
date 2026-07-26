@@ -19,7 +19,7 @@ function mockIO() {
     lastEvent: () => emitted[emitted.length - 1],
     dispatchEvents: () => emitted.filter(([e]) => e === 'a2a:dispatch'),
     blockedEvents: () => emitted.filter(([e]) => e === 'a2a:pass-blocked'),
-    systemEvents: () => emitted.filter(([e, p]) => e === 'agent:event' && p.type === 'system'),
+    systemEvents: () => emitted.filter(([e]) => e === 'a2a:notice'),
   };
 }
 

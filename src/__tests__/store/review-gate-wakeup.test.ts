@@ -80,6 +80,7 @@ describe('review gate wakeup', () => {
     const emitSpy = vi.spyOn(socket, 'emit').mockImplementation(() => socket);
 
     emitServerEvent('task.wakeup', {
+      projectId: 'conv-review',
       id: 'msg-review-ready',
       conversationId: 'conv-review',
       taskId: 'TASK-001',
@@ -117,6 +118,7 @@ describe('review gate wakeup', () => {
     const emitSpy = vi.spyOn(socket, 'emit').mockImplementation(() => socket);
 
     emitServerEvent('task.wakeup', {
+      projectId: 'conv-review',
       id: 'msg-test-ready',
       conversationId: 'conv-review',
       taskId: 'TASK-001',
@@ -137,6 +139,7 @@ describe('review gate wakeup', () => {
 
   it('records dispatch receipts from the daemon', () => {
     emitServerEvent('dispatch.receipt', {
+      projectId: 'conv-review',
       receiptId: 'env-1:started',
       conversationId: 'conv-review',
       taskId: 'TASK-001',
@@ -157,6 +160,7 @@ describe('review gate wakeup', () => {
     const emitSpy = vi.spyOn(socket, 'emit').mockImplementation(() => socket);
 
     emitServerEvent('task.wakeup', {
+      projectId: 'conv-review',
       id: 'msg-server-owned',
       conversationId: 'conv-review',
       taskId: 'TASK-001',
@@ -165,7 +169,6 @@ describe('review gate wakeup', () => {
       dispatchSource: 'review_gate',
       prompt: 'Confirm review',
       content: 'Server-owned wakeup',
-      handledByHarness: true,
     });
 
     await Promise.resolve();
@@ -178,13 +181,13 @@ describe('review gate wakeup', () => {
     const emitSpy = vi.spyOn(socket, 'emit').mockImplementation(() => socket);
 
     emitServerEvent('a2a:dispatch', {
+      projectId: 'conv-review',
       agentId: 'mario',
       prompt: 'Continue server-side',
       fromAgentId: 'dk',
       conversationId: 'conv-review',
       chainId: 'chain-1',
       entryId: 'entry-1',
-      handledByHarness: true,
     });
 
     await Promise.resolve();
@@ -260,6 +263,7 @@ describe('dependency_resolved wakeup', () => {
     const emitSpy = vi.spyOn(socket, 'emit').mockImplementation(() => socket);
 
     emitServerEvent('task.wakeup', {
+      projectId: 'conv-review',
       id: 'msg-dep-resolved',
       conversationId: 'conv-review',
       taskId: 'TASK-007',

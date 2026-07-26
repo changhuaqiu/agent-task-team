@@ -191,7 +191,7 @@ describe('A2A v2 integration', () => {
       fromAgentId: 'user',
     }));
     const dispatch = io.emitted().find(([event, payload]) => event === 'a2a:dispatch' && payload.agentId === 'luigi');
-    expect(dispatch?.[1]).toMatchObject({ handledByHarness: true });
+    expect(dispatch?.[1]).toMatchObject({ projectId: 'conv-1' });
     const entry = db.prepare("SELECT status FROM chain_worklist WHERE agent_id = 'luigi'").get() as { status: string };
     expect(entry.status).toBe('executing');
   });
@@ -211,7 +211,7 @@ describe('A2A v2 integration', () => {
 
     const dispatches = io.emitted().filter(([event, payload]) => event === 'a2a:dispatch' && payload.agentId === 'luigi');
     expect(dispatches).toHaveLength(1);
-    expect(dispatches[0][1].handledByHarness).toBe(true);
+    expect(dispatches[0][1].projectId).toBe('conv-1');
     expect(io.emitted()).toContainEqual([
       'a2a:pass-blocked',
       expect.objectContaining({
@@ -389,7 +389,7 @@ describe('A2A v2 integration', () => {
     expect(marioDispatches).toHaveLength(0);
 
     const notices = io.roomEmitted()
-      .filter(([room, event, payload]) => room === 'conv-1' && event === 'agent:event' && payload.type === 'system')
+      .filter(([room, event]) => room === 'conv-1' && event === 'a2a:notice')
       .map(([, , payload]) => payload.content);
     expect(notices.some((content) => (
       content.includes('群聊知会')
@@ -397,6 +397,9 @@ describe('A2A v2 integration', () => {
       && content.includes('不会启动新的 A2A 执行')
       && content.includes('@agent 请评审/实现/验证')
     ))).toBe(true);
+    expect(io.roomEmitted()
+      .filter(([room, event]) => room === 'conv-1' && event === 'a2a:notice')
+      .every(([, , payload]) => payload.projectId === 'conv-1')).toBe(true);
   });
 
   it('records possession and handoff packet for an explicit pass', async () => {
@@ -681,7 +684,7 @@ describe('A2A v2 integration', () => {
     const reviewerDispatches = io.emitted().filter(([e, p]) => e === 'a2a:dispatch' && p.agentId === 'reviewer');
     expect(reviewerDispatches).toHaveLength(0);
 
-    const systemEvents = io.emitted().filter(([e, p]) => e === 'agent:event' && p.type === 'system');
+    const systemEvents = io.emitted().filter(([e]) => e === 'a2a:notice');
     expect(systemEvents.some(([, p]) => p.content.includes('团队协作规则阻止了这次转交'))).toBe(true);
 
     const blockedLogs = db.prepare(`
@@ -750,7 +753,7 @@ describe('A2A v2 integration', () => {
     const dkDispatches = io.emitted().filter(([e, p]) => e === 'a2a:dispatch' && p.agentId === 'dk');
     expect(dkDispatches).toHaveLength(0);
 
-    const systemEvents = io.emitted().filter(([e, p]) => e === 'agent:event' && p.type === 'system');
+    const systemEvents = io.emitted().filter(([e]) => e === 'a2a:notice');
     expect(systemEvents.some(([, p]) => p.content.includes('当前团队没有可接收 @dk 的角色'))).toBe(true);
 
     const blockedLogs = db.prepare(`
@@ -935,7 +938,7 @@ describe('A2A v2 integration', () => {
 
       await vi.advanceTimersByTimeAsync(6);
 
-      const systemEvents = io.emitted().filter(([event, payload]) => event === 'agent:event' && payload.type === 'system');
+      const systemEvents = io.emitted().filter(([event]) => event === 'a2a:notice');
       expect(systemEvents.some(([, payload]) => payload.content.includes('offer 阶段超时'))).toBe(true);
 
       const pass = db.prepare('SELECT status, phase, reason FROM a2a_pass WHERE chain_id = ?').get(chain.id) as any;
@@ -1010,7 +1013,7 @@ describe('A2A v2 integration', () => {
     });
 
     // Should see a system event about blocking
-    const systemEvents = io.emitted().filter(([e, p]) => e === 'agent:event' && p.type === 'system');
+    const systemEvents = io.emitted().filter(([e]) => e === 'a2a:notice');
     const blocked = systemEvents.some(([, p]) => p.content.includes('拦截'));
     expect(blocked).toBe(true);
   });
@@ -1123,7 +1126,7 @@ describe('A2A v2 integration', () => {
     expect(coordinatorDispatches[0][1].prompt).toContain('@reviewer');
 
     const notices = io.roomEmitted()
-      .filter(([room, event, payload]) => room === 'conv-1' && event === 'agent:event' && payload.type === 'system')
+      .filter(([room, event]) => room === 'conv-1' && event === 'a2a:notice')
       .map(([, , payload]) => payload.content);
     expect(notices.some((content) => content.includes('已升级给 @coordinator 协调'))).toBe(true);
   });

@@ -209,12 +209,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
               const io = (res.socket as any)?.server?.io;
               const id = `wakeup-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
               const { submitTaskWakeupToHarness } = await import('@/server/harness/registry');
-              const submission = submitTaskWakeupToHarness(io, { ...wakeup, id });
+              submitTaskWakeupToHarness(io, { ...wakeup, id });
               io?.to(previousTask.conversation_id).emit('task.wakeup', {
                 ...wakeup,
                 projectId: previousTask.conversation_id,
                 id,
-                handledByHarness: submission?.handled ?? false,
                 createdAt: new Date().toISOString(),
               });
             }
@@ -534,12 +533,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
                 const io = (res.socket as any)?.server?.io;
                 const id = `wakeup-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
                 const { submitTaskWakeupToHarness } = await import('@/server/harness/registry');
-                const submission = submitTaskWakeupToHarness(io, { ...wakeup, id });
+                submitTaskWakeupToHarness(io, { ...wakeup, id });
                 io?.to(wakeupProjectId).emit('task.wakeup', {
                   ...wakeup,
                   projectId: wakeupProjectId,
                   id,
-                  handledByHarness: submission?.handled ?? false,
                   createdAt: new Date().toISOString(),
                 });
               }

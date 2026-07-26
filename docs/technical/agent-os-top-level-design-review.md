@@ -242,7 +242,7 @@ Observability 和 Audit 是横跨所有 module seam 的只读投影；Evaluation
 | 层 | 当前判断 | 已有证据 | 主要缺口 |
 |---|---|---|---|
 | L0 执行基座 | 较强 | ACP 统一接入、Worktree、Browser/Provider adapter | 少量 ACP 收口项；远端节点不是当前重点 |
-| L1 操作系统内核 | 部分形成 | Control Plane、Envelope、Proof、runtime health | 多条客户端直发路径；定向路由、ACK、ContinueGate 和身份源未收口 |
+| L1 操作系统内核 | 主链已形成 | Control Plane、Envelope、Proof、runtime health、Agent Inbox/Harness | 跨节点定向路由、ContinueGate 和身份源仍需收口；浏览器自动控制路径已退役 |
 | L2 数据与记忆 | 上下文强、数据面弱 | ContextManager、Fragment/ContextArtifact、预算、Snapshot | 缺少共享 Artifact identity/provenance 协议、确定性 Binding、单一表示、持久 Memory 和结构化 checkpoint；是否需要独立内容存储尚待真实读写模式验证 |
 | L3 团队平面 | 较强但有迁移债务 | Team Runtime、Task Graph、A2A possession | A2A v2 兼容链仍存在；holder buffer、用户夺回责任等未完全闭环 |
 | L4 交付平面 | 方向正确、主链较深 | GoalContract、Supervisor、Receipt、Closure Invariant | poisoned session、成本/并行预算和完整发布验收仍有开放项 |
@@ -263,13 +263,17 @@ Observability 和 Audit 是横跨所有 module seam 的只读投影；Evaluation
 
 #### 执行入口仍然分散
 
-代码中仍存在多处前端 `dispatchToAgent()` 和兼容 `terminal:start`。这说明 Control Plane 已有目标设计，但还不是唯一内核。
+前端 `dispatchToAgent()` / `terminal:start` 只允许由人的点击、输入或确认调用，属于
+Human Command adapter。A2A、Task Wakeup、质量门、恢复与重试均由服务端
+Agent Inbox / Harness 推进；Socket 展示消费者不能复用这些入口。因此浏览器不再是
+自动执行 owner。
 
 后果：
 
 - UI、daemon、Harness 和 A2A 都需要理解部分生命周期；
 - started、busy、queued、failed 容易出现多个口径；
-- 新执行来源仍可能绕过统一 Policy、Proof 和 ACK。
+- 新的自动执行来源若绕过 Agent Inbox / Harness、Policy、Proof 和服务端生命周期确认，
+  会被架构门禁视为违规。
 
 #### Artifact 只是引用记录，不是数据平面
 
@@ -595,7 +599,7 @@ inspectDelivery(deliveryId)
 目标：任何执行都不能绕过服务端内核。
 
 - 完成 `system-control-plane` 剩余 P0；
-- 退役客户端执行权威与 A2A v2 新写入；
+- 保持客户端自动执行权威已退役，并继续收敛 A2A v2 新写入；
 - 退役 A2A 平行 Prompt 管线，让 ContextManager 成为真实唯一组装入口；
 - 补 Identity + Authority/Policy 决策和 fail-closed 证据链；
 - 对齐 Harness、daemon、A2A、Task 和 Delivery 的生命周期口径；

@@ -75,6 +75,7 @@ export function registerProductionRuntimeCompletionEffects(
     },
     notifyEvaluationQueued(payload, runId) {
       options.io.to(payload.conversationId).emit('evaluation:queued', {
+        projectId: payload.conversationId,
         conversationId: payload.conversationId,
         runId,
       });

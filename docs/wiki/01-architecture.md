@@ -125,69 +125,40 @@ flowchart TD
 ### B) 用户操作与持久化
 
 1. 用户在工作台操作（创建项目、任务、消息等）
-2. Store 先更新本地状态
-3. 通过 `POST /api/mutations` 写入 Repository → SQLite
+2. WebUI Command adapter 把这次显式人工意图提交到 Socket Command 或
+   `POST /api/mutations`
+3. 服务端校验并执行 Command，写入 Repository → SQLite，并发布后续领域/展示事件
+4. WebUI 自动事件消费者只更新展示投影，不因收到事件再次发出控制命令
 
 ### C) 任务执行链路
 
-> 当前实现状态：直接用户派发仍由 store 解析 runtime profile 后通过 `terminal:start` 启动 daemon。目标架构要求用户派发、A2A、workflow、review gate 都先提交 dispatch intent，由 Control Plane 生成 execution envelope 后再定向路由。
-
-```
-用户触发任务
-    │
-    ▼
-dispatchToAgent()
-    │
-    ├─ resolveRuntimeAgentProfile(conversationId, agentId)
-    │   ├─ 当前项目团队身份
-    │   ├─ 可用账号 / engine
-    │   └─ roleCard / skills / TeamPack / roster
-    │
-    ├─ agentStatus[agentId] === 'busy'?
-    │   └─ YES → enqueueDispatch(agentId, conversationId)
-    │             存入 pendingDispatches["agentId:conversationId"]
-    │
-    └─ NO → socket.emit('terminal:start')
-                │
-                ▼
-        Daemon 处理
-                │
-                ├─ sessionRepo.findActiveByConversation(agentId, conversationId)
-                │   └─ 找到 → 使用 cli_session_id (--resume)
-                │   └─ 没找到 → 创建新 session
-                │
-                ├─ loadCatalog().find(e => e.id === engine) → createAcpBackend(entry)
-                │   └─ AcpBackend.execute(prompt, opts) → 返回 AsyncGenerator<AgentEvent>（ACP JSON-RPC over stdio）
-                │
-                └─ for await (event of events)
-                    ├─ 广播到前端 (agent:event)
-                    ├─ 写入 messageRepo / eventRepo
-                    └─ event.type === 'done'
-                        └─ orchestrator.onAgentDone()
-                            └─ dequeueNextPending(agentId, conversationId)
-```
-
-目标执行链路：
+> 人的显式派发仍可由 WebUI 通过 `terminal:start` Command 提交；A2A、workflow、
+> review gate、恢复和重试由服务端 Agent Inbox / Harness 持有。两者都会进入
+> Dispatch Gateway，但服务端展示事件不会反向触发浏览器派发。
 
 ```text
-user / agent / workflow intent
-    ↓
-DispatchGateway.normalizeIntent()
-    ↓
-TeamRuntime resolves target profile
-    ↓
-PolicyGates check identity, authority, team rules, possession, health, budget, dedup
-    ↓
-ContextPlane builds ExecutionEnvelope
-    ↓
-RuntimeRouter sends envelope to exact RuntimeNode
-    ↓
-Executor returns started / failed / completed
-    ↓
-ProofLog records each phase
+人点击 / 输入命令
+    │
+    ▼
+WebUI Command adapter
+    │
+    └─ terminal:start / mutation Command
+              │
+自动来源       │
+(A2A/workflow/review/recovery)
+    │          │
+    ▼          ▼
+Agent Inbox / Harness
+    │
+    ▼
+Dispatch Gateway → ExecutionEnvelope → ACP Runtime
+    │
+    ├─ canonical Platform Events → 持久投影 / Process Manager / 后续命令
+    └─ project:view / task.* / a2a.* → 项目 room → WebUI 展示投影
 ```
 
-在目标链路中，任何 dispatch 都不能在 executor ACK 前被标记为 `started`。
+任何 dispatch 都不能在 Harness/runtime 确认前被标记为 `started`；浏览器 ACK
+不构成执行事实。
 
 ### C2) Team Runtime Contract
 
@@ -247,24 +218,12 @@ ProofLog records each phase
 
 **问题背景**：之前 `pendingDispatches` 按 `agentId` 做 key，导致跨项目的排队消息共享队列，dequeue 时错乱。
 
-**解决方案**：使用复合 key `agentId:conversationId`。
+**解决方案**：服务端 `agent_inbox_item` 以 project + ProjectAgent 隔离、claim、
+lease、重试和恢复；浏览器 `pendingDispatches["agentId:conversationId"]` 只是从
+Agent Inbox 查询得到的项目展示投影，不负责出队或重试。
 
-```typescript
-// daemonStore.ts
-function queueKey(agentId: string, conversationId: string): string {
-  return `${agentId}:${conversationId}`;
-}
-
-// 入队
-const key = queueKey(agentId, conversationId);
-state.pendingDispatches[key].push(entry);
-
-// 出队（在 terminal:exit 或 agent:error 后）
-const key = `${agentId}:${conversationId}`;
-dequeueNextPending(agentId, conversationId);
-```
-
-**前端渲染**：`GlobalChatRoom.tsx` 按 `selectedConversationId` 过滤显示当前项目的队列。
+**前端渲染**：`GlobalChatRoom.tsx` 按 `selectedConversationId` 过滤当前项目队列，
+项目切换时重新查询服务端事实。
 
 ### F) 任务文件同步链路
 

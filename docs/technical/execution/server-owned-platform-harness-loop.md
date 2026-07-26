@@ -4,7 +4,7 @@
 
 ## 状态
 
-Accepted — 2026-07-14
+Accepted and implemented — 2026-07-14（2026-07-26 完成浏览器控制路径退役）
 
 ## 背景
 
@@ -43,9 +43,11 @@ ACP 只解决执行协议，不解决角色、上下文、工作流和续接权�
 
 - daemon 需要暴露可被 Coordinator 调用的执行入口。
 - 服务端需要 repository-backed Team Runtime 和 Context providers。
-- 迁移期保留浏览器兼容事件，但必须携带是否已由 Harness 处理的标记。
-- 后续可引入持久 dispatch inbox，而无需改变触发、上下文或 Runtime Port 契约。
+- Socket 事件只保留项目展示投影，不携带浏览器 fallback 开关。
+- 持久 Agent Inbox 已接入，负责 busy 排队、claim、lease、恢复和重试。
 
 ## 退出与迁移条件
 
-当所有生产触发均走服务端 Harness、没有 compatibility fallback、ACP Runtime Port 通过兼容套件后，删除浏览器调度权威、本地 pending queue 和 bespoke runtime 分支。
+退出条件已满足：所有自动触发走服务端 Harness，没有 compatibility fallback；
+浏览器 `pendingDispatches` 仅是 Agent Inbox 展示投影。人工点击或输入仍可经
+Command adapter 提交 `terminal:start`，但收到 Socket 展示事件不会产生执行命令。

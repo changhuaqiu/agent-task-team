@@ -200,10 +200,10 @@ spawn('script', ['-q', '/dev/null', 'opencode', ...args], {
 
 ## 5. Daemon 编排流程
 
-```
-terminal:start
+```text
+人工 terminal:start Command / 服务端 Harness dispatch
   │
-  ├─ 检查 force / busy 状态
+  ├─ Harness / DispatchGateway 检查 admission、busy 与幂等
   ├─ 解析 engine (runtimeId → RUNTIME_ENGINE_MAP)
   ├─ resolveCredentialEnv(accountId)
   ├─ Session 查找/创建 (sessionRepo)
@@ -219,38 +219,37 @@ terminal:start
   ├─ backend.execute(prompt, opts)
   │
   ├─ for await (event of events):
-  │   ├─ forwardAgentEvent(event)
-  │   │   ├─ 注册 sessionId (agent:session)
-  │   │   ├─ 广播到前端 (agent:event)
-  │   │   ├─ 写入 messageRepo
-  │   │   └─ 重置超时
-  │   └─ 更新 invocationRepo
+  │   ├─ AcpRuntimeEventCoordinator 归一化 canonical runtime event
+  │   ├─ PlatformEventLog + durable projections
+  │   ├─ project:view 发布项目展示信封
+  │   └─ 更新 session / invocation
   │
-  └─ await result → terminal:exit
+  └─ runtime.invocation.terminated → project:view terminal.exited
 ```
 
 ## 6. 事件格式约定
 
-Daemon 广播的 `agent:event` 格式：
+Daemon 向项目 room 发布统一的 `project:view` 信封：
 
 ```typescript
 {
-  taskId: string | undefined;
-  agentId: string;
-  type: 'text' | 'thinking' | 'tool_use' | 'tool_result' | 'error' | 'done';
-  content: string;
-  tool?: { name: string; callId?: string; input?: string; output?: string };
-  usage?: { inputTokens: number; outputTokens: number };
-  sessionId?: string;
-  conversationId: string;  // sessionConvId = conversationId || projectId || 'default'
+  version: 1;
+  projectId: string;
+  occurredAt: string;
+  kind: 'runtime.text.delta' | 'runtime.thinking.delta' |
+        'runtime.plan' | 'runtime.tool.started' |
+        'runtime.tool.completed' | 'runtime.tool.failed' |
+        'runtime.warning' | 'runtime.usage' |
+        'runtime.completed' | 'terminal.output' | 'terminal.exited';
+  agentId?: string;
+  invocationId?: string;
+  payload: Record<string, unknown>;
 }
 ```
 
-前端 store 的 `agent:event` handler 根据 `type` 决定如何展示：
-- `text` → 流式追加到聊天消息
-- `tool_use` → 工具调用卡片
-- `error` → 错误消息
-- `done` / step_finish → 完成标记
+前端先验证 `projectId === 当前项目`，再按 `kind` 更新聊天、工具、终端和活动态。
+处理器只更新展示 Store，不回发派发、重试或执行 ACK。人的点击和输入通过独立
+Command adapter 进入服务端，不受这一限制。
 
 ## 7. Session 管理策略
 

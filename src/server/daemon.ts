@@ -226,7 +226,7 @@ export default function registerDaemon(io: IOServer) {
   const dispatchGateway = new DispatchGateway();
   // Deferred until after the Harness port is constructed; the port closes over this handler.
   // eslint-disable-next-line prefer-const
-  let handleTerminalStart: ((payload: TerminalStartPayload, emitToRequester?: (event: string, data: unknown) => void) => Promise<void>) | undefined;
+  let handleTerminalStart: ((payload: TerminalStartPayload, emitToRequester: (event: string, data: unknown) => void) => Promise<void>) | undefined;
 
   const harnessCoordinator = new HarnessCoordinator({
     planner: new RepositoryHarnessPlanner(),
@@ -268,7 +268,12 @@ export default function registerDaemon(io: IOServer) {
           contextReport: plan.contextReport,
           contextSnapshot: plan.contextSnapshot,
           evaluation: plan.evaluation,
-        }, (event, data) => io.to(plan.trigger.conversationId).emit(event, data));
+        }, (event, data) => {
+          const scopedData = data && typeof data === 'object'
+            ? { ...(data as Record<string, unknown>), projectId: plan.trigger.conversationId }
+            : { value: data, projectId: plan.trigger.conversationId };
+          io.to(plan.trigger.conversationId).emit(event, scopedData);
+        });
         return { status: 'accepted' };
       },
     },
@@ -390,7 +395,6 @@ export default function registerDaemon(io: IOServer) {
           ...wakeup,
           projectId: wakeup.conversationId,
           id: `wakeup-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-          handledByHarness: submission?.handled ?? false,
           createdAt: new Date().toISOString(),
         });
       }
@@ -542,32 +546,6 @@ export default function registerDaemon(io: IOServer) {
       callback?.({ panes: agentPaneRegistry.listAll() });
     });
 
-    socket.on('a2a:user-message', (payload: {
-      conversationId?: string;
-      messageId?: string;
-      targetAgentIds?: string[];
-      prompt?: string;
-      taskId?: string;
-    }) => {
-      const conversationId = payload?.conversationId;
-      const messageId = payload?.messageId;
-      if (!conversationId || !messageId) return;
-
-      if (payload.targetAgentIds?.length) {
-        // Direct user-to-agent dispatch remains client-driven; register it as
-        // executing so the agent's later @mentions continue in the same chain.
-        a2aMessenger.registerExternalUserDispatch(
-          conversationId,
-          messageId,
-          payload.targetAgentIds,
-          payload.prompt ?? '',
-          payload.taskId,
-        );
-      } else {
-        a2aMessenger.abortConversationChains(conversationId, 'new_user_message_without_a2a_target');
-      }
-    });
-
     socket.on('a2a:user-turn-created', (payload: {
       conversationId?: string;
       messageId?: string;
@@ -590,59 +568,6 @@ export default function registerDaemon(io: IOServer) {
       } else {
         a2aMessenger.abortConversationChains(conversationId, 'new_user_turn_without_pass');
       }
-    });
-
-    socket.on('a2a:agent-started', (payload: {
-      chainId?: string;
-      entryId?: string;
-      conversationId?: string;
-      agentId?: string;
-      passId?: string;
-    }) => {
-      if (!payload.chainId || !payload.entryId || !payload.conversationId || !payload.agentId) return;
-      a2aMessenger.orchestrator.markDispatchStarted(
-        payload.chainId,
-        payload.entryId,
-        payload.conversationId,
-        payload.agentId,
-        payload.passId,
-      );
-    });
-
-    socket.on('a2a:dispatch-failed', (payload: {
-      chainId?: string;
-      entryId?: string;
-      conversationId?: string;
-      agentId?: string;
-      reason?: string;
-    }) => {
-      if (!payload.chainId || !payload.entryId || !payload.conversationId || !payload.agentId) return;
-      a2aMessenger.orchestrator.markDispatchFailed(
-        payload.chainId,
-        payload.entryId,
-        payload.conversationId,
-        payload.agentId,
-        payload.reason ?? 'client dispatch failed',
-      );
-    });
-
-    socket.on('a2a:dispatch-deferred', (payload: {
-      chainId?: string;
-      entryId?: string;
-      conversationId?: string;
-      agentId?: string;
-      passId?: string;
-      reason?: string;
-    }) => {
-      if (!payload.chainId || !payload.entryId || !payload.conversationId || !payload.agentId) return;
-      a2aMessenger.orchestrator.markDispatchDeferred(
-        payload.chainId,
-        payload.entryId,
-        payload.conversationId,
-        payload.agentId,
-        payload.reason ?? 'target agent is busy',
-        payload.passId,
-      );
     });
 
     socket.on('runtimes:list', async (callback) => {
@@ -687,7 +612,7 @@ export default function registerDaemon(io: IOServer) {
         contextReport,
         contextSnapshot,
         evaluation,
-      }: TerminalStartPayload, emitToRequester = broadcast) => {
+      }: TerminalStartPayload, emitToRequester) => {
       const startKey = processKey(agentId, projectId || conversationId);
       if (!processStartGuard.claim(startKey, activeProcesses.has(startKey), Boolean(force))) {
         const busyProjectId = conversationId?.trim() || projectId?.trim();
@@ -706,7 +631,8 @@ export default function registerDaemon(io: IOServer) {
             payload: { code: 1, command: 'dispatch', reasonCode: 'agent_busy' },
           });
         } else {
-          emitToRequester('agent:error', {
+          emitToRequester('command:error', {
+            command: 'terminal:start',
             agentId,
             message: 'Agent is already starting or running',
             reasonCode: 'agent_busy',
@@ -2025,9 +1951,11 @@ export default function registerDaemon(io: IOServer) {
             },
           });
         } else {
-          emitToRequester('agent:error', {
+          emitToRequester('command:error', {
+            command: 'terminal:start',
             agentId,
             message: `内部错误：${(err as Error)?.message || '未知'}`,
+            reasonCode: 'internal_error',
           });
         }
         activeProcesses.delete(processKey(agentId, projectId));
@@ -2068,14 +1996,6 @@ export default function registerDaemon(io: IOServer) {
           message: (error as Error).message,
           reasonCode: 'conversation_missing',
         });
-        if (commandProjectId) {
-          socket.emit('agent:error', {
-            projectId: commandProjectId,
-            agentId: payload.agentId,
-            message: (error as Error).message,
-            reasonCode: 'conversation_missing',
-          });
-        }
       }
     });
 

@@ -57,7 +57,10 @@ Task mutation / Autonomy Guard / A2A pass
 - ACP 分支只需实现相同端口，无需修改 Task、A2A 或 Context 层。
 - daemon 兼容入口的参数解构、诊断日志和 preflight 校验不得引用浏览器环境全局变量；所有日志字段必须来自显式 payload 或已解析 plan，且诊断代码不得位于可捕获错误边界之外而中断执行。
 - 用户消息必须先写入聊天事实源，再触发 dispatch；runtime 是否 busy 不能影响消息可见性和持久化。
-- 浏览器与 daemon 的 busy 快照可能短暂不一致。浏览器首发 dispatch 时必须暂存原始请求；若 daemon 返回 `agent_busy`，原始请求必须按 `(agentId, conversationId)` 恢复到 pending queue，不能只更新 UI 状态或展示“已排队”。
+- 浏览器与 daemon 的 busy 快照可能短暂不一致。人工 Command 如果在服务端 admission
+  时遇到 `agent_busy`，页面只展示拒绝原因，由人决定是否重试；不得因收到错误事件自动
+  恢复派发。A2A、wakeup、恢复等自动来源必须先写 Agent Inbox，由服务端 Scheduler
+  负责 deferred 与重试。
 - 角色没有可用账号或执行引擎时，派发必须在启动前终止并向聊天区写入可操作提示；内部 `invocation.aborted` 事件不能替代用户反馈。
 
 ### 用户入口路由
@@ -111,16 +114,13 @@ Task mutation / Autonomy Guard / A2A pass
 
 ## 兼容机制
 
-服务端接受 wakeup/A2A 后，Socket 事件携带 `handledByHarness=true`。浏览器仍展示事件，但不会再调用 `dispatchToAgent`。
+服务端接受 wakeup/A2A 后只发布展示事件，不再发送任何浏览器 fallback 标记。
+浏览器始终只展示，不调用 `dispatchToAgent`。
 
-以下情况显式回退旧客户端路径：
-
-- Agent 已 busy，需要沿用现有客户端排队；队列项必须保留原始 prompt、task、source、fromAgentId 和 conversationId；
-- 服务端缺少 runtime profile；
-- 服务端上下文组装失败；
-- Runtime Port 在派发前拒绝请求。
-
-回退事件携带 `handledByHarness=false` 和 `harnessFallbackReasonCode`，因此不会静默丢失。
+- Agent busy：Agent Inbox 重新排队并由 Scheduler 重试。
+- 缑少 runtime profile、上下文组装失败或 Runtime Port 拒绝：Harness 返回结构化失败，
+  服务端发布 warning / wakeup 展示投影并记录 proof。
+- 不存在回退到旧客户端执行、ACK、失败回报或恢复派发的路径。
 
 ## 状态权威
 
@@ -136,10 +136,11 @@ Task mutation / Autonomy Guard / A2A pass
 
 ## 已知迁移边界
 
-- 用户直接 @Agent 仍由浏览器首发；Task Wakeup、Autonomy Guard 和 A2A 已优先走服务端。
-- busy 时仍回退浏览器内存队列；下一阶段应替换为持久 dispatch inbox。
-- daemon 仍包含 legacy backend、bridge 和 tmux 分支；ACP 完成后应收敛到单一 Runtime Port。
-- `terminal:exit` 中仍有部分客户端兼容恢复逻辑，待所有触发迁移后删除。
+- 用户点击、输入或 @Agent 属于显式 Human Command，可以由 WebUI 首发。
+- Task Wakeup、Autonomy Guard、A2A、busy 重排、恢复和重试全部由服务端
+  Agent Inbox / Harness 推进；浏览器队列只是服务端事实的项目投影。
+- WebUI 自动事件消费者不再含执行 ACK、失败兜底或终态恢复派发。
+- Runtime 输出统一经带 `projectId` 的 `project:view` 项目信封展示。
 
 ## 测试策略
 
@@ -148,11 +149,11 @@ Task mutation / Autonomy Guard / A2A pass
 - Registry：无浏览器提交与显式 fallback。
 - Reducer：只允许 pending -> in_progress，不越过质量门禁。
 - File projection：当该任务已有已确认且尚未终止的 invocation 时，TASKS.md 中尚未来得及改写的 `todo/pending` 是 stale snapshot，不得把 reducer 已确认的 `in_progress` 回滚；invocation 终止后文件重新取得业务状态权威。
-- A2A：server-owned dispatch、启动确认和 client fallback。
+- A2A：server-owned dispatch、Harness/runtime 启动确认以及无浏览器 fallback。
 - A2A possession：当前 holder 的完成回复一旦产生下一棒，必须先把当前 possession 与入站 pass 置为 completed，再派发下一 worklist entry；后续 offer timeout 不得反向污染已成功的上游 pass。
 - A2A intent scope：先出现的完整 actionable 交接不会被后续“不要 @ reviewer”等另一对象约束反向否定；正向动作与否定约束都按局部子句判定。
 - A2A closure verbs：`汇总`、`总结`、`收口`、`给出结论` 是 coordinator 的合法可执行动作，与实现、评审、验证同样能够形成 pass intent。
-- Store：`handledByHarness` 不双派发，旧事件仍可执行。
+- Store：展示事件没有 fallback 开关，旧控制事件无法重新接入。
 - Mention dispatch：多 mention 消息只派发首个有效入口角色；busy-before-send 与 client/server busy race 都必须保持用户消息和 dispatch 请求不丢失；恢复入队后只在真正启动时登记 A2A chain。
 - Tool boundary：runtime-native 协作工具不触发平台 `tool.invoke`；精确平台工具不可用时，prompt 明确回退 TASKS.md + 可见 A2A 文本。
 - Workdir：worktree、真实非 worktree 项目路径、无项目 scratch 三种决策分别覆盖；另覆盖 Windows 保留字符与 scoped task ID 的安全路径编码。
@@ -160,7 +161,9 @@ Task mutation / Autonomy Guard / A2A pass
 - Gate routing：默认团队普通 review 只启动 Peach，DK 保持按需。
 - Gate de-duplication：实现角色进入 review 后不得再手工 @ 默认 reviewer；Task Wakeup 是普通质量门的唯一启动事实。
 - Dependency de-duplication：Task Notification Publisher 同时理解 task edges 与 TASKS.md dependencies，并且是 dependency_resolved / unblocked_unassigned 的唯一 wakeup 生产者；watcher 不保留前端直发兼容分支。
-- Daemon smoke：使用隔离数据目录和已安装的 ACP test runtime 从 `terminal:start` 跑到 AgentEvent/`terminal:exit`，覆盖 payload 解构、preflight 日志和协议适配。
+- Daemon smoke：使用隔离数据目录和已安装的 ACP test runtime 从人工
+  `terminal:start` Command 跑到 AgentEvent/`project:view:terminal.exited`，覆盖
+  payload 解构、preflight 日志和协议适配。
 
 ## 验证结果
 

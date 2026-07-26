@@ -102,7 +102,7 @@ spec §7 的四角色就是这"不同方法"的分类。
 │   ─────────────       ──────────────          ──────────────         │
 │   C2S Command          opencode/claude/         task / review         │
 │   (terminal:start,     codex 子进程             delivery              │
-│    task.assigned...)   产生原始信号             a2a(possession/chain) │
+│    task mutation...)   产生原始信号             a2a(possession/chain) │
 │        │                    │                    envelope/session     │
 │        │                    │                    binding/node         │
 │   [命令通道,             [原始信号,            [表是事实源,            │
@@ -146,8 +146,8 @@ spec §7 的四角色就是这"不同方法"的分类。
    │  内层：消费者/执行体                                             │
    │                                                                  │
    │  Agent Inbox        聚合状态机       领域协调          Web UI    │
-   │  Agent claim ←──┐   invocation 态    delivery phase   socket 投影 │
-   │  Inbox item     │   task 状态        推进（从 daemon   agent:event│
+│  Agent claim ←──┐   invocation 态    delivery phase   socket 投影 │
+│  Inbox item     │   task 状态        推进（从 daemon   project:view│
    │       │         │   session 态       迁出）           task.state │
    │       ▼         │       │                │                │      │
    │  Harness 编译    │       │                │                ▼      │
@@ -514,8 +514,8 @@ delivery queue 重试。bootstrap 的周期 reconcile 保留为兜底恢复触�
 terminal UI 由 `RuntimeSocketProjection` 消费；A2A/closure outcome 由 durable
 `runtime-completion-process-manager:v1` 从 canonical 完成消息段重建；
 Session 身份仍由 coordinator 上半部守护；背景活动与 heartbeat 留在 invocation 控制层。
-低延迟 text/thinking delta 使用独立瞬态 `agent:delta` 通道。`forwardAgentEvent` 与生产
-`agent_event` 写入均已删除。
+低延迟 text/thinking delta 通过同一个带项目隔离的 `project:view` 瞬态信封发布；
+其 durable 边界仍是完成消息段。`forwardAgentEvent` 与生产 `agent_event` 写入均已删除。
 
 ---
 

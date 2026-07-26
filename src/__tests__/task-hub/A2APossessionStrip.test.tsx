@@ -25,6 +25,7 @@ beforeEach(() => {
     roleCards: [...PRESET_ROLE_CARDS],
     dispatchReceiptsByConversation: {
       'conv-receipt': [{
+        projectId: 'conv-receipt',
         receiptId: 'env-1:started',
         conversationId: 'conv-receipt',
         taskId: 'TASK-001',

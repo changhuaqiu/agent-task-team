@@ -74,6 +74,25 @@ Socket 断线不通过重放命令恢复；持久部分重新查询事实，瞬�
 - 后果：服务端必须覆盖所有 wakeup/dispatch 来源；浏览器断线只影响实时可见性，不影响任务执行。
 - 退出条件：搜索和自动化测试证明 Socket 展示处理器不调用执行入口，且跨项目事件不能改变当前项目状态。
 
-实施契约见 [`specs/webui-passive-project-projection/`](../../../specs/webui-passive-project-projection/)。
+### ADR-008：不保留可重新激活旧架构的兼容控制路径
+
+- 背景：只停用调用方、但保留浏览器派发 ACK、失败兜底、旧 Socket listener 和陈旧事实文档，会让仓库同时表达两套 owner。后续维护者可能重新接上旧路径，使浏览器在线状态再次影响执行结果。
+- 决策：兼容代码只有在仍有真实生产者、明确退出条件和覆盖测试时才能保留。已经没有生产者的控制事件、handler、类型、测试和“当前事实”文档必须一起删除或归档。
+- 不允许的“整洁性假象”：把旧 handler 留成 no-op；只删除 `dispatchToAgent()` 调用但继续注册旧控制事件；用注释称其为兼容却没有退出条件；让活动 spec 与已实施长期设计并存。
+- 后果：架构审计必须同时覆盖生产者、消费者、文档和测试。搜索结果不是完成证据，必须由可执行契约证明展示事件不会产生网络写入、持久化或执行命令。
+- 退出条件：仓库只剩一条自动执行 owner 链；所有活动文档与代码一致；已实施 spec 已归档；静态架构测试能阻止旧控制事件和全局项目广播回归。
+
+## 6. 架构一致性门禁
+
+以下不变量适用于所有前后端模块，而不只适用于 `project:view`：
+
+1. **事件消费无控制副作用**：浏览器 Socket 消费者可以更新本地展示 Store、订阅、查询快照；不得调用 mutation、`fetch` 写接口、`socket.emit` 控制事件、Harness、Inbox 或任务状态更新。
+2. **Human Command 有显式来源**：只有人的点击、输入和确认，或明确的服务端自动化 owner，才能创建 Command。Human Command adapter 不得被展示事件处理器复用。
+3. **自动执行只有服务端 owner**：Task wakeup、A2A handoff、恢复和重试由 Inbox、Harness、Dispatcher、Process Manager 或 Effect Worker 持有；浏览器无兜底协议。
+4. **项目事实双重隔离**：服务端只发项目 room 且信封携带 `projectId`；浏览器在变更 Store 前校验当前项目。
+5. **系统通道不夹带项目事实**：`io.emit` 仅允许真正的系统 catalog/health 信号；项目运行、任务、协作、observability 和错误必须 room-scoped。
+6. **兼容路径有生命周期**：每条兼容路径必须有当前生产者、原因、退出条件和测试；否则删除。已实施 spec 必须迁入 `docs/archive/specs/`。
+
+实施期契约已经归档到 [`docs/archive/specs/webui-passive-project-projection/`](../../archive/specs/webui-passive-project-projection/)；全仓一致性整改由 [`specs/runtime-architecture-integrity-audit/`](../../../specs/runtime-architecture-integrity-audit/) 跟踪。
 
 配套架构图见 [`platform-runtime-webui-current-architecture.html`](./platform-runtime-webui-current-architecture.html)。图中将人的主动 Command 通路与 WebUI 自动展示消费通路分开表达。

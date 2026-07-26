@@ -11,7 +11,7 @@ The current A2A model treats cross-agent collaboration as message routing:
 - A user or agent mentions `@agent`.
 - The system scans the message.
 - The orchestrator records a work item.
-- A client or daemon tries to start the target.
+- The service-side Agent Inbox and Harness try to start the target.
 
 This looks simple, but it causes collaboration confusion:
 
@@ -313,8 +313,8 @@ Timeouts must be phase-specific.
 
 ```typescript
 interface A2ATimeouts {
-  offerTimeoutMs: number;    // server offered pass, client did not acknowledge
-  startTimeoutMs: number;    // client accepted, process/session did not start
+  offerTimeoutMs: number;    // pass was offered but service admission did not complete
+  startTimeoutMs: number;    // service admitted the command, process/session did not start
   runTimeoutMs: number;      // process/session started, possession did not complete
   holderIdleTimeoutMs: number; // holder stays open without pass/complete
 }
@@ -332,10 +332,11 @@ User-facing messages:
 
 The generic message "A2A 链超时终止 (120s)" is deprecated.
 
-Busy-target compatibility behavior:
+Busy-target behavior:
 
-- If the browser/runtime reports the target is busy, the server records the delivery as `deferred` and returns the worklist entry to `queued`.
-- Deferred entries are retried when the target reports idle/done.
+- If Agent Inbox or Harness reports the target is busy, the server records the
+  delivery as `deferred` and returns the worklist entry to `queued`.
+- Deferred entries are retried by the service-side scheduler when the target becomes idle.
 - Busy targets must not be marked `executing`, and they must not be converted into permanent pass failures unless a later retry or timeout fails.
 
 ## Event Protocol
@@ -349,44 +350,12 @@ type ClientA2AEvent =
       conversationId: string;
       messageId: string;
       content: string;
-    }
-  | {
-      type: 'pass_offer_ack';
-      passId: string;
-      status: 'accepted' | 'rejected';
-      reason?: string;
-    }
-  | {
-      type: 'agent_starting';
-      passId: string;
-      agentId: string;
-      runId: string;
-    }
-  | {
-      type: 'agent_started';
-      passId: string;
-      agentId: string;
-      runId: string;
-      sessionId?: string;
-    }
-  | {
-      type: 'agent_event';
-      passId?: string;
-      possessionId?: string;
-      agentId: string;
-      eventType: 'text' | 'tool_use' | 'tool_result' | 'error' | 'done';
-      content?: string;
-      metadata?: Record<string, unknown>;
-    }
-  | {
-      type: 'agent_completed';
-      passId: string;
-      possessionId: string;
-      agentId: string;
-      outcome: 'success' | 'error' | 'timeout' | 'cancelled';
-      finalText?: string;
     };
 ```
+
+`user_turn_created` represents an explicit human action. Pass admission, start,
+failure, deferral and completion are service-owned facts and are never accepted
+from an automated browser event consumer.
 
 ### Server to Client
 
@@ -425,7 +394,7 @@ type ServerA2AEvent =
 
 ## Execution Adapter Contract
 
-The client or daemon execution adapter must report each phase truthfully.
+The service-side Harness/runtime execution adapter must report each phase truthfully.
 
 It may not:
 
@@ -565,16 +534,18 @@ Dispatch receipt boundary:
 
 - A2A pass text is not by itself proof that the target is executing.
 - When the current holder finishes and creates one or more valid outgoing passes, its inbound pass and possession become `completed` before the next dispatch begins. A later branch offer timeout must never rewrite those completed upstream facts.
-- `a2a_delivery`, pass status, client acknowledgement, or future execution envelope status must provide the receipt.
+- `a2a_delivery`, pass status, Harness/runtime acknowledgement, or execution
+  envelope status must provide the receipt.
 - Parallel handoffs require one receipt per target.
 - If receipt creation fails or only part of a fan-out succeeds, the current holder remains responsible for retrying or escalating.
 
-Compatibility delivery outbox:
+Service delivery outbox:
 
-- Server-originated A2A dispatches are persisted in `a2a_delivery` before emitting socket events.
+- Server-originated A2A Commands are persisted before any Socket display event.
 - `a2a_delivery` stores conversation, chain, worklist entry, pass, target agent, payload, delivery status, attempt count, and last error.
-- Conversation room join triggers resend for active `sent` deliveries whose worklist entry is still `dispatching`.
-- Client busy feedback marks the delivery `deferred`; retry increments attempts and emits a fresh compatibility `a2a:dispatch`.
+- Agent Inbox / Harness feedback marks a busy delivery `deferred`; service retry
+  increments attempts. Conversation room events only refresh the WebUI display
+  projection and do not participate in execution.
 
 ### Keep
 
@@ -606,9 +577,12 @@ Current implementation status:
 
 - Possession persistence has landed in parallel tables: `a2a_possession_chain`, `a2a_possession`, `a2a_pass`, and `a2a_handoff_packet`.
 - The existing `invocation_chain` and `chain_worklist` path remains readable and executable during migration.
-- Server dispatch now creates offered passes and handoff packets before emitting compatibility `a2a:dispatch`.
-- Client ACK uses `a2a:agent-started`; only then does the server mark the worklist entry executing and transfer possession.
-- Task-linked dispatch now records `task.handoff_requested` on pass creation and `task.handoff_accepted` only after the receiver start acknowledgement.
+- Server dispatch creates offered passes and handoff packets, durably admits an
+  Agent Inbox Command, and uses `a2a:dispatch` only as a WebUI display projection.
+- Harness/runtime start is the only execution acknowledgement that can mark the
+  worklist entry executing and transfer possession. The browser sends no A2A ACK.
+- Task-linked dispatch records `task.handoff_requested` on pass creation and
+  `task.handoff_accepted` only after the service-side receiver start acknowledgement.
 - Agent-originated `@mention` scanning now requires actionable pass intent; ordinary mentions remain diagnostics and do not wake agents.
 - Non-actionable notification language such as "通知 @agent 查看结果" remains a task/group-chat awareness event, not an A2A handoff; the system emits a neutral scoped awareness notice rather than an error-style block message, and tells the agent to use "`@agent 请/需要 + 动作 + 交付物`" for execution requests.
 - Pass intent is clause-local in both directions: a later constraint such as "不要手工 @ reviewer" must not cancel an earlier complete "@worker 请启动..." handoff, just as an earlier roster mention must not borrow a later action.
@@ -624,8 +598,11 @@ Current implementation status:
 - Multiple branch holders can complete independently; open possession rows, not the compatibility `currentHolderId`, decide whether an agent may respond or pass onward.
 - A normal user chat turn has exactly one team-loop entry target: the first resolvable `@Agent`. Later mentions remain message context and do not create dispatches or passes. Explicit fan-out, if introduced, must use a separate unambiguous UI/protocol action rather than infer fan-out from chat prose.
 - Runtime-native collaboration tools such as Claude `Task`/`SendMessage` and OpenCode `TodoWrite` are never possession transitions. Until exact platform tools are registered through an ACP-consumable structured channel, the compatibility contract uses the shared TASKS.md projection for task state and an actionable mention in the agent's visible final response for pass drafting.
-- Server-originated compatibility dispatches are persisted in `a2a_delivery` and resent on conversation room join while still awaiting client acknowledgement.
-- Client busy feedback now defers and retries delivery instead of marking the pass failed immediately.
+- Server-originated Commands are persisted in Agent Inbox and retried by the
+  service-side scheduler. Realtime A2A events may be replayed as display
+  projections, but browser acknowledgement is never required for execution.
+- Agent Inbox / Harness busy feedback defers and retries delivery instead of
+  marking the pass failed immediately.
 - A2A socket events are scoped to the conversation room instead of global broadcast; clients join the selected conversation room on connect and conversation switch.
 - Possession chain, possession, pass, and packet multi-table mutations are wrapped in SQLite transactions to avoid split-brain state after crashes.
 - Orchestrator startup rebuilds active agent state, entry-pass links, task handoff links, accepted pass ids, dedup ripple state, and dispatch timers from SQLite.

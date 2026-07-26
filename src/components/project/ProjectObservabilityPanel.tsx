@@ -94,7 +94,13 @@ export function ProjectObservabilityPanel({ conversationId }: { conversationId?:
     const controller = new AbortController();
     const initialTimer = window.setTimeout(() => void load(controller.signal), 0);
     const refresh = (event: { projectId?: string; conversationId?: string }) => {
-      if ((event?.projectId ?? event?.conversationId) === conversationId) void load();
+      if (
+        event?.projectId
+        && event.projectId === event.conversationId
+        && event.projectId === conversationId
+      ) {
+        void load();
+      }
     };
     socket.on('observability:updated', refresh);
     return () => { controller.abort(); window.clearTimeout(initialTimer); socket.off('observability:updated', refresh); };

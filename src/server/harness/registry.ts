@@ -78,11 +78,13 @@ export function submitTaskWakeupToHarness(
       if (outcome.status !== 'blocked' && outcome.status !== 'failed') return;
       io.to(wakeup.conversationId).emit('task.wakeup', {
         ...wakeup,
-        id: `${wakeup.id ?? 'wakeup'}:fallback`,
+        id: `${wakeup.id ?? 'wakeup'}:execution-failed`,
         projectId: wakeup.conversationId,
         content: `服务端未能启动 @${wakeup.agentId}：${outcome.reasonCode}`,
-        handledByHarness: true,
-        harnessFallbackReasonCode: outcome.reasonCode,
+        metadata: {
+          ...wakeup.metadata,
+          executionReasonCode: outcome.reasonCode,
+        },
         createdAt: new Date().toISOString(),
       });
     });

@@ -222,7 +222,6 @@ describe('publishTaskNotification', () => {
     expect(submit).not.toHaveBeenCalled();
     expect(emit).toHaveBeenCalledWith('task.wakeup', expect.objectContaining({
       reasonCode: 'review_rejected',
-      handledByHarness: true,
     }));
   });
 
