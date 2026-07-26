@@ -2060,8 +2060,22 @@ export default function registerDaemon(io: IOServer) {
           });
         });
       } catch (error) {
-        socket.emit('agent:error', { agentId: payload.agentId, message: (error as Error).message });
-        socket.emit('terminal:exit', { agentId: payload.agentId, code: 1, command: 'harness', reasonCode: 'conversation_missing' });
+        const commandProjectId = payload.conversationId?.trim() || payload.projectId?.trim();
+        socket.emit('command:error', {
+          command: 'terminal:start',
+          projectId: commandProjectId,
+          agentId: payload.agentId,
+          message: (error as Error).message,
+          reasonCode: 'conversation_missing',
+        });
+        if (commandProjectId) {
+          socket.emit('agent:error', {
+            projectId: commandProjectId,
+            agentId: payload.agentId,
+            message: (error as Error).message,
+            reasonCode: 'conversation_missing',
+          });
+        }
       }
     });
 

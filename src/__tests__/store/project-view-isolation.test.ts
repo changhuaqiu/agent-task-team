@@ -101,6 +101,40 @@ describe('project view isolation', () => {
     }));
   });
 
+  it('renders runtime warnings without persisting or emitting a command', () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+    const emitSpy = vi.spyOn(socket, 'emit').mockImplementation(() => socket);
+
+    expect(consumeProjectViewEvent({
+      version: 1,
+      projectId: 'project-a',
+      occurredAt: '2026-07-26T00:00:00.000Z',
+      kind: 'runtime.warning',
+      agentId: 'mario',
+      payload: { message: 'display-only warning' },
+    })).toBe(true);
+
+    expect(useTaskHubStore.getState().chatMessagesByConversation['project-a']).toContainEqual(
+      expect.objectContaining({ agentId: 'mario', content: '⚠️ display-only warning' }),
+    );
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(emitSpy).not.toHaveBeenCalled();
+  });
+
+  it('rejects an unknown project view kind without side effects', () => {
+    const before = useTaskHubStore.getState();
+    expect(consumeProjectViewEvent({
+      version: 1,
+      projectId: 'project-a',
+      occurredAt: '2026-07-26T00:00:00.000Z',
+      kind: 'runtime.future.kind',
+      agentId: 'mario',
+      payload: {},
+    })).toBe(false);
+    expect(useTaskHubStore.getState()).toBe(before);
+  });
+
   it('clears transient runtime projections when the selected project changes', () => {
     vi.spyOn(socket, 'emit').mockImplementation(() => socket);
     vi.spyOn(global, 'fetch').mockResolvedValue({

@@ -1,6 +1,6 @@
 # WebUI 被动项目投影
 
-状态：active
+状态：implemented
 
 ## 1. 目标
 

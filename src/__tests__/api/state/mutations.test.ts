@@ -566,12 +566,20 @@ describe('POST /api/mutations', () => {
     await seedTask();
     const emit = vi.fn();
     const to = vi.fn(() => ({ emit }));
+    const submit = vi.fn(() => ({
+      handled: true,
+      disposition: 'accepted' as const,
+      completion: new Promise<never>(() => {}),
+    }));
+    const io = { to };
+    const { registerHarnessCoordinator } = await import('@/server/harness/registry');
+    registerHarnessCoordinator(io as never, { submit } as never);
     const req = mockReq('POST', {
       type: 'task.updateStatus',
       payload: { id: 'task-1', status: 'in_review', actorId: 'agent-a', actorType: 'agent' },
     });
     const res = mockRes();
-    res.socket = { server: { io: { to } } };
+    res.socket = { server: { io } };
 
     await handler(req, res);
 
@@ -589,9 +597,57 @@ describe('POST /api/mutations', () => {
       taskId: 'task-1',
       agentId: 'agent-a',
       reasonCode: 'missing_implementation_evidence',
+      handledByHarness: true,
       metadata: expect.objectContaining({
         missingFields: expect.arrayContaining(['installResult', 'buildResult', 'impactEvidence']),
       }),
+    }));
+    expect(submit).toHaveBeenCalledWith(expect.objectContaining({
+      conversationId: 'conv-1',
+      taskId: 'task-1',
+      agentId: 'agent-a',
+      contextScenario: 'recovery',
+      wakeup: expect.objectContaining({ reasonCode: 'missing_implementation_evidence' }),
+    }));
+  });
+
+  it('tool.invoke submits gate recovery to Harness without a browser executor', async () => {
+    await seedTask();
+    const emit = vi.fn();
+    const to = vi.fn(() => ({ emit }));
+    const submit = vi.fn(() => ({
+      handled: true,
+      disposition: 'accepted' as const,
+      completion: new Promise<never>(() => {}),
+    }));
+    const io = { to };
+    const { registerHarnessCoordinator } = await import('@/server/harness/registry');
+    registerHarnessCoordinator(io as never, { submit } as never);
+    const req = mockReq('POST', {
+      type: 'tool.invoke',
+      payload: {
+        toolName: 'task_update_status',
+        conversationId: 'conv-1',
+        agentId: 'agent-a',
+        input: { task_id: 'task-1', status: 'in_review' },
+      },
+    });
+    const res = mockRes();
+    res.socket = { server: { io } };
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(403);
+    expect(submit).toHaveBeenCalledWith(expect.objectContaining({
+      conversationId: 'conv-1',
+      taskId: 'task-1',
+      agentId: 'agent-a',
+      contextScenario: 'recovery',
+      wakeup: expect.objectContaining({ reasonCode: 'missing_implementation_evidence' }),
+    }));
+    expect(emit).toHaveBeenCalledWith('task.wakeup', expect.objectContaining({
+      projectId: 'conv-1',
+      handledByHarness: true,
     }));
   });
 

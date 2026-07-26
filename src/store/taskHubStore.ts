@@ -2070,6 +2070,25 @@ function appendStructuredTerminalLine(agentId: string, label: string, detail = '
   handleTerminalData({ agentId, data: `\r\n[${label}]${suffix}\r\n` });
 }
 
+function appendProjectedChatMessage(projectId: string, agentId: string, content: string): void {
+  const message: ChatMessage = {
+    id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    agentId,
+    content,
+    timestamp: new Date().toISOString(),
+    conversationId: projectId,
+    mentions: [],
+    intent: 'general',
+    metadata: { source: 'project_view' },
+  };
+  useTaskHubStore.setState((state) => ({
+    chatMessagesByConversation: {
+      ...state.chatMessagesByConversation,
+      [projectId]: [...(state.chatMessagesByConversation[projectId] || []), message],
+    },
+  }));
+}
+
 function handleAgentSession(input: {
   projectId: string;
   agentId: string;
@@ -2334,11 +2353,7 @@ export function consumeProjectViewEvent(envelope: unknown): boolean {
       state.appendToStreamMessage(activeId, { content: `\n⚠️ ${message}` });
       state.completeStreamMessage(agentId);
     } else {
-      state.addChatMessage({
-        agentId,
-        content: `⚠️ ${message}`,
-        conversationId: event.projectId,
-      });
+      appendProjectedChatMessage(event.projectId, agentId, `⚠️ ${message}`);
     }
     appendStructuredTerminalLine(agentId, 'warning', message);
   } else if (event.kind === 'runtime.usage') {
@@ -2371,6 +2386,8 @@ export function consumeProjectViewEvent(envelope: unknown): boolean {
       reasonCode: typeof payload.reasonCode === 'string' ? payload.reasonCode : undefined,
       activity: activity === 'awaiting_children' || activity === 'idle' ? activity : undefined,
     });
+  } else {
+    return false;
   }
   return true;
 }
@@ -2509,10 +2526,7 @@ socket.on('agent:error', ({ projectId, agentId, message }: { projectId?: string;
     state.appendToStreamMessage(activeId, { content: `\n⚠️ ${message}` });
     state.completeStreamMessage(agentId);
   } else {
-    state.addChatMessage({
-      agentId: agentId || 'system',
-      content: `⚠️ ${message}`,
-    });
+    appendProjectedChatMessage(projectId, agentId || 'system', `⚠️ ${message}`);
   }
 });
 
