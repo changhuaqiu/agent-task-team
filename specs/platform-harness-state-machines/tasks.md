@@ -141,13 +141,17 @@
 - [ ] 分离 Invocation retry、Effect retry、Task rework 和 Agent local retry 预算；
   决策快照已冻结四类独立 budget kind，尚需接入各 owner 的持久计数。
 - [ ] 深化 System Control Plane 的 Team Scheduling 能力，在角色、依赖、容量和 possession
-  约束下选择可激活 Work Cell；纯决策层已支持全局/角色容量，尚需接入事实快照与 claim CAS。
+  约束下选择可激活 Work Cell；WorkAuthority/Contract、Task、Gate、Invocation、Outcome
+  已接入事实快照与 claim CAS，Task dependency、A2A possession 和 Effect 仍需补入。
 - [x] 增加确定性公平 aging、角色容量与饥饿排序测试。
 - [x] 支持一次 reconcile 决策返回容量约束的有序动作集，冻结 action identity。
 - [x] Migration 64 持久化 ControlDecision 和非 wait ControlAction；首次保存与 claim
   双重校验项目事件 cursor，claim 另校验 workEpoch、slot 唯一占用和 lease token。
-- [ ] 用权威 Task/A2A/Gate/Inbox/Invocation/Effect 事实构造
-  `SupervisorControlSnapshot`，并把持久 ControlAction 接到各 owner Command。
+- [x] 用权威 WorkAuthority/Contract、Task、Gate、Invocation、AgentOutcome 构造
+  `SupervisorControlSnapshot`；同一 decision 的非 wait 动作先原子 batch claim，再执行，
+  避免首条 Command 产生的事实错误地 stale 同批兄弟动作。
+- [ ] 将 A2A/Inbox/Effect 与 dependency facts 补入 snapshot，并把持久 ControlAction
+  接到生产 owner Command。
 - [ ] 将 blocking Effect 分类、适用区间和显式 cancelled/superseded 写入 Effect Command，
   并接入 Closure CAS。
 

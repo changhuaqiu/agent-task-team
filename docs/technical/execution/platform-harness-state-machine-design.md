@@ -566,6 +566,13 @@ ControlAction {
 崩溃后可回收。`wait` 仍是纯观察结果，不写 action 表；新 decision 只取消旧 decision 中
 尚未 claim 的动作，已 claim 动作继续依赖 owner 的 fencing/CAS 决定能否生效。
 
+`RepositoryControlSnapshotBuilder` 从当前 WorkAuthority/WorkContract、Task、QualityGate、
+Invocation 和结构化 AgentOutcome 构造 Work Cell，不从聊天文本推断状态；Invocation 失败
+计入 invocation budget，Gate 返工计入 task-rework budget。`DeliveryControlProcessManager`
+在任何 owner Command 执行前，先用一个事务 claim 同一 decision 的完整动作集并预留 slot。
+这是多 Agent 并行的必要条件：否则第一条 Command 产生新事实后，会错误地让同批兄弟动作
+全部因 snapshot cursor 更新而失效。生产 owner Command adapter 与 slot 释放仍是 S5 下一切片。
+
 ## 9. 错误如何进入事件设计
 
 错误不能只是一段 CLI 文本。Adapter 先保留原始诊断，再归一化为有语义的事实。

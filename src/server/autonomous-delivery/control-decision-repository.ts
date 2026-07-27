@@ -236,6 +236,95 @@ export class ControlDecisionRepository {
     }).immediate();
   }
 
+  claimDecision(input: {
+    decisionId: string;
+    workerId: string;
+    leaseMs: number;
+    now?: Date;
+  }): PersistedControlActionRow[] {
+    const db = this.database ?? getDb();
+    const now = input.now ?? new Date();
+    const timestamp = now.toISOString();
+    return db.transaction(() => {
+      const decision = db.prepare(`
+        SELECT * FROM supervisor_control_decision WHERE id=?
+      `).get(input.decisionId) as PersistedControlDecisionRow | undefined;
+      if (!decision || decision.status !== 'active') {
+        throw new ControlActionClaimError('control_decision_not_claimable', input.decisionId);
+      }
+      const actualRevision = this.projectSnapshotRevision(decision.project_id);
+      if (actualRevision !== decision.snapshot_revision) {
+        throw new StaleControlSnapshotError(decision.snapshot_revision, actualRevision);
+      }
+      const actions = db.prepare(`
+        SELECT * FROM supervisor_control_action
+        WHERE decision_id=? AND status='ready'
+        ORDER BY created_at,id
+      `).all(input.decisionId) as PersistedControlActionRow[];
+      const batchSlots = new Set<string>();
+      for (const action of actions) {
+        if (action.target_work_id !== null) {
+          const authority = db.prepare(`
+            SELECT current_epoch,status FROM work_authority WHERE work_id=?
+          `).get(action.target_work_id) as { current_epoch: number; status: string } | undefined;
+          if (
+            !authority
+            || authority.status !== 'active'
+            || authority.current_epoch !== action.work_epoch
+          ) {
+            throw new ControlActionClaimError(
+              'stale_work_epoch',
+              `Work authority changed for ${action.target_work_id}`,
+            );
+          }
+        }
+        if (!action.slot_id) continue;
+        if (batchSlots.has(action.slot_id)) {
+          throw new ControlActionClaimError(
+            'control_slot_duplicated',
+            `Decision assigns a slot more than once: ${action.slot_id}`,
+          );
+        }
+        batchSlots.add(action.slot_id);
+        const occupied = db.prepare(`
+          SELECT id FROM supervisor_control_action
+          WHERE decision_id<>? AND run_id=? AND slot_id=?
+            AND type='activate' AND status IN ('claimed','applied')
+          LIMIT 1
+        `).get(input.decisionId, action.run_id, action.slot_id);
+        if (occupied) {
+          throw new ControlActionClaimError(
+            'control_slot_occupied',
+            `Control slot is already reserved: ${action.slot_id}`,
+          );
+        }
+      }
+
+      const leaseExpiresAt = new Date(now.getTime() + input.leaseMs).toISOString();
+      for (const action of actions) {
+        const claimed = db.prepare(`
+          UPDATE supervisor_control_action
+          SET status='claimed',claim_token=?,lease_owner=?,lease_expires_at=?,updated_at=?
+          WHERE id=? AND status='ready'
+        `).run(
+          generateSortableId('control-claim'),
+          input.workerId,
+          leaseExpiresAt,
+          timestamp,
+          action.id,
+        );
+        if (claimed.changes !== 1) {
+          throw new ControlActionClaimError('control_action_claim_raced', action.id);
+        }
+      }
+      return db.prepare(`
+        SELECT * FROM supervisor_control_action
+        WHERE decision_id=? AND status='claimed' AND lease_owner=?
+        ORDER BY created_at,id
+      `).all(input.decisionId, input.workerId) as PersistedControlActionRow[];
+    }).immediate();
+  }
+
   complete(input: {
     actionId: string;
     claimToken: string;
@@ -247,6 +336,27 @@ export class ControlDecisionRepository {
       SET status='applied',lease_expires_at=NULL,updated_at=?,completed_at=?
       WHERE id=? AND status='claimed' AND claim_token=?
     `).run(timestamp, timestamp, input.actionId, input.claimToken);
+    return result.changes === 1;
+  }
+
+  fail(input: {
+    actionId: string;
+    claimToken: string;
+    reasonCode: string;
+    now?: Date;
+  }): boolean {
+    const timestamp = (input.now ?? new Date()).toISOString();
+    const result = (this.database ?? getDb()).prepare(`
+      UPDATE supervisor_control_action
+      SET status='failed',failure_code=?,lease_expires_at=NULL,updated_at=?,completed_at=?
+      WHERE id=? AND status='claimed' AND claim_token=?
+    `).run(
+      input.reasonCode,
+      timestamp,
+      timestamp,
+      input.actionId,
+      input.claimToken,
+    );
     return result.changes === 1;
   }
 
