@@ -1,10 +1,15 @@
 # Platform Harness Loop
 
 > 当前状态：服务端闭环第一阶段已落地（2026-07-14）。ACP Runtime Port 由独立分支接入。
+> 文档性质：当前实现说明。目标架构见
+> [`Platform Harness 状态机与模块集成设计`](platform-harness-state-machine-design.md)。
 
 ## 定位
 
-Platform Harness 是角色 Agent 与底层执行运行时之间的服务端闭环。它不替代 Task Graph、A2A、ContextManager 或 Runtime Adapter，而是明确这些模块的调用顺序与事实权威。
+本文历史上把 `src/server/harness` 称为 Platform Harness；按目标术语，它实际是
+**Invocation Pipeline（单次 Agent 激活链）**。完整的 Platform Harness 是整个平台运行时，
+包含 Task Graph、A2A、Context Manager、Review & Gate、Agent Inbox、Invocation Pipeline
+和 Delivery Supervisor。包含不等于吞并事实权威，各模块仍只通过公开命令修改自己的事实。
 
 平台 Agent 是一个项目角色实例。OpenCode、Claude、Codex 或其他 ACP Agent 只是该角色某一轮使用的执行端口。
 

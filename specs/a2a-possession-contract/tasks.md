@@ -75,6 +75,8 @@
 - [x] Keep A2A v2 tables readable during migration.
 - [ ] Add adapter to translate current chain/worklist rows into possession/pass debug views.
 - [ ] Stop writing new v2 worklist rows once possession orchestrator is enabled.
+- [ ] Make `A2ACollaboration` the only mutation aggregate and downgrade chain/worklist to read-only projections.
+- [ ] Persist fan-out source, successful branches, and original-holder recovery possession atomically.
 - [ ] Archive or deprecate A2A v2 docs after implementation lands.
 
 ## Phase 9: Tests

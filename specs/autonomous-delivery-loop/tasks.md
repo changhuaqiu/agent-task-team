@@ -23,6 +23,9 @@
 - [x] policy denied / missing authorization 最小升级。
 - [x] Provider action allowlist、目标仓库/分支校验和审计。
 - [x] 进程重启场景集成测试。
+- [ ] 增加 `waiting_human` / `failed` / `resume_phase`，停止新写 legacy `escalated`。
+- [ ] 分类迁移 legacy `escalated`，并为 Human Command 恢复签发新 attempt fencing。
+- [ ] 将 blocking Effect 分类、适用区间和显式 cancelled/superseded 接入 Closure Invariant。
 
 ## P2：扩展
 

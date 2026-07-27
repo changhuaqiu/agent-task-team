@@ -57,6 +57,18 @@ This is closer to how expert teams work: a person finishes a coherent unit of th
 
 ## Core Concepts
 
+### Target Aggregate Authority
+
+The target authority is one `A2ACollaboration` aggregate:
+
+- `Chain` is the aggregate root and its status is derived from children.
+- Open `Possession` rows are the only source of holder eligibility.
+- `Pass` is a transition attempt from a source Possession to target Possession.
+- `invocation_chain` and `chain_worklist` are migration-only read projections, not parallel mutation owners.
+
+Source possession, pass, and target or recovery possessions must change in one SQLite aggregate
+transaction. Old compatibility tables and adapters may be removed only after new work stops writing them.
+
 ### Chain
 
 A chain is one collaboration episode rooted in a user turn or scheduled trigger.
@@ -276,6 +288,12 @@ agent possession completes or requests handoff
 ```
 
 If an agent creates multiple explicit passes in one response, all targets are offered in the same dispatch cycle when idle. Once started, each target becomes an independent branch holder. A later response from any open branch holder is valid even if `currentHolderId` points at another branch.
+
+Each explicit fan-out creates one pass group with best-effort semantics. Started branches are never
+rolled back because another branch fails. If any branch is blocked or exhausts delivery retries, the
+aggregate creates a recovery possession for the original holder containing only failed targets. The
+source possession, successful child possessions, and recovery possession are committed atomically;
+the chain remains active while any child or recovery possession is open.
 
 ### Completion Without Pass
 
@@ -562,6 +580,7 @@ Service delivery outbox:
 - client-side direct dispatch followed by server-side registration
 - single `maxDurationMs` chain timeout
 - `queued/dispatching/executing` worklist as the main collaboration state
+- `invocation_chain` / `chain_worklist` as mutation authorities; they become read-only projections
 - full response text as pass content
 
 ### Compatibility Phase
@@ -576,7 +595,9 @@ During migration, the platform may translate obvious actionable `@agent` mention
 Current implementation status:
 
 - Possession persistence has landed in parallel tables: `a2a_possession_chain`, `a2a_possession`, `a2a_pass`, and `a2a_handoff_packet`.
-- The existing `invocation_chain` and `chain_worklist` path remains readable and executable during migration.
+- Until the Phase 8 cutover, the existing `invocation_chain` and `chain_worklist` path remains readable
+  and executable as current compatibility behavior. It is not the target authority; after cutover it
+  becomes read-only before deletion.
 - Server dispatch creates offered passes and handoff packets, durably admits an
   Agent Inbox Command, and uses `a2a:dispatch` only as a WebUI display projection.
 - Harness/runtime start is the only execution acknowledgement that can mark the

@@ -42,6 +42,7 @@
 | [`autonomous-delivery-loop/`](autonomous-delivery-loop/) | active | 用户提交一次 GoalContract 后，由持久化 Supervisor 自主推进到最终 DeliveryBundle |
 | [`agent-eval-system/`](agent-eval-system/) | draft | 任务全链路评估：客观维度规则计算 + 主观维度 LLM-as-Judge 套 rubric，结果回流优化 RoleCard/Skill |
 | [`github-issue-agent-hook/`](github-issue-agent-hook/) | active | GitHub Issue 验签后幂等创建项目与 DeliveryRun，并复用现有自主交付链完成任务拆解和推进 |
+| [`platform-harness-state-machines/`](platform-harness-state-machines/) | active | 把整个 Harness 收敛为多领域状态机 + 确定性控制动作，分离 Agent 自主循环与平台可靠编排 |
 
 ## 依赖关系
 
@@ -53,6 +54,13 @@ system-control-plane
 ├── context-manager
 └── agent-observability
     └── observability-drilldown
+
+platform-harness-state-machines
+├── system-control-plane
+├── context-manager
+├── a2a-possession-contract
+├── autonomous-delivery-loop
+└── four-agent-pr-review-loop
 
 skill-package-progressive-loading
 ├── context-manager

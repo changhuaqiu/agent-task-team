@@ -104,6 +104,8 @@
 - `docs/technical/execution/opencode-integration-executable-chain.md`
 - `docs/technical/execution/group-chat-task-graph.md`
 - `docs/technical/execution/platform-harness-loop.md`
+- `docs/technical/execution/platform-harness-state-machine-design.md`：Platform Harness 顶层职责、Agent 自主循环、领域状态机、控制动作与模块集成契约
+- `docs/technical/execution/platform-harness-target-architecture.html`：Platform Harness 目标架构、三层循环、事实 owner 与错误恢复路径的可视化
 - `docs/technical/execution/context-layering.md`：统一 Context Manager、分层预算、项目隔离与场景化上下文注入
 - `docs/technical/execution/structured-context-management-architecture.md`：结构化上下文快照、Contributor 注册和可追溯组装架构
 - `docs/technical/execution/skill-package-progressive-loading.md`：标准 Skill 目录、不可变 revision、确定性编译与渐进加载设计
@@ -135,6 +137,7 @@
 - `specs/context-manager/`
 - `specs/team-simplification/`
 - `specs/system-control-plane/`
+- `specs/platform-harness-state-machines/`
 - 其余活动规格及状态统一以 `specs/README.md` 的登记表为准
 
 说明：

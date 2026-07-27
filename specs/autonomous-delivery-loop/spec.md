@@ -20,7 +20,8 @@
 用户提交的是 `GoalContract`，不是一条聊天消息。系统承诺：
 
 1. 接受目标后立即创建一个持久化 `DeliveryRun`。
-2. 系统持续推进，直到进入 `completed` 或 `escalated`。
+2. 系统持续推进，直到进入 `completed`、`failed` 或 `cancelled`；需要用户输入时进入可恢复的
+   `waiting_human`。
 3. 正常路径不要求用户发送第二条消息。
 4. 只有超出授权、缺少不可推断信息、安全风险或有限恢复耗尽时才升级给用户。
 5. `completed` 必须由证据和 Receipt 推导，不能由任一 Agent 自报。
@@ -91,13 +92,20 @@ submitted
   -> completed
 
 任意非终态 -> recovering -> 原阶段
-任意非终态 -> escalated
+任意非终态 -> waiting_human -> 原阶段（收到合法 Human Command 后 resume）
+不可恢复失败 -> failed
 用户取消   -> cancelled
 ```
 
 Run 保存单调递增的 `revision`。所有由旧快照推导的状态写回都必须以 `revision` 做 CAS，
 且终态不接受 Supervisor 的非终态写回；因此并发 reconcile、人工升级和慢速 facts
-观察不能把 `completed/escalated/cancelled` 回退后继续创建或执行 Action。
+观察不能把 `completed/failed/cancelled` 回退后继续创建或执行 Action。
+
+`escalated` 是迁移前的 legacy 终态，不再用于新写入。迁移分三步：
+
+1. 先增加 `waiting_human`、`failed`、`resume_phase` 和 Human Command 恢复路径；
+2. 新升级只写 `waiting_human`；旧 `escalated` 保持只读兼容，禁止直接恢复；
+3. 经明确分类后，把可恢复旧记录迁为 `waiting_human`，不可恢复记录迁为 `failed`。
 
 ### 3.3 DeliveryAction / DeliveryAttempt
 
@@ -241,6 +249,10 @@ interface AutonomousDeliverySupervisor {
 5. 若 `requireMerge=true`，目标 commit 已合入目标分支且远端可查询。
 6. 已生成并持久化 `DeliveryBundle`。
 7. `DeliveryBundle` 已通过持久化 API/UI 投影发布，且幂等 Delivery Receipt 只有一条。
+8. 不存在对当前 Run revision 仍适用的未成功 blocking Effect。Effect 从
+   `applies_from_revision` 起持续适用，只有显式 `cancelled/superseded` 并记录
+   `superseded_at_revision` 后才退出检查；blocking dead-letter 必须先进入
+   `waiting_human` 或 `failed`。
 
 Agent 文本中的“完成了”不参与该判断。
 
@@ -261,6 +273,10 @@ Agent 文本中的“完成了”不参与该判断。
 - `missing_authorization`：不执行外部动作，升级。
 - `permanent_configuration`：缺少账号、凭证或工具；升级。
 - `unknown`：有限重试后升级。
+
+升级写入 `waiting_human` 并保存 `resume_phase`、`reason_code`、`required_action` 和
+`blocked_action_id`。Human Command 补齐条件后创建新 Attempt；若旧 execution authority
+曾经签发，则必须使用新的 epoch/fencing token，不能恢复旧 token。
 
 同一 repair cycle 的 Action 处于 `ready/claimed/running/retry_wait` 时必须复用原 cycle；
 只有该 Action `succeeded` 但外部失败事实仍存在时才进入下一 cycle。repair Action 自身

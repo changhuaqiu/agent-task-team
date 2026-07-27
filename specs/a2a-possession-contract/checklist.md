@@ -1,6 +1,8 @@
 # A2A Possession Contract Checklist
 
 - [x] A chain can track independent branch holders after fan-out.
+- [ ] A partial fan-out keeps started branches and creates one recovery possession for failed targets atomically.
+- [ ] Compatibility chain/worklist rows are read-only and cannot compete with Possession/Pass authority.
 - [x] Only an active holder can create a pass.
 - [x] `@agent` alone does not wake an agent.
 - [x] Actionable pass intent is required for agent-originated handoff.

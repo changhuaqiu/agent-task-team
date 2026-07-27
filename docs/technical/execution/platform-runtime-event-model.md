@@ -5,13 +5,16 @@
 > 历史规格：`docs/archive/specs/platform-runtime-events/spec.md`
 > 依赖：`acp-runtime-integration`、`system-control-plane`、`agent-session-identity`
 
-本文是平台事件驱动 Runtime 的**顶层技术设计与架构决策记录**。它承载长期设计动机、
+本文是 Platform Harness 内部事件机制的**技术设计与架构决策记录**。它承载长期设计动机、
 关键决策的 ADR 记录，以及现状到目标的差距分析。实施期契约已经完成并归档到
 `docs/archive/specs/platform-runtime-events/`，本文与 `docs/wiki/04-backend-daemon.md`
 共同承载长期事实。
 
 当前实现的分层、主链路及重试边界可直接查看
 [`Platform Runtime 当前架构图`](platform-runtime-current-architecture.html)。
+整个平台运行时的顶层职责、三层循环、状态机和模块集成以
+[`Platform Harness 状态机与模块集成设计`](platform-harness-state-machine-design.md)
+为准。
 
 ---
 
@@ -22,9 +25,10 @@
 项目历史中 `runtime` 一词被重载为多种含义（ACP 执行进程、Team Runtime 契约、
 Runtime Node 身份等）。本设计统一收敛到一个心智模型：
 
-> **runtime = 整个平台运行时本身**。它不是某个 agent 执行进程，也不是某个领域模块，
-> 而是平台在运行过程中持续产生并处理信息的那一层。ACP 执行进程、领域模块、协作流转
-> 都是 runtime 运行过程中的**事件源**，不是 runtime 本身。
+> **Platform Harness = Platform Runtime = 整个平台运行时环境**。它不是某个 agent
+> 执行进程，也不是替 Agent 思考的 Boss Agent。Task、A2A、Context、Gate、Invocation
+> 等领域模块运行在 Harness 内部，并各自保留事实所有权；ACP 执行进程是 Harness 管理的
+> 外部执行端口。
 
 这对应 spec §4 中"canonical `runtime.*` 事件的唯一生产者 Platform Runtime"这一概念——
 Platform Runtime 就是归一化层，把 Runtime 原始信号收敛成有严格语义的 `runtime.*`
@@ -63,9 +67,10 @@ Domain Event
   -> Domain Event
 ```
 
-Agent 是 Command actor，不是事件消费者（经 Inbox 被动消费除外，见 §7）。Invocation 是
-Agent 的一次激活。Platform Runtime 只负责可靠执行 Invocation，不拥有 Task、A2A、Review
-或 Delivery 事实——这些事实源是各领域的表（见 §2）。
+Agent 是 Command actor，不是事件订阅者（经 Inbox 被动获得工作，见 §7）。Invocation 是
+Agent 的一次激活。Harness 内的 Invocation Pipeline 只负责可靠执行 Invocation；Task、
+A2A、Review 或 Delivery 事实仍由 Harness 内对应领域 owner 管理（见 §2）。这里的“不拥有”
+是模块事实边界，不表示这些模块位于 Platform Harness 之外。
 
 ---
 

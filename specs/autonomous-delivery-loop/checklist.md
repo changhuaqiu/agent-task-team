@@ -2,6 +2,10 @@
 
 ## 设计
 
+- [ ] 需要用户输入时使用可恢复 `waiting_human`，新流程不再写 terminal `escalated`。
+- [ ] 恢复保持 correlation，但旧 authority 失效后签发新 epoch/fencing token。
+- [ ] 所有对当前 Run revision 仍适用的 blocking Effect 未成功时不能完成。
+
 - [x] 顶层 Run 与 Conversation/Task/Invocation 分离。
 - [x] Supervisor 是唯一跨阶段推进权。
 - [x] Agent 输出不作为完成真相。
