@@ -61,7 +61,8 @@ Task 切片证据：
 ## 清理
 
 - [ ] 旧 Harness 命名已无调用者后再删除。
-- [ ] 重复 A2A / Gate 状态机已移除。
+- [ ] 重复 A2A 状态机已移除。
+- [x] 重复 Gate 判定源已移除；Task/Git/Delivery 均由 QualityGate owner 判定。
 - [ ] 兼容分支、死代码和无读者文件已有清理证据。
 - [ ] 设计、spec、代码和测试一致。
 
@@ -70,7 +71,7 @@ Task 切片证据：
 - [ ] 项目启动只创建一个 DeliveryRun，Lead 提交的合法 Task Graph 原子可见。
 - [ ] 两个 Agent 可并行执行独立 Work Cell，冲突写不会静默覆盖。
 - [ ] Agent 可主动交接，接球者获得可追溯的新 ContextSnapshot。
-- [ ] Gate 绑定具体 evidence revision，返工与 Invocation retry 分离。
+- [x] Gate 绑定具体 artifact/evidence revision，旧 revision 的通过不能授权新产物。
 - [ ] profile、context、session、transport、process、semantic 六类故障走不同恢复路径。
 - [ ] Human 从 WebUI 补齐条件后能恢复原 work correlation。
 - [ ] Delivery 只有在 Task、Gate、active work 和 blocking effect 全部满足条件后才完成。

@@ -9,6 +9,7 @@ import { proofLogRepo } from '../repositories/proof-log-repo';
 import { resetSeq } from '../repositories/sortable-id';
 import { taskRepo } from '../repositories/task-repo';
 import { teamPackRepo } from '../repositories/team-pack-repo';
+import { qualityGateRepo } from '../quality-gate/repository';
 import { AutonomousDeliveryRepository } from './repository';
 import {
   HarnessDeliveryActionAdapter,
@@ -240,6 +241,21 @@ describe('RepositoryDeliveryFactsAdapter', () => {
       kind: 'review.acceptance',
       status: 'passed',
     }));
+    expect(qualityGateRepo.listForTarget('delivery_run', run.run.id)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'delivery_review', status: 'passed' }),
+        expect.objectContaining({ kind: 'acceptance_verification', status: 'rejected' }),
+        expect.objectContaining({ kind: 'acceptance_verification', status: 'passed' }),
+      ]),
+    );
+    const projectedVerification = repo.getSnapshot(run.run.id)?.receipts
+      .filter((receipt) => receipt.kind === 'verification.acceptance')
+      .at(-1);
+    expect(JSON.parse(projectedVerification!.payload_json)).toMatchObject({
+      gateId: expect.any(String),
+      gateEvidenceId: expect.any(String),
+      artifactRevision: expect.stringMatching(/^proof:/),
+    });
   });
 
   it('要求合并时必须等待 integration PASS 才生成可发布的 DeliveryBundle', async () => {

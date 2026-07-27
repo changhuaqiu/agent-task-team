@@ -41,6 +41,12 @@ import {
   type ProviderActionPort,
 } from './provider-actions';
 import { buildGoalTaskDescription } from './goal-task-description';
+import { qualityGateRepo } from '../quality-gate/repository';
+import type {
+  QualityGateActor,
+  QualityGateKind,
+  QualityGateRow,
+} from '../quality-gate/types';
 
 const TERMINAL_TASK_STATUSES = new Set(['done', 'cancelled']);
 const ACTIVE_ENVELOPE_STATUSES = new Set(['drafted', 'validated', 'routed', 'sent']);
@@ -246,6 +252,98 @@ function verificationReceipts(snapshot: DeliveryRunSnapshot): AcceptanceVerifica
     });
 }
 
+function proofActor(proof: ProofEventRow): QualityGateActor {
+  return proof.actor_id
+    ? { type: 'agent', id: proof.actor_id }
+    : { type: 'system', id: 'delivery-gate-ingestion' };
+}
+
+function recordDeliveryGate<T extends AcceptanceReviewReceipt | AcceptanceVerificationReceipt>(
+  input: {
+    snapshot: DeliveryRunSnapshot;
+    proof: ProofEventRow;
+    kind: Extract<QualityGateKind, 'delivery_review' | 'acceptance_verification'>;
+    payload: T;
+    valid: boolean;
+  },
+): T {
+  const artifactRevision = input.payload.codeRevision?.trim() || `proof:${input.proof.id}`;
+  const requested = qualityGateRepo.request({
+    conversationId: input.snapshot.run.conversation_id,
+    kind: input.kind,
+    targetType: 'delivery_run',
+    targetId: input.snapshot.run.id,
+    artifactRevision,
+    criteria: input.kind === 'delivery_review'
+      ? { noOpenMaterialFindings: true }
+      : { acceptanceCriteria: input.snapshot.contract.acceptanceCriteria },
+    policy: { deliveryPolicy: input.snapshot.contract.deliveryPolicy },
+    actor: { type: 'system', id: 'delivery-supervisor' },
+  });
+  const existingEvidence = requested.evidence.find((evidence) =>
+    evidence.idempotency_key === `${input.kind}:${input.proof.id}`
+  );
+  if (
+    ['passed', 'changes_requested', 'rejected', 'cancelled'].includes(requested.gate.status)
+    && existingEvidence
+  ) {
+    return {
+      ...input.payload,
+      gateId: requested.gate.id,
+      gateEvidenceId: existingEvidence.id,
+      artifactRevision,
+    };
+  }
+  const evidence = qualityGateRepo.submitEvidence({
+    gateId: requested.gate.id,
+    evidenceType: input.kind,
+    payload: input.payload,
+    sourceRef: `proof:${input.proof.id}`,
+    actor: proofActor(input.proof),
+    idempotencyKey: `${input.kind}:${input.proof.id}`,
+  });
+  const evaluating = requested.gate.status === 'requested'
+    ? qualityGateRepo.beginEvaluation({
+        gateId: requested.gate.id,
+        evaluator: input.valid
+          ? proofActor(input.proof)
+          : { type: 'system', id: 'delivery-gate-admission' },
+        expectedRevision: requested.gate.revision,
+      })
+    : requested;
+  const decision = input.valid
+    ? input.payload.status === 'passed' ? 'passed' : 'changes_requested'
+    : 'rejected';
+  qualityGateRepo.decide({
+    gateId: requested.gate.id,
+    decision,
+    evaluator: input.valid
+      ? proofActor(input.proof)
+      : { type: 'system', id: 'delivery-gate-admission' },
+    evidenceIds: [evidence.id],
+    reason: input.payload.validationErrors?.join(', ')
+      ?? (input.payload.status === 'failed' ? `${input.kind}_failed` : undefined),
+    expectedRevision: evaluating.gate.revision,
+  });
+  return {
+    ...input.payload,
+    gateId: requested.gate.id,
+    gateEvidenceId: evidence.id,
+    artifactRevision,
+  };
+}
+
+function latestDeliveryGateState(
+  gates: QualityGateRow[],
+  kind: Extract<QualityGateKind, 'delivery_review' | 'acceptance_verification'>,
+): ObservedDeliveryFacts['review'] {
+  const latest = gates.filter((gate) => gate.kind === kind).at(-1);
+  if (!latest) return 'not_started';
+  if (latest.status === 'requested' || latest.status === 'evaluating') return 'pending';
+  if (latest.status === 'passed') return 'passed';
+  return 'failed';
+}
+
 export class RepositoryDeliveryFactsAdapter implements DeliveryFactsPort {
   constructor(private readonly provider?: ProviderActionPort) {}
 
@@ -296,13 +394,20 @@ export class RepositoryDeliveryFactsAdapter implements DeliveryFactsPort {
         const reviewPayload = reviewCandidate.valid && reviewCandidate.payload
           ? reviewCandidate.payload
           : failedReviewReceipt(snapshot, proof, reviewCandidate.errors);
+        const gatedReviewPayload = recordDeliveryGate({
+          snapshot,
+          proof,
+          kind: 'delivery_review',
+          payload: reviewPayload,
+          valid: reviewCandidate.valid,
+        });
         autonomousDeliveryRepo.recordReceipt({
           runId: snapshot.run.id,
           receipt: {
             kind: 'review.acceptance',
-            status: reviewPayload.status,
+            status: gatedReviewPayload.status,
             externalId: proof.id,
-            payload: { ...reviewPayload },
+            payload: { ...gatedReviewPayload },
             idempotencyKey: `${snapshot.run.id}:review.acceptance:${proof.id}`,
           },
         });
@@ -317,13 +422,20 @@ export class RepositoryDeliveryFactsAdapter implements DeliveryFactsPort {
       const payload = candidate.valid && candidate.payload
         ? candidate.payload
         : failedVerificationReceipt(snapshot, proof, candidate.errors);
+      const gatedVerificationPayload = recordDeliveryGate({
+        snapshot,
+        proof,
+        kind: 'acceptance_verification',
+        payload,
+        valid: candidate.valid,
+      });
       autonomousDeliveryRepo.recordReceipt({
         runId: snapshot.run.id,
         receipt: {
           kind: 'verification.acceptance',
-          status: payload.status,
+          status: gatedVerificationPayload.status,
           externalId: proof.id,
-          payload: { ...payload },
+          payload: { ...gatedVerificationPayload },
           idempotencyKey: `${snapshot.run.id}:verification.acceptance:${proof.id}`,
         },
       });
@@ -331,6 +443,7 @@ export class RepositoryDeliveryFactsAdapter implements DeliveryFactsPort {
     const reconciledSnapshot = autonomousDeliveryRepo.getSnapshot(snapshot.run.id) ?? snapshot;
     const latestReview = reviewReceipts(reconciledSnapshot).at(-1);
     const latestVerification = verificationReceipts(reconciledSnapshot).at(-1);
+    const deliveryGates = qualityGateRepo.listForTarget('delivery_run', snapshot.run.id);
     const reviewDispatched = reconciledSnapshot.actions.some(action =>
       (action.kind === 'request_review' || action.kind === 'repair_review')
       && ['ready', 'claimed', 'running', 'retry_wait', 'succeeded'].includes(action.status)
@@ -339,15 +452,21 @@ export class RepositoryDeliveryFactsAdapter implements DeliveryFactsPort {
       (action.kind === 'run_verification' || action.kind === 'repair_verification')
       && ['ready', 'claimed', 'running', 'retry_wait', 'succeeded'].includes(action.status)
     );
-    const verificationState: ObservedDeliveryFacts['verification'] = latestVerification
-      ? latestVerification.status
+    const gateVerificationState = latestDeliveryGateState(
+      deliveryGates,
+      'acceptance_verification',
+    );
+    const gateReviewState = latestDeliveryGateState(deliveryGates, 'delivery_review');
+    const verificationState: ObservedDeliveryFacts['verification'] =
+      gateVerificationState !== 'not_started'
+        ? gateVerificationState
       : verificationDispatched
         ? 'pending'
         : 'not_started';
     const reviewState: ObservedDeliveryFacts['review'] = !snapshot.contract.deliveryPolicy.requireReview
       ? 'not_required'
-      : latestReview
-        ? latestReview.status
+      : gateReviewState !== 'not_started'
+        ? gateReviewState
         : reviewDispatched
           ? 'pending'
           : 'not_started';

@@ -163,10 +163,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       case 'task.updateStatus': {
         const { assertTaskStatus, taskRepo } = await import('@/server/repositories/task-repo');
         const { publishTaskChangeNotification } = await import('@/server/task-flow/task-notification-publisher');
-        const { proofLogRepo } = await import('@/server/repositories/proof-log-repo');
-        const { evaluateTaskStatusEvidenceGate, hasCurrentVerifiedMerge } = await import('@/server/task-flow/task-gate-evidence');
-        const { conversationRepo } = await import('@/server/repositories/conversation-repo');
-        const { taskGraphRepo } = await import('@/server/repositories/task-graph-repo');
+        const { taskGateService } = await import('@/server/task-flow/task-gate-service');
         const { id, status: statusValue, reviewNote, evidence, actorId, actorType } = payload as any;
         if (typeof statusValue !== 'string') {
           return res.status(400).json({ ok: false, error: 'status is required' });
@@ -176,28 +173,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         if (!previousTask) {
           return res.status(404).json({ ok: false, error: `Task not found: ${id}` });
         }
-        const gateDecision = evaluateTaskStatusEvidenceGate({
+        const gateDecision = taskGateService.evaluate({
           task: previousTask,
           nextStatus: status,
-          actorId,
           evidence,
-          pullRequestRequired: Boolean(previousTask && conversationRepo.getById(previousTask.conversation_id)?.git_repo_root),
-          verifiedPullRequest: Boolean(previousTask && taskGraphRepo.listActionsForTask(id).some((action) => action.type === 'task.pull_request_submitted')),
-          verifiedMerge: Boolean(previousTask && hasCurrentVerifiedMerge(taskGraphRepo.listActionsForTask(id))),
+          actor: {
+            type: actorType === 'user' || actorType === 'agent' ? actorType : 'system',
+            id: typeof actorId === 'string' && actorId ? actorId : 'mutation-api',
+          },
         });
         if (!gateDecision.allowed) {
-          proofLogRepo.append({
-            eventType: 'task_graph.gate_evidence.blocked',
-            conversationId: previousTask?.conversation_id,
-            taskId: id,
-            actorId,
-            reasonCode: gateDecision.reasonCode,
-            metadata: {
-              status,
-              gateName: gateDecision.gateName,
-              missingFields: gateDecision.missingFields,
-            },
-          });
           if (previousTask) {
             const { createGateEvidenceRecoveryWakeup } = await import('@/server/task-flow/task-wakeup');
             const recoveryAgentId = gateDecision.gateName === 'delivery_evidence'
@@ -236,19 +221,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
           reviewNote,
         });
         const task = taskRepo.getById(id);
-        if (task && gateDecision.required) {
-          proofLogRepo.append({
-            eventType: 'task_graph.gate_evidence.accepted',
-            conversationId: task.conversation_id,
-            taskId: id,
-            actorId,
-            metadata: {
-              status,
-              gateName: gateDecision.gateName,
-              evidence,
-            },
-          });
-        }
         if (task) {
           publishTaskChangeNotification({
             io: (res.socket as any)?.server?.io,
@@ -524,33 +496,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
           result = task;
         } else if (toolName === 'task_update_status') {
-          const { evaluateTaskStatusEvidenceGate, hasCurrentVerifiedMerge } = await import('@/server/task-flow/task-gate-evidence');
-          const { proofLogRepo } = await import('@/server/repositories/proof-log-repo');
-          const { conversationRepo } = await import('@/server/repositories/conversation-repo');
-          const { taskGraphRepo } = await import('@/server/repositories/task-graph-repo');
+          const { taskGateService } = await import('@/server/task-flow/task-gate-service');
+          if (typeof input.status !== 'string') {
+            return res.status(400).json({ ok: false, error: 'status is required' });
+          }
+          const { assertTaskStatus } = await import('@/server/repositories/task-repo');
+          const nextStatus = assertTaskStatus(input.status);
           const previousTask = taskRepo.getById(input.task_id);
-          const gateDecision = evaluateTaskStatusEvidenceGate({
+          if (!previousTask) {
+            return res.status(404).json({ ok: false, error: `Task not found: ${input.task_id}` });
+          }
+          const gateDecision = taskGateService.evaluate({
             task: previousTask,
-            nextStatus: input.status,
-            actorId: toolAgentId,
+            nextStatus,
             evidence: input.evidence,
-            pullRequestRequired: Boolean(previousTask && conversationRepo.getById(previousTask.conversation_id)?.git_repo_root),
-            verifiedPullRequest: Boolean(previousTask && taskGraphRepo.listActionsForTask(input.task_id).some((action) => action.type === 'task.pull_request_submitted')),
-            verifiedMerge: Boolean(previousTask && hasCurrentVerifiedMerge(taskGraphRepo.listActionsForTask(input.task_id))),
+            actor: { type: 'agent', id: toolAgentId || 'tool-agent' },
           });
           if (!gateDecision.allowed) {
-            proofLogRepo.append({
-              eventType: 'task_graph.gate_evidence.blocked',
-              conversationId: previousTask?.conversation_id || conversationId,
-              taskId: input.task_id,
-              actorId: toolAgentId,
-              reasonCode: gateDecision.reasonCode,
-              metadata: {
-                status: input.status,
-                gateName: gateDecision.gateName,
-                missingFields: gateDecision.missingFields,
-              },
-            });
             if (previousTask) {
               const { createGateEvidenceRecoveryWakeup } = await import('@/server/task-flow/task-wakeup');
               const recoveryAgentId = gateDecision.gateName === 'delivery_evidence'
@@ -584,32 +546,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
               error: gateDecision.message ?? 'Task gate evidence is required',
             });
           }
-          if (typeof input.status !== 'string') {
-            return res.status(400).json({ ok: false, error: 'status is required' });
-          }
-          const { assertTaskStatus } = await import('@/server/repositories/task-repo');
-          const nextStatus = assertTaskStatus(input.status);
-          if (!previousTask) {
-            return res.status(404).json({ ok: false, error: `Task not found: ${input.task_id}` });
-          }
           taskRepo.transition(input.task_id, {
             to: nextStatus,
             expectedFrom: previousTask.status,
           });
           const updatedTask = taskRepo.getById(input.task_id);
-          if (updatedTask && gateDecision.required) {
-            proofLogRepo.append({
-              eventType: 'task_graph.gate_evidence.accepted',
-              conversationId: updatedTask.conversation_id,
-              taskId: input.task_id,
-              actorId: toolAgentId,
-              metadata: {
-                status: input.status,
-                gateName: gateDecision.gateName,
-                evidence: input.evidence,
-              },
-            });
-          }
           if (updatedTask) {
             const { publishTaskChangeNotification } = await import('@/server/task-flow/task-notification-publisher');
             publishTaskChangeNotification({

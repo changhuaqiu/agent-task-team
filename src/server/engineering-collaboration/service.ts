@@ -17,6 +17,7 @@ import { taskRepo, type TaskRow } from '../repositories/task-repo';
 import { publishTaskChangeNotification, resolveTaskNotificationAudience, type PublishTaskChangeNotificationInput } from '../task-flow/task-notification-publisher';
 import type { GitProviderVerifier } from './git-provider';
 import { qualityGateRepo } from '../quality-gate/repository';
+import { taskGateService } from '../task-flow/task-gate-service';
 
 export type EngineeringCollaborationReasonCode =
   | 'task_not_found'
@@ -232,6 +233,18 @@ export class EngineeringCollaborationService {
         },
         actor: { type: 'agent', id: input.actorAgentId },
       });
+      const readinessGate = taskGateService.evaluate({
+        task,
+        nextStatus: 'in_review',
+        evidence: input.evidence,
+        actor: { type: 'agent', id: input.actorAgentId },
+      });
+      if (!readinessGate.allowed) {
+        throw new EngineeringCollaborationError(
+          'pull_request_receipt_missing',
+          readinessGate.message ?? 'Implementation readiness gate rejected the pull request',
+        );
+      }
       if (previousReview && previousReviewEvidence && previousReview.headSha !== receipt.headSha) {
         const staleCard: EngineeringCollaborationCard = {
           version: 1,
@@ -504,6 +517,18 @@ export class EngineeringCollaborationService {
         card,
         action,
       });
+      const deliveryGate = taskGateService.evaluate({
+        task,
+        nextStatus: 'done',
+        evidence: input.evidence,
+        actor: { type: 'agent', id: input.actorAgentId },
+      });
+      if (!deliveryGate.allowed) {
+        throw new EngineeringCollaborationError(
+          'merge_receipt_mismatch',
+          deliveryGate.message ?? 'Delivery evidence gate rejected the merge',
+        );
+      }
       taskRepo.transition(task.id, { to: 'done', expectedFrom: 'in_review' });
       proofLogRepo.append({
         eventType: 'engineering.merge.verified',

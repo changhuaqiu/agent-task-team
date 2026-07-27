@@ -316,6 +316,12 @@ requested / evaluating -> cancelled
 `passed` 必须引用本 Gate 的 Evidence identity。工程协作卡片、Task Action、Proof Log 和
 Delivery Receipt 都只能作为 Gate 的输入证据或投影，不能再自行宣告审查结论。
 
+该边界已由 migration 59 和 `QualityGateRepository` 落地。Task 的实现/交付证据统一由
+`TaskGateService` 接纳；Git provider review 绑定 PR head SHA；Delivery review 与 acceptance
+verification 绑定 receipt 的 code revision（缺失时绑定不可混淆的 proof revision）。
+Delivery Process Manager 消费 `gate.*`，Delivery facts 读取 Gate status，receipt 仅用于
+最终 Bundle 投影。数据库同时保护 Evidence/Decision 不可变、状态迁移和终态不可复活。
+
 Effect 创建时必须冻结：
 
 ```text

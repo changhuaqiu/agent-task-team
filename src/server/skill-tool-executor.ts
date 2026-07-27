@@ -6,9 +6,7 @@ import type { TaskRow } from './repositories/task-repo';
 import { isSkillTool } from './skill-tool-router';
 import { join } from 'node:path';
 import { proofLogRepo } from './repositories/proof-log-repo';
-import { evaluateTaskStatusEvidenceGate, hasCurrentVerifiedMerge } from './task-flow/task-gate-evidence';
-import { conversationRepo } from './repositories/conversation-repo';
-import { taskGraphRepo } from './repositories/task-graph-repo';
+import { taskGateService } from './task-flow/task-gate-service';
 import { EngineeringCollaborationService } from './engineering-collaboration/service';
 import { GhCliGitProviderVerifier } from './engineering-collaboration/github-cli-verifier';
 import type { ImplementationEvidence, MergeEvidence, ReviewEvidence } from '@/lib/engineering-collaboration/types';
@@ -191,28 +189,13 @@ function executeTaskUpdateStatus(invocation: ToolInvocation): ToolResult {
   }
 
   const evidence = invocation.input.evidence;
-  const gateDecision = evaluateTaskStatusEvidenceGate({
+  const gateDecision = taskGateService.evaluate({
     task: existing,
     nextStatus: status,
-    actorId: invocation.agentId,
     evidence,
-    pullRequestRequired: Boolean(conversationRepo.getById(existing.conversation_id)?.git_repo_root),
-    verifiedPullRequest: taskGraphRepo.listActionsForTask(taskId).some((action) => action.type === 'task.pull_request_submitted'),
-    verifiedMerge: hasCurrentVerifiedMerge(taskGraphRepo.listActionsForTask(taskId)),
+    actor: { type: 'agent', id: invocation.agentId },
   });
   if (!gateDecision.allowed) {
-    proofLogRepo.append({
-      eventType: 'task_graph.gate_evidence.blocked',
-      conversationId: existing.conversation_id,
-      taskId,
-      actorId: invocation.agentId,
-      reasonCode: gateDecision.reasonCode,
-      metadata: {
-        status,
-        gateName: gateDecision.gateName,
-        missingFields: gateDecision.missingFields,
-      },
-    });
     return { success: false, error: gateDecision.message ?? 'Task gate evidence is required' };
   }
 
@@ -220,20 +203,6 @@ function executeTaskUpdateStatus(invocation: ToolInvocation): ToolResult {
     to: status,
     expectedFrom: existing.status,
   });
-  if (gateDecision.required) {
-    proofLogRepo.append({
-      eventType: 'task_graph.gate_evidence.accepted',
-      conversationId: existing.conversation_id,
-      taskId,
-      actorId: invocation.agentId,
-      metadata: {
-        status,
-        gateName: gateDecision.gateName,
-        evidence,
-      },
-    });
-  }
-
   // Also update TASKS.md
   try {
     const projectDir = resolveTaskProjectDir(invocation, existing.conversation_id);

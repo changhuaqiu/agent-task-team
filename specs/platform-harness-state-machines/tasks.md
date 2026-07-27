@@ -52,9 +52,9 @@
 
 ## S2：Review & Gate
 
-- [ ] 统一 review request、evidence、decision 数据模型。
-- [ ] 将 Git / Delivery review receipt 接入 Gate owner。
-- [ ] 接通 `requestGate`、`changes_requested`、`passed`。
+- [x] 统一 review request、evidence、decision 数据模型。
+- [x] 将 Git / Delivery review 与 verification receipt 接入 Gate owner。
+- [x] 接通 `requestGate`、`changes_requested`、`passed`。
 
 已完成的子项：
 
@@ -67,6 +67,8 @@
   Manager 改为消费 `gate.*`。
 - [x] QualityGate 基础切片通过 TypeScript、相关 lint 和全量 Vitest
   （189 files、1455 tests，1 skipped）。
+- [x] Task evidence 与 Delivery review/verification 全部改读 QualityGate decision；完成
+  TypeScript、相关 lint 和全量 Vitest（190 files、1456 tests，1 skipped）。
 
 ## S3：Invocation Pipeline
 

@@ -115,6 +115,9 @@ export interface AcceptanceVerificationReceipt {
   specRefs: string[];
   codeRevision?: string;
   acceptanceResults: DeliveryBundle['acceptanceResults'];
+  gateId?: string;
+  gateEvidenceId?: string;
+  artifactRevision?: string;
   validationErrors?: string[];
 }
 
@@ -132,6 +135,9 @@ export interface AcceptanceReviewReceipt {
     description: string;
     evidenceRefs: string[];
   }>;
+  gateId?: string;
+  gateEvidenceId?: string;
+  artifactRevision?: string;
   validationErrors?: string[];
 }
 
