@@ -76,6 +76,7 @@ import {
   startPlatformEventRuntime,
 } from './platform-events';
 import { ensureAutonomousDeliveryRuntime } from './autonomous-delivery/bootstrap';
+import { registerDeliveryEffectAdapters } from './autonomous-delivery/delivery-effects';
 import { deliveryAdvancementQueue } from './autonomous-delivery/advancement-queue';
 import { registerAutonomousDeliveryE2EDriver } from './testing/autonomous-delivery-e2e-driver';
 import { ProjectViewPublisher } from './project-view/project-view-publisher';
@@ -443,6 +444,7 @@ export default function registerDaemon(io: IOServer) {
   registerProductionRuntimeCompletionEffects(effectOutbox, {
     io,
   });
+  registerDeliveryEffectAdapters(effectOutbox);
 
   startPlatformEventRuntime({
     onA2AProjected: (snapshot) => {

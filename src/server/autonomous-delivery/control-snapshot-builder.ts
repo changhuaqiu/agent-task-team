@@ -9,6 +9,8 @@ import type {
 import { ControlDecisionRepository } from './control-decision-repository';
 import { DurableEffectOutbox } from '../platform-events/durable-effect-outbox';
 import { detectWaitForDeadlock, type WaitForEdge } from './wait-for-graph';
+import type { GoalContract } from './types';
+import { DELIVERY_EFFECT_TYPES } from './delivery-effects';
 
 interface WorkCellFactRow {
   work_id: string;
@@ -89,13 +91,14 @@ export class RepositoryControlSnapshotBuilder {
   build(runId: string): SupervisorControlSnapshot {
     const db = this.database ?? getDb();
     const run = db.prepare(`
-      SELECT id,conversation_id,revision,delivery_bundle_json
+      SELECT id,conversation_id,revision,delivery_bundle_json,goal_contract_json
       FROM autonomous_delivery_run WHERE id=?
     `).get(runId) as {
       id: string;
       conversation_id: string;
       revision: number;
       delivery_bundle_json: string | null;
+      goal_contract_json: string;
     } | undefined;
     if (!run) throw new Error(`Delivery run not found: ${runId}`);
 
@@ -176,6 +179,29 @@ export class RepositoryControlSnapshotBuilder {
       .listApplicableBlocking(runId, run.revision);
     const blockingEffect = blockingEffects.find((effect) => effect.status === 'dead_letter')
       ?? blockingEffects[0];
+    const contract = JSON.parse(run.goal_contract_json) as GoalContract;
+    const gates = db.prepare(`
+      SELECT kind,status FROM quality_gate
+      WHERE target_type='delivery_run' AND target_id=?
+      ORDER BY created_at,id
+    `).all(runId) as Array<{ kind: string; status: string }>;
+    const latestGateStatus = (kind: string) =>
+      gates.filter((gate) => gate.kind === kind).at(-1)?.status;
+    const gatesSatisfied = (
+      !contract.deliveryPolicy.requireReview
+      || latestGateStatus('delivery_review') === 'passed'
+    ) && latestGateStatus('acceptance_verification') === 'passed';
+    const merged = Boolean(db.prepare(`
+      SELECT 1 FROM autonomous_delivery_receipt
+      WHERE run_id=? AND kind='provider.github.pull_request.merged' AND status='succeeded'
+      LIMIT 1
+    `).get(runId));
+    const integrationEffect = db.prepare(`
+      SELECT status FROM platform_effect_outbox
+      WHERE delivery_run_id=? AND effect_type=?
+        AND status NOT IN ('cancelled','superseded')
+      ORDER BY created_at DESC,id DESC LIMIT 1
+    `).get(runId, DELIVERY_EFFECT_TYPES.githubIntegrate) as { status: string } | undefined;
     return {
       runId,
       snapshotRevision: new ControlDecisionRepository(db)
@@ -186,6 +212,8 @@ export class RepositoryControlSnapshotBuilder {
         satisfied: workCells.length > 0
           && workCells.every((cell) => cell.state === 'completed')
           && blockingEffects.length === 0
+          && gatesSatisfied
+          && (!contract.deliveryPolicy.requireMerge || merged)
           && Boolean(run.delivery_bundle_json),
         ...(blockingEffect ? {
           blockingEffect: {
@@ -203,6 +231,12 @@ export class RepositoryControlSnapshotBuilder {
             reasonCode: `wait_for_deadlock:${deadlock.cycle.join('->')}`,
           },
         } : {}),
+        integration: {
+          required: contract.deliveryPolicy.requireMerge,
+          gatesSatisfied,
+          merged,
+          effectScheduled: Boolean(integrationEffect),
+        },
       },
     };
   }

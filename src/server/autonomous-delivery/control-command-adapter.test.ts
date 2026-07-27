@@ -2,6 +2,8 @@ import type Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb, resetDb, setTestDb } from '../db';
 import { AgentInbox } from '../platform-events/agent-inbox';
+import { DurableEffectOutbox } from '../platform-events/durable-effect-outbox';
+import { qualityGateRepo } from '../quality-gate/repository';
 import { taskRepo } from '../repositories/task-repo';
 import { ProductionControlCommandAdapter } from './control-command-adapter';
 import { decideControlActions } from './control-decision';
@@ -161,10 +163,91 @@ describe('ProductionControlCommandAdapter', () => {
     });
   });
 
+  it('turns integration into a frozen blocking Effect instead of provider I/O', async () => {
+    const current = deliveries.getSnapshot(runId)!;
+    db.prepare('UPDATE autonomous_delivery_run SET goal_contract_json=? WHERE id=?').run(
+      JSON.stringify({
+        ...current.contract,
+        authorization: {
+          ...current.contract.authorization,
+          allowPush: true,
+          allowPullRequest: true,
+          allowAutoMerge: true,
+        },
+        deliveryPolicy: {
+          ...current.contract.deliveryPolicy,
+          requireMerge: true,
+        },
+      }),
+      runId,
+    );
+    const action = {
+      actionId: 'control-action-integrate',
+      type: 'integrate' as const,
+      reasonCode: 'provider_integration_required',
+    };
+    const snapshot = new RepositoryControlSnapshotBuilder({ db, now: () => now }).build(runId);
+    const decision = {
+      decisionId: 'decision-integrate',
+      runId,
+      snapshotRevision: snapshot.snapshotRevision,
+      policyRevision: 1,
+      actions: [action],
+    };
+
+    expect(await adapter.execute(action, {
+      decision,
+      snapshot,
+      claimToken: 'claim-1',
+    })).toEqual({ status: 'applied' });
+
+    expect(new DurableEffectOutbox({ db }).listApplicableBlocking(runId, current.run.revision))
+      .toMatchObject([{
+        type: 'delivery.github.integrate',
+        criticality: 'blocking',
+        deliveryRunId: runId,
+        appliesFromRevision: current.run.revision,
+        sourceActionId: action.actionId,
+        status: 'queued',
+      }]);
+  });
+
   it('rechecks closure in the same transaction before completing Delivery', async () => {
     taskRepo.transition('task-1', { to: 'in_progress' }, now);
     taskRepo.transition('task-1', { to: 'in_review' }, now);
     taskRepo.transition('task-1', { to: 'done' }, now);
+    const gate = qualityGateRepo.request({
+      conversationId: 'project-1',
+      kind: 'acceptance_verification',
+      targetType: 'delivery_run',
+      targetId: runId,
+      artifactRevision: 'verified-revision',
+      criteria: { acceptanceCriteria: ['Works'] },
+      actor: { type: 'system', id: 'test' },
+      now,
+    });
+    const evidence = qualityGateRepo.submitEvidence({
+      gateId: gate.gate.id,
+      evidenceType: 'test',
+      payload: { passed: true },
+      actor: { type: 'system', id: 'test' },
+      idempotencyKey: 'verification-evidence',
+      now,
+    });
+    const evaluating = qualityGateRepo.beginEvaluation({
+      gateId: gate.gate.id,
+      evaluator: { type: 'system', id: 'test' },
+      expectedRevision: gate.gate.revision,
+      now,
+    });
+    qualityGateRepo.decide({
+      gateId: gate.gate.id,
+      decision: 'passed',
+      evaluator: { type: 'system', id: 'test' },
+      evidenceIds: [evidence.id],
+      expectedRevision: evaluating.gate.revision,
+      now,
+    });
     const delivery = deliveries.getSnapshot(runId)!;
     deliveries.transitionRun({
       runId,

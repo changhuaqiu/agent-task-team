@@ -64,6 +64,24 @@ describe('decideControlActions', () => {
     expect(decision.actions[0]?.slotId).toBeUndefined();
   });
 
+  it('schedules provider integration only after work and delivery gates are complete', () => {
+    const facts = snapshot([cell('work-1', 'completed')]);
+    facts.closure.integration = {
+      required: true,
+      gatesSatisfied: true,
+      merged: false,
+      effectScheduled: false,
+    };
+
+    expect(decideControlActions(facts, POLICY).actions).toMatchObject([{
+      type: 'integrate',
+      reasonCode: 'provider_integration_required',
+    }]);
+
+    facts.closure.integration.gatesSatisfied = false;
+    expect(decideControlActions(facts, POLICY).actions).toEqual([]);
+  });
+
   it('waits for one running cell while activating another within remaining capacity', () => {
     const decision = decideControlActions(snapshot([
       cell('running-builder', 'running', { slotId: 'builder:1' }),

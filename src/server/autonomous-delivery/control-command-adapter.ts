@@ -7,6 +7,11 @@ import { groupChatTaskFlow } from '../task-flow/group-chat-task-flow';
 import { resolveTaskNotificationAudience } from '../task-flow/task-notification-publisher';
 import { AutonomousDeliveryRepository, autonomousDeliveryRepo } from './repository';
 import { buildGoalTaskDescription } from './goal-task-description';
+import {
+  DurableEffectOutbox,
+  type EnqueueDurableEffectBatch,
+} from '../platform-events/durable-effect-outbox';
+import { DELIVERY_EFFECT_TYPES } from './delivery-effects';
 import type { ControlAction } from './control-decision';
 import type {
   ControlCommandPort,
@@ -19,6 +24,7 @@ export interface ProductionControlCommandAdapterOptions {
   inbox?: AgentInbox;
   deliveries?: AutonomousDeliveryRepository;
   now?: () => Date;
+  effects?: Pick<DurableEffectOutbox, 'enqueueBatch'>;
 }
 
 function taskIdFromWorkId(workId: string): string | undefined {
@@ -32,12 +38,14 @@ export class ProductionControlCommandAdapter implements ControlCommandPort {
   private readonly deliveries: AutonomousDeliveryRepository;
   private readonly now: () => Date;
   private readonly snapshots: RepositoryControlSnapshotBuilder;
+  private readonly effects: Pick<DurableEffectOutbox, 'enqueueBatch'>;
 
   constructor(options: ProductionControlCommandAdapterOptions = {}) {
     this.database = options.db;
     this.inbox = options.inbox ?? new AgentInbox({ db: options.db });
     this.deliveries = options.deliveries ?? autonomousDeliveryRepo;
     this.now = options.now ?? (() => new Date());
+    this.effects = options.effects ?? new DurableEffectOutbox({ db: options.db, now: this.now });
     this.snapshots = new RepositoryControlSnapshotBuilder({
       db: options.db,
       now: this.now,
@@ -56,6 +64,8 @@ export class ProductionControlCommandAdapter implements ControlCommandPort {
         return this.dispatch(action, context.decision.runId);
       case 'requestGate':
         return this.requestGate(action);
+      case 'integrate':
+        return this.integrate(action, context.decision);
       case 'escalateToHuman':
         return this.escalate(action, context.decision.runId);
       case 'terminate':
@@ -65,6 +75,53 @@ export class ProductionControlCommandAdapter implements ControlCommandPort {
       case 'wait':
         return { status: 'applied' };
     }
+  }
+
+  private integrate(
+    action: ControlAction,
+    decision: Parameters<ControlCommandPort['execute']>[1]['decision'],
+  ): ControlCommandResult {
+    const runId = decision.runId;
+    const snapshot = this.deliveries.getSnapshot(runId);
+    if (!snapshot) return { status: 'rejected', reasonCode: 'delivery_run_missing' };
+    if (!snapshot.contract.deliveryPolicy.requireMerge) {
+      return { status: 'rejected', reasonCode: 'delivery_integration_not_required' };
+    }
+    if (
+      !snapshot.contract.authorization.allowPush
+      || !snapshot.contract.authorization.allowPullRequest
+      || !snapshot.contract.authorization.allowAutoMerge
+    ) {
+      return { status: 'rejected', reasonCode: 'missing_authorization' };
+    }
+    const db = this.database ?? getDb();
+    const source = db.prepare(`
+      SELECT event.id FROM platform_event_ingestion ingestion
+      JOIN platform_event event ON event.id=ingestion.event_id
+      WHERE ingestion.ingestion_id=? AND event.project_id=?
+    `).get(
+      decision.snapshotRevision,
+      snapshot.run.conversation_id,
+    ) as { id: string } | undefined;
+    if (!source) {
+      return { status: 'rejected', reasonCode: 'control_source_event_missing' };
+    }
+    const batch: EnqueueDurableEffectBatch = {
+      sourceEventId: source.id,
+      laneKey: `delivery:${runId}:provider`,
+      effects: [{
+        type: DELIVERY_EFFECT_TYPES.githubIntegrate,
+        targetKey: runId,
+        payload: { runId },
+        idempotencyKey: `${action.actionId}:github-integrate`,
+        criticality: 'blocking',
+        deliveryRunId: runId,
+        appliesFromRevision: snapshot.run.revision,
+        sourceActionId: action.actionId,
+      }],
+    };
+    this.effects.enqueueBatch(batch);
+    return { status: 'applied' };
   }
 
   private initializeGraph(action: ControlAction, runId: string): ControlCommandResult {

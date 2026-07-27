@@ -6,6 +6,7 @@ export type ControlActionType =
   | 'wait'
   | 'retry'
   | 'requestGate'
+  | 'integrate'
   | 'resume'
   | 'escalateToHuman'
   | 'terminate';
@@ -59,6 +60,12 @@ export interface SupervisorControlSnapshot {
   workCells: WorkCellControlSnapshot[];
   closure: {
     satisfied: boolean;
+    integration?: {
+      required: boolean;
+      gatesSatisfied: boolean;
+      merged: boolean;
+      effectScheduled: boolean;
+    };
     unrecoverableReasonCode?: string;
     blockingEffect?: {
       effectId: string;
@@ -442,6 +449,22 @@ export function decideControlActions(
       type: 'wait',
       reasonCode: `blocking_effect_pending:${snapshot.closure.blockingEffect.effectId}`,
       retryBudgetKind: 'effect',
+    });
+  }
+  const integration = snapshot.closure.integration;
+  if (
+    snapshot.workCells.length > 0
+    && snapshot.workCells.every((cell) => cell.state === 'completed')
+    && integration?.required
+    && integration.gatesSatisfied
+    && !integration.merged
+    && !integration.effectScheduled
+  ) {
+    proposals.push({
+      rank: 65,
+      order: Number.MAX_SAFE_INTEGER,
+      type: 'integrate',
+      reasonCode: 'provider_integration_required',
     });
   }
 
