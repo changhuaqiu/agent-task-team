@@ -1,17 +1,19 @@
 export type DeliveryRunStatus =
-  | 'submitted'
+  | 'active'
+  | 'waiting_gate'
+  | 'waiting_human'
+  | 'retrying'
+  | 'completed'
+  | 'failed'
+  | 'cancelled';
+
+export type DeliveryStage =
   | 'planning'
   | 'executing'
   | 'reviewing'
   | 'verifying'
   | 'integrating'
-  | 'delivering'
-  | 'recovering'
-  | 'completed'
-  | 'escalated'
-  | 'cancelled';
-
-export type DeliveryStage = Exclude<DeliveryRunStatus, 'submitted' | 'recovering' | 'completed' | 'escalated' | 'cancelled'>;
+  | 'delivering';
 
 export type DeliveryActionKind =
   | 'plan_goal'
@@ -138,7 +140,7 @@ export interface DeliveryRunRow {
   conversation_id: string;
   root_task_id: string | null;
   status: DeliveryRunStatus;
-  current_stage: string;
+  current_stage: DeliveryStage;
   goal_contract_json: string;
   repair_cycle: number;
   revision: number;

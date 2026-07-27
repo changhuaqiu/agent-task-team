@@ -4,6 +4,7 @@ import type {
   DeliveryFailureCode,
   DeliveryRunSnapshot,
   DeliveryRunStatus,
+  DeliveryStage,
 } from './types';
 
 export type GateState = 'not_required' | 'not_started' | 'pending' | 'passed' | 'failed';
@@ -39,7 +40,7 @@ export type DeliveryDecision =
   | {
       type: 'act';
       status: DeliveryRunStatus;
-      stage: string;
+      stage: DeliveryStage;
       action: ProposedDeliveryAction;
       rootTaskId?: string;
       repairCycle?: number;
@@ -47,7 +48,7 @@ export type DeliveryDecision =
   | {
       type: 'wait';
       status: DeliveryRunStatus;
-      stage: string;
+      stage: DeliveryStage;
       rootTaskId?: string;
     }
   | {
@@ -57,7 +58,7 @@ export type DeliveryDecision =
     }
   | {
       type: 'escalate';
-      stage: string;
+      stage: DeliveryStage;
       failureCode: DeliveryFailureCode;
       detail: string;
       rootTaskId?: string;
@@ -107,7 +108,7 @@ export function decideDeliveryNext(
   if (facts.planning !== 'completed') {
     return {
       type: 'act',
-      status: 'planning',
+      status: 'active',
       stage: 'planning',
       action: {
         kind: 'plan_goal',
@@ -127,11 +128,11 @@ export function decideDeliveryNext(
   }
   if (facts.taskGraph !== 'completed') {
     if (facts.taskGraph === 'running') {
-      return { type: 'wait', status: 'executing', stage: 'executing', rootTaskId };
+      return { type: 'wait', status: 'active', stage: 'executing', rootTaskId };
     }
     return {
       type: 'act',
-      status: 'executing',
+      status: 'active',
       stage: 'executing',
       rootTaskId,
       action: {
@@ -147,7 +148,7 @@ export function decideDeliveryNext(
 
   if (contract.deliveryPolicy.requireReview && facts.review !== 'passed') {
     if (facts.review === 'pending') {
-      return { type: 'wait', status: 'reviewing', stage: 'reviewing', rootTaskId };
+      return { type: 'wait', status: 'waiting_gate', stage: 'reviewing', rootTaskId };
     }
     const currentRepair = currentRepairAction(snapshot, 'repair_review');
     if (
@@ -178,7 +179,7 @@ export function decideDeliveryNext(
     const kind: DeliveryActionKind = facts.review === 'failed' ? 'repair_review' : 'request_review';
     return {
       type: 'act',
-      status: 'reviewing',
+      status: 'active',
       stage: 'reviewing',
       rootTaskId,
       repairCycle,
@@ -193,7 +194,7 @@ export function decideDeliveryNext(
 
   if (facts.verification !== 'passed' && facts.verification !== 'not_required') {
     if (facts.verification === 'pending') {
-      return { type: 'wait', status: 'verifying', stage: 'verifying', rootTaskId };
+      return { type: 'wait', status: 'waiting_gate', stage: 'verifying', rootTaskId };
     }
     const currentRepair = currentRepairAction(snapshot, 'repair_verification');
     if (
@@ -226,7 +227,7 @@ export function decideDeliveryNext(
       : 'run_verification';
     return {
       type: 'act',
-      status: 'verifying',
+      status: 'active',
       stage: 'verifying',
       rootTaskId,
       repairCycle,
@@ -250,11 +251,11 @@ export function decideDeliveryNext(
       };
     }
     if (facts.integration === 'pending') {
-      return { type: 'wait', status: 'integrating', stage: 'integrating', rootTaskId };
+      return { type: 'wait', status: 'waiting_gate', stage: 'integrating', rootTaskId };
     }
     return {
       type: 'act',
-      status: 'integrating',
+      status: 'active',
       stage: 'integrating',
       rootTaskId,
       action: {
@@ -269,7 +270,7 @@ export function decideDeliveryNext(
   if (facts.delivery !== 'published') {
     return {
       type: 'act',
-      status: 'delivering',
+      status: 'active',
       stage: 'delivering',
       rootTaskId,
       action: {

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { AutonomousDeliveryPanel } from './AutonomousDeliveryPanel';
 import type { DeliveryRunSnapshot, GoalContract } from '@/server/autonomous-delivery/types';
 
@@ -39,7 +39,7 @@ describe('AutonomousDeliveryPanel', () => {
         id: 'delivery-1',
         conversation_id: contract.scope.conversationId,
         root_task_id: 'task-1',
-        status: 'executing',
+        status: 'active',
         current_stage: 'executing',
         goal_contract_json: JSON.stringify(contract),
       repair_cycle: 0,
@@ -76,7 +76,7 @@ describe('AutonomousDeliveryPanel', () => {
         conversation_id: contract.scope.conversationId,
         root_task_id: 'task-1',
         status: 'completed',
-        current_stage: 'completed',
+        current_stage: 'delivering',
         goal_contract_json: JSON.stringify(contract),
       repair_cycle: 0,
       revision: 0,
@@ -148,5 +148,63 @@ describe('AutonomousDeliveryPanel', () => {
     expect(screen.getByText('评审证据')).toBeDefined();
     expect(screen.getByText('review/report.md')).toBeDefined();
     expect(screen.queryByText(/receipt|runtime|lease|session/i)).toBeNull();
+  });
+
+  it('人工等待只通过用户在 WebUI 发出的继续命令恢复', async () => {
+    const waiting = {
+      run: {
+        id: 'delivery-waiting',
+        conversation_id: contract.scope.conversationId,
+        root_task_id: null,
+        status: 'waiting_human',
+        current_stage: 'planning',
+        goal_contract_json: JSON.stringify(contract),
+        repair_cycle: 0,
+        revision: 1,
+        escalation_code: 'runtime_profile_missing',
+        escalation_detail: '请先补齐运行配置',
+        delivery_bundle_json: null,
+        created_at: '2026-07-19T00:00:00.000Z',
+        updated_at: '2026-07-19T00:00:00.000Z',
+        completed_at: null,
+      },
+      contract,
+      actions: [],
+      attempts: [],
+      receipts: [],
+    } satisfies DeliveryRunSnapshot;
+    const resumed = {
+      ...waiting,
+      run: {
+        ...waiting.run,
+        status: 'active',
+        revision: 2,
+        escalation_code: null,
+        escalation_detail: null,
+      },
+    } satisfies DeliveryRunSnapshot;
+    const fetchMock = vi.fn().mockImplementation(
+      async (_url: string, init?: RequestInit) => ({
+        ok: true,
+        status: 200,
+        json: async () => init?.method === 'POST'
+          ? { disposition: 'waiting', snapshot: resumed }
+          : waiting,
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<AutonomousDeliveryPanel conversationId={contract.scope.conversationId} />);
+    expect(await screen.findByText('请先补齐运行配置')).toBeDefined();
+    fireEvent.click(screen.getByRole('button', { name: '我已处理，继续' }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      '/api/autonomous-delivery',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ action: 'advance', runId: waiting.run.id }),
+      }),
+    ));
+    expect(await screen.findByTestId('autonomous-delivery-running')).toBeDefined();
   });
 });

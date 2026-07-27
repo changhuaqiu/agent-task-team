@@ -111,16 +111,16 @@ describe('domain event inline seam', () => {
     };
     const created = repository.createRun(contract);
 
-    const unchanged = repository.updateRun({
+    const unchanged = repository.transitionRun({
       runId: created.run.id,
-      status: created.run.status,
+      to: created.run.status,
       stage: created.run.current_stage,
       expectedRevision: created.run.revision,
     });
 
     expect(unchanged?.revision).toBe(created.run.revision);
     expect(log.listStream(`delivery_run:${created.run.id}`).map((event) => event.type))
-      .toEqual(['delivery.run.submitted']);
+      .toEqual(['delivery.run.started']);
   });
 
   it('keeps A2A terminal states final and emits bulk abort facts inline', () => {

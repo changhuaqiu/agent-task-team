@@ -266,6 +266,25 @@ Delivery 恢复逻辑已改为：派发前故障读取 Envelope `rejected / expi
 读取 Invocation；因此不会把 `Envelope.acknowledged` 误判为 Agent 已执行完，也不会重复唤醒
 仍在运行的 Work Cell。
 
+### 5.5 Delivery Run 状态机的已落地边界
+
+Delivery owner 已把“整个交付是否可继续运行”和“当前推进到哪个协作阶段”拆成两个正交字段：
+
+```text
+status: active | waiting_gate | waiting_human | retrying | completed | failed | cancelled
+stage:  planning | executing | reviewing | verifying | integrating | delivering
+```
+
+`reviewing` 不再冒充生命周期状态；同一个 reviewing 阶段可以处于 `active`、
+`waiting_gate` 或 `waiting_human`。`waiting_human` 是可恢复状态，只有显式
+Human Command `manual_resume` 才能回到 `active`；周期 reconcile 和事实事件不能自行恢复。
+WebUI 的“我已处理，继续”只是该 Human Command 的入口，不在浏览器内自行编排事件。
+
+migration 58 将旧阶段型状态归一化：阶段词映射为 `active + current_stage`，
+`recovering -> retrying`，`escalated -> waiting_human`，并为缺少原因的历史人工等待补充
+明确的 legacy reason。代码 owner 使用 revision CAS 和显式 `transitionRun`；数据库 trigger
+同时拒绝非法跃迁、无 reason 的 `waiting_human`、无 DeliveryBundle 的 `completed` 和终态复活。
+
 Effect 创建时必须冻结：
 
 ```text

@@ -590,7 +590,7 @@ describe('SQLite Foundation', () => {
     expect(db.prepare('SELECT version FROM _schema_version WHERE version = 40').get())
       .toEqual({ version: 40 });
     expect(db.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-      .toEqual({ version: 57 });
+      .toEqual({ version: 58 });
   });
 
   it('repairs v26-v40 checkpoints whose migration collision skipped autonomous delivery tables', () => {
@@ -620,7 +620,7 @@ describe('SQLite Foundation', () => {
           'autonomous_delivery_advancement_request',
         ]));
         expect(checkpoint.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-          .toEqual({ version: 57 });
+          .toEqual({ version: 58 });
         expect(checkpoint.pragma('foreign_key_check')).toEqual([]);
       } finally {
         checkpoint.close();
@@ -672,13 +672,125 @@ describe('SQLite Foundation', () => {
     }>).find((foreignKey) => foreignKey.from === 'root_task_id');
     expect(rootTaskForeignKey?.on_delete).toBe('SET NULL');
     expect(db.prepare('SELECT revision FROM autonomous_delivery_run WHERE id=?').get('run-checkpoint'))
-      .toEqual({ revision: 0 });
+      .toEqual({ revision: 1 });
     expect(db.prepare('SELECT run_id FROM autonomous_delivery_action WHERE id=?').get('action-checkpoint'))
       .toEqual({ run_id: 'run-checkpoint' });
 
     db.prepare('DELETE FROM task WHERE id=?').run('task-checkpoint');
     expect(db.prepare('SELECT root_task_id FROM autonomous_delivery_run WHERE id=?').get('run-checkpoint'))
       .toEqual({ root_task_id: null });
+    expect(db.pragma('foreign_key_check')).toEqual([]);
+  });
+
+  it('migrates legacy delivery phases into lifecycle plus stage and enforces the state machine', () => {
+    db.pragma('foreign_keys = OFF');
+    db.exec(`
+      DROP TABLE autonomous_delivery_run;
+      CREATE TABLE autonomous_delivery_run (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL REFERENCES conversation(id) ON DELETE CASCADE,
+        root_task_id TEXT REFERENCES task(id) ON DELETE SET NULL,
+        status TEXT NOT NULL,
+        current_stage TEXT NOT NULL,
+        goal_contract_json TEXT NOT NULL,
+        repair_cycle INTEGER NOT NULL DEFAULT 0,
+        revision INTEGER NOT NULL DEFAULT 0,
+        escalation_code TEXT,
+        escalation_detail TEXT,
+        delivery_bundle_json TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        completed_at TEXT
+      );
+      DELETE FROM _schema_version WHERE version=58;
+    `);
+    db.pragma('foreign_keys = ON');
+    const now = '2026-07-28T00:00:00.000Z';
+    db.prepare(
+      'INSERT INTO conversation (id,title,status,created_at,updated_at) VALUES (?,?,?,?,?)',
+    ).run('conv-delivery-v58', 'Delivery v58', 'active', now, now);
+    const insert = db.prepare(`
+      INSERT INTO autonomous_delivery_run (
+        id,conversation_id,status,current_stage,goal_contract_json,revision,
+        escalation_code,delivery_bundle_json,created_at,updated_at,completed_at
+      ) VALUES (?,?,?,?,?,0,?,?,?,?,?)
+    `);
+    insert.run(
+      'run-escalated',
+      'conv-delivery-v58',
+      'escalated',
+      'reviewing',
+      '{}',
+      null,
+      null,
+      now,
+      now,
+      now,
+    );
+    insert.run(
+      'run-recovering',
+      'conv-delivery-v58',
+      'recovering',
+      'verifying',
+      '{}',
+      null,
+      null,
+      now,
+      now,
+      null,
+    );
+    insert.run(
+      'run-completed',
+      'conv-delivery-v58',
+      'completed',
+      'completed',
+      '{}',
+      null,
+      '{}',
+      now,
+      now,
+      now,
+    );
+
+    applyMigrations(db);
+
+    expect(db.prepare(`
+      SELECT id,status,current_stage,escalation_code,completed_at
+      FROM autonomous_delivery_run ORDER BY id
+    `).all()).toEqual([
+      {
+        id: 'run-completed',
+        status: 'completed',
+        current_stage: 'delivering',
+        escalation_code: null,
+        completed_at: now,
+      },
+      {
+        id: 'run-escalated',
+        status: 'waiting_human',
+        current_stage: 'reviewing',
+        escalation_code: 'legacy_human_decision_required',
+        completed_at: null,
+      },
+      {
+        id: 'run-recovering',
+        status: 'retrying',
+        current_stage: 'verifying',
+        escalation_code: null,
+        completed_at: null,
+      },
+    ]);
+    expect(() => db.prepare(
+      "UPDATE autonomous_delivery_run SET status='waiting_gate' WHERE id='run-recovering'",
+    ).run()).toThrow(/invalid_delivery_run_transition/);
+    expect(() => db.prepare(
+      "UPDATE autonomous_delivery_run SET status='active' WHERE id='run-completed'",
+    ).run()).toThrow(/delivery_run_terminal_immutable/);
+    expect(() => db.prepare(`
+      INSERT INTO autonomous_delivery_run (
+        id,conversation_id,status,current_stage,goal_contract_json,created_at,updated_at
+      ) VALUES ('run-invalid','conv-delivery-v58','waiting_human','planning','{}',?,?)
+    `).run(now, now)).toThrow(/invalid_delivery_run_state/);
     expect(db.pragma('foreign_key_check')).toEqual([]);
   });
 

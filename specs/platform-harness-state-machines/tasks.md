@@ -43,6 +43,12 @@
 - [x] migration 57、Domain Event、DispatchGateway、Daemon receipt 和 WebUI 投影
   已迁入新 Envelope 契约。
 - [x] Envelope 切片通过 TypeScript、相关 lint 和全量 Vitest（188 files、1448 tests，1 skipped）。
+- [x] Delivery Run 生命周期已与阶段分离；reviewing 等阶段不再冒充运行状态。
+- [x] migration 58、revision CAS、数据库 transition/state guard 和终态不可变约束已落地。
+- [x] `waiting_human` 只能由 WebUI/API 发出的 `manual_resume` Human Command 恢复；
+  周期 reconcile 不会自行恢复。
+- [x] Delivery Run 切片通过 TypeScript、相关 lint 和全量 Vitest
+  （188 files、1452 tests，1 skipped）。
 
 ## S2：Review & Gate
 
@@ -70,7 +76,7 @@
 ## S5：Delivery Supervisor
 
 - [ ] 实现七种 ControlAction 的纯决策函数。
-- [ ] 将 `escalated` 迁为可恢复的 `waiting_human`。
+- [x] 将 `escalated` 迁为可恢复的 `waiting_human`，将 `recovering` 迁为 `retrying`。
 - [ ] 分离 Invocation retry、Effect retry、Task rework 和 Agent local retry 预算。
 - [ ] 深化 System Control Plane 的 Team Scheduling 能力，在角色、依赖、容量和 possession
   约束下选择可激活 Work Cell；不另建重复事实源。

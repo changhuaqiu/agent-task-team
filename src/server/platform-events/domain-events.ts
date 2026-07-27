@@ -15,10 +15,11 @@ export interface DomainEventPayloadMap {
   'review.approved': { taskId: string; reviewerId?: string };
   'review.rejected': { taskId: string; reviewerId?: string; reason?: string };
   'review.merged': { taskId: string; reviewerId?: string };
-  'delivery.run.submitted': { status: string; stage: string };
-  'delivery.run.phase_advanced': { previousStatus: string; status: string; previousStage: string; stage: string };
+  'delivery.run.started': { status: string; stage: string };
+  'delivery.run.state_changed': { previousStatus: string; status: string; previousStage: string; stage: string };
   'delivery.run.completed': { previousStatus: string; status: string; stage: string };
-  'delivery.run.escalated': { previousStatus: string; status: string; stage: string; code?: string };
+  'delivery.run.waiting_human': { previousStatus: string; status: string; stage: string; code?: string };
+  'delivery.run.failed': { previousStatus: string; status: string; stage: string };
   'delivery.run.cancelled': { previousStatus: string; status: string; stage: string };
   'delivery.action.claimed': { runId: string; attemptId: string; attemptNo: number };
   'delivery.action.succeeded': { runId: string; attemptId: string };
@@ -62,8 +63,9 @@ export const DOMAIN_EVENT_TYPES_BY_OWNER = {
   ],
   review: ['review.submitted', 'review.approved', 'review.rejected', 'review.merged'],
   delivery: [
-    'delivery.run.submitted', 'delivery.run.phase_advanced', 'delivery.run.completed',
-    'delivery.run.escalated', 'delivery.run.cancelled', 'delivery.action.claimed',
+    'delivery.run.started', 'delivery.run.state_changed', 'delivery.run.completed',
+    'delivery.run.waiting_human', 'delivery.run.failed', 'delivery.run.cancelled',
+    'delivery.action.claimed',
     'delivery.action.succeeded', 'delivery.action.failed',
   ],
   a2a: [

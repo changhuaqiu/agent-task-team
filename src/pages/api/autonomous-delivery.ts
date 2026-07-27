@@ -67,7 +67,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(404).json({ error: 'Conversation not found' });
     }
     const existing = autonomousDeliveryRepo.getLatestByConversation(contract.scope.conversationId);
-    if (existing && !['completed', 'escalated', 'cancelled'].includes(existing.run.status)) {
+    if (existing && !['completed', 'failed', 'cancelled'].includes(existing.run.status)) {
       return res.status(409).json({ error: 'An active delivery run already exists', snapshot: existing });
     }
     const snapshot = startAutonomousDelivery(io, contract);

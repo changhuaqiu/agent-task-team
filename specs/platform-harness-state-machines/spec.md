@@ -109,9 +109,12 @@ type AgentOutcome = {
 实现必须遵守长期设计 §5 的状态和完成语义。所有迁移由 owner 暴露的显式 transition API
 执行，并同时校验前态、actor、幂等键和必要证据。禁止直接写任意状态字符串。
 
-目标和所有新写入使用可恢复的 `DeliveryRun.waiting_human`，不得再创建 `escalated`。
-legacy `escalated` 在完成明确分类迁移前仍是只读终态，禁止直接恢复；可恢复记录迁为
-`waiting_human`，不可恢复记录迁为 `failed`。
+DeliveryRun 的生命周期状态与协作阶段必须分开：生命周期只允许
+`active / waiting_gate / waiting_human / retrying / completed / failed / cancelled`，
+阶段只允许 `planning / executing / reviewing / verifying / integrating / delivering`。
+所有新写入使用可恢复的 `waiting_human`，不得再创建 `escalated`。migration 58 已将历史
+`escalated` 归一化为带明确 reason 的 `waiting_human`，将 `recovering` 归一化为
+`retrying`；只有 Human Command `manual_resume` 可以恢复人工等待。
 
 ## 7. Supervisor 决策契约
 

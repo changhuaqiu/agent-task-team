@@ -35,7 +35,7 @@ export class AutonomousDeliveryContextContributor implements ContextContributor 
     if (snapshot.run.conversation_id !== query.conversationId) return [];
     if (
       !query.deliveryRunId
-      && ['completed', 'escalated', 'cancelled'].includes(snapshot.run.status)
+      && ['completed', 'failed', 'cancelled'].includes(snapshot.run.status)
     ) return [];
 
     const observedAt = snapshot.run.updated_at;

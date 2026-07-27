@@ -34,7 +34,7 @@ export interface AdvancementCause {
 }
 
 export interface AdvanceResult {
-  disposition: 'acted' | 'waiting' | 'completed' | 'escalated' | 'busy';
+  disposition: 'acted' | 'waiting' | 'waiting_human' | 'completed' | 'failed' | 'busy';
   snapshot: DeliveryRunSnapshot;
   actionId?: string;
 }
@@ -82,7 +82,6 @@ export class AutonomousDeliverySupervisor {
   }
 
   async advance(runId: string, cause?: AdvancementCause): Promise<AdvanceResult> {
-    void cause;
     this.repository.abandonExpiredAttempts(this.now());
     let lastActionId: string | undefined;
 
@@ -92,14 +91,26 @@ export class AutonomousDeliverySupervisor {
       if (snapshot.run.status === 'completed') {
         return { disposition: 'completed', snapshot, actionId: lastActionId };
       }
-      if (snapshot.run.status === 'escalated' || snapshot.run.status === 'cancelled') {
-        return { disposition: 'escalated', snapshot, actionId: lastActionId };
+      if (snapshot.run.status === 'failed' || snapshot.run.status === 'cancelled') {
+        return { disposition: 'failed', snapshot, actionId: lastActionId };
+      }
+      if (snapshot.run.status === 'waiting_human') {
+        if (cause?.kind !== 'manual_resume') {
+          return { disposition: 'waiting_human', snapshot, actionId: lastActionId };
+        }
+        const resumed = this.updateSnapshot(snapshot, {
+          to: 'active',
+          stage: snapshot.run.current_stage,
+          now: this.now(),
+        });
+        if (!resumed) return this.concurrentResult(runId, lastActionId);
+        snapshot = resumed;
       }
 
       const facts = await this.facts.observe(snapshot);
       if (facts.bundle && !snapshot.bundle) {
         const updated = this.updateSnapshot(snapshot, {
-          status: snapshot.run.status,
+          to: snapshot.run.status,
           stage: snapshot.run.current_stage,
           rootTaskId: facts.rootTaskId ?? snapshot.run.root_task_id ?? undefined,
           bundle: facts.bundle,
@@ -111,7 +122,7 @@ export class AutonomousDeliverySupervisor {
       const decision = decideDeliveryNext(snapshot, facts);
       if (decision.type === 'wait') {
         const updated = this.updateSnapshot(snapshot, {
-          status: decision.status,
+          to: decision.status,
           stage: decision.stage,
           rootTaskId: decision.rootTaskId,
           now: this.now(),
@@ -125,8 +136,8 @@ export class AutonomousDeliverySupervisor {
       }
       if (decision.type === 'complete') {
         const updated = this.updateSnapshot(snapshot, {
-          status: 'completed',
-          stage: 'completed',
+          to: 'completed',
+          stage: snapshot.run.current_stage,
           rootTaskId: decision.rootTaskId,
           bundle: decision.bundle,
           now: this.now(),
@@ -140,7 +151,7 @@ export class AutonomousDeliverySupervisor {
       }
       if (decision.type === 'escalate') {
         const updated = this.updateSnapshot(snapshot, {
-          status: 'escalated',
+          to: 'waiting_human',
           stage: decision.stage,
           rootTaskId: decision.rootTaskId,
           escalationCode: decision.failureCode,
@@ -149,14 +160,14 @@ export class AutonomousDeliverySupervisor {
         });
         if (!updated) return this.concurrentResult(runId, lastActionId);
         return {
-          disposition: 'escalated',
+          disposition: 'waiting_human',
           snapshot: updated,
           actionId: lastActionId,
         };
       }
 
       const updatedForAction = this.updateSnapshot(snapshot, {
-        status: decision.status,
+        to: decision.status,
         stage: decision.stage,
         rootTaskId: decision.rootTaskId,
         repairCycle: decision.repairCycle,
@@ -185,18 +196,18 @@ export class AutonomousDeliverySupervisor {
         };
       }
       if (action.status === 'failed') {
-        const escalated = this.updateSnapshot(snapshot, {
-          status: 'escalated',
+        const waitingHuman = this.updateSnapshot(snapshot, {
+          to: 'waiting_human',
           stage: decision.stage,
           rootTaskId: decision.rootTaskId,
           escalationCode: action.last_failure_code ?? 'unknown',
           escalationDetail: action.last_failure_detail ?? `动作 ${action.kind} 恢复次数已耗尽`,
           now: this.now(),
         });
-        if (!escalated) return this.concurrentResult(runId, lastActionId);
+        if (!waitingHuman) return this.concurrentResult(runId, lastActionId);
         return {
-          disposition: 'escalated',
-          snapshot: escalated,
+          disposition: 'waiting_human',
+          snapshot: waitingHuman,
           actionId: lastActionId,
         };
       }
@@ -260,33 +271,33 @@ export class AutonomousDeliverySupervisor {
       }
       if (actionStatus === 'retry_wait') {
         const current = this.repository.getSnapshot(runId)!;
-        const recovering = this.updateSnapshot(current, {
-          status: 'recovering',
+        const retrying = this.updateSnapshot(current, {
+          to: 'retrying',
           stage: decision.stage,
           rootTaskId: decision.rootTaskId,
           now: this.now(),
         });
-        if (!recovering) return this.concurrentResult(runId, lastActionId);
+        if (!retrying) return this.concurrentResult(runId, lastActionId);
         return {
           disposition: 'acted',
-          snapshot: recovering,
+          snapshot: retrying,
           actionId: lastActionId,
         };
       }
 
       const current = this.repository.getSnapshot(runId)!;
-      const escalated = this.updateSnapshot(current, {
-        status: 'escalated',
+      const waitingHuman = this.updateSnapshot(current, {
+        to: 'waiting_human',
         stage: decision.stage,
         rootTaskId: decision.rootTaskId,
         escalationCode: result.failureCode,
         escalationDetail: result.detail ?? `动作 ${claim.action.kind} 执行失败`,
         now: this.now(),
       });
-      if (!escalated) return this.concurrentResult(runId, lastActionId);
+      if (!waitingHuman) return this.concurrentResult(runId, lastActionId);
       return {
-        disposition: 'escalated',
-        snapshot: escalated,
+        disposition: 'waiting_human',
+        snapshot: waitingHuman,
         actionId: lastActionId,
       };
     }
@@ -301,11 +312,11 @@ export class AutonomousDeliverySupervisor {
   private updateSnapshot(
     snapshot: DeliveryRunSnapshot,
     patch: Omit<
-      Parameters<AutonomousDeliveryRepository['updateRun']>[0],
+      Parameters<AutonomousDeliveryRepository['transitionRun']>[0],
       'runId' | 'expectedRevision'
     >,
   ): DeliveryRunSnapshot | undefined {
-    const updated = this.repository.updateRun({
+    const updated = this.repository.transitionRun({
       ...patch,
       runId: snapshot.run.id,
       expectedRevision: snapshot.run.revision,
@@ -319,8 +330,11 @@ export class AutonomousDeliverySupervisor {
     if (snapshot.run.status === 'completed') {
       return { disposition: 'completed', snapshot, actionId };
     }
-    if (snapshot.run.status === 'escalated' || snapshot.run.status === 'cancelled') {
-      return { disposition: 'escalated', snapshot, actionId };
+    if (snapshot.run.status === 'failed' || snapshot.run.status === 'cancelled') {
+      return { disposition: 'failed', snapshot, actionId };
+    }
+    if (snapshot.run.status === 'waiting_human') {
+      return { disposition: 'waiting_human', snapshot, actionId };
     }
     return { disposition: 'busy', snapshot, actionId };
   }

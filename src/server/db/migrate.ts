@@ -2160,6 +2160,184 @@ DROP TABLE IF EXISTS runtime_completion_step_receipt;
       `);
     },
   },
+  {
+    version: 58,
+    foreignKeysOff: true,
+    run: (db) => {
+      const table = db.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='autonomous_delivery_run'",
+      ).get();
+      if (!table) return;
+
+      db.exec(`
+        DROP TABLE IF EXISTS autonomous_delivery_run_v58;
+        CREATE TABLE autonomous_delivery_run_v58 (
+          id TEXT PRIMARY KEY,
+          conversation_id TEXT NOT NULL REFERENCES conversation(id) ON DELETE CASCADE,
+          root_task_id TEXT REFERENCES task(id) ON DELETE SET NULL,
+          status TEXT NOT NULL CHECK(status IN (
+            'active','waiting_gate','waiting_human','retrying','completed','failed','cancelled'
+          )),
+          current_stage TEXT NOT NULL CHECK(current_stage IN (
+            'planning','executing','reviewing','verifying','integrating','delivering'
+          )),
+          goal_contract_json TEXT NOT NULL,
+          repair_cycle INTEGER NOT NULL DEFAULT 0,
+          revision INTEGER NOT NULL DEFAULT 0,
+          escalation_code TEXT,
+          escalation_detail TEXT,
+          delivery_bundle_json TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          completed_at TEXT
+        );
+
+        INSERT INTO autonomous_delivery_run_v58 (
+          id,conversation_id,root_task_id,status,current_stage,goal_contract_json,
+          repair_cycle,revision,escalation_code,escalation_detail,delivery_bundle_json,
+          created_at,updated_at,completed_at
+        )
+        SELECT
+          id,
+          conversation_id,
+          root_task_id,
+          CASE status
+            WHEN 'active' THEN 'active'
+            WHEN 'waiting_gate' THEN 'waiting_gate'
+            WHEN 'waiting_human' THEN 'waiting_human'
+            WHEN 'retrying' THEN 'retrying'
+            WHEN 'submitted' THEN 'active'
+            WHEN 'planning' THEN 'active'
+            WHEN 'executing' THEN 'active'
+            WHEN 'reviewing' THEN 'active'
+            WHEN 'verifying' THEN 'active'
+            WHEN 'integrating' THEN 'active'
+            WHEN 'delivering' THEN 'active'
+            WHEN 'recovering' THEN 'retrying'
+            WHEN 'escalated' THEN 'waiting_human'
+            WHEN 'completed' THEN 'completed'
+            WHEN 'failed' THEN 'failed'
+            WHEN 'cancelled' THEN 'cancelled'
+            ELSE 'failed'
+          END,
+          CASE
+            WHEN current_stage IN (
+              'planning','executing','reviewing','verifying','integrating','delivering'
+            ) THEN current_stage
+            WHEN status IN (
+              'planning','executing','reviewing','verifying','integrating','delivering'
+            ) THEN status
+            WHEN status = 'completed' THEN 'delivering'
+            ELSE 'planning'
+          END,
+          goal_contract_json,
+          repair_cycle,
+          revision + 1,
+          CASE
+            WHEN status IN ('escalated','waiting_human')
+              THEN COALESCE(NULLIF(trim(escalation_code), ''), 'legacy_human_decision_required')
+            WHEN status NOT IN (
+              'active','waiting_gate','retrying','submitted','planning','executing',
+              'reviewing','verifying','integrating','delivering','recovering',
+              'completed','failed','cancelled'
+            ) THEN COALESCE(NULLIF(trim(escalation_code), ''), 'legacy_delivery_status_unknown')
+            ELSE NULL
+          END,
+          CASE
+            WHEN status IN ('escalated','waiting_human')
+              THEN COALESCE(
+                NULLIF(trim(escalation_detail), ''),
+                'Legacy delivery run requires a human decision before it can resume.'
+              )
+            ELSE escalation_detail
+          END,
+          delivery_bundle_json,
+          created_at,
+          updated_at,
+          CASE
+            WHEN status IN ('completed','failed','cancelled')
+              OR status NOT IN (
+                'active','waiting_gate','waiting_human','retrying','submitted','planning',
+                'executing','reviewing','verifying','integrating','delivering','recovering',
+                'escalated'
+              )
+              THEN COALESCE(completed_at, updated_at)
+            ELSE NULL
+          END
+        FROM autonomous_delivery_run;
+
+        DROP TABLE autonomous_delivery_run;
+        ALTER TABLE autonomous_delivery_run_v58 RENAME TO autonomous_delivery_run;
+        CREATE INDEX IF NOT EXISTS idx_autonomous_delivery_run_conversation
+          ON autonomous_delivery_run(conversation_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_autonomous_delivery_run_reconcile
+          ON autonomous_delivery_run(status, updated_at);
+
+        DROP TRIGGER IF EXISTS trg_delivery_run_transition_update;
+        DROP TRIGGER IF EXISTS trg_delivery_run_terminal_immutable;
+        DROP TRIGGER IF EXISTS trg_delivery_run_state_insert;
+        DROP TRIGGER IF EXISTS trg_delivery_run_state_update;
+
+        CREATE TRIGGER trg_delivery_run_transition_update
+        BEFORE UPDATE OF status ON autonomous_delivery_run
+        WHEN NEW.status <> OLD.status
+          AND NOT (
+            (OLD.status = 'active'
+              AND NEW.status IN (
+                'waiting_gate','waiting_human','retrying','completed','failed','cancelled'
+              ))
+            OR (OLD.status = 'waiting_gate'
+              AND NEW.status IN ('active','waiting_human','completed','failed','cancelled'))
+            OR (OLD.status = 'waiting_human'
+              AND NEW.status IN ('active','failed','cancelled'))
+            OR (OLD.status = 'retrying'
+              AND NEW.status IN ('active','waiting_human','failed','cancelled'))
+          )
+        BEGIN
+          SELECT RAISE(ABORT, 'invalid_delivery_run_transition');
+        END;
+
+        CREATE TRIGGER trg_delivery_run_state_insert
+        BEFORE INSERT ON autonomous_delivery_run
+        WHEN (NEW.status IN ('completed','failed','cancelled') AND NEW.completed_at IS NULL)
+          OR (NEW.status NOT IN ('completed','failed','cancelled') AND NEW.completed_at IS NOT NULL)
+          OR (NEW.status = 'waiting_human' AND (
+                NEW.escalation_code IS NULL OR length(trim(NEW.escalation_code)) = 0
+              ))
+          OR (NEW.status = 'completed' AND NEW.delivery_bundle_json IS NULL)
+        BEGIN
+          SELECT RAISE(ABORT, 'invalid_delivery_run_state');
+        END;
+
+        CREATE TRIGGER trg_delivery_run_state_update
+        BEFORE UPDATE OF status, escalation_code, delivery_bundle_json, completed_at
+        ON autonomous_delivery_run
+        WHEN (NEW.status IN ('completed','failed','cancelled') AND NEW.completed_at IS NULL)
+          OR (NEW.status NOT IN ('completed','failed','cancelled') AND NEW.completed_at IS NOT NULL)
+          OR (NEW.status = 'waiting_human' AND (
+                NEW.escalation_code IS NULL OR length(trim(NEW.escalation_code)) = 0
+              ))
+          OR (NEW.status = 'completed' AND NEW.delivery_bundle_json IS NULL)
+        BEGIN
+          SELECT RAISE(ABORT, 'invalid_delivery_run_state');
+        END;
+
+        CREATE TRIGGER trg_delivery_run_terminal_immutable
+        BEFORE UPDATE ON autonomous_delivery_run
+        WHEN OLD.status IN ('completed','failed','cancelled')
+        BEGIN
+          SELECT RAISE(ABORT, 'delivery_run_terminal_immutable');
+        END;
+      `);
+
+      const violations = db.pragma('foreign_key_check') as Array<Record<string, unknown>>;
+      if (violations.length > 0) {
+        throw new Error(
+          `migration 58 foreign key check failed: ${JSON.stringify(violations.slice(0, 10))}`,
+        );
+      }
+    },
+  },
 ];
 
 export function applyMigrations(db: Database.Database): void {

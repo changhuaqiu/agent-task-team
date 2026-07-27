@@ -100,11 +100,12 @@ describe('RepositoryDeliveryFactsAdapter', () => {
       title: contract.goal,
       agent_id: 'mario',
     });
-    repo.updateRun({
+    repo.transitionRun({
       runId: run.run.id,
-      status: 'executing',
+      to: 'active',
       stage: 'executing',
       rootTaskId: task.id,
+      expectedRevision: run.run.revision,
     });
 
     const facts = await new RepositoryDeliveryFactsAdapter().observe(repo.getSnapshot(run.run.id)!);
@@ -127,11 +128,12 @@ describe('RepositoryDeliveryFactsAdapter', () => {
       agent_id: 'mario',
     });
     completeTask(task.id);
-    repo.updateRun({
+    repo.transitionRun({
       runId: run.run.id,
-      status: 'verifying',
+      to: 'active',
       stage: 'verifying',
       rootTaskId: task.id,
+      expectedRevision: run.run.revision,
     });
 
     const before = await new RepositoryDeliveryFactsAdapter().observe(repo.getSnapshot(run.run.id)!);
@@ -256,11 +258,12 @@ describe('RepositoryDeliveryFactsAdapter', () => {
       agent_id: 'mario',
     });
     completeTask(task.id);
-    repo.updateRun({
+    repo.transitionRun({
       runId: run.run.id,
-      status: 'integrating',
+      to: 'active',
       stage: 'integrating',
       rootTaskId: task.id,
+      expectedRevision: run.run.revision,
     });
     repo.recordReceipt({
       runId: run.run.id,
@@ -334,11 +337,12 @@ describe('RepositoryDeliveryFactsAdapter', () => {
       agent_id: 'mario',
     });
     completeTask(task.id);
-    repo.updateRun({
+    repo.transitionRun({
       runId: run.run.id,
-      status: 'reviewing',
+      to: 'active',
       stage: 'reviewing',
       rootTaskId: task.id,
+      expectedRevision: run.run.revision,
     });
     repo.ensureAction({
       runId: run.run.id,
@@ -396,11 +400,12 @@ describe('RepositoryDeliveryFactsAdapter', () => {
       agent_id: 'mario',
     });
     completeTask(task.id);
-    repo.updateRun({
+    repo.transitionRun({
       runId: run.run.id,
-      status: 'verifying',
+      to: 'active',
       stage: 'verifying',
       rootTaskId: task.id,
+      expectedRevision: run.run.revision,
     });
     repo.ensureAction({
       runId: run.run.id,

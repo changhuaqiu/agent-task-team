@@ -79,33 +79,26 @@ UI 使用“交付目标、验收标准、允许自动创建 PR、允许自动�
 
 `DeliveryRun` 是顶层交付实例，与 Conversation 一对多。Conversation 是协作空间，Run 是一次有起点、有终点、可恢复的交付承诺。
 
-状态：
+生命周期状态和当前阶段分开保存：
 
 ```text
-submitted
-  -> planning
-  -> executing
-  -> reviewing
-  -> verifying
-  -> integrating
-  -> delivering
-  -> completed
+status: active | waiting_gate | waiting_human | retrying | completed | failed | cancelled
+stage:  planning | executing | reviewing | verifying | integrating | delivering
 
-任意非终态 -> recovering -> 原阶段
-任意非终态 -> waiting_human -> 原阶段（收到合法 Human Command 后 resume）
-不可恢复失败 -> failed
-用户取消   -> cancelled
+active -> waiting_gate / waiting_human / retrying / completed / failed / cancelled
+waiting_gate -> active / waiting_human / completed / failed / cancelled
+waiting_human -> active / failed / cancelled（只有合法 Human Command 可以 resume）
+retrying -> active / waiting_human / failed / cancelled
 ```
 
 Run 保存单调递增的 `revision`。所有由旧快照推导的状态写回都必须以 `revision` 做 CAS，
 且终态不接受 Supervisor 的非终态写回；因此并发 reconcile、人工升级和慢速 facts
 观察不能把 `completed/failed/cancelled` 回退后继续创建或执行 Action。
 
-`escalated` 是迁移前的 legacy 终态，不再用于新写入。迁移分三步：
-
-1. 先增加 `waiting_human`、`failed`、`resume_phase` 和 Human Command 恢复路径；
-2. 新升级只写 `waiting_human`；旧 `escalated` 保持只读兼容，禁止直接恢复；
-3. 经明确分类后，把可恢复旧记录迁为 `waiting_human`，不可恢复记录迁为 `failed`。
+`reviewing` 等阶段不能再冒充 Run 生命周期；例如 reviewing 阶段可以处于 `active`、
+`waiting_gate` 或 `waiting_human`。migration 58 已将旧阶段型状态映射为
+`active + current_stage`，将 `recovering` 映射为 `retrying`，将 `escalated` 映射为
+带 reason 的 `waiting_human`。终态不可修改，`completed` 必须同时保存 DeliveryBundle。
 
 ### 3.3 DeliveryAction / DeliveryAttempt
 

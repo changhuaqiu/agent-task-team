@@ -173,7 +173,7 @@ spec §7 的四角色就是这"不同方法"的分类。
 
 | 类别 | 命名示例 | 唯一生产者 | 主要消费者 | 进 Core? |
 | --- | --- | --- | --- | --- |
-| `domain` | `task.assigned`、`delivery.run.phase_advanced`、`a2a.possession.passed` | 各领域模块（inline） | ①Router、②Reducer、③PM、④Projection | 状态校验进 Core，fan-out 不进 |
+| `domain` | `task.assigned`、`delivery.run.state_changed`、`a2a.possession.passed` | 各领域模块（inline） | ①Router、②Reducer、③PM、④Projection | 状态校验进 Core，fan-out 不进 |
 | `coordination` | `agent.work.enqueued`、`agent.work.claimed` | Agent Inbox 模块 | Scheduler、Harness、④Projection | 不进（下半部） |
 | `runtime_lifecycle` | `runtime.invocation.started`、`runtime.invocation.terminated` | Platform Runtime | ②Reducer（重建 invocation 态） | ✓ 上半部（guard） |
 | `runtime_activity` | `runtime.message.segment.completed`、`runtime.tool.started` | Platform Runtime | ④Projection（UI/观测） | 不进（下半部） |
@@ -445,7 +445,7 @@ A 调工具 requestHandoff({to:B, prompt, contextRef})
 | --- | --- | --- |
 | runtime_lifecycle / runtime_activity | ✓ canonical 信封、归一化与 daemon 接线 | 兼容双写已在切片 6 删除 |
 | domain（9 领域） | ✓ typed 目录 + 领域事务内 inline seam | task/review/delivery/a2a/envelope/binding/node/session/invocation |
-| coordination | ✓ 持久 Inbox + enqueued/claimed/recovered 已落地 | migration 49；Scheduler 经 Harness 提交 |
+| coordination | ✓ 持久 Inbox + enqueued/claimed/admitted/released/expired/cancelled 已落地 | migration 56；Scheduler 经 Harness 提交 |
 
 ### 9.3 domain 事件迁移清单（已完成）
 
@@ -454,14 +454,14 @@ A 调工具 requestHandoff({to:B, prompt, contextRef})
 
 | 领域 | 静默状态机 | 潜在 domain 事件 |
 | --- | --- | --- |
-| autonomous-delivery | run: `submitted→planning→executing→reviewing→verifying→delivering→completed/escalated`；attempt `succeeded/failed` | `delivery.run.submitted/phase_advanced/completed/escalated` |
+| autonomous-delivery | lifecycle: `active/waiting_gate/waiting_human/retrying→completed/failed/cancelled`；stage 独立为 `planning→executing→reviewing→verifying→integrating→delivering` | `delivery.run.started/state_changed/waiting_human/completed/failed/cancelled` |
 | a2a possession | `startPass`（控制权转移）、`createPass`、`completeChain` | `a2a.possession.passed/completed` |
 | a2a chain | `markDone`、`complete/abort` | `a2a.chain.entry_done/completed` |
-| execution_envelope | 10 态：`drafted→...→blocked/completed/failed/expired`，终态不可逆 | `envelope.validated/blocked/queued/routed/sent/...` |
-| task | `updateStatus`、`recordHandoffAccepted` | `task.assigned/in_progress/in_review/done`（最成熟，有 `task_action` 准事件源） |
+| execution_envelope | `drafted→validated→routed→sent→acknowledged/rejected/expired`，只表达派发接纳 | `envelope.validated/routed/sent/acknowledged/rejected/expired` |
+| task | `transition`、`recordHandoffAccepted` | `task.assigned/ready/in_progress/in_review/changes_requested/done/blocked/cancelled` |
 | agent_binding | `markStarted/markFinished/markError` | `binding.started/finished/error` |
 | runtime_node | `recordMiss`（`reachable→stale→unreachable`） | `node.stale/unreachable` |
-| invocation/dispatch | `updateStatus`、`claimNext` | `invocation.queued/claimed/succeeded` |
+| invocation/dispatch | Invocation lifecycle 与 outcome 分离；Inbox 独立 admission | `invocation.planned/starting/running/terminating/terminated` |
 | agent_session | `seal*` 系列 | `session.sealed` |
 
 **可复用的准事件源**（已是 append-only，加 fan-out 即变 domain 事件）：`task_action`

@@ -19,7 +19,7 @@
 
 - [ ] Task、Inbox、Invocation、Context、A2A、Gate、Effect、Delivery 的状态互不冒充。
 - [ ] 所有非法迁移均被 owner 拒绝。
-- [ ] `waiting_human` 可在配置/决策补齐后恢复。
+- [x] `waiting_human` 可在配置/决策补齐后通过 Human Command 恢复。
 - [ ] 同一事实/策略快照产生相同的有序 ControlAction 集和 action ids。
 - [ ] 一个 Work Cell 正在运行时，剩余容量仍可激活其他合法 Work Cell。
 - [ ] 并发 Work Cell 通过 owner version、lease 或 fencing 解决冲突。
@@ -38,6 +38,8 @@ Task 切片证据：
 - [x] Inbox claim 的释放、过期、取消和 admission 均受 lease token 与数据库迁移表保护。
 - [x] Envelope `acknowledged` 只证明派发被目标确认；运行结果只来自 Invocation。
 - [x] Envelope 终态后 Runtime 失败不会回写或改写派发事实。
+- [x] Delivery 生命周期状态和 `current_stage` 已分离，终态不可复活。
+- [x] `waiting_human` 不会被周期 reconcile 恢复，只接受显式 `manual_resume`。
 
 ## 错误与恢复
 
@@ -49,7 +51,7 @@ Task 切片证据：
 
 ## 集成
 
-- [ ] Human 可以通过 WebUI 发送 Command。
+- [x] Human 可以通过 WebUI 发送 `manual_resume` Command；WebUI 不自行推进状态。
 - [ ] WebUI 自动更新仍只消费 Projection。
 - [ ] 领域事实与 Event Outbox 原子提交。
 - [ ] 外部 I/O 经过 Durable Effect Outbox。

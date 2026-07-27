@@ -11,9 +11,45 @@ import type {
   DeliveryReceiptRow,
   DeliveryRunRow,
   DeliveryRunSnapshot,
+  DeliveryStage,
   DeliveryRunStatus,
   GoalContract,
 } from './types';
+
+const DELIVERY_RUN_TRANSITIONS: Readonly<
+  Record<DeliveryRunStatus, ReadonlySet<DeliveryRunStatus>>
+> = {
+  active: new Set(['waiting_gate', 'waiting_human', 'retrying', 'completed', 'failed', 'cancelled']),
+  waiting_gate: new Set(['active', 'waiting_human', 'completed', 'failed', 'cancelled']),
+  waiting_human: new Set(['active', 'failed', 'cancelled']),
+  retrying: new Set(['active', 'waiting_human', 'failed', 'cancelled']),
+  completed: new Set(),
+  failed: new Set(),
+  cancelled: new Set(),
+};
+
+export class InvalidDeliveryRunTransitionError extends Error {
+  readonly reasonCode = 'invalid_delivery_run_transition';
+
+  constructor(
+    readonly runId: string,
+    readonly from: DeliveryRunStatus,
+    readonly to: DeliveryRunStatus,
+  ) {
+    super(`Illegal delivery run transition for ${runId}: ${from} -> ${to}`);
+  }
+}
+
+export class InvalidDeliveryRunStateError extends Error {
+  readonly reasonCode = 'invalid_delivery_run_state';
+
+  constructor(
+    readonly runId: string,
+    readonly detail: string,
+  ) {
+    super(`Invalid delivery run state for ${runId}: ${detail}`);
+  }
+}
 
 function nowIso(now: Date | string = new Date()): string {
   return typeof now === 'string' ? now : now.toISOString();
@@ -33,15 +69,15 @@ export class AutonomousDeliveryRepository {
       `INSERT INTO autonomous_delivery_run (
         id, conversation_id, status, current_stage, goal_contract_json,
         repair_cycle, created_at, updated_at
-      ) VALUES (?, ?, 'submitted', 'planning', ?, 0, ?, ?)`,
+      ) VALUES (?, ?, 'active', 'planning', ?, 0, ?, ?)`,
       ).run(id, contract.scope.conversationId, JSON.stringify(contract), timestamp, timestamp);
       new DomainEventPublisher(db).publish({
-        type: 'delivery.run.submitted',
+        type: 'delivery.run.started',
         projectId: contract.scope.conversationId,
         aggregate: { type: 'delivery_run', id },
-        dedupeKey: `delivery:${id}:submitted`,
+        dedupeKey: `delivery:${id}:started`,
         occurredAt: timestamp,
-        payload: { status: 'submitted', stage: 'planning' },
+        payload: { status: 'active', stage: 'planning' },
       });
       return this.getSnapshot(id)!;
     }).immediate();
@@ -61,10 +97,10 @@ export class AutonomousDeliveryRepository {
     return row ? this.getSnapshot(row.id) : undefined;
   }
 
-  listActive(): DeliveryRunRow[] {
+  listReconcileCandidates(): DeliveryRunRow[] {
     return getDb().prepare(
       `SELECT * FROM autonomous_delivery_run
-       WHERE status NOT IN ('completed','escalated','cancelled')
+       WHERE status NOT IN ('waiting_human','completed','failed','cancelled')
        ORDER BY updated_at ASC, id ASC`,
     ).all() as DeliveryRunRow[];
   }
@@ -95,32 +131,33 @@ export class AutonomousDeliveryRepository {
     };
   }
 
-  updateRun(input: {
+  transitionRun(input: {
     runId: string;
-    status: DeliveryRunStatus;
-    stage: string;
+    to: DeliveryRunStatus;
+    stage: DeliveryStage;
     rootTaskId?: string;
     repairCycle?: number;
     escalationCode?: string;
     escalationDetail?: string;
     bundle?: DeliveryBundle;
-    expectedRevision?: number;
+    expectedRevision: number;
     now?: Date;
   }): DeliveryRunRow | undefined {
     const timestamp = nowIso(input.now);
-    const completedAt = input.status === 'completed' ? timestamp : null;
+    const completedAt = ['completed', 'failed', 'cancelled'].includes(input.to)
+      ? timestamp
+      : null;
     const db = getDb();
     return db.transaction(() => {
       const previous = this.getRun(input.runId);
       if (!previous) return undefined;
+      if (input.expectedRevision !== previous.revision) return undefined;
       if (
-        input.expectedRevision !== undefined
-        && input.expectedRevision !== previous.revision
-      ) return undefined;
-      if (
-        input.expectedRevision !== undefined
-        && ['completed', 'escalated', 'cancelled'].includes(previous.status)
-      ) return undefined;
+        previous.status !== input.to
+        && !DELIVERY_RUN_TRANSITIONS[previous.status].has(input.to)
+      ) {
+        throw new InvalidDeliveryRunTransitionError(input.runId, previous.status, input.to);
+      }
       const nextRootTaskId = input.rootTaskId ?? previous.root_task_id;
       const nextRepairCycle = input.repairCycle ?? previous.repair_cycle;
       const nextEscalationCode = input.escalationCode ?? null;
@@ -128,7 +165,7 @@ export class AutonomousDeliveryRepository {
       const nextBundleJson = input.bundle
         ? JSON.stringify(input.bundle)
         : previous.delivery_bundle_json;
-      const unchanged = previous.status === input.status
+      const unchanged = previous.status === input.to
         && previous.current_stage === input.stage
         && previous.root_task_id === nextRootTaskId
         && previous.repair_cycle === nextRepairCycle
@@ -136,33 +173,45 @@ export class AutonomousDeliveryRepository {
         && previous.escalation_detail === nextEscalationDetail
         && previous.delivery_bundle_json === nextBundleJson;
       if (unchanged) return previous;
+      if (['completed', 'failed', 'cancelled'].includes(previous.status)) {
+        throw new InvalidDeliveryRunTransitionError(input.runId, previous.status, input.to);
+      }
+      if (input.to === 'waiting_human' && !input.escalationCode?.trim()) {
+        throw new InvalidDeliveryRunStateError(
+          input.runId,
+          'waiting_human requires an escalation code',
+        );
+      }
+      if (input.to === 'completed' && !nextBundleJson) {
+        throw new InvalidDeliveryRunStateError(
+          input.runId,
+          'completed requires a delivery bundle',
+        );
+      }
       const result = db.prepare(
-      `UPDATE autonomous_delivery_run
-       SET status=?, current_stage=?,
-           root_task_id=COALESCE(?, root_task_id),
-           repair_cycle=COALESCE(?, repair_cycle),
-           revision=revision+1,
-           escalation_code=?, escalation_detail=?,
-           delivery_bundle_json=COALESCE(?, delivery_bundle_json),
-           completed_at=COALESCE(?, completed_at),
-           updated_at=?
-       WHERE id=?
-         AND (? IS NULL OR revision=?)
-         AND (? IS NULL OR status NOT IN ('completed','escalated','cancelled'))`,
-    ).run(
-      input.status,
-      input.stage,
-      input.rootTaskId ?? null,
-      input.repairCycle ?? null,
-      input.escalationCode ?? null,
-      input.escalationDetail ?? null,
-      input.bundle ? JSON.stringify(input.bundle) : null,
-      completedAt,
-      timestamp,
-      input.runId,
-      input.expectedRevision ?? null,
-      input.expectedRevision ?? null,
-      input.expectedRevision ?? null,
+        `UPDATE autonomous_delivery_run
+         SET status=?, current_stage=?,
+             root_task_id=COALESCE(?, root_task_id),
+             repair_cycle=COALESCE(?, repair_cycle),
+             revision=revision+1,
+             escalation_code=?, escalation_detail=?,
+             delivery_bundle_json=COALESCE(?, delivery_bundle_json),
+             completed_at=?,
+             updated_at=?
+         WHERE id=? AND revision=? AND status=?`,
+      ).run(
+        input.to,
+        input.stage,
+        input.rootTaskId ?? null,
+        input.repairCycle ?? null,
+        input.escalationCode ?? null,
+        input.escalationDetail ?? null,
+        input.bundle ? JSON.stringify(input.bundle) : null,
+        completedAt,
+        timestamp,
+        input.runId,
+        input.expectedRevision,
+        previous.status,
       );
       if (result.changes !== 1) return undefined;
       const current = this.getRun(input.runId)!;
@@ -172,17 +221,19 @@ export class AutonomousDeliveryRepository {
       ) {
         const type = current.status === 'completed'
           ? 'delivery.run.completed'
-          : current.status === 'escalated'
-            ? 'delivery.run.escalated'
-            : current.status === 'cancelled'
-              ? 'delivery.run.cancelled'
-              : 'delivery.run.phase_advanced';
+          : current.status === 'waiting_human'
+            ? 'delivery.run.waiting_human'
+            : current.status === 'failed'
+              ? 'delivery.run.failed'
+              : current.status === 'cancelled'
+                ? 'delivery.run.cancelled'
+                : 'delivery.run.state_changed';
         new DomainEventPublisher(db).publish({
           type,
           projectId: current.conversation_id,
           aggregate: { type: 'delivery_run', id: current.id, version: current.revision },
           occurredAt: timestamp,
-          payload: type === 'delivery.run.phase_advanced'
+          payload: type === 'delivery.run.state_changed'
             ? {
                 previousStatus: previous.status,
                 status: current.status,
@@ -193,7 +244,7 @@ export class AutonomousDeliveryRepository {
                 previousStatus: previous.status,
                 status: current.status,
                 stage: current.current_stage,
-                ...(type === 'delivery.run.escalated' && current.escalation_code
+                ...(type === 'delivery.run.waiting_human' && current.escalation_code
                   ? { code: current.escalation_code }
                   : {}),
               } as never,
@@ -250,7 +301,7 @@ export class AutonomousDeliveryRepository {
         `SELECT action.* FROM autonomous_delivery_action action
          JOIN autonomous_delivery_run run ON run.id=action.run_id
          WHERE action.run_id=?
-           AND run.status NOT IN ('completed','escalated','cancelled')
+           AND run.status NOT IN ('completed','failed','cancelled','waiting_human')
            AND action.status IN ('ready','retry_wait')
            AND action.not_before<=?
            AND action.attempt_count<action.max_attempts

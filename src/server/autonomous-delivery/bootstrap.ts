@@ -25,7 +25,7 @@ async function reconcileActiveRuns(
   supervisor: AutonomousDeliverySupervisor,
   reason: 'startup' | 'periodic',
 ): Promise<void> {
-  for (const run of autonomousDeliveryRepo.listActive()) {
+  for (const run of autonomousDeliveryRepo.listReconcileCandidates()) {
     try {
       await supervisor.advance(run.id, { kind: 'periodic_reconcile', ref: reason });
     } catch (error) {

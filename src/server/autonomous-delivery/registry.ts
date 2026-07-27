@@ -54,6 +54,6 @@ export function reconcileAutonomousDeliveryConversation(
 ): Promise<AdvanceResult> | undefined {
   if (!io) return undefined;
   const snapshot = autonomousDeliveryRepo.getLatestByConversation(conversationId);
-  if (!snapshot || ['completed', 'escalated', 'cancelled'].includes(snapshot.run.status)) return undefined;
+  if (!snapshot || ['completed', 'failed', 'cancelled'].includes(snapshot.run.status)) return undefined;
   return getSupervisor(io)?.advance(snapshot.run.id, cause);
 }

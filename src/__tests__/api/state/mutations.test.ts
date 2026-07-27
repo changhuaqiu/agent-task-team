@@ -308,11 +308,12 @@ describe('POST /api/mutations', () => {
         requireMerge: false,
       },
     });
-    repo.updateRun({
+    repo.transitionRun({
       runId: run.run.id,
-      status: 'executing',
+      to: 'active',
       stage: 'executing',
       rootTaskId: root.task.id,
+      expectedRevision: run.run.revision,
     });
 
     const req = mockReq('POST', { type: 'conversation.delete', payload: { id: 'conv-1' } });

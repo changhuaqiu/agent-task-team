@@ -6,12 +6,15 @@ import { closeDb, createTestDb, resetDb, setTestDb } from '../db';
 import { conversationRepo } from '../repositories/conversation-repo';
 import { resetSeq } from '../repositories/sortable-id';
 import { taskRepo } from '../repositories/task-repo';
-import { AutonomousDeliveryRepository } from './repository';
+import {
+  AutonomousDeliveryRepository,
+  InvalidDeliveryRunStateError,
+  InvalidDeliveryRunTransitionError,
+} from './repository';
 import { AutonomousDeliverySupervisor, type DeliveryActionPort, type DeliveryFactsPort } from './supervisor';
 import type {
   DeliveryActionKind,
   DeliveryBundle,
-  DeliveryRunStatus,
   GoalContract,
 } from './types';
 
@@ -62,6 +65,40 @@ afterEach(() => {
 });
 
 describe('AutonomousDeliveryRepository', () => {
+  it('把生命周期和阶段分开，并拒绝非法跃迁、无原因人工等待与终态复活', () => {
+    const repo = new AutonomousDeliveryRepository();
+    const created = repo.createRun(contract);
+
+    expect(() => repo.transitionRun({
+      runId: created.run.id,
+      to: 'waiting_human',
+      stage: 'planning',
+      expectedRevision: created.run.revision,
+    })).toThrow(InvalidDeliveryRunStateError);
+
+    const waiting = repo.transitionRun({
+      runId: created.run.id,
+      to: 'waiting_human',
+      stage: 'planning',
+      escalationCode: 'authorization_required',
+      expectedRevision: created.run.revision,
+    })!;
+    expect(repo.listReconcileCandidates()).toHaveLength(0);
+    const failed = repo.transitionRun({
+      runId: waiting.id,
+      to: 'failed',
+      stage: 'planning',
+      expectedRevision: waiting.revision,
+    })!;
+
+    expect(() => repo.transitionRun({
+      runId: failed.id,
+      to: 'active',
+      stage: 'planning',
+      expectedRevision: failed.revision,
+    })).toThrow(InvalidDeliveryRunTransitionError);
+  });
+
   it('原子 claim 同一逻辑动作且不会产生重复 attempt', () => {
     const repo = new AutonomousDeliveryRepository();
     const run = repo.createRun(contract);
@@ -197,6 +234,53 @@ describe('AutonomousDeliveryRepository', () => {
 });
 
 describe('AutonomousDeliverySupervisor', () => {
+  it('waiting_human 只在 manual_resume 后恢复，并重新根据事实计算下一步', async () => {
+    const repo = new AutonomousDeliveryRepository();
+    const created = repo.createRun(contract);
+    const waiting = repo.transitionRun({
+      runId: created.run.id,
+      to: 'waiting_human',
+      stage: 'planning',
+      escalationCode: 'runtime_profile_missing',
+      escalationDetail: '需要补齐运行配置',
+      expectedRevision: created.run.revision,
+    })!;
+    let observations = 0;
+    const supervisor = new AutonomousDeliverySupervisor({
+      repository: repo,
+      facts: {
+        observe: async () => {
+          observations += 1;
+          return {
+            planning: 'completed',
+            taskGraph: 'running',
+            review: 'not_started',
+            verification: 'not_started',
+            integration: 'not_required',
+            delivery: 'pending',
+          };
+        },
+      },
+      actions: {
+        execute: async () => ({ status: 'succeeded' }),
+      },
+    });
+
+    const periodic = await supervisor.advance(waiting.id, { kind: 'periodic_reconcile' });
+    expect(periodic.disposition).toBe('waiting_human');
+    expect(observations).toBe(0);
+
+    const resumed = await supervisor.advance(waiting.id, { kind: 'manual_resume' });
+    expect(resumed.disposition).toBe('waiting');
+    expect(resumed.snapshot.run).toMatchObject({
+      status: 'active',
+      current_stage: 'executing',
+      escalation_code: null,
+      escalation_detail: null,
+    });
+    expect(observations).toBe(1);
+  });
+
   it('facts 观察期间 Run 被升级后，旧决策不能回退终态或继续创建 Action', async () => {
     const repo = new AutonomousDeliveryRepository();
     const run = repo.createRun(contract);
@@ -228,12 +312,13 @@ describe('AutonomousDeliverySupervisor', () => {
 
     const advancing = supervisor.advance(run.run.id);
     await observed;
-    repo.updateRun({
+    repo.transitionRun({
       runId: run.run.id,
-      status: 'escalated',
+      to: 'waiting_human',
       stage: 'planning',
       escalationCode: 'missing_authorization',
       escalationDetail: '人工升级',
+      expectedRevision: run.run.revision,
     });
     releaseFacts({
       planning: 'not_started',
@@ -245,8 +330,8 @@ describe('AutonomousDeliverySupervisor', () => {
     });
 
     const result = await advancing;
-    expect(result.disposition).toBe('escalated');
-    expect(result.snapshot.run.status).toBe('escalated');
+    expect(result.disposition).toBe('waiting_human');
+    expect(result.snapshot.run.status).toBe('waiting_human');
     expect(result.snapshot.actions).toHaveLength(0);
     expect(executeCount).toBe(0);
   });
@@ -342,7 +427,7 @@ describe('AutonomousDeliverySupervisor', () => {
     ]);
   });
 
-  it('可重试失败进入 recovering，达到 not_before 后继续且不重复逻辑 action', async () => {
+  it('可重试失败进入 retrying，达到 not_before 后继续且不重复逻辑 action', async () => {
     let attempts = 0;
     let planning: 'pending' | 'completed' = 'pending';
     let current = new Date('2026-07-19T00:00:00.000Z');
@@ -377,12 +462,13 @@ describe('AutonomousDeliverySupervisor', () => {
     });
     const started = supervisor.start(contract);
     const first = await supervisor.advance(started.run.id);
-    expect(first.snapshot.run.status).toBe('recovering');
+    expect(first.snapshot.run.status).toBe('retrying');
 
     current = new Date('2026-07-19T00:00:02.000Z');
     const second = await supervisor.advance(started.run.id, { kind: 'periodic_reconcile' });
     expect(second.disposition).toBe('acted');
-    expect(second.snapshot.run.status).toBe('executing');
+    expect(second.snapshot.run.status).toBe('active');
+    expect(second.snapshot.run.current_stage).toBe('executing');
     expect(second.snapshot.actions).toHaveLength(1);
     expect(second.snapshot.attempts).toHaveLength(2);
   });
@@ -559,11 +645,12 @@ describe('AutonomousDeliverySupervisor', () => {
           agent_id: 'mario',
         });
         const run = firstRepository.createRun(stageContract, startedAt);
-        firstRepository.updateRun({
+        firstRepository.transitionRun({
           runId: run.run.id,
-          status: stage as DeliveryRunStatus,
+          to: 'active',
           stage,
           rootTaskId,
+          expectedRevision: run.run.revision,
           now: startedAt,
         });
         const idempotencyKey = actionKind === 'advance_tasks'
