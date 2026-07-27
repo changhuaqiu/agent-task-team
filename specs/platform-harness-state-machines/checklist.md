@@ -67,7 +67,8 @@ Task 切片证据：
   多分支 holder 使用 `currentHolderIds[]`，浏览器不从投影反向派发。
 - [ ] 领域事实与 Event Outbox 原子提交。
 - [ ] 外部 I/O 经过 Durable Effect Outbox。
-- [ ] blocking Effect 从 appliesFromRevision 持续适用，只有显式 cancelled/superseded 才退出收口检查。
+- [x] blocking Effect 从 appliesFromRevision 持续适用，只有 succeeded 或显式
+  cancelled/superseded 才退出收口检查；dead-letter 仍阻塞并升级给人。
 - [ ] correlationId、causationId、idempotencyKey 全链路保留。
 
 ## 清理

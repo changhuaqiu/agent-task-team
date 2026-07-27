@@ -57,6 +57,12 @@ export interface SupervisorControlSnapshot {
   closure: {
     satisfied: boolean;
     unrecoverableReasonCode?: string;
+    blockingEffect?: {
+      effectId: string;
+      status: 'pending' | 'dead_letter';
+      attemptsUsed: number;
+      maxAttempts: number;
+    };
   };
 }
 
@@ -251,6 +257,21 @@ export function decideControlActions(
       actions: [{ ...action, actionId: actionIdentity(decisionId, action) }],
     };
   }
+  if (snapshot.closure.blockingEffect?.status === 'dead_letter') {
+    const effect = snapshot.closure.blockingEffect;
+    const action = {
+      type: 'escalateToHuman' as const,
+      reasonCode: `blocking_effect_dead_letter:${effect.effectId}`,
+      retryBudgetKind: 'effect' as const,
+    };
+    return {
+      decisionId,
+      runId: snapshot.runId,
+      snapshotRevision: snapshot.snapshotRevision,
+      policyRevision: policy.revision,
+      actions: [{ ...action, actionId: actionIdentity(decisionId, action) }],
+    };
+  }
 
   const occupiedSlots = new Set(
     cells.filter((cell) => cell.state === 'running' && cell.slotId)
@@ -374,6 +395,18 @@ export function decideControlActions(
       type: 'terminate',
       reasonCode: 'delivery_complete',
       terminationOutcome: 'completed',
+    });
+  }
+  if (
+    snapshot.workCells.every((cell) => cell.state === 'completed')
+    && snapshot.closure.blockingEffect?.status === 'pending'
+  ) {
+    proposals.push({
+      rank: 60,
+      order: Number.MAX_SAFE_INTEGER,
+      type: 'wait',
+      reasonCode: `blocking_effect_pending:${snapshot.closure.blockingEffect.effectId}`,
+      retryBudgetKind: 'effect',
     });
   }
 

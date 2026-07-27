@@ -41,6 +41,7 @@ export {
   DurableEffectRegistrationError,
   type DurableEffect,
   type DurableEffectAfterCommit,
+  type DurableEffectCriticality,
   type DurableEffectDrainResult,
   type DurableEffectExecution,
   type DurableEffectExecutionContext,

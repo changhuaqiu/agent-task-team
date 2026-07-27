@@ -160,4 +160,27 @@ describe('decideControlActions', () => {
       terminationOutcome: 'failed',
     }]);
   });
+
+  it('waits for an applicable blocking Effect and escalates its dead letter', () => {
+    const facts = snapshot([cell('work-1', 'completed')]);
+    facts.closure.blockingEffect = {
+      effectId: 'effect-1',
+      status: 'pending',
+      attemptsUsed: 1,
+      maxAttempts: 3,
+    };
+    expect(decideControlActions(facts, POLICY).actions).toMatchObject([{
+      type: 'wait',
+      reasonCode: 'blocking_effect_pending:effect-1',
+      retryBudgetKind: 'effect',
+    }]);
+
+    facts.closure.blockingEffect.status = 'dead_letter';
+    facts.closure.blockingEffect.attemptsUsed = 3;
+    expect(decideControlActions(facts, POLICY).actions).toMatchObject([{
+      type: 'escalateToHuman',
+      reasonCode: 'blocking_effect_dead_letter:effect-1',
+      retryBudgetKind: 'effect',
+    }]);
+  });
 });

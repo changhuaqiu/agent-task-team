@@ -96,6 +96,112 @@ describe('DurableEffectOutbox', () => {
     ).get()).toEqual({ count: 0 });
   });
 
+  it('freezes blocking applicability and retry budget at Effect creation', () => {
+    db.prepare(`
+      INSERT INTO autonomous_delivery_run (
+        id,conversation_id,status,current_stage,goal_contract_json,repair_cycle,
+        revision,created_at,updated_at
+      ) VALUES ('run-1','project-1','active','executing','{}',0,3,?,?)
+    `).run(clock.toISOString(), clock.toISOString());
+    const outbox = createOutbox();
+    outbox.register({
+      type: 'test.blocking',
+      execution: 'transactional',
+      maxAttempts: 2,
+      execute() {},
+    });
+    const [effect] = outbox.enqueueBatch({
+      sourceEventId,
+      laneKey: 'delivery:run-1',
+      effects: [{
+        type: 'test.blocking',
+        targetKey: 'publish',
+        payload: {},
+        criticality: 'blocking',
+        deliveryRunId: 'run-1',
+        appliesFromRevision: 3,
+        sourceActionId: 'control-action-1',
+      }],
+    });
+
+    expect(effect).toMatchObject({
+      criticality: 'blocking',
+      deliveryRunId: 'run-1',
+      appliesFromRevision: 3,
+      sourceActionId: 'control-action-1',
+      maxAttempts: 2,
+    });
+    expect(outbox.listApplicableBlocking('run-1', 2)).toEqual([]);
+    expect(outbox.listApplicableBlocking('run-1', 3).map((item) => item.id))
+      .toEqual([effect!.id]);
+
+    const afterRestart = createOutbox('worker-after-restart');
+    afterRestart.register({
+      type: 'test.blocking',
+      execution: 'transactional',
+      maxAttempts: 9,
+      execute() {},
+    });
+    expect(afterRestart.enqueueBatch({
+      sourceEventId,
+      laneKey: 'delivery:run-1',
+      effects: [{
+        type: 'test.blocking',
+        targetKey: 'publish',
+        payload: {},
+        criticality: 'blocking',
+        deliveryRunId: 'run-1',
+        appliesFromRevision: 3,
+        sourceActionId: 'control-action-1',
+      }],
+    })[0]?.maxAttempts).toBe(2);
+  });
+
+  it('requires explicit cancellation or supersession to remove a blocking Effect', () => {
+    db.prepare(`
+      INSERT INTO autonomous_delivery_run (
+        id,conversation_id,status,current_stage,goal_contract_json,repair_cycle,
+        revision,created_at,updated_at
+      ) VALUES ('run-1','project-1','active','executing','{}',0,4,?,?)
+    `).run(clock.toISOString(), clock.toISOString());
+    const outbox = createOutbox();
+    const [cancelled, superseded] = outbox.enqueueBatch({
+      sourceEventId,
+      laneKey: 'delivery:run-1',
+      effects: ['cancel', 'supersede'].map((targetKey) => ({
+        type: 'test.effect',
+        targetKey,
+        payload: {},
+        criticality: 'blocking' as const,
+        deliveryRunId: 'run-1',
+        appliesFromRevision: 4,
+      })),
+    });
+
+    expect(outbox.cancel({
+      effectId: cancelled!.id,
+      reason: 'delivery policy changed',
+    })).toBe(true);
+    expect(outbox.supersede({
+      effectId: superseded!.id,
+      atRevision: 5,
+      reason: 'new artifact revision',
+      successorEffectId: 'effect-successor',
+    })).toBe(true);
+
+    expect(outbox.get(cancelled!.id)).toMatchObject({
+      status: 'cancelled',
+      dispositionReason: 'delivery policy changed',
+    });
+    expect(outbox.get(superseded!.id)).toMatchObject({
+      status: 'superseded',
+      supersededAtRevision: 5,
+      successorEffectId: 'effect-successor',
+      dispositionReason: 'new artifact revision',
+    });
+    expect(outbox.listApplicableBlocking('run-1', 5)).toEqual([]);
+  });
+
   it('serializes one lane while allowing another lane to run', async () => {
     const outbox = createOutbox();
     const calls: string[] = [];

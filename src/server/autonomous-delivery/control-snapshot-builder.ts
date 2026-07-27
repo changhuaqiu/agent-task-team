@@ -7,6 +7,7 @@ import type {
   WorkCellControlSnapshot,
 } from './control-decision';
 import { ControlDecisionRepository } from './control-decision-repository';
+import { DurableEffectOutbox } from '../platform-events/durable-effect-outbox';
 
 interface WorkCellFactRow {
   work_id: string;
@@ -79,8 +80,8 @@ export class RepositoryControlSnapshotBuilder {
   build(runId: string): SupervisorControlSnapshot {
     const db = this.database ?? getDb();
     const run = db.prepare(`
-      SELECT id,conversation_id FROM autonomous_delivery_run WHERE id=?
-    `).get(runId) as { id: string; conversation_id: string } | undefined;
+      SELECT id,conversation_id,revision FROM autonomous_delivery_run WHERE id=?
+    `).get(runId) as { id: string; conversation_id: string; revision: number } | undefined;
     if (!run) throw new Error(`Delivery run not found: ${runId}`);
 
     const rows = db.prepare(`
@@ -114,6 +115,10 @@ export class RepositoryControlSnapshotBuilder {
     `).all(runId) as WorkCellFactRow[];
 
     const workCells = rows.map((row) => this.cell(db, row));
+    const blockingEffects = new DurableEffectOutbox({ db })
+      .listApplicableBlocking(runId, run.revision);
+    const blockingEffect = blockingEffects.find((effect) => effect.status === 'dead_letter')
+      ?? blockingEffects[0];
     return {
       runId,
       snapshotRevision: new ControlDecisionRepository(db)
@@ -122,7 +127,18 @@ export class RepositoryControlSnapshotBuilder {
       workCells,
       closure: {
         satisfied: workCells.length > 0
-          && workCells.every((cell) => cell.state === 'completed'),
+          && workCells.every((cell) => cell.state === 'completed')
+          && blockingEffects.length === 0,
+        ...(blockingEffect ? {
+          blockingEffect: {
+            effectId: blockingEffect.id,
+            status: blockingEffect.status === 'dead_letter'
+              ? 'dead_letter' as const
+              : 'pending' as const,
+            attemptsUsed: blockingEffect.attemptCount,
+            maxAttempts: blockingEffect.maxAttempts,
+          },
+        } : {}),
       },
     };
   }

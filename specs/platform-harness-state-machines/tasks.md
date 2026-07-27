@@ -152,8 +152,9 @@
   避免首条 Command 产生的事实错误地 stale 同批兄弟动作。
 - [ ] 将 A2A/Inbox/Effect 与 dependency facts 补入 snapshot，并把持久 ControlAction
   接到生产 owner Command。
-- [ ] 将 blocking Effect 分类、适用区间和显式 cancelled/superseded 写入 Effect Command，
-  并接入 Closure CAS。
+- [x] 将 blocking Effect 分类、适用区间、创建时 retry budget 和显式
+  cancelled/superseded 写入现有 Effect Outbox，并接入 Control snapshot closure；
+  dead-letter 产生 Human escalation，pending 产生无副作用 wait。
 
 ## S6：迁移清理
 

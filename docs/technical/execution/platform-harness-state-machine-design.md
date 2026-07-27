@@ -406,6 +406,13 @@ Effect 从 `appliesFromRevision` 起持续适用，不能因为 Run revision 增
 才可进入 `cancelled / superseded` 并写入 `supersededAtRevision`。Closure 必须检查所有在
 当前 revision 仍适用的 blocking Effect，而不是只检查“创建 revision 等于当前 revision”。
 
+Migration 65 已将上述字段与 `maxAttempts` 固化到现有 `platform_effect_outbox`，没有建立
+第二套 Effect 管理器。注册表只在 Effect 创建时提供默认预算；创建后即使进程重启或注册值
+变化，该 Effect 仍使用原预算。`listApplicableBlocking(runId, revision)` 同时返回 queued、
+running 和 dead-letter；只有成功或带原因的 cancel/supersede 才退出收口集合。
+Control snapshot 将 pending blocking Effect 投影为 `wait`，将 dead-letter 投影为
+`escalateToHuman`，预算类型固定为 `effect`，不消耗 Invocation 或 Task rework 预算。
+
 ## 6. 统一集成契约：Command、Query、Event、Effect
 
 ### 6.1 Command

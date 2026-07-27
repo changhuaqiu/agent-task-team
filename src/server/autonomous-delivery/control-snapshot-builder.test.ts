@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb, resetDb, setTestDb } from '../db';
 import { invocationRepo } from '../repositories/invocation-repo';
 import { WorkContractRepository } from '../work-contract/repository';
+import { DurableEffectOutbox } from '../platform-events/durable-effect-outbox';
 import { AutonomousDeliveryRepository } from './repository';
 import { RepositoryControlSnapshotBuilder } from './control-snapshot-builder';
 
@@ -142,5 +143,45 @@ describe('RepositoryControlSnapshotBuilder', () => {
   it('does not claim closure when the run has no Work Cells', () => {
     expect(new RepositoryControlSnapshotBuilder({ db, now: () => now }).build(runId))
       .toMatchObject({ workCells: [], closure: { satisfied: false } });
+  });
+
+  it('keeps completed Work Cells open while a blocking Effect remains applicable', () => {
+    const contract = issue('work-a', 'agent-a', 'attempt-a');
+    contracts.close({
+      workId: contract.workId,
+      expectedEpoch: contract.workEpoch,
+      correlationId: contract.correlationId,
+      causationId: contract.contractId,
+      now,
+    });
+    const source = db.prepare(`
+      SELECT id FROM platform_event WHERE project_id='project-1'
+      ORDER BY recorded_at DESC,id DESC LIMIT 1
+    `).get() as { id: string };
+    const [effect] = new DurableEffectOutbox({ db, now: () => now }).enqueueBatch({
+      sourceEventId: source.id,
+      laneKey: `delivery:${runId}`,
+      effects: [{
+        type: 'delivery.publish',
+        targetKey: runId,
+        payload: {},
+        criticality: 'blocking',
+        deliveryRunId: runId,
+        appliesFromRevision: 0,
+      }],
+    });
+
+    const snapshot = new RepositoryControlSnapshotBuilder({ db, now: () => now }).build(runId);
+
+    expect(snapshot.workCells[0]?.state).toBe('completed');
+    expect(snapshot.closure).toMatchObject({
+      satisfied: false,
+      blockingEffect: {
+        effectId: effect!.id,
+        status: 'pending',
+        attemptsUsed: 0,
+        maxAttempts: 5,
+      },
+    });
   });
 });

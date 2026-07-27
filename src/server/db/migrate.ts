@@ -2949,6 +2949,99 @@ END;
         WHERE slot_id IS NOT NULL AND type='activate' AND status IN ('claimed','applied');
     `,
   },
+  {
+    version: 65,
+    foreignKeysOff: true,
+    run: (db) => {
+      const exists = db.prepare(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='platform_effect_outbox'",
+      ).get();
+      if (!exists) return;
+      db.exec(`
+        ALTER TABLE platform_effect_attempt RENAME TO platform_effect_attempt_v64;
+        ALTER TABLE platform_effect_outbox RENAME TO platform_effect_outbox_v64;
+        CREATE TABLE platform_effect_outbox (
+          id TEXT PRIMARY KEY,
+          source_event_id TEXT NOT NULL REFERENCES platform_event(id) ON DELETE CASCADE,
+          effect_type TEXT NOT NULL,
+          target_key TEXT NOT NULL,
+          lane_key TEXT NOT NULL,
+          lane_sequence INTEGER NOT NULL CHECK(lane_sequence>0),
+          idempotency_key TEXT NOT NULL UNIQUE,
+          payload TEXT NOT NULL,
+          status TEXT NOT NULL CHECK(status IN (
+            'queued','running','succeeded','dead_letter','cancelled','superseded'
+          )),
+          attempt_count INTEGER NOT NULL DEFAULT 0 CHECK(attempt_count>=0),
+          max_attempts INTEGER NOT NULL DEFAULT 5 CHECK(max_attempts>0),
+          criticality TEXT NOT NULL DEFAULT 'non_blocking'
+            CHECK(criticality IN ('blocking','non_blocking')),
+          delivery_run_id TEXT REFERENCES autonomous_delivery_run(id) ON DELETE CASCADE,
+          applies_from_revision INTEGER NOT NULL DEFAULT 0 CHECK(applies_from_revision>=0),
+          source_action_id TEXT,
+          superseded_at_revision INTEGER,
+          successor_effect_id TEXT,
+          disposition_reason TEXT,
+          next_attempt_at TEXT NOT NULL,
+          lease_owner TEXT,
+          lease_expires_at TEXT,
+          current_attempt_id TEXT,
+          last_error TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          completed_at TEXT,
+          UNIQUE(lane_key,lane_sequence),
+          CHECK(
+            (status='superseded' AND superseded_at_revision IS NOT NULL
+              AND disposition_reason IS NOT NULL)
+            OR (status<>'superseded' AND superseded_at_revision IS NULL)
+          ),
+          CHECK(
+            status NOT IN ('cancelled','superseded') OR disposition_reason IS NOT NULL
+          )
+        );
+        INSERT INTO platform_effect_outbox (
+          id,source_event_id,effect_type,target_key,lane_key,lane_sequence,
+          idempotency_key,payload,status,attempt_count,max_attempts,criticality,
+          delivery_run_id,applies_from_revision,source_action_id,
+          superseded_at_revision,successor_effect_id,disposition_reason,
+          next_attempt_at,lease_owner,lease_expires_at,current_attempt_id,last_error,
+          created_at,updated_at,completed_at
+        )
+        SELECT
+          id,source_event_id,effect_type,target_key,lane_key,lane_sequence,
+          idempotency_key,payload,status,attempt_count,5,'non_blocking',
+          NULL,0,NULL,NULL,NULL,NULL,next_attempt_at,lease_owner,lease_expires_at,
+          current_attempt_id,last_error,created_at,updated_at,completed_at
+        FROM platform_effect_outbox_v64;
+
+        CREATE TABLE platform_effect_attempt (
+          id TEXT PRIMARY KEY,
+          effect_id TEXT NOT NULL REFERENCES platform_effect_outbox(id) ON DELETE CASCADE,
+          attempt_no INTEGER NOT NULL CHECK(attempt_no>0),
+          worker_id TEXT NOT NULL,
+          status TEXT NOT NULL CHECK(status IN ('running','succeeded','failed','abandoned')),
+          started_at TEXT NOT NULL,
+          finished_at TEXT,
+          error TEXT,
+          UNIQUE(effect_id,attempt_no)
+        );
+        INSERT INTO platform_effect_attempt
+          SELECT * FROM platform_effect_attempt_v64;
+        DROP TABLE platform_effect_attempt_v64;
+        DROP TABLE platform_effect_outbox_v64;
+
+        CREATE INDEX idx_platform_effect_claim
+          ON platform_effect_outbox(status,next_attempt_at,effect_type,lane_key,lane_sequence);
+        CREATE INDEX idx_platform_effect_source
+          ON platform_effect_outbox(source_event_id,lane_key,lane_sequence);
+        CREATE INDEX idx_platform_effect_delivery_closure
+          ON platform_effect_outbox(delivery_run_id,criticality,status,applies_from_revision);
+        CREATE INDEX idx_platform_effect_attempt_effect
+          ON platform_effect_attempt(effect_id,attempt_no);
+      `);
+    },
+  },
 ];
 
 export function applyMigrations(db: Database.Database): void {
