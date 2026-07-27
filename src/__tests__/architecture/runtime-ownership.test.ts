@@ -43,6 +43,15 @@ describe('runtime ownership architecture', () => {
     expect(daemon).toContain(`socket.on('terminal:kill'`);
   });
 
+  it('keeps the WorkContract root correlation above transport envelopes', () => {
+    expect(daemon).toContain(
+      'correlationId: workContract?.correlationId ?? invocationTraceId ?? invocation.id',
+    );
+    expect(daemon).not.toContain(
+      'correlationId: controlEnvelopeId ?? invocationTraceId ?? invocation.id',
+    );
+  });
+
   it('keeps WebUI notices read-only and removes the legacy Supervisor vocabulary', () => {
     expect(taskHubStore).not.toContain('SupervisorOutput');
     expect(taskHubStore).not.toContain('supervisor.output');

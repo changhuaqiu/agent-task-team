@@ -73,6 +73,8 @@ export interface NewInvocation {
   work_id?: string;
   work_epoch?: number;
   fencing_token?: string;
+  correlation_id?: string;
+  causation_id?: string;
 }
 
 export type InvocationPatch = Partial<
@@ -191,12 +193,25 @@ export const invocationRepo = {
         now,
         now,
       );
+      const contractTrace = input.work_contract_id
+        ? db.prepare(`
+            SELECT correlation_id,causation_id FROM work_contract WHERE id=?
+          `).get(input.work_contract_id) as {
+            correlation_id: string;
+            causation_id: string;
+          } | undefined
+        : undefined;
       new DomainEventPublisher(db).publish({
         type: 'invocation.planned',
         projectId: input.conversation_id,
         aggregate: { type: 'invocation', id: input.id, version: 0 },
         streamKey: `domain-invocation:${input.id}`,
         projectAgentId: input.agent_id,
+        correlationId: input.correlation_id?.trim()
+          || contractTrace?.correlation_id
+          || input.id,
+        causationId: input.causation_id?.trim()
+          || contractTrace?.causation_id,
         dedupeKey: `invocation:${input.id}:planned`,
         occurredAt: now,
         payload: { status: 'planned', taskId: input.task_id },
@@ -292,12 +307,23 @@ export const invocationRepo = {
       }
       const current = invocationRepo.getById(id)!;
       const type = invocationStatusEvent(current.status);
+      const previousEvent = db.prepare(`
+        SELECT id,correlation_id FROM platform_event
+        WHERE stream_key=?
+        ORDER BY stream_sequence DESC
+        LIMIT 1
+      `).get(`domain-invocation:${id}`) as {
+        id: string;
+        correlation_id: string;
+      } | undefined;
       new DomainEventPublisher(db).publish({
         type,
         projectId: current.conversation_id,
         aggregate: { type: 'invocation', id, version: current.revision },
         streamKey: `domain-invocation:${id}`,
         projectAgentId: current.agent_id,
+        correlationId: previousEvent?.correlation_id ?? id,
+        causationId: previousEvent?.id,
         occurredAt: now,
         payload: current.status === 'terminated'
           ? {

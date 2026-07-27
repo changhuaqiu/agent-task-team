@@ -7,6 +7,7 @@ import { WorkContractRepository } from '../work-contract/repository';
 import { DurableEffectOutbox } from '../platform-events/durable-effect-outbox';
 import { qualityGateRepo } from '../quality-gate/repository';
 import { A2ACollaborationRepository } from '../a2a/collaboration';
+import { AgentInbox } from '../platform-events/agent-inbox';
 import { AutonomousDeliveryRepository } from './repository';
 import { decideControlActions } from './control-decision';
 import { RepositoryControlSnapshotBuilder } from './control-snapshot-builder';
@@ -142,6 +143,53 @@ describe('RepositoryControlSnapshotBuilder', () => {
           attemptsUsed: 1,
           maxAttempts: 4,
         },
+      },
+    });
+  });
+
+  it('does not let a terminal admitted Inbox item mask a failed Invocation retry', () => {
+    const contract = issue('work-a', 'agent-a', 'attempt-a');
+    invocationRepo.create({
+      id: contract.attemptId,
+      conversation_id: 'project-1',
+      agent_id: 'agent-a',
+      work_contract_id: contract.contractId,
+      work_id: contract.workId,
+      work_epoch: contract.workEpoch,
+      fencing_token: contract.fencingToken,
+    }, now);
+    invocationRepo.transition(contract.attemptId, {
+      to: 'terminated',
+      outcome: 'failed',
+      reason_code: 'runtime_process_failed',
+    }, now);
+    const inbox = new AgentInbox({ db, now: () => now });
+    inbox.enqueue({
+      projectId: 'project-1',
+      projectAgentId: 'agent-a',
+      idempotencyKey: 'activation-a',
+      command: {
+        source: 'system',
+        prompt: 'Run work-a',
+        workId: contract.workId,
+        deliveryRunId: runId,
+      },
+    });
+    const claimed = inbox.claimNext()!;
+    expect(inbox.admit(claimed.id, claimed.leaseToken!)).toBe(true);
+
+    const snapshot = new RepositoryControlSnapshotBuilder({
+      db,
+      retryLimits: { invocation: 4 },
+      now: () => now,
+    }).build(runId);
+
+    expect(snapshot.workCells[0]).toMatchObject({
+      workId: contract.workId,
+      state: 'retry_pending',
+      failure: {
+        reasonCode: 'runtime_process_failed',
+        budget: { kind: 'invocation', attemptsUsed: 1, maxAttempts: 4 },
       },
     });
   });

@@ -398,7 +398,7 @@ export class RepositoryControlSnapshotBuilder {
       SELECT inbox.project_agent_id,inbox.command_json,action.slot_id
       FROM agent_inbox_item inbox
       LEFT JOIN delivery_control_action action ON action.id=inbox.idempotency_key
-      WHERE inbox.project_id=? AND inbox.status IN ('enqueued','claimed','admitted')
+      WHERE inbox.project_id=? AND inbox.status IN ('enqueued','claimed')
     `).all(run.conversation_id) as Array<{
       project_agent_id: string;
       command_json: string;

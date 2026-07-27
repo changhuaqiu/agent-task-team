@@ -200,6 +200,8 @@ describe('domain event inline seam', () => {
       conversation_id: 'project-1',
       agent_id: 'implementer',
       prompt: 'Work',
+      correlation_id: 'delivery-root-1',
+      causation_id: 'dispatch-envelope-1',
     });
     invocationRepo.transition('invocation-1', { to: 'starting' });
     invocationRepo.transition('invocation-1', { to: 'running' });
@@ -218,11 +220,20 @@ describe('domain event inline seam', () => {
     sessionRepo.seal('session-1', 'completed');
     sessionRepo.seal('session-1', 'late_duplicate');
 
-    expect(log.listStream('domain-invocation:invocation-1').map((event) => event.type)).toEqual([
+    const invocationEvents = log.listStream('domain-invocation:invocation-1');
+    expect(invocationEvents.map((event) => event.type)).toEqual([
       'invocation.planned',
       'invocation.starting',
       'invocation.running',
       'invocation.terminated',
+    ]);
+    expect(invocationEvents.map((event) => event.correlationId))
+      .toEqual(Array(4).fill('delivery-root-1'));
+    expect(invocationEvents.map((event) => event.causationId)).toEqual([
+      'dispatch-envelope-1',
+      invocationEvents[0].eventId,
+      invocationEvents[1].eventId,
+      invocationEvents[2].eventId,
     ]);
     expect(invocationRepo.getById('invocation-1')).toMatchObject({
       status: 'terminated',

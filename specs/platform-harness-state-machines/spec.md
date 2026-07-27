@@ -263,6 +263,8 @@ Agent source 本身也在 roster 内且 `communicationPolicy.canSend(source,targ
 
 - `AgentInbox.enqueued/claimed/released` 不改变 Pass；
 - `AgentInbox.admitted` 推进 `Pass.offered -> accepted -> starting`；
+- `AgentInbox.admitted` 是 admission receipt 终态，不得在控制快照中覆盖后续
+  Invocation 的失败或重试事实；
 - `runtime.invocation.started` 才推进 `Pass.started` 并创建 receiver Possession；
 - Inbox `expired/cancelled` 或 started 前 Runtime 终止，以 phase-specific reason 失败 Pass；
 - receiver 的成功型非 `continue_work` 结构化 Outcome 才完成其 Possession；

@@ -314,7 +314,9 @@ enqueued -> claimed -> admitted
 ```
 
 `admitted` 表示 Harness 已接纳这次激活命令，既不表示 Invocation 已结束，也不表示 Task
-完成。`released` 表示当前 claim 已释放，保留原 Inbox identity，并在 `availableAt` 到达后
+完成。它是 Inbox 的终态 receipt，不能继续作为 active overlay 覆盖后续 Invocation 的
+`terminated / failed`；控制快照只把 `enqueued / claimed` 当作尚未完成的激活。
+`released` 表示当前 claim 已释放，保留原 Inbox identity，并在 `availableAt` 到达后
 允许使用新 lease token 重领；旧 token 被 fencing 拒绝。无法接纳且不应由 Inbox 自动重试的
 命令进入 `expired`，原因保存在 `lastError`，由上层恢复策略决定是否创建新的激活命令。
 
@@ -754,6 +756,9 @@ preflight 事实投影 `escalateToHuman`，并忽略显式 `manual_resume` 之�
 - Scheduler 原样传入 Invocation Pipeline，后者以 correlation 作为 traceId；
 - WorkContract 与 AgentOutcome 冻结 correlation/causation；Invocation 通过不可变
   `work_contract_id` 关联该信封，Runtime Events 同时带 invocationId 与 correlation；
+- Invocation owner 的 `planned -> starting -> running -> terminated` 事件从首个 planned
+  事件继承根 correlation，并以前一 Invocation 事件作为 causation；ExecutionEnvelope
+  只能作为派发因果节点，不能覆盖根 trace；
 - ControlDecision/ControlAction、Task、Gate 与 A2A Chain/Pass 只把自身 ID 用作 aggregate
   或 causation；其事件和下游 Command 继续携带 Goal/Human turn 的根 correlation，不能把
   decisionId、inboxId 或 chainId 提升成新 trace；

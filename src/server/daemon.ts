@@ -616,7 +616,7 @@ export default function registerDaemon(io: IOServer) {
       let primaryCommand = 'unknown';
       let runtimeConfigDir: string | undefined;
       let controlEnvelopeId: string | undefined;
-      let invocationTraceId = requestedTraceId;
+      let invocationTraceId = workContract?.correlationId ?? requestedTraceId;
       let rootObservationSpanId: string | undefined;
       let evaluationObservedDigest: string | undefined;
       let runtimeContextObservationRecorded = false;
@@ -843,6 +843,7 @@ export default function registerDaemon(io: IOServer) {
       }
       const agentSession: AgentSessionRow = existingSession;
 
+      invocationTraceId ??= generateTraceId();
       const invocation: InvocationRow = invocationRepo.create({
         id: workContract?.attemptId ?? generateSortableId('inv'),
         conversation_id: sessionConvId,
@@ -856,6 +857,8 @@ export default function registerDaemon(io: IOServer) {
         work_id: workContract?.workId,
         work_epoch: workContract?.workEpoch,
         fencing_token: workContract?.fencingToken,
+        correlation_id: invocationTraceId,
+        causation_id: controlEnvelopeId ?? workContract?.causationId,
       });
       runtimeCompletionContextRepo.create({
         invocationId: invocation.id,
@@ -1303,8 +1306,8 @@ export default function registerDaemon(io: IOServer) {
             invocationId: invocation.id,
             logicalSessionId: agentSession.id,
             runtimeActorId: targetNodeId,
-            correlationId: controlEnvelopeId ?? invocationTraceId ?? invocation.id,
-            causationId: controlEnvelopeId,
+            correlationId: workContract?.correlationId ?? invocationTraceId ?? invocation.id,
+            causationId: controlEnvelopeId ?? workContract?.causationId,
           },
           engine: canonicalEngine,
           runtimeNodeId: targetNodeId,
