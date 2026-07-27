@@ -28,10 +28,9 @@ function skillsMap(): Record<string, RuntimeSkillSummary> {
   }]));
 }
 
-export function resolveConversationRuntimeProfile(
+export function resolveConversationRuntime(
   conversationId: string,
-  agentId: string,
-): ConversationRuntimeResolution | undefined {
+): TeamRuntime | undefined {
   const conversation = conversationRepo.getById(conversationId);
   if (!conversation) return undefined;
 
@@ -42,7 +41,7 @@ export function resolveConversationRuntimeProfile(
     roleCardId: agent.role_card_id,
     emoji: agent.emoji,
   }));
-  const runtime = resolveTeamRuntime({
+  return resolveTeamRuntime({
     conversationId,
     teamPack,
     presetAgents,
@@ -53,6 +52,14 @@ export function resolveConversationRuntimeProfile(
     agentAccountOverrides: {},
     agentRoleCardOverrides: {},
   });
+}
+
+export function resolveConversationRuntimeProfile(
+  conversationId: string,
+  agentId: string,
+): ConversationRuntimeResolution | undefined {
+  const runtime = resolveConversationRuntime(conversationId);
+  if (!runtime) return undefined;
   const accounts = listAccounts().map((account) => ({
     id: account.id,
     provider: account.provider,

@@ -27,6 +27,8 @@
 - [x] 同一 work 的并发激活使用 WorkAuthority epoch CAS，迟到写入由 fencing 拒绝。
 - [ ] wait-for deadlock 与 A2A 循环传球有检测和升级路径。
 - [x] A2A 祖先循环与 hop budget 超限由聚合拒绝。
+- [x] A2A Command Guard 统一校验 conversation roster 与 Agent communication policy；
+  全局 Agent 存在不再等同于当前项目可交接。
 - [x] 迟到 Outcome 因 epoch/token 失效而持久化 rejected 诊断，不修改领域事实。
 
 Task 切片证据：

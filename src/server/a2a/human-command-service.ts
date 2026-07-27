@@ -5,6 +5,7 @@ import {
   type AbortedA2ACollaboration,
   type OfferedPassGroup,
 } from './collaboration';
+import { A2ACommandGuard } from './command-guard';
 
 export interface HumanHandoffCommand {
   conversationId: string;
@@ -21,16 +22,19 @@ export type HumanHandoffResult =
 export interface HumanA2ACommandServiceOptions {
   db?: Database.Database;
   collaboration?: A2ACollaborationRepository;
+  commandGuard?: Pick<A2ACommandGuard, 'assert'>;
 }
 
 export class HumanA2ACommandService {
   private readonly database?: Database.Database;
   private readonly collaboration: A2ACollaborationRepository;
+  private readonly commandGuard: Pick<A2ACommandGuard, 'assert'>;
 
   constructor(options: HumanA2ACommandServiceOptions = {}) {
     this.database = options.db;
     this.collaboration = options.collaboration
       ?? new A2ACollaborationRepository({ db: options.db });
+    this.commandGuard = options.commandGuard ?? new A2ACommandGuard();
   }
 
   submit(command: HumanHandoffCommand): HumanHandoffResult {
@@ -41,6 +45,14 @@ export class HumanA2ACommandService {
     if (!conversationId) throw new Error('a2a_human_conversation_required');
     if (!messageId) throw new Error('a2a_human_message_required');
     if (targets.length > 0 && !prompt) throw new Error('a2a_human_prompt_required');
+    if (targets.length > 0) {
+      this.commandGuard.assert({
+        conversationId,
+        fromHolderId: 'human',
+        fromHolderType: 'user',
+        branches: targets.map((toAgentId) => ({ toAgentId })),
+      });
+    }
     const db = this.database ?? getDb();
     const execute = db.transaction((): HumanHandoffResult => {
       const existing = this.collaboration.findChainByRoot(

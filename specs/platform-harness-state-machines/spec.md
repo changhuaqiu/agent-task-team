@@ -156,6 +156,9 @@ Agent 发起协作必须提交结构化 `handoff_to_agent` Outcome。durable A2A
 Manager 只把已接纳 Outcome 翻译为 A2A owner Command；Pass、HandoffPacket 与每个下游
 AgentInbox item 必须在同一 SQLite 事务创建。Outcome 重放通过 pass group 语义幂等键返回
 同一结果，内容漂移必须拒绝。
+所有 Command 在进入聚合前必须通过 Team Runtime guard：目标属于当前 conversation roster；
+Agent source 本身也在 roster 内且 `communicationPolicy.canSend(source,target)` 为真。
+显式 Human Command 可以绕过 agent-to-agent communication matrix，但不能绕过项目 roster。
 
 生命周期映射冻结为：
 

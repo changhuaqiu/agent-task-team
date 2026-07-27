@@ -936,6 +936,31 @@ describe('POST /api/mutations', () => {
     });
   });
 
+  it('a2a.human_handoff rejects a target outside the conversation roster', async () => {
+    await seedAgent();
+    await seedConversation();
+    const req = mockReq('POST', {
+      type: 'a2a.human_handoff',
+      payload: {
+        conversationId: 'conv-1',
+        messageId: 'message-human-unknown',
+        prompt: 'Do work',
+        targetAgentIds: ['not-in-project'],
+      },
+    });
+    const res = mockRes();
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(404);
+    expect(res._json).toMatchObject({
+      ok: false,
+      reasonCode: 'a2a_target_not_in_roster',
+    });
+    const { AgentInbox } = await import('@/server/platform-events/agent-inbox');
+    expect(new AgentInbox().listPending('conv-1')).toHaveLength(0);
+  });
+
   it('dispatch.enqueue rejects a missing conversation scope', async () => {
     const { AgentInbox } = await import('@/server/platform-events/agent-inbox');
     const req = mockReq('POST', {

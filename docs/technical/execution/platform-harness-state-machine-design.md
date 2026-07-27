@@ -164,6 +164,8 @@ Chain 在仍有任一 open/recovery possession 时保持 active。
 Agent 主动协作不再从最终回复文本中猜测。Agent 必须提交结构化
 `handoff_to_agent` Outcome，A2A 流程协调器读取已接纳 Outcome 和不可变 WorkContract，
 再调用 A2A owner 创建 pass group。它不直接写 A2A 表，也不直接启动 Runtime。
+调用 owner 前，统一 A2A Command Guard 从 Team Runtime 校验当前 conversation roster
+与 communication policy；“存在于全局 Agent 表”不再代表该 Agent 可接收本项目交接。
 
 ```text
 AgentOutcome(handoff_to_agent)

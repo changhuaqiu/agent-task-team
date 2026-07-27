@@ -28,7 +28,11 @@ describe('HumanA2ACommandService', () => {
       now: () => NOW,
       idFactory: (prefix) => `${prefix}-${++sequence}`,
     });
-    service = new HumanA2ACommandService({ db, collaboration });
+    service = new HumanA2ACommandService({
+      db,
+      collaboration,
+      commandGuard: { assert: () => undefined },
+    });
   });
 
   afterEach(() => resetDb());

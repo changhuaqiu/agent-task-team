@@ -93,12 +93,12 @@
 
 ## S4：A2A
 
-- [ ] 选择唯一 handoff / possession 数据模型。
-- [ ] 迁移 chain/worklist 与 possession/pass 的重复生命周期。
-- [ ] 所有 A2A 下游激活先经过持久 Inbox。
-- [ ] 建立 wait-for graph 与 handoff hop budget，检测死锁和循环传球。
-- [ ] 以 A2ACollaboration 聚合统一 Chain/Possession/Pass，并将旧 worklist 降为只读投影。
-- [ ] 为 fan-out group 实现成功分支 + 原 holder recovery possession 的原子提交。
+- [x] 选择唯一 handoff / possession 数据模型。
+- [x] 删除 chain/worklist 与 possession/pass 的重复生命周期。
+- [x] 所有 A2A 下游激活先经过持久 Inbox。
+- [x] 建立 handoff hop budget 与祖先环检测；跨 Work Cell wait-for graph 留在 S5。
+- [x] 以 A2ACollaboration 聚合统一 Chain/Possession/Pass，不保留旧 worklist 投影。
+- [x] 为 fan-out group 实现成功分支 + 原 holder recovery possession 的原子提交。
 
 已完成的基础子项：
 
@@ -122,8 +122,9 @@
 - [x] 旧 AgentMessenger/Orchestrator、文本 scanner、Worklist/Cursor 源文件与专属测试已删除；
   migration 62 删除 `invocation_chain / chain_worklist / delivery_cursor /
   a2a_audit_log / a2a_delivery`，Drizzle schema 与 conversation cleanup 同步收口。
-- [ ] 将 Agent Outcome 的目标校验从全局 Agent 表提升为 conversation roster +
-  communication policy Command guard；完成后才关闭 S4。
+- [x] Agent 与 Human handoff 共用 A2A Command Guard：目标必须属于 conversation roster，
+  Agent source 也必须在 roster 内并通过 Team Runtime communication policy；显式 Human
+  Command 只绕过 agent-to-agent policy，不绕过 roster。
 
 ## S5：Delivery Supervisor
 

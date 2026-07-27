@@ -6,6 +6,7 @@ import {
   A2ACollaborationInvariantError,
   A2ACollaborationRepository,
 } from './collaboration';
+import { A2ACommandGuard } from './command-guard';
 import type { A2AHandoffPacket, PassIntent } from './types-possession';
 
 const PASS_INTENTS = new Set<PassIntent>([
@@ -220,16 +221,19 @@ function outcomeSummary(outcome: AgentOutcomeRow): string {
 export interface A2AOutcomeProcessManagerOptions {
   db?: Database.Database;
   collaboration?: A2ACollaborationRepository;
+  commandGuard?: Pick<A2ACommandGuard, 'assert'>;
 }
 
 export class A2AOutcomeProcessManager {
   private readonly database?: Database.Database;
   private readonly collaboration: A2ACollaborationRepository;
+  private readonly commandGuard: Pick<A2ACommandGuard, 'assert'>;
 
   constructor(options: A2AOutcomeProcessManagerOptions = {}) {
     this.database = options.db;
     this.collaboration = options.collaboration
       ?? new A2ACollaborationRepository({ db: options.db });
+    this.commandGuard = options.commandGuard ?? new A2ACommandGuard();
   }
 
   readonly handle: PlatformEventHandler = (event, { signal }) => {
@@ -268,15 +272,12 @@ export class A2AOutcomeProcessManager {
       return;
     }
     const payload = parsePayload(outcome.payload_json, outcome.evidence_refs_json);
-    for (const branch of payload.branches) {
-      const target = db.prepare('SELECT 1 FROM agents WHERE id=?').get(branch.toAgentId);
-      if (!target) {
-        throw new A2ACollaborationInvariantError(
-          'a2a_target_not_in_roster',
-          branch.toAgentId,
-        );
-      }
-    }
+    this.commandGuard.assert({
+      conversationId: contract.project_id,
+      fromHolderId: contract.agent_id,
+      fromHolderType: 'agent',
+      branches: payload.branches,
+    });
 
     let source = payload.sourcePossessionId
       ? this.collaboration.getPossession(payload.sourcePossessionId)

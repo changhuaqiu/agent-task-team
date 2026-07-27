@@ -378,18 +378,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
           }
         }
         const targets = [...new Set(targetAgentIds as string[])];
-        if (targets.length > 0) {
-          const { resolveConversationRuntimeProfile } = await import('@/server/harness/conversation-runtime');
-          const roster = resolveConversationRuntimeProfile(conversationId, targets[0])?.runtime.roster;
-          for (const target of targets) {
-            if (!roster?.some((agent) => agent.id === target)) {
-              return res.status(404).json({
-                ok: false,
-                error: `a2a.human_handoff project agent not found: ${target}`,
-              });
-            }
-          }
-        }
         const { HumanA2ACommandService } = await import('@/server/a2a/human-command-service');
         result = new HumanA2ACommandService().submit({
           conversationId,
@@ -726,6 +714,27 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       && error.reasonCode === 'agent_inbox_idempotency_conflict'
     ) {
       return res.status(409).json({
+        ok: false,
+        error: error.message,
+        reasonCode: error.reasonCode,
+      });
+    }
+    if (
+      error instanceof Error
+      && 'reasonCode' in error
+      && typeof error.reasonCode === 'string'
+      && [
+        'a2a_conversation_runtime_missing',
+        'a2a_source_not_in_roster',
+        'a2a_target_not_in_roster',
+        'a2a_communication_policy_blocked',
+      ].includes(error.reasonCode)
+    ) {
+      const status = [
+        'a2a_conversation_runtime_missing',
+        'a2a_target_not_in_roster',
+      ].includes(error.reasonCode) ? 404 : 409;
+      return res.status(status).json({
         ok: false,
         error: error.message,
         reasonCode: error.reasonCode,
