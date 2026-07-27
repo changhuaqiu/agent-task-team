@@ -1,4 +1,6 @@
 import type { DeliveryControlPolicy } from './control-decision';
+import { getDb } from '../db';
+import { PlatformEventLog } from '../platform-events/event-log';
 import { ProductionControlCommandAdapter } from './control-command-adapter';
 import { DeliveryControlProcessManager } from './control-process-manager';
 import {
@@ -67,18 +69,56 @@ export class DeliveryControlRuntime implements AutonomousDeliveryRuntimePort {
 
   async advance(runId: string, cause?: AdvancementCause): Promise<AdvanceResult> {
     let snapshot = this.requiredSnapshot(runId);
-    if (snapshot.run.status === 'waiting_human') {
-      if (cause?.kind !== 'manual_resume') {
-        return { disposition: 'waiting_human', snapshot };
+    if (cause?.kind === 'manual_resume') {
+      const idempotencyKey = cause.idempotencyKey.trim();
+      const actorId = cause.actor.id.trim();
+      if (!idempotencyKey) throw new Error('manual_resume_idempotency_key_required');
+      if (!actorId) throw new Error('manual_resume_actor_required');
+      const receiptKey = `${runId}:manual-resume:${idempotencyKey}`;
+      const receipt = {
+        kind: 'human.manual_resume',
+        status: 'accepted',
+        externalId: actorId,
+        payload: { actor: { type: 'user', id: actorId } },
+        idempotencyKey: receiptKey,
+      };
+      if (this.repository.getReceiptByIdempotencyKey(receiptKey)) {
+        this.repository.recordReceipt({ runId, receipt });
+        return this.replayedManualResumeResult(this.requiredSnapshot(runId));
       }
-      const resumed = this.repository.transitionRun({
-        runId,
-        to: 'active',
-        stage: snapshot.run.current_stage,
-        expectedRevision: snapshot.run.revision,
-        now: this.now(),
-      });
+      if (snapshot.run.status !== 'waiting_human') {
+        throw new Error(`manual_resume_requires_waiting_human:${runId}`);
+      }
+      const correlationId = cause.correlationId ?? snapshot.contract.correlationId ?? runId;
+      const resumed = getDb().transaction(() => {
+        this.repository.recordReceipt({
+          runId,
+          receipt,
+          actor: cause.actor,
+          correlationId,
+          now: this.now(),
+        });
+        const receiptEvent = new PlatformEventLog().getByDedupeKey(
+          `delivery-receipt:${receiptKey}`,
+        );
+        if (!receiptEvent) throw new Error('manual_resume_receipt_event_missing');
+        return this.repository.transitionRun({
+          runId,
+          to: 'active',
+          stage: snapshot.run.current_stage,
+          expectedRevision: snapshot.run.revision,
+          actor: cause.actor,
+          correlationId,
+          causationId: receiptEvent.eventId,
+          eventIdempotencyKey: `delivery-manual-resume:${receiptKey}`,
+          now: this.now(),
+        });
+      }).immediate();
       if (!resumed) return { disposition: 'busy', snapshot: this.requiredSnapshot(runId) };
+      snapshot = this.requiredSnapshot(runId);
+    }
+    if (snapshot.run.status === 'waiting_human') {
+      return { disposition: 'waiting_human', snapshot };
     }
 
     let lastActionId: string | undefined;
@@ -133,6 +173,14 @@ export class DeliveryControlRuntime implements AutonomousDeliveryRuntimePort {
       return { disposition: 'waiting_human', snapshot, ...(actionId ? { actionId } : {}) };
     }
     return undefined;
+  }
+
+  private replayedManualResumeResult(snapshot: DeliveryRunSnapshot): AdvanceResult {
+    return this.terminalResult(snapshot)
+      ?? {
+        disposition: snapshot.run.status === 'waiting_human' ? 'waiting_human' : 'waiting',
+        snapshot,
+      };
   }
 
   private validateContract(contract: GoalContract): void {

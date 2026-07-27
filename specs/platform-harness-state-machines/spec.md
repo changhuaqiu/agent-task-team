@@ -165,7 +165,9 @@ durable Gate Outcome Process Manager 校验 Contract 的 project、agent、task/
 
 Task 必须持久化单调整数 `revision`。Task WorkContract 的
 `authoritativeRevisions.task`、Task Gate 的 `artifactRevision` 和 Task owner transition CAS
-均使用该版本，不得使用 `updated_at`。`submit_task_result / request_review` 的 durable
+均使用该版本，不得使用 `updated_at`。Git provider 的 head SHA、PR URL 和 review ID
+只作为 Gate evidence；provider adapter 不得用 SHA 建立第二套 Gate 版本轴，也不得在
+Gate decision 前后直接写 Task 状态。`submit_task_result / request_review` 的 durable
 Process Manager 只能把 Task 从 `in_progress` 推进 `in_review` 并登记 evidence；随后
 Control Process Manager 请求 `code_review` Gate，并为非实现者 Reviewer 创建独立
 Work Cell。`record_gate_decision` 经 Gate owner 后：
@@ -187,6 +189,10 @@ DeliveryRun 的生命周期状态与协作阶段必须分开：生命周期只�
 所有新写入使用可恢复的 `waiting_human`，不得再创建 `escalated`。migration 58 已将历史
 `escalated` 归一化为带明确 reason 的 `waiting_human`，将 `recovering` 归一化为
 `retrying`；只有 Human Command `manual_resume` 可以恢复人工等待。
+
+`manual_resume` 必须携带稳定 `idempotencyKey` 和 Human actor。Delivery owner 在同一事务中先记录
+`human.manual_resume` receipt，再以 receipt event 作为 Run 恢复事件的 causation；精确重放不得
+增加 Run revision 或再次计算控制动作。
 
 创建 DeliveryRun 的 `GoalContract` 必须携带稳定 `idempotencyKey`。仓储在一个立即事务内
 同时保证：相同 key + 相同规范化 Goal 返回原 Run；相同 key + 不同内容报语义冲突；同一
@@ -273,6 +279,10 @@ Agent source 本身也在 roster 内且 `communicationPolicy.canSend(source,targ
   `completed`，也不得满足成功 join；
 - WorkContract Invocation 的最终自然语言不得触发 A2A。
 
+Delivery-level Gate 的 `changes_requested / rejected` 不能通过重跑 Reviewer 来复活同一个
+terminal Gate。当前没有新的 Delivery artifact revision 时必须升级给 Human/Lead 重新规划；
+新产物产生新 revision 后再创建新 Gate。
+
 `handoff_to_agent.payload` 必须提供 `idempotencyKey` 与非空 `branches[]`。每个 branch
 必须明确 `toAgentId / intent / title / requestedAction`；packet 的决策、证据、约束、
 开放问题和禁止行为为结构化可选字段，不得用整段最终回复代替。
@@ -297,6 +307,10 @@ Manager 订阅这些事实，使 Effect 写入和终态都会推进 snapshot rev
 `platform_effect_outbox` 后等待外部轮询。
 
 ## 9.1 QualityGate 聚合契约
+
+Gate evidence、Gate terminal decision 与 Delivery acceptance receipt 必须原子提交；receipt 同时
+发布 `delivery.receipt.recorded` 并继承 outcome 的根 correlation。Receipt 冲突或写入失败时，
+Gate evidence 与 decision 必须一起回滚。
 
 唯一 Gate owner 保存 `kind / target / artifactRevision / criteria / policy / status / revision`，
 证据以 immutable `GateEvidence` 追加，终态判定以一对一 `GateDecision` 保存。状态只允许
@@ -323,6 +337,10 @@ artifactRevision 的请求幂等；artifactRevision 改变必须创建新 Gate�
 `runtime.invocation.blocked / context.snapshot.rejected` 必须带 `workId /
 deliveryRunId`，使 Control slot 可以精确释放且 Process Manager 能把当前 Work 投影为
 Human 可恢复失败。显式 `manual_resume` 后，旧阻塞事实不得再次压过新的 active 状态。
+
+所有 Inbox lease 结算（renew/release/admit/expire）必须同时校验 lease token 与未过期条件，
+不能依赖异步 recovery sweep 才 fence 掉 stale worker。Task Graph mutation 的精确重放必须返回
+首次提交冻结的 revision/result，不能随当前 Graph 漂移。
 
 ## 11. 命名迁移
 

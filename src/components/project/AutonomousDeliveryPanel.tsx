@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, CheckCircle2, LoaderCircle } from 'lucide-react';
 import type { DeliveryRunSnapshot } from '@/server/autonomous-delivery/types';
 
@@ -40,6 +40,7 @@ export function AutonomousDeliveryPanel({ conversationId }: { conversationId: st
   const [snapshot, setSnapshot] = useState<DeliveryRunSnapshot>();
   const [resumePending, setResumePending] = useState(false);
   const [resumeError, setResumeError] = useState<string>();
+  const resumeCommandId = useRef<string | undefined>(undefined);
 
   useEffect(() => {
     let disposed = false;
@@ -64,10 +65,17 @@ export function AutonomousDeliveryPanel({ conversationId }: { conversationId: st
     setResumePending(true);
     setResumeError(undefined);
     try {
+      const idempotencyKey = resumeCommandId.current ?? globalThis.crypto.randomUUID();
+      resumeCommandId.current = idempotencyKey;
       const response = await fetch('/api/autonomous-delivery', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'advance', runId: run.id }),
+        body: JSON.stringify({
+          action: 'advance',
+          runId: run.id,
+          idempotencyKey,
+          actorId: 'webui-operator',
+        }),
       });
       const payload = await response.json() as {
         snapshot?: DeliveryRunSnapshot;
@@ -77,6 +85,7 @@ export function AutonomousDeliveryPanel({ conversationId }: { conversationId: st
         throw new Error(payload.error ?? '无法继续运行');
       }
       setSnapshot(payload.snapshot);
+      resumeCommandId.current = undefined;
     } catch (error) {
       setResumeError(error instanceof Error ? error.message : String(error));
     } finally {

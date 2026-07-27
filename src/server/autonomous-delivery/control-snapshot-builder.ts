@@ -328,11 +328,11 @@ export class RepositoryControlSnapshotBuilder {
         } else if (gate.status === 'changes_requested' || gate.status === 'rejected') {
           workCells.push({
             ...base,
-            state: 'retry_pending',
+            state: 'failed',
             gateStatus: 'failed',
             failure: {
               reasonCode: `${requirement.kind}_failed`,
-              retryable: true,
+              retryable: false,
               humanRecoverable: true,
               budget: retryBudget(
                 'task_rework',
@@ -724,11 +724,11 @@ export class RepositoryControlSnapshotBuilder {
       if (status === 'changes_requested' || status === 'rejected') {
         return {
           ...base,
-          state: 'retry_pending',
+          state: 'failed',
           gateStatus: 'failed',
           failure: {
             reasonCode: `${gateKind}_failed`,
-            retryable: true,
+            retryable: false,
             humanRecoverable: true,
             budget: retryBudget(
               'task_rework',

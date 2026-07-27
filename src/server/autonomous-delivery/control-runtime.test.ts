@@ -174,7 +174,12 @@ describe('DeliveryControlRuntime', () => {
       last_error: 'runtime_profile_missing',
     }]);
 
-    expect(await runtime.advance(started.run.id, { kind: 'manual_resume' }))
+    const resumeCommand = {
+      kind: 'manual_resume' as const,
+      idempotencyKey: 'human-resume-1',
+      actor: { type: 'user' as const, id: 'operator-1' },
+    };
+    expect(await runtime.advance(started.run.id, resumeCommand))
       .toMatchObject({ disposition: 'acted' });
     expect(runtime.get(started.run.id)?.run).toMatchObject({
       status: 'active',
@@ -187,5 +192,25 @@ describe('DeliveryControlRuntime', () => {
       { status: 'expired' },
       { status: 'enqueued' },
     ]);
+    const revisionAfterResume = runtime.get(started.run.id)!.run.revision;
+    const actionsAfterResume = db.prepare(
+      'SELECT COUNT(*) AS count FROM delivery_control_action',
+    ).get();
+    expect(await runtime.advance(started.run.id, resumeCommand))
+      .toMatchObject({ disposition: 'waiting' });
+    expect(runtime.get(started.run.id)!.run.revision).toBe(revisionAfterResume);
+    expect(db.prepare('SELECT COUNT(*) AS count FROM delivery_control_action').get())
+      .toEqual(actionsAfterResume);
+    expect(db.prepare(
+      `SELECT COUNT(*) AS count FROM autonomous_delivery_receipt
+       WHERE kind='human.manual_resume'`,
+    ).get()).toEqual({ count: 1 });
+    const trace = eventLog.listTrace(started.contract.correlationId!);
+    const receiptEvent = trace.find((event) => event.type === 'delivery.receipt.recorded')!;
+    expect(receiptEvent.actor).toEqual({ type: 'user', id: 'operator-1' });
+    expect(trace.find((event) =>
+      event.type === 'delivery.run.state_changed'
+      && event.causationId === receiptEvent.eventId
+    )?.actor).toEqual({ type: 'user', id: 'operator-1' });
   });
 });

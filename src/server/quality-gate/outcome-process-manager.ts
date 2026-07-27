@@ -137,64 +137,68 @@ export class GateOutcomeProcessManager {
       .get(outcome.contract_id) as WorkContractRow | undefined;
     if (!contract) throw new QualityGateInvariantError('gate_outcome_contract_missing');
     const payload = parsePayload(outcome.payload_json);
-    const gate = this.gates.get(payload.gateId);
-    if (!gate) throw new QualityGateInvariantError('gate_outcome_gate_missing');
-    assertContractTarget(gate, contract);
-    const receipt = deliveryReceipt(gate, contract, payload);
-    const evidenceKey = `agent-outcome:${outcome.id}`;
-    const current = this.gates.getSnapshot(gate.id)!;
-    const existingEvidence = current.evidence.find((item) =>
-      item.idempotency_key === evidenceKey
-    );
-    if (current.decision) {
-      if (
-        current.decision.decision !== payload.decision
-        || current.decision.evaluator_id !== contract.agent_id
-        || !existingEvidence
-      ) throw new QualityGateInvariantError('gate_outcome_terminal_conflict');
-      this.recordDeliveryReceipt(gate, outcome, receipt);
-      return;
-    }
-    const evidence = existingEvidence ?? this.gates.submitEvidence({
-      gateId: gate.id,
-      evidenceType: payload.evidenceType,
-      payload: {
-        evidence: payload.evidence,
-        evidenceRefs: JSON.parse(outcome.evidence_refs_json) as unknown,
-        outcomeId: outcome.id,
-      },
-      sourceRef: `agent-outcome:${outcome.id}`,
-      actor: { type: 'agent', id: contract.agent_id },
-      idempotencyKey: evidenceKey,
-      correlationId: event.correlationId,
-      causationId: event.eventId,
-    });
-    const evaluating = current.gate.status === 'requested'
-      ? this.gates.beginEvaluation({
-          gateId: gate.id,
-          evaluator: { type: 'agent', id: contract.agent_id },
-          expectedRevision: current.gate.revision,
-          correlationId: event.correlationId,
-          causationId: event.eventId,
-        })
-      : this.gates.getSnapshot(gate.id)!;
-    this.gates.decide({
-      gateId: gate.id,
-      decision: payload.decision,
-      evaluator: { type: 'agent', id: contract.agent_id },
-      evidenceIds: [evidence.id],
-      reason: payload.reason,
-      expectedRevision: evaluating.gate.revision,
-      correlationId: event.correlationId,
-      causationId: event.eventId,
-    });
-    this.recordDeliveryReceipt(gate, outcome, receipt);
+    db.transaction(() => {
+      const gate = this.gates.get(payload.gateId);
+      if (!gate) throw new QualityGateInvariantError('gate_outcome_gate_missing');
+      assertContractTarget(gate, contract);
+      const receipt = deliveryReceipt(gate, contract, payload);
+      const evidenceKey = `agent-outcome:${outcome.id}`;
+      const current = this.gates.getSnapshot(gate.id)!;
+      const existingEvidence = current.evidence.find((item) =>
+        item.idempotency_key === evidenceKey
+      );
+      if (current.decision) {
+        if (
+          current.decision.decision !== payload.decision
+          || current.decision.evaluator_id !== contract.agent_id
+          || !existingEvidence
+        ) throw new QualityGateInvariantError('gate_outcome_terminal_conflict');
+        this.recordDeliveryReceipt(gate, outcome, receipt, event.correlationId, event.eventId);
+        return;
+      }
+      const evidence = existingEvidence ?? this.gates.submitEvidence({
+        gateId: gate.id,
+        evidenceType: payload.evidenceType,
+        payload: {
+          evidence: payload.evidence,
+          evidenceRefs: JSON.parse(outcome.evidence_refs_json) as unknown,
+          outcomeId: outcome.id,
+        },
+        sourceRef: `agent-outcome:${outcome.id}`,
+        actor: { type: 'agent', id: contract.agent_id },
+        idempotencyKey: evidenceKey,
+        correlationId: event.correlationId,
+        causationId: event.eventId,
+      });
+      const evaluating = current.gate.status === 'requested'
+        ? this.gates.beginEvaluation({
+            gateId: gate.id,
+            evaluator: { type: 'agent', id: contract.agent_id },
+            expectedRevision: current.gate.revision,
+            correlationId: event.correlationId,
+            causationId: event.eventId,
+          })
+        : this.gates.getSnapshot(gate.id)!;
+      this.gates.decide({
+        gateId: gate.id,
+        decision: payload.decision,
+        evaluator: { type: 'agent', id: contract.agent_id },
+        evidenceIds: [evidence.id],
+        reason: payload.reason,
+        expectedRevision: evaluating.gate.revision,
+        correlationId: event.correlationId,
+        causationId: event.eventId,
+      });
+      this.recordDeliveryReceipt(gate, outcome, receipt, event.correlationId, event.eventId);
+    }).immediate();
   };
 
   private recordDeliveryReceipt(
     gate: QualityGateRow,
     outcome: AgentOutcomeRow,
     receipt: AcceptanceReviewReceipt | AcceptanceVerificationReceipt | undefined,
+    correlationId: string,
+    causationId: string,
   ): void {
     if (!receipt || gate.target_type !== 'delivery_run') return;
     autonomousDeliveryRepo.recordReceipt({
@@ -208,6 +212,8 @@ export class GateOutcomeProcessManager {
         payload: { ...receipt, gateId: gate.id },
         idempotencyKey: `${gate.target_id}:${gate.kind}:outcome:${outcome.id}`,
       },
+      correlationId,
+      causationId,
     });
   }
 }

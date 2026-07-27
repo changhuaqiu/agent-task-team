@@ -143,5 +143,109 @@ describe('GateOutcomeProcessManager', () => {
       status: 'passed',
       external_id: requested.gate.id,
     }]);
+    const receiptEvent = new PlatformEventLog({ db }).listTrace(event.correlationId)
+      .find((candidate) => candidate.type === 'delivery.receipt.recorded');
+    expect(receiptEvent).toMatchObject({
+      correlationId: event.correlationId,
+      causationId: event.eventId,
+      subject: {
+        type: 'delivery_receipt',
+      },
+    });
+  });
+
+  it('rolls back Gate evidence and decision when the Delivery receipt conflicts', async () => {
+    const requested = gates.request({
+      conversationId: 'project-1',
+      kind: 'acceptance_verification',
+      targetType: 'delivery_run',
+      targetId: runId,
+      artifactRevision: 'revision-1',
+      criteria: { acceptanceCriteria: ['Works'] },
+      actor: { type: 'system', id: 'delivery-control-process-manager' },
+      now,
+    });
+    const contract = contracts.issue({
+      workId: `delivery:${runId}:agent:qa:purpose:verify`,
+      attemptId: 'inv-verify-conflict',
+      projectId: 'project-1',
+      deliveryRunId: runId,
+      agentId: 'qa',
+      goal: 'Verify delivery',
+      acceptanceCriteria: ['Works'],
+      role: { id: 'qa' },
+      permissions: {},
+      authoritativeRefs: [`delivery_run:${runId}`, `quality_gate:${requested.gate.id}`],
+      authoritativeRevisions: { deliveryRun: 0, qualityGate: 0 },
+      contextSnapshotRef: 'context:verify',
+      allowedOutcomeTypes: ['record_gate_decision'],
+      correlationId: 'correlation-conflict',
+      causationId: requested.gate.id,
+      now,
+    });
+    const admitted = contracts.admitOutcome({
+      outcomeId: 'outcome-verify-conflict',
+      idempotencyKey: 'verify:decision:conflict',
+      contractId: contract.contractId,
+      outcomeType: 'record_gate_decision',
+      payload: {
+        gateId: requested.gate.id,
+        decision: 'passed',
+        evidenceType: 'acceptance_verification',
+        evidence: { report: 'test:report' },
+        receipt: {
+          schemaVersion: 1,
+          deliveryRunId: runId,
+          status: 'passed',
+          method: 'automated_test',
+          verifierAgentId: 'qa',
+          tool: 'vitest',
+          reportRef: 'test:report',
+          specRefs: ['spec:works'],
+          acceptanceResults: [{
+            criterion: 'Works',
+            status: 'passed',
+            evidenceRefs: ['test:report'],
+          }],
+        },
+      },
+      evidenceRefs: ['test:report'],
+      projectId: contract.projectId,
+      workId: contract.workId,
+      workEpoch: contract.workEpoch,
+      attemptId: contract.attemptId,
+      fencingToken: contract.fencingToken,
+      authoritativeRevisions: contract.authoritativeRevisions,
+      correlationId: contract.correlationId,
+      causationId: contract.contractId,
+      occurredAt: now.toISOString(),
+    }, now);
+    const event = new PlatformEventLog({ db })
+      .listStream(`work:${contract.workId}`)
+      .find((candidate) =>
+        candidate.type === 'agent.outcome.accepted'
+        && candidate.aggregate.id === admitted.outcome.id
+      )!;
+    deliveries.recordReceipt({
+      runId,
+      receipt: {
+        kind: 'verification.acceptance',
+        status: 'failed',
+        externalId: requested.gate.id,
+        payload: { conflicting: true },
+        idempotencyKey: `${runId}:acceptance_verification:outcome:${admitted.outcome.id}`,
+      },
+      now,
+    });
+
+    const manager = new GateOutcomeProcessManager({ db, gates });
+    expect(() => manager.handle(event, { signal: new AbortController().signal }))
+      .toThrow('Delivery receipt idempotency key is already bound');
+
+    expect(gates.getSnapshot(requested.gate.id)).toMatchObject({
+      gate: { status: 'requested', revision: 0 },
+      evidence: [],
+      decision: undefined,
+    });
   });
 });

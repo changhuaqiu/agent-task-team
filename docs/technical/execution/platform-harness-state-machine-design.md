@@ -368,6 +368,10 @@ migration 58 将旧阶段型状态归一化：阶段词映射为 `active + curre
 
 ### 5.6 QualityGate 的目标聚合边界
 
+Gate 的证据追加、终态判定与 Delivery acceptance receipt 必须在同一数据库事务提交。Receipt 是
+Delivery owner 的权威事实，并原子发布 `delivery.receipt.recorded`；任一写入发生语义幂等冲突时，
+整次 Gate 推进回滚，禁止出现“Gate 已通过但 Delivery 没有验收回执”的半完成状态。
+
 Review、verification 和交付证据不再各自保存一套“通过/失败”事实。唯一权威聚合为：
 
 ```text
@@ -397,9 +401,11 @@ requested / evaluating -> cancelled
 `passed` 必须引用本 Gate 的 Evidence identity。工程协作卡片、Task Action、Proof Log 和
 Delivery Receipt 都只能作为 Gate 的输入证据或投影，不能再自行宣告审查结论。
 
-该边界已由 migration 59 和 `QualityGateRepository` 落地。Task 的实现/交付证据统一由
-`TaskGateService` 接纳；Git provider review 绑定 PR head SHA；Delivery review 与 acceptance
-verification 绑定 receipt 的 code revision（缺失时绑定不可混淆的 proof revision）。
+该边界已由 migration 59 和 `QualityGateRepository` 落地。Task Gate 的 artifact revision
+只使用整数 `Task.revision`；Git head SHA、PR URL 与 provider review ID 是 Gate evidence，
+不得成为另一套版本轴。Provider adapter 不直接推进 Task；`gate.passed /
+changes_requested / rejected` 只由 Task Gate Lifecycle Process Manager 翻译为 Task owner
+Command。Delivery review 与 acceptance verification 绑定 Delivery 的冻结产物 revision。
 Delivery Process Manager 消费 `gate.*`，Delivery facts 读取 Gate status，receipt 仅用于
 最终 Bundle 投影。数据库同时保护 Evidence/Decision 不可变、状态迁移和终态不可复活。
 Gate Agent 通过 `record_gate_decision` 结构化 Outcome 返回判定。durable Gate Outcome
@@ -675,6 +681,17 @@ terminated 释放 slot 后重新决策，fairness aging 防止长期饥饿。这
 调度约束误报成死锁。
 
 ## 9. 错误如何进入事件设计
+
+`manual_resume` 是显式 Human Command，不是一个无身份的 reconcile 开关。命令必须携带稳定
+`idempotencyKey` 与 Human actor；Delivery owner 先原子记录 `human.manual_resume` receipt，
+再以 `delivery.receipt.recorded` 的 eventId 作为 `delivery.run.state_changed` 的 causation。
+相同命令重放只返回当前快照，不增加 Run revision，也不重复生成 ControlAction。
+
+Agent Inbox 的 lease token 只在 `lease_expires_at > now` 时有效。renew、release、admit 和 expire
+都在 SQL CAS 中检查 token 与有效期；因此即使回收扫描尚未运行，过期 worker 也不能提交迟到结果。
+
+Task Graph mutation 的精确重放返回首次提交时冻结的 `result_json` 和 revision，而不是重新读取当前
+Graph。后续 revision 不得改变旧命令的响应语义。
 
 错误不能只是一段 CLI 文本。Adapter 先保留原始诊断，再归一化为有语义的事实。
 

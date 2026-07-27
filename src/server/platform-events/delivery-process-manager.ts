@@ -20,7 +20,11 @@ export class DeliveryProcessManager {
   readonly handle: PlatformEventHandler = async (event, { signal }) => {
     const advancesDelivery = (
       (event.category === 'domain'
-        && (event.type.startsWith('task.') || event.type.startsWith('gate.')))
+        && (
+          event.type.startsWith('task.')
+          || event.type.startsWith('gate.')
+          || event.type === 'delivery.receipt.recorded'
+        ))
       || event.type === 'runtime.invocation.blocked'
       || event.type === 'runtime.session.resume_failed'
       || event.type === 'runtime.transport.degraded'

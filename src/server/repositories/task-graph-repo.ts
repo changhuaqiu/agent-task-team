@@ -15,6 +15,7 @@ export type TaskActionType =
   | 'task.artifact_attached'
   | 'task.review_requested'
   | 'task.pull_request_submitted'
+  | 'task.provider_review_received'
   | 'task.review_recorded'
   | 'task.pull_request_merged'
   | 'task.merge_requested'
@@ -389,6 +390,13 @@ export const taskGraphRepo = {
         ) {
           throw new TaskGraphIdempotencyConflictError(idempotencyKey);
         }
+        const frozen = JSON.parse(duplicate.result_json) as Partial<TaskGraphCommitResult>;
+        if (
+          frozen.revision === duplicate.revision
+          && Array.isArray(frozen.tasks)
+          && Array.isArray(frozen.edges)
+          && frozen.action?.id === duplicate.action_id
+        ) return frozen as TaskGraphCommitResult;
         const action = taskGraphRepo.getActionById(duplicate.action_id)!;
         const taskIds = parseTaskIds(action);
         return {
@@ -477,24 +485,26 @@ export const taskGraphRepo = {
           taskGraphRepo.revision(input.conversationId),
         );
       }
-      db.prepare(`
-        INSERT INTO task_graph_commit (
-          idempotency_key,conversation_id,request_digest,revision,action_id,created_at
-        ) VALUES (?,?,?,?,?,?)
-      `).run(
-        idempotencyKey,
-        input.conversationId,
-        digest,
-        input.expectedRevision + 1,
-        action.id,
-        timestamp,
-      );
-      return {
+      const committed = {
         revision: input.expectedRevision + 1,
         tasks,
         edges,
         action,
       };
+      db.prepare(`
+        INSERT INTO task_graph_commit (
+          idempotency_key,conversation_id,request_digest,revision,action_id,result_json,created_at
+        ) VALUES (?,?,?,?,?,?,?)
+      `).run(
+        idempotencyKey,
+        input.conversationId,
+        digest,
+        committed.revision,
+        action.id,
+        canonicalJson(committed),
+        timestamp,
+      );
+      return committed;
     }).immediate();
   },
 

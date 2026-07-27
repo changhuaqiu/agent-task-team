@@ -278,8 +278,8 @@ function mergeEvidenceInput(value: unknown): MergeEvidence | undefined {
   };
 }
 
-function collaborationService(io?: IOServer): EngineeringCollaborationService {
-  return new EngineeringCollaborationService(new GhCliGitProviderVerifier(), io);
+function collaborationService(): EngineeringCollaborationService {
+  return new EngineeringCollaborationService(new GhCliGitProviderVerifier());
 }
 
 async function executeRecordPullRequest(invocation: ToolInvocation): Promise<ToolResult> {
@@ -287,7 +287,7 @@ async function executeRecordPullRequest(invocation: ToolInvocation): Promise<Too
   const pullRequestUrl = invocation.input.pull_request_url as string;
   const evidence = implementationEvidenceInput(invocation.input.evidence);
   if (!taskId || !pullRequestUrl || !evidence) return { success: false, error: 'task_id, pull_request_url and evidence are required' };
-  const data = await collaborationService(invocation.io).recordPullRequest({ taskId, expectedConversationId: invocation.conversationId, actorAgentId: invocation.agentId, pullRequestUrl, evidence });
+  const data = await collaborationService().recordPullRequest({ taskId, expectedConversationId: invocation.conversationId, actorAgentId: invocation.agentId, pullRequestUrl, evidence });
   reconcileAuthoritativeTaskProjection(invocation, taskId);
   return { success: true, data };
 }
@@ -298,7 +298,7 @@ async function executeRecordReview(invocation: ToolInvocation): Promise<ToolResu
   const reviewUrl = invocation.input.review_url as string;
   const evidence = reviewEvidenceInput(invocation.input.evidence);
   if (!taskId || !pullRequestUrl || !reviewUrl || !evidence) return { success: false, error: 'task_id, pull_request_url, review_url and evidence are required' };
-  const data = await collaborationService(invocation.io).recordReview({ taskId, expectedConversationId: invocation.conversationId, actorAgentId: invocation.agentId, pullRequestUrl, reviewUrl, evidence });
+  const data = await collaborationService().recordReview({ taskId, expectedConversationId: invocation.conversationId, actorAgentId: invocation.agentId, pullRequestUrl, reviewUrl, evidence });
   reconcileAuthoritativeTaskProjection(invocation, taskId);
   return { success: true, data };
 }
@@ -308,7 +308,7 @@ async function executeRecordMerge(invocation: ToolInvocation): Promise<ToolResul
   const pullRequestUrl = invocation.input.pull_request_url as string;
   const evidence = mergeEvidenceInput(invocation.input.evidence);
   if (!taskId || !pullRequestUrl || !evidence) return { success: false, error: 'task_id, pull_request_url and evidence are required' };
-  const data = await collaborationService(invocation.io).recordMerge({ taskId, expectedConversationId: invocation.conversationId, actorAgentId: invocation.agentId, pullRequestUrl, evidence });
+  const data = await collaborationService().recordMerge({ taskId, expectedConversationId: invocation.conversationId, actorAgentId: invocation.agentId, pullRequestUrl, evidence });
   reconcileAuthoritativeTaskProjection(invocation, taskId);
   return { success: true, data };
 }

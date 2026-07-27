@@ -163,10 +163,17 @@ export interface DeliveryRunSnapshot {
   bundle?: DeliveryBundle;
 }
 
-export interface AdvancementCause {
-  kind: 'started' | 'fact_changed' | 'periodic_reconcile' | 'manual_resume';
-  ref?: string;
-}
+export type AdvancementCause =
+  | {
+      kind: 'started' | 'fact_changed' | 'periodic_reconcile';
+      ref?: string;
+    }
+  | {
+      kind: 'manual_resume';
+      idempotencyKey: string;
+      actor: { type: 'user'; id: string };
+      correlationId?: string;
+    };
 
 export interface AdvanceResult {
   disposition: 'acted' | 'waiting' | 'waiting_human' | 'completed' | 'failed' | 'busy';

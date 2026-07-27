@@ -64,6 +64,14 @@ export class ActiveDeliveryRunConflictError extends Error {
   }
 }
 
+export class DeliveryReceiptIdempotencyConflictError extends Error {
+  readonly reasonCode = 'delivery_receipt_idempotency_conflict';
+
+  constructor(readonly idempotencyKey: string) {
+    super(`Delivery receipt idempotency key is already bound to different content: ${idempotencyKey}`);
+  }
+}
+
 function nowIso(now: Date | string = new Date()): string {
   return typeof now === 'string' ? now : now.toISOString();
 }
@@ -185,6 +193,12 @@ export class AutonomousDeliveryRepository {
     };
   }
 
+  getReceiptByIdempotencyKey(idempotencyKey: string): DeliveryReceiptRow | undefined {
+    return getDb().prepare(
+      'SELECT * FROM autonomous_delivery_receipt WHERE idempotency_key=?',
+    ).get(idempotencyKey) as DeliveryReceiptRow | undefined;
+  }
+
   transitionRun(input: {
     runId: string;
     to: DeliveryRunStatus;
@@ -195,6 +209,10 @@ export class AutonomousDeliveryRepository {
     escalationDetail?: string;
     bundle?: DeliveryBundle;
     expectedRevision: number;
+    actor?: { type: 'user' | 'agent' | 'system'; id: string };
+    correlationId?: string;
+    causationId?: string;
+    eventIdempotencyKey?: string;
     now?: Date;
   }): DeliveryRunRow | undefined {
     const timestamp = nowIso(input.now);
@@ -286,9 +304,12 @@ export class AutonomousDeliveryRepository {
           type,
           projectId: current.conversation_id,
           aggregate: { type: 'delivery_run', id: current.id, version: current.revision },
-          correlationId: resolveGoalCorrelationId(
+          actor: input.actor,
+          correlationId: input.correlationId ?? resolveGoalCorrelationId(
             JSON.parse(current.goal_contract_json) as GoalContract,
           ),
+          causationId: input.causationId,
+          dedupeKey: input.eventIdempotencyKey,
           occurredAt: timestamp,
           payload: type === 'delivery.run.state_changed'
             ? {
@@ -314,58 +335,69 @@ export class AutonomousDeliveryRepository {
   recordReceipt(input: {
     runId: string;
     receipt: DeliveryActionReceipt;
+    actor?: { type: 'user' | 'agent' | 'system'; id: string };
+    correlationId?: string;
+    causationId?: string;
     now?: Date;
   }): DeliveryReceiptRow {
     const timestamp = nowIso(input.now);
-    getDb().transaction(() => {
-      this.appendReceipt({
-        runId: input.runId,
-        receipt: input.receipt,
-        fallbackKey: `${input.runId}:${input.receipt.kind}:${input.receipt.externalId ?? 'observation'}`,
-        now: timestamp,
-      });
-    })();
-    return getDb().prepare(
-      'SELECT * FROM autonomous_delivery_receipt WHERE idempotency_key=?',
-    ).get(
-      input.receipt.idempotencyKey
-        ?? `${input.runId}:${input.receipt.kind}:${input.receipt.externalId ?? 'observation'}`,
-    ) as DeliveryReceiptRow;
-  }
-
-  appendReceipt(input: {
-    runId: string;
-    receipt: DeliveryActionReceipt;
-    fallbackKey?: string;
-    now?: Date | string;
-  }): DeliveryReceiptRow {
-    const timestamp = nowIso(input.now);
     const idempotencyKey = input.receipt.idempotencyKey
-      ?? input.fallbackKey
-      ?? `${input.runId}:${input.receipt.kind}:${input.receipt.externalId ?? input.receipt.status}`;
-    const id = generateSortableId('delivery-receipt');
-    getDb().prepare(
-      `INSERT INTO autonomous_delivery_receipt (
-        id, run_id, kind, external_id, status,
-        payload_json, idempotency_key, observed_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(idempotency_key) DO UPDATE SET
-        external_id=excluded.external_id,
-        status=excluded.status,
-        payload_json=excluded.payload_json,
-        observed_at=excluded.observed_at`,
-    ).run(
-      id,
-      input.runId,
-      input.receipt.kind,
-      input.receipt.externalId ?? null,
-      input.receipt.status,
-      JSON.stringify(input.receipt.payload ?? {}),
-      idempotencyKey,
-      timestamp,
-    );
-    return getDb().prepare('SELECT * FROM autonomous_delivery_receipt WHERE idempotency_key=?')
-      .get(idempotencyKey) as DeliveryReceiptRow;
+      ?? `${input.runId}:${input.receipt.kind}:${input.receipt.externalId ?? 'observation'}`;
+    const payloadJson = JSON.stringify(canonicalize(input.receipt.payload ?? {}));
+    const db = getDb();
+    return db.transaction(() => {
+      const run = this.getRun(input.runId);
+      if (!run) throw new InvalidDeliveryRunStateError(input.runId, 'receipt run is missing');
+      const existing = db.prepare(
+        'SELECT * FROM autonomous_delivery_receipt WHERE idempotency_key=?',
+      ).get(idempotencyKey) as DeliveryReceiptRow | undefined;
+      if (existing) {
+        if (
+          existing.run_id !== input.runId
+          || existing.kind !== input.receipt.kind
+          || existing.external_id !== (input.receipt.externalId ?? null)
+          || existing.status !== input.receipt.status
+          || existing.payload_json !== payloadJson
+        ) throw new DeliveryReceiptIdempotencyConflictError(idempotencyKey);
+        return existing;
+      }
+      const id = generateSortableId('delivery-receipt');
+      db.prepare(
+        `INSERT INTO autonomous_delivery_receipt (
+          id, run_id, kind, external_id, status,
+          payload_json, idempotency_key, observed_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        id,
+        input.runId,
+        input.receipt.kind,
+        input.receipt.externalId ?? null,
+        input.receipt.status,
+        payloadJson,
+        idempotencyKey,
+        timestamp,
+      );
+      const contract = JSON.parse(run.goal_contract_json) as GoalContract;
+      new DomainEventPublisher(db).publish({
+        type: 'delivery.receipt.recorded',
+        projectId: run.conversation_id,
+        aggregate: { type: 'delivery_run', id: run.id, version: run.revision },
+        subject: { type: 'delivery_receipt', id },
+        actor: input.actor,
+        correlationId: input.correlationId ?? resolveGoalCorrelationId(contract),
+        causationId: input.causationId,
+        dedupeKey: `delivery-receipt:${idempotencyKey}`,
+        occurredAt: timestamp,
+        payload: {
+          receiptId: id,
+          kind: input.receipt.kind,
+          status: input.receipt.status,
+          ...(input.receipt.externalId ? { externalId: input.receipt.externalId } : {}),
+        },
+      });
+      return db.prepare('SELECT * FROM autonomous_delivery_receipt WHERE id=?')
+        .get(id) as DeliveryReceiptRow;
+    }).immediate();
   }
 }
 

@@ -178,6 +178,27 @@ describe('taskGraphRepo atomic commit', () => {
       revision: 1,
       action: { id: committed.action.id },
     });
+    taskRepo.update('task-foundation', { title: 'Changed later' });
+    expect(taskGraphRepo.commit({
+      conversationId: 'conv-1',
+      expectedRevision: 0,
+      idempotencyKey: 'graph-1',
+      actorId: 'planner',
+      actorType: 'agent',
+      tasks: [
+        { id: 'task-foundation', title: 'Foundation', agent_id: 'builder' },
+        {
+          id: 'task-ui',
+          title: 'UI',
+          agent_id: 'frontend',
+          dependencies: ['task-foundation'],
+        },
+      ],
+    }).tasks[0]).toMatchObject({
+      id: 'task-foundation',
+      title: 'Foundation',
+      revision: 0,
+    });
   });
 
   it('rolls back the whole graph on missing dependencies or cycles', () => {
@@ -230,6 +251,51 @@ describe('taskGraphRepo atomic commit', () => {
       tasks: [{ id: 'task-b', title: 'B', agent_id: 'b' }],
     })).toThrow(StaleTaskGraphRevisionError);
     expect(taskRepo.getById('task-b')).toBeUndefined();
+  });
+
+  it('replays the original mutation result after later graph revisions', () => {
+    const firstInput = {
+      conversationId: 'conv-1',
+      expectedRevision: 0,
+      idempotencyKey: 'mutation-first',
+      operation: 'record_marker',
+      request: { marker: 'first' },
+      execute: () => {
+        const action = taskGraphRepo.appendAction({
+          conversationId: 'conv-1',
+          actorId: 'planner',
+          actorType: 'agent' as const,
+          type: 'task.created' as const,
+          payload: { marker: 'first' },
+        });
+        return { actionId: action.id, result: { marker: 'first', actionId: action.id } };
+      },
+    };
+    const first = taskGraphRepo.mutate(firstInput);
+    taskGraphRepo.mutate({
+      conversationId: 'conv-1',
+      expectedRevision: 1,
+      idempotencyKey: 'mutation-second',
+      operation: 'record_marker',
+      request: { marker: 'second' },
+      execute: () => {
+        const action = taskGraphRepo.appendAction({
+          conversationId: 'conv-1',
+          actorId: 'planner',
+          actorType: 'agent',
+          type: 'task.created',
+          payload: { marker: 'second' },
+        });
+        return { actionId: action.id, result: { marker: 'second', actionId: action.id } };
+      },
+    });
+
+    expect(taskGraphRepo.mutate(firstInput)).toEqual({
+      revision: 1,
+      result: first.result,
+      replayed: true,
+    });
+    expect(taskGraphRepo.revision('conv-1')).toBe(2);
   });
 });
 

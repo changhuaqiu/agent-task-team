@@ -560,6 +560,77 @@ describe('RepositoryControlSnapshotBuilder', () => {
     ]);
   });
 
+  it('escalates a terminal Delivery Gate failure instead of retrying the same Gate', () => {
+    db.prepare(`
+      INSERT INTO agents (id,name,role_card_id,theme,emoji,created_at,updated_at)
+      VALUES ('reviewer','Reviewer','preset-code-reviewer','default','R',?,?)
+    `).run(now.toISOString(), now.toISOString());
+    taskRepo.create({
+      id: 'task-delivery-failed',
+      conversation_id: 'project-1',
+      title: 'Delivery',
+      agent_id: 'agent-a',
+    }, now);
+    taskRepo.transition('task-delivery-failed', { to: 'in_progress' }, now);
+    taskRepo.transition('task-delivery-failed', { to: 'in_review' }, now);
+    taskRepo.transition('task-delivery-failed', { to: 'done' }, now);
+    const requested = qualityGateRepo.request({
+      conversationId: 'project-1',
+      kind: 'delivery_review',
+      targetType: 'delivery_run',
+      targetId: runId,
+      artifactRevision: '3',
+      criteria: {},
+      actor: { type: 'system', id: 'test' },
+      now,
+    });
+    const evidence = qualityGateRepo.submitEvidence({
+      gateId: requested.gate.id,
+      evidenceType: 'review',
+      payload: { finding: 'material' },
+      actor: { type: 'agent', id: 'reviewer' },
+      idempotencyKey: 'delivery-review-failed',
+      now,
+    });
+    const evaluating = qualityGateRepo.beginEvaluation({
+      gateId: requested.gate.id,
+      evaluator: { type: 'agent', id: 'reviewer' },
+      expectedRevision: requested.gate.revision,
+      now,
+    });
+    qualityGateRepo.decide({
+      gateId: requested.gate.id,
+      decision: 'changes_requested',
+      evaluator: { type: 'agent', id: 'reviewer' },
+      evidenceIds: [evidence.id],
+      reason: 'Replan required',
+      expectedRevision: evaluating.gate.revision,
+      now,
+    });
+
+    const snapshot = new RepositoryControlSnapshotBuilder({ db, now: () => now }).build(runId);
+    expect(snapshot.workCells.find((cell) => cell.purpose === 'review')).toMatchObject({
+      state: 'failed',
+      gateStatus: 'failed',
+      failure: {
+        reasonCode: 'delivery_review_failed',
+        retryable: false,
+        humanRecoverable: true,
+      },
+    });
+    expect(decideControlActions(snapshot, {
+      revision: 1,
+      maxConcurrent: 2,
+      roleCapacity: { reviewer: 1 },
+      fairnessAgingMs: 1_000,
+    }).actions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'escalateToHuman',
+        reasonCode: 'delivery_review_failed',
+      }),
+    ]));
+  });
+
   it('projects a cyclic Task dependency as a wait-for deadlock', () => {
     taskRepo.create({
       id: 'task-a',

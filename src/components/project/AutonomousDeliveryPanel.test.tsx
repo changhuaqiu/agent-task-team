@@ -233,7 +233,7 @@ describe('AutonomousDeliveryPanel', () => {
         '/api/autonomous-delivery',
         expect.objectContaining({
           method: 'POST',
-          body: JSON.stringify({ action: 'advance', runId: waiting.run.id }),
+          body: expect.stringContaining('"idempotencyKey":'),
         }),
       ),
     );

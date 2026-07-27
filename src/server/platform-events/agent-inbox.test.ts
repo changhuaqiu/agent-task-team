@@ -172,6 +172,27 @@ describe('AgentInbox', () => {
     expect(inbox.releaseExpiredClaims()).toBe(1);
   });
 
+  it('fences every stale lease operation before the recovery sweep runs', () => {
+    const item = inbox.enqueue({
+      projectId: 'project-1',
+      projectAgentId: 'reviewer',
+      idempotencyKey: 'review-stale-before-sweep',
+      command: { source: 'review_gate', prompt: 'Review' },
+    });
+    const claim = inbox.claimNext(10)!;
+    now = new Date(now.getTime() + 11);
+
+    expect(inbox.renew(item.id, claim.leaseToken!, 20)).toBe(false);
+    expect(inbox.release(item.id, claim.leaseToken!, 0, 'late_worker')).toBe(false);
+    expect(inbox.admit(item.id, claim.leaseToken!)).toBe(false);
+    expect(inbox.expire(item.id, claim.leaseToken!, 'late_worker')).toBe(false);
+    expect(inbox.get(item.id)).toMatchObject({
+      status: 'claimed',
+      leaseToken: claim.leaseToken,
+    });
+    expect(inbox.releaseExpiredClaims()).toBe(1);
+  });
+
   it('expires a rejected claim without pretending that Agent execution failed', () => {
     const item = inbox.enqueue({
       projectId: 'project-1',

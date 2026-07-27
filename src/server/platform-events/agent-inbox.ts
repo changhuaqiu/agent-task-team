@@ -269,8 +269,8 @@ export class AgentInbox {
     const result = (this.database ?? getDb()).prepare(`
       UPDATE agent_inbox_item
       SET lease_expires_at=?, updated_at=?
-      WHERE id=? AND status='claimed' AND lease_token=?
-    `).run(leaseExpiresAt, nowDate.toISOString(), itemId, leaseToken);
+      WHERE id=? AND status='claimed' AND lease_token=? AND lease_expires_at>?
+    `).run(leaseExpiresAt, nowDate.toISOString(), itemId, leaseToken, nowDate.toISOString());
     return result.changes === 1;
   }
 
@@ -287,8 +287,8 @@ export class AgentInbox {
         UPDATE agent_inbox_item
         SET status='released', available_at=?, lease_token=NULL, lease_expires_at=NULL,
             last_error=?, updated_at=?
-        WHERE id=? AND status='claimed' AND lease_token=?
-      `).run(availableAt, reasonCode, now, itemId, leaseToken);
+        WHERE id=? AND status='claimed' AND lease_token=? AND lease_expires_at>?
+      `).run(availableAt, reasonCode, now, itemId, leaseToken, now);
       if (result.changes !== 1) return false;
       this.appendCoordination('agent.work.released', {
         id: item.id,
@@ -384,13 +384,19 @@ export class AgentInbox {
     return db.transaction(() => {
       const item = db.prepare('SELECT * FROM agent_inbox_item WHERE id=?')
         .get(itemId) as AgentInboxRow | undefined;
-      if (!item || item.status !== 'claimed' || item.lease_token !== leaseToken) return false;
+      if (
+        !item
+        || item.status !== 'claimed'
+        || item.lease_token !== leaseToken
+        || !item.lease_expires_at
+        || item.lease_expires_at <= now
+      ) return false;
       const result = db.prepare(`
         UPDATE agent_inbox_item
         SET status=?, lease_token=NULL, lease_expires_at=NULL, last_error=?,
             updated_at=?, settled_at=?
-        WHERE id=? AND status='claimed' AND lease_token=?
-      `).run(status, error ?? null, now, now, itemId, leaseToken);
+        WHERE id=? AND status='claimed' AND lease_token=? AND lease_expires_at>?
+      `).run(status, error ?? null, now, now, itemId, leaseToken, now);
       if (result.changes !== 1) return false;
       this.appendCoordination(`agent.work.${status}`, {
         id: item.id,

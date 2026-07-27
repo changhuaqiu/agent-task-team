@@ -58,6 +58,10 @@
 - [x] Delivery Run 生命周期已与阶段分离；reviewing 等阶段不再冒充运行状态。
 - [x] migration 58、revision CAS、数据库 transition/state guard 和终态不可变约束已落地。
 - [x] `waiting_human` 只能由 WebUI/API 发出的 `manual_resume` Human Command 恢复；
+- [x] `manual_resume` 携带稳定幂等键和 Human actor；receipt 与 Run 恢复原子提交，精确重放不重复推进；
+- [x] Inbox 所有 lease 结算在 recovery sweep 前即以有效期 CAS fence stale worker；
+- [x] Task Graph mutation 精确重放首次冻结结果，不受后续 revision 影响；
+- [x] Gate evidence/decision 与 Delivery receipt 原子提交并发布可追踪 receipt event；
   周期 reconcile 不会自行恢复。
 - [x] Delivery Run 切片通过 TypeScript、相关 lint 和全量 Vitest
   （188 files、1452 tests，1 skipped）。
@@ -84,6 +88,9 @@
   （189 files、1455 tests，1 skipped）。
 - [x] Task evidence 与 Delivery review/verification 全部改读 QualityGate decision；完成
   TypeScript、相关 lint 和全量 Vitest（190 files、1456 tests，1 skipped）。
+- [x] Git provider 协作服务只验证并记录 PR/review/merge receipt：Task Gate 统一绑定整数
+  `Task.revision`，review 只写 Gate evidence/decision，Task 状态只由 Gate Lifecycle
+  Process Manager 推进；Delivery terminal Gate 不再通过重跑 Reviewer 复活。
 
 ## S3：Invocation Pipeline
 
