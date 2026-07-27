@@ -25,8 +25,9 @@ export class InvocationFailureEventPublisher {
   }
 
   publish(trigger: AgentActivationCommand, outcome: InvocationFailure): void {
-    const attemptId = trigger.workId?.trim() || trigger.id;
+    const attemptId = trigger.id;
     const correlationId = outcome.evidence?.traceId
+      ?? trigger.correlationId?.trim()
       ?? trigger.idempotencyKey?.trim()
       ?? trigger.id;
 
@@ -37,9 +38,12 @@ export class InvocationFailureEventPublisher {
         invocationId: attemptId,
         runtimeActorId: this.runtimeActorId,
         correlationId,
+        causationId: trigger.causationId,
       }).publish('runtime.invocation.blocked', {
         phase: 'preflight',
         reasonCode: outcome.reasonCode,
+        workId: trigger.workId,
+        deliveryRunId: trigger.deliveryRunId,
         message: outcome.message,
       });
       return;
@@ -60,6 +64,8 @@ export class InvocationFailureEventPublisher {
         dedupeKey: `context:${snapshotId}:rejected`,
         payload: {
           reasonCode: outcome.reasonCode,
+          workId: trigger.workId,
+          deliveryRunId: trigger.deliveryRunId,
           missingRequired: outcome.evidence?.missingRequired ?? [],
           message: outcome.message,
         },

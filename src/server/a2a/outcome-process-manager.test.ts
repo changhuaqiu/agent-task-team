@@ -29,6 +29,7 @@ describe('A2AOutcomeProcessManager', () => {
   it('turns an accepted structured handoff outcome into one durable fan-out', async () => {
     const contracts = new WorkContractRepository();
     const deliveryRunId = new AutonomousDeliveryRepository().createRun({
+      idempotencyKey: 'a2a-outcome-delivery',
       goal: 'Ship the delegated project',
       acceptanceCriteria: ['All delegated work is complete'],
       scope: { conversationId: 'project-a2a-outcome' },

@@ -26,6 +26,7 @@ describe('GateOutcomeProcessManager', () => {
     contracts = new WorkContractRepository();
     gates = new QualityGateRepository();
     runId = deliveries.createRun({
+      idempotencyKey: 'quality-gate-outcome-delivery',
       goal: 'Ship',
       acceptanceCriteria: ['Works'],
       scope: { conversationId: 'project-1' },

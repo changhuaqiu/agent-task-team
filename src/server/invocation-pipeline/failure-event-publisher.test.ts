@@ -17,7 +17,10 @@ describe('InvocationFailureEventPublisher', () => {
     conversationId: 'project-1',
     agentId: 'implementer',
     prompt: 'continue',
-    workId: 'attempt-1',
+    correlationId: 'delivery-decision-1',
+    causationId: 'control-action-1',
+    workId: 'work-1',
+    deliveryRunId: 'delivery-1',
   };
 
   beforeEach(() => {
@@ -47,16 +50,20 @@ describe('InvocationFailureEventPublisher', () => {
       message: 'No configured account',
     });
 
-    const events = log.listByInvocation('attempt-1');
+    const events = log.listByInvocation('activation-1');
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({
       type: 'runtime.invocation.blocked',
       category: 'runtime_lifecycle',
-      invocationId: 'attempt-1',
+      invocationId: 'activation-1',
       projectAgentId: 'implementer',
+      correlationId: 'delivery-decision-1',
+      causationId: 'control-action-1',
       payload: {
         phase: 'preflight',
         reasonCode: 'runtime_profile_missing',
+        workId: 'work-1',
+        deliveryRunId: 'delivery-1',
         message: 'No configured account',
       },
     });
@@ -82,6 +89,8 @@ describe('InvocationFailureEventPublisher', () => {
       correlationId: 'trace-1',
       payload: {
         reasonCode: 'required_context_missing',
+        workId: 'work-1',
+        deliveryRunId: 'delivery-1',
         missingRequired: ['task.description', 'work_contract'],
       },
     });

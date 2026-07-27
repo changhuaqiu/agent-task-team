@@ -47,22 +47,82 @@ export class InvalidDeliveryRunStateError extends Error {
   }
 }
 
+export class DeliveryRunIdempotencyConflictError extends Error {
+  readonly reasonCode = 'delivery_run_idempotency_conflict';
+
+  constructor(readonly idempotencyKey: string) {
+    super(`Delivery start idempotency key is already bound to different content: ${idempotencyKey}`);
+  }
+}
+
+export class ActiveDeliveryRunConflictError extends Error {
+  readonly reasonCode = 'active_delivery_run_conflict';
+
+  constructor(readonly conversationId: string, readonly runId: string) {
+    super(`Conversation ${conversationId} already has active DeliveryRun ${runId}`);
+  }
+}
+
 function nowIso(now: Date | string = new Date()): string {
   return typeof now === 'string' ? now : now.toISOString();
+}
+
+function canonicalize(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, item]) => [key, canonicalize(item)]),
+    );
+  }
+  return value;
 }
 
 export class AutonomousDeliveryRepository {
   createRun(contract: GoalContract, now: Date = new Date()): DeliveryRunSnapshot {
     const timestamp = nowIso(now);
+    const idempotencyKey = contract.idempotencyKey.trim();
+    if (!idempotencyKey) throw new InvalidDeliveryRunStateError('new', 'idempotency key is required');
+    const contractJson = JSON.stringify(canonicalize(contract));
     const id = generateSortableId('delivery');
     const db = getDb();
     return db.transaction(() => {
+      const existing = db.prepare(`
+        SELECT id,goal_contract_json FROM autonomous_delivery_run
+        WHERE start_idempotency_key=?
+      `).get(idempotencyKey) as {
+        id: string;
+        goal_contract_json: string;
+      } | undefined;
+      if (existing) {
+        if (existing.goal_contract_json !== contractJson) {
+          throw new DeliveryRunIdempotencyConflictError(idempotencyKey);
+        }
+        return this.getSnapshot(existing.id)!;
+      }
+      const active = db.prepare(`
+        SELECT id FROM autonomous_delivery_run
+        WHERE conversation_id=?
+          AND status NOT IN ('completed','failed','cancelled')
+        ORDER BY created_at DESC,id DESC LIMIT 1
+      `).get(contract.scope.conversationId) as { id: string } | undefined;
+      if (active) {
+        throw new ActiveDeliveryRunConflictError(contract.scope.conversationId, active.id);
+      }
       db.prepare(
       `INSERT INTO autonomous_delivery_run (
-        id, conversation_id, status, current_stage, goal_contract_json,
+        id, conversation_id, start_idempotency_key, status, current_stage, goal_contract_json,
         repair_cycle, created_at, updated_at
-      ) VALUES (?, ?, 'active', 'planning', ?, 0, ?, ?)`,
-      ).run(id, contract.scope.conversationId, JSON.stringify(contract), timestamp, timestamp);
+      ) VALUES (?, ?, ?, 'active', 'planning', ?, 0, ?, ?)`,
+      ).run(
+        id,
+        contract.scope.conversationId,
+        idempotencyKey,
+        contractJson,
+        timestamp,
+        timestamp,
+      );
       new DomainEventPublisher(db).publish({
         type: 'delivery.run.started',
         projectId: contract.scope.conversationId,

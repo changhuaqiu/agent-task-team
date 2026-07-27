@@ -21,6 +21,7 @@ describe('delivery provider Effects', () => {
     `).run(now.toISOString(), now.toISOString());
     deliveries = new AutonomousDeliveryRepository();
     runId = deliveries.createRun({
+      idempotencyKey: 'delivery-effects-run',
       goal: 'Ship',
       acceptanceCriteria: ['Works'],
       scope: { conversationId: 'project-1' },

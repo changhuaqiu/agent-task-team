@@ -67,6 +67,8 @@ export interface RuntimeLifecyclePayloadMap {
   'runtime.invocation.blocked': {
     phase: 'preflight';
     reasonCode: string;
+    workId?: string;
+    deliveryRunId?: string;
     message?: string;
   };
   'runtime.invocation.accepted': {

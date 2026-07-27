@@ -609,7 +609,7 @@ Outbox item 创建时冻结的 `attemptCount / maxAttempts`，Task rework 使用
 持久化入口为 `autonomous-delivery/control-decision-repository.ts`。项目级
 `platform_event_ingestion` cursor 是 snapshot revision：decision 首次保存和 action claim
 都必须重新比对该 cursor；带 target 的动作还必须比对 `WorkAuthority.currentEpoch`。
-`activate` claim 通过数据库部分唯一索引占用 `(runId, slotId)`，claim 使用 lease/token，
+`activate / retry` claim 通过数据库部分唯一索引占用 `(runId, slotId)`，claim 使用 lease/token，
 崩溃后可回收。`wait` 仍是纯观察结果，不写 action 表；新 decision 只取消旧 decision 中
 尚未 claim 的动作，已 claim 动作继续依赖 owner 的 fencing/CAS 决定能否生效。
 
@@ -618,7 +618,9 @@ Invocation 和结构化 AgentOutcome 构造 Work Cell，不从聊天文本推断
 计入 invocation budget，Gate 返工计入 task-rework budget。`DeliveryControlProcessManager`
 在任何 owner Command 执行前，先用一个事务 claim 同一 decision 的完整动作集并预留 slot。
 这是多 Agent 并行的必要条件：否则第一条 Command 产生新事实后，会错误地让同批兄弟动作
-全部因 snapshot cursor 更新而失效。生产 owner Command adapter 与 slot 释放仍是 S5 下一切片。
+全部因 snapshot cursor 更新而失效。生产 owner Command adapter 已接通；Runtime
+`started / terminated` 以及 Invocation/Context preflight 阻塞事实会释放对应
+`activate / retry` slot，避免尚未启动的工作永久占用容量。
 
 Task 在 WorkContract 签发前也已经是 Work Cell：assigned `ready/in_progress` Task 使用
 `workEpoch=0`，claim 同时要求对应 WorkAuthority 尚不存在；Harness 成功完成 Context
@@ -626,7 +628,9 @@ preflight 后才签发 epoch 1 Contract。依赖未完成的 Task 是 `waiting_d
 slot。`ProductionControlCommandAdapter` 已将 activate/retry 写入 Durable AgentInbox，
 requestGate 写入唯一 QualityGate owner，并在同一 SQLite 事务重新读取 Closure 后才允许
 Delivery 终止；它不直接启动 Runtime。Runtime started/terminated 事实会释放 activate 的
-slot reservation。生产 bootstrap 已只使用该 adapter 与新的多动作 Control Process Manager。
+slot reservation。重试和首次激活使用同一套全局/角色容量检查与 slot reservation，不能
+通过 `retry` 绕过并发上限。生产 bootstrap 已只使用该 adapter 与新的多动作 Control Process
+Manager。
 
 跨 Work Cell 的持久依赖使用显式 wait-for graph。Task dependency 与 A2A join 已投影为
 `waiter -> blocker` 边，稳定 DFS 返回可复放的第一条 cycle；检测到 cycle 后产生
@@ -658,8 +662,14 @@ CLI trace 由 `AcpRuntimeEventCoordinator` 和 `RuntimeAgentEventBridge` 在现�
 Adapter 边界归一化。`runtime.invocation.blocked` 是一次尚未启动的 attempt 终态，投影不会
 伪造 `accepted / started / terminated`；`context.snapshot.rejected` 保留
 `missingRequired`，并作为 coordination event 连接 Context preflight 与 Invocation，
-不扩张已经冻结的九个 domain owner 目录。这些事实已可供 Process Manager 读取，S5 再把它们接入
-`escalateToHuman / retry / wait / resume` 动作执行。
+不扩张已经冻结的九个 domain owner 目录。Process Manager 已按当前 Delivery/Work 的最新
+preflight 事实投影 `escalateToHuman`，并忽略显式 `manual_resume` 之前的旧阻塞事实；补齐配置
+后由新的激活 attempt 继续原 Work，而不是盲重试失败的 Agent Invocation。
+
+项目启动本身也受 Command 幂等约束：`GoalContract.idempotencyKey` 是必填字段。同一 key
+与相同规范化 Goal 内容重放时返回同一个 DeliveryRun；同一 key 内容漂移，或同一 conversation
+已经存在另一个非终态 DeliveryRun 时，必须在仓储事务内拒绝。该检查不能由 API 层
+“先查询、后创建”，否则并发启动仍可能产生两个运行实例。
 
 ## 10. 当前实现到目标命名
 

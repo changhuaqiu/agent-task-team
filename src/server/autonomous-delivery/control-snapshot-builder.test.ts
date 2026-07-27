@@ -25,6 +25,7 @@ describe('RepositoryControlSnapshotBuilder', () => {
       VALUES ('project-1','Project','active',?,?)
     `).run(now.toISOString(), now.toISOString());
     runId = new AutonomousDeliveryRepository().createRun({
+      idempotencyKey: 'control-snapshot-delivery',
       goal: 'Ship',
       acceptanceCriteria: ['Works'],
       scope: { conversationId: 'project-1' },
@@ -329,6 +330,7 @@ describe('RepositoryControlSnapshotBuilder', () => {
         type: 'retry',
         targetWorkId: source.workId,
         retryBudgetKind: 'task_rework',
+        slotId: 'implementer:1',
       }),
     ]));
 

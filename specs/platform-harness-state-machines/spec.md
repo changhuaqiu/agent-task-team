@@ -165,6 +165,10 @@ DeliveryRun 的生命周期状态与协作阶段必须分开：生命周期只�
 `escalated` 归一化为带明确 reason 的 `waiting_human`，将 `recovering` 归一化为
 `retrying`；只有 Human Command `manual_resume` 可以恢复人工等待。
 
+创建 DeliveryRun 的 `GoalContract` 必须携带稳定 `idempotencyKey`。仓储在一个立即事务内
+同时保证：相同 key + 相同规范化 Goal 返回原 Run；相同 key + 不同内容报语义冲突；同一
+conversation 不允许并存两个非终态 Run。API 不得以 check-then-insert 代替该约束。
+
 ## 7. Delivery Control Process Manager 决策契约
 
 一次 reconcile 返回一个 `ControlDecision`，其中包含按资源容量排序的 `actions[]`；
@@ -178,6 +182,11 @@ run、snapshot revision、policy revision、type 和 target 确定性派生。
 snapshot/policy 必须生成相同 action ids，不得追加重复 wait/action。
 `wait` 不持久化为 DeliveryAction 或 Effect；有副作用动作在 claim 时重新校验 snapshot
 revision、slot capacity 和 work epoch。
+
+`activate` 与 `retry` 都是会启动新 Invocation 的容量动作，必须使用同一全局/角色容量
+计算、持久 slot reservation 和释放协议。`retry` 不能因为已有 WorkAuthority 就绕过容量。
+Runtime `started / terminated` 以及启动前 `runtime.invocation.blocked /
+context.snapshot.rejected` 都必须释放该 attempt 的 slot。
 
 ## 8. A2A 聚合
 
@@ -266,6 +275,10 @@ artifactRevision 的请求幂等；artifactRevision 改变必须创建新 Gate�
 - `required_context_missing` -> `context.snapshot.rejected`
 
 原始诊断必须作为 evidence 保留，但不得直接成为状态迁移触发器。
+
+`runtime.invocation.blocked / context.snapshot.rejected` 必须带 `workId /
+deliveryRunId`，使 Control slot 可以精确释放且 Process Manager 能把当前 Work 投影为
+Human 可恢复失败。显式 `manual_resume` 后，旧阻塞事实不得再次压过新的 active 状态。
 
 ## 11. 命名迁移
 

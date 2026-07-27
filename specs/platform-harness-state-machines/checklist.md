@@ -49,7 +49,7 @@ Task 切片证据：
 ## 错误与恢复
 
 - [x] `runtime_profile_missing` 归一为 Invocation preflight blocked，不冒充 Agent 执行失败。
-- [ ] Process Manager 对该阻塞执行 Human escalation，补配置后 resume，不做盲重试。
+- [x] Process Manager 对该阻塞执行 Human escalation，补配置后 resume，不做盲重试。
 - [ ] ACP session 丢失会失效旧 binding，并按策略新建 session。
 - [x] transport 降级与 Invocation 终止分离。
 - [x] `required_context_missing` 返回结构化缺失项并发布 `context.snapshot.rejected`。
@@ -60,7 +60,8 @@ Task 切片证据：
 - [x] ControlDecision 非 wait 动作持久化；claim 校验项目 snapshot cursor、workEpoch、
   slot reservation 和 lease token。
 - [x] 同一 decision 的动作集在首条 owner Command 前原子 batch claim，不退化为单动作循环。
-- [ ] 持久 ControlAction 已接入各领域 owner Command，并由新事实释放 slot。
+- [x] 持久 ControlAction 已接入各领域 owner Command；activate/retry 均持有 slot，并由
+  Runtime 生命周期或启动前阻塞事实释放。
 - [x] activate/retry 已接 AgentInbox、requestGate 已接 QualityGate、terminate 已做事务内
   Closure 复核；Runtime 生命周期事实可释放 slot reservation。
 - [x] production bootstrap 已完全切换到新 Control Process Manager。

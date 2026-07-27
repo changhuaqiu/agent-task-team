@@ -7,6 +7,7 @@ import {
 } from './verification-receipt';
 
 const contract: GoalContract = {
+  idempotencyKey: 'verification-receipt-delivery',
   goal: '完成 Web UI 交付',
   acceptanceCriteria: ['用户可以创建项目', '调试面板显示 Context Snapshot'],
   scope: { conversationId: 'conv-1' },

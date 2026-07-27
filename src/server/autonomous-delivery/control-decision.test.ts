@@ -139,12 +139,30 @@ describe('decideControlActions', () => {
         type: 'retry',
         targetWorkId: 'invocation-retry',
         retryBudgetKind: 'invocation',
+        slotId: 'builder:1',
       }),
       expect.objectContaining({
         type: 'escalateToHuman',
         targetWorkId: 'effect-exhausted',
       }),
     ]));
+  });
+
+  it('does not retry work without available global or role capacity', () => {
+    const decision = decideControlActions(snapshot([
+      cell('running-builder', 'running', { slotId: 'builder:1' }),
+      cell('retry-builder', 'retry_pending', {
+        failure: {
+          reasonCode: 'runtime_transport_lost',
+          retryable: true,
+          humanRecoverable: true,
+          budget: { kind: 'invocation', attemptsUsed: 1, maxAttempts: 2 },
+        },
+      }),
+    ]), POLICY);
+
+    expect(decision.actions.find((action) => action.targetWorkId === 'retry-builder'))
+      .toMatchObject({ type: 'wait', reasonCode: 'role_capacity_exhausted' });
   });
 
   it('requests gates, resumes resolved human work and terminates only on closure', () => {

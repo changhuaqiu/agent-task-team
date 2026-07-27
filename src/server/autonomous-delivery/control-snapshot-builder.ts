@@ -44,6 +44,12 @@ interface A2AWaitFactRow {
   pass_status: string;
 }
 
+interface InvocationBlockFactRow {
+  ingestion_id: number;
+  work_id: string;
+  reason_code: string;
+}
+
 export interface ControlSnapshotRetryLimits {
   invocation: number;
   effect: number;
@@ -387,6 +393,46 @@ export class RepositoryControlSnapshotBuilder {
       cell.state = 'running';
       cell.slotId = inboxWork.get(cell.workId) ?? `${cell.roleId}:inbox`;
       delete cell.failure;
+    }
+    const lastHumanResume = (db.prepare(`
+      SELECT COALESCE(MAX(ingestion.ingestion_id),0) AS ingestion_id
+      FROM platform_event event
+      JOIN platform_event_ingestion ingestion ON ingestion.event_id=event.id
+      WHERE event.type='delivery.run.state_changed'
+        AND event.aggregate_type='delivery_run'
+        AND event.aggregate_id=?
+        AND json_extract(event.payload,'$.previousStatus')='waiting_human'
+        AND json_extract(event.payload,'$.status')='active'
+    `).get(runId) as { ingestion_id: number }).ingestion_id;
+    const invocationBlocks = db.prepare(`
+      SELECT
+        ingestion.ingestion_id,
+        json_extract(event.payload,'$.workId') AS work_id,
+        json_extract(event.payload,'$.reasonCode') AS reason_code
+      FROM platform_event event
+      JOIN platform_event_ingestion ingestion ON ingestion.event_id=event.id
+      WHERE event.type IN ('runtime.invocation.blocked','context.snapshot.rejected')
+        AND event.project_id=?
+        AND json_extract(event.payload,'$.deliveryRunId')=?
+        AND json_extract(event.payload,'$.workId') IS NOT NULL
+        AND ingestion.ingestion_id>?
+      ORDER BY ingestion.ingestion_id
+    `).all(run.conversation_id, runId, lastHumanResume) as InvocationBlockFactRow[];
+    for (const block of invocationBlocks) {
+      if (
+        block.reason_code !== 'runtime_profile_missing'
+        && block.reason_code !== 'required_context_missing'
+      ) continue;
+      const cell = cellByWorkId.get(block.work_id);
+      if (!cell || (cell.state !== 'ready' && cell.state !== 'retry_pending')) continue;
+      cell.state = 'failed';
+      cell.failure = {
+        reasonCode: block.reason_code,
+        retryable: false,
+        humanRecoverable: true,
+        budget: retryBudget('invocation', 0, limits),
+      };
+      delete cell.slotId;
     }
     const deadlock = detectWaitForDeadlock(waitEdges);
     const blockingEffects = new DurableEffectOutbox({ db })

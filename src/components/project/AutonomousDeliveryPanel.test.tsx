@@ -15,6 +15,7 @@ import type {
 } from '@/server/autonomous-delivery/types';
 
 const contract: GoalContract = {
+  idempotencyKey: 'delivery-panel-test',
   goal: '交付首页',
   acceptanceCriteria: ['首页可打开'],
   scope: { conversationId: 'conv-ui' },
@@ -47,6 +48,7 @@ describe('AutonomousDeliveryPanel', () => {
       run: {
         id: 'delivery-1',
         conversation_id: contract.scope.conversationId,
+        start_idempotency_key: contract.idempotencyKey,
         root_task_id: 'task-1',
         status: 'active',
         current_stage: 'executing',
@@ -88,6 +90,7 @@ describe('AutonomousDeliveryPanel', () => {
       run: {
         id: 'delivery-1',
         conversation_id: contract.scope.conversationId,
+        start_idempotency_key: contract.idempotencyKey,
         root_task_id: 'task-1',
         status: 'completed',
         current_stage: 'delivering',
@@ -178,6 +181,7 @@ describe('AutonomousDeliveryPanel', () => {
       run: {
         id: 'delivery-waiting',
         conversation_id: contract.scope.conversationId,
+        start_idempotency_key: contract.idempotencyKey,
         root_task_id: null,
         status: 'waiting_human',
         current_stage: 'planning',

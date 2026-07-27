@@ -1288,6 +1288,7 @@ export const evalPairwiseRound = sqliteTable('eval_pairwise_round', {
 export const autonomousDeliveryRun = sqliteTable('autonomous_delivery_run', {
   id: text('id').primaryKey(),
   conversationId: text('conversation_id').notNull().references(() => conversation.id, { onDelete: 'cascade' }),
+  startIdempotencyKey: text('start_idempotency_key').notNull(),
   rootTaskId: text('root_task_id').references(() => task.id, { onDelete: 'set null' }),
   status: text('status').notNull(),
   currentStage: text('current_stage').notNull(),
@@ -1301,6 +1302,7 @@ export const autonomousDeliveryRun = sqliteTable('autonomous_delivery_run', {
   updatedAt: text('updated_at').notNull(),
   completedAt: text('completed_at'),
 }, (table) => [
+  uniqueIndex('uq_autonomous_delivery_run_start').on(table.startIdempotencyKey),
   index('idx_autonomous_delivery_run_conversation').on(table.conversationId, table.createdAt),
   index('idx_autonomous_delivery_run_reconcile').on(table.status, table.updatedAt),
 ]);
@@ -1477,7 +1479,7 @@ export const deliveryControlAction = sqliteTable('delivery_control_action', {
   index('idx_delivery_control_action_claim').on(table.runId, table.status, table.createdAt),
   uniqueIndex('uq_delivery_control_active_slot')
     .on(table.runId, table.slotId)
-    .where(sql`${table.slotId} IS NOT NULL AND ${table.type} = 'activate' AND ${table.status} IN ('claimed','applied')`),
+    .where(sql`${table.slotId} IS NOT NULL AND ${table.type} IN ('activate','retry') AND ${table.status} IN ('claimed','applied')`),
 ]);
 
 export const autonomousDeliveryReceipt = sqliteTable('autonomous_delivery_receipt', {

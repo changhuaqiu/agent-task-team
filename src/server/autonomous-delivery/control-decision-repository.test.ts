@@ -26,6 +26,7 @@ describe('ControlDecisionRepository', () => {
       VALUES ('project-1','Project','active',?,?)
     `).run(now, now);
     runId = new AutonomousDeliveryRepository().createRun({
+      idempotencyKey: 'control-decision-repository-delivery',
       goal: 'Ship',
       acceptanceCriteria: ['Works'],
       scope: { conversationId: 'project-1' },

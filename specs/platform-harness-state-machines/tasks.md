@@ -165,7 +165,10 @@
   持久 ControlAction 已接到 Task/Gate/Inbox/Delivery/Effect owner Command。
 - [x] pre-Contract assigned Task 已作为 epoch 0 Work Cell，依赖未满足时 wait；activate/retry
   只写 Durable AgentInbox，requestGate 只写 QualityGate owner，terminate 在同一事务复核
-  Task/Bundle/blocking Effect Closure，Runtime started/terminated 释放 slot。
+  Task/Bundle/blocking Effect Closure；activate/retry 使用同一容量 slot，Runtime
+  started/terminated 与启动前 profile/context 阻塞事实均能释放 slot。
+- [x] DeliveryRun 启动幂等下沉到仓储立即事务：GoalContract 强制稳定 idempotencyKey，
+  精确重放返回原 Run，内容漂移或同 conversation 非终态并发 Run 被拒绝。
 - [x] Delivery 尚无 Task 时构造不占 Agent slot 的 planning Work Cell；
   `initializeGraph` 经 Task owner 幂等建立首个 root Task，再由后续 `activate` 进入 Agent 循环。
 - [x] provider integration 从旧推进器的同步 I/O 拆为 `integrate` ControlAction；

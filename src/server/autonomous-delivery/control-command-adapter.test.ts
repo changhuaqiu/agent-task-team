@@ -27,6 +27,7 @@ describe('ProductionControlCommandAdapter', () => {
     `).run(now.toISOString(), now.toISOString());
     deliveries = new AutonomousDeliveryRepository();
     runId = deliveries.createRun({
+      idempotencyKey: 'control-command-adapter-delivery',
       goal: 'Ship',
       acceptanceCriteria: ['Works'],
       scope: { conversationId: 'project-1' },

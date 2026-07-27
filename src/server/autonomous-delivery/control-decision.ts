@@ -344,13 +344,35 @@ export function decideControlActions(
         failure?.retryable
         && failure.budget.attemptsUsed < failure.budget.maxAttempts
       ) {
-        proposals.push({
-          ...base,
-          rank: 40,
-          type: 'retry',
-          reasonCode: failure.reasonCode,
-          retryBudgetKind: failure.budget.kind,
-        });
+        const roleLimit = policy.roleCapacity[cell.roleId] ?? policy.maxConcurrent;
+        const roleActive = activeByRole.get(cell.roleId) ?? 0;
+        const hasGlobalCapacity = activeCount < policy.maxConcurrent;
+        const hasRoleCapacity = roleActive < roleLimit;
+        const slotId = hasGlobalCapacity && hasRoleCapacity
+          ? firstFreeSlot(cell.roleId, roleLimit, occupiedSlots)
+          : undefined;
+        if (!slotId) {
+          proposals.push({
+            ...base,
+            rank: 60,
+            type: 'wait',
+            reasonCode: hasGlobalCapacity
+              ? 'role_capacity_exhausted'
+              : 'global_capacity_exhausted',
+          });
+        } else {
+          occupiedSlots.add(slotId);
+          activeCount += 1;
+          activeByRole.set(cell.roleId, roleActive + 1);
+          proposals.push({
+            ...base,
+            rank: 40,
+            type: 'retry',
+            slotId,
+            reasonCode: failure.reasonCode,
+            retryBudgetKind: failure.budget.kind,
+          });
+        }
       } else if (failure?.humanRecoverable) {
         proposals.push({
           ...base,

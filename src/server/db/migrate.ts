@@ -3279,6 +3279,58 @@ END;
       }
     },
   },
+  {
+    version: 71,
+    run: (db) => {
+      const deliveryTable = db.prepare(`
+        SELECT 1 FROM sqlite_master
+        WHERE type='table' AND name='autonomous_delivery_run'
+      `).get();
+      if (deliveryTable) {
+        const columns = new Set(
+          (db.prepare('PRAGMA table_info(autonomous_delivery_run)').all() as Array<{
+            name: string;
+          }>).map((column) => column.name),
+        );
+        if (!columns.has('start_idempotency_key')) {
+          db.exec('ALTER TABLE autonomous_delivery_run ADD COLUMN start_idempotency_key TEXT');
+        }
+        db.exec(`
+          UPDATE autonomous_delivery_run
+          SET start_idempotency_key='legacy:' || id
+          WHERE start_idempotency_key IS NULL OR trim(start_idempotency_key)='';
+          CREATE UNIQUE INDEX IF NOT EXISTS uq_autonomous_delivery_run_start
+            ON autonomous_delivery_run(start_idempotency_key);
+          CREATE TRIGGER IF NOT EXISTS trg_delivery_run_start_key_insert
+          BEFORE INSERT ON autonomous_delivery_run
+          WHEN NEW.start_idempotency_key IS NULL OR trim(NEW.start_idempotency_key)=''
+          BEGIN
+            SELECT RAISE(ABORT,'delivery_run_start_idempotency_key_required');
+          END;
+          CREATE TRIGGER IF NOT EXISTS trg_delivery_run_start_key_update
+          BEFORE UPDATE OF start_idempotency_key ON autonomous_delivery_run
+          WHEN NEW.start_idempotency_key IS NULL OR trim(NEW.start_idempotency_key)=''
+          BEGIN
+            SELECT RAISE(ABORT,'delivery_run_start_idempotency_key_required');
+          END;
+        `);
+      }
+      const actionTable = db.prepare(`
+        SELECT 1 FROM sqlite_master
+        WHERE type='table' AND name='delivery_control_action'
+      `).get();
+      if (actionTable) {
+        db.exec(`
+          DROP INDEX IF EXISTS uq_delivery_control_active_slot;
+          CREATE UNIQUE INDEX uq_delivery_control_active_slot
+            ON delivery_control_action(run_id,slot_id)
+            WHERE slot_id IS NOT NULL
+              AND type IN ('activate','retry')
+              AND status IN ('claimed','applied');
+        `);
+      }
+    },
+  },
 ];
 
 export function applyMigrations(db: Database.Database): void {

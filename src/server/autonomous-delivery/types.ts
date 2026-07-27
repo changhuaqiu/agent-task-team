@@ -28,6 +28,7 @@ export interface GitHubIssueGoalSource {
 }
 
 export interface GoalContract {
+  idempotencyKey: string;
   goal: string;
   acceptanceCriteria: string[];
   source?: GitHubIssueGoalSource;
@@ -123,6 +124,7 @@ export interface AcceptanceReviewReceipt {
 export interface DeliveryRunRow {
   id: string;
   conversation_id: string;
+  start_idempotency_key: string;
   root_task_id: string | null;
   status: DeliveryRunStatus;
   current_stage: DeliveryStage;

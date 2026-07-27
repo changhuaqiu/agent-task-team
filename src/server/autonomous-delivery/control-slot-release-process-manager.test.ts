@@ -26,8 +26,9 @@ describe('ControlSlotReleaseProcessManager', () => {
     db.close();
   });
 
-  it('releases an applied activation slot when Runtime confirms Invocation start', async () => {
+  it('releases activate/retry slots when Runtime starts or preflight is blocked', async () => {
     const run = new AutonomousDeliveryRepository().createRun({
+      idempotencyKey: 'control-slot-release-delivery',
       goal: 'Ship',
       acceptanceCriteria: ['Works'],
       scope: { conversationId: 'project-1' },
@@ -130,6 +131,72 @@ describe('ControlSlotReleaseProcessManager', () => {
     expect(decisions.listActions(decision.decisionId)[0]).toMatchObject({
       status: 'cancelled',
       failure_code: 'invocation_started',
+    });
+
+    const retryDecision = decideControlActions({
+      runId: run.id,
+      snapshotRevision: decisions.projectSnapshotRevision('project-1'),
+      observedAt: now.toISOString(),
+      workCells: [{
+        workId: contract.workId,
+        workEpoch: contract.workEpoch,
+        roleId: 'implementer',
+        state: 'retry_pending',
+        priority: 50,
+        queuedAt: now.toISOString(),
+        failure: {
+          reasonCode: 'runtime_profile_missing',
+          retryable: true,
+          humanRecoverable: true,
+          budget: { kind: 'invocation', attemptsUsed: 0, maxAttempts: 1 },
+        },
+      }],
+      waitForEdges: [],
+      closure: { satisfied: false },
+    }, {
+      revision: 2,
+      maxConcurrent: 1,
+      roleCapacity: { implementer: 1 },
+      fairnessAgingMs: 1_000,
+    });
+    decisions.persist({ projectId: 'project-1', decision: retryDecision, now });
+    const [retryClaim] = decisions.claimDecision({
+      decisionId: retryDecision.decisionId,
+      workerId: 'worker-1',
+      leaseMs: 30_000,
+      now,
+    });
+    decisions.complete({
+      actionId: retryClaim!.id,
+      claimToken: retryClaim!.claim_token!,
+      now,
+    });
+
+    await new ControlSlotReleaseProcessManager(db).handle({
+      eventId: 'context-blocked-1',
+      type: 'context.snapshot.rejected',
+      category: 'coordination',
+      schemaVersion: 1,
+      projectId: 'project-1',
+      streamKey: 'context_snapshot:rejected-1',
+      streamSequence: 1,
+      aggregate: { type: 'context_snapshot', id: 'rejected-1' },
+      actor: { type: 'system', id: 'context-manager' },
+      invocationId: 'preflight-1',
+      correlationId: contract.correlationId,
+      occurredAt: now.toISOString(),
+      recordedAt: now.toISOString(),
+      payload: {
+        reasonCode: 'required_context_missing',
+        workId: contract.workId,
+        deliveryRunId: run.id,
+        missingRequired: ['task.description'],
+      },
+    }, { signal: new AbortController().signal });
+
+    expect(decisions.listActions(retryDecision.decisionId)[0]).toMatchObject({
+      status: 'cancelled',
+      failure_code: 'context_preflight_blocked',
     });
   });
 });

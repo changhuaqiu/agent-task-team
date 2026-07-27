@@ -153,6 +153,14 @@ export class PlatformEventRuntimeWorker {
       reliability: 'durable',
       handle: controlSlotRelease.handle,
     });
+    this.dispatcher.register({
+      id: 'control-slot-release-process-manager:context:v1',
+      pattern: 'context.snapshot.rejected',
+      stereotype: 'process_manager',
+      reliability: 'durable',
+      timeoutMs: 5_000,
+      handle: controlSlotRelease.handle,
+    });
     if (resolved.a2aOutcome !== false) {
       const a2aOutcome = new A2AOutcomeProcessManager(resolved.a2aOutcome);
       this.dispatcher.register({

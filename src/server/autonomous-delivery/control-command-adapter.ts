@@ -219,6 +219,7 @@ export class ProductionControlCommandAdapter implements ControlCommandPort {
         source: review ? 'review_gate' : verification ? 'test_gate' : 'system',
         correlationId: decision.decisionId,
         causationId: action.actionId,
+        workId: action.targetWorkId,
         taskId: task.id,
         deliveryRunId: runId,
         contextScenario: action.type === 'retry'

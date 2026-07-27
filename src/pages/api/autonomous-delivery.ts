@@ -16,7 +16,9 @@ function socketServer(res: NextApiResponse): IOServer | undefined {
 function isGoalContract(value: unknown): value is GoalContract {
   if (!value || typeof value !== 'object') return false;
   const contract = value as Partial<GoalContract>;
-  return typeof contract.goal === 'string'
+  return typeof contract.idempotencyKey === 'string'
+    && Boolean(contract.idempotencyKey.trim())
+    && typeof contract.goal === 'string'
     && Array.isArray(contract.acceptanceCriteria)
     && contract.acceptanceCriteria.every((item) => typeof item === 'string')
     && typeof contract.scope?.conversationId === 'string'
@@ -65,10 +67,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
     if (!conversationRepo.getById(contract.scope.conversationId)) {
       return res.status(404).json({ error: 'Conversation not found' });
-    }
-    const existing = autonomousDeliveryRepo.getLatestByConversation(contract.scope.conversationId);
-    if (existing && !['completed', 'failed', 'cancelled'].includes(existing.run.status)) {
-      return res.status(409).json({ error: 'An active delivery run already exists', snapshot: existing });
     }
     const snapshot = startAutonomousDelivery(io, contract);
     if (!snapshot) return res.status(503).json({ error: 'Delivery supervisor is not registered' });

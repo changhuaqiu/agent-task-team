@@ -213,7 +213,7 @@ export class ControlDecisionRepository {
         const occupied = db.prepare(`
           SELECT id FROM delivery_control_action
           WHERE id<>? AND run_id=? AND slot_id=?
-            AND type='activate' AND status IN ('claimed','applied')
+            AND type IN ('activate','retry') AND status IN ('claimed','applied')
           LIMIT 1
         `).get(action.id, action.run_id, action.slot_id);
         if (occupied) {
@@ -293,7 +293,7 @@ export class ControlDecisionRepository {
         const occupied = db.prepare(`
           SELECT id FROM delivery_control_action
           WHERE decision_id<>? AND run_id=? AND slot_id=?
-            AND type='activate' AND status IN ('claimed','applied')
+            AND type IN ('activate','retry') AND status IN ('claimed','applied')
           LIMIT 1
         `).get(input.decisionId, action.run_id, action.slot_id);
         if (occupied) {
@@ -373,7 +373,7 @@ export class ControlDecisionRepository {
     const result = (this.database ?? getDb()).prepare(`
       UPDATE delivery_control_action
       SET status='cancelled',failure_code=?,updated_at=?,completed_at=?
-      WHERE id=? AND type='activate' AND status='applied'
+      WHERE id=? AND type IN ('activate','retry') AND status='applied'
     `).run(input.reasonCode, timestamp, timestamp, input.actionId);
     return result.changes === 1;
   }
@@ -387,7 +387,7 @@ export class ControlDecisionRepository {
     return (this.database ?? getDb()).prepare(`
       UPDATE delivery_control_action
       SET status='cancelled',failure_code=?,updated_at=?,completed_at=?
-      WHERE target_work_id=? AND type='activate' AND status='applied'
+      WHERE target_work_id=? AND type IN ('activate','retry') AND status='applied'
     `).run(
       input.reasonCode,
       timestamp,

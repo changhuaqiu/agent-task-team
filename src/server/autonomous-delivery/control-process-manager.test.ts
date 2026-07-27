@@ -21,6 +21,7 @@ describe('DeliveryControlProcessManager', () => {
       VALUES ('project-1','Project','active',?,?)
     `).run(now.toISOString(), now.toISOString());
     runId = new AutonomousDeliveryRepository().createRun({
+      idempotencyKey: 'control-process-manager-delivery',
       goal: 'Ship',
       acceptanceCriteria: ['Works'],
       scope: { conversationId: 'project-1' },

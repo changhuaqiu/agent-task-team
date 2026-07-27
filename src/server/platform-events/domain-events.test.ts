@@ -90,6 +90,7 @@ describe('domain event inline seam', () => {
   it('does not revise or emit when a delivery run update changes no facts', () => {
     const repository = new AutonomousDeliveryRepository();
     const contract: GoalContract = {
+      idempotencyKey: 'domain-event-delivery',
       goal: 'Ship it',
       acceptanceCriteria: ['It works'],
       scope: { conversationId: 'project-1' },
