@@ -201,6 +201,22 @@ WorkContract 绑定的新 Invocation 禁止再执行 `runtime.a2a_response` 和
 `runtime.a2a_done`：普通文本里的 `@agent` 只是内容，不是控制命令。迁移期只有未绑定
 WorkContract 的历史 Invocation 仍可走旧兼容解释路径，该路径必须在 S6 删除。
 
+Human 通过 WebUI 发出的消息同样先成为 Command，而不是由浏览器直接启动 Agent 后再补写
+协作事实。服务端 `a2a.human_handoff` 在消息持久化后调用 A2A owner：
+
+```text
+WebUI message
+  -> message.append
+  -> a2a.human_handoff
+  -> A2ACollaboration（必要时显式终止旧 Human turn）
+  -> Pass + HandoffPacket + AgentInbox
+  -> Harness / Runtime
+```
+
+无目标的新 Human turn 是显式中断命令；它可以终止当前协作并取消尚未 claim 的 Inbox
+工作。已经 claim 或 running 的执行不能由 WebUI 假装取消，必须交给后续 Supervisor
+执行有 fencing 的停止/收口策略。
+
 ## 5. 不设计一个总状态机
 
 平台没有一个可以诚实表达全部含义的 `running / completed / failed` 总状态机。

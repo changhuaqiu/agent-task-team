@@ -603,6 +603,9 @@ Current implementation status:
   is created only from `runtime.invocation.started`.
 - WorkContract-bound invocations never scan final response text for `@mention`
   commands. Text scanning remains only in the unbound legacy compatibility path.
+- Human turns persist the chat fact first and then submit `a2a.human_handoff`.
+  The server creates Pass/HandoffPacket/Inbox facts; the browser no longer starts
+  an agent and later registers that execution into a collaboration chain.
 - Until the Phase 8 cutover, the existing `invocation_chain` and `chain_worklist` path remains readable
   and executable as current compatibility behavior. It is not the target authority; after cutover it
   becomes read-only before deletion.

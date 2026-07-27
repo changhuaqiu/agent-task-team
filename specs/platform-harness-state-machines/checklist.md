@@ -55,6 +55,7 @@ Task 切片证据：
 ## 集成
 
 - [x] Human 可以通过 WebUI 发送 `manual_resume` Command；WebUI 不自行推进状态。
+- [x] Human A2A 从 WebUI 提交服务端 Command，浏览器不直接启动后再补登记协作状态。
 - [ ] WebUI 自动更新仍只消费 Projection。
 - [ ] 领域事实与 Event Outbox 原子提交。
 - [ ] 外部 I/O 经过 Durable Effect Outbox。

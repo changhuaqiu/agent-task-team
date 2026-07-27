@@ -33,8 +33,9 @@ describe('runtime ownership architecture', () => {
   });
 
   it('keeps explicit human command adapters available', () => {
-    expect(taskHubStore).toContain(`socket.emit('a2a:user-turn-created'`);
-    expect(daemon).toContain(`socket.on('a2a:user-turn-created'`);
+    expect(taskHubStore).toContain(`type: 'a2a.human_handoff'`);
+    expect(taskHubStore).not.toContain(`socket.emit('a2a:user-turn-created'`);
+    expect(daemon).not.toContain(`socket.on('a2a:user-turn-created'`);
     expect(daemon).toContain(`socket.on('terminal:start'`);
     expect(daemon).toContain(`socket.on('terminal:kill'`);
   });

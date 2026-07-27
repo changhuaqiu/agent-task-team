@@ -68,6 +68,11 @@ export interface OfferedPassGroup {
   duplicate: boolean;
 }
 
+export interface AbortedA2ACollaboration {
+  chainId: string;
+  cancelledInboxItems: number;
+}
+
 interface ChainRow {
   id: string;
   conversation_id: string;
@@ -445,6 +450,92 @@ export class A2ACollaborationRepository {
         rootPossession: possessionFromRow(this.getPossessionRow(possessionId)!),
         duplicate: false,
       };
+    }).immediate();
+  }
+
+  findChainByRoot(
+    conversationId: string,
+    rootTriggerType: A2APossessionChain['rootTriggerType'],
+    rootTriggerId: string,
+  ) {
+    const row = this.db().prepare(`
+      SELECT * FROM a2a_possession_chain
+      WHERE conversation_id=? AND root_trigger_type=? AND root_trigger_id=?
+      ORDER BY created_at DESC,id DESC LIMIT 1
+    `).get(conversationId, rootTriggerType, rootTriggerId) as ChainRow | undefined;
+    return row ? chainFromRow(row) : undefined;
+  }
+
+  abortActiveChain(
+    conversationId: string,
+    reasonCode: string,
+  ): AbortedA2ACollaboration | undefined {
+    const db = this.db();
+    return db.transaction(() => {
+      const chain = db.prepare(`
+        SELECT * FROM a2a_possession_chain
+        WHERE conversation_id=? AND status='active'
+        ORDER BY created_at DESC,id DESC LIMIT 1
+      `).get(conversationId) as ChainRow | undefined;
+      if (!chain) return undefined;
+      const now = this.now().toISOString();
+      let cancelledInboxItems = 0;
+      const passes = db.prepare(`
+        SELECT * FROM a2a_pass
+        WHERE chain_id=? AND group_id IS NOT NULL
+          AND status IN ('offered','accepted','starting')
+      `).all(chain.id) as PassRow[];
+      for (const pass of passes) {
+        if (!pass.inbox_item_id) continue;
+        const item = this.inbox.get(pass.inbox_item_id);
+        if (!item) continue;
+        cancelledInboxItems += this.inbox.cancelPending(
+          item.projectId,
+          item.projectAgentId,
+          item.idempotencyKey,
+        );
+      }
+      db.prepare(`
+        UPDATE a2a_pass
+        SET status=CASE WHEN status='started' THEN 'error' ELSE 'rejected' END,
+            phase='holder',reason=?,revision=revision+1,updated_at=?
+        WHERE chain_id=? AND group_id IS NOT NULL
+          AND status IN ('drafted','validated','offered','accepted','starting','started')
+      `).run(nonEmpty(reasonCode, 'reasonCode'), now, chain.id);
+      db.prepare(`
+        UPDATE a2a_possession
+        SET status='aborted',completed_at=?,updated_at=?,revision=revision+1
+        WHERE chain_id=? AND status NOT IN ('completed','aborted','timeout')
+      `).run(now, now, chain.id);
+      db.prepare(`
+        UPDATE a2a_pass_group
+        SET status='cancelled',completed_at=?,updated_at=?,revision=revision+1
+        WHERE chain_id=? AND status IN ('offered','active','recovering')
+      `).run(now, now, chain.id);
+      const result = db.prepare(`
+        UPDATE a2a_possession_chain
+        SET status='aborted',completed_at=?,updated_at=?,revision=revision+1
+        WHERE id=? AND status='active' AND revision=?
+      `).run(now, now, chain.id, chain.revision);
+      if (result.changes !== 1) {
+        const current = this.getChainRow(chain.id)!;
+        throw new StaleA2ARevisionError(chain.id, chain.revision, current.revision);
+      }
+      new DomainEventPublisher(db).publish({
+        type: 'a2a.chain.aborted',
+        projectId: conversationId,
+        aggregate: {
+          type: 'a2a_collaboration',
+          id: chain.id,
+          version: chain.revision + 1,
+        },
+        actor: { type: 'user', id: 'human' },
+        correlationId: chain.id,
+        causationId: reasonCode,
+        occurredAt: now,
+        payload: { status: 'aborted', reason: reasonCode },
+      });
+      return { chainId: chain.id, cancelledInboxItems };
     }).immediate();
   }
 

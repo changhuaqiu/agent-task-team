@@ -569,30 +569,6 @@ export default function registerDaemon(io: IOServer) {
       callback?.({ panes: agentPaneRegistry.listAll() });
     });
 
-    socket.on('a2a:user-turn-created', (payload: {
-      conversationId?: string;
-      messageId?: string;
-      targetAgentIds?: string[];
-      prompt?: string;
-      taskId?: string;
-    }) => {
-      const conversationId = payload?.conversationId;
-      const messageId = payload?.messageId;
-      if (!conversationId || !messageId) return;
-
-      if (payload.targetAgentIds?.length) {
-        a2aMessenger.registerExternalUserDispatch(
-          conversationId,
-          messageId,
-          payload.targetAgentIds,
-          payload.prompt ?? '',
-          payload.taskId,
-        );
-      } else {
-        a2aMessenger.abortConversationChains(conversationId, 'new_user_turn_without_pass');
-      }
-    });
-
     socket.on('runtimes:list', async (callback) => {
       const runtimes = await detectAvailableRuntimes();
       callback?.({ runtimes });

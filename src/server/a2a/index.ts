@@ -125,6 +125,7 @@ export {
   type A2AAggregatePass,
   type A2APassGroup,
   type A2APassGroupStatus,
+  type AbortedA2ACollaboration,
   type OfferedPassGroup,
 } from './collaboration';
 export {
@@ -135,3 +136,9 @@ export {
   A2ALifecycleProcessManager,
   type A2ALifecycleProcessManagerOptions,
 } from './lifecycle-process-manager';
+export {
+  HumanA2ACommandService,
+  type HumanA2ACommandServiceOptions,
+  type HumanHandoffCommand,
+  type HumanHandoffResult,
+} from './human-command-service';

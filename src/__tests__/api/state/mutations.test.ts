@@ -906,6 +906,39 @@ describe('POST /api/mutations', () => {
     expect(new AgentInbox().listPending('default')).toHaveLength(0);
   });
 
+  it('a2a.human_handoff creates authoritative collaboration and Inbox work', async () => {
+    await seedAgent();
+    await seedConversation();
+    const req = mockReq('POST', {
+      type: 'a2a.human_handoff',
+      payload: {
+        conversationId: 'conv-1',
+        messageId: 'message-human-1',
+        prompt: 'Implement the accepted design',
+        targetAgentIds: ['mario'],
+      },
+    });
+    const res = mockRes();
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res._json.result).toMatchObject({
+      status: 'offered',
+      handoff: {
+        passes: [{ toAgentId: 'mario', status: 'offered' }],
+        inboxItems: [{
+          projectAgentId: 'mario',
+          status: 'enqueued',
+          command: { source: 'a2a', passId: expect.any(String) },
+        }],
+      },
+    });
+    const { getDb } = await import('@/server/db');
+    expect(getDb().prepare('SELECT COUNT(*) count FROM chain_worklist').get())
+      .toEqual({ count: 0 });
+  });
+
   it('dispatch.enqueue rejects a missing conversation scope', async () => {
     const { AgentInbox } = await import('@/server/platform-events/agent-inbox');
     const req = mockReq('POST', {

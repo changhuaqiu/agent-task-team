@@ -1900,37 +1900,7 @@ export const useTaskHubStore = create<TaskHubState>()(
             },
           }));
 
-          if (rest.agentId === 'human') {
-            const resolvedMentions = resolveMentionAgentIds(get(), mentions);
-            const entryAgentIds = selectUserEntryAgentIds(resolvedMentions);
-            const busyAgents = entryAgentIds.filter((id) => get().agentStatus[id] && get().agentStatus[id] !== 'idle');
-            const idleAgents = entryAgentIds.filter((id) => !get().agentStatus[id] || get().agentStatus[id] === 'idle');
-            const acceptedAgentIds: string[] = [];
-
-            for (const agentId of idleAgents) {
-              const accepted = await get().dispatchToAgent({
-                agentId,
-                referencedTaskId: rest.referencedTaskId,
-                prompt: rest.content,
-                conversationId,
-              });
-              if (accepted) acceptedAgentIds.push(agentId);
-            }
-
-            socket.emit('a2a:user-turn-created', {
-              conversationId,
-              messageId,
-              targetAgentIds: acceptedAgentIds,
-              prompt: rest.content,
-              taskId: rest.referencedTaskId,
-            });
-
-            for (const agentId of busyAgents) {
-              get().enqueueDispatch(agentId, { prompt: rest.content, referencedTaskId: rest.referencedTaskId, conversationId });
-            }
-          }
-
-          fetch('/api/mutations', {
+          const messagePersistence = fetch('/api/mutations', {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ type: 'message.append', payload: {
@@ -1946,7 +1916,45 @@ export const useTaskHubStore = create<TaskHubState>()(
                 fromAgentId: rest.fromAgentId,
               },
             }}),
-          }).catch((err) => console.error('[mutation] message.append failed:', err));
+          });
+
+          if (rest.agentId === 'human') {
+            const resolvedMentions = resolveMentionAgentIds(get(), mentions);
+            const entryAgentIds = selectUserEntryAgentIds(resolvedMentions);
+            try {
+              const persisted = await messagePersistence;
+              if (!persisted.ok) {
+                throw new Error(`message_append_http_${persisted.status}`);
+              }
+              const persistedBody = typeof persisted.json === 'function'
+                ? await persisted.json() as { result?: { id?: string } }
+                : undefined;
+              const authoritativeMessageId = persistedBody?.result?.id ?? messageId;
+              const response = await fetch('/api/mutations', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({
+                  type: 'a2a.human_handoff',
+                  payload: {
+                    conversationId,
+                    messageId: authoritativeMessageId,
+                    prompt: rest.content,
+                    targetAgentIds: entryAgentIds,
+                    taskId: rest.referencedTaskId,
+                  },
+                }),
+              });
+              if (!response.ok) {
+                throw new Error(`a2a_human_handoff_http_${response.status}`);
+              }
+            } catch (error) {
+              console.error('[a2a] failed to submit human command:', error);
+            }
+          } else {
+            void messagePersistence.catch(
+              (error) => console.error('[mutation] message.append failed:', error),
+            );
+          }
         },
 
         updateChatMessageStatus: (msgId: string, status: 'approved' | 'rejected', rejectionReason?: string) =>

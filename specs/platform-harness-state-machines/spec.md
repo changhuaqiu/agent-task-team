@@ -167,6 +167,12 @@ AgentInbox item 必须在同一 SQLite 事务创建。Outcome 重放通过 pass 
 必须明确 `toAgentId / intent / title / requestedAction`；packet 的决策、证据、约束、
 开放问题和禁止行为为结构化可选字段，不得用整段最终回复代替。
 
+WebUI Human turn 使用 `a2a.human_handoff` Command：先持久化 chat message，再由服务端
+A2A owner 创建/中断协作与持久 Inbox 工作。浏览器不得先发 `terminal:start` 再通过
+Socket 补登记 Chain。没有目标的 Human turn 表示显式中断当前 collaboration；尚未 claim
+的 Inbox item 同事务取消，已 claim/running 工作留给 Supervisor 执行受 fencing 保护的
+停止策略。
+
 ## 9. Effect 收口
 
 Effect Command 创建时冻结 `criticality`、`deliveryRunId`、`appliesFromRevision` 和

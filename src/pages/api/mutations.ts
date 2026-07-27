@@ -15,6 +15,7 @@ type MutationType =
   | 'session.sealByTask'
   | 'invocation.create'
   | 'invocation.transition'
+  | 'a2a.human_handoff'
   | 'dispatch.enqueue'
   | 'dispatch.cancel'
   | 'tool.invoke'
@@ -334,6 +335,69 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
           ...updates,
         });
         result = invocation;
+        break;
+      }
+      case 'a2a.human_handoff': {
+        const {
+          conversationId,
+          messageId,
+          prompt,
+          targetAgentIds,
+          taskId,
+        } = payload as Record<string, unknown>;
+        if (typeof conversationId !== 'string' || !conversationId.trim()) {
+          return res.status(400).json({ ok: false, error: 'a2a.human_handoff requires conversationId' });
+        }
+        if (typeof messageId !== 'string' || !messageId.trim()) {
+          return res.status(400).json({ ok: false, error: 'a2a.human_handoff requires messageId' });
+        }
+        if (typeof prompt !== 'string') {
+          return res.status(400).json({ ok: false, error: 'a2a.human_handoff requires prompt' });
+        }
+        if (
+          !Array.isArray(targetAgentIds)
+          || targetAgentIds.some((id) => typeof id !== 'string' || !id.trim())
+        ) {
+          return res.status(400).json({ ok: false, error: 'a2a.human_handoff targetAgentIds must be strings' });
+        }
+        if (taskId !== undefined && typeof taskId !== 'string') {
+          return res.status(400).json({ ok: false, error: 'a2a.human_handoff taskId must be a string' });
+        }
+        const { conversationRepo } = await import('@/server/repositories/conversation-repo');
+        if (!conversationRepo.getById(conversationId)) {
+          return res.status(404).json({ ok: false, error: 'a2a.human_handoff conversation not found' });
+        }
+        if (typeof taskId === 'string' && taskId) {
+          const { taskRepo } = await import('@/server/repositories/task-repo');
+          const task = taskRepo.getById(taskId);
+          if (!task) {
+            return res.status(404).json({ ok: false, error: 'a2a.human_handoff task not found' });
+          }
+          if (task.conversation_id !== conversationId) {
+            return res.status(409).json({ ok: false, error: 'a2a.human_handoff task scope mismatch' });
+          }
+        }
+        const targets = [...new Set(targetAgentIds as string[])];
+        if (targets.length > 0) {
+          const { resolveConversationRuntimeProfile } = await import('@/server/harness/conversation-runtime');
+          const roster = resolveConversationRuntimeProfile(conversationId, targets[0])?.runtime.roster;
+          for (const target of targets) {
+            if (!roster?.some((agent) => agent.id === target)) {
+              return res.status(404).json({
+                ok: false,
+                error: `a2a.human_handoff project agent not found: ${target}`,
+              });
+            }
+          }
+        }
+        const { HumanA2ACommandService } = await import('@/server/a2a/human-command-service');
+        result = new HumanA2ACommandService().submit({
+          conversationId,
+          messageId,
+          prompt,
+          targetAgentIds: targets,
+          taskId: typeof taskId === 'string' && taskId ? taskId : undefined,
+        });
         break;
       }
       case 'dispatch.enqueue': {

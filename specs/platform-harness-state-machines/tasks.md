@@ -111,7 +111,9 @@
   Outcome 翻译为聚合 Command；非结构化最终文本不再驱动 WorkContract Invocation 的 A2A。
 - [x] durable A2A Lifecycle Process Manager 已区分 Inbox admission 与真实 Runtime start：
   admission 只到 `starting`，Runtime started 才创建 receiver Possession。
-- [ ] WebUI Human Command 与旧 AgentMessenger/Orchestrator 尚需切换到新聚合；在该切换
+- [x] WebUI Human turn 已改为 `message.append -> a2a.human_handoff -> AgentInbox`；
+  删除浏览器直接启动后再发 `a2a:user-turn-created` 补登记的反向链路。
+- [ ] 旧 AgentMessenger/Orchestrator 的未绑定 Invocation 文本兼容路径尚需删除；在该切换
   完成前，`invocation_chain / chain_worklist / a2a_delivery` 仍存在旧写入，S4 不算完成。
 
 ## S5：Delivery Supervisor
