@@ -13,13 +13,10 @@ export type DispatchIntent = 'answer' | 'implement' | 'review' | 'verify' | 'pla
 export type ExecutionEnvelopeStatus =
   | 'drafted'
   | 'validated'
-  | 'blocked'
-  | 'queued'
   | 'routed'
   | 'sent'
-  | 'started'
-  | 'failed'
-  | 'completed'
+  | 'acknowledged'
+  | 'rejected'
   | 'expired';
 
 export interface ExecutionEnvelopePayload {

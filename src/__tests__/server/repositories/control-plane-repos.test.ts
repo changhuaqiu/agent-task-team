@@ -180,15 +180,28 @@ describe('executionEnvelopeRepo', () => {
       toAgentId: 'luigi',
     });
 
-    executionEnvelopeRepo.updateStatus(envelope.id, 'queued');
+    executionEnvelopeRepo.transition(envelope.id, {
+      to: 'validated',
+      expectedFrom: 'drafted',
+    });
     expect(executionEnvelopeRepo.listRunnableForNode('node-local').map((row) => row.id)).toEqual([envelope.id]);
 
-    const started = executionEnvelopeRepo.updateStatus(envelope.id, 'started')!;
-    expect(started.status).toBe('started');
-
-    const failed = executionEnvelopeRepo.updateStatus(envelope.id, 'failed', 'runtime_unreachable')!;
-    expect(failed.status).toBe('failed');
-    expect(failed.reason_code).toBe('runtime_unreachable');
+    const routed = executionEnvelopeRepo.transition(envelope.id, {
+      to: 'routed',
+      expectedFrom: 'validated',
+    })!;
+    expect(routed.status).toBe('routed');
+    const sent = executionEnvelopeRepo.transition(envelope.id, {
+      to: 'sent',
+      expectedFrom: 'routed',
+    })!;
+    expect(sent.status).toBe('sent');
+    const acknowledged = executionEnvelopeRepo.transition(envelope.id, {
+      to: 'acknowledged',
+      expectedFrom: 'sent',
+    })!;
+    expect(acknowledged.status).toBe('acknowledged');
+    expect(acknowledged.settled_at).toBeTruthy();
   });
 
   it('expires non-terminal envelopes', () => {
@@ -211,11 +224,15 @@ describe('executionEnvelopeRepo', () => {
       toAgentId: 'peach',
       ttlMs: -1,
     });
-    executionEnvelopeRepo.updateStatus(terminal.id, 'completed');
+    executionEnvelopeRepo.transition(terminal.id, {
+      to: 'rejected',
+      expectedFrom: 'drafted',
+      reasonCode: 'policy_rejected',
+    });
 
     expect(executionEnvelopeRepo.expireStale()).toBe(1);
     expect(executionEnvelopeRepo.getById(stale.id)!.status).toBe('expired');
-    expect(executionEnvelopeRepo.getById(terminal.id)!.status).toBe('completed');
+    expect(executionEnvelopeRepo.getById(terminal.id)!.status).toBe('rejected');
   });
 });
 

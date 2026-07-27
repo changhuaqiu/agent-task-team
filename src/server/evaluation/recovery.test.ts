@@ -40,7 +40,7 @@ describe('evaluation backup and recovery drill', () => {
       restored.pragma('foreign_keys = ON');
       applyMigrations(restored);
       expect(restored.prepare('SELECT MAX(version) version FROM _schema_version').get())
-        .toEqual({ version: 56 });
+        .toEqual({ version: 57 });
       expect(restored.prepare(`SELECT d.name,d.revision,c.case_key,c.split
         FROM eval_dataset d JOIN eval_case c ON c.dataset_id=d.id
         WHERE d.conversation_id='conv-backup'`).get()).toEqual({

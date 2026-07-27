@@ -96,7 +96,7 @@ export interface DispatchReceipt {
   taskId?: string;
   targetAgentId: string;
   source?: 'user' | 'a2a' | 'workflow' | 'review_gate' | 'test_gate' | 'system';
-  phase: 'requested' | 'sent' | 'started' | 'completed' | 'blocked' | 'failed';
+  phase: 'requested' | 'sent' | 'acknowledged' | 'rejected';
   chainId?: string;
   passId?: string;
   runId?: string;
@@ -2595,11 +2595,8 @@ socket.on('dispatch.receipt', (receipt: DispatchReceipt) => {
   if (!receipt || !isCurrentProjectEvent(receipt.projectId, receipt.conversationId)) return;
   if (!receipt.receiptId || !receipt.targetAgentId) return;
   if (
-    receipt.phase === 'sent'
-    || receipt.phase === 'started'
-    || receipt.phase === 'completed'
-    || receipt.phase === 'blocked'
-    || (receipt.phase === 'failed' && receipt.reasonCode !== 'agent_busy')
+    receipt.phase === 'acknowledged'
+    || receipt.phase === 'rejected'
   ) {
     clearInFlightDispatch(receipt.targetAgentId, receipt.conversationId);
   }

@@ -28,14 +28,12 @@ export interface DomainEventPayloadMap {
   'a2a.chain.entry_done': { chainId: string; outcome: string };
   'a2a.chain.completed': { status: string };
   'a2a.chain.aborted': { status: string; reason?: string };
-  'envelope.validated': { status: string };
-  'envelope.blocked': { previousStatus: string; status: string; reasonCode?: string };
-  'envelope.queued': { status: string };
+  'envelope.drafted': { status: string };
+  'envelope.validated': { previousStatus: string; status: string };
   'envelope.routed': { previousStatus: string; status: string };
   'envelope.sent': { previousStatus: string; status: string };
-  'envelope.started': { previousStatus: string; status: string };
-  'envelope.completed': { previousStatus: string; status: string };
-  'envelope.failed': { previousStatus: string; status: string; reasonCode?: string };
+  'envelope.acknowledged': { previousStatus: string; status: string };
+  'envelope.rejected': { previousStatus: string; status: string; reasonCode: string };
   'envelope.expired': { previousStatus: string; status: string };
   'binding.started': { previousStatus: string; status: string; envelopeId: string };
   'binding.finished': { previousStatus: string; status: string };
@@ -73,8 +71,8 @@ export const DOMAIN_EVENT_TYPES_BY_OWNER = {
     'a2a.chain.completed', 'a2a.chain.aborted',
   ],
   envelope: [
-    'envelope.validated', 'envelope.blocked', 'envelope.queued', 'envelope.routed', 'envelope.sent',
-    'envelope.started', 'envelope.completed', 'envelope.failed', 'envelope.expired',
+    'envelope.drafted', 'envelope.validated', 'envelope.routed', 'envelope.sent',
+    'envelope.acknowledged', 'envelope.rejected', 'envelope.expired',
   ],
   binding: ['binding.started', 'binding.finished', 'binding.error'],
   node: ['node.stale', 'node.unreachable'],

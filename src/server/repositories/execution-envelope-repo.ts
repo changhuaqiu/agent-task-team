@@ -9,6 +9,18 @@ import type {
   ExecutionEnvelopeStatus,
 } from './control-plane-types';
 
+const EXECUTION_ENVELOPE_TRANSITIONS: Readonly<
+  Record<ExecutionEnvelopeStatus, ReadonlySet<ExecutionEnvelopeStatus>>
+> = {
+  drafted: new Set(['validated', 'rejected', 'expired']),
+  validated: new Set(['routed', 'rejected', 'expired']),
+  routed: new Set(['sent', 'rejected', 'expired']),
+  sent: new Set(['acknowledged', 'rejected', 'expired']),
+  acknowledged: new Set(),
+  rejected: new Set(),
+  expired: new Set(),
+};
+
 export interface ExecutionEnvelopeRow {
   id: string;
   source: DispatchSource;
@@ -26,6 +38,8 @@ export interface ExecutionEnvelopeRow {
   nonce: string;
   status: ExecutionEnvelopeStatus;
   reason_code: string | null;
+  settled_at: string | null;
+  revision: number;
   expires_at: string;
   created_at: string;
   updated_at: string;
@@ -46,12 +60,43 @@ export interface CreateExecutionEnvelopeInput {
   ttlMs?: number;
 }
 
-const ENVELOPE_TERMINAL_STATUSES = new Set<ExecutionEnvelopeStatus>([
-  'blocked',
-  'failed',
-  'completed',
-  'expired',
-]);
+export interface ExecutionEnvelopeTransition {
+  to: ExecutionEnvelopeStatus;
+  expectedFrom?: ExecutionEnvelopeStatus;
+  reasonCode?: string;
+}
+
+export class InvalidExecutionEnvelopeTransitionError extends Error {
+  readonly reasonCode = 'invalid_execution_envelope_transition';
+
+  constructor(
+    readonly envelopeId: string,
+    readonly from: ExecutionEnvelopeStatus,
+    readonly to: ExecutionEnvelopeStatus,
+  ) {
+    super(`Illegal execution envelope transition for ${envelopeId}: ${from} -> ${to}`);
+  }
+}
+
+export class StaleExecutionEnvelopeTransitionError extends Error {
+  readonly reasonCode = 'stale_execution_envelope_transition';
+
+  constructor(
+    readonly envelopeId: string,
+    readonly expected: ExecutionEnvelopeStatus,
+    readonly actual: ExecutionEnvelopeStatus,
+  ) {
+    super(`Stale execution envelope transition for ${envelopeId}: expected ${expected}, found ${actual}`);
+  }
+}
+
+export class InvalidExecutionEnvelopeReasonError extends Error {
+  readonly reasonCode = 'invalid_execution_envelope_reason';
+
+  constructor(readonly status: ExecutionEnvelopeStatus) {
+    super(`Execution envelope ${status} requires a reasonCode`);
+  }
+}
 
 export const executionEnvelopeRepo = {
   create(input: CreateExecutionEnvelopeInput): ExecutionEnvelopeRow {
@@ -60,13 +105,14 @@ export const executionEnvelopeRepo = {
     const now = new Date(nowMs).toISOString();
     const ttlMs = input.ttlMs ?? 120_000;
     const expiresAt = new Date(nowMs + ttlMs).toISOString();
-    getDb()
-      .prepare(
+    const db = getDb();
+    return db.transaction(() => {
+      db.prepare(
         `INSERT INTO execution_envelope (
           id, source, intent, conversation_id, task_id, chain_id, pass_id,
           from_node_id, from_agent_id, to_node_id, to_agent_id, payload,
-          ttl_ms, nonce, status, expires_at, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'drafted', ?, ?, ?)`,
+          ttl_ms, nonce, status, revision, expires_at, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'drafted', 0, ?, ?, ?)`,
       )
       .run(
         id,
@@ -87,7 +133,16 @@ export const executionEnvelopeRepo = {
         now,
         now,
       );
-    return executionEnvelopeRepo.getById(id)!;
+      new DomainEventPublisher(db).publish({
+        type: 'envelope.drafted',
+        projectId: input.conversationId,
+        aggregate: { type: 'envelope', id, version: 0 },
+        projectAgentId: input.toAgentId,
+        occurredAt: now,
+        payload: { status: 'drafted' },
+      });
+      return executionEnvelopeRepo.getById(id)!;
+    }).immediate();
   },
 
   getById(id: string): ExecutionEnvelopeRow | undefined {
@@ -106,48 +161,77 @@ export const executionEnvelopeRepo = {
     return getDb()
       .prepare(
         `SELECT * FROM execution_envelope
-         WHERE to_node_id = ? AND status IN ('validated', 'queued', 'routed', 'sent')
+         WHERE to_node_id = ? AND status IN ('validated', 'routed', 'sent')
          ORDER BY created_at ASC, id ASC`,
       )
       .all(nodeId) as ExecutionEnvelopeRow[];
   },
 
-  updateStatus(id: string, status: ExecutionEnvelopeStatus, reasonCode?: string): ExecutionEnvelopeRow | undefined {
+  transition(
+    id: string,
+    transition: ExecutionEnvelopeTransition,
+  ): ExecutionEnvelopeRow | undefined {
     const now = new Date().toISOString();
     const db = getDb();
     return db.transaction(() => {
       const previous = executionEnvelopeRepo.getById(id);
-      if (!previous || previous.status === status) return undefined;
-      if (ENVELOPE_TERMINAL_STATUSES.has(previous.status)) return undefined;
+      if (!previous) return undefined;
+      if (transition.expectedFrom && transition.expectedFrom !== previous.status) {
+        throw new StaleExecutionEnvelopeTransitionError(
+          id,
+          transition.expectedFrom,
+          previous.status,
+        );
+      }
+      if (previous.status === transition.to) return previous;
+      if (!EXECUTION_ENVELOPE_TRANSITIONS[previous.status].has(transition.to)) {
+        throw new InvalidExecutionEnvelopeTransitionError(id, previous.status, transition.to);
+      }
+      if (transition.to === 'rejected' && !transition.reasonCode?.trim()) {
+        throw new InvalidExecutionEnvelopeReasonError(transition.to);
+      }
+      const terminal = ['acknowledged', 'rejected', 'expired'].includes(transition.to);
       const result = db
         .prepare(`
           UPDATE execution_envelope
-          SET status = ?, reason_code = ?, updated_at = ?
-          WHERE id = ? AND status NOT IN ('blocked','failed','completed','expired')
+          SET status = ?, reason_code = ?, settled_at = ?, revision = revision + 1, updated_at = ?
+          WHERE id = ? AND status = ?
         `)
-        .run(status, reasonCode ?? null, now, id);
-      if (result.changes !== 1) return undefined;
-      const type = status === 'validated' || status === 'blocked'
-        || status === 'queued' || status === 'routed'
-        || status === 'sent' || status === 'started' || status === 'completed'
-        || status === 'failed' || status === 'expired'
-        ? `envelope.${status}` as const
-        : undefined;
-      if (type) {
-        new DomainEventPublisher(db).publish({
-          type,
-          projectId: previous.conversation_id,
-          aggregate: { type: 'envelope', id },
-          projectAgentId: previous.to_agent_id,
-          occurredAt: now,
-          payload: {
-            previousStatus: previous.status,
-            status,
-            ...(reasonCode ? { reasonCode } : {}),
-          } as never,
-        });
+        .run(
+          transition.to,
+          transition.reasonCode ?? null,
+          terminal ? now : null,
+          now,
+          id,
+          previous.status,
+        );
+      if (result.changes !== 1) {
+        const current = executionEnvelopeRepo.getById(id);
+        if (current) {
+          throw new StaleExecutionEnvelopeTransitionError(id, previous.status, current.status);
+        }
+        return undefined;
       }
-      return executionEnvelopeRepo.getById(id);
+      const current = executionEnvelopeRepo.getById(id)!;
+      const type = `envelope.${current.status}` as const;
+      new DomainEventPublisher(db).publish({
+        type,
+        projectId: current.conversation_id,
+        aggregate: { type: 'envelope', id, version: current.revision },
+        projectAgentId: current.to_agent_id,
+        occurredAt: now,
+        payload: current.status === 'rejected'
+          ? {
+            previousStatus: previous.status,
+            status: current.status,
+            reasonCode: current.reason_code!,
+          }
+          : {
+              previousStatus: previous.status,
+              status: current.status,
+            } as never,
+      });
+      return current;
     }).immediate();
   },
 
@@ -157,11 +241,16 @@ export const executionEnvelopeRepo = {
     return db.transaction(() => {
       const expired = db.prepare(
         `SELECT id FROM execution_envelope
-         WHERE expires_at < ? AND status NOT IN ('completed', 'failed', 'blocked', 'expired')`,
+         WHERE expires_at < ? AND status NOT IN ('acknowledged', 'rejected', 'expired')`,
       ).all(current) as Array<{ id: string }>;
       let changed = 0;
       for (const row of expired) {
-        if (executionEnvelopeRepo.updateStatus(row.id, 'expired', 'ttl_expired')) changed += 1;
+        const envelope = executionEnvelopeRepo.getById(row.id);
+        if (!envelope) continue;
+        if (executionEnvelopeRepo.transition(row.id, {
+          to: 'expired',
+          expectedFrom: envelope.status,
+        })) changed += 1;
       }
       return changed;
     }).immediate();

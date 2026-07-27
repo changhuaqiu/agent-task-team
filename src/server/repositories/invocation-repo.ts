@@ -198,6 +198,14 @@ export const invocationRepo = {
       | undefined;
   },
 
+  listByConversation(conversationId: string): InvocationRow[] {
+    return getDb()
+      .prepare(
+        'SELECT * FROM invocation WHERE conversation_id = ? ORDER BY created_at ASC, id ASC',
+      )
+      .all(conversationId) as InvocationRow[];
+  },
+
   transition(id: string, transition: InvocationTransition): InvocationRow | undefined {
     const now = new Date().toISOString();
     const db = getDb();

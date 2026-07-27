@@ -2041,6 +2041,125 @@ DROP TABLE IF EXISTS runtime_completion_step_receipt;
       `);
     },
   },
+  {
+    version: 57,
+    run: (db) => {
+      const table = db.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='execution_envelope'",
+      ).get();
+      if (!table) return;
+      const columns = new Set(
+        (db.prepare('PRAGMA table_info(execution_envelope)').all() as Array<{ name: string }>)
+          .map((column) => column.name),
+      );
+      if (!columns.has('settled_at')) {
+        db.exec('ALTER TABLE execution_envelope ADD COLUMN settled_at TEXT');
+      }
+      if (!columns.has('revision')) {
+        db.exec('ALTER TABLE execution_envelope ADD COLUMN revision INTEGER NOT NULL DEFAULT 0');
+      }
+      db.exec(`
+        UPDATE execution_envelope
+        SET reason_code = CASE
+              WHEN status NOT IN (
+                'drafted','validated','blocked','queued','routed','sent','started',
+                'failed','completed','expired','acknowledged','rejected'
+              )
+              THEN COALESCE(reason_code, 'legacy_execution_envelope_status_unknown')
+              ELSE reason_code
+            END,
+            settled_at = CASE
+              WHEN status IN (
+                'blocked','failed','completed','expired','started',
+                'acknowledged','rejected'
+              )
+              THEN COALESCE(settled_at, updated_at)
+              ELSE NULL
+            END,
+            status = CASE status
+              WHEN 'drafted' THEN 'drafted'
+              WHEN 'validated' THEN 'validated'
+              WHEN 'queued' THEN 'validated'
+              WHEN 'routed' THEN 'routed'
+              WHEN 'sent' THEN 'sent'
+              WHEN 'started' THEN 'acknowledged'
+              WHEN 'completed' THEN 'acknowledged'
+              WHEN 'blocked' THEN 'rejected'
+              WHEN 'failed' THEN 'rejected'
+              WHEN 'expired' THEN 'expired'
+              WHEN 'acknowledged' THEN 'acknowledged'
+              WHEN 'rejected' THEN 'rejected'
+              ELSE 'rejected'
+            END;
+
+        UPDATE execution_envelope
+        SET reason_code = COALESCE(NULLIF(trim(reason_code), ''), 'legacy_dispatch_rejected'),
+            settled_at = COALESCE(settled_at, updated_at)
+        WHERE status = 'rejected';
+
+        DROP TRIGGER IF EXISTS trg_execution_envelope_status_insert;
+        DROP TRIGGER IF EXISTS trg_execution_envelope_status_update;
+        DROP TRIGGER IF EXISTS trg_execution_envelope_transition_update;
+        DROP TRIGGER IF EXISTS trg_execution_envelope_settled_insert;
+        DROP TRIGGER IF EXISTS trg_execution_envelope_settled_update;
+
+        CREATE TRIGGER trg_execution_envelope_status_insert
+        BEFORE INSERT ON execution_envelope
+        WHEN NEW.status NOT IN (
+          'drafted','validated','routed','sent','acknowledged','rejected','expired'
+        )
+        BEGIN
+          SELECT RAISE(ABORT, 'invalid_execution_envelope_status');
+        END;
+
+        CREATE TRIGGER trg_execution_envelope_status_update
+        BEFORE UPDATE OF status ON execution_envelope
+        WHEN NEW.status NOT IN (
+          'drafted','validated','routed','sent','acknowledged','rejected','expired'
+        )
+        BEGIN
+          SELECT RAISE(ABORT, 'invalid_execution_envelope_status');
+        END;
+
+        CREATE TRIGGER trg_execution_envelope_transition_update
+        BEFORE UPDATE OF status ON execution_envelope
+        WHEN NEW.status <> OLD.status
+          AND NOT (
+            (OLD.status = 'drafted' AND NEW.status IN ('validated','rejected','expired'))
+            OR (OLD.status = 'validated' AND NEW.status IN ('routed','rejected','expired'))
+            OR (OLD.status = 'routed' AND NEW.status IN ('sent','rejected','expired'))
+            OR (OLD.status = 'sent' AND NEW.status IN ('acknowledged','rejected','expired'))
+          )
+        BEGIN
+          SELECT RAISE(ABORT, 'invalid_execution_envelope_transition');
+        END;
+
+        CREATE TRIGGER trg_execution_envelope_settled_insert
+        BEFORE INSERT ON execution_envelope
+        WHEN (NEW.status IN ('acknowledged','rejected','expired') AND NEW.settled_at IS NULL)
+          OR (NEW.status NOT IN ('acknowledged','rejected','expired') AND NEW.settled_at IS NOT NULL)
+          OR (NEW.status = 'rejected' AND (
+                NEW.reason_code IS NULL
+                OR length(trim(NEW.reason_code)) = 0
+              ))
+        BEGIN
+          SELECT RAISE(ABORT, 'invalid_execution_envelope_settlement');
+        END;
+
+        CREATE TRIGGER trg_execution_envelope_settled_update
+        BEFORE UPDATE OF status, reason_code, settled_at ON execution_envelope
+        WHEN (NEW.status IN ('acknowledged','rejected','expired') AND NEW.settled_at IS NULL)
+          OR (NEW.status NOT IN ('acknowledged','rejected','expired') AND NEW.settled_at IS NOT NULL)
+          OR (NEW.status = 'rejected' AND (
+                NEW.reason_code IS NULL
+                OR length(trim(NEW.reason_code)) = 0
+              ))
+        BEGIN
+          SELECT RAISE(ABORT, 'invalid_execution_envelope_settlement');
+        END;
+      `);
+    },
+  },
 ];
 
 export function applyMigrations(db: Database.Database): void {

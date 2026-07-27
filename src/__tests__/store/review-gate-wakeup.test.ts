@@ -140,18 +140,18 @@ describe('review gate wakeup', () => {
   it('records dispatch receipts from the daemon', () => {
     emitServerEvent('dispatch.receipt', {
       projectId: 'conv-review',
-      receiptId: 'env-1:started',
+      receiptId: 'env-1:acknowledged',
       conversationId: 'conv-review',
       taskId: 'TASK-001',
       targetAgentId: 'mario',
       source: 'review_gate',
-      phase: 'started',
+      phase: 'acknowledged',
       createdAt: '2026-05-17T00:01:00.000Z',
     });
 
     expect(useTaskHubStore.getState().dispatchReceiptsByConversation['conv-review']).toContainEqual(expect.objectContaining({
-      receiptId: 'env-1:started',
-      phase: 'started',
+      receiptId: 'env-1:acknowledged',
+      phase: 'acknowledged',
       targetAgentId: 'mario',
     }));
   });

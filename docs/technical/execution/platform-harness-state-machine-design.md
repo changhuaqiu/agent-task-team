@@ -244,6 +244,28 @@ migration 56 将 `queued / completed / failed` 分别归一化为
 数据库约束同时守护迁移表、lease 字段和 settled timestamp，生产 API 只返回仍待接纳的
 `enqueued / released / claimed` 项。
 
+### 5.4 ExecutionEnvelope 状态机的已落地边界
+
+ExecutionEnvelope 只描述“一条派发指令是否被目标执行管线确认”，不再复制 Runtime 的启动、
+完成和失败状态：
+
+```text
+drafted -> validated -> routed -> sent -> acknowledged
+       \-> rejected
+       \-> expired
+```
+
+`acknowledged` 是派发终态，表示目标 Invocation Pipeline 已确认接纳；后续 Agent 是否开始、
+成功、失败、取消或超时，只读取 Invocation。Envelope 不再拥有
+`queued / started / completed / failed / blocked`，UI 派发回执也只展示
+`requested / sent / acknowledged / rejected`。
+
+migration 57 将旧 `started / completed` 归一化为 `acknowledged`，将
+`blocked / failed` 归一化为 `rejected`，并增加 revision、settled timestamp 和数据库迁移表。
+Delivery 恢复逻辑已改为：派发前故障读取 Envelope `rejected / expired`，派发后的运行与终止
+读取 Invocation；因此不会把 `Envelope.acknowledged` 误判为 Agent 已执行完，也不会重复唤醒
+仍在运行的 Work Cell。
+
 Effect 创建时必须冻结：
 
 ```text

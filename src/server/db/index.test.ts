@@ -335,6 +335,71 @@ describe('SQLite Foundation', () => {
     }
   });
 
+  it('migrates ExecutionEnvelope to acknowledgement semantics', () => {
+    const legacyDb = new Database(':memory:');
+    try {
+      legacyDb.exec(`
+        CREATE TABLE _schema_version (version INTEGER PRIMARY KEY);
+        CREATE TABLE execution_envelope (
+          id TEXT PRIMARY KEY,
+          status TEXT NOT NULL,
+          reason_code TEXT,
+          updated_at TEXT NOT NULL
+        );
+      `);
+      const recordVersion = legacyDb.prepare(
+        'INSERT INTO _schema_version (version) VALUES (?)',
+      );
+      for (let version = 1; version <= 56; version += 1) recordVersion.run(version);
+      const insert = legacyDb.prepare(
+        'INSERT INTO execution_envelope (id,status,reason_code,updated_at) VALUES (?,?,?,?)',
+      );
+      const now = '2026-07-27T00:00:00.000Z';
+      insert.run('env-blocked', 'blocked', null, now);
+      insert.run('env-completed', 'completed', null, now);
+      insert.run('env-failed', 'failed', 'spawn_failed', now);
+      insert.run('env-queued', 'queued', null, now);
+      insert.run('env-started', 'started', null, now);
+      insert.run('env-unknown', 'mystery', null, now);
+
+      applyMigrations(legacyDb);
+
+      expect(legacyDb.prepare(
+        'SELECT id,status,reason_code,settled_at FROM execution_envelope ORDER BY id',
+      ).all()).toEqual([
+        {
+          id: 'env-blocked',
+          status: 'rejected',
+          reason_code: 'legacy_dispatch_rejected',
+          settled_at: now,
+        },
+        { id: 'env-completed', status: 'acknowledged', reason_code: null, settled_at: now },
+        { id: 'env-failed', status: 'rejected', reason_code: 'spawn_failed', settled_at: now },
+        { id: 'env-queued', status: 'validated', reason_code: null, settled_at: null },
+        { id: 'env-started', status: 'acknowledged', reason_code: null, settled_at: now },
+        {
+          id: 'env-unknown',
+          status: 'rejected',
+          reason_code: 'legacy_execution_envelope_status_unknown',
+          settled_at: now,
+        },
+      ]);
+      legacyDb.prepare(
+        "INSERT INTO execution_envelope (id,status,updated_at) VALUES ('env-new','drafted',?)",
+      ).run(now);
+      expect(() => legacyDb.prepare(
+        "UPDATE execution_envelope SET status='sent' WHERE id='env-new'",
+      ).run()).toThrow(/invalid_execution_envelope_transition/);
+      expect(() => legacyDb.prepare(`
+        UPDATE execution_envelope
+        SET status='rejected', settled_at=?
+        WHERE id='env-new'
+      `).run(now)).toThrow(/invalid_execution_envelope_settlement/);
+    } finally {
+      legacyDb.close();
+    }
+  });
+
   it('enforces agent_session unique constraint', () => {
     const now = new Date().toISOString();
     db.prepare(
@@ -525,7 +590,7 @@ describe('SQLite Foundation', () => {
     expect(db.prepare('SELECT version FROM _schema_version WHERE version = 40').get())
       .toEqual({ version: 40 });
     expect(db.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-      .toEqual({ version: 56 });
+      .toEqual({ version: 57 });
   });
 
   it('repairs v26-v40 checkpoints whose migration collision skipped autonomous delivery tables', () => {
@@ -555,7 +620,7 @@ describe('SQLite Foundation', () => {
           'autonomous_delivery_advancement_request',
         ]));
         expect(checkpoint.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-          .toEqual({ version: 56 });
+          .toEqual({ version: 57 });
         expect(checkpoint.pragma('foreign_key_check')).toEqual([]);
       } finally {
         checkpoint.close();

@@ -149,7 +149,7 @@ describe('domain event inline seam', () => {
       .toEqual(['a2a.chain.aborted']);
   });
 
-  it('keeps envelope terminal states final and emits blocked as a domain fact', () => {
+  it('keeps envelope terminal states final and emits rejection as a domain fact', () => {
     const envelope = executionEnvelopeRepo.create({
       source: 'workflow',
       intent: 'implement',
@@ -158,16 +158,22 @@ describe('domain event inline seam', () => {
       toNodeId: 'node-b',
       toAgentId: 'implementer',
     });
-    executionEnvelopeRepo.updateStatus(envelope.id, 'blocked', 'node_missing');
-    executionEnvelopeRepo.updateStatus(envelope.id, 'completed');
-    executionEnvelopeRepo.updateStatus(envelope.id, 'failed', 'late_failure');
+    executionEnvelopeRepo.transition(envelope.id, {
+      to: 'rejected',
+      expectedFrom: 'drafted',
+      reasonCode: 'node_missing',
+    });
+    expect(() => executionEnvelopeRepo.transition(envelope.id, {
+      to: 'validated',
+      expectedFrom: 'rejected',
+    })).toThrow(/Illegal execution envelope transition/);
 
     expect(executionEnvelopeRepo.getById(envelope.id)).toMatchObject({
-      status: 'blocked',
+      status: 'rejected',
       reason_code: 'node_missing',
     });
     expect(log.listStream(`envelope:${envelope.id}`).map((event) => event.type))
-      .toEqual(['envelope.blocked']);
+      .toEqual(['envelope.drafted', 'envelope.rejected']);
   });
 
   it('does not claim an empty task owner as an assignment fact', () => {

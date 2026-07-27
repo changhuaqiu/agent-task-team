@@ -35,6 +35,14 @@
 - [x] migration 56、数据库 transition/lease guard、Scheduler、Router 和 Dispatch API
   已迁入新 Inbox 契约。
 - [x] Inbox 切片通过 TypeScript、相关 lint 和全量 Vitest（188 files、1446 tests，1 skipped）。
+- [x] ExecutionEnvelope 已冻结为
+  `drafted / validated / routed / sent / acknowledged / rejected / expired`，删除 Runtime
+  重复状态 `queued / started / completed / failed / blocked`。
+- [x] Delivery 恢复和 autonomy guard 在派发确认后改读 Invocation，不再把
+  `Envelope.acknowledged` 当成执行完成。
+- [x] migration 57、Domain Event、DispatchGateway、Daemon receipt 和 WebUI 投影
+  已迁入新 Envelope 契约。
+- [x] Envelope 切片通过 TypeScript、相关 lint 和全量 Vitest（188 files、1448 tests，1 skipped）。
 
 ## S2：Review & Gate
 

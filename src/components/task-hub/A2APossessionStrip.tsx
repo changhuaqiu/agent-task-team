@@ -38,14 +38,10 @@ function receiptPhaseLabel(phase: DispatchReceipt['phase']) {
       return '已请求';
     case 'sent':
       return '已送达';
-    case 'started':
-      return '已启动';
-    case 'completed':
-      return '已完成';
-    case 'blocked':
-      return '被阻止';
-    case 'failed':
-      return '失败';
+    case 'acknowledged':
+      return '已确认接纳';
+    case 'rejected':
+      return '未接纳';
     default:
       return phase;
   }
@@ -79,8 +75,7 @@ export function A2APossessionStrip() {
   const receiptTarget = agentLabel(latestReceipt?.targetAgentId, roster);
   const isBlocked = latest?.status === 'blocked'
     || latest?.status === 'timeout'
-    || latestReceipt?.phase === 'blocked'
-    || latestReceipt?.phase === 'failed';
+    || latestReceipt?.phase === 'rejected';
   const timeline = a2a ? [...a2a.handoffs].reverse() : [];
   const receiptTimeline = [...dispatchReceipts].reverse().slice(0, 8);
   const recordCount = timeline.length + receiptTimeline.length;
@@ -116,7 +111,7 @@ export function A2APossessionStrip() {
           )}
           {latestReceipt && (
             <div className="flex items-center gap-1.5 min-w-0">
-              {latestReceipt.phase === 'blocked' || latestReceipt.phase === 'failed' ? (
+              {latestReceipt.phase === 'rejected' ? (
                 <ShieldAlert className="w-3.5 h-3.5 text-amber-500" />
               ) : (
                 <GitBranch className="w-3.5 h-3.5 text-[hsl(var(--accent))]" />
@@ -183,7 +178,7 @@ export function A2APossessionStrip() {
           {receiptTimeline.length > 0 && (
             <div className="mt-2 flex flex-col gap-1.5">
               {receiptTimeline.map((receipt, index) => {
-                const failed = receipt.phase === 'blocked' || receipt.phase === 'failed';
+                const failed = receipt.phase === 'rejected';
                 return (
                   <div
                     key={receipt.receiptId}

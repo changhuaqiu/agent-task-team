@@ -719,7 +719,7 @@ export default function registerDaemon(io: IOServer) {
       const sharedProjectDir = join(workspacesRoot, sessionConvId);
       let taskProjectDir = sharedProjectDir;
       const emitDispatchReceipt = (
-        phase: 'requested' | 'sent' | 'started' | 'completed' | 'blocked' | 'failed',
+        phase: 'requested' | 'sent' | 'acknowledged' | 'rejected',
         reasonCode?: string,
       ) => {
         if (!controlEnvelopeId) return;
@@ -737,22 +737,28 @@ export default function registerDaemon(io: IOServer) {
           createdAt: new Date().toISOString(),
         });
       };
-      const markEnvelopeStarted = () => {
+      const acknowledgeEnvelope = () => {
         if (!controlEnvelopeId) return;
-        dispatchGateway.markStarted(controlEnvelopeId);
-        emitDispatchReceipt('started');
+        dispatchGateway.acknowledge(controlEnvelopeId);
+        emitDispatchReceipt('acknowledged');
       };
-      const markEnvelopeCompleted = () => {
+      const markExecutionCompleted = () => {
         finishObservation('ok');
         if (!controlEnvelopeId) return;
-        dispatchGateway.markCompleted(controlEnvelopeId);
-        emitDispatchReceipt('completed');
+        dispatchGateway.markExecutionFinished(controlEnvelopeId);
       };
-      const markEnvelopeFailed = (reasonCode: string) => {
+      const markExecutionOrEnvelopeFailed = (reasonCode: string) => {
         finishObservation(reasonCode === 'cancelled' ? 'cancelled' : 'error', reasonCode);
         if (!controlEnvelopeId) return;
-        dispatchGateway.markFailed(controlEnvelopeId, reasonCode);
-        emitDispatchReceipt('failed', reasonCode);
+        const current = executionEnvelopeRepo.getById(controlEnvelopeId);
+        if (current?.status === 'acknowledged') {
+          dispatchGateway.markExecutionFailed(controlEnvelopeId, reasonCode);
+          return;
+        }
+        if (current && current.status !== 'rejected' && current.status !== 'expired') {
+          dispatchGateway.reject(controlEnvelopeId, reasonCode);
+          emitDispatchReceipt('rejected', reasonCode);
+        }
       };
 
       const engineFromRuntime =
@@ -800,8 +806,8 @@ export default function registerDaemon(io: IOServer) {
       controlEnvelopeId = envelope.id;
       emitDispatchReceipt('requested', envelope.reason_code ?? undefined);
 
-      if (envelope.status === 'blocked') {
-        emitDispatchReceipt('blocked', envelope.reason_code ?? 'runtime_blocked');
+      if (envelope.status === 'rejected') {
+        emitDispatchReceipt('rejected', envelope.reason_code ?? 'runtime_rejected');
         publishRuntimeWarning(
           `目标运行实例不可达：${envelope.reason_code ?? 'blocked'}`,
           envelope.reason_code ?? 'runtime_blocked',
@@ -815,7 +821,7 @@ export default function registerDaemon(io: IOServer) {
       }
       // If agent is busy and not forcing, reject silently — client should have queued
       if (!force && activeProcesses.has(processKey(agentId, projectId))) {
-        markEnvelopeFailed('agent_busy');
+        markExecutionOrEnvelopeFailed('agent_busy');
         publishRuntimeWarning('Agent is busy, message queued', 'agent_busy');
         return;
       }
@@ -1143,7 +1149,7 @@ export default function registerDaemon(io: IOServer) {
           const active = activeProcesses.get(processKey(agentId, projectId));
           if (active) {
             active.kill();
-            markEnvelopeFailed('timeout');
+            markExecutionOrEnvelopeFailed('timeout');
             publishRuntimeWarning(
               `CLI 响应超时 (${Math.round(timeoutMs / 1000)}s)，已自动终止。`,
               'timeout',
@@ -1382,7 +1388,7 @@ export default function registerDaemon(io: IOServer) {
         const controller = new AbortController();
         activeProcesses.set(processKey(agentId, projectId), { kill: () => controller.abort() });
         processStartGuard.markStarted(startKey);
-        markEnvelopeStarted();
+        acknowledgeEnvelope();
         runtimeEventCoordinator?.start();
 
         publishTerminalOutput(`\x1b[33m$ opencode-bridge ${url}\x1b[0m\r\n`);
@@ -1415,7 +1421,7 @@ export default function registerDaemon(io: IOServer) {
             publishRuntimeWarning(`Bridge 连接失败 (HTTP ${r.status})`, 'spawn_failed');
             // 失败不 seal session（保持 active，下次 @ resume，id 不变）—— specs/agent-session-stability
             runtimeEventCoordinator?.failSetup('spawn_failed', observedRuntimeSessionId);
-            markEnvelopeFailed('spawn_failed');
+            markExecutionOrEnvelopeFailed('spawn_failed');
             publishTerminalExit({ code: 127, command: 'bridge', reasonCode: 'spawn_failed' });
             activeProcesses.delete(processKey(agentId, projectId));
             if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
@@ -1466,7 +1472,7 @@ export default function registerDaemon(io: IOServer) {
           });
           clearProcessTimeout();
           clearInterval(heartbeatTimer);
-          markEnvelopeCompleted();
+          markExecutionCompleted();
           // Don't seal on successful completion — session stays active for --resume reuse
           publishTerminalExit({
             code: 0,
@@ -1483,7 +1489,7 @@ export default function registerDaemon(io: IOServer) {
           publishRuntimeWarning(`Bridge 错误：${msg}`, 'spawn_failed');
           // 失败不 seal session（保持 active，下次 @ resume，id 不变）—— specs/agent-session-stability
           runtimeEventCoordinator?.failSetup('spawn_failed', observedRuntimeSessionId);
-          markEnvelopeFailed('spawn_failed');
+          markExecutionOrEnvelopeFailed('spawn_failed');
           publishTerminalExit({ code: 127, command: 'bridge', reasonCode: 'spawn_failed' });
           activeProcesses.delete(processKey(agentId, projectId));
           if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
@@ -1543,7 +1549,7 @@ export default function registerDaemon(io: IOServer) {
             },
           });
           processStartGuard.markStarted(startKey);
-          markEnvelopeStarted();
+          acknowledgeEnvelope();
           return;
         } catch (err) {
           console.error('[daemon] tmux pane creation failed, falling back to direct spawn:', (err as Error).message);
@@ -1792,7 +1798,7 @@ export default function registerDaemon(io: IOServer) {
 
       activeProcesses.set(processKey(agentId, projectId), { kill });
       processStartGuard.markStarted(startKey);
-      markEnvelopeStarted();
+      acknowledgeEnvelope();
 
       // Consume events and forward to socket
       (async () => {
@@ -1881,7 +1887,7 @@ export default function registerDaemon(io: IOServer) {
           // fresh runtime Session on the next dispatch.
 
           if (final.status === 'completed') {
-            markEnvelopeCompleted();
+            markExecutionCompleted();
             if (evaluation) {
               if (taskId) taskRepo.transition(taskId, { to: 'done' });
               const submitted = agentEvaluation.submit({
@@ -1904,7 +1910,9 @@ export default function registerDaemon(io: IOServer) {
               sessionRepo.seal(agentSession.id, 'evaluation_execution_completed');
             }
           } else {
-            markEnvelopeFailed(final.reasonCode ?? (final.status === 'timeout' ? 'timeout' : 'runtime_failed'));
+            markExecutionOrEnvelopeFailed(
+              final.reasonCode ?? (final.status === 'timeout' ? 'timeout' : 'runtime_failed'),
+            );
             if (evaluation) {
               if (taskId) {
                 taskRepo.transition(taskId, {
@@ -1951,7 +1959,7 @@ export default function registerDaemon(io: IOServer) {
             console.error('[daemon] failed to terminate invocation after backend error:', invocationError);
           }
           // 失败不 seal session（保持 active，下次 @ resume，id 不变）—— specs/agent-session-stability
-          markEnvelopeFailed('spawn_failed');
+          markExecutionOrEnvelopeFailed('spawn_failed');
           if (evaluation) {
             try {
               if (taskId) {
@@ -2005,21 +2013,26 @@ export default function registerDaemon(io: IOServer) {
           }
         }
         if (controlEnvelopeId) {
-          dispatchGateway.markFailed(controlEnvelopeId, 'internal_error');
           const receiptConversationId = conversationId || projectId || 'default';
-          io.to(receiptConversationId).emit('dispatch.receipt', {
-            projectId: receiptConversationId,
-            receiptId: `${controlEnvelopeId}:failed`,
-            conversationId: receiptConversationId,
-            taskId,
-            targetAgentId: agentId,
-            source: dispatchSource ?? 'user',
-            phase: 'failed',
-            chainId,
-            passId,
-            reasonCode: 'internal_error',
-            createdAt: new Date().toISOString(),
-          });
+          const current = executionEnvelopeRepo.getById(controlEnvelopeId);
+          if (current?.status === 'acknowledged') {
+            dispatchGateway.markExecutionFailed(controlEnvelopeId, 'internal_error');
+          } else if (current && current.status !== 'rejected' && current.status !== 'expired') {
+            dispatchGateway.reject(controlEnvelopeId, 'internal_error');
+            io.to(receiptConversationId).emit('dispatch.receipt', {
+              projectId: receiptConversationId,
+              receiptId: `${controlEnvelopeId}:rejected`,
+              conversationId: receiptConversationId,
+              taskId,
+              targetAgentId: agentId,
+              source: dispatchSource ?? 'user',
+              phase: 'rejected',
+              chainId,
+              passId,
+              reasonCode: 'internal_error',
+              createdAt: new Date().toISOString(),
+            });
+          }
         }
         const failureProjectId = conversationId?.trim() || projectId?.trim();
         if (failureProjectId) {

@@ -38,17 +38,18 @@ describe('DispatchGateway', () => {
 
     expect(envelope.status).toBe('routed');
     gateway.markSent(envelope.id);
-    gateway.markStarted(envelope.id);
-    gateway.markCompleted(envelope.id);
-    gateway.markFailed(envelope.id, 'late_evaluation_failure');
+    gateway.acknowledge(envelope.id);
+    gateway.markExecutionFinished(envelope.id);
+    gateway.markExecutionFailed(envelope.id, 'late_evaluation_failure');
 
-    expect(executionEnvelopeRepo.getById(envelope.id)!.status).toBe('completed');
+    expect(executionEnvelopeRepo.getById(envelope.id)!.status).toBe('acknowledged');
     expect(proofLogRepo.getByEnvelope(envelope.id).map((event) => event.event_type)).toEqual([
       'dispatch.requested',
       'dispatch.routed',
       'dispatch.sent',
-      'dispatch.started',
-      'dispatch.completed',
+      'dispatch.acknowledged',
+      'dispatch.execution_finished',
+      'dispatch.execution_failed',
     ]);
   });
 
@@ -70,9 +71,9 @@ describe('DispatchGateway', () => {
       payload: { prompt: 'please review', contextRefs: [] },
     });
 
-    expect(envelope.status).toBe('blocked');
+    expect(envelope.status).toBe('rejected');
     expect(envelope.reason_code).toBe('runtime_unreachable');
-    expect(proofLogRepo.getByEnvelope(envelope.id).map((event) => event.event_type)).toContain('dispatch.blocked');
+    expect(proofLogRepo.getByEnvelope(envelope.id).map((event) => event.event_type)).toContain('dispatch.rejected');
   });
 
   it('blocks secret-bearing envelopes and stores redacted payload', () => {
@@ -91,7 +92,7 @@ describe('DispatchGateway', () => {
       payload: { prompt: 'api_key = sk-secretsecretsecretsecret', contextRefs: [] },
     });
 
-    expect(envelope.status).toBe('blocked');
+    expect(envelope.status).toBe('rejected');
     expect(envelope.reason_code).toBe('secret_detected:openai_key');
     expect(JSON.parse(envelope.payload).prompt).toBe('[BLOCKED: secret]');
     expect(proofLogRepo.getByEnvelope(envelope.id).map((event) => event.event_type)).toContain('policy.secret.blocked');

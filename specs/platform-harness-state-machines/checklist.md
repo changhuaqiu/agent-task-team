@@ -36,6 +36,8 @@ Task 切片证据：
 - [x] Session binding 与 Invocation outcome 由不同 owner 独立提交，不再互相冒充完成。
 - [x] Inbox `admitted` 只证明激活命令已被接纳，不再以 `completed` 冒充 Agent 执行成功。
 - [x] Inbox claim 的释放、过期、取消和 admission 均受 lease token 与数据库迁移表保护。
+- [x] Envelope `acknowledged` 只证明派发被目标确认；运行结果只来自 Invocation。
+- [x] Envelope 终态后 Runtime 失败不会回写或改写派发事实。
 
 ## 错误与恢复
 

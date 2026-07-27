@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ExecutionEnvelopeRow } from '@/server/repositories/execution-envelope-repo';
+import type { InvocationRow } from '@/server/repositories/invocation-repo';
 import type { TaskRow } from '@/server/repositories/task-repo';
 import { resolveAutonomyGuardWakeups } from '@/server/task-flow/autonomy-guard';
 import type { TaskEdgeRow } from '@/server/repositories/task-graph-repo';
@@ -39,9 +40,42 @@ function envelope(overrides: Partial<ExecutionEnvelopeRow> & Pick<ExecutionEnvel
     nonce: overrides.nonce ?? 'nonce',
     status: overrides.status,
     reason_code: overrides.reason_code ?? null,
+    settled_at: overrides.settled_at ?? null,
+    revision: overrides.revision ?? 0,
     expires_at: overrides.expires_at ?? '2026-05-21T00:02:00.000Z',
     created_at: overrides.created_at ?? '2026-05-21T00:00:00.000Z',
     updated_at: overrides.updated_at ?? '2026-05-21T00:00:00.000Z',
+  };
+}
+
+function invocation(
+  overrides: Partial<InvocationRow> & Pick<InvocationRow, 'id' | 'task_id' | 'status'>,
+): InvocationRow {
+  const now = '2026-05-21T00:00:00.000Z';
+  return {
+    id: overrides.id,
+    conversation_id: overrides.conversation_id ?? 'conv-1',
+    task_id: overrides.task_id,
+    agent_id: overrides.agent_id ?? 'luigi',
+    session_id: overrides.session_id ?? null,
+    status: overrides.status,
+    outcome: overrides.outcome ?? null,
+    engine: overrides.engine ?? null,
+    account_id: overrides.account_id ?? null,
+    cli_session_id: overrides.cli_session_id ?? null,
+    exit_code: overrides.exit_code ?? null,
+    reason_code: overrides.reason_code ?? null,
+    usage: overrides.usage ?? null,
+    error_message: overrides.error_message ?? null,
+    prompt: overrides.prompt ?? null,
+    dispatch_status: overrides.dispatch_status ?? null,
+    token_usage: overrides.token_usage ?? null,
+    lease_expiry: overrides.lease_expiry ?? null,
+    started_at: overrides.started_at ?? null,
+    terminated_at: overrides.terminated_at ?? null,
+    revision: overrides.revision ?? 0,
+    created_at: overrides.created_at ?? now,
+    updated_at: overrides.updated_at ?? now,
   };
 }
 
@@ -79,10 +113,37 @@ describe('autonomy guard wakeups', () => {
   it('does not duplicate a wakeup while an execution envelope is active', () => {
     const wakeups = resolveAutonomyGuardWakeups({
       tasks: [task({ id: 'TASK-002', agent_id: 'luigi', status: 'ready' })],
-      envelopes: [envelope({ task_id: 'TASK-002', status: 'started' })],
+      envelopes: [envelope({ task_id: 'TASK-002', status: 'sent' })],
       coordinatorAgentIds: ['mario'],
       reviewAgentIds: ['peach'],
       qaAgentIds: ['yoshi'],
+    });
+
+    expect(wakeups).toEqual([]);
+  });
+
+  it('does not treat an acknowledged envelope as execution completion while Invocation runs', () => {
+    const wakeups = resolveAutonomyGuardWakeups({
+      tasks: [task({
+        id: 'TASK-002',
+        agent_id: 'luigi',
+        status: 'in_progress',
+        updated_at: '2026-05-21T00:00:00.000Z',
+      })],
+      envelopes: [envelope({
+        task_id: 'TASK-002',
+        status: 'acknowledged',
+        settled_at: '2026-05-21T00:01:00.000Z',
+      })],
+      invocations: [invocation({
+        id: 'inv-1',
+        task_id: 'TASK-002',
+        status: 'running',
+      })],
+      coordinatorAgentIds: ['mario'],
+      reviewAgentIds: ['peach'],
+      qaAgentIds: ['yoshi'],
+      now: new Date('2026-05-21T00:31:00.000Z'),
     });
 
     expect(wakeups).toEqual([]);

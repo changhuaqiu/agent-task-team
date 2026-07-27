@@ -1,5 +1,6 @@
 import type { Server as IOServer } from 'socket.io';
 import { executionEnvelopeRepo } from '../repositories/execution-envelope-repo';
+import { invocationRepo, type InvocationRow } from '../repositories/invocation-repo';
 import { proofLogRepo, type ProofEventRow } from '../repositories/proof-log-repo';
 import { taskGraphRepo } from '../repositories/task-graph-repo';
 import { taskRepo, type TaskRow } from '../repositories/task-repo';
@@ -42,8 +43,8 @@ import {
 import { buildGoalTaskDescription } from './goal-task-description';
 
 const TERMINAL_TASK_STATUSES = new Set(['done', 'cancelled']);
-const ACTIVE_ENVELOPE_STATUSES = new Set(['drafted', 'validated', 'queued', 'routed', 'sent', 'started']);
-const RECOVERABLE_ENVELOPE_STATUSES = new Set(['blocked', 'failed', 'expired']);
+const ACTIVE_ENVELOPE_STATUSES = new Set(['drafted', 'validated', 'routed', 'sent']);
+const RECOVERABLE_ENVELOPE_STATUSES = new Set(['rejected', 'expired']);
 
 function scenarioForDeliveryAction(kind: DeliveryActionKind): 'planning' | 'execution' | 'code_review' | 'verification' | 'recovery' {
   if (kind === 'request_review') return 'code_review';
@@ -82,52 +83,57 @@ interface ExecutionRecovery {
 function executionRecovery(
   tasks: TaskRow[],
   envelopes: ReturnType<typeof executionEnvelopeRepo.listByConversation>,
+  invocations: InvocationRow[],
   maxRecoveries: number,
 ): ExecutionRecovery {
   const taskById = new Map(tasks.map((task) => [task.id, task]));
-  for (const envelope of [...envelopes].reverse()) {
-    if (
-      !envelope.task_id
-      || (
-        !RECOVERABLE_ENVELOPE_STATUSES.has(envelope.status)
-        && envelope.status !== 'completed'
-      )
-    ) continue;
-    const task = taskById.get(envelope.task_id);
+  const candidates = [
+    ...envelopes
+      .filter((envelope) => envelope.task_id && RECOVERABLE_ENVELOPE_STATUSES.has(envelope.status))
+      .map((envelope) => ({
+        id: envelope.id,
+        taskId: envelope.task_id!,
+        agentId: envelope.to_agent_id,
+        updatedAt: envelope.updated_at,
+        completedWithoutProgress: false,
+      })),
+    ...invocations
+      .filter((invocation) => invocation.task_id && invocation.status === 'terminated')
+      .map((invocation) => ({
+        id: invocation.id,
+        taskId: invocation.task_id!,
+        agentId: invocation.agent_id,
+        updatedAt: invocation.updated_at,
+        completedWithoutProgress: invocation.outcome === 'completed',
+      })),
+  ].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+  for (const candidate of candidates) {
+    const task = taskById.get(candidate.taskId);
     if (!task || TERMINAL_TASK_STATUSES.has(task.status)) continue;
-    if (envelope.status === 'completed' && envelope.updated_at <= task.updated_at) continue;
-    const hasNewerViableEnvelope = envelopes.some((candidate) =>
-      candidate.task_id === envelope.task_id
-      && candidate.created_at > envelope.created_at
-      && (
-        ACTIVE_ENVELOPE_STATUSES.has(candidate.status)
-        || candidate.status === 'completed'
-      )
+    if (candidate.updatedAt <= task.updated_at) continue;
+    const hasActiveWork = envelopes.some((envelope) =>
+      envelope.task_id === candidate.taskId
+      && ACTIVE_ENVELOPE_STATUSES.has(envelope.status)
+    ) || invocations.some((invocation) =>
+      invocation.task_id === candidate.taskId
+      && invocation.status !== 'terminated'
     );
-    if (hasNewerViableEnvelope) continue;
-    const terminalAttempts = envelopes.filter((candidate) =>
-      candidate.task_id === task.id
-      && (
-        RECOVERABLE_ENVELOPE_STATUSES.has(candidate.status)
-        || (
-          candidate.status === 'completed'
-          && candidate.updated_at > task.updated_at
-        )
-      )
+    if (hasActiveWork) continue;
+    const terminalAttempts = candidates.filter((attempt) =>
+      attempt.taskId === task.id && attempt.updatedAt > task.updated_at
     );
     if (terminalAttempts.length >= maxRecoveries) {
       return { exhaustedTask: task };
     }
-    const agentId = envelope.to_agent_id || task.agent_id;
+    const agentId = candidate.agentId || task.agent_id;
     if (!agentId) continue;
-    const completedWithoutProgress = envelope.status === 'completed';
     return { wakeup: {
       conversationId: task.conversation_id,
       taskId: task.id,
       agentId,
       reasonCode: 'runnable_owned_idle',
       dispatchSource: 'system',
-      prompt: completedWithoutProgress
+      prompt: candidate.completedWithoutProgress
         ? `上一次执行已经结束，但任务事实没有推进。请从当前工作目录恢复任务 ${task.id}「${task.title}」，完成必要工作并通过任务工具更新状态和证据；不要等待用户追加消息。`
         : `上一次执行没有成功启动。请从当前工作目录恢复并继续完成任务 ${task.id}「${task.title}」；不要等待用户追加消息。`,
       content: `系统正在自动恢复 ${task.id} 的执行。`,
@@ -137,10 +143,10 @@ function executionRecovery(
         taskStatus: task.status,
         ownerAgentId: agentId,
         reasonCode: 'runnable_owned_idle',
-        idempotencyKey: `${task.conversation_id}:${task.id}:${agentId}:recover:${envelope.id}`,
+        idempotencyKey: `${task.conversation_id}:${task.id}:${agentId}:recover:${candidate.id}`,
         startsA2AHandoff: false,
         startsDispatch: true,
-        reasonSummary: completedWithoutProgress
+        reasonSummary: candidate.completedWithoutProgress
           ? 'execution_completed_without_progress'
           : 'execution_dispatch_failed',
       },
@@ -252,10 +258,12 @@ export class RepositoryDeliveryFactsAdapter implements DeliveryFactsPort {
       : tasks[0];
     const failure = terminalTaskFailure(tasks);
     const envelopes = executionEnvelopeRepo.listByConversation(conversationId);
+    const invocations = invocationRepo.listByConversation(conversationId);
     const audience = resolveTaskNotificationAudience(conversationId);
     const wakeups = resolveAutonomyGuardWakeups({
       tasks,
       envelopes,
+      invocations,
       coordinatorAgentIds: audience.coordinatorAgentIds,
       reviewAgentIds: audience.reviewGateAgentIds,
       qaAgentIds: audience.qaAgentIds,
@@ -269,10 +277,13 @@ export class RepositoryDeliveryFactsAdapter implements DeliveryFactsPort {
     const recovery = executionRecovery(
       tasks,
       envelopes,
+      invocations,
       snapshot.contract.recoveryPolicy.maxAttemptsPerAction,
     );
     const nextWakeup = recovery.wakeup ?? wakeups[0];
-    const hasActiveEnvelope = envelopes.some((envelope) => ACTIVE_ENVELOPE_STATUSES.has(envelope.status));
+    const hasActiveWork = envelopes.some((envelope) =>
+      ACTIVE_ENVELOPE_STATUSES.has(envelope.status)
+    ) || invocations.some((invocation) => invocation.status !== 'terminated');
     const allDone = tasks.length > 0 && tasks.every((task) => task.status === 'done');
     const deliveryEvidence = acceptedDeliveryEvidence(proofs);
     for (const proof of deliveryEvidence) {
@@ -351,7 +362,7 @@ export class RepositoryDeliveryFactsAdapter implements DeliveryFactsPort {
     if (failure) taskGraph = 'blocked';
     else if (allDone) taskGraph = 'completed';
     else if (nextWakeup) taskGraph = 'pending';
-    else if (hasActiveEnvelope || tasks.some((task) =>
+    else if (hasActiveWork || tasks.some((task) =>
       ['in_progress', 'in_review'].includes(task.status)
     )) taskGraph = 'running';
     else taskGraph = 'pending';
@@ -699,9 +710,11 @@ export class HarnessDeliveryActionAdapter implements DeliveryActionPort {
     const audience = resolveTaskNotificationAudience(conversationId);
     const tasks = taskRepo.getByConversation(conversationId);
     const envelopes = executionEnvelopeRepo.listByConversation(conversationId);
+    const invocations = invocationRepo.listByConversation(conversationId);
     return executionRecovery(
       tasks,
       envelopes,
+      invocations,
       snapshot.contract.recoveryPolicy.maxAttemptsPerAction,
     ).wakeup ?? resolveAutonomyGuardWakeups({
       tasks,

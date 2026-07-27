@@ -901,6 +901,8 @@ export const executionEnvelope = sqliteTable('execution_envelope', {
   nonce: text('nonce').notNull(),
   status: text('status').notNull().default('drafted'),
   reasonCode: text('reason_code'),
+  settledAt: text('settled_at'),
+  revision: integer('revision').notNull().default(0),
   expiresAt: text('expires_at').notNull(),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),

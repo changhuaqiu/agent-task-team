@@ -151,7 +151,7 @@ describe('project view isolation', () => {
       conversationId: 'project-b',
       receiptId: 'receipt-mismatch',
       targetAgentId: 'mario',
-      phase: 'started',
+      phase: 'acknowledged',
       createdAt: '2026-07-26T00:00:00.000Z',
     });
 
