@@ -3,17 +3,21 @@
 ## S0：术语与观测
 
 - [x] 将窄义 Harness 直接迁为 Invocation Pipeline 目标命名，不保留旧别名。
-- [ ] 为 Command、Event、WorkContract、Invocation、Outcome 补齐 correlation/causation。
-- [ ] 建立跨模块状态迁移 trace。
+- [x] 为 Command、Event、WorkContract、Invocation、Outcome 建立连续 correlation/causation；
+  Invocation 通过不可变 WorkContract 关联信封，不复制可能漂移的字段。
+- [x] 建立 `PlatformEventLog.listTrace(correlationId)` 跨 stream 状态迁移 trace，并为
+  correlation 建索引。
 - [ ] 建立 project-start、parallel-handoff、review-rework、agent-failure、human-resume、
   delivery-close 六条场景基线测试。
 
 ## S1：状态守卫
 
-- [ ] 为 Task、Inbox、Invocation、Delivery 建立显式 transition API。
-- [ ] 删除或封装任意字符串状态写入。
-- [ ] 冻结各层 completion 语义。
-- [ ] 为 Task Graph 建立原子提交、DAG 环检测和版本冲突校验。
+- [x] 为 Task、Inbox、Invocation、Delivery 建立显式 transition API。
+- [x] 将状态写入封装进 owner repository，并以数据库 trigger/约束拒绝未知值和非法迁移。
+- [x] 冻结 Task、Inbox、Envelope、Invocation、Session、Gate、A2A、Delivery 各层独立
+  completion 语义。
+- [x] 为 Task Graph 建立原子 commit、依赖引用/DAG 校验、graph revision CAS 和源事件语义
+  幂等；durable Outcome Process Manager 已接通 `propose_task_graph`。
 
 已完成的子项：
 
@@ -83,7 +87,8 @@
   边界发布，ACP session/transport/diagnostic 由 Runtime Adapter 发布，原始诊断只作 evidence。
 - [x] 为每次 Work Cell 激活生成 workEpoch / attemptId / fencingToken，将 Invocation 绑定
   Contract，并把迟到 Outcome 持久化为 rejected 诊断。
-- [ ] 冻结 WorkContract、AgentOutcome 和 ControlDecision 完整信封。
+- [x] 冻结 WorkContract、AgentOutcome 和 ControlDecision 完整信封；Control snapshot
+  显式包含 Work Cells、wait-for edges 与 closure。
 
 已完成的子项：
 
@@ -91,7 +96,7 @@
   Invocation 完整绑定触发器和单终结 Outcome 唯一约束。
 - [x] WorkContract issuance 使用 expected epoch CAS；旧 grant、错误 token、版本漂移、
   不允许类型、重复终结结果及幂等内容冲突均有测试。
-- [x] WorkContract 与 AgentOutcome 信封已经冻结并贯穿 trace；ControlDecision 信封仍归 S5。
+- [x] WorkContract、AgentOutcome 与 ControlDecision 信封已经冻结并贯穿 trace。
 - [x] `runtime_profile_missing` 不再冒充一次 Agent 执行失败，而是
   `runtime.invocation.blocked`；`required_context_missing` 以结构化缺失项发布
   `context.snapshot.rejected`。ACP session 丢失、transport fallback 和 CLI error trace

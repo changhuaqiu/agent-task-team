@@ -62,7 +62,7 @@ export class ProductionControlCommandAdapter implements ControlCommandPort {
         return this.initializeGraph(action, context.decision.runId);
       case 'activate':
       case 'retry':
-        return this.dispatch(action, context.decision.runId);
+        return this.dispatch(action, context.decision);
       case 'requestGate':
         return this.requestGate(action, context.decision.runId);
       case 'integrate':
@@ -194,7 +194,11 @@ export class ProductionControlCommandAdapter implements ControlCommandPort {
       : { status: 'rejected', reasonCode: `delivery_root_task_revision_changed:${action.actionId}` };
   }
 
-  private dispatch(action: ControlAction, runId: string): ControlCommandResult {
+  private dispatch(
+    action: ControlAction,
+    decision: Parameters<ControlCommandPort['execute']>[1]['decision'],
+  ): ControlCommandResult {
+    const runId = decision.runId;
     const task = this.taskFor(action);
     if (!task?.agent_id) return { status: 'rejected', reasonCode: 'control_task_owner_missing' };
     const review = action.targetWorkId?.endsWith(':purpose:review') === true;
@@ -213,6 +217,8 @@ export class ProductionControlCommandAdapter implements ControlCommandPort {
       idempotencyKey: action.actionId,
       command: {
         source: review ? 'review_gate' : verification ? 'test_gate' : 'system',
+        correlationId: decision.decisionId,
+        causationId: action.actionId,
         taskId: task.id,
         deliveryRunId: runId,
         contextScenario: action.type === 'retry'

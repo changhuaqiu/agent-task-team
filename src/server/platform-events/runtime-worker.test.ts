@@ -37,7 +37,7 @@ describe('PlatformEventRuntimeWorker', () => {
     worker.start();
     worker.start();
     await vi.advanceTimersByTimeAsync(100);
-    expect(calls).toEqual({ register: 10, recover: 1, discover: 1, drain: 1 });
+    expect(calls).toEqual({ register: 11, recover: 1, discover: 1, drain: 1 });
 
     releaseDrain();
     await vi.advanceTimersByTimeAsync(10);
@@ -88,8 +88,11 @@ describe('PlatformEventRuntimeWorker', () => {
     }), expect.objectContaining({
       id: 'gate-outcome-process-manager:v1',
       pattern: 'agent.outcome.accepted',
+    }), expect.objectContaining({
+      id: 'task-graph-outcome-process-manager:v1',
+      pattern: 'agent.outcome.accepted',
     })]));
-    expect(registrations).toHaveLength(11);
+    expect(registrations).toHaveLength(12);
   });
 
   it('retries startup recovery before incremental discovery', async () => {

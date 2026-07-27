@@ -99,7 +99,7 @@ export class InvocationPlanner implements InvocationPlannerPort {
       return { ok: false, outcome: { status: 'blocked', reasonCode: 'runtime_profile_missing' } };
     }
     const { runtime, profile } = resolution;
-    const traceId = generateTraceId();
+    const traceId = trigger.correlationId?.trim() || generateTraceId();
     const activeSession = sessionRepo.findActiveByConversation(
       trigger.agentId,
       trigger.conversationId,

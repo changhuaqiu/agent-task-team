@@ -1,6 +1,7 @@
+import { createHash } from 'node:crypto';
 import { getDb } from '../db/index';
 import { generateSortableId } from './sortable-id';
-import { taskRepo, type TaskRow } from './task-repo';
+import { taskRepo, type NewTask, type TaskRow } from './task-repo';
 
 export type TaskActionType =
   | 'task.created'
@@ -88,8 +89,69 @@ export interface TaskGraphView {
   bindings: ChatTaskBindingRow[];
 }
 
+export interface TaskGraphCommitTask extends Omit<NewTask, 'conversation_id'> {
+  dependencies?: string[];
+}
+
+export interface TaskGraphCommitResult {
+  revision: number;
+  tasks: TaskRow[];
+  edges: TaskEdgeRow[];
+  action: TaskActionRow;
+}
+
+export class StaleTaskGraphRevisionError extends Error {
+  readonly reasonCode = 'stale_task_graph_revision';
+
+  constructor(
+    readonly conversationId: string,
+    readonly expectedRevision: number,
+    readonly actualRevision: number,
+  ) {
+    super(
+      `Stale Task Graph revision for ${conversationId}: `
+      + `expected ${expectedRevision}, actual ${actualRevision}`,
+    );
+  }
+}
+
+export class InvalidTaskGraphError extends Error {
+  readonly reasonCode = 'invalid_task_graph';
+}
+
+export class TaskGraphIdempotencyConflictError extends Error {
+  readonly reasonCode = 'task_graph_idempotency_conflict';
+}
+
+interface TaskGraphCommitRow {
+  idempotency_key: string;
+  conversation_id: string;
+  request_digest: string;
+  revision: number;
+  action_id: string;
+  created_at: string;
+}
+
 function stringifyJson(value: unknown): string {
   return JSON.stringify(value ?? {});
+}
+
+function canonicalize(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, item]) => [key, canonicalize(item)]),
+    );
+  }
+  return value;
+}
+
+function requestDigest(value: unknown): string {
+  return createHash('sha256')
+    .update(JSON.stringify(canonicalize(value)))
+    .digest('hex');
 }
 
 function parseTaskIds(action: TaskActionRow): string[] {
@@ -142,7 +204,195 @@ function shouldRejectCycles(type: TaskEdgeType): boolean {
   return type === 'subtask_of' || type === 'depends_on' || type === 'merged_into';
 }
 
+function dependencyIds(task: TaskRow): string[] {
+  if (!task.dependencies) return [];
+  try {
+    const parsed = JSON.parse(task.dependencies) as unknown;
+    if (!Array.isArray(parsed) || parsed.some((item) => typeof item !== 'string')) {
+      throw new Error('invalid dependencies');
+    }
+    return parsed;
+  } catch {
+    throw new InvalidTaskGraphError(`Task ${task.id} has malformed dependencies`);
+  }
+}
+
+function assertAcyclicDependencies(dependencies: ReadonlyMap<string, readonly string[]>): void {
+  const visited = new Set<string>();
+  const active = new Set<string>();
+  const visit = (taskId: string): void => {
+    if (active.has(taskId)) {
+      throw new InvalidTaskGraphError(`Task dependency cycle contains ${taskId}`);
+    }
+    if (visited.has(taskId)) return;
+    active.add(taskId);
+    for (const dependency of dependencies.get(taskId) ?? []) visit(dependency);
+    active.delete(taskId);
+    visited.add(taskId);
+  };
+  for (const taskId of [...dependencies.keys()].sort()) visit(taskId);
+}
+
 export const taskGraphRepo = {
+  revision(conversationId: string): number {
+    const row = getDb().prepare(`
+      SELECT revision FROM task_graph_revision WHERE conversation_id=?
+    `).get(conversationId) as { revision: number } | undefined;
+    return row?.revision ?? 0;
+  },
+
+  commit(input: {
+    conversationId: string;
+    expectedRevision: number;
+    idempotencyKey: string;
+    actorId: string;
+    actorType: 'user' | 'agent' | 'system';
+    tasks: TaskGraphCommitTask[];
+    now?: Date;
+  }): TaskGraphCommitResult {
+    if (!Number.isSafeInteger(input.expectedRevision) || input.expectedRevision < 0) {
+      throw new InvalidTaskGraphError('Task Graph expectedRevision must be non-negative');
+    }
+    if (input.tasks.length === 0) {
+      throw new InvalidTaskGraphError('Task Graph commit requires at least one task');
+    }
+    const idempotencyKey = input.idempotencyKey.trim();
+    if (!idempotencyKey) {
+      throw new InvalidTaskGraphError('Task Graph idempotencyKey is required');
+    }
+    const ids = input.tasks.map((task) => task.id.trim());
+    if (ids.some((id) => !id) || new Set(ids).size !== ids.length) {
+      throw new InvalidTaskGraphError('Task Graph task ids must be non-empty and unique');
+    }
+    const digest = requestDigest({
+      conversationId: input.conversationId,
+      expectedRevision: input.expectedRevision,
+      tasks: input.tasks,
+    });
+    const db = getDb();
+    return db.transaction(() => {
+      const conversation = db.prepare('SELECT 1 FROM conversation WHERE id=?')
+        .get(input.conversationId);
+      if (!conversation) {
+        throw new InvalidTaskGraphError(`Conversation ${input.conversationId} not found`);
+      }
+      const duplicate = db.prepare(`
+        SELECT * FROM task_graph_commit WHERE idempotency_key=?
+      `).get(idempotencyKey) as TaskGraphCommitRow | undefined;
+      if (duplicate) {
+        if (
+          duplicate.conversation_id !== input.conversationId
+          || duplicate.request_digest !== digest
+        ) {
+          throw new TaskGraphIdempotencyConflictError(idempotencyKey);
+        }
+        const action = taskGraphRepo.getActionById(duplicate.action_id)!;
+        const taskIds = parseTaskIds(action);
+        return {
+          revision: duplicate.revision,
+          tasks: taskIds.map((taskId) => taskRepo.getById(taskId)!),
+          edges: taskGraphRepo.listEdges(input.conversationId)
+            .filter((edge) => edge.created_by_action_id === action.id),
+          action,
+        };
+      }
+      const timestamp = (input.now ?? new Date()).toISOString();
+      db.prepare(`
+        INSERT OR IGNORE INTO task_graph_revision (conversation_id,revision,updated_at)
+        VALUES (?,0,?)
+      `).run(input.conversationId, timestamp);
+      const actualRevision = taskGraphRepo.revision(input.conversationId);
+      if (actualRevision !== input.expectedRevision) {
+        throw new StaleTaskGraphRevisionError(
+          input.conversationId,
+          input.expectedRevision,
+          actualRevision,
+        );
+      }
+
+      const existing = taskRepo.getByConversation(input.conversationId);
+      const knownIds = new Set([...existing.map((task) => task.id), ...ids]);
+      const dependencyMap = new Map<string, readonly string[]>(
+        existing.map((task) => [task.id, dependencyIds(task)]),
+      );
+      for (const task of input.tasks) {
+        if (taskRepo.getById(task.id)) {
+          throw new InvalidTaskGraphError(`Task ${task.id} already exists`);
+        }
+        const dependencies = [...new Set(task.dependencies ?? [])];
+        for (const dependency of dependencies) {
+          if (!knownIds.has(dependency)) {
+            throw new InvalidTaskGraphError(
+              `Task ${task.id} depends on missing task ${dependency}`,
+            );
+          }
+          if (dependency === task.id) {
+            throw new InvalidTaskGraphError(`Task ${task.id} cannot depend on itself`);
+          }
+        }
+        dependencyMap.set(task.id, dependencies);
+      }
+      assertAcyclicDependencies(dependencyMap);
+
+      const tasks = input.tasks.map((task) => taskRepo.create({
+        ...task,
+        conversation_id: input.conversationId,
+        dependencies: [...new Set(task.dependencies ?? [])],
+      }));
+      const action = taskGraphRepo.appendAction({
+        conversationId: input.conversationId,
+        actorId: input.actorId,
+        actorType: input.actorType,
+        type: tasks.length === 1 ? 'task.created' : 'task.split',
+        taskIds: tasks.map((task) => task.id),
+        payload: {
+          idempotencyKey,
+          requestDigest: digest,
+          expectedRevision: input.expectedRevision,
+          nextRevision: input.expectedRevision + 1,
+        },
+      });
+      const edges = tasks.flatMap((task) =>
+        dependencyIds(task).map((dependency) => taskGraphRepo.addEdge({
+          conversationId: input.conversationId,
+          fromTaskId: task.id,
+          toTaskId: dependency,
+          type: 'depends_on',
+          createdByActionId: action.id,
+        })));
+      const updated = db.prepare(`
+        UPDATE task_graph_revision
+        SET revision=revision+1,updated_at=?
+        WHERE conversation_id=? AND revision=?
+      `).run(timestamp, input.conversationId, input.expectedRevision);
+      if (updated.changes !== 1) {
+        throw new StaleTaskGraphRevisionError(
+          input.conversationId,
+          input.expectedRevision,
+          taskGraphRepo.revision(input.conversationId),
+        );
+      }
+      db.prepare(`
+        INSERT INTO task_graph_commit (
+          idempotency_key,conversation_id,request_digest,revision,action_id,created_at
+        ) VALUES (?,?,?,?,?,?)
+      `).run(
+        idempotencyKey,
+        input.conversationId,
+        digest,
+        input.expectedRevision + 1,
+        action.id,
+        timestamp,
+      );
+      return {
+        revision: input.expectedRevision + 1,
+        tasks,
+        edges,
+        action,
+      };
+    }).immediate();
+  },
+
   appendAction(input: {
     conversationId: string;
     actorId: string;

@@ -704,6 +704,15 @@ Adapter 边界归一化。`runtime.invocation.blocked` 是一次尚未启动的 
 12. 对共享事实的并发写入必须经过 owner 的版本校验、lease 或 fencing；不能靠消息时序碰运气。
 13. 系统必须能检测 wait-for graph 的死锁和 A2A 循环传球，并升级给 Human 或 Lead Agent。
 
+跨模块 trace 使用一条连续因果链，不在每张表复制一套可能漂移的字段：
+
+- Platform Event 强制 `correlationId`，非根事件携带 `causationId`；
+- AgentInbox Command 从 source Event 继承 correlation，并以 source event id 为 causation；
+- Scheduler 原样传入 Invocation Pipeline，后者以 correlation 作为 traceId；
+- WorkContract 与 AgentOutcome 冻结 correlation/causation；Invocation 通过不可变
+  `work_contract_id` 关联该信封，Runtime Events 同时带 invocationId 与 correlation；
+- `PlatformEventLog.listTrace(correlationId)` 跨 stream 按记录顺序恢复完整状态迁移 trace。
+
 ## 13. 用真实协作场景反推设计
 
 ### 场景 A：项目启动与首次拆解
@@ -723,6 +732,10 @@ Human 提交 Goal
 - Harness 不在启动时自己用规则或 LLM 拆任务；Lead Agent 提出拆解。
 - Lead 的自然语言计划不是 Task Graph，只有被 Task owner 接纳的 Command 才是共享承诺。
 - Task Graph 一次提交要么整体通过，要么返回可修正的验证错误，避免其他 Agent 看见半张图。
+- `propose_task_graph` 由 durable Process Manager 翻译为现有 Task Graph owner 的
+  `commit(expectedRevision, idempotencyKey, tasks[])`；owner 在单事务内完成引用校验、DAG
+  校验、Tasks/depends_on edges/action 写入与 graph revision CAS。事件重放返回同一 commit，
+  内容漂移或并发旧 revision 被拒绝。
 - 如果没有可用 Lead profile，Delivery 进入 `waiting_human`，而不是循环重试同一个空配置。
 
 需要防的故障：

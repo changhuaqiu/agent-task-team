@@ -9,6 +9,8 @@ import type { PlatformEvent } from './types';
 export interface AgentWorkCommand {
   source: AgentActivationSource;
   prompt: string;
+  correlationId?: string;
+  causationId?: string;
   workId?: string;
   taskId?: string;
   deliveryRunId?: string;
@@ -119,7 +121,14 @@ export class AgentInbox {
 
   enqueue(input: EnqueueAgentWorkInput): AgentInboxItem {
     const db = this.database ?? getDb();
-    const commandJson = JSON.stringify(input.command);
+    const command: AgentWorkCommand = {
+      ...input.command,
+      correlationId: input.command.correlationId
+        ?? input.sourceEvent?.correlationId,
+      causationId: input.command.causationId
+        ?? input.sourceEvent?.eventId,
+    };
+    const commandJson = JSON.stringify(command);
     return db.transaction(() => {
       const existing = db.prepare(`
         SELECT * FROM agent_inbox_item WHERE idempotency_key=?
@@ -158,7 +167,7 @@ export class AgentInbox {
         projectId: input.projectId,
         projectAgentId: input.projectAgentId,
         causationId: input.sourceEvent?.eventId,
-        payload: { sourceEventId: input.sourceEvent?.eventId, commandSource: input.command.source },
+        payload: { sourceEventId: input.sourceEvent?.eventId, commandSource: command.source },
       });
       return this.get(id)!;
     }).immediate();

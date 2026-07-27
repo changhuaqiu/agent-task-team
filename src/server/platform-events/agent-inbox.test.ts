@@ -76,6 +76,30 @@ describe('AgentInbox', () => {
     expect(inbox.claimNext()!.id).toBe(second.id);
   });
 
+  it('carries source correlation and causation into the durable work command', () => {
+    const source = log.append({
+      type: 'task.assigned',
+      category: 'domain',
+      projectId: 'project-1',
+      streamKey: 'task:task-1',
+      aggregate: { type: 'task', id: 'task-1' },
+      actor: { type: 'system', id: 'task-owner' },
+      correlationId: 'goal-trace-1',
+      payload: { agentId: 'implementer', status: 'ready' },
+    });
+
+    expect(inbox.enqueue({
+      projectId: 'project-1',
+      projectAgentId: 'implementer',
+      idempotencyKey: 'task-1',
+      sourceEvent: source,
+      command: { source: 'system', prompt: 'Implement task-1' },
+    }).command).toMatchObject({
+      correlationId: 'goal-trace-1',
+      causationId: source.eventId,
+    });
+  });
+
   it('does not let later work overtake a released FIFO predecessor', () => {
     const first = inbox.enqueue({
       projectId: 'project-1',

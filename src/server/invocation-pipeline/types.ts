@@ -12,6 +12,8 @@ export interface AgentActivationCommand {
   conversationId: string;
   agentId: string;
   prompt: string;
+  correlationId?: string;
+  causationId?: string;
   taskId?: string;
   deliveryRunId?: string;
   fromAgentId?: string;

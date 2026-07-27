@@ -246,6 +246,17 @@ export class PlatformEventLog {
     return rows.map((row) => fromRow(row));
   }
 
+  listTrace(correlationId: string): PlatformEvent[] {
+    const normalized = correlationId.trim();
+    if (!normalized) throw new Error('platform_event_correlation_id_required');
+    const rows = (this.database ?? getDb()).prepare(`
+      SELECT * FROM platform_event
+      WHERE correlation_id=?
+      ORDER BY recorded_at ASC,id ASC
+    `).all(normalized) as PlatformEventRow[];
+    return rows.map((row) => fromRow(row));
+  }
+
   listByProjectAgent(projectId: string, projectAgentId: string): PlatformEvent[] {
     const rows = (this.database ?? getDb()).prepare(`
       SELECT * FROM platform_event

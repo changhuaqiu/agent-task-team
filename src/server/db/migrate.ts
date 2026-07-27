@@ -3232,6 +3232,53 @@ END;
       `);
     },
   },
+  {
+    version: 70,
+    run: (db) => {
+      const tables = new Set(
+        (db.prepare(`SELECT name FROM sqlite_master WHERE type='table'`).all() as Array<{
+          name: string;
+        }>).map((row) => row.name),
+      );
+      if (tables.has('conversation')) {
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS task_graph_revision (
+            conversation_id TEXT PRIMARY KEY
+              REFERENCES conversation(id) ON DELETE CASCADE,
+            revision INTEGER NOT NULL DEFAULT 0 CHECK(revision >= 0),
+            updated_at TEXT NOT NULL
+          )
+        `);
+      }
+      if (tables.has('conversation') && tables.has('task_action')) {
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS task_graph_commit (
+            idempotency_key TEXT PRIMARY KEY,
+            conversation_id TEXT NOT NULL
+              REFERENCES conversation(id) ON DELETE CASCADE,
+            request_digest TEXT NOT NULL,
+            revision INTEGER NOT NULL CHECK(revision > 0),
+            action_id TEXT NOT NULL REFERENCES task_action(id) ON DELETE CASCADE,
+            created_at TEXT NOT NULL
+          );
+          CREATE INDEX IF NOT EXISTS idx_task_graph_commit_conversation
+            ON task_graph_commit(conversation_id,revision);
+        `);
+      }
+      if (tables.has('platform_event')) {
+        const columns = new Set(
+          (db.prepare('PRAGMA table_info(platform_event)').all() as Array<{ name: string }>)
+            .map((column) => column.name),
+        );
+        if (columns.has('correlation_id')) {
+          db.exec(`
+            CREATE INDEX IF NOT EXISTS idx_platform_event_correlation
+              ON platform_event(correlation_id,recorded_at,id)
+          `);
+        }
+      }
+    },
+  },
 ];
 
 export function applyMigrations(db: Database.Database): void {

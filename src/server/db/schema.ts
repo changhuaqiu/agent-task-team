@@ -53,6 +53,13 @@ export const task = sqliteTable('task', {
   index('idx_task_conv').on(table.conversationId),
 ]);
 
+export const taskGraphRevision = sqliteTable('task_graph_revision', {
+  conversationId: text('conversation_id').primaryKey()
+    .references(() => conversation.id, { onDelete: 'cascade' }),
+  revision: integer('revision').notNull().default(0),
+  updatedAt: text('updated_at').notNull(),
+});
+
 // ──────────────────────────────────────────────
 // chat_message
 // ──────────────────────────────────────────────
@@ -194,6 +201,7 @@ export const platformEvent = sqliteTable('platform_event', {
   uniqueIndex('uq_platform_event_dedupe').on(table.dedupeKey),
   index('idx_platform_event_project').on(table.projectId, table.recordedAt, table.id),
   index('idx_platform_event_stream').on(table.streamKey, table.streamSequence),
+  index('idx_platform_event_correlation').on(table.correlationId, table.recordedAt, table.id),
   index('idx_platform_event_invocation').on(table.invocationId, table.streamSequence),
   index('idx_platform_event_project_agent').on(
     table.projectId,
@@ -892,6 +900,19 @@ export const taskAction = sqliteTable('task_action', {
 
 export type TaskActionRow = InferSelectModel<typeof taskAction>;
 export type NewTaskActionRow = InferInsertModel<typeof taskAction>;
+
+export const taskGraphCommit = sqliteTable('task_graph_commit', {
+  idempotencyKey: text('idempotency_key').primaryKey(),
+  conversationId: text('conversation_id').notNull()
+    .references(() => conversation.id, { onDelete: 'cascade' }),
+  requestDigest: text('request_digest').notNull(),
+  revision: integer('revision').notNull(),
+  actionId: text('action_id').notNull()
+    .references(() => taskAction.id, { onDelete: 'cascade' }),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  index('idx_task_graph_commit_conversation').on(table.conversationId, table.revision),
+]);
 
 // ──────────────────────────────────────────────
 // Group Chat Task Graph: task edges

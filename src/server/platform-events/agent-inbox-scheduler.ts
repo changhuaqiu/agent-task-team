@@ -74,6 +74,8 @@ export class AgentInboxScheduler {
           conversationId: item.projectId,
           agentId: item.projectAgentId,
           prompt: item.command.prompt,
+          correlationId: item.command.correlationId,
+          causationId: item.command.causationId,
           workId: item.command.workId,
           taskId: item.command.taskId,
           deliveryRunId: item.command.deliveryRunId,

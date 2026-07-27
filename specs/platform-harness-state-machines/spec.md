@@ -43,6 +43,11 @@
   `finalize` 只在 Tasks、required Gates、blocking Effects 与 provider integration 都满足后，
   由 Delivery owner 从权威 receipts/evidence 构造并冻结 DeliveryBundle；下一轮才可 terminate。
 
+Command → Event → AgentInbox → Invocation Pipeline → WorkContract → AgentOutcome 必须保持
+同一 correlation。非根 Command/Event 以直接来源 id 作为 causation；Invocation 自身通过
+不可变 `work_contract_id` 取得冻结信封，Runtime Event 另带 invocationId。跨模块诊断统一
+通过 `listTrace(correlationId)`，不靠 UI 文本拼接。
+
 ## 4. Owner 契约
 
 Task、A2A、Gate、Context、Inbox、Invocation、Delivery、Effect 各自拥有独立状态机。
@@ -87,6 +92,11 @@ handoff_to_agent
 report_blocked
 request_human_decision
 ```
+
+`propose_task_graph` 必须携带 `expectedRevision` 与完整 `tasks[]`；每项明确稳定 task id、
+owner 和 dependencies。durable Task Graph Outcome Process Manager 只负责把已接纳 Outcome
+翻译为 Task owner 的一次原子 `commit`。owner 在同一事务内验证引用与 DAG、创建 Tasks/
+depends_on edges/action、CAS graph revision，并以源 event id 语义幂等；失败不得留下半张图。
 
 所有 AgentOutcome 使用同一信封：
 

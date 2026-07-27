@@ -35,14 +35,21 @@ describe('AgentInboxScheduler', () => {
       projectId: 'project-1',
       projectAgentId: 'implementer',
       idempotencyKey: 'turn-1',
-      command: { source: 'user', prompt: 'Implement' },
+      command: {
+        source: 'user',
+        prompt: 'Implement',
+        correlationId: 'goal-trace-1',
+        causationId: 'message-1',
+      },
     });
     let submissions = 0;
+    let submittedTrace: { correlationId?: string; causationId?: string } | undefined;
     const scheduler = new AgentInboxScheduler({
       inbox,
       intervalMs: 10,
       retryDelayMs: 10,
-      submit: () => {
+      submit: (trigger) => {
+        submittedTrace = trigger;
         submissions += 1;
         if (submissions === 1) {
           return {
@@ -65,6 +72,10 @@ describe('AgentInboxScheduler', () => {
     await vi.advanceTimersByTimeAsync(10);
     expect(inbox.get(item.id)).toMatchObject({ status: 'admitted', attemptCount: 2 });
     expect(submissions).toBe(2);
+    expect(submittedTrace).toMatchObject({
+      correlationId: 'goal-trace-1',
+      causationId: 'message-1',
+    });
     scheduler.stop();
   });
 

@@ -120,7 +120,7 @@ export function issueDispatchWorkContract(input: {
       recoveryPolicy: deliveryContract?.recoveryPolicy ?? {},
     },
     correlationId: input.traceId,
-    causationId: input.trigger.id,
+    causationId: input.trigger.causationId?.trim() || input.trigger.id,
     expectedCurrentEpoch: currentEpoch,
   });
 }
