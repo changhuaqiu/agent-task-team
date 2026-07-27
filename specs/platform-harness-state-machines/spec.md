@@ -153,6 +153,19 @@ durable Gate Outcome Process Manager 校验 Contract 的 project、agent、task/
 再依次调用 Gate owner 的 evidence/evaluating/decision Command。Delivery Gate 的 passed
 决定必须携带可校验 receipt；该 receipt 作为 Delivery 证据保存，但 Gate 仍是唯一 pass/fail owner。
 
+Task 必须持久化单调整数 `revision`。Task WorkContract 的
+`authoritativeRevisions.task`、Task Gate 的 `artifactRevision` 和 Task owner transition CAS
+均使用该版本，不得使用 `updated_at`。`submit_task_result / request_review` 的 durable
+Process Manager 只能把 Task 从 `in_progress` 推进 `in_review` 并登记 evidence；随后
+Control Process Manager 请求 `code_review` Gate，并为非实现者 Reviewer 创建独立
+Work Cell。`record_gate_decision` 经 Gate owner 后：
+
+- `passed`：Task owner CAS `in_review -> done`，关闭执行与 Reviewer authority；
+- `changes_requested / rejected`：Task owner CAS `in_review -> in_progress`，只关闭 Reviewer
+  authority，返工沿原 execution workId 签发新 epoch；
+- Reviewer 缺失：产生 Human escalation，不允许实现 Agent 隐式自审；
+- 旧 artifactRevision 的 Gate 不得满足新 Task revision，也不得阻止新一轮 Gate 创建。
+
 ## 6. 状态机契约
 
 实现必须遵守长期设计 §5 的状态和完成语义。所有迁移由 owner 暴露的显式 transition API

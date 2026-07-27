@@ -35,6 +35,7 @@ interface TaskFactRow {
   status: string;
   agent_id: string;
   dependencies: string | null;
+  revision: number;
   created_at: string;
 }
 
@@ -88,7 +89,10 @@ function retryBudget(
   return { kind, attemptsUsed, maxAttempts: limits[kind] };
 }
 
-function gatePurpose(workId: string): 'delivery_review' | 'acceptance_verification' | undefined {
+function deliveryGatePurpose(
+  workId: string,
+): 'delivery_review' | 'acceptance_verification' | undefined {
+  if (!workId.startsWith('delivery:')) return undefined;
   if (workId.endsWith(':purpose:review')) return 'delivery_review';
   if (workId.endsWith(':purpose:verify')) return 'acceptance_verification';
   return undefined;
@@ -179,7 +183,7 @@ export class RepositoryControlSnapshotBuilder {
     }, deliveryGateReworkCycles, limits));
     const representedWork = new Set(workCells.map((cell) => cell.workId));
     const tasks = db.prepare(`
-      SELECT id,status,agent_id,dependencies,created_at
+      SELECT id,status,agent_id,dependencies,revision,created_at
       FROM task WHERE conversation_id=? ORDER BY created_at,id
     `).all(run.conversation_id) as TaskFactRow[];
     if (tasks.length === 0 && workCells.length === 0) {
@@ -199,6 +203,7 @@ export class RepositoryControlSnapshotBuilder {
       `task:${task.id}:agent:${task.agent_id}:purpose:execute`,
     ]));
     const waitEdges: WaitForEdge[] = [];
+    const taskAudience = resolveTaskNotificationAudience(run.conversation_id);
     for (const task of tasks) {
       if (!task.agent_id.trim()) continue;
       const workId = `task:${task.id}:agent:${task.agent_id}:purpose:execute`;
@@ -215,8 +220,49 @@ export class RepositoryControlSnapshotBuilder {
           waitEdges.push({ waiter: workId, blocker, reasonCode: 'task_dependency' });
         }
       }
-      if (representedWork.has(workId)) continue;
-      workCells.push(this.unissuedTaskCell(task, workId, taskStatus, limits));
+      if (!representedWork.has(workId)) {
+        workCells.push(this.unissuedTaskCell(task, workId, taskStatus, limits));
+        representedWork.add(workId);
+      }
+      if (task.status !== 'in_review') continue;
+      const gate = this.currentTaskGate(db, task.id, task.revision);
+      if (!gate || (gate.status !== 'requested' && gate.status !== 'evaluating')) continue;
+      const sourceCell = workCells.find((cell) => cell.workId === workId);
+      if (sourceCell && sourceCell.state !== 'completed') {
+        sourceCell.state = 'waiting_gate';
+        sourceCell.gateStatus = 'requested';
+        delete sourceCell.failure;
+        delete sourceCell.slotId;
+      }
+      const existingReview = workCells.find((cell) =>
+        cell.workId.startsWith(`task:${task.id}:agent:`)
+        && cell.workId.endsWith(':purpose:review')
+      );
+      const reviewerId = existingReview?.roleId
+        ?? taskAudience.reviewGateAgentIds.find((agentId) => agentId !== task.agent_id);
+      const reviewWorkId = existingReview?.workId
+        ?? (reviewerId
+          ? `task:${task.id}:agent:${reviewerId}:purpose:review`
+          : `task:${task.id}:agent:unassigned:purpose:review`);
+      if (!representedWork.has(reviewWorkId)) {
+        workCells.push({
+          workId: reviewWorkId,
+          workEpoch: 0,
+          roleId: reviewerId ?? 'unassigned',
+          purpose: 'review',
+          state: reviewerId ? 'ready' : 'waiting_human',
+          ...(reviewerId ? {} : { humanResolution: 'required' as const }),
+          gateStatus: 'requested',
+          priority: 70,
+          queuedAt: gate.created_at,
+        });
+        representedWork.add(reviewWorkId);
+      }
+      waitEdges.push({
+        waiter: workId,
+        blocker: reviewWorkId,
+        reasonCode: 'quality_gate',
+      });
     }
     if (tasks.length > 0 && tasks.every((task) => task.status === 'done')) {
       const root = tasks.find((task) => task.id === run.root_task_id) ?? tasks[0]!;
@@ -252,7 +298,7 @@ export class RepositoryControlSnapshotBuilder {
         }
         const agentId = requirement.agentId;
         const workId = agentId
-          ? `task:${root.id}:agent:${agentId}:purpose:${requirement.purpose}`
+          ? `delivery:${runId}:agent:${agentId}:purpose:${requirement.purpose}`
           : `delivery:${runId}:purpose:${requirement.purpose}-owner-missing`;
         if (representedWork.has(workId)) continue;
         const base = {
@@ -325,13 +371,13 @@ export class RepositoryControlSnapshotBuilder {
       if (
         sourceCell?.state !== 'waiting_gate'
         || !source.task_id
-        || gatePurpose(source.work_id)
+        || deliveryGatePurpose(source.work_id)
       ) continue;
       for (const blocker of rows) {
         if (
           blocker.task_id !== source.task_id
           || blocker.work_id === source.work_id
-          || !gatePurpose(blocker.work_id)
+          || !blocker.work_id.endsWith(':purpose:review')
         ) continue;
         const blockerCell = cellByWorkId.get(blocker.work_id);
         if (!blockerCell || blockerCell.state === 'completed') continue;
@@ -567,7 +613,68 @@ export class RepositoryControlSnapshotBuilder {
       priority: 50,
       queuedAt: row.created_at,
     };
-    const gateKind = gatePurpose(row.work_id);
+    const taskReview = row.work_id.startsWith('task:')
+      && row.work_id.endsWith(':purpose:review')
+      && row.task_id;
+    if (taskReview) {
+      if (row.task_status === 'done') {
+        return { ...base, purpose: 'review', state: 'completed', gateStatus: 'passed' };
+      }
+      const task = taskRepoRevision(db, row.task_id!);
+      const latestGate = db.prepare(`
+        SELECT status,artifact_revision FROM quality_gate
+        WHERE target_type='task' AND target_id=? AND kind='code_review'
+        ORDER BY updated_at DESC,id DESC LIMIT 1
+      `).get(row.task_id) as {
+        status: string;
+        artifact_revision: string;
+      } | undefined;
+      const gate = latestGate
+        && task
+        && (
+          latestGate.artifact_revision === String(task.revision)
+          || (
+            row.task_status === 'in_progress'
+            && Number(latestGate.artifact_revision) === task.revision - 1
+          )
+        )
+        ? latestGate
+        : undefined;
+      const status = gate?.status;
+      if (status === 'passed') return { ...base, purpose: 'review', state: 'completed', gateStatus: 'passed' };
+      if (status === 'changes_requested' || status === 'rejected') {
+        return {
+          ...base,
+          purpose: 'review',
+          state: 'completed',
+          gateStatus: 'failed',
+        };
+      }
+      if (
+        row.invocation_status === 'starting'
+        || row.invocation_status === 'running'
+        || row.invocation_status === 'terminating'
+      ) return { ...base, purpose: 'review', state: 'running', gateStatus: 'requested' };
+      if (row.outcome_type === 'record_gate_decision') {
+        return { ...base, purpose: 'review', state: 'waiting_gate', gateStatus: 'requested' };
+      }
+      if (row.invocation_status === 'terminated') {
+        return {
+          ...base,
+          purpose: 'review',
+          state: 'retry_pending',
+          gateStatus: 'requested',
+          failure: {
+            reasonCode: row.invocation_reason_code ?? 'task_gate_invocation_failed',
+            retryable: true,
+            humanRecoverable: true,
+            budget: retryBudget('invocation', this.invocationAttempts(db, row.work_id), limits),
+          },
+        };
+      }
+      return { ...base, purpose: 'review', state: 'ready', gateStatus: 'requested' };
+    }
+    const gateKind = deliveryGatePurpose(row.work_id);
     if (gateKind) {
       const status = deliveryGateStatus[gateKind];
       if (status === 'passed') return { ...base, state: 'completed', gateStatus: 'passed' };
@@ -638,11 +745,29 @@ export class RepositoryControlSnapshotBuilder {
       };
     }
 
-    const gate = row.task_id ? db.prepare(`
-      SELECT status FROM quality_gate
+    const currentTask = row.task_id ? taskRepoRevision(db, row.task_id) : undefined;
+    const latestTaskGate = row.task_id && currentTask ? db.prepare(`
+      SELECT status,artifact_revision FROM quality_gate
       WHERE target_type='task' AND target_id=?
       ORDER BY updated_at DESC,id DESC LIMIT 1
-    `).get(row.task_id) as { status: string } | undefined : undefined;
+    `).get(row.task_id) as {
+      status: string;
+      artifact_revision: string;
+    } | undefined : undefined;
+    const gate = latestTaskGate && currentTask
+      && (
+        latestTaskGate.artifact_revision === String(currentTask.revision)
+        || (
+          row.task_status === 'in_progress'
+          && Number(latestTaskGate.artifact_revision) === currentTask.revision - 1
+          && (
+            latestTaskGate.status === 'changes_requested'
+            || latestTaskGate.status === 'rejected'
+          )
+        )
+      )
+      ? latestTaskGate
+      : undefined;
     if (gate?.status === 'requested' || gate?.status === 'evaluating') {
       return { ...base, state: 'waiting_gate', gateStatus: 'requested' };
     }
@@ -663,9 +788,11 @@ export class RepositoryControlSnapshotBuilder {
       };
     }
     if (
-      row.outcome_type === 'submit_task_result'
-      || row.outcome_type === 'request_review'
-      || row.outcome_type === 'record_gate_decision'
+      row.task_status === 'in_review'
+      && (
+        row.outcome_type === 'submit_task_result'
+        || row.outcome_type === 'request_review'
+      )
     ) {
       return {
         ...base,
@@ -727,4 +854,28 @@ export class RepositoryControlSnapshotBuilder {
     `).get(targetType, targetId, kind ?? null, kind ?? null) as { count: number }).count;
     return Math.max(0, failures - 1);
   }
+
+  private currentTaskGate(
+    db: Database.Database,
+    taskId: string,
+    taskRevision: number,
+  ): { status: string; created_at: string } | undefined {
+    return db.prepare(`
+      SELECT status,created_at FROM quality_gate
+      WHERE target_type='task' AND target_id=? AND kind='code_review'
+        AND artifact_revision=?
+      ORDER BY updated_at DESC,id DESC LIMIT 1
+    `).get(taskId, String(taskRevision)) as {
+      status: string;
+      created_at: string;
+    } | undefined;
+  }
+}
+
+function taskRepoRevision(
+  db: Database.Database,
+  taskId: string,
+): { revision: number } | undefined {
+  return db.prepare('SELECT revision FROM task WHERE id=?')
+    .get(taskId) as { revision: number } | undefined;
 }

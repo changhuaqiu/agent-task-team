@@ -262,7 +262,9 @@ WebUI message
 
 ### 5.1 Task 状态机的已落地边界
 
-Task owner 已采用上述七个规范状态，并通过显式 `transition` 同时校验前态和目标态。
+Task owner 已采用上述七个规范状态，并通过显式 `transition` 同时校验前态、目标态与单调
+递增的 `Task.revision`。WorkContract 和 QualityGate 的 artifactRevision 都冻结该整数版本，
+不再用可能在同一毫秒重复的 `updated_at` 冒充 CAS 版本。
 `task.update`、Agent 技能工具和 TASKS.md 适配器都不能绕过 owner 直接写 `status`；
 数据库 trigger 作为最后一道防线拒绝非规范状态和绕过迁移表的规范状态跳转。
 
@@ -582,6 +584,16 @@ required Tasks 全部完成后，Delivery review 与 acceptance verification 分
 Gate Work Cell。缺少 Gate 时先发 `requestGate` owner Command；Gate requested 后再以
 `review_gate / test_gate` 激活 Reviewer/QA。二者使用不同 workId、WorkContract、epoch
 和 slot，因此一个评审等待不会把另一个验收 Cell 或其他 Agent 工作串行化。
+
+单个 Task 也使用同一协作形状：Implementer 的 `submit_task_result / request_review` 只是候选
+结果；durable Task Outcome Process Manager 以 Contract 冻结的 `Task.revision` 调 Task
+owner，将其推进到 `in_review` 并登记 evidence。Control snapshot 随后先请求
+`code_review` Gate，再为项目中的独立 Reviewer 生成自己的 Work Cell、WorkContract、
+epoch 与 slot。Reviewer 的 `record_gate_decision` 由 Gate owner 接纳；`gate.passed` 才由
+Task Gate Lifecycle Process Manager 把 Task CAS 到 `done` 并关闭执行/评审 authority，
+`changes_requested / rejected` 则只关闭 Reviewer authority、把原 Task 返回
+`in_progress`，下一轮返工必须签发新的执行 epoch。找不到独立 Reviewer 时进入
+Human escalation，不能退化成实现者自审。
 生产 bootstrap 现由 `DeliveryControlRuntime` 提供 `start/get/advance` 外观，
 内部唯一推进器是 `DeliveryControlProcessManager`。migration 67 已删除旧
 `autonomous_delivery_action/attempt`，旧 Supervisor、纯策略函数和 production adapters
@@ -798,6 +810,8 @@ Implementer 提交 task result + evidence
 关键边界：
 
 - Implementer 只能“提交验收”，不能直接把 Task 写成 `done`。
+- Task Outcome 接纳同时校验当前 `Task.revision`；信封版本与冻结版本相同但当前 Task 已漂移，
+  仍必须拒绝。
 - Gate owner 保存审查标准、证据版本和决定；聊天中的“LGTM”不能代替 Gate decision。
 - 返工不是 Invocation retry。它产生新的工作 epoch、明确 changeset 和新的验收证据。
 - 多分支汇合以 Task 依赖和 Gate 为准，不以“所有 Agent 都停止输出”为准。

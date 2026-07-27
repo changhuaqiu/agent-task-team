@@ -61,7 +61,7 @@ describe('A2AOutcomeProcessManager', () => {
       role: { name: 'lead' },
       permissions: { canDelegate: true },
       authoritativeRefs: ['project:project-a2a-outcome'],
-      authoritativeRevisions: { project: 1 },
+      authoritativeRevisions: { project: 1, deliveryRun: 0 },
       contextSnapshotRef: 'context-lead',
       allowedOutcomeTypes: ['handoff_to_agent'],
       correlationId: 'trace-handoff',

@@ -224,6 +224,7 @@ describe('InvocationPlanner', () => {
       project_path: projectRoot,
     });
     const delivery = autonomousDeliveryRepo.createRun({
+      idempotencyKey: 'context-planner-active-delivery',
       goal: '完成真实 Team Harness',
       acceptanceCriteria: ['Context Snapshot 可追溯', '必须通过 Web UI E2E'],
       scope: { conversationId: 'conv-delivery-context', projectPath: projectRoot },

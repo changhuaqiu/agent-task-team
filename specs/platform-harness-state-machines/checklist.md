@@ -34,6 +34,10 @@
 Task 切片证据：
 
 - [x] Task 的规范词汇、迁移表和 completion 语义已冻结。
+- [x] Task 使用显式整数 revision；WorkContract 接纳校验当前 revision，Gate 绑定同一
+  artifactRevision。
+- [x] Agent 结果只把 Task 推进 `in_review`；独立 Reviewer Work Cell 的 Gate passed
+  才推进 `done`，changes_requested 返回新 execution epoch。
 - [x] Task 非法跳转、陈旧前态、SQL 非规范状态与 SQL 绕过迁移表均有拒绝测试。
 - [x] Gate 的 `rejected/test_gate`、Attempt 的 `abandoned`、Task Graph 的 `merged_into`
   不再冒充 Task 状态。

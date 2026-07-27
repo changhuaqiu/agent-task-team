@@ -99,9 +99,9 @@ describe('DurableEffectOutbox', () => {
   it('freezes blocking applicability and retry budget at Effect creation', () => {
     db.prepare(`
       INSERT INTO autonomous_delivery_run (
-        id,conversation_id,status,current_stage,goal_contract_json,repair_cycle,
+        id,conversation_id,start_idempotency_key,status,current_stage,goal_contract_json,repair_cycle,
         revision,created_at,updated_at
-      ) VALUES ('run-1','project-1','active','executing','{}',0,3,?,?)
+      ) VALUES ('run-1','project-1','effect-test-run-1','active','executing','{}',0,3,?,?)
     `).run(clock.toISOString(), clock.toISOString());
     const outbox = createOutbox();
     outbox.register({
@@ -160,9 +160,9 @@ describe('DurableEffectOutbox', () => {
   it('requires explicit cancellation or supersession to remove a blocking Effect', () => {
     db.prepare(`
       INSERT INTO autonomous_delivery_run (
-        id,conversation_id,status,current_stage,goal_contract_json,repair_cycle,
+        id,conversation_id,start_idempotency_key,status,current_stage,goal_contract_json,repair_cycle,
         revision,created_at,updated_at
-      ) VALUES ('run-1','project-1','active','executing','{}',0,4,?,?)
+      ) VALUES ('run-1','project-1','effect-test-run-1','active','executing','{}',0,4,?,?)
     `).run(clock.toISOString(), clock.toISOString());
     const outbox = createOutbox();
     const [cancelled, superseded] = outbox.enqueueBatch({

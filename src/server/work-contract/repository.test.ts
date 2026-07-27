@@ -9,6 +9,7 @@ import {
 } from './repository';
 import type { AgentOutcome, AgentOutcomeType, WorkContract } from './types';
 import { invocationRepo } from '../repositories/invocation-repo';
+import { taskRepo } from '../repositories/task-repo';
 
 const NOW = new Date('2026-07-28T08:00:00.000Z');
 
@@ -24,8 +25,6 @@ function issue(
     workId: 'task:task-1:agent:builder',
     attemptId: input.attemptId,
     projectId: 'project-work',
-    taskId: 'task-1',
-    deliveryRunId: 'delivery-1',
     agentId: 'builder',
     goal: 'Implement the accepted task',
     acceptanceCriteria: ['tests pass', 'evidence attached'],
@@ -163,6 +162,48 @@ describe('WorkContractRepository', () => {
     }))).toMatchObject({
       status: 'rejected',
       reasonCode: 'terminal_outcome_already_accepted',
+    });
+  });
+
+  it('rejects an otherwise valid outcome after the authoritative Task revision changes', () => {
+    taskRepo.create({
+      id: 'task-current-revision',
+      conversation_id: 'project-work',
+      title: 'Revision-bound task',
+      agent_id: 'builder',
+    });
+    const task = taskRepo.getById('task-current-revision')!;
+    const repository = new WorkContractRepository();
+    const contract = repository.issue({
+      workId: 'task:task-current-revision:agent:builder:purpose:execute',
+      attemptId: 'attempt-current-revision',
+      projectId: 'project-work',
+      taskId: task.id,
+      agentId: 'builder',
+      goal: task.title,
+      acceptanceCriteria: ['done'],
+      role: {},
+      permissions: {},
+      authoritativeRefs: [`task:${task.id}`],
+      authoritativeRevisions: { task: task.revision },
+      contextSnapshotRef: 'ctx-current-revision',
+      allowedOutcomeTypes: ['submit_task_result'],
+      correlationId: 'trace-current-revision',
+      causationId: 'trigger-current-revision',
+      now: NOW,
+    });
+    taskRepo.transition(task.id, {
+      to: 'in_progress',
+      expectedFrom: 'ready',
+      expectedRevision: task.revision,
+    });
+
+    expect(repository.admitOutcome(outcome(contract, {
+      outcomeId: 'outcome-current-revision',
+      idempotencyKey: 'outcome-current-revision',
+    }))).toMatchObject({
+      status: 'rejected',
+      reasonCode: 'task_authoritative_revision_stale',
     });
   });
 

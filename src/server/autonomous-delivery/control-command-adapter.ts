@@ -205,41 +205,62 @@ export class ProductionControlCommandAdapter implements ControlCommandPort {
     const verification = action.targetWorkId?.endsWith(':purpose:verify') === true;
     const targetAgent = action.targetWorkId?.match(/:agent:([^:]+):purpose:/)?.[1]
       ?? task.agent_id;
+    const deliveryReview = review && action.targetWorkId?.startsWith('delivery:') === true;
     const gate = review || verification
-      ? qualityGateRepo.listForTarget('delivery_run', runId)
-        .filter((candidate) => candidate.kind === (
-          review ? 'delivery_review' : 'acceptance_verification'
+      ? qualityGateRepo.listForTarget(
+          deliveryReview || verification ? 'delivery_run' : 'task',
+          deliveryReview || verification ? runId : task.id,
+        ).filter((candidate) => candidate.kind === (
+          deliveryReview
+            ? 'delivery_review'
+            : verification
+              ? 'acceptance_verification'
+              : 'code_review'
         )).at(-1)
       : undefined;
-    this.inbox.enqueue({
-      projectId: task.conversation_id,
-      projectAgentId: targetAgent,
-      idempotencyKey: action.actionId,
-      command: {
-        source: review ? 'review_gate' : verification ? 'test_gate' : 'system',
-        correlationId: decision.decisionId,
-        causationId: action.actionId,
-        workId: action.targetWorkId,
-        taskId: task.id,
-        deliveryRunId: runId,
-        contextScenario: action.type === 'retry'
-          ? 'recovery'
-          : review
-            ? 'code_review'
-            : verification
-              ? 'verification'
-              : 'execution',
-        prompt: review || verification
-          ? [
-              review ? 'Review the completed delivery.' : 'Verify the delivery acceptance criteria.',
-              `Quality Gate: ${gate?.id ?? 'missing'}.`,
-              'Submit exactly one structured record_gate_decision AgentOutcome with evidence and receipt.',
-            ].join(' ')
-          : action.type === 'retry'
-          ? `恢复任务 ${task.id}「${task.title}」。根据当前权威事实继续，不要复用旧 attempt 的结果。`
-          : `执行任务 ${task.id}「${task.title}」。完成后提交结构化 AgentOutcome 和证据。`,
-      },
-    });
+    const db = this.database ?? getDb();
+    db.transaction(() => {
+      if (!review && !verification && task.status !== 'in_progress') {
+        taskRepo.transition(task.id, {
+          to: 'in_progress',
+          expectedFrom: task.status,
+          expectedRevision: task.revision,
+        });
+      }
+      this.inbox.enqueue({
+        projectId: task.conversation_id,
+        projectAgentId: targetAgent,
+        idempotencyKey: action.actionId,
+        command: {
+          source: review ? 'review_gate' : verification ? 'test_gate' : 'system',
+          correlationId: decision.decisionId,
+          causationId: action.actionId,
+          workId: action.targetWorkId,
+          taskId: task.id,
+          deliveryRunId: runId,
+          contextScenario: action.type === 'retry'
+            ? 'recovery'
+            : review
+              ? 'code_review'
+              : verification
+                ? 'verification'
+                : 'execution',
+          prompt: review || verification
+            ? [
+                review
+                  ? deliveryReview
+                    ? 'Review the completed delivery.'
+                    : `Review task ${task.id}「${task.title}」.`
+                  : 'Verify the delivery acceptance criteria.',
+                `Quality Gate: ${gate?.id ?? 'missing'}.`,
+                'Submit exactly one structured record_gate_decision AgentOutcome with evidence and receipt.',
+              ].join(' ')
+            : action.type === 'retry'
+            ? `恢复任务 ${task.id}「${task.title}」。根据当前权威事实继续，不要复用旧 attempt 的结果。`
+            : `执行任务 ${task.id}「${task.title}」。完成后提交结构化 AgentOutcome 和证据。`,
+        },
+      });
+    }).immediate();
     return { status: 'applied' };
   }
 
@@ -259,7 +280,7 @@ export class ProductionControlCommandAdapter implements ControlCommandPort {
         kind: deliveryGate,
         targetType: 'delivery_run',
         targetId: runId,
-        artifactRevision: task.updated_at,
+        artifactRevision: String(task.revision),
         criteria: deliveryGate === 'delivery_review'
           ? { noOpenMaterialFindings: true }
           : { acceptanceCriteria: snapshot.contract.acceptanceCriteria },
@@ -276,7 +297,7 @@ export class ProductionControlCommandAdapter implements ControlCommandPort {
       kind: 'code_review',
       targetType: 'task',
       targetId: task.id,
-      artifactRevision: task.updated_at,
+      artifactRevision: String(task.revision),
       criteria: { taskStatus: task.status, requiresIndependentReview: true },
       policy: { source: 'delivery_control_process_manager' },
       actor: { type: 'system', id: 'delivery-control-process-manager' },
@@ -347,6 +368,12 @@ export class ProductionControlCommandAdapter implements ControlCommandPort {
     if (!action.targetWorkId) return undefined;
     const direct = taskIdFromWorkId(action.targetWorkId);
     if (direct) return taskRepo.getById(direct);
+    const deliveryId = action.targetWorkId.match(/^delivery:([^:]+):/)?.[1];
+    if (deliveryId) {
+      const delivery = this.deliveries.getRun(deliveryId);
+      if (delivery?.root_task_id) return taskRepo.getById(delivery.root_task_id);
+      if (delivery) return taskRepo.getByConversation(delivery.conversation_id)[0];
+    }
     const db = this.database ?? getDb();
     const row = db.prepare(`
       SELECT task_id FROM work_contract

@@ -213,7 +213,7 @@ describe('ProductionControlCommandAdapter', () => {
     expect(new RepositoryControlSnapshotBuilder({ db, now: () => now }).build(runId).workCells)
       .toEqual(expect.arrayContaining([
         expect.objectContaining({
-          workId: 'task:task-1:agent:reviewer:purpose:review',
+          workId: `delivery:${runId}:agent:reviewer:purpose:review`,
           state: 'running',
         }),
       ]));

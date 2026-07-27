@@ -52,7 +52,7 @@ function gateDefinition(
     return {
       kind: 'implementation_readiness',
       artifactRevision: receiptRevision(actions, 'task.pull_request_submitted', 'headSha')
-        ?? `task:${task.id}:${task.updated_at}`,
+        ?? `task:${task.id}:${task.revision}`,
       requiredFields: ['installResult', 'buildResult', 'testResult', 'impactEvidence'],
     };
   }
@@ -60,7 +60,7 @@ function gateDefinition(
     return {
       kind: 'integration',
       artifactRevision: receiptRevision(actions, 'task.pull_request_merged', 'mergeSha')
-        ?? `task:${task.id}:${task.updated_at}`,
+        ?? `task:${task.id}:${task.revision}`,
       requiredFields: [
         'mergedToMain',
         'mainInstallResult',

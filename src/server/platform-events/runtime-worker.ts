@@ -25,6 +25,10 @@ import { A2AProjectViewProjection } from './a2a-project-view-projection';
 import { ControlSlotReleaseProcessManager } from '../autonomous-delivery/control-slot-release-process-manager';
 import { GateOutcomeProcessManager } from '../quality-gate/outcome-process-manager';
 import { TaskGraphOutcomeProcessManager } from '../repositories/task-graph-outcome-process-manager';
+import { TaskOutcomeProcessManager } from '../repositories/task-outcome-process-manager';
+import {
+  TaskGateLifecycleProcessManager,
+} from '../repositories/task-gate-lifecycle-process-manager';
 
 let worker: PlatformEventRuntimeWorker | undefined;
 
@@ -189,6 +193,24 @@ export class PlatformEventRuntimeWorker {
       reliability: 'durable',
       timeoutMs: 5_000,
       handle: taskGraphOutcome.handle,
+    });
+    const taskOutcome = new TaskOutcomeProcessManager();
+    this.dispatcher.register({
+      id: 'task-outcome-process-manager:v1',
+      pattern: 'agent.outcome.accepted',
+      stereotype: 'process_manager',
+      reliability: 'durable',
+      timeoutMs: 5_000,
+      handle: taskOutcome.handle,
+    });
+    const taskGateLifecycle = new TaskGateLifecycleProcessManager();
+    this.dispatcher.register({
+      id: 'task-gate-lifecycle-process-manager:v1',
+      pattern: 'gate.*',
+      stereotype: 'process_manager',
+      reliability: 'durable',
+      timeoutMs: 5_000,
+      handle: taskGateLifecycle.handle,
     });
     if (resolved.a2aLifecycle !== false) {
       const a2aLifecycle = new A2ALifecycleProcessManager(resolved.a2aLifecycle);

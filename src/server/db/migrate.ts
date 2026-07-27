@@ -3331,6 +3331,37 @@ END;
       }
     },
   },
+  {
+    version: 72,
+    run: (db) => {
+      const taskTable = db.prepare(`
+        SELECT 1 FROM sqlite_master
+        WHERE type='table' AND name='task'
+      `).get();
+      if (!taskTable) return;
+      const columns = new Set(
+        (db.prepare('PRAGMA table_info(task)').all() as Array<{ name: string }>)
+          .map((column) => column.name),
+      );
+      if (!columns.has('revision')) {
+        db.exec('ALTER TABLE task ADD COLUMN revision INTEGER NOT NULL DEFAULT 0');
+      }
+      db.exec(`
+        CREATE TRIGGER IF NOT EXISTS trg_task_revision_nonnegative_insert
+        BEFORE INSERT ON task
+        WHEN NEW.revision < 0
+        BEGIN
+          SELECT RAISE(ABORT,'task_revision_must_be_nonnegative');
+        END;
+        CREATE TRIGGER IF NOT EXISTS trg_task_revision_monotonic_update
+        BEFORE UPDATE OF revision ON task
+        WHEN NEW.revision <= OLD.revision
+        BEGIN
+          SELECT RAISE(ABORT,'task_revision_must_advance');
+        END;
+      `);
+    },
+  },
 ];
 
 export function applyMigrations(db: Database.Database): void {

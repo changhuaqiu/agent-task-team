@@ -35,6 +35,7 @@ export interface TaskRow {
   dependencies: string | null;
   artifacts: string | null;
   review_note: string | null;
+  revision: number;
   work_dir: string | null;
   created_at: string;
   updated_at: string;
@@ -54,6 +55,7 @@ export interface NewTask {
 export interface TaskTransition {
   to: TaskStatus;
   expectedFrom?: TaskStatus;
+  expectedRevision?: number;
   reviewNote?: string;
 }
 
@@ -82,6 +84,14 @@ export class StaleTaskTransitionError extends Error {
 
   constructor(readonly taskId: string, readonly expected: TaskStatus, readonly actual: TaskStatus) {
     super(`Stale task transition for ${taskId}: expected ${expected}, found ${actual}`);
+  }
+}
+
+export class StaleTaskRevisionError extends Error {
+  readonly reasonCode = 'stale_task_revision';
+
+  constructor(readonly taskId: string, readonly expected: number, readonly actual: number) {
+    super(`Stale task revision for ${taskId}: expected ${expected}, found ${actual}`);
   }
 }
 
@@ -173,6 +183,12 @@ export const taskRepo = {
       if (transition.expectedFrom && transition.expectedFrom !== previous.status) {
         throw new StaleTaskTransitionError(id, transition.expectedFrom, previous.status);
       }
+      if (
+        transition.expectedRevision !== undefined
+        && transition.expectedRevision !== previous.revision
+      ) {
+        throw new StaleTaskRevisionError(id, transition.expectedRevision, previous.revision);
+      }
       if (!canTransitionTask(previous.status, transition.to)) {
         throw new InvalidTaskTransitionError(id, previous.status, transition.to);
       }
@@ -181,28 +197,47 @@ export const taskRepo = {
           transition.reviewNote !== undefined
           && transition.reviewNote !== previous.review_note
         ) {
-          db.prepare('UPDATE task SET review_note=?, updated_at=? WHERE id=? AND status=?')
-            .run(transition.reviewNote, now, id, previous.status);
+          const updated = db.prepare(`
+            UPDATE task
+            SET review_note=?, revision=revision+1, updated_at=?
+            WHERE id=? AND status=? AND revision=?
+          `).run(transition.reviewNote, now, id, previous.status, previous.revision);
+          if (updated.changes !== 1) {
+            const current = taskRepo.getById(id);
+            if (current) throw new StaleTaskRevisionError(id, previous.revision, current.revision);
+            return undefined;
+          }
         }
         return taskRepo.getById(id);
       }
       const result = db.prepare(
         `UPDATE task
-         SET status=?, review_note=COALESCE(?, review_note), updated_at=?
-         WHERE id=? AND status=?`,
-      ).run(transition.to, transition.reviewNote ?? null, now, id, previous.status);
+         SET status=?, review_note=COALESCE(?, review_note), revision=revision+1, updated_at=?
+         WHERE id=? AND status=? AND revision=?`,
+      ).run(
+        transition.to,
+        transition.reviewNote ?? null,
+        now,
+        id,
+        previous.status,
+        previous.revision,
+      );
       if (result.changes !== 1) {
         const current = taskRepo.getById(id);
         if (current) {
-          throw new StaleTaskTransitionError(id, previous.status, current.status);
+          if (current.status !== previous.status) {
+            throw new StaleTaskTransitionError(id, previous.status, current.status);
+          }
+          throw new StaleTaskRevisionError(id, previous.revision, current.revision);
         }
         return undefined;
       }
+      const current = taskRepo.getById(id)!;
       const type = taskStatusEvent(previous.status, transition.to);
       new DomainEventPublisher(db).publish({
         type,
         projectId: previous.conversation_id,
-        aggregate: { type: 'task', id },
+        aggregate: { type: 'task', id, version: current.revision },
         projectAgentId: previous.agent_id,
         occurredAt: now,
         payload: {
@@ -212,7 +247,7 @@ export const taskRepo = {
           ...(transition.reviewNote ? { reviewNote: transition.reviewNote } : {}),
         } as never,
       });
-      return taskRepo.getById(id);
+      return current;
     }).immediate();
   },
 
@@ -225,6 +260,7 @@ export const taskRepo = {
     }
     if (sets.length === 0) return taskRepo.getById(id);
     const now = new Date().toISOString();
+    sets.push('revision = revision + 1');
     sets.push('updated_at = ?');
     values.push(now, id);
     const db = getDb();

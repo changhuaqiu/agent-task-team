@@ -42,6 +42,7 @@ export const task = sqliteTable('task', {
   dependencies: text('dependencies'), // JSON text
   artifacts: text('artifacts'), // JSON text
   reviewNote: text('review_note'),
+  revision: integer('revision').notNull().default(0),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
   claimedAt: text('claimed_at'),

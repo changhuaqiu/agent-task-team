@@ -23,7 +23,8 @@
 已完成的子项：
 
 - [x] Task 收敛为 `proposed / ready / in_progress / blocked / in_review / done / cancelled`。
-- [x] Task owner 拒绝非法迁移，并用 `expectedFrom` 对陈旧事实进行 fencing。
+- [x] Task owner 拒绝非法迁移，并用 `expectedFrom + Task.revision` 对陈旧事实进行 fencing；
+  WorkContract 与 Gate artifact 统一冻结整数 revision，不再把时间戳当版本。
 - [x] API、技能工具、工程协作、Daemon、Harness outcome 和 TASKS.md 适配器全部改走
   `taskRepo.transition`；普通更新拒绝夹带状态。
 - [x] migration 54 归一化历史状态，并以数据库 trigger 阻止未知状态和非法规范状态跳转。
@@ -178,6 +179,9 @@
 - [x] required Tasks 完成后生成独立 Delivery review/verification Gate Work Cells：先由
   `requestGate` 调 Gate owner，再分别以 `review_gate/test_gate` 激活 Reviewer/QA；
   两者拥有不同 workId/epoch/slot，任一等待不阻塞另一个可运行 Cell。
+- [x] 接通 Task 级结果闭环：Task Outcome PM 将合法结果 CAS 到 `in_review` 并登记 evidence；
+  code-review Gate 打开后生成独立 Reviewer Work Cell；passed 收口 Task/authorities，
+  changes_requested 只回收 Reviewer 并以新 execution epoch 返工。
 - [x] production bootstrap 已切换到 `DeliveryControlRuntime +
   DeliveryControlProcessManager`；外部 start/get/advance 端口不变，内部不再创建旧
   `autonomous_delivery_action/attempt`。

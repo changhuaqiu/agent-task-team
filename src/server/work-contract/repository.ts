@@ -352,6 +352,9 @@ export class WorkContractRepository {
 
       const contract = this.getContractRow(input.contractId);
       const authority = this.getAuthority(input.workId);
+      const frozenRevisions = contract
+        ? parseJson<Record<string, string | number>>(contract.authoritative_revisions_json)
+        : {};
       let rejectionReason: string | undefined;
       if (!contract) rejectionReason = 'work_contract_missing';
       else if (contract.project_id !== input.projectId) rejectionReason = 'project_scope_mismatch';
@@ -374,14 +377,28 @@ export class WorkContractRepository {
         rejectionReason = 'outcome_type_not_allowed';
       } else if (
         !sameRevisions(
-          parseJson<Record<string, string | number>>(contract.authoritative_revisions_json),
+          frozenRevisions,
           input.authoritativeRevisions,
         )
       ) {
         rejectionReason = 'authoritative_revision_mismatch';
-      } else if (contract.correlation_id !== input.correlationId) {
+      } else if (contract.task_id) {
+        const task = db.prepare('SELECT revision FROM task WHERE id=?')
+          .get(contract.task_id) as { revision: number } | undefined;
+        if (!task || task.revision !== frozenRevisions.task) {
+          rejectionReason = 'task_authoritative_revision_stale';
+        }
+      }
+      if (!rejectionReason && contract?.delivery_run_id) {
+        const delivery = db.prepare('SELECT revision FROM autonomous_delivery_run WHERE id=?')
+          .get(contract.delivery_run_id) as { revision: number } | undefined;
+        if (!delivery || delivery.revision !== frozenRevisions.deliveryRun) {
+          rejectionReason = 'delivery_authoritative_revision_stale';
+        }
+      }
+      if (!rejectionReason && contract && contract.correlation_id !== input.correlationId) {
         rejectionReason = 'correlation_mismatch';
-      } else if (db.prepare(`
+      } else if (!rejectionReason && contract && db.prepare(`
         SELECT 1 FROM agent_outcome
         WHERE contract_id=?
           AND admission_status='accepted'

@@ -72,7 +72,7 @@ describe('DeliveryControlRuntime', () => {
     expect(db.prepare('SELECT title,agent_id,status FROM task').all()).toEqual([{
       title: 'Ship',
       agent_id: 'planner',
-      status: 'ready',
+      status: 'in_progress',
     }]);
     expect(db.prepare(`
       SELECT project_agent_id,status,json_extract(command_json,'$.source') AS source

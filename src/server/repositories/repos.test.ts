@@ -4,6 +4,7 @@ import { generateSortableId, resetSeq } from './sortable-id';
 import { conversationRepo } from './conversation-repo';
 import {
   InvalidTaskTransitionError,
+  StaleTaskRevisionError,
   StaleTaskTransitionError,
   taskRepo,
 } from './task-repo';
@@ -158,6 +159,27 @@ describe('task-repo', () => {
     expect(() => taskRepo.transition('task-1', { to: 'blocked', expectedFrom: 'ready' }))
       .toThrow(StaleTaskTransitionError);
     expect(taskRepo.getById('task-1')!.status).toBe('in_progress');
+  });
+
+  it('advances an explicit revision and rejects a stale revision CAS', () => {
+    const created = taskRepo.create({
+      id: 'task-revision',
+      conversation_id: 'conv-1',
+      title: 'Revision',
+      agent_id: 'a',
+    });
+    const progressed = taskRepo.transition(created.id, {
+      to: 'in_progress',
+      expectedFrom: 'ready',
+      expectedRevision: created.revision,
+    })!;
+
+    expect(progressed.revision).toBe(created.revision + 1);
+    expect(() => taskRepo.transition(created.id, {
+      to: 'blocked',
+      expectedFrom: 'in_progress',
+      expectedRevision: created.revision,
+    })).toThrow(StaleTaskRevisionError);
   });
 
   it('deletes a task', () => {

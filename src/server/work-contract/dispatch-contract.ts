@@ -76,7 +76,7 @@ export function issueDispatchWorkContract(input: {
   ];
   const authoritativeRevisions: Record<string, string | number> = {
     contextSnapshot: input.contextSnapshot.id,
-    ...(input.task ? { task: input.task.updated_at } : {}),
+    ...(input.task ? { task: input.task.revision } : {}),
     ...(delivery ? { deliveryRun: delivery.revision } : {}),
   };
   const taskGoal = input.task

@@ -239,12 +239,23 @@ describe('RepositoryControlSnapshotBuilder', () => {
       'attempt-gate',
       'task-gated',
     );
+    let gatedTask = taskRepo.getById('task-gated')!;
+    gatedTask = taskRepo.transition(gatedTask.id, {
+      to: 'in_progress',
+      expectedFrom: 'ready',
+      expectedRevision: gatedTask.revision,
+    })!;
+    gatedTask = taskRepo.transition(gatedTask.id, {
+      to: 'in_review',
+      expectedFrom: 'in_progress',
+      expectedRevision: gatedTask.revision,
+    })!;
     qualityGateRepo.request({
       conversationId: 'project-1',
       kind: 'code_review',
       targetType: 'task',
       targetId: 'task-gated',
-      artifactRevision: 'revision-1',
+      artifactRevision: String(gatedTask.revision),
       criteria: {},
       actor: { type: 'system', id: 'test' },
       now,
@@ -257,6 +268,57 @@ describe('RepositoryControlSnapshotBuilder', () => {
     expect(snapshot.waitForEdges).toContainEqual({
       waiter: source.workId,
       blocker: gateWork.workId,
+      reasonCode: 'quality_gate',
+    });
+  });
+
+  it('creates an independent reviewer Work Cell when a Task Gate opens', () => {
+    db.prepare(`
+      INSERT INTO agents (id,name,role_card_id,theme,emoji,created_at,updated_at)
+      VALUES ('reviewer','Reviewer','preset-code-reviewer','default','R',?,?)
+    `).run(now.toISOString(), now.toISOString());
+    taskRepo.create({
+      id: 'task-review-cell',
+      conversation_id: 'project-1',
+      title: 'Reviewable task',
+      agent_id: 'agent-a',
+    });
+    let task = taskRepo.getById('task-review-cell')!;
+    task = taskRepo.transition(task.id, {
+      to: 'in_progress',
+      expectedFrom: 'ready',
+      expectedRevision: task.revision,
+    })!;
+    task = taskRepo.transition(task.id, {
+      to: 'in_review',
+      expectedFrom: 'in_progress',
+      expectedRevision: task.revision,
+    })!;
+    qualityGateRepo.request({
+      conversationId: 'project-1',
+      kind: 'code_review',
+      targetType: 'task',
+      targetId: task.id,
+      artifactRevision: String(task.revision),
+      criteria: {},
+      actor: { type: 'system', id: 'test' },
+      now,
+    });
+
+    const snapshot = new RepositoryControlSnapshotBuilder({ db, now: () => now }).build(runId);
+    const sourceWorkId = `task:${task.id}:agent:agent-a:purpose:execute`;
+    const reviewerWorkId = `task:${task.id}:agent:reviewer:purpose:review`;
+    expect(snapshot.workCells).toEqual(expect.arrayContaining([
+      expect.objectContaining({ workId: sourceWorkId, state: 'waiting_gate' }),
+      expect.objectContaining({
+        workId: reviewerWorkId,
+        purpose: 'review',
+        state: 'ready',
+      }),
+    ]));
+    expect(snapshot.waitForEdges).toContainEqual({
+      waiter: sourceWorkId,
+      blocker: reviewerWorkId,
       reasonCode: 'quality_gate',
     });
   });
@@ -274,6 +336,17 @@ describe('RepositoryControlSnapshotBuilder', () => {
       'attempt-source',
       'task-rework',
     );
+    let reworkTask = taskRepo.getById('task-rework')!;
+    reworkTask = taskRepo.transition(reworkTask.id, {
+      to: 'in_progress',
+      expectedFrom: 'ready',
+      expectedRevision: reworkTask.revision,
+    })!;
+    reworkTask = taskRepo.transition(reworkTask.id, {
+      to: 'in_review',
+      expectedFrom: 'in_progress',
+      expectedRevision: reworkTask.revision,
+    })!;
     const failGate = (artifactRevision: string) => {
       const requested = qualityGateRepo.request({
         conversationId: 'project-1',
@@ -310,7 +383,7 @@ describe('RepositoryControlSnapshotBuilder', () => {
       });
     };
 
-    failGate('revision-1');
+    failGate(String(reworkTask.revision));
     const firstSnapshot = new RepositoryControlSnapshotBuilder({ db, now: () => now })
       .build(runId);
     const first = firstSnapshot.workCells.find((cell) => cell.workId === source.workId);
@@ -334,7 +407,17 @@ describe('RepositoryControlSnapshotBuilder', () => {
       }),
     ]));
 
-    failGate('revision-2');
+    reworkTask = taskRepo.transition(reworkTask.id, {
+      to: 'in_progress',
+      expectedFrom: 'in_review',
+      expectedRevision: reworkTask.revision,
+    })!;
+    reworkTask = taskRepo.transition(reworkTask.id, {
+      to: 'in_review',
+      expectedFrom: 'in_progress',
+      expectedRevision: reworkTask.revision,
+    })!;
+    failGate(String(reworkTask.revision));
     const second = new RepositoryControlSnapshotBuilder({ db, now: () => now }).build(runId)
       .workCells.find((cell) => cell.workId === source.workId);
     expect(second).toMatchObject({
@@ -419,11 +502,11 @@ describe('RepositoryControlSnapshotBuilder', () => {
       cell.purpose === 'review' || cell.purpose === 'verification'
     )).toMatchObject([
       {
-        workId: 'task:task-delivery:agent:reviewer:purpose:review',
+        workId: `delivery:${runId}:agent:reviewer:purpose:review`,
         state: 'ready',
       },
       {
-        workId: 'task:task-delivery:agent:reviewer:purpose:verify',
+        workId: `delivery:${runId}:agent:reviewer:purpose:verify`,
         state: 'ready',
       },
     ]);

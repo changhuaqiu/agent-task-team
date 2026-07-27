@@ -288,6 +288,7 @@ describe('POST /api/mutations', () => {
     const { AutonomousDeliveryRepository } = await import('@/server/autonomous-delivery/repository');
     const repo = new AutonomousDeliveryRepository();
     const run = repo.createRun({
+      idempotencyKey: 'mutation-delete-autonomous-run',
       goal: '删除自主交付项目',
       acceptanceCriteria: ['项目及运行事实均被删除'],
       scope: { conversationId: 'conv-1', projectPath: process.cwd() },
