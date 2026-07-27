@@ -16,7 +16,7 @@ ProjectCreateDialog
   → POST /api/mutations conversation.create
   → conversationRepo.create
 
-RepositoryHarnessPlanner
+InvocationPlanner
   → conversation.project_path
   → ContextManager(project={id,name,path})
   → projectLayer 只渲染项目名和路径

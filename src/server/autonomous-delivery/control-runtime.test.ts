@@ -74,10 +74,11 @@ describe('DeliveryControlRuntime', () => {
       source: 'system',
     }]);
     expect((db.prepare(`
-      SELECT COUNT(*) AS count FROM supervisor_control_action
+      SELECT COUNT(*) AS count FROM delivery_control_action
     `).get() as { count: number }).count).toBeGreaterThan(0);
     expect(db.prepare(`
-      SELECT COUNT(*) AS count FROM autonomous_delivery_action
-    `).get()).toEqual({ count: 0 });
+      SELECT name FROM sqlite_master
+      WHERE type='table' AND name IN ('autonomous_delivery_action','autonomous_delivery_attempt')
+    `).all()).toEqual([]);
   });
 });

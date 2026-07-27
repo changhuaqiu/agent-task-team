@@ -1,3 +1,4 @@
+// Invocation Pipeline outcome reducer tests.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
@@ -11,7 +12,7 @@ import {
   PROJECTION_ERROR_MESSAGE_LIMIT,
   reduceAcceptedWakeup,
   sanitizeProjectionErrorMessage,
-} from '@/server/harness/outcome-reducer';
+} from '@/server/invocation-pipeline/outcome-reducer';
 import { readTasksMd, writeTasksMd } from '@/server/task-file-service';
 import type { TaskWakeup } from '@/server/task-flow/task-wakeup';
 
@@ -50,7 +51,7 @@ function wakeup(reasonCode: 'owner_ready' | 'dependency_resolved' | 'review_requ
   };
 }
 
-describe('Harness outcome reducer', () => {
+describe('Invocation Pipeline outcome reducer', () => {
   function projectionFailures() {
     return proofLogRepo.findByType({
       eventType: 'task_graph.runtime_projection.failed',

@@ -1,3 +1,4 @@
+// Invocation Pipeline runtime context snapshots.
 import { createHash } from 'node:crypto';
 import type { ContextSnapshot } from '@/lib/agent-context/ContextManager';
 

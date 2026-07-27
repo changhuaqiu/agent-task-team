@@ -1,5 +1,5 @@
 import type { TeamRuntime } from '@/lib/team-runtime';
-import { resolveConversationRuntime } from '../harness/conversation-runtime';
+import { resolveConversationRuntime } from '../invocation-pipeline/conversation-runtime';
 import { A2ACollaborationInvariantError } from './collaboration';
 
 export interface A2ACommandGuardBranch {

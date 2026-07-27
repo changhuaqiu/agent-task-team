@@ -8,7 +8,7 @@ import { taskRepo } from '@/server/repositories/task-repo';
 import { seedPresetAgents } from '@/server/db/seed-agents';
 import { teamPackRepo } from '@/server/repositories/team-pack-repo';
 import { publishTaskChangeNotification, publishTaskNotification, resolveTaskNotificationAudience } from '@/server/task-flow/task-notification-publisher';
-import { registerHarnessCoordinator } from '@/server/harness/registry';
+import { registerInvocationCoordinator } from '@/server/invocation-pipeline/registry';
 
 beforeEach(() => {
   setTestDb(createTestDb());
@@ -211,7 +211,7 @@ describe('publishTaskNotification', () => {
       emit: vi.fn(),
     } as unknown as IOServer;
     const submit = vi.fn();
-    registerHarnessCoordinator(io, { submit } as never);
+    registerInvocationCoordinator(io, { submit } as never);
 
     publishTaskChangeNotification({
       io,

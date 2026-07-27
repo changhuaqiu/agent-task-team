@@ -1,33 +1,34 @@
+// Invocation Pipeline admission and execution coordination.
 import { proofLogRepo } from '../repositories/proof-log-repo';
 import type {
-  HarnessOutcome,
-  HarnessPlanner,
-  HarnessRuntimePort,
-  HarnessSubmission,
-  HarnessTrigger,
+  AgentActivationCommand,
+  AgentRuntimePort,
+  InvocationDispatchOutcome,
+  InvocationPlannerPort,
+  InvocationSubmission,
 } from './types';
-import type { HarnessFailureEventPublisher } from './failure-event-publisher';
+import type { InvocationFailureEventPublisher } from './failure-event-publisher';
 
-export interface HarnessCoordinatorOptions {
-  planner: HarnessPlanner;
-  runtime: HarnessRuntimePort;
+export interface InvocationCoordinatorOptions {
+  planner: InvocationPlannerPort;
+  runtime: AgentRuntimePort;
   dedupeTtlMs?: number;
   now?: () => number;
   recordProof?: typeof proofLogRepo.append;
-  failureEvents?: Pick<HarnessFailureEventPublisher, 'publish'>;
+  failureEvents?: Pick<InvocationFailureEventPublisher, 'publish'>;
 }
-export class HarnessCoordinator {
-  private readonly planner: HarnessPlanner;
-  private readonly runtime: HarnessRuntimePort;
+export class InvocationCoordinator {
+  private readonly planner: InvocationPlannerPort;
+  private readonly runtime: AgentRuntimePort;
   private readonly dedupeTtlMs: number;
   private readonly now: () => number;
   private readonly recordProof: typeof proofLogRepo.append;
   private readonly acceptedAt = new Map<string, number>();
-  private readonly inFlight = new Map<string, Promise<HarnessOutcome>>();
-  private readonly completedOutcomes = new Map<string, HarnessOutcome>();
-  private readonly failureEvents?: Pick<HarnessFailureEventPublisher, 'publish'>;
+  private readonly inFlight = new Map<string, Promise<InvocationDispatchOutcome>>();
+  private readonly completedOutcomes = new Map<string, InvocationDispatchOutcome>();
+  private readonly failureEvents?: Pick<InvocationFailureEventPublisher, 'publish'>;
 
-  constructor(options: HarnessCoordinatorOptions) {
+  constructor(options: InvocationCoordinatorOptions) {
     this.planner = options.planner;
     this.runtime = options.runtime;
     this.dedupeTtlMs = options.dedupeTtlMs ?? 2 * 60 * 1000;
@@ -36,7 +37,7 @@ export class HarnessCoordinator {
     this.failureEvents = options.failureEvents;
   }
 
-  submit(trigger: HarnessTrigger): HarnessSubmission {
+  submit(trigger: AgentActivationCommand): InvocationSubmission {
     const key = trigger.idempotencyKey?.trim() || trigger.id;
     this.cleanupDedupe();
 
@@ -44,7 +45,7 @@ export class HarnessCoordinator {
     const completed = this.completedOutcomes.get(key);
     if (existing || completed) {
       const completion = existing ?? Promise.resolve(completed!);
-      this.proof(trigger, 'harness.trigger.duplicate', 'duplicate_trigger');
+      this.proof(trigger, 'invocation.activation.duplicate', 'duplicate_trigger');
       return {
         disposition: 'duplicate',
         handled: true,
@@ -55,7 +56,7 @@ export class HarnessCoordinator {
 
     if (this.runtime.isBusy(trigger.agentId, trigger.conversationId)) {
       const outcome = { status: 'deferred', reasonCode: 'agent_busy' } as const;
-      this.proof(trigger, 'harness.trigger.deferred', 'agent_busy');
+      this.proof(trigger, 'invocation.activation.deferred', 'agent_busy');
       return {
         disposition: 'deferred',
         handled: false,
@@ -64,9 +65,9 @@ export class HarnessCoordinator {
     }
 
     this.acceptedAt.set(key, this.now());
-    this.proof(trigger, 'harness.trigger.accepted');
+    this.proof(trigger, 'invocation.activation.accepted');
     const completion = this.run(trigger)
-      .catch((error: unknown): HarnessOutcome => ({
+      .catch((error: unknown): InvocationDispatchOutcome => ({
         status: 'failed',
         reasonCode: 'internal_error',
         message: error instanceof Error ? error.message : String(error),
@@ -82,15 +83,15 @@ export class HarnessCoordinator {
     return { disposition: 'accepted', handled: true, completion };
   }
 
-  private async run(trigger: HarnessTrigger): Promise<HarnessOutcome> {
+  private async run(trigger: AgentActivationCommand): Promise<InvocationDispatchOutcome> {
     const resolution = await this.planner.prepare(trigger);
     if (!resolution.ok) {
-      this.proof(trigger, 'harness.plan.blocked', resolution.outcome.reasonCode);
+      this.proof(trigger, 'invocation.plan.blocked', resolution.outcome.reasonCode);
       this.failureEvents?.publish(trigger, resolution.outcome);
       return resolution.outcome;
     }
 
-    this.proof(trigger, 'harness.plan.prepared', undefined, {
+    this.proof(trigger, 'invocation.plan.prepared', undefined, {
       runtimeId: resolution.plan.runtimeId,
       engine: resolution.plan.engine,
       hasSystemPrompt: Boolean(resolution.plan.systemPrompt),
@@ -98,7 +99,7 @@ export class HarnessCoordinator {
     const outcome = await this.runtime.execute(resolution.plan);
     this.proof(
       trigger,
-      `harness.dispatch.${outcome.status}`,
+      `invocation.dispatch.${outcome.status}`,
       'reasonCode' in outcome ? outcome.reasonCode : undefined,
     );
     return outcome;
@@ -115,7 +116,7 @@ export class HarnessCoordinator {
   }
 
   private proof(
-    trigger: HarnessTrigger,
+    trigger: AgentActivationCommand,
     eventType: string,
     reasonCode?: string,
     metadata?: Record<string, unknown>,

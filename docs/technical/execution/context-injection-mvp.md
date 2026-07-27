@@ -59,7 +59,7 @@ wakeup?: {
 }
 ```
 
-`HarnessTrigger`、`HarnessDispatchPlan` 与 terminal start payload 只透传这组场景元数据，不引入第二套上下文模型。
+`AgentActivationCommand`、`InvocationDispatchPlan` 与 terminal start payload 只透传这组场景元数据，不引入第二套上下文模型。
 
 | Scenario | 判定条件 | 语义 |
 |---|---|---|
@@ -233,7 +233,7 @@ src/lib/agent-context/protocolHints.ts
   fn buildProtocolHint(scenario: Scenario, ctx: HintContext): string
   5 个 scenario 的追加文案（handoff / wakeup / closure 各一段，init/iterate 返回空）
 
-src/server/harness/valid-exit.ts
+src/server/invocation-pipeline/valid-exit.ts
   fn checkValidExit(scenario: Scenario, outcome: string): ValidExitResult
   纯函数、保守匹配，只提供观测信号
 ```
@@ -255,7 +255,7 @@ src/server/harness/valid-exit.ts
   - 不阻断，只经 audit logger 记 `missing_action` 事件
 
 - **Harness / daemon 透传与观测**：
-  - `TaskWakeup → HarnessTrigger → ContextRequest` 透传 `reasonCode` 与 closure 元数据
+  - `TaskWakeup → AgentActivationCommand → ContextRequest` 透传 `reasonCode` 与 closure 元数据
   - dispatch plan / terminal payload 透传已解析 scenario
   - daemon 在完整输出聚合后执行 valid-exit 观测
   - proof repository 提供持久幂等查询；daemon 在 closure dispatch 时写 proof event

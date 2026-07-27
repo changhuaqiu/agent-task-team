@@ -1,3 +1,4 @@
+// Invocation Pipeline valid-exit tests.
 import { describe, expect, it } from 'vitest';
 import { checkValidExit } from './valid-exit';
 

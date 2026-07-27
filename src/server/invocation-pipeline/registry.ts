@@ -1,25 +1,29 @@
+// Shared Invocation Pipeline registry.
 import type { Server as IOServer } from 'socket.io';
 import type { TaskWakeup } from '../task-flow/task-wakeup';
-import type { HarnessCoordinator } from './coordinator';
-import type { HarnessSubmission, HarnessTrigger } from './types';
+import type { InvocationCoordinator } from './coordinator';
+import type { AgentActivationCommand, InvocationSubmission } from './types';
 import { reduceAcceptedWakeup } from './outcome-reducer';
 import type { ContextScenario } from '../../lib/agent-context/scenarioResolver';
 
-const coordinators = new WeakMap<IOServer, HarnessCoordinator>();
-const HARNESS_COORDINATOR_KEY = Symbol.for('agent-task-hub.harness.coordinator');
+const coordinators = new WeakMap<IOServer, InvocationCoordinator>();
+const INVOCATION_COORDINATOR_KEY = Symbol.for('agent-task-hub.invocation-pipeline.coordinator');
 
-function getCoordinator(io: IOServer | undefined): HarnessCoordinator | undefined {
+function getCoordinator(io: IOServer | undefined): InvocationCoordinator | undefined {
   if (!io) return undefined;
   return coordinators.get(io)
-    ?? ((io as unknown as Record<symbol, unknown>)[HARNESS_COORDINATOR_KEY] as HarnessCoordinator | undefined);
+    ?? ((io as unknown as Record<symbol, unknown>)[INVOCATION_COORDINATOR_KEY] as InvocationCoordinator | undefined);
 }
 
-export function registerHarnessCoordinator(io: IOServer, coordinator: HarnessCoordinator): void {
+export function registerInvocationCoordinator(io: IOServer, coordinator: InvocationCoordinator): void {
   coordinators.set(io, coordinator);
-  (io as unknown as Record<symbol, unknown>)[HARNESS_COORDINATOR_KEY] = coordinator;
+  (io as unknown as Record<symbol, unknown>)[INVOCATION_COORDINATOR_KEY] = coordinator;
 }
 
-export function submitHarnessTrigger(io: IOServer | undefined, trigger: HarnessTrigger): HarnessSubmission | undefined {
+export function submitAgentActivation(
+  io: IOServer | undefined,
+  trigger: AgentActivationCommand,
+): InvocationSubmission | undefined {
   return getCoordinator(io)?.submit(trigger);
 }
 
@@ -43,14 +47,14 @@ export function scenarioForWakeup(wakeup: TaskWakeup): ContextScenario {
   return 'execution';
 }
 
-export function submitTaskWakeupToHarness(
+export function submitTaskWakeupToInvocationPipeline(
   io: IOServer | undefined,
   wakeup: TaskWakeup,
   contextScenario: ContextScenario = scenarioForWakeup(wakeup),
   deliveryRunId?: string,
-): HarnessSubmission | undefined {
+): InvocationSubmission | undefined {
   if (!io) return undefined;
-  const submission = submitHarnessTrigger(io, {
+  const submission = submitAgentActivation(io, {
     id: wakeup.id ?? `wakeup:${wakeup.metadata.idempotencyKey}`,
     source: wakeup.dispatchSource,
     conversationId: wakeup.conversationId,

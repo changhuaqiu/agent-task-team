@@ -49,8 +49,10 @@ describe('SQLite Foundation', () => {
     expect(tableNames).toContain('work_contract');
     expect(tableNames).toContain('work_authority');
     expect(tableNames).toContain('agent_outcome');
-    expect(tableNames).toContain('supervisor_control_decision');
-    expect(tableNames).toContain('supervisor_control_action');
+    expect(tableNames).toContain('delivery_control_decision');
+    expect(tableNames).toContain('delivery_control_action');
+    expect(tableNames).not.toContain('supervisor_control_decision');
+    expect(tableNames).not.toContain('supervisor_control_action');
     expect(tableNames).toContain('a2a_possession_chain');
     expect(tableNames).toContain('a2a_possession');
     expect(tableNames).toContain('a2a_pass_group');
@@ -603,7 +605,7 @@ describe('SQLite Foundation', () => {
     expect(db.prepare('SELECT version FROM _schema_version WHERE version = 40').get())
       .toEqual({ version: 40 });
     expect(db.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-      .toEqual({ version: 66 });
+      .toEqual({ version: 68 });
   });
 
   it('retires the parallel A2A worklist schema at migration 62', () => {
@@ -634,8 +636,8 @@ describe('SQLite Foundation', () => {
         checkpoint.pragma('foreign_keys = OFF');
         checkpoint.exec(`
           DROP TABLE autonomous_delivery_receipt;
-          DROP TABLE autonomous_delivery_attempt;
-          DROP TABLE autonomous_delivery_action;
+          DROP TABLE IF EXISTS autonomous_delivery_attempt;
+          DROP TABLE IF EXISTS autonomous_delivery_action;
           DROP TABLE autonomous_delivery_run;
           DELETE FROM _schema_version WHERE version > ${watermark};
         `);
@@ -648,13 +650,11 @@ describe('SQLite Foundation', () => {
         ).all() as Array<{ name: string }>;
         expect(new Set(tables.map((table) => table.name))).toEqual(new Set([
           'autonomous_delivery_run',
-          'autonomous_delivery_action',
-          'autonomous_delivery_attempt',
           'autonomous_delivery_receipt',
           'autonomous_delivery_advancement_request',
         ]));
         expect(checkpoint.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-          .toEqual({ version: 66 });
+          .toEqual({ version: 68 });
         expect(checkpoint.pragma('foreign_key_check')).toEqual([]);
       } finally {
         checkpoint.close();
@@ -662,7 +662,7 @@ describe('SQLite Foundation', () => {
     }
   });
 
-  it('rebuilds the old root task FK while preserving autonomous run and action rows', () => {
+  it('rebuilds the old root task FK while preserving the autonomous run', () => {
     db.pragma('foreign_keys = OFF');
     db.exec(`
       DROP TABLE autonomous_delivery_run;
@@ -693,11 +693,6 @@ describe('SQLite Foundation', () => {
       (id,conversation_id,root_task_id,status,current_stage,goal_contract_json,created_at,updated_at)
       VALUES ('run-checkpoint','conv-checkpoint','task-checkpoint','executing','executing','{}',?,?)`)
       .run(now, now);
-    db.prepare(`INSERT INTO autonomous_delivery_action
-      (id,run_id,kind,idempotency_key,status,not_before,max_attempts,created_at,updated_at)
-      VALUES ('action-checkpoint','run-checkpoint','advance_tasks','checkpoint-action','ready',?,3,?,?)`)
-      .run(now, now, now);
-
     applyMigrations(db);
 
     const rootTaskForeignKey = (db.pragma('foreign_key_list(autonomous_delivery_run)') as Array<{
@@ -707,9 +702,6 @@ describe('SQLite Foundation', () => {
     expect(rootTaskForeignKey?.on_delete).toBe('SET NULL');
     expect(db.prepare('SELECT revision FROM autonomous_delivery_run WHERE id=?').get('run-checkpoint'))
       .toEqual({ revision: 1 });
-    expect(db.prepare('SELECT run_id FROM autonomous_delivery_action WHERE id=?').get('action-checkpoint'))
-      .toEqual({ run_id: 'run-checkpoint' });
-
     db.prepare('DELETE FROM task WHERE id=?').run('task-checkpoint');
     expect(db.prepare('SELECT root_task_id FROM autonomous_delivery_run WHERE id=?').get('run-checkpoint'))
       .toEqual({ root_task_id: null });

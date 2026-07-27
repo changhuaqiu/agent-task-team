@@ -1,5 +1,9 @@
+// Invocation Pipeline reference resolver tests.
 import { describe, expect, it } from 'vitest';
-import { resolveExternalReferences, type CommandRunner } from '@/server/harness/reference-resolver';
+import {
+  resolveExternalReferences,
+  type CommandRunner,
+} from '@/server/invocation-pipeline/reference-resolver';
 
 describe('resolveExternalReferences', () => {
   it('does not guess that a bare issue-style number is a pull request', async () => {

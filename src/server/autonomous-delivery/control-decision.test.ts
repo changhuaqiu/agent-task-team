@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
   decideControlActions,
-  type SupervisorControlPolicy,
-  type SupervisorControlSnapshot,
+  type DeliveryControlPolicy,
+  type DeliveryControlSnapshot,
   type WorkCellControlSnapshot,
 } from './control-decision';
 
 const NOW = '2026-07-28T12:00:00.000Z';
-const POLICY: SupervisorControlPolicy = {
+const POLICY: DeliveryControlPolicy = {
   revision: 4,
   maxConcurrent: 2,
   roleCapacity: { builder: 1, reviewer: 1 },
@@ -30,7 +30,7 @@ function cell(
   };
 }
 
-function snapshot(workCells: WorkCellControlSnapshot[]): SupervisorControlSnapshot {
+function snapshot(workCells: WorkCellControlSnapshot[]): DeliveryControlSnapshot {
   return {
     runId: 'delivery-1',
     snapshotRevision: 7,

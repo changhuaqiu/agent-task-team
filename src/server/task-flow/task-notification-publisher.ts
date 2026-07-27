@@ -21,7 +21,7 @@ import {
   resolveTaskWakeups,
   type TaskWakeup,
 } from './task-wakeup';
-import { submitTaskWakeupToHarness } from '../harness/registry';
+import { submitTaskWakeupToInvocationPipeline } from '../invocation-pipeline/registry';
 
 export interface PublishTaskNotificationInput {
   io?: IOServer;
@@ -252,10 +252,10 @@ export function publishTaskChangeNotification(input: PublishTaskChangeNotificati
     });
     // Rejected-task execution is owned by the durable task Wakeup Router.
     // This publisher emits the display projection but never starts a second
-    // Harness execution.
+    // Invocation Pipeline execution.
     const routedByPlatformEvent = wakeup.metadata.reasonCode === 'review_changes_requested';
     if (!routedByPlatformEvent) {
-      submitTaskWakeupToHarness(input.io, { ...wakeup, id });
+      submitTaskWakeupToInvocationPipeline(input.io, { ...wakeup, id });
     }
     emitWakeupToConversation(input.io, wakeup.conversationId, {
       ...wakeup,

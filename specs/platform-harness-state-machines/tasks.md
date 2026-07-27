@@ -2,7 +2,7 @@
 
 ## S0：术语与观测
 
-- [ ] 建立当前名到目标名的兼容映射。
+- [x] 将窄义 Harness 直接迁为 Invocation Pipeline 目标命名，不保留旧别名。
 - [ ] 为 Command、Event、WorkContract、Invocation、Outcome 补齐 correlation/causation。
 - [ ] 建立跨模块状态迁移 trace。
 - [ ] 建立 project-start、parallel-handoff、review-rework、agent-failure、human-resume、
@@ -57,7 +57,7 @@
 - [x] 接通 `requestGate`、`changes_requested`、`passed`。
 - [x] durable Gate Outcome Process Manager 将接纳的 `record_gate_decision` Outcome 校验后
   翻译为 Gate owner 的 evidence/evaluating/decision Commands；Delivery Gate 同步保存
-  已校验 receipt，不再依赖旧 Supervisor 轮询 proof 文本。
+  已校验 receipt，不再依赖旧推进器轮询 proof 文本。
 
 已完成的子项：
 
@@ -136,7 +136,7 @@
   Agent source 也必须在 roster 内并通过 Team Runtime communication policy；显式 Human
   Command 只绕过 agent-to-agent policy，不绕过 roster。
 
-## S5：Delivery Supervisor
+## S5：Delivery Control Process Manager
 
 - [x] 实现十种 ControlAction 的纯决策函数；同一 snapshot/policy revision 生成稳定
   decisionId、actionId 与有序动作集。
@@ -151,7 +151,7 @@
 - [x] Migration 64 持久化 ControlDecision 和非 wait ControlAction；首次保存与 claim
   双重校验项目事件 cursor，claim 另校验 workEpoch、slot 唯一占用和 lease token。
 - [x] 用权威 WorkAuthority/Contract、Task、Gate、Invocation、AgentOutcome 构造
-  `SupervisorControlSnapshot`；同一 decision 的非 wait 动作先原子 batch claim，再执行，
+  `DeliveryControlSnapshot`；同一 decision 的非 wait 动作先原子 batch claim，再执行，
   避免首条 Command 产生的事实错误地 stale 同批兄弟动作。
 - [ ] 将 A2A facts 补入 snapshot；Inbox、Effect 与 dependency facts 已接入，
   持久 ControlAction 已接到 Task/Gate/Inbox/Delivery/Effect owner Command。
@@ -160,7 +160,7 @@
   Task/Bundle/blocking Effect Closure，Runtime started/terminated 释放 slot。
 - [x] Delivery 尚无 Task 时构造不占 Agent slot 的 planning Work Cell；
   `initializeGraph` 经 Task owner 幂等建立首个 root Task，再由后续 `activate` 进入 Agent 循环。
-- [x] provider integration 从旧 Supervisor 的同步 I/O 拆为 `integrate` ControlAction；
+- [x] provider integration 从旧推进器的同步 I/O 拆为 `integrate` ControlAction；
   action 只向 Effect owner 幂等提交带 run/revision/sourceAction 的 blocking Effect。
 - [x] `publish_delivery` 拆为本地 `finalize` owner Command：从已通过 Gate 的验收/评审
   receipt、Task artifacts 与 provider receipt 构造 Bundle；Bundle 冻结后下一轮才 terminate。
@@ -170,7 +170,8 @@
 - [x] production bootstrap 已切换到 `DeliveryControlRuntime +
   DeliveryControlProcessManager`；外部 start/get/advance 端口不变，内部不再创建旧
   `autonomous_delivery_action/attempt`。
-- [ ] 删除旧 `decideDeliveryNext`、Supervisor、production adapters 与旧 action/attempt 状态。
+- [x] 删除旧 `decideDeliveryNext`、Supervisor、production adapters 与旧 action/attempt 状态；
+  migration 67 删除表，migration 68 将新控制表从 `supervisor_*` 重命名为 `delivery_control_*`。
 - [x] 建立稳定 wait-for graph cycle 检测，Task dependency deadlock 进入 Human escalation，
   不消耗 Invocation/Effect/Task rework/Agent-local 任一重试预算。
 - [ ] 将 A2A join、Gate 与容量等待边接入 wait-for graph，并定义可自动打破的安全边。
@@ -180,7 +181,10 @@
 
 ## S6：迁移清理
 
-- [ ] 迁移窄义 Harness 旧命名的全部调用者。
-- [ ] 删除已无读者的兼容分支、投影、状态字段和文档。
-- [ ] 更新长期文档、架构图和测试证据。
+- [x] 迁移窄义 Harness 旧命名的全部调用者；源码目录已从 `src/server/harness`
+  收敛为 `src/server/invocation-pipeline`。
+- [x] 删除已无读者的兼容分支、投影、状态字段和文档；旧自主交付 spec/设计已归档，
+  旧 Supervisor、policy、production adapters 与 Action/Attempt 表已退役。
+- [x] 更新长期文档、架构图和测试证据；S6 回归通过 TypeScript、目标 lint 与全量
+  Vitest（202 files passed、1 skipped；1421 tests passed、1 skipped）。
 - [ ] 完成退出条件并归档本规格。

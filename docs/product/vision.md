@@ -57,7 +57,7 @@ Agent Task Hub 像操作系统管理计算资源一样管理 Agent 团队：
 
 | 操作系统职责 | Agent Task Hub 中的对应能力 |
 |---|---|
-| 进程与调度 | Task Graph、Dispatch、责任持有、自主交付 Supervisor |
+| 进程与调度 | Task Graph、Dispatch、责任持有、Delivery Control Process Manager |
 | 内存管理 | 分层上下文、预算门禁、渐进加载、项目知识与 Skill |
 | 文件系统与持久状态 | 项目工作区、Worktree、Session、任务事实与执行回执 |
 | 进程间通信 | A2A 交接、交接包、团队日志与共享上下文 |

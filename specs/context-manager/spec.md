@@ -1,7 +1,7 @@
 # 上下文管理器（Context Manager）— 作用域、身份与 A2A 协议化
 
 > 状态：有效·上下文注入策略 MVP 已评审（2026-07-16）｜ 四层语义分组已落地（2026-07-17，见 `context-layering.md` §2.1）｜ `PromptComposer` 兼容包装已退役（2026-07-22）｜ 初始日期：2026-07-13
-> 关联模块：`src/lib/agent-context/ContextManager.ts`（唯一组装入口）、`src/lib/agent-context/tiers/`（system/knowledge/task/interaction 四层渲染器）、`src/lib/agent-context/types.ts` + `skillTools.ts`（中立类型）、`src/server/harness/context-planner.ts`（派发接入）、`src/server/daemon.ts`、`src/server/a2a/context-builder.ts`、`src/server/repositories/session-repo.ts`
+> 关联模块：`src/lib/agent-context/ContextManager.ts`（唯一组装入口）、`src/lib/agent-context/tiers/`（system/knowledge/task/interaction 四层渲染器）、`src/lib/agent-context/types.ts` + `skillTools.ts`（中立类型）、`src/server/invocation-pipeline/context-planner.ts`（派发接入）、`src/server/daemon.ts`、`src/server/a2a/context-builder.ts`、`src/server/repositories/session-repo.ts`
 > 设计依据：`docs/technical/execution/context-layering.md`
 > 依赖规格：`platform-harness-state-machines/`（A2A 聚合与结构化交接）、`acp-runtime-integration/`（执行协议，正交）
 > 历史基线：`docs/archive/specs/context-budget-management/`（预算组件已落地并由本 spec 继续演进）

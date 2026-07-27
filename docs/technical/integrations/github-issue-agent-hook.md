@@ -18,7 +18,7 @@ GitHub
         -> lazy shared Socket.IO / daemon / Harness initialization
         -> GoalContract compiler
         -> github_issue_ingress + Conversation + DeliveryRun (one transaction)
-     -> Supervisor.advance() after commit
+     -> DeliveryControlRuntime.advance() after commit
         -> plan_goal
         -> Task Graph
         -> Harness / Review / Verification / Delivery
@@ -34,7 +34,7 @@ GitHub
 - HMAC-SHA256 验签
 - 读取 GitHub event/delivery headers
 - JSON 解析与 HTTP 状态映射
-- 获取共享 Socket.IO/Supervisor
+- 获取共享 Socket.IO/Delivery Control Runtime
 
 不负责：
 
@@ -53,7 +53,7 @@ GitHub
 - 在一个 SQLite 事务中 claim ingress、创建 Conversation、启动 DeliveryRun 并回写映射
 - 对 delivery ID 和 repository/issue identity 幂等
 
-### AutonomousDeliverySupervisor
+### DeliveryControlRuntime
 
 职责不变：
 
@@ -68,9 +68,9 @@ GitHub
 
 ## 为什么 seam 放在这里
 
-GitHub 是 true external dependency，transport 和 payload 会变化；自主交付是项目内部稳定能力。把 seam 放在“可信外部 Issue -> GoalContract”之间，可以让 route 保持浅薄，让所有业务不变量集中在一个模块，并通过 fake Supervisor 与内存 SQLite 从同一 interface 测试。
+GitHub 是 true external dependency，transport 和 payload 会变化；自主交付是项目内部稳定能力。把 seam 放在“可信外部 Issue -> GoalContract”之间，可以让 route 保持浅薄，让所有业务不变量集中在一个模块，并通过 fake Runtime 与内存 SQLite 从同一 interface 测试。
 
-删除该模块后，仓库策略、幂等、事务和编译逻辑会重新散落到 route、Conversation repository 和 Supervisor 调用方，因此该模块具有实际深度和维护 locality。
+删除该模块后，仓库策略、幂等、事务和编译逻辑会重新散落到 route、Conversation repository 和 Runtime 调用方，因此该模块具有实际深度和维护 locality。
 
 ## 数据模型
 
@@ -154,7 +154,7 @@ node scripts/install-github-issue-hook.mjs
 
 这个部署剖面保持 GitHub transport、GoalContract 编译、自主交付和模型提供方之间
 的既有 seam：公网只增加一个窄 Webhook 入口，模型网关仍是 localhost 依赖，
-不为部署方便绕过 Harness 或 Supervisor。
+不为部署方便绕过 Platform Harness 或 Delivery Control Runtime。
 
 ### 无人值守 OpenCode 权限
 
@@ -194,7 +194,7 @@ HTTP 响应使用稳定 reason code：
 
 ## 替代方案与后果
 
-- 使用 GitHub Actions 直接调用内部 Task API：会绕过 GoalContract/Supervisor，并要求暴露更多内部 interface。
+- 使用 GitHub Actions 直接调用内部 Task API：会绕过 GoalContract/Delivery Control Runtime，并要求暴露更多内部 interface。
 - 轮询 GitHub Issues：延迟高、需要 GitHub token、浪费 API quota；P0 采用 webhook。
 - 直接复用 DeliveryReceipt：无法在 Run 创建前建立外部幂等，也混淆 ingress provenance 与 run action evidence。
 

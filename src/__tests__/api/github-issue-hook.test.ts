@@ -98,7 +98,7 @@ describe('POST /api/integrations/github/issues', () => {
     rmSync(projectPath, { recursive: true, force: true });
   });
 
-  it('accepts a signed issue and schedules the existing Supervisor', async () => {
+  it('accepts a signed issue and schedules the Delivery Control Runtime', async () => {
     const raw = Buffer.from(JSON.stringify(githubIssuePayload()));
     const res = response();
     await handler(signedRequest(raw), res);

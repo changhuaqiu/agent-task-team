@@ -1,3 +1,4 @@
+// Invocation Pipeline outcome reduction.
 import type { Server as IOServer } from 'socket.io';
 import { proofLogRepo } from '../repositories/proof-log-repo';
 import { taskRepo } from '../repositories/task-repo';
@@ -61,7 +62,7 @@ export async function reduceAcceptedWakeup(io: IOServer, wakeup: TaskWakeup): Pr
     });
   }
   proofLogRepo.append({
-    eventType: 'harness.task.started',
+    eventType: 'invocation.task.started',
     conversationId: wakeup.conversationId,
     taskId: wakeup.taskId,
     agentId: wakeup.agentId,

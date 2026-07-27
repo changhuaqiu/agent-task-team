@@ -1,8 +1,8 @@
 import type {
   ControlAction,
   ControlDecision,
-  SupervisorControlPolicy,
-  SupervisorControlSnapshot,
+  DeliveryControlPolicy,
+  DeliveryControlSnapshot,
 } from './control-decision';
 import { decideControlActions } from './control-decision';
 import {
@@ -21,7 +21,7 @@ export interface ControlCommandPort {
     action: ControlAction,
     context: {
       decision: ControlDecision;
-      snapshot: SupervisorControlSnapshot;
+      snapshot: DeliveryControlSnapshot;
       claimToken: string;
     },
   ): Promise<ControlCommandResult>;
@@ -37,7 +37,7 @@ export interface DeliveryControlProcessManagerOptions {
 }
 
 export interface ControlReconcileResult {
-  snapshot: SupervisorControlSnapshot;
+  snapshot: DeliveryControlSnapshot;
   decision: ControlDecision;
   claimed: PersistedControlActionRow[];
 }
@@ -64,7 +64,7 @@ export class DeliveryControlProcessManager {
   async reconcile(
     runId: string,
     projectId: string,
-    policy: SupervisorControlPolicy,
+    policy: DeliveryControlPolicy,
   ): Promise<ControlReconcileResult> {
     const snapshot = this.snapshots.build(runId);
     const decision = decideControlActions(snapshot, policy);

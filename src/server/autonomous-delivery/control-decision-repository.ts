@@ -95,7 +95,7 @@ export class ControlDecisionRepository {
     const payload = canonicalJson(input.decision);
     const timestamp = (input.now ?? new Date()).toISOString();
     return db.transaction(() => {
-      const duplicate = db.prepare('SELECT * FROM supervisor_control_decision WHERE id=?')
+      const duplicate = db.prepare('SELECT * FROM delivery_control_decision WHERE id=?')
         .get(input.decision.decisionId) as PersistedControlDecisionRow | undefined;
       if (duplicate) {
         if (
@@ -113,17 +113,17 @@ export class ControlDecisionRepository {
       }
 
       db.prepare(`
-        UPDATE supervisor_control_decision
+        UPDATE delivery_control_decision
         SET status='superseded',completed_at=?
         WHERE run_id=? AND status='active'
       `).run(timestamp, input.decision.runId);
       db.prepare(`
-        UPDATE supervisor_control_action
+        UPDATE delivery_control_action
         SET status='cancelled',failure_code='decision_superseded',updated_at=?,completed_at=?
         WHERE run_id=? AND status='ready'
       `).run(timestamp, timestamp, input.decision.runId);
       db.prepare(`
-        INSERT INTO supervisor_control_decision (
+        INSERT INTO delivery_control_decision (
           id,run_id,project_id,snapshot_revision,policy_revision,payload_json,
           status,created_at,completed_at
         ) VALUES (?,?,?,?,?,?,'active',?,NULL)
@@ -139,7 +139,7 @@ export class ControlDecisionRepository {
       for (const action of input.decision.actions) {
         if (action.type === 'wait') continue;
         db.prepare(`
-          INSERT INTO supervisor_control_action (
+          INSERT INTO delivery_control_action (
             id,decision_id,run_id,type,target_work_id,work_epoch,slot_id,reason_code,
             retry_budget_kind,termination_outcome,status,claim_token,lease_owner,
             lease_expires_at,failure_code,created_at,updated_at,completed_at
@@ -159,7 +159,7 @@ export class ControlDecisionRepository {
           timestamp,
         );
       }
-      return db.prepare('SELECT * FROM supervisor_control_decision WHERE id=?')
+      return db.prepare('SELECT * FROM delivery_control_decision WHERE id=?')
         .get(input.decision.decisionId) as PersistedControlDecisionRow;
     }).immediate();
   }
@@ -176,8 +176,8 @@ export class ControlDecisionRepository {
     return db.transaction(() => {
       const action = db.prepare(`
         SELECT action.*,decision.project_id,decision.snapshot_revision,decision.status AS decision_status
-        FROM supervisor_control_action action
-        JOIN supervisor_control_decision decision ON decision.id=action.decision_id
+        FROM delivery_control_action action
+        JOIN delivery_control_decision decision ON decision.id=action.decision_id
         WHERE action.id=?
       `).get(input.actionId) as (PersistedControlActionRow & {
         project_id: string;
@@ -211,7 +211,7 @@ export class ControlDecisionRepository {
       }
       if (action.slot_id) {
         const occupied = db.prepare(`
-          SELECT id FROM supervisor_control_action
+          SELECT id FROM delivery_control_action
           WHERE id<>? AND run_id=? AND slot_id=?
             AND type='activate' AND status IN ('claimed','applied')
           LIMIT 1
@@ -226,14 +226,14 @@ export class ControlDecisionRepository {
       const claimToken = generateSortableId('control-claim');
       const leaseExpiresAt = new Date(now.getTime() + input.leaseMs).toISOString();
       const claimed = db.prepare(`
-        UPDATE supervisor_control_action
+        UPDATE delivery_control_action
         SET status='claimed',claim_token=?,lease_owner=?,lease_expires_at=?,updated_at=?
         WHERE id=? AND status='ready'
       `).run(claimToken, input.workerId, leaseExpiresAt, timestamp, action.id);
       if (claimed.changes !== 1) {
         throw new ControlActionClaimError('control_action_claim_raced', action.id);
       }
-      return db.prepare('SELECT * FROM supervisor_control_action WHERE id=?')
+      return db.prepare('SELECT * FROM delivery_control_action WHERE id=?')
         .get(action.id) as PersistedControlActionRow;
     }).immediate();
   }
@@ -249,7 +249,7 @@ export class ControlDecisionRepository {
     const timestamp = now.toISOString();
     return db.transaction(() => {
       const decision = db.prepare(`
-        SELECT * FROM supervisor_control_decision WHERE id=?
+        SELECT * FROM delivery_control_decision WHERE id=?
       `).get(input.decisionId) as PersistedControlDecisionRow | undefined;
       if (!decision || decision.status !== 'active') {
         throw new ControlActionClaimError('control_decision_not_claimable', input.decisionId);
@@ -259,7 +259,7 @@ export class ControlDecisionRepository {
         throw new StaleControlSnapshotError(decision.snapshot_revision, actualRevision);
       }
       const actions = db.prepare(`
-        SELECT * FROM supervisor_control_action
+        SELECT * FROM delivery_control_action
         WHERE decision_id=? AND status='ready'
         ORDER BY created_at,id
       `).all(input.decisionId) as PersistedControlActionRow[];
@@ -291,7 +291,7 @@ export class ControlDecisionRepository {
         }
         batchSlots.add(action.slot_id);
         const occupied = db.prepare(`
-          SELECT id FROM supervisor_control_action
+          SELECT id FROM delivery_control_action
           WHERE decision_id<>? AND run_id=? AND slot_id=?
             AND type='activate' AND status IN ('claimed','applied')
           LIMIT 1
@@ -307,7 +307,7 @@ export class ControlDecisionRepository {
       const leaseExpiresAt = new Date(now.getTime() + input.leaseMs).toISOString();
       for (const action of actions) {
         const claimed = db.prepare(`
-          UPDATE supervisor_control_action
+          UPDATE delivery_control_action
           SET status='claimed',claim_token=?,lease_owner=?,lease_expires_at=?,updated_at=?
           WHERE id=? AND status='ready'
         `).run(
@@ -322,7 +322,7 @@ export class ControlDecisionRepository {
         }
       }
       return db.prepare(`
-        SELECT * FROM supervisor_control_action
+        SELECT * FROM delivery_control_action
         WHERE decision_id=? AND status='claimed' AND lease_owner=?
         ORDER BY created_at,id
       `).all(input.decisionId, input.workerId) as PersistedControlActionRow[];
@@ -336,7 +336,7 @@ export class ControlDecisionRepository {
   }): boolean {
     const timestamp = (input.now ?? new Date()).toISOString();
     const result = (this.database ?? getDb()).prepare(`
-      UPDATE supervisor_control_action
+      UPDATE delivery_control_action
       SET status='applied',lease_expires_at=NULL,updated_at=?,completed_at=?
       WHERE id=? AND status='claimed' AND claim_token=?
     `).run(timestamp, timestamp, input.actionId, input.claimToken);
@@ -351,7 +351,7 @@ export class ControlDecisionRepository {
   }): boolean {
     const timestamp = (input.now ?? new Date()).toISOString();
     const result = (this.database ?? getDb()).prepare(`
-      UPDATE supervisor_control_action
+      UPDATE delivery_control_action
       SET status='failed',failure_code=?,lease_expires_at=NULL,updated_at=?,completed_at=?
       WHERE id=? AND status='claimed' AND claim_token=?
     `).run(
@@ -371,7 +371,7 @@ export class ControlDecisionRepository {
   }): boolean {
     const timestamp = (input.now ?? new Date()).toISOString();
     const result = (this.database ?? getDb()).prepare(`
-      UPDATE supervisor_control_action
+      UPDATE delivery_control_action
       SET status='cancelled',failure_code=?,updated_at=?,completed_at=?
       WHERE id=? AND type='activate' AND status='applied'
     `).run(input.reasonCode, timestamp, timestamp, input.actionId);
@@ -385,7 +385,7 @@ export class ControlDecisionRepository {
   }): number {
     const timestamp = (input.now ?? new Date()).toISOString();
     return (this.database ?? getDb()).prepare(`
-      UPDATE supervisor_control_action
+      UPDATE delivery_control_action
       SET status='cancelled',failure_code=?,updated_at=?,completed_at=?
       WHERE target_work_id=? AND type='activate' AND status='applied'
     `).run(
@@ -399,7 +399,7 @@ export class ControlDecisionRepository {
   recoverExpired(now: Date = new Date()): number {
     const timestamp = now.toISOString();
     return (this.database ?? getDb()).prepare(`
-      UPDATE supervisor_control_action
+      UPDATE delivery_control_action
       SET status='ready',claim_token=NULL,lease_owner=NULL,lease_expires_at=NULL,
           failure_code='claim_lease_expired',updated_at=?
       WHERE status='claimed' AND lease_expires_at<?
@@ -408,7 +408,7 @@ export class ControlDecisionRepository {
 
   listActions(decisionId: string): PersistedControlActionRow[] {
     return (this.database ?? getDb()).prepare(`
-      SELECT * FROM supervisor_control_action WHERE decision_id=? ORDER BY created_at,id
+      SELECT * FROM delivery_control_action WHERE decision_id=? ORDER BY created_at,id
     `).all(decisionId) as PersistedControlActionRow[];
   }
 }

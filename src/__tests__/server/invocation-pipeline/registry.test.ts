@@ -1,11 +1,12 @@
+// Invocation Pipeline registry tests.
 import { describe, expect, it, vi } from 'vitest';
 import type { Server as IOServer } from 'socket.io';
 import {
-  registerHarnessCoordinator,
+  registerInvocationCoordinator,
   scenarioForWakeup,
-  submitTaskWakeupToHarness,
-} from '@/server/harness/registry';
-import type { HarnessCoordinator } from '@/server/harness/coordinator';
+  submitTaskWakeupToInvocationPipeline,
+} from '@/server/invocation-pipeline/registry';
+import type { InvocationCoordinator } from '@/server/invocation-pipeline/coordinator';
 import type { TaskWakeup } from '@/server/task-flow/task-wakeup';
 
 const wakeup: TaskWakeup = {
@@ -29,7 +30,7 @@ const wakeup: TaskWakeup = {
   },
 };
 
-describe('Harness registry', () => {
+describe('Invocation Pipeline registry', () => {
   it.each([
     ['chain_ready_for_closure', 'system', 'closure'],
     ['stale_review_gate', 'review_gate', 'recovery'],
@@ -57,9 +58,9 @@ describe('Harness registry', () => {
     const io = { to: vi.fn(() => ({ emit })) } as unknown as IOServer;
     const completion = Promise.resolve({ status: 'blocked', reasonCode: 'runtime_profile_missing' } as const);
     const submit = vi.fn(() => ({ disposition: 'accepted', handled: true, completion } as const));
-    registerHarnessCoordinator(io, { submit } as unknown as HarnessCoordinator);
+    registerInvocationCoordinator(io, { submit } as unknown as InvocationCoordinator);
 
-    const submission = submitTaskWakeupToHarness(io, wakeup);
+    const submission = submitTaskWakeupToInvocationPipeline(io, wakeup);
 
     expect(submission?.handled).toBe(true);
     expect(submit).toHaveBeenCalledWith(expect.objectContaining({

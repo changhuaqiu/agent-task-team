@@ -1412,48 +1412,7 @@ export const agentOutcome = sqliteTable('agent_outcome', {
   index('idx_agent_outcome_work').on(table.workId, table.workEpoch, table.recordedAt),
 ]);
 
-export const autonomousDeliveryAction = sqliteTable('autonomous_delivery_action', {
-  id: text('id').primaryKey(),
-  runId: text('run_id').notNull().references(() => autonomousDeliveryRun.id, { onDelete: 'cascade' }),
-  kind: text('kind').notNull(),
-  subjectType: text('subject_type'),
-  subjectId: text('subject_id'),
-  idempotencyKey: text('idempotency_key').notNull(),
-  status: text('status').notNull(),
-  notBefore: text('not_before').notNull(),
-  attemptCount: integer('attempt_count').notNull(),
-  maxAttempts: integer('max_attempts').notNull(),
-  lastFailureCode: text('last_failure_code'),
-  lastFailureDetail: text('last_failure_detail'),
-  createdAt: text('created_at').notNull(),
-  updatedAt: text('updated_at').notNull(),
-}, (table) => [
-  uniqueIndex('uq_autonomous_delivery_action_key').on(table.idempotencyKey),
-  index('idx_autonomous_delivery_action_claim').on(table.runId, table.status, table.notBefore, table.createdAt),
-]);
-
-export const autonomousDeliveryAttempt = sqliteTable('autonomous_delivery_attempt', {
-  id: text('id').primaryKey(),
-  actionId: text('action_id').notNull().references(() => autonomousDeliveryAction.id, { onDelete: 'cascade' }),
-  attemptNo: integer('attempt_no').notNull(),
-  status: text('status').notNull(),
-  leaseOwner: text('lease_owner').notNull(),
-  leaseExpiresAt: text('lease_expires_at').notNull(),
-  heartbeatAt: text('heartbeat_at').notNull(),
-  workdirRef: text('workdir_ref'),
-  sessionGeneration: integer('session_generation'),
-  executionEnvelopeId: text('execution_envelope_id').references(() => executionEnvelope.id),
-  failureCode: text('failure_code'),
-  failureDetail: text('failure_detail'),
-  createdAt: text('created_at').notNull(),
-  startedAt: text('started_at'),
-  completedAt: text('completed_at'),
-}, (table) => [
-  uniqueIndex('uq_autonomous_delivery_attempt_no').on(table.actionId, table.attemptNo),
-  index('idx_autonomous_delivery_attempt_lease').on(table.status, table.leaseExpiresAt),
-]);
-
-export const supervisorControlDecision = sqliteTable('supervisor_control_decision', {
+export const deliveryControlDecision = sqliteTable('delivery_control_decision', {
   id: text('id').primaryKey(),
   runId: text('run_id').notNull().references(() => autonomousDeliveryRun.id, { onDelete: 'cascade' }),
   projectId: text('project_id').notNull().references(() => conversation.id, { onDelete: 'cascade' }),
@@ -1464,15 +1423,15 @@ export const supervisorControlDecision = sqliteTable('supervisor_control_decisio
   createdAt: text('created_at').notNull(),
   completedAt: text('completed_at'),
 }, (table) => [
-  uniqueIndex('uq_supervisor_control_decision_snapshot')
+  uniqueIndex('uq_delivery_control_decision_snapshot')
     .on(table.runId, table.snapshotRevision, table.policyRevision),
-  index('idx_supervisor_control_decision_active').on(table.runId, table.status, table.createdAt),
+  index('idx_delivery_control_decision_active').on(table.runId, table.status, table.createdAt),
 ]);
 
-export const supervisorControlAction = sqliteTable('supervisor_control_action', {
+export const deliveryControlAction = sqliteTable('delivery_control_action', {
   id: text('id').primaryKey(),
   decisionId: text('decision_id').notNull()
-    .references(() => supervisorControlDecision.id, { onDelete: 'cascade' }),
+    .references(() => deliveryControlDecision.id, { onDelete: 'cascade' }),
   runId: text('run_id').notNull().references(() => autonomousDeliveryRun.id, { onDelete: 'cascade' }),
   type: text('type').notNull(),
   targetWorkId: text('target_work_id'),
@@ -1490,8 +1449,8 @@ export const supervisorControlAction = sqliteTable('supervisor_control_action', 
   updatedAt: text('updated_at').notNull(),
   completedAt: text('completed_at'),
 }, (table) => [
-  index('idx_supervisor_control_action_claim').on(table.runId, table.status, table.createdAt),
-  uniqueIndex('uq_supervisor_control_active_slot')
+  index('idx_delivery_control_action_claim').on(table.runId, table.status, table.createdAt),
+  uniqueIndex('uq_delivery_control_active_slot')
     .on(table.runId, table.slotId)
     .where(sql`${table.slotId} IS NOT NULL AND ${table.type} = 'activate' AND ${table.status} IN ('claimed','applied')`),
 ]);
@@ -1499,8 +1458,6 @@ export const supervisorControlAction = sqliteTable('supervisor_control_action', 
 export const autonomousDeliveryReceipt = sqliteTable('autonomous_delivery_receipt', {
   id: text('id').primaryKey(),
   runId: text('run_id').notNull().references(() => autonomousDeliveryRun.id, { onDelete: 'cascade' }),
-  actionId: text('action_id').references(() => autonomousDeliveryAction.id, { onDelete: 'cascade' }),
-  attemptId: text('attempt_id').references(() => autonomousDeliveryAttempt.id, { onDelete: 'cascade' }),
   kind: text('kind').notNull(),
   externalId: text('external_id'),
   status: text('status').notNull(),

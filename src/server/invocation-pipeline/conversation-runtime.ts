@@ -1,3 +1,4 @@
+// Invocation Pipeline runtime-profile resolution.
 import { PRESET_ROLE_CARDS } from '@/data/presetRoleCards';
 import { resolveRuntimeAgentProfile, resolveTeamRuntime } from '@/lib/team-runtime';
 import type { RuntimeAgentProfile, RuntimeSkillSummary, TeamRuntime } from '@/lib/team-runtime';

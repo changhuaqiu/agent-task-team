@@ -1,13 +1,14 @@
+// Invocation Pipeline contracts.
 import type { CliEngine } from '../types';
 import type { ContextReport, ContextRequest, ContextSnapshot } from '../../lib/agent-context/ContextManager';
 import type { ContextScenario } from '../../lib/agent-context/scenarioResolver';
 import type { WorkContract } from '../work-contract/types';
 
-export type HarnessTriggerSource = 'user' | 'a2a' | 'workflow' | 'review_gate' | 'test_gate' | 'system';
+export type AgentActivationSource = 'user' | 'a2a' | 'workflow' | 'review_gate' | 'test_gate' | 'system';
 
-export interface HarnessTrigger {
+export interface AgentActivationCommand {
   id: string;
-  source: HarnessTriggerSource;
+  source: AgentActivationSource;
   conversationId: string;
   agentId: string;
   prompt: string;
@@ -28,8 +29,8 @@ export interface HarnessTrigger {
     targetManifestDigest: string;
   };
 }
-export interface HarnessDispatchPlan {
-  trigger: HarnessTrigger;
+export interface InvocationDispatchPlan {
+  trigger: AgentActivationCommand;
   engine: CliEngine;
   accountId?: string;
   runtimeId: string;
@@ -43,12 +44,12 @@ export interface HarnessDispatchPlan {
   contextReport: ContextReport;
   contextSnapshot?: ContextSnapshot;
   workContract: WorkContract;
-  evaluation?: HarnessTrigger['evaluation'] & {
+  evaluation?: AgentActivationCommand['evaluation'] & {
     applicationManifest: object;
   };
 }
 
-export type HarnessReasonCode =
+export type InvocationReasonCode =
   | 'agent_busy'
   | 'duplicate_trigger'
   | 'conversation_missing'
@@ -68,52 +69,52 @@ export type HarnessReasonCode =
   | 'runtime_rejected'
   | 'internal_error';
 
-export type HarnessOutcome =
+export type InvocationDispatchOutcome =
   | { status: 'accepted'; envelopeId?: string }
   | { status: 'deferred'; reasonCode: 'agent_busy' }
   | {
       status: 'blocked';
-      reasonCode: HarnessReasonCode;
+      reasonCode: InvocationReasonCode;
       message?: string;
-      evidence?: HarnessFailureEvidence;
+      evidence?: InvocationFailureEvidence;
     }
   | {
       status: 'failed';
-      reasonCode: HarnessReasonCode;
+      reasonCode: InvocationReasonCode;
       message?: string;
-      evidence?: HarnessFailureEvidence;
+      evidence?: InvocationFailureEvidence;
     };
 
-export interface HarnessFailureEvidence {
+export interface InvocationFailureEvidence {
   traceId?: string;
   snapshotId?: string;
   missingRequired?: string[];
 }
 
-export interface HarnessPlanResult {
+export interface InvocationPlanResult {
   ok: true;
-  plan: HarnessDispatchPlan;
+  plan: InvocationDispatchPlan;
 }
 
-export interface HarnessPlanFailure {
+export interface InvocationPlanFailure {
   ok: false;
-  outcome: Extract<HarnessOutcome, { status: 'blocked' | 'failed' }>;
+  outcome: Extract<InvocationDispatchOutcome, { status: 'blocked' | 'failed' }>;
 }
 
-export type HarnessPlanResolution = HarnessPlanResult | HarnessPlanFailure;
+export type InvocationPlanResolution = InvocationPlanResult | InvocationPlanFailure;
 
-export interface HarnessPlanner {
-  prepare(trigger: HarnessTrigger): Promise<HarnessPlanResolution>;
+export interface InvocationPlannerPort {
+  prepare(trigger: AgentActivationCommand): Promise<InvocationPlanResolution>;
 }
 
-export interface HarnessRuntimePort {
+export interface AgentRuntimePort {
   isBusy(agentId: string, conversationId: string): boolean;
-  execute(plan: HarnessDispatchPlan): Promise<HarnessOutcome>;
+  execute(plan: InvocationDispatchPlan): Promise<InvocationDispatchOutcome>;
 }
 
-export interface HarnessSubmission {
+export interface InvocationSubmission {
   disposition: 'accepted' | 'duplicate' | 'deferred';
   handled: boolean;
-  completion: Promise<HarnessOutcome>;
+  completion: Promise<InvocationDispatchOutcome>;
   duplicateInFlight?: boolean;
 }

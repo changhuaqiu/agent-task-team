@@ -44,16 +44,16 @@ import { resolveTaskNotificationAudience } from './task-flow/task-notification-p
 import { resolveAutonomyGuardWakeups } from './task-flow/autonomy-guard';
 import { startWorktreeGCScheduler, stopWorktreeGCScheduler } from './worktree-gc';
 import {
-  HarnessCoordinator,
-  HarnessFailureEventPublisher,
-  RepositoryHarnessPlanner,
-  registerHarnessCoordinator,
-  submitTaskWakeupToHarness,
-  type HarnessDispatchPlan,
-  type HarnessOutcome,
-  type HarnessSubmission,
-} from './harness';
-import { finalizeRuntimeContextSnapshot } from './harness/runtime-context-snapshot';
+  InvocationCoordinator,
+  InvocationFailureEventPublisher,
+  InvocationPlanner,
+  registerInvocationCoordinator,
+  submitTaskWakeupToInvocationPipeline,
+  type InvocationDispatchPlan,
+  type InvocationDispatchOutcome,
+  type InvocationSubmission,
+} from './invocation-pipeline';
+import { finalizeRuntimeContextSnapshot } from './invocation-pipeline/runtime-context-snapshot';
 import type { ContextReport, ContextSnapshot } from '../lib/agent-context/ContextManager';
 import type { ContextScenario } from '../lib/agent-context/scenarioResolver';
 import { generateSpanId, generateTraceId, observationSpanRepo } from './repositories/observation-span-repo';
@@ -116,13 +116,13 @@ type TerminalStartPayload = {
   contextReport?: ContextReport;
   contextSnapshot?: ContextSnapshot;
   workContract?: WorkContract;
-  evaluation?: HarnessDispatchPlan['evaluation'];
+  evaluation?: InvocationDispatchPlan['evaluation'];
 };
 
 export function submitSocketTerminalStart(
-  coordinator: Pick<HarnessCoordinator, 'submit'>,
+  coordinator: Pick<InvocationCoordinator, 'submit'>,
   payload: TerminalStartPayload,
-): HarnessSubmission {
+): InvocationSubmission {
   const conversationId = payload.conversationId?.trim();
   if (!conversationId) throw new Error('conversation_missing: terminal:start requires conversationId');
   return coordinator.submit({
@@ -235,20 +235,20 @@ export default function registerDaemon(io: IOServer) {
     publish: (projectId, event) => projectViewPublisher.publish(projectId, event),
   });
   const dispatchGateway = new DispatchGateway();
-  // Deferred until after the Harness port is constructed; the port closes over this handler.
+  // Deferred until after the Agent Runtime port is constructed; the port closes over this handler.
   // eslint-disable-next-line prefer-const
   let handleTerminalStart: ((payload: TerminalStartPayload, emitToRequester: (event: string, data: unknown) => void) => Promise<void>) | undefined;
 
-  const harnessCoordinator = new HarnessCoordinator({
-    planner: new RepositoryHarnessPlanner(),
-    failureEvents: new HarnessFailureEventPublisher({
+  const invocationCoordinator = new InvocationCoordinator({
+    planner: new InvocationPlanner(),
+    failureEvents: new InvocationFailureEventPublisher({
       runtimeActorId: LOCAL_DAEMON_NODE_ID,
     }),
     runtime: {
       isBusy(agentId, conversationId) {
         return activeProcesses.has(processKey(agentId, conversationId));
       },
-      async execute(plan: HarnessDispatchPlan): Promise<HarnessOutcome> {
+      async execute(plan: InvocationDispatchPlan): Promise<InvocationDispatchOutcome> {
         if (!handleTerminalStart) {
           return { status: 'failed', reasonCode: 'internal_error', message: 'daemon runtime port is not ready' };
         }
@@ -296,16 +296,16 @@ export default function registerDaemon(io: IOServer) {
       },
     },
   });
-  registerHarnessCoordinator(io, harnessCoordinator);
+  registerInvocationCoordinator(io, invocationCoordinator);
   const agentInbox = new AgentInbox();
   const agentInboxScheduler = new AgentInboxScheduler({
     inbox: agentInbox,
-    submit: (trigger) => harnessCoordinator.submit(trigger),
+    submit: (trigger) => invocationCoordinator.submit(trigger),
   });
   agentInboxScheduler.start();
   registerAutonomousDeliveryE2EDriver(io);
   ensureAutonomousDeliveryRuntime(io, `daemon:${LOCAL_DAEMON_NODE_ID}`);
-  const evaluationCaseRunner = new EvaluationCaseRunner(harnessCoordinator);
+  const evaluationCaseRunner = new EvaluationCaseRunner(invocationCoordinator);
   const evaluationRunnerTimer = setInterval(() => {
     try {
       evaluationCaseRunner.pump();
@@ -390,7 +390,7 @@ export default function registerDaemon(io: IOServer) {
             idempotencyKey: key,
           },
         });
-        const submission = submitTaskWakeupToHarness(io, wakeup);
+        const submission = submitTaskWakeupToInvocationPipeline(io, wakeup);
         if (
           wakeup.reasonCode === 'chain_ready_for_closure'
           && submission?.handled
@@ -1056,7 +1056,7 @@ export default function registerDaemon(io: IOServer) {
       let runtimeConfigEnv: Record<string, string> = {};
 
       if (engine === 'opencode') {
-        // Offline evaluation must use only the frozen Harness context. Loading
+        // Offline evaluation must use only the frozen Invocation Pipeline context. Loading
         // project-local Skills or authorizing the live shared workspace would
         // leak mutable production state into the isolated worktree.
         const projectSkillPaths = evaluation ? [] : resolveOpenCodeProjectSkillPaths(projectPath);
@@ -2033,7 +2033,7 @@ export default function registerDaemon(io: IOServer) {
   io.on('connection', (socket: Socket) => {
     socket.on('terminal:start', (payload: TerminalStartPayload) => {
       try {
-        const submission = submitSocketTerminalStart(harnessCoordinator, payload);
+        const submission = submitSocketTerminalStart(invocationCoordinator, payload);
         void submission.completion.then((outcome) => {
           if (outcome.status === 'accepted') return;
           const reasonCode = 'reasonCode' in outcome ? outcome.reasonCode : 'internal_error';

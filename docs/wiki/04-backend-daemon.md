@@ -404,9 +404,9 @@ invocation 与 session。inline seam 只做状态守护和事件 append，不做
 `task-wakeup-router:v1` 以及 task/review 两个稳定的 delivery Process Manager handler：
 Router 只创建 Inbox Command，并在恢复历史事件时核对当前 task 状态；终态事实会取消尚未
 claim 的旧命令。Process Manager 只调用 delivery advancement port；该 port 以 source
-event 幂等持久接纳请求，delivery worker 在 `AutonomousDeliverySupervisor.advance()`
-真正成功前不确认完成，失败会重新排队。Supervisor 继续封装 claim、lease、执行与动作
-重试规则。
+event 幂等持久接纳请求，delivery worker 在 `DeliveryControlRuntime.advance()`
+真正成功前不确认完成，失败会重新排队。内部 `DeliveryControlProcessManager` 依据权威
+快照计算动作；Control Plane 持久层统一封装 claim、lease、fencing 与恢复规则。
 `task-notification-publisher` 尾部的 delivery 直接 reconcile 已删除，startup/periodic
 reconcile 仅保留为 crash/retry 恢复触发器。
 

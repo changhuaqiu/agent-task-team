@@ -1,3 +1,4 @@
+// Invocation Pipeline valid-exit evaluation.
 import type { ContextScenario } from '../../lib/agent-context/scenarioResolver';
 
 export interface ValidExitResult {

@@ -135,8 +135,6 @@ describe('GitHubProviderActionAdapter', () => {
     current.receipts.push({
       id: 'receipt-requested',
       run_id: current.run.id,
-      action_id: null,
-      attempt_id: null,
       kind: requested[0].kind,
       external_id: requested[0].externalId ?? null,
       status: requested[0].status,

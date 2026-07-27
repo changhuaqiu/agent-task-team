@@ -1,5 +1,5 @@
 import { getDb } from '../db';
-import type { AutonomousDeliverySupervisor } from '../autonomous-delivery/supervisor';
+import type { AutonomousDeliveryRuntimePort } from '../autonomous-delivery/control-runtime';
 import { conversationRepo } from '../repositories/conversation-repo';
 import { generateSortableId } from '../repositories/sortable-id';
 import { compileGitHubIssueGoalContract, issueLabelNames, parseGitHubIssuePayload } from './compiler';
@@ -13,15 +13,15 @@ import type {
 } from './types';
 
 export interface GitHubIssueAgentIngressOptions {
-  supervisor?: Pick<AutonomousDeliverySupervisor, 'start'>;
-  resolveSupervisor?: () => Pick<AutonomousDeliverySupervisor, 'start'> | undefined;
+  supervisor?: Pick<AutonomousDeliveryRuntimePort, 'start'>;
+  resolveSupervisor?: () => Pick<AutonomousDeliveryRuntimePort, 'start'> | undefined;
   repository?: GitHubIssueIngressRepository;
   now?: () => Date;
 }
 
 export class GitHubIssueAgentIngress {
-  private readonly supervisor?: Pick<AutonomousDeliverySupervisor, 'start'>;
-  private readonly resolveSupervisor?: () => Pick<AutonomousDeliverySupervisor, 'start'> | undefined;
+  private readonly supervisor?: Pick<AutonomousDeliveryRuntimePort, 'start'>;
+  private readonly resolveSupervisor?: () => Pick<AutonomousDeliveryRuntimePort, 'start'> | undefined;
   private readonly repository: GitHubIssueIngressRepository;
   private readonly now: () => Date;
 

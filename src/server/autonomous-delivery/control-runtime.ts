@@ -1,15 +1,16 @@
-import type {
-  AdvanceResult,
-  AdvancementCause,
-} from './supervisor';
-import type { SupervisorControlPolicy } from './control-decision';
+import type { DeliveryControlPolicy } from './control-decision';
 import { ProductionControlCommandAdapter } from './control-command-adapter';
 import { DeliveryControlProcessManager } from './control-process-manager';
 import {
   AutonomousDeliveryRepository,
   autonomousDeliveryRepo,
 } from './repository';
-import type { DeliveryRunSnapshot, GoalContract } from './types';
+import type {
+  AdvanceResult,
+  AdvancementCause,
+  DeliveryRunSnapshot,
+  GoalContract,
+} from './types';
 
 export interface AutonomousDeliveryRuntimePort {
   start(contract: GoalContract): DeliveryRunSnapshot;
@@ -21,12 +22,12 @@ export interface DeliveryControlRuntimeOptions {
   repository?: AutonomousDeliveryRepository;
   processManager?: DeliveryControlProcessManager;
   workerId: string;
-  policy?: SupervisorControlPolicy;
+  policy?: DeliveryControlPolicy;
   maxReconcilesPerAdvance?: number;
   now?: () => Date;
 }
 
-const DEFAULT_POLICY: SupervisorControlPolicy = {
+const DEFAULT_POLICY: DeliveryControlPolicy = {
   revision: 1,
   maxConcurrent: 4,
   roleCapacity: {},
@@ -36,7 +37,7 @@ const DEFAULT_POLICY: SupervisorControlPolicy = {
 export class DeliveryControlRuntime implements AutonomousDeliveryRuntimePort {
   private readonly repository: AutonomousDeliveryRepository;
   private readonly processManager: DeliveryControlProcessManager;
-  private readonly policy: SupervisorControlPolicy;
+  private readonly policy: DeliveryControlPolicy;
   private readonly maxReconciles: number;
   private readonly now: () => Date;
 

@@ -1,3 +1,4 @@
+// Invocation Pipeline context compilation.
 import {
   ContextManager,
   noOpMemoryHook,
@@ -8,7 +9,12 @@ import { sessionRepo } from '../repositories/session-repo';
 import { conversationRepo } from '../repositories/conversation-repo';
 import { messageRepo, type MessageRow } from '../repositories/message-repo';
 import { taskRepo } from '../repositories/task-repo';
-import type { HarnessPlanResolution, HarnessPlanner, HarnessReasonCode, HarnessTrigger } from './types';
+import type {
+  AgentActivationCommand,
+  InvocationPlanResolution,
+  InvocationPlannerPort,
+  InvocationReasonCode,
+} from './types';
 import { resolveConversationRuntimeProfile } from './conversation-runtime';
 import { teamLogProjection } from '../team-log/TeamLogProjection';
 import { generateTraceId, observationSpanRepo } from '../repositories/observation-span-repo';
@@ -49,8 +55,8 @@ function toChatMessage(row: MessageRow): ChatMessage {
   };
 }
 
-export class RepositoryHarnessPlanner implements HarnessPlanner {
-  async prepare(trigger: HarnessTrigger): Promise<HarnessPlanResolution> {
+export class InvocationPlanner implements InvocationPlannerPort {
+  async prepare(trigger: AgentActivationCommand): Promise<InvocationPlanResolution> {
     const conversation = conversationRepo.getById(trigger.conversationId);
     if (!conversation) {
       return { ok: false, outcome: { status: 'blocked', reasonCode: 'conversation_missing' } };
@@ -255,15 +261,15 @@ export class RepositoryHarnessPlanner implements HarnessPlanner {
         },
       };
     } catch (error) {
-      const skillReasonCodes: HarnessReasonCode[] = [
+      const skillReasonCodes: InvocationReasonCode[] = [
         'required_skill_not_loaded', 'skill_manifest_invalid', 'skill_package_missing',
         'skill_path_invalid', 'skill_path_duplicate', 'skill_revision_mismatch',
       ];
-      const reasonCode: HarnessReasonCode = error instanceof StaleWorkAuthorityError
+      const reasonCode: InvocationReasonCode = error instanceof StaleWorkAuthorityError
         ? 'work_authority_conflict'
         : error instanceof SkillRuntimeError
-        && skillReasonCodes.includes(error.reasonCode as HarnessReasonCode)
-        ? error.reasonCode as HarnessReasonCode
+        && skillReasonCodes.includes(error.reasonCode as InvocationReasonCode)
+        ? error.reasonCode as InvocationReasonCode
         : error instanceof Error && error.message.startsWith('required_skill_not_loaded')
           ? 'required_skill_not_loaded'
           : error instanceof RequiredContextError

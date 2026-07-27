@@ -54,7 +54,7 @@ export interface WorkCellControlSnapshot {
   };
 }
 
-export interface SupervisorControlSnapshot {
+export interface DeliveryControlSnapshot {
   runId: string;
   snapshotRevision: number;
   observedAt: string;
@@ -82,7 +82,7 @@ export interface SupervisorControlSnapshot {
   };
 }
 
-export interface SupervisorControlPolicy {
+export interface DeliveryControlPolicy {
   revision: number;
   maxConcurrent: number;
   roleCapacity: Record<string, number>;
@@ -118,8 +118,8 @@ function stableHash(value: string): string {
 }
 
 function decisionIdentity(
-  snapshot: SupervisorControlSnapshot,
-  policy: SupervisorControlPolicy,
+  snapshot: DeliveryControlSnapshot,
+  policy: DeliveryControlPolicy,
 ): string {
   return `control-decision:${stableHash([
     snapshot.runId,
@@ -167,8 +167,8 @@ function parseTime(value: string, field: string): number {
 }
 
 function validate(
-  snapshot: SupervisorControlSnapshot,
-  policy: SupervisorControlPolicy,
+  snapshot: DeliveryControlSnapshot,
+  policy: DeliveryControlPolicy,
 ): void {
   if (!snapshot.runId.trim()) throw new Error('control_run_id_required');
   if (!Number.isSafeInteger(snapshot.snapshotRevision) || snapshot.snapshotRevision < 0) {
@@ -250,8 +250,8 @@ function firstFreeSlot(roleId: string, limit: number, occupied: Set<string>): st
  * snapshot revision, work epoch and slot capacity when claiming an action.
  */
 export function decideControlActions(
-  snapshot: SupervisorControlSnapshot,
-  policy: SupervisorControlPolicy,
+  snapshot: DeliveryControlSnapshot,
+  policy: DeliveryControlPolicy,
 ): ControlDecision {
   validate(snapshot, policy);
   const decisionId = decisionIdentity(snapshot, policy);

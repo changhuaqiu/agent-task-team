@@ -1,13 +1,13 @@
 import type Database from 'better-sqlite3';
 import type { ContextScenario } from '../../lib/agent-context/scenarioResolver';
 import { getDb } from '../db';
-import type { HarnessTriggerSource } from '../harness/types';
+import type { AgentActivationSource } from '../invocation-pipeline/types';
 import { generateSortableId } from '../repositories/sortable-id';
 import { PlatformEventLog } from './event-log';
 import type { PlatformEvent } from './types';
 
 export interface AgentWorkCommand {
-  source: HarnessTriggerSource;
+  source: AgentActivationSource;
   prompt: string;
   taskId?: string;
   deliveryRunId?: string;

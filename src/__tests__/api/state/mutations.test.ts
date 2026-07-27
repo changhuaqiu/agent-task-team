@@ -575,8 +575,8 @@ describe('POST /api/mutations', () => {
       completion: new Promise<never>(() => {}),
     }));
     const io = { to };
-    const { registerHarnessCoordinator } = await import('@/server/harness/registry');
-    registerHarnessCoordinator(io as never, { submit } as never);
+    const { registerInvocationCoordinator } = await import('@/server/invocation-pipeline/registry');
+    registerInvocationCoordinator(io as never, { submit } as never);
     const req = mockReq('POST', {
       type: 'task.updateStatus',
       payload: { id: 'task-1', status: 'in_review', actorId: 'agent-a', actorType: 'agent' },
@@ -623,8 +623,8 @@ describe('POST /api/mutations', () => {
       completion: new Promise<never>(() => {}),
     }));
     const io = { to };
-    const { registerHarnessCoordinator } = await import('@/server/harness/registry');
-    registerHarnessCoordinator(io as never, { submit } as never);
+    const { registerInvocationCoordinator } = await import('@/server/invocation-pipeline/registry');
+    registerInvocationCoordinator(io as never, { submit } as never);
     const req = mockReq('POST', {
       type: 'tool.invoke',
       payload: {

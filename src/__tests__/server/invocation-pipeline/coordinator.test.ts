@@ -1,8 +1,14 @@
+// Invocation Pipeline coordinator tests.
 import { describe, expect, it, vi } from 'vitest';
-import { HarnessCoordinator } from '@/server/harness/coordinator';
-import type { HarnessDispatchPlan, HarnessPlanner, HarnessRuntimePort, HarnessTrigger } from '@/server/harness/types';
+import { InvocationCoordinator } from '@/server/invocation-pipeline/coordinator';
+import type {
+  AgentActivationCommand,
+  AgentRuntimePort,
+  InvocationDispatchPlan,
+  InvocationPlannerPort,
+} from '@/server/invocation-pipeline/types';
 
-const trigger: HarnessTrigger = {
+const trigger: AgentActivationCommand = {
   id: 'trigger-1',
   source: 'workflow',
   conversationId: 'conv-1',
@@ -12,7 +18,7 @@ const trigger: HarnessTrigger = {
   idempotencyKey: 'conv-1:TASK-1:luigi:owner_ready',
 };
 
-function planFor(input: HarnessTrigger): HarnessDispatchPlan {
+function planFor(input: AgentActivationCommand): InvocationDispatchPlan {
   return {
     trigger: input,
     engine: 'mock',
@@ -21,11 +27,11 @@ function planFor(input: HarnessTrigger): HarnessDispatchPlan {
   };
 }
 
-function coordinator(input?: { busy?: boolean; planner?: HarnessPlanner; runtime?: HarnessRuntimePort }) {
-  const prepare = vi.fn(async (item: HarnessTrigger) => ({ ok: true as const, plan: planFor(item) }));
+function coordinator(input?: { busy?: boolean; planner?: InvocationPlannerPort; runtime?: AgentRuntimePort }) {
+  const prepare = vi.fn(async (item: AgentActivationCommand) => ({ ok: true as const, plan: planFor(item) }));
   const execute = vi.fn(async () => ({ status: 'accepted' as const }));
   const recordProof = vi.fn();
-  const instance = new HarnessCoordinator({
+  const instance = new InvocationCoordinator({
     planner: input?.planner ?? { prepare },
     runtime: input?.runtime ?? { isBusy: () => input?.busy ?? false, execute },
     recordProof,
@@ -33,7 +39,7 @@ function coordinator(input?: { busy?: boolean; planner?: HarnessPlanner; runtime
   return { instance, prepare, execute, recordProof };
 }
 
-describe('HarnessCoordinator', () => {
+describe('InvocationCoordinator', () => {
   it('prepares and executes an accepted trigger exactly once', async () => {
     const { instance, prepare, execute } = coordinator();
 
@@ -50,7 +56,7 @@ describe('HarnessCoordinator', () => {
     expect(execute).toHaveBeenCalledTimes(1);
   });
 
-  it('defers synchronously when the runtime is busy so compatibility can queue it', async () => {
+  it('defers synchronously when the runtime is busy so the Inbox can queue it', async () => {
     const { instance, prepare, execute } = coordinator({ busy: true });
 
     const submission = instance.submit(trigger);
@@ -62,7 +68,7 @@ describe('HarnessCoordinator', () => {
   });
 
   it('returns a stable block reason without invoking the runtime', async () => {
-    const planner: HarnessPlanner = {
+    const planner: InvocationPlannerPort = {
       prepare: vi.fn(async () => ({
         ok: false,
         outcome: { status: 'blocked', reasonCode: 'runtime_profile_missing' },

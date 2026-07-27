@@ -1,3 +1,4 @@
+// Invocation Pipeline context planner tests.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -11,10 +12,10 @@ import { messageRepo } from '@/server/repositories/message-repo';
 import { teamPackRepo } from '@/server/repositories/team-pack-repo';
 import { sessionRepo } from '@/server/repositories/session-repo';
 import { writeAccount } from '@/server/accounts-file';
-import { RepositoryHarnessPlanner } from '@/server/harness/context-planner';
+import { InvocationPlanner } from '@/server/invocation-pipeline/context-planner';
 import { skillRepo } from '@/server/repositories/skill-repo';
 import { RepositorySkillRuntime, packageFromLegacyInput } from '@/server/skills/skill-runtime';
-import { HarnessCoordinator } from '@/server/harness/coordinator';
+import { InvocationCoordinator } from '@/server/invocation-pipeline/coordinator';
 import { submitSocketTerminalStart } from '@/server/daemon';
 import { projectObservationProjection } from '@/server/observability/ProjectObservationProjection';
 import { autonomousDeliveryRepo } from '@/server/autonomous-delivery/repository';
@@ -37,7 +38,7 @@ afterEach(() => {
   else process.env.ATH_DATA_DIR = previousDataDir;
 });
 
-describe('RepositoryHarnessPlanner', () => {
+describe('InvocationPlanner', () => {
   it('blocks a task that belongs to another project before context assembly', async () => {
     const pack = teamPackRepo.getByName('default-team')!;
     conversationRepo.create({ id: 'conv-scope-a', title: 'Scope A', team_pack_id: pack.id });
@@ -50,7 +51,7 @@ describe('RepositoryHarnessPlanner', () => {
       agent_id: 'luigi',
     });
 
-    const result = await new RepositoryHarnessPlanner().prepare({
+    const result = await new InvocationPlanner().prepare({
       id: 'trigger-cross-project',
       source: 'workflow',
       conversationId: 'conv-scope-a',
@@ -81,7 +82,7 @@ describe('RepositoryHarnessPlanner', () => {
     });
     conversationRepo.create({ id: 'conv-a2a', title: 'First Handoff', team_pack_id: pack.id });
 
-    const first = await new RepositoryHarnessPlanner().prepare({
+    const first = await new InvocationPlanner().prepare({
       id: 'trigger-a2a-first',
       source: 'a2a',
       conversationId: 'conv-a2a',
@@ -109,7 +110,7 @@ describe('RepositoryHarnessPlanner', () => {
     expect(first.plan.prompt).toContain('请评审 PR #32');
 
     sessionRepo.create({ id: 'session-peach', conversationId: 'conv-a2a', agentId: 'peach', taskId: '' });
-    const later = await new RepositoryHarnessPlanner().prepare({
+    const later = await new InvocationPlanner().prepare({
       id: 'trigger-a2a-later',
       source: 'a2a',
       conversationId: 'conv-a2a',
@@ -167,7 +168,7 @@ describe('RepositoryHarnessPlanner', () => {
       intent: 'review',
     });
 
-    const result = await new RepositoryHarnessPlanner().prepare({
+    const result = await new InvocationPlanner().prepare({
       id: 'trigger-1',
       source: 'workflow',
       conversationId: 'conv-1',
@@ -244,7 +245,7 @@ describe('RepositoryHarnessPlanner', () => {
       },
     });
 
-    const result = await new RepositoryHarnessPlanner().prepare({
+    const result = await new InvocationPlanner().prepare({
       id: 'trigger-delivery-context',
       source: 'workflow',
       conversationId: 'conv-delivery-context',
@@ -268,7 +269,7 @@ describe('RepositoryHarnessPlanner', () => {
     ]));
     expect(result.plan.contextReport.snapshotId).toBe(result.plan.contextSnapshot?.id);
 
-    const missing = await new RepositoryHarnessPlanner().prepare({
+    const missing = await new InvocationPlanner().prepare({
       id: 'trigger-delivery-context-missing',
       source: 'workflow',
       conversationId: 'conv-delivery-context',
@@ -299,7 +300,7 @@ describe('RepositoryHarnessPlanner', () => {
     const pack = teamPackRepo.getByName('default-team')!;
     conversationRepo.create({ id: 'conv-2', title: 'No Runtime', team_pack_id: pack.id });
 
-    const result = await new RepositoryHarnessPlanner().prepare({
+    const result = await new InvocationPlanner().prepare({
       id: 'trigger-2',
       source: 'system',
       conversationId: 'conv-2',
@@ -327,7 +328,7 @@ describe('RepositoryHarnessPlanner', () => {
     }));
     skillRepo.assignToAgent('luigi', revision.skillId);
 
-    const result = await new RepositoryHarnessPlanner().prepare({
+    const result = await new InvocationPlanner().prepare({
       id: 'trigger-skill', source: 'user', conversationId: 'conv-skill', agentId: 'luigi', prompt: 'Review this change',
     });
 
@@ -358,7 +359,7 @@ describe('RepositoryHarnessPlanner', () => {
     }));
     skillRepo.assignToAgent('luigi', revision.skillId);
 
-    const result = await new RepositoryHarnessPlanner().prepare({
+    const result = await new InvocationPlanner().prepare({
       id: 'trigger-collab-tool', source: 'user', conversationId: 'conv-collab-tool', agentId: 'luigi', prompt: 'Submit PR',
     });
 
@@ -382,8 +383,8 @@ describe('RepositoryHarnessPlanner', () => {
     skillRepo.assignToAgent('peach', revision.skillId);
     writeFileSync(join(revision.packagePath, 'SKILL.md'), 'tampered', 'utf8');
     const execute = vi.fn();
-    const coordinator = new HarnessCoordinator({
-      planner: new RepositoryHarnessPlanner(),
+    const coordinator = new InvocationCoordinator({
+      planner: new InvocationPlanner(),
       runtime: { isBusy: () => false, execute },
       recordProof: vi.fn(),
     });
@@ -423,7 +424,7 @@ describe('RepositoryHarnessPlanner', () => {
       .run('sf-legacy-invalid', skill.id, 'C:\\secret.md', 'must not load');
     skillRepo.assignToAgent('peach', skill.id);
 
-    const result = await new RepositoryHarnessPlanner().prepare({
+    const result = await new InvocationPlanner().prepare({
       id: 'trigger-legacy-path', source: 'user', conversationId: 'conv-legacy-path', agentId: 'peach', prompt: 'Review',
     });
 

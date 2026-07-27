@@ -1,10 +1,11 @@
+// Invocation Pipeline failure normalization.
 import { PlatformEventLog } from '../platform-events/event-log';
 import { RuntimeEventPublisher } from '../platform-events/runtime-event-publisher';
-import type { HarnessOutcome, HarnessTrigger } from './types';
+import type { AgentActivationCommand, InvocationDispatchOutcome } from './types';
 
-type HarnessFailure = Extract<HarnessOutcome, { status: 'blocked' | 'failed' }>;
+type InvocationFailure = Extract<InvocationDispatchOutcome, { status: 'blocked' | 'failed' }>;
 
-export interface HarnessFailureEventPublisherOptions {
+export interface InvocationFailureEventPublisherOptions {
   eventLog?: PlatformEventLog;
   runtimeActorId?: string;
 }
@@ -14,16 +15,16 @@ export interface HarnessFailureEventPublisherOptions {
  * authoritative. Proof logs remain diagnostic evidence; these events are the
  * facts consumed by Process Managers.
  */
-export class HarnessFailureEventPublisher {
+export class InvocationFailureEventPublisher {
   private readonly eventLog: PlatformEventLog;
   private readonly runtimeActorId: string;
 
-  constructor(options: HarnessFailureEventPublisherOptions = {}) {
+  constructor(options: InvocationFailureEventPublisherOptions = {}) {
     this.eventLog = options.eventLog ?? new PlatformEventLog();
     this.runtimeActorId = options.runtimeActorId ?? 'invocation-preflight';
   }
 
-  publish(trigger: HarnessTrigger, outcome: HarnessFailure): void {
+  publish(trigger: AgentActivationCommand, outcome: InvocationFailure): void {
     const attemptId = trigger.workId?.trim() || trigger.id;
     const correlationId = outcome.evidence?.traceId
       ?? trigger.idempotencyKey?.trim()

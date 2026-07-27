@@ -1,8 +1,11 @@
 # Team Harness 自主交付闭环技术设计
 
-**状态**：Accepted
+**状态**：Superseded
 **日期**：2026-07-19
-**关联规格**：`specs/autonomous-delivery-loop/`
+**替代设计**：`docs/technical/execution/platform-harness-state-machine-design.md`
+**历史规格**：`docs/archive/specs/autonomous-delivery-loop/`
+
+本文保留 Action/Attempt 时代的恢复设计背景，不再描述当前生产实现。
 
 ## 决策
 

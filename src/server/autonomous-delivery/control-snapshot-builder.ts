@@ -3,7 +3,7 @@ import { getDb } from '../db';
 import type { AgentOutcomeType } from '../work-contract/types';
 import type {
   RetryBudgetKind,
-  SupervisorControlSnapshot,
+  DeliveryControlSnapshot,
   WorkCellControlSnapshot,
 } from './control-decision';
 import { ControlDecisionRepository } from './control-decision-repository';
@@ -95,7 +95,7 @@ export class RepositoryControlSnapshotBuilder {
     this.now = options.now ?? (() => new Date());
   }
 
-  build(runId: string): SupervisorControlSnapshot {
+  build(runId: string): DeliveryControlSnapshot {
     const db = this.database ?? getDb();
     const run = db.prepare(`
       SELECT id,conversation_id,root_task_id,revision,delivery_bundle_json,goal_contract_json
@@ -268,7 +268,7 @@ export class RepositoryControlSnapshotBuilder {
     const activeInbox = db.prepare(`
       SELECT inbox.project_agent_id,inbox.command_json,action.slot_id
       FROM agent_inbox_item inbox
-      LEFT JOIN supervisor_control_action action ON action.id=inbox.idempotency_key
+      LEFT JOIN delivery_control_action action ON action.id=inbox.idempotency_key
       WHERE inbox.project_id=? AND inbox.status IN ('enqueued','claimed','admitted')
     `).all(run.conversation_id) as Array<{
       project_agent_id: string;

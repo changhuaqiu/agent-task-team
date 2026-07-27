@@ -1,4 +1,4 @@
-import type { AdvancementCause } from '../autonomous-delivery/supervisor';
+import type { AdvancementCause } from '../autonomous-delivery/types';
 import type { PlatformEventHandler } from './dispatcher';
 
 export interface DeliveryAdvancementPort {

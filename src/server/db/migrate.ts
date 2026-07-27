@@ -3100,6 +3100,110 @@ END;
       `);
     },
   },
+  {
+    version: 67,
+    foreignKeysOff: true,
+    run: (db) => {
+      const receipt = db.prepare(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='autonomous_delivery_receipt'",
+      ).get();
+      if (!receipt) return;
+      db.exec(`
+        ALTER TABLE autonomous_delivery_receipt RENAME TO autonomous_delivery_receipt_v66;
+        CREATE TABLE autonomous_delivery_receipt (
+          id TEXT PRIMARY KEY,
+          run_id TEXT NOT NULL REFERENCES autonomous_delivery_run(id) ON DELETE CASCADE,
+          kind TEXT NOT NULL,
+          external_id TEXT,
+          status TEXT NOT NULL,
+          payload_json TEXT NOT NULL,
+          idempotency_key TEXT NOT NULL UNIQUE,
+          observed_at TEXT NOT NULL
+        );
+        INSERT INTO autonomous_delivery_receipt (
+          id,run_id,kind,external_id,status,payload_json,idempotency_key,observed_at
+        )
+        SELECT
+          id,run_id,kind,external_id,status,payload_json,idempotency_key,observed_at
+        FROM autonomous_delivery_receipt_v66;
+        DROP TABLE autonomous_delivery_receipt_v66;
+        DROP TABLE IF EXISTS autonomous_delivery_attempt;
+        DROP TABLE IF EXISTS autonomous_delivery_action;
+        CREATE INDEX idx_autonomous_delivery_receipt_run
+          ON autonomous_delivery_receipt(run_id,kind,observed_at);
+      `);
+    },
+  },
+  {
+    version: 68,
+    foreignKeysOff: true,
+    run: (db) => {
+      const legacyTables = db.prepare(`
+        SELECT COUNT(*) AS count
+        FROM sqlite_master
+        WHERE type='table'
+          AND name IN ('supervisor_control_decision','supervisor_control_action')
+      `).get() as { count: number };
+      if (legacyTables.count !== 2) return;
+      db.exec(`
+        DROP INDEX IF EXISTS idx_supervisor_control_decision_active;
+        DROP INDEX IF EXISTS idx_supervisor_control_action_claim;
+        DROP INDEX IF EXISTS uq_supervisor_control_active_slot;
+        CREATE TABLE IF NOT EXISTS delivery_control_decision (
+          id TEXT PRIMARY KEY,
+          run_id TEXT NOT NULL REFERENCES autonomous_delivery_run(id) ON DELETE CASCADE,
+          project_id TEXT NOT NULL REFERENCES conversation(id) ON DELETE CASCADE,
+          snapshot_revision INTEGER NOT NULL,
+          policy_revision INTEGER NOT NULL,
+          payload_json TEXT NOT NULL,
+          status TEXT NOT NULL CHECK(status IN ('active','completed','superseded')),
+          created_at TEXT NOT NULL,
+          completed_at TEXT,
+          UNIQUE(run_id,snapshot_revision,policy_revision)
+        );
+        CREATE TABLE IF NOT EXISTS delivery_control_action (
+          id TEXT PRIMARY KEY,
+          decision_id TEXT NOT NULL REFERENCES delivery_control_decision(id) ON DELETE CASCADE,
+          run_id TEXT NOT NULL REFERENCES autonomous_delivery_run(id) ON DELETE CASCADE,
+          type TEXT NOT NULL CHECK(type IN (
+            'initializeGraph','activate','retry','requestGate','integrate','finalize',
+            'resume','escalateToHuman','terminate'
+          )),
+          target_work_id TEXT,
+          work_epoch INTEGER,
+          slot_id TEXT,
+          reason_code TEXT NOT NULL,
+          retry_budget_kind TEXT,
+          termination_outcome TEXT,
+          status TEXT NOT NULL CHECK(status IN ('ready','claimed','applied','failed','cancelled')),
+          claim_token TEXT,
+          lease_owner TEXT,
+          lease_expires_at TEXT,
+          failure_code TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          completed_at TEXT,
+          CHECK(
+            (target_work_id IS NULL AND work_epoch IS NULL)
+            OR (target_work_id IS NOT NULL AND work_epoch IS NOT NULL AND work_epoch>=0)
+          )
+        );
+        INSERT OR IGNORE INTO delivery_control_decision
+          SELECT * FROM supervisor_control_decision;
+        INSERT OR IGNORE INTO delivery_control_action
+          SELECT * FROM supervisor_control_action;
+        DROP TABLE supervisor_control_action;
+        DROP TABLE supervisor_control_decision;
+        CREATE INDEX IF NOT EXISTS idx_delivery_control_decision_active
+          ON delivery_control_decision(run_id,status,created_at);
+        CREATE INDEX IF NOT EXISTS idx_delivery_control_action_claim
+          ON delivery_control_action(run_id,status,created_at);
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_delivery_control_active_slot
+          ON delivery_control_action(run_id,slot_id)
+          WHERE slot_id IS NOT NULL AND type='activate' AND status IN ('claimed','applied');
+      `);
+    },
+  },
 ];
 
 export function applyMigrations(db: Database.Database): void {

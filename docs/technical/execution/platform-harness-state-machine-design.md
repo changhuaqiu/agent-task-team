@@ -132,7 +132,7 @@ Inbox claim、Invocation/Session 和结构化 Outcome。它不是新的领域事
 | Agent Inbox | 可恢复的工作投递、claim、lease、fencing | Inbox item | 表示业务完成 |
 | Invocation Pipeline | preflight、profile 解析、会话、Agent 启动、结果归一化 | Invocation / session binding | 判定 Task 完成 |
 | Team Scheduling（System Control Plane 能力） | 从依赖、角色、容量、占用关系中选择可激活 Work Cell | 可重算的 scheduling decision | 生成 Agent 的实施方案 |
-| Delivery Supervisor | 根据事实和策略计算控制动作 | Delivery run / action / receipt | 替 Agent 做方案判断 |
+| Delivery Control Process Manager | 根据事实和策略计算跨领域控制动作 | ControlDecision / ControlAction | 替 Agent 做方案判断或直接执行副作用 |
 | Event Dispatcher | 提交后投递事件给 Router、Reducer、Process Manager、Projection | Event delivery cursor | 成为领域事实源 |
 | Durable Effect Outbox | 可靠执行数据库外副作用 | Effect command / receipt | 再做业务决策 |
 | Projection & Observability | WebUI 投影、trace、诊断 | Read model | 直接修改领域状态 |
@@ -141,7 +141,7 @@ Inbox claim、Invocation/Session 和结构化 Outcome。它不是新的领域事
 仍然独立守护自己的状态机；Harness 不能绕过 owner 直接改表。
 
 这里的 Team Scheduling 优先深化现有 System Control Plane 的 dispatch policy 与 Agent Inbox
-admission，不默认新增一套持久化领域模块。它只从候选工作中确定合法目标；Delivery Supervisor
+admission，不默认新增一套持久化领域模块。它只从候选工作中确定合法目标；Delivery Control Process Manager
 把该目标封装成 `activate` 控制动作，两者不各自启动一次 Agent。
 
 A2A 的目标权威是一个 `A2ACollaboration` 聚合，而不是 Chain、Worklist、Possession、Pass
@@ -220,7 +220,7 @@ WebUI message
 ```
 
 无目标的新 Human turn 是显式中断命令；它可以终止当前协作并取消尚未 claim 的 Inbox
-工作。已经 claim 或 running 的执行不能由 WebUI 假装取消，必须交给后续 Supervisor
+工作。已经 claim 或 running 的执行不能由 WebUI 假装取消，必须交给后续 Control Process Manager
 执行有 fencing 的停止/收口策略。
 
 ## 5. 不设计一个总状态机
@@ -508,7 +508,7 @@ Migration 60 建立三个职责分离的权威对象：
 - `work_authority`：一个 `workId` 当前唯一有效的 epoch/contract 指针；
 - `agent_outcome`：不可变的候选结果及 admission 结论。
 
-`RepositoryHarnessPlanner` 只有在 Runtime Profile、Skill 与 ContextSnapshot 均成功编译后才签发
+`InvocationPlanner` 只有在 Runtime Profile、Skill 与 ContextSnapshot 均成功编译后才签发
 WorkContract。`Invocation.id` 复用 Contract 的 `attemptId`，并同时绑定
 `workContractId / workId / workEpoch / fencingToken`；数据库拒绝部分绑定、伪造绑定及绑定改写。
 同一 `workId` 的新激活以 CAS 方式把 authority 推进一个 epoch，旧 Contract 永远不会恢复为当前
@@ -531,7 +531,7 @@ Outcome；同一幂等键的不同内容属于冲突，而不是“重复成功�
 
 ## 8. 控制动作决策表
 
-Delivery Supervisor 读取状态，不直接编辑其他 owner 的事实。
+Delivery Control Process Manager 读取状态，不直接编辑其他 owner 的事实。
 
 | 事实条件（按 Work Cell / 资源 slot 判断） | 控制动作 | 下一责任模块 |
 | --- | --- | --- |
@@ -565,7 +565,7 @@ owner 记录 root 引用；它不启动 Agent、不占用 Agent slot，也不把
 当 required Tasks 与 Delivery Gates 已满足而合并尚未完成时，纯决策返回 `integrate`。
 该动作只向 Effect owner 提交冻结 `deliveryRunId / appliesFromRevision / sourceActionId`
 的 blocking provider Effect；Git/GitHub I/O 由 Effect Worker 执行，失败、lease、重试与
-dead letter 不再由 Supervisor 自己维护。
+dead letter 不再由 Process Manager 自己维护。
 `publish_delivery` 不再是伪外部动作。所有前置事实满足后，`finalize` 调用 Delivery owner
 从已通过 Gate 的验收/评审 receipt、Task artifacts 与 provider receipt 构造并冻结
 DeliveryBundle；Bundle 写入产生新 revision，下一轮 reconcile 才能返回
@@ -574,9 +574,10 @@ required Tasks 全部完成后，Delivery review 与 acceptance verification 分
 Gate Work Cell。缺少 Gate 时先发 `requestGate` owner Command；Gate requested 后再以
 `review_gate / test_gate` 激活 Reviewer/QA。二者使用不同 workId、WorkContract、epoch
 和 slot，因此一个评审等待不会把另一个验收 Cell 或其他 Agent 工作串行化。
-生产 bootstrap 现由 `DeliveryControlRuntime` 提供兼容的 `start/get/advance` 外观，
-内部唯一推进器是 `DeliveryControlProcessManager`；新运行不再创建旧
-`autonomous_delivery_action/attempt`。旧 Supervisor 与表结构仅等待 S6 删除，不再位于生产路径。
+生产 bootstrap 现由 `DeliveryControlRuntime` 提供 `start/get/advance` 外观，
+内部唯一推进器是 `DeliveryControlProcessManager`。migration 67 已删除旧
+`autonomous_delivery_action/attempt`，旧 Supervisor、纯策略函数和 production adapters
+也已从源码删除；控制动作的持久化、claim、lease 与 fencing 统一由 Control Plane 表承担。
 
 优先级固定为：安全/合法性 > 回收失效 authority > Gate/Human 恢复 > 可恢复重试 >
 在剩余容量内新激活 > 收口。某个 Cell 的 `wait` 只描述该 Cell，不阻止其他 Cell 激活。
@@ -609,7 +610,7 @@ preflight 后才签发 epoch 1 Contract。依赖未完成的 Task 是 `waiting_d
 slot。`ProductionControlCommandAdapter` 已将 activate/retry 写入 Durable AgentInbox，
 requestGate 写入唯一 QualityGate owner，并在同一 SQLite 事务重新读取 Closure 后才允许
 Delivery 终止；它不直接启动 Runtime。Runtime started/terminated 事实会释放 activate 的
-slot reservation。该 adapter 尚未替换生产 bootstrap 中的旧单动作 Supervisor 循环。
+slot reservation。生产 bootstrap 已只使用该 adapter 与新的多动作 Control Process Manager。
 
 跨 Work Cell 等待使用显式 wait-for graph。当前 Task dependency 已投影为
 `waiter -> blocker` 边，稳定 DFS 返回可复放的第一条 cycle；检测到 cycle 后产生
@@ -641,17 +642,17 @@ Adapter 边界归一化。`runtime.invocation.blocked` 是一次尚未启动的 
 
 ## 10. 当前实现到目标命名
 
-当前 `src/server/harness` 实际只覆盖单次 Agent 激活链，目标上它属于
-`Platform Harness / Invocation Pipeline`。迁移时采用以下命名，避免把局部组件误认成整个系统：
+原 `src/server/harness` 实际只覆盖单次 Agent 激活链，现已迁入
+`src/server/invocation-pipeline`。最终命名如下，避免把局部模块误认成整个系统：
 
-| 当前名 | 目标名 |
+| 旧名 | 当前名 |
 | --- | --- |
 | `HarnessCoordinator` | `InvocationCoordinator` |
 | `RepositoryHarnessPlanner` | `InvocationPlanner` |
 | `HarnessRuntimePort` | `AgentRuntimePort` |
 | `HarnessTrigger` | `AgentActivationCommand` |
 
-这是语义迁移，不要求第一切片立即移动目录。先提供兼容别名并迁移调用者，最后再删除旧名。
+迁移已完成，旧目录、导出和兼容别名均已删除。
 
 ## 11. 实施切片
 
@@ -662,7 +663,7 @@ Adapter 边界归一化。`runtime.invocation.blocked` 是一次尚未启动的 
 | S2 Gate 深模块 | 统一 review request、evidence、decision、返工 | Gate 是唯一审查判定事实源 |
 | S3 Invocation 边界 | 收敛 Inbox/Envelope/Invocation/Session 的完成语义和恢复策略 | 各层 completion 不再互相冒充 |
 | S4 A2A 收敛 | 合并重复的 chain/worklist 与 possession/pass 生命周期 | 只保留一个 handoff owner 和一个状态机 |
-| S5 Supervisor 决策 | 用事实 + 策略按容量计算七种控制动作 | 同一快照产生相同有序动作集；waiting_human 可恢复 |
+| S5 Control Process Manager | 用事实 + 策略按容量计算十种控制动作 | 同一快照产生相同有序动作集；waiting_human 可恢复 |
 | S6 迁移清理 | 删除兼容分支、旧命名和无读者投影 | 架构图、spec、代码、测试一致 |
 
 ## 12. 设计不变量
@@ -688,7 +689,7 @@ Adapter 边界归一化。`runtime.invocation.blocked` 是一次尚未启动的 
 ```text
 Human 提交 Goal
   -> Command Gateway 创建 GoalContract / DeliveryRun
-  -> Supervisor 发现“尚无可执行 Task”
+  -> Delivery Control Process Manager 发现“尚无可执行 Task”
   -> activate Lead Agent Work Cell
   -> Lead 自主理解目标并提交 propose_task_graph Outcome
   -> Task owner 校验并持久化 Task Graph
@@ -775,7 +776,7 @@ Implementer 提交 task result + evidence
 | 语义验收 | 产物不满足 Gate | 创建返工工作 | 是，但这是 rework，不是 retry |
 
 故障恢复必须保存“这次失败发生在哪一层”。否则 UI 只会不断显示 Reconnecting，
-Supervisor 也无法判断该等待、重试、换 session 还是请人补配置。
+Control Process Manager 也无法判断该等待、重试、换 session 还是请人补配置。
 
 ### 场景 E：Human 介入后恢复
 
@@ -785,7 +786,7 @@ Delivery.waiting_human
   -> Human 在 WebUI 补配置 / 授权 / 做 Gate 决策
   -> Human Command 进入对应 owner
   -> owner 修改事实并产生 Event
-  -> Supervisor 重新计算
+  -> Delivery Control Process Manager 重新计算
   -> resume 原 work 或 activate 新 work
 ```
 
@@ -806,7 +807,8 @@ Human Command Gateway 把新 Command 送回对应 owner。
 + 无 active Inbox / Invocation
 + 无仍适用的 pending/executing/retryable_failed/dead_lettered blocking Effect
 + Delivery acceptance criteria satisfied
-  -> Supervisor.terminate(completed)
+  -> Delivery Control Process Manager 产生 terminate
+  -> Delivery owner 校验 Closure 并完成
   -> 生成 DeliveryBundle
   -> Projection 通知 Human
 ```
@@ -828,6 +830,6 @@ Agent 可以建议“项目已经完成”，但只有 Delivery owner 能根据�
 | artifact/evidence revision 绑定 | Review & Gate |
 | session 失效和重新绑定 | Agent Session Identity |
 | context 版本与关键前置校验 | Context Manager |
-| 跨状态机唯一 ControlAction | Delivery Supervisor |
+| 跨状态机唯一 ControlAction | Delivery Control Process Manager |
 
 如果现有模块能承担，就深化现有接口；只有当某项能力没有自然 owner 时才增加模块。

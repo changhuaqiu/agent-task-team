@@ -6,10 +6,11 @@
 
 ## 定位
 
-本文历史上把 `src/server/harness` 称为 Platform Harness；按目标术语，它实际是
+本文历史上把原 `src/server/harness` 称为 Platform Harness；该模块现已迁为
+`src/server/invocation-pipeline`，其实际职责是
 **Invocation Pipeline（单次 Agent 激活链）**。完整的 Platform Harness 是整个平台运行时，
 包含 Task Graph、A2A、Context Manager、Review & Gate、Agent Inbox、Invocation Pipeline
-和 Delivery Supervisor。包含不等于吞并事实权威，各模块仍只通过公开命令修改自己的事实。
+和 Delivery Control Process Manager。包含不等于吞并事实权威，各模块仍只通过公开命令修改自己的事实。
 
 平台 Agent 是一个项目角色实例。OpenCode、Claude、Codex 或其他 ACP Agent 只是该角色某一轮使用的执行端口。
 
@@ -18,16 +19,16 @@
 ```text
 Task mutation / Autonomy Guard / A2A pass
   -> TaskWakeup or A2A dispatch request
-  -> HarnessCoordinator admission
+  -> InvocationCoordinator admission
      -> idempotency
      -> runtime busy check
-  -> RepositoryHarnessPlanner
+  -> InvocationPlanner
      -> conversation + task
      -> TeamRuntime + enabled account
      -> ContextManager
         -> resolve scenario + role archetype
         -> apply cluster injection policy
-  -> Harness Runtime Port
+  -> AgentRuntimePort
      -> daemon terminal execution compatibility entry
      -> DispatchGateway / ExecutionEnvelope / Proof
      -> backend or future ACP runtime
@@ -38,7 +39,7 @@ Task mutation / Autonomy Guard / A2A pass
 
 ## 模块职责
 
-### HarnessCoordinator
+### InvocationCoordinator
 
 - 接收结构化 trigger；
 - 在组装上下文前完成幂等和 busy admission；
@@ -46,15 +47,15 @@ Task mutation / Autonomy Guard / A2A pass
 - 记录 accepted、duplicate、deferred、blocked、failed proof；
 - 不直接推断 review/done。
 
-### RepositoryHarnessPlanner
+### InvocationPlanner
 
 - 从 Conversation、TeamPack、RoleCard、Account、Skill、Task、Message 和 Session 仓库读取本轮事实；
 - 通过 TeamRuntime 解析角色与执行 profile；
 - 通过 ContextManager 组装 server-owned prompt；
-- 输出与具体 Runtime SDK 无关的 `HarnessDispatchPlan`。
+- 输出与具体 Runtime SDK 无关的 `InvocationDispatchPlan`。
 - 按 trigger source 区分 user turn、A2A handoff 与系统 resume，并把 wakeup reason 和已解析 scenario 透传到执行完成边界。
 
-### Harness Runtime Port
+### AgentRuntimePort
 
 - 判断当前角色在 conversation 内是否 busy；
 - 接收完整 plan 并提交执行；

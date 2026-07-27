@@ -245,7 +245,7 @@ Observability 和 Audit 是横跨所有 module seam 的只读投影；Evaluation
 | L1 操作系统内核 | 主链已形成 | Control Plane、Envelope、Proof、runtime health、Agent Inbox/Harness | 跨节点定向路由、ContinueGate 和身份源仍需收口；浏览器自动控制路径已退役 |
 | L2 数据与记忆 | 上下文强、数据面弱 | ContextManager、Fragment/ContextArtifact、预算、Snapshot | 缺少共享 Artifact identity/provenance 协议、确定性 Binding、单一表示、持久 Memory 和结构化 checkpoint；是否需要独立内容存储尚待真实读写模式验证 |
 | L3 团队平面 | 较强但有迁移债务 | Team Runtime、Task Graph、A2A possession | A2A v2 兼容链仍存在；holder buffer、用户夺回责任等未完全闭环 |
-| L4 交付平面 | 方向正确、主链较深 | GoalContract、Supervisor、Receipt、Closure Invariant | poisoned session、成本/并行预算和完整发布验收仍有开放项 |
+| L4 交付平面 | 方向正确、主链较深 | GoalContract、Delivery Control Process Manager、Receipt、Closure Invariant | poisoned session、成本/并行预算和完整发布验收仍有开放项 |
 | L5 演进治理 | 评估深、发布浅 | 冻结快照、Judge、实验、Proposal、回退证据 | 人工校准未完成；候选版本尚无 shadow/probation/active 运行状态机 |
 
 ### 4.1 已经做对的深模块
@@ -253,11 +253,11 @@ Observability 和 Audit 是横跨所有 module seam 的只读投影；Evaluation
 以下模块应继续加深，不应另起平行系统：
 
 - `ContextManager.assembleContext()`：应完成收敛的目标 seam；Harness 主链已接入，但 A2A 兼容路径仍通过 `buildDispatchContext()` / `renderDispatchPrompt()` 自组 Prompt；
-- `AutonomousDeliverySupervisor.start/advance/get()`：交付状态机深模块；
+- `DeliveryControlRuntime.start/advance/get()`：交付状态机深模块；
 - `DispatchGateway`：应成长为唯一执行入口；
 - `resolveTeamRuntime()`：团队配置的唯一解析 seam；
 - `AgentEvaluation`：评估提交、冻结、计算和报告深模块；
-- `HarnessRuntimePort`、`DeliveryActionPort`、`JudgePort`：已有两个以上 adapter 或明确生产/测试 adapter，seam 成立。
+- `AgentRuntimePort`、Delivery Control Command adapter、`JudgePort`：已有两个以上 adapter 或明确生产/测试 adapter，seam 成立。
 
 ### 4.2 当前最危险的浅层与重叠
 
@@ -466,9 +466,9 @@ Resolver 输入场景、任务、角色、授权和预算，输出不可变 `Cap
 
 #### 5.7 两级恢复
 
-现有 Autonomous Delivery 已解决 Run/Action/Attempt 级恢复，还需要明确单次 Agent 工作的恢复层：
+现有 Delivery Control 已解决持久 ControlAction/claim/lease 级恢复，还需要明确单次 Agent 工作的恢复层：
 
-1. **交付级恢复**：Action、Attempt、lease、Provider reconcile；
+1. **交付级恢复**：ControlAction、claim lease、Effect reconcile；
 2. **Agent turn 级恢复**：Context checkpoint、Artifact、session generation、幂等 tool call。
 
 不能用“runtime session 能 resume”替代 Agent OS 的恢复契约。
@@ -645,7 +645,7 @@ inspectDelivery(deliveryId)
 
 - 当前架构事实：[`docs/wiki/01-architecture.md`](../wiki/01-architecture.md)
 - Harness：[`platform-harness-loop.md`](execution/platform-harness-loop.md)
-- 自主交付：[`autonomous-delivery-loop.md`](execution/autonomous-delivery-loop.md)
+- 自主交付与控制状态机：[`platform-harness-state-machine-design.md`](execution/platform-harness-state-machine-design.md)
 - Context：[`context-layering.md`](execution/context-layering.md)
 - Control Plane：[`specs/system-control-plane/`](../../specs/system-control-plane/)
 - A2A：[`specs/a2a-possession-contract/`](../../specs/a2a-possession-contract/)

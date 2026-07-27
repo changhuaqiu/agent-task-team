@@ -1,16 +1,17 @@
+// Invocation Pipeline failure normalization tests.
 import type Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb } from '../db';
 import { PlatformEventLog } from '../platform-events/event-log';
-import { HarnessFailureEventPublisher } from './failure-event-publisher';
-import type { HarnessTrigger } from './types';
+import { InvocationFailureEventPublisher } from './failure-event-publisher';
+import type { AgentActivationCommand } from './types';
 
-describe('HarnessFailureEventPublisher', () => {
+describe('InvocationFailureEventPublisher', () => {
   let db: Database.Database;
   let log: PlatformEventLog;
-  let publisher: HarnessFailureEventPublisher;
+  let publisher: InvocationFailureEventPublisher;
   let id = 0;
-  const trigger: HarnessTrigger = {
+  const trigger: AgentActivationCommand = {
     id: 'activation-1',
     source: 'user',
     conversationId: 'project-1',
@@ -31,7 +32,7 @@ describe('HarnessFailureEventPublisher', () => {
       now: () => new Date(now),
       idFactory: () => `pev-${++id}`,
     });
-    publisher = new HarnessFailureEventPublisher({
+    publisher = new InvocationFailureEventPublisher({
       eventLog: log,
       runtimeActorId: 'daemon-1',
     });

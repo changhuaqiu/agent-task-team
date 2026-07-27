@@ -1,3 +1,4 @@
+// Invocation Pipeline context snapshot tests.
 import { describe, expect, it } from 'vitest';
 import type { ContextSnapshot } from '@/lib/agent-context/ContextManager';
 import { finalizeRuntimeContextSnapshot } from './runtime-context-snapshot';

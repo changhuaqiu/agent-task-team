@@ -1,9 +1,18 @@
 // @vitest-environment jsdom
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react';
 import { AutonomousDeliveryPanel } from './AutonomousDeliveryPanel';
-import type { DeliveryRunSnapshot, GoalContract } from '@/server/autonomous-delivery/types';
+import type {
+  DeliveryRunSnapshot,
+  GoalContract,
+} from '@/server/autonomous-delivery/types';
 
 const contract: GoalContract = {
   goal: '交付首页',
@@ -42,8 +51,8 @@ describe('AutonomousDeliveryPanel', () => {
         status: 'active',
         current_stage: 'executing',
         goal_contract_json: JSON.stringify(contract),
-      repair_cycle: 0,
-      revision: 0,
+        repair_cycle: 0,
+        revision: 0,
         escalation_code: null,
         escalation_detail: null,
         delivery_bundle_json: null,
@@ -52,17 +61,22 @@ describe('AutonomousDeliveryPanel', () => {
         completed_at: null,
       },
       contract,
-      actions: [],
-      attempts: [],
       receipts: [],
     } satisfies DeliveryRunSnapshot;
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => snapshot,
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => snapshot,
+      }),
+    );
 
-    render(<AutonomousDeliveryPanel conversationId={contract.scope.conversationId} />);
+    render(
+      <AutonomousDeliveryPanel
+        conversationId={contract.scope.conversationId}
+      />,
+    );
 
     expect(await screen.findByText('团队执行中')).toBeDefined();
     expect(screen.getByText('你可以离开，完成后会在这里交付')).toBeDefined();
@@ -78,8 +92,8 @@ describe('AutonomousDeliveryPanel', () => {
         status: 'completed',
         current_stage: 'delivering',
         goal_contract_json: JSON.stringify(contract),
-      repair_cycle: 0,
-      revision: 0,
+        repair_cycle: 0,
+        revision: 0,
         escalation_code: null,
         escalation_detail: null,
         delivery_bundle_json: '{}',
@@ -88,16 +102,16 @@ describe('AutonomousDeliveryPanel', () => {
         completed_at: '2026-07-19T00:10:00.000Z',
       },
       contract,
-      actions: [],
-      attempts: [],
       receipts: [],
       bundle: {
         summary: '首页已交付',
-        acceptanceResults: [{
-          criterion: '首页可打开',
-          status: 'passed',
-          evidenceRefs: ['evidence-1'],
-        }],
+        acceptanceResults: [
+          {
+            criterion: '首页可打开',
+            status: 'passed',
+            evidenceRefs: ['evidence-1'],
+          },
+        ],
         changeRefs: [],
         verificationRefs: [
           'playwright-report/index.html',
@@ -123,15 +137,24 @@ describe('AutonomousDeliveryPanel', () => {
         completedAt: '2026-07-19T00:10:00.000Z',
       },
     } satisfies DeliveryRunSnapshot;
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => snapshot,
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => snapshot,
+      }),
+    );
 
-    render(<AutonomousDeliveryPanel conversationId={contract.scope.conversationId} />);
+    render(
+      <AutonomousDeliveryPanel
+        conversationId={contract.scope.conversationId}
+      />,
+    );
 
-    await waitFor(() => expect(screen.getByTestId('autonomous-delivery-completed')).toBeDefined());
+    await waitFor(() =>
+      expect(screen.getByTestId('autonomous-delivery-completed')).toBeDefined(),
+    );
     expect(screen.getByText('首页已交付')).toBeDefined();
     expect(screen.getByText('首页可打开')).toBeDefined();
     expect(screen.getByText('验收证据')).toBeDefined();
@@ -169,8 +192,6 @@ describe('AutonomousDeliveryPanel', () => {
         completed_at: null,
       },
       contract,
-      actions: [],
-      attempts: [],
       receipts: [],
     } satisfies DeliveryRunSnapshot;
     const resumed = {
@@ -183,28 +204,37 @@ describe('AutonomousDeliveryPanel', () => {
         escalation_detail: null,
       },
     } satisfies DeliveryRunSnapshot;
-    const fetchMock = vi.fn().mockImplementation(
-      async (_url: string, init?: RequestInit) => ({
+    const fetchMock = vi
+      .fn()
+      .mockImplementation(async (_url: string, init?: RequestInit) => ({
         ok: true,
         status: 200,
-        json: async () => init?.method === 'POST'
-          ? { disposition: 'waiting', snapshot: resumed }
-          : waiting,
-      }),
-    );
+        json: async () =>
+          init?.method === 'POST'
+            ? { disposition: 'waiting', snapshot: resumed }
+            : waiting,
+      }));
     vi.stubGlobal('fetch', fetchMock);
 
-    render(<AutonomousDeliveryPanel conversationId={contract.scope.conversationId} />);
+    render(
+      <AutonomousDeliveryPanel
+        conversationId={contract.scope.conversationId}
+      />,
+    );
     expect(await screen.findByText('请先补齐运行配置')).toBeDefined();
     fireEvent.click(screen.getByRole('button', { name: '我已处理，继续' }));
 
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
-      '/api/autonomous-delivery',
-      expect.objectContaining({
-        method: 'POST',
-        body: JSON.stringify({ action: 'advance', runId: waiting.run.id }),
-      }),
-    ));
-    expect(await screen.findByTestId('autonomous-delivery-running')).toBeDefined();
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/autonomous-delivery',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ action: 'advance', runId: waiting.run.id }),
+        }),
+      ),
+    );
+    expect(
+      await screen.findByTestId('autonomous-delivery-running'),
+    ).toBeDefined();
   });
 });

@@ -1,3 +1,4 @@
+// Public Invocation Pipeline interface.
 export * from './types';
 export * from './coordinator';
 export * from './context-planner';

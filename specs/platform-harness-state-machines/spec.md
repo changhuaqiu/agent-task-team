@@ -12,9 +12,9 @@
 
 1. 每个领域状态机的 owner、状态、命令和事件唯一化；
 2. Inbox、Invocation、Task、Gate、A2A、Delivery 的完成语义分离；
-3. Delivery Supervisor 只依据权威事实计算有限的确定性控制动作；
+3. Delivery Control Process Manager 只依据权威事实计算有限的确定性控制动作；
 4. Runtime/CLI 错误归一化后再进入恢复、重试或 Human 决策；
-5. 当前窄义 `src/server/harness` 迁入 Invocation Pipeline 语义；
+5. 窄义 `src/server/harness` 完整迁入 `src/server/invocation-pipeline`；
 6. 从单 Agent Invocation 监督扩展为多 Agent Work Cell 图的可靠协调。
 
 ## 2. 非目标
@@ -154,7 +154,7 @@ DeliveryRun 的生命周期状态与协作阶段必须分开：生命周期只�
 `escalated` 归一化为带明确 reason 的 `waiting_human`，将 `recovering` 归一化为
 `retrying`；只有 Human Command `manual_resume` 可以恢复人工等待。
 
-## 7. Supervisor 决策契约
+## 7. Delivery Control Process Manager 决策契约
 
 一次 reconcile 返回一个 `ControlDecision`，其中包含按资源容量排序的 `actions[]`；
 不是 Delivery 全局单动作。每个 target Work Cell / slot 最多一个动作。action id 由
@@ -200,7 +200,7 @@ Agent source 本身也在 roster 内且 `communicationPolicy.canSend(source,targ
 WebUI Human turn 使用 `a2a.human_handoff` Command：先持久化 chat message，再由服务端
 A2A owner 创建/中断协作与持久 Inbox 工作。浏览器不得先发 `terminal:start` 再通过
 Socket 补登记 Chain。没有目标的 Human turn 表示显式中断当前 collaboration；尚未 claim
-的 Inbox item 同事务取消，已 claim/running 工作留给 Supervisor 执行受 fencing 保护的
+的 Inbox item 同事务取消，已 claim/running 工作留给 Control Process Manager 执行受 fencing 保护的
 停止策略。
 
 ## 9. Effect 收口
@@ -235,10 +235,11 @@ artifactRevision 的请求幂等；artifactRevision 改变必须创建新 Gate�
 
 原始诊断必须作为 evidence 保留，但不得直接成为状态迁移触发器。
 
-## 11. 兼容迁移
+## 11. 命名迁移
 
 旧 `HarnessCoordinator`、`RepositoryHarnessPlanner`、`HarnessRuntimePort`、`HarnessTrigger`
-先提供到目标名的兼容映射。所有调用者迁移并通过验证后才能删除旧名。
+已分别替换为 `InvocationCoordinator`、`InvocationPlanner`、`AgentRuntimePort`、
+`AgentActivationCommand`。源码目录已迁至 `src/server/invocation-pipeline`，不保留旧导出或兼容别名。
 
 ## 12. 验证
 

@@ -89,7 +89,7 @@ describe('DeliveryControlProcessManager', () => {
       snapshots: new RepositoryControlSnapshotBuilder({ db, now: () => now }),
       decisions,
       commands: { execute },
-      workerId: 'supervisor-1',
+      workerId: 'delivery-control-1',
       now: () => now,
     });
 

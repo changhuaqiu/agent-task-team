@@ -1,3 +1,4 @@
+// Invocation Pipeline reference resolution.
 import { execFile } from 'node:child_process';
 import { existsSync, statSync } from 'node:fs';
 

@@ -2,7 +2,7 @@ import type { ContextSnapshot } from '../../lib/agent-context/ContextManager';
 import { autonomousDeliveryRepo } from '../autonomous-delivery/repository';
 import type { TaskRow } from '../repositories/task-repo';
 import { generateSortableId } from '../repositories/sortable-id';
-import type { HarnessTrigger } from '../harness/types';
+import type { AgentActivationCommand } from '../invocation-pipeline/types';
 import { workContractRepo } from './repository';
 import type { AgentOutcomeType, WorkContract } from './types';
 
@@ -22,14 +22,14 @@ const GATE_OUTCOMES: AgentOutcomeType[] = [
   'request_human_decision',
 ];
 
-function purposeFor(trigger: HarnessTrigger): string {
+function purposeFor(trigger: AgentActivationCommand): string {
   if (trigger.source === 'review_gate') return 'review';
   if (trigger.source === 'test_gate') return 'verify';
   if (trigger.source === 'a2a') return 'delegate';
   return 'execute';
 }
 
-export function deriveWorkId(trigger: HarnessTrigger): string {
+export function deriveWorkId(trigger: AgentActivationCommand): string {
   const explicit = trigger.workId?.trim();
   if (explicit) return explicit;
   if (trigger.passId) return `a2a-pass:${trigger.passId}`;
@@ -43,7 +43,7 @@ export function deriveWorkId(trigger: HarnessTrigger): string {
 }
 
 export function issueDispatchWorkContract(input: {
-  trigger: HarnessTrigger;
+  trigger: AgentActivationCommand;
   traceId: string;
   contextSnapshot: ContextSnapshot;
   task?: TaskRow;

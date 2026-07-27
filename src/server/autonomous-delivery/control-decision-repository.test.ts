@@ -9,13 +9,13 @@ import {
   ControlDecisionRepository,
   StaleControlSnapshotError,
 } from './control-decision-repository';
-import { decideControlActions, type SupervisorControlSnapshot } from './control-decision';
+import { decideControlActions, type DeliveryControlSnapshot } from './control-decision';
 
 describe('ControlDecisionRepository', () => {
   let db: Database.Database;
   let store: ControlDecisionRepository;
   let runId: string;
-  let snapshot: SupervisorControlSnapshot;
+  let snapshot: DeliveryControlSnapshot;
 
   beforeEach(() => {
     db = createTestDb();
@@ -197,7 +197,7 @@ describe('ControlDecisionRepository', () => {
     // Hold the cursor guard constant to prove epoch fencing is an independent
     // claim condition rather than an accidental consequence of event ordering.
     db.prepare(`
-      UPDATE supervisor_control_decision SET snapshot_revision=? WHERE id=?
+      UPDATE delivery_control_decision SET snapshot_revision=? WHERE id=?
     `).run(store.projectSnapshotRevision('project-1'), computed.decisionId);
 
     expect(() => store.claim({

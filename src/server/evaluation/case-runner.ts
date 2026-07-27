@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { HarnessCoordinator, HarnessSubmission } from '../harness';
+import type { InvocationCoordinator, InvocationSubmission } from '../invocation-pipeline';
 import { getDb } from '../db';
 import { taskRepo } from '../repositories/task-repo';
 import { proofLogRepo } from '../repositories/proof-log-repo';
@@ -99,7 +99,7 @@ export function createRunnerExperiment(input: {
 }
 
 export class EvaluationCaseRunner {
-  constructor(private readonly coordinator: Pick<HarnessCoordinator, 'submit'>) {}
+  constructor(private readonly coordinator: Pick<InvocationCoordinator, 'submit'>) {}
 
   pump(limit = 2): number {
     this.reconcileEvaluations();
@@ -174,7 +174,7 @@ export class EvaluationCaseRunner {
       taskId,
       harnessTriggerId: String(execution.id),
     });
-    let submission: HarnessSubmission;
+    let submission: InvocationSubmission;
     try {
       submission = this.coordinator.submit({
         id: String(execution.id),

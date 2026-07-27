@@ -201,8 +201,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
             if (wakeup) {
               const io = (res.socket as any)?.server?.io;
               const id = `wakeup-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-              const { submitTaskWakeupToHarness } = await import('@/server/harness/registry');
-              submitTaskWakeupToHarness(io, { ...wakeup, id });
+              const { submitTaskWakeupToInvocationPipeline } = await import('@/server/invocation-pipeline/registry');
+              submitTaskWakeupToInvocationPipeline(io, { ...wakeup, id });
               io?.to(previousTask.conversation_id).emit('task.wakeup', {
                 ...wakeup,
                 projectId: previousTask.conversation_id,
@@ -425,7 +425,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         if (!conversationRepo.getById(conversationId)) {
           return res.status(404).json({ ok: false, error: 'dispatch.enqueue conversation not found' });
         }
-        const { resolveConversationRuntimeProfile } = await import('@/server/harness/conversation-runtime');
+        const { resolveConversationRuntimeProfile } = await import('@/server/invocation-pipeline/conversation-runtime');
         const runtime = resolveConversationRuntimeProfile(conversationId, agentId)?.runtime;
         if (!runtime?.roster.some((agent) => agent.id === agentId)) {
           return res.status(404).json({ ok: false, error: 'dispatch.enqueue project agent not found' });
@@ -583,8 +583,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
                 const wakeupProjectId = previousTask.conversation_id || conversationId;
                 const io = (res.socket as any)?.server?.io;
                 const id = `wakeup-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-                const { submitTaskWakeupToHarness } = await import('@/server/harness/registry');
-                submitTaskWakeupToHarness(io, { ...wakeup, id });
+                const { submitTaskWakeupToInvocationPipeline } = await import('@/server/invocation-pipeline/registry');
+                submitTaskWakeupToInvocationPipeline(io, { ...wakeup, id });
                 io?.to(wakeupProjectId).emit('task.wakeup', {
                   ...wakeup,
                   projectId: wakeupProjectId,

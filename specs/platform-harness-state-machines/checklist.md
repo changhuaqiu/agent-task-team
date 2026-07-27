@@ -2,10 +2,10 @@
 
 ## 架构
 
-- [ ] Platform Harness 被定义为整个运行时环境，而不是 Boss Agent。
+- [x] Platform Harness 被定义为整个运行时环境，而不是 Boss Agent。
 - [ ] 每个可变事实只有一个明确 owner。
 - [ ] 不存在跨领域总状态表或裸 `completed` 协议。
-- [ ] Process Manager 不直接写领域表或启动 Agent Runtime。
+- [x] Process Manager 不直接写领域表或启动 Agent Runtime。
 
 ## Agent 自主性
 
@@ -63,7 +63,7 @@ Task 切片证据：
 - [ ] 持久 ControlAction 已接入各领域 owner Command，并由新事实释放 slot。
 - [x] activate/retry 已接 AgentInbox、requestGate 已接 QualityGate、terminate 已做事务内
   Closure 复核；Runtime 生命周期事实可释放 slot reservation。
-- [ ] production bootstrap 已完全切换到新 Control Process Manager。
+- [x] production bootstrap 已完全切换到新 Control Process Manager。
 - [x] Human 可以通过 WebUI 发送 `manual_resume` Command；WebUI 不自行推进状态。
 - [x] Human A2A 从 WebUI 提交服务端 Command，浏览器不直接启动后再补登记协作状态。
 - [x] WebUI 自动更新只消费版本化 `project:view / a2a.snapshot` Projection；
@@ -76,10 +76,10 @@ Task 切片证据：
 
 ## 清理
 
-- [ ] 旧 Harness 命名已无调用者后再删除。
+- [x] 旧 Harness 命名及目录已在所有调用者迁移后删除。
 - [x] 重复 A2A 状态机已移除；旧 Orchestrator、scanner、Worklist/Cursor 与五张历史表均已退役。
 - [x] 重复 Gate 判定源已移除；Task/Git/Delivery 均由 QualityGate owner 判定。
-- [ ] A2A 兼容分支与无读者文件已有删除证据；其余领域仍需在 S6 做全仓审计。
+- [x] A2A 兼容分支、旧 Delivery Action/Attempt 栈与无读者文件均已有删除证据。
 - [ ] 设计、spec、代码和测试一致。
 
 ## 端到端场景

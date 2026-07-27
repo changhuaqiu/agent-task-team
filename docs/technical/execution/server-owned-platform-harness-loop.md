@@ -16,14 +16,14 @@ Accepted and implemented — 2026-07-14（2026-07-26 完成浏览器控制路径
 
 服务端 Platform Harness 成为 Agent Loop 的续接与派发权威：
 
-- 触发源提交结构化 `HarnessTrigger`；
+- 触发源提交结构化 `AgentActivationCommand`；
 - Coordinator 解析角色、运行配置和上下文；
 - DispatchGateway 负责派发门禁和 proof；
 - Runtime Port 只负责执行并产生统一事件；
 - Task/A2A repository 负责业务状态；
 - 浏览器只提交用户意图并投影服务端状态。
 
-ACP 和 legacy backend 都位于 Runtime Port 后面。ACP 集成不改变 Harness 上层契约。
+ACP 和 legacy backend 都位于 `AgentRuntimePort` 后面。ACP 集成不改变 Invocation Pipeline 上层契约。
 
 ## 放弃的方案
 

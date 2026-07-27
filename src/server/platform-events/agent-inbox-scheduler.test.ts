@@ -1,7 +1,7 @@
 import type Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTestDb } from '../db';
-import type { HarnessSubmission } from '../harness/types';
+import type { InvocationSubmission } from '../invocation-pipeline/types';
 import { AgentInbox } from './agent-inbox';
 import { AgentInboxScheduler } from './agent-inbox-scheduler';
 import { PlatformEventLog } from './event-log';
@@ -30,7 +30,7 @@ describe('AgentInboxScheduler', () => {
     vi.useRealTimers();
   });
 
-  it('releases busy work and later consumes it through Harness', async () => {
+  it('releases busy work and later consumes it through the Invocation Pipeline', async () => {
     const item = inbox.enqueue({
       projectId: 'project-1',
       projectAgentId: 'implementer',
@@ -49,13 +49,13 @@ describe('AgentInboxScheduler', () => {
             disposition: 'deferred',
             handled: false,
             completion: Promise.resolve({ status: 'deferred', reasonCode: 'agent_busy' }),
-          } satisfies HarnessSubmission;
+          } satisfies InvocationSubmission;
         }
         return {
           disposition: 'accepted',
           handled: true,
           completion: Promise.resolve({ status: 'accepted' }),
-        } satisfies HarnessSubmission;
+        } satisfies InvocationSubmission;
       },
     });
 
@@ -136,7 +136,7 @@ describe('AgentInboxScheduler', () => {
     expect(inbox.releaseExpiredClaims()).toBe(1);
   });
 
-  it('settles an in-flight Harness duplicate instead of completing it eagerly', async () => {
+  it('settles an in-flight Invocation Pipeline duplicate instead of completing it eagerly', async () => {
     const item = inbox.enqueue({
       projectId: 'project-1',
       projectAgentId: 'implementer',

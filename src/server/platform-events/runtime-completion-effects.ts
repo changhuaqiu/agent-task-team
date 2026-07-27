@@ -1,5 +1,5 @@
 import type { ContextScenario } from '../../lib/agent-context/scenarioResolver';
-import { checkValidExit } from '../harness/valid-exit';
+import { checkValidExit } from '../invocation-pipeline/valid-exit';
 import type {
   DurableEffect,
   DurableEffectOutbox,

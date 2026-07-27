@@ -478,31 +478,28 @@ A 调工具 requestHandoff({to:B, prompt, contextRef})
 
 ### 9.5 Process Manager 错位（精确落点）
 
-> **ADR-005：立即解耦 Process Manager 触发入口，保留 Supervisor 深模块**
+> **ADR-005：立即解耦 Process Manager 触发入口，保留交付控制深模块**
 > 详见 §11 ADR-005。
 
-delivery 的阶段推进不是"硬编码在 daemon"（之前的判断有误）。精确结构：
+delivery 的阶段推进不是"硬编码在 daemon"。迁移前的错位是：
 
-- `reconcileAutonomousDeliveryConversation`（`autonomous-delivery/registry.ts:50-59`）是
-  9 行薄外壳，真正逻辑在 `AutonomousDeliverySupervisor.advance`（`supervisor.ts:84`）。
-- `advance` 已有良好分层：纯函数决策 `decideDeliveryNext`（`policy.ts:90`）+ 端口适配
-  （`DeliveryFactsPort`/`DeliveryActionPort`）+ 乐观锁串行化（`updateRun` 用
-  `expectedRevision`，`repository.ts:111-112`）。
-- **错位点**（需重构的两处）：
+- `reconcileAutonomousDeliveryConversation` 只是薄触发外壳，真正控制规则集中在旧
+  `AutonomousDeliverySupervisor.advance`。
+- 旧实现以单动作 `decideDeliveryNext` 和私有 Action/Attempt 表维护恢复。
+- **已修复的错位点**：
   1. **入口硬编码时序**：`task-notification-publisher.ts:260` 尾部 `void reconcile...`
      把 delivery 协调挂在 task 通知函数尾部，与 task 通知耦合。应抽成 task/review
      事件订阅 handler。
-  2. **触发原因未利用**：`cause` 参数被 `void` 掉（`supervisor.ts:85`），事件因果没有进入
-     可观察证据。
+  2. **触发原因丢失**：旧 `cause` 没有进入可观察证据。
 
-`AutonomousDeliverySupervisor.advance()` 已是深模块：它用一个小 interface 隐藏状态推导、
-claim、lease、重试、恢复、并发控制和收口规则；这与
-`specs/autonomous-delivery-loop/spec.md` 的既有契约一致。事件迁移不得为了“handler 化”
-把这些内部职责泄露成多个浅 interface。事件 handler 只负责把 event 映射为幂等的
-delivery advancement request；delivery 模块持久接纳后，由自己的 worker 调用
+当前 `DeliveryControlRuntime.advance()` 是外部深 interface，内部由
+`DeliveryControlProcessManager` 对权威快照计算多动作 `ControlDecision`；Control Plane
+持久层统一隐藏 action claim、lease、fencing、恢复和 slot 占用。事件 handler 只负责把
+event 映射为幂等 delivery advancement request；delivery queue 的 worker 调用
 `advance(runId, cause)`。Platform Event delivery 的成功边界是持久接纳，实际推进失败由
 delivery queue 重试。bootstrap 的周期 reconcile 保留为兜底恢复触发器，不与事件驱动入口
-争夺事实 owner。
+争夺事实 owner。旧 Supervisor、`decideDeliveryNext`、production adapters 与
+`autonomous_delivery_action/attempt` 已在 S6 删除。
 
 ### 9.6 forwardAgentEvent 六重职责（已拆除）
 
@@ -548,7 +545,7 @@ Session 身份仍由 coordinator 上半部守护；背景活动与 heartbeat 留
   退出: 四类事件契约和 owner 有自动化测试（spec §10）
 
 切片5: Process Manager 触发入口迁移（已完成）
-  delivery 阶段推进抽成 handler，复用 AutonomousDeliverySupervisor.advance 深模块
+  delivery 阶段推进抽成 handler，复用 DeliveryControlRuntime.advance 深模块
   退出: delivery 协调不再依赖 task-notification-publisher 尾部硬编码
 
 切片6: 退出双写（已完成）
@@ -623,19 +620,18 @@ Session 身份仍由 coordinator 上半部守护；背景活动与 heartbeat 留
 - **后果**：domain 事件目录见 spec §6。`task_action` 等准事件源加 fan-out 即可复用。
 - **退出条件**：四类事件契约和 owner 有自动化测试（spec §10）。
 
-### ADR-005：立即解耦 Process Manager 触发入口，保留 Supervisor 深模块
+### ADR-005：立即解耦 Process Manager 触发入口，保留交付控制深模块
 
-- **背景**：delivery 阶段推进的触发职责错位——入口硬编码在
-  task-notification-publisher 尾部；但 `advance()` 本身已经是符合既有 active spec 的
-  深模块。
+- **背景**：delivery 阶段推进的触发职责曾错位在 task-notification-publisher 尾部；
+  `advance()` 应继续作为交付控制的深 interface。
 - **决策**：立即迁移触发入口（不保留通知尾部双写）。task/review 事件 handler 以
   source event 幂等持久接纳 advancement request；delivery worker 调用
   `advance(runId, cause)`，失败重新排队。周期 reconcile 保留为 crash/retry 兜底恢复触发器。
-  Supervisor 内部的状态推导、claim、lease、执行、重试与收口继续隐藏在同一 interface 后。
+  状态推导、claim、lease、fencing、恢复与收口继续隐藏在同一 interface 后；后续 S5/S6
+  已把旧单动作实现替换为 `DeliveryControlProcessManager + ControlDecision/ControlAction`。
 - **替代方案**：①保留通知尾部触发，否决原因是继续耦合 Projection 与协调逻辑；
-  ②把 Supervisor 拆成 PM handler + worker 公共 interface，否决原因是与
-  `autonomous-delivery-loop` 事实源冲突并降低模块深度。
-- **后果**：daemon 仍是纯 Runtime 执行器；delivery 协调可通过 Supervisor interface 独立
+  ②把控制逻辑泄露成多个 handler 公共 interface，否决原因是降低模块深度。
+- **后果**：daemon 仍是纯 Runtime 执行器；delivery 协调可通过 Delivery Control interface 独立
   测试；事件 handler 很薄但不复制业务规则。
 - **退出条件**：delivery 协调不再依赖 task-notification-publisher 尾部硬编码；现有 delivery
   测试无回归。
