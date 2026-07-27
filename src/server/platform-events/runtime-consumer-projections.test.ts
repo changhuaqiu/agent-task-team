@@ -89,7 +89,7 @@ describe('Runtime Event consumer projections', () => {
       'runtime.invocation.terminated',
     ]);
     expect(log.listStream('domain-invocation:inv-1').map((event) => event.type))
-      .toEqual(['invocation.queued']);
+      .toEqual(['invocation.planned']);
   });
 
   it('projects messages and observability exactly once under replay', async () => {

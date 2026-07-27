@@ -14,7 +14,7 @@ type MutationType =
   | 'session.seal'
   | 'session.sealByTask'
   | 'invocation.create'
-  | 'invocation.updateStatus'
+  | 'invocation.transition'
   | 'dispatch.enqueue'
   | 'dispatch.cancel'
   | 'tool.invoke'
@@ -338,11 +338,30 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         result = invocationRepo.create(payload as any);
         break;
       }
-      case 'invocation.updateStatus': {
-        const { invocationRepo } = await import('@/server/repositories/invocation-repo');
-        const { id, status, ...updates } = payload as any;
-        invocationRepo.updateStatus(id, status, updates);
-        result = { id, status };
+      case 'invocation.transition': {
+        const {
+          assertInvocationOutcome,
+          assertInvocationStatus,
+          invocationRepo,
+        } = await import('@/server/repositories/invocation-repo');
+        const { id, to: toValue, expectedFrom: expectedFromValue, outcome: outcomeValue, ...updates } = payload as any;
+        if (typeof toValue !== 'string') {
+          return res.status(400).json({ ok: false, error: 'to is required' });
+        }
+        const to = assertInvocationStatus(toValue);
+        const expectedFrom = typeof expectedFromValue === 'string'
+          ? assertInvocationStatus(expectedFromValue)
+          : undefined;
+        const outcome = typeof outcomeValue === 'string'
+          ? assertInvocationOutcome(outcomeValue)
+          : undefined;
+        const invocation = invocationRepo.transition(id, {
+          to,
+          expectedFrom,
+          outcome,
+          ...updates,
+        });
+        result = invocation;
         break;
       }
       case 'dispatch.enqueue': {
@@ -711,9 +730,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       error instanceof Error
       && 'reasonCode' in error
       && typeof error.reasonCode === 'string'
-      && ['invalid_task_status', 'invalid_task_transition', 'stale_task_transition'].includes(error.reasonCode)
+      && [
+        'invalid_task_status',
+        'invalid_task_transition',
+        'stale_task_transition',
+        'invalid_invocation_status',
+        'invalid_invocation_outcome',
+        'invalid_invocation_transition',
+        'stale_invocation_transition',
+      ].includes(error.reasonCode)
     ) {
-      const status = error.reasonCode === 'invalid_task_status' ? 400 : 409;
+      const status = [
+        'invalid_task_status',
+        'invalid_invocation_status',
+        'invalid_invocation_outcome',
+      ].includes(error.reasonCode) ? 400 : 409;
       return res.status(status).json({
         ok: false,
         error: error.message,

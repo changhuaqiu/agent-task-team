@@ -272,7 +272,7 @@ describe('syncTasksToDb', () => {
       ],
     }));
 
-    invocationRepo.updateStatus('inv-active', 'succeeded');
+    invocationRepo.transition('inv-active', { to: 'terminated', outcome: 'completed' });
     syncTasksToDb(projectPath, 'conv-1', io as unknown as IOServer);
     expect(taskRepo.getById('TASK-003')?.status).toBe('in_progress');
     expect(emit).toHaveBeenCalledWith('task.sync_error', expect.objectContaining({

@@ -1672,13 +1672,20 @@ DROP TABLE IF EXISTS runtime_completion_step_receipt;
       if (!columns.has('engine')) db.exec('ALTER TABLE agent_session ADD COLUMN engine TEXT');
       if (!columns.has('runtime_id')) db.exec('ALTER TABLE agent_session ADD COLUMN runtime_id TEXT');
       if (!columns.has('account_id')) db.exec('ALTER TABLE agent_session ADD COLUMN account_id TEXT');
+      const invocationColumns = new Set(
+        (db.prepare('PRAGMA table_info(invocation)').all() as Array<{ name: string }>)
+          .map((column) => column.name),
+      );
+      const completedInvocationPredicate = invocationColumns.has('outcome')
+        ? "invocation.status = 'terminated' AND invocation.outcome = 'completed'"
+        : "invocation.status = 'succeeded'";
       db.exec(`
         UPDATE agent_session
         SET engine = (
               SELECT invocation.engine
               FROM invocation
               WHERE invocation.session_id = agent_session.id
-                AND invocation.status = 'succeeded'
+                AND ${completedInvocationPredicate}
               ORDER BY invocation.created_at DESC, invocation.id DESC
               LIMIT 1
             ),
@@ -1686,7 +1693,7 @@ DROP TABLE IF EXISTS runtime_completion_step_receipt;
               SELECT invocation.account_id
               FROM invocation
               WHERE invocation.session_id = agent_session.id
-                AND invocation.status = 'succeeded'
+                AND ${completedInvocationPredicate}
               ORDER BY invocation.created_at DESC, invocation.id DESC
               LIMIT 1
             )
@@ -1762,6 +1769,123 @@ DROP TABLE IF EXISTS runtime_completion_step_receipt;
           )
         BEGIN
           SELECT RAISE(ABORT, 'invalid_task_transition');
+        END;
+      `);
+    },
+  },
+  {
+    version: 55,
+    run: (db) => {
+      const columns = new Set(
+        (db.prepare('PRAGMA table_info(invocation)').all() as Array<{ name: string }>)
+          .map((column) => column.name),
+      );
+      if (!columns.has('outcome')) db.exec('ALTER TABLE invocation ADD COLUMN outcome TEXT');
+      if (!columns.has('started_at')) db.exec('ALTER TABLE invocation ADD COLUMN started_at TEXT');
+      if (!columns.has('terminated_at')) db.exec('ALTER TABLE invocation ADD COLUMN terminated_at TEXT');
+      if (!columns.has('revision')) {
+        db.exec('ALTER TABLE invocation ADD COLUMN revision INTEGER NOT NULL DEFAULT 0');
+      }
+      db.exec(`
+        UPDATE invocation
+        SET outcome = CASE status
+              WHEN 'succeeded' THEN 'completed'
+              WHEN 'failed' THEN 'failed'
+              WHEN 'canceled' THEN 'cancelled'
+              WHEN 'cancelled' THEN 'cancelled'
+              ELSE NULL
+            END,
+            started_at = CASE
+              WHEN status IN ('running','succeeded','failed','canceled','cancelled')
+              THEN updated_at
+              ELSE NULL
+            END,
+            terminated_at = CASE
+              WHEN status IN ('succeeded','failed','canceled','cancelled')
+              THEN updated_at
+              ELSE NULL
+            END,
+            reason_code = CASE
+              WHEN status NOT IN (
+                'queued','running','succeeded','failed','canceled','cancelled',
+                'planned','starting','terminating','terminated'
+              )
+              THEN COALESCE(reason_code, 'legacy_invocation_status_unknown')
+              ELSE reason_code
+            END,
+            status = CASE status
+              WHEN 'queued' THEN 'planned'
+              WHEN 'running' THEN 'running'
+              WHEN 'succeeded' THEN 'terminated'
+              WHEN 'failed' THEN 'terminated'
+              WHEN 'canceled' THEN 'terminated'
+              WHEN 'cancelled' THEN 'terminated'
+              WHEN 'planned' THEN 'planned'
+              WHEN 'starting' THEN 'starting'
+              WHEN 'terminating' THEN 'terminating'
+              WHEN 'terminated' THEN 'terminated'
+              ELSE 'terminated'
+            END;
+
+        UPDATE invocation
+        SET outcome = 'failed',
+            terminated_at = COALESCE(terminated_at, updated_at)
+        WHERE status = 'terminated' AND outcome IS NULL;
+
+        DROP TRIGGER IF EXISTS trg_invocation_status_insert;
+        DROP TRIGGER IF EXISTS trg_invocation_status_update;
+        DROP TRIGGER IF EXISTS trg_invocation_transition_update;
+        DROP TRIGGER IF EXISTS trg_invocation_outcome_insert;
+        DROP TRIGGER IF EXISTS trg_invocation_outcome_update;
+
+        CREATE TRIGGER trg_invocation_status_insert
+        BEFORE INSERT ON invocation
+        WHEN NEW.status NOT IN ('planned','starting','running','terminating','terminated')
+        BEGIN
+          SELECT RAISE(ABORT, 'invalid_invocation_status');
+        END;
+
+        CREATE TRIGGER trg_invocation_status_update
+        BEFORE UPDATE OF status ON invocation
+        WHEN NEW.status NOT IN ('planned','starting','running','terminating','terminated')
+        BEGIN
+          SELECT RAISE(ABORT, 'invalid_invocation_status');
+        END;
+
+        CREATE TRIGGER trg_invocation_transition_update
+        BEFORE UPDATE OF status ON invocation
+        WHEN NEW.status IN ('planned','starting','running','terminating','terminated')
+          AND NEW.status <> OLD.status
+          AND NOT (
+            (OLD.status = 'planned' AND NEW.status IN ('starting','terminating','terminated'))
+            OR (OLD.status = 'starting' AND NEW.status IN ('running','terminating','terminated'))
+            OR (OLD.status = 'running' AND NEW.status IN ('terminating','terminated'))
+            OR (OLD.status = 'terminating' AND NEW.status = 'terminated')
+          )
+        BEGIN
+          SELECT RAISE(ABORT, 'invalid_invocation_transition');
+        END;
+
+        CREATE TRIGGER trg_invocation_outcome_insert
+        BEFORE INSERT ON invocation
+        WHEN (NEW.status = 'terminated' AND (
+                NEW.outcome IS NULL
+                OR NEW.outcome NOT IN ('completed','failed','cancelled','timed_out')
+              ))
+          OR (NEW.status <> 'terminated' AND NEW.outcome IS NOT NULL)
+        BEGIN
+          SELECT RAISE(ABORT, 'invalid_invocation_outcome');
+        END;
+
+        CREATE TRIGGER trg_invocation_outcome_update
+        BEFORE UPDATE OF status, outcome ON invocation
+        WHEN (NEW.status = 'terminated' AND (
+                NEW.outcome IS NULL
+                OR NEW.outcome NOT IN ('completed','failed','cancelled','timed_out')
+              ))
+          OR (NEW.status <> 'terminated' AND NEW.outcome IS NOT NULL)
+        BEGIN
+          SELECT RAISE(ABORT, 'invalid_invocation_outcome');
         END;
       `);
     },

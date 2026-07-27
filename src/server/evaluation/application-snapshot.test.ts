@@ -10,6 +10,7 @@ import { createRunnerExperiment, EvaluationCaseRunner } from './case-runner';
 import { DEFAULT_RUBRIC_REVISION_ID, EVALUATOR_BUNDLE_REVISION, digest } from './defaults';
 import { buildSubjectSnapshot } from './snapshot-builder';
 import { taskRepo } from '../repositories/task-repo';
+import { invocationRepo } from '../repositories/invocation-repo';
 
 const now = '2026-07-19T00:00:00.000Z';
 
@@ -68,10 +69,15 @@ function bindRunningExecution(executionId: string, manifestDigest: string, obser
     (id,conversation_id,agent_id,isolation_key,task_id,seq,status,created_at)
     VALUES (?,?,?,'evaluation:test',?,0,'active',?)`)
     .run(sessionId, 'conv-runner', 'agent-runner', taskId, now);
-  getDb().prepare(`INSERT INTO invocation
-    (id,conversation_id,task_id,agent_id,session_id,status,created_at,updated_at)
-    VALUES (?,?,?,?,?,'running',?,?)`)
-    .run(invocationId, 'conv-runner', taskId, 'agent-runner', sessionId, now, now);
+  invocationRepo.create({
+    id: invocationId,
+    conversation_id: 'conv-runner',
+    task_id: taskId,
+    agent_id: 'agent-runner',
+    session_id: sessionId,
+  });
+  invocationRepo.transition(invocationId, { to: 'starting' });
+  invocationRepo.transition(invocationId, { to: 'running' });
   getDb().prepare(`UPDATE eval_case_execution SET
       task_id=?,harness_trigger_id=?,invocation_id=?,trace_id=?,observed_manifest_digest=?,status='running'
     WHERE id=?`).run(
@@ -124,9 +130,13 @@ describe('application snapshot and case execution', () => {
     getDb().prepare(`INSERT INTO agent_session
       (id,conversation_id,agent_id,isolation_key,task_id,seq,status,created_at)
       VALUES ('session-eval','conv-runner','agent-runner','evaluation:test','',0,'sealed',?)`).run(now);
-    getDb().prepare(`INSERT INTO invocation
-      (id,conversation_id,task_id,agent_id,session_id,status,created_at,updated_at)
-      VALUES ('inv-eval','conv-runner',NULL,'agent-runner','session-eval','succeeded',?,?)`).run(now, now);
+    invocationRepo.create({
+      id: 'inv-eval',
+      conversation_id: 'conv-runner',
+      agent_id: 'agent-runner',
+      session_id: 'session-eval',
+    });
+    invocationRepo.transition('inv-eval', { to: 'terminated', outcome: 'completed' });
     getDb().prepare(`INSERT INTO eval_run
       (id,conversation_id,rubric_revision_id,mode,idempotency_key,status,gate_status,evidence_coverage,
        evaluator_bundle_digest,created_at,updated_at)

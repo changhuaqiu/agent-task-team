@@ -204,6 +204,24 @@ TASKS.md 仍可解析 `todo / doing / review` 等展示词，但它们只会被�
 Command 请求 owner 迁移。非法跳转会产生 `task.sync_error`、恢复文件中的权威状态，不能
 修改数据库事实。
 
+### 5.2 Invocation 状态机的已落地边界
+
+Invocation owner 已将“执行生命周期”和“执行结果”拆开：
+
+```text
+status:  planned -> starting -> running -> terminating -> terminated
+outcome: completed | failed | cancelled | timed_out
+```
+
+旧的 `queued / succeeded / failed / canceled` 由 migration 55 归一化。Invocation 一旦进入
+`terminated`，不得复活或改写 outcome；重试必须创建新的 Invocation identity。Session owner
+只维护 runtime session binding，不再用“session 已确认”冒充“Invocation 已成功”。Daemon 在
+接收 Runtime 终止事实后，分别提交 Session binding 与 Invocation terminal outcome。
+
+API 只暴露 `invocation.transition`，owner 使用 `expectedFrom` 做 fencing，数据库 trigger
+拒绝未知状态、非法迁移和缺失/越界 outcome。`Invocation.terminated` 只说明一次 Agent 激活
+已经结束，不代表 `Task.done`。
+
 Effect 创建时必须冻结：
 
 ```text

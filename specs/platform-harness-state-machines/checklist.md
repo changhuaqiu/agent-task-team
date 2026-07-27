@@ -32,6 +32,8 @@ Task 切片证据：
 - [x] Task 非法跳转、陈旧前态、SQL 非规范状态与 SQL 绕过迁移表均有拒绝测试。
 - [x] Gate 的 `rejected/test_gate`、Attempt 的 `abandoned`、Task Graph 的 `merged_into`
   不再冒充 Task 状态。
+- [x] Invocation 生命周期和 terminal outcome 已分离，终态 Invocation 不能通过重试复活。
+- [x] Session binding 与 Invocation outcome 由不同 owner 独立提交，不再互相冒充完成。
 
 ## 错误与恢复
 

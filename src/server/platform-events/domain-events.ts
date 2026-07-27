@@ -42,10 +42,16 @@ export interface DomainEventPayloadMap {
   'binding.error': { previousStatus: string; status: string };
   'node.stale': { previousStatus: string; status: string; missedHeartbeats: number };
   'node.unreachable': { previousStatus: string; status: string; missedHeartbeats: number };
-  'invocation.queued': { status: string; taskId?: string };
-  'invocation.claimed': { previousStatus: string; status: string };
-  'invocation.succeeded': { previousStatus: string; status: string };
-  'invocation.failed': { previousStatus: string; status: string; reasonCode?: string };
+  'invocation.planned': { status: string; taskId?: string };
+  'invocation.starting': { previousStatus: string; status: string };
+  'invocation.running': { previousStatus: string; status: string };
+  'invocation.terminating': { previousStatus: string; status: string };
+  'invocation.terminated': {
+    previousStatus: string;
+    status: string;
+    outcome: string;
+    reasonCode?: string;
+  };
   'session.sealed': { previousStatus: string; status: string; reason: string };
 }
 
@@ -72,7 +78,10 @@ export const DOMAIN_EVENT_TYPES_BY_OWNER = {
   ],
   binding: ['binding.started', 'binding.finished', 'binding.error'],
   node: ['node.stale', 'node.unreachable'],
-  invocation: ['invocation.queued', 'invocation.claimed', 'invocation.succeeded', 'invocation.failed'],
+  invocation: [
+    'invocation.planned', 'invocation.starting', 'invocation.running',
+    'invocation.terminating', 'invocation.terminated',
+  ],
   session: ['session.sealed'],
 } as const satisfies Record<string, readonly DomainEventType[]>;
 

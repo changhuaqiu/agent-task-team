@@ -17,7 +17,7 @@ import type { CliEngine, DetectedRuntime } from './types';
 import { sessionRepo } from './repositories/session-repo';
 import type { AgentSessionRow } from './repositories/session-repo';
 import { invocationRepo } from './repositories/invocation-repo';
-import type { InvocationRow } from './repositories/invocation-repo';
+import type { InvocationOutcome, InvocationPatch, InvocationRow } from './repositories/invocation-repo';
 import { generateSortableId } from './repositories/sortable-id';
 import { loadCatalog } from './agent/acp/catalog';
 import {
@@ -904,6 +904,23 @@ export default function registerDaemon(io: IOServer) {
         taskProjectDir,
         evaluationExecutionId: evaluation?.executionId,
       });
+      invocationRepo.transition(invocation.id, {
+        to: 'starting',
+        expectedFrom: 'planned',
+      });
+      const terminateInvocation = (
+        outcome: InvocationOutcome,
+        patch: InvocationPatch = {},
+      ): InvocationRow => {
+        const current = invocationRepo.getById(invocation.id);
+        if (!current) throw new Error(`invocation_not_found: ${invocation.id}`);
+        return invocationRepo.transition(invocation.id, {
+          to: 'terminated',
+          expectedFrom: current.status,
+          outcome,
+          ...patch,
+        })!;
+      };
 
       const capturePromptObservation = (assembledPrompt: string, effectiveSystemPrompt?: string) => {
         if (!rootObservationSpanId) return;
@@ -1273,7 +1290,14 @@ export default function registerDaemon(io: IOServer) {
           }
           if (!invocationSessionRecorded) {
             invocationSessionRecorded = true;
-            invocationRepo.updateStatus(invocation.id, 'running', { cli_session_id: event.sessionId });
+            const current = invocationRepo.getById(invocation.id);
+            if (current?.status === 'starting') {
+              invocationRepo.transition(invocation.id, {
+                to: 'running',
+                expectedFrom: 'starting',
+                cli_session_id: event.sessionId,
+              });
+            }
           }
         }
         runtimeEventCoordinator?.adapterEvent(event);
@@ -1822,12 +1846,23 @@ export default function registerDaemon(io: IOServer) {
             if (binding.status === 'bound') {
               runtimeEventCoordinator?.confirmSession(finalRuntimeSessionId);
             }
+            terminateInvocation('completed', {
+              exit_code: 0,
+              cli_session_id: finalRuntimeSessionId,
+            });
           } else {
-            invocationRepo.updateStatus(invocation.id, 'failed', {
+            terminateInvocation(
+              final.status === 'timeout'
+                ? 'timed_out'
+                : final.status === 'cancelled'
+                  ? 'cancelled'
+                  : 'failed',
+              {
               exit_code: 1,
               reason_code: final.reasonCode ?? (final.status === 'timeout' ? 'timeout' : undefined),
               ...(final.error ? { error_message: final.error } : {}),
-            });
+              },
+            );
             if (final.reasonCode === 'acp_session_not_found') {
               sessionRepo.seal(agentSession.id, 'runtime_resource_not_found');
             }
@@ -1906,6 +1941,15 @@ export default function registerDaemon(io: IOServer) {
           clearInterval(heartbeatTimer);
           console.error(`[daemon][${agentId}] backend error:`, err);
           runtimeEventCoordinator?.failSetup('spawn_failed', observedRuntimeSessionId);
+          try {
+            terminateInvocation('failed', {
+              exit_code: 1,
+              reason_code: 'spawn_failed',
+              error_message: (err as Error)?.message,
+            });
+          } catch (invocationError) {
+            console.error('[daemon] failed to terminate invocation after backend error:', invocationError);
+          }
           // 失败不 seal session（保持 active，下次 @ resume，id 不变）—— specs/agent-session-stability
           markEnvelopeFailed('spawn_failed');
           if (evaluation) {

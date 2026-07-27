@@ -843,31 +843,40 @@ describe('POST /api/mutations', () => {
     expect(res.statusCode).toBe(200);
     expect(res._json.ok).toBe(true);
     expect(res._json.result.id).toBe('inv-1');
-    expect(res._json.result.status).toBe('queued');
+    expect(res._json.result.status).toBe('planned');
   });
 
-  it('invocation.updateStatus transitions queued → running → succeeded', async () => {
+  it('invocation.transition separates lifecycle from outcome', async () => {
     await seedConversation();
     const { invocationRepo } = await import('@/server/repositories/invocation-repo');
     invocationRepo.create({ id: 'inv-1', conversation_id: 'conv-1', agent_id: 'agent-a' });
 
     const reqRunning = mockReq('POST', {
-      type: 'invocation.updateStatus',
-      payload: { id: 'inv-1', status: 'running' },
+      type: 'invocation.transition',
+      payload: { id: 'inv-1', to: 'starting', expectedFrom: 'planned' },
     });
     const resRunning = mockRes();
     await handler(reqRunning, resRunning);
-    expect(resRunning._json.result.status).toBe('running');
-    expect(invocationRepo.getById('inv-1')!.status).toBe('running');
+    expect(resRunning._json.result.status).toBe('starting');
+    expect(invocationRepo.getById('inv-1')!.status).toBe('starting');
 
     const reqSuccess = mockReq('POST', {
-      type: 'invocation.updateStatus',
-      payload: { id: 'inv-1', status: 'succeeded', exit_code: 0 },
+      type: 'invocation.transition',
+      payload: {
+        id: 'inv-1',
+        to: 'terminated',
+        expectedFrom: 'starting',
+        outcome: 'completed',
+        exit_code: 0,
+      },
     });
     const resSuccess = mockRes();
     await handler(reqSuccess, resSuccess);
-    expect(resSuccess._json.result.status).toBe('succeeded');
-    expect(invocationRepo.getById('inv-1')!.status).toBe('succeeded');
+    expect(resSuccess._json.result).toMatchObject({ status: 'terminated', outcome: 'completed' });
+    expect(invocationRepo.getById('inv-1')).toMatchObject({
+      status: 'terminated',
+      outcome: 'completed',
+    });
     expect(invocationRepo.getById('inv-1')!.exit_code).toBe(0);
   });
 

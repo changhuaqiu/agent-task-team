@@ -188,10 +188,14 @@ describe('domain event inline seam', () => {
       agent_id: 'implementer',
       prompt: 'Work',
     });
-    invocationRepo.updateStatus('invocation-1', 'running');
-    invocationRepo.updateStatus('invocation-1', 'succeeded', { exit_code: 0 });
-    invocationRepo.updateStatus('invocation-1', 'running');
-    invocationRepo.updateStatus('invocation-1', 'failed', { reason_code: 'late_failure' });
+    invocationRepo.transition('invocation-1', { to: 'starting' });
+    invocationRepo.transition('invocation-1', { to: 'running' });
+    invocationRepo.transition('invocation-1', {
+      to: 'terminated',
+      outcome: 'completed',
+      exit_code: 0,
+    });
+    expect(() => invocationRepo.transition('invocation-1', { to: 'running' })).toThrow();
     sessionRepo.create({
       id: 'session-1',
       conversationId: 'project-1',
@@ -202,24 +206,38 @@ describe('domain event inline seam', () => {
     sessionRepo.seal('session-1', 'late_duplicate');
 
     expect(log.listStream('domain-invocation:invocation-1').map((event) => event.type)).toEqual([
-      'invocation.queued',
-      'invocation.claimed',
-      'invocation.succeeded',
+      'invocation.planned',
+      'invocation.starting',
+      'invocation.running',
+      'invocation.terminated',
     ]);
-    expect(invocationRepo.getById('invocation-1')?.status).toBe('succeeded');
+    expect(invocationRepo.getById('invocation-1')).toMatchObject({
+      status: 'terminated',
+      outcome: 'completed',
+    });
     invocationRepo.create({
       id: 'invocation-retry',
       conversation_id: 'project-1',
       agent_id: 'implementer',
     });
-    invocationRepo.updateStatus('invocation-retry', 'failed', { reason_code: 'attempt_failed' });
-    invocationRepo.updateStatus('invocation-retry', 'succeeded');
-    expect(invocationRepo.getById('invocation-retry')?.status).toBe('failed');
-    invocationRepo.updateStatus('invocation-retry', 'running');
+    invocationRepo.transition('invocation-retry', {
+      to: 'terminated',
+      outcome: 'failed',
+      reason_code: 'attempt_failed',
+    });
+    expect(() => invocationRepo.transition('invocation-retry', {
+      to: 'terminated',
+      outcome: 'completed',
+    })).toThrow();
+    invocationRepo.create({
+      id: 'invocation-retry-2',
+      conversation_id: 'project-1',
+      agent_id: 'implementer',
+    });
+    invocationRepo.transition('invocation-retry-2', { to: 'starting' });
     expect(log.listStream('domain-invocation:invocation-retry').map((event) => event.type)).toEqual([
-      'invocation.queued',
-      'invocation.failed',
-      'invocation.claimed',
+      'invocation.planned',
+      'invocation.terminated',
     ]);
     expect(log.listStream('session:session-1').map((event) => event.type))
       .toEqual(['session.sealed']);

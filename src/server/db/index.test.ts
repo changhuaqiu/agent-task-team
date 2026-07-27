@@ -76,8 +76,8 @@ describe('SQLite Foundation', () => {
     ).run('ses-profile', 'conv-profile', 'mario', 'task-profile', 0, now);
     db.prepare(
       `INSERT INTO invocation (
-        id,conversation_id,agent_id,session_id,status,engine,account_id,created_at,updated_at
-      ) VALUES (?,?,?,?,'succeeded',?,?,?,?)`,
+        id,conversation_id,agent_id,session_id,status,outcome,engine,account_id,created_at,updated_at
+      ) VALUES (?,?,?,?,'terminated','completed',?,?,?,?)`,
     ).run(
       'inv-profile',
       'conv-profile',
@@ -202,6 +202,67 @@ describe('SQLite Foundation', () => {
       .toThrow(/invalid_task_status/);
     expect(() => db.prepare("UPDATE task SET status='done' WHERE id='task-valid'").run())
       .toThrow(/invalid_task_transition/);
+  });
+
+  it('migrates invocation lifecycle separately from terminal outcome', () => {
+    const legacyDb = new Database(':memory:');
+    try {
+      legacyDb.exec(`
+        CREATE TABLE _schema_version (version INTEGER PRIMARY KEY);
+        CREATE TABLE invocation (
+          id TEXT PRIMARY KEY,
+          status TEXT NOT NULL,
+          reason_code TEXT,
+          updated_at TEXT NOT NULL
+        );
+      `);
+      const recordVersion = legacyDb.prepare(
+        'INSERT INTO _schema_version (version) VALUES (?)',
+      );
+      for (let version = 1; version <= 54; version += 1) recordVersion.run(version);
+      const insert = legacyDb.prepare(
+        'INSERT INTO invocation (id,status,reason_code,updated_at) VALUES (?,?,NULL,?)',
+      );
+      for (const [id, status] of [
+        ['inv-queued', 'queued'],
+        ['inv-running', 'running'],
+        ['inv-succeeded', 'succeeded'],
+        ['inv-failed', 'failed'],
+        ['inv-cancelled', 'canceled'],
+        ['inv-unknown', 'mystery'],
+      ]) {
+        insert.run(id, status, '2026-07-27T00:00:00.000Z');
+      }
+
+      applyMigrations(legacyDb);
+
+      expect(legacyDb.prepare(
+        'SELECT id,status,outcome,reason_code FROM invocation ORDER BY id',
+      ).all()).toEqual([
+        { id: 'inv-cancelled', status: 'terminated', outcome: 'cancelled', reason_code: null },
+        { id: 'inv-failed', status: 'terminated', outcome: 'failed', reason_code: null },
+        { id: 'inv-queued', status: 'planned', outcome: null, reason_code: null },
+        { id: 'inv-running', status: 'running', outcome: null, reason_code: null },
+        { id: 'inv-succeeded', status: 'terminated', outcome: 'completed', reason_code: null },
+        {
+          id: 'inv-unknown',
+          status: 'terminated',
+          outcome: 'failed',
+          reason_code: 'legacy_invocation_status_unknown',
+        },
+      ]);
+      legacyDb.prepare(
+        "INSERT INTO invocation (id,status,updated_at) VALUES ('inv-new','planned',?)",
+      ).run('2026-07-27T00:01:00.000Z');
+      expect(() => legacyDb.prepare(
+        "UPDATE invocation SET status='running' WHERE id='inv-new'",
+      ).run()).toThrow(/invalid_invocation_transition/);
+      expect(() => legacyDb.prepare(
+        "UPDATE invocation SET status='terminated' WHERE id='inv-new'",
+      ).run()).toThrow(/invalid_invocation_outcome/);
+    } finally {
+      legacyDb.close();
+    }
   });
 
   it('enforces agent_session unique constraint', () => {
@@ -329,8 +390,8 @@ describe('SQLite Foundation', () => {
     });
     db.prepare(`
       INSERT INTO invocation (
-        id,conversation_id,agent_id,status,engine,created_at,updated_at
-      ) VALUES (?,?,?,'completed','codex',?,?)
+        id,conversation_id,agent_id,status,outcome,engine,created_at,updated_at
+      ) VALUES (?,?,?,'terminated','completed','codex',?,?)
     `).run(
       'inv-effect-upgrade',
       'conv-effect-upgrade',
@@ -394,7 +455,7 @@ describe('SQLite Foundation', () => {
     expect(db.prepare('SELECT version FROM _schema_version WHERE version = 40').get())
       .toEqual({ version: 40 });
     expect(db.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-      .toEqual({ version: 54 });
+      .toEqual({ version: 55 });
   });
 
   it('repairs v26-v40 checkpoints whose migration collision skipped autonomous delivery tables', () => {
@@ -424,7 +485,7 @@ describe('SQLite Foundation', () => {
           'autonomous_delivery_advancement_request',
         ]));
         expect(checkpoint.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-          .toEqual({ version: 54 });
+          .toEqual({ version: 55 });
         expect(checkpoint.pragma('foreign_key_check')).toEqual([]);
       } finally {
         checkpoint.close();
