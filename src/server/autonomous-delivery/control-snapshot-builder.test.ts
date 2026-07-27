@@ -52,12 +52,13 @@ describe('RepositoryControlSnapshotBuilder', () => {
     db.close();
   });
 
-  function issue(workId: string, agentId: string, attemptId: string) {
+  function issue(workId: string, agentId: string, attemptId: string, taskId?: string) {
     return contracts.issue({
       workId,
       attemptId,
       projectId: 'project-1',
       deliveryRunId: runId,
+      taskId,
       agentId,
       goal: workId,
       acceptanceCriteria: ['Done'],
@@ -215,6 +216,117 @@ describe('RepositoryControlSnapshotBuilder', () => {
         }],
         closure: { satisfied: false },
       });
+  });
+
+  it('projects an explicit Gate Work Cell as the blocker of task work', () => {
+    taskRepo.create({
+      id: 'task-gated',
+      conversation_id: 'project-1',
+      title: 'Gated task',
+      agent_id: 'agent-a',
+    }, now);
+    const source = issue(
+      'task:task-gated:agent:agent-a:purpose:execute',
+      'agent-a',
+      'attempt-source',
+      'task-gated',
+    );
+    const gateWork = issue(
+      'task:task-gated:agent:reviewer:purpose:review',
+      'reviewer',
+      'attempt-gate',
+      'task-gated',
+    );
+    qualityGateRepo.request({
+      conversationId: 'project-1',
+      kind: 'code_review',
+      targetType: 'task',
+      targetId: 'task-gated',
+      artifactRevision: 'revision-1',
+      criteria: {},
+      actor: { type: 'system', id: 'test' },
+      now,
+    });
+
+    const snapshot = new RepositoryControlSnapshotBuilder({ db, now: () => now }).build(runId);
+
+    expect(snapshot.workCells.find((cell) => cell.workId === source.workId))
+      .toMatchObject({ state: 'waiting_gate' });
+    expect(snapshot.waitForEdges).toContainEqual({
+      waiter: source.workId,
+      blocker: gateWork.workId,
+      reasonCode: 'quality_gate',
+    });
+  });
+
+  it('derives Task rework budget from durable Gate history and the GoalContract', () => {
+    taskRepo.create({
+      id: 'task-rework',
+      conversation_id: 'project-1',
+      title: 'Rework task',
+      agent_id: 'agent-a',
+    }, now);
+    const source = issue(
+      'task:task-rework:agent:agent-a:purpose:execute',
+      'agent-a',
+      'attempt-source',
+      'task-rework',
+    );
+    const failGate = (artifactRevision: string) => {
+      const requested = qualityGateRepo.request({
+        conversationId: 'project-1',
+        kind: 'code_review',
+        targetType: 'task',
+        targetId: 'task-rework',
+        artifactRevision,
+        criteria: {},
+        actor: { type: 'system', id: 'test' },
+        now,
+      });
+      const evaluating = qualityGateRepo.beginEvaluation({
+        gateId: requested.gate.id,
+        evaluator: { type: 'agent', id: 'reviewer' },
+        expectedRevision: requested.gate.revision,
+        now,
+      });
+      const evidence = qualityGateRepo.submitEvidence({
+        gateId: requested.gate.id,
+        evidenceType: 'review',
+        payload: { artifactRevision },
+        actor: { type: 'agent', id: 'reviewer' },
+        idempotencyKey: `evidence:${artifactRevision}`,
+        now,
+      });
+      qualityGateRepo.decide({
+        gateId: requested.gate.id,
+        decision: 'changes_requested',
+        evaluator: { type: 'agent', id: 'reviewer' },
+        evidenceIds: [evidence.id],
+        reason: 'Needs repair',
+        expectedRevision: evaluating.gate.revision,
+        now,
+      });
+    };
+
+    failGate('revision-1');
+    const first = new RepositoryControlSnapshotBuilder({ db, now: () => now }).build(runId)
+      .workCells.find((cell) => cell.workId === source.workId);
+    expect(first).toMatchObject({
+      state: 'retry_pending',
+      failure: {
+        budget: { kind: 'task_rework', attemptsUsed: 0, maxAttempts: 1 },
+      },
+    });
+
+    failGate('revision-2');
+    const second = new RepositoryControlSnapshotBuilder({ db, now: () => now }).build(runId)
+      .workCells.find((cell) => cell.workId === source.workId);
+    expect(second).toMatchObject({
+      state: 'retry_pending',
+      failure: {
+        budget: { kind: 'task_rework', attemptsUsed: 1, maxAttempts: 1 },
+      },
+    });
   });
 
   it('creates pre-Contract Work Cells from assigned Tasks and honors dependencies', () => {

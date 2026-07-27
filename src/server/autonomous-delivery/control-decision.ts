@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import type { WaitForEdge } from './wait-for-graph';
 
 export type ControlActionType =
   | 'initializeGraph'
@@ -58,6 +59,7 @@ export interface DeliveryControlSnapshot {
   snapshotRevision: number;
   observedAt: string;
   workCells: WorkCellControlSnapshot[];
+  waitForEdges: WaitForEdge[];
   closure: {
     satisfied: boolean;
     integration?: {

@@ -36,6 +36,7 @@ function snapshot(workCells: WorkCellControlSnapshot[]): DeliveryControlSnapshot
     snapshotRevision: 7,
     observedAt: NOW,
     workCells,
+    waitForEdges: [],
     closure: { satisfied: false },
   };
 }

@@ -141,12 +141,13 @@
 - [x] 实现十种 ControlAction 的纯决策函数；同一 snapshot/policy revision 生成稳定
   decisionId、actionId 与有序动作集。
 - [x] 将 `escalated` 迁为可恢复的 `waiting_human`，将 `recovering` 迁为 `retrying`。
-- [ ] 分离 Invocation retry、Effect retry 与 Task rework 预算并接入各 owner 的持久计数；
-  Agent local retry 明确归属 Runtime 的单次 WorkContract 自主循环，不进入 Process
-  Manager 的 `RetryBudgetKind / ControlAction`。
-- [ ] 深化 System Control Plane 的 Team Scheduling 能力，在角色、依赖、容量和 possession
-  约束下选择可激活 Work Cell；WorkAuthority/Contract、Task、Gate、Invocation、Outcome
-  已接入事实快照与 claim CAS，Task dependency、A2A possession 和 Effect 仍需补入。
+- [x] 分离 Invocation retry、Effect retry 与 Task rework 预算：分别读取 Invocation 终结次数、
+  Effect Outbox 冻结计数/上限和 Quality Gate 返工历史；Invocation/Task 上限来自
+  GoalContract。Agent local retry 归属 Runtime 的单次 WorkContract 自主循环，不进入
+  Process Manager 的 `RetryBudgetKind / ControlAction`。
+- [x] 深化 System Control Plane 的 Team Scheduling：在角色、依赖、容量和 possession
+  约束下选择可激活 Work Cell；WorkAuthority/Contract、Task、Gate、Invocation、Outcome、
+  Inbox、A2A 与 Effect 均已接入事实快照或 closure，并由 claim CAS 守卫执行。
 - [x] 增加确定性公平 aging、角色容量与饥饿排序测试。
 - [x] 支持一次 reconcile 决策返回容量约束的有序动作集，冻结 action identity。
 - [x] Migration 64 持久化 ControlDecision 和非 wait ControlAction；首次保存与 claim
@@ -177,7 +178,10 @@
   不消耗 Invocation/Effect/Task rework 任一平台重试预算。
 - [x] 将 A2A join 接入 wait-for graph：Group 等待 branch terminal result，不以 Runtime
   started 冒充完成；失败终止旧边并以原 source Work 的新 epoch 自动恢复。
-- [ ] 将 Gate 与容量等待边接入 wait-for graph，并定义对应的安全解除条件。
+- [x] 将有明确 Gate Work Cell 的等待接入 wait-for graph，并在 Control snapshot 暴露
+  `waitForEdges` 作为可观测事实。
+- [x] 容量等待保留为 policy 派生的瞬时 `wait` 动作，不伪造持久依赖边；Runtime
+  terminated 释放 slot，fairness aging 处理饥饿。
 - [x] 将 blocking Effect 分类、适用区间、创建时 retry budget 和显式
   cancelled/superseded 写入现有 Effect Outbox，并接入 Control snapshot closure；
   dead-letter 产生 Human escalation，pending 产生无副作用 wait。

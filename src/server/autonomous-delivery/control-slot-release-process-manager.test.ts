@@ -80,6 +80,7 @@ describe('ControlSlotReleaseProcessManager', () => {
         priority: 50,
         queuedAt: now.toISOString(),
       }],
+      waitForEdges: [],
       closure: { satisfied: false },
     }, {
       revision: 1,

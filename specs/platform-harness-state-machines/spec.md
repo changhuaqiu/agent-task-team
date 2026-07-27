@@ -161,6 +161,9 @@ DeliveryRun 的生命周期状态与协作阶段必须分开：生命周期只�
 不是 Delivery 全局单动作。每个 target Work Cell / slot 最多一个动作。action id 由
 run、snapshot revision、policy revision、type 和 target 确定性派生。
 
+输入 `DeliveryControlSnapshot` 必须显式携带 `workCells[] / waitForEdges[] / closure`。
+`waitForEdges` 是 Task、A2A、Gate owner facts 的只读投影，不允许夹带 policy 派生的容量边。
+
 某个运行中 Work Cell 的 `wait` 不得阻止剩余容量激活其他 Work Cell。重复读取相同
 snapshot/policy 必须生成相同 action ids，不得追加重复 wait/action。
 `wait` 不持久化为 DeliveryAction 或 Effect；有副作用动作在 claim 时重新校验 snapshot
@@ -190,6 +193,10 @@ Pass Group 的 join 语义以分支工作结果为准，不以 Runtime start 为
 - Control snapshot 为未解决 Group 投影 `sourceWorkId -> a2a-pass:<passId>` wait-for 边；
 - 失败分支终止旧边，并为 recovery Possession 向原 holder写持久 Inbox；该 Inbox 复用
   `sourceWorkId`、签发新 epoch，属于可安全自动打破的恢复边，而不是 Invocation 盲重试。
+
+wait-for graph 只承载有稳定 blocker identity 的持久依赖：Task、A2A 和已创建的 Gate
+Work Cell。容量不足由 Process Manager 根据 policy revision 计算 wait 动作，不持久化为
+依赖边；slot 释放与公平 aging 是其解除机制。
 
 Agent 发起协作必须提交结构化 `handoff_to_agent` Outcome。durable A2A Outcome Process
 Manager 只把已接纳 Outcome 翻译为 A2A owner Command；Pass、HandoffPacket 与每个下游

@@ -77,6 +77,7 @@ describe('ControlDecisionRepository', () => {
         priority: 1,
         queuedAt: now,
       }],
+      waitForEdges: [],
       closure: { satisfied: false },
     };
   });

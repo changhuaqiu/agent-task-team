@@ -598,6 +598,12 @@ Gate Work Cell。缺少 Gate 时先发 `requestGate` owner Command；Gate reques
 `observedAt`、snapshot revision、policy revision、全局/角色容量和三类平台重试预算：
 Invocation retry、Effect retry 与 Task rework。Agent 内部工具/步骤重试由 Runtime 在当前
 WorkContract 预算内执行，不由 Process Manager 计算或持久化为控制动作。
+
+三类预算不能只写枚举：Invocation 使用同一 Work 的已终结 Invocation 数，Effect 使用
+Outbox item 创建时冻结的 `attemptCount / maxAttempts`，Task rework 使用同一 Gate 目标的
+历史失败轮次；Invocation 上限取 `maxAttemptsPerAction`，Task 上限取
+`maxRepairCycles`。第一次 Gate 失败尚未消费返工轮次，只有再次提交后仍失败才记为已用
+一轮。
 公平 aging 只使用快照时间，因此重放同一快照不会因墙钟变化产生不同排序。
 
 持久化入口为 `autonomous-delivery/control-decision-repository.ts`。项目级
@@ -622,10 +628,15 @@ requestGate 写入唯一 QualityGate owner，并在同一 SQLite 事务重新读
 Delivery 终止；它不直接启动 Runtime。Runtime started/terminated 事实会释放 activate 的
 slot reservation。生产 bootstrap 已只使用该 adapter 与新的多动作 Control Process Manager。
 
-跨 Work Cell 等待使用显式 wait-for graph。Task dependency 与 A2A join 已投影为
+跨 Work Cell 的持久依赖使用显式 wait-for graph。Task dependency 与 A2A join 已投影为
 `waiter -> blocker` 边，稳定 DFS 返回可复放的第一条 cycle；检测到 cycle 后产生
 `escalateToHuman(wait_for_deadlock:...)`，不会把它误当成某个 Agent 的 Invocation 失败而
-消耗重试预算。Gate 与容量等待边将在 bootstrap 切换前接入同一图。
+消耗重试预算。Gate 在存在明确 Gate Work Cell 时投影同类边。
+
+容量不足不是领域依赖，不能写入持久 wait-for graph。它由当前 policy revision 和运行中
+slot 派生为 `global_capacity_exhausted / role_capacity_exhausted` wait 动作；Runtime
+terminated 释放 slot 后重新决策，fairness aging 防止长期饥饿。这样避免把会自然释放的
+调度约束误报成死锁。
 
 ## 9. 错误如何进入事件设计
 

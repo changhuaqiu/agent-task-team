@@ -90,12 +90,12 @@ function gatePurpose(workId: string): 'delivery_review' | 'acceptance_verificati
 
 export class RepositoryControlSnapshotBuilder {
   private readonly database?: Database.Database;
-  private readonly limits: ControlSnapshotRetryLimits;
+  private readonly retryLimitOverrides: Partial<ControlSnapshotRetryLimits>;
   private readonly now: () => Date;
 
   constructor(options: RepositoryControlSnapshotBuilderOptions = {}) {
     this.database = options.db;
-    this.limits = { ...DEFAULT_RETRY_LIMITS, ...options.retryLimits };
+    this.retryLimitOverrides = options.retryLimits ?? {};
     this.now = options.now ?? (() => new Date());
   }
 
@@ -145,6 +145,12 @@ export class RepositoryControlSnapshotBuilder {
     `).all(runId) as WorkCellFactRow[];
 
     const contract = JSON.parse(run.goal_contract_json) as GoalContract;
+    const limits: ControlSnapshotRetryLimits = {
+      ...DEFAULT_RETRY_LIMITS,
+      invocation: contract.recoveryPolicy.maxAttemptsPerAction,
+      task_rework: contract.recoveryPolicy.maxRepairCycles,
+      ...this.retryLimitOverrides,
+    };
     const gates = db.prepare(`
       SELECT kind,status,created_at FROM quality_gate
       WHERE target_type='delivery_run' AND target_id=?
@@ -152,10 +158,19 @@ export class RepositoryControlSnapshotBuilder {
     `).all(runId) as Array<{ kind: string; status: string; created_at: string }>;
     const latestGate = (kind: string) =>
       gates.filter((gate) => gate.kind === kind).at(-1);
+    const deliveryGateReworkCycles = {
+      delivery_review: this.gateReworkCyclesUsed(db, 'delivery_run', runId, 'delivery_review'),
+      acceptance_verification: this.gateReworkCyclesUsed(
+        db,
+        'delivery_run',
+        runId,
+        'acceptance_verification',
+      ),
+    };
     const workCells = rows.map((row) => this.cell(db, row, {
       delivery_review: latestGate('delivery_review')?.status,
       acceptance_verification: latestGate('acceptance_verification')?.status,
-    }));
+    }, deliveryGateReworkCycles, limits));
     const representedWork = new Set(workCells.map((cell) => cell.workId));
     const tasks = db.prepare(`
       SELECT id,status,agent_id,dependencies,created_at
@@ -195,7 +210,7 @@ export class RepositoryControlSnapshotBuilder {
         }
       }
       if (representedWork.has(workId)) continue;
-      workCells.push(this.unissuedTaskCell(task, workId, taskStatus));
+      workCells.push(this.unissuedTaskCell(task, workId, taskStatus, limits));
     }
     if (tasks.length > 0 && tasks.every((task) => task.status === 'done')) {
       const root = tasks.find((task) => task.id === run.root_task_id) ?? tasks[0]!;
@@ -261,7 +276,11 @@ export class RepositoryControlSnapshotBuilder {
               reasonCode: `${requirement.kind}_failed`,
               retryable: true,
               humanRecoverable: true,
-              budget: retryBudget('task_rework', 1, this.limits),
+              budget: retryBudget(
+                'task_rework',
+                this.gateReworkCyclesUsed(db, 'delivery_run', runId, requirement.kind),
+                limits,
+              ),
             },
           });
         } else {
@@ -293,6 +312,29 @@ export class RepositoryControlSnapshotBuilder {
       sourceCell.state = 'waiting_dependency';
       delete sourceCell.failure;
       delete sourceCell.slotId;
+    }
+    const cellByWorkId = new Map(workCells.map((cell) => [cell.workId, cell]));
+    for (const source of rows) {
+      const sourceCell = cellByWorkId.get(source.work_id);
+      if (
+        sourceCell?.state !== 'waiting_gate'
+        || !source.task_id
+        || gatePurpose(source.work_id)
+      ) continue;
+      for (const blocker of rows) {
+        if (
+          blocker.task_id !== source.task_id
+          || blocker.work_id === source.work_id
+          || !gatePurpose(blocker.work_id)
+        ) continue;
+        const blockerCell = cellByWorkId.get(blocker.work_id);
+        if (!blockerCell || blockerCell.state === 'completed') continue;
+        waitEdges.push({
+          waiter: source.work_id,
+          blocker: blocker.work_id,
+          reasonCode: 'quality_gate',
+        });
+      }
     }
     const activeInbox = db.prepare(`
       SELECT inbox.project_agent_id,inbox.command_json,action.slot_id
@@ -374,6 +416,7 @@ export class RepositoryControlSnapshotBuilder {
         .projectSnapshotRevision(run.conversation_id),
       observedAt: this.now().toISOString(),
       workCells,
+      waitForEdges: waitEdges,
       closure: {
         satisfied: workCells.length > 0
           && workCells.every((cell) => cell.state === 'completed')
@@ -417,6 +460,7 @@ export class RepositoryControlSnapshotBuilder {
     task: TaskFactRow,
     workId: string,
     taskStatus: ReadonlyMap<string, string>,
+    limits: ControlSnapshotRetryLimits,
   ): WorkCellControlSnapshot {
     const base = {
       workId,
@@ -435,7 +479,7 @@ export class RepositoryControlSnapshotBuilder {
           reasonCode: 'task_cancelled',
           retryable: false,
           humanRecoverable: false,
-          budget: retryBudget('task_rework', 0, this.limits),
+          budget: retryBudget('task_rework', 0, limits),
         },
       };
     }
@@ -464,6 +508,8 @@ export class RepositoryControlSnapshotBuilder {
     db: Database.Database,
     row: WorkCellFactRow,
     deliveryGateStatus: Record<'delivery_review' | 'acceptance_verification', string | undefined>,
+    deliveryGateReworkCycles: Record<'delivery_review' | 'acceptance_verification', number>,
+    limits: ControlSnapshotRetryLimits,
   ): WorkCellControlSnapshot {
     const base = {
       workId: row.work_id,
@@ -488,7 +534,11 @@ export class RepositoryControlSnapshotBuilder {
             reasonCode: `${gateKind}_failed`,
             retryable: true,
             humanRecoverable: true,
-            budget: retryBudget('task_rework', 1, this.limits),
+            budget: retryBudget(
+              'task_rework',
+              deliveryGateReworkCycles[gateKind],
+              limits,
+            ),
           },
         };
       }
@@ -509,13 +559,13 @@ export class RepositoryControlSnapshotBuilder {
             reasonCode: row.invocation_reason_code ?? 'gate_invocation_failed',
             retryable: true,
             humanRecoverable: true,
-            budget: retryBudget('invocation', this.invocationAttempts(db, row.work_id), this.limits),
+            budget: retryBudget('invocation', this.invocationAttempts(db, row.work_id), limits),
           },
         };
       }
       return { ...base, state: 'ready', gateStatus: 'requested' };
     }
-    if (row.authority_status === 'closed' || row.task_status === 'done') {
+    if (row.task_status === 'done') {
       return { ...base, state: 'completed' };
     }
     if (row.task_status === 'cancelled') {
@@ -526,7 +576,11 @@ export class RepositoryControlSnapshotBuilder {
           reasonCode: 'task_cancelled',
           retryable: false,
           humanRecoverable: false,
-          budget: retryBudget('task_rework', this.taskReworkAttempts(db, row.task_id), this.limits),
+          budget: retryBudget(
+            'task_rework',
+            row.task_id ? this.gateReworkCyclesUsed(db, 'task', row.task_id) : 0,
+            limits,
+          ),
         },
       };
     }
@@ -547,7 +601,9 @@ export class RepositoryControlSnapshotBuilder {
       return { ...base, state: 'waiting_gate', gateStatus: 'requested' };
     }
     if (gate?.status === 'changes_requested' || gate?.status === 'rejected') {
-      const attemptsUsed = this.taskReworkAttempts(db, row.task_id);
+      const attemptsUsed = row.task_id
+        ? this.gateReworkCyclesUsed(db, 'task', row.task_id)
+        : 0;
       return {
         ...base,
         state: 'retry_pending',
@@ -556,7 +612,7 @@ export class RepositoryControlSnapshotBuilder {
           reasonCode: 'quality_gate_failed',
           retryable: true,
           humanRecoverable: true,
-          budget: retryBudget('task_rework', attemptsUsed, this.limits),
+          budget: retryBudget('task_rework', attemptsUsed, limits),
         },
       };
     }
@@ -570,6 +626,9 @@ export class RepositoryControlSnapshotBuilder {
         state: 'artifact_submitted',
         gateStatus: gate?.status === 'passed' ? 'passed' : 'none',
       };
+    }
+    if (row.authority_status === 'closed') {
+      return { ...base, state: 'completed' };
     }
     if (
       row.invocation_status === 'starting'
@@ -594,7 +653,7 @@ export class RepositoryControlSnapshotBuilder {
               : 'invocation_failed'),
           retryable: row.invocation_outcome !== 'cancelled',
           humanRecoverable: true,
-          budget: retryBudget('invocation', attemptsUsed, this.limits),
+          budget: retryBudget('invocation', attemptsUsed, limits),
         },
       };
     }
@@ -608,12 +667,18 @@ export class RepositoryControlSnapshotBuilder {
     `).get(workId) as { count: number }).count;
   }
 
-  private taskReworkAttempts(db: Database.Database, taskId: string | null): number {
-    if (!taskId) return 0;
-    return (db.prepare(`
+  private gateReworkCyclesUsed(
+    db: Database.Database,
+    targetType: 'task' | 'delivery_run',
+    targetId: string,
+    kind?: 'delivery_review' | 'acceptance_verification',
+  ): number {
+    const failures = (db.prepare(`
       SELECT COUNT(*) AS count FROM quality_gate
-      WHERE target_type='task' AND target_id=?
+      WHERE target_type=? AND target_id=?
+        AND (? IS NULL OR kind=?)
         AND status IN ('changes_requested','rejected')
-    `).get(taskId) as { count: number }).count;
+    `).get(targetType, targetId, kind ?? null, kind ?? null) as { count: number }).count;
+    return Math.max(0, failures - 1);
   }
 }
