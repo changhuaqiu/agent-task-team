@@ -222,6 +222,28 @@ API 只暴露 `invocation.transition`，owner 使用 `expectedFrom` 做 fencing�
 拒绝未知状态、非法迁移和缺失/越界 outcome。`Invocation.terminated` 只说明一次 Agent 激活
 已经结束，不代表 `Task.done`。
 
+### 5.3 Agent Inbox 状态机的已落地边界
+
+Agent Inbox 只负责“工作命令是否被 Invocation Pipeline 接纳”，不再使用容易冒充执行结果的
+`completed / failed`：
+
+```text
+enqueued -> claimed -> admitted
+                    -> released -> claimed
+                    -> expired
+                    -> cancelled
+```
+
+`admitted` 表示 Harness 已接纳这次激活命令，既不表示 Invocation 已结束，也不表示 Task
+完成。`released` 表示当前 claim 已释放，保留原 Inbox identity，并在 `availableAt` 到达后
+允许使用新 lease token 重领；旧 token 被 fencing 拒绝。无法接纳且不应由 Inbox 自动重试的
+命令进入 `expired`，原因保存在 `lastError`，由上层恢复策略决定是否创建新的激活命令。
+
+migration 56 将 `queued / completed / failed` 分别归一化为
+`enqueued / admitted / expired`，并把含义不再准确的 `completed_at` 改为 `settled_at`。
+数据库约束同时守护迁移表、lease 字段和 settled timestamp，生产 API 只返回仍待接纳的
+`enqueued / released / claimed` 项。
+
 Effect 创建时必须冻结：
 
 ```text

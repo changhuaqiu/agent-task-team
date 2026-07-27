@@ -1890,6 +1890,157 @@ DROP TABLE IF EXISTS runtime_completion_step_receipt;
       `);
     },
   },
+  {
+    version: 56,
+    run: (db) => {
+      const columns = new Set(
+        (db.prepare('PRAGMA table_info(agent_inbox_item)').all() as Array<{ name: string }>)
+          .map((column) => column.name),
+      );
+      db.exec(`
+        DROP TRIGGER IF EXISTS trg_agent_inbox_status_insert;
+        DROP TRIGGER IF EXISTS trg_agent_inbox_transition_update;
+        DROP TRIGGER IF EXISTS trg_agent_inbox_lease_insert;
+        DROP TRIGGER IF EXISTS trg_agent_inbox_lease_update;
+      `);
+      if (!columns.has('settled_at')) {
+        db.exec(`
+        ALTER TABLE agent_inbox_item RENAME TO agent_inbox_item_legacy_56;
+
+        CREATE TABLE agent_inbox_item (
+          id TEXT PRIMARY KEY,
+          project_id TEXT NOT NULL REFERENCES conversation(id) ON DELETE CASCADE,
+          project_agent_id TEXT NOT NULL,
+          source_event_id TEXT REFERENCES platform_event(id) ON DELETE SET NULL,
+          idempotency_key TEXT NOT NULL UNIQUE,
+          command_json TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'enqueued' CHECK(
+            status IN ('enqueued','claimed','admitted','released','expired','cancelled')
+          ),
+          attempt_count INTEGER NOT NULL DEFAULT 0 CHECK(attempt_count >= 0),
+          available_at TEXT NOT NULL,
+          lease_token TEXT,
+          lease_expires_at TEXT,
+          last_error TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          claimed_at TEXT,
+          settled_at TEXT,
+          UNIQUE(source_event_id, project_agent_id)
+        );
+
+        INSERT INTO agent_inbox_item (
+          id,project_id,project_agent_id,source_event_id,idempotency_key,command_json,
+          status,attempt_count,available_at,lease_token,lease_expires_at,last_error,
+          created_at,updated_at,claimed_at,settled_at
+        )
+        SELECT
+          id,project_id,project_agent_id,source_event_id,idempotency_key,command_json,
+          CASE
+            WHEN status = 'queued' THEN 'enqueued'
+            WHEN status = 'claimed' AND lease_token IS NOT NULL AND lease_expires_at IS NOT NULL
+              THEN 'claimed'
+            WHEN status = 'claimed' THEN 'released'
+            WHEN status = 'completed' THEN 'admitted'
+            WHEN status = 'failed' THEN 'expired'
+            WHEN status = 'cancelled' THEN 'cancelled'
+            WHEN status = 'enqueued' THEN 'enqueued'
+            WHEN status = 'admitted' THEN 'admitted'
+            WHEN status = 'released' THEN 'released'
+            WHEN status = 'expired' THEN 'expired'
+            ELSE 'expired'
+          END,
+          attempt_count,
+          available_at,
+          CASE
+            WHEN status = 'claimed' AND lease_token IS NOT NULL AND lease_expires_at IS NOT NULL
+            THEN lease_token
+            ELSE NULL
+          END,
+          CASE
+            WHEN status = 'claimed' AND lease_token IS NOT NULL AND lease_expires_at IS NOT NULL
+            THEN lease_expires_at
+            ELSE NULL
+          END,
+          CASE
+            WHEN status IN (
+              'queued','claimed','completed','failed','cancelled',
+              'enqueued','admitted','released','expired'
+            ) THEN last_error
+            ELSE COALESCE(last_error, 'legacy_agent_inbox_status_unknown')
+          END,
+          created_at,
+          updated_at,
+          claimed_at,
+          CASE
+            WHEN status IN ('completed','failed','cancelled','admitted','expired')
+            THEN COALESCE(completed_at, updated_at)
+            ELSE NULL
+          END
+        FROM agent_inbox_item_legacy_56;
+
+        DROP TABLE agent_inbox_item_legacy_56;
+
+        CREATE INDEX idx_agent_inbox_claim
+          ON agent_inbox_item(status, available_at, project_id, project_agent_id, created_at);
+        CREATE INDEX idx_agent_inbox_agent
+          ON agent_inbox_item(project_id, project_agent_id, status, created_at);
+        `);
+      }
+      db.exec(`
+        CREATE TRIGGER trg_agent_inbox_status_insert
+        BEFORE INSERT ON agent_inbox_item
+        WHEN NEW.status NOT IN ('enqueued','claimed','admitted','released','expired','cancelled')
+        BEGIN
+          SELECT RAISE(ABORT, 'invalid_agent_inbox_status');
+        END;
+
+        CREATE TRIGGER trg_agent_inbox_transition_update
+        BEFORE UPDATE OF status ON agent_inbox_item
+        WHEN NEW.status <> OLD.status
+          AND NOT (
+            (OLD.status = 'enqueued' AND NEW.status IN ('claimed','expired','cancelled'))
+            OR (OLD.status = 'released' AND NEW.status IN ('claimed','expired','cancelled'))
+            OR (OLD.status = 'claimed' AND NEW.status IN ('admitted','released','expired','cancelled'))
+          )
+        BEGIN
+          SELECT RAISE(ABORT, 'invalid_agent_inbox_transition');
+        END;
+
+        CREATE TRIGGER trg_agent_inbox_lease_insert
+        BEFORE INSERT ON agent_inbox_item
+        WHEN (NEW.status = 'claimed' AND (
+                NEW.lease_token IS NULL
+                OR NEW.lease_expires_at IS NULL
+              ))
+          OR (NEW.status <> 'claimed' AND (
+                NEW.lease_token IS NOT NULL
+                OR NEW.lease_expires_at IS NOT NULL
+              ))
+          OR (NEW.status IN ('admitted','expired','cancelled') AND NEW.settled_at IS NULL)
+          OR (NEW.status NOT IN ('admitted','expired','cancelled') AND NEW.settled_at IS NOT NULL)
+        BEGIN
+          SELECT RAISE(ABORT, 'invalid_agent_inbox_lease');
+        END;
+
+        CREATE TRIGGER trg_agent_inbox_lease_update
+        BEFORE UPDATE OF status, lease_token, lease_expires_at, settled_at ON agent_inbox_item
+        WHEN (NEW.status = 'claimed' AND (
+                NEW.lease_token IS NULL
+                OR NEW.lease_expires_at IS NULL
+              ))
+          OR (NEW.status <> 'claimed' AND (
+                NEW.lease_token IS NOT NULL
+                OR NEW.lease_expires_at IS NOT NULL
+              ))
+          OR (NEW.status IN ('admitted','expired','cancelled') AND NEW.settled_at IS NULL)
+          OR (NEW.status NOT IN ('admitted','expired','cancelled') AND NEW.settled_at IS NOT NULL)
+        BEGIN
+          SELECT RAISE(ABORT, 'invalid_agent_inbox_lease');
+        END;
+      `);
+    },
+  },
 ];
 
 export function applyMigrations(db: Database.Database): void {

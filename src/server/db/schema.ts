@@ -339,7 +339,7 @@ export const agentInboxItem = sqliteTable('agent_inbox_item', {
     .references(() => platformEvent.id, { onDelete: 'set null' }),
   idempotencyKey: text('idempotency_key').notNull(),
   commandJson: text('command_json').notNull(),
-  status: text('status').notNull(),
+  status: text('status').notNull().default('enqueued'),
   attemptCount: integer('attempt_count').notNull().default(0),
   availableAt: text('available_at').notNull(),
   leaseToken: text('lease_token'),
@@ -348,7 +348,7 @@ export const agentInboxItem = sqliteTable('agent_inbox_item', {
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
   claimedAt: text('claimed_at'),
-  completedAt: text('completed_at'),
+  settledAt: text('settled_at'),
 }, (table) => [
   uniqueIndex('uq_agent_inbox_idempotency').on(table.idempotencyKey),
   uniqueIndex('uq_agent_inbox_source_agent').on(table.sourceEventId, table.projectAgentId),

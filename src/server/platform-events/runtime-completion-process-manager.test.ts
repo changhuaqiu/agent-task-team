@@ -231,7 +231,7 @@ describe('RuntimeCompletionProcessManager', () => {
     expect(await outbox.drain()).toMatchObject({ failed: 1 }); // response acknowledgement lost
     expect(db.prepare(`SELECT COUNT(*) count FROM invocation_chain`).get())
       .toEqual({ count: 0 });
-    expect(inbox.listQueued('project-1')).toHaveLength(0);
+    expect(inbox.listPending('project-1')).toHaveLength(0);
     expect(emit).not.toHaveBeenCalled();
     expect(captureDedupState()).toEqual(dedupBeforeFailure);
     expect(await outbox.drain()).toMatchObject({ succeeded: 1 }); // response retry
@@ -242,8 +242,8 @@ describe('RuntimeCompletionProcessManager', () => {
     expect(db.prepare(`
       SELECT COUNT(*) count FROM chain_worklist WHERE agent_id='reviewer'
     `).get()).toEqual({ count: 1 });
-    expect(inbox.listQueued('project-1')).toHaveLength(1);
-    expect(inbox.listQueued('project-1')[0]).toMatchObject({
+    expect(inbox.listPending('project-1')).toHaveLength(1);
+    expect(inbox.listPending('project-1')[0]).toMatchObject({
       projectAgentId: 'reviewer',
       command: { source: 'a2a', chainId: expect.any(String) },
     });

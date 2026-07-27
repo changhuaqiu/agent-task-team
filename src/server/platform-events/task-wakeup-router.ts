@@ -54,7 +54,7 @@ export class TaskWakeupRouter {
       throw context.signal.reason ?? new Error('task_wakeup_router_aborted');
     }
     if (event.type === 'task.done' || event.type === 'task.cancelled') {
-      this.inbox.cancelQueuedForTask(event.projectId, event.aggregate.id);
+      this.inbox.cancelPendingForTask(event.projectId, event.aggregate.id);
       return;
     }
     return this.router.handle(event, context);

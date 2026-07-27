@@ -60,7 +60,7 @@ export class AgentInboxScheduler {
 
   private async tick(): Promise<void> {
     try {
-      this.inbox.recoverExpired();
+      this.inbox.releaseExpiredClaims();
       for (let index = 0; index < this.maxClaimsPerTick; index += 1) {
         const item = this.inbox.claimNext(this.leaseMs);
         if (!item?.leaseToken) break;
@@ -123,11 +123,11 @@ export class AgentInboxScheduler {
         try {
           const outcome = await completion;
           if (outcome.status === 'accepted') {
-            this.inbox.complete(itemId, leaseToken);
+            this.inbox.admit(itemId, leaseToken);
           } else if (outcome.status === 'deferred') {
             this.inbox.release(itemId, leaseToken, this.retryDelayMs, outcome.reasonCode);
           } else {
-            this.inbox.fail(itemId, leaseToken, outcome.reasonCode);
+            this.inbox.expire(itemId, leaseToken, outcome.reasonCode);
           }
         } finally {
           clearInterval(heartbeat);

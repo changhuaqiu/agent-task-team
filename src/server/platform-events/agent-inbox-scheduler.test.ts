@@ -61,9 +61,9 @@ describe('AgentInboxScheduler', () => {
 
     scheduler.start();
     await vi.advanceTimersByTimeAsync(0);
-    expect(inbox.get(item.id)).toMatchObject({ status: 'queued', attemptCount: 1 });
+    expect(inbox.get(item.id)).toMatchObject({ status: 'released', attemptCount: 1 });
     await vi.advanceTimersByTimeAsync(10);
-    expect(inbox.get(item.id)).toMatchObject({ status: 'completed', attemptCount: 2 });
+    expect(inbox.get(item.id)).toMatchObject({ status: 'admitted', attemptCount: 2 });
     expect(submissions).toBe(2);
     scheduler.stop();
   });
@@ -100,12 +100,12 @@ describe('AgentInboxScheduler', () => {
     expect(inbox.get(first.id)?.status).toBe('claimed');
     expect(inbox.get(second.id)?.status).toBe('claimed');
     await vi.advanceTimersByTimeAsync(25);
-    expect(inbox.recoverExpired()).toBe(0);
+    expect(inbox.releaseExpiredClaims()).toBe(0);
     resolvers.forEach((resolve) => resolve({ status: 'accepted' }));
     await Promise.resolve();
     await Promise.resolve();
-    expect(inbox.get(first.id)?.status).toBe('completed');
-    expect(inbox.get(second.id)?.status).toBe('completed');
+    expect(inbox.get(first.id)?.status).toBe('admitted');
+    expect(inbox.get(second.id)?.status).toBe('admitted');
     scheduler.stop();
   });
 
@@ -133,7 +133,7 @@ describe('AgentInboxScheduler', () => {
     expect(inbox.get(item.id)?.status).toBe('claimed');
     scheduler.stop();
     await vi.advanceTimersByTimeAsync(11);
-    expect(inbox.recoverExpired()).toBe(1);
+    expect(inbox.releaseExpiredClaims()).toBe(1);
   });
 
   it('settles an in-flight Harness duplicate instead of completing it eagerly', async () => {
@@ -163,7 +163,7 @@ describe('AgentInboxScheduler', () => {
     resolveOutcome({ status: 'failed', reasonCode: 'internal_error' });
     await Promise.resolve();
     await Promise.resolve();
-    expect(inbox.get(item.id)?.status).toBe('failed');
+    expect(inbox.get(item.id)?.status).toBe('expired');
     scheduler.stop();
   });
 });

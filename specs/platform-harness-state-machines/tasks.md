@@ -29,6 +29,12 @@
 - [x] 终态 Invocation 不可复活；自动重试创建新的 Invocation，Session binding 不再写执行结果。
 - [x] migration 55、API、Daemon、Session、Evaluator 和 Task watcher 已迁入新 Invocation 契约。
 - [x] Invocation 切片通过 TypeScript、相关 lint 和全量 Vitest（188 files、1444 tests，1 skipped）。
+- [x] Agent Inbox 已冻结为 `enqueued / claimed / admitted / released / expired / cancelled`，
+  删除会冒充 Agent 结果的 `completed / failed`。
+- [x] lease 过期或调度暂缓进入可重领的 `released`；未被接纳的非重试结果进入 `expired`。
+- [x] migration 56、数据库 transition/lease guard、Scheduler、Router 和 Dispatch API
+  已迁入新 Inbox 契约。
+- [x] Inbox 切片通过 TypeScript、相关 lint 和全量 Vitest（188 files、1446 tests，1 skipped）。
 
 ## S2：Review & Gate
 

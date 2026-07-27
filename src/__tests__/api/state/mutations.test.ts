@@ -230,7 +230,7 @@ describe('POST /api/mutations', () => {
     expect(cancelled.statusCode).toBe(200);
     expect(cancelled._json.result).toEqual({ cancelled: 1, status: 'cancelled' });
     const { AgentInbox } = await import('@/server/platform-events/agent-inbox');
-    expect(new AgentInbox().listQueued('conv-1')).toHaveLength(0);
+    expect(new AgentInbox().listPending('conv-1')).toHaveLength(0);
   });
 
   it('conversation.create returns conversation', async () => {
@@ -898,11 +898,11 @@ describe('POST /api/mutations', () => {
     await handler(req, res);
 
     expect(res.statusCode).toBe(200);
-    expect(new AgentInbox().listQueued('conv-1')).toContainEqual(expect.objectContaining({
+    expect(new AgentInbox().listPending('conv-1')).toContainEqual(expect.objectContaining({
       projectAgentId: 'mario',
       command: expect.objectContaining({ prompt: 'queued project turn' }),
     }));
-    expect(new AgentInbox().listQueued('default')).toHaveLength(0);
+    expect(new AgentInbox().listPending('default')).toHaveLength(0);
   });
 
   it('dispatch.enqueue rejects a missing conversation scope', async () => {
@@ -917,7 +917,7 @@ describe('POST /api/mutations', () => {
 
     expect(res.statusCode).toBe(400);
     expect(res._json).toEqual({ ok: false, error: 'dispatch.enqueue requires conversationId' });
-    expect(new AgentInbox().listQueued('default')).toHaveLength(0);
+    expect(new AgentInbox().listPending('default')).toHaveLength(0);
   });
 
   it('rejects the removed legacy event.append mutation', async () => {

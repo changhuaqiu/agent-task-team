@@ -444,7 +444,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
           return res.status(400).json({ ok: false, error: 'dispatch.cancel idempotencyKey must be a string' });
         }
         const inbox = new AgentInbox();
-        const cancelled = inbox.cancelQueued(
+        const cancelled = inbox.cancelPending(
           conversationId,
           agentId,
           typeof idempotencyKey === 'string' && idempotencyKey ? idempotencyKey : undefined,

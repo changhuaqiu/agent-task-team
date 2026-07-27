@@ -68,7 +68,11 @@ describe('AgentInbox', () => {
     expect(claim.id).toBe(first.id);
     expect(claim.status).toBe('claimed');
     expect(inbox.claimNext()).toBeUndefined();
-    expect(inbox.complete(claim.id, claim.leaseToken!)).toBe(true);
+    expect(inbox.admit(claim.id, claim.leaseToken!)).toBe(true);
+    expect(inbox.get(first.id)).toMatchObject({
+      status: 'admitted',
+      settledAt: now.toISOString(),
+    });
     expect(inbox.claimNext()!.id).toBe(second.id);
   });
 
@@ -104,15 +108,15 @@ describe('AgentInbox', () => {
     });
     const claim = inbox.claimNext(10)!;
     now = new Date(now.getTime() + 11);
-    expect(inbox.recoverExpired()).toBe(1);
-    expect(inbox.complete(item.id, claim.leaseToken!)).toBe(false);
+    expect(inbox.releaseExpiredClaims()).toBe(1);
+    expect(inbox.admit(item.id, claim.leaseToken!)).toBe(false);
     const replacement = inbox.claimNext()!;
     expect(replacement.attemptCount).toBe(2);
     expect(log.listStream('agent-work:project-1:reviewer').map((event) => event.type))
       .toEqual([
         'agent.work.enqueued',
         'agent.work.claimed',
-        'agent.work.recovered',
+        'agent.work.released',
         'agent.work.claimed',
       ]);
   });
@@ -130,9 +134,33 @@ describe('AgentInbox', () => {
     expect(inbox.renew(item.id, 'stale-token', 20)).toBe(false);
     expect(inbox.renew(item.id, claim.leaseToken!, 20)).toBe(true);
     now = new Date(now.getTime() + 6);
-    expect(inbox.recoverExpired()).toBe(0);
+    expect(inbox.releaseExpiredClaims()).toBe(0);
     now = new Date(now.getTime() + 15);
-    expect(inbox.recoverExpired()).toBe(1);
+    expect(inbox.releaseExpiredClaims()).toBe(1);
+  });
+
+  it('expires a rejected claim without pretending that Agent execution failed', () => {
+    const item = inbox.enqueue({
+      projectId: 'project-1',
+      projectAgentId: 'reviewer',
+      idempotencyKey: 'preflight-rejected',
+      command: { source: 'review_gate', prompt: 'Review' },
+    });
+    const claim = inbox.claimNext()!;
+
+    expect(inbox.expire(item.id, claim.leaseToken!, 'runtime_profile_missing')).toBe(true);
+    expect(inbox.get(item.id)).toMatchObject({
+      status: 'expired',
+      lastError: 'runtime_profile_missing',
+      settledAt: now.toISOString(),
+    });
+    expect(inbox.claimNext()).toBeUndefined();
+    expect(log.listStream('agent-work:project-1:reviewer').map((event) => event.type))
+      .toEqual([
+        'agent.work.enqueued',
+        'agent.work.claimed',
+        'agent.work.expired',
+      ]);
   });
 
   it('cancels queued work without cancelling an active claim', () => {
@@ -150,9 +178,9 @@ describe('AgentInbox', () => {
       command: { source: 'user', prompt: 'Queued' },
     });
 
-    expect(inbox.cancelQueued('project-1', 'implementer')).toBe(1);
+    expect(inbox.cancelPending('project-1', 'implementer')).toBe(1);
     expect(inbox.get(active.id)?.status).toBe('claimed');
-    expect(inbox.listQueued('project-1')).toEqual([
+    expect(inbox.listPending('project-1')).toEqual([
       expect.objectContaining({ id: active.id, status: 'claimed' }),
     ]);
   });

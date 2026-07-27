@@ -220,6 +220,7 @@ describe('SQLite Foundation', () => {
         'INSERT INTO _schema_version (version) VALUES (?)',
       );
       for (let version = 1; version <= 54; version += 1) recordVersion.run(version);
+      recordVersion.run(56);
       const insert = legacyDb.prepare(
         'INSERT INTO invocation (id,status,reason_code,updated_at) VALUES (?,?,NULL,?)',
       );
@@ -260,6 +261,75 @@ describe('SQLite Foundation', () => {
       expect(() => legacyDb.prepare(
         "UPDATE invocation SET status='terminated' WHERE id='inv-new'",
       ).run()).toThrow(/invalid_invocation_outcome/);
+    } finally {
+      legacyDb.close();
+    }
+  });
+
+  it('migrates Agent Inbox admission semantics and rejects illegal transitions', () => {
+    const legacyDb = new Database(':memory:');
+    try {
+      legacyDb.pragma('foreign_keys = ON');
+      legacyDb.exec(`
+        CREATE TABLE _schema_version (version INTEGER PRIMARY KEY);
+        CREATE TABLE conversation (id TEXT PRIMARY KEY);
+        CREATE TABLE platform_event (id TEXT PRIMARY KEY);
+        CREATE TABLE agent_inbox_item (
+          id TEXT PRIMARY KEY,
+          project_id TEXT NOT NULL REFERENCES conversation(id) ON DELETE CASCADE,
+          project_agent_id TEXT NOT NULL,
+          source_event_id TEXT REFERENCES platform_event(id) ON DELETE SET NULL,
+          idempotency_key TEXT NOT NULL UNIQUE,
+          command_json TEXT NOT NULL,
+          status TEXT NOT NULL CHECK(status IN ('queued','claimed','completed','failed','cancelled')),
+          attempt_count INTEGER NOT NULL DEFAULT 0,
+          available_at TEXT NOT NULL,
+          lease_token TEXT,
+          lease_expires_at TEXT,
+          last_error TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          claimed_at TEXT,
+          completed_at TEXT,
+          UNIQUE(source_event_id, project_agent_id)
+        );
+        INSERT INTO conversation (id) VALUES ('project-1');
+      `);
+      const recordVersion = legacyDb.prepare(
+        'INSERT INTO _schema_version (version) VALUES (?)',
+      );
+      for (let version = 1; version <= 55; version += 1) recordVersion.run(version);
+      const insert = legacyDb.prepare(`
+        INSERT INTO agent_inbox_item (
+          id,project_id,project_agent_id,idempotency_key,command_json,status,
+          attempt_count,available_at,lease_token,lease_expires_at,last_error,
+          created_at,updated_at,claimed_at,completed_at
+        ) VALUES (?, 'project-1', 'agent-1', ?, '{}', ?, 1, ?, ?, ?, NULL, ?, ?, ?, ?)
+      `);
+      const now = '2026-07-27T00:00:00.000Z';
+      insert.run('inbox-queued', 'key-queued', 'queued', now, null, null, now, now, null, null);
+      insert.run('inbox-claimed', 'key-claimed', 'claimed', now, 'lease-1', now, now, now, now, null);
+      insert.run('inbox-stale-claim', 'key-stale-claim', 'claimed', now, null, null, now, now, now, null);
+      insert.run('inbox-completed', 'key-completed', 'completed', now, null, null, now, now, now, now);
+      insert.run('inbox-failed', 'key-failed', 'failed', now, null, null, now, now, now, now);
+
+      applyMigrations(legacyDb);
+
+      expect(legacyDb.prepare(
+        'SELECT id,status,settled_at FROM agent_inbox_item ORDER BY id',
+      ).all()).toEqual([
+        { id: 'inbox-claimed', status: 'claimed', settled_at: null },
+        { id: 'inbox-completed', status: 'admitted', settled_at: now },
+        { id: 'inbox-failed', status: 'expired', settled_at: now },
+        { id: 'inbox-queued', status: 'enqueued', settled_at: null },
+        { id: 'inbox-stale-claim', status: 'released', settled_at: null },
+      ]);
+      expect(() => legacyDb.prepare(
+        "UPDATE agent_inbox_item SET status='admitted', settled_at=? WHERE id='inbox-queued'",
+      ).run(now)).toThrow(/invalid_agent_inbox_transition/);
+      expect(() => legacyDb.prepare(
+        "UPDATE agent_inbox_item SET status='claimed' WHERE id='inbox-queued'",
+      ).run()).toThrow(/invalid_agent_inbox_lease/);
     } finally {
       legacyDb.close();
     }
@@ -455,7 +525,7 @@ describe('SQLite Foundation', () => {
     expect(db.prepare('SELECT version FROM _schema_version WHERE version = 40').get())
       .toEqual({ version: 40 });
     expect(db.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-      .toEqual({ version: 55 });
+      .toEqual({ version: 56 });
   });
 
   it('repairs v26-v40 checkpoints whose migration collision skipped autonomous delivery tables', () => {
@@ -485,7 +555,7 @@ describe('SQLite Foundation', () => {
           'autonomous_delivery_advancement_request',
         ]));
         expect(checkpoint.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-          .toEqual({ version: 55 });
+          .toEqual({ version: 56 });
         expect(checkpoint.pragma('foreign_key_check')).toEqual([]);
       } finally {
         checkpoint.close();

@@ -10,5 +10,5 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
   if (Array.isArray(rawProjectId) || typeof rawProjectId !== 'string' || !rawProjectId.trim()) {
     return res.status(400).json({ error: 'conversationId is required and must be a single value' });
   }
-  return res.json(new AgentInbox().listQueued(rawProjectId));
+  return res.json(new AgentInbox().listPending(rawProjectId));
 }
