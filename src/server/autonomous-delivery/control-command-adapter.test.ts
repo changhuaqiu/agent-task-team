@@ -209,6 +209,13 @@ describe('ProductionControlCommandAdapter', () => {
       contextScenario: 'code_review',
     });
     expect(command.prompt).toContain('Quality Gate:');
+    expect(new RepositoryControlSnapshotBuilder({ db, now: () => now }).build(runId).workCells)
+      .toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          workId: 'task:task-1:agent:reviewer:purpose:review',
+          state: 'running',
+        }),
+      ]));
   });
 
   it('turns integration into a frozen blocking Effect instead of provider I/O', async () => {

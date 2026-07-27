@@ -153,8 +153,8 @@
 - [x] 用权威 WorkAuthority/Contract、Task、Gate、Invocation、AgentOutcome 构造
   `SupervisorControlSnapshot`；同一 decision 的非 wait 动作先原子 batch claim，再执行，
   避免首条 Command 产生的事实错误地 stale 同批兄弟动作。
-- [ ] 将 A2A/Inbox/Effect 与 dependency facts 补入 snapshot，并把持久 ControlAction
-  接到生产 owner Command。
+- [ ] 将 A2A facts 补入 snapshot；Inbox、Effect 与 dependency facts 已接入，
+  持久 ControlAction 已接到 Task/Gate/Inbox/Delivery/Effect owner Command。
 - [x] pre-Contract assigned Task 已作为 epoch 0 Work Cell，依赖未满足时 wait；activate/retry
   只写 Durable AgentInbox，requestGate 只写 QualityGate owner，terminate 在同一事务复核
   Task/Bundle/blocking Effect Closure，Runtime started/terminated 释放 slot。

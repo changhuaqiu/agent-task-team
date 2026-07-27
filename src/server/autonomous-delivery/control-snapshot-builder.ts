@@ -265,6 +265,53 @@ export class RepositoryControlSnapshotBuilder {
         }
       }
     }
+    const activeInbox = db.prepare(`
+      SELECT inbox.project_agent_id,inbox.command_json,action.slot_id
+      FROM agent_inbox_item inbox
+      LEFT JOIN supervisor_control_action action ON action.id=inbox.idempotency_key
+      WHERE inbox.project_id=? AND inbox.status IN ('enqueued','claimed','admitted')
+    `).all(run.conversation_id) as Array<{
+      project_agent_id: string;
+      command_json: string;
+      slot_id: string | null;
+    }>;
+    const inboxWork = new Map<string, string | null>();
+    for (const item of activeInbox) {
+      try {
+        const command = JSON.parse(item.command_json) as {
+          taskId?: string;
+          deliveryRunId?: string;
+          source?: string;
+        };
+        const purpose = command.source === 'review_gate'
+          ? 'review'
+          : command.source === 'test_gate'
+            ? 'verify'
+            : 'execute';
+        if (command.taskId) {
+          inboxWork.set(
+            `task:${command.taskId}:agent:${item.project_agent_id}:purpose:${purpose}`,
+            item.slot_id,
+          );
+          continue;
+        }
+        if (command.deliveryRunId) {
+          inboxWork.set(
+            `delivery:${command.deliveryRunId}:agent:${item.project_agent_id}:purpose:${purpose}`,
+            item.slot_id,
+          );
+        }
+      } catch {
+        // Invalid historical command payload cannot reserve a control slot.
+      }
+    }
+    for (const cell of workCells) {
+      if (!inboxWork.has(cell.workId)) continue;
+      if (cell.state !== 'ready' && cell.state !== 'retry_pending') continue;
+      cell.state = 'running';
+      cell.slotId = inboxWork.get(cell.workId) ?? `${cell.roleId}:inbox`;
+      delete cell.failure;
+    }
     const deadlock = detectWaitForDeadlock(waitEdges);
     const blockingEffects = new DurableEffectOutbox({ db })
       .listApplicableBlocking(runId, run.revision);
