@@ -165,6 +165,19 @@ describe('decideControlActions', () => {
       .toMatchObject([{ type: 'terminate', terminationOutcome: 'completed' }]);
   });
 
+  it('finalizes a ready delivery before a later decision can terminate it', () => {
+    const facts = snapshot([cell('work-1', 'completed')]);
+    facts.closure.finalizationReady = true;
+
+    expect(decideControlActions(facts, POLICY).actions)
+      .toMatchObject([{ type: 'finalize', reasonCode: 'delivery_bundle_ready' }]);
+
+    facts.closure.finalizationReady = false;
+    facts.closure.satisfied = true;
+    expect(decideControlActions(facts, POLICY).actions)
+      .toMatchObject([{ type: 'terminate', terminationOutcome: 'completed' }]);
+  });
+
   it('uses explicit snapshot time for starvation-safe deterministic ordering', () => {
     const decision = decideControlActions(snapshot([
       cell('new-high', 'ready', {

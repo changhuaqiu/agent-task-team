@@ -237,6 +237,12 @@ export class RepositoryControlSnapshotBuilder {
           merged,
           effectScheduled: Boolean(integrationEffect),
         },
+        finalizationReady: workCells.length > 0
+          && workCells.every((cell) => cell.state === 'completed')
+          && gatesSatisfied
+          && blockingEffects.length === 0
+          && (!contract.deliveryPolicy.requireMerge || merged)
+          && !run.delivery_bundle_json,
       },
     };
   }

@@ -212,7 +212,7 @@ describe('ProductionControlCommandAdapter', () => {
       }]);
   });
 
-  it('rechecks closure in the same transaction before completing Delivery', async () => {
+  it('freezes a DeliveryBundle before a later decision completes Delivery', async () => {
     taskRepo.transition('task-1', { to: 'in_progress' }, now);
     taskRepo.transition('task-1', { to: 'in_review' }, now);
     taskRepo.transition('task-1', { to: 'done' }, now);
@@ -248,30 +248,61 @@ describe('ProductionControlCommandAdapter', () => {
       expectedRevision: evaluating.gate.revision,
       now,
     });
-    const delivery = deliveries.getSnapshot(runId)!;
-    deliveries.transitionRun({
+    deliveries.recordReceipt({
       runId,
-      to: 'active',
-      stage: delivery.run.current_stage,
-      expectedRevision: delivery.run.revision,
-      bundle: {
-        summary: 'Delivered',
-        acceptanceResults: [{ criterion: 'Works', status: 'passed', evidenceRefs: ['test:1'] }],
-        changeRefs: ['commit:1'],
-        verificationRefs: ['test:1'],
-        providerRefs: [],
-        knownLimitations: [],
-        completedAt: now.toISOString(),
+      receipt: {
+        kind: 'verification.acceptance',
+        status: 'passed',
+        idempotencyKey: 'verification.acceptance:test',
+        payload: {
+          schemaVersion: 1,
+          deliveryRunId: runId,
+          status: 'passed',
+          method: 'automated_test',
+          verifierAgentId: 'test',
+          tool: 'vitest',
+          reportRef: 'test:report',
+          specRefs: ['spec:works'],
+          acceptanceResults: [{
+            criterion: 'Works',
+            status: 'passed',
+            evidenceRefs: ['test:report'],
+          }],
+        },
       },
       now,
     });
-    const { snapshot, decision } = decide();
-    const action = decision.actions.find((item) => item.type === 'terminate')!;
+    const first = decide();
+    const finalize = first.decision.actions.find((item) => item.type === 'finalize')!;
 
-    expect(await adapter.execute(action, {
-      decision,
-      snapshot,
+    expect(await adapter.execute(finalize, {
+      decision: first.decision,
+      snapshot: first.snapshot,
       claimToken: 'claim-1',
+    })).toEqual({ status: 'applied' });
+    expect(deliveries.getRun(runId)).toMatchObject({
+      status: 'active',
+      current_stage: 'delivering',
+    });
+    expect(deliveries.getSnapshot(runId)?.bundle).toMatchObject({
+      summary: '“Ship”已完成交付，共完成 1 个任务。',
+      acceptanceResults: [{
+        criterion: 'Works',
+        status: 'passed',
+        evidenceRefs: ['test:report'],
+      }],
+      verification: {
+        verifierAgentId: 'test',
+        tool: 'vitest',
+      },
+    });
+
+    const second = decide();
+    const terminate = second.decision.actions.find((item) => item.type === 'terminate')!;
+    expect(await adapter.execute(terminate, {
+      decision: second.decision,
+      snapshot: second.snapshot,
+      claimToken: 'claim-2',
     })).toEqual({ status: 'applied' });
     expect(deliveries.getRun(runId)?.status).toBe('completed');
   });

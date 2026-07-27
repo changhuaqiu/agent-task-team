@@ -12,6 +12,7 @@ import {
   type EnqueueDurableEffectBatch,
 } from '../platform-events/durable-effect-outbox';
 import { DELIVERY_EFFECT_TYPES } from './delivery-effects';
+import { buildDeliveryBundle } from './delivery-bundle';
 import type { ControlAction } from './control-decision';
 import type {
   ControlCommandPort,
@@ -66,6 +67,8 @@ export class ProductionControlCommandAdapter implements ControlCommandPort {
         return this.requestGate(action);
       case 'integrate':
         return this.integrate(action, context.decision);
+      case 'finalize':
+        return this.finalize(context.decision.runId);
       case 'escalateToHuman':
         return this.escalate(action, context.decision.runId);
       case 'terminate':
@@ -75,6 +78,40 @@ export class ProductionControlCommandAdapter implements ControlCommandPort {
       case 'wait':
         return { status: 'applied' };
     }
+  }
+
+  private finalize(runId: string): ControlCommandResult {
+    const db = this.database ?? getDb();
+    return db.transaction((): ControlCommandResult => {
+      const snapshot = this.deliveries.getSnapshot(runId);
+      if (!snapshot) return { status: 'rejected', reasonCode: 'delivery_run_missing' };
+      if (snapshot.bundle) return { status: 'applied' };
+      const facts = this.snapshots.build(runId);
+      if (!facts.closure.finalizationReady) {
+        return { status: 'rejected', reasonCode: 'delivery_finalization_not_ready' };
+      }
+      let bundle;
+      try {
+        bundle = buildDeliveryBundle(snapshot, this.now());
+      } catch (error) {
+        return {
+          status: 'rejected',
+          reasonCode: error instanceof Error ? error.message : 'delivery_bundle_invalid',
+        };
+      }
+      const updated = this.deliveries.transitionRun({
+        runId,
+        to: snapshot.run.status,
+        stage: 'delivering',
+        rootTaskId: snapshot.run.root_task_id ?? undefined,
+        bundle,
+        expectedRevision: snapshot.run.revision,
+        now: this.now(),
+      });
+      return updated
+        ? { status: 'applied' }
+        : { status: 'rejected', reasonCode: 'delivery_run_revision_changed' };
+    }).immediate();
   }
 
   private integrate(

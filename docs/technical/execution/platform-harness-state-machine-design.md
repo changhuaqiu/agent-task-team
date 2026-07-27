@@ -563,6 +563,10 @@ owner 记录 root 引用；它不启动 Agent、不占用 Agent slot，也不把
 该动作只向 Effect owner 提交冻结 `deliveryRunId / appliesFromRevision / sourceActionId`
 的 blocking provider Effect；Git/GitHub I/O 由 Effect Worker 执行，失败、lease、重试与
 dead letter 不再由 Supervisor 自己维护。
+`publish_delivery` 不再是伪外部动作。所有前置事实满足后，`finalize` 调用 Delivery owner
+从已通过 Gate 的验收/评审 receipt、Task artifacts 与 provider receipt 构造并冻结
+DeliveryBundle；Bundle 写入产生新 revision，下一轮 reconcile 才能返回
+`terminate(completed)`，避免“生成结果”和“宣告完成”共用一个未经复核的动作。
 
 优先级固定为：安全/合法性 > 回收失效 authority > Gate/Human 恢复 > 可恢复重试 >
 在剩余容量内新激活 > 收口。某个 Cell 的 `wait` 只描述该 Cell，不阻止其他 Cell 激活。

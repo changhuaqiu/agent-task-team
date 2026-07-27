@@ -7,6 +7,7 @@ export type ControlActionType =
   | 'retry'
   | 'requestGate'
   | 'integrate'
+  | 'finalize'
   | 'resume'
   | 'escalateToHuman'
   | 'terminate';
@@ -66,6 +67,7 @@ export interface SupervisorControlSnapshot {
       merged: boolean;
       effectScheduled: boolean;
     };
+    finalizationReady?: boolean;
     unrecoverableReasonCode?: string;
     blockingEffect?: {
       effectId: string;
@@ -465,6 +467,18 @@ export function decideControlActions(
       order: Number.MAX_SAFE_INTEGER,
       type: 'integrate',
       reasonCode: 'provider_integration_required',
+    });
+  }
+  if (
+    snapshot.workCells.length > 0
+    && snapshot.workCells.every((cell) => cell.state === 'completed')
+    && snapshot.closure.finalizationReady
+  ) {
+    proposals.push({
+      rank: 68,
+      order: Number.MAX_SAFE_INTEGER,
+      type: 'finalize',
+      reasonCode: 'delivery_bundle_ready',
     });
   }
 
