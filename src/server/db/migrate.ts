@@ -2338,6 +2338,142 @@ DROP TABLE IF EXISTS runtime_completion_step_receipt;
       }
     },
   },
+  {
+    version: 59,
+    sql: `
+CREATE TABLE IF NOT EXISTS quality_gate (
+  id TEXT PRIMARY KEY,
+  conversation_id TEXT NOT NULL REFERENCES conversation(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL CHECK(kind IN (
+    'implementation_readiness','code_review','delivery_review',
+    'acceptance_verification','integration'
+  )),
+  target_type TEXT NOT NULL CHECK(target_type IN ('task','delivery_run')),
+  target_id TEXT NOT NULL,
+  artifact_revision TEXT NOT NULL CHECK(length(trim(artifact_revision)) > 0),
+  status TEXT NOT NULL CHECK(status IN (
+    'requested','evaluating','passed','changes_requested','rejected','cancelled'
+  )),
+  criteria_json TEXT NOT NULL,
+  policy_json TEXT NOT NULL,
+  requested_by_type TEXT NOT NULL CHECK(requested_by_type IN ('user','agent','system')),
+  requested_by TEXT NOT NULL,
+  evaluator_type TEXT CHECK(evaluator_type IN ('user','agent','system')),
+  evaluator_id TEXT,
+  decision_reason TEXT,
+  revision INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  decided_at TEXT,
+  UNIQUE(kind,target_type,target_id,artifact_revision)
+);
+CREATE INDEX IF NOT EXISTS idx_quality_gate_conversation_status
+  ON quality_gate(conversation_id,status,updated_at);
+
+CREATE TABLE IF NOT EXISTS quality_gate_evidence (
+  id TEXT PRIMARY KEY,
+  gate_id TEXT NOT NULL REFERENCES quality_gate(id) ON DELETE CASCADE,
+  evidence_type TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  source_ref TEXT,
+  submitted_by_type TEXT NOT NULL CHECK(submitted_by_type IN ('user','agent','system')),
+  submitted_by TEXT NOT NULL,
+  idempotency_key TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE(gate_id,idempotency_key)
+);
+CREATE INDEX IF NOT EXISTS idx_quality_gate_evidence_gate
+  ON quality_gate_evidence(gate_id,created_at);
+
+CREATE TABLE IF NOT EXISTS quality_gate_decision (
+  id TEXT PRIMARY KEY,
+  gate_id TEXT NOT NULL UNIQUE REFERENCES quality_gate(id) ON DELETE CASCADE,
+  decision TEXT NOT NULL CHECK(decision IN (
+    'passed','changes_requested','rejected','cancelled'
+  )),
+  evaluator_type TEXT NOT NULL CHECK(evaluator_type IN ('user','agent','system')),
+  evaluator_id TEXT NOT NULL,
+  reason TEXT,
+  evidence_ids_json TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE TRIGGER IF NOT EXISTS trg_quality_gate_transition
+BEFORE UPDATE OF status ON quality_gate
+WHEN NEW.status <> OLD.status
+  AND NOT (
+    (OLD.status='requested' AND NEW.status IN ('evaluating','cancelled'))
+    OR (OLD.status='evaluating'
+      AND NEW.status IN ('passed','changes_requested','rejected','cancelled'))
+  )
+BEGIN
+  SELECT RAISE(ABORT, 'invalid_quality_gate_transition');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_quality_gate_state_insert
+BEFORE INSERT ON quality_gate
+WHEN (NEW.status='requested' AND (
+        NEW.evaluator_type IS NOT NULL OR NEW.evaluator_id IS NOT NULL OR NEW.decided_at IS NOT NULL
+      ))
+  OR (NEW.status='evaluating' AND (
+        NEW.evaluator_type IS NULL OR NEW.evaluator_id IS NULL OR NEW.decided_at IS NOT NULL
+      ))
+  OR (NEW.status IN ('passed','changes_requested','rejected','cancelled') AND (
+        NEW.evaluator_type IS NULL OR NEW.evaluator_id IS NULL OR NEW.decided_at IS NULL
+      ))
+BEGIN
+  SELECT RAISE(ABORT, 'invalid_quality_gate_state');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_quality_gate_state_update
+BEFORE UPDATE OF status,evaluator_type,evaluator_id,decided_at ON quality_gate
+WHEN (NEW.status='requested' AND (
+        NEW.evaluator_type IS NOT NULL OR NEW.evaluator_id IS NOT NULL OR NEW.decided_at IS NOT NULL
+      ))
+  OR (NEW.status='evaluating' AND (
+        NEW.evaluator_type IS NULL OR NEW.evaluator_id IS NULL OR NEW.decided_at IS NOT NULL
+      ))
+  OR (NEW.status IN ('passed','changes_requested','rejected','cancelled') AND (
+        NEW.evaluator_type IS NULL OR NEW.evaluator_id IS NULL OR NEW.decided_at IS NULL
+      ))
+BEGIN
+  SELECT RAISE(ABORT, 'invalid_quality_gate_state');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_quality_gate_terminal_immutable
+BEFORE UPDATE ON quality_gate
+WHEN OLD.status IN ('passed','changes_requested','rejected','cancelled')
+BEGIN
+  SELECT RAISE(ABORT, 'quality_gate_terminal_immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_quality_gate_evidence_immutable_update
+BEFORE UPDATE ON quality_gate_evidence
+BEGIN
+  SELECT RAISE(ABORT, 'quality_gate_evidence_immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_quality_gate_evidence_immutable_delete
+BEFORE DELETE ON quality_gate_evidence
+WHEN EXISTS (SELECT 1 FROM quality_gate WHERE id=OLD.gate_id)
+BEGIN
+  SELECT RAISE(ABORT, 'quality_gate_evidence_immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_quality_gate_decision_immutable_update
+BEFORE UPDATE ON quality_gate_decision
+BEGIN
+  SELECT RAISE(ABORT, 'quality_gate_decision_immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_quality_gate_decision_immutable_delete
+BEFORE DELETE ON quality_gate_decision
+WHEN EXISTS (SELECT 1 FROM quality_gate WHERE id=OLD.gate_id)
+BEGIN
+  SELECT RAISE(ABORT, 'quality_gate_decision_immutable');
+END;
+`,
+  },
 ];
 
 export function applyMigrations(db: Database.Database): void {

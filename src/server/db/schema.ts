@@ -1334,6 +1334,63 @@ export const autonomousDeliveryRun = sqliteTable('autonomous_delivery_run', {
   index('idx_autonomous_delivery_run_reconcile').on(table.status, table.updatedAt),
 ]);
 
+export const qualityGate = sqliteTable('quality_gate', {
+  id: text('id').primaryKey(),
+  conversationId: text('conversation_id').notNull().references(() => conversation.id, { onDelete: 'cascade' }),
+  kind: text('kind').notNull(),
+  targetType: text('target_type').notNull(),
+  targetId: text('target_id').notNull(),
+  artifactRevision: text('artifact_revision').notNull(),
+  status: text('status').notNull(),
+  criteriaJson: text('criteria_json').notNull(),
+  policyJson: text('policy_json').notNull(),
+  requestedByType: text('requested_by_type').notNull(),
+  requestedBy: text('requested_by').notNull(),
+  evaluatorType: text('evaluator_type'),
+  evaluatorId: text('evaluator_id'),
+  decisionReason: text('decision_reason'),
+  revision: integer('revision').notNull().default(0),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+  decidedAt: text('decided_at'),
+}, (table) => [
+  uniqueIndex('uq_quality_gate_target_revision').on(
+    table.kind,
+    table.targetType,
+    table.targetId,
+    table.artifactRevision,
+  ),
+  index('idx_quality_gate_conversation_status').on(table.conversationId, table.status, table.updatedAt),
+]);
+
+export const qualityGateEvidence = sqliteTable('quality_gate_evidence', {
+  id: text('id').primaryKey(),
+  gateId: text('gate_id').notNull().references(() => qualityGate.id, { onDelete: 'cascade' }),
+  evidenceType: text('evidence_type').notNull(),
+  payloadJson: text('payload_json').notNull(),
+  sourceRef: text('source_ref'),
+  submittedByType: text('submitted_by_type').notNull(),
+  submittedBy: text('submitted_by').notNull(),
+  idempotencyKey: text('idempotency_key').notNull(),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  uniqueIndex('uq_quality_gate_evidence_idempotency').on(table.gateId, table.idempotencyKey),
+  index('idx_quality_gate_evidence_gate').on(table.gateId, table.createdAt),
+]);
+
+export const qualityGateDecision = sqliteTable('quality_gate_decision', {
+  id: text('id').primaryKey(),
+  gateId: text('gate_id').notNull().references(() => qualityGate.id, { onDelete: 'cascade' }),
+  decision: text('decision').notNull(),
+  evaluatorType: text('evaluator_type').notNull(),
+  evaluatorId: text('evaluator_id').notNull(),
+  reason: text('reason'),
+  evidenceIdsJson: text('evidence_ids_json').notNull(),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  uniqueIndex('uq_quality_gate_decision_gate').on(table.gateId),
+]);
+
 export const autonomousDeliveryAction = sqliteTable('autonomous_delivery_action', {
   id: text('id').primaryKey(),
   runId: text('run_id').notNull().references(() => autonomousDeliveryRun.id, { onDelete: 'cascade' }),

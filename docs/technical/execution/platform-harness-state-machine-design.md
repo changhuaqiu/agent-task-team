@@ -285,6 +285,37 @@ migration 58 将旧阶段型状态归一化：阶段词映射为 `active + curre
 明确的 legacy reason。代码 owner 使用 revision CAS 和显式 `transitionRun`；数据库 trigger
 同时拒绝非法跃迁、无 reason 的 `waiting_human`、无 DeliveryBundle 的 `completed` 和终态复活。
 
+### 5.6 QualityGate 的目标聚合边界
+
+Review、verification 和交付证据不再各自保存一套“通过/失败”事实。唯一权威聚合为：
+
+```text
+QualityGate {
+  kind
+  targetType / targetId
+  artifactRevision
+  criteria / policy
+  status
+  revision
+}
+
+GateEvidence[]    // immutable append-only
+GateDecision      // one terminal decision per Gate
+```
+
+状态机固定为：
+
+```text
+requested -> evaluating -> passed
+                        \-> changes_requested
+                        \-> rejected
+requested / evaluating -> cancelled
+```
+
+同一个 target 的新 artifact revision 必须创建新的 Gate；旧 Gate 的通过不能覆盖新提交。
+`passed` 必须引用本 Gate 的 Evidence identity。工程协作卡片、Task Action、Proof Log 和
+Delivery Receipt 都只能作为 Gate 的输入证据或投影，不能再自行宣告审查结论。
+
 Effect 创建时必须冻结：
 
 ```text

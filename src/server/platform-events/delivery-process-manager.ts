@@ -20,7 +20,7 @@ export class DeliveryProcessManager {
   readonly handle: PlatformEventHandler = async (event, { signal }) => {
     if (
       event.category !== 'domain'
-      || (!event.type.startsWith('task.') && !event.type.startsWith('review.'))
+      || (!event.type.startsWith('task.') && !event.type.startsWith('gate.'))
     ) return;
     if (signal.aborted) throw signal.reason ?? new Error('delivery_process_manager_aborted');
     await this.delivery.advanceProject(

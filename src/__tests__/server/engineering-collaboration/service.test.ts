@@ -12,6 +12,7 @@ import { EngineeringCollaborationError, EngineeringCollaborationService } from '
 import type { GitProviderVerifier } from '@/server/engineering-collaboration/git-provider';
 import type { MergeReceipt, PullRequestReceipt, ReviewReceipt } from '@/lib/engineering-collaboration/types';
 import { PlatformEventLog } from '@/server/platform-events/event-log';
+import { qualityGateRepo } from '@/server/quality-gate/repository';
 
 const pullRequest: PullRequestReceipt = {
   provider: 'github', repository: 'acme/widget', number: 42, title: 'Fix checkout',
@@ -83,9 +84,13 @@ describe('EngineeringCollaborationService', () => {
     } });
     expect(proofLogRepo.findByType({ eventType: 'engineering.pull_request.verified', conversationId: 'conv-pr-loop', taskId: 'TASK-PR' })).toHaveLength(1);
     const submitted = new PlatformEventLog().listByProjectAgent('conv-pr-loop', 'luigi')
-      .find((event) => event.type === 'review.submitted')!;
+      .find((event) => event.type === 'gate.requested')!;
     expect(submitted.actor).toEqual({ type: 'agent', id: 'luigi' });
-    expect(submitted.payload).toEqual({ taskId: 'TASK-PR' });
+    expect(submitted.payload).toMatchObject({
+      kind: 'code_review',
+      targetId: 'TASK-PR',
+      artifactRevision: pullRequest.headSha,
+    });
   });
 
   it('rejects PR submission from an agent that does not own the task', async () => {
@@ -125,11 +130,12 @@ describe('EngineeringCollaborationService', () => {
       taskId: 'TASK-PR', agentId: 'luigi', reasonCode: 'review_changes_requested',
     }));
     const rejectedEvent = new PlatformEventLog().listByProjectAgent('conv-pr-loop', 'peach')
-      .find((event) => event.type === 'review.rejected')!;
+      .find((event) => event.type === 'gate.changes_requested')!;
     expect(rejectedEvent.actor).toEqual({ type: 'agent', id: 'peach' });
     expect(rejectedEvent.payload).toMatchObject({
-      taskId: 'TASK-PR',
-      reviewerId: 'peach',
+      targetId: 'TASK-PR',
+      evaluatorId: 'peach',
+      artifactRevision: pullRequest.headSha,
     });
   });
 
@@ -304,13 +310,12 @@ describe('EngineeringCollaborationService', () => {
     expect(JSON.parse(messageRepo.getById(result.messageId)!.metadata!)).toMatchObject({ collaborationCard: {
       kind: 'merge', receipt: { mergeSha: merge.mergeSha }, evidence: { mainTestResult: 'all passed' },
     } });
-    const mergedEvent = new PlatformEventLog().listByProjectAgent('conv-pr-loop', 'mario')
-      .find((event) => event.type === 'review.merged')!;
-    expect(mergedEvent.actor).toEqual({ type: 'agent', id: 'mario' });
-    expect(mergedEvent.payload).toMatchObject({
-      taskId: 'TASK-PR',
-      reviewerId: 'peach',
-    });
+    expect(qualityGateRepo.find({
+      kind: 'code_review',
+      targetType: 'task',
+      targetId: 'TASK-PR',
+      artifactRevision: pullRequest.headSha,
+    })?.gate.status).toBe('passed');
   });
 
   it('does not let an evidence-only comment authorize merge closure', async () => {

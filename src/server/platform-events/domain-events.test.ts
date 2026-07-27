@@ -37,7 +37,7 @@ describe('domain event inline seam', () => {
 
   it('keeps the complete catalog assigned to exactly nine domain owners', () => {
     expect(Object.keys(DOMAIN_EVENT_TYPES_BY_OWNER)).toEqual([
-      'task', 'review', 'delivery', 'a2a', 'envelope',
+      'task', 'gate', 'delivery', 'a2a', 'envelope',
       'binding', 'node', 'invocation', 'session',
     ]);
     const types = Object.values(DOMAIN_EVENT_TYPES_BY_OWNER).flat();

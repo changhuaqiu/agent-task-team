@@ -11,10 +11,43 @@ export interface DomainEventPayloadMap {
   'task.done': { previousStatus: string; status: string; agentId: string };
   'task.blocked': { previousStatus: string; status: string; agentId: string; reviewNote?: string };
   'task.cancelled': { previousStatus: string; status: string; agentId: string };
-  'review.submitted': { taskId: string; reviewerId?: string };
-  'review.approved': { taskId: string; reviewerId?: string };
-  'review.rejected': { taskId: string; reviewerId?: string; reason?: string };
-  'review.merged': { taskId: string; reviewerId?: string };
+  'gate.requested': {
+    kind: string;
+    targetType: string;
+    targetId: string;
+    artifactRevision: string;
+    status: string;
+  };
+  'gate.evidence_submitted': { gateId: string; evidenceId: string; evidenceType: string };
+  'gate.evaluating': { gateId: string; evaluatorId: string };
+  'gate.passed': {
+    gateId: string;
+    kind: string;
+    targetId: string;
+    artifactRevision: string;
+    evaluatorId: string;
+    evidenceIds: string[];
+    reason?: string;
+  };
+  'gate.changes_requested': {
+    gateId: string;
+    kind: string;
+    targetId: string;
+    artifactRevision: string;
+    evaluatorId: string;
+    evidenceIds: string[];
+    reason?: string;
+  };
+  'gate.rejected': {
+    gateId: string;
+    kind: string;
+    targetId: string;
+    artifactRevision: string;
+    evaluatorId: string;
+    evidenceIds: string[];
+    reason?: string;
+  };
+  'gate.cancelled': { gateId: string; actorId: string; reason: string };
   'delivery.run.started': { status: string; stage: string };
   'delivery.run.state_changed': { previousStatus: string; status: string; previousStage: string; stage: string };
   'delivery.run.completed': { previousStatus: string; status: string; stage: string };
@@ -61,7 +94,10 @@ export const DOMAIN_EVENT_TYPES_BY_OWNER = {
     'task.assigned', 'task.ready', 'task.in_progress', 'task.in_review',
     'task.changes_requested', 'task.done', 'task.blocked', 'task.cancelled',
   ],
-  review: ['review.submitted', 'review.approved', 'review.rejected', 'review.merged'],
+  gate: [
+    'gate.requested', 'gate.evidence_submitted', 'gate.evaluating', 'gate.passed',
+    'gate.changes_requested', 'gate.rejected', 'gate.cancelled',
+  ],
   delivery: [
     'delivery.run.started', 'delivery.run.state_changed', 'delivery.run.completed',
     'delivery.run.waiting_human', 'delivery.run.failed', 'delivery.run.cancelled',

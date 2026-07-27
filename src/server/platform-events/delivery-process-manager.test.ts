@@ -20,13 +20,13 @@ function taskEvent(): PlatformEvent {
   };
 }
 
-function reviewEvent(): PlatformEvent {
+function gateEvent(): PlatformEvent {
   return {
     ...taskEvent(),
-    eventId: 'event-review',
-    type: 'review.approved',
-    streamKey: 'review:review-1',
-    aggregate: { type: 'review', id: 'review-1' },
+    eventId: 'event-gate',
+    type: 'gate.passed',
+    streamKey: 'quality_gate:gate-1',
+    aggregate: { type: 'quality_gate', id: 'gate-1' },
     subject: { type: 'task', id: 'task-1' },
   };
 }
@@ -55,18 +55,18 @@ describe('DeliveryProcessManager', () => {
     expect(advanceProject).not.toHaveBeenCalled();
   });
 
-  it('advances immediately from a review fact using the reviewed task as cause', async () => {
+  it('advances immediately from a gate fact using the reviewed task as cause', async () => {
     const advanceProject = vi.fn();
     const manager = new DeliveryProcessManager({ advanceProject });
     const signal = new AbortController().signal;
 
-    await manager.handle(reviewEvent(), { signal });
+    await manager.handle(gateEvent(), { signal });
 
     expect(advanceProject).toHaveBeenCalledWith(
       'project-1',
       { kind: 'fact_changed', ref: 'task-1' },
       signal,
-      'event-review',
+      'event-gate',
     );
   });
 });

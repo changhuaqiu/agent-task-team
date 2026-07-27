@@ -356,7 +356,7 @@ deep module 退化成 shared mutable 全局。
 
 ## 8. A2A 作为 domain 事件的一部分
 
-A2A 不在事件架构里有单独位置——它就是 domain 事件的一部分，与 task/review/delivery 同级。
+A2A 不在事件架构里有单独位置——它就是 domain 事件的一部分，与 task/gate/delivery 同级。
 A2A 的 `a2a.possession.passed` / `a2a.chain.entry_done` 是 domain 事件，走同一条
 ①Router→Inbox 链。
 
@@ -444,7 +444,7 @@ A 调工具 requestHandoff({to:B, prompt, contextRef})
 | 事件类 | 状态 | 说明 |
 | --- | --- | --- |
 | runtime_lifecycle / runtime_activity | ✓ canonical 信封、归一化与 daemon 接线 | 兼容双写已在切片 6 删除 |
-| domain（9 领域） | ✓ typed 目录 + 领域事务内 inline seam | task/review/delivery/a2a/envelope/binding/node/session/invocation |
+| domain（9 领域） | ✓ typed 目录 + 领域事务内 inline seam | task/gate/delivery/a2a/envelope/binding/node/session/invocation |
 | coordination | ✓ 持久 Inbox + enqueued/claimed/admitted/released/expired/cancelled 已落地 | migration 56；Scheduler 经 Harness 提交 |
 
 ### 9.3 domain 事件迁移清单（已完成）
@@ -616,7 +616,7 @@ Session 身份仍由 coordinator 上半部守护；背景活动与 heartbeat 留
 
 - **背景**：9 个领域的状态机全静默纯表写入，零 fan-out。这是"全平台事件驱动"相对
   "runtime 部分事件驱动"的核心价值缺口。
-- **决策**：第一阶段将 9 领域全部转 domain 事件（task/delivery/a2a/envelope/binding/
+- **决策**：第一阶段将 9 领域全部转 domain 事件（task/gate/delivery/a2a/envelope/binding/
   node/session/invocation）。生产用 inline（同事务发事件）。
 - **替代方案**：①只转高价值领域（task/delivery/a2a/envelope）。否决原因：用户明确选
   "全领域都转"。②只从 task 试点。否决原因：用户选"全领域"。

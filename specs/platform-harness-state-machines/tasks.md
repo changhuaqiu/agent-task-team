@@ -56,6 +56,18 @@
 - [ ] 将 Git / Delivery review receipt 接入 Gate owner。
 - [ ] 接通 `requestGate`、`changes_requested`、`passed`。
 
+已完成的子项：
+
+- [x] 建立唯一 `QualityGate + immutable GateEvidence + terminal GateDecision` 聚合，
+  migration 59 和数据库 trigger 拒绝非法迁移、证据篡改与终态复活。
+- [x] Gate identity 绑定 kind、target 和 artifact revision；新 revision 必须创建新 Gate。
+- [x] Git PR 创建 `code_review` Gate；provider-backed review 作为 evidence，由 Gate owner
+  产生 `passed / changes_requested`，Merge 只读取当前 head 对应 Gate decision。
+- [x] `review.submitted/approved/rejected/merged` 不再作为并行权威事件；Delivery Process
+  Manager 改为消费 `gate.*`。
+- [x] QualityGate 基础切片通过 TypeScript、相关 lint 和全量 Vitest
+  （189 files、1455 tests，1 skipped）。
+
 ## S3：Invocation Pipeline
 
 - [ ] 收敛 Inbox、Envelope、Invocation、Session 的关联和终态。

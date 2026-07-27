@@ -143,6 +143,18 @@ Effect Command 创建时冻结 `criticality`、`deliveryRunId`、`appliesFromRev
 revision 仍适用的 blocking Effect，dead-letter 后进入 waiting_human 或 failed；
 non-blocking Effect 可在完成后重放但不能修改完成结果。
 
+## 9.1 QualityGate 聚合契约
+
+唯一 Gate owner 保存 `kind / target / artifactRevision / criteria / policy / status / revision`，
+证据以 immutable `GateEvidence` 追加，终态判定以一对一 `GateDecision` 保存。状态只允许
+`requested -> evaluating -> passed / changes_requested / rejected`，开放状态可以
+`cancelled`；终态不可改写。
+
+`passed` 必须引用至少一条属于当前 Gate 的 evidence。相同 kind、target 和
+artifactRevision 的请求幂等；artifactRevision 改变必须创建新 Gate，旧 decision 不得满足
+新 revision。Git Review、Task evidence、Delivery review/verification receipt 都必须通过
+该 owner 接纳，不得各自保存另一份权威 pass/fail 状态。
+
 ## 10. 错误归一化
 
 至少支持：
