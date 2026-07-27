@@ -3042,6 +3042,64 @@ END;
       `);
     },
   },
+  {
+    version: 66,
+    foreignKeysOff: true,
+    run: (db) => {
+      const exists = db.prepare(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='supervisor_control_action'",
+      ).get();
+      const dependencies = db.prepare(`
+        SELECT COUNT(*) AS count FROM sqlite_master
+        WHERE type='table' AND name IN (
+          'conversation','autonomous_delivery_run','supervisor_control_decision'
+        )
+      `).get() as { count: number };
+      if (!exists || dependencies.count !== 3) return;
+      db.exec(`
+        ALTER TABLE supervisor_control_action RENAME TO supervisor_control_action_v65;
+        CREATE TABLE supervisor_control_action (
+          id TEXT PRIMARY KEY,
+          decision_id TEXT NOT NULL REFERENCES supervisor_control_decision(id) ON DELETE CASCADE,
+          run_id TEXT NOT NULL REFERENCES autonomous_delivery_run(id) ON DELETE CASCADE,
+          type TEXT NOT NULL CHECK(type IN (
+            'initializeGraph','activate','retry','requestGate','integrate','finalize',
+            'resume','escalateToHuman','terminate'
+          )),
+          target_work_id TEXT,
+          work_epoch INTEGER,
+          slot_id TEXT,
+          reason_code TEXT NOT NULL,
+          retry_budget_kind TEXT CHECK(retry_budget_kind IS NULL OR retry_budget_kind IN (
+            'invocation','effect','task_rework','agent_local'
+          )),
+          termination_outcome TEXT CHECK(
+            termination_outcome IS NULL OR termination_outcome IN ('completed','failed')
+          ),
+          status TEXT NOT NULL CHECK(status IN ('ready','claimed','applied','failed','cancelled')),
+          claim_token TEXT,
+          lease_owner TEXT,
+          lease_expires_at TEXT,
+          failure_code TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          completed_at TEXT,
+          CHECK(
+            (target_work_id IS NULL AND work_epoch IS NULL)
+            OR (target_work_id IS NOT NULL AND work_epoch IS NOT NULL AND work_epoch>=0)
+          )
+        );
+        INSERT INTO supervisor_control_action
+          SELECT * FROM supervisor_control_action_v65;
+        DROP TABLE supervisor_control_action_v65;
+        CREATE INDEX idx_supervisor_control_action_claim
+          ON supervisor_control_action(run_id,status,created_at);
+        CREATE UNIQUE INDEX uq_supervisor_control_active_slot
+          ON supervisor_control_action(run_id,slot_id)
+          WHERE slot_id IS NOT NULL AND type='activate' AND status IN ('claimed','applied');
+      `);
+    },
+  },
 ];
 
 export function applyMigrations(db: Database.Database): void {

@@ -167,8 +167,10 @@
 - [x] required Tasks 完成后生成独立 Delivery review/verification Gate Work Cells：先由
   `requestGate` 调 Gate owner，再分别以 `review_gate/test_gate` 激活 Reviewer/QA；
   两者拥有不同 workId/epoch/slot，任一等待不阻塞另一个可运行 Cell。
-- [ ] 用新 DeliveryControlProcessManager 替换 bootstrap 中旧
-  `decideDeliveryNext` 单动作循环，并删除旧 policy/action 状态。
+- [x] production bootstrap 已切换到 `DeliveryControlRuntime +
+  DeliveryControlProcessManager`；外部 start/get/advance 端口不变，内部不再创建旧
+  `autonomous_delivery_action/attempt`。
+- [ ] 删除旧 `decideDeliveryNext`、Supervisor、production adapters 与旧 action/attempt 状态。
 - [x] 建立稳定 wait-for graph cycle 检测，Task dependency deadlock 进入 Human escalation，
   不消耗 Invocation/Effect/Task rework/Agent-local 任一重试预算。
 - [ ] 将 A2A join、Gate 与容量等待边接入 wait-for graph，并定义可自动打破的安全边。

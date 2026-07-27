@@ -1,28 +1,21 @@
 import type { Server as IOServer } from 'socket.io';
-import {
-  HarnessDeliveryActionAdapter,
-  RepositoryDeliveryFactsAdapter,
-} from './production-adapters';
 import { autonomousDeliveryRepo } from './repository';
 import {
   getAutonomousDeliverySupervisor,
   reconcileAutonomousDeliveryConversation,
   registerAutonomousDeliverySupervisor,
 } from './registry';
-import { AutonomousDeliverySupervisor } from './supervisor';
-import { GitHubProviderActionAdapter } from './provider-actions';
 import { deliveryAdvancementQueue } from './advancement-queue';
+import {
+  DeliveryControlRuntime,
+  type AutonomousDeliveryRuntimePort,
+} from './control-runtime';
 
 const RECONCILE_TIMER_KEY = Symbol.for('agent-task-hub.autonomous-delivery.reconcile-timer');
 const ADVANCEMENT_TIMER_KEY = Symbol.for('agent-task-hub.autonomous-delivery.advancement-timer');
 
-function deliveryLeaseMs(): number {
-  const configured = Number(process.env.AUTONOMOUS_DELIVERY_LEASE_MS);
-  return Number.isFinite(configured) && configured > 0 ? configured : 60_000;
-}
-
 async function reconcileActiveRuns(
-  supervisor: AutonomousDeliverySupervisor,
+  supervisor: AutonomousDeliveryRuntimePort,
   reason: 'startup' | 'periodic',
 ): Promise<void> {
   for (const run of autonomousDeliveryRepo.listReconcileCandidates()) {
@@ -37,15 +30,11 @@ async function reconcileActiveRuns(
 export function ensureAutonomousDeliveryRuntime(
   io: IOServer,
   workerId = 'server:autonomous-delivery',
-): AutonomousDeliverySupervisor {
+): AutonomousDeliveryRuntimePort {
   const existing = getAutonomousDeliverySupervisor(io);
   const supervisor = existing ?? (() => {
-    const provider = new GitHubProviderActionAdapter();
-    const created = new AutonomousDeliverySupervisor({
-      facts: new RepositoryDeliveryFactsAdapter(provider),
-      actions: new HarnessDeliveryActionAdapter(io, provider),
+    const created = new DeliveryControlRuntime({
       workerId,
-      leaseMs: deliveryLeaseMs(),
     });
     registerAutonomousDeliverySupervisor(io, created);
     return created;

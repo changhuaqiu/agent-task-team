@@ -574,6 +574,9 @@ required Tasks 全部完成后，Delivery review 与 acceptance verification 分
 Gate Work Cell。缺少 Gate 时先发 `requestGate` owner Command；Gate requested 后再以
 `review_gate / test_gate` 激活 Reviewer/QA。二者使用不同 workId、WorkContract、epoch
 和 slot，因此一个评审等待不会把另一个验收 Cell 或其他 Agent 工作串行化。
+生产 bootstrap 现由 `DeliveryControlRuntime` 提供兼容的 `start/get/advance` 外观，
+内部唯一推进器是 `DeliveryControlProcessManager`；新运行不再创建旧
+`autonomous_delivery_action/attempt`。旧 Supervisor 与表结构仅等待 S6 删除，不再位于生产路径。
 
 优先级固定为：安全/合法性 > 回收失效 authority > Gate/Human 恢复 > 可恢复重试 >
 在剩余容量内新激活 > 收口。某个 Cell 的 `wait` 只描述该 Cell，不阻止其他 Cell 激活。

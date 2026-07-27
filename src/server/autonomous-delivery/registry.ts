@@ -4,27 +4,27 @@ import type {
   AdvanceResult,
   AdvancementCause,
 } from './supervisor';
-import { AutonomousDeliverySupervisor } from './supervisor';
+import type { AutonomousDeliveryRuntimePort } from './control-runtime';
 import { autonomousDeliveryRepo } from './repository';
 
-const supervisors = new WeakMap<IOServer, AutonomousDeliverySupervisor>();
+const supervisors = new WeakMap<IOServer, AutonomousDeliveryRuntimePort>();
 const SUPERVISOR_KEY = Symbol.for('agent-task-hub.autonomous-delivery.supervisor');
 
-function getSupervisor(io: IOServer | undefined): AutonomousDeliverySupervisor | undefined {
+function getSupervisor(io: IOServer | undefined): AutonomousDeliveryRuntimePort | undefined {
   if (!io) return undefined;
   return supervisors.get(io)
-    ?? ((io as unknown as Record<symbol, unknown>)[SUPERVISOR_KEY] as AutonomousDeliverySupervisor | undefined);
+    ?? ((io as unknown as Record<symbol, unknown>)[SUPERVISOR_KEY] as AutonomousDeliveryRuntimePort | undefined);
 }
 
 export function getAutonomousDeliverySupervisor(
   io: IOServer | undefined,
-): AutonomousDeliverySupervisor | undefined {
+): AutonomousDeliveryRuntimePort | undefined {
   return getSupervisor(io);
 }
 
 export function registerAutonomousDeliverySupervisor(
   io: IOServer,
-  supervisor: AutonomousDeliverySupervisor,
+  supervisor: AutonomousDeliveryRuntimePort,
 ): void {
   supervisors.set(io, supervisor);
   // Next.js may evaluate API routes and daemon setup in separate bundles.
@@ -35,7 +35,7 @@ export function registerAutonomousDeliverySupervisor(
 export function startAutonomousDelivery(
   io: IOServer | undefined,
   contract: GoalContract,
-): ReturnType<AutonomousDeliverySupervisor['start']> | undefined {
+): ReturnType<AutonomousDeliveryRuntimePort['start']> | undefined {
   return getSupervisor(io)?.start(contract);
 }
 
