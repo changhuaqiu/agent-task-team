@@ -605,7 +605,7 @@ describe('SQLite Foundation', () => {
     expect(db.prepare('SELECT version FROM _schema_version WHERE version = 40').get())
       .toEqual({ version: 40 });
     expect(db.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-      .toEqual({ version: 73 });
+      .toEqual({ version: 74 });
   });
 
   it('retires the parallel A2A worklist schema at migration 62', () => {
@@ -654,7 +654,7 @@ describe('SQLite Foundation', () => {
           'autonomous_delivery_advancement_request',
         ]));
         expect(checkpoint.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-          .toEqual({ version: 73 });
+          .toEqual({ version: 74 });
         expect(checkpoint.pragma('foreign_key_check')).toEqual([]);
       } finally {
         checkpoint.close();

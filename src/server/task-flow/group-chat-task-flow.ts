@@ -9,12 +9,14 @@ import {
 
 type ActorType = 'user' | 'agent' | 'system';
 
-interface FlowActorInput {
+export interface FlowActorInput {
   actorId: string;
   actorType: ActorType;
+  expectedRevision: number;
+  idempotencyKey: string;
 }
 
-interface CreateRootTaskInput extends FlowActorInput {
+export interface CreateRootTaskInput extends FlowActorInput {
   conversationId: string;
   title: string;
   description?: string;
@@ -34,7 +36,7 @@ interface SplitDependencyByTitle {
   toTitle: string;
 }
 
-interface SplitTaskInput extends FlowActorInput {
+export interface SplitTaskInput extends FlowActorInput {
   conversationId: string;
   parentTaskId: string;
   children: SplitChildInput[];
@@ -42,7 +44,7 @@ interface SplitTaskInput extends FlowActorInput {
   messageId?: string;
 }
 
-interface MergeTaskInput extends FlowActorInput {
+export interface MergeTaskInput extends FlowActorInput {
   conversationId: string;
   sourceTaskIds: string[];
   target: {
@@ -54,7 +56,7 @@ interface MergeTaskInput extends FlowActorInput {
   messageId?: string;
 }
 
-interface ReopenTaskInput extends FlowActorInput {
+export interface ReopenTaskInput extends FlowActorInput {
   conversationId: string;
   sourceTaskId: string;
   title: string;
@@ -64,27 +66,27 @@ interface ReopenTaskInput extends FlowActorInput {
   messageId?: string;
 }
 
-interface BlockTaskInput extends FlowActorInput {
+export interface BlockTaskInput extends FlowActorInput {
   conversationId: string;
   taskId: string;
   reason: string;
   messageId?: string;
 }
 
-interface ResumeTaskInput extends FlowActorInput {
+export interface ResumeTaskInput extends FlowActorInput {
   conversationId: string;
   taskId: string;
   messageId?: string;
 }
 
-interface CancelTaskInput extends FlowActorInput {
+export interface CancelTaskInput extends FlowActorInput {
   conversationId: string;
   taskId: string;
   reason?: string;
   messageId?: string;
 }
 
-interface AssignTaskInput extends FlowActorInput {
+export interface AssignTaskInput extends FlowActorInput {
   conversationId: string;
   taskId: string;
   ownerAgentId: string;
@@ -142,39 +144,66 @@ function assertFlowTask(taskId: string, conversationId: string): TaskRow {
   return task;
 }
 
+function mutateFlow<T>(
+  input: FlowActorInput & { conversationId: string },
+  operation: string,
+  request: unknown,
+  execute: () => { actionId: string; result: T },
+): T {
+  return taskGraphRepo.mutate({
+    conversationId: input.conversationId,
+    expectedRevision: input.expectedRevision,
+    idempotencyKey: input.idempotencyKey,
+    operation,
+    request: {
+      actorId: input.actorId,
+      actorType: input.actorType,
+      value: request,
+    },
+    execute,
+  }).result;
+}
+
 export const groupChatTaskFlow = {
   createRootTask(input: CreateRootTaskInput): {
     task: TaskRow;
     action: TaskActionRow;
     bindings: ChatTaskBindingRow[];
   } {
-    const task = createTask({
-      conversationId: input.conversationId,
+    return mutateFlow(input, 'createRootTask', {
       title: input.title,
       description: input.description,
       ownerAgentId: input.ownerAgentId,
-    });
-    const action = taskGraphRepo.appendAction({
-      conversationId: input.conversationId,
-      actorId: input.actorId,
-      actorType: input.actorType,
-      type: 'task.created',
-      taskIds: [task.id],
       messageId: input.messageId,
-      payload: {
+    }, () => {
+      const task = createTask({
+        conversationId: input.conversationId,
         title: input.title,
         description: input.description,
         ownerAgentId: input.ownerAgentId,
-      },
-    });
-    const bindings = bindMessageToTasks({
-      conversationId: input.conversationId,
-      messageId: input.messageId,
-      taskIds: [task.id],
-      actionId: action.id,
-    });
+      });
+      const action = taskGraphRepo.appendAction({
+        conversationId: input.conversationId,
+        actorId: input.actorId,
+        actorType: input.actorType,
+        type: 'task.created',
+        taskIds: [task.id],
+        messageId: input.messageId,
+        payload: {
+          title: input.title,
+          description: input.description,
+          ownerAgentId: input.ownerAgentId,
+        },
+      });
+      const bindings = bindMessageToTasks({
+        conversationId: input.conversationId,
+        messageId: input.messageId,
+        taskIds: [task.id],
+        actionId: action.id,
+      });
 
-    return { task, action, bindings };
+      return { actionId: action.id, result: { task, action, bindings } };
+    });
   },
 
   splitTask(input: SplitTaskInput): {
@@ -184,85 +213,87 @@ export const groupChatTaskFlow = {
     edges: TaskEdgeRow[];
     bindings: ChatTaskBindingRow[];
   } {
-    const parent = taskRepo.getById(input.parentTaskId);
-    if (!parent) throw new Error(`Parent task ${input.parentTaskId} not found`);
-    if (parent.conversation_id !== input.conversationId) {
-      throw new Error(`Parent task ${input.parentTaskId} does not belong to conversation ${input.conversationId}`);
-    }
-
-    const children = input.children.map((child) =>
-      createTask({
-        conversationId: input.conversationId,
-        title: child.title,
-        description: child.description,
-        ownerAgentId: child.ownerAgentId,
-      }),
-    );
-    const allTaskIds = [parent.id, ...children.map((child) => child.id)];
-    const action = taskGraphRepo.appendAction({
-      conversationId: input.conversationId,
-      actorId: input.actorId,
-      actorType: input.actorType,
-      type: 'task.split',
-      taskIds: allTaskIds,
+    return mutateFlow(input, 'splitTask', {
+      parentTaskId: input.parentTaskId,
+      children: input.children,
+      dependencies: input.dependencies,
       messageId: input.messageId,
-      payload: {
-        parentTaskId: parent.id,
-        children: children.map((child) => ({
-          id: child.id,
+    }, () => {
+      const parent = assertFlowTask(input.parentTaskId, input.conversationId);
+      const children = input.children.map((child) =>
+        createTask({
+          conversationId: input.conversationId,
           title: child.title,
-          ownerAgentId: child.agent_id,
-        })),
-      },
-    });
-
-    const edges: TaskEdgeRow[] = children.map((child) =>
-      taskGraphRepo.addEdge({
+          description: child.description,
+          ownerAgentId: child.ownerAgentId,
+        }),
+      );
+      const allTaskIds = [parent.id, ...children.map((child) => child.id)];
+      const action = taskGraphRepo.appendAction({
         conversationId: input.conversationId,
-        fromTaskId: child.id,
-        toTaskId: parent.id,
-        type: 'subtask_of',
-        createdByActionId: action.id,
-      }),
-    );
+        actorId: input.actorId,
+        actorType: input.actorType,
+        type: 'task.split',
+        taskIds: allTaskIds,
+        messageId: input.messageId,
+        payload: {
+          parentTaskId: parent.id,
+          children: children.map((child) => ({
+            id: child.id,
+            title: child.title,
+            ownerAgentId: child.agent_id,
+          })),
+        },
+      });
 
-    const byTitle = titleIndex(children);
-    for (const child of children) {
-      const definition = input.children.find((item) => item.title === child.title);
-      for (const dependencyTaskId of definition?.dependsOnTaskIds ?? []) {
+      const edges: TaskEdgeRow[] = children.map((child) =>
+        taskGraphRepo.addEdge({
+          conversationId: input.conversationId,
+          fromTaskId: child.id,
+          toTaskId: parent.id,
+          type: 'subtask_of',
+          createdByActionId: action.id,
+        }),
+      );
+
+      const byTitle = titleIndex(children);
+      for (const child of children) {
+        const definition = input.children.find((item) => item.title === child.title);
+        for (const dependencyTaskId of definition?.dependsOnTaskIds ?? []) {
+          edges.push(taskGraphRepo.addEdge({
+            conversationId: input.conversationId,
+            fromTaskId: dependencyTaskId,
+            toTaskId: child.id,
+            type: 'depends_on',
+            createdByActionId: action.id,
+          }));
+        }
+      }
+
+      for (const dependency of input.dependencies ?? []) {
+        const from = byTitle.get(dependency.fromTitle);
+        const to = byTitle.get(dependency.toTitle);
+        if (!from || !to) {
+          throw new Error(`Split dependency references unknown child title: ${dependency.fromTitle} -> ${dependency.toTitle}`);
+        }
         edges.push(taskGraphRepo.addEdge({
           conversationId: input.conversationId,
-          fromTaskId: dependencyTaskId,
-          toTaskId: child.id,
+          fromTaskId: from.id,
+          toTaskId: to.id,
           type: 'depends_on',
           createdByActionId: action.id,
         }));
       }
-    }
 
-    for (const dependency of input.dependencies ?? []) {
-      const from = byTitle.get(dependency.fromTitle);
-      const to = byTitle.get(dependency.toTitle);
-      if (!from || !to) {
-        throw new Error(`Split dependency references unknown child title: ${dependency.fromTitle} -> ${dependency.toTitle}`);
-      }
-      edges.push(taskGraphRepo.addEdge({
+      const bindings = bindMessageToTasks({
         conversationId: input.conversationId,
-        fromTaskId: from.id,
-        toTaskId: to.id,
-        type: 'depends_on',
-        createdByActionId: action.id,
-      }));
-    }
+        messageId: input.messageId,
+        taskIds: allTaskIds,
+        actionId: action.id,
+      });
 
-    const bindings = bindMessageToTasks({
-      conversationId: input.conversationId,
-      messageId: input.messageId,
-      taskIds: allTaskIds,
-      actionId: action.id,
+      return { actionId: action.id, result: { parent, children, action, edges, bindings } };
     });
-
-    return { parent, children, action, edges, bindings };
   },
 
   mergeTasks(input: MergeTaskInput): {
@@ -273,58 +304,53 @@ export const groupChatTaskFlow = {
     bindings: ChatTaskBindingRow[];
   } {
     if (input.sourceTaskIds.length === 0) throw new Error('mergeTasks requires at least one source task');
-    const sources = input.sourceTaskIds.map((taskId) => {
-      const task = taskRepo.getById(taskId);
-      if (!task) throw new Error(`Source task ${taskId} not found`);
-      if (task.conversation_id !== input.conversationId) {
-        throw new Error(`Source task ${taskId} does not belong to conversation ${input.conversationId}`);
-      }
-      return task;
-    });
+    return mutateFlow(input, 'mergeTasks', {
+      sourceTaskIds: input.sourceTaskIds,
+      target: input.target,
+      messageId: input.messageId,
+    }, () => {
+      const sources = input.sourceTaskIds.map((taskId) =>
+        assertFlowTask(taskId, input.conversationId),
+      );
+      const target = input.target.taskId
+        ? assertFlowTask(input.target.taskId, input.conversationId)
+        : createTask({
+          conversationId: input.conversationId,
+          title: input.target.title,
+          description: input.target.description,
+          ownerAgentId: input.target.ownerAgentId,
+        });
 
-    const target = input.target.taskId
-      ? taskRepo.getById(input.target.taskId)
-      : createTask({
+      const action = taskGraphRepo.appendAction({
         conversationId: input.conversationId,
-        title: input.target.title,
-        description: input.target.description,
-        ownerAgentId: input.target.ownerAgentId,
+        actorId: input.actorId,
+        actorType: input.actorType,
+        type: 'task.merged',
+        taskIds: [...sources.map((source) => source.id), target.id],
+        messageId: input.messageId,
+        payload: {
+          sourceTaskIds: sources.map((source) => source.id),
+          targetTaskId: target.id,
+        },
       });
-    if (!target) throw new Error(`Target task ${input.target.taskId} not found`);
-    if (target.conversation_id !== input.conversationId) {
-      throw new Error(`Target task ${target.id} does not belong to conversation ${input.conversationId}`);
-    }
-
-    const action = taskGraphRepo.appendAction({
-      conversationId: input.conversationId,
-      actorId: input.actorId,
-      actorType: input.actorType,
-      type: 'task.merged',
-      taskIds: [...sources.map((source) => source.id), target.id],
-      messageId: input.messageId,
-      payload: {
-        sourceTaskIds: sources.map((source) => source.id),
-        targetTaskId: target.id,
-      },
-    });
-
-    const edges = sources.map((source) =>
-      taskGraphRepo.addEdge({
+      const edges = sources.map((source) =>
+        taskGraphRepo.addEdge({
+          conversationId: input.conversationId,
+          fromTaskId: source.id,
+          toTaskId: target.id,
+          type: 'merged_into',
+          createdByActionId: action.id,
+        }),
+      );
+      const bindings = bindMessageToTasks({
         conversationId: input.conversationId,
-        fromTaskId: source.id,
-        toTaskId: target.id,
-        type: 'merged_into',
-        createdByActionId: action.id,
-      }),
-    );
-    const bindings = bindMessageToTasks({
-      conversationId: input.conversationId,
-      messageId: input.messageId,
-      taskIds: [...sources.map((source) => source.id), target.id],
-      actionId: action.id,
-    });
+        messageId: input.messageId,
+        taskIds: [...sources.map((source) => source.id), target.id],
+        actionId: action.id,
+      });
 
-    return { sources, target, action, edges, bindings };
+      return { actionId: action.id, result: { sources, target, action, edges, bindings } };
+    });
   },
 
   reopenTask(input: ReopenTaskInput): {
@@ -334,49 +360,50 @@ export const groupChatTaskFlow = {
     edge: TaskEdgeRow;
     bindings: ChatTaskBindingRow[];
   } {
-    const sourceTask = taskRepo.getById(input.sourceTaskId);
-    if (!sourceTask) throw new Error(`Source task ${input.sourceTaskId} not found`);
-    if (sourceTask.conversation_id !== input.conversationId) {
-      throw new Error(`Source task ${input.sourceTaskId} does not belong to conversation ${input.conversationId}`);
-    }
-
-    const correctiveTask = createTask({
-      conversationId: input.conversationId,
+    return mutateFlow(input, 'reopenTask', {
+      sourceTaskId: input.sourceTaskId,
       title: input.title,
-      description: input.description ?? input.reason,
+      reason: input.reason,
       ownerAgentId: input.ownerAgentId,
-    });
-
-    const action = taskGraphRepo.appendAction({
-      conversationId: input.conversationId,
-      actorId: input.actorId,
-      actorType: input.actorType,
-      type: 'task.reopened',
-      taskIds: [sourceTask.id, correctiveTask.id],
+      description: input.description,
       messageId: input.messageId,
-      payload: {
-        sourceTaskId: sourceTask.id,
-        correctiveTaskId: correctiveTask.id,
-        reason: input.reason,
-      },
-    });
+    }, () => {
+      const sourceTask = assertFlowTask(input.sourceTaskId, input.conversationId);
+      const correctiveTask = createTask({
+        conversationId: input.conversationId,
+        title: input.title,
+        description: input.description ?? input.reason,
+        ownerAgentId: input.ownerAgentId,
+      });
+      const action = taskGraphRepo.appendAction({
+        conversationId: input.conversationId,
+        actorId: input.actorId,
+        actorType: input.actorType,
+        type: 'task.reopened',
+        taskIds: [sourceTask.id, correctiveTask.id],
+        messageId: input.messageId,
+        payload: {
+          sourceTaskId: sourceTask.id,
+          correctiveTaskId: correctiveTask.id,
+          reason: input.reason,
+        },
+      });
+      const edge = taskGraphRepo.addEdge({
+        conversationId: input.conversationId,
+        fromTaskId: correctiveTask.id,
+        toTaskId: sourceTask.id,
+        type: 'reopens',
+        createdByActionId: action.id,
+      });
+      const bindings = bindMessageToTasks({
+        conversationId: input.conversationId,
+        messageId: input.messageId,
+        taskIds: [sourceTask.id, correctiveTask.id],
+        actionId: action.id,
+      });
 
-    const edge = taskGraphRepo.addEdge({
-      conversationId: input.conversationId,
-      fromTaskId: correctiveTask.id,
-      toTaskId: sourceTask.id,
-      type: 'reopens',
-      createdByActionId: action.id,
+      return { actionId: action.id, result: { sourceTask, correctiveTask, action, edge, bindings } };
     });
-
-    const bindings = bindMessageToTasks({
-      conversationId: input.conversationId,
-      messageId: input.messageId,
-      taskIds: [sourceTask.id, correctiveTask.id],
-      actionId: action.id,
-    });
-
-    return { sourceTask, correctiveTask, action, edge, bindings };
   },
 
   blockTask(input: BlockTaskInput): {
@@ -384,24 +411,30 @@ export const groupChatTaskFlow = {
     action: TaskActionRow;
     bindings: ChatTaskBindingRow[];
   } {
-    assertFlowTask(input.taskId, input.conversationId);
-    const task = transitionTask(input.taskId, 'blocked');
-    const action = taskGraphRepo.appendAction({
-      conversationId: input.conversationId,
-      actorId: input.actorId,
-      actorType: input.actorType,
-      type: 'task.blocked',
-      taskIds: [input.taskId],
+    return mutateFlow(input, 'blockTask', {
+      taskId: input.taskId,
+      reason: input.reason,
       messageId: input.messageId,
-      payload: { reason: input.reason },
+    }, () => {
+      assertFlowTask(input.taskId, input.conversationId);
+      const task = transitionTask(input.taskId, 'blocked');
+      const action = taskGraphRepo.appendAction({
+        conversationId: input.conversationId,
+        actorId: input.actorId,
+        actorType: input.actorType,
+        type: 'task.blocked',
+        taskIds: [input.taskId],
+        messageId: input.messageId,
+        payload: { reason: input.reason },
+      });
+      const bindings = bindMessageToTasks({
+        conversationId: input.conversationId,
+        messageId: input.messageId,
+        taskIds: [input.taskId],
+        actionId: action.id,
+      });
+      return { actionId: action.id, result: { task, action, bindings } };
     });
-    const bindings = bindMessageToTasks({
-      conversationId: input.conversationId,
-      messageId: input.messageId,
-      taskIds: [input.taskId],
-      actionId: action.id,
-    });
-    return { task, action, bindings };
   },
 
   resumeTask(input: ResumeTaskInput): {
@@ -409,24 +442,29 @@ export const groupChatTaskFlow = {
     action: TaskActionRow;
     bindings: ChatTaskBindingRow[];
   } {
-    assertFlowTask(input.taskId, input.conversationId);
-    const task = transitionTask(input.taskId, 'ready');
-    const action = taskGraphRepo.appendAction({
-      conversationId: input.conversationId,
-      actorId: input.actorId,
-      actorType: input.actorType,
-      type: 'task.resumed',
-      taskIds: [input.taskId],
+    return mutateFlow(input, 'resumeTask', {
+      taskId: input.taskId,
       messageId: input.messageId,
-      payload: {},
+    }, () => {
+      assertFlowTask(input.taskId, input.conversationId);
+      const task = transitionTask(input.taskId, 'ready');
+      const action = taskGraphRepo.appendAction({
+        conversationId: input.conversationId,
+        actorId: input.actorId,
+        actorType: input.actorType,
+        type: 'task.resumed',
+        taskIds: [input.taskId],
+        messageId: input.messageId,
+        payload: {},
+      });
+      const bindings = bindMessageToTasks({
+        conversationId: input.conversationId,
+        messageId: input.messageId,
+        taskIds: [input.taskId],
+        actionId: action.id,
+      });
+      return { actionId: action.id, result: { task, action, bindings } };
     });
-    const bindings = bindMessageToTasks({
-      conversationId: input.conversationId,
-      messageId: input.messageId,
-      taskIds: [input.taskId],
-      actionId: action.id,
-    });
-    return { task, action, bindings };
   },
 
   assignTask(input: AssignTaskInput): {
@@ -434,29 +472,35 @@ export const groupChatTaskFlow = {
     action: TaskActionRow;
     bindings: ChatTaskBindingRow[];
   } {
-    const current = assertFlowTask(input.taskId, input.conversationId);
-    taskRepo.update(input.taskId, { agent_id: input.ownerAgentId });
-    const task = taskRepo.getById(input.taskId);
-    if (!task) throw new Error(`Task ${input.taskId} not found after assignment`);
-    const action = taskGraphRepo.appendAction({
-      conversationId: input.conversationId,
-      actorId: input.actorId,
-      actorType: input.actorType,
-      type: 'task.claimed',
-      taskIds: [input.taskId],
+    return mutateFlow(input, 'assignTask', {
+      taskId: input.taskId,
+      ownerAgentId: input.ownerAgentId,
       messageId: input.messageId,
-      payload: {
-        previousOwnerAgentId: current.agent_id,
-        ownerAgentId: input.ownerAgentId,
-      },
+    }, () => {
+      const current = assertFlowTask(input.taskId, input.conversationId);
+      taskRepo.update(input.taskId, { agent_id: input.ownerAgentId });
+      const task = taskRepo.getById(input.taskId);
+      if (!task) throw new Error(`Task ${input.taskId} not found after assignment`);
+      const action = taskGraphRepo.appendAction({
+        conversationId: input.conversationId,
+        actorId: input.actorId,
+        actorType: input.actorType,
+        type: 'task.claimed',
+        taskIds: [input.taskId],
+        messageId: input.messageId,
+        payload: {
+          previousOwnerAgentId: current.agent_id,
+          ownerAgentId: input.ownerAgentId,
+        },
+      });
+      const bindings = bindMessageToTasks({
+        conversationId: input.conversationId,
+        messageId: input.messageId,
+        taskIds: [input.taskId],
+        actionId: action.id,
+      });
+      return { actionId: action.id, result: { task, action, bindings } };
     });
-    const bindings = bindMessageToTasks({
-      conversationId: input.conversationId,
-      messageId: input.messageId,
-      taskIds: [input.taskId],
-      actionId: action.id,
-    });
-    return { task, action, bindings };
   },
 
   cancelTask(input: CancelTaskInput): {
@@ -464,23 +508,29 @@ export const groupChatTaskFlow = {
     action: TaskActionRow;
     bindings: ChatTaskBindingRow[];
   } {
-    assertFlowTask(input.taskId, input.conversationId);
-    const task = transitionTask(input.taskId, 'cancelled');
-    const action = taskGraphRepo.appendAction({
-      conversationId: input.conversationId,
-      actorId: input.actorId,
-      actorType: input.actorType,
-      type: 'task.cancelled',
-      taskIds: [input.taskId],
+    return mutateFlow(input, 'cancelTask', {
+      taskId: input.taskId,
+      reason: input.reason,
       messageId: input.messageId,
-      payload: { reason: input.reason },
+    }, () => {
+      assertFlowTask(input.taskId, input.conversationId);
+      const task = transitionTask(input.taskId, 'cancelled');
+      const action = taskGraphRepo.appendAction({
+        conversationId: input.conversationId,
+        actorId: input.actorId,
+        actorType: input.actorType,
+        type: 'task.cancelled',
+        taskIds: [input.taskId],
+        messageId: input.messageId,
+        payload: { reason: input.reason },
+      });
+      const bindings = bindMessageToTasks({
+        conversationId: input.conversationId,
+        messageId: input.messageId,
+        taskIds: [input.taskId],
+        actionId: action.id,
+      });
+      return { actionId: action.id, result: { task, action, bindings } };
     });
-    const bindings = bindMessageToTasks({
-      conversationId: input.conversationId,
-      messageId: input.messageId,
-      taskIds: [input.taskId],
-      actionId: action.id,
-    });
-    return { task, action, bindings };
   },
 };

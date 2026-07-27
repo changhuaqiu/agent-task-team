@@ -4,6 +4,7 @@ import { PlatformEventLog } from '../platform-events/event-log';
 import { WorkContractRepository } from '../work-contract/repository';
 import type { AgentOutcome } from '../work-contract/types';
 import { AutonomousDeliveryRepository } from '../autonomous-delivery/repository';
+import { A2ACollaborationRepository } from './collaboration';
 import { A2AOutcomeProcessManager } from './outcome-process-manager';
 
 const NOW = new Date('2026-07-28T11:00:00.000Z');
@@ -209,4 +210,115 @@ describe('A2AOutcomeProcessManager', () => {
     expect(getDb().prepare('SELECT COUNT(*) count FROM a2a_possession_chain').get())
       .toEqual({ count: 0 });
   });
+
+  it.each([
+    ['report_blocked', 'dependency_unavailable'],
+    ['request_human_decision', 'human_decision_requested'],
+  ] as const)(
+    'does not count %s as a successful A2A branch',
+    async (outcomeType, expectedReason) => {
+      const collaboration = new A2ACollaborationRepository({ db: getDb() });
+      const chain = collaboration.createChain({
+        conversationId: 'project-a2a-outcome',
+        rootTriggerType: 'user_turn',
+        rootTriggerId: `message-${outcomeType}`,
+        holderId: 'lead',
+        holderType: 'agent',
+      });
+      const offered = collaboration.offerPassGroup({
+        chainId: chain.chain.id,
+        sourcePossessionId: chain.rootPossession.id,
+        sourceWorkId: `source-${outcomeType}`,
+        expectedSourceRevision: chain.rootPossession.revision,
+        idempotencyKey: `offer-${outcomeType}`,
+        branches: [{
+          toAgentId: 'builder',
+          intent: 'implement',
+          packet: {
+            title: 'Implement branch',
+            requestedAction: 'Implement it',
+            possessionSummary: 'Branch work',
+            relevantDecisions: [],
+            evidenceRefs: [],
+            constraints: [],
+            openQuestions: [],
+            forbiddenBehaviors: [],
+            sourceMessageIds: [`message-${outcomeType}`],
+          },
+        }],
+      });
+      const admittedPass = collaboration.markPassAdmitted(
+        offered.passes[0]!.id,
+        offered.passes[0]!.revision,
+      );
+      const startingPass = collaboration.markPassStarting(
+        admittedPass.id,
+        admittedPass.revision,
+      );
+      const started = collaboration.markPassStarted(
+        startingPass.id,
+        startingPass.revision,
+      );
+      const contracts = new WorkContractRepository();
+      const contract = contracts.issue({
+        workId: `a2a-work-${outcomeType}`,
+        attemptId: `inv-${outcomeType}`,
+        projectId: 'project-a2a-outcome',
+        agentId: 'builder',
+        goal: 'Complete delegated work',
+        acceptanceCriteria: ['return a structured outcome'],
+        role: {},
+        permissions: {},
+        authoritativeRefs: [`a2a_pass:${started.pass.id}`],
+        authoritativeRevisions: { project: 1 },
+        contextSnapshotRef: `context-${outcomeType}`,
+        allowedOutcomeTypes: [outcomeType],
+        correlationId: `trace-${outcomeType}`,
+        causationId: started.pass.id,
+        now: NOW,
+      });
+      contracts.admitOutcome({
+        outcomeId: `outcome-${outcomeType}`,
+        idempotencyKey: `outcome-${outcomeType}`,
+        contractId: contract.contractId,
+        outcomeType,
+        payload: outcomeType === 'report_blocked'
+          ? { reasonCode: 'dependency_unavailable', summary: 'Dependency is unavailable' }
+          : { question: 'Choose a migration strategy' },
+        evidenceRefs: [],
+        projectId: contract.projectId,
+        workId: contract.workId,
+        workEpoch: contract.workEpoch,
+        attemptId: contract.attemptId,
+        fencingToken: contract.fencingToken,
+        authoritativeRevisions: contract.authoritativeRevisions,
+        correlationId: contract.correlationId,
+        causationId: contract.contractId,
+        occurredAt: NOW.toISOString(),
+      });
+      const event = new PlatformEventLog({ db: getDb() })
+        .listStream(`work:${contract.workId}`)
+        .find((candidate) => candidate.type === 'agent.outcome.accepted')!;
+
+      await new A2AOutcomeProcessManager({
+        db: getDb(),
+        collaboration,
+      }).handle(event, { signal: new AbortController().signal });
+
+      expect(collaboration.getPass(started.pass.id)).toMatchObject({
+        status: 'blocked',
+        reason: expectedReason,
+        phase: 'run',
+      });
+      expect(collaboration.getPossession(started.possession.id)).toMatchObject({
+        status: 'aborted',
+      });
+      expect(collaboration.getGroup(offered.group.id)).toMatchObject({
+        status: 'recovering',
+        resolvedCount: 1,
+        recoveryPossessionId: expect.any(String),
+      });
+      expect(collaboration.getChain(chain.chain.id)).toMatchObject({ status: 'active' });
+    },
+  );
 });

@@ -3,6 +3,7 @@ import { getDb } from '../db';
 import { AgentInbox } from '../platform-events/agent-inbox';
 import { qualityGateRepo } from '../quality-gate/repository';
 import { taskRepo } from '../repositories/task-repo';
+import { taskGraphRepo } from '../repositories/task-graph-repo';
 import { groupChatTaskFlow } from '../task-flow/group-chat-task-flow';
 import { resolveTaskNotificationAudience } from '../task-flow/task-notification-publisher';
 import { AutonomousDeliveryRepository, autonomousDeliveryRepo } from './repository';
@@ -177,6 +178,8 @@ export class ProductionControlCommandAdapter implements ControlCommandPort {
       ownerAgentId,
       actorId: 'delivery-control-process-manager',
       actorType: 'system',
+      expectedRevision: taskGraphRepo.revision(snapshot.run.conversation_id),
+      idempotencyKey: action.actionId,
     }).task;
     const current = this.deliveries.getSnapshot(runId);
     if (!current) return { status: 'rejected', reasonCode: 'delivery_run_missing' };

@@ -1,15 +1,31 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
+import type { Server as IOServer } from 'socket.io';
 import { conversationRepo } from '@/server/repositories/conversation-repo';
-import { taskGraphRepo } from '@/server/repositories/task-graph-repo';
+import {
+  StaleTaskGraphRevisionError,
+  TaskGraphIdempotencyConflictError,
+  taskGraphRepo,
+} from '@/server/repositories/task-graph-repo';
 import { proofLogRepo } from '@/server/repositories/proof-log-repo';
 import { taskRepo } from '@/server/repositories/task-repo';
-import { groupChatTaskFlow } from '@/server/task-flow/group-chat-task-flow';
+import {
+  groupChatTaskFlow,
+  type AssignTaskInput,
+  type BlockTaskInput,
+  type CancelTaskInput,
+  type CreateRootTaskInput,
+  type MergeTaskInput,
+  type ReopenTaskInput,
+  type ResumeTaskInput,
+  type SplitTaskInput,
+} from '@/server/task-flow/group-chat-task-flow';
 import { evaluateTaskGraphAction } from '@/server/task-flow/task-graph-policy';
 import { publishTaskChangeNotification } from '@/server/task-flow/task-notification-publisher';
 
 function emptyGraph(conversationId: string) {
   return {
     conversationId,
+    revision: 0,
     tasks: [],
     edges: [],
     actions: [],
@@ -25,7 +41,7 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const body = (req.body ?? {}) as Record<string, any>;
+  const body = (req.body ?? {}) as Record<string, unknown>;
   const conversationId = req.method === 'GET'
     ? (typeof req.query.conversationId === 'string' ? req.query.conversationId : '')
     : (typeof body.conversationId === 'string' ? body.conversationId : '');
@@ -47,6 +63,16 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   try {
+    if (
+      typeof body.expectedRevision !== 'number'
+      || !Number.isSafeInteger(body.expectedRevision)
+      || body.expectedRevision < 0
+    ) {
+      return res.status(400).json({ error: 'expectedRevision must be a non-negative safe integer' });
+    }
+    if (typeof body.idempotencyKey !== 'string' || body.idempotencyKey.trim().length === 0) {
+      return res.status(400).json({ error: 'idempotencyKey is required' });
+    }
     const targetTask = typeof body.taskId === 'string' ? taskRepo.getById(body.taskId) : undefined;
     const decision = evaluateTaskGraphAction({
       action: typeof body.action === 'string' ? body.action : '',
@@ -78,28 +104,28 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
     let result: unknown;
     switch (body.action) {
       case 'createRootTask':
-        result = groupChatTaskFlow.createRootTask(body as any);
+        result = groupChatTaskFlow.createRootTask(body as unknown as CreateRootTaskInput);
         break;
       case 'splitTask':
-        result = groupChatTaskFlow.splitTask(body as any);
+        result = groupChatTaskFlow.splitTask(body as unknown as SplitTaskInput);
         break;
       case 'mergeTasks':
-        result = groupChatTaskFlow.mergeTasks(body as any);
+        result = groupChatTaskFlow.mergeTasks(body as unknown as MergeTaskInput);
         break;
       case 'reopenTask':
-        result = groupChatTaskFlow.reopenTask(body as any);
+        result = groupChatTaskFlow.reopenTask(body as unknown as ReopenTaskInput);
         break;
       case 'blockTask':
-        result = groupChatTaskFlow.blockTask(body as any);
+        result = groupChatTaskFlow.blockTask(body as unknown as BlockTaskInput);
         break;
       case 'resumeTask':
-        result = groupChatTaskFlow.resumeTask(body as any);
+        result = groupChatTaskFlow.resumeTask(body as unknown as ResumeTaskInput);
         break;
       case 'assignTask':
-        result = groupChatTaskFlow.assignTask(body as any);
+        result = groupChatTaskFlow.assignTask(body as unknown as AssignTaskInput);
         break;
       case 'cancelTask':
-        result = groupChatTaskFlow.cancelTask(body as any);
+        result = groupChatTaskFlow.cancelTask(body as unknown as CancelTaskInput);
         break;
       default:
         return res.status(400).json({ error: 'Unsupported task graph action' });
@@ -112,8 +138,10 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
         : ['blockTask', 'resumeTask', 'cancelTask'].includes(body.action)
           ? 'task.status_changed'
           : 'task.updated';
+      const io = (res.socket as unknown as { server?: { io?: IOServer } } | null)
+        ?.server?.io;
       publishTaskChangeNotification({
-        io: (res.socket as any)?.server?.io,
+        io,
         kind,
         task: updatedTargetTask,
         previousTask: targetTask,
@@ -133,6 +161,20 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
       },
     });
   } catch (error) {
+    if (error instanceof StaleTaskGraphRevisionError) {
+      return res.status(409).json({
+        error: error.message,
+        reasonCode: error.reasonCode,
+        expectedRevision: error.expectedRevision,
+        actualRevision: error.actualRevision,
+      });
+    }
+    if (error instanceof TaskGraphIdempotencyConflictError) {
+      return res.status(409).json({
+        error: error.message,
+        reasonCode: error.reasonCode,
+      });
+    }
     return res.status(400).json({ error: error instanceof Error ? error.message : String(error) });
   }
 }

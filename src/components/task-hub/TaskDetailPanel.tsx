@@ -442,6 +442,7 @@ export function TaskDetailPanel() {
           />
 
           <TaskGraphActionsPanel
+            revision={graph?.revision ?? 0}
             task={{
               id: task.id,
               conversationId: task.conversationId,

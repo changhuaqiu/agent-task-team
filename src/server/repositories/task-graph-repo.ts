@@ -82,6 +82,7 @@ export interface ChatTaskBindingRow {
 
 export interface TaskGraphView {
   conversationId: string;
+  revision: number;
   tasks: TaskRow[];
   edges: TaskEdgeRow[];
   actions: TaskActionRow[];
@@ -129,6 +130,7 @@ interface TaskGraphCommitRow {
   request_digest: string;
   revision: number;
   action_id: string;
+  result_json: string;
   created_at: string;
 }
 
@@ -152,6 +154,12 @@ function requestDigest(value: unknown): string {
   return createHash('sha256')
     .update(JSON.stringify(canonicalize(value)))
     .digest('hex');
+}
+
+function canonicalJson(value: unknown): string {
+  const serialized = JSON.stringify(canonicalize(value));
+  if (serialized === undefined) throw new InvalidTaskGraphError('Task Graph result is not serializable');
+  return serialized;
 }
 
 function parseTaskIds(action: TaskActionRow): string[] {
@@ -239,6 +247,95 @@ export const taskGraphRepo = {
       SELECT revision FROM task_graph_revision WHERE conversation_id=?
     `).get(conversationId) as { revision: number } | undefined;
     return row?.revision ?? 0;
+  },
+
+  mutate<T>(input: {
+    conversationId: string;
+    expectedRevision: number;
+    idempotencyKey: string;
+    operation: string;
+    request: unknown;
+    execute: () => { actionId: string; result: T };
+    now?: Date;
+  }): { revision: number; result: T; replayed: boolean } {
+    if (!Number.isSafeInteger(input.expectedRevision) || input.expectedRevision < 0) {
+      throw new InvalidTaskGraphError('Task Graph expectedRevision must be non-negative');
+    }
+    const idempotencyKey = input.idempotencyKey.trim();
+    if (!idempotencyKey) throw new InvalidTaskGraphError('Task Graph idempotencyKey is required');
+    const digest = requestDigest({
+      conversationId: input.conversationId,
+      expectedRevision: input.expectedRevision,
+      operation: input.operation,
+      request: input.request,
+    });
+    const timestamp = (input.now ?? new Date()).toISOString();
+    const db = getDb();
+    return db.transaction(() => {
+      const conversation = db.prepare('SELECT 1 FROM conversation WHERE id=?')
+        .get(input.conversationId);
+      if (!conversation) {
+        throw new InvalidTaskGraphError(`Conversation ${input.conversationId} not found`);
+      }
+      const duplicate = db.prepare(`
+        SELECT * FROM task_graph_commit WHERE idempotency_key=?
+      `).get(idempotencyKey) as TaskGraphCommitRow | undefined;
+      if (duplicate) {
+        if (
+          duplicate.conversation_id !== input.conversationId
+          || duplicate.request_digest !== digest
+        ) throw new TaskGraphIdempotencyConflictError(idempotencyKey);
+        return {
+          revision: duplicate.revision,
+          result: JSON.parse(duplicate.result_json) as T,
+          replayed: true,
+        };
+      }
+      db.prepare(`
+        INSERT OR IGNORE INTO task_graph_revision (conversation_id,revision,updated_at)
+        VALUES (?,0,?)
+      `).run(input.conversationId, timestamp);
+      const actualRevision = taskGraphRepo.revision(input.conversationId);
+      if (actualRevision !== input.expectedRevision) {
+        throw new StaleTaskGraphRevisionError(
+          input.conversationId,
+          input.expectedRevision,
+          actualRevision,
+        );
+      }
+      const executed = input.execute();
+      const action = taskGraphRepo.getActionById(executed.actionId);
+      if (!action || action.conversation_id !== input.conversationId) {
+        throw new InvalidTaskGraphError('Task Graph mutation must create an owned action');
+      }
+      const updated = db.prepare(`
+        UPDATE task_graph_revision
+        SET revision=revision+1,updated_at=?
+        WHERE conversation_id=? AND revision=?
+      `).run(timestamp, input.conversationId, input.expectedRevision);
+      if (updated.changes !== 1) {
+        throw new StaleTaskGraphRevisionError(
+          input.conversationId,
+          input.expectedRevision,
+          taskGraphRepo.revision(input.conversationId),
+        );
+      }
+      const revision = input.expectedRevision + 1;
+      db.prepare(`
+        INSERT INTO task_graph_commit (
+          idempotency_key,conversation_id,request_digest,revision,action_id,result_json,created_at
+        ) VALUES (?,?,?,?,?,?,?)
+      `).run(
+        idempotencyKey,
+        input.conversationId,
+        digest,
+        revision,
+        executed.actionId,
+        canonicalJson(executed.result),
+        timestamp,
+      );
+      return { revision, result: executed.result, replayed: false };
+    }).immediate();
   },
 
   commit(input: {
@@ -564,6 +661,7 @@ export const taskGraphRepo = {
   getGraph(conversationId: string): TaskGraphView {
     return {
       conversationId,
+      revision: this.revision(conversationId),
       tasks: taskRepo.getByConversation(conversationId),
       edges: this.listEdges(conversationId),
       actions: this.listActions(conversationId),

@@ -910,6 +910,7 @@ export const taskGraphCommit = sqliteTable('task_graph_commit', {
   revision: integer('revision').notNull(),
   actionId: text('action_id').notNull()
     .references(() => taskAction.id, { onDelete: 'cascade' }),
+  resultJson: text('result_json').notNull().default('{}'),
   createdAt: text('created_at').notNull(),
 }, (table) => [
   index('idx_task_graph_commit_conversation').on(table.conversationId, table.revision),

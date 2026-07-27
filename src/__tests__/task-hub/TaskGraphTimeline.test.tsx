@@ -9,6 +9,7 @@ afterEach(cleanup);
 function graph(): TaskGraphApiView {
   return {
     conversationId: 'conv-1',
+    revision: 3,
     tasks: [],
     edges: [],
     actions: [

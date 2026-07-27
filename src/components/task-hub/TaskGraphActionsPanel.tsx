@@ -14,6 +14,7 @@ export interface TaskGraphActionTask {
 
 interface TaskGraphActionsPanelProps {
   task: TaskGraphActionTask;
+  revision: number;
   onChanged?: () => void | Promise<void>;
   className?: string;
 }
@@ -29,7 +30,17 @@ async function postTaskGraph(body: Record<string, unknown>) {
   return json;
 }
 
-export function TaskGraphActionsPanel({ task, onChanged, className }: TaskGraphActionsPanelProps) {
+function newIdempotencyKey(): string {
+  return globalThis.crypto?.randomUUID?.()
+    ?? `task-graph-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+export function TaskGraphActionsPanel({
+  task,
+  revision,
+  onChanged,
+  className,
+}: TaskGraphActionsPanelProps) {
   const [splitText, setSplitText] = useState('');
   const [ownerAgentId, setOwnerAgentId] = useState(task.agentId);
   const [mergeSourceText, setMergeSourceText] = useState(task.id);
@@ -44,6 +55,8 @@ export function TaskGraphActionsPanel({ task, onChanged, className }: TaskGraphA
         conversationId: task.conversationId,
         actorId: 'user',
         actorType: 'user',
+        expectedRevision: revision,
+        idempotencyKey: newIdempotencyKey(),
         ...body,
       });
       setError(null);

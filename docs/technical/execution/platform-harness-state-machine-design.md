@@ -770,6 +770,10 @@ Human 提交 Goal
   `commit(expectedRevision, idempotencyKey, tasks[])`；owner 在单事务内完成引用校验、DAG
   校验、Tasks/depends_on edges/action 写入与 graph revision CAS。事件重放返回同一 commit，
   内容漂移或并发旧 revision 被拒绝。
+- 这一边界不只约束 Lead Outcome。WebUI、Task Graph API、Harness `initializeGraph` 和
+  group-chat task flow 的创建、拆分、合并、重开、阻塞、恢复、改派与取消全部调用同一个
+  `mutate` owner。调用者必须提供当前 graph revision 与稳定幂等键；精确重放返回首次完整
+  结果，内容漂移或陈旧 revision 在任何领域写入前失败。
 - 如果没有可用 Lead profile，Delivery 进入 `waiting_human`，而不是循环重试同一个空配置。
 
 需要防的故障：
@@ -800,6 +804,9 @@ Agent A 发现需要 Agent C
 - Agent C 不直接继承 Agent A 的全部对话；Context Manager 根据 handoff package 和权威事实
   重新编译最小上下文。
 - 两个 Agent 写同一事实时，owner 使用 version / fencing 拒绝过期写；不能以到达顺序覆盖。
+- receiver 提交 `report_blocked` 或 `request_human_decision` 时，A2A owner 必须把父 Pass
+  标记 `blocked`、撤销 receiver Possession 并为 source holder 打开 recovery；这类结果
+  不是成功完成，不能满足分支 join。
 
 需要防的故障：
 

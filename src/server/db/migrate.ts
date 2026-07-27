@@ -3413,6 +3413,27 @@ END;
       `);
     },
   },
+  {
+    version: 74,
+    run: (db) => {
+      const commitTable = db.prepare(`
+        SELECT 1 FROM sqlite_master
+        WHERE type='table' AND name='task_graph_commit'
+      `).get();
+      if (!commitTable) return;
+      const columns = new Set(
+        (db.prepare('PRAGMA table_info(task_graph_commit)').all() as Array<{
+          name: string;
+        }>).map((column) => column.name),
+      );
+      if (!columns.has('result_json')) {
+        db.exec(`
+          ALTER TABLE task_graph_commit
+          ADD COLUMN result_json TEXT NOT NULL DEFAULT '{}'
+        `);
+      }
+    },
+  },
 ];
 
 export function applyMigrations(db: Database.Database): void {

@@ -24,43 +24,51 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+function submittedBody(): Record<string, unknown> {
+  const call = vi.mocked(fetch).mock.calls[0];
+  if (!call) throw new Error('Expected fetch to be called');
+  return JSON.parse(String(call[1]?.body)) as Record<string, unknown>;
+}
+
 describe('TaskGraphActionsPanel', () => {
   it('resumes blocked tasks through the task graph API', async () => {
     const onChanged = vi.fn();
-    render(<TaskGraphActionsPanel task={task} onChanged={onChanged} />);
+    render(<TaskGraphActionsPanel task={task} revision={7} onChanged={onChanged} />);
 
     fireEvent.click(screen.getByRole('button', { name: '恢复任务' }));
 
     await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/task-graph', expect.objectContaining({
       method: 'POST',
     })));
-    expect(JSON.parse((fetch as any).mock.calls[0][1].body)).toMatchObject({
+    expect(submittedBody()).toMatchObject({
       action: 'resumeTask',
       taskId: 'task-1',
+      expectedRevision: 7,
     });
+    expect(submittedBody().idempotencyKey).toEqual(expect.any(String));
     expect(onChanged).toHaveBeenCalled();
   });
 
   it('requires browser confirmation before canceling a task', async () => {
-    render(<TaskGraphActionsPanel task={{ ...task, status: 'in_progress' }} />);
+    render(<TaskGraphActionsPanel task={{ ...task, status: 'in_progress' }} revision={7} />);
 
     fireEvent.click(screen.getByRole('button', { name: '取消任务' }));
 
     await waitFor(() => expect(confirm).toHaveBeenCalled());
-    expect(JSON.parse((fetch as any).mock.calls[0][1].body)).toMatchObject({
+    expect(submittedBody()).toMatchObject({
       action: 'cancelTask',
       confirmed: true,
     });
   });
 
   it('submits split children from textarea input', async () => {
-    render(<TaskGraphActionsPanel task={{ ...task, status: 'in_progress' }} />);
+    render(<TaskGraphActionsPanel task={{ ...task, status: 'in_progress' }} revision={7} />);
 
     fireEvent.change(screen.getByLabelText('拆分子任务'), { target: { value: 'API 合约\n群聊组件' } });
     fireEvent.click(screen.getByRole('button', { name: '拆分' }));
 
     await waitFor(() => expect(fetch).toHaveBeenCalled());
-    expect(JSON.parse((fetch as any).mock.calls[0][1].body)).toMatchObject({
+    expect(submittedBody()).toMatchObject({
       action: 'splitTask',
       parentTaskId: 'task-1',
       children: [{ title: 'API 合约', ownerAgentId: 'frontend' }, { title: '群聊组件', ownerAgentId: 'frontend' }],
@@ -68,13 +76,13 @@ describe('TaskGraphActionsPanel', () => {
   });
 
   it('submits reassignment from owner input', async () => {
-    render(<TaskGraphActionsPanel task={{ ...task, status: 'in_progress' }} />);
+    render(<TaskGraphActionsPanel task={{ ...task, status: 'in_progress' }} revision={7} />);
 
     fireEvent.change(screen.getByLabelText('改派给'), { target: { value: 'reviewer' } });
     fireEvent.click(screen.getByRole('button', { name: '改派' }));
 
     await waitFor(() => expect(fetch).toHaveBeenCalled());
-    expect(JSON.parse((fetch as any).mock.calls[0][1].body)).toMatchObject({
+    expect(submittedBody()).toMatchObject({
       action: 'assignTask',
       taskId: 'task-1',
       ownerAgentId: 'reviewer',

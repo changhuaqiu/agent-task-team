@@ -218,6 +218,23 @@ function outcomeSummary(outcome: AgentOutcomeRow): string {
   return outcome.outcome_type;
 }
 
+function outcomeReasonCode(outcome: AgentOutcomeRow): string {
+  try {
+    const payload = JSON.parse(outcome.payload_json) as unknown;
+    if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+      const record = payload as Record<string, unknown>;
+      for (const candidate of [record.reasonCode, record.reason]) {
+        if (typeof candidate === 'string' && candidate.trim()) return candidate.trim();
+      }
+    }
+  } catch {
+    // Admission preserved the original payload; use the stable outcome fallback.
+  }
+  return outcome.outcome_type === 'request_human_decision'
+    ? 'human_decision_requested'
+    : 'agent_reported_blocked';
+}
+
 export interface A2AOutcomeProcessManagerOptions {
   db?: Database.Database;
   collaboration?: A2ACollaborationRepository;
@@ -262,7 +279,23 @@ export class A2AOutcomeProcessManager {
       const possession = parentPass?.targetPossessionId
         ? this.collaboration.getPossession(parentPass.targetPossessionId)
         : undefined;
-      if (possession?.status === 'open') {
+      if (
+        parentPass
+        && possession?.status === 'open'
+        && (
+          outcome.outcome_type === 'report_blocked'
+          || outcome.outcome_type === 'request_human_decision'
+        )
+        && ['offered', 'accepted', 'starting', 'started'].includes(parentPass.status)
+      ) {
+        this.collaboration.failPass({
+          passId: parentPass.id,
+          expectedRevision: parentPass.revision,
+          status: 'blocked',
+          reasonCode: outcomeReasonCode(outcome),
+          phase: 'run',
+        });
+      } else if (possession?.status === 'open') {
         this.collaboration.completePossession({
           possessionId: possession.id,
           expectedRevision: possession.revision,

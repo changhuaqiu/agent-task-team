@@ -284,6 +284,8 @@ describe('POST /api/mutations', () => {
       ownerAgentId: 'agent-a',
       actorId: 'agent-a',
       actorType: 'agent',
+      expectedRevision: 0,
+      idempotencyKey: 'state-mutation-delete-root',
     });
     const { AutonomousDeliveryRepository } = await import('@/server/autonomous-delivery/repository');
     const repo = new AutonomousDeliveryRepository();

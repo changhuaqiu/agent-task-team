@@ -9,11 +9,20 @@ import { taskGraphRepo } from '@/server/repositories/task-graph-repo';
 import { groupChatTaskFlow } from '@/server/task-flow/group-chat-task-flow';
 
 let db: Database.Database;
+let mutationSequence = 0;
+
+function mutationMeta() {
+  return {
+    expectedRevision: taskGraphRepo.revision('conv-1'),
+    idempotencyKey: `group-chat-flow-test:${++mutationSequence}`,
+  };
+}
 
 beforeEach(() => {
   db = createTestDb();
   setTestDb(db);
   resetSeq();
+  mutationSequence = 0;
   conversationRepo.create({ id: 'conv-1', title: 'Group Chat Flow' });
 });
 
@@ -38,6 +47,7 @@ describe('groupChatTaskFlow', () => {
       ownerAgentId: 'planner',
       actorId: 'user',
       actorType: 'user',
+      ...mutationMeta(),
       messageId,
     });
 
@@ -59,6 +69,7 @@ describe('groupChatTaskFlow', () => {
       ownerAgentId: 'planner',
       actorId: 'user',
       actorType: 'user',
+      ...mutationMeta(),
     }).task;
     const messageId = messageRepo.append({
       conversationId: 'conv-1',
@@ -72,6 +83,7 @@ describe('groupChatTaskFlow', () => {
       parentTaskId: root.id,
       actorId: 'planner',
       actorType: 'agent',
+      ...mutationMeta(),
       messageId,
       children: [
         { title: '协作模型', ownerAgentId: 'architect' },
@@ -103,12 +115,14 @@ describe('groupChatTaskFlow', () => {
       ownerAgentId: 'planner',
       actorId: 'user',
       actorType: 'user',
+      ...mutationMeta(),
     }).task;
     const split = groupChatTaskFlow.splitTask({
       conversationId: 'conv-1',
       parentTaskId: root.id,
       actorId: 'planner',
       actorType: 'agent',
+      ...mutationMeta(),
       children: [
         { title: '协作模型', ownerAgentId: 'architect' },
         { title: '群聊 UI', ownerAgentId: 'frontend' },
@@ -130,6 +144,7 @@ describe('groupChatTaskFlow', () => {
       },
       actorId: 'planner',
       actorType: 'agent',
+      ...mutationMeta(),
     });
 
     expect(merged.target.title).toBe('A2A 群聊闭环评审');
@@ -146,6 +161,7 @@ describe('groupChatTaskFlow', () => {
       ownerAgentId: 'frontend',
       actorId: 'user',
       actorType: 'user',
+      ...mutationMeta(),
     }).task;
     taskRepo.transition(source.id, { to: 'in_progress' });
     taskRepo.transition(source.id, { to: 'in_review' });
@@ -159,6 +175,7 @@ describe('groupChatTaskFlow', () => {
       ownerAgentId: 'frontend',
       actorId: 'reviewer',
       actorType: 'agent',
+      ...mutationMeta(),
     });
 
     expect(reopened.correctiveTask.status).toBe('ready');
@@ -175,6 +192,7 @@ describe('groupChatTaskFlow', () => {
       ownerAgentId: 'backend',
       actorId: 'user',
       actorType: 'user',
+      ...mutationMeta(),
     }).task;
 
     const blocked = groupChatTaskFlow.blockTask({
@@ -183,6 +201,7 @@ describe('groupChatTaskFlow', () => {
       reason: '目标 Agent 未配置账号。',
       actorId: 'backend',
       actorType: 'agent',
+      ...mutationMeta(),
     });
 
     expect(blocked.task.status).toBe('blocked');
@@ -194,6 +213,7 @@ describe('groupChatTaskFlow', () => {
       taskId: task.id,
       actorId: 'user',
       actorType: 'user',
+      ...mutationMeta(),
     });
 
     expect(resumed.task.status).toBe('ready');
@@ -207,6 +227,7 @@ describe('groupChatTaskFlow', () => {
       ownerAgentId: 'planner',
       actorId: 'user',
       actorType: 'user',
+      ...mutationMeta(),
     }).task;
 
     const assigned = groupChatTaskFlow.assignTask({
@@ -215,6 +236,7 @@ describe('groupChatTaskFlow', () => {
       ownerAgentId: 'frontend',
       actorId: 'user',
       actorType: 'user',
+      ...mutationMeta(),
     });
 
     expect(assigned.task.agent_id).toBe('frontend');
@@ -232,6 +254,7 @@ describe('groupChatTaskFlow', () => {
       ownerAgentId: 'planner',
       actorId: 'user',
       actorType: 'user',
+      ...mutationMeta(),
     }).task;
 
     const cancelled = groupChatTaskFlow.cancelTask({
@@ -240,6 +263,7 @@ describe('groupChatTaskFlow', () => {
       reason: '用户选择了新的信息架构。',
       actorId: 'user',
       actorType: 'user',
+      ...mutationMeta(),
     });
 
     expect(cancelled.task.status).toBe('cancelled');

@@ -19,6 +19,9 @@
   completion 语义。
 - [x] 为 Task Graph 建立原子 commit、依赖引用/DAG 校验、graph revision CAS 和源事件语义
   幂等；durable Outcome Process Manager 已接通 `propose_task_graph`。
+- [x] WebUI、Task Graph API、Harness `initializeGraph` 与 group-chat task flow 的全部写操作
+  已统一进入同一个 owner mutation；API 强制 `expectedRevision + idempotencyKey`，精确重放、
+  内容冲突和陈旧 revision 均有测试。
 
 已完成的子项：
 
@@ -128,6 +131,9 @@
   Outcome 翻译为聚合 Command；非结构化最终文本不再驱动 WorkContract Invocation 的 A2A。
 - [x] durable A2A Lifecycle Process Manager 已区分 Inbox admission 与真实 Runtime start：
   admission 只到 `starting`，Runtime started 才创建 receiver Possession。
+- [x] A2A Outcome Process Manager 已区分成功结果与阻塞结果：
+  `report_blocked / request_human_decision` 失败父 Pass 并打开 source recovery，不再完成
+  receiver Possession 或误满足 join。
 - [x] WebUI Human turn 已改为 `message.append -> a2a.human_handoff -> AgentInbox`；
   删除浏览器直接启动后再发 `a2a:user-turn-created` 补登记的反向链路。
 - [x] Runtime completion 的 `runtime.a2a_response / runtime.a2a_done` 与生产

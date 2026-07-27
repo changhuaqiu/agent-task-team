@@ -97,6 +97,11 @@ request_human_decision
 owner 和 dependencies。durable Task Graph Outcome Process Manager 只负责把已接纳 Outcome
 翻译为 Task owner 的一次原子 `commit`。owner 在同一事务内验证引用与 DAG、创建 Tasks/
 depends_on edges/action、CAS graph revision，并以源 event id 语义幂等；失败不得留下半张图。
+Human WebUI、Harness `initializeGraph` 与历史 group-chat task flow 也必须调用同一个
+`mutate(expectedRevision, idempotencyKey, operation, request)` owner 边界；禁止任何入口绕过
+graph revision。精确重放返回首次提交的完整结果，同一 key 内容漂移返回
+`task_graph_idempotency_conflict`，陈旧 revision 返回 `stale_task_graph_revision` 且不得留下
+Task、Edge、Action 或 Binding 的部分写入。
 
 所有 AgentOutcome 使用同一信封：
 
@@ -250,7 +255,10 @@ Agent source 本身也在 roster 内且 `communicationPolicy.canSend(source,targ
 - `AgentInbox.admitted` 推进 `Pass.offered -> accepted -> starting`；
 - `runtime.invocation.started` 才推进 `Pass.started` 并创建 receiver Possession；
 - Inbox `expired/cancelled` 或 started 前 Runtime 终止，以 phase-specific reason 失败 Pass；
-- receiver 的非 `continue_work` 结构化 Outcome 收口其 Possession；
+- receiver 的成功型非 `continue_work` 结构化 Outcome 才完成其 Possession；
+- `report_blocked` 与 `request_human_decision` 必须把父 Pass 置为 `blocked`、撤销 receiver
+  Possession，并按失败分支汇合规则打开原 holder 的 recovery Possession；二者不得计作
+  `completed`，也不得满足成功 join；
 - WorkContract Invocation 的最终自然语言不得触发 A2A。
 
 `handoff_to_agent.payload` 必须提供 `idempotencyKey` 与非空 `branches[]`。每个 branch
