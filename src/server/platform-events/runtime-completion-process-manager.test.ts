@@ -191,10 +191,6 @@ describe('RuntimeCompletionProcessManager', () => {
       RUNTIME_COMPLETION_EFFECT_TYPES.taskSync,
       RUNTIME_COMPLETION_EFFECT_TYPES.teamLog,
     ]);
-    expect(db.prepare('SELECT COUNT(*) count FROM invocation_chain').get())
-      .toEqual({ count: 0 });
-    expect(db.prepare('SELECT COUNT(*) count FROM chain_worklist').get())
-      .toEqual({ count: 0 });
   });
 
 });

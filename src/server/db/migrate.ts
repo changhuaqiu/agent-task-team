@@ -2846,6 +2846,17 @@ END;
       }
     },
   },
+  {
+    version: 62,
+    foreignKeysOff: true,
+    sql: `
+      DROP TABLE IF EXISTS a2a_delivery;
+      DROP TABLE IF EXISTS delivery_cursor;
+      DROP TABLE IF EXISTS chain_worklist;
+      DROP TABLE IF EXISTS invocation_chain;
+      DROP TABLE IF EXISTS a2a_audit_log;
+    `,
+  },
 ];
 
 export function applyMigrations(db: Database.Database): void {

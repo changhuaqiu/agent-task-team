@@ -128,7 +128,7 @@ interface ContextRecord {
 | agent 如何管理自己的上下文（自管理） | Memory / SelfMgmt（L3 spec） | `MemoryHook.recall/write`（已冻结 NoOp） |
 | 如何做质量管理（DoD/评审/门禁） | quality_gate（Peach + gate 协议） | DoD 作 `category='acceptance'` 高优标签入上下文；enforcement 读 `ContextReport` |
 | 任务拆解/调度 | orchestrator（daemon） | `getTask/getTasks/getRuntimeRoster` |
-| 跨 agent 协议（handoff/持球） | a2a-possession-contract | `a2aHandoff` source |
+| 跨 agent 协议（handoff/持球） | platform-harness-state-machines | `a2aHandoff` source |
 | 向量记忆/语义检索 | memory spec（L3，deferred） | `MemoryHook` 预留位 |
 
 ### 低耦合三条硬规则
@@ -309,7 +309,7 @@ L3 跨项目身份：scope 升到 /agent/<id>（身份全局只读），项目�
 - 角色工作过程的具体定义（Mario 怎么拆解、Peach 怎么评审）→ RoleCard / Skill。
 - 质量门禁的 enforcement（DoD/评审/门禁执行）→ quality_gate 模块；上下文管理器只携带 DoD 作标签。
 - 任务拆解/调度 → orchestrator。
-- A2A 持球/交接语义本身 → a2a-possession-contract（不变）。
+- A2A 持球/交接语义本身 → platform-harness-state-machines。
 
 **排序约束**：本设计是设计稿，不立即改代码。OUT 泄漏迁移（roleLayer/protocolLayer 重构）**排在 TASK-006 收口之后**（retro §5.5：改进不得吞掉实现带宽）。立即可做（低风险）：BudgetGuard 加 `tier+importance` 字段、history 层补 scope/private 标签。
 

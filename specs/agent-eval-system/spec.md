@@ -5,7 +5,7 @@
 > 最近修订：2026-07-18
 > 规格事实源：本文件；实施任务见 [`tasks.md`](./tasks.md)，验收门见 [`checklist.md`](./checklist.md)
 > 架构图：[`architecture.html`](./architecture.html)（自包含 HTML，可导出 PNG/PDF）
-> 依赖：[`agent-observability`](../agent-observability/)、[`observability-drilldown`](../observability-drilldown/)、[`system-control-plane`](../system-control-plane/)、[`a2a-possession-contract`](../a2a-possession-contract/)
+> 依赖：[`agent-observability`](../agent-observability/)、[`observability-drilldown`](../observability-drilldown/)、[`system-control-plane`](../system-control-plane/)、[`platform-harness-state-machines`](../platform-harness-state-machines/)
 > 产品对象模型提案：[`docs/product/business/2026-07-19-evaluation-object-model.md`](../../docs/product/business/2026-07-19-evaluation-object-model.md)
 
 一句话定位：**用可复现的任务快照，把线上协作诊断、离线回归实验、模型裁判与人工校准连成一个闭环，回答“这次任务是否可信地完成、为什么、改动后是否真的更好”。**

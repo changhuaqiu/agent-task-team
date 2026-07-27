@@ -2,7 +2,7 @@
 
 > Status: Draft for implementation
 > Date: 2026-05-12
-> Related specs: `team-runtime-contract/`, `a2a-possession-contract/`, `group-chat-task-flow/`
+> Related specs: `team-runtime-contract/`, `platform-harness-state-machines/`, `group-chat-task-flow/`
 
 ## Problem Statement
 

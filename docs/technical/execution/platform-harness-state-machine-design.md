@@ -153,8 +153,8 @@ A2A 的目标权威是一个 `A2ACollaboration` 聚合，而不是 Chain、Workl
 - 观测关系直接由 `a2a_pass` 与 `a2a_possession_chain` 派生，不再读取旧 Worklist；
 - WebUI 只接收服务端生成的完整 `a2a.snapshot`，首屏与重连从 `/api/state` 恢复；
   fan-out 的当前持有者是 `currentHolderIds[]`，不得压缩成单一 holder；
-- `invocation_chain / chain_worklist / a2a_audit_log / a2a_delivery` 停止读写后通过显式迁移删除，
-  不保留第二套兼容状态机。
+- migration 62 已删除 `invocation_chain / chain_worklist / delivery_cursor /
+  a2a_audit_log / a2a_delivery`，源码中不再保留第二套兼容状态机。
 
 显式 fan-out 为同一 source possession 下的一个 pass group。已启动的分支各自产生 open
 possession，不能因另一分支失败而回滚；失败分支产生一个指向原 holder 的 recovery

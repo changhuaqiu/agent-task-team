@@ -1,4 +1,4 @@
-# A2A Possession Contract Tasks
+# A2A Possession Contract Tasks (Archived)
 
 ## Phase 1: Data Model
 

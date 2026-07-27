@@ -934,9 +934,6 @@ describe('POST /api/mutations', () => {
         }],
       },
     });
-    const { getDb } = await import('@/server/db');
-    expect(getDb().prepare('SELECT COUNT(*) count FROM chain_worklist').get())
-      .toEqual({ count: 0 });
   });
 
   it('dispatch.enqueue rejects a missing conversation scope', async () => {

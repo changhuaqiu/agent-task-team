@@ -4,7 +4,7 @@
 > 日期：2026-07-15
 > 事实源：本目录
 > 基于：`specs/agent-observability/spec.md`（P1 已落地的 span 模型、投影、workbench）——本 spec 只补 P2 级增量，不重复基础模型。
-> 关联：`specs/acp-runtime-integration/spec.md`（ACP 是唯一运行时边界）、`specs/a2a-possession-contract/spec.md`（传球链）、`src/server/agent/acp/acpBackend.ts`（采集缝）、`src/server/repositories/observation-span-repo.ts`、`src/server/observability/ProjectObservationProjection.ts`、`src/components/project/ProjectObservabilityPanel.tsx`
+> 关联：`specs/acp-runtime-integration/spec.md`（ACP 是唯一运行时边界）、`specs/platform-harness-state-machines/spec.md`（A2A 聚合）、`src/server/agent/acp/acpBackend.ts`（采集缝）、`src/server/repositories/observation-span-repo.ts`、`src/components/project/ProjectObservabilityPanel.tsx`
 > 参照：OpenTelemetry GenAI 语义约定（骨架）、Langfuse / LangSmith 的 Session→Trace→Observation 三层 UX、OpenInference 的 AGENT/TOOL/CHAIN kind、Zed ACP（协议边界即遥测源）
 > 一句话定位：**在已落地的 span 模型之上，把"喂给模型的完整 prompt / 工具 I/O / 模型回复"采满，并让用户从一条消息卡片下钻到这次调用的全貌、再横向看 agent 间调用链与 task 交互。**
 
@@ -17,7 +17,7 @@
 | 目标 | 现状 | 差距 |
 |---|---|---|
 | 单 agent 垂直下钻（看这次调用的 prompt / 工具） | root/context/tool span 已采；tool `input_preview/output_preview` 已存但截断 2000 字符 | **组装后的完整 prompt、system prompt、模型回复文本从不落库**；工具 I/O 前端**完全没渲染**；无消息卡→详情入口 |
-| agent 与 agent 调用链路 | span 带 `chain_id/pass_id`；投影产出 `agentEdges` | 只聚合成 `from→to·count`；**没组装成有序调用树**；前端是文字 pill，**点不进去**；`a2a_audit_log`（交接原因/接受/拒绝）**未接入** |
+| agent 与 agent 调用链路 | span 带 `chain_id/pass_id`；投影从权威 `a2a_pass` 产出 `agentEdges` | 已组装有序调用树；Pass 的 status/reason 直接来自 A2A 聚合，不读取已退役审计表 |
 | 链路间 task 交互 | 投影已带 `workflow.tasks/taskEdges` | 前端可观测面板**未渲染任务图**，无"哪些链在某 task 交汇"的视角 |
 
 关键采集事实（已核对）：`acpBackend.ts:193` 处 `promptText = systemPrompt + prompt` 即喂给模型的完整内容，经 `session.prompt`（L525）发出；`response.usage`（L535）带 token；ACP session update（text/thinking/tool_call/tool_call_update/plan）经 `mapTurnUpdate` 转 `AgentEvent`。
@@ -65,7 +65,9 @@ ACP 一次 turn 的连续 text 段合并为一条 `kind=message` 的子 span（p
 
 ### 4.4 调用链树（投影层，不改表）
 
-`ProjectObservationProjection` 增加 `chains` 视图：按 `chain_id` 把相关 trace 组成有序调用树（节点=trace/agent turn，边=pass/worklist，携带 `a2a_audit_log` 的 `event_type/reason`），并汇总每条 chain 关联的 `taskId` 集合。表结构不变（OTel span link 语义用 `chain_id/pass_id` 表达）。
+`ProjectObservationProjection` 增加 `chains` 视图：按 `chain_id` 把相关 trace 组成有序调用树
+（节点=trace/agent turn，边=`a2a_pass`，携带 Pass status/reason），并汇总每条 chain
+关联的 `taskId` 集合。OTel span link 语义继续用 `chain_id/pass_id` 表达。
 
 ## 5. 采集流（唯一协议缝 = ACP → AgentEvent）
 

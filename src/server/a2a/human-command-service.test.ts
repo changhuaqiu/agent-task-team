@@ -61,8 +61,6 @@ describe('HumanA2ACommandService', () => {
     });
     expect(getDb().prepare('SELECT COUNT(*) count FROM invocation').get())
       .toEqual({ count: 0 });
-    expect(getDb().prepare('SELECT COUNT(*) count FROM chain_worklist').get())
-      .toEqual({ count: 0 });
   });
 
   it('atomically supersedes the previous human collaboration on a new turn', () => {

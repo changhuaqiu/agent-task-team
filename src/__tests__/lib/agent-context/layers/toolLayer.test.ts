@@ -74,7 +74,7 @@ describe('runtime tool registration boundary', () => {
     expect(prompt).toContain('Task、Agent、SendMessage、TodoWrite/TodoRead 不属于平台');
     expect(prompt).toContain('不要调用 SendMessage');
     expect(prompt).toContain('PASS 时附评审证据并改为 done');
-    expect(prompt).toContain('交接后立即结束本轮');
+    expect(prompt).toContain('提交 handoff_to_agent 后立即结束本轮');
     expect(prompt).toContain('更新为 review/in_review 后立即正常结束本轮');
     expect(prompt).toContain('不要再手工 @ 默认 reviewer');
   });

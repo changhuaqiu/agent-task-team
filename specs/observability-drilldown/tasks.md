@@ -18,7 +18,7 @@
 ## P1 — agent 间调用链
 
 - [x] `ProjectObservationProjection` 增加 `chains` 有序调用树（chain_id 分组，pass/worklist 为边）。
-- [x] 投影接入 `a2a_audit_log`（event_type/reason）与 `workflow.agentEdges.auditEvents`。
+- [x] 投影直接接入权威 `a2a_pass`（status/reason）；旧 `a2a_audit_log` 与平行 Worklist 已退役。
 - [x] 引入 `@xyflow/react` + `@dagrejs/dagre`，新增 DAG 组件；点节点跳 trace 抽屉。
 - [x] P1 测试：chains 投影、audit 关联、DAG 交互。
 

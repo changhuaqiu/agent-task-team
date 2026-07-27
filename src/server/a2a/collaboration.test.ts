@@ -82,8 +82,6 @@ describe('A2ACollaborationRepository', () => {
       status: 'handoff_offered',
       revision: 1,
     });
-    expect(getDb().prepare('SELECT COUNT(*) AS count FROM chain_worklist').get())
-      .toEqual({ count: 0 });
   });
 
   it('keeps successful fan-out branches and atomically opens source recovery for failures', () => {

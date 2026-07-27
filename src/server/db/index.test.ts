@@ -601,7 +601,28 @@ describe('SQLite Foundation', () => {
     expect(db.prepare('SELECT version FROM _schema_version WHERE version = 40').get())
       .toEqual({ version: 40 });
     expect(db.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-      .toEqual({ version: 61 });
+      .toEqual({ version: 62 });
+  });
+
+  it('retires the parallel A2A worklist schema at migration 62', () => {
+    const retiredTables = db.prepare(`
+      SELECT name FROM sqlite_master
+      WHERE type='table' AND name IN (
+        'invocation_chain','chain_worklist','delivery_cursor',
+        'a2a_audit_log','a2a_delivery'
+      )
+      ORDER BY name
+    `).all();
+
+    expect(retiredTables).toEqual([]);
+    expect(db.prepare(`
+      SELECT name FROM sqlite_master
+      WHERE type='table' AND name IN (
+        'a2a_possession_chain','a2a_possession','a2a_pass_group',
+        'a2a_pass','a2a_handoff_packet'
+      )
+    `).all()).toHaveLength(5);
+    expect(db.pragma('foreign_key_check')).toEqual([]);
   });
 
   it('repairs v26-v40 checkpoints whose migration collision skipped autonomous delivery tables', () => {
@@ -631,7 +652,7 @@ describe('SQLite Foundation', () => {
           'autonomous_delivery_advancement_request',
         ]));
         expect(checkpoint.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-          .toEqual({ version: 61 });
+          .toEqual({ version: 62 });
         expect(checkpoint.pragma('foreign_key_check')).toEqual([]);
       } finally {
         checkpoint.close();

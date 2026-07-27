@@ -1,4 +1,4 @@
-# A2A Possession Contract Checklist
+# A2A Possession Contract Checklist (Archived)
 
 - [x] A chain can track independent branch holders after fan-out.
 - [ ] A partial fan-out keeps started branches and creates one recovery possession for failed targets atomically.

@@ -66,9 +66,9 @@ Task 切片证据：
 ## 清理
 
 - [ ] 旧 Harness 命名已无调用者后再删除。
-- [ ] 重复 A2A 状态机已移除。
+- [x] 重复 A2A 状态机已移除；旧 Orchestrator、scanner、Worklist/Cursor 与五张历史表均已退役。
 - [x] 重复 Gate 判定源已移除；Task/Git/Delivery 均由 QualityGate owner 判定。
-- [ ] 兼容分支、死代码和无读者文件已有清理证据。
+- [ ] A2A 兼容分支与无读者文件已有删除证据；其余领域仍需在 S6 做全仓审计。
 - [ ] 设计、spec、代码和测试一致。
 
 ## 端到端场景

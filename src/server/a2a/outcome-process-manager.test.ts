@@ -106,8 +106,6 @@ describe('A2AOutcomeProcessManager', () => {
       { project_agent_id: 'builder', status: 'enqueued', pass_id: expect.any(String) },
       { project_agent_id: 'reviewer', status: 'enqueued', pass_id: expect.any(String) },
     ]);
-    expect(getDb().prepare('SELECT COUNT(*) count FROM chain_worklist').get())
-      .toEqual({ count: 0 });
   });
 
   it('rejects a target outside the configured platform roster before creating a chain', async () => {

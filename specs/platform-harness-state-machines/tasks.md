@@ -119,8 +119,11 @@
   Context prompt 只教授结构化 `agent_submit_outcome`，不再保留文本扫描协议。
 - [x] WebUI A2A 状态已改为服务端 `a2a.snapshot` Projection；首屏由 `/api/state`
   恢复同一快照，实时更新只替换读模型，不再消费五组 Orchestrator socket 控制事件。
-- [ ] 旧 AgentMessenger/Orchestrator 源文件与历史表尚需删除；
-  在 `invocation_chain / chain_worklist / a2a_audit_log / a2a_delivery` 完全退役前，S4 不算完成。
+- [x] 旧 AgentMessenger/Orchestrator、文本 scanner、Worklist/Cursor 源文件与专属测试已删除；
+  migration 62 删除 `invocation_chain / chain_worklist / delivery_cursor /
+  a2a_audit_log / a2a_delivery`，Drizzle schema 与 conversation cleanup 同步收口。
+- [ ] 将 Agent Outcome 的目标校验从全局 Agent 表提升为 conversation roster +
+  communication policy Command guard；完成后才关闭 S4。
 
 ## S5：Delivery Supervisor
 

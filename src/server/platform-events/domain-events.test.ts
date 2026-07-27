@@ -4,7 +4,8 @@ import { createTestDb, resetDb, setTestDb } from '../db';
 import { taskRepo } from '../repositories/task-repo';
 import { AutonomousDeliveryRepository } from '../autonomous-delivery/repository';
 import type { GoalContract } from '../autonomous-delivery/types';
-import { ChainRepo } from '../a2a/chain';
+import { A2ACollaborationRepository } from '../a2a/collaboration';
+import { AgentInbox } from './agent-inbox';
 import { executionEnvelopeRepo } from '../repositories/execution-envelope-repo';
 import { invocationRepo } from '../repositories/invocation-repo';
 import { sessionRepo } from '../repositories/session-repo';
@@ -123,30 +124,35 @@ describe('domain event inline seam', () => {
       .toEqual(['delivery.run.started']);
   });
 
-  it('keeps A2A terminal states final and emits bulk abort facts inline', () => {
-    const chains = new ChainRepo(db);
-    const first = chains.create({
-      conversationId: 'project-1',
-      type: 'user_message',
-      messageId: 'message-1',
+  it('keeps A2A terminal states final and emits abort facts inline', () => {
+    let sequence = 0;
+    const collaboration = new A2ACollaborationRepository({
+      db,
+      inbox: new AgentInbox({
+        db,
+        idFactory: (prefix) => `${prefix}-${++sequence}`,
+      }),
+      idFactory: (prefix) => `${prefix}-${++sequence}`,
     });
-    const entry = chains.appendWorklist(first.id, 'agent-a', 'user', 'Do work', 'hash-1', 0)!;
-    const second = chains.create({
+    const first = collaboration.createChain({
       conversationId: 'project-1',
-      type: 'user_message',
-      messageId: 'message-2',
+      rootTriggerType: 'user_turn',
+      rootTriggerId: 'message-1',
+      holderId: 'agent-a',
+      holderType: 'agent',
     });
+    expect(collaboration.abortActiveChain('project-1', 'human_superseded'))
+      .toEqual({ chainId: first.chain.id, cancelledInboxItems: 0 });
+    expect(() => collaboration.completePossession({
+      possessionId: first.rootPossession.id,
+      expectedRevision: 1,
+      summary: 'late completion',
+    })).toThrow(/a2a_possession_not_open/);
 
-    expect(chains.abortAllActive('project-1')).toBe(2);
-    chains.complete(first.id);
-    chains.markDone(entry.id, 'success');
-
-    expect(chains.getById(first.id)?.status).toBe('aborted');
-    expect(chains.getWorklistForChain(first.id)[0]?.status).toBe('aborted');
-    expect(log.listStream(`a2a_chain:${first.id}`).map((event) => event.type))
-      .toEqual(['a2a.chain.aborted']);
-    expect(log.listStream(`a2a_chain:${second.id}`).map((event) => event.type))
-      .toEqual(['a2a.chain.aborted']);
+    expect(collaboration.getChain(first.chain.id)?.status).toBe('aborted');
+    expect(collaboration.getPossession(first.rootPossession.id)?.status).toBe('aborted');
+    expect(log.listStream(`a2a_collaboration:${first.chain.id}`).map((event) => event.type))
+      .toEqual(['a2a.chain.started', 'a2a.chain.aborted']);
   });
 
   it('keeps envelope terminal states final and emits rejection as a domain fact', () => {

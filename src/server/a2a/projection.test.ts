@@ -68,7 +68,5 @@ describe('A2AReadModelProjection', () => {
         title: 'Review implementation',
       }],
     });
-    expect(getDb().prepare('SELECT COUNT(*) count FROM chain_worklist').get())
-      .toEqual({ count: 0 });
   });
 });

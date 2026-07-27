@@ -182,7 +182,8 @@ Dispatch Gateway → ExecutionEnvelope → ACP Runtime
 - `dispatchToAgent()` 先解析 `RuntimeAgentProfile`，再 compose prompt 与发送 `terminal:start`；缺少可执行资料时明确中止，不静默落到错误角色。
 - PromptComposer 接收 runtime roster，TeamLayer 不再以静态 `AGENT_ROSTER` 作为唯一团队事实。
 - `/api/state` 返回所有持久化 agent-skill 绑定，支持动态 TeamPack role。
-- A2A 通过 server-side runtime provider 读取当前 conversation roster 和 communication policy，再扫描 `@roleId` / `@displayName`。
+- A2A Command guard 从 Team Runtime 读取当前 conversation roster 与 communication policy；
+  Agent 交接只接受结构化 `handoff_to_agent`，`@roleId` / `@displayName` 只用于显示和检索。
 - `/api/mutations` 的任务创建在没有显式负责人时通过 `WorkflowPolicy.assignInitialTask()` 选择 TeamPack 初始角色。
 
 ### D) 会话隔离机制

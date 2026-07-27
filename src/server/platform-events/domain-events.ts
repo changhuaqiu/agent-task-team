@@ -57,8 +57,6 @@ export interface DomainEventPayloadMap {
   'delivery.action.claimed': { runId: string; attemptId: string; attemptNo: number };
   'delivery.action.succeeded': { runId: string; attemptId: string };
   'delivery.action.failed': { runId: string; attemptId: string; failureCode: string; retrying: boolean };
-  'a2a.possession.passed': { chainId: string; fromAgentId: string; toAgentId: string; passId: string };
-  'a2a.possession.completed': { chainId: string };
   'a2a.chain.started': { chainId: string; rootPossessionId: string; holderId: string };
   'a2a.pass.group_offered': {
     chainId: string;
@@ -87,7 +85,6 @@ export interface DomainEventPayloadMap {
     recoveryPossessionId: string;
     failedPassIds: string[];
   };
-  'a2a.chain.entry_done': { chainId: string; outcome: string };
   'a2a.chain.completed': { status: string };
   'a2a.chain.aborted': { status: string; reason?: string };
   'envelope.drafted': { status: string };
@@ -133,8 +130,7 @@ export const DOMAIN_EVENT_TYPES_BY_OWNER = {
     'delivery.action.succeeded', 'delivery.action.failed',
   ],
   a2a: [
-    'a2a.chain.started', 'a2a.possession.passed', 'a2a.possession.completed', 'a2a.chain.entry_done',
-    'a2a.chain.completed', 'a2a.chain.aborted', 'a2a.pass.group_offered',
+    'a2a.chain.started', 'a2a.chain.completed', 'a2a.chain.aborted', 'a2a.pass.group_offered',
     'a2a.pass.started', 'a2a.pass.failed', 'a2a.pass.group_recovery_opened',
   ],
   envelope: [
