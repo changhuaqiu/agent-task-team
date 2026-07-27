@@ -150,7 +150,9 @@ A2A 的目标权威是一个 `A2ACollaboration` 聚合，而不是 Chain、Workl
 - `Chain` 是聚合根，状态只由子状态派生；
 - `Possession` 是“谁有权交接”的权威；
 - `Pass` 是从一个 Possession 到另一个 Possession 的转换尝试；
-- `invocation_chain / chain_worklist` 迁为只读兼容投影，停止新写后删除。
+- 观测关系直接由 `a2a_pass` 与 `a2a_possession_chain` 派生，不再读取旧 Worklist；
+- `invocation_chain / chain_worklist / a2a_audit_log / a2a_delivery` 停止读写后通过显式迁移删除，
+  不保留第二套兼容状态机。
 
 显式 fan-out 为同一 source possession 下的一个 pass group。已启动的分支各自产生 open
 possession，不能因另一分支失败而回滚；失败分支产生一个指向原 holder 的 recovery

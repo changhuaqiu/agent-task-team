@@ -115,8 +115,10 @@
   删除浏览器直接启动后再发 `a2a:user-turn-created` 补登记的反向链路。
 - [x] Runtime completion 的 `runtime.a2a_response / runtime.a2a_done` 与生产
   AgentMessenger 实例已删除；任何 Invocation 的最终文本都不再创建协作。
-- [ ] 旧 AgentMessenger/Orchestrator 源文件与只读投影尚需删除；在该清理完成前，
-  `invocation_chain / chain_worklist / a2a_delivery` 仍存在历史表，S4 不算完成。
+- [x] 项目观测关系已只从权威 `a2a_pass` 与 `a2a_possession_chain` 派生；
+  Context prompt 只教授结构化 `agent_submit_outcome`，不再保留文本扫描协议。
+- [ ] 旧 AgentMessenger/Orchestrator 源文件、浏览器旧 A2A socket 投影与历史表尚需删除；
+  在 `invocation_chain / chain_worklist / a2a_audit_log / a2a_delivery` 完全退役前，S4 不算完成。
 
 ## S5：Delivery Supervisor
 

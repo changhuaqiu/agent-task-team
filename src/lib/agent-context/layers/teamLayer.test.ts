@@ -42,7 +42,7 @@ describe('buildTeamLayer', () => {
     expect(result).toContain('协作规则');
   });
 
-  it('excludes self and uses role-card details for teammates', () => {
+  it('excludes self and requires structured collaboration handoffs', () => {
     const roleCard = makeRoleCard({
       id: 'preset-frontend',
       displayName: '前端工程师',
@@ -55,7 +55,10 @@ describe('buildTeamLayer', () => {
     expect(result).toContain('@luigi');
     expect(result).toContain('实现');
     expect(result).toContain('协作规则');
-    expect(result).toContain('@agent 请/需要 + 动作 + 具体对象/交付物');
+    expect(result).toContain('agent_submit_outcome');
+    expect(result).toContain('handoff_to_agent');
+    expect(result).toContain('不会唤醒执行');
+    expect(result).not.toContain('@agent 请/需要 + 动作 + 具体对象/交付物');
     expect(result).not.toContain('另起一行行首写 @agentId');
   });
 

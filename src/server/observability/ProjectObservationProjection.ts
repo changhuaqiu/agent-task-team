@@ -111,15 +111,6 @@ type RawAgentEdge = {
   reason: string | null;
   created_at: string | null;
 };
-type RawAuditEvent = {
-  chain_id: string | null;
-  event_type: string;
-  from_agent_id: string | null;
-  to_agent_id: string | null;
-  reason: string | null;
-  created_at: string;
-};
-
 export interface ProjectObservationFilters {
   traceId?: string;
   invocationId?: string;
@@ -199,16 +190,8 @@ export const projectObservationProjection = {
       SELECT p.from_holder_id AS from_agent_id, p.to_agent_id, p.chain_id, p.id AS pass_id,
         p.status, p.reason, p.created_at
       FROM a2a_pass p JOIN a2a_possession_chain c ON c.id = p.chain_id
-      WHERE c.conversation_id = ?
-      UNION ALL
-      SELECT w.requested_by AS from_agent_id, w.agent_id AS to_agent_id, w.chain_id, NULL AS pass_id,
-        w.status, NULL AS reason, w.queued_at AS created_at
-      FROM chain_worklist w JOIN invocation_chain c ON c.id = w.chain_id
-      WHERE c.conversation_id = ?
-    `).all(conversationId, conversationId) as RawAgentEdge[];
-    const auditEvents = getDb().prepare(`SELECT chain_id, event_type, from_agent_id, to_agent_id, reason, created_at
-      FROM a2a_audit_log WHERE conversation_id = ? ORDER BY created_at, id`)
-      .all(conversationId) as RawAuditEvent[];
+      WHERE c.conversation_id = ? AND p.group_id IS NOT NULL
+    `).all(conversationId) as RawAgentEdge[];
     const edgeMap = new Map<string, ProjectObservationSnapshot['workflow']['agentEdges'][number]>();
     for (const edge of rawEdges) {
       if (!edge.from_agent_id || !edge.to_agent_id || edge.from_agent_id === edge.to_agent_id) continue;
@@ -217,17 +200,12 @@ export const projectObservationProjection = {
       current.count += 1;
       if (!current.chainIds.includes(edge.chain_id)) current.chainIds.push(edge.chain_id);
       if (edge.pass_id && !current.passIds.includes(edge.pass_id)) current.passIds.push(edge.pass_id);
-      for (const audit of auditEvents) {
-        if (audit.chain_id !== edge.chain_id || audit.from_agent_id !== edge.from_agent_id || audit.to_agent_id !== edge.to_agent_id) continue;
-        if (!current.auditEvents.includes(audit.event_type)) current.auditEvents.push(audit.event_type);
-      }
       edgeMap.set(key, current);
     }
 
     const chainIds = new Set<string>([
       ...rawEdges.map(edge => edge.chain_id),
       ...allTraces.map(trace => trace.chainId).filter((value): value is string => Boolean(value)),
-      ...auditEvents.map(event => event.chain_id).filter((value): value is string => Boolean(value)),
     ]);
     const chains: ProjectObservationSnapshot['chains'] = Array.from(chainIds).map(chainId => {
       const chainTraces = allTraces.filter(trace => trace.chainId === chainId).sort((a, b) => a.startedAt.localeCompare(b.startedAt));
@@ -255,19 +233,16 @@ export const projectObservationProjection = {
         const target = targetByPass ?? nodes.find(node => node.agentId === edge.to_agent_id) ?? nodeForAgent(edge.to_agent_id);
         const sourceCandidates = nodes.filter(node => node.agentId === edge.from_agent_id && node.id !== target.id);
         const source = sourceCandidates[sourceCandidates.length - 1] ?? nodeForAgent(edge.from_agent_id, edge.to_agent_id);
-        const audit = auditEvents.find(item => item.chain_id === chainId
-          && item.from_agent_id === edge.from_agent_id && item.to_agent_id === edge.to_agent_id);
         return {
-          id: edge.pass_id ? `pass:${edge.pass_id}` : `work:${chainId}:${index}`,
+          id: edge.pass_id ? `pass:${edge.pass_id}` : `edge:${chainId}:${index}`,
           source: source.id,
           target: target.id,
           fromAgentId: edge.from_agent_id,
           toAgentId: edge.to_agent_id,
           passId: edge.pass_id ?? undefined,
           status: edge.status ?? undefined,
-          reason: edge.reason ?? audit?.reason ?? undefined,
-          eventType: audit?.event_type,
-          createdAt: edge.created_at ?? audit?.created_at,
+          reason: edge.reason ?? undefined,
+          createdAt: edge.created_at ?? undefined,
         };
       });
       const taskIds = Array.from(new Set(chainTraces.map(trace => trace.taskId).filter((value): value is string => Boolean(value))));

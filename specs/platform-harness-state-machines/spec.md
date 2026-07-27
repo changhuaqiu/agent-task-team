@@ -144,7 +144,10 @@ revision、slot capacity 和 work epoch。
 ## 8. A2A 聚合
 
 目标只保留 `A2ACollaboration` 权威聚合：Chain 为根且状态派生，Possession 拥有 holder
-资格，Pass 表示转换尝试。`invocation_chain / chain_worklist` 仅作为迁移期只读投影。
+资格，Pass 表示转换尝试。所有新写入、运行控制和观测关系都必须从
+`a2a_possession_chain / a2a_possession / a2a_pass_group / a2a_pass / handoff_packet`
+派生；`invocation_chain / chain_worklist / a2a_audit_log / a2a_delivery` 不再充当兼容读模型，
+待删除表迁移完成后从 schema 与源码一并退役。
 
 fan-out pass group 采用 best-effort：已启动分支不可回滚；失败分支为原 holder 建立 recovery
 possession。source、child、recovery 的变更必须在同一聚合事务提交。

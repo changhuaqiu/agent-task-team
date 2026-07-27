@@ -79,8 +79,11 @@ Task mutation / Autonomy Guard / A2A pass
 
 - 底层 CLI 自带的 `Task`、`Agent`、`SendMessage`、`TodoWrite/TodoRead` 只属于该 runtime 的本地协作能力，不得被解释为平台 Task Graph、A2A possession 或 dispatch receipt。
 - 平台自定义工具只有在 runtime 实际暴露精确名称（例如 `task_create`）时才可调用；prompt 中的 schema 文本不等于工具已注册，Agent 不得用相似名称的原生工具替代。
-- ACP 尚未注册平台工具时，兼容路径以绝对 `.ath/TASKS.md` 作为结构化任务入口，以最终可见回复中的 actionable `@agent 请/需要 + 动作 + 对象` 作为 A2A pass draft。不得调用 runtime-native `SendMessage` 代替 A2A。
-- 当前持有者输出 actionable handoff 后必须立即结束本轮，不继续替目标角色读取、实现或等待底层子 agent；平台只在该轮完成边界扫描输出并转移 possession。
+- ACP 通过 invocation-scoped `agent_submit_outcome` 提交结构化 `handoff_to_agent`；
+  `idempotencyKey`、目标 Agent、意图、请求动作和证据引用都是协议字段。平台不会扫描最终回复中的
+  `@mention` 来创建 Pass，也不得调用 runtime-native `SendMessage` 代替 A2A。
+- 当前持有者提交 `handoff_to_agent` 后必须立即结束本轮，不继续替目标角色读取、实现或等待底层子 Agent；
+  平台在接纳 Outcome 后，由 A2A owner 原子创建 Pass、HandoffPacket 与下游 AgentInbox item。
 - daemon 只把平台工具白名单转交给 `tool.invoke`；未知或 runtime-native 工具仅做观测，不得异步伪装成平台工具执行。
 
 ### Runtime 工作目录
@@ -95,7 +98,8 @@ Task mutation / Autonomy Guard / A2A pass
 - runtime success 只代表本轮执行结束，不代表实现证据或交付证据通过；
 - in_review/done 仍只能由结构化 task mutation/tool 经过 gate 后进入。
 - TASKS.md watcher 必须同时消费文件首次创建的 `add` 和后续更新的 `change`；watcher 先启动、Agent 后创建看板是新项目的正常路径，首个事件不能丢失。
-- Agent 完成边界在 A2A response scan 之前强制执行一次 TASKS.md → DB 同步，作为 watcher 的一致性屏障；handoff 不得在本轮任务状态尚未投影时先发生。
+- Agent 完成边界仍执行一次 TASKS.md → DB 同步，作为 watcher 的一致性屏障；
+  A2A 只消费已接纳的结构化 Outcome，不再依赖该轮自然语言输出顺序。
 
 ### Context Policy 与闭环观测
 
@@ -154,13 +158,16 @@ Task mutation / Autonomy Guard / A2A pass
 - Registry：无浏览器提交与显式 fallback。
 - Reducer：只允许 pending -> in_progress，不越过质量门禁。
 - File projection：当该任务已有已确认且尚未终止的 invocation 时，TASKS.md 中尚未来得及改写的 `todo/pending` 是 stale snapshot，不得把 reducer 已确认的 `in_progress` 回滚；invocation 终止后文件重新取得业务状态权威。
-- A2A：server-owned dispatch、Harness/runtime 启动确认以及无浏览器 fallback。
-- A2A possession：当前 holder 的完成回复一旦产生下一棒，必须先把当前 possession 与入站 pass 置为 completed，再派发下一 worklist entry；后续 offer timeout 不得反向污染已成功的上游 pass。
-- A2A intent scope：先出现的完整 actionable 交接不会被后续“不要 @ reviewer”等另一对象约束反向否定；正向动作与否定约束都按局部子句判定。
-- A2A closure verbs：`汇总`、`总结`、`收口`、`给出结论` 是 coordinator 的合法可执行动作，与实现、评审、验证同样能够形成 pass intent。
+- A2A：结构化 `handoff_to_agent`、A2A owner 原子建模、AgentInbox admission、
+  Harness/runtime 启动确认以及无浏览器 fallback。
+- A2A possession：当前 holder 的终态 Outcome 先关闭当前 possession；交接 Outcome 同事务创建
+  Pass group、HandoffPacket 与下游 Inbox，后续超时不得反向污染已启动的上游 Pass。
+- A2A payload：缺少目标、意图、动作或稳定幂等键必须被拒绝；可见文本中的动作词、
+  `@mention` 和否定句均不得形成控制意图。
 - Store：展示事件没有 fallback 开关，旧控制事件无法重新接入。
 - Mention dispatch：多 mention 消息只派发首个有效入口角色；busy-before-send 与 client/server busy race 都必须保持用户消息和 dispatch 请求不丢失；恢复入队后只在真正启动时登记 A2A chain。
-- Tool boundary：runtime-native 协作工具不触发平台 `tool.invoke`；精确平台工具不可用时，prompt 明确回退 TASKS.md + 可见 A2A 文本。
+- Tool boundary：runtime-native 协作工具不触发平台 `tool.invoke`；平台 A2A 只接受
+  invocation-scoped `agent_submit_outcome`，工具不可用时必须报告结构化阻塞，不能回退为可见 A2A 文本。
 - Workdir：worktree、真实非 worktree 项目路径、无项目 scratch 三种决策分别覆盖；另覆盖 Windows 保留字符与 scoped task ID 的安全路径编码。
 - Dispatch admission：非 human 消息不触发 proposal；同一 `(conversation, agent)` 的并发 start 只有一个能进入异步 runtime setup。
 - Gate routing：默认团队普通 review 只启动 Peach，DK 保持按需。
