@@ -555,6 +555,10 @@ ControlAction {
 `wait` 是无副作用的决策结果，不创建 DeliveryAction/Effect 记录；只有等待原因或截止时间变化
 才更新可查询状态。其他动作在 claim 时必须再次 CAS snapshot revision、slot 和 work epoch。
 
+实现入口为 `autonomous-delivery/control-decision.ts`：它是无 I/O 的纯函数，显式接收
+`observedAt`、snapshot revision、policy revision、全局/角色容量和四类独立重试预算。
+公平 aging 只使用快照时间，因此重放同一快照不会因墙钟变化产生不同排序。
+
 ## 9. 错误如何进入事件设计
 
 错误不能只是一段 CLI 文本。Adapter 先保留原始诊断，再归一化为有语义的事实。

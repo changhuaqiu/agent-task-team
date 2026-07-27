@@ -128,13 +128,15 @@
 
 ## S5：Delivery Supervisor
 
-- [ ] 实现七种 ControlAction 的纯决策函数。
+- [x] 实现七种 ControlAction 的纯决策函数；同一 snapshot/policy revision 生成稳定
+  decisionId、actionId 与有序动作集。
 - [x] 将 `escalated` 迁为可恢复的 `waiting_human`，将 `recovering` 迁为 `retrying`。
-- [ ] 分离 Invocation retry、Effect retry、Task rework 和 Agent local retry 预算。
+- [ ] 分离 Invocation retry、Effect retry、Task rework 和 Agent local retry 预算；
+  决策快照已冻结四类独立 budget kind，尚需接入各 owner 的持久计数。
 - [ ] 深化 System Control Plane 的 Team Scheduling 能力，在角色、依赖、容量和 possession
-  约束下选择可激活 Work Cell；不另建重复事实源。
-- [ ] 增加公平性、角色容量与饥饿测试。
-- [ ] 支持一次 reconcile 返回容量约束的有序动作集，冻结 action identity。
+  约束下选择可激活 Work Cell；纯决策层已支持全局/角色容量，尚需接入事实快照与 claim CAS。
+- [x] 增加确定性公平 aging、角色容量与饥饿排序测试。
+- [x] 支持一次 reconcile 决策返回容量约束的有序动作集，冻结 action identity。
 - [ ] 将 blocking Effect 分类、适用区间和显式 cancelled/superseded 写入 Effect Command，
   并接入 Closure CAS。
 
