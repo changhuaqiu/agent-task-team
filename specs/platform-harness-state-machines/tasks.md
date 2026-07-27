@@ -135,7 +135,7 @@
 
 ## S5：Delivery Supervisor
 
-- [x] 实现七种 ControlAction 的纯决策函数；同一 snapshot/policy revision 生成稳定
+- [x] 实现八种 ControlAction 的纯决策函数；同一 snapshot/policy revision 生成稳定
   decisionId、actionId 与有序动作集。
 - [x] 将 `escalated` 迁为可恢复的 `waiting_human`，将 `recovering` 迁为 `retrying`。
 - [ ] 分离 Invocation retry、Effect retry、Task rework 和 Agent local retry 预算；
@@ -155,6 +155,8 @@
 - [x] pre-Contract assigned Task 已作为 epoch 0 Work Cell，依赖未满足时 wait；activate/retry
   只写 Durable AgentInbox，requestGate 只写 QualityGate owner，terminate 在同一事务复核
   Task/Bundle/blocking Effect Closure，Runtime started/terminated 释放 slot。
+- [x] Delivery 尚无 Task 时构造不占 Agent slot 的 planning Work Cell；
+  `initializeGraph` 经 Task owner 幂等建立首个 root Task，再由后续 `activate` 进入 Agent 循环。
 - [ ] 用新 DeliveryControlProcessManager 替换 bootstrap 中旧
   `decideDeliveryNext` 单动作循环，并删除旧 policy/action 状态。
 - [x] 建立稳定 wait-for graph cycle 检测，Task dependency deadlock 进入 Human escalation，

@@ -141,9 +141,17 @@ describe('RepositoryControlSnapshotBuilder', () => {
     });
   });
 
-  it('does not claim closure when the run has no Work Cells', () => {
+  it('creates a planning Work Cell when the run has no Task Graph', () => {
     expect(new RepositoryControlSnapshotBuilder({ db, now: () => now }).build(runId))
-      .toMatchObject({ workCells: [], closure: { satisfied: false } });
+      .toMatchObject({
+        workCells: [{
+          workId: `delivery:${runId}:purpose:initialize-task-graph`,
+          workEpoch: 0,
+          purpose: 'planning',
+          state: 'ready',
+        }],
+        closure: { satisfied: false },
+      });
   });
 
   it('creates pre-Contract Work Cells from assigned Tasks and honors dependencies', () => {

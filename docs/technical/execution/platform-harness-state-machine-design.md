@@ -555,6 +555,11 @@ ControlAction {
 }
 ```
 
+当 Delivery 尚无 Task Graph 时，快照包含一个 `purpose=planning` 的合成 Work Cell，
+纯决策返回 `initializeGraph`。该动作调用 Task owner 幂等创建 root Task，并由 Delivery
+owner 记录 root 引用；它不启动 Agent、不占用 Agent slot，也不把实施步骤预编排进平台。
+新 Task 事实触发下一轮 reconcile 后，才由普通 `activate` 进入 Agent 自主循环。
+
 优先级固定为：安全/合法性 > 回收失效 authority > Gate/Human 恢复 > 可恢复重试 >
 在剩余容量内新激活 > 收口。某个 Cell 的 `wait` 只描述该 Cell，不阻止其他 Cell 激活。
 只有不存在可运行候选、无待恢复动作且至少一个 Cell 仍在运行时，决策才可以只有 `wait`。

@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 
 export type ControlActionType =
+  | 'initializeGraph'
   | 'activate'
   | 'wait'
   | 'retry'
@@ -36,6 +37,7 @@ export interface WorkCellControlSnapshot {
   workId: string;
   workEpoch: number;
   roleId: string;
+  purpose?: 'planning' | 'execution';
   state: WorkCellControlState;
   priority: number;
   queuedAt: string;
@@ -378,6 +380,17 @@ export function decideControlActions(
 
   for (const [order, cell] of cells.entries()) {
     if (cell.state !== 'ready') continue;
+    if (cell.purpose === 'planning') {
+      proposals.push({
+        targetWorkId: cell.workId,
+        workEpoch: cell.workEpoch,
+        rank: 45,
+        order,
+        type: 'initializeGraph',
+        reasonCode: 'delivery_task_graph_missing',
+      });
+      continue;
+    }
     const roleLimit = policy.roleCapacity[cell.roleId] ?? policy.maxConcurrent;
     const roleActive = activeByRole.get(cell.roleId) ?? 0;
     const hasGlobalCapacity = activeCount < policy.maxConcurrent;

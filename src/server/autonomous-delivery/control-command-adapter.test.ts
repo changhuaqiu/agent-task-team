@@ -105,6 +105,41 @@ describe('ProductionControlCommandAdapter', () => {
     });
   });
 
+  it('initializes the root Task through the Task owner before any Agent activation', async () => {
+    db.prepare('DELETE FROM task WHERE id=?').run('task-1');
+    db.prepare(`
+      INSERT INTO agents (id,name,role_card_id,theme,emoji,created_at,updated_at)
+      VALUES ('planner','Planner','preset-planner','default','P',?,?)
+    `).run(now.toISOString(), now.toISOString());
+    const { snapshot, decision } = decide();
+    const action = decision.actions.find((item) => item.type === 'initializeGraph')!;
+
+    expect(action.slotId).toBeUndefined();
+    expect(await adapter.execute(action, {
+      decision,
+      snapshot,
+      claimToken: 'claim-1',
+    })).toEqual({ status: 'applied' });
+
+    const tasks = taskRepo.getByConversation('project-1');
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0]).toMatchObject({
+      title: 'Ship',
+      agent_id: 'planner',
+      status: 'ready',
+    });
+    expect(deliveries.getRun(runId)?.root_task_id).toBe(tasks[0]?.id);
+    expect(db.prepare('SELECT COUNT(*) AS count FROM agent_inbox_item').get())
+      .toEqual({ count: 0 });
+
+    expect(await adapter.execute(action, {
+      decision,
+      snapshot,
+      claimToken: 'claim-1',
+    })).toEqual({ status: 'applied' });
+    expect(taskRepo.getByConversation('project-1')).toHaveLength(1);
+  });
+
   it('requests the authoritative QualityGate for submitted task work', async () => {
     taskRepo.transition('task-1', { to: 'in_progress' }, now);
     taskRepo.transition('task-1', { to: 'in_review' }, now);

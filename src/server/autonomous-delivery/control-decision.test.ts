@@ -48,6 +48,22 @@ describe('decideControlActions', () => {
       .toEqual(decideControlActions(facts, POLICY));
   });
 
+  it('initializes a missing Task Graph without reserving an Agent slot', () => {
+    const decision = decideControlActions(snapshot([
+      cell('delivery:delivery-1:purpose:initialize-task-graph', 'ready', {
+        workEpoch: 0,
+        roleId: 'delivery-planning',
+        purpose: 'planning',
+      }),
+    ]), { ...POLICY, maxConcurrent: 0 });
+
+    expect(decision.actions).toMatchObject([{
+      type: 'initializeGraph',
+      reasonCode: 'delivery_task_graph_missing',
+    }]);
+    expect(decision.actions[0]?.slotId).toBeUndefined();
+  });
+
   it('waits for one running cell while activating another within remaining capacity', () => {
     const decision = decideControlActions(snapshot([
       cell('running-builder', 'running', { slotId: 'builder:1' }),

@@ -3,7 +3,10 @@ import { getDb } from '../db';
 import { AgentInbox } from '../platform-events/agent-inbox';
 import { qualityGateRepo } from '../quality-gate/repository';
 import { taskRepo } from '../repositories/task-repo';
+import { groupChatTaskFlow } from '../task-flow/group-chat-task-flow';
+import { resolveTaskNotificationAudience } from '../task-flow/task-notification-publisher';
 import { AutonomousDeliveryRepository, autonomousDeliveryRepo } from './repository';
+import { buildGoalTaskDescription } from './goal-task-description';
 import type { ControlAction } from './control-decision';
 import type {
   ControlCommandPort,
@@ -46,6 +49,8 @@ export class ProductionControlCommandAdapter implements ControlCommandPort {
     context: Parameters<ControlCommandPort['execute']>[1],
   ): Promise<ControlCommandResult> {
     switch (action.type) {
+      case 'initializeGraph':
+        return this.initializeGraph(action, context.decision.runId);
       case 'activate':
       case 'retry':
         return this.dispatch(action, context.decision.runId);
@@ -60,6 +65,39 @@ export class ProductionControlCommandAdapter implements ControlCommandPort {
       case 'wait':
         return { status: 'applied' };
     }
+  }
+
+  private initializeGraph(action: ControlAction, runId: string): ControlCommandResult {
+    const snapshot = this.deliveries.getSnapshot(runId);
+    if (!snapshot) return { status: 'rejected', reasonCode: 'delivery_run_missing' };
+    const existing = taskRepo.getByConversation(snapshot.run.conversation_id)[0];
+    const ownerAgentId = existing?.agent_id
+      ?? resolveTaskNotificationAudience(snapshot.run.conversation_id).coordinatorAgentIds[0];
+    if (!ownerAgentId) {
+      return { status: 'rejected', reasonCode: 'delivery_planning_owner_missing' };
+    }
+    const task = existing ?? groupChatTaskFlow.createRootTask({
+      conversationId: snapshot.run.conversation_id,
+      title: snapshot.contract.goal,
+      description: buildGoalTaskDescription(snapshot.contract),
+      ownerAgentId,
+      actorId: 'delivery-control-process-manager',
+      actorType: 'system',
+    }).task;
+    const current = this.deliveries.getSnapshot(runId);
+    if (!current) return { status: 'rejected', reasonCode: 'delivery_run_missing' };
+    if (current.run.root_task_id === task.id) return { status: 'applied' };
+    const updated = this.deliveries.transitionRun({
+      runId,
+      to: current.run.status,
+      stage: 'planning',
+      rootTaskId: task.id,
+      expectedRevision: current.run.revision,
+      now: this.now(),
+    });
+    return updated
+      ? { status: 'applied' }
+      : { status: 'rejected', reasonCode: `delivery_root_task_revision_changed:${action.actionId}` };
   }
 
   private dispatch(action: ControlAction, runId: string): ControlCommandResult {

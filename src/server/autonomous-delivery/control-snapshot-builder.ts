@@ -135,6 +135,17 @@ export class RepositoryControlSnapshotBuilder {
       SELECT id,status,agent_id,dependencies,created_at
       FROM task WHERE conversation_id=? ORDER BY created_at,id
     `).all(run.conversation_id) as TaskFactRow[];
+    if (tasks.length === 0 && workCells.length === 0) {
+      workCells.push({
+        workId: `delivery:${runId}:purpose:initialize-task-graph`,
+        workEpoch: 0,
+        roleId: 'delivery-planning',
+        purpose: 'planning',
+        state: 'ready',
+        priority: 100,
+        queuedAt: this.now().toISOString(),
+      });
+    }
     const taskStatus = new Map(tasks.map((task) => [task.id, task.status]));
     const taskWorkId = new Map(tasks.map((task) => [
       task.id,
@@ -205,6 +216,7 @@ export class RepositoryControlSnapshotBuilder {
       workId,
       workEpoch: 0,
       roleId: task.agent_id,
+      purpose: 'execution' as const,
       priority: 50,
       queuedAt: task.created_at,
     };
@@ -247,6 +259,7 @@ export class RepositoryControlSnapshotBuilder {
       workId: row.work_id,
       workEpoch: row.current_epoch,
       roleId: roleId(row),
+      purpose: 'execution' as const,
       // Priority is policy input, not a Task status concern. Until an explicit
       // scheduling policy assigns one, every Work Cell starts neutral.
       priority: 50,

@@ -33,7 +33,10 @@
 - `WorkContract` 表示平台交给 Agent 的边界契约，而不是步骤清单。
 - `Agent Work Cell` 表示角色、WorkContract、Context、Inbox、Invocation、Session 与 Outcome
   围绕一名 Agent 一次工作的逻辑组合；它不是新的事实源。
-- `ControlAction` 只能是 `activate | wait | retry | requestGate | resume | escalateToHuman | terminate`。
+- `ControlAction` 只能是
+  `initializeGraph | activate | wait | retry | requestGate | resume | escalateToHuman | terminate`。
+  `initializeGraph` 只在 Delivery 尚无 Task Graph 时出现，由 Task owner 幂等建立首个 Task；
+  它不是 Agent Invocation，不占用 Agent 并发 slot，也不替 Agent 生成实施步骤。
 
 ## 4. Owner 契约
 
