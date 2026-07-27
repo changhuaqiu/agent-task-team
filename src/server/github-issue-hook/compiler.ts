@@ -99,6 +99,7 @@ export function compileGitHubIssueGoalContract(
 
   return {
     idempotencyKey: `github-issue:${payload.repository.full_name.toLowerCase()}:${payload.issue.number}`,
+    correlationId: `github-issue:${payload.repository.full_name.toLowerCase()}:${payload.issue.number}`,
     goal: `解决 GitHub Issue #${payload.issue.number}：${payload.issue.title.trim()}`,
     acceptanceCriteria,
     source: {

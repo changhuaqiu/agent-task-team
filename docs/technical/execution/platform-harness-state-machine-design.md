@@ -741,10 +741,15 @@ preflight 事实投影 `escalateToHuman`，并忽略显式 `manual_resume` 之�
 跨模块 trace 使用一条连续因果链，不在每张表复制一套可能漂移的字段：
 
 - Platform Event 强制 `correlationId`，非根事件携带 `causationId`；
+- GoalContract 在 Delivery owner 中冻结根 correlation；未显式提供时从稳定 start
+  idempotency key 派生一次，后续不得换号；
 - AgentInbox Command 从 source Event 继承 correlation，并以 source event id 为 causation；
 - Scheduler 原样传入 Invocation Pipeline，后者以 correlation 作为 traceId；
 - WorkContract 与 AgentOutcome 冻结 correlation/causation；Invocation 通过不可变
   `work_contract_id` 关联该信封，Runtime Events 同时带 invocationId 与 correlation；
+- ControlDecision/ControlAction、Task、Gate 与 A2A Chain/Pass 只把自身 ID 用作 aggregate
+  或 causation；其事件和下游 Command 继续携带 Goal/Human turn 的根 correlation，不能把
+  decisionId、inboxId 或 chainId 提升成新 trace；
 - `PlatformEventLog.listTrace(correlationId)` 跨 stream 按记录顺序恢复完整状态迁移 trace。
 
 ## 13. 用真实协作场景反推设计

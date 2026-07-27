@@ -50,6 +50,8 @@ export interface NewTask {
   dependencies?: string[];
   artifacts?: Record<string, unknown>;
   initialStatus?: 'proposed' | 'ready';
+  correlationId?: string;
+  causationId?: string;
 }
 
 export interface TaskTransition {
@@ -57,6 +59,8 @@ export interface TaskTransition {
   expectedFrom?: TaskStatus;
   expectedRevision?: number;
   reviewNote?: string;
+  correlationId?: string;
+  causationId?: string;
 }
 
 export class InvalidTaskStatusError extends Error {
@@ -149,6 +153,8 @@ export const taskRepo = {
           projectId: input.conversation_id,
           aggregate: { type: 'task', id: input.id },
           projectAgentId: input.agent_id,
+          correlationId: input.correlationId,
+          causationId: input.causationId,
           dedupeKey: `task:${input.id}:created:assigned`,
           occurredAt: now,
           payload: { agentId: input.agent_id, status },
@@ -239,6 +245,8 @@ export const taskRepo = {
         projectId: previous.conversation_id,
         aggregate: { type: 'task', id, version: current.revision },
         projectAgentId: previous.agent_id,
+        correlationId: transition.correlationId,
+        causationId: transition.causationId,
         occurredAt: now,
         payload: {
           previousStatus: previous.status,
@@ -251,7 +259,11 @@ export const taskRepo = {
     }).immediate();
   },
 
-  update(id: string, updates: Partial<TaskPatch>): TaskRow | undefined {
+  update(
+    id: string,
+    updates: Partial<TaskPatch>,
+    trace?: { correlationId?: string; causationId?: string },
+  ): TaskRow | undefined {
     const sets: string[] = [];
     const values: unknown[] = [];
     for (const [key, value] of Object.entries(updates)) {
@@ -279,6 +291,8 @@ export const taskRepo = {
           projectId: previous.conversation_id,
           aggregate: { type: 'task', id },
           projectAgentId: updates.agent_id,
+          correlationId: trace?.correlationId,
+          causationId: trace?.causationId,
           occurredAt: now,
           payload: {
             previousAgentId: previous.agent_id,

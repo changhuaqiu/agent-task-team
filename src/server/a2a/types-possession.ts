@@ -52,6 +52,7 @@ export type PassBlockPhase =
 export interface A2APossessionChain {
   id: string;
   conversationId: string;
+  correlationId: string;
   rootTriggerType: 'user_turn' | 'scheduled' | 'system';
   rootTriggerId: string;
   status: PossessionChainStatus;

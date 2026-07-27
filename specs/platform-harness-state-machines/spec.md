@@ -47,6 +47,10 @@ Command → Event → AgentInbox → Invocation Pipeline → WorkContract → Ag
 同一 correlation。非根 Command/Event 以直接来源 id 作为 causation；Invocation 自身通过
 不可变 `work_contract_id` 取得冻结信封，Runtime Event 另带 invocationId。跨模块诊断统一
 通过 `listTrace(correlationId)`，不靠 UI 文本拼接。
+Delivery start 在 GoalContract 中冻结根 correlation（缺省从稳定 start idempotency key
+确定性派生）。ControlDecision、Task、Gate、Inbox 与 A2A 的自身 ID 只能作为 aggregate
+identity 或 causation；任何下游 Event/Command 都不得用 decisionId、actionId、inboxId、
+chainId 或 passId 替换根 correlation。
 
 ## 4. Owner 契约
 

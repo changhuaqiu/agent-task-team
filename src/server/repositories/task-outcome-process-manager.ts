@@ -93,6 +93,8 @@ export class TaskOutcomeProcessManager {
             to: 'in_progress',
             expectedFrom: 'ready',
             expectedRevision: task.revision,
+            correlationId: event.correlationId,
+            causationId: event.eventId,
           })!;
         }
         if (task.status !== 'in_progress') {
@@ -128,6 +130,8 @@ export class TaskOutcomeProcessManager {
           expectedFrom: 'in_progress',
           expectedRevision: task.revision,
           reviewNote: summary,
+          correlationId: event.correlationId,
+          causationId: event.eventId,
         });
         return;
       }
@@ -137,6 +141,8 @@ export class TaskOutcomeProcessManager {
           to: 'in_progress',
           expectedFrom: 'ready',
           expectedRevision: task.revision,
+          correlationId: event.correlationId,
+          causationId: event.eventId,
         })!;
       }
       if (task.status !== 'in_progress') {
@@ -160,6 +166,8 @@ export class TaskOutcomeProcessManager {
         expectedFrom: 'in_progress',
         expectedRevision: task.revision,
         reviewNote: summary ?? outcomeType,
+        correlationId: event.correlationId,
+        causationId: event.eventId,
       });
     }).immediate();
   };

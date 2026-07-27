@@ -14,6 +14,8 @@ export interface FlowActorInput {
   actorType: ActorType;
   expectedRevision: number;
   idempotencyKey: string;
+  correlationId?: string;
+  causationId?: string;
 }
 
 export interface CreateRootTaskInput extends FlowActorInput {
@@ -98,6 +100,8 @@ function createTask(input: {
   title: string;
   description?: string;
   ownerAgentId: string;
+  correlationId?: string;
+  causationId?: string;
 }): TaskRow {
   return taskRepo.create({
     id: generateSortableId('task'),
@@ -105,6 +109,8 @@ function createTask(input: {
     title: input.title,
     description: input.description,
     agent_id: input.ownerAgentId,
+    correlationId: input.correlationId,
+    causationId: input.causationId,
   });
 }
 
@@ -129,8 +135,19 @@ function titleIndex(tasks: TaskRow[]): Map<string, TaskRow> {
   return new Map(tasks.map((task) => [task.title, task]));
 }
 
-function transitionTask(taskId: string, status: TaskStatus): TaskRow {
-  const updated = taskRepo.transition(taskId, { to: status });
+function flowTrace(input: FlowActorInput) {
+  return {
+    correlationId: input.correlationId?.trim() || `task-graph:${input.idempotencyKey}`,
+    causationId: input.causationId?.trim() || input.idempotencyKey,
+  };
+}
+
+function transitionTask(
+  taskId: string,
+  status: TaskStatus,
+  trace: ReturnType<typeof flowTrace>,
+): TaskRow {
+  const updated = taskRepo.transition(taskId, { to: status, ...trace });
   if (!updated) throw new Error(`Task ${taskId} not found after status update`);
   return updated;
 }
@@ -181,6 +198,7 @@ export const groupChatTaskFlow = {
         title: input.title,
         description: input.description,
         ownerAgentId: input.ownerAgentId,
+        ...flowTrace(input),
       });
       const action = taskGraphRepo.appendAction({
         conversationId: input.conversationId,
@@ -226,6 +244,7 @@ export const groupChatTaskFlow = {
           title: child.title,
           description: child.description,
           ownerAgentId: child.ownerAgentId,
+          ...flowTrace(input),
         }),
       );
       const allTaskIds = [parent.id, ...children.map((child) => child.id)];
@@ -319,6 +338,7 @@ export const groupChatTaskFlow = {
           title: input.target.title,
           description: input.target.description,
           ownerAgentId: input.target.ownerAgentId,
+          ...flowTrace(input),
         });
 
       const action = taskGraphRepo.appendAction({
@@ -374,6 +394,7 @@ export const groupChatTaskFlow = {
         title: input.title,
         description: input.description ?? input.reason,
         ownerAgentId: input.ownerAgentId,
+        ...flowTrace(input),
       });
       const action = taskGraphRepo.appendAction({
         conversationId: input.conversationId,
@@ -417,7 +438,7 @@ export const groupChatTaskFlow = {
       messageId: input.messageId,
     }, () => {
       assertFlowTask(input.taskId, input.conversationId);
-      const task = transitionTask(input.taskId, 'blocked');
+      const task = transitionTask(input.taskId, 'blocked', flowTrace(input));
       const action = taskGraphRepo.appendAction({
         conversationId: input.conversationId,
         actorId: input.actorId,
@@ -447,7 +468,7 @@ export const groupChatTaskFlow = {
       messageId: input.messageId,
     }, () => {
       assertFlowTask(input.taskId, input.conversationId);
-      const task = transitionTask(input.taskId, 'ready');
+      const task = transitionTask(input.taskId, 'ready', flowTrace(input));
       const action = taskGraphRepo.appendAction({
         conversationId: input.conversationId,
         actorId: input.actorId,
@@ -478,7 +499,7 @@ export const groupChatTaskFlow = {
       messageId: input.messageId,
     }, () => {
       const current = assertFlowTask(input.taskId, input.conversationId);
-      taskRepo.update(input.taskId, { agent_id: input.ownerAgentId });
+      taskRepo.update(input.taskId, { agent_id: input.ownerAgentId }, flowTrace(input));
       const task = taskRepo.getById(input.taskId);
       if (!task) throw new Error(`Task ${input.taskId} not found after assignment`);
       const action = taskGraphRepo.appendAction({
@@ -514,7 +535,7 @@ export const groupChatTaskFlow = {
       messageId: input.messageId,
     }, () => {
       assertFlowTask(input.taskId, input.conversationId);
-      const task = transitionTask(input.taskId, 'cancelled');
+      const task = transitionTask(input.taskId, 'cancelled', flowTrace(input));
       const action = taskGraphRepo.appendAction({
         conversationId: input.conversationId,
         actorId: input.actorId,

@@ -9,7 +9,7 @@ import type {
 import { ControlDecisionRepository } from './control-decision-repository';
 import { DurableEffectOutbox } from '../platform-events/durable-effect-outbox';
 import { detectWaitForDeadlock, type WaitForEdge } from './wait-for-graph';
-import type { GoalContract } from './types';
+import { resolveGoalCorrelationId, type GoalContract } from './types';
 import { DELIVERY_EFFECT_TYPES } from './delivery-effects';
 import { resolveTaskNotificationAudience } from '../task-flow/task-notification-publisher';
 
@@ -540,6 +540,7 @@ export class RepositoryControlSnapshotBuilder {
     `).get(runId, DELIVERY_EFFECT_TYPES.githubIntegrate) as { status: string } | undefined;
     return {
       runId,
+      correlationId: resolveGoalCorrelationId(contract),
       snapshotRevision: new ControlDecisionRepository(db)
         .projectSnapshotRevision(run.conversation_id),
       observedAt: this.now().toISOString(),

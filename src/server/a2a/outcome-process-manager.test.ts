@@ -153,6 +153,17 @@ describe('A2AOutcomeProcessManager', () => {
         delivery_run_id: deliveryRunId,
       },
     ]);
+    expect(getDb().prepare(`
+      SELECT DISTINCT correlation_id FROM platform_event
+      WHERE type IN ('a2a.chain.started','a2a.pass.group_offered','agent.work.enqueued')
+    `).all()).toEqual([{ correlation_id: 'trace-handoff' }]);
+    expect(getDb().prepare(`
+      SELECT json_extract(command_json,'$.correlationId') correlation_id
+      FROM agent_inbox_item ORDER BY project_agent_id
+    `).all()).toEqual([
+      { correlation_id: 'trace-handoff' },
+      { correlation_id: 'trace-handoff' },
+    ]);
   });
 
   it('rejects a target outside the configured platform roster before creating a chain', async () => {

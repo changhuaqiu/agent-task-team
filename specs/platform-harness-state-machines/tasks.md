@@ -5,6 +5,9 @@
 - [x] 将窄义 Harness 直接迁为 Invocation Pipeline 目标命名，不保留旧别名。
 - [x] 为 Command、Event、WorkContract、Invocation、Outcome 建立连续 correlation/causation；
   Invocation 通过不可变 WorkContract 关联信封，不复制可能漂移的字段。
+- [x] GoalContract 冻结根 correlation；Control、Task、Gate、AgentInbox 与 A2A 全部继承
+  同一值，自身 decision/action/inbox/chain/pass ID 仅作为 aggregate 或 causation，并有
+  Delivery→Task/Gate/Inbox 与 Outcome→A2A→Inbox 的跨 stream 测试。
 - [x] 建立 `PlatformEventLog.listTrace(correlationId)` 跨 stream 状态迁移 trace，并为
   correlation 建索引。
 - [x] 建立 project-start、parallel-handoff、review-rework、agent-failure、human-resume、

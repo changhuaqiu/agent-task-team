@@ -56,6 +56,7 @@ export interface WorkCellControlSnapshot {
 
 export interface DeliveryControlSnapshot {
   runId: string;
+  correlationId?: string;
   snapshotRevision: number;
   observedAt: string;
   workCells: WorkCellControlSnapshot[];
@@ -108,6 +109,7 @@ export interface ControlAction {
 export interface ControlDecision {
   decisionId: string;
   runId: string;
+  correlationId: string;
   snapshotRevision: number;
   policyRevision: number;
   actions: ControlAction[];
@@ -215,6 +217,10 @@ function validate(
   }
 }
 
+function rootCorrelationId(snapshot: DeliveryControlSnapshot): string {
+  return snapshot.correlationId?.trim() || `delivery-run:${snapshot.runId}`;
+}
+
 function effectivePriority(
   cell: WorkCellControlSnapshot,
   observedAt: number,
@@ -260,6 +266,7 @@ export function decideControlActions(
 ): ControlDecision {
   validate(snapshot, policy);
   const decisionId = decisionIdentity(snapshot, policy);
+  const correlationId = rootCorrelationId(snapshot);
   const observedAt = parseTime(snapshot.observedAt, 'control_observed_at');
   const cells = stableCellOrder(snapshot.workCells, observedAt, policy.fairnessAgingMs);
   const proposals: ProposedControlAction[] = [];
@@ -273,6 +280,7 @@ export function decideControlActions(
     return {
       decisionId,
       runId: snapshot.runId,
+      correlationId,
       snapshotRevision: snapshot.snapshotRevision,
       policyRevision: policy.revision,
       actions: [{ ...action, actionId: actionIdentity(decisionId, action) }],
@@ -288,6 +296,7 @@ export function decideControlActions(
     return {
       decisionId,
       runId: snapshot.runId,
+      correlationId,
       snapshotRevision: snapshot.snapshotRevision,
       policyRevision: policy.revision,
       actions: [{ ...action, actionId: actionIdentity(decisionId, action) }],
@@ -302,6 +311,7 @@ export function decideControlActions(
     return {
       decisionId,
       runId: snapshot.runId,
+      correlationId,
       snapshotRevision: snapshot.snapshotRevision,
       policyRevision: policy.revision,
       actions: [{ ...action, actionId: actionIdentity(decisionId, action) }],
@@ -315,6 +325,7 @@ export function decideControlActions(
     return {
       decisionId,
       runId: snapshot.runId,
+      correlationId,
       snapshotRevision: snapshot.snapshotRevision,
       policyRevision: policy.revision,
       actions: [{ ...action, actionId: actionIdentity(decisionId, action) }],
@@ -532,6 +543,7 @@ export function decideControlActions(
   return {
     decisionId,
     runId: snapshot.runId,
+    correlationId,
     snapshotRevision: snapshot.snapshotRevision,
     policyRevision: policy.revision,
     actions,

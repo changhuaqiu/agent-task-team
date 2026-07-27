@@ -18,6 +18,10 @@ function isGoalContract(value: unknown): value is GoalContract {
   const contract = value as Partial<GoalContract>;
   return typeof contract.idempotencyKey === 'string'
     && Boolean(contract.idempotencyKey.trim())
+    && (
+      contract.correlationId === undefined
+      || (typeof contract.correlationId === 'string' && Boolean(contract.correlationId.trim()))
+    )
     && typeof contract.goal === 'string'
     && Array.isArray(contract.acceptanceCriteria)
     && contract.acceptanceCriteria.every((item) => typeof item === 'string')

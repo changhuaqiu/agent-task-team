@@ -65,7 +65,7 @@ export class ProductionControlCommandAdapter implements ControlCommandPort {
       case 'retry':
         return this.dispatch(action, context.decision);
       case 'requestGate':
-        return this.requestGate(action, context.decision.runId);
+        return this.requestGate(action, context.decision);
       case 'integrate':
         return this.integrate(action, context.decision);
       case 'finalize':
@@ -180,6 +180,8 @@ export class ProductionControlCommandAdapter implements ControlCommandPort {
       actorType: 'system',
       expectedRevision: taskGraphRepo.revision(snapshot.run.conversation_id),
       idempotencyKey: action.actionId,
+      correlationId: snapshot.contract.correlationId,
+      causationId: action.actionId,
     }).task;
     const current = this.deliveries.getSnapshot(runId);
     if (!current) return { status: 'rejected', reasonCode: 'delivery_run_missing' };
@@ -228,6 +230,8 @@ export class ProductionControlCommandAdapter implements ControlCommandPort {
           to: 'in_progress',
           expectedFrom: task.status,
           expectedRevision: task.revision,
+          correlationId: decision.correlationId,
+          causationId: action.actionId,
         });
       }
       this.inbox.enqueue({
@@ -236,7 +240,7 @@ export class ProductionControlCommandAdapter implements ControlCommandPort {
         idempotencyKey: action.actionId,
         command: {
           source: review ? 'review_gate' : verification ? 'test_gate' : 'system',
-          correlationId: decision.decisionId,
+          correlationId: decision.correlationId,
           causationId: action.actionId,
           workId: action.targetWorkId,
           taskId: task.id,
@@ -267,7 +271,11 @@ export class ProductionControlCommandAdapter implements ControlCommandPort {
     return { status: 'applied' };
   }
 
-  private requestGate(action: ControlAction, runId: string): ControlCommandResult {
+  private requestGate(
+    action: ControlAction,
+    decision: Parameters<ControlCommandPort['execute']>[1]['decision'],
+  ): ControlCommandResult {
+    const runId = decision.runId;
     const deliveryGate = action.targetWorkId?.match(
       /^delivery:[^:]+:purpose:request-(delivery_review|acceptance_verification)$/,
     )?.[1] as 'delivery_review' | 'acceptance_verification' | undefined;
@@ -289,6 +297,8 @@ export class ProductionControlCommandAdapter implements ControlCommandPort {
           : { acceptanceCriteria: snapshot.contract.acceptanceCriteria },
         policy: { deliveryPolicy: snapshot.contract.deliveryPolicy },
         actor: { type: 'system', id: 'delivery-control-process-manager' },
+        correlationId: decision.correlationId,
+        causationId: action.actionId,
         now: this.now(),
       });
       return { status: 'applied' };
@@ -304,6 +314,8 @@ export class ProductionControlCommandAdapter implements ControlCommandPort {
       criteria: { taskStatus: task.status, requiresIndependentReview: true },
       policy: { source: 'delivery_control_process_manager' },
       actor: { type: 'system', id: 'delivery-control-process-manager' },
+      correlationId: decision.correlationId,
+      causationId: action.actionId,
       now: this.now(),
     });
     return { status: 'applied' };

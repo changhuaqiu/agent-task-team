@@ -88,16 +88,25 @@ describe('AgentInbox', () => {
       payload: { agentId: 'implementer', status: 'ready' },
     });
 
-    expect(inbox.enqueue({
+    const queued = inbox.enqueue({
       projectId: 'project-1',
       projectAgentId: 'implementer',
       idempotencyKey: 'task-1',
       sourceEvent: source,
       command: { source: 'system', prompt: 'Implement task-1' },
-    }).command).toMatchObject({
+    });
+    expect(queued.command).toMatchObject({
       correlationId: 'goal-trace-1',
       causationId: source.eventId,
     });
+    const claimed = inbox.claimNext()!;
+    expect(inbox.admit(claimed.id, claimed.leaseToken!)).toBe(true);
+    expect(log.listTrace('goal-trace-1').map((event) => event.type)).toEqual([
+      'task.assigned',
+      'agent.work.enqueued',
+      'agent.work.claimed',
+      'agent.work.admitted',
+    ]);
   });
 
   it('does not let later work overtake a released FIFO predecessor', () => {

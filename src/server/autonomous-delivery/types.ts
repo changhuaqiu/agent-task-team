@@ -29,6 +29,7 @@ export interface GitHubIssueGoalSource {
 
 export interface GoalContract {
   idempotencyKey: string;
+  correlationId?: string;
   goal: string;
   acceptanceCriteria: string[];
   source?: GitHubIssueGoalSource;
@@ -99,6 +100,11 @@ export interface AcceptanceVerificationReceipt {
   gateEvidenceId?: string;
   artifactRevision?: string;
   validationErrors?: string[];
+}
+
+export function resolveGoalCorrelationId(contract: GoalContract): string {
+  return contract.correlationId?.trim()
+    || `delivery-start:${contract.idempotencyKey.trim()}`;
 }
 
 export interface AcceptanceReviewReceipt {

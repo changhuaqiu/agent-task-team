@@ -232,6 +232,7 @@ function chainFromRow(row: ChainRow): A2APossessionChain & { revision: number; u
   return {
     id: row.id,
     conversationId: row.conversation_id,
+    correlationId: chainCorrelationId(row),
     rootTriggerType: row.root_trigger_type,
     rootTriggerId: row.root_trigger_id,
     status: row.status,
@@ -242,6 +243,16 @@ function chainFromRow(row: ChainRow): A2APossessionChain & { revision: number; u
     updatedAt: row.updated_at,
     completedAt: row.completed_at ?? undefined,
   };
+}
+
+function chainCorrelationId(row: ChainRow): string {
+  try {
+    const value = (JSON.parse(row.config) as Record<string, unknown>).correlationId;
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  } catch {
+    // Legacy rows fall back to their stable collaboration identity.
+  }
+  return row.id;
 }
 
 function possessionFromRow(
@@ -376,6 +387,7 @@ export class A2ACollaborationRepository {
     conversationId: string;
     rootTriggerType: A2APossessionChain['rootTriggerType'];
     rootTriggerId: string;
+    correlationId?: string;
     holderId: string;
     holderType: A2APossession['holderType'];
     config?: Record<string, unknown>;
@@ -386,6 +398,7 @@ export class A2ACollaborationRepository {
   } {
     const conversationId = nonEmpty(input.conversationId, 'conversationId');
     const rootTriggerId = nonEmpty(input.rootTriggerId, 'rootTriggerId');
+    const correlationId = input.correlationId?.trim() || rootTriggerId;
     const holderId = nonEmpty(input.holderId, 'holderId');
     const db = this.db();
     return db.transaction(() => {
@@ -395,6 +408,12 @@ export class A2ACollaborationRepository {
         ORDER BY created_at DESC LIMIT 1
       `).get(conversationId, input.rootTriggerType, rootTriggerId) as ChainRow | undefined;
       if (existing) {
+        if (input.correlationId && chainCorrelationId(existing) !== correlationId) {
+          throw new A2ACollaborationInvariantError(
+            'a2a_root_correlation_conflict',
+            `${chainCorrelationId(existing)}:${correlationId}`,
+          );
+        }
         const root = db.prepare(`
           SELECT * FROM a2a_possession
           WHERE chain_id=? AND parent_pass_id IS NULL
@@ -430,7 +449,7 @@ export class A2ACollaborationRepository {
         input.rootTriggerType,
         rootTriggerId,
         holderId,
-        JSON.stringify(input.config ?? {}),
+        JSON.stringify({ ...input.config, correlationId }),
         now,
         now,
       );
@@ -445,7 +464,7 @@ export class A2ACollaborationRepository {
         projectId: conversationId,
         aggregate: { type: 'a2a_collaboration', id: chainId, version: 0 },
         actor: { type: input.holderType === 'agent' ? 'agent' : input.holderType, id: holderId },
-        correlationId: chainId,
+        correlationId,
         causationId: rootTriggerId,
         occurredAt: now,
         payload: { chainId, rootPossessionId: possessionId, holderId },
@@ -535,7 +554,7 @@ export class A2ACollaborationRepository {
           version: chain.revision + 1,
         },
         actor: { type: 'user', id: 'human' },
-        correlationId: chain.id,
+        correlationId: chainCorrelationId(chain),
         causationId: reasonCode,
         occurredAt: now,
         payload: { status: 'aborted', reason: reasonCode },
@@ -712,7 +731,7 @@ export class A2ACollaborationRepository {
           type: source.holder_type === 'agent' ? 'agent' : source.holder_type,
           id: source.holder_id,
         },
-        correlationId: chain.id,
+        correlationId: chainCorrelationId(chain),
         causationId: idempotencyKey,
         occurredAt: now,
         payload: {
@@ -823,7 +842,7 @@ export class A2ACollaborationRepository {
         actor: { type: 'system', id: 'a2a-collaboration' },
         subject: { type: 'agent', id: pass.toAgentId },
         projectAgentId: pass.toAgentId,
-        correlationId: pass.chainId,
+        correlationId: chainCorrelationId(chain),
         causationId: pass.id,
         occurredAt: now,
         payload: {
@@ -897,7 +916,7 @@ export class A2ACollaborationRepository {
         aggregate: { type: 'a2a_pass', id: pass.id, version: current.revision },
         actor: { type: 'system', id: 'a2a-collaboration' },
         subject: { type: 'agent', id: pass.toAgentId },
-        correlationId: pass.chainId,
+        correlationId: chainCorrelationId(chain),
         causationId: pass.id,
         occurredAt: now,
         payload: {
@@ -954,7 +973,7 @@ export class A2ACollaborationRepository {
           version: completedPossession.revision,
         },
         actor: { type: possession.holder_type, id: possession.holder_id },
-        correlationId: possession.chain_id,
+        correlationId: chainCorrelationId(chain),
         causationId: possession.parent_pass_id ?? possession.id,
         occurredAt: now,
         payload: {
@@ -984,7 +1003,7 @@ export class A2ACollaborationRepository {
             },
             actor: { type: 'agent', id: possession.holder_id },
             subject: { type: 'agent', id: currentPass.fromHolderId },
-            correlationId: possession.chain_id,
+            correlationId: chainCorrelationId(chain),
             causationId: possession.id,
             occurredAt: now,
             payload: {
@@ -1015,7 +1034,7 @@ export class A2ACollaborationRepository {
             version: group.revision,
           },
           actor: { type: possession.holder_type, id: possession.holder_id },
-          correlationId: possession.chain_id,
+          correlationId: chainCorrelationId(chain),
           causationId: possession.id,
           occurredAt: now,
           payload: {
@@ -1168,7 +1187,7 @@ export class A2ACollaborationRepository {
         },
         actor: { type: 'system', id: 'a2a-collaboration' },
         subject: { type: source.holder_type, id: source.holder_id },
-        correlationId: source.chain_id,
+        correlationId: chainCorrelationId(chain),
         causationId: group.id,
         occurredAt: now,
         payload: {
@@ -1221,7 +1240,7 @@ export class A2ACollaborationRepository {
       aggregate: { type: 'a2a_pass_group', id: group.id },
       actor: { type: 'system', id: 'a2a-collaboration' },
       subject: { type: source.holder_type, id: source.holder_id },
-      correlationId: source.chain_id,
+      correlationId: chainCorrelationId(chain),
       causationId: group.id,
       occurredAt: now,
       payload: {
@@ -1294,7 +1313,7 @@ export class A2ACollaborationRepository {
       projectId: chain.conversation_id,
       aggregate: { type: 'a2a_collaboration', id: chainId, version: chain.revision + 1 },
       actor: { type: 'system', id: 'a2a-collaboration' },
-      correlationId: chainId,
+      correlationId: chainCorrelationId(chain),
       causationId: chainId,
       occurredAt: now,
       payload: { status: 'completed' },

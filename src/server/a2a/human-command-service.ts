@@ -76,6 +76,7 @@ export class HumanA2ACommandService {
         conversationId,
         rootTriggerType: 'user_turn',
         rootTriggerId: messageId,
+        correlationId: messageId,
         holderId: 'human',
         holderType: 'user',
       });

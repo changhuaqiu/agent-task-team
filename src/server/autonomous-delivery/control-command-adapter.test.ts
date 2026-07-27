@@ -28,6 +28,7 @@ describe('ProductionControlCommandAdapter', () => {
     deliveries = new AutonomousDeliveryRepository();
     runId = deliveries.createRun({
       idempotencyKey: 'control-command-adapter-delivery',
+      correlationId: 'delivery-root-trace',
       goal: 'Ship',
       acceptanceCriteria: ['Works'],
       scope: { conversationId: 'project-1' },
@@ -105,6 +106,7 @@ describe('ProductionControlCommandAdapter', () => {
       source: 'system',
       taskId: 'task-1',
       deliveryRunId: runId,
+      correlationId: 'delivery-root-trace',
     });
   });
 
@@ -134,6 +136,10 @@ describe('ProductionControlCommandAdapter', () => {
     expect(deliveries.getRun(runId)?.root_task_id).toBe(tasks[0]?.id);
     expect(db.prepare('SELECT COUNT(*) AS count FROM agent_inbox_item').get())
       .toEqual({ count: 0 });
+    expect(db.prepare(`
+      SELECT correlation_id FROM platform_event
+      WHERE type='task.assigned' ORDER BY recorded_at DESC,id DESC LIMIT 1
+    `).get()).toEqual({ correlation_id: 'delivery-root-trace' });
 
     expect(await adapter.execute(action, {
       decision,
@@ -162,6 +168,10 @@ describe('ProductionControlCommandAdapter', () => {
       target_id: 'task-1',
       status: 'requested',
     });
+    expect(db.prepare(`
+      SELECT correlation_id FROM platform_event
+      WHERE type='gate.requested' ORDER BY recorded_at DESC,id DESC LIMIT 1
+    `).get()).toEqual({ correlation_id: 'delivery-root-trace' });
   });
 
   it('requests and dispatches Delivery Gate Work through separate reviewer work identity', async () => {

@@ -1,6 +1,7 @@
 import { getDb } from '../db';
 import { generateSortableId } from '../repositories/sortable-id';
 import { DomainEventPublisher } from '../platform-events/domain-events';
+import { resolveGoalCorrelationId } from './types';
 import type {
   DeliveryActionReceipt,
   DeliveryBundle,
@@ -84,7 +85,11 @@ export class AutonomousDeliveryRepository {
     const timestamp = nowIso(now);
     const idempotencyKey = contract.idempotencyKey.trim();
     if (!idempotencyKey) throw new InvalidDeliveryRunStateError('new', 'idempotency key is required');
-    const contractJson = JSON.stringify(canonicalize(contract));
+    const normalizedContract: GoalContract = {
+      ...contract,
+      correlationId: resolveGoalCorrelationId(contract),
+    };
+    const contractJson = JSON.stringify(canonicalize(normalizedContract));
     const id = generateSortableId('delivery');
     const db = getDb();
     return db.transaction(() => {
@@ -96,7 +101,12 @@ export class AutonomousDeliveryRepository {
         goal_contract_json: string;
       } | undefined;
       if (existing) {
-        if (existing.goal_contract_json !== contractJson) {
+        const existingContract = JSON.parse(existing.goal_contract_json) as GoalContract;
+        const normalizedExistingJson = JSON.stringify(canonicalize({
+          ...existingContract,
+          correlationId: resolveGoalCorrelationId(existingContract),
+        }));
+        if (normalizedExistingJson !== contractJson) {
           throw new DeliveryRunIdempotencyConflictError(idempotencyKey);
         }
         return this.getSnapshot(existing.id)!;
@@ -127,6 +137,8 @@ export class AutonomousDeliveryRepository {
         type: 'delivery.run.started',
         projectId: contract.scope.conversationId,
         aggregate: { type: 'delivery_run', id },
+        correlationId: normalizedContract.correlationId,
+        causationId: normalizedContract.idempotencyKey,
         dedupeKey: `delivery:${id}:started`,
         occurredAt: timestamp,
         payload: { status: 'active', stage: 'planning' },
@@ -274,6 +286,9 @@ export class AutonomousDeliveryRepository {
           type,
           projectId: current.conversation_id,
           aggregate: { type: 'delivery_run', id: current.id, version: current.revision },
+          correlationId: resolveGoalCorrelationId(
+            JSON.parse(current.goal_contract_json) as GoalContract,
+          ),
           occurredAt: timestamp,
           payload: type === 'delivery.run.state_changed'
             ? {

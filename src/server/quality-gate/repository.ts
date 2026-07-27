@@ -56,6 +56,8 @@ export class QualityGateRepository {
     criteria: unknown;
     policy?: unknown;
     actor: QualityGateActor;
+    correlationId?: string;
+    causationId?: string;
     now?: Date;
   }): QualityGateSnapshot {
     const targetId = requireText(input.targetId, 'targetId');
@@ -103,6 +105,8 @@ export class QualityGateRepository {
         subject: { type: input.targetType, id: targetId },
         actor: input.actor,
         projectAgentId: input.actor.type === 'agent' ? input.actor.id : undefined,
+        correlationId: input.correlationId,
+        causationId: input.causationId,
         occurredAt: timestamp,
         payload: {
           kind: input.kind,
@@ -171,6 +175,8 @@ export class QualityGateRepository {
     sourceRef?: string;
     actor: QualityGateActor;
     idempotencyKey: string;
+    correlationId?: string;
+    causationId?: string;
     now?: Date;
   }): QualityGateEvidenceRow {
     const evidenceType = requireText(input.evidenceType, 'evidenceType');
@@ -213,6 +219,8 @@ export class QualityGateRepository {
         subject: { type: gate.target_type, id: gate.target_id },
         actor: input.actor,
         projectAgentId: input.actor.type === 'agent' ? input.actor.id : undefined,
+        correlationId: input.correlationId,
+        causationId: input.causationId,
         occurredAt: timestamp,
         dedupeKey: `gate:${gate.id}:evidence:${idempotencyKey}`,
         payload: { gateId: gate.id, evidenceId: id, evidenceType },
@@ -226,6 +234,8 @@ export class QualityGateRepository {
     gateId: string;
     evaluator: QualityGateActor;
     expectedRevision: number;
+    correlationId?: string;
+    causationId?: string;
     now?: Date;
   }): QualityGateSnapshot {
     return this.transitionOpen({
@@ -233,6 +243,8 @@ export class QualityGateRepository {
       evaluator: { ...input.evaluator, id: requireText(input.evaluator.id, 'evaluator.id') },
       expectedRevision: input.expectedRevision,
       to: 'evaluating',
+      correlationId: input.correlationId,
+      causationId: input.causationId,
       now: input.now,
     });
   }
@@ -244,6 +256,8 @@ export class QualityGateRepository {
     evidenceIds: string[];
     reason?: string;
     expectedRevision: number;
+    correlationId?: string;
+    causationId?: string;
     now?: Date;
   }): QualityGateSnapshot {
     const evaluatorId = requireText(input.evaluator.id, 'evaluator.id');
@@ -314,6 +328,8 @@ export class QualityGateRepository {
         subject: { type: current.target_type, id: current.target_id },
         actor: input.evaluator,
         projectAgentId: input.evaluator.type === 'agent' ? input.evaluator.id : undefined,
+        correlationId: input.correlationId,
+        causationId: input.causationId,
         occurredAt: timestamp,
         payload: {
           gateId: current.id,
@@ -334,6 +350,8 @@ export class QualityGateRepository {
     actor: QualityGateActor;
     reason: string;
     expectedRevision: number;
+    correlationId?: string;
+    causationId?: string;
     now?: Date;
   }): QualityGateSnapshot {
     const reason = requireText(input.reason, 'reason');
@@ -343,6 +361,8 @@ export class QualityGateRepository {
       expectedRevision: input.expectedRevision,
       to: 'cancelled',
       reason,
+      correlationId: input.correlationId,
+      causationId: input.causationId,
       now: input.now,
     });
     return snapshot;
@@ -354,6 +374,8 @@ export class QualityGateRepository {
     expectedRevision: number;
     to: 'evaluating' | 'cancelled';
     reason?: string;
+    correlationId?: string;
+    causationId?: string;
     now?: Date;
   }): QualityGateSnapshot {
     const timestamp = (input.now ?? new Date()).toISOString();
@@ -414,6 +436,8 @@ export class QualityGateRepository {
         subject: { type: current.target_type, id: current.target_id },
         actor: input.evaluator,
         projectAgentId: input.evaluator.type === 'agent' ? input.evaluator.id : undefined,
+        correlationId: input.correlationId,
+        causationId: input.causationId,
         occurredAt: timestamp,
         payload: input.to === 'evaluating'
           ? { gateId: current.id, evaluatorId: input.evaluator.id }

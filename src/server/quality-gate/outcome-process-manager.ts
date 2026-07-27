@@ -166,12 +166,16 @@ export class GateOutcomeProcessManager {
       sourceRef: `agent-outcome:${outcome.id}`,
       actor: { type: 'agent', id: contract.agent_id },
       idempotencyKey: evidenceKey,
+      correlationId: event.correlationId,
+      causationId: event.eventId,
     });
     const evaluating = current.gate.status === 'requested'
       ? this.gates.beginEvaluation({
           gateId: gate.id,
           evaluator: { type: 'agent', id: contract.agent_id },
           expectedRevision: current.gate.revision,
+          correlationId: event.correlationId,
+          causationId: event.eventId,
         })
       : this.gates.getSnapshot(gate.id)!;
     this.gates.decide({
@@ -181,6 +185,8 @@ export class GateOutcomeProcessManager {
       evidenceIds: [evidence.id],
       reason: payload.reason,
       expectedRevision: evaluating.gate.revision,
+      correlationId: event.correlationId,
+      causationId: event.eventId,
     });
     this.recordDeliveryReceipt(gate, outcome, receipt);
   };

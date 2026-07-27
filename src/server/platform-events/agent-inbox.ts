@@ -102,6 +102,11 @@ function fromRow(row: AgentInboxRow): AgentInboxItem {
   };
 }
 
+function rowCorrelationId(row: AgentInboxRow): string {
+  const command = JSON.parse(row.command_json) as AgentWorkCommand;
+  return command.correlationId?.trim() || `agent-work:${row.id}`;
+}
+
 export class AgentInboxConflictError extends Error {
   readonly reasonCode = 'agent_inbox_idempotency_conflict';
 }
@@ -124,7 +129,8 @@ export class AgentInbox {
     const command: AgentWorkCommand = {
       ...input.command,
       correlationId: input.command.correlationId
-        ?? input.sourceEvent?.correlationId,
+        ?? input.sourceEvent?.correlationId
+        ?? `agent-work:${input.idempotencyKey}`,
       causationId: input.command.causationId
         ?? input.sourceEvent?.eventId,
     };
@@ -166,6 +172,7 @@ export class AgentInbox {
         id,
         projectId: input.projectId,
         projectAgentId: input.projectAgentId,
+        correlationId: command.correlationId!,
         causationId: input.sourceEvent?.eventId,
         payload: { sourceEventId: input.sourceEvent?.eventId, commandSource: command.source },
       });
@@ -217,6 +224,7 @@ export class AgentInbox {
         id: candidate.id,
         projectId: candidate.project_id,
         projectAgentId: candidate.project_agent_id,
+        correlationId: rowCorrelationId(candidate),
         causationId: candidate.source_event_id ?? undefined,
         payload: { attemptCount: candidate.attempt_count + 1 },
       });
@@ -246,6 +254,7 @@ export class AgentInbox {
           id: item.id,
           projectId: item.project_id,
           projectAgentId: item.project_agent_id,
+          correlationId: rowCorrelationId(item),
           causationId: item.source_event_id ?? undefined,
           payload: { reasonCode: 'lease_expired', attemptCount: item.attempt_count },
         });
@@ -285,6 +294,7 @@ export class AgentInbox {
         id: item.id,
         projectId: item.project_id,
         projectAgentId: item.project_agent_id,
+        correlationId: rowCorrelationId(item),
         causationId: item.source_event_id ?? undefined,
         payload: { reasonCode, attemptCount: item.attempt_count },
       });
@@ -386,6 +396,7 @@ export class AgentInbox {
         id: item.id,
         projectId: item.project_id,
         projectAgentId: item.project_agent_id,
+        correlationId: rowCorrelationId(item),
         causationId: item.source_event_id ?? undefined,
         payload: {
           attemptCount: item.attempt_count,
@@ -413,6 +424,7 @@ export class AgentInbox {
         id: item.id,
         projectId: item.project_id,
         projectAgentId: item.project_agent_id,
+        correlationId: rowCorrelationId(item),
         causationId: item.source_event_id ?? undefined,
         payload: { reasonCode },
       });
@@ -432,6 +444,7 @@ export class AgentInbox {
       id: string;
       projectId: string;
       projectAgentId: string;
+      correlationId: string;
       causationId?: string;
       payload: Record<string, unknown>;
     },
@@ -446,7 +459,7 @@ export class AgentInbox {
       subject: { type: 'project_agent', id: input.projectAgentId },
       projectAgentId: input.projectAgentId,
       inboxItemId: input.id,
-      correlationId: input.causationId ?? input.id,
+      correlationId: input.correlationId,
       causationId: input.causationId,
       dedupeKey: `coordination:${input.id}:${type}:${JSON.stringify(input.payload)}`,
       payload: input.payload,

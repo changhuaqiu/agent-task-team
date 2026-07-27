@@ -199,6 +199,7 @@ export function ProjectCreateDialog({
             action: 'start',
             contract: {
               idempotencyKey: `project-create:${conversationId}`,
+              correlationId: `project-create:${conversationId}`,
               goal: trimmedGoal,
               acceptanceCriteria: criteria,
               scope: {

@@ -107,6 +107,8 @@ export class TaskGraphOutcomeProcessManager {
       idempotencyKey: event.eventId,
       actorId: contract.agent_id,
       actorType: 'agent',
+      correlationId: event.correlationId,
+      causationId: event.eventId,
       tasks: proposal.tasks,
       now: new Date(outcome.occurred_at),
     });

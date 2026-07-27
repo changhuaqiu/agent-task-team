@@ -202,123 +202,46 @@ Daemon 的边界是执行编排，不是团队规则解释器：
 
 ## 4.5 A2A 编排与团队协作规则
 
-[`src/server/a2a/orchestrator.ts`](../../src/server/a2a/orchestrator.ts) 当前进入 possession migration：链式 A2A 不再只按消息路由理解，而是按“active holder → 显式交接 → 一个或多个 branch holder”的控制转移模型推进。
+当前 A2A 只保留 `A2ACollaborationRepository` 这一套权威聚合，不再处于双写迁移期：
 
-系统级控制平面规格见 [`specs/system-control-plane/spec.md`](../../specs/system-control-plane/spec.md)。A2A possession 是协作语义层，不应长期承担完整 runtime delivery。目标架构中：
+- `a2a_possession_chain` 表示一次 Human turn 或 Agent outcome 发起的协作；
+- `a2a_possession` 表示某个 holder 的连续控制权；
+- `a2a_pass_group` 表示单分支 transfer 或多分支 fan-out 的原子提交与 join；
+- `a2a_pass` 表示每条交接分支；
+- `a2a_handoff_packet` 保存目标、动作、决策、证据、约束和开放问题。
 
-- A2A 产生 pass intent 和 handoff packet。
-- Dispatch Gateway 负责 policy、health、dedup、budget、secret gate 与 envelope 创建。
-- Runtime Router 负责按 `toNodeId` 定向投递，而不是依赖广播式 socket 事件。
-- daemon 作为 execution plane 只消费 execution envelope，并回报 `started`、`failed`、`completed`。
-- Proof Log 记录 pass request、dispatch route、send、ACK、failure 和 completion。
+Human 在 WebUI 的行为可以主动触发事件，但浏览器不是控制面。消息先持久化，再由
+`HumanA2ACommandService` 校验 roster，必要时终止上一 Human turn，并原子创建 Chain、
+Pass Group、Pass、HandoffPacket 与 AgentInbox Command。UI 只提交 Human Command 和显示
+`a2a.snapshot`，不发送 Runtime started/failed/completed 回执，也不自行重派。
 
-`a2a:pass-offer`、`a2a:dispatch`、`a2a:possession-changed` 与
-`dispatch.receipt` 只作为项目展示投影。浏览器不回报执行 ACK，也不拥有 A2A
-失败、延迟或重试判定；这些事实由服务端 Harness、Agent Inbox 和
-Dispatch Gateway 产生。
+Agent 不能靠最终文本或 `@mention` 创建平台协作。WorkContract Agent 只能提交结构化
+`handoff_to_agent` Outcome；Outcome admission 通过后，durable
+`A2AOutcomeProcessManager` 调用 A2A owner。`A2ACommandGuard` 在写入前统一校验当前
+conversation roster 和 `CommunicationPolicy`，显式 Human Command 只豁免 agent-to-agent
+矩阵，不豁免 roster。
 
-控制平面 P0 持久化已落地：
+所有下游执行先进入持久 `AgentInbox`。Inbox admission 只把 Pass 推进到 `starting`；
+`runtime.invocation.started` 才创建 receiver Possession 并把 Pass 置为 `started`。
+Runtime 终止、Inbox expired/cancelled 由 `A2ALifecycleProcessManager` 按 start/run 阶段
+失败 Pass。receiver 的成功型结构化 Outcome 才完成 Possession；`report_blocked` 与
+`request_human_decision` 会把父 Pass 置为 `blocked`、撤销 receiver Possession，并为
+source holder 创建 recovery Possession 与恢复 Inbox，绝不按成功分支汇合。
 
-- `control_proof_event`：控制平面 proof timeline，关联 conversation、task、chain、pass、envelope、node、agent 和 actor。
-- `runtime_node`：跨实例 runtime node 身份、能力、信任级别、心跳和可达状态。
-- `agent_binding`：会话内 agent 到 runtime node 的绑定、忙闲状态和 active envelope。
-- `execution_envelope`：统一执行信封，记录 source、intent、route、payload、TTL、nonce、生命周期状态和失败原因。
+Pass Group 只有在全部分支产生真实终结结果后才结算。全成功进入 `completed`；任一
+`blocked/rejected/timeout/error` 则进入 `recovering`，成功分支事实保留。hop budget、
+祖先 holder 循环、source revision、幂等内容漂移和非法 holder 都由聚合拒绝。
 
-这些表当前先作为事实源基础和测试覆盖存在；direct user dispatch 与 A2A dispatch 迁入 `DispatchGateway` 是下一阶段。
+整条链继承触发它的根 correlation。Chain/Group/Pass/Possession/Inbox ID 只作为 aggregate
+identity 或 causation，不能替换 trace。所有 A2A domain event 与下游 Inbox Command 因而
+可以和 Delivery、Invocation、WorkContract、Outcome 一起通过
+`PlatformEventLog.listTrace(correlationId)` 查询。
 
-当前执行入口已经接到轻量 `DispatchGateway`：
-
-- daemon 启动时注册本地 runtime node `daemon:local`。
-- browser socket 连接时通过 `runtime:hello` 注册 browser runtime node，并每 5 秒发送 `runtime:heartbeat`。
-- daemon 每 5 秒检查 runtime node 心跳，2 次 miss 标记 `stale`，3 次 miss 标记 `unreachable`。
-- `terminal:start` 会创建 `execution_envelope` 并记录 `dispatch.requested`、`dispatch.routed`、`dispatch.sent`、`dispatch.started`、`dispatch.completed/failed`。
-- A2A 服务端路径会把 `chainId` 与 `passId` 传入 envelope，便于 proof timeline 串起 pass 与执行生命周期。
-- 轻量 `SecretGate` 会阻止包含 API key、bearer token、private key、database URL 等明显敏感内容的 envelope。
-
-尚未完成的部分是彻底移除兼容广播 transport，并让 executor 只消费 `ExecutionEnvelope`。
-
-持球模型的持久化表包括：
-
-- `a2a_possession_chain`：一次协作 episode，记录兼容 UI 使用的最新持球者
-- `a2a_possession`：某个 holder 的连续控制期
-- `a2a_pass`：一次显式交接，记录 offer/start/run 等阶段状态和失败原因
-- `a2a_handoff_packet`：发送给下一 holder 的紧凑交接包
-- `a2a_delivery`：迁移期 server-originated dispatch outbox，记录 payload、attempts、last_error 和 sent/deferred/started/failed 状态
-
-`invocation_chain` 与 `chain_worklist` 仍作为服务端执行队列和历史可读结构；
-possession 表记录协作语义。它们不再依赖客户端执行路径。
-
-人在 WebUI 提交消息后，命中的初始目标以显式 `terminal:start` Command 进入
-服务端，同时 WebUI 用 `a2a:user-turn-created` 登记这次人工用户回合。该入口只表达
-人的意图，不用于消费服务端展示事件。daemon 为每个被服务端接纳的目标登记独立 pass
-和 open possession；没有目标时会终止同会话旧 active chain，避免延迟回复串入新回合。
-旧的 `a2a:user-message` 输入已经删除。
-
-server-originated handoff 先生成 `a2a_pass` 与 `a2a_handoff_packet`，再以稳定幂等键
-写入 Agent Inbox，并由服务端 Harness 接管执行。`a2a:pass-offer` 和 `a2a:dispatch`
-仅供 UI 展示；Harness admission、runtime started/failed/completed 才推进 worklist 和
-possession。浏览器不发送 `a2a:agent-started`、`a2a:dispatch-failed` 或
-`a2a:dispatch-deferred`。`currentHolderId` 只表示最新启动的 holder，真正持球资格由
-open possession 判断，因此 fan-out 后多个 branch holder 可以独立完成或继续传球。
-
-服务端执行入口已改为先写 `AgentInbox`：A2A 使用
-`a2a:<chainId>:<entryId>:<agentId>` 稳定幂等键持久接纳 Command，Inbox Scheduler 在事务
-提交后才调用 Harness。durable admission 不会提前把 entry 标成 `executing`；实际
-Harness/runtime started 或 agent response 才确认 started。Socket 投影不是执行事实源。
-
-daemon 将 `runtime.invocation.terminated` 交给 durable
-`runtime-completion-process-manager:v1`。handler 从同一 Invocation 的 canonical 完成消息段
-重建输出，并在同一事务中按 `runtime-completion:<invocationId>` lane 接纳 task-sync、
-valid-exit proof、closure evaluation、TeamLog、A2A response/done Effect Commands，再将
-completion context 标为已接纳。这里的 `completed` 表示命令已持久化，不表示副作用已经执行。
-
-独立 Effect Worker 按 lane 严格有序执行，统一处理 attempt、lease、fencing、重试和
-dead letter；lease recovery 也消耗 attempt 预算，到限直接 dead-letter 并释放后序。
-proof、closure evaluation 与 A2A response/done 使用 SQLite action/receipt 同事务的
-transactional adapter；task-sync、TeamLog 使用稳定幂等键或可收敛写入的 idempotent adapter。
-A2A 的 chain/worklist/possession 与稳定 `chainId/entryId` Agent Inbox Command 同事务写入，
-Socket、内存状态和 timer 延迟到提交后，Inbox Scheduler 再调用 Harness。
-migration 52 建立通用 Effect Outbox 表，将 v51 已完成 step 转为只读 suppression 后删除旧
-completion step receipt，pending context 不会重放已提交步骤。完整设计、状态机、崩溃窗口
-与新 Adapter 接入规则见
-`docs/technical/execution/durable-effect-outbox.md`。所有运行时
-（opencode / claude / codex）统一经 ACP 产出
-`AgentEvent` 并归一化入流，不再有 per-engine 私有 stdout 解析。
-
-ACP 文本事件是增量流。daemon 通过项目级 `project:view` 的
-`runtime.text.delta` / `runtime.thinking.delta` 把每个 chunk 实时投影给浏览器；
-`RuntimeAgentEventBridge` 在工具、错误和完成边界关闭文本段，durable Message projection
-再把完成段写成 `chat_message`。这样实时体验不受影响，历史消息也不会按单字或 token 碎片化。
-
-agent 输出中的 `@mention` 不再自动变成转交。A2A 只接受带明确行动意图的交接，例如“@reviewer 请审查…”、“交给 @coder 实现…”。普通引用、通知、前置或后置明确否定（包括“不要”“不用/不必执行”“请勿/切勿”）以及代码块中的 `@agent` 不会唤醒目标 agent。非 active holder 的输出即使包含交接语义也会被拦截；fan-out branch holder 的输出则合法，即使兼容 UI 的最新 holder 指向另一个 branch。
-
-“派发 / 分配 / 指派 @agent”这类状态总结也属于明确交接意图。对于 Mario 这类上游 agent 输出的 compact table，例如“TASK-001 @toad 运行中”，只要上下文明确说明正在派发，parser 会把它转换成 handoff intent，而不是当作普通提及忽略。同一个 holder 响应中产生的多个 idle 目标会在同一轮 dispatch cycle 中发出执行请求，以支持批量交接和并行唤醒。
-
-如果 agent 输出提到的 `@agent` 不属于当前团队 roster，daemon 会把它记录为 A2A block 并向会话发送“当前团队没有可接收 @agent 的角色”。这类问题代表团队配置不匹配，不应被解读为消息投递超时。
-
-`a2a:pass-offer` 与 `a2a:dispatch` 是 server → client 的展示投影，必须携带
-`projectId` 并发往同名项目 room。服务端在发布投影前持久接纳 A2A Command；
-Inbox Scheduler 和 Harness 处理 admission、busy、失败与重试。客户端收到这些事件后
-只更新交接条和事件时间线，不调用 `dispatchToAgent()`，也不回发执行结果。
-
-客户端组装 prompt 时必须保留 A2A 语义：`a2a:dispatch` 的 `fromAgentId` 会被包装成“跨角色协作消息”信封，再注入给目标 agent。该信封明确说明触发来源、上游指令与回声防护规则；A2A dispatch 不再追加普通用户消息层，避免目标 agent 把协作触发误判为用户输入或重复上下文。
-
-当项目提供 Team Runtime `CommunicationPolicy` 时，A2A mention handoff 在写入 worklist 前检查协作规则：
-
-- `fromAgentId === 'user'` 的直接用户派发不受该规则拦截。
-- agent 发起的 `@mention` 如果被规则阻止，会写入 `a2a_audit_log` 的
-  `dispatch_blocked` 记录，并通过项目级 `a2a:notice` 展示原因。
-- 未提供 policy provider 时，保持原有默认行为，不阻止已有 A2A dispatch。
-
-policy 通过 `AgentMessenger` 的 `KanbanSnapshotProvider.getCommunicationPolicy(conversationId)` 可选边界注入；mention 扫描通过同一边界的 `getAgentMentionConfigs(conversationId)` 读取当前会话 roster。生产 daemon 使用 server-side runtime provider：读取 `conversation.team_pack_id`，通过 `teamPackRepo.getById()` 取得 TeamPack，再用 `resolveTeamRuntime()` 生成 TeamPack role roster 与协作规则。A2A server 代码只依赖 `src/lib/team-runtime` 的中立契约类型，不导入前端 store，也不直接解释 TeamPack 细节。
-
-server-side runtime provider 会把预设 RoleCard 与数据库自定义 RoleCard 一起传入 runtime resolver。这样 TeamPack role 只有 `roleCardId` 时也能得到正确角色边界，避免后端/实现者被合成为“只能提出建议”的顾问角色。默认团队的 `toad` 绑定 `preset-backend`，工程三件套的 `coder` 绑定实现类 RoleCard；启动 seed 会修正旧 TeamPack 中缺失或陈旧的预设 role snapshot。
-
-TeamPack 会话的 A2A mention pattern 来自 runtime role id 和 displayName（例如 `@planner` 与 `@Planner`）；没有 TeamPack 的会话回退到 DB `agents` roster。协作规则检查在 breadth/dedup 之前执行，因此被 TeamPack 规则阻止的 agent-to-agent handoff 不会被链路宽度限制掩盖；`fromAgentId === 'user'` 的直接用户派发仍保持原有行为。
-
-A2A v2 当前使用 invocation chain 作为一次用户触发内的临时协作边界。新用户消息会中止同会话旧 active chain；dispatch prompt 只注入当前 chain 内 cursor 之后的协作消息，不会把旧用户触发的完成项带入新上下文。链路超时、重复内容、重复目标、ping-pong、持球者违规和通信规则阻断都会写入 `a2a_audit_log`；审计写入失败会输出 daemon warning，但不会阻塞用户流程。面向用户的超时文案不再使用笼统的“A2A 链超时终止 (120s)”，而是说明 offer、run 或 holder idle 阶段超时；start 阶段超时配置已保留给 accepted/start 拆分后的协议。
-
-Possession 迁移期仍双写 `invocation_chain` / `chain_worklist` 与 `a2a_possession_*` 表。跨 possession chain、possession、pass、handoff packet 的状态转换必须包在 SQLite transaction 中；daemon 启动时会从 SQLite 重建 active agent 状态、entry/pass 映射、task handoff 映射、accepted pass 去重集合和 dedup/ripple 内存状态，避免重启后重复 dispatch 或链路状态分叉。stale chain 清理使用每条 chain 自己的 `maxDurationMs`，不再使用固定 5 分钟或旧 120 秒阈值。
+历史 `A2AOrchestrator`、`invocation_chain`、`chain_worklist`、`a2a_delivery`、
+`a2a_work_item`、`a2a_work_cursor`、mention parser、运行时文本 A2A completion 和
+`a2a:user-turn-created` 兼容协议均已移除。当前长期契约见
+[`platform-harness-state-machine-design.md`](../technical/execution/platform-harness-state-machine-design.md)
+与 [`specs/platform-harness-state-machines/spec.md`](../../specs/platform-harness-state-machines/spec.md)。
 
 ## 4.6 Agent Backend 抽象（ACP 统一通路）
 

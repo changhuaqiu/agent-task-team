@@ -3,6 +3,7 @@ import { getDb } from '../db';
 import { generateSortableId } from '../repositories/sortable-id';
 import { PlatformEventLog } from '../platform-events/event-log';
 import type { ControlAction, ControlDecision } from './control-decision';
+import { resolveGoalCorrelationId, type GoalContract } from './types';
 
 export type PersistedControlActionStatus =
   | 'ready'
@@ -471,6 +472,12 @@ export class ControlDecisionRepository {
     reasonCode: string,
     occurredAt: string,
   ): void {
+    const run = db.prepare(`
+      SELECT goal_contract_json FROM autonomous_delivery_run WHERE id=?
+    `).get(action.run_id) as { goal_contract_json: string } | undefined;
+    const correlationId = run
+      ? resolveGoalCorrelationId(JSON.parse(run.goal_contract_json) as GoalContract)
+      : `delivery-run:${action.run_id}`;
     new PlatformEventLog({ db }).append({
       type: 'control.action.failed',
       category: 'coordination',
@@ -485,7 +492,7 @@ export class ControlDecisionRepository {
       subject: action.target_work_id
         ? { type: 'work', id: action.target_work_id }
         : { type: 'delivery_run', id: action.run_id },
-      correlationId: action.decision_id,
+      correlationId,
       causationId: action.id,
       dedupeKey: `control-action:${action.id}:failed:${action.attempt_count}`,
       occurredAt,

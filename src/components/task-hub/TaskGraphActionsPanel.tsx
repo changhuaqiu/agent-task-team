@@ -51,12 +51,15 @@ export function TaskGraphActionsPanel({
   async function run(body: Record<string, unknown>) {
     setIsSubmitting(true);
     try {
+      const idempotencyKey = newIdempotencyKey();
       await postTaskGraph({
         conversationId: task.conversationId,
         actorId: 'user',
         actorType: 'user',
         expectedRevision: revision,
-        idempotencyKey: newIdempotencyKey(),
+        idempotencyKey,
+        correlationId: `task-graph:${idempotencyKey}`,
+        causationId: idempotencyKey,
         ...body,
       });
       setError(null);

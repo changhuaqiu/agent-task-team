@@ -338,6 +338,7 @@ export class A2AOutcomeProcessManager {
         conversationId: contract.project_id,
         rootTriggerType: 'system',
         rootTriggerId: outcome.id,
+        correlationId: contract.correlation_id,
         holderId: contract.agent_id,
         holderType: 'agent',
         config: payload.maxHops ? { maxDepth: payload.maxHops } : {},

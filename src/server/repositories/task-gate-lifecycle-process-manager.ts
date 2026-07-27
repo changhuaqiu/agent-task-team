@@ -60,6 +60,8 @@ export class TaskGateLifecycleProcessManager {
         expectedFrom: 'in_review',
         expectedRevision: task.revision,
         reviewNote: gate.decision_reason ?? undefined,
+        correlationId: event.correlationId,
+        causationId: event.eventId,
       });
       this.closeTaskAuthorities(db, {
         taskId: task.id,

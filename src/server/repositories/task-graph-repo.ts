@@ -344,6 +344,8 @@ export const taskGraphRepo = {
     idempotencyKey: string;
     actorId: string;
     actorType: 'user' | 'agent' | 'system';
+    correlationId?: string;
+    causationId?: string;
     tasks: TaskGraphCommitTask[];
     now?: Date;
   }): TaskGraphCommitResult {
@@ -364,6 +366,10 @@ export const taskGraphRepo = {
     const digest = requestDigest({
       conversationId: input.conversationId,
       expectedRevision: input.expectedRevision,
+      actorId: input.actorId,
+      actorType: input.actorType,
+      correlationId: input.correlationId,
+      causationId: input.causationId,
       tasks: input.tasks,
     });
     const db = getDb();
@@ -435,6 +441,8 @@ export const taskGraphRepo = {
         ...task,
         conversation_id: input.conversationId,
         dependencies: [...new Set(task.dependencies ?? [])],
+        correlationId: input.correlationId,
+        causationId: input.causationId,
       }));
       const action = taskGraphRepo.appendAction({
         conversationId: input.conversationId,
