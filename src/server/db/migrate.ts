@@ -2474,6 +2474,277 @@ BEGIN
 END;
 `,
   },
+  {
+    version: 60,
+    sql: `
+CREATE TABLE IF NOT EXISTS work_contract (
+  id TEXT PRIMARY KEY,
+  work_id TEXT NOT NULL,
+  work_epoch INTEGER NOT NULL CHECK(work_epoch > 0),
+  attempt_id TEXT NOT NULL UNIQUE,
+  fencing_token TEXT NOT NULL UNIQUE,
+  project_id TEXT NOT NULL REFERENCES conversation(id) ON DELETE CASCADE,
+  task_id TEXT,
+  delivery_run_id TEXT,
+  agent_id TEXT NOT NULL CHECK(length(trim(agent_id)) > 0),
+  goal TEXT NOT NULL CHECK(length(trim(goal)) > 0),
+  acceptance_criteria_json TEXT NOT NULL,
+  role_json TEXT NOT NULL,
+  permissions_json TEXT NOT NULL,
+  authoritative_refs_json TEXT NOT NULL,
+  authoritative_revisions_json TEXT NOT NULL,
+  context_snapshot_ref TEXT NOT NULL CHECK(length(trim(context_snapshot_ref)) > 0),
+  allowed_outcome_types_json TEXT NOT NULL,
+  deadline_at TEXT,
+  budget_json TEXT NOT NULL,
+  correlation_id TEXT NOT NULL CHECK(length(trim(correlation_id)) > 0),
+  causation_id TEXT NOT NULL CHECK(length(trim(causation_id)) > 0),
+  created_at TEXT NOT NULL,
+  UNIQUE(work_id,work_epoch)
+);
+CREATE INDEX IF NOT EXISTS idx_work_contract_project_agent
+  ON work_contract(project_id,agent_id,created_at);
+CREATE INDEX IF NOT EXISTS idx_work_contract_task
+  ON work_contract(task_id,created_at);
+
+CREATE TABLE IF NOT EXISTS work_authority (
+  work_id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES conversation(id) ON DELETE CASCADE,
+  current_epoch INTEGER NOT NULL CHECK(current_epoch > 0),
+  current_contract_id TEXT NOT NULL UNIQUE
+    REFERENCES work_contract(id) ON DELETE CASCADE,
+  status TEXT NOT NULL CHECK(status IN ('active','closed')),
+  revision INTEGER NOT NULL DEFAULT 0 CHECK(revision >= 0),
+  updated_at TEXT NOT NULL,
+  closed_at TEXT,
+  CHECK(
+    (status='active' AND closed_at IS NULL)
+    OR (status='closed' AND closed_at IS NOT NULL)
+  )
+);
+CREATE INDEX IF NOT EXISTS idx_work_authority_project_status
+  ON work_authority(project_id,status,updated_at);
+
+CREATE TABLE IF NOT EXISTS agent_outcome (
+  id TEXT PRIMARY KEY,
+  idempotency_key TEXT NOT NULL,
+  contract_id TEXT NOT NULL,
+  project_id TEXT NOT NULL REFERENCES conversation(id) ON DELETE CASCADE,
+  work_id TEXT NOT NULL,
+  work_epoch INTEGER NOT NULL CHECK(work_epoch > 0),
+  attempt_id TEXT NOT NULL,
+  fencing_token TEXT NOT NULL,
+  outcome_type TEXT NOT NULL CHECK(outcome_type IN (
+    'continue_work','propose_task_graph','submit_task_result','request_review',
+    'record_gate_decision','handoff_to_agent','report_blocked','request_human_decision'
+  )),
+  payload_json TEXT NOT NULL,
+  evidence_refs_json TEXT NOT NULL,
+  authoritative_revisions_json TEXT NOT NULL,
+  correlation_id TEXT NOT NULL,
+  causation_id TEXT NOT NULL,
+  occurred_at TEXT NOT NULL,
+  admission_status TEXT NOT NULL CHECK(admission_status IN ('accepted','rejected')),
+  rejection_reason TEXT,
+  recorded_at TEXT NOT NULL,
+  UNIQUE(project_id,idempotency_key),
+  CHECK(
+    (admission_status='accepted' AND rejection_reason IS NULL)
+    OR (
+      admission_status='rejected'
+      AND rejection_reason IS NOT NULL
+      AND length(trim(rejection_reason)) > 0
+    )
+  )
+);
+CREATE INDEX IF NOT EXISTS idx_agent_outcome_contract
+  ON agent_outcome(contract_id,recorded_at);
+CREATE INDEX IF NOT EXISTS idx_agent_outcome_work
+  ON agent_outcome(work_id,work_epoch,recorded_at);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_agent_outcome_terminal_contract
+  ON agent_outcome(contract_id)
+  WHERE admission_status='accepted' AND outcome_type<>'continue_work';
+
+CREATE TRIGGER IF NOT EXISTS trg_work_contract_immutable
+BEFORE UPDATE ON work_contract
+BEGIN
+  SELECT RAISE(ABORT, 'work_contract_immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_work_contract_delete_guard
+BEFORE DELETE ON work_contract
+WHEN EXISTS (SELECT 1 FROM conversation WHERE id=OLD.project_id)
+BEGIN
+  SELECT RAISE(ABORT, 'work_contract_immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_work_authority_transition
+BEFORE UPDATE ON work_authority
+WHEN (OLD.status='closed')
+  OR (NEW.project_id <> OLD.project_id)
+  OR (NEW.revision <> OLD.revision + 1)
+  OR (
+    NEW.status='active'
+    AND (
+      NEW.current_epoch <> OLD.current_epoch + 1
+      OR NEW.current_contract_id = OLD.current_contract_id
+    )
+  )
+  OR (
+    NEW.status='closed'
+    AND (
+      OLD.status <> 'active'
+      OR NEW.current_epoch <> OLD.current_epoch
+      OR NEW.current_contract_id <> OLD.current_contract_id
+    )
+  )
+BEGIN
+  SELECT RAISE(ABORT, 'invalid_work_authority_transition');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_work_authority_contract_insert
+BEFORE INSERT ON work_authority
+WHEN NOT EXISTS (
+  SELECT 1 FROM work_contract AS contract
+  WHERE contract.id=NEW.current_contract_id
+    AND contract.project_id=NEW.project_id
+    AND contract.work_id=NEW.work_id
+    AND contract.work_epoch=NEW.current_epoch
+)
+BEGIN
+  SELECT RAISE(ABORT, 'invalid_work_authority_contract');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_work_authority_contract_update
+BEFORE UPDATE OF current_contract_id,current_epoch ON work_authority
+WHEN NOT EXISTS (
+  SELECT 1 FROM work_contract AS contract
+  WHERE contract.id=NEW.current_contract_id
+    AND contract.project_id=NEW.project_id
+    AND contract.work_id=NEW.work_id
+    AND contract.work_epoch=NEW.current_epoch
+)
+BEGIN
+  SELECT RAISE(ABORT, 'invalid_work_authority_contract');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_work_authority_delete_guard
+BEFORE DELETE ON work_authority
+WHEN EXISTS (SELECT 1 FROM conversation WHERE id=OLD.project_id)
+BEGIN
+  SELECT RAISE(ABORT, 'work_authority_delete_forbidden');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_agent_outcome_acceptance_contract
+BEFORE INSERT ON agent_outcome
+WHEN NEW.admission_status='accepted'
+  AND NOT EXISTS (
+    SELECT 1
+    FROM work_contract AS contract
+    JOIN work_authority AS authority
+      ON authority.work_id=contract.work_id
+    WHERE contract.id=NEW.contract_id
+      AND contract.project_id=NEW.project_id
+      AND contract.work_id=NEW.work_id
+      AND contract.work_epoch=NEW.work_epoch
+      AND contract.attempt_id=NEW.attempt_id
+      AND contract.fencing_token=NEW.fencing_token
+      AND contract.correlation_id=NEW.correlation_id
+      AND contract.authoritative_revisions_json=NEW.authoritative_revisions_json
+      AND EXISTS (
+        SELECT 1 FROM json_each(contract.allowed_outcome_types_json)
+        WHERE value=NEW.outcome_type
+      )
+      AND authority.status='active'
+      AND authority.current_contract_id=contract.id
+      AND authority.current_epoch=contract.work_epoch
+  )
+BEGIN
+  SELECT RAISE(ABORT, 'invalid_agent_outcome_authority');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_agent_outcome_immutable
+BEFORE UPDATE ON agent_outcome
+BEGIN
+  SELECT RAISE(ABORT, 'agent_outcome_immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_agent_outcome_delete_guard
+BEFORE DELETE ON agent_outcome
+WHEN EXISTS (SELECT 1 FROM conversation WHERE id=OLD.project_id)
+BEGIN
+  SELECT RAISE(ABORT, 'agent_outcome_immutable');
+END;
+
+`,
+    run(db) {
+      const invocationExists = db.prepare(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='invocation'",
+      ).get();
+      if (!invocationExists) return;
+      const columns = new Set(
+        (db.pragma('table_info(invocation)') as Array<{ name: string }>)
+          .map((column) => column.name),
+      );
+      for (const [name, type] of [
+        ['work_contract_id', 'TEXT'],
+        ['work_id', 'TEXT'],
+        ['work_epoch', 'INTEGER'],
+        ['fencing_token', 'TEXT'],
+      ] as const) {
+        if (!columns.has(name)) db.exec(`ALTER TABLE invocation ADD COLUMN ${name} ${type}`);
+      }
+      db.exec(`
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_invocation_work_contract
+        ON invocation(work_contract_id)
+        WHERE work_contract_id IS NOT NULL
+      `);
+      if (!['id', 'conversation_id', 'agent_id'].every((column) => columns.has(column))) return;
+      db.exec(`
+        CREATE TRIGGER IF NOT EXISTS trg_invocation_work_binding_insert
+        BEFORE INSERT ON invocation
+        WHEN (
+            NEW.work_contract_id IS NULL
+            AND (
+              NEW.work_id IS NOT NULL
+              OR NEW.work_epoch IS NOT NULL
+              OR NEW.fencing_token IS NOT NULL
+            )
+          )
+          OR (
+            NEW.work_contract_id IS NOT NULL
+            AND NOT EXISTS (
+              SELECT 1
+              FROM work_contract AS contract
+              JOIN work_authority AS authority
+                ON authority.current_contract_id=contract.id
+              WHERE contract.id=NEW.work_contract_id
+                AND contract.attempt_id=NEW.id
+                AND contract.project_id=NEW.conversation_id
+                AND contract.agent_id=NEW.agent_id
+                AND contract.work_id=NEW.work_id
+                AND contract.work_epoch=NEW.work_epoch
+                AND contract.fencing_token=NEW.fencing_token
+                AND authority.status='active'
+                AND authority.current_epoch=contract.work_epoch
+            )
+          )
+        BEGIN
+          SELECT RAISE(ABORT, 'invalid_invocation_work_binding');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS trg_invocation_work_binding_immutable
+        BEFORE UPDATE OF work_contract_id,work_id,work_epoch,fencing_token ON invocation
+        WHEN NEW.work_contract_id IS NOT OLD.work_contract_id
+          OR NEW.work_id IS NOT OLD.work_id
+          OR NEW.work_epoch IS NOT OLD.work_epoch
+          OR NEW.fencing_token IS NOT OLD.fencing_token
+        BEGIN
+          SELECT RAISE(ABORT, 'invocation_work_binding_immutable');
+        END
+      `);
+    },
+  },
 ];
 
 export function applyMigrations(db: Database.Database): void {

@@ -424,6 +424,30 @@ Outcome owner 必须同时验证：类型在 WorkContract allowlist 内、epoch/
 幂等键未被处理、关键权威版本未发生不允许的漂移。旧 attempt 的迟到 Outcome 只记诊断，
 不得改变事实。
 
+### 7.1 已落地的运行边界
+
+Migration 60 建立三个职责分离的权威对象：
+
+- `work_contract`：不可变的单次激活契约；
+- `work_authority`：一个 `workId` 当前唯一有效的 epoch/contract 指针；
+- `agent_outcome`：不可变的候选结果及 admission 结论。
+
+`RepositoryHarnessPlanner` 只有在 Runtime Profile、Skill 与 ContextSnapshot 均成功编译后才签发
+WorkContract。`Invocation.id` 复用 Contract 的 `attemptId`，并同时绑定
+`workContractId / workId / workEpoch / fencingToken`；数据库拒绝部分绑定、伪造绑定及绑定改写。
+同一 `workId` 的新激活以 CAS 方式把 authority 推进一个 epoch，旧 Contract 永远不会恢复为当前
+authority。
+
+ACP 执行端得到的是每次 Invocation 独占的 `agent_submit_outcome` 平台工具。模型只提交
+`outcomeType / payload / evidenceRefs / idempotencyKey`，平台 grant 负责绑定私有 fencing token、
+权威版本、correlation 和 causation，避免模型自行拼装安全信封。非 ACP 运行端可以使用
+`POST /api/agent-outcomes` 提交完整信封。
+
+Admission 只产生 `agent.outcome.accepted | agent.outcome.rejected` 协调事件，不直接修改 Task、
+Gate、A2A 或 Delivery。一个 Contract 可以提交多个 `continue_work` 进度，但只允许一个终结性
+Outcome；同一幂等键的不同内容属于冲突，而不是“重复成功”。后续领域变化仍必须由对应 owner
+接收 Command 并完成自己的版本与证据校验。
+
 这解决了两种极端：
 
 - Harness 不会把 Agent 降级成“执行静态 Todo 的脚本”；

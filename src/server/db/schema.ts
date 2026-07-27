@@ -121,6 +121,10 @@ export const invocation = sqliteTable('invocation', {
   accountId: text('account_id'),
   cliSessionId: text('cli_session_id'),
   prompt: text('prompt'),
+  workContractId: text('work_contract_id'),
+  workId: text('work_id'),
+  workEpoch: integer('work_epoch'),
+  fencingToken: text('fencing_token'),
   exitCode: integer('exit_code'),
   reasonCode: text('reason_code'),
   usage: text('usage'), // JSON text nullable
@@ -136,6 +140,9 @@ export const invocation = sqliteTable('invocation', {
 }, (table) => [
   index('idx_invocation_agent').on(table.agentId),
   index('idx_invocation_conv').on(table.conversationId),
+  uniqueIndex('uq_invocation_work_contract')
+    .on(table.workContractId)
+    .where(sql`${table.workContractId} IS NOT NULL`),
 ]);
 
 // ──────────────────────────────────────────────
@@ -1389,6 +1396,81 @@ export const qualityGateDecision = sqliteTable('quality_gate_decision', {
   createdAt: text('created_at').notNull(),
 }, (table) => [
   uniqueIndex('uq_quality_gate_decision_gate').on(table.gateId),
+]);
+
+export const workContract = sqliteTable('work_contract', {
+  id: text('id').primaryKey(),
+  workId: text('work_id').notNull(),
+  workEpoch: integer('work_epoch').notNull(),
+  attemptId: text('attempt_id').notNull(),
+  fencingToken: text('fencing_token').notNull(),
+  projectId: text('project_id').notNull().references(() => conversation.id, { onDelete: 'cascade' }),
+  taskId: text('task_id'),
+  deliveryRunId: text('delivery_run_id'),
+  agentId: text('agent_id').notNull(),
+  goal: text('goal').notNull(),
+  acceptanceCriteriaJson: text('acceptance_criteria_json').notNull(),
+  roleJson: text('role_json').notNull(),
+  permissionsJson: text('permissions_json').notNull(),
+  authoritativeRefsJson: text('authoritative_refs_json').notNull(),
+  authoritativeRevisionsJson: text('authoritative_revisions_json').notNull(),
+  contextSnapshotRef: text('context_snapshot_ref').notNull(),
+  allowedOutcomeTypesJson: text('allowed_outcome_types_json').notNull(),
+  deadlineAt: text('deadline_at'),
+  budgetJson: text('budget_json').notNull(),
+  correlationId: text('correlation_id').notNull(),
+  causationId: text('causation_id').notNull(),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  uniqueIndex('uq_work_contract_epoch').on(table.workId, table.workEpoch),
+  uniqueIndex('uq_work_contract_attempt').on(table.attemptId),
+  uniqueIndex('uq_work_contract_fencing_token').on(table.fencingToken),
+  index('idx_work_contract_project_agent').on(table.projectId, table.agentId, table.createdAt),
+  index('idx_work_contract_task').on(table.taskId, table.createdAt),
+]);
+
+export const workAuthority = sqliteTable('work_authority', {
+  workId: text('work_id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => conversation.id, { onDelete: 'cascade' }),
+  currentEpoch: integer('current_epoch').notNull(),
+  currentContractId: text('current_contract_id').notNull().references(() => workContract.id, { onDelete: 'cascade' }),
+  status: text('status').notNull(),
+  revision: integer('revision').notNull().default(0),
+  updatedAt: text('updated_at').notNull(),
+  closedAt: text('closed_at'),
+}, (table) => [
+  uniqueIndex('uq_work_authority_current_contract').on(table.currentContractId),
+  index('idx_work_authority_project_status').on(table.projectId, table.status, table.updatedAt),
+]);
+
+export const agentOutcome = sqliteTable('agent_outcome', {
+  id: text('id').primaryKey(),
+  idempotencyKey: text('idempotency_key').notNull(),
+  // Rejected outcomes must remain auditable even when the claimed contract does not exist.
+  // The database migration enforces a real contract only for accepted outcomes.
+  contractId: text('contract_id').notNull(),
+  projectId: text('project_id').notNull().references(() => conversation.id, { onDelete: 'cascade' }),
+  workId: text('work_id').notNull(),
+  workEpoch: integer('work_epoch').notNull(),
+  attemptId: text('attempt_id').notNull(),
+  fencingToken: text('fencing_token').notNull(),
+  outcomeType: text('outcome_type').notNull(),
+  payloadJson: text('payload_json').notNull(),
+  evidenceRefsJson: text('evidence_refs_json').notNull(),
+  authoritativeRevisionsJson: text('authoritative_revisions_json').notNull(),
+  correlationId: text('correlation_id').notNull(),
+  causationId: text('causation_id').notNull(),
+  occurredAt: text('occurred_at').notNull(),
+  admissionStatus: text('admission_status').notNull(),
+  rejectionReason: text('rejection_reason'),
+  recordedAt: text('recorded_at').notNull(),
+}, (table) => [
+  uniqueIndex('uq_agent_outcome_idempotency').on(table.projectId, table.idempotencyKey),
+  uniqueIndex('uq_agent_outcome_terminal_contract')
+    .on(table.contractId)
+    .where(sql`${table.admissionStatus} = 'accepted' AND ${table.outcomeType} <> 'continue_work'`),
+  index('idx_agent_outcome_contract').on(table.contractId, table.recordedAt),
+  index('idx_agent_outcome_work').on(table.workId, table.workEpoch, table.recordedAt),
 ]);
 
 export const autonomousDeliveryAction = sqliteTable('autonomous_delivery_action', {

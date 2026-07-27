@@ -1,6 +1,7 @@
 import type { CliEngine } from '../types';
 import type { ContextReport, ContextRequest, ContextSnapshot } from '../../lib/agent-context/ContextManager';
 import type { ContextScenario } from '../../lib/agent-context/scenarioResolver';
+import type { WorkContract } from '../work-contract/types';
 
 export type HarnessTriggerSource = 'user' | 'a2a' | 'workflow' | 'review_gate' | 'test_gate' | 'system';
 
@@ -16,6 +17,8 @@ export interface HarnessTrigger {
   chainId?: string;
   passId?: string;
   idempotencyKey?: string;
+  /** Stable business work identity. Retries rotate the epoch under the same workId. */
+  workId?: string;
   contextScenario?: ContextScenario;
   wakeup?: ContextRequest['wakeup'];
   evaluation?: {
@@ -39,6 +42,7 @@ export interface HarnessDispatchPlan {
   traceId: string;
   contextReport: ContextReport;
   contextSnapshot?: ContextSnapshot;
+  workContract: WorkContract;
   evaluation?: HarnessTrigger['evaluation'] & {
     applicationManifest: object;
   };
@@ -60,6 +64,7 @@ export type HarnessReasonCode =
   | 'skill_revision_mismatch'
   | 'required_context_missing'
   | 'context_assembly_failed'
+  | 'work_authority_conflict'
   | 'runtime_rejected'
   | 'internal_error';
 

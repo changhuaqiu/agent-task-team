@@ -9,9 +9,9 @@
 
 ## Agent 自主性
 
-- [ ] WorkContract 规定边界而非内部步骤。
+- [x] WorkContract 规定目标、验收、权限、权威版本与结果类型，不规定 Agent 内部步骤。
 - [ ] Agent 内部 Todo 不会被自动解释为 Platform Task。
-- [ ] Agent 跨模块意图通过结构化 Outcome 提交。
+- [x] Agent 跨模块意图通过 invocation-scoped `agent_submit_outcome` 或完整信封 API 提交。
 - [ ] 多个 Agent 的内部 Todo 不会被合并成平台级步骤清单。
 - [ ] Agent 可以主动提出未预编排但合法的 A2A handoff。
 
@@ -22,9 +22,9 @@
 - [x] `waiting_human` 可在配置/决策补齐后通过 Human Command 恢复。
 - [ ] 同一事实/策略快照产生相同的有序 ControlAction 集和 action ids。
 - [ ] 一个 Work Cell 正在运行时，剩余容量仍可激活其他合法 Work Cell。
-- [ ] 并发 Work Cell 通过 owner version、lease 或 fencing 解决冲突。
+- [x] 同一 work 的并发激活使用 WorkAuthority epoch CAS，迟到写入由 fencing 拒绝。
 - [ ] wait-for deadlock 与 A2A 循环传球有检测和升级路径。
-- [ ] 迟到 Outcome 因 epoch/token 失效而只记录诊断。
+- [x] 迟到 Outcome 因 epoch/token 失效而持久化 rejected 诊断，不修改领域事实。
 
 Task 切片证据：
 

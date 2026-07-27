@@ -20,6 +20,8 @@ import { getSupportedToolNames } from '../skill-tool-router';
 import { autonomousDeliveryContextContributor } from '../autonomous-delivery/context-contributor';
 import { resolveApplicationSnapshotRuntime } from '../evaluation/application-snapshot';
 import { projectContextContributor } from '../project-context/context-contributor';
+import { issueDispatchWorkContract } from '../work-contract/dispatch-contract';
+import { StaleWorkAuthorityError } from '../work-contract/repository';
 
 const RUNTIME_IDS = {
   opencode: 'opencode-local',
@@ -214,6 +216,20 @@ export class RepositoryHarnessPlanner implements HarnessPlanner {
           path: conversation.project_path ?? '',
         },
       });
+      const runtimeId = profile.execution.runtimeId ?? RUNTIME_IDS[profile.execution.engine];
+      const workContract = issueDispatchWorkContract({
+        trigger,
+        traceId,
+        contextSnapshot: context.snapshot,
+        task,
+        role: profile.prompt.roleCard,
+        runtime: {
+          engine: profile.execution.engine,
+          runtimeId,
+          accountId: profile.execution.accountId,
+          toolNames: context.report.availableTools,
+        },
+      });
 
       return {
         ok: true,
@@ -221,7 +237,7 @@ export class RepositoryHarnessPlanner implements HarnessPlanner {
           trigger,
           engine: profile.execution.engine,
           accountId: profile.execution.accountId,
-          runtimeId: profile.execution.runtimeId ?? RUNTIME_IDS[profile.execution.engine],
+          runtimeId,
           systemPrompt: context.systemPrompt,
           prompt: context.userPrompt,
           projectPath: conversation.project_path ?? undefined,
@@ -231,6 +247,7 @@ export class RepositoryHarnessPlanner implements HarnessPlanner {
           traceId,
           contextReport: context.report,
           contextSnapshot: context.snapshot,
+          workContract,
           evaluation: evaluationResolution ? {
             ...trigger.evaluation!,
             applicationManifest: evaluationResolution.snapshot.manifest,
@@ -242,7 +259,9 @@ export class RepositoryHarnessPlanner implements HarnessPlanner {
         'required_skill_not_loaded', 'skill_manifest_invalid', 'skill_package_missing',
         'skill_path_invalid', 'skill_path_duplicate', 'skill_revision_mismatch',
       ];
-      const reasonCode: HarnessReasonCode = error instanceof SkillRuntimeError
+      const reasonCode: HarnessReasonCode = error instanceof StaleWorkAuthorityError
+        ? 'work_authority_conflict'
+        : error instanceof SkillRuntimeError
         && skillReasonCodes.includes(error.reasonCode as HarnessReasonCode)
         ? error.reasonCode as HarnessReasonCode
         : error instanceof Error && error.message.startsWith('required_skill_not_loaded')

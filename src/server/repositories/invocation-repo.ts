@@ -42,6 +42,10 @@ export interface InvocationRow {
   account_id: string | null;
   cli_session_id: string | null;
   prompt: string | null;
+  work_contract_id: string | null;
+  work_id: string | null;
+  work_epoch: number | null;
+  fencing_token: string | null;
   exit_code: number | null;
   reason_code: string | null;
   usage: string | null;
@@ -65,6 +69,10 @@ export interface NewInvocation {
   engine?: string;
   account_id?: string;
   prompt?: string;
+  work_contract_id?: string;
+  work_id?: string;
+  work_epoch?: number;
+  fencing_token?: string;
 }
 
 export type InvocationPatch = Partial<
@@ -163,8 +171,9 @@ export const invocationRepo = {
       db.prepare(
         `INSERT INTO invocation (
           id, conversation_id, task_id, agent_id, session_id, status,
-          engine, account_id, prompt, revision, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, 'planned', ?, ?, ?, 0, ?, ?)`,
+          engine, account_id, prompt, work_contract_id, work_id, work_epoch,
+          fencing_token, revision, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, 'planned', ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
       )
       .run(
         input.id,
@@ -175,6 +184,10 @@ export const invocationRepo = {
         input.engine ?? null,
         input.account_id ?? null,
         input.prompt ?? null,
+        input.work_contract_id ?? null,
+        input.work_id ?? null,
+        input.work_epoch ?? null,
+        input.fencing_token ?? null,
         now,
         now,
       );

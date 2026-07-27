@@ -104,6 +104,20 @@ type AgentOutcome = {
 接纳时必须校验 outcome allowlist、当前 epoch/token、幂等键和关键权威版本。迟到 Outcome
 只写诊断，禁止改变领域事实。
 
+实施约束：
+
+- WorkContract、WorkAuthority、AgentOutcome 分表持久化；Contract 与 Outcome 不可改写。
+- Harness 成功编译 Context 后签发 Contract；Invocation 必须复用其 `attemptId` 并完整绑定
+  `contractId/workId/workEpoch/fencingToken`。
+- WorkAuthority 更新使用期望 epoch 的 CAS；新 Contract 使旧 token 永久失效。
+- `continue_work` 可重复追加；每个 Contract 最多接纳一个非 `continue_work` Outcome。
+- 同一幂等键只能绑定同一语义内容；内容不同返回
+  `agent_outcome_idempotency_conflict`。
+- 不存在的 Contract、过期 authority、错误 token、越出 allowlist 或权威版本漂移都形成
+  rejected 诊断；accepted/rejected 都不直接改写其他领域事实。
+- ACP 使用 invocation-scoped `agent_submit_outcome` 平台工具，由 grant 注入安全信封；
+  其他 Runtime 使用 `POST /api/agent-outcomes` 的完整信封入口。
+
 ## 6. 状态机契约
 
 实现必须遵守长期设计 §5 的状态和完成语义。所有迁移由 owner 暴露的显式 transition API

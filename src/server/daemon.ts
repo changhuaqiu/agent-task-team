@@ -80,6 +80,8 @@ import { ensureAutonomousDeliveryRuntime } from './autonomous-delivery/bootstrap
 import { deliveryAdvancementQueue } from './autonomous-delivery/advancement-queue';
 import { registerAutonomousDeliveryE2EDriver } from './testing/autonomous-delivery-e2e-driver';
 import { ProjectViewPublisher } from './project-view/project-view-publisher';
+import type { WorkContract } from './work-contract/types';
+import { renderWorkContractInstruction } from './work-contract/dispatch-contract';
 
 type TerminalStartPayload = {
   dispatchId?: string;
@@ -113,6 +115,7 @@ type TerminalStartPayload = {
   traceId?: string;
   contextReport?: ContextReport;
   contextSnapshot?: ContextSnapshot;
+  workContract?: WorkContract;
   evaluation?: HarnessDispatchPlan['evaluation'];
 };
 
@@ -252,7 +255,10 @@ export default function registerDaemon(io: IOServer) {
           taskId: plan.trigger.taskId,
           agentId: plan.trigger.agentId,
           prompt: plan.prompt,
-          systemPrompt: plan.systemPrompt,
+          systemPrompt: [
+            plan.systemPrompt,
+            renderWorkContractInstruction(plan.workContract),
+          ].filter(Boolean).join('\n\n'),
           sourceNodeId: LOCAL_DAEMON_NODE_ID,
           dispatchSource: plan.trigger.source,
           dispatchIntent: plan.trigger.source === 'review_gate'
@@ -275,6 +281,7 @@ export default function registerDaemon(io: IOServer) {
           traceId: plan.traceId,
           contextReport: plan.contextReport,
           contextSnapshot: plan.contextSnapshot,
+          workContract: plan.workContract,
           evaluation: plan.evaluation,
         }, (event, data) => {
           const scopedData = data && typeof data === 'object'
@@ -627,6 +634,7 @@ export default function registerDaemon(io: IOServer) {
         traceId: requestedTraceId,
         contextReport,
         contextSnapshot,
+        workContract,
         evaluation,
       }: TerminalStartPayload, emitToRequester) => {
       const startKey = processKey(agentId, projectId || conversationId);
@@ -889,7 +897,7 @@ export default function registerDaemon(io: IOServer) {
       const agentSession: AgentSessionRow = existingSession;
 
       const invocation: InvocationRow = invocationRepo.create({
-        id: generateSortableId('inv'),
+        id: workContract?.attemptId ?? generateSortableId('inv'),
         conversation_id: sessionConvId,
         task_id: taskId || '',
         agent_id: agentId,
@@ -897,6 +905,10 @@ export default function registerDaemon(io: IOServer) {
         engine,
         account_id: accountId,
         prompt: prompt || '',
+        work_contract_id: workContract?.contractId,
+        work_id: workContract?.workId,
+        work_epoch: workContract?.workEpoch,
+        fencing_token: workContract?.fencingToken,
       });
       runtimeCompletionContextRepo.create({
         invocationId: invocation.id,
@@ -1723,7 +1735,7 @@ export default function registerDaemon(io: IOServer) {
       acpCleanup = prepared.cleanup;
       const permittedAcpTools = (contextReport?.availableTools ?? []).filter(isSkillTool);
       const mcpOrigin = resolveAcpMcpLoopbackOrigin(io);
-      if (permittedAcpTools.length > 0 && !mcpOrigin) {
+      if ((permittedAcpTools.length > 0 || workContract) && !mcpOrigin) {
         throw new Error('acp_skill_mcp_unavailable: daemon HTTP listener has no loopback address');
       }
       const acpToolGrant = mcpOrigin
@@ -1734,6 +1746,7 @@ export default function registerDaemon(io: IOServer) {
           taskId,
           taskProjectDir,
           permittedTools: permittedAcpTools,
+          workContract,
           io,
         }, mcpOrigin)
         : undefined;

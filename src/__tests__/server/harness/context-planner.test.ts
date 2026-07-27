@@ -94,6 +94,18 @@ describe('RepositoryHarnessPlanner', () => {
     expect(first.plan.contextScenario).toBe('init');
     expect(first.plan.systemPrompt).toContain('Peach');
     expect(first.plan.prompt).toContain('A2A');
+    expect(first.plan.workContract).toMatchObject({
+      workEpoch: 1,
+      agentId: 'peach',
+      projectId: 'conv-a2a',
+      contextSnapshotRef: first.plan.contextSnapshot?.id,
+      allowedOutcomeTypes: expect.arrayContaining([
+        'handoff_to_agent',
+        'submit_task_result',
+      ]),
+      correlationId: first.plan.traceId,
+      causationId: 'trigger-a2a-first',
+    });
     expect(first.plan.prompt).toContain('请评审 PR #32');
 
     sessionRepo.create({ id: 'session-peach', conversationId: 'conv-a2a', agentId: 'peach', taskId: '' });

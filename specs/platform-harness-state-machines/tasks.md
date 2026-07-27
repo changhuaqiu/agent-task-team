@@ -72,11 +72,24 @@
 
 ## S3：Invocation Pipeline
 
-- [ ] 收敛 Inbox、Envelope、Invocation、Session 的关联和终态。
-- [ ] 引入 WorkContract 与结构化 AgentOutcome。
+- [x] 收敛 Inbox、Envelope、Invocation、Session 的完成语义；Inbox 只负责 admission，
+  Envelope 只负责 acknowledgement，Invocation 单独保存 lifecycle/outcome，Session 单独保存 binding。
+- [x] 引入不可变 WorkContract、当前 WorkAuthority 与结构化 AgentOutcome，并提供 ACP
+  invocation-scoped 平台工具及完整信封 API。
 - [ ] 实现 profile、session、context、transport 错误归一化。
-- [ ] 为每次 Work Cell 激活生成 workEpoch / fencingToken，拒绝迟到 Outcome。
+- [x] 为每次 Work Cell 激活生成 workEpoch / attemptId / fencingToken，将 Invocation 绑定
+  Contract，并把迟到 Outcome 持久化为 rejected 诊断。
 - [ ] 冻结 WorkContract、AgentOutcome 和 ControlDecision 完整信封。
+
+已完成的子项：
+
+- [x] Migration 60 建立 WorkContract/WorkAuthority/AgentOutcome 约束、不可变触发器、
+  Invocation 完整绑定触发器和单终结 Outcome 唯一约束。
+- [x] WorkContract issuance 使用 expected epoch CAS；旧 grant、错误 token、版本漂移、
+  不允许类型、重复终结结果及幂等内容冲突均有测试。
+- [x] WorkContract 与 AgentOutcome 信封已经冻结并贯穿 trace；ControlDecision 信封仍归 S5。
+- [x] S3 foundation 通过 TypeScript、目标 lint 与全量 Vitest（193 files passed、1 skipped；
+  1472 tests passed、1 skipped）。
 
 ## S4：A2A
 
