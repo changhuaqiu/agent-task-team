@@ -7,6 +7,7 @@ import { AutonomousDeliveryRepository } from './repository';
 import { ControlDecisionRepository } from './control-decision-repository';
 import { DeliveryControlProcessManager } from './control-process-manager';
 import { RepositoryControlSnapshotBuilder } from './control-snapshot-builder';
+import { decideControlActions } from './control-decision';
 
 describe('DeliveryControlProcessManager', () => {
   let db: Database.Database;
@@ -106,5 +107,41 @@ describe('DeliveryControlProcessManager', () => {
     expect(execute).toHaveBeenCalledTimes(2);
     expect(decisions.listActions(result.decision.decisionId).map((action) => action.status))
       .toEqual(['applied', 'applied']);
+  });
+
+  it('recovers an expired claimed action before reconciling the same decision', async () => {
+    const decisions = new ControlDecisionRepository(db);
+    const snapshots = new RepositoryControlSnapshotBuilder({ db, now: () => now });
+    const policy = {
+      revision: 1,
+      maxConcurrent: 2,
+      roleCapacity: { implementer: 1, reviewer: 1 },
+      fairnessAgingMs: 1_000,
+    };
+    const snapshot = snapshots.build(runId);
+    const decision = decideControlActions(snapshot, policy);
+    decisions.persist({ projectId: 'project-1', decision, now });
+    const staleClaim = decisions.claimDecision({
+      decisionId: decision.decisionId,
+      workerId: 'crashed-worker',
+      leaseMs: 1_000,
+      now,
+    });
+    expect(staleClaim).toHaveLength(2);
+    const execute = vi.fn(async () => ({ status: 'applied' as const }));
+    const manager = new DeliveryControlProcessManager({
+      snapshots,
+      decisions,
+      commands: { execute },
+      workerId: 'replacement-worker',
+      now: () => new Date(now.getTime() + 2_000),
+    });
+
+    const reconciled = await manager.reconcile(runId, 'project-1', policy);
+
+    expect(reconciled.decision.decisionId).toBe(decision.decisionId);
+    expect(reconciled.claimed).toHaveLength(2);
+    expect(reconciled.claimed.every((action) => action.attempt_count === 2)).toBe(true);
+    expect(execute).toHaveBeenCalledTimes(2);
   });
 });

@@ -66,6 +66,7 @@ export class DeliveryControlProcessManager {
     projectId: string,
     policy: DeliveryControlPolicy,
   ): Promise<ControlReconcileResult> {
+    this.decisions.recoverExpired(this.now());
     const snapshot = this.snapshots.build(runId);
     const decision = decideControlActions(snapshot, policy);
     this.decisions.persist({ projectId, decision, now: this.now() });

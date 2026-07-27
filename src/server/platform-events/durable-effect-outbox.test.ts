@@ -72,6 +72,9 @@ describe('DurableEffectOutbox', () => {
     const duplicate = outbox.enqueueBatch(input);
     expect(duplicate.map((item) => item.id)).toEqual(first.map((item) => item.id));
     expect(first.map((item) => item.laneSequence)).toEqual([1, 2]);
+    expect(db.prepare(`
+      SELECT COUNT(*) AS count FROM platform_event WHERE type='effect.enqueued'
+    `).get()).toEqual({ count: 2 });
 
     expect(() => outbox.enqueueBatch({
       ...input,
@@ -271,6 +274,12 @@ describe('DurableEffectOutbox', () => {
       conversationId: 'project-1',
     })).toHaveLength(1);
     expect(outbox.get(effect!.id)?.status).toBe('succeeded');
+    expect(new PlatformEventLog({ db }).listStream(`effect:${effect!.id}`)
+      .map((event) => event.type)).toEqual([
+      'effect.enqueued',
+      'effect.retry_scheduled',
+      'effect.succeeded',
+    ]);
   });
 
   it('runs best-effort notification only after transactional commit', async () => {

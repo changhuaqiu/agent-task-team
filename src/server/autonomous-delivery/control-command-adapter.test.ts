@@ -266,6 +266,8 @@ describe('ProductionControlCommandAdapter', () => {
         sourceActionId: action.actionId,
         status: 'queued',
       }]);
+    expect(new RepositoryControlSnapshotBuilder({ db, now: () => now })
+      .build(runId).snapshotRevision).toBeGreaterThan(snapshot.snapshotRevision);
   });
 
   it('[scenario:delivery-close] freezes a verified bundle before completing Delivery', async () => {

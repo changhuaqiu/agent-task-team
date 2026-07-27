@@ -3190,8 +3190,16 @@ END;
         );
         INSERT OR IGNORE INTO delivery_control_decision
           SELECT * FROM supervisor_control_decision;
-        INSERT OR IGNORE INTO delivery_control_action
-          SELECT * FROM supervisor_control_action;
+        INSERT OR IGNORE INTO delivery_control_action (
+          id,decision_id,run_id,type,target_work_id,work_epoch,slot_id,reason_code,
+          retry_budget_kind,termination_outcome,status,claim_token,lease_owner,
+          lease_expires_at,failure_code,created_at,updated_at,completed_at
+        )
+        SELECT
+          id,decision_id,run_id,type,target_work_id,work_epoch,slot_id,reason_code,
+          retry_budget_kind,termination_outcome,status,claim_token,lease_owner,
+          lease_expires_at,failure_code,created_at,updated_at,completed_at
+        FROM supervisor_control_action;
         DROP TABLE supervisor_control_action;
         DROP TABLE supervisor_control_decision;
         CREATE INDEX IF NOT EXISTS idx_delivery_control_decision_active
@@ -3358,6 +3366,49 @@ END;
         WHEN NEW.revision <= OLD.revision
         BEGIN
           SELECT RAISE(ABORT,'task_revision_must_advance');
+        END;
+      `);
+    },
+  },
+  {
+    version: 73,
+    run: (db) => {
+      const actionTable = db.prepare(`
+        SELECT 1 FROM sqlite_master
+        WHERE type='table' AND name='delivery_control_action'
+      `).get();
+      if (!actionTable) return;
+      const columns = new Set(
+        (db.prepare('PRAGMA table_info(delivery_control_action)').all() as Array<{
+          name: string;
+        }>).map((column) => column.name),
+      );
+      if (!columns.has('attempt_count')) {
+        db.exec(`
+          ALTER TABLE delivery_control_action
+          ADD COLUMN attempt_count INTEGER NOT NULL DEFAULT 0
+        `);
+      }
+      if (!columns.has('max_attempts')) {
+        db.exec(`
+          ALTER TABLE delivery_control_action
+          ADD COLUMN max_attempts INTEGER NOT NULL DEFAULT 3
+        `);
+      }
+      db.exec(`
+        CREATE TRIGGER IF NOT EXISTS trg_control_action_attempt_bounds_insert
+        BEFORE INSERT ON delivery_control_action
+        WHEN NEW.attempt_count < 0 OR NEW.max_attempts <= 0
+          OR NEW.attempt_count > NEW.max_attempts
+        BEGIN
+          SELECT RAISE(ABORT,'control_action_attempt_bounds_invalid');
+        END;
+        CREATE TRIGGER IF NOT EXISTS trg_control_action_attempt_bounds_update
+        BEFORE UPDATE OF attempt_count,max_attempts ON delivery_control_action
+        WHEN NEW.attempt_count < OLD.attempt_count OR NEW.max_attempts <= 0
+          OR NEW.attempt_count > NEW.max_attempts
+        BEGIN
+          SELECT RAISE(ABORT,'control_action_attempt_bounds_invalid');
         END;
       `);
     },

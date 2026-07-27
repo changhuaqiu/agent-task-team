@@ -121,4 +121,31 @@ describe('DeliveryProcessManager', () => {
 
     expect(advanceProject).not.toHaveBeenCalled();
   });
+
+  it.each([
+    'effect.enqueued',
+    'effect.succeeded',
+    'effect.dead_lettered',
+    'control.action.failed',
+  ])('reconciles from durable control-plane fact %s', async (type) => {
+    const advanceProject = vi.fn();
+    const manager = new DeliveryProcessManager({ advanceProject });
+    const signal = new AbortController().signal;
+    const event = {
+      ...taskEvent(),
+      eventId: `event-${type}`,
+      type,
+      category: 'coordination' as const,
+      aggregate: { type: type.startsWith('effect.') ? 'effect' : 'control_action', id: 'fact-1' },
+    };
+
+    await manager.handle(event, { signal });
+
+    expect(advanceProject).toHaveBeenCalledWith(
+      'project-1',
+      { kind: 'fact_changed', ref: 'fact-1' },
+      signal,
+      `event-${type}`,
+    );
+  });
 });

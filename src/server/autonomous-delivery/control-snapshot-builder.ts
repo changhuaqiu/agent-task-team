@@ -51,6 +51,12 @@ interface InvocationBlockFactRow {
   reason_code: string;
 }
 
+interface ControlActionFailureFactRow {
+  action_id: string;
+  target_work_id: string | null;
+  reason_code: string;
+}
+
 export interface ControlSnapshotRetryLimits {
   invocation: number;
   effect: number;
@@ -480,6 +486,36 @@ export class RepositoryControlSnapshotBuilder {
       };
       delete cell.slotId;
     }
+    const controlFailures = db.prepare(`
+      SELECT
+        json_extract(event.payload,'$.actionId') AS action_id,
+        json_extract(event.payload,'$.targetWorkId') AS target_work_id,
+        json_extract(event.payload,'$.reasonCode') AS reason_code
+      FROM platform_event event
+      JOIN platform_event_ingestion ingestion ON ingestion.event_id=event.id
+      WHERE event.type='control.action.failed'
+        AND event.project_id=?
+        AND json_extract(event.payload,'$.runId')=?
+        AND ingestion.ingestion_id>?
+      ORDER BY ingestion.ingestion_id
+    `).all(run.conversation_id, runId, lastHumanResume) as ControlActionFailureFactRow[];
+    let deliveryControlFailure: ControlActionFailureFactRow | undefined;
+    for (const failure of controlFailures) {
+      if (!failure.target_work_id) {
+        deliveryControlFailure = failure;
+        continue;
+      }
+      const cell = cellByWorkId.get(failure.target_work_id);
+      if (!cell || cell.state === 'completed') continue;
+      cell.state = 'failed';
+      cell.failure = {
+        reasonCode: `control_action_failed:${failure.reason_code}`,
+        retryable: false,
+        humanRecoverable: true,
+        budget: retryBudget('invocation', 0, limits),
+      };
+      delete cell.slotId;
+    }
     const deadlock = detectWaitForDeadlock(waitEdges);
     const blockingEffects = new DurableEffectOutbox({ db })
       .listApplicableBlocking(runId, run.revision);
@@ -530,6 +566,12 @@ export class RepositoryControlSnapshotBuilder {
           deadlock: {
             cycle: deadlock.cycle,
             reasonCode: `wait_for_deadlock:${deadlock.cycle.join('->')}`,
+          },
+        } : {}),
+        ...(deliveryControlFailure ? {
+          controlFailure: {
+            actionId: deliveryControlFailure.action_id,
+            reasonCode: deliveryControlFailure.reason_code,
           },
         } : {}),
         integration: {

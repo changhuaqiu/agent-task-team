@@ -159,6 +159,8 @@
 - [x] 支持一次 reconcile 决策返回容量约束的有序动作集，冻结 action identity。
 - [x] Migration 64 持久化 ControlDecision 和非 wait ControlAction；首次保存与 claim
   双重校验项目事件 cursor，claim 另校验 workEpoch、slot 唯一占用和 lease token。
+- [x] ControlAction 增加三次基础设施 attempt 预算；reconcile 回收过期 claim 并重领同一
+  actionId，耗尽后发布 `control.action.failed` 并进入 Human 恢复，不再永久卡在 claimed/failed。
 - [x] 用权威 WorkAuthority/Contract、Task、Gate、Invocation、AgentOutcome 构造
   `DeliveryControlSnapshot`；同一 decision 的非 wait 动作先原子 batch claim，再执行，
   避免首条 Command 产生的事实错误地 stale 同批兄弟动作。
@@ -198,6 +200,9 @@
 - [x] 将 blocking Effect 分类、适用区间、创建时 retry budget 和显式
   cancelled/superseded 写入现有 Effect Outbox，并接入 Control snapshot closure；
   dead-letter 产生 Human escalation，pending 产生无副作用 wait。
+- [x] Effect enqueue/retry/success/dead-letter/cancel/supersede 与 `effect.*` fact 原子提交；
+  Delivery Process Manager 订阅后推进 snapshot revision，修复 integrate 后 decision identity
+  仍停留在旧事实的问题。
 
 ## S6：迁移清理
 

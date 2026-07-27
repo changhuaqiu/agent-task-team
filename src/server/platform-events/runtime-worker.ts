@@ -138,6 +138,8 @@ export class PlatformEventRuntimeWorker {
         ['delivery-process-manager-gate:v1', 'gate.*'],
         ['delivery-process-manager-runtime:v1', 'runtime.*'],
         ['delivery-process-manager-context:v1', 'context.*'],
+        ['delivery-process-manager-effect:v1', 'effect.*'],
+        ['delivery-process-manager-control:v1', 'control.action.failed'],
       ] as const) {
         this.dispatcher.register({
           id,

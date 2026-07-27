@@ -64,6 +64,8 @@ Task 切片证据：
 - [x] ControlDecision 非 wait 动作持久化；claim 校验项目 snapshot cursor、workEpoch、
   slot reservation 和 lease token。
 - [x] 同一 decision 的动作集在首条 owner Command 前原子 batch claim，不退化为单动作循环。
+- [x] ControlAction lease 过期可重领同一 actionId；owner Command 失败有独立上限，
+  耗尽后发布结构化失败并进入 Human 恢复。
 - [x] 持久 ControlAction 已接入各领域 owner Command；activate/retry 均持有 slot，并由
   Runtime 生命周期或启动前阻塞事实释放。
 - [x] activate/retry 已接 AgentInbox、requestGate 已接 QualityGate、terminate 已做事务内
@@ -77,6 +79,7 @@ Task 切片证据：
 - [ ] 外部 I/O 经过 Durable Effect Outbox。
 - [x] blocking Effect 从 appliesFromRevision 持续适用，只有 succeeded 或显式
   cancelled/superseded 才退出收口检查；dead-letter 仍阻塞并升级给人。
+- [x] Effect 状态变化与 `effect.*` fact 原子提交，并能触发 Delivery 重新决策。
 - [ ] correlationId、causationId、idempotencyKey 全链路保留。
 
 ## 清理

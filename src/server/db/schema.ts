@@ -1472,6 +1472,8 @@ export const deliveryControlAction = sqliteTable('delivery_control_action', {
   claimToken: text('claim_token'),
   leaseOwner: text('lease_owner'),
   leaseExpiresAt: text('lease_expires_at'),
+  attemptCount: integer('attempt_count').notNull().default(0),
+  maxAttempts: integer('max_attempts').notNull().default(3),
   failureCode: text('failure_code'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),

@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3';
 import { getDb } from '../db';
 import { generateSortableId } from '../repositories/sortable-id';
+import { PlatformEventLog } from '../platform-events/event-log';
 import type { ControlAction, ControlDecision } from './control-decision';
 
 export type PersistedControlActionStatus =
@@ -37,6 +38,8 @@ export interface PersistedControlActionRow {
   claim_token: string | null;
   lease_owner: string | null;
   lease_expires_at: string | null;
+  attempt_count: number;
+  max_attempts: number;
   failure_code: string | null;
   created_at: string;
   updated_at: string;
@@ -185,7 +188,11 @@ export class ControlDecisionRepository {
         decision_status: string;
       }) | undefined;
       if (!action) throw new ControlActionClaimError('control_action_missing', input.actionId);
-      if (action.status !== 'ready' || action.decision_status !== 'active') {
+      if (
+        action.status !== 'ready'
+        || action.decision_status !== 'active'
+        || action.attempt_count >= action.max_attempts
+      ) {
         throw new ControlActionClaimError('control_action_not_claimable', input.actionId);
       }
       const actualRevision = this.projectSnapshotRevision(action.project_id);
@@ -227,8 +234,9 @@ export class ControlDecisionRepository {
       const leaseExpiresAt = new Date(now.getTime() + input.leaseMs).toISOString();
       const claimed = db.prepare(`
         UPDATE delivery_control_action
-        SET status='claimed',claim_token=?,lease_owner=?,lease_expires_at=?,updated_at=?
-        WHERE id=? AND status='ready'
+        SET status='claimed',claim_token=?,lease_owner=?,lease_expires_at=?,
+            attempt_count=attempt_count+1,updated_at=?
+        WHERE id=? AND status='ready' AND attempt_count<max_attempts
       `).run(claimToken, input.workerId, leaseExpiresAt, timestamp, action.id);
       if (claimed.changes !== 1) {
         throw new ControlActionClaimError('control_action_claim_raced', action.id);
@@ -260,7 +268,7 @@ export class ControlDecisionRepository {
       }
       const actions = db.prepare(`
         SELECT * FROM delivery_control_action
-        WHERE decision_id=? AND status='ready'
+        WHERE decision_id=? AND status='ready' AND attempt_count<max_attempts
         ORDER BY created_at,id
       `).all(input.decisionId) as PersistedControlActionRow[];
       const batchSlots = new Set<string>();
@@ -308,8 +316,9 @@ export class ControlDecisionRepository {
       for (const action of actions) {
         const claimed = db.prepare(`
           UPDATE delivery_control_action
-          SET status='claimed',claim_token=?,lease_owner=?,lease_expires_at=?,updated_at=?
-          WHERE id=? AND status='ready'
+          SET status='claimed',claim_token=?,lease_owner=?,lease_expires_at=?,
+              attempt_count=attempt_count+1,updated_at=?
+          WHERE id=? AND status='ready' AND attempt_count<max_attempts
         `).run(
           generateSortableId('control-claim'),
           input.workerId,
@@ -350,18 +359,37 @@ export class ControlDecisionRepository {
     now?: Date;
   }): boolean {
     const timestamp = (input.now ?? new Date()).toISOString();
-    const result = (this.database ?? getDb()).prepare(`
-      UPDATE delivery_control_action
-      SET status='failed',failure_code=?,lease_expires_at=NULL,updated_at=?,completed_at=?
-      WHERE id=? AND status='claimed' AND claim_token=?
-    `).run(
-      input.reasonCode,
-      timestamp,
-      timestamp,
-      input.actionId,
-      input.claimToken,
-    );
-    return result.changes === 1;
+    const db = this.database ?? getDb();
+    return db.transaction(() => {
+      const action = db.prepare(`
+        SELECT action.*,decision.project_id
+        FROM delivery_control_action action
+        JOIN delivery_control_decision decision ON decision.id=action.decision_id
+        WHERE action.id=? AND action.status='claimed' AND action.claim_token=?
+      `).get(input.actionId, input.claimToken) as (
+        PersistedControlActionRow & { project_id: string }
+      ) | undefined;
+      if (!action) return false;
+      const exhausted = action.attempt_count >= action.max_attempts;
+      const result = db.prepare(`
+        UPDATE delivery_control_action
+        SET status=?,failure_code=?,claim_token=NULL,lease_owner=NULL,
+            lease_expires_at=NULL,updated_at=?,completed_at=?
+        WHERE id=? AND status='claimed' AND claim_token=?
+      `).run(
+        exhausted ? 'failed' : 'ready',
+        input.reasonCode,
+        timestamp,
+        exhausted ? timestamp : null,
+        input.actionId,
+        input.claimToken,
+      );
+      if (result.changes !== 1) return false;
+      if (exhausted) {
+        this.publishTerminalFailure(db, action, input.reasonCode, timestamp);
+      }
+      return true;
+    }).immediate();
   }
 
   releaseSlot(input: {
@@ -398,17 +426,78 @@ export class ControlDecisionRepository {
 
   recoverExpired(now: Date = new Date()): number {
     const timestamp = now.toISOString();
-    return (this.database ?? getDb()).prepare(`
-      UPDATE delivery_control_action
-      SET status='ready',claim_token=NULL,lease_owner=NULL,lease_expires_at=NULL,
-          failure_code='claim_lease_expired',updated_at=?
-      WHERE status='claimed' AND lease_expires_at<?
-    `).run(timestamp, timestamp).changes;
+    const db = this.database ?? getDb();
+    return db.transaction(() => {
+      const expired = db.prepare(`
+        SELECT action.*,decision.project_id
+        FROM delivery_control_action action
+        JOIN delivery_control_decision decision ON decision.id=action.decision_id
+        WHERE action.status='claimed' AND action.lease_expires_at<?
+      `).all(timestamp) as Array<PersistedControlActionRow & { project_id: string }>;
+      let recovered = 0;
+      for (const action of expired) {
+        const exhausted = action.attempt_count >= action.max_attempts;
+        const updated = db.prepare(`
+          UPDATE delivery_control_action
+          SET status=?,claim_token=NULL,lease_owner=NULL,lease_expires_at=NULL,
+              failure_code='claim_lease_expired',updated_at=?,completed_at=?
+          WHERE id=? AND status='claimed' AND claim_token=?
+        `).run(
+          exhausted ? 'failed' : 'ready',
+          timestamp,
+          exhausted ? timestamp : null,
+          action.id,
+          action.claim_token,
+        );
+        if (updated.changes !== 1) continue;
+        recovered += 1;
+        if (exhausted) {
+          this.publishTerminalFailure(db, action, 'claim_lease_expired', timestamp);
+        }
+      }
+      return recovered;
+    }).immediate();
   }
 
   listActions(decisionId: string): PersistedControlActionRow[] {
     return (this.database ?? getDb()).prepare(`
       SELECT * FROM delivery_control_action WHERE decision_id=? ORDER BY created_at,id
     `).all(decisionId) as PersistedControlActionRow[];
+  }
+
+  private publishTerminalFailure(
+    db: Database.Database,
+    action: PersistedControlActionRow & { project_id: string },
+    reasonCode: string,
+    occurredAt: string,
+  ): void {
+    new PlatformEventLog({ db }).append({
+      type: 'control.action.failed',
+      category: 'coordination',
+      projectId: action.project_id,
+      streamKey: `control-action:${action.id}`,
+      aggregate: {
+        type: 'control_action',
+        id: action.id,
+        version: action.attempt_count,
+      },
+      actor: { type: 'system', id: 'delivery-control-process-manager' },
+      subject: action.target_work_id
+        ? { type: 'work', id: action.target_work_id }
+        : { type: 'delivery_run', id: action.run_id },
+      correlationId: action.decision_id,
+      causationId: action.id,
+      dedupeKey: `control-action:${action.id}:failed:${action.attempt_count}`,
+      occurredAt,
+      payload: {
+        actionId: action.id,
+        actionType: action.type,
+        runId: action.run_id,
+        targetWorkId: action.target_work_id,
+        reasonCode,
+        attemptsUsed: action.attempt_count,
+        maxAttempts: action.max_attempts,
+      },
+    });
   }
 }

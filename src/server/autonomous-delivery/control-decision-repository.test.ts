@@ -10,6 +10,7 @@ import {
   StaleControlSnapshotError,
 } from './control-decision-repository';
 import { decideControlActions, type DeliveryControlSnapshot } from './control-decision';
+import { RepositoryControlSnapshotBuilder } from './control-snapshot-builder';
 
 describe('ControlDecisionRepository', () => {
   let db: Database.Database;
@@ -111,6 +112,7 @@ describe('ControlDecisionRepository', () => {
     });
     expect(claimed).toMatchObject({
       status: 'claimed',
+      attempt_count: 1,
       target_work_id: 'work-1',
       work_epoch: 1,
       slot_id: 'implementer:1',
@@ -218,5 +220,81 @@ describe('ControlDecisionRepository', () => {
 
     expect(computed.actions[0]?.type).toBe('wait');
     expect(store.listActions(computed.decisionId)).toEqual([]);
+  });
+
+  it('reclaims an expired lease and preserves the same bounded action attempt counter', () => {
+    const computed = decision();
+    store.persist({ projectId: 'project-1', decision: computed });
+    const action = store.listActions(computed.decisionId)[0]!;
+    store.claim({
+      actionId: action.id,
+      workerId: 'crashed-worker',
+      leaseMs: 1_000,
+      now: new Date('2026-07-28T00:00:01.000Z'),
+    });
+
+    expect(store.recoverExpired(new Date('2026-07-28T00:00:03.000Z'))).toBe(1);
+    expect(store.listActions(computed.decisionId)[0]).toMatchObject({
+      status: 'ready',
+      attempt_count: 1,
+      failure_code: 'claim_lease_expired',
+    });
+    expect(store.claim({
+      actionId: action.id,
+      workerId: 'replacement-worker',
+      leaseMs: 1_000,
+      now: new Date('2026-07-28T00:00:04.000Z'),
+    })).toMatchObject({ status: 'claimed', attempt_count: 2 });
+  });
+
+  it('requeues command failures until max attempts then emits one authoritative failure fact', () => {
+    const computed = decision();
+    store.persist({ projectId: 'project-1', decision: computed });
+    const action = store.listActions(computed.decisionId)[0]!;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      const claimed = store.claim({
+        actionId: action.id,
+        workerId: `worker-${attempt}`,
+        leaseMs: 1_000,
+        now: new Date(`2026-07-28T00:00:0${attempt}.000Z`),
+      });
+      expect(store.fail({
+        actionId: action.id,
+        claimToken: claimed.claim_token!,
+        reasonCode: 'owner_temporarily_unavailable',
+        now: new Date(`2026-07-28T00:00:1${attempt}.000Z`),
+      })).toBe(true);
+      expect(store.listActions(computed.decisionId)[0]?.status)
+        .toBe(attempt === 3 ? 'failed' : 'ready');
+    }
+
+    const failures = new PlatformEventLog({ db })
+      .listStream(`control-action:${action.id}`)
+      .filter((event) => event.type === 'control.action.failed');
+    expect(failures).toHaveLength(1);
+    expect(failures[0]?.payload).toMatchObject({
+      actionId: action.id,
+      reasonCode: 'owner_temporarily_unavailable',
+      attemptsUsed: 3,
+      maxAttempts: 3,
+    });
+    const failedSnapshot = new RepositoryControlSnapshotBuilder({ db }).build(runId);
+    expect(failedSnapshot.workCells.find((cell) => cell.workId === 'work-1'))
+      .toMatchObject({
+        state: 'failed',
+        failure: {
+          humanRecoverable: true,
+          reasonCode: 'control_action_failed:owner_temporarily_unavailable',
+        },
+      });
+    expect(decideControlActions(failedSnapshot, {
+      revision: 1,
+      maxConcurrent: 1,
+      roleCapacity: { implementer: 1 },
+      fairnessAgingMs: 1_000,
+    }).actions[0]).toMatchObject({
+      type: 'escalateToHuman',
+      targetWorkId: 'work-1',
+    });
   });
 });

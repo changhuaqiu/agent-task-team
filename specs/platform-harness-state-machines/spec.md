@@ -201,6 +201,12 @@ revision、slot capacity 和 work epoch。
 Runtime `started / terminated` 以及启动前 `runtime.invocation.blocked /
 context.snapshot.rejected` 都必须释放该 attempt 的 slot。
 
+持久 ControlAction 使用独立基础设施执行预算：每次 claim 增加 `attemptCount`，异常或
+owner rejection 在 `maxAttempts=3` 内回到 `ready`；claim lease 过期必须在 reconcile
+开头恢复并以新 token 重领同一 actionId。owner Command 必须以 actionId 幂等。预算耗尽
+发布唯一 `control.action.failed` coordination fact；对应 Work 或 Delivery 进入 Human
+恢复路径，不能永久停在 `claimed` 或静默停在 `failed`。
+
 ## 8. A2A 聚合
 
 目标只保留 `A2ACollaboration` 权威聚合：Chain 为根且状态派生，Possession 拥有 holder
@@ -264,6 +270,11 @@ Effect Command 创建时冻结 `criticality`、`deliveryRunId`、`appliesFromRev
 显式 Command 记录原因、`supersededAtRevision` 和可选 successor。Closure 检查所有对当前
 revision 仍适用的 blocking Effect，dead-letter 后进入 waiting_human 或 failed；
 non-blocking Effect 可在完成后重放但不能修改完成结果。
+
+Effect 的 enqueue、retry、success、dead-letter、cancel、supersede 必须与 Effect 表变化
+原子发布 `effect.*` coordination fact，并继承 source Event correlation。Delivery Process
+Manager 订阅这些事实，使 Effect 写入和终态都会推进 snapshot revision；禁止只改
+`platform_effect_outbox` 后等待外部轮询。
 
 ## 9.1 QualityGate 聚合契约
 

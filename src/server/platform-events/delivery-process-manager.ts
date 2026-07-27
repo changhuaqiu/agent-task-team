@@ -26,6 +26,8 @@ export class DeliveryProcessManager {
       || event.type === 'runtime.transport.degraded'
       || event.type === 'runtime.transport.recovered'
       || event.type === 'context.snapshot.rejected'
+      || event.type.startsWith('effect.')
+      || event.type === 'control.action.failed'
     );
     if (!advancesDelivery) return;
     if (signal.aborted) throw signal.reason ?? new Error('delivery_process_manager_aborted');

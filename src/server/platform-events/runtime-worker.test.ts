@@ -104,6 +104,33 @@ describe('PlatformEventRuntimeWorker', () => {
     expect(registrations).toHaveLength(15);
   });
 
+  it('wires Effect and terminal Control facts back into Delivery reconciliation', () => {
+    const registrations: Array<{ id: string; pattern: string }> = [];
+    const dispatcher = {
+      register(registration: { id: string; pattern: string }) {
+        registrations.push(registration);
+      },
+      recover() { return { enqueued: 0, abandonedAttempts: 0 }; },
+      discover() { return 0; },
+      async drain() { return { succeeded: 0, failed: 0, deadLettered: 0 }; },
+    };
+    new PlatformEventRuntimeWorker({
+      dispatcher,
+      deliveryAdvancement: { advanceProject: vi.fn() },
+    });
+
+    expect(registrations).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: 'delivery-process-manager-effect:v1',
+        pattern: 'effect.*',
+      }),
+      expect.objectContaining({
+        id: 'delivery-process-manager-control:v1',
+        pattern: 'control.action.failed',
+      }),
+    ]));
+  });
+
   it('retries startup recovery before incremental discovery', async () => {
     vi.useFakeTimers();
     let recoverCalls = 0;

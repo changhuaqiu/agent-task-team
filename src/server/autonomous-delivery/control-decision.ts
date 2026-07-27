@@ -80,6 +80,10 @@ export interface DeliveryControlSnapshot {
       cycle: string[];
       reasonCode: string;
     };
+    controlFailure?: {
+      actionId: string;
+      reasonCode: string;
+    };
   };
 }
 
@@ -280,6 +284,20 @@ export function decideControlActions(
       type: 'escalateToHuman' as const,
       reasonCode: `blocking_effect_dead_letter:${effect.effectId}`,
       retryBudgetKind: 'effect' as const,
+    };
+    return {
+      decisionId,
+      runId: snapshot.runId,
+      snapshotRevision: snapshot.snapshotRevision,
+      policyRevision: policy.revision,
+      actions: [{ ...action, actionId: actionIdentity(decisionId, action) }],
+    };
+  }
+  if (snapshot.closure.controlFailure) {
+    const failure = snapshot.closure.controlFailure;
+    const action = {
+      type: 'escalateToHuman' as const,
+      reasonCode: `control_action_failed:${failure.reasonCode}`,
     };
     return {
       decisionId,

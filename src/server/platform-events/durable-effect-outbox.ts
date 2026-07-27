@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3';
 import { getDb } from '../db';
 import { generateSortableId } from '../repositories/sortable-id';
+import { PlatformEventLog } from './event-log';
 
 export type DurableEffectExecution = 'transactional' | 'idempotent';
 export type DurableEffectStatus =
@@ -352,7 +353,15 @@ export class DurableEffectOutbox {
           now,
           now,
         );
-        result.push(this.get(id)!);
+        const inserted = db.prepare('SELECT * FROM platform_effect_outbox WHERE id=?')
+          .get(id) as EffectRow;
+        this.publishFact(db, inserted, 'effect.enqueued', {
+          status: 'queued',
+          criticality,
+          deliveryRunId: requested.deliveryRunId,
+          appliesFromRevision,
+        }, now, 'enqueued');
+        result.push(fromRow(inserted));
         nextSequence += 1;
       }
       return result;
@@ -393,12 +402,24 @@ export class DurableEffectOutbox {
   cancel(input: { effectId: string; reason: string }): boolean {
     if (!input.reason.trim()) throw new Error('durable_effect_disposition_reason_required');
     const now = this.now().toISOString();
-    return (this.database ?? getDb()).prepare(`
-      UPDATE platform_effect_outbox
-      SET status='cancelled',disposition_reason=?,lease_owner=NULL,lease_expires_at=NULL,
-          current_attempt_id=NULL,updated_at=?,completed_at=?
-      WHERE id=? AND status IN ('queued','dead_letter')
-    `).run(input.reason.trim(), now, now, input.effectId).changes === 1;
+    const db = this.database ?? getDb();
+    return db.transaction(() => {
+      const row = db.prepare('SELECT * FROM platform_effect_outbox WHERE id=?')
+        .get(input.effectId) as EffectRow | undefined;
+      if (!row) return false;
+      const updated = db.prepare(`
+        UPDATE platform_effect_outbox
+        SET status='cancelled',disposition_reason=?,lease_owner=NULL,lease_expires_at=NULL,
+            current_attempt_id=NULL,updated_at=?,completed_at=?
+        WHERE id=? AND status IN ('queued','dead_letter')
+      `).run(input.reason.trim(), now, now, input.effectId);
+      if (updated.changes !== 1) return false;
+      this.publishFact(db, row, 'effect.cancelled', {
+        status: 'cancelled',
+        reason: input.reason.trim(),
+      }, now, 'cancelled');
+      return true;
+    }).immediate();
   }
 
   supersede(input: {
@@ -412,22 +433,36 @@ export class DurableEffectOutbox {
     }
     if (!input.reason.trim()) throw new Error('durable_effect_disposition_reason_required');
     const now = this.now().toISOString();
-    return (this.database ?? getDb()).prepare(`
-      UPDATE platform_effect_outbox
-      SET status='superseded',superseded_at_revision=?,successor_effect_id=?,
-          disposition_reason=?,lease_owner=NULL,lease_expires_at=NULL,
-          current_attempt_id=NULL,updated_at=?,completed_at=?
-      WHERE id=? AND status IN ('queued','dead_letter')
-        AND ? >= applies_from_revision
-    `).run(
-      input.atRevision,
-      input.successorEffectId ?? null,
-      input.reason.trim(),
-      now,
-      now,
-      input.effectId,
-      input.atRevision,
-    ).changes === 1;
+    const db = this.database ?? getDb();
+    return db.transaction(() => {
+      const row = db.prepare('SELECT * FROM platform_effect_outbox WHERE id=?')
+        .get(input.effectId) as EffectRow | undefined;
+      if (!row) return false;
+      const updated = db.prepare(`
+        UPDATE platform_effect_outbox
+        SET status='superseded',superseded_at_revision=?,successor_effect_id=?,
+            disposition_reason=?,lease_owner=NULL,lease_expires_at=NULL,
+            current_attempt_id=NULL,updated_at=?,completed_at=?
+        WHERE id=? AND status IN ('queued','dead_letter')
+          AND ? >= applies_from_revision
+      `).run(
+        input.atRevision,
+        input.successorEffectId ?? null,
+        input.reason.trim(),
+        now,
+        now,
+        input.effectId,
+        input.atRevision,
+      );
+      if (updated.changes !== 1) return false;
+      this.publishFact(db, row, 'effect.superseded', {
+        status: 'superseded',
+        reason: input.reason.trim(),
+        atRevision: input.atRevision,
+        successorEffectId: input.successorEffectId,
+      }, now, `superseded:${input.atRevision}`);
+      return true;
+    }).immediate();
   }
 
   recover(): DurableEffectRecoveryResult {
@@ -459,6 +494,19 @@ export class DurableEffectOutbox {
           effect.current_attempt_id,
         );
         if (updated.changes !== 1) continue;
+        this.publishFact(
+          db,
+          effect,
+          exhausted ? 'effect.dead_lettered' : 'effect.retry_scheduled',
+          {
+            status: exhausted ? 'dead_letter' : 'queued',
+            reason: 'durable_effect_lease_expired',
+            attemptCount: effect.attempt_count,
+            maxAttempts: effect.max_attempts,
+          },
+          now,
+          `${exhausted ? 'dead-letter' : 'retry'}:${effect.attempt_count}`,
+        );
         if (exhausted) deadLettered += 1;
         else recovered += 1;
         abandonedAttempts += db.prepare(`
@@ -626,6 +674,10 @@ export class DurableEffectOutbox {
           SET status='succeeded',finished_at=?
           WHERE id=? AND status='running'
         `).run(now, claim.attemptId);
+        this.publishFact(db, claim.row, 'effect.succeeded', {
+          status: 'succeeded',
+          attemptCount: claim.row.attempt_count,
+        }, now, `succeeded:${claim.row.attempt_count}`);
       }).immediate();
     } catch (error) {
       return this.fail(claim.row, claim.attemptId, claim.registration, error);
@@ -690,6 +742,12 @@ export class DurableEffectOutbox {
         SET status='succeeded',finished_at=?
         WHERE id=? AND status='running'
       `).run(now, attemptId);
+      const row = db.prepare('SELECT * FROM platform_effect_outbox WHERE id=?')
+        .get(effectId) as EffectRow;
+      this.publishFact(db, row, 'effect.succeeded', {
+        status: 'succeeded',
+        attemptCount: row.attempt_count,
+      }, now, `succeeded:${row.attempt_count}`);
       return true;
     }).immediate();
   }
@@ -730,6 +788,20 @@ export class DurableEffectOutbox {
         SET status='failed',finished_at=?,error=?
         WHERE id=? AND status='running'
       `).run(now, message, attemptId);
+      this.publishFact(
+        db,
+        row,
+        deadLettered ? 'effect.dead_lettered' : 'effect.retry_scheduled',
+        {
+          status: deadLettered ? 'dead_letter' : 'queued',
+          reason: message,
+          attemptCount: row.attempt_count,
+          maxAttempts: row.max_attempts,
+          nextAttemptAt,
+        },
+        now,
+        `${deadLettered ? 'dead-letter' : 'retry'}:${row.attempt_count}`,
+      );
       return deadLettered ? 'dead_lettered' as const : 'retry_queued' as const;
     }).immediate();
   }
@@ -748,5 +820,49 @@ export class DurableEffectOutbox {
       this.workerId,
       attemptId,
     );
+  }
+
+  private publishFact(
+    db: Database.Database,
+    effect: EffectRow,
+    type: string,
+    payload: Record<string, unknown>,
+    occurredAt: string,
+    dedupeSuffix: string,
+  ): void {
+    const source = db.prepare(`
+      SELECT project_id,correlation_id FROM platform_event WHERE id=?
+    `).get(effect.source_event_id) as {
+      project_id: string;
+      correlation_id: string;
+    } | undefined;
+    if (!source) throw new Error(`durable_effect_source_event_missing:${effect.source_event_id}`);
+    new PlatformEventLog({ db }).append({
+      type,
+      category: 'coordination',
+      projectId: source.project_id,
+      streamKey: `effect:${effect.id}`,
+      aggregate: {
+        type: 'effect',
+        id: effect.id,
+        version: effect.attempt_count,
+      },
+      actor: { type: 'system', id: 'durable-effect-outbox' },
+      subject: effect.delivery_run_id
+        ? { type: 'delivery_run', id: effect.delivery_run_id }
+        : { type: 'effect_target', id: effect.target_key },
+      correlationId: source.correlation_id,
+      causationId: effect.source_event_id,
+      dedupeKey: `effect:${effect.id}:${dedupeSuffix}`,
+      occurredAt,
+      payload: {
+        effectId: effect.id,
+        effectType: effect.effect_type,
+        targetKey: effect.target_key,
+        laneKey: effect.lane_key,
+        deliveryRunId: effect.delivery_run_id,
+        ...payload,
+      },
+    });
   }
 }

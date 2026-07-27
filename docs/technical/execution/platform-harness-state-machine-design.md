@@ -426,6 +426,12 @@ running 和 dead-letter；只有成功或带原因的 cancel/supersede 才退出
 Control snapshot 将 pending blocking Effect 投影为 `wait`，将 dead-letter 投影为
 `escalateToHuman`，预算类型固定为 `effect`，不消耗 Invocation 或 Task rework 预算。
 
+Effect owner 的控制相关变化与结构化事实原子提交：
+`effect.enqueued / retry_scheduled / succeeded / dead_lettered / cancelled / superseded`。
+这些事实继承 source Event 的 correlation，并推进项目 snapshot revision；Delivery Process
+Manager 订阅 `effect.*` 后立即重新计算。这样 `integrate` 创建 Effect 后不会继续复用旧
+decision identity，Effect 成功或 dead-letter 也不依赖轮询猜测。
+
 ## 6. 统一集成契约：Command、Query、Event、Effect
 
 ### 6.1 Command
@@ -622,7 +628,13 @@ Outbox item 创建时冻结的 `attemptCount / maxAttempts`，Task rework 使用
 `platform_event_ingestion` cursor 是 snapshot revision：decision 首次保存和 action claim
 都必须重新比对该 cursor；带 target 的动作还必须比对 `WorkAuthority.currentEpoch`。
 `activate / retry` claim 通过数据库部分唯一索引占用 `(runId, slotId)`，claim 使用 lease/token，
-崩溃后可回收。`wait` 仍是纯观察结果，不写 action 表；新 decision 只取消旧 decision 中
+崩溃后可回收。同一 ControlAction 最多执行三次基础设施级 owner Command attempt；
+claim 时单调增加 `attemptCount`，异常或拒绝在预算内回到 `ready`，lease 过期由下一次
+reconcile 先回收再重领。每次重领复用同一 actionId，依赖 owner 的幂等键防止“命令已生效、
+回执前崩溃”造成重复业务结果。只有预算耗尽才原子发布 `control.action.failed`；
+Control snapshot 将其投影为 Human 可恢复失败，显式 `manual_resume` 后旧失败事实才失效。
+
+`wait` 仍是纯观察结果，不写 action 表；新 decision 只取消旧 decision 中
 尚未 claim 的动作，已 claim 动作继续依赖 owner 的 fencing/CAS 决定能否生效。
 
 `RepositoryControlSnapshotBuilder` 从当前 WorkAuthority/WorkContract、Task、QualityGate、
