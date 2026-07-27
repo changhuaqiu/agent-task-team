@@ -64,6 +64,11 @@ export interface AppendPlatformEvent<TType extends string = string, TPayload = u
 }
 
 export interface RuntimeLifecyclePayloadMap {
+  'runtime.invocation.blocked': {
+    phase: 'preflight';
+    reasonCode: string;
+    message?: string;
+  };
   'runtime.invocation.accepted': {
     envelopeId?: string;
     runtimeNodeId?: string;
@@ -84,6 +89,21 @@ export interface RuntimeLifecyclePayloadMap {
     runtimeSessionId: string;
     reasonCode: string;
   };
+  'runtime.session.resume_failed': {
+    runtimeSessionId: string;
+    reasonCode: string;
+    message?: string;
+  };
+  'runtime.transport.degraded': {
+    transport: string;
+    fallbackTransport?: string;
+    reasonCode: string;
+    message?: string;
+  };
+  'runtime.transport.recovered': {
+    transport: string;
+    reasonCode?: string;
+  };
   'runtime.invocation.terminated': {
     outcome: 'completed' | 'failed' | 'cancelled' | 'timed_out';
     reasonCode?: string;
@@ -94,6 +114,11 @@ export interface RuntimeLifecyclePayloadMap {
 }
 
 export interface RuntimeActivityPayloadMap {
+  'runtime.diagnostic.observed': {
+    severity: 'warning' | 'error';
+    reasonCode: string;
+    message: string;
+  };
   'runtime.message.segment.completed': {
     segmentId: string;
     text: string;
@@ -154,11 +179,15 @@ export type RuntimeEventPayload<TType extends RuntimeEventType> =
       : never;
 
 export const RUNTIME_LIFECYCLE_EVENT_TYPES: ReadonlySet<RuntimeLifecycleEventType> = new Set([
+  'runtime.invocation.blocked',
   'runtime.invocation.accepted',
   'runtime.invocation.started',
   'runtime.session.bound',
   'runtime.session.confirmed',
   'runtime.session.invalidated',
+  'runtime.session.resume_failed',
+  'runtime.transport.degraded',
+  'runtime.transport.recovered',
   'runtime.invocation.terminated',
 ]);
 

@@ -76,7 +76,8 @@
   Envelope 只负责 acknowledgement，Invocation 单独保存 lifecycle/outcome，Session 单独保存 binding。
 - [x] 引入不可变 WorkContract、当前 WorkAuthority 与结构化 AgentOutcome，并提供 ACP
   invocation-scoped 平台工具及完整信封 API。
-- [ ] 实现 profile、session、context、transport 错误归一化。
+- [x] 实现 profile、session、context、transport 错误归一化；preflight 由 Harness
+  边界发布，ACP session/transport/diagnostic 由 Runtime Adapter 发布，原始诊断只作 evidence。
 - [x] 为每次 Work Cell 激活生成 workEpoch / attemptId / fencingToken，将 Invocation 绑定
   Contract，并把迟到 Outcome 持久化为 rejected 诊断。
 - [ ] 冻结 WorkContract、AgentOutcome 和 ControlDecision 完整信封。
@@ -88,6 +89,10 @@
 - [x] WorkContract issuance 使用 expected epoch CAS；旧 grant、错误 token、版本漂移、
   不允许类型、重复终结结果及幂等内容冲突均有测试。
 - [x] WorkContract 与 AgentOutcome 信封已经冻结并贯穿 trace；ControlDecision 信封仍归 S5。
+- [x] `runtime_profile_missing` 不再冒充一次 Agent 执行失败，而是
+  `runtime.invocation.blocked`；`required_context_missing` 以结构化缺失项发布
+  `context.snapshot.rejected`。ACP session 丢失、transport fallback 和 CLI error trace
+  分别归一为 session、transport 和 diagnostic 事件。
 - [x] S3 foundation 通过 TypeScript、目标 lint 与全量 Vitest（193 files passed、1 skipped；
   1472 tests passed、1 skipped）。
 

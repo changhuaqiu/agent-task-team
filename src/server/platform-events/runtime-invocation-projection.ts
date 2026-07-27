@@ -7,7 +7,7 @@ export interface RuntimeInvocationProjectionRow {
   invocation_id: string;
   project_id: string;
   project_agent_id: string;
-  status: 'accepted' | 'running' | 'terminated';
+  status: 'blocked' | 'accepted' | 'running' | 'terminated';
   outcome: string | null;
   reason_code: string | null;
   accepted_at: string;
@@ -26,6 +26,36 @@ export class RuntimeInvocationProjection {
       throw new Error('runtime_invocation_projection_context_missing');
     }
     const db = this.database ?? getDb();
+    if (event.type === 'runtime.invocation.blocked') {
+      const payload = event.payload as RuntimeLifecyclePayloadMap['runtime.invocation.blocked'];
+      db.prepare(`
+        INSERT INTO runtime_invocation_projection (
+          invocation_id,project_id,project_agent_id,status,outcome,reason_code,
+          accepted_at,started_at,terminated_at,last_stream_sequence,updated_at
+        ) VALUES (?, ?, ?, 'blocked', NULL, ?, ?, NULL, NULL, ?, ?)
+        ON CONFLICT(invocation_id) DO UPDATE SET
+          project_id=excluded.project_id,
+          project_agent_id=excluded.project_agent_id,
+          status='blocked',
+          outcome=NULL,
+          reason_code=excluded.reason_code,
+          accepted_at=excluded.accepted_at,
+          started_at=NULL,
+          terminated_at=NULL,
+          last_stream_sequence=excluded.last_stream_sequence,
+          updated_at=excluded.updated_at
+        WHERE excluded.last_stream_sequence > runtime_invocation_projection.last_stream_sequence
+      `).run(
+        event.invocationId,
+        event.projectId,
+        event.projectAgentId,
+        payload.reasonCode,
+        event.occurredAt,
+        event.streamSequence,
+        event.recordedAt,
+      );
+      return;
+    }
     if (event.type === 'runtime.invocation.accepted') {
       db.prepare(`
         INSERT INTO runtime_invocation_projection (
@@ -87,6 +117,7 @@ export class RuntimeInvocationProjection {
         SELECT id FROM platform_event
         WHERE category='runtime_lifecycle'
           AND type IN (
+            'runtime.invocation.blocked',
             'runtime.invocation.accepted',
             'runtime.invocation.started',
             'runtime.invocation.terminated'

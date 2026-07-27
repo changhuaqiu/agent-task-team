@@ -71,8 +71,24 @@ export type HarnessReasonCode =
 export type HarnessOutcome =
   | { status: 'accepted'; envelopeId?: string }
   | { status: 'deferred'; reasonCode: 'agent_busy' }
-  | { status: 'blocked'; reasonCode: HarnessReasonCode; message?: string }
-  | { status: 'failed'; reasonCode: HarnessReasonCode; message?: string };
+  | {
+      status: 'blocked';
+      reasonCode: HarnessReasonCode;
+      message?: string;
+      evidence?: HarnessFailureEvidence;
+    }
+  | {
+      status: 'failed';
+      reasonCode: HarnessReasonCode;
+      message?: string;
+      evidence?: HarnessFailureEvidence;
+    };
+
+export interface HarnessFailureEvidence {
+  traceId?: string;
+  snapshotId?: string;
+  missingRequired?: string[];
+}
 
 export interface HarnessPlanResult {
   ok: true;

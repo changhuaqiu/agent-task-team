@@ -93,4 +93,29 @@ describe('RuntimeInvocationProjection', () => {
     expect(projection.rebuild()).toBe(3);
     expect(projection.listByProject('project-1')).toEqual(before);
   });
+
+  it('projects a preflight block without fabricating accepted or started states', () => {
+    const publisher = new RuntimeEventPublisher(log, {
+      projectId: 'project-1',
+      projectAgentId: 'implementer',
+      invocationId: 'attempt-1',
+      runtimeActorId: 'daemon:local',
+      correlationId: 'activation-1',
+    });
+    const blocked = publisher.publish('runtime.invocation.blocked', {
+      phase: 'preflight',
+      reasonCode: 'runtime_profile_missing',
+    });
+
+    projection.handle(blocked);
+
+    expect(projection.listByProject('project-1')).toMatchObject([{
+      invocation_id: 'attempt-1',
+      status: 'blocked',
+      outcome: null,
+      reason_code: 'runtime_profile_missing',
+      started_at: null,
+      terminated_at: null,
+    }]);
+  });
 });

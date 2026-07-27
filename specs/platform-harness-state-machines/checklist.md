@@ -48,11 +48,12 @@ Task 切片证据：
 
 ## 错误与恢复
 
-- [ ] `runtime_profile_missing` 阻塞并请求 Human，不做盲重试。
+- [x] `runtime_profile_missing` 归一为 Invocation preflight blocked，不冒充 Agent 执行失败。
+- [ ] Process Manager 对该阻塞执行 Human escalation，补配置后 resume，不做盲重试。
 - [ ] ACP session 丢失会失效旧 binding，并按策略新建 session。
-- [ ] transport 降级与 Invocation 终止分离。
-- [ ] `required_context_missing` 返回结构化缺失项。
-- [ ] CLI 原始错误只作为 evidence，不直接驱动领域迁移。
+- [x] transport 降级与 Invocation 终止分离。
+- [x] `required_context_missing` 返回结构化缺失项并发布 `context.snapshot.rejected`。
+- [x] CLI 原始错误只作为 `runtime.diagnostic.observed` evidence，不直接驱动领域迁移。
 
 ## 集成
 

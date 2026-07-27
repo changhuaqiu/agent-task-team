@@ -2857,6 +2857,43 @@ END;
       DROP TABLE IF EXISTS a2a_audit_log;
     `,
   },
+  {
+    version: 63,
+    foreignKeysOff: true,
+    run: (db) => {
+      const exists = db.prepare(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='runtime_invocation_projection'",
+      ).get();
+      if (!exists) return;
+      db.exec(`
+        ALTER TABLE runtime_invocation_projection RENAME TO runtime_invocation_projection_v62;
+        CREATE TABLE runtime_invocation_projection (
+          invocation_id TEXT PRIMARY KEY,
+          project_id TEXT NOT NULL REFERENCES conversation(id) ON DELETE CASCADE,
+          project_agent_id TEXT NOT NULL,
+          status TEXT NOT NULL CHECK(status IN ('blocked','accepted','running','terminated')),
+          outcome TEXT,
+          reason_code TEXT,
+          accepted_at TEXT NOT NULL,
+          started_at TEXT,
+          terminated_at TEXT,
+          last_stream_sequence INTEGER NOT NULL CHECK(last_stream_sequence > 0),
+          updated_at TEXT NOT NULL
+        );
+        INSERT INTO runtime_invocation_projection (
+          invocation_id,project_id,project_agent_id,status,outcome,reason_code,
+          accepted_at,started_at,terminated_at,last_stream_sequence,updated_at
+        )
+        SELECT
+          invocation_id,project_id,project_agent_id,status,outcome,reason_code,
+          accepted_at,started_at,terminated_at,last_stream_sequence,updated_at
+        FROM runtime_invocation_projection_v62;
+        DROP TABLE runtime_invocation_projection_v62;
+        CREATE INDEX idx_runtime_invocation_projection_project
+          ON runtime_invocation_projection(project_id,project_agent_id,updated_at);
+      `);
+    },
+  },
 ];
 
 export function applyMigrations(db: Database.Database): void {

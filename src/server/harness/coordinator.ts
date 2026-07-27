@@ -6,6 +6,7 @@ import type {
   HarnessSubmission,
   HarnessTrigger,
 } from './types';
+import type { HarnessFailureEventPublisher } from './failure-event-publisher';
 
 export interface HarnessCoordinatorOptions {
   planner: HarnessPlanner;
@@ -13,6 +14,7 @@ export interface HarnessCoordinatorOptions {
   dedupeTtlMs?: number;
   now?: () => number;
   recordProof?: typeof proofLogRepo.append;
+  failureEvents?: Pick<HarnessFailureEventPublisher, 'publish'>;
 }
 export class HarnessCoordinator {
   private readonly planner: HarnessPlanner;
@@ -23,6 +25,7 @@ export class HarnessCoordinator {
   private readonly acceptedAt = new Map<string, number>();
   private readonly inFlight = new Map<string, Promise<HarnessOutcome>>();
   private readonly completedOutcomes = new Map<string, HarnessOutcome>();
+  private readonly failureEvents?: Pick<HarnessFailureEventPublisher, 'publish'>;
 
   constructor(options: HarnessCoordinatorOptions) {
     this.planner = options.planner;
@@ -30,6 +33,7 @@ export class HarnessCoordinator {
     this.dedupeTtlMs = options.dedupeTtlMs ?? 2 * 60 * 1000;
     this.now = options.now ?? Date.now;
     this.recordProof = options.recordProof ?? proofLogRepo.append.bind(proofLogRepo);
+    this.failureEvents = options.failureEvents;
   }
 
   submit(trigger: HarnessTrigger): HarnessSubmission {
@@ -82,6 +86,7 @@ export class HarnessCoordinator {
     const resolution = await this.planner.prepare(trigger);
     if (!resolution.ok) {
       this.proof(trigger, 'harness.plan.blocked', resolution.outcome.reasonCode);
+      this.failureEvents?.publish(trigger, resolution.outcome);
       return resolution.outcome;
     }
 

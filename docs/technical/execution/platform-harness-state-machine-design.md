@@ -573,6 +573,15 @@ ControlAction {
 
 原始 stderr、trace 和 UI 文案属于观测证据，不应直接驱动领域状态。控制动作只依据归一化事实。
 
+当前实现中，这不是一个新的“错误管理模块”。Invocation preflight 的失败由
+`HarnessFailureEventPublisher` 在现有 Harness/Invocation 边界归一化；ACP 会话、传输与
+CLI trace 由 `AcpRuntimeEventCoordinator` 和 `RuntimeAgentEventBridge` 在现有 Runtime
+Adapter 边界归一化。`runtime.invocation.blocked` 是一次尚未启动的 attempt 终态，投影不会
+伪造 `accepted / started / terminated`；`context.snapshot.rejected` 保留
+`missingRequired`，并作为 coordination event 连接 Context preflight 与 Invocation，
+不扩张已经冻结的九个 domain owner 目录。这些事实已可供 Process Manager 读取，S5 再把它们接入
+`escalateToHuman / retry / wait / resume` 动作执行。
+
 ## 10. 当前实现到目标命名
 
 当前 `src/server/harness` 实际只覆盖单次 Agent 激活链，目标上它属于

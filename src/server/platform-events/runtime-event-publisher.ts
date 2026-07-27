@@ -37,7 +37,9 @@ export class RuntimeEventPublisher {
     type: TType,
     payload: RuntimeEventPayload<TType>,
   ): PlatformEvent<TType, RuntimeEventPayload<TType>> {
-    const dedupeKey = type === 'runtime.invocation.accepted'
+    const dedupeKey = type === 'runtime.invocation.blocked'
+      ? `runtime:${this.context.invocationId}:blocked`
+      : type === 'runtime.invocation.accepted'
       ? `runtime:${this.context.invocationId}:accepted`
       : type === 'runtime.invocation.started'
         ? `runtime:${this.context.invocationId}:started`
@@ -73,9 +75,25 @@ export class RuntimeEventPublisher {
       payload,
     }, (events) => {
       const accepted = events.some((event) => event.type === 'runtime.invocation.accepted');
+      const blocked = events.some((event) => event.type === 'runtime.invocation.blocked');
       const started = events.some((event) => event.type === 'runtime.invocation.started');
       const terminated = events.some((event) => event.type === 'runtime.invocation.terminated');
 
+      if (type === 'runtime.invocation.blocked') {
+        if (events.length > 0) {
+          throw new RuntimeEventStateError(
+            'runtime_event_blocked_out_of_order',
+            'A blocked Invocation attempt must be the first Runtime event',
+          );
+        }
+        return;
+      }
+      if (blocked) {
+        throw new RuntimeEventStateError(
+          'runtime_event_after_blocked',
+          `Cannot publish ${type} after Invocation preflight was blocked`,
+        );
+      }
       if (type === 'runtime.invocation.accepted') {
         if (events.length > 0) {
           throw new RuntimeEventStateError(

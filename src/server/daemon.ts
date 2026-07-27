@@ -45,6 +45,7 @@ import { resolveAutonomyGuardWakeups } from './task-flow/autonomy-guard';
 import { startWorktreeGCScheduler, stopWorktreeGCScheduler } from './worktree-gc';
 import {
   HarnessCoordinator,
+  HarnessFailureEventPublisher,
   RepositoryHarnessPlanner,
   registerHarnessCoordinator,
   submitTaskWakeupToHarness,
@@ -239,6 +240,9 @@ export default function registerDaemon(io: IOServer) {
 
   const harnessCoordinator = new HarnessCoordinator({
     planner: new RepositoryHarnessPlanner(),
+    failureEvents: new HarnessFailureEventPublisher({
+      runtimeActorId: LOCAL_DAEMON_NODE_ID,
+    }),
     runtime: {
       isBusy(agentId, conversationId) {
         return activeProcesses.has(processKey(agentId, conversationId));

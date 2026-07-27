@@ -388,6 +388,15 @@ export class RepositoryHarnessPlanner implements HarnessPlanner {
           status: 'failed',
           reasonCode,
           message: error instanceof Error ? error.message : String(error),
+          evidence: reasonCode === 'required_context_missing'
+            ? {
+                traceId,
+                snapshotId: `ctx_failed_${traceId.slice(0, 24)}`,
+                missingRequired: error instanceof RequiredContextError
+                  ? error.missingRequired.slice(0, 20)
+                  : [],
+              }
+            : { traceId },
         },
       };
     }

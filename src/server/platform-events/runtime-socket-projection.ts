@@ -67,7 +67,13 @@ export class RuntimeSocketProjection {
           output: payload.output ?? payload.message,
         },
       });
-    } else if (event.type === 'runtime.warning.raised') {
+    } else if (
+      event.type === 'runtime.warning.raised'
+      || event.type === 'runtime.diagnostic.observed'
+      || event.type === 'runtime.transport.degraded'
+      || event.type === 'runtime.session.resume_failed'
+      || event.type === 'runtime.invocation.blocked'
+    ) {
       this.port.publish(event.projectId, {
         ...base,
         kind: 'runtime.warning',
