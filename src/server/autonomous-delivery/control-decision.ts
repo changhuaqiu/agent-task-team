@@ -254,7 +254,7 @@ function firstFreeSlot(roleId: string, limit: number, occupied: Set<string>): st
 }
 
 /**
- * Pure deterministic Process Manager decision.
+ * Pure deterministic Delivery Decision Policy.
  *
  * It reads immutable facts and policy, returns an ordered action set, and does
  * not mutate domain rows or perform I/O. Command handlers must re-check the

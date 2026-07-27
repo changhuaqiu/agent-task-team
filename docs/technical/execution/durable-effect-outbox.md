@@ -681,7 +681,7 @@ task_sync 成功
 | 生产 Adapter | `src/server/platform-events/runtime-completion-effect-adapters.ts` |
 | Runtime completion Process Manager | `src/server/platform-events/runtime-completion-process-manager.ts` |
 | Worker 接线 | `src/server/platform-events/runtime-worker.ts` |
-| A2A 提交前 staging | `src/server/a2a/orchestrator.ts`、`src/server/a2a/dedup.ts` |
+| A2A 原子聚合与 Inbox 提交 | `src/server/a2a/collaboration.ts`、`src/server/a2a/outcome-process-manager.ts` |
 | 数据表与 migration 52 | `src/server/db/schema.ts`、`src/server/db/migrate.ts` |
 | 历史实施契约 | `docs/archive/specs/durable-effect-outbox/` |
 

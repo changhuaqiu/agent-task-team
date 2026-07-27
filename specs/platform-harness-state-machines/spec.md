@@ -12,7 +12,8 @@
 
 1. 每个领域状态机的 owner、状态、命令和事件唯一化；
 2. Inbox、Invocation、Task、Gate、A2A、Delivery 的完成语义分离；
-3. Delivery Control Process Manager 只依据权威事实计算有限的确定性控制动作；
+3. Delivery Control Process Manager 汇总权威事实并推进跨领域流程；纯
+   Delivery Decision Policy 计算有限、确定性的控制动作；
 4. Runtime/CLI 错误归一化后再进入恢复、重试或 Human 决策；
 5. 窄义 `src/server/harness` 完整迁入 `src/server/invocation-pipeline`；
 6. 从单 Agent Invocation 监督扩展为多 Agent Work Cell 图的可靠协调。
@@ -191,7 +192,12 @@ DeliveryRun 的生命周期状态与协作阶段必须分开：生命周期只�
 同时保证：相同 key + 相同规范化 Goal 返回原 Run；相同 key + 不同内容报语义冲突；同一
 conversation 不允许并存两个非终态 Run。API 不得以 check-then-insert 代替该约束。
 
-## 7. Delivery Control Process Manager 决策契约
+## 7. Delivery Control Process Manager 与 Decision Policy 契约
+
+Process Manager 负责消费触发事件、查询各 owner、组装 `DeliveryControlSnapshot`、
+调用纯 Decision Policy、持久化决定并把动作交给 owner Command adapter。它不是新的领域
+owner，也不自行推断或执行副作用。Decision Policy 才负责从冻结的 snapshot、policy
+revision 与 capacity 输入计算 `ControlDecision`。
 
 一次 reconcile 返回一个 `ControlDecision`，其中包含按资源容量排序的 `actions[]`；
 不是 Delivery 全局单动作。每个 target Work Cell / slot 最多一个动作。action id 由
@@ -242,7 +248,7 @@ Pass Group 的 join 语义以分支工作结果为准，不以 Runtime start 为
   `sourceWorkId`、签发新 epoch，属于可安全自动打破的恢复边，而不是 Invocation 盲重试。
 
 wait-for graph 只承载有稳定 blocker identity 的持久依赖：Task、A2A 和已创建的 Gate
-Work Cell。容量不足由 Process Manager 根据 policy revision 计算 wait 动作，不持久化为
+Work Cell。容量不足由 Decision Policy 根据 policy revision 计算 wait 动作，不持久化为
 依赖边；slot 释放与公平 aging 是其解除机制。
 
 Agent 发起协作必须提交结构化 `handoff_to_agent` Outcome。durable A2A Outcome Process

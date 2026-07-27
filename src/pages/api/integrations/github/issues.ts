@@ -73,13 +73,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(200).json({ ok: true, disposition: 'ping' });
     }
 
-    let supervisor: ReturnType<typeof ensureAutonomousDeliveryRuntime> | undefined;
+    let deliveryRuntime: ReturnType<typeof ensureAutonomousDeliveryRuntime> | undefined;
     const ingress = new GitHubIssueAgentIngress({
-      resolveSupervisor: () => {
+      resolveRuntime: () => {
         const runtime = ensureProjectSocketRuntime(res);
         if (!runtime) return undefined;
-        supervisor = ensureAutonomousDeliveryRuntime(runtime.io);
-        return supervisor;
+        deliveryRuntime = ensureAutonomousDeliveryRuntime(runtime.io);
+        return deliveryRuntime;
       },
     });
     const result = ingress.handle({
@@ -91,10 +91,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     });
 
     if (result.disposition === 'accepted') {
-      if (!supervisor) {
+      if (!deliveryRuntime) {
         return errorResponse(res, 503, 'runtime_unavailable', 'Agent runtime is not ready');
       }
-      void supervisor.advance(result.mapping.delivery_run_id, {
+      void deliveryRuntime.advance(result.mapping.delivery_run_id, {
         kind: 'started',
         ref: `github:${deliveryId}`,
       }).catch((error) => {

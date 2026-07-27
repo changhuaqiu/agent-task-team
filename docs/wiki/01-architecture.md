@@ -55,7 +55,12 @@ flowchart TD
   WT --> PL
 ```
 
-当前 `taskHubStore`、`daemon`、`a2a/orchestrator` 的部分职责会在迁移期逐步收敛到 `DispatchGateway`、`RuntimeNodeRegistry`、`AgentBindingRegistry` 与 `ProofLog`。
+当前控制面已经由服务端 Platform Harness 承担：Delivery Control Process Manager 汇总
+Task、Gate、A2A、Inbox、Invocation、Context、Effect 与 Delivery 权威事实并推进流程，
+纯 Delivery Decision Policy 计算确定性动作；
+AgentInbox 和 Invocation Pipeline 负责可靠启动。`taskHubStore` 只提交 Human Command
+并消费版本化投影，daemon 只承载 Runtime execution plane，不再存在 A2A Orchestrator
+或浏览器反向确认控制事实的迁移双写。
 
 当前运行时拓扑：
 

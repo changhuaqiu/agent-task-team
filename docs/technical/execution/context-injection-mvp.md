@@ -250,9 +250,11 @@ src/server/invocation-pipeline/valid-exit.ts
   - 新增规则：根任务子树全终态检测
   - 读取 task graph edges，按 child → parent 递归判断完整子树
 
-- **`orchestrator.ts`**（`src/server/a2a/orchestrator.ts`）：
-  - `requestDispatch` 入口校验 `requestedAction`
-  - 不阻断，只经 audit logger 记 `missing_action` 事件
+- **A2A 聚合**（`src/server/a2a/collaboration.ts`）：
+  - `A2AOutcomeProcessManager` 只接受已接纳的结构化 `handoff_to_agent`
+  - `A2ACommandGuard` 校验 roster 与通信策略
+  - `offerPassGroup` 原子写 Pass、HandoffPacket 与 AgentInbox；缺少明确 action 的
+    Outcome 在进入聚合前被拒绝
 
 - **Harness / daemon 透传与观测**：
   - `TaskWakeup → AgentActivationCommand → ContextRequest` 透传 `reasonCode` 与 closure 元数据

@@ -136,7 +136,7 @@ describe('QualityGateRepository', () => {
       targetId: 'delivery-1',
       artifactRevision: 'delivery-rev-1',
       criteria: {},
-      actor: { type: 'system', id: 'supervisor' },
+      actor: { type: 'system', id: 'delivery-process-manager' },
     });
     const second = repository.request({
       conversationId: 'project-gate',
@@ -145,7 +145,7 @@ describe('QualityGateRepository', () => {
       targetId: 'delivery-1',
       artifactRevision: 'delivery-rev-1',
       criteria: {},
-      actor: { type: 'system', id: 'supervisor' },
+      actor: { type: 'system', id: 'delivery-process-manager' },
     });
     const foreignEvidence = repository.submitEvidence({
       gateId: second.gate.id,
@@ -185,7 +185,7 @@ describe('QualityGateRepository', () => {
       targetId: 'delivery-1',
       artifactRevision: 'sha-1',
       criteria: {},
-      actor: { type: 'system', id: 'supervisor' },
+      actor: { type: 'system', id: 'delivery-process-manager' },
     });
     const cancelled = repository.cancel({
       gateId: requested.gate.id,

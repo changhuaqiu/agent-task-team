@@ -9,6 +9,9 @@ function source(path: string): string {
 describe('runtime ownership architecture', () => {
   const daemon = source('src/server/daemon.ts');
   const taskHubStore = source('src/store/taskHubStore.ts');
+  const timelineCards = source('src/components/war-room/TimelineCards.tsx');
+  const deliveryApi = source('src/pages/api/autonomous-delivery.ts');
+  const githubIngress = source('src/server/github-issue-hook/ingress.ts');
 
   it('does not accept browser execution acknowledgements for server-owned A2A work', () => {
     for (const event of [
@@ -38,6 +41,17 @@ describe('runtime ownership architecture', () => {
     expect(daemon).not.toContain(`socket.on('a2a:user-turn-created'`);
     expect(daemon).toContain(`socket.on('terminal:start'`);
     expect(daemon).toContain(`socket.on('terminal:kill'`);
+  });
+
+  it('keeps WebUI notices read-only and removes the legacy Supervisor vocabulary', () => {
+    expect(taskHubStore).not.toContain('SupervisorOutput');
+    expect(taskHubStore).not.toContain('supervisor.output');
+    expect(timelineCards).not.toContain('addTask');
+    expect(timelineCards).not.toContain('inviteAgent');
+    expect(timelineCards).not.toContain('applySamplePlan');
+    expect(deliveryApi).not.toContain('Delivery supervisor');
+    expect(githubIngress).not.toContain('resolveSupervisor');
+    expect(githubIngress).not.toContain('supervisor');
   });
 
   it('allows global broadcast only for the system runtime catalog', () => {

@@ -10,12 +10,12 @@ import { githubIssuePayload } from '@/server/github-issue-hook/test-fixtures';
 import type { NextApiRequest, NextApiResponse } from 'next';
 
 const runtime = vi.hoisted(() => ({
-  supervisor: undefined as unknown,
+  deliveryRuntime: undefined as unknown,
   ensureSocketRuntime: vi.fn(),
 }));
 
 vi.mock('@/server/autonomous-delivery/bootstrap', () => ({
-  ensureAutonomousDeliveryRuntime: () => runtime.supervisor,
+  ensureAutonomousDeliveryRuntime: () => runtime.deliveryRuntime,
 }));
 
 vi.mock('@/server/socket-runtime', () => ({
@@ -83,7 +83,7 @@ describe('POST /api/integrations/github/issues', () => {
     vi.stubEnv('GITHUB_ISSUE_WEBHOOK_PROJECT_PATH', projectPath);
     const repository = new AutonomousDeliveryRepository();
     advance = vi.fn().mockResolvedValue(undefined);
-    runtime.supervisor = {
+    runtime.deliveryRuntime = {
       start: (contract: Parameters<AutonomousDeliveryRepository['createRun']>[0]) =>
         repository.createRun(contract),
       advance,

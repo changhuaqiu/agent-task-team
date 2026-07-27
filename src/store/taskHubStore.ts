@@ -121,26 +121,18 @@ export interface Conversation {
   updatedAt: string;
 }
 
-export type SupervisorOutputKind =
+export type PlatformNoticeKind =
   | 'decision_brief'
   | 'execution_plan'
   | 'status_report'
   | 'quality_review_pack';
 
-export interface SupervisorHumanAction {
-  actionId: string;
-  label: string;
-  options?: { id: string; label: string }[];
-}
-
-export interface SupervisorOutputEnvelope {
-  kind: SupervisorOutputKind;
+export interface PlatformNoticeEnvelope {
+  kind: PlatformNoticeKind;
   conversationId: string;
   invocationId: string;
   timestamp: string;
   summary: string;
-  needsHuman: boolean;
-  humanActions: SupervisorHumanAction[];
   body: unknown;
 }
 
@@ -156,7 +148,7 @@ export type InternalEventType =
   | 'blocker.fixed'
   | 'artifact.added'
   | 'routing.hint_emitted'
-  | 'supervisor.output'
+  | 'platform.notice'
   | 'invocation.started'
   | 'invocation.finished'
   | 'invocation.aborted'
@@ -771,7 +763,7 @@ export interface TaskHubState {
     options?: { persist?: boolean },
   ) => Promise<boolean>;
   restoreConversation: (conversation: Conversation) => void;
-  addSupervisorOutput: (output: SupervisorOutputEnvelope) => void;
+  addPlatformNotice: (notice: PlatformNoticeEnvelope) => void;
   addEvent: (event: Omit<InternalEvent, 'id' | 'timestamp'> & { id?: string; timestamp?: string }) => void;
   openBlocker: (input: Omit<Blocker, 'id' | 'status' | 'createdAt'> & { id?: string; status?: Blocker['status']; createdAt?: string }) => string;
   fixBlocker: (conversationId: string, blockerId: string) => void;
@@ -1447,14 +1439,12 @@ export const useTaskHubStore = create<TaskHubState>()(
             applyConversationTeamPack(get, set, id, teamPackId, { triggerProposalAfterLoad: true });
           }
 
-          get().addSupervisorOutput({
+          get().addPlatformNotice({
             kind: 'status_report',
             conversationId: id,
             invocationId: makeId('inv'),
             timestamp: stamp,
             summary: '会话已创建，可以开始规划。',
-            needsHuman: false,
-            humanActions: [],
             body: {
               phase: 'discovery',
               progress: { done: [], inProgress: [], blocked: [] },
@@ -1662,16 +1652,16 @@ export const useTaskHubStore = create<TaskHubState>()(
 
         },
 
-        addSupervisorOutput: (output: SupervisorOutputEnvelope) => {
-          const tail = (get().eventsByConversation[output.conversationId] || []).slice(-1)[0];
-          if (tail?.type === 'supervisor.output') {
-            const prev = tail.payload as SupervisorOutputEnvelope | undefined;
-            if (prev?.kind === output.kind) return;
+        addPlatformNotice: (notice: PlatformNoticeEnvelope) => {
+          const tail = (get().eventsByConversation[notice.conversationId] || []).slice(-1)[0];
+          if (tail?.type === 'platform.notice') {
+            const prev = tail.payload as PlatformNoticeEnvelope | undefined;
+            if (prev?.kind === notice.kind) return;
           }
           get().addEvent({
-            conversationId: output.conversationId,
-            type: 'supervisor.output',
-            payload: output,
+            conversationId: notice.conversationId,
+            type: 'platform.notice',
+            payload: notice,
           });
         },
 

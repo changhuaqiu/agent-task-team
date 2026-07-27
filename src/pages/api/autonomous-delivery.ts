@@ -53,7 +53,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   const action = typeof req.body?.action === 'string' ? req.body.action : 'start';
   const io = socketServer(res);
-  if (!io) return res.status(503).json({ error: 'Delivery supervisor is not ready' });
+  if (!io) return res.status(503).json({ error: 'Delivery runtime is not ready' });
   ensureAutonomousDeliveryRuntime(io);
 
   try {
@@ -61,7 +61,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const runId = typeof req.body?.runId === 'string' ? req.body.runId : '';
       if (!runId) return res.status(400).json({ error: 'runId is required' });
       const result = await advanceAutonomousDelivery(io, runId, { kind: 'manual_resume' });
-      if (!result) return res.status(503).json({ error: 'Delivery supervisor is not registered' });
+      if (!result) return res.status(503).json({ error: 'Delivery runtime is not registered' });
       return res.status(200).json(result);
     }
 
@@ -73,7 +73,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(404).json({ error: 'Conversation not found' });
     }
     const snapshot = startAutonomousDelivery(io, contract);
-    if (!snapshot) return res.status(503).json({ error: 'Delivery supervisor is not registered' });
+    if (!snapshot) return res.status(503).json({ error: 'Delivery runtime is not registered' });
     void advanceAutonomousDelivery(io, snapshot.run.id, { kind: 'started' })?.catch((error) => {
       console.error(`[autonomous-delivery] initial advance failed for ${snapshot.run.id}:`, error);
     });

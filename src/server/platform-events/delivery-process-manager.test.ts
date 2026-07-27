@@ -51,7 +51,7 @@ function recoveryEvent(
 }
 
 describe('DeliveryProcessManager', () => {
-  it('maps a task fact to the supervisor interface without writing delivery tables', async () => {
+  it('maps a task fact to the delivery advancement port without writing delivery tables', async () => {
     const advanceProject = vi.fn(async () => ({ status: 'advanced' }));
     const manager = new DeliveryProcessManager({ advanceProject });
     const signal = new AbortController().signal;

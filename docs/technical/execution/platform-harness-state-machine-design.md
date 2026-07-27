@@ -61,7 +61,8 @@ Harness 不读取 Agent 的每一个内部 Todo 来驱动平台，也不替 Agen
 Agent 提交结构化命令
   -> 领域 owner 校验并修改权威事实
   -> 产生领域事件
-  -> Process Manager 计算控制动作
+  -> Process Manager 汇总事实并组装控制快照
+  -> Decision Policy 纯计算控制动作
   -> 激活下一个合法角色，或等待 Gate / Human
 ```
 
@@ -70,10 +71,10 @@ Agent 提交结构化命令
 ### 3.3 交付控制循环
 
 ```text
-读取权威事实
-  -> 按容量计算确定性的有序控制动作集
+Process Manager 读取权威事实并组装快照
+  -> Decision Policy 按容量计算确定性的有序控制动作集
   -> activate | wait | retry | requestGate | resume | escalateToHuman | terminate
-  -> 持久化动作与回执
+  -> Process Manager 持久化动作并交给 owner Command adapter
   -> 再次读取事实
 ```
 
@@ -134,7 +135,8 @@ Inbox claim、Invocation/Session 和结构化 Outcome。它不是新的领域事
 | Agent Inbox | 可恢复的工作投递、claim、lease、fencing | Inbox item | 表示业务完成 |
 | Invocation Pipeline | preflight、profile 解析、会话、Agent 启动、结果归一化 | Invocation / session binding | 判定 Task 完成 |
 | Team Scheduling（System Control Plane 能力） | 从依赖、角色、容量、占用关系中选择可激活 Work Cell | 可重算的 scheduling decision | 生成 Agent 的实施方案 |
-| Delivery Control Process Manager | 根据事实和策略计算跨领域控制动作 | ControlDecision / ControlAction | 替 Agent 做方案判断或直接执行副作用 |
+| Delivery Control Process Manager | 消费触发事件、查询 owner、组装快照、调用 Policy、持久化决定并推进跨领域流程 | Process cursor / persisted ControlDecision | 自己发明业务策略、直接改领域事实或执行副作用 |
+| Delivery Decision Policy | 根据冻结事实、policy revision 和容量纯计算有序 ControlAction | 无；返回不可变 ControlDecision | 读取数据库、调用 Runtime、投递 Command |
 | Event Dispatcher | 提交后投递事件给 Router、Reducer、Process Manager、Projection | Event delivery cursor | 成为领域事实源 |
 | Durable Effect Outbox | 可靠执行数据库外副作用 | Effect command / receipt | 再做业务决策 |
 | Projection & Observability | WebUI 投影、trace、诊断 | Read model | 直接修改领域状态 |
@@ -143,8 +145,9 @@ Inbox claim、Invocation/Session 和结构化 Outcome。它不是新的领域事
 仍然独立守护自己的状态机；Harness 不能绕过 owner 直接改表。
 
 这里的 Team Scheduling 优先深化现有 System Control Plane 的 dispatch policy 与 Agent Inbox
-admission，不默认新增一套持久化领域模块。它只从候选工作中确定合法目标；Delivery Control Process Manager
-把该目标封装成 `activate` 控制动作，两者不各自启动一次 Agent。
+admission，不默认新增一套持久化领域模块。它只从候选工作中确定合法目标；Delivery
+Decision Policy 把该目标表达为 `activate` 控制动作，Process Manager 负责可靠提交，
+三者都不直接启动 Agent。
 
 A2A 的目标权威是一个 `A2ACollaboration` 聚合，而不是 Chain、Worklist、Possession、Pass
 四套平行状态机：
@@ -472,7 +475,8 @@ Event 表达“事实已经发生”，必须在 owner 的事实变更提交后�
 
 - Router：把事件转成另一个 owner 的 Command；
 - Reducer：维护同一 owner 内的派生状态；
-- Process Manager：跨状态机计算下一项控制动作；
+- Process Manager：收集跨状态机事实、调用 Decision Policy 并推进流程；
+- Decision Policy：对冻结输入纯计算下一项控制动作；
 - Projection：生成 WebUI 和观测读模型。
 
 Event 不是远程函数调用，也不能被消费者解释成“可以直接改发布者的表”。
@@ -480,7 +484,8 @@ Event 不是远程函数调用，也不能被消费者解释成“可以直接�
 ### 6.4 Effect
 
 Effect 是已经完成业务决策之后需要可靠执行的 I/O，例如启动 ACP、发送外部通知或写投影。
-Process Manager 只规划 Effect；Outbox 负责执行、重试、顺序和回执。
+Decision Policy 只产生 Effect 所需的控制意图，Process Manager 可靠提交给 Effect owner；
+Outbox 负责执行、重试、顺序和回执。
 
 ## 7. WorkContract：Agent 自主与平台控制的接缝
 
@@ -547,7 +552,8 @@ Outcome；同一幂等键的不同内容属于冲突，而不是“重复成功�
 
 ## 8. 控制动作决策表
 
-Delivery Control Process Manager 读取状态，不直接编辑其他 owner 的事实。
+Delivery Control Process Manager 读取状态并组装快照，不直接编辑其他 owner 的事实；
+`decideDeliveryControl` 纯 Decision Policy 对快照计算下表动作。
 
 | 事实条件（按 Work Cell / 资源 slot 判断） | 控制动作 | 下一责任模块 |
 | --- | --- | --- |
@@ -718,7 +724,7 @@ preflight 事实投影 `escalateToHuman`，并忽略显式 `manual_resume` 之�
 | S2 Gate 深模块 | 统一 review request、evidence、decision、返工 | Gate 是唯一审查判定事实源 |
 | S3 Invocation 边界 | 收敛 Inbox/Envelope/Invocation/Session 的完成语义和恢复策略 | 各层 completion 不再互相冒充 |
 | S4 A2A 收敛 | 合并重复的 chain/worklist 与 possession/pass 生命周期 | 只保留一个 handoff owner 和一个状态机 |
-| S5 Control Process Manager | 用事实 + 策略按容量计算十种控制动作 | 同一快照产生相同有序动作集；waiting_human 可恢复 |
+| S5 Control Process Manager | 组装事实快照、调用纯 Policy 并可靠推进十种控制动作 | 同一快照产生相同有序动作集；waiting_human 可恢复 |
 | S6 迁移清理 | 删除兼容分支、旧命名和无读者投影 | 架构图、spec、代码、测试一致 |
 
 ## 12. 设计不变量
@@ -729,7 +735,8 @@ preflight 事实投影 `escalateToHuman`，并忽略显式 `manual_resume` 之�
 4. 人可以通过 WebUI 主动触发 Command；WebUI 不自行编排。
 5. ContextSnapshot 不等于投递确认；消费游标必须区分 delivered 与 acknowledged。
 6. 领域事务与 Event Outbox 原子提交；外部 I/O 只能走 Durable Effect Outbox。
-7. Process Manager 只计算动作，不直接启动 Runtime、不直接改领域表。
+7. Process Manager 只组装快照、调用纯 Decision Policy 并推进动作；Policy 不做 I/O，
+   Process Manager 不直接启动 Runtime、不直接改领域表。
 8. 所有 `completed` 必须带对象类型；禁止裸 `completed` 作为跨模块协议。
 9. 错误先归一化再决策，CLI 文本和 UI 文案不是控制平面事实。
 10. Invocation 重试、Task 返工和 Effect 重放必须分别计数、分别限额；Agent 内部重试由

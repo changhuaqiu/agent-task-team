@@ -13,21 +13,21 @@ import type {
 } from './types';
 
 export interface GitHubIssueAgentIngressOptions {
-  supervisor?: Pick<AutonomousDeliveryRuntimePort, 'start'>;
-  resolveSupervisor?: () => Pick<AutonomousDeliveryRuntimePort, 'start'> | undefined;
+  runtime?: Pick<AutonomousDeliveryRuntimePort, 'start'>;
+  resolveRuntime?: () => Pick<AutonomousDeliveryRuntimePort, 'start'> | undefined;
   repository?: GitHubIssueIngressRepository;
   now?: () => Date;
 }
 
 export class GitHubIssueAgentIngress {
-  private readonly supervisor?: Pick<AutonomousDeliveryRuntimePort, 'start'>;
-  private readonly resolveSupervisor?: () => Pick<AutonomousDeliveryRuntimePort, 'start'> | undefined;
+  private readonly runtime?: Pick<AutonomousDeliveryRuntimePort, 'start'>;
+  private readonly resolveRuntime?: () => Pick<AutonomousDeliveryRuntimePort, 'start'> | undefined;
   private readonly repository: GitHubIssueIngressRepository;
   private readonly now: () => Date;
 
   constructor(options: GitHubIssueAgentIngressOptions) {
-    this.supervisor = options.supervisor;
-    this.resolveSupervisor = options.resolveSupervisor;
+    this.runtime = options.runtime;
+    this.resolveRuntime = options.resolveRuntime;
     this.repository = options.repository ?? githubIssueIngressRepo;
     this.now = options.now ?? (() => new Date());
   }
@@ -80,8 +80,8 @@ export class GitHubIssueAgentIngress {
     if (duplicate) {
       return { disposition: 'duplicate', mapping: duplicate };
     }
-    const supervisor = this.supervisor ?? this.resolveSupervisor?.();
-    if (!supervisor) {
+    const runtime = this.runtime ?? this.resolveRuntime?.();
+    if (!runtime) {
       throw new GitHubIssueRuntimeUnavailableError();
     }
 
@@ -109,7 +109,7 @@ export class GitHubIssueAgentIngress {
         team_pack_id: input.config.teamPackId,
       });
       const contract = compileGitHubIssueGoalContract(payload, input.config, conversationId);
-      const snapshot = supervisor.start(contract);
+      const snapshot = runtime.start(contract);
       const timestamp = this.now().toISOString();
       const mapping = this.repository.create({
         deliveryId: input.deliveryId,
