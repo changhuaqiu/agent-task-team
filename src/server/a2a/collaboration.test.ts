@@ -85,6 +85,59 @@ describe('A2ACollaborationRepository', () => {
     });
   });
 
+  it('[scenario:parallel-handoff] joins only after every receiver returns a terminal result', () => {
+    const created = repository.createChain({
+      conversationId: 'project-a2a-aggregate',
+      rootTriggerType: 'user_turn',
+      rootTriggerId: 'message-parallel',
+      holderId: 'lead',
+      holderType: 'agent',
+      config: { maxDepth: 5 },
+    });
+    const offered = repository.offerPassGroup({
+      chainId: created.chain.id,
+      sourcePossessionId: created.rootPossession.id,
+      sourceWorkId: 'parallel-source-work',
+      expectedSourceRevision: created.rootPossession.revision,
+      idempotencyKey: 'parallel-handoff',
+      branches: [
+        { toAgentId: 'builder', intent: 'implement', packet: packet('build') },
+        { toAgentId: 'tester', intent: 'verify', packet: packet('verify') },
+      ],
+    });
+    const started = offered.passes.map((pass) => {
+      const admitted = repository.markPassAdmitted(pass.id, pass.revision);
+      const starting = repository.markPassStarting(admitted.id, admitted.revision);
+      return repository.markPassStarted(starting.id, starting.revision);
+    });
+
+    expect(repository.getGroup(offered.group.id)).toMatchObject({
+      status: 'active',
+      resolvedCount: 0,
+    });
+    repository.completePossession({
+      possessionId: started[0]!.possession.id,
+      expectedRevision: started[0]!.possession.revision,
+      summary: 'implementation completed',
+    });
+    expect(repository.getGroup(offered.group.id)).toMatchObject({
+      status: 'active',
+      resolvedCount: 1,
+    });
+    expect(repository.getChain(created.chain.id)).toMatchObject({ status: 'active' });
+
+    repository.completePossession({
+      possessionId: started[1]!.possession.id,
+      expectedRevision: started[1]!.possession.revision,
+      summary: 'verification completed',
+    });
+    expect(repository.getGroup(offered.group.id)).toMatchObject({
+      status: 'completed',
+      resolvedCount: 2,
+    });
+    expect(repository.getChain(created.chain.id)).toMatchObject({ status: 'completed' });
+  });
+
   it('keeps successful fan-out branches and atomically opens source recovery for failures', () => {
     const created = repository.createChain({
       conversationId: 'project-a2a-aggregate',

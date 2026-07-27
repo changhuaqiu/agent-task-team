@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb, resetDb, setTestDb } from '../db';
+import { AutonomousDeliveryRepository } from './repository';
 import { DeliveryControlRuntime } from './control-runtime';
 
 describe('DeliveryControlRuntime', () => {
@@ -25,7 +26,7 @@ describe('DeliveryControlRuntime', () => {
     db.close();
   });
 
-  it('boots a delivery through ControlDecision and Inbox without legacy DeliveryAction rows', async () => {
+  it('[scenario:project-start] boots through ControlDecision and Inbox without legacy actions', async () => {
     const runtime = new DeliveryControlRuntime({
       workerId: 'test-worker',
       now: () => now,
@@ -80,5 +81,68 @@ describe('DeliveryControlRuntime', () => {
       SELECT name FROM sqlite_master
       WHERE type='table' AND name IN ('autonomous_delivery_action','autonomous_delivery_attempt')
     `).all()).toEqual([]);
+  });
+
+  it('[scenario:human-resume] waits for an explicit Human Command before resuming work', async () => {
+    const deliveries = new AutonomousDeliveryRepository();
+    const runtime = new DeliveryControlRuntime({
+      repository: deliveries,
+      workerId: 'test-worker',
+      now: () => now,
+      policy: {
+        revision: 1,
+        maxConcurrent: 1,
+        roleCapacity: {},
+        fairnessAgingMs: 1_000,
+      },
+    });
+    const started = runtime.start({
+      goal: 'Ship after approval',
+      acceptanceCriteria: ['Works'],
+      scope: { conversationId: 'project-1' },
+      authorization: {
+        allowCodeChanges: true,
+        allowPush: false,
+        allowPullRequest: false,
+        allowAutoMerge: false,
+      },
+      recoveryPolicy: {
+        maxAttemptsPerAction: 2,
+        maxRepairCycles: 1,
+        stallTimeoutMs: 60_000,
+      },
+      deliveryPolicy: {
+        requireReview: false,
+        requireWebE2E: false,
+        requireMerge: false,
+      },
+    });
+    deliveries.transitionRun({
+      runId: started.run.id,
+      to: 'waiting_human',
+      stage: 'planning',
+      escalationCode: 'runtime_profile_missing',
+      expectedRevision: started.run.revision,
+      now,
+    });
+
+    expect(await runtime.advance(started.run.id, { kind: 'periodic_reconcile' }))
+      .toMatchObject({
+        disposition: 'waiting_human',
+        snapshot: { run: { status: 'waiting_human' } },
+      });
+    expect(db.prepare('SELECT COUNT(*) AS count FROM task').get()).toEqual({ count: 0 });
+    expect(db.prepare('SELECT COUNT(*) AS count FROM agent_inbox_item').get())
+      .toEqual({ count: 0 });
+
+    expect(await runtime.advance(started.run.id, { kind: 'manual_resume' }))
+      .toMatchObject({ disposition: 'acted' });
+    expect(deliveries.getRun(started.run.id)).toMatchObject({
+      status: 'active',
+      escalation_code: null,
+    });
+    expect(db.prepare('SELECT COUNT(*) AS count FROM task').get()).toEqual({ count: 1 });
+    expect(db.prepare('SELECT COUNT(*) AS count FROM agent_inbox_item').get())
+      .toEqual({ count: 1 });
   });
 });

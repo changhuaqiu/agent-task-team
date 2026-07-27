@@ -267,7 +267,7 @@ describe('ProductionControlCommandAdapter', () => {
       }]);
   });
 
-  it('freezes a DeliveryBundle before a later decision completes Delivery', async () => {
+  it('[scenario:delivery-close] freezes a verified bundle before completing Delivery', async () => {
     taskRepo.transition('task-1', { to: 'in_progress' }, now);
     taskRepo.transition('task-1', { to: 'in_review' }, now);
     taskRepo.transition('task-1', { to: 'done' }, now);

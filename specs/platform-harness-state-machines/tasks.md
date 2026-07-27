@@ -7,8 +7,9 @@
   Invocation 通过不可变 WorkContract 关联信封，不复制可能漂移的字段。
 - [x] 建立 `PlatformEventLog.listTrace(correlationId)` 跨 stream 状态迁移 trace，并为
   correlation 建索引。
-- [ ] 建立 project-start、parallel-handoff、review-rework、agent-failure、human-resume、
-  delivery-close 六条场景基线测试。
+- [x] 建立 project-start、parallel-handoff、review-rework、agent-failure、human-resume、
+  delivery-close 六条命名场景基线；分别覆盖启动派发、真实结果汇合、Gate 返工预算、
+  执行权撤销与恢复、显式人工恢复、冻结 Bundle 后完成交付。
 
 ## S1：状态守卫
 

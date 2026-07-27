@@ -141,7 +141,7 @@ describe('A2ALifecycleProcessManager', () => {
     });
   });
 
-  it('fails a started Pass and closes its receiver Possession when Runtime dies', async () => {
+  it('[scenario:agent-failure] revokes receiver possession and opens source recovery', async () => {
     const offered = offer();
     const admitted = collaboration.markPassAdmitted(offered.passes[0]!.id, 0);
     const starting = collaboration.markPassStarting(admitted.id, admitted.revision);

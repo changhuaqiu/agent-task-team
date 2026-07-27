@@ -8,6 +8,7 @@ import { DurableEffectOutbox } from '../platform-events/durable-effect-outbox';
 import { qualityGateRepo } from '../quality-gate/repository';
 import { A2ACollaborationRepository } from '../a2a/collaboration';
 import { AutonomousDeliveryRepository } from './repository';
+import { decideControlActions } from './control-decision';
 import { RepositoryControlSnapshotBuilder } from './control-snapshot-builder';
 
 describe('RepositoryControlSnapshotBuilder', () => {
@@ -259,7 +260,7 @@ describe('RepositoryControlSnapshotBuilder', () => {
     });
   });
 
-  it('derives Task rework budget from durable Gate history and the GoalContract', () => {
+  it('[scenario:review-rework] derives a bounded rework action from authoritative Gate history', () => {
     taskRepo.create({
       id: 'task-rework',
       conversation_id: 'project-1',
@@ -309,14 +310,27 @@ describe('RepositoryControlSnapshotBuilder', () => {
     };
 
     failGate('revision-1');
-    const first = new RepositoryControlSnapshotBuilder({ db, now: () => now }).build(runId)
-      .workCells.find((cell) => cell.workId === source.workId);
+    const firstSnapshot = new RepositoryControlSnapshotBuilder({ db, now: () => now })
+      .build(runId);
+    const first = firstSnapshot.workCells.find((cell) => cell.workId === source.workId);
     expect(first).toMatchObject({
       state: 'retry_pending',
       failure: {
         budget: { kind: 'task_rework', attemptsUsed: 0, maxAttempts: 1 },
       },
     });
+    expect(decideControlActions(firstSnapshot, {
+      revision: 1,
+      maxConcurrent: 1,
+      roleCapacity: { 'agent-a': 1 },
+      fairnessAgingMs: 1_000,
+    }).actions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'retry',
+        targetWorkId: source.workId,
+        retryBudgetKind: 'task_rework',
+      }),
+    ]));
 
     failGate('revision-2');
     const second = new RepositoryControlSnapshotBuilder({ db, now: () => now }).build(runId)
