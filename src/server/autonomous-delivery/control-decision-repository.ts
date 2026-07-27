@@ -196,11 +196,13 @@ export class ControlDecisionRepository {
         const authority = db.prepare(`
           SELECT current_epoch,status FROM work_authority WHERE work_id=?
         `).get(action.target_work_id) as { current_epoch: number; status: string } | undefined;
-        if (
-          !authority
-          || authority.status !== 'active'
-          || authority.current_epoch !== action.work_epoch
-        ) {
+        const validUnissuedWork = action.work_epoch === 0 && !authority;
+        const validIssuedWork = Boolean(
+          authority
+          && authority.status === 'active'
+          && authority.current_epoch === action.work_epoch,
+        );
+        if (!validUnissuedWork && !validIssuedWork) {
           throw new ControlActionClaimError(
             'stale_work_epoch',
             `Work authority changed for ${action.target_work_id}`,
@@ -267,11 +269,13 @@ export class ControlDecisionRepository {
           const authority = db.prepare(`
             SELECT current_epoch,status FROM work_authority WHERE work_id=?
           `).get(action.target_work_id) as { current_epoch: number; status: string } | undefined;
-          if (
-            !authority
-            || authority.status !== 'active'
-            || authority.current_epoch !== action.work_epoch
-          ) {
+          const validUnissuedWork = action.work_epoch === 0 && !authority;
+          const validIssuedWork = Boolean(
+            authority
+            && authority.status === 'active'
+            && authority.current_epoch === action.work_epoch,
+          );
+          if (!validUnissuedWork && !validIssuedWork) {
             throw new ControlActionClaimError(
               'stale_work_epoch',
               `Work authority changed for ${action.target_work_id}`,
@@ -372,6 +376,24 @@ export class ControlDecisionRepository {
       WHERE id=? AND type='activate' AND status='applied'
     `).run(input.reasonCode, timestamp, timestamp, input.actionId);
     return result.changes === 1;
+  }
+
+  releaseSlotsForWork(input: {
+    workId: string;
+    reasonCode: string;
+    now?: Date;
+  }): number {
+    const timestamp = (input.now ?? new Date()).toISOString();
+    return (this.database ?? getDb()).prepare(`
+      UPDATE supervisor_control_action
+      SET status='cancelled',failure_code=?,updated_at=?,completed_at=?
+      WHERE target_work_id=? AND type='activate' AND status='applied'
+    `).run(
+      input.reasonCode,
+      timestamp,
+      timestamp,
+      input.workId,
+    ).changes;
   }
 
   recoverExpired(now: Date = new Date()): number {

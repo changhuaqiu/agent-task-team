@@ -152,6 +152,11 @@
   避免首条 Command 产生的事实错误地 stale 同批兄弟动作。
 - [ ] 将 A2A/Inbox/Effect 与 dependency facts 补入 snapshot，并把持久 ControlAction
   接到生产 owner Command。
+- [x] pre-Contract assigned Task 已作为 epoch 0 Work Cell，依赖未满足时 wait；activate/retry
+  只写 Durable AgentInbox，requestGate 只写 QualityGate owner，terminate 在同一事务复核
+  Task/Bundle/blocking Effect Closure，Runtime started/terminated 释放 slot。
+- [ ] 用新 DeliveryControlProcessManager 替换 bootstrap 中旧
+  `decideDeliveryNext` 单动作循环，并删除旧 policy/action 状态。
 - [x] 将 blocking Effect 分类、适用区间、创建时 retry budget 和显式
   cancelled/superseded 写入现有 Effect Outbox，并接入 Control snapshot closure；
   dead-letter 产生 Human escalation，pending 产生无副作用 wait。

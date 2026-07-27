@@ -37,7 +37,7 @@ describe('PlatformEventRuntimeWorker', () => {
     worker.start();
     worker.start();
     await vi.advanceTimersByTimeAsync(100);
-    expect(calls).toEqual({ register: 8, recover: 1, discover: 1, drain: 1 });
+    expect(calls).toEqual({ register: 9, recover: 1, discover: 1, drain: 1 });
 
     releaseDrain();
     await vi.advanceTimersByTimeAsync(10);
@@ -86,7 +86,7 @@ describe('PlatformEventRuntimeWorker', () => {
       id: 'runtime-completion-process-manager:v1',
       pattern: 'runtime.invocation.terminated',
     })]));
-    expect(registrations).toHaveLength(9);
+    expect(registrations).toHaveLength(10);
   });
 
   it('retries startup recovery before incremental discovery', async () => {

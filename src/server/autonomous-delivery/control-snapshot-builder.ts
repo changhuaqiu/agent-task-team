@@ -26,6 +26,14 @@ interface WorkCellFactRow {
   outcome_type: AgentOutcomeType | null;
 }
 
+interface TaskFactRow {
+  id: string;
+  status: string;
+  agent_id: string;
+  dependencies: string | null;
+  created_at: string;
+}
+
 export interface ControlSnapshotRetryLimits {
   invocation: number;
   effect: number;
@@ -80,8 +88,14 @@ export class RepositoryControlSnapshotBuilder {
   build(runId: string): SupervisorControlSnapshot {
     const db = this.database ?? getDb();
     const run = db.prepare(`
-      SELECT id,conversation_id,revision FROM autonomous_delivery_run WHERE id=?
-    `).get(runId) as { id: string; conversation_id: string; revision: number } | undefined;
+      SELECT id,conversation_id,revision,delivery_bundle_json
+      FROM autonomous_delivery_run WHERE id=?
+    `).get(runId) as {
+      id: string;
+      conversation_id: string;
+      revision: number;
+      delivery_bundle_json: string | null;
+    } | undefined;
     if (!run) throw new Error(`Delivery run not found: ${runId}`);
 
     const rows = db.prepare(`
@@ -115,6 +129,18 @@ export class RepositoryControlSnapshotBuilder {
     `).all(runId) as WorkCellFactRow[];
 
     const workCells = rows.map((row) => this.cell(db, row));
+    const representedWork = new Set(workCells.map((cell) => cell.workId));
+    const tasks = db.prepare(`
+      SELECT id,status,agent_id,dependencies,created_at
+      FROM task WHERE conversation_id=? ORDER BY created_at,id
+    `).all(run.conversation_id) as TaskFactRow[];
+    const taskStatus = new Map(tasks.map((task) => [task.id, task.status]));
+    for (const task of tasks) {
+      if (!task.agent_id.trim()) continue;
+      const workId = `task:${task.id}:agent:${task.agent_id}:purpose:execute`;
+      if (representedWork.has(workId)) continue;
+      workCells.push(this.unissuedTaskCell(task, workId, taskStatus));
+    }
     const blockingEffects = new DurableEffectOutbox({ db })
       .listApplicableBlocking(runId, run.revision);
     const blockingEffect = blockingEffects.find((effect) => effect.status === 'dead_letter')
@@ -128,7 +154,8 @@ export class RepositoryControlSnapshotBuilder {
       closure: {
         satisfied: workCells.length > 0
           && workCells.every((cell) => cell.state === 'completed')
-          && blockingEffects.length === 0,
+          && blockingEffects.length === 0
+          && Boolean(run.delivery_bundle_json),
         ...(blockingEffect ? {
           blockingEffect: {
             effectId: blockingEffect.id,
@@ -141,6 +168,52 @@ export class RepositoryControlSnapshotBuilder {
         } : {}),
       },
     };
+  }
+
+  private unissuedTaskCell(
+    task: TaskFactRow,
+    workId: string,
+    taskStatus: ReadonlyMap<string, string>,
+  ): WorkCellControlSnapshot {
+    const base = {
+      workId,
+      workEpoch: 0,
+      roleId: task.agent_id,
+      priority: 50,
+      queuedAt: task.created_at,
+    };
+    if (task.status === 'done') return { ...base, state: 'completed' };
+    if (task.status === 'cancelled') {
+      return {
+        ...base,
+        state: 'failed',
+        failure: {
+          reasonCode: 'task_cancelled',
+          retryable: false,
+          humanRecoverable: false,
+          budget: retryBudget('task_rework', 0, this.limits),
+        },
+      };
+    }
+    if (task.status === 'blocked') {
+      return { ...base, state: 'waiting_human', humanResolution: 'required' };
+    }
+    if (task.status === 'in_review') {
+      return { ...base, state: 'artifact_submitted', gateStatus: 'none' };
+    }
+    let dependencies: string[] = [];
+    try {
+      dependencies = task.dependencies ? JSON.parse(task.dependencies) as string[] : [];
+    } catch {
+      return { ...base, state: 'waiting_dependency' };
+    }
+    if (
+      task.status === 'proposed'
+      || dependencies.some((dependency) => taskStatus.get(dependency) !== 'done')
+    ) {
+      return { ...base, state: 'waiting_dependency' };
+    }
+    return { ...base, state: 'ready' };
   }
 
   private cell(db: Database.Database, row: WorkCellFactRow): WorkCellControlSnapshot {

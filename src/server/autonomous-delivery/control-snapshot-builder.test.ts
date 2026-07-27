@@ -2,6 +2,7 @@ import type Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb, resetDb, setTestDb } from '../db';
 import { invocationRepo } from '../repositories/invocation-repo';
+import { taskRepo } from '../repositories/task-repo';
 import { WorkContractRepository } from '../work-contract/repository';
 import { DurableEffectOutbox } from '../platform-events/durable-effect-outbox';
 import { AutonomousDeliveryRepository } from './repository';
@@ -143,6 +144,42 @@ describe('RepositoryControlSnapshotBuilder', () => {
   it('does not claim closure when the run has no Work Cells', () => {
     expect(new RepositoryControlSnapshotBuilder({ db, now: () => now }).build(runId))
       .toMatchObject({ workCells: [], closure: { satisfied: false } });
+  });
+
+  it('creates pre-Contract Work Cells from assigned Tasks and honors dependencies', () => {
+    taskRepo.create({
+      id: 'task-a',
+      conversation_id: 'project-1',
+      title: 'Foundation',
+      agent_id: 'agent-a',
+    }, now);
+    taskRepo.create({
+      id: 'task-b',
+      conversation_id: 'project-1',
+      title: 'Dependent',
+      agent_id: 'agent-b',
+      dependencies: ['task-a'],
+    }, now);
+
+    const before = new RepositoryControlSnapshotBuilder({ db, now: () => now }).build(runId);
+    expect(before.workCells).toMatchObject([
+      {
+        workId: 'task:task-a:agent:agent-a:purpose:execute',
+        workEpoch: 0,
+        state: 'ready',
+      },
+      {
+        workId: 'task:task-b:agent:agent-b:purpose:execute',
+        workEpoch: 0,
+        state: 'waiting_dependency',
+      },
+    ]);
+
+    taskRepo.transition('task-a', { to: 'in_progress' }, now);
+    taskRepo.transition('task-a', { to: 'in_review' }, now);
+    taskRepo.transition('task-a', { to: 'done' }, now);
+    const after = new RepositoryControlSnapshotBuilder({ db, now: () => now }).build(runId);
+    expect(after.workCells.find((cell) => cell.workId.includes('task-b'))?.state).toBe('ready');
   });
 
   it('keeps completed Work Cells open while a blocking Effect remains applicable', () => {

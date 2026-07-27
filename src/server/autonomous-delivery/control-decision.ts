@@ -25,6 +25,7 @@ export type WorkCellControlState =
   | 'ready'
   | 'running'
   | 'artifact_submitted'
+  | 'waiting_dependency'
   | 'waiting_gate'
   | 'waiting_human'
   | 'retry_pending'
@@ -351,6 +352,10 @@ export function decideControlActions(
     }
     if (cell.state === 'waiting_gate') {
       proposals.push({ ...base, rank: 60, type: 'wait', reasonCode: 'gate_pending' });
+      continue;
+    }
+    if (cell.state === 'waiting_dependency') {
+      proposals.push({ ...base, rank: 60, type: 'wait', reasonCode: 'dependency_pending' });
     }
   }
 

@@ -61,6 +61,9 @@ Task 切片证据：
   slot reservation 和 lease token。
 - [x] 同一 decision 的动作集在首条 owner Command 前原子 batch claim，不退化为单动作循环。
 - [ ] 持久 ControlAction 已接入各领域 owner Command，并由新事实释放 slot。
+- [x] activate/retry 已接 AgentInbox、requestGate 已接 QualityGate、terminate 已做事务内
+  Closure 复核；Runtime 生命周期事实可释放 slot reservation。
+- [ ] production bootstrap 已完全切换到新 Control Process Manager。
 - [x] Human 可以通过 WebUI 发送 `manual_resume` Command；WebUI 不自行推进状态。
 - [x] Human A2A 从 WebUI 提交服务端 Command，浏览器不直接启动后再补登记协作状态。
 - [x] WebUI 自动更新只消费版本化 `project:view / a2a.snapshot` Projection；

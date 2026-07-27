@@ -580,6 +580,14 @@ Invocation 和结构化 AgentOutcome 构造 Work Cell，不从聊天文本推断
 这是多 Agent 并行的必要条件：否则第一条 Command 产生新事实后，会错误地让同批兄弟动作
 全部因 snapshot cursor 更新而失效。生产 owner Command adapter 与 slot 释放仍是 S5 下一切片。
 
+Task 在 WorkContract 签发前也已经是 Work Cell：assigned `ready/in_progress` Task 使用
+`workEpoch=0`，claim 同时要求对应 WorkAuthority 尚不存在；Harness 成功完成 Context
+preflight 后才签发 epoch 1 Contract。依赖未完成的 Task 是 `waiting_dependency`，不会占用
+slot。`ProductionControlCommandAdapter` 已将 activate/retry 写入 Durable AgentInbox，
+requestGate 写入唯一 QualityGate owner，并在同一 SQLite 事务重新读取 Closure 后才允许
+Delivery 终止；它不直接启动 Runtime。Runtime started/terminated 事实会释放 activate 的
+slot reservation。该 adapter 尚未替换生产 bootstrap 中的旧单动作 Supervisor 循环。
+
 ## 9. 错误如何进入事件设计
 
 错误不能只是一段 CLI 文本。Adapter 先保留原始诊断，再归一化为有语义的事实。

@@ -22,6 +22,7 @@ import {
 } from '../a2a/lifecycle-process-manager';
 import type { A2AProjectionSnapshot } from '../../shared/project-view-events';
 import { A2AProjectViewProjection } from './a2a-project-view-projection';
+import { ControlSlotReleaseProcessManager } from '../autonomous-delivery/control-slot-release-process-manager';
 
 let worker: PlatformEventRuntimeWorker | undefined;
 
@@ -142,6 +143,14 @@ export class PlatformEventRuntimeWorker {
         });
       }
     }
+    const controlSlotRelease = new ControlSlotReleaseProcessManager();
+    this.dispatcher.register({
+      id: 'control-slot-release-process-manager:v1',
+      pattern: 'runtime.invocation.*',
+      stereotype: 'process_manager',
+      reliability: 'durable',
+      handle: controlSlotRelease.handle,
+    });
     if (resolved.a2aOutcome !== false) {
       const a2aOutcome = new A2AOutcomeProcessManager(resolved.a2aOutcome);
       this.dispatcher.register({
