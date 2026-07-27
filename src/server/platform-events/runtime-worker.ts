@@ -12,6 +12,14 @@ import {
 } from './runtime-completion-process-manager';
 import { DurableEffectOutbox } from './durable-effect-outbox';
 import type { MessageRow } from '../repositories/message-repo';
+import {
+  A2AOutcomeProcessManager,
+  type A2AOutcomeProcessManagerOptions,
+} from '../a2a/outcome-process-manager';
+import {
+  A2ALifecycleProcessManager,
+  type A2ALifecycleProcessManagerOptions,
+} from '../a2a/lifecycle-process-manager';
 
 let worker: PlatformEventRuntimeWorker | undefined;
 
@@ -29,6 +37,8 @@ export interface PlatformEventRuntimeWorkerOptions {
   onObservabilityUpdated?: (projectId: string, invocationId: string) => void;
   onMessageProjected?: (message: MessageRow) => void;
   effectOutbox?: WorkerEffects;
+  a2aOutcome?: A2AOutcomeProcessManagerOptions | false;
+  a2aLifecycle?: A2ALifecycleProcessManagerOptions | false;
 }
 
 export class PlatformEventRuntimeWorker {
@@ -112,6 +122,33 @@ export class PlatformEventRuntimeWorker {
         timeoutMs: 5_000,
         handle: deliveryProcessManager.handle,
       });
+    }
+    if (resolved.a2aOutcome !== false) {
+      const a2aOutcome = new A2AOutcomeProcessManager(resolved.a2aOutcome);
+      this.dispatcher.register({
+        id: 'a2a-outcome-process-manager:v1',
+        pattern: 'agent.outcome.accepted',
+        stereotype: 'process_manager',
+        reliability: 'durable',
+        timeoutMs: 5_000,
+        handle: a2aOutcome.handle,
+      });
+    }
+    if (resolved.a2aLifecycle !== false) {
+      const a2aLifecycle = new A2ALifecycleProcessManager(resolved.a2aLifecycle);
+      for (const [id, pattern] of [
+        ['a2a-lifecycle-agent-work:v1', 'agent.work.*'],
+        ['a2a-lifecycle-runtime:v1', 'runtime.invocation.*'],
+      ] as const) {
+        this.dispatcher.register({
+          id,
+          pattern,
+          stereotype: 'process_manager',
+          reliability: 'durable',
+          timeoutMs: 5_000,
+          handle: a2aLifecycle.handle,
+        });
+      }
     }
   }
 

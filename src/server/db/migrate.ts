@@ -2745,6 +2745,107 @@ END;
       `);
     },
   },
+  {
+    version: 61,
+    run(db) {
+      const tableExists = (name: string) => Boolean(db.prepare(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+      ).get(name));
+      const addColumns = (
+        table: string,
+        definitions: ReadonlyArray<readonly [name: string, sqlType: string]>,
+      ) => {
+        if (!tableExists(table)) return;
+        const columns = new Set(
+          (db.pragma(`table_info(${table})`) as Array<{ name: string }>)
+            .map((column) => column.name),
+        );
+        for (const [name, sqlType] of definitions) {
+          if (!columns.has(name)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${sqlType}`);
+        }
+      };
+
+      addColumns('a2a_possession_chain', [
+        ['revision', 'INTEGER NOT NULL DEFAULT 0'],
+        ['updated_at', "TEXT NOT NULL DEFAULT ''"],
+      ]);
+      addColumns('a2a_possession', [
+        ['parent_pass_id', 'TEXT'],
+        ['revision', 'INTEGER NOT NULL DEFAULT 0'],
+        ['updated_at', "TEXT NOT NULL DEFAULT ''"],
+      ]);
+      addColumns('a2a_pass', [
+        ['group_id', 'TEXT'],
+        ['idempotency_key', 'TEXT'],
+        ['hop_count', 'INTEGER NOT NULL DEFAULT 0'],
+        ['target_possession_id', 'TEXT'],
+        ['inbox_item_id', 'TEXT'],
+        ['task_id', 'TEXT'],
+        ['revision', 'INTEGER NOT NULL DEFAULT 0'],
+      ]);
+
+      if (tableExists('a2a_possession_chain')) {
+        db.exec(`
+          UPDATE a2a_possession_chain
+          SET updated_at=COALESCE(NULLIF(updated_at,''),completed_at,created_at)
+        `);
+      }
+      if (tableExists('a2a_possession')) {
+        db.exec(`
+          UPDATE a2a_possession
+          SET updated_at=COALESCE(NULLIF(updated_at,''),completed_at,started_at)
+        `);
+      }
+
+      if (
+        tableExists('a2a_possession_chain')
+        && tableExists('a2a_possession')
+        && tableExists('a2a_pass')
+      ) {
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS a2a_pass_group (
+            id TEXT PRIMARY KEY,
+            chain_id TEXT NOT NULL REFERENCES a2a_possession_chain(id) ON DELETE CASCADE,
+            source_possession_id TEXT NOT NULL REFERENCES a2a_possession(id) ON DELETE CASCADE,
+            idempotency_key TEXT NOT NULL,
+            request_digest TEXT NOT NULL,
+            mode TEXT NOT NULL CHECK(mode IN ('transfer','fan_out')),
+            status TEXT NOT NULL CHECK(status IN (
+              'offered','active','recovering','completed','failed','cancelled'
+            )),
+            expected_count INTEGER NOT NULL CHECK(expected_count > 0),
+            resolved_count INTEGER NOT NULL DEFAULT 0
+              CHECK(resolved_count >= 0 AND resolved_count <= expected_count),
+            recovery_possession_id TEXT,
+            hop_count INTEGER NOT NULL CHECK(hop_count >= 0),
+            max_hops INTEGER NOT NULL CHECK(max_hops > 0),
+            revision INTEGER NOT NULL DEFAULT 0 CHECK(revision >= 0),
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            completed_at TEXT,
+            CHECK(
+              (status IN ('offered','active','recovering') AND completed_at IS NULL)
+              OR (status IN ('completed','failed','cancelled') AND completed_at IS NOT NULL)
+            )
+          );
+          CREATE INDEX IF NOT EXISTS idx_a2a_pass_group_chain
+            ON a2a_pass_group(chain_id,status,created_at);
+          CREATE UNIQUE INDEX IF NOT EXISTS uq_a2a_pass_group_idempotency
+            ON a2a_pass_group(chain_id,idempotency_key);
+          CREATE UNIQUE INDEX IF NOT EXISTS uq_a2a_pass_group_source_open
+            ON a2a_pass_group(source_possession_id)
+            WHERE status IN ('offered','active','recovering');
+          CREATE UNIQUE INDEX IF NOT EXISTS uq_a2a_pass_idempotency
+            ON a2a_pass(chain_id,idempotency_key)
+            WHERE idempotency_key IS NOT NULL;
+          CREATE INDEX IF NOT EXISTS idx_a2a_pass_group
+            ON a2a_pass(group_id,status,updated_at);
+          CREATE INDEX IF NOT EXISTS idx_a2a_possession_parent_pass
+            ON a2a_possession(parent_pass_id);
+        `);
+      }
+    },
+  },
 ];
 
 export function applyMigrations(db: Database.Database): void {

@@ -594,7 +594,15 @@ During migration, the platform may translate obvious actionable `@agent` mention
 
 Current implementation status:
 
-- Possession persistence has landed in parallel tables: `a2a_possession_chain`, `a2a_possession`, `a2a_pass`, and `a2a_handoff_packet`.
+- The authoritative aggregate now consists of `a2a_possession_chain`, `a2a_possession`,
+  `a2a_pass_group`, `a2a_pass`, and immutable `a2a_handoff_packet` facts.
+- Structured `handoff_to_agent` AgentOutcome is the control-plane input. Its durable
+  process manager calls the aggregate owner, which atomically persists Pass,
+  HandoffPacket, and every downstream Agent Inbox activation.
+- Agent Inbox admission advances a Pass only to `starting`; the receiver Possession
+  is created only from `runtime.invocation.started`.
+- WorkContract-bound invocations never scan final response text for `@mention`
+  commands. Text scanning remains only in the unbound legacy compatibility path.
 - Until the Phase 8 cutover, the existing `invocation_chain` and `chain_worklist` path remains readable
   and executable as current compatibility behavior. It is not the target authority; after cutover it
   becomes read-only before deletion.

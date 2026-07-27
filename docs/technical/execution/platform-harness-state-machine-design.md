@@ -157,6 +157,50 @@ possession，不能因另一分支失败而回滚；失败分支产生一个指�
 possession。source possession、成功子分支和 recovery possession 在同一聚合事务中提交。
 Chain 在仍有任一 open/recovery possession 时保持 active。
 
+Agent 主动协作不再从最终回复文本中猜测。Agent 必须提交结构化
+`handoff_to_agent` Outcome，A2A 流程协调器读取已接纳 Outcome 和不可变 WorkContract，
+再调用 A2A owner 创建 pass group。它不直接写 A2A 表，也不直接启动 Runtime。
+
+```text
+AgentOutcome(handoff_to_agent)
+  -> A2A Outcome Process Manager
+  -> A2ACollaboration.offerPassGroup
+  -> Pass + HandoffPacket + AgentInbox（同一事务）
+  -> Inbox admitted
+  -> Pass accepted -> starting
+  -> Runtime invocation started
+  -> Pass started + receiver Possession
+```
+
+`handoff_to_agent.payload` 至少包含稳定幂等键和一个或多个明确分支：
+
+```ts
+type HandoffOutcomePayload = {
+  idempotencyKey: string
+  sourcePossessionId?: string
+  expectedSourceRevision?: number
+  maxHops?: number
+  branches: Array<{
+    toAgentId: string
+    intent: PassIntent
+    taskId?: string
+    title: string
+    requestedAction: string
+    possessionSummary?: string
+    relevantDecisions?: string[]
+    evidenceRefs?: EvidenceRef[]
+    constraints?: string[]
+    openQuestions?: string[]
+    forbiddenBehaviors?: string[]
+    sourceMessageIds?: string[]
+  }>
+}
+```
+
+WorkContract 绑定的新 Invocation 禁止再执行 `runtime.a2a_response` 和
+`runtime.a2a_done`：普通文本里的 `@agent` 只是内容，不是控制命令。迁移期只有未绑定
+WorkContract 的历史 Invocation 仍可走旧兼容解释路径，该路径必须在 S6 删除。
+
 ## 5. 不设计一个总状态机
 
 平台没有一个可以诚实表达全部含义的 `running / completed / failed` 总状态机。

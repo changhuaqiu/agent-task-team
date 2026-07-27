@@ -644,7 +644,9 @@ export const a2aPossessionChain = sqliteTable('a2a_possession_chain', {
   status: text('status').notNull().default('active'),
   currentHolderId: text('current_holder_id').notNull(),
   config: text('config').notNull().default('{}'),
+  revision: integer('revision').notNull().default(0),
   createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
   completedAt: text('completed_at'),
 }, (table) => [
   index('idx_possession_chain_conv').on(table.conversationId),
@@ -662,7 +664,10 @@ export const a2aPossession = sqliteTable('a2a_possession', {
   holderId: text('holder_id').notNull(),
   holderType: text('holder_type').notNull(),
   status: text('status').notNull().default('open'),
+  parentPassId: text('parent_pass_id'),
+  revision: integer('revision').notNull().default(0),
   startedAt: text('started_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
   completedAt: text('completed_at'),
   summary: text('summary'),
 }, (table) => [
@@ -686,16 +691,54 @@ export const a2aPass = sqliteTable('a2a_pass', {
   phase: text('phase'),
   reason: text('reason'),
   handoffPacketId: text('handoff_packet_id'),
+  groupId: text('group_id'),
+  idempotencyKey: text('idempotency_key'),
+  hopCount: integer('hop_count').notNull().default(0),
+  targetPossessionId: text('target_possession_id'),
+  inboxItemId: text('inbox_item_id'),
+  taskId: text('task_id'),
+  revision: integer('revision').notNull().default(0),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 }, (table) => [
   index('idx_pass_chain').on(table.chainId),
   index('idx_pass_target_status').on(table.toAgentId, table.status),
   index('idx_pass_status').on(table.status),
+  uniqueIndex('uq_a2a_pass_idempotency').on(table.chainId, table.idempotencyKey),
 ]);
 
 export type A2aPassRow = InferSelectModel<typeof a2aPass>;
 export type NewA2aPassRow = InferInsertModel<typeof a2aPass>;
+
+export const a2aPassGroup = sqliteTable('a2a_pass_group', {
+  id: text('id').primaryKey(),
+  chainId: text('chain_id').notNull()
+    .references(() => a2aPossessionChain.id, { onDelete: 'cascade' }),
+  sourcePossessionId: text('source_possession_id').notNull()
+    .references(() => a2aPossession.id, { onDelete: 'cascade' }),
+  idempotencyKey: text('idempotency_key').notNull(),
+  requestDigest: text('request_digest').notNull(),
+  mode: text('mode').notNull(),
+  status: text('status').notNull().default('offered'),
+  expectedCount: integer('expected_count').notNull(),
+  resolvedCount: integer('resolved_count').notNull().default(0),
+  recoveryPossessionId: text('recovery_possession_id'),
+  hopCount: integer('hop_count').notNull(),
+  maxHops: integer('max_hops').notNull(),
+  revision: integer('revision').notNull().default(0),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+  completedAt: text('completed_at'),
+}, (table) => [
+  index('idx_a2a_pass_group_chain').on(table.chainId, table.status, table.createdAt),
+  uniqueIndex('uq_a2a_pass_group_idempotency').on(table.chainId, table.idempotencyKey),
+  uniqueIndex('uq_a2a_pass_group_source_open')
+    .on(table.sourcePossessionId)
+    .where(sql`${table.status} IN ('offered','active','recovering')`),
+]);
+
+export type A2aPassGroupRow = InferSelectModel<typeof a2aPassGroup>;
+export type NewA2aPassGroupRow = InferInsertModel<typeof a2aPassGroup>;
 
 export const a2aHandoffPacket = sqliteTable('a2a_handoff_packet', {
   id: text('id').primaryKey(),

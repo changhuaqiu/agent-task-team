@@ -18,6 +18,7 @@ import {
   RUNTIME_COMPLETION_EFFECT_TYPES,
 } from './runtime-completion-effects';
 import { RuntimeEventPublisher } from './runtime-event-publisher';
+import { WorkContractRepository } from '../work-contract/repository';
 
 describe('RuntimeCompletionProcessManager', () => {
   let db: Database.Database;
@@ -60,11 +61,11 @@ describe('RuntimeCompletionProcessManager', () => {
     db.close();
   });
 
-  function publishCompletedTrace(text = 'handoff @reviewer') {
+  function publishCompletedTrace(text = 'handoff @reviewer', invocationId = 'inv-1') {
     const publisher = new RuntimeEventPublisher(log, {
       projectId: 'project-1',
       projectAgentId: 'implementer',
-      invocationId: 'inv-1',
+      invocationId,
       runtimeActorId: 'daemon',
       correlationId: 'envelope-1',
     });
@@ -153,6 +154,57 @@ describe('RuntimeCompletionProcessManager', () => {
       'runtime.team_log',
       'runtime.a2a_done',
     ]);
+  });
+
+  it('never interprets final text as A2A commands for a WorkContract invocation', async () => {
+    const contract = new WorkContractRepository().issue({
+      workId: 'task:structured',
+      attemptId: 'inv-structured',
+      projectId: 'project-1',
+      agentId: 'implementer',
+      goal: 'Implement',
+      acceptanceCriteria: ['submit a structured outcome'],
+      role: {},
+      permissions: {},
+      authoritativeRefs: ['project:project-1'],
+      authoritativeRevisions: { project: 1 },
+      contextSnapshotRef: 'ctx-structured',
+      allowedOutcomeTypes: ['handoff_to_agent', 'submit_task_result'],
+      correlationId: 'envelope-1',
+      causationId: 'trigger-1',
+    });
+    invocationRepo.create({
+      id: 'inv-structured',
+      conversation_id: 'project-1',
+      agent_id: 'implementer',
+      engine: 'codex',
+      work_contract_id: contract.contractId,
+      work_id: contract.workId,
+      work_epoch: contract.workEpoch,
+      fencing_token: contract.fencingToken,
+    });
+    runtimeCompletionContextRepo.create({
+      invocationId: 'inv-structured',
+      conversationId: 'project-1',
+      agentId: 'implementer',
+      taskProjectDir: 'C:\\workspace\\project-1',
+    });
+    const terminal = publishCompletedTrace(
+      'This prose mentions @reviewer but is not a command.',
+      'inv-structured',
+    );
+    const manager = new RuntimeCompletionProcessManager(outbox, db, log);
+
+    await manager.handle(terminal, { signal: new AbortController().signal });
+
+    expect(outbox.listBySourceEvent(terminal.eventId).map((effect) => effect.type)).toEqual([
+      RUNTIME_COMPLETION_EFFECT_TYPES.taskSync,
+      RUNTIME_COMPLETION_EFFECT_TYPES.teamLog,
+    ]);
+    expect(db.prepare('SELECT COUNT(*) count FROM invocation_chain').get())
+      .toEqual({ count: 0 });
+    expect(db.prepare('SELECT COUNT(*) count FROM chain_worklist').get())
+      .toEqual({ count: 0 });
   });
 
   it('keeps one stable A2A chain and Inbox command when response execution retries', async () => {

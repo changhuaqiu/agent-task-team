@@ -117,3 +117,21 @@ export class AgentMessenger {
 
 // Re-export types for backward compatibility
 export type { AgentMentionConfig } from './types-v2';
+export {
+  A2ACollaborationRepository,
+  A2ACollaborationInvariantError,
+  A2AIdempotencyConflictError,
+  StaleA2ARevisionError,
+  type A2AAggregatePass,
+  type A2APassGroup,
+  type A2APassGroupStatus,
+  type OfferedPassGroup,
+} from './collaboration';
+export {
+  A2AOutcomeProcessManager,
+  type A2AOutcomeProcessManagerOptions,
+} from './outcome-process-manager';
+export {
+  A2ALifecycleProcessManager,
+  type A2ALifecycleProcessManagerOptions,
+} from './lifecycle-process-manager';

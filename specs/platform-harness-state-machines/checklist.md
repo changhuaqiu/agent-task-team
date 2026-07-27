@@ -14,6 +14,8 @@
 - [x] Agent 跨模块意图通过 invocation-scoped `agent_submit_outcome` 或完整信封 API 提交。
 - [ ] 多个 Agent 的内部 Todo 不会被合并成平台级步骤清单。
 - [ ] Agent 可以主动提出未预编排但合法的 A2A handoff。
+- [x] WorkContract Agent 的 A2A 意图只能通过结构化 `handoff_to_agent` Outcome，
+  最终回复中的 `@mention` 不会被解释成控制命令。
 
 ## 状态机
 
@@ -24,6 +26,7 @@
 - [ ] 一个 Work Cell 正在运行时，剩余容量仍可激活其他合法 Work Cell。
 - [x] 同一 work 的并发激活使用 WorkAuthority epoch CAS，迟到写入由 fencing 拒绝。
 - [ ] wait-for deadlock 与 A2A 循环传球有检测和升级路径。
+- [x] A2A 祖先循环与 hop budget 超限由聚合拒绝。
 - [x] 迟到 Outcome 因 epoch/token 失效而持久化 rejected 诊断，不修改领域事实。
 
 Task 切片证据：

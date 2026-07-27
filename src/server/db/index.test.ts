@@ -49,6 +49,11 @@ describe('SQLite Foundation', () => {
     expect(tableNames).toContain('work_contract');
     expect(tableNames).toContain('work_authority');
     expect(tableNames).toContain('agent_outcome');
+    expect(tableNames).toContain('a2a_possession_chain');
+    expect(tableNames).toContain('a2a_possession');
+    expect(tableNames).toContain('a2a_pass_group');
+    expect(tableNames).toContain('a2a_pass');
+    expect(tableNames).toContain('a2a_handoff_packet');
   });
 
   it('creates indexes', () => {
@@ -596,7 +601,7 @@ describe('SQLite Foundation', () => {
     expect(db.prepare('SELECT version FROM _schema_version WHERE version = 40').get())
       .toEqual({ version: 40 });
     expect(db.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-      .toEqual({ version: 60 });
+      .toEqual({ version: 61 });
   });
 
   it('repairs v26-v40 checkpoints whose migration collision skipped autonomous delivery tables', () => {
@@ -626,7 +631,7 @@ describe('SQLite Foundation', () => {
           'autonomous_delivery_advancement_request',
         ]));
         expect(checkpoint.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-          .toEqual({ version: 60 });
+          .toEqual({ version: 61 });
         expect(checkpoint.pragma('foreign_key_check')).toEqual([]);
       } finally {
         checkpoint.close();

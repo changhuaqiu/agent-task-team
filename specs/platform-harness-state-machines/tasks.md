@@ -100,6 +100,20 @@
 - [ ] 以 A2ACollaboration 聚合统一 Chain/Possession/Pass，并将旧 worklist 降为只读投影。
 - [ ] 为 fan-out group 实现成功分支 + 原 holder recovery possession 的原子提交。
 
+已完成的基础子项：
+
+- [x] Migration 61 建立单一 `A2ACollaboration` 聚合所需的 revision、pass group、
+  parent pass、hop、target possession 与 Inbox 关联字段。
+- [x] `offerPassGroup` 在一个事务内创建 Pass、HandoffPacket 和全部 AgentInbox item，
+  fan-out 分支失败时原子创建原 holder recovery possession。
+- [x] hop budget、祖先循环、source revision 和语义幂等冲突已有聚合测试。
+- [x] durable A2A Outcome Process Manager 已把接纳的结构化 `handoff_to_agent`
+  Outcome 翻译为聚合 Command；非结构化最终文本不再驱动 WorkContract Invocation 的 A2A。
+- [x] durable A2A Lifecycle Process Manager 已区分 Inbox admission 与真实 Runtime start：
+  admission 只到 `starting`，Runtime started 才创建 receiver Possession。
+- [ ] WebUI Human Command 与旧 AgentMessenger/Orchestrator 尚需切换到新聚合；在该切换
+  完成前，`invocation_chain / chain_worklist / a2a_delivery` 仍存在旧写入，S4 不算完成。
+
 ## S5：Delivery Supervisor
 
 - [ ] 实现七种 ControlAction 的纯决策函数。

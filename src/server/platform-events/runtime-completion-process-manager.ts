@@ -61,6 +61,13 @@ export class RuntimeCompletionProcessManager {
           WHERE event_id=?
         `).all(event.eventId) as Array<{ effect_type: string }>
       ).map((row) => row.effect_type));
+      const invocation = db.prepare(`
+        SELECT work_contract_id FROM invocation WHERE id=?
+      `).get(event.invocationId!) as { work_contract_id: string | null } | undefined;
+      if (invocation?.work_contract_id) {
+        suppressed.add('runtime.a2a_response');
+        suppressed.add('runtime.a2a_done');
+      }
       const planned = planRuntimeCompletionEffects(bound, output, event)
         .filter((effect) => !suppressed.has(effect.type));
       if (planned.length > 0) {

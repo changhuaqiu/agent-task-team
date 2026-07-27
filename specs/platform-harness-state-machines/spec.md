@@ -149,6 +149,24 @@ revision、slot capacity 和 work epoch。
 fan-out pass group 采用 best-effort：已启动分支不可回滚；失败分支为原 holder 建立 recovery
 possession。source、child、recovery 的变更必须在同一聚合事务提交。
 
+Agent 发起协作必须提交结构化 `handoff_to_agent` Outcome。durable A2A Outcome Process
+Manager 只把已接纳 Outcome 翻译为 A2A owner Command；Pass、HandoffPacket 与每个下游
+AgentInbox item 必须在同一 SQLite 事务创建。Outcome 重放通过 pass group 语义幂等键返回
+同一结果，内容漂移必须拒绝。
+
+生命周期映射冻结为：
+
+- `AgentInbox.enqueued/claimed/released` 不改变 Pass；
+- `AgentInbox.admitted` 推进 `Pass.offered -> accepted -> starting`；
+- `runtime.invocation.started` 才推进 `Pass.started` 并创建 receiver Possession；
+- Inbox `expired/cancelled` 或 started 前 Runtime 终止，以 phase-specific reason 失败 Pass；
+- receiver 的非 `continue_work` 结构化 Outcome 收口其 Possession；
+- WorkContract Invocation 的最终自然语言不得触发 A2A。
+
+`handoff_to_agent.payload` 必须提供 `idempotencyKey` 与非空 `branches[]`。每个 branch
+必须明确 `toAgentId / intent / title / requestedAction`；packet 的决策、证据、约束、
+开放问题和禁止行为为结构化可选字段，不得用整段最终回复代替。
+
 ## 9. Effect 收口
 
 Effect Command 创建时冻结 `criticality`、`deliveryRunId`、`appliesFromRevision` 和
