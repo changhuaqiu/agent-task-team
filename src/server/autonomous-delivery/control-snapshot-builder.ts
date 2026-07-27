@@ -11,6 +11,7 @@ import { DurableEffectOutbox } from '../platform-events/durable-effect-outbox';
 import { detectWaitForDeadlock, type WaitForEdge } from './wait-for-graph';
 import type { GoalContract } from './types';
 import { DELIVERY_EFFECT_TYPES } from './delivery-effects';
+import { resolveTaskNotificationAudience } from '../task-flow/task-notification-publisher';
 
 interface WorkCellFactRow {
   work_id: string;
@@ -77,6 +78,12 @@ function retryBudget(
   return { kind, attemptsUsed, maxAttempts: limits[kind] };
 }
 
+function gatePurpose(workId: string): 'delivery_review' | 'acceptance_verification' | undefined {
+  if (workId.endsWith(':purpose:review')) return 'delivery_review';
+  if (workId.endsWith(':purpose:verify')) return 'acceptance_verification';
+  return undefined;
+}
+
 export class RepositoryControlSnapshotBuilder {
   private readonly database?: Database.Database;
   private readonly limits: ControlSnapshotRetryLimits;
@@ -91,11 +98,12 @@ export class RepositoryControlSnapshotBuilder {
   build(runId: string): SupervisorControlSnapshot {
     const db = this.database ?? getDb();
     const run = db.prepare(`
-      SELECT id,conversation_id,revision,delivery_bundle_json,goal_contract_json
+      SELECT id,conversation_id,root_task_id,revision,delivery_bundle_json,goal_contract_json
       FROM autonomous_delivery_run WHERE id=?
     `).get(runId) as {
       id: string;
       conversation_id: string;
+      root_task_id: string | null;
       revision: number;
       delivery_bundle_json: string | null;
       goal_contract_json: string;
@@ -132,7 +140,18 @@ export class RepositoryControlSnapshotBuilder {
       ORDER BY contract.created_at,authority.work_id
     `).all(runId) as WorkCellFactRow[];
 
-    const workCells = rows.map((row) => this.cell(db, row));
+    const contract = JSON.parse(run.goal_contract_json) as GoalContract;
+    const gates = db.prepare(`
+      SELECT kind,status,created_at FROM quality_gate
+      WHERE target_type='delivery_run' AND target_id=?
+      ORDER BY created_at,id
+    `).all(runId) as Array<{ kind: string; status: string; created_at: string }>;
+    const latestGate = (kind: string) =>
+      gates.filter((gate) => gate.kind === kind).at(-1);
+    const workCells = rows.map((row) => this.cell(db, row, {
+      delivery_review: latestGate('delivery_review')?.status,
+      acceptance_verification: latestGate('acceptance_verification')?.status,
+    }));
     const representedWork = new Set(workCells.map((cell) => cell.workId));
     const tasks = db.prepare(`
       SELECT id,status,agent_id,dependencies,created_at
@@ -174,17 +193,83 @@ export class RepositoryControlSnapshotBuilder {
       if (representedWork.has(workId)) continue;
       workCells.push(this.unissuedTaskCell(task, workId, taskStatus));
     }
+    if (tasks.length > 0 && tasks.every((task) => task.status === 'done')) {
+      const root = tasks.find((task) => task.id === run.root_task_id) ?? tasks[0]!;
+      const audience = resolveTaskNotificationAudience(run.conversation_id);
+      const requirements = [
+        ...(contract.deliveryPolicy.requireReview
+          ? [{
+              kind: 'delivery_review' as const,
+              agentId: audience.reviewGateAgentIds[0],
+              purpose: 'review' as const,
+            }]
+          : []),
+        {
+          kind: 'acceptance_verification' as const,
+          agentId: audience.qaAgentIds[0] ?? audience.reviewGateAgentIds[0],
+          purpose: 'verify' as const,
+        },
+      ];
+      for (const requirement of requirements) {
+        const gate = latestGate(requirement.kind);
+        if (!gate) {
+          workCells.push({
+            workId: `delivery:${runId}:purpose:request-${requirement.kind}`,
+            workEpoch: 0,
+            roleId: 'delivery-gate-owner',
+            purpose: 'gate_request',
+            state: 'artifact_submitted',
+            gateStatus: 'none',
+            priority: 80,
+            queuedAt: root.created_at,
+          });
+          continue;
+        }
+        const agentId = requirement.agentId;
+        const workId = agentId
+          ? `task:${root.id}:agent:${agentId}:purpose:${requirement.purpose}`
+          : `delivery:${runId}:purpose:${requirement.purpose}-owner-missing`;
+        if (representedWork.has(workId)) continue;
+        const base = {
+          workId,
+          workEpoch: 0,
+          roleId: agentId ?? 'unassigned',
+          purpose: requirement.kind === 'delivery_review'
+            ? 'review' as const
+            : 'verification' as const,
+          priority: 70,
+          queuedAt: gate.created_at,
+        };
+        if (gate.status === 'passed') {
+          workCells.push({ ...base, state: 'completed', gateStatus: 'passed' });
+        } else if (!agentId) {
+          workCells.push({
+            ...base,
+            state: 'waiting_human',
+            humanResolution: 'required',
+          });
+        } else if (gate.status === 'changes_requested' || gate.status === 'rejected') {
+          workCells.push({
+            ...base,
+            state: 'retry_pending',
+            gateStatus: 'failed',
+            failure: {
+              reasonCode: `${requirement.kind}_failed`,
+              retryable: true,
+              humanRecoverable: true,
+              budget: retryBudget('task_rework', 1, this.limits),
+            },
+          });
+        } else {
+          workCells.push({ ...base, state: 'ready', gateStatus: 'requested' });
+        }
+      }
+    }
     const deadlock = detectWaitForDeadlock(waitEdges);
     const blockingEffects = new DurableEffectOutbox({ db })
       .listApplicableBlocking(runId, run.revision);
     const blockingEffect = blockingEffects.find((effect) => effect.status === 'dead_letter')
       ?? blockingEffects[0];
-    const contract = JSON.parse(run.goal_contract_json) as GoalContract;
-    const gates = db.prepare(`
-      SELECT kind,status FROM quality_gate
-      WHERE target_type='delivery_run' AND target_id=?
-      ORDER BY created_at,id
-    `).all(runId) as Array<{ kind: string; status: string }>;
     const latestGateStatus = (kind: string) =>
       gates.filter((gate) => gate.kind === kind).at(-1)?.status;
     const gatesSatisfied = (
@@ -294,7 +379,11 @@ export class RepositoryControlSnapshotBuilder {
     return { ...base, state: 'ready' };
   }
 
-  private cell(db: Database.Database, row: WorkCellFactRow): WorkCellControlSnapshot {
+  private cell(
+    db: Database.Database,
+    row: WorkCellFactRow,
+    deliveryGateStatus: Record<'delivery_review' | 'acceptance_verification', string | undefined>,
+  ): WorkCellControlSnapshot {
     const base = {
       workId: row.work_id,
       workEpoch: row.current_epoch,
@@ -305,6 +394,46 @@ export class RepositoryControlSnapshotBuilder {
       priority: 50,
       queuedAt: row.created_at,
     };
+    const gateKind = gatePurpose(row.work_id);
+    if (gateKind) {
+      const status = deliveryGateStatus[gateKind];
+      if (status === 'passed') return { ...base, state: 'completed', gateStatus: 'passed' };
+      if (status === 'changes_requested' || status === 'rejected') {
+        return {
+          ...base,
+          state: 'retry_pending',
+          gateStatus: 'failed',
+          failure: {
+            reasonCode: `${gateKind}_failed`,
+            retryable: true,
+            humanRecoverable: true,
+            budget: retryBudget('task_rework', 1, this.limits),
+          },
+        };
+      }
+      if (
+        row.invocation_status === 'starting'
+        || row.invocation_status === 'running'
+        || row.invocation_status === 'terminating'
+      ) return { ...base, state: 'running', gateStatus: 'requested' };
+      if (row.outcome_type === 'record_gate_decision') {
+        return { ...base, state: 'waiting_gate', gateStatus: 'requested' };
+      }
+      if (row.invocation_status === 'terminated') {
+        return {
+          ...base,
+          state: 'retry_pending',
+          gateStatus: 'requested',
+          failure: {
+            reasonCode: row.invocation_reason_code ?? 'gate_invocation_failed',
+            retryable: true,
+            humanRecoverable: true,
+            budget: retryBudget('invocation', this.invocationAttempts(db, row.work_id), this.limits),
+          },
+        };
+      }
+      return { ...base, state: 'ready', gateStatus: 'requested' };
+    }
     if (row.authority_status === 'closed' || row.task_status === 'done') {
       return { ...base, state: 'completed' };
     }

@@ -39,7 +39,7 @@ export interface WorkCellControlSnapshot {
   workId: string;
   workEpoch: number;
   roleId: string;
-  purpose?: 'planning' | 'execution';
+  purpose?: 'planning' | 'execution' | 'gate_request' | 'review' | 'verification';
   state: WorkCellControlState;
   priority: number;
   queuedAt: string;

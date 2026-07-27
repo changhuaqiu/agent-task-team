@@ -163,6 +163,54 @@ describe('ProductionControlCommandAdapter', () => {
     });
   });
 
+  it('requests and dispatches Delivery Gate Work through separate reviewer work identity', async () => {
+    db.prepare(`
+      INSERT INTO agents (id,name,role_card_id,theme,emoji,created_at,updated_at)
+      VALUES ('reviewer','Reviewer','preset-code-reviewer','default','R',?,?)
+    `).run(now.toISOString(), now.toISOString());
+    const current = deliveries.getSnapshot(runId)!;
+    db.prepare('UPDATE autonomous_delivery_run SET goal_contract_json=? WHERE id=?').run(
+      JSON.stringify({
+        ...current.contract,
+        deliveryPolicy: { ...current.contract.deliveryPolicy, requireReview: true },
+      }),
+      runId,
+    );
+    taskRepo.transition('task-1', { to: 'in_progress' }, now);
+    taskRepo.transition('task-1', { to: 'in_review' }, now);
+    taskRepo.transition('task-1', { to: 'done' }, now);
+    const first = decide();
+    const requestReview = first.decision.actions.find((item) =>
+      item.type === 'requestGate'
+      && item.targetWorkId?.includes('request-delivery_review')
+    )!;
+    expect(await adapter.execute(requestReview, {
+      decision: first.decision,
+      snapshot: first.snapshot,
+      claimToken: 'claim-review-request',
+    })).toEqual({ status: 'applied' });
+
+    const second = decide();
+    const activateReview = second.decision.actions.find((item) =>
+      item.type === 'activate' && item.targetWorkId?.endsWith(':purpose:review')
+    )!;
+    expect(await adapter.execute(activateReview, {
+      decision: second.decision,
+      snapshot: second.snapshot,
+      claimToken: 'claim-review',
+    })).toEqual({ status: 'applied' });
+    const command = JSON.parse((db.prepare(`
+      SELECT command_json FROM agent_inbox_item WHERE project_agent_id='reviewer'
+    `).get() as { command_json: string }).command_json);
+    expect(command).toMatchObject({
+      source: 'review_gate',
+      taskId: 'task-1',
+      deliveryRunId: runId,
+      contextScenario: 'code_review',
+    });
+    expect(command.prompt).toContain('Quality Gate:');
+  });
+
   it('turns integration into a frozen blocking Effect instead of provider I/O', async () => {
     const current = deliveries.getSnapshot(runId)!;
     db.prepare('UPDATE autonomous_delivery_run SET goal_contract_json=? WHERE id=?').run(

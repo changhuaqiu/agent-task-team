@@ -5,6 +5,7 @@ import { invocationRepo } from '../repositories/invocation-repo';
 import { taskRepo } from '../repositories/task-repo';
 import { WorkContractRepository } from '../work-contract/repository';
 import { DurableEffectOutbox } from '../platform-events/durable-effect-outbox';
+import { qualityGateRepo } from '../quality-gate/repository';
 import { AutonomousDeliveryRepository } from './repository';
 import { RepositoryControlSnapshotBuilder } from './control-snapshot-builder';
 
@@ -188,6 +189,54 @@ describe('RepositoryControlSnapshotBuilder', () => {
     taskRepo.transition('task-a', { to: 'done' }, now);
     const after = new RepositoryControlSnapshotBuilder({ db, now: () => now }).build(runId);
     expect(after.workCells.find((cell) => cell.workId.includes('task-b'))?.state).toBe('ready');
+  });
+
+  it('turns completed delivery work into independent review and verification Gate Work Cells', () => {
+    db.prepare(`
+      INSERT INTO agents (id,name,role_card_id,theme,emoji,created_at,updated_at)
+      VALUES ('reviewer','Reviewer','preset-code-reviewer','default','R',?,?)
+    `).run(now.toISOString(), now.toISOString());
+    taskRepo.create({
+      id: 'task-delivery',
+      conversation_id: 'project-1',
+      title: 'Delivery',
+      agent_id: 'agent-a',
+    }, now);
+    taskRepo.transition('task-delivery', { to: 'in_progress' }, now);
+    taskRepo.transition('task-delivery', { to: 'in_review' }, now);
+    taskRepo.transition('task-delivery', { to: 'done' }, now);
+
+    const before = new RepositoryControlSnapshotBuilder({ db, now: () => now }).build(runId);
+    expect(before.workCells.filter((cell) => cell.purpose === 'gate_request')).toMatchObject([
+      { state: 'artifact_submitted' },
+      { state: 'artifact_submitted' },
+    ]);
+
+    for (const kind of ['delivery_review', 'acceptance_verification'] as const) {
+      qualityGateRepo.request({
+        conversationId: 'project-1',
+        kind,
+        targetType: 'delivery_run',
+        targetId: runId,
+        artifactRevision: 'revision-1',
+        criteria: {},
+        actor: { type: 'system', id: 'test' },
+        now,
+      });
+    }
+    const after = new RepositoryControlSnapshotBuilder({ db, now: () => now }).build(runId);
+    expect(after.workCells.filter((cell) =>
+      cell.purpose === 'review' || cell.purpose === 'verification'
+    )).toMatchObject([
+      {
+        workId: 'task:task-delivery:agent:reviewer:purpose:review',
+        state: 'ready',
+      },
+      {
+        workId: 'task:task-delivery:agent:reviewer:purpose:verify',
+        state: 'ready',
+      },
+    ]);
   });
 
   it('projects a cyclic Task dependency as a wait-for deadlock', () => {

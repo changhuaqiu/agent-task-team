@@ -570,6 +570,10 @@ dead letter 不再由 Supervisor 自己维护。
 从已通过 Gate 的验收/评审 receipt、Task artifacts 与 provider receipt 构造并冻结
 DeliveryBundle；Bundle 写入产生新 revision，下一轮 reconcile 才能返回
 `terminate(completed)`，避免“生成结果”和“宣告完成”共用一个未经复核的动作。
+required Tasks 全部完成后，Delivery review 与 acceptance verification 分别形成独立
+Gate Work Cell。缺少 Gate 时先发 `requestGate` owner Command；Gate requested 后再以
+`review_gate / test_gate` 激活 Reviewer/QA。二者使用不同 workId、WorkContract、epoch
+和 slot，因此一个评审等待不会把另一个验收 Cell 或其他 Agent 工作串行化。
 
 优先级固定为：安全/合法性 > 回收失效 authority > Gate/Human 恢复 > 可恢复重试 >
 在剩余容量内新激活 > 收口。某个 Cell 的 `wait` 只描述该 Cell，不阻止其他 Cell 激活。

@@ -164,6 +164,9 @@
   action 只向 Effect owner 幂等提交带 run/revision/sourceAction 的 blocking Effect。
 - [x] `publish_delivery` 拆为本地 `finalize` owner Command：从已通过 Gate 的验收/评审
   receipt、Task artifacts 与 provider receipt 构造 Bundle；Bundle 冻结后下一轮才 terminate。
+- [x] required Tasks 完成后生成独立 Delivery review/verification Gate Work Cells：先由
+  `requestGate` 调 Gate owner，再分别以 `review_gate/test_gate` 激活 Reviewer/QA；
+  两者拥有不同 workId/epoch/slot，任一等待不阻塞另一个可运行 Cell。
 - [ ] 用新 DeliveryControlProcessManager 替换 bootstrap 中旧
   `decideDeliveryNext` 单动作循环，并删除旧 policy/action 状态。
 - [x] 建立稳定 wait-for graph cycle 检测，Task dependency deadlock 进入 Human escalation，

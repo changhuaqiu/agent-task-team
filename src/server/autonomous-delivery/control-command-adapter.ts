@@ -64,7 +64,7 @@ export class ProductionControlCommandAdapter implements ControlCommandPort {
       case 'retry':
         return this.dispatch(action, context.decision.runId);
       case 'requestGate':
-        return this.requestGate(action);
+        return this.requestGate(action, context.decision.runId);
       case 'integrate':
         return this.integrate(action, context.decision);
       case 'finalize':
@@ -197,16 +197,38 @@ export class ProductionControlCommandAdapter implements ControlCommandPort {
   private dispatch(action: ControlAction, runId: string): ControlCommandResult {
     const task = this.taskFor(action);
     if (!task?.agent_id) return { status: 'rejected', reasonCode: 'control_task_owner_missing' };
+    const review = action.targetWorkId?.endsWith(':purpose:review') === true;
+    const verification = action.targetWorkId?.endsWith(':purpose:verify') === true;
+    const targetAgent = action.targetWorkId?.match(/:agent:([^:]+):purpose:/)?.[1]
+      ?? task.agent_id;
+    const gate = review || verification
+      ? qualityGateRepo.listForTarget('delivery_run', runId)
+        .filter((candidate) => candidate.kind === (
+          review ? 'delivery_review' : 'acceptance_verification'
+        )).at(-1)
+      : undefined;
     this.inbox.enqueue({
       projectId: task.conversation_id,
-      projectAgentId: task.agent_id,
+      projectAgentId: targetAgent,
       idempotencyKey: action.actionId,
       command: {
-        source: 'system',
+        source: review ? 'review_gate' : verification ? 'test_gate' : 'system',
         taskId: task.id,
         deliveryRunId: runId,
-        contextScenario: action.type === 'retry' ? 'recovery' : 'execution',
-        prompt: action.type === 'retry'
+        contextScenario: action.type === 'retry'
+          ? 'recovery'
+          : review
+            ? 'code_review'
+            : verification
+              ? 'verification'
+              : 'execution',
+        prompt: review || verification
+          ? [
+              review ? 'Review the completed delivery.' : 'Verify the delivery acceptance criteria.',
+              `Quality Gate: ${gate?.id ?? 'missing'}.`,
+              'Submit exactly one structured record_gate_decision AgentOutcome with evidence and receipt.',
+            ].join(' ')
+          : action.type === 'retry'
           ? `恢复任务 ${task.id}「${task.title}」。根据当前权威事实继续，不要复用旧 attempt 的结果。`
           : `执行任务 ${task.id}「${task.title}」。完成后提交结构化 AgentOutcome 和证据。`,
       },
@@ -214,7 +236,32 @@ export class ProductionControlCommandAdapter implements ControlCommandPort {
     return { status: 'applied' };
   }
 
-  private requestGate(action: ControlAction): ControlCommandResult {
+  private requestGate(action: ControlAction, runId: string): ControlCommandResult {
+    const deliveryGate = action.targetWorkId?.match(
+      /^delivery:[^:]+:purpose:request-(delivery_review|acceptance_verification)$/,
+    )?.[1] as 'delivery_review' | 'acceptance_verification' | undefined;
+    if (deliveryGate) {
+      const snapshot = this.deliveries.getSnapshot(runId);
+      if (!snapshot) return { status: 'rejected', reasonCode: 'delivery_run_missing' };
+      const task = snapshot.run.root_task_id
+        ? taskRepo.getById(snapshot.run.root_task_id)
+        : taskRepo.getByConversation(snapshot.run.conversation_id)[0];
+      if (!task) return { status: 'rejected', reasonCode: 'delivery_root_task_missing' };
+      qualityGateRepo.request({
+        conversationId: snapshot.run.conversation_id,
+        kind: deliveryGate,
+        targetType: 'delivery_run',
+        targetId: runId,
+        artifactRevision: task.updated_at,
+        criteria: deliveryGate === 'delivery_review'
+          ? { noOpenMaterialFindings: true }
+          : { acceptanceCriteria: snapshot.contract.acceptanceCriteria },
+        policy: { deliveryPolicy: snapshot.contract.deliveryPolicy },
+        actor: { type: 'system', id: 'delivery-control-process-manager' },
+        now: this.now(),
+      });
+      return { status: 'applied' };
+    }
     const task = this.taskFor(action);
     if (!task) return { status: 'rejected', reasonCode: 'control_task_missing' };
     qualityGateRepo.request({
