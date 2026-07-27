@@ -126,7 +126,6 @@ Event 是事实或由事实派生出的协调信号。它描述过去。
 ```text
 runtime.task_sync
 runtime.closure_evaluation
-runtime.a2a_response
 ```
 
 Effect 不是事实。它是一张持久待办单，描述未来要执行的动作。
@@ -146,7 +145,6 @@ Worker 定期从数据库领取可以执行的 Effect：
 
 - task-sync Adapter 负责同步任务；
 - evaluation Adapter 负责创建评估；
-- A2A Adapter 负责推进协作；
 - TeamLog Adapter 负责更新团队日志。
 
 Outbox 不理解这些业务。它只统一负责“记录、顺序、领取、重试和恢复”。
@@ -160,7 +158,7 @@ flowchart TB
   E["Event：Agent 已结束"] --> PM["Process Manager<br/>计算需要哪些待办"]
   PM --> TX["同一个数据库事务"]
   TX --> C["完成上下文：待办已接纳"]
-  TX --> O["Effect Outbox：6 张待办"]
+  TX --> O["Effect Outbox：最多 4 张待办"]
   O --> W["Effect Worker"]
   W --> A["对应 Adapter"]
   A --> S["成功"]
@@ -187,8 +185,6 @@ Agent 结束后，平台按下面的顺序生成待办：
 | 2 | `runtime.valid_exit_proof` | 记录 Agent 没有按要求退出 | 退出检查失败时 |
 | 3 | `runtime.closure_evaluation` | 创建收口质量评估 | closure 场景且退出有效 |
 | 4 | `runtime.team_log` | 更新团队日志 | 正常生产执行 |
-| 5 | `runtime.a2a_response` | 解析回复并创建后续交接 | Agent 有文本回复时 |
-| 6 | `runtime.a2a_done` | 通知协作系统本 Agent 已结束 | 正常生产执行 |
 
 它们使用同一个顺序组：
 
@@ -196,9 +192,8 @@ Agent 结束后，平台按下面的顺序生成待办：
 runtime-completion:<invocationId>
 ```
 
-因此第 5 步没有结束前，第 6 步不会执行。
-
-这是为了避免系统先把 Agent 标记为 done，随后才处理它在回复中要求的交接。
+Runtime completion 不再解析自然语言 A2A。协作由 `agent.outcome.accepted` 驱动的
+A2A Process Manager 独立处理，因此不属于 Runtime completion Effect lane。
 
 评估系统自己的 held-out 执行不会生成这些生产待办，避免测试输出进入真实任务与协作链。
 
@@ -516,7 +511,8 @@ a2a-response       → runtime.a2a_response
 a2a-done           → runtime.a2a_done
 ```
 
-旧 pending context 恢复时会跳过这些已经完成的待办。
+最后两项只用于识别 migration 52 之前已经执行过的历史 receipt；对应 Effect 类型已从
+生产注册表移除。旧 pending context 恢复时会跳过仍然存在的已完成待办。
 
 新执行路径只使用 Outbox，不再写旧 receipt，也不会继续扩展 suppression 表。
 

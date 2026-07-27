@@ -31,8 +31,6 @@ import { withDoneGuarantee } from './agent/with-done-guarantee';
 import { isSkillTool } from './skill-tool-router';
 import { registerAcpSkillMcpGrant, resolveAcpMcpLoopbackOrigin } from './acp-skill-mcp';
 import { resolveNonWorktreeExecutionCwd, stableWorkdirTaskKey, WorkdirManager } from './workdir-manager';
-import { AgentMessenger } from './a2a';
-import { createRuntimeSnapshotProvider } from './a2a/runtime-snapshot-provider';
 import { getDb } from './db';
 import { DispatchGateway } from './control-plane/dispatch-gateway';
 import { runtimeNodeRepo } from './repositories/runtime-node-repo';
@@ -437,41 +435,9 @@ export default function registerDaemon(io: IOServer) {
     }
   }
 
-  // Read agents from DB for A2A mention patterns
-  const db = getDb();
-  const dbAgents = db.prepare('SELECT id, name FROM agents').all() as { id: string; name: string }[];
-  const a2aMessenger = new AgentMessenger(db, io,
-    dbAgents.map(a => ({
-      id: a.id,
-      mentionPatterns: [`@${a.id}`, `@${a.name}`],
-    })),
-    createRuntimeSnapshotProvider(),
-    (input) => {
-      agentInbox.enqueue({
-        projectId: input.conversationId,
-        projectAgentId: input.agentId,
-        idempotencyKey: `a2a:${input.chainId}:${input.entryId}:${input.agentId}`,
-        command: {
-          source: 'a2a',
-          prompt: input.prompt,
-          taskId: input.referencedTaskId,
-          fromAgentId: input.fromAgentId,
-          chainId: input.chainId,
-          passId: input.passId,
-        },
-      });
-      return {
-        handled: true,
-        admitted: true,
-      };
-    },
-    true,
-  );
-
   const effectOutbox = new DurableEffectOutbox();
   registerProductionRuntimeCompletionEffects(effectOutbox, {
     io,
-    messenger: a2aMessenger,
   });
 
   startPlatformEventRuntime({
@@ -501,12 +467,6 @@ export default function registerDaemon(io: IOServer) {
     effectOutbox,
   });
 
-  // Expire stale A2A chains on startup
-  const expired = a2aMessenger.expireStale();
-  if (expired > 0) {
-    console.log(`[a2a] expired ${expired} stale chains`);
-  }
-
   // Agent pane listing endpoint
   io.on('connection', (socket: Socket) => {
     let connectedRuntimeNodeId: string | undefined;
@@ -517,7 +477,6 @@ export default function registerDaemon(io: IOServer) {
       if (!conversationId) return;
       socket.join(conversationId);
       joinedConversationIds.add(conversationId);
-      a2aMessenger.orchestrator.resendPendingDeliveries(conversationId);
     });
 
     socket.on('conversation:leave', (payload: { conversationId?: string }) => {

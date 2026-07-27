@@ -601,8 +601,8 @@ Current implementation status:
   HandoffPacket, and every downstream Agent Inbox activation.
 - Agent Inbox admission advances a Pass only to `starting`; the receiver Possession
   is created only from `runtime.invocation.started`.
-- WorkContract-bound invocations never scan final response text for `@mention`
-  commands. Text scanning remains only in the unbound legacy compatibility path.
+- Runtime completion never scans final response text for `@mention` commands.
+  Structured AgentOutcome and Human Command are the only A2A control inputs.
 - Human turns persist the chat fact first and then submit `a2a.human_handoff`.
   The server creates Pass/HandoffPacket/Inbox facts; the browser no longer starts
   an agent and later registers that execution into a collaboration chain.

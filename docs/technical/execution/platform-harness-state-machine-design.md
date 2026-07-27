@@ -197,9 +197,9 @@ type HandoffOutcomePayload = {
 }
 ```
 
-WorkContract 绑定的新 Invocation 禁止再执行 `runtime.a2a_response` 和
-`runtime.a2a_done`：普通文本里的 `@agent` 只是内容，不是控制命令。迁移期只有未绑定
-WorkContract 的历史 Invocation 仍可走旧兼容解释路径，该路径必须在 S6 删除。
+Runtime completion 已移除 `runtime.a2a_response` 和 `runtime.a2a_done`：
+普通文本里的 `@agent` 只是内容，不是控制命令。新旧 Invocation 都不能通过最终回复文本
+创建协作；只有结构化 Outcome 或 Human Command 可以调用 A2A owner。
 
 Human 通过 WebUI 发出的消息同样先成为 Command，而不是由浏览器直接启动 Agent 后再补写
 协作事实。服务端 `a2a.human_handoff` 在消息持久化后调用 A2A owner：

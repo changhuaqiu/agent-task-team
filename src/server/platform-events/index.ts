@@ -55,8 +55,6 @@ export {
   planRuntimeCompletionEffects,
   registerRuntimeCompletionEffectAdapters,
   RUNTIME_COMPLETION_EFFECT_TYPES,
-  type RuntimeA2ADoneEffectPayload,
-  type RuntimeA2AResponseEffectPayload,
   type RuntimeClosureEvaluationEffectPayload,
   type RuntimeClosureEvaluationResult,
   type RuntimeCompletionEffectAdapters,

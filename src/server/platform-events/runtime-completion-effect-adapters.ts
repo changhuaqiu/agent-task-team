@@ -1,5 +1,4 @@
 import type { Server as IOServer } from 'socket.io';
-import type { AgentMessenger } from '../a2a';
 import { agentEvaluation } from '../evaluation/agent-evaluation';
 import { proofLogRepo } from '../repositories/proof-log-repo';
 import { syncTasksToDb } from '../task-file-watcher';
@@ -9,7 +8,6 @@ import { registerRuntimeCompletionEffectAdapters } from './runtime-completion-ef
 
 export interface ProductionRuntimeCompletionEffectOptions {
   io: IOServer;
-  messenger: AgentMessenger;
 }
 
 export function registerProductionRuntimeCompletionEffects(
@@ -89,20 +87,6 @@ export function registerProductionRuntimeCompletionEffects(
         );
       }
       teamLogProjection.materializeRegistered(payload.conversationId);
-    },
-    recordA2AResponse(payload) {
-      return options.messenger.orchestrator.applyRuntimeResponse(
-        payload.agentId,
-        payload.output,
-        payload.conversationId,
-        payload.taskId,
-      );
-    },
-    recordA2ADone(payload) {
-      return options.messenger.orchestrator.applyRuntimeDone(
-        payload.agentId,
-        payload.conversationId,
-      );
     },
   });
 }
