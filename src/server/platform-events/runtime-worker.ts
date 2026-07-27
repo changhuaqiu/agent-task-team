@@ -127,14 +127,20 @@ export class PlatformEventRuntimeWorker {
         timeoutMs: 5_000,
         handle: deliveryProcessManager.handle,
       });
-      this.dispatcher.register({
-        id: 'delivery-process-manager-review:v1',
-        pattern: 'review.*',
-        stereotype: 'process_manager',
-        reliability: 'durable',
-        timeoutMs: 5_000,
-        handle: deliveryProcessManager.handle,
-      });
+      for (const [id, pattern] of [
+        ['delivery-process-manager-gate:v1', 'gate.*'],
+        ['delivery-process-manager-runtime:v1', 'runtime.*'],
+        ['delivery-process-manager-context:v1', 'context.*'],
+      ] as const) {
+        this.dispatcher.register({
+          id,
+          pattern,
+          stereotype: 'process_manager',
+          reliability: 'durable',
+          timeoutMs: 5_000,
+          handle: deliveryProcessManager.handle,
+        });
+      }
     }
     if (resolved.a2aOutcome !== false) {
       const a2aOutcome = new A2AOutcomeProcessManager(resolved.a2aOutcome);

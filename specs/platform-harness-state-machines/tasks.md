@@ -93,6 +93,8 @@
   `runtime.invocation.blocked`；`required_context_missing` 以结构化缺失项发布
   `context.snapshot.rejected`。ACP session 丢失、transport fallback 和 CLI error trace
   分别归一为 session、transport 和 diagnostic 事件。
+- [x] Delivery Process Manager 已订阅 Task、Gate、Context 与可恢复 Runtime 事实；
+  原始 `runtime.diagnostic.observed` 明确不触发 reconcile。
 - [x] S3 foundation 通过 TypeScript、目标 lint 与全量 Vitest（193 files passed、1 skipped；
   1472 tests passed、1 skipped）。
 
