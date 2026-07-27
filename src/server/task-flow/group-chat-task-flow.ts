@@ -1,5 +1,5 @@
 import { generateSortableId } from '../repositories/sortable-id';
-import { taskRepo, type TaskRow } from '../repositories/task-repo';
+import { taskRepo, type TaskRow, type TaskStatus } from '../repositories/task-repo';
 import {
   taskGraphRepo,
   type TaskActionRow,
@@ -127,9 +127,8 @@ function titleIndex(tasks: TaskRow[]): Map<string, TaskRow> {
   return new Map(tasks.map((task) => [task.title, task]));
 }
 
-function updateTaskStatus(taskId: string, status: string): TaskRow {
-  taskRepo.updateStatus(taskId, status);
-  const updated = taskRepo.getById(taskId);
+function transitionTask(taskId: string, status: TaskStatus): TaskRow {
+  const updated = taskRepo.transition(taskId, { to: status });
   if (!updated) throw new Error(`Task ${taskId} not found after status update`);
   return updated;
 }
@@ -318,8 +317,6 @@ export const groupChatTaskFlow = {
         createdByActionId: action.id,
       }),
     );
-    for (const source of sources) updateTaskStatus(source.id, 'merged');
-
     const bindings = bindMessageToTasks({
       conversationId: input.conversationId,
       messageId: input.messageId,
@@ -388,7 +385,7 @@ export const groupChatTaskFlow = {
     bindings: ChatTaskBindingRow[];
   } {
     assertFlowTask(input.taskId, input.conversationId);
-    const task = updateTaskStatus(input.taskId, 'blocked');
+    const task = transitionTask(input.taskId, 'blocked');
     const action = taskGraphRepo.appendAction({
       conversationId: input.conversationId,
       actorId: input.actorId,
@@ -413,7 +410,7 @@ export const groupChatTaskFlow = {
     bindings: ChatTaskBindingRow[];
   } {
     assertFlowTask(input.taskId, input.conversationId);
-    const task = updateTaskStatus(input.taskId, 'pending');
+    const task = transitionTask(input.taskId, 'ready');
     const action = taskGraphRepo.appendAction({
       conversationId: input.conversationId,
       actorId: input.actorId,
@@ -468,7 +465,7 @@ export const groupChatTaskFlow = {
     bindings: ChatTaskBindingRow[];
   } {
     assertFlowTask(input.taskId, input.conversationId);
-    const task = updateTaskStatus(input.taskId, 'cancelled');
+    const task = transitionTask(input.taskId, 'cancelled');
     const action = taskGraphRepo.appendAction({
       conversationId: input.conversationId,
       actorId: input.actorId,

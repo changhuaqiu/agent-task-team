@@ -2,7 +2,11 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createTestDb, getDb, setTestDb, resetDb } from '../db/index';
 import { generateSortableId, resetSeq } from './sortable-id';
 import { conversationRepo } from './conversation-repo';
-import { taskRepo } from './task-repo';
+import {
+  InvalidTaskTransitionError,
+  StaleTaskTransitionError,
+  taskRepo,
+} from './task-repo';
 import { messageRepo } from './message-repo';
 import { sessionRepo } from './session-repo';
 import { invocationRepo } from './invocation-repo';
@@ -104,7 +108,7 @@ describe('task-repo', () => {
       agent_id: 'agent-a',
     });
     expect(task.id).toBe('task-1');
-    expect(task.status).toBe('pending');
+    expect(task.status).toBe('ready');
     expect(task.agent_id).toBe('agent-a');
   });
 
@@ -123,18 +127,37 @@ describe('task-repo', () => {
     expect(tasks[0].id).toBe('task-1');
   });
 
-  it('updates task status', () => {
+  it('transitions task status through the canonical state machine', () => {
     taskRepo.create({ id: 'task-1', conversation_id: 'conv-1', title: 'T1', agent_id: 'a' });
-    taskRepo.updateStatus('task-1', 'in_progress');
+    taskRepo.transition('task-1', { to: 'in_progress', expectedFrom: 'ready' });
     expect(taskRepo.getById('task-1')!.status).toBe('in_progress');
   });
 
-  it('updates task status with review note', () => {
+  it('records review notes on valid review transitions', () => {
     taskRepo.create({ id: 'task-1', conversation_id: 'conv-1', title: 'T1', agent_id: 'a' });
-    taskRepo.updateStatus('task-1', 'approved', 'LGTM');
+    taskRepo.transition('task-1', { to: 'in_progress' });
+    taskRepo.transition('task-1', { to: 'in_review' });
+    taskRepo.transition('task-1', { to: 'done', reviewNote: 'LGTM' });
     const task = taskRepo.getById('task-1')!;
-    expect(task.status).toBe('approved');
+    expect(task.status).toBe('done');
     expect(task.review_note).toBe('LGTM');
+  });
+
+  it('rejects a transition that bypasses the review gate', () => {
+    taskRepo.create({ id: 'task-1', conversation_id: 'conv-1', title: 'T1', agent_id: 'a' });
+
+    expect(() => taskRepo.transition('task-1', { to: 'done' }))
+      .toThrow(InvalidTaskTransitionError);
+    expect(taskRepo.getById('task-1')!.status).toBe('ready');
+  });
+
+  it('fences a transition calculated from stale task facts', () => {
+    taskRepo.create({ id: 'task-1', conversation_id: 'conv-1', title: 'T1', agent_id: 'a' });
+    taskRepo.transition('task-1', { to: 'in_progress', expectedFrom: 'ready' });
+
+    expect(() => taskRepo.transition('task-1', { to: 'blocked', expectedFrom: 'ready' }))
+      .toThrow(StaleTaskTransitionError);
+    expect(taskRepo.getById('task-1')!.status).toBe('in_progress');
   });
 
   it('deletes a task', () => {

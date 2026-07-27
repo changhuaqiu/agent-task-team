@@ -1,12 +1,36 @@
 import { getDb } from '../db/index';
 import { DomainEventPublisher, type DomainEventType } from '../platform-events/domain-events';
 
+export const TASK_STATUSES = [
+  'proposed',
+  'ready',
+  'in_progress',
+  'blocked',
+  'in_review',
+  'done',
+  'cancelled',
+] as const;
+
+export type TaskStatus = (typeof TASK_STATUSES)[number];
+
+const TASK_STATUS_SET = new Set<string>(TASK_STATUSES);
+
+const TASK_TRANSITIONS: Readonly<Record<TaskStatus, ReadonlySet<TaskStatus>>> = {
+  proposed: new Set(['ready', 'cancelled']),
+  ready: new Set(['in_progress', 'blocked', 'cancelled']),
+  in_progress: new Set(['blocked', 'in_review', 'cancelled']),
+  blocked: new Set(['ready', 'in_progress', 'cancelled']),
+  in_review: new Set(['done', 'in_progress', 'blocked', 'cancelled']),
+  done: new Set(['ready']),
+  cancelled: new Set(),
+};
+
 export interface TaskRow {
   id: string;
   conversation_id: string;
   title: string;
   description: string | null;
-  status: string;
+  status: TaskStatus;
   agent_id: string;
   dependencies: string | null;
   artifacts: string | null;
@@ -24,33 +48,85 @@ export interface NewTask {
   agent_id: string;
   dependencies?: string[];
   artifacts?: Record<string, unknown>;
+  initialStatus?: 'proposed' | 'ready';
 }
 
-function taskStatusEvent(previousStatus: string, status: string): DomainEventType | undefined {
+export interface TaskTransition {
+  to: TaskStatus;
+  expectedFrom?: TaskStatus;
+  reviewNote?: string;
+}
+
+export class InvalidTaskStatusError extends Error {
+  readonly reasonCode = 'invalid_task_status';
+
+  constructor(readonly status: string) {
+    super(`Unsupported task status: ${status}`);
+  }
+}
+
+export class InvalidTaskTransitionError extends Error {
+  readonly reasonCode = 'invalid_task_transition';
+
+  constructor(
+    readonly taskId: string,
+    readonly from: TaskStatus,
+    readonly to: TaskStatus,
+  ) {
+    super(`Illegal task transition for ${taskId}: ${from} -> ${to}`);
+  }
+}
+
+export class StaleTaskTransitionError extends Error {
+  readonly reasonCode = 'stale_task_transition';
+
+  constructor(readonly taskId: string, readonly expected: TaskStatus, readonly actual: TaskStatus) {
+    super(`Stale task transition for ${taskId}: expected ${expected}, found ${actual}`);
+  }
+}
+
+export function assertTaskStatus(value: string): TaskStatus {
+  if (!TASK_STATUS_SET.has(value)) throw new InvalidTaskStatusError(value);
+  return value as TaskStatus;
+}
+
+export function canTransitionTask(from: TaskStatus, to: TaskStatus): boolean {
+  return from === to || TASK_TRANSITIONS[from].has(to);
+}
+
+function taskStatusEvent(previousStatus: TaskStatus, status: TaskStatus): DomainEventType {
+  if (status === 'ready') return 'task.ready';
+  if (status === 'in_progress' && previousStatus === 'in_review') return 'task.changes_requested';
   if (status === 'in_progress') return 'task.in_progress';
   if (status === 'in_review') return 'task.in_review';
-  if (status === 'rejected') return 'task.rejected';
-  if (status === 'done' || status === 'completed' || status === 'approved') return 'task.done';
+  if (status === 'done') return 'task.done';
   if (status === 'blocked') return 'task.blocked';
-  if (status === 'cancelled' || status === 'canceled') return 'task.cancelled';
-  if (status === 'pending' && previousStatus !== 'pending') return 'task.reopened';
-  return undefined;
+  return 'task.cancelled';
 }
+
+export type TaskPatch = Pick<
+  TaskRow,
+  'title' | 'description' | 'agent_id' | 'dependencies' | 'artifacts' | 'review_note' | 'work_dir'
+>;
 
 export const taskRepo = {
   create(input: NewTask): TaskRow {
     const now = new Date().toISOString();
+    const status = input.initialStatus ?? 'ready';
     const db = getDb();
     return db.transaction(() => {
       db.prepare(
-        `INSERT INTO task (id, conversation_id, title, description, status, agent_id, dependencies, artifacts, created_at, updated_at)
-         VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)`,
+        `INSERT INTO task (
+          id, conversation_id, title, description, status, agent_id,
+          dependencies, artifacts, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         input.id,
         input.conversation_id,
         input.title,
         input.description ?? null,
+        status,
         input.agent_id,
         input.dependencies ? JSON.stringify(input.dependencies) : null,
         input.artifacts ? JSON.stringify(input.artifacts) : null,
@@ -65,7 +141,7 @@ export const taskRepo = {
           projectAgentId: input.agent_id,
           dedupeKey: `task:${input.id}:created:assigned`,
           occurredAt: now,
-          payload: { agentId: input.agent_id, status: 'pending' },
+          payload: { agentId: input.agent_id, status },
         });
       }
       return taskRepo.getById(input.id)!;
@@ -88,27 +164,41 @@ export const taskRepo = {
       .all(agentId) as TaskRow[];
   },
 
-  updateStatus(id: string, status: string, reviewNote?: string): void {
+  transition(id: string, transition: TaskTransition): TaskRow | undefined {
     const now = new Date().toISOString();
     const db = getDb();
-    db.transaction(() => {
+    return db.transaction(() => {
       const previous = taskRepo.getById(id);
-      if (!previous) return;
-      if (previous.status === status) {
-        if (reviewNote !== undefined && previous.review_note !== reviewNote) {
-          db.prepare('UPDATE task SET review_note = ?, updated_at = ? WHERE id = ?')
-            .run(reviewNote, now, id);
-        }
-        return;
+      if (!previous) return undefined;
+      if (transition.expectedFrom && transition.expectedFrom !== previous.status) {
+        throw new StaleTaskTransitionError(id, transition.expectedFrom, previous.status);
       }
-      const result = reviewNote !== undefined
-        ? db
-        .prepare('UPDATE task SET status = ?, review_note = ?, updated_at = ? WHERE id = ?')
-        .run(status, reviewNote, now, id)
-        : db.prepare('UPDATE task SET status = ?, updated_at = ? WHERE id = ?').run(status, now, id);
-      if (result.changes !== 1) return;
-      const type = taskStatusEvent(previous.status, status);
-      if (!type) return;
+      if (!canTransitionTask(previous.status, transition.to)) {
+        throw new InvalidTaskTransitionError(id, previous.status, transition.to);
+      }
+      if (previous.status === transition.to) {
+        if (
+          transition.reviewNote !== undefined
+          && transition.reviewNote !== previous.review_note
+        ) {
+          db.prepare('UPDATE task SET review_note=?, updated_at=? WHERE id=? AND status=?')
+            .run(transition.reviewNote, now, id, previous.status);
+        }
+        return taskRepo.getById(id);
+      }
+      const result = db.prepare(
+        `UPDATE task
+         SET status=?, review_note=COALESCE(?, review_note), updated_at=?
+         WHERE id=? AND status=?`,
+      ).run(transition.to, transition.reviewNote ?? null, now, id, previous.status);
+      if (result.changes !== 1) {
+        const current = taskRepo.getById(id);
+        if (current) {
+          throw new StaleTaskTransitionError(id, previous.status, current.status);
+        }
+        return undefined;
+      }
+      const type = taskStatusEvent(previous.status, transition.to);
       new DomainEventPublisher(db).publish({
         type,
         projectId: previous.conversation_id,
@@ -117,39 +207,38 @@ export const taskRepo = {
         occurredAt: now,
         payload: {
           previousStatus: previous.status,
-          status,
+          status: transition.to,
           agentId: previous.agent_id,
-          ...(reviewNote ? { reviewNote } : {}),
+          ...(transition.reviewNote ? { reviewNote: transition.reviewNote } : {}),
         } as never,
       });
+      return taskRepo.getById(id);
     }).immediate();
   },
 
-  update(id: string, updates: Partial<Pick<TaskRow, 'title' | 'description' | 'status' | 'agent_id' | 'dependencies' | 'artifacts' | 'review_note' | 'work_dir'>>): void {
+  update(id: string, updates: Partial<TaskPatch>): TaskRow | undefined {
     const sets: string[] = [];
     const values: unknown[] = [];
     for (const [key, value] of Object.entries(updates)) {
       sets.push(`${key} = ?`);
       values.push(value);
     }
-    if (sets.length === 0) return;
+    if (sets.length === 0) return taskRepo.getById(id);
+    const now = new Date().toISOString();
     sets.push('updated_at = ?');
-    values.push(new Date().toISOString());
-    values.push(id);
+    values.push(now, id);
     const db = getDb();
-    db.transaction(() => {
+    return db.transaction(() => {
       const previous = taskRepo.getById(id);
-      if (!previous) return;
+      if (!previous) return undefined;
       const result = db.prepare(`UPDATE task SET ${sets.join(', ')} WHERE id = ?`).run(...values);
-      if (result.changes !== 1) return;
-      const publisher = new DomainEventPublisher(db);
-      const now = values.at(-2) as string;
+      if (result.changes !== 1) return undefined;
       if (
         updates.agent_id !== undefined
         && updates.agent_id !== previous.agent_id
         && updates.agent_id !== ''
       ) {
-        publisher.publish({
+        new DomainEventPublisher(db).publish({
           type: 'task.assigned',
           projectId: previous.conversation_id,
           aggregate: { type: 'task', id },
@@ -158,28 +247,11 @@ export const taskRepo = {
           payload: {
             previousAgentId: previous.agent_id,
             agentId: updates.agent_id,
-            status: updates.status ?? previous.status,
+            status: previous.status,
           },
         });
       }
-      if (updates.status && updates.status !== previous.status) {
-        const type = taskStatusEvent(previous.status, updates.status);
-        if (type) {
-          publisher.publish({
-            type,
-            projectId: previous.conversation_id,
-            aggregate: { type: 'task', id },
-            projectAgentId: updates.agent_id ?? previous.agent_id,
-            occurredAt: now,
-            payload: {
-              previousStatus: previous.status,
-              status: updates.status,
-              agentId: updates.agent_id ?? previous.agent_id,
-              ...(updates.review_note ? { reviewNote: updates.review_note } : {}),
-            } as never,
-          });
-        }
-      }
+      return taskRepo.getById(id);
     }).immediate();
   },
 

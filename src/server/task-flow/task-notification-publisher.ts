@@ -253,7 +253,7 @@ export function publishTaskChangeNotification(input: PublishTaskChangeNotificati
     // Rejected-task execution is owned by the durable task Wakeup Router.
     // This publisher emits the display projection but never starts a second
     // Harness execution.
-    const routedByPlatformEvent = wakeup.metadata.reasonCode === 'review_rejected';
+    const routedByPlatformEvent = wakeup.metadata.reasonCode === 'review_changes_requested';
     if (!routedByPlatformEvent) {
       submitTaskWakeupToHarness(input.io, { ...wakeup, id });
     }

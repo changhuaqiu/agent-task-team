@@ -136,8 +136,72 @@ describe('SQLite Foundation', () => {
     expect(() => {
       db.prepare(
         'INSERT INTO task (id, conversation_id, title, status, agent_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      ).run('task-1', 'nonexistent', 'Test', 'pending', 'agent-1', now, now);
+      ).run('task-1', 'nonexistent', 'Test', 'ready', 'agent-1', now, now);
     }).toThrow();
+  });
+
+  it('migrates legacy task states into the canonical task state machine', () => {
+    const now = new Date().toISOString();
+    db.prepare(
+      'INSERT INTO conversation (id, title, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
+    ).run('conv-task-state', 'Task state migration', 'active', now, now);
+    db.exec(`
+      DROP TRIGGER trg_task_status_insert;
+      DROP TRIGGER trg_task_status_update;
+      DROP TRIGGER trg_task_transition_update;
+      DELETE FROM _schema_version WHERE version = 54;
+    `);
+    const insert = db.prepare(
+      'INSERT INTO task (id, conversation_id, title, status, agent_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    );
+    for (const [id, status] of [
+      ['task-pending', 'pending'],
+      ['task-completed', 'completed'],
+      ['task-approved', 'approved'],
+      ['task-rejected', 'rejected'],
+      ['task-canceled', 'canceled'],
+      ['task-unknown', 'test_gate'],
+    ]) {
+      insert.run(id, 'conv-task-state', id, status, 'agent-1', now, now);
+    }
+
+    applyMigrations(db);
+
+    expect(db.prepare(
+      "SELECT id, status FROM task WHERE conversation_id='conv-task-state' ORDER BY id",
+    ).all()).toEqual([
+      { id: 'task-approved', status: 'done' },
+      { id: 'task-canceled', status: 'cancelled' },
+      { id: 'task-completed', status: 'done' },
+      { id: 'task-pending', status: 'ready' },
+      { id: 'task-rejected', status: 'in_progress' },
+      { id: 'task-unknown', status: 'blocked' },
+    ]);
+    expect(db.prepare(
+      "SELECT review_note FROM task WHERE id='task-unknown'",
+    ).get()).toEqual({
+      review_note: '[migration] unsupported legacy status: test_gate',
+    });
+  });
+
+  it('rejects task status writes that bypass the canonical vocabulary', () => {
+    const now = new Date().toISOString();
+    db.prepare(
+      'INSERT INTO conversation (id, title, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
+    ).run('conv-task-guard', 'Task state guard', 'active', now, now);
+
+    expect(() => db.prepare(
+      'INSERT INTO task (id, conversation_id, title, status, agent_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    ).run('task-invalid', 'conv-task-guard', 'Invalid', 'pending', 'agent-1', now, now))
+      .toThrow(/invalid_task_status/);
+
+    db.prepare(
+      'INSERT INTO task (id, conversation_id, title, status, agent_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    ).run('task-valid', 'conv-task-guard', 'Valid', 'ready', 'agent-1', now, now);
+    expect(() => db.prepare("UPDATE task SET status='approved' WHERE id='task-valid'").run())
+      .toThrow(/invalid_task_status/);
+    expect(() => db.prepare("UPDATE task SET status='done' WHERE id='task-valid'").run())
+      .toThrow(/invalid_task_transition/);
   });
 
   it('enforces agent_session unique constraint', () => {
@@ -330,7 +394,7 @@ describe('SQLite Foundation', () => {
     expect(db.prepare('SELECT version FROM _schema_version WHERE version = 40').get())
       .toEqual({ version: 40 });
     expect(db.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-      .toEqual({ version: 53 });
+      .toEqual({ version: 54 });
   });
 
   it('repairs v26-v40 checkpoints whose migration collision skipped autonomous delivery tables', () => {
@@ -360,7 +424,7 @@ describe('SQLite Foundation', () => {
           'autonomous_delivery_advancement_request',
         ]));
         expect(checkpoint.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-          .toEqual({ version: 53 });
+          .toEqual({ version: 54 });
         expect(checkpoint.pragma('foreign_key_check')).toEqual([]);
       } finally {
         checkpoint.close();
@@ -394,7 +458,7 @@ describe('SQLite Foundation', () => {
     db.prepare(`INSERT INTO conversation (id,title,status,created_at,updated_at)
       VALUES ('conv-checkpoint','Checkpoint','active',?,?)`).run(now, now);
     db.prepare(`INSERT INTO task (id,conversation_id,title,status,agent_id,created_at,updated_at)
-      VALUES ('task-checkpoint','conv-checkpoint','Root','pending','agent',?,?)`).run(now, now);
+      VALUES ('task-checkpoint','conv-checkpoint','Root','ready','agent',?,?)`).run(now, now);
     db.prepare(`INSERT INTO autonomous_delivery_run
       (id,conversation_id,root_task_id,status,current_stage,goal_contract_json,created_at,updated_at)
       VALUES ('run-checkpoint','conv-checkpoint','task-checkpoint','executing','executing','{}',?,?)`)

@@ -390,7 +390,7 @@ describe('POST /api/mutations', () => {
     expect(res.statusCode).toBe(200);
     expect(res._json.ok).toBe(true);
     expect(res._json.result.id).toBe('task-1');
-    expect(res._json.result.status).toBe('pending');
+    expect(res._json.result.status).toBe('ready');
   });
 
   it('task.create assigns a TeamPack task through WorkflowPolicy when no explicit agent is supplied', async () => {
@@ -524,6 +524,8 @@ describe('POST /api/mutations', () => {
 
   it('task.updateStatus publishes a persisted task notification to related agents', async () => {
     await seedTask();
+    const { taskRepo } = await import('@/server/repositories/task-repo');
+    taskRepo.transition('task-1', { to: 'in_progress' });
     const emit = vi.fn();
     const to = vi.fn(() => ({ emit }));
     const req = mockReq('POST', {
@@ -587,7 +589,7 @@ describe('POST /api/mutations', () => {
     const { proofLogRepo } = await import('@/server/repositories/proof-log-repo');
     expect(res.statusCode).toBe(403);
     expect(res._json.error).toContain('installResult');
-    expect(taskRepo.getById('task-1')!.status).toBe('pending');
+    expect(taskRepo.getById('task-1')!.status).toBe('ready');
     expect(proofLogRepo.getByConversation('conv-1')).toContainEqual(expect.objectContaining({
       event_type: 'task_graph.gate_evidence.blocked',
       reason_code: 'task_graph.gate_evidence_required',
@@ -676,16 +678,29 @@ describe('POST /api/mutations', () => {
 
   it('task.updateStatus with reviewNote', async () => {
     await seedTask();
+    const { taskRepo } = await import('@/server/repositories/task-repo');
+    taskRepo.transition('task-1', { to: 'in_progress' });
+    taskRepo.transition('task-1', { to: 'in_review' });
     const req = mockReq('POST', {
       type: 'task.updateStatus',
-      payload: { id: 'task-1', status: 'approved', reviewNote: 'LGTM' },
+      payload: {
+        id: 'task-1',
+        status: 'done',
+        reviewNote: 'LGTM',
+        evidence: {
+          mergedToMain: true,
+          mainInstallResult: 'passed',
+          mainBuildResult: 'passed',
+          mainTestResult: 'passed',
+          mainImpactReviewResult: 'passed',
+        },
+      },
     });
     const res = mockRes();
     await handler(req, res);
 
-    const { taskRepo } = await import('@/server/repositories/task-repo');
     const task = taskRepo.getById('task-1')!;
-    expect(task.status).toBe('approved');
+    expect(task.status).toBe('done');
     expect(task.review_note).toBe('LGTM');
   });
 

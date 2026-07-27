@@ -3,7 +3,8 @@ import type { FSWatcher } from 'chokidar';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { readTasksMd, updateTaskInMd } from './task-file-service';
-import { taskRepo } from './repositories/task-repo';
+import { canTransitionTask, taskRepo } from './repositories/task-repo';
+import type { TaskPatch, TaskStatus } from './repositories/task-repo';
 import { invocationRepo } from './repositories/invocation-repo';
 import { conversationRepo } from './repositories/conversation-repo';
 import { proofLogRepo } from './repositories/proof-log-repo';
@@ -74,8 +75,8 @@ function rejectGitProjectionTransition(input: {
   conversationId: string;
   localTaskId: string;
   storageTaskId: string;
-  attemptedStatus: string;
-  authoritativeStatus: string;
+  attemptedStatus: TaskStatus;
+  authoritativeStatus: TaskStatus;
   io: IOServer;
 }): void {
   const reasonCode = 'task_graph.file_projection_gate_bypass';
@@ -98,6 +99,39 @@ function rejectGitProjectionTransition(input: {
     taskId: input.storageTaskId,
     reasonCode,
     message: `Git 任务 ${input.localTaskId} 不能通过 TASKS.md 进入 ${input.attemptedStatus}；请使用结构化 PR/review/merge 回执。状态已恢复为 ${input.authoritativeStatus}。`,
+  });
+  updateTaskInMd(input.projectPath, input.localTaskId, { status: input.authoritativeStatus });
+}
+
+function rejectInvalidProjectionTransition(input: {
+  projectPath: string;
+  conversationId: string;
+  localTaskId: string;
+  storageTaskId: string;
+  attemptedStatus: TaskStatus;
+  authoritativeStatus: TaskStatus;
+  io: IOServer;
+}): void {
+  const reasonCode = 'task_state.invalid_projection_transition';
+  proofLogRepo.append({
+    eventType: 'task_graph.transition.blocked',
+    conversationId: input.conversationId,
+    taskId: input.storageTaskId,
+    actorId: 'task-file-watcher',
+    reasonCode,
+    metadata: {
+      attemptedStatus: input.attemptedStatus,
+      authoritativeStatus: input.authoritativeStatus,
+      source: 'TASKS.md',
+    },
+  });
+  input.io.to(input.conversationId).emit('task.sync_error', {
+    projectId: input.conversationId,
+    projectPath: input.projectPath,
+    conversationId: input.conversationId,
+    taskId: input.storageTaskId,
+    reasonCode,
+    message: `TASKS.md 请求了非法任务迁移 ${input.authoritativeStatus} → ${input.attemptedStatus}；权威状态未改变。`,
   });
   updateTaskInMd(input.projectPath, input.localTaskId, { status: input.authoritativeStatus });
 }
@@ -191,6 +225,7 @@ export function syncTasksToDb(
           description: t.deliverable || '',
           agent_id: t.agent || '',
           dependencies: storageDependencies,
+          initialStatus: t.status === 'proposed' ? 'proposed' : 'ready',
         });
         if (created.status !== t.status && isProtectedGitProjectionTransition(conversationId, t.status)) {
           rejectGitProjectionTransition({
@@ -203,7 +238,7 @@ export function syncTasksToDb(
             io,
           });
         } else if (created.status !== t.status) {
-          taskRepo.updateStatus(storageId, t.status);
+          taskRepo.transition(storageId, { to: t.status });
           const updated = taskRepo.getById(storageId);
           if (updated) {
             publishTaskChangeNotification({
@@ -224,11 +259,11 @@ export function syncTasksToDb(
       continue;
     }
 
-    const updates: Record<string, unknown> = {};
+    const updates: Partial<TaskPatch> = {};
     const changedFields: string[] = [];
 
     const stalePendingDuringActiveInvocation = existing.status === 'in_progress'
-      && t.status === 'pending'
+      && t.status === 'ready'
       && hasActiveTaskInvocation(conversationId, storageId, existing.agent_id);
     const protectedGitTransition = existing.status !== t.status
       && (isProtectedGitProjectionTransition(conversationId, t.status)
@@ -244,8 +279,19 @@ export function syncTasksToDb(
         io,
       });
     } else if (existing.status !== t.status && !stalePendingDuringActiveInvocation) {
-      updates.status = t.status;
-      changedFields.push('status');
+      if (canTransitionTask(existing.status, t.status)) {
+        changedFields.push('status');
+      } else {
+        rejectInvalidProjectionTransition({
+          projectPath,
+          conversationId,
+          localTaskId: t.id,
+          storageTaskId: storageId,
+          attemptedStatus: t.status,
+          authoritativeStatus: existing.status,
+          io,
+        });
+      }
     }
     if (t.agent && existing.agent_id !== t.agent) {
       updates.agent_id = t.agent;
@@ -267,7 +313,12 @@ export function syncTasksToDb(
     }
 
     if (changedFields.length > 0) {
-      taskRepo.update(storageId, updates);
+      if (Object.keys(updates).length > 0) {
+        taskRepo.update(storageId, updates);
+      }
+      if (changedFields.includes('status')) {
+        taskRepo.transition(storageId, { to: t.status });
+      }
       const updated = taskRepo.getById(storageId);
       if (updated) {
         publishTaskChangeNotification({

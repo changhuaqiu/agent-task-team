@@ -1848,7 +1848,7 @@ export default function registerDaemon(io: IOServer) {
           if (final.status === 'completed') {
             markEnvelopeCompleted();
             if (evaluation) {
-              if (taskId) taskRepo.updateStatus(taskId, 'completed');
+              if (taskId) taskRepo.transition(taskId, { to: 'done' });
               const submitted = agentEvaluation.submit({
                 conversationId: sessionConvId,
                 rootTaskId: taskId,
@@ -1871,7 +1871,12 @@ export default function registerDaemon(io: IOServer) {
           } else {
             markEnvelopeFailed(final.reasonCode ?? (final.status === 'timeout' ? 'timeout' : 'runtime_failed'));
             if (evaluation) {
-              if (taskId) taskRepo.updateStatus(taskId, 'blocked', final.error ?? final.reasonCode);
+              if (taskId) {
+                taskRepo.transition(taskId, {
+                  to: 'blocked',
+                  reviewNote: final.error ?? final.reasonCode,
+                });
+              }
               transitionCaseExecution({
                 id: evaluation.executionId,
                 conversationId: sessionConvId,
@@ -1905,7 +1910,12 @@ export default function registerDaemon(io: IOServer) {
           markEnvelopeFailed('spawn_failed');
           if (evaluation) {
             try {
-              if (taskId) taskRepo.updateStatus(taskId, 'blocked', (err as Error)?.message);
+              if (taskId) {
+                taskRepo.transition(taskId, {
+                  to: 'blocked',
+                  reviewNote: (err as Error)?.message,
+                });
+              }
               transitionCaseExecution({
                 id: evaluation.executionId,
                 conversationId: sessionConvId,

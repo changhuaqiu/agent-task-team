@@ -40,7 +40,7 @@ function wakeup(reasonCode: 'owner_ready' | 'dependency_resolved' | 'review_requ
     metadata: {
       taskId: 'TASK-1',
       taskTitle: 'Server loop',
-      taskStatus: 'pending',
+      taskStatus: 'ready',
       ownerAgentId: 'luigi',
       reasonCode,
       idempotencyKey: `conv-1:TASK-1:luigi:${reasonCode}`,
@@ -66,7 +66,7 @@ describe('Harness outcome reducer', () => {
     return failures[0];
   }
 
-  it('moves only an accepted ready owner from pending to in_progress', async () => {
+  it('moves only an accepted ready owner to in_progress', async () => {
     taskRepo.create({ id: 'TASK-1', conversation_id: 'conv-1', title: 'Server loop', agent_id: 'luigi' });
     taskRepo.update('TASK-1', { work_dir: projectPath });
     writeTasksMd(projectPath, [{
@@ -75,7 +75,7 @@ describe('Harness outcome reducer', () => {
       phase: '',
       role: 'worker',
       agent: 'luigi',
-      status: 'pending',
+      status: 'ready',
       depends: [],
       deliverable: '',
     }]);
@@ -99,7 +99,7 @@ describe('Harness outcome reducer', () => {
 
     await reduceAcceptedWakeup(io, wakeup('review_requested'));
 
-    expect(taskRepo.getById('TASK-1')?.status).toBe('pending');
+    expect(taskRepo.getById('TASK-1')?.status).toBe('ready');
   });
 
   it('keeps an accepted transition observable when its runtime path is missing', async () => {
@@ -145,7 +145,7 @@ describe('Harness outcome reducer', () => {
       phase: '',
       role: 'worker',
       agent: 'luigi',
-      status: 'pending',
+      status: 'ready',
       depends: [],
       deliverable: '',
     }]);
@@ -156,7 +156,7 @@ describe('Harness outcome reducer', () => {
 
     expect(taskRepo.getById('TASK-1')?.status).toBe('in_progress');
     expect(readTasksMd(projectPath).tasks).toEqual([
-      expect.objectContaining({ id: 'TASK-OTHER', status: 'pending' }),
+      expect.objectContaining({ id: 'TASK-OTHER', status: 'ready' }),
     ]);
     expect(JSON.parse(singleProjectionFailure().metadata ?? '{}')).toMatchObject({
       failureCause: 'task_entry_missing',

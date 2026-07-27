@@ -161,14 +161,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         break;
       }
       case 'task.updateStatus': {
-        const { taskRepo } = await import('@/server/repositories/task-repo');
+        const { assertTaskStatus, taskRepo } = await import('@/server/repositories/task-repo');
         const { publishTaskChangeNotification } = await import('@/server/task-flow/task-notification-publisher');
         const { proofLogRepo } = await import('@/server/repositories/proof-log-repo');
         const { evaluateTaskStatusEvidenceGate, hasCurrentVerifiedMerge } = await import('@/server/task-flow/task-gate-evidence');
         const { conversationRepo } = await import('@/server/repositories/conversation-repo');
         const { taskGraphRepo } = await import('@/server/repositories/task-graph-repo');
-        const { id, status, reviewNote, evidence, actorId, actorType } = payload as any;
+        const { id, status: statusValue, reviewNote, evidence, actorId, actorType } = payload as any;
+        if (typeof statusValue !== 'string') {
+          return res.status(400).json({ ok: false, error: 'status is required' });
+        }
+        const status = assertTaskStatus(statusValue);
         const previousTask = taskRepo.getById(id);
+        if (!previousTask) {
+          return res.status(404).json({ ok: false, error: `Task not found: ${id}` });
+        }
         const gateDecision = evaluateTaskStatusEvidenceGate({
           task: previousTask,
           nextStatus: status,
@@ -223,7 +230,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
             error: gateDecision.message ?? 'Task gate evidence is required',
           });
         }
-        taskRepo.updateStatus(id, status, reviewNote);
+        taskRepo.transition(id, {
+          to: status,
+          expectedFrom: previousTask.status,
+          reviewNote,
+        });
         const task = taskRepo.getById(id);
         if (task && gateDecision.required) {
           proofLogRepo.append({
@@ -254,7 +265,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       case 'task.update': {
         const { taskRepo } = await import('@/server/repositories/task-repo');
         const { publishTaskChangeNotification } = await import('@/server/task-flow/task-notification-publisher');
-        const { id, actorId, actorType, agentId, dependencies, artifacts, ...updates } = payload as any;
+        const { id, actorId, actorType, agentId, dependencies, artifacts, status, ...updates } = payload as any;
+        if (status !== undefined) {
+          return res.status(400).json({
+            ok: false,
+            error: 'Task status must be changed through task.updateStatus',
+            reasonCode: 'task_status_owner_required',
+          });
+        }
         const previousTask = taskRepo.getById(id);
         const normalizedUpdates = {
           ...updates,
@@ -476,7 +494,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
               phase: input.phase || '',
               role: input.role || 'worker',
               agent: assignment.agentId,
-              status: 'pending',
+              status: 'ready',
               depends: deps,
               deliverable: input.deliverable || '',
             });
@@ -547,7 +565,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
               error: gateDecision.message ?? 'Task gate evidence is required',
             });
           }
-          taskRepo.updateStatus(input.task_id, input.status);
+          if (typeof input.status !== 'string') {
+            return res.status(400).json({ ok: false, error: 'status is required' });
+          }
+          const { assertTaskStatus } = await import('@/server/repositories/task-repo');
+          const nextStatus = assertTaskStatus(input.status);
+          if (!previousTask) {
+            return res.status(404).json({ ok: false, error: `Task not found: ${input.task_id}` });
+          }
+          taskRepo.transition(input.task_id, {
+            to: nextStatus,
+            expectedFrom: previousTask.status,
+          });
           const updatedTask = taskRepo.getById(input.task_id);
           if (updatedTask && gateDecision.required) {
             proofLogRepo.append({
@@ -582,10 +611,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
             const existing = updatedTask;
             const convId = existing?.conversation_id || conversationId || 'default';
             const projectDir = join(wsRoot, convId);
-            const STATUS_FILE: Record<string, string> = {
-              pending: 'todo', in_progress: 'doing', in_review: 'review', done: 'done', blocked: 'blocked', rejected: 'rejected',
-            };
-            updateTaskInMd(projectDir, input.task_id, { status: STATUS_FILE[input.status] || input.status });
+            updateTaskInMd(projectDir, input.task_id, { status: nextStatus });
           } catch (e) {
             console.error('[task_update_status] failed to update TASKS.md:', e);
           }
@@ -676,6 +702,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       && error.reasonCode === 'agent_inbox_idempotency_conflict'
     ) {
       return res.status(409).json({
+        ok: false,
+        error: error.message,
+        reasonCode: error.reasonCode,
+      });
+    }
+    if (
+      error instanceof Error
+      && 'reasonCode' in error
+      && typeof error.reasonCode === 'string'
+      && ['invalid_task_status', 'invalid_task_transition', 'stale_task_transition'].includes(error.reasonCode)
+    ) {
+      const status = error.reasonCode === 'invalid_task_status' ? 400 : 409;
+      return res.status(status).json({
         ok: false,
         error: error.message,
         reasonCode: error.reasonCode,

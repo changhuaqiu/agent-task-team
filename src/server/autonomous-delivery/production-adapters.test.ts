@@ -16,6 +16,12 @@ import {
 } from './production-adapters';
 import type { GoalContract } from './types';
 
+function completeTask(taskId: string): void {
+  taskRepo.transition(taskId, { to: 'in_progress' });
+  taskRepo.transition(taskId, { to: 'in_review' });
+  taskRepo.transition(taskId, { to: 'done' });
+}
+
 const contract: GoalContract = {
   goal: '交付登录流程',
   acceptanceCriteria: ['用户可通过 Web UI 登录'],
@@ -120,7 +126,7 @@ describe('RepositoryDeliveryFactsAdapter', () => {
       title: contract.goal,
       agent_id: 'mario',
     });
-    taskRepo.updateStatus(task.id, 'done');
+    completeTask(task.id);
     repo.updateRun({
       runId: run.run.id,
       status: 'verifying',
@@ -249,7 +255,7 @@ describe('RepositoryDeliveryFactsAdapter', () => {
       title: contract.goal,
       agent_id: 'mario',
     });
-    taskRepo.updateStatus(task.id, 'done');
+    completeTask(task.id);
     repo.updateRun({
       runId: run.run.id,
       status: 'integrating',
@@ -327,7 +333,7 @@ describe('RepositoryDeliveryFactsAdapter', () => {
       title: contract.goal,
       agent_id: 'mario',
     });
-    taskRepo.updateStatus(task.id, 'done');
+    completeTask(task.id);
     repo.updateRun({
       runId: run.run.id,
       status: 'reviewing',
@@ -389,7 +395,7 @@ describe('RepositoryDeliveryFactsAdapter', () => {
       title: contract.goal,
       agent_id: 'mario',
     });
-    taskRepo.updateStatus(task.id, 'done');
+    completeTask(task.id);
     repo.updateRun({
       runId: run.run.id,
       status: 'verifying',

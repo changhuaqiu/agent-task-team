@@ -42,7 +42,7 @@ describe('groupChatTaskFlow', () => {
     });
 
     expect(result.task.id).toMatch(/^task-/);
-    expect(result.task.status).toBe('pending');
+    expect(result.task.status).toBe('ready');
     expect(result.task.agent_id).toBe('planner');
     expect(result.action.type).toBe('task.created');
 
@@ -115,7 +115,11 @@ describe('groupChatTaskFlow', () => {
       ],
     });
 
-    for (const task of split.children) taskRepo.updateStatus(task.id, 'done');
+    for (const task of split.children) {
+      taskRepo.transition(task.id, { to: 'in_progress' });
+      taskRepo.transition(task.id, { to: 'in_review' });
+      taskRepo.transition(task.id, { to: 'done' });
+    }
 
     const merged = groupChatTaskFlow.mergeTasks({
       conversationId: 'conv-1',
@@ -129,9 +133,9 @@ describe('groupChatTaskFlow', () => {
     });
 
     expect(merged.target.title).toBe('A2A 群聊闭环评审');
-    expect(merged.target.status).toBe('pending');
+    expect(merged.target.status).toBe('ready');
     expect(merged.edges).toHaveLength(2);
-    expect(split.children.map((task) => taskRepo.getById(task.id)!.status)).toEqual(['merged', 'merged']);
+    expect(split.children.map((task) => taskRepo.getById(task.id)!.status)).toEqual(['done', 'done']);
     expect(taskGraphRepo.getGraph('conv-1').tasks).toHaveLength(4);
   });
 
@@ -143,7 +147,9 @@ describe('groupChatTaskFlow', () => {
       actorId: 'user',
       actorType: 'user',
     }).task;
-    taskRepo.updateStatus(source.id, 'done');
+    taskRepo.transition(source.id, { to: 'in_progress' });
+    taskRepo.transition(source.id, { to: 'in_review' });
+    taskRepo.transition(source.id, { to: 'done' });
 
     const reopened = groupChatTaskFlow.reopenTask({
       conversationId: 'conv-1',
@@ -155,7 +161,7 @@ describe('groupChatTaskFlow', () => {
       actorType: 'agent',
     });
 
-    expect(reopened.correctiveTask.status).toBe('pending');
+    expect(reopened.correctiveTask.status).toBe('ready');
     expect(reopened.action.type).toBe('task.reopened');
     expect(reopened.edge.type).toBe('reopens');
     expect(reopened.edge.from_task_id).toBe(reopened.correctiveTask.id);
@@ -190,7 +196,7 @@ describe('groupChatTaskFlow', () => {
       actorType: 'user',
     });
 
-    expect(resumed.task.status).toBe('pending');
+    expect(resumed.task.status).toBe('ready');
     expect(resumed.action.type).toBe('task.resumed');
   });
 

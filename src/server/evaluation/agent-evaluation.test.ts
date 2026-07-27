@@ -52,7 +52,7 @@ describe('AgentEvaluation', () => {
     const first = service.submit(request);
     const duplicate = new AgentEvaluation(judge).submit(request);
     expect(duplicate).toMatchObject({ runId: first.runId, duplicate: true });
-    getDb().prepare(`UPDATE task SET status='blocked',updated_at=? WHERE id='task-root'`)
+    getDb().prepare(`UPDATE task SET status='ready',updated_at=? WHERE id='task-root'`)
       .run('2026-07-19T00:01:00.000Z');
 
     expect(await service.processPending()).toBe(1);

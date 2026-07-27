@@ -74,7 +74,7 @@ export function resolveAutonomyGuardWakeups(input: ResolveAutonomyGuardWakeupsIn
   const staleMs = input.staleMs ?? 30 * 60 * 1000;
   const tasksById = new Map(input.tasks.map((task) => [task.id, task]));
   const wakeups: TaskWakeup[] = [];
-  const terminalTaskStatuses = new Set(['done', 'abandoned', 'cancelled']);
+  const terminalTaskStatuses = new Set(['done', 'cancelled']);
   const subtaskEdges = (input.edges ?? []).filter((edge) => edge.type === 'subtask_of');
   const childrenByParent = new Map<string, string[]>();
   const childIds = new Set<string>();
@@ -113,7 +113,7 @@ export function resolveAutonomyGuardWakeups(input: ResolveAutonomyGuardWakeupsIn
       ? root.agent_id
       : input.coordinatorAgentIds[0] ?? root.agent_id;
     if (!agentId) continue;
-    const partial = descendants.some((task) => task.status === 'abandoned' || task.status === 'cancelled');
+    const partial = descendants.some((task) => task.status === 'cancelled');
     closureRootIds.add(root.id);
     pushOnce(makeWakeup({
       task: root,
@@ -137,7 +137,7 @@ export function resolveAutonomyGuardWakeups(input: ResolveAutonomyGuardWakeupsIn
     const isStale = updatedAt > 0 && now.getTime() - updatedAt >= staleMs;
     const activeDispatch = hasActiveDispatch(task.id, input.envelopes);
 
-    if (task.status === 'pending' && task.agent_id && dependenciesSatisfied(task, tasksById) && !activeDispatch) {
+    if (task.status === 'ready' && task.agent_id && dependenciesSatisfied(task, tasksById) && !activeDispatch) {
       pushOnce(makeWakeup({
         task,
         agentId: task.agent_id,
@@ -175,18 +175,6 @@ export function resolveAutonomyGuardWakeups(input: ResolveAutonomyGuardWakeupsIn
       continue;
     }
 
-    if (task.status === 'test_gate' && isStale && !activeDispatch) {
-      for (const qaAgentId of input.qaAgentIds) {
-        pushOnce(makeWakeup({
-          task,
-          agentId: qaAgentId,
-          reasonCode: 'stale_test_gate',
-          dispatchSource: 'test_gate',
-          prompt: `test_gate 已停滞，请测试、退回或升级 ${task.id}: ${task.title}. ${task.description ?? ''}`.trim(),
-          content: `系统轻推 @${qaAgentId}：${task.id}「${task.title}」test_gate 已停滞。`,
-        }));
-      }
-    }
   }
 
   return wakeups;

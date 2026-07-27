@@ -1694,6 +1694,78 @@ DROP TABLE IF EXISTS runtime_completion_step_receipt;
       `);
     },
   },
+  {
+    version: 54,
+    run: (db) => {
+      db.exec(`
+        UPDATE task
+        SET review_note = CASE
+              WHEN status NOT IN (
+                'proposed','ready','in_progress','blocked','in_review','done','cancelled',
+                'pending','completed','approved','rejected','canceled'
+              )
+              THEN COALESCE(review_note || char(10), '')
+                || '[migration] unsupported legacy status: ' || status
+              ELSE review_note
+            END,
+            status = CASE status
+              WHEN 'pending' THEN 'ready'
+              WHEN 'completed' THEN 'done'
+              WHEN 'approved' THEN 'done'
+              WHEN 'rejected' THEN 'in_progress'
+              WHEN 'canceled' THEN 'cancelled'
+              WHEN 'proposed' THEN 'proposed'
+              WHEN 'ready' THEN 'ready'
+              WHEN 'in_progress' THEN 'in_progress'
+              WHEN 'blocked' THEN 'blocked'
+              WHEN 'in_review' THEN 'in_review'
+              WHEN 'done' THEN 'done'
+              WHEN 'cancelled' THEN 'cancelled'
+              ELSE 'blocked'
+            END;
+
+        DROP TRIGGER IF EXISTS trg_task_status_insert;
+        DROP TRIGGER IF EXISTS trg_task_status_update;
+        DROP TRIGGER IF EXISTS trg_task_transition_update;
+
+        CREATE TRIGGER trg_task_status_insert
+        BEFORE INSERT ON task
+        WHEN NEW.status NOT IN (
+          'proposed','ready','in_progress','blocked','in_review','done','cancelled'
+        )
+        BEGIN
+          SELECT RAISE(ABORT, 'invalid_task_status');
+        END;
+
+        CREATE TRIGGER trg_task_status_update
+        BEFORE UPDATE OF status ON task
+        WHEN NEW.status NOT IN (
+          'proposed','ready','in_progress','blocked','in_review','done','cancelled'
+        )
+        BEGIN
+          SELECT RAISE(ABORT, 'invalid_task_status');
+        END;
+
+        CREATE TRIGGER trg_task_transition_update
+        BEFORE UPDATE OF status ON task
+        WHEN NEW.status IN (
+            'proposed','ready','in_progress','blocked','in_review','done','cancelled'
+          )
+          AND NEW.status <> OLD.status
+          AND NOT (
+            (OLD.status = 'proposed' AND NEW.status IN ('ready','cancelled'))
+            OR (OLD.status = 'ready' AND NEW.status IN ('in_progress','blocked','cancelled'))
+            OR (OLD.status = 'in_progress' AND NEW.status IN ('blocked','in_review','cancelled'))
+            OR (OLD.status = 'blocked' AND NEW.status IN ('ready','in_progress','cancelled'))
+            OR (OLD.status = 'in_review' AND NEW.status IN ('done','in_progress','blocked','cancelled'))
+            OR (OLD.status = 'done' AND NEW.status = 'ready')
+          )
+        BEGIN
+          SELECT RAISE(ABORT, 'invalid_task_transition');
+        END;
+      `);
+    },
+  },
 ];
 
 export function applyMigrations(db: Database.Database): void {

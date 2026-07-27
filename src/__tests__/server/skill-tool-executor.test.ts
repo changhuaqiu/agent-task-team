@@ -17,7 +17,8 @@ describe('skill tool collaboration gates', () => {
     resetRateLimit('luigi');
     conversationRepo.create({ id: 'conv-git', title: 'Git project', git_repo_root: 'C:/repo' });
     taskRepo.create({ id: 'TASK-GIT', conversation_id: 'conv-git', title: 'Ship safely', agent_id: 'luigi' });
-    taskRepo.updateStatus('TASK-GIT', 'in_review');
+    taskRepo.transition('TASK-GIT', { to: 'in_progress' });
+    taskRepo.transition('TASK-GIT', { to: 'in_review' });
   });
 
   it('cannot use a trusted agent identity to mutate a task from another conversation', async () => {
@@ -60,7 +61,7 @@ describe('skill tool collaboration gates', () => {
       });
       expect(result.success).toBe(true);
       expect(readTasksMd(taskProjectDir).tasks).toEqual([
-        expect.objectContaining({ title: 'Runtime-scoped task', agent: 'mario', status: 'pending' }),
+        expect.objectContaining({ title: 'Runtime-scoped task', agent: 'mario', status: 'ready' }),
       ]);
     } finally {
       rmSync(taskProjectDir, { recursive: true, force: true });
@@ -77,7 +78,7 @@ describe('skill tool collaboration gates', () => {
   });
 
   it('returns committed receipt success when runtime projection needs reconciliation', async () => {
-    taskRepo.updateStatus('TASK-GIT', 'in_progress');
+    taskRepo.transition('TASK-GIT', { to: 'in_progress' });
     vi.spyOn(GhCliGitProviderVerifier.prototype, 'getPullRequest').mockResolvedValue({
       provider: 'github', repository: 'acme/widget', number: 1, title: 'Ship safely',
       url: 'https://github.com/acme/widget/pull/1', state: 'open', draft: false, author: 'luigi',

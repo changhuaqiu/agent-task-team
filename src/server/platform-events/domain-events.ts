@@ -4,13 +4,13 @@ import type { EventObjectRef, PlatformEvent } from './types';
 
 export interface DomainEventPayloadMap {
   'task.assigned': { previousAgentId?: string; agentId: string; status: string };
+  'task.ready': { previousStatus: string; status: string; agentId: string };
   'task.in_progress': { previousStatus: string; status: string; agentId: string };
   'task.in_review': { previousStatus: string; status: string; agentId: string };
-  'task.rejected': { previousStatus: string; status: string; agentId: string; reviewNote?: string };
+  'task.changes_requested': { previousStatus: string; status: string; agentId: string; reviewNote?: string };
   'task.done': { previousStatus: string; status: string; agentId: string };
   'task.blocked': { previousStatus: string; status: string; agentId: string; reviewNote?: string };
   'task.cancelled': { previousStatus: string; status: string; agentId: string };
-  'task.reopened': { previousStatus: string; status: string; agentId: string };
   'review.submitted': { taskId: string; reviewerId?: string };
   'review.approved': { taskId: string; reviewerId?: string };
   'review.rejected': { taskId: string; reviewerId?: string; reason?: string };
@@ -53,8 +53,8 @@ export type DomainEventType = keyof DomainEventPayloadMap;
 
 export const DOMAIN_EVENT_TYPES_BY_OWNER = {
   task: [
-    'task.assigned', 'task.in_progress', 'task.in_review', 'task.rejected',
-    'task.done', 'task.blocked', 'task.cancelled', 'task.reopened',
+    'task.assigned', 'task.ready', 'task.in_progress', 'task.in_review',
+    'task.changes_requested', 'task.done', 'task.blocked', 'task.cancelled',
   ],
   review: ['review.submitted', 'review.approved', 'review.rejected', 'review.merged'],
   delivery: [

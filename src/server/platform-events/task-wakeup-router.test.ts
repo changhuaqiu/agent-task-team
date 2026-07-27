@@ -34,9 +34,12 @@ describe('TaskWakeupRouter', () => {
       title: 'Task',
       agent_id: 'implementer',
     });
-    taskRepo.updateStatus('task-1', 'rejected', 'Fix it');
-    const rejected = log.listStream('task:task-1').find((event) => event.type === 'task.rejected')!;
-    taskRepo.updateStatus('task-1', 'done');
+    taskRepo.transition('task-1', { to: 'in_progress' });
+    taskRepo.transition('task-1', { to: 'in_review' });
+    taskRepo.transition('task-1', { to: 'in_progress', reviewNote: 'Fix it' });
+    const rejected = log.listStream('task:task-1').find((event) => event.type === 'task.changes_requested')!;
+    taskRepo.transition('task-1', { to: 'in_review' });
+    taskRepo.transition('task-1', { to: 'done' });
 
     router.handle(rejected, { signal: new AbortController().signal });
 
@@ -50,12 +53,15 @@ describe('TaskWakeupRouter', () => {
       title: 'Task',
       agent_id: 'implementer',
     });
-    taskRepo.updateStatus('task-2', 'rejected', 'Fix it');
-    const rejected = log.listStream('task:task-2').find((event) => event.type === 'task.rejected')!;
+    taskRepo.transition('task-2', { to: 'in_progress' });
+    taskRepo.transition('task-2', { to: 'in_review' });
+    taskRepo.transition('task-2', { to: 'in_progress', reviewNote: 'Fix it' });
+    const rejected = log.listStream('task:task-2').find((event) => event.type === 'task.changes_requested')!;
     router.handle(rejected, { signal: new AbortController().signal });
     expect(inbox.listQueued('project-1')).toHaveLength(1);
 
-    taskRepo.updateStatus('task-2', 'done');
+    taskRepo.transition('task-2', { to: 'in_review' });
+    taskRepo.transition('task-2', { to: 'done' });
     const done = log.listStream('task:task-2').find((event) => event.type === 'task.done')!;
     router.handle(done, { signal: new AbortController().signal });
 

@@ -53,9 +53,9 @@ describe('domain event inline seam', () => {
       title: 'Task',
       agent_id: 'implementer',
     });
-    taskRepo.updateStatus('task-1', 'in_progress');
-    taskRepo.updateStatus('task-1', 'in_progress');
-    taskRepo.updateStatus('task-1', 'blocked', 'Dependency missing');
+    taskRepo.transition('task-1', { to: 'in_progress' });
+    taskRepo.transition('task-1', { to: 'in_progress' });
+    taskRepo.transition('task-1', { to: 'blocked', reviewNote: 'Dependency missing' });
 
     expect(log.listStream('task:task-1').map((event) => event.type)).toEqual([
       'task.assigned',
@@ -74,7 +74,7 @@ describe('domain event inline seam', () => {
       actor: { type: 'system', id: 'test' },
       correlationId: 'other',
       dedupeKey: 'task:task-conflict:created:assigned',
-      payload: { agentId: 'other', status: 'pending' },
+      payload: { agentId: 'other', status: 'ready' },
     });
 
     expect(() => taskRepo.create({

@@ -41,7 +41,7 @@ import {
 } from './provider-actions';
 import { buildGoalTaskDescription } from './goal-task-description';
 
-const TERMINAL_TASK_STATUSES = new Set(['done', 'abandoned', 'cancelled']);
+const TERMINAL_TASK_STATUSES = new Set(['done', 'cancelled']);
 const ACTIVE_ENVELOPE_STATUSES = new Set(['drafted', 'validated', 'queued', 'routed', 'sent', 'started']);
 const RECOVERABLE_ENVELOPE_STATUSES = new Set(['blocked', 'failed', 'expired']);
 
@@ -64,7 +64,7 @@ function metadataOf(proof: ProofEventRow): Record<string, unknown> {
 }
 
 function terminalTaskFailure(tasks: TaskRow[]): TaskRow | undefined {
-  return tasks.find((task) => task.status === 'abandoned' || task.status === 'cancelled');
+  return tasks.find((task) => task.status === 'cancelled');
 }
 
 function acceptedDeliveryEvidence(proofs: ProofEventRow[]): ProofEventRow[] {
@@ -352,7 +352,7 @@ export class RepositoryDeliveryFactsAdapter implements DeliveryFactsPort {
     else if (allDone) taskGraph = 'completed';
     else if (nextWakeup) taskGraph = 'pending';
     else if (hasActiveEnvelope || tasks.some((task) =>
-      ['in_progress', 'in_review', 'test_gate'].includes(task.status)
+      ['in_progress', 'in_review'].includes(task.status)
     )) taskGraph = 'running';
     else taskGraph = 'pending';
 

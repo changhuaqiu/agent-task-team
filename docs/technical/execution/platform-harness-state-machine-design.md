@@ -186,6 +186,24 @@ Chain 在仍有任一 open/recovery possession 时保持 active。
 5. `DeliveryRun.waiting_human` 是可恢复等待态，不是终态；配置修复后可以 `resume`。
 6. 所有迁移通过 owner 的显式命令完成，禁止任意字符串更新状态。
 
+### 5.1 Task 状态机的已落地边界
+
+Task owner 已采用上述七个规范状态，并通过显式 `transition` 同时校验前态和目标态。
+`task.update`、Agent 技能工具和 TASKS.md 适配器都不能绕过 owner 直接写 `status`；
+数据库 trigger 作为最后一道防线拒绝非规范状态和绕过迁移表的规范状态跳转。
+
+以下旧词汇不再属于 Task：
+
+- `rejected` 是 Gate decision；Task 对应迁移为 `in_review -> in_progress`，事件为
+  `task.changes_requested`；
+- `test_gate` 是 Gate/Verification 状态，不是 Task 状态；
+- `abandoned` 是执行 Attempt 状态，不是 Task 终态；
+- `merged` 是任务图上的 `merged_into` 关系；源 Task 保留自己的 `done` 事实。
+
+TASKS.md 仍可解析 `todo / doing / review` 等展示词，但它们只会被归一化为规范状态并作为
+Command 请求 owner 迁移。非法跳转会产生 `task.sync_error`、恢复文件中的权威状态，不能
+修改数据库事实。
+
 Effect 创建时必须冻结：
 
 ```text

@@ -81,10 +81,13 @@ describe('POST /api/task-graph', () => {
       actorId: 'user',
       actorType: 'user',
     }), resumeRes);
-    expect(resumeRes._json.result.task.status).toBe('pending');
+    expect(resumeRes._json.result.task.status).toBe('ready');
 
-    taskRepo.updateStatus(splitRes._json.result.children[0].id, 'done');
-    taskRepo.updateStatus(splitRes._json.result.children[1].id, 'done');
+    for (const child of splitRes._json.result.children) {
+      taskRepo.transition(child.id, { to: 'in_progress' });
+      taskRepo.transition(child.id, { to: 'in_review' });
+      taskRepo.transition(child.id, { to: 'done' });
+    }
     const mergeRes = mockRes();
     await handler(mockReq('POST', {
       action: 'mergeTasks',
@@ -152,7 +155,7 @@ describe('POST /api/task-graph', () => {
       title: 'Owned',
       agent_id: 'frontend',
     });
-    taskRepo.updateStatus(task.id, 'in_progress');
+    taskRepo.transition(task.id, { to: 'in_progress' });
     const res = mockRes();
 
     await handler(mockReq('POST', {
@@ -176,7 +179,7 @@ describe('POST /api/task-graph', () => {
       title: 'Confirmed',
       agent_id: 'frontend',
     });
-    taskRepo.updateStatus(task.id, 'in_progress');
+    taskRepo.transition(task.id, { to: 'in_progress' });
     const res = mockRes();
 
     await handler(mockReq('POST', {

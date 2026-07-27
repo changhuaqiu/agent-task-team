@@ -56,11 +56,11 @@ describe('autonomy guard wakeups', () => {
     created_at: '2026-05-21T00:00:00.000Z',
   });
 
-  it('wakes an owned pending task when dependencies are satisfied and no dispatch is active', () => {
+  it('wakes an owned ready task when dependencies are satisfied and no dispatch is active', () => {
     const wakeups = resolveAutonomyGuardWakeups({
       tasks: [
         task({ id: 'TASK-001', agent_id: 'mario', status: 'done' }),
-        task({ id: 'TASK-002', agent_id: 'luigi', status: 'pending', dependencies: '["TASK-001"]' }),
+        task({ id: 'TASK-002', agent_id: 'luigi', status: 'ready', dependencies: '["TASK-001"]' }),
       ],
       envelopes: [],
       coordinatorAgentIds: ['mario'],
@@ -78,7 +78,7 @@ describe('autonomy guard wakeups', () => {
 
   it('does not duplicate a wakeup while an execution envelope is active', () => {
     const wakeups = resolveAutonomyGuardWakeups({
-      tasks: [task({ id: 'TASK-002', agent_id: 'luigi', status: 'pending' })],
+      tasks: [task({ id: 'TASK-002', agent_id: 'luigi', status: 'ready' })],
       envelopes: [envelope({ task_id: 'TASK-002', status: 'started' })],
       coordinatorAgentIds: ['mario'],
       reviewAgentIds: ['peach'],
@@ -88,11 +88,10 @@ describe('autonomy guard wakeups', () => {
     expect(wakeups).toEqual([]);
   });
 
-  it('wakes gate owners when review and test gates become stale', () => {
+  it('wakes review owners when a review gate becomes stale', () => {
     const wakeups = resolveAutonomyGuardWakeups({
       tasks: [
         task({ id: 'TASK-003', agent_id: 'toad', status: 'in_review', updated_at: '2026-05-21T00:00:00.000Z' }),
-        task({ id: 'TASK-004', agent_id: 'yoshi', status: 'test_gate', updated_at: '2026-05-21T00:00:00.000Z' }),
       ],
       envelopes: [],
       coordinatorAgentIds: ['mario'],
@@ -102,10 +101,9 @@ describe('autonomy guard wakeups', () => {
       staleMs: 30 * 60 * 1000,
     });
 
-    expect(wakeups).toEqual(expect.arrayContaining([
+    expect(wakeups).toEqual([
       expect.objectContaining({ taskId: 'TASK-003', agentId: 'peach', reasonCode: 'stale_review_gate' }),
-      expect.objectContaining({ taskId: 'TASK-004', agentId: 'yoshi', reasonCode: 'stale_test_gate' }),
-    ]));
+    ]);
   });
 
   it('wakes the coordinator once a complete descendant subtree is terminal', () => {

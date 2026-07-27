@@ -13,16 +13,18 @@ export function sanitizeProjectionErrorMessage(error: unknown): string {
 
 /**
  * Runtime acceptance is execution evidence, not review/delivery evidence. The
- * only automatic business transition is pending -> in_progress for a ready
+ * only automatic business transition is ready -> in_progress for a ready
  * owner. All quality-gate transitions still require structured task tools.
  */
 export async function reduceAcceptedWakeup(io: IOServer, wakeup: TaskWakeup): Promise<void> {
   if (wakeup.reasonCode !== 'owner_ready' && wakeup.reasonCode !== 'dependency_resolved') return;
   const previousTask = taskRepo.getById(wakeup.taskId);
-  if (!previousTask || previousTask.status !== 'pending' || previousTask.agent_id !== wakeup.agentId) return;
+  if (!previousTask || previousTask.status !== 'ready' || previousTask.agent_id !== wakeup.agentId) return;
 
-  taskRepo.updateStatus(wakeup.taskId, 'in_progress');
-  const task = taskRepo.getById(wakeup.taskId);
+  const task = taskRepo.transition(wakeup.taskId, {
+    to: 'in_progress',
+    expectedFrom: 'ready',
+  });
   if (!task) return;
   let projected = false;
   let projectionFailureCause = task.work_dir ? 'task_entry_missing' : 'work_dir_missing';

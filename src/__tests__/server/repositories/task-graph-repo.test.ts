@@ -255,7 +255,7 @@ describe('taskGraphRepo actions and graph view', () => {
       taskIds: ['task-old'],
       payload: { reason: '方向调整' },
     });
-    taskRepo.updateStatus('task-old', 'cancelled', '方向调整');
+    taskRepo.transition('task-old', { to: 'cancelled', reviewNote: '方向调整' });
 
     const graph = taskGraphRepo.getGraph('conv-1');
     expect(graph.tasks[0].status).toBe('cancelled');
@@ -330,6 +330,6 @@ describe('taskGraphRepo handoffs, artifacts, and chat bindings', () => {
     expect(binding.message_id).toBe(messageId);
     expect(graph.artifacts).toHaveLength(1);
     expect(graph.bindings).toHaveLength(1);
-    expect(taskRepo.getById('task-ui')!.status).toBe('pending');
+    expect(taskRepo.getById('task-ui')!.status).toBe('ready');
   });
 });

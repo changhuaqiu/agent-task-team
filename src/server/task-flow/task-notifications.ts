@@ -56,7 +56,7 @@ function addRecipient(recipients: string[], agentId: string | null | undefined):
 
 function isStatusChangeRelevantToDependencies(task: TaskRow, previousTask?: TaskRow): boolean {
   if (!previousTask || task.status === previousTask.status) return false;
-  return ['in_review', 'done', 'blocked', 'rejected'].includes(task.status);
+  return ['in_review', 'done', 'blocked'].includes(task.status);
 }
 
 function inferChangedFields(task: TaskRow, previousTask?: TaskRow): string[] {
@@ -91,7 +91,7 @@ export function resolveTaskNotificationRecipients(input: TaskNotificationInput):
   const needsCoordinationNotice =
     input.kind === 'task.assigned' ||
     changedFields.includes('review_note') ||
-    ['in_review', 'done', 'blocked', 'rejected'].includes(input.task.status);
+    ['in_review', 'done', 'blocked'].includes(input.task.status);
   if (needsCoordinationNotice) {
     for (const coordinatorId of input.coordinatorAgentIds) addRecipient(recipients, coordinatorId);
   }

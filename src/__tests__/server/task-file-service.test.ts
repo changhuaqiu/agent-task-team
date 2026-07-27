@@ -27,7 +27,7 @@ describe('ensureTasksMdProjection', () => {
       id: 'TASK-PR', status: 'in_review', agent: 'peach', depends: ['TASK-BASE'],
     })]);
     expect(ensureTasksMdProjection(TMP, [{
-      id: 'TASK-NEW', title: 'Do not overwrite', status: 'pending', agent_id: 'luigi', dependencies: null,
+      id: 'TASK-NEW', title: 'Do not overwrite', status: 'ready', agent_id: 'luigi', dependencies: null,
     }])).toBe(false);
     expect(readTasksMd(TMP).tasks.map((task) => task.id)).toEqual(['TASK-PR']);
   });
@@ -133,7 +133,7 @@ describe('parseTasksMd', () => {
       phase: 'phase-2',
       role: 'backend',
       agent: 'luigi',
-      status: 'pending',
+      status: 'ready',
       depends: [],
       deliverable: 'REST endpoints',
     });
@@ -143,7 +143,7 @@ describe('parseTasksMd', () => {
 describe('formatTasksMd', () => {
   it('round-trips parse → format with phase field', () => {
     const original = [
-      { id: 'TASK-001', title: 'Do thing', phase: 'phase-1', role: 'backend', agent: 'luigi', status: 'pending', depends: [], deliverable: '' },
+      { id: 'TASK-001', title: 'Do thing', phase: 'phase-1', role: 'backend', agent: 'luigi', status: 'ready', depends: [], deliverable: '' },
     ];
     const md = formatTasksMd(original);
     const reparsed = parseTasksMd(md);
@@ -152,7 +152,7 @@ describe('formatTasksMd', () => {
 
   it('round-trips with empty phase', () => {
     const original = [
-      { id: 'TASK-002', title: 'Another task', phase: '', role: 'testing', agent: '', status: 'pending', depends: ['TASK-001'], deliverable: 'tests' },
+      { id: 'TASK-002', title: 'Another task', phase: '', role: 'testing', agent: '', status: 'ready', depends: ['TASK-001'], deliverable: 'tests' },
     ];
     const md = formatTasksMd(original);
     const reparsed = parseTasksMd(md);
@@ -294,7 +294,7 @@ describe('parseTasksMd — checklist fallback', () => {
     const tasks = parseTasksMd(md);
     expect(tasks).toHaveLength(3);
     expect(tasks[0].title).toBe('Build login page');
-    expect(tasks[0].status).toBe('pending');
+    expect(tasks[0].status).toBe('ready');
     expect(tasks[1].title).toBe('Setup database');
     expect(tasks[1].status).toBe('done');
     expect(tasks[2].id).toBe('TASK-003');
@@ -348,6 +348,6 @@ describe('parseTasksMd — checklist fallback', () => {
     expect(tasks).toHaveLength(2);
     expect(tasks[0].id).toBe('TASK-001');
     expect(tasks[0].status).toBe('in_progress');
-    expect(tasks[1].status).toBe('pending');
+    expect(tasks[1].status).toBe('ready');
   });
 });

@@ -148,7 +148,7 @@ export class EngineeringCollaborationService {
     if (task.agent_id !== input.actorAgentId) {
       throw new EngineeringCollaborationError('task_actor_mismatch', 'Only the task implementer can submit its pull request');
     }
-    if (!['in_progress', 'in_review', 'rejected'].includes(task.status)) {
+    if (!['in_progress', 'in_review'].includes(task.status)) {
       throw new EngineeringCollaborationError('task_not_reviewable', `Task ${task.id} is not ready for pull request submission from ${task.status}`);
     }
     const cwd = gitRepoRoot(task);
@@ -162,12 +162,12 @@ export class EngineeringCollaborationService {
     const previousPullRequestAction = latestPullRequestAction(task.id);
     const previousPullRequestPayload = previousPullRequestAction ? parsePayload(previousPullRequestAction) : undefined;
     const previousPullRequest = previousPullRequestPayload?.receipt as PullRequestReceipt | undefined;
-    if (task.status === 'in_review' || task.status === 'rejected') {
+    if (task.status === 'in_review' || previousPullRequest) {
       if (!previousPullRequest) {
         throw new EngineeringCollaborationError('review_receipt_mismatch', 'An in-review task must keep using its verified pull request');
       }
       if (previousPullRequest.url !== receipt.url) {
-        throw new EngineeringCollaborationError('pull_request_changed', 'Rejected or in-review work must keep using its verified pull request');
+        throw new EngineeringCollaborationError('pull_request_changed', 'Rework or in-review work must keep using its verified pull request');
       }
       if (previousPullRequest.headSha === receipt.headSha) {
         throw new EngineeringCollaborationError('pull_request_head_unchanged', 'The pull request head has not changed');
@@ -231,7 +231,7 @@ export class EngineeringCollaborationService {
           action,
         });
       }
-      taskRepo.updateStatus(task.id, 'in_review');
+      taskRepo.transition(task.id, { to: 'in_review' });
       new DomainEventPublisher(getDb()).publish({
         type: 'review.submitted',
         projectId: task.conversation_id,
@@ -340,7 +340,11 @@ export class EngineeringCollaborationService {
         action,
       });
       if (receipt.decision === 'changes_requested' || input.evidence.qualityDecision === 'reject') {
-        taskRepo.updateStatus(task.id, 'rejected', input.evidence.summary);
+        taskRepo.transition(task.id, {
+          to: 'in_progress',
+          expectedFrom: 'in_review',
+          reviewNote: input.evidence.summary,
+        });
       } else {
         taskRepo.update(task.id, { review_note: input.evidence.summary });
       }
@@ -452,7 +456,7 @@ export class EngineeringCollaborationService {
         card,
         action,
       });
-      taskRepo.updateStatus(task.id, 'done');
+      taskRepo.transition(task.id, { to: 'done', expectedFrom: 'in_review' });
       new DomainEventPublisher(getDb()).publish({
         type: 'review.merged',
         projectId: task.conversation_id,

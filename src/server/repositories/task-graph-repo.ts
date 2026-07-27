@@ -356,13 +356,18 @@ export const taskGraphRepo = {
     toAgentId: string;
     passId?: string;
     possessionId?: string;
-    status?: string;
   }): TaskActionRow {
     assertTaskInConversation(input.taskId, input.conversationId);
     taskRepo.update(input.taskId, {
       agent_id: input.toAgentId,
-      status: input.status ?? 'in_progress',
     });
+    const task = taskRepo.getById(input.taskId);
+    if (task && task.status !== 'in_progress') {
+      taskRepo.transition(input.taskId, {
+        to: 'in_progress',
+        expectedFrom: task.status,
+      });
+    }
 
     return this.appendAction({
       conversationId: input.conversationId,

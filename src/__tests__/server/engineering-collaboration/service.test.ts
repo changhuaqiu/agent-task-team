@@ -54,7 +54,7 @@ beforeEach(() => {
     project_path: 'C:/repo', git_repo_root: 'C:/repo',
   });
   taskRepo.create({ id: 'TASK-PR', conversation_id: 'conv-pr-loop', title: 'Fix checkout', agent_id: 'luigi' });
-  taskRepo.updateStatus('TASK-PR', 'in_progress');
+  taskRepo.transition('TASK-PR', { to: 'in_progress' });
 });
 
 describe('EngineeringCollaborationService', () => {
@@ -111,7 +111,7 @@ describe('EngineeringCollaborationService', () => {
     });
 
     expect(result.receipt).toEqual(review);
-    expect(taskRepo.getById('TASK-PR')).toMatchObject({ status: 'rejected', review_note: 'Checkout loses the selected address.' });
+    expect(taskRepo.getById('TASK-PR')).toMatchObject({ status: 'in_progress', review_note: 'Checkout loses the selected address.' });
     expect(taskGraphRepo.listArtifacts('conv-pr-loop')).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: 'review', url: review.reviewUrl }),
     ]));
@@ -122,7 +122,7 @@ describe('EngineeringCollaborationService', () => {
       taskId: 'TASK-PR', agentId: 'peach', reasonCode: 'review_requested',
     }));
     expect(emit).toHaveBeenCalledWith('task.wakeup', expect.objectContaining({
-      taskId: 'TASK-PR', agentId: 'luigi', reasonCode: 'review_rejected',
+      taskId: 'TASK-PR', agentId: 'luigi', reasonCode: 'review_changes_requested',
     }));
     const rejectedEvent = new PlatformEventLog().listByProjectAgent('conv-pr-loop', 'peach')
       .find((event) => event.type === 'review.rejected')!;
@@ -151,7 +151,7 @@ describe('EngineeringCollaborationService', () => {
   it('fails closed without an authoritative Git repository context', async () => {
     conversationRepo.create({ id: 'conv-no-repo', title: 'No repository' });
     taskRepo.create({ id: 'TASK-NO-REPO', conversation_id: 'conv-no-repo', title: 'Unsafe receipt', agent_id: 'luigi' });
-    taskRepo.updateStatus('TASK-NO-REPO', 'in_progress');
+  taskRepo.transition('TASK-NO-REPO', { to: 'in_progress' });
     const service = new EngineeringCollaborationService(verifier());
 
     await expect(service.recordPullRequest({
@@ -207,7 +207,7 @@ describe('EngineeringCollaborationService', () => {
       evidence: { installResult: 'ok', buildResult: 'ok', testResult: 'claimed fixed', impactEvidence: 'rechecked' },
     })).rejects.toMatchObject<Partial<EngineeringCollaborationError>>({ reasonCode: 'pull_request_changed' });
 
-    expect(taskRepo.getById('TASK-PR')?.status).toBe('rejected');
+    expect(taskRepo.getById('TASK-PR')?.status).toBe('in_progress');
     expect({
       actions: taskGraphRepo.listActionsForTask('TASK-PR').length,
       artifacts: taskGraphRepo.listArtifacts('conv-pr-loop').length,
@@ -241,7 +241,7 @@ describe('EngineeringCollaborationService', () => {
       evidence: { installResult: 'ok', buildResult: 'ok', testResult: 'claimed fixed', impactEvidence: 'rechecked' },
     })).rejects.toMatchObject<Partial<EngineeringCollaborationError>>({ reasonCode: 'pull_request_head_unchanged' });
 
-    expect(taskRepo.getById('TASK-PR')?.status).toBe('rejected');
+    expect(taskRepo.getById('TASK-PR')?.status).toBe('in_progress');
     expect({
       actions: taskGraphRepo.listActionsForTask('TASK-PR').length,
       artifacts: taskGraphRepo.listArtifacts('conv-pr-loop').length,

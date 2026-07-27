@@ -26,6 +26,13 @@
 - [ ] wait-for deadlock 与 A2A 循环传球有检测和升级路径。
 - [ ] 迟到 Outcome 因 epoch/token 失效而只记录诊断。
 
+Task 切片证据：
+
+- [x] Task 的规范词汇、迁移表和 completion 语义已冻结。
+- [x] Task 非法跳转、陈旧前态、SQL 非规范状态与 SQL 绕过迁移表均有拒绝测试。
+- [x] Gate 的 `rejected/test_gate`、Attempt 的 `abandoned`、Task Graph 的 `merged_into`
+  不再冒充 Task 状态。
+
 ## 错误与恢复
 
 - [ ] `runtime_profile_missing` 阻塞并请求 Human，不做盲重试。

@@ -1,7 +1,7 @@
 // Skill Tool Executor — executes skill-defined tools directly via DB queries.
 // No HTTP roundtrip; same DB operations as mutation handlers.
 
-import { taskRepo } from './repositories/task-repo';
+import { assertTaskStatus, taskRepo } from './repositories/task-repo';
 import type { TaskRow } from './repositories/task-repo';
 import { isSkillTool } from './skill-tool-router';
 import { join } from 'node:path';
@@ -166,7 +166,7 @@ function executeTaskCreate(invocation: ToolInvocation): ToolResult {
     const phase = (invocation.input.phase as string) || '';
     const deliverable = (invocation.input.deliverable as string) || '';
     const { tasks: existingTasks, blockers } = readTasksMd(projectDir);
-    existingTasks.push({ id, title, phase, role, agent: agentId, status: 'pending', depends: dependencies, deliverable });
+    existingTasks.push({ id, title, phase, role, agent: agentId, status: 'ready', depends: dependencies, deliverable });
     writeTasksMd(projectDir, existingTasks, blockers);
   } catch (e) {
     console.error('[task_create] failed to update TASKS.md:', e);
@@ -177,16 +177,13 @@ function executeTaskCreate(invocation: ToolInvocation): ToolResult {
 
 function executeTaskUpdateStatus(invocation: ToolInvocation): ToolResult {
   const taskId = invocation.input.task_id as string;
-  const status = invocation.input.status as string;
+  const statusValue = invocation.input.status;
 
-  if (!taskId || !status) {
+  if (!taskId || typeof statusValue !== 'string') {
     return { success: false, error: 'task_id and status are required' };
   }
 
-  const allowedStatuses = ['pending', 'in_progress', 'in_review', 'done', 'blocked', 'rejected'];
-  if (!allowedStatuses.includes(status)) {
-    return { success: false, error: `Invalid status: ${status}. Allowed: ${allowedStatuses.join(', ')}` };
-  }
+  const status = assertTaskStatus(statusValue);
 
   const existing = taskRepo.getById(taskId);
   if (!existing) {
@@ -219,7 +216,10 @@ function executeTaskUpdateStatus(invocation: ToolInvocation): ToolResult {
     return { success: false, error: gateDecision.message ?? 'Task gate evidence is required' };
   }
 
-  taskRepo.updateStatus(taskId, status);
+  taskRepo.transition(taskId, {
+    to: status,
+    expectedFrom: existing.status,
+  });
   if (gateDecision.required) {
     proofLogRepo.append({
       eventType: 'task_graph.gate_evidence.accepted',
@@ -237,10 +237,7 @@ function executeTaskUpdateStatus(invocation: ToolInvocation): ToolResult {
   // Also update TASKS.md
   try {
     const projectDir = resolveTaskProjectDir(invocation, existing.conversation_id);
-    const STATUS_FILE: Record<string, string> = {
-      pending: 'todo', in_progress: 'doing', in_review: 'review', done: 'done', blocked: 'blocked', rejected: 'rejected',
-    };
-    updateTaskInMd(projectDir, taskId, { status: STATUS_FILE[status] || status });
+    updateTaskInMd(projectDir, taskId, { status });
   } catch (e) {
     console.error('[task_update_status] failed to update TASKS.md:', e);
   }
