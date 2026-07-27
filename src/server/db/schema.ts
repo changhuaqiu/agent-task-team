@@ -1445,6 +1445,49 @@ export const autonomousDeliveryAttempt = sqliteTable('autonomous_delivery_attemp
   index('idx_autonomous_delivery_attempt_lease').on(table.status, table.leaseExpiresAt),
 ]);
 
+export const supervisorControlDecision = sqliteTable('supervisor_control_decision', {
+  id: text('id').primaryKey(),
+  runId: text('run_id').notNull().references(() => autonomousDeliveryRun.id, { onDelete: 'cascade' }),
+  projectId: text('project_id').notNull().references(() => conversation.id, { onDelete: 'cascade' }),
+  snapshotRevision: integer('snapshot_revision').notNull(),
+  policyRevision: integer('policy_revision').notNull(),
+  payloadJson: text('payload_json').notNull(),
+  status: text('status').notNull(),
+  createdAt: text('created_at').notNull(),
+  completedAt: text('completed_at'),
+}, (table) => [
+  uniqueIndex('uq_supervisor_control_decision_snapshot')
+    .on(table.runId, table.snapshotRevision, table.policyRevision),
+  index('idx_supervisor_control_decision_active').on(table.runId, table.status, table.createdAt),
+]);
+
+export const supervisorControlAction = sqliteTable('supervisor_control_action', {
+  id: text('id').primaryKey(),
+  decisionId: text('decision_id').notNull()
+    .references(() => supervisorControlDecision.id, { onDelete: 'cascade' }),
+  runId: text('run_id').notNull().references(() => autonomousDeliveryRun.id, { onDelete: 'cascade' }),
+  type: text('type').notNull(),
+  targetWorkId: text('target_work_id'),
+  workEpoch: integer('work_epoch'),
+  slotId: text('slot_id'),
+  reasonCode: text('reason_code').notNull(),
+  retryBudgetKind: text('retry_budget_kind'),
+  terminationOutcome: text('termination_outcome'),
+  status: text('status').notNull(),
+  claimToken: text('claim_token'),
+  leaseOwner: text('lease_owner'),
+  leaseExpiresAt: text('lease_expires_at'),
+  failureCode: text('failure_code'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+  completedAt: text('completed_at'),
+}, (table) => [
+  index('idx_supervisor_control_action_claim').on(table.runId, table.status, table.createdAt),
+  uniqueIndex('uq_supervisor_control_active_slot')
+    .on(table.runId, table.slotId)
+    .where(sql`${table.slotId} IS NOT NULL AND ${table.type} = 'activate' AND ${table.status} IN ('claimed','applied')`),
+]);
+
 export const autonomousDeliveryReceipt = sqliteTable('autonomous_delivery_receipt', {
   id: text('id').primaryKey(),
   runId: text('run_id').notNull().references(() => autonomousDeliveryRun.id, { onDelete: 'cascade' }),

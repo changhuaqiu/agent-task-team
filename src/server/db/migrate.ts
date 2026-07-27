@@ -2894,6 +2894,61 @@ END;
       `);
     },
   },
+  {
+    version: 64,
+    sql: `
+      CREATE TABLE IF NOT EXISTS supervisor_control_decision (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL REFERENCES autonomous_delivery_run(id) ON DELETE CASCADE,
+        project_id TEXT NOT NULL REFERENCES conversation(id) ON DELETE CASCADE,
+        snapshot_revision INTEGER NOT NULL CHECK(snapshot_revision>=0),
+        policy_revision INTEGER NOT NULL CHECK(policy_revision>=0),
+        payload_json TEXT NOT NULL,
+        status TEXT NOT NULL CHECK(status IN ('active','superseded','completed')),
+        created_at TEXT NOT NULL,
+        completed_at TEXT,
+        UNIQUE(run_id,snapshot_revision,policy_revision)
+      );
+      CREATE INDEX IF NOT EXISTS idx_supervisor_control_decision_active
+        ON supervisor_control_decision(run_id,status,created_at);
+
+      CREATE TABLE IF NOT EXISTS supervisor_control_action (
+        id TEXT PRIMARY KEY,
+        decision_id TEXT NOT NULL REFERENCES supervisor_control_decision(id) ON DELETE CASCADE,
+        run_id TEXT NOT NULL REFERENCES autonomous_delivery_run(id) ON DELETE CASCADE,
+        type TEXT NOT NULL CHECK(type IN (
+          'activate','retry','requestGate','resume','escalateToHuman','terminate'
+        )),
+        target_work_id TEXT,
+        work_epoch INTEGER,
+        slot_id TEXT,
+        reason_code TEXT NOT NULL,
+        retry_budget_kind TEXT CHECK(retry_budget_kind IS NULL OR retry_budget_kind IN (
+          'invocation','effect','task_rework','agent_local'
+        )),
+        termination_outcome TEXT CHECK(
+          termination_outcome IS NULL OR termination_outcome IN ('completed','failed')
+        ),
+        status TEXT NOT NULL CHECK(status IN ('ready','claimed','applied','failed','cancelled')),
+        claim_token TEXT,
+        lease_owner TEXT,
+        lease_expires_at TEXT,
+        failure_code TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        completed_at TEXT,
+        CHECK(
+          (target_work_id IS NULL AND work_epoch IS NULL)
+          OR (target_work_id IS NOT NULL AND work_epoch IS NOT NULL AND work_epoch>=0)
+        )
+      );
+      CREATE INDEX IF NOT EXISTS idx_supervisor_control_action_claim
+        ON supervisor_control_action(run_id,status,created_at);
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_supervisor_control_active_slot
+        ON supervisor_control_action(run_id,slot_id)
+        WHERE slot_id IS NOT NULL AND type='activate' AND status IN ('claimed','applied');
+    `,
+  },
 ];
 
 export function applyMigrations(db: Database.Database): void {

@@ -144,6 +144,10 @@
   约束下选择可激活 Work Cell；纯决策层已支持全局/角色容量，尚需接入事实快照与 claim CAS。
 - [x] 增加确定性公平 aging、角色容量与饥饿排序测试。
 - [x] 支持一次 reconcile 决策返回容量约束的有序动作集，冻结 action identity。
+- [x] Migration 64 持久化 ControlDecision 和非 wait ControlAction；首次保存与 claim
+  双重校验项目事件 cursor，claim 另校验 workEpoch、slot 唯一占用和 lease token。
+- [ ] 用权威 Task/A2A/Gate/Inbox/Invocation/Effect 事实构造
+  `SupervisorControlSnapshot`，并把持久 ControlAction 接到各 owner Command。
 - [ ] 将 blocking Effect 分类、适用区间和显式 cancelled/superseded 写入 Effect Command，
   并接入 Closure CAS。
 

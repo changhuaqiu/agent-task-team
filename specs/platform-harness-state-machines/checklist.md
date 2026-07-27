@@ -57,6 +57,9 @@ Task 切片证据：
 
 ## 集成
 
+- [x] ControlDecision 非 wait 动作持久化；claim 校验项目 snapshot cursor、workEpoch、
+  slot reservation 和 lease token。
+- [ ] 持久 ControlAction 已接入各领域 owner Command，并由新事实释放 slot。
 - [x] Human 可以通过 WebUI 发送 `manual_resume` Command；WebUI 不自行推进状态。
 - [x] Human A2A 从 WebUI 提交服务端 Command，浏览器不直接启动后再补登记协作状态。
 - [x] WebUI 自动更新只消费版本化 `project:view / a2a.snapshot` Projection；

@@ -559,6 +559,13 @@ ControlAction {
 `observedAt`、snapshot revision、policy revision、全局/角色容量和四类独立重试预算。
 公平 aging 只使用快照时间，因此重放同一快照不会因墙钟变化产生不同排序。
 
+持久化入口为 `autonomous-delivery/control-decision-repository.ts`。项目级
+`platform_event_ingestion` cursor 是 snapshot revision：decision 首次保存和 action claim
+都必须重新比对该 cursor；带 target 的动作还必须比对 `WorkAuthority.currentEpoch`。
+`activate` claim 通过数据库部分唯一索引占用 `(runId, slotId)`，claim 使用 lease/token，
+崩溃后可回收。`wait` 仍是纯观察结果，不写 action 表；新 decision 只取消旧 decision 中
+尚未 claim 的动作，已 claim 动作继续依赖 owner 的 fencing/CAS 决定能否生效。
+
 ## 9. 错误如何进入事件设计
 
 错误不能只是一段 CLI 文本。Adapter 先保留原始诊断，再归一化为有语义的事实。
