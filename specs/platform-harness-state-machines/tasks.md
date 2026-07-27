@@ -55,6 +55,9 @@
 - [x] 统一 review request、evidence、decision 数据模型。
 - [x] 将 Git / Delivery review 与 verification receipt 接入 Gate owner。
 - [x] 接通 `requestGate`、`changes_requested`、`passed`。
+- [x] durable Gate Outcome Process Manager 将接纳的 `record_gate_decision` Outcome 校验后
+  翻译为 Gate owner 的 evidence/evaluating/decision Commands；Delivery Gate 同步保存
+  已校验 receipt，不再依赖旧 Supervisor 轮询 proof 文本。
 
 已完成的子项：
 

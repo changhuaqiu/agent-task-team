@@ -387,6 +387,9 @@ Delivery Receipt 都只能作为 Gate 的输入证据或投影，不能再自行
 verification 绑定 receipt 的 code revision（缺失时绑定不可混淆的 proof revision）。
 Delivery Process Manager 消费 `gate.*`，Delivery facts 读取 Gate status，receipt 仅用于
 最终 Bundle 投影。数据库同时保护 Evidence/Decision 不可变、状态迁移和终态不可复活。
+Gate Agent 通过 `record_gate_decision` 结构化 Outcome 返回判定。durable Gate Outcome
+Process Manager 只负责把已接纳 Outcome 翻译成 Gate owner Commands，并校验 Contract
+project/agent/target；Delivery review/verification receipt 同步保存为证据，但最终状态只读 Gate。
 
 Effect 创建时必须冻结：
 

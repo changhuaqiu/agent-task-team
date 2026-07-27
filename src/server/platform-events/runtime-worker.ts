@@ -23,6 +23,7 @@ import {
 import type { A2AProjectionSnapshot } from '../../shared/project-view-events';
 import { A2AProjectViewProjection } from './a2a-project-view-projection';
 import { ControlSlotReleaseProcessManager } from '../autonomous-delivery/control-slot-release-process-manager';
+import { GateOutcomeProcessManager } from '../quality-gate/outcome-process-manager';
 
 let worker: PlatformEventRuntimeWorker | undefined;
 
@@ -162,6 +163,15 @@ export class PlatformEventRuntimeWorker {
         handle: a2aOutcome.handle,
       });
     }
+    const gateOutcome = new GateOutcomeProcessManager();
+    this.dispatcher.register({
+      id: 'gate-outcome-process-manager:v1',
+      pattern: 'agent.outcome.accepted',
+      stereotype: 'process_manager',
+      reliability: 'durable',
+      timeoutMs: 5_000,
+      handle: gateOutcome.handle,
+    });
     if (resolved.a2aLifecycle !== false) {
       const a2aLifecycle = new A2ALifecycleProcessManager(resolved.a2aLifecycle);
       for (const [id, pattern] of [

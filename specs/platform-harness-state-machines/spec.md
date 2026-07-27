@@ -125,6 +125,23 @@ type AgentOutcome = {
 - ACP 使用 invocation-scoped `agent_submit_outcome` 平台工具，由 grant 注入安全信封；
   其他 Runtime 使用 `POST /api/agent-outcomes` 的完整信封入口。
 
+Gate Agent 必须提交结构化 `record_gate_decision` Outcome：
+
+```ts
+{
+  gateId: string
+  decision: 'passed' | 'changes_requested' | 'rejected'
+  reason?: string
+  evidenceType: string
+  evidence: unknown
+  receipt?: AcceptanceReviewReceipt | AcceptanceVerificationReceipt
+}
+```
+
+durable Gate Outcome Process Manager 校验 Contract 的 project、agent、task/delivery target，
+再依次调用 Gate owner 的 evidence/evaluating/decision Command。Delivery Gate 的 passed
+决定必须携带可校验 receipt；该 receipt 作为 Delivery 证据保存，但 Gate 仍是唯一 pass/fail owner。
+
 ## 6. 状态机契约
 
 实现必须遵守长期设计 §5 的状态和完成语义。所有迁移由 owner 暴露的显式 transition API
