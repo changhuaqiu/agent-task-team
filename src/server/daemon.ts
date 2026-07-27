@@ -441,6 +441,12 @@ export default function registerDaemon(io: IOServer) {
   });
 
   startPlatformEventRuntime({
+    onA2AProjected: (snapshot) => {
+      projectViewPublisher.publish(snapshot.conversationId, {
+        kind: 'a2a.snapshot',
+        payload: { snapshot },
+      });
+    },
     onMessageProjected: (message) => {
       projectViewPublisher.publish(message.conversation_id, {
         kind: 'chat.message.persisted',

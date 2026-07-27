@@ -19,10 +19,18 @@ function statusLabel(status: A2APossessionView['handoffs'][number]['status']) {
   switch (status) {
     case 'offered':
       return '已发起交接';
+    case 'accepted':
+      return '已接纳';
+    case 'starting':
+      return '启动中';
     case 'started':
       return '已接球';
     case 'blocked':
       return '交接被阻止';
+    case 'rejected':
+      return '交接被拒绝';
+    case 'error':
+      return '交接失败';
     case 'timeout':
       return '交接超时';
     case 'completed':
@@ -69,12 +77,17 @@ export function A2APossessionStrip() {
   if ((!a2a || a2a.handoffs.length === 0) && !latestReceipt) return null;
 
   const latest = a2a?.handoffs[a2a.handoffs.length - 1];
-  const holder = agentLabel(a2a?.currentHolderId ?? latestReceipt?.targetAgentId, roster);
+  const holders = a2a?.currentHolderIds.map((agentId) => agentLabel(agentId, roster)) ?? [];
+  const holder = holders.length > 0
+    ? holders.join('、')
+    : agentLabel(latestReceipt?.targetAgentId, roster);
   const from = agentLabel(latest?.fromAgentId, roster);
   const to = agentLabel(latest?.toAgentId, roster);
   const receiptTarget = agentLabel(latestReceipt?.targetAgentId, roster);
   const isBlocked = latest?.status === 'blocked'
     || latest?.status === 'timeout'
+    || latest?.status === 'rejected'
+    || latest?.status === 'error'
     || latestReceipt?.phase === 'rejected';
   const timeline = a2a ? [...a2a.handoffs].reverse() : [];
   const receiptTimeline = [...dispatchReceipts].reverse().slice(0, 8);
@@ -144,7 +157,10 @@ export function A2APossessionStrip() {
         <div className="mt-2 border-t border-[hsl(var(--border-subtle))] pt-2">
           <div className="flex flex-col gap-1.5">
             {timeline.map((handoff, index) => {
-              const blocked = handoff.status === 'blocked' || handoff.status === 'timeout';
+              const blocked = handoff.status === 'blocked'
+                || handoff.status === 'timeout'
+                || handoff.status === 'rejected'
+                || handoff.status === 'error';
               return (
                 <div
                   key={handoff.id}

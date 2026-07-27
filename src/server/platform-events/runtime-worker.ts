@@ -20,6 +20,8 @@ import {
   A2ALifecycleProcessManager,
   type A2ALifecycleProcessManagerOptions,
 } from '../a2a/lifecycle-process-manager';
+import type { A2AProjectionSnapshot } from '../../shared/project-view-events';
+import { A2AProjectViewProjection } from './a2a-project-view-projection';
 
 let worker: PlatformEventRuntimeWorker | undefined;
 
@@ -36,6 +38,7 @@ export interface PlatformEventRuntimeWorkerOptions {
   deliveryAdvancement?: DeliveryAdvancementPort;
   onObservabilityUpdated?: (projectId: string, invocationId: string) => void;
   onMessageProjected?: (message: MessageRow) => void;
+  onA2AProjected?: (snapshot: A2AProjectionSnapshot) => void;
   effectOutbox?: WorkerEffects;
   a2aOutcome?: A2AOutcomeProcessManagerOptions | false;
   a2aLifecycle?: A2ALifecycleProcessManagerOptions | false;
@@ -83,6 +86,16 @@ export class PlatformEventRuntimeWorker {
       stereotype: 'projection',
       reliability: 'durable',
       handle: observabilityProjection.handle,
+    });
+    const a2aProjectViewProjection = new A2AProjectViewProjection({
+      onProjected: resolved.onA2AProjected,
+    });
+    this.dispatcher.register({
+      id: 'a2a-project-view-projection:v1',
+      pattern: 'a2a.*',
+      stereotype: 'projection',
+      reliability: 'durable',
+      handle: a2aProjectViewProjection.handle,
     });
     if (resolved.effectOutbox) {
       const completionProcessManager = new RuntimeCompletionProcessManager(

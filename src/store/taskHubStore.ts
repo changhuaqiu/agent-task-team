@@ -41,7 +41,7 @@ import type { Phase } from '@/types/phase';
 import type { PhaseProposal } from '@/lib/breakdownParser';
 import type { SkillSummary } from '@/lib/agent-context/types';
 import type { DetectedRuntime, CliEngine } from '@/server/types';
-import type { A2AHandoffStatus, A2APossessionView, ChatMessage, ToolEvent } from './types';
+import type { A2APossessionView, ChatMessage, ToolEvent } from './types';
 export type { A2AHandoffStatus, A2AHandoffView, A2APossessionView, ChatMessage, ToolEvent } from './types';
 
 // Re-export types from sub-stores (backward compatibility)
@@ -759,9 +759,7 @@ export interface TaskHubState {
   getA2AForSelectedConversation: () => A2APossessionView | undefined;
   getDispatchReceiptsForSelectedConversation: () => DispatchReceipt[];
   recordDispatchReceipt: (receipt: DispatchReceipt) => void;
-  recordA2APassOffer: (payload: { conversationId: string; chainId: string; passId?: string; fromAgentId?: string; toAgentId?: string; title?: string }) => void;
-  recordA2APossessionChanged: (payload: { conversationId: string; chainId: string; currentHolderId: string; passId?: string }) => void;
-  recordA2APassBlocked: (payload: { conversationId: string; chainId?: string; passId?: string; fromAgentId?: string; toAgentId?: string; reason: string; status?: A2AHandoffStatus }) => void;
+  replaceA2AProjection: (snapshot: A2APossessionView) => void;
 
   loadFromServer: () => Promise<void>;
   refreshConversationMessages: (conversationId: string) => Promise<void>;
@@ -1031,105 +1029,12 @@ export const useTaskHubStore = create<TaskHubState>()(
             },
           };
         }),
-        recordA2APassOffer: (payload: { conversationId: string; chainId: string; passId?: string; fromAgentId?: string; toAgentId?: string; title?: string }) => set((state: TaskHubState) => {
-          const now = new Date().toISOString();
-          const existing: A2APossessionView = state.a2aByConversation[payload.conversationId] ?? {
-            chainId: payload.chainId,
-            status: 'active',
-            updatedAt: now,
-            handoffs: [],
-          };
-          const handoffId = payload.passId ?? `offer-${payload.chainId}-${now}`;
-          const handoffs = [
-            ...existing.handoffs.filter((handoff) => handoff.id !== handoffId),
-            {
-              id: handoffId,
-              chainId: payload.chainId,
-              passId: payload.passId,
-              fromAgentId: payload.fromAgentId,
-              toAgentId: payload.toAgentId,
-              status: 'offered' as const,
-              title: payload.title,
-              timestamp: now,
-            },
-          ].slice(-8);
-          return {
-            a2aByConversation: {
-              ...state.a2aByConversation,
-              [payload.conversationId]: {
-                ...existing,
-                chainId: payload.chainId,
-                status: 'active',
-                updatedAt: now,
-                handoffs,
-              },
-            },
-          };
-        }),
-        recordA2APossessionChanged: (payload: { conversationId: string; chainId: string; currentHolderId: string; passId?: string }) => set((state: TaskHubState) => {
-          const now = new Date().toISOString();
-          const existing: A2APossessionView = state.a2aByConversation[payload.conversationId] ?? {
-            chainId: payload.chainId,
-            status: 'active',
-            updatedAt: now,
-            handoffs: [],
-          };
-          const handoffs = existing.handoffs.map((handoff) =>
-            payload.passId && handoff.passId === payload.passId
-              ? { ...handoff, status: 'started' as const, timestamp: now }
-              : handoff
-          );
-          return {
-            a2aByConversation: {
-              ...state.a2aByConversation,
-              [payload.conversationId]: {
-                ...existing,
-                chainId: payload.chainId,
-                currentHolderId: payload.currentHolderId,
-                status: 'active',
-                updatedAt: now,
-                handoffs,
-              },
-            },
-          };
-        }),
-        recordA2APassBlocked: (payload: { conversationId: string; chainId?: string; passId?: string; fromAgentId?: string; toAgentId?: string; reason: string; status?: A2AHandoffStatus }) => set((state: TaskHubState) => {
-          const now = new Date().toISOString();
-          const chainId = payload.chainId ?? state.a2aByConversation[payload.conversationId]?.chainId ?? `blocked-${now}`;
-          const existing: A2APossessionView = state.a2aByConversation[payload.conversationId] ?? {
-            chainId,
-            status: 'active',
-            updatedAt: now,
-            handoffs: [],
-          };
-          const handoffId = payload.passId ?? `blocked-${chainId}-${now}`;
-          const status = payload.status ?? 'blocked';
-          const handoffs = [
-            ...existing.handoffs.filter((handoff) => handoff.id !== handoffId),
-            {
-              id: handoffId,
-              chainId,
-              passId: payload.passId,
-              fromAgentId: payload.fromAgentId,
-              toAgentId: payload.toAgentId,
-              status,
-              reason: payload.reason,
-              timestamp: now,
-            },
-          ].slice(-8);
-          return {
-            a2aByConversation: {
-              ...state.a2aByConversation,
-              [payload.conversationId]: {
-                ...existing,
-                chainId,
-                status: status === 'timeout' ? 'timeout' : 'blocked',
-                updatedAt: now,
-                handoffs,
-              },
-            },
-          };
-        }),
+        replaceA2AProjection: (snapshot: A2APossessionView) => set((state: TaskHubState) => ({
+          a2aByConversation: {
+            ...state.a2aByConversation,
+            [snapshot.conversationId]: snapshot,
+          },
+        })),
 
         getEffectiveRoster: () => {
           return getCachedEffectiveRoster(get());
@@ -1313,6 +1218,11 @@ export const useTaskHubStore = create<TaskHubState>()(
               ),
               agentSessions: serverSessions,
               needsFullCompose: hydratedNeedsFullCompose,
+              a2aByConversation: Object.fromEntries(
+                ((data.a2aSnapshots || []) as A2APossessionView[])
+                  .filter((snapshot) => snapshot?.conversationId && snapshot?.chainId)
+                  .map((snapshot) => [snapshot.conversationId, snapshot]),
+              ),
             }));
 
             // Keep a still-valid selection, otherwise use the most recently
@@ -2397,20 +2307,6 @@ function handleAgentEvent(event: {
   }
 }
 
-socket.on('a2a:notice', ({
-  projectId,
-  conversationId,
-  content,
-}: {
-  projectId?: string;
-  conversationId?: string;
-  kind?: string;
-  content?: string;
-}) => {
-  if (!isCurrentProjectEvent(projectId, conversationId) || !content) return;
-  appendProjectedChatMessage(projectId, 'system', content);
-});
-
 function handleAgentDelta(event: {
   projectId: string;
   agentId: string;
@@ -2536,6 +2432,17 @@ export function consumeProjectViewEvent(envelope: unknown): boolean {
       type: 'runtime.usage',
       payload: { ...payload, agentId, invocationId: event.invocationId },
     });
+  } else if (event.kind === 'a2a.snapshot') {
+    const snapshot = payload.snapshot;
+    if (!snapshot || typeof snapshot !== 'object') return false;
+    const candidate = snapshot as Partial<A2APossessionView>;
+    if (
+      candidate.conversationId !== event.projectId
+      || typeof candidate.chainId !== 'string'
+      || !Array.isArray(candidate.currentHolderIds)
+      || !Array.isArray(candidate.handoffs)
+    ) return false;
+    useTaskHubStore.getState().replaceA2AProjection(candidate as A2APossessionView);
   } else if (event.kind === 'chat.message.persisted') {
     const rawMessage = payload.message;
     if (!rawMessage || typeof rawMessage !== 'object') return false;
@@ -2587,18 +2494,6 @@ export function consumeProjectViewEvent(envelope: unknown): boolean {
 
 socket.on(PROJECT_VIEW_CHANNEL, consumeProjectViewEvent);
 
-socket.on('a2a:pass-offer', ({ projectId, agentId, fromAgentId, conversationId, chainId, passId }: { projectId?: string; agentId: string; fromAgentId?: string; conversationId?: string; chainId?: string; passId?: string }) => {
-  if (!isCurrentProjectEvent(projectId, conversationId) || !chainId) return;
-  useTaskHubStore.getState().recordA2APassOffer({
-    conversationId: projectId,
-    chainId,
-    passId,
-    fromAgentId,
-    toAgentId: agentId,
-    title: fromAgentId ? `${fromAgentId} 交接给 ${agentId}` : `交接给 ${agentId}`,
-  });
-});
-
 socket.on('dispatch.receipt', (receipt: DispatchReceipt) => {
   if (!receipt || !isCurrentProjectEvent(receipt.projectId, receipt.conversationId)) return;
   if (!receipt.receiptId || !receipt.targetAgentId) return;
@@ -2609,29 +2504,6 @@ socket.on('dispatch.receipt', (receipt: DispatchReceipt) => {
     clearInFlightDispatch(receipt.targetAgentId, receipt.conversationId);
   }
   useTaskHubStore.getState().recordDispatchReceipt(receipt);
-});
-
-socket.on('a2a:possession-changed', ({ projectId, chainId, conversationId, currentHolderId, passId }: { projectId?: string; chainId?: string; conversationId?: string; currentHolderId?: string; passId?: string }) => {
-  if (!isCurrentProjectEvent(projectId, conversationId) || !chainId || !currentHolderId) return;
-  useTaskHubStore.getState().recordA2APossessionChanged({
-    conversationId: projectId,
-    chainId,
-    currentHolderId,
-    passId,
-  });
-});
-
-socket.on('a2a:pass-blocked', ({ projectId, conversationId, chainId, passId, fromAgentId, toAgentId, reason, status }: { projectId?: string; conversationId?: string; chainId?: string; passId?: string; fromAgentId?: string; toAgentId?: string; reason?: string; status?: A2AHandoffStatus }) => {
-  if (!isCurrentProjectEvent(projectId, conversationId) || !reason) return;
-  useTaskHubStore.getState().recordA2APassBlocked({
-    conversationId: projectId,
-    chainId,
-    passId,
-    fromAgentId,
-    toAgentId,
-    reason,
-    status,
-  });
 });
 
 function handleTerminalExit({ projectId, agentId, code, command, reasonCode, activity }: {
@@ -2694,16 +2566,6 @@ function handleTerminalExit({ projectId, agentId, code, command, reasonCode, act
   }));
   useTaskHubStore.getState().completeStreamMessage(agentId);
 }
-
-socket.on('a2a:dispatch', ({ projectId, agentId, referencedTaskId, fromAgentId, conversationId, chainId, entryId, passId }: { projectId?: string; agentId: string; referencedTaskId?: string; fromAgentId: string; conversationId?: string; chainId?: string; entryId?: string; passId?: string }) => {
-  if (!isCurrentProjectEvent(projectId, conversationId)) return;
-  console.log(`[a2a:v2] chain=${chainId} dispatch ${fromAgentId} → ${agentId}`);
-  useTaskHubStore.getState().addEvent({
-    conversationId: projectId,
-    type: 'a2a.dispatch_requested',
-    payload: { agentId, referencedTaskId, fromAgentId, chainId, entryId, passId },
-  });
-});
 
 socket.on('command:error', ({ projectId, agentId, message }: {
   projectId?: string;

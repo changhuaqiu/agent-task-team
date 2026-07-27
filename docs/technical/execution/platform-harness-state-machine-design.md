@@ -151,6 +151,8 @@ A2A 的目标权威是一个 `A2ACollaboration` 聚合，而不是 Chain、Workl
 - `Possession` 是“谁有权交接”的权威；
 - `Pass` 是从一个 Possession 到另一个 Possession 的转换尝试；
 - 观测关系直接由 `a2a_pass` 与 `a2a_possession_chain` 派生，不再读取旧 Worklist；
+- WebUI 只接收服务端生成的完整 `a2a.snapshot`，首屏与重连从 `/api/state` 恢复；
+  fan-out 的当前持有者是 `currentHolderIds[]`，不得压缩成单一 holder；
 - `invocation_chain / chain_worklist / a2a_audit_log / a2a_delivery` 停止读写后通过显式迁移删除，
   不保留第二套兼容状态机。
 

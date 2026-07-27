@@ -117,7 +117,9 @@
   AgentMessenger 实例已删除；任何 Invocation 的最终文本都不再创建协作。
 - [x] 项目观测关系已只从权威 `a2a_pass` 与 `a2a_possession_chain` 派生；
   Context prompt 只教授结构化 `agent_submit_outcome`，不再保留文本扫描协议。
-- [ ] 旧 AgentMessenger/Orchestrator 源文件、浏览器旧 A2A socket 投影与历史表尚需删除；
+- [x] WebUI A2A 状态已改为服务端 `a2a.snapshot` Projection；首屏由 `/api/state`
+  恢复同一快照，实时更新只替换读模型，不再消费五组 Orchestrator socket 控制事件。
+- [ ] 旧 AgentMessenger/Orchestrator 源文件与历史表尚需删除；
   在 `invocation_chain / chain_worklist / a2a_audit_log / a2a_delivery` 完全退役前，S4 不算完成。
 
 ## S5：Delivery Supervisor

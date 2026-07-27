@@ -141,7 +141,7 @@ Task mutation / Autonomy Guard / A2A pass
 | Dispatch 生命周期 | ExecutionEnvelope / DispatchGateway |
 | 进程与会话 | Runtime Port / Session / Invocation |
 | A2A 持有权 | A2A possession/pass |
-| UI busy 和流式内容 | 服务端状态投影 |
+| UI busy、流式内容和 A2A 时间线 | 服务端状态投影；A2A 使用完整 `a2a.snapshot` |
 
 ## 已知迁移边界
 

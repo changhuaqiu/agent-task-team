@@ -56,7 +56,8 @@ Task 切片证据：
 
 - [x] Human 可以通过 WebUI 发送 `manual_resume` Command；WebUI 不自行推进状态。
 - [x] Human A2A 从 WebUI 提交服务端 Command，浏览器不直接启动后再补登记协作状态。
-- [ ] WebUI 自动更新仍只消费 Projection。
+- [x] WebUI 自动更新只消费版本化 `project:view / a2a.snapshot` Projection；
+  多分支 holder 使用 `currentHolderIds[]`，浏览器不从投影反向派发。
 - [ ] 领域事实与 Event Outbox 原子提交。
 - [ ] 外部 I/O 经过 Durable Effect Outbox。
 - [ ] blocking Effect 从 appliesFromRevision 持续适用，只有显式 cancelled/superseded 才退出收口检查。

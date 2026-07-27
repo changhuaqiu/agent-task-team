@@ -5,6 +5,7 @@ import { messageRepo } from '@/server/repositories/message-repo';
 import { sessionRepo } from '@/server/repositories/session-repo';
 import { invocationRepo } from '@/server/repositories/invocation-repo';
 import { skillRepo } from '@/server/repositories/skill-repo';
+import { A2AReadModelProjection } from '@/server/a2a/projection';
 
 export default function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return res.status(405).end();
@@ -24,6 +25,9 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
 
     // Load recent invocations (last 50)
     const recentInvocations = invocationRepo.listRecent({ limit: 50 });
+    const a2aSnapshots = new A2AReadModelProjection().list(
+      conversations.map((conversation) => conversation.id),
+    );
 
     res.status(200).json({
       conversations,
@@ -31,6 +35,7 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
       recentMessages,
       activeSessions,
       recentInvocations,
+      a2aSnapshots,
       skills: skillRepo.list(),
       agentSkillIds: skillRepo.getAllAgentSkillIds(),
     });

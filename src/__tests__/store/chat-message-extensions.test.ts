@@ -4,7 +4,6 @@ import { selectUserEntryAgentIds, shouldTriggerInitialProposal, useTaskHubStore 
 describe('ChatMessage extensions', () => {
   beforeEach(() => {
     // Reset store to a clean state before each test
-    const store = useTaskHubStore.getState();
     useTaskHubStore.setState({
       conversations: [],
       selectedConversationId: null,
@@ -17,7 +16,7 @@ describe('ChatMessage extensions', () => {
       activeStreamConversationId: {},
       activeAgentIds: ['mario', 'luigi'],
     });
-    (globalThis as any).requestAnimationFrame = (callback: FrameRequestCallback) => {
+    globalThis.requestAnimationFrame = (callback: FrameRequestCallback) => {
       setTimeout(() => callback(0), 0);
       return 0;
     };
@@ -44,25 +43,30 @@ describe('ChatMessage extensions', () => {
   });
 
   describe('A2A possession view state', () => {
-    it('records pass offer and started possession handoff', () => {
+    it('replaces the local view with a server-owned multi-holder projection', () => {
       useTaskHubStore.setState({ selectedConversationId: 'conv-1' });
 
-      useTaskHubStore.getState().recordA2APassOffer({
+      useTaskHubStore.getState().replaceA2AProjection({
         conversationId: 'conv-1',
         chainId: 'chain-1',
-        passId: 'pass-1',
-        fromAgentId: 'mario',
-        toAgentId: 'luigi',
-      });
-      useTaskHubStore.getState().recordA2APossessionChanged({
-        conversationId: 'conv-1',
-        chainId: 'chain-1',
-        currentHolderId: 'luigi',
-        passId: 'pass-1',
+        revision: 2,
+        currentHolderIds: ['luigi', 'peach'],
+        status: 'active',
+        updatedAt: '2026-07-28T00:00:00.000Z',
+        handoffs: [{
+          id: 'pass-1',
+          chainId: 'chain-1',
+          passId: 'pass-1',
+          fromAgentId: 'mario',
+          toAgentId: 'luigi',
+          status: 'started',
+          intent: 'implement',
+          timestamp: '2026-07-28T00:00:00.000Z',
+        }],
       });
 
       const view = useTaskHubStore.getState().getA2AForSelectedConversation();
-      expect(view?.currentHolderId).toBe('luigi');
+      expect(view?.currentHolderIds).toEqual(['luigi', 'peach']);
       expect(view?.handoffs).toHaveLength(1);
       expect(view?.handoffs[0]).toMatchObject({
         passId: 'pass-1',
@@ -71,47 +75,10 @@ describe('ChatMessage extensions', () => {
         status: 'started',
       });
     });
-
-    it('records blocked pass reasons for the selected conversation', () => {
-      useTaskHubStore.setState({ selectedConversationId: 'conv-1' });
-
-      useTaskHubStore.getState().recordA2APassBlocked({
-        conversationId: 'conv-1',
-        chainId: 'chain-1',
-        fromAgentId: 'mario',
-        toAgentId: 'dk',
-        reason: '当前团队没有可接收 @dk 的角色',
-      });
-
-      const view = useTaskHubStore.getState().getA2AForSelectedConversation();
-      expect(view?.status).toBe('blocked');
-      expect(view?.handoffs[0].status).toBe('blocked');
-      expect(view?.handoffs[0].reason).toContain('@dk');
-    });
-
-    it('keeps only the latest eight handoff events for the timeline', () => {
-      useTaskHubStore.setState({ selectedConversationId: 'conv-1' });
-
-      for (let i = 0; i < 10; i++) {
-        useTaskHubStore.getState().recordA2APassOffer({
-          conversationId: 'conv-1',
-          chainId: 'chain-1',
-          passId: `pass-${i}`,
-          fromAgentId: 'mario',
-          toAgentId: 'luigi',
-        });
-      }
-
-      const view = useTaskHubStore.getState().getA2AForSelectedConversation();
-      expect(view?.handoffs).toHaveLength(8);
-      expect(view?.handoffs[0].passId).toBe('pass-2');
-      expect(view?.handoffs[7].passId).toBe('pass-9');
-    });
   });
 
   describe('getAgentCurrentTask', () => {
     it('returns the in_progress task for a given agent', () => {
-      const store = useTaskHubStore.getState();
       // Set up a conversation and a task
       useTaskHubStore.setState({
         conversations: [

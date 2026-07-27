@@ -177,17 +177,25 @@ describe('review gate wakeup', () => {
       .toContainEqual(expect.objectContaining({ id: 'msg-server-owned' }));
   });
 
-  it('does not execute a server-owned A2A dispatch twice', async () => {
+  it('does not execute work when an A2A projection is received', async () => {
     const emitSpy = vi.spyOn(socket, 'emit').mockImplementation(() => socket);
 
-    emitServerEvent('a2a:dispatch', {
+    emitServerEvent('project:view', {
+      version: 1,
       projectId: 'conv-review',
-      agentId: 'mario',
-      prompt: 'Continue server-side',
-      fromAgentId: 'dk',
-      conversationId: 'conv-review',
-      chainId: 'chain-1',
-      entryId: 'entry-1',
+      occurredAt: '2026-07-28T00:00:00.000Z',
+      kind: 'a2a.snapshot',
+      payload: {
+        snapshot: {
+          conversationId: 'conv-review',
+          chainId: 'chain-1',
+          revision: 1,
+          currentHolderIds: ['mario'],
+          status: 'active',
+          updatedAt: '2026-07-28T00:00:00.000Z',
+          handoffs: [],
+        },
+      },
     });
 
     await Promise.resolve();
