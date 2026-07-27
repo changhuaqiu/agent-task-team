@@ -89,5 +89,6 @@ Task 切片证据：
 - [ ] Agent 可主动交接，接球者获得可追溯的新 ContextSnapshot。
 - [x] Gate 绑定具体 artifact/evidence revision，旧 revision 的通过不能授权新产物。
 - [ ] profile、context、session、transport、process、semantic 六类故障走不同恢复路径。
+- [x] Task dependency 的跨 Work Cell wait-for cycle 可检测并升级给人，不盲目重试 Agent。
 - [ ] Human 从 WebUI 补齐条件后能恢复原 work correlation。
 - [ ] Delivery 只有在 Task、Gate、active work 和 blocking effect 全部满足条件后才完成。

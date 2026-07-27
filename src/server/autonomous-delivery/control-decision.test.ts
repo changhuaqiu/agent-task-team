@@ -183,4 +183,20 @@ describe('decideControlActions', () => {
       retryBudgetKind: 'effect',
     }]);
   });
+
+  it('escalates a cross-Work-Cell wait-for deadlock without retrying an Agent', () => {
+    const facts = snapshot([
+      cell('work-a', 'waiting_dependency'),
+      cell('work-b', 'waiting_dependency'),
+    ]);
+    facts.closure.deadlock = {
+      cycle: ['work-a', 'work-b', 'work-a'],
+      reasonCode: 'wait_for_deadlock:work-a->work-b->work-a',
+    };
+
+    expect(decideControlActions(facts, POLICY).actions).toMatchObject([{
+      type: 'escalateToHuman',
+      reasonCode: 'wait_for_deadlock:work-a->work-b->work-a',
+    }]);
+  });
 });

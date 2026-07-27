@@ -157,6 +157,9 @@
   Task/Bundle/blocking Effect Closure，Runtime started/terminated 释放 slot。
 - [ ] 用新 DeliveryControlProcessManager 替换 bootstrap 中旧
   `decideDeliveryNext` 单动作循环，并删除旧 policy/action 状态。
+- [x] 建立稳定 wait-for graph cycle 检测，Task dependency deadlock 进入 Human escalation，
+  不消耗 Invocation/Effect/Task rework/Agent-local 任一重试预算。
+- [ ] 将 A2A join、Gate 与容量等待边接入 wait-for graph，并定义可自动打破的安全边。
 - [x] 将 blocking Effect 分类、适用区间、创建时 retry budget 和显式
   cancelled/superseded 写入现有 Effect Outbox，并接入 Control snapshot closure；
   dead-letter 产生 Human escalation，pending 产生无副作用 wait。

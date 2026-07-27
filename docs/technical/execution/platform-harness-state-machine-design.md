@@ -588,6 +588,11 @@ requestGate 写入唯一 QualityGate owner，并在同一 SQLite 事务重新读
 Delivery 终止；它不直接启动 Runtime。Runtime started/terminated 事实会释放 activate 的
 slot reservation。该 adapter 尚未替换生产 bootstrap 中的旧单动作 Supervisor 循环。
 
+跨 Work Cell 等待使用显式 wait-for graph。当前 Task dependency 已投影为
+`waiter -> blocker` 边，稳定 DFS 返回可复放的第一条 cycle；检测到 cycle 后产生
+`escalateToHuman(wait_for_deadlock:...)`，不会把它误当成某个 Agent 的 Invocation 失败而
+消耗重试预算。A2A join、Gate 与容量等待边将在 bootstrap 切换前接入同一图。
+
 ## 9. 错误如何进入事件设计
 
 错误不能只是一段 CLI 文本。Adapter 先保留原始诊断，再归一化为有语义的事实。

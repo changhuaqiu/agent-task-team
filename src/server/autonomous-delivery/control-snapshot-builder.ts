@@ -8,6 +8,7 @@ import type {
 } from './control-decision';
 import { ControlDecisionRepository } from './control-decision-repository';
 import { DurableEffectOutbox } from '../platform-events/durable-effect-outbox';
+import { detectWaitForDeadlock, type WaitForEdge } from './wait-for-graph';
 
 interface WorkCellFactRow {
   work_id: string;
@@ -135,12 +136,31 @@ export class RepositoryControlSnapshotBuilder {
       FROM task WHERE conversation_id=? ORDER BY created_at,id
     `).all(run.conversation_id) as TaskFactRow[];
     const taskStatus = new Map(tasks.map((task) => [task.id, task.status]));
+    const taskWorkId = new Map(tasks.map((task) => [
+      task.id,
+      `task:${task.id}:agent:${task.agent_id}:purpose:execute`,
+    ]));
+    const waitEdges: WaitForEdge[] = [];
     for (const task of tasks) {
       if (!task.agent_id.trim()) continue;
       const workId = `task:${task.id}:agent:${task.agent_id}:purpose:execute`;
+      let dependencies: string[] = [];
+      try {
+        dependencies = task.dependencies ? JSON.parse(task.dependencies) as string[] : [];
+      } catch {
+        // Malformed dependency facts remain waiting but do not invent graph edges.
+      }
+      for (const dependency of dependencies) {
+        if (taskStatus.get(dependency) === 'done') continue;
+        const blocker = taskWorkId.get(dependency);
+        if (blocker) {
+          waitEdges.push({ waiter: workId, blocker, reasonCode: 'task_dependency' });
+        }
+      }
       if (representedWork.has(workId)) continue;
       workCells.push(this.unissuedTaskCell(task, workId, taskStatus));
     }
+    const deadlock = detectWaitForDeadlock(waitEdges);
     const blockingEffects = new DurableEffectOutbox({ db })
       .listApplicableBlocking(runId, run.revision);
     const blockingEffect = blockingEffects.find((effect) => effect.status === 'dead_letter')
@@ -164,6 +184,12 @@ export class RepositoryControlSnapshotBuilder {
               : 'pending' as const,
             attemptsUsed: blockingEffect.attemptCount,
             maxAttempts: blockingEffect.maxAttempts,
+          },
+        } : {}),
+        ...(deadlock ? {
+          deadlock: {
+            cycle: deadlock.cycle,
+            reasonCode: `wait_for_deadlock:${deadlock.cycle.join('->')}`,
           },
         } : {}),
       },

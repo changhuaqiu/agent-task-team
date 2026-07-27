@@ -182,6 +182,34 @@ describe('RepositoryControlSnapshotBuilder', () => {
     expect(after.workCells.find((cell) => cell.workId.includes('task-b'))?.state).toBe('ready');
   });
 
+  it('projects a cyclic Task dependency as a wait-for deadlock', () => {
+    taskRepo.create({
+      id: 'task-a',
+      conversation_id: 'project-1',
+      title: 'A',
+      agent_id: 'agent-a',
+      dependencies: ['task-b'],
+    }, now);
+    taskRepo.create({
+      id: 'task-b',
+      conversation_id: 'project-1',
+      title: 'B',
+      agent_id: 'agent-b',
+      dependencies: ['task-a'],
+    }, now);
+
+    expect(new RepositoryControlSnapshotBuilder({ db, now: () => now }).build(runId).closure)
+      .toMatchObject({
+        deadlock: {
+          cycle: [
+            'task:task-a:agent:agent-a:purpose:execute',
+            'task:task-b:agent:agent-b:purpose:execute',
+            'task:task-a:agent:agent-a:purpose:execute',
+          ],
+        },
+      });
+  });
+
   it('keeps completed Work Cells open while a blocking Effect remains applicable', () => {
     const contract = issue('work-a', 'agent-a', 'attempt-a');
     contracts.close({
