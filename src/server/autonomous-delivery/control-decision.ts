@@ -15,8 +15,7 @@ export type ControlActionType =
 export type RetryBudgetKind =
   | 'invocation'
   | 'effect'
-  | 'task_rework'
-  | 'agent_local';
+  | 'task_rework';
 
 export interface RetryBudgetSnapshot {
   kind: RetryBudgetKind;

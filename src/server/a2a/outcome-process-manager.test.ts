@@ -3,6 +3,7 @@ import { createTestDb, getDb, resetDb, setTestDb } from '../db';
 import { PlatformEventLog } from '../platform-events/event-log';
 import { WorkContractRepository } from '../work-contract/repository';
 import type { AgentOutcome } from '../work-contract/types';
+import { AutonomousDeliveryRepository } from '../autonomous-delivery/repository';
 import { A2AOutcomeProcessManager } from './outcome-process-manager';
 
 const NOW = new Date('2026-07-28T11:00:00.000Z');
@@ -27,10 +28,32 @@ describe('A2AOutcomeProcessManager', () => {
 
   it('turns an accepted structured handoff outcome into one durable fan-out', async () => {
     const contracts = new WorkContractRepository();
+    const deliveryRunId = new AutonomousDeliveryRepository().createRun({
+      goal: 'Ship the delegated project',
+      acceptanceCriteria: ['All delegated work is complete'],
+      scope: { conversationId: 'project-a2a-outcome' },
+      authorization: {
+        allowCodeChanges: true,
+        allowPush: false,
+        allowPullRequest: false,
+        allowAutoMerge: false,
+      },
+      recoveryPolicy: {
+        maxAttemptsPerAction: 2,
+        maxRepairCycles: 1,
+        stallTimeoutMs: 60_000,
+      },
+      deliveryPolicy: {
+        requireReview: false,
+        requireWebE2E: false,
+        requireMerge: false,
+      },
+    }, NOW).run.id;
     const contract = contracts.issue({
       workId: 'project-start:lead',
       attemptId: 'inv-lead',
       projectId: 'project-a2a-outcome',
+      deliveryRunId,
       agentId: 'lead',
       goal: 'Plan and delegate the project',
       acceptanceCriteria: ['delegate executable work'],
@@ -91,8 +114,15 @@ describe('A2AOutcomeProcessManager', () => {
     await manager.handle(event, { signal: new AbortController().signal });
 
     expect(getDb().prepare(`
-      SELECT mode,status,expected_count FROM a2a_pass_group
-    `).all()).toEqual([{ mode: 'fan_out', status: 'offered', expected_count: 2 }]);
+      SELECT mode,status,expected_count,source_work_id,delivery_run_id
+      FROM a2a_pass_group
+    `).all()).toEqual([{
+      mode: 'fan_out',
+      status: 'offered',
+      expected_count: 2,
+      source_work_id: contract.workId,
+      delivery_run_id: deliveryRunId,
+    }]);
     expect(getDb().prepare(`
       SELECT to_agent_id,status FROM a2a_pass ORDER BY to_agent_id
     `).all()).toEqual([
@@ -100,11 +130,26 @@ describe('A2AOutcomeProcessManager', () => {
       { to_agent_id: 'reviewer', status: 'offered' },
     ]);
     expect(getDb().prepare(`
-      SELECT project_agent_id,status,json_extract(command_json,'$.passId') pass_id
+      SELECT project_agent_id,status,
+        json_extract(command_json,'$.passId') pass_id,
+        json_extract(command_json,'$.workId') work_id,
+        json_extract(command_json,'$.deliveryRunId') delivery_run_id
       FROM agent_inbox_item ORDER BY project_agent_id
     `).all()).toEqual([
-      { project_agent_id: 'builder', status: 'enqueued', pass_id: expect.any(String) },
-      { project_agent_id: 'reviewer', status: 'enqueued', pass_id: expect.any(String) },
+      {
+        project_agent_id: 'builder',
+        status: 'enqueued',
+        pass_id: expect.any(String),
+        work_id: expect.stringMatching(/^a2a-pass:/),
+        delivery_run_id: deliveryRunId,
+      },
+      {
+        project_agent_id: 'reviewer',
+        status: 'enqueued',
+        pass_id: expect.any(String),
+        work_id: expect.stringMatching(/^a2a-pass:/),
+        delivery_run_id: deliveryRunId,
+      },
     ]);
   });
 

@@ -3204,6 +3204,34 @@ END;
       `);
     },
   },
+  {
+    version: 69,
+    run: (db) => {
+      const table = db.prepare(`
+        SELECT 1 FROM sqlite_master
+        WHERE type='table' AND name='a2a_pass_group'
+      `).get();
+      if (!table) return;
+      const columns = new Set(
+        (db.prepare('PRAGMA table_info(a2a_pass_group)').all() as Array<{ name: string }>)
+          .map((column) => column.name),
+      );
+      if (!columns.has('source_work_id')) {
+        db.exec('ALTER TABLE a2a_pass_group ADD COLUMN source_work_id TEXT');
+      }
+      if (!columns.has('delivery_run_id')) {
+        db.exec(`
+          ALTER TABLE a2a_pass_group
+            ADD COLUMN delivery_run_id TEXT
+              REFERENCES autonomous_delivery_run(id) ON DELETE CASCADE
+        `);
+      }
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_a2a_pass_group_delivery
+          ON a2a_pass_group(delivery_run_id,status,created_at)
+      `);
+    },
+  },
 ];
 
 export function applyMigrations(db: Database.Database): void {

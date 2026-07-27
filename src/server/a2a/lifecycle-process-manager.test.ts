@@ -140,4 +140,51 @@ describe('A2ALifecycleProcessManager', () => {
       recoveryPossessionId: expect.any(String),
     });
   });
+
+  it('fails a started Pass and closes its receiver Possession when Runtime dies', async () => {
+    const offered = offer();
+    const admitted = collaboration.markPassAdmitted(offered.passes[0]!.id, 0);
+    const starting = collaboration.markPassStarting(admitted.id, admitted.revision);
+    const started = collaboration.markPassStarted(starting.id, starting.revision);
+    invocationRepo.create({
+      id: 'inv-died',
+      conversation_id: 'project-a2a-lifecycle',
+      agent_id: 'builder',
+    });
+    runtimeCompletionContextRepo.create({
+      invocationId: 'inv-died',
+      conversationId: 'project-a2a-lifecycle',
+      agentId: 'builder',
+      chainId: offered.group.chainId,
+      passId: offered.passes[0]!.id,
+      taskProjectDir: 'C:/project',
+    });
+    const terminated = new PlatformEventLog({ db: getDb() }).append({
+      type: 'runtime.invocation.terminated',
+      category: 'runtime_lifecycle',
+      projectId: 'project-a2a-lifecycle',
+      streamKey: 'invocation:inv-died',
+      aggregate: { type: 'invocation', id: 'inv-died' },
+      actor: { type: 'runtime', id: 'acp' },
+      projectAgentId: 'builder',
+      invocationId: 'inv-died',
+      correlationId: offered.group.chainId,
+      payload: { outcome: 'failed', reasonCode: 'runtime_transport_lost' },
+    });
+
+    await manager.handle(terminated, { signal: new AbortController().signal });
+
+    expect(collaboration.getPass(started.pass.id)).toMatchObject({
+      status: 'error',
+      phase: 'run',
+      reason: 'runtime_transport_lost',
+    });
+    expect(collaboration.getPossession(started.possession.id)).toMatchObject({
+      status: 'aborted',
+      summary: 'runtime_transport_lost',
+    });
+    expect(collaboration.getGroup(offered.group.id)).toMatchObject({
+      status: 'recovering',
+    });
+  });
 });

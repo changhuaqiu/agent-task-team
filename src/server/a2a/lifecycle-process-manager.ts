@@ -71,14 +71,16 @@ export class A2ALifecycleProcessManager {
       return;
     }
     const pass = this.collaboration.getPass(context.pass_id);
-    if (!pass || !['offered', 'accepted', 'starting'].includes(pass.status)) return;
+    if (!pass || !['offered', 'accepted', 'starting', 'started'].includes(pass.status)) return;
     const payload = event.payload as { outcome?: string; reasonCode?: string };
+    const afterStart = pass.status === 'started';
     this.collaboration.failPass({
       passId: pass.id,
       expectedRevision: pass.revision,
       status: payload.outcome === 'timed_out' ? 'timeout' : 'error',
-      reasonCode: payload.reasonCode ?? `runtime_${payload.outcome ?? 'terminated'}_before_start`,
-      phase: 'start',
+      reasonCode: payload.reasonCode
+        ?? `runtime_${payload.outcome ?? 'terminated'}_${afterStart ? 'during_run' : 'before_start'}`,
+      phase: afterStart ? 'run' : 'start',
     });
   };
 

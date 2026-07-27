@@ -61,6 +61,7 @@ describe('A2ACollaborationRepository', () => {
     const offered = repository.offerPassGroup({
       chainId: created.chain.id,
       sourcePossessionId: created.rootPossession.id,
+      sourceWorkId: 'source-work',
       expectedSourceRevision: 0,
       idempotencyKey: 'fan-out-1',
       branches: [
@@ -96,6 +97,7 @@ describe('A2ACollaborationRepository', () => {
     const offered = repository.offerPassGroup({
       chainId: created.chain.id,
       sourcePossessionId: created.rootPossession.id,
+      sourceWorkId: 'source-work',
       expectedSourceRevision: 0,
       idempotencyKey: 'fanout-recovery',
       branches: [
@@ -109,12 +111,25 @@ describe('A2ACollaborationRepository', () => {
       builderStarting.id,
       builderStarting.revision,
     );
+    expect(repository.getGroup(offered.group.id)).toMatchObject({
+      status: 'active',
+      resolvedCount: 0,
+    });
     repository.failPass({
       passId: offered.passes[1]!.id,
       expectedRevision: 0,
       status: 'rejected',
       reasonCode: 'runtime_profile_missing',
       phase: 'start',
+    });
+    expect(repository.getGroup(offered.group.id)).toMatchObject({
+      status: 'active',
+      resolvedCount: 1,
+    });
+    repository.completePossession({
+      possessionId: builderStarted.possession.id,
+      expectedRevision: builderStarted.possession.revision,
+      summary: 'built',
     });
 
     const group = repository.getGroup(offered.group.id)!;
@@ -127,15 +142,18 @@ describe('A2ACollaborationRepository', () => {
       status: 'completed',
     });
     expect(repository.listOpenPossessions(created.chain.id)).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: builderStarted.possession.id, holderId: 'builder' }),
       expect.objectContaining({ id: group.recoveryPossessionId, holderId: 'lead' }),
     ]));
-
-    repository.completePossession({
-      possessionId: builderStarted.possession.id,
-      expectedRevision: builderStarted.possession.revision,
-      summary: 'built',
-    });
+    expect(new AgentInbox({ db: getDb() }).listPending('project-a2a-aggregate')
+      .filter((item) => item.projectAgentId === 'lead'))
+      .toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          command: expect.objectContaining({
+            workId: 'source-work',
+            contextScenario: 'recovery',
+          }),
+        }),
+      ]));
     const recovery = repository.getPossession(group.recoveryPossessionId!)!;
     repository.completePossession({
       possessionId: recovery.id,

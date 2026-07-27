@@ -6,6 +6,7 @@ import { taskRepo } from '../repositories/task-repo';
 import { WorkContractRepository } from '../work-contract/repository';
 import { DurableEffectOutbox } from '../platform-events/durable-effect-outbox';
 import { qualityGateRepo } from '../quality-gate/repository';
+import { A2ACollaborationRepository } from '../a2a/collaboration';
 import { AutonomousDeliveryRepository } from './repository';
 import { RepositoryControlSnapshotBuilder } from './control-snapshot-builder';
 
@@ -140,6 +141,67 @@ describe('RepositoryControlSnapshotBuilder', () => {
         },
       },
     });
+  });
+
+  it('projects an open A2A join as a wait instead of retrying the source Invocation', () => {
+    const source = issue('work-a', 'agent-a', 'attempt-a');
+    invocationRepo.create({
+      id: source.attemptId,
+      conversation_id: 'project-1',
+      agent_id: 'agent-a',
+      work_contract_id: source.contractId,
+      work_id: source.workId,
+      work_epoch: source.workEpoch,
+      fencing_token: source.fencingToken,
+    }, now);
+    invocationRepo.transition(source.attemptId, {
+      to: 'terminated',
+      outcome: 'completed',
+      reason_code: 'structured_handoff',
+    }, now);
+    const collaboration = new A2ACollaborationRepository({ db, now: () => now });
+    const chain = collaboration.createChain({
+      conversationId: 'project-1',
+      rootTriggerType: 'system',
+      rootTriggerId: 'outcome-a',
+      holderId: 'agent-a',
+      holderType: 'agent',
+    });
+    const offered = collaboration.offerPassGroup({
+      chainId: chain.chain.id,
+      sourcePossessionId: chain.rootPossession.id,
+      sourceWorkId: source.workId,
+      deliveryRunId: runId,
+      expectedSourceRevision: chain.rootPossession.revision,
+      idempotencyKey: 'join-a',
+      branches: [{
+        toAgentId: 'agent-b',
+        intent: 'review',
+        packet: {
+          title: 'Review',
+          requestedAction: 'Review work-a',
+          possessionSummary: 'work-a is ready',
+          relevantDecisions: [],
+          evidenceRefs: [],
+          constraints: [],
+          openQuestions: [],
+          forbiddenBehaviors: [],
+          sourceMessageIds: [],
+        },
+      }],
+    });
+
+    expect(offered.group).toMatchObject({
+      sourceWorkId: source.workId,
+      deliveryRunId: runId,
+    });
+    expect(new RepositoryControlSnapshotBuilder({ db, now: () => now }).build(runId))
+      .toMatchObject({
+        workCells: [expect.objectContaining({
+          workId: source.workId,
+          state: 'waiting_dependency',
+        })],
+      });
   });
 
   it('creates a planning Work Cell when the run has no Task Graph', () => {

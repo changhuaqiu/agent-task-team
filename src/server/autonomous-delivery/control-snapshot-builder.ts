@@ -38,11 +38,16 @@ interface TaskFactRow {
   created_at: string;
 }
 
+interface A2AWaitFactRow {
+  source_work_id: string;
+  pass_id: string;
+  pass_status: string;
+}
+
 export interface ControlSnapshotRetryLimits {
   invocation: number;
   effect: number;
   task_rework: number;
-  agent_local: number;
 }
 
 export interface RepositoryControlSnapshotBuilderOptions {
@@ -55,7 +60,6 @@ const DEFAULT_RETRY_LIMITS: ControlSnapshotRetryLimits = {
   invocation: 3,
   effect: 5,
   task_rework: 2,
-  agent_local: 3,
 };
 
 function roleId(row: WorkCellFactRow): string {
@@ -265,6 +269,31 @@ export class RepositoryControlSnapshotBuilder {
         }
       }
     }
+    const a2aWaitFacts = db.prepare(`
+      SELECT
+        pass_group.source_work_id,
+        pass.id AS pass_id,
+        pass.status AS pass_status
+      FROM a2a_pass_group pass_group
+      JOIN a2a_pass pass ON pass.group_id=pass_group.id
+      WHERE pass_group.delivery_run_id=?
+        AND pass_group.source_work_id IS NOT NULL
+        AND pass_group.status IN ('offered','active')
+        AND pass.status IN ('offered','accepted','starting','started')
+      ORDER BY pass_group.created_at,pass.created_at,pass.id
+    `).all(runId) as A2AWaitFactRow[];
+    for (const fact of a2aWaitFacts) {
+      waitEdges.push({
+        waiter: fact.source_work_id,
+        blocker: `a2a-pass:${fact.pass_id}`,
+        reasonCode: 'a2a_join',
+      });
+      const sourceCell = workCells.find((cell) => cell.workId === fact.source_work_id);
+      if (!sourceCell || sourceCell.state === 'completed') continue;
+      sourceCell.state = 'waiting_dependency';
+      delete sourceCell.failure;
+      delete sourceCell.slotId;
+    }
     const activeInbox = db.prepare(`
       SELECT inbox.project_agent_id,inbox.command_json,action.slot_id
       FROM agent_inbox_item inbox
@@ -279,6 +308,7 @@ export class RepositoryControlSnapshotBuilder {
     for (const item of activeInbox) {
       try {
         const command = JSON.parse(item.command_json) as {
+          workId?: string;
           taskId?: string;
           deliveryRunId?: string;
           source?: string;
@@ -288,6 +318,10 @@ export class RepositoryControlSnapshotBuilder {
           : command.source === 'test_gate'
             ? 'verify'
             : 'execute';
+        if (command.workId?.trim()) {
+          inboxWork.set(command.workId.trim(), item.slot_id);
+          continue;
+        }
         if (command.taskId) {
           inboxWork.set(
             `task:${command.taskId}:agent:${item.project_agent_id}:purpose:${purpose}`,

@@ -328,13 +328,15 @@ export class A2AOutcomeProcessManager {
     this.collaboration.offerPassGroup({
       chainId: source.chainId,
       sourcePossessionId: source.id,
+      sourceWorkId: contract.work_id,
+      deliveryRunId: contract.delivery_run_id ?? undefined,
       expectedSourceRevision: source.revision,
       idempotencyKey: payload.idempotencyKey,
       maxHops: payload.maxHops,
       branches: payload.branches.map((branch) => ({
         toAgentId: branch.toAgentId,
         intent: branch.intent,
-        taskId: branch.taskId,
+        taskId: branch.taskId ?? contract.task_id ?? undefined,
         packet: {
           title: branch.title,
           requestedAction: branch.requestedAction,

@@ -9,6 +9,7 @@ import type { PlatformEvent } from './types';
 export interface AgentWorkCommand {
   source: AgentActivationSource;
   prompt: string;
+  workId?: string;
   taskId?: string;
   deliveryRunId?: string;
   fromAgentId?: string;

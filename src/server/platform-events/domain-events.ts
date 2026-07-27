@@ -69,6 +69,22 @@ export interface DomainEventPayloadMap {
     targetPossessionId: string;
     toAgentId: string;
   };
+  'a2a.possession.completed': {
+    chainId: string;
+    possessionId: string;
+    summary?: string;
+  };
+  'a2a.pass.completed': {
+    chainId: string;
+    groupId: string;
+    passId: string;
+    targetPossessionId: string;
+  };
+  'a2a.pass.group_completed': {
+    chainId: string;
+    groupId: string;
+    recovered: boolean;
+  };
   'a2a.pass.failed': {
     chainId: string;
     groupId: string;
@@ -126,7 +142,8 @@ export const DOMAIN_EVENT_TYPES_BY_OWNER = {
   ],
   a2a: [
     'a2a.chain.started', 'a2a.chain.completed', 'a2a.chain.aborted', 'a2a.pass.group_offered',
-    'a2a.pass.started', 'a2a.pass.failed', 'a2a.pass.group_recovery_opened',
+    'a2a.pass.started', 'a2a.possession.completed', 'a2a.pass.completed',
+    'a2a.pass.failed', 'a2a.pass.group_recovery_opened', 'a2a.pass.group_completed',
   ],
   envelope: [
     'envelope.drafted', 'envelope.validated', 'envelope.routed', 'envelope.sent',

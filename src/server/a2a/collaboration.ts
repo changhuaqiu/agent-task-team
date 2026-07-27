@@ -24,6 +24,8 @@ export interface A2APassGroup {
   id: string;
   chainId: string;
   sourcePossessionId: string;
+  sourceWorkId?: string;
+  deliveryRunId?: string;
   idempotencyKey: string;
   requestDigest: string;
   mode: 'transfer' | 'fan_out';
@@ -127,6 +129,8 @@ interface GroupRow {
   id: string;
   chain_id: string;
   source_possession_id: string;
+  source_work_id: string | null;
+  delivery_run_id: string | null;
   idempotency_key: string;
   request_digest: string;
   mode: A2APassGroup['mode'];
@@ -161,7 +165,6 @@ interface PacketRow {
 }
 
 const RESOLVED_PASS_STATUSES = new Set<PassStatus>([
-  'started',
   'completed',
   'blocked',
   'rejected',
@@ -293,6 +296,8 @@ function groupFromRow(row: GroupRow): A2APassGroup {
     id: row.id,
     chainId: row.chain_id,
     sourcePossessionId: row.source_possession_id,
+    sourceWorkId: row.source_work_id ?? undefined,
+    deliveryRunId: row.delivery_run_id ?? undefined,
     idempotencyKey: row.idempotency_key,
     requestDigest: row.request_digest,
     mode: row.mode,
@@ -542,6 +547,8 @@ export class A2ACollaborationRepository {
   offerPassGroup(input: {
     chainId: string;
     sourcePossessionId: string;
+    sourceWorkId?: string;
+    deliveryRunId?: string;
     expectedSourceRevision: number;
     idempotencyKey: string;
     maxHops?: number;
@@ -566,6 +573,8 @@ export class A2ACollaborationRepository {
     const requestDigest = digest({
       chainId: input.chainId,
       sourcePossessionId: input.sourcePossessionId,
+      sourceWorkId: input.sourceWorkId,
+      deliveryRunId: input.deliveryRunId,
       branches: input.branches,
     });
     const db = this.db();
@@ -621,14 +630,17 @@ export class A2ACollaborationRepository {
       const mode = input.branches.length === 1 ? 'transfer' : 'fan_out';
       db.prepare(`
         INSERT INTO a2a_pass_group (
-          id,chain_id,source_possession_id,idempotency_key,request_digest,mode,status,
+          id,chain_id,source_possession_id,source_work_id,delivery_run_id,
+          idempotency_key,request_digest,mode,status,
           expected_count,resolved_count,recovery_possession_id,hop_count,max_hops,
           revision,created_at,updated_at,completed_at
-        ) VALUES (?,?,?,?,?,?,'offered',?,0,NULL,?,?,0,?,?,NULL)
+        ) VALUES (?,?,?,?,?,?,?,?,'offered',?,0,NULL,?,?,0,?,?,NULL)
       `).run(
         groupId,
         chain.id,
         source.id,
+        input.sourceWorkId?.trim() || null,
+        input.deliveryRunId?.trim() || null,
         idempotencyKey,
         requestDigest,
         mode,
@@ -720,7 +732,9 @@ export class A2ACollaborationRepository {
           command: {
             source: 'a2a',
             prompt: renderPacket(branch.packet),
+            workId: `a2a-pass:${passIds[index]}`,
             taskId: branch.taskId,
+            deliveryRunId: input.deliveryRunId,
             fromAgentId: source.holder_id,
             chainId: chain.id,
             passId: passIds[index],
@@ -840,7 +854,7 @@ export class A2ACollaborationRepository {
       if (pass.revision !== input.expectedRevision) {
         throw new StaleA2ARevisionError(pass.id, input.expectedRevision, pass.revision);
       }
-      if (!['offered', 'accepted', 'starting'].includes(pass.status)) {
+      if (!['offered', 'accepted', 'starting', 'started'].includes(pass.status)) {
         throw new A2ACollaborationInvariantError(
           'a2a_invalid_pass_transition',
           `${pass.status} -> ${input.status}`,
@@ -850,7 +864,7 @@ export class A2ACollaborationRepository {
       const result = db.prepare(`
         UPDATE a2a_pass
         SET status=?,phase=?,reason=?,revision=revision+1,updated_at=?
-        WHERE id=? AND revision=? AND status IN ('offered','accepted','starting')
+        WHERE id=? AND revision=? AND status IN ('offered','accepted','starting','started')
       `).run(
         input.status,
         nonEmpty(input.phase, 'phase'),
@@ -862,7 +876,19 @@ export class A2ACollaborationRepository {
       if (result.changes !== 1) {
         throw new StaleA2ARevisionError(pass.id, input.expectedRevision, this.requirePassRow(pass.id)!.revision);
       }
-      this.resolveGroupIfSettled(pass.groupId, now);
+      if (pass.targetPossessionId) {
+        db.prepare(`
+          UPDATE a2a_possession
+          SET status=?,summary=?,completed_at=?,updated_at=?,revision=revision+1
+          WHERE id=? AND status='open'
+        `).run(
+          input.status === 'timeout' ? 'timeout' : 'aborted',
+          input.reasonCode,
+          now,
+          now,
+          pass.targetPossessionId,
+        );
+      }
       const current = this.requireAggregatePass(pass.id);
       const chain = this.getChainRow(pass.chainId)!;
       new DomainEventPublisher(db).publish({
@@ -882,6 +908,7 @@ export class A2ACollaborationRepository {
           reasonCode: input.reasonCode,
         },
       });
+      this.resolveGroupIfSettled(pass.groupId, now);
       return current;
     }).immediate();
   }
@@ -916,18 +943,88 @@ export class A2ACollaborationRepository {
         SET status='completed',summary=?,completed_at=?,updated_at=?,revision=revision+1
         WHERE id=? AND status='open' AND revision=?
       `).run(input.summary.trim() || null, now, now, possession.id, input.expectedRevision);
-      if (possession.parent_pass_id) {
-        db.prepare(`
+      const chain = this.getChainRow(possession.chain_id)!;
+      const completedPossession = this.getPossessionRow(possession.id)!;
+      new DomainEventPublisher(db).publish({
+        type: 'a2a.possession.completed',
+        projectId: chain.conversation_id,
+        aggregate: {
+          type: 'a2a_possession',
+          id: possession.id,
+          version: completedPossession.revision,
+        },
+        actor: { type: possession.holder_type, id: possession.holder_id },
+        correlationId: possession.chain_id,
+        causationId: possession.parent_pass_id ?? possession.id,
+        occurredAt: now,
+        payload: {
+          chainId: possession.chain_id,
+          possessionId: possession.id,
+          summary: input.summary.trim() || undefined,
+        },
+      });
+      const parentPass = possession.parent_pass_id
+        ? this.requirePassRow(possession.parent_pass_id)
+        : undefined;
+      if (parentPass) {
+        const completedPass = db.prepare(`
           UPDATE a2a_pass
           SET status='completed',revision=revision+1,updated_at=?
           WHERE id=? AND status='started'
-        `).run(now, possession.parent_pass_id);
+        `).run(now, parentPass.id);
+        if (completedPass.changes === 1) {
+          const currentPass = this.requireAggregatePass(parentPass.id);
+          new DomainEventPublisher(db).publish({
+            type: 'a2a.pass.completed',
+            projectId: chain.conversation_id,
+            aggregate: {
+              type: 'a2a_pass',
+              id: currentPass.id,
+              version: currentPass.revision,
+            },
+            actor: { type: 'agent', id: possession.holder_id },
+            subject: { type: 'agent', id: currentPass.fromHolderId },
+            correlationId: possession.chain_id,
+            causationId: possession.id,
+            occurredAt: now,
+            payload: {
+              chainId: possession.chain_id,
+              groupId: currentPass.groupId,
+              passId: currentPass.id,
+              targetPossessionId: possession.id,
+            },
+          });
+        }
+        if (parentPass.group_id) this.resolveGroupIfSettled(parentPass.group_id, now);
       }
-      db.prepare(`
+      const recoveredGroup = db.prepare(`
         UPDATE a2a_pass_group
         SET status='completed',completed_at=?,updated_at=?,revision=revision+1
         WHERE recovery_possession_id=? AND status='recovering'
       `).run(now, now, possession.id);
+      if (recoveredGroup.changes === 1) {
+        const group = db.prepare(`
+          SELECT * FROM a2a_pass_group WHERE recovery_possession_id=?
+        `).get(possession.id) as GroupRow;
+        new DomainEventPublisher(db).publish({
+          type: 'a2a.pass.group_completed',
+          projectId: chain.conversation_id,
+          aggregate: {
+            type: 'a2a_pass_group',
+            id: group.id,
+            version: group.revision,
+          },
+          actor: { type: possession.holder_type, id: possession.holder_id },
+          correlationId: possession.chain_id,
+          causationId: possession.id,
+          occurredAt: now,
+          payload: {
+            chainId: possession.chain_id,
+            groupId: group.id,
+            recovered: true,
+          },
+        });
+      }
       this.completeChainIfSettled(possession.chain_id, now);
       return possessionFromRow(this.getPossessionRow(possession.id)!);
     }).immediate();
@@ -1021,7 +1118,10 @@ export class A2ACollaborationRepository {
   private resolveGroupIfSettled(groupId: string, now: string): void {
     const db = this.db();
     const group = this.getGroupRow(groupId);
-    if (!group || ['completed', 'failed', 'cancelled'].includes(group.status)) return;
+    if (
+      !group
+      || ['recovering', 'completed', 'failed', 'cancelled'].includes(group.status)
+    ) return;
     const passes = db.prepare(`
       SELECT * FROM a2a_pass WHERE group_id=? ORDER BY created_at,id
     `).all(groupId) as PassRow[];
@@ -1056,6 +1156,27 @@ export class A2ACollaborationRepository {
             updated_at=?,completed_at=?
         WHERE id=?
       `).run(now, now, group.id);
+      const completedGroup = this.getGroupRow(group.id)!;
+      const chain = this.getChainRow(source.chain_id)!;
+      new DomainEventPublisher(db).publish({
+        type: 'a2a.pass.group_completed',
+        projectId: chain.conversation_id,
+        aggregate: {
+          type: 'a2a_pass_group',
+          id: group.id,
+          version: completedGroup.revision,
+        },
+        actor: { type: 'system', id: 'a2a-collaboration' },
+        subject: { type: source.holder_type, id: source.holder_id },
+        correlationId: source.chain_id,
+        causationId: group.id,
+        occurredAt: now,
+        payload: {
+          chainId: source.chain_id,
+          groupId: group.id,
+          recovered: false,
+        },
+      });
       return;
     }
     const recoveryId = this.idFactory('a2a-possession');
@@ -1094,7 +1215,7 @@ export class A2ACollaborationRepository {
       WHERE id=? AND status='active'
     `).run(source.holder_id, now, source.chain_id);
     const chain = this.getChainRow(source.chain_id)!;
-    new DomainEventPublisher(db).publish({
+    const recoveryEvent = new DomainEventPublisher(db).publish({
       type: 'a2a.pass.group_recovery_opened',
       projectId: chain.conversation_id,
       aggregate: { type: 'a2a_pass_group', id: group.id },
@@ -1110,6 +1231,34 @@ export class A2ACollaborationRepository {
         failedPassIds: failures.map((pass) => pass.id),
       },
     });
+    if (source.holder_type === 'agent' && group.source_work_id) {
+      const contract = db.prepare(`
+        SELECT task_id FROM work_contract
+        WHERE work_id=?
+        ORDER BY work_epoch DESC,created_at DESC
+        LIMIT 1
+      `).get(group.source_work_id) as { task_id: string | null } | undefined;
+      this.inbox.enqueue({
+        projectId: chain.conversation_id,
+        projectAgentId: source.holder_id,
+        idempotencyKey: `a2a-recovery:${group.id}:${recoveryId}`,
+        sourceEvent: recoveryEvent,
+        command: {
+          source: 'a2a',
+          workId: group.source_work_id,
+          prompt: [
+            'An A2A collaboration branch failed. Reconcile the completed branch results',
+            'with the failures below, then choose a new structured outcome.',
+            failedSummary,
+          ].join('\n\n'),
+          taskId: contract?.task_id ?? undefined,
+          deliveryRunId: group.delivery_run_id ?? undefined,
+          fromAgentId: 'a2a-collaboration',
+          chainId: source.chain_id,
+          contextScenario: 'recovery',
+        },
+      });
+    }
   }
 
   private completeChainIfSettled(chainId: string, now: string): void {

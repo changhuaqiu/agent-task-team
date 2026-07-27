@@ -20,6 +20,7 @@
 ## 2. 非目标
 
 - 不把 Agent 内部 Todo 持久化为平台 Task Graph。
+- 不把 Agent 内部工具/步骤重试建模为 Process Manager 的平台重试动作。
 - 不让 Harness 使用 LLM 选择确定性控制动作。
 - 不建立一个覆盖所有领域的总状态表。
 - 不以事件日志替代所有领域表。
@@ -175,6 +176,20 @@ a2a_audit_log / a2a_delivery`；源码、schema、测试与 conversation cleanup
 
 fan-out pass group 采用 best-effort：已启动分支不可回滚；失败分支为原 holder 建立 recovery
 possession。source、child、recovery 的变更必须在同一聚合事务提交。
+
+Pass Group 的 join 语义以分支工作结果为准，不以 Runtime start 为准：
+
+- `started` 只把 Group 推进为 `active`，不得关闭 source Possession 或完成 Group；
+- receiver Possession 完成后，父 Pass 才进入 `completed`；
+- Possession、Pass、Group 的终结转换必须在同一事务内发布对应 domain event，禁止只改表而
+  让下游通过轮询猜测汇合完成；
+- 所有 Pass 进入 `completed / blocked / rejected / timeout / error` 后，Group 才完成或进入
+  `recovering`；
+- Group 持久保存 `sourceWorkId / deliveryRunId`。每个分支 Inbox 继承 DeliveryRun，分支
+  WorkContract 使用 `a2a-pass:<passId>` 作为 workId；
+- Control snapshot 为未解决 Group 投影 `sourceWorkId -> a2a-pass:<passId>` wait-for 边；
+- 失败分支终止旧边，并为 recovery Possession 向原 holder写持久 Inbox；该 Inbox 复用
+  `sourceWorkId`、签发新 epoch，属于可安全自动打破的恢复边，而不是 Invocation 盲重试。
 
 Agent 发起协作必须提交结构化 `handoff_to_agent` Outcome。durable A2A Outcome Process
 Manager 只把已接纳 Outcome 翻译为 A2A owner Command；Pass、HandoffPacket 与每个下游

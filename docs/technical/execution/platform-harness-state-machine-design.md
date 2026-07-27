@@ -41,7 +41,9 @@ Harness 不读取 Agent 的每一个内部 Todo 来驱动平台，也不替 Agen
 - Task 返工：Gate 判断结果未通过，产生新的团队工作。
 - Agent 内部重试：Agent 自己判断某个工具调用或内部步骤要不要再试。
 
-这四者不能用同一个 `retry` 状态表达。
+这四者不能用同一个 `retry` 状态表达。其中前三者是平台控制事实；Agent 内部重试属于
+单次 WorkContract 约束下的 Agent Runtime 自主循环，不进入 Process Manager 的
+`ControlAction / RetryBudgetKind`，平台只观察该 Invocation 最终是否终结。
 
 ## 3. 三层嵌套循环
 
@@ -177,6 +179,12 @@ AgentOutcome(handoff_to_agent)
   -> Runtime invocation started
   -> Pass started + receiver Possession
 ```
+
+Pass Group 的 join 不在 `started` 时完成。Group 持久绑定 source Work 与 DeliveryRun；
+每个未终结分支形成 `sourceWorkId -> a2a-pass:<passId>` wait-for 边。全部 receiver
+Possession 终结后才关闭 source Possession；若存在失败分支，聚合原子创建 recovery
+Possession，并向原 holder 写入复用 sourceWorkId 的持久 Inbox，由新 epoch 继续，而不是
+把旧 Invocation 重新执行一遍。
 
 `handoff_to_agent.payload` 至少包含稳定幂等键和一个或多个明确分支：
 
@@ -587,7 +595,9 @@ Gate Work Cell。缺少 Gate 时先发 `requestGate` owner Command；Gate reques
 才更新可查询状态。其他动作在 claim 时必须再次 CAS snapshot revision、slot 和 work epoch。
 
 实现入口为 `autonomous-delivery/control-decision.ts`：它是无 I/O 的纯函数，显式接收
-`observedAt`、snapshot revision、policy revision、全局/角色容量和四类独立重试预算。
+`observedAt`、snapshot revision、policy revision、全局/角色容量和三类平台重试预算：
+Invocation retry、Effect retry 与 Task rework。Agent 内部工具/步骤重试由 Runtime 在当前
+WorkContract 预算内执行，不由 Process Manager 计算或持久化为控制动作。
 公平 aging 只使用快照时间，因此重放同一快照不会因墙钟变化产生不同排序。
 
 持久化入口为 `autonomous-delivery/control-decision-repository.ts`。项目级
@@ -612,10 +622,10 @@ requestGate 写入唯一 QualityGate owner，并在同一 SQLite 事务重新读
 Delivery 终止；它不直接启动 Runtime。Runtime started/terminated 事实会释放 activate 的
 slot reservation。生产 bootstrap 已只使用该 adapter 与新的多动作 Control Process Manager。
 
-跨 Work Cell 等待使用显式 wait-for graph。当前 Task dependency 已投影为
+跨 Work Cell 等待使用显式 wait-for graph。Task dependency 与 A2A join 已投影为
 `waiter -> blocker` 边，稳定 DFS 返回可复放的第一条 cycle；检测到 cycle 后产生
 `escalateToHuman(wait_for_deadlock:...)`，不会把它误当成某个 Agent 的 Invocation 失败而
-消耗重试预算。A2A join、Gate 与容量等待边将在 bootstrap 切换前接入同一图。
+消耗重试预算。Gate 与容量等待边将在 bootstrap 切换前接入同一图。
 
 ## 9. 错误如何进入事件设计
 
@@ -677,7 +687,8 @@ Adapter 边界归一化。`runtime.invocation.blocked` 是一次尚未启动的 
 7. Process Manager 只计算动作，不直接启动 Runtime、不直接改领域表。
 8. 所有 `completed` 必须带对象类型；禁止裸 `completed` 作为跨模块协议。
 9. 错误先归一化再决策，CLI 文本和 UI 文案不是控制平面事实。
-10. 自动重试、Agent 内部重试、Task 返工和 Effect 重放必须分别计数、分别限额。
+10. Invocation 重试、Task 返工和 Effect 重放必须分别计数、分别限额；Agent 内部重试由
+    Runtime 在当前 WorkContract 预算内管理，不得伪装成 Process Manager 控制动作。
 11. 多 Agent 调度只管理 Work Cell 和协作边，不读取或合并各 Agent 的内部 Todo。
 12. 对共享事实的并发写入必须经过 owner 的版本校验、lease 或 fencing；不能靠消息时序碰运气。
 13. 系统必须能检测 wait-for graph 的死锁和 A2A 循环传球，并升级给 Human 或 Lead Agent。

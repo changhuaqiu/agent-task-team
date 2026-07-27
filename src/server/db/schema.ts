@@ -639,6 +639,9 @@ export const a2aPassGroup = sqliteTable('a2a_pass_group', {
     .references(() => a2aPossessionChain.id, { onDelete: 'cascade' }),
   sourcePossessionId: text('source_possession_id').notNull()
     .references(() => a2aPossession.id, { onDelete: 'cascade' }),
+  sourceWorkId: text('source_work_id'),
+  deliveryRunId: text('delivery_run_id')
+    .references(() => autonomousDeliveryRun.id, { onDelete: 'cascade' }),
   idempotencyKey: text('idempotency_key').notNull(),
   requestDigest: text('request_digest').notNull(),
   mode: text('mode').notNull(),
@@ -654,6 +657,7 @@ export const a2aPassGroup = sqliteTable('a2a_pass_group', {
   completedAt: text('completed_at'),
 }, (table) => [
   index('idx_a2a_pass_group_chain').on(table.chainId, table.status, table.createdAt),
+  index('idx_a2a_pass_group_delivery').on(table.deliveryRunId, table.status, table.createdAt),
   uniqueIndex('uq_a2a_pass_group_idempotency').on(table.chainId, table.idempotencyKey),
   uniqueIndex('uq_a2a_pass_group_source_open')
     .on(table.sourcePossessionId)
