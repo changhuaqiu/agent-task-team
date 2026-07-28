@@ -473,6 +473,11 @@ export class RepositoryDeliveryFactsAdapter implements DeliveryFactsPort {
     const hasActiveEnvelope = envelopes.some((envelope) => isActiveAdmission(envelope, invocations));
     const allDone = tasks.length > 0 && tasks.every((task) => task.status === 'done');
     const deliveryEvidence = acceptedDeliveryEvidence(proofs);
+    const verificationDispatchedAt = snapshot.actions
+      .filter(action =>
+        action.kind === 'run_verification' || action.kind === 'repair_verification'
+      )
+      .at(-1)?.created_at;
     for (const proof of deliveryEvidence) {
       const reviewCandidate = reviewReceiptFromProof(
         proof,
@@ -500,10 +505,17 @@ export class RepositoryDeliveryFactsAdapter implements DeliveryFactsPort {
         ],
         validateLocalArtifacts: true,
       });
-      if (!candidate.present) continue;
-      const payload = candidate.valid && candidate.payload
+      if (
+        !candidate.present
+        && (!verificationDispatchedAt || proof.created_at < verificationDispatchedAt)
+      ) continue;
+      const payload = candidate.present && candidate.valid && candidate.payload
         ? candidate.payload
-        : failedVerificationReceipt(snapshot, proof, candidate.errors);
+        : failedVerificationReceipt(
+          snapshot,
+          proof,
+          candidate.present ? candidate.errors : ['verification_receipt_missing'],
+        );
       autonomousDeliveryRepo.recordReceipt({
         runId: snapshot.run.id,
         receipt: {

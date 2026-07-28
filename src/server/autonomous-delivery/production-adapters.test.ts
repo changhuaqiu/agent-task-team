@@ -89,6 +89,54 @@ beforeEach(() => {
 afterEach(() => resetDb());
 
 describe('RepositoryDeliveryFactsAdapter', () => {
+  it('records a failed verification receipt when post-dispatch gate evidence omits it', async () => {
+    const repo = new AutonomousDeliveryRepository();
+    const run = repo.createRun(contract);
+    const task = taskRepo.create({
+      id: 'task-missing-verification-receipt',
+      conversation_id: contract.scope.conversationId,
+      title: contract.goal,
+      agent_id: 'peach',
+    });
+    taskRepo.updateStatus(task.id, 'done');
+    repo.updateRun({
+      runId: run.run.id,
+      status: 'verifying',
+      stage: 'verifying',
+      rootTaskId: task.id,
+    });
+    repo.ensureAction({
+      runId: run.run.id,
+      kind: 'run_verification',
+      idempotencyKey: `${run.run.id}:run_verification:0`,
+      maxAttempts: 3,
+    });
+    proofLogRepo.append({
+      eventType: 'task_graph.gate_evidence.accepted',
+      conversationId: contract.scope.conversationId,
+      taskId: task.id,
+      actorId: 'peach',
+      metadata: {
+        gateName: 'delivery_evidence',
+        evidence: {
+          mergedToMain: true,
+          mainTestResult: 'passed without a structured verification receipt',
+        },
+      },
+    });
+
+    const facts = await new RepositoryDeliveryFactsAdapter().observe(repo.getSnapshot(run.run.id)!);
+    const receipt = repo.getSnapshot(run.run.id)?.receipts.find(
+      (candidate) => candidate.kind === 'verification.acceptance',
+    );
+
+    expect(facts.verification).toBe('failed');
+    expect(receipt).toMatchObject({ status: 'failed' });
+    expect(JSON.parse(receipt!.payload_json)).toMatchObject({
+      validationErrors: ['verification_receipt_missing'],
+    });
+  });
+
   it('把无活跃投递的可运行任务推导为下一动作，而不是误判为运行中', async () => {
     const repo = new AutonomousDeliveryRepository();
     const run = repo.createRun(contract);
