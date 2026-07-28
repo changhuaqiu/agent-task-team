@@ -287,6 +287,11 @@ Web UI 创建 GoalContract
   → Closure Invariant / DeliveryBundle / Web UI
 ```
 
+自主项目在创建 Conversation 和加载 Team Pack 时不得触发 legacy `triggerProposal()`；
+`plan_goal` DeliveryAction 是唯一规划入口。普通非自主 Team Pack 项目继续保留原自动 proposal 行为。
+前端的 `Conversation.autonomous` 不是新的持久化事实，而是创建时的即时标记，并在服务端水合时
+由“该 Conversation 是否存在 DeliveryRun”重新推导；统一 `triggerProposal` 入口必须据此拒绝绕过。
+
 该接缝的边界是“Agent 如何决定并调用工具”，不是“系统是否完成”。测试适配器不得直接更新
 DeliveryRun、Action、Attempt、Receipt 或最终 Bundle；这些事实仍由生产 Repository、Task Tool
 和 Closure Policy 生成。测试控制端只负责把真实浏览器观察转换为 Agent 本应提交的结构化验证回执。

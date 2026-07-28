@@ -268,6 +268,12 @@ export class AutonomousDeliveryRepository {
     return row ? this.getSnapshot(row.id) : undefined;
   }
 
+  listConversationIds(): string[] {
+    return (deliveryDb().prepare(
+      'SELECT DISTINCT conversation_id FROM autonomous_delivery_run ORDER BY conversation_id',
+    ).all() as Array<{ conversation_id: string }>).map((row) => row.conversation_id);
+  }
+
   listActive(): DeliveryRunRow[] {
     const db = deliveryDb();
     const activePredicate = usesManagedRunLifecycle(db)
