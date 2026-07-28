@@ -1,4 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
+import type { InvocationPatch } from '@/server/repositories/invocation-repo';
+import type { TaskPatch } from '@/server/repositories/task-repo';
 
 type MutationType =
   | 'conversation.create'
@@ -188,10 +190,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         const { assertTaskStatus, taskRepo } = await import('@/server/repositories/task-repo');
         const { publishTaskChangeNotification } = await import('@/server/task-flow/task-notification-publisher');
         const { taskStatusEvidencePolicy } = await import('@/server/task-flow/task-status-evidence-policy');
-        const { id, status: statusValue, reviewNote, evidence, actorId, actorType } = payload as any;
+        const { id, status: statusValue, reviewNote, evidence, actorId, actorType } = payload;
+        if (typeof id !== 'string' || !id.trim()) {
+          return res.status(400).json({ ok: false, error: 'task id is required' });
+        }
         if (typeof statusValue !== 'string') {
           return res.status(400).json({ ok: false, error: 'status is required' });
         }
+        const commandActorId = typeof actorId === 'string' && actorId
+          ? actorId
+          : 'mutation-api';
+        const commandActorType: 'user' | 'agent' | 'system' = actorType === 'user' || actorType === 'agent'
+          ? actorType
+          : 'system';
         const status = assertTaskStatus(statusValue);
         const previousTask = taskRepo.getById(id);
         if (!previousTask) {
@@ -202,8 +213,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
           nextStatus: status,
           evidence,
           actor: {
-            type: actorType === 'user' || actorType === 'agent' ? actorType : 'system',
-            id: typeof actorId === 'string' && actorId ? actorId : 'mutation-api',
+            type: commandActorType,
+            id: commandActorId,
           },
         });
         if (!gateDecision.allowed) {
@@ -211,7 +222,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
             const { createGateEvidenceRecoveryWakeup } = await import('@/server/task-flow/task-wakeup');
             const recoveryAgentId = gateDecision.gateName === 'delivery_evidence'
               ? 'mario'
-              : (actorId || previousTask.agent_id);
+              : typeof actorId === 'string' && actorId.trim()
+                ? actorId
+                : previousTask.agent_id;
             const wakeup = createGateEvidenceRecoveryWakeup({
               task: previousTask,
               agentId: recoveryAgentId,
@@ -257,11 +270,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
           ),
           idempotencyKey,
           actor: {
-            type: actorType === 'user' || actorType === 'agent' ? actorType : 'system',
-            id: typeof actorId === 'string' && actorId ? actorId : 'mutation-api',
+            type: commandActorType,
+            id: commandActorId,
           },
           to: status,
-          reviewNote,
+          reviewNote: typeof reviewNote === 'string' ? reviewNote : undefined,
         }).result.task;
         if (task) {
           publishTaskChangeNotification({
@@ -269,8 +282,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
             kind: 'task.status_changed',
             task,
             previousTask,
-            actorId,
-            actorType,
+            actorId: commandActorId,
+            actorType: commandActorType,
           });
         }
         result = { id, status };
@@ -289,7 +302,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
           status,
           idempotencyKey: requestedIdempotencyKey,
           ...updates
-        } = payload as any;
+        } = payload;
+        if (typeof id !== 'string' || !id.trim()) {
+          return res.status(400).json({ ok: false, error: 'task id is required' });
+        }
         if (status !== undefined) {
           return res.status(400).json({
             ok: false,
@@ -302,10 +318,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
           ...updates,
           ...(agentId !== undefined ? { agent_id: agentId } : {}),
           ...(artifacts !== undefined ? { artifacts: typeof artifacts === 'string' ? artifacts : JSON.stringify(artifacts) } : {}),
-        };
+        } as Partial<Omit<TaskPatch, 'dependencies'>>;
         if (!previousTask) {
           return res.status(404).json({ ok: false, error: `Task not found: ${id}` });
         }
+        const commandActorId = typeof actorId === 'string' && actorId
+          ? actorId
+          : 'mutation-api';
+        const commandActorType: 'user' | 'agent' | 'system' = actorType === 'user' || actorType === 'agent'
+          ? actorType
+          : 'system';
         const { stableTaskCommandKey, taskCommandService } = await import('@/server/repositories/task-command-service');
         const idempotencyKey = typeof requestedIdempotencyKey === 'string'
           ? requestedIdempotencyKey
@@ -350,8 +372,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
           ),
           idempotencyKey,
           actor: {
-            type: actorType === 'user' || actorType === 'agent' ? actorType : 'system',
-            id: typeof actorId === 'string' && actorId ? actorId : 'mutation-api',
+            type: commandActorType,
+            id: commandActorId,
           },
         };
         const task = dependencyTaskIds === undefined
@@ -370,8 +392,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
             kind: previousTask?.agent_id && previousTask.agent_id !== task.agent_id ? 'task.assigned' : 'task.updated',
             task,
             previousTask,
-            actorId,
-            actorType,
+            actorId: commandActorId,
+            actorType: commandActorType,
           });
         }
         result = { id };
@@ -446,7 +468,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
           assertInvocationStatus,
           invocationRepo,
         } = await import('@/server/repositories/invocation-repo');
-        const { id, to: toValue, expectedFrom: expectedFromValue, outcome: outcomeValue, ...updates } = payload as any;
+        const { id, to: toValue, expectedFrom: expectedFromValue, outcome: outcomeValue, ...updates } = payload;
+        if (typeof id !== 'string' || !id.trim()) {
+          return res.status(400).json({ ok: false, error: 'invocation id is required' });
+        }
         if (typeof toValue !== 'string') {
           return res.status(400).json({ ok: false, error: 'to is required' });
         }
@@ -461,7 +486,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
           to,
           expectedFrom,
           outcome,
-          ...updates,
+          ...(updates as InvocationPatch),
         });
         result = invocation;
         break;

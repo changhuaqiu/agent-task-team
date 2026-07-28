@@ -678,6 +678,44 @@ describe('POST /api/mutations', () => {
     }));
   });
 
+  it('routes WebUI evidence recovery to the Task owner when actorId is omitted', async () => {
+    await seedTask();
+    const emit = vi.fn();
+    const to = vi.fn(() => ({ emit }));
+    const submit = vi.fn(() => ({
+      handled: true,
+      disposition: 'accepted' as const,
+      completion: new Promise<never>(() => {}),
+    }));
+    const io = { to };
+    const { registerInvocationCoordinator } = await import('@/server/invocation-pipeline/registry');
+    registerInvocationCoordinator(io as never, { submit } as never);
+    const req = mockReq('POST', {
+      type: 'task.updateStatus',
+      payload: { id: 'task-1', status: 'in_review' },
+    });
+    const res = mockRes();
+    res.socket = { server: { io } };
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(403);
+    expect(submit).toHaveBeenCalledWith(expect.objectContaining({
+      conversationId: 'conv-1',
+      taskId: 'task-1',
+      agentId: 'agent-a',
+      contextScenario: 'recovery',
+    }));
+    expect(emit).toHaveBeenCalledWith('task.wakeup', expect.objectContaining({
+      taskId: 'task-1',
+      agentId: 'agent-a',
+      reasonCode: 'missing_implementation_evidence',
+    }));
+    expect(submit).not.toHaveBeenCalledWith(expect.objectContaining({
+      agentId: 'mutation-api',
+    }));
+  });
+
   it('tool.invoke submits gate recovery to Harness without a browser executor', async () => {
     await seedTask();
     const emit = vi.fn();
