@@ -82,13 +82,22 @@ export class AutonomousDeliverySupervisor {
   }
 
   async advance(runId: string, cause?: AdvancementCause): Promise<AdvanceResult> {
-    void cause;
     this.repository.abandonExpiredAttempts(this.now());
     let lastActionId: string | undefined;
+    let mayRearmFailedAction = cause?.kind === 'manual_resume';
 
     for (let index = 0; index < this.maxActionsPerAdvance; index += 1) {
       let snapshot = this.repository.getSnapshot(runId);
       if (!snapshot) throw new Error(`Delivery run not found: ${runId}`);
+      if (snapshot.run.status === 'escalated' && cause?.kind === 'manual_resume') {
+        const resumed = this.repository.resumeEscalatedRun({
+          runId,
+          expectedRevision: snapshot.run.revision,
+          now: this.now(),
+        });
+        if (!resumed) return this.concurrentResult(runId, lastActionId);
+        snapshot = this.repository.getSnapshot(runId)!;
+      }
       if (snapshot.run.status === 'completed') {
         return { disposition: 'completed', snapshot, actionId: lastActionId };
       }
@@ -185,6 +194,18 @@ export class AutonomousDeliverySupervisor {
         };
       }
       if (action.status === 'failed') {
+        if (mayRearmFailedAction) {
+          const rearmed = this.repository.rearmFailedAction({
+            runId,
+            actionId: action.id,
+            additionalAttempts: snapshot.contract.recoveryPolicy.maxAttemptsPerAction,
+            now: this.now(),
+          });
+          if (rearmed) {
+            mayRearmFailedAction = false;
+            continue;
+          }
+        }
         const escalated = this.updateSnapshot(snapshot, {
           status: 'escalated',
           stage: decision.stage,

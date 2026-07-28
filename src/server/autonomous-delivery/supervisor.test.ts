@@ -299,6 +299,180 @@ describe('AutonomousDeliveryRepository', () => {
 });
 
 describe('AutonomousDeliverySupervisor', () => {
+  it('manual resume reopens waiting_human and reconciles current durable facts', async () => {
+    const repo = new AutonomousDeliveryRepository();
+    const started = repo.createRun(contract);
+    repo.updateRun({
+      runId: started.run.id,
+      status: 'escalated',
+      stage: 'executing',
+      escalationCode: 'poisoned_session',
+      escalationDetail: 'old execution failure',
+    });
+    taskRepo.create({
+      id: 'task-root',
+      conversation_id: contract.scope.conversationId,
+      title: 'completed root task',
+      agent_id: 'worker-manual-resume',
+    });
+    const supervisor = new AutonomousDeliverySupervisor({
+      repository: repo,
+      workerId: 'worker-manual-resume',
+      facts: {
+        observe: async () => ({
+          rootTaskId: 'task-root',
+          planning: 'completed',
+          taskGraph: 'completed',
+          review: 'passed',
+          verification: 'passed',
+          integration: 'not_required',
+          delivery: 'published',
+          bundle,
+        }),
+      },
+      actions: {
+        execute: async () => ({ status: 'succeeded' }),
+      },
+    });
+
+    const result = await supervisor.advance(started.run.id, { kind: 'manual_resume' });
+
+    expect(result.disposition).toBe('completed');
+    expect(result.snapshot.run.status).toBe('completed');
+    expect(result.snapshot.run.escalation_code).toBeNull();
+    expect(result.snapshot.run.escalation_detail).toBeNull();
+  });
+
+  it('manual resume rearms the exact failed action with a fresh attempt budget', async () => {
+    const repo = new AutonomousDeliveryRepository();
+    const started = repo.createRun(contract);
+    repo.ensureAction({
+      runId: started.run.id,
+      kind: 'plan_goal',
+      idempotencyKey: `${started.run.id}:plan_goal:v1`,
+      maxAttempts: 1,
+    });
+    const failedClaim = repo.claimNext({
+      runId: started.run.id,
+      workerId: 'worker-initial-failure',
+      leaseMs: 1_000,
+    })!;
+    repo.markAttemptRunning(failedClaim.attempt.id);
+    expect(repo.failAttempt({
+      actionId: failedClaim.action.id,
+      attemptId: failedClaim.attempt.id,
+      failureCode: 'missing_authorization',
+      failureDetail: 'authorization required',
+    })).toBe('failed');
+    repo.updateRun({
+      runId: started.run.id,
+      status: 'escalated',
+      stage: 'planning',
+      escalationCode: 'missing_authorization',
+      escalationDetail: 'authorization required',
+    });
+    let planning: 'pending' | 'completed' = 'pending';
+    let executeCount = 0;
+    const supervisor = new AutonomousDeliverySupervisor({
+      repository: repo,
+      workerId: 'worker-rearmed',
+      facts: {
+        observe: async () => ({
+          planning,
+          taskGraph: planning === 'completed' ? 'running' : 'pending',
+          review: 'pending',
+          verification: 'not_started',
+          integration: 'not_required',
+          delivery: 'pending',
+        }),
+      },
+      actions: {
+        execute: async () => {
+          executeCount += 1;
+          planning = 'completed';
+          return { status: 'succeeded' };
+        },
+      },
+    });
+
+    const result = await supervisor.advance(started.run.id, { kind: 'manual_resume' });
+    const resumedAction = result.snapshot.actions.find(
+      (action) => action.id === failedClaim.action.id,
+    );
+
+    expect(result.disposition).toBe('acted');
+    expect(result.snapshot.run.status).toBe('executing');
+    expect(executeCount).toBe(1);
+    expect(resumedAction).toMatchObject({
+      status: 'succeeded',
+      attempt_count: 2,
+      max_attempts: 3,
+    });
+    expect(result.snapshot.attempts).toHaveLength(2);
+  });
+
+  it('manual resume rearms at most one failed action', async () => {
+    const repo = new AutonomousDeliveryRepository();
+    const started = repo.createRun(contract);
+    const actionKeys = [
+      `${started.run.id}:plan_goal:v1`,
+      `${started.run.id}:advance_tasks:root`,
+    ];
+    for (const [index, idempotencyKey] of actionKeys.entries()) {
+      repo.ensureAction({
+        runId: started.run.id,
+        kind: index === 0 ? 'plan_goal' : 'advance_tasks',
+        idempotencyKey,
+        maxAttempts: 1,
+      });
+      const claim = repo.claimNext({
+        runId: started.run.id,
+        workerId: `worker-history-${index}`,
+        leaseMs: 1_000,
+      })!;
+      repo.markAttemptRunning(claim.attempt.id);
+      repo.failAttempt({
+        actionId: claim.action.id,
+        attemptId: claim.attempt.id,
+        failureCode: 'missing_authorization',
+      });
+    }
+    repo.updateRun({
+      runId: started.run.id,
+      status: 'escalated',
+      stage: 'planning',
+      escalationCode: 'missing_authorization',
+    });
+    let planning: 'pending' | 'completed' = 'pending';
+    const supervisor = new AutonomousDeliverySupervisor({
+      repository: repo,
+      workerId: 'worker-single-rearm',
+      facts: {
+        observe: async () => ({
+          planning,
+          taskGraph: 'pending',
+          review: 'pending',
+          verification: 'not_started',
+          integration: 'not_required',
+          delivery: 'pending',
+        }),
+      },
+      actions: {
+        execute: async () => {
+          planning = 'completed';
+          return { status: 'succeeded' };
+        },
+      },
+    });
+
+    const result = await supervisor.advance(started.run.id, { kind: 'manual_resume' });
+    const [planAction, advanceAction] = result.snapshot.actions;
+
+    expect(result.disposition).toBe('escalated');
+    expect(planAction).toMatchObject({ status: 'succeeded', attempt_count: 2 });
+    expect(advanceAction).toMatchObject({ status: 'failed', attempt_count: 1 });
+  });
+
   it('facts 观察期间 Run 被升级后，旧决策不能回退终态或继续创建 Action', async () => {
     const repo = new AutonomousDeliveryRepository();
     const run = repo.createRun(contract);

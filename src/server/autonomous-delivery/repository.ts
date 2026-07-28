@@ -366,6 +366,65 @@ export class AutonomousDeliveryRepository {
     return result.changes === 1 ? this.getRun(input.runId) : undefined;
   }
 
+  resumeEscalatedRun(input: {
+    runId: string;
+    expectedRevision: number;
+    now?: Date;
+  }): DeliveryRunRow | undefined {
+    const timestamp = nowIso(input.now);
+    const db = deliveryDb();
+    const managed = usesManagedRunLifecycle(db);
+    const resumableStatus = managed ? 'waiting_human' : 'escalated';
+    const resumedStatus = managed ? 'retrying' : 'recovering';
+    const result = db.prepare(
+      `UPDATE autonomous_delivery_run
+       SET status=?,
+           revision=revision+1,
+           escalation_code=NULL,
+           escalation_detail=NULL,
+           updated_at=?
+       WHERE id=?
+         AND revision=?
+         AND status=?`,
+    ).run(
+      resumedStatus,
+      timestamp,
+      input.runId,
+      input.expectedRevision,
+      resumableStatus,
+    );
+    return result.changes === 1 ? this.getRun(input.runId) : undefined;
+  }
+
+  rearmFailedAction(input: {
+    runId: string;
+    actionId: string;
+    additionalAttempts: number;
+    now?: Date;
+  }): DeliveryActionRow | undefined {
+    const timestamp = nowIso(input.now);
+    const result = deliveryDb().prepare(
+      `UPDATE autonomous_delivery_action
+       SET status='retry_wait',
+           not_before=?,
+           max_attempts=MAX(max_attempts, attempt_count + ?),
+           updated_at=?
+       WHERE id=?
+         AND run_id=?
+         AND status='failed'`,
+    ).run(
+      timestamp,
+      Math.max(1, input.additionalAttempts),
+      timestamp,
+      input.actionId,
+      input.runId,
+    );
+    return result.changes === 1
+      ? deliveryDb().prepare('SELECT * FROM autonomous_delivery_action WHERE id=?')
+        .get(input.actionId) as DeliveryActionRow
+      : undefined;
+  }
+
   ensureAction(input: {
     runId: string;
     kind: DeliveryActionKind;
