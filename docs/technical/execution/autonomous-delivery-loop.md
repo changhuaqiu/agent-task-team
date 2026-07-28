@@ -137,7 +137,7 @@ Supervisor 每次基于 `facts.observe(snapshot)` 写回状态时，必须携带
 删除时使用 `ON DELETE SET NULL`，项目删除再由 `conversation_id` 级联清理整个 Run。
 对曾运行未发布 checkpoint 的数据库，不能只相信 `_schema_version` 水位；前向结构修复迁移会补建缺失表，并在关闭外键校验的单事务中重建旧 Run 表，提交前执行 `foreign_key_check`，保证已有 Run/Action 不丢失。
 
-共享开发数据库也可能已经由 managed DeliveryRun 分支升级，而当前 daemon 仍运行 legacy Supervisor。兼容层必须按真实列和约束识别该情况：启动键使用 Conversation 级稳定幂等键，legacy 阶段只作为 `current_stage` 投影，持久状态映射到 managed lifecycle；managed `waiting_gate` 对 legacy Supervisor 必须投影为停止态，不得通过重复启动或后台恢复绕过门禁证据；缺失的 legacy Action/Attempt lease 表及 Receipt 归属列在 Supervisor 读取前按结构补齐。项目删除时，`a2a_delivery`、`chain_worklist`、`invocation_chain` 等分支特有投影仅在表存在时清理，不能因为可选投影缺失导致补偿回滚失败。
+共享开发数据库也可能已经由 managed DeliveryRun 分支升级，而当前 daemon 仍运行 legacy Supervisor。兼容层必须按真实列和约束识别该情况：启动键使用 Conversation 级稳定幂等键，只有同一 Conversation、相同启动键和规范化 GoalContract 完全一致时才视为重放，否则返回冲突；legacy 阶段只作为 `current_stage` 投影，持久状态映射到 managed lifecycle；managed `waiting_gate` 对 legacy Supervisor 必须投影为停止态，不得通过重复启动或后台恢复绕过门禁证据；缺失的 legacy Action/Attempt lease 表及 Receipt 归属列在 Supervisor 读取前通过数据库立即事务原子补齐。项目删除时，`a2a_delivery`、`chain_worklist`、`invocation_chain` 等分支特有投影仅在表存在时清理，不能因为可选投影缺失导致补偿回滚失败。
 项目删除入口必须使用 Conversation 聚合事务：先按依赖顺序清理 Task Graph、A2A、
 运行时与观测投影，再删除 Task 和 Conversation；任一未知外键阻塞时整体回滚，禁止留下
 “Task 已删但项目/Run 仍存在”的部分状态。前端只有在该事务成功后才展示删除成功提示；

@@ -113,6 +113,20 @@ describe('AutonomousDeliveryRepository', () => {
     const repo = new AutonomousDeliveryRepository();
     const first = repo.createRun(contract);
     const repeated = repo.createRun(contract);
+    expect(() => repo.createRun({
+      ...contract,
+      goal: 'different goal',
+    })).toThrow('delivery_run_start_idempotency_conflict');
+    managedDb.prepare("INSERT INTO conversation (id) VALUES ('conv-other')").run();
+    expect(() => repo.createRun({
+      ...contract,
+      scope: { ...contract.scope, conversationId: 'conv-other' },
+      idempotencyKey: 'delivery-start:conv-autonomous',
+    })).toThrow('delivery_run_start_idempotency_conflict');
+    expect(() => repo.createRun({
+      ...contract,
+      idempotencyKey: 'different-start-key',
+    })).toThrow('autonomous_delivery_active_run_conflict');
     const action = repo.ensureAction({
       runId: first.run.id,
       kind: 'plan_goal',

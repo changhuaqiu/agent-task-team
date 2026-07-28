@@ -1,6 +1,9 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import type { Server as IOServer } from 'socket.io';
-import { autonomousDeliveryRepo } from '@/server/autonomous-delivery/repository';
+import {
+  autonomousDeliveryRepo,
+  isExactDeliveryStartReplay,
+} from '@/server/autonomous-delivery/repository';
 import {
   advanceAutonomousDelivery,
   startAutonomousDelivery,
@@ -73,6 +76,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
     const existing = autonomousDeliveryRepo.getLatestByConversation(contract.scope.conversationId);
     if (existing && !['completed', 'escalated', 'cancelled'].includes(existing.run.status)) {
+      if (!isExactDeliveryStartReplay(contract, existing.contract)) {
+        return res.status(409).json({
+          error: 'An active delivery run already exists with a different start contract',
+          snapshot: existing,
+        });
+      }
       void advanceAutonomousDelivery(io, existing.run.id, { kind: 'manual_resume' })?.catch((error) => {
         console.error(`[autonomous-delivery] idempotent resume failed for ${existing.run.id}:`, error);
       });
@@ -85,6 +94,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     });
     return res.status(202).json(snapshot);
   } catch (error) {
-    return res.status(400).json({ error: error instanceof Error ? error.message : String(error) });
+    const message = error instanceof Error ? error.message : String(error);
+    const status = message === 'delivery_run_start_idempotency_conflict'
+      || message === 'autonomous_delivery_active_run_conflict'
+      ? 409
+      : 400;
+    return res.status(status).json({ error: message });
   }
 }

@@ -23,6 +23,33 @@ function addMs(iso: string, milliseconds: number): string {
   return new Date(new Date(iso).getTime() + milliseconds).toISOString();
 }
 
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  if (value && typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([, item]) => item !== undefined)
+      .sort(([left], [right]) => left.localeCompare(right));
+    return `{${entries.map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+export function deliveryStartKey(contract: GoalContract): string {
+  return contract.idempotencyKey?.trim() || `delivery-start:${contract.scope.conversationId}`;
+}
+
+export function normalizeDeliveryStartContract(contract: GoalContract): GoalContract {
+  return { ...contract, idempotencyKey: deliveryStartKey(contract) };
+}
+
+export function isExactDeliveryStartReplay(
+  requested: GoalContract,
+  stored: GoalContract,
+): boolean {
+  return canonicalJson(normalizeDeliveryStartContract(requested))
+    === canonicalJson(normalizeDeliveryStartContract(stored));
+}
+
 const preparedDeliveryDatabases = new WeakSet<Database.Database>();
 
 function tableColumns(db: Database.Database, table: string): Set<string> {
@@ -39,59 +66,61 @@ function usesManagedRunLifecycle(db: Database.Database): boolean {
 function prepareDeliveryCompatibility(db: Database.Database): Database.Database {
   if (preparedDeliveryDatabases.has(db)) return db;
 
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS autonomous_delivery_action (
-      id TEXT PRIMARY KEY,
-      run_id TEXT NOT NULL REFERENCES autonomous_delivery_run(id) ON DELETE CASCADE,
-      kind TEXT NOT NULL,
-      subject_type TEXT,
-      subject_id TEXT,
-      idempotency_key TEXT NOT NULL UNIQUE,
-      status TEXT NOT NULL CHECK(status IN (
-        'ready','claimed','running','retry_wait','succeeded','failed','cancelled'
-      )),
-      not_before TEXT NOT NULL,
-      attempt_count INTEGER NOT NULL DEFAULT 0,
-      max_attempts INTEGER NOT NULL,
-      last_failure_code TEXT,
-      last_failure_detail TEXT,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_autonomous_delivery_action_claim
-      ON autonomous_delivery_action(run_id, status, not_before, created_at);
+  db.transaction(() => {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS autonomous_delivery_action (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL REFERENCES autonomous_delivery_run(id) ON DELETE CASCADE,
+        kind TEXT NOT NULL,
+        subject_type TEXT,
+        subject_id TEXT,
+        idempotency_key TEXT NOT NULL UNIQUE,
+        status TEXT NOT NULL CHECK(status IN (
+          'ready','claimed','running','retry_wait','succeeded','failed','cancelled'
+        )),
+        not_before TEXT NOT NULL,
+        attempt_count INTEGER NOT NULL DEFAULT 0,
+        max_attempts INTEGER NOT NULL,
+        last_failure_code TEXT,
+        last_failure_detail TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_autonomous_delivery_action_claim
+        ON autonomous_delivery_action(run_id, status, not_before, created_at);
 
-    CREATE TABLE IF NOT EXISTS autonomous_delivery_attempt (
-      id TEXT PRIMARY KEY,
-      action_id TEXT NOT NULL REFERENCES autonomous_delivery_action(id) ON DELETE CASCADE,
-      attempt_no INTEGER NOT NULL,
-      status TEXT NOT NULL CHECK(status IN (
-        'claimed','running','succeeded','failed','abandoned'
-      )),
-      lease_owner TEXT NOT NULL,
-      lease_expires_at TEXT NOT NULL,
-      heartbeat_at TEXT NOT NULL,
-      workdir_ref TEXT,
-      session_generation INTEGER,
-      execution_envelope_id TEXT REFERENCES execution_envelope(id),
-      failure_code TEXT,
-      failure_detail TEXT,
-      created_at TEXT NOT NULL,
-      started_at TEXT,
-      completed_at TEXT,
-      UNIQUE(action_id, attempt_no)
-    );
-    CREATE INDEX IF NOT EXISTS idx_autonomous_delivery_attempt_lease
-      ON autonomous_delivery_attempt(status, lease_expires_at);
-  `);
+      CREATE TABLE IF NOT EXISTS autonomous_delivery_attempt (
+        id TEXT PRIMARY KEY,
+        action_id TEXT NOT NULL REFERENCES autonomous_delivery_action(id) ON DELETE CASCADE,
+        attempt_no INTEGER NOT NULL,
+        status TEXT NOT NULL CHECK(status IN (
+          'claimed','running','succeeded','failed','abandoned'
+        )),
+        lease_owner TEXT NOT NULL,
+        lease_expires_at TEXT NOT NULL,
+        heartbeat_at TEXT NOT NULL,
+        workdir_ref TEXT,
+        session_generation INTEGER,
+        execution_envelope_id TEXT REFERENCES execution_envelope(id),
+        failure_code TEXT,
+        failure_detail TEXT,
+        created_at TEXT NOT NULL,
+        started_at TEXT,
+        completed_at TEXT,
+        UNIQUE(action_id, attempt_no)
+      );
+      CREATE INDEX IF NOT EXISTS idx_autonomous_delivery_attempt_lease
+        ON autonomous_delivery_attempt(status, lease_expires_at);
+    `);
 
-  const receiptColumns = tableColumns(db, 'autonomous_delivery_receipt');
-  if (!receiptColumns.has('action_id')) {
-    db.exec('ALTER TABLE autonomous_delivery_receipt ADD COLUMN action_id TEXT');
-  }
-  if (!receiptColumns.has('attempt_id')) {
-    db.exec('ALTER TABLE autonomous_delivery_receipt ADD COLUMN attempt_id TEXT');
-  }
+    const receiptColumns = tableColumns(db, 'autonomous_delivery_receipt');
+    if (!receiptColumns.has('action_id')) {
+      db.exec('ALTER TABLE autonomous_delivery_receipt ADD COLUMN action_id TEXT');
+    }
+    if (!receiptColumns.has('attempt_id')) {
+      db.exec('ALTER TABLE autonomous_delivery_receipt ADD COLUMN attempt_id TEXT');
+    }
+  }).immediate();
   preparedDeliveryDatabases.add(db);
   return db;
 }
@@ -150,30 +179,69 @@ export class AutonomousDeliveryRepository {
     const id = generateSortableId('delivery');
     const db = deliveryDb();
     if (usesManagedRunLifecycle(db)) {
-      const startKey = contract.idempotencyKey?.trim()
-        || `delivery-start:${contract.scope.conversationId}`;
-      const existing = db.prepare(
-        'SELECT id FROM autonomous_delivery_run WHERE start_idempotency_key=?',
-      ).get(startKey) as { id: string } | undefined;
-      if (existing) return this.getSnapshot(existing.id)!;
-      db.prepare(
-        `INSERT INTO autonomous_delivery_run (
-          id, conversation_id, status, current_stage, goal_contract_json,
-          repair_cycle, start_idempotency_key, created_at, updated_at
-        ) VALUES (?, ?, 'active', 'planning', ?, 0, ?, ?, ?)
-        ON CONFLICT(start_idempotency_key) DO NOTHING`,
-      ).run(
-        id,
-        contract.scope.conversationId,
-        JSON.stringify({ ...contract, idempotencyKey: startKey }),
-        startKey,
-        timestamp,
-        timestamp,
-      );
-      const createdOrExisting = db.prepare(
-        'SELECT id FROM autonomous_delivery_run WHERE start_idempotency_key=?',
-      ).get(startKey) as { id: string };
-      return this.getSnapshot(createdOrExisting.id)!;
+      return db.transaction(() => {
+        const normalizedContract = normalizeDeliveryStartContract(contract);
+        const startKey = normalizedContract.idempotencyKey!;
+        const existingByKey = db.prepare(
+          `SELECT id, conversation_id, goal_contract_json
+           FROM autonomous_delivery_run WHERE start_idempotency_key=?`,
+        ).get(startKey) as {
+          id: string;
+          conversation_id: string;
+          goal_contract_json: string;
+        } | undefined;
+        if (existingByKey) {
+          const storedContract = JSON.parse(existingByKey.goal_contract_json) as GoalContract;
+          if (
+            existingByKey.conversation_id !== contract.scope.conversationId
+            || !isExactDeliveryStartReplay(normalizedContract, storedContract)
+          ) {
+            throw new Error('delivery_run_start_idempotency_conflict');
+          }
+          return this.getSnapshot(existingByKey.id)!;
+        }
+
+        const activeForConversation = db.prepare(
+          `SELECT id FROM autonomous_delivery_run
+           WHERE conversation_id=?
+             AND status IN ('active','waiting_gate','waiting_human','retrying')
+           LIMIT 1`,
+        ).get(contract.scope.conversationId) as { id: string } | undefined;
+        if (activeForConversation) {
+          throw new Error('autonomous_delivery_active_run_conflict');
+        }
+
+        db.prepare(
+          `INSERT INTO autonomous_delivery_run (
+            id, conversation_id, status, current_stage, goal_contract_json,
+            repair_cycle, start_idempotency_key, created_at, updated_at
+          ) VALUES (?, ?, 'active', 'planning', ?, 0, ?, ?, ?)
+          ON CONFLICT(start_idempotency_key) DO NOTHING`,
+        ).run(
+          id,
+          contract.scope.conversationId,
+          JSON.stringify(normalizedContract),
+          startKey,
+          timestamp,
+          timestamp,
+        );
+        const createdOrExisting = db.prepare(
+          `SELECT id, conversation_id, goal_contract_json
+           FROM autonomous_delivery_run WHERE start_idempotency_key=?`,
+        ).get(startKey) as {
+          id: string;
+          conversation_id: string;
+          goal_contract_json: string;
+        };
+        const storedContract = JSON.parse(createdOrExisting.goal_contract_json) as GoalContract;
+        if (
+          createdOrExisting.conversation_id !== contract.scope.conversationId
+          || !isExactDeliveryStartReplay(normalizedContract, storedContract)
+        ) {
+          throw new Error('delivery_run_start_idempotency_conflict');
+        }
+        return this.getSnapshot(createdOrExisting.id)!;
+      }).immediate();
     }
     db.prepare(
       `INSERT INTO autonomous_delivery_run (

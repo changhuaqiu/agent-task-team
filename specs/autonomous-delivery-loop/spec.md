@@ -118,12 +118,15 @@ DeliveryRun schema, a compatibility daemon must inspect the actual table contrac
   only through an explicit repository mapping; raw legacy statuses must never be
   written into the managed table;
 - a repeated start for the same Conversation uses the same key and returns the
-  existing Run instead of creating a duplicate;
+  existing Run only when the normalized GoalContract is identical; key reuse
+  across Conversations, changed contracts, and different keys while a Run is
+  active are conflicts;
 - managed `waiting_gate` runs project as stopped legacy runs and cannot resume or
   claim work without gate evidence from the managed controller;
 - if the managed checkpoint no longer contains the legacy Action/Attempt tables,
-  compatibility repair must recreate their exact durable lease schema and add the
-  nullable receipt ownership columns before the legacy supervisor starts;
+  compatibility repair must atomically recreate their exact durable lease schema
+  and add the nullable receipt ownership columns under a database write lock
+  before the legacy supervisor starts;
 - project rollback/deletion treats branch-specific projection tables as optional,
   while preserving one aggregate transaction for every table that actually exists.
 - Supervisor 在副作用执行期间按 lease 的固定分数周期续租；Attempt 终态写入必须同时校验
