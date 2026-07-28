@@ -86,11 +86,12 @@ const DEFAULT_LIMITS: AcpRuntimeLimits = {
 };
 
 const EMPTY_COMPLETION_RECOVERY_PROMPT =
-  'The previous turn finished after tool execution without a final assistant message. '
-  + 'Provide the final answer to the original user request now. Do not repeat completed tool calls.';
+  'The previous turn finished without a final assistant message. '
+  + 'Provide the final answer to the original user request now. '
+  + 'Do not repeat any completed actions or tool calls.';
 
 const EMPTY_COMPLETION_FALLBACK =
-  '⚠️ Agent 已完成工具调用，但 ACP runtime 未返回最终文本；本次调用已标记失败，请重试。';
+  '⚠️ Agent runtime 未返回最终文本；本次调用已标记失败，请重试。';
 
 function resolveLimits(overrides?: Partial<AcpRuntimeLimits>): AcpRuntimeLimits {
   const merged = { ...DEFAULT_LIMITS, ...overrides };
@@ -587,7 +588,7 @@ export class AcpBackend implements AgentBackend {
               finalize(
                 'failed',
                 'acp_empty_completion',
-                'ACP ended after tool execution without a final assistant message',
+                'ACP ended without a final assistant message',
                 usage
                   ? {
                       default: {
