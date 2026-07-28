@@ -266,7 +266,14 @@ export const createDaemonSlice = (set: any, get: () => any) => {
 
       if (get().agentStatus[agentId] && get().agentStatus[agentId] !== 'idle') {
         console.log(`[dispatch] ${agentId} busy, enqueuing for conversation ${conversationId}`);
-        get().enqueueDispatch(agentId, { prompt, referencedTaskId, source, fromAgentId, conversationId });
+        get().enqueueDispatch(agentId, {
+          prompt,
+          referencedTaskId,
+          source,
+          fromAgentId,
+          conversationId,
+          legacyProposal,
+        });
         return true;
       }
 

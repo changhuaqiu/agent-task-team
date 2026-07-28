@@ -148,4 +148,25 @@ describe('project session scoping', () => {
       prompt: 'race-safe user turn',
     }));
   });
+
+  it('preserves the legacy proposal marker while an agent is busy', async () => {
+    vi.spyOn(global, 'fetch').mockResolvedValue({ ok: true } as Response);
+    useTaskHubStore.setState({ agentStatus: { mario: 'busy' } });
+
+    const accepted = await useTaskHubStore.getState().dispatchToAgent({
+      agentId: 'mario',
+      prompt: 'stale legacy proposal',
+      conversationId: 'conv-new',
+      legacyProposal: true,
+    });
+
+    expect(accepted).toBe(true);
+    expect(useTaskHubStore.getState().pendingDispatches['mario:conv-new']).toContainEqual(
+      expect.objectContaining({
+        prompt: 'stale legacy proposal',
+        conversationId: 'conv-new',
+        legacyProposal: true,
+      }),
+    );
+  });
 });
