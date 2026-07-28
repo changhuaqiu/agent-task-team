@@ -48,6 +48,12 @@ import { buildGoalTaskDescription } from './goal-task-description';
 const TERMINAL_TASK_STATUSES = new Set(['done', 'abandoned', 'cancelled']);
 const ACTIVE_ENVELOPE_STATUSES = new Set(['drafted', 'validated', 'queued', 'routed', 'sent', 'started']);
 const RECOVERABLE_ENVELOPE_STATUSES = new Set(['blocked', 'failed', 'rejected', 'expired']);
+const TASK_PROGRESS_PROOF_TYPES = [
+  'task_graph.gate_evidence.accepted',
+  'engineering.pull_request.verified',
+  'engineering.review.verified',
+  'engineering.merge.verified',
+] as const;
 
 function scenarioForDeliveryAction(kind: DeliveryActionKind): 'planning' | 'execution' | 'code_review' | 'verification' | 'recovery' {
   if (kind === 'request_review') return 'code_review';
@@ -83,6 +89,14 @@ interface ExecutionRecovery {
   exhaustedTask?: TaskRow;
 }
 
+function taskProgressProofs(conversationId: string): ProofEventRow[] {
+  return TASK_PROGRESS_PROOF_TYPES
+    .flatMap((eventType) => proofLogRepo.findByType({ eventType, conversationId }))
+    .sort((left, right) =>
+      left.created_at.localeCompare(right.created_at) || left.id.localeCompare(right.id)
+    );
+}
+
 function isTerminalInvocation(invocation: InvocationRow): boolean {
   return ['succeeded', 'failed', 'canceled', 'cancelled', 'timed_out', 'terminated']
     .includes(invocation.status);
@@ -107,6 +121,7 @@ function executionRecovery(
   tasks: TaskRow[],
   envelopes: ReturnType<typeof executionEnvelopeRepo.listByConversation>,
   invocations: InvocationRow[],
+  proofs: ProofEventRow[],
   maxRecoveries: number,
 ): ExecutionRecovery {
   const taskById = new Map(tasks.map((task) => [task.id, task]));
@@ -205,7 +220,14 @@ function executionRecovery(
       continue;
     }
     const invocationBeganAt = latestInvocation.started_at ?? latestInvocation.created_at;
-    if (task.updated_at > invocationBeganAt) continue;
+    const taskProgress = proofs.filter((proof) =>
+      proof.task_id === task.id
+      && TASK_PROGRESS_PROOF_TYPES.includes(
+        proof.event_type as (typeof TASK_PROGRESS_PROOF_TYPES)[number],
+      )
+    );
+    if (taskProgress.some((proof) => proof.created_at >= invocationBeganAt)) continue;
+    const latestProgressAt = taskProgress.at(-1)?.created_at ?? task.created_at;
 
     const newerEnvelopesForAgent = envelopes.filter((candidate) =>
       candidate.task_id === task.id
@@ -219,7 +241,7 @@ function executionRecovery(
     const completedAttempts = taskInvocations.filter((candidate) =>
       candidate.agent_id === latestInvocation.agent_id
       && completedInvocation(candidate)
-      && (candidate.started_at ?? candidate.created_at) >= task.updated_at
+      && (candidate.started_at ?? candidate.created_at) >= latestProgressAt
     );
     const dispatchesWithoutInvocation = newerEnvelopesForAgent.filter((candidate) =>
       !isActiveAdmission(candidate, invocations)
@@ -437,6 +459,7 @@ export class RepositoryDeliveryFactsAdapter implements DeliveryFactsPort {
       tasks,
       envelopes,
       invocations,
+      taskProgressProofs(conversationId),
       snapshot.contract.recoveryPolicy.maxAttemptsPerAction,
     );
     const candidateWakeup = recovery.wakeup ?? wakeups[0];
@@ -875,10 +898,12 @@ export class HarnessDeliveryActionAdapter implements DeliveryActionPort {
     const tasks = taskRepo.getByConversation(conversationId);
     const envelopes = executionEnvelopeRepo.listByConversation(conversationId);
     const invocations = invocationRepo.getByConversation(conversationId);
+    const proofs = taskProgressProofs(conversationId);
     return executionRecovery(
       tasks,
       envelopes,
       invocations,
+      proofs,
       snapshot.contract.recoveryPolicy.maxAttemptsPerAction,
     ).wakeup ?? resolveAutonomyGuardWakeups({
       tasks,

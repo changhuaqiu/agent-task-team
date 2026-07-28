@@ -79,7 +79,12 @@ export const proofLogRepo = {
   getByConversation(conversationId: string, options?: { limit?: number }): ProofEventRow[] {
     const limit = options?.limit ?? 200;
     return getDb()
-      .prepare('SELECT * FROM control_proof_event WHERE conversation_id = ? ORDER BY created_at ASC, id ASC LIMIT ?')
+      .prepare(`SELECT * FROM (
+        SELECT * FROM control_proof_event
+        WHERE conversation_id = ?
+        ORDER BY created_at DESC, id DESC
+        LIMIT ?
+      ) ORDER BY created_at ASC, id ASC`)
       .all(conversationId, limit) as ProofEventRow[];
   },
 

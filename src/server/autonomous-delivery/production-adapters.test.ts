@@ -17,6 +17,8 @@ import {
   RepositoryDeliveryFactsAdapter,
 } from './production-adapters';
 import type { GoalContract } from './types';
+import { EngineeringCollaborationService } from '../engineering-collaboration/service';
+import type { GitProviderVerifier } from '../engineering-collaboration/git-provider';
 
 const contract: GoalContract = {
   goal: '交付登录流程',
@@ -666,7 +668,7 @@ describe('RepositoryDeliveryFactsAdapter', () => {
     expect(facts.runnableTask).toBeUndefined();
   });
 
-  it('does not recover an implementer that advanced the task during its invocation', async () => {
+  it('does not recover an implementer that submitted accepted gate evidence during its invocation', async () => {
     const repo = new AutonomousDeliveryRepository();
     const run = repo.createRun(contract);
     const task = taskRepo.create({
@@ -692,6 +694,13 @@ describe('RepositoryDeliveryFactsAdapter', () => {
     getDb().prepare('UPDATE invocation SET created_at = ?, updated_at = ? WHERE id = ?')
       .run('2020-01-01T00:00:00.000Z', '2020-01-01T00:00:00.000Z', 'inv-implementer-with-progress');
     taskRepo.updateStatus(task.id, 'in_review');
+    proofLogRepo.append({
+      eventType: 'task_graph.gate_evidence.accepted',
+      conversationId: contract.scope.conversationId,
+      taskId: task.id,
+      actorId: 'luigi',
+      metadata: { status: 'in_review', gateName: 'implementation_evidence' },
+    });
     invocationRepo.updateStatus('inv-implementer-with-progress', 'succeeded');
     const reviewAdmission = executionEnvelopeRepo.create({
       source: 'review_gate',
@@ -706,6 +715,75 @@ describe('RepositoryDeliveryFactsAdapter', () => {
 
     const facts = await new RepositoryDeliveryFactsAdapter().observe(repo.getSnapshot(run.run.id)!);
 
+    expect(facts.runnableTask).toBeUndefined();
+  });
+
+  it('treats the verified Git collaboration PR path as task progress', async () => {
+    const repo = new AutonomousDeliveryRepository();
+    const run = repo.createRun(contract);
+    conversationRepo.update(contract.scope.conversationId, {
+      project_path: 'C:/repo',
+      git_repo_root: 'C:/repo',
+    });
+    const task = taskRepo.create({
+      id: 'task-git-progress',
+      conversation_id: contract.scope.conversationId,
+      title: contract.goal,
+      agent_id: 'luigi',
+    });
+    taskRepo.updateStatus(task.id, 'in_progress');
+    repo.updateRun({
+      runId: run.run.id,
+      status: 'executing',
+      stage: 'reviewing',
+      rootTaskId: task.id,
+    });
+    invocationRepo.create({
+      id: 'inv-git-implementer-progress',
+      conversation_id: contract.scope.conversationId,
+      task_id: task.id,
+      agent_id: 'luigi',
+      engine: 'codex',
+      account_id: 'account-codex',
+    });
+    getDb().prepare('UPDATE invocation SET created_at = ?, updated_at = ? WHERE id = ?')
+      .run('2020-01-01T00:00:00.000Z', '2020-01-01T00:00:00.000Z', 'inv-git-implementer-progress');
+    const verifier: GitProviderVerifier = {
+      getPullRequest: async () => ({
+        provider: 'github',
+        repository: 'acme/widget',
+        number: 42,
+        title: 'Ship',
+        url: 'https://github.com/acme/widget/pull/42',
+        state: 'open',
+        draft: false,
+        author: 'luigi',
+        baseRef: 'main',
+        headRef: 'task/ship',
+        headSha: 'a'.repeat(40),
+        checks: 'passing',
+        verifiedAt: '2026-07-18T00:00:00.000Z',
+      }),
+      getReview: async () => { throw new Error('not used'); },
+      getMerge: async () => { throw new Error('not used'); },
+    };
+    await new EngineeringCollaborationService(verifier).recordPullRequest({
+      taskId: task.id,
+      expectedConversationId: contract.scope.conversationId,
+      actorAgentId: 'luigi',
+      pullRequestUrl: 'https://github.com/acme/widget/pull/42',
+      evidence: {
+        installResult: 'ok',
+        buildResult: 'ok',
+        testResult: 'ok',
+        impactEvidence: 'ok',
+      },
+    });
+    invocationRepo.updateStatus('inv-git-implementer-progress', 'succeeded');
+
+    const facts = await new RepositoryDeliveryFactsAdapter().observe(repo.getSnapshot(run.run.id)!);
+
+    expect(taskRepo.getById(task.id)?.status).toBe('in_review');
     expect(facts.runnableTask).toBeUndefined();
   });
 });
