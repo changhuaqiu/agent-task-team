@@ -15,6 +15,7 @@ import { Send, Hash, Clock, Zap, Shield } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAutoScroll } from '@/hooks/useAutoScroll';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { extractTaskReference } from '@/lib/taskReference';
 
 function formatDateSeparator(dateStr: string): string {
   const date = new Date(dateStr);
@@ -80,13 +81,12 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
   const handleSend = () => {
     if (!inputValue.trim()) return;
 
-    // Basic regex to detect `#TASK-XXX` references
-    const taskRefMatch = inputValue.match(/#TASK-\d{3}/i);
+    const referencedTaskId = extractTaskReference(inputValue);
 
     addChatMessage({
       agentId: 'human',
       content: inputValue,
-      referencedTaskId: taskRefMatch ? taskRefMatch[0].toUpperCase() : undefined,
+      referencedTaskId,
       conversationId: selectedConversationId || undefined,
     });
 
