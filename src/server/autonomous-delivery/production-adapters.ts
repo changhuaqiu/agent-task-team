@@ -1,5 +1,9 @@
 import type { Server as IOServer } from 'socket.io';
 import { executionEnvelopeRepo } from '../repositories/execution-envelope-repo';
+import {
+  invocationRepo,
+  type InvocationRow,
+} from '../repositories/invocation-repo';
 import { proofLogRepo, type ProofEventRow } from '../repositories/proof-log-repo';
 import { taskGraphRepo } from '../repositories/task-graph-repo';
 import { taskRepo, type TaskRow } from '../repositories/task-repo';
@@ -82,9 +86,76 @@ interface ExecutionRecovery {
 function executionRecovery(
   tasks: TaskRow[],
   envelopes: ReturnType<typeof executionEnvelopeRepo.listByConversation>,
+  invocations: InvocationRow[],
   maxRecoveries: number,
 ): ExecutionRecovery {
   const taskById = new Map(tasks.map((task) => [task.id, task]));
+  const terminalInvocation = (invocation: InvocationRow) =>
+    invocation.status === 'succeeded'
+    || invocation.status === 'failed'
+    || invocation.status === 'canceled'
+    || invocation.status === 'cancelled'
+    || invocation.status === 'timed_out'
+    || invocation.status === 'terminated';
+  const completedInvocation = (invocation: InvocationRow) =>
+    invocation.status === 'succeeded'
+    || (invocation.status === 'terminated' && invocation.outcome === 'completed');
+  const failedInvocation = (invocation: InvocationRow) =>
+    invocation.status === 'failed'
+    || invocation.status === 'canceled'
+    || invocation.status === 'cancelled'
+    || invocation.status === 'timed_out'
+    || (invocation.status === 'terminated' && invocation.outcome !== 'completed');
+
+  // Admission envelopes only prove that a dispatch was accepted. Prefer the
+  // execution outcome, scoped to the intended agent, so a later parallel
+  // reviewer completion cannot hide an implementer's failed invocation.
+  for (const invocation of [...invocations].reverse()) {
+    if (!invocation.task_id || !failedInvocation(invocation)) continue;
+    const task = taskById.get(invocation.task_id);
+    if (!task || TERMINAL_TASK_STATUSES.has(task.status)) continue;
+    const hasNewerInvocationForAgent = invocations.some((candidate) =>
+      candidate.task_id === invocation.task_id
+      && candidate.agent_id === invocation.agent_id
+      && candidate.created_at > invocation.created_at
+    );
+    if (hasNewerInvocationForAgent) continue;
+
+    const agentHistory = invocations.filter((candidate) =>
+      candidate.task_id === invocation.task_id
+      && candidate.agent_id === invocation.agent_id
+      && candidate.created_at <= invocation.created_at
+    );
+    const latestCompletedIndex = agentHistory.findLastIndex(completedInvocation);
+    const failedAttempts = agentHistory
+      .slice(latestCompletedIndex + 1)
+      .filter((candidate) => terminalInvocation(candidate) && failedInvocation(candidate));
+    if (failedAttempts.length >= maxRecoveries) {
+      return { exhaustedTask: task };
+    }
+
+    return { wakeup: {
+      conversationId: task.conversation_id,
+      taskId: task.id,
+      agentId: invocation.agent_id,
+      reasonCode: 'runnable_owned_idle',
+      dispatchSource: 'system',
+      prompt: `上一次执行没有成功完成。请从当前工作目录恢复并继续完成任务 ${task.id}「${task.title}」；不要等待用户追加消息。`,
+      content: `系统正在自动恢复 ${task.id} 的执行。`,
+      metadata: {
+        taskId: task.id,
+        taskTitle: task.title,
+        taskStatus: task.status,
+        ownerAgentId: invocation.agent_id,
+        reasonCode: 'runnable_owned_idle',
+        idempotencyKey: `${task.conversation_id}:${task.id}:${invocation.agent_id}:recover:${invocation.id}`,
+        startsA2AHandoff: false,
+        startsDispatch: true,
+        reasonSummary: 'execution_dispatch_failed',
+      },
+    } };
+  }
+
   for (const envelope of [...envelopes].reverse()) {
     if (
       !envelope.task_id
@@ -252,10 +323,12 @@ export class RepositoryDeliveryFactsAdapter implements DeliveryFactsPort {
       : tasks[0];
     const failure = terminalTaskFailure(tasks);
     const envelopes = executionEnvelopeRepo.listByConversation(conversationId);
+    const invocations = invocationRepo.getByConversation(conversationId);
     const audience = resolveTaskNotificationAudience(conversationId);
     const wakeups = resolveAutonomyGuardWakeups({
       tasks,
       envelopes,
+      invocations,
       coordinatorAgentIds: audience.coordinatorAgentIds,
       reviewAgentIds: audience.reviewGateAgentIds,
       qaAgentIds: audience.qaAgentIds,
@@ -269,6 +342,7 @@ export class RepositoryDeliveryFactsAdapter implements DeliveryFactsPort {
     const recovery = executionRecovery(
       tasks,
       envelopes,
+      invocations,
       snapshot.contract.recoveryPolicy.maxAttemptsPerAction,
     );
     const nextWakeup = recovery.wakeup ?? wakeups[0];
@@ -699,13 +773,16 @@ export class HarnessDeliveryActionAdapter implements DeliveryActionPort {
     const audience = resolveTaskNotificationAudience(conversationId);
     const tasks = taskRepo.getByConversation(conversationId);
     const envelopes = executionEnvelopeRepo.listByConversation(conversationId);
+    const invocations = invocationRepo.getByConversation(conversationId);
     return executionRecovery(
       tasks,
       envelopes,
+      invocations,
       snapshot.contract.recoveryPolicy.maxAttemptsPerAction,
     ).wakeup ?? resolveAutonomyGuardWakeups({
       tasks,
       envelopes,
+      invocations,
       coordinatorAgentIds: audience.coordinatorAgentIds,
       reviewAgentIds: audience.reviewGateAgentIds,
       qaAgentIds: audience.qaAgentIds,

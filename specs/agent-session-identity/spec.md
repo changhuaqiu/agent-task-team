@@ -107,3 +107,10 @@ interface LogicalAgentSession {
 8. 首次 Invocation 被取消后，下一次 dispatch 不 load 未落盘 id，而是重新执行 `session/new`。
 9. 无 taskId 的同项目同 Agent 多轮执行使用同一 cwd；确认后的资源不存在只导致当前 generation 封存，不会永久重复 load 同一失效 id。
 10. adapter 仅返回 `Internal error` 的 load failure 不会自动重放当前 prompt；下一次独立 dispatch 会换代并成功进入 `session/new`。
+
+## 9. 并行派发后的恢复归属
+
+- 自主交付恢复必须按 `(taskId, agentId)` 隔离失败历史。一个并行评审者较晚结束，不能把同一任务上实现者的失败视为已被替代。
+- 同一任务同时存在显式失败 Invocation 与“成功结束但任务未推进”的 Invocation 时，优先恢复显式失败的执行者。
+- 恢复次数按执行者分别计算；其他执行者的完成或失败不消耗当前执行者的账号回退预算。
+- 新版 admission-only execution envelope 只证明派发被接收。执行恢复的成败事实以 Invocation 终态为准，不能把 `acknowledged` envelope 当作执行成功。

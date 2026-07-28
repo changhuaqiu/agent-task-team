@@ -5,6 +5,7 @@ import type { HarnessCoordinator } from '../harness/coordinator';
 import { registerHarnessCoordinator } from '../harness/registry';
 import type { HarnessTrigger } from '../harness/types';
 import { conversationRepo } from '../repositories/conversation-repo';
+import { invocationRepo } from '../repositories/invocation-repo';
 import { proofLogRepo } from '../repositories/proof-log-repo';
 import { resetSeq } from '../repositories/sortable-id';
 import { taskRepo } from '../repositories/task-repo';
@@ -480,5 +481,54 @@ describe('RepositoryDeliveryFactsAdapter', () => {
     });
     expect(emitCount).toBe(0);
     expect(repo.getSnapshot(run.run.id)?.receipts).toHaveLength(0);
+  });
+
+  it('recovers a failed implementer even when a parallel reviewer completes later', async () => {
+    const repo = new AutonomousDeliveryRepository();
+    const run = repo.createRun(contract);
+    const task = taskRepo.create({
+      id: 'task-parallel-recovery',
+      conversation_id: contract.scope.conversationId,
+      title: contract.goal,
+      agent_id: 'peach',
+    });
+    taskRepo.updateStatus(task.id, 'in_progress');
+    repo.updateRun({
+      runId: run.run.id,
+      status: 'executing',
+      stage: 'executing',
+      rootTaskId: task.id,
+    });
+
+    invocationRepo.create({
+      id: 'inv-luigi-empty',
+      conversation_id: contract.scope.conversationId,
+      task_id: task.id,
+      agent_id: 'luigi',
+      engine: 'opencode',
+      account_id: 'account-opencode',
+    });
+    invocationRepo.updateStatus('inv-luigi-empty', 'failed', {
+      reason_code: 'acp_empty_completion',
+      error_message: 'ACP ended without a final assistant message',
+    });
+    invocationRepo.create({
+      id: 'inv-peach-review',
+      conversation_id: contract.scope.conversationId,
+      task_id: task.id,
+      agent_id: 'peach',
+      engine: 'claude',
+      account_id: 'account-claude',
+    });
+    invocationRepo.updateStatus('inv-peach-review', 'succeeded');
+
+    const facts = await new RepositoryDeliveryFactsAdapter().observe(repo.getSnapshot(run.run.id)!);
+
+    expect(facts.taskGraph).toBe('pending');
+    expect(facts.runnableTask).toMatchObject({
+      taskId: task.id,
+      agentId: 'luigi',
+      reasonCode: 'runnable_owned_idle',
+    });
   });
 });
