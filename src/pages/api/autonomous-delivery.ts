@@ -59,16 +59,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(200).json(result);
     }
 
-    const contract = req.body?.contract;
-    if (!isGoalContract(contract)) {
+    const requestedContract = req.body?.contract;
+    if (!isGoalContract(requestedContract)) {
       return res.status(400).json({ error: 'Invalid GoalContract' });
     }
+    const contract: GoalContract = {
+      ...requestedContract,
+      idempotencyKey: requestedContract.idempotencyKey?.trim()
+        || `delivery-start:${requestedContract.scope.conversationId}`,
+    };
     if (!conversationRepo.getById(contract.scope.conversationId)) {
       return res.status(404).json({ error: 'Conversation not found' });
     }
     const existing = autonomousDeliveryRepo.getLatestByConversation(contract.scope.conversationId);
     if (existing && !['completed', 'escalated', 'cancelled'].includes(existing.run.status)) {
-      return res.status(409).json({ error: 'An active delivery run already exists', snapshot: existing });
+      void advanceAutonomousDelivery(io, existing.run.id, { kind: 'manual_resume' })?.catch((error) => {
+        console.error(`[autonomous-delivery] idempotent resume failed for ${existing.run.id}:`, error);
+      });
+      return res.status(202).json(existing);
     }
     const snapshot = startAutonomousDelivery(io, contract);
     if (!snapshot) return res.status(503).json({ error: 'Delivery supervisor is not registered' });

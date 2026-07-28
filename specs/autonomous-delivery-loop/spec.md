@@ -104,6 +104,26 @@ Run 保存单调递增的 `revision`。所有由旧快照推导的状态写回�
 - `DeliveryAction`：Supervisor 推导出的逻辑动作，例如 `plan_goal`、`dispatch_task`、`request_review`、`run_web_e2e`、`create_pr`、`merge_pr`、`publish_delivery`。
 - `DeliveryAttempt`：某个动作的一次实际执行。一次 Action 可有多次 Attempt。
 - Action 以 `idempotency_key` 唯一；Attempt 记录 claim、lease、started、heartbeat、terminal 和 failure taxonomy。
+
+#### Shared development database compatibility
+
+When a newer branch has already migrated the shared data directory to the managed
+DeliveryRun schema, a compatibility daemon must inspect the actual table contract:
+
+- managed runs require a stable `start_idempotency_key`, store active lifecycle
+  state separately from `current_stage`, and use
+  `active/waiting_gate/waiting_human/retrying/completed/failed/cancelled`;
+- a legacy supervisor may continue to reason in
+  `planning/executing/reviewing/verifying/integrating/delivering/recovering/escalated`
+  only through an explicit repository mapping; raw legacy statuses must never be
+  written into the managed table;
+- a repeated start for the same Conversation uses the same key and returns the
+  existing Run instead of creating a duplicate;
+- if the managed checkpoint no longer contains the legacy Action/Attempt tables,
+  compatibility repair must recreate their exact durable lease schema and add the
+  nullable receipt ownership columns before the legacy supervisor starts;
+- project rollback/deletion treats branch-specific projection tables as optional,
+  while preserving one aggregate transaction for every table that actually exists.
 - Supervisor 在副作用执行期间按 lease 的固定分数周期续租；Attempt 终态写入必须同时校验
   `attempt_no == Action.attempt_count`。过期 Attempt 的迟到结果不得改变当前 Action，也不得写入 Receipt。
 

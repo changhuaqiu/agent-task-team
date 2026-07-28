@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import Database from 'better-sqlite3';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -62,6 +63,82 @@ afterEach(() => {
 });
 
 describe('AutonomousDeliveryRepository', () => {
+  it('adapts to the managed run lifecycle and repairs missing lease projections', () => {
+    const managedDb = new Database(':memory:');
+    managedDb.pragma('foreign_keys = ON');
+    managedDb.exec(`
+      CREATE TABLE conversation (id TEXT PRIMARY KEY);
+      CREATE TABLE execution_envelope (id TEXT PRIMARY KEY);
+      CREATE TABLE autonomous_delivery_run (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL REFERENCES conversation(id) ON DELETE CASCADE,
+        root_task_id TEXT,
+        status TEXT NOT NULL CHECK(status IN (
+          'active','waiting_gate','waiting_human','retrying','completed','failed','cancelled'
+        )),
+        current_stage TEXT NOT NULL CHECK(current_stage IN (
+          'planning','executing','reviewing','verifying','integrating','delivering'
+        )),
+        goal_contract_json TEXT NOT NULL,
+        repair_cycle INTEGER NOT NULL DEFAULT 0,
+        revision INTEGER NOT NULL DEFAULT 0,
+        escalation_code TEXT,
+        escalation_detail TEXT,
+        delivery_bundle_json TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        completed_at TEXT,
+        start_idempotency_key TEXT NOT NULL UNIQUE
+      );
+      CREATE TRIGGER trg_delivery_run_start_key_insert
+      BEFORE INSERT ON autonomous_delivery_run
+      WHEN trim(NEW.start_idempotency_key)=''
+      BEGIN
+        SELECT RAISE(ABORT, 'delivery_run_start_idempotency_key_required');
+      END;
+      CREATE TABLE autonomous_delivery_receipt (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL REFERENCES autonomous_delivery_run(id) ON DELETE CASCADE,
+        kind TEXT NOT NULL,
+        external_id TEXT,
+        status TEXT NOT NULL,
+        payload_json TEXT NOT NULL,
+        idempotency_key TEXT NOT NULL UNIQUE,
+        observed_at TEXT NOT NULL
+      );
+      INSERT INTO conversation (id) VALUES ('conv-autonomous');
+    `);
+    setTestDb(managedDb);
+
+    const repo = new AutonomousDeliveryRepository();
+    const first = repo.createRun(contract);
+    const repeated = repo.createRun(contract);
+    const action = repo.ensureAction({
+      runId: first.run.id,
+      kind: 'plan_goal',
+      idempotencyKey: `${first.run.id}:plan`,
+      maxAttempts: 2,
+    });
+    const claim = repo.claimNext({
+      runId: first.run.id,
+      workerId: 'worker-managed',
+      leaseMs: 1_000,
+    });
+
+    expect(first.run.status).toBe('planning');
+    expect(repeated.run.id).toBe(first.run.id);
+    expect(action.run_id).toBe(first.run.id);
+    expect(claim?.attempt.action_id).toBe(action.id);
+    expect(
+      managedDb.prepare(
+        'SELECT start_idempotency_key FROM autonomous_delivery_run WHERE id=?',
+      ).get(first.run.id),
+    ).toEqual({ start_idempotency_key: 'delivery-start:conv-autonomous' });
+    expect(
+      (managedDb.prepare('PRAGMA table_info(autonomous_delivery_receipt)').all() as Array<{ name: string }>)
+        .map((column) => column.name),
+    ).toEqual(expect.arrayContaining(['action_id', 'attempt_id']));
+  });
   it('原子 claim 同一逻辑动作且不会产生重复 attempt', () => {
     const repo = new AutonomousDeliveryRepository();
     const run = repo.createRun(contract);

@@ -1,4 +1,20 @@
 import { getDb } from '../db/index';
+import type Database from 'better-sqlite3';
+
+function tableExists(db: Database.Database, table: string): boolean {
+  return Boolean(db.prepare(
+    `SELECT 1 FROM sqlite_master WHERE type='table' AND name=?`,
+  ).get(table));
+}
+
+function deleteIfTableExists(
+  db: Database.Database,
+  table: string,
+  sql: string,
+  conversationId: string,
+): void {
+  if (tableExists(db, table)) db.prepare(sql).run(conversationId);
+}
 
 export interface ConversationRow {
   id: string;
@@ -114,7 +130,12 @@ export const conversationRepo = {
 
       // A2A delivery references invocation worklist rows, while possession packets
       // reference passes. Delete leaves before their owning chains.
-      db.prepare('DELETE FROM a2a_delivery WHERE conversation_id = ?').run(id);
+      deleteIfTableExists(
+        db,
+        'a2a_delivery',
+        'DELETE FROM a2a_delivery WHERE conversation_id = ?',
+        id,
+      );
       db.prepare(
         `DELETE FROM a2a_handoff_packet
          WHERE chain_id IN (
@@ -134,13 +155,18 @@ export const conversationRepo = {
          )`,
       ).run(id);
       db.prepare('DELETE FROM a2a_possession_chain WHERE conversation_id = ?').run(id);
-      db.prepare(
-        `DELETE FROM chain_worklist
-         WHERE chain_id IN (
-           SELECT id FROM invocation_chain WHERE conversation_id = ?
-         )`,
-      ).run(id);
-      db.prepare('DELETE FROM invocation_chain WHERE conversation_id = ?').run(id);
+      if (tableExists(db, 'invocation_chain')) {
+        deleteIfTableExists(
+          db,
+          'chain_worklist',
+          `DELETE FROM chain_worklist
+           WHERE chain_id IN (
+             SELECT id FROM invocation_chain WHERE conversation_id = ?
+           )`,
+          id,
+        );
+        db.prepare('DELETE FROM invocation_chain WHERE conversation_id = ?').run(id);
+      }
 
       // Runtime/control-plane and observability projections.
       db.prepare('DELETE FROM agent_binding WHERE conversation_id = ?').run(id);
@@ -151,8 +177,18 @@ export const conversationRepo = {
 
       // Remaining project-scoped records have no transitive dependents.
       db.prepare('DELETE FROM agent_mailbox WHERE conversation_id = ?').run(id);
-      db.prepare('DELETE FROM delivery_cursor WHERE conversation_id = ?').run(id);
-      db.prepare('DELETE FROM a2a_audit_log WHERE conversation_id = ?').run(id);
+      deleteIfTableExists(
+        db,
+        'delivery_cursor',
+        'DELETE FROM delivery_cursor WHERE conversation_id = ?',
+        id,
+      );
+      deleteIfTableExists(
+        db,
+        'a2a_audit_log',
+        'DELETE FROM a2a_audit_log WHERE conversation_id = ?',
+        id,
+      );
       db.prepare('DELETE FROM phase WHERE conversation_id = ?').run(id);
       db.prepare('DELETE FROM agent_session WHERE conversation_id = ?').run(id);
       db.prepare('DELETE FROM invocation WHERE conversation_id = ?').run(id);

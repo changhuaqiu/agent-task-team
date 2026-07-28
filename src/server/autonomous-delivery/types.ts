@@ -47,6 +47,7 @@ export interface GitHubIssueGoalSource {
 }
 
 export interface GoalContract {
+  idempotencyKey?: string;
   goal: string;
   acceptanceCriteria: string[];
   source?: GitHubIssueGoalSource;

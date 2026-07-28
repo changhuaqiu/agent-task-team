@@ -198,6 +198,7 @@ export function ProjectCreateDialog({
           body: JSON.stringify({
             action: 'start',
             contract: {
+              idempotencyKey: `delivery-start:${conversationId}`,
               goal: trimmedGoal,
               acceptanceCriteria: criteria,
               scope: {

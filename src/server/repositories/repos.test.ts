@@ -144,6 +144,21 @@ describe('conversation-repo', () => {
     expect(conversationRepo.getById('conv-1')).toBeUndefined();
   });
 
+  it('deletes an aggregate when branch-specific projection tables are absent', () => {
+    const db = getDb();
+    db.exec(`
+      DROP TABLE a2a_delivery;
+      DROP TABLE chain_worklist;
+      DROP TABLE invocation_chain;
+      DROP TABLE delivery_cursor;
+      DROP TABLE a2a_audit_log;
+    `);
+    conversationRepo.create({ id: 'conv-optional-projections', title: 'Rollback target' });
+
+    expect(conversationRepo.deleteAggregate('conv-optional-projections')).toBe(true);
+    expect(conversationRepo.getById('conv-optional-projections')).toBeUndefined();
+  });
+
   it('returns undefined for missing conversation', () => {
     expect(conversationRepo.getById('nonexistent')).toBeUndefined();
   });

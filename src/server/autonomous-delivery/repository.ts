@@ -1,3 +1,4 @@
+import type Database from 'better-sqlite3';
 import { getDb } from '../db';
 import { generateSortableId } from '../repositories/sortable-id';
 import type {
@@ -22,11 +23,155 @@ function addMs(iso: string, milliseconds: number): string {
   return new Date(new Date(iso).getTime() + milliseconds).toISOString();
 }
 
+const preparedDeliveryDatabases = new WeakSet<Database.Database>();
+
+function tableColumns(db: Database.Database, table: string): Set<string> {
+  return new Set(
+    (db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>)
+      .map((column) => column.name),
+  );
+}
+
+function usesManagedRunLifecycle(db: Database.Database): boolean {
+  return tableColumns(db, 'autonomous_delivery_run').has('start_idempotency_key');
+}
+
+function prepareDeliveryCompatibility(db: Database.Database): Database.Database {
+  if (preparedDeliveryDatabases.has(db)) return db;
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS autonomous_delivery_action (
+      id TEXT PRIMARY KEY,
+      run_id TEXT NOT NULL REFERENCES autonomous_delivery_run(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL,
+      subject_type TEXT,
+      subject_id TEXT,
+      idempotency_key TEXT NOT NULL UNIQUE,
+      status TEXT NOT NULL CHECK(status IN (
+        'ready','claimed','running','retry_wait','succeeded','failed','cancelled'
+      )),
+      not_before TEXT NOT NULL,
+      attempt_count INTEGER NOT NULL DEFAULT 0,
+      max_attempts INTEGER NOT NULL,
+      last_failure_code TEXT,
+      last_failure_detail TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_autonomous_delivery_action_claim
+      ON autonomous_delivery_action(run_id, status, not_before, created_at);
+
+    CREATE TABLE IF NOT EXISTS autonomous_delivery_attempt (
+      id TEXT PRIMARY KEY,
+      action_id TEXT NOT NULL REFERENCES autonomous_delivery_action(id) ON DELETE CASCADE,
+      attempt_no INTEGER NOT NULL,
+      status TEXT NOT NULL CHECK(status IN (
+        'claimed','running','succeeded','failed','abandoned'
+      )),
+      lease_owner TEXT NOT NULL,
+      lease_expires_at TEXT NOT NULL,
+      heartbeat_at TEXT NOT NULL,
+      workdir_ref TEXT,
+      session_generation INTEGER,
+      execution_envelope_id TEXT REFERENCES execution_envelope(id),
+      failure_code TEXT,
+      failure_detail TEXT,
+      created_at TEXT NOT NULL,
+      started_at TEXT,
+      completed_at TEXT,
+      UNIQUE(action_id, attempt_no)
+    );
+    CREATE INDEX IF NOT EXISTS idx_autonomous_delivery_attempt_lease
+      ON autonomous_delivery_attempt(status, lease_expires_at);
+  `);
+
+  const receiptColumns = tableColumns(db, 'autonomous_delivery_receipt');
+  if (!receiptColumns.has('action_id')) {
+    db.exec('ALTER TABLE autonomous_delivery_receipt ADD COLUMN action_id TEXT');
+  }
+  if (!receiptColumns.has('attempt_id')) {
+    db.exec('ALTER TABLE autonomous_delivery_receipt ADD COLUMN attempt_id TEXT');
+  }
+  preparedDeliveryDatabases.add(db);
+  return db;
+}
+
+function deliveryDb(): Database.Database {
+  return prepareDeliveryCompatibility(getDb());
+}
+
+type StoredDeliveryRunRow = Omit<DeliveryRunRow, 'status'> & {
+  status: DeliveryRunStatus | 'active' | 'waiting_gate' | 'waiting_human' | 'retrying' | 'failed';
+};
+
+function normalizeRun(db: Database.Database, row: StoredDeliveryRunRow): DeliveryRunRow {
+  if (!usesManagedRunLifecycle(db)) return row as DeliveryRunRow;
+  const status: DeliveryRunStatus = (() => {
+    switch (row.status) {
+      case 'active':
+      case 'waiting_gate':
+        return row.current_stage as DeliveryRunStatus;
+      case 'waiting_human':
+      case 'failed':
+        return 'escalated';
+      case 'retrying':
+        return 'recovering';
+      default:
+        return row.status;
+    }
+  })();
+  return { ...row, status };
+}
+
+function managedStatus(status: DeliveryRunStatus): StoredDeliveryRunRow['status'] {
+  switch (status) {
+    case 'escalated':
+      return 'waiting_human';
+    case 'recovering':
+      return 'retrying';
+    case 'completed':
+    case 'cancelled':
+      return status;
+    default:
+      return 'active';
+  }
+}
+
+function managedStage(status: DeliveryRunStatus, stage: string): string {
+  const allowed = new Set(['planning', 'executing', 'reviewing', 'verifying', 'integrating', 'delivering']);
+  if (allowed.has(stage)) return stage;
+  if (allowed.has(status)) return status;
+  return status === 'completed' ? 'delivering' : 'planning';
+}
+
 export class AutonomousDeliveryRepository {
   createRun(contract: GoalContract, now: Date = new Date()): DeliveryRunSnapshot {
     const timestamp = nowIso(now);
     const id = generateSortableId('delivery');
-    getDb().prepare(
+    const db = deliveryDb();
+    if (usesManagedRunLifecycle(db)) {
+      const startKey = contract.idempotencyKey?.trim()
+        || `delivery-start:${contract.scope.conversationId}`;
+      const existing = db.prepare(
+        'SELECT id FROM autonomous_delivery_run WHERE start_idempotency_key=?',
+      ).get(startKey) as { id: string } | undefined;
+      if (existing) return this.getSnapshot(existing.id)!;
+      db.prepare(
+        `INSERT INTO autonomous_delivery_run (
+          id, conversation_id, status, current_stage, goal_contract_json,
+          repair_cycle, start_idempotency_key, created_at, updated_at
+        ) VALUES (?, ?, 'active', 'planning', ?, 0, ?, ?, ?)`,
+      ).run(
+        id,
+        contract.scope.conversationId,
+        JSON.stringify({ ...contract, idempotencyKey: startKey }),
+        startKey,
+        timestamp,
+        timestamp,
+      );
+      return this.getSnapshot(id)!;
+    }
+    db.prepare(
       `INSERT INTO autonomous_delivery_run (
         id, conversation_id, status, current_stage, goal_contract_json,
         repair_cycle, created_at, updated_at
@@ -36,39 +181,46 @@ export class AutonomousDeliveryRepository {
   }
 
   getRun(runId: string): DeliveryRunRow | undefined {
-    return getDb().prepare('SELECT * FROM autonomous_delivery_run WHERE id=?')
-      .get(runId) as DeliveryRunRow | undefined;
+    const db = deliveryDb();
+    const row = db.prepare('SELECT * FROM autonomous_delivery_run WHERE id=?')
+      .get(runId) as StoredDeliveryRunRow | undefined;
+    return row ? normalizeRun(db, row) : undefined;
   }
 
   getLatestByConversation(conversationId: string): DeliveryRunSnapshot | undefined {
-    const row = getDb().prepare(
+    const row = deliveryDb().prepare(
       `SELECT * FROM autonomous_delivery_run
        WHERE conversation_id=?
        ORDER BY created_at DESC, id DESC LIMIT 1`,
-    ).get(conversationId) as DeliveryRunRow | undefined;
+    ).get(conversationId) as StoredDeliveryRunRow | undefined;
     return row ? this.getSnapshot(row.id) : undefined;
   }
 
   listActive(): DeliveryRunRow[] {
-    return getDb().prepare(
+    const db = deliveryDb();
+    const activePredicate = usesManagedRunLifecycle(db)
+      ? "status IN ('active','retrying')"
+      : "status NOT IN ('completed','escalated','cancelled')";
+    const rows = db.prepare(
       `SELECT * FROM autonomous_delivery_run
-       WHERE status NOT IN ('completed','escalated','cancelled')
+       WHERE ${activePredicate}
        ORDER BY updated_at ASC, id ASC`,
-    ).all() as DeliveryRunRow[];
+    ).all() as StoredDeliveryRunRow[];
+    return rows.map((row) => normalizeRun(db, row));
   }
 
   getSnapshot(runId: string): DeliveryRunSnapshot | undefined {
     const run = this.getRun(runId);
     if (!run) return undefined;
-    const actions = getDb().prepare(
+    const actions = deliveryDb().prepare(
       'SELECT * FROM autonomous_delivery_action WHERE run_id=? ORDER BY created_at ASC, id ASC',
     ).all(runId) as DeliveryActionRow[];
-    const attempts = getDb().prepare(
+    const attempts = deliveryDb().prepare(
       `SELECT at.* FROM autonomous_delivery_attempt at
        JOIN autonomous_delivery_action ac ON ac.id=at.action_id
        WHERE ac.run_id=? ORDER BY at.created_at ASC, at.id ASC`,
     ).all(runId) as DeliveryAttemptRow[];
-    const receipts = getDb().prepare(
+    const receipts = deliveryDb().prepare(
       'SELECT * FROM autonomous_delivery_receipt WHERE run_id=? ORDER BY observed_at ASC, id ASC',
     ).all(runId) as DeliveryReceiptRow[];
     return {
@@ -96,8 +248,16 @@ export class AutonomousDeliveryRepository {
     now?: Date;
   }): DeliveryRunRow | undefined {
     const timestamp = nowIso(input.now);
-    const completedAt = input.status === 'completed' ? timestamp : null;
-    const result = getDb().prepare(
+    const db = deliveryDb();
+    const managed = usesManagedRunLifecycle(db);
+    const storedStatus = managed ? managedStatus(input.status) : input.status;
+    const storedStage = managed ? managedStage(input.status, input.stage) : input.stage;
+    const completedAt = storedStatus === 'completed' || storedStatus === 'failed'
+      || storedStatus === 'cancelled' ? timestamp : null;
+    const terminalStatuses = managed
+      ? "'completed','failed','cancelled'"
+      : "'completed','escalated','cancelled'";
+    const result = db.prepare(
       `UPDATE autonomous_delivery_run
        SET status=?, current_stage=?,
            root_task_id=COALESCE(?, root_task_id),
@@ -109,10 +269,10 @@ export class AutonomousDeliveryRepository {
            updated_at=?
        WHERE id=?
          AND (? IS NULL OR revision=?)
-         AND (? IS NULL OR status NOT IN ('completed','escalated','cancelled'))`,
+         AND (? IS NULL OR status NOT IN (${terminalStatuses}))`,
     ).run(
-      input.status,
-      input.stage,
+      storedStatus,
+      storedStage,
       input.rootTaskId ?? null,
       input.repairCycle ?? null,
       input.escalationCode ?? null,
@@ -140,7 +300,7 @@ export class AutonomousDeliveryRepository {
   }): DeliveryActionRow {
     const timestamp = nowIso(input.now);
     const id = generateSortableId('delivery-action');
-    getDb().prepare(
+    deliveryDb().prepare(
       `INSERT INTO autonomous_delivery_action (
         id, run_id, kind, subject_type, subject_id, idempotency_key, status,
         not_before, attempt_count, max_attempts, created_at, updated_at
@@ -158,7 +318,7 @@ export class AutonomousDeliveryRepository {
       timestamp,
       timestamp,
     );
-    return getDb().prepare('SELECT * FROM autonomous_delivery_action WHERE idempotency_key=?')
+    return deliveryDb().prepare('SELECT * FROM autonomous_delivery_action WHERE idempotency_key=?')
       .get(input.idempotencyKey) as DeliveryActionRow;
   }
 
@@ -169,13 +329,16 @@ export class AutonomousDeliveryRepository {
     now?: Date;
   }): ClaimedDeliveryAction | undefined {
     const timestamp = nowIso(input.now);
-    const db = getDb();
+    const db = deliveryDb();
+    const activePredicate = usesManagedRunLifecycle(db)
+      ? "run.status IN ('active','retrying')"
+      : "run.status NOT IN ('completed','escalated','cancelled')";
     return db.transaction(() => {
       const candidate = db.prepare(
         `SELECT action.* FROM autonomous_delivery_action action
          JOIN autonomous_delivery_run run ON run.id=action.run_id
          WHERE action.run_id=?
-           AND run.status NOT IN ('completed','escalated','cancelled')
+           AND ${activePredicate}
            AND action.status IN ('ready','retry_wait')
            AND action.not_before<=?
            AND action.attempt_count<action.max_attempts
@@ -222,7 +385,7 @@ export class AutonomousDeliveryRepository {
 
   markAttemptRunning(attemptId: string, now: Date = new Date()): DeliveryAttemptRow | undefined {
     const timestamp = nowIso(now);
-    const db = getDb();
+    const db = deliveryDb();
     db.transaction(() => {
       const attempt = db.prepare('SELECT action_id FROM autonomous_delivery_attempt WHERE id=?')
         .get(attemptId) as { action_id: string } | undefined;
@@ -237,13 +400,13 @@ export class AutonomousDeliveryRepository {
          WHERE id=? AND status='claimed'`,
       ).run(timestamp, attempt.action_id);
     })();
-    return getDb().prepare('SELECT * FROM autonomous_delivery_attempt WHERE id=?')
+    return deliveryDb().prepare('SELECT * FROM autonomous_delivery_attempt WHERE id=?')
       .get(attemptId) as DeliveryAttemptRow | undefined;
   }
 
   heartbeat(attemptId: string, leaseMs: number, now: Date = new Date()): boolean {
     const timestamp = nowIso(now);
-    const result = getDb().prepare(
+    const result = deliveryDb().prepare(
       `UPDATE autonomous_delivery_attempt
        SET heartbeat_at=?, lease_expires_at=?
        WHERE id=? AND status IN ('claimed','running')
@@ -265,7 +428,7 @@ export class AutonomousDeliveryRepository {
     now?: Date;
   }): boolean {
     const timestamp = nowIso(input.now);
-    const db = getDb();
+    const db = deliveryDb();
     return db.transaction(() => {
       const completed = db.prepare(
         `UPDATE autonomous_delivery_attempt
@@ -310,7 +473,7 @@ export class AutonomousDeliveryRepository {
     now?: Date;
   }): DeliveryReceiptRow {
     const timestamp = nowIso(input.now);
-    getDb().transaction(() => {
+    deliveryDb().transaction(() => {
       this.appendReceipt({
         runId: input.runId,
         receipt: input.receipt,
@@ -318,7 +481,7 @@ export class AutonomousDeliveryRepository {
         now: timestamp,
       });
     })();
-    return getDb().prepare(
+    return deliveryDb().prepare(
       'SELECT * FROM autonomous_delivery_receipt WHERE idempotency_key=?',
     ).get(
       input.receipt.idempotencyKey
@@ -335,7 +498,7 @@ export class AutonomousDeliveryRepository {
     now?: Date;
   }): 'retry_wait' | 'failed' | 'stale' {
     const timestamp = nowIso(input.now);
-    const db = getDb();
+    const db = deliveryDb();
     return db.transaction(() => {
       const action = db.prepare('SELECT * FROM autonomous_delivery_action WHERE id=?')
         .get(input.actionId) as DeliveryActionRow | undefined;
@@ -386,7 +549,7 @@ export class AutonomousDeliveryRepository {
 
   abandonExpiredAttempts(now: Date = new Date()): number {
     const timestamp = nowIso(now);
-    const db = getDb();
+    const db = deliveryDb();
     return db.transaction(() => {
       const expired = db.prepare(
         `SELECT at.id, at.action_id
@@ -425,7 +588,7 @@ export class AutonomousDeliveryRepository {
       ?? input.fallbackKey
       ?? `${input.runId}:${input.receipt.kind}:${input.receipt.externalId ?? input.receipt.status}`;
     const id = generateSortableId('delivery-receipt');
-    getDb().prepare(
+    deliveryDb().prepare(
       `INSERT INTO autonomous_delivery_receipt (
         id, run_id, action_id, attempt_id, kind, external_id, status,
         payload_json, idempotency_key, observed_at
@@ -447,7 +610,7 @@ export class AutonomousDeliveryRepository {
       idempotencyKey,
       timestamp,
     );
-    return getDb().prepare('SELECT * FROM autonomous_delivery_receipt WHERE idempotency_key=?')
+    return deliveryDb().prepare('SELECT * FROM autonomous_delivery_receipt WHERE idempotency_key=?')
       .get(idempotencyKey) as DeliveryReceiptRow;
   }
 }
