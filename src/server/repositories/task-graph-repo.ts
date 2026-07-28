@@ -359,9 +359,12 @@ export const taskGraphRepo = {
     status?: string;
   }): TaskActionRow {
     assertTaskInConversation(input.taskId, input.conversationId);
+    const currentTask = taskRepo.getById(input.taskId);
+    const nextStatus = input.status
+      ?? (currentTask?.status === 'pending' ? 'in_progress' : currentTask?.status);
     taskRepo.update(input.taskId, {
       agent_id: input.toAgentId,
-      status: input.status ?? 'in_progress',
+      ...(nextStatus ? { status: nextStatus } : {}),
     });
 
     return this.appendAction({

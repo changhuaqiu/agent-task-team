@@ -428,6 +428,7 @@ Web UI E2E 第一次失败，系统自动创建 repair action；修复后重新�
 - ACP 适配器可能先发出 MCP permission request、再异步投递同一 toolCallId 的 tool update。自动放行策略必须给这两个事件一个短且有界的关联窗口，并保持 callId 一次性消费；不得因事件到达顺序反转而误拒，也不得按 MCP 标记无条件放行。
 - Claude ACP 的 permission request 可能不带 MCP `_meta`，但会在 `toolCall.title` 提供完整随机 server 工具名。平台可仅对当前 dispatch 生成的精确工具名集合做一次性放行；未知 title、重复 callId 与非当前 grant 工具必须继续落回默认拒绝。
 - Web 聊天的任务引用必须同时支持旧 `#TASK-000` 与当前持久化的 `#task-<id-parts>` 完整 ID；不得用旧三位数正则截断新 ID，否则 mention 派发会以不存在的任务进入 `task_missing`，回执工具也会得到空 dispatch task。
+- A2A handoff acceptance 的默认状态推进只允许 `pending → in_progress`。若质量回执已把任务推进到 `in_review`、`done`、`blocked` 等更高或终态，晚到的 handoff accepted 只能更新持有者与记录 action，不得把权威任务状态回退为 `in_progress`。
 - Invocation 成功结束且本轮 Invocation 开始后没有新增权威进展 proof 时，Supervisor 必须按该任务最新的终态 Invocation 恢复同一代理。权威进展包括非 Git gate evidence 与 Git collaboration 的 PR/review/merge verified proof；不得把派发期间 `work_dir` 投影等元数据对 `task.updated_at` 的刷新当成业务推进。进展查询必须覆盖最新 proof，不能用按时间升序截断的最老窗口判断当前事实。
 - 仅给协调者绑定任务工具会造成实现者可以产出、评审者可以给出 PASS 文本，但 Task Graph 永远无法落到 `done`；该配置视为不可交付。
 5. 首次验证失败后必须推导 `repair_verification`，不得由测试直接修改 `repair_cycle`；

@@ -292,6 +292,25 @@ describe('taskGraphRepo handoffs, artifacts, and chat bindings', () => {
     expect(taskRepo.getById('task-ui')!.status).toBe('in_progress');
   });
 
+  it.each(['in_review', 'done', 'blocked'] as const)(
+    'does not regress an advanced %s task when handoff acceptance arrives late',
+    (status) => {
+      createTask('task-late-handoff', 'Late handoff', 'owner');
+      taskRepo.updateStatus('task-late-handoff', status);
+
+      taskGraphRepo.recordHandoffAccepted({
+        conversationId: 'conv-1',
+        taskId: 'task-late-handoff',
+        fromAgentId: 'owner',
+        toAgentId: 'reviewer',
+        passId: `pass-${status}`,
+      });
+
+      expect(taskRepo.getById('task-late-handoff')!.agent_id).toBe('reviewer');
+      expect(taskRepo.getById('task-late-handoff')!.status).toBe(status);
+    },
+  );
+
   it('links chat messages, actions, and artifacts without changing task facts', () => {
     createTask('task-ui', 'Chat UI', 'frontend');
     const messageId = messageRepo.append({
