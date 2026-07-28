@@ -12,6 +12,9 @@ import { EngineeringCollaborationError, EngineeringCollaborationService } from '
 import type { GitProviderVerifier } from '@/server/engineering-collaboration/git-provider';
 import type { MergeReceipt, PullRequestReceipt, ReviewReceipt } from '@/lib/engineering-collaboration/types';
 import { PlatformEventLog } from '@/server/platform-events/event-log';
+import { qualityGateRepo } from '@/server/quality-gate/repository';
+import { TaskGateLifecycleProcessManager } from '@/server/repositories/task-gate-lifecycle-process-manager';
+import { resolveTaskNotificationAudience } from '@/server/task-flow/task-notification-publisher';
 
 const pullRequest: PullRequestReceipt = {
   provider: 'github', repository: 'acme/widget', number: 42, title: 'Fix checkout',
@@ -54,8 +57,56 @@ beforeEach(() => {
     project_path: 'C:/repo', git_repo_root: 'C:/repo',
   });
   taskRepo.create({ id: 'TASK-PR', conversation_id: 'conv-pr-loop', title: 'Fix checkout', agent_id: 'luigi' });
-  taskRepo.updateStatus('TASK-PR', 'in_progress');
+  taskRepo.transition('TASK-PR', { to: 'in_progress' });
 });
+
+function applyLatestTaskGateDecision(actorAgentId = 'peach'): void {
+  const event = new PlatformEventLog()
+    .listByProjectAgent('conv-pr-loop', actorAgentId)
+    .filter((candidate) => (
+      candidate.type === 'gate.passed'
+      || candidate.type === 'gate.changes_requested'
+      || candidate.type === 'gate.rejected'
+    ))
+    .at(-1);
+  expect(event).toBeDefined();
+  new TaskGateLifecycleProcessManager().handle(
+    event!,
+    { signal: new AbortController().signal },
+  );
+}
+
+function requestCurrentTaskReviewGate(): void {
+  const task = taskRepo.getById('TASK-PR')!;
+  const pullRequestAction = taskGraphRepo.listActionsForTask(task.id)
+    .filter((action) => action.type === 'task.pull_request_submitted')
+    .at(-1)!;
+  const payload = JSON.parse(pullRequestAction.payload) as {
+    receipt: PullRequestReceipt;
+    artifactRevision: string;
+  };
+  const audience = resolveTaskNotificationAudience(task.conversation_id);
+  qualityGateRepo.request({
+    conversationId: task.conversation_id,
+    kind: 'code_review',
+    targetType: 'task',
+    targetId: task.id,
+    artifactRevision: payload.artifactRevision,
+    criteria: {
+      providerReviewRequired: true,
+      qualityDecision: 'pass',
+      maxBlockerCount: 0,
+      providerHeadSha: payload.receipt.headSha,
+    },
+    policy: {
+      source: 'delivery_control_process_manager',
+      prohibitSelfReview: true,
+      implementerId: task.agent_id,
+      authorizedEvaluatorIds: audience.reviewGateAgentIds,
+    },
+    actor: { type: 'system', id: 'delivery-control-process-manager' },
+  });
+}
 
 describe('EngineeringCollaborationService', () => {
   it('records a provider-verified PR as task action, artifact, card, proof and review transition', async () => {
@@ -63,6 +114,8 @@ describe('EngineeringCollaborationService', () => {
 
     const result = await service.recordPullRequest({
       taskId: 'TASK-PR', actorAgentId: 'luigi', pullRequestUrl: pullRequest.url,
+      correlationId: 'goal-trace-engineering',
+      causationId: 'agent-outcome-pr',
       evidence: {
         installResult: 'pnpm install unchanged', buildResult: 'build passed',
         testResult: '42 tests passed', impactEvidence: 'checkout API and UI inspected',
@@ -82,10 +135,11 @@ describe('EngineeringCollaborationService', () => {
       kind: 'pull_request', taskId: 'TASK-PR', receipt: { headSha: pullRequest.headSha },
     } });
     expect(proofLogRepo.findByType({ eventType: 'engineering.pull_request.verified', conversationId: 'conv-pr-loop', taskId: 'TASK-PR' })).toHaveLength(1);
-    const submitted = new PlatformEventLog().listByProjectAgent('conv-pr-loop', 'luigi')
-      .find((event) => event.type === 'review.submitted')!;
-    expect(submitted.actor).toEqual({ type: 'agent', id: 'luigi' });
-    expect(submitted.payload).toEqual({ taskId: 'TASK-PR' });
+    expect(new PlatformEventLog().listTrace('goal-trace-engineering').map((event) => event.type))
+      .toContain('task.in_review');
+    expect(new PlatformEventLog().listByProjectAgent('conv-pr-loop', 'luigi')
+      .some((event) => event.type === 'gate.requested')).toBe(false);
+    expect(qualityGateRepo.listForTarget('task', 'TASK-PR')).toHaveLength(0);
   });
 
   it('rejects PR submission from an agent that does not own the task', async () => {
@@ -97,13 +151,12 @@ describe('EngineeringCollaborationService', () => {
   });
 
   it('records a real quality-gate review and returns rejected work to the implementer', async () => {
-    const emit = vi.fn();
-    const to = vi.fn(() => ({ emit }));
-    const service = new EngineeringCollaborationService(verifier(), { to } as never);
+    const service = new EngineeringCollaborationService(verifier());
     await service.recordPullRequest({
       taskId: 'TASK-PR', actorAgentId: 'luigi', pullRequestUrl: pullRequest.url,
       evidence: { installResult: 'ok', buildResult: 'ok', testResult: 'ok', impactEvidence: 'ok' },
     });
+    requestCurrentTaskReviewGate();
 
     const result = await service.recordReview({
       taskId: 'TASK-PR', actorAgentId: 'peach', pullRequestUrl: pullRequest.url, reviewUrl: review.reviewUrl,
@@ -111,25 +164,25 @@ describe('EngineeringCollaborationService', () => {
     });
 
     expect(result.receipt).toEqual(review);
-    expect(taskRepo.getById('TASK-PR')).toMatchObject({ status: 'rejected', review_note: 'Checkout loses the selected address.' });
+    expect(taskRepo.getById('TASK-PR')).toMatchObject({ status: 'in_review', review_note: null });
+    applyLatestTaskGateDecision();
+    expect(taskRepo.getById('TASK-PR')).toMatchObject({
+      status: 'in_progress',
+      review_note: 'Checkout loses the selected address.',
+    });
     expect(taskGraphRepo.listArtifacts('conv-pr-loop')).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: 'review', url: review.reviewUrl }),
     ]));
     expect(JSON.parse(messageRepo.getById(result.messageId)!.metadata!)).toMatchObject({ collaborationCard: {
       kind: 'review', receipt: { decision: 'changes_requested', headSha: pullRequest.headSha },
     } });
-    expect(emit).toHaveBeenCalledWith('task.wakeup', expect.objectContaining({
-      taskId: 'TASK-PR', agentId: 'peach', reasonCode: 'review_requested',
-    }));
-    expect(emit).toHaveBeenCalledWith('task.wakeup', expect.objectContaining({
-      taskId: 'TASK-PR', agentId: 'luigi', reasonCode: 'review_rejected',
-    }));
     const rejectedEvent = new PlatformEventLog().listByProjectAgent('conv-pr-loop', 'peach')
-      .find((event) => event.type === 'review.rejected')!;
+      .find((event) => event.type === 'gate.changes_requested')!;
     expect(rejectedEvent.actor).toEqual({ type: 'agent', id: 'peach' });
     expect(rejectedEvent.payload).toMatchObject({
-      taskId: 'TASK-PR',
-      reviewerId: 'peach',
+      targetId: 'TASK-PR',
+      evaluatorId: 'peach',
+      artifactRevision: String(taskRepo.getById('TASK-PR')!.revision - 1),
     });
   });
 
@@ -140,6 +193,7 @@ describe('EngineeringCollaborationService', () => {
       taskId: 'TASK-PR', actorAgentId: 'luigi', pullRequestUrl: pullRequest.url,
       evidence: { installResult: 'ok', buildResult: 'ok', testResult: 'ok', impactEvidence: 'ok' },
     });
+    requestCurrentTaskReviewGate();
 
     await expect(service.recordReview({
       taskId: 'TASK-PR', actorAgentId: 'peach', pullRequestUrl: pullRequest.url, reviewUrl: staleReview.reviewUrl,
@@ -151,7 +205,7 @@ describe('EngineeringCollaborationService', () => {
   it('fails closed without an authoritative Git repository context', async () => {
     conversationRepo.create({ id: 'conv-no-repo', title: 'No repository' });
     taskRepo.create({ id: 'TASK-NO-REPO', conversation_id: 'conv-no-repo', title: 'Unsafe receipt', agent_id: 'luigi' });
-    taskRepo.updateStatus('TASK-NO-REPO', 'in_progress');
+  taskRepo.transition('TASK-NO-REPO', { to: 'in_progress' });
     const service = new EngineeringCollaborationService(verifier());
 
     await expect(service.recordPullRequest({
@@ -177,10 +231,12 @@ describe('EngineeringCollaborationService', () => {
       taskId: 'TASK-PR', actorAgentId: 'luigi', pullRequestUrl: pullRequest.url,
       evidence: { installResult: 'ok', buildResult: 'ok', testResult: 'ok', impactEvidence: 'ok' },
     });
+    requestCurrentTaskReviewGate();
     await service.recordReview({
       taskId: 'TASK-PR', actorAgentId: 'peach', pullRequestUrl: pullRequest.url, reviewUrl: review.reviewUrl,
       evidence: { testResult: 'failed', blockerCount: 1, summary: 'Fix it', qualityDecision: 'reject' },
     });
+    applyLatestTaskGateDecision();
     const replacementPullRequest = {
       ...pullRequest,
       number: 43,
@@ -207,7 +263,7 @@ describe('EngineeringCollaborationService', () => {
       evidence: { installResult: 'ok', buildResult: 'ok', testResult: 'claimed fixed', impactEvidence: 'rechecked' },
     })).rejects.toMatchObject<Partial<EngineeringCollaborationError>>({ reasonCode: 'pull_request_changed' });
 
-    expect(taskRepo.getById('TASK-PR')?.status).toBe('rejected');
+    expect(taskRepo.getById('TASK-PR')?.status).toBe('in_progress');
     expect({
       actions: taskGraphRepo.listActionsForTask('TASK-PR').length,
       artifacts: taskGraphRepo.listArtifacts('conv-pr-loop').length,
@@ -226,10 +282,12 @@ describe('EngineeringCollaborationService', () => {
       taskId: 'TASK-PR', actorAgentId: 'luigi', pullRequestUrl: pullRequest.url,
       evidence: { installResult: 'ok', buildResult: 'ok', testResult: 'ok', impactEvidence: 'ok' },
     });
+    requestCurrentTaskReviewGate();
     await service.recordReview({
       taskId: 'TASK-PR', actorAgentId: 'peach', pullRequestUrl: pullRequest.url, reviewUrl: review.reviewUrl,
       evidence: { testResult: 'failed', blockerCount: 1, summary: 'Fix it', qualityDecision: 'reject' },
     });
+    applyLatestTaskGateDecision();
     const before = {
       actions: taskGraphRepo.listActionsForTask('TASK-PR').length,
       artifacts: taskGraphRepo.listArtifacts('conv-pr-loop').length,
@@ -241,7 +299,7 @@ describe('EngineeringCollaborationService', () => {
       evidence: { installResult: 'ok', buildResult: 'ok', testResult: 'claimed fixed', impactEvidence: 'rechecked' },
     })).rejects.toMatchObject<Partial<EngineeringCollaborationError>>({ reasonCode: 'pull_request_head_unchanged' });
 
-    expect(taskRepo.getById('TASK-PR')?.status).toBe('rejected');
+    expect(taskRepo.getById('TASK-PR')?.status).toBe('in_progress');
     expect({
       actions: taskGraphRepo.listActionsForTask('TASK-PR').length,
       artifacts: taskGraphRepo.listArtifacts('conv-pr-loop').length,
@@ -255,10 +313,12 @@ describe('EngineeringCollaborationService', () => {
       taskId: 'TASK-PR', actorAgentId: 'luigi', pullRequestUrl: pullRequest.url,
       evidence: { installResult: 'ok', buildResult: 'ok', testResult: 'ok', impactEvidence: 'ok' },
     });
+    requestCurrentTaskReviewGate();
     await service.recordReview({
       taskId: 'TASK-PR', actorAgentId: 'peach', pullRequestUrl: pullRequest.url, reviewUrl: review.reviewUrl,
       evidence: { testResult: 'failed', blockerCount: 1, summary: 'Fix it', qualityDecision: 'reject' },
     });
+    applyLatestTaskGateDecision();
     const nextPullRequest = { ...pullRequest, headSha: 'b'.repeat(40) };
     const refreshService = new EngineeringCollaborationService(verifier({ getPullRequest: vi.fn(async () => nextPullRequest) }));
     const result = await refreshService.recordPullRequest({
@@ -268,12 +328,52 @@ describe('EngineeringCollaborationService', () => {
 
     expect(result.receipt.headSha).toBe(nextPullRequest.headSha);
     expect(taskRepo.getById('TASK-PR')?.status).toBe('in_review');
+    const gates = qualityGateRepo.listForTarget('task', 'TASK-PR')
+      .filter((gate) => gate.kind === 'code_review');
+    expect(gates).toMatchObject([
+      { status: 'changes_requested', artifact_revision: '2' },
+    ]);
     const cards = messageRepo.getByConversation('conv-pr-loop')
       .map((message) => message.metadata ? JSON.parse(message.metadata).collaborationCard : undefined)
       .filter(Boolean);
     expect(cards).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: 'review', stale: true, receipt: expect.objectContaining({ headSha: pullRequest.headSha }) }),
     ]));
+  });
+
+  it('cancels an open Gate when a new provider head supersedes its Task revision', async () => {
+    const service = new EngineeringCollaborationService(verifier());
+    await service.recordPullRequest({
+      taskId: 'TASK-PR',
+      actorAgentId: 'luigi',
+      pullRequestUrl: pullRequest.url,
+      evidence: {
+        installResult: 'ok',
+        buildResult: 'ok',
+        testResult: 'ok',
+        impactEvidence: 'ok',
+      },
+    });
+    requestCurrentTaskReviewGate();
+    const nextPullRequest = { ...pullRequest, headSha: 'b'.repeat(40) };
+    await new EngineeringCollaborationService(verifier({
+      getPullRequest: vi.fn(async () => nextPullRequest),
+    })).recordPullRequest({
+      taskId: 'TASK-PR',
+      actorAgentId: 'luigi',
+      pullRequestUrl: pullRequest.url,
+      evidence: {
+        installResult: 'ok',
+        buildResult: 'ok',
+        testResult: 'new head passed',
+        impactEvidence: 'rechecked',
+      },
+    });
+
+    expect(qualityGateRepo.listForTarget('task', 'TASK-PR')
+      .filter((gate) => gate.kind === 'code_review')).toMatchObject([
+      { status: 'cancelled', artifact_revision: '2' },
+    ]);
   });
 
   it('closes only from a verified merge on the reviewed head with main evidence', async () => {
@@ -283,10 +383,12 @@ describe('EngineeringCollaborationService', () => {
       taskId: 'TASK-PR', actorAgentId: 'luigi', pullRequestUrl: pullRequest.url,
       evidence: { installResult: 'ok', buildResult: 'ok', testResult: 'ok', impactEvidence: 'ok' },
     });
+    requestCurrentTaskReviewGate();
     await service.recordReview({
       taskId: 'TASK-PR', actorAgentId: 'peach', pullRequestUrl: pullRequest.url, reviewUrl: review.reviewUrl,
       evidence: { testResult: 'passed', blockerCount: 0, summary: 'Approved', qualityDecision: 'pass' },
     });
+    applyLatestTaskGateDecision();
 
     const result = await service.recordMerge({
       taskId: 'TASK-PR', actorAgentId: 'mario', pullRequestUrl: pullRequest.url,
@@ -304,13 +406,12 @@ describe('EngineeringCollaborationService', () => {
     expect(JSON.parse(messageRepo.getById(result.messageId)!.metadata!)).toMatchObject({ collaborationCard: {
       kind: 'merge', receipt: { mergeSha: merge.mergeSha }, evidence: { mainTestResult: 'all passed' },
     } });
-    const mergedEvent = new PlatformEventLog().listByProjectAgent('conv-pr-loop', 'mario')
-      .find((event) => event.type === 'review.merged')!;
-    expect(mergedEvent.actor).toEqual({ type: 'agent', id: 'mario' });
-    expect(mergedEvent.payload).toMatchObject({
-      taskId: 'TASK-PR',
-      reviewerId: 'peach',
-    });
+    expect(qualityGateRepo.find({
+      kind: 'code_review',
+      targetType: 'task',
+      targetId: 'TASK-PR',
+      artifactRevision: String(taskRepo.getById('TASK-PR')!.revision - 1),
+    })?.gate.status).toBe('passed');
   });
 
   it('does not let an evidence-only comment authorize merge closure', async () => {
@@ -320,6 +421,7 @@ describe('EngineeringCollaborationService', () => {
       taskId: 'TASK-PR', actorAgentId: 'luigi', pullRequestUrl: pullRequest.url,
       evidence: { installResult: 'ok', buildResult: 'ok', testResult: 'ok', impactEvidence: 'ok' },
     });
+    requestCurrentTaskReviewGate();
     await service.recordReview({
       taskId: 'TASK-PR', actorAgentId: 'peach', pullRequestUrl: pullRequest.url, reviewUrl: review.reviewUrl,
       evidence: { testResult: 'not a decision', blockerCount: 0, summary: 'Evidence only', qualityDecision: 'comment' },

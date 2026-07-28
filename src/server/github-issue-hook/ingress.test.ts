@@ -28,7 +28,7 @@ describe('GitHubIssueAgentIngress', () => {
 
   function ingress() {
     return new GitHubIssueAgentIngress({
-      supervisor: {
+      runtime: {
         start(contract) {
           capturedContract = contract;
           return deliveryRepository.createRun(contract);
@@ -88,7 +88,7 @@ describe('GitHubIssueAgentIngress', () => {
     expect(sameDelivery.disposition).toBe('duplicate');
     expect(sameIssue.disposition).toBe('duplicate');
     expect(conversationRepo.list()).toHaveLength(1);
-    expect(deliveryRepository.listActive()).toHaveLength(1);
+    expect(deliveryRepository.listReconcileCandidates()).toHaveLength(1);
   });
 
   it('applies trigger and skip labels without creating business objects', () => {
@@ -158,9 +158,9 @@ describe('GitHubIssueAgentIngress', () => {
 
   it('rolls back the project when DeliveryRun creation fails', () => {
     const processor = new GitHubIssueAgentIngress({
-      supervisor: {
+      runtime: {
         start() {
-          throw new Error('supervisor rejected contract');
+          throw new Error('runtime rejected contract');
         },
       },
     });
@@ -170,7 +170,7 @@ describe('GitHubIssueAgentIngress', () => {
       payload: githubIssuePayload(),
       payloadDigest: 'digest-fail',
       config: githubIssueHookConfig(projectPath),
-    })).toThrow('supervisor rejected contract');
+    })).toThrow('runtime rejected contract');
     expect(conversationRepo.list()).toHaveLength(0);
   });
 });

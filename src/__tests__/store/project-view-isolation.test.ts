@@ -140,43 +140,59 @@ describe('project view isolation', () => {
   });
 
   it('requires matching project identifiers for non-runtime projections', () => {
-    emitServerEvent('a2a:notice', {
+    emitServerEvent('project:view', {
+      version: 1,
       projectId: 'project-a',
-      conversationId: 'project-b',
-      kind: 'dispatch.blocked',
-      content: 'must stay invisible',
+      occurredAt: '2026-07-26T00:00:00.000Z',
+      kind: 'a2a.snapshot',
+      payload: {
+        snapshot: {
+          conversationId: 'project-b',
+          chainId: 'chain-mismatch',
+          currentHolderIds: [],
+          handoffs: [],
+        },
+      },
     });
     emitServerEvent('dispatch.receipt', {
       projectId: 'project-a',
       conversationId: 'project-b',
       receiptId: 'receipt-mismatch',
       targetAgentId: 'mario',
-      phase: 'started',
+      phase: 'acknowledged',
       createdAt: '2026-07-26T00:00:00.000Z',
     });
 
     const state = useTaskHubStore.getState();
-    expect(state.chatMessagesByConversation['project-a']).toBeUndefined();
+    expect(state.a2aByConversation['project-a']).toBeUndefined();
     expect(state.dispatchReceiptsByConversation['project-b']).toBeUndefined();
   });
 
-  it('renders a matching A2A notice without emitting a command or writing an API', () => {
+  it('renders a matching A2A snapshot without emitting a command or writing an API', () => {
     const fetchSpy = vi.fn();
     vi.stubGlobal('fetch', fetchSpy);
     const emitSpy = vi.spyOn(socket, 'emit').mockImplementation(() => socket);
 
-    emitServerEvent('a2a:notice', {
+    emitServerEvent('project:view', {
+      version: 1,
       projectId: 'project-a',
-      conversationId: 'project-a',
-      kind: 'dispatch.blocked',
-      content: 'display-only A2A notice',
+      occurredAt: '2026-07-26T00:00:00.000Z',
+      kind: 'a2a.snapshot',
+      payload: {
+        snapshot: {
+          conversationId: 'project-a',
+          chainId: 'chain-a',
+          revision: 1,
+          currentHolderIds: ['mario'],
+          status: 'active',
+          updatedAt: '2026-07-26T00:00:00.000Z',
+          handoffs: [],
+        },
+      },
     });
 
-    expect(useTaskHubStore.getState().chatMessagesByConversation['project-a'])
-      .toContainEqual(expect.objectContaining({
-        agentId: 'system',
-        content: 'display-only A2A notice',
-      }));
+    expect(useTaskHubStore.getState().a2aByConversation['project-a'])
+      .toMatchObject({ chainId: 'chain-a', currentHolderIds: ['mario'] });
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(emitSpy).not.toHaveBeenCalled();
   });

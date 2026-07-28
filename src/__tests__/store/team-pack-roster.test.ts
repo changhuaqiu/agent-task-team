@@ -399,10 +399,14 @@ describe('Team Pack Dynamic Roster', () => {
   });
 
   describe('human mentions in TeamPack projects', () => {
-    it('persists the user message before queueing when every mentioned agent is busy', async () => {
+    it('persists the user message before submitting durable work when the target is busy', async () => {
       const dispatchToAgent = vi.fn();
       const enqueueDispatch = vi.fn();
-      const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue({ ok: true } as Response);
+      const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ result: { id: 'message-server-1' } }),
+      } as Response);
       const teamPack = makeTeamPack({
         id: 'pack-busy-mentions',
         roles: [makeRole({ id: 'coder', displayName: 'Coder' })],
@@ -435,18 +439,28 @@ describe('Team Pack Dynamic Roster', () => {
 
       expect(useTaskHubStore.getState().chatMessagesByConversation['conv-busy-mentions'])
         .toContainEqual(expect.objectContaining({ agentId: 'human', content: '@coder 请排队执行' }));
-      expect(enqueueDispatch).toHaveBeenCalledWith('coder', expect.objectContaining({
-        prompt: '@coder 请排队执行',
-        conversationId: 'conv-busy-mentions',
-      }));
+      expect(enqueueDispatch).not.toHaveBeenCalled();
       expect(dispatchToAgent).not.toHaveBeenCalled();
-      expect(fetchSpy).toHaveBeenCalledWith('/api/mutations', expect.objectContaining({
-        body: expect.stringContaining('message.append'),
-      }));
+      expect(fetchSpy.mock.calls.map(([, init]) => JSON.parse(String(init?.body)))).toEqual([
+        expect.objectContaining({ type: 'message.append' }),
+        expect.objectContaining({
+          type: 'a2a.human_handoff',
+          payload: expect.objectContaining({
+            conversationId: 'conv-busy-mentions',
+            messageId: 'message-server-1',
+            targetAgentIds: ['coder'],
+          }),
+        }),
+      ]);
     });
 
-    it('dispatches to dynamic TeamPack role ids from @mentions', () => {
+    it('submits dynamic TeamPack role ids through the Human A2A command', async () => {
       const dispatchToAgent = vi.fn();
+      const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ result: { id: 'message-server-2' } }),
+      } as Response);
       const teamPack = makeTeamPack({
         id: 'pack-mentions',
         roles: [
@@ -473,19 +487,29 @@ describe('Team Pack Dynamic Roster', () => {
         dispatchToAgent: dispatchToAgent as any,
       });
 
-      useTaskHubStore.getState().addChatMessage({
+      await useTaskHubStore.getState().addChatMessage({
         agentId: 'human',
         content: '@planner 请先分析这个项目',
       });
 
-      expect(dispatchToAgent).toHaveBeenCalledWith(expect.objectContaining({
-        agentId: 'planner',
-        conversationId: 'conv-mentions',
-      }));
+      expect(dispatchToAgent).not.toHaveBeenCalled();
+      expect(fetchSpy.mock.calls.map(([, init]) => JSON.parse(String(init?.body))))
+        .toContainEqual(expect.objectContaining({
+          type: 'a2a.human_handoff',
+          payload: expect.objectContaining({
+            conversationId: 'conv-mentions',
+            targetAgentIds: ['planner'],
+          }),
+        }));
     });
 
-    it('dispatches to TeamPack role display names from CJK @mentions', () => {
+    it('resolves CJK display names before submitting the Human A2A command', async () => {
       const dispatchToAgent = vi.fn();
+      const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ result: { id: 'message-server-3' } }),
+      } as Response);
       const teamPack = makeTeamPack({
         id: 'pack-cjk-mentions',
         roles: [
@@ -512,15 +536,20 @@ describe('Team Pack Dynamic Roster', () => {
         dispatchToAgent: dispatchToAgent as any,
       });
 
-      useTaskHubStore.getState().addChatMessage({
+      await useTaskHubStore.getState().addChatMessage({
         agentId: 'human',
         content: '@规划师 请先分析这个项目',
       });
 
-      expect(dispatchToAgent).toHaveBeenCalledWith(expect.objectContaining({
-        agentId: 'planner',
-        conversationId: 'conv-cjk-mentions',
-      }));
+      expect(dispatchToAgent).not.toHaveBeenCalled();
+      expect(fetchSpy.mock.calls.map(([, init]) => JSON.parse(String(init?.body))))
+        .toContainEqual(expect.objectContaining({
+          type: 'a2a.human_handoff',
+          payload: expect.objectContaining({
+            conversationId: 'conv-cjk-mentions',
+            targetAgentIds: ['planner'],
+          }),
+        }));
     });
 
     it('restores the optimistic project removal when the server delete fails', async () => {

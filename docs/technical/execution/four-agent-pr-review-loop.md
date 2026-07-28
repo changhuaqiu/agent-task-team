@@ -1,6 +1,6 @@
 # 四 Agent PR 交付与评审技术设计
 
-> 状态：基础闭环已实现，真实合并演练中
+> 状态：已收敛到 Task owner + QualityGate owner；真实合并演练中
 
 ## 背景
 
@@ -8,7 +8,7 @@
 
 ## 决策
 
-引入一个深模块 `EngineeringCollaborationService`：
+`EngineeringCollaborationService` 是 Git provider 回执验证适配器，不是 Task 或 Gate owner：
 
 ```ts
 interface EngineeringCollaborationService {
@@ -20,15 +20,28 @@ interface EngineeringCollaborationService {
 
 服务依赖窄接口 `GitProviderVerifier` 读取 provider 当前事实。生产 GitHub adapter 优先使用 `gh`；测试注入内存 verifier。调用者不能提交 provider actor、state、head SHA 等权威字段，只能提交 task/URL 和本轮本地测试证据。
 
-每次成功记录在一个数据库事务内完成：
+PR 提交在一个数据库事务内完成：
 
 1. 校验 task、actor、TeamPack gate authority；
 2. 从 provider 读取 PR/review/merge；
 3. 追加 Task Action；
 4. 添加 Task Artifact；
 5. 写入带结构化 `collaborationCard` metadata 的 chat message 并绑定 task/action；
-6. 通过现有 task mutation/wakeup 边界推进状态；
-7. 追加 proof event。
+6. 通过 Task owner 将 Task 推进 `in_review`；
+7. 用推进后的整数 `Task.revision` 请求唯一 `code_review` QualityGate；
+8. 追加 proof event。
+
+第 6、7 步和 provider receipt 在同一事务内提交，因此 Control Process Manager 看不到“已有
+provider artifact 但 Gate 尚未创建”的中间态。Delivery 的 `requestGate` 只处理没有 provider
+receipt 的结构化 Task outcome fallback；两条路径以事实形状互斥，不是两个并行判定源。
+
+Git `headSha` 只保存在 provider receipt/evidence 中，不作为 Gate 的
+`artifactRevision`。`artifactRevision` 始终是 Task owner 的整数 revision，所以
+TaskGate Lifecycle Process Manager 能用同一版本执行 CAS。Provider review 只向 Gate owner
+追加 evidence 和 terminal decision；它不直接把 Task 改为 `in_progress / done`。随后
+`TaskGateLifecycleProcessManager` 消费 `gate.*` 事件，唯一地推进 Task 并关闭对应
+WorkAuthority。Provider merge receipt 只能在当前 Gate 已通过、Task 已由该 Process Manager
+推进 `done` 后记录，不能再次写 `Task.done`。
 
 Git Collaboration Skill 暴露三个结构化入口：`collaboration_record_pr`、`collaboration_record_review`、`collaboration_record_merge`。它们直接进入同一个服务边界；Agent 不能用普通状态更新模拟 provider 回执。
 
@@ -40,7 +53,7 @@ Git Collaboration Skill 暴露三个结构化入口：`collaboration_record_pr`�
 
 MCP HTTP handler 是平台 mutation 的唯一执行入口，daemon 收到的 namespaced `tool_use` 只进入聊天和 observability，不做第二次执行。操作额度以随机 grant key 计数，并在 token revoke 时清理，避免跨 invocation 污染或并发会话互相耗尽额度。
 
-Git-backed task 的 `.ath/TASKS.md` 是兼容投影而非质量门写入口。文件同步若尝试把权威状态推进到 `in_review` 或 `done`，服务端记录 gate rejection、发出同步错误，并把文件状态回写为 Task Graph 当前值；PR/review/merge 状态只由结构化协作回执原子推进。
+Git-backed task 的 `.ath/TASKS.md` 是兼容投影而非质量门写入口。文件同步若尝试把权威状态推进到 `in_review` 或 `done`，服务端记录 gate rejection、发出同步错误，并把文件状态回写为 Task Graph 当前值；PR receipt 经 Task owner 进入 `in_review`，review receipt 经 QualityGate owner 判定，再由 Gate Lifecycle Process Manager 推进 Task。
 
 保护同时覆盖反向降级：Task Graph 一旦由当前 verified receipt 进入 `in_review` 或 `done`，旧文件里的 pending/in_progress/rejected 等状态不能覆盖它。task 与 receipt 工具从 invocation grant 接收同一个 runtime task path，并在返回前把权威 DB 状态投影到该文件，因此 completion barrier 不会读取 sibling scratch 或旧状态。
 
@@ -56,9 +69,16 @@ Task Graph / Harness 是任务状态推进和 Agent 派发的唯一服务端边�
 
 客户端主动调用 `task.updateStatus` 时采用“乐观状态、确认后发布”的事务边界：请求发出前只允许暂时更新任务本身；只有服务端返回 `response.ok` 后，客户端才能追加成功聊天卡、发布 `task.status_changed` 事件，并在目标状态为 `in_progress` 时请求 Agent 派发。403、其他非 2xx 或网络异常统一回滚到调用前的状态、评审说明与更新时间，使用服务端错误正文或网络异常消息创建 blocker，且不得保留成功卡片、成功事件或派发。
 
-A2A 文本交接不能成为 Task Graph 门禁的旁路。Agent 回复中的 PHASE/TASK 清单属于计划投影，其中的 owner `@mention` 只用于说明归属，不得被识别为即时派发；真正的主动交接必须是独立、明确的执行句。若交接文本引用了目标 Agent 名下的 task，A2A Orchestrator 必须在写入 worklist 前校验该 task 的依赖：依赖未完成时失败关闭；目标 task 已经处于执行或评审状态时按幂等重复派发静默拒绝。这样 `task_assign` 的自动 wakeup 与 Agent 文本交接发生竞态时，不会产生第二次运行，也不会在首个目标 busy 后继续启动下游角色。
+A2A 文本不能成为 Task Graph 门禁的旁路。Agent 回复中的 PHASE/TASK 清单与 owner
+`@mention` 只用于展示；主动交接必须提交结构化 `agent_submit_outcome /
+handoff_to_agent`。A2A Command guard 在创建 Pass group 前校验 conversation roster、
+communication policy、目标 task owner 与依赖；依赖未完成或目标 task 已在执行时拒绝接纳。
+Pass、HandoffPacket 与 AgentInbox 同事务创建，因此 Task wakeup 与显式交接竞态不能产生
+第二套 Worklist 或浏览器补派发。
 
-这里的 owner 校验必须先于“目标 task 解析”：Orchestrator 先解析文本中所有真实存在的 task 引用，只要任一 task 的权威 owner 不是目标 Agent，就以 `task_owner_mismatch` 失败关闭并停止创建 pass。不能先按目标 Agent 过滤再把结果为空解释成“普通无 task A2A”，否则错误 owner 会绕过 Task Graph。
+这里的 owner 校验必须先于“目标 task 解析”：A2A Command Guard 先解析结构化命令中所有真实存在的
+task 引用，只要任一 task 的权威 owner 不是目标 Agent，就以 `task_owner_mismatch` 拒绝命令并停止创建
+pass。不能先按目标 Agent 过滤再把结果为空解释成“普通无 task A2A”，否则错误 owner 会绕过 Task Graph。
 
 worktree 运行时还要区分两个目录契约：Agent 命令在 conversation 级 Git worktree 执行；`.session.json` / `.gc_meta.json` 则保存在平台 workspace 的 conversation/agent/task 隔离目录。共享 worktree 路径存在不代表后者已经创建，所有元数据写入口必须原子确保 scoped task root 存在。元数据目录缺失不得在业务 turn 已完成后抛出 ENOENT，并把完成结果覆盖为 `spawn_failed`。
 
@@ -90,9 +110,11 @@ worktree 运行时还要区分两个目录契约：Agent 命令在 conversation 
 - review 必须匹配当前 PR head SHA；
 - GitHub issue comment 没有原生 commit 绑定，只有评论时间不早于精确 head commit 时间时才可作为该 head 的外部证据；缺时间戳时失败关闭；
 - provider review state 与平台质量决定分离：共享 provider 账号可能只能 `commented`，Peach 仍须从可信 invocation 提交 `qualityDecision=pass|reject|comment`；仅 `comment` 不能授权合并；
-- 一个 task 首次产生已验证 PR receipt 后，后续回执形成连续交付链：`in_review` / `rejected` 状态只能沿用同一 canonical PR，并且必须出现新的 head SHA；换 PR 以 `pull_request_changed` 失败关闭，原样重报同一 SHA 以 `pull_request_head_unchanged` 失败关闭；
+- 一个 task 首次产生已验证 PR receipt 后，后续回执形成连续交付链：返工只能沿用同一 canonical PR，并且必须出现新的 head SHA；换 PR 以 `pull_request_changed` 失败关闭，原样重报同一 SHA 以 `pull_request_head_unchanged` 失败关闭；
 - 回执连续性校验位于 `EngineeringCollaborationService` 的 provider 查询之后、事务写入之前；失败不得新增 Task Action、Artifact、Card 或 Proof，也不得改变任务状态；
-- 同一 PR 出现新 head SHA 时可再次记录交付；系统追加 stale 评审投影并保持 `in_review`，旧结论不能用于合并；
+- 同一 PR 出现新 head SHA 时可再次记录交付；若旧 Gate 仍开放，先以
+  `artifact_superseded` 取消，再由 Task owner 产生新整数 revision 和新 Gate；系统追加
+  stale 评审投影，旧结论不能用于合并；
 - 合并闭环要求当前 head 的 provider-backed review、零 blocker、provider merged receipt 和完整 main 复验证据；
 - Git-backed task 的普通 `task_update_status(done)` 还必须找到 `task.pull_request_merged` action，否则即使字符串证据齐全也拒绝；
 - draft PR 允许进入评审；checks=`failing` 拒绝，`pending`/`unknown` 保留在卡片上交由质量门禁判断（兼容未配置 CI 的仓库）；

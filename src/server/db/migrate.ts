@@ -1672,13 +1672,20 @@ DROP TABLE IF EXISTS runtime_completion_step_receipt;
       if (!columns.has('engine')) db.exec('ALTER TABLE agent_session ADD COLUMN engine TEXT');
       if (!columns.has('runtime_id')) db.exec('ALTER TABLE agent_session ADD COLUMN runtime_id TEXT');
       if (!columns.has('account_id')) db.exec('ALTER TABLE agent_session ADD COLUMN account_id TEXT');
+      const invocationColumns = new Set(
+        (db.prepare('PRAGMA table_info(invocation)').all() as Array<{ name: string }>)
+          .map((column) => column.name),
+      );
+      const completedInvocationPredicate = invocationColumns.has('outcome')
+        ? "invocation.status = 'terminated' AND invocation.outcome = 'completed'"
+        : "invocation.status = 'succeeded'";
       db.exec(`
         UPDATE agent_session
         SET engine = (
               SELECT invocation.engine
               FROM invocation
               WHERE invocation.session_id = agent_session.id
-                AND invocation.status = 'succeeded'
+                AND ${completedInvocationPredicate}
               ORDER BY invocation.created_at DESC, invocation.id DESC
               LIMIT 1
             ),
@@ -1686,12 +1693,1806 @@ DROP TABLE IF EXISTS runtime_completion_step_receipt;
               SELECT invocation.account_id
               FROM invocation
               WHERE invocation.session_id = agent_session.id
-                AND invocation.status = 'succeeded'
+                AND ${completedInvocationPredicate}
               ORDER BY invocation.created_at DESC, invocation.id DESC
               LIMIT 1
             )
         WHERE engine IS NULL
       `);
+    },
+  },
+  {
+    version: 54,
+    run: (db) => {
+      db.exec(`
+        UPDATE task
+        SET review_note = CASE
+              WHEN status NOT IN (
+                'proposed','ready','in_progress','blocked','in_review','done','cancelled',
+                'pending','completed','approved','rejected','canceled'
+              )
+              THEN COALESCE(review_note || char(10), '')
+                || '[migration] unsupported legacy status: ' || status
+              ELSE review_note
+            END,
+            status = CASE status
+              WHEN 'pending' THEN 'ready'
+              WHEN 'completed' THEN 'done'
+              WHEN 'approved' THEN 'done'
+              WHEN 'rejected' THEN 'in_progress'
+              WHEN 'canceled' THEN 'cancelled'
+              WHEN 'proposed' THEN 'proposed'
+              WHEN 'ready' THEN 'ready'
+              WHEN 'in_progress' THEN 'in_progress'
+              WHEN 'blocked' THEN 'blocked'
+              WHEN 'in_review' THEN 'in_review'
+              WHEN 'done' THEN 'done'
+              WHEN 'cancelled' THEN 'cancelled'
+              ELSE 'blocked'
+            END;
+
+        DROP TRIGGER IF EXISTS trg_task_status_insert;
+        DROP TRIGGER IF EXISTS trg_task_status_update;
+        DROP TRIGGER IF EXISTS trg_task_transition_update;
+
+        CREATE TRIGGER trg_task_status_insert
+        BEFORE INSERT ON task
+        WHEN NEW.status NOT IN (
+          'proposed','ready','in_progress','blocked','in_review','done','cancelled'
+        )
+        BEGIN
+          SELECT RAISE(ABORT, 'invalid_task_status');
+        END;
+
+        CREATE TRIGGER trg_task_status_update
+        BEFORE UPDATE OF status ON task
+        WHEN NEW.status NOT IN (
+          'proposed','ready','in_progress','blocked','in_review','done','cancelled'
+        )
+        BEGIN
+          SELECT RAISE(ABORT, 'invalid_task_status');
+        END;
+
+        CREATE TRIGGER trg_task_transition_update
+        BEFORE UPDATE OF status ON task
+        WHEN NEW.status IN (
+            'proposed','ready','in_progress','blocked','in_review','done','cancelled'
+          )
+          AND NEW.status <> OLD.status
+          AND NOT (
+            (OLD.status = 'proposed' AND NEW.status IN ('ready','cancelled'))
+            OR (OLD.status = 'ready' AND NEW.status IN ('in_progress','blocked','cancelled'))
+            OR (OLD.status = 'in_progress' AND NEW.status IN ('blocked','in_review','cancelled'))
+            OR (OLD.status = 'blocked' AND NEW.status IN ('ready','in_progress','cancelled'))
+            OR (OLD.status = 'in_review' AND NEW.status IN ('done','in_progress','blocked','cancelled'))
+            OR (OLD.status = 'done' AND NEW.status = 'ready')
+          )
+        BEGIN
+          SELECT RAISE(ABORT, 'invalid_task_transition');
+        END;
+      `);
+    },
+  },
+  {
+    version: 55,
+    run: (db) => {
+      const columns = new Set(
+        (db.prepare('PRAGMA table_info(invocation)').all() as Array<{ name: string }>)
+          .map((column) => column.name),
+      );
+      if (!columns.has('outcome')) db.exec('ALTER TABLE invocation ADD COLUMN outcome TEXT');
+      if (!columns.has('started_at')) db.exec('ALTER TABLE invocation ADD COLUMN started_at TEXT');
+      if (!columns.has('terminated_at')) db.exec('ALTER TABLE invocation ADD COLUMN terminated_at TEXT');
+      if (!columns.has('revision')) {
+        db.exec('ALTER TABLE invocation ADD COLUMN revision INTEGER NOT NULL DEFAULT 0');
+      }
+      db.exec(`
+        UPDATE invocation
+        SET outcome = CASE status
+              WHEN 'succeeded' THEN 'completed'
+              WHEN 'failed' THEN 'failed'
+              WHEN 'canceled' THEN 'cancelled'
+              WHEN 'cancelled' THEN 'cancelled'
+              ELSE NULL
+            END,
+            started_at = CASE
+              WHEN status IN ('running','succeeded','failed','canceled','cancelled')
+              THEN updated_at
+              ELSE NULL
+            END,
+            terminated_at = CASE
+              WHEN status IN ('succeeded','failed','canceled','cancelled')
+              THEN updated_at
+              ELSE NULL
+            END,
+            reason_code = CASE
+              WHEN status NOT IN (
+                'queued','running','succeeded','failed','canceled','cancelled',
+                'planned','starting','terminating','terminated'
+              )
+              THEN COALESCE(reason_code, 'legacy_invocation_status_unknown')
+              ELSE reason_code
+            END,
+            status = CASE status
+              WHEN 'queued' THEN 'planned'
+              WHEN 'running' THEN 'running'
+              WHEN 'succeeded' THEN 'terminated'
+              WHEN 'failed' THEN 'terminated'
+              WHEN 'canceled' THEN 'terminated'
+              WHEN 'cancelled' THEN 'terminated'
+              WHEN 'planned' THEN 'planned'
+              WHEN 'starting' THEN 'starting'
+              WHEN 'terminating' THEN 'terminating'
+              WHEN 'terminated' THEN 'terminated'
+              ELSE 'terminated'
+            END;
+
+        UPDATE invocation
+        SET outcome = 'failed',
+            terminated_at = COALESCE(terminated_at, updated_at)
+        WHERE status = 'terminated' AND outcome IS NULL;
+
+        DROP TRIGGER IF EXISTS trg_invocation_status_insert;
+        DROP TRIGGER IF EXISTS trg_invocation_status_update;
+        DROP TRIGGER IF EXISTS trg_invocation_transition_update;
+        DROP TRIGGER IF EXISTS trg_invocation_outcome_insert;
+        DROP TRIGGER IF EXISTS trg_invocation_outcome_update;
+
+        CREATE TRIGGER trg_invocation_status_insert
+        BEFORE INSERT ON invocation
+        WHEN NEW.status NOT IN ('planned','starting','running','terminating','terminated')
+        BEGIN
+          SELECT RAISE(ABORT, 'invalid_invocation_status');
+        END;
+
+        CREATE TRIGGER trg_invocation_status_update
+        BEFORE UPDATE OF status ON invocation
+        WHEN NEW.status NOT IN ('planned','starting','running','terminating','terminated')
+        BEGIN
+          SELECT RAISE(ABORT, 'invalid_invocation_status');
+        END;
+
+        CREATE TRIGGER trg_invocation_transition_update
+        BEFORE UPDATE OF status ON invocation
+        WHEN NEW.status IN ('planned','starting','running','terminating','terminated')
+          AND NEW.status <> OLD.status
+          AND NOT (
+            (OLD.status = 'planned' AND NEW.status IN ('starting','terminating','terminated'))
+            OR (OLD.status = 'starting' AND NEW.status IN ('running','terminating','terminated'))
+            OR (OLD.status = 'running' AND NEW.status IN ('terminating','terminated'))
+            OR (OLD.status = 'terminating' AND NEW.status = 'terminated')
+          )
+        BEGIN
+          SELECT RAISE(ABORT, 'invalid_invocation_transition');
+        END;
+
+        CREATE TRIGGER trg_invocation_outcome_insert
+        BEFORE INSERT ON invocation
+        WHEN (NEW.status = 'terminated' AND (
+                NEW.outcome IS NULL
+                OR NEW.outcome NOT IN ('completed','failed','cancelled','timed_out')
+              ))
+          OR (NEW.status <> 'terminated' AND NEW.outcome IS NOT NULL)
+        BEGIN
+          SELECT RAISE(ABORT, 'invalid_invocation_outcome');
+        END;
+
+        CREATE TRIGGER trg_invocation_outcome_update
+        BEFORE UPDATE OF status, outcome ON invocation
+        WHEN (NEW.status = 'terminated' AND (
+                NEW.outcome IS NULL
+                OR NEW.outcome NOT IN ('completed','failed','cancelled','timed_out')
+              ))
+          OR (NEW.status <> 'terminated' AND NEW.outcome IS NOT NULL)
+        BEGIN
+          SELECT RAISE(ABORT, 'invalid_invocation_outcome');
+        END;
+      `);
+    },
+  },
+  {
+    version: 56,
+    run: (db) => {
+      const columns = new Set(
+        (db.prepare('PRAGMA table_info(agent_inbox_item)').all() as Array<{ name: string }>)
+          .map((column) => column.name),
+      );
+      db.exec(`
+        DROP TRIGGER IF EXISTS trg_agent_inbox_status_insert;
+        DROP TRIGGER IF EXISTS trg_agent_inbox_transition_update;
+        DROP TRIGGER IF EXISTS trg_agent_inbox_lease_insert;
+        DROP TRIGGER IF EXISTS trg_agent_inbox_lease_update;
+      `);
+      if (!columns.has('settled_at')) {
+        db.exec(`
+        ALTER TABLE agent_inbox_item RENAME TO agent_inbox_item_legacy_56;
+
+        CREATE TABLE agent_inbox_item (
+          id TEXT PRIMARY KEY,
+          project_id TEXT NOT NULL REFERENCES conversation(id) ON DELETE CASCADE,
+          project_agent_id TEXT NOT NULL,
+          source_event_id TEXT REFERENCES platform_event(id) ON DELETE SET NULL,
+          idempotency_key TEXT NOT NULL UNIQUE,
+          command_json TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'enqueued' CHECK(
+            status IN ('enqueued','claimed','admitted','released','expired','cancelled')
+          ),
+          attempt_count INTEGER NOT NULL DEFAULT 0 CHECK(attempt_count >= 0),
+          available_at TEXT NOT NULL,
+          lease_token TEXT,
+          lease_expires_at TEXT,
+          last_error TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          claimed_at TEXT,
+          settled_at TEXT,
+          UNIQUE(source_event_id, project_agent_id)
+        );
+
+        INSERT INTO agent_inbox_item (
+          id,project_id,project_agent_id,source_event_id,idempotency_key,command_json,
+          status,attempt_count,available_at,lease_token,lease_expires_at,last_error,
+          created_at,updated_at,claimed_at,settled_at
+        )
+        SELECT
+          id,project_id,project_agent_id,source_event_id,idempotency_key,command_json,
+          CASE
+            WHEN status = 'queued' THEN 'enqueued'
+            WHEN status = 'claimed' AND lease_token IS NOT NULL AND lease_expires_at IS NOT NULL
+              THEN 'claimed'
+            WHEN status = 'claimed' THEN 'released'
+            WHEN status = 'completed' THEN 'admitted'
+            WHEN status = 'failed' THEN 'expired'
+            WHEN status = 'cancelled' THEN 'cancelled'
+            WHEN status = 'enqueued' THEN 'enqueued'
+            WHEN status = 'admitted' THEN 'admitted'
+            WHEN status = 'released' THEN 'released'
+            WHEN status = 'expired' THEN 'expired'
+            ELSE 'expired'
+          END,
+          attempt_count,
+          available_at,
+          CASE
+            WHEN status = 'claimed' AND lease_token IS NOT NULL AND lease_expires_at IS NOT NULL
+            THEN lease_token
+            ELSE NULL
+          END,
+          CASE
+            WHEN status = 'claimed' AND lease_token IS NOT NULL AND lease_expires_at IS NOT NULL
+            THEN lease_expires_at
+            ELSE NULL
+          END,
+          CASE
+            WHEN status IN (
+              'queued','claimed','completed','failed','cancelled',
+              'enqueued','admitted','released','expired'
+            ) THEN last_error
+            ELSE COALESCE(last_error, 'legacy_agent_inbox_status_unknown')
+          END,
+          created_at,
+          updated_at,
+          claimed_at,
+          CASE
+            WHEN status IN ('completed','failed','cancelled','admitted','expired')
+            THEN COALESCE(completed_at, updated_at)
+            ELSE NULL
+          END
+        FROM agent_inbox_item_legacy_56;
+
+        DROP TABLE agent_inbox_item_legacy_56;
+
+        CREATE INDEX idx_agent_inbox_claim
+          ON agent_inbox_item(status, available_at, project_id, project_agent_id, created_at);
+        CREATE INDEX idx_agent_inbox_agent
+          ON agent_inbox_item(project_id, project_agent_id, status, created_at);
+        `);
+      }
+      db.exec(`
+        CREATE TRIGGER trg_agent_inbox_status_insert
+        BEFORE INSERT ON agent_inbox_item
+        WHEN NEW.status NOT IN ('enqueued','claimed','admitted','released','expired','cancelled')
+        BEGIN
+          SELECT RAISE(ABORT, 'invalid_agent_inbox_status');
+        END;
+
+        CREATE TRIGGER trg_agent_inbox_transition_update
+        BEFORE UPDATE OF status ON agent_inbox_item
+        WHEN NEW.status <> OLD.status
+          AND NOT (
+            (OLD.status = 'enqueued' AND NEW.status IN ('claimed','expired','cancelled'))
+            OR (OLD.status = 'released' AND NEW.status IN ('claimed','expired','cancelled'))
+            OR (OLD.status = 'claimed' AND NEW.status IN ('admitted','released','expired','cancelled'))
+          )
+        BEGIN
+          SELECT RAISE(ABORT, 'invalid_agent_inbox_transition');
+        END;
+
+        CREATE TRIGGER trg_agent_inbox_lease_insert
+        BEFORE INSERT ON agent_inbox_item
+        WHEN (NEW.status = 'claimed' AND (
+                NEW.lease_token IS NULL
+                OR NEW.lease_expires_at IS NULL
+              ))
+          OR (NEW.status <> 'claimed' AND (
+                NEW.lease_token IS NOT NULL
+                OR NEW.lease_expires_at IS NOT NULL
+              ))
+          OR (NEW.status IN ('admitted','expired','cancelled') AND NEW.settled_at IS NULL)
+          OR (NEW.status NOT IN ('admitted','expired','cancelled') AND NEW.settled_at IS NOT NULL)
+        BEGIN
+          SELECT RAISE(ABORT, 'invalid_agent_inbox_lease');
+        END;
+
+        CREATE TRIGGER trg_agent_inbox_lease_update
+        BEFORE UPDATE OF status, lease_token, lease_expires_at, settled_at ON agent_inbox_item
+        WHEN (NEW.status = 'claimed' AND (
+                NEW.lease_token IS NULL
+                OR NEW.lease_expires_at IS NULL
+              ))
+          OR (NEW.status <> 'claimed' AND (
+                NEW.lease_token IS NOT NULL
+                OR NEW.lease_expires_at IS NOT NULL
+              ))
+          OR (NEW.status IN ('admitted','expired','cancelled') AND NEW.settled_at IS NULL)
+          OR (NEW.status NOT IN ('admitted','expired','cancelled') AND NEW.settled_at IS NOT NULL)
+        BEGIN
+          SELECT RAISE(ABORT, 'invalid_agent_inbox_lease');
+        END;
+      `);
+    },
+  },
+  {
+    version: 57,
+    run: (db) => {
+      const table = db.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='execution_envelope'",
+      ).get();
+      if (!table) return;
+      const columns = new Set(
+        (db.prepare('PRAGMA table_info(execution_envelope)').all() as Array<{ name: string }>)
+          .map((column) => column.name),
+      );
+      if (!columns.has('settled_at')) {
+        db.exec('ALTER TABLE execution_envelope ADD COLUMN settled_at TEXT');
+      }
+      if (!columns.has('revision')) {
+        db.exec('ALTER TABLE execution_envelope ADD COLUMN revision INTEGER NOT NULL DEFAULT 0');
+      }
+      db.exec(`
+        UPDATE execution_envelope
+        SET reason_code = CASE
+              WHEN status NOT IN (
+                'drafted','validated','blocked','queued','routed','sent','started',
+                'failed','completed','expired','acknowledged','rejected'
+              )
+              THEN COALESCE(reason_code, 'legacy_execution_envelope_status_unknown')
+              ELSE reason_code
+            END,
+            settled_at = CASE
+              WHEN status IN (
+                'blocked','failed','completed','expired','started',
+                'acknowledged','rejected'
+              )
+              THEN COALESCE(settled_at, updated_at)
+              ELSE NULL
+            END,
+            status = CASE status
+              WHEN 'drafted' THEN 'drafted'
+              WHEN 'validated' THEN 'validated'
+              WHEN 'queued' THEN 'validated'
+              WHEN 'routed' THEN 'routed'
+              WHEN 'sent' THEN 'sent'
+              WHEN 'started' THEN 'acknowledged'
+              WHEN 'completed' THEN 'acknowledged'
+              WHEN 'blocked' THEN 'rejected'
+              WHEN 'failed' THEN 'rejected'
+              WHEN 'expired' THEN 'expired'
+              WHEN 'acknowledged' THEN 'acknowledged'
+              WHEN 'rejected' THEN 'rejected'
+              ELSE 'rejected'
+            END;
+
+        UPDATE execution_envelope
+        SET reason_code = COALESCE(NULLIF(trim(reason_code), ''), 'legacy_dispatch_rejected'),
+            settled_at = COALESCE(settled_at, updated_at)
+        WHERE status = 'rejected';
+
+        DROP TRIGGER IF EXISTS trg_execution_envelope_status_insert;
+        DROP TRIGGER IF EXISTS trg_execution_envelope_status_update;
+        DROP TRIGGER IF EXISTS trg_execution_envelope_transition_update;
+        DROP TRIGGER IF EXISTS trg_execution_envelope_settled_insert;
+        DROP TRIGGER IF EXISTS trg_execution_envelope_settled_update;
+
+        CREATE TRIGGER trg_execution_envelope_status_insert
+        BEFORE INSERT ON execution_envelope
+        WHEN NEW.status NOT IN (
+          'drafted','validated','routed','sent','acknowledged','rejected','expired'
+        )
+        BEGIN
+          SELECT RAISE(ABORT, 'invalid_execution_envelope_status');
+        END;
+
+        CREATE TRIGGER trg_execution_envelope_status_update
+        BEFORE UPDATE OF status ON execution_envelope
+        WHEN NEW.status NOT IN (
+          'drafted','validated','routed','sent','acknowledged','rejected','expired'
+        )
+        BEGIN
+          SELECT RAISE(ABORT, 'invalid_execution_envelope_status');
+        END;
+
+        CREATE TRIGGER trg_execution_envelope_transition_update
+        BEFORE UPDATE OF status ON execution_envelope
+        WHEN NEW.status <> OLD.status
+          AND NOT (
+            (OLD.status = 'drafted' AND NEW.status IN ('validated','rejected','expired'))
+            OR (OLD.status = 'validated' AND NEW.status IN ('routed','rejected','expired'))
+            OR (OLD.status = 'routed' AND NEW.status IN ('sent','rejected','expired'))
+            OR (OLD.status = 'sent' AND NEW.status IN ('acknowledged','rejected','expired'))
+          )
+        BEGIN
+          SELECT RAISE(ABORT, 'invalid_execution_envelope_transition');
+        END;
+
+        CREATE TRIGGER trg_execution_envelope_settled_insert
+        BEFORE INSERT ON execution_envelope
+        WHEN (NEW.status IN ('acknowledged','rejected','expired') AND NEW.settled_at IS NULL)
+          OR (NEW.status NOT IN ('acknowledged','rejected','expired') AND NEW.settled_at IS NOT NULL)
+          OR (NEW.status = 'rejected' AND (
+                NEW.reason_code IS NULL
+                OR length(trim(NEW.reason_code)) = 0
+              ))
+        BEGIN
+          SELECT RAISE(ABORT, 'invalid_execution_envelope_settlement');
+        END;
+
+        CREATE TRIGGER trg_execution_envelope_settled_update
+        BEFORE UPDATE OF status, reason_code, settled_at ON execution_envelope
+        WHEN (NEW.status IN ('acknowledged','rejected','expired') AND NEW.settled_at IS NULL)
+          OR (NEW.status NOT IN ('acknowledged','rejected','expired') AND NEW.settled_at IS NOT NULL)
+          OR (NEW.status = 'rejected' AND (
+                NEW.reason_code IS NULL
+                OR length(trim(NEW.reason_code)) = 0
+              ))
+        BEGIN
+          SELECT RAISE(ABORT, 'invalid_execution_envelope_settlement');
+        END;
+      `);
+    },
+  },
+  {
+    version: 58,
+    foreignKeysOff: true,
+    run: (db) => {
+      const table = db.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='autonomous_delivery_run'",
+      ).get();
+      if (!table) return;
+
+      db.exec(`
+        DROP TABLE IF EXISTS autonomous_delivery_run_v58;
+        CREATE TABLE autonomous_delivery_run_v58 (
+          id TEXT PRIMARY KEY,
+          conversation_id TEXT NOT NULL REFERENCES conversation(id) ON DELETE CASCADE,
+          root_task_id TEXT REFERENCES task(id) ON DELETE SET NULL,
+          status TEXT NOT NULL CHECK(status IN (
+            'active','waiting_gate','waiting_human','retrying','completed','failed','cancelled'
+          )),
+          current_stage TEXT NOT NULL CHECK(current_stage IN (
+            'planning','executing','reviewing','verifying','integrating','delivering'
+          )),
+          goal_contract_json TEXT NOT NULL,
+          repair_cycle INTEGER NOT NULL DEFAULT 0,
+          revision INTEGER NOT NULL DEFAULT 0,
+          escalation_code TEXT,
+          escalation_detail TEXT,
+          delivery_bundle_json TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          completed_at TEXT
+        );
+
+        INSERT INTO autonomous_delivery_run_v58 (
+          id,conversation_id,root_task_id,status,current_stage,goal_contract_json,
+          repair_cycle,revision,escalation_code,escalation_detail,delivery_bundle_json,
+          created_at,updated_at,completed_at
+        )
+        SELECT
+          id,
+          conversation_id,
+          root_task_id,
+          CASE status
+            WHEN 'active' THEN 'active'
+            WHEN 'waiting_gate' THEN 'waiting_gate'
+            WHEN 'waiting_human' THEN 'waiting_human'
+            WHEN 'retrying' THEN 'retrying'
+            WHEN 'submitted' THEN 'active'
+            WHEN 'planning' THEN 'active'
+            WHEN 'executing' THEN 'active'
+            WHEN 'reviewing' THEN 'active'
+            WHEN 'verifying' THEN 'active'
+            WHEN 'integrating' THEN 'active'
+            WHEN 'delivering' THEN 'active'
+            WHEN 'recovering' THEN 'retrying'
+            WHEN 'escalated' THEN 'waiting_human'
+            WHEN 'completed' THEN 'completed'
+            WHEN 'failed' THEN 'failed'
+            WHEN 'cancelled' THEN 'cancelled'
+            ELSE 'failed'
+          END,
+          CASE
+            WHEN current_stage IN (
+              'planning','executing','reviewing','verifying','integrating','delivering'
+            ) THEN current_stage
+            WHEN status IN (
+              'planning','executing','reviewing','verifying','integrating','delivering'
+            ) THEN status
+            WHEN status = 'completed' THEN 'delivering'
+            ELSE 'planning'
+          END,
+          goal_contract_json,
+          repair_cycle,
+          revision + 1,
+          CASE
+            WHEN status IN ('escalated','waiting_human')
+              THEN COALESCE(NULLIF(trim(escalation_code), ''), 'legacy_human_decision_required')
+            WHEN status NOT IN (
+              'active','waiting_gate','retrying','submitted','planning','executing',
+              'reviewing','verifying','integrating','delivering','recovering',
+              'completed','failed','cancelled'
+            ) THEN COALESCE(NULLIF(trim(escalation_code), ''), 'legacy_delivery_status_unknown')
+            ELSE NULL
+          END,
+          CASE
+            WHEN status IN ('escalated','waiting_human')
+              THEN COALESCE(
+                NULLIF(trim(escalation_detail), ''),
+                'Legacy delivery run requires a human decision before it can resume.'
+              )
+            ELSE escalation_detail
+          END,
+          delivery_bundle_json,
+          created_at,
+          updated_at,
+          CASE
+            WHEN status IN ('completed','failed','cancelled')
+              OR status NOT IN (
+                'active','waiting_gate','waiting_human','retrying','submitted','planning',
+                'executing','reviewing','verifying','integrating','delivering','recovering',
+                'escalated'
+              )
+              THEN COALESCE(completed_at, updated_at)
+            ELSE NULL
+          END
+        FROM autonomous_delivery_run;
+
+        DROP TABLE autonomous_delivery_run;
+        ALTER TABLE autonomous_delivery_run_v58 RENAME TO autonomous_delivery_run;
+        CREATE INDEX IF NOT EXISTS idx_autonomous_delivery_run_conversation
+          ON autonomous_delivery_run(conversation_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_autonomous_delivery_run_reconcile
+          ON autonomous_delivery_run(status, updated_at);
+
+        DROP TRIGGER IF EXISTS trg_delivery_run_transition_update;
+        DROP TRIGGER IF EXISTS trg_delivery_run_terminal_immutable;
+        DROP TRIGGER IF EXISTS trg_delivery_run_state_insert;
+        DROP TRIGGER IF EXISTS trg_delivery_run_state_update;
+
+        CREATE TRIGGER trg_delivery_run_transition_update
+        BEFORE UPDATE OF status ON autonomous_delivery_run
+        WHEN NEW.status <> OLD.status
+          AND NOT (
+            (OLD.status = 'active'
+              AND NEW.status IN (
+                'waiting_gate','waiting_human','retrying','completed','failed','cancelled'
+              ))
+            OR (OLD.status = 'waiting_gate'
+              AND NEW.status IN ('active','waiting_human','completed','failed','cancelled'))
+            OR (OLD.status = 'waiting_human'
+              AND NEW.status IN ('active','failed','cancelled'))
+            OR (OLD.status = 'retrying'
+              AND NEW.status IN ('active','waiting_human','failed','cancelled'))
+          )
+        BEGIN
+          SELECT RAISE(ABORT, 'invalid_delivery_run_transition');
+        END;
+
+        CREATE TRIGGER trg_delivery_run_state_insert
+        BEFORE INSERT ON autonomous_delivery_run
+        WHEN (NEW.status IN ('completed','failed','cancelled') AND NEW.completed_at IS NULL)
+          OR (NEW.status NOT IN ('completed','failed','cancelled') AND NEW.completed_at IS NOT NULL)
+          OR (NEW.status = 'waiting_human' AND (
+                NEW.escalation_code IS NULL OR length(trim(NEW.escalation_code)) = 0
+              ))
+          OR (NEW.status = 'completed' AND NEW.delivery_bundle_json IS NULL)
+        BEGIN
+          SELECT RAISE(ABORT, 'invalid_delivery_run_state');
+        END;
+
+        CREATE TRIGGER trg_delivery_run_state_update
+        BEFORE UPDATE OF status, escalation_code, delivery_bundle_json, completed_at
+        ON autonomous_delivery_run
+        WHEN (NEW.status IN ('completed','failed','cancelled') AND NEW.completed_at IS NULL)
+          OR (NEW.status NOT IN ('completed','failed','cancelled') AND NEW.completed_at IS NOT NULL)
+          OR (NEW.status = 'waiting_human' AND (
+                NEW.escalation_code IS NULL OR length(trim(NEW.escalation_code)) = 0
+              ))
+          OR (NEW.status = 'completed' AND NEW.delivery_bundle_json IS NULL)
+        BEGIN
+          SELECT RAISE(ABORT, 'invalid_delivery_run_state');
+        END;
+
+        CREATE TRIGGER trg_delivery_run_terminal_immutable
+        BEFORE UPDATE ON autonomous_delivery_run
+        WHEN OLD.status IN ('completed','failed','cancelled')
+        BEGIN
+          SELECT RAISE(ABORT, 'delivery_run_terminal_immutable');
+        END;
+      `);
+
+      const violations = db.pragma('foreign_key_check') as Array<Record<string, unknown>>;
+      if (violations.length > 0) {
+        throw new Error(
+          `migration 58 foreign key check failed: ${JSON.stringify(violations.slice(0, 10))}`,
+        );
+      }
+    },
+  },
+  {
+    version: 59,
+    sql: `
+CREATE TABLE IF NOT EXISTS quality_gate (
+  id TEXT PRIMARY KEY,
+  conversation_id TEXT NOT NULL REFERENCES conversation(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL CHECK(kind IN (
+    'implementation_readiness','code_review','delivery_review',
+    'acceptance_verification','integration'
+  )),
+  target_type TEXT NOT NULL CHECK(target_type IN ('task','delivery_run')),
+  target_id TEXT NOT NULL,
+  artifact_revision TEXT NOT NULL CHECK(length(trim(artifact_revision)) > 0),
+  status TEXT NOT NULL CHECK(status IN (
+    'requested','evaluating','passed','changes_requested','rejected','cancelled'
+  )),
+  criteria_json TEXT NOT NULL,
+  policy_json TEXT NOT NULL,
+  requested_by_type TEXT NOT NULL CHECK(requested_by_type IN ('user','agent','system')),
+  requested_by TEXT NOT NULL,
+  evaluator_type TEXT CHECK(evaluator_type IN ('user','agent','system')),
+  evaluator_id TEXT,
+  decision_reason TEXT,
+  revision INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  decided_at TEXT,
+  UNIQUE(kind,target_type,target_id,artifact_revision)
+);
+CREATE INDEX IF NOT EXISTS idx_quality_gate_conversation_status
+  ON quality_gate(conversation_id,status,updated_at);
+
+CREATE TABLE IF NOT EXISTS quality_gate_evidence (
+  id TEXT PRIMARY KEY,
+  gate_id TEXT NOT NULL REFERENCES quality_gate(id) ON DELETE CASCADE,
+  evidence_type TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  source_ref TEXT,
+  submitted_by_type TEXT NOT NULL CHECK(submitted_by_type IN ('user','agent','system')),
+  submitted_by TEXT NOT NULL,
+  idempotency_key TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE(gate_id,idempotency_key)
+);
+CREATE INDEX IF NOT EXISTS idx_quality_gate_evidence_gate
+  ON quality_gate_evidence(gate_id,created_at);
+
+CREATE TABLE IF NOT EXISTS quality_gate_decision (
+  id TEXT PRIMARY KEY,
+  gate_id TEXT NOT NULL UNIQUE REFERENCES quality_gate(id) ON DELETE CASCADE,
+  decision TEXT NOT NULL CHECK(decision IN (
+    'passed','changes_requested','rejected','cancelled'
+  )),
+  evaluator_type TEXT NOT NULL CHECK(evaluator_type IN ('user','agent','system')),
+  evaluator_id TEXT NOT NULL,
+  reason TEXT,
+  evidence_ids_json TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE TRIGGER IF NOT EXISTS trg_quality_gate_transition
+BEFORE UPDATE OF status ON quality_gate
+WHEN NEW.status <> OLD.status
+  AND NOT (
+    (OLD.status='requested' AND NEW.status IN ('evaluating','cancelled'))
+    OR (OLD.status='evaluating'
+      AND NEW.status IN ('passed','changes_requested','rejected','cancelled'))
+  )
+BEGIN
+  SELECT RAISE(ABORT, 'invalid_quality_gate_transition');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_quality_gate_state_insert
+BEFORE INSERT ON quality_gate
+WHEN (NEW.status='requested' AND (
+        NEW.evaluator_type IS NOT NULL OR NEW.evaluator_id IS NOT NULL OR NEW.decided_at IS NOT NULL
+      ))
+  OR (NEW.status='evaluating' AND (
+        NEW.evaluator_type IS NULL OR NEW.evaluator_id IS NULL OR NEW.decided_at IS NOT NULL
+      ))
+  OR (NEW.status IN ('passed','changes_requested','rejected','cancelled') AND (
+        NEW.evaluator_type IS NULL OR NEW.evaluator_id IS NULL OR NEW.decided_at IS NULL
+      ))
+BEGIN
+  SELECT RAISE(ABORT, 'invalid_quality_gate_state');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_quality_gate_state_update
+BEFORE UPDATE OF status,evaluator_type,evaluator_id,decided_at ON quality_gate
+WHEN (NEW.status='requested' AND (
+        NEW.evaluator_type IS NOT NULL OR NEW.evaluator_id IS NOT NULL OR NEW.decided_at IS NOT NULL
+      ))
+  OR (NEW.status='evaluating' AND (
+        NEW.evaluator_type IS NULL OR NEW.evaluator_id IS NULL OR NEW.decided_at IS NOT NULL
+      ))
+  OR (NEW.status IN ('passed','changes_requested','rejected','cancelled') AND (
+        NEW.evaluator_type IS NULL OR NEW.evaluator_id IS NULL OR NEW.decided_at IS NULL
+      ))
+BEGIN
+  SELECT RAISE(ABORT, 'invalid_quality_gate_state');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_quality_gate_terminal_immutable
+BEFORE UPDATE ON quality_gate
+WHEN OLD.status IN ('passed','changes_requested','rejected','cancelled')
+BEGIN
+  SELECT RAISE(ABORT, 'quality_gate_terminal_immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_quality_gate_evidence_immutable_update
+BEFORE UPDATE ON quality_gate_evidence
+BEGIN
+  SELECT RAISE(ABORT, 'quality_gate_evidence_immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_quality_gate_evidence_immutable_delete
+BEFORE DELETE ON quality_gate_evidence
+WHEN EXISTS (SELECT 1 FROM quality_gate WHERE id=OLD.gate_id)
+BEGIN
+  SELECT RAISE(ABORT, 'quality_gate_evidence_immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_quality_gate_decision_immutable_update
+BEFORE UPDATE ON quality_gate_decision
+BEGIN
+  SELECT RAISE(ABORT, 'quality_gate_decision_immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_quality_gate_decision_immutable_delete
+BEFORE DELETE ON quality_gate_decision
+WHEN EXISTS (SELECT 1 FROM quality_gate WHERE id=OLD.gate_id)
+BEGIN
+  SELECT RAISE(ABORT, 'quality_gate_decision_immutable');
+END;
+`,
+  },
+  {
+    version: 60,
+    sql: `
+CREATE TABLE IF NOT EXISTS work_contract (
+  id TEXT PRIMARY KEY,
+  work_id TEXT NOT NULL,
+  work_epoch INTEGER NOT NULL CHECK(work_epoch > 0),
+  attempt_id TEXT NOT NULL UNIQUE,
+  fencing_token TEXT NOT NULL UNIQUE,
+  project_id TEXT NOT NULL REFERENCES conversation(id) ON DELETE CASCADE,
+  task_id TEXT,
+  delivery_run_id TEXT,
+  agent_id TEXT NOT NULL CHECK(length(trim(agent_id)) > 0),
+  goal TEXT NOT NULL CHECK(length(trim(goal)) > 0),
+  acceptance_criteria_json TEXT NOT NULL,
+  role_json TEXT NOT NULL,
+  permissions_json TEXT NOT NULL,
+  authoritative_refs_json TEXT NOT NULL,
+  authoritative_revisions_json TEXT NOT NULL,
+  context_snapshot_ref TEXT NOT NULL CHECK(length(trim(context_snapshot_ref)) > 0),
+  allowed_outcome_types_json TEXT NOT NULL,
+  deadline_at TEXT,
+  budget_json TEXT NOT NULL,
+  correlation_id TEXT NOT NULL CHECK(length(trim(correlation_id)) > 0),
+  causation_id TEXT NOT NULL CHECK(length(trim(causation_id)) > 0),
+  created_at TEXT NOT NULL,
+  UNIQUE(work_id,work_epoch)
+);
+CREATE INDEX IF NOT EXISTS idx_work_contract_project_agent
+  ON work_contract(project_id,agent_id,created_at);
+CREATE INDEX IF NOT EXISTS idx_work_contract_task
+  ON work_contract(task_id,created_at);
+
+CREATE TABLE IF NOT EXISTS work_authority (
+  work_id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES conversation(id) ON DELETE CASCADE,
+  current_epoch INTEGER NOT NULL CHECK(current_epoch > 0),
+  current_contract_id TEXT NOT NULL UNIQUE
+    REFERENCES work_contract(id) ON DELETE CASCADE,
+  status TEXT NOT NULL CHECK(status IN ('active','closed')),
+  revision INTEGER NOT NULL DEFAULT 0 CHECK(revision >= 0),
+  updated_at TEXT NOT NULL,
+  closed_at TEXT,
+  CHECK(
+    (status='active' AND closed_at IS NULL)
+    OR (status='closed' AND closed_at IS NOT NULL)
+  )
+);
+CREATE INDEX IF NOT EXISTS idx_work_authority_project_status
+  ON work_authority(project_id,status,updated_at);
+
+CREATE TABLE IF NOT EXISTS agent_outcome (
+  id TEXT PRIMARY KEY,
+  idempotency_key TEXT NOT NULL,
+  contract_id TEXT NOT NULL,
+  project_id TEXT NOT NULL REFERENCES conversation(id) ON DELETE CASCADE,
+  work_id TEXT NOT NULL,
+  work_epoch INTEGER NOT NULL CHECK(work_epoch > 0),
+  attempt_id TEXT NOT NULL,
+  fencing_token TEXT NOT NULL,
+  outcome_type TEXT NOT NULL CHECK(outcome_type IN (
+    'continue_work','propose_task_graph','submit_task_result','request_review',
+    'record_gate_decision','handoff_to_agent','report_blocked','request_human_decision'
+  )),
+  payload_json TEXT NOT NULL,
+  evidence_refs_json TEXT NOT NULL,
+  authoritative_revisions_json TEXT NOT NULL,
+  correlation_id TEXT NOT NULL,
+  causation_id TEXT NOT NULL,
+  occurred_at TEXT NOT NULL,
+  admission_status TEXT NOT NULL CHECK(admission_status IN ('accepted','rejected')),
+  rejection_reason TEXT,
+  recorded_at TEXT NOT NULL,
+  UNIQUE(project_id,idempotency_key),
+  CHECK(
+    (admission_status='accepted' AND rejection_reason IS NULL)
+    OR (
+      admission_status='rejected'
+      AND rejection_reason IS NOT NULL
+      AND length(trim(rejection_reason)) > 0
+    )
+  )
+);
+CREATE INDEX IF NOT EXISTS idx_agent_outcome_contract
+  ON agent_outcome(contract_id,recorded_at);
+CREATE INDEX IF NOT EXISTS idx_agent_outcome_work
+  ON agent_outcome(work_id,work_epoch,recorded_at);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_agent_outcome_terminal_contract
+  ON agent_outcome(contract_id)
+  WHERE admission_status='accepted' AND outcome_type<>'continue_work';
+
+CREATE TRIGGER IF NOT EXISTS trg_work_contract_immutable
+BEFORE UPDATE ON work_contract
+BEGIN
+  SELECT RAISE(ABORT, 'work_contract_immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_work_contract_delete_guard
+BEFORE DELETE ON work_contract
+WHEN EXISTS (SELECT 1 FROM conversation WHERE id=OLD.project_id)
+BEGIN
+  SELECT RAISE(ABORT, 'work_contract_immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_work_authority_transition
+BEFORE UPDATE ON work_authority
+WHEN (OLD.status='closed')
+  OR (NEW.project_id <> OLD.project_id)
+  OR (NEW.revision <> OLD.revision + 1)
+  OR (
+    NEW.status='active'
+    AND (
+      NEW.current_epoch <> OLD.current_epoch + 1
+      OR NEW.current_contract_id = OLD.current_contract_id
+    )
+  )
+  OR (
+    NEW.status='closed'
+    AND (
+      OLD.status <> 'active'
+      OR NEW.current_epoch <> OLD.current_epoch
+      OR NEW.current_contract_id <> OLD.current_contract_id
+    )
+  )
+BEGIN
+  SELECT RAISE(ABORT, 'invalid_work_authority_transition');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_work_authority_contract_insert
+BEFORE INSERT ON work_authority
+WHEN NOT EXISTS (
+  SELECT 1 FROM work_contract AS contract
+  WHERE contract.id=NEW.current_contract_id
+    AND contract.project_id=NEW.project_id
+    AND contract.work_id=NEW.work_id
+    AND contract.work_epoch=NEW.current_epoch
+)
+BEGIN
+  SELECT RAISE(ABORT, 'invalid_work_authority_contract');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_work_authority_contract_update
+BEFORE UPDATE OF current_contract_id,current_epoch ON work_authority
+WHEN NOT EXISTS (
+  SELECT 1 FROM work_contract AS contract
+  WHERE contract.id=NEW.current_contract_id
+    AND contract.project_id=NEW.project_id
+    AND contract.work_id=NEW.work_id
+    AND contract.work_epoch=NEW.current_epoch
+)
+BEGIN
+  SELECT RAISE(ABORT, 'invalid_work_authority_contract');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_work_authority_delete_guard
+BEFORE DELETE ON work_authority
+WHEN EXISTS (SELECT 1 FROM conversation WHERE id=OLD.project_id)
+BEGIN
+  SELECT RAISE(ABORT, 'work_authority_delete_forbidden');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_agent_outcome_acceptance_contract
+BEFORE INSERT ON agent_outcome
+WHEN NEW.admission_status='accepted'
+  AND NOT EXISTS (
+    SELECT 1
+    FROM work_contract AS contract
+    JOIN work_authority AS authority
+      ON authority.work_id=contract.work_id
+    WHERE contract.id=NEW.contract_id
+      AND contract.project_id=NEW.project_id
+      AND contract.work_id=NEW.work_id
+      AND contract.work_epoch=NEW.work_epoch
+      AND contract.attempt_id=NEW.attempt_id
+      AND contract.fencing_token=NEW.fencing_token
+      AND contract.correlation_id=NEW.correlation_id
+      AND contract.authoritative_revisions_json=NEW.authoritative_revisions_json
+      AND EXISTS (
+        SELECT 1 FROM json_each(contract.allowed_outcome_types_json)
+        WHERE value=NEW.outcome_type
+      )
+      AND authority.status='active'
+      AND authority.current_contract_id=contract.id
+      AND authority.current_epoch=contract.work_epoch
+  )
+BEGIN
+  SELECT RAISE(ABORT, 'invalid_agent_outcome_authority');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_agent_outcome_immutable
+BEFORE UPDATE ON agent_outcome
+BEGIN
+  SELECT RAISE(ABORT, 'agent_outcome_immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_agent_outcome_delete_guard
+BEFORE DELETE ON agent_outcome
+WHEN EXISTS (SELECT 1 FROM conversation WHERE id=OLD.project_id)
+BEGIN
+  SELECT RAISE(ABORT, 'agent_outcome_immutable');
+END;
+
+`,
+    run(db) {
+      const invocationExists = db.prepare(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='invocation'",
+      ).get();
+      if (!invocationExists) return;
+      const columns = new Set(
+        (db.pragma('table_info(invocation)') as Array<{ name: string }>)
+          .map((column) => column.name),
+      );
+      for (const [name, type] of [
+        ['work_contract_id', 'TEXT'],
+        ['work_id', 'TEXT'],
+        ['work_epoch', 'INTEGER'],
+        ['fencing_token', 'TEXT'],
+      ] as const) {
+        if (!columns.has(name)) db.exec(`ALTER TABLE invocation ADD COLUMN ${name} ${type}`);
+      }
+      db.exec(`
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_invocation_work_contract
+        ON invocation(work_contract_id)
+        WHERE work_contract_id IS NOT NULL
+      `);
+      if (!['id', 'conversation_id', 'agent_id'].every((column) => columns.has(column))) return;
+      db.exec(`
+        CREATE TRIGGER IF NOT EXISTS trg_invocation_work_binding_insert
+        BEFORE INSERT ON invocation
+        WHEN (
+            NEW.work_contract_id IS NULL
+            AND (
+              NEW.work_id IS NOT NULL
+              OR NEW.work_epoch IS NOT NULL
+              OR NEW.fencing_token IS NOT NULL
+            )
+          )
+          OR (
+            NEW.work_contract_id IS NOT NULL
+            AND NOT EXISTS (
+              SELECT 1
+              FROM work_contract AS contract
+              JOIN work_authority AS authority
+                ON authority.current_contract_id=contract.id
+              WHERE contract.id=NEW.work_contract_id
+                AND contract.attempt_id=NEW.id
+                AND contract.project_id=NEW.conversation_id
+                AND contract.agent_id=NEW.agent_id
+                AND contract.work_id=NEW.work_id
+                AND contract.work_epoch=NEW.work_epoch
+                AND contract.fencing_token=NEW.fencing_token
+                AND authority.status='active'
+                AND authority.current_epoch=contract.work_epoch
+            )
+          )
+        BEGIN
+          SELECT RAISE(ABORT, 'invalid_invocation_work_binding');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS trg_invocation_work_binding_immutable
+        BEFORE UPDATE OF work_contract_id,work_id,work_epoch,fencing_token ON invocation
+        WHEN NEW.work_contract_id IS NOT OLD.work_contract_id
+          OR NEW.work_id IS NOT OLD.work_id
+          OR NEW.work_epoch IS NOT OLD.work_epoch
+          OR NEW.fencing_token IS NOT OLD.fencing_token
+        BEGIN
+          SELECT RAISE(ABORT, 'invocation_work_binding_immutable');
+        END
+      `);
+    },
+  },
+  {
+    version: 61,
+    run(db) {
+      const tableExists = (name: string) => Boolean(db.prepare(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+      ).get(name));
+      const addColumns = (
+        table: string,
+        definitions: ReadonlyArray<readonly [name: string, sqlType: string]>,
+      ) => {
+        if (!tableExists(table)) return;
+        const columns = new Set(
+          (db.pragma(`table_info(${table})`) as Array<{ name: string }>)
+            .map((column) => column.name),
+        );
+        for (const [name, sqlType] of definitions) {
+          if (!columns.has(name)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${sqlType}`);
+        }
+      };
+
+      addColumns('a2a_possession_chain', [
+        ['revision', 'INTEGER NOT NULL DEFAULT 0'],
+        ['updated_at', "TEXT NOT NULL DEFAULT ''"],
+      ]);
+      addColumns('a2a_possession', [
+        ['parent_pass_id', 'TEXT'],
+        ['revision', 'INTEGER NOT NULL DEFAULT 0'],
+        ['updated_at', "TEXT NOT NULL DEFAULT ''"],
+      ]);
+      addColumns('a2a_pass', [
+        ['group_id', 'TEXT'],
+        ['idempotency_key', 'TEXT'],
+        ['hop_count', 'INTEGER NOT NULL DEFAULT 0'],
+        ['target_possession_id', 'TEXT'],
+        ['inbox_item_id', 'TEXT'],
+        ['task_id', 'TEXT'],
+        ['revision', 'INTEGER NOT NULL DEFAULT 0'],
+      ]);
+
+      if (tableExists('a2a_possession_chain')) {
+        db.exec(`
+          UPDATE a2a_possession_chain
+          SET updated_at=COALESCE(NULLIF(updated_at,''),completed_at,created_at)
+        `);
+      }
+      if (tableExists('a2a_possession')) {
+        db.exec(`
+          UPDATE a2a_possession
+          SET updated_at=COALESCE(NULLIF(updated_at,''),completed_at,started_at)
+        `);
+      }
+
+      if (
+        tableExists('a2a_possession_chain')
+        && tableExists('a2a_possession')
+        && tableExists('a2a_pass')
+      ) {
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS a2a_pass_group (
+            id TEXT PRIMARY KEY,
+            chain_id TEXT NOT NULL REFERENCES a2a_possession_chain(id) ON DELETE CASCADE,
+            source_possession_id TEXT NOT NULL REFERENCES a2a_possession(id) ON DELETE CASCADE,
+            idempotency_key TEXT NOT NULL,
+            request_digest TEXT NOT NULL,
+            mode TEXT NOT NULL CHECK(mode IN ('transfer','fan_out')),
+            status TEXT NOT NULL CHECK(status IN (
+              'offered','active','recovering','completed','failed','cancelled'
+            )),
+            expected_count INTEGER NOT NULL CHECK(expected_count > 0),
+            resolved_count INTEGER NOT NULL DEFAULT 0
+              CHECK(resolved_count >= 0 AND resolved_count <= expected_count),
+            recovery_possession_id TEXT,
+            hop_count INTEGER NOT NULL CHECK(hop_count >= 0),
+            max_hops INTEGER NOT NULL CHECK(max_hops > 0),
+            revision INTEGER NOT NULL DEFAULT 0 CHECK(revision >= 0),
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            completed_at TEXT,
+            CHECK(
+              (status IN ('offered','active','recovering') AND completed_at IS NULL)
+              OR (status IN ('completed','failed','cancelled') AND completed_at IS NOT NULL)
+            )
+          );
+          CREATE INDEX IF NOT EXISTS idx_a2a_pass_group_chain
+            ON a2a_pass_group(chain_id,status,created_at);
+          CREATE UNIQUE INDEX IF NOT EXISTS uq_a2a_pass_group_idempotency
+            ON a2a_pass_group(chain_id,idempotency_key);
+          CREATE UNIQUE INDEX IF NOT EXISTS uq_a2a_pass_group_source_open
+            ON a2a_pass_group(source_possession_id)
+            WHERE status IN ('offered','active','recovering');
+          CREATE UNIQUE INDEX IF NOT EXISTS uq_a2a_pass_idempotency
+            ON a2a_pass(chain_id,idempotency_key)
+            WHERE idempotency_key IS NOT NULL;
+          CREATE INDEX IF NOT EXISTS idx_a2a_pass_group
+            ON a2a_pass(group_id,status,updated_at);
+          CREATE INDEX IF NOT EXISTS idx_a2a_possession_parent_pass
+            ON a2a_possession(parent_pass_id);
+        `);
+      }
+    },
+  },
+  {
+    version: 62,
+    foreignKeysOff: true,
+    sql: `
+      DROP TABLE IF EXISTS a2a_delivery;
+      DROP TABLE IF EXISTS delivery_cursor;
+      DROP TABLE IF EXISTS chain_worklist;
+      DROP TABLE IF EXISTS invocation_chain;
+      DROP TABLE IF EXISTS a2a_audit_log;
+    `,
+  },
+  {
+    version: 63,
+    foreignKeysOff: true,
+    run: (db) => {
+      const exists = db.prepare(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='runtime_invocation_projection'",
+      ).get();
+      if (!exists) return;
+      db.exec(`
+        ALTER TABLE runtime_invocation_projection RENAME TO runtime_invocation_projection_v62;
+        CREATE TABLE runtime_invocation_projection (
+          invocation_id TEXT PRIMARY KEY,
+          project_id TEXT NOT NULL REFERENCES conversation(id) ON DELETE CASCADE,
+          project_agent_id TEXT NOT NULL,
+          status TEXT NOT NULL CHECK(status IN ('blocked','accepted','running','terminated')),
+          outcome TEXT,
+          reason_code TEXT,
+          accepted_at TEXT NOT NULL,
+          started_at TEXT,
+          terminated_at TEXT,
+          last_stream_sequence INTEGER NOT NULL CHECK(last_stream_sequence > 0),
+          updated_at TEXT NOT NULL
+        );
+        INSERT INTO runtime_invocation_projection (
+          invocation_id,project_id,project_agent_id,status,outcome,reason_code,
+          accepted_at,started_at,terminated_at,last_stream_sequence,updated_at
+        )
+        SELECT
+          invocation_id,project_id,project_agent_id,status,outcome,reason_code,
+          accepted_at,started_at,terminated_at,last_stream_sequence,updated_at
+        FROM runtime_invocation_projection_v62;
+        DROP TABLE runtime_invocation_projection_v62;
+        CREATE INDEX idx_runtime_invocation_projection_project
+          ON runtime_invocation_projection(project_id,project_agent_id,updated_at);
+      `);
+    },
+  },
+  {
+    version: 64,
+    sql: `
+      CREATE TABLE IF NOT EXISTS supervisor_control_decision (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL REFERENCES autonomous_delivery_run(id) ON DELETE CASCADE,
+        project_id TEXT NOT NULL REFERENCES conversation(id) ON DELETE CASCADE,
+        snapshot_revision INTEGER NOT NULL CHECK(snapshot_revision>=0),
+        policy_revision INTEGER NOT NULL CHECK(policy_revision>=0),
+        payload_json TEXT NOT NULL,
+        status TEXT NOT NULL CHECK(status IN ('active','superseded','completed')),
+        created_at TEXT NOT NULL,
+        completed_at TEXT,
+        UNIQUE(run_id,snapshot_revision,policy_revision)
+      );
+      CREATE INDEX IF NOT EXISTS idx_supervisor_control_decision_active
+        ON supervisor_control_decision(run_id,status,created_at);
+
+      CREATE TABLE IF NOT EXISTS supervisor_control_action (
+        id TEXT PRIMARY KEY,
+        decision_id TEXT NOT NULL REFERENCES supervisor_control_decision(id) ON DELETE CASCADE,
+        run_id TEXT NOT NULL REFERENCES autonomous_delivery_run(id) ON DELETE CASCADE,
+        type TEXT NOT NULL CHECK(type IN (
+          'activate','retry','requestGate','resume','escalateToHuman','terminate'
+        )),
+        target_work_id TEXT,
+        work_epoch INTEGER,
+        slot_id TEXT,
+        reason_code TEXT NOT NULL,
+        retry_budget_kind TEXT CHECK(retry_budget_kind IS NULL OR retry_budget_kind IN (
+          'invocation','effect','task_rework','agent_local'
+        )),
+        termination_outcome TEXT CHECK(
+          termination_outcome IS NULL OR termination_outcome IN ('completed','failed')
+        ),
+        status TEXT NOT NULL CHECK(status IN ('ready','claimed','applied','failed','cancelled')),
+        claim_token TEXT,
+        lease_owner TEXT,
+        lease_expires_at TEXT,
+        failure_code TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        completed_at TEXT,
+        CHECK(
+          (target_work_id IS NULL AND work_epoch IS NULL)
+          OR (target_work_id IS NOT NULL AND work_epoch IS NOT NULL AND work_epoch>=0)
+        )
+      );
+      CREATE INDEX IF NOT EXISTS idx_supervisor_control_action_claim
+        ON supervisor_control_action(run_id,status,created_at);
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_supervisor_control_active_slot
+        ON supervisor_control_action(run_id,slot_id)
+        WHERE slot_id IS NOT NULL AND type='activate' AND status IN ('claimed','applied');
+    `,
+  },
+  {
+    version: 65,
+    foreignKeysOff: true,
+    run: (db) => {
+      const exists = db.prepare(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='platform_effect_outbox'",
+      ).get();
+      if (!exists) return;
+      db.exec(`
+        ALTER TABLE platform_effect_attempt RENAME TO platform_effect_attempt_v64;
+        ALTER TABLE platform_effect_outbox RENAME TO platform_effect_outbox_v64;
+        CREATE TABLE platform_effect_outbox (
+          id TEXT PRIMARY KEY,
+          source_event_id TEXT NOT NULL REFERENCES platform_event(id) ON DELETE CASCADE,
+          effect_type TEXT NOT NULL,
+          target_key TEXT NOT NULL,
+          lane_key TEXT NOT NULL,
+          lane_sequence INTEGER NOT NULL CHECK(lane_sequence>0),
+          idempotency_key TEXT NOT NULL UNIQUE,
+          payload TEXT NOT NULL,
+          status TEXT NOT NULL CHECK(status IN (
+            'queued','running','succeeded','dead_letter','cancelled','superseded'
+          )),
+          attempt_count INTEGER NOT NULL DEFAULT 0 CHECK(attempt_count>=0),
+          max_attempts INTEGER NOT NULL DEFAULT 5 CHECK(max_attempts>0),
+          criticality TEXT NOT NULL DEFAULT 'non_blocking'
+            CHECK(criticality IN ('blocking','non_blocking')),
+          delivery_run_id TEXT REFERENCES autonomous_delivery_run(id) ON DELETE CASCADE,
+          applies_from_revision INTEGER NOT NULL DEFAULT 0 CHECK(applies_from_revision>=0),
+          source_action_id TEXT,
+          superseded_at_revision INTEGER,
+          successor_effect_id TEXT,
+          disposition_reason TEXT,
+          next_attempt_at TEXT NOT NULL,
+          lease_owner TEXT,
+          lease_expires_at TEXT,
+          current_attempt_id TEXT,
+          last_error TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          completed_at TEXT,
+          UNIQUE(lane_key,lane_sequence),
+          CHECK(
+            (status='superseded' AND superseded_at_revision IS NOT NULL
+              AND disposition_reason IS NOT NULL)
+            OR (status<>'superseded' AND superseded_at_revision IS NULL)
+          ),
+          CHECK(
+            status NOT IN ('cancelled','superseded') OR disposition_reason IS NOT NULL
+          )
+        );
+        INSERT INTO platform_effect_outbox (
+          id,source_event_id,effect_type,target_key,lane_key,lane_sequence,
+          idempotency_key,payload,status,attempt_count,max_attempts,criticality,
+          delivery_run_id,applies_from_revision,source_action_id,
+          superseded_at_revision,successor_effect_id,disposition_reason,
+          next_attempt_at,lease_owner,lease_expires_at,current_attempt_id,last_error,
+          created_at,updated_at,completed_at
+        )
+        SELECT
+          id,source_event_id,effect_type,target_key,lane_key,lane_sequence,
+          idempotency_key,payload,status,attempt_count,5,'non_blocking',
+          NULL,0,NULL,NULL,NULL,NULL,next_attempt_at,lease_owner,lease_expires_at,
+          current_attempt_id,last_error,created_at,updated_at,completed_at
+        FROM platform_effect_outbox_v64;
+
+        CREATE TABLE platform_effect_attempt (
+          id TEXT PRIMARY KEY,
+          effect_id TEXT NOT NULL REFERENCES platform_effect_outbox(id) ON DELETE CASCADE,
+          attempt_no INTEGER NOT NULL CHECK(attempt_no>0),
+          worker_id TEXT NOT NULL,
+          status TEXT NOT NULL CHECK(status IN ('running','succeeded','failed','abandoned')),
+          started_at TEXT NOT NULL,
+          finished_at TEXT,
+          error TEXT,
+          UNIQUE(effect_id,attempt_no)
+        );
+        INSERT INTO platform_effect_attempt
+          SELECT * FROM platform_effect_attempt_v64;
+        DROP TABLE platform_effect_attempt_v64;
+        DROP TABLE platform_effect_outbox_v64;
+
+        CREATE INDEX idx_platform_effect_claim
+          ON platform_effect_outbox(status,next_attempt_at,effect_type,lane_key,lane_sequence);
+        CREATE INDEX idx_platform_effect_source
+          ON platform_effect_outbox(source_event_id,lane_key,lane_sequence);
+        CREATE INDEX idx_platform_effect_delivery_closure
+          ON platform_effect_outbox(delivery_run_id,criticality,status,applies_from_revision);
+        CREATE INDEX idx_platform_effect_attempt_effect
+          ON platform_effect_attempt(effect_id,attempt_no);
+      `);
+    },
+  },
+  {
+    version: 66,
+    foreignKeysOff: true,
+    run: (db) => {
+      const exists = db.prepare(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='supervisor_control_action'",
+      ).get();
+      const dependencies = db.prepare(`
+        SELECT COUNT(*) AS count FROM sqlite_master
+        WHERE type='table' AND name IN (
+          'conversation','autonomous_delivery_run','supervisor_control_decision'
+        )
+      `).get() as { count: number };
+      if (!exists || dependencies.count !== 3) return;
+      db.exec(`
+        ALTER TABLE supervisor_control_action RENAME TO supervisor_control_action_v65;
+        CREATE TABLE supervisor_control_action (
+          id TEXT PRIMARY KEY,
+          decision_id TEXT NOT NULL REFERENCES supervisor_control_decision(id) ON DELETE CASCADE,
+          run_id TEXT NOT NULL REFERENCES autonomous_delivery_run(id) ON DELETE CASCADE,
+          type TEXT NOT NULL CHECK(type IN (
+            'initializeGraph','activate','retry','requestGate','integrate','finalize',
+            'resume','escalateToHuman','terminate'
+          )),
+          target_work_id TEXT,
+          work_epoch INTEGER,
+          slot_id TEXT,
+          reason_code TEXT NOT NULL,
+          retry_budget_kind TEXT CHECK(retry_budget_kind IS NULL OR retry_budget_kind IN (
+            'invocation','effect','task_rework','agent_local'
+          )),
+          termination_outcome TEXT CHECK(
+            termination_outcome IS NULL OR termination_outcome IN ('completed','failed')
+          ),
+          status TEXT NOT NULL CHECK(status IN ('ready','claimed','applied','failed','cancelled')),
+          claim_token TEXT,
+          lease_owner TEXT,
+          lease_expires_at TEXT,
+          failure_code TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          completed_at TEXT,
+          CHECK(
+            (target_work_id IS NULL AND work_epoch IS NULL)
+            OR (target_work_id IS NOT NULL AND work_epoch IS NOT NULL AND work_epoch>=0)
+          )
+        );
+        INSERT INTO supervisor_control_action
+          SELECT * FROM supervisor_control_action_v65;
+        DROP TABLE supervisor_control_action_v65;
+        CREATE INDEX idx_supervisor_control_action_claim
+          ON supervisor_control_action(run_id,status,created_at);
+        CREATE UNIQUE INDEX uq_supervisor_control_active_slot
+          ON supervisor_control_action(run_id,slot_id)
+          WHERE slot_id IS NOT NULL AND type='activate' AND status IN ('claimed','applied');
+      `);
+    },
+  },
+  {
+    version: 67,
+    foreignKeysOff: true,
+    run: (db) => {
+      const receipt = db.prepare(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='autonomous_delivery_receipt'",
+      ).get();
+      if (!receipt) return;
+      db.exec(`
+        ALTER TABLE autonomous_delivery_receipt RENAME TO autonomous_delivery_receipt_v66;
+        CREATE TABLE autonomous_delivery_receipt (
+          id TEXT PRIMARY KEY,
+          run_id TEXT NOT NULL REFERENCES autonomous_delivery_run(id) ON DELETE CASCADE,
+          kind TEXT NOT NULL,
+          external_id TEXT,
+          status TEXT NOT NULL,
+          payload_json TEXT NOT NULL,
+          idempotency_key TEXT NOT NULL UNIQUE,
+          observed_at TEXT NOT NULL
+        );
+        INSERT INTO autonomous_delivery_receipt (
+          id,run_id,kind,external_id,status,payload_json,idempotency_key,observed_at
+        )
+        SELECT
+          id,run_id,kind,external_id,status,payload_json,idempotency_key,observed_at
+        FROM autonomous_delivery_receipt_v66;
+        DROP TABLE autonomous_delivery_receipt_v66;
+        DROP TABLE IF EXISTS autonomous_delivery_attempt;
+        DROP TABLE IF EXISTS autonomous_delivery_action;
+        CREATE INDEX idx_autonomous_delivery_receipt_run
+          ON autonomous_delivery_receipt(run_id,kind,observed_at);
+      `);
+    },
+  },
+  {
+    version: 68,
+    foreignKeysOff: true,
+    run: (db) => {
+      const legacyTables = db.prepare(`
+        SELECT COUNT(*) AS count
+        FROM sqlite_master
+        WHERE type='table'
+          AND name IN ('supervisor_control_decision','supervisor_control_action')
+      `).get() as { count: number };
+      if (legacyTables.count !== 2) return;
+      db.exec(`
+        DROP INDEX IF EXISTS idx_supervisor_control_decision_active;
+        DROP INDEX IF EXISTS idx_supervisor_control_action_claim;
+        DROP INDEX IF EXISTS uq_supervisor_control_active_slot;
+        CREATE TABLE IF NOT EXISTS delivery_control_decision (
+          id TEXT PRIMARY KEY,
+          run_id TEXT NOT NULL REFERENCES autonomous_delivery_run(id) ON DELETE CASCADE,
+          project_id TEXT NOT NULL REFERENCES conversation(id) ON DELETE CASCADE,
+          snapshot_revision INTEGER NOT NULL,
+          policy_revision INTEGER NOT NULL,
+          payload_json TEXT NOT NULL,
+          status TEXT NOT NULL CHECK(status IN ('active','completed','superseded')),
+          created_at TEXT NOT NULL,
+          completed_at TEXT,
+          UNIQUE(run_id,snapshot_revision,policy_revision)
+        );
+        CREATE TABLE IF NOT EXISTS delivery_control_action (
+          id TEXT PRIMARY KEY,
+          decision_id TEXT NOT NULL REFERENCES delivery_control_decision(id) ON DELETE CASCADE,
+          run_id TEXT NOT NULL REFERENCES autonomous_delivery_run(id) ON DELETE CASCADE,
+          type TEXT NOT NULL CHECK(type IN (
+            'initializeGraph','activate','retry','requestGate','integrate','finalize',
+            'resume','escalateToHuman','terminate'
+          )),
+          target_work_id TEXT,
+          work_epoch INTEGER,
+          slot_id TEXT,
+          reason_code TEXT NOT NULL,
+          retry_budget_kind TEXT,
+          termination_outcome TEXT,
+          status TEXT NOT NULL CHECK(status IN ('ready','claimed','applied','failed','cancelled')),
+          claim_token TEXT,
+          lease_owner TEXT,
+          lease_expires_at TEXT,
+          failure_code TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          completed_at TEXT,
+          CHECK(
+            (target_work_id IS NULL AND work_epoch IS NULL)
+            OR (target_work_id IS NOT NULL AND work_epoch IS NOT NULL AND work_epoch>=0)
+          )
+        );
+        INSERT OR IGNORE INTO delivery_control_decision
+          SELECT * FROM supervisor_control_decision;
+        INSERT OR IGNORE INTO delivery_control_action (
+          id,decision_id,run_id,type,target_work_id,work_epoch,slot_id,reason_code,
+          retry_budget_kind,termination_outcome,status,claim_token,lease_owner,
+          lease_expires_at,failure_code,created_at,updated_at,completed_at
+        )
+        SELECT
+          id,decision_id,run_id,type,target_work_id,work_epoch,slot_id,reason_code,
+          retry_budget_kind,termination_outcome,status,claim_token,lease_owner,
+          lease_expires_at,failure_code,created_at,updated_at,completed_at
+        FROM supervisor_control_action;
+        DROP TABLE supervisor_control_action;
+        DROP TABLE supervisor_control_decision;
+        CREATE INDEX IF NOT EXISTS idx_delivery_control_decision_active
+          ON delivery_control_decision(run_id,status,created_at);
+        CREATE INDEX IF NOT EXISTS idx_delivery_control_action_claim
+          ON delivery_control_action(run_id,status,created_at);
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_delivery_control_active_slot
+          ON delivery_control_action(run_id,slot_id)
+          WHERE slot_id IS NOT NULL AND type='activate' AND status IN ('claimed','applied');
+      `);
+    },
+  },
+  {
+    version: 69,
+    run: (db) => {
+      const table = db.prepare(`
+        SELECT 1 FROM sqlite_master
+        WHERE type='table' AND name='a2a_pass_group'
+      `).get();
+      if (!table) return;
+      const columns = new Set(
+        (db.prepare('PRAGMA table_info(a2a_pass_group)').all() as Array<{ name: string }>)
+          .map((column) => column.name),
+      );
+      if (!columns.has('source_work_id')) {
+        db.exec('ALTER TABLE a2a_pass_group ADD COLUMN source_work_id TEXT');
+      }
+      if (!columns.has('delivery_run_id')) {
+        db.exec(`
+          ALTER TABLE a2a_pass_group
+            ADD COLUMN delivery_run_id TEXT
+              REFERENCES autonomous_delivery_run(id) ON DELETE CASCADE
+        `);
+      }
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_a2a_pass_group_delivery
+          ON a2a_pass_group(delivery_run_id,status,created_at)
+      `);
+    },
+  },
+  {
+    version: 70,
+    run: (db) => {
+      const tables = new Set(
+        (db.prepare(`SELECT name FROM sqlite_master WHERE type='table'`).all() as Array<{
+          name: string;
+        }>).map((row) => row.name),
+      );
+      if (tables.has('conversation')) {
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS task_graph_revision (
+            conversation_id TEXT PRIMARY KEY
+              REFERENCES conversation(id) ON DELETE CASCADE,
+            revision INTEGER NOT NULL DEFAULT 0 CHECK(revision >= 0),
+            updated_at TEXT NOT NULL
+          )
+        `);
+      }
+      if (tables.has('conversation') && tables.has('task_action')) {
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS task_graph_commit (
+            idempotency_key TEXT PRIMARY KEY,
+            conversation_id TEXT NOT NULL
+              REFERENCES conversation(id) ON DELETE CASCADE,
+            request_digest TEXT NOT NULL,
+            revision INTEGER NOT NULL CHECK(revision > 0),
+            action_id TEXT NOT NULL REFERENCES task_action(id) ON DELETE CASCADE,
+            created_at TEXT NOT NULL
+          );
+          CREATE INDEX IF NOT EXISTS idx_task_graph_commit_conversation
+            ON task_graph_commit(conversation_id,revision);
+        `);
+      }
+      if (tables.has('platform_event')) {
+        const columns = new Set(
+          (db.prepare('PRAGMA table_info(platform_event)').all() as Array<{ name: string }>)
+            .map((column) => column.name),
+        );
+        if (columns.has('correlation_id')) {
+          db.exec(`
+            CREATE INDEX IF NOT EXISTS idx_platform_event_correlation
+              ON platform_event(correlation_id,recorded_at,id)
+          `);
+        }
+      }
+    },
+  },
+  {
+    version: 71,
+    run: (db) => {
+      const deliveryTable = db.prepare(`
+        SELECT 1 FROM sqlite_master
+        WHERE type='table' AND name='autonomous_delivery_run'
+      `).get();
+      if (deliveryTable) {
+        const columns = new Set(
+          (db.prepare('PRAGMA table_info(autonomous_delivery_run)').all() as Array<{
+            name: string;
+          }>).map((column) => column.name),
+        );
+        if (!columns.has('start_idempotency_key')) {
+          db.exec('ALTER TABLE autonomous_delivery_run ADD COLUMN start_idempotency_key TEXT');
+        }
+        db.exec(`
+          UPDATE autonomous_delivery_run
+          SET start_idempotency_key='legacy:' || id
+          WHERE start_idempotency_key IS NULL OR trim(start_idempotency_key)='';
+          CREATE UNIQUE INDEX IF NOT EXISTS uq_autonomous_delivery_run_start
+            ON autonomous_delivery_run(start_idempotency_key);
+          CREATE TRIGGER IF NOT EXISTS trg_delivery_run_start_key_insert
+          BEFORE INSERT ON autonomous_delivery_run
+          WHEN NEW.start_idempotency_key IS NULL OR trim(NEW.start_idempotency_key)=''
+          BEGIN
+            SELECT RAISE(ABORT,'delivery_run_start_idempotency_key_required');
+          END;
+          CREATE TRIGGER IF NOT EXISTS trg_delivery_run_start_key_update
+          BEFORE UPDATE OF start_idempotency_key ON autonomous_delivery_run
+          WHEN NEW.start_idempotency_key IS NULL OR trim(NEW.start_idempotency_key)=''
+          BEGIN
+            SELECT RAISE(ABORT,'delivery_run_start_idempotency_key_required');
+          END;
+        `);
+      }
+      const actionTable = db.prepare(`
+        SELECT 1 FROM sqlite_master
+        WHERE type='table' AND name='delivery_control_action'
+      `).get();
+      if (actionTable) {
+        db.exec(`
+          DROP INDEX IF EXISTS uq_delivery_control_active_slot;
+          CREATE UNIQUE INDEX uq_delivery_control_active_slot
+            ON delivery_control_action(run_id,slot_id)
+            WHERE slot_id IS NOT NULL
+              AND type IN ('activate','retry')
+              AND status IN ('claimed','applied');
+        `);
+      }
+    },
+  },
+  {
+    version: 72,
+    run: (db) => {
+      const taskTable = db.prepare(`
+        SELECT 1 FROM sqlite_master
+        WHERE type='table' AND name='task'
+      `).get();
+      if (!taskTable) return;
+      const columns = new Set(
+        (db.prepare('PRAGMA table_info(task)').all() as Array<{ name: string }>)
+          .map((column) => column.name),
+      );
+      if (!columns.has('revision')) {
+        db.exec('ALTER TABLE task ADD COLUMN revision INTEGER NOT NULL DEFAULT 0');
+      }
+      db.exec(`
+        CREATE TRIGGER IF NOT EXISTS trg_task_revision_nonnegative_insert
+        BEFORE INSERT ON task
+        WHEN NEW.revision < 0
+        BEGIN
+          SELECT RAISE(ABORT,'task_revision_must_be_nonnegative');
+        END;
+        CREATE TRIGGER IF NOT EXISTS trg_task_revision_monotonic_update
+        BEFORE UPDATE OF revision ON task
+        WHEN NEW.revision <= OLD.revision
+        BEGIN
+          SELECT RAISE(ABORT,'task_revision_must_advance');
+        END;
+      `);
+    },
+  },
+  {
+    version: 73,
+    run: (db) => {
+      const actionTable = db.prepare(`
+        SELECT 1 FROM sqlite_master
+        WHERE type='table' AND name='delivery_control_action'
+      `).get();
+      if (!actionTable) return;
+      const columns = new Set(
+        (db.prepare('PRAGMA table_info(delivery_control_action)').all() as Array<{
+          name: string;
+        }>).map((column) => column.name),
+      );
+      if (!columns.has('attempt_count')) {
+        db.exec(`
+          ALTER TABLE delivery_control_action
+          ADD COLUMN attempt_count INTEGER NOT NULL DEFAULT 0
+        `);
+      }
+      if (!columns.has('max_attempts')) {
+        db.exec(`
+          ALTER TABLE delivery_control_action
+          ADD COLUMN max_attempts INTEGER NOT NULL DEFAULT 3
+        `);
+      }
+      db.exec(`
+        CREATE TRIGGER IF NOT EXISTS trg_control_action_attempt_bounds_insert
+        BEFORE INSERT ON delivery_control_action
+        WHEN NEW.attempt_count < 0 OR NEW.max_attempts <= 0
+          OR NEW.attempt_count > NEW.max_attempts
+        BEGIN
+          SELECT RAISE(ABORT,'control_action_attempt_bounds_invalid');
+        END;
+        CREATE TRIGGER IF NOT EXISTS trg_control_action_attempt_bounds_update
+        BEFORE UPDATE OF attempt_count,max_attempts ON delivery_control_action
+        WHEN NEW.attempt_count < OLD.attempt_count OR NEW.max_attempts <= 0
+          OR NEW.attempt_count > NEW.max_attempts
+        BEGIN
+          SELECT RAISE(ABORT,'control_action_attempt_bounds_invalid');
+        END;
+      `);
+    },
+  },
+  {
+    version: 74,
+    run: (db) => {
+      const commitTable = db.prepare(`
+        SELECT 1 FROM sqlite_master
+        WHERE type='table' AND name='task_graph_commit'
+      `).get();
+      if (!commitTable) return;
+      const columns = new Set(
+        (db.prepare('PRAGMA table_info(task_graph_commit)').all() as Array<{
+          name: string;
+        }>).map((column) => column.name),
+      );
+      if (!columns.has('result_json')) {
+        db.exec(`
+          ALTER TABLE task_graph_commit
+          ADD COLUMN result_json TEXT NOT NULL DEFAULT '{}'
+        `);
+      }
+    },
+  },
+  {
+    version: 75,
+    run: (db) => {
+      const deliveryTable = db.prepare(`
+        SELECT 1 FROM sqlite_master
+        WHERE type='table' AND name='autonomous_delivery_run'
+      `).get();
+      if (deliveryTable) {
+        db.exec(`
+          CREATE TRIGGER IF NOT EXISTS trg_delivery_run_start_key_immutable
+          BEFORE UPDATE OF start_idempotency_key ON autonomous_delivery_run
+          WHEN NEW.start_idempotency_key IS NOT OLD.start_idempotency_key
+          BEGIN
+            SELECT RAISE(ABORT,'delivery_run_start_idempotency_key_immutable');
+          END;
+        `);
+      }
+      const actionTable = db.prepare(`
+        SELECT 1 FROM sqlite_master
+        WHERE type='table' AND name='delivery_control_action'
+      `).get();
+      if (actionTable) {
+        db.exec(`
+          UPDATE delivery_control_action
+          SET status='ready',claim_token=NULL,lease_owner=NULL,lease_expires_at=NULL,
+              updated_at=COALESCE(updated_at,created_at)
+          WHERE status='claimed'
+            AND (claim_token IS NULL OR lease_owner IS NULL OR lease_expires_at IS NULL);
+          UPDATE delivery_control_action
+          SET claim_token=NULL,lease_owner=NULL,lease_expires_at=NULL
+          WHERE status<>'claimed'
+            AND (claim_token IS NOT NULL OR lease_owner IS NOT NULL OR lease_expires_at IS NOT NULL);
+          CREATE TRIGGER IF NOT EXISTS trg_control_action_lease_shape_insert
+          BEFORE INSERT ON delivery_control_action
+          WHEN (
+            NEW.status='claimed'
+            AND (NEW.claim_token IS NULL OR NEW.lease_owner IS NULL OR NEW.lease_expires_at IS NULL)
+          ) OR (
+            NEW.status<>'claimed'
+            AND (NEW.claim_token IS NOT NULL OR NEW.lease_owner IS NOT NULL OR NEW.lease_expires_at IS NOT NULL)
+          )
+          BEGIN
+            SELECT RAISE(ABORT,'delivery_control_action_lease_shape_invalid');
+          END;
+          CREATE TRIGGER IF NOT EXISTS trg_control_action_lease_shape_update
+          BEFORE UPDATE OF status,claim_token,lease_owner,lease_expires_at
+          ON delivery_control_action
+          WHEN (
+            NEW.status='claimed'
+            AND (NEW.claim_token IS NULL OR NEW.lease_owner IS NULL OR NEW.lease_expires_at IS NULL)
+          ) OR (
+            NEW.status<>'claimed'
+            AND (NEW.claim_token IS NOT NULL OR NEW.lease_owner IS NOT NULL OR NEW.lease_expires_at IS NOT NULL)
+          )
+          BEGIN
+            SELECT RAISE(ABORT,'delivery_control_action_lease_shape_invalid');
+          END;
+        `);
+      }
     },
   },
 ];

@@ -2,7 +2,7 @@
 
 > 状态：active
 > 日期：2026-07-18
-> 依赖：`team-simplification`、`system-control-plane`、`a2a-possession-contract`、`agent-observability`
+> 依赖：`team-simplification`、`system-control-plane`、`platform-harness-state-machines`、`agent-observability`
 
 ## 1. 目标
 

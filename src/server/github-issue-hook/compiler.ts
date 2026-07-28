@@ -98,6 +98,8 @@ export function compileGitHubIssueGoalContract(
   acceptanceCriteria.push(`保留与 ${issueRef} 对应的实现、评审和验证证据`);
 
   return {
+    idempotencyKey: `github-issue:${payload.repository.full_name.toLowerCase()}:${payload.issue.number}`,
+    correlationId: `github-issue:${payload.repository.full_name.toLowerCase()}:${payload.issue.number}`,
     goal: `解决 GitHub Issue #${payload.issue.number}：${payload.issue.title.trim()}`,
     acceptanceCriteria,
     source: {

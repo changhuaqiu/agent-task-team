@@ -7,7 +7,7 @@
 3. 有 root、无 message：检查 ACP 是否产生 text；工具后空 completion 应触发一次 recovery，仍为空时原因码为 `acp_empty_completion`。
 4. 有消息但抽屉匹配错误：先查 `chat_message.invocation_id`；只有历史空值才允许 agent + 时间就近回退。
 5. 工具名正常但 I/O 为空：检查 adapter 的 `rawInput/rawOutput`；不得从聊天文本猜测或伪造。
-6. DAG 缺边：检查 `chain_id/pass_id`、worklist 和 `a2a_audit_log`；不得解析消息正文补边。
+6. DAG 缺边：检查 span 的 `chain_id/pass_id` 与权威 `a2a_pass`；不得解析消息正文补边。
 
 ## 核心不变量
 

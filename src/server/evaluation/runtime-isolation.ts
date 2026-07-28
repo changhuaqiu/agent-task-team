@@ -1,7 +1,7 @@
 import type { StreamTextPersistenceSink } from '../agent/streamTextPersistence';
-import type { HarnessDispatchPlan } from '../harness';
+import type { InvocationDispatchPlan } from '../invocation-pipeline';
 
-type EvaluationExecution = HarnessDispatchPlan['evaluation'];
+type EvaluationExecution = InvocationDispatchPlan['evaluation'];
 
 /**
  * Keeps held-out output in the response/observation evidence path without

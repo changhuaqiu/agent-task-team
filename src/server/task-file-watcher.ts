@@ -3,7 +3,12 @@ import type { FSWatcher } from 'chokidar';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { readTasksMd, updateTaskInMd } from './task-file-service';
-import { taskRepo } from './repositories/task-repo';
+import { canTransitionTask, taskRepo } from './repositories/task-repo';
+import type { TaskPatch, TaskStatus } from './repositories/task-repo';
+import {
+  stableTaskCommandKey,
+  taskCommandService,
+} from './repositories/task-command-service';
 import { invocationRepo } from './repositories/invocation-repo';
 import { conversationRepo } from './repositories/conversation-repo';
 import { proofLogRepo } from './repositories/proof-log-repo';
@@ -51,12 +56,13 @@ function hasActiveTaskInvocation(conversationId: string, taskId: string, agentId
   return invocationRepo.getByConversation(conversationId).some((invocation) => (
     invocation.task_id === taskId
     && invocation.agent_id === agentId
-    && !['succeeded', 'failed', 'canceled'].includes(invocation.status)
+    && invocation.status !== 'terminated'
   ));
 }
 
-function isProtectedGitProjectionTransition(conversationId: string, nextStatus: string): boolean {
-  if (nextStatus !== 'in_review' && nextStatus !== 'done') return false;
+function isProtectedProjectionTransition(conversationId: string, nextStatus: string): boolean {
+  if (nextStatus === 'done') return true;
+  if (nextStatus !== 'in_review') return false;
   return Boolean(conversationRepo.getById(conversationId)?.git_repo_root);
 }
 
@@ -69,13 +75,13 @@ function isProtectedGitReceiptRollback(conversationId: string, taskId: string, a
   return authoritativeStatus === 'done' && hasCurrentVerifiedMerge(actions);
 }
 
-function rejectGitProjectionTransition(input: {
+function rejectProjectionTransition(input: {
   projectPath: string;
   conversationId: string;
   localTaskId: string;
   storageTaskId: string;
-  attemptedStatus: string;
-  authoritativeStatus: string;
+  attemptedStatus: TaskStatus;
+  authoritativeStatus: TaskStatus;
   io: IOServer;
 }): void {
   const reasonCode = 'task_graph.file_projection_gate_bypass';
@@ -97,7 +103,42 @@ function rejectGitProjectionTransition(input: {
     conversationId: input.conversationId,
     taskId: input.storageTaskId,
     reasonCode,
-    message: `Git 任务 ${input.localTaskId} 不能通过 TASKS.md 进入 ${input.attemptedStatus}；请使用结构化 PR/review/merge 回执。状态已恢复为 ${input.authoritativeStatus}。`,
+    message: input.attemptedStatus === 'done'
+      ? `Task ${input.localTaskId} 不能通过 TASKS.md 进入 done；必须由当前 QualityGate passed 事件完成。状态已恢复为 ${input.authoritativeStatus}。`
+      : `Git 任务 ${input.localTaskId} 不能通过 TASKS.md 进入 ${input.attemptedStatus}；请使用结构化 PR/review 回执。状态已恢复为 ${input.authoritativeStatus}。`,
+  });
+  updateTaskInMd(input.projectPath, input.localTaskId, { status: input.authoritativeStatus });
+}
+
+function rejectInvalidProjectionTransition(input: {
+  projectPath: string;
+  conversationId: string;
+  localTaskId: string;
+  storageTaskId: string;
+  attemptedStatus: TaskStatus;
+  authoritativeStatus: TaskStatus;
+  io: IOServer;
+}): void {
+  const reasonCode = 'task_state.invalid_projection_transition';
+  proofLogRepo.append({
+    eventType: 'task_graph.transition.blocked',
+    conversationId: input.conversationId,
+    taskId: input.storageTaskId,
+    actorId: 'task-file-watcher',
+    reasonCode,
+    metadata: {
+      attemptedStatus: input.attemptedStatus,
+      authoritativeStatus: input.authoritativeStatus,
+      source: 'TASKS.md',
+    },
+  });
+  input.io.to(input.conversationId).emit('task.sync_error', {
+    projectId: input.conversationId,
+    projectPath: input.projectPath,
+    conversationId: input.conversationId,
+    taskId: input.storageTaskId,
+    reasonCode,
+    message: `TASKS.md 请求了非法任务迁移 ${input.authoritativeStatus} → ${input.attemptedStatus}；权威状态未改变。`,
   });
   updateTaskInMd(input.projectPath, input.localTaskId, { status: input.authoritativeStatus });
 }
@@ -184,16 +225,33 @@ export function syncTasksToDb(
     const existing = taskRepo.getById(storageId);
     if (!existing) {
       try {
-        const created = taskRepo.create({
-          id: storageId,
-          conversation_id: conversationId,
-          title: t.title,
-          description: t.deliverable || '',
-          agent_id: t.agent || '',
-          dependencies: storageDependencies,
+        const createKey = stableTaskCommandKey('task-file:create', {
+          conversationId,
+          storageId,
+          task: t,
+          storageDependencies,
         });
-        if (created.status !== t.status && isProtectedGitProjectionTransition(conversationId, t.status)) {
-          rejectGitProjectionTransition({
+        const created = taskCommandService.create({
+          conversationId,
+          expectedGraphRevision: taskCommandService.expectedGraphRevision(
+            conversationId,
+            createKey,
+          ),
+          idempotencyKey: createKey,
+          actor: { type: 'system' as const, id: 'task-file-watcher' },
+          correlationId: `task-file:${conversationId}`,
+          causationId: tasksFile,
+          task: {
+            id: storageId,
+            title: t.title,
+            description: t.deliverable || '',
+            agent_id: t.agent || '',
+            dependencies: storageDependencies,
+            initialStatus: t.status === 'proposed' ? 'proposed' : 'ready',
+          },
+        }).tasks[0]!;
+        if (created.status !== t.status && isProtectedProjectionTransition(conversationId, t.status)) {
+          rejectProjectionTransition({
             projectPath,
             conversationId,
             localTaskId: t.id,
@@ -203,8 +261,26 @@ export function syncTasksToDb(
             io,
           });
         } else if (created.status !== t.status) {
-          taskRepo.updateStatus(storageId, t.status);
-          const updated = taskRepo.getById(storageId);
+          const transitionKey = stableTaskCommandKey('task-file:transition', {
+            conversationId,
+            storageId,
+            expectedTaskRevision: created.revision,
+            to: t.status,
+          });
+          const updated = taskCommandService.transition({
+            conversationId,
+            taskId: storageId,
+            expectedTaskRevision: created.revision,
+            expectedGraphRevision: taskCommandService.expectedGraphRevision(
+              conversationId,
+              transitionKey,
+            ),
+            idempotencyKey: transitionKey,
+            actor: { type: 'system', id: 'task-file-watcher' },
+            correlationId: `task-file:${conversationId}`,
+            causationId: tasksFile,
+            to: t.status,
+          }).result.task;
           if (updated) {
             publishTaskChangeNotification({
               io,
@@ -224,17 +300,17 @@ export function syncTasksToDb(
       continue;
     }
 
-    const updates: Record<string, unknown> = {};
+    const updates: Partial<TaskPatch> = {};
     const changedFields: string[] = [];
 
     const stalePendingDuringActiveInvocation = existing.status === 'in_progress'
-      && t.status === 'pending'
+      && t.status === 'ready'
       && hasActiveTaskInvocation(conversationId, storageId, existing.agent_id);
-    const protectedGitTransition = existing.status !== t.status
-      && (isProtectedGitProjectionTransition(conversationId, t.status)
+    const protectedProjectionTransition = existing.status !== t.status
+      && (isProtectedProjectionTransition(conversationId, t.status)
         || isProtectedGitReceiptRollback(conversationId, storageId, existing.status));
-    if (protectedGitTransition) {
-      rejectGitProjectionTransition({
+    if (protectedProjectionTransition) {
+      rejectProjectionTransition({
         projectPath,
         conversationId,
         localTaskId: t.id,
@@ -244,8 +320,19 @@ export function syncTasksToDb(
         io,
       });
     } else if (existing.status !== t.status && !stalePendingDuringActiveInvocation) {
-      updates.status = t.status;
-      changedFields.push('status');
+      if (canTransitionTask(existing.status, t.status)) {
+        changedFields.push('status');
+      } else {
+        rejectInvalidProjectionTransition({
+          projectPath,
+          conversationId,
+          localTaskId: t.id,
+          storageTaskId: storageId,
+          attemptedStatus: t.status,
+          authoritativeStatus: existing.status,
+          io,
+        });
+      }
     }
     if (t.agent && existing.agent_id !== t.agent) {
       updates.agent_id = t.agent;
@@ -267,8 +354,62 @@ export function syncTasksToDb(
     }
 
     if (changedFields.length > 0) {
-      taskRepo.update(storageId, updates);
-      const updated = taskRepo.getById(storageId);
+      let current = existing;
+      if (Object.keys(updates).length > 0) {
+        const { dependencies: dependencyProjection, ...fieldUpdates } = updates;
+        const updateKey = stableTaskCommandKey('task-file:update', {
+          conversationId,
+          storageId,
+          expectedTaskRevision: current.revision,
+          updates,
+        });
+        const commandInput = {
+          conversationId,
+          taskId: storageId,
+          expectedTaskRevision: current.revision,
+          expectedGraphRevision: taskCommandService.expectedGraphRevision(
+            conversationId,
+            updateKey,
+          ),
+          idempotencyKey: updateKey,
+          actor: { type: 'system' as const, id: 'task-file-watcher' },
+          correlationId: `task-file:${conversationId}`,
+          causationId: tasksFile,
+        };
+        current = dependencyProjection === undefined
+          ? taskCommandService.update({
+              ...commandInput,
+              updates: fieldUpdates,
+            }).result.task
+          : taskCommandService.replaceDependencies({
+              ...commandInput,
+              dependencyTaskIds: storageDependencies,
+              updates: fieldUpdates,
+            }).result.task;
+      }
+      if (changedFields.includes('status')) {
+        const transitionKey = stableTaskCommandKey('task-file:transition', {
+          conversationId,
+          storageId,
+          expectedTaskRevision: current.revision,
+          to: t.status,
+        });
+        current = taskCommandService.transition({
+          conversationId,
+          taskId: storageId,
+          expectedTaskRevision: current.revision,
+          expectedGraphRevision: taskCommandService.expectedGraphRevision(
+            conversationId,
+            transitionKey,
+          ),
+          idempotencyKey: transitionKey,
+          actor: { type: 'system', id: 'task-file-watcher' },
+          correlationId: `task-file:${conversationId}`,
+          causationId: tasksFile,
+          to: t.status,
+        }).result.task;
+      }
+      const updated = current;
       if (updated) {
         publishTaskChangeNotification({
           io,

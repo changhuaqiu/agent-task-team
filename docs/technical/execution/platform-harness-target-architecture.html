@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Platform Harness 目标架构</title>
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js" integrity="sha384-ZZ1pncU3bQe8y31yfZdMFdSpttDoPmOZg2wguVK9almUodir1PghgT0eY7Mrty8H" crossorigin="anonymous" onerror="window.exportDependenciesUnavailable=true"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js" integrity="sha384-en/ztfPSRkGfME4KIm05joYXynqzUgbsG5nMrj/xEFAHXkeZfO3yMK8QQ+mP7p1/" crossorigin="anonymous" onerror="window.exportDependenciesUnavailable=true"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      min-height: 100vh;
+      padding: 32px;
+      color: #e2e8f0;
+      background: #020617;
+      font-family: "JetBrains Mono", "Microsoft YaHei", monospace;
+    }
+    .container { width: min(1480px, 100%); margin: 0 auto; }
+    .header-row { display: flex; align-items: center; gap: 12px; }
+    .pulse {
+      width: 11px; height: 11px; border-radius: 50%; background: #22d3ee;
+      box-shadow: 0 0 18px rgba(34,211,238,.8);
+    }
+    h1 { color: #f8fafc; font-size: 24px; letter-spacing: -.04em; }
+    .subtitle { margin: 8px 0 22px 23px; color: #94a3b8; font-size: 13px; }
+    .toolbar { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+    .toolbar-actions { display: none; gap: 8px; }
+    .toolbar.expanded .toolbar-actions { display: flex; }
+    button {
+      border: 1px solid #334155; border-radius: 6px; padding: 6px 10px;
+      color: #cbd5e1; background: rgba(30,41,59,.8); font: inherit; font-size: 11px;
+      cursor: pointer;
+    }
+    button:hover { border-color: #64748b; color: white; }
+    .toggle { border: 0; background: transparent; font-size: 18px; }
+    .diagram {
+      overflow-x: auto; padding: 18px; border: 1px solid #1e293b;
+      border-radius: 16px; background: rgba(15,23,42,.52);
+    }
+    svg { display: block; width: 100%; min-width: 1200px; height: auto; }
+    .cards {
+      display: grid; grid-template-columns: repeat(4, minmax(230px, 1fr));
+      gap: 12px; margin-top: 16px;
+    }
+    .card {
+      min-height: 146px; padding: 16px; border: 1px solid #1e293b;
+      border-radius: 11px; background: rgba(15,23,42,.52);
+    }
+    .card h2 { margin-bottom: 10px; color: #f8fafc; font-size: 13px; }
+    .card p, .card li { color: #94a3b8; font-size: 11px; line-height: 1.65; }
+    .card ul { list-style: none; }
+    .card li::before { content: "— "; color: #64748b; }
+    .cyan { border-top: 2px solid #22d3ee; }
+    .violet { border-top: 2px solid #a78bfa; }
+    .amber { border-top: 2px solid #fbbf24; }
+    .rose { border-top: 2px solid #fb7185; }
+    .footer { margin-top: 18px; color: #475569; text-align: center; font-size: 11px; }
+    @media (max-width: 1050px) { .cards { grid-template-columns: repeat(2, 1fr); } }
+    @media print { body { padding: 12px; } .toolbar { display: none; } }
+  </style>
+</head>
+<body>
+<main class="container" id="report-container">
+  <header>
+    <div class="header-row">
+      <span class="pulse"></span>
+      <h1>Platform Harness · 目标架构</h1>
+      <div class="toolbar">
+        <div class="toolbar-actions" id="export-actions">
+          <button onclick="copyAsImage(this)">复制图片</button>
+          <button onclick="downloadPNG(this)">下载 PNG</button>
+          <button onclick="downloadPDF(this)">下载 PDF</button>
+        </div>
+        <button class="toggle" onclick="toggleToolbar(this)" aria-label="导出选项" aria-expanded="false" aria-controls="export-actions">•••</button>
+      </div>
+    </div>
+    <p class="subtitle">Harness 是整个平台运行时；领域 owner 守护事实，Process Manager 推进流程，纯 Decision Policy 计算动作</p>
+  </header>
+
+  <section class="diagram">
+    <svg viewBox="0 0 1400 980" role="img" aria-labelledby="title desc">
+      <title id="title">Platform Harness 目标架构图</title>
+      <desc id="desc">展示 Human、Integration、Agent 与 Platform Harness 内部命令入口、领域状态机、事件机制、控制循环、上下文与 Invocation Pipeline 的关系。</desc>
+      <defs>
+        <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
+          <path d="M32 0H0V32" fill="none" stroke="#1e293b" stroke-width=".55"/>
+        </pattern>
+        <marker id="arrow-cyan" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto">
+          <polygon points="0 0,9 3.5,0 7" fill="#22d3ee"/>
+        </marker>
+        <marker id="arrow-violet" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto">
+          <polygon points="0 0,9 3.5,0 7" fill="#a78bfa"/>
+        </marker>
+        <marker id="arrow-amber" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto">
+          <polygon points="0 0,9 3.5,0 7" fill="#fbbf24"/>
+        </marker>
+        <marker id="arrow-slate" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto">
+          <polygon points="0 0,9 3.5,0 7" fill="#64748b"/>
+        </marker>
+      </defs>
+
+      <rect width="1400" height="980" fill="url(#grid)"/>
+
+      <!-- Connections: drawn first so component boxes remain readable. -->
+      <path d="M120 132H240" stroke="#22d3ee" stroke-width="2" fill="none" marker-end="url(#arrow-cyan)"/>
+      <path d="M120 222H180V138H240" stroke="#22d3ee" stroke-width="2" fill="none" marker-end="url(#arrow-cyan)"/>
+      <path d="M120 312H165V150H240" stroke="#22d3ee" stroke-width="2" fill="none" marker-end="url(#arrow-cyan)"/>
+      <path d="M400 132H525" stroke="#22d3ee" stroke-width="2" fill="none" marker-end="url(#arrow-cyan)"/>
+      <path d="M615 170V226" stroke="#22d3ee" stroke-width="2" fill="none" marker-end="url(#arrow-cyan)"/>
+
+      <path d="M615 296V350" stroke="#a78bfa" stroke-width="2" fill="none" marker-end="url(#arrow-violet)"/>
+      <path d="M615 430V484" stroke="#a78bfa" stroke-width="2" fill="none" marker-end="url(#arrow-violet)"/>
+      <path d="M460 530H352V661" stroke="#a78bfa" stroke-width="2" fill="none" marker-end="url(#arrow-violet)"/>
+      <path d="M770 530H890V661" stroke="#a78bfa" stroke-width="2" fill="none" marker-end="url(#arrow-violet)"/>
+      <path d="M615 576V661" stroke="#a78bfa" stroke-width="2" fill="none" marker-end="url(#arrow-violet)"/>
+
+      <path d="M1020 382H1102" stroke="#fbbf24" stroke-width="2" fill="none" marker-end="url(#arrow-amber)"/>
+      <path d="M1184 420V444" stroke="#fbbf24" stroke-width="2" fill="none" marker-end="url(#arrow-amber)"/>
+      <path d="M1184 516V540" stroke="#fbbf24" stroke-width="2" fill="none" marker-end="url(#arrow-amber)"/>
+      <path d="M1102 586H1032V530H1010" stroke="#fbbf24" stroke-width="2" fill="none" marker-end="url(#arrow-amber)"/>
+      <path d="M1010 690H1138V648H1184" stroke="#fbbf24" stroke-width="2" fill="none" marker-end="url(#arrow-amber)"/>
+
+      <path d="M352 731V792H605" stroke="#22d3ee" stroke-width="2" fill="none" marker-end="url(#arrow-cyan)"/>
+      <path d="M890 731V792H745" stroke="#22d3ee" stroke-width="2" fill="none" marker-end="url(#arrow-cyan)"/>
+      <path d="M675 842V896" stroke="#22d3ee" stroke-width="2" fill="none" marker-end="url(#arrow-cyan)"/>
+      <path d="M815 927H1030" stroke="#64748b" stroke-width="2" stroke-dasharray="6 5" fill="none" marker-end="url(#arrow-slate)"/>
+      <path d="M1030 910H942V842H745" stroke="#64748b" stroke-width="2" stroke-dasharray="6 5" fill="none" marker-end="url(#arrow-slate)"/>
+
+      <path d="M460 690H405V565H460" stroke="#64748b" stroke-width="1.5" stroke-dasharray="5 4" fill="none" marker-end="url(#arrow-slate)"/>
+      <path d="M770 690H825V565H770" stroke="#64748b" stroke-width="1.5" stroke-dasharray="5 4" fill="none" marker-end="url(#arrow-slate)"/>
+
+      <!-- Platform boundary -->
+      <rect x="205" y="55" width="1090" height="805" rx="18" fill="rgba(14,116,144,.035)" stroke="#22d3ee" stroke-width="1.4" stroke-dasharray="9 5"/>
+      <text x="225" y="82" fill="#22d3ee" font-size="13" font-weight="700">PLATFORM HARNESS = PLATFORM RUNTIME</text>
+      <text x="225" y="100" fill="#64748b" font-size="10">运行环境上的包含；领域事实所有权仍保持分离</text>
+
+      <!-- External actors -->
+      <rect x="20" y="100" width="100" height="64" rx="8" fill="rgba(8,51,68,.55)" stroke="#22d3ee" stroke-width="1.5"/>
+      <text x="70" y="125" fill="#f8fafc" font-size="12" font-weight="700" text-anchor="middle">Human</text>
+      <text x="70" y="144" fill="#94a3b8" font-size="9" text-anchor="middle">WebUI / CLI</text>
+
+      <rect x="20" y="190" width="100" height="64" rx="8" fill="rgba(8,51,68,.55)" stroke="#22d3ee" stroke-width="1.5"/>
+      <text x="70" y="215" fill="#f8fafc" font-size="12" font-weight="700" text-anchor="middle">Integration</text>
+      <text x="70" y="234" fill="#94a3b8" font-size="9" text-anchor="middle">GitHub / API</text>
+
+      <rect x="20" y="280" width="100" height="64" rx="8" fill="rgba(8,51,68,.55)" stroke="#22d3ee" stroke-width="1.5"/>
+      <text x="70" y="305" fill="#f8fafc" font-size="12" font-weight="700" text-anchor="middle">Agent</text>
+      <text x="70" y="324" fill="#94a3b8" font-size="9" text-anchor="middle">structured outcome</text>
+
+      <!-- Command plane -->
+      <rect x="240" y="100" width="160" height="64" rx="8" fill="rgba(8,51,68,.55)" stroke="#22d3ee" stroke-width="1.5"/>
+      <text x="320" y="124" fill="#f8fafc" font-size="12" font-weight="700" text-anchor="middle">Command Gateway</text>
+      <text x="320" y="143" fill="#94a3b8" font-size="9" text-anchor="middle">auth · idempotency · route</text>
+
+      <rect x="525" y="100" width="180" height="70" rx="8" fill="rgba(76,29,149,.42)" stroke="#a78bfa" stroke-width="1.5"/>
+      <text x="615" y="125" fill="#f8fafc" font-size="12" font-weight="700" text-anchor="middle">Domain Owner</text>
+      <text x="615" y="145" fill="#94a3b8" font-size="9" text-anchor="middle">validate → mutate fact</text>
+      <text x="615" y="159" fill="#a78bfa" font-size="8" text-anchor="middle">transaction + event outbox</text>
+
+      <rect x="525" y="226" width="180" height="70" rx="8" fill="rgba(76,29,149,.42)" stroke="#a78bfa" stroke-width="1.5"/>
+      <text x="615" y="251" fill="#f8fafc" font-size="12" font-weight="700" text-anchor="middle">Durable Dispatcher</text>
+      <text x="615" y="271" fill="#94a3b8" font-size="9" text-anchor="middle">Router · Reducer · PM</text>
+      <text x="615" y="285" fill="#a78bfa" font-size="8" text-anchor="middle">Projection</text>
+
+      <!-- Domain fact owners -->
+      <rect x="245" y="350" width="750" height="226" rx="13" fill="rgba(76,29,149,.07)" stroke="#a78bfa" stroke-width="1" stroke-dasharray="7 4"/>
+      <text x="265" y="375" fill="#a78bfa" font-size="11" font-weight="700">权威事实与独立状态机</text>
+
+      <rect x="275" y="395" width="145" height="64" rx="8" fill="rgba(76,29,149,.4)" stroke="#a78bfa" stroke-width="1.4"/>
+      <text x="347" y="420" fill="#f8fafc" font-size="11" font-weight="700" text-anchor="middle">Task Graph</text>
+      <text x="347" y="440" fill="#94a3b8" font-size="8" text-anchor="middle">commitment / dependency</text>
+
+      <rect x="450" y="395" width="145" height="64" rx="8" fill="rgba(76,29,149,.4)" stroke="#a78bfa" stroke-width="1.4"/>
+      <text x="522" y="420" fill="#f8fafc" font-size="11" font-weight="700" text-anchor="middle">A2A Handoff</text>
+      <text x="522" y="440" fill="#94a3b8" font-size="8" text-anchor="middle">possession / package</text>
+
+      <rect x="625" y="395" width="145" height="64" rx="8" fill="rgba(76,29,149,.4)" stroke="#a78bfa" stroke-width="1.4"/>
+      <text x="697" y="420" fill="#f8fafc" font-size="11" font-weight="700" text-anchor="middle">Review &amp; Gate</text>
+      <text x="697" y="440" fill="#94a3b8" font-size="8" text-anchor="middle">evidence / decision</text>
+
+      <rect x="800" y="395" width="145" height="64" rx="8" fill="rgba(76,29,149,.4)" stroke="#a78bfa" stroke-width="1.4"/>
+      <text x="872" y="420" fill="#f8fafc" font-size="11" font-weight="700" text-anchor="middle">Delivery Run</text>
+      <text x="872" y="440" fill="#94a3b8" font-size="8" text-anchor="middle">goal / terminal criteria</text>
+
+      <rect x="460" y="494" width="150" height="66" rx="8" fill="rgba(76,29,149,.4)" stroke="#a78bfa" stroke-width="1.4"/>
+      <text x="535" y="519" fill="#f8fafc" font-size="11" font-weight="700" text-anchor="middle">Agent Inbox</text>
+      <text x="535" y="539" fill="#94a3b8" font-size="8" text-anchor="middle">queue / claim / lease</text>
+
+      <rect x="620" y="494" width="150" height="66" rx="8" fill="rgba(76,29,149,.4)" stroke="#a78bfa" stroke-width="1.4"/>
+      <text x="695" y="519" fill="#f8fafc" font-size="11" font-weight="700" text-anchor="middle">Context Snapshot</text>
+      <text x="695" y="539" fill="#94a3b8" font-size="8" text-anchor="middle">immutable / provenance</text>
+
+      <!-- Deterministic control -->
+      <rect x="1102" y="340" width="165" height="80" rx="10" fill="rgba(120,53,15,.38)" stroke="#fbbf24" stroke-width="1.6"/>
+      <text x="1184" y="363" fill="#f8fafc" font-size="11" font-weight="700" text-anchor="middle">Process Manager</text>
+      <text x="1184" y="383" fill="#94a3b8" font-size="8" text-anchor="middle">collect facts · build snapshot</text>
+      <text x="1184" y="399" fill="#fbbf24" font-size="8" text-anchor="middle">persist · advance workflow</text>
+      <text x="1184" y="413" fill="#94a3b8" font-size="8" text-anchor="middle">no domain writes</text>
+
+      <rect x="1102" y="444" width="165" height="72" rx="10" fill="rgba(120,53,15,.3)" stroke="#fbbf24" stroke-width="1.4"/>
+      <text x="1184" y="469" fill="#f8fafc" font-size="11" font-weight="700" text-anchor="middle">Decision Policy</text>
+      <text x="1184" y="488" fill="#94a3b8" font-size="8" text-anchor="middle">snapshot + policy + capacity</text>
+      <text x="1184" y="504" fill="#fbbf24" font-size="8" text-anchor="middle">pure · deterministic · no I/O</text>
+
+      <rect x="1102" y="540" width="165" height="108" rx="10" fill="rgba(120,53,15,.32)" stroke="#fbbf24" stroke-width="1.4"/>
+      <text x="1184" y="564" fill="#f8fafc" font-size="11" font-weight="700" text-anchor="middle">Control Actions</text>
+      <text x="1184" y="585" fill="#fbbf24" font-size="8" text-anchor="middle">activate · wait · retry</text>
+      <text x="1184" y="601" fill="#fbbf24" font-size="8" text-anchor="middle">requestGate · resume</text>
+      <text x="1184" y="617" fill="#fbbf24" font-size="8" text-anchor="middle">integrate · finalize</text>
+      <text x="1184" y="633" fill="#fbbf24" font-size="8" text-anchor="middle">escalate · terminate</text>
+
+      <!-- Agent Work Cells: one logical cell per active Agent work item. -->
+      <rect x="245" y="625" width="750" height="230" rx="13" fill="rgba(8,51,68,.05)" stroke="#22d3ee" stroke-width="1" stroke-dasharray="7 4"/>
+      <text x="265" y="650" fill="#22d3ee" font-size="11" font-weight="700">AGENT WORK CELL × N · 多条自主认知循环组成协作图</text>
+
+      <!-- Activation seam -->
+      <rect x="275" y="661" width="155" height="70" rx="9" fill="rgba(8,51,68,.46)" stroke="#22d3ee" stroke-width="1.5"/>
+      <text x="352" y="686" fill="#f8fafc" font-size="11" font-weight="700" text-anchor="middle">Context Manager</text>
+      <text x="352" y="706" fill="#94a3b8" font-size="8" text-anchor="middle">compile snapshot</text>
+
+      <rect x="537" y="661" width="155" height="70" rx="9" fill="rgba(8,51,68,.46)" stroke="#22d3ee" stroke-width="1.5"/>
+      <text x="614" y="686" fill="#f8fafc" font-size="11" font-weight="700" text-anchor="middle">WorkContract</text>
+      <text x="614" y="706" fill="#94a3b8" font-size="8" text-anchor="middle">goal + boundary, not steps</text>
+
+      <rect x="812" y="661" width="155" height="70" rx="9" fill="rgba(8,51,68,.46)" stroke="#22d3ee" stroke-width="1.5"/>
+      <text x="889" y="686" fill="#f8fafc" font-size="11" font-weight="700" text-anchor="middle">Agent Inbox</text>
+      <text x="889" y="706" fill="#94a3b8" font-size="8" text-anchor="middle">durable admission</text>
+
+      <rect x="535" y="778" width="280" height="64" rx="9" fill="rgba(8,51,68,.55)" stroke="#22d3ee" stroke-width="1.7"/>
+      <text x="675" y="803" fill="#f8fafc" font-size="12" font-weight="700" text-anchor="middle">Invocation Pipeline</text>
+      <text x="675" y="823" fill="#94a3b8" font-size="8" text-anchor="middle">preflight · session · transport · normalize outcome</text>
+
+      <!-- Runtime outside the Harness boundary -->
+      <rect x="535" y="896" width="280" height="62" rx="9" fill="rgba(6,78,59,.42)" stroke="#34d399" stroke-width="1.7"/>
+      <text x="675" y="921" fill="#f8fafc" font-size="12" font-weight="700" text-anchor="middle">Agent Runtime Ports × N</text>
+      <text x="675" y="941" fill="#94a3b8" font-size="8" text-anchor="middle">OpenCode · Claude · Codex · ACP</text>
+
+      <rect x="1030" y="880" width="230" height="78" rx="9" fill="rgba(15,23,42,.85)" stroke="#64748b" stroke-width="1.4"/>
+      <text x="1145" y="905" fill="#f8fafc" font-size="11" font-weight="700" text-anchor="middle">Agent Cognitive Loops × N</text>
+      <text x="1145" y="925" fill="#94a3b8" font-size="8" text-anchor="middle">observe → plan → act → verify</text>
+      <text x="1145" y="942" fill="#34d399" font-size="8" text-anchor="middle">自主循环；结构化 outcome 退出</text>
+
+      <!-- Labels -->
+      <text x="165" y="124" fill="#22d3ee" font-size="8" text-anchor="middle">Human Command</text>
+      <text x="165" y="214" fill="#22d3ee" font-size="8" text-anchor="middle">External Command</text>
+      <text x="165" y="304" fill="#22d3ee" font-size="8" text-anchor="middle">Agent Outcome</text>
+      <text x="455" y="122" fill="#22d3ee" font-size="8" text-anchor="middle">route to owner</text>
+      <text x="633" y="205" fill="#22d3ee" font-size="8">Domain Event</text>
+      <text x="1060" y="384" fill="#fbbf24" font-size="8" text-anchor="middle">facts</text>
+      <text x="1060" y="470" fill="#fbbf24" font-size="8" text-anchor="middle">commands</text>
+      <text x="675" y="882" fill="#22d3ee" font-size="8" text-anchor="middle">Effect: activate Agent</text>
+
+      <!-- Legend outside the Harness boundary -->
+      <text x="20" y="400" fill="#f8fafc" font-size="10" font-weight="700">LEGEND</text>
+      <rect x="20" y="416" width="16" height="11" rx="2" fill="rgba(8,51,68,.55)" stroke="#22d3ee"/>
+      <text x="43" y="425" fill="#94a3b8" font-size="8">Command / execution</text>
+      <rect x="20" y="438" width="16" height="11" rx="2" fill="rgba(76,29,149,.4)" stroke="#a78bfa"/>
+      <text x="43" y="447" fill="#94a3b8" font-size="8">Fact owner / event</text>
+      <rect x="20" y="460" width="16" height="11" rx="2" fill="rgba(120,53,15,.38)" stroke="#fbbf24"/>
+      <text x="43" y="469" fill="#94a3b8" font-size="8">Deterministic control</text>
+      <rect x="20" y="482" width="16" height="11" rx="2" fill="rgba(6,78,59,.42)" stroke="#34d399"/>
+      <text x="43" y="491" fill="#94a3b8" font-size="8">Agent runtime</text>
+
+      <text x="20" y="545" fill="#fb7185" font-size="9" font-weight="700">NOT EQUAL</text>
+      <text x="20" y="568" fill="#94a3b8" font-size="8">Invocation.terminated</text>
+      <text x="20" y="584" fill="#fb7185" font-size="8">≠ Task.done</text>
+      <text x="20" y="608" fill="#94a3b8" font-size="8">Inbox.admitted</text>
+      <text x="20" y="624" fill="#fb7185" font-size="8">≠ Agent succeeded</text>
+      <text x="20" y="648" fill="#94a3b8" font-size="8">Gate.passed</text>
+      <text x="20" y="664" fill="#fb7185" font-size="8">≠ Delivery.completed</text>
+    </svg>
+  </section>
+
+  <section class="cards">
+    <article class="card cyan">
+      <h2>单循环扩展为循环图</h2>
+      <ul>
+        <li>每个 Work Cell 保留自主认知循环</li>
+        <li>共享 Task / A2A / Gate 连接各节点</li>
+        <li>Harness 管节点生命周期与协作边</li>
+      </ul>
+    </article>
+    <article class="card violet">
+      <h2>多状态机，不做万能状态</h2>
+      <p>Task、A2A、Gate、Inbox、Invocation、Context、Effect、Delivery 各有唯一 owner。“完成”必须说明完成的是哪一层。</p>
+    </article>
+    <article class="card amber">
+      <h2>Agent 自主性的接缝</h2>
+      <p>WorkContract 只给目标、验收、权限、上下文和预算；Agent 自己决定步骤，通过结构化 outcome 把控制权交回平台。</p>
+    </article>
+    <article class="card rose">
+      <h2>错误先归一化再恢复</h2>
+      <p>profile 缺失、session 丢失、transport 降级、CLI error、context 缺失分别进入对应 owner，不能都当成“重试 Agent”。</p>
+    </article>
+  </section>
+
+  <p class="footer">Agent Task Team · Platform Harness target design · 2026-07-27 · 图本身可离线查看，首次使用 PNG/PDF 导出需要加载固定版本组件</p>
+</main>
+<script>
+  function toggleToolbar(button) {
+    const toolbar = button.parentElement;
+    const expanded = !toolbar.classList.contains("expanded");
+    toolbar.classList.toggle("expanded", expanded);
+    button.setAttribute("aria-expanded", String(expanded));
+  }
+  async function renderCanvas() {
+    if (window.exportDependenciesUnavailable || typeof window.html2canvas !== "function") {
+      throw new Error("导出组件未加载；架构图本身仍可离线查看");
+    }
+    const element = document.getElementById("report-container");
+    const rect = element.getBoundingClientRect();
+    const padding = 32;
+    return html2canvas(document.body, {
+      backgroundColor: "#020617",
+      scale: 2,
+      useCORS: true,
+      ignoreElements: (node) => node.classList && node.classList.contains("toolbar"),
+      x: rect.left + window.scrollX - padding,
+      y: rect.top + window.scrollY - padding,
+      width: rect.width + padding * 2,
+      height: rect.height + padding * 2
+    });
+  }
+  async function copyAsImage(button) {
+    const original = button.textContent;
+    try {
+      const canvas = await renderCanvas();
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+      await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+      button.textContent = "已复制";
+    } catch (_) { button.textContent = "复制失败"; }
+    setTimeout(() => { button.textContent = original; }, 1800);
+  }
+  async function downloadPNG(button) {
+    const original = button.textContent;
+    try {
+      const canvas = await renderCanvas();
+      const link = document.createElement("a");
+      link.download = "platform-harness-target-architecture.png";
+      link.href = canvas.toDataURL("image/png");
+      link.click();
+      button.textContent = "已下载";
+    } catch (_) { button.textContent = "下载失败"; }
+    setTimeout(() => { button.textContent = original; }, 1800);
+  }
+  async function downloadPDF(button) {
+    const original = button.textContent;
+    try {
+      const canvas = await renderCanvas();
+      if (!window.jspdf) throw new Error("PDF 组件未加载");
+      const { jsPDF } = window.jspdf;
+      const pdf = new jsPDF({
+        orientation: canvas.width > canvas.height ? "landscape" : "portrait",
+        unit: "px",
+        format: [canvas.width, canvas.height],
+        hotfixes: ["px_scaling"]
+      });
+      pdf.addImage(canvas.toDataURL("image/png"), "PNG", 0, 0, canvas.width, canvas.height);
+      pdf.save("platform-harness-target-architecture.pdf");
+      button.textContent = "已下载";
+    } catch (_) { button.textContent = "下载失败"; }
+    setTimeout(() => { button.textContent = original; }, 1800);
+  }
+</script>
+</body>
+</html>

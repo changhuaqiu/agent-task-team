@@ -51,7 +51,7 @@ describe('AgentInboxRouter', () => {
     router.handle(event, { signal });
 
     expect(resolutions).toBe(2);
-    expect(inbox.listQueued('project-1')).toEqual([
+    expect(inbox.listPending('project-1')).toEqual([
       expect.objectContaining({
         projectAgentId: 'implementer',
         sourceEventId: event.eventId,
@@ -64,7 +64,7 @@ describe('AgentInboxRouter', () => {
 
   it('ignores non-domain events', () => {
     const event = log.append({
-      type: 'agent.work.recovered',
+      type: 'agent.work.released',
       category: 'coordination',
       projectId: 'project-1',
       streamKey: 'agent-work:project-1:implementer',
@@ -83,6 +83,6 @@ describe('AgentInboxRouter', () => {
 
     router.handle(event, { signal: new AbortController().signal });
 
-    expect(inbox.listQueued()).toHaveLength(0);
+    expect(inbox.listPending()).toHaveLength(0);
   });
 });

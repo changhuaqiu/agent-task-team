@@ -7,6 +7,7 @@ import {
 } from './verification-receipt';
 
 const contract: GoalContract = {
+  idempotencyKey: 'verification-receipt-delivery',
   goal: '完成 Web UI 交付',
   acceptanceCriteria: ['用户可以创建项目', '调试面板显示 Context Snapshot'],
   scope: { conversationId: 'conv-1' },
@@ -34,10 +35,11 @@ function snapshot(): DeliveryRunSnapshot {
       id: 'run-1',
       conversation_id: 'conv-1',
       root_task_id: 'task-1',
-      status: 'verifying',
+      status: 'active',
       current_stage: 'verifying',
       goal_contract_json: JSON.stringify(contract),
       repair_cycle: 0,
+      revision: 0,
       escalation_code: null,
       escalation_detail: null,
       delivery_bundle_json: null,

@@ -1,4 +1,5 @@
 import type { ExecutionEnvelopeRow } from '../repositories/execution-envelope-repo';
+import type { InvocationRow } from '../repositories/invocation-repo';
 import type { TaskRow } from '../repositories/task-repo';
 import type { TaskEdgeRow } from '../repositories/task-graph-repo';
 import type { TaskWakeup } from './task-wakeup';
@@ -7,6 +8,7 @@ import type { TaskWakeupReasonCode, TaskWakeupDispatchSource } from './task-wake
 export interface ResolveAutonomyGuardWakeupsInput {
   tasks: TaskRow[];
   envelopes: ExecutionEnvelopeRow[];
+  invocations?: InvocationRow[];
   coordinatorAgentIds: string[];
   reviewAgentIds: string[];
   qaAgentIds: string[];
@@ -16,7 +18,7 @@ export interface ResolveAutonomyGuardWakeupsInput {
   staleMs?: number;
 }
 
-const TERMINAL_ENVELOPE_STATUSES = new Set(['completed', 'failed', 'blocked', 'expired']);
+const ACTIVE_ENVELOPE_STATUSES = new Set(['drafted', 'validated', 'routed', 'sent']);
 
 function parseDependencyIds(task: TaskRow): string[] {
   if (!task.dependencies) return [];
@@ -32,9 +34,15 @@ function dependenciesSatisfied(task: TaskRow, tasksById: Map<string, TaskRow>): 
   return parseDependencyIds(task).every((id) => tasksById.get(id)?.status === 'done');
 }
 
-function hasActiveDispatch(taskId: string, envelopes: ExecutionEnvelopeRow[]): boolean {
+function hasActiveDispatch(
+  taskId: string,
+  envelopes: ExecutionEnvelopeRow[],
+  invocations: InvocationRow[],
+): boolean {
   return envelopes.some((envelope) =>
-    envelope.task_id === taskId && !TERMINAL_ENVELOPE_STATUSES.has(envelope.status)
+    envelope.task_id === taskId && ACTIVE_ENVELOPE_STATUSES.has(envelope.status)
+  ) || invocations.some((invocation) =>
+    invocation.task_id === taskId && invocation.status !== 'terminated'
   );
 }
 
@@ -74,7 +82,7 @@ export function resolveAutonomyGuardWakeups(input: ResolveAutonomyGuardWakeupsIn
   const staleMs = input.staleMs ?? 30 * 60 * 1000;
   const tasksById = new Map(input.tasks.map((task) => [task.id, task]));
   const wakeups: TaskWakeup[] = [];
-  const terminalTaskStatuses = new Set(['done', 'abandoned', 'cancelled']);
+  const terminalTaskStatuses = new Set(['done', 'cancelled']);
   const subtaskEdges = (input.edges ?? []).filter((edge) => edge.type === 'subtask_of');
   const childrenByParent = new Map<string, string[]>();
   const childIds = new Set<string>();
@@ -113,7 +121,7 @@ export function resolveAutonomyGuardWakeups(input: ResolveAutonomyGuardWakeupsIn
       ? root.agent_id
       : input.coordinatorAgentIds[0] ?? root.agent_id;
     if (!agentId) continue;
-    const partial = descendants.some((task) => task.status === 'abandoned' || task.status === 'cancelled');
+    const partial = descendants.some((task) => task.status === 'cancelled');
     closureRootIds.add(root.id);
     pushOnce(makeWakeup({
       task: root,
@@ -135,9 +143,9 @@ export function resolveAutonomyGuardWakeups(input: ResolveAutonomyGuardWakeupsIn
     if (closureRootIds.has(task.id)) continue;
     const updatedAt = task.updated_at ? new Date(task.updated_at).getTime() : 0;
     const isStale = updatedAt > 0 && now.getTime() - updatedAt >= staleMs;
-    const activeDispatch = hasActiveDispatch(task.id, input.envelopes);
+    const activeDispatch = hasActiveDispatch(task.id, input.envelopes, input.invocations ?? []);
 
-    if (task.status === 'pending' && task.agent_id && dependenciesSatisfied(task, tasksById) && !activeDispatch) {
+    if (task.status === 'ready' && task.agent_id && dependenciesSatisfied(task, tasksById) && !activeDispatch) {
       pushOnce(makeWakeup({
         task,
         agentId: task.agent_id,
@@ -175,18 +183,6 @@ export function resolveAutonomyGuardWakeups(input: ResolveAutonomyGuardWakeupsIn
       continue;
     }
 
-    if (task.status === 'test_gate' && isStale && !activeDispatch) {
-      for (const qaAgentId of input.qaAgentIds) {
-        pushOnce(makeWakeup({
-          task,
-          agentId: qaAgentId,
-          reasonCode: 'stale_test_gate',
-          dispatchSource: 'test_gate',
-          prompt: `test_gate 已停滞，请测试、退回或升级 ${task.id}: ${task.title}. ${task.description ?? ''}`.trim(),
-          content: `系统轻推 @${qaAgentId}：${task.id}「${task.title}」test_gate 已停滞。`,
-        }));
-      }
-    }
   }
 
   return wakeups;

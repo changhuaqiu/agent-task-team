@@ -117,7 +117,7 @@ export interface Task {
 
 - `Blocker`：项目风险 / 阻塞
 - `Account`：账号与认证配置
-- `SupervisorOutputEnvelope`：监督者输出
+- `PlatformNoticeEnvelope`：平台状态提示；只用于展示，不携带会直接修改领域事实的浏览器动作
 - `InternalEvent`：内部事件流
 
 ## 3.2 Store State 的真实结构
@@ -189,18 +189,23 @@ Team Runtime 缓存是派生缓存，不是新的事实源。缓存只复用 `re
 
 - `getEffectiveRoster()` 委托 `resolveTeamRuntime()`。没有 TeamPack 时返回 preset agents；有 TeamPack 时以 TeamPack roles 为第一事实源，并为旧 UI 兼容保留必要映射。
 - `getAgentRuntimeProfile(agentId)` 委托 `resolveRuntimeAgentProfile()`。它返回单个成员的 RoleCard、Skill、账号和 engine；如果没有可执行账号或 fallback engine，返回 `null`。
-- `dispatchToAgent()` 必须先拿到 `RuntimeAgentProfile`，再 compose prompt 和 emit `terminal:start`。拿不到 profile 时记录明确的 no-runtime-profile 中止事件，不再静默使用默认 engine。
+- 浏览器直接 Human turn 会提交服务端 Command；服务端 Invocation Pipeline 在 preflight
+  解析 `RuntimeAgentProfile`、编译 Context 并启动 Runtime。拿不到 profile 时发布
+  `runtime.invocation.blocked/runtime_profile_missing`，浏览器只显示恢复动作。
 - PromptComposer 接收 runtime roster，因此 TeamLayer、TeamPackLayer 和 dispatch 使用的是同一组团队身份。
 - `/api/state` 返回持久化的全部 `agentSkillIds`，store 不能再假设只有固定六个 preset agent 才能绑定 Skill。
 - 项目创建后的方案分析不再固定派发给 Mario。普通项目仍使用 preset planner；TeamPack 项目等待对应 TeamPack 加载完成后，按 workflow 的首个可用角色发起 proposal。
-- 用户消息中的 `@agent` 也按 runtime roster 解析。TeamPack role id、当前角色名和角色素材显示名都可以作为 mention 目标，不再只接受静态 Mario 6 人组。
-- 用户消息先进入 UI 和持久化事实源，再解析 `@agent` 并尝试派发，不能因为所有目标 busy 而提前返回。只有 `dispatchToAgent()` 成功启动或接收该派发后，store 才向 daemon 发送 `a2a:user-turn-created` 并登记本次用户触发的 A2A chain；未命中 agent 或没有成功启动任何目标时，只通知 daemon 终止旧 active chain。
+- 用户消息中的显式目标按 runtime roster 解析；TeamPack role id、当前角色名和角色素材显示名
+  都可作为 Human Command 的目标。消息先持久化，再由 `HumanA2ACommandService` 原子创建
+  A2A 聚合与 AgentInbox Command；store 不发送 `terminal:start` 或
+  `a2a:user-turn-created`。
 - 忙碌 agent 的人工派发通过 `dispatch.enqueue` 写入服务端 Agent Inbox；浏览器
   `pendingDispatches` 只是按 `agentId:conversationId` 查询得到的展示投影。浏览器 busy
   快照可能落后于 daemon，因此最终 admission、排队和重试结果以服务端为准；收到
   `agent_busy` 展示事件不会在浏览器侧再次入队或重试。
 - `getAgentRuntimeProfile()` 返回空时，store 既记录 `invocation.aborted/no_runtime_profile`，也在对应项目聊天区显示“为该角色绑定可用账号或执行引擎”的恢复提示；不能只留下控制台 warning。相关缺陷由 [#16](https://github.com/changhuaqiu/agent-task-team/issues/16) 跟踪。
-- A2A possession UI 状态由 `a2aByConversation` 缓存，记录当前持球者和最近交接事件。它只保留最近 8 条 handoff 作为 UI 时间线，是 socket runtime view，不作为项目任务状态事实源；任务进度仍以 SQLite task/TASKS.md 为准。
+- A2A possession UI 状态由 `a2aByConversation` 缓存服务端版本化 `a2a.snapshot`，记录
+  `currentHolderIds[]` 与最近交接事件。它只是读模型，不作为协作或任务事实源。
 
 这意味着 store 的职责边界是“缓存与适配”，不是“定义团队规则”。TeamPack 的通信规则、任务流程和角色解析都应保留在 Team Runtime Contract 或 server repository 边界内。
 

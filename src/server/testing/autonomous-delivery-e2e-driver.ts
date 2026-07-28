@@ -5,13 +5,13 @@ import { autonomousDeliveryRepo } from '../autonomous-delivery/repository';
 import type { DeliveryRunSnapshot } from '../autonomous-delivery/types';
 import { writeAccount } from '../accounts-file';
 import {
-  HarnessCoordinator,
-  RepositoryHarnessPlanner,
-  registerHarnessCoordinator,
-  type HarnessDispatchPlan,
-  type HarnessOutcome,
-  type HarnessRuntimePort,
-} from '../harness';
+  InvocationCoordinator,
+  InvocationPlanner,
+  registerInvocationCoordinator,
+  type AgentRuntimePort,
+  type InvocationDispatchPlan,
+  type InvocationDispatchOutcome,
+} from '../invocation-pipeline';
 import { executeSkillTool } from '../skill-tool-executor';
 import { proofLogRepo } from '../repositories/proof-log-repo';
 import { teamPackRepo } from '../repositories/team-pack-repo';
@@ -36,8 +36,8 @@ interface PendingVerification {
   taskId: string;
   verifierAgentId: string;
   attempt: number;
-  plan: HarnessDispatchPlan;
-  resolve: (outcome: HarnessOutcome) => void;
+  plan: InvocationDispatchPlan;
+  resolve: (outcome: InvocationDispatchOutcome) => void;
 }
 
 interface DriverState {
@@ -94,9 +94,9 @@ function deliveryEvidence(extra: Record<string, unknown> = {}): Record<string, u
 }
 
 async function updateTask(
-  plan: HarnessDispatchPlan,
+  plan: InvocationDispatchPlan,
   evidence: Record<string, unknown>,
-): Promise<HarnessOutcome> {
+): Promise<InvocationDispatchOutcome> {
   const taskId = plan.trigger.taskId;
   if (!taskId) {
     return { status: 'failed', reasonCode: 'task_missing', message: 'E2E Agent Adapter requires taskId' };
@@ -118,7 +118,7 @@ async function updateTask(
     : { status: 'failed', reasonCode: 'runtime_rejected', message: result.error };
 }
 
-class DeterministicAgentRuntime implements HarnessRuntimePort {
+class DeterministicAgentRuntime implements AgentRuntimePort {
   constructor(private readonly state: DriverState) {}
 
   isBusy(agentId: string, conversationId: string): boolean {
@@ -128,7 +128,7 @@ class DeterministicAgentRuntime implements HarnessRuntimePort {
     );
   }
 
-  async execute(plan: HarnessDispatchPlan): Promise<HarnessOutcome> {
+  async execute(plan: InvocationDispatchPlan): Promise<InvocationDispatchOutcome> {
     const runId = plan.trigger.deliveryRunId;
     const snapshotId = plan.contextSnapshot?.id;
     this.state.history.push({
@@ -180,7 +180,7 @@ class DeterministicAgentRuntime implements HarnessRuntimePort {
       const attempt = (snapshot?.receipts.filter((receipt) =>
         receipt.kind === 'verification.acceptance'
       ).length ?? 0) + 1;
-      return new Promise<HarnessOutcome>((resolve) => {
+      return new Promise<InvocationDispatchOutcome>((resolve) => {
         this.state.pendingByRun.set(runId, {
           runId,
           taskId: plan.trigger.taskId!,
@@ -220,8 +220,8 @@ export function configureAutonomousDeliveryE2EFixtures(): void {
 export function registerAutonomousDeliveryE2EDriver(io: IOServer): boolean {
   if (!enabled()) return false;
   const state = stateFor(io);
-  registerHarnessCoordinator(io, new HarnessCoordinator({
-    planner: new RepositoryHarnessPlanner(),
+  registerInvocationCoordinator(io, new InvocationCoordinator({
+    planner: new InvocationPlanner(),
     runtime: new DeterministicAgentRuntime(state),
   }));
   return true;

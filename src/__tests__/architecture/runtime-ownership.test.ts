@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -6,9 +6,23 @@ function source(path: string): string {
   return readFileSync(resolve(process.cwd(), path), 'utf8');
 }
 
+function productionTypeScriptFiles(directory: string): string[] {
+  return readdirSync(resolve(process.cwd(), directory)).flatMap((name) => {
+    const relative = `${directory}/${name}`;
+    const absolute = resolve(process.cwd(), relative);
+    if (statSync(absolute).isDirectory()) return productionTypeScriptFiles(relative);
+    return relative.endsWith('.ts') && !relative.endsWith('.test.ts') ? [relative] : [];
+  });
+}
+
 describe('runtime ownership architecture', () => {
   const daemon = source('src/server/daemon.ts');
   const taskHubStore = source('src/store/taskHubStore.ts');
+  const timelineCards = source('src/components/war-room/TimelineCards.tsx');
+  const deliveryApi = source('src/pages/api/autonomous-delivery.ts');
+  const githubIngress = source('src/server/github-issue-hook/ingress.ts');
+  const mutationApi = source('src/pages/api/mutations.ts');
+  const skillTools = source('src/server/skill-tool-executor.ts');
 
   it('does not accept browser execution acknowledgements for server-owned A2A work', () => {
     for (const event of [
@@ -33,10 +47,59 @@ describe('runtime ownership architecture', () => {
   });
 
   it('keeps explicit human command adapters available', () => {
-    expect(taskHubStore).toContain(`socket.emit('a2a:user-turn-created'`);
-    expect(daemon).toContain(`socket.on('a2a:user-turn-created'`);
+    expect(taskHubStore).toContain(`type: 'a2a.human_handoff'`);
+    expect(taskHubStore).not.toContain(`socket.emit('a2a:user-turn-created'`);
+    expect(daemon).not.toContain(`socket.on('a2a:user-turn-created'`);
     expect(daemon).toContain(`socket.on('terminal:start'`);
     expect(daemon).toContain(`socket.on('terminal:kill'`);
+  });
+
+  it('keeps the WorkContract root correlation above transport envelopes', () => {
+    expect(daemon).toContain(
+      'correlationId: workContract?.correlationId ?? invocationTraceId ?? invocation.id',
+    );
+    expect(daemon).not.toContain(
+      'correlationId: controlEnvelopeId ?? invocationTraceId ?? invocation.id',
+    );
+  });
+
+  it('routes WebUI and Agent task writes through the Task Graph owner', () => {
+    for (const writer of [mutationApi, skillTools]) {
+      expect(writer).not.toMatch(/taskRepo\.(create|transition|update|delete)\(/);
+      expect(writer).toContain('taskCommandService');
+    }
+  });
+
+  it('keeps every production Task write inside an explicit Task Graph owner module', () => {
+    const allowedOwnerImplementations = new Set([
+      'src/server/repositories/task-command-service.ts',
+      'src/server/repositories/task-graph-repo.ts',
+      'src/server/task-flow/group-chat-task-flow.ts',
+    ]);
+    const directWriters = productionTypeScriptFiles('src/server')
+      .filter((path) => /taskRepo\.(create|transition|update|delete)\(/.test(source(path)));
+    expect(directWriters.sort()).toEqual([...allowedOwnerImplementations].sort());
+    expect(
+      directWriters.filter((path) => path.includes('process-manager')),
+    ).toEqual([]);
+  });
+
+  it('does not translate CLI-native Todo state into the Platform Task Graph', () => {
+    const todoMentions = productionTypeScriptFiles('src/server')
+      .filter((path) => /todo(?:read|write)/i.test(source(path)));
+    expect(todoMentions).toEqual(['src/server/agent/nativeTools.ts']);
+    expect(source('src/server/agent/nativeTools.ts')).not.toContain('taskCommandService');
+  });
+
+  it('keeps WebUI notices read-only and removes the legacy Supervisor vocabulary', () => {
+    expect(taskHubStore).not.toContain('SupervisorOutput');
+    expect(taskHubStore).not.toContain('supervisor.output');
+    expect(timelineCards).not.toContain('addTask');
+    expect(timelineCards).not.toContain('inviteAgent');
+    expect(timelineCards).not.toContain('applySamplePlan');
+    expect(deliveryApi).not.toContain('Delivery supervisor');
+    expect(githubIngress).not.toContain('resolveSupervisor');
+    expect(githubIngress).not.toContain('supervisor');
   });
 
   it('allows global broadcast only for the system runtime catalog', () => {

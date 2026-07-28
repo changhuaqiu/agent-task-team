@@ -18,11 +18,11 @@ const DISPATCH_RULES = `## 分派规则
 
 const COLLABORATION_RULES = `## 协作规则
 - 遇到超出职责范围且需要别人执行的新动作，才发起 A2A 交接
-- A2A 必须写成「@agent 请/需要 + 动作 + 具体对象/交付物」，不要只写行首 @agentId
-- 通知 @agent、知会 @agent、@agent 已完成/已写入 TASKS.md 都只是群聊信息，不会唤醒执行
+- A2A 必须使用平台 agent_submit_outcome 工具提交 handoff_to_agent 结构化结果
+- 回复文本中的 @agent、通知、知会和完成说明都只是群聊信息，不会唤醒执行
 - 关键架构变更、数据库 schema 变更前必须请求用户确认
 - 评审意见必须附带具体代码引用和修复方向
-- 如果需要其他 agent 协助，在回复中另起一行写明确请求，例如「@peach 请评审 TASK-003 的后端改动」`;
+- 如果需要其他 agent 协助，在 handoff branch 中明确目标、动作、交付物与证据引用`;
 
 export function buildTeamLayer(selfId: string, allRoleCards: RoleCard[], currentLoad: Record<string, number> = {}): string {
   const entries = AGENT_ROSTER.map((agent) => {

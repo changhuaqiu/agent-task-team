@@ -10,12 +10,12 @@ import { githubIssuePayload } from '@/server/github-issue-hook/test-fixtures';
 import type { NextApiRequest, NextApiResponse } from 'next';
 
 const runtime = vi.hoisted(() => ({
-  supervisor: undefined as unknown,
+  deliveryRuntime: undefined as unknown,
   ensureSocketRuntime: vi.fn(),
 }));
 
 vi.mock('@/server/autonomous-delivery/bootstrap', () => ({
-  ensureAutonomousDeliveryRuntime: () => runtime.supervisor,
+  ensureAutonomousDeliveryRuntime: () => runtime.deliveryRuntime,
 }));
 
 vi.mock('@/server/socket-runtime', () => ({
@@ -83,7 +83,7 @@ describe('POST /api/integrations/github/issues', () => {
     vi.stubEnv('GITHUB_ISSUE_WEBHOOK_PROJECT_PATH', projectPath);
     const repository = new AutonomousDeliveryRepository();
     advance = vi.fn().mockResolvedValue(undefined);
-    runtime.supervisor = {
+    runtime.deliveryRuntime = {
       start: (contract: Parameters<AutonomousDeliveryRepository['createRun']>[0]) =>
         repository.createRun(contract),
       advance,
@@ -98,7 +98,7 @@ describe('POST /api/integrations/github/issues', () => {
     rmSync(projectPath, { recursive: true, force: true });
   });
 
-  it('accepts a signed issue and schedules the existing Supervisor', async () => {
+  it('accepts a signed issue and schedules the Delivery Control Runtime', async () => {
     const raw = Buffer.from(JSON.stringify(githubIssuePayload()));
     const res = response();
     await handler(signedRequest(raw), res);

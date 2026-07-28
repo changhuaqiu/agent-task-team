@@ -90,7 +90,7 @@ describe('syncTasksToDb', () => {
       theme: 'peach',
       emoji: '🌸',
     });
-    writeTasksMd('review', 'review.md');
+    writeTasksMd('todo', 'queued.md');
     const emit = vi.fn();
     const io = { to: vi.fn(() => ({ emit })), emit: vi.fn() };
 
@@ -102,13 +102,12 @@ describe('syncTasksToDb', () => {
     }
 
     expect(taskRepo.getById('TASK-003')).toMatchObject({
-      status: 'in_review',
-      description: 'review.md',
+      status: 'ready',
+      description: 'queued.md',
     });
-    expect(emit).toHaveBeenCalledWith('task.wakeup', expect.objectContaining({
-      agentId: 'peach',
-      reasonCode: 'review_requested',
-      taskId: 'TASK-003',
+    expect(emit).toHaveBeenCalledWith('task.sync', expect.objectContaining({
+      conversationId: 'conv-1',
+      tasks: [expect.objectContaining({ id: 'TASK-003', status: 'ready' })],
     }));
   });
 
@@ -120,7 +119,7 @@ describe('syncTasksToDb', () => {
       description: '',
       agent_id: 'toad',
     });
-    taskRepo.updateStatus('TASK-003', 'in_progress');
+    taskRepo.transition('TASK-003', { to: 'in_progress' });
     writeTasksMd('review', 'src/server/task-flow/task-notifications.ts');
 
     const emit = vi.fn();
@@ -182,7 +181,7 @@ describe('syncTasksToDb', () => {
       title: '修复 A2A 通知',
       agent_id: 'toad',
     });
-    taskRepo.updateStatus('TASK-003', 'in_progress');
+    taskRepo.transition('TASK-003', { to: 'in_progress' });
     writeTasksMd('review', 'attempted bypass');
 
     const emit = vi.fn();
@@ -214,7 +213,8 @@ describe('syncTasksToDb', () => {
       title: 'Keep receipt state',
       agent_id: 'toad',
     });
-    taskRepo.updateStatus('TASK-003', 'in_review');
+    taskRepo.transition('TASK-003', { to: 'in_progress' });
+    taskRepo.transition('TASK-003', { to: 'in_review' });
     taskGraphRepo.appendAction({
       conversationId: 'conv-1',
       actorId: 'luigi',
@@ -244,7 +244,7 @@ describe('syncTasksToDb', () => {
       title: '修复 A2A 通知',
       agent_id: 'toad',
     });
-    taskRepo.updateStatus('TASK-003', 'in_progress');
+    taskRepo.transition('TASK-003', { to: 'in_progress' });
     invocationRepo.create({
       id: 'inv-active',
       conversation_id: 'conv-1',
@@ -272,9 +272,13 @@ describe('syncTasksToDb', () => {
       ],
     }));
 
-    invocationRepo.updateStatus('inv-active', 'succeeded');
+    invocationRepo.transition('inv-active', { to: 'terminated', outcome: 'completed' });
     syncTasksToDb(projectPath, 'conv-1', io as unknown as IOServer);
-    expect(taskRepo.getById('TASK-003')?.status).toBe('pending');
+    expect(taskRepo.getById('TASK-003')?.status).toBe('in_progress');
+    expect(emit).toHaveBeenCalledWith('task.sync_error', expect.objectContaining({
+      taskId: 'TASK-003',
+      reasonCode: 'task_state.invalid_projection_transition',
+    }));
   });
 
   it('scopes duplicate TASKS.md IDs without mutating another conversation', () => {
@@ -286,7 +290,7 @@ describe('syncTasksToDb', () => {
       description: 'must remain unchanged',
       agent_id: 'mario',
     });
-    writeTasksMd('review', 'review.md');
+    writeTasksMd('todo', 'queued.md');
 
     const emit = vi.fn();
     const io = { to: vi.fn(() => ({ emit })), emit: vi.fn() };
@@ -297,22 +301,26 @@ describe('syncTasksToDb', () => {
       title: 'Other project task',
       description: 'must remain unchanged',
       agent_id: 'mario',
-      status: 'pending',
+      status: 'ready',
     });
     expect(taskRepo.getById('conv-1~TASK-003')).toMatchObject({
       conversation_id: 'conv-1',
       title: '修复 A2A 通知',
-      description: 'review.md',
+      description: 'queued.md',
       agent_id: 'toad',
-      status: 'in_review',
+      status: 'ready',
     });
 
+    writeTasksMd('doing', 'doing.md');
+    syncTasksToDb(projectPath, 'conv-1', io as unknown as IOServer);
+    writeTasksMd('review', 'review.md');
+    syncTasksToDb(projectPath, 'conv-1', io as unknown as IOServer);
     writeTasksMd('done', 'done.md');
     syncTasksToDb(projectPath, 'conv-1', io as unknown as IOServer);
 
-    expect(taskRepo.getById('TASK-003')?.status).toBe('pending');
+    expect(taskRepo.getById('TASK-003')?.status).toBe('ready');
     expect(taskRepo.getById('conv-1~TASK-003')).toMatchObject({
-      status: 'done',
+      status: 'in_review',
       description: 'done.md',
     });
   });

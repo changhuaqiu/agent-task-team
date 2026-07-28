@@ -43,6 +43,21 @@ describe('SQLite Foundation', () => {
     expect(tableNames).toContain('eval_review_queue');
     expect(tableNames).toContain('eval_pairwise_round');
     expect(tableNames).toContain('github_issue_ingress');
+    expect(tableNames).toContain('quality_gate');
+    expect(tableNames).toContain('quality_gate_evidence');
+    expect(tableNames).toContain('quality_gate_decision');
+    expect(tableNames).toContain('work_contract');
+    expect(tableNames).toContain('work_authority');
+    expect(tableNames).toContain('agent_outcome');
+    expect(tableNames).toContain('delivery_control_decision');
+    expect(tableNames).toContain('delivery_control_action');
+    expect(tableNames).not.toContain('supervisor_control_decision');
+    expect(tableNames).not.toContain('supervisor_control_action');
+    expect(tableNames).toContain('a2a_possession_chain');
+    expect(tableNames).toContain('a2a_possession');
+    expect(tableNames).toContain('a2a_pass_group');
+    expect(tableNames).toContain('a2a_pass');
+    expect(tableNames).toContain('a2a_handoff_packet');
   });
 
   it('creates indexes', () => {
@@ -76,8 +91,8 @@ describe('SQLite Foundation', () => {
     ).run('ses-profile', 'conv-profile', 'mario', 'task-profile', 0, now);
     db.prepare(
       `INSERT INTO invocation (
-        id,conversation_id,agent_id,session_id,status,engine,account_id,created_at,updated_at
-      ) VALUES (?,?,?,?,'succeeded',?,?,?,?)`,
+        id,conversation_id,agent_id,session_id,status,outcome,engine,account_id,created_at,updated_at
+      ) VALUES (?,?,?,?,'terminated','completed',?,?,?,?)`,
     ).run(
       'inv-profile',
       'conv-profile',
@@ -136,8 +151,268 @@ describe('SQLite Foundation', () => {
     expect(() => {
       db.prepare(
         'INSERT INTO task (id, conversation_id, title, status, agent_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      ).run('task-1', 'nonexistent', 'Test', 'pending', 'agent-1', now, now);
+      ).run('task-1', 'nonexistent', 'Test', 'ready', 'agent-1', now, now);
     }).toThrow();
+  });
+
+  it('migrates legacy task states into the canonical task state machine', () => {
+    const now = new Date().toISOString();
+    db.prepare(
+      'INSERT INTO conversation (id, title, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
+    ).run('conv-task-state', 'Task state migration', 'active', now, now);
+    db.exec(`
+      DROP TRIGGER trg_task_status_insert;
+      DROP TRIGGER trg_task_status_update;
+      DROP TRIGGER trg_task_transition_update;
+      DELETE FROM _schema_version WHERE version = 54;
+    `);
+    const insert = db.prepare(
+      'INSERT INTO task (id, conversation_id, title, status, agent_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    );
+    for (const [id, status] of [
+      ['task-pending', 'pending'],
+      ['task-completed', 'completed'],
+      ['task-approved', 'approved'],
+      ['task-rejected', 'rejected'],
+      ['task-canceled', 'canceled'],
+      ['task-unknown', 'test_gate'],
+    ]) {
+      insert.run(id, 'conv-task-state', id, status, 'agent-1', now, now);
+    }
+
+    applyMigrations(db);
+
+    expect(db.prepare(
+      "SELECT id, status FROM task WHERE conversation_id='conv-task-state' ORDER BY id",
+    ).all()).toEqual([
+      { id: 'task-approved', status: 'done' },
+      { id: 'task-canceled', status: 'cancelled' },
+      { id: 'task-completed', status: 'done' },
+      { id: 'task-pending', status: 'ready' },
+      { id: 'task-rejected', status: 'in_progress' },
+      { id: 'task-unknown', status: 'blocked' },
+    ]);
+    expect(db.prepare(
+      "SELECT review_note FROM task WHERE id='task-unknown'",
+    ).get()).toEqual({
+      review_note: '[migration] unsupported legacy status: test_gate',
+    });
+  });
+
+  it('rejects task status writes that bypass the canonical vocabulary', () => {
+    const now = new Date().toISOString();
+    db.prepare(
+      'INSERT INTO conversation (id, title, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
+    ).run('conv-task-guard', 'Task state guard', 'active', now, now);
+
+    expect(() => db.prepare(
+      'INSERT INTO task (id, conversation_id, title, status, agent_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    ).run('task-invalid', 'conv-task-guard', 'Invalid', 'pending', 'agent-1', now, now))
+      .toThrow(/invalid_task_status/);
+
+    db.prepare(
+      'INSERT INTO task (id, conversation_id, title, status, agent_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    ).run('task-valid', 'conv-task-guard', 'Valid', 'ready', 'agent-1', now, now);
+    expect(() => db.prepare("UPDATE task SET status='approved' WHERE id='task-valid'").run())
+      .toThrow(/invalid_task_status/);
+    expect(() => db.prepare("UPDATE task SET status='done' WHERE id='task-valid'").run())
+      .toThrow(/invalid_task_transition/);
+  });
+
+  it('migrates invocation lifecycle separately from terminal outcome', () => {
+    const legacyDb = new Database(':memory:');
+    try {
+      legacyDb.exec(`
+        CREATE TABLE _schema_version (version INTEGER PRIMARY KEY);
+        CREATE TABLE invocation (
+          id TEXT PRIMARY KEY,
+          status TEXT NOT NULL,
+          reason_code TEXT,
+          updated_at TEXT NOT NULL
+        );
+      `);
+      const recordVersion = legacyDb.prepare(
+        'INSERT INTO _schema_version (version) VALUES (?)',
+      );
+      for (let version = 1; version <= 54; version += 1) recordVersion.run(version);
+      recordVersion.run(56);
+      const insert = legacyDb.prepare(
+        'INSERT INTO invocation (id,status,reason_code,updated_at) VALUES (?,?,NULL,?)',
+      );
+      for (const [id, status] of [
+        ['inv-queued', 'queued'],
+        ['inv-running', 'running'],
+        ['inv-succeeded', 'succeeded'],
+        ['inv-failed', 'failed'],
+        ['inv-cancelled', 'canceled'],
+        ['inv-unknown', 'mystery'],
+      ]) {
+        insert.run(id, status, '2026-07-27T00:00:00.000Z');
+      }
+
+      applyMigrations(legacyDb);
+
+      expect(legacyDb.prepare(
+        'SELECT id,status,outcome,reason_code FROM invocation ORDER BY id',
+      ).all()).toEqual([
+        { id: 'inv-cancelled', status: 'terminated', outcome: 'cancelled', reason_code: null },
+        { id: 'inv-failed', status: 'terminated', outcome: 'failed', reason_code: null },
+        { id: 'inv-queued', status: 'planned', outcome: null, reason_code: null },
+        { id: 'inv-running', status: 'running', outcome: null, reason_code: null },
+        { id: 'inv-succeeded', status: 'terminated', outcome: 'completed', reason_code: null },
+        {
+          id: 'inv-unknown',
+          status: 'terminated',
+          outcome: 'failed',
+          reason_code: 'legacy_invocation_status_unknown',
+        },
+      ]);
+      legacyDb.prepare(
+        "INSERT INTO invocation (id,status,updated_at) VALUES ('inv-new','planned',?)",
+      ).run('2026-07-27T00:01:00.000Z');
+      expect(() => legacyDb.prepare(
+        "UPDATE invocation SET status='running' WHERE id='inv-new'",
+      ).run()).toThrow(/invalid_invocation_transition/);
+      expect(() => legacyDb.prepare(
+        "UPDATE invocation SET status='terminated' WHERE id='inv-new'",
+      ).run()).toThrow(/invalid_invocation_outcome/);
+    } finally {
+      legacyDb.close();
+    }
+  });
+
+  it('migrates Agent Inbox admission semantics and rejects illegal transitions', () => {
+    const legacyDb = new Database(':memory:');
+    try {
+      legacyDb.pragma('foreign_keys = ON');
+      legacyDb.exec(`
+        CREATE TABLE _schema_version (version INTEGER PRIMARY KEY);
+        CREATE TABLE conversation (id TEXT PRIMARY KEY);
+        CREATE TABLE platform_event (id TEXT PRIMARY KEY);
+        CREATE TABLE agent_inbox_item (
+          id TEXT PRIMARY KEY,
+          project_id TEXT NOT NULL REFERENCES conversation(id) ON DELETE CASCADE,
+          project_agent_id TEXT NOT NULL,
+          source_event_id TEXT REFERENCES platform_event(id) ON DELETE SET NULL,
+          idempotency_key TEXT NOT NULL UNIQUE,
+          command_json TEXT NOT NULL,
+          status TEXT NOT NULL CHECK(status IN ('queued','claimed','completed','failed','cancelled')),
+          attempt_count INTEGER NOT NULL DEFAULT 0,
+          available_at TEXT NOT NULL,
+          lease_token TEXT,
+          lease_expires_at TEXT,
+          last_error TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          claimed_at TEXT,
+          completed_at TEXT,
+          UNIQUE(source_event_id, project_agent_id)
+        );
+        INSERT INTO conversation (id) VALUES ('project-1');
+      `);
+      const recordVersion = legacyDb.prepare(
+        'INSERT INTO _schema_version (version) VALUES (?)',
+      );
+      for (let version = 1; version <= 55; version += 1) recordVersion.run(version);
+      const insert = legacyDb.prepare(`
+        INSERT INTO agent_inbox_item (
+          id,project_id,project_agent_id,idempotency_key,command_json,status,
+          attempt_count,available_at,lease_token,lease_expires_at,last_error,
+          created_at,updated_at,claimed_at,completed_at
+        ) VALUES (?, 'project-1', 'agent-1', ?, '{}', ?, 1, ?, ?, ?, NULL, ?, ?, ?, ?)
+      `);
+      const now = '2026-07-27T00:00:00.000Z';
+      insert.run('inbox-queued', 'key-queued', 'queued', now, null, null, now, now, null, null);
+      insert.run('inbox-claimed', 'key-claimed', 'claimed', now, 'lease-1', now, now, now, now, null);
+      insert.run('inbox-stale-claim', 'key-stale-claim', 'claimed', now, null, null, now, now, now, null);
+      insert.run('inbox-completed', 'key-completed', 'completed', now, null, null, now, now, now, now);
+      insert.run('inbox-failed', 'key-failed', 'failed', now, null, null, now, now, now, now);
+
+      applyMigrations(legacyDb);
+
+      expect(legacyDb.prepare(
+        'SELECT id,status,settled_at FROM agent_inbox_item ORDER BY id',
+      ).all()).toEqual([
+        { id: 'inbox-claimed', status: 'claimed', settled_at: null },
+        { id: 'inbox-completed', status: 'admitted', settled_at: now },
+        { id: 'inbox-failed', status: 'expired', settled_at: now },
+        { id: 'inbox-queued', status: 'enqueued', settled_at: null },
+        { id: 'inbox-stale-claim', status: 'released', settled_at: null },
+      ]);
+      expect(() => legacyDb.prepare(
+        "UPDATE agent_inbox_item SET status='admitted', settled_at=? WHERE id='inbox-queued'",
+      ).run(now)).toThrow(/invalid_agent_inbox_transition/);
+      expect(() => legacyDb.prepare(
+        "UPDATE agent_inbox_item SET status='claimed' WHERE id='inbox-queued'",
+      ).run()).toThrow(/invalid_agent_inbox_lease/);
+    } finally {
+      legacyDb.close();
+    }
+  });
+
+  it('migrates ExecutionEnvelope to acknowledgement semantics', () => {
+    const legacyDb = new Database(':memory:');
+    try {
+      legacyDb.exec(`
+        CREATE TABLE _schema_version (version INTEGER PRIMARY KEY);
+        CREATE TABLE execution_envelope (
+          id TEXT PRIMARY KEY,
+          status TEXT NOT NULL,
+          reason_code TEXT,
+          updated_at TEXT NOT NULL
+        );
+      `);
+      const recordVersion = legacyDb.prepare(
+        'INSERT INTO _schema_version (version) VALUES (?)',
+      );
+      for (let version = 1; version <= 56; version += 1) recordVersion.run(version);
+      const insert = legacyDb.prepare(
+        'INSERT INTO execution_envelope (id,status,reason_code,updated_at) VALUES (?,?,?,?)',
+      );
+      const now = '2026-07-27T00:00:00.000Z';
+      insert.run('env-blocked', 'blocked', null, now);
+      insert.run('env-completed', 'completed', null, now);
+      insert.run('env-failed', 'failed', 'spawn_failed', now);
+      insert.run('env-queued', 'queued', null, now);
+      insert.run('env-started', 'started', null, now);
+      insert.run('env-unknown', 'mystery', null, now);
+
+      applyMigrations(legacyDb);
+
+      expect(legacyDb.prepare(
+        'SELECT id,status,reason_code,settled_at FROM execution_envelope ORDER BY id',
+      ).all()).toEqual([
+        {
+          id: 'env-blocked',
+          status: 'rejected',
+          reason_code: 'legacy_dispatch_rejected',
+          settled_at: now,
+        },
+        { id: 'env-completed', status: 'acknowledged', reason_code: null, settled_at: now },
+        { id: 'env-failed', status: 'rejected', reason_code: 'spawn_failed', settled_at: now },
+        { id: 'env-queued', status: 'validated', reason_code: null, settled_at: null },
+        { id: 'env-started', status: 'acknowledged', reason_code: null, settled_at: now },
+        {
+          id: 'env-unknown',
+          status: 'rejected',
+          reason_code: 'legacy_execution_envelope_status_unknown',
+          settled_at: now,
+        },
+      ]);
+      legacyDb.prepare(
+        "INSERT INTO execution_envelope (id,status,updated_at) VALUES ('env-new','drafted',?)",
+      ).run(now);
+      expect(() => legacyDb.prepare(
+        "UPDATE execution_envelope SET status='sent' WHERE id='env-new'",
+      ).run()).toThrow(/invalid_execution_envelope_transition/);
+      expect(() => legacyDb.prepare(`
+        UPDATE execution_envelope
+        SET status='rejected', settled_at=?
+        WHERE id='env-new'
+      `).run(now)).toThrow(/invalid_execution_envelope_settlement/);
+    } finally {
+      legacyDb.close();
+    }
   });
 
   it('enforces agent_session unique constraint', () => {
@@ -217,6 +492,51 @@ describe('SQLite Foundation', () => {
     expect(after.v).toBe(before.v);
   });
 
+  it('guards immutable Delivery start keys and claimed ControlAction lease shape', () => {
+    const now = '2026-07-28T08:00:00.000Z';
+    db.prepare(`
+      INSERT INTO conversation (id,title,status,created_at,updated_at)
+      VALUES ('conv-lease-guard','Lease guard','active',?,?)
+    `).run(now, now);
+    db.prepare(`
+      INSERT INTO autonomous_delivery_run (
+        id,conversation_id,status,current_stage,goal_contract_json,repair_cycle,revision,
+        created_at,updated_at,start_idempotency_key
+      ) VALUES ('run-lease-guard','conv-lease-guard','active','planning','{}',0,0,?,?,?)
+    `).run(now, now, 'start-key-1');
+    expect(() => db.prepare(`
+      UPDATE autonomous_delivery_run SET start_idempotency_key='rebound'
+      WHERE id='run-lease-guard'
+    `).run()).toThrow('delivery_run_start_idempotency_key_immutable');
+
+    db.prepare(`
+      INSERT INTO delivery_control_decision (
+        id,run_id,project_id,snapshot_revision,policy_revision,payload_json,status,created_at
+      ) VALUES ('decision-lease-guard','run-lease-guard','conv-lease-guard',0,1,'{}','active',?)
+    `).run(now);
+    db.prepare(`
+      INSERT INTO delivery_control_action (
+        id,decision_id,run_id,type,reason_code,status,created_at,updated_at
+      ) VALUES (
+        'action-lease-guard','decision-lease-guard','run-lease-guard',
+        'initializeGraph','test','ready',?,?
+      )
+    `).run(now, now);
+    expect(() => db.prepare(`
+      UPDATE delivery_control_action SET status='claimed'
+      WHERE id='action-lease-guard'
+    `).run()).toThrow('delivery_control_action_lease_shape_invalid');
+    expect(db.prepare(`
+      UPDATE delivery_control_action
+      SET status='claimed',claim_token='claim-1',lease_owner='worker-1',lease_expires_at=?
+      WHERE id='action-lease-guard'
+    `).run('2026-07-28T08:01:00.000Z').changes).toBe(1);
+    expect(() => db.prepare(`
+      UPDATE delivery_control_action SET status='applied'
+      WHERE id='action-lease-guard'
+    `).run()).toThrow('delivery_control_action_lease_shape_invalid');
+  });
+
   it('marks pre-cutover Runtime events as already projected', () => {
     const now = '2026-07-25T04:00:00.000Z';
     db.prepare(
@@ -265,8 +585,8 @@ describe('SQLite Foundation', () => {
     });
     db.prepare(`
       INSERT INTO invocation (
-        id,conversation_id,agent_id,status,engine,created_at,updated_at
-      ) VALUES (?,?,?,'completed','codex',?,?)
+        id,conversation_id,agent_id,status,outcome,engine,created_at,updated_at
+      ) VALUES (?,?,?,'terminated','completed','codex',?,?)
     `).run(
       'inv-effect-upgrade',
       'conv-effect-upgrade',
@@ -330,7 +650,28 @@ describe('SQLite Foundation', () => {
     expect(db.prepare('SELECT version FROM _schema_version WHERE version = 40').get())
       .toEqual({ version: 40 });
     expect(db.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-      .toEqual({ version: 53 });
+      .toEqual({ version: 75 });
+  });
+
+  it('retires the parallel A2A worklist schema at migration 62', () => {
+    const retiredTables = db.prepare(`
+      SELECT name FROM sqlite_master
+      WHERE type='table' AND name IN (
+        'invocation_chain','chain_worklist','delivery_cursor',
+        'a2a_audit_log','a2a_delivery'
+      )
+      ORDER BY name
+    `).all();
+
+    expect(retiredTables).toEqual([]);
+    expect(db.prepare(`
+      SELECT name FROM sqlite_master
+      WHERE type='table' AND name IN (
+        'a2a_possession_chain','a2a_possession','a2a_pass_group',
+        'a2a_pass','a2a_handoff_packet'
+      )
+    `).all()).toHaveLength(5);
+    expect(db.pragma('foreign_key_check')).toEqual([]);
   });
 
   it('repairs v26-v40 checkpoints whose migration collision skipped autonomous delivery tables', () => {
@@ -340,8 +681,8 @@ describe('SQLite Foundation', () => {
         checkpoint.pragma('foreign_keys = OFF');
         checkpoint.exec(`
           DROP TABLE autonomous_delivery_receipt;
-          DROP TABLE autonomous_delivery_attempt;
-          DROP TABLE autonomous_delivery_action;
+          DROP TABLE IF EXISTS autonomous_delivery_attempt;
+          DROP TABLE IF EXISTS autonomous_delivery_action;
           DROP TABLE autonomous_delivery_run;
           DELETE FROM _schema_version WHERE version > ${watermark};
         `);
@@ -354,13 +695,11 @@ describe('SQLite Foundation', () => {
         ).all() as Array<{ name: string }>;
         expect(new Set(tables.map((table) => table.name))).toEqual(new Set([
           'autonomous_delivery_run',
-          'autonomous_delivery_action',
-          'autonomous_delivery_attempt',
           'autonomous_delivery_receipt',
           'autonomous_delivery_advancement_request',
         ]));
         expect(checkpoint.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-          .toEqual({ version: 53 });
+          .toEqual({ version: 75 });
         expect(checkpoint.pragma('foreign_key_check')).toEqual([]);
       } finally {
         checkpoint.close();
@@ -368,7 +707,7 @@ describe('SQLite Foundation', () => {
     }
   });
 
-  it('rebuilds the old root task FK while preserving autonomous run and action rows', () => {
+  it('rebuilds the old root task FK while preserving the autonomous run', () => {
     db.pragma('foreign_keys = OFF');
     db.exec(`
       DROP TABLE autonomous_delivery_run;
@@ -394,16 +733,11 @@ describe('SQLite Foundation', () => {
     db.prepare(`INSERT INTO conversation (id,title,status,created_at,updated_at)
       VALUES ('conv-checkpoint','Checkpoint','active',?,?)`).run(now, now);
     db.prepare(`INSERT INTO task (id,conversation_id,title,status,agent_id,created_at,updated_at)
-      VALUES ('task-checkpoint','conv-checkpoint','Root','pending','agent',?,?)`).run(now, now);
+      VALUES ('task-checkpoint','conv-checkpoint','Root','ready','agent',?,?)`).run(now, now);
     db.prepare(`INSERT INTO autonomous_delivery_run
       (id,conversation_id,root_task_id,status,current_stage,goal_contract_json,created_at,updated_at)
       VALUES ('run-checkpoint','conv-checkpoint','task-checkpoint','executing','executing','{}',?,?)`)
       .run(now, now);
-    db.prepare(`INSERT INTO autonomous_delivery_action
-      (id,run_id,kind,idempotency_key,status,not_before,max_attempts,created_at,updated_at)
-      VALUES ('action-checkpoint','run-checkpoint','advance_tasks','checkpoint-action','ready',?,3,?,?)`)
-      .run(now, now, now);
-
     applyMigrations(db);
 
     const rootTaskForeignKey = (db.pragma('foreign_key_list(autonomous_delivery_run)') as Array<{
@@ -412,13 +746,122 @@ describe('SQLite Foundation', () => {
     }>).find((foreignKey) => foreignKey.from === 'root_task_id');
     expect(rootTaskForeignKey?.on_delete).toBe('SET NULL');
     expect(db.prepare('SELECT revision FROM autonomous_delivery_run WHERE id=?').get('run-checkpoint'))
-      .toEqual({ revision: 0 });
-    expect(db.prepare('SELECT run_id FROM autonomous_delivery_action WHERE id=?').get('action-checkpoint'))
-      .toEqual({ run_id: 'run-checkpoint' });
-
+      .toEqual({ revision: 1 });
     db.prepare('DELETE FROM task WHERE id=?').run('task-checkpoint');
     expect(db.prepare('SELECT root_task_id FROM autonomous_delivery_run WHERE id=?').get('run-checkpoint'))
       .toEqual({ root_task_id: null });
+    expect(db.pragma('foreign_key_check')).toEqual([]);
+  });
+
+  it('migrates legacy delivery phases into lifecycle plus stage and enforces the state machine', () => {
+    db.pragma('foreign_keys = OFF');
+    db.exec(`
+      DROP TABLE autonomous_delivery_run;
+      CREATE TABLE autonomous_delivery_run (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL REFERENCES conversation(id) ON DELETE CASCADE,
+        root_task_id TEXT REFERENCES task(id) ON DELETE SET NULL,
+        status TEXT NOT NULL,
+        current_stage TEXT NOT NULL,
+        goal_contract_json TEXT NOT NULL,
+        repair_cycle INTEGER NOT NULL DEFAULT 0,
+        revision INTEGER NOT NULL DEFAULT 0,
+        escalation_code TEXT,
+        escalation_detail TEXT,
+        delivery_bundle_json TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        completed_at TEXT
+      );
+      DELETE FROM _schema_version WHERE version=58;
+    `);
+    db.pragma('foreign_keys = ON');
+    const now = '2026-07-28T00:00:00.000Z';
+    db.prepare(
+      'INSERT INTO conversation (id,title,status,created_at,updated_at) VALUES (?,?,?,?,?)',
+    ).run('conv-delivery-v58', 'Delivery v58', 'active', now, now);
+    const insert = db.prepare(`
+      INSERT INTO autonomous_delivery_run (
+        id,conversation_id,status,current_stage,goal_contract_json,revision,
+        escalation_code,delivery_bundle_json,created_at,updated_at,completed_at
+      ) VALUES (?,?,?,?,?,0,?,?,?,?,?)
+    `);
+    insert.run(
+      'run-escalated',
+      'conv-delivery-v58',
+      'escalated',
+      'reviewing',
+      '{}',
+      null,
+      null,
+      now,
+      now,
+      now,
+    );
+    insert.run(
+      'run-recovering',
+      'conv-delivery-v58',
+      'recovering',
+      'verifying',
+      '{}',
+      null,
+      null,
+      now,
+      now,
+      null,
+    );
+    insert.run(
+      'run-completed',
+      'conv-delivery-v58',
+      'completed',
+      'completed',
+      '{}',
+      null,
+      '{}',
+      now,
+      now,
+      now,
+    );
+
+    applyMigrations(db);
+
+    expect(db.prepare(`
+      SELECT id,status,current_stage,escalation_code,completed_at
+      FROM autonomous_delivery_run ORDER BY id
+    `).all()).toEqual([
+      {
+        id: 'run-completed',
+        status: 'completed',
+        current_stage: 'delivering',
+        escalation_code: null,
+        completed_at: now,
+      },
+      {
+        id: 'run-escalated',
+        status: 'waiting_human',
+        current_stage: 'reviewing',
+        escalation_code: 'legacy_human_decision_required',
+        completed_at: null,
+      },
+      {
+        id: 'run-recovering',
+        status: 'retrying',
+        current_stage: 'verifying',
+        escalation_code: null,
+        completed_at: null,
+      },
+    ]);
+    expect(() => db.prepare(
+      "UPDATE autonomous_delivery_run SET status='waiting_gate' WHERE id='run-recovering'",
+    ).run()).toThrow(/invalid_delivery_run_transition/);
+    expect(() => db.prepare(
+      "UPDATE autonomous_delivery_run SET status='active' WHERE id='run-completed'",
+    ).run()).toThrow(/delivery_run_terminal_immutable/);
+    expect(() => db.prepare(`
+      INSERT INTO autonomous_delivery_run (
+        id,conversation_id,status,current_stage,goal_contract_json,created_at,updated_at
+      ) VALUES ('run-invalid','conv-delivery-v58','waiting_human','planning','{}',?,?)
+    `).run(now, now)).toThrow(/invalid_delivery_run_state/);
     expect(db.pragma('foreign_key_check')).toEqual([]);
   });
 

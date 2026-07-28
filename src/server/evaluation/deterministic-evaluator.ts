@@ -136,7 +136,10 @@ export function evaluateDeterministically(snapshot: SubjectSnapshot): Evaluation
     doneTasks.length === 0 ? 'unknown' : deliveryPoints >= 80 ? 'pass' : deliveryPoints > 0 ? 'partial' : 'fail',
     `冻结到 ${artifacts.length} 个交付物引用。`, evidence('artifact', artifacts),
     doneTasks.length ? 'applicable' : 'unknown'));
-  const failures = invocations.filter((item) => item.status === 'failed' || Number(item.exit_code ?? 0) !== 0).length;
+  const failures = invocations.filter((item) =>
+    (item.status === 'terminated' && item.outcome !== 'completed')
+    || Number(item.exit_code ?? 0) !== 0
+  ).length;
   const reliability = invocations.length ? Math.max(0, 100 - failures / invocations.length * 100) : undefined;
   scores.push(score('reliability', 'deterministic', reliability,
     reliability === undefined ? 'unknown' : reliability >= 90 ? 'pass' : reliability >= 60 ? 'partial' : 'fail',

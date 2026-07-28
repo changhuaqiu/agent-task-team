@@ -1,6 +1,5 @@
 import { getDb } from '../db/index';
 import { DomainEventPublisher } from '../platform-events/domain-events';
-import { invocationRepo } from './invocation-repo';
 
 export interface AgentSessionRow {
   id: string;
@@ -193,11 +192,6 @@ export const sessionRepo = {
         }
       }
 
-      if (binding.status === 'mismatch') return binding;
-      invocationRepo.updateStatus(invocationId, 'succeeded', {
-        exit_code: 0,
-        cli_session_id: runtimeSessionId,
-      });
       return binding;
     })();
   },
@@ -207,7 +201,7 @@ export const sessionRepo = {
       const history = getDb()
         .prepare(
           `SELECT COUNT(*) AS total,
-                  SUM(CASE WHEN status = 'succeeded' THEN 1 ELSE 0 END) AS succeeded
+                  SUM(CASE WHEN status = 'terminated' AND outcome = 'completed' THEN 1 ELSE 0 END) AS succeeded
            FROM invocation
            WHERE session_id = ?`,
         )
@@ -230,14 +224,18 @@ export const sessionRepo = {
 
       const latest = getDb()
         .prepare(
-          `SELECT status, reason_code
+          `SELECT status, outcome, reason_code
            FROM invocation
            WHERE session_id = ?
            ORDER BY created_at DESC, id DESC
            LIMIT 1`,
         )
-        .get(id) as { status: string; reason_code: string | null } | undefined;
-      if (latest?.status !== 'failed' || latest.reason_code !== 'acp_session_load_failed') {
+        .get(id) as { status: string; outcome: string | null; reason_code: string | null } | undefined;
+      if (
+        latest?.status !== 'terminated'
+        || latest.outcome !== 'failed'
+        || latest.reason_code !== 'acp_session_load_failed'
+      ) {
         return false;
       }
 
@@ -255,7 +253,7 @@ export const sessionRepo = {
         .prepare(
           `SELECT engine,account_id
            FROM invocation
-           WHERE session_id = ? AND status = 'succeeded'
+           WHERE session_id = ? AND status = 'terminated' AND outcome = 'completed'
            ORDER BY created_at DESC,id DESC
            LIMIT 1`,
         )

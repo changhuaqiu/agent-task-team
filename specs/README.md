@@ -34,12 +34,10 @@
 | [`system-control-plane/`](system-control-plane/) | active | 统一 dispatch、policy、proof、health 与跨实例状态权威 |
 | [`agent-observability/`](agent-observability/) | active | 项目维度追踪 Agent turn、上下文、Skill、工具和显式 A2A/任务工作流 |
 | [`observability-drilldown/`](observability-drilldown/) | active | 在 agent-observability 之上补 ACP 边界的完整 prompt/工具/回复采集、消息卡下钻抽屉与调用链 DAG |
-| [`a2a-possession-contract/`](a2a-possession-contract/) | active | 完成持球、传球、交接包语义及控制平面接线 |
 | [`team-role-card-compatibility/`](team-role-card-compatibility/) | active | 自动化已完成，仍需三项人工兼容验收 |
 | [`role-card-format/`](role-card-format/) | draft | 冻结角色卡/Team Pack 文件格式并替换即将移除的示例 |
 | [`four-agent-pr-review-loop/`](four-agent-pr-review-loop/) | active | Mario→DK→Luigi PR→Peach 真实评审/测试→合并闭环，使用 provider 回执和聊天卡片作为证据 |
 | [`open-issues-33-35/`](open-issues-33-35/) | active | 复现并修复线上 #33–#35：A2A 意图、首次交接身份、预设升级与上下文去重 |
-| [`autonomous-delivery-loop/`](autonomous-delivery-loop/) | active | 用户提交一次 GoalContract 后，由持久化 Supervisor 自主推进到最终 DeliveryBundle |
 | [`agent-eval-system/`](agent-eval-system/) | draft | 任务全链路评估：客观维度规则计算 + 主观维度 LLM-as-Judge 套 rubric，结果回流优化 RoleCard/Skill |
 | [`github-issue-agent-hook/`](github-issue-agent-hook/) | active | GitHub Issue 验签后幂等创建项目与 DeliveryRun，并复用现有自主交付链完成任务拆解和推进 |
 
@@ -49,7 +47,6 @@
 system-control-plane
 ├── acp-runtime-integration
 ├── agent-session-identity
-├── a2a-possession-contract
 ├── context-manager
 └── agent-observability
     └── observability-drilldown

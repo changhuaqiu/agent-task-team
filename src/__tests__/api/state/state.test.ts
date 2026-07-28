@@ -40,6 +40,7 @@ describe('GET /api/state', () => {
     expect(res._json.recentMessages).toEqual({});
     expect(res._json.activeSessions).toEqual([]);
     expect(res._json.recentInvocations).toEqual([]);
+    expect(res._json.a2aSnapshots).toEqual([]);
   });
 
   it('returns conversations, tasks, messages, sessions, and invocations', async () => {

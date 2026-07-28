@@ -1,14 +1,16 @@
 // Skill Tool Executor — executes skill-defined tools directly via DB queries.
 // No HTTP roundtrip; same DB operations as mutation handlers.
 
-import { taskRepo } from './repositories/task-repo';
+import { assertTaskStatus, taskRepo } from './repositories/task-repo';
 import type { TaskRow } from './repositories/task-repo';
+import {
+  stableTaskCommandKey,
+  taskCommandService,
+} from './repositories/task-command-service';
 import { isSkillTool } from './skill-tool-router';
 import { join } from 'node:path';
 import { proofLogRepo } from './repositories/proof-log-repo';
-import { evaluateTaskStatusEvidenceGate, hasCurrentVerifiedMerge } from './task-flow/task-gate-evidence';
-import { conversationRepo } from './repositories/conversation-repo';
-import { taskGraphRepo } from './repositories/task-graph-repo';
+import { taskStatusEvidencePolicy } from './task-flow/task-status-evidence-policy';
 import { EngineeringCollaborationService } from './engineering-collaboration/service';
 import { GhCliGitProviderVerifier } from './engineering-collaboration/github-cli-verifier';
 import type { ImplementationEvidence, MergeEvidence, ReviewEvidence } from '@/lib/engineering-collaboration/types';
@@ -26,6 +28,8 @@ export interface ToolInvocation {
   taskId?: string;
   taskProjectDir?: string;
   rateLimitKey?: string;
+  correlationId?: string;
+  causationId?: string;
   io?: IOServer;
 }
 
@@ -150,14 +154,29 @@ function executeTaskCreate(invocation: ToolInvocation): ToolResult {
     ? (invocation.input.dependencies as string).split(',').map((s) => s.trim()).filter(Boolean)
     : [];
 
-  const task = taskRepo.create({
-    id,
-    conversation_id: invocation.conversationId,
-    title,
-    description: (invocation.input.description as string) || '',
-    agent_id: agentId,
-    dependencies,
+  const idempotencyKey = stableTaskCommandKey(
+    invocation.rateLimitKey ?? invocation.agentId,
+    { toolName: invocation.toolName, input: invocation.input },
+  );
+  const committed = taskCommandService.create({
+    conversationId: invocation.conversationId,
+    expectedGraphRevision: taskCommandService.expectedGraphRevision(
+      invocation.conversationId,
+      idempotencyKey,
+    ),
+    idempotencyKey,
+    actor: { type: 'agent', id: invocation.agentId },
+    correlationId: invocation.correlationId,
+    causationId: invocation.causationId,
+    task: {
+      id,
+      title,
+      description: (invocation.input.description as string) || '',
+      agent_id: agentId,
+      dependencies,
+    },
   });
+  const task = committed.tasks[0];
 
   // Also write to TASKS.md
   try {
@@ -166,7 +185,7 @@ function executeTaskCreate(invocation: ToolInvocation): ToolResult {
     const phase = (invocation.input.phase as string) || '';
     const deliverable = (invocation.input.deliverable as string) || '';
     const { tasks: existingTasks, blockers } = readTasksMd(projectDir);
-    existingTasks.push({ id, title, phase, role, agent: agentId, status: 'pending', depends: dependencies, deliverable });
+    existingTasks.push({ id, title, phase, role, agent: agentId, status: 'ready', depends: dependencies, deliverable });
     writeTasksMd(projectDir, existingTasks, blockers);
   } catch (e) {
     console.error('[task_create] failed to update TASKS.md:', e);
@@ -177,16 +196,13 @@ function executeTaskCreate(invocation: ToolInvocation): ToolResult {
 
 function executeTaskUpdateStatus(invocation: ToolInvocation): ToolResult {
   const taskId = invocation.input.task_id as string;
-  const status = invocation.input.status as string;
+  const statusValue = invocation.input.status;
 
-  if (!taskId || !status) {
+  if (!taskId || typeof statusValue !== 'string') {
     return { success: false, error: 'task_id and status are required' };
   }
 
-  const allowedStatuses = ['pending', 'in_progress', 'in_review', 'done', 'blocked', 'rejected'];
-  if (!allowedStatuses.includes(status)) {
-    return { success: false, error: `Invalid status: ${status}. Allowed: ${allowedStatuses.join(', ')}` };
-  }
+  const status = assertTaskStatus(statusValue);
 
   const existing = taskRepo.getById(taskId);
   if (!existing) {
@@ -194,58 +210,47 @@ function executeTaskUpdateStatus(invocation: ToolInvocation): ToolResult {
   }
 
   const evidence = invocation.input.evidence;
-  const gateDecision = evaluateTaskStatusEvidenceGate({
+  const gateDecision = taskStatusEvidencePolicy.evaluate({
     task: existing,
     nextStatus: status,
-    actorId: invocation.agentId,
     evidence,
-    pullRequestRequired: Boolean(conversationRepo.getById(existing.conversation_id)?.git_repo_root),
-    verifiedPullRequest: taskGraphRepo.listActionsForTask(taskId).some((action) => action.type === 'task.pull_request_submitted'),
-    verifiedMerge: hasCurrentVerifiedMerge(taskGraphRepo.listActionsForTask(taskId)),
+    actor: { type: 'agent', id: invocation.agentId },
   });
   if (!gateDecision.allowed) {
-    proofLogRepo.append({
-      eventType: 'task_graph.gate_evidence.blocked',
-      conversationId: existing.conversation_id,
-      taskId,
-      actorId: invocation.agentId,
-      reasonCode: gateDecision.reasonCode,
-      metadata: {
-        status,
-        gateName: gateDecision.gateName,
-        missingFields: gateDecision.missingFields,
-      },
-    });
     return { success: false, error: gateDecision.message ?? 'Task gate evidence is required' };
   }
 
-  taskRepo.updateStatus(taskId, status);
-  if (gateDecision.required) {
-    proofLogRepo.append({
-      eventType: 'task_graph.gate_evidence.accepted',
-      conversationId: existing.conversation_id,
+  const idempotencyKey = stableTaskCommandKey(
+    invocation.rateLimitKey ?? invocation.agentId,
+    { toolName: invocation.toolName, input: invocation.input },
+  );
+  const transitioned = taskCommandService.transition({
+    conversationId: existing.conversation_id,
+    taskId,
+    expectedTaskRevision: taskCommandService.expectedTaskRevision(
       taskId,
-      actorId: invocation.agentId,
-      metadata: {
-        status,
-        gateName: gateDecision.gateName,
-        evidence,
-      },
-    });
-  }
-
+      idempotencyKey,
+      existing.revision,
+    ),
+    expectedGraphRevision: taskCommandService.expectedGraphRevision(
+      existing.conversation_id,
+      idempotencyKey,
+    ),
+    idempotencyKey,
+    actor: { type: 'agent', id: invocation.agentId },
+    correlationId: invocation.correlationId,
+    causationId: invocation.causationId,
+    to: status,
+  });
   // Also update TASKS.md
   try {
     const projectDir = resolveTaskProjectDir(invocation, existing.conversation_id);
-    const STATUS_FILE: Record<string, string> = {
-      pending: 'todo', in_progress: 'doing', in_review: 'review', done: 'done', blocked: 'blocked', rejected: 'rejected',
-    };
-    updateTaskInMd(projectDir, taskId, { status: STATUS_FILE[status] || status });
+    updateTaskInMd(projectDir, taskId, { status });
   } catch (e) {
     console.error('[task_update_status] failed to update TASKS.md:', e);
   }
 
-  return { success: true, data: { id: taskId, status } };
+  return { success: true, data: transitioned.result.task };
 }
 
 function executeTaskAssign(invocation: ToolInvocation): ToolResult {
@@ -261,13 +266,34 @@ function executeTaskAssign(invocation: ToolInvocation): ToolResult {
     return { success: false, error: `Task not found: ${taskId}` };
   }
 
-  taskRepo.update(taskId, { agent_id: targetAgentId });
+  const idempotencyKey = stableTaskCommandKey(
+    invocation.rateLimitKey ?? invocation.agentId,
+    { toolName: invocation.toolName, input: invocation.input },
+  );
+  const updated = taskCommandService.update({
+    conversationId: existing.conversation_id,
+    taskId,
+    expectedTaskRevision: taskCommandService.expectedTaskRevision(
+      taskId,
+      idempotencyKey,
+      existing.revision,
+    ),
+    expectedGraphRevision: taskCommandService.expectedGraphRevision(
+      existing.conversation_id,
+      idempotencyKey,
+    ),
+    idempotencyKey,
+    actor: { type: 'agent', id: invocation.agentId },
+    correlationId: invocation.correlationId,
+    causationId: invocation.causationId,
+    updates: { agent_id: targetAgentId },
+  });
   try {
     projectAuthoritativeTask(invocation, taskId);
   } catch (e) {
     console.error('[task_assign] failed to update TASKS.md:', e);
   }
-  return { success: true, data: { id: taskId, agent_id: targetAgentId } };
+  return { success: true, data: updated.result.task };
 }
 
 function recordInput(value: unknown): Record<string, unknown> | undefined {
@@ -312,8 +338,8 @@ function mergeEvidenceInput(value: unknown): MergeEvidence | undefined {
   };
 }
 
-function collaborationService(io?: IOServer): EngineeringCollaborationService {
-  return new EngineeringCollaborationService(new GhCliGitProviderVerifier(), io);
+function collaborationService(): EngineeringCollaborationService {
+  return new EngineeringCollaborationService(new GhCliGitProviderVerifier());
 }
 
 async function executeRecordPullRequest(invocation: ToolInvocation): Promise<ToolResult> {
@@ -321,7 +347,15 @@ async function executeRecordPullRequest(invocation: ToolInvocation): Promise<Too
   const pullRequestUrl = invocation.input.pull_request_url as string;
   const evidence = implementationEvidenceInput(invocation.input.evidence);
   if (!taskId || !pullRequestUrl || !evidence) return { success: false, error: 'task_id, pull_request_url and evidence are required' };
-  const data = await collaborationService(invocation.io).recordPullRequest({ taskId, expectedConversationId: invocation.conversationId, actorAgentId: invocation.agentId, pullRequestUrl, evidence });
+  const data = await collaborationService().recordPullRequest({
+    taskId,
+    expectedConversationId: invocation.conversationId,
+    actorAgentId: invocation.agentId,
+    pullRequestUrl,
+    evidence,
+    correlationId: invocation.correlationId,
+    causationId: invocation.causationId,
+  });
   reconcileAuthoritativeTaskProjection(invocation, taskId);
   return { success: true, data };
 }
@@ -332,7 +366,16 @@ async function executeRecordReview(invocation: ToolInvocation): Promise<ToolResu
   const reviewUrl = invocation.input.review_url as string;
   const evidence = reviewEvidenceInput(invocation.input.evidence);
   if (!taskId || !pullRequestUrl || !reviewUrl || !evidence) return { success: false, error: 'task_id, pull_request_url, review_url and evidence are required' };
-  const data = await collaborationService(invocation.io).recordReview({ taskId, expectedConversationId: invocation.conversationId, actorAgentId: invocation.agentId, pullRequestUrl, reviewUrl, evidence });
+  const data = await collaborationService().recordReview({
+    taskId,
+    expectedConversationId: invocation.conversationId,
+    actorAgentId: invocation.agentId,
+    pullRequestUrl,
+    reviewUrl,
+    evidence,
+    correlationId: invocation.correlationId,
+    causationId: invocation.causationId,
+  });
   reconcileAuthoritativeTaskProjection(invocation, taskId);
   return { success: true, data };
 }
@@ -342,7 +385,15 @@ async function executeRecordMerge(invocation: ToolInvocation): Promise<ToolResul
   const pullRequestUrl = invocation.input.pull_request_url as string;
   const evidence = mergeEvidenceInput(invocation.input.evidence);
   if (!taskId || !pullRequestUrl || !evidence) return { success: false, error: 'task_id, pull_request_url and evidence are required' };
-  const data = await collaborationService(invocation.io).recordMerge({ taskId, expectedConversationId: invocation.conversationId, actorAgentId: invocation.agentId, pullRequestUrl, evidence });
+  const data = await collaborationService().recordMerge({
+    taskId,
+    expectedConversationId: invocation.conversationId,
+    actorAgentId: invocation.agentId,
+    pullRequestUrl,
+    evidence,
+    correlationId: invocation.correlationId,
+    causationId: invocation.causationId,
+  });
   reconcileAuthoritativeTaskProjection(invocation, taskId);
   return { success: true, data };
 }

@@ -70,6 +70,18 @@ describe('RuntimeEventPublisher', () => {
     })).toThrow(RuntimeEventStateError);
   });
 
+  it('records a preflight block as a terminal attempt without pretending Runtime started', () => {
+    const blocked = publisher.publish('runtime.invocation.blocked', {
+      phase: 'preflight',
+      reasonCode: 'runtime_profile_missing',
+    });
+
+    expect(blocked.category).toBe('runtime_lifecycle');
+    expect(() => publisher.publish('runtime.invocation.accepted', {
+      envelopeId: 'envelope-1',
+    })).toThrow('after Invocation preflight was blocked');
+  });
+
   it('requires start before Runtime activity', () => {
     publisher.publish('runtime.invocation.accepted', { envelopeId: 'envelope-1' });
     expect(() => publisher.publish('runtime.message.segment.completed', {

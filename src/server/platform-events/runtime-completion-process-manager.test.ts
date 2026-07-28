@@ -1,23 +1,17 @@
 import type Database from 'better-sqlite3';
-import type { Server as IOServer } from 'socket.io';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AgentMessenger } from '../a2a';
-import { captureDedupState } from '../a2a/dedup';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb, resetDb, setTestDb } from '../db';
 import { invocationRepo } from '../repositories/invocation-repo';
 import { PlatformEventDispatcher } from './dispatcher';
 import { DurableEffectOutbox } from './durable-effect-outbox';
-import { AgentInbox } from './agent-inbox';
 import { PlatformEventLog } from './event-log';
 import {
   RuntimeCompletionProcessManager,
   runtimeCompletionContextRepo,
 } from './runtime-completion-process-manager';
-import {
-  registerRuntimeCompletionEffectAdapters,
-  RUNTIME_COMPLETION_EFFECT_TYPES,
-} from './runtime-completion-effects';
+import { RUNTIME_COMPLETION_EFFECT_TYPES } from './runtime-completion-effects';
 import { RuntimeEventPublisher } from './runtime-event-publisher';
+import { WorkContractRepository } from '../work-contract/repository';
 
 describe('RuntimeCompletionProcessManager', () => {
   let db: Database.Database;
@@ -60,11 +54,11 @@ describe('RuntimeCompletionProcessManager', () => {
     db.close();
   });
 
-  function publishCompletedTrace(text = 'handoff @reviewer') {
+  function publishCompletedTrace(text = 'handoff @reviewer', invocationId = 'inv-1') {
     const publisher = new RuntimeEventPublisher(log, {
       projectId: 'project-1',
       projectAgentId: 'implementer',
-      invocationId: 'inv-1',
+      invocationId,
       runtimeActorId: 'daemon',
       correlationId: 'envelope-1',
     });
@@ -97,12 +91,10 @@ describe('RuntimeCompletionProcessManager', () => {
     expect(outbox.listBySourceEvent(terminal.eventId).map((effect) => effect.type)).toEqual([
       RUNTIME_COMPLETION_EFFECT_TYPES.taskSync,
       RUNTIME_COMPLETION_EFFECT_TYPES.teamLog,
-      RUNTIME_COMPLETION_EFFECT_TYPES.a2aResponse,
-      RUNTIME_COMPLETION_EFFECT_TYPES.a2aDone,
     ]);
 
     await manager.handle(terminal, { signal: new AbortController().signal });
-    expect(outbox.listBySourceEvent(terminal.eventId)).toHaveLength(4);
+    expect(outbox.listBySourceEvent(terminal.eventId)).toHaveLength(2);
     expect(db.prepare(`
       SELECT status,source_event_id FROM runtime_completion_context WHERE invocation_id='inv-1'
     `).get()).toEqual({ status: 'completed', source_event_id: terminal.eventId });
@@ -151,104 +143,54 @@ describe('RuntimeCompletionProcessManager', () => {
 
     expect(outbox.listBySourceEvent(terminal.eventId).map((effect) => effect.type)).toEqual([
       'runtime.team_log',
-      'runtime.a2a_done',
     ]);
   });
 
-  it('keeps one stable A2A chain and Inbox command when response execution retries', async () => {
-    const terminal = publishCompletedTrace('@reviewer 请审查这个实现');
-    const inbox = new AgentInbox({ db });
-    const emit = vi.fn();
-    const io = {
-      emit,
-      to: () => ({ emit }),
-    } as unknown as IOServer;
-    const messenger = new AgentMessenger(
-      db,
-      io,
-      [
-        { id: 'implementer', mentionPatterns: ['@implementer'] },
-        { id: 'reviewer', mentionPatterns: ['@reviewer'] },
-      ],
-      { getTasks: () => [] },
-      (input) => {
-        inbox.enqueue({
-          projectId: input.conversationId,
-          projectAgentId: input.agentId,
-          idempotencyKey: `a2a:${input.chainId}:${input.entryId}:${input.agentId}`,
-          command: {
-            source: 'a2a',
-            prompt: input.prompt,
-            taskId: input.referencedTaskId,
-            fromAgentId: input.fromAgentId,
-            chainId: input.chainId,
-            passId: input.passId,
-          },
-        });
-        return { handled: true, admitted: true };
-      },
-      true,
-    );
-    let failAfterResponse = true;
-    let failAfterDone = true;
-    const dedupBeforeFailure = captureDedupState();
-    registerRuntimeCompletionEffectAdapters(outbox, {
-      syncTasks() {},
-      recordInvalidExit() {},
-      queueClosureEvaluation: () => ({ queued: false }),
-      notifyEvaluationQueued() {},
-      updateTeamLog() {},
-      recordA2AResponse(payload) {
-        const application = messenger.orchestrator.applyRuntimeResponse(
-          payload.agentId,
-          payload.output,
-          payload.conversationId,
-          payload.taskId,
-        );
-        if (failAfterResponse) {
-          failAfterResponse = false;
-          throw new Error('after response');
-        }
-        return application;
-      },
-      recordA2ADone(payload) {
-        const application = messenger.orchestrator.applyRuntimeDone(
-          payload.agentId,
-          payload.conversationId,
-        );
-        if (failAfterDone) {
-          failAfterDone = false;
-          throw new Error('after done');
-        }
-        return application;
-      },
+  it('never interprets final text as A2A commands for a WorkContract invocation', async () => {
+    const contract = new WorkContractRepository().issue({
+      workId: 'task:structured',
+      attemptId: 'inv-structured',
+      projectId: 'project-1',
+      agentId: 'implementer',
+      goal: 'Implement',
+      acceptanceCriteria: ['submit a structured outcome'],
+      role: {},
+      permissions: {},
+      authoritativeRefs: ['project:project-1'],
+      authoritativeRevisions: { project: 1 },
+      contextSnapshotRef: 'ctx-structured',
+      allowedOutcomeTypes: ['handoff_to_agent', 'submit_task_result'],
+      correlationId: 'envelope-1',
+      causationId: 'trigger-1',
     });
+    invocationRepo.create({
+      id: 'inv-structured',
+      conversation_id: 'project-1',
+      agent_id: 'implementer',
+      engine: 'codex',
+      work_contract_id: contract.contractId,
+      work_id: contract.workId,
+      work_epoch: contract.workEpoch,
+      fencing_token: contract.fencingToken,
+    });
+    runtimeCompletionContextRepo.create({
+      invocationId: 'inv-structured',
+      conversationId: 'project-1',
+      agentId: 'implementer',
+      taskProjectDir: 'C:\\workspace\\project-1',
+    });
+    const terminal = publishCompletedTrace(
+      'This prose mentions @reviewer but is not a command.',
+      'inv-structured',
+    );
     const manager = new RuntimeCompletionProcessManager(outbox, db, log);
+
     await manager.handle(terminal, { signal: new AbortController().signal });
 
-    expect(await outbox.drain()).toMatchObject({ succeeded: 1 }); // task sync
-    expect(await outbox.drain()).toMatchObject({ succeeded: 1 }); // team log
-    expect(await outbox.drain()).toMatchObject({ failed: 1 }); // response acknowledgement lost
-    expect(db.prepare(`SELECT COUNT(*) count FROM invocation_chain`).get())
-      .toEqual({ count: 0 });
-    expect(inbox.listQueued('project-1')).toHaveLength(0);
-    expect(emit).not.toHaveBeenCalled();
-    expect(captureDedupState()).toEqual(dedupBeforeFailure);
-    expect(await outbox.drain()).toMatchObject({ succeeded: 1 }); // response retry
-    expect(await outbox.drain()).toMatchObject({ failed: 1 }); // done acknowledgement lost
-    expect(await outbox.drain()).toMatchObject({ succeeded: 1 }); // done retry
-
-    expect(db.prepare(`SELECT COUNT(*) count FROM invocation_chain`).get()).toEqual({ count: 1 });
-    expect(db.prepare(`
-      SELECT COUNT(*) count FROM chain_worklist WHERE agent_id='reviewer'
-    `).get()).toEqual({ count: 1 });
-    expect(inbox.listQueued('project-1')).toHaveLength(1);
-    expect(inbox.listQueued('project-1')[0]).toMatchObject({
-      projectAgentId: 'reviewer',
-      command: { source: 'a2a', chainId: expect.any(String) },
-    });
-    expect(outbox.listBySourceEvent(terminal.eventId).every(
-      (effect) => effect.status === 'succeeded',
-    )).toBe(true);
+    expect(outbox.listBySourceEvent(terminal.eventId).map((effect) => effect.type)).toEqual([
+      RUNTIME_COMPLETION_EFFECT_TYPES.taskSync,
+      RUNTIME_COMPLETION_EFFECT_TYPES.teamLog,
+    ]);
   });
+
 });

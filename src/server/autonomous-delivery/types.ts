@@ -1,38 +1,19 @@
 export type DeliveryRunStatus =
-  | 'submitted'
+  | 'active'
+  | 'waiting_gate'
+  | 'waiting_human'
+  | 'retrying'
+  | 'completed'
+  | 'failed'
+  | 'cancelled';
+
+export type DeliveryStage =
   | 'planning'
   | 'executing'
   | 'reviewing'
   | 'verifying'
   | 'integrating'
-  | 'delivering'
-  | 'recovering'
-  | 'completed'
-  | 'escalated'
-  | 'cancelled';
-
-export type DeliveryStage = Exclude<DeliveryRunStatus, 'submitted' | 'recovering' | 'completed' | 'escalated' | 'cancelled'>;
-
-export type DeliveryActionKind =
-  | 'plan_goal'
-  | 'advance_tasks'
-  | 'request_review'
-  | 'repair_review'
-  | 'run_verification'
-  | 'repair_verification'
-  | 'integrate_change'
-  | 'publish_delivery';
-
-export type DeliveryActionStatus =
-  | 'ready'
-  | 'claimed'
-  | 'running'
-  | 'retry_wait'
-  | 'succeeded'
-  | 'failed'
-  | 'cancelled';
-
-export type DeliveryAttemptStatus = 'claimed' | 'running' | 'succeeded' | 'failed' | 'abandoned';
+  | 'delivering';
 
 export interface GitHubIssueGoalSource {
   kind: 'github_issue';
@@ -47,6 +28,8 @@ export interface GitHubIssueGoalSource {
 }
 
 export interface GoalContract {
+  idempotencyKey: string;
+  correlationId?: string;
   goal: string;
   acceptanceCriteria: string[];
   source?: GitHubIssueGoalSource;
@@ -113,7 +96,15 @@ export interface AcceptanceVerificationReceipt {
   specRefs: string[];
   codeRevision?: string;
   acceptanceResults: DeliveryBundle['acceptanceResults'];
+  gateId?: string;
+  gateEvidenceId?: string;
+  artifactRevision?: string;
   validationErrors?: string[];
+}
+
+export function resolveGoalCorrelationId(contract: GoalContract): string {
+  return contract.correlationId?.trim()
+    || `delivery-start:${contract.idempotencyKey.trim()}`;
 }
 
 export interface AcceptanceReviewReceipt {
@@ -130,15 +121,19 @@ export interface AcceptanceReviewReceipt {
     description: string;
     evidenceRefs: string[];
   }>;
+  gateId?: string;
+  gateEvidenceId?: string;
+  artifactRevision?: string;
   validationErrors?: string[];
 }
 
 export interface DeliveryRunRow {
   id: string;
   conversation_id: string;
+  start_idempotency_key: string;
   root_task_id: string | null;
   status: DeliveryRunStatus;
-  current_stage: string;
+  current_stage: DeliveryStage;
   goal_contract_json: string;
   repair_cycle: number;
   revision: number;
@@ -150,46 +145,9 @@ export interface DeliveryRunRow {
   completed_at: string | null;
 }
 
-export interface DeliveryActionRow {
-  id: string;
-  run_id: string;
-  kind: DeliveryActionKind;
-  subject_type: string | null;
-  subject_id: string | null;
-  idempotency_key: string;
-  status: DeliveryActionStatus;
-  not_before: string;
-  attempt_count: number;
-  max_attempts: number;
-  last_failure_code: string | null;
-  last_failure_detail: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface DeliveryAttemptRow {
-  id: string;
-  action_id: string;
-  attempt_no: number;
-  status: DeliveryAttemptStatus;
-  lease_owner: string;
-  lease_expires_at: string;
-  heartbeat_at: string;
-  workdir_ref: string | null;
-  session_generation: number | null;
-  execution_envelope_id: string | null;
-  failure_code: string | null;
-  failure_detail: string | null;
-  created_at: string;
-  started_at: string | null;
-  completed_at: string | null;
-}
-
 export interface DeliveryReceiptRow {
   id: string;
   run_id: string;
-  action_id: string | null;
-  attempt_id: string | null;
   kind: string;
   external_id: string | null;
   status: string;
@@ -201,15 +159,26 @@ export interface DeliveryReceiptRow {
 export interface DeliveryRunSnapshot {
   run: DeliveryRunRow;
   contract: GoalContract;
-  actions: DeliveryActionRow[];
-  attempts: DeliveryAttemptRow[];
   receipts: DeliveryReceiptRow[];
   bundle?: DeliveryBundle;
 }
 
-export interface ClaimedDeliveryAction {
-  action: DeliveryActionRow;
-  attempt: DeliveryAttemptRow;
+export type AdvancementCause =
+  | {
+      kind: 'started' | 'fact_changed' | 'periodic_reconcile';
+      ref?: string;
+    }
+  | {
+      kind: 'manual_resume';
+      idempotencyKey: string;
+      actor: { type: 'user'; id: string };
+      correlationId?: string;
+    };
+
+export interface AdvanceResult {
+  disposition: 'acted' | 'waiting' | 'waiting_human' | 'completed' | 'failed' | 'busy';
+  snapshot: DeliveryRunSnapshot;
+  actionId?: string;
 }
 
 export interface DeliveryActionReceipt {

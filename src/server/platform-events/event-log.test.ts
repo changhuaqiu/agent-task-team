@@ -72,6 +72,8 @@ describe('PlatformEventLog', () => {
     expect(otherStream.streamSequence).toBe(1);
     expect(log.listStream('task:task-1').map((event) => event.eventId))
       .toEqual([first.eventId, second.eventId]);
+    expect(log.listTrace('goal-1').map((event) => event.eventId))
+      .toEqual([first.eventId, second.eventId, otherStream.eventId]);
   });
 
   it('returns the existing event for an identical dedupe retry', () => {

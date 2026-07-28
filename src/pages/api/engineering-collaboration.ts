@@ -69,7 +69,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(400).json({ error: 'taskId, conversationId, actorAgentId and pullRequestUrl are required' });
   }
 
-  const service = new EngineeringCollaborationService(new GhCliGitProviderVerifier(), (res.socket as typeof res.socket & { server?: { io?: import('socket.io').Server } }).server?.io);
+  const service = new EngineeringCollaborationService(new GhCliGitProviderVerifier());
   try {
     if (kind === 'pull_request') {
       const evidence = implementationEvidence(req.body.evidence);

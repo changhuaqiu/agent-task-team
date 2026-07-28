@@ -113,6 +113,29 @@ describe('ACP Runtime event integration', () => {
     ]);
   });
 
+  it('normalizes a lost resumed ACP session before terminating the Invocation', () => {
+    coordinator.accept();
+    coordinator.start();
+    coordinator.terminate({
+      status: 'failed',
+      reasonCode: 'acp_session_not_found',
+      durationMs: 25,
+      sessionId: 'missing-session',
+    });
+
+    const events = log.listByInvocation('inv-1');
+    expect(events.map((event) => event.type)).toEqual([
+      'runtime.invocation.accepted',
+      'runtime.invocation.started',
+      'runtime.session.resume_failed',
+      'runtime.invocation.terminated',
+    ]);
+    expect(events[2].payload).toEqual({
+      runtimeSessionId: 'missing-session',
+      reasonCode: 'resource_not_found',
+    });
+  });
+
   it('does not fail open when the canonical Runtime append is rejected', () => {
     expect(() => coordinator.start()).toThrow('before invocation acceptance');
     expect(log.listByInvocation('inv-1')).toEqual([]);

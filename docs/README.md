@@ -104,6 +104,8 @@
 - `docs/technical/execution/opencode-integration-executable-chain.md`
 - `docs/technical/execution/group-chat-task-graph.md`
 - `docs/technical/execution/platform-harness-loop.md`
+- `docs/technical/execution/platform-harness-state-machine-design.md`：Platform Harness 顶层职责、Agent 自主循环、领域状态机、控制动作与模块集成契约
+- `docs/technical/execution/platform-harness-target-architecture.html`：Platform Harness 目标架构、三层循环、事实 owner 与错误恢复路径的可视化
 - `docs/technical/execution/context-layering.md`：统一 Context Manager、分层预算、项目隔离与场景化上下文注入
 - `docs/technical/execution/structured-context-management-architecture.md`：结构化上下文快照、Contributor 注册和可追溯组装架构
 - `docs/technical/execution/skill-package-progressive-loading.md`：标准 Skill 目录、不可变 revision、确定性编译与渐进加载设计
@@ -111,7 +113,7 @@
 - `docs/technical/evaluation/agent-evaluation-system.md`：任务级跨 trace 冻结快照、四层判定、在线诊断与离线回归的目标架构
 - `docs/technical/evaluation/README.md`：所有变更的 V/C/E 评测分级、Why→Industry→Measure→Decision 证据链与记录模板
 - `docs/technical/evaluation/2026-07-20-project-context-bootstrap-evaluation.md`：项目上下文初始化的前后效率、相关性和交接复用评测记录
-- `docs/technical/execution/autonomous-delivery-loop.md`：持久化 DeliveryRun、Action/Attempt/Receipt、恢复与最终收口设计
+- `docs/archive/technical/autonomous-delivery-loop.md`：已被 Platform Harness 状态机设计替代的历史 Action/Attempt 方案
 - `docs/technical/execution/durable-effect-outbox.md`：Process Manager 副作用的原子接纳、lane 顺序、两类执行语义、崩溃恢复与 Runtime completion 首个采用者设计
 - `docs/technical/execution/platform-runtime-current-architecture.html`：当前 Platform Runtime 的可视化架构、事件投递与终态后 Effect 重试边界
 - `docs/technical/execution/webui-passive-project-projection.md`：Human Command 与自动展示消费分离、项目 room 隔离和 WebUI 被动投影契约

@@ -16,7 +16,13 @@ function socketServer(res: NextApiResponse): IOServer | undefined {
 function isGoalContract(value: unknown): value is GoalContract {
   if (!value || typeof value !== 'object') return false;
   const contract = value as Partial<GoalContract>;
-  return typeof contract.goal === 'string'
+  return typeof contract.idempotencyKey === 'string'
+    && Boolean(contract.idempotencyKey.trim())
+    && (
+      contract.correlationId === undefined
+      || (typeof contract.correlationId === 'string' && Boolean(contract.correlationId.trim()))
+    )
+    && typeof contract.goal === 'string'
     && Array.isArray(contract.acceptanceCriteria)
     && contract.acceptanceCriteria.every((item) => typeof item === 'string')
     && typeof contract.scope?.conversationId === 'string'
@@ -47,15 +53,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   const action = typeof req.body?.action === 'string' ? req.body.action : 'start';
   const io = socketServer(res);
-  if (!io) return res.status(503).json({ error: 'Delivery supervisor is not ready' });
+  if (!io) return res.status(503).json({ error: 'Delivery runtime is not ready' });
   ensureAutonomousDeliveryRuntime(io);
 
   try {
     if (action === 'advance') {
       const runId = typeof req.body?.runId === 'string' ? req.body.runId : '';
       if (!runId) return res.status(400).json({ error: 'runId is required' });
-      const result = await advanceAutonomousDelivery(io, runId, { kind: 'manual_resume' });
-      if (!result) return res.status(503).json({ error: 'Delivery supervisor is not registered' });
+      const idempotencyKey = typeof req.body?.idempotencyKey === 'string'
+        ? req.body.idempotencyKey.trim()
+        : '';
+      if (!idempotencyKey) {
+        return res.status(400).json({ error: 'idempotencyKey is required' });
+      }
+      const result = await advanceAutonomousDelivery(io, runId, {
+        kind: 'manual_resume',
+        idempotencyKey,
+        actor: { type: 'user', id: 'webui:local-user' },
+      });
+      if (!result) return res.status(503).json({ error: 'Delivery runtime is not registered' });
       return res.status(200).json(result);
     }
 
@@ -66,12 +82,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (!conversationRepo.getById(contract.scope.conversationId)) {
       return res.status(404).json({ error: 'Conversation not found' });
     }
-    const existing = autonomousDeliveryRepo.getLatestByConversation(contract.scope.conversationId);
-    if (existing && !['completed', 'escalated', 'cancelled'].includes(existing.run.status)) {
-      return res.status(409).json({ error: 'An active delivery run already exists', snapshot: existing });
-    }
     const snapshot = startAutonomousDelivery(io, contract);
-    if (!snapshot) return res.status(503).json({ error: 'Delivery supervisor is not registered' });
+    if (!snapshot) return res.status(503).json({ error: 'Delivery runtime is not registered' });
     void advanceAutonomousDelivery(io, snapshot.run.id, { kind: 'started' })?.catch((error) => {
       console.error(`[autonomous-delivery] initial advance failed for ${snapshot.run.id}:`, error);
     });

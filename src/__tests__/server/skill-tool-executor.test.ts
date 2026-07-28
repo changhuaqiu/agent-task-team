@@ -1,14 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTestDb, setTestDb } from '@/server/db';
 import { conversationRepo } from '@/server/repositories/conversation-repo';
+import { taskGraphRepo } from '@/server/repositories/task-graph-repo';
 import { taskRepo } from '@/server/repositories/task-repo';
 import { executeSkillTool, resetRateLimit } from '@/server/skill-tool-executor';
-import { readTasksMd } from '@/server/task-file-service';
+import { readTasksMd, writeTasksMd } from '@/server/task-file-service';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { GhCliGitProviderVerifier } from '@/server/engineering-collaboration/github-cli-verifier';
 import { proofLogRepo } from '@/server/repositories/proof-log-repo';
+import { qualityGateRepo } from '@/server/quality-gate/repository';
 
 describe('skill tool collaboration gates', () => {
   beforeEach(() => {
@@ -17,7 +19,8 @@ describe('skill tool collaboration gates', () => {
     resetRateLimit('luigi');
     conversationRepo.create({ id: 'conv-git', title: 'Git project', git_repo_root: 'C:/repo' });
     taskRepo.create({ id: 'TASK-GIT', conversation_id: 'conv-git', title: 'Ship safely', agent_id: 'luigi' });
-    taskRepo.updateStatus('TASK-GIT', 'in_review');
+    taskRepo.transition('TASK-GIT', { to: 'in_progress' });
+    taskRepo.transition('TASK-GIT', { to: 'in_review' });
   });
 
   it('cannot use a trusted agent identity to mutate a task from another conversation', async () => {
@@ -46,8 +49,113 @@ describe('skill tool collaboration gates', () => {
     });
 
     expect(result).toMatchObject({ success: false });
-    expect(result.error).toContain('mergeReceipt');
+    expect(result.error).toContain('QualityGate passed');
     expect(taskRepo.getById('TASK-GIT')?.status).toBe('in_review');
+  });
+
+  it('replays task_update_status after a lost response without duplicating Task or Gate facts', async () => {
+    conversationRepo.create({ id: 'conv-retry', title: 'Retry project' });
+    taskRepo.create({
+      id: 'TASK-RETRY',
+      conversation_id: 'conv-retry',
+      title: 'Retry safely',
+      agent_id: 'luigi',
+    });
+    taskRepo.transition('TASK-RETRY', { to: 'in_progress' });
+    const taskProjectDir = join(
+      tmpdir(),
+      `skill-status-retry-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    );
+    mkdirSync(taskProjectDir, { recursive: true });
+    writeTasksMd(taskProjectDir, [{
+      id: 'TASK-RETRY',
+      title: 'Retry safely',
+      phase: '',
+      role: 'worker',
+      agent: 'luigi',
+      status: 'in_progress',
+      depends: [],
+      deliverable: '',
+    }], []);
+    const invocation = {
+      toolName: 'task_update_status',
+      agentId: 'luigi',
+      conversationId: 'conv-retry',
+      taskProjectDir,
+      rateLimitKey: 'lost-response-status-command',
+      input: {
+        task_id: 'TASK-RETRY',
+        status: 'in_review',
+        evidence: {
+          installResult: 'passed',
+          buildResult: 'passed',
+          testResult: 'passed',
+          impactEvidence: 'reviewed',
+        },
+      },
+    };
+    try {
+      const first = await executeSkillTool(invocation);
+      const retry = await executeSkillTool(invocation);
+
+      expect(retry).toEqual(first);
+      expect(taskRepo.getById('TASK-RETRY')).toMatchObject({
+        status: 'in_review',
+        revision: 2,
+      });
+      expect(taskGraphRepo.listActionsForTask('TASK-RETRY')
+        .filter((action) => action.type === 'task.review_requested')).toHaveLength(1);
+      expect(qualityGateRepo.listForTarget('task', 'TASK-RETRY')).toEqual([]);
+    } finally {
+      rmSync(taskProjectDir, { recursive: true, force: true });
+    }
+  });
+
+  it('replays task_assign after a lost response without assigning twice', async () => {
+    conversationRepo.create({ id: 'conv-assign-retry', title: 'Assign retry project' });
+    taskRepo.create({
+      id: 'TASK-ASSIGN-RETRY',
+      conversation_id: 'conv-assign-retry',
+      title: 'Assign safely',
+      agent_id: 'luigi',
+    });
+    const taskProjectDir = join(
+      tmpdir(),
+      `skill-assign-retry-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    );
+    mkdirSync(taskProjectDir, { recursive: true });
+    writeTasksMd(taskProjectDir, [{
+      id: 'TASK-ASSIGN-RETRY',
+      title: 'Assign safely',
+      phase: '',
+      role: 'worker',
+      agent: 'luigi',
+      status: 'ready',
+      depends: [],
+      deliverable: '',
+    }], []);
+    const invocation = {
+      toolName: 'task_assign',
+      agentId: 'mario',
+      conversationId: 'conv-assign-retry',
+      taskProjectDir,
+      rateLimitKey: 'lost-response-assign-command',
+      input: { task_id: 'TASK-ASSIGN-RETRY', agent_id: 'peach' },
+    };
+    try {
+      const first = await executeSkillTool(invocation);
+      const retry = await executeSkillTool(invocation);
+
+      expect(retry).toEqual(first);
+      expect(taskRepo.getById('TASK-ASSIGN-RETRY')).toMatchObject({
+        agent_id: 'peach',
+        revision: 1,
+      });
+      expect(taskGraphRepo.listActionsForTask('TASK-ASSIGN-RETRY')
+        .filter((action) => action.type === 'task.claimed')).toHaveLength(1);
+    } finally {
+      rmSync(taskProjectDir, { recursive: true, force: true });
+    }
   });
 
   it('projects task mutations to the invocation runtime directory', async () => {
@@ -60,7 +168,7 @@ describe('skill tool collaboration gates', () => {
       });
       expect(result.success).toBe(true);
       expect(readTasksMd(taskProjectDir).tasks).toEqual([
-        expect.objectContaining({ title: 'Runtime-scoped task', agent: 'mario', status: 'pending' }),
+        expect.objectContaining({ title: 'Runtime-scoped task', agent: 'mario', status: 'ready' }),
       ]);
     } finally {
       rmSync(taskProjectDir, { recursive: true, force: true });
@@ -77,7 +185,7 @@ describe('skill tool collaboration gates', () => {
   });
 
   it('returns committed receipt success when runtime projection needs reconciliation', async () => {
-    taskRepo.updateStatus('TASK-GIT', 'in_progress');
+    taskRepo.transition('TASK-GIT', { to: 'in_progress' });
     vi.spyOn(GhCliGitProviderVerifier.prototype, 'getPullRequest').mockResolvedValue({
       provider: 'github', repository: 'acme/widget', number: 1, title: 'Ship safely',
       url: 'https://github.com/acme/widget/pull/1', state: 'open', draft: false, author: 'luigi',

@@ -60,6 +60,12 @@ export interface Task {
 let taskCounter = 1;
 let statePhasesSeq = 1;
 
+function newTaskCommandId(scope: string): string {
+  const identity = globalThis.crypto?.randomUUID?.()
+    ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return `webui:${scope}:${identity}`;
+}
+
 // --- Task lookup index (O(1) by reference equality) ---
 
 let _taskLookup: Record<string, Task> = {};
@@ -156,7 +162,7 @@ export const createTaskSlice = (set: any, get: () => any) => {
       fetch('/api/mutations', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ type: 'task.create', payload: { id, conversation_id: conversationId, title: taskData.title, description: taskData.description, agent_id: taskData.agentId, dependencies: JSON.stringify(taskData.dependencies), artifacts: JSON.stringify(taskData.artifacts) } }),
+        body: JSON.stringify({ type: 'task.create', payload: { id, conversation_id: conversationId, title: taskData.title, description: taskData.description, agent_id: taskData.agentId, dependencies: JSON.stringify(taskData.dependencies), artifacts: JSON.stringify(taskData.artifacts), idempotencyKey: newTaskCommandId('task.create') } }),
       }).catch((err: any) => console.error('[mutation] task.create failed:', err));
     },
 
@@ -188,7 +194,7 @@ export const createTaskSlice = (set: any, get: () => any) => {
       fetch('/api/mutations', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ type: 'task.update', payload: { id: taskId, ...patch } }),
+        body: JSON.stringify({ type: 'task.update', payload: { id: taskId, ...patch, idempotencyKey: newTaskCommandId('task.update') } }),
       }).catch((err: any) => console.error('[mutation] task.update failed:', err));
     },
 
@@ -236,7 +242,7 @@ export const createTaskSlice = (set: any, get: () => any) => {
         const response = await fetch('/api/mutations', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ type: 'task.updateStatus', payload: { id: taskId, status, reviewNote, evidence } }),
+          body: JSON.stringify({ type: 'task.updateStatus', payload: { id: taskId, status, reviewNote, evidence, idempotencyKey: newTaskCommandId('task.updateStatus') } }),
         });
         if (!response.ok) {
           const body = await response.json().catch(() => ({}));
@@ -454,6 +460,7 @@ export const createTaskSlice = (set: any, get: () => any) => {
                 status: 'pending',
                 dependencies: JSON.stringify([]),
                 artifacts: JSON.stringify([]),
+                idempotencyKey: newTaskCommandId('task.create'),
               },
             }),
           }).catch((err) => console.error('[mutation] task.create failed:', err));

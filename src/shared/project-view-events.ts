@@ -13,6 +13,7 @@ export type ProjectViewEventKind =
   | 'runtime.warning'
   | 'runtime.usage'
   | 'runtime.completed'
+  | 'a2a.snapshot'
   | 'chat.message.persisted'
   | 'terminal.output'
   | 'terminal.exited';
@@ -30,6 +31,45 @@ export interface ProjectViewEnvelope extends ProjectViewEventInput {
   version: typeof PROJECT_VIEW_VERSION;
   projectId: string;
   occurredAt: string;
+}
+
+export type A2AProjectionChainStatus = 'active' | 'completed' | 'aborted' | 'timeout';
+
+export type A2AProjectionPassStatus =
+  | 'drafted'
+  | 'validated'
+  | 'offered'
+  | 'accepted'
+  | 'starting'
+  | 'started'
+  | 'completed'
+  | 'blocked'
+  | 'rejected'
+  | 'timeout'
+  | 'error';
+
+export interface A2AProjectionHandoff {
+  id: string;
+  chainId: string;
+  passId: string;
+  fromAgentId: string;
+  toAgentId: string;
+  status: A2AProjectionPassStatus;
+  intent: string;
+  title?: string;
+  reason?: string;
+  phase?: string;
+  timestamp: string;
+}
+
+export interface A2AProjectionSnapshot {
+  conversationId: string;
+  chainId: string;
+  revision: number;
+  currentHolderIds: string[];
+  status: A2AProjectionChainStatus;
+  updatedAt: string;
+  handoffs: A2AProjectionHandoff[];
 }
 
 export function isProjectViewEnvelope(value: unknown): value is ProjectViewEnvelope {

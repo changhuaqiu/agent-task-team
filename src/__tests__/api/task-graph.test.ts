@@ -53,12 +53,16 @@ describe('GET /api/task-graph', () => {
       ownerAgentId: 'planner',
       actorId: 'user',
       actorType: 'user',
+      expectedRevision: 0,
+      idempotencyKey: 'api-get-root',
     }).task;
     groupChatTaskFlow.splitTask({
       conversationId: 'conv-1',
       parentTaskId: root.id,
       actorId: 'planner',
       actorType: 'agent',
+      expectedRevision: 1,
+      idempotencyKey: 'api-get-split',
       children: [
         { title: '协作模型', ownerAgentId: 'architect' },
         { title: '群聊 UI', ownerAgentId: 'frontend' },

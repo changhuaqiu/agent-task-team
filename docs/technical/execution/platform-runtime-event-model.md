@@ -5,13 +5,16 @@
 > 历史规格：`docs/archive/specs/platform-runtime-events/spec.md`
 > 依赖：`acp-runtime-integration`、`system-control-plane`、`agent-session-identity`
 
-本文是平台事件驱动 Runtime 的**顶层技术设计与架构决策记录**。它承载长期设计动机、
+本文是 Platform Harness 内部事件机制的**技术设计与架构决策记录**。它承载长期设计动机、
 关键决策的 ADR 记录，以及现状到目标的差距分析。实施期契约已经完成并归档到
 `docs/archive/specs/platform-runtime-events/`，本文与 `docs/wiki/04-backend-daemon.md`
 共同承载长期事实。
 
 当前实现的分层、主链路及重试边界可直接查看
 [`Platform Runtime 当前架构图`](platform-runtime-current-architecture.html)。
+整个平台运行时的顶层职责、三层循环、状态机和模块集成以
+[`Platform Harness 状态机与模块集成设计`](platform-harness-state-machine-design.md)
+为准。
 
 ---
 
@@ -22,9 +25,10 @@
 项目历史中 `runtime` 一词被重载为多种含义（ACP 执行进程、Team Runtime 契约、
 Runtime Node 身份等）。本设计统一收敛到一个心智模型：
 
-> **runtime = 整个平台运行时本身**。它不是某个 agent 执行进程，也不是某个领域模块，
-> 而是平台在运行过程中持续产生并处理信息的那一层。ACP 执行进程、领域模块、协作流转
-> 都是 runtime 运行过程中的**事件源**，不是 runtime 本身。
+> **Platform Harness = Platform Runtime = 整个平台运行时环境**。它不是某个 agent
+> 执行进程，也不是替 Agent 思考的 Boss Agent。Task、A2A、Context、Gate、Invocation
+> 等领域模块运行在 Harness 内部，并各自保留事实所有权；ACP 执行进程是 Harness 管理的
+> 外部执行端口。
 
 这对应 spec §4 中"canonical `runtime.*` 事件的唯一生产者 Platform Runtime"这一概念——
 Platform Runtime 就是归一化层，把 Runtime 原始信号收敛成有严格语义的 `runtime.*`
@@ -63,9 +67,10 @@ Domain Event
   -> Domain Event
 ```
 
-Agent 是 Command actor，不是事件消费者（经 Inbox 被动消费除外，见 §7）。Invocation 是
-Agent 的一次激活。Platform Runtime 只负责可靠执行 Invocation，不拥有 Task、A2A、Review
-或 Delivery 事实——这些事实源是各领域的表（见 §2）。
+Agent 是 Command actor，不是事件订阅者（经 Inbox 被动获得工作，见 §7）。Invocation 是
+Agent 的一次激活。Harness 内的 Invocation Pipeline 只负责可靠执行 Invocation；Task、
+A2A、Review 或 Delivery 事实仍由 Harness 内对应领域 owner 管理（见 §2）。这里的“不拥有”
+是模块事实边界，不表示这些模块位于 Platform Harness 之外。
 
 ---
 
@@ -168,7 +173,7 @@ spec §7 的四角色就是这"不同方法"的分类。
 
 | 类别 | 命名示例 | 唯一生产者 | 主要消费者 | 进 Core? |
 | --- | --- | --- | --- | --- |
-| `domain` | `task.assigned`、`delivery.run.phase_advanced`、`a2a.possession.passed` | 各领域模块（inline） | ①Router、②Reducer、③PM、④Projection | 状态校验进 Core，fan-out 不进 |
+| `domain` | `task.assigned`、`delivery.run.state_changed`、`a2a.possession.passed` | 各领域模块（inline） | ①Router、②Reducer、③PM、④Projection | 状态校验进 Core，fan-out 不进 |
 | `coordination` | `agent.work.enqueued`、`agent.work.claimed` | Agent Inbox 模块 | Scheduler、Harness、④Projection | 不进（下半部） |
 | `runtime_lifecycle` | `runtime.invocation.started`、`runtime.invocation.terminated` | Platform Runtime | ②Reducer（重建 invocation 态） | ✓ 上半部（guard） |
 | `runtime_activity` | `runtime.message.segment.completed`、`runtime.tool.started` | Platform Runtime | ④Projection（UI/观测） | 不进（下半部） |
@@ -351,7 +356,7 @@ deep module 退化成 shared mutable 全局。
 
 ## 8. A2A 作为 domain 事件的一部分
 
-A2A 不在事件架构里有单独位置——它就是 domain 事件的一部分，与 task/review/delivery 同级。
+A2A 不在事件架构里有单独位置——它就是 domain 事件的一部分，与 task/gate/delivery 同级。
 A2A 的 `a2a.possession.passed` / `a2a.chain.entry_done` 是 domain 事件，走同一条
 ①Router→Inbox 链。
 
@@ -439,8 +444,8 @@ A 调工具 requestHandoff({to:B, prompt, contextRef})
 | 事件类 | 状态 | 说明 |
 | --- | --- | --- |
 | runtime_lifecycle / runtime_activity | ✓ canonical 信封、归一化与 daemon 接线 | 兼容双写已在切片 6 删除 |
-| domain（9 领域） | ✓ typed 目录 + 领域事务内 inline seam | task/review/delivery/a2a/envelope/binding/node/session/invocation |
-| coordination | ✓ 持久 Inbox + enqueued/claimed/recovered 已落地 | migration 49；Scheduler 经 Harness 提交 |
+| domain（9 领域） | ✓ typed 目录 + 领域事务内 inline seam | task/gate/delivery/a2a/envelope/binding/node/session/invocation |
+| coordination | ✓ 持久 Inbox + enqueued/claimed/admitted/released/expired/cancelled 已落地 | migration 56；Scheduler 经 Harness 提交 |
 
 ### 9.3 domain 事件迁移清单（已完成）
 
@@ -449,14 +454,14 @@ A 调工具 requestHandoff({to:B, prompt, contextRef})
 
 | 领域 | 静默状态机 | 潜在 domain 事件 |
 | --- | --- | --- |
-| autonomous-delivery | run: `submitted→planning→executing→reviewing→verifying→delivering→completed/escalated`；attempt `succeeded/failed` | `delivery.run.submitted/phase_advanced/completed/escalated` |
+| autonomous-delivery | lifecycle: `active/waiting_gate/waiting_human/retrying→completed/failed/cancelled`；stage 独立为 `planning→executing→reviewing→verifying→integrating→delivering` | `delivery.run.started/state_changed/waiting_human/completed/failed/cancelled` |
 | a2a possession | `startPass`（控制权转移）、`createPass`、`completeChain` | `a2a.possession.passed/completed` |
 | a2a chain | `markDone`、`complete/abort` | `a2a.chain.entry_done/completed` |
-| execution_envelope | 10 态：`drafted→...→blocked/completed/failed/expired`，终态不可逆 | `envelope.validated/blocked/queued/routed/sent/...` |
-| task | `updateStatus`、`recordHandoffAccepted` | `task.assigned/in_progress/in_review/done`（最成熟，有 `task_action` 准事件源） |
+| execution_envelope | `drafted→validated→routed→sent→acknowledged/rejected/expired`，只表达派发接纳 | `envelope.validated/routed/sent/acknowledged/rejected/expired` |
+| task | Task owner `create/update/replaceDependencies/transition/applyOutcome` Commands | `task.assigned/ready/in_progress/in_review/changes_requested/done/blocked/cancelled` |
 | agent_binding | `markStarted/markFinished/markError` | `binding.started/finished/error` |
 | runtime_node | `recordMiss`（`reachable→stale→unreachable`） | `node.stale/unreachable` |
-| invocation/dispatch | `updateStatus`、`claimNext` | `invocation.queued/claimed/succeeded` |
+| invocation/dispatch | Invocation lifecycle 与 outcome 分离；Inbox 独立 admission | `invocation.planned/starting/running/terminating/terminated` |
 | agent_session | `seal*` 系列 | `session.sealed` |
 
 **可复用的准事件源**（已是 append-only，加 fan-out 即变 domain 事件）：`task_action`
@@ -473,31 +478,28 @@ A 调工具 requestHandoff({to:B, prompt, contextRef})
 
 ### 9.5 Process Manager 错位（精确落点）
 
-> **ADR-005：立即解耦 Process Manager 触发入口，保留 Supervisor 深模块**
+> **ADR-005：立即解耦 Process Manager 触发入口，保留交付控制深模块**
 > 详见 §11 ADR-005。
 
-delivery 的阶段推进不是"硬编码在 daemon"（之前的判断有误）。精确结构：
+delivery 的阶段推进不是"硬编码在 daemon"。迁移前的错位是：
 
-- `reconcileAutonomousDeliveryConversation`（`autonomous-delivery/registry.ts:50-59`）是
-  9 行薄外壳，真正逻辑在 `AutonomousDeliverySupervisor.advance`（`supervisor.ts:84`）。
-- `advance` 已有良好分层：纯函数决策 `decideDeliveryNext`（`policy.ts:90`）+ 端口适配
-  （`DeliveryFactsPort`/`DeliveryActionPort`）+ 乐观锁串行化（`updateRun` 用
-  `expectedRevision`，`repository.ts:111-112`）。
-- **错位点**（需重构的两处）：
+- `reconcileAutonomousDeliveryConversation` 只是薄触发外壳，真正控制规则集中在旧
+  `AutonomousDeliverySupervisor.advance`。
+- 旧实现以单动作 `decideDeliveryNext` 和私有 Action/Attempt 表维护恢复。
+- **已修复的错位点**：
   1. **入口硬编码时序**：`task-notification-publisher.ts:260` 尾部 `void reconcile...`
      把 delivery 协调挂在 task 通知函数尾部，与 task 通知耦合。应抽成 task/review
      事件订阅 handler。
-  2. **触发原因未利用**：`cause` 参数被 `void` 掉（`supervisor.ts:85`），事件因果没有进入
-     可观察证据。
+  2. **触发原因丢失**：旧 `cause` 没有进入可观察证据。
 
-`AutonomousDeliverySupervisor.advance()` 已是深模块：它用一个小 interface 隐藏状态推导、
-claim、lease、重试、恢复、并发控制和收口规则；这与
-`specs/autonomous-delivery-loop/spec.md` 的既有契约一致。事件迁移不得为了“handler 化”
-把这些内部职责泄露成多个浅 interface。事件 handler 只负责把 event 映射为幂等的
-delivery advancement request；delivery 模块持久接纳后，由自己的 worker 调用
+当前 `DeliveryControlRuntime.advance()` 是外部深 interface，内部由
+`DeliveryControlProcessManager` 对权威快照计算多动作 `ControlDecision`；Control Plane
+持久层统一隐藏 action claim、lease、fencing、恢复和 slot 占用。事件 handler 只负责把
+event 映射为幂等 delivery advancement request；delivery queue 的 worker 调用
 `advance(runId, cause)`。Platform Event delivery 的成功边界是持久接纳，实际推进失败由
 delivery queue 重试。bootstrap 的周期 reconcile 保留为兜底恢复触发器，不与事件驱动入口
-争夺事实 owner。
+争夺事实 owner。旧 Supervisor、`decideDeliveryNext`、production adapters 与
+`autonomous_delivery_action/attempt` 已在 S6 删除。
 
 ### 9.6 forwardAgentEvent 六重职责（已拆除）
 
@@ -543,7 +545,7 @@ Session 身份仍由 coordinator 上半部守护；背景活动与 heartbeat 留
   退出: 四类事件契约和 owner 有自动化测试（spec §10）
 
 切片5: Process Manager 触发入口迁移（已完成）
-  delivery 阶段推进抽成 handler，复用 AutonomousDeliverySupervisor.advance 深模块
+  delivery 阶段推进抽成 handler，复用 DeliveryControlRuntime.advance 深模块
   退出: delivery 协调不再依赖 task-notification-publisher 尾部硬编码
 
 切片6: 退出双写（已完成）
@@ -611,26 +613,25 @@ Session 身份仍由 coordinator 上半部守护；背景活动与 heartbeat 留
 
 - **背景**：9 个领域的状态机全静默纯表写入，零 fan-out。这是"全平台事件驱动"相对
   "runtime 部分事件驱动"的核心价值缺口。
-- **决策**：第一阶段将 9 领域全部转 domain 事件（task/delivery/a2a/envelope/binding/
+- **决策**：第一阶段将 9 领域全部转 domain 事件（task/gate/delivery/a2a/envelope/binding/
   node/session/invocation）。生产用 inline（同事务发事件）。
 - **替代方案**：①只转高价值领域（task/delivery/a2a/envelope）。否决原因：用户明确选
   "全领域都转"。②只从 task 试点。否决原因：用户选"全领域"。
 - **后果**：domain 事件目录见 spec §6。`task_action` 等准事件源加 fan-out 即可复用。
 - **退出条件**：四类事件契约和 owner 有自动化测试（spec §10）。
 
-### ADR-005：立即解耦 Process Manager 触发入口，保留 Supervisor 深模块
+### ADR-005：立即解耦 Process Manager 触发入口，保留交付控制深模块
 
-- **背景**：delivery 阶段推进的触发职责错位——入口硬编码在
-  task-notification-publisher 尾部；但 `advance()` 本身已经是符合既有 active spec 的
-  深模块。
+- **背景**：delivery 阶段推进的触发职责曾错位在 task-notification-publisher 尾部；
+  `advance()` 应继续作为交付控制的深 interface。
 - **决策**：立即迁移触发入口（不保留通知尾部双写）。task/review 事件 handler 以
   source event 幂等持久接纳 advancement request；delivery worker 调用
   `advance(runId, cause)`，失败重新排队。周期 reconcile 保留为 crash/retry 兜底恢复触发器。
-  Supervisor 内部的状态推导、claim、lease、执行、重试与收口继续隐藏在同一 interface 后。
+  状态推导、claim、lease、fencing、恢复与收口继续隐藏在同一 interface 后；后续 S5/S6
+  已把旧单动作实现替换为 `DeliveryControlProcessManager + ControlDecision/ControlAction`。
 - **替代方案**：①保留通知尾部触发，否决原因是继续耦合 Projection 与协调逻辑；
-  ②把 Supervisor 拆成 PM handler + worker 公共 interface，否决原因是与
-  `autonomous-delivery-loop` 事实源冲突并降低模块深度。
-- **后果**：daemon 仍是纯 Runtime 执行器；delivery 协调可通过 Supervisor interface 独立
+  ②把控制逻辑泄露成多个 handler 公共 interface，否决原因是降低模块深度。
+- **后果**：daemon 仍是纯 Runtime 执行器；delivery 协调可通过 Delivery Control interface 独立
   测试；事件 handler 很薄但不复制业务规则。
 - **退出条件**：delivery 协调不再依赖 task-notification-publisher 尾部硬编码；现有 delivery
   测试无回归。

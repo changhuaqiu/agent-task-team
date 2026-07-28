@@ -21,7 +21,7 @@ export class TaskWakeupRouter {
     this.router = new AgentInboxRouter({
       inbox: this.inbox,
       resolve: (event) => {
-        if (event.type !== 'task.rejected' && event.type !== 'task.blocked') return undefined;
+        if (event.type !== 'task.changes_requested' && event.type !== 'task.blocked') return undefined;
         const payload = event.payload as {
           agentId?: string;
           reviewNote?: string;
@@ -39,8 +39,8 @@ export class TaskWakeupRouter {
           command: {
             source: 'workflow',
             taskId: task.id,
-            prompt: event.type === 'task.rejected'
-              ? `Task ${task.id} was rejected. Address the review feedback: ${payload.reviewNote ?? 'Review the latest task evidence and correct the implementation.'}`
+            prompt: event.type === 'task.changes_requested'
+              ? `Task ${task.id} requires changes. Address the review feedback: ${payload.reviewNote ?? 'Review the latest task evidence and correct the implementation.'}`
               : `Task ${task.id} is blocked. Inspect the latest task evidence and resolve the blocker.`,
           },
         };
@@ -54,7 +54,7 @@ export class TaskWakeupRouter {
       throw context.signal.reason ?? new Error('task_wakeup_router_aborted');
     }
     if (event.type === 'task.done' || event.type === 'task.cancelled') {
-      this.inbox.cancelQueuedForTask(event.projectId, event.aggregate.id);
+      this.inbox.cancelPendingForTask(event.projectId, event.aggregate.id);
       return;
     }
     return this.router.handle(event, context);

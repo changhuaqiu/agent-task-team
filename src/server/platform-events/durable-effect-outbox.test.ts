@@ -72,6 +72,9 @@ describe('DurableEffectOutbox', () => {
     const duplicate = outbox.enqueueBatch(input);
     expect(duplicate.map((item) => item.id)).toEqual(first.map((item) => item.id));
     expect(first.map((item) => item.laneSequence)).toEqual([1, 2]);
+    expect(db.prepare(`
+      SELECT COUNT(*) AS count FROM platform_event WHERE type='effect.enqueued'
+    `).get()).toEqual({ count: 2 });
 
     expect(() => outbox.enqueueBatch({
       ...input,
@@ -94,6 +97,112 @@ describe('DurableEffectOutbox', () => {
     expect(db.prepare(
       "SELECT COUNT(*) count FROM platform_effect_outbox WHERE lane_key='rollback-lane'",
     ).get()).toEqual({ count: 0 });
+  });
+
+  it('freezes blocking applicability and retry budget at Effect creation', () => {
+    db.prepare(`
+      INSERT INTO autonomous_delivery_run (
+        id,conversation_id,start_idempotency_key,status,current_stage,goal_contract_json,repair_cycle,
+        revision,created_at,updated_at
+      ) VALUES ('run-1','project-1','effect-test-run-1','active','executing','{}',0,3,?,?)
+    `).run(clock.toISOString(), clock.toISOString());
+    const outbox = createOutbox();
+    outbox.register({
+      type: 'test.blocking',
+      execution: 'transactional',
+      maxAttempts: 2,
+      execute() {},
+    });
+    const [effect] = outbox.enqueueBatch({
+      sourceEventId,
+      laneKey: 'delivery:run-1',
+      effects: [{
+        type: 'test.blocking',
+        targetKey: 'publish',
+        payload: {},
+        criticality: 'blocking',
+        deliveryRunId: 'run-1',
+        appliesFromRevision: 3,
+        sourceActionId: 'control-action-1',
+      }],
+    });
+
+    expect(effect).toMatchObject({
+      criticality: 'blocking',
+      deliveryRunId: 'run-1',
+      appliesFromRevision: 3,
+      sourceActionId: 'control-action-1',
+      maxAttempts: 2,
+    });
+    expect(outbox.listApplicableBlocking('run-1', 2)).toEqual([]);
+    expect(outbox.listApplicableBlocking('run-1', 3).map((item) => item.id))
+      .toEqual([effect!.id]);
+
+    const afterRestart = createOutbox('worker-after-restart');
+    afterRestart.register({
+      type: 'test.blocking',
+      execution: 'transactional',
+      maxAttempts: 9,
+      execute() {},
+    });
+    expect(afterRestart.enqueueBatch({
+      sourceEventId,
+      laneKey: 'delivery:run-1',
+      effects: [{
+        type: 'test.blocking',
+        targetKey: 'publish',
+        payload: {},
+        criticality: 'blocking',
+        deliveryRunId: 'run-1',
+        appliesFromRevision: 3,
+        sourceActionId: 'control-action-1',
+      }],
+    })[0]?.maxAttempts).toBe(2);
+  });
+
+  it('requires explicit cancellation or supersession to remove a blocking Effect', () => {
+    db.prepare(`
+      INSERT INTO autonomous_delivery_run (
+        id,conversation_id,start_idempotency_key,status,current_stage,goal_contract_json,repair_cycle,
+        revision,created_at,updated_at
+      ) VALUES ('run-1','project-1','effect-test-run-1','active','executing','{}',0,4,?,?)
+    `).run(clock.toISOString(), clock.toISOString());
+    const outbox = createOutbox();
+    const [cancelled, superseded] = outbox.enqueueBatch({
+      sourceEventId,
+      laneKey: 'delivery:run-1',
+      effects: ['cancel', 'supersede'].map((targetKey) => ({
+        type: 'test.effect',
+        targetKey,
+        payload: {},
+        criticality: 'blocking' as const,
+        deliveryRunId: 'run-1',
+        appliesFromRevision: 4,
+      })),
+    });
+
+    expect(outbox.cancel({
+      effectId: cancelled!.id,
+      reason: 'delivery policy changed',
+    })).toBe(true);
+    expect(outbox.supersede({
+      effectId: superseded!.id,
+      atRevision: 5,
+      reason: 'new artifact revision',
+      successorEffectId: 'effect-successor',
+    })).toBe(true);
+
+    expect(outbox.get(cancelled!.id)).toMatchObject({
+      status: 'cancelled',
+      dispositionReason: 'delivery policy changed',
+    });
+    expect(outbox.get(superseded!.id)).toMatchObject({
+      status: 'superseded',
+      supersededAtRevision: 5,
+      successorEffectId: 'effect-successor',
+      dispositionReason: 'new artifact revision',
+    });
+    expect(outbox.listApplicableBlocking('run-1', 5)).toEqual([]);
   });
 
   it('serializes one lane while allowing another lane to run', async () => {
@@ -165,6 +274,12 @@ describe('DurableEffectOutbox', () => {
       conversationId: 'project-1',
     })).toHaveLength(1);
     expect(outbox.get(effect!.id)?.status).toBe('succeeded');
+    expect(new PlatformEventLog({ db }).listStream(`effect:${effect!.id}`)
+      .map((event) => event.type)).toEqual([
+      'effect.enqueued',
+      'effect.retry_scheduled',
+      'effect.succeeded',
+    ]);
   });
 
   it('runs best-effort notification only after transactional commit', async () => {

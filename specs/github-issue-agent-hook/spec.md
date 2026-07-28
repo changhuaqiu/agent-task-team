@@ -2,7 +2,7 @@
 
 **状态**：active
 **日期**：2026-07-20
-**依赖**：`specs/autonomous-delivery-loop/`、`specs/system-control-plane/`
+**依赖**：`docs/technical/execution/platform-harness-state-machine-design.md`、`specs/system-control-plane/`
 
 ## 1. 目标
 
@@ -43,7 +43,7 @@ GitHub Issue 是外部需求来源，不直接拥有内部任务状态。`Conver
 - 精确仓库白名单与可选触发标签
 - Issue 正文和 Markdown checklist 到 `GoalContract` 的确定性编译
 - GitHub Issue、Conversation、DeliveryRun 的持久映射和双重幂等
-- 复用 `AutonomousDeliverySupervisor.start/advance`
+- 复用 `DeliveryControlRuntime.start/advance`
 - `gh` CLI webhook 安装脚本
 - 单元测试、端点测试、迁移测试和设计文档
 
@@ -102,7 +102,7 @@ GitHub Issue 是外部需求来源，不直接拥有内部任务状态。`Conver
 
 - 缺少/错误签名：`401`
 - 缺少事件头、delivery ID 或 payload 结构错误：`400`
-- Supervisor/Socket 运行时未就绪：`503`
+- Platform Harness/Socket 运行时未就绪：`503`
 
 成功创建返回 `202`；重复 delivery 或重复 Issue 返回 `200`，并返回原有映射。
 

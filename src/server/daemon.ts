@@ -17,7 +17,7 @@ import type { CliEngine, DetectedRuntime } from './types';
 import { sessionRepo } from './repositories/session-repo';
 import type { AgentSessionRow } from './repositories/session-repo';
 import { invocationRepo } from './repositories/invocation-repo';
-import type { InvocationRow } from './repositories/invocation-repo';
+import type { InvocationOutcome, InvocationPatch, InvocationRow } from './repositories/invocation-repo';
 import { generateSortableId } from './repositories/sortable-id';
 import { loadCatalog } from './agent/acp/catalog';
 import {
@@ -31,13 +31,12 @@ import { withDoneGuarantee } from './agent/with-done-guarantee';
 import { isSkillTool } from './skill-tool-router';
 import { registerAcpSkillMcpGrant, resolveAcpMcpLoopbackOrigin } from './acp-skill-mcp';
 import { resolveNonWorktreeExecutionCwd, stableWorkdirTaskKey, WorkdirManager } from './workdir-manager';
-import { AgentMessenger } from './a2a';
-import { createRuntimeSnapshotProvider } from './a2a/runtime-snapshot-provider';
 import { getDb } from './db';
 import { DispatchGateway } from './control-plane/dispatch-gateway';
 import { runtimeNodeRepo } from './repositories/runtime-node-repo';
 import type { DispatchIntent, DispatchSource, RuntimeNodeKind } from './repositories/control-plane-types';
 import { taskRepo } from './repositories/task-repo';
+import { taskCommandService } from './repositories/task-command-service';
 import { conversationRepo } from './repositories/conversation-repo';
 import { taskGraphRepo } from './repositories/task-graph-repo';
 import { executionEnvelopeRepo } from './repositories/execution-envelope-repo';
@@ -46,15 +45,16 @@ import { resolveTaskNotificationAudience } from './task-flow/task-notification-p
 import { resolveAutonomyGuardWakeups } from './task-flow/autonomy-guard';
 import { startWorktreeGCScheduler, stopWorktreeGCScheduler } from './worktree-gc';
 import {
-  HarnessCoordinator,
-  RepositoryHarnessPlanner,
-  registerHarnessCoordinator,
-  submitTaskWakeupToHarness,
-  type HarnessDispatchPlan,
-  type HarnessOutcome,
-  type HarnessSubmission,
-} from './harness';
-import { finalizeRuntimeContextSnapshot } from './harness/runtime-context-snapshot';
+  InvocationCoordinator,
+  InvocationFailureEventPublisher,
+  InvocationPlanner,
+  registerInvocationCoordinator,
+  submitTaskWakeupToInvocationPipeline,
+  type InvocationDispatchPlan,
+  type InvocationDispatchOutcome,
+  type InvocationSubmission,
+} from './invocation-pipeline';
+import { finalizeRuntimeContextSnapshot } from './invocation-pipeline/runtime-context-snapshot';
 import type { ContextReport, ContextSnapshot } from '../lib/agent-context/ContextManager';
 import type { ContextScenario } from '../lib/agent-context/scenarioResolver';
 import { generateSpanId, generateTraceId, observationSpanRepo } from './repositories/observation-span-repo';
@@ -77,9 +77,12 @@ import {
   startPlatformEventRuntime,
 } from './platform-events';
 import { ensureAutonomousDeliveryRuntime } from './autonomous-delivery/bootstrap';
+import { registerDeliveryEffectAdapters } from './autonomous-delivery/delivery-effects';
 import { deliveryAdvancementQueue } from './autonomous-delivery/advancement-queue';
 import { registerAutonomousDeliveryE2EDriver } from './testing/autonomous-delivery-e2e-driver';
 import { ProjectViewPublisher } from './project-view/project-view-publisher';
+import type { WorkContract } from './work-contract/types';
+import { renderWorkContractInstruction } from './work-contract/dispatch-contract';
 
 type TerminalStartPayload = {
   dispatchId?: string;
@@ -113,13 +116,14 @@ type TerminalStartPayload = {
   traceId?: string;
   contextReport?: ContextReport;
   contextSnapshot?: ContextSnapshot;
-  evaluation?: HarnessDispatchPlan['evaluation'];
+  workContract?: WorkContract;
+  evaluation?: InvocationDispatchPlan['evaluation'];
 };
 
 export function submitSocketTerminalStart(
-  coordinator: Pick<HarnessCoordinator, 'submit'>,
+  coordinator: Pick<InvocationCoordinator, 'submit'>,
   payload: TerminalStartPayload,
-): HarnessSubmission {
+): InvocationSubmission {
   const conversationId = payload.conversationId?.trim();
   if (!conversationId) throw new Error('conversation_missing: terminal:start requires conversationId');
   return coordinator.submit({
@@ -232,17 +236,20 @@ export default function registerDaemon(io: IOServer) {
     publish: (projectId, event) => projectViewPublisher.publish(projectId, event),
   });
   const dispatchGateway = new DispatchGateway();
-  // Deferred until after the Harness port is constructed; the port closes over this handler.
+  // Deferred until after the Agent Runtime port is constructed; the port closes over this handler.
   // eslint-disable-next-line prefer-const
   let handleTerminalStart: ((payload: TerminalStartPayload, emitToRequester: (event: string, data: unknown) => void) => Promise<void>) | undefined;
 
-  const harnessCoordinator = new HarnessCoordinator({
-    planner: new RepositoryHarnessPlanner(),
+  const invocationCoordinator = new InvocationCoordinator({
+    planner: new InvocationPlanner(),
+    failureEvents: new InvocationFailureEventPublisher({
+      runtimeActorId: LOCAL_DAEMON_NODE_ID,
+    }),
     runtime: {
       isBusy(agentId, conversationId) {
         return activeProcesses.has(processKey(agentId, conversationId));
       },
-      async execute(plan: HarnessDispatchPlan): Promise<HarnessOutcome> {
+      async execute(plan: InvocationDispatchPlan): Promise<InvocationDispatchOutcome> {
         if (!handleTerminalStart) {
           return { status: 'failed', reasonCode: 'internal_error', message: 'daemon runtime port is not ready' };
         }
@@ -252,7 +259,10 @@ export default function registerDaemon(io: IOServer) {
           taskId: plan.trigger.taskId,
           agentId: plan.trigger.agentId,
           prompt: plan.prompt,
-          systemPrompt: plan.systemPrompt,
+          systemPrompt: [
+            plan.systemPrompt,
+            renderWorkContractInstruction(plan.workContract),
+          ].filter(Boolean).join('\n\n'),
           sourceNodeId: LOCAL_DAEMON_NODE_ID,
           dispatchSource: plan.trigger.source,
           dispatchIntent: plan.trigger.source === 'review_gate'
@@ -275,6 +285,7 @@ export default function registerDaemon(io: IOServer) {
           traceId: plan.traceId,
           contextReport: plan.contextReport,
           contextSnapshot: plan.contextSnapshot,
+          workContract: plan.workContract,
           evaluation: plan.evaluation,
         }, (event, data) => {
           const scopedData = data && typeof data === 'object'
@@ -286,16 +297,16 @@ export default function registerDaemon(io: IOServer) {
       },
     },
   });
-  registerHarnessCoordinator(io, harnessCoordinator);
+  registerInvocationCoordinator(io, invocationCoordinator);
   const agentInbox = new AgentInbox();
   const agentInboxScheduler = new AgentInboxScheduler({
     inbox: agentInbox,
-    submit: (trigger) => harnessCoordinator.submit(trigger),
+    submit: (trigger) => invocationCoordinator.submit(trigger),
   });
   agentInboxScheduler.start();
   registerAutonomousDeliveryE2EDriver(io);
   ensureAutonomousDeliveryRuntime(io, `daemon:${LOCAL_DAEMON_NODE_ID}`);
-  const evaluationCaseRunner = new EvaluationCaseRunner(harnessCoordinator);
+  const evaluationCaseRunner = new EvaluationCaseRunner(invocationCoordinator);
   const evaluationRunnerTimer = setInterval(() => {
     try {
       evaluationCaseRunner.pump();
@@ -380,7 +391,7 @@ export default function registerDaemon(io: IOServer) {
             idempotencyKey: key,
           },
         });
-        const submission = submitTaskWakeupToHarness(io, wakeup);
+        const submission = submitTaskWakeupToInvocationPipeline(io, wakeup);
         if (
           wakeup.reasonCode === 'chain_ready_for_closure'
           && submission?.handled
@@ -430,44 +441,19 @@ export default function registerDaemon(io: IOServer) {
     }
   }
 
-  // Read agents from DB for A2A mention patterns
-  const db = getDb();
-  const dbAgents = db.prepare('SELECT id, name FROM agents').all() as { id: string; name: string }[];
-  const a2aMessenger = new AgentMessenger(db, io,
-    dbAgents.map(a => ({
-      id: a.id,
-      mentionPatterns: [`@${a.id}`, `@${a.name}`],
-    })),
-    createRuntimeSnapshotProvider(),
-    (input) => {
-      agentInbox.enqueue({
-        projectId: input.conversationId,
-        projectAgentId: input.agentId,
-        idempotencyKey: `a2a:${input.chainId}:${input.entryId}:${input.agentId}`,
-        command: {
-          source: 'a2a',
-          prompt: input.prompt,
-          taskId: input.referencedTaskId,
-          fromAgentId: input.fromAgentId,
-          chainId: input.chainId,
-          passId: input.passId,
-        },
-      });
-      return {
-        handled: true,
-        admitted: true,
-      };
-    },
-    true,
-  );
-
   const effectOutbox = new DurableEffectOutbox();
   registerProductionRuntimeCompletionEffects(effectOutbox, {
     io,
-    messenger: a2aMessenger,
   });
+  registerDeliveryEffectAdapters(effectOutbox);
 
   startPlatformEventRuntime({
+    onA2AProjected: (snapshot) => {
+      projectViewPublisher.publish(snapshot.conversationId, {
+        kind: 'a2a.snapshot',
+        payload: { snapshot },
+      });
+    },
     onMessageProjected: (message) => {
       projectViewPublisher.publish(message.conversation_id, {
         kind: 'chat.message.persisted',
@@ -494,12 +480,6 @@ export default function registerDaemon(io: IOServer) {
     effectOutbox,
   });
 
-  // Expire stale A2A chains on startup
-  const expired = a2aMessenger.expireStale();
-  if (expired > 0) {
-    console.log(`[a2a] expired ${expired} stale chains`);
-  }
-
   // Agent pane listing endpoint
   io.on('connection', (socket: Socket) => {
     let connectedRuntimeNodeId: string | undefined;
@@ -510,7 +490,6 @@ export default function registerDaemon(io: IOServer) {
       if (!conversationId) return;
       socket.join(conversationId);
       joinedConversationIds.add(conversationId);
-      a2aMessenger.orchestrator.resendPendingDeliveries(conversationId);
     });
 
     socket.on('conversation:leave', (payload: { conversationId?: string }) => {
@@ -562,30 +541,6 @@ export default function registerDaemon(io: IOServer) {
       callback?.({ panes: agentPaneRegistry.listAll() });
     });
 
-    socket.on('a2a:user-turn-created', (payload: {
-      conversationId?: string;
-      messageId?: string;
-      targetAgentIds?: string[];
-      prompt?: string;
-      taskId?: string;
-    }) => {
-      const conversationId = payload?.conversationId;
-      const messageId = payload?.messageId;
-      if (!conversationId || !messageId) return;
-
-      if (payload.targetAgentIds?.length) {
-        a2aMessenger.registerExternalUserDispatch(
-          conversationId,
-          messageId,
-          payload.targetAgentIds,
-          payload.prompt ?? '',
-          payload.taskId,
-        );
-      } else {
-        a2aMessenger.abortConversationChains(conversationId, 'new_user_turn_without_pass');
-      }
-    });
-
     socket.on('runtimes:list', async (callback) => {
       const runtimes = await detectAvailableRuntimes();
       callback?.({ runtimes });
@@ -627,6 +582,7 @@ export default function registerDaemon(io: IOServer) {
         traceId: requestedTraceId,
         contextReport,
         contextSnapshot,
+        workContract,
         evaluation,
       }: TerminalStartPayload, emitToRequester) => {
       const startKey = processKey(agentId, projectId || conversationId);
@@ -661,7 +617,7 @@ export default function registerDaemon(io: IOServer) {
       let primaryCommand = 'unknown';
       let runtimeConfigDir: string | undefined;
       let controlEnvelopeId: string | undefined;
-      let invocationTraceId = requestedTraceId;
+      let invocationTraceId = workContract?.correlationId ?? requestedTraceId;
       let rootObservationSpanId: string | undefined;
       let evaluationObservedDigest: string | undefined;
       let runtimeContextObservationRecorded = false;
@@ -719,7 +675,7 @@ export default function registerDaemon(io: IOServer) {
       const sharedProjectDir = join(workspacesRoot, sessionConvId);
       let taskProjectDir = sharedProjectDir;
       const emitDispatchReceipt = (
-        phase: 'requested' | 'sent' | 'started' | 'completed' | 'blocked' | 'failed',
+        phase: 'requested' | 'sent' | 'acknowledged' | 'rejected',
         reasonCode?: string,
       ) => {
         if (!controlEnvelopeId) return;
@@ -737,22 +693,28 @@ export default function registerDaemon(io: IOServer) {
           createdAt: new Date().toISOString(),
         });
       };
-      const markEnvelopeStarted = () => {
+      const acknowledgeEnvelope = () => {
         if (!controlEnvelopeId) return;
-        dispatchGateway.markStarted(controlEnvelopeId);
-        emitDispatchReceipt('started');
+        dispatchGateway.acknowledge(controlEnvelopeId);
+        emitDispatchReceipt('acknowledged');
       };
-      const markEnvelopeCompleted = () => {
+      const markExecutionCompleted = () => {
         finishObservation('ok');
         if (!controlEnvelopeId) return;
-        dispatchGateway.markCompleted(controlEnvelopeId);
-        emitDispatchReceipt('completed');
+        dispatchGateway.markExecutionFinished(controlEnvelopeId);
       };
-      const markEnvelopeFailed = (reasonCode: string) => {
+      const markExecutionOrEnvelopeFailed = (reasonCode: string) => {
         finishObservation(reasonCode === 'cancelled' ? 'cancelled' : 'error', reasonCode);
         if (!controlEnvelopeId) return;
-        dispatchGateway.markFailed(controlEnvelopeId, reasonCode);
-        emitDispatchReceipt('failed', reasonCode);
+        const current = executionEnvelopeRepo.getById(controlEnvelopeId);
+        if (current?.status === 'acknowledged') {
+          dispatchGateway.markExecutionFailed(controlEnvelopeId, reasonCode);
+          return;
+        }
+        if (current && current.status !== 'rejected' && current.status !== 'expired') {
+          dispatchGateway.reject(controlEnvelopeId, reasonCode);
+          emitDispatchReceipt('rejected', reasonCode);
+        }
       };
 
       const engineFromRuntime =
@@ -800,8 +762,8 @@ export default function registerDaemon(io: IOServer) {
       controlEnvelopeId = envelope.id;
       emitDispatchReceipt('requested', envelope.reason_code ?? undefined);
 
-      if (envelope.status === 'blocked') {
-        emitDispatchReceipt('blocked', envelope.reason_code ?? 'runtime_blocked');
+      if (envelope.status === 'rejected') {
+        emitDispatchReceipt('rejected', envelope.reason_code ?? 'runtime_rejected');
         publishRuntimeWarning(
           `目标运行实例不可达：${envelope.reason_code ?? 'blocked'}`,
           envelope.reason_code ?? 'runtime_blocked',
@@ -815,7 +777,7 @@ export default function registerDaemon(io: IOServer) {
       }
       // If agent is busy and not forcing, reject silently — client should have queued
       if (!force && activeProcesses.has(processKey(agentId, projectId))) {
-        markEnvelopeFailed('agent_busy');
+        markExecutionOrEnvelopeFailed('agent_busy');
         publishRuntimeWarning('Agent is busy, message queued', 'agent_busy');
         return;
       }
@@ -882,8 +844,9 @@ export default function registerDaemon(io: IOServer) {
       }
       const agentSession: AgentSessionRow = existingSession;
 
+      invocationTraceId ??= generateTraceId();
       const invocation: InvocationRow = invocationRepo.create({
-        id: generateSortableId('inv'),
+        id: workContract?.attemptId ?? generateSortableId('inv'),
         conversation_id: sessionConvId,
         task_id: taskId || '',
         agent_id: agentId,
@@ -891,6 +854,12 @@ export default function registerDaemon(io: IOServer) {
         engine,
         account_id: accountId,
         prompt: prompt || '',
+        work_contract_id: workContract?.contractId,
+        work_id: workContract?.workId,
+        work_epoch: workContract?.workEpoch,
+        fencing_token: workContract?.fencingToken,
+        correlation_id: invocationTraceId,
+        causation_id: controlEnvelopeId ?? workContract?.causationId,
       });
       runtimeCompletionContextRepo.create({
         invocationId: invocation.id,
@@ -904,6 +873,23 @@ export default function registerDaemon(io: IOServer) {
         taskProjectDir,
         evaluationExecutionId: evaluation?.executionId,
       });
+      invocationRepo.transition(invocation.id, {
+        to: 'starting',
+        expectedFrom: 'planned',
+      });
+      const terminateInvocation = (
+        outcome: InvocationOutcome,
+        patch: InvocationPatch = {},
+      ): InvocationRow => {
+        const current = invocationRepo.getById(invocation.id);
+        if (!current) throw new Error(`invocation_not_found: ${invocation.id}`);
+        return invocationRepo.transition(invocation.id, {
+          to: 'terminated',
+          expectedFrom: current.status,
+          outcome,
+          ...patch,
+        })!;
+      };
 
       const capturePromptObservation = (assembledPrompt: string, effectiveSystemPrompt?: string) => {
         if (!rootObservationSpanId) return;
@@ -1074,7 +1060,7 @@ export default function registerDaemon(io: IOServer) {
       let runtimeConfigEnv: Record<string, string> = {};
 
       if (engine === 'opencode') {
-        // Offline evaluation must use only the frozen Harness context. Loading
+        // Offline evaluation must use only the frozen Invocation Pipeline context. Loading
         // project-local Skills or authorizing the live shared workspace would
         // leak mutable production state into the isolated worktree.
         const projectSkillPaths = evaluation ? [] : resolveOpenCodeProjectSkillPaths(projectPath);
@@ -1126,7 +1112,7 @@ export default function registerDaemon(io: IOServer) {
           const active = activeProcesses.get(processKey(agentId, projectId));
           if (active) {
             active.kill();
-            markEnvelopeFailed('timeout');
+            markExecutionOrEnvelopeFailed('timeout');
             publishRuntimeWarning(
               `CLI 响应超时 (${Math.round(timeoutMs / 1000)}s)，已自动终止。`,
               'timeout',
@@ -1273,7 +1259,14 @@ export default function registerDaemon(io: IOServer) {
           }
           if (!invocationSessionRecorded) {
             invocationSessionRecorded = true;
-            invocationRepo.updateStatus(invocation.id, 'running', { cli_session_id: event.sessionId });
+            const current = invocationRepo.getById(invocation.id);
+            if (current?.status === 'starting') {
+              invocationRepo.transition(invocation.id, {
+                to: 'running',
+                expectedFrom: 'starting',
+                cli_session_id: event.sessionId,
+              });
+            }
           }
         }
         runtimeEventCoordinator?.adapterEvent(event);
@@ -1314,8 +1307,8 @@ export default function registerDaemon(io: IOServer) {
             invocationId: invocation.id,
             logicalSessionId: agentSession.id,
             runtimeActorId: targetNodeId,
-            correlationId: controlEnvelopeId ?? invocationTraceId ?? invocation.id,
-            causationId: controlEnvelopeId,
+            correlationId: workContract?.correlationId ?? invocationTraceId ?? invocation.id,
+            causationId: controlEnvelopeId ?? workContract?.causationId,
           },
           engine: canonicalEngine,
           runtimeNodeId: targetNodeId,
@@ -1358,7 +1351,7 @@ export default function registerDaemon(io: IOServer) {
         const controller = new AbortController();
         activeProcesses.set(processKey(agentId, projectId), { kill: () => controller.abort() });
         processStartGuard.markStarted(startKey);
-        markEnvelopeStarted();
+        acknowledgeEnvelope();
         runtimeEventCoordinator?.start();
 
         publishTerminalOutput(`\x1b[33m$ opencode-bridge ${url}\x1b[0m\r\n`);
@@ -1391,7 +1384,7 @@ export default function registerDaemon(io: IOServer) {
             publishRuntimeWarning(`Bridge 连接失败 (HTTP ${r.status})`, 'spawn_failed');
             // 失败不 seal session（保持 active，下次 @ resume，id 不变）—— specs/agent-session-stability
             runtimeEventCoordinator?.failSetup('spawn_failed', observedRuntimeSessionId);
-            markEnvelopeFailed('spawn_failed');
+            markExecutionOrEnvelopeFailed('spawn_failed');
             publishTerminalExit({ code: 127, command: 'bridge', reasonCode: 'spawn_failed' });
             activeProcesses.delete(processKey(agentId, projectId));
             if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
@@ -1442,7 +1435,7 @@ export default function registerDaemon(io: IOServer) {
           });
           clearProcessTimeout();
           clearInterval(heartbeatTimer);
-          markEnvelopeCompleted();
+          markExecutionCompleted();
           // Don't seal on successful completion — session stays active for --resume reuse
           publishTerminalExit({
             code: 0,
@@ -1459,7 +1452,7 @@ export default function registerDaemon(io: IOServer) {
           publishRuntimeWarning(`Bridge 错误：${msg}`, 'spawn_failed');
           // 失败不 seal session（保持 active，下次 @ resume，id 不变）—— specs/agent-session-stability
           runtimeEventCoordinator?.failSetup('spawn_failed', observedRuntimeSessionId);
-          markEnvelopeFailed('spawn_failed');
+          markExecutionOrEnvelopeFailed('spawn_failed');
           publishTerminalExit({ code: 127, command: 'bridge', reasonCode: 'spawn_failed' });
           activeProcesses.delete(processKey(agentId, projectId));
           if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
@@ -1519,7 +1512,7 @@ export default function registerDaemon(io: IOServer) {
             },
           });
           processStartGuard.markStarted(startKey);
-          markEnvelopeStarted();
+          acknowledgeEnvelope();
           return;
         } catch (err) {
           console.error('[daemon] tmux pane creation failed, falling back to direct spawn:', (err as Error).message);
@@ -1598,8 +1591,16 @@ export default function registerDaemon(io: IOServer) {
       // Runtime, task projection, watcher, and prompt share one writable fact source.
       taskProjectDir = runtimeWd;
       runtimeCompletionContextRepo.updateTaskProjectDir(invocation.id, runtimeWd);
-      if (taskId && taskRepo.getById(taskId)?.conversation_id === sessionConvId) {
-        taskRepo.update(taskId, { work_dir: taskProjectDir });
+      const taskForWorkdir = taskId ? taskRepo.getById(taskId) : undefined;
+      if (
+        taskForWorkdir?.conversation_id === sessionConvId
+        && taskForWorkdir.work_dir !== taskProjectDir
+      ) {
+        taskCommandService.recordProjectionLocation({
+          conversationId: sessionConvId,
+          taskId: taskForWorkdir.id,
+          workDir: taskProjectDir,
+        });
       }
       const projectedTasks = evaluation
         ? taskRepo.getByConversation(sessionConvId).filter((item) => item.id === taskId)
@@ -1693,7 +1694,7 @@ export default function registerDaemon(io: IOServer) {
       acpCleanup = prepared.cleanup;
       const permittedAcpTools = (contextReport?.availableTools ?? []).filter(isSkillTool);
       const mcpOrigin = resolveAcpMcpLoopbackOrigin(io);
-      if (permittedAcpTools.length > 0 && !mcpOrigin) {
+      if ((permittedAcpTools.length > 0 || workContract) && !mcpOrigin) {
         throw new Error('acp_skill_mcp_unavailable: daemon HTTP listener has no loopback address');
       }
       const acpToolGrant = mcpOrigin
@@ -1703,7 +1704,10 @@ export default function registerDaemon(io: IOServer) {
           projectId,
           taskId,
           taskProjectDir,
+          correlationId: workContract?.correlationId ?? invocationTraceId,
+          causationId: workContract?.contractId ?? invocation.id,
           permittedTools: permittedAcpTools,
+          workContract,
           io,
         }, mcpOrigin)
         : undefined;
@@ -1768,7 +1772,7 @@ export default function registerDaemon(io: IOServer) {
 
       activeProcesses.set(processKey(agentId, projectId), { kill });
       processStartGuard.markStarted(startKey);
-      markEnvelopeStarted();
+      acknowledgeEnvelope();
 
       // Consume events and forward to socket
       (async () => {
@@ -1822,12 +1826,23 @@ export default function registerDaemon(io: IOServer) {
             if (binding.status === 'bound') {
               runtimeEventCoordinator?.confirmSession(finalRuntimeSessionId);
             }
+            terminateInvocation('completed', {
+              exit_code: 0,
+              cli_session_id: finalRuntimeSessionId,
+            });
           } else {
-            invocationRepo.updateStatus(invocation.id, 'failed', {
+            terminateInvocation(
+              final.status === 'timeout'
+                ? 'timed_out'
+                : final.status === 'cancelled'
+                  ? 'cancelled'
+                  : 'failed',
+              {
               exit_code: 1,
               reason_code: final.reasonCode ?? (final.status === 'timeout' ? 'timeout' : undefined),
               ...(final.error ? { error_message: final.error } : {}),
-            });
+              },
+            );
             if (final.reasonCode === 'acp_session_not_found') {
               sessionRepo.seal(agentSession.id, 'runtime_resource_not_found');
             }
@@ -1846,9 +1861,26 @@ export default function registerDaemon(io: IOServer) {
           // fresh runtime Session on the next dispatch.
 
           if (final.status === 'completed') {
-            markEnvelopeCompleted();
+            markExecutionCompleted();
             if (evaluation) {
-              if (taskId) taskRepo.updateStatus(taskId, 'completed');
+              const evaluationTask = taskId ? taskRepo.getById(taskId) : undefined;
+              if (evaluationTask) {
+                const transitionKey = `evaluation-task:review:${evaluation.executionId}`;
+                taskCommandService.transition({
+                  conversationId: sessionConvId,
+                  taskId: evaluationTask.id,
+                  expectedTaskRevision: evaluationTask.revision,
+                  expectedGraphRevision: taskCommandService.expectedGraphRevision(
+                    sessionConvId,
+                    transitionKey,
+                  ),
+                  idempotencyKey: transitionKey,
+                  actor: { type: 'system', id: 'evaluation-runtime' },
+                  correlationId: invocationTraceId,
+                  causationId: invocation.id,
+                  to: 'in_review',
+                });
+              }
               const submitted = agentEvaluation.submit({
                 conversationId: sessionConvId,
                 rootTaskId: taskId,
@@ -1869,9 +1901,29 @@ export default function registerDaemon(io: IOServer) {
               sessionRepo.seal(agentSession.id, 'evaluation_execution_completed');
             }
           } else {
-            markEnvelopeFailed(final.reasonCode ?? (final.status === 'timeout' ? 'timeout' : 'runtime_failed'));
+            markExecutionOrEnvelopeFailed(
+              final.reasonCode ?? (final.status === 'timeout' ? 'timeout' : 'runtime_failed'),
+            );
             if (evaluation) {
-              if (taskId) taskRepo.updateStatus(taskId, 'blocked', final.error ?? final.reasonCode);
+              const evaluationTask = taskId ? taskRepo.getById(taskId) : undefined;
+              if (evaluationTask) {
+                const transitionKey = `evaluation-task:blocked:${evaluation.executionId}`;
+                taskCommandService.transition({
+                  conversationId: sessionConvId,
+                  taskId: evaluationTask.id,
+                  expectedTaskRevision: evaluationTask.revision,
+                  expectedGraphRevision: taskCommandService.expectedGraphRevision(
+                    sessionConvId,
+                    transitionKey,
+                  ),
+                  idempotencyKey: transitionKey,
+                  actor: { type: 'system', id: 'evaluation-runtime' },
+                  correlationId: invocationTraceId,
+                  causationId: invocation.id,
+                  to: 'blocked',
+                  reviewNote: final.error ?? final.reasonCode,
+                });
+              }
               transitionCaseExecution({
                 id: evaluation.executionId,
                 conversationId: sessionConvId,
@@ -1901,11 +1953,38 @@ export default function registerDaemon(io: IOServer) {
           clearInterval(heartbeatTimer);
           console.error(`[daemon][${agentId}] backend error:`, err);
           runtimeEventCoordinator?.failSetup('spawn_failed', observedRuntimeSessionId);
+          try {
+            terminateInvocation('failed', {
+              exit_code: 1,
+              reason_code: 'spawn_failed',
+              error_message: (err as Error)?.message,
+            });
+          } catch (invocationError) {
+            console.error('[daemon] failed to terminate invocation after backend error:', invocationError);
+          }
           // 失败不 seal session（保持 active，下次 @ resume，id 不变）—— specs/agent-session-stability
-          markEnvelopeFailed('spawn_failed');
+          markExecutionOrEnvelopeFailed('spawn_failed');
           if (evaluation) {
             try {
-              if (taskId) taskRepo.updateStatus(taskId, 'blocked', (err as Error)?.message);
+              const evaluationTask = taskId ? taskRepo.getById(taskId) : undefined;
+              if (evaluationTask) {
+                const transitionKey = `evaluation-task:spawn-failed:${evaluation.executionId}`;
+                taskCommandService.transition({
+                  conversationId: sessionConvId,
+                  taskId: evaluationTask.id,
+                  expectedTaskRevision: evaluationTask.revision,
+                  expectedGraphRevision: taskCommandService.expectedGraphRevision(
+                    sessionConvId,
+                    transitionKey,
+                  ),
+                  idempotencyKey: transitionKey,
+                  actor: { type: 'system', id: 'evaluation-runtime' },
+                  correlationId: invocationTraceId,
+                  causationId: invocation.id,
+                  to: 'blocked',
+                  reviewNote: (err as Error)?.message,
+                });
+              }
               transitionCaseExecution({
                 id: evaluation.executionId,
                 conversationId: sessionConvId,
@@ -1951,21 +2030,26 @@ export default function registerDaemon(io: IOServer) {
           }
         }
         if (controlEnvelopeId) {
-          dispatchGateway.markFailed(controlEnvelopeId, 'internal_error');
           const receiptConversationId = conversationId || projectId || 'default';
-          io.to(receiptConversationId).emit('dispatch.receipt', {
-            projectId: receiptConversationId,
-            receiptId: `${controlEnvelopeId}:failed`,
-            conversationId: receiptConversationId,
-            taskId,
-            targetAgentId: agentId,
-            source: dispatchSource ?? 'user',
-            phase: 'failed',
-            chainId,
-            passId,
-            reasonCode: 'internal_error',
-            createdAt: new Date().toISOString(),
-          });
+          const current = executionEnvelopeRepo.getById(controlEnvelopeId);
+          if (current?.status === 'acknowledged') {
+            dispatchGateway.markExecutionFailed(controlEnvelopeId, 'internal_error');
+          } else if (current && current.status !== 'rejected' && current.status !== 'expired') {
+            dispatchGateway.reject(controlEnvelopeId, 'internal_error');
+            io.to(receiptConversationId).emit('dispatch.receipt', {
+              projectId: receiptConversationId,
+              receiptId: `${controlEnvelopeId}:rejected`,
+              conversationId: receiptConversationId,
+              taskId,
+              targetAgentId: agentId,
+              source: dispatchSource ?? 'user',
+              phase: 'rejected',
+              chainId,
+              passId,
+              reasonCode: 'internal_error',
+              createdAt: new Date().toISOString(),
+            });
+          }
         }
         const failureProjectId = conversationId?.trim() || projectId?.trim();
         if (failureProjectId) {
@@ -2006,7 +2090,7 @@ export default function registerDaemon(io: IOServer) {
   io.on('connection', (socket: Socket) => {
     socket.on('terminal:start', (payload: TerminalStartPayload) => {
       try {
-        const submission = submitSocketTerminalStart(harnessCoordinator, payload);
+        const submission = submitSocketTerminalStart(invocationCoordinator, payload);
         void submission.completion.then((outcome) => {
           if (outcome.status === 'accepted') return;
           const reasonCode = 'reasonCode' in outcome ? outcome.reasonCode : 'internal_error';

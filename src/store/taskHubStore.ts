@@ -41,7 +41,7 @@ import type { Phase } from '@/types/phase';
 import type { PhaseProposal } from '@/lib/breakdownParser';
 import type { SkillSummary } from '@/lib/agent-context/types';
 import type { DetectedRuntime, CliEngine } from '@/server/types';
-import type { A2AHandoffStatus, A2APossessionView, ChatMessage, ToolEvent } from './types';
+import type { A2APossessionView, ChatMessage, ToolEvent } from './types';
 export type { A2AHandoffStatus, A2AHandoffView, A2APossessionView, ChatMessage, ToolEvent } from './types';
 
 // Re-export types from sub-stores (backward compatibility)
@@ -96,7 +96,7 @@ export interface DispatchReceipt {
   taskId?: string;
   targetAgentId: string;
   source?: 'user' | 'a2a' | 'workflow' | 'review_gate' | 'test_gate' | 'system';
-  phase: 'requested' | 'sent' | 'started' | 'completed' | 'blocked' | 'failed';
+  phase: 'requested' | 'sent' | 'acknowledged' | 'rejected';
   chainId?: string;
   passId?: string;
   runId?: string;
@@ -121,26 +121,18 @@ export interface Conversation {
   updatedAt: string;
 }
 
-export type SupervisorOutputKind =
+export type PlatformNoticeKind =
   | 'decision_brief'
   | 'execution_plan'
   | 'status_report'
   | 'quality_review_pack';
 
-export interface SupervisorHumanAction {
-  actionId: string;
-  label: string;
-  options?: { id: string; label: string }[];
-}
-
-export interface SupervisorOutputEnvelope {
-  kind: SupervisorOutputKind;
+export interface PlatformNoticeEnvelope {
+  kind: PlatformNoticeKind;
   conversationId: string;
   invocationId: string;
   timestamp: string;
   summary: string;
-  needsHuman: boolean;
-  humanActions: SupervisorHumanAction[];
   body: unknown;
 }
 
@@ -156,7 +148,7 @@ export type InternalEventType =
   | 'blocker.fixed'
   | 'artifact.added'
   | 'routing.hint_emitted'
-  | 'supervisor.output'
+  | 'platform.notice'
   | 'invocation.started'
   | 'invocation.finished'
   | 'invocation.aborted'
@@ -759,9 +751,7 @@ export interface TaskHubState {
   getA2AForSelectedConversation: () => A2APossessionView | undefined;
   getDispatchReceiptsForSelectedConversation: () => DispatchReceipt[];
   recordDispatchReceipt: (receipt: DispatchReceipt) => void;
-  recordA2APassOffer: (payload: { conversationId: string; chainId: string; passId?: string; fromAgentId?: string; toAgentId?: string; title?: string }) => void;
-  recordA2APossessionChanged: (payload: { conversationId: string; chainId: string; currentHolderId: string; passId?: string }) => void;
-  recordA2APassBlocked: (payload: { conversationId: string; chainId?: string; passId?: string; fromAgentId?: string; toAgentId?: string; reason: string; status?: A2AHandoffStatus }) => void;
+  replaceA2AProjection: (snapshot: A2APossessionView) => void;
 
   loadFromServer: () => Promise<void>;
   refreshConversationMessages: (conversationId: string) => Promise<void>;
@@ -773,7 +763,7 @@ export interface TaskHubState {
     options?: { persist?: boolean },
   ) => Promise<boolean>;
   restoreConversation: (conversation: Conversation) => void;
-  addSupervisorOutput: (output: SupervisorOutputEnvelope) => void;
+  addPlatformNotice: (notice: PlatformNoticeEnvelope) => void;
   addEvent: (event: Omit<InternalEvent, 'id' | 'timestamp'> & { id?: string; timestamp?: string }) => void;
   openBlocker: (input: Omit<Blocker, 'id' | 'status' | 'createdAt'> & { id?: string; status?: Blocker['status']; createdAt?: string }) => string;
   fixBlocker: (conversationId: string, blockerId: string) => void;
@@ -1031,105 +1021,12 @@ export const useTaskHubStore = create<TaskHubState>()(
             },
           };
         }),
-        recordA2APassOffer: (payload: { conversationId: string; chainId: string; passId?: string; fromAgentId?: string; toAgentId?: string; title?: string }) => set((state: TaskHubState) => {
-          const now = new Date().toISOString();
-          const existing: A2APossessionView = state.a2aByConversation[payload.conversationId] ?? {
-            chainId: payload.chainId,
-            status: 'active',
-            updatedAt: now,
-            handoffs: [],
-          };
-          const handoffId = payload.passId ?? `offer-${payload.chainId}-${now}`;
-          const handoffs = [
-            ...existing.handoffs.filter((handoff) => handoff.id !== handoffId),
-            {
-              id: handoffId,
-              chainId: payload.chainId,
-              passId: payload.passId,
-              fromAgentId: payload.fromAgentId,
-              toAgentId: payload.toAgentId,
-              status: 'offered' as const,
-              title: payload.title,
-              timestamp: now,
-            },
-          ].slice(-8);
-          return {
-            a2aByConversation: {
-              ...state.a2aByConversation,
-              [payload.conversationId]: {
-                ...existing,
-                chainId: payload.chainId,
-                status: 'active',
-                updatedAt: now,
-                handoffs,
-              },
-            },
-          };
-        }),
-        recordA2APossessionChanged: (payload: { conversationId: string; chainId: string; currentHolderId: string; passId?: string }) => set((state: TaskHubState) => {
-          const now = new Date().toISOString();
-          const existing: A2APossessionView = state.a2aByConversation[payload.conversationId] ?? {
-            chainId: payload.chainId,
-            status: 'active',
-            updatedAt: now,
-            handoffs: [],
-          };
-          const handoffs = existing.handoffs.map((handoff) =>
-            payload.passId && handoff.passId === payload.passId
-              ? { ...handoff, status: 'started' as const, timestamp: now }
-              : handoff
-          );
-          return {
-            a2aByConversation: {
-              ...state.a2aByConversation,
-              [payload.conversationId]: {
-                ...existing,
-                chainId: payload.chainId,
-                currentHolderId: payload.currentHolderId,
-                status: 'active',
-                updatedAt: now,
-                handoffs,
-              },
-            },
-          };
-        }),
-        recordA2APassBlocked: (payload: { conversationId: string; chainId?: string; passId?: string; fromAgentId?: string; toAgentId?: string; reason: string; status?: A2AHandoffStatus }) => set((state: TaskHubState) => {
-          const now = new Date().toISOString();
-          const chainId = payload.chainId ?? state.a2aByConversation[payload.conversationId]?.chainId ?? `blocked-${now}`;
-          const existing: A2APossessionView = state.a2aByConversation[payload.conversationId] ?? {
-            chainId,
-            status: 'active',
-            updatedAt: now,
-            handoffs: [],
-          };
-          const handoffId = payload.passId ?? `blocked-${chainId}-${now}`;
-          const status = payload.status ?? 'blocked';
-          const handoffs = [
-            ...existing.handoffs.filter((handoff) => handoff.id !== handoffId),
-            {
-              id: handoffId,
-              chainId,
-              passId: payload.passId,
-              fromAgentId: payload.fromAgentId,
-              toAgentId: payload.toAgentId,
-              status,
-              reason: payload.reason,
-              timestamp: now,
-            },
-          ].slice(-8);
-          return {
-            a2aByConversation: {
-              ...state.a2aByConversation,
-              [payload.conversationId]: {
-                ...existing,
-                chainId,
-                status: status === 'timeout' ? 'timeout' : 'blocked',
-                updatedAt: now,
-                handoffs,
-              },
-            },
-          };
-        }),
+        replaceA2AProjection: (snapshot: A2APossessionView) => set((state: TaskHubState) => ({
+          a2aByConversation: {
+            ...state.a2aByConversation,
+            [snapshot.conversationId]: snapshot,
+          },
+        })),
 
         getEffectiveRoster: () => {
           return getCachedEffectiveRoster(get());
@@ -1231,7 +1128,7 @@ export const useTaskHubStore = create<TaskHubState>()(
                     fetch('/api/mutations', {
                       method: 'POST',
                       headers: { 'content-type': 'application/json' },
-                      body: JSON.stringify({ type: 'task.create', payload: { id: t.id, conversation_id: t.conversationId, title: t.title, description: t.description, agent_id: t.agentId, dependencies: JSON.stringify(t.dependencies || []), artifacts: JSON.stringify(t.artifacts || []) } }),
+                      body: JSON.stringify({ type: 'task.create', payload: { id: t.id, conversation_id: t.conversationId, title: t.title, description: t.description, agent_id: t.agentId, dependencies: JSON.stringify(t.dependencies || []), artifacts: JSON.stringify(t.artifacts || []), idempotencyKey: `webui:migration:task.create:${t.conversationId}:${t.id}` } }),
                     }).catch(() => {});
                   }
                 }
@@ -1313,6 +1210,11 @@ export const useTaskHubStore = create<TaskHubState>()(
               ),
               agentSessions: serverSessions,
               needsFullCompose: hydratedNeedsFullCompose,
+              a2aByConversation: Object.fromEntries(
+                ((data.a2aSnapshots || []) as A2APossessionView[])
+                  .filter((snapshot) => snapshot?.conversationId && snapshot?.chainId)
+                  .map((snapshot) => [snapshot.conversationId, snapshot]),
+              ),
             }));
 
             // Keep a still-valid selection, otherwise use the most recently
@@ -1537,14 +1439,12 @@ export const useTaskHubStore = create<TaskHubState>()(
             applyConversationTeamPack(get, set, id, teamPackId, { triggerProposalAfterLoad: true });
           }
 
-          get().addSupervisorOutput({
+          get().addPlatformNotice({
             kind: 'status_report',
             conversationId: id,
             invocationId: makeId('inv'),
             timestamp: stamp,
             summary: '会话已创建，可以开始规划。',
-            needsHuman: false,
-            humanActions: [],
             body: {
               phase: 'discovery',
               progress: { done: [], inProgress: [], blocked: [] },
@@ -1752,16 +1652,16 @@ export const useTaskHubStore = create<TaskHubState>()(
 
         },
 
-        addSupervisorOutput: (output: SupervisorOutputEnvelope) => {
-          const tail = (get().eventsByConversation[output.conversationId] || []).slice(-1)[0];
-          if (tail?.type === 'supervisor.output') {
-            const prev = tail.payload as SupervisorOutputEnvelope | undefined;
-            if (prev?.kind === output.kind) return;
+        addPlatformNotice: (notice: PlatformNoticeEnvelope) => {
+          const tail = (get().eventsByConversation[notice.conversationId] || []).slice(-1)[0];
+          if (tail?.type === 'platform.notice') {
+            const prev = tail.payload as PlatformNoticeEnvelope | undefined;
+            if (prev?.kind === notice.kind) return;
           }
           get().addEvent({
-            conversationId: output.conversationId,
-            type: 'supervisor.output',
-            payload: output,
+            conversationId: notice.conversationId,
+            type: 'platform.notice',
+            payload: notice,
           });
         },
 
@@ -1900,37 +1800,7 @@ export const useTaskHubStore = create<TaskHubState>()(
             },
           }));
 
-          if (rest.agentId === 'human') {
-            const resolvedMentions = resolveMentionAgentIds(get(), mentions);
-            const entryAgentIds = selectUserEntryAgentIds(resolvedMentions);
-            const busyAgents = entryAgentIds.filter((id) => get().agentStatus[id] && get().agentStatus[id] !== 'idle');
-            const idleAgents = entryAgentIds.filter((id) => !get().agentStatus[id] || get().agentStatus[id] === 'idle');
-            const acceptedAgentIds: string[] = [];
-
-            for (const agentId of idleAgents) {
-              const accepted = await get().dispatchToAgent({
-                agentId,
-                referencedTaskId: rest.referencedTaskId,
-                prompt: rest.content,
-                conversationId,
-              });
-              if (accepted) acceptedAgentIds.push(agentId);
-            }
-
-            socket.emit('a2a:user-turn-created', {
-              conversationId,
-              messageId,
-              targetAgentIds: acceptedAgentIds,
-              prompt: rest.content,
-              taskId: rest.referencedTaskId,
-            });
-
-            for (const agentId of busyAgents) {
-              get().enqueueDispatch(agentId, { prompt: rest.content, referencedTaskId: rest.referencedTaskId, conversationId });
-            }
-          }
-
-          fetch('/api/mutations', {
+          const messagePersistence = fetch('/api/mutations', {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ type: 'message.append', payload: {
@@ -1946,7 +1816,45 @@ export const useTaskHubStore = create<TaskHubState>()(
                 fromAgentId: rest.fromAgentId,
               },
             }}),
-          }).catch((err) => console.error('[mutation] message.append failed:', err));
+          });
+
+          if (rest.agentId === 'human') {
+            const resolvedMentions = resolveMentionAgentIds(get(), mentions);
+            const entryAgentIds = selectUserEntryAgentIds(resolvedMentions);
+            try {
+              const persisted = await messagePersistence;
+              if (!persisted.ok) {
+                throw new Error(`message_append_http_${persisted.status}`);
+              }
+              const persistedBody = typeof persisted.json === 'function'
+                ? await persisted.json() as { result?: { id?: string } }
+                : undefined;
+              const authoritativeMessageId = persistedBody?.result?.id ?? messageId;
+              const response = await fetch('/api/mutations', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({
+                  type: 'a2a.human_handoff',
+                  payload: {
+                    conversationId,
+                    messageId: authoritativeMessageId,
+                    prompt: rest.content,
+                    targetAgentIds: entryAgentIds,
+                    taskId: rest.referencedTaskId,
+                  },
+                }),
+              });
+              if (!response.ok) {
+                throw new Error(`a2a_human_handoff_http_${response.status}`);
+              }
+            } catch (error) {
+              console.error('[a2a] failed to submit human command:', error);
+            }
+          } else {
+            void messagePersistence.catch(
+              (error) => console.error('[mutation] message.append failed:', error),
+            );
+          }
         },
 
         updateChatMessageStatus: (msgId: string, status: 'approved' | 'rejected', rejectionReason?: string) =>
@@ -2389,20 +2297,6 @@ function handleAgentEvent(event: {
   }
 }
 
-socket.on('a2a:notice', ({
-  projectId,
-  conversationId,
-  content,
-}: {
-  projectId?: string;
-  conversationId?: string;
-  kind?: string;
-  content?: string;
-}) => {
-  if (!isCurrentProjectEvent(projectId, conversationId) || !content) return;
-  appendProjectedChatMessage(projectId, 'system', content);
-});
-
 function handleAgentDelta(event: {
   projectId: string;
   agentId: string;
@@ -2528,6 +2422,17 @@ export function consumeProjectViewEvent(envelope: unknown): boolean {
       type: 'runtime.usage',
       payload: { ...payload, agentId, invocationId: event.invocationId },
     });
+  } else if (event.kind === 'a2a.snapshot') {
+    const snapshot = payload.snapshot;
+    if (!snapshot || typeof snapshot !== 'object') return false;
+    const candidate = snapshot as Partial<A2APossessionView>;
+    if (
+      candidate.conversationId !== event.projectId
+      || typeof candidate.chainId !== 'string'
+      || !Array.isArray(candidate.currentHolderIds)
+      || !Array.isArray(candidate.handoffs)
+    ) return false;
+    useTaskHubStore.getState().replaceA2AProjection(candidate as A2APossessionView);
   } else if (event.kind === 'chat.message.persisted') {
     const rawMessage = payload.message;
     if (!rawMessage || typeof rawMessage !== 'object') return false;
@@ -2579,54 +2484,16 @@ export function consumeProjectViewEvent(envelope: unknown): boolean {
 
 socket.on(PROJECT_VIEW_CHANNEL, consumeProjectViewEvent);
 
-socket.on('a2a:pass-offer', ({ projectId, agentId, fromAgentId, conversationId, chainId, passId }: { projectId?: string; agentId: string; fromAgentId?: string; conversationId?: string; chainId?: string; passId?: string }) => {
-  if (!isCurrentProjectEvent(projectId, conversationId) || !chainId) return;
-  useTaskHubStore.getState().recordA2APassOffer({
-    conversationId: projectId,
-    chainId,
-    passId,
-    fromAgentId,
-    toAgentId: agentId,
-    title: fromAgentId ? `${fromAgentId} 交接给 ${agentId}` : `交接给 ${agentId}`,
-  });
-});
-
 socket.on('dispatch.receipt', (receipt: DispatchReceipt) => {
   if (!receipt || !isCurrentProjectEvent(receipt.projectId, receipt.conversationId)) return;
   if (!receipt.receiptId || !receipt.targetAgentId) return;
   if (
-    receipt.phase === 'sent'
-    || receipt.phase === 'started'
-    || receipt.phase === 'completed'
-    || receipt.phase === 'blocked'
-    || (receipt.phase === 'failed' && receipt.reasonCode !== 'agent_busy')
+    receipt.phase === 'acknowledged'
+    || receipt.phase === 'rejected'
   ) {
     clearInFlightDispatch(receipt.targetAgentId, receipt.conversationId);
   }
   useTaskHubStore.getState().recordDispatchReceipt(receipt);
-});
-
-socket.on('a2a:possession-changed', ({ projectId, chainId, conversationId, currentHolderId, passId }: { projectId?: string; chainId?: string; conversationId?: string; currentHolderId?: string; passId?: string }) => {
-  if (!isCurrentProjectEvent(projectId, conversationId) || !chainId || !currentHolderId) return;
-  useTaskHubStore.getState().recordA2APossessionChanged({
-    conversationId: projectId,
-    chainId,
-    currentHolderId,
-    passId,
-  });
-});
-
-socket.on('a2a:pass-blocked', ({ projectId, conversationId, chainId, passId, fromAgentId, toAgentId, reason, status }: { projectId?: string; conversationId?: string; chainId?: string; passId?: string; fromAgentId?: string; toAgentId?: string; reason?: string; status?: A2AHandoffStatus }) => {
-  if (!isCurrentProjectEvent(projectId, conversationId) || !reason) return;
-  useTaskHubStore.getState().recordA2APassBlocked({
-    conversationId: projectId,
-    chainId,
-    passId,
-    fromAgentId,
-    toAgentId,
-    reason,
-    status,
-  });
 });
 
 function handleTerminalExit({ projectId, agentId, code, command, reasonCode, activity }: {
@@ -2689,16 +2556,6 @@ function handleTerminalExit({ projectId, agentId, code, command, reasonCode, act
   }));
   useTaskHubStore.getState().completeStreamMessage(agentId);
 }
-
-socket.on('a2a:dispatch', ({ projectId, agentId, referencedTaskId, fromAgentId, conversationId, chainId, entryId, passId }: { projectId?: string; agentId: string; referencedTaskId?: string; fromAgentId: string; conversationId?: string; chainId?: string; entryId?: string; passId?: string }) => {
-  if (!isCurrentProjectEvent(projectId, conversationId)) return;
-  console.log(`[a2a:v2] chain=${chainId} dispatch ${fromAgentId} → ${agentId}`);
-  useTaskHubStore.getState().addEvent({
-    conversationId: projectId,
-    type: 'a2a.dispatch_requested',
-    payload: { agentId, referencedTaskId, fromAgentId, chainId, entryId, passId },
-  });
-});
 
 socket.on('command:error', ({ projectId, agentId, message }: {
   projectId?: string;

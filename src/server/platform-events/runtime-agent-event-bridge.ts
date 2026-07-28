@@ -73,11 +73,24 @@ export class RuntimeAgentEventBridge {
         }
         break;
       case 'error':
-        this.options.publish('runtime.warning.raised', {
+        this.options.publish('runtime.diagnostic.observed', {
+          severity: 'error',
           reasonCode: 'adapter_event_error',
           message: event.content,
-          recoverable: false,
         });
+        if (/(websockets?.*(?:fallback|falling back)|falling back.*https|reconnecting)/i.test(event.content)) {
+          this.options.publish('runtime.transport.degraded', {
+            transport: 'websocket',
+            fallbackTransport: /https/i.test(event.content) ? 'https' : undefined,
+            reasonCode: 'runtime_transport_degraded',
+            message: event.content,
+          });
+        } else if (/(websockets?.*(?:recovered|connected)|transport recovered)/i.test(event.content)) {
+          this.options.publish('runtime.transport.recovered', {
+            transport: 'websocket',
+            reasonCode: 'runtime_transport_recovered',
+          });
+        }
         break;
       case 'done':
         this.flush();

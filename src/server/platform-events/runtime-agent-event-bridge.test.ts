@@ -109,7 +109,7 @@ describe('RuntimeAgentEventBridge', () => {
     });
   });
 
-  it('maps adapter errors to warnings and usage to a separate event', () => {
+  it('records adapter errors as diagnostic evidence and usage as a separate event', () => {
     bridge.publish({
       type: 'error',
       content: 'adapter failed',
@@ -118,9 +118,27 @@ describe('RuntimeAgentEventBridge', () => {
 
     const events = log.listByInvocation('inv-1').slice(2);
     expect(events.map((event) => event.type)).toEqual([
-      'runtime.warning.raised',
+      'runtime.diagnostic.observed',
       'runtime.usage.updated',
     ]);
+  });
+
+  it('normalizes transport fallback separately from the raw diagnostic', () => {
+    bridge.publish({
+      type: 'error',
+      content: 'Reconnecting... Falling back from WebSockets to HTTPS transport.',
+    });
+
+    const events = log.listByInvocation('inv-1').slice(2);
+    expect(events.map((event) => event.type)).toEqual([
+      'runtime.diagnostic.observed',
+      'runtime.transport.degraded',
+    ]);
+    expect(events[1].payload).toMatchObject({
+      transport: 'websocket',
+      fallbackTransport: 'https',
+      reasonCode: 'runtime_transport_degraded',
+    });
   });
 
   it('preserves failed tool outcomes and ignores intermediate updates', () => {

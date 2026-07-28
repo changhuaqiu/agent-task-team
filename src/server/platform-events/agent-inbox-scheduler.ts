@@ -1,9 +1,12 @@
-import type { HarnessSubmission, HarnessTrigger } from '../harness/types';
+import type {
+  AgentActivationCommand,
+  InvocationSubmission,
+} from '../invocation-pipeline/types';
 import { AgentInbox } from './agent-inbox';
 
 export interface AgentInboxSchedulerOptions {
   inbox?: AgentInbox;
-  submit: (trigger: HarnessTrigger) => HarnessSubmission;
+  submit: (trigger: AgentActivationCommand) => InvocationSubmission;
   intervalMs?: number;
   retryDelayMs?: number;
   maxClaimsPerTick?: number;
@@ -60,17 +63,20 @@ export class AgentInboxScheduler {
 
   private async tick(): Promise<void> {
     try {
-      this.inbox.recoverExpired();
+      this.inbox.releaseExpiredClaims();
       for (let index = 0; index < this.maxClaimsPerTick; index += 1) {
         const item = this.inbox.claimNext(this.leaseMs);
         if (!item?.leaseToken) break;
-        const trigger: HarnessTrigger = {
+        const trigger: AgentActivationCommand = {
           id: `inbox:${item.id}:${item.attemptCount}`,
           idempotencyKey: item.idempotencyKey,
           source: item.command.source,
           conversationId: item.projectId,
           agentId: item.projectAgentId,
           prompt: item.command.prompt,
+          correlationId: item.command.correlationId,
+          causationId: item.command.causationId,
+          workId: item.command.workId,
           taskId: item.command.taskId,
           deliveryRunId: item.command.deliveryRunId,
           fromAgentId: item.command.fromAgentId,
@@ -97,11 +103,11 @@ export class AgentInboxScheduler {
   private trackSettlement(
     itemId: string,
     leaseToken: string,
-    completion: HarnessSubmission['completion'],
+    completion: InvocationSubmission['completion'],
   ): void {
     const settlement = this.settle(itemId, leaseToken, completion)
       .catch((error) => {
-        console.error('[agent-inbox] Harness settlement failed:', error);
+        console.error('[agent-inbox] Invocation Pipeline settlement failed:', error);
       })
       .finally(() => {
         this.settlements.delete(settlement);
@@ -112,7 +118,7 @@ export class AgentInboxScheduler {
   private async settle(
     itemId: string,
     leaseToken: string,
-    completion: HarnessSubmission['completion'],
+    completion: InvocationSubmission['completion'],
   ): Promise<void> {
         const settlementKey = `${itemId}:${leaseToken}`;
         const heartbeat = setInterval(() => {
@@ -123,11 +129,11 @@ export class AgentInboxScheduler {
         try {
           const outcome = await completion;
           if (outcome.status === 'accepted') {
-            this.inbox.complete(itemId, leaseToken);
+            this.inbox.admit(itemId, leaseToken);
           } else if (outcome.status === 'deferred') {
             this.inbox.release(itemId, leaseToken, this.retryDelayMs, outcome.reasonCode);
           } else {
-            this.inbox.fail(itemId, leaseToken, outcome.reasonCode);
+            this.inbox.expire(itemId, leaseToken, outcome.reasonCode);
           }
         } finally {
           clearInterval(heartbeat);

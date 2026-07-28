@@ -2,8 +2,8 @@ import { test, expect } from '@playwright/test';
 import path from 'node:path';
 import { rmSync, writeFileSync } from 'node:fs';
 import { io as createSocket } from 'socket.io-client';
-import { RepositoryHarnessPlanner } from '@/server/harness/context-planner';
-import { resolveConversationRuntimeProfile } from '@/server/harness/conversation-runtime';
+import { InvocationPlanner } from '@/server/invocation-pipeline/context-planner';
+import { resolveConversationRuntimeProfile } from '@/server/invocation-pipeline/conversation-runtime';
 import { getDb } from '@/server/db';
 import { conversationRepo } from '@/server/repositories/conversation-repo';
 import { observationSpanRepo } from '@/server/repositories/observation-span-repo';
@@ -136,7 +136,7 @@ test.describe('群聊发任务全链路', () => {
     let traceId: string | undefined;
     try {
       expect(resolveConversationRuntimeProfile(conversationId, agentId)?.profile).toBeTruthy();
-      const resolution = await new RepositoryHarnessPlanner().prepare({
+      const resolution = await new InvocationPlanner().prepare({
         id: `trigger-${suffix}`,
         source: 'a2a',
         conversationId,
@@ -314,7 +314,7 @@ test.describe('群聊发任务全链路', () => {
         project_path: process.cwd(),
       });
 
-      const resolution = await new RepositoryHarnessPlanner().prepare({
+      const resolution = await new InvocationPlanner().prepare({
         id: `required-context-${suffix}`,
         source: 'workflow',
         conversationId,

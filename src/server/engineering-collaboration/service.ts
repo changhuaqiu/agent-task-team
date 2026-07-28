@@ -7,16 +7,20 @@ import type {
   ReviewEvidence,
   ReviewReceipt,
 } from '@/lib/engineering-collaboration/types';
-import type { Server as IOServer } from 'socket.io';
 import { getDb } from '../db';
 import { conversationRepo } from '../repositories/conversation-repo';
 import { messageRepo } from '../repositories/message-repo';
 import { proofLogRepo } from '../repositories/proof-log-repo';
 import { taskGraphRepo, type TaskActionRow } from '../repositories/task-graph-repo';
 import { taskRepo, type TaskRow } from '../repositories/task-repo';
-import { publishTaskChangeNotification, resolveTaskNotificationAudience, type PublishTaskChangeNotificationInput } from '../task-flow/task-notification-publisher';
+import {
+  stableTaskCommandKey,
+  taskCommandService,
+} from '../repositories/task-command-service';
+import { resolveTaskNotificationAudience } from '../task-flow/task-notification-publisher';
 import type { GitProviderVerifier } from './git-provider';
-import { DomainEventPublisher } from '../platform-events/domain-events';
+import { qualityGateRepo } from '../quality-gate/repository';
+import { evaluateTaskStatusEvidenceGate } from '../task-flow/task-gate-evidence';
 
 export type EngineeringCollaborationReasonCode =
   | 'task_not_found'
@@ -34,6 +38,7 @@ export type EngineeringCollaborationReasonCode =
   | 'merge_actor_not_allowed'
   | 'merge_receipt_mismatch'
   | 'review_approval_missing'
+  | 'quality_gate_missing'
   | 'repository_context_missing'
   | 'pull_request_checks_failed';
 
@@ -81,7 +86,7 @@ function gitRepoRoot(task: TaskRow): string {
 
 function latestReviewAction(taskId: string): TaskActionRow | undefined {
   return taskGraphRepo.listActionsForTask(taskId)
-    .filter((action) => action.type === 'task.review_recorded')
+    .filter((action) => action.type === 'task.provider_review_received')
     .at(-1);
 }
 
@@ -113,28 +118,8 @@ function appendCardMessage(input: {
   return messageId;
 }
 
-function publishAfterCommit(io: IOServer | undefined, input: PublishTaskChangeNotificationInput): void {
-  try {
-    publishTaskChangeNotification({ ...input, io });
-  } catch (error) {
-    console.error('[engineering-collaboration] notification failed after receipt commit', error);
-    try {
-      proofLogRepo.append({
-        eventType: 'engineering.notification.failed',
-        conversationId: input.task.conversation_id,
-        taskId: input.task.id,
-        actorId: input.actorId,
-        reasonCode: 'notification_delivery_failed',
-        metadata: { kind: input.kind },
-      });
-    } catch (proofError) {
-      console.error('[engineering-collaboration] failed to persist notification failure proof', proofError);
-    }
-  }
-}
-
 export class EngineeringCollaborationService {
-  constructor(private readonly verifier: GitProviderVerifier, private readonly io?: IOServer) {}
+  constructor(private readonly verifier: GitProviderVerifier) {}
 
   async recordPullRequest(input: {
     taskId: string;
@@ -142,13 +127,15 @@ export class EngineeringCollaborationService {
     actorAgentId: string;
     pullRequestUrl: string;
     evidence: ImplementationEvidence;
+    correlationId?: string;
+    causationId?: string;
   }): Promise<{ receipt: PullRequestReceipt; card: EngineeringCollaborationCard; messageId: string }> {
     const task = assertTask(input.taskId);
     assertConversation(task, input.expectedConversationId);
     if (task.agent_id !== input.actorAgentId) {
       throw new EngineeringCollaborationError('task_actor_mismatch', 'Only the task implementer can submit its pull request');
     }
-    if (!['in_progress', 'in_review', 'rejected'].includes(task.status)) {
+    if (!['in_progress', 'in_review'].includes(task.status)) {
       throw new EngineeringCollaborationError('task_not_reviewable', `Task ${task.id} is not ready for pull request submission from ${task.status}`);
     }
     const cwd = gitRepoRoot(task);
@@ -162,12 +149,12 @@ export class EngineeringCollaborationService {
     const previousPullRequestAction = latestPullRequestAction(task.id);
     const previousPullRequestPayload = previousPullRequestAction ? parsePayload(previousPullRequestAction) : undefined;
     const previousPullRequest = previousPullRequestPayload?.receipt as PullRequestReceipt | undefined;
-    if (task.status === 'in_review' || task.status === 'rejected') {
+    if (task.status === 'in_review' || previousPullRequest) {
       if (!previousPullRequest) {
         throw new EngineeringCollaborationError('review_receipt_mismatch', 'An in-review task must keep using its verified pull request');
       }
       if (previousPullRequest.url !== receipt.url) {
-        throw new EngineeringCollaborationError('pull_request_changed', 'Rejected or in-review work must keep using its verified pull request');
+        throw new EngineeringCollaborationError('pull_request_changed', 'Rework or in-review work must keep using its verified pull request');
       }
       if (previousPullRequest.headSha === receipt.headSha) {
         throw new EngineeringCollaborationError('pull_request_head_unchanged', 'The pull request head has not changed');
@@ -177,16 +164,96 @@ export class EngineeringCollaborationService {
     const previousReviewPayload = previousReviewAction ? parsePayload(previousReviewAction) : undefined;
     const previousReview = previousReviewPayload?.receipt as ReviewReceipt | undefined;
     const previousReviewEvidence = previousReviewPayload?.evidence as ReviewEvidence | undefined;
-
-    const previousTask = task;
     const result = getDb().transaction(() => {
+      let reviewableTask = taskRepo.getById(task.id)!;
+      if (reviewableTask.status === 'in_review') {
+        const supersededGate = qualityGateRepo.find({
+          kind: 'code_review',
+          targetType: 'task',
+          targetId: task.id,
+          artifactRevision: String(reviewableTask.revision),
+        });
+        if (
+          supersededGate
+          && (
+            supersededGate.gate.status === 'requested'
+            || supersededGate.gate.status === 'evaluating'
+          )
+        ) {
+          qualityGateRepo.cancel({
+            gateId: supersededGate.gate.id,
+            actor: { type: 'agent', id: input.actorAgentId },
+            reason: `artifact_superseded:${receipt.headSha}`,
+            expectedRevision: supersededGate.gate.revision,
+            correlationId: input.correlationId,
+            causationId: input.causationId,
+          });
+        }
+        const reworkKey = stableTaskCommandKey('engineering:pr-rework', {
+          taskId: task.id,
+          taskRevision: reviewableTask.revision,
+          headSha: receipt.headSha,
+        });
+        reviewableTask = taskCommandService.transition({
+          conversationId: task.conversation_id,
+          taskId: task.id,
+          expectedTaskRevision: reviewableTask.revision,
+          expectedGraphRevision: taskCommandService.expectedGraphRevision(
+            task.conversation_id,
+            reworkKey,
+          ),
+          idempotencyKey: reworkKey,
+          actor: { type: 'agent', id: input.actorAgentId },
+          correlationId: input.correlationId,
+          causationId: input.causationId,
+          to: 'in_progress',
+          reviewNote: 'A new provider artifact superseded the pending review.',
+        }).result.task;
+      }
+      const readinessGate = evaluateTaskStatusEvidenceGate({
+        task: reviewableTask,
+        nextStatus: 'in_review',
+        evidence: input.evidence,
+        actorId: input.actorAgentId,
+        pullRequestRequired: true,
+        verifiedPullRequest: true,
+      });
+      if (!readinessGate.allowed) {
+        throw new EngineeringCollaborationError(
+          'pull_request_receipt_missing',
+          readinessGate.message ?? 'Implementation readiness gate rejected the pull request',
+        );
+      }
+      const reviewKey = stableTaskCommandKey('engineering:pr-reviewable', {
+        taskId: task.id,
+        taskRevision: reviewableTask.revision,
+        headSha: receipt.headSha,
+      });
+      reviewableTask = taskCommandService.transition({
+        conversationId: task.conversation_id,
+        taskId: task.id,
+        expectedTaskRevision: reviewableTask.revision,
+        expectedGraphRevision: taskCommandService.expectedGraphRevision(
+          task.conversation_id,
+          reviewKey,
+        ),
+        idempotencyKey: reviewKey,
+        actor: { type: 'agent', id: input.actorAgentId },
+        correlationId: input.correlationId,
+        causationId: input.causationId,
+        to: 'in_review',
+      }).result.task;
       const action = taskGraphRepo.appendAction({
         conversationId: task.conversation_id,
         actorId: input.actorAgentId,
         actorType: 'agent',
         type: 'task.pull_request_submitted',
         taskIds: [task.id],
-        payload: { receipt, evidence: input.evidence },
+        payload: {
+          receipt,
+          evidence: input.evidence,
+          artifactRevision: String(reviewableTask.revision),
+        },
       });
       taskGraphRepo.addArtifact({
         conversationId: task.conversation_id,
@@ -231,17 +298,6 @@ export class EngineeringCollaborationService {
           action,
         });
       }
-      taskRepo.updateStatus(task.id, 'in_review');
-      new DomainEventPublisher(getDb()).publish({
-        type: 'review.submitted',
-        projectId: task.conversation_id,
-        aggregate: { type: 'review', id: action.id },
-        subject: { type: 'task', id: task.id },
-        actor: { type: 'agent', id: input.actorAgentId },
-        projectAgentId: input.actorAgentId,
-        occurredAt: card.createdAt,
-        payload: { taskId: task.id },
-      });
       proofLogRepo.append({
         eventType: 'engineering.pull_request.verified',
         conversationId: task.conversation_id,
@@ -251,15 +307,6 @@ export class EngineeringCollaborationService {
       });
       return { card, messageId };
     })();
-    const updatedTask = taskRepo.getById(task.id)!;
-    publishAfterCommit(this.io, {
-      kind: 'task.status_changed',
-      task: updatedTask,
-      previousTask,
-      actorId: input.actorAgentId,
-      actorType: 'agent',
-      changedFields: ['status'],
-    });
     return { receipt, ...result };
   }
 
@@ -270,6 +317,8 @@ export class EngineeringCollaborationService {
     pullRequestUrl: string;
     reviewUrl: string;
     evidence: ReviewEvidence;
+    correlationId?: string;
+    causationId?: string;
   }): Promise<{ receipt: ReviewReceipt; card: EngineeringCollaborationCard; messageId: string }> {
     const task = assertTask(input.taskId);
     assertConversation(task, input.expectedConversationId);
@@ -304,14 +353,31 @@ export class EngineeringCollaborationService {
     if (receipt.headSha !== pullRequest.headSha) {
       throw new EngineeringCollaborationError('pull_request_head_changed', 'The pull request head changed after the delivery receipt');
     }
+    const gate = qualityGateRepo.find({
+      kind: 'code_review',
+      targetType: 'task',
+      targetId: task.id,
+      artifactRevision: String(task.revision),
+    });
+    if (
+      !gate
+      || gate.gate.kind !== 'code_review'
+      || gate.gate.target_type !== 'task'
+      || gate.gate.target_id !== task.id
+      || gate.gate.artifact_revision !== String(task.revision)
+    ) {
+      throw new EngineeringCollaborationError(
+        'quality_gate_missing',
+        `No current code review gate exists for ${task.id}@revision-${task.revision}`,
+      );
+    }
 
-    const previousTask = task;
     const result = getDb().transaction(() => {
       const action = taskGraphRepo.appendAction({
         conversationId: task.conversation_id,
         actorId: input.actorAgentId,
         actorType: 'agent',
-        type: 'task.review_recorded',
+        type: 'task.provider_review_received',
         taskIds: [task.id],
         payload: { receipt, evidence: input.evidence, pullRequestActionId: pullRequestAction.id },
       });
@@ -339,27 +405,47 @@ export class EngineeringCollaborationService {
         card,
         action,
       });
-      if (receipt.decision === 'changes_requested' || input.evidence.qualityDecision === 'reject') {
-        taskRepo.updateStatus(task.id, 'rejected', input.evidence.summary);
-      } else {
-        taskRepo.update(task.id, { review_note: input.evidence.summary });
-      }
-      const rejected = receipt.decision === 'changes_requested'
-        || input.evidence.qualityDecision === 'reject';
-      new DomainEventPublisher(getDb()).publish({
-        type: rejected ? 'review.rejected' : 'review.approved',
-        projectId: task.conversation_id,
-        aggregate: { type: 'review', id: action.id },
-        subject: { type: 'task', id: task.id },
-        actor: { type: 'agent', id: input.actorAgentId },
-        projectAgentId: input.actorAgentId,
-        occurredAt: card.createdAt,
+      const changesRequested = receipt.decision === 'changes_requested'
+        || input.evidence.qualityDecision === 'reject'
+        || input.evidence.blockerCount > 0;
+      const passed = receipt.decision !== 'changes_requested'
+        && input.evidence.qualityDecision === 'pass'
+        && input.evidence.blockerCount === 0;
+      const gateEvidence = qualityGateRepo.submitEvidence({
+        gateId: gate.gate.id,
+        evidenceType: 'provider_code_review',
         payload: {
-          taskId: task.id,
-          reviewerId: input.actorAgentId,
-          ...(rejected ? { reason: input.evidence.summary } : {}),
-        } as never,
+          receipt,
+          evidence: input.evidence,
+          taskActionId: action.id,
+        },
+        sourceRef: receipt.reviewUrl,
+        actor: { type: 'agent', id: input.actorAgentId },
+        idempotencyKey: `task-review:${action.id}`,
+        correlationId: input.correlationId,
+        causationId: input.causationId,
       });
+      const evaluating = gate.gate.status === 'requested'
+        ? qualityGateRepo.beginEvaluation({
+            gateId: gate.gate.id,
+            evaluator: { type: 'agent', id: input.actorAgentId },
+            expectedRevision: gate.gate.revision,
+            correlationId: input.correlationId,
+            causationId: input.causationId,
+          })
+        : gate;
+      if (changesRequested || passed) {
+        qualityGateRepo.decide({
+          gateId: gate.gate.id,
+          decision: changesRequested ? 'changes_requested' : 'passed',
+          evaluator: { type: 'agent', id: input.actorAgentId },
+          evidenceIds: [gateEvidence.id],
+          reason: input.evidence.summary,
+          expectedRevision: evaluating.gate.revision,
+          correlationId: input.correlationId,
+          causationId: input.causationId,
+        });
+      }
       proofLogRepo.append({
         eventType: 'engineering.review.verified',
         conversationId: task.conversation_id,
@@ -369,15 +455,6 @@ export class EngineeringCollaborationService {
       });
       return { card, messageId };
     })();
-    const updatedTask = taskRepo.getById(task.id)!;
-    publishAfterCommit(this.io, {
-      kind: 'task.status_changed',
-      task: updatedTask,
-      previousTask,
-      actorId: input.actorAgentId,
-      actorType: 'agent',
-      changedFields: receipt.decision === 'changes_requested' || input.evidence.qualityDecision === 'reject' ? ['status', 'review_note'] : ['review_note'],
-    });
     return { receipt, ...result };
   }
 
@@ -387,12 +464,11 @@ export class EngineeringCollaborationService {
     actorAgentId: string;
     pullRequestUrl: string;
     evidence: MergeEvidence;
+    correlationId?: string;
+    causationId?: string;
   }): Promise<{ receipt: MergeReceipt; card: EngineeringCollaborationCard; messageId: string }> {
     const task = assertTask(input.taskId);
     assertConversation(task, input.expectedConversationId);
-    if (task.status !== 'in_review') {
-      throw new EngineeringCollaborationError('task_not_reviewable', `Task ${task.id} is not awaiting merge`);
-    }
     const audience = resolveTaskNotificationAudience(task.conversation_id);
     if (!audience.coordinatorAgentIds.includes(input.actorAgentId)) {
       throw new EngineeringCollaborationError('merge_actor_not_allowed', `${input.actorAgentId} is not the configured coordinator`);
@@ -402,15 +478,31 @@ export class EngineeringCollaborationService {
     if (!pullRequestAction) {
       throw new EngineeringCollaborationError('pull_request_receipt_missing', 'A verified pull request receipt is required before merge closure');
     }
-    const pullRequest = parsePayload(pullRequestAction).receipt as PullRequestReceipt | undefined;
-    const reviewPayload = reviewAction ? parsePayload(reviewAction) : undefined;
-    const review = reviewPayload?.receipt as ReviewReceipt | undefined;
-    const reviewEvidence = reviewPayload?.evidence as ReviewEvidence | undefined;
+    const pullRequestPayload = parsePayload(pullRequestAction);
+    const pullRequest = pullRequestPayload.receipt as PullRequestReceipt | undefined;
     if (!pullRequest || pullRequest.url !== input.pullRequestUrl) {
       throw new EngineeringCollaborationError('merge_receipt_mismatch', 'Merge does not match the task pull request receipt');
     }
-    if (!review || review.headSha !== pullRequest.headSha || review.decision === 'changes_requested' || reviewEvidence?.qualityDecision !== 'pass' || (reviewEvidence?.blockerCount ?? 1) > 0) {
+    const reviewGate = qualityGateRepo.find({
+      kind: 'code_review',
+      targetType: 'task',
+      targetId: task.id,
+      artifactRevision: String(pullRequestPayload.artifactRevision),
+    });
+    if (
+      reviewGate?.gate.status !== 'passed'
+      || reviewGate.gate.kind !== 'code_review'
+      || reviewGate.gate.target_type !== 'task'
+      || reviewGate.gate.target_id !== task.id
+      || reviewGate.gate.artifact_revision !== String(pullRequestPayload.artifactRevision)
+    ) {
       throw new EngineeringCollaborationError('review_approval_missing', 'A current provider-backed review with zero blockers is required before merge closure');
+    }
+    if (task.status !== 'done') {
+      throw new EngineeringCollaborationError(
+        'task_not_reviewable',
+        `Task ${task.id} must be completed by the current Quality Gate before merge recording`,
+      );
     }
     const cwd = gitRepoRoot(task);
     const receipt = await this.verifier.getMerge({ pullRequestUrl: input.pullRequestUrl, cwd });
@@ -418,7 +510,6 @@ export class EngineeringCollaborationService {
       throw new EngineeringCollaborationError('merge_receipt_mismatch', 'Provider merge receipt does not match the current pull request head');
     }
 
-    const previousTask = task;
     const result = getDb().transaction(() => {
       const action = taskGraphRepo.appendAction({
         conversationId: task.conversation_id,
@@ -452,17 +543,6 @@ export class EngineeringCollaborationService {
         card,
         action,
       });
-      taskRepo.updateStatus(task.id, 'done');
-      new DomainEventPublisher(getDb()).publish({
-        type: 'review.merged',
-        projectId: task.conversation_id,
-        aggregate: { type: 'review', id: action.id },
-        subject: { type: 'task', id: task.id },
-        actor: { type: 'agent', id: input.actorAgentId },
-        projectAgentId: input.actorAgentId,
-        occurredAt: card.createdAt,
-        payload: { taskId: task.id, reviewerId: reviewAction?.actor_id },
-      });
       proofLogRepo.append({
         eventType: 'engineering.merge.verified',
         conversationId: task.conversation_id,
@@ -472,15 +552,6 @@ export class EngineeringCollaborationService {
       });
       return { card, messageId };
     })();
-    const updatedTask = taskRepo.getById(task.id)!;
-    publishAfterCommit(this.io, {
-      kind: 'task.status_changed',
-      task: updatedTask,
-      previousTask,
-      actorId: input.actorAgentId,
-      actorType: 'agent',
-      changedFields: ['status'],
-    });
     return { receipt, ...result };
   }
 }

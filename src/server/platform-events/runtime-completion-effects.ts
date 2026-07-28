@@ -1,8 +1,7 @@
 import type { ContextScenario } from '../../lib/agent-context/scenarioResolver';
-import { checkValidExit } from '../harness/valid-exit';
+import { checkValidExit } from '../invocation-pipeline/valid-exit';
 import type {
   DurableEffect,
-  DurableEffectAfterCommit,
   DurableEffectOutbox,
   EnqueueDurableEffect,
 } from './durable-effect-outbox';
@@ -14,8 +13,6 @@ export const RUNTIME_COMPLETION_EFFECT_TYPES = {
   validExitProof: 'runtime.valid_exit_proof',
   closureEvaluation: 'runtime.closure_evaluation',
   teamLog: 'runtime.team_log',
-  a2aResponse: 'runtime.a2a_response',
-  a2aDone: 'runtime.a2a_done',
 } as const;
 
 export interface RuntimeTaskSyncEffectPayload {
@@ -51,27 +48,11 @@ export interface RuntimeTeamLogEffectPayload {
   upToEntryId?: string;
 }
 
-export interface RuntimeA2AResponseEffectPayload {
-  invocationId: string;
-  conversationId: string;
-  taskId?: string;
-  agentId: string;
-  output: string;
-}
-
-export interface RuntimeA2ADoneEffectPayload {
-  invocationId: string;
-  conversationId: string;
-  agentId: string;
-}
-
 export interface RuntimeCompletionEffectPayloadMap {
   'runtime.task_sync': RuntimeTaskSyncEffectPayload;
   'runtime.valid_exit_proof': RuntimeValidExitProofEffectPayload;
   'runtime.closure_evaluation': RuntimeClosureEvaluationEffectPayload;
   'runtime.team_log': RuntimeTeamLogEffectPayload;
-  'runtime.a2a_response': RuntimeA2AResponseEffectPayload;
-  'runtime.a2a_done': RuntimeA2ADoneEffectPayload;
 }
 
 export interface RuntimeClosureEvaluationResult {
@@ -88,12 +69,6 @@ export interface RuntimeCompletionEffectAdapters {
     payload: RuntimeTeamLogEffectPayload,
     idempotencyKey: string,
   ): void | Promise<void>;
-  recordA2AResponse(
-    payload: RuntimeA2AResponseEffectPayload,
-  ): void | DurableEffectAfterCommit;
-  recordA2ADone(
-    payload: RuntimeA2ADoneEffectPayload,
-  ): void | DurableEffectAfterCommit;
 }
 
 function effect<TType extends keyof RuntimeCompletionEffectPayloadMap>(
@@ -154,20 +129,6 @@ export function planRuntimeCompletionEffects(
       ? { upToEntryId: context.team_log_up_to_entry_id }
       : {}),
   }));
-  if (output) {
-    effects.push(effect(RUNTIME_COMPLETION_EFFECT_TYPES.a2aResponse, invocationId, {
-      invocationId,
-      conversationId: context.conversation_id,
-      ...(context.task_id ? { taskId: context.task_id } : {}),
-      agentId: context.agent_id,
-      output,
-    }));
-  }
-  effects.push(effect(RUNTIME_COMPLETION_EFFECT_TYPES.a2aDone, invocationId, {
-    invocationId,
-    conversationId: context.conversation_id,
-    agentId: context.agent_id,
-  }));
   return effects;
 }
 
@@ -221,20 +182,6 @@ export function registerRuntimeCompletionEffectAdapters(
         payload<'runtime.team_log'>(command),
         context.idempotencyKey,
       );
-    },
-  });
-  outbox.register({
-    type: RUNTIME_COMPLETION_EFFECT_TYPES.a2aResponse,
-    execution: 'transactional',
-    execute(command) {
-      return adapters.recordA2AResponse(payload<'runtime.a2a_response'>(command));
-    },
-  });
-  outbox.register({
-    type: RUNTIME_COMPLETION_EFFECT_TYPES.a2aDone,
-    execution: 'transactional',
-    execute(command) {
-      return adapters.recordA2ADone(payload<'runtime.a2a_done'>(command));
     },
   });
 }

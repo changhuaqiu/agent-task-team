@@ -1,5 +1,9 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
 import { join } from 'path';
+import {
+  assertTaskStatus,
+  type TaskStatus,
+} from './repositories/task-repo';
 
 export interface ParsedTask {
   id: string;
@@ -7,7 +11,7 @@ export interface ParsedTask {
   phase: string;
   role: string;
   agent: string;
-  status: string;
+  status: TaskStatus;
   depends: string[];
   deliverable: string;
 }
@@ -30,14 +34,16 @@ export interface ProjectMeta {
 export interface TaskProjectionSource {
   id: string;
   title: string;
-  status: string;
+  status: TaskStatus;
   agent_id: string;
   dependencies: string | null;
 }
 
-const STATUS_MAP: Record<string, string> = {
-  todo: 'pending',
-  pending: 'pending',
+const STATUS_MAP: Record<string, TaskStatus> = {
+  todo: 'ready',
+  pending: 'ready',
+  proposed: 'proposed',
+  ready: 'ready',
   doing: 'in_progress',
   in_progress: 'in_progress',
   'in progress': 'in_progress',
@@ -48,15 +54,20 @@ const STATUS_MAP: Record<string, string> = {
   done: 'done',
   completed: 'done',
   blocked: 'blocked',
-  rejected: 'rejected',
+  rejected: 'in_progress',
+  changes_requested: 'in_progress',
+  cancelled: 'cancelled',
+  canceled: 'cancelled',
 };
 
-const STATUS_REVERSE: Record<string, string> = {
-  pending: 'todo',
+const STATUS_REVERSE: Record<TaskStatus, string> = {
+  proposed: 'proposed',
+  ready: 'todo',
   in_progress: 'doing',
   in_review: 'review',
   done: 'done',
   blocked: 'blocked',
+  cancelled: 'cancelled',
 };
 
 export function parseTasksMd(content: string): ParsedTask[] {
@@ -103,9 +114,9 @@ export function parseTasksMd(content: string): ParsedTask[] {
       return val;
     };
 
-    const normalizeStatus = (raw: string): string => {
+    const normalizeStatus = (raw: string): TaskStatus => {
       const key = raw.toLowerCase().trim();
-      return STATUS_MAP[key] ?? (key || 'pending');
+      return STATUS_MAP[key] ?? assertTaskStatus(key || 'ready');
     };
 
     const parseDeps = (raw: string): string[] => {
@@ -219,7 +230,7 @@ export function parseTasksMd(content: string): ParsedTask[] {
         phase: '',
         role: '',
         agent: isStatus ? '' : cell(2),
-        status: isStatus ? normalizeStatus(cell(2)) : 'pending',
+        status: isStatus ? normalizeStatus(cell(2)) : 'ready',
         depends: [],
         deliverable: '',
       });
@@ -231,7 +242,7 @@ export function parseTasksMd(content: string): ParsedTask[] {
         phase: '',
         role: '',
         agent: '',
-        status: 'pending',
+        status: 'ready',
         depends: [],
         deliverable: '',
       });
@@ -247,7 +258,7 @@ export function parseTasksMd(content: string): ParsedTask[] {
       const checkboxMatch = trimmed.match(/^-\s*\[([ xX])\]\s+(.+)$/);
       if (!checkboxMatch) {
         // Also match: - status: task title (e.g. "- doing: Implement API")
-        const statusPrefixMatch = trimmed.match(/^-\s+(todo|doing|done|review|blocked|in_progress|pending):\s*(.+)$/i);
+        const statusPrefixMatch = trimmed.match(/^-\s+(todo|ready|proposed|doing|done|review|blocked|in_progress|pending|cancelled|changes_requested):\s*(.+)$/i);
         if (statusPrefixMatch) {
           const rawStatus = statusPrefixMatch[1].toLowerCase();
           const title = statusPrefixMatch[2].trim();
@@ -261,7 +272,7 @@ export function parseTasksMd(content: string): ParsedTask[] {
             phase: '',
             role: '',
             agent: '',
-            status: STATUS_MAP[rawStatus] ?? 'pending',
+            status: STATUS_MAP[rawStatus] ?? 'ready',
             depends: [],
             deliverable: '',
           });
@@ -284,7 +295,7 @@ export function parseTasksMd(content: string): ParsedTask[] {
         phase: '',
         role: '',
         agent: '',
-        status: isDone ? 'done' : 'pending',
+        status: isDone ? 'done' : 'ready',
         depends: [],
         deliverable: '',
       });

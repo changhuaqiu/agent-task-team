@@ -26,12 +26,12 @@ beforeEach(() => {
     dispatchReceiptsByConversation: {
       'conv-receipt': [{
         projectId: 'conv-receipt',
-        receiptId: 'env-1:started',
+        receiptId: 'env-1:acknowledged',
         conversationId: 'conv-receipt',
         taskId: 'TASK-001',
         targetAgentId: 'mario',
         source: 'workflow',
-        phase: 'started',
+        phase: 'acknowledged',
         createdAt: '2026-05-17T00:01:00.000Z',
       }],
     },
@@ -48,7 +48,7 @@ describe('A2APossessionStrip', () => {
     render(<A2APossessionStrip />);
 
     expect(screen.getByText('派发回执')).toBeTruthy();
-    expect(screen.getByText(/已启动/)).toBeTruthy();
+    expect(screen.getByText(/已确认接纳/)).toBeTruthy();
     expect(screen.getAllByText(/项目统筹/).length).toBeGreaterThan(0);
   });
 });

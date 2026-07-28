@@ -2,7 +2,12 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createTestDb, getDb, setTestDb, resetDb } from '../db/index';
 import { generateSortableId, resetSeq } from './sortable-id';
 import { conversationRepo } from './conversation-repo';
-import { taskRepo } from './task-repo';
+import {
+  InvalidTaskTransitionError,
+  StaleTaskRevisionError,
+  StaleTaskTransitionError,
+  taskRepo,
+} from './task-repo';
 import { messageRepo } from './message-repo';
 import { sessionRepo } from './session-repo';
 import { invocationRepo } from './invocation-repo';
@@ -104,7 +109,7 @@ describe('task-repo', () => {
       agent_id: 'agent-a',
     });
     expect(task.id).toBe('task-1');
-    expect(task.status).toBe('pending');
+    expect(task.status).toBe('ready');
     expect(task.agent_id).toBe('agent-a');
   });
 
@@ -123,18 +128,58 @@ describe('task-repo', () => {
     expect(tasks[0].id).toBe('task-1');
   });
 
-  it('updates task status', () => {
+  it('transitions task status through the canonical state machine', () => {
     taskRepo.create({ id: 'task-1', conversation_id: 'conv-1', title: 'T1', agent_id: 'a' });
-    taskRepo.updateStatus('task-1', 'in_progress');
+    taskRepo.transition('task-1', { to: 'in_progress', expectedFrom: 'ready' });
     expect(taskRepo.getById('task-1')!.status).toBe('in_progress');
   });
 
-  it('updates task status with review note', () => {
+  it('records review notes on valid review transitions', () => {
     taskRepo.create({ id: 'task-1', conversation_id: 'conv-1', title: 'T1', agent_id: 'a' });
-    taskRepo.updateStatus('task-1', 'approved', 'LGTM');
+    taskRepo.transition('task-1', { to: 'in_progress' });
+    taskRepo.transition('task-1', { to: 'in_review' });
+    taskRepo.transition('task-1', { to: 'done', reviewNote: 'LGTM' });
     const task = taskRepo.getById('task-1')!;
-    expect(task.status).toBe('approved');
+    expect(task.status).toBe('done');
     expect(task.review_note).toBe('LGTM');
+  });
+
+  it('rejects a transition that bypasses the review gate', () => {
+    taskRepo.create({ id: 'task-1', conversation_id: 'conv-1', title: 'T1', agent_id: 'a' });
+
+    expect(() => taskRepo.transition('task-1', { to: 'done' }))
+      .toThrow(InvalidTaskTransitionError);
+    expect(taskRepo.getById('task-1')!.status).toBe('ready');
+  });
+
+  it('fences a transition calculated from stale task facts', () => {
+    taskRepo.create({ id: 'task-1', conversation_id: 'conv-1', title: 'T1', agent_id: 'a' });
+    taskRepo.transition('task-1', { to: 'in_progress', expectedFrom: 'ready' });
+
+    expect(() => taskRepo.transition('task-1', { to: 'blocked', expectedFrom: 'ready' }))
+      .toThrow(StaleTaskTransitionError);
+    expect(taskRepo.getById('task-1')!.status).toBe('in_progress');
+  });
+
+  it('advances an explicit revision and rejects a stale revision CAS', () => {
+    const created = taskRepo.create({
+      id: 'task-revision',
+      conversation_id: 'conv-1',
+      title: 'Revision',
+      agent_id: 'a',
+    });
+    const progressed = taskRepo.transition(created.id, {
+      to: 'in_progress',
+      expectedFrom: 'ready',
+      expectedRevision: created.revision,
+    })!;
+
+    expect(progressed.revision).toBe(created.revision + 1);
+    expect(() => taskRepo.transition(created.id, {
+      to: 'blocked',
+      expectedFrom: 'in_progress',
+      expectedRevision: created.revision,
+    })).toThrow(StaleTaskRevisionError);
   });
 
   it('deletes a task', () => {
@@ -403,7 +448,11 @@ describe('session-repo', () => {
     invocationRepo.create({
       id: 'inv-1', conversation_id: 'conv-1', agent_id: 'agent-a', session_id: 'ses-1',
     });
-    invocationRepo.updateStatus('inv-1', 'failed', { reason_code: 'acp_cancelled' });
+    invocationRepo.transition('inv-1', {
+      to: 'terminated',
+      outcome: 'cancelled',
+      reason_code: 'acp_cancelled',
+    });
 
     expect(sessionRepo.releaseUnconfirmedRuntimeSessionId('ses-1', 'runtime-unconfirmed')).toBe(true);
     expect(sessionRepo.getById('ses-1')?.cli_session_id).toBeNull();
@@ -418,7 +467,11 @@ describe('session-repo', () => {
     invocationRepo.create({
       id: 'inv-2', conversation_id: 'conv-1', agent_id: 'agent-a', session_id: 'ses-1',
     });
-    invocationRepo.updateStatus('inv-2', 'failed', { reason_code: 'acp_session_load_failed' });
+    invocationRepo.transition('inv-2', {
+      to: 'terminated',
+      outcome: 'failed',
+      reason_code: 'acp_session_load_failed',
+    });
 
     expect(sessionRepo.sealIfLatestInvocationLoadFailed('ses-1')).toBe(true);
     expect(sessionRepo.getById('ses-1')).toMatchObject({
@@ -437,7 +490,11 @@ describe('session-repo', () => {
     invocationRepo.create({
       id: 'inv-1', conversation_id: 'conv-1', agent_id: 'agent-a', session_id: 'ses-1',
     });
-    invocationRepo.updateStatus('inv-1', 'failed', { reason_code: 'acp_timeout' });
+    invocationRepo.transition('inv-1', {
+      to: 'terminated',
+      outcome: 'timed_out',
+      reason_code: 'acp_timeout',
+    });
 
     expect(sessionRepo.sealIfLatestInvocationLoadFailed('ses-1')).toBe(false);
     expect(sessionRepo.getById('ses-1')?.status).toBe('active');
@@ -459,6 +516,7 @@ describe('session-repo', () => {
       account_id: 'account-openai',
     });
     sessionRepo.confirmRuntimeSessionId('ses-1', 'codex-session', 'inv-1');
+    invocationRepo.transition('inv-1', { to: 'terminated', outcome: 'completed' });
 
     expect(sessionRepo.sealIfExecutionProfileChanged('ses-1', {
       engine: 'codex',
@@ -509,6 +567,7 @@ describe('session-repo', () => {
       account_id: 'account-openai',
     });
     sessionRepo.confirmRuntimeSessionId('ses-1', 'codex-session', 'inv-1');
+    invocationRepo.transition('inv-1', { to: 'terminated', outcome: 'completed' });
 
     expect(sessionRepo.sealIfExecutionProfileChanged('ses-1', {
       engine: 'claude',
@@ -551,7 +610,7 @@ describe('session-repo', () => {
     });
   });
 
-  it('atomically confirms runtime binding and successful invocation', () => {
+  it('keeps session binding and invocation outcome under separate owners', () => {
     sessionRepo.create({ id: 'ses-1', conversationId: 'conv-1', agentId: 'agent-a', taskId: 'task-1' });
     invocationRepo.create({
       id: 'inv-1', conversation_id: 'conv-1', agent_id: 'agent-a', session_id: 'ses-1',
@@ -562,7 +621,20 @@ describe('session-repo', () => {
     });
     expect(sessionRepo.getById('ses-1')?.cli_session_id).toBe('runtime-confirmed');
     expect(invocationRepo.getById('inv-1')).toMatchObject({
-      status: 'succeeded', exit_code: 0, cli_session_id: 'runtime-confirmed',
+      status: 'planned',
+      outcome: null,
+    });
+    invocationRepo.transition('inv-1', {
+      to: 'terminated',
+      outcome: 'completed',
+      exit_code: 0,
+      cli_session_id: 'runtime-confirmed',
+    });
+    expect(invocationRepo.getById('inv-1')).toMatchObject({
+      status: 'terminated',
+      outcome: 'completed',
+      exit_code: 0,
+      cli_session_id: 'runtime-confirmed',
     });
     expect(sessionRepo.releaseUnconfirmedRuntimeSessionId('ses-1', 'runtime-confirmed')).toBe(false);
   });
@@ -577,7 +649,7 @@ describe('session-repo', () => {
     expect(sessionRepo.confirmRuntimeSessionId('ses-1', 'runtime-other', 'inv-1')).toEqual({
       status: 'mismatch', current: 'runtime-confirmed',
     });
-    expect(invocationRepo.getById('inv-1')?.status).toBe('queued');
+    expect(invocationRepo.getById('inv-1')?.status).toBe('planned');
   });
 
   it('keeps a two-project by two-agent identity matrix stable for three turns', () => {
@@ -614,33 +686,47 @@ describe('invocation-repo', () => {
     taskRepo.create({ id: 'task-1', conversation_id: 'conv-1', title: 'T1', agent_id: 'agent-a' });
   });
 
-  it('creates an invocation with queued status', () => {
+  it('creates an invocation with planned status and no outcome', () => {
     const inv = invocationRepo.create({
       id: 'inv-1',
       conversation_id: 'conv-1',
       agent_id: 'agent-a',
       task_id: 'task-1',
     });
-    expect(inv.status).toBe('queued');
+    expect(inv.status).toBe('planned');
+    expect(inv.outcome).toBeNull();
     expect(inv.agent_id).toBe('agent-a');
   });
 
-  it('transitions status queued→running→succeeded', () => {
+  it('transitions lifecycle independently from a completed outcome', () => {
     invocationRepo.create({ id: 'inv-1', conversation_id: 'conv-1', agent_id: 'agent-a' });
-    invocationRepo.updateStatus('inv-1', 'running');
+    invocationRepo.transition('inv-1', { to: 'starting', expectedFrom: 'planned' });
+    invocationRepo.transition('inv-1', { to: 'running', expectedFrom: 'starting' });
     expect(invocationRepo.getById('inv-1')!.status).toBe('running');
 
-    invocationRepo.updateStatus('inv-1', 'succeeded', { exit_code: 0 });
+    invocationRepo.transition('inv-1', {
+      to: 'terminated',
+      expectedFrom: 'running',
+      outcome: 'completed',
+      exit_code: 0,
+    });
     const inv = invocationRepo.getById('inv-1')!;
-    expect(inv.status).toBe('succeeded');
+    expect(inv.status).toBe('terminated');
+    expect(inv.outcome).toBe('completed');
     expect(inv.exit_code).toBe(0);
   });
 
   it('records failure with error message', () => {
     invocationRepo.create({ id: 'inv-1', conversation_id: 'conv-1', agent_id: 'agent-a' });
-    invocationRepo.updateStatus('inv-1', 'failed', { exit_code: 1, error_message: 'OOM' });
+    invocationRepo.transition('inv-1', {
+      to: 'terminated',
+      outcome: 'failed',
+      exit_code: 1,
+      error_message: 'OOM',
+    });
     const inv = invocationRepo.getById('inv-1')!;
-    expect(inv.status).toBe('failed');
+    expect(inv.status).toBe('terminated');
+    expect(inv.outcome).toBe('failed');
     expect(inv.error_message).toBe('OOM');
   });
 
@@ -661,18 +747,26 @@ describe('invocation-repo', () => {
   it('getActive excludes terminal statuses', () => {
     invocationRepo.create({ id: 'inv-1', conversation_id: 'conv-1', agent_id: 'agent-a' });
     invocationRepo.create({ id: 'inv-2', conversation_id: 'conv-1', agent_id: 'agent-a' });
-    invocationRepo.updateStatus('inv-2', 'succeeded');
+    invocationRepo.transition('inv-2', { to: 'terminated', outcome: 'completed' });
     const active = invocationRepo.getActive();
     expect(active.length).toBe(1);
     expect(active[0].id).toBe('inv-1');
   });
 
-  it('allows retry: failed→running', () => {
+  it('requires retry to create a new invocation identity', () => {
     invocationRepo.create({ id: 'inv-1', conversation_id: 'conv-1', agent_id: 'agent-a' });
-    invocationRepo.updateStatus('inv-1', 'running');
-    invocationRepo.updateStatus('inv-1', 'failed', { exit_code: 1 });
-    invocationRepo.updateStatus('inv-1', 'running');
-    expect(invocationRepo.getById('inv-1')!.status).toBe('running');
+    invocationRepo.transition('inv-1', { to: 'starting' });
+    invocationRepo.transition('inv-1', {
+      to: 'terminated',
+      outcome: 'failed',
+      exit_code: 1,
+    });
+    expect(() => invocationRepo.transition('inv-1', { to: 'running' })).toThrow();
+
+    invocationRepo.create({ id: 'inv-2', conversation_id: 'conv-1', agent_id: 'agent-a' });
+    invocationRepo.transition('inv-2', { to: 'starting' });
+    invocationRepo.transition('inv-2', { to: 'running' });
+    expect(invocationRepo.getById('inv-2')!.status).toBe('running');
   });
 
   it('stores optional fields', () => {

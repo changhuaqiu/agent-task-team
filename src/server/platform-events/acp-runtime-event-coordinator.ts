@@ -85,6 +85,12 @@ export class AcpRuntimeEventCoordinator {
   >): void {
     if (this.terminated) return;
     this.bridge.flush();
+    if (final.reasonCode === 'acp_session_not_found' && final.sessionId) {
+      this.publish('runtime.session.resume_failed', {
+        runtimeSessionId: final.sessionId,
+        reasonCode: 'resource_not_found',
+      });
+    }
     this.publish('runtime.invocation.terminated', {
       outcome: final.status === 'timeout' ? 'timed_out' : final.status,
       reasonCode: final.reasonCode,

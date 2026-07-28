@@ -61,24 +61,8 @@ export interface TokenUsageSummary {
   byModel: Record<string, { input: number; output: number; cacheRead: number; cacheWrite: number }>;
 }
 
-export type A2AHandoffStatus = 'offered' | 'started' | 'blocked' | 'completed' | 'timeout';
-
-export interface A2AHandoffView {
-  id: string;
-  chainId: string;
-  passId?: string;
-  fromAgentId?: string;
-  toAgentId?: string;
-  status: A2AHandoffStatus;
-  title?: string;
-  reason?: string;
-  timestamp: string;
-}
-
-export interface A2APossessionView {
-  chainId: string;
-  currentHolderId?: string;
-  status: 'active' | 'completed' | 'blocked' | 'timeout';
-  updatedAt: string;
-  handoffs: A2AHandoffView[];
-}
+export type {
+  A2AProjectionPassStatus as A2AHandoffStatus,
+  A2AProjectionHandoff as A2AHandoffView,
+  A2AProjectionSnapshot as A2APossessionView,
+} from '@/shared/project-view-events';

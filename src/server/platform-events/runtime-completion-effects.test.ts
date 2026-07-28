@@ -53,8 +53,6 @@ describe('planRuntimeCompletionEffects', () => {
       RUNTIME_COMPLETION_EFFECT_TYPES.taskSync,
       RUNTIME_COMPLETION_EFFECT_TYPES.closureEvaluation,
       RUNTIME_COMPLETION_EFFECT_TYPES.teamLog,
-      RUNTIME_COMPLETION_EFFECT_TYPES.a2aResponse,
-      RUNTIME_COMPLETION_EFFECT_TYPES.a2aDone,
     ]);
     expect(effects[1]?.payload).toMatchObject({
       evidenceCutoffAt: terminal.occurredAt,
@@ -70,8 +68,6 @@ describe('planRuntimeCompletionEffects', () => {
       RUNTIME_COMPLETION_EFFECT_TYPES.taskSync,
       RUNTIME_COMPLETION_EFFECT_TYPES.validExitProof,
       RUNTIME_COMPLETION_EFFECT_TYPES.teamLog,
-      RUNTIME_COMPLETION_EFFECT_TYPES.a2aResponse,
-      RUNTIME_COMPLETION_EFFECT_TYPES.a2aDone,
     ]);
     expect(effects[1]?.payload).toMatchObject({
       reasonCode: 'placeholder',

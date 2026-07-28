@@ -1,33 +1,26 @@
 import type { Server as IOServer } from 'socket.io';
-import {
-  HarnessDeliveryActionAdapter,
-  RepositoryDeliveryFactsAdapter,
-} from './production-adapters';
 import { autonomousDeliveryRepo } from './repository';
 import {
-  getAutonomousDeliverySupervisor,
+  getDeliveryControlRuntime,
   reconcileAutonomousDeliveryConversation,
-  registerAutonomousDeliverySupervisor,
+  registerDeliveryControlRuntime,
 } from './registry';
-import { AutonomousDeliverySupervisor } from './supervisor';
-import { GitHubProviderActionAdapter } from './provider-actions';
 import { deliveryAdvancementQueue } from './advancement-queue';
+import {
+  DeliveryControlRuntime,
+  type AutonomousDeliveryRuntimePort,
+} from './control-runtime';
 
 const RECONCILE_TIMER_KEY = Symbol.for('agent-task-hub.autonomous-delivery.reconcile-timer');
 const ADVANCEMENT_TIMER_KEY = Symbol.for('agent-task-hub.autonomous-delivery.advancement-timer');
 
-function deliveryLeaseMs(): number {
-  const configured = Number(process.env.AUTONOMOUS_DELIVERY_LEASE_MS);
-  return Number.isFinite(configured) && configured > 0 ? configured : 60_000;
-}
-
 async function reconcileActiveRuns(
-  supervisor: AutonomousDeliverySupervisor,
+  runtime: AutonomousDeliveryRuntimePort,
   reason: 'startup' | 'periodic',
 ): Promise<void> {
-  for (const run of autonomousDeliveryRepo.listActive()) {
+  for (const run of autonomousDeliveryRepo.listReconcileCandidates()) {
     try {
-      await supervisor.advance(run.id, { kind: 'periodic_reconcile', ref: reason });
+      await runtime.advance(run.id, { kind: 'periodic_reconcile', ref: reason });
     } catch (error) {
       console.error(`[autonomous-delivery] ${reason} reconcile failed for ${run.id}:`, error);
     }
@@ -37,25 +30,21 @@ async function reconcileActiveRuns(
 export function ensureAutonomousDeliveryRuntime(
   io: IOServer,
   workerId = 'server:autonomous-delivery',
-): AutonomousDeliverySupervisor {
-  const existing = getAutonomousDeliverySupervisor(io);
-  const supervisor = existing ?? (() => {
-    const provider = new GitHubProviderActionAdapter();
-    const created = new AutonomousDeliverySupervisor({
-      facts: new RepositoryDeliveryFactsAdapter(provider),
-      actions: new HarnessDeliveryActionAdapter(io, provider),
+): AutonomousDeliveryRuntimePort {
+  const existing = getDeliveryControlRuntime(io);
+  const runtime = existing ?? (() => {
+    const created = new DeliveryControlRuntime({
       workerId,
-      leaseMs: deliveryLeaseMs(),
     });
-    registerAutonomousDeliverySupervisor(io, created);
+    registerDeliveryControlRuntime(io, created);
     return created;
   })();
 
   const shared = io as unknown as Record<symbol, unknown>;
   if (!shared[RECONCILE_TIMER_KEY]) {
-    void reconcileActiveRuns(supervisor, 'startup');
+    void reconcileActiveRuns(runtime, 'startup');
     const timer = setInterval(() => {
-      void reconcileActiveRuns(supervisor, 'periodic');
+      void reconcileActiveRuns(runtime, 'periodic');
     }, Number(process.env.AUTONOMOUS_DELIVERY_RECONCILE_MS || 15_000));
     timer.unref();
     shared[RECONCILE_TIMER_KEY] = timer;
@@ -82,5 +71,5 @@ export function ensureAutonomousDeliveryRuntime(
     timer.unref();
     shared[ADVANCEMENT_TIMER_KEY] = timer;
   }
-  return supervisor;
+  return runtime;
 }

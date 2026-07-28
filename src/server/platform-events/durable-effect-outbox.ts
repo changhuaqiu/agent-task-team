@@ -1,9 +1,17 @@
 import type Database from 'better-sqlite3';
 import { getDb } from '../db';
 import { generateSortableId } from '../repositories/sortable-id';
+import { PlatformEventLog } from './event-log';
 
 export type DurableEffectExecution = 'transactional' | 'idempotent';
-export type DurableEffectStatus = 'queued' | 'running' | 'succeeded' | 'dead_letter';
+export type DurableEffectStatus =
+  | 'queued'
+  | 'running'
+  | 'succeeded'
+  | 'dead_letter'
+  | 'cancelled'
+  | 'superseded';
+export type DurableEffectCriticality = 'blocking' | 'non_blocking';
 
 export interface DurableEffect<TPayload = unknown> {
   id: string;
@@ -16,6 +24,14 @@ export interface DurableEffect<TPayload = unknown> {
   payload: TPayload;
   status: DurableEffectStatus;
   attemptCount: number;
+  maxAttempts: number;
+  criticality: DurableEffectCriticality;
+  deliveryRunId?: string;
+  appliesFromRevision: number;
+  sourceActionId?: string;
+  supersededAtRevision?: number;
+  successorEffectId?: string;
+  dispositionReason?: string;
   nextAttemptAt: string;
   lastError?: string;
   createdAt: string;
@@ -28,6 +44,10 @@ export interface EnqueueDurableEffect {
   targetKey: string;
   payload: unknown;
   idempotencyKey?: string;
+  criticality?: DurableEffectCriticality;
+  deliveryRunId?: string;
+  appliesFromRevision?: number;
+  sourceActionId?: string;
 }
 
 export interface EnqueueDurableEffectBatch {
@@ -105,6 +125,14 @@ interface EffectRow {
   payload: string;
   status: DurableEffectStatus;
   attempt_count: number;
+  max_attempts: number;
+  criticality: DurableEffectCriticality;
+  delivery_run_id: string | null;
+  applies_from_revision: number;
+  source_action_id: string | null;
+  superseded_at_revision: number | null;
+  successor_effect_id: string | null;
+  disposition_reason: string | null;
   next_attempt_at: string;
   lease_owner: string | null;
   lease_expires_at: string | null;
@@ -163,6 +191,16 @@ function fromRow<TPayload = unknown>(row: EffectRow): DurableEffect<TPayload> {
     payload: JSON.parse(row.payload) as TPayload,
     status: row.status,
     attemptCount: row.attempt_count,
+    maxAttempts: row.max_attempts,
+    criticality: row.criticality,
+    ...(row.delivery_run_id ? { deliveryRunId: row.delivery_run_id } : {}),
+    appliesFromRevision: row.applies_from_revision,
+    ...(row.source_action_id ? { sourceActionId: row.source_action_id } : {}),
+    ...(row.superseded_at_revision !== null
+      ? { supersededAtRevision: row.superseded_at_revision }
+      : {}),
+    ...(row.successor_effect_id ? { successorEffectId: row.successor_effect_id } : {}),
+    ...(row.disposition_reason ? { dispositionReason: row.disposition_reason } : {}),
     nextAttemptAt: row.next_attempt_at,
     ...(row.last_error ? { lastError: row.last_error } : {}),
     createdAt: row.created_at,
@@ -262,6 +300,12 @@ export class DurableEffectOutbox {
         const idempotencyKey = requested.idempotencyKey
           ?? `effect:${input.sourceEventId}:${requested.type}:${requested.targetKey}`;
         const payload = canonicalJson(requested.payload);
+        const criticality = requested.criticality ?? 'non_blocking';
+        const appliesFromRevision = requested.appliesFromRevision ?? 0;
+        if (!Number.isSafeInteger(appliesFromRevision) || appliesFromRevision < 0) {
+          throw new Error('durable_effect_applies_revision_invalid');
+        }
+        const maxAttempts = this.registrations.get(requested.type)?.maxAttempts ?? 5;
         const existing = db.prepare(
           'SELECT * FROM platform_effect_outbox WHERE idempotency_key=?',
         ).get(idempotencyKey) as EffectRow | undefined;
@@ -272,6 +316,10 @@ export class DurableEffectOutbox {
             || existing.target_key !== requested.targetKey
             || existing.lane_key !== input.laneKey
             || existing.payload !== payload
+            || existing.criticality !== criticality
+            || existing.delivery_run_id !== (requested.deliveryRunId ?? null)
+            || existing.applies_from_revision !== appliesFromRevision
+            || existing.source_action_id !== (requested.sourceActionId ?? null)
           ) {
             throw new DurableEffectConflictError(idempotencyKey);
           }
@@ -284,8 +332,9 @@ export class DurableEffectOutbox {
           INSERT INTO platform_effect_outbox (
             id,source_event_id,effect_type,target_key,lane_key,lane_sequence,
             idempotency_key,payload,status,attempt_count,next_attempt_at,
-            created_at,updated_at
-          ) VALUES (?,?,?,?,?,?,?,?,'queued',0,?,?,?)
+            max_attempts,criticality,delivery_run_id,applies_from_revision,
+            source_action_id,created_at,updated_at
+          ) VALUES (?,?,?,?,?,?,?,?,'queued',0,?,?,?,?,?,?,?,?)
         `).run(
           id,
           input.sourceEventId,
@@ -296,10 +345,23 @@ export class DurableEffectOutbox {
           idempotencyKey,
           payload,
           now,
+          maxAttempts,
+          criticality,
+          requested.deliveryRunId ?? null,
+          appliesFromRevision,
+          requested.sourceActionId ?? null,
           now,
           now,
         );
-        result.push(this.get(id)!);
+        const inserted = db.prepare('SELECT * FROM platform_effect_outbox WHERE id=?')
+          .get(id) as EffectRow;
+        this.publishFact(db, inserted, 'effect.enqueued', {
+          status: 'queued',
+          criticality,
+          deliveryRunId: requested.deliveryRunId,
+          appliesFromRevision,
+        }, now, 'enqueued');
+        result.push(fromRow(inserted));
         nextSequence += 1;
       }
       return result;
@@ -322,6 +384,87 @@ export class DurableEffectOutbox {
     return rows.map((row) => fromRow(row));
   }
 
+  listApplicableBlocking(deliveryRunId: string, revision: number): DurableEffect[] {
+    if (!Number.isSafeInteger(revision) || revision < 0) {
+      throw new Error('durable_effect_closure_revision_invalid');
+    }
+    const rows = (this.database ?? getDb()).prepare(`
+      SELECT * FROM platform_effect_outbox
+      WHERE delivery_run_id=?
+        AND criticality='blocking'
+        AND applies_from_revision<=?
+        AND status NOT IN ('succeeded','cancelled','superseded')
+      ORDER BY applies_from_revision,lane_key,lane_sequence,id
+    `).all(deliveryRunId, revision) as EffectRow[];
+    return rows.map((row) => fromRow(row));
+  }
+
+  cancel(input: { effectId: string; reason: string }): boolean {
+    if (!input.reason.trim()) throw new Error('durable_effect_disposition_reason_required');
+    const now = this.now().toISOString();
+    const db = this.database ?? getDb();
+    return db.transaction(() => {
+      const row = db.prepare('SELECT * FROM platform_effect_outbox WHERE id=?')
+        .get(input.effectId) as EffectRow | undefined;
+      if (!row) return false;
+      const updated = db.prepare(`
+        UPDATE platform_effect_outbox
+        SET status='cancelled',disposition_reason=?,lease_owner=NULL,lease_expires_at=NULL,
+            current_attempt_id=NULL,updated_at=?,completed_at=?
+        WHERE id=? AND status IN ('queued','dead_letter')
+      `).run(input.reason.trim(), now, now, input.effectId);
+      if (updated.changes !== 1) return false;
+      this.publishFact(db, row, 'effect.cancelled', {
+        status: 'cancelled',
+        reason: input.reason.trim(),
+      }, now, 'cancelled');
+      return true;
+    }).immediate();
+  }
+
+  supersede(input: {
+    effectId: string;
+    atRevision: number;
+    reason: string;
+    successorEffectId?: string;
+  }): boolean {
+    if (!Number.isSafeInteger(input.atRevision) || input.atRevision < 0) {
+      throw new Error('durable_effect_superseded_revision_invalid');
+    }
+    if (!input.reason.trim()) throw new Error('durable_effect_disposition_reason_required');
+    const now = this.now().toISOString();
+    const db = this.database ?? getDb();
+    return db.transaction(() => {
+      const row = db.prepare('SELECT * FROM platform_effect_outbox WHERE id=?')
+        .get(input.effectId) as EffectRow | undefined;
+      if (!row) return false;
+      const updated = db.prepare(`
+        UPDATE platform_effect_outbox
+        SET status='superseded',superseded_at_revision=?,successor_effect_id=?,
+            disposition_reason=?,lease_owner=NULL,lease_expires_at=NULL,
+            current_attempt_id=NULL,updated_at=?,completed_at=?
+        WHERE id=? AND status IN ('queued','dead_letter')
+          AND ? >= applies_from_revision
+      `).run(
+        input.atRevision,
+        input.successorEffectId ?? null,
+        input.reason.trim(),
+        now,
+        now,
+        input.effectId,
+        input.atRevision,
+      );
+      if (updated.changes !== 1) return false;
+      this.publishFact(db, row, 'effect.superseded', {
+        status: 'superseded',
+        reason: input.reason.trim(),
+        atRevision: input.atRevision,
+        successorEffectId: input.successorEffectId,
+      }, now, `superseded:${input.atRevision}`);
+      return true;
+    }).immediate();
+  }
+
   recover(): DurableEffectRecoveryResult {
     const db = this.database ?? getDb();
     const now = this.now().toISOString();
@@ -334,8 +477,7 @@ export class DurableEffectOutbox {
       let abandonedAttempts = 0;
       let deadLettered = 0;
       for (const effect of expired) {
-        const maxAttempts = this.registrations.get(effect.effect_type)?.maxAttempts ?? 5;
-        const exhausted = effect.attempt_count >= maxAttempts;
+        const exhausted = effect.attempt_count >= effect.max_attempts;
         const updated = db.prepare(`
           UPDATE platform_effect_outbox
           SET status=?, lease_owner=NULL, lease_expires_at=NULL,
@@ -352,6 +494,19 @@ export class DurableEffectOutbox {
           effect.current_attempt_id,
         );
         if (updated.changes !== 1) continue;
+        this.publishFact(
+          db,
+          effect,
+          exhausted ? 'effect.dead_lettered' : 'effect.retry_scheduled',
+          {
+            status: exhausted ? 'dead_letter' : 'queued',
+            reason: 'durable_effect_lease_expired',
+            attemptCount: effect.attempt_count,
+            maxAttempts: effect.max_attempts,
+          },
+          now,
+          `${exhausted ? 'dead-letter' : 'retry'}:${effect.attempt_count}`,
+        );
         if (exhausted) deadLettered += 1;
         else recovered += 1;
         abandonedAttempts += db.prepare(`
@@ -420,7 +575,7 @@ export class DurableEffectOutbox {
             SELECT 1 FROM platform_effect_outbox predecessor
             WHERE predecessor.lane_key=candidate.lane_key
               AND predecessor.lane_sequence < candidate.lane_sequence
-              AND predecessor.status NOT IN ('succeeded','dead_letter')
+              AND predecessor.status NOT IN ('succeeded','dead_letter','cancelled','superseded')
           )
         ORDER BY candidate.next_attempt_at,candidate.created_at,candidate.id
         LIMIT 1
@@ -519,6 +674,10 @@ export class DurableEffectOutbox {
           SET status='succeeded',finished_at=?
           WHERE id=? AND status='running'
         `).run(now, claim.attemptId);
+        this.publishFact(db, claim.row, 'effect.succeeded', {
+          status: 'succeeded',
+          attemptCount: claim.row.attempt_count,
+        }, now, `succeeded:${claim.row.attempt_count}`);
       }).immediate();
     } catch (error) {
       return this.fail(claim.row, claim.attemptId, claim.registration, error);
@@ -583,6 +742,12 @@ export class DurableEffectOutbox {
         SET status='succeeded',finished_at=?
         WHERE id=? AND status='running'
       `).run(now, attemptId);
+      const row = db.prepare('SELECT * FROM platform_effect_outbox WHERE id=?')
+        .get(effectId) as EffectRow;
+      this.publishFact(db, row, 'effect.succeeded', {
+        status: 'succeeded',
+        attemptCount: row.attempt_count,
+      }, now, `succeeded:${row.attempt_count}`);
       return true;
     }).immediate();
   }
@@ -596,8 +761,7 @@ export class DurableEffectOutbox {
     const db = this.database ?? getDb();
     const nowDate = this.now();
     const now = nowDate.toISOString();
-    const maxAttempts = registration.maxAttempts ?? 5;
-    const deadLettered = row.attempt_count >= maxAttempts;
+    const deadLettered = row.attempt_count >= row.max_attempts;
     const nextAttemptAt = deadLettered
       ? now
       : new Date(nowDate.getTime() + this.retryDelayMs(row.attempt_count)).toISOString();
@@ -624,6 +788,20 @@ export class DurableEffectOutbox {
         SET status='failed',finished_at=?,error=?
         WHERE id=? AND status='running'
       `).run(now, message, attemptId);
+      this.publishFact(
+        db,
+        row,
+        deadLettered ? 'effect.dead_lettered' : 'effect.retry_scheduled',
+        {
+          status: deadLettered ? 'dead_letter' : 'queued',
+          reason: message,
+          attemptCount: row.attempt_count,
+          maxAttempts: row.max_attempts,
+          nextAttemptAt,
+        },
+        now,
+        `${deadLettered ? 'dead-letter' : 'retry'}:${row.attempt_count}`,
+      );
       return deadLettered ? 'dead_lettered' as const : 'retry_queued' as const;
     }).immediate();
   }
@@ -642,5 +820,49 @@ export class DurableEffectOutbox {
       this.workerId,
       attemptId,
     );
+  }
+
+  private publishFact(
+    db: Database.Database,
+    effect: EffectRow,
+    type: string,
+    payload: Record<string, unknown>,
+    occurredAt: string,
+    dedupeSuffix: string,
+  ): void {
+    const source = db.prepare(`
+      SELECT project_id,correlation_id FROM platform_event WHERE id=?
+    `).get(effect.source_event_id) as {
+      project_id: string;
+      correlation_id: string;
+    } | undefined;
+    if (!source) throw new Error(`durable_effect_source_event_missing:${effect.source_event_id}`);
+    new PlatformEventLog({ db }).append({
+      type,
+      category: 'coordination',
+      projectId: source.project_id,
+      streamKey: `effect:${effect.id}`,
+      aggregate: {
+        type: 'effect',
+        id: effect.id,
+        version: effect.attempt_count,
+      },
+      actor: { type: 'system', id: 'durable-effect-outbox' },
+      subject: effect.delivery_run_id
+        ? { type: 'delivery_run', id: effect.delivery_run_id }
+        : { type: 'effect_target', id: effect.target_key },
+      correlationId: source.correlation_id,
+      causationId: effect.source_event_id,
+      dedupeKey: `effect:${effect.id}:${dedupeSuffix}`,
+      occurredAt,
+      payload: {
+        effectId: effect.id,
+        effectType: effect.effect_type,
+        targetKey: effect.target_key,
+        laneKey: effect.lane_key,
+        deliveryRunId: effect.delivery_run_id,
+        ...payload,
+      },
+    });
   }
 }

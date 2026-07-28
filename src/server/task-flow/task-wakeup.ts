@@ -5,7 +5,7 @@ export type TaskWakeupReasonCode =
   | 'owner_ready'
   | 'review_requested'
   | 'review_decision_ready'
-  | 'review_rejected'
+  | 'review_changes_requested'
   | 'test_requested'
   | 'dependency_resolved'
   | 'unblocked_unassigned'
@@ -120,8 +120,8 @@ function addWakeup(wakeups: TaskWakeup[], input: {
 
   const actionText = input.reasonCode === 'review_requested'
     ? '请开始评审'
-    : input.reasonCode === 'review_rejected'
-      ? '评审已拒绝，请按评论修复并继续使用同一 PR'
+    : input.reasonCode === 'review_changes_requested'
+      ? '评审要求修改，请按评论修复并继续使用同一 PR'
     : input.reasonCode === 'review_decision_ready'
       ? '请确认评审结论'
       : input.reasonCode === 'test_requested'
@@ -208,7 +208,7 @@ export function resolveTaskWakeups(input: ResolveTaskWakeupsInput): TaskWakeup[]
     changedFields.includes('dependencies');
 
   if (
-    input.task.status === 'pending' &&
+    input.task.status === 'ready' &&
     relevantOwnerChange &&
     dependenciesSatisfied(input.task, input.conversationTasks, input.edges)
   ) {
@@ -222,15 +222,15 @@ export function resolveTaskWakeups(input: ResolveTaskWakeupsInput): TaskWakeup[]
   }
 
   if (
-    input.task.status === 'rejected' &&
-    input.previousTask?.status !== 'rejected' &&
+    input.task.status === 'in_progress' &&
+    input.previousTask?.status === 'in_review' &&
     changedFields.includes('status')
   ) {
     addWakeup(wakeups, {
       task: input.task,
       agentId: input.task.agent_id,
       actorId: input.actorId,
-      reasonCode: 'review_rejected',
+      reasonCode: 'review_changes_requested',
       dispatchSource: 'review_gate',
     });
   }
@@ -287,7 +287,7 @@ export function resolveTaskWakeups(input: ResolveTaskWakeupsInput): TaskWakeup[]
   if (input.previousTask && input.previousTask.status !== 'done' && input.task.status === 'done') {
     for (const downstream of input.conversationTasks) {
       if (!parseDependencyIds(downstream, input.edges).includes(input.task.id)) continue;
-      if (downstream.status !== 'pending') continue;
+      if (downstream.status !== 'ready') continue;
       if (!dependenciesSatisfied(downstream, input.conversationTasks, input.edges)) continue;
       addWakeup(wakeups, {
         task: downstream,
@@ -305,7 +305,7 @@ export function resolveTaskWakeups(input: ResolveTaskWakeupsInput): TaskWakeup[]
     const downstreamNotified = new Set<string>();
     for (const downstream of input.conversationTasks) {
       if (!parseDependencyIds(downstream, input.edges).includes(input.task.id)) continue;
-      if (downstream.status !== 'pending') continue;
+      if (downstream.status !== 'ready') continue;
       if (!dependenciesSatisfied(downstream, input.conversationTasks, input.edges)) continue;
       if (downstream.agent_id) continue; // has owner — handled by dependency_resolved above
       const key = downstream.id;

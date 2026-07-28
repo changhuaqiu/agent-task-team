@@ -2,7 +2,9 @@
 
 > Status: Draft for implementation
 > Date: 2026-05-12
-> Related specs: `team-runtime-contract/`, `a2a-possession-contract/`, `group-chat-task-flow/`
+> Related sources: `team-runtime-contract/`,
+> `docs/technical/execution/platform-harness-state-machine-design.md`,
+> `group-chat-task-flow/`
 
 ## Problem Statement
 
@@ -14,12 +16,13 @@ Agent Task Hub has grown from a single UI-driven task workspace into a multi-ins
 - agents collaborate through A2A possession handoffs
 - workflow, tasks, accounts, skills, worktrees, sessions, and runtime bindings all affect execution
 
-The current architecture does not model those boundaries clearly. Several modules make overlapping decisions:
+The server-side Platform Harness now owns the execution loop boundaries:
 
-- `taskHubStore` decides direct user dispatch, queueing, A2A notification, and UI state.
-- `daemon` starts processes, tracks active processes, emits runtime events, and partially determines dispatch outcomes.
-- `a2a/orchestrator` owns possession, policy, dedup, queue state, and dispatch events, but does not know whether a target runtime node is reachable.
-- Team Runtime resolves roster and communication policy, but dispatch callers can still hold local assumptions.
+- `taskHubStore` submits Human Commands and renders versioned projections only.
+- Delivery Control Process Manager computes actions from authoritative owner facts.
+- `A2ACollaborationRepository` owns possession, pass groups, policy admission and durable Inbox handoff.
+- AgentInbox and Invocation Pipeline own reliable admission, preflight and Runtime start.
+- Team Runtime remains the roster, communication policy and executable-profile resolver.
 
 This creates system-level ambiguity:
 
@@ -29,7 +32,8 @@ This creates system-level ambiguity:
 - socket broadcast events do not identify the exact receiving runtime node
 - failure evidence is spread across UI memory, daemon logs, SQLite rows, and terminal output
 
-The root design flaw is not limited to A2A. The product lacks a server-side control plane that owns decisions, routing, policy, health, and proof for all agent execution.
+The remaining scope of this spec is cross-node routing, health and proof. It must extend the existing
+server-side Harness and owner boundaries, not reintroduce browser dispatch or a second A2A orchestrator.
 
 ## Design Principle
 

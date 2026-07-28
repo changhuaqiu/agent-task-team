@@ -1,21 +1,16 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, CheckCircle2, LoaderCircle } from 'lucide-react';
 import type { DeliveryRunSnapshot } from '@/server/autonomous-delivery/types';
 
 const STAGE_LABELS: Record<string, string> = {
-  submitted: '目标已接收',
   planning: '正在规划',
   executing: '团队执行中',
   reviewing: '正在评审',
   verifying: '正在验收',
   integrating: '正在集成',
   delivering: '正在整理交付',
-  recovering: '正在自动恢复',
-  completed: '交付完成',
-  escalated: '需要你的决策',
-  cancelled: '已取消',
 };
 
 const VERIFICATION_METHOD_LABELS = {
@@ -43,6 +38,9 @@ function EvidenceRef({ value }: { value: string }) {
 
 export function AutonomousDeliveryPanel({ conversationId }: { conversationId: string }) {
   const [snapshot, setSnapshot] = useState<DeliveryRunSnapshot>();
+  const [resumePending, setResumePending] = useState(false);
+  const [resumeError, setResumeError] = useState<string>();
+  const resumeCommandId = useRef<string | undefined>(undefined);
 
   useEffect(() => {
     let disposed = false;
@@ -63,6 +61,36 @@ export function AutonomousDeliveryPanel({ conversationId }: { conversationId: st
 
   if (!snapshot) return null;
   const { run, contract, bundle } = snapshot;
+  const resume = async () => {
+    setResumePending(true);
+    setResumeError(undefined);
+    try {
+      const idempotencyKey = resumeCommandId.current ?? globalThis.crypto.randomUUID();
+      resumeCommandId.current = idempotencyKey;
+      const response = await fetch('/api/autonomous-delivery', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'advance',
+          runId: run.id,
+          idempotencyKey,
+        }),
+      });
+      const payload = await response.json() as {
+        snapshot?: DeliveryRunSnapshot;
+        error?: string;
+      };
+      if (!response.ok || !payload.snapshot) {
+        throw new Error(payload.error ?? '无法继续运行');
+      }
+      setSnapshot(payload.snapshot);
+      resumeCommandId.current = undefined;
+    } catch (error) {
+      setResumeError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setResumePending(false);
+    }
+  };
 
   if (run.status === 'completed' && bundle) {
     return (
@@ -141,10 +169,10 @@ export function AutonomousDeliveryPanel({ conversationId }: { conversationId: st
     );
   }
 
-  if (run.status === 'escalated') {
+  if (run.status === 'waiting_human') {
     return (
       <section
-        data-testid="autonomous-delivery-escalated"
+        data-testid="autonomous-delivery-waiting-human"
         className="mx-4 mt-3 rounded-xl border border-amber-500/30 bg-amber-500/5 p-4"
       >
         <div className="flex items-center gap-2 text-sm font-semibold text-amber-600">
@@ -154,6 +182,17 @@ export function AutonomousDeliveryPanel({ conversationId }: { conversationId: st
         <p className="mt-2 text-xs text-[hsl(var(--text-secondary))]">
           {run.escalation_detail ?? '系统无法在当前授权范围内继续。'}
         </p>
+        <button
+          type="button"
+          disabled={resumePending}
+          onClick={() => void resume()}
+          className="mt-3 rounded-md bg-amber-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+        >
+          {resumePending ? '正在继续…' : '我已处理，继续'}
+        </button>
+        {resumeError && (
+          <p role="alert" className="mt-2 text-xs text-red-600">{resumeError}</p>
+        )}
       </section>
     );
   }
@@ -166,7 +205,11 @@ export function AutonomousDeliveryPanel({ conversationId }: { conversationId: st
       <div className="flex items-center gap-2">
         <LoaderCircle className="size-4 animate-spin text-[hsl(var(--accent))]" />
         <span className="text-xs font-semibold text-[hsl(var(--text-primary))]">
-          {STAGE_LABELS[run.status] ?? STAGE_LABELS[run.current_stage] ?? '自主推进中'}
+          {run.status === 'retrying'
+            ? '正在自动恢复'
+            : run.status === 'waiting_gate'
+              ? `等待${STAGE_LABELS[run.current_stage] ?? '验收'}结果`
+              : STAGE_LABELS[run.current_stage] ?? '自主推进中'}
         </span>
         <span className="ml-auto text-[10px] text-[hsl(var(--text-tertiary))]">
           你可以离开，完成后会在这里交付

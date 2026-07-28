@@ -8,7 +8,7 @@ import { taskRepo } from '@/server/repositories/task-repo';
 import { seedPresetAgents } from '@/server/db/seed-agents';
 import { teamPackRepo } from '@/server/repositories/team-pack-repo';
 import { publishTaskChangeNotification, publishTaskNotification, resolveTaskNotificationAudience } from '@/server/task-flow/task-notification-publisher';
-import { registerHarnessCoordinator } from '@/server/harness/registry';
+import { registerInvocationCoordinator } from '@/server/invocation-pipeline/registry';
 
 beforeEach(() => {
   setTestDb(createTestDb());
@@ -59,7 +59,8 @@ describe('publishTaskNotification', () => {
       title: 'A2A 后端修复',
       agent_id: 'toad',
     });
-    taskRepo.updateStatus(previousTask.id, 'in_review', 'PASS-WITH-NOTES');
+    taskRepo.transition(previousTask.id, { to: 'in_progress' });
+    taskRepo.transition(previousTask.id, { to: 'in_review', reviewNote: 'PASS-WITH-NOTES' });
     const task = taskRepo.getById(previousTask.id)!;
 
     const emit = vi.fn();
@@ -108,9 +109,9 @@ describe('publishTaskNotification', () => {
       title: 'Execution Adapter',
       agent_id: 'toad',
     });
-    taskRepo.updateStatus(previousTask.id, 'blocked');
+    taskRepo.transition(previousTask.id, { to: 'blocked' });
     const blocked = taskRepo.getById(previousTask.id)!;
-    taskRepo.updateStatus(previousTask.id, 'pending');
+    taskRepo.transition(previousTask.id, { to: 'ready' });
     const ready = taskRepo.getById(previousTask.id)!;
 
     const emit = vi.fn();
@@ -146,9 +147,10 @@ describe('publishTaskNotification', () => {
       title: 'Review gate callback',
       agent_id: 'toad',
     });
-    taskRepo.updateStatus(task.id, 'in_review');
+    taskRepo.transition(task.id, { to: 'in_progress' });
+    taskRepo.transition(task.id, { to: 'in_review' });
     const previous = taskRepo.getById(task.id)!;
-    taskRepo.updateStatus(task.id, 'in_review', 'PASS: DK review approved');
+    taskRepo.transition(task.id, { to: 'in_review', reviewNote: 'PASS: DK review approved' });
     const reviewed = taskRepo.getById(task.id)!;
 
     const emit = vi.fn();
@@ -191,15 +193,17 @@ describe('publishTaskNotification', () => {
     }
   });
 
-  it('does not directly submit a rejected task after the durable router owns it', () => {
+  it('does not directly submit changes-requested work after the durable router owns it', () => {
     const task = taskRepo.create({
       id: 'TASK-REJECTED',
       conversation_id: 'conv-1',
       title: 'Needs correction',
       agent_id: 'toad',
     });
+    taskRepo.transition(task.id, { to: 'in_progress' });
+    taskRepo.transition(task.id, { to: 'in_review' });
     const previous = taskRepo.getById(task.id)!;
-    taskRepo.updateStatus(task.id, 'rejected', 'Fix the race');
+    taskRepo.transition(task.id, { to: 'in_progress', reviewNote: 'Fix the race' });
     const rejected = taskRepo.getById(task.id)!;
     const emit = vi.fn();
     const io = {
@@ -207,7 +211,7 @@ describe('publishTaskNotification', () => {
       emit: vi.fn(),
     } as unknown as IOServer;
     const submit = vi.fn();
-    registerHarnessCoordinator(io, { submit } as never);
+    registerInvocationCoordinator(io, { submit } as never);
 
     publishTaskChangeNotification({
       io,
@@ -221,7 +225,7 @@ describe('publishTaskNotification', () => {
 
     expect(submit).not.toHaveBeenCalled();
     expect(emit).toHaveBeenCalledWith('task.wakeup', expect.objectContaining({
-      reasonCode: 'review_rejected',
+      reasonCode: 'review_changes_requested',
     }));
   });
 

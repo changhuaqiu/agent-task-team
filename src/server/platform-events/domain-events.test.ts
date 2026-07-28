@@ -4,7 +4,8 @@ import { createTestDb, resetDb, setTestDb } from '../db';
 import { taskRepo } from '../repositories/task-repo';
 import { AutonomousDeliveryRepository } from '../autonomous-delivery/repository';
 import type { GoalContract } from '../autonomous-delivery/types';
-import { ChainRepo } from '../a2a/chain';
+import { A2ACollaborationRepository } from '../a2a/collaboration';
+import { AgentInbox } from './agent-inbox';
 import { executionEnvelopeRepo } from '../repositories/execution-envelope-repo';
 import { invocationRepo } from '../repositories/invocation-repo';
 import { sessionRepo } from '../repositories/session-repo';
@@ -37,13 +38,17 @@ describe('domain event inline seam', () => {
 
   it('keeps the complete catalog assigned to exactly nine domain owners', () => {
     expect(Object.keys(DOMAIN_EVENT_TYPES_BY_OWNER)).toEqual([
-      'task', 'review', 'delivery', 'a2a', 'envelope',
+      'task', 'gate', 'delivery', 'a2a', 'envelope',
       'binding', 'node', 'invocation', 'session',
     ]);
     const types = Object.values(DOMAIN_EVENT_TYPES_BY_OWNER).flat();
     expect(new Set(types).size).toBe(types.length);
     expect(types).toContain('task.assigned' satisfies DomainEventType);
     expect(types).toContain('session.sealed' satisfies DomainEventType);
+    expect(types).not.toContain('completed');
+    expect(types.filter((type) => type.endsWith('.completed')).every((type) => (
+      type.split('.').length >= 3
+    ))).toBe(true);
   });
 
   it('publishes task state changes inline and skips no-op updates', () => {
@@ -53,9 +58,9 @@ describe('domain event inline seam', () => {
       title: 'Task',
       agent_id: 'implementer',
     });
-    taskRepo.updateStatus('task-1', 'in_progress');
-    taskRepo.updateStatus('task-1', 'in_progress');
-    taskRepo.updateStatus('task-1', 'blocked', 'Dependency missing');
+    taskRepo.transition('task-1', { to: 'in_progress' });
+    taskRepo.transition('task-1', { to: 'in_progress' });
+    taskRepo.transition('task-1', { to: 'blocked', reviewNote: 'Dependency missing' });
 
     expect(log.listStream('task:task-1').map((event) => event.type)).toEqual([
       'task.assigned',
@@ -74,7 +79,7 @@ describe('domain event inline seam', () => {
       actor: { type: 'system', id: 'test' },
       correlationId: 'other',
       dedupeKey: 'task:task-conflict:created:assigned',
-      payload: { agentId: 'other', status: 'pending' },
+      payload: { agentId: 'other', status: 'ready' },
     });
 
     expect(() => taskRepo.create({
@@ -89,6 +94,7 @@ describe('domain event inline seam', () => {
   it('does not revise or emit when a delivery run update changes no facts', () => {
     const repository = new AutonomousDeliveryRepository();
     const contract: GoalContract = {
+      idempotencyKey: 'domain-event-delivery',
       goal: 'Ship it',
       acceptanceCriteria: ['It works'],
       scope: { conversationId: 'project-1' },
@@ -111,45 +117,50 @@ describe('domain event inline seam', () => {
     };
     const created = repository.createRun(contract);
 
-    const unchanged = repository.updateRun({
+    const unchanged = repository.transitionRun({
       runId: created.run.id,
-      status: created.run.status,
+      to: created.run.status,
       stage: created.run.current_stage,
       expectedRevision: created.run.revision,
     });
 
     expect(unchanged?.revision).toBe(created.run.revision);
     expect(log.listStream(`delivery_run:${created.run.id}`).map((event) => event.type))
-      .toEqual(['delivery.run.submitted']);
+      .toEqual(['delivery.run.started']);
   });
 
-  it('keeps A2A terminal states final and emits bulk abort facts inline', () => {
-    const chains = new ChainRepo(db);
-    const first = chains.create({
-      conversationId: 'project-1',
-      type: 'user_message',
-      messageId: 'message-1',
+  it('keeps A2A terminal states final and emits abort facts inline', () => {
+    let sequence = 0;
+    const collaboration = new A2ACollaborationRepository({
+      db,
+      inbox: new AgentInbox({
+        db,
+        idFactory: (prefix) => `${prefix}-${++sequence}`,
+      }),
+      idFactory: (prefix) => `${prefix}-${++sequence}`,
     });
-    const entry = chains.appendWorklist(first.id, 'agent-a', 'user', 'Do work', 'hash-1', 0)!;
-    const second = chains.create({
+    const first = collaboration.createChain({
       conversationId: 'project-1',
-      type: 'user_message',
-      messageId: 'message-2',
+      rootTriggerType: 'user_turn',
+      rootTriggerId: 'message-1',
+      holderId: 'agent-a',
+      holderType: 'agent',
     });
+    expect(collaboration.abortActiveChain('project-1', 'human_superseded'))
+      .toEqual({ chainId: first.chain.id, cancelledInboxItems: 0 });
+    expect(() => collaboration.completePossession({
+      possessionId: first.rootPossession.id,
+      expectedRevision: 1,
+      summary: 'late completion',
+    })).toThrow(/a2a_possession_not_open/);
 
-    expect(chains.abortAllActive('project-1')).toBe(2);
-    chains.complete(first.id);
-    chains.markDone(entry.id, 'success');
-
-    expect(chains.getById(first.id)?.status).toBe('aborted');
-    expect(chains.getWorklistForChain(first.id)[0]?.status).toBe('aborted');
-    expect(log.listStream(`a2a_chain:${first.id}`).map((event) => event.type))
-      .toEqual(['a2a.chain.aborted']);
-    expect(log.listStream(`a2a_chain:${second.id}`).map((event) => event.type))
-      .toEqual(['a2a.chain.aborted']);
+    expect(collaboration.getChain(first.chain.id)?.status).toBe('aborted');
+    expect(collaboration.getPossession(first.rootPossession.id)?.status).toBe('aborted');
+    expect(log.listStream(`a2a_collaboration:${first.chain.id}`).map((event) => event.type))
+      .toEqual(['a2a.chain.started', 'a2a.chain.aborted']);
   });
 
-  it('keeps envelope terminal states final and emits blocked as a domain fact', () => {
+  it('keeps envelope terminal states final and emits rejection as a domain fact', () => {
     const envelope = executionEnvelopeRepo.create({
       source: 'workflow',
       intent: 'implement',
@@ -158,16 +169,22 @@ describe('domain event inline seam', () => {
       toNodeId: 'node-b',
       toAgentId: 'implementer',
     });
-    executionEnvelopeRepo.updateStatus(envelope.id, 'blocked', 'node_missing');
-    executionEnvelopeRepo.updateStatus(envelope.id, 'completed');
-    executionEnvelopeRepo.updateStatus(envelope.id, 'failed', 'late_failure');
+    executionEnvelopeRepo.transition(envelope.id, {
+      to: 'rejected',
+      expectedFrom: 'drafted',
+      reasonCode: 'node_missing',
+    });
+    expect(() => executionEnvelopeRepo.transition(envelope.id, {
+      to: 'validated',
+      expectedFrom: 'rejected',
+    })).toThrow(/Illegal execution envelope transition/);
 
     expect(executionEnvelopeRepo.getById(envelope.id)).toMatchObject({
-      status: 'blocked',
+      status: 'rejected',
       reason_code: 'node_missing',
     });
     expect(log.listStream(`envelope:${envelope.id}`).map((event) => event.type))
-      .toEqual(['envelope.blocked']);
+      .toEqual(['envelope.drafted', 'envelope.rejected']);
   });
 
   it('does not claim an empty task owner as an assignment fact', () => {
@@ -187,11 +204,17 @@ describe('domain event inline seam', () => {
       conversation_id: 'project-1',
       agent_id: 'implementer',
       prompt: 'Work',
+      correlation_id: 'delivery-root-1',
+      causation_id: 'dispatch-envelope-1',
     });
-    invocationRepo.updateStatus('invocation-1', 'running');
-    invocationRepo.updateStatus('invocation-1', 'succeeded', { exit_code: 0 });
-    invocationRepo.updateStatus('invocation-1', 'running');
-    invocationRepo.updateStatus('invocation-1', 'failed', { reason_code: 'late_failure' });
+    invocationRepo.transition('invocation-1', { to: 'starting' });
+    invocationRepo.transition('invocation-1', { to: 'running' });
+    invocationRepo.transition('invocation-1', {
+      to: 'terminated',
+      outcome: 'completed',
+      exit_code: 0,
+    });
+    expect(() => invocationRepo.transition('invocation-1', { to: 'running' })).toThrow();
     sessionRepo.create({
       id: 'session-1',
       conversationId: 'project-1',
@@ -201,25 +224,48 @@ describe('domain event inline seam', () => {
     sessionRepo.seal('session-1', 'completed');
     sessionRepo.seal('session-1', 'late_duplicate');
 
-    expect(log.listStream('domain-invocation:invocation-1').map((event) => event.type)).toEqual([
-      'invocation.queued',
-      'invocation.claimed',
-      'invocation.succeeded',
+    const invocationEvents = log.listStream('domain-invocation:invocation-1');
+    expect(invocationEvents.map((event) => event.type)).toEqual([
+      'invocation.planned',
+      'invocation.starting',
+      'invocation.running',
+      'invocation.terminated',
     ]);
-    expect(invocationRepo.getById('invocation-1')?.status).toBe('succeeded');
+    expect(invocationEvents.map((event) => event.correlationId))
+      .toEqual(Array(4).fill('delivery-root-1'));
+    expect(invocationEvents.map((event) => event.causationId)).toEqual([
+      'dispatch-envelope-1',
+      invocationEvents[0].eventId,
+      invocationEvents[1].eventId,
+      invocationEvents[2].eventId,
+    ]);
+    expect(invocationRepo.getById('invocation-1')).toMatchObject({
+      status: 'terminated',
+      outcome: 'completed',
+    });
     invocationRepo.create({
       id: 'invocation-retry',
       conversation_id: 'project-1',
       agent_id: 'implementer',
     });
-    invocationRepo.updateStatus('invocation-retry', 'failed', { reason_code: 'attempt_failed' });
-    invocationRepo.updateStatus('invocation-retry', 'succeeded');
-    expect(invocationRepo.getById('invocation-retry')?.status).toBe('failed');
-    invocationRepo.updateStatus('invocation-retry', 'running');
+    invocationRepo.transition('invocation-retry', {
+      to: 'terminated',
+      outcome: 'failed',
+      reason_code: 'attempt_failed',
+    });
+    expect(() => invocationRepo.transition('invocation-retry', {
+      to: 'terminated',
+      outcome: 'completed',
+    })).toThrow();
+    invocationRepo.create({
+      id: 'invocation-retry-2',
+      conversation_id: 'project-1',
+      agent_id: 'implementer',
+    });
+    invocationRepo.transition('invocation-retry-2', { to: 'starting' });
     expect(log.listStream('domain-invocation:invocation-retry').map((event) => event.type)).toEqual([
-      'invocation.queued',
-      'invocation.failed',
-      'invocation.claimed',
+      'invocation.planned',
+      'invocation.terminated',
     ]);
     expect(log.listStream('session:session-1').map((event) => event.type))
       .toEqual(['session.sealed']);

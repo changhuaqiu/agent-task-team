@@ -132,17 +132,24 @@ export class DispatchGateway {
         agentId: input.toAgentId,
         reasonCode: secretHit,
       });
-      return this.block(envelope.id, `secret_detected:${secretHit}`);
+      return this.reject(envelope.id, `secret_detected:${secretHit}`);
     }
 
     if (!targetNode) {
-      return this.block(envelope.id, 'runtime_node_missing');
+      return this.reject(envelope.id, 'runtime_node_missing', 'unreachable');
     }
     if (targetNode.status === 'unreachable' || targetNode.status === 'suspended') {
-      return this.block(envelope.id, `runtime_${targetNode.status}`);
+      return this.reject(envelope.id, `runtime_${targetNode.status}`, targetNode.status);
     }
 
-    executionEnvelopeRepo.updateStatus(envelope.id, 'routed');
+    executionEnvelopeRepo.transition(envelope.id, {
+      to: 'validated',
+      expectedFrom: 'drafted',
+    });
+    executionEnvelopeRepo.transition(envelope.id, {
+      to: 'routed',
+      expectedFrom: 'validated',
+    });
     proofLogRepo.append({
       eventType: 'dispatch.routed',
       conversationId: input.conversationId,
@@ -158,40 +165,69 @@ export class DispatchGateway {
   }
 
   markSent(envelopeId: string): void {
-    const envelope = executionEnvelopeRepo.updateStatus(envelopeId, 'sent');
+    const envelope = executionEnvelopeRepo.transition(envelopeId, {
+      to: 'sent',
+      expectedFrom: 'routed',
+    });
     if (!envelope) return;
     proofLogRepo.append(this.eventFromEnvelope(envelope, 'dispatch.sent'));
   }
 
-  markStarted(envelopeId: string): void {
-    const envelope = executionEnvelopeRepo.updateStatus(envelopeId, 'started');
+  acknowledge(envelopeId: string): void {
+    const envelope = executionEnvelopeRepo.transition(envelopeId, {
+      to: 'acknowledged',
+      expectedFrom: 'sent',
+    });
     if (!envelope) return;
     agentBindingRepo.markStarted(envelope.conversation_id, envelope.to_agent_id, envelope.id);
-    proofLogRepo.append(this.eventFromEnvelope(envelope, 'dispatch.started'));
+    proofLogRepo.append(this.eventFromEnvelope(envelope, 'dispatch.acknowledged'));
   }
 
-  markCompleted(envelopeId: string): void {
-    const envelope = executionEnvelopeRepo.updateStatus(envelopeId, 'completed');
+  markExecutionFinished(envelopeId: string): void {
+    const envelope = executionEnvelopeRepo.getById(envelopeId);
     if (!envelope) return;
     agentBindingRepo.markFinished(envelope.conversation_id, envelope.to_agent_id);
-    proofLogRepo.append(this.eventFromEnvelope(envelope, 'dispatch.completed'));
+    proofLogRepo.append(this.eventFromEnvelope(envelope, 'dispatch.execution_finished'));
   }
 
-  markFailed(envelopeId: string, reasonCode: string, bindingStatus: AgentBindingStatus = 'idle'): void {
-    const envelope = executionEnvelopeRepo.updateStatus(envelopeId, 'failed', reasonCode);
+  markExecutionFailed(
+    envelopeId: string,
+    reasonCode: string,
+    bindingStatus: AgentBindingStatus = 'idle',
+  ): void {
+    const envelope = executionEnvelopeRepo.getById(envelopeId);
     if (!envelope) return;
     if (bindingStatus === 'idle') {
       agentBindingRepo.markFinished(envelope.conversation_id, envelope.to_agent_id);
     } else {
       agentBindingRepo.markError(envelope.conversation_id, envelope.to_agent_id, bindingStatus, reasonCode);
     }
-    proofLogRepo.append(this.eventFromEnvelope(envelope, 'dispatch.failed', reasonCode));
+    proofLogRepo.append(this.eventFromEnvelope(envelope, 'dispatch.execution_failed', reasonCode));
   }
 
-  private block(envelopeId: string, reasonCode: string): ExecutionEnvelopeRow {
-    const envelope = executionEnvelopeRepo.updateStatus(envelopeId, 'blocked', reasonCode)!;
-    agentBindingRepo.markError(envelope.conversation_id, envelope.to_agent_id, 'unreachable', reasonCode);
-    proofLogRepo.append(this.eventFromEnvelope(envelope, 'dispatch.blocked', reasonCode));
+  reject(
+    envelopeId: string,
+    reasonCode: string,
+    bindingStatus: AgentBindingStatus = 'idle',
+  ): ExecutionEnvelopeRow {
+    const current = executionEnvelopeRepo.getById(envelopeId);
+    if (!current) throw new Error(`execution_envelope_not_found: ${envelopeId}`);
+    const envelope = executionEnvelopeRepo.transition(envelopeId, {
+      to: 'rejected',
+      expectedFrom: current.status,
+      reasonCode,
+    })!;
+    if (bindingStatus === 'idle') {
+      agentBindingRepo.markFinished(envelope.conversation_id, envelope.to_agent_id);
+    } else {
+      agentBindingRepo.markError(
+        envelope.conversation_id,
+        envelope.to_agent_id,
+        bindingStatus,
+        reasonCode,
+      );
+    }
+    proofLogRepo.append(this.eventFromEnvelope(envelope, 'dispatch.rejected', reasonCode));
     return envelope;
   }
 

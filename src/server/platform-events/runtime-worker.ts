@@ -12,6 +12,23 @@ import {
 } from './runtime-completion-process-manager';
 import { DurableEffectOutbox } from './durable-effect-outbox';
 import type { MessageRow } from '../repositories/message-repo';
+import {
+  A2AOutcomeProcessManager,
+  type A2AOutcomeProcessManagerOptions,
+} from '../a2a/outcome-process-manager';
+import {
+  A2ALifecycleProcessManager,
+  type A2ALifecycleProcessManagerOptions,
+} from '../a2a/lifecycle-process-manager';
+import type { A2AProjectionSnapshot } from '../../shared/project-view-events';
+import { A2AProjectViewProjection } from './a2a-project-view-projection';
+import { ControlSlotReleaseProcessManager } from '../autonomous-delivery/control-slot-release-process-manager';
+import { GateOutcomeProcessManager } from '../quality-gate/outcome-process-manager';
+import { TaskGraphOutcomeProcessManager } from '../repositories/task-graph-outcome-process-manager';
+import { TaskOutcomeProcessManager } from '../repositories/task-outcome-process-manager';
+import {
+  TaskGateLifecycleProcessManager,
+} from '../repositories/task-gate-lifecycle-process-manager';
 
 let worker: PlatformEventRuntimeWorker | undefined;
 
@@ -28,7 +45,10 @@ export interface PlatformEventRuntimeWorkerOptions {
   deliveryAdvancement?: DeliveryAdvancementPort;
   onObservabilityUpdated?: (projectId: string, invocationId: string) => void;
   onMessageProjected?: (message: MessageRow) => void;
+  onA2AProjected?: (snapshot: A2AProjectionSnapshot) => void;
   effectOutbox?: WorkerEffects;
+  a2aOutcome?: A2AOutcomeProcessManagerOptions | false;
+  a2aLifecycle?: A2ALifecycleProcessManagerOptions | false;
 }
 
 export class PlatformEventRuntimeWorker {
@@ -74,6 +94,16 @@ export class PlatformEventRuntimeWorker {
       reliability: 'durable',
       handle: observabilityProjection.handle,
     });
+    const a2aProjectViewProjection = new A2AProjectViewProjection({
+      onProjected: resolved.onA2AProjected,
+    });
+    this.dispatcher.register({
+      id: 'a2a-project-view-projection:v1',
+      pattern: 'a2a.*',
+      stereotype: 'projection',
+      reliability: 'durable',
+      handle: a2aProjectViewProjection.handle,
+    });
     if (resolved.effectOutbox) {
       const completionProcessManager = new RuntimeCompletionProcessManager(
         resolved.effectOutbox,
@@ -104,14 +134,101 @@ export class PlatformEventRuntimeWorker {
         timeoutMs: 5_000,
         handle: deliveryProcessManager.handle,
       });
+      for (const [id, pattern] of [
+        ['delivery-process-manager-gate:v1', 'gate.*'],
+        ['delivery-process-manager-runtime:v1', 'runtime.*'],
+        ['delivery-process-manager-context:v1', 'context.*'],
+        ['delivery-process-manager-effect:v1', 'effect.*'],
+        ['delivery-process-manager-control:v1', 'control.action.failed'],
+      ] as const) {
+        this.dispatcher.register({
+          id,
+          pattern,
+          stereotype: 'process_manager',
+          reliability: 'durable',
+          timeoutMs: 5_000,
+          handle: deliveryProcessManager.handle,
+        });
+      }
+    }
+    const controlSlotRelease = new ControlSlotReleaseProcessManager();
+    this.dispatcher.register({
+      id: 'control-slot-release-process-manager:v1',
+      pattern: 'runtime.invocation.*',
+      stereotype: 'process_manager',
+      reliability: 'durable',
+      handle: controlSlotRelease.handle,
+    });
+    this.dispatcher.register({
+      id: 'control-slot-release-process-manager:context:v1',
+      pattern: 'context.snapshot.rejected',
+      stereotype: 'process_manager',
+      reliability: 'durable',
+      timeoutMs: 5_000,
+      handle: controlSlotRelease.handle,
+    });
+    if (resolved.a2aOutcome !== false) {
+      const a2aOutcome = new A2AOutcomeProcessManager(resolved.a2aOutcome);
       this.dispatcher.register({
-        id: 'delivery-process-manager-review:v1',
-        pattern: 'review.*',
+        id: 'a2a-outcome-process-manager:v1',
+        pattern: 'agent.outcome.accepted',
         stereotype: 'process_manager',
         reliability: 'durable',
         timeoutMs: 5_000,
-        handle: deliveryProcessManager.handle,
+        handle: a2aOutcome.handle,
       });
+    }
+    const gateOutcome = new GateOutcomeProcessManager();
+    this.dispatcher.register({
+      id: 'gate-outcome-process-manager:v1',
+      pattern: 'agent.outcome.accepted',
+      stereotype: 'process_manager',
+      reliability: 'durable',
+      timeoutMs: 5_000,
+      handle: gateOutcome.handle,
+    });
+    const taskGraphOutcome = new TaskGraphOutcomeProcessManager();
+    this.dispatcher.register({
+      id: 'task-graph-outcome-process-manager:v1',
+      pattern: 'agent.outcome.accepted',
+      stereotype: 'process_manager',
+      reliability: 'durable',
+      timeoutMs: 5_000,
+      handle: taskGraphOutcome.handle,
+    });
+    const taskOutcome = new TaskOutcomeProcessManager();
+    this.dispatcher.register({
+      id: 'task-outcome-process-manager:v1',
+      pattern: 'agent.outcome.accepted',
+      stereotype: 'process_manager',
+      reliability: 'durable',
+      timeoutMs: 5_000,
+      handle: taskOutcome.handle,
+    });
+    const taskGateLifecycle = new TaskGateLifecycleProcessManager();
+    this.dispatcher.register({
+      id: 'task-gate-lifecycle-process-manager:v1',
+      pattern: 'gate.*',
+      stereotype: 'process_manager',
+      reliability: 'durable',
+      timeoutMs: 5_000,
+      handle: taskGateLifecycle.handle,
+    });
+    if (resolved.a2aLifecycle !== false) {
+      const a2aLifecycle = new A2ALifecycleProcessManager(resolved.a2aLifecycle);
+      for (const [id, pattern] of [
+        ['a2a-lifecycle-agent-work:v1', 'agent.work.*'],
+        ['a2a-lifecycle-runtime:v1', 'runtime.invocation.*'],
+      ] as const) {
+        this.dispatcher.register({
+          id,
+          pattern,
+          stereotype: 'process_manager',
+          reliability: 'durable',
+          timeoutMs: 5_000,
+          handle: a2aLifecycle.handle,
+        });
+      }
     }
   }
 

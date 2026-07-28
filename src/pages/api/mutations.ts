@@ -1,4 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
+import type { InvocationPatch } from '@/server/repositories/invocation-repo';
+import type { TaskPatch } from '@/server/repositories/task-repo';
 
 type MutationType =
   | 'conversation.create'
@@ -14,7 +16,8 @@ type MutationType =
   | 'session.seal'
   | 'session.sealByTask'
   | 'invocation.create'
-  | 'invocation.updateStatus'
+  | 'invocation.transition'
+  | 'a2a.human_handoff'
   | 'dispatch.enqueue'
   | 'dispatch.cancel'
   | 'tool.invoke'
@@ -141,7 +144,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         break;
       }
       case 'task.create': {
-        const { taskRepo } = await import('@/server/repositories/task-repo');
+        const { stableTaskCommandKey, taskCommandService } = await import('@/server/repositories/task-command-service');
         const { resolveInitialTaskAssignment } = await import('@/server/team-runtime/task-assignment');
         const taskPayload = payload as any;
         if (taskPayload.conversation_id) {
@@ -157,45 +160,71 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
           }
           taskPayload.agent_id = assignment.agentId;
         }
-        result = taskRepo.create(taskPayload);
+        const idempotencyKey = typeof taskPayload.idempotencyKey === 'string'
+          ? taskPayload.idempotencyKey
+          : stableTaskCommandKey('mutation-api:task.create', taskPayload);
+        const dependencies = Array.isArray(taskPayload.dependencies)
+          ? taskPayload.dependencies
+          : typeof taskPayload.dependencies === 'string'
+            ? JSON.parse(taskPayload.dependencies)
+            : [];
+        result = taskCommandService.create({
+          conversationId: taskPayload.conversation_id,
+          expectedGraphRevision: taskCommandService.expectedGraphRevision(
+            taskPayload.conversation_id,
+            idempotencyKey,
+          ),
+          idempotencyKey,
+          actor: { type: 'user', id: 'webui:local-user' },
+          task: {
+            id: taskPayload.id,
+            title: taskPayload.title,
+            description: taskPayload.description,
+            agent_id: taskPayload.agent_id,
+            dependencies,
+          },
+        }).tasks[0];
         break;
       }
       case 'task.updateStatus': {
-        const { taskRepo } = await import('@/server/repositories/task-repo');
+        const { assertTaskStatus, taskRepo } = await import('@/server/repositories/task-repo');
         const { publishTaskChangeNotification } = await import('@/server/task-flow/task-notification-publisher');
-        const { proofLogRepo } = await import('@/server/repositories/proof-log-repo');
-        const { evaluateTaskStatusEvidenceGate, hasCurrentVerifiedMerge } = await import('@/server/task-flow/task-gate-evidence');
-        const { conversationRepo } = await import('@/server/repositories/conversation-repo');
-        const { taskGraphRepo } = await import('@/server/repositories/task-graph-repo');
-        const { id, status, reviewNote, evidence, actorId, actorType } = payload as any;
+        const { taskStatusEvidencePolicy } = await import('@/server/task-flow/task-status-evidence-policy');
+        const { id, status: statusValue, reviewNote, evidence, actorId, actorType } = payload;
+        if (typeof id !== 'string' || !id.trim()) {
+          return res.status(400).json({ ok: false, error: 'task id is required' });
+        }
+        if (typeof statusValue !== 'string') {
+          return res.status(400).json({ ok: false, error: 'status is required' });
+        }
+        const commandActorId = typeof actorId === 'string' && actorId
+          ? actorId
+          : 'mutation-api';
+        const commandActorType: 'user' | 'agent' | 'system' = actorType === 'user' || actorType === 'agent'
+          ? actorType
+          : 'system';
+        const status = assertTaskStatus(statusValue);
         const previousTask = taskRepo.getById(id);
-        const gateDecision = evaluateTaskStatusEvidenceGate({
+        if (!previousTask) {
+          return res.status(404).json({ ok: false, error: `Task not found: ${id}` });
+        }
+        const gateDecision = taskStatusEvidencePolicy.evaluate({
           task: previousTask,
           nextStatus: status,
-          actorId,
           evidence,
-          pullRequestRequired: Boolean(previousTask && conversationRepo.getById(previousTask.conversation_id)?.git_repo_root),
-          verifiedPullRequest: Boolean(previousTask && taskGraphRepo.listActionsForTask(id).some((action) => action.type === 'task.pull_request_submitted')),
-          verifiedMerge: Boolean(previousTask && hasCurrentVerifiedMerge(taskGraphRepo.listActionsForTask(id))),
+          actor: {
+            type: commandActorType,
+            id: commandActorId,
+          },
         });
         if (!gateDecision.allowed) {
-          proofLogRepo.append({
-            eventType: 'task_graph.gate_evidence.blocked',
-            conversationId: previousTask?.conversation_id,
-            taskId: id,
-            actorId,
-            reasonCode: gateDecision.reasonCode,
-            metadata: {
-              status,
-              gateName: gateDecision.gateName,
-              missingFields: gateDecision.missingFields,
-            },
-          });
           if (previousTask) {
             const { createGateEvidenceRecoveryWakeup } = await import('@/server/task-flow/task-wakeup');
             const recoveryAgentId = gateDecision.gateName === 'delivery_evidence'
               ? 'mario'
-              : (actorId || previousTask.agent_id);
+              : typeof actorId === 'string' && actorId.trim()
+                ? actorId
+                : previousTask.agent_id;
             const wakeup = createGateEvidenceRecoveryWakeup({
               task: previousTask,
               agentId: recoveryAgentId,
@@ -208,8 +237,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
             if (wakeup) {
               const io = (res.socket as any)?.server?.io;
               const id = `wakeup-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-              const { submitTaskWakeupToHarness } = await import('@/server/harness/registry');
-              submitTaskWakeupToHarness(io, { ...wakeup, id });
+              const { submitTaskWakeupToInvocationPipeline } = await import('@/server/invocation-pipeline/registry');
+              submitTaskWakeupToInvocationPipeline(io, { ...wakeup, id });
               io?.to(previousTask.conversation_id).emit('task.wakeup', {
                 ...wakeup,
                 projectId: previousTask.conversation_id,
@@ -223,29 +252,38 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
             error: gateDecision.message ?? 'Task gate evidence is required',
           });
         }
-        taskRepo.updateStatus(id, status, reviewNote);
-        const task = taskRepo.getById(id);
-        if (task && gateDecision.required) {
-          proofLogRepo.append({
-            eventType: 'task_graph.gate_evidence.accepted',
-            conversationId: task.conversation_id,
-            taskId: id,
-            actorId,
-            metadata: {
-              status,
-              gateName: gateDecision.gateName,
-              evidence,
-            },
-          });
-        }
+        const { stableTaskCommandKey, taskCommandService } = await import('@/server/repositories/task-command-service');
+        const idempotencyKey = typeof (payload as Record<string, unknown>).idempotencyKey === 'string'
+          ? String((payload as Record<string, unknown>).idempotencyKey)
+          : stableTaskCommandKey('mutation-api:task.updateStatus', payload);
+        const task = taskCommandService.transition({
+          conversationId: previousTask.conversation_id,
+          taskId: id,
+          expectedTaskRevision: taskCommandService.expectedTaskRevision(
+            id,
+            idempotencyKey,
+            previousTask.revision,
+          ),
+          expectedGraphRevision: taskCommandService.expectedGraphRevision(
+            previousTask.conversation_id,
+            idempotencyKey,
+          ),
+          idempotencyKey,
+          actor: {
+            type: commandActorType,
+            id: commandActorId,
+          },
+          to: status,
+          reviewNote: typeof reviewNote === 'string' ? reviewNote : undefined,
+        }).result.task;
         if (task) {
           publishTaskChangeNotification({
             io: (res.socket as any)?.server?.io,
             kind: 'task.status_changed',
             task,
             previousTask,
-            actorId,
-            actorType,
+            actorId: commandActorId,
+            actorType: commandActorType,
           });
         }
         result = { id, status };
@@ -254,24 +292,108 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       case 'task.update': {
         const { taskRepo } = await import('@/server/repositories/task-repo');
         const { publishTaskChangeNotification } = await import('@/server/task-flow/task-notification-publisher');
-        const { id, actorId, actorType, agentId, dependencies, artifacts, ...updates } = payload as any;
+        const {
+          id,
+          actorId,
+          actorType,
+          agentId,
+          dependencies,
+          artifacts,
+          status,
+          idempotencyKey: requestedIdempotencyKey,
+          ...updates
+        } = payload;
+        if (typeof id !== 'string' || !id.trim()) {
+          return res.status(400).json({ ok: false, error: 'task id is required' });
+        }
+        if (status !== undefined) {
+          return res.status(400).json({
+            ok: false,
+            error: 'Task status must be changed through task.updateStatus',
+            reasonCode: 'task_status_owner_required',
+          });
+        }
         const previousTask = taskRepo.getById(id);
         const normalizedUpdates = {
           ...updates,
           ...(agentId !== undefined ? { agent_id: agentId } : {}),
-          ...(dependencies !== undefined ? { dependencies: Array.isArray(dependencies) ? JSON.stringify(dependencies) : dependencies } : {}),
           ...(artifacts !== undefined ? { artifacts: typeof artifacts === 'string' ? artifacts : JSON.stringify(artifacts) } : {}),
+        } as Partial<Omit<TaskPatch, 'dependencies'>>;
+        if (!previousTask) {
+          return res.status(404).json({ ok: false, error: `Task not found: ${id}` });
+        }
+        const commandActorId = typeof actorId === 'string' && actorId
+          ? actorId
+          : 'mutation-api';
+        const commandActorType: 'user' | 'agent' | 'system' = actorType === 'user' || actorType === 'agent'
+          ? actorType
+          : 'system';
+        const { stableTaskCommandKey, taskCommandService } = await import('@/server/repositories/task-command-service');
+        const idempotencyKey = typeof requestedIdempotencyKey === 'string'
+          ? requestedIdempotencyKey
+          : stableTaskCommandKey('mutation-api:task.update', payload);
+        let dependencyTaskIds: string[] | undefined;
+        if (dependencies !== undefined) {
+          let candidate: unknown = dependencies;
+          if (typeof candidate === 'string') {
+            try {
+              candidate = JSON.parse(candidate);
+            } catch {
+              return res.status(400).json({
+                ok: false,
+                error: 'Task dependencies must be a JSON array of task IDs',
+                reasonCode: 'task_dependencies_invalid',
+              });
+            }
+          }
+          if (
+            !Array.isArray(candidate)
+            || candidate.some((dependency) => typeof dependency !== 'string')
+          ) {
+            return res.status(400).json({
+              ok: false,
+              error: 'Task dependencies must be an array of task IDs',
+              reasonCode: 'task_dependencies_invalid',
+            });
+          }
+          dependencyTaskIds = candidate;
+        }
+        const commandInput = {
+          conversationId: previousTask.conversation_id,
+          taskId: id,
+          expectedTaskRevision: taskCommandService.expectedTaskRevision(
+            id,
+            idempotencyKey,
+            previousTask.revision,
+          ),
+          expectedGraphRevision: taskCommandService.expectedGraphRevision(
+            previousTask.conversation_id,
+            idempotencyKey,
+          ),
+          idempotencyKey,
+          actor: {
+            type: commandActorType,
+            id: commandActorId,
+          },
         };
-        taskRepo.update(id, normalizedUpdates);
-        const task = taskRepo.getById(id);
+        const task = dependencyTaskIds === undefined
+          ? taskCommandService.update({
+              ...commandInput,
+              updates: normalizedUpdates,
+            }).result.task
+          : taskCommandService.replaceDependencies({
+              ...commandInput,
+              dependencyTaskIds,
+              updates: normalizedUpdates,
+            }).result.task;
         if (task) {
           publishTaskChangeNotification({
             io: (res.socket as any)?.server?.io,
             kind: previousTask?.agent_id && previousTask.agent_id !== task.agent_id ? 'task.assigned' : 'task.updated',
             task,
             previousTask,
-            actorId,
-            actorType,
+            actorId: commandActorId,
+            actorType: commandActorType,
           });
         }
         result = { id };
@@ -279,8 +401,28 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       }
       case 'task.delete': {
         const { taskRepo } = await import('@/server/repositories/task-repo');
-        taskRepo.delete(payload.id as string);
-        result = { id: payload.id };
+        const task = taskRepo.getById(payload.id as string);
+        if (!task) return res.status(404).json({ ok: false, error: `Task not found: ${payload.id}` });
+        const { stableTaskCommandKey, taskCommandService } = await import('@/server/repositories/task-command-service');
+        const idempotencyKey = typeof (payload as Record<string, unknown>).idempotencyKey === 'string'
+          ? String((payload as Record<string, unknown>).idempotencyKey)
+          : stableTaskCommandKey('mutation-api:task.delete', payload);
+        result = taskCommandService.transition({
+          conversationId: task.conversation_id,
+          taskId: task.id,
+          expectedTaskRevision: taskCommandService.expectedTaskRevision(
+            task.id,
+            idempotencyKey,
+            task.revision,
+          ),
+          expectedGraphRevision: taskCommandService.expectedGraphRevision(
+            task.conversation_id,
+            idempotencyKey,
+          ),
+          idempotencyKey,
+          actor: { type: 'user', id: 'webui:local-user' },
+          to: 'cancelled',
+        }).result.task;
         break;
       }
       case 'message.append': {
@@ -320,11 +462,84 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         result = invocationRepo.create(payload as any);
         break;
       }
-      case 'invocation.updateStatus': {
-        const { invocationRepo } = await import('@/server/repositories/invocation-repo');
-        const { id, status, ...updates } = payload as any;
-        invocationRepo.updateStatus(id, status, updates);
-        result = { id, status };
+      case 'invocation.transition': {
+        const {
+          assertInvocationOutcome,
+          assertInvocationStatus,
+          invocationRepo,
+        } = await import('@/server/repositories/invocation-repo');
+        const { id, to: toValue, expectedFrom: expectedFromValue, outcome: outcomeValue, ...updates } = payload;
+        if (typeof id !== 'string' || !id.trim()) {
+          return res.status(400).json({ ok: false, error: 'invocation id is required' });
+        }
+        if (typeof toValue !== 'string') {
+          return res.status(400).json({ ok: false, error: 'to is required' });
+        }
+        const to = assertInvocationStatus(toValue);
+        const expectedFrom = typeof expectedFromValue === 'string'
+          ? assertInvocationStatus(expectedFromValue)
+          : undefined;
+        const outcome = typeof outcomeValue === 'string'
+          ? assertInvocationOutcome(outcomeValue)
+          : undefined;
+        const invocation = invocationRepo.transition(id, {
+          to,
+          expectedFrom,
+          outcome,
+          ...(updates as InvocationPatch),
+        });
+        result = invocation;
+        break;
+      }
+      case 'a2a.human_handoff': {
+        const {
+          conversationId,
+          messageId,
+          prompt,
+          targetAgentIds,
+          taskId,
+        } = payload as Record<string, unknown>;
+        if (typeof conversationId !== 'string' || !conversationId.trim()) {
+          return res.status(400).json({ ok: false, error: 'a2a.human_handoff requires conversationId' });
+        }
+        if (typeof messageId !== 'string' || !messageId.trim()) {
+          return res.status(400).json({ ok: false, error: 'a2a.human_handoff requires messageId' });
+        }
+        if (typeof prompt !== 'string') {
+          return res.status(400).json({ ok: false, error: 'a2a.human_handoff requires prompt' });
+        }
+        if (
+          !Array.isArray(targetAgentIds)
+          || targetAgentIds.some((id) => typeof id !== 'string' || !id.trim())
+        ) {
+          return res.status(400).json({ ok: false, error: 'a2a.human_handoff targetAgentIds must be strings' });
+        }
+        if (taskId !== undefined && typeof taskId !== 'string') {
+          return res.status(400).json({ ok: false, error: 'a2a.human_handoff taskId must be a string' });
+        }
+        const { conversationRepo } = await import('@/server/repositories/conversation-repo');
+        if (!conversationRepo.getById(conversationId)) {
+          return res.status(404).json({ ok: false, error: 'a2a.human_handoff conversation not found' });
+        }
+        if (typeof taskId === 'string' && taskId) {
+          const { taskRepo } = await import('@/server/repositories/task-repo');
+          const task = taskRepo.getById(taskId);
+          if (!task) {
+            return res.status(404).json({ ok: false, error: 'a2a.human_handoff task not found' });
+          }
+          if (task.conversation_id !== conversationId) {
+            return res.status(409).json({ ok: false, error: 'a2a.human_handoff task scope mismatch' });
+          }
+        }
+        const targets = [...new Set(targetAgentIds as string[])];
+        const { HumanA2ACommandService } = await import('@/server/a2a/human-command-service');
+        result = new HumanA2ACommandService().submit({
+          conversationId,
+          messageId,
+          prompt,
+          targetAgentIds: targets,
+          taskId: typeof taskId === 'string' && taskId ? taskId : undefined,
+        });
         break;
       }
       case 'dispatch.enqueue': {
@@ -364,7 +579,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         if (!conversationRepo.getById(conversationId)) {
           return res.status(404).json({ ok: false, error: 'dispatch.enqueue conversation not found' });
         }
-        const { resolveConversationRuntimeProfile } = await import('@/server/harness/conversation-runtime');
+        const { resolveConversationRuntimeProfile } = await import('@/server/invocation-pipeline/conversation-runtime');
         const runtime = resolveConversationRuntimeProfile(conversationId, agentId)?.runtime;
         if (!runtime?.roster.some((agent) => agent.id === agentId)) {
           return res.status(404).json({ ok: false, error: 'dispatch.enqueue project agent not found' });
@@ -407,7 +622,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
           return res.status(400).json({ ok: false, error: 'dispatch.cancel idempotencyKey must be a string' });
         }
         const inbox = new AgentInbox();
-        const cancelled = inbox.cancelQueued(
+        const cancelled = inbox.cancelPending(
           conversationId,
           agentId,
           typeof idempotencyKey === 'string' && idempotencyKey ? idempotencyKey : undefined,
@@ -454,14 +669,27 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
           if (!assignment.agentId) {
             return res.status(400).json({ ok: false, error: assignment.reason });
           }
-          const task = taskRepo.create({
-            id,
-            conversation_id: conversationId,
-            title: input.title,
-            description: input.description || '',
-            agent_id: assignment.agentId,
-            dependencies: deps,
-          });
+          const { stableTaskCommandKey, taskCommandService } = await import('@/server/repositories/task-command-service');
+          const idempotencyKey = stableTaskCommandKey(
+            `mutation-api:tool.invoke:${toolAgentId || 'tool-agent'}`,
+            { toolName, input, conversationId },
+          );
+          const task = taskCommandService.create({
+            conversationId,
+            expectedGraphRevision: taskCommandService.expectedGraphRevision(
+              conversationId,
+              idempotencyKey,
+            ),
+            idempotencyKey,
+            actor: { type: 'agent', id: toolAgentId || 'tool-agent' },
+            task: {
+              id,
+              title: input.title,
+              description: input.description || '',
+              agent_id: assignment.agentId,
+              dependencies: deps,
+            },
+          }).tasks[0];
 
           // Also write to TASKS.md
           try {
@@ -476,7 +704,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
               phase: input.phase || '',
               role: input.role || 'worker',
               agent: assignment.agentId,
-              status: 'pending',
+              status: 'ready',
               depends: deps,
               deliverable: input.deliverable || '',
             });
@@ -487,33 +715,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
           result = task;
         } else if (toolName === 'task_update_status') {
-          const { evaluateTaskStatusEvidenceGate, hasCurrentVerifiedMerge } = await import('@/server/task-flow/task-gate-evidence');
-          const { proofLogRepo } = await import('@/server/repositories/proof-log-repo');
-          const { conversationRepo } = await import('@/server/repositories/conversation-repo');
-          const { taskGraphRepo } = await import('@/server/repositories/task-graph-repo');
+          const { taskStatusEvidencePolicy } = await import('@/server/task-flow/task-status-evidence-policy');
+          if (typeof input.status !== 'string') {
+            return res.status(400).json({ ok: false, error: 'status is required' });
+          }
+          const { assertTaskStatus } = await import('@/server/repositories/task-repo');
+          const nextStatus = assertTaskStatus(input.status);
           const previousTask = taskRepo.getById(input.task_id);
-          const gateDecision = evaluateTaskStatusEvidenceGate({
+          if (!previousTask) {
+            return res.status(404).json({ ok: false, error: `Task not found: ${input.task_id}` });
+          }
+          const gateDecision = taskStatusEvidencePolicy.evaluate({
             task: previousTask,
-            nextStatus: input.status,
-            actorId: toolAgentId,
+            nextStatus,
             evidence: input.evidence,
-            pullRequestRequired: Boolean(previousTask && conversationRepo.getById(previousTask.conversation_id)?.git_repo_root),
-            verifiedPullRequest: Boolean(previousTask && taskGraphRepo.listActionsForTask(input.task_id).some((action) => action.type === 'task.pull_request_submitted')),
-            verifiedMerge: Boolean(previousTask && hasCurrentVerifiedMerge(taskGraphRepo.listActionsForTask(input.task_id))),
+            actor: { type: 'agent', id: toolAgentId || 'tool-agent' },
           });
           if (!gateDecision.allowed) {
-            proofLogRepo.append({
-              eventType: 'task_graph.gate_evidence.blocked',
-              conversationId: previousTask?.conversation_id || conversationId,
-              taskId: input.task_id,
-              actorId: toolAgentId,
-              reasonCode: gateDecision.reasonCode,
-              metadata: {
-                status: input.status,
-                gateName: gateDecision.gateName,
-                missingFields: gateDecision.missingFields,
-              },
-            });
             if (previousTask) {
               const { createGateEvidenceRecoveryWakeup } = await import('@/server/task-flow/task-wakeup');
               const recoveryAgentId = gateDecision.gateName === 'delivery_evidence'
@@ -532,8 +750,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
                 const wakeupProjectId = previousTask.conversation_id || conversationId;
                 const io = (res.socket as any)?.server?.io;
                 const id = `wakeup-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-                const { submitTaskWakeupToHarness } = await import('@/server/harness/registry');
-                submitTaskWakeupToHarness(io, { ...wakeup, id });
+                const { submitTaskWakeupToInvocationPipeline } = await import('@/server/invocation-pipeline/registry');
+                submitTaskWakeupToInvocationPipeline(io, { ...wakeup, id });
                 io?.to(wakeupProjectId).emit('task.wakeup', {
                   ...wakeup,
                   projectId: wakeupProjectId,
@@ -547,21 +765,28 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
               error: gateDecision.message ?? 'Task gate evidence is required',
             });
           }
-          taskRepo.updateStatus(input.task_id, input.status);
-          const updatedTask = taskRepo.getById(input.task_id);
-          if (updatedTask && gateDecision.required) {
-            proofLogRepo.append({
-              eventType: 'task_graph.gate_evidence.accepted',
-              conversationId: updatedTask.conversation_id,
-              taskId: input.task_id,
-              actorId: toolAgentId,
-              metadata: {
-                status: input.status,
-                gateName: gateDecision.gateName,
-                evidence: input.evidence,
-              },
-            });
-          }
+          const { stableTaskCommandKey, taskCommandService } = await import('@/server/repositories/task-command-service');
+          const idempotencyKey = stableTaskCommandKey(
+            `mutation-api:tool.invoke:${toolAgentId || 'tool-agent'}`,
+            { toolName, input, conversationId },
+          );
+          const updatedTask = taskCommandService.transition({
+            conversationId: previousTask.conversation_id,
+            taskId: previousTask.id,
+            expectedTaskRevision: taskCommandService.expectedTaskRevision(
+              previousTask.id,
+              idempotencyKey,
+              previousTask.revision,
+            ),
+            expectedGraphRevision: taskCommandService.expectedGraphRevision(
+              previousTask.conversation_id,
+              idempotencyKey,
+            ),
+            idempotencyKey,
+            actor: { type: 'agent', id: toolAgentId || 'tool-agent' },
+            to: nextStatus,
+          }).result.task;
+          result = updatedTask;
           if (updatedTask) {
             const { publishTaskChangeNotification } = await import('@/server/task-flow/task-notification-publisher');
             publishTaskChangeNotification({
@@ -582,17 +807,37 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
             const existing = updatedTask;
             const convId = existing?.conversation_id || conversationId || 'default';
             const projectDir = join(wsRoot, convId);
-            const STATUS_FILE: Record<string, string> = {
-              pending: 'todo', in_progress: 'doing', in_review: 'review', done: 'done', blocked: 'blocked', rejected: 'rejected',
-            };
-            updateTaskInMd(projectDir, input.task_id, { status: STATUS_FILE[input.status] || input.status });
+            updateTaskInMd(projectDir, input.task_id, { status: nextStatus });
           } catch (e) {
             console.error('[task_update_status] failed to update TASKS.md:', e);
           }
         } else if (toolName === 'task_assign') {
           const previousTask = taskRepo.getById(input.task_id);
-          taskRepo.update(input.task_id, { agent_id: input.agent_id });
-          const updatedTask = taskRepo.getById(input.task_id);
+          if (!previousTask) {
+            return res.status(404).json({ ok: false, error: `Task not found: ${input.task_id}` });
+          }
+          const { stableTaskCommandKey, taskCommandService } = await import('@/server/repositories/task-command-service');
+          const idempotencyKey = stableTaskCommandKey(
+            `mutation-api:tool.invoke:${toolAgentId || 'tool-agent'}`,
+            { toolName, input, conversationId },
+          );
+          const updatedTask = taskCommandService.update({
+            conversationId: previousTask.conversation_id,
+            taskId: previousTask.id,
+            expectedTaskRevision: taskCommandService.expectedTaskRevision(
+              previousTask.id,
+              idempotencyKey,
+              previousTask.revision,
+            ),
+            expectedGraphRevision: taskCommandService.expectedGraphRevision(
+              previousTask.conversation_id,
+              idempotencyKey,
+            ),
+            idempotencyKey,
+            actor: { type: 'agent', id: toolAgentId || 'tool-agent' },
+            updates: { agent_id: input.agent_id },
+          }).result.task;
+          result = updatedTask;
           if (updatedTask) {
             const { publishTaskChangeNotification } = await import('@/server/task-flow/task-notification-publisher');
             publishTaskChangeNotification({
@@ -676,6 +921,52 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       && error.reasonCode === 'agent_inbox_idempotency_conflict'
     ) {
       return res.status(409).json({
+        ok: false,
+        error: error.message,
+        reasonCode: error.reasonCode,
+      });
+    }
+    if (
+      error instanceof Error
+      && 'reasonCode' in error
+      && typeof error.reasonCode === 'string'
+      && [
+        'a2a_conversation_runtime_missing',
+        'a2a_source_not_in_roster',
+        'a2a_target_not_in_roster',
+        'a2a_communication_policy_blocked',
+      ].includes(error.reasonCode)
+    ) {
+      const status = [
+        'a2a_conversation_runtime_missing',
+        'a2a_target_not_in_roster',
+      ].includes(error.reasonCode) ? 404 : 409;
+      return res.status(status).json({
+        ok: false,
+        error: error.message,
+        reasonCode: error.reasonCode,
+      });
+    }
+    if (
+      error instanceof Error
+      && 'reasonCode' in error
+      && typeof error.reasonCode === 'string'
+      && [
+        'invalid_task_status',
+        'invalid_task_transition',
+        'stale_task_transition',
+        'invalid_invocation_status',
+        'invalid_invocation_outcome',
+        'invalid_invocation_transition',
+        'stale_invocation_transition',
+      ].includes(error.reasonCode)
+    ) {
+      const status = [
+        'invalid_task_status',
+        'invalid_invocation_status',
+        'invalid_invocation_outcome',
+      ].includes(error.reasonCode) ? 400 : 409;
+      return res.status(status).json({
         ok: false,
         error: error.message,
         reasonCode: error.reasonCode,

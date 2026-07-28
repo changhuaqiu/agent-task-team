@@ -1,7 +1,7 @@
 # 上下文注入策略 MVP（Context Injection Policy · MVP）
 
 > 日期：2026-07-15 ｜ 评审：2026-07-16 ｜ 状态：已评审·通过（含修订） ｜ 归属：Agent Task Hub / 团队协作 Harness
-> 关联：`docs/technical/execution/context-layering.md`（三层稳定性 + scope/private 边界）、`specs/context-manager/spec.md`（组装管道 v2）、`specs/a2a-possession-contract/spec.md`（传球状态机）、`src/lib/agent-context/ContextManager.ts`（15 层管道实现）
+> 关联：`docs/technical/execution/context-layering.md`（三层稳定性 + scope/private 边界）、`specs/context-manager/spec.md`（组装管道 v2）、`docs/technical/execution/platform-harness-state-machine-design.md`（A2A 聚合）、`src/lib/agent-context/ContextManager.ts`（15 层管道实现）
 > 参照：CrewAI 的 task.context 依赖图、OpenAI Swarm 的 handoff 函数化、LangGraph 的 state 读投影、Cognition (Devin) "Don't Build Multi-Agents"、Amazon 6-pager / Linear Issue 结构化模板
 > 一句话定位：**在已有的"组装管道 + 三层稳定性"之上，补一层显式的"场景 × 角色 → 注入策略"，让 agent 在正确的时间、以正确的方式、拿到正确的信息，同时把 loop 闭环的三条平台约束定死。**
 
@@ -26,7 +26,7 @@
 1. **场景 × 角色 = 策略键**：注入策略是 `f(scenario, archetype)` 的函数，不是每层内部的隐式判断。
 2. **默认隔离，显式订阅**：dialog / handoff 等易越界簇，**默认 omit**；策略表要显式打开才注入。参考 LangGraph 的 state 读投影语义。
 3. **loop 闭环由平台兜底**：agent 不需要"记得收敛"、"记得校验 handoff"——这些是平台的责任。
-4. **能力声明必须真实**：只有已经通过当前 runtime 的结构化通道注册的工具才能写成“可调用”。底层 CLI 的 `Task`、`Agent`、`SendMessage`、`TodoWrite/TodoRead` 不属于平台 capability；在 ACP 平台工具尚未注册时，prompt 必须明确使用绝对 TASKS.md 路径与可见 A2A 交接文本，不能靠相似名称猜测工具映射。
+4. **能力声明必须真实**：只有已经通过当前 runtime 的结构化通道注册的工具才能写成“可调用”。底层 CLI 的 `Task`、`Agent`、`SendMessage`、`TodoWrite/TodoRead` 不属于平台 capability；A2A 只接受 invocation-scoped `agent_submit_outcome / handoff_to_agent`。工具不可用时必须报告阻塞，不能用可见文本或相似名称猜测工具映射。
 
 ---
 
@@ -59,7 +59,7 @@ wakeup?: {
 }
 ```
 
-`HarnessTrigger`、`HarnessDispatchPlan` 与 terminal start payload 只透传这组场景元数据，不引入第二套上下文模型。
+`AgentActivationCommand`、`InvocationDispatchPlan` 与 terminal start payload 只透传这组场景元数据，不引入第二套上下文模型。
 
 | Scenario | 判定条件 | 语义 |
 |---|---|---|
@@ -233,7 +233,7 @@ src/lib/agent-context/protocolHints.ts
   fn buildProtocolHint(scenario: Scenario, ctx: HintContext): string
   5 个 scenario 的追加文案（handoff / wakeup / closure 各一段，init/iterate 返回空）
 
-src/server/harness/valid-exit.ts
+src/server/invocation-pipeline/valid-exit.ts
   fn checkValidExit(scenario: Scenario, outcome: string): ValidExitResult
   纯函数、保守匹配，只提供观测信号
 ```
@@ -250,12 +250,14 @@ src/server/harness/valid-exit.ts
   - 新增规则：根任务子树全终态检测
   - 读取 task graph edges，按 child → parent 递归判断完整子树
 
-- **`orchestrator.ts`**（`src/server/a2a/orchestrator.ts`）：
-  - `requestDispatch` 入口校验 `requestedAction`
-  - 不阻断，只经 audit logger 记 `missing_action` 事件
+- **A2A 聚合**（`src/server/a2a/collaboration.ts`）：
+  - `A2AOutcomeProcessManager` 只接受已接纳的结构化 `handoff_to_agent`
+  - `A2ACommandGuard` 校验 roster 与通信策略
+  - `offerPassGroup` 原子写 Pass、HandoffPacket 与 AgentInbox；缺少明确 action 的
+    Outcome 在进入聚合前被拒绝
 
 - **Harness / daemon 透传与观测**：
-  - `TaskWakeup → HarnessTrigger → ContextRequest` 透传 `reasonCode` 与 closure 元数据
+  - `TaskWakeup → AgentActivationCommand → ContextRequest` 透传 `reasonCode` 与 closure 元数据
   - dispatch plan / terminal payload 透传已解析 scenario
   - daemon 在完整输出聚合后执行 valid-exit 观测
   - proof repository 提供持久幂等查询；daemon 在 closure dispatch 时写 proof event
@@ -272,7 +274,9 @@ src/server/harness/valid-exit.ts
 
 ## 10. 事件 Schema（新增观测点）
 
-事件按领域归属复用现有通道，而不是新建一个混合事件表：`no_valid_exit` 与 `chain_closure_dispatched` 写 `control_proof_event`；`missing_action` 写既有 `a2a_audit_log`。MVP 阶段只将 closure proof 用于幂等查询，其余只写不阻断。
+事件按领域归属复用现有通道，而不是新建一个混合事件表：`no_valid_exit` 与
+`chain_closure_dispatched` 写 `control_proof_event`；A2A 接纳、拒绝和生命周期写入版本化
+`a2a.*` Domain Event。已退役的 `a2a_audit_log` 不再作为旁路事实源。
 
 ```ts
 type ContextInjectionEvent =

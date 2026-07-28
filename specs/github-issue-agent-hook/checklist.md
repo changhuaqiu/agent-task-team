@@ -11,7 +11,7 @@
 - [x] 默认拒绝不可信 author association，显式配置后才放行。
 - [x] Issue 正文、URL、标签和验收清单进入 GoalContract/根任务。
 - [x] `advance()` 在事务提交后触发。
-- [x] 冷启动 webhook 可以初始化共享 Socket.IO、daemon、Harness 和 Supervisor。
+- [x] 冷启动 webhook 可以初始化共享 Socket.IO、daemon 和 Platform Harness。
 
 ## 安全
 

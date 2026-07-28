@@ -1,0 +1,107 @@
+import type Database from 'better-sqlite3';
+import { getDb } from '../db';
+import type { PlatformEventHandler } from '../platform-events/dispatcher';
+import type { QualityGateRow } from '../quality-gate/types';
+import { workContractRepo } from '../work-contract/repository';
+import type { WorkAuthorityRow } from '../work-contract/types';
+import { taskCommandService } from './task-command-service';
+import { StaleTaskRevisionError, taskRepo } from './task-repo';
+
+const TASK_GATE_TERMINAL_EVENTS = new Set([
+  'gate.passed',
+  'gate.changes_requested',
+  'gate.rejected',
+]);
+
+export class TaskGateLifecycleProcessManager {
+  readonly handle: PlatformEventHandler = (event, { signal }) => {
+    if (!TASK_GATE_TERMINAL_EVENTS.has(event.type)) return;
+    if (signal.aborted) throw signal.reason ?? new Error('task_gate_lifecycle_aborted');
+    const db = getDb();
+    db.transaction(() => {
+      const gate = db.prepare(`
+        SELECT * FROM quality_gate
+        WHERE id=? AND target_type='task' AND kind='code_review'
+      `).get(event.aggregate.id) as QualityGateRow | undefined;
+      if (!gate) return;
+      if (db.prepare('SELECT 1 FROM task_action WHERE proof_event_id=?')
+        .get(event.eventId)) return;
+      const task = taskRepo.getById(gate.target_id);
+      if (!task || task.conversation_id !== gate.conversation_id) {
+        throw new Error('task_gate_target_missing');
+      }
+      const artifactRevision = Number(gate.artifact_revision);
+      if (!Number.isSafeInteger(artifactRevision) || task.revision !== artifactRevision) {
+        throw new StaleTaskRevisionError(task.id, artifactRevision, task.revision);
+      }
+      if (task.status !== 'in_review') {
+        throw new Error(`task_gate_status_invalid:${task.status}`);
+      }
+
+      const passed = event.type === 'gate.passed';
+      taskCommandService.transition({
+        conversationId: task.conversation_id,
+        taskId: task.id,
+        expectedTaskRevision: task.revision,
+        expectedGraphRevision: taskCommandService.expectedGraphRevision(
+          task.conversation_id,
+          `gate-terminal:${event.eventId}`,
+        ),
+        idempotencyKey: `gate-terminal:${event.eventId}`,
+        actor: {
+          type: event.actor.type === 'agent' ? 'agent' : 'system',
+          id: event.actor.id,
+        },
+        correlationId: event.correlationId,
+        causationId: event.eventId,
+        to: passed ? 'done' : 'in_progress',
+        reviewNote: gate.decision_reason ?? undefined,
+        actionType: 'task.review_recorded',
+        proofEventId: event.eventId,
+        actionPayload: {
+          gateId: gate.id,
+          decision: gate.status,
+          artifactRevision: gate.artifact_revision,
+          reason: gate.decision_reason,
+        },
+        completionGate: passed
+          ? { gateId: gate.id, passedEventId: event.eventId }
+          : undefined,
+      });
+      this.closeTaskAuthorities(db, {
+        taskId: task.id,
+        closeExecution: passed,
+        correlationId: event.correlationId,
+        causationId: event.eventId,
+      });
+    }).immediate();
+  };
+
+  private closeTaskAuthorities(
+    db: Database.Database,
+    input: {
+      taskId: string;
+      closeExecution: boolean;
+      correlationId: string;
+      causationId: string;
+    },
+  ): void {
+    const authorities = db.prepare(`
+      SELECT authority.* FROM work_authority authority
+      JOIN work_contract contract ON contract.id=authority.current_contract_id
+      WHERE contract.task_id=? AND authority.status='active'
+    `).all(input.taskId) as WorkAuthorityRow[];
+    const taskPrefix = `task:${input.taskId}:`;
+    for (const authority of authorities) {
+      if (!authority.work_id.startsWith(taskPrefix)) continue;
+      const reviewerWork = authority.work_id.endsWith(':purpose:review');
+      if (!input.closeExecution && !reviewerWork) continue;
+      workContractRepo.close({
+        workId: authority.work_id,
+        expectedEpoch: authority.current_epoch,
+        correlationId: input.correlationId,
+        causationId: input.causationId,
+      });
+    }
+  }
+}

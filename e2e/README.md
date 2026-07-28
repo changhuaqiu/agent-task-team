@@ -68,12 +68,12 @@ pnpm e2e
 `autonomous-delivery-full-loop.spec.ts`：自主交付发布级黑盒闭环
 
 - 只通过 Web UI 创建项目、目标和验收标准，不直接写 Conversation/Run/Task/Receipt
-- 真实经过 RepositoryHarnessPlanner、Context Manager、Harness Coordinator 与 Task Tool
+- 真实经过 InvocationPlanner、Context Manager、InvocationCoordinator 与 Task Tool
 - 第一次 Browser/Playwright 验收提交失败回执，触发有界 `repair_verification`
 - repair 执行中终止独立 dev server，等待 lease 过期后重启
 - startup reconcile 回收 abandoned Attempt，复用同一 repair Action 并继续验证
 - 第二次 Web UI 验收通过后，由 Closure Invariant 生成 DeliveryBundle 并在完成卡片展示
-- 外部 LLM/ACP 仅在 HarnessRuntimePort 使用确定性测试适配器；该能力在生产环境始终返回 404
+- 外部 LLM/ACP 仅在 AgentRuntimePort 使用确定性测试适配器；该能力在生产环境始终返回 404
 - 服务源码、SQLite 数据、被验收项目和 Web E2E 报告全部位于同一临时根目录，不向开发者
   原工作区写入 `.ath` 或验收证据
 

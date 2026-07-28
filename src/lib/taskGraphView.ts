@@ -62,6 +62,7 @@ export interface TaskGraphProofEventRow {
 
 export interface TaskGraphApiView {
   conversationId: string;
+  revision: number;
   tasks: TaskGraphTaskRow[];
   edges: TaskGraphEdgeRow[];
   actions: TaskGraphActionRow[];

@@ -51,7 +51,7 @@ describe('task status evidence gates', () => {
     expect(decision).toMatchObject({ allowed: false, missingFields: ['pullRequestReceipt'] });
   });
 
-  it('blocks done without delivery evidence', () => {
+  it('blocks done because only a current QualityGate pass can complete Task', () => {
     const decision = evaluateTaskStatusEvidenceGate({
       nextStatus: 'done',
       evidence: {
@@ -64,11 +64,11 @@ describe('task status evidence gates', () => {
       allowed: false,
       required: true,
       gateName: 'delivery_evidence',
-      missingFields: ['mainInstallResult', 'mainTestResult', 'mainImpactReviewResult'],
+      reasonCode: 'task_graph.quality_gate_required',
     });
   });
 
-  it('blocks a Git-backed done transition without a verified merge receipt', () => {
+  it('does not treat complete caller-provided delivery strings as a Gate decision', () => {
     const decision = evaluateTaskStatusEvidenceGate({
       nextStatus: 'done',
       pullRequestRequired: true,
@@ -79,7 +79,10 @@ describe('task status evidence gates', () => {
       },
     });
 
-    expect(decision).toMatchObject({ allowed: false, missingFields: ['mergeReceipt'] });
+    expect(decision).toMatchObject({
+      allowed: false,
+      reasonCode: 'task_graph.quality_gate_required',
+    });
   });
 
   it('accepts only a merge receipt linked to the latest PR action and exact head', () => {

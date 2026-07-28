@@ -37,7 +37,7 @@ describe('PlatformEventRuntimeWorker', () => {
     worker.start();
     worker.start();
     await vi.advanceTimersByTimeAsync(100);
-    expect(calls).toEqual({ register: 4, recover: 1, discover: 1, drain: 1 });
+    expect(calls).toEqual({ register: 14, recover: 1, discover: 1, drain: 1 });
 
     releaseDrain();
     await vi.advanceTimersByTimeAsync(10);
@@ -85,8 +85,50 @@ describe('PlatformEventRuntimeWorker', () => {
     expect(registrations).toEqual(expect.arrayContaining([expect.objectContaining({
       id: 'runtime-completion-process-manager:v1',
       pattern: 'runtime.invocation.terminated',
+    }), expect.objectContaining({
+      id: 'gate-outcome-process-manager:v1',
+      pattern: 'agent.outcome.accepted',
+    }), expect.objectContaining({
+      id: 'task-graph-outcome-process-manager:v1',
+      pattern: 'agent.outcome.accepted',
+    }), expect.objectContaining({
+      id: 'task-outcome-process-manager:v1',
+      pattern: 'agent.outcome.accepted',
+    }), expect.objectContaining({
+      id: 'task-gate-lifecycle-process-manager:v1',
+      pattern: 'gate.*',
+    }), expect.objectContaining({
+      id: 'control-slot-release-process-manager:context:v1',
+      pattern: 'context.snapshot.rejected',
     })]));
-    expect(registrations).toHaveLength(5);
+    expect(registrations).toHaveLength(15);
+  });
+
+  it('wires Effect and terminal Control facts back into Delivery reconciliation', () => {
+    const registrations: Array<{ id: string; pattern: string }> = [];
+    const dispatcher = {
+      register(registration: { id: string; pattern: string }) {
+        registrations.push(registration);
+      },
+      recover() { return { enqueued: 0, abandonedAttempts: 0 }; },
+      discover() { return 0; },
+      async drain() { return { succeeded: 0, failed: 0, deadLettered: 0 }; },
+    };
+    new PlatformEventRuntimeWorker({
+      dispatcher,
+      deliveryAdvancement: { advanceProject: vi.fn() },
+    });
+
+    expect(registrations).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: 'delivery-process-manager-effect:v1',
+        pattern: 'effect.*',
+      }),
+      expect.objectContaining({
+        id: 'delivery-process-manager-control:v1',
+        pattern: 'control.action.failed',
+      }),
+    ]));
   });
 
   it('retries startup recovery before incremental discovery', async () => {

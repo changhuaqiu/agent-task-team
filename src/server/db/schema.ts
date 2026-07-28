@@ -42,6 +42,7 @@ export const task = sqliteTable('task', {
   dependencies: text('dependencies'), // JSON text
   artifacts: text('artifacts'), // JSON text
   reviewNote: text('review_note'),
+  revision: integer('revision').notNull().default(0),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
   claimedAt: text('claimed_at'),
@@ -52,6 +53,13 @@ export const task = sqliteTable('task', {
 }, (table) => [
   index('idx_task_conv').on(table.conversationId),
 ]);
+
+export const taskGraphRevision = sqliteTable('task_graph_revision', {
+  conversationId: text('conversation_id').primaryKey()
+    .references(() => conversation.id, { onDelete: 'cascade' }),
+  revision: integer('revision').notNull().default(0),
+  updatedAt: text('updated_at').notNull(),
+});
 
 // ──────────────────────────────────────────────
 // chat_message
@@ -115,11 +123,16 @@ export const invocation = sqliteTable('invocation', {
   taskId: text('task_id'),
   agentId: text('agent_id').notNull(),
   sessionId: text('session_id'),
-  status: text('status').notNull().default('queued'),
+  status: text('status').notNull().default('planned'),
+  outcome: text('outcome'),
   engine: text('engine'),
   accountId: text('account_id'),
   cliSessionId: text('cli_session_id'),
   prompt: text('prompt'),
+  workContractId: text('work_contract_id'),
+  workId: text('work_id'),
+  workEpoch: integer('work_epoch'),
+  fencingToken: text('fencing_token'),
   exitCode: integer('exit_code'),
   reasonCode: text('reason_code'),
   usage: text('usage'), // JSON text nullable
@@ -129,9 +142,15 @@ export const invocation = sqliteTable('invocation', {
   dispatchStatus: text('dispatch_status').default('queued'),
   leaseExpiry: text('lease_expiry'),
   tokenUsage: text('token_usage'),
+  startedAt: text('started_at'),
+  terminatedAt: text('terminated_at'),
+  revision: integer('revision').notNull().default(0),
 }, (table) => [
   index('idx_invocation_agent').on(table.agentId),
   index('idx_invocation_conv').on(table.conversationId),
+  uniqueIndex('uq_invocation_work_contract')
+    .on(table.workContractId)
+    .where(sql`${table.workContractId} IS NOT NULL`),
 ]);
 
 // ──────────────────────────────────────────────
@@ -183,6 +202,7 @@ export const platformEvent = sqliteTable('platform_event', {
   uniqueIndex('uq_platform_event_dedupe').on(table.dedupeKey),
   index('idx_platform_event_project').on(table.projectId, table.recordedAt, table.id),
   index('idx_platform_event_stream').on(table.streamKey, table.streamSequence),
+  index('idx_platform_event_correlation').on(table.correlationId, table.recordedAt, table.id),
   index('idx_platform_event_invocation').on(table.invocationId, table.streamSequence),
   index('idx_platform_event_project_agent').on(
     table.projectId,
@@ -200,6 +220,14 @@ export const platformEventDelivery = sqliteTable('platform_event_delivery', {
   streamSequence: integer('stream_sequence').notNull(),
   status: text('status').notNull(),
   attemptCount: integer('attempt_count').notNull().default(0),
+  maxAttempts: integer('max_attempts').notNull().default(5),
+  criticality: text('criticality').notNull().default('non_blocking'),
+  deliveryRunId: text('delivery_run_id'),
+  appliesFromRevision: integer('applies_from_revision').notNull().default(0),
+  sourceActionId: text('source_action_id'),
+  supersededAtRevision: integer('superseded_at_revision'),
+  successorEffectId: text('successor_effect_id'),
+  dispositionReason: text('disposition_reason'),
   nextAttemptAt: text('next_attempt_at').notNull(),
   leaseOwner: text('lease_owner'),
   leaseExpiresAt: text('lease_expires_at'),
@@ -335,7 +363,7 @@ export const agentInboxItem = sqliteTable('agent_inbox_item', {
     .references(() => platformEvent.id, { onDelete: 'set null' }),
   idempotencyKey: text('idempotency_key').notNull(),
   commandJson: text('command_json').notNull(),
-  status: text('status').notNull(),
+  status: text('status').notNull().default('enqueued'),
   attemptCount: integer('attempt_count').notNull().default(0),
   availableAt: text('available_at').notNull(),
   leaseToken: text('lease_token'),
@@ -344,7 +372,7 @@ export const agentInboxItem = sqliteTable('agent_inbox_item', {
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
   claimedAt: text('claimed_at'),
-  completedAt: text('completed_at'),
+  settledAt: text('settled_at'),
 }, (table) => [
   uniqueIndex('uq_agent_inbox_idempotency').on(table.idempotencyKey),
   uniqueIndex('uq_agent_inbox_source_agent').on(table.sourceEventId, table.projectAgentId),
@@ -537,91 +565,6 @@ export type AgentMailboxRow = InferSelectModel<typeof agentMailbox>;
 export type NewAgentMailboxRow = InferInsertModel<typeof agentMailbox>;
 
 // ──────────────────────────────────────────────
-// A2A v2: invocation_chain
-// ──────────────────────────────────────────────
-export const invocationChain = sqliteTable('invocation_chain', {
-  id: text('id').primaryKey(),
-  conversationId: text('conversation_id').notNull()
-    .references(() => conversation.id),
-  rootTriggerType: text('root_trigger_type').notNull(),
-  rootTriggerId: text('root_trigger_id').notNull(),
-  status: text('status').notNull().default('active'),
-  config: text('config').notNull(),
-  createdAt: text('created_at').notNull(),
-  completedAt: text('completed_at'),
-}, (table) => [
-  index('idx_chain_conv').on(table.conversationId),
-  index('idx_chain_status').on(table.status),
-]);
-
-export type InvocationChainRow = InferSelectModel<typeof invocationChain>;
-export type NewInvocationChainRow = InferInsertModel<typeof invocationChain>;
-
-// ──────────────────────────────────────────────
-// A2A v2: chain_worklist
-// ──────────────────────────────────────────────
-export const chainWorklist = sqliteTable('chain_worklist', {
-  id: text('id').primaryKey(),
-  chainId: text('chain_id').notNull()
-    .references(() => invocationChain.id),
-  agentId: text('agent_id').notNull(),
-  requestedBy: text('requested_by').notNull(),
-  prompt: text('prompt').notNull(),
-  contentHash: text('content_hash').notNull(),
-  depth: integer('depth').notNull().default(0),
-  status: text('status').notNull().default('queued'),
-  outcome: text('outcome'),
-  queuedAt: text('queued_at').notNull(),
-  startedAt: text('started_at'),
-  completedAt: text('completed_at'),
-}, (table) => [
-  index('idx_worklist_chain').on(table.chainId),
-  index('idx_worklist_agent').on(table.agentId, table.status),
-  uniqueIndex('uq_worklist_hash').on(table.chainId, table.contentHash),
-]);
-
-export type ChainWorklistRow = InferSelectModel<typeof chainWorklist>;
-export type NewChainWorklistRow = InferInsertModel<typeof chainWorklist>;
-
-// ──────────────────────────────────────────────
-// A2A v2: delivery_cursor
-// ──────────────────────────────────────────────
-export const deliveryCursor = sqliteTable('delivery_cursor', {
-  agentId: text('agent_id').notNull(),
-  conversationId: text('conversation_id').notNull(),
-  lastChainId: text('last_chain_id'),
-  lastEntryId: text('last_entry_id'),
-  updatedAt: text('updated_at').notNull(),
-}, (table) => [
-  uniqueIndex('pk_cursor').on(table.agentId, table.conversationId),
-]);
-
-export type DeliveryCursorRow = InferSelectModel<typeof deliveryCursor>;
-export type NewDeliveryCursorRow = InferInsertModel<typeof deliveryCursor>;
-
-// ──────────────────────────────────────────────
-// A2A v2: a2a_audit_log
-// ──────────────────────────────────────────────
-export const a2aAuditLog = sqliteTable('a2a_audit_log', {
-  id: text('id').primaryKey(),
-  chainId: text('chain_id'),
-  conversationId: text('conversation_id').notNull(),
-  eventType: text('event_type').notNull(),
-  fromAgentId: text('from_agent_id'),
-  toAgentId: text('to_agent_id'),
-  contentHash: text('content_hash'),
-  reason: text('reason'),
-  metadata: text('metadata'),
-  createdAt: text('created_at').notNull(),
-}, (table) => [
-  index('idx_audit_chain').on(table.chainId),
-  index('idx_audit_conv').on(table.conversationId),
-]);
-
-export type A2aAuditLogRow = InferSelectModel<typeof a2aAuditLog>;
-export type NewA2aAuditLogRow = InferInsertModel<typeof a2aAuditLog>;
-
-// ──────────────────────────────────────────────
 // A2A possession contract
 // ──────────────────────────────────────────────
 export const a2aPossessionChain = sqliteTable('a2a_possession_chain', {
@@ -633,7 +576,9 @@ export const a2aPossessionChain = sqliteTable('a2a_possession_chain', {
   status: text('status').notNull().default('active'),
   currentHolderId: text('current_holder_id').notNull(),
   config: text('config').notNull().default('{}'),
+  revision: integer('revision').notNull().default(0),
   createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
   completedAt: text('completed_at'),
 }, (table) => [
   index('idx_possession_chain_conv').on(table.conversationId),
@@ -651,7 +596,10 @@ export const a2aPossession = sqliteTable('a2a_possession', {
   holderId: text('holder_id').notNull(),
   holderType: text('holder_type').notNull(),
   status: text('status').notNull().default('open'),
+  parentPassId: text('parent_pass_id'),
+  revision: integer('revision').notNull().default(0),
   startedAt: text('started_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
   completedAt: text('completed_at'),
   summary: text('summary'),
 }, (table) => [
@@ -675,16 +623,58 @@ export const a2aPass = sqliteTable('a2a_pass', {
   phase: text('phase'),
   reason: text('reason'),
   handoffPacketId: text('handoff_packet_id'),
+  groupId: text('group_id'),
+  idempotencyKey: text('idempotency_key'),
+  hopCount: integer('hop_count').notNull().default(0),
+  targetPossessionId: text('target_possession_id'),
+  inboxItemId: text('inbox_item_id'),
+  taskId: text('task_id'),
+  revision: integer('revision').notNull().default(0),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 }, (table) => [
   index('idx_pass_chain').on(table.chainId),
   index('idx_pass_target_status').on(table.toAgentId, table.status),
   index('idx_pass_status').on(table.status),
+  uniqueIndex('uq_a2a_pass_idempotency').on(table.chainId, table.idempotencyKey),
 ]);
 
 export type A2aPassRow = InferSelectModel<typeof a2aPass>;
 export type NewA2aPassRow = InferInsertModel<typeof a2aPass>;
+
+export const a2aPassGroup = sqliteTable('a2a_pass_group', {
+  id: text('id').primaryKey(),
+  chainId: text('chain_id').notNull()
+    .references(() => a2aPossessionChain.id, { onDelete: 'cascade' }),
+  sourcePossessionId: text('source_possession_id').notNull()
+    .references(() => a2aPossession.id, { onDelete: 'cascade' }),
+  sourceWorkId: text('source_work_id'),
+  deliveryRunId: text('delivery_run_id')
+    .references(() => autonomousDeliveryRun.id, { onDelete: 'cascade' }),
+  idempotencyKey: text('idempotency_key').notNull(),
+  requestDigest: text('request_digest').notNull(),
+  mode: text('mode').notNull(),
+  status: text('status').notNull().default('offered'),
+  expectedCount: integer('expected_count').notNull(),
+  resolvedCount: integer('resolved_count').notNull().default(0),
+  recoveryPossessionId: text('recovery_possession_id'),
+  hopCount: integer('hop_count').notNull(),
+  maxHops: integer('max_hops').notNull(),
+  revision: integer('revision').notNull().default(0),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+  completedAt: text('completed_at'),
+}, (table) => [
+  index('idx_a2a_pass_group_chain').on(table.chainId, table.status, table.createdAt),
+  index('idx_a2a_pass_group_delivery').on(table.deliveryRunId, table.status, table.createdAt),
+  uniqueIndex('uq_a2a_pass_group_idempotency').on(table.chainId, table.idempotencyKey),
+  uniqueIndex('uq_a2a_pass_group_source_open')
+    .on(table.sourcePossessionId)
+    .where(sql`${table.status} IN ('offered','active','recovering')`),
+]);
+
+export type A2aPassGroupRow = InferSelectModel<typeof a2aPassGroup>;
+export type NewA2aPassGroupRow = InferInsertModel<typeof a2aPassGroup>;
 
 export const a2aHandoffPacket = sqliteTable('a2a_handoff_packet', {
   id: text('id').primaryKey(),
@@ -711,33 +701,6 @@ export const a2aHandoffPacket = sqliteTable('a2a_handoff_packet', {
 
 export type A2aHandoffPacketRow = InferSelectModel<typeof a2aHandoffPacket>;
 export type NewA2aHandoffPacketRow = InferInsertModel<typeof a2aHandoffPacket>;
-
-export const a2aDelivery = sqliteTable('a2a_delivery', {
-  id: text('id').primaryKey(),
-  conversationId: text('conversation_id').notNull()
-    .references(() => conversation.id),
-  chainId: text('chain_id').notNull()
-    .references(() => invocationChain.id),
-  entryId: text('entry_id').notNull()
-    .references(() => chainWorklist.id),
-  passId: text('pass_id'),
-  agentId: text('agent_id').notNull(),
-  eventType: text('event_type').notNull().default('a2a:dispatch'),
-  payload: text('payload').notNull().default('{}'),
-  status: text('status').notNull().default('pending'),
-  attempts: integer('attempts').notNull().default(0),
-  lastError: text('last_error'),
-  createdAt: text('created_at').notNull(),
-  updatedAt: text('updated_at').notNull(),
-}, (table) => [
-  index('idx_a2a_delivery_conv').on(table.conversationId, table.status),
-  index('idx_a2a_delivery_entry').on(table.entryId),
-  index('idx_a2a_delivery_agent').on(table.agentId, table.status),
-  uniqueIndex('uq_a2a_delivery_entry').on(table.entryId),
-]);
-
-export type A2aDeliveryRow = InferSelectModel<typeof a2aDelivery>;
-export type NewA2aDeliveryRow = InferInsertModel<typeof a2aDelivery>;
 
 // ──────────────────────────────────────────────
 // System Control Plane: proof events
@@ -897,6 +860,8 @@ export const executionEnvelope = sqliteTable('execution_envelope', {
   nonce: text('nonce').notNull(),
   status: text('status').notNull().default('drafted'),
   reasonCode: text('reason_code'),
+  settledAt: text('settled_at'),
+  revision: integer('revision').notNull().default(0),
   expiresAt: text('expires_at').notNull(),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
@@ -936,6 +901,20 @@ export const taskAction = sqliteTable('task_action', {
 
 export type TaskActionRow = InferSelectModel<typeof taskAction>;
 export type NewTaskActionRow = InferInsertModel<typeof taskAction>;
+
+export const taskGraphCommit = sqliteTable('task_graph_commit', {
+  idempotencyKey: text('idempotency_key').primaryKey(),
+  conversationId: text('conversation_id').notNull()
+    .references(() => conversation.id, { onDelete: 'cascade' }),
+  requestDigest: text('request_digest').notNull(),
+  revision: integer('revision').notNull(),
+  actionId: text('action_id').notNull()
+    .references(() => taskAction.id, { onDelete: 'cascade' }),
+  resultJson: text('result_json').notNull().default('{}'),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  index('idx_task_graph_commit_conversation').on(table.conversationId, table.revision),
+]);
 
 // ──────────────────────────────────────────────
 // Group Chat Task Graph: task edges
@@ -1311,6 +1290,7 @@ export const evalPairwiseRound = sqliteTable('eval_pairwise_round', {
 export const autonomousDeliveryRun = sqliteTable('autonomous_delivery_run', {
   id: text('id').primaryKey(),
   conversationId: text('conversation_id').notNull().references(() => conversation.id, { onDelete: 'cascade' }),
+  startIdempotencyKey: text('start_idempotency_key').notNull(),
   rootTaskId: text('root_task_id').references(() => task.id, { onDelete: 'set null' }),
   status: text('status').notNull(),
   currentStage: text('current_stage').notNull(),
@@ -1324,56 +1304,191 @@ export const autonomousDeliveryRun = sqliteTable('autonomous_delivery_run', {
   updatedAt: text('updated_at').notNull(),
   completedAt: text('completed_at'),
 }, (table) => [
+  uniqueIndex('uq_autonomous_delivery_run_start').on(table.startIdempotencyKey),
   index('idx_autonomous_delivery_run_conversation').on(table.conversationId, table.createdAt),
   index('idx_autonomous_delivery_run_reconcile').on(table.status, table.updatedAt),
 ]);
 
-export const autonomousDeliveryAction = sqliteTable('autonomous_delivery_action', {
+export const qualityGate = sqliteTable('quality_gate', {
   id: text('id').primaryKey(),
-  runId: text('run_id').notNull().references(() => autonomousDeliveryRun.id, { onDelete: 'cascade' }),
+  conversationId: text('conversation_id').notNull().references(() => conversation.id, { onDelete: 'cascade' }),
   kind: text('kind').notNull(),
-  subjectType: text('subject_type'),
-  subjectId: text('subject_id'),
-  idempotencyKey: text('idempotency_key').notNull(),
+  targetType: text('target_type').notNull(),
+  targetId: text('target_id').notNull(),
+  artifactRevision: text('artifact_revision').notNull(),
   status: text('status').notNull(),
-  notBefore: text('not_before').notNull(),
-  attemptCount: integer('attempt_count').notNull(),
-  maxAttempts: integer('max_attempts').notNull(),
-  lastFailureCode: text('last_failure_code'),
-  lastFailureDetail: text('last_failure_detail'),
+  criteriaJson: text('criteria_json').notNull(),
+  policyJson: text('policy_json').notNull(),
+  requestedByType: text('requested_by_type').notNull(),
+  requestedBy: text('requested_by').notNull(),
+  evaluatorType: text('evaluator_type'),
+  evaluatorId: text('evaluator_id'),
+  decisionReason: text('decision_reason'),
+  revision: integer('revision').notNull().default(0),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
+  decidedAt: text('decided_at'),
 }, (table) => [
-  uniqueIndex('uq_autonomous_delivery_action_key').on(table.idempotencyKey),
-  index('idx_autonomous_delivery_action_claim').on(table.runId, table.status, table.notBefore, table.createdAt),
+  uniqueIndex('uq_quality_gate_target_revision').on(
+    table.kind,
+    table.targetType,
+    table.targetId,
+    table.artifactRevision,
+  ),
+  index('idx_quality_gate_conversation_status').on(table.conversationId, table.status, table.updatedAt),
 ]);
 
-export const autonomousDeliveryAttempt = sqliteTable('autonomous_delivery_attempt', {
+export const qualityGateEvidence = sqliteTable('quality_gate_evidence', {
   id: text('id').primaryKey(),
-  actionId: text('action_id').notNull().references(() => autonomousDeliveryAction.id, { onDelete: 'cascade' }),
-  attemptNo: integer('attempt_no').notNull(),
-  status: text('status').notNull(),
-  leaseOwner: text('lease_owner').notNull(),
-  leaseExpiresAt: text('lease_expires_at').notNull(),
-  heartbeatAt: text('heartbeat_at').notNull(),
-  workdirRef: text('workdir_ref'),
-  sessionGeneration: integer('session_generation'),
-  executionEnvelopeId: text('execution_envelope_id').references(() => executionEnvelope.id),
-  failureCode: text('failure_code'),
-  failureDetail: text('failure_detail'),
+  gateId: text('gate_id').notNull().references(() => qualityGate.id, { onDelete: 'cascade' }),
+  evidenceType: text('evidence_type').notNull(),
+  payloadJson: text('payload_json').notNull(),
+  sourceRef: text('source_ref'),
+  submittedByType: text('submitted_by_type').notNull(),
+  submittedBy: text('submitted_by').notNull(),
+  idempotencyKey: text('idempotency_key').notNull(),
   createdAt: text('created_at').notNull(),
-  startedAt: text('started_at'),
+}, (table) => [
+  uniqueIndex('uq_quality_gate_evidence_idempotency').on(table.gateId, table.idempotencyKey),
+  index('idx_quality_gate_evidence_gate').on(table.gateId, table.createdAt),
+]);
+
+export const qualityGateDecision = sqliteTable('quality_gate_decision', {
+  id: text('id').primaryKey(),
+  gateId: text('gate_id').notNull().references(() => qualityGate.id, { onDelete: 'cascade' }),
+  decision: text('decision').notNull(),
+  evaluatorType: text('evaluator_type').notNull(),
+  evaluatorId: text('evaluator_id').notNull(),
+  reason: text('reason'),
+  evidenceIdsJson: text('evidence_ids_json').notNull(),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  uniqueIndex('uq_quality_gate_decision_gate').on(table.gateId),
+]);
+
+export const workContract = sqliteTable('work_contract', {
+  id: text('id').primaryKey(),
+  workId: text('work_id').notNull(),
+  workEpoch: integer('work_epoch').notNull(),
+  attemptId: text('attempt_id').notNull(),
+  fencingToken: text('fencing_token').notNull(),
+  projectId: text('project_id').notNull().references(() => conversation.id, { onDelete: 'cascade' }),
+  taskId: text('task_id'),
+  deliveryRunId: text('delivery_run_id'),
+  agentId: text('agent_id').notNull(),
+  goal: text('goal').notNull(),
+  acceptanceCriteriaJson: text('acceptance_criteria_json').notNull(),
+  roleJson: text('role_json').notNull(),
+  permissionsJson: text('permissions_json').notNull(),
+  authoritativeRefsJson: text('authoritative_refs_json').notNull(),
+  authoritativeRevisionsJson: text('authoritative_revisions_json').notNull(),
+  contextSnapshotRef: text('context_snapshot_ref').notNull(),
+  allowedOutcomeTypesJson: text('allowed_outcome_types_json').notNull(),
+  deadlineAt: text('deadline_at'),
+  budgetJson: text('budget_json').notNull(),
+  correlationId: text('correlation_id').notNull(),
+  causationId: text('causation_id').notNull(),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  uniqueIndex('uq_work_contract_epoch').on(table.workId, table.workEpoch),
+  uniqueIndex('uq_work_contract_attempt').on(table.attemptId),
+  uniqueIndex('uq_work_contract_fencing_token').on(table.fencingToken),
+  index('idx_work_contract_project_agent').on(table.projectId, table.agentId, table.createdAt),
+  index('idx_work_contract_task').on(table.taskId, table.createdAt),
+]);
+
+export const workAuthority = sqliteTable('work_authority', {
+  workId: text('work_id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => conversation.id, { onDelete: 'cascade' }),
+  currentEpoch: integer('current_epoch').notNull(),
+  currentContractId: text('current_contract_id').notNull().references(() => workContract.id, { onDelete: 'cascade' }),
+  status: text('status').notNull(),
+  revision: integer('revision').notNull().default(0),
+  updatedAt: text('updated_at').notNull(),
+  closedAt: text('closed_at'),
+}, (table) => [
+  uniqueIndex('uq_work_authority_current_contract').on(table.currentContractId),
+  index('idx_work_authority_project_status').on(table.projectId, table.status, table.updatedAt),
+]);
+
+export const agentOutcome = sqliteTable('agent_outcome', {
+  id: text('id').primaryKey(),
+  idempotencyKey: text('idempotency_key').notNull(),
+  // Rejected outcomes must remain auditable even when the claimed contract does not exist.
+  // The database migration enforces a real contract only for accepted outcomes.
+  contractId: text('contract_id').notNull(),
+  projectId: text('project_id').notNull().references(() => conversation.id, { onDelete: 'cascade' }),
+  workId: text('work_id').notNull(),
+  workEpoch: integer('work_epoch').notNull(),
+  attemptId: text('attempt_id').notNull(),
+  fencingToken: text('fencing_token').notNull(),
+  outcomeType: text('outcome_type').notNull(),
+  payloadJson: text('payload_json').notNull(),
+  evidenceRefsJson: text('evidence_refs_json').notNull(),
+  authoritativeRevisionsJson: text('authoritative_revisions_json').notNull(),
+  correlationId: text('correlation_id').notNull(),
+  causationId: text('causation_id').notNull(),
+  occurredAt: text('occurred_at').notNull(),
+  admissionStatus: text('admission_status').notNull(),
+  rejectionReason: text('rejection_reason'),
+  recordedAt: text('recorded_at').notNull(),
+}, (table) => [
+  uniqueIndex('uq_agent_outcome_idempotency').on(table.projectId, table.idempotencyKey),
+  uniqueIndex('uq_agent_outcome_terminal_contract')
+    .on(table.contractId)
+    .where(sql`${table.admissionStatus} = 'accepted' AND ${table.outcomeType} <> 'continue_work'`),
+  index('idx_agent_outcome_contract').on(table.contractId, table.recordedAt),
+  index('idx_agent_outcome_work').on(table.workId, table.workEpoch, table.recordedAt),
+]);
+
+export const deliveryControlDecision = sqliteTable('delivery_control_decision', {
+  id: text('id').primaryKey(),
+  runId: text('run_id').notNull().references(() => autonomousDeliveryRun.id, { onDelete: 'cascade' }),
+  projectId: text('project_id').notNull().references(() => conversation.id, { onDelete: 'cascade' }),
+  snapshotRevision: integer('snapshot_revision').notNull(),
+  policyRevision: integer('policy_revision').notNull(),
+  payloadJson: text('payload_json').notNull(),
+  status: text('status').notNull(),
+  createdAt: text('created_at').notNull(),
   completedAt: text('completed_at'),
 }, (table) => [
-  uniqueIndex('uq_autonomous_delivery_attempt_no').on(table.actionId, table.attemptNo),
-  index('idx_autonomous_delivery_attempt_lease').on(table.status, table.leaseExpiresAt),
+  uniqueIndex('uq_delivery_control_decision_snapshot')
+    .on(table.runId, table.snapshotRevision, table.policyRevision),
+  index('idx_delivery_control_decision_active').on(table.runId, table.status, table.createdAt),
+]);
+
+export const deliveryControlAction = sqliteTable('delivery_control_action', {
+  id: text('id').primaryKey(),
+  decisionId: text('decision_id').notNull()
+    .references(() => deliveryControlDecision.id, { onDelete: 'cascade' }),
+  runId: text('run_id').notNull().references(() => autonomousDeliveryRun.id, { onDelete: 'cascade' }),
+  type: text('type').notNull(),
+  targetWorkId: text('target_work_id'),
+  workEpoch: integer('work_epoch'),
+  slotId: text('slot_id'),
+  reasonCode: text('reason_code').notNull(),
+  retryBudgetKind: text('retry_budget_kind'),
+  terminationOutcome: text('termination_outcome'),
+  status: text('status').notNull(),
+  claimToken: text('claim_token'),
+  leaseOwner: text('lease_owner'),
+  leaseExpiresAt: text('lease_expires_at'),
+  attemptCount: integer('attempt_count').notNull().default(0),
+  maxAttempts: integer('max_attempts').notNull().default(3),
+  failureCode: text('failure_code'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+  completedAt: text('completed_at'),
+}, (table) => [
+  index('idx_delivery_control_action_claim').on(table.runId, table.status, table.createdAt),
+  uniqueIndex('uq_delivery_control_active_slot')
+    .on(table.runId, table.slotId)
+    .where(sql`${table.slotId} IS NOT NULL AND ${table.type} IN ('activate','retry') AND ${table.status} IN ('claimed','applied')`),
 ]);
 
 export const autonomousDeliveryReceipt = sqliteTable('autonomous_delivery_receipt', {
   id: text('id').primaryKey(),
   runId: text('run_id').notNull().references(() => autonomousDeliveryRun.id, { onDelete: 'cascade' }),
-  actionId: text('action_id').references(() => autonomousDeliveryAction.id, { onDelete: 'cascade' }),
-  attemptId: text('attempt_id').references(() => autonomousDeliveryAttempt.id, { onDelete: 'cascade' }),
   kind: text('kind').notNull(),
   externalId: text('external_id'),
   status: text('status').notNull(),

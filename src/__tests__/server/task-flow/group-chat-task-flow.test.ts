@@ -9,11 +9,20 @@ import { taskGraphRepo } from '@/server/repositories/task-graph-repo';
 import { groupChatTaskFlow } from '@/server/task-flow/group-chat-task-flow';
 
 let db: Database.Database;
+let mutationSequence = 0;
+
+function mutationMeta() {
+  return {
+    expectedRevision: taskGraphRepo.revision('conv-1'),
+    idempotencyKey: `group-chat-flow-test:${++mutationSequence}`,
+  };
+}
 
 beforeEach(() => {
   db = createTestDb();
   setTestDb(db);
   resetSeq();
+  mutationSequence = 0;
   conversationRepo.create({ id: 'conv-1', title: 'Group Chat Flow' });
 });
 
@@ -38,11 +47,12 @@ describe('groupChatTaskFlow', () => {
       ownerAgentId: 'planner',
       actorId: 'user',
       actorType: 'user',
+      ...mutationMeta(),
       messageId,
     });
 
     expect(result.task.id).toMatch(/^task-/);
-    expect(result.task.status).toBe('pending');
+    expect(result.task.status).toBe('ready');
     expect(result.task.agent_id).toBe('planner');
     expect(result.action.type).toBe('task.created');
 
@@ -59,6 +69,7 @@ describe('groupChatTaskFlow', () => {
       ownerAgentId: 'planner',
       actorId: 'user',
       actorType: 'user',
+      ...mutationMeta(),
     }).task;
     const messageId = messageRepo.append({
       conversationId: 'conv-1',
@@ -72,6 +83,7 @@ describe('groupChatTaskFlow', () => {
       parentTaskId: root.id,
       actorId: 'planner',
       actorType: 'agent',
+      ...mutationMeta(),
       messageId,
       children: [
         { title: '协作模型', ownerAgentId: 'architect' },
@@ -93,6 +105,12 @@ describe('groupChatTaskFlow', () => {
 
     expect(subtaskEdges).toHaveLength(3);
     expect(dependencyEdges).toHaveLength(2);
+    expect(JSON.parse(split.children[0]!.dependencies ?? '[]')).toEqual([
+      split.children[1]!.id,
+    ]);
+    expect(JSON.parse(split.children[1]!.dependencies ?? '[]')).toEqual([
+      split.children[2]!.id,
+    ]);
     expect(graph.bindings.filter((binding) => binding.message_id === messageId)).toHaveLength(4);
   });
 
@@ -103,19 +121,25 @@ describe('groupChatTaskFlow', () => {
       ownerAgentId: 'planner',
       actorId: 'user',
       actorType: 'user',
+      ...mutationMeta(),
     }).task;
     const split = groupChatTaskFlow.splitTask({
       conversationId: 'conv-1',
       parentTaskId: root.id,
       actorId: 'planner',
       actorType: 'agent',
+      ...mutationMeta(),
       children: [
         { title: '协作模型', ownerAgentId: 'architect' },
         { title: '群聊 UI', ownerAgentId: 'frontend' },
       ],
     });
 
-    for (const task of split.children) taskRepo.updateStatus(task.id, 'done');
+    for (const task of split.children) {
+      taskRepo.transition(task.id, { to: 'in_progress' });
+      taskRepo.transition(task.id, { to: 'in_review' });
+      taskRepo.transition(task.id, { to: 'done' });
+    }
 
     const merged = groupChatTaskFlow.mergeTasks({
       conversationId: 'conv-1',
@@ -126,12 +150,13 @@ describe('groupChatTaskFlow', () => {
       },
       actorId: 'planner',
       actorType: 'agent',
+      ...mutationMeta(),
     });
 
     expect(merged.target.title).toBe('A2A 群聊闭环评审');
-    expect(merged.target.status).toBe('pending');
+    expect(merged.target.status).toBe('ready');
     expect(merged.edges).toHaveLength(2);
-    expect(split.children.map((task) => taskRepo.getById(task.id)!.status)).toEqual(['merged', 'merged']);
+    expect(split.children.map((task) => taskRepo.getById(task.id)!.status)).toEqual(['done', 'done']);
     expect(taskGraphRepo.getGraph('conv-1').tasks).toHaveLength(4);
   });
 
@@ -142,8 +167,11 @@ describe('groupChatTaskFlow', () => {
       ownerAgentId: 'frontend',
       actorId: 'user',
       actorType: 'user',
+      ...mutationMeta(),
     }).task;
-    taskRepo.updateStatus(source.id, 'done');
+    taskRepo.transition(source.id, { to: 'in_progress' });
+    taskRepo.transition(source.id, { to: 'in_review' });
+    taskRepo.transition(source.id, { to: 'done' });
 
     const reopened = groupChatTaskFlow.reopenTask({
       conversationId: 'conv-1',
@@ -153,9 +181,10 @@ describe('groupChatTaskFlow', () => {
       ownerAgentId: 'frontend',
       actorId: 'reviewer',
       actorType: 'agent',
+      ...mutationMeta(),
     });
 
-    expect(reopened.correctiveTask.status).toBe('pending');
+    expect(reopened.correctiveTask.status).toBe('ready');
     expect(reopened.action.type).toBe('task.reopened');
     expect(reopened.edge.type).toBe('reopens');
     expect(reopened.edge.from_task_id).toBe(reopened.correctiveTask.id);
@@ -169,6 +198,7 @@ describe('groupChatTaskFlow', () => {
       ownerAgentId: 'backend',
       actorId: 'user',
       actorType: 'user',
+      ...mutationMeta(),
     }).task;
 
     const blocked = groupChatTaskFlow.blockTask({
@@ -177,6 +207,7 @@ describe('groupChatTaskFlow', () => {
       reason: '目标 Agent 未配置账号。',
       actorId: 'backend',
       actorType: 'agent',
+      ...mutationMeta(),
     });
 
     expect(blocked.task.status).toBe('blocked');
@@ -188,9 +219,10 @@ describe('groupChatTaskFlow', () => {
       taskId: task.id,
       actorId: 'user',
       actorType: 'user',
+      ...mutationMeta(),
     });
 
-    expect(resumed.task.status).toBe('pending');
+    expect(resumed.task.status).toBe('ready');
     expect(resumed.action.type).toBe('task.resumed');
   });
 
@@ -201,6 +233,7 @@ describe('groupChatTaskFlow', () => {
       ownerAgentId: 'planner',
       actorId: 'user',
       actorType: 'user',
+      ...mutationMeta(),
     }).task;
 
     const assigned = groupChatTaskFlow.assignTask({
@@ -209,6 +242,7 @@ describe('groupChatTaskFlow', () => {
       ownerAgentId: 'frontend',
       actorId: 'user',
       actorType: 'user',
+      ...mutationMeta(),
     });
 
     expect(assigned.task.agent_id).toBe('frontend');
@@ -226,6 +260,7 @@ describe('groupChatTaskFlow', () => {
       ownerAgentId: 'planner',
       actorId: 'user',
       actorType: 'user',
+      ...mutationMeta(),
     }).task;
 
     const cancelled = groupChatTaskFlow.cancelTask({
@@ -234,6 +269,7 @@ describe('groupChatTaskFlow', () => {
       reason: '用户选择了新的信息架构。',
       actorId: 'user',
       actorType: 'user',
+      ...mutationMeta(),
     });
 
     expect(cancelled.task.status).toBe('cancelled');

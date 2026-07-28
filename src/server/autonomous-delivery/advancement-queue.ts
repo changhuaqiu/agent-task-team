@@ -1,7 +1,7 @@
 import type Database from 'better-sqlite3';
 import { getDb } from '../db';
 import { generateSortableId } from '../repositories/sortable-id';
-import type { AdvancementCause } from './supervisor';
+import type { AdvancementCause } from './types';
 
 interface AdvancementRequestRow {
   id: string;

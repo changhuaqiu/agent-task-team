@@ -7,7 +7,13 @@ import { resetSeq } from '@/server/repositories/sortable-id';
 import { conversationRepo } from '@/server/repositories/conversation-repo';
 import { taskRepo } from '@/server/repositories/task-repo';
 import { messageRepo } from '@/server/repositories/message-repo';
-import { taskGraphRepo } from '@/server/repositories/task-graph-repo';
+import {
+  InvalidTaskGraphError,
+  StaleTaskGraphRevisionError,
+  TaskGraphLegacyReplayUnavailableError,
+  taskGraphRepo,
+  type TaskActionRow,
+} from '@/server/repositories/task-graph-repo';
 
 let db: DatabaseType;
 
@@ -41,7 +47,10 @@ describe('task graph migrations', () => {
     const rows = db.prepare(`
       SELECT name FROM sqlite_master
       WHERE type = 'table'
-        AND name IN ('task_action', 'task_edge', 'task_artifact_ref', 'chat_task_binding')
+        AND name IN (
+          'task_action', 'task_edge', 'task_artifact_ref', 'chat_task_binding',
+          'task_graph_revision'
+        )
       ORDER BY name ASC
     `).all() as { name: string }[];
 
@@ -50,6 +59,7 @@ describe('task graph migrations', () => {
       'task_action',
       'task_artifact_ref',
       'task_edge',
+      'task_graph_revision',
     ]);
   });
 
@@ -109,13 +119,203 @@ describe('task graph migrations', () => {
 
       applyMigrations(legacyDb);
 
-      const action = legacyDb.prepare('SELECT * FROM task_action WHERE id = ?').get('task-action-migrated-legacy-task') as any;
+      const action = legacyDb.prepare('SELECT * FROM task_action WHERE id = ?')
+        .get('task-action-migrated-legacy-task') as TaskActionRow;
       expect(action.type).toBe('task.created');
       expect(JSON.parse(action.task_ids)).toEqual(['legacy-task']);
       expect(JSON.parse(action.payload)).toMatchObject({ migrated: 1, title: '旧任务' });
     } finally {
       legacyDb.close();
     }
+  });
+});
+
+describe('taskGraphRepo atomic commit', () => {
+  it('commits tasks, dependency edges and revision as one graph change', () => {
+    const committed = taskGraphRepo.commit({
+      conversationId: 'conv-1',
+      expectedRevision: 0,
+      idempotencyKey: 'graph-1',
+      actorId: 'planner',
+      actorType: 'agent',
+      tasks: [
+        { id: 'task-foundation', title: 'Foundation', agent_id: 'builder' },
+        {
+          id: 'task-ui',
+          title: 'UI',
+          agent_id: 'frontend',
+          dependencies: ['task-foundation'],
+        },
+      ],
+    });
+
+    expect(committed).toMatchObject({
+      revision: 1,
+      tasks: [{ id: 'task-foundation' }, { id: 'task-ui' }],
+      edges: [{
+        from_task_id: 'task-ui',
+        to_task_id: 'task-foundation',
+        type: 'depends_on',
+      }],
+      action: { type: 'task.split' },
+    });
+    expect(taskGraphRepo.revision('conv-1')).toBe(1);
+    expect(taskGraphRepo.commit({
+      conversationId: 'conv-1',
+      expectedRevision: 0,
+      idempotencyKey: 'graph-1',
+      actorId: 'planner',
+      actorType: 'agent',
+      tasks: [
+        { id: 'task-foundation', title: 'Foundation', agent_id: 'builder' },
+        {
+          id: 'task-ui',
+          title: 'UI',
+          agent_id: 'frontend',
+          dependencies: ['task-foundation'],
+        },
+      ],
+    })).toMatchObject({
+      revision: 1,
+      action: { id: committed.action.id },
+    });
+    taskRepo.update('task-foundation', { title: 'Changed later' });
+    expect(taskGraphRepo.commit({
+      conversationId: 'conv-1',
+      expectedRevision: 0,
+      idempotencyKey: 'graph-1',
+      actorId: 'planner',
+      actorType: 'agent',
+      tasks: [
+        { id: 'task-foundation', title: 'Foundation', agent_id: 'builder' },
+        {
+          id: 'task-ui',
+          title: 'UI',
+          agent_id: 'frontend',
+          dependencies: ['task-foundation'],
+        },
+      ],
+    }).tasks[0]).toMatchObject({
+      id: 'task-foundation',
+      title: 'Foundation',
+      revision: 0,
+    });
+  });
+
+  it('rolls back the whole graph on missing dependencies or cycles', () => {
+    expect(() => taskGraphRepo.commit({
+      conversationId: 'conv-1',
+      expectedRevision: 0,
+      idempotencyKey: 'graph-missing',
+      actorId: 'planner',
+      actorType: 'agent',
+      tasks: [{
+        id: 'task-orphan',
+        title: 'Orphan',
+        agent_id: 'builder',
+        dependencies: ['task-missing'],
+      }],
+    })).toThrow(InvalidTaskGraphError);
+    expect(taskRepo.getByConversation('conv-1')).toEqual([]);
+    expect(taskGraphRepo.revision('conv-1')).toBe(0);
+
+    expect(() => taskGraphRepo.commit({
+      conversationId: 'conv-1',
+      expectedRevision: 0,
+      idempotencyKey: 'graph-cycle',
+      actorId: 'planner',
+      actorType: 'agent',
+      tasks: [
+        { id: 'task-a', title: 'A', agent_id: 'a', dependencies: ['task-b'] },
+        { id: 'task-b', title: 'B', agent_id: 'b', dependencies: ['task-a'] },
+      ],
+    })).toThrow(InvalidTaskGraphError);
+    expect(taskRepo.getByConversation('conv-1')).toEqual([]);
+  });
+
+  it('rejects a concurrent writer with stale graph revision', () => {
+    taskGraphRepo.commit({
+      conversationId: 'conv-1',
+      expectedRevision: 0,
+      idempotencyKey: 'graph-a',
+      actorId: 'planner',
+      actorType: 'agent',
+      tasks: [{ id: 'task-a', title: 'A', agent_id: 'a' }],
+    });
+
+    expect(() => taskGraphRepo.commit({
+      conversationId: 'conv-1',
+      expectedRevision: 0,
+      idempotencyKey: 'graph-b',
+      actorId: 'other-planner',
+      actorType: 'agent',
+      tasks: [{ id: 'task-b', title: 'B', agent_id: 'b' }],
+    })).toThrow(StaleTaskGraphRevisionError);
+    expect(taskRepo.getById('task-b')).toBeUndefined();
+  });
+
+  it('replays the original mutation result after later graph revisions', () => {
+    const firstInput = {
+      conversationId: 'conv-1',
+      expectedRevision: 0,
+      idempotencyKey: 'mutation-first',
+      operation: 'record_marker',
+      request: { marker: 'first' },
+      execute: () => {
+        const action = taskGraphRepo.appendAction({
+          conversationId: 'conv-1',
+          actorId: 'planner',
+          actorType: 'agent' as const,
+          type: 'task.created' as const,
+          payload: { marker: 'first' },
+        });
+        return { actionId: action.id, result: { marker: 'first', actionId: action.id } };
+      },
+    };
+    const first = taskGraphRepo.mutate(firstInput);
+    taskGraphRepo.mutate({
+      conversationId: 'conv-1',
+      expectedRevision: 1,
+      idempotencyKey: 'mutation-second',
+      operation: 'record_marker',
+      request: { marker: 'second' },
+      execute: () => {
+        const action = taskGraphRepo.appendAction({
+          conversationId: 'conv-1',
+          actorId: 'planner',
+          actorType: 'agent',
+          type: 'task.created',
+          payload: { marker: 'second' },
+        });
+        return { actionId: action.id, result: { marker: 'second', actionId: action.id } };
+      },
+    });
+
+    expect(taskGraphRepo.mutate(firstInput)).toEqual({
+      revision: 1,
+      result: first.result,
+      replayed: true,
+    });
+    expect(taskGraphRepo.revision('conv-1')).toBe(2);
+  });
+
+  it('fails closed for a legacy commit whose original result was not captured', () => {
+    const input = {
+      conversationId: 'conv-1',
+      expectedRevision: 0,
+      idempotencyKey: 'legacy-result-missing',
+      actorId: 'planner',
+      actorType: 'agent' as const,
+      tasks: [{ id: 'task-legacy-result', title: 'Legacy', agent_id: 'builder' }],
+    };
+    taskGraphRepo.commit(input);
+    db.prepare(
+      `UPDATE task_graph_commit SET result_json='{}' WHERE idempotency_key=?`,
+    ).run(input.idempotencyKey);
+    taskRepo.update('task-legacy-result', { title: 'Changed later' });
+
+    expect(() => taskGraphRepo.commit(input))
+      .toThrow(TaskGraphLegacyReplayUnavailableError);
   });
 });
 
@@ -255,7 +455,7 @@ describe('taskGraphRepo actions and graph view', () => {
       taskIds: ['task-old'],
       payload: { reason: '方向调整' },
     });
-    taskRepo.updateStatus('task-old', 'cancelled', '方向调整');
+    taskRepo.transition('task-old', { to: 'cancelled', reviewNote: '方向调整' });
 
     const graph = taskGraphRepo.getGraph('conv-1');
     expect(graph.tasks[0].status).toBe('cancelled');
@@ -265,33 +465,6 @@ describe('taskGraphRepo actions and graph view', () => {
 });
 
 describe('taskGraphRepo handoffs, artifacts, and chat bindings', () => {
-  it('keeps owner unchanged until handoff is accepted', () => {
-    createTask('task-ui', 'Chat UI', 'ux');
-
-    taskGraphRepo.recordHandoffRequested({
-      conversationId: 'conv-1',
-      taskId: 'task-ui',
-      fromAgentId: 'ux',
-      toAgentId: 'frontend',
-      passId: 'pass-1',
-      requestedAction: 'Implement the task capsule UI.',
-    });
-
-    expect(taskRepo.getById('task-ui')!.agent_id).toBe('ux');
-
-    const accepted = taskGraphRepo.recordHandoffAccepted({
-      conversationId: 'conv-1',
-      taskId: 'task-ui',
-      fromAgentId: 'ux',
-      toAgentId: 'frontend',
-      passId: 'pass-1',
-    });
-
-    expect(accepted.type).toBe('task.handoff_accepted');
-    expect(taskRepo.getById('task-ui')!.agent_id).toBe('frontend');
-    expect(taskRepo.getById('task-ui')!.status).toBe('in_progress');
-  });
-
   it('links chat messages, actions, and artifacts without changing task facts', () => {
     createTask('task-ui', 'Chat UI', 'frontend');
     const messageId = messageRepo.append({
@@ -330,6 +503,6 @@ describe('taskGraphRepo handoffs, artifacts, and chat bindings', () => {
     expect(binding.message_id).toBe(messageId);
     expect(graph.artifacts).toHaveLength(1);
     expect(graph.bindings).toHaveLength(1);
-    expect(taskRepo.getById('task-ui')!.status).toBe('pending');
+    expect(taskRepo.getById('task-ui')!.status).toBe('ready');
   });
 });

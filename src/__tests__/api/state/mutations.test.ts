@@ -230,7 +230,7 @@ describe('POST /api/mutations', () => {
     expect(cancelled.statusCode).toBe(200);
     expect(cancelled._json.result).toEqual({ cancelled: 1, status: 'cancelled' });
     const { AgentInbox } = await import('@/server/platform-events/agent-inbox');
-    expect(new AgentInbox().listQueued('conv-1')).toHaveLength(0);
+    expect(new AgentInbox().listPending('conv-1')).toHaveLength(0);
   });
 
   it('conversation.create returns conversation', async () => {
@@ -284,10 +284,13 @@ describe('POST /api/mutations', () => {
       ownerAgentId: 'agent-a',
       actorId: 'agent-a',
       actorType: 'agent',
+      expectedRevision: 0,
+      idempotencyKey: 'state-mutation-delete-root',
     });
     const { AutonomousDeliveryRepository } = await import('@/server/autonomous-delivery/repository');
     const repo = new AutonomousDeliveryRepository();
     const run = repo.createRun({
+      idempotencyKey: 'mutation-delete-autonomous-run',
       goal: '删除自主交付项目',
       acceptanceCriteria: ['项目及运行事实均被删除'],
       scope: { conversationId: 'conv-1', projectPath: process.cwd() },
@@ -308,11 +311,12 @@ describe('POST /api/mutations', () => {
         requireMerge: false,
       },
     });
-    repo.updateRun({
+    repo.transitionRun({
       runId: run.run.id,
-      status: 'executing',
+      to: 'active',
       stage: 'executing',
       rootTaskId: root.task.id,
+      expectedRevision: run.run.revision,
     });
 
     const req = mockReq('POST', { type: 'conversation.delete', payload: { id: 'conv-1' } });
@@ -390,7 +394,7 @@ describe('POST /api/mutations', () => {
     expect(res.statusCode).toBe(200);
     expect(res._json.ok).toBe(true);
     expect(res._json.result.id).toBe('task-1');
-    expect(res._json.result.status).toBe('pending');
+    expect(res._json.result.status).toBe('ready');
   });
 
   it('task.create assigns a TeamPack task through WorkflowPolicy when no explicit agent is supplied', async () => {
@@ -522,8 +526,77 @@ describe('POST /api/mutations', () => {
     expect(taskRepo.getById('task-1')!.status).toBe('in_progress');
   });
 
+  it('task.updateStatus replays the frozen result when the first HTTP response is lost', async () => {
+    await seedTask();
+    const body = {
+      type: 'task.updateStatus',
+      payload: {
+        id: 'task-1',
+        status: 'in_progress',
+        idempotencyKey: 'browser-task-status-command-1',
+      },
+    };
+    const first = mockRes();
+    await handler(mockReq('POST', body), first);
+    const retry = mockRes();
+    await handler(mockReq('POST', body), retry);
+
+    expect(first.statusCode).toBe(200);
+    expect(retry.statusCode).toBe(200);
+    expect(retry._json).toEqual(first._json);
+    const { taskRepo } = await import('@/server/repositories/task-repo');
+    const { taskGraphRepo } = await import('@/server/repositories/task-graph-repo');
+    expect(taskRepo.getById('task-1')).toMatchObject({
+      status: 'in_progress',
+      revision: 1,
+    });
+    expect(taskGraphRepo.listActionsForTask('task-1').filter(
+      (action) => action.type === 'task.status_changed',
+    )).toHaveLength(1);
+  });
+
+  it('task.updateStatus replays evidence admission without creating a duplicate Gate', async () => {
+    await seedTask();
+    const { taskRepo } = await import('@/server/repositories/task-repo');
+    const { taskGraphRepo } = await import('@/server/repositories/task-graph-repo');
+    const { qualityGateRepo } = await import('@/server/quality-gate/repository');
+    taskRepo.transition('task-1', { to: 'in_progress' });
+    const body = {
+      type: 'task.updateStatus',
+      payload: {
+        id: 'task-1',
+        status: 'in_review',
+        actorId: 'agent-a',
+        actorType: 'agent',
+        idempotencyKey: 'browser-task-review-command-1',
+        evidence: {
+          installResult: 'passed',
+          buildResult: 'passed',
+          testResult: 'passed',
+          impactEvidence: 'reviewed',
+        },
+      },
+    };
+    const first = mockRes();
+    await handler(mockReq('POST', body), first);
+    const retry = mockRes();
+    await handler(mockReq('POST', body), retry);
+
+    expect(first.statusCode).toBe(200);
+    expect(retry._json).toEqual(first._json);
+    expect(taskRepo.getById('task-1')).toMatchObject({
+      status: 'in_review',
+      revision: 2,
+    });
+    expect(taskGraphRepo.listActionsForTask('task-1')
+      .filter((action) => action.type === 'task.review_requested')).toHaveLength(1);
+    expect(qualityGateRepo.listForTarget('task', 'task-1')).toEqual([]);
+  });
+
   it('task.updateStatus publishes a persisted task notification to related agents', async () => {
     await seedTask();
+    const { taskRepo } = await import('@/server/repositories/task-repo');
+    taskRepo.transition('task-1', { to: 'in_progress' });
     const emit = vi.fn();
     const to = vi.fn(() => ({ emit }));
     const req = mockReq('POST', {
@@ -572,8 +645,8 @@ describe('POST /api/mutations', () => {
       completion: new Promise<never>(() => {}),
     }));
     const io = { to };
-    const { registerHarnessCoordinator } = await import('@/server/harness/registry');
-    registerHarnessCoordinator(io as never, { submit } as never);
+    const { registerInvocationCoordinator } = await import('@/server/invocation-pipeline/registry');
+    registerInvocationCoordinator(io as never, { submit } as never);
     const req = mockReq('POST', {
       type: 'task.updateStatus',
       payload: { id: 'task-1', status: 'in_review', actorId: 'agent-a', actorType: 'agent' },
@@ -584,14 +657,9 @@ describe('POST /api/mutations', () => {
     await handler(req, res);
 
     const { taskRepo } = await import('@/server/repositories/task-repo');
-    const { proofLogRepo } = await import('@/server/repositories/proof-log-repo');
     expect(res.statusCode).toBe(403);
     expect(res._json.error).toContain('installResult');
-    expect(taskRepo.getById('task-1')!.status).toBe('pending');
-    expect(proofLogRepo.getByConversation('conv-1')).toContainEqual(expect.objectContaining({
-      event_type: 'task_graph.gate_evidence.blocked',
-      reason_code: 'task_graph.gate_evidence_required',
-    }));
+    expect(taskRepo.getById('task-1')!.status).toBe('ready');
     expect(to).toHaveBeenCalledWith('conv-1');
     expect(emit).toHaveBeenCalledWith('task.wakeup', expect.objectContaining({
       taskId: 'task-1',
@@ -610,6 +678,44 @@ describe('POST /api/mutations', () => {
     }));
   });
 
+  it('routes WebUI evidence recovery to the Task owner when actorId is omitted', async () => {
+    await seedTask();
+    const emit = vi.fn();
+    const to = vi.fn(() => ({ emit }));
+    const submit = vi.fn(() => ({
+      handled: true,
+      disposition: 'accepted' as const,
+      completion: new Promise<never>(() => {}),
+    }));
+    const io = { to };
+    const { registerInvocationCoordinator } = await import('@/server/invocation-pipeline/registry');
+    registerInvocationCoordinator(io as never, { submit } as never);
+    const req = mockReq('POST', {
+      type: 'task.updateStatus',
+      payload: { id: 'task-1', status: 'in_review' },
+    });
+    const res = mockRes();
+    res.socket = { server: { io } };
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(403);
+    expect(submit).toHaveBeenCalledWith(expect.objectContaining({
+      conversationId: 'conv-1',
+      taskId: 'task-1',
+      agentId: 'agent-a',
+      contextScenario: 'recovery',
+    }));
+    expect(emit).toHaveBeenCalledWith('task.wakeup', expect.objectContaining({
+      taskId: 'task-1',
+      agentId: 'agent-a',
+      reasonCode: 'missing_implementation_evidence',
+    }));
+    expect(submit).not.toHaveBeenCalledWith(expect.objectContaining({
+      agentId: 'mutation-api',
+    }));
+  });
+
   it('tool.invoke submits gate recovery to Harness without a browser executor', async () => {
     await seedTask();
     const emit = vi.fn();
@@ -620,8 +726,8 @@ describe('POST /api/mutations', () => {
       completion: new Promise<never>(() => {}),
     }));
     const io = { to };
-    const { registerHarnessCoordinator } = await import('@/server/harness/registry');
-    registerHarnessCoordinator(io as never, { submit } as never);
+    const { registerInvocationCoordinator } = await import('@/server/invocation-pipeline/registry');
+    registerInvocationCoordinator(io as never, { submit } as never);
     const req = mockReq('POST', {
       type: 'tool.invoke',
       payload: {
@@ -649,6 +755,105 @@ describe('POST /api/mutations', () => {
     }));
   });
 
+  it('tool.invoke task_update_status replays a lost response exactly once', async () => {
+    await seedTask();
+    const { taskRepo } = await import('@/server/repositories/task-repo');
+    const { taskGraphRepo } = await import('@/server/repositories/task-graph-repo');
+    const { qualityGateRepo } = await import('@/server/quality-gate/repository');
+    taskRepo.transition('task-1', { to: 'in_progress' });
+    const body = {
+      type: 'tool.invoke',
+      payload: {
+        toolName: 'task_update_status',
+        conversationId: 'conv-1',
+        agentId: 'agent-a',
+        input: {
+          task_id: 'task-1',
+          status: 'in_review',
+          evidence: {
+            installResult: 'passed',
+            buildResult: 'passed',
+            testResult: 'passed',
+            impactEvidence: 'reviewed',
+          },
+        },
+      },
+    };
+    const first = mockRes();
+    await handler(mockReq('POST', body), first);
+    const retry = mockRes();
+    await handler(mockReq('POST', body), retry);
+
+    expect(first.statusCode).toBe(200);
+    expect(retry._json).toEqual(first._json);
+    expect(taskRepo.getById('task-1')).toMatchObject({
+      status: 'in_review',
+      revision: 2,
+    });
+    expect(taskGraphRepo.listActionsForTask('task-1')
+      .filter((action) => action.type === 'task.review_requested')).toHaveLength(1);
+    expect(qualityGateRepo.listForTarget('task', 'task-1')).toEqual([]);
+  });
+
+  it('tool.invoke cannot mark Task done from caller-provided evidence', async () => {
+    await seedTask();
+    const { taskRepo } = await import('@/server/repositories/task-repo');
+    taskRepo.transition('task-1', { to: 'in_progress' });
+    taskRepo.transition('task-1', { to: 'in_review' });
+    const res = mockRes();
+    await handler(mockReq('POST', {
+      type: 'tool.invoke',
+      payload: {
+        toolName: 'task_update_status',
+        conversationId: 'conv-1',
+        agentId: 'agent-a',
+        input: {
+          task_id: 'task-1',
+          status: 'done',
+          evidence: {
+            mergedToMain: true,
+            mainInstallResult: 'passed',
+            mainBuildResult: 'passed',
+            mainTestResult: 'passed',
+            mainImpactReviewResult: 'passed',
+          },
+        },
+      },
+    }), res);
+
+    expect(res.statusCode).toBe(403);
+    expect(res._json.error).toContain('QualityGate passed');
+    expect(taskRepo.getById('task-1')?.status).toBe('in_review');
+  });
+
+  it('tool.invoke task_assign replays a lost response exactly once', async () => {
+    await seedTask();
+    const { taskRepo } = await import('@/server/repositories/task-repo');
+    const { taskGraphRepo } = await import('@/server/repositories/task-graph-repo');
+    const body = {
+      type: 'tool.invoke',
+      payload: {
+        toolName: 'task_assign',
+        conversationId: 'conv-1',
+        agentId: 'planner',
+        input: { task_id: 'task-1', agent_id: 'agent-b' },
+      },
+    };
+    const first = mockRes();
+    await handler(mockReq('POST', body), first);
+    const retry = mockRes();
+    await handler(mockReq('POST', body), retry);
+
+    expect(first.statusCode).toBe(200);
+    expect(retry._json).toEqual(first._json);
+    expect(taskRepo.getById('task-1')).toMatchObject({
+      agent_id: 'agent-b',
+      revision: 1,
+    });
+    expect(taskGraphRepo.listActionsForTask('task-1')
+      .filter((action) => action.type === 'task.claimed')).toHaveLength(1);
+  });
+
   it('task.updateStatus cannot fabricate done for a Git-backed task', async () => {
     await seedTask();
     const { conversationRepo } = await import('@/server/repositories/conversation-repo');
@@ -670,23 +875,38 @@ describe('POST /api/mutations', () => {
 
     const { taskRepo } = await import('@/server/repositories/task-repo');
     expect(res.statusCode).toBe(403);
-    expect(res._json.error).toContain('mergeReceipt');
+    expect(res._json.error).toContain('QualityGate passed');
     expect(taskRepo.getById('task-1')?.status).not.toBe('done');
   });
 
-  it('task.updateStatus with reviewNote', async () => {
+  it('task.updateStatus cannot mark a non-Git task done from caller evidence', async () => {
     await seedTask();
+    const { taskRepo } = await import('@/server/repositories/task-repo');
+    taskRepo.transition('task-1', { to: 'in_progress' });
+    taskRepo.transition('task-1', { to: 'in_review' });
     const req = mockReq('POST', {
       type: 'task.updateStatus',
-      payload: { id: 'task-1', status: 'approved', reviewNote: 'LGTM' },
+      payload: {
+        id: 'task-1',
+        status: 'done',
+        reviewNote: 'LGTM',
+        evidence: {
+          mergedToMain: true,
+          mainInstallResult: 'passed',
+          mainBuildResult: 'passed',
+          mainTestResult: 'passed',
+          mainImpactReviewResult: 'passed',
+        },
+      },
     });
     const res = mockRes();
     await handler(req, res);
 
-    const { taskRepo } = await import('@/server/repositories/task-repo');
     const task = taskRepo.getById('task-1')!;
-    expect(task.status).toBe('approved');
-    expect(task.review_note).toBe('LGTM');
+    expect(res.statusCode).toBe(403);
+    expect(res._json.error).toContain('QualityGate passed');
+    expect(task.status).toBe('in_review');
+    expect(task.review_note).toBeNull();
   });
 
   it('task.update updates fields', async () => {
@@ -702,6 +922,47 @@ describe('POST /api/mutations', () => {
     const task = taskRepo.getById('task-1')!;
     expect(task.title).toBe('Renamed');
     expect(task.description).toBe('Updated desc');
+  });
+
+  it('task.update replays a browser command and updates dependency edges atomically', async () => {
+    await seedTask();
+    const { taskRepo } = await import('@/server/repositories/task-repo');
+    const { taskGraphRepo } = await import('@/server/repositories/task-graph-repo');
+    taskRepo.create({
+      id: 'task-dependency',
+      conversation_id: 'conv-1',
+      title: 'Dependency',
+      agent_id: 'agent-a',
+    });
+    const body = {
+      type: 'task.update',
+      payload: {
+        id: 'task-1',
+        title: 'Depends on setup',
+        dependencies: ['task-dependency'],
+        idempotencyKey: 'browser-task-update-command-1',
+      },
+    };
+
+    const first = mockRes();
+    await handler(mockReq('POST', body), first);
+    const retry = mockRes();
+    await handler(mockReq('POST', body), retry);
+
+    expect(first.statusCode).toBe(200);
+    expect(retry.statusCode).toBe(200);
+    expect(retry._json).toEqual(first._json);
+    expect(taskRepo.getById('task-1')).toMatchObject({
+      title: 'Depends on setup',
+      dependencies: JSON.stringify(['task-dependency']),
+      revision: 1,
+    });
+    expect(taskGraphRepo.listEdges('conv-1').filter(
+      (edge) => edge.type === 'depends_on',
+    )).toMatchObject([{
+      from_task_id: 'task-1',
+      to_task_id: 'task-dependency',
+    }]);
   });
 
   it('task.update notifies both old and new owners when agentId changes', async () => {
@@ -722,7 +983,7 @@ describe('POST /api/mutations', () => {
     expect(JSON.parse(messageRepo.getByConversation('conv-1')[0].mentions ?? '[]')).toEqual(['agent-b', 'agent-a']);
   });
 
-  it('task.delete removes task', async () => {
+  it('task.delete records an owner-controlled cancellation instead of erasing history', async () => {
     await seedTask();
     const req = mockReq('POST', { type: 'task.delete', payload: { id: 'task-1' } });
     const res = mockRes();
@@ -730,7 +991,10 @@ describe('POST /api/mutations', () => {
 
     expect(res._json.ok).toBe(true);
     const { taskRepo } = await import('@/server/repositories/task-repo');
-    expect(taskRepo.getById('task-1')).toBeUndefined();
+    expect(taskRepo.getById('task-1')).toMatchObject({
+      status: 'cancelled',
+      revision: 1,
+    });
   });
 
   it('message.append creates message with sortable ID', async () => {
@@ -828,31 +1092,40 @@ describe('POST /api/mutations', () => {
     expect(res.statusCode).toBe(200);
     expect(res._json.ok).toBe(true);
     expect(res._json.result.id).toBe('inv-1');
-    expect(res._json.result.status).toBe('queued');
+    expect(res._json.result.status).toBe('planned');
   });
 
-  it('invocation.updateStatus transitions queued → running → succeeded', async () => {
+  it('invocation.transition separates lifecycle from outcome', async () => {
     await seedConversation();
     const { invocationRepo } = await import('@/server/repositories/invocation-repo');
     invocationRepo.create({ id: 'inv-1', conversation_id: 'conv-1', agent_id: 'agent-a' });
 
     const reqRunning = mockReq('POST', {
-      type: 'invocation.updateStatus',
-      payload: { id: 'inv-1', status: 'running' },
+      type: 'invocation.transition',
+      payload: { id: 'inv-1', to: 'starting', expectedFrom: 'planned' },
     });
     const resRunning = mockRes();
     await handler(reqRunning, resRunning);
-    expect(resRunning._json.result.status).toBe('running');
-    expect(invocationRepo.getById('inv-1')!.status).toBe('running');
+    expect(resRunning._json.result.status).toBe('starting');
+    expect(invocationRepo.getById('inv-1')!.status).toBe('starting');
 
     const reqSuccess = mockReq('POST', {
-      type: 'invocation.updateStatus',
-      payload: { id: 'inv-1', status: 'succeeded', exit_code: 0 },
+      type: 'invocation.transition',
+      payload: {
+        id: 'inv-1',
+        to: 'terminated',
+        expectedFrom: 'starting',
+        outcome: 'completed',
+        exit_code: 0,
+      },
     });
     const resSuccess = mockRes();
     await handler(reqSuccess, resSuccess);
-    expect(resSuccess._json.result.status).toBe('succeeded');
-    expect(invocationRepo.getById('inv-1')!.status).toBe('succeeded');
+    expect(resSuccess._json.result).toMatchObject({ status: 'terminated', outcome: 'completed' });
+    expect(invocationRepo.getById('inv-1')).toMatchObject({
+      status: 'terminated',
+      outcome: 'completed',
+    });
     expect(invocationRepo.getById('inv-1')!.exit_code).toBe(0);
   });
 
@@ -874,11 +1147,66 @@ describe('POST /api/mutations', () => {
     await handler(req, res);
 
     expect(res.statusCode).toBe(200);
-    expect(new AgentInbox().listQueued('conv-1')).toContainEqual(expect.objectContaining({
+    expect(new AgentInbox().listPending('conv-1')).toContainEqual(expect.objectContaining({
       projectAgentId: 'mario',
       command: expect.objectContaining({ prompt: 'queued project turn' }),
     }));
-    expect(new AgentInbox().listQueued('default')).toHaveLength(0);
+    expect(new AgentInbox().listPending('default')).toHaveLength(0);
+  });
+
+  it('a2a.human_handoff creates authoritative collaboration and Inbox work', async () => {
+    await seedAgent();
+    await seedConversation();
+    const req = mockReq('POST', {
+      type: 'a2a.human_handoff',
+      payload: {
+        conversationId: 'conv-1',
+        messageId: 'message-human-1',
+        prompt: 'Implement the accepted design',
+        targetAgentIds: ['mario'],
+      },
+    });
+    const res = mockRes();
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res._json.result).toMatchObject({
+      status: 'offered',
+      handoff: {
+        passes: [{ toAgentId: 'mario', status: 'offered' }],
+        inboxItems: [{
+          projectAgentId: 'mario',
+          status: 'enqueued',
+          command: { source: 'a2a', passId: expect.any(String) },
+        }],
+      },
+    });
+  });
+
+  it('a2a.human_handoff rejects a target outside the conversation roster', async () => {
+    await seedAgent();
+    await seedConversation();
+    const req = mockReq('POST', {
+      type: 'a2a.human_handoff',
+      payload: {
+        conversationId: 'conv-1',
+        messageId: 'message-human-unknown',
+        prompt: 'Do work',
+        targetAgentIds: ['not-in-project'],
+      },
+    });
+    const res = mockRes();
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(404);
+    expect(res._json).toMatchObject({
+      ok: false,
+      reasonCode: 'a2a_target_not_in_roster',
+    });
+    const { AgentInbox } = await import('@/server/platform-events/agent-inbox');
+    expect(new AgentInbox().listPending('conv-1')).toHaveLength(0);
   });
 
   it('dispatch.enqueue rejects a missing conversation scope', async () => {
@@ -893,7 +1221,7 @@ describe('POST /api/mutations', () => {
 
     expect(res.statusCode).toBe(400);
     expect(res._json).toEqual({ ok: false, error: 'dispatch.enqueue requires conversationId' });
-    expect(new AgentInbox().listQueued('default')).toHaveLength(0);
+    expect(new AgentInbox().listPending('default')).toHaveLength(0);
   });
 
   it('rejects the removed legacy event.append mutation', async () => {

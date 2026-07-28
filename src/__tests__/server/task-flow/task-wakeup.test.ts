@@ -10,7 +10,7 @@ function task(overrides: Partial<TaskRow> & Pick<TaskRow, 'id' | 'agent_id'>): T
     conversation_id: overrides.conversation_id ?? 'conv-1',
     title: overrides.title ?? overrides.id,
     description: overrides.description ?? null,
-    status: overrides.status ?? 'pending',
+    status: overrides.status ?? 'ready',
     agent_id: overrides.agent_id,
     dependencies: overrides.dependencies ?? null,
     artifacts: overrides.artifacts ?? null,
@@ -34,7 +34,7 @@ function edge(overrides: Partial<TaskEdgeRow> & Pick<TaskEdgeRow, 'from_task_id'
 
 describe('task wakeup resolver', () => {
   it('wakes an owner when a pending task is ready and has no blockers', () => {
-    const next = task({ id: 'TASK-008', agent_id: 'toad', status: 'pending', title: 'Execution Adapter' });
+    const next = task({ id: 'TASK-008', agent_id: 'toad', status: 'ready', title: 'Execution Adapter' });
 
     const wakeups = resolveTaskWakeups({
       task: next,
@@ -59,7 +59,7 @@ describe('task wakeup resolver', () => {
 
   it('does not wake a pending owner while dependencies are unresolved', () => {
     const dependency = task({ id: 'TASK-001', agent_id: 'luigi', status: 'in_progress' });
-    const next = task({ id: 'TASK-002', agent_id: 'toad', status: 'pending', dependencies: '["TASK-001"]' });
+    const next = task({ id: 'TASK-002', agent_id: 'toad', status: 'ready', dependencies: '["TASK-001"]' });
 
     const wakeups = resolveTaskWakeups({
       task: next,
@@ -215,7 +215,7 @@ describe('task wakeup resolver', () => {
 
   it('wakes downstream pending owners when dependencies become done', () => {
     const completed = task({ id: 'TASK-004', agent_id: 'toad', status: 'done' });
-    const downstream = task({ id: 'TASK-005', agent_id: 'luigi', status: 'pending' });
+    const downstream = task({ id: 'TASK-005', agent_id: 'luigi', status: 'ready' });
 
     const wakeups = resolveTaskWakeups({
       task: completed,
@@ -241,7 +241,7 @@ describe('task wakeup resolver', () => {
     const downstream = task({
       id: 'TASK-005',
       agent_id: 'luigi',
-      status: 'pending',
+      status: 'ready',
       dependencies: '["TASK-004"]',
     });
 
@@ -266,7 +266,7 @@ describe('task wakeup resolver', () => {
 
   it('wakes coordinators when a downstream pending task has all dependencies met but no owner', () => {
     const completed = task({ id: 'TASK-004', agent_id: 'toad', status: 'done' });
-    const downstream = task({ id: 'TASK-007', agent_id: '', status: 'pending' });
+    const downstream = task({ id: 'TASK-007', agent_id: '', status: 'ready' });
 
     const wakeups = resolveTaskWakeups({
       task: completed,
