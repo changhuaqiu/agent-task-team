@@ -1348,7 +1348,9 @@ CREATE INDEX IF NOT EXISTS idx_github_issue_ingress_run
     },
   },
   {
-    version: 43,
+    // Keep this above the highest schema watermark already used by long-lived
+    // development databases, including unpublished checkpoint migrations.
+    version: 76,
     run(db) {
       const invocationTable = db.prepare(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name='invocation'",

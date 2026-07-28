@@ -52,6 +52,30 @@ describe('SQLite Foundation', () => {
     expect(row.v).toBeGreaterThanOrEqual(1);
   });
 
+  it('applies runtime identity persistence above legacy schema watermark 75', () => {
+    const checkpoint = new Database(':memory:');
+    try {
+      checkpoint.exec(`
+        CREATE TABLE _schema_version (version INTEGER PRIMARY KEY);
+        INSERT INTO _schema_version (version) VALUES (75);
+        CREATE TABLE invocation (
+          id TEXT PRIMARY KEY,
+          engine TEXT
+        );
+        INSERT INTO invocation (id, engine) VALUES ('inv-opencode', 'opencode');
+      `);
+
+      applyMigrations(checkpoint);
+
+      expect(checkpoint.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
+        .toEqual({ version: 76 });
+      expect(checkpoint.prepare('SELECT runtime_id FROM invocation WHERE id = ?').get('inv-opencode'))
+        .toEqual({ runtime_id: 'opencode-local' });
+    } finally {
+      checkpoint.close();
+    }
+  });
+
   it('enforces GitHub Issue delivery and repository Issue uniqueness', () => {
     const indexes = db.prepare(
       "PRAGMA index_list('github_issue_ingress')",
@@ -194,7 +218,7 @@ describe('SQLite Foundation', () => {
           'autonomous_delivery_receipt',
         ]));
         expect(checkpoint.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-          .toEqual({ version: 43 });
+          .toEqual({ version: 76 });
         expect(checkpoint.pragma('foreign_key_check')).toEqual([]);
       } finally {
         checkpoint.close();
