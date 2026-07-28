@@ -28,6 +28,9 @@ describe('SQLite Foundation', () => {
     expect(tableNames).toContain('eval_review_queue');
     expect(tableNames).toContain('eval_pairwise_round');
     expect(tableNames).toContain('github_issue_ingress');
+    const invocationColumns = db.prepare("PRAGMA table_info('invocation')")
+      .all() as Array<{ name: string }>;
+    expect(invocationColumns.some((column) => column.name === 'runtime_id')).toBe(true);
   });
 
   it('creates indexes', () => {
@@ -191,7 +194,7 @@ describe('SQLite Foundation', () => {
           'autonomous_delivery_receipt',
         ]));
         expect(checkpoint.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-          .toEqual({ version: 42 });
+          .toEqual({ version: 43 });
         expect(checkpoint.pragma('foreign_key_check')).toEqual([]);
       } finally {
         checkpoint.close();

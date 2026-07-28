@@ -380,3 +380,5 @@ Runtime Session 的 cwd 也必须稳定：无 taskId 的同项目同 Agent 使�
 前端 `agentSessions` 是服务端状态的显示缓存：hydrate 时以 `/api/state.activeSessions` 整体替换，不与 localStorage 合并，也不在 `terminal:start` 中回传 session id。
 
 首次 `session/new` 的 resource 可能直到 prompt 成功结束才由 adapter 持久化。因此新 binding 在首个 Invocation 成功前属于 unconfirmed：若该轮取消、超时或失败，daemon 清除该 binding；若 daemon 在清理前异常退出，下一次 dispatch 会根据“存在 Invocation 记录但从未成功”的证据做同样的预检修复。已经成功使用过的 confirmed binding 不执行此恢复，load 失败时保留原 identity 并向用户报告错误。
+
+角色可以显式配置有序的多个执行账号。Harness 默认选择第一个可用账号，并对 active Session 已成功确认的账号保持跨任务粘性；如果最近的独立执行以 `acp_empty_completion` 且没有可见副作用结束，则下一次 dispatch 跳过该任务中连续空响应的账号，选择角色列表里的下一个账号。工具已经活动但缺少最终文本时使用 `acp_tool_completion_missing` 并失败关闭，不进行账号重放。Invocation 记录实际 `runtime_id`；daemon 发现新 profile 与旧 Session 最近一次 Invocation 的 runtime/engine/account 不一致时，会以 `runtime_profile_changed` 封存旧 generation 后再 provision，避免跨 runtime 恢复错误。该机制不读取或借用角色配置外的全局账号。

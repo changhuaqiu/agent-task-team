@@ -28,6 +28,7 @@ export type AcpFailureReasonCode =
   | 'acp_concurrency_limit'
   | 'acp_connection_failed'
   | 'acp_empty_completion'
+  | 'acp_tool_completion_missing'
   | 'acp_event_limit'
   | 'acp_invalid_runtime'
   | 'acp_max_turn_timeout'
@@ -229,7 +230,7 @@ export class AcpBackend implements AgentBackend {
     let resolveNext: ((value: IteratorResult<AgentEvent>) => void) | null = null;
     let streamFinished = false;
     let output = '';
-    let sawToolCall = false;
+    let sawToolActivity = false;
     let hasTextAfterLastTool = false;
     let attemptHadVisibleActivity = false;
     let projectedChars = 0;
@@ -274,9 +275,9 @@ export class AcpBackend implements AgentBackend {
         const remaining = limits.maxOutputChars - output.length;
         if (remaining <= 0 || boundedEvent.content.length > remaining) return false;
         output += boundedEvent.content;
-        if (sawToolCall && boundedEvent.content.trim()) hasTextAfterLastTool = true;
-      } else if (boundedEvent.type === 'tool_use') {
-        sawToolCall = true;
+        if (sawToolActivity && boundedEvent.content.trim()) hasTextAfterLastTool = true;
+      } else if (boundedEvent.type === 'tool_use' || boundedEvent.type === 'tool_result') {
+        sawToolActivity = true;
         hasTextAfterLastTool = false;
       }
       if (resolveNext) {
@@ -495,6 +496,8 @@ export class AcpBackend implements AgentBackend {
           .client({ name: 'agent-task-team' })
           .onRequest(acp.methods.client.session.requestPermission, async (ctx) => {
             attemptHadVisibleActivity = true;
+            sawToolActivity = true;
+            hasTextAfterLastTool = false;
             markProtocolActivity();
             const response = await permissionHandler(ctx.params);
             markProtocolActivity();
@@ -565,12 +568,12 @@ export class AcpBackend implements AgentBackend {
 
             if (
               response.stopReason === 'end_turn'
-              && (!output.trim() || (sawToolCall && !hasTextAfterLastTool))
+              && (!output.trim() || (sawToolActivity && !hasTextAfterLastTool))
             ) {
               const canReplaceEmptySession = (
                 !opts.resumeSessionId
                 && !output.trim()
-                && !sawToolCall
+                && !sawToolActivity
                 && !attemptHadVisibleActivity
               );
               if (canReplaceEmptySession) {
@@ -604,12 +607,12 @@ export class AcpBackend implements AgentBackend {
 
             if (
               response.stopReason === 'end_turn'
-              && (!output.trim() || (sawToolCall && !hasTextAfterLastTool))
+              && (!output.trim() || (sawToolActivity && !hasTextAfterLastTool))
             ) {
               emit({ type: 'text', content: EMPTY_COMPLETION_FALLBACK, sessionId }, true);
               finalize(
                 'failed',
-                'acp_empty_completion',
+                sawToolActivity ? 'acp_tool_completion_missing' : 'acp_empty_completion',
                 'ACP ended without a final assistant message',
                 usage
                   ? {

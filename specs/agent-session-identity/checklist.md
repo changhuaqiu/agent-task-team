@@ -17,6 +17,8 @@
 - [x] 已确认 Session 的 load 失败仍然失败关闭，不在同一 Invocation 内静默轮换或重放 prompt。
 - [x] 无 taskId 的多轮执行不会因 cwd 漂移导致 runtime resource 丢失。
 - [x] `Resource not found` 立即封存失效 generation；普通 load 错误持久化并只在下一次独立 dispatch 前换代。
+- [x] 无副作用空 completion 不会重复使用同一失败账号；只在角色显式账号列表内轮换，并保持成功账号粘性。
+- [x] 工具已活动的无最终文本失败不触发账号重放；同 engine 不同 runtime 会换代，成功账号跨任务粘住 active Session。
 
 ## 一致性
 

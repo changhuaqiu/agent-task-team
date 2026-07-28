@@ -1079,6 +1079,34 @@ describe('invocation-repo', () => {
     expect(invs.length).toBe(1);
   });
 
+  it('gets the latest invocation for a logical session', () => {
+    sessionRepo.create({
+      id: 'ses-1',
+      conversationId: 'conv-1',
+      agentId: 'agent-a',
+      taskId: 'task-1',
+    });
+    invocationRepo.create({
+      id: 'inv-1',
+      conversation_id: 'conv-1',
+      agent_id: 'agent-a',
+      task_id: 'task-1',
+      session_id: 'ses-1',
+    });
+    invocationRepo.create({
+      id: 'inv-2',
+      conversation_id: 'conv-1',
+      agent_id: 'agent-a',
+      task_id: 'task-1',
+      session_id: 'ses-1',
+      runtime_id: 'codex-cli',
+    });
+    expect(invocationRepo.findLatestForSession('ses-1')).toMatchObject({
+      id: 'inv-2',
+      runtime_id: 'codex-cli',
+    });
+  });
+
   it('getActive excludes terminal statuses', () => {
     invocationRepo.create({
       id: 'inv-1',

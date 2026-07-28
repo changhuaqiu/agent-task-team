@@ -83,7 +83,11 @@ export class RepositoryHarnessPlanner implements HarnessPlanner {
       };
     }
     const resolution = evaluationResolution
-      ?? resolveConversationRuntimeProfile(trigger.conversationId, trigger.agentId);
+      ?? resolveConversationRuntimeProfile(
+        trigger.conversationId,
+        trigger.agentId,
+        { taskId: trigger.taskId },
+      );
     if (!resolution?.runtime.roster.some((agent) => agent.id === trigger.agentId)) {
       return { ok: false, outcome: { status: 'blocked', reasonCode: 'agent_not_in_team' } };
     }

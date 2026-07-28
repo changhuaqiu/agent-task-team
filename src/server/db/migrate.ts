@@ -1347,6 +1347,32 @@ CREATE INDEX IF NOT EXISTS idx_github_issue_ingress_run
       }
     },
   },
+  {
+    version: 43,
+    run(db) {
+      const invocationTable = db.prepare(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='invocation'",
+      ).get();
+      if (!invocationTable) return;
+      const columns = db.prepare('PRAGMA table_info(invocation)')
+        .all() as Array<{ name: string }>;
+      if (!columns.some((column) => column.name === 'runtime_id')) {
+        db.exec('ALTER TABLE invocation ADD COLUMN runtime_id TEXT');
+      }
+      db.exec(`
+        UPDATE invocation
+        SET runtime_id = CASE engine
+          WHEN 'opencode' THEN 'opencode-local'
+          WHEN 'claude' THEN 'claude-cli'
+          WHEN 'codex' THEN 'codex-cli'
+          WHEN 'gemini' THEN 'gemini-cli'
+          WHEN 'mock' THEN 'mock-runtime'
+          ELSE engine
+        END
+        WHERE runtime_id IS NULL AND engine IS NOT NULL
+      `);
+    },
+  },
 ];
 
 export function applyMigrations(db: Database.Database): void {

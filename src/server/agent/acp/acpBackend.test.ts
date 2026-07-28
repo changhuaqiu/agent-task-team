@@ -320,9 +320,30 @@ describe('AcpBackend (subprocess integration with mockAcpAgent)', () => {
 
     expect(await run.result).toMatchObject({
       status: 'failed',
-      reasonCode: 'acp_empty_completion',
+      reasonCode: 'acp_tool_completion_missing',
     });
     expect(contents.join('')).toContain('未返回最终文本');
+  }, 30000);
+
+  it('does not classify a standalone tool result as replay-safe empty completion', async () => {
+    const backend = new AcpBackend({
+      command: 'npx',
+      args: ['tsx', mockPath],
+      engine: 'opencode',
+      cwd: process.cwd(),
+      permissionPolicy: 'allow_once',
+      env: { MOCK_ACP_SCENARIO: 'tool_result_silent' },
+    });
+
+    const run = backend.execute('finish after an orphaned tool result', {});
+    for await (const event of run.events) {
+      void event;
+    }
+
+    expect(await run.result).toMatchObject({
+      status: 'failed',
+      reasonCode: 'acp_tool_completion_missing',
+    });
   }, 30000);
 
   it('fails closed when resume is unsupported instead of creating a new session', async () => {

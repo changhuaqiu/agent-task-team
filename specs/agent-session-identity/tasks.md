@@ -23,6 +23,8 @@
 - [x] dispatch 前修复“有失败历史但从未成功”的遗留 binding。
 - [x] 固定无 taskId 的 Session cwd，区分 `Resource not found` 并封存失效 generation。
 - [x] 将持久化的普通 load failure 作为下一次独立 dispatch 的安全换代依据。
+- [x] `acp_empty_completion` 后按角色配置顺序轮换账号，并在 profile 变化时封存旧 generation。
+- [x] 持久化 Invocation `runtime_id`，区分工具静默失败，并保持 active Session 账号跨任务粘性。
 
 ## 前端
 

@@ -59,6 +59,7 @@ import {
   type HarnessSubmission,
 } from './harness';
 import { finalizeRuntimeContextSnapshot } from './harness/runtime-context-snapshot';
+import { executionProfileChanged } from './harness/runtime-profile-recovery';
 import { checkValidExit } from './harness/valid-exit';
 import type { ContextReport, ContextSnapshot } from '../lib/agent-context/ContextManager';
 import type { ContextScenario } from '../lib/agent-context/scenarioResolver';
@@ -171,6 +172,13 @@ const RUNTIME_ENGINE_MAP: Record<string, CliEngine> = {
   'codex-cli': 'codex',
   'gemini-cli': 'gemini',
   'mock-runtime': 'mock',
+};
+const DEFAULT_RUNTIME_ID: Record<CliEngine, string> = {
+  opencode: 'opencode-local',
+  claude: 'claude-cli',
+  codex: 'codex-cli',
+  gemini: 'gemini-cli',
+  mock: 'mock-runtime',
 };
 
 /** Default CLI idle timeout (ms). Configurable via CLI_TIMEOUT_MS env. 0 = disabled. */
@@ -761,6 +769,7 @@ export default function registerDaemon(io: IOServer) {
         runtimeId && runtimeId in RUNTIME_ENGINE_MAP ? RUNTIME_ENGINE_MAP[runtimeId] : undefined;
       const engine: CliEngine =
         engineFromRuntime || (rawEngine && rawEngine in ENGINE_COMMAND ? rawEngine : 'opencode');
+      const effectiveRuntimeId = runtimeId ?? DEFAULT_RUNTIME_ID[engine];
       primaryCommand = ENGINE_COMMAND[engine];
 
       const targetNodeId = opencodeBridgeUrl
@@ -834,6 +843,17 @@ export default function registerDaemon(io: IOServer) {
       const sessionIsolationKey = evaluation ? `evaluation:${evaluation.executionId}` : '';
       let existingSession = sessionRepo.findActiveByConversation(agentId, sessionConvId, sessionIsolationKey);
 
+      if (existingSession && executionProfileChanged(
+        invocationRepo.findLatestForSession(existingSession.id),
+        { engine, runtimeId: effectiveRuntimeId, accountId },
+      )) {
+        console.warn(
+          `[daemon] rotating session ${existingSession.id} for ${agentId} in ${sessionConvId} after runtime profile changed`,
+        );
+        sessionRepo.seal(existingSession.id, 'runtime_profile_changed');
+        existingSession = undefined;
+      }
+
       if (existingSession && sessionRepo.sealIfLatestInvocationLoadFailed(existingSession.id)) {
         console.warn(
           `[daemon] rotating session ${existingSession.id} for ${agentId} in ${sessionConvId} after persisted ACP load failure`,
@@ -875,6 +895,7 @@ export default function registerDaemon(io: IOServer) {
         agent_id: agentId,
         session_id: agentSession.id,
         engine,
+        runtime_id: effectiveRuntimeId,
         account_id: accountId,
         prompt: prompt || '',
       });

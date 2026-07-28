@@ -114,6 +114,7 @@ export const invocation = sqliteTable('invocation', {
   sessionId: text('session_id'),
   status: text('status').notNull().default('queued'),
   engine: text('engine'),
+  runtimeId: text('runtime_id'),
   accountId: text('account_id'),
   cliSessionId: text('cli_session_id'),
   prompt: text('prompt'),

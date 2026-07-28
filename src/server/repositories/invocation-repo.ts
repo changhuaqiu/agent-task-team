@@ -9,6 +9,7 @@ export interface InvocationRow {
   status: string;
   outcome?: 'completed' | 'failed' | 'cancelled' | 'timed_out' | null;
   engine: string | null;
+  runtime_id?: string | null;
   account_id: string | null;
   cli_session_id: string | null;
   prompt: string | null;
@@ -33,6 +34,7 @@ export interface NewInvocation {
   agent_id: string;
   session_id?: string;
   engine?: string;
+  runtime_id?: string;
   account_id?: string;
   prompt?: string;
 }
@@ -165,8 +167,8 @@ export const invocationRepo = {
     const initialStatus = usesManagedInvocationLifecycle() ? 'planned' : 'queued';
     getDb()
       .prepare(
-        `INSERT INTO invocation (id, conversation_id, task_id, agent_id, session_id, status, engine, account_id, prompt, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO invocation (id, conversation_id, task_id, agent_id, session_id, status, engine, runtime_id, account_id, prompt, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         input.id,
@@ -176,6 +178,7 @@ export const invocationRepo = {
         input.session_id ?? null,
         initialStatus,
         input.engine ?? null,
+        input.runtime_id ?? null,
         input.account_id ?? null,
         input.prompt ?? null,
         now,
@@ -331,5 +334,13 @@ export const invocationRepo = {
       WHERE agent_id = ? AND ${completedPredicate}
       ORDER BY created_at DESC LIMIT 1
     `).get(agentId) as InvocationRow | undefined;
+  },
+
+  findLatestForSession(sessionId: string): InvocationRow | undefined {
+    return getDb().prepare(`
+      SELECT * FROM invocation
+      WHERE session_id = ?
+      ORDER BY created_at DESC, id DESC LIMIT 1
+    `).get(sessionId) as InvocationRow | undefined;
   },
 };
