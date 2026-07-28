@@ -2,7 +2,7 @@
 
 **状态**：active
 **日期**：2026-07-20
-**依赖**：`specs/platform-harness-state-machines/`、`specs/system-control-plane/`
+**依赖**：`docs/technical/execution/platform-harness-state-machine-design.md`、`specs/system-control-plane/`
 
 ## 1. 目标
 

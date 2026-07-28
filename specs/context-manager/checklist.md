@@ -24,7 +24,7 @@
 - [ ] 同一 agent（如 mario）在 N 个项目，身份段一致、项目段隔离
 
 ## 不破坏
-- [ ] `platform-harness-state-machines/` 的 A2A 聚合 / 交接 / 反回声语义不变
+- [ ] `platform-harness-state-machine-design.md` 的 A2A 聚合 / 交接 / 反回声语义不变
 - [ ] `BudgetGuard` 使用 system/tool/project + importance；旧 priority 仅保留兼容，不再驱动新记录
 - [ ] `acp-runtime-integration/` 的执行协议边界不受影响
 - [ ] build 通过；现有 A2A / context 测试不破

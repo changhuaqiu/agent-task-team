@@ -1,6 +1,6 @@
 # A2A Possession Contract
 
-> Status: Archived; superseded by `specs/platform-harness-state-machines/`
+> Status: Archived; superseded by `docs/archive/specs/platform-harness-state-machines/`
 > Date: 2026-05-11
 > Supersedes: `specs/a2a-v2/README.md` coordination semantics
 

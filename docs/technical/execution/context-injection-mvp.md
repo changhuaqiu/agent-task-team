@@ -1,7 +1,7 @@
 # 上下文注入策略 MVP（Context Injection Policy · MVP）
 
 > 日期：2026-07-15 ｜ 评审：2026-07-16 ｜ 状态：已评审·通过（含修订） ｜ 归属：Agent Task Hub / 团队协作 Harness
-> 关联：`docs/technical/execution/context-layering.md`（三层稳定性 + scope/private 边界）、`specs/context-manager/spec.md`（组装管道 v2）、`specs/platform-harness-state-machines/spec.md`（A2A 聚合）、`src/lib/agent-context/ContextManager.ts`（15 层管道实现）
+> 关联：`docs/technical/execution/context-layering.md`（三层稳定性 + scope/private 边界）、`specs/context-manager/spec.md`（组装管道 v2）、`docs/technical/execution/platform-harness-state-machine-design.md`（A2A 聚合）、`src/lib/agent-context/ContextManager.ts`（15 层管道实现）
 > 参照：CrewAI 的 task.context 依赖图、OpenAI Swarm 的 handoff 函数化、LangGraph 的 state 读投影、Cognition (Devin) "Don't Build Multi-Agents"、Amazon 6-pager / Linear Issue 结构化模板
 > 一句话定位：**在已有的"组装管道 + 三层稳定性"之上，补一层显式的"场景 × 角色 → 注入策略"，让 agent 在正确的时间、以正确的方式、拿到正确的信息，同时把 loop 闭环的三条平台约束定死。**
 

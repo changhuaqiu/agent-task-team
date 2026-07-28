@@ -137,7 +137,6 @@
 - `specs/context-manager/`
 - `specs/team-simplification/`
 - `specs/system-control-plane/`
-- `specs/platform-harness-state-machines/`
 - 其余活动规格及状态统一以 `specs/README.md` 的登记表为准
 
 说明：

@@ -4,7 +4,7 @@
 > 日期：2026-07-15
 > 事实源：本目录
 > 基于：`specs/agent-observability/spec.md`（P1 已落地的 span 模型、投影、workbench）——本 spec 只补 P2 级增量，不重复基础模型。
-> 关联：`specs/acp-runtime-integration/spec.md`（ACP 是唯一运行时边界）、`specs/platform-harness-state-machines/spec.md`（A2A 聚合）、`src/server/agent/acp/acpBackend.ts`（采集缝）、`src/server/repositories/observation-span-repo.ts`、`src/components/project/ProjectObservabilityPanel.tsx`
+> 关联：`specs/acp-runtime-integration/spec.md`（ACP 是唯一运行时边界）、`docs/technical/execution/platform-harness-state-machine-design.md`（A2A 聚合）、`src/server/agent/acp/acpBackend.ts`（采集缝）、`src/server/repositories/observation-span-repo.ts`、`src/components/project/ProjectObservabilityPanel.tsx`
 > 参照：OpenTelemetry GenAI 语义约定（骨架）、Langfuse / LangSmith 的 Session→Trace→Observation 三层 UX、OpenInference 的 AGENT/TOOL/CHAIN kind、Zed ACP（协议边界即遥测源）
 > 一句话定位：**在已落地的 span 模型之上，把"喂给模型的完整 prompt / 工具 I/O / 模型回复"采满，并让用户从一条消息卡片下钻到这次调用的全貌、再横向看 agent 间调用链与 task 交互。**
 

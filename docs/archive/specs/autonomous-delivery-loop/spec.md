@@ -1,7 +1,7 @@
 # Autonomous Delivery Loop
 
 **状态**：superseded
-**替代规格**：`specs/platform-harness-state-machines/`
+**替代规格**：`docs/archive/specs/platform-harness-state-machines/`
 **日期**：2026-07-19
 **目标**：用户提交一次交付目标后，系统在已授权范围内自主完成规划、执行、评审、测试、修复、集成和交付；用户默认只接收最终结果或真正需要其决策的异常。
 

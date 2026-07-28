@@ -241,7 +241,7 @@ identity 或 causation，不能替换 trace。所有 A2A domain event 与下游 
 `a2a_work_item`、`a2a_work_cursor`、mention parser、运行时文本 A2A completion 和
 `a2a:user-turn-created` 兼容协议均已移除。当前长期契约见
 [`platform-harness-state-machine-design.md`](../technical/execution/platform-harness-state-machine-design.md)
-与 [`specs/platform-harness-state-machines/spec.md`](../../specs/platform-harness-state-machines/spec.md)。
+与[已归档实施规格](../archive/specs/platform-harness-state-machines/spec.md)。
 
 ## 4.6 Agent Backend 抽象（ACP 统一通路）
 

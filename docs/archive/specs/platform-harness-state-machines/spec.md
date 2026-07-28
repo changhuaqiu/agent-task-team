@@ -1,6 +1,6 @@
 # Platform Harness 状态机收敛规格
 
-> 状态：active
+> 状态：implemented（2026-07-28）
 >
 > 日期：2026-07-27
 >

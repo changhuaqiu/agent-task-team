@@ -2,7 +2,8 @@
 
 > 日期：2026-07-27
 >
-> 状态：目标设计；实施契约见 `specs/platform-harness-state-machines/`
+> 状态：已实施；历史验收记录见
+> `docs/archive/specs/platform-harness-state-machines/`
 >
 > 当前实现说明：[`platform-harness-loop.md`](platform-harness-loop.md)
 >

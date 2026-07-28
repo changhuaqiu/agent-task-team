@@ -3,7 +3,7 @@
 > 状态：有效·上下文注入策略 MVP 已评审（2026-07-16）｜ 四层语义分组已落地（2026-07-17，见 `context-layering.md` §2.1）｜ `PromptComposer` 兼容包装已退役（2026-07-22）｜ 初始日期：2026-07-13
 > 关联模块：`src/lib/agent-context/ContextManager.ts`（唯一组装入口）、`src/lib/agent-context/tiers/`（system/knowledge/task/interaction 四层渲染器）、`src/lib/agent-context/types.ts` + `skillTools.ts`（中立类型）、`src/server/invocation-pipeline/context-planner.ts`（派发接入）、`src/server/daemon.ts`、`src/server/a2a/context-builder.ts`、`src/server/repositories/session-repo.ts`
 > 设计依据：`docs/technical/execution/context-layering.md`
-> 依赖规格：`platform-harness-state-machines/`（A2A 聚合与结构化交接）、`acp-runtime-integration/`（执行协议，正交）
+> 依赖设计：`docs/technical/execution/platform-harness-state-machine-design.md`（A2A 聚合与结构化交接）；依赖规格：`acp-runtime-integration/`（执行协议，正交）
 > 历史基线：`docs/archive/specs/context-budget-management/`（预算组件已落地并由本 spec 继续演进）
 > **不在本期**：跨会话记忆系统（archival 存储 + recall/write 落地）—— 另立 spec
 > 一句话定位：**管"上下文怎么用"（选层 / 裁剪 / 预算 / 作用域 / 健康度 / 记忆接入点），不管"怎么存"（消息归 message-repo，记忆归未来 memory-repo）。**
@@ -77,7 +77,7 @@ usageSnapshot: text('usage_snapshot'),    // JSON，仅 tokens/summary API 读�
 ## 4. 约束
 
 - 技术栈 TypeScript / Next.js；`ContextManager.assembleContext()` 是唯一组装契约，不再新增或恢复平行兼容入口
-- A2A 语义由 `platform-harness-state-machines/` 的单一聚合契约负责，本规格只定义“交接包如何变成 prompt”
+- A2A 语义由 `platform-harness-state-machine-design.md` 的单一聚合契约负责，本规格只定义“交接包如何变成 prompt”
 - 项目作用域 = **按 `project_id` 过滤**，不做跨项目 join
 - 身份跨项目共享 = **只读快照**（角色卡 / agentId / 人格），项目内状态不写回身份
 - 预算对两条路径统一：复用 `ContextBudget` + `BudgetGuard`，不引入第二套预算
@@ -333,7 +333,7 @@ interface ContextArtifact extends ContextFragment {
 - **改**：dispatch 经 `context-planner` 调 `assembleContext` + 显式传 budget；`layers/projectLayer.ts` 增加 id + scope；`layers/historyLayer.ts` / `taskContextLayer.ts` / `teamPackLayer.ts` 按 project_id 过滤；`src/server/repositories/session-repo.ts` 新增 `writeContextHealth`
 - **退役**：`src/lib/agent-context/PromptComposer.ts` 及只验证该包装的测试；仍有效的 role/team/collaboration/user-message/behavior layer 行为迁入各 layer 的同目录测试
 - **P2 改**：`src/server/a2a/context-builder.ts`（`renderDispatchPrompt` 退役，改为构造 a2aHandoff source）、`daemon.ts`（A2A 派发点改调 ContextManager）
-- **不改**：`platform-harness-state-machines/` 的 A2A 语义、`ContextBudget` 容量模型、`cli-bridge-layer/`、15 个 `buildXxxLayer` 签名；`BudgetGuard` 在既有 tier + importance 选择前补 required floor
+- **不改**：`platform-harness-state-machine-design.md` 的 A2A 语义、`ContextBudget` 容量模型、`cli-bridge-layer/`、15 个 `buildXxxLayer` 签名；`BudgetGuard` 在既有 tier + importance 选择前补 required floor
 - **测试**：ContextManager / scopeGuard / identity 边界 / ContextReport / MemoryHook NoOp 各配套 `.test.ts`；A2A 派发 prompt 等价性测试（降级前后行为对齐，P2）
 - **文档**：`specs/README.md`（草案→生效）、`docs/wiki/01-architecture.md` 上下文章节同步（AGENTS.md：实现必先改设计文档）
 
