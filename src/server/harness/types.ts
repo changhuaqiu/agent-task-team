@@ -61,6 +61,7 @@ export type HarnessReasonCode =
   | 'required_context_missing'
   | 'context_assembly_failed'
   | 'runtime_rejected'
+  | 'autonomous_delivery_owns_planning'
   | 'internal_error';
 
 export type HarnessOutcome =

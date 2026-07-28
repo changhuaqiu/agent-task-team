@@ -80,6 +80,7 @@ export interface DispatchToAgentInput {
   conversationId?: string;
   chainId?: string;
   passId?: string;
+  legacyProposal?: boolean;
   contextSnapshot?: string;
   epochId?: string;
 }

@@ -385,6 +385,7 @@ export const createTaskSlice = (set: any, get: () => any) => {
         agentId: proposalAgentId,
         prompt,
         conversationId,
+        legacyProposal: true,
       });
     },
 

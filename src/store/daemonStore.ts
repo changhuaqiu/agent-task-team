@@ -146,6 +146,7 @@ export interface PendingDispatch {
   source?: 'user' | 'a2a' | 'workflow' | 'review_gate' | 'test_gate' | 'system';
   fromAgentId?: string;
   conversationId: string;
+  legacyProposal?: boolean;
 }
 
 type InFlightDispatch = Omit<PendingDispatch, 'queuedAt'>;
@@ -246,7 +247,7 @@ export const createDaemonSlice = (set: any, get: () => any) => {
         },
       })),
 
-    dispatchToAgent: async ({ agentId, prompt, referencedTaskId, source, fromAgentId, conversationId: explicitConvId, chainId, passId }: { agentId: string; prompt: string; referencedTaskId?: string; source?: 'user' | 'a2a' | 'workflow' | 'review_gate' | 'test_gate' | 'system'; fromAgentId?: string; conversationId?: string; chainId?: string; passId?: string }) => {
+    dispatchToAgent: async ({ agentId, prompt, referencedTaskId, source, fromAgentId, conversationId: explicitConvId, chainId, passId, legacyProposal }: { agentId: string; prompt: string; referencedTaskId?: string; source?: 'user' | 'a2a' | 'workflow' | 'review_gate' | 'test_gate' | 'system'; fromAgentId?: string; conversationId?: string; chainId?: string; passId?: string; legacyProposal?: boolean }) => {
       const conversationId =
         explicitConvId ??
         (referencedTaskId ? get().getTaskById(referencedTaskId)?.conversationId : undefined) ??
@@ -301,6 +302,7 @@ export const createDaemonSlice = (set: any, get: () => any) => {
         source,
         fromAgentId,
         conversationId,
+        legacyProposal,
       });
 
       socket.emit('terminal:start', {
@@ -314,6 +316,7 @@ export const createDaemonSlice = (set: any, get: () => any) => {
         fromAgentId,
         chainId,
         passId,
+        legacyProposal,
         agentId,
         prompt,
         allowMockRunner: get().enableMockRunner,
@@ -397,6 +400,7 @@ export const createDaemonSlice = (set: any, get: () => any) => {
         source: next.source,
         fromAgentId: next.fromAgentId,
         conversationId: nextConvId,
+        legacyProposal: next.legacyProposal,
       });
       if (accepted && next.source !== 'a2a' && nextConvId) {
         socket.emit('a2a:user-turn-created', {

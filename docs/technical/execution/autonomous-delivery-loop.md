@@ -291,6 +291,8 @@ Web UI 创建 GoalContract
 `plan_goal` DeliveryAction 是唯一规划入口。普通非自主 Team Pack 项目继续保留原自动 proposal 行为。
 前端的 `Conversation.autonomous` 不是新的持久化事实，而是创建时的即时标记，并在服务端水合时
 由“该 Conversation 是否存在 DeliveryRun”重新推导；统一 `triggerProposal` 入口必须据此拒绝绕过。
+旧标签页仍可能持有过期标记，因此 legacy proposal 派发还必须携带显式标记，并在 daemon 接入
+Harness 前依据权威 DeliveryRun 再次拒绝；该抑制只回收客户端 busy 状态，不向群聊写误导性错误。
 
 该接缝的边界是“Agent 如何决定并调用工具”，不是“系统是否完成”。测试适配器不得直接更新
 DeliveryRun、Action、Attempt、Receipt 或最终 Bundle；这些事实仍由生产 Repository、Task Tool

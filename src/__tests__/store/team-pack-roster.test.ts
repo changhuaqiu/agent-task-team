@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { useTaskHubStore, AGENT_ROSTER, type Account } from '@/store/taskHubStore';
+import {
+  useTaskHubStore,
+  AGENT_ROSTER,
+  type Account,
+  type DispatchToAgentInput,
+} from '@/store/taskHubStore';
 import type { TeamPack, TeamPackRole } from '@/types/teamPack';
 
 // ---------------------------------------------------------------------------
@@ -399,7 +404,7 @@ describe('Team Pack Dynamic Roster', () => {
 
     it('does not start a legacy proposal for autonomous Team Pack projects', async () => {
       vi.useFakeTimers();
-      const dispatchToAgent = vi.fn();
+      const dispatchToAgent = vi.fn(async (_input: DispatchToAgentInput) => true);
       const teamPack = makeTeamPack({
         id: 'pack-autonomous',
         roles: [makeRole({ id: 'planner', displayName: 'Planner', accountIds: ['acc-planner'] })],
@@ -408,14 +413,20 @@ describe('Team Pack Dynamic Roster', () => {
       vi.spyOn(global, 'fetch').mockImplementation((url: string | URL | Request) => {
         const href = String(url);
         if (href.includes('/api/team-packs/pack-autonomous')) {
-          return Promise.resolve({ ok: true, json: () => Promise.resolve(teamPack) } as any);
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve(teamPack),
+          } as unknown as Response);
         }
-        return Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true }) } as any);
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ ok: true }),
+        } as unknown as Response);
       });
 
       useTaskHubStore.setState({
         accounts: [makeAccount('acc-planner')],
-        dispatchToAgent: dispatchToAgent as any,
+        dispatchToAgent,
       });
 
       await useTaskHubStore.getState().createConversation({
@@ -436,7 +447,7 @@ describe('Team Pack Dynamic Roster', () => {
 
     it('blocks direct and delayed legacy proposals in an autonomous conversation', async () => {
       vi.useFakeTimers();
-      const dispatchToAgent = vi.fn();
+      const dispatchToAgent = vi.fn(async (_input: DispatchToAgentInput) => true);
       const teamPack = makeTeamPack({
         id: 'pack-hydrated-autonomous',
         roles: [makeRole({ id: 'planner', displayName: 'Planner', accountIds: ['acc-planner'] })],
@@ -460,7 +471,7 @@ describe('Team Pack Dynamic Roster', () => {
         currentTeamPack: teamPack,
         activeAgentIds: ['planner'],
         accounts: [makeAccount('acc-planner')],
-        dispatchToAgent: dispatchToAgent as any,
+        dispatchToAgent,
       });
 
       await useTaskHubStore.getState().addChatMessage({

@@ -45,6 +45,7 @@ import { conversationRepo } from './repositories/conversation-repo';
 import { taskGraphRepo } from './repositories/task-graph-repo';
 import { executionEnvelopeRepo } from './repositories/execution-envelope-repo';
 import { proofLogRepo } from './repositories/proof-log-repo';
+import { autonomousDeliveryRepo } from './autonomous-delivery/repository';
 import { resolveTaskNotificationAudience } from './task-flow/task-notification-publisher';
 import { resolveAutonomyGuardWakeups } from './task-flow/autonomy-guard';
 import { startWorktreeGCScheduler, stopWorktreeGCScheduler } from './worktree-gc';
@@ -112,6 +113,7 @@ type TerminalStartPayload = {
   contextReport?: ContextReport;
   contextSnapshot?: ContextSnapshot;
   evaluation?: HarnessDispatchPlan['evaluation'];
+  legacyProposal?: boolean;
 };
 
 export function submitSocketTerminalStart(
@@ -120,6 +122,23 @@ export function submitSocketTerminalStart(
 ): HarnessSubmission {
   const conversationId = payload.conversationId?.trim();
   if (!conversationId) throw new Error('conversation_missing: terminal:start requires conversationId');
+  if (payload.legacyProposal && autonomousDeliveryRepo.getLatestByConversation(conversationId)) {
+    proofLogRepo.append({
+      eventType: 'legacy_proposal.suppressed',
+      conversationId,
+      agentId: payload.agentId,
+      actorId: payload.dispatchSource ?? 'user',
+      reasonCode: 'autonomous_delivery_owns_planning',
+    });
+    return {
+      disposition: 'accepted',
+      handled: true,
+      completion: Promise.resolve({
+        status: 'blocked',
+        reasonCode: 'autonomous_delivery_owns_planning',
+      }),
+    };
+  }
   return coordinator.submit({
     id: payload.dispatchId?.trim() || `socket:${Date.now()}:${Math.random().toString(36).slice(2, 10)}`,
     idempotencyKey: payload.dispatchId?.trim() || undefined,
@@ -2199,6 +2218,15 @@ export default function registerDaemon(io: IOServer) {
         void submission.completion.then((outcome) => {
           if (outcome.status === 'accepted') return;
           const reasonCode = 'reasonCode' in outcome ? outcome.reasonCode : 'internal_error';
+          if (reasonCode === 'autonomous_delivery_owns_planning') {
+            socket.emit('terminal:exit', {
+              agentId: payload.agentId,
+              code: 0,
+              command: 'harness',
+              reasonCode,
+            });
+            return;
+          }
           socket.emit('agent:error', { agentId: payload.agentId, message: `派发被服务端阻止：${reasonCode}` });
           socket.emit('terminal:exit', { agentId: payload.agentId, code: 1, command: 'harness', reasonCode });
         });

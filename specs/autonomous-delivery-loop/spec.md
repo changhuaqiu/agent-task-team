@@ -396,7 +396,9 @@ Team Harness 不重复实现模型、Skill、工具协议、浏览器驱动或 P
 创建时可以异步加载 Team Pack，但 `autonomous=true` 时不得再触发普通 Conversation 的初始 proposal；
 首个规划调用必须来自持久化的 `plan_goal` Action/Attempt。非自主项目的既有 proposal 行为保持不变。
 页面刷新后，自主标记必须由持久化 DeliveryRun 重新水合；创建定时器、聊天自动提案和
-`triggerProposal` 统一入口都必须拒绝为该 Conversation 派发 legacy proposal。
+`triggerProposal` 统一入口都必须拒绝为该 Conversation 派发 legacy proposal。多标签页或外部入口
+在旧页面水合后创建 DeliveryRun 时，daemon 仍须以持久化 DeliveryRun 为权威，在 Harness 前拒绝
+带 legacy proposal 标记的派发，且不得把这种预期抑制显示为内部错误。
 
 ### 重启恢复
 
