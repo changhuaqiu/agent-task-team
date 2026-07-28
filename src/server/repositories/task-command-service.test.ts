@@ -86,4 +86,37 @@ describe('taskCommandService', () => {
       updates: { agent_id: 'agent-b' },
     })).toEqual({ ...result, replayed: true });
   });
+
+  it('records runtime projection location without invalidating a frozen Task revision', () => {
+    const created = taskCommandService.create({
+      conversationId: 'project-1',
+      expectedGraphRevision: 0,
+      idempotencyKey: 'create-task-projection',
+      actor: { type: 'system', id: 'planner' },
+      task: {
+        id: 'task-projection',
+        title: 'Projection metadata',
+        agent_id: 'agent-a',
+      },
+    }).tasks[0]!;
+
+    expect(taskCommandService.recordProjectionLocation({
+      conversationId: 'project-1',
+      taskId: created.id,
+      workDir: 'C:/worktrees/task-projection',
+    })).toMatchObject({
+      id: created.id,
+      revision: created.revision,
+      work_dir: 'C:/worktrees/task-projection',
+    });
+    expect(taskCommandService.recordProjectionLocation({
+      conversationId: 'project-1',
+      taskId: created.id,
+      workDir: 'C:/worktrees/task-projection',
+    }).revision).toBe(created.revision);
+    expect(taskCommandService.expectedGraphRevision(
+      'project-1',
+      'unseen-command',
+    )).toBe(1);
+  });
 });

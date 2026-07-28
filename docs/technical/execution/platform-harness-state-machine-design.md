@@ -275,6 +275,9 @@ TASKS.md 文件投影、评估运行器与 Runtime 元数据更新对 Task 的�
 Task owner 已采用上述七个规范状态，并通过显式 `transition` 同时校验前态、目标态与单调
 递增的 `Task.revision`。WorkContract 和 QualityGate 的 artifactRevision 都冻结该整数版本，
 不再用可能在同一毫秒重复的 `updated_at` 冒充 CAS 版本。
+`task.work_dir` 只是 Runtime 的 TASKS.md 投影位置，不属于 Task 的业务事实；它只能通过
+`recordProjectionLocation` 更新，不递增 Task/Task Graph revision，也不会让已签发
+WorkContract 或 Gate 失效。
 `task.update`、Agent 技能工具和 TASKS.md 适配器都不能绕过 owner 直接写 `status`；
 数据库 trigger 作为最后一道防线拒绝非规范状态和绕过迁移表的规范状态跳转。
 

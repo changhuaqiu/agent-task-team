@@ -100,6 +100,20 @@ export const taskCommandService = {
     });
   },
 
+  recordProjectionLocation(input: {
+    conversationId: string;
+    taskId: string;
+    workDir: string;
+  }): TaskRow {
+    const task = taskRepo.getById(input.taskId);
+    if (!task || task.conversation_id !== input.conversationId) {
+      throw new Error(`Task not found in conversation: ${input.taskId}`);
+    }
+    const updated = taskRepo.setProjectionWorkDir(input.taskId, input.workDir);
+    if (!updated) throw new Error(`Task projection update failed: ${input.taskId}`);
+    return updated;
+  },
+
   transition(input: ExistingTaskCommand & {
     to: TaskStatus;
     reviewNote?: string;

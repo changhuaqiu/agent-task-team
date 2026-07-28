@@ -36,10 +36,7 @@ import { DispatchGateway } from './control-plane/dispatch-gateway';
 import { runtimeNodeRepo } from './repositories/runtime-node-repo';
 import type { DispatchIntent, DispatchSource, RuntimeNodeKind } from './repositories/control-plane-types';
 import { taskRepo } from './repositories/task-repo';
-import {
-  stableTaskCommandKey,
-  taskCommandService,
-} from './repositories/task-command-service';
+import { taskCommandService } from './repositories/task-command-service';
 import { conversationRepo } from './repositories/conversation-repo';
 import { taskGraphRepo } from './repositories/task-graph-repo';
 import { executionEnvelopeRepo } from './repositories/execution-envelope-repo';
@@ -1599,24 +1596,10 @@ export default function registerDaemon(io: IOServer) {
         taskForWorkdir?.conversation_id === sessionConvId
         && taskForWorkdir.work_dir !== taskProjectDir
       ) {
-        const workdirKey = stableTaskCommandKey('runtime:task-workdir', {
-          invocationId: invocation.id,
-          taskId,
-          workDir: taskProjectDir,
-        });
-        taskCommandService.update({
+        taskCommandService.recordProjectionLocation({
           conversationId: sessionConvId,
           taskId: taskForWorkdir.id,
-          expectedTaskRevision: taskForWorkdir.revision,
-          expectedGraphRevision: taskCommandService.expectedGraphRevision(
-            sessionConvId,
-            workdirKey,
-          ),
-          idempotencyKey: workdirKey,
-          actor: { type: 'system', id: 'runtime-daemon' },
-          correlationId: invocationTraceId,
-          causationId: invocation.id,
-          updates: { work_dir: taskProjectDir },
+          workDir: taskProjectDir,
         });
       }
       const projectedTasks = evaluation

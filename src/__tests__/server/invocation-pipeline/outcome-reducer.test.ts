@@ -7,6 +7,7 @@ import type { Server as IOServer } from 'socket.io';
 import { createTestDb, resetDb, setTestDb } from '@/server/db';
 import { conversationRepo } from '@/server/repositories/conversation-repo';
 import { taskRepo } from '@/server/repositories/task-repo';
+import { taskCommandService } from '@/server/repositories/task-command-service';
 import { proofLogRepo } from '@/server/repositories/proof-log-repo';
 import {
   PROJECTION_ERROR_MESSAGE_LIMIT,
@@ -69,7 +70,11 @@ describe('Invocation Pipeline outcome reducer', () => {
 
   it('moves only an accepted ready owner to in_progress', async () => {
     taskRepo.create({ id: 'TASK-1', conversation_id: 'conv-1', title: 'Server loop', agent_id: 'luigi' });
-    taskRepo.update('TASK-1', { work_dir: projectPath });
+    taskCommandService.recordProjectionLocation({
+      conversationId: 'conv-1',
+      taskId: 'TASK-1',
+      workDir: projectPath,
+    });
     writeTasksMd(projectPath, [{
       id: 'TASK-1',
       title: 'Server loop',
@@ -139,7 +144,11 @@ describe('Invocation Pipeline outcome reducer', () => {
 
   it('records a missing runtime task entry without rolling back the accepted transition', async () => {
     taskRepo.create({ id: 'TASK-1', conversation_id: 'conv-1', title: 'Server loop', agent_id: 'luigi' });
-    taskRepo.update('TASK-1', { work_dir: projectPath });
+    taskCommandService.recordProjectionLocation({
+      conversationId: 'conv-1',
+      taskId: 'TASK-1',
+      workDir: projectPath,
+    });
     writeTasksMd(projectPath, [{
       id: 'TASK-OTHER',
       title: 'Other task',
@@ -175,7 +184,11 @@ describe('Invocation Pipeline outcome reducer', () => {
 
   it('records a stable I/O failure cause without rolling back the accepted transition', async () => {
     taskRepo.create({ id: 'TASK-1', conversation_id: 'conv-1', title: 'Server loop', agent_id: 'luigi' });
-    taskRepo.update('TASK-1', { work_dir: projectPath });
+    taskCommandService.recordProjectionLocation({
+      conversationId: 'conv-1',
+      taskId: 'TASK-1',
+      workDir: projectPath,
+    });
     mkdirSync(join(projectPath, '.ath', 'TASKS.md'), { recursive: true });
     const emit = vi.fn();
     const io = { to: vi.fn(() => ({ emit })) } as unknown as IOServer;

@@ -120,7 +120,7 @@ function taskStatusEvent(previousStatus: TaskStatus, status: TaskStatus): Domain
 
 export type TaskPatch = Pick<
   TaskRow,
-  'title' | 'description' | 'agent_id' | 'dependencies' | 'artifacts' | 'review_note' | 'work_dir'
+  'title' | 'description' | 'agent_id' | 'dependencies' | 'artifacts' | 'review_note'
 >;
 
 export const taskRepo = {
@@ -303,6 +303,21 @@ export const taskRepo = {
       }
       return taskRepo.getById(id);
     }).immediate();
+  },
+
+  /**
+   * Runtime projection location is an operational pointer, not an
+   * authoritative Task fact. Updating it must not invalidate a WorkContract
+   * or Gate that froze the Task's semantic revision.
+   */
+  setProjectionWorkDir(id: string, workDir: string): TaskRow | undefined {
+    const result = getDb().prepare(`
+      UPDATE task
+      SET work_dir=?, updated_at=?
+      WHERE id=? AND COALESCE(work_dir,'')<>?
+    `).run(workDir, new Date().toISOString(), id, workDir);
+    if (result.changes === 0 && !taskRepo.getById(id)) return undefined;
+    return taskRepo.getById(id);
   },
 
   list(): TaskRow[] {

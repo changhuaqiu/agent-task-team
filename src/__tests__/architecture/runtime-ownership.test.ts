@@ -84,6 +84,13 @@ describe('runtime ownership architecture', () => {
     ).toEqual([]);
   });
 
+  it('does not translate CLI-native Todo state into the Platform Task Graph', () => {
+    const todoMentions = productionTypeScriptFiles('src/server')
+      .filter((path) => /todo(?:read|write)/i.test(source(path)));
+    expect(todoMentions).toEqual(['src/server/agent/nativeTools.ts']);
+    expect(source('src/server/agent/nativeTools.ts')).not.toContain('taskCommandService');
+  });
+
   it('keeps WebUI notices read-only and removes the legacy Supervisor vocabulary', () => {
     expect(taskHubStore).not.toContain('SupervisorOutput');
     expect(taskHubStore).not.toContain('supervisor.output');

@@ -45,6 +45,10 @@ describe('domain event inline seam', () => {
     expect(new Set(types).size).toBe(types.length);
     expect(types).toContain('task.assigned' satisfies DomainEventType);
     expect(types).toContain('session.sealed' satisfies DomainEventType);
+    expect(types).not.toContain('completed');
+    expect(types.filter((type) => type.endsWith('.completed')).every((type) => (
+      type.split('.').length >= 3
+    ))).toBe(true);
   });
 
   it('publishes task state changes inline and skips no-op updates', () => {

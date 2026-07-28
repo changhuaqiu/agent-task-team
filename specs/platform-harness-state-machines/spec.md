@@ -64,6 +64,8 @@ Agent Skill Tool、Engineering receipt、ControlAction、Agent Outcome、TASKS.m
 评估运行器与 Runtime 元数据更新都必须携带幂等身份并冻结 graph/Task revision；
 改派同时关闭旧 WorkAuthority，删除命令落为 `cancelled`。生产代码的直接 `taskRepo` 写入
 只允许存在于 owner 实现及其原子 group-chat Task Graph mutation 内，并由架构测试锁定。
+Runtime 的 `task.work_dir` 是非权威投影位置，只能经 owner 的 `recordProjectionLocation`
+更新且不得递增 Task/Task Graph revision；否则会在 WorkContract 签发后制造伪造的陈旧结果。
 
 ## 5. WorkContract
 
