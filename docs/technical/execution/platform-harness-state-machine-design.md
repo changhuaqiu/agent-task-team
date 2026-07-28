@@ -422,7 +422,9 @@ WebUI、Skill 与通用 Tool 的直接 Task 状态命令只经过纯
 `TaskStatusEvidencePolicy` 做 `in_review` 字段/receipt admission；该 Policy 不创建 Gate、
 不写 Proof、不改变 Task，并一律拒绝通用 `done` 命令。Task owner 自身再次验证
 `gateId + gate.passed eventId + artifactRevision`，只有 Task Gate Lifecycle Process Manager
-能提交完成迁移。其他命令由 Task owner 以稳定 idempotency key 和首次冻结的 Task/Graph
+能提交完成迁移；Gate 必须以 `targetType=task / targetId=Task.id` 为目标，`gate.passed`
+事件的 subject 也必须绑定同一个 Task，不能用 ID 恰好相同的其他目标类型冒充。
+其他命令由 Task owner 以稳定 idempotency key 和首次冻结的 Task/Graph
 revision 精确提交或重放。
 
 该边界已由 migration 59 和 `QualityGateRepository` 落地。Task Gate 的 artifact revision

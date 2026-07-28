@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb, resetDb, setTestDb } from '../db';
+import { qualityGateRepo } from '../quality-gate/repository';
 import { WorkContractRepository } from '../work-contract/repository';
 import { taskCommandService } from './task-command-service';
 import { taskGraphRepo } from './task-graph-repo';
@@ -184,6 +185,92 @@ describe('taskCommandService', () => {
       actor: { type: 'system', id: 'generic-adapter' },
       to: 'done',
     })).toThrow('task_completion_gate_required');
+    expect(taskRepo.getById(review.id)).toMatchObject({
+      status: 'in_review',
+      revision: review.revision,
+    });
+    expect(taskGraphRepo.revision('project-1')).toBe(3);
+  });
+
+  it('rejects a passed code-review Gate whose target is not the Task', () => {
+    const created = taskCommandService.create({
+      conversationId: 'project-1',
+      expectedGraphRevision: 0,
+      idempotencyKey: 'create-wrong-target-gate',
+      actor: { type: 'user', id: 'operator' },
+      task: {
+        id: 'task-wrong-target-gate',
+        title: 'Reject a foreign Gate target',
+        agent_id: 'agent-a',
+      },
+    }).tasks[0]!;
+    const started = taskCommandService.transition({
+      conversationId: 'project-1',
+      taskId: created.id,
+      expectedTaskRevision: created.revision,
+      expectedGraphRevision: 1,
+      idempotencyKey: 'start-wrong-target-gate',
+      actor: { type: 'agent', id: 'agent-a' },
+      to: 'in_progress',
+    }).result.task;
+    const review = taskCommandService.transition({
+      conversationId: 'project-1',
+      taskId: started.id,
+      expectedTaskRevision: started.revision,
+      expectedGraphRevision: 2,
+      idempotencyKey: 'review-wrong-target-gate',
+      actor: { type: 'agent', id: 'agent-a' },
+      to: 'in_review',
+    }).result.task;
+    const requested = qualityGateRepo.request({
+      conversationId: 'project-1',
+      kind: 'code_review',
+      targetType: 'delivery_run',
+      targetId: review.id,
+      artifactRevision: String(review.revision),
+      criteria: {},
+      actor: { type: 'system', id: 'test' },
+    });
+    const evidence = qualityGateRepo.submitEvidence({
+      gateId: requested.gate.id,
+      evidenceType: 'provider_review',
+      payload: { decision: 'approved' },
+      actor: { type: 'system', id: 'reviewer' },
+      idempotencyKey: 'wrong-target-evidence',
+    });
+    const evaluating = qualityGateRepo.beginEvaluation({
+      gateId: requested.gate.id,
+      evaluator: { type: 'system', id: 'reviewer' },
+      expectedRevision: requested.gate.revision,
+    });
+    qualityGateRepo.decide({
+      gateId: requested.gate.id,
+      decision: 'passed',
+      evaluator: { type: 'system', id: 'reviewer' },
+      evidenceIds: [evidence.id],
+      expectedRevision: evaluating.gate.revision,
+    });
+    const passedEvent = db.prepare(`
+      SELECT id FROM platform_event
+      WHERE type='gate.passed' AND aggregate_id=?
+      ORDER BY recorded_at DESC,id DESC LIMIT 1
+    `).get(requested.gate.id) as { id: string };
+
+    expect(() => taskCommandService.transition({
+      conversationId: 'project-1',
+      taskId: review.id,
+      expectedTaskRevision: review.revision,
+      expectedGraphRevision: 3,
+      idempotencyKey: 'wrong-target-completion',
+      actor: { type: 'system', id: 'task-gate-lifecycle' },
+      to: 'done',
+      actionType: 'task.review_recorded',
+      proofEventId: passedEvent.id,
+      completionGate: {
+        gateId: requested.gate.id,
+        passedEventId: passedEvent.id,
+      },
+    })).toThrow('task_completion_gate_invalid');
     expect(taskRepo.getById(review.id)).toMatchObject({
       status: 'in_review',
       revision: review.revision,

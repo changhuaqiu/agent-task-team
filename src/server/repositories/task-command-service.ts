@@ -80,10 +80,11 @@ function assertCompletionGate(
   }
   const db = getDb();
   const gate = db.prepare(`
-    SELECT conversation_id,target_id,artifact_revision,status,kind
+    SELECT conversation_id,target_type,target_id,artifact_revision,status,kind
     FROM quality_gate WHERE id=?
   `).get(input.completionGate.gateId) as {
     conversation_id: string;
+    target_type: string;
     target_id: string;
     artifact_revision: string;
     status: string;
@@ -92,6 +93,7 @@ function assertCompletionGate(
   if (
     !gate
     || gate.conversation_id !== input.conversationId
+    || gate.target_type !== 'task'
     || gate.target_id !== input.taskId
     || gate.artifact_revision !== String(input.expectedTaskRevision)
     || gate.status !== 'passed'
@@ -100,13 +102,15 @@ function assertCompletionGate(
     throw new Error('task_completion_gate_invalid');
   }
   const event = db.prepare(`
-    SELECT type,project_id,aggregate_type,aggregate_id
+    SELECT type,project_id,aggregate_type,aggregate_id,subject_type,subject_id
     FROM platform_event WHERE id=?
   `).get(input.completionGate.passedEventId) as {
     type: string;
     project_id: string;
     aggregate_type: string;
     aggregate_id: string;
+    subject_type: string | null;
+    subject_id: string | null;
   } | undefined;
   if (
     !event
@@ -114,6 +118,8 @@ function assertCompletionGate(
     || event.project_id !== input.conversationId
     || event.aggregate_type !== 'quality_gate'
     || event.aggregate_id !== input.completionGate.gateId
+    || event.subject_type !== 'task'
+    || event.subject_id !== input.taskId
   ) {
     throw new Error('task_completion_gate_event_invalid');
   }

@@ -105,7 +105,7 @@ Task 切片证据：
 ## 自动化验收证据
 
 - Owner/状态隔离：`runtime-ownership.test.ts`、`domain-events.test.ts`、
-  `task-state-machine.test.ts`、`repos.test.ts`、各聚合 repository 状态迁移测试。
+  `repos.test.ts`、`task-command-service.test.ts`、各聚合 repository 状态迁移测试。
 - Agent 自主性：`runtime-ownership.test.ts` 证明 CLI Todo 没有 Task owner 写入口；
   `a2a/outcome-process-manager.test.ts` 证明未预编排 handoff 只能经结构化 Outcome。
 - 决策/容量/死锁：`control-decision.test.ts` 覆盖相同快照稳定 action identity、剩余容量、
@@ -117,7 +117,9 @@ Task 切片证据：
   `agent-inbox.test.ts`、`control-decision-repository.test.ts` 覆盖事实+事件、Effect、启动命令与
   claim fencing。
 - 命名端到端场景：`control-runtime.test.ts` 的 `project-start/human-resume`，
+  `task-graph-outcome-process-manager.test.ts` 的原子 Task Graph proposal，
   `a2a/collaboration.test.ts` 的 `parallel-handoff`，
+  `context-planner.test.ts` 的可追溯 handoff ContextSnapshot，
   `a2a/lifecycle-process-manager.test.ts` 的 `agent-failure`，
   `control-snapshot-builder.test.ts` 的 `review-rework`，
   `control-command-adapter.test.ts` 的 `delivery-close`。

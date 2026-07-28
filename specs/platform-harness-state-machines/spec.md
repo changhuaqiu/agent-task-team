@@ -186,6 +186,10 @@ Work Cell。`record_gate_decision` 经 Gate owner 后：
 - Reviewer 缺失：产生 Human escalation，不允许实现 Agent 隐式自审；
 - 旧 artifactRevision 的 Gate 不得满足新 Task revision，也不得阻止新一轮 Gate 创建。
 
+Task owner 接受 `passed` 时还必须验证 Gate 的
+`targetType=task / targetId=Task.id`，并验证对应 `gate.passed` 事件的 subject 是同一个
+Task；其他 target type 即使复用了相同字符串 ID，也不得授权 Task 完成。
+
 ## 6. 状态机契约
 
 实现必须遵守长期设计 §5 的状态和完成语义。所有迁移由 owner 暴露的显式 transition API
