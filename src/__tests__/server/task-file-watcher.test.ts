@@ -320,7 +320,7 @@ describe('syncTasksToDb', () => {
 
     expect(taskRepo.getById('TASK-003')?.status).toBe('ready');
     expect(taskRepo.getById('conv-1~TASK-003')).toMatchObject({
-      status: 'done',
+      status: 'in_review',
       description: 'done.md',
     });
   });

@@ -342,6 +342,10 @@ admission 不得创建或自动通过 QualityGate，也不得在 Task owner 幂�
 WebUI、Skill 和通用 Tool adapter 必须携带同一 command identity，并使用首次冻结的
 Task/Graph revision 精确重放。
 
+通用 Task 状态命令不得以 `done` 为目标，即使调用者提供完整字符串 evidence 也不例外。
+Task owner 只有在同一权威数据库中验证当前 revision 的 `code_review Gate` 已 passed，
+且提交者携带对应 `gate.passed` event identity 时，才允许 `in_review -> done`。
+
 ## 10. 错误归一化
 
 至少支持：

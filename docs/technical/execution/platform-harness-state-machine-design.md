@@ -259,7 +259,8 @@ WebUI message
 2. `Inbox.admitted != Invocation.terminated`。
 3. `A2A Pass.accepted` 只表示服务端接纳；只有 `Pass.started` 才转移 holder authority，
    且 `Pass.started != Task.done`。
-4. `Gate.passed` 可以成为 `Task.done` 的前置证据，但不能由 Invocation 自行写入。
+4. 只有匹配当前 `Task.revision` 的 `code_review Gate.passed` 才能授权 `Task.done`；
+   Invocation、WebUI、Skill、通用 Tool 和文件投影都不能自行写入。
 5. `DeliveryRun.waiting_human` 是可恢复等待态，不是终态；配置修复后可以 `resume`。
 6. 所有迁移通过 owner 的显式命令完成，禁止任意字符串更新状态。
 
@@ -418,10 +419,11 @@ criteria/policy 创建 Gate。相同 Gate identity 的重复请求只有内容�
 criteria 或 policy 漂移必须以 `quality_gate_request_conflict` 失败关闭。
 
 WebUI、Skill 与通用 Tool 的直接 Task 状态命令只经过纯
-`TaskStatusEvidencePolicy` 做字段/receipt admission；该 Policy 不创建 Gate、不写 Proof、
-不改变 Task。命令随后由 Task owner 以稳定 idempotency key 和首次冻结的 Task/Graph revision
-精确提交或重放。真正的 code review、delivery review 与 acceptance verification 仍只由
-Control Process Manager 协调并由 QualityGate owner 持久化。
+`TaskStatusEvidencePolicy` 做 `in_review` 字段/receipt admission；该 Policy 不创建 Gate、
+不写 Proof、不改变 Task，并一律拒绝通用 `done` 命令。Task owner 自身再次验证
+`gateId + gate.passed eventId + artifactRevision`，只有 Task Gate Lifecycle Process Manager
+能提交完成迁移。其他命令由 Task owner 以稳定 idempotency key 和首次冻结的 Task/Graph
+revision 精确提交或重放。
 
 该边界已由 migration 59 和 `QualityGateRepository` 落地。Task Gate 的 artifact revision
 只使用整数 `Task.revision`；Git head SHA、PR URL 与 provider review ID 是 Gate evidence，

@@ -60,8 +60,9 @@ function hasActiveTaskInvocation(conversationId: string, taskId: string, agentId
   ));
 }
 
-function isProtectedGitProjectionTransition(conversationId: string, nextStatus: string): boolean {
-  if (nextStatus !== 'in_review' && nextStatus !== 'done') return false;
+function isProtectedProjectionTransition(conversationId: string, nextStatus: string): boolean {
+  if (nextStatus === 'done') return true;
+  if (nextStatus !== 'in_review') return false;
   return Boolean(conversationRepo.getById(conversationId)?.git_repo_root);
 }
 
@@ -74,7 +75,7 @@ function isProtectedGitReceiptRollback(conversationId: string, taskId: string, a
   return authoritativeStatus === 'done' && hasCurrentVerifiedMerge(actions);
 }
 
-function rejectGitProjectionTransition(input: {
+function rejectProjectionTransition(input: {
   projectPath: string;
   conversationId: string;
   localTaskId: string;
@@ -102,7 +103,9 @@ function rejectGitProjectionTransition(input: {
     conversationId: input.conversationId,
     taskId: input.storageTaskId,
     reasonCode,
-    message: `Git 任务 ${input.localTaskId} 不能通过 TASKS.md 进入 ${input.attemptedStatus}；请使用结构化 PR/review/merge 回执。状态已恢复为 ${input.authoritativeStatus}。`,
+    message: input.attemptedStatus === 'done'
+      ? `Task ${input.localTaskId} 不能通过 TASKS.md 进入 done；必须由当前 QualityGate passed 事件完成。状态已恢复为 ${input.authoritativeStatus}。`
+      : `Git 任务 ${input.localTaskId} 不能通过 TASKS.md 进入 ${input.attemptedStatus}；请使用结构化 PR/review 回执。状态已恢复为 ${input.authoritativeStatus}。`,
   });
   updateTaskInMd(input.projectPath, input.localTaskId, { status: input.authoritativeStatus });
 }
@@ -247,8 +250,8 @@ export function syncTasksToDb(
             initialStatus: t.status === 'proposed' ? 'proposed' : 'ready',
           },
         }).tasks[0]!;
-        if (created.status !== t.status && isProtectedGitProjectionTransition(conversationId, t.status)) {
-          rejectGitProjectionTransition({
+        if (created.status !== t.status && isProtectedProjectionTransition(conversationId, t.status)) {
+          rejectProjectionTransition({
             projectPath,
             conversationId,
             localTaskId: t.id,
@@ -303,11 +306,11 @@ export function syncTasksToDb(
     const stalePendingDuringActiveInvocation = existing.status === 'in_progress'
       && t.status === 'ready'
       && hasActiveTaskInvocation(conversationId, storageId, existing.agent_id);
-    const protectedGitTransition = existing.status !== t.status
-      && (isProtectedGitProjectionTransition(conversationId, t.status)
+    const protectedProjectionTransition = existing.status !== t.status
+      && (isProtectedProjectionTransition(conversationId, t.status)
         || isProtectedGitReceiptRollback(conversationId, storageId, existing.status));
-    if (protectedGitTransition) {
-      rejectGitProjectionTransition({
+    if (protectedProjectionTransition) {
+      rejectProjectionTransition({
         projectPath,
         conversationId,
         localTaskId: t.id,

@@ -14,12 +14,10 @@ const TASK_GATE_TERMINAL_EVENTS = new Set([
 ]);
 
 export class TaskGateLifecycleProcessManager {
-  constructor(private readonly database?: Database.Database) {}
-
   readonly handle: PlatformEventHandler = (event, { signal }) => {
     if (!TASK_GATE_TERMINAL_EVENTS.has(event.type)) return;
     if (signal.aborted) throw signal.reason ?? new Error('task_gate_lifecycle_aborted');
-    const db = this.database ?? getDb();
+    const db = getDb();
     db.transaction(() => {
       const gate = db.prepare(`
         SELECT * FROM quality_gate
@@ -66,6 +64,9 @@ export class TaskGateLifecycleProcessManager {
           artifactRevision: gate.artifact_revision,
           reason: gate.decision_reason,
         },
+        completionGate: passed
+          ? { gateId: gate.id, passedEventId: event.eventId }
+          : undefined,
       });
       this.closeTaskAuthorities(db, {
         taskId: task.id,

@@ -1865,7 +1865,7 @@ export default function registerDaemon(io: IOServer) {
             if (evaluation) {
               const evaluationTask = taskId ? taskRepo.getById(taskId) : undefined;
               if (evaluationTask) {
-                const transitionKey = `evaluation-task:done:${evaluation.executionId}`;
+                const transitionKey = `evaluation-task:review:${evaluation.executionId}`;
                 taskCommandService.transition({
                   conversationId: sessionConvId,
                   taskId: evaluationTask.id,
@@ -1878,7 +1878,7 @@ export default function registerDaemon(io: IOServer) {
                   actor: { type: 'system', id: 'evaluation-runtime' },
                   correlationId: invocationTraceId,
                   causationId: invocation.id,
-                  to: 'done',
+                  to: 'in_review',
                 });
               }
               const submitted = agentEvaluation.submit({

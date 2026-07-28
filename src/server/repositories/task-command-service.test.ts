@@ -4,6 +4,7 @@ import { createTestDb, resetDb, setTestDb } from '../db';
 import { WorkContractRepository } from '../work-contract/repository';
 import { taskCommandService } from './task-command-service';
 import { taskGraphRepo } from './task-graph-repo';
+import { taskRepo } from './task-repo';
 
 describe('taskCommandService', () => {
   let db: Database.Database;
@@ -141,6 +142,53 @@ describe('taskCommandService', () => {
       'project-1',
       'unseen-command',
     )).toBe(1);
+  });
+
+  it('rejects direct done transitions without a current passed QualityGate event', () => {
+    const created = taskCommandService.create({
+      conversationId: 'project-1',
+      expectedGraphRevision: 0,
+      idempotencyKey: 'create-completion-guard',
+      actor: { type: 'user', id: 'operator' },
+      task: {
+        id: 'task-completion-guard',
+        title: 'Guard completion',
+        agent_id: 'agent-a',
+      },
+    }).tasks[0]!;
+    const started = taskCommandService.transition({
+      conversationId: 'project-1',
+      taskId: created.id,
+      expectedTaskRevision: created.revision,
+      expectedGraphRevision: 1,
+      idempotencyKey: 'start-completion-guard',
+      actor: { type: 'agent', id: 'agent-a' },
+      to: 'in_progress',
+    }).result.task;
+    const review = taskCommandService.transition({
+      conversationId: 'project-1',
+      taskId: started.id,
+      expectedTaskRevision: started.revision,
+      expectedGraphRevision: 2,
+      idempotencyKey: 'review-completion-guard',
+      actor: { type: 'agent', id: 'agent-a' },
+      to: 'in_review',
+    }).result.task;
+
+    expect(() => taskCommandService.transition({
+      conversationId: 'project-1',
+      taskId: review.id,
+      expectedTaskRevision: review.revision,
+      expectedGraphRevision: 3,
+      idempotencyKey: 'forge-completion-guard',
+      actor: { type: 'system', id: 'generic-adapter' },
+      to: 'done',
+    })).toThrow('task_completion_gate_required');
+    expect(taskRepo.getById(review.id)).toMatchObject({
+      status: 'in_review',
+      revision: review.revision,
+    });
+    expect(taskGraphRepo.revision('project-1')).toBe(3);
   });
 
   it('replaces dependency edges and projection atomically while rejecting cycles', () => {

@@ -89,26 +89,13 @@ export function evaluateTaskStatusEvidenceGate(input: EvaluateTaskStatusEvidence
   }
 
   if (input.nextStatus === 'done') {
-    const gateName = 'delivery_evidence' as const;
-    const missingFields = missing(evidence, [
-      'mergedToMain',
-      'mainInstallResult',
-      'mainBuildResult',
-      'mainTestResult',
-      'mainImpactReviewResult',
-    ]);
-    if (input.pullRequestRequired && !input.verifiedMerge) missingFields.push('mergeReceipt');
-    if (missingFields.length > 0) {
-      return {
-        allowed: false,
-        required: true,
-        gateName,
-        reasonCode: EVIDENCE_REQUIRED_REASON,
-        missingFields,
-        message: `标记 done 前缺少主分支交付证据：${missingFields.join(', ')}。`,
-      };
-    }
-    return { allowed: true, required: true, gateName };
+    return {
+      allowed: false,
+      required: true,
+      gateName: 'delivery_evidence',
+      reasonCode: 'task_graph.quality_gate_required',
+      message: 'Task 只能由匹配当前 revision 的 QualityGate passed 事件标记 done。',
+    };
   }
 
   return { allowed: true, required: false };

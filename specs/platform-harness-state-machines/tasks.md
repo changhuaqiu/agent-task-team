@@ -69,6 +69,8 @@
 - [x] WebUI/Tool/Skill/Engineering/Control 的 Task 写入口收敛到 Task Graph owner command；
 - [x] WebUI、Skill 与 `tool.invoke` 的 Task command 统一稳定 identity 和首次冻结 revision；
   `TaskStatusEvidencePolicy` 仅做纯 admission，不在 owner 幂等判定前创建/通过 Gate 或写 Proof；
+- [x] 通用 Task status、Skill、Tool 与 TASKS.md 投影均不能直写 `done`；Task owner 只接受
+  当前 revision 的真实 `code_review Gate.passed` event，由 Task Gate Lifecycle PM 推进完成；
 - [x] Task 改派同事务关闭旧 WorkAuthority，删除改为可审计 cancelled；
 - [x] ControlAction settle 与执行前均 fence 过期 lease；migration 75 固化 lease shape 和启动幂等键；
 - [x] 注入 DB 贯穿 Gate/Delivery repository，历史无快照 replay 明确 fail closed；

@@ -757,6 +757,37 @@ describe('POST /api/mutations', () => {
     expect(qualityGateRepo.listForTarget('task', 'task-1')).toEqual([]);
   });
 
+  it('tool.invoke cannot mark Task done from caller-provided evidence', async () => {
+    await seedTask();
+    const { taskRepo } = await import('@/server/repositories/task-repo');
+    taskRepo.transition('task-1', { to: 'in_progress' });
+    taskRepo.transition('task-1', { to: 'in_review' });
+    const res = mockRes();
+    await handler(mockReq('POST', {
+      type: 'tool.invoke',
+      payload: {
+        toolName: 'task_update_status',
+        conversationId: 'conv-1',
+        agentId: 'agent-a',
+        input: {
+          task_id: 'task-1',
+          status: 'done',
+          evidence: {
+            mergedToMain: true,
+            mainInstallResult: 'passed',
+            mainBuildResult: 'passed',
+            mainTestResult: 'passed',
+            mainImpactReviewResult: 'passed',
+          },
+        },
+      },
+    }), res);
+
+    expect(res.statusCode).toBe(403);
+    expect(res._json.error).toContain('QualityGate passed');
+    expect(taskRepo.getById('task-1')?.status).toBe('in_review');
+  });
+
   it('tool.invoke task_assign replays a lost response exactly once', async () => {
     await seedTask();
     const { taskRepo } = await import('@/server/repositories/task-repo');
@@ -806,11 +837,11 @@ describe('POST /api/mutations', () => {
 
     const { taskRepo } = await import('@/server/repositories/task-repo');
     expect(res.statusCode).toBe(403);
-    expect(res._json.error).toContain('mergeReceipt');
+    expect(res._json.error).toContain('QualityGate passed');
     expect(taskRepo.getById('task-1')?.status).not.toBe('done');
   });
 
-  it('task.updateStatus with reviewNote', async () => {
+  it('task.updateStatus cannot mark a non-Git task done from caller evidence', async () => {
     await seedTask();
     const { taskRepo } = await import('@/server/repositories/task-repo');
     taskRepo.transition('task-1', { to: 'in_progress' });
@@ -834,8 +865,10 @@ describe('POST /api/mutations', () => {
     await handler(req, res);
 
     const task = taskRepo.getById('task-1')!;
-    expect(task.status).toBe('done');
-    expect(task.review_note).toBe('LGTM');
+    expect(res.statusCode).toBe(403);
+    expect(res._json.error).toContain('QualityGate passed');
+    expect(task.status).toBe('in_review');
+    expect(task.review_note).toBeNull();
   });
 
   it('task.update updates fields', async () => {

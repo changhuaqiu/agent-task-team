@@ -49,7 +49,7 @@ describe('skill tool collaboration gates', () => {
     });
 
     expect(result).toMatchObject({ success: false });
-    expect(result.error).toContain('mergeReceipt');
+    expect(result.error).toContain('QualityGate passed');
     expect(taskRepo.getById('TASK-GIT')?.status).toBe('in_review');
   });
 

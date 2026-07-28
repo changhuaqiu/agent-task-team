@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { getDb } from '../db';
 import { workContractRepo } from '../work-contract/repository';
 import {
   taskGraphRepo,
@@ -32,6 +33,11 @@ interface ExistingTaskCommand extends TaskCommandBase {
   expectedTaskRevision: number;
 }
 
+interface TaskCompletionGate {
+  gateId: string;
+  passedEventId: string;
+}
+
 type TaskOutcomeType =
   | 'submit_task_result'
   | 'request_review'
@@ -56,6 +62,61 @@ function assertOwnedTask(input: ExistingTaskCommand): TaskRow {
     );
   }
   return task;
+}
+
+function assertCompletionGate(
+  input: ExistingTaskCommand & {
+    completionGate?: TaskCompletionGate;
+    proofEventId?: string;
+    actionType?: TaskActionType;
+  },
+): void {
+  if (!input.completionGate) throw new Error('task_completion_gate_required');
+  if (
+    input.proofEventId !== input.completionGate.passedEventId
+    || input.actionType !== 'task.review_recorded'
+  ) {
+    throw new Error('task_completion_gate_receipt_required');
+  }
+  const db = getDb();
+  const gate = db.prepare(`
+    SELECT conversation_id,target_id,artifact_revision,status,kind
+    FROM quality_gate WHERE id=?
+  `).get(input.completionGate.gateId) as {
+    conversation_id: string;
+    target_id: string;
+    artifact_revision: string;
+    status: string;
+    kind: string;
+  } | undefined;
+  if (
+    !gate
+    || gate.conversation_id !== input.conversationId
+    || gate.target_id !== input.taskId
+    || gate.artifact_revision !== String(input.expectedTaskRevision)
+    || gate.status !== 'passed'
+    || gate.kind !== 'code_review'
+  ) {
+    throw new Error('task_completion_gate_invalid');
+  }
+  const event = db.prepare(`
+    SELECT type,project_id,aggregate_type,aggregate_id
+    FROM platform_event WHERE id=?
+  `).get(input.completionGate.passedEventId) as {
+    type: string;
+    project_id: string;
+    aggregate_type: string;
+    aggregate_id: string;
+  } | undefined;
+  if (
+    !event
+    || event.type !== 'gate.passed'
+    || event.project_id !== input.conversationId
+    || event.aggregate_type !== 'quality_gate'
+    || event.aggregate_id !== input.completionGate.gateId
+  ) {
+    throw new Error('task_completion_gate_event_invalid');
+  }
 }
 
 function actionTypeForStatus(status: TaskStatus): TaskActionType {
@@ -143,7 +204,12 @@ export const taskCommandService = {
     actionType?: TaskActionType;
     proofEventId?: string;
     actionPayload?: Record<string, unknown>;
+    completionGate?: TaskCompletionGate;
   }): { revision: number; result: { task: TaskRow; action: TaskActionRow }; replayed: boolean } {
+    if (input.to === 'done') assertCompletionGate(input);
+    if (input.to !== 'done' && input.completionGate) {
+      throw new Error('task_completion_gate_not_applicable');
+    }
     return taskGraphRepo.mutate({
       conversationId: input.conversationId,
       expectedRevision: input.expectedGraphRevision,
@@ -157,6 +223,7 @@ export const taskCommandService = {
         actor: input.actor,
         correlationId: input.correlationId,
         causationId: input.causationId,
+        completionGate: input.completionGate,
       },
       execute: () => {
         const previous = assertOwnedTask(input);
