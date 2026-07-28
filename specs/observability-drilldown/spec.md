@@ -151,7 +151,7 @@ adapter 不接触 `invocationId / traceId / spanId` 或仓储。daemon 持有关
 ACP 的 `stopReason=end_turn` 只说明协议 turn 已停止，不等价于“用户已收到答复”。平台层 harness 必须额外保证：
 
 1. 正常 turn 至少产生一段 `agent_message_chunk`，或明确进入失败降级。
-2. 若 turn 已执行工具、返回 `end_turn`，但 completion 为空，`AcpBackend` 在同一 session 内最多发起一次 completion recovery；恢复提示只要求给出最终答复，不重复已完成工具。
+2. 若 turn 返回 `end_turn` 但没有任何文本 completion，无论 runtime 是否先暴露了工具事件，`AcpBackend` 都在同一 session 内最多发起一次 completion recovery；恢复提示只要求给出最终答复，不重复已完成工具。
 3. recovery 仍无文本时，结果使用稳定原因码 `acp_empty_completion` 标记失败，并向事件流写入一条明确的系统降级文本，禁止“工具执行成功 + invocation succeeded + 用户无消息”的假成功。
 4. recovery 复用既有 idle timeout 与 hard max turn timeout，不重置为新的无限循环；总恢复次数固定为 1。
 5. `agent.message` span 必须反映最终恢复文本或降级文本；root span 状态与 invocation 终态保持一致。

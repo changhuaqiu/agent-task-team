@@ -64,7 +64,7 @@ const PERMISSION_OPTIONS: acp.PermissionOption[] = [
  *    (`process.exit(1)`) — so `AcpBackend`'s `close` handler fires with an
  *    abnormal exit and resolves `failed`. (Task 9 failure-recovery test.)
  */
-export type MockScenario = 'normal' | 'slow' | 'active' | 'error' | 'flood' | 'large' | 'wrong_session' | 'tool_only' | 'tool_silent' | 'mcp_echo' | 'platform_mcp_permission';
+export type MockScenario = 'normal' | 'slow' | 'active' | 'error' | 'flood' | 'large' | 'wrong_session' | 'empty_once' | 'tool_only' | 'tool_silent' | 'mcp_echo' | 'platform_mcp_permission';
 
 /** How long the "slow" scenario blocks mid-turn before completing. */
 const SLOW_BLOCK_MS = 60_000;
@@ -145,6 +145,16 @@ export function createMockAgentApp(
           sessionUpdate: 'agent_message_chunk',
           content: { type: 'text', text: JSON.stringify(sessionMcpServers) },
         });
+        return { stopReason: 'end_turn' };
+      }
+
+      if (scenario === 'empty_once') {
+        if (promptCount > 1) {
+          await upd({
+            sessionUpdate: 'agent_message_chunk',
+            content: { type: 'text', text: 'recovered empty turn' },
+          });
+        }
         return { stopReason: 'end_turn' };
       }
 
@@ -291,6 +301,7 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
       || envScenario === 'flood'
       || envScenario === 'large'
       || envScenario === 'wrong_session'
+      || envScenario === 'empty_once'
       || envScenario === 'tool_only'
       || envScenario === 'tool_silent'
       || envScenario === 'mcp_echo'

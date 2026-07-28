@@ -561,8 +561,7 @@ export class AcpBackend implements AgentBackend {
 
             if (
               response.stopReason === 'end_turn'
-              && sawToolCall
-              && !hasTextAfterLastTool
+              && (!output.trim() || (sawToolCall && !hasTextAfterLastTool))
             ) {
               const recovery = await ctx.request(acp.methods.agent.session.prompt, {
                 sessionId,
@@ -582,8 +581,7 @@ export class AcpBackend implements AgentBackend {
 
             if (
               response.stopReason === 'end_turn'
-              && sawToolCall
-              && !hasTextAfterLastTool
+              && (!output.trim() || (sawToolCall && !hasTextAfterLastTool))
             ) {
               emit({ type: 'text', content: EMPTY_COMPLETION_FALLBACK, sessionId }, true);
               finalize(

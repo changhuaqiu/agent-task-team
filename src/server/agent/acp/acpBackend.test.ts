@@ -177,6 +177,26 @@ describe('AcpBackend (subprocess integration with mockAcpAgent)', () => {
     expect(contents.join('')).toBe('恢复后的最终答复');
   }, 30000);
 
+  it('recovers once when a turn ends without text or tool events', async () => {
+    const backend = new AcpBackend({
+      command: 'npx',
+      args: ['tsx', mockPath],
+      engine: 'opencode',
+      cwd: process.cwd(),
+      permissionPolicy: 'allow_once',
+      env: { MOCK_ACP_SCENARIO: 'empty_once' },
+    });
+
+    const run = backend.execute('answer after an empty turn', {});
+    const contents: string[] = [];
+    for await (const event of run.events) {
+      if (event.type === 'text') contents.push(event.content);
+    }
+
+    expect(await run.result).toMatchObject({ status: 'completed' });
+    expect(contents.join('')).toBe('recovered empty turn');
+  }, 30000);
+
   it('fails visibly when the bounded recovery is still empty', async () => {
     const backend = new AcpBackend({
       command: 'npx',
