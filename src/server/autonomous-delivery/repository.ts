@@ -160,7 +160,8 @@ export class AutonomousDeliveryRepository {
         `INSERT INTO autonomous_delivery_run (
           id, conversation_id, status, current_stage, goal_contract_json,
           repair_cycle, start_idempotency_key, created_at, updated_at
-        ) VALUES (?, ?, 'active', 'planning', ?, 0, ?, ?, ?)`,
+        ) VALUES (?, ?, 'active', 'planning', ?, 0, ?, ?, ?)
+        ON CONFLICT(start_idempotency_key) DO NOTHING`,
       ).run(
         id,
         contract.scope.conversationId,
@@ -169,7 +170,10 @@ export class AutonomousDeliveryRepository {
         timestamp,
         timestamp,
       );
-      return this.getSnapshot(id)!;
+      const createdOrExisting = db.prepare(
+        'SELECT id FROM autonomous_delivery_run WHERE start_idempotency_key=?',
+      ).get(startKey) as { id: string };
+      return this.getSnapshot(createdOrExisting.id)!;
     }
     db.prepare(
       `INSERT INTO autonomous_delivery_run (
