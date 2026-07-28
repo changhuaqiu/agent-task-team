@@ -83,6 +83,26 @@ interface ExecutionRecovery {
   exhaustedTask?: TaskRow;
 }
 
+function isTerminalInvocation(invocation: InvocationRow): boolean {
+  return ['succeeded', 'failed', 'canceled', 'cancelled', 'timed_out', 'terminated']
+    .includes(invocation.status);
+}
+
+function isActiveAdmission(
+  envelope: ReturnType<typeof executionEnvelopeRepo.listByConversation>[number],
+  invocations: InvocationRow[],
+): boolean {
+  if (ACTIVE_ENVELOPE_STATUSES.has(envelope.status)) return true;
+  if (envelope.status !== 'acknowledged') return false;
+  const admittedAt = envelope.settled_at ?? envelope.updated_at;
+  return !invocations.some((invocation) =>
+    invocation.task_id === envelope.task_id
+    && invocation.agent_id === envelope.to_agent_id
+    && isTerminalInvocation(invocation)
+    && (invocation.terminated_at ?? invocation.updated_at) >= admittedAt
+  );
+}
+
 function executionRecovery(
   tasks: TaskRow[],
   envelopes: ReturnType<typeof executionEnvelopeRepo.listByConversation>,
@@ -106,6 +126,7 @@ function executionRecovery(
     || invocation.status === 'cancelled'
     || invocation.status === 'timed_out'
     || (invocation.status === 'terminated' && invocation.outcome !== 'completed');
+  let failedRecoveryActive = false;
 
   // Admission envelopes only prove that a dispatch was accepted. Prefer the
   // execution outcome, scoped to the intended agent, so a later parallel
@@ -128,7 +149,8 @@ function executionRecovery(
       && candidate.created_at > invocation.created_at
     );
     const latestNewerEnvelope = newerEnvelopesForAgent.at(-1);
-    if (latestNewerEnvelope && ACTIVE_ENVELOPE_STATUSES.has(latestNewerEnvelope.status)) {
+    if (latestNewerEnvelope && isActiveAdmission(latestNewerEnvelope, invocations)) {
+      failedRecoveryActive = true;
       continue;
     }
 
@@ -141,7 +163,7 @@ function executionRecovery(
       .slice(latestCompletedIndex + 1)
       .filter((candidate) => terminalInvocation(candidate) && failedInvocation(candidate));
     const dispatchesWithoutInvocation = newerEnvelopesForAgent.filter((candidate) =>
-      !ACTIVE_ENVELOPE_STATUSES.has(candidate.status)
+      !isActiveAdmission(candidate, invocations)
     );
     if (failedAttempts.length + dispatchesWithoutInvocation.length >= maxRecoveries) {
       return { exhaustedTask: task };
@@ -169,6 +191,64 @@ function executionRecovery(
       },
     } };
   }
+  if (failedRecoveryActive) return {};
+
+  // A successful runtime completion is not task progress by itself. If the
+  // newest invocation for a task completed after the last task mutation and no
+  // newer dispatch is active, wake that exact agent so it can publish the
+  // missing status/receipt through the authoritative task tool.
+  for (const task of tasks) {
+    if (TERMINAL_TASK_STATUSES.has(task.status)) continue;
+    const taskInvocations = invocations.filter((candidate) => candidate.task_id === task.id);
+    const latestInvocation = taskInvocations.at(-1);
+    if (!latestInvocation || !terminalInvocation(latestInvocation) || !completedInvocation(latestInvocation)) {
+      continue;
+    }
+    const invocationBeganAt = latestInvocation.started_at ?? latestInvocation.created_at;
+    if (task.updated_at > invocationBeganAt) continue;
+
+    const newerEnvelopesForAgent = envelopes.filter((candidate) =>
+      candidate.task_id === task.id
+      && candidate.to_agent_id === latestInvocation.agent_id
+      && candidate.created_at > latestInvocation.created_at
+    );
+    const latestNewerEnvelope = newerEnvelopesForAgent.at(-1);
+    if (latestNewerEnvelope && isActiveAdmission(latestNewerEnvelope, invocations)) {
+      continue;
+    }
+    const completedAttempts = taskInvocations.filter((candidate) =>
+      candidate.agent_id === latestInvocation.agent_id
+      && completedInvocation(candidate)
+      && (candidate.started_at ?? candidate.created_at) >= task.updated_at
+    );
+    const dispatchesWithoutInvocation = newerEnvelopesForAgent.filter((candidate) =>
+      !isActiveAdmission(candidate, invocations)
+    );
+    if (completedAttempts.length + dispatchesWithoutInvocation.length >= maxRecoveries) {
+      return { exhaustedTask: task };
+    }
+    const recoveryFactId = latestNewerEnvelope?.id ?? latestInvocation.id;
+    return { wakeup: {
+      conversationId: task.conversation_id,
+      taskId: task.id,
+      agentId: latestInvocation.agent_id,
+      reasonCode: 'runnable_owned_idle',
+      dispatchSource: 'system',
+      prompt: `The previous execution completed, but the task fact did not advance. Resume task ${task.id} "${task.title}", finish any missing work, and publish status and evidence with the task tool. Do not wait for another user message.`,
+      content: `The system is automatically recovering task ${task.id} after a completion without task progress.`,
+      metadata: {
+        taskId: task.id,
+        taskTitle: task.title,
+        taskStatus: task.status,
+        ownerAgentId: latestInvocation.agent_id,
+        reasonCode: 'runnable_owned_idle',
+        idempotencyKey: `${task.conversation_id}:${task.id}:${latestInvocation.agent_id}:recover:${recoveryFactId}`,
+        startsA2AHandoff: false,
+        startsDispatch: true,
+        reasonSummary: 'execution_completed_without_progress',
+      },
+    } };
+  }
 
   for (const envelope of [...envelopes].reverse()) {
     if (
@@ -185,7 +265,7 @@ function executionRecovery(
       candidate.task_id === envelope.task_id
       && candidate.created_at > envelope.created_at
       && (
-        ACTIVE_ENVELOPE_STATUSES.has(candidate.status)
+        isActiveAdmission(candidate, invocations)
         || candidate.status === 'completed'
       )
     );
@@ -359,8 +439,15 @@ export class RepositoryDeliveryFactsAdapter implements DeliveryFactsPort {
       invocations,
       snapshot.contract.recoveryPolicy.maxAttemptsPerAction,
     );
-    const nextWakeup = recovery.wakeup ?? wakeups[0];
-    const hasActiveEnvelope = envelopes.some((envelope) => ACTIVE_ENVELOPE_STATUSES.has(envelope.status));
+    const candidateWakeup = recovery.wakeup ?? wakeups[0];
+    const nextWakeup = candidateWakeup && envelopes.some((envelope) =>
+      envelope.task_id === candidateWakeup.taskId
+      && envelope.to_agent_id === candidateWakeup.agentId
+      && isActiveAdmission(envelope, invocations)
+    )
+      ? undefined
+      : candidateWakeup;
+    const hasActiveEnvelope = envelopes.some((envelope) => isActiveAdmission(envelope, invocations));
     const allDone = tasks.length > 0 && tasks.every((task) => task.status === 'done');
     const deliveryEvidence = acceptedDeliveryEvidence(proofs);
     for (const proof of deliveryEvidence) {

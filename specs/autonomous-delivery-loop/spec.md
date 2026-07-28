@@ -418,6 +418,13 @@ Web UI E2E 第一次失败，系统自动创建 repair action；修复后重新�
 2. `RepositoryHarnessPlanner` 必须真实执行，Context Manager 至少生成 execution、code_review、verification/recovery 场景的上下文快照；
 3. 测试可以在 `HarnessRuntimePort` 接缝替换外部 LLM/ACP，但不得替换 Supervisor、Harness Coordinator、Task Tool、Review/Verification Receipt、Closure Policy 或 UI 投影；
 4. Web UI 验收必须由真实 Browser/Playwright 页面操作产生结果，再由测试专用 Agent Adapter 按生产 `task_update_status` 契约提交结构化回执；
+
+### 任务工具可达性
+
+- 默认团队中只有规划角色绑定完整 `task-management`；会实现、评审、测试或收口的内置角色绑定只暴露 `task_update_status` 的 `task-status-receipt`。
+- `task_update_status` 必须同时校验当前 conversation 与当前 dispatch task，不允许代理修改已知 ID 的其他任务；`TASKS.md` 是投影与兼容入口，不是唯一状态写入能力。
+- Invocation 成功结束且任务事实从本轮 Invocation 开始后没有推进时，Supervisor 必须按该任务最新的终态 Invocation 恢复同一代理；Invocation 期间已经推进到评审等后续状态的正常完成不得被误判，更早的并行代理完成记录也不得抢占恢复目标。
+- 仅给协调者绑定任务工具会造成实现者可以产出、评审者可以给出 PASS 文本，但 Task Graph 永远无法落到 `done`；该配置视为不可交付。
 5. 首次验证失败后必须推导 `repair_verification`，不得由测试直接修改 `repair_cycle`；
 6. 在 repair verification 执行中终止服务，重启后必须依靠持久化 Action/Attempt、lease 回收和 startup reconcile 恢复，同一逻辑 Action 不得重复创建；
 7. 最终 `DeliveryBundle` 只能由生产 Closure Invariant 推导，并在 Web UI 展示逐项验收、独立评审和 Web UI E2E 证据。

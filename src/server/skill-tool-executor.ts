@@ -121,13 +121,8 @@ function executeTaskList(invocation: ToolInvocation): ToolResult {
   const agentId = invocation.input.agent_id as string | undefined;
 
   let tasks: TaskRow[];
-  if (agentId) {
-    tasks = taskRepo.getByAgent(agentId);
-  } else if (invocation.conversationId) {
-    tasks = taskRepo.getByConversation(invocation.conversationId);
-  } else {
-    tasks = taskRepo.list();
-  }
+  tasks = taskRepo.getByConversation(invocation.conversationId);
+  if (agentId) tasks = tasks.filter((task) => task.agent_id === agentId);
 
   if (status) {
     tasks = tasks.filter((t) => t.status === status);
@@ -190,6 +185,12 @@ function executeTaskUpdateStatus(invocation: ToolInvocation): ToolResult {
   const existing = taskRepo.getById(taskId);
   if (!existing) {
     return { success: false, error: `Task not found: ${taskId}` };
+  }
+  if (existing.conversation_id !== invocation.conversationId) {
+    return { success: false, error: `Task ${taskId} does not belong to the invoking conversation` };
+  }
+  if (!invocation.taskId || invocation.taskId !== taskId) {
+    return { success: false, error: `task_update_status is limited to the current dispatched task ${invocation.taskId ?? '(none)'}` };
   }
 
   const evidence = invocation.input.evidence;
@@ -258,6 +259,9 @@ function executeTaskAssign(invocation: ToolInvocation): ToolResult {
   const existing = taskRepo.getById(taskId);
   if (!existing) {
     return { success: false, error: `Task not found: ${taskId}` };
+  }
+  if (existing.conversation_id !== invocation.conversationId) {
+    return { success: false, error: `Task ${taskId} does not belong to the invoking conversation` };
   }
 
   taskRepo.update(taskId, { agent_id: targetAgentId });

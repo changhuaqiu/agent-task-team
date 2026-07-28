@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Server as IOServer } from 'socket.io';
-import { createTestDb, resetDb, setTestDb } from '../db';
+import { createTestDb, getDb, resetDb, setTestDb } from '../db';
 import type { HarnessCoordinator } from '../harness/coordinator';
 import { registerHarnessCoordinator } from '../harness/registry';
 import type { HarnessTrigger } from '../harness/types';
@@ -570,7 +570,142 @@ describe('RepositoryDeliveryFactsAdapter', () => {
     });
     const whileNextAdmissionIsActive = await new RepositoryDeliveryFactsAdapter()
       .observe(repo.getSnapshot(run.run.id)!);
-    expect(whileNextAdmissionIsActive.taskGraph).toBe('running');
     expect(whileNextAdmissionIsActive.runnableTask).toBeUndefined();
+  });
+
+  it('recovers the latest completed reviewer when its task receipt did not advance', async () => {
+    const repo = new AutonomousDeliveryRepository();
+    const run = repo.createRun(contract);
+    const task = taskRepo.create({
+      id: 'task-review-receipt-recovery',
+      conversation_id: contract.scope.conversationId,
+      title: contract.goal,
+      agent_id: 'mario',
+    });
+    taskRepo.updateStatus(task.id, 'in_review');
+    getDb().prepare('UPDATE task SET updated_at = ? WHERE id = ?')
+      .run('2020-01-01T00:00:00.000Z', task.id);
+    repo.updateRun({
+      runId: run.run.id,
+      status: 'executing',
+      stage: 'reviewing',
+      rootTaskId: task.id,
+    });
+
+    invocationRepo.create({
+      id: 'inv-implementer-completed',
+      conversation_id: contract.scope.conversationId,
+      task_id: task.id,
+      agent_id: 'luigi',
+      engine: 'codex',
+      account_id: 'account-codex',
+    });
+    invocationRepo.updateStatus('inv-implementer-completed', 'succeeded');
+    invocationRepo.create({
+      id: 'inv-reviewer-completed',
+      conversation_id: contract.scope.conversationId,
+      task_id: task.id,
+      agent_id: 'peach',
+      engine: 'claude',
+      account_id: 'account-claude',
+    });
+    invocationRepo.updateStatus('inv-reviewer-completed', 'succeeded');
+
+    const facts = await new RepositoryDeliveryFactsAdapter().observe(repo.getSnapshot(run.run.id)!);
+
+    expect(facts.runnableTask).toMatchObject({
+      taskId: task.id,
+      agentId: 'peach',
+      reasonCode: 'runnable_owned_idle',
+    });
+    expect(facts.runnableTask?.idempotencyKey).toContain('inv-reviewer-completed');
+  });
+
+  it('does not recover a completed invocation while its newer admission is active', async () => {
+    const repo = new AutonomousDeliveryRepository();
+    const run = repo.createRun(contract);
+    const task = taskRepo.create({
+      id: 'task-active-completion-recovery',
+      conversation_id: contract.scope.conversationId,
+      title: contract.goal,
+      agent_id: 'mario',
+    });
+    taskRepo.updateStatus(task.id, 'in_review');
+    getDb().prepare('UPDATE task SET updated_at = ? WHERE id = ?')
+      .run('2020-01-01T00:00:00.000Z', task.id);
+    repo.updateRun({
+      runId: run.run.id,
+      status: 'executing',
+      stage: 'reviewing',
+      rootTaskId: task.id,
+    });
+    invocationRepo.create({
+      id: 'inv-reviewer-before-active-admission',
+      conversation_id: contract.scope.conversationId,
+      task_id: task.id,
+      agent_id: 'peach',
+      engine: 'claude',
+      account_id: 'account-claude',
+    });
+    invocationRepo.updateStatus('inv-reviewer-before-active-admission', 'succeeded');
+    const admission = executionEnvelopeRepo.create({
+      source: 'system',
+      intent: 'delegate',
+      conversationId: contract.scope.conversationId,
+      taskId: task.id,
+      fromNodeId: 'delivery-supervisor',
+      toNodeId: 'daemon:local',
+      toAgentId: 'peach',
+    });
+    executionEnvelopeRepo.updateStatus(admission.id, 'acknowledged');
+    getDb().prepare('UPDATE execution_envelope SET created_at = ?, updated_at = ? WHERE id = ?')
+      .run('2030-01-01T00:00:00.000Z', '2030-01-01T00:00:00.000Z', admission.id);
+
+    const facts = await new RepositoryDeliveryFactsAdapter().observe(repo.getSnapshot(run.run.id)!);
+
+    expect(facts.runnableTask).toBeUndefined();
+  });
+
+  it('does not recover an implementer that advanced the task during its invocation', async () => {
+    const repo = new AutonomousDeliveryRepository();
+    const run = repo.createRun(contract);
+    const task = taskRepo.create({
+      id: 'task-progress-during-invocation',
+      conversation_id: contract.scope.conversationId,
+      title: contract.goal,
+      agent_id: 'mario',
+    });
+    repo.updateRun({
+      runId: run.run.id,
+      status: 'executing',
+      stage: 'reviewing',
+      rootTaskId: task.id,
+    });
+    invocationRepo.create({
+      id: 'inv-implementer-with-progress',
+      conversation_id: contract.scope.conversationId,
+      task_id: task.id,
+      agent_id: 'luigi',
+      engine: 'codex',
+      account_id: 'account-codex',
+    });
+    getDb().prepare('UPDATE invocation SET created_at = ?, updated_at = ? WHERE id = ?')
+      .run('2020-01-01T00:00:00.000Z', '2020-01-01T00:00:00.000Z', 'inv-implementer-with-progress');
+    taskRepo.updateStatus(task.id, 'in_review');
+    invocationRepo.updateStatus('inv-implementer-with-progress', 'succeeded');
+    const reviewAdmission = executionEnvelopeRepo.create({
+      source: 'review_gate',
+      intent: 'review',
+      conversationId: contract.scope.conversationId,
+      taskId: task.id,
+      fromNodeId: 'delivery-supervisor',
+      toNodeId: 'daemon:local',
+      toAgentId: 'peach',
+    });
+    executionEnvelopeRepo.updateStatus(reviewAdmission.id, 'acknowledged');
+
+    const facts = await new RepositoryDeliveryFactsAdapter().observe(repo.getSnapshot(run.run.id)!);
+
+    expect(facts.runnableTask).toBeUndefined();
   });
 });

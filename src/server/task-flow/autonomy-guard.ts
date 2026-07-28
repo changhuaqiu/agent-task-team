@@ -54,9 +54,18 @@ function hasActiveDispatch(
   envelopes: ExecutionEnvelopeRow[],
   invocations: InvocationRow[],
 ): boolean {
-  return envelopes.some((envelope) =>
-    envelope.task_id === taskId && ACTIVE_ENVELOPE_STATUSES.has(envelope.status)
-  ) || invocations.some((invocation) =>
+  return envelopes.some((envelope) => {
+    if (envelope.task_id !== taskId) return false;
+    if (ACTIVE_ENVELOPE_STATUSES.has(envelope.status)) return true;
+    if (envelope.status !== 'acknowledged') return false;
+    const admittedAt = envelope.settled_at ?? envelope.updated_at;
+    return !invocations.some((invocation) =>
+      invocation.task_id === taskId
+      && invocation.agent_id === envelope.to_agent_id
+      && TERMINAL_INVOCATION_STATUSES.has(invocation.status)
+      && (invocation.terminated_at ?? invocation.updated_at) >= admittedAt
+    );
+  }) || invocations.some((invocation) =>
     invocation.task_id === taskId && !TERMINAL_INVOCATION_STATUSES.has(invocation.status)
   );
 }

@@ -58,7 +58,7 @@ Agent 执行经 **ACP（Agent Client Protocol）单一通路**驱动（见 [`arc
 - 页面首次加载会调用 `/api/state`
 - mutation 会写入 SQLite
 - session / invocation / event 也会持续写入数据库
-- 首次初始化时（migration v2），4 个预设 skill（code-review、tdd、debugging、brainstorm）会被自动种子到数据库；migration v5 后 task-management skill 也会被种子并自动分配给 Mario
+- 首次初始化时（migration v2），4 个预设 skill（code-review、tdd、debugging、brainstorm）会被自动种子到数据库；migration v5 后 task-management skill 也会被种子。完整 task-management 只绑定规划角色；所有内置团队角色绑定窄权限 task-status-receipt，只能为当前 conversation 的当前 dispatch task 提交状态与结构化证据，而不是依赖直接编辑 TASKS.md。
 - dispatch 持久化：`pendingDispatches` 现在同步写入 SQLite invocation 表，进程崩溃后可恢复
 - dispatch 去重：同 agent+task 的追加指令会自动合并，不会创建重复 dispatch
 

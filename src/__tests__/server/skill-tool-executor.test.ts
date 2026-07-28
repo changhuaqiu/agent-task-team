@@ -36,7 +36,7 @@ describe('skill tool collaboration gates', () => {
 
   it('cannot fabricate Git-backed done with caller-provided delivery strings', async () => {
     const result = await executeSkillTool({
-      toolName: 'task_update_status', agentId: 'mario', conversationId: 'conv-git',
+      toolName: 'task_update_status', agentId: 'mario', conversationId: 'conv-git', taskId: 'TASK-GIT',
       input: {
         task_id: 'TASK-GIT', status: 'done', evidence: {
           mergedToMain: true, mainInstallResult: 'passed', mainBuildResult: 'passed',
@@ -48,6 +48,44 @@ describe('skill tool collaboration gates', () => {
     expect(result).toMatchObject({ success: false });
     expect(result.error).toContain('mergeReceipt');
     expect(taskRepo.getById('TASK-GIT')?.status).toBe('in_review');
+  });
+
+  it('limits status receipts to the current dispatched task and conversation', async () => {
+    taskRepo.create({ id: 'TASK-SIBLING', conversation_id: 'conv-git', title: 'Sibling', agent_id: 'luigi' });
+    conversationRepo.create({ id: 'conv-other', title: 'Other' });
+    taskRepo.create({ id: 'TASK-OTHER', conversation_id: 'conv-other', title: 'Other task', agent_id: 'luigi' });
+
+    const sibling = await executeSkillTool({
+      toolName: 'task_update_status', agentId: 'peach', conversationId: 'conv-git', taskId: 'TASK-GIT',
+      input: { task_id: 'TASK-SIBLING', status: 'in_progress' },
+    });
+    expect(sibling).toMatchObject({ success: false, error: expect.stringContaining('current dispatched task') });
+    expect(taskRepo.getById('TASK-SIBLING')?.status).toBe('pending');
+
+    const otherConversation = await executeSkillTool({
+      toolName: 'task_update_status', agentId: 'peach', conversationId: 'conv-git', taskId: 'TASK-OTHER',
+      input: { task_id: 'TASK-OTHER', status: 'in_progress' },
+    });
+    expect(otherConversation).toMatchObject({ success: false, error: expect.stringContaining('does not belong') });
+    expect(taskRepo.getById('TASK-OTHER')?.status).toBe('pending');
+  });
+
+  it('limits task listing and assignment to the invoking conversation', async () => {
+    conversationRepo.create({ id: 'conv-other', title: 'Other' });
+    taskRepo.create({ id: 'TASK-OTHER', conversation_id: 'conv-other', title: 'Other task', agent_id: 'luigi' });
+
+    const listed = await executeSkillTool({
+      toolName: 'task_list', agentId: 'mario', conversationId: 'conv-git', input: { agent_id: 'luigi' },
+    });
+    expect(listed.success).toBe(true);
+    expect(listed.data).toEqual([expect.objectContaining({ id: 'TASK-GIT' })]);
+
+    const assigned = await executeSkillTool({
+      toolName: 'task_assign', agentId: 'mario', conversationId: 'conv-git',
+      input: { task_id: 'TASK-OTHER', agent_id: 'peach' },
+    });
+    expect(assigned).toMatchObject({ success: false, error: expect.stringContaining('does not belong') });
+    expect(taskRepo.getById('TASK-OTHER')?.agent_id).toBe('luigi');
   });
 
   it('projects task mutations to the invocation runtime directory', async () => {
