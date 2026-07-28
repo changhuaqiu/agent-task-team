@@ -131,7 +131,7 @@ function updateManagedStatus(id: string, requestedStatus: string, reviewNote?: s
       ).run(...values);
     });
   });
-  update();
+  update.immediate();
 }
 
 export const taskRepo = {
@@ -183,7 +183,7 @@ export const taskRepo = {
         taskRepo.update(id, otherUpdates);
         updateManagedStatus(id, status, reviewNote);
       });
-      apply();
+      apply.immediate();
       return;
     }
     const sets: string[] = [];
