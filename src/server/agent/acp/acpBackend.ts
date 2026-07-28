@@ -231,6 +231,7 @@ export class AcpBackend implements AgentBackend {
     let output = '';
     let sawToolCall = false;
     let hasTextAfterLastTool = false;
+    let attemptHadVisibleActivity = false;
     let projectedChars = 0;
     let sessionId: string | undefined;
     let clientContext: acp.ClientContext | undefined;
@@ -429,6 +430,7 @@ export class AcpBackend implements AgentBackend {
 
       const event = mapTurnUpdate(notification.update);
       if (event) {
+        attemptHadVisibleActivity = true;
         if (
           event.type === 'tool_use'
           && event.tool?.callId
@@ -492,6 +494,7 @@ export class AcpBackend implements AgentBackend {
         const clientApp = acp
           .client({ name: 'agent-task-team' })
           .onRequest(acp.methods.client.session.requestPermission, async (ctx) => {
+            attemptHadVisibleActivity = true;
             markProtocolActivity();
             const response = await permissionHandler(ctx.params);
             markProtocolActivity();
@@ -564,9 +567,28 @@ export class AcpBackend implements AgentBackend {
               response.stopReason === 'end_turn'
               && (!output.trim() || (sawToolCall && !hasTextAfterLastTool))
             ) {
+              const canReplaceEmptySession = (
+                !opts.resumeSessionId
+                && !output.trim()
+                && !sawToolCall
+                && !attemptHadVisibleActivity
+              );
+              if (canReplaceEmptySession) {
+                acceptSessionUpdates = false;
+                const replacementSession = await ctx.request(acp.methods.agent.session.new, {
+                  cwd,
+                  mcpServers: this.o.mcpServers ?? [],
+                });
+                markProtocolActivity();
+                sessionId = replacementSession.sessionId;
+                acceptSessionUpdates = true;
+              }
               const recovery = await ctx.request(acp.methods.agent.session.prompt, {
                 sessionId,
-                prompt: [{ type: 'text', text: EMPTY_COMPLETION_RECOVERY_PROMPT }],
+                prompt: [{
+                  type: 'text',
+                  text: canReplaceEmptySession ? promptText : EMPTY_COMPLETION_RECOVERY_PROMPT,
+                }],
               });
               markProtocolActivity();
               if (resultResolved) return;

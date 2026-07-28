@@ -197,6 +197,86 @@ describe('AcpBackend (subprocess integration with mockAcpAgent)', () => {
     expect(contents.join('')).toBe('recovered empty turn');
   }, 30000);
 
+  it('replaces a new side-effect-free session when its first turn is empty', async () => {
+    const backend = new AcpBackend({
+      command: 'npx',
+      args: ['tsx', mockPath],
+      engine: 'opencode',
+      cwd: process.cwd(),
+      permissionPolicy: 'allow_once',
+      env: { MOCK_ACP_SCENARIO: 'fresh_session_recovery' },
+    });
+
+    const run = backend.execute('answer in a healthy session', {});
+    const contents: string[] = [];
+    for await (const event of run.events) {
+      if (event.type === 'text') contents.push(event.content);
+    }
+
+    expect(await run.result).toMatchObject({
+      status: 'completed',
+      sessionId: 'mock-2',
+      usage: {
+        default: {
+          inputTokens: 8,
+          outputTokens: 3,
+        },
+      },
+    });
+    expect(contents.join('')).toBe('recovered in replacement session');
+  }, 30000);
+
+  it('never replaces an explicitly resumed empty session', async () => {
+    const backend = new AcpBackend({
+      command: 'npx',
+      args: ['tsx', mockPath],
+      engine: 'opencode',
+      cwd: process.cwd(),
+      permissionPolicy: 'allow_once',
+      env: { MOCK_ACP_SCENARIO: 'fresh_session_recovery' },
+    });
+
+    const run = backend.execute('continue in the stable session', {
+      resumeSessionId: 'stable-session',
+    });
+    for await (const event of run.events) {
+      void event;
+    }
+
+    expect(await run.result).toMatchObject({
+      status: 'failed',
+      sessionId: 'stable-session',
+      reasonCode: 'acp_empty_completion',
+    });
+  }, 30000);
+
+  it.each(['thinking_only', 'tool_result_only'] as const)(
+    'keeps %s recovery on the original session',
+    async (scenario) => {
+      const backend = new AcpBackend({
+        command: 'npx',
+        args: ['tsx', mockPath],
+        engine: 'opencode',
+        cwd: process.cwd(),
+        permissionPolicy: 'allow_once',
+        env: { MOCK_ACP_SCENARIO: scenario },
+      });
+
+      const run = backend.execute('finish after visible activity', {});
+      const events = [];
+      for await (const event of run.events) events.push(event);
+
+      expect(await run.result).toMatchObject({
+        status: 'completed',
+        sessionId: 'mock-1',
+      });
+      expect(events.filter((event) => event.type === 'text').map((event) => event.content))
+        .toEqual(['recovered without replacing session']);
+      expect(events.every((event) => event.sessionId === 'mock-1')).toBe(true);
+    },
+    30000,
+  );
+
   it('fails generically when a no-tool turn and its recovery are both empty', async () => {
     const backend = new AcpBackend({
       command: 'npx',
