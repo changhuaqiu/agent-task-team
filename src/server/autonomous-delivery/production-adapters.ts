@@ -110,21 +110,22 @@ function executionRecovery(
   // Admission envelopes only prove that a dispatch was accepted. Prefer the
   // execution outcome, scoped to the intended agent, so a later parallel
   // reviewer completion cannot hide an implementer's failed invocation.
-  for (const invocation of [...invocations].reverse()) {
+  for (let invocationIndex = invocations.length - 1; invocationIndex >= 0; invocationIndex -= 1) {
+    const invocation = invocations[invocationIndex];
     if (!invocation.task_id || !failedInvocation(invocation)) continue;
     const task = taskById.get(invocation.task_id);
     if (!task || TERMINAL_TASK_STATUSES.has(task.status)) continue;
-    const hasNewerInvocationForAgent = invocations.some((candidate) =>
+    const hasNewerInvocationForAgent = invocations
+      .slice(invocationIndex + 1)
+      .some((candidate) =>
       candidate.task_id === invocation.task_id
       && candidate.agent_id === invocation.agent_id
-      && candidate.created_at > invocation.created_at
-    );
+      );
     if (hasNewerInvocationForAgent) continue;
 
-    const agentHistory = invocations.filter((candidate) =>
+    const agentHistory = invocations.slice(0, invocationIndex + 1).filter((candidate) =>
       candidate.task_id === invocation.task_id
       && candidate.agent_id === invocation.agent_id
-      && candidate.created_at <= invocation.created_at
     );
     const latestCompletedIndex = agentHistory.findLastIndex(completedInvocation);
     const failedAttempts = agentHistory
