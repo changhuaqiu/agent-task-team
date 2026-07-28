@@ -96,6 +96,23 @@ describe('AutonomousDeliveryRepository', () => {
       BEGIN
         SELECT RAISE(ABORT, 'delivery_run_start_idempotency_key_required');
       END;
+      CREATE TRIGGER trg_delivery_run_transition_update
+      BEFORE UPDATE OF status ON autonomous_delivery_run
+      WHEN NEW.status <> OLD.status
+        AND NOT (
+          (OLD.status = 'active' AND NEW.status IN (
+            'waiting_gate','waiting_human','retrying','completed','failed','cancelled'
+          ))
+          OR (OLD.status = 'waiting_gate'
+            AND NEW.status IN ('active','waiting_human','completed','failed','cancelled'))
+          OR (OLD.status = 'waiting_human'
+            AND NEW.status IN ('active','failed','cancelled'))
+          OR (OLD.status = 'retrying'
+            AND NEW.status IN ('active','waiting_human','failed','cancelled'))
+        )
+      BEGIN
+        SELECT RAISE(ABORT, 'invalid_delivery_run_transition');
+      END;
       CREATE TABLE autonomous_delivery_receipt (
         id TEXT PRIMARY KEY,
         run_id TEXT NOT NULL REFERENCES autonomous_delivery_run(id) ON DELETE CASCADE,
@@ -163,6 +180,20 @@ describe('AutonomousDeliveryRepository', () => {
       workerId: 'worker-after-gate',
       leaseMs: 1_000,
     })).toBeUndefined();
+    const escalated = repo.updateRun({
+      runId: first.run.id,
+      status: 'escalated',
+      stage: 'planning',
+      escalationCode: 'missing_authorization',
+    })!;
+    expect(repo.resumeEscalatedRun({
+      runId: first.run.id,
+      expectedRevision: escalated.revision,
+    })).toBeDefined();
+    expect(
+      managedDb.prepare('SELECT status FROM autonomous_delivery_run WHERE id=?')
+        .get(first.run.id),
+    ).toEqual({ status: 'active' });
   });
   it('原子 claim 同一逻辑动作且不会产生重复 attempt', () => {
     const repo = new AutonomousDeliveryRepository();

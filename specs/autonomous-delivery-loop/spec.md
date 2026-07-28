@@ -241,7 +241,7 @@ interface AutonomousDeliverySupervisor {
 `advance()` 内部隐藏状态推导、claim、lease、重试、恢复、并发控制和收口规则。调用方只表达“事实可能变化，请重新对账”。
 
 `manual_resume` 是对 `escalated` / 托管 `waiting_human` 的显式恢复授权。Supervisor
-必须先以 revision CAS 将该 Run 恢复为 `recovering` / 托管 `retrying`，清除旧的
+必须先以 revision CAS 将该 Run 恢复为 `recovering` / 托管 `active`，清除旧的
 escalation，再重新观察当前持久化事实并推导后续动作。如果重新推导命中同一幂等键的
 失败 Action，Supervisor 只重新武装该精确 Action，并按恢复策略追加新的 Attempt
 预算；不得重新武装其他历史失败 Action。普通事实通知和周期对账仍不得回退任何终态；

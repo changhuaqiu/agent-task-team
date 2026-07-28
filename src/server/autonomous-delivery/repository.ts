@@ -375,7 +375,7 @@ export class AutonomousDeliveryRepository {
     const db = deliveryDb();
     const managed = usesManagedRunLifecycle(db);
     const resumableStatus = managed ? 'waiting_human' : 'escalated';
-    const resumedStatus = managed ? 'retrying' : 'recovering';
+    const resumedStatus = managed ? 'active' : 'recovering';
     const result = db.prepare(
       `UPDATE autonomous_delivery_run
        SET status=?,
