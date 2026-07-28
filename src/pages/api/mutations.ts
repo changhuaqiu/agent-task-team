@@ -187,7 +187,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       case 'task.updateStatus': {
         const { assertTaskStatus, taskRepo } = await import('@/server/repositories/task-repo');
         const { publishTaskChangeNotification } = await import('@/server/task-flow/task-notification-publisher');
-        const { taskGateService } = await import('@/server/task-flow/task-gate-service');
+        const { taskStatusEvidencePolicy } = await import('@/server/task-flow/task-status-evidence-policy');
         const { id, status: statusValue, reviewNote, evidence, actorId, actorType } = payload as any;
         if (typeof statusValue !== 'string') {
           return res.status(400).json({ ok: false, error: 'status is required' });
@@ -197,7 +197,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         if (!previousTask) {
           return res.status(404).json({ ok: false, error: `Task not found: ${id}` });
         }
-        const gateDecision = taskGateService.evaluate({
+        const gateDecision = taskStatusEvidencePolicy.evaluate({
           task: previousTask,
           nextStatus: status,
           evidence,
@@ -690,7 +690,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
           result = task;
         } else if (toolName === 'task_update_status') {
-          const { taskGateService } = await import('@/server/task-flow/task-gate-service');
+          const { taskStatusEvidencePolicy } = await import('@/server/task-flow/task-status-evidence-policy');
           if (typeof input.status !== 'string') {
             return res.status(400).json({ ok: false, error: 'status is required' });
           }
@@ -700,7 +700,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
           if (!previousTask) {
             return res.status(404).json({ ok: false, error: `Task not found: ${input.task_id}` });
           }
-          const gateDecision = taskGateService.evaluate({
+          const gateDecision = taskStatusEvidencePolicy.evaluate({
             task: previousTask,
             nextStatus,
             evidence: input.evidence,
@@ -748,7 +748,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
           const updatedTask = taskCommandService.transition({
             conversationId: previousTask.conversation_id,
             taskId: previousTask.id,
-            expectedTaskRevision: previousTask.revision,
+            expectedTaskRevision: taskCommandService.expectedTaskRevision(
+              previousTask.id,
+              idempotencyKey,
+              previousTask.revision,
+            ),
             expectedGraphRevision: taskCommandService.expectedGraphRevision(
               previousTask.conversation_id,
               idempotencyKey,
@@ -757,6 +761,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
             actor: { type: 'agent', id: toolAgentId || 'tool-agent' },
             to: nextStatus,
           }).result.task;
+          result = updatedTask;
           if (updatedTask) {
             const { publishTaskChangeNotification } = await import('@/server/task-flow/task-notification-publisher');
             publishTaskChangeNotification({
@@ -794,7 +799,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
           const updatedTask = taskCommandService.update({
             conversationId: previousTask.conversation_id,
             taskId: previousTask.id,
-            expectedTaskRevision: previousTask.revision,
+            expectedTaskRevision: taskCommandService.expectedTaskRevision(
+              previousTask.id,
+              idempotencyKey,
+              previousTask.revision,
+            ),
             expectedGraphRevision: taskCommandService.expectedGraphRevision(
               previousTask.conversation_id,
               idempotencyKey,
@@ -803,6 +812,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
             actor: { type: 'agent', id: toolAgentId || 'tool-agent' },
             updates: { agent_id: input.agent_id },
           }).result.task;
+          result = updatedTask;
           if (updatedTask) {
             const { publishTaskChangeNotification } = await import('@/server/task-flow/task-notification-publisher');
             publishTaskChangeNotification({

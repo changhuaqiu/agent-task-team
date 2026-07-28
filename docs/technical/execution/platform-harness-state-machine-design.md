@@ -417,6 +417,12 @@ revision 尚无 Gate”后产生唯一 `requestGate` ControlAction，由 Quality
 criteria/policy 创建 Gate。相同 Gate identity 的重复请求只有内容完全一致才可幂等回放，
 criteria 或 policy 漂移必须以 `quality_gate_request_conflict` 失败关闭。
 
+WebUI、Skill 与通用 Tool 的直接 Task 状态命令只经过纯
+`TaskStatusEvidencePolicy` 做字段/receipt admission；该 Policy 不创建 Gate、不写 Proof、
+不改变 Task。命令随后由 Task owner 以稳定 idempotency key 和首次冻结的 Task/Graph revision
+精确提交或重放。真正的 code review、delivery review 与 acceptance verification 仍只由
+Control Process Manager 协调并由 QualityGate owner 持久化。
+
 该边界已由 migration 59 和 `QualityGateRepository` 落地。Task Gate 的 artifact revision
 只使用整数 `Task.revision`；Git head SHA、PR URL 与 provider review ID 是 Gate evidence，
 不得成为另一套版本轴。Provider adapter 不直接推进 Task；`gate.passed /

@@ -555,6 +555,44 @@ describe('POST /api/mutations', () => {
     )).toHaveLength(1);
   });
 
+  it('task.updateStatus replays evidence admission without creating a duplicate Gate', async () => {
+    await seedTask();
+    const { taskRepo } = await import('@/server/repositories/task-repo');
+    const { taskGraphRepo } = await import('@/server/repositories/task-graph-repo');
+    const { qualityGateRepo } = await import('@/server/quality-gate/repository');
+    taskRepo.transition('task-1', { to: 'in_progress' });
+    const body = {
+      type: 'task.updateStatus',
+      payload: {
+        id: 'task-1',
+        status: 'in_review',
+        actorId: 'agent-a',
+        actorType: 'agent',
+        idempotencyKey: 'browser-task-review-command-1',
+        evidence: {
+          installResult: 'passed',
+          buildResult: 'passed',
+          testResult: 'passed',
+          impactEvidence: 'reviewed',
+        },
+      },
+    };
+    const first = mockRes();
+    await handler(mockReq('POST', body), first);
+    const retry = mockRes();
+    await handler(mockReq('POST', body), retry);
+
+    expect(first.statusCode).toBe(200);
+    expect(retry._json).toEqual(first._json);
+    expect(taskRepo.getById('task-1')).toMatchObject({
+      status: 'in_review',
+      revision: 2,
+    });
+    expect(taskGraphRepo.listActionsForTask('task-1')
+      .filter((action) => action.type === 'task.review_requested')).toHaveLength(1);
+    expect(qualityGateRepo.listForTarget('task', 'task-1')).toEqual([]);
+  });
+
   it('task.updateStatus publishes a persisted task notification to related agents', async () => {
     await seedTask();
     const { taskRepo } = await import('@/server/repositories/task-repo');
@@ -619,14 +657,9 @@ describe('POST /api/mutations', () => {
     await handler(req, res);
 
     const { taskRepo } = await import('@/server/repositories/task-repo');
-    const { proofLogRepo } = await import('@/server/repositories/proof-log-repo');
     expect(res.statusCode).toBe(403);
     expect(res._json.error).toContain('installResult');
     expect(taskRepo.getById('task-1')!.status).toBe('ready');
-    expect(proofLogRepo.getByConversation('conv-1')).toContainEqual(expect.objectContaining({
-      event_type: 'task_graph.gate_evidence.blocked',
-      reason_code: 'task_graph.gate_evidence_required',
-    }));
     expect(to).toHaveBeenCalledWith('conv-1');
     expect(emit).toHaveBeenCalledWith('task.wakeup', expect.objectContaining({
       taskId: 'task-1',
@@ -682,6 +715,74 @@ describe('POST /api/mutations', () => {
     expect(emit).toHaveBeenCalledWith('task.wakeup', expect.objectContaining({
       projectId: 'conv-1',
     }));
+  });
+
+  it('tool.invoke task_update_status replays a lost response exactly once', async () => {
+    await seedTask();
+    const { taskRepo } = await import('@/server/repositories/task-repo');
+    const { taskGraphRepo } = await import('@/server/repositories/task-graph-repo');
+    const { qualityGateRepo } = await import('@/server/quality-gate/repository');
+    taskRepo.transition('task-1', { to: 'in_progress' });
+    const body = {
+      type: 'tool.invoke',
+      payload: {
+        toolName: 'task_update_status',
+        conversationId: 'conv-1',
+        agentId: 'agent-a',
+        input: {
+          task_id: 'task-1',
+          status: 'in_review',
+          evidence: {
+            installResult: 'passed',
+            buildResult: 'passed',
+            testResult: 'passed',
+            impactEvidence: 'reviewed',
+          },
+        },
+      },
+    };
+    const first = mockRes();
+    await handler(mockReq('POST', body), first);
+    const retry = mockRes();
+    await handler(mockReq('POST', body), retry);
+
+    expect(first.statusCode).toBe(200);
+    expect(retry._json).toEqual(first._json);
+    expect(taskRepo.getById('task-1')).toMatchObject({
+      status: 'in_review',
+      revision: 2,
+    });
+    expect(taskGraphRepo.listActionsForTask('task-1')
+      .filter((action) => action.type === 'task.review_requested')).toHaveLength(1);
+    expect(qualityGateRepo.listForTarget('task', 'task-1')).toEqual([]);
+  });
+
+  it('tool.invoke task_assign replays a lost response exactly once', async () => {
+    await seedTask();
+    const { taskRepo } = await import('@/server/repositories/task-repo');
+    const { taskGraphRepo } = await import('@/server/repositories/task-graph-repo');
+    const body = {
+      type: 'tool.invoke',
+      payload: {
+        toolName: 'task_assign',
+        conversationId: 'conv-1',
+        agentId: 'planner',
+        input: { task_id: 'task-1', agent_id: 'agent-b' },
+      },
+    };
+    const first = mockRes();
+    await handler(mockReq('POST', body), first);
+    const retry = mockRes();
+    await handler(mockReq('POST', body), retry);
+
+    expect(first.statusCode).toBe(200);
+    expect(retry._json).toEqual(first._json);
+    expect(taskRepo.getById('task-1')).toMatchObject({
+      agent_id: 'agent-b',
+      revision: 1,
+    });
+    expect(taskGraphRepo.listActionsForTask('task-1')
+      .filter((action) => action.type === 'task.claimed')).toHaveLength(1);
   });
 
   it('task.updateStatus cannot fabricate done for a Git-backed task', async () => {

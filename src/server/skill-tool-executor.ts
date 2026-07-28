@@ -10,7 +10,7 @@ import {
 import { isSkillTool } from './skill-tool-router';
 import { join } from 'node:path';
 import { proofLogRepo } from './repositories/proof-log-repo';
-import { taskGateService } from './task-flow/task-gate-service';
+import { taskStatusEvidencePolicy } from './task-flow/task-status-evidence-policy';
 import { EngineeringCollaborationService } from './engineering-collaboration/service';
 import { GhCliGitProviderVerifier } from './engineering-collaboration/github-cli-verifier';
 import type { ImplementationEvidence, MergeEvidence, ReviewEvidence } from '@/lib/engineering-collaboration/types';
@@ -210,7 +210,7 @@ function executeTaskUpdateStatus(invocation: ToolInvocation): ToolResult {
   }
 
   const evidence = invocation.input.evidence;
-  const gateDecision = taskGateService.evaluate({
+  const gateDecision = taskStatusEvidencePolicy.evaluate({
     task: existing,
     nextStatus: status,
     evidence,
@@ -227,7 +227,11 @@ function executeTaskUpdateStatus(invocation: ToolInvocation): ToolResult {
   const transitioned = taskCommandService.transition({
     conversationId: existing.conversation_id,
     taskId,
-    expectedTaskRevision: existing.revision,
+    expectedTaskRevision: taskCommandService.expectedTaskRevision(
+      taskId,
+      idempotencyKey,
+      existing.revision,
+    ),
     expectedGraphRevision: taskCommandService.expectedGraphRevision(
       existing.conversation_id,
       idempotencyKey,
@@ -269,7 +273,11 @@ function executeTaskAssign(invocation: ToolInvocation): ToolResult {
   const updated = taskCommandService.update({
     conversationId: existing.conversation_id,
     taskId,
-    expectedTaskRevision: existing.revision,
+    expectedTaskRevision: taskCommandService.expectedTaskRevision(
+      taskId,
+      idempotencyKey,
+      existing.revision,
+    ),
     expectedGraphRevision: taskCommandService.expectedGraphRevision(
       existing.conversation_id,
       idempotencyKey,

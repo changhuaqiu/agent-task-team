@@ -67,6 +67,8 @@
 - [x] Task Graph mutation 精确重放首次冻结结果，不受后续 revision 影响；
 - [x] Gate evidence/decision 与 Delivery receipt 原子提交并发布可追踪 receipt event；
 - [x] WebUI/Tool/Skill/Engineering/Control 的 Task 写入口收敛到 Task Graph owner command；
+- [x] WebUI、Skill 与 `tool.invoke` 的 Task command 统一稳定 identity 和首次冻结 revision；
+  `TaskStatusEvidencePolicy` 仅做纯 admission，不在 owner 幂等判定前创建/通过 Gate 或写 Proof；
 - [x] Task 改派同事务关闭旧 WorkAuthority，删除改为可审计 cancelled；
 - [x] ControlAction settle 与执行前均 fence 过期 lease；migration 75 固化 lease shape 和启动幂等键；
 - [x] 注入 DB 贯穿 Gate/Delivery repository，历史无快照 replay 明确 fail closed；

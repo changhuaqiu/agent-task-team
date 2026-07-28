@@ -483,4 +483,3 @@ export class QualityGateRepository {
 }
 
 export const qualityGateRepo = new QualityGateRepository();
-

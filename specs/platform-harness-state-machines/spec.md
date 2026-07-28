@@ -337,6 +337,11 @@ Delivery Control Process Manager 是 `requestGate` 的唯一协调者，QualityG
 是唯一创建 owner。相同 identity 的幂等请求必须具有完全一致的 canonical criteria/policy；
 内容漂移必须失败关闭。
 
+直接 Task 状态命令的 implementation/delivery evidence 仅由纯 admission policy 校验；
+admission 不得创建或自动通过 QualityGate，也不得在 Task owner 幂等判定前写 Proof。
+WebUI、Skill 和通用 Tool adapter 必须携带同一 command identity，并使用首次冻结的
+Task/Graph revision 精确重放。
+
 ## 10. 错误归一化
 
 至少支持：
