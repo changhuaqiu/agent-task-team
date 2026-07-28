@@ -1071,12 +1071,21 @@ describe('invocation-repo', () => {
 
   it('gets invocations by conversation', () => {
     invocationRepo.create({
-      id: 'inv-1',
+      id: 'inv-b',
       conversation_id: 'conv-1',
       agent_id: 'agent-a',
     });
+    invocationRepo.create({
+      id: 'inv-a',
+      conversation_id: 'conv-1',
+      agent_id: 'agent-a',
+    });
+    getDb().prepare(
+      'UPDATE invocation SET created_at = ? WHERE conversation_id = ?',
+    ).run('2026-07-28T00:00:00.000Z', 'conv-1');
+
     const invs = invocationRepo.getByConversation('conv-1');
-    expect(invs.length).toBe(1);
+    expect(invs.map((invocation) => invocation.id)).toEqual(['inv-a', 'inv-b']);
   });
 
   it('gets the latest invocation for a logical session', () => {

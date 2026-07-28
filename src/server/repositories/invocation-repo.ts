@@ -263,7 +263,7 @@ export const invocationRepo = {
 
   getByConversation(convId: string): InvocationRow[] {
     return getDb()
-      .prepare('SELECT * FROM invocation WHERE conversation_id = ? ORDER BY created_at ASC')
+      .prepare('SELECT * FROM invocation WHERE conversation_id = ? ORDER BY created_at ASC, id ASC')
       .all(convId) as InvocationRow[];
   },
 

@@ -5,6 +5,7 @@ import type { HarnessCoordinator } from '../harness/coordinator';
 import { registerHarnessCoordinator } from '../harness/registry';
 import type { HarnessTrigger } from '../harness/types';
 import { conversationRepo } from '../repositories/conversation-repo';
+import { executionEnvelopeRepo } from '../repositories/execution-envelope-repo';
 import { invocationRepo } from '../repositories/invocation-repo';
 import { proofLogRepo } from '../repositories/proof-log-repo';
 import { resetSeq } from '../repositories/sortable-id';
@@ -530,5 +531,46 @@ describe('RepositoryDeliveryFactsAdapter', () => {
       agentId: 'luigi',
       reasonCode: 'runnable_owned_idle',
     });
+    expect(facts.runnableTask?.idempotencyKey).toContain('inv-luigi-empty');
+
+    const rejectedRecovery = executionEnvelopeRepo.create({
+      source: 'system',
+      intent: 'delegate',
+      conversationId: contract.scope.conversationId,
+      taskId: task.id,
+      fromNodeId: 'delivery-supervisor',
+      toNodeId: 'daemon:local',
+      toAgentId: 'luigi',
+    });
+    executionEnvelopeRepo.updateStatus(
+      rejectedRecovery.id,
+      'failed',
+      'runtime_admission_rejected',
+    );
+
+    const afterRejectedAdmission = await new RepositoryDeliveryFactsAdapter()
+      .observe(repo.getSnapshot(run.run.id)!);
+    expect(afterRejectedAdmission.runnableTask).toMatchObject({
+      taskId: task.id,
+      agentId: 'luigi',
+      reasonCode: 'runnable_owned_idle',
+    });
+    expect(afterRejectedAdmission.runnableTask?.idempotencyKey).toContain(rejectedRecovery.id);
+    expect(afterRejectedAdmission.runnableTask?.idempotencyKey)
+      .not.toBe(facts.runnableTask?.idempotencyKey);
+
+    executionEnvelopeRepo.create({
+      source: 'system',
+      intent: 'delegate',
+      conversationId: contract.scope.conversationId,
+      taskId: task.id,
+      fromNodeId: 'delivery-supervisor',
+      toNodeId: 'daemon:local',
+      toAgentId: 'luigi',
+    });
+    const whileNextAdmissionIsActive = await new RepositoryDeliveryFactsAdapter()
+      .observe(repo.getSnapshot(run.run.id)!);
+    expect(whileNextAdmissionIsActive.taskGraph).toBe('running');
+    expect(whileNextAdmissionIsActive.runnableTask).toBeUndefined();
   });
 });

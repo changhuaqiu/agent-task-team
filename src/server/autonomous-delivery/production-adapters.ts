@@ -47,7 +47,7 @@ import { buildGoalTaskDescription } from './goal-task-description';
 
 const TERMINAL_TASK_STATUSES = new Set(['done', 'abandoned', 'cancelled']);
 const ACTIVE_ENVELOPE_STATUSES = new Set(['drafted', 'validated', 'queued', 'routed', 'sent', 'started']);
-const RECOVERABLE_ENVELOPE_STATUSES = new Set(['blocked', 'failed', 'expired']);
+const RECOVERABLE_ENVELOPE_STATUSES = new Set(['blocked', 'failed', 'rejected', 'expired']);
 
 function scenarioForDeliveryAction(kind: DeliveryActionKind): 'planning' | 'execution' | 'code_review' | 'verification' | 'recovery' {
   if (kind === 'request_review') return 'code_review';
@@ -122,6 +122,15 @@ function executionRecovery(
       && candidate.agent_id === invocation.agent_id
       );
     if (hasNewerInvocationForAgent) continue;
+    const newerEnvelopesForAgent = envelopes.filter((candidate) =>
+      candidate.task_id === invocation.task_id
+      && candidate.to_agent_id === invocation.agent_id
+      && candidate.created_at > invocation.created_at
+    );
+    const latestNewerEnvelope = newerEnvelopesForAgent.at(-1);
+    if (latestNewerEnvelope && ACTIVE_ENVELOPE_STATUSES.has(latestNewerEnvelope.status)) {
+      continue;
+    }
 
     const agentHistory = invocations.slice(0, invocationIndex + 1).filter((candidate) =>
       candidate.task_id === invocation.task_id
@@ -131,9 +140,13 @@ function executionRecovery(
     const failedAttempts = agentHistory
       .slice(latestCompletedIndex + 1)
       .filter((candidate) => terminalInvocation(candidate) && failedInvocation(candidate));
-    if (failedAttempts.length >= maxRecoveries) {
+    const dispatchesWithoutInvocation = newerEnvelopesForAgent.filter((candidate) =>
+      !ACTIVE_ENVELOPE_STATUSES.has(candidate.status)
+    );
+    if (failedAttempts.length + dispatchesWithoutInvocation.length >= maxRecoveries) {
       return { exhaustedTask: task };
     }
+    const recoveryFactId = latestNewerEnvelope?.id ?? invocation.id;
 
     return { wakeup: {
       conversationId: task.conversation_id,
@@ -149,7 +162,7 @@ function executionRecovery(
         taskStatus: task.status,
         ownerAgentId: invocation.agent_id,
         reasonCode: 'runnable_owned_idle',
-        idempotencyKey: `${task.conversation_id}:${task.id}:${invocation.agent_id}:recover:${invocation.id}`,
+        idempotencyKey: `${task.conversation_id}:${task.id}:${invocation.agent_id}:recover:${recoveryFactId}`,
         startsA2AHandoff: false,
         startsDispatch: true,
         reasonSummary: 'execution_dispatch_failed',
