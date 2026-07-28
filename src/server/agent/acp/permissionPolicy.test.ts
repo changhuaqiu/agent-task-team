@@ -87,4 +87,23 @@ describe('ACP permission policy', () => {
       outcome: { outcome: 'selected', optionId: 'reject' },
     });
   });
+
+  it('allows a correlated platform MCP approval when permission arrives before the tool update', async () => {
+    const approvedToolCallIds = new Set<string>();
+    const policy = createCorrelatedPlatformMcpPermissionPolicy('deny', approvedToolCallIds);
+    const platformRequest = {
+      ...request,
+      toolCall: { ...request.toolCall, toolCallId: 'racing-platform-call', title: undefined },
+      _meta: { is_mcp_tool_approval: true },
+    } as RequestPermissionRequest;
+
+    setTimeout(() => approvedToolCallIds.add('racing-platform-call'), 10);
+
+    await expect(createPermissionHandler(policy)(platformRequest)).resolves.toEqual({
+      outcome: { outcome: 'selected', optionId: 'allow-once' },
+    });
+    await expect(createPermissionHandler(policy)(platformRequest)).resolves.toEqual({
+      outcome: { outcome: 'selected', optionId: 'reject' },
+    });
+  });
 });

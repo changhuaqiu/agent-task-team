@@ -14,10 +14,19 @@ export function createCorrelatedPlatformMcpPermissionPolicy(
   basePolicy: AcpPermissionPolicy,
   approvedToolCallIds: Set<string>,
 ): AcpPermissionPolicy {
+  const consumedToolCallIds = new Set<string>();
   return async (request) => {
-    const isPlatformMcpApproval = request._meta?.is_mcp_tool_approval === true
-      && approvedToolCallIds.delete(request.toolCall.toolCallId);
-    if (isPlatformMcpApproval) return 'allow_once';
+    const toolCallId = request.toolCall.toolCallId;
+    if (request._meta?.is_mcp_tool_approval === true && !consumedToolCallIds.has(toolCallId)) {
+      const deadline = Date.now() + 250;
+      do {
+        if (approvedToolCallIds.delete(toolCallId)) {
+          consumedToolCallIds.add(toolCallId);
+          return 'allow_once';
+        }
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      } while (Date.now() < deadline);
+    }
     return typeof basePolicy === 'function' ? basePolicy(request) : basePolicy;
   };
 }
