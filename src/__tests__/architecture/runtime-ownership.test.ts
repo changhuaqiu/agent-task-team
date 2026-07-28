@@ -1,9 +1,18 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 function source(path: string): string {
   return readFileSync(resolve(process.cwd(), path), 'utf8');
+}
+
+function productionTypeScriptFiles(directory: string): string[] {
+  return readdirSync(resolve(process.cwd(), directory)).flatMap((name) => {
+    const relative = `${directory}/${name}`;
+    const absolute = resolve(process.cwd(), relative);
+    if (statSync(absolute).isDirectory()) return productionTypeScriptFiles(relative);
+    return relative.endsWith('.ts') && !relative.endsWith('.test.ts') ? [relative] : [];
+  });
 }
 
 describe('runtime ownership architecture', () => {
@@ -59,6 +68,20 @@ describe('runtime ownership architecture', () => {
       expect(writer).not.toMatch(/taskRepo\.(create|transition|update|delete)\(/);
       expect(writer).toContain('taskCommandService');
     }
+  });
+
+  it('keeps every production Task write inside an explicit Task Graph owner module', () => {
+    const allowedOwnerImplementations = new Set([
+      'src/server/repositories/task-command-service.ts',
+      'src/server/repositories/task-graph-repo.ts',
+      'src/server/task-flow/group-chat-task-flow.ts',
+    ]);
+    const directWriters = productionTypeScriptFiles('src/server')
+      .filter((path) => /taskRepo\.(create|transition|update|delete)\(/.test(source(path)));
+    expect(directWriters.sort()).toEqual([...allowedOwnerImplementations].sort());
+    expect(
+      directWriters.filter((path) => path.includes('process-manager')),
+    ).toEqual([]);
   });
 
   it('keeps WebUI notices read-only and removes the legacy Supervisor vocabulary', () => {

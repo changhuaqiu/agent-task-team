@@ -5,6 +5,10 @@ import { join, resolve } from 'node:path';
 import { readTasksMd, updateTaskInMd } from './task-file-service';
 import { canTransitionTask, taskRepo } from './repositories/task-repo';
 import type { TaskPatch, TaskStatus } from './repositories/task-repo';
+import {
+  stableTaskCommandKey,
+  taskCommandService,
+} from './repositories/task-command-service';
 import { invocationRepo } from './repositories/invocation-repo';
 import { conversationRepo } from './repositories/conversation-repo';
 import { proofLogRepo } from './repositories/proof-log-repo';
@@ -218,15 +222,31 @@ export function syncTasksToDb(
     const existing = taskRepo.getById(storageId);
     if (!existing) {
       try {
-        const created = taskRepo.create({
-          id: storageId,
-          conversation_id: conversationId,
-          title: t.title,
-          description: t.deliverable || '',
-          agent_id: t.agent || '',
-          dependencies: storageDependencies,
-          initialStatus: t.status === 'proposed' ? 'proposed' : 'ready',
+        const createKey = stableTaskCommandKey('task-file:create', {
+          conversationId,
+          storageId,
+          task: t,
+          storageDependencies,
         });
+        const created = taskCommandService.create({
+          conversationId,
+          expectedGraphRevision: taskCommandService.expectedGraphRevision(
+            conversationId,
+            createKey,
+          ),
+          idempotencyKey: createKey,
+          actor: { type: 'system', id: 'task-file-watcher' },
+          correlationId: `task-file:${conversationId}`,
+          causationId: tasksFile,
+          task: {
+            id: storageId,
+            title: t.title,
+            description: t.deliverable || '',
+            agent_id: t.agent || '',
+            dependencies: storageDependencies,
+            initialStatus: t.status === 'proposed' ? 'proposed' : 'ready',
+          },
+        }).tasks[0]!;
         if (created.status !== t.status && isProtectedGitProjectionTransition(conversationId, t.status)) {
           rejectGitProjectionTransition({
             projectPath,
@@ -238,8 +258,26 @@ export function syncTasksToDb(
             io,
           });
         } else if (created.status !== t.status) {
-          taskRepo.transition(storageId, { to: t.status });
-          const updated = taskRepo.getById(storageId);
+          const transitionKey = stableTaskCommandKey('task-file:transition', {
+            conversationId,
+            storageId,
+            expectedTaskRevision: created.revision,
+            to: t.status,
+          });
+          const updated = taskCommandService.transition({
+            conversationId,
+            taskId: storageId,
+            expectedTaskRevision: created.revision,
+            expectedGraphRevision: taskCommandService.expectedGraphRevision(
+              conversationId,
+              transitionKey,
+            ),
+            idempotencyKey: transitionKey,
+            actor: { type: 'system', id: 'task-file-watcher' },
+            correlationId: `task-file:${conversationId}`,
+            causationId: tasksFile,
+            to: t.status,
+          }).result.task;
           if (updated) {
             publishTaskChangeNotification({
               io,
@@ -313,13 +351,52 @@ export function syncTasksToDb(
     }
 
     if (changedFields.length > 0) {
+      let current = existing;
       if (Object.keys(updates).length > 0) {
-        taskRepo.update(storageId, updates);
+        const updateKey = stableTaskCommandKey('task-file:update', {
+          conversationId,
+          storageId,
+          expectedTaskRevision: current.revision,
+          updates,
+        });
+        current = taskCommandService.update({
+          conversationId,
+          taskId: storageId,
+          expectedTaskRevision: current.revision,
+          expectedGraphRevision: taskCommandService.expectedGraphRevision(
+            conversationId,
+            updateKey,
+          ),
+          idempotencyKey: updateKey,
+          actor: { type: 'system', id: 'task-file-watcher' },
+          correlationId: `task-file:${conversationId}`,
+          causationId: tasksFile,
+          updates,
+        }).result.task;
       }
       if (changedFields.includes('status')) {
-        taskRepo.transition(storageId, { to: t.status });
+        const transitionKey = stableTaskCommandKey('task-file:transition', {
+          conversationId,
+          storageId,
+          expectedTaskRevision: current.revision,
+          to: t.status,
+        });
+        current = taskCommandService.transition({
+          conversationId,
+          taskId: storageId,
+          expectedTaskRevision: current.revision,
+          expectedGraphRevision: taskCommandService.expectedGraphRevision(
+            conversationId,
+            transitionKey,
+          ),
+          idempotencyKey: transitionKey,
+          actor: { type: 'system', id: 'task-file-watcher' },
+          correlationId: `task-file:${conversationId}`,
+          causationId: tasksFile,
+          to: t.status,
+        }).result.task;
       }
-      const updated = taskRepo.getById(storageId);
+      const updated = current;
       if (updated) {
         publishTaskChangeNotification({
           io,

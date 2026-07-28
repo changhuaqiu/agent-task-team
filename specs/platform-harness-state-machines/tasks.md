@@ -31,8 +31,9 @@
 - [x] Task 收敛为 `proposed / ready / in_progress / blocked / in_review / done / cancelled`。
 - [x] Task owner 拒绝非法迁移，并用 `expectedFrom + Task.revision` 对陈旧事实进行 fencing；
   WorkContract 与 Gate artifact 统一冻结整数 revision，不再把时间戳当版本。
-- [x] API、技能工具、工程协作、Daemon、Harness outcome 和 TASKS.md 适配器全部改走
-  `taskRepo.transition`；普通更新拒绝夹带状态。
+- [x] API、技能工具、工程协作、Daemon、Harness outcome、评估运行器和 TASKS.md 适配器
+  全部改走 `TaskCommandService / TaskGraphRepository` owner command；架构测试禁止 Process
+  Manager 和其他生产调用者直接写 `taskRepo`，普通更新拒绝夹带状态。
 - [x] migration 54 归一化历史状态，并以数据库 trigger 阻止未知状态和非法规范状态跳转。
 - [x] `rejected / test_gate / abandoned / merged` 从 Task 语义中移回 Gate、Attempt 和 Task Graph。
 - [x] Task 状态切片通过 TypeScript 检查和全量 Vitest（188 files、1443 tests，1 skipped）。

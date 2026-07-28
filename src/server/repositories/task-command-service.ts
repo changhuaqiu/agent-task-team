@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { workContractRepo } from '../work-contract/repository';
 import {
   taskGraphRepo,
+  type ArtifactKind,
   type TaskActionRow,
   type TaskActionType,
   type TaskGraphCommitResult,
@@ -30,6 +31,12 @@ interface ExistingTaskCommand extends TaskCommandBase {
   expectedTaskRevision: number;
 }
 
+type TaskOutcomeType =
+  | 'submit_task_result'
+  | 'request_review'
+  | 'report_blocked'
+  | 'request_human_decision';
+
 export function stableTaskCommandKey(
   scope: string,
   value: unknown,
@@ -56,6 +63,14 @@ function actionTypeForStatus(status: TaskStatus): TaskActionType {
   if (status === 'in_review') return 'task.review_requested';
   if (status === 'done') return 'task.review_recorded';
   return 'task.status_changed';
+}
+
+function artifactKind(reference: string): ArtifactKind {
+  if (/^https?:\/\//i.test(reference)) return 'url';
+  if (/\btest|coverage|junit|vitest|playwright\b/i.test(reference)) return 'test';
+  if (/\.(?:md|mdx|docx?|pdf)$/i.test(reference)) return 'doc';
+  if (/[/\\]|\.[a-z0-9]+$/i.test(reference)) return 'file';
+  return 'proof';
 }
 
 export const taskCommandService = {
@@ -184,6 +199,89 @@ export const taskCommandService = {
           },
         });
         return { actionId: action.id, result: { task, action } };
+      },
+    });
+  },
+
+  applyOutcome(input: ExistingTaskCommand & {
+    outcomeId: string;
+    outcomeType: TaskOutcomeType;
+    agentId: string;
+    evidenceRefs: string[];
+    proofEventId: string;
+    summary?: string;
+  }): { revision: number; result: { task: TaskRow; action: TaskActionRow }; replayed: boolean } {
+    return taskGraphRepo.mutate({
+      conversationId: input.conversationId,
+      expectedRevision: input.expectedGraphRevision,
+      idempotencyKey: input.idempotencyKey,
+      operation: 'applyTaskOutcome',
+      request: {
+        taskId: input.taskId,
+        expectedTaskRevision: input.expectedTaskRevision,
+        outcomeId: input.outcomeId,
+        outcomeType: input.outcomeType,
+        agentId: input.agentId,
+        evidenceRefs: input.evidenceRefs,
+        proofEventId: input.proofEventId,
+        summary: input.summary,
+        correlationId: input.correlationId,
+        causationId: input.causationId,
+      },
+      execute: () => {
+        let task = assertOwnedTask(input);
+        if (task.status === 'ready') {
+          task = taskRepo.transition(task.id, {
+            to: 'in_progress',
+            expectedFrom: 'ready',
+            expectedRevision: task.revision,
+            correlationId: input.correlationId,
+            causationId: input.causationId,
+          })!;
+        }
+        if (task.status !== 'in_progress') {
+          throw new Error(`task_outcome_status_invalid:${task.status}`);
+        }
+
+        const requestsReview = input.outcomeType === 'submit_task_result'
+          || input.outcomeType === 'request_review';
+        const action = taskGraphRepo.appendAction({
+          conversationId: input.conversationId,
+          actorId: input.agentId,
+          actorType: 'agent',
+          type: requestsReview ? 'task.review_requested' : 'task.blocked',
+          taskIds: [task.id],
+          proofEventId: input.proofEventId,
+          payload: {
+            outcomeId: input.outcomeId,
+            outcomeType: input.outcomeType,
+            ...(requestsReview ? { evidenceRefs: input.evidenceRefs } : {}),
+            ...(input.summary ? { summary: input.summary } : {}),
+          },
+        });
+        if (requestsReview) {
+          for (const reference of input.evidenceRefs) {
+            taskGraphRepo.addArtifact({
+              conversationId: input.conversationId,
+              taskId: task.id,
+              kind: artifactKind(reference),
+              label: reference,
+              ...(/^https?:\/\//i.test(reference) ? { url: reference } : { path: reference }),
+              proofEventId: input.proofEventId,
+              createdByActionId: action.id,
+            });
+          }
+        }
+        const finalTask = taskRepo.transition(task.id, {
+          to: requestsReview ? 'in_review' : 'blocked',
+          expectedFrom: 'in_progress',
+          expectedRevision: task.revision,
+          reviewNote: input.summary ?? (requestsReview ? undefined : input.outcomeType),
+          correlationId: input.correlationId,
+          causationId: input.causationId,
+        });
+        if (!finalTask) throw new Error(`Task transition failed: ${task.id}`);
+        return { actionId: action.id, result: { task: finalTask, action } };
       },
     });
   },

@@ -265,10 +265,12 @@ WebUI message
 
 ### 5.1 Task 状态机的已落地边界
 
-所有 WebUI、通用工具、Skill Tool、Engineering receipt 与 ControlAction 对 Task 的写入都必须进入
+所有 WebUI、通用工具、Skill Tool、Engineering receipt、ControlAction、Agent Outcome、
+TASKS.md 文件投影、评估运行器与 Runtime 元数据更新对 Task 的写入，都必须进入
 `TaskCommandService / TaskGraphRepository` owner command。命令冻结 graph revision、Task revision、
 幂等键和 trace；改派 owner 时同事务关闭旧 `WorkAuthority`，物理删除被收敛为可审计的
-`cancelled` 迁移。API 与 Agent 工具不得直接调用 `taskRepo.create/transition/update/delete`。
+`cancelled` 迁移。生产调用者不得直接调用 `taskRepo.create/transition/update/delete`；
+架构测试把直接写入限定在 Task owner 实现及其原子 group-chat Task Graph mutation 内。
 
 Task owner 已采用上述七个规范状态，并通过显式 `transition` 同时校验前态、目标态与单调
 递增的 `Task.revision`。WorkContract 和 QualityGate 的 artifactRevision 都冻结该整数版本，

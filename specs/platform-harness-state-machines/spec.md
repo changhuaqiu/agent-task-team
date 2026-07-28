@@ -60,8 +60,10 @@ Task、A2A、Gate、Context、Inbox、Invocation、Delivery、Effect 各自拥�
 Process Manager 消费 Event 和 Query，不可直接改其他 owner 的表。
 
 Task 的唯一写入口是 `TaskCommandService / TaskGraphRepository` owner command。WebUI mutation、
-Agent Skill Tool、Engineering receipt 与 ControlAction 都必须携带幂等身份并冻结 graph/Task revision；
-改派同时关闭旧 WorkAuthority，删除命令落为 `cancelled`，禁止绕过 owner 直接写 `taskRepo`。
+Agent Skill Tool、Engineering receipt、ControlAction、Agent Outcome、TASKS.md 文件投影、
+评估运行器与 Runtime 元数据更新都必须携带幂等身份并冻结 graph/Task revision；
+改派同时关闭旧 WorkAuthority，删除命令落为 `cancelled`。生产代码的直接 `taskRepo` 写入
+只允许存在于 owner 实现及其原子 group-chat Task Graph mutation 内，并由架构测试锁定。
 
 ## 5. WorkContract
 

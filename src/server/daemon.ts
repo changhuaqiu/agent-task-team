@@ -36,6 +36,10 @@ import { DispatchGateway } from './control-plane/dispatch-gateway';
 import { runtimeNodeRepo } from './repositories/runtime-node-repo';
 import type { DispatchIntent, DispatchSource, RuntimeNodeKind } from './repositories/control-plane-types';
 import { taskRepo } from './repositories/task-repo';
+import {
+  stableTaskCommandKey,
+  taskCommandService,
+} from './repositories/task-command-service';
 import { conversationRepo } from './repositories/conversation-repo';
 import { taskGraphRepo } from './repositories/task-graph-repo';
 import { executionEnvelopeRepo } from './repositories/execution-envelope-repo';
@@ -1590,8 +1594,30 @@ export default function registerDaemon(io: IOServer) {
       // Runtime, task projection, watcher, and prompt share one writable fact source.
       taskProjectDir = runtimeWd;
       runtimeCompletionContextRepo.updateTaskProjectDir(invocation.id, runtimeWd);
-      if (taskId && taskRepo.getById(taskId)?.conversation_id === sessionConvId) {
-        taskRepo.update(taskId, { work_dir: taskProjectDir });
+      const taskForWorkdir = taskId ? taskRepo.getById(taskId) : undefined;
+      if (
+        taskForWorkdir?.conversation_id === sessionConvId
+        && taskForWorkdir.work_dir !== taskProjectDir
+      ) {
+        const workdirKey = stableTaskCommandKey('runtime:task-workdir', {
+          invocationId: invocation.id,
+          taskId,
+          workDir: taskProjectDir,
+        });
+        taskCommandService.update({
+          conversationId: sessionConvId,
+          taskId: taskForWorkdir.id,
+          expectedTaskRevision: taskForWorkdir.revision,
+          expectedGraphRevision: taskCommandService.expectedGraphRevision(
+            sessionConvId,
+            workdirKey,
+          ),
+          idempotencyKey: workdirKey,
+          actor: { type: 'system', id: 'runtime-daemon' },
+          correlationId: invocationTraceId,
+          causationId: invocation.id,
+          updates: { work_dir: taskProjectDir },
+        });
       }
       const projectedTasks = evaluation
         ? taskRepo.getByConversation(sessionConvId).filter((item) => item.id === taskId)
@@ -1854,7 +1880,24 @@ export default function registerDaemon(io: IOServer) {
           if (final.status === 'completed') {
             markExecutionCompleted();
             if (evaluation) {
-              if (taskId) taskRepo.transition(taskId, { to: 'done' });
+              const evaluationTask = taskId ? taskRepo.getById(taskId) : undefined;
+              if (evaluationTask) {
+                const transitionKey = `evaluation-task:done:${evaluation.executionId}`;
+                taskCommandService.transition({
+                  conversationId: sessionConvId,
+                  taskId: evaluationTask.id,
+                  expectedTaskRevision: evaluationTask.revision,
+                  expectedGraphRevision: taskCommandService.expectedGraphRevision(
+                    sessionConvId,
+                    transitionKey,
+                  ),
+                  idempotencyKey: transitionKey,
+                  actor: { type: 'system', id: 'evaluation-runtime' },
+                  correlationId: invocationTraceId,
+                  causationId: invocation.id,
+                  to: 'done',
+                });
+              }
               const submitted = agentEvaluation.submit({
                 conversationId: sessionConvId,
                 rootTaskId: taskId,
@@ -1879,8 +1922,21 @@ export default function registerDaemon(io: IOServer) {
               final.reasonCode ?? (final.status === 'timeout' ? 'timeout' : 'runtime_failed'),
             );
             if (evaluation) {
-              if (taskId) {
-                taskRepo.transition(taskId, {
+              const evaluationTask = taskId ? taskRepo.getById(taskId) : undefined;
+              if (evaluationTask) {
+                const transitionKey = `evaluation-task:blocked:${evaluation.executionId}`;
+                taskCommandService.transition({
+                  conversationId: sessionConvId,
+                  taskId: evaluationTask.id,
+                  expectedTaskRevision: evaluationTask.revision,
+                  expectedGraphRevision: taskCommandService.expectedGraphRevision(
+                    sessionConvId,
+                    transitionKey,
+                  ),
+                  idempotencyKey: transitionKey,
+                  actor: { type: 'system', id: 'evaluation-runtime' },
+                  correlationId: invocationTraceId,
+                  causationId: invocation.id,
                   to: 'blocked',
                   reviewNote: final.error ?? final.reasonCode,
                 });
@@ -1927,8 +1983,21 @@ export default function registerDaemon(io: IOServer) {
           markExecutionOrEnvelopeFailed('spawn_failed');
           if (evaluation) {
             try {
-              if (taskId) {
-                taskRepo.transition(taskId, {
+              const evaluationTask = taskId ? taskRepo.getById(taskId) : undefined;
+              if (evaluationTask) {
+                const transitionKey = `evaluation-task:spawn-failed:${evaluation.executionId}`;
+                taskCommandService.transition({
+                  conversationId: sessionConvId,
+                  taskId: evaluationTask.id,
+                  expectedTaskRevision: evaluationTask.revision,
+                  expectedGraphRevision: taskCommandService.expectedGraphRevision(
+                    sessionConvId,
+                    transitionKey,
+                  ),
+                  idempotencyKey: transitionKey,
+                  actor: { type: 'system', id: 'evaluation-runtime' },
+                  correlationId: invocationTraceId,
+                  causationId: invocation.id,
                   to: 'blocked',
                   reviewNote: (err as Error)?.message,
                 });

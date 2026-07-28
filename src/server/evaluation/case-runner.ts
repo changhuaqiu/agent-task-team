@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { InvocationCoordinator, InvocationSubmission } from '../invocation-pipeline';
 import { getDb } from '../db';
 import { taskRepo } from '../repositories/task-repo';
+import { taskCommandService } from '../repositories/task-command-service';
 import { proofLogRepo } from '../repositories/proof-log-repo';
 import { DEFAULT_RUBRIC_REVISION_ID, EVALUATOR_BUNDLE_REVISION, digest, stableJson } from './defaults';
 import {
@@ -154,16 +155,28 @@ export class EvaluationCaseRunner {
     }
     const taskId = `eval-task-${String(execution.id)}`;
     if (!taskRepo.getById(taskId)) {
-      taskRepo.create({
-        id: taskId,
-        conversation_id: String(execution.conversation_id),
-        title: `[评估] ${String(execution.case_key)} / ${String(execution.variant)}`,
-        description: casePrompt(execution),
-        agent_id: agentId,
-        artifacts: {
-          evaluationExecutionId: execution.id,
-          caseId: execution.case_id,
-          variant: execution.variant,
+      const conversationId = String(execution.conversation_id);
+      const idempotencyKey = `evaluation-task:create:${String(execution.id)}`;
+      taskCommandService.create({
+        conversationId,
+        expectedGraphRevision: taskCommandService.expectedGraphRevision(
+          conversationId,
+          idempotencyKey,
+        ),
+        idempotencyKey,
+        actor: { type: 'system', id: 'evaluation-runner' },
+        correlationId: String(execution.id),
+        causationId: String(execution.case_id),
+        task: {
+          id: taskId,
+          title: `[评估] ${String(execution.case_key)} / ${String(execution.variant)}`,
+          description: casePrompt(execution),
+          agent_id: agentId,
+          artifacts: {
+            evaluationExecutionId: execution.id,
+            caseId: execution.case_id,
+            variant: execution.variant,
+          },
         },
       });
     }
