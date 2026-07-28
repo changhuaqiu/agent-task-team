@@ -26,7 +26,9 @@ describe('ACP skill MCP grants', () => {
     });
     expect(grant.autoApproveToolNames).toEqual([
       `mcp.${grant.mcpServer.name}.task_list`,
+      `mcp__${grant.mcpServer.name}__task_list`,
       `mcp.${grant.mcpServer.name}.collaboration_record_pr`,
+      `mcp__${grant.mcpServer.name}__collaboration_record_pr`,
     ]);
     const authorization = grant.mcpServer.headers[0].value;
     const resolved = resolveAcpSkillMcpGrant(authorization)!;

@@ -64,7 +64,7 @@ describe('AcpBackend (subprocess integration with mockAcpAgent)', () => {
       cwd: process.cwd(),
       env: { MOCK_ACP_SCENARIO: 'platform_mcp_permission' },
       permissionPolicy: 'deny',
-      autoApproveMcpToolNames: ['mcp.agent-task-team.task_create'],
+      autoApproveMcpToolNames: ['mcp__agent-task-team__task_create'],
     });
     const run = backend.execute('call scoped platform MCP', {});
     for await (const event of run.events) { void event; }

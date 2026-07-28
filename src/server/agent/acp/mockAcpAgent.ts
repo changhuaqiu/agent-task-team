@@ -265,7 +265,7 @@ export function createMockAgentApp(
       }
 
       const activeToolCall = scenario === 'platform_mcp_permission'
-        ? { ...TOOL_CALL, title: 'mcp.agent-task-team.task_create' }
+        ? { ...TOOL_CALL, title: 'mcp__agent-task-team__task_create' }
         : TOOL_CALL;
 
       // 2. Tool call created (pending).
