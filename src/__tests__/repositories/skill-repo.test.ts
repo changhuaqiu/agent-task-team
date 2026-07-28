@@ -264,6 +264,8 @@ describe('seedPresetSkills', () => {
     const receipt = skillRepo.getByName('task-status-receipt');
     expect(management).toBeDefined();
     expect(receipt).toBeDefined();
+    expect(receipt!.content).toContain('mainImpactReviewResult');
+    expect(receipt!.content).toContain('reviewReceipt');
     for (const agentId of ['mario', 'luigi', 'toad', 'peach', 'dk', 'yoshi', 'planner', 'coder', 'reviewer', 'researcher', 'analyst', 'writer']) {
       expect(skillRepo.getSkillIdsForAgent(agentId)).toContain(receipt!.id);
     }
