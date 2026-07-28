@@ -459,6 +459,26 @@ describe('session-repo', () => {
     expect(sessionRepo.releaseUnconfirmedRuntimeSessionId('ses-1', 'runtime-confirmed')).toBe(false);
   });
 
+  it('does not reverse a timed-out invocation when runtime success arrives late', () => {
+    sessionRepo.create({ id: 'ses-1', conversationId: 'conv-1', agentId: 'agent-a', taskId: 'task-1' });
+    invocationRepo.create({
+      id: 'inv-1', conversation_id: 'conv-1', agent_id: 'agent-a', session_id: 'ses-1',
+    });
+    expect(invocationRepo.settleIfActive('inv-1', 'failed', {
+      exit_code: 1,
+      reason_code: 'timeout',
+    })).toBe(true);
+
+    expect(sessionRepo.confirmRuntimeSessionId('ses-1', 'runtime-late', 'inv-1')).toEqual({
+      status: 'bound', current: 'runtime-late',
+    });
+    expect(invocationRepo.getById('inv-1')).toMatchObject({
+      status: 'failed',
+      exit_code: 1,
+      reason_code: 'timeout',
+    });
+  });
+
   it('does not confirm an invocation when runtime identity mismatches', () => {
     sessionRepo.create({ id: 'ses-1', conversationId: 'conv-1', agentId: 'agent-a', taskId: 'task-1' });
     sessionRepo.bindRuntimeSessionId('ses-1', 'runtime-confirmed');
@@ -536,6 +556,22 @@ describe('invocation-repo', () => {
     expect(inv.error_message).toBe('OOM');
   });
 
+  it('settles a runtime invocation once and ignores late terminal callbacks', () => {
+    invocationRepo.create({ id: 'inv-1', conversation_id: 'conv-1', agent_id: 'agent-a' });
+    invocationRepo.updateStatus('inv-1', 'running');
+
+    expect(invocationRepo.settleIfActive('inv-1', 'succeeded', { exit_code: 0 })).toBe(true);
+    expect(invocationRepo.settleIfActive('inv-1', 'failed', {
+      exit_code: 1,
+      reason_code: 'late_failure',
+    })).toBe(false);
+    expect(invocationRepo.getById('inv-1')).toMatchObject({
+      status: 'succeeded',
+      exit_code: 0,
+      reason_code: null,
+    });
+  });
+
   it('gets invocations by agent', () => {
     invocationRepo.create({ id: 'inv-1', conversation_id: 'conv-1', agent_id: 'agent-a' });
     invocationRepo.create({ id: 'inv-2', conversation_id: 'conv-1', agent_id: 'agent-b' });
@@ -557,6 +593,26 @@ describe('invocation-repo', () => {
     const active = invocationRepo.getActive();
     expect(active.length).toBe(1);
     expect(active[0].id).toBe('inv-1');
+  });
+
+  it('settles orphaned active invocations when the daemon restarts', () => {
+    invocationRepo.create({ id: 'inv-queued', conversation_id: 'conv-1', agent_id: 'agent-a' });
+    invocationRepo.create({ id: 'inv-running', conversation_id: 'conv-1', agent_id: 'agent-a' });
+    invocationRepo.create({ id: 'inv-done', conversation_id: 'conv-1', agent_id: 'agent-a' });
+    invocationRepo.updateStatus('inv-running', 'running');
+    invocationRepo.updateStatus('inv-done', 'succeeded');
+
+    expect(invocationRepo.failActiveAfterRestart(new Date('2026-07-28T00:00:00.000Z'))).toBe(2);
+    expect(invocationRepo.getById('inv-queued')).toMatchObject({
+      status: 'failed',
+      reason_code: 'process_restarted',
+      error_message: 'daemon restarted before invocation settled',
+    });
+    expect(invocationRepo.getById('inv-running')).toMatchObject({
+      status: 'failed',
+      reason_code: 'process_restarted',
+    });
+    expect(invocationRepo.getById('inv-done')?.status).toBe('succeeded');
   });
 
   it('allows retry: failed→running', () => {

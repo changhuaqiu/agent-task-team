@@ -18,6 +18,8 @@ export type ExecutionEnvelopeStatus =
   | 'routed'
   | 'sent'
   | 'started'
+  | 'acknowledged'
+  | 'rejected'
   | 'failed'
   | 'completed'
   | 'expired';

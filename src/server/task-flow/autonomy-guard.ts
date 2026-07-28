@@ -1,4 +1,5 @@
 import type { ExecutionEnvelopeRow } from '../repositories/execution-envelope-repo';
+import type { InvocationRow } from '../repositories/invocation-repo';
 import type { TaskRow } from '../repositories/task-repo';
 import type { TaskEdgeRow } from '../repositories/task-graph-repo';
 import type { TaskWakeup } from './task-wakeup';
@@ -7,6 +8,7 @@ import type { TaskWakeupReasonCode, TaskWakeupDispatchSource } from './task-wake
 export interface ResolveAutonomyGuardWakeupsInput {
   tasks: TaskRow[];
   envelopes: ExecutionEnvelopeRow[];
+  invocations?: InvocationRow[];
   coordinatorAgentIds: string[];
   reviewAgentIds: string[];
   qaAgentIds: string[];
@@ -16,7 +18,22 @@ export interface ResolveAutonomyGuardWakeupsInput {
   staleMs?: number;
 }
 
-const TERMINAL_ENVELOPE_STATUSES = new Set(['completed', 'failed', 'blocked', 'expired']);
+const ACTIVE_ENVELOPE_STATUSES = new Set([
+  'drafted',
+  'validated',
+  'queued',
+  'routed',
+  'sent',
+  'started',
+]);
+const TERMINAL_INVOCATION_STATUSES = new Set([
+  'succeeded',
+  'failed',
+  'canceled',
+  'cancelled',
+  'timed_out',
+  'terminated',
+]);
 
 function parseDependencyIds(task: TaskRow): string[] {
   if (!task.dependencies) return [];
@@ -32,9 +49,15 @@ function dependenciesSatisfied(task: TaskRow, tasksById: Map<string, TaskRow>): 
   return parseDependencyIds(task).every((id) => tasksById.get(id)?.status === 'done');
 }
 
-function hasActiveDispatch(taskId: string, envelopes: ExecutionEnvelopeRow[]): boolean {
+function hasActiveDispatch(
+  taskId: string,
+  envelopes: ExecutionEnvelopeRow[],
+  invocations: InvocationRow[],
+): boolean {
   return envelopes.some((envelope) =>
-    envelope.task_id === taskId && !TERMINAL_ENVELOPE_STATUSES.has(envelope.status)
+    envelope.task_id === taskId && ACTIVE_ENVELOPE_STATUSES.has(envelope.status)
+  ) || invocations.some((invocation) =>
+    invocation.task_id === taskId && !TERMINAL_INVOCATION_STATUSES.has(invocation.status)
   );
 }
 
@@ -135,7 +158,7 @@ export function resolveAutonomyGuardWakeups(input: ResolveAutonomyGuardWakeupsIn
     if (closureRootIds.has(task.id)) continue;
     const updatedAt = task.updated_at ? new Date(task.updated_at).getTime() : 0;
     const isStale = updatedAt > 0 && now.getTime() - updatedAt >= staleMs;
-    const activeDispatch = hasActiveDispatch(task.id, input.envelopes);
+    const activeDispatch = hasActiveDispatch(task.id, input.envelopes, input.invocations ?? []);
 
     if (task.status === 'pending' && task.agent_id && dependenciesSatisfied(task, tasksById) && !activeDispatch) {
       pushOnce(makeWakeup({

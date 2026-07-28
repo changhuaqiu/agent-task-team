@@ -46,6 +46,15 @@ type InvocationUpdateFields = Partial<
   >
 >;
 
+const TERMINAL_INVOCATION_STATUSES = [
+  'succeeded',
+  'failed',
+  'canceled',
+  'cancelled',
+  'timed_out',
+  'terminated',
+] as const;
+
 export const invocationRepo = {
   create(input: NewInvocation): InvocationRow {
     const now = new Date().toISOString();
@@ -90,6 +99,30 @@ export const invocationRepo = {
     getDb().prepare(`UPDATE invocation SET ${sets.join(', ')} WHERE id = ?`).run(...values);
   },
 
+  settleIfActive(
+    id: string,
+    status: 'succeeded' | 'failed',
+    updates?: InvocationUpdateFields,
+  ): boolean {
+    const now = new Date().toISOString();
+    const sets: string[] = ['status = ?', 'updated_at = ?'];
+    const values: unknown[] = [status, now];
+    if (updates) {
+      for (const [key, value] of Object.entries(updates)) {
+        if (key === 'status') continue;
+        sets.push(`${key} = ?`);
+        values.push(value);
+      }
+    }
+    values.push(id, ...TERMINAL_INVOCATION_STATUSES);
+    const placeholders = TERMINAL_INVOCATION_STATUSES.map(() => '?').join(', ');
+    return getDb().prepare(`
+      UPDATE invocation
+      SET ${sets.join(', ')}
+      WHERE id = ? AND status NOT IN (${placeholders})
+    `).run(...values).changes === 1;
+  },
+
   getByAgent(agentId: string, options?: { limit?: number }): InvocationRow[] {
     const limit = options?.limit ?? 50;
     return getDb()
@@ -109,6 +142,18 @@ export const invocationRepo = {
         "SELECT * FROM invocation WHERE status NOT IN ('succeeded', 'failed', 'canceled') ORDER BY created_at ASC",
       )
       .all() as InvocationRow[];
+  },
+
+  failActiveAfterRestart(now = new Date()): number {
+    const current = now.toISOString();
+    return getDb().prepare(`
+      UPDATE invocation
+      SET status = 'failed',
+          reason_code = COALESCE(reason_code, 'process_restarted'),
+          error_message = COALESCE(error_message, 'daemon restarted before invocation settled'),
+          updated_at = ?
+      WHERE status NOT IN ('succeeded', 'failed', 'canceled', 'cancelled', 'timed_out', 'terminated')
+    `).run(current).changes;
   },
 
   listRecent(options?: { limit?: number }): InvocationRow[] {

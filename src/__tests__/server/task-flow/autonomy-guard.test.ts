@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ExecutionEnvelopeRow } from '@/server/repositories/execution-envelope-repo';
+import type { InvocationRow } from '@/server/repositories/invocation-repo';
 import type { TaskRow } from '@/server/repositories/task-repo';
 import { resolveAutonomyGuardWakeups } from '@/server/task-flow/autonomy-guard';
 import type { TaskEdgeRow } from '@/server/repositories/task-graph-repo';
@@ -45,6 +46,33 @@ function envelope(overrides: Partial<ExecutionEnvelopeRow> & Pick<ExecutionEnvel
   };
 }
 
+function invocation(
+  overrides: Partial<InvocationRow> & Pick<InvocationRow, 'id' | 'task_id' | 'status'>,
+): InvocationRow {
+  const now = '2026-05-21T00:00:00.000Z';
+  return {
+    id: overrides.id,
+    conversation_id: overrides.conversation_id ?? 'conv-1',
+    task_id: overrides.task_id,
+    agent_id: overrides.agent_id ?? 'luigi',
+    session_id: overrides.session_id ?? null,
+    status: overrides.status,
+    engine: overrides.engine ?? null,
+    account_id: overrides.account_id ?? null,
+    cli_session_id: overrides.cli_session_id ?? null,
+    prompt: overrides.prompt ?? null,
+    exit_code: overrides.exit_code ?? null,
+    reason_code: overrides.reason_code ?? null,
+    usage: overrides.usage ?? null,
+    error_message: overrides.error_message ?? null,
+    dispatch_status: overrides.dispatch_status ?? null,
+    token_usage: overrides.token_usage ?? null,
+    lease_expiry: overrides.lease_expiry ?? null,
+    created_at: overrides.created_at ?? now,
+    updated_at: overrides.updated_at ?? now,
+  };
+}
+
 describe('autonomy guard wakeups', () => {
   const subtaskEdge = (child: string, parent: string): TaskEdgeRow => ({
     id: `${child}-${parent}`,
@@ -86,6 +114,39 @@ describe('autonomy guard wakeups', () => {
     });
 
     expect(wakeups).toEqual([]);
+  });
+
+  it('uses the invocation after an upgraded envelope is acknowledged', () => {
+    const running = {
+      tasks: [task({
+        id: 'TASK-002',
+        agent_id: 'luigi',
+        status: 'in_progress',
+        updated_at: '2026-05-21T00:00:00.000Z',
+      })],
+      envelopes: [envelope({
+        task_id: 'TASK-002',
+        status: 'acknowledged',
+        settled_at: '2026-05-21T00:01:00.000Z',
+        revision: 4,
+      })],
+      coordinatorAgentIds: ['mario'],
+      reviewAgentIds: ['peach'],
+      qaAgentIds: ['yoshi'],
+      now: new Date('2026-05-21T00:31:00.000Z'),
+    };
+
+    expect(resolveAutonomyGuardWakeups({
+      ...running,
+      invocations: [invocation({ id: 'inv-1', task_id: 'TASK-002', status: 'running' })],
+    })).toEqual([]);
+    expect(resolveAutonomyGuardWakeups({
+      ...running,
+      invocations: [invocation({ id: 'inv-1', task_id: 'TASK-002', status: 'succeeded' })],
+    })).toContainEqual(expect.objectContaining({
+      taskId: 'TASK-002',
+      reasonCode: 'runnable_owned_idle',
+    }));
   });
 
   it('wakes gate owners when review and test gates become stale', () => {

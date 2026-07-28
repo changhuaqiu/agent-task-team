@@ -334,6 +334,8 @@ interface ExecutionEnvelope {
     | 'routed'
     | 'sent'
     | 'started'
+    | 'acknowledged'
+    | 'rejected'
     | 'failed'
     | 'completed'
     | 'expired';
@@ -342,6 +344,38 @@ interface ExecutionEnvelope {
   updatedAt: string;
 }
 ```
+
+### ExecutionEnvelope schema compatibility
+
+During the Platform Harness state-machine rollout, a persistent data directory may
+already expose the acknowledgement-only envelope schema while a development daemon
+is still running the compatibility control-plane code. The repository must inspect
+the actual `execution_envelope` table contract before mutating lifecycle state:
+
+- legacy tables keep the execution lifecycle
+  `drafted → routed → sent → started → completed/failed`;
+- tables with `revision` and `settled_at` use the admission lifecycle
+  `drafted → validated → routed → sent → acknowledged`;
+- legacy `blocked/failed` calls before acknowledgement map to `rejected` with a
+  reason; execution completion/failure after acknowledgement updates binding and
+  proof only and must not reopen the terminal envelope;
+- autonomy recovery treats pre-acknowledgement envelopes and non-terminal
+  Invocations as the active-dispatch facts, so `acknowledged` neither suppresses
+  recovery forever nor causes a duplicate wakeup while execution is still running;
+- daemon startup settles non-terminal Invocations left by a previous process,
+  and every bridge/backend success, runtime failure, timeout, or setup-failure
+  path settles the Invocation created by that attempt;
+- lifecycle methods report whether a transition was applied; daemon
+  `dispatch.receipt` events are emitted only for applied transitions, so late,
+  duplicate, expired, and rejected callbacks cannot become UI lifecycle truth;
+- terminal Invocation outcomes are monotonic: runtime-session confirmation and
+  other late callbacks cannot reverse a prior timeout or failure;
+- TTL expiry must populate `settled_at` and increment `revision` on the upgraded
+  schema.
+
+This is a temporary compatibility path for development servers and persisted data
+that cross the schema rollout boundary. Remove it once every supported branch uses
+the acknowledgement-only repository and daemon contract.
 
 ## Dispatch Gateway Pipeline
 

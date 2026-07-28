@@ -142,6 +142,10 @@ export class DispatchGateway {
       return this.block(envelope.id, `runtime_${targetNode.status}`);
     }
 
+    // The acknowledgement-only schema rejects the legacy drafted -> routed
+    // shortcut. The legacy schema accepts the intermediate validated state too,
+    // so this sequence is safe on both sides of the rollout boundary.
+    executionEnvelopeRepo.updateStatus(envelope.id, 'validated');
     executionEnvelopeRepo.updateStatus(envelope.id, 'routed');
     proofLogRepo.append({
       eventType: 'dispatch.routed',
@@ -157,35 +161,57 @@ export class DispatchGateway {
     return executionEnvelopeRepo.getById(envelope.id)!;
   }
 
-  markSent(envelopeId: string): void {
+  markSent(envelopeId: string): boolean {
+    const current = executionEnvelopeRepo.getById(envelopeId);
+    if (current?.status !== 'routed') return false;
     const envelope = executionEnvelopeRepo.updateStatus(envelopeId, 'sent');
-    if (!envelope) return;
+    if (!envelope || envelope.status !== 'sent') return false;
     proofLogRepo.append(this.eventFromEnvelope(envelope, 'dispatch.sent'));
+    return true;
   }
 
-  markStarted(envelopeId: string): void {
+  markStarted(envelopeId: string): boolean {
+    const current = executionEnvelopeRepo.getById(envelopeId);
+    if (current?.status !== 'sent') return false;
     const envelope = executionEnvelopeRepo.updateStatus(envelopeId, 'started');
-    if (!envelope) return;
+    if (!envelope || !['started', 'acknowledged'].includes(envelope.status)) return false;
     agentBindingRepo.markStarted(envelope.conversation_id, envelope.to_agent_id, envelope.id);
     proofLogRepo.append(this.eventFromEnvelope(envelope, 'dispatch.started'));
+    return true;
   }
 
-  markCompleted(envelopeId: string): void {
+  markCompleted(envelopeId: string): boolean {
+    const current = executionEnvelopeRepo.getById(envelopeId);
+    if (!current || !['started', 'acknowledged'].includes(current.status)) return false;
+    const binding = agentBindingRepo.get(current.conversation_id, current.to_agent_id);
+    if (binding?.active_envelope_id !== current.id) return false;
     const envelope = executionEnvelopeRepo.updateStatus(envelopeId, 'completed');
-    if (!envelope) return;
+    if (!envelope || !['completed', 'acknowledged'].includes(envelope.status)) return false;
     agentBindingRepo.markFinished(envelope.conversation_id, envelope.to_agent_id);
     proofLogRepo.append(this.eventFromEnvelope(envelope, 'dispatch.completed'));
+    return true;
   }
 
-  markFailed(envelopeId: string, reasonCode: string, bindingStatus: AgentBindingStatus = 'idle'): void {
+  markFailed(envelopeId: string, reasonCode: string, bindingStatus: AgentBindingStatus = 'idle'): boolean {
+    const current = executionEnvelopeRepo.getById(envelopeId);
+    if (!current) return false;
+    const executionActive = ['started', 'acknowledged'].includes(current.status)
+      && agentBindingRepo.get(current.conversation_id, current.to_agent_id)?.active_envelope_id === current.id;
+    const admissionActive = ['drafted', 'validated', 'queued', 'routed', 'sent'].includes(current.status);
+    if (!executionActive && !admissionActive) return false;
     const envelope = executionEnvelopeRepo.updateStatus(envelopeId, 'failed', reasonCode);
-    if (!envelope) return;
+    if (!envelope) return false;
+    const applied = executionActive
+      ? ['failed', 'acknowledged'].includes(envelope.status)
+      : ['failed', 'rejected'].includes(envelope.status);
+    if (!applied) return false;
     if (bindingStatus === 'idle') {
       agentBindingRepo.markFinished(envelope.conversation_id, envelope.to_agent_id);
     } else {
       agentBindingRepo.markError(envelope.conversation_id, envelope.to_agent_id, bindingStatus, reasonCode);
     }
     proofLogRepo.append(this.eventFromEnvelope(envelope, 'dispatch.failed', reasonCode));
+    return true;
   }
 
   private block(envelopeId: string, reasonCode: string): ExecutionEnvelopeRow {

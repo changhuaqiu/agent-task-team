@@ -171,7 +171,8 @@ export const sessionRepo = {
         .prepare(
           `UPDATE invocation
            SET status = 'succeeded', exit_code = 0, cli_session_id = ?, updated_at = ?
-           WHERE id = ?`,
+           WHERE id = ?
+             AND status NOT IN ('succeeded', 'failed', 'canceled', 'cancelled', 'timed_out', 'terminated')`,
         )
         .run(runtimeSessionId, new Date().toISOString(), invocationId);
       return binding;

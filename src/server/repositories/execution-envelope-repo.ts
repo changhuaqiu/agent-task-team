@@ -25,6 +25,8 @@ export interface ExecutionEnvelopeRow {
   nonce: string;
   status: ExecutionEnvelopeStatus;
   reason_code: string | null;
+  settled_at?: string | null;
+  revision?: number;
   expires_at: string;
   created_at: string;
   updated_at: string;
@@ -43,6 +45,96 @@ export interface CreateExecutionEnvelopeInput {
   toAgentId: string;
   payload?: ExecutionEnvelopePayload;
   ttlMs?: number;
+}
+
+const ADMISSION_ORDER = [
+  'drafted',
+  'validated',
+  'routed',
+  'sent',
+  'acknowledged',
+] as const satisfies readonly ExecutionEnvelopeStatus[];
+
+type AdmissionStatus = (typeof ADMISSION_ORDER)[number] | 'rejected' | 'expired';
+
+function usesAdmissionLifecycle(): boolean {
+  const columns = getDb()
+    .prepare('PRAGMA table_info(execution_envelope)')
+    .all() as Array<{ name: string }>;
+  const names = new Set(columns.map((column) => column.name));
+  return names.has('revision') && names.has('settled_at');
+}
+
+function normalizeAdmissionStatus(status: ExecutionEnvelopeStatus): AdmissionStatus {
+  switch (status) {
+    case 'queued':
+      return 'validated';
+    case 'started':
+    case 'completed':
+      return 'acknowledged';
+    case 'blocked':
+    case 'failed':
+      return 'rejected';
+    default:
+      return status;
+  }
+}
+
+function admissionPath(
+  from: AdmissionStatus,
+  to: AdmissionStatus,
+): AdmissionStatus[] {
+  if (from === to || ['acknowledged', 'rejected', 'expired'].includes(from)) return [];
+  if (to === 'rejected' || to === 'expired') return [to];
+
+  const fromIndex = ADMISSION_ORDER.indexOf(from as (typeof ADMISSION_ORDER)[number]);
+  const toIndex = ADMISSION_ORDER.indexOf(to as (typeof ADMISSION_ORDER)[number]);
+  if (fromIndex < 0 || toIndex <= fromIndex) return [];
+  return ADMISSION_ORDER.slice(fromIndex + 1, toIndex + 1);
+}
+
+function updateAdmissionStatus(
+  id: string,
+  status: ExecutionEnvelopeStatus,
+  reasonCode?: string,
+): ExecutionEnvelopeRow | undefined {
+  const db = getDb();
+  return db.transaction(() => {
+    let current = executionEnvelopeRepo.getById(id);
+    if (!current) return undefined;
+
+    const target = normalizeAdmissionStatus(status);
+    const path = admissionPath(
+      normalizeAdmissionStatus(current.status),
+      target,
+    );
+    for (const next of path) {
+      const now = new Date().toISOString();
+      const terminal = ['acknowledged', 'rejected', 'expired'].includes(next);
+      const nextReason = next === 'rejected'
+        ? reasonCode?.trim() || 'legacy_dispatch_rejected'
+        : next === 'expired'
+          ? reasonCode ?? null
+          : null;
+      const result = db.prepare(`
+        UPDATE execution_envelope
+        SET status = ?, reason_code = ?, settled_at = ?,
+            revision = revision + 1, updated_at = ?
+        WHERE id = ? AND status = ?
+      `).run(
+        next,
+        nextReason,
+        terminal ? now : null,
+        now,
+        id,
+        current.status,
+      );
+      if (result.changes !== 1) return executionEnvelopeRepo.getById(id);
+      current = executionEnvelopeRepo.getById(id);
+      if (!current) return undefined;
+    }
+    return current;
+  }).immediate();
 }
 
 export const executionEnvelopeRepo = {
@@ -105,6 +197,9 @@ export const executionEnvelopeRepo = {
   },
 
   updateStatus(id: string, status: ExecutionEnvelopeStatus, reasonCode?: string): ExecutionEnvelopeRow | undefined {
+    if (usesAdmissionLifecycle()) {
+      return updateAdmissionStatus(id, status, reasonCode);
+    }
     const now = new Date().toISOString();
     getDb()
       .prepare('UPDATE execution_envelope SET status = ?, reason_code = ?, updated_at = ? WHERE id = ?')
@@ -114,6 +209,18 @@ export const executionEnvelopeRepo = {
 
   expireStale(now = new Date()): number {
     const current = now.toISOString();
+    if (usesAdmissionLifecycle()) {
+      const result = getDb()
+        .prepare(
+          `UPDATE execution_envelope
+           SET status = 'expired', reason_code = 'ttl_expired',
+               settled_at = ?, revision = revision + 1, updated_at = ?
+           WHERE expires_at < ?
+             AND status NOT IN ('acknowledged', 'rejected', 'expired')`,
+        )
+        .run(current, current, current);
+      return result.changes;
+    }
     const result = getDb()
       .prepare(
         `UPDATE execution_envelope

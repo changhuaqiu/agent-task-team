@@ -212,6 +212,7 @@ function resolveOpenCodeProjectSkillPaths(projectPath?: string): string[] {
 }
 
 export default function registerDaemon(io: IOServer) {
+  invocationRepo.failActiveAfterRestart();
   startEvaluationWorker();
   const activeProcesses = new Map<string, { kill: () => void }>();
   const processKey = (agentId: string, projectId?: string) => `${agentId}@${projectId || 'default'}`;
@@ -333,6 +334,7 @@ export default function registerDaemon(io: IOServer) {
       const wakeups = resolveAutonomyGuardWakeups({
         tasks: conversationTasks,
         envelopes: executionEnvelopeRepo.listByConversation(conversationId),
+        invocations: invocationRepo.getByConversation(conversationId),
         coordinatorAgentIds: audience.coordinatorAgentIds,
         reviewAgentIds: audience.reviewGateAgentIds,
         qaAgentIds: audience.qaAgentIds,
@@ -661,6 +663,7 @@ export default function registerDaemon(io: IOServer) {
       let primaryCommand = 'unknown';
       let runtimeConfigDir: string | undefined;
       let controlEnvelopeId: string | undefined;
+      let activeInvocation: InvocationRow | undefined;
       let invocationTraceId = requestedTraceId;
       let rootObservationSpanId: string | undefined;
       let messageObservationSpanId: string | undefined;
@@ -715,21 +718,24 @@ export default function registerDaemon(io: IOServer) {
         });
       };
       const markEnvelopeStarted = () => {
-        if (!controlEnvelopeId) return;
-        dispatchGateway.markStarted(controlEnvelopeId);
-        emitDispatchReceipt('started');
+        if (!controlEnvelopeId) return false;
+        const applied = dispatchGateway.markStarted(controlEnvelopeId);
+        if (applied) emitDispatchReceipt('started');
+        return applied;
       };
       const markEnvelopeCompleted = () => {
         finishObservation('ok');
-        if (!controlEnvelopeId) return;
-        dispatchGateway.markCompleted(controlEnvelopeId);
-        emitDispatchReceipt('completed');
+        if (!controlEnvelopeId) return false;
+        const applied = dispatchGateway.markCompleted(controlEnvelopeId);
+        if (applied) emitDispatchReceipt('completed');
+        return applied;
       };
       const markEnvelopeFailed = (reasonCode: string) => {
         finishObservation(reasonCode === 'cancelled' ? 'cancelled' : 'error', reasonCode);
-        if (!controlEnvelopeId) return;
-        dispatchGateway.markFailed(controlEnvelopeId, reasonCode);
-        emitDispatchReceipt('failed', reasonCode);
+        if (!controlEnvelopeId) return false;
+        const applied = dispatchGateway.markFailed(controlEnvelopeId, reasonCode);
+        if (applied) emitDispatchReceipt('failed', reasonCode);
+        return applied;
       };
 
       const engineFromRuntime =
@@ -776,7 +782,7 @@ export default function registerDaemon(io: IOServer) {
       controlEnvelopeId = envelope.id;
       emitDispatchReceipt('requested', envelope.reason_code ?? undefined);
 
-      if (envelope.status === 'blocked') {
+      if (envelope.status === 'blocked' || envelope.status === 'rejected') {
         emitDispatchReceipt('blocked', envelope.reason_code ?? 'runtime_blocked');
         emitToRequester('agent:error', {
           agentId,
@@ -800,8 +806,7 @@ export default function registerDaemon(io: IOServer) {
         });
         return;
       }
-      dispatchGateway.markSent(controlEnvelopeId);
-      emitDispatchReceipt('sent');
+      if (dispatchGateway.markSent(controlEnvelopeId)) emitDispatchReceipt('sent');
 
       const credentialEnv = await resolveCredentialEnv(accountId);
 
@@ -844,7 +849,7 @@ export default function registerDaemon(io: IOServer) {
       }
       const agentSession: AgentSessionRow = existingSession;
 
-      const invocation: InvocationRow = invocationRepo.create({
+      const invocation: InvocationRow = activeInvocation = invocationRepo.create({
         id: generateSortableId('inv'),
         conversation_id: sessionConvId,
         task_id: taskId || '',
@@ -854,6 +859,10 @@ export default function registerDaemon(io: IOServer) {
         account_id: accountId,
         prompt: prompt || '',
       });
+      const settleInvocation = (
+        status: 'succeeded' | 'failed',
+        updates: Parameters<typeof invocationRepo.updateStatus>[2] = {},
+      ): boolean => invocationRepo.settleIfActive(invocation.id, status, updates);
 
       const ensureMessageObservationSpan = () => {
         if (messageObservationSpanId || !invocationTraceId || !rootObservationSpanId) return messageObservationSpanId;
@@ -1144,6 +1153,11 @@ export default function registerDaemon(io: IOServer) {
           const active = activeProcesses.get(processKey(agentId, projectId));
           if (active) {
             active.kill();
+            settleInvocation('failed', {
+              exit_code: 1,
+              reason_code: 'timeout',
+              error_message: 'CLI response timed out',
+            });
             markEnvelopeFailed('timeout');
             broadcast('agent:error', {
               agentId,
@@ -1571,6 +1585,11 @@ export default function registerDaemon(io: IOServer) {
               reasonCode: 'spawn_failed' as const,
             });
             // 失败不 seal session（保持 active，下次 @ resume，id 不变）—— specs/agent-session-stability
+            settleInvocation('failed', {
+              exit_code: 127,
+              reason_code: 'spawn_failed',
+              error_message: `Bridge request failed with HTTP ${r.status}`,
+            });
             markEnvelopeFailed('spawn_failed');
             broadcast('terminal:exit', { agentId, code: 127, command: 'bridge', reasonCode: 'spawn_failed' });
             agentResponseBuffer.delete(responseBufferKey);
@@ -1616,6 +1635,7 @@ export default function registerDaemon(io: IOServer) {
           completeAgentA2A(parsedAgentText ? undefined : rawTextFallback.join('\n'));
           clearProcessTimeout();
           clearInterval(heartbeatTimer);
+          settleInvocation('succeeded', { exit_code: 0 });
           markEnvelopeCompleted();
           // Don't seal on successful completion — session stays active for --resume reuse
           broadcast('terminal:exit', {
@@ -1639,6 +1659,11 @@ export default function registerDaemon(io: IOServer) {
             reasonCode: 'spawn_failed' as const,
           });
           // 失败不 seal session（保持 active，下次 @ resume，id 不变）—— specs/agent-session-stability
+          settleInvocation('failed', {
+            exit_code: 127,
+            reason_code: 'spawn_failed',
+            error_message: msg,
+          });
           markEnvelopeFailed('spawn_failed');
           broadcast('terminal:exit', { agentId, code: 127, command: 'bridge', reasonCode: 'spawn_failed' });
           agentResponseBuffer.delete(responseBufferKey);
@@ -1996,8 +2021,9 @@ export default function registerDaemon(io: IOServer) {
               );
             }
             announceConfirmedSession(finalRuntimeSessionId);
+            settleInvocation('succeeded', { exit_code: 0 });
           } else {
-            invocationRepo.updateStatus(invocation.id, 'failed', {
+            settleInvocation('failed', {
               exit_code: 1,
               reason_code: final.reasonCode ?? (final.status === 'timeout' ? 'timeout' : undefined),
               ...(final.error ? { error_message: final.error } : {}),
@@ -2077,6 +2103,11 @@ export default function registerDaemon(io: IOServer) {
           clearInterval(heartbeatTimer);
           console.error(`[daemon][${agentId}] backend error:`, err);
           finishMessageObservation('error', undefined, undefined, (err as Error)?.message || 'spawn_failed');
+          settleInvocation('failed', {
+            exit_code: 1,
+            reason_code: 'spawn_failed',
+            error_message: (err as Error)?.message || 'backend execution failed',
+          });
           // 失败不 seal session（保持 active，下次 @ resume，id 不变）—— specs/agent-session-stability
           markEnvelopeFailed('spawn_failed');
           if (evaluation) {
@@ -2107,6 +2138,12 @@ export default function registerDaemon(io: IOServer) {
       })();
       } catch (err) {
         console.error(`[daemon] terminal:start error for agent=${agentId}:`, err);
+        if (activeInvocation) {
+          invocationRepo.settleIfActive(activeInvocation.id, 'failed', {
+            reason_code: 'internal_error',
+            error_message: (err as Error)?.message || 'terminal setup failed',
+          });
+        }
         finishObservation('error', 'internal_error');
         if (evaluation) {
           try {
@@ -2127,20 +2164,21 @@ export default function registerDaemon(io: IOServer) {
           }
         }
         if (controlEnvelopeId) {
-          dispatchGateway.markFailed(controlEnvelopeId, 'internal_error');
-          const receiptConversationId = conversationId || projectId || 'default';
-          io.to(receiptConversationId).emit('dispatch.receipt', {
-            receiptId: `${controlEnvelopeId}:failed`,
-            conversationId: receiptConversationId,
-            taskId,
-            targetAgentId: agentId,
-            source: dispatchSource ?? 'user',
-            phase: 'failed',
-            chainId,
-            passId,
-            reasonCode: 'internal_error',
-            createdAt: new Date().toISOString(),
-          });
+          if (dispatchGateway.markFailed(controlEnvelopeId, 'internal_error')) {
+            const receiptConversationId = conversationId || projectId || 'default';
+            io.to(receiptConversationId).emit('dispatch.receipt', {
+              receiptId: `${controlEnvelopeId}:failed`,
+              conversationId: receiptConversationId,
+              taskId,
+              targetAgentId: agentId,
+              source: dispatchSource ?? 'user',
+              phase: 'failed',
+              chainId,
+              passId,
+              reasonCode: 'internal_error',
+              createdAt: new Date().toISOString(),
+            });
+          }
         }
         broadcast('agent:error', { agentId, message: `内部错误：${(err as Error)?.message || '未知'}` });
         broadcast('terminal:exit', { agentId, code: 1, command: primaryCommand, reasonCode: 'internal_error' });
