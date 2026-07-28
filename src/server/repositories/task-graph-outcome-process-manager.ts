@@ -1,4 +1,3 @@
-import type Database from 'better-sqlite3';
 import { getDb } from '../db';
 import type { PlatformEventHandler } from '../platform-events/dispatcher';
 import type { AgentOutcomeRow, WorkContractRow } from '../work-contract/types';
@@ -81,12 +80,10 @@ function parseOutcome(payloadJson: string): {
 }
 
 export class TaskGraphOutcomeProcessManager {
-  constructor(private readonly database?: Database.Database) {}
-
   readonly handle: PlatformEventHandler = (event, { signal }) => {
     if (event.type !== 'agent.outcome.accepted') return;
     if (signal.aborted) throw signal.reason ?? new Error('task_graph_outcome_aborted');
-    const db = this.database ?? getDb();
+    const db = getDb();
     const outcome = db.prepare(`
       SELECT * FROM agent_outcome
       WHERE id=? AND admission_status='accepted' AND outcome_type='propose_task_graph'

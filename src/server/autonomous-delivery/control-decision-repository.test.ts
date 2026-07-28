@@ -258,12 +258,22 @@ describe('ControlDecisionRepository', () => {
       now: new Date('2026-07-28T00:00:01.000Z'),
     });
     const expiredAt = new Date('2026-07-28T00:00:03.000Z');
+    let domainWrites = 0;
 
     expect(store.isClaimActive({
       actionId: action.id,
       claimToken: claimed.claim_token!,
       now: expiredAt,
     })).toBe(false);
+    expect(store.runClaimed({
+      actionId: action.id,
+      claimToken: claimed.claim_token!,
+      now: expiredAt,
+    }, () => {
+      domainWrites += 1;
+      return 'written';
+    })).toEqual({ executed: false });
+    expect(domainWrites).toBe(0);
     expect(store.complete({
       actionId: action.id,
       claimToken: claimed.claim_token!,
@@ -277,6 +287,29 @@ describe('ControlDecisionRepository', () => {
     })).toBe(false);
     expect(store.listActions(computed.decisionId)[0]?.status).toBe('claimed');
     expect(store.recoverExpired(expiredAt)).toBe(1);
+    const replacement = store.claim({
+      actionId: action.id,
+      workerId: 'replacement-worker',
+      leaseMs: 10_000,
+      now: expiredAt,
+    });
+    expect(store.runClaimed({
+      actionId: action.id,
+      claimToken: claimed.claim_token!,
+      now: expiredAt,
+    }, () => {
+      domainWrites += 1;
+      return 'stale';
+    })).toEqual({ executed: false });
+    expect(store.runClaimed({
+      actionId: action.id,
+      claimToken: replacement.claim_token!,
+      now: expiredAt,
+    }, () => {
+      domainWrites += 1;
+      return 'replacement';
+    })).toEqual({ executed: true, result: 'replacement' });
+    expect(domainWrites).toBe(1);
   });
 
   it('requeues command failures until max attempts then emits one authoritative failure fact', () => {

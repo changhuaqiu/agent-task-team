@@ -267,6 +267,40 @@ export class WorkContractRepository {
       .get(workId) as WorkAuthorityRow | undefined;
   }
 
+  listActiveAuthoritiesForTask(projectId: string, taskId: string): WorkAuthorityRow[] {
+    return getDb().prepare(`
+      SELECT authority.*
+      FROM work_authority authority
+      JOIN work_contract contract
+        ON contract.id=authority.current_contract_id
+      WHERE authority.project_id=?
+        AND authority.status='active'
+        AND contract.task_id=?
+      ORDER BY authority.work_id
+    `).all(projectId, taskId) as WorkAuthorityRow[];
+  }
+
+  closeActiveForTask(input: {
+    projectId: string;
+    taskId: string;
+    correlationId: string;
+    causationId: string;
+    now?: Date;
+  }): WorkAuthorityRow[] {
+    const timestamp = input.now ?? new Date();
+    const db = getDb();
+    return db.transaction(() => this.listActiveAuthoritiesForTask(
+      input.projectId,
+      input.taskId,
+    ).map((authority) => this.close({
+      workId: authority.work_id,
+      expectedEpoch: authority.current_epoch,
+      correlationId: input.correlationId,
+      causationId: input.causationId,
+      now: timestamp,
+    }))).immediate();
+  }
+
   close(input: {
     workId: string;
     expectedEpoch: number;

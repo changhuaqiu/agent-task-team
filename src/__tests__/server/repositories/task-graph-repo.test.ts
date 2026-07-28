@@ -465,33 +465,6 @@ describe('taskGraphRepo actions and graph view', () => {
 });
 
 describe('taskGraphRepo handoffs, artifacts, and chat bindings', () => {
-  it('keeps owner unchanged until handoff is accepted', () => {
-    createTask('task-ui', 'Chat UI', 'ux');
-
-    taskGraphRepo.recordHandoffRequested({
-      conversationId: 'conv-1',
-      taskId: 'task-ui',
-      fromAgentId: 'ux',
-      toAgentId: 'frontend',
-      passId: 'pass-1',
-      requestedAction: 'Implement the task capsule UI.',
-    });
-
-    expect(taskRepo.getById('task-ui')!.agent_id).toBe('ux');
-
-    const accepted = taskGraphRepo.recordHandoffAccepted({
-      conversationId: 'conv-1',
-      taskId: 'task-ui',
-      fromAgentId: 'ux',
-      toAgentId: 'frontend',
-      passId: 'pass-1',
-    });
-
-    expect(accepted.type).toBe('task.handoff_accepted');
-    expect(taskRepo.getById('task-ui')!.agent_id).toBe('frontend');
-    expect(taskRepo.getById('task-ui')!.status).toBe('in_progress');
-  });
-
   it('links chat messages, actions, and artifacts without changing task facts', () => {
     createTask('task-ui', 'Chat UI', 'frontend');
     const messageId = messageRepo.append({

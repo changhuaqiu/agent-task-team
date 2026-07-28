@@ -24,7 +24,7 @@ export interface ControlCommandPort {
       snapshot: DeliveryControlSnapshot;
       claimToken: string;
     },
-  ): Promise<ControlCommandResult>;
+  ): ControlCommandResult;
 }
 
 export interface DeliveryControlProcessManagerOptions {
@@ -83,18 +83,17 @@ export class DeliveryControlProcessManager {
         throw new Error(`Claimed ControlAction is missing from decision: ${claim.id}`);
       }
       try {
-        if (!this.decisions.isClaimActive({
+        const execution = this.decisions.runClaimed({
           actionId: claim.id,
           claimToken: claim.claim_token,
           now: this.now(),
-        })) {
-          continue;
-        }
-        const result = await this.options.commands.execute(action, {
+        }, () => this.options.commands.execute(action, {
           decision,
           snapshot,
-          claimToken: claim.claim_token,
-        });
+          claimToken: claim.claim_token!,
+        }));
+        if (!execution.executed) continue;
+        const result = execution.result;
         if (result.status === 'applied') {
           if (!this.decisions.complete({
             actionId: claim.id,

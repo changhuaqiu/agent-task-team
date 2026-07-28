@@ -14,6 +14,7 @@ import type { MergeReceipt, PullRequestReceipt, ReviewReceipt } from '@/lib/engi
 import { PlatformEventLog } from '@/server/platform-events/event-log';
 import { qualityGateRepo } from '@/server/quality-gate/repository';
 import { TaskGateLifecycleProcessManager } from '@/server/repositories/task-gate-lifecycle-process-manager';
+import { resolveTaskNotificationAudience } from '@/server/task-flow/task-notification-publisher';
 
 const pullRequest: PullRequestReceipt = {
   provider: 'github', repository: 'acme/widget', number: 42, title: 'Fix checkout',
@@ -75,6 +76,38 @@ function applyLatestTaskGateDecision(actorAgentId = 'peach'): void {
   );
 }
 
+function requestCurrentTaskReviewGate(): void {
+  const task = taskRepo.getById('TASK-PR')!;
+  const pullRequestAction = taskGraphRepo.listActionsForTask(task.id)
+    .filter((action) => action.type === 'task.pull_request_submitted')
+    .at(-1)!;
+  const payload = JSON.parse(pullRequestAction.payload) as {
+    receipt: PullRequestReceipt;
+    artifactRevision: string;
+  };
+  const audience = resolveTaskNotificationAudience(task.conversation_id);
+  qualityGateRepo.request({
+    conversationId: task.conversation_id,
+    kind: 'code_review',
+    targetType: 'task',
+    targetId: task.id,
+    artifactRevision: payload.artifactRevision,
+    criteria: {
+      providerReviewRequired: true,
+      qualityDecision: 'pass',
+      maxBlockerCount: 0,
+      providerHeadSha: payload.receipt.headSha,
+    },
+    policy: {
+      source: 'delivery_control_process_manager',
+      prohibitSelfReview: true,
+      implementerId: task.agent_id,
+      authorizedEvaluatorIds: audience.reviewGateAgentIds,
+    },
+    actor: { type: 'system', id: 'delivery-control-process-manager' },
+  });
+}
+
 describe('EngineeringCollaborationService', () => {
   it('records a provider-verified PR as task action, artifact, card, proof and review transition', async () => {
     const service = new EngineeringCollaborationService(verifier());
@@ -102,20 +135,11 @@ describe('EngineeringCollaborationService', () => {
       kind: 'pull_request', taskId: 'TASK-PR', receipt: { headSha: pullRequest.headSha },
     } });
     expect(proofLogRepo.findByType({ eventType: 'engineering.pull_request.verified', conversationId: 'conv-pr-loop', taskId: 'TASK-PR' })).toHaveLength(1);
-    const submitted = new PlatformEventLog().listByProjectAgent('conv-pr-loop', 'luigi')
-      .find((event) => event.type === 'gate.requested')!;
-    expect(submitted.actor).toEqual({ type: 'agent', id: 'luigi' });
-    expect(submitted.payload).toMatchObject({
-      kind: 'code_review',
-      targetId: 'TASK-PR',
-      artifactRevision: String(taskRepo.getById('TASK-PR')!.revision),
-    });
     expect(new PlatformEventLog().listTrace('goal-trace-engineering').map((event) => event.type))
-      .toEqual(expect.arrayContaining(['task.in_review', 'gate.requested']));
-    expect(submitted).toMatchObject({
-      correlationId: 'goal-trace-engineering',
-      causationId: 'agent-outcome-pr',
-    });
+      .toContain('task.in_review');
+    expect(new PlatformEventLog().listByProjectAgent('conv-pr-loop', 'luigi')
+      .some((event) => event.type === 'gate.requested')).toBe(false);
+    expect(qualityGateRepo.listForTarget('task', 'TASK-PR')).toHaveLength(0);
   });
 
   it('rejects PR submission from an agent that does not own the task', async () => {
@@ -132,6 +156,7 @@ describe('EngineeringCollaborationService', () => {
       taskId: 'TASK-PR', actorAgentId: 'luigi', pullRequestUrl: pullRequest.url,
       evidence: { installResult: 'ok', buildResult: 'ok', testResult: 'ok', impactEvidence: 'ok' },
     });
+    requestCurrentTaskReviewGate();
 
     const result = await service.recordReview({
       taskId: 'TASK-PR', actorAgentId: 'peach', pullRequestUrl: pullRequest.url, reviewUrl: review.reviewUrl,
@@ -168,6 +193,7 @@ describe('EngineeringCollaborationService', () => {
       taskId: 'TASK-PR', actorAgentId: 'luigi', pullRequestUrl: pullRequest.url,
       evidence: { installResult: 'ok', buildResult: 'ok', testResult: 'ok', impactEvidence: 'ok' },
     });
+    requestCurrentTaskReviewGate();
 
     await expect(service.recordReview({
       taskId: 'TASK-PR', actorAgentId: 'peach', pullRequestUrl: pullRequest.url, reviewUrl: staleReview.reviewUrl,
@@ -205,6 +231,7 @@ describe('EngineeringCollaborationService', () => {
       taskId: 'TASK-PR', actorAgentId: 'luigi', pullRequestUrl: pullRequest.url,
       evidence: { installResult: 'ok', buildResult: 'ok', testResult: 'ok', impactEvidence: 'ok' },
     });
+    requestCurrentTaskReviewGate();
     await service.recordReview({
       taskId: 'TASK-PR', actorAgentId: 'peach', pullRequestUrl: pullRequest.url, reviewUrl: review.reviewUrl,
       evidence: { testResult: 'failed', blockerCount: 1, summary: 'Fix it', qualityDecision: 'reject' },
@@ -255,6 +282,7 @@ describe('EngineeringCollaborationService', () => {
       taskId: 'TASK-PR', actorAgentId: 'luigi', pullRequestUrl: pullRequest.url,
       evidence: { installResult: 'ok', buildResult: 'ok', testResult: 'ok', impactEvidence: 'ok' },
     });
+    requestCurrentTaskReviewGate();
     await service.recordReview({
       taskId: 'TASK-PR', actorAgentId: 'peach', pullRequestUrl: pullRequest.url, reviewUrl: review.reviewUrl,
       evidence: { testResult: 'failed', blockerCount: 1, summary: 'Fix it', qualityDecision: 'reject' },
@@ -285,6 +313,7 @@ describe('EngineeringCollaborationService', () => {
       taskId: 'TASK-PR', actorAgentId: 'luigi', pullRequestUrl: pullRequest.url,
       evidence: { installResult: 'ok', buildResult: 'ok', testResult: 'ok', impactEvidence: 'ok' },
     });
+    requestCurrentTaskReviewGate();
     await service.recordReview({
       taskId: 'TASK-PR', actorAgentId: 'peach', pullRequestUrl: pullRequest.url, reviewUrl: review.reviewUrl,
       evidence: { testResult: 'failed', blockerCount: 1, summary: 'Fix it', qualityDecision: 'reject' },
@@ -303,7 +332,6 @@ describe('EngineeringCollaborationService', () => {
       .filter((gate) => gate.kind === 'code_review');
     expect(gates).toMatchObject([
       { status: 'changes_requested', artifact_revision: '2' },
-      { status: 'requested', artifact_revision: '4' },
     ]);
     const cards = messageRepo.getByConversation('conv-pr-loop')
       .map((message) => message.metadata ? JSON.parse(message.metadata).collaborationCard : undefined)
@@ -313,7 +341,7 @@ describe('EngineeringCollaborationService', () => {
     ]));
   });
 
-  it('cancels an open Gate before a new provider head creates a new Task revision Gate', async () => {
+  it('cancels an open Gate when a new provider head supersedes its Task revision', async () => {
     const service = new EngineeringCollaborationService(verifier());
     await service.recordPullRequest({
       taskId: 'TASK-PR',
@@ -326,6 +354,7 @@ describe('EngineeringCollaborationService', () => {
         impactEvidence: 'ok',
       },
     });
+    requestCurrentTaskReviewGate();
     const nextPullRequest = { ...pullRequest, headSha: 'b'.repeat(40) };
     await new EngineeringCollaborationService(verifier({
       getPullRequest: vi.fn(async () => nextPullRequest),
@@ -344,7 +373,6 @@ describe('EngineeringCollaborationService', () => {
     expect(qualityGateRepo.listForTarget('task', 'TASK-PR')
       .filter((gate) => gate.kind === 'code_review')).toMatchObject([
       { status: 'cancelled', artifact_revision: '2' },
-      { status: 'requested', artifact_revision: '4' },
     ]);
   });
 
@@ -355,6 +383,7 @@ describe('EngineeringCollaborationService', () => {
       taskId: 'TASK-PR', actorAgentId: 'luigi', pullRequestUrl: pullRequest.url,
       evidence: { installResult: 'ok', buildResult: 'ok', testResult: 'ok', impactEvidence: 'ok' },
     });
+    requestCurrentTaskReviewGate();
     await service.recordReview({
       taskId: 'TASK-PR', actorAgentId: 'peach', pullRequestUrl: pullRequest.url, reviewUrl: review.reviewUrl,
       evidence: { testResult: 'passed', blockerCount: 0, summary: 'Approved', qualityDecision: 'pass' },
@@ -392,6 +421,7 @@ describe('EngineeringCollaborationService', () => {
       taskId: 'TASK-PR', actorAgentId: 'luigi', pullRequestUrl: pullRequest.url,
       evidence: { installResult: 'ok', buildResult: 'ok', testResult: 'ok', impactEvidence: 'ok' },
     });
+    requestCurrentTaskReviewGate();
     await service.recordReview({
       taskId: 'TASK-PR', actorAgentId: 'peach', pullRequestUrl: pullRequest.url, reviewUrl: review.reviewUrl,
       evidence: { testResult: 'not a decision', blockerCount: 0, summary: 'Evidence only', qualityDecision: 'comment' },

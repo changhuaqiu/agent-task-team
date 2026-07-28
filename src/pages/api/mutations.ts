@@ -246,7 +246,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         const task = taskCommandService.transition({
           conversationId: previousTask.conversation_id,
           taskId: id,
-          expectedTaskRevision: previousTask.revision,
+          expectedTaskRevision: taskCommandService.expectedTaskRevision(
+            id,
+            idempotencyKey,
+            previousTask.revision,
+          ),
           expectedGraphRevision: taskCommandService.expectedGraphRevision(
             previousTask.conversation_id,
             idempotencyKey,
@@ -275,7 +279,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       case 'task.update': {
         const { taskRepo } = await import('@/server/repositories/task-repo');
         const { publishTaskChangeNotification } = await import('@/server/task-flow/task-notification-publisher');
-        const { id, actorId, actorType, agentId, dependencies, artifacts, status, ...updates } = payload as any;
+        const {
+          id,
+          actorId,
+          actorType,
+          agentId,
+          dependencies,
+          artifacts,
+          status,
+          idempotencyKey: requestedIdempotencyKey,
+          ...updates
+        } = payload as any;
         if (status !== undefined) {
           return res.status(400).json({
             ok: false,
@@ -287,20 +301,49 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         const normalizedUpdates = {
           ...updates,
           ...(agentId !== undefined ? { agent_id: agentId } : {}),
-          ...(dependencies !== undefined ? { dependencies: Array.isArray(dependencies) ? JSON.stringify(dependencies) : dependencies } : {}),
           ...(artifacts !== undefined ? { artifacts: typeof artifacts === 'string' ? artifacts : JSON.stringify(artifacts) } : {}),
         };
         if (!previousTask) {
           return res.status(404).json({ ok: false, error: `Task not found: ${id}` });
         }
         const { stableTaskCommandKey, taskCommandService } = await import('@/server/repositories/task-command-service');
-        const idempotencyKey = typeof (payload as Record<string, unknown>).idempotencyKey === 'string'
-          ? String((payload as Record<string, unknown>).idempotencyKey)
+        const idempotencyKey = typeof requestedIdempotencyKey === 'string'
+          ? requestedIdempotencyKey
           : stableTaskCommandKey('mutation-api:task.update', payload);
-        const task = taskCommandService.update({
+        let dependencyTaskIds: string[] | undefined;
+        if (dependencies !== undefined) {
+          let candidate: unknown = dependencies;
+          if (typeof candidate === 'string') {
+            try {
+              candidate = JSON.parse(candidate);
+            } catch {
+              return res.status(400).json({
+                ok: false,
+                error: 'Task dependencies must be a JSON array of task IDs',
+                reasonCode: 'task_dependencies_invalid',
+              });
+            }
+          }
+          if (
+            !Array.isArray(candidate)
+            || candidate.some((dependency) => typeof dependency !== 'string')
+          ) {
+            return res.status(400).json({
+              ok: false,
+              error: 'Task dependencies must be an array of task IDs',
+              reasonCode: 'task_dependencies_invalid',
+            });
+          }
+          dependencyTaskIds = candidate;
+        }
+        const commandInput = {
           conversationId: previousTask.conversation_id,
           taskId: id,
-          expectedTaskRevision: previousTask.revision,
+          expectedTaskRevision: taskCommandService.expectedTaskRevision(
+            id,
+            idempotencyKey,
+            previousTask.revision,
+          ),
           expectedGraphRevision: taskCommandService.expectedGraphRevision(
             previousTask.conversation_id,
             idempotencyKey,
@@ -310,8 +353,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
             type: actorType === 'user' || actorType === 'agent' ? actorType : 'system',
             id: typeof actorId === 'string' && actorId ? actorId : 'mutation-api',
           },
-          updates: normalizedUpdates,
-        }).result.task;
+        };
+        const task = dependencyTaskIds === undefined
+          ? taskCommandService.update({
+              ...commandInput,
+              updates: normalizedUpdates,
+            }).result.task
+          : taskCommandService.replaceDependencies({
+              ...commandInput,
+              dependencyTaskIds,
+              updates: normalizedUpdates,
+            }).result.task;
         if (task) {
           publishTaskChangeNotification({
             io: (res.socket as any)?.server?.io,
@@ -336,7 +388,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         result = taskCommandService.transition({
           conversationId: task.conversation_id,
           taskId: task.id,
-          expectedTaskRevision: task.revision,
+          expectedTaskRevision: taskCommandService.expectedTaskRevision(
+            task.id,
+            idempotencyKey,
+            task.revision,
+          ),
           expectedGraphRevision: taskCommandService.expectedGraphRevision(
             task.conversation_id,
             idempotencyKey,

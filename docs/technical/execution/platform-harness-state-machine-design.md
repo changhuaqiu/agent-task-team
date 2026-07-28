@@ -411,6 +411,12 @@ requested / evaluating -> cancelled
 `passed` 必须引用本 Gate 的 Evidence identity。工程协作卡片、Task Action、Proof Log 和
 Delivery Receipt 都只能作为 Gate 的输入证据或投影，不能再自行宣告审查结论。
 
+工程协作服务只验证 provider PR 并把 receipt、head SHA 与对应 `Task.revision` 记录为
+权威产物事实；它不创建 Gate。Delivery Control Process Manager 看到“产物已提交且当前
+revision 尚无 Gate”后产生唯一 `requestGate` ControlAction，由 QualityGate owner 按冻结的
+criteria/policy 创建 Gate。相同 Gate identity 的重复请求只有内容完全一致才可幂等回放，
+criteria 或 policy 漂移必须以 `quality_gate_request_conflict` 失败关闭。
+
 该边界已由 migration 59 和 `QualityGateRepository` 落地。Task Gate 的 artifact revision
 只使用整数 `Task.revision`；Git head SHA、PR URL 与 provider review ID 是 Gate evidence，
 不得成为另一套版本轴。Provider adapter 不直接推进 Task；`gate.passed /
@@ -714,7 +720,9 @@ Group-chat split 同时写入规范 `depends_on` edge 和 Task owner 使用的 `
 统一为“当前 Task 依赖目标 Task”。Control snapshot 因此不会把 Human 创建的依赖分支提前并发激活。
 
 可注入数据库的 Process Manager 必须把同一个 DB 传给 Gate 与 Delivery repository；不得从注入 DB
-读取 Outcome、再向全局 DB 写 owner 事实。Engineering ToolInvocation 把 WorkContract 根
+读取 Outcome、再向全局 DB 写 owner 事实。Task/Task Graph Outcome Process Manager 不暴露
+无法贯穿其 singleton owner repository 的伪 DB 注入入口，只使用平台配置的权威 DB。
+Engineering ToolInvocation 把 WorkContract 根
 correlation/causation 传入 Task 与 Gate，provider receipt 链不会另起 trace。
 
 错误不能只是一段 CLI 文本。Adapter 先保留原始诊断，再归一化为有语义的事实。

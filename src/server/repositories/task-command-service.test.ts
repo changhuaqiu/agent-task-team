@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb, resetDb, setTestDb } from '../db';
 import { WorkContractRepository } from '../work-contract/repository';
 import { taskCommandService } from './task-command-service';
+import { taskGraphRepo } from './task-graph-repo';
 
 describe('taskCommandService', () => {
   let db: Database.Database;
@@ -36,8 +37,8 @@ describe('taskCommandService', () => {
       },
     }).tasks[0]!;
     const contracts = new WorkContractRepository();
-    contracts.issue({
-      workId: 'task:task-1',
+    const oldContract = contracts.issue({
+      workId: 'task:task-1:agent:agent-a:purpose:execute',
       attemptId: 'attempt-1',
       projectId: 'project-1',
       taskId: 'task-1',
@@ -70,9 +71,31 @@ describe('taskCommandService', () => {
       revision: 2,
       result: { task: { agent_id: 'agent-b', revision: 1 } },
     });
-    expect(contracts.getAuthority('task:task-1')).toMatchObject({
+    expect(contracts.getAuthority(
+      'task:task-1:agent:agent-a:purpose:execute',
+    )).toMatchObject({
       status: 'closed',
       current_epoch: 1,
+    });
+    expect(contracts.admitOutcome({
+      outcomeId: 'late-agent-a',
+      idempotencyKey: 'late-agent-a',
+      contractId: oldContract.contractId,
+      outcomeType: 'submit_task_result',
+      payload: { summary: 'late' },
+      evidenceRefs: [],
+      projectId: oldContract.projectId,
+      workId: oldContract.workId,
+      workEpoch: oldContract.workEpoch,
+      attemptId: oldContract.attemptId,
+      fencingToken: oldContract.fencingToken,
+      authoritativeRevisions: oldContract.authoritativeRevisions,
+      correlationId: oldContract.correlationId,
+      causationId: oldContract.contractId,
+      occurredAt: new Date().toISOString(),
+    })).toMatchObject({
+      status: 'rejected',
+      outcome: { rejection_reason: 'work_authority_stale' },
     });
     expect(taskCommandService.update({
       conversationId: 'project-1',
@@ -118,5 +141,56 @@ describe('taskCommandService', () => {
       'project-1',
       'unseen-command',
     )).toBe(1);
+  });
+
+  it('replaces dependency edges and projection atomically while rejecting cycles', () => {
+    const create = (id: string) => taskCommandService.create({
+      conversationId: 'project-1',
+      expectedGraphRevision: taskGraphRepo.revision('project-1'),
+      idempotencyKey: `create-${id}`,
+      actor: { type: 'user', id: 'operator' },
+      task: { id, title: id, agent_id: 'agent-a' },
+    }).tasks[0]!;
+    const taskA = create('task-a');
+    const taskB = create('task-b');
+
+    const replaced = taskCommandService.replaceDependencies({
+      conversationId: 'project-1',
+      taskId: taskB.id,
+      expectedTaskRevision: taskB.revision,
+      expectedGraphRevision: 2,
+      idempotencyKey: 'task-b-depends-a',
+      actor: { type: 'user', id: 'operator' },
+      dependencyTaskIds: [taskA.id],
+    });
+    expect(JSON.parse(replaced.result.task.dependencies ?? '[]')).toEqual(['task-a']);
+    expect(replaced.result.edges).toMatchObject([{
+      from_task_id: 'task-b',
+      to_task_id: 'task-a',
+      type: 'depends_on',
+    }]);
+
+    expect(() => taskCommandService.replaceDependencies({
+      conversationId: 'project-1',
+      taskId: taskA.id,
+      expectedTaskRevision: taskA.revision,
+      expectedGraphRevision: 3,
+      idempotencyKey: 'task-a-depends-b-cycle',
+      actor: { type: 'user', id: 'operator' },
+      dependencyTaskIds: [taskB.id],
+    })).toThrow('cycle');
+    expect(taskGraphRepo.revision('project-1')).toBe(3);
+    expect(taskGraphRepo.listEdges('project-1')).toHaveLength(1);
+
+    expect(() => taskCommandService.replaceDependencies({
+      conversationId: 'project-1',
+      taskId: taskA.id,
+      expectedTaskRevision: taskA.revision,
+      expectedGraphRevision: 3,
+      idempotencyKey: 'task-a-depends-missing',
+      actor: { type: 'user', id: 'operator' },
+      dependencyTaskIds: ['missing'],
+    })).toThrow('missing task');
+    expect(taskGraphRepo.revision('project-1')).toBe(3);
   });
 });

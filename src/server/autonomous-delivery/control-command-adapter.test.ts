@@ -4,6 +4,7 @@ import { createTestDb, resetDb, setTestDb } from '../db';
 import { AgentInbox } from '../platform-events/agent-inbox';
 import { DurableEffectOutbox } from '../platform-events/durable-effect-outbox';
 import { qualityGateRepo } from '../quality-gate/repository';
+import { taskGraphRepo } from '../repositories/task-graph-repo';
 import { taskRepo } from '../repositories/task-repo';
 import { ProductionControlCommandAdapter } from './control-command-adapter';
 import { decideControlActions } from './control-decision';
@@ -152,6 +153,18 @@ describe('ProductionControlCommandAdapter', () => {
   it('requests the authoritative QualityGate for submitted task work', async () => {
     taskRepo.transition('task-1', { to: 'in_progress' }, now);
     taskRepo.transition('task-1', { to: 'in_review' }, now);
+    const task = taskRepo.getById('task-1')!;
+    taskGraphRepo.appendAction({
+      conversationId: task.conversation_id,
+      actorId: task.agent_id,
+      actorType: 'agent',
+      type: 'task.pull_request_submitted',
+      taskIds: [task.id],
+      payload: {
+        artifactRevision: String(task.revision),
+        receipt: { headSha: 'a'.repeat(40) },
+      },
+    });
     const { snapshot, decision } = decide();
     const action = decision.actions.find((item) => item.type === 'requestGate')!;
 
@@ -160,13 +173,32 @@ describe('ProductionControlCommandAdapter', () => {
       snapshot,
       claimToken: 'claim-1',
     })).toEqual({ status: 'applied' });
-    expect(db.prepare(`
-      SELECT kind,target_type,target_id,status FROM quality_gate
-    `).get()).toEqual({
+    const gate = db.prepare(`
+      SELECT kind,target_type,target_id,status,criteria_json,policy_json FROM quality_gate
+    `).get() as {
+      kind: string;
+      target_type: string;
+      target_id: string;
+      status: string;
+      criteria_json: string;
+      policy_json: string;
+    };
+    expect(gate).toMatchObject({
       kind: 'code_review',
       target_type: 'task',
       target_id: 'task-1',
       status: 'requested',
+    });
+    expect(JSON.parse(gate.criteria_json)).toEqual({
+      maxBlockerCount: 0,
+      providerHeadSha: 'a'.repeat(40),
+      providerReviewRequired: true,
+      qualityDecision: 'pass',
+    });
+    expect(JSON.parse(gate.policy_json)).toMatchObject({
+      source: 'delivery_control_process_manager',
+      prohibitSelfReview: true,
+      implementerId: 'agent-1',
     });
     expect(db.prepare(`
       SELECT correlation_id FROM platform_event

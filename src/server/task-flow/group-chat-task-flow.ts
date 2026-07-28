@@ -514,11 +514,10 @@ export const groupChatTaskFlow = {
       messageId: input.messageId,
     }, () => {
       const current = assertFlowTask(input.taskId, input.conversationId);
-      const authority = workContractRepo.getAuthority(`task:${input.taskId}`);
-      if (authority?.status === 'active' && current.agent_id !== input.ownerAgentId) {
-        workContractRepo.close({
-          workId: authority.work_id,
-          expectedEpoch: authority.current_epoch,
+      if (current.agent_id !== input.ownerAgentId) {
+        workContractRepo.closeActiveForTask({
+          projectId: input.conversationId,
+          taskId: input.taskId,
           correlationId: input.correlationId ?? `task:${input.taskId}`,
           causationId: input.causationId ?? input.idempotencyKey,
         });

@@ -164,8 +164,6 @@ export class EngineeringCollaborationService {
     const previousReviewPayload = previousReviewAction ? parsePayload(previousReviewAction) : undefined;
     const previousReview = previousReviewPayload?.receipt as ReviewReceipt | undefined;
     const previousReviewEvidence = previousReviewPayload?.evidence as ReviewEvidence | undefined;
-    const reviewAudience = resolveTaskNotificationAudience(task.conversation_id);
-
     const result = getDb().transaction(() => {
       let reviewableTask = taskRepo.getById(task.id)!;
       if (reviewableTask.status === 'in_review') {
@@ -245,27 +243,6 @@ export class EngineeringCollaborationService {
         causationId: input.causationId,
         to: 'in_review',
       }).result.task;
-      const gate = qualityGateRepo.request({
-        conversationId: task.conversation_id,
-        kind: 'code_review',
-        targetType: 'task',
-        targetId: task.id,
-        artifactRevision: String(reviewableTask.revision),
-        criteria: {
-          providerReviewRequired: true,
-          qualityDecision: 'pass',
-          maxBlockerCount: 0,
-          providerHeadSha: receipt.headSha,
-        },
-        policy: {
-          prohibitSelfReview: true,
-          implementerId: task.agent_id,
-          authorizedEvaluatorIds: reviewAudience.reviewGateAgentIds,
-        },
-        actor: { type: 'agent', id: input.actorAgentId },
-        correlationId: input.correlationId,
-        causationId: input.causationId,
-      });
       const action = taskGraphRepo.appendAction({
         conversationId: task.conversation_id,
         actorId: input.actorAgentId,
@@ -275,8 +252,7 @@ export class EngineeringCollaborationService {
         payload: {
           receipt,
           evidence: input.evidence,
-          gateId: gate.gate.id,
-          artifactRevision: gate.gate.artifact_revision,
+          artifactRevision: String(reviewableTask.revision),
         },
       });
       taskGraphRepo.addArtifact({
@@ -377,10 +353,12 @@ export class EngineeringCollaborationService {
     if (receipt.headSha !== pullRequest.headSha) {
       throw new EngineeringCollaborationError('pull_request_head_changed', 'The pull request head changed after the delivery receipt');
     }
-    const gateId = typeof pullRequestPayload.gateId === 'string'
-      ? pullRequestPayload.gateId
-      : undefined;
-    const gate = gateId ? qualityGateRepo.getSnapshot(gateId) : undefined;
+    const gate = qualityGateRepo.find({
+      kind: 'code_review',
+      targetType: 'task',
+      targetId: task.id,
+      artifactRevision: String(task.revision),
+    });
     if (
       !gate
       || gate.gate.kind !== 'code_review'
@@ -505,9 +483,12 @@ export class EngineeringCollaborationService {
     if (!pullRequest || pullRequest.url !== input.pullRequestUrl) {
       throw new EngineeringCollaborationError('merge_receipt_mismatch', 'Merge does not match the task pull request receipt');
     }
-    const reviewGate = typeof pullRequestPayload.gateId === 'string'
-      ? qualityGateRepo.getSnapshot(pullRequestPayload.gateId)
-      : undefined;
+    const reviewGate = qualityGateRepo.find({
+      kind: 'code_review',
+      targetType: 'task',
+      targetId: task.id,
+      artifactRevision: String(pullRequestPayload.artifactRevision),
+    });
     if (
       reviewGate?.gate.status !== 'passed'
       || reviewGate.gate.kind !== 'code_review'

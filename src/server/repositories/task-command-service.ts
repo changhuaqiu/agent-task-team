@@ -5,6 +5,7 @@ import {
   type ArtifactKind,
   type TaskActionRow,
   type TaskActionType,
+  type TaskEdgeRow,
   type TaskGraphCommitResult,
 } from './task-graph-repo';
 import {
@@ -83,6 +84,28 @@ export const taskCommandService = {
       return prior.revision - 1;
     }
     return taskGraphRepo.revision(conversationId);
+  },
+
+  expectedTaskRevision(
+    taskId: string,
+    idempotencyKey: string,
+    currentRevision: number,
+  ): number {
+    const prior = taskGraphRepo.getCommitByIdempotencyKey(idempotencyKey);
+    if (!prior) return currentRevision;
+    const action = taskGraphRepo.getActionById(prior.action_id);
+    if (!action) throw new Error(`task_graph_replay_action_missing:${idempotencyKey}`);
+    const payload = JSON.parse(action.payload) as {
+      expectedTaskRevision?: unknown;
+    };
+    if (!Number.isSafeInteger(payload.expectedTaskRevision)) {
+      throw new Error(`task_graph_replay_task_revision_missing:${idempotencyKey}`);
+    }
+    const taskIds = JSON.parse(action.task_ids) as string[];
+    if (!taskIds.includes(taskId)) {
+      throw new Error(`task_graph_idempotency_task_conflict:${idempotencyKey}`);
+    }
+    return Number(payload.expectedTaskRevision);
   },
 
   create(input: TaskCommandBase & {
@@ -165,8 +188,11 @@ export const taskCommandService = {
   },
 
   update(input: ExistingTaskCommand & {
-    updates: Partial<TaskPatch>;
+    updates: Partial<Omit<TaskPatch, 'dependencies'>>;
   }): { revision: number; result: { task: TaskRow; action: TaskActionRow }; replayed: boolean } {
+    if ('dependencies' in input.updates) {
+      throw new Error('task_dependencies_owner_command_required');
+    }
     return taskGraphRepo.mutate({
       conversationId: input.conversationId,
       expectedRevision: input.expectedGraphRevision,
@@ -186,15 +212,12 @@ export const taskCommandService = {
           input.updates.agent_id
           && input.updates.agent_id !== previous.agent_id
         ) {
-          const authority = workContractRepo.getAuthority(`task:${input.taskId}`);
-          if (authority?.status === 'active') {
-            workContractRepo.close({
-              workId: authority.work_id,
-              expectedEpoch: authority.current_epoch,
-              correlationId: input.correlationId ?? `task:${input.taskId}`,
-              causationId: input.causationId ?? input.idempotencyKey,
-            });
-          }
+          workContractRepo.closeActiveForTask({
+            projectId: input.conversationId,
+            taskId: input.taskId,
+            correlationId: input.correlationId ?? `task:${input.taskId}`,
+            causationId: input.causationId ?? input.idempotencyKey,
+          });
         }
         const task = taskRepo.update(input.taskId, input.updates, {
           correlationId: input.correlationId,
@@ -213,6 +236,70 @@ export const taskCommandService = {
           },
         });
         return { actionId: action.id, result: { task, action } };
+      },
+    });
+  },
+
+  replaceDependencies(input: ExistingTaskCommand & {
+    dependencyTaskIds: string[];
+    updates?: Partial<Omit<TaskPatch, 'dependencies'>>;
+  }): {
+    revision: number;
+    result: { task: TaskRow; action: TaskActionRow; edges: TaskEdgeRow[] };
+    replayed: boolean;
+  } {
+    return taskGraphRepo.mutate({
+      conversationId: input.conversationId,
+      expectedRevision: input.expectedGraphRevision,
+      idempotencyKey: input.idempotencyKey,
+      operation: 'replaceTaskDependencies',
+      request: {
+        taskId: input.taskId,
+        expectedTaskRevision: input.expectedTaskRevision,
+        dependencyTaskIds: [...new Set(input.dependencyTaskIds)].sort(),
+        updates: input.updates,
+        actor: input.actor,
+        correlationId: input.correlationId,
+        causationId: input.causationId,
+      },
+      execute: () => {
+        const previous = assertOwnedTask(input);
+        if (
+          input.updates?.agent_id
+          && input.updates.agent_id !== previous.agent_id
+        ) {
+          workContractRepo.closeActiveForTask({
+            projectId: input.conversationId,
+            taskId: input.taskId,
+            correlationId: input.correlationId ?? `task:${input.taskId}`,
+            causationId: input.causationId ?? input.idempotencyKey,
+          });
+        }
+        const action = taskGraphRepo.appendAction({
+          conversationId: input.conversationId,
+          actorId: input.actor.id,
+          actorType: input.actor.type,
+          type: 'task.dependencies_replaced',
+          taskIds: [input.taskId],
+          payload: {
+            expectedTaskRevision: input.expectedTaskRevision,
+            dependencyTaskIds: [...new Set(input.dependencyTaskIds)].sort(),
+            updates: input.updates,
+          },
+        });
+        const replaced = taskGraphRepo.replaceDependencies({
+          conversationId: input.conversationId,
+          taskId: input.taskId,
+          dependencyTaskIds: input.dependencyTaskIds,
+          createdByActionId: action.id,
+          updates: input.updates,
+          correlationId: input.correlationId,
+          causationId: input.causationId,
+        });
+        return {
+          actionId: action.id,
+          result: { task: replaced.task, action, edges: replaced.edges },
+        };
       },
     });
   },

@@ -72,7 +72,7 @@ describe('DeliveryControlProcessManager', () => {
 
   it('claims the complete action set before the first owner Command emits a new fact', async () => {
     let event = 0;
-    const execute = vi.fn(async () => {
+    const execute = vi.fn(() => {
       event += 1;
       new PlatformEventLog({ db }).append({
         type: 'agent.work.enqueued',
@@ -128,7 +128,7 @@ describe('DeliveryControlProcessManager', () => {
       now,
     });
     expect(staleClaim).toHaveLength(2);
-    const execute = vi.fn(async () => ({ status: 'applied' as const }));
+    const execute = vi.fn(() => ({ status: 'applied' as const }));
     const manager = new DeliveryControlProcessManager({
       snapshots,
       decisions,

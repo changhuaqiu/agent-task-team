@@ -3,6 +3,7 @@ import { createTestDb, getDb, resetDb, setTestDb } from '../db';
 import { PlatformEventLog } from '../platform-events/event-log';
 import {
   QualityGateInvariantError,
+  QualityGateRequestConflictError,
   QualityGateRepository,
   StaleQualityGateRevisionError,
 } from './repository';
@@ -37,10 +38,20 @@ describe('QualityGateRepository', () => {
       targetType: 'task',
       targetId: 'task-1',
       artifactRevision: 'sha-1',
-      criteria: { ignoredOnDuplicate: true },
+      criteria: { blockers: 0 },
+      policy: { selfReview: false },
       actor: { type: 'agent', id: 'implementer' },
     });
     expect(duplicate.gate.id).toBe(requested.gate.id);
+    expect(() => repository.request({
+      conversationId: 'project-gate',
+      kind: 'code_review',
+      targetType: 'task',
+      targetId: 'task-1',
+      artifactRevision: 'sha-1',
+      criteria: { ignoredOnDuplicate: true },
+      actor: { type: 'agent', id: 'implementer' },
+    })).toThrow(QualityGateRequestConflictError);
 
     const evidence = repository.submitEvidence({
       gateId: requested.gate.id,

@@ -362,6 +362,23 @@ export class ControlDecisionRepository {
     `).get(input.actionId, input.claimToken, timestamp));
   }
 
+  runClaimed<T>(input: {
+    actionId: string;
+    claimToken: string;
+    now?: Date;
+  }, command: () => T): { executed: true; result: T } | { executed: false } {
+    const timestamp = (input.now ?? new Date()).toISOString();
+    const db = this.database ?? getDb();
+    return db.transaction(() => {
+      const active = db.prepare(`
+        SELECT 1 FROM delivery_control_action
+        WHERE id=? AND status='claimed' AND claim_token=? AND lease_expires_at>?
+      `).get(input.actionId, input.claimToken, timestamp);
+      if (!active) return { executed: false } as const;
+      return { executed: true, result: command() } as const;
+    }).immediate();
+  }
+
   fail(input: {
     actionId: string;
     claimToken: string;

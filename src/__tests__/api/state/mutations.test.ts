@@ -526,6 +526,35 @@ describe('POST /api/mutations', () => {
     expect(taskRepo.getById('task-1')!.status).toBe('in_progress');
   });
 
+  it('task.updateStatus replays the frozen result when the first HTTP response is lost', async () => {
+    await seedTask();
+    const body = {
+      type: 'task.updateStatus',
+      payload: {
+        id: 'task-1',
+        status: 'in_progress',
+        idempotencyKey: 'browser-task-status-command-1',
+      },
+    };
+    const first = mockRes();
+    await handler(mockReq('POST', body), first);
+    const retry = mockRes();
+    await handler(mockReq('POST', body), retry);
+
+    expect(first.statusCode).toBe(200);
+    expect(retry.statusCode).toBe(200);
+    expect(retry._json).toEqual(first._json);
+    const { taskRepo } = await import('@/server/repositories/task-repo');
+    const { taskGraphRepo } = await import('@/server/repositories/task-graph-repo');
+    expect(taskRepo.getById('task-1')).toMatchObject({
+      status: 'in_progress',
+      revision: 1,
+    });
+    expect(taskGraphRepo.listActionsForTask('task-1').filter(
+      (action) => action.type === 'task.status_changed',
+    )).toHaveLength(1);
+  });
+
   it('task.updateStatus publishes a persisted task notification to related agents', async () => {
     await seedTask();
     const { taskRepo } = await import('@/server/repositories/task-repo');
@@ -721,6 +750,47 @@ describe('POST /api/mutations', () => {
     const task = taskRepo.getById('task-1')!;
     expect(task.title).toBe('Renamed');
     expect(task.description).toBe('Updated desc');
+  });
+
+  it('task.update replays a browser command and updates dependency edges atomically', async () => {
+    await seedTask();
+    const { taskRepo } = await import('@/server/repositories/task-repo');
+    const { taskGraphRepo } = await import('@/server/repositories/task-graph-repo');
+    taskRepo.create({
+      id: 'task-dependency',
+      conversation_id: 'conv-1',
+      title: 'Dependency',
+      agent_id: 'agent-a',
+    });
+    const body = {
+      type: 'task.update',
+      payload: {
+        id: 'task-1',
+        title: 'Depends on setup',
+        dependencies: ['task-dependency'],
+        idempotencyKey: 'browser-task-update-command-1',
+      },
+    };
+
+    const first = mockRes();
+    await handler(mockReq('POST', body), first);
+    const retry = mockRes();
+    await handler(mockReq('POST', body), retry);
+
+    expect(first.statusCode).toBe(200);
+    expect(retry.statusCode).toBe(200);
+    expect(retry._json).toEqual(first._json);
+    expect(taskRepo.getById('task-1')).toMatchObject({
+      title: 'Depends on setup',
+      dependencies: JSON.stringify(['task-dependency']),
+      revision: 1,
+    });
+    expect(taskGraphRepo.listEdges('conv-1').filter(
+      (edge) => edge.type === 'depends_on',
+    )).toMatchObject([{
+      from_task_id: 'task-1',
+      to_task_id: 'task-dependency',
+    }]);
   });
 
   it('task.update notifies both old and new owners when agentId changes', async () => {

@@ -161,8 +161,10 @@ Any component that derives a filesystem path from a business ID must still encod
 - `src/server/task-flow/group-chat-task-flow.ts` provides the first chat-driven domain service on top of the repository API.
 - The repository treats `task_action` as the explainability event log and returns `TaskGraphView` as the first read model.
 - `task_edge` rejects cycles for `subtask_of`, `depends_on`, and `merged_into` relationships.
-- `recordHandoffRequested()` records intent without changing owner.
-- `recordHandoffAccepted()` changes owner only when the caller has already received the A2A / execution start acknowledgement.
+- Handoff intent is recorded by the A2A owner; Task Graph no longer exposes a parallel
+  `recordHandoff*` mutation API.
+- Once A2A has accepted the handoff, the Task owner command changes assignment and closes every
+  active WorkAuthority for the previous assignee before new work is dispatched.
 - `src/pages/api/task-graph.ts` exposes read and structured mutation APIs for create, split, block, resume, merge, reopen, and cancel.
 - `src/components/task-hub/TaskCapsules.tsx` renders linked task capsules in the group-chat surface.
 - `src/components/task-hub/TaskActionCard.tsx` renders task events as group-chat cards.

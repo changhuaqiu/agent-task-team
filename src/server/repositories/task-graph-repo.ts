@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { getDb } from '../db/index';
 import { generateSortableId } from './sortable-id';
-import { taskRepo, type NewTask, type TaskRow } from './task-repo';
+import { taskRepo, type NewTask, type TaskPatch, type TaskRow } from './task-repo';
 
 export type TaskActionType =
   | 'task.created'
@@ -10,6 +10,7 @@ export type TaskActionType =
   | 'task.handoff_requested'
   | 'task.handoff_accepted'
   | 'task.status_changed'
+  | 'task.dependencies_replaced'
   | 'task.blocked'
   | 'task.resumed'
   | 'task.artifact_attached'
@@ -608,6 +609,61 @@ export const taskGraphRepo = {
       .all(conversationId) as TaskEdgeRow[];
   },
 
+  replaceDependencies(input: {
+    conversationId: string;
+    taskId: string;
+    dependencyTaskIds: string[];
+    createdByActionId: string;
+    updates?: Partial<Omit<TaskPatch, 'dependencies'>>;
+    correlationId?: string;
+    causationId?: string;
+  }): { task: TaskRow; edges: TaskEdgeRow[] } {
+    assertTaskInConversation(input.taskId, input.conversationId);
+    assertActionInConversation(input.createdByActionId, input.conversationId);
+    const dependencies = [...new Set(input.dependencyTaskIds)].sort();
+    const tasks = taskRepo.getByConversation(input.conversationId);
+    const knownIds = new Set(tasks.map((task) => task.id));
+    for (const dependencyId of dependencies) {
+      if (!knownIds.has(dependencyId)) {
+        throw new InvalidTaskGraphError(
+          `Task ${input.taskId} depends on missing task ${dependencyId}`,
+        );
+      }
+      if (dependencyId === input.taskId) {
+        throw new InvalidTaskGraphError(`Task ${input.taskId} cannot depend on itself`);
+      }
+    }
+    const dependencyMap = new Map<string, readonly string[]>(
+      tasks.map((task) => [
+        task.id,
+        task.id === input.taskId ? dependencies : dependencyIds(task),
+      ]),
+    );
+    assertAcyclicDependencies(dependencyMap);
+
+    const db = getDb();
+    db.prepare(`
+      DELETE FROM task_edge
+      WHERE conversation_id=? AND from_task_id=? AND type='depends_on'
+    `).run(input.conversationId, input.taskId);
+    const task = taskRepo.update(input.taskId, {
+      ...input.updates,
+      dependencies: JSON.stringify(dependencies),
+    }, {
+      correlationId: input.correlationId,
+      causationId: input.causationId,
+    });
+    if (!task) throw new InvalidTaskGraphError(`Task ${input.taskId} not found`);
+    const edges = dependencies.map((dependencyId) => taskGraphRepo.addEdge({
+      conversationId: input.conversationId,
+      fromTaskId: input.taskId,
+      toTaskId: dependencyId,
+      type: 'depends_on',
+      createdByActionId: input.createdByActionId,
+    }));
+    return { task, edges };
+  },
+
   addArtifact(input: {
     conversationId: string;
     taskId: string;
@@ -695,65 +751,4 @@ export const taskGraphRepo = {
     };
   },
 
-  recordHandoffRequested(input: {
-    conversationId: string;
-    taskId: string;
-    fromAgentId: string;
-    toAgentId: string;
-    messageId?: string;
-    passId?: string;
-    possessionId?: string;
-    requestedAction?: string;
-  }): TaskActionRow {
-    return this.appendAction({
-      conversationId: input.conversationId,
-      actorId: input.fromAgentId,
-      actorType: input.fromAgentId === 'user' ? 'user' : 'agent',
-      type: 'task.handoff_requested',
-      taskIds: [input.taskId],
-      messageId: input.messageId,
-      passId: input.passId,
-      possessionId: input.possessionId,
-      payload: {
-        fromAgentId: input.fromAgentId,
-        toAgentId: input.toAgentId,
-        requestedAction: input.requestedAction,
-      },
-    });
-  },
-
-  recordHandoffAccepted(input: {
-    conversationId: string;
-    taskId: string;
-    fromAgentId: string;
-    toAgentId: string;
-    passId?: string;
-    possessionId?: string;
-  }): TaskActionRow {
-    assertTaskInConversation(input.taskId, input.conversationId);
-    taskRepo.update(input.taskId, {
-      agent_id: input.toAgentId,
-    });
-    const task = taskRepo.getById(input.taskId);
-    if (task && task.status !== 'in_progress') {
-      taskRepo.transition(input.taskId, {
-        to: 'in_progress',
-        expectedFrom: task.status,
-      });
-    }
-
-    return this.appendAction({
-      conversationId: input.conversationId,
-      actorId: input.toAgentId,
-      actorType: input.toAgentId === 'user' ? 'user' : 'agent',
-      type: 'task.handoff_accepted',
-      taskIds: [input.taskId],
-      passId: input.passId,
-      possessionId: input.possessionId,
-      payload: {
-        fromAgentId: input.fromAgentId,
-        toAgentId: input.toAgentId,
-      },
-    });
-  },
 };

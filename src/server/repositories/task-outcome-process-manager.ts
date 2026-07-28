@@ -54,12 +54,10 @@ function acceptedTaskOutcome(
 }
 
 export class TaskOutcomeProcessManager {
-  constructor(private readonly database?: Database.Database) {}
-
   readonly handle: PlatformEventHandler = (event, { signal }) => {
     if (event.type !== 'agent.outcome.accepted') return;
     if (signal.aborted) throw signal.reason ?? new Error('task_outcome_processing_aborted');
-    const db = this.database ?? getDb();
+    const db = getDb();
     const accepted = acceptedTaskOutcome(db, event.aggregate.id);
     if (!accepted) return;
     const { outcome, contract, task } = accepted;

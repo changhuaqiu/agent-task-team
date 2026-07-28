@@ -71,7 +71,7 @@ describe('TaskGraphOutcomeProcessManager', () => {
     const event = new PlatformEventLog({ db: getDb() })
       .listStream(`work:${contract.workId}`)
       .find((candidate) => candidate.type === 'agent.outcome.accepted')!;
-    const manager = new TaskGraphOutcomeProcessManager(getDb());
+    const manager = new TaskGraphOutcomeProcessManager();
 
     await manager.handle(event, { signal: new AbortController().signal });
     await manager.handle(event, { signal: new AbortController().signal });

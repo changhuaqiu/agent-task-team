@@ -332,6 +332,11 @@ artifactRevision 的请求幂等；artifactRevision 改变必须创建新 Gate�
 新 revision。Git Review、Task evidence、Delivery review/verification receipt 都必须通过
 该 owner 接纳，不得各自保存另一份权威 pass/fail 状态。
 
+Engineering collaboration 只验证并记录 provider artifact，不创建 `code_review` Gate。
+Delivery Control Process Manager 是 `requestGate` 的唯一协调者，QualityGate repository
+是唯一创建 owner。相同 identity 的幂等请求必须具有完全一致的 canonical criteria/policy；
+内容漂移必须失败关闭。
+
 ## 10. 错误归一化
 
 至少支持：
@@ -358,6 +363,7 @@ ControlAction 在执行 owner Command 前以及 complete/fail 时都必须校验
 
 Group-chat split 必须同时维护 `depends_on` edge 与 `task.dependencies`，并使用相同方向语义。
 所有支持 DB 注入的 Process Manager 必须把同一 DB 注入其 owner repositories，保证原子边界真实成立。
+若下游 owner repository 不支持实例级 DB 注入，Process Manager 不得暴露只影响读取端的伪注入参数。
 
 ## 11. 命名迁移
 

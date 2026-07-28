@@ -37,8 +37,27 @@ export class StaleQualityGateRevisionError extends Error {
   }
 }
 
+export class QualityGateRequestConflictError extends Error {
+  readonly reasonCode = 'quality_gate_request_conflict';
+
+  constructor(readonly gateId: string) {
+    super(`Quality gate request content changed for ${gateId}`);
+  }
+}
+
 function parseJson(value: string): unknown {
   return JSON.parse(value) as unknown;
+}
+
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value ?? null);
 }
 
 function requireText(value: string, field: string): string {
@@ -82,7 +101,15 @@ export class QualityGateRepository {
         targetId,
         artifactRevision,
       ) as QualityGateRow | undefined;
-      if (existing) return this.getSnapshot(existing.id)!;
+      if (existing) {
+        if (
+          canonicalJson(parseJson(existing.criteria_json)) !== canonicalJson(input.criteria ?? {})
+          || canonicalJson(parseJson(existing.policy_json)) !== canonicalJson(input.policy ?? {})
+        ) {
+          throw new QualityGateRequestConflictError(existing.id);
+        }
+        return this.getSnapshot(existing.id)!;
+      }
 
       const id = generateSortableId('gate');
       db.prepare(`
@@ -97,8 +124,8 @@ export class QualityGateRepository {
         input.targetType,
         targetId,
         artifactRevision,
-        JSON.stringify(input.criteria ?? {}),
-        JSON.stringify(input.policy ?? {}),
+        canonicalJson(input.criteria ?? {}),
+        canonicalJson(input.policy ?? {}),
         input.actor.type,
         requestedBy,
         0,

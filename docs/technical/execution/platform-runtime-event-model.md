@@ -458,7 +458,7 @@ A 调工具 requestHandoff({to:B, prompt, contextRef})
 | a2a possession | `startPass`（控制权转移）、`createPass`、`completeChain` | `a2a.possession.passed/completed` |
 | a2a chain | `markDone`、`complete/abort` | `a2a.chain.entry_done/completed` |
 | execution_envelope | `drafted→validated→routed→sent→acknowledged/rejected/expired`，只表达派发接纳 | `envelope.validated/routed/sent/acknowledged/rejected/expired` |
-| task | `transition`、`recordHandoffAccepted` | `task.assigned/ready/in_progress/in_review/changes_requested/done/blocked/cancelled` |
+| task | Task owner `create/update/replaceDependencies/transition/applyOutcome` Commands | `task.assigned/ready/in_progress/in_review/changes_requested/done/blocked/cancelled` |
 | agent_binding | `markStarted/markFinished/markError` | `binding.started/finished/error` |
 | runtime_node | `recordMiss`（`reachable→stale→unreachable`） | `node.stale/unreachable` |
 | invocation/dispatch | Invocation lifecycle 与 outcome 分离；Inbox 独立 admission | `invocation.planned/starting/running/terminating/terminated` |

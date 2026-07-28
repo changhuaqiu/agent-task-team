@@ -1128,7 +1128,7 @@ export const useTaskHubStore = create<TaskHubState>()(
                     fetch('/api/mutations', {
                       method: 'POST',
                       headers: { 'content-type': 'application/json' },
-                      body: JSON.stringify({ type: 'task.create', payload: { id: t.id, conversation_id: t.conversationId, title: t.title, description: t.description, agent_id: t.agentId, dependencies: JSON.stringify(t.dependencies || []), artifacts: JSON.stringify(t.artifacts || []) } }),
+                      body: JSON.stringify({ type: 'task.create', payload: { id: t.id, conversation_id: t.conversationId, title: t.title, description: t.description, agent_id: t.agentId, dependencies: JSON.stringify(t.dependencies || []), artifacts: JSON.stringify(t.artifacts || []), idempotencyKey: `webui:migration:task.create:${t.conversationId}:${t.id}` } }),
                     }).catch(() => {});
                   }
                 }

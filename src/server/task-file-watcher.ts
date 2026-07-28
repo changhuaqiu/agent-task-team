@@ -235,7 +235,7 @@ export function syncTasksToDb(
             createKey,
           ),
           idempotencyKey: createKey,
-          actor: { type: 'system', id: 'task-file-watcher' },
+          actor: { type: 'system' as const, id: 'task-file-watcher' },
           correlationId: `task-file:${conversationId}`,
           causationId: tasksFile,
           task: {
@@ -353,13 +353,14 @@ export function syncTasksToDb(
     if (changedFields.length > 0) {
       let current = existing;
       if (Object.keys(updates).length > 0) {
+        const { dependencies: dependencyProjection, ...fieldUpdates } = updates;
         const updateKey = stableTaskCommandKey('task-file:update', {
           conversationId,
           storageId,
           expectedTaskRevision: current.revision,
           updates,
         });
-        current = taskCommandService.update({
+        const commandInput = {
           conversationId,
           taskId: storageId,
           expectedTaskRevision: current.revision,
@@ -368,11 +369,20 @@ export function syncTasksToDb(
             updateKey,
           ),
           idempotencyKey: updateKey,
-          actor: { type: 'system', id: 'task-file-watcher' },
+          actor: { type: 'system' as const, id: 'task-file-watcher' },
           correlationId: `task-file:${conversationId}`,
           causationId: tasksFile,
-          updates,
-        }).result.task;
+        };
+        current = dependencyProjection === undefined
+          ? taskCommandService.update({
+              ...commandInput,
+              updates: fieldUpdates,
+            }).result.task
+          : taskCommandService.replaceDependencies({
+              ...commandInput,
+              dependencyTaskIds: storageDependencies,
+              updates: fieldUpdates,
+            }).result.task;
       }
       if (changedFields.includes('status')) {
         const transitionKey = stableTaskCommandKey('task-file:transition', {
