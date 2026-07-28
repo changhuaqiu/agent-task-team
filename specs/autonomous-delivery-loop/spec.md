@@ -190,6 +190,9 @@ interface AcceptanceVerificationReceipt {
 - `acceptanceResults` 必须与 GoalContract 的验收标准一一对应，不允许缺失、重复或额外标准；
 - PASS 的每条标准必须至少有一个 evidence ref；
 - `requireWebE2E=true` 时，`method` 必须是 `web_ui_e2e`，工具必须来自 Browser/Playwright 能力；
+- 由 `test_gate` 发起的验证调用必须获得精确的 Playwright 浏览器工具 allowlist，
+  使真实页面导航、交互、快照和截图不依赖人工权限弹窗；该授权不得扩散到用户、
+  普通任务或评审派发，也不得包含浏览器安装等环境变更工具；
 - 本地报告与测试用例引用必须位于授权 projectPath 内且真实存在；
 - 无结构化回执、旧 Run 回执、只有“测试通过”文本或任意 delivery evidence 均不能让 Verification 通过；
 - 失败或格式错误的回执形成失败 Receipt，触发有界 `repair_verification`，而不是永久等待。

@@ -61,6 +61,7 @@ import {
 import { finalizeRuntimeContextSnapshot } from './harness/runtime-context-snapshot';
 import { executionProfileChanged } from './harness/runtime-profile-recovery';
 import { checkValidExit } from './harness/valid-exit';
+import { verificationAutoApprovedMcpToolNames } from './harness/verification-mcp-permissions';
 import type { ContextReport, ContextSnapshot } from '../lib/agent-context/ContextManager';
 import type { ContextScenario } from '../lib/agent-context/scenarioResolver';
 import { generateSpanId, generateTraceId, observationSpanRepo } from './repositories/observation-span-repo';
@@ -1962,7 +1963,10 @@ export default function registerDaemon(io: IOServer) {
         env: prepared.env,
         permissionPolicy: resolveAcpPermissionPolicy(),
         mcpServers: acpToolGrant ? [acpToolGrant.mcpServer] : [],
-        autoApproveMcpToolNames: acpToolGrant?.autoApproveToolNames ?? [],
+        autoApproveMcpToolNames: [
+          ...(acpToolGrant?.autoApproveToolNames ?? []),
+          ...verificationAutoApprovedMcpToolNames(dispatchSource),
+        ],
       });
 
       // The per-turn timeout. timeoutMs already carries the codex-ACP floor
