@@ -138,6 +138,22 @@ Receipt 是外部或执行面动作已经发生的权威回执：
 
 - Harness Receipt：Agent 调用、session generation、execution envelope。
 - Task Receipt：任务状态、artifact、review/QA decision。
+
+### Task 状态兼容边界
+
+Autonomous Delivery 可能运行在已由托管控制面升级过的共享数据库上。旧执行链仍以
+`pending`、`completed`、`rejected` 表达任务状态时，Task Repository 必须在唯一持久化
+边界完成兼容转换：
+
+- `pending` 持久化为 `ready`，读取时仍向旧执行链呈现为 `pending`；
+- `completed` 持久化为 `done`，`rejected` 持久化为 `blocked`；
+- 跨越多个托管状态的旧式更新必须逐步走合法迁移路径，不得直接绕过数据库状态机；
+- 无法映射或无法合法迁移的状态必须返回明确错误，不得把原始触发器错误升级为
+  `waiting_human`。
+
+该兼容层只在数据库已安装托管 Task 状态约束时启用；旧数据库行为保持不变。退出条件是
+所有旧执行链和 UI 均原生使用托管 Task 生命周期。
+
 - Verification Receipt：命令、退出码、报告路径、Web UI E2E 结果。
 - Provider Receipt：commit、push、PR、review、CI、merge 的外部 ID 与状态。
 - Delivery Receipt：最终 `DeliveryBundle` 已提交到持久化 API/UI 投影。
@@ -152,8 +168,8 @@ Receipt 必须可重复读取，写入必须幂等。
 interface AcceptanceVerificationReceipt {
   schemaVersion: 1;
   deliveryRunId: string;
-  status: 'passed' | 'failed';
-  method: 'web_ui_e2e' | 'automated_test' | 'manual_review';
+  status: "passed" | "failed";
+  method: "web_ui_e2e" | "automated_test" | "manual_review";
   verifierAgentId: string;
   tool: string;
   reportRef: string;
@@ -161,7 +177,7 @@ interface AcceptanceVerificationReceipt {
   codeRevision?: string;
   acceptanceResults: Array<{
     criterion: string;
-    status: 'passed' | 'failed';
+    status: "passed" | "failed";
     evidenceRefs: string[];
   }>;
 }
@@ -186,14 +202,14 @@ interface AcceptanceVerificationReceipt {
 interface AcceptanceReviewReceipt {
   schemaVersion: 1;
   deliveryRunId: string;
-  status: 'passed' | 'failed';
+  status: "passed" | "failed";
   reviewerAgentId: string;
   summary: string;
   evidenceRefs: string[];
   codeRevision?: string;
   findings: Array<{
-    severity: 'blocking' | 'important' | 'advisory';
-    status: 'open' | 'resolved';
+    severity: "blocking" | "important" | "advisory";
+    status: "open" | "resolved";
     description: string;
     evidenceRefs: string[];
   }>;
@@ -356,14 +372,14 @@ Agent 文本中的“完成了”不参与该判断。
 
 Team Harness 不重复实现模型、Skill、工具协议、浏览器驱动或 Provider SDK。平台只建设稳定 seam、环境事实和机械控制：
 
-| 能力 | 复用事实源 | Team Harness 增加的责任 |
-|---|---|---|
-| 专业工作流与知识 | 现有 `SkillRuntime` 和标准 `SKILL.md` 包 | 固定 revision/hash、按场景激活、记录加载证据 |
-| Agent 执行 | Codex / Claude / OpenCode 等 ACP adapter | 统一 ContextSnapshot、workdir、session generation 与 Receipt |
-| 工具发现与调用 | Runtime 注册工具、MCP tool catalog | Capability Snapshot、scope/policy 门禁和机器可读 Outcome |
-| Web UI 验证 | Browser/Playwright 能力 | criterion-specific E2E plan、浏览器级 Receipt 与有限修复循环 |
-| Git/PR/CI | Git 与 Provider 官方 CLI/SDK | allowlist、精确 head、幂等动作和终态 reconcile |
-| 架构/评审方法 | 可版本化 Skill | 通过 Contributor 注入项目约束和证据，不把方法硬编码进 Supervisor |
+| 能力             | 复用事实源                               | Team Harness 增加的责任                                          |
+| ---------------- | ---------------------------------------- | ---------------------------------------------------------------- |
+| 专业工作流与知识 | 现有 `SkillRuntime` 和标准 `SKILL.md` 包 | 固定 revision/hash、按场景激活、记录加载证据                     |
+| Agent 执行       | Codex / Claude / OpenCode 等 ACP adapter | 统一 ContextSnapshot、workdir、session generation 与 Receipt     |
+| 工具发现与调用   | Runtime 注册工具、MCP tool catalog       | Capability Snapshot、scope/policy 门禁和机器可读 Outcome         |
+| Web UI 验证      | Browser/Playwright 能力                  | criterion-specific E2E plan、浏览器级 Receipt 与有限修复循环     |
+| Git/PR/CI        | Git 与 Provider 官方 CLI/SDK             | allowlist、精确 head、幂等动作和终态 reconcile                   |
+| 架构/评审方法    | 可版本化 Skill                           | 通过 Contributor 注入项目约束和证据，不把方法硬编码进 Supervisor |
 
 新增平台能力前必须先确认：
 
