@@ -196,6 +196,9 @@ interface AcceptanceVerificationReceipt {
 - 本地报告与测试用例引用必须位于授权 projectPath 内且真实存在；
 - 无结构化回执、旧 Run 回执、只有“测试通过”文本或任意 delivery evidence 均不能让 Verification 通过；
 - 失败或格式错误的回执形成失败 Receipt，触发有界 `repair_verification`，而不是永久等待。
+- `test_gate` 的验证 Admission 仍处于 active 时，旧失败 Receipt 只能投影为
+  `pending`；Supervisor 必须等待该 Invocation 结束，不能在同一次推进中抢跑并创建
+  下一 repair cycle。Invocation 结束后再按最新持久化 Receipt 判定通过、修复或升级。
 
 ### 3.6 Acceptance Review Receipt
 
