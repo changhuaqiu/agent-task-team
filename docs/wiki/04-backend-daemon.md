@@ -234,6 +234,7 @@ Daemon 的边界是执行编排，不是团队规则解释器：
 - A2A 兼容路径会把 `chainId` 与 `passId` 传入 envelope，便于 proof timeline 串起 pass 与执行生命周期。
 - 轻量 `SecretGate` 会阻止包含 API key、bearer token、private key、database URL 等明显敏感内容的 envelope。
 - 当持久数据库已经升级为 acknowledgement-only envelope schema（存在 `revision`、`settled_at`）而 daemon 仍使用兼容控制面时，repository 会按实际表契约映射生命周期：先补齐 `drafted → validated → routed`，把 `started/completed` 收敛为 `acknowledged`，并让 acknowledgement 后的执行失败只更新 binding/proof；Gateway 只在合法的前置状态上产生 send/start/finish 副作用并返回是否实际应用，daemon 仅为已应用的转换广播 receipt，对 `blocked/rejected` 都立即停止；autonomy guard 同时以非终态 Invocation 判断真实执行是否仍活跃，bridge/backend 的成功、失败、超时与 setup failure 都会终结 Invocation，daemon 启动也会回收上次进程遗留的孤儿 Invocation，避免重复唤醒或永久抑制恢复。该兼容路径避免旧 daemon 触发 `invalid_execution_envelope_transition`，并在所有支持分支统一到新状态机后删除。
+- 若共享开发数据库的 Invocation 表已升级为 managed lifecycle（存在 `outcome`、`started_at`、`terminated_at`、`revision`），兼容 repository 会把旧 daemon 的 `queued/running/succeeded/failed` 映射为 `planned/starting/running/terminated` 及对应 outcome；Session 确认只补充活动 Invocation 的 runtime identity，不提前终结或覆盖已终结结果。这样切回旧分支时，`@` 派发不会被数据库触发器以 `invalid_invocation_status` 拒绝。
 
 尚未完成的部分是彻底移除兼容广播 transport，并让 executor 只消费 `ExecutionEnvelope`。
 

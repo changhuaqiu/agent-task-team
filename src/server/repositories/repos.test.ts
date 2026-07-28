@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { createTestDb, setTestDb, resetDb } from '../db/index';
+import { createTestDb, getDb, setTestDb, resetDb } from '../db/index';
 import { generateSortableId, resetSeq } from './sortable-id';
 import { conversationRepo } from './conversation-repo';
 import { taskRepo } from './task-repo';
@@ -7,6 +7,64 @@ import { messageRepo } from './message-repo';
 import { sessionRepo } from './session-repo';
 import { invocationRepo } from './invocation-repo';
 import { eventRepo } from './event-repo';
+
+function installManagedInvocationSchema(): void {
+  getDb().exec(`
+    ALTER TABLE invocation ADD COLUMN outcome TEXT;
+    ALTER TABLE invocation ADD COLUMN started_at TEXT;
+    ALTER TABLE invocation ADD COLUMN terminated_at TEXT;
+    ALTER TABLE invocation ADD COLUMN revision INTEGER NOT NULL DEFAULT 0;
+
+    CREATE TRIGGER trg_invocation_status_insert
+    BEFORE INSERT ON invocation
+    WHEN NEW.status NOT IN ('planned','starting','running','terminating','terminated')
+    BEGIN
+      SELECT RAISE(ABORT, 'invalid_invocation_status');
+    END;
+
+    CREATE TRIGGER trg_invocation_status_update
+    BEFORE UPDATE OF status ON invocation
+    WHEN NEW.status NOT IN ('planned','starting','running','terminating','terminated')
+    BEGIN
+      SELECT RAISE(ABORT, 'invalid_invocation_status');
+    END;
+
+    CREATE TRIGGER trg_invocation_transition_update
+    BEFORE UPDATE OF status ON invocation
+    WHEN NEW.status <> OLD.status
+      AND NOT (
+        (OLD.status = 'planned' AND NEW.status IN ('starting','terminating','terminated'))
+        OR (OLD.status = 'starting' AND NEW.status IN ('running','terminating','terminated'))
+        OR (OLD.status = 'running' AND NEW.status IN ('terminating','terminated'))
+        OR (OLD.status = 'terminating' AND NEW.status = 'terminated')
+      )
+    BEGIN
+      SELECT RAISE(ABORT, 'invalid_invocation_transition');
+    END;
+
+    CREATE TRIGGER trg_invocation_outcome_update
+    BEFORE UPDATE OF status, outcome ON invocation
+    WHEN (NEW.status = 'terminated' AND (
+            NEW.outcome IS NULL
+            OR NEW.outcome NOT IN ('completed','failed','cancelled','timed_out')
+          ))
+      OR (NEW.status <> 'terminated' AND NEW.outcome IS NOT NULL)
+    BEGIN
+      SELECT RAISE(ABORT, 'invalid_invocation_outcome');
+    END;
+
+    CREATE TRIGGER trg_invocation_outcome_insert
+    BEFORE INSERT ON invocation
+    WHEN (NEW.status = 'terminated' AND (
+            NEW.outcome IS NULL
+            OR NEW.outcome NOT IN ('completed','failed','cancelled','timed_out')
+          ))
+      OR (NEW.status <> 'terminated' AND NEW.outcome IS NOT NULL)
+    BEGIN
+      SELECT RAISE(ABORT, 'invalid_invocation_outcome');
+    END;
+  `);
+}
 
 beforeEach(() => {
   const db = createTestDb();
@@ -637,6 +695,87 @@ describe('invocation-repo', () => {
     expect(inv.account_id).toBe('acct-1');
     expect(inv.prompt).toBe('Fix the bug');
     expect(inv.session_id).toBe('ses-1');
+  });
+
+  it('maps the legacy runtime lifecycle onto the managed invocation schema', () => {
+    installManagedInvocationSchema();
+    const inv = invocationRepo.create({
+      id: 'inv-managed',
+      conversation_id: 'conv-1',
+      agent_id: 'agent-a',
+    });
+    expect(inv).toMatchObject({ status: 'planned', outcome: null, revision: 0 });
+
+    invocationRepo.updateStatus(inv.id, 'running', { cli_session_id: 'runtime-1' });
+    expect(invocationRepo.getById(inv.id)).toMatchObject({
+      status: 'running',
+      outcome: null,
+      cli_session_id: 'runtime-1',
+      started_at: expect.any(String),
+      revision: 2,
+    });
+
+    expect(invocationRepo.settleIfActive(inv.id, 'succeeded', { exit_code: 0 })).toBe(true);
+    expect(invocationRepo.settleIfActive(inv.id, 'failed', { reason_code: 'late_failure' })).toBe(false);
+    expect(invocationRepo.getById(inv.id)).toMatchObject({
+      status: 'terminated',
+      outcome: 'completed',
+      exit_code: 0,
+      terminated_at: expect.any(String),
+      revision: 3,
+    });
+  });
+
+  it('confirms runtime identity without prematurely settling a managed invocation', () => {
+    installManagedInvocationSchema();
+    sessionRepo.create({ id: 'ses-1', conversationId: 'conv-1', agentId: 'agent-a', taskId: 'task-1' });
+    invocationRepo.create({
+      id: 'inv-1', conversation_id: 'conv-1', agent_id: 'agent-a', session_id: 'ses-1',
+    });
+    invocationRepo.updateStatus('inv-1', 'running');
+
+    expect(sessionRepo.confirmRuntimeSessionId('ses-1', 'runtime-managed', 'inv-1')).toEqual({
+      status: 'bound', current: 'runtime-managed',
+    });
+    expect(invocationRepo.getById('inv-1')).toMatchObject({
+      status: 'running',
+      outcome: null,
+      cli_session_id: 'runtime-managed',
+    });
+
+    expect(invocationRepo.settleIfActive('inv-1', 'failed', {
+      reason_code: 'timeout',
+    })).toBe(true);
+    sessionRepo.confirmRuntimeSessionId('ses-1', 'runtime-managed', 'inv-1');
+    expect(invocationRepo.getById('inv-1')).toMatchObject({
+      status: 'terminated',
+      outcome: 'timed_out',
+      reason_code: 'timeout',
+    });
+  });
+
+  it('maps managed timeout and restart settlement to terminal outcomes', () => {
+    installManagedInvocationSchema();
+    invocationRepo.create({ id: 'inv-timeout', conversation_id: 'conv-1', agent_id: 'agent-a' });
+    invocationRepo.create({ id: 'inv-orphan', conversation_id: 'conv-1', agent_id: 'agent-b' });
+    invocationRepo.updateStatus('inv-timeout', 'running');
+    expect(invocationRepo.settleIfActive('inv-timeout', 'failed', {
+      reason_code: 'timeout',
+      exit_code: 1,
+    })).toBe(true);
+    expect(invocationRepo.getById('inv-timeout')).toMatchObject({
+      status: 'terminated',
+      outcome: 'timed_out',
+      reason_code: 'timeout',
+    });
+
+    expect(invocationRepo.failActiveAfterRestart(new Date('2026-07-28T00:00:00.000Z'))).toBe(1);
+    expect(invocationRepo.getById('inv-orphan')).toMatchObject({
+      status: 'terminated',
+      outcome: 'failed',
+      reason_code: 'process_restarted',
+      terminated_at: '2026-07-28T00:00:00.000Z',
+    });
   });
 });
 

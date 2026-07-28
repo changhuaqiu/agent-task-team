@@ -51,7 +51,8 @@ function hasActiveTaskInvocation(conversationId: string, taskId: string, agentId
   return invocationRepo.getByConversation(conversationId).some((invocation) => (
     invocation.task_id === taskId
     && invocation.agent_id === agentId
-    && !['succeeded', 'failed', 'canceled'].includes(invocation.status)
+    && !['succeeded', 'failed', 'canceled', 'cancelled', 'timed_out', 'terminated']
+      .includes(invocation.status)
   ));
 }
 

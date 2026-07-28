@@ -1,4 +1,5 @@
 import { getDb } from '../db/index';
+import { usesManagedInvocationLifecycle } from './invocation-repo';
 
 export interface AgentSessionRow {
   id: string;
@@ -167,6 +168,16 @@ export const sessionRepo = {
       }
 
       if (binding.status === 'mismatch') return binding;
+      if (usesManagedInvocationLifecycle()) {
+        getDb()
+          .prepare(
+            `UPDATE invocation
+             SET cli_session_id = ?, updated_at = ?, revision = revision + 1
+             WHERE id = ? AND status != 'terminated'`,
+          )
+          .run(runtimeSessionId, new Date().toISOString(), invocationId);
+        return binding;
+      }
       getDb()
         .prepare(
           `UPDATE invocation
@@ -181,10 +192,13 @@ export const sessionRepo = {
 
   releaseUnconfirmedRuntimeSessionId(id: string, runtimeSessionId: string): boolean {
     return getDb().transaction(() => {
+      const succeededPredicate = usesManagedInvocationLifecycle()
+        ? "status = 'terminated' AND outcome = 'completed'"
+        : "status = 'succeeded'";
       const history = getDb()
         .prepare(
           `SELECT COUNT(*) AS total,
-                  SUM(CASE WHEN status = 'succeeded' THEN 1 ELSE 0 END) AS succeeded
+                  SUM(CASE WHEN ${succeededPredicate} THEN 1 ELSE 0 END) AS succeeded
            FROM invocation
            WHERE session_id = ?`,
         )
@@ -205,16 +219,26 @@ export const sessionRepo = {
       const session = sessionRepo.getById(id);
       if (!session || session.status !== 'active' || !session.cli_session_id) return false;
 
+      const managedLifecycle = usesManagedInvocationLifecycle();
       const latest = getDb()
         .prepare(
-          `SELECT status, reason_code
+          `SELECT status, reason_code${managedLifecycle ? ', outcome' : ''}
            FROM invocation
            WHERE session_id = ?
            ORDER BY created_at DESC, id DESC
            LIMIT 1`,
         )
-        .get(id) as { status: string; reason_code: string | null } | undefined;
-      if (latest?.status !== 'failed' || latest.reason_code !== 'acp_session_load_failed') {
+        .get(id) as {
+          status: string;
+          reason_code: string | null;
+          outcome?: string | null;
+        } | undefined;
+      const failedStatus = managedLifecycle ? 'terminated' : 'failed';
+      if (
+        latest?.status !== failedStatus
+        || latest.reason_code !== 'acp_session_load_failed'
+        || (managedLifecycle && latest.outcome !== 'failed')
+      ) {
         return false;
       }
 

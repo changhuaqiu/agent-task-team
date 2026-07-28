@@ -377,6 +377,27 @@ This is a temporary compatibility path for development servers and persisted dat
 that cross the schema rollout boundary. Remove it once every supported branch uses
 the acknowledgement-only repository and daemon contract.
 
+### Invocation schema compatibility
+
+The same development data directory can expose the managed Invocation lifecycle
+before every daemon branch has adopted it. Invocation persistence must inspect the
+actual table contract instead of relying on the migration watermark:
+
+- legacy tables use `queued/running/succeeded/failed`;
+- tables with `outcome`, `started_at`, `terminated_at`, and `revision` use
+  `planned → starting → running → terminating/terminated`;
+- legacy completion states map to terminal outcomes:
+  `succeeded → completed`, ordinary `failed → failed`, cancellation failures
+  `→ cancelled`, and timeout failures `→ timed_out`;
+- runtime-session confirmation may enrich an active managed Invocation but must
+  not settle it or reverse an existing terminal outcome;
+- daemon restart settlement terminates every managed non-terminal Invocation with
+  outcome `failed` and reason `process_restarted`;
+- managed terminal state is monotonic and cannot be reopened by late callbacks.
+
+This compatibility is required whenever a newer branch has already migrated the
+shared development database but an older daemon branch is selected for local work.
+
 ## Dispatch Gateway Pipeline
 
 ```text

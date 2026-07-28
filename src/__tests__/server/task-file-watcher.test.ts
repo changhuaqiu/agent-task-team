@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdirSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { createTestDb, resetDb, setTestDb } from '@/server/db/index';
+import { createTestDb, getDb, resetDb, setTestDb } from '@/server/db/index';
 import { upsertAgent } from '@/server/db/agentQueries';
 import { resetSeq } from '@/server/repositories/sortable-id';
 import { conversationRepo } from '@/server/repositories/conversation-repo';
@@ -16,6 +16,54 @@ import { startTaskWatcher, stopTaskWatcher, syncTasksToDb } from '@/server/task-
 import type { Server as IOServer } from 'socket.io';
 
 let projectPath: string;
+
+function installManagedInvocationSchema(): void {
+  getDb().exec(`
+    ALTER TABLE invocation ADD COLUMN outcome TEXT;
+    ALTER TABLE invocation ADD COLUMN started_at TEXT;
+    ALTER TABLE invocation ADD COLUMN terminated_at TEXT;
+    ALTER TABLE invocation ADD COLUMN revision INTEGER NOT NULL DEFAULT 0;
+
+    CREATE TRIGGER trg_invocation_status_insert
+    BEFORE INSERT ON invocation
+    WHEN NEW.status NOT IN ('planned','starting','running','terminating','terminated')
+    BEGIN SELECT RAISE(ABORT, 'invalid_invocation_status'); END;
+
+    CREATE TRIGGER trg_invocation_status_update
+    BEFORE UPDATE OF status ON invocation
+    WHEN NEW.status NOT IN ('planned','starting','running','terminating','terminated')
+    BEGIN SELECT RAISE(ABORT, 'invalid_invocation_status'); END;
+
+    CREATE TRIGGER trg_invocation_transition_update
+    BEFORE UPDATE OF status ON invocation
+    WHEN NEW.status <> OLD.status
+      AND NOT (
+        (OLD.status = 'planned' AND NEW.status IN ('starting','terminating','terminated'))
+        OR (OLD.status = 'starting' AND NEW.status IN ('running','terminating','terminated'))
+        OR (OLD.status = 'running' AND NEW.status IN ('terminating','terminated'))
+        OR (OLD.status = 'terminating' AND NEW.status = 'terminated')
+      )
+    BEGIN SELECT RAISE(ABORT, 'invalid_invocation_transition'); END;
+
+    CREATE TRIGGER trg_invocation_outcome_insert
+    BEFORE INSERT ON invocation
+    WHEN (NEW.status = 'terminated' AND (
+            NEW.outcome IS NULL
+            OR NEW.outcome NOT IN ('completed','failed','cancelled','timed_out')
+          ))
+      OR (NEW.status <> 'terminated' AND NEW.outcome IS NOT NULL)
+    BEGIN SELECT RAISE(ABORT, 'invalid_invocation_outcome'); END;
+
+    CREATE TRIGGER trg_invocation_outcome_update
+    BEFORE UPDATE OF status, outcome ON invocation
+    WHEN (NEW.status = 'terminated' AND (
+            NEW.outcome IS NULL
+            OR NEW.outcome NOT IN ('completed','failed','cancelled','timed_out')
+          ))
+      OR (NEW.status <> 'terminated' AND NEW.outcome IS NOT NULL)
+    BEGIN SELECT RAISE(ABORT, 'invalid_invocation_outcome'); END;
+  `);
+}
 
 beforeEach(() => {
   setTestDb(createTestDb());
@@ -254,6 +302,33 @@ describe('syncTasksToDb', () => {
     }));
 
     invocationRepo.updateStatus('inv-active', 'succeeded');
+    syncTasksToDb(projectPath, 'conv-1', io as unknown as IOServer);
+    expect(taskRepo.getById('TASK-003')?.status).toBe('pending');
+  });
+
+  it('releases stale-file protection after a managed invocation terminates', () => {
+    installManagedInvocationSchema();
+    taskRepo.create({
+      id: 'TASK-003',
+      conversation_id: 'conv-1',
+      title: '淇 A2A 閫氱煡',
+      agent_id: 'toad',
+    });
+    taskRepo.updateStatus('TASK-003', 'in_progress');
+    invocationRepo.create({
+      id: 'inv-managed',
+      conversation_id: 'conv-1',
+      task_id: 'TASK-003',
+      agent_id: 'toad',
+    });
+    writeTasksMd('todo');
+
+    const emit = vi.fn();
+    const io = { to: vi.fn(() => ({ emit })), emit: vi.fn() };
+    syncTasksToDb(projectPath, 'conv-1', io as unknown as IOServer);
+    expect(taskRepo.getById('TASK-003')?.status).toBe('in_progress');
+
+    expect(invocationRepo.settleIfActive('inv-managed', 'succeeded')).toBe(true);
     syncTasksToDb(projectPath, 'conv-1', io as unknown as IOServer);
     expect(taskRepo.getById('TASK-003')?.status).toBe('pending');
   });
