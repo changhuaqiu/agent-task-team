@@ -106,4 +106,40 @@ describe('ACP permission policy', () => {
       outcome: { outcome: 'selected', optionId: 'reject' },
     });
   });
+
+  it('allows an exact scoped platform MCP title when the adapter omits MCP metadata', async () => {
+    const toolName = 'mcp__agent-task-team-random__task_update_status';
+    const policy = createCorrelatedPlatformMcpPermissionPolicy(
+      'deny',
+      new Set(),
+      new Set([toolName]),
+    );
+    const exactPlatformRequest = {
+      ...request,
+      toolCall: {
+        ...request.toolCall,
+        toolCallId: 'title-matched-call',
+        title: toolName,
+        kind: 'other',
+      },
+    } as RequestPermissionRequest;
+    const unknownToolRequest = {
+      ...exactPlatformRequest,
+      toolCall: {
+        ...exactPlatformRequest.toolCall,
+        toolCallId: 'unknown-call',
+        title: 'mcp__agent-task-team-random__task_assign',
+      },
+    } as RequestPermissionRequest;
+
+    await expect(createPermissionHandler(policy)(exactPlatformRequest)).resolves.toEqual({
+      outcome: { outcome: 'selected', optionId: 'allow-once' },
+    });
+    await expect(createPermissionHandler(policy)(exactPlatformRequest)).resolves.toEqual({
+      outcome: { outcome: 'selected', optionId: 'reject' },
+    });
+    await expect(createPermissionHandler(policy)(unknownToolRequest)).resolves.toEqual({
+      outcome: { outcome: 'selected', optionId: 'reject' },
+    });
+  });
 });

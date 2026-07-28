@@ -489,6 +489,7 @@ export class AcpBackend implements AgentBackend {
           createCorrelatedPlatformMcpPermissionPolicy(
             this.o.permissionPolicy ?? 'deny',
             approvedMcpToolCallIds,
+            autoApprovedMcpToolNames,
           ),
           this.o.permissionTimeoutMs,
         );

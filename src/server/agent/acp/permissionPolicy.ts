@@ -13,11 +13,22 @@ export type AcpPermissionPolicy =
 export function createCorrelatedPlatformMcpPermissionPolicy(
   basePolicy: AcpPermissionPolicy,
   approvedToolCallIds: Set<string>,
+  approvedToolNames: ReadonlySet<string> = new Set(),
 ): AcpPermissionPolicy {
   const consumedToolCallIds = new Set<string>();
   return async (request) => {
     const toolCallId = request.toolCall.toolCallId;
-    if (request._meta?.is_mcp_tool_approval === true && !consumedToolCallIds.has(toolCallId)) {
+    if (consumedToolCallIds.has(toolCallId)) {
+      return typeof basePolicy === 'function' ? basePolicy(request) : basePolicy;
+    }
+    if (
+      typeof request.toolCall.title === 'string'
+      && approvedToolNames.has(request.toolCall.title)
+    ) {
+      consumedToolCallIds.add(toolCallId);
+      return 'allow_once';
+    }
+    if (request._meta?.is_mcp_tool_approval === true) {
       const deadline = Date.now() + 250;
       do {
         if (approvedToolCallIds.delete(toolCallId)) {
