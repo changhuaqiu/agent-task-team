@@ -83,6 +83,13 @@ export class DeliveryControlProcessManager {
         throw new Error(`Claimed ControlAction is missing from decision: ${claim.id}`);
       }
       try {
+        if (!this.decisions.isClaimActive({
+          actionId: claim.id,
+          claimToken: claim.claim_token,
+          now: this.now(),
+        })) {
+          continue;
+        }
         const result = await this.options.commands.execute(action, {
           decision,
           snapshot,

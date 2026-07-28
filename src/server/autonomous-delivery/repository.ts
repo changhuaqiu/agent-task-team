@@ -1,3 +1,4 @@
+import type Database from 'better-sqlite3';
 import { getDb } from '../db';
 import { generateSortableId } from '../repositories/sortable-id';
 import { DomainEventPublisher } from '../platform-events/domain-events';
@@ -89,6 +90,12 @@ function canonicalize(value: unknown): unknown {
 }
 
 export class AutonomousDeliveryRepository {
+  constructor(private readonly database?: Database.Database) {}
+
+  private db(): Database.Database {
+    return this.database ?? getDb();
+  }
+
   createRun(contract: GoalContract, now: Date = new Date()): DeliveryRunSnapshot {
     const timestamp = nowIso(now);
     const idempotencyKey = contract.idempotencyKey.trim();
@@ -99,7 +106,7 @@ export class AutonomousDeliveryRepository {
     };
     const contractJson = JSON.stringify(canonicalize(normalizedContract));
     const id = generateSortableId('delivery');
-    const db = getDb();
+    const db = this.db();
     return db.transaction(() => {
       const existing = db.prepare(`
         SELECT id,goal_contract_json FROM autonomous_delivery_run
@@ -156,12 +163,12 @@ export class AutonomousDeliveryRepository {
   }
 
   getRun(runId: string): DeliveryRunRow | undefined {
-    return getDb().prepare('SELECT * FROM autonomous_delivery_run WHERE id=?')
+    return this.db().prepare('SELECT * FROM autonomous_delivery_run WHERE id=?')
       .get(runId) as DeliveryRunRow | undefined;
   }
 
   getLatestByConversation(conversationId: string): DeliveryRunSnapshot | undefined {
-    const row = getDb().prepare(
+    const row = this.db().prepare(
       `SELECT * FROM autonomous_delivery_run
        WHERE conversation_id=?
        ORDER BY created_at DESC, id DESC LIMIT 1`,
@@ -170,7 +177,7 @@ export class AutonomousDeliveryRepository {
   }
 
   listReconcileCandidates(): DeliveryRunRow[] {
-    return getDb().prepare(
+    return this.db().prepare(
       `SELECT * FROM autonomous_delivery_run
        WHERE status NOT IN ('waiting_human','completed','failed','cancelled')
        ORDER BY updated_at ASC, id ASC`,
@@ -180,7 +187,7 @@ export class AutonomousDeliveryRepository {
   getSnapshot(runId: string): DeliveryRunSnapshot | undefined {
     const run = this.getRun(runId);
     if (!run) return undefined;
-    const receipts = getDb().prepare(
+    const receipts = this.db().prepare(
       'SELECT * FROM autonomous_delivery_receipt WHERE run_id=? ORDER BY observed_at ASC, id ASC',
     ).all(runId) as DeliveryReceiptRow[];
     return {
@@ -194,7 +201,7 @@ export class AutonomousDeliveryRepository {
   }
 
   getReceiptByIdempotencyKey(idempotencyKey: string): DeliveryReceiptRow | undefined {
-    return getDb().prepare(
+    return this.db().prepare(
       'SELECT * FROM autonomous_delivery_receipt WHERE idempotency_key=?',
     ).get(idempotencyKey) as DeliveryReceiptRow | undefined;
   }
@@ -219,7 +226,7 @@ export class AutonomousDeliveryRepository {
     const completedAt = ['completed', 'failed', 'cancelled'].includes(input.to)
       ? timestamp
       : null;
-    const db = getDb();
+    const db = this.db();
     return db.transaction(() => {
       const previous = this.getRun(input.runId);
       if (!previous) return undefined;
@@ -344,7 +351,7 @@ export class AutonomousDeliveryRepository {
     const idempotencyKey = input.receipt.idempotencyKey
       ?? `${input.runId}:${input.receipt.kind}:${input.receipt.externalId ?? 'observation'}`;
     const payloadJson = JSON.stringify(canonicalize(input.receipt.payload ?? {}));
-    const db = getDb();
+    const db = this.db();
     return db.transaction(() => {
       const run = this.getRun(input.runId);
       if (!run) throw new InvalidDeliveryRunStateError(input.runId, 'receipt run is missing');

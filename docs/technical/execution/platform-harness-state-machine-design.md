@@ -265,6 +265,11 @@ WebUI message
 
 ### 5.1 Task 状态机的已落地边界
 
+所有 WebUI、通用工具、Skill Tool、Engineering receipt 与 ControlAction 对 Task 的写入都必须进入
+`TaskCommandService / TaskGraphRepository` owner command。命令冻结 graph revision、Task revision、
+幂等键和 trace；改派 owner 时同事务关闭旧 `WorkAuthority`，物理删除被收敛为可审计的
+`cancelled` 迁移。API 与 Agent 工具不得直接调用 `taskRepo.create/transition/update/delete`。
+
 Task owner 已采用上述七个规范状态，并通过显式 `transition` 同时校验前态、目标态与单调
 递增的 `Task.revision`。WorkContract 和 QualityGate 的 artifactRevision 都冻结该整数版本，
 不再用可能在同一毫秒重复的 `updated_at` 冒充 CAS 版本。
@@ -686,12 +691,26 @@ terminated 释放 slot 后重新决策，fairness aging 防止长期饥饿。这
 `idempotencyKey` 与 Human actor；Delivery owner 先原子记录 `human.manual_resume` receipt，
 再以 `delivery.receipt.recorded` 的 eventId 作为 `delivery.run.state_changed` 的 causation。
 相同命令重放只返回当前快照，不增加 Run revision，也不重复生成 ControlAction。
+当前本地单用户部署由服务端把受信 WebUI ingress 标记为 `webui:local-user`，不接受请求体伪造
+actorId；未来接入多用户认证时，该字段只能由认证 principal 替换。
 
 Agent Inbox 的 lease token 只在 `lease_expires_at > now` 时有效。renew、release、admit 和 expire
 都在 SQL CAS 中检查 token 与有效期；因此即使回收扫描尚未运行，过期 worker 也不能提交迟到结果。
+ControlAction claim 使用相同规则：执行 owner Command 前复核有效期，complete/fail 也在 SQL CAS
+中校验未过期；迁移 75 同时冻结 Delivery start idempotency key，并禁止 claimed action 缺少完整
+lease token/owner/expiry。
 
 Task Graph mutation 的精确重放返回首次提交时冻结的 `result_json` 和 revision，而不是重新读取当前
 Graph。后续 revision 不得改变旧命令的响应语义。
+迁移前未保存原始结果的历史 commit 无法被可靠重建，因此明确 fail closed 为
+`task_graph_legacy_replay_unavailable`，不伪造“当前状态就是首次结果”的兼容响应。
+
+Group-chat split 同时写入规范 `depends_on` edge 和 Task owner 使用的 `task.dependencies`，两者方向
+统一为“当前 Task 依赖目标 Task”。Control snapshot 因此不会把 Human 创建的依赖分支提前并发激活。
+
+可注入数据库的 Process Manager 必须把同一个 DB 传给 Gate 与 Delivery repository；不得从注入 DB
+读取 Outcome、再向全局 DB 写 owner 事实。Engineering ToolInvocation 把 WorkContract 根
+correlation/causation 传入 Task 与 Gate，provider receipt 链不会另起 trace。
 
 错误不能只是一段 CLI 文本。Adapter 先保留原始诊断，再归一化为有语义的事实。
 

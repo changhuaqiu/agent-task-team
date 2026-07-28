@@ -3,7 +3,10 @@ import type {
   AcceptanceReviewReceipt,
   AcceptanceVerificationReceipt,
 } from '../autonomous-delivery/types';
-import { autonomousDeliveryRepo } from '../autonomous-delivery/repository';
+import {
+  AutonomousDeliveryRepository,
+  autonomousDeliveryRepo,
+} from '../autonomous-delivery/repository';
 import { validateAcceptanceVerificationReceipt } from '../autonomous-delivery/verification-receipt';
 import { getDb } from '../db';
 import type { PlatformEventHandler } from '../platform-events/dispatcher';
@@ -72,10 +75,11 @@ function deliveryReceipt(
   gate: QualityGateRow,
   contract: WorkContractRow,
   payload: GateOutcomePayload,
+  deliveries: AutonomousDeliveryRepository,
 ): AcceptanceReviewReceipt | AcceptanceVerificationReceipt | undefined {
   if (gate.target_type !== 'delivery_run') return undefined;
   const runId = contract.delivery_run_id;
-  const snapshot = runId ? autonomousDeliveryRepo.getSnapshot(runId) : undefined;
+  const snapshot = runId ? deliveries.getSnapshot(runId) : undefined;
   if (!snapshot) throw new QualityGateInvariantError('gate_outcome_delivery_missing');
   if (gate.kind === 'acceptance_verification') {
     const candidate = validateAcceptanceVerificationReceipt(payload.receipt, snapshot);
@@ -113,15 +117,19 @@ function deliveryReceipt(
 export interface GateOutcomeProcessManagerOptions {
   db?: Database.Database;
   gates?: QualityGateRepository;
+  deliveries?: AutonomousDeliveryRepository;
 }
 
 export class GateOutcomeProcessManager {
   private readonly database?: Database.Database;
   private readonly gates: QualityGateRepository;
+  private readonly deliveries: AutonomousDeliveryRepository;
 
   constructor(options: GateOutcomeProcessManagerOptions = {}) {
     this.database = options.db;
-    this.gates = options.gates ?? new QualityGateRepository();
+    this.gates = options.gates ?? new QualityGateRepository(options.db);
+    this.deliveries = options.deliveries
+      ?? (options.db ? new AutonomousDeliveryRepository(options.db) : autonomousDeliveryRepo);
   }
 
   readonly handle: PlatformEventHandler = (event, { signal }) => {
@@ -141,7 +149,7 @@ export class GateOutcomeProcessManager {
       const gate = this.gates.get(payload.gateId);
       if (!gate) throw new QualityGateInvariantError('gate_outcome_gate_missing');
       assertContractTarget(gate, contract);
-      const receipt = deliveryReceipt(gate, contract, payload);
+      const receipt = deliveryReceipt(gate, contract, payload, this.deliveries);
       const evidenceKey = `agent-outcome:${outcome.id}`;
       const current = this.gates.getSnapshot(gate.id)!;
       const existingEvidence = current.evidence.find((item) =>
@@ -201,7 +209,7 @@ export class GateOutcomeProcessManager {
     causationId: string,
   ): void {
     if (!receipt || gate.target_type !== 'delivery_run') return;
-    autonomousDeliveryRepo.recordReceipt({
+    this.deliveries.recordReceipt({
       runId: gate.target_id,
       receipt: {
         kind: gate.kind === 'delivery_review'

@@ -13,6 +13,10 @@ import { messageRepo } from '../repositories/message-repo';
 import { proofLogRepo } from '../repositories/proof-log-repo';
 import { taskGraphRepo, type TaskActionRow } from '../repositories/task-graph-repo';
 import { taskRepo, type TaskRow } from '../repositories/task-repo';
+import {
+  stableTaskCommandKey,
+  taskCommandService,
+} from '../repositories/task-command-service';
 import { resolveTaskNotificationAudience } from '../task-flow/task-notification-publisher';
 import type { GitProviderVerifier } from './git-provider';
 import { qualityGateRepo } from '../quality-gate/repository';
@@ -123,6 +127,8 @@ export class EngineeringCollaborationService {
     actorAgentId: string;
     pullRequestUrl: string;
     evidence: ImplementationEvidence;
+    correlationId?: string;
+    causationId?: string;
   }): Promise<{ receipt: PullRequestReceipt; card: EngineeringCollaborationCard; messageId: string }> {
     const task = assertTask(input.taskId);
     assertConversation(task, input.expectedConversationId);
@@ -181,14 +187,30 @@ export class EngineeringCollaborationService {
             actor: { type: 'agent', id: input.actorAgentId },
             reason: `artifact_superseded:${receipt.headSha}`,
             expectedRevision: supersededGate.gate.revision,
+            correlationId: input.correlationId,
+            causationId: input.causationId,
           });
         }
-        reviewableTask = taskRepo.transition(task.id, {
+        const reworkKey = stableTaskCommandKey('engineering:pr-rework', {
+          taskId: task.id,
+          taskRevision: reviewableTask.revision,
+          headSha: receipt.headSha,
+        });
+        reviewableTask = taskCommandService.transition({
+          conversationId: task.conversation_id,
+          taskId: task.id,
+          expectedTaskRevision: reviewableTask.revision,
+          expectedGraphRevision: taskCommandService.expectedGraphRevision(
+            task.conversation_id,
+            reworkKey,
+          ),
+          idempotencyKey: reworkKey,
+          actor: { type: 'agent', id: input.actorAgentId },
+          correlationId: input.correlationId,
+          causationId: input.causationId,
           to: 'in_progress',
-          expectedFrom: 'in_review',
-          expectedRevision: reviewableTask.revision,
           reviewNote: 'A new provider artifact superseded the pending review.',
-        })!;
+        }).result.task;
       }
       const readinessGate = evaluateTaskStatusEvidenceGate({
         task: reviewableTask,
@@ -204,11 +226,25 @@ export class EngineeringCollaborationService {
           readinessGate.message ?? 'Implementation readiness gate rejected the pull request',
         );
       }
-      reviewableTask = taskRepo.transition(task.id, {
+      const reviewKey = stableTaskCommandKey('engineering:pr-reviewable', {
+        taskId: task.id,
+        taskRevision: reviewableTask.revision,
+        headSha: receipt.headSha,
+      });
+      reviewableTask = taskCommandService.transition({
+        conversationId: task.conversation_id,
+        taskId: task.id,
+        expectedTaskRevision: reviewableTask.revision,
+        expectedGraphRevision: taskCommandService.expectedGraphRevision(
+          task.conversation_id,
+          reviewKey,
+        ),
+        idempotencyKey: reviewKey,
+        actor: { type: 'agent', id: input.actorAgentId },
+        correlationId: input.correlationId,
+        causationId: input.causationId,
         to: 'in_review',
-        expectedFrom: 'in_progress',
-        expectedRevision: reviewableTask.revision,
-      })!;
+      }).result.task;
       const gate = qualityGateRepo.request({
         conversationId: task.conversation_id,
         kind: 'code_review',
@@ -227,6 +263,8 @@ export class EngineeringCollaborationService {
           authorizedEvaluatorIds: reviewAudience.reviewGateAgentIds,
         },
         actor: { type: 'agent', id: input.actorAgentId },
+        correlationId: input.correlationId,
+        causationId: input.causationId,
       });
       const action = taskGraphRepo.appendAction({
         conversationId: task.conversation_id,
@@ -303,6 +341,8 @@ export class EngineeringCollaborationService {
     pullRequestUrl: string;
     reviewUrl: string;
     evidence: ReviewEvidence;
+    correlationId?: string;
+    causationId?: string;
   }): Promise<{ receipt: ReviewReceipt; card: EngineeringCollaborationCard; messageId: string }> {
     const task = assertTask(input.taskId);
     assertConversation(task, input.expectedConversationId);
@@ -404,12 +444,16 @@ export class EngineeringCollaborationService {
         sourceRef: receipt.reviewUrl,
         actor: { type: 'agent', id: input.actorAgentId },
         idempotencyKey: `task-review:${action.id}`,
+        correlationId: input.correlationId,
+        causationId: input.causationId,
       });
       const evaluating = gate.gate.status === 'requested'
         ? qualityGateRepo.beginEvaluation({
             gateId: gate.gate.id,
             evaluator: { type: 'agent', id: input.actorAgentId },
             expectedRevision: gate.gate.revision,
+            correlationId: input.correlationId,
+            causationId: input.causationId,
           })
         : gate;
       if (changesRequested || passed) {
@@ -420,6 +464,8 @@ export class EngineeringCollaborationService {
           evidenceIds: [gateEvidence.id],
           reason: input.evidence.summary,
           expectedRevision: evaluating.gate.revision,
+          correlationId: input.correlationId,
+          causationId: input.causationId,
         });
       }
       proofLogRepo.append({
@@ -440,6 +486,8 @@ export class EngineeringCollaborationService {
     actorAgentId: string;
     pullRequestUrl: string;
     evidence: MergeEvidence;
+    correlationId?: string;
+    causationId?: string;
   }): Promise<{ receipt: MergeReceipt; card: EngineeringCollaborationCard; messageId: string }> {
     const task = assertTask(input.taskId);
     assertConversation(task, input.expectedConversationId);

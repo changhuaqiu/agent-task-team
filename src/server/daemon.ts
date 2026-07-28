@@ -1695,6 +1695,8 @@ export default function registerDaemon(io: IOServer) {
           projectId,
           taskId,
           taskProjectDir,
+          correlationId: workContract?.correlationId ?? invocationTraceId,
+          causationId: workContract?.contractId ?? invocation.id,
           permittedTools: permittedAcpTools,
           workContract,
           io,

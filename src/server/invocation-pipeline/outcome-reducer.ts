@@ -2,6 +2,10 @@
 import type { Server as IOServer } from 'socket.io';
 import { proofLogRepo } from '../repositories/proof-log-repo';
 import { taskRepo } from '../repositories/task-repo';
+import {
+  stableTaskCommandKey,
+  taskCommandService,
+} from '../repositories/task-command-service';
 import { updateTaskInMd } from '../task-file-service';
 import type { TaskWakeup } from '../task-flow/task-wakeup';
 
@@ -22,11 +26,22 @@ export async function reduceAcceptedWakeup(io: IOServer, wakeup: TaskWakeup): Pr
   const previousTask = taskRepo.getById(wakeup.taskId);
   if (!previousTask || previousTask.status !== 'ready' || previousTask.agent_id !== wakeup.agentId) return;
 
-  const task = taskRepo.transition(wakeup.taskId, {
+  const idempotencyKey = wakeup.id
+    ? `task-wakeup:${wakeup.id}:start`
+    : stableTaskCommandKey('task-wakeup:start', wakeup);
+  const task = taskCommandService.transition({
+    conversationId: previousTask.conversation_id,
+    taskId: previousTask.id,
+    expectedTaskRevision: previousTask.revision,
+    expectedGraphRevision: taskCommandService.expectedGraphRevision(
+      previousTask.conversation_id,
+      idempotencyKey,
+    ),
+    idempotencyKey,
+    actor: { type: 'system', id: 'platform-harness' },
+    causationId: wakeup.id,
     to: 'in_progress',
-    expectedFrom: 'ready',
-  });
-  if (!task) return;
+  }).result.task;
   let projected = false;
   let projectionFailureCause = task.work_dir ? 'task_entry_missing' : 'work_dir_missing';
   let projectionErrorMessage: string | undefined;

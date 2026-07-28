@@ -58,11 +58,16 @@
 - [x] Delivery Run 生命周期已与阶段分离；reviewing 等阶段不再冒充运行状态。
 - [x] migration 58、revision CAS、数据库 transition/state guard 和终态不可变约束已落地。
 - [x] `waiting_human` 只能由 WebUI/API 发出的 `manual_resume` Human Command 恢复；
+  周期 reconcile 不会自行恢复。
 - [x] `manual_resume` 携带稳定幂等键和 Human actor；receipt 与 Run 恢复原子提交，精确重放不重复推进；
 - [x] Inbox 所有 lease 结算在 recovery sweep 前即以有效期 CAS fence stale worker；
 - [x] Task Graph mutation 精确重放首次冻结结果，不受后续 revision 影响；
 - [x] Gate evidence/decision 与 Delivery receipt 原子提交并发布可追踪 receipt event；
-  周期 reconcile 不会自行恢复。
+- [x] WebUI/Tool/Skill/Engineering/Control 的 Task 写入口收敛到 Task Graph owner command；
+- [x] Task 改派同事务关闭旧 WorkAuthority，删除改为可审计 cancelled；
+- [x] ControlAction settle 与执行前均 fence 过期 lease；migration 75 固化 lease shape 和启动幂等键；
+- [x] 注入 DB 贯穿 Gate/Delivery repository，历史无快照 replay 明确 fail closed；
+- [x] group-chat split 同步权威 dependencies，Engineering 工具链继承 WorkContract 根 trace；
 - [x] Delivery Run 切片通过 TypeScript、相关 lint 和全量 Vitest
   （188 files、1452 tests，1 skipped）。
 

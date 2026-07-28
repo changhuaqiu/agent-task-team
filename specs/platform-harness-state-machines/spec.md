@@ -59,6 +59,10 @@ Task、A2A、Gate、Context、Inbox、Invocation、Delivery、Effect 各自拥�
 跨 owner 写入必须使用 Command；owner 在同一事务中修改事实并写 Event Outbox。
 Process Manager 消费 Event 和 Query，不可直接改其他 owner 的表。
 
+Task 的唯一写入口是 `TaskCommandService / TaskGraphRepository` owner command。WebUI mutation、
+Agent Skill Tool、Engineering receipt 与 ControlAction 都必须携带幂等身份并冻结 graph/Task revision；
+改派同时关闭旧 WorkAuthority，删除命令落为 `cancelled`，禁止绕过 owner 直接写 `taskRepo`。
+
 ## 5. WorkContract
 
 每次 Agent 激活必须绑定不可变 WorkContract：
@@ -193,6 +197,8 @@ DeliveryRun 的生命周期状态与协作阶段必须分开：生命周期只�
 `manual_resume` 必须携带稳定 `idempotencyKey` 和 Human actor。Delivery owner 在同一事务中先记录
 `human.manual_resume` receipt，再以 receipt event 作为 Run 恢复事件的 causation；精确重放不得
 增加 Run revision 或再次计算控制动作。
+本地单用户 WebUI 的 actor 由服务端 ingress 固定为 `webui:local-user`，API 不信任客户端提交的
+actorId；多用户版本必须改用认证 principal。
 
 创建 DeliveryRun 的 `GoalContract` 必须携带稳定 `idempotencyKey`。仓储在一个立即事务内
 同时保证：相同 key + 相同规范化 Goal 返回原 Run；相同 key + 不同内容报语义冲突；同一
@@ -341,6 +347,13 @@ Human 可恢复失败。显式 `manual_resume` 后，旧阻塞事实不得再次
 所有 Inbox lease 结算（renew/release/admit/expire）必须同时校验 lease token 与未过期条件，
 不能依赖异步 recovery sweep 才 fence 掉 stale worker。Task Graph mutation 的精确重放必须返回
 首次提交冻结的 revision/result，不能随当前 Graph 漂移。
+
+ControlAction 在执行 owner Command 前以及 complete/fail 时都必须校验 claim 未过期；数据库约束
+保证 claimed 行拥有完整 token/owner/expiry。迁移前没有冻结 `result_json` 的历史 Task Graph commit
+必须 fail closed，不得从当前 Task 行伪造旧响应。
+
+Group-chat split 必须同时维护 `depends_on` edge 与 `task.dependencies`，并使用相同方向语义。
+所有支持 DB 注入的 Process Manager 必须把同一 DB 注入其 owner repositories，保证原子边界真实成立。
 
 ## 11. 命名迁移
 

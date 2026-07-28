@@ -129,6 +129,22 @@ describe('WorkContractRepository', () => {
     const contract = issue(repository, { attemptId: 'attempt-1' });
     const admission = repository.admitOutcome(outcome(contract, override));
     expect(admission).toMatchObject({ status: 'rejected', reasonCode });
+    if (reasonCode === 'correlation_mismatch') {
+      expect(new PlatformEventLog().listTrace(contract.correlationId)).toEqual([
+        expect.objectContaining({
+          type: 'work.contract.issued',
+        }),
+        expect.objectContaining({
+          type: 'agent.outcome.rejected',
+          correlationId: contract.correlationId,
+          payload: expect.objectContaining({
+            reasonCode: 'correlation_mismatch',
+            submittedCorrelationId: 'other-trace',
+          }),
+        }),
+      ]);
+      expect(new PlatformEventLog().listTrace('other-trace')).toEqual([]);
+    }
   });
 
   it('rejects a valid outcome type that the contract did not authorize', () => {

@@ -45,6 +45,8 @@ export type AcpSkillMcpScope = {
   projectId?: string;
   taskId?: string;
   taskProjectDir?: string;
+  correlationId?: string;
+  causationId?: string;
   permittedTools: string[];
   workContract?: WorkContract;
   io?: IOServer;
@@ -241,6 +243,8 @@ export async function executeAcpSkillMcpTool(
     projectId: grant.projectId,
     taskId: grant.taskId,
     taskProjectDir: grant.taskProjectDir,
+    correlationId: grant.correlationId,
+    causationId: grant.causationId,
     rateLimitKey: grant.rateLimitKey,
     io: grant.io,
   });

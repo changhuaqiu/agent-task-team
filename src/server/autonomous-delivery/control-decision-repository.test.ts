@@ -247,6 +247,38 @@ describe('ControlDecisionRepository', () => {
     })).toMatchObject({ status: 'claimed', attempt_count: 2 });
   });
 
+  it('fences stale completion and failure before the recovery sweep', () => {
+    const computed = decision();
+    store.persist({ projectId: 'project-1', decision: computed });
+    const action = store.listActions(computed.decisionId)[0]!;
+    const claimed = store.claim({
+      actionId: action.id,
+      workerId: 'stale-worker',
+      leaseMs: 1_000,
+      now: new Date('2026-07-28T00:00:01.000Z'),
+    });
+    const expiredAt = new Date('2026-07-28T00:00:03.000Z');
+
+    expect(store.isClaimActive({
+      actionId: action.id,
+      claimToken: claimed.claim_token!,
+      now: expiredAt,
+    })).toBe(false);
+    expect(store.complete({
+      actionId: action.id,
+      claimToken: claimed.claim_token!,
+      now: expiredAt,
+    })).toBe(false);
+    expect(store.fail({
+      actionId: action.id,
+      claimToken: claimed.claim_token!,
+      reasonCode: 'late_worker',
+      now: expiredAt,
+    })).toBe(false);
+    expect(store.listActions(computed.decisionId)[0]?.status).toBe('claimed');
+    expect(store.recoverExpired(expiredAt)).toBe(1);
+  });
+
   it('requeues command failures until max attempts then emits one authoritative failure fact', () => {
     const computed = decision();
     store.persist({ projectId: 'project-1', decision: computed });
@@ -255,7 +287,7 @@ describe('ControlDecisionRepository', () => {
       const claimed = store.claim({
         actionId: action.id,
         workerId: `worker-${attempt}`,
-        leaseMs: 1_000,
+        leaseMs: 20_000,
         now: new Date(`2026-07-28T00:00:0${attempt}.000Z`),
       });
       expect(store.fail({

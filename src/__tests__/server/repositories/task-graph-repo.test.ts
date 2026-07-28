@@ -10,6 +10,7 @@ import { messageRepo } from '@/server/repositories/message-repo';
 import {
   InvalidTaskGraphError,
   StaleTaskGraphRevisionError,
+  TaskGraphLegacyReplayUnavailableError,
   taskGraphRepo,
   type TaskActionRow,
 } from '@/server/repositories/task-graph-repo';
@@ -296,6 +297,25 @@ describe('taskGraphRepo atomic commit', () => {
       replayed: true,
     });
     expect(taskGraphRepo.revision('conv-1')).toBe(2);
+  });
+
+  it('fails closed for a legacy commit whose original result was not captured', () => {
+    const input = {
+      conversationId: 'conv-1',
+      expectedRevision: 0,
+      idempotencyKey: 'legacy-result-missing',
+      actorId: 'planner',
+      actorType: 'agent' as const,
+      tasks: [{ id: 'task-legacy-result', title: 'Legacy', agent_id: 'builder' }],
+    };
+    taskGraphRepo.commit(input);
+    db.prepare(
+      `UPDATE task_graph_commit SET result_json='{}' WHERE idempotency_key=?`,
+    ).run(input.idempotencyKey);
+    taskRepo.update('task-legacy-result', { title: 'Changed later' });
+
+    expect(() => taskGraphRepo.commit(input))
+      .toThrow(TaskGraphLegacyReplayUnavailableError);
   });
 });
 

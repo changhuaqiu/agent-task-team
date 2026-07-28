@@ -107,6 +107,11 @@ function rowCorrelationId(row: AgentInboxRow): string {
   return command.correlationId?.trim() || `agent-work:${row.id}`;
 }
 
+function rowCausationId(row: AgentInboxRow): string | undefined {
+  const command = JSON.parse(row.command_json) as AgentWorkCommand;
+  return command.causationId?.trim() || row.source_event_id || undefined;
+}
+
 export class AgentInboxConflictError extends Error {
   readonly reasonCode = 'agent_inbox_idempotency_conflict';
 }
@@ -173,7 +178,7 @@ export class AgentInbox {
         projectId: input.projectId,
         projectAgentId: input.projectAgentId,
         correlationId: command.correlationId!,
-        causationId: input.sourceEvent?.eventId,
+        causationId: command.causationId,
         payload: { sourceEventId: input.sourceEvent?.eventId, commandSource: command.source },
       });
       return this.get(id)!;
@@ -225,7 +230,7 @@ export class AgentInbox {
         projectId: candidate.project_id,
         projectAgentId: candidate.project_agent_id,
         correlationId: rowCorrelationId(candidate),
-        causationId: candidate.source_event_id ?? undefined,
+        causationId: rowCausationId(candidate),
         payload: { attemptCount: candidate.attempt_count + 1 },
       });
       return this.get(candidate.id);
@@ -255,7 +260,7 @@ export class AgentInbox {
           projectId: item.project_id,
           projectAgentId: item.project_agent_id,
           correlationId: rowCorrelationId(item),
-          causationId: item.source_event_id ?? undefined,
+          causationId: rowCausationId(item),
           payload: { reasonCode: 'lease_expired', attemptCount: item.attempt_count },
         });
       }
@@ -295,7 +300,7 @@ export class AgentInbox {
         projectId: item.project_id,
         projectAgentId: item.project_agent_id,
         correlationId: rowCorrelationId(item),
-        causationId: item.source_event_id ?? undefined,
+        causationId: rowCausationId(item),
         payload: { reasonCode, attemptCount: item.attempt_count },
       });
       return true;
@@ -403,7 +408,7 @@ export class AgentInbox {
         projectId: item.project_id,
         projectAgentId: item.project_agent_id,
         correlationId: rowCorrelationId(item),
-        causationId: item.source_event_id ?? undefined,
+        causationId: rowCausationId(item),
         payload: {
           attemptCount: item.attempt_count,
           ...(error ? { reasonCode: error } : {}),
@@ -431,7 +436,7 @@ export class AgentInbox {
         projectId: item.project_id,
         projectAgentId: item.project_agent_id,
         correlationId: rowCorrelationId(item),
-        causationId: item.source_event_id ?? undefined,
+        causationId: rowCausationId(item),
         payload: { reasonCode },
       });
     }

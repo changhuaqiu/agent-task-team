@@ -1,3 +1,4 @@
+﻿import type Database from 'better-sqlite3';
 import { getDb } from '../db';
 import { DomainEventPublisher } from '../platform-events/domain-events';
 import { generateSortableId } from '../repositories/sortable-id';
@@ -47,6 +48,12 @@ function requireText(value: string, field: string): string {
 }
 
 export class QualityGateRepository {
+  constructor(private readonly database?: Database.Database) {}
+
+  private db(): Database.Database {
+    return this.database ?? getDb();
+  }
+
   request(input: {
     conversationId: string;
     kind: QualityGateKind;
@@ -64,7 +71,7 @@ export class QualityGateRepository {
     const artifactRevision = requireText(input.artifactRevision, 'artifactRevision');
     const requestedBy = requireText(input.actor.id, 'actor.id');
     const timestamp = (input.now ?? new Date()).toISOString();
-    const db = getDb();
+    const db = this.db();
     return db.transaction(() => {
       const existing = db.prepare(`
         SELECT * FROM quality_gate
@@ -121,17 +128,17 @@ export class QualityGateRepository {
   }
 
   get(gateId: string): QualityGateRow | undefined {
-    return getDb().prepare('SELECT * FROM quality_gate WHERE id=?')
+    return this.db().prepare('SELECT * FROM quality_gate WHERE id=?')
       .get(gateId) as QualityGateRow | undefined;
   }
 
   getSnapshot(gateId: string): QualityGateSnapshot | undefined {
     const gate = this.get(gateId);
     if (!gate) return undefined;
-    const evidence = getDb().prepare(
+    const evidence = this.db().prepare(
       'SELECT * FROM quality_gate_evidence WHERE gate_id=? ORDER BY created_at,id',
     ).all(gateId) as QualityGateEvidenceRow[];
-    const decision = getDb().prepare('SELECT * FROM quality_gate_decision WHERE gate_id=?')
+    const decision = this.db().prepare('SELECT * FROM quality_gate_decision WHERE gate_id=?')
       .get(gateId) as QualityGateDecisionRow | undefined;
     return {
       gate,
@@ -148,7 +155,7 @@ export class QualityGateRepository {
     targetId: string;
     artifactRevision: string;
   }): QualityGateSnapshot | undefined {
-    const row = getDb().prepare(`
+    const row = this.db().prepare(`
       SELECT * FROM quality_gate
       WHERE kind=? AND target_type=? AND target_id=? AND artifact_revision=?
     `).get(
@@ -161,7 +168,7 @@ export class QualityGateRepository {
   }
 
   listForTarget(targetType: QualityGateTargetType, targetId: string): QualityGateRow[] {
-    return getDb().prepare(`
+    return this.db().prepare(`
       SELECT * FROM quality_gate
       WHERE target_type=? AND target_id=?
       ORDER BY created_at,id
@@ -183,7 +190,7 @@ export class QualityGateRepository {
     const submittedBy = requireText(input.actor.id, 'actor.id');
     const idempotencyKey = requireText(input.idempotencyKey, 'idempotencyKey');
     const timestamp = (input.now ?? new Date()).toISOString();
-    const db = getDb();
+    const db = this.db();
     return db.transaction(() => {
       const gate = this.get(input.gateId);
       if (!gate) throw new QualityGateInvariantError(`Quality gate not found: ${input.gateId}`);
@@ -266,7 +273,7 @@ export class QualityGateRepository {
       throw new QualityGateInvariantError('A gate decision requires evidence');
     }
     const timestamp = (input.now ?? new Date()).toISOString();
-    const db = getDb();
+    const db = this.db();
     return db.transaction(() => {
       const gate = this.get(input.gateId);
       if (!gate) throw new QualityGateInvariantError(`Quality gate not found: ${input.gateId}`);
@@ -379,7 +386,7 @@ export class QualityGateRepository {
     now?: Date;
   }): QualityGateSnapshot {
     const timestamp = (input.now ?? new Date()).toISOString();
-    const db = getDb();
+    const db = this.db();
     return db.transaction(() => {
       const gate = this.get(input.gateId);
       if (!gate) throw new QualityGateInvariantError(`Quality gate not found: ${input.gateId}`);
@@ -449,3 +456,4 @@ export class QualityGateRepository {
 }
 
 export const qualityGateRepo = new QualityGateRepository();
+

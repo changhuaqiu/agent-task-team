@@ -492,6 +492,51 @@ describe('SQLite Foundation', () => {
     expect(after.v).toBe(before.v);
   });
 
+  it('guards immutable Delivery start keys and claimed ControlAction lease shape', () => {
+    const now = '2026-07-28T08:00:00.000Z';
+    db.prepare(`
+      INSERT INTO conversation (id,title,status,created_at,updated_at)
+      VALUES ('conv-lease-guard','Lease guard','active',?,?)
+    `).run(now, now);
+    db.prepare(`
+      INSERT INTO autonomous_delivery_run (
+        id,conversation_id,status,current_stage,goal_contract_json,repair_cycle,revision,
+        created_at,updated_at,start_idempotency_key
+      ) VALUES ('run-lease-guard','conv-lease-guard','active','planning','{}',0,0,?,?,?)
+    `).run(now, now, 'start-key-1');
+    expect(() => db.prepare(`
+      UPDATE autonomous_delivery_run SET start_idempotency_key='rebound'
+      WHERE id='run-lease-guard'
+    `).run()).toThrow('delivery_run_start_idempotency_key_immutable');
+
+    db.prepare(`
+      INSERT INTO delivery_control_decision (
+        id,run_id,project_id,snapshot_revision,policy_revision,payload_json,status,created_at
+      ) VALUES ('decision-lease-guard','run-lease-guard','conv-lease-guard',0,1,'{}','active',?)
+    `).run(now);
+    db.prepare(`
+      INSERT INTO delivery_control_action (
+        id,decision_id,run_id,type,reason_code,status,created_at,updated_at
+      ) VALUES (
+        'action-lease-guard','decision-lease-guard','run-lease-guard',
+        'initializeGraph','test','ready',?,?
+      )
+    `).run(now, now);
+    expect(() => db.prepare(`
+      UPDATE delivery_control_action SET status='claimed'
+      WHERE id='action-lease-guard'
+    `).run()).toThrow('delivery_control_action_lease_shape_invalid');
+    expect(db.prepare(`
+      UPDATE delivery_control_action
+      SET status='claimed',claim_token='claim-1',lease_owner='worker-1',lease_expires_at=?
+      WHERE id='action-lease-guard'
+    `).run('2026-07-28T08:01:00.000Z').changes).toBe(1);
+    expect(() => db.prepare(`
+      UPDATE delivery_control_action SET status='applied'
+      WHERE id='action-lease-guard'
+    `).run()).toThrow('delivery_control_action_lease_shape_invalid');
+  });
+
   it('marks pre-cutover Runtime events as already projected', () => {
     const now = '2026-07-25T04:00:00.000Z';
     db.prepare(
@@ -605,7 +650,7 @@ describe('SQLite Foundation', () => {
     expect(db.prepare('SELECT version FROM _schema_version WHERE version = 40').get())
       .toEqual({ version: 40 });
     expect(db.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-      .toEqual({ version: 74 });
+      .toEqual({ version: 75 });
   });
 
   it('retires the parallel A2A worklist schema at migration 62', () => {
@@ -654,7 +699,7 @@ describe('SQLite Foundation', () => {
           'autonomous_delivery_advancement_request',
         ]));
         expect(checkpoint.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-          .toEqual({ version: 74 });
+          .toEqual({ version: 75 });
         expect(checkpoint.pragma('foreign_key_check')).toEqual([]);
       } finally {
         checkpoint.close();

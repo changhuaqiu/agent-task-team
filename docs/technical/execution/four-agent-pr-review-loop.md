@@ -31,6 +31,10 @@ PR 提交在一个数据库事务内完成：
 7. 用推进后的整数 `Task.revision` 请求唯一 `code_review` QualityGate；
 8. 追加 proof event。
 
+第 6、7 步和 provider receipt 在同一事务内提交，因此 Control Process Manager 看不到“已有
+provider artifact 但 Gate 尚未创建”的中间态。Delivery 的 `requestGate` 只处理没有 provider
+receipt 的结构化 Task outcome fallback；两条路径以事实形状互斥，不是两个并行判定源。
+
 Git `headSha` 只保存在 provider receipt/evidence 中，不作为 Gate 的
 `artifactRevision`。`artifactRevision` 始终是 Task owner 的整数 revision，所以
 TaskGate Lifecycle Process Manager 能用同一版本执行 CAS。Provider review 只向 Gate owner
@@ -72,7 +76,9 @@ communication policy、目标 task owner 与依赖；依赖未完成或目标 ta
 Pass、HandoffPacket 与 AgentInbox 同事务创建，因此 Task wakeup 与显式交接竞态不能产生
 第二套 Worklist 或浏览器补派发。
 
-这里的 owner 校验必须先于“目标 task 解析”：Orchestrator 先解析文本中所有真实存在的 task 引用，只要任一 task 的权威 owner 不是目标 Agent，就以 `task_owner_mismatch` 失败关闭并停止创建 pass。不能先按目标 Agent 过滤再把结果为空解释成“普通无 task A2A”，否则错误 owner 会绕过 Task Graph。
+这里的 owner 校验必须先于“目标 task 解析”：A2A Command Guard 先解析结构化命令中所有真实存在的
+task 引用，只要任一 task 的权威 owner 不是目标 Agent，就以 `task_owner_mismatch` 拒绝命令并停止创建
+pass。不能先按目标 Agent 过滤再把结果为空解释成“普通无 task A2A”，否则错误 owner 会绕过 Task Graph。
 
 worktree 运行时还要区分两个目录契约：Agent 命令在 conversation 级 Git worktree 执行；`.session.json` / `.gc_meta.json` 则保存在平台 workspace 的 conversation/agent/task 隔离目录。共享 worktree 路径存在不代表后者已经创建，所有元数据写入口必须原子确保 scoped task root 存在。元数据目录缺失不得在业务 turn 已完成后抛出 ENOENT，并把完成结果覆盖为 `spawn_failed`。
 

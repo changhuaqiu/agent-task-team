@@ -142,7 +142,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         break;
       }
       case 'task.create': {
-        const { taskRepo } = await import('@/server/repositories/task-repo');
+        const { stableTaskCommandKey, taskCommandService } = await import('@/server/repositories/task-command-service');
         const { resolveInitialTaskAssignment } = await import('@/server/team-runtime/task-assignment');
         const taskPayload = payload as any;
         if (taskPayload.conversation_id) {
@@ -158,7 +158,30 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
           }
           taskPayload.agent_id = assignment.agentId;
         }
-        result = taskRepo.create(taskPayload);
+        const idempotencyKey = typeof taskPayload.idempotencyKey === 'string'
+          ? taskPayload.idempotencyKey
+          : stableTaskCommandKey('mutation-api:task.create', taskPayload);
+        const dependencies = Array.isArray(taskPayload.dependencies)
+          ? taskPayload.dependencies
+          : typeof taskPayload.dependencies === 'string'
+            ? JSON.parse(taskPayload.dependencies)
+            : [];
+        result = taskCommandService.create({
+          conversationId: taskPayload.conversation_id,
+          expectedGraphRevision: taskCommandService.expectedGraphRevision(
+            taskPayload.conversation_id,
+            idempotencyKey,
+          ),
+          idempotencyKey,
+          actor: { type: 'user', id: 'webui:local-user' },
+          task: {
+            id: taskPayload.id,
+            title: taskPayload.title,
+            description: taskPayload.description,
+            agent_id: taskPayload.agent_id,
+            dependencies,
+          },
+        }).tasks[0];
         break;
       }
       case 'task.updateStatus': {
@@ -216,12 +239,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
             error: gateDecision.message ?? 'Task gate evidence is required',
           });
         }
-        taskRepo.transition(id, {
+        const { stableTaskCommandKey, taskCommandService } = await import('@/server/repositories/task-command-service');
+        const idempotencyKey = typeof (payload as Record<string, unknown>).idempotencyKey === 'string'
+          ? String((payload as Record<string, unknown>).idempotencyKey)
+          : stableTaskCommandKey('mutation-api:task.updateStatus', payload);
+        const task = taskCommandService.transition({
+          conversationId: previousTask.conversation_id,
+          taskId: id,
+          expectedTaskRevision: previousTask.revision,
+          expectedGraphRevision: taskCommandService.expectedGraphRevision(
+            previousTask.conversation_id,
+            idempotencyKey,
+          ),
+          idempotencyKey,
+          actor: {
+            type: actorType === 'user' || actorType === 'agent' ? actorType : 'system',
+            id: typeof actorId === 'string' && actorId ? actorId : 'mutation-api',
+          },
           to: status,
-          expectedFrom: previousTask.status,
           reviewNote,
-        });
-        const task = taskRepo.getById(id);
+        }).result.task;
         if (task) {
           publishTaskChangeNotification({
             io: (res.socket as any)?.server?.io,
@@ -253,8 +290,28 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
           ...(dependencies !== undefined ? { dependencies: Array.isArray(dependencies) ? JSON.stringify(dependencies) : dependencies } : {}),
           ...(artifacts !== undefined ? { artifacts: typeof artifacts === 'string' ? artifacts : JSON.stringify(artifacts) } : {}),
         };
-        taskRepo.update(id, normalizedUpdates);
-        const task = taskRepo.getById(id);
+        if (!previousTask) {
+          return res.status(404).json({ ok: false, error: `Task not found: ${id}` });
+        }
+        const { stableTaskCommandKey, taskCommandService } = await import('@/server/repositories/task-command-service');
+        const idempotencyKey = typeof (payload as Record<string, unknown>).idempotencyKey === 'string'
+          ? String((payload as Record<string, unknown>).idempotencyKey)
+          : stableTaskCommandKey('mutation-api:task.update', payload);
+        const task = taskCommandService.update({
+          conversationId: previousTask.conversation_id,
+          taskId: id,
+          expectedTaskRevision: previousTask.revision,
+          expectedGraphRevision: taskCommandService.expectedGraphRevision(
+            previousTask.conversation_id,
+            idempotencyKey,
+          ),
+          idempotencyKey,
+          actor: {
+            type: actorType === 'user' || actorType === 'agent' ? actorType : 'system',
+            id: typeof actorId === 'string' && actorId ? actorId : 'mutation-api',
+          },
+          updates: normalizedUpdates,
+        }).result.task;
         if (task) {
           publishTaskChangeNotification({
             io: (res.socket as any)?.server?.io,
@@ -270,8 +327,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       }
       case 'task.delete': {
         const { taskRepo } = await import('@/server/repositories/task-repo');
-        taskRepo.delete(payload.id as string);
-        result = { id: payload.id };
+        const task = taskRepo.getById(payload.id as string);
+        if (!task) return res.status(404).json({ ok: false, error: `Task not found: ${payload.id}` });
+        const { stableTaskCommandKey, taskCommandService } = await import('@/server/repositories/task-command-service');
+        const idempotencyKey = typeof (payload as Record<string, unknown>).idempotencyKey === 'string'
+          ? String((payload as Record<string, unknown>).idempotencyKey)
+          : stableTaskCommandKey('mutation-api:task.delete', payload);
+        result = taskCommandService.transition({
+          conversationId: task.conversation_id,
+          taskId: task.id,
+          expectedTaskRevision: task.revision,
+          expectedGraphRevision: taskCommandService.expectedGraphRevision(
+            task.conversation_id,
+            idempotencyKey,
+          ),
+          idempotencyKey,
+          actor: { type: 'user', id: 'webui:local-user' },
+          to: 'cancelled',
+        }).result.task;
         break;
       }
       case 'message.append': {
@@ -515,14 +588,27 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
           if (!assignment.agentId) {
             return res.status(400).json({ ok: false, error: assignment.reason });
           }
-          const task = taskRepo.create({
-            id,
-            conversation_id: conversationId,
-            title: input.title,
-            description: input.description || '',
-            agent_id: assignment.agentId,
-            dependencies: deps,
-          });
+          const { stableTaskCommandKey, taskCommandService } = await import('@/server/repositories/task-command-service');
+          const idempotencyKey = stableTaskCommandKey(
+            `mutation-api:tool.invoke:${toolAgentId || 'tool-agent'}`,
+            { toolName, input, conversationId },
+          );
+          const task = taskCommandService.create({
+            conversationId,
+            expectedGraphRevision: taskCommandService.expectedGraphRevision(
+              conversationId,
+              idempotencyKey,
+            ),
+            idempotencyKey,
+            actor: { type: 'agent', id: toolAgentId || 'tool-agent' },
+            task: {
+              id,
+              title: input.title,
+              description: input.description || '',
+              agent_id: assignment.agentId,
+              dependencies: deps,
+            },
+          }).tasks[0];
 
           // Also write to TASKS.md
           try {
@@ -598,11 +684,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
               error: gateDecision.message ?? 'Task gate evidence is required',
             });
           }
-          taskRepo.transition(input.task_id, {
+          const { stableTaskCommandKey, taskCommandService } = await import('@/server/repositories/task-command-service');
+          const idempotencyKey = stableTaskCommandKey(
+            `mutation-api:tool.invoke:${toolAgentId || 'tool-agent'}`,
+            { toolName, input, conversationId },
+          );
+          const updatedTask = taskCommandService.transition({
+            conversationId: previousTask.conversation_id,
+            taskId: previousTask.id,
+            expectedTaskRevision: previousTask.revision,
+            expectedGraphRevision: taskCommandService.expectedGraphRevision(
+              previousTask.conversation_id,
+              idempotencyKey,
+            ),
+            idempotencyKey,
+            actor: { type: 'agent', id: toolAgentId || 'tool-agent' },
             to: nextStatus,
-            expectedFrom: previousTask.status,
-          });
-          const updatedTask = taskRepo.getById(input.task_id);
+          }).result.task;
           if (updatedTask) {
             const { publishTaskChangeNotification } = await import('@/server/task-flow/task-notification-publisher');
             publishTaskChangeNotification({
@@ -629,8 +727,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
           }
         } else if (toolName === 'task_assign') {
           const previousTask = taskRepo.getById(input.task_id);
-          taskRepo.update(input.task_id, { agent_id: input.agent_id });
-          const updatedTask = taskRepo.getById(input.task_id);
+          if (!previousTask) {
+            return res.status(404).json({ ok: false, error: `Task not found: ${input.task_id}` });
+          }
+          const { stableTaskCommandKey, taskCommandService } = await import('@/server/repositories/task-command-service');
+          const idempotencyKey = stableTaskCommandKey(
+            `mutation-api:tool.invoke:${toolAgentId || 'tool-agent'}`,
+            { toolName, input, conversationId },
+          );
+          const updatedTask = taskCommandService.update({
+            conversationId: previousTask.conversation_id,
+            taskId: previousTask.id,
+            expectedTaskRevision: previousTask.revision,
+            expectedGraphRevision: taskCommandService.expectedGraphRevision(
+              previousTask.conversation_id,
+              idempotencyKey,
+            ),
+            idempotencyKey,
+            actor: { type: 'agent', id: toolAgentId || 'tool-agent' },
+            updates: { agent_id: input.agent_id },
+          }).result.task;
           if (updatedTask) {
             const { publishTaskChangeNotification } = await import('@/server/task-flow/task-notification-publisher');
             publishTaskChangeNotification({

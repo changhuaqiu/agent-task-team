@@ -124,10 +124,18 @@ describe('GateOutcomeProcessManager', () => {
     const event = new PlatformEventLog({ db })
       .listStream(`work:${contract.workId}`)
       .find((candidate) => candidate.type === 'agent.outcome.accepted')!;
-    const manager = new GateOutcomeProcessManager({ db, gates });
-
-    await manager.handle(event, { signal: new AbortController().signal });
-    await manager.handle(event, { signal: new AbortController().signal });
+    const foreignDb = createTestDb();
+    setTestDb(foreignDb);
+    try {
+      const manager = new GateOutcomeProcessManager({ db });
+      await manager.handle(event, { signal: new AbortController().signal });
+      await manager.handle(event, { signal: new AbortController().signal });
+      expect(foreignDb.prepare('SELECT COUNT(*) AS count FROM quality_gate').get())
+        .toEqual({ count: 0 });
+    } finally {
+      setTestDb(db);
+      foreignDb.close();
+    }
 
     expect(gates.getSnapshot(requested.gate.id)).toMatchObject({
       gate: {

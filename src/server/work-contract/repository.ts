@@ -437,6 +437,9 @@ export class WorkContractRepository {
       );
       const outcome = db.prepare('SELECT * FROM agent_outcome WHERE id=?')
         .get(input.outcomeId) as AgentOutcomeRow;
+      const eventCorrelationId = rejectionReason === 'correlation_mismatch' && contract
+        ? contract.correlation_id
+        : input.correlationId;
       new PlatformEventLog({ db }).append({
         type: rejectionReason ? 'agent.outcome.rejected' : 'agent.outcome.accepted',
         category: 'coordination',
@@ -444,13 +447,16 @@ export class WorkContractRepository {
         streamKey: `work:${input.workId}`,
         aggregate: { type: 'agent_outcome', id: input.outcomeId },
         actor: { type: 'agent', id: contract?.agent_id ?? 'unknown' },
-        correlationId: input.correlationId,
+        correlationId: eventCorrelationId,
         causationId: input.causationId,
         occurredAt: recordedAt,
         payload: {
           contractId: input.contractId,
           workEpoch: input.workEpoch,
           outcomeType: input.outcomeType,
+          ...(rejectionReason === 'correlation_mismatch'
+            ? { submittedCorrelationId: input.correlationId }
+            : {}),
           ...(rejectionReason ? { reasonCode: rejectionReason } : {}),
         },
       });

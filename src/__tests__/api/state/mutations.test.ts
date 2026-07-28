@@ -741,7 +741,7 @@ describe('POST /api/mutations', () => {
     expect(JSON.parse(messageRepo.getByConversation('conv-1')[0].mentions ?? '[]')).toEqual(['agent-b', 'agent-a']);
   });
 
-  it('task.delete removes task', async () => {
+  it('task.delete records an owner-controlled cancellation instead of erasing history', async () => {
     await seedTask();
     const req = mockReq('POST', { type: 'task.delete', payload: { id: 'task-1' } });
     const res = mockRes();
@@ -749,7 +749,10 @@ describe('POST /api/mutations', () => {
 
     expect(res._json.ok).toBe(true);
     const { taskRepo } = await import('@/server/repositories/task-repo');
-    expect(taskRepo.getById('task-1')).toBeUndefined();
+    expect(taskRepo.getById('task-1')).toMatchObject({
+      status: 'cancelled',
+      revision: 1,
+    });
   });
 
   it('message.append creates message with sortable ID', async () => {

@@ -125,6 +125,10 @@ export class TaskGraphIdempotencyConflictError extends Error {
   readonly reasonCode = 'task_graph_idempotency_conflict';
 }
 
+export class TaskGraphLegacyReplayUnavailableError extends Error {
+  readonly reasonCode = 'task_graph_legacy_replay_unavailable';
+}
+
 interface TaskGraphCommitRow {
   idempotency_key: string;
   conversation_id: string;
@@ -134,6 +138,8 @@ interface TaskGraphCommitRow {
   result_json: string;
   created_at: string;
 }
+
+export type TaskGraphCommitRecord = TaskGraphCommitRow;
 
 function stringifyJson(value: unknown): string {
   return JSON.stringify(value ?? {});
@@ -243,6 +249,12 @@ function assertAcyclicDependencies(dependencies: ReadonlyMap<string, readonly st
 }
 
 export const taskGraphRepo = {
+  getCommitByIdempotencyKey(idempotencyKey: string): TaskGraphCommitRecord | undefined {
+    return getDb().prepare(
+      'SELECT * FROM task_graph_commit WHERE idempotency_key=?',
+    ).get(idempotencyKey) as TaskGraphCommitRecord | undefined;
+  },
+
   revision(conversationId: string): number {
     const row = getDb().prepare(`
       SELECT revision FROM task_graph_revision WHERE conversation_id=?
@@ -286,6 +298,9 @@ export const taskGraphRepo = {
           duplicate.conversation_id !== input.conversationId
           || duplicate.request_digest !== digest
         ) throw new TaskGraphIdempotencyConflictError(idempotencyKey);
+        if (duplicate.result_json === '{}') {
+          throw new TaskGraphLegacyReplayUnavailableError(idempotencyKey);
+        }
         return {
           revision: duplicate.revision,
           result: JSON.parse(duplicate.result_json) as T,
@@ -397,15 +412,7 @@ export const taskGraphRepo = {
           && Array.isArray(frozen.edges)
           && frozen.action?.id === duplicate.action_id
         ) return frozen as TaskGraphCommitResult;
-        const action = taskGraphRepo.getActionById(duplicate.action_id)!;
-        const taskIds = parseTaskIds(action);
-        return {
-          revision: duplicate.revision,
-          tasks: taskIds.map((taskId) => taskRepo.getById(taskId)!),
-          edges: taskGraphRepo.listEdges(input.conversationId)
-            .filter((edge) => edge.created_by_action_id === action.id),
-          action,
-        };
+        throw new TaskGraphLegacyReplayUnavailableError(idempotencyKey);
       }
       const timestamp = (input.now ?? new Date()).toISOString();
       db.prepare(`

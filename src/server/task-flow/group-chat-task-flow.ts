@@ -6,6 +6,7 @@ import {
   type TaskEdgeRow,
   type ChatTaskBindingRow,
 } from '../repositories/task-graph-repo';
+import { workContractRepo } from '../work-contract/repository';
 
 type ActorType = 'user' | 'agent' | 'system';
 
@@ -238,7 +239,7 @@ export const groupChatTaskFlow = {
       messageId: input.messageId,
     }, () => {
       const parent = assertFlowTask(input.parentTaskId, input.conversationId);
-      const children = input.children.map((child) =>
+      let children = input.children.map((child) =>
         createTask({
           conversationId: input.conversationId,
           title: child.title,
@@ -276,13 +277,17 @@ export const groupChatTaskFlow = {
       );
 
       const byTitle = titleIndex(children);
+      const dependencyIdsByChild = new Map<string, Set<string>>();
       for (const child of children) {
         const definition = input.children.find((item) => item.title === child.title);
         for (const dependencyTaskId of definition?.dependsOnTaskIds ?? []) {
+          const dependencyIds = dependencyIdsByChild.get(child.id) ?? new Set<string>();
+          dependencyIds.add(dependencyTaskId);
+          dependencyIdsByChild.set(child.id, dependencyIds);
           edges.push(taskGraphRepo.addEdge({
             conversationId: input.conversationId,
-            fromTaskId: dependencyTaskId,
-            toTaskId: child.id,
+            fromTaskId: child.id,
+            toTaskId: dependencyTaskId,
             type: 'depends_on',
             createdByActionId: action.id,
           }));
@@ -295,6 +300,9 @@ export const groupChatTaskFlow = {
         if (!from || !to) {
           throw new Error(`Split dependency references unknown child title: ${dependency.fromTitle} -> ${dependency.toTitle}`);
         }
+        const dependencyIds = dependencyIdsByChild.get(from.id) ?? new Set<string>();
+        dependencyIds.add(to.id);
+        dependencyIdsByChild.set(from.id, dependencyIds);
         edges.push(taskGraphRepo.addEdge({
           conversationId: input.conversationId,
           fromTaskId: from.id,
@@ -303,6 +311,13 @@ export const groupChatTaskFlow = {
           createdByActionId: action.id,
         }));
       }
+      for (const child of children) {
+        const dependencies = [...(dependencyIdsByChild.get(child.id) ?? [])].sort();
+        if (dependencies.length > 0) {
+          taskRepo.update(child.id, { dependencies: JSON.stringify(dependencies) }, flowTrace(input));
+        }
+      }
+      children = children.map((child) => taskRepo.getById(child.id)!);
 
       const bindings = bindMessageToTasks({
         conversationId: input.conversationId,
@@ -499,6 +514,15 @@ export const groupChatTaskFlow = {
       messageId: input.messageId,
     }, () => {
       const current = assertFlowTask(input.taskId, input.conversationId);
+      const authority = workContractRepo.getAuthority(`task:${input.taskId}`);
+      if (authority?.status === 'active' && current.agent_id !== input.ownerAgentId) {
+        workContractRepo.close({
+          workId: authority.work_id,
+          expectedEpoch: authority.current_epoch,
+          correlationId: input.correlationId ?? `task:${input.taskId}`,
+          causationId: input.causationId ?? input.idempotencyKey,
+        });
+      }
       taskRepo.update(input.taskId, { agent_id: input.ownerAgentId }, flowTrace(input));
       const task = taskRepo.getById(input.taskId);
       if (!task) throw new Error(`Task ${input.taskId} not found after assignment`);

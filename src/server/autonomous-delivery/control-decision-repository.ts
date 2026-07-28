@@ -347,10 +347,19 @@ export class ControlDecisionRepository {
     const timestamp = (input.now ?? new Date()).toISOString();
     const result = (this.database ?? getDb()).prepare(`
       UPDATE delivery_control_action
-      SET status='applied',lease_expires_at=NULL,updated_at=?,completed_at=?
-      WHERE id=? AND status='claimed' AND claim_token=?
-    `).run(timestamp, timestamp, input.actionId, input.claimToken);
+      SET status='applied',claim_token=NULL,lease_owner=NULL,lease_expires_at=NULL,
+          updated_at=?,completed_at=?
+      WHERE id=? AND status='claimed' AND claim_token=? AND lease_expires_at>?
+    `).run(timestamp, timestamp, input.actionId, input.claimToken, timestamp);
     return result.changes === 1;
+  }
+
+  isClaimActive(input: { actionId: string; claimToken: string; now?: Date }): boolean {
+    const timestamp = (input.now ?? new Date()).toISOString();
+    return Boolean((this.database ?? getDb()).prepare(`
+      SELECT 1 FROM delivery_control_action
+      WHERE id=? AND status='claimed' AND claim_token=? AND lease_expires_at>?
+    `).get(input.actionId, input.claimToken, timestamp));
   }
 
   fail(input: {
@@ -367,7 +376,8 @@ export class ControlDecisionRepository {
         FROM delivery_control_action action
         JOIN delivery_control_decision decision ON decision.id=action.decision_id
         WHERE action.id=? AND action.status='claimed' AND action.claim_token=?
-      `).get(input.actionId, input.claimToken) as (
+          AND action.lease_expires_at>?
+      `).get(input.actionId, input.claimToken, timestamp) as (
         PersistedControlActionRow & { project_id: string }
       ) | undefined;
       if (!action) return false;
@@ -376,7 +386,7 @@ export class ControlDecisionRepository {
         UPDATE delivery_control_action
         SET status=?,failure_code=?,claim_token=NULL,lease_owner=NULL,
             lease_expires_at=NULL,updated_at=?,completed_at=?
-        WHERE id=? AND status='claimed' AND claim_token=?
+        WHERE id=? AND status='claimed' AND claim_token=? AND lease_expires_at>?
       `).run(
         exhausted ? 'failed' : 'ready',
         input.reasonCode,
@@ -384,6 +394,7 @@ export class ControlDecisionRepository {
         exhausted ? timestamp : null,
         input.actionId,
         input.claimToken,
+        timestamp,
       );
       if (result.changes !== 1) return false;
       if (exhausted) {

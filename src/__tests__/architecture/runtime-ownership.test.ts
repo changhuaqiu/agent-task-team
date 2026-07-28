@@ -12,6 +12,8 @@ describe('runtime ownership architecture', () => {
   const timelineCards = source('src/components/war-room/TimelineCards.tsx');
   const deliveryApi = source('src/pages/api/autonomous-delivery.ts');
   const githubIngress = source('src/server/github-issue-hook/ingress.ts');
+  const mutationApi = source('src/pages/api/mutations.ts');
+  const skillTools = source('src/server/skill-tool-executor.ts');
 
   it('does not accept browser execution acknowledgements for server-owned A2A work', () => {
     for (const event of [
@@ -50,6 +52,13 @@ describe('runtime ownership architecture', () => {
     expect(daemon).not.toContain(
       'correlationId: controlEnvelopeId ?? invocationTraceId ?? invocation.id',
     );
+  });
+
+  it('routes WebUI and Agent task writes through the Task Graph owner', () => {
+    for (const writer of [mutationApi, skillTools]) {
+      expect(writer).not.toMatch(/taskRepo\.(create|transition|update|delete)\(/);
+      expect(writer).toContain('taskCommandService');
+    }
   });
 
   it('keeps WebUI notices read-only and removes the legacy Supervisor vocabulary', () => {

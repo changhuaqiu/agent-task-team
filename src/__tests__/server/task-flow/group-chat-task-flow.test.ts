@@ -105,6 +105,12 @@ describe('groupChatTaskFlow', () => {
 
     expect(subtaskEdges).toHaveLength(3);
     expect(dependencyEdges).toHaveLength(2);
+    expect(JSON.parse(split.children[0]!.dependencies ?? '[]')).toEqual([
+      split.children[1]!.id,
+    ]);
+    expect(JSON.parse(split.children[1]!.dependencies ?? '[]')).toEqual([
+      split.children[2]!.id,
+    ]);
     expect(graph.bindings.filter((binding) => binding.message_id === messageId)).toHaveLength(4);
   });
 

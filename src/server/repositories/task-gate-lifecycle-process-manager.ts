@@ -4,7 +4,7 @@ import type { PlatformEventHandler } from '../platform-events/dispatcher';
 import type { QualityGateRow } from '../quality-gate/types';
 import { workContractRepo } from '../work-contract/repository';
 import type { WorkAuthorityRow } from '../work-contract/types';
-import { taskGraphRepo } from './task-graph-repo';
+import { taskCommandService } from './task-command-service';
 import { StaleTaskRevisionError, taskRepo } from './task-repo';
 
 const TASK_GATE_TERMINAL_EVENTS = new Set([
@@ -41,27 +41,31 @@ export class TaskGateLifecycleProcessManager {
       }
 
       const passed = event.type === 'gate.passed';
-      taskGraphRepo.appendAction({
+      taskCommandService.transition({
         conversationId: task.conversation_id,
-        actorId: event.actor.id,
-        actorType: event.actor.type === 'agent' ? 'agent' : 'system',
-        type: 'task.review_recorded',
-        taskIds: [task.id],
+        taskId: task.id,
+        expectedTaskRevision: task.revision,
+        expectedGraphRevision: taskCommandService.expectedGraphRevision(
+          task.conversation_id,
+          `gate-terminal:${event.eventId}`,
+        ),
+        idempotencyKey: `gate-terminal:${event.eventId}`,
+        actor: {
+          type: event.actor.type === 'agent' ? 'agent' : 'system',
+          id: event.actor.id,
+        },
+        correlationId: event.correlationId,
+        causationId: event.eventId,
+        to: passed ? 'done' : 'in_progress',
+        reviewNote: gate.decision_reason ?? undefined,
+        actionType: 'task.review_recorded',
         proofEventId: event.eventId,
-        payload: {
+        actionPayload: {
           gateId: gate.id,
           decision: gate.status,
           artifactRevision: gate.artifact_revision,
           reason: gate.decision_reason,
         },
-      });
-      taskRepo.transition(task.id, {
-        to: passed ? 'done' : 'in_progress',
-        expectedFrom: 'in_review',
-        expectedRevision: task.revision,
-        reviewNote: gate.decision_reason ?? undefined,
-        correlationId: event.correlationId,
-        causationId: event.eventId,
       });
       this.closeTaskAuthorities(db, {
         taskId: task.id,

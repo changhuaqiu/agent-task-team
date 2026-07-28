@@ -109,6 +109,27 @@ describe('AgentInbox', () => {
     ]);
   });
 
+  it('preserves command causation even when no source event row is supplied', () => {
+    const queued = inbox.enqueue({
+      projectId: 'project-1',
+      projectAgentId: 'implementer',
+      idempotencyKey: 'command-trace-1',
+      command: {
+        source: 'system',
+        prompt: 'Implement',
+        correlationId: 'goal-trace-command',
+        causationId: 'decision-event-1',
+      },
+    });
+    const claimed = inbox.claimNext()!;
+    expect(inbox.admit(queued.id, claimed.leaseToken!)).toBe(true);
+    expect(log.listTrace('goal-trace-command')).toMatchObject([
+      { type: 'agent.work.enqueued', causationId: 'decision-event-1' },
+      { type: 'agent.work.claimed', causationId: 'decision-event-1' },
+      { type: 'agent.work.admitted', causationId: 'decision-event-1' },
+    ]);
+  });
+
   it('does not let later work overtake a released FIFO predecessor', () => {
     const first = inbox.enqueue({
       projectId: 'project-1',

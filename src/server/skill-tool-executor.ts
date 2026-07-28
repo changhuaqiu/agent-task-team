@@ -3,6 +3,10 @@
 
 import { assertTaskStatus, taskRepo } from './repositories/task-repo';
 import type { TaskRow } from './repositories/task-repo';
+import {
+  stableTaskCommandKey,
+  taskCommandService,
+} from './repositories/task-command-service';
 import { isSkillTool } from './skill-tool-router';
 import { join } from 'node:path';
 import { proofLogRepo } from './repositories/proof-log-repo';
@@ -24,6 +28,8 @@ export interface ToolInvocation {
   taskId?: string;
   taskProjectDir?: string;
   rateLimitKey?: string;
+  correlationId?: string;
+  causationId?: string;
   io?: IOServer;
 }
 
@@ -148,14 +154,29 @@ function executeTaskCreate(invocation: ToolInvocation): ToolResult {
     ? (invocation.input.dependencies as string).split(',').map((s) => s.trim()).filter(Boolean)
     : [];
 
-  const task = taskRepo.create({
-    id,
-    conversation_id: invocation.conversationId,
-    title,
-    description: (invocation.input.description as string) || '',
-    agent_id: agentId,
-    dependencies,
+  const idempotencyKey = stableTaskCommandKey(
+    invocation.rateLimitKey ?? invocation.agentId,
+    { toolName: invocation.toolName, input: invocation.input },
+  );
+  const committed = taskCommandService.create({
+    conversationId: invocation.conversationId,
+    expectedGraphRevision: taskCommandService.expectedGraphRevision(
+      invocation.conversationId,
+      idempotencyKey,
+    ),
+    idempotencyKey,
+    actor: { type: 'agent', id: invocation.agentId },
+    correlationId: invocation.correlationId,
+    causationId: invocation.causationId,
+    task: {
+      id,
+      title,
+      description: (invocation.input.description as string) || '',
+      agent_id: agentId,
+      dependencies,
+    },
   });
+  const task = committed.tasks[0];
 
   // Also write to TASKS.md
   try {
@@ -199,9 +220,23 @@ function executeTaskUpdateStatus(invocation: ToolInvocation): ToolResult {
     return { success: false, error: gateDecision.message ?? 'Task gate evidence is required' };
   }
 
-  taskRepo.transition(taskId, {
+  const idempotencyKey = stableTaskCommandKey(
+    invocation.rateLimitKey ?? invocation.agentId,
+    { toolName: invocation.toolName, input: invocation.input },
+  );
+  const transitioned = taskCommandService.transition({
+    conversationId: existing.conversation_id,
+    taskId,
+    expectedTaskRevision: existing.revision,
+    expectedGraphRevision: taskCommandService.expectedGraphRevision(
+      existing.conversation_id,
+      idempotencyKey,
+    ),
+    idempotencyKey,
+    actor: { type: 'agent', id: invocation.agentId },
+    correlationId: invocation.correlationId,
+    causationId: invocation.causationId,
     to: status,
-    expectedFrom: existing.status,
   });
   // Also update TASKS.md
   try {
@@ -211,7 +246,7 @@ function executeTaskUpdateStatus(invocation: ToolInvocation): ToolResult {
     console.error('[task_update_status] failed to update TASKS.md:', e);
   }
 
-  return { success: true, data: { id: taskId, status } };
+  return { success: true, data: transitioned.result.task };
 }
 
 function executeTaskAssign(invocation: ToolInvocation): ToolResult {
@@ -227,13 +262,30 @@ function executeTaskAssign(invocation: ToolInvocation): ToolResult {
     return { success: false, error: `Task not found: ${taskId}` };
   }
 
-  taskRepo.update(taskId, { agent_id: targetAgentId });
+  const idempotencyKey = stableTaskCommandKey(
+    invocation.rateLimitKey ?? invocation.agentId,
+    { toolName: invocation.toolName, input: invocation.input },
+  );
+  const updated = taskCommandService.update({
+    conversationId: existing.conversation_id,
+    taskId,
+    expectedTaskRevision: existing.revision,
+    expectedGraphRevision: taskCommandService.expectedGraphRevision(
+      existing.conversation_id,
+      idempotencyKey,
+    ),
+    idempotencyKey,
+    actor: { type: 'agent', id: invocation.agentId },
+    correlationId: invocation.correlationId,
+    causationId: invocation.causationId,
+    updates: { agent_id: targetAgentId },
+  });
   try {
     projectAuthoritativeTask(invocation, taskId);
   } catch (e) {
     console.error('[task_assign] failed to update TASKS.md:', e);
   }
-  return { success: true, data: { id: taskId, agent_id: targetAgentId } };
+  return { success: true, data: updated.result.task };
 }
 
 function recordInput(value: unknown): Record<string, unknown> | undefined {
@@ -287,7 +339,15 @@ async function executeRecordPullRequest(invocation: ToolInvocation): Promise<Too
   const pullRequestUrl = invocation.input.pull_request_url as string;
   const evidence = implementationEvidenceInput(invocation.input.evidence);
   if (!taskId || !pullRequestUrl || !evidence) return { success: false, error: 'task_id, pull_request_url and evidence are required' };
-  const data = await collaborationService().recordPullRequest({ taskId, expectedConversationId: invocation.conversationId, actorAgentId: invocation.agentId, pullRequestUrl, evidence });
+  const data = await collaborationService().recordPullRequest({
+    taskId,
+    expectedConversationId: invocation.conversationId,
+    actorAgentId: invocation.agentId,
+    pullRequestUrl,
+    evidence,
+    correlationId: invocation.correlationId,
+    causationId: invocation.causationId,
+  });
   reconcileAuthoritativeTaskProjection(invocation, taskId);
   return { success: true, data };
 }
@@ -298,7 +358,16 @@ async function executeRecordReview(invocation: ToolInvocation): Promise<ToolResu
   const reviewUrl = invocation.input.review_url as string;
   const evidence = reviewEvidenceInput(invocation.input.evidence);
   if (!taskId || !pullRequestUrl || !reviewUrl || !evidence) return { success: false, error: 'task_id, pull_request_url, review_url and evidence are required' };
-  const data = await collaborationService().recordReview({ taskId, expectedConversationId: invocation.conversationId, actorAgentId: invocation.agentId, pullRequestUrl, reviewUrl, evidence });
+  const data = await collaborationService().recordReview({
+    taskId,
+    expectedConversationId: invocation.conversationId,
+    actorAgentId: invocation.agentId,
+    pullRequestUrl,
+    reviewUrl,
+    evidence,
+    correlationId: invocation.correlationId,
+    causationId: invocation.causationId,
+  });
   reconcileAuthoritativeTaskProjection(invocation, taskId);
   return { success: true, data };
 }
@@ -308,7 +377,15 @@ async function executeRecordMerge(invocation: ToolInvocation): Promise<ToolResul
   const pullRequestUrl = invocation.input.pull_request_url as string;
   const evidence = mergeEvidenceInput(invocation.input.evidence);
   if (!taskId || !pullRequestUrl || !evidence) return { success: false, error: 'task_id, pull_request_url and evidence are required' };
-  const data = await collaborationService().recordMerge({ taskId, expectedConversationId: invocation.conversationId, actorAgentId: invocation.agentId, pullRequestUrl, evidence });
+  const data = await collaborationService().recordMerge({
+    taskId,
+    expectedConversationId: invocation.conversationId,
+    actorAgentId: invocation.agentId,
+    pullRequestUrl,
+    evidence,
+    correlationId: invocation.correlationId,
+    causationId: invocation.causationId,
+  });
   reconcileAuthoritativeTaskProjection(invocation, taskId);
   return { success: true, data };
 }

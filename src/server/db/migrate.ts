@@ -3434,6 +3434,67 @@ END;
       }
     },
   },
+  {
+    version: 75,
+    run: (db) => {
+      const deliveryTable = db.prepare(`
+        SELECT 1 FROM sqlite_master
+        WHERE type='table' AND name='autonomous_delivery_run'
+      `).get();
+      if (deliveryTable) {
+        db.exec(`
+          CREATE TRIGGER IF NOT EXISTS trg_delivery_run_start_key_immutable
+          BEFORE UPDATE OF start_idempotency_key ON autonomous_delivery_run
+          WHEN NEW.start_idempotency_key IS NOT OLD.start_idempotency_key
+          BEGIN
+            SELECT RAISE(ABORT,'delivery_run_start_idempotency_key_immutable');
+          END;
+        `);
+      }
+      const actionTable = db.prepare(`
+        SELECT 1 FROM sqlite_master
+        WHERE type='table' AND name='delivery_control_action'
+      `).get();
+      if (actionTable) {
+        db.exec(`
+          UPDATE delivery_control_action
+          SET status='ready',claim_token=NULL,lease_owner=NULL,lease_expires_at=NULL,
+              updated_at=COALESCE(updated_at,created_at)
+          WHERE status='claimed'
+            AND (claim_token IS NULL OR lease_owner IS NULL OR lease_expires_at IS NULL);
+          UPDATE delivery_control_action
+          SET claim_token=NULL,lease_owner=NULL,lease_expires_at=NULL
+          WHERE status<>'claimed'
+            AND (claim_token IS NOT NULL OR lease_owner IS NOT NULL OR lease_expires_at IS NOT NULL);
+          CREATE TRIGGER IF NOT EXISTS trg_control_action_lease_shape_insert
+          BEFORE INSERT ON delivery_control_action
+          WHEN (
+            NEW.status='claimed'
+            AND (NEW.claim_token IS NULL OR NEW.lease_owner IS NULL OR NEW.lease_expires_at IS NULL)
+          ) OR (
+            NEW.status<>'claimed'
+            AND (NEW.claim_token IS NOT NULL OR NEW.lease_owner IS NOT NULL OR NEW.lease_expires_at IS NOT NULL)
+          )
+          BEGIN
+            SELECT RAISE(ABORT,'delivery_control_action_lease_shape_invalid');
+          END;
+          CREATE TRIGGER IF NOT EXISTS trg_control_action_lease_shape_update
+          BEFORE UPDATE OF status,claim_token,lease_owner,lease_expires_at
+          ON delivery_control_action
+          WHEN (
+            NEW.status='claimed'
+            AND (NEW.claim_token IS NULL OR NEW.lease_owner IS NULL OR NEW.lease_expires_at IS NULL)
+          ) OR (
+            NEW.status<>'claimed'
+            AND (NEW.claim_token IS NOT NULL OR NEW.lease_owner IS NOT NULL OR NEW.lease_expires_at IS NOT NULL)
+          )
+          BEGIN
+            SELECT RAISE(ABORT,'delivery_control_action_lease_shape_invalid');
+          END;
+        `);
+      }
+    },
+  },
 ];
 
 export function applyMigrations(db: Database.Database): void {

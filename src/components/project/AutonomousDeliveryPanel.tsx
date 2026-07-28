@@ -74,7 +74,6 @@ export function AutonomousDeliveryPanel({ conversationId }: { conversationId: st
           action: 'advance',
           runId: run.id,
           idempotencyKey,
-          actorId: 'webui-operator',
         }),
       });
       const payload = await response.json() as {

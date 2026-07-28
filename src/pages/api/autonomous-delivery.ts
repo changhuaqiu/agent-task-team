@@ -63,15 +63,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const idempotencyKey = typeof req.body?.idempotencyKey === 'string'
         ? req.body.idempotencyKey.trim()
         : '';
-      const actorId = typeof req.body?.actorId === 'string' ? req.body.actorId.trim() : '';
       if (!idempotencyKey) {
         return res.status(400).json({ error: 'idempotencyKey is required' });
       }
-      if (!actorId) return res.status(400).json({ error: 'actorId is required' });
       const result = await advanceAutonomousDelivery(io, runId, {
         kind: 'manual_resume',
         idempotencyKey,
-        actor: { type: 'user', id: actorId },
+        actor: { type: 'user', id: 'webui:local-user' },
       });
       if (!result) return res.status(503).json({ error: 'Delivery runtime is not registered' });
       return res.status(200).json(result);

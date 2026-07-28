@@ -81,6 +81,8 @@ describe('EngineeringCollaborationService', () => {
 
     const result = await service.recordPullRequest({
       taskId: 'TASK-PR', actorAgentId: 'luigi', pullRequestUrl: pullRequest.url,
+      correlationId: 'goal-trace-engineering',
+      causationId: 'agent-outcome-pr',
       evidence: {
         installResult: 'pnpm install unchanged', buildResult: 'build passed',
         testResult: '42 tests passed', impactEvidence: 'checkout API and UI inspected',
@@ -107,6 +109,12 @@ describe('EngineeringCollaborationService', () => {
       kind: 'code_review',
       targetId: 'TASK-PR',
       artifactRevision: String(taskRepo.getById('TASK-PR')!.revision),
+    });
+    expect(new PlatformEventLog().listTrace('goal-trace-engineering').map((event) => event.type))
+      .toEqual(expect.arrayContaining(['task.in_review', 'gate.requested']));
+    expect(submitted).toMatchObject({
+      correlationId: 'goal-trace-engineering',
+      causationId: 'agent-outcome-pr',
     });
   });
 

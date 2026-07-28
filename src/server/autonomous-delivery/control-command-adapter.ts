@@ -4,6 +4,7 @@ import { AgentInbox } from '../platform-events/agent-inbox';
 import { qualityGateRepo } from '../quality-gate/repository';
 import { taskRepo } from '../repositories/task-repo';
 import { taskGraphRepo } from '../repositories/task-graph-repo';
+import { taskCommandService } from '../repositories/task-command-service';
 import { groupChatTaskFlow } from '../task-flow/group-chat-task-flow';
 import { resolveTaskNotificationAudience } from '../task-flow/task-notification-publisher';
 import { AutonomousDeliveryRepository, autonomousDeliveryRepo } from './repository';
@@ -226,12 +227,19 @@ export class ProductionControlCommandAdapter implements ControlCommandPort {
     const db = this.database ?? getDb();
     db.transaction(() => {
       if (!review && !verification && task.status !== 'in_progress') {
-        taskRepo.transition(task.id, {
-          to: 'in_progress',
-          expectedFrom: task.status,
-          expectedRevision: task.revision,
+        taskCommandService.transition({
+          conversationId: task.conversation_id,
+          taskId: task.id,
+          expectedTaskRevision: task.revision,
+          expectedGraphRevision: taskCommandService.expectedGraphRevision(
+            task.conversation_id,
+            `${action.actionId}:task-start`,
+          ),
+          idempotencyKey: `${action.actionId}:task-start`,
+          actor: { type: 'system', id: 'delivery-control-process-manager' },
           correlationId: decision.correlationId,
           causationId: action.actionId,
+          to: 'in_progress',
         });
       }
       this.inbox.enqueue({
