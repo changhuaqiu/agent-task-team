@@ -240,5 +240,5 @@
 - [x] 删除已无读者的兼容分支、投影、状态字段和文档；旧自主交付 spec/设计已归档，
   旧 Supervisor、policy、production adapters 与 Action/Attempt 表已退役。
 - [x] 更新长期文档、架构图和测试证据；S6 回归通过 TypeScript、目标 lint 与全量
-  Vitest（205 files passed、1 skipped；1479 tests passed、1 skipped）。
+  Vitest（205 files passed、1 skipped；1480 tests passed、1 skipped）。
 - [x] 完成退出条件并归档本规格。
