@@ -53,6 +53,12 @@ It does not own durable task state.
 
 ### A2A Possession
 
+The legacy compatibility Orchestrator still requires its invocation chain,
+worklist, delivery cursor, audit log, and delivery outbox projections. A shared
+database upgraded by a managed branch may omit those tables, so daemon startup
+must repair the exact legacy projection schema atomically before rebuilding A2A
+state; a missing optional projection must never take the project socket offline.
+
 Owns collaboration transfer:
 
 - current holder

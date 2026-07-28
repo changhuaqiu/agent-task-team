@@ -7,6 +7,7 @@ import type { AgentMentionConfig, TaskSummary } from './types-v2';
 import { Orchestrator, type OrchestratorConfig } from './orchestrator';
 import { taskRepo } from '../repositories/task-repo';
 import { taskGraphRepo } from '../repositories/task-graph-repo';
+import { ensureLegacyA2AProjectionSchema } from './compatibility-schema';
 
 export interface KanbanSnapshotProvider {
   getTasks(conversationId: string): {
@@ -36,6 +37,7 @@ export class AgentMessenger {
     snapshotProvider?: KanbanSnapshotProvider,
     submitDispatch?: NonNullable<OrchestratorConfig['submitDispatch']>,
   ) {
+    ensureLegacyA2AProjectionSchema(db);
     const provider = snapshotProvider ?? defaultSnapshotProvider;
     this.orchestrator = new Orchestrator(db, io, agentConfigs, {
       getTasksForConversation: (conversationId: string): TaskSummary[] => {

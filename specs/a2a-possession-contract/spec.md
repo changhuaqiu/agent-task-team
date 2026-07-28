@@ -606,6 +606,10 @@ Current implementation status:
 
 - Possession persistence has landed in parallel tables: `a2a_possession_chain`, `a2a_possession`, `a2a_pass`, and `a2a_handoff_packet`.
 - The existing `invocation_chain` and `chain_worklist` path remains readable and executable during migration.
+- When a shared managed checkpoint no longer contains the legacy compatibility
+  projections, the legacy daemon atomically restores `invocation_chain`,
+  `chain_worklist`, `delivery_cursor`, `a2a_audit_log`, and `a2a_delivery`
+  before constructing the compatibility Orchestrator.
 - Server dispatch now creates offered passes and handoff packets before emitting compatibility `a2a:dispatch`.
 - Client ACK uses `a2a:agent-started`; only then does the server mark the worklist entry executing and transfer possession.
 - Task-linked dispatch now records `task.handoff_requested` on pass creation and `task.handoff_accepted` only after the receiver start acknowledgement.
