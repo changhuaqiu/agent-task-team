@@ -138,6 +138,17 @@ describe('AutonomousDeliveryRepository', () => {
       (managedDb.prepare('PRAGMA table_info(autonomous_delivery_receipt)').all() as Array<{ name: string }>)
         .map((column) => column.name),
     ).toEqual(expect.arrayContaining(['action_id', 'attempt_id']));
+
+    managedDb.prepare(
+      "UPDATE autonomous_delivery_run SET status='waiting_gate' WHERE id=?",
+    ).run(first.run.id);
+    expect(repo.getRun(first.run.id)?.status).toBe('escalated');
+    expect(repo.listActive()).toEqual([]);
+    expect(repo.claimNext({
+      runId: first.run.id,
+      workerId: 'worker-after-gate',
+      leaseMs: 1_000,
+    })).toBeUndefined();
   });
   it('原子 claim 同一逻辑动作且不会产生重复 attempt', () => {
     const repo = new AutonomousDeliveryRepository();

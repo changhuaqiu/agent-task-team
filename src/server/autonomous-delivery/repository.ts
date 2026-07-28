@@ -109,8 +109,8 @@ function normalizeRun(db: Database.Database, row: StoredDeliveryRunRow): Deliver
   const status: DeliveryRunStatus = (() => {
     switch (row.status) {
       case 'active':
-      case 'waiting_gate':
         return row.current_stage as DeliveryRunStatus;
+      case 'waiting_gate':
       case 'waiting_human':
       case 'failed':
         return 'escalated';

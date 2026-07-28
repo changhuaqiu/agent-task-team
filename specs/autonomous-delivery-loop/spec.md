@@ -119,6 +119,8 @@ DeliveryRun schema, a compatibility daemon must inspect the actual table contrac
   written into the managed table;
 - a repeated start for the same Conversation uses the same key and returns the
   existing Run instead of creating a duplicate;
+- managed `waiting_gate` runs project as stopped legacy runs and cannot resume or
+  claim work without gate evidence from the managed controller;
 - if the managed checkpoint no longer contains the legacy Action/Attempt tables,
   compatibility repair must recreate their exact durable lease schema and add the
   nullable receipt ownership columns before the legacy supervisor starts;
