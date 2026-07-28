@@ -89,6 +89,69 @@ beforeEach(() => {
 afterEach(() => resetDb());
 
 describe('RepositoryDeliveryFactsAdapter', () => {
+  it('keeps verification pending while a test-gate admission is active', async () => {
+    const repo = new AutonomousDeliveryRepository();
+    const run = repo.createRun(contract);
+    const task = taskRepo.create({
+      id: 'task-active-verification',
+      conversation_id: contract.scope.conversationId,
+      title: contract.goal,
+      agent_id: 'peach',
+    });
+    taskRepo.updateStatus(task.id, 'done');
+    repo.updateRun({
+      runId: run.run.id,
+      status: 'verifying',
+      stage: 'verifying',
+      rootTaskId: task.id,
+    });
+    repo.recordReceipt({
+      runId: run.run.id,
+      receipt: {
+        kind: 'verification.acceptance',
+        status: 'failed',
+        payload: {
+          schemaVersion: 1,
+          deliveryRunId: run.run.id,
+          status: 'failed',
+          method: 'web_ui_e2e',
+          verifierAgentId: 'peach',
+          tool: 'playwright',
+          reportRef: 'failed-report',
+          specRefs: [],
+          acceptanceResults: contract.acceptanceCriteria.map((criterion) => ({
+            criterion,
+            status: 'failed',
+            evidenceRefs: ['failed-attempt'],
+          })),
+        },
+      },
+    });
+    const invocation = invocationRepo.create({
+      id: 'inv-active-verification',
+      conversation_id: contract.scope.conversationId,
+      task_id: task.id,
+      agent_id: 'peach',
+      engine: 'claude',
+      account_id: 'account-claude',
+    });
+    invocationRepo.updateStatus(invocation.id, 'running');
+    const admission = executionEnvelopeRepo.create({
+      source: 'test_gate',
+      intent: 'verify',
+      conversationId: contract.scope.conversationId,
+      taskId: task.id,
+      fromNodeId: 'delivery-supervisor',
+      toNodeId: 'daemon:local',
+      toAgentId: 'peach',
+    });
+    executionEnvelopeRepo.updateStatus(admission.id, 'acknowledged');
+
+    const facts = await new RepositoryDeliveryFactsAdapter().observe(repo.getSnapshot(run.run.id)!);
+
+    expect(facts.verification).toBe('pending');
+  });
+
   it('records a failed verification receipt when post-dispatch gate evidence omits it', async () => {
     const repo = new AutonomousDeliveryRepository();
     const run = repo.createRun(contract);

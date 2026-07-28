@@ -471,6 +471,11 @@ export class RepositoryDeliveryFactsAdapter implements DeliveryFactsPort {
       ? undefined
       : candidateWakeup;
     const hasActiveEnvelope = envelopes.some((envelope) => isActiveAdmission(envelope, invocations));
+    const hasActiveVerificationEnvelope = envelopes.some((envelope) =>
+      envelope.source === 'test_gate'
+      && envelope.task_id === rootTask?.id
+      && isActiveAdmission(envelope, invocations)
+    );
     const allDone = tasks.length > 0 && tasks.every((task) => task.status === 'done');
     const deliveryEvidence = acceptedDeliveryEvidence(proofs);
     const verificationDispatchedAt = snapshot.actions
@@ -538,7 +543,9 @@ export class RepositoryDeliveryFactsAdapter implements DeliveryFactsPort {
       (action.kind === 'run_verification' || action.kind === 'repair_verification')
       && ['ready', 'claimed', 'running', 'retry_wait', 'succeeded'].includes(action.status)
     );
-    const verificationState: ObservedDeliveryFacts['verification'] = latestVerification
+    const verificationState: ObservedDeliveryFacts['verification'] = hasActiveVerificationEnvelope
+      ? 'pending'
+      : latestVerification
       ? latestVerification.status
       : verificationDispatched
         ? 'pending'
