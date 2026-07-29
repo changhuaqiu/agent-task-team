@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { buildToolLayer } from '@/lib/agent-context/layers/toolLayer';
 import { filterRegisteredTools } from '@/lib/agent-context/ContextManager';
 import { buildCollaborationLayer } from '@/lib/agent-context/layers/collaborationLayer';
+import { TASK_MANAGEMENT_SKILL } from '@/data/presetSkills/taskManagement';
 import type { ToolDefinition } from '@/lib/agent-context/types';
 
 describe('buildToolLayer', () => {
@@ -80,5 +81,12 @@ describe('runtime tool registration boundary', () => {
     expect(prompt).toContain('更新为 review/in_review 后立即正常结束本轮');
     expect(prompt).toContain('不要再手工 @ 默认 reviewer');
     expect(prompt).not.toContain('禁止用这些 CLI 原生协作工具创建子 agent');
+  });
+
+  it('keeps the task-management skill compatible with invocation-local subagents', () => {
+    expect(TASK_MANAGEMENT_SKILL.content).toContain('Runtime-native Task or Agent may be used');
+    expect(TASK_MANAGEMENT_SKILL.content).toContain('do not create or update platform Task Graph nodes');
+    expect(TASK_MANAGEMENT_SKILL.content).not.toContain('Never substitute runtime-native Task');
+    expect(TASK_MANAGEMENT_SKILL.content).not.toContain('wait for a runtime-native child agent');
   });
 });

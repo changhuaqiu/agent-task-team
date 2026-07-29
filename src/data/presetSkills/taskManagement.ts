@@ -9,9 +9,9 @@ You can create, assign, and update tasks for your team through the platform fact
 
 Tool schemas in this skill are contracts, not proof that the current runtime registered them. Invoke only an exact platform tool name that the runtime explicitly exposes. If no exact platform task tool is exposed, edit the absolute TASKS.md path supplied by the platform.
 
-Never substitute runtime-native Task, Agent, SendMessage, TodoWrite, or TodoRead. Those tools belong to the underlying CLI and do not update the platform Task Graph or A2A possession state. Emit actionable A2A handoffs in your normal visible response instead of calling SendMessage.
+Runtime-native Task or Agent may be used for bounded parallel investigation or subwork inside the current Invocation. The platform waits for those children to converge, but they do not create or update platform Task Graph nodes, A2A possession, role ownership, or delivery receipts. SendMessage and local TodoWrite/TodoRead are likewise not platform fact sources. Emit cross-role business handoffs in your normal visible response or use an exact registered platform task tool.
 
-After emitting one actionable handoff, end the turn immediately. Do not execute the receiver's work, wait for a runtime-native child agent, or continue the same turn; the platform transfers possession only at the completed-turn boundary.
+After all runtime-native child work for your own role has converged, emit at most one actionable cross-role handoff and end the turn immediately. Do not execute or impersonate the receiver's work after that handoff; the platform transfers possession only at the completed-turn boundary.
 
 ## Guidelines
 
