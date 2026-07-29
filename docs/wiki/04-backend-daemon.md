@@ -396,3 +396,5 @@ Autonomous Delivery 的首轮协调调用由持久化 `plan_goal` Action 创建�
 首轮规划若在产生 Task Graph 进展前失败或超时，恢复派发继续使用 `planning` Context Scenario 和同一角色边界；不能用通用 execution prompt 恢复协调者。协作 Context 同时允许 runtime-native `Task` / `Agent` 作为单次 Invocation 内部的有界并行能力，但明确它们不改变平台任务、角色持有权或 A2A pass，跨角色业务交接仍需平台任务工具或正常可见的 actionable mention。
 
 规划者创建或分配任务后，Task Graph 的 owner-ready wakeup 已经是真实派发；取得 dispatch receipt 后不再追加同任务 A2A mention。chainless A2A 路径与已有 chain 路径使用同一套任务依赖、owner 和 active-status 门禁，并优先把 mention 中的明确任务引用绑定到 pass。这样“创建 `TASK-003` 并自动唤醒 Luigi”之后的重复 `@luigi 请启动 TASK-003` 会成为幂等 no-op，而不会再把当前根任务错误转给 Luigi。
+
+多任务会话中的无引用 A2A 只允许绑定目标角色唯一的非终态任务；若目标没有任务或存在歧义，daemon 记录 `ambiguous_task_handoff` 并阻止派发，不再回退使用来源 Invocation 的根 taskId。规划回复中的角色说明因此不能把根任务从 Mario 依次转给 Luigi、Peach。

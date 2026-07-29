@@ -89,9 +89,18 @@ function resolveDispatchTaskId(
   targetAgentId: string,
   fallbackTaskId?: string,
 ): string | undefined {
-  return resolveReferencedTasks(content, tasks)
-    .find((task) => task.agentId === targetAgentId)?.id
-    ?? fallbackTaskId;
+  const explicit = resolveReferencedTasks(content, tasks)
+    .find((task) => task.agentId === targetAgentId);
+  if (explicit) return explicit.id;
+  const targetTasks = tasks.filter((task) =>
+    task.agentId === targetAgentId
+    && task.status !== 'done'
+    && task.status !== 'blocked'
+    && task.status !== 'abandoned'
+    && task.status !== 'cancelled'
+  );
+  if (targetTasks.length === 1) return targetTasks[0].id;
+  return tasks.length <= 1 ? fallbackTaskId : undefined;
 }
 
 function isPersistedConversationTask(taskId: string, conversationId: string): boolean {
@@ -235,7 +244,43 @@ export class Orchestrator {
     }
 
     const conversationTasks = this.config.getTasksForConversation(chain.conversationId);
-    const referencedTasks = resolveReferencedTasks(req.content, conversationTasks);
+    const explicitReferencedTasks = resolveReferencedTasks(req.content, conversationTasks);
+    const boundTask = req.taskId
+      ? conversationTasks.find((task) => task.id === req.taskId)
+      : undefined;
+    const referencedTasks = explicitReferencedTasks.length > 0
+      ? explicitReferencedTasks
+      : boundTask
+        ? [boundTask]
+        : [];
+    if (
+      req.fromAgentId !== 'user'
+      && conversationTasks.length > 1
+      && referencedTasks.length === 0
+    ) {
+      const reason = 'ambiguous_task_handoff: multiple tasks exist but no unique target task was resolved';
+      this.possessionRepo.createBlockedPass({
+        chainId: chain.id,
+        fromHolderId: req.fromAgentId,
+        toAgentId: req.toAgentId,
+        intent: req.intent ?? 'delegate',
+        phase: 'policy',
+        reason,
+      });
+      this.audit('dispatch_blocked', {
+        chainId: chain.id,
+        conversationId: chain.conversationId,
+        fromAgentId: req.fromAgentId,
+        toAgentId: req.toAgentId,
+        reason,
+        metadata: {
+          blockedBy: 'ambiguous_task_handoff',
+          taskCount: conversationTasks.length,
+        },
+      });
+      this.emitPassBlocked(chain.conversationId, chain.id, req.fromAgentId, req.toAgentId, reason);
+      return { allow: false, reason, silent: true };
+    }
     const ownerMismatchTask = referencedTasks.find((task) => task.agentId !== req.toAgentId);
     if (ownerMismatchTask) {
       const reason = `task ${ownerMismatchTask.id} is owned by ${ownerMismatchTask.agentId}, not ${req.toAgentId}`;

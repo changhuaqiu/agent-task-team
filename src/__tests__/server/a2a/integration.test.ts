@@ -1194,6 +1194,55 @@ describe('Chainless handoff (Plan B)', () => {
     });
   });
 
+  it('binds an unreferenced handoff to the target unique task in a multi-task graph', async () => {
+    testTasks = [
+      { id: 'task-root', title: '统筹根任务', status: 'in_progress', agent_id: 'mario' },
+      { id: 'TASK-003', title: '实现交付物', status: 'pending', agent_id: 'luigi' },
+    ];
+
+    await messenger.onAgentResponse('mario', '把实现这一棒交给 @luigi 请开始处理。', {
+      conversationId: 'conv-1',
+      taskId: 'task-root',
+      chainDepth: 0,
+    });
+
+    const dispatch = io.emitted().find(
+      ([event, payload]) => event === 'a2a:dispatch' && payload.agentId === 'luigi',
+    );
+    expect(dispatch?.[1]).toMatchObject({
+      referencedTaskId: 'TASK-003',
+    });
+  });
+
+  it('blocks an unreferenced quality-role projection in a multi-task graph', async () => {
+    testTasks = [
+      { id: 'task-root', title: '统筹根任务', status: 'in_progress', agent_id: 'mario' },
+      { id: 'TASK-003', title: '实现交付物', status: 'in_progress', agent_id: 'luigi' },
+    ];
+
+    await messenger.onAgentResponse('mario', '实现由 Luigi 推进，两道质量门交给 @peach 请后续负责。', {
+      conversationId: 'conv-1',
+      taskId: 'task-root',
+      chainDepth: 0,
+    });
+
+    const dispatches = io.emitted().filter(
+      ([event, payload]) => event === 'a2a:dispatch' && payload.agentId === 'peach',
+    );
+    expect(dispatches).toHaveLength(0);
+    const audit = db.prepare(`
+      SELECT metadata
+      FROM a2a_audit_log
+      WHERE event_type = 'dispatch_blocked'
+      ORDER BY created_at DESC
+      LIMIT 1
+    `).get() as { metadata: string };
+    expect(JSON.parse(audit.metadata)).toMatchObject({
+      blockedBy: 'ambiguous_task_handoff',
+      taskCount: 2,
+    });
+  });
+
   it('ignores chainless agent response without actionable @mention', async () => {
     await messenger.onAgentResponse('peach', '已完成评审，结论是通过', {
       conversationId: 'conv-1',
