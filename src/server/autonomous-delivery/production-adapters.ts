@@ -659,7 +659,7 @@ export class HarnessDeliveryActionAdapter implements DeliveryActionPort {
   ): Promise<DeliveryExecutionResult> {
     switch (claim.action.kind) {
       case 'plan_goal':
-        return this.planGoal(snapshot);
+        return this.planGoal(claim, snapshot);
       case 'advance_tasks':
       case 'request_review':
       case 'repair_review':
@@ -703,7 +703,10 @@ export class HarnessDeliveryActionAdapter implements DeliveryActionPort {
     }
   }
 
-  private async planGoal(snapshot: DeliveryRunSnapshot): Promise<DeliveryExecutionResult> {
+  private async planGoal(
+    claim: ClaimedDeliveryAction,
+    snapshot: DeliveryRunSnapshot,
+  ): Promise<DeliveryExecutionResult> {
     const audience = resolveTaskNotificationAudience(snapshot.run.conversation_id);
     const ownerAgentId = audience.coordinatorAgentIds[0];
     if (!ownerAgentId) {
@@ -724,6 +727,68 @@ export class HarnessDeliveryActionAdapter implements DeliveryActionPort {
       actorType: 'system',
     }).task;
     emitTaskState(this.io, task);
+    const wakeup: TaskWakeup = {
+      conversationId: snapshot.run.conversation_id,
+      taskId: task.id,
+      agentId: ownerAgentId,
+      reasonCode: 'owner_ready',
+      dispatchSource: 'workflow',
+      prompt: [
+        '这是 Autonomous Delivery 的规划阶段。',
+        `Delivery Run: ${snapshot.run.id}`,
+        `目标：${snapshot.contract.goal}`,
+        '本轮只负责分析范围、拆解 Task Graph、选择合适角色并完成真实分派/交接。',
+        '必须把实现工作交给实现角色，把独立 Review 与 Web E2E 留给质量门角色。',
+        '不得由协调者直接创建或修改交付物，不得自行执行 Review、测试或 Web E2E。',
+        '请使用任务工具持久化拆解与负责人，并用明确的行动型 @mention 启动当前第一棒；不要等待用户追加消息。',
+      ].join('\n'),
+      content: `系统请求 @${ownerAgentId} 规划并分派 ${task.id}。`,
+      metadata: {
+        taskId: task.id,
+        taskTitle: task.title,
+        taskStatus: task.status,
+        ownerAgentId,
+        reasonCode: 'owner_ready',
+        idempotencyKey: claim.action.idempotency_key,
+        startsA2AHandoff: false,
+        startsDispatch: true,
+        reasonSummary: 'plan_goal',
+      },
+    };
+    const submission = submitTaskWakeupToHarness(
+      this.io,
+      {
+        ...wakeup,
+        id: `delivery:${claim.action.id}`,
+      },
+      'planning',
+      snapshot.run.id,
+    );
+    if (!submission?.handled) {
+      return {
+        status: 'failed',
+        failureCode: submission?.disposition === 'deferred'
+          ? 'transient_runtime'
+          : 'permanent_configuration',
+        detail: submission
+          ? `Harness 未接收规划任务：${submission.disposition}`
+          : 'Harness Coordinator 尚未注册',
+        retryable: submission?.disposition === 'deferred',
+      };
+    }
+    const outcome = await submission.completion;
+    if (outcome.status !== 'accepted') {
+      return {
+        status: 'failed',
+        failureCode: outcome.status === 'deferred'
+          ? 'transient_runtime'
+          : outcome.reasonCode === 'required_context_missing'
+            ? 'permanent_configuration'
+            : 'unknown',
+        detail: 'message' in outcome ? outcome.message : outcome.reasonCode,
+        retryable: outcome.status === 'deferred',
+      };
+    }
     return {
       status: 'succeeded',
       receipts: [{
@@ -732,6 +797,17 @@ export class HarnessDeliveryActionAdapter implements DeliveryActionPort {
         externalId: task.id,
         payload: { rootTaskId: task.id, ownerAgentId },
         idempotencyKey: `${snapshot.run.id}:goal.planned`,
+      }, {
+        kind: 'harness.dispatch.accepted',
+        status: 'succeeded',
+        externalId: task.id,
+        payload: {
+          taskId: task.id,
+          agentId: ownerAgentId,
+          reasonCode: 'plan_goal',
+          contextScenario: 'planning',
+        },
+        idempotencyKey: `${snapshot.run.id}:plan_goal:dispatch`,
       }],
     };
   }

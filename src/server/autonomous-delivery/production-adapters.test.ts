@@ -664,6 +664,62 @@ describe('RepositoryDeliveryFactsAdapter', () => {
     expect(repo.getSnapshot(run.run.id)?.receipts).toHaveLength(0);
   });
 
+  it('plan_goal creates the root and dispatches the coordinator with planning semantics', async () => {
+    const repo = new AutonomousDeliveryRepository();
+    const run = repo.createRun(contract);
+    repo.ensureAction({
+      runId: run.run.id,
+      kind: 'plan_goal',
+      idempotencyKey: `${run.run.id}:plan_goal:v1`,
+      maxAttempts: 3,
+    });
+    const claim = repo.claimNext({
+      runId: run.run.id,
+      workerId: 'planning-test',
+      leaseMs: 30_000,
+    });
+    expect(claim).toBeDefined();
+
+    let submitted: HarnessTrigger | undefined;
+    const io = { to: () => ({ emit: () => undefined }) } as unknown as IOServer;
+    registerHarnessCoordinator(io, {
+      submit(trigger: HarnessTrigger) {
+        submitted = trigger;
+        return {
+          disposition: 'accepted',
+          handled: true,
+          completion: Promise.resolve({ status: 'accepted' }),
+        };
+      },
+    } as unknown as HarnessCoordinator);
+
+    const result = await new HarnessDeliveryActionAdapter(io).execute(
+      claim!,
+      repo.getSnapshot(run.run.id)!,
+    );
+    const root = taskRepo.getByConversation(contract.scope.conversationId)[0];
+
+    expect(result.status).toBe('succeeded');
+    expect(root).toBeDefined();
+    expect(submitted).toMatchObject({
+      source: 'workflow',
+      conversationId: contract.scope.conversationId,
+      taskId: root.id,
+      agentId: 'mario',
+      deliveryRunId: run.run.id,
+      contextScenario: 'planning',
+      wakeup: expect.objectContaining({ reasonCode: 'owner_ready' }),
+    });
+    expect(submitted?.prompt).toContain('不得由协调者直接创建或修改交付物');
+    expect(result.receipts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'goal.planned' }),
+      expect.objectContaining({
+        kind: 'harness.dispatch.accepted',
+        payload: expect.objectContaining({ contextScenario: 'planning' }),
+      }),
+    ]));
+  });
+
   it('dispatches implicit root closure through the same wakeup reconstruction used by execution', async () => {
     const repo = new AutonomousDeliveryRepository();
     const run = repo.createRun(contract);

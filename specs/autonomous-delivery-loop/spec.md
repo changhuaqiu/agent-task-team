@@ -416,6 +416,7 @@ Team Harness 不重复实现模型、Skill、工具协议、浏览器驱动或 P
 用户在 Web UI 创建交付目标并发送一次。此后不再发送消息。系统完成任务拆解、开发、Review、Web UI E2E、修复、PR/合并（若授权），最后 UI 展示 DeliveryBundle。
 创建时可以异步加载 Team Pack，但 `autonomous=true` 时不得再触发普通 Conversation 的初始 proposal；
 首个规划调用必须来自持久化的 `plan_goal` Action/Attempt。非自主项目的既有 proposal 行为保持不变。
+`plan_goal` 不得仅创建根任务后立即让通用 `advance_tasks` 以 execution/implement 语义派发协调者；它必须在同一持久化动作中向团队协调者提交 `planning` Context Scenario，明确要求拆解、分派和真实交接，并禁止协调者直接实现交付物或执行 Review/Web E2E。这样角色分工是平台协议，而不是依赖模型临场自觉。
 页面刷新后，自主标记必须由持久化 DeliveryRun 重新水合；创建定时器、聊天自动提案和
 `triggerProposal` 统一入口都必须拒绝为该 Conversation 派发 legacy proposal。多标签页或外部入口
 在旧页面水合后创建 DeliveryRun 时，daemon 仍须以持久化 DeliveryRun 为权威，在 Harness 前拒绝
