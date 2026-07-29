@@ -22,7 +22,7 @@ const PLAYWRIGHT_VERIFICATION_TOOLS = [
 export function verificationAutoApprovedMcpToolNames(
   source: DispatchSource | undefined,
 ): string[] {
-  if (source !== 'test_gate') return [];
+  if (source !== 'test_gate' && source !== 'review_gate') return [];
   return PLAYWRIGHT_VERIFICATION_TOOLS.flatMap((toolName) => [
     `mcp.playwright.${toolName}`,
     `mcp__playwright__${toolName}`,
