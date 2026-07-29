@@ -1147,6 +1147,53 @@ describe('Chainless handoff (Plan B)', () => {
     expect(chains[0].conversation_id).toBe('conv-1');
   });
 
+  it('treats a chainless mention for an already-active task as an idempotent no-op', async () => {
+    testTasks = [
+      { id: 'TASK-003', title: '实现交付物', status: 'in_progress', agent_id: 'luigi' },
+    ];
+
+    await messenger.onAgentResponse('mario', '@luigi 请启动 TASK-003 并完成交付物。', {
+      conversationId: 'conv-1',
+      taskId: 'task-root',
+      chainDepth: 0,
+    });
+
+    const dispatches = io.emitted().filter(
+      ([event, payload]) => event === 'a2a:dispatch' && payload.agentId === 'luigi',
+    );
+    expect(dispatches).toHaveLength(0);
+    const audit = db.prepare(`
+      SELECT metadata
+      FROM a2a_audit_log
+      WHERE event_type = 'dispatch_blocked'
+      ORDER BY created_at DESC
+      LIMIT 1
+    `).get() as { metadata: string };
+    expect(JSON.parse(audit.metadata)).toMatchObject({
+      blockedBy: 'task_already_active',
+      taskId: 'TASK-003',
+    });
+  });
+
+  it('binds a chainless explicit child-task mention instead of the source root task', async () => {
+    testTasks = [
+      { id: 'TASK-003', title: '实现交付物', status: 'pending', agent_id: 'luigi' },
+    ];
+
+    await messenger.onAgentResponse('mario', '@luigi 请启动 TASK-003 并完成交付物。', {
+      conversationId: 'conv-1',
+      taskId: 'task-root',
+      chainDepth: 0,
+    });
+
+    const dispatch = io.emitted().find(
+      ([event, payload]) => event === 'a2a:dispatch' && payload.agentId === 'luigi',
+    );
+    expect(dispatch?.[1]).toMatchObject({
+      referencedTaskId: 'TASK-003',
+    });
+  });
+
   it('ignores chainless agent response without actionable @mention', async () => {
     await messenger.onAgentResponse('peach', '已完成评审，结论是通过', {
       conversationId: 'conv-1',

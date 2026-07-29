@@ -27,6 +27,7 @@ import { scanPassIntents } from './pass-intent';
 import { buildHandoffPacketDraft } from './handoff-packet';
 import { PossessionRepo } from './possession';
 import { taskGraphRepo } from '../repositories/task-graph-repo';
+import { taskRepo } from '../repositories/task-repo';
 
 const MIN_SUBSTANTIVE_LENGTH = 50;
 const ACTION_PLACEHOLDER = /^(?:收到|好的?|明白|了解|我看看|稍等|ok(?:ay)?|got it|ack|todo|tbd)[。.!！\s]*$/i;
@@ -80,6 +81,21 @@ function resolveReferencedTasks(
   return taskIds
     .map((taskId) => tasks.find((task) => task.id.toUpperCase() === taskId))
     .filter((task): task is TaskSummary => task !== undefined);
+}
+
+function resolveDispatchTaskId(
+  content: string,
+  tasks: TaskSummary[],
+  targetAgentId: string,
+  fallbackTaskId?: string,
+): string | undefined {
+  return resolveReferencedTasks(content, tasks)
+    .find((task) => task.agentId === targetAgentId)?.id
+    ?? fallbackTaskId;
+}
+
+function isPersistedConversationTask(taskId: string, conversationId: string): boolean {
+  return taskRepo.getById(taskId)?.conversation_id === conversationId;
 }
 
 export interface OrchestratorConfig {
@@ -446,14 +462,16 @@ export class Orchestrator {
     }
     if (req.taskId) {
       this.entryTaskIds.set(entry.id, req.taskId);
-      taskGraphRepo.recordHandoffRequested({
-        conversationId: chain.conversationId,
-        taskId: req.taskId,
-        fromAgentId: req.fromAgentId,
-        toAgentId: req.toAgentId,
-        passId: pass.id,
-        requestedAction: req.content,
-      });
+      if (isPersistedConversationTask(req.taskId, chain.conversationId)) {
+        taskGraphRepo.recordHandoffRequested({
+          conversationId: chain.conversationId,
+          taskId: req.taskId,
+          fromAgentId: req.fromAgentId,
+          toAgentId: req.toAgentId,
+          passId: pass.id,
+          requestedAction: req.content,
+        });
+      }
     }
     this.startOfferTimer(chain, pass.id, req.fromAgentId, req.toAgentId);
 
@@ -520,44 +538,30 @@ export class Orchestrator {
       this.possessionRepo.startPass(holderPass.id);
       // NOTE: don't completeHolder yet — createPass below needs an open possession for agentId
 
-      // Process @mention targets — leave entries as 'queued', let dispatchNext handle state
-      const startedPassIds: string[] = [];
+      // Process targets through the same policy/dedup/task gates used by active
+      // chains. The old direct append path bypassed active-task idempotency and
+      // could launch a second A2A dispatch after task_create already woke the
+      // same owner.
+      const conversationTasks = this.config.getTasksForConversation(conversationId);
       for (const target of targets) {
-        const contentHash = computeContentHash(agentId, target.agentId, target.content);
-        const entry = this.chainRepo.appendWorklist(chain.id, target.agentId, agentId, target.content, contentHash, 1);
-        if (!entry) continue;
-        if (taskId) this.entryTaskIds.set(entry.id, taskId);
-        const { pass: targetPass } = this.possessionRepo.createPass({
+        this.requestDispatch({
           chainId: chain.id,
-          fromHolderId: agentId,
           toAgentId: target.agentId,
-          intent: target.intent,
-          packet: buildHandoffPacketDraft({
-            fromHolderId: agentId,
-            toAgentId: target.agentId,
-            content: target.content,
-            intent: target.intent,
-            sourceMessageIds: [],
-          }),
-        });
-        this.entryPassIds.set(entry.id, targetPass.id);
-        startedPassIds.push(targetPass.id);
-        this.audit('dispatch_allowed', {
-          chainId: chain.id,
-          conversationId,
           fromAgentId: agentId,
-          toAgentId: target.agentId,
-          contentHash,
-          metadata: { chainlessHandoff: true },
+          content: target.content,
+          depth: 1,
+          intent: target.intent,
+          taskId: resolveDispatchTaskId(
+            target.content,
+            conversationTasks,
+            target.agentId,
+            taskId,
+          ),
         });
       }
 
-      // Complete the source agent's possession, then start target passes and dispatch
+      // Complete the source agent's possession, then dispatch allowed targets.
       this.possessionRepo.completeHolder(chain.id, agentId, response.slice(0, 1000));
-      for (const passId of startedPassIds) {
-        this.possessionRepo.startPass(passId);
-        this.clearPassTimer(passId);
-      }
 
       this.dispatchNext(chain.id, conversationId);
       return;
@@ -668,6 +672,7 @@ export class Orchestrator {
 
     // Process each mention as a dispatch request
     const currentDepth = executingEntry ? executingEntry.depth : 0;
+    const conversationTasks = this.config.getTasksForConversation(conversationId);
     for (const target of targets) {
       const decision = this.requestDispatch({
         chainId: chain.id,
@@ -676,7 +681,12 @@ export class Orchestrator {
         content: target.content,
         depth: currentDepth + 1,
         intent: target.intent,
-        taskId,
+        taskId: resolveDispatchTaskId(
+          target.content,
+          conversationTasks,
+          target.agentId,
+          taskId,
+        ),
       });
 
       if (!decision.allow && !decision.silent) {
@@ -923,7 +933,11 @@ export class Orchestrator {
       this.clearPassTimer(resolvedPassId);
       const referencedTaskId = this.entryTaskIds.get(entryId);
       const pass = this.possessionRepo.getPass(resolvedPassId);
-      if (referencedTaskId && pass) {
+      if (
+        referencedTaskId
+        && pass
+        && isPersistedConversationTask(referencedTaskId, conversationId)
+      ) {
         taskGraphRepo.recordHandoffAccepted({
           conversationId,
           taskId: referencedTaskId,

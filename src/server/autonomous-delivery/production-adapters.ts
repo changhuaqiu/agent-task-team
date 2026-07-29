@@ -75,7 +75,7 @@ function planningDispatchPrompt(
     '本轮只负责分析范围、拆解 Task Graph、选择合适角色并完成真实分派/交接。',
     '必须把实现工作交给实现角色，把独立 Review 与 Web E2E 留给质量门角色。',
     '不得由协调者直接创建或修改交付物，不得自行执行 Review、测试或 Web E2E。',
-    '请使用任务工具持久化拆解与负责人，并用明确的行动型 @mention 启动当前第一棒；不要等待用户追加消息。',
+    '请使用任务工具持久化拆解与负责人。若任务工具已经返回真实 dispatch/wakeup receipt，不要再为同一任务发送 A2A mention；只有自动派发未启动或明确失败时，才用行动型 mention 补发第一棒。不要等待用户追加消息。',
   ].join('\n');
 }
 
