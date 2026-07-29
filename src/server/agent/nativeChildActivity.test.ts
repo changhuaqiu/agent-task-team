@@ -15,6 +15,11 @@ describe('NativeChildActivityTracker', () => {
       content: '',
       tool: { name: 'Task', callId: 'task-1', status: 'in_progress' },
     })).toBeUndefined();
+    expect(tracker.update({
+      type: 'tool_result',
+      content: '',
+      tool: { name: 'Task', callId: 'task-1' },
+    })).toBeUndefined();
     expect(tracker.hasPendingCalls).toBe(true);
     expect(tracker.update({
       type: 'tool_result',

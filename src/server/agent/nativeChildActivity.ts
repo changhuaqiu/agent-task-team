@@ -7,8 +7,7 @@ export type NativeChildActivityTransition = {
 
 export function isTerminalToolResult(event: AgentEvent): boolean {
   return event.type === 'tool_result'
-    && event.tool?.status !== 'pending'
-    && event.tool?.status !== 'in_progress';
+    && (event.tool?.status === 'completed' || event.tool?.status === 'failed');
 }
 
 function isNativeChildTool(name: string): boolean {
