@@ -15,6 +15,7 @@ import { GhCliGitProviderVerifier } from './engineering-collaboration/github-cli
 import type { ImplementationEvidence, MergeEvidence, ReviewEvidence } from '@/lib/engineering-collaboration/types';
 import type { Server as IOServer } from 'socket.io';
 import { readTasksMd, updateTaskInMd, writeTasksMd } from './task-file-service';
+import { startArtifactLoopbackServer } from './verification/artifact-loopback-server';
 
 // ── Types ──────────────────────────────────────
 
@@ -273,6 +274,31 @@ function executeTaskAssign(invocation: ToolInvocation): ToolResult {
   return { success: true, data: { id: taskId, agent_id: targetAgentId } };
 }
 
+async function executeVerificationServeArtifact(invocation: ToolInvocation): Promise<ToolResult> {
+  const artifactPath = invocation.input.artifact_path as string | undefined;
+  if (!artifactPath?.trim()) {
+    return { success: false, error: 'artifact_path is required' };
+  }
+  if (!invocation.taskId) {
+    return { success: false, error: 'verification_serve_artifact requires a current dispatched task' };
+  }
+  const task = taskRepo.getById(invocation.taskId);
+  if (!task || task.conversation_id !== invocation.conversationId) {
+    return { success: false, error: 'Current dispatched task is not part of this conversation' };
+  }
+  if (!['in_review', 'blocked', 'rejected'].includes(task.status)) {
+    return {
+      success: false,
+      error: `verification_serve_artifact is limited to quality-gate tasks; current status is ${task.status}`,
+    };
+  }
+  const data = await startArtifactLoopbackServer({
+    projectDir: resolveTaskProjectDir(invocation, task.conversation_id),
+    artifactPath,
+  });
+  return { success: true, data };
+}
+
 function recordInput(value: unknown): Record<string, unknown> | undefined {
   if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>;
   if (typeof value !== 'string') return undefined;
@@ -357,6 +383,7 @@ const TOOL_EXECUTORS: Record<string, (invocation: ToolInvocation) => ToolResult 
   task_create: executeTaskCreate,
   task_update_status: executeTaskUpdateStatus,
   task_assign: executeTaskAssign,
+  verification_serve_artifact: executeVerificationServeArtifact,
   collaboration_record_pr: executeRecordPullRequest,
   collaboration_record_review: executeRecordReview,
   collaboration_record_merge: executeRecordMerge,

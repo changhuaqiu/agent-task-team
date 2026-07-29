@@ -19,6 +19,10 @@ Use the platform task_update_status tool only for the exact task in the current 
 - A verification wakeup must also include evidence.verificationReceipt with the
   exact schema requested by the wakeup, including real report/spec references
   and criterion-specific acceptanceResults.
+- For a local artifact browser check, use verification_serve_artifact to obtain
+  a one-use 127.0.0.1 URL, then request that URL with Playwright and assert the
+  real response. Do not start a shell server or assume browser_run_code_unsafe
+  exposes Node require/import.
 - Do not create, assign, list, rename, or modify unrelated tasks.
 - TASKS.md is a projection; use task_update_status when this tool is exposed.`,
   config: JSON.stringify({
@@ -37,6 +41,14 @@ Use the platform task_update_status tool only for the exact task in the current 
           },
         ],
         handler: 'api://tasks/update',
+      },
+      {
+        name: 'verification_serve_artifact',
+        description: 'Serve one current-project artifact through a one-use, short-lived 127.0.0.1 URL for real browser verification',
+        parameters: [
+          { name: 'artifact_path', type: 'string', required: true, description: 'Project-relative path of the artifact to serve' },
+        ],
+        handler: 'api://verification/serve-artifact',
       },
     ],
   }),

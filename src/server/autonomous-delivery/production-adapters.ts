@@ -970,6 +970,9 @@ export class HarnessDeliveryActionAdapter implements DeliveryActionPort {
         snapshot.contract.deliveryPolicy.requireWebE2E
           ? '必须通过真实 Browser/Playwright Web UI 端到端测试，不得用接口调用代替页面操作。'
           : '执行与验收标准匹配的自动化验证。',
+        snapshot.contract.deliveryPolicy.requireWebE2E
+          ? '本地产物先调用 verification_serve_artifact 获取一次性 127.0.0.1 URL，再由 Playwright 真实访问并断言；不要启动 shell HTTP 服务，也不要假设 browser_run_code_unsafe 支持 Node require/import。'
+          : '',
         `Delivery Run: ${snapshot.run.id}`,
         '验收标准：',
         criteria,
@@ -1017,6 +1020,9 @@ export class HarnessDeliveryActionAdapter implements DeliveryActionPort {
         `Delivery Run: ${snapshot.run.id}`,
         `目标：${snapshot.contract.goal}`,
         '请检查实现正确性、安全、回归风险、可维护性和验收可测性。',
+        snapshot.contract.deliveryPolicy.requireWebE2E
+          ? '若本轮同时承担 Web 验收，本地产物先调用 verification_serve_artifact 获取一次性 127.0.0.1 URL，再由 Playwright 真实访问并断言；不要启动 shell HTTP 服务，也不要假设 browser_run_code_unsafe 支持 Node require/import。'
+          : '',
         '',
         '完成后调用 task_update_status，将当前任务保持为 done，并在 evidence.reviewReceipt 中提交：',
         `schemaVersion=1、deliveryRunId=${snapshot.run.id}、status=passed|failed、reviewerAgentId=${agentId}、`,
