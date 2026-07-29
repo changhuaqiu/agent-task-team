@@ -204,6 +204,8 @@ interface AcceptanceVerificationReceipt {
   `pending`；Supervisor 必须等待该 Invocation 结束，不能在同一次推进中抢跑并创建
   下一 repair cycle。Invocation 结束后再按最新持久化 Receipt 判定通过、修复或升级。
 
+- Claude ACP 角色不得启动运行时原生后台子代理。`Task`、`Agent`、`TaskOutput`、`TaskStop`、`SendMessage` 与团队管理工具必须在 session 创建层被拒绝；所有委派和恢复必须通过平台 Task Graph、Harness dispatch receipt 与 A2A ownership transfer 保持可观测。
+
 ### 3.6 Acceptance Review Receipt
 
 任务 `done` 不能同时充当独立评审结果。要求 Review 的 Run 必须收到质量门负责人提交的结构化回执：

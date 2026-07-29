@@ -319,6 +319,8 @@ ACP timeout 分为两层：平台配置的 `CLI_TIMEOUT_MS` 是 idle timeout，�
 
 延迟项（坦诚记录）：会话恢复（`session/load` 未接线，`supportsResume:false`）；需要人工交互的 confirm profile；跨运行时模型规范化；MCP 桥接（`mcpServers:[]` 当前为空）。CapabilityRouter 丢弃 resume 时 daemon 不再执行 fresh-session 自动重放，避免失败后重复副作用。详见 `architecture/cli-integration.md` 与 `specs/acp-runtime-integration/spec.md`。
 
+Claude ACP 会话会通过 `_meta.claudeCode.options.disallowedTools` 拒绝运行时原生的子代理和团队协作工具，避免父调用停在 `run.background_waiting`；多 Agent 协作只能走平台 Task Graph、Harness 与 A2A。
+
 ## 4.7 会话与调用追踪
 
 daemon 当前已经具备会话级跟踪：

@@ -135,6 +135,7 @@ ACP 文本更新是流式增量，不是独立聊天消息。daemon 可以逐 ch
 - permission request 必须经过统一策略：允许、拒绝或请求用户确认。
 - 无交互执行只能使用用户预先授权的策略；默认不采用“选择第一个选项自动授权”。
 - 自主交付的 `GoalContract.authorization.allowCodeChanges=true` 是一次显式、项目范围内的预授权。平台可据此仅对 ACP `edit` 类文件修改请求选择 `allow_once`；不得扩散到 `delete`、`move`、任意命令执行或已结束的交付 Run，也不得选择 `allow_always`。未授权、无法识别或策略异常仍然 fail-closed。
+- Claude ACP 会话必须在 session 元数据中拒绝运行时原生的 `Task`、`Agent`、`TaskOutput`、`TaskStop`、`SendMessage` 和团队管理工具。多 Agent 派发由平台 Task Graph、Harness 与 A2A 独占；提示词约束不能替代运行时强制边界。
 - 子进程继承的环境变量采用白名单或现有安全环境策略。
 - 日志记录协议阶段、运行时、session/invocation 关联与错误码，不记录敏感请求正文。
 

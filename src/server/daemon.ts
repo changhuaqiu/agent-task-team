@@ -26,6 +26,7 @@ import {
   prepareAcpRuntime,
 } from './agent/acp/runtimeSetup';
 import { createBackend as createAcpBackend } from './agent/acp/catalog';
+import { CLAUDE_NATIVE_ORCHESTRATION_TOOLS } from './agent/acp/acpBackend';
 import {
   createCodeChangePermissionPolicy,
   type AcpPermissionPolicy,
@@ -1981,6 +1982,9 @@ export default function registerDaemon(io: IOServer) {
           ...(acpToolGrant?.autoApproveToolNames ?? []),
           ...verificationAutoApprovedMcpToolNames(dispatchSource),
         ],
+        disallowedNativeTools: engine === 'claude'
+          ? [...CLAUDE_NATIVE_ORCHESTRATION_TOOLS]
+          : undefined,
       });
 
       // The per-turn timeout. timeoutMs already carries the codex-ACP floor

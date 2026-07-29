@@ -64,6 +64,36 @@ export interface AcpBackendOpts {
   limits?: Partial<AcpRuntimeLimits>;
   mcpServers?: acp.McpServer[];
   autoApproveMcpToolNames?: string[];
+  /**
+   * Runtime-native tools that must not be exposed inside the ACP session.
+   * The platform owns multi-agent dispatch, so subagent primitives are denied
+   * at session creation instead of relying on prompt compliance.
+   */
+  disallowedNativeTools?: string[];
+}
+
+export const CLAUDE_NATIVE_ORCHESTRATION_TOOLS = [
+  'Task',
+  'Agent',
+  'TaskOutput',
+  'TaskStop',
+  'SendMessage',
+  'TeamCreate',
+  'TeamDelete',
+] as const;
+
+export function acpSessionMeta(
+  engine: EngineId,
+  disallowedNativeTools?: readonly string[],
+): Record<string, unknown> | undefined {
+  if (engine !== 'claude' || !disallowedNativeTools?.length) return undefined;
+  return {
+    claudeCode: {
+      options: {
+        disallowedTools: [...new Set(disallowedNativeTools)],
+      },
+    },
+  };
 }
 
 const ACP_CAPS_BASE = {
@@ -481,6 +511,7 @@ export class AcpBackend implements AgentBackend {
       }
 
       try {
+        const sessionMeta = acpSessionMeta(this.o.engine, this.o.disallowedNativeTools);
         const stream = acp.ndJsonStream(
           Writable.toWeb(proc.stdin),
           Readable.toWeb(proc.stdout) as ReadableStream<Uint8Array>,
@@ -536,6 +567,7 @@ export class AcpBackend implements AgentBackend {
                   sessionId,
                   cwd,
                   mcpServers: this.o.mcpServers ?? [],
+                  ...(sessionMeta ? { _meta: sessionMeta } : {}),
                 });
                 markProtocolActivity();
               } catch (error) {
@@ -552,6 +584,7 @@ export class AcpBackend implements AgentBackend {
               const newSession = await ctx.request(acp.methods.agent.session.new, {
                 cwd,
                 mcpServers: this.o.mcpServers ?? [],
+                ...(sessionMeta ? { _meta: sessionMeta } : {}),
               });
               markProtocolActivity();
               sessionId = newSession.sessionId;
@@ -582,6 +615,7 @@ export class AcpBackend implements AgentBackend {
                 const replacementSession = await ctx.request(acp.methods.agent.session.new, {
                   cwd,
                   mcpServers: this.o.mcpServers ?? [],
+                  ...(sessionMeta ? { _meta: sessionMeta } : {}),
                 });
                 markProtocolActivity();
                 sessionId = replacementSession.sessionId;

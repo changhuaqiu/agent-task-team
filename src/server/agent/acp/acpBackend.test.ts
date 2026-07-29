@@ -14,7 +14,12 @@
 import { describe, it, expect } from 'vitest';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { AcpBackend, isAcpResourceNotFound } from './acpBackend';
+import {
+  AcpBackend,
+  CLAUDE_NATIVE_ORCHESTRATION_TOOLS,
+  acpSessionMeta,
+  isAcpResourceNotFound,
+} from './acpBackend';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -25,6 +30,31 @@ describe('isAcpResourceNotFound', () => {
     expect(isAcpResourceNotFound({ code: -32002, message: 'missing' })).toBe(true);
     expect(isAcpResourceNotFound(new Error('Resource not found: session-1'))).toBe(true);
     expect(isAcpResourceNotFound(new Error('authentication failed'))).toBe(false);
+  });
+});
+
+describe('acpSessionMeta', () => {
+  it('denies runtime-native orchestration tools for Claude sessions', () => {
+    expect(acpSessionMeta('claude', CLAUDE_NATIVE_ORCHESTRATION_TOOLS)).toEqual({
+      claudeCode: {
+        options: {
+          disallowedTools: [
+            'Task',
+            'Agent',
+            'TaskOutput',
+            'TaskStop',
+            'SendMessage',
+            'TeamCreate',
+            'TeamDelete',
+          ],
+        },
+      },
+    });
+  });
+
+  it('does not send Claude-specific metadata to other ACP runtimes', () => {
+    expect(acpSessionMeta('codex', CLAUDE_NATIVE_ORCHESTRATION_TOOLS)).toBeUndefined();
+    expect(acpSessionMeta('opencode', CLAUDE_NATIVE_ORCHESTRATION_TOOLS)).toBeUndefined();
   });
 });
 
