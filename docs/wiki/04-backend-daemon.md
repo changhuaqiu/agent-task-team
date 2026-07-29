@@ -325,6 +325,8 @@ Claude ACP 会话保留运行时原生的 `Task` / `Agent` 子代理能力，并
 
 质量门的浏览器授权按工具名精确收敛：`test_gate` 与默认团队中合并承担评审/验收的 `review_gate` 都可单次使用导航、交互、快照和截图等 Playwright 工具。Playwright 代码执行运行在不提供 Node `require` / `import` 的 VM 沙箱中，不能承担本地 HTTP 进程生命周期；daemon 因此向当前任务的质量调用暴露 `verification_serve_artifact`。该工具只读取当前项目目录内的指定文件，绑定随机 `127.0.0.1` 端口，返回不可猜的一次性短期 URL，并在首次成功请求或超时后关闭。恢复验证可能发生在业务任务已经进入 `done` 之后，因此当前 dispatched task 的 `done` 状态同样允许使用该只读能力，不要求代理倒退任务状态。Markdown、纯文本、JSON、XML、SVG 和 HTML 等文本产物使用浏览器可渲染的 MIME 类型返回，质量角色可通过真实页面导航和 DOM 断言验收；其他文件继续按二进制下载。平台无需放宽任意 shell 权限，该能力也不授予普通任务，浏览器安装仍不自动授权。
 
+验收回执在平台边界做保守协议归一化：代理可使用 `status` 或 `result` 表达逐项 PASS/FAIL，可在验收项前加 `AC1` 等序号，并可提交包含 Playwright/Browser 名称的描述型工具字符串。只有当前 Run、授权验收人、完整且顺序一致的验收项、真实存在的 `reportRef`/`specRefs` 以及非空证据引用均通过校验时，归一化结果才可成为 PASS；它不放宽证据完整性或本地产物边界。
+
 ## 4.7 会话与调用追踪
 
 daemon 当前已经具备会话级跟踪：
