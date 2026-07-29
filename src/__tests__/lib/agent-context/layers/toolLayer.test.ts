@@ -69,13 +69,16 @@ describe('runtime tool registration boundary', () => {
     expect(filterRegisteredTools(declared, ['task_list']).map(tool => tool.name)).toEqual(['task_list']);
   });
 
-  it('forbids runtime-native collaboration tools as platform substitutes', () => {
+  it('allows runtime-native subagents without treating them as platform substitutes', () => {
     const prompt = buildCollaborationLayer();
     expect(prompt).toContain('Task、Agent、SendMessage、TodoWrite/TodoRead 不属于平台');
+    expect(prompt).toContain('可以使用 runtime-native Task / Agent');
+    expect(prompt).toContain('平台会等待这些子代理在本轮内收敛');
     expect(prompt).toContain('不要调用 SendMessage');
     expect(prompt).toContain('PASS 时附评审证据并改为 done');
     expect(prompt).toContain('交接后立即结束本轮');
     expect(prompt).toContain('更新为 review/in_review 后立即正常结束本轮');
     expect(prompt).toContain('不要再手工 @ 默认 reviewer');
+    expect(prompt).not.toContain('禁止用这些 CLI 原生协作工具创建子 agent');
   });
 });

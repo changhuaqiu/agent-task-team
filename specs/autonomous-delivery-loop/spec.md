@@ -205,6 +205,7 @@ interface AcceptanceVerificationReceipt {
   下一 repair cycle。Invocation 结束后再按最新持久化 Receipt 判定通过、修复或升级。
 
 - Claude ACP 角色可以使用运行时原生后台子代理；平台不得为了保持 Task Graph 纯度而禁用 Agent 自带的并发能力。ACP adapter 必须负责原生子代理的 turn 内收敛，平台必须启用子代理文本转发，并以 `toolCallId` 配对子代理工具的开始/结果事件，确保 `run.background_waiting` 可恢复。平台 Task Graph、Harness dispatch receipt 与 A2A ownership transfer 仍是跨平台角色交付的业务真相，运行时原生子代理属于单次 Invocation 内部的执行细节。
+- 协作 Context 不得再笼统禁止 runtime-native `Task` / `Agent`。Agent 可以在当前 Invocation 内用它们做有界并行调查或子工作，但不得把原生子代理、`SendMessage` 或本地 todo 冒充平台 Task Graph、角色持有权或 A2A pass；跨角色业务交接仍必须通过平台任务工具或正常可见的 actionable `@mention`。
 - 默认团队的质量角色同时承担独立评审与真实 Web 验收时，`review_gate` 与 `test_gate` 必须获得同一份精确 Playwright 工具 allowlist；导航、交互、快照和截图可单次授权。对于 Chromium 禁止直接加载的 `file://` 本地产物，质量门还可以单次使用 Playwright 的代码执行能力建立临时 loopback HTTP 服务并完成浏览器断言；该授权不得扩散到普通任务，浏览器安装仍禁止。不得仅因派发来源是 `review_gate` 就拒绝验收所需的浏览器调用。
 - 当交付策略要求独立评审时，根任务进入 `in_review` 即表示实现阶段完成，Supervisor 必须进入 `request_review`，不得继续把 Task Graph 判为 `running` 并无限等待 `done`。`done` 由独立评审/验收通过后确认，不能反过来作为启动评审的前置条件。
 
@@ -417,6 +418,7 @@ Team Harness 不重复实现模型、Skill、工具协议、浏览器驱动或 P
 创建时可以异步加载 Team Pack，但 `autonomous=true` 时不得再触发普通 Conversation 的初始 proposal；
 首个规划调用必须来自持久化的 `plan_goal` Action/Attempt。非自主项目的既有 proposal 行为保持不变。
 `plan_goal` 不得仅创建根任务后立即让通用 `advance_tasks` 以 execution/implement 语义派发协调者；它必须在同一持久化动作中向团队协调者提交 `planning` Context Scenario，明确要求拆解、分派和真实交接，并禁止协调者直接实现交付物或执行 Review/Web E2E。这样角色分工是平台协议，而不是依赖模型临场自觉。
+若该规划 Invocation 在产生权威任务进展前失败或超时，Supervisor 的自动恢复必须继续使用同一 `planning` 语义和角色边界；不得把恢复降级为通用 execution，让协调者直接实现交付物。
 页面刷新后，自主标记必须由持久化 DeliveryRun 重新水合；创建定时器、聊天自动提案和
 `triggerProposal` 统一入口都必须拒绝为该 Conversation 派发 legacy proposal。多标签页或外部入口
 在旧页面水合后创建 DeliveryRun 时，daemon 仍须以持久化 DeliveryRun 为权威，在 Harness 前拒绝

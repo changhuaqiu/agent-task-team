@@ -63,6 +63,34 @@ function scenarioForDeliveryAction(kind: DeliveryActionKind): 'planning' | 'exec
   return 'execution';
 }
 
+function planningDispatchPrompt(
+  snapshot: DeliveryRunSnapshot,
+  task: Pick<TaskRow, 'id'>,
+): string {
+  return [
+    '这是 Autonomous Delivery 的规划阶段。',
+    `Delivery Run: ${snapshot.run.id}`,
+    `根任务：${task.id}`,
+    `目标：${snapshot.contract.goal}`,
+    '本轮只负责分析范围、拆解 Task Graph、选择合适角色并完成真实分派/交接。',
+    '必须把实现工作交给实现角色，把独立 Review 与 Web E2E 留给质量门角色。',
+    '不得由协调者直接创建或修改交付物，不得自行执行 Review、测试或 Web E2E。',
+    '请使用任务工具持久化拆解与负责人，并用明确的行动型 @mention 启动当前第一棒；不要等待用户追加消息。',
+  ].join('\n');
+}
+
+function hasPersistedPlanningDispatch(snapshot: DeliveryRunSnapshot): boolean {
+  return snapshot.receipts.some((receipt) => {
+    if (receipt.kind !== 'harness.dispatch.accepted') return false;
+    try {
+      const payload = JSON.parse(receipt.payload_json) as Record<string, unknown>;
+      return payload.contextScenario === 'planning' && payload.reasonCode === 'plan_goal';
+    } catch {
+      return false;
+    }
+  });
+}
+
 function metadataOf(proof: ProofEventRow): Record<string, unknown> {
   if (!proof.metadata) return {};
   try {
@@ -733,15 +761,7 @@ export class HarnessDeliveryActionAdapter implements DeliveryActionPort {
       agentId: ownerAgentId,
       reasonCode: 'owner_ready',
       dispatchSource: 'workflow',
-      prompt: [
-        '这是 Autonomous Delivery 的规划阶段。',
-        `Delivery Run: ${snapshot.run.id}`,
-        `目标：${snapshot.contract.goal}`,
-        '本轮只负责分析范围、拆解 Task Graph、选择合适角色并完成真实分派/交接。',
-        '必须把实现工作交给实现角色，把独立 Review 与 Web E2E 留给质量门角色。',
-        '不得由协调者直接创建或修改交付物，不得自行执行 Review、测试或 Web E2E。',
-        '请使用任务工具持久化拆解与负责人，并用明确的行动型 @mention 启动当前第一棒；不要等待用户追加消息。',
-      ].join('\n'),
+      prompt: planningDispatchPrompt(snapshot, task),
       content: `系统请求 @${ownerAgentId} 规划并分派 ${task.id}。`,
       metadata: {
         taskId: task.id,
@@ -848,17 +868,35 @@ export class HarnessDeliveryActionAdapter implements DeliveryActionPort {
       );
       if (session) sessionRepo.seal(session.id, 'autonomous_delivery_no_progress');
     }
+    const preservePlanning = claim.action.kind === 'advance_tasks'
+      && wakeup.reasonCode === 'runnable_owned_idle'
+      && task.id === snapshot.run.root_task_id
+      && taskRepo.getByConversation(snapshot.run.conversation_id).length === 1
+      && hasPersistedPlanningDispatch(snapshot);
+    const effectiveWakeup = preservePlanning
+      ? {
+          ...wakeup,
+          prompt: [
+            '上一轮规划调用在产生权威 Task Graph 进展前结束。',
+            planningDispatchPrompt(snapshot, task),
+          ].join('\n\n'),
+          metadata: {
+            ...wakeup.metadata,
+            reasonSummary: 'plan_goal_recovery',
+          },
+        }
+      : wakeup;
     const submission = submitTaskWakeupToHarness(
       this.io,
       {
-        ...wakeup,
+        ...effectiveWakeup,
         id: `delivery:${claim.action.id}`,
         metadata: {
-          ...wakeup.metadata,
+          ...effectiveWakeup.metadata,
           idempotencyKey: claim.action.idempotency_key,
         },
       },
-      scenarioForDeliveryAction(claim.action.kind),
+      preservePlanning ? 'planning' : scenarioForDeliveryAction(claim.action.kind),
       snapshot.run.id,
     );
     if (!submission?.handled) {

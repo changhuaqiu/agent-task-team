@@ -720,6 +720,94 @@ describe('RepositoryDeliveryFactsAdapter', () => {
     ]));
   });
 
+  it('preserves planning semantics when the initial coordinator invocation times out', async () => {
+    const repo = new AutonomousDeliveryRepository();
+    const run = repo.createRun(contract);
+    const root = taskRepo.create({
+      id: 'task-planning-recovery',
+      conversation_id: contract.scope.conversationId,
+      title: contract.goal,
+      agent_id: 'mario',
+    });
+    taskRepo.updateStatus(root.id, 'in_progress');
+    repo.updateRun({
+      runId: run.run.id,
+      status: 'executing',
+      stage: 'executing',
+      rootTaskId: root.id,
+    });
+    repo.recordReceipt({
+      runId: run.run.id,
+      receipt: {
+        kind: 'harness.dispatch.accepted',
+        status: 'succeeded',
+        externalId: root.id,
+        payload: {
+          taskId: root.id,
+          agentId: 'mario',
+          reasonCode: 'plan_goal',
+          contextScenario: 'planning',
+        },
+        idempotencyKey: `${run.run.id}:plan_goal:dispatch`,
+      },
+    });
+    invocationRepo.create({
+      id: 'inv-planning-timeout',
+      conversation_id: contract.scope.conversationId,
+      task_id: root.id,
+      agent_id: 'mario',
+      engine: 'claude',
+      account_id: 'account-claude',
+    });
+    invocationRepo.updateStatus('inv-planning-timeout', 'running');
+    invocationRepo.settleIfActive('inv-planning-timeout', 'failed', {
+      reason_code: 'acp_timeout',
+      error_message: 'planning turn timed out before progress',
+    });
+    repo.ensureAction({
+      runId: run.run.id,
+      kind: 'advance_tasks',
+      subjectType: 'task',
+      subjectId: root.id,
+      idempotencyKey: `${run.run.id}:advance_tasks:planning-recovery`,
+      maxAttempts: 3,
+    });
+    const claim = repo.claimNext({
+      runId: run.run.id,
+      workerId: 'planning-recovery-test',
+      leaseMs: 30_000,
+    });
+    expect(claim).toBeDefined();
+
+    let submitted: HarnessTrigger | undefined;
+    const io = { to: () => ({ emit: () => undefined }) } as unknown as IOServer;
+    registerHarnessCoordinator(io, {
+      submit(trigger: HarnessTrigger) {
+        submitted = trigger;
+        return {
+          disposition: 'accepted',
+          handled: true,
+          completion: Promise.resolve({ status: 'accepted' }),
+        };
+      },
+    } as unknown as HarnessCoordinator);
+
+    const result = await new HarnessDeliveryActionAdapter(io).execute(
+      claim!,
+      repo.getSnapshot(run.run.id)!,
+    );
+
+    expect(result.status).toBe('succeeded');
+    expect(submitted).toMatchObject({
+      taskId: root.id,
+      agentId: 'mario',
+      contextScenario: 'planning',
+      wakeup: expect.objectContaining({ reasonSummary: 'plan_goal_recovery' }),
+    });
+    expect(submitted?.prompt).toContain('上一轮规划调用');
+    expect(submitted?.prompt).toContain('不得由协调者直接创建或修改交付物');
+  });
+
   it('dispatches implicit root closure through the same wakeup reconstruction used by execution', async () => {
     const repo = new AutonomousDeliveryRepository();
     const run = repo.createRun(contract);

@@ -392,3 +392,5 @@ Runtime Session 的 cwd 也必须稳定：无 taskId 的同项目同 Agent 使�
 并行 A2A 派发的恢复归属按 `(taskId, agentId)` 计算。Execution envelope 的 `acknowledged` 只代表 admission 成功；真正的失败、完成和账号回退依据 Invocation 终态。若同一任务的实现者失败而评审者随后完成，评审者的完成不能覆盖实现者的失败，Supervisor 应优先恢复失败的实现者，并让下一次独立 dispatch 选择其备用账号。协调者 Invocation 期间新建或推进其他 Task Graph 节点同样属于权威进展，不能把已经成功拆分并运行子任务的根协调者误判为“完成但无进展”。`in_review` 节点若没有活跃 review dispatch，autonomy guard 会立即补发 `review_requested`；超过停滞阈值后才使用 `stale_review_gate`。Autonomous Delivery 还会把持久化 `root_task_id` 作为隐式任务树根：若 Agent 创建子任务时遗漏 `subtask_of` edge，同一交付会话的其他任务仍参与根任务 closure 判定，避免所有子任务结束后根任务永久悬空。
 
 Autonomous Delivery 的首轮协调调用由持久化 `plan_goal` Action 创建根任务并直接提交 `planning` Context Scenario。规划 prompt 要求协调者拆解、分派并形成真实交接，同时明确禁止协调者直接实现交付物或执行 Review/Web E2E；不能先把 `plan_goal` 机械标成成功，再由通用 `advance_tasks` 把根任务以 execution/implement 语义派给协调者。后续实现、独立质量评审和浏览器验收分别由 Task Graph、review gate 与 test gate 推进。
+
+首轮规划若在产生 Task Graph 进展前失败或超时，恢复派发继续使用 `planning` Context Scenario 和同一角色边界；不能用通用 execution prompt 恢复协调者。协作 Context 同时允许 runtime-native `Task` / `Agent` 作为单次 Invocation 内部的有界并行能力，但明确它们不改变平台任务、角色持有权或 A2A pass，跨角色业务交接仍需平台任务工具或正常可见的 actionable mention。

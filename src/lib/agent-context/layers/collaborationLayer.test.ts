@@ -12,5 +12,8 @@ describe('buildCollaborationLayer', () => {
     expect(result).toContain('fix、update、implement、build、execute');
     expect(result).toContain('通知 @mario 查看结果');
     expect(result).toContain('不会唤醒对方');
+    expect(result).toContain('可以使用 runtime-native Task / Agent');
+    expect(result).toContain('不得把它们冒充跨角色业务交接');
+    expect(result).not.toContain('禁止用这些 CLI 原生协作工具创建子 agent');
   });
 });

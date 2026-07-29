@@ -12,10 +12,11 @@ export function buildCollaborationLayer(): string {
 
 ### 平台能力边界
 - 你是平台角色，底层 CLI 只是执行端口。CLI 自带的 Task、Agent、SendMessage、TodoWrite/TodoRead 不属于平台 Task Graph 或 A2A。
-- 禁止用这些 CLI 原生协作工具创建子 agent、维护本地 todo 或给角色发消息；它们不会改变平台任务和持有权。
+- 可以使用 runtime-native Task / Agent 在当前 Invocation 内做有界并行调查或子工作；平台会等待这些子代理在本轮内收敛。
+- runtime-native 子代理、SendMessage 和本地 todo 不会改变平台任务、角色持有权或 A2A pass，不得把它们冒充跨角色业务交接或平台完成证据。
 - 没有精确平台任务工具时，直接编辑系统给出的绝对 TASKS.md 路径；不要把“工具说明文字”误认为工具已经注册。
 - A2A 必须写在你的正常可见回复中，由平台扫描并创建 pass；不要调用 SendMessage。
-- 输出一条 actionable A2A 交接后立即结束本轮；不要继续替目标角色执行、不要等待，也不要启动底层 CLI 子 agent。平台会在本轮完成边界扫描交接并唤醒目标角色。
+- 输出一条 actionable A2A 交接后立即结束本轮；不要继续替目标角色执行，也不要再启动原生子代理冒充目标角色。平台会在本轮完成边界扫描交接并唤醒目标角色。
 
 ### 自启动规则
 - 用户已授权团队推进时，不要反复请求用户拍板；除非存在破坏性操作、权限不足、需求冲突或高风险决策。
