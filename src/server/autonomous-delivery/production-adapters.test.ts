@@ -89,6 +89,30 @@ beforeEach(() => {
 afterEach(() => resetDb());
 
 describe('RepositoryDeliveryFactsAdapter', () => {
+  it('treats in_review as implementation-complete when independent review is required', async () => {
+    const repo = new AutonomousDeliveryRepository();
+    const run = repo.createRun(contract);
+    const task = taskRepo.create({
+      id: 'task-ready-for-review',
+      conversation_id: contract.scope.conversationId,
+      title: contract.goal,
+      agent_id: 'mario',
+    });
+    taskRepo.updateStatus(task.id, 'in_review');
+    repo.updateRun({
+      runId: run.run.id,
+      status: 'executing',
+      stage: 'executing',
+      rootTaskId: task.id,
+    });
+
+    const facts = await new RepositoryDeliveryFactsAdapter().observe(repo.getSnapshot(run.run.id)!);
+
+    expect(facts.taskGraph).toBe('completed');
+    expect(facts.review).toBe('not_started');
+    expect(facts.verification).toBe('not_started');
+  });
+
   it('keeps verification pending while a test-gate admission is active', async () => {
     const repo = new AutonomousDeliveryRepository();
     const run = repo.createRun(contract);

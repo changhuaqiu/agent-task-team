@@ -477,6 +477,9 @@ export class RepositoryDeliveryFactsAdapter implements DeliveryFactsPort {
       && isActiveAdmission(envelope, invocations)
     );
     const allDone = tasks.length > 0 && tasks.every((task) => task.status === 'done');
+    const implementationReadyForReview = snapshot.contract.deliveryPolicy.requireReview
+      && tasks.length > 0
+      && tasks.every((task) => task.status === 'done' || task.status === 'in_review');
     const deliveryEvidence = acceptedDeliveryEvidence(proofs);
     const verificationDispatchedAt = snapshot.actions
       .filter(action =>
@@ -566,7 +569,7 @@ export class RepositoryDeliveryFactsAdapter implements DeliveryFactsPort {
 
     let taskGraph: ObservedDeliveryFacts['taskGraph'];
     if (failure) taskGraph = 'blocked';
-    else if (allDone) taskGraph = 'completed';
+    else if (allDone || implementationReadyForReview) taskGraph = 'completed';
     else if (nextWakeup) taskGraph = 'pending';
     else if (hasActiveEnvelope || tasks.some((task) =>
       ['in_progress', 'in_review', 'test_gate'].includes(task.status)

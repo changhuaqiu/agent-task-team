@@ -205,6 +205,7 @@ interface AcceptanceVerificationReceipt {
   下一 repair cycle。Invocation 结束后再按最新持久化 Receipt 判定通过、修复或升级。
 
 - Claude ACP 角色可以使用运行时原生后台子代理；平台不得为了保持 Task Graph 纯度而禁用 Agent 自带的并发能力。ACP adapter 必须负责原生子代理的 turn 内收敛，平台必须启用子代理文本转发，并以 `toolCallId` 配对子代理工具的开始/结果事件，确保 `run.background_waiting` 可恢复。平台 Task Graph、Harness dispatch receipt 与 A2A ownership transfer 仍是跨平台角色交付的业务真相，运行时原生子代理属于单次 Invocation 内部的执行细节。
+- 当交付策略要求独立评审时，根任务进入 `in_review` 即表示实现阶段完成，Supervisor 必须进入 `request_review`，不得继续把 Task Graph 判为 `running` 并无限等待 `done`。`done` 由独立评审/验收通过后确认，不能反过来作为启动评审的前置条件。
 
 ### 3.6 Acceptance Review Receipt
 
