@@ -26,7 +26,6 @@ import {
   prepareAcpRuntime,
 } from './agent/acp/runtimeSetup';
 import { createBackend as createAcpBackend } from './agent/acp/catalog';
-import { CLAUDE_NATIVE_ORCHESTRATION_TOOLS } from './agent/acp/acpBackend';
 import {
   createCodeChangePermissionPolicy,
   type AcpPermissionPolicy,
@@ -34,6 +33,10 @@ import {
 import { checkCapabilities } from './agent/capabilityRouter';
 import { buildOpenCodeRunArgs } from './agent/opencode-prompt-delivery';
 import type { AgentEvent, AgentBackend } from './agent/types';
+import {
+  isTerminalToolResult,
+  NativeChildActivityTracker,
+} from './agent/nativeChildActivity';
 import { withDoneGuarantee } from './agent/with-done-guarantee';
 import { isSkillTool } from './skill-tool-router';
 import { registerAcpSkillMcpGrant, resolveAcpMcpLoopbackOrigin } from './acp-skill-mcp';
@@ -1167,7 +1170,7 @@ export default function registerDaemon(io: IOServer) {
       let sessionAnnounced = false;
       let invocationSessionRecorded = false;
       let observedRuntimeSessionId: string | undefined;
-      let hasBackgroundChildActivity = false;
+      const nativeChildActivity = new NativeChildActivityTracker();
       const allowsProductionEffects = allowsProductionCollaborationEffects(evaluation);
       const persistedText = new StreamTextPersistence(evaluationSafeTextSink(evaluation, {
         create(content) {
@@ -1394,11 +1397,6 @@ export default function registerDaemon(io: IOServer) {
         return false;
       };
 
-      function isBackgroundChildTool(name: string): boolean {
-        const normalized = name.trim().toLowerCase();
-        return normalized === 'agent' || normalized === 'task';
-      }
-
       function broadcastAgentActivity(status: AgentActivityStatus, reason?: string): void {
         broadcast('agent:activity', {
           conversationId: sessionConvId,
@@ -1460,9 +1458,9 @@ export default function registerDaemon(io: IOServer) {
           if (effectiveSessionId) announceConfirmedSession(event.sessionId);
         }
 
-        if (event.type === 'tool_use' && event.tool?.name && isBackgroundChildTool(event.tool.name)) {
-          hasBackgroundChildActivity = true;
-          broadcastAgentActivity('awaiting_children', `tool:${event.tool.name}`);
+        const childActivityTransition = nativeChildActivity.update(event);
+        if (childActivityTransition) {
+          broadcastAgentActivity(childActivityTransition.status, childActivityTransition.reason);
         }
 
         if (event.type === 'tool_use' && event.tool?.name && invocationTraceId && rootObservationSpanId) {
@@ -1498,7 +1496,7 @@ export default function registerDaemon(io: IOServer) {
           } catch (error) {
             console.warn(`[observability] failed to start tool span:`, error);
           }
-        } else if (event.type === 'tool_result' && event.tool) {
+        } else if (isTerminalToolResult(event) && event.tool) {
           try {
             const key = event.tool.callId || event.tool.name || '';
             const pending = openToolSpans.get(key) ?? [];
@@ -1699,7 +1697,7 @@ export default function registerDaemon(io: IOServer) {
             code: 0,
             command: 'bridge',
             conversationId: sessionConvId,
-            activity: hasBackgroundChildActivity ? 'awaiting_children' : 'idle',
+            activity: nativeChildActivity.hasPendingCalls ? 'awaiting_children' : 'idle',
           });
           agentResponseBuffer.delete(responseBufferKey);
           activeProcesses.delete(processKey(agentId, projectId));
@@ -1982,9 +1980,7 @@ export default function registerDaemon(io: IOServer) {
           ...(acpToolGrant?.autoApproveToolNames ?? []),
           ...verificationAutoApprovedMcpToolNames(dispatchSource),
         ],
-        disallowedNativeTools: engine === 'claude'
-          ? [...CLAUDE_NATIVE_ORCHESTRATION_TOOLS]
-          : undefined,
+        forwardNativeSubagentText: engine === 'claude',
       });
 
       // The per-turn timeout. timeoutMs already carries the codex-ACP floor
@@ -2153,7 +2149,10 @@ export default function registerDaemon(io: IOServer) {
             command,
             reasonCode: final.reasonCode ?? (final.status === 'timeout' ? 'timeout' : undefined),
             conversationId: sessionConvId,
-            activity: final.status === 'completed' && hasBackgroundChildActivity ? 'awaiting_children' : 'idle',
+            // AcpBackend resolves only after the adapter has drained native
+            // subagents. A completed ACP turn is therefore authoritative even
+            // if an optional tool-result update was lost in transit.
+            activity: 'idle',
           });
           agentResponseBuffer.delete(responseBufferKey);
           activeProcesses.delete(processKey(agentId, projectId));

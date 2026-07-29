@@ -65,32 +65,23 @@ export interface AcpBackendOpts {
   mcpServers?: acp.McpServer[];
   autoApproveMcpToolNames?: string[];
   /**
-   * Runtime-native tools that must not be exposed inside the ACP session.
-   * The platform owns multi-agent dispatch, so subagent primitives are denied
-   * at session creation instead of relying on prompt compliance.
+   * Forward text produced by runtime-native subagents through the parent ACP
+   * session. Claude's adapter already keeps the turn open until native
+   * subagents settle; forwarding makes that managed work visible to the
+   * platform instead of leaving an opaque background wait.
    */
-  disallowedNativeTools?: string[];
+  forwardNativeSubagentText?: boolean;
 }
-
-export const CLAUDE_NATIVE_ORCHESTRATION_TOOLS = [
-  'Task',
-  'Agent',
-  'TaskOutput',
-  'TaskStop',
-  'SendMessage',
-  'TeamCreate',
-  'TeamDelete',
-] as const;
 
 export function acpSessionMeta(
   engine: EngineId,
-  disallowedNativeTools?: readonly string[],
+  forwardNativeSubagentText?: boolean,
 ): Record<string, unknown> | undefined {
-  if (engine !== 'claude' || !disallowedNativeTools?.length) return undefined;
+  if (engine !== 'claude' || !forwardNativeSubagentText) return undefined;
   return {
     claudeCode: {
       options: {
-        disallowedTools: [...new Set(disallowedNativeTools)],
+        forwardSubagentText: true,
       },
     },
   };
@@ -511,7 +502,7 @@ export class AcpBackend implements AgentBackend {
       }
 
       try {
-        const sessionMeta = acpSessionMeta(this.o.engine, this.o.disallowedNativeTools);
+        const sessionMeta = acpSessionMeta(this.o.engine, this.o.forwardNativeSubagentText);
         const stream = acp.ndJsonStream(
           Writable.toWeb(proc.stdin),
           Readable.toWeb(proc.stdout) as ReadableStream<Uint8Array>,

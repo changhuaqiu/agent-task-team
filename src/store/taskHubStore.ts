@@ -2081,6 +2081,19 @@ socket.on('agent:activity', ({ conversationId, taskId, agentId, sessionId, statu
     return;
   }
 
+  if (status === 'running') {
+    const existing = state.activeRunsByAgent[agentId];
+    if (!existing) return;
+    useTaskHubStore.setState((s) => ({
+      agentStatus: { ...s.agentStatus, [agentId]: 'busy' },
+      activeRunsByAgent: {
+        ...s.activeRunsByAgent,
+        [agentId]: { ...existing, conversationId, activity: 'foreground' },
+      },
+    }));
+    return;
+  }
+
   if (status === 'idle') {
     useTaskHubStore.setState((s) => ({
       agentStatus: { ...s.agentStatus, [agentId]: 'idle' },
@@ -2231,7 +2244,11 @@ socket.on('terminal:exit', ({ agentId, code, command, reasonCode, conversationId
     store.selectedConversationId;
   const runId = active?.runId;
   const taskId = active?.taskId;
-  const backgroundWaiting = code === 0 && (activity === 'awaiting_children' || active?.activity === 'awaiting_children');
+  const backgroundWaiting = code === 0 && (
+    activity !== undefined
+      ? activity === 'awaiting_children'
+      : active?.activity === 'awaiting_children'
+  );
   let missingEvidenceRecovery: { taskId: string; conversationId: string; prompt: string } | undefined;
 
   store.appendTerminalLog(agentId, `\r\n\x1b[36m[process exited with code ${code}]\x1b[0m\r\n`);

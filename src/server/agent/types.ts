@@ -18,6 +18,7 @@ export interface AgentEvent {
   tool?: {
     name: string;
     callId?: string;
+    status?: 'pending' | 'in_progress' | 'completed' | 'failed';
     input?: string;
     output?: string;
   };

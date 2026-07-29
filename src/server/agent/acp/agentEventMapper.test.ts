@@ -131,7 +131,10 @@ describe('mapAcpUpdate', () => {
         status: 'completed',
         rawOutput: { ok: true },
       } as any);
-      expect(r).toMatchObject({ type: 'tool_result', tool: { callId: 'c1' } });
+      expect(r).toMatchObject({
+        type: 'tool_result',
+        tool: { callId: 'c1', status: 'completed' },
+      });
       expect((r as AgentEvent).content).toBe(JSON.stringify({ ok: true }));
     });
 
@@ -141,7 +144,11 @@ describe('mapAcpUpdate', () => {
         toolCallId: 'c2',
         status: 'failed',
       } as any);
-      expect(r).toMatchObject({ type: 'tool_result', content: '', tool: { callId: 'c2' } });
+      expect(r).toMatchObject({
+        type: 'tool_result',
+        content: '',
+        tool: { callId: 'c2', status: 'failed' },
+      });
     });
 
     it('uses title when present', () => {

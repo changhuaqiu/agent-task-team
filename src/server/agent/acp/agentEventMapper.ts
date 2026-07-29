@@ -101,7 +101,7 @@ export function mapAcpUpdate(update: SessionUpdate): AgentEvent | null {
       return {
         type: 'tool_result',
         content,
-        tool: { name, callId: update.toolCallId },
+        tool: { name, callId: update.toolCallId, ...(update.status && { status: update.status }) },
       };
     }
 

@@ -124,7 +124,7 @@ export function createBackend(
     | 'timeoutMs'
     | 'mcpServers'
     | 'autoApproveMcpToolNames'
-    | 'disallowedNativeTools'
+    | 'forwardNativeSubagentText'
   >,
 ): AgentBackend {
   return new AcpBackend({
@@ -141,7 +141,7 @@ export function createBackend(
     timeoutMs: opts?.timeoutMs,
     mcpServers: opts?.mcpServers,
     autoApproveMcpToolNames: opts?.autoApproveMcpToolNames,
-    disallowedNativeTools: opts?.disallowedNativeTools,
+    forwardNativeSubagentText: opts?.forwardNativeSubagentText,
     engine: entry.id,
   });
 }

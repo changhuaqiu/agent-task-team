@@ -96,14 +96,13 @@ describe('AgentCatalog (loadCatalog + createBackend)', () => {
     }
   });
 
-  it('createBackend carries the native-tool deny list into the ACP backend', () => {
+  it('createBackend carries native subagent forwarding into the ACP backend', () => {
     const claudeEntry = loadCatalog().find((entry) => entry.id === 'claude')!;
-    const disallowedNativeTools = ['Task', 'Agent', 'SendMessage'];
-    const backend = createBackend(claudeEntry, { disallowedNativeTools });
+    const backend = createBackend(claudeEntry, { forwardNativeSubagentText: true });
     const opts = (backend as unknown as {
-      o: { disallowedNativeTools?: string[] };
+      o: { forwardNativeSubagentText?: boolean };
     }).o;
 
-    expect(opts.disallowedNativeTools).toEqual(disallowedNativeTools);
+    expect(opts.forwardNativeSubagentText).toBe(true);
   });
 });

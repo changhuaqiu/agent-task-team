@@ -16,7 +16,6 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import {
   AcpBackend,
-  CLAUDE_NATIVE_ORCHESTRATION_TOOLS,
   acpSessionMeta,
   isAcpResourceNotFound,
 } from './acpBackend';
@@ -34,27 +33,20 @@ describe('isAcpResourceNotFound', () => {
 });
 
 describe('acpSessionMeta', () => {
-  it('denies runtime-native orchestration tools for Claude sessions', () => {
-    expect(acpSessionMeta('claude', CLAUDE_NATIVE_ORCHESTRATION_TOOLS)).toEqual({
+  it('forwards runtime-native subagent text for Claude sessions', () => {
+    expect(acpSessionMeta('claude', true)).toEqual({
       claudeCode: {
         options: {
-          disallowedTools: [
-            'Task',
-            'Agent',
-            'TaskOutput',
-            'TaskStop',
-            'SendMessage',
-            'TeamCreate',
-            'TeamDelete',
-          ],
+          forwardSubagentText: true,
         },
       },
     });
   });
 
   it('does not send Claude-specific metadata to other ACP runtimes', () => {
-    expect(acpSessionMeta('codex', CLAUDE_NATIVE_ORCHESTRATION_TOOLS)).toBeUndefined();
-    expect(acpSessionMeta('opencode', CLAUDE_NATIVE_ORCHESTRATION_TOOLS)).toBeUndefined();
+    expect(acpSessionMeta('codex', true)).toBeUndefined();
+    expect(acpSessionMeta('opencode', true)).toBeUndefined();
+    expect(acpSessionMeta('claude', false)).toBeUndefined();
   });
 });
 

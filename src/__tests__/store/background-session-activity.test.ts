@@ -84,6 +84,33 @@ describe('background session activity', () => {
     }));
   });
 
+  it('returns the parent run to foreground when the native child tool settles', () => {
+    emitServerEvent('agent:activity', {
+      conversationId: 'conv-bg',
+      taskId: 'task-bg',
+      agentId: 'mario',
+      status: 'awaiting_children',
+      reason: 'tool:Task',
+    });
+
+    emitServerEvent('agent:activity', {
+      conversationId: 'conv-bg',
+      taskId: 'task-bg',
+      agentId: 'mario',
+      status: 'running',
+      reason: 'tool_complete:Task',
+    });
+
+    const state = useTaskHubStore.getState();
+    expect(state.agentStatus.mario).toBe('busy');
+    expect(state.activeRunsByAgent.mario).toMatchObject({
+      runId: 'run-bg',
+      taskId: 'task-bg',
+      conversationId: 'conv-bg',
+      activity: 'foreground',
+    });
+  });
+
   it('does not clear the run or auto-advance review when the parent process exits while children are pending', () => {
     emitServerEvent('agent:activity', {
       conversationId: 'conv-bg',
@@ -106,6 +133,31 @@ describe('background session activity', () => {
     expect(state.activeRunsByAgent.mario?.activity).toBe('awaiting_children');
     expect(state.getTaskById('task-bg')?.status).toBe('in_progress');
     expect(state.eventsByConversation['conv-bg'].some((event) => event.type === 'run.finished')).toBe(false);
+  });
+
+  it('treats an explicit idle exit as authoritative over stale background UI state', () => {
+    emitServerEvent('agent:activity', {
+      conversationId: 'conv-bg',
+      taskId: 'task-bg',
+      agentId: 'mario',
+      status: 'awaiting_children',
+      reason: 'tool:Task',
+    });
+
+    emitServerEvent('terminal:exit', {
+      conversationId: 'conv-bg',
+      agentId: 'mario',
+      code: 0,
+      command: 'claude',
+      activity: 'idle',
+    });
+
+    const state = useTaskHubStore.getState();
+    expect(state.activeRunsByAgent.mario?.activity).not.toBe('awaiting_children');
+    expect(state.eventsByConversation['conv-bg']).toContainEqual(expect.objectContaining({
+      type: 'run.finished',
+      payload: expect.objectContaining({ agentId: 'mario', code: 0 }),
+    }));
   });
 
   it('keeps a successful foreground run in progress until implementation evidence is supplied', () => {
