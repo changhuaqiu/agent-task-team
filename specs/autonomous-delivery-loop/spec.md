@@ -421,6 +421,7 @@ Team Harness 不重复实现模型、Skill、工具协议、浏览器驱动或 P
 若该规划 Invocation 在产生权威任务进展前失败或超时，Supervisor 的自动恢复必须继续使用同一 `planning` 语义和角色边界；不得把恢复降级为通用 execution，让协调者直接实现交付物。
 规划者通过 `task_create` / `task_assign` 得到真实 Task Graph dispatch receipt 后不得再为同一任务发送 A2A mention；这是同一执行的重复派发。若仍收到 mention，chainless A2A 也必须执行任务依赖、owner 与 active-status 门禁，并把 mention 中明确引用的子任务 ID 绑定到 pass，不能回退绑定当前根任务、改写根负责人。
 当会话已经存在多条任务时，无明确任务引用的 A2A 只能绑定目标角色唯一的非终态任务；无法唯一解析时必须以 `ambiguous_task_handoff` 拦截，不得默认继承来源 Invocation 的根 taskId。这样“实现交给 @luigi、质量门交给 @peach”一类规划说明不会把根任务轮流转给被提及角色。
+Harness 因目标 Agent 正忙返回 `deferred/agent_busy` 时，Delivery Supervisor 必须把动作保持在持久化重试队列中，并保留重试预算；这是正常背压，不是一次运行失败。不得在同一 Agent 尚未结束当前 review Invocation 时，因后继质量任务连续三次 deferred 就升级 `transient_runtime` 或等待人工。Agent 空闲后，原逻辑 Action 继续重试并保持幂等。
 页面刷新后，自主标记必须由持久化 DeliveryRun 重新水合；创建定时器、聊天自动提案和
 `triggerProposal` 统一入口都必须拒绝为该 Conversation 派发 legacy proposal。多标签页或外部入口
 在旧页面水合后创建 DeliveryRun 时，daemon 仍须以持久化 DeliveryRun 为权威，在 Harness 前拒绝

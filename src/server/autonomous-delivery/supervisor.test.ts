@@ -694,6 +694,68 @@ describe('AutonomousDeliverySupervisor', () => {
     expect(second.snapshot.attempts).toHaveLength(2);
   });
 
+  it('agent busy deferred keeps retry budget until the queued action is accepted', async () => {
+    let attempts = 0;
+    let planning: 'pending' | 'completed' = 'pending';
+    let current = new Date('2026-07-19T00:00:00.000Z');
+    const repository = new AutonomousDeliveryRepository();
+    const supervisor = new AutonomousDeliverySupervisor({
+      repository,
+      facts: {
+        observe: async () => ({
+          planning,
+          taskGraph: 'running',
+          review: 'pending',
+          verification: 'pending',
+          integration: 'not_required',
+          delivery: 'pending',
+        }),
+      },
+      actions: {
+        execute: async () => {
+          attempts += 1;
+          if (attempts <= 4) {
+            return {
+              status: 'failed',
+              failureCode: 'transient_runtime',
+              detail: 'Harness 未接收任务：deferred',
+              retryable: true,
+              preserveRetryBudget: true,
+            };
+          }
+          planning = 'completed';
+          return { status: 'succeeded' };
+        },
+      },
+      workerId: 'test-worker',
+      now: () => current,
+    });
+    const started = supervisor.start({
+      ...contract,
+      recoveryPolicy: { ...contract.recoveryPolicy, maxAttemptsPerAction: 3 },
+    });
+
+    for (let index = 0; index < 4; index += 1) {
+      const result = await supervisor.advance(started.run.id, { kind: 'periodic_reconcile' });
+      expect(result.snapshot.run.status).toBe('recovering');
+      expect(result.snapshot.actions[0]).toMatchObject({
+        status: 'retry_wait',
+        attempt_count: index + 1,
+        max_attempts: Math.max(3, index + 2),
+      });
+      current = new Date(current.getTime() + 60_000);
+    }
+
+    const accepted = await supervisor.advance(started.run.id, { kind: 'periodic_reconcile' });
+    expect(attempts).toBe(5);
+    expect(accepted.snapshot.run.status).not.toBe('waiting_human');
+    expect(accepted.snapshot.actions[0]).toMatchObject({
+      status: 'succeeded',
+      attempt_count: 5,
+      max_attempts: 5,
+    });
+  });
+
   it('长动作执行期间自动续租，周期 reconcile 不会并发派发第二个 attempt', async () => {
     let planning: 'pending' | 'completed' = 'pending';
     const repository = new AutonomousDeliveryRepository();

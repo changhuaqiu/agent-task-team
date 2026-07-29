@@ -22,6 +22,7 @@ export type DeliveryExecutionResult =
       failureCode: DeliveryFailureCode;
       detail?: string;
       retryable: boolean;
+      preserveRetryBudget?: boolean;
     };
 
 export interface DeliveryActionPort {
@@ -270,6 +271,7 @@ export class AutonomousDeliverySupervisor {
         failureCode: result.failureCode,
         failureDetail: result.detail,
         retryAt,
+        preserveRetryBudget: result.preserveRetryBudget,
         now: this.now(),
       });
       if (actionStatus === 'stale') {

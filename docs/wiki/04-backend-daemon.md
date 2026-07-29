@@ -398,3 +398,5 @@ Autonomous Delivery 的首轮协调调用由持久化 `plan_goal` Action 创建�
 规划者创建或分配任务后，Task Graph 的 owner-ready wakeup 已经是真实派发；取得 dispatch receipt 后不再追加同任务 A2A mention。chainless A2A 路径与已有 chain 路径使用同一套任务依赖、owner 和 active-status 门禁，并优先把 mention 中的明确任务引用绑定到 pass。这样“创建 `TASK-003` 并自动唤醒 Luigi”之后的重复 `@luigi 请启动 TASK-003` 会成为幂等 no-op，而不会再把当前根任务错误转给 Luigi。
 
 多任务会话中的无引用 A2A 只允许绑定目标角色唯一的非终态任务；若目标没有任务或存在歧义，daemon 记录 `ambiguous_task_handoff` 并阻止派发，不再回退使用来源 Invocation 的根 taskId。规划回复中的角色说明因此不能把根任务从 Mario 依次转给 Luigi、Peach。
+
+Harness 的 `deferred/agent_busy` 是队列背压：目标 Agent 仍在结束当前 Invocation 时，后继 Task Graph 节点继续留在持久化重试队列，Supervisor 为这类 deferred 保留动作重试预算。它不能像 runtime crash 一样在三次短间隔重试后升级 `transient_runtime`；等 Agent 空闲后，同一幂等 Action 再被接收。

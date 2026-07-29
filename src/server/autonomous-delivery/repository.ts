@@ -632,6 +632,7 @@ export class AutonomousDeliveryRepository {
     failureCode: string;
     failureDetail?: string;
     retryAt?: Date;
+    preserveRetryBudget?: boolean;
     now?: Date;
   }): 'retry_wait' | 'failed' | 'stale' {
     const timestamp = nowIso(input.now);
@@ -640,7 +641,10 @@ export class AutonomousDeliveryRepository {
       const action = db.prepare('SELECT * FROM autonomous_delivery_action WHERE id=?')
         .get(input.actionId) as DeliveryActionRow | undefined;
       if (!action) throw new Error(`Delivery action not found: ${input.actionId}`);
-      const retry = Boolean(input.retryAt) && action.attempt_count < action.max_attempts;
+      const maxAttempts = input.preserveRetryBudget
+        ? Math.max(action.max_attempts, action.attempt_count + 1)
+        : action.max_attempts;
+      const retry = Boolean(input.retryAt) && action.attempt_count < maxAttempts;
       const failed = db.prepare(
         `UPDATE autonomous_delivery_attempt
          SET status='failed', completed_at=?, heartbeat_at=?, failure_code=?, failure_detail=?
@@ -663,7 +667,8 @@ export class AutonomousDeliveryRepository {
       if (failed.changes !== 1) return 'stale';
       const actionFailed = db.prepare(
         `UPDATE autonomous_delivery_action
-         SET status=?, not_before=?, last_failure_code=?, last_failure_detail=?, updated_at=?
+         SET status=?, not_before=?, max_attempts=MAX(max_attempts, ?),
+             last_failure_code=?, last_failure_detail=?, updated_at=?
          WHERE id=? AND status IN ('claimed','running')
            AND attempt_count=(
              SELECT attempt_no FROM autonomous_delivery_attempt WHERE id=?
@@ -671,6 +676,7 @@ export class AutonomousDeliveryRepository {
       ).run(
         retry ? 'retry_wait' : 'failed',
         retry ? nowIso(input.retryAt!) : timestamp,
+        maxAttempts,
         input.failureCode,
         input.failureDetail ?? null,
         timestamp,

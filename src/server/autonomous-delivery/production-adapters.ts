@@ -794,6 +794,7 @@ export class HarnessDeliveryActionAdapter implements DeliveryActionPort {
           ? `Harness 未接收规划任务：${submission.disposition}`
           : 'Harness Coordinator 尚未注册',
         retryable: submission?.disposition === 'deferred',
+        preserveRetryBudget: submission?.disposition === 'deferred',
       };
     }
     const outcome = await submission.completion;
@@ -807,6 +808,7 @@ export class HarnessDeliveryActionAdapter implements DeliveryActionPort {
             : 'unknown',
         detail: 'message' in outcome ? outcome.message : outcome.reasonCode,
         retryable: outcome.status === 'deferred',
+        preserveRetryBudget: outcome.status === 'deferred',
       };
     }
     return {
@@ -909,6 +911,7 @@ export class HarnessDeliveryActionAdapter implements DeliveryActionPort {
           ? `Harness 未接收任务：${submission.disposition}`
           : 'Harness Coordinator 尚未注册',
         retryable: submission?.disposition === 'deferred',
+        preserveRetryBudget: submission?.disposition === 'deferred',
       };
     }
     const outcome = await submission.completion;
@@ -922,6 +925,7 @@ export class HarnessDeliveryActionAdapter implements DeliveryActionPort {
             : 'unknown',
         detail: 'message' in outcome ? outcome.message : outcome.reasonCode,
         retryable: outcome.status === 'deferred',
+        preserveRetryBudget: outcome.status === 'deferred',
       };
     }
     return {
