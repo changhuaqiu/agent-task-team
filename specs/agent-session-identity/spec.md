@@ -50,7 +50,7 @@ interface LogicalAgentSession {
 7. 已有成功 Invocation 确认的 runtime session 在 timeout、cancel、adapter 退出后不轮换；下一轮仍尝试恢复同一 runtime session。
 8. 新 runtime session 只有在至少一个 Invocation 成功完成后才视为 confirmed。首次 Invocation 失败、取消或超时时，该 binding 属于 unconfirmed，可以通过 compare-and-clear 释放；下一次执行重新 `session/new`，不得尝试加载未落盘的 resource。
 9. daemon 异常退出可能遗留 unconfirmed binding；下一次 dispatch 若确认该逻辑 Session 存在历史 Invocation 但从未成功，必须在创建新 Invocation 前清除该 binding。
-10. runtime/account 变化必须 rotate generation。Invocation 必须持久化实际 `runtime_id`，同 engine 不同 runtime 也视为变化。正常续聊跨任务保持 active Session 已确认的 profile；唯一自动例外是同一角色显式配置了多个账号，且当前账号以 `acp_empty_completion` 无文本、无工具副作用失败时，下一次独立 dispatch 按配置顺序选择尚未失败的账号并创建新 generation。发生工具活动但缺少最终文本时必须使用不同 reason code 并禁止账号重放。不得使用角色配置之外的账号。
+10. runtime/account 变化必须 rotate generation。Invocation 必须持久化实际 `runtime_id`，同 engine 不同 runtime 也视为变化。正常续聊跨任务保持 active Session 已确认的 profile；唯一自动例外是同一角色显式配置了多个账号，且当前账号以 `acp_empty_completion` 无文本、无工具副作用失败时，下一次独立 dispatch 必须在 conversation 范围内延续该失败历史，不得因 task 切换或无真实 runtime 身份的合成 Invocation 完成记录而清除失败状态，并按配置顺序选择尚未失败的账号创建新 generation。只有带实际 `runtime_id`、账号和成功 outcome 的真实执行才能建立新的成功 checkpoint。发生工具活动但缺少最终文本时必须使用不同 reason code 并禁止账号重放。不得使用角色配置之外的账号。
 11. 浏览器 Session 状态只用于展示；服务端缺值时不得使用 localStorage 值恢复执行。
 12. 禁止 `default` scope 参与正式项目 dispatch；缺少 project/conversation id 时必须拒绝。
 13. Runtime Session 的工作目录是恢复身份的一部分。同一 Logical Agent Session 的所有 Invocation 必须使用稳定 cwd；无任务 ID 的发送不得用时间戳生成不同目录。

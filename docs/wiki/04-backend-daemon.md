@@ -381,6 +381,6 @@ Runtime Session 的 cwd 也必须稳定：无 taskId 的同项目同 Agent 使�
 
 首次 `session/new` 的 resource 可能直到 prompt 成功结束才由 adapter 持久化。因此新 binding 在首个 Invocation 成功前属于 unconfirmed：若该轮取消、超时或失败，daemon 清除该 binding；若 daemon 在清理前异常退出，下一次 dispatch 会根据“存在 Invocation 记录但从未成功”的证据做同样的预检修复。已经成功使用过的 confirmed binding 不执行此恢复，load 失败时保留原 identity 并向用户报告错误。
 
-角色可以显式配置有序的多个执行账号。Harness 默认选择第一个可用账号，并对 active Session 已成功确认的账号保持跨任务粘性；如果最近的独立执行以 `acp_empty_completion` 且没有可见副作用结束，则下一次 dispatch 跳过该任务中连续空响应的账号，选择角色列表里的下一个账号。工具已经活动但缺少最终文本时使用 `acp_tool_completion_missing` 并失败关闭，不进行账号重放。Invocation 记录实际 `runtime_id`；daemon 发现新 profile 与旧 Session 最近一次 Invocation 的 runtime/engine/account 不一致时，会以 `runtime_profile_changed` 封存旧 generation 后再 provision，避免跨 runtime 恢复错误。该机制不读取或借用角色配置外的全局账号。
+角色可以显式配置有序的多个执行账号。Harness 默认选择第一个可用账号，并对 active Session 已成功确认的账号保持跨任务粘性；如果最近的独立执行以 `acp_empty_completion` 且没有可见副作用结束，则下一次 dispatch 在同一 conversation 内跳过连续空响应的账号，即使恢复动作切换到了另一条 task。只有带实际 `runtime_id`、账号和成功 outcome 的真实执行才会清除此前失败窗口；A2A 占位、兼容投影等没有 runtime 身份的合成 Invocation 不得冒充成功 checkpoint。工具已经活动但缺少最终文本时使用 `acp_tool_completion_missing` 并失败关闭，不进行账号重放。Invocation 记录实际 `runtime_id`；daemon 发现新 profile 与旧 Session 最近一次 Invocation 的 runtime/engine/account 不一致时，会以 `runtime_profile_changed` 封存旧 generation 后再 provision，避免跨 runtime 恢复错误。该机制不读取或借用角色配置外的全局账号。
 
 并行 A2A 派发的恢复归属按 `(taskId, agentId)` 计算。Execution envelope 的 `acknowledged` 只代表 admission 成功；真正的失败、完成和账号回退依据 Invocation 终态。若同一任务的实现者失败而评审者随后完成，评审者的完成不能覆盖实现者的失败，Supervisor 应优先恢复失败的实现者，并让下一次独立 dispatch 选择其备用账号。

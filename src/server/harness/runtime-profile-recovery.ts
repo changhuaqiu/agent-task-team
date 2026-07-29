@@ -6,13 +6,21 @@ import {
 } from '@/lib/team-runtime';
 import type { InvocationRow } from '../repositories/invocation-repo';
 
+function isRuntimeExecution(invocation: InvocationRow): boolean {
+  return Boolean(invocation.runtime_id && invocation.account_id);
+}
+
 function isCompleted(invocation: InvocationRow): boolean {
-  return invocation.status === 'succeeded'
-    || (invocation.status === 'terminated' && invocation.outcome === 'completed');
+  return isRuntimeExecution(invocation)
+    && (
+      invocation.status === 'succeeded'
+      || (invocation.status === 'terminated' && invocation.outcome === 'completed')
+    );
 }
 
 function isEmptyCompletionFailure(invocation: InvocationRow): boolean {
-  return invocation.reason_code === 'acp_empty_completion'
+  return isRuntimeExecution(invocation)
+    && invocation.reason_code === 'acp_empty_completion'
     && (
       invocation.status === 'failed'
       || (invocation.status === 'terminated' && invocation.outcome === 'failed')
@@ -37,11 +45,9 @@ export function resolveFailureAwareRuntimeProfile(input: {
     input.accounts.some((account) => account.id === accountId && account.enabled));
   if (enabledConfiguredIds.length === 0) return null;
 
-  const taskId = input.taskId ?? '';
   const agentHistory = input.invocations.filter((invocation) =>
     invocation.agent_id === input.agentId);
-  const history = agentHistory.filter((invocation) =>
-    (invocation.task_id ?? '') === taskId);
+  const history = agentHistory.filter(isRuntimeExecution);
   let latestCompletedIndex = -1;
   history.forEach((invocation, index) => {
     if (isCompleted(invocation)) latestCompletedIndex = index;

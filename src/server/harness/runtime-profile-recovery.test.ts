@@ -41,6 +41,7 @@ function invocation(overrides: Partial<InvocationRow>): InvocationRow {
     status: 'terminated',
     outcome: 'failed',
     engine: 'opencode',
+    runtime_id: 'opencode-local',
     account_id: 'opencode-account',
     cli_session_id: null,
     prompt: '',
@@ -82,6 +83,7 @@ describe('resolveFailureAwareRuntimeProfile', () => {
       status: 'terminated',
       outcome: 'completed',
       engine: 'codex',
+      runtime_id: 'codex-cli',
       account_id: 'codex-account',
       reason_code: null,
       created_at: '2026-07-29T00:01:00.000Z',
@@ -99,10 +101,36 @@ describe('resolveFailureAwareRuntimeProfile', () => {
       status: 'terminated',
       outcome: 'completed',
       engine: 'codex',
+      runtime_id: 'codex-cli',
       account_id: 'codex-account',
       reason_code: null,
     });
     expect(resolve([successfulCodex])?.execution).toEqual({
+      engine: 'codex',
+      accountId: 'codex-account',
+    });
+  });
+
+  it('carries an empty-completion failure across task boundaries', () => {
+    const failedOnImplementationTask = invocation({
+      task_id: 'task-implementation',
+    });
+    expect(resolve([failedOnImplementationTask])?.execution).toEqual({
+      engine: 'codex',
+      accountId: 'codex-account',
+    });
+  });
+
+  it('ignores synthetic completed invocations without a runtime identity', () => {
+    const syntheticCompletion = invocation({
+      id: 'inv-synthetic',
+      status: 'terminated',
+      outcome: 'completed',
+      runtime_id: null,
+      reason_code: null,
+      created_at: '2026-07-29T00:01:00.000Z',
+    });
+    expect(resolve([invocation({}), syntheticCompletion])?.execution).toEqual({
       engine: 'codex',
       accountId: 'codex-account',
     });
@@ -123,6 +151,7 @@ describe('resolveFailureAwareRuntimeProfile', () => {
       id: 'inv-2',
       session_id: 'session-2',
       engine: 'codex',
+      runtime_id: 'codex-cli',
       account_id: 'codex-account',
       created_at: '2026-07-29T00:01:00.000Z',
     });
@@ -133,6 +162,7 @@ describe('resolveFailureAwareRuntimeProfile', () => {
     const failedCodex = invocation({
       id: 'inv-2',
       engine: 'codex',
+      runtime_id: 'codex-cli',
       account_id: 'codex-account',
       created_at: '2026-07-29T00:01:00.000Z',
     });
@@ -152,6 +182,7 @@ describe('executionProfileChanged', () => {
   it('does not rotate an unchanged execution profile', () => {
     expect(executionProfileChanged(invocation({}), {
       engine: 'opencode',
+      runtimeId: 'opencode-local',
       accountId: 'opencode-account',
     })).toBe(false);
   });
