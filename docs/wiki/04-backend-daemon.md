@@ -321,7 +321,7 @@ ACP timeout 分为两层：平台配置的 `CLI_TIMEOUT_MS` 是 idle timeout，�
 
 Claude ACP 会话保留运行时原生的 `Task` / `Agent` 子代理能力，并通过 `_meta.claudeCode.options.forwardSubagentText` 把子代理输出送回父会话。ACP adapter 负责在 turn 内等待原生子代理收敛；Daemon 以 `toolCallId` 配对开始和结果事件，只在尚有未配对调用时显示 `run.background_waiting`，配对完成后恢复前台运行。平台 Task Graph、Harness 与 A2A 继续管理跨角色的业务交付，运行时原生子代理则作为 Invocation 内部执行能力被兼容。
 
-质量门的浏览器授权按工具名精确收敛：`test_gate` 与默认团队中合并承担评审/验收的 `review_gate` 都可单次使用导航、交互、快照和截图等 Playwright 工具；浏览器安装、任意命令执行和其他环境变更仍不在自动授权范围内。这样评审者可以兑现同一轮中的真实 Web E2E，而不会因 dispatch source 是 `review_gate` 被错误拒绝。
+质量门的浏览器授权按工具名精确收敛：`test_gate` 与默认团队中合并承担评审/验收的 `review_gate` 都可单次使用导航、交互、快照和截图等 Playwright 工具。若 Chromium 拒绝直接加载 `file://` 本地产物，质量门还可单次使用 Playwright 代码执行能力，在调用内建立临时 loopback HTTP 服务并完成真实浏览器断言；该能力不授予普通任务，浏览器安装仍不自动授权。这样评审者可以兑现同一轮中的真实 Web E2E，而不会因 dispatch source 或本地协议限制被错误拒绝。
 
 ## 4.7 会话与调用追踪
 

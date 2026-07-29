@@ -17,6 +17,10 @@ const PLAYWRIGHT_VERIFICATION_TOOLS = [
   'browser_console_messages',
   'browser_network_requests',
   'browser_evaluate',
+  // Quality gates may need a temporary loopback server for artifacts that
+  // Chromium refuses to load through file://. Keep this scoped to review/test
+  // dispatches; browser installation remains deliberately excluded.
+  'browser_run_code_unsafe',
 ] as const;
 
 export function verificationAutoApprovedMcpToolNames(

@@ -12,6 +12,7 @@ describe('verificationAutoApprovedMcpToolNames', () => {
       expect(granted).toContain('mcp.playwright.browser_snapshot');
       expect(granted).toContain('mcp__playwright__browser_click');
       expect(granted).toContain('mcp__playwright__browser_take_screenshot');
+      expect(granted).toContain('mcp__playwright__browser_run_code_unsafe');
       expect(granted).not.toContain('mcp__playwright__browser_install');
     },
   );
