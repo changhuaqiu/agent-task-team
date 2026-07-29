@@ -258,6 +258,8 @@ ACP 文本事件是增量流。daemon 继续把每个 chunk 实时广播给浏�
 
 agent 输出中的 `@mention` 不再自动变成转交。A2A 只接受带明确行动意图的交接，例如“@reviewer 请审查…”、“交给 @coder 实现…”。普通引用、通知、前置或后置明确否定（包括“不要”“不用/不必执行”“请勿/切勿”）以及代码块中的 `@agent` 不会唤醒目标 agent。非 active holder 的输出即使包含交接语义也会被拦截；fan-out branch holder 的输出则合法，即使兼容 UI 的最新 holder 指向另一个 branch。
 
+行动意图必须绑定到 mention 所在的局部语义。角色归属或职责说明（例如“那是质量门 @peach 的职责”）不是交接，即使同句前半段出现“执行”等行动词也不得唤醒该角色；解析器仍保留对“@peach 请评审”这类直接请求的识别。这样协调者可以在同一回复中把当前实现明确交给 `@luigi`，同时说明后续质量门属于 `@peach`，而不会让后者抢占当前任务。
+
 “派发 / 分配 / 指派 @agent”这类状态总结也属于明确交接意图。对于 Mario 这类上游 agent 输出的 compact table，例如“TASK-001 @toad 运行中”，只要上下文明确说明正在派发，parser 会把它转换成 handoff intent，而不是当作普通提及忽略。同一个 holder 响应中产生的多个 idle 目标会在同一轮 dispatch cycle 中发出执行请求，以支持批量交接和并行唤醒。
 
 如果 agent 输出提到的 `@agent` 不属于当前团队 roster，daemon 会把它记录为 A2A block 并向会话发送“当前团队没有可接收 @agent 的角色”。这类问题代表团队配置不匹配，不应被解读为消息投递超时。

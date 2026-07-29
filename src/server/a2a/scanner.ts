@@ -3,7 +3,7 @@ import type { AgentMentionConfig, MentionTarget } from './types-v2';
 
 const MAX_TARGETS = 12;
 
-function stripCodeBlocks(text: string): string {
+export function stripCodeBlocks(text: string): string {
   return text.replace(/```[\s\S]*?```/g, '');
 }
 

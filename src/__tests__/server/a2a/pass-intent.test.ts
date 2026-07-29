@@ -106,6 +106,27 @@ describe('scanPassIntents', () => {
     ]);
   });
 
+  it('does not turn a trailing role responsibility mention into a handoff', () => {
+    const response = [
+      '依赖图如下：',
+      '```',
+      'PHASE P1 — implementing @luigi',
+      'PHASE P2 — quality_gate @peach',
+      '```',
+      '约束已对齐：禁止 push/PR/merge。',
+      '@luigi 请实现 DELIVERY_PROBE.md，并在完成后提交结构化状态回执。',
+      '请勿自行执行 Web E2E，那是 P2 质量门 @peach 的职责。',
+    ].join('\n');
+
+    expect(scanPassIntents(response, AGENTS, 'mario')).toMatchObject([
+      { agentId: 'luigi', intent: 'implement' },
+    ]);
+    expect(scanPassIntents(response, AGENTS, 'mario').map((target) => target.agentId)).not.toContain('peach');
+    expect(scanPassIntents('@peach 请评审 DELIVERY_PROBE.md。', AGENTS, 'mario')).toMatchObject([
+      { agentId: 'peach', intent: 'review' },
+    ]);
+  });
+
   it('treats coordinator closure verbs as actionable handoffs', () => {
     expect(scanPassIntents('@mario 请汇总这条 dev 原文并给出一句结论', AGENTS, 'luigi')).toMatchObject([
       { agentId: 'mario', intent: 'delegate' },

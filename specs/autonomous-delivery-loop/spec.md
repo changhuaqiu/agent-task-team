@@ -450,6 +450,7 @@ Web UI E2E 第一次失败，系统自动创建 repair action；修复后重新�
 - Claude ACP 的 permission request 可能不带 MCP `_meta`，但会在 `toolCall.title` 提供完整随机 server 工具名。平台可仅对当前 dispatch 生成的精确工具名集合做一次性放行；未知 title、重复 callId 与非当前 grant 工具必须继续落回默认拒绝。
 - Web 聊天的任务引用必须同时支持旧 `#TASK-000` 与当前持久化的 `#task-<id-parts>` 完整 ID；不得用旧三位数正则截断新 ID，否则 mention 派发会以不存在的任务进入 `task_missing`，回执工具也会得到空 dispatch task。
 - A2A handoff acceptance 的默认状态推进只允许 `pending → in_progress`。若质量回执已把任务推进到 `in_review`、`done`、`blocked` 等更高或终态，晚到的 handoff accepted 只能更新持有者与记录 action，不得把权威任务状态回退为 `in_progress`。
+- A2A 行动交接必须按 mention 所在的局部语义判定。类似“@luigi 请实现……；请勿自行执行 Web E2E，那是质量门 @peach 的职责”中的角色归属、职责说明或禁止说明不得借用同句其他行动词唤醒被提及角色；只有面向该 mention 的明确请求（例如“@peach 请评审”）才能产生 pass intent。
 - Invocation 成功结束且本轮 Invocation 开始后没有新增权威进展 proof 时，Supervisor 必须按该任务最新的终态 Invocation 恢复同一代理。权威进展包括非 Git gate evidence、Git collaboration 的 PR/review/merge verified proof，以及协调者在本轮创建或推进的其他 Task Graph 节点；不得把派发期间 `work_dir` 投影等元数据对当前任务 `updated_at` 的刷新当成业务推进，也不得在子任务已经产生并推进后错误恢复根协调任务、压住质量门。进展查询必须覆盖最新 proof，不能用按时间升序截断的最老窗口判断当前事实。
 - `in_review` 是需要独立评审的可运行事实。若状态变更时的即时 wakeup 因并发占用、重启或短暂 admission 失败而丢失，autonomy guard 必须在确认没有活跃派发后立即重建 `review_requested`；只有超过停滞阈值后才升级为 `stale_review_gate`，不得先静默等待完整 stale 窗口。
 - Autonomous Delivery 已持久化的 `root_task_id` 是任务链收口的权威根节点。即使 Agent 通过 `task_create` 创建子任务时没有写入显式 `subtask_of` edge，Supervisor 也必须把同一交付会话中的其他任务作为该根的隐式后代进行终态判定；全部后代终态后唤醒协调者输出 closure，不得让根任务永久停在 `in_progress`。Facts 观察与 Action 执行阶段必须使用同一套隐式根解析，不能出现“观察到可运行 closure、执行时却找不到合法 wakeup”的裂缝。

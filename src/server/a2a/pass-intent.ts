@@ -1,6 +1,6 @@
 import type { AgentMentionConfig, MentionTarget } from './types-v2';
 import type { PassIntent } from './types-possession';
-import { extractMentionContent, scanMentions } from './scanner';
+import { extractMentionContent, scanMentions, stripCodeBlocks } from './scanner';
 
 export interface PassIntentTarget extends MentionTarget {
   content: string;
@@ -142,10 +142,15 @@ export function scanPassIntents(
   agents: AgentMentionConfig[],
   selfAgentId = '',
 ): PassIntentTarget[] {
-  const targets = scanMentions(text, agents, selfAgentId);
+  // scanMentions reports offsets in fenced-code-stripped text. Keep every
+  // subsequent position-based lookup on that same representation; applying
+  // those offsets to the original text can bind a mention to an unrelated
+  // earlier clause after a large task-plan code block.
+  const semanticText = stripCodeBlocks(text);
+  const targets = scanMentions(semanticText, agents, selfAgentId);
   return targets
     .map((target, index) => {
-      let directContent = extractMentionContent(text, target);
+      let directContent = extractMentionContent(semanticText, target);
       if (targets[index + 1]) {
         const boundary = Math.max(
           directContent.lastIndexOf('，'), directContent.lastIndexOf(','),
@@ -154,10 +159,10 @@ export function scanPassIntents(
         );
         if (boundary >= 0) directContent = directContent.slice(0, boundary);
       }
-      if (hasNotificationPredicateBeforeMention(text, target.position)) return null;
+      if (hasNotificationPredicateBeforeMention(semanticText, target.position)) return null;
       const directIntent = detectIntent(directContent);
       if (directIntent) return { ...target, content: directContent, intent: directIntent };
-      const clause = extractIntentClause(text, target.position);
+      const clause = extractIntentClause(semanticText, target.position);
       if (isTaskRosterClause(clause)) return null;
       const clauseIntent = detectIntent(clause);
       if (clauseIntent) return { ...target, content: clause, intent: clauseIntent };
