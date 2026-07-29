@@ -13,6 +13,7 @@ export interface ResolveAutonomyGuardWakeupsInput {
   reviewAgentIds: string[];
   qaAgentIds: string[];
   edges?: TaskEdgeRow[];
+  implicitRootTaskIds?: string[];
   closureDispatchedRootTaskIds?: string[];
   now?: Date;
   staleMs?: number;
@@ -113,6 +114,17 @@ export function resolveAutonomyGuardWakeups(input: ResolveAutonomyGuardWakeupsIn
   for (const edge of subtaskEdges) {
     childrenByParent.set(edge.to_task_id, [...(childrenByParent.get(edge.to_task_id) ?? []), edge.from_task_id]);
     childIds.add(edge.from_task_id);
+  }
+  for (const rootTaskId of input.implicitRootTaskIds ?? []) {
+    const implicitChildren = input.tasks
+      .filter((task) => task.id !== rootTaskId && !childIds.has(task.id))
+      .map((task) => task.id);
+    if (implicitChildren.length === 0) continue;
+    childrenByParent.set(
+      rootTaskId,
+      [...new Set([...(childrenByParent.get(rootTaskId) ?? []), ...implicitChildren])],
+    );
+    for (const childId of implicitChildren) childIds.add(childId);
   }
   const dispatchedRoots = new Set(input.closureDispatchedRootTaskIds ?? []);
   const closureRootIds = new Set<string>();

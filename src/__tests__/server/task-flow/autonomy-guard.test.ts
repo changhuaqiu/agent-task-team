@@ -219,6 +219,27 @@ describe('autonomy guard wakeups', () => {
       .not.toContainEqual(expect.objectContaining({ reasonCode: 'chain_ready_for_closure' }));
   });
 
+  it('closes an autonomous delivery root whose conversation children are terminal without explicit edges', () => {
+    const wakeups = resolveAutonomyGuardWakeups({
+      tasks: [
+        task({ id: 'ROOT', agent_id: 'mario', status: 'in_progress' }),
+        task({ id: 'TASK-003', agent_id: 'luigi', status: 'done' }),
+      ],
+      implicitRootTaskIds: ['ROOT'],
+      envelopes: [],
+      coordinatorAgentIds: ['mario'],
+      reviewAgentIds: ['peach'],
+      qaAgentIds: ['yoshi'],
+    });
+
+    expect(wakeups).toContainEqual(expect.objectContaining({
+      taskId: 'ROOT',
+      agentId: 'mario',
+      reasonCode: 'chain_ready_for_closure',
+      metadata: expect.objectContaining({ rootTaskId: 'ROOT', subtreeSize: 1 }),
+    }));
+  });
+
   it('does not close a root while any descendant is nonterminal', () => {
     const wakeups = resolveAutonomyGuardWakeups({
       tasks: [

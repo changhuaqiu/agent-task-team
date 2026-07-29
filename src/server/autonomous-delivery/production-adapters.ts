@@ -459,6 +459,7 @@ export class RepositoryDeliveryFactsAdapter implements DeliveryFactsPort {
       reviewAgentIds: audience.reviewGateAgentIds,
       qaAgentIds: audience.qaAgentIds,
       edges: taskGraphRepo.listEdges(conversationId),
+      implicitRootTaskIds: rootTask ? [rootTask.id] : [],
       closureDispatchedRootTaskIds: proofLogRepo.findByType({
         eventType: 'chain_closure_dispatched',
         conversationId,
