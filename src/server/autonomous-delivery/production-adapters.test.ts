@@ -664,6 +664,77 @@ describe('RepositoryDeliveryFactsAdapter', () => {
     expect(repo.getSnapshot(run.run.id)?.receipts).toHaveLength(0);
   });
 
+  it('dispatches implicit root closure through the same wakeup reconstruction used by execution', async () => {
+    const repo = new AutonomousDeliveryRepository();
+    const run = repo.createRun(contract);
+    const root = taskRepo.create({
+      id: 'task-implicit-closure-root',
+      conversation_id: contract.scope.conversationId,
+      title: contract.goal,
+      agent_id: 'mario',
+    });
+    taskRepo.updateStatus(root.id, 'in_progress');
+    const child = taskRepo.create({
+      id: 'TASK-IMPLICIT-DONE',
+      conversation_id: contract.scope.conversationId,
+      title: 'Completed implementation',
+      agent_id: 'luigi',
+    });
+    taskRepo.updateStatus(child.id, 'in_progress');
+    taskRepo.updateStatus(child.id, 'in_review');
+    taskRepo.updateStatus(child.id, 'done');
+    repo.updateRun({
+      runId: run.run.id,
+      status: 'executing',
+      stage: 'executing',
+      rootTaskId: root.id,
+    });
+    repo.ensureAction({
+      runId: run.run.id,
+      kind: 'advance_tasks',
+      subjectType: 'task',
+      subjectId: root.id,
+      idempotencyKey: `${run.run.id}:advance_tasks:implicit-closure`,
+      maxAttempts: 3,
+    });
+    const claim = repo.claimNext({
+      runId: run.run.id,
+      workerId: 'implicit-closure-test',
+      leaseMs: 30_000,
+    });
+    expect(claim).toBeDefined();
+
+    let submitted: HarnessTrigger | undefined;
+    const io = { to: () => ({ emit: () => undefined }) } as unknown as IOServer;
+    registerHarnessCoordinator(io, {
+      submit(trigger: HarnessTrigger) {
+        submitted = trigger;
+        return {
+          disposition: 'accepted',
+          handled: true,
+          completion: Promise.resolve({ status: 'accepted' }),
+        };
+      },
+    } as unknown as HarnessCoordinator);
+
+    const result = await new HarnessDeliveryActionAdapter(io).execute(
+      claim!,
+      repo.getSnapshot(run.run.id)!,
+    );
+
+    expect(result.status).toBe('succeeded');
+    expect(submitted).toMatchObject({
+      taskId: root.id,
+      agentId: 'mario',
+      contextScenario: 'execution',
+      wakeup: expect.objectContaining({
+        reasonCode: 'chain_ready_for_closure',
+        rootTaskId: root.id,
+        subtreeSize: 1,
+      }),
+    });
+  });
+
   it('recovers a failed implementer even when a parallel reviewer completes later', async () => {
     const repo = new AutonomousDeliveryRepository();
     const run = repo.createRun(contract);

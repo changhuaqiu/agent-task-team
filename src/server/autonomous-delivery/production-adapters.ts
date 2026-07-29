@@ -946,6 +946,9 @@ export class HarnessDeliveryActionAdapter implements DeliveryActionPort {
       reviewAgentIds: audience.reviewGateAgentIds,
       qaAgentIds: audience.qaAgentIds,
       edges: taskGraphRepo.listEdges(conversationId),
+      implicitRootTaskIds: snapshot.run.root_task_id
+        ? [snapshot.run.root_task_id]
+        : [],
     }).find((wakeup) => wakeup.taskId === taskId);
   }
 }
