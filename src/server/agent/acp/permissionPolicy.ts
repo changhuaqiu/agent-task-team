@@ -10,6 +10,22 @@ export type AcpPermissionPolicy =
       | AcpPermissionDecision
       | Promise<AcpPermissionDecision>);
 
+async function evaluatePolicy(
+  policy: AcpPermissionPolicy,
+  request: RequestPermissionRequest,
+): Promise<AcpPermissionDecision> {
+  return typeof policy === 'function' ? policy(request) : policy;
+}
+
+export function createCodeChangePermissionPolicy(
+  basePolicy: AcpPermissionPolicy,
+): AcpPermissionPolicy {
+  return async (request) => {
+    if (request.toolCall.kind === 'edit') return 'allow_once';
+    return evaluatePolicy(basePolicy, request);
+  };
+}
+
 export function createCorrelatedPlatformMcpPermissionPolicy(
   basePolicy: AcpPermissionPolicy,
   approvedToolCallIds: Set<string>,
@@ -19,7 +35,7 @@ export function createCorrelatedPlatformMcpPermissionPolicy(
   return async (request) => {
     const toolCallId = request.toolCall.toolCallId;
     if (consumedToolCallIds.has(toolCallId)) {
-      return typeof basePolicy === 'function' ? basePolicy(request) : basePolicy;
+      return evaluatePolicy(basePolicy, request);
     }
     if (
       typeof request.toolCall.title === 'string'
@@ -38,7 +54,7 @@ export function createCorrelatedPlatformMcpPermissionPolicy(
         await new Promise((resolve) => setTimeout(resolve, 5));
       } while (Date.now() < deadline);
     }
-    return typeof basePolicy === 'function' ? basePolicy(request) : basePolicy;
+    return evaluatePolicy(basePolicy, request);
   };
 }
 

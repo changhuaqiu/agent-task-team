@@ -193,6 +193,10 @@ interface AcceptanceVerificationReceipt {
 - 由 `test_gate` 发起的验证调用必须获得精确的 Playwright 浏览器工具 allowlist，
   使真实页面导航、交互、快照和截图不依赖人工权限弹窗；该授权不得扩散到用户、
   普通任务或评审派发，也不得包含浏览器安装等环境变更工具；
+- 当 `authorization.allowCodeChanges=true` 时，仍处于可恢复交付生命周期内的非交互 Agent
+  可对 ACP `edit` 类项目文件修改请求获得单次授权，以创建实现产物、测试规格和验收报告；
+  该授权不得覆盖 `delete`、`move`、任意命令执行、push、PR 或 merge，也不得在无 DeliveryRun
+  或交付已完成/取消后继续生效；
 - 本地报告与测试用例引用必须位于授权 projectPath 内且真实存在；
 - 无结构化回执、旧 Run 回执、只有“测试通过”文本或任意 delivery evidence 均不能让 Verification 通过；
 - 失败或格式错误的回执形成失败 Receipt，触发有界 `repair_verification`，而不是永久等待。

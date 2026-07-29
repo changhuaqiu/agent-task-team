@@ -26,6 +26,10 @@ import {
   prepareAcpRuntime,
 } from './agent/acp/runtimeSetup';
 import { createBackend as createAcpBackend } from './agent/acp/catalog';
+import {
+  createCodeChangePermissionPolicy,
+  type AcpPermissionPolicy,
+} from './agent/acp/permissionPolicy';
 import { checkCapabilities } from './agent/capabilityRouter';
 import { buildOpenCodeRunArgs } from './agent/opencode-prompt-delivery';
 import type { AgentEvent, AgentBackend } from './agent/types';
@@ -189,8 +193,18 @@ const LOCAL_DAEMON_NODE_ID = 'daemon:local';
 const RUNTIME_HEARTBEAT_INTERVAL_MS = 5_000;
 const OPENCODE_PROJECT_SKILLS_DIR = join('.opencode', 'skills');
 
-function resolveAcpPermissionPolicy(): 'deny' | 'allow_once' {
-  return process.env.ACP_PERMISSION_MODE === 'allow_once' ? 'allow_once' : 'deny';
+function resolveAcpPermissionPolicy(conversationId?: string): AcpPermissionPolicy {
+  if (process.env.ACP_PERMISSION_MODE === 'allow_once') return 'allow_once';
+  if (!conversationId) return 'deny';
+  const snapshot = autonomousDeliveryRepo.getLatestByConversation(conversationId);
+  if (
+    snapshot
+    && !['completed', 'cancelled'].includes(snapshot.run.status)
+    && snapshot.contract.authorization.allowCodeChanges
+  ) {
+    return createCodeChangePermissionPolicy('deny');
+  }
+  return 'deny';
 }
 
 type AccountProvider = 'anthropic' | 'openai' | 'google' | 'kimi' | 'opencode' | 'other';
@@ -1961,7 +1975,7 @@ export default function registerDaemon(io: IOServer) {
       const backend: AgentBackend = createAcpBackend(entry, {
         cwd: prepared.cwd,
         env: prepared.env,
-        permissionPolicy: resolveAcpPermissionPolicy(),
+        permissionPolicy: resolveAcpPermissionPolicy(sessionConvId),
         mcpServers: acpToolGrant ? [acpToolGrant.mcpServer] : [],
         autoApproveMcpToolNames: [
           ...(acpToolGrant?.autoApproveToolNames ?? []),

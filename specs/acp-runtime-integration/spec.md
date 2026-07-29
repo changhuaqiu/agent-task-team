@@ -134,6 +134,7 @@ ACP 文本更新是流式增量，不是独立聊天消息。daemon 可以逐 ch
 - 复用现有账号与凭据存储，不把 token、API Key 或登录态写入 Catalog、日志和 spec。
 - permission request 必须经过统一策略：允许、拒绝或请求用户确认。
 - 无交互执行只能使用用户预先授权的策略；默认不采用“选择第一个选项自动授权”。
+- 自主交付的 `GoalContract.authorization.allowCodeChanges=true` 是一次显式、项目范围内的预授权。平台可据此仅对 ACP `edit` 类文件修改请求选择 `allow_once`；不得扩散到 `delete`、`move`、任意命令执行或已结束的交付 Run，也不得选择 `allow_always`。未授权、无法识别或策略异常仍然 fail-closed。
 - 子进程继承的环境变量采用白名单或现有安全环境策略。
 - 日志记录协议阶段、运行时、session/invocation 关联与错误码，不记录敏感请求正文。
 
