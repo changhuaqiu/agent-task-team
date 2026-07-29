@@ -323,7 +323,7 @@ ACP timeout 分为两层：平台配置的 `CLI_TIMEOUT_MS` 是 idle timeout，�
 
 Claude ACP 会话保留运行时原生的 `Task` / `Agent` 子代理能力，并通过 `_meta.claudeCode.options.forwardSubagentText` 把子代理输出送回父会话。ACP adapter 负责在 turn 内等待原生子代理收敛；Daemon 以 `toolCallId` 配对开始和结果事件，只在尚有未配对调用时显示 `run.background_waiting`，配对完成后恢复前台运行。平台 Task Graph、Harness 与 A2A 继续管理跨角色的业务交付，运行时原生子代理则作为 Invocation 内部执行能力被兼容。
 
-质量门的浏览器授权按工具名精确收敛：`test_gate` 与默认团队中合并承担评审/验收的 `review_gate` 都可单次使用导航、交互、快照和截图等 Playwright 工具。Playwright 代码执行运行在不提供 Node `require` / `import` 的 VM 沙箱中，不能承担本地 HTTP 进程生命周期；daemon 因此向当前任务的质量调用暴露 `verification_serve_artifact`。该工具只读取当前项目目录内的指定文件，绑定随机 `127.0.0.1` 端口，返回不可猜的一次性短期 URL，并在首次成功请求或超时后关闭。质量角色再用真实浏览器访问该 URL 并断言内容。平台无需放宽任意 shell 权限，该能力也不授予普通任务，浏览器安装仍不自动授权。
+质量门的浏览器授权按工具名精确收敛：`test_gate` 与默认团队中合并承担评审/验收的 `review_gate` 都可单次使用导航、交互、快照和截图等 Playwright 工具。Playwright 代码执行运行在不提供 Node `require` / `import` 的 VM 沙箱中，不能承担本地 HTTP 进程生命周期；daemon 因此向当前任务的质量调用暴露 `verification_serve_artifact`。该工具只读取当前项目目录内的指定文件，绑定随机 `127.0.0.1` 端口，返回不可猜的一次性短期 URL，并在首次成功请求或超时后关闭。恢复验证可能发生在业务任务已经进入 `done` 之后，因此当前 dispatched task 的 `done` 状态同样允许使用该只读能力，不要求代理倒退任务状态。Markdown、纯文本、JSON、XML、SVG 和 HTML 等文本产物使用浏览器可渲染的 MIME 类型返回，质量角色可通过真实页面导航和 DOM 断言验收；其他文件继续按二进制下载。平台无需放宽任意 shell 权限，该能力也不授予普通任务，浏览器安装仍不自动授权。
 
 ## 4.7 会话与调用追踪
 

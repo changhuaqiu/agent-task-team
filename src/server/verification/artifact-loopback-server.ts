@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
-import { basename, isAbsolute, relative, resolve } from 'node:path';
+import { basename, extname, isAbsolute, relative, resolve } from 'node:path';
 
 const DEFAULT_TTL_MS = 120_000;
 
@@ -28,6 +28,32 @@ function resolveProjectArtifact(projectDir: string, artifactPath: string): strin
   return resolvedArtifact;
 }
 
+function browserContentType(artifactPath: string): string {
+  switch (extname(artifactPath).toLowerCase()) {
+    case '.html':
+    case '.htm':
+      return 'text/html; charset=utf-8';
+    case '.md':
+    case '.txt':
+    case '.log':
+    case '.csv':
+      return 'text/plain; charset=utf-8';
+    case '.json':
+      return 'application/json; charset=utf-8';
+    case '.xml':
+      return 'application/xml; charset=utf-8';
+    case '.svg':
+      return 'image/svg+xml; charset=utf-8';
+    case '.css':
+      return 'text/css; charset=utf-8';
+    case '.js':
+    case '.mjs':
+      return 'text/javascript; charset=utf-8';
+    default:
+      return 'application/octet-stream';
+  }
+}
+
 export async function startArtifactLoopbackServer(input: {
   projectDir: string;
   artifactPath: string;
@@ -47,7 +73,7 @@ export async function startArtifactLoopbackServer(input: {
       return;
     }
     response.writeHead(200, {
-      'content-type': 'application/octet-stream',
+      'content-type': browserContentType(artifactPath),
       'content-length': String(body.byteLength),
       'cache-control': 'no-store',
       connection: 'close',

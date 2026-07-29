@@ -206,7 +206,7 @@ interface AcceptanceVerificationReceipt {
 
 - Claude ACP 角色可以使用运行时原生后台子代理；平台不得为了保持 Task Graph 纯度而禁用 Agent 自带的并发能力。ACP adapter 必须负责原生子代理的 turn 内收敛，平台必须启用子代理文本转发，并以 `toolCallId` 配对子代理工具的开始/结果事件，确保 `run.background_waiting` 可恢复。平台 Task Graph、Harness dispatch receipt 与 A2A ownership transfer 仍是跨平台角色交付的业务真相，运行时原生子代理属于单次 Invocation 内部的执行细节。
 - 协作 Context 不得再笼统禁止 runtime-native `Task` / `Agent`。Agent 可以在当前 Invocation 内用它们做有界并行调查或子工作，但不得把原生子代理、`SendMessage` 或本地 todo 冒充平台 Task Graph、角色持有权或 A2A pass；跨角色业务交接仍必须通过平台任务工具或正常可见的 actionable `@mention`。
-- 默认团队的质量角色同时承担独立评审与真实 Web 验收时，`review_gate` 与 `test_gate` 必须获得同一份精确 Playwright 工具 allowlist；导航、交互、快照和截图可单次授权。对于 Chromium 禁止直接加载的 `file://` 本地产物，质量门必须使用平台提供的 `verification_serve_artifact`：平台只允许读取当前项目根目录内的指定文件，在随机 loopback 端口上生成一次性、短时有效 URL，并在首次成功请求或超时后关闭服务；随后由 Playwright 真实访问该 URL 并断言内容。不得假设 Playwright 代码执行沙箱包含 Node `require` / `import`，也不得为此放宽任意 shell 命令执行。该能力不得扩散到普通任务，浏览器安装仍禁止。不得仅因派发来源是 `review_gate` 就拒绝验收所需的浏览器调用。
+- 默认团队的质量角色同时承担独立评审与真实 Web 验收时，`review_gate` 与 `test_gate` 必须获得同一份精确 Playwright 工具 allowlist；导航、交互、快照和截图可单次授权。对于 Chromium 禁止直接加载的 `file://` 本地产物，质量门必须使用平台提供的 `verification_serve_artifact`：平台只允许读取当前项目根目录内的指定文件，在随机 loopback 端口上生成一次性、短时有效 URL，并在首次成功请求或超时后关闭服务；随后由 Playwright 真实访问该 URL 并断言内容。恢复验证可以在当前 dispatched task 已为 `done` 时执行；平台必须继续允许这一只读能力，不能要求代理把任务状态倒退到 `in_review`。文本产物必须返回浏览器可渲染的 MIME 类型，使质量代理能够通过真实页面导航和 DOM 断言验收；非文本产物保持二进制响应。不得假设 Playwright 代码执行沙箱包含 Node `require` / `import`，也不得为此放宽任意 shell 命令执行。该能力不得扩散到普通任务，浏览器安装仍禁止。不得仅因派发来源是 `review_gate` 就拒绝验收所需的浏览器调用。
 - 当交付策略要求独立评审时，根任务进入 `in_review` 即表示实现阶段完成，Supervisor 必须进入 `request_review`，不得继续把 Task Graph 判为 `running` 并无限等待 `done`。`done` 由独立评审/验收通过后确认，不能反过来作为启动评审的前置条件。
 
 ### 3.6 Acceptance Review Receipt

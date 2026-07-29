@@ -26,6 +26,7 @@ describe('startArtifactLoopbackServer', () => {
     expect(result.byteLength).toBe(11);
     const response = await fetch(result.url);
     expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toBe('text/plain; charset=utf-8');
     expect(Buffer.from(await response.arrayBuffer()).toString('hex'))
       .toBe('44454c49564552595f4f4b');
     const replay = await fetch(result.url).catch(() => undefined);

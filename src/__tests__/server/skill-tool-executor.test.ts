@@ -15,6 +15,7 @@ describe('skill tool collaboration gates', () => {
     setTestDb(createTestDb());
     resetRateLimit('mario');
     resetRateLimit('luigi');
+    resetRateLimit('peach');
     conversationRepo.create({ id: 'conv-git', title: 'Git project', git_repo_root: 'C:/repo' });
     taskRepo.create({ id: 'TASK-GIT', conversation_id: 'conv-git', title: 'Ship safely', agent_id: 'luigi' });
     taskRepo.updateStatus('TASK-GIT', 'in_review');
@@ -100,6 +101,30 @@ describe('skill tool collaboration gates', () => {
       expect(readTasksMd(taskProjectDir).tasks).toEqual([
         expect.objectContaining({ title: 'Runtime-scoped task', agent: 'mario', status: 'pending' }),
       ]);
+    } finally {
+      rmSync(taskProjectDir, { recursive: true, force: true });
+    }
+  });
+
+  it('serves a current completed task artifact for recovery verification', async () => {
+    const taskProjectDir = join(tmpdir(), `skill-verification-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    mkdirSync(taskProjectDir, { recursive: true });
+    writeFileSync(join(taskProjectDir, 'DELIVERY_PROBE.md'), 'DELIVERY_OK');
+    taskRepo.updateStatus('TASK-GIT', 'done');
+    try {
+      const result = await executeSkillTool({
+        toolName: 'verification_serve_artifact',
+        agentId: 'peach',
+        conversationId: 'conv-git',
+        taskId: 'TASK-GIT',
+        taskProjectDir,
+        input: { artifact_path: 'DELIVERY_PROBE.md' },
+      });
+
+      expect(result.success).toBe(true);
+      const response = await fetch((result.data as { url: string }).url);
+      expect(response.headers.get('content-type')).toBe('text/plain; charset=utf-8');
+      expect(await response.text()).toBe('DELIVERY_OK');
     } finally {
       rmSync(taskProjectDir, { recursive: true, force: true });
     }
