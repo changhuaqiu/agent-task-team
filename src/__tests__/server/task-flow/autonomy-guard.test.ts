@@ -169,6 +169,31 @@ describe('autonomy guard wakeups', () => {
     ]));
   });
 
+  it('repairs a missed review dispatch immediately for an in-review task', () => {
+    const wakeups = resolveAutonomyGuardWakeups({
+      tasks: [
+        task({
+          id: 'TASK-003',
+          agent_id: 'luigi',
+          status: 'in_review',
+          updated_at: '2026-05-21T00:29:00.000Z',
+        }),
+      ],
+      envelopes: [],
+      coordinatorAgentIds: ['mario'],
+      reviewAgentIds: ['peach'],
+      qaAgentIds: ['yoshi'],
+      now: new Date('2026-05-21T00:30:00.000Z'),
+      staleMs: 30 * 60 * 1000,
+    });
+
+    expect(wakeups).toContainEqual(expect.objectContaining({
+      taskId: 'TASK-003',
+      agentId: 'peach',
+      reasonCode: 'review_requested',
+    }));
+  });
+
   it('wakes the coordinator once a complete descendant subtree is terminal', () => {
     const base = {
       tasks: [

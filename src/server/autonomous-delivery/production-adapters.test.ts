@@ -89,6 +89,49 @@ beforeEach(() => {
 afterEach(() => resetDb());
 
 describe('RepositoryDeliveryFactsAdapter', () => {
+  it('does not recover a coordinator invocation after it created child work', async () => {
+    const repo = new AutonomousDeliveryRepository();
+    const run = repo.createRun(contract);
+    const root = taskRepo.create({
+      id: 'task-coordinator-root',
+      conversation_id: contract.scope.conversationId,
+      title: contract.goal,
+      agent_id: 'mario',
+    });
+    taskRepo.updateStatus(root.id, 'in_progress');
+    repo.updateRun({
+      runId: run.run.id,
+      status: 'executing',
+      stage: 'executing',
+      rootTaskId: root.id,
+    });
+    invocationRepo.create({
+      id: 'inv-coordinator-planning',
+      conversation_id: contract.scope.conversationId,
+      task_id: root.id,
+      agent_id: 'mario',
+      engine: 'claude',
+      account_id: 'account-claude',
+    });
+    invocationRepo.updateStatus('inv-coordinator-planning', 'succeeded');
+    const child = taskRepo.create({
+      id: 'TASK-003',
+      conversation_id: contract.scope.conversationId,
+      title: 'Implement delivery probe',
+      agent_id: 'luigi',
+    });
+    taskRepo.updateStatus(child.id, 'in_review');
+
+    const facts = await new RepositoryDeliveryFactsAdapter().observe(repo.getSnapshot(run.run.id)!);
+
+    expect(facts.runnableTask).toMatchObject({
+      taskId: child.id,
+      agentId: 'peach',
+      reasonCode: 'review_requested',
+    });
+    expect(facts.runnableTask?.agentId).not.toBe('mario');
+  });
+
   it('treats in_review as implementation-complete when independent review is required', async () => {
     const repo = new AutonomousDeliveryRepository();
     const run = repo.createRun(contract);
@@ -919,6 +962,10 @@ describe('RepositoryDeliveryFactsAdapter', () => {
     const facts = await new RepositoryDeliveryFactsAdapter().observe(repo.getSnapshot(run.run.id)!);
 
     expect(taskRepo.getById(task.id)?.status).toBe('in_review');
-    expect(facts.runnableTask).toBeUndefined();
+    expect(facts.runnableTask).toMatchObject({
+      taskId: task.id,
+      agentId: 'peach',
+      reasonCode: 'review_requested',
+    });
   });
 });

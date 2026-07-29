@@ -125,6 +125,14 @@ function executionRecovery(
   maxRecoveries: number,
 ): ExecutionRecovery {
   const taskById = new Map(tasks.map((task) => [task.id, task]));
+  const taskGraphAdvancedDuring = (invocation: InvocationRow) => {
+    if (!invocation.task_id) return false;
+    const beganAt = invocation.started_at ?? invocation.created_at;
+    return tasks.some((task) =>
+      task.id !== invocation.task_id
+      && (task.created_at >= beganAt || task.updated_at >= beganAt)
+    );
+  };
   const terminalInvocation = (invocation: InvocationRow) =>
     invocation.status === 'succeeded'
     || invocation.status === 'failed'
@@ -149,6 +157,7 @@ function executionRecovery(
   for (let invocationIndex = invocations.length - 1; invocationIndex >= 0; invocationIndex -= 1) {
     const invocation = invocations[invocationIndex];
     if (!invocation.task_id || !failedInvocation(invocation)) continue;
+    if (taskGraphAdvancedDuring(invocation)) continue;
     const task = taskById.get(invocation.task_id);
     if (!task || TERMINAL_TASK_STATUSES.has(task.status)) continue;
     const hasNewerInvocationForAgent = invocations
@@ -219,6 +228,7 @@ function executionRecovery(
     if (!latestInvocation || !terminalInvocation(latestInvocation) || !completedInvocation(latestInvocation)) {
       continue;
     }
+    if (taskGraphAdvancedDuring(latestInvocation)) continue;
     const invocationBeganAt = latestInvocation.started_at ?? latestInvocation.created_at;
     const taskProgress = proofs.filter((proof) =>
       proof.task_id === task.id

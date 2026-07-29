@@ -193,12 +193,12 @@ export function resolveAutonomyGuardWakeups(input: ResolveAutonomyGuardWakeupsIn
       continue;
     }
 
-    if (task.status === 'in_review' && isStale && !activeDispatch) {
+    if (task.status === 'in_review' && !activeDispatch) {
       for (const reviewAgentId of input.reviewAgentIds) {
         pushOnce(makeWakeup({
           task,
           agentId: reviewAgentId,
-          reasonCode: 'stale_review_gate',
+          reasonCode: isStale ? 'stale_review_gate' : 'review_requested',
           dispatchSource: 'review_gate',
           prompt: `review_gate 已停滞，请评审、退回或升级 ${task.id}: ${task.title}. ${task.description ?? ''}`.trim(),
           content: `系统轻推 @${reviewAgentId}：${task.id}「${task.title}」review_gate 已停滞。`,
