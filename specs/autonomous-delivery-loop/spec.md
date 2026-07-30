@@ -311,7 +311,7 @@ Agent 文本中的“完成了”不参与该判断。
 `DeliveryBundle.acceptanceResults` 必须逐项复制最终有效的 Acceptance Verification Receipt，不得把同一份笼统证据批量标记给所有验收标准。
 
 `DeliveryBundle` 同时保留面向用户的验证摘要（验证方式、工具、报告、用例和代码版本）。
-完成页逐项展示验收证据，并展示 Web UI E2E 报告；内部 proof/receipt 标识不得进入主界面。
+完成页默认展示交付摘要与验收通过数量；用户展开验收详情后，逐项展示验收证据、独立评审和 Web UI E2E 报告。详情区域不得挤出聊天输入框，内部 proof/receipt 标识不得进入主界面。
 
 ## 7. 恢复与升级
 

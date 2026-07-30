@@ -63,7 +63,10 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const mentionOpenRef = useRef(false);
-  mentionOpenRef.current = mentionOpen;
+
+  useEffect(() => {
+    mentionOpenRef.current = mentionOpen;
+  }, [mentionOpen]);
 
   // Auto-scroll: follows new content when at bottom, ignores when user scrolled up
   useAutoScroll(scrollRef);
@@ -126,7 +129,7 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
       textarea.focus();
       textarea.setSelectionRange(pos, pos);
     });
-  }, [inputValue]);
+  }, [inputValue, setInputValue]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey && !ime.isComposing()) {
@@ -227,13 +230,12 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
           }
 
           let lastDate = '';
-          return groups.map((group, gi) => {
+          return groups.map((group) => {
             const groupDate = new Date(group.messages[0].timestamp).toDateString();
             const showDateSep = groupDate !== lastDate;
             lastDate = groupDate;
 
             const meta = AGENT_META[group.agentId] || { emoji: '?', name: group.agentId, color: 'border-zinc-500/40' };
-            const isLatestGroup = gi === groups.length - 1;
             const isHuman = group.agentId === 'human';
 
             return (
@@ -255,7 +257,7 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
                     themeColor={meta.color}
                     agentEmoji={meta.emoji}
                     agentName={meta.name}
-                    defaultExpanded={isLatestGroup}
+                    defaultExpanded={false}
                     forceExpand={group.messages.some(m => m.isStreaming)}
                   />
                 )}

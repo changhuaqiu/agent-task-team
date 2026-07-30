@@ -80,6 +80,12 @@
   - 展示当前项目标题、goal、拆解状态
   - 聚合当前项目任务数
   - 内嵌 [`GlobalChatRoom.tsx`](../../src/components/task-hub/GlobalChatRoom.tsx)
+  - 将自主交付状态限制在独立可滚动区域，聊天消息区占用剩余高度，确保输入框始终留在视口内
+- [`AutonomousDeliveryPanel.tsx`](../../src/components/project/AutonomousDeliveryPanel.tsx)
+  - 完成态默认只展示交付摘要和验收通过数量
+  - 逐项验收、验证报告与独立评审证据通过“查看验收详情”按需展开
+- [`GlobalChatRoom.tsx`](../../src/components/task-hub/GlobalChatRoom.tsx)
+  - 连续 Agent 消息组成可展开分组；历史分组默认折叠，仅流式输出中的分组自动展开
 - [`AgentBar.tsx`](../../src/components/task-hub/AgentBar.tsx)
   - 展示当前参与 Agent 与绑定状态
   - Agent 成员配置面板中保留调试用 CLI session id 展示与复制入口，便于排查 session 续接问题

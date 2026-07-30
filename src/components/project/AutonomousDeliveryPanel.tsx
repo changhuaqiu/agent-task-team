@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { AlertTriangle, CheckCircle2, LoaderCircle } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ChevronDown, LoaderCircle } from 'lucide-react';
 import type { DeliveryRunSnapshot } from '@/server/autonomous-delivery/types';
 
 const STAGE_LABELS: Record<string, string> = {
@@ -43,6 +43,7 @@ function EvidenceRef({ value }: { value: string }) {
 
 export function AutonomousDeliveryPanel({ conversationId }: { conversationId: string }) {
   const [snapshot, setSnapshot] = useState<DeliveryRunSnapshot>();
+  const [expandedRunId, setExpandedRunId] = useState<string>();
 
   useEffect(() => {
     let disposed = false;
@@ -65,76 +66,107 @@ export function AutonomousDeliveryPanel({ conversationId }: { conversationId: st
   const { run, contract, bundle } = snapshot;
 
   if (run.status === 'completed' && bundle) {
+    const detailsOpen = expandedRunId === run.id;
+    const passedCount = bundle.acceptanceResults.filter((item) => item.status === 'passed').length;
     return (
       <section
         data-testid="autonomous-delivery-completed"
-        className="mx-4 mt-3 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4"
+        className="mx-4 mt-3 rounded-xl border border-emerald-500/30 bg-emerald-500/5 px-4 py-3"
       >
-        <div className="flex items-center gap-2 text-sm font-semibold text-emerald-600">
-          <CheckCircle2 className="size-4" />
-          交付完成
-        </div>
-        <p className="mt-2 text-sm text-[hsl(var(--text-primary))]">{bundle.summary}</p>
-        <div className="mt-3 space-y-2">
-          {bundle.acceptanceResults.map((item) => (
-            <div
-              key={item.criterion}
-              className="rounded-lg border border-emerald-500/15 bg-[hsl(var(--bg-card))] px-3 py-2"
+        <div className="flex items-start gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 text-sm font-semibold text-emerald-600">
+              <CheckCircle2 className="size-4 shrink-0" />
+              交付完成
+              <span className="font-normal text-[hsl(var(--text-tertiary))]">
+                · {passedCount}/{bundle.acceptanceResults.length} 项验收通过
+              </span>
+            </div>
+            <p
+              className={`mt-1.5 text-sm text-[hsl(var(--text-primary))] ${
+                detailsOpen ? '' : 'line-clamp-2'
+              }`}
             >
-              <div className="flex items-start gap-2 text-xs text-[hsl(var(--text-secondary))]">
-                <CheckCircle2 className="mt-0.5 size-3.5 shrink-0 text-emerald-500" />
-                <span>{item.criterion}</span>
-              </div>
-              <div className="mt-1.5 pl-5 text-[10px] text-[hsl(var(--text-tertiary))]">
-                <span className="mr-1.5">验收证据</span>
-                <span className="space-x-2">
-                  {item.evidenceRefs.map((ref) => <EvidenceRef key={ref} value={ref} />)}
-                </span>
-              </div>
-            </div>
-          ))}
-        </div>
-        {bundle.verification && (
-          <div className="mt-3 border-t border-emerald-500/15 pt-3 text-xs">
-            <div className="font-medium text-[hsl(var(--text-secondary))]">
-              {VERIFICATION_METHOD_LABELS[bundle.verification.method]}
-              <span className="ml-1.5 text-[hsl(var(--text-tertiary))]">
-                · {bundle.verification.tool} · {bundle.verification.verifierAgentId}
-              </span>
-            </div>
-            <div className="mt-1.5 grid gap-1 text-[10px] text-[hsl(var(--text-tertiary))]">
-              <div>
-                <span className="mr-1.5">验证报告</span>
-                <EvidenceRef value={bundle.verification.reportRef} />
-              </div>
-              {bundle.verification.specRefs.map((ref) => (
-                <div key={ref}>
-                  <span className="mr-1.5">测试用例</span>
-                  <EvidenceRef value={ref} />
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-        {bundle.review && (
-          <div className="mt-3 border-t border-emerald-500/15 pt-3 text-xs">
-            <div className="font-medium text-[hsl(var(--text-secondary))]">
-              独立质量评审
-              <span className="ml-1.5 text-[hsl(var(--text-tertiary))]">
-                · {bundle.review.reviewerAgentId}
-              </span>
-            </div>
-            <p className="mt-1 text-[10px] text-[hsl(var(--text-tertiary))]">
-              {bundle.review.summary}
+              {bundle.summary}
             </p>
-            <div className="mt-1 grid gap-1 text-[10px] text-[hsl(var(--text-tertiary))]">
-              {bundle.review.evidenceRefs.map((ref) => (
-                <div key={ref}>
-                  <span className="mr-1.5">评审证据</span>
-                  <EvidenceRef value={ref} />
+          </div>
+          <button
+            type="button"
+            aria-expanded={detailsOpen}
+            aria-controls="autonomous-delivery-details"
+            onClick={() => setExpandedRunId(detailsOpen ? undefined : run.id)}
+            className="flex shrink-0 items-center gap-1 rounded-md border border-emerald-500/20 px-2 py-1 text-[11px] font-medium text-emerald-700 transition-colors hover:bg-emerald-500/10 dark:text-emerald-400"
+          >
+            {detailsOpen ? '收起详情' : '查看验收详情'}
+            <ChevronDown
+              className={`size-3.5 transition-transform ${detailsOpen ? 'rotate-180' : ''}`}
+            />
+          </button>
+        </div>
+        {detailsOpen && (
+          <div id="autonomous-delivery-details" className="mt-3 border-t border-emerald-500/15 pt-3">
+            <div className="space-y-2">
+              {bundle.acceptanceResults.map((item) => (
+                <div
+                  key={item.criterion}
+                  className="rounded-lg border border-emerald-500/15 bg-[hsl(var(--bg-card))] px-3 py-2"
+                >
+                  <div className="flex items-start gap-2 text-xs text-[hsl(var(--text-secondary))]">
+                    <CheckCircle2 className="mt-0.5 size-3.5 shrink-0 text-emerald-500" />
+                    <span>{item.criterion}</span>
+                  </div>
+                  <div className="mt-1.5 pl-5 text-[10px] text-[hsl(var(--text-tertiary))]">
+                    <span>验收证据</span>
+                    <div className="mt-0.5 grid gap-0.5">
+                      {item.evidenceRefs.map((ref) => <EvidenceRef key={ref} value={ref} />)}
+                    </div>
+                  </div>
                 </div>
               ))}
             </div>
+            {bundle.verification && (
+              <div className="mt-3 border-t border-emerald-500/15 pt-3 text-xs">
+                <div className="font-medium text-[hsl(var(--text-secondary))]">
+                  {VERIFICATION_METHOD_LABELS[bundle.verification.method]}
+                  <span className="ml-1.5 text-[hsl(var(--text-tertiary))]">
+                    · {bundle.verification.tool} · {bundle.verification.verifierAgentId}
+                  </span>
+                </div>
+                <div className="mt-1.5 grid gap-1 text-[10px] text-[hsl(var(--text-tertiary))]">
+                  <div>
+                    <span className="mr-1.5">验证报告</span>
+                    <EvidenceRef value={bundle.verification.reportRef} />
+                  </div>
+                  {bundle.verification.specRefs.map((ref) => (
+                    <div key={ref}>
+                      <span className="mr-1.5">测试用例</span>
+                      <EvidenceRef value={ref} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {bundle.review && (
+              <div className="mt-3 border-t border-emerald-500/15 pt-3 text-xs">
+                <div className="font-medium text-[hsl(var(--text-secondary))]">
+                  独立质量评审
+                  <span className="ml-1.5 text-[hsl(var(--text-tertiary))]">
+                    · {bundle.review.reviewerAgentId}
+                  </span>
+                </div>
+                <p className="mt-1 text-[10px] text-[hsl(var(--text-tertiary))]">
+                  {bundle.review.summary}
+                </p>
+                <div className="mt-1 grid gap-1 text-[10px] text-[hsl(var(--text-tertiary))]">
+                  {bundle.review.evidenceRefs.map((ref) => (
+                    <div key={ref}>
+                      <span className="mr-1.5">评审证据</span>
+                      <EvidenceRef value={ref} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </section>
