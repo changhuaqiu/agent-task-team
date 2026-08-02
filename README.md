@@ -236,6 +236,7 @@ pnpm start
 | 文档 | 说明 |
 |------|------|
 | [产品愿景](./docs/product/vision.md) | 为什么做这个项目 |
+| [产品故事](./docs/product/STORY.md) | 优化给用户带来的真实变化与验证证据 |
 | [架构设计](./docs/wiki/01-architecture.md) | 技术架构详解 |
 | [开发规范](./docs/sop.md) | 如何参与贡献 |
 | [Agent 指南](./AGENTS.md) | Agent 工作约束 |
