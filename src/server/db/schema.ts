@@ -126,6 +126,7 @@ export const invocation = sqliteTable('invocation', {
   status: text('status').notNull().default('planned'),
   outcome: text('outcome'),
   engine: text('engine'),
+  runtimeId: text('runtime_id'),
   accountId: text('account_id'),
   cliSessionId: text('cli_session_id'),
   prompt: text('prompt'),

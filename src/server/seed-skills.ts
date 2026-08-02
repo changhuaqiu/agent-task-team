@@ -1,7 +1,7 @@
 import { skillRepo } from './repositories/skill-repo';
 import { PRESET_SKILLS } from '../data/presetSkills';
 
-const GIT_COLLABORATION_AGENT_IDS = [
+const BUILT_IN_TEAM_AGENT_IDS = [
   'mario',
   'luigi',
   'toad',
@@ -15,6 +15,7 @@ const GIT_COLLABORATION_AGENT_IDS = [
   'analyst',
   'writer',
 ];
+const BUILT_IN_PLANNER_AGENT_IDS = new Set(['mario', 'planner']);
 
 export function seedPresetSkills(): void {
   for (const preset of PRESET_SKILLS) {
@@ -40,15 +41,30 @@ export function seedPresetSkills(): void {
     }
   }
 
-  // Auto-assign task-management to Mario (planner)
+  // Planning owns task creation and assignment.
   const taskMgmt = skillRepo.getByName('task-management');
   if (taskMgmt) {
-    skillRepo.assignToAgent('mario', taskMgmt.id);
+    for (const agentId of BUILT_IN_TEAM_AGENT_IDS) {
+      if (BUILT_IN_PLANNER_AGENT_IDS.has(agentId)) {
+        skillRepo.assignToAgent(agentId, taskMgmt.id);
+      } else {
+        skillRepo.removeAgentAssignment(agentId, taskMgmt.id);
+      }
+    }
+  }
+
+  // Every dispatched role needs only the narrow status/receipt capability for
+  // its current task. Creation, assignment, and broad listing stay planner-only.
+  const taskStatusReceipt = skillRepo.getByName('task-status-receipt');
+  if (taskStatusReceipt) {
+    for (const agentId of BUILT_IN_TEAM_AGENT_IDS) {
+      skillRepo.assignToAgent(agentId, taskStatusReceipt.id);
+    }
   }
 
   const gitCollaboration = skillRepo.getByName('git-collaboration');
   if (gitCollaboration) {
-    for (const agentId of GIT_COLLABORATION_AGENT_IDS) {
+    for (const agentId of BUILT_IN_TEAM_AGENT_IDS) {
       skillRepo.assignToAgent(agentId, gitCollaboration.id);
     }
   }

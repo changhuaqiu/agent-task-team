@@ -286,4 +286,13 @@ describe('proofLogRepo', () => {
       reasonCode: 'chain_ready_for_closure',
     })).toHaveLength(1);
   });
+
+  it('returns the newest bounded proof window in chronological order', () => {
+    for (const eventType of ['proof.one', 'proof.two', 'proof.three']) {
+      proofLogRepo.append({ eventType, conversationId: 'conv-1' });
+    }
+
+    expect(proofLogRepo.getByConversation('conv-1', { limit: 2 }).map((proof) => proof.event_type))
+      .toEqual(['proof.two', 'proof.three']);
+  });
 });

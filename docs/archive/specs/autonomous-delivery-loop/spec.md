@@ -106,6 +106,31 @@ Run 保存单调递增的 `revision`。所有由旧快照推导的状态写回�
 - `DeliveryAction`：Supervisor 推导出的逻辑动作，例如 `plan_goal`、`dispatch_task`、`request_review`、`run_web_e2e`、`create_pr`、`merge_pr`、`publish_delivery`。
 - `DeliveryAttempt`：某个动作的一次实际执行。一次 Action 可有多次 Attempt。
 - Action 以 `idempotency_key` 唯一；Attempt 记录 claim、lease、started、heartbeat、terminal 和 failure taxonomy。
+
+#### Shared development database compatibility
+
+When a newer branch has already migrated the shared data directory to the managed
+DeliveryRun schema, a compatibility daemon must inspect the actual table contract:
+
+- managed runs require a stable `start_idempotency_key`, store active lifecycle
+  state separately from `current_stage`, and use
+  `active/waiting_gate/waiting_human/retrying/completed/failed/cancelled`;
+- a legacy supervisor may continue to reason in
+  `planning/executing/reviewing/verifying/integrating/delivering/recovering/escalated`
+  only through an explicit repository mapping; raw legacy statuses must never be
+  written into the managed table;
+- a repeated start for the same Conversation uses the same key and returns the
+  existing Run only when the normalized GoalContract is identical; key reuse
+  across Conversations, changed contracts, and different keys while a Run is
+  active are conflicts;
+- managed `waiting_gate` runs project as stopped legacy runs and cannot resume or
+  claim work without gate evidence from the managed controller;
+- if the managed checkpoint no longer contains the legacy Action/Attempt tables,
+  compatibility repair must atomically recreate their exact durable lease schema
+  and add the nullable receipt ownership columns under a database write lock
+  before the legacy supervisor starts;
+- project rollback/deletion treats branch-specific projection tables as optional,
+  while preserving one aggregate transaction for every table that actually exists.
 - Supervisor 在副作用执行期间按 lease 的固定分数周期续租；Attempt 终态写入必须同时校验
   `attempt_no == Action.attempt_count`。过期 Attempt 的迟到结果不得改变当前 Action，也不得写入 Receipt。
 
@@ -115,6 +140,22 @@ Receipt 是外部或执行面动作已经发生的权威回执：
 
 - Harness Receipt：Agent 调用、session generation、execution envelope。
 - Task Receipt：任务状态、artifact、review/QA decision。
+
+### Task 状态兼容边界
+
+Autonomous Delivery 可能运行在已由托管控制面升级过的共享数据库上。旧执行链仍以
+`pending`、`completed`、`rejected` 表达任务状态时，Task Repository 必须在唯一持久化
+边界完成兼容转换：
+
+- `pending` 持久化为 `ready`，读取时仍向旧执行链呈现为 `pending`；
+- `completed` 持久化为 `done`，`rejected` 持久化为 `blocked`；
+- 跨越多个托管状态的旧式更新必须逐步走合法迁移路径，不得直接绕过数据库状态机；
+- 无法映射或无法合法迁移的状态必须返回明确错误，不得把原始触发器错误升级为
+  `waiting_human`。
+
+该兼容层只在数据库已安装托管 Task 状态约束时启用；旧数据库行为保持不变。退出条件是
+所有旧执行链和 UI 均原生使用托管 Task 生命周期。
+
 - Verification Receipt：命令、退出码、报告路径、Web UI E2E 结果。
 - Provider Receipt：commit、push、PR、review、CI、merge 的外部 ID 与状态。
 - Delivery Receipt：最终 `DeliveryBundle` 已提交到持久化 API/UI 投影。
@@ -129,8 +170,8 @@ Receipt 必须可重复读取，写入必须幂等。
 interface AcceptanceVerificationReceipt {
   schemaVersion: 1;
   deliveryRunId: string;
-  status: 'passed' | 'failed';
-  method: 'web_ui_e2e' | 'automated_test' | 'manual_review';
+  status: "passed" | "failed";
+  method: "web_ui_e2e" | "automated_test" | "manual_review";
   verifierAgentId: string;
   tool: string;
   reportRef: string;
@@ -138,7 +179,7 @@ interface AcceptanceVerificationReceipt {
   codeRevision?: string;
   acceptanceResults: Array<{
     criterion: string;
-    status: 'passed' | 'failed';
+    status: "passed" | "failed";
     evidenceRefs: string[];
   }>;
 }
@@ -151,9 +192,25 @@ interface AcceptanceVerificationReceipt {
 - `acceptanceResults` 必须与 GoalContract 的验收标准一一对应，不允许缺失、重复或额外标准；
 - PASS 的每条标准必须至少有一个 evidence ref；
 - `requireWebE2E=true` 时，`method` 必须是 `web_ui_e2e`，工具必须来自 Browser/Playwright 能力；
+- 由 `test_gate` 发起的验证调用必须获得精确的 Playwright 浏览器工具 allowlist，
+  使真实页面导航、交互、快照和截图不依赖人工权限弹窗；该授权不得扩散到用户、
+  普通任务或评审派发，也不得包含浏览器安装等环境变更工具；
+- 当 `authorization.allowCodeChanges=true` 时，仍处于可恢复交付生命周期内的非交互 Agent
+  可对 ACP `edit` 类项目文件修改请求获得单次授权，以创建实现产物、测试规格和验收报告；
+  该授权不得覆盖 `delete`、`move`、任意命令执行、push、PR 或 merge，也不得在无 DeliveryRun
+  或交付已完成/取消后继续生效；
 - 本地报告与测试用例引用必须位于授权 projectPath 内且真实存在；
 - 无结构化回执、旧 Run 回执、只有“测试通过”文本或任意 delivery evidence 均不能让 Verification 通过；
 - 失败或格式错误的回执形成失败 Receipt，触发有界 `repair_verification`，而不是永久等待。
+- `test_gate` 的验证 Admission 仍处于 active 时，旧失败 Receipt 只能投影为
+  `pending`；Supervisor 必须等待该 Invocation 结束，不能在同一次推进中抢跑并创建
+  下一 repair cycle。Invocation 结束后再按最新持久化 Receipt 判定通过、修复或升级。
+
+- Claude ACP 角色可以使用运行时原生后台子代理；平台不得为了保持 Task Graph 纯度而禁用 Agent 自带的并发能力。ACP adapter 必须负责原生子代理的 turn 内收敛，平台必须启用子代理文本转发，并以 `toolCallId` 配对子代理工具的开始/结果事件，确保 `run.background_waiting` 可恢复。平台 Task Graph、Harness dispatch receipt 与 A2A ownership transfer 仍是跨平台角色交付的业务真相，运行时原生子代理属于单次 Invocation 内部的执行细节。
+- 协作 Context 不得再笼统禁止 runtime-native `Task` / `Agent`。Agent 可以在当前 Invocation 内用它们做有界并行调查或子工作，但不得把原生子代理、`SendMessage` 或本地 todo 冒充平台 Task Graph、角色持有权或 A2A pass；跨角色业务交接仍必须通过平台任务工具或正常可见的 actionable `@mention`。
+- 默认团队的质量角色同时承担独立评审与真实 Web 验收时，`review_gate` 与 `test_gate` 必须获得同一份精确 Playwright 工具 allowlist；导航、交互、快照和截图可单次授权。对于 Chromium 禁止直接加载的 `file://` 本地产物，质量门必须使用平台提供的 `verification_serve_artifact`：平台只允许读取当前项目根目录内的指定文件，在随机 loopback 端口上生成一次性、短时有效 URL，并在首次成功请求或超时后关闭服务；随后由 Playwright 真实访问该 URL 并断言内容。恢复验证可以在当前 dispatched task 已为 `done` 时执行；平台必须继续允许这一只读能力，不能要求代理把任务状态倒退到 `in_review`。文本产物必须返回浏览器可渲染的 MIME 类型，使质量代理能够通过真实页面导航和 DOM 断言验收；非文本产物保持二进制响应。不得假设 Playwright 代码执行沙箱包含 Node `require` / `import`，也不得为此放宽任意 shell 命令执行。该能力不得扩散到普通任务，浏览器安装仍禁止。不得仅因派发来源是 `review_gate` 就拒绝验收所需的浏览器调用。
+- 验收回执兼容代理常见的等价表达：逐项结果可使用 `status` 或 `result`，PASS/FAIL 大小写不敏感；验收项可带与顺序一致的 `AC1`/`AC2` 前缀；工具名只要明确包含 Playwright 或 Browser 即归一化为浏览器验收工具。归一化不得替代安全校验：当前 Delivery Run、授权验收人、完整验收项、非空证据引用以及项目目录内真实存在的 `reportRef`/`specRefs` 仍全部必需。
+- 当交付策略要求独立评审时，根任务进入 `in_review` 即表示实现阶段完成，Supervisor 必须进入 `request_review`，不得继续把 Task Graph 判为 `running` 并无限等待 `done`。`done` 由独立评审/验收通过后确认，不能反过来作为启动评审的前置条件。
 
 ### 3.6 Acceptance Review Receipt
 
@@ -163,14 +220,14 @@ interface AcceptanceVerificationReceipt {
 interface AcceptanceReviewReceipt {
   schemaVersion: 1;
   deliveryRunId: string;
-  status: 'passed' | 'failed';
+  status: "passed" | "failed";
   reviewerAgentId: string;
   summary: string;
   evidenceRefs: string[];
   codeRevision?: string;
   findings: Array<{
-    severity: 'blocking' | 'important' | 'advisory';
-    status: 'open' | 'resolved';
+    severity: "blocking" | "important" | "advisory";
+    status: "open" | "resolved";
     description: string;
     evidenceRefs: string[];
   }>;
@@ -200,6 +257,13 @@ interface AutonomousDeliverySupervisor {
 ```
 
 `advance()` 内部隐藏状态推导、claim、lease、重试、恢复、并发控制和收口规则。调用方只表达“事实可能变化，请重新对账”。
+
+`manual_resume` 是对 `escalated` / 托管 `waiting_human` 的显式恢复授权。Supervisor
+必须先以 revision CAS 将该 Run 恢复为 `recovering` / 托管 `active`，清除旧的
+escalation，再重新观察当前持久化事实并推导后续动作。如果重新推导命中同一幂等键的
+失败 Action，Supervisor 只重新武装该精确 Action，并按恢复策略追加新的 Attempt
+预算；不得重新武装其他历史失败 Action。普通事实通知和周期对账仍不得回退任何终态；
+`completed`、`cancelled` 以及托管 `failed` 也不得由 `manual_resume` 重新打开。
 
 内部 Port：
 
@@ -253,7 +317,7 @@ Agent 文本中的“完成了”不参与该判断。
 `DeliveryBundle.acceptanceResults` 必须逐项复制最终有效的 Acceptance Verification Receipt，不得把同一份笼统证据批量标记给所有验收标准。
 
 `DeliveryBundle` 同时保留面向用户的验证摘要（验证方式、工具、报告、用例和代码版本）。
-完成页逐项展示验收证据，并展示 Web UI E2E 报告；内部 proof/receipt 标识不得进入主界面。
+完成页默认展示交付摘要与验收通过数量；用户展开验收详情后，逐项展示验收证据、独立评审和 Web UI E2E 报告。详情区域不得挤出聊天输入框，内部 proof/receipt 标识不得进入主界面。
 
 ## 7. 恢复与升级
 
@@ -341,14 +405,14 @@ Agent 文本中的“完成了”不参与该判断。
 
 Team Harness 不重复实现模型、Skill、工具协议、浏览器驱动或 Provider SDK。平台只建设稳定 seam、环境事实和机械控制：
 
-| 能力 | 复用事实源 | Team Harness 增加的责任 |
-|---|---|---|
-| 专业工作流与知识 | 现有 `SkillRuntime` 和标准 `SKILL.md` 包 | 固定 revision/hash、按场景激活、记录加载证据 |
-| Agent 执行 | Codex / Claude / OpenCode 等 ACP adapter | 统一 ContextSnapshot、workdir、session generation 与 Receipt |
-| 工具发现与调用 | Runtime 注册工具、MCP tool catalog | Capability Snapshot、scope/policy 门禁和机器可读 Outcome |
-| Web UI 验证 | Browser/Playwright 能力 | criterion-specific E2E plan、浏览器级 Receipt 与有限修复循环 |
-| Git/PR/CI | Git 与 Provider 官方 CLI/SDK | allowlist、精确 head、幂等动作和终态 reconcile |
-| 架构/评审方法 | 可版本化 Skill | 通过 Contributor 注入项目约束和证据，不把方法硬编码进 Supervisor |
+| 能力             | 复用事实源                               | Team Harness 增加的责任                                          |
+| ---------------- | ---------------------------------------- | ---------------------------------------------------------------- |
+| 专业工作流与知识 | 现有 `SkillRuntime` 和标准 `SKILL.md` 包 | 固定 revision/hash、按场景激活、记录加载证据                     |
+| Agent 执行       | Codex / Claude / OpenCode 等 ACP adapter | 统一 ContextSnapshot、workdir、session generation 与 Receipt     |
+| 工具发现与调用   | Runtime 注册工具、MCP tool catalog       | Capability Snapshot、scope/policy 门禁和机器可读 Outcome         |
+| Web UI 验证      | Browser/Playwright 能力                  | criterion-specific E2E plan、浏览器级 Receipt 与有限修复循环     |
+| Git/PR/CI        | Git 与 Provider 官方 CLI/SDK             | allowlist、精确 head、幂等动作和终态 reconcile                   |
+| 架构/评审方法    | 可版本化 Skill                           | 通过 Contributor 注入项目约束和证据，不把方法硬编码进 Supervisor |
 
 新增平台能力前必须先确认：
 
@@ -362,6 +426,17 @@ Team Harness 不重复实现模型、Skill、工具协议、浏览器驱动或 P
 ### 正常路径
 
 用户在 Web UI 创建交付目标并发送一次。此后不再发送消息。系统完成任务拆解、开发、Review、Web UI E2E、修复、PR/合并（若授权），最后 UI 展示 DeliveryBundle。
+创建时可以异步加载 Team Pack，但 `autonomous=true` 时不得再触发普通 Conversation 的初始 proposal；
+首个规划调用必须来自持久化的 `plan_goal` Action/Attempt。非自主项目的既有 proposal 行为保持不变。
+`plan_goal` 不得仅创建根任务后立即让通用 `advance_tasks` 以 execution/implement 语义派发协调者；它必须在同一持久化动作中向团队协调者提交 `planning` Context Scenario，明确要求拆解、分派和真实交接，并禁止协调者直接实现交付物或执行 Review/Web E2E。这样角色分工是平台协议，而不是依赖模型临场自觉。
+若该规划 Invocation 在产生权威任务进展前失败或超时，Supervisor 的自动恢复必须继续使用同一 `planning` 语义和角色边界；不得把恢复降级为通用 execution，让协调者直接实现交付物。
+规划者通过 `task_create` / `task_assign` 得到真实 Task Graph dispatch receipt 后不得再为同一任务发送 A2A mention；这是同一执行的重复派发。若仍收到 mention，chainless A2A 也必须执行任务依赖、owner 与 active-status 门禁，并把 mention 中明确引用的子任务 ID 绑定到 pass，不能回退绑定当前根任务、改写根负责人。
+当会话已经存在多条任务时，无明确任务引用的 A2A 只能绑定目标角色唯一的非终态任务；无法唯一解析时必须以 `ambiguous_task_handoff` 拦截，不得默认继承来源 Invocation 的根 taskId。这样“实现交给 @luigi、质量门交给 @peach”一类规划说明不会把根任务轮流转给被提及角色。
+Harness 因目标 Agent 正忙返回 `deferred/agent_busy` 时，Delivery Supervisor 必须把动作保持在持久化重试队列中，并保留重试预算；这是正常背压，不是一次运行失败。不得在同一 Agent 尚未结束当前 review Invocation 时，因后继质量任务连续三次 deferred 就升级 `transient_runtime` 或等待人工。Agent 空闲后，原逻辑 Action 继续重试并保持幂等。
+页面刷新后，自主标记必须由持久化 DeliveryRun 重新水合；创建定时器、聊天自动提案和
+`triggerProposal` 统一入口都必须拒绝为该 Conversation 派发 legacy proposal。多标签页或外部入口
+在旧页面水合后创建 DeliveryRun 时，daemon 仍须以持久化 DeliveryRun 为权威，在 Harness 前拒绝
+带 legacy proposal 标记的派发，且不得把这种预期抑制显示为内部错误。
 
 ### 重启恢复
 
@@ -381,6 +456,22 @@ Web UI E2E 第一次失败，系统自动创建 repair action；修复后重新�
 2. `RepositoryHarnessPlanner` 必须真实执行，Context Manager 至少生成 execution、code_review、verification/recovery 场景的上下文快照；
 3. 测试可以在 `HarnessRuntimePort` 接缝替换外部 LLM/ACP，但不得替换 Supervisor、Harness Coordinator、Task Tool、Review/Verification Receipt、Closure Policy 或 UI 投影；
 4. Web UI 验收必须由真实 Browser/Playwright 页面操作产生结果，再由测试专用 Agent Adapter 按生产 `task_update_status` 契约提交结构化回执；
+
+### 任务工具可达性
+
+- 默认团队中只有规划角色绑定完整 `task-management`；会实现、评审、测试或收口的内置角色绑定只暴露 `task_update_status` 的 `task-status-receipt`。
+- `task_update_status` 必须同时校验当前 conversation 与当前 dispatch task，不允许代理修改已知 ID 的其他任务；`TASKS.md` 是投影与兼容入口，不是唯一状态写入能力。
+- 窄权限 skill 的工具 schema 必须完整描述状态门禁所需的顶层 delivery evidence，以及 review/verification wakeup 的嵌套 receipt；不能只写“结构化证据”而让代理猜字段。
+- ACP 平台 MCP 工具的自动放行必须同时识别适配器可能上报的 `mcp.<server>.<tool>` 与 `mcp__<server>__<tool>` 名称；只登记其中一种会让已授权的回执工具在运行时被默认权限策略拒绝。
+- ACP 适配器可能先发出 MCP permission request、再异步投递同一 toolCallId 的 tool update。自动放行策略必须给这两个事件一个短且有界的关联窗口，并保持 callId 一次性消费；不得因事件到达顺序反转而误拒，也不得按 MCP 标记无条件放行。
+- Claude ACP 的 permission request 可能不带 MCP `_meta`，但会在 `toolCall.title` 提供完整随机 server 工具名。平台可仅对当前 dispatch 生成的精确工具名集合做一次性放行；未知 title、重复 callId 与非当前 grant 工具必须继续落回默认拒绝。
+- Web 聊天的任务引用必须同时支持旧 `#TASK-000` 与当前持久化的 `#task-<id-parts>` 完整 ID；不得用旧三位数正则截断新 ID，否则 mention 派发会以不存在的任务进入 `task_missing`，回执工具也会得到空 dispatch task。
+- A2A handoff acceptance 的默认状态推进只允许 `pending → in_progress`。若质量回执已把任务推进到 `in_review`、`done`、`blocked` 等更高或终态，晚到的 handoff accepted 只能更新持有者与记录 action，不得把权威任务状态回退为 `in_progress`。
+- A2A 行动交接必须按 mention 所在的局部语义判定。类似“@luigi 请实现……；请勿自行执行 Web E2E，那是质量门 @peach 的职责”中的角色归属、职责说明或禁止说明不得借用同句其他行动词唤醒被提及角色；只有面向该 mention 的明确请求（例如“@peach 请评审”）才能产生 pass intent。
+- Invocation 成功结束且本轮 Invocation 开始后没有新增权威进展 proof 时，Supervisor 必须按该任务最新的终态 Invocation 恢复同一代理。权威进展包括非 Git gate evidence、Git collaboration 的 PR/review/merge verified proof，以及协调者在本轮创建或推进的其他 Task Graph 节点；不得把派发期间 `work_dir` 投影等元数据对当前任务 `updated_at` 的刷新当成业务推进，也不得在子任务已经产生并推进后错误恢复根协调任务、压住质量门。进展查询必须覆盖最新 proof，不能用按时间升序截断的最老窗口判断当前事实。
+- `in_review` 是需要独立评审的可运行事实。若状态变更时的即时 wakeup 因并发占用、重启或短暂 admission 失败而丢失，autonomy guard 必须在确认没有活跃派发后立即重建 `review_requested`；只有超过停滞阈值后才升级为 `stale_review_gate`，不得先静默等待完整 stale 窗口。
+- Autonomous Delivery 已持久化的 `root_task_id` 是任务链收口的权威根节点。即使 Agent 通过 `task_create` 创建子任务时没有写入显式 `subtask_of` edge，Supervisor 也必须把同一交付会话中的其他任务作为该根的隐式后代进行终态判定；全部后代终态后唤醒协调者输出 closure，不得让根任务永久停在 `in_progress`。Facts 观察与 Action 执行阶段必须使用同一套隐式根解析，不能出现“观察到可运行 closure、执行时却找不到合法 wakeup”的裂缝。
+- 仅给协调者绑定任务工具会造成实现者可以产出、评审者可以给出 PASS 文本，但 Task Graph 永远无法落到 `done`；该配置视为不可交付。
 5. 首次验证失败后必须推导 `repair_verification`，不得由测试直接修改 `repair_cycle`；
 6. 在 repair verification 执行中终止服务，重启后必须依靠持久化 Action/Attempt、lease 回收和 startup reconcile 恢复，同一逻辑 Action 不得重复创建；
 7. 最终 `DeliveryBundle` 只能由生产 Closure Invariant 推导，并在 Web UI 展示逐项验收、独立评审和 Web UI E2E 证据。

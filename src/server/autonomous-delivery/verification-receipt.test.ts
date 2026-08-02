@@ -104,6 +104,31 @@ describe('Acceptance Verification Receipt', () => {
     ]));
   });
 
+  it('normalizes common agent receipt dialects without relaxing evidence requirements', () => {
+    const result = validateAcceptanceVerificationReceipt(receipt({
+      tool: 'Playwright browser_run_code_unsafe real page navigation',
+      evidenceRefs: ['qa/reports/verification.md'],
+      acceptanceResults: contract.acceptanceCriteria.map((criterion, index) => ({
+        criterion: `AC${index + 1} ${criterion}`,
+        result: 'PASS',
+      })),
+    }), snapshot());
+
+    expect(result).toMatchObject({
+      valid: true,
+      payload: {
+        status: 'passed',
+        tool: 'Playwright browser_run_code_unsafe real page navigation',
+        acceptanceResults: contract.acceptanceCriteria.map(criterion => ({
+          criterion,
+          status: 'passed',
+          evidenceRefs: ['qa/reports/verification.md'],
+        })),
+      },
+      errors: [],
+    });
+  });
+
   it('only reads verificationReceipt from a current delivery-evidence proof', () => {
     const proof: ProofEventRow = {
       id: 'proof-1',

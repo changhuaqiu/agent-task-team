@@ -7,10 +7,11 @@
 开始技术动作前必须完成：
 
 - 阅读 `AGENTS.md`、`docs/README.md`、`specs/README.md`。
+- 阅读 `docs/standards/git-worktree.md`，从专属任务分支/worktree 开始，并确认现有 staged、unstaged、untracked 变化的归属。
 - 识别受影响的活动规格，并阅读对应 `specs/<name>/spec.md`、`tasks.md`、`checklist.md`。
 - 若涉及 Next.js、API route、routing、rendering 或构建行为，先阅读 `node_modules/next/dist/docs/` 中对应指南。
 - 对非简单代码、架构、评审或测试任务，先通过代码搜索、调用关系、现有测试和相关文档确认影响边界。
-- 检查当前工作区状态，避免覆盖并行任务改动。
+- 检查当前工作区状态，避免覆盖并行任务改动；暂存、提交、分支保留和 worktree 清理必须通过 Git / Worktree 规范门禁。
 - 明确本轮改动的边界，不顺手重构无关模块。
 
 ## 2. 设计与实现原则

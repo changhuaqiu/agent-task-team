@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { useTaskHubStore, AGENT_ROSTER, type Account } from '@/store/taskHubStore';
+import {
+  useTaskHubStore,
+  AGENT_ROSTER,
+  type Account,
+  type DispatchToAgentInput,
+} from '@/store/taskHubStore';
 import type { TeamPack, TeamPackRole } from '@/types/teamPack';
 
 // ---------------------------------------------------------------------------
@@ -394,6 +399,89 @@ describe('Team Pack Dynamic Roster', () => {
         agentId: 'researcher',
       }));
       expect(dispatchToAgent).not.toHaveBeenCalledWith(expect.objectContaining({ agentId: 'mario' }));
+      vi.useRealTimers();
+    });
+
+    it('does not start a legacy proposal for autonomous Team Pack projects', async () => {
+      vi.useFakeTimers();
+      const dispatchToAgent = vi.fn(async (_input: DispatchToAgentInput) => true);
+      const teamPack = makeTeamPack({
+        id: 'pack-autonomous',
+        roles: [makeRole({ id: 'planner', displayName: 'Planner', accountIds: ['acc-planner'] })],
+      });
+
+      vi.spyOn(global, 'fetch').mockImplementation((url: string | URL | Request) => {
+        const href = String(url);
+        if (href.includes('/api/team-packs/pack-autonomous')) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve(teamPack),
+          } as unknown as Response);
+        }
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ ok: true }),
+        } as unknown as Response);
+      });
+
+      useTaskHubStore.setState({
+        accounts: [makeAccount('acc-planner')],
+        dispatchToAgent,
+      });
+
+      await useTaskHubStore.getState().createConversation({
+        title: 'Autonomous Project',
+        goal: 'Let the delivery supervisor plan the work',
+        teamPackId: 'pack-autonomous',
+        autonomous: true,
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(500);
+
+      expect(useTaskHubStore.getState().currentTeamPack?.id).toBe('pack-autonomous');
+      expect(useTaskHubStore.getState().conversations[0]?.autonomous).toBe(true);
+      expect(dispatchToAgent).not.toHaveBeenCalled();
+      vi.useRealTimers();
+    });
+
+    it('blocks direct and delayed legacy proposals in an autonomous conversation', async () => {
+      vi.useFakeTimers();
+      const dispatchToAgent = vi.fn(async (_input: DispatchToAgentInput) => true);
+      const teamPack = makeTeamPack({
+        id: 'pack-hydrated-autonomous',
+        roles: [makeRole({ id: 'planner', displayName: 'Planner', accountIds: ['acc-planner'] })],
+      });
+      vi.spyOn(global, 'fetch').mockResolvedValue({ ok: true } as Response);
+      useTaskHubStore.setState({
+        conversations: [{
+          id: 'conv-hydrated-autonomous',
+          title: 'Hydrated autonomous project',
+          goal: 'Keep planning under the delivery supervisor',
+          status: 'active',
+          priority: 'p1',
+          projectPath: 'C:/fixture',
+          breakdownStatus: 'none',
+          autonomous: true,
+          teamPackId: teamPack.id,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }],
+        selectedConversationId: 'conv-hydrated-autonomous',
+        currentTeamPack: teamPack,
+        activeAgentIds: ['planner'],
+        accounts: [makeAccount('acc-planner')],
+        dispatchToAgent,
+      });
+
+      await useTaskHubStore.getState().addChatMessage({
+        agentId: 'human',
+        content: '补充一个普通说明，不进行人工路由',
+      });
+      await vi.advanceTimersByTimeAsync(500);
+      useTaskHubStore.getState().triggerProposal('conv-hydrated-autonomous');
+
+      expect(dispatchToAgent).not.toHaveBeenCalled();
       vi.useRealTimers();
     });
   });

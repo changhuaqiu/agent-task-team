@@ -1,11 +1,37 @@
 import { expect, test } from '@playwright/test';
 
-test('keeps the composer visible with a content-heavy completed delivery', async ({ page }) => {
+test('keeps the composer visible with expanded delivery evidence', async ({ page }) => {
   const acceptanceResults = Array.from({ length: 40 }, (_, index) => ({
     criterion: `Acceptance criterion ${index + 1}`,
-    passed: true,
+    status: 'passed',
     evidenceRefs: [`reports/acceptance-${index + 1}.md`],
   }));
+
+  await page.route('**/api/state', async (route) => {
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        conversations: [{
+          id: 'layout-conversation',
+          title: 'Layout regression fixture',
+          goal: 'Keep the chat composer visible',
+          status: 'completed',
+          priority: 'p1',
+          project_path: 'C:/fixture',
+          breakdown_status: 'none',
+          autonomous: true,
+          created_at: '2026-07-26T00:00:00.000Z',
+          updated_at: '2026-07-26T00:10:00.000Z',
+        }],
+        tasks: [],
+        recentMessages: {},
+        activeSessions: [],
+        recentInvocations: [],
+        skills: [],
+        agentSkillIds: {},
+      }),
+    });
+  });
 
   await page.route('**/api/autonomous-delivery?**', async (route) => {
     await route.fulfill({
@@ -54,6 +80,11 @@ test('keeps the composer visible with a content-heavy completed delivery', async
         bundle: {
           summary: 'A deliberately long completed delivery result',
           acceptanceResults,
+          changeRefs: [],
+          verificationRefs: [],
+          providerRefs: [],
+          knownLimitations: [],
+          completedAt: '2026-07-26T00:10:00.000Z',
         },
       }),
     });
@@ -66,6 +97,7 @@ test('keeps the composer visible with a content-heavy completed delivery', async
   const input = page.locator('#chat-input');
   await expect(deliveryViewport).toBeVisible();
   await expect(input).toBeVisible();
+  await page.getByRole('button', { name: '查看验收详情' }).click();
 
   const geometry = await page.evaluate(() => {
     const delivery = document.querySelector<HTMLElement>(

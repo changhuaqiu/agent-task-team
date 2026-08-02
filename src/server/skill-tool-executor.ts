@@ -16,6 +16,7 @@ import { GhCliGitProviderVerifier } from './engineering-collaboration/github-cli
 import type { ImplementationEvidence, MergeEvidence, ReviewEvidence } from '@/lib/engineering-collaboration/types';
 import type { Server as IOServer } from 'socket.io';
 import { readTasksMd, updateTaskInMd, writeTasksMd } from './task-file-service';
+import { startArtifactLoopbackServer } from './verification/artifact-loopback-server';
 
 // ── Types ──────────────────────────────────────
 
@@ -126,13 +127,8 @@ function executeTaskList(invocation: ToolInvocation): ToolResult {
   const agentId = invocation.input.agent_id as string | undefined;
 
   let tasks: TaskRow[];
-  if (agentId) {
-    tasks = taskRepo.getByAgent(agentId);
-  } else if (invocation.conversationId) {
-    tasks = taskRepo.getByConversation(invocation.conversationId);
-  } else {
-    tasks = taskRepo.list();
-  }
+  tasks = taskRepo.getByConversation(invocation.conversationId);
+  if (agentId) tasks = tasks.filter((task) => task.agent_id === agentId);
 
   if (status) {
     tasks = tasks.filter((t) => t.status === status);
@@ -208,6 +204,12 @@ function executeTaskUpdateStatus(invocation: ToolInvocation): ToolResult {
   if (!existing) {
     return { success: false, error: `Task not found: ${taskId}` };
   }
+  if (existing.conversation_id !== invocation.conversationId) {
+    return { success: false, error: `Task ${taskId} does not belong to the invoking conversation` };
+  }
+  if (!invocation.taskId || invocation.taskId !== taskId) {
+    return { success: false, error: `task_update_status is limited to the current dispatched task ${invocation.taskId ?? '(none)'}` };
+  }
 
   const evidence = invocation.input.evidence;
   const gateDecision = taskStatusEvidencePolicy.evaluate({
@@ -265,6 +267,9 @@ function executeTaskAssign(invocation: ToolInvocation): ToolResult {
   if (!existing) {
     return { success: false, error: `Task not found: ${taskId}` };
   }
+  if (existing.conversation_id !== invocation.conversationId) {
+    return { success: false, error: `Task ${taskId} does not belong to the invoking conversation` };
+  }
 
   const idempotencyKey = stableTaskCommandKey(
     invocation.rateLimitKey ?? invocation.agentId,
@@ -294,6 +299,31 @@ function executeTaskAssign(invocation: ToolInvocation): ToolResult {
     console.error('[task_assign] failed to update TASKS.md:', e);
   }
   return { success: true, data: updated.result.task };
+}
+
+async function executeVerificationServeArtifact(invocation: ToolInvocation): Promise<ToolResult> {
+  const artifactPath = invocation.input.artifact_path as string | undefined;
+  if (!artifactPath?.trim()) {
+    return { success: false, error: 'artifact_path is required' };
+  }
+  if (!invocation.taskId) {
+    return { success: false, error: 'verification_serve_artifact requires a current dispatched task' };
+  }
+  const task = taskRepo.getById(invocation.taskId);
+  if (!task || task.conversation_id !== invocation.conversationId) {
+    return { success: false, error: 'Current dispatched task is not part of this conversation' };
+  }
+  if (!['in_review', 'blocked', 'rejected', 'done'].includes(task.status)) {
+    return {
+      success: false,
+      error: `verification_serve_artifact is limited to quality-gate tasks; current status is ${task.status}`,
+    };
+  }
+  const data = await startArtifactLoopbackServer({
+    projectDir: resolveTaskProjectDir(invocation, task.conversation_id),
+    artifactPath,
+  });
+  return { success: true, data };
 }
 
 function recordInput(value: unknown): Record<string, unknown> | undefined {
@@ -405,6 +435,7 @@ const TOOL_EXECUTORS: Record<string, (invocation: ToolInvocation) => ToolResult 
   task_create: executeTaskCreate,
   task_update_status: executeTaskUpdateStatus,
   task_assign: executeTaskAssign,
+  verification_serve_artifact: executeVerificationServeArtifact,
   collaboration_record_pr: executeRecordPullRequest,
   collaboration_record_review: executeRecordReview,
   collaboration_record_merge: executeRecordMerge,

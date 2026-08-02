@@ -149,6 +149,7 @@ export interface PendingDispatch {
   source?: 'user' | 'a2a' | 'workflow' | 'review_gate' | 'test_gate' | 'system';
   fromAgentId?: string;
   conversationId: string;
+  legacyProposal?: boolean;
 }
 
 type InFlightDispatch = Omit<
@@ -362,7 +363,7 @@ export const createDaemonSlice = (set: any, get: () => any) => {
         },
       })),
 
-    dispatchToAgent: async ({ agentId, prompt, referencedTaskId, source, fromAgentId, conversationId: explicitConvId, chainId, passId }: { agentId: string; prompt: string; referencedTaskId?: string; source?: 'user' | 'a2a' | 'workflow' | 'review_gate' | 'test_gate' | 'system'; fromAgentId?: string; conversationId?: string; chainId?: string; passId?: string }) => {
+    dispatchToAgent: async ({ agentId, prompt, referencedTaskId, source, fromAgentId, conversationId: explicitConvId, chainId, passId, legacyProposal }: { agentId: string; prompt: string; referencedTaskId?: string; source?: 'user' | 'a2a' | 'workflow' | 'review_gate' | 'test_gate' | 'system'; fromAgentId?: string; conversationId?: string; chainId?: string; passId?: string; legacyProposal?: boolean }) => {
       if ((source === undefined || source === 'user') && get().runtimeRefreshInProgress) {
         console.warn(`[dispatch] ${agentId} deferred: runtime configuration refresh in progress`);
         return false;
@@ -385,7 +386,14 @@ export const createDaemonSlice = (set: any, get: () => any) => {
 
       if (get().agentStatus[agentId] && get().agentStatus[agentId] !== 'idle') {
         console.log(`[dispatch] ${agentId} busy, enqueuing for conversation ${conversationId}`);
-        get().enqueueDispatch(agentId, { prompt, referencedTaskId, source, fromAgentId, conversationId });
+        get().enqueueDispatch(agentId, {
+          prompt,
+          referencedTaskId,
+          source,
+          fromAgentId,
+          conversationId,
+          legacyProposal,
+        });
         return true;
       }
 
@@ -421,6 +429,7 @@ export const createDaemonSlice = (set: any, get: () => any) => {
         source,
         fromAgentId,
         conversationId,
+        legacyProposal,
       });
 
       socket.emit('terminal:start', {
@@ -434,6 +443,7 @@ export const createDaemonSlice = (set: any, get: () => any) => {
         fromAgentId,
         chainId,
         passId,
+        legacyProposal,
         agentId,
         prompt,
         allowMockRunner: get().enableMockRunner,

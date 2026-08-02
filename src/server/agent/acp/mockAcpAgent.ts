@@ -64,7 +64,7 @@ const PERMISSION_OPTIONS: acp.PermissionOption[] = [
  *    (`process.exit(1)`) — so `AcpBackend`'s `close` handler fires with an
  *    abnormal exit and resolves `failed`. (Task 9 failure-recovery test.)
  */
-export type MockScenario = 'normal' | 'slow' | 'active' | 'error' | 'flood' | 'large' | 'wrong_session' | 'tool_only' | 'tool_silent' | 'mcp_echo' | 'platform_mcp_permission';
+export type MockScenario = 'normal' | 'slow' | 'active' | 'error' | 'flood' | 'large' | 'wrong_session' | 'empty_once' | 'empty_silent' | 'fresh_session_recovery' | 'thinking_only' | 'tool_result_only' | 'tool_result_silent' | 'tool_only' | 'tool_silent' | 'mcp_echo' | 'platform_mcp_permission';
 
 /** How long the "slow" scenario blocks mid-turn before completing. */
 const SLOW_BLOCK_MS = 60_000;
@@ -96,6 +96,7 @@ export function createMockAgentApp(
   scenario: MockScenario = 'normal',
 ): acp.AgentApp {
   let promptCount = 0;
+  let sessionCount = 0;
   let sessionMcpServers: acp.McpServer[] = [];
   return acp
     .agent({ name: 'mock-acp-agent' })
@@ -105,7 +106,8 @@ export function createMockAgentApp(
     }))
     .onRequest(acp.methods.agent.session.new, (ctx) => {
       sessionMcpServers = ctx.params.mcpServers;
-      return { sessionId: 'mock-1' };
+      sessionCount += 1;
+      return { sessionId: `mock-${sessionCount}` };
     })
     .onRequest(acp.methods.agent.session.load, async (ctx) => {
       sessionMcpServers = ctx.params.mcpServers;
@@ -145,6 +147,55 @@ export function createMockAgentApp(
           sessionUpdate: 'agent_message_chunk',
           content: { type: 'text', text: JSON.stringify(sessionMcpServers) },
         });
+        return { stopReason: 'end_turn' };
+      }
+
+      if (scenario === 'empty_once' || scenario === 'empty_silent') {
+        if (scenario === 'empty_once' && promptCount > 1) {
+          await upd({
+            sessionUpdate: 'agent_message_chunk',
+            content: { type: 'text', text: 'recovered empty turn' },
+          });
+        }
+        return { stopReason: 'end_turn' };
+      }
+
+      if (scenario === 'fresh_session_recovery') {
+        if (sessionId === 'mock-2') {
+          await upd({
+            sessionUpdate: 'agent_message_chunk',
+            content: { type: 'text', text: 'recovered in replacement session' },
+          });
+        }
+        return {
+          stopReason: 'end_turn',
+          usage: sessionId === 'mock-1'
+            ? { inputTokens: 3, outputTokens: 1, totalTokens: 4 }
+            : { inputTokens: 5, outputTokens: 2, totalTokens: 7 },
+        };
+      }
+
+      if (scenario === 'thinking_only' || scenario === 'tool_result_only' || scenario === 'tool_result_silent') {
+        if (promptCount > 1) {
+          if (scenario !== 'tool_result_silent') {
+            await upd({
+              sessionUpdate: 'agent_message_chunk',
+              content: { type: 'text', text: 'recovered without replacing session' },
+            });
+          }
+        } else if (scenario === 'thinking_only') {
+          await upd({
+            sessionUpdate: 'agent_thought_chunk',
+            content: { type: 'text', text: 'visible reasoning' },
+          });
+        } else {
+          await upd({
+            sessionUpdate: 'tool_call_update',
+            toolCallId: 'orphan-tool-result',
+            status: 'completed',
+            rawOutput: { ok: true },
+          });
+        }
         return { stopReason: 'end_turn' };
       }
 
@@ -214,7 +265,7 @@ export function createMockAgentApp(
       }
 
       const activeToolCall = scenario === 'platform_mcp_permission'
-        ? { ...TOOL_CALL, title: 'mcp.agent-task-team.task_create' }
+        ? { ...TOOL_CALL, title: 'mcp__agent-task-team__task_create' }
         : TOOL_CALL;
 
       // 2. Tool call created (pending).
@@ -291,6 +342,12 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
       || envScenario === 'flood'
       || envScenario === 'large'
       || envScenario === 'wrong_session'
+      || envScenario === 'empty_once'
+      || envScenario === 'empty_silent'
+      || envScenario === 'fresh_session_recovery'
+      || envScenario === 'thinking_only'
+      || envScenario === 'tool_result_only'
+      || envScenario === 'tool_result_silent'
       || envScenario === 'tool_only'
       || envScenario === 'tool_silent'
       || envScenario === 'mcp_echo'

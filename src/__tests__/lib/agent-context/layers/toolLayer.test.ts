@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { buildToolLayer } from '@/lib/agent-context/layers/toolLayer';
 import { filterRegisteredTools } from '@/lib/agent-context/ContextManager';
 import { buildCollaborationLayer } from '@/lib/agent-context/layers/collaborationLayer';
+import { TASK_MANAGEMENT_SKILL } from '@/data/presetSkills/taskManagement';
 import type { ToolDefinition } from '@/lib/agent-context/types';
 
 describe('buildToolLayer', () => {
@@ -69,13 +70,23 @@ describe('runtime tool registration boundary', () => {
     expect(filterRegisteredTools(declared, ['task_list']).map(tool => tool.name)).toEqual(['task_list']);
   });
 
-  it('forbids runtime-native collaboration tools as platform substitutes', () => {
+  it('allows runtime-native subagents without treating them as platform substitutes', () => {
     const prompt = buildCollaborationLayer();
     expect(prompt).toContain('Task、Agent、SendMessage、TodoWrite/TodoRead 不属于平台');
+    expect(prompt).toContain('可以使用 runtime-native Task / Agent');
+    expect(prompt).toContain('平台会等待这些子代理在本轮内收敛');
     expect(prompt).toContain('不要调用 SendMessage');
     expect(prompt).toContain('PASS 时附评审证据并改为 done');
     expect(prompt).toContain('提交 handoff_to_agent 后立即结束本轮');
     expect(prompt).toContain('更新为 review/in_review 后立即正常结束本轮');
     expect(prompt).toContain('不要再手工 @ 默认 reviewer');
+    expect(prompt).not.toContain('禁止用这些 CLI 原生协作工具创建子 agent');
+  });
+
+  it('keeps the task-management skill compatible with invocation-local subagents', () => {
+    expect(TASK_MANAGEMENT_SKILL.content).toContain('Runtime-native Task or Agent may be used');
+    expect(TASK_MANAGEMENT_SKILL.content).toContain('do not create or update platform Task Graph nodes');
+    expect(TASK_MANAGEMENT_SKILL.content).not.toContain('Never substitute runtime-native Task');
+    expect(TASK_MANAGEMENT_SKILL.content).not.toContain('wait for a runtime-native child agent');
   });
 });

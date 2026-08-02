@@ -286,6 +286,8 @@ Runtime Session 只能由创建它的执行 Profile 恢复。Logical Session gen
 
 Runtime Session binding 分为 unconfirmed 与 confirmed 两个生命周期阶段：首次 `session/new` 返回的 id 会用于当前 Invocation，但只有 Invocation 成功完成后才被视为可恢复资源。若首次 Invocation 被取消、超时或失败，daemon 使用 compare-and-clear 释放该 unconfirmed binding；下一轮重新 `session/new`。已经有成功 Invocation 的 binding 属于 confirmed；普通 load 失败仍然失败关闭，只有 runtime 明确确认资源不存在时才封存失效 generation，且不在失败 Invocation 内自动重放 prompt。
 
+账号恢复保持在 Harness 的运行时 profile 边界：同一角色配置多个账号时，正常执行始终跨任务粘住已确认 Session 的账号；若某账号以 `acp_empty_completion` 在没有文本和工具副作用的情况下失败，下一次独立 dispatch 会在 conversation 范围内跳过尚未恢复的空响应账号，不能因为恢复动作改派到另一条 task 而重新选择同一失败账号，并按角色 `accountIds` 顺序选择下一个可用账号。只有同时记录实际 `runtime_id`、账号和成功 outcome 的真实执行可以成为成功 checkpoint；没有 runtime 身份的合成 Invocation 不参与失败窗口重置。已经发生工具活动但缺少最终文本的执行使用独立的 `acp_tool_completion_missing`，不得触发账号重放。Invocation 持久化实际 `runtime_id`；profile 的 runtime、engine 或 account 任一改变时，daemon 先封存旧 Logical Session，再创建新 generation，禁止把一个 runtime 的 session id 交给另一个 runtime。所有候选账号都必须来自该角色的显式配置，耗尽后失败关闭，不回退到未授权账号。
+
 ACP `agent_message_chunk` 是文本增量而非消息边界。socket 逐 chunk 广播；持久化层在 Invocation 内合并连续文本，并以工具、错误和 done 作为分段边界。
 
 真实 runtime 的恢复能力已验证：OpenCode 1.14.35 原生 ACP、Claude adapter 0.59.0、Codex adapter 1.1.2 均可完成跨 adapter 进程的 `session/new → session/load`，并保持 session id 不变。可通过 `ACP_SMOKE_RESUME=1 pnpm exec tsx scripts/smoke-acp-runtime.ts <runtime>` 复验。

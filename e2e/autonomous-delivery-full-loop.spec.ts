@@ -301,6 +301,8 @@ test('UI 创建到失败修复、进程重启恢复和 DeliveryBundle 的完整�
 
   const completed = page.getByTestId('autonomous-delivery-completed');
   await expect(completed).toBeVisible({ timeout: 45_000 });
+  await expect(completed.getByText(/\d+\/\d+ 项验收通过/)).toBeVisible();
+  await completed.getByRole('button', { name: '查看验收详情' }).click();
   await expect(completed.getByText(criterion)).toBeVisible();
   await expect(completed.getByText(`browser:${runId}:attempt-2:recovered-running-panel`)).toBeVisible();
   await expect(completed.getByText('Web UI 端到端验收')).toBeVisible();

@@ -10,15 +10,51 @@ export type AcpPermissionPolicy =
       | AcpPermissionDecision
       | Promise<AcpPermissionDecision>);
 
+async function evaluatePolicy(
+  policy: AcpPermissionPolicy,
+  request: RequestPermissionRequest,
+): Promise<AcpPermissionDecision> {
+  return typeof policy === 'function' ? policy(request) : policy;
+}
+
+export function createCodeChangePermissionPolicy(
+  basePolicy: AcpPermissionPolicy,
+): AcpPermissionPolicy {
+  return async (request) => {
+    if (request.toolCall.kind === 'edit') return 'allow_once';
+    return evaluatePolicy(basePolicy, request);
+  };
+}
+
 export function createCorrelatedPlatformMcpPermissionPolicy(
   basePolicy: AcpPermissionPolicy,
   approvedToolCallIds: Set<string>,
+  approvedToolNames: ReadonlySet<string> = new Set(),
 ): AcpPermissionPolicy {
+  const consumedToolCallIds = new Set<string>();
   return async (request) => {
-    const isPlatformMcpApproval = request._meta?.is_mcp_tool_approval === true
-      && approvedToolCallIds.delete(request.toolCall.toolCallId);
-    if (isPlatformMcpApproval) return 'allow_once';
-    return typeof basePolicy === 'function' ? basePolicy(request) : basePolicy;
+    const toolCallId = request.toolCall.toolCallId;
+    if (consumedToolCallIds.has(toolCallId)) {
+      return evaluatePolicy(basePolicy, request);
+    }
+    if (
+      typeof request.toolCall.title === 'string'
+      && approvedToolNames.has(request.toolCall.title)
+    ) {
+      consumedToolCallIds.add(toolCallId);
+      return 'allow_once';
+    }
+    if (request._meta?.is_mcp_tool_approval === true) {
+      const deadline = Date.now() + 250;
+      do {
+        if (approvedToolCallIds.delete(toolCallId)) {
+          consumedToolCallIds.add(toolCallId);
+          return 'allow_once';
+        }
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      } while (Date.now() < deadline);
+    }
+    return evaluatePolicy(basePolicy, request);
   };
 }
 

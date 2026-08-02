@@ -85,7 +85,7 @@ describe('AutonomousDeliveryPanel', () => {
     expect(screen.queryByText(/receipt|runtime|lease|session/i)).toBeNull();
   });
 
-  it('完成后展示验收结果而不是内部执行过程', async () => {
+  it('完成后先展示摘要，并按需展开验收结果', async () => {
     const snapshot = {
       run: {
         id: 'delivery-1',
@@ -159,6 +159,12 @@ describe('AutonomousDeliveryPanel', () => {
       expect(screen.getByTestId('autonomous-delivery-completed')).toBeDefined(),
     );
     expect(screen.getByText('首页已交付')).toBeDefined();
+    expect(screen.getByText('· 1/1 项验收通过')).toBeDefined();
+    expect(screen.queryByText('首页可打开')).toBeNull();
+    expect(screen.queryByText('验收证据')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: '查看验收详情' }));
+
     expect(screen.getByText('首页可打开')).toBeDefined();
     expect(screen.getByText('验收证据')).toBeDefined();
     expect(screen.getByText('evidence-1')).toBeDefined();
@@ -173,6 +179,7 @@ describe('AutonomousDeliveryPanel', () => {
     expect(screen.getByText('代码质量、安全与回归风险检查通过')).toBeDefined();
     expect(screen.getByText('评审证据')).toBeDefined();
     expect(screen.getByText('review/report.md')).toBeDefined();
+    expect(screen.getByRole('button', { name: '收起详情' }).getAttribute('aria-expanded')).toBe('true');
     expect(screen.queryByText(/receipt|runtime|lease|session/i)).toBeNull();
   });
 

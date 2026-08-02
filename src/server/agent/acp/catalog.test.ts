@@ -95,4 +95,14 @@ describe('AgentCatalog (loadCatalog + createBackend)', () => {
       expect(opts.env).toEqual(env);
     }
   });
+
+  it('createBackend carries native subagent forwarding into the ACP backend', () => {
+    const claudeEntry = loadCatalog().find((entry) => entry.id === 'claude')!;
+    const backend = createBackend(claudeEntry, { forwardNativeSubagentText: true });
+    const opts = (backend as unknown as {
+      o: { forwardNativeSubagentText?: boolean };
+    }).o;
+
+    expect(opts.forwardNativeSubagentText).toBe(true);
+  });
 });

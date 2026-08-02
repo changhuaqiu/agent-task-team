@@ -176,6 +176,12 @@ export class AutonomousDeliveryRepository {
     return row ? this.getSnapshot(row.id) : undefined;
   }
 
+  listConversationIds(): string[] {
+    return (this.db().prepare(
+      'SELECT DISTINCT conversation_id FROM autonomous_delivery_run ORDER BY conversation_id',
+    ).all() as Array<{ conversation_id: string }>).map((row) => row.conversation_id);
+  }
+
   listReconcileCandidates(): DeliveryRunRow[] {
     return this.db().prepare(
       `SELECT * FROM autonomous_delivery_run

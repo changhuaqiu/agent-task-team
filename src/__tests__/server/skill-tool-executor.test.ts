@@ -40,6 +40,7 @@ describe('skill tool collaboration gates', () => {
   it('cannot fabricate Git-backed done with caller-provided delivery strings', async () => {
     const result = await executeSkillTool({
       toolName: 'task_update_status', agentId: 'mario', conversationId: 'conv-git',
+      taskId: 'TASK-GIT',
       input: {
         task_id: 'TASK-GIT', status: 'done', evidence: {
           mergedToMain: true, mainInstallResult: 'passed', mainBuildResult: 'passed',
@@ -81,6 +82,7 @@ describe('skill tool collaboration gates', () => {
       toolName: 'task_update_status',
       agentId: 'luigi',
       conversationId: 'conv-retry',
+      taskId: 'TASK-RETRY',
       taskProjectDir,
       rateLimitKey: 'lost-response-status-command',
       input: {

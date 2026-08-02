@@ -48,6 +48,15 @@ function safeStringify(v: unknown): string {
   }
 }
 
+function canonicalToolName(update: SessionUpdate): string | undefined {
+  const meta = update._meta as {
+    claudeCode?: { toolName?: unknown };
+  } | undefined;
+  return typeof meta?.claudeCode?.toolName === 'string'
+    ? meta.claudeCode.toolName
+    : undefined;
+}
+
 /**
  * Map an ACP `SessionUpdate` to an internal `AgentEvent`.
  *
@@ -84,18 +93,25 @@ export function mapAcpUpdate(update: SessionUpdate): AgentEvent | null {
     }
 
     case 'tool_call': {
-      const name = update.title || update.kind || 'tool';
+      const displayName = update.title || update.kind || 'tool';
+      const name = canonicalToolName(update) || displayName;
       const input =
         update.rawInput != null ? safeStringify(update.rawInput) : undefined;
       return {
         type: 'tool_use',
         content: '',
-        tool: { name, callId: update.toolCallId, ...(input !== undefined && { input }) },
+        tool: {
+          name,
+          ...(displayName !== name && { displayName }),
+          callId: update.toolCallId,
+          ...(input !== undefined && { input }),
+        },
       };
     }
 
     case 'tool_call_update': {
-      const name = update.title || '';
+      const displayName = update.title || '';
+      const name = canonicalToolName(update) || displayName;
       const content =
         update.rawOutput != null ? safeStringify(update.rawOutput) : '';
       return {
@@ -103,8 +119,9 @@ export function mapAcpUpdate(update: SessionUpdate): AgentEvent | null {
         content,
         tool: {
           name,
+          ...(displayName && displayName !== name && { displayName }),
           callId: update.toolCallId,
-          ...(update.status ? { status: update.status } : {}),
+          ...(update.status && { status: update.status }),
         },
       };
     }

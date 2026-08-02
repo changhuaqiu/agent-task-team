@@ -56,4 +56,4 @@ thinking 仅指 runtime 主动暴露的 reasoning summary，默认采集、可�
 
 ## Agent loop 完成语义
 
-可观测性必须能区分“协议停止”和“用户收到答复”。当 ACP runtime 在工具调用后以 `end_turn` 结束但没有文本 completion 时，平台 harness 会在同一 session 内执行一次有界 completion recovery。恢复仍为空时，invocation 以 `acp_empty_completion` 失败，并生成明确的降级文本消息；因此 message span 不再出现空 completion 与 root `ok` 并存的假成功状态。该恢复属于平台层 agent loop 不变量，与具体 OpenCode、Claude 或 Codex adapter 无关。
+可观测性必须能区分“协议停止”和“用户收到答复”。当 ACP runtime 以 `end_turn` 结束但没有任何文本 completion 时，平台 harness 会执行一次有界 recovery。已经出现工具事件或本轮显式 resume 时，recovery 留在同一 session，只补充最终答复；若这是全新会话且完全没有文本、工具事件或其他可见副作用，则允许创建一次 replacement session 并重放原始请求，避免无副作用的 poisoned session 让 A2A 调用立即空返回。两条路径共享原 invocation 的 idle/hard timeout，且总 recovery 次数仍为 1。恢复仍为空时，invocation 以 `acp_empty_completion` 失败，并生成明确的降级文本消息；因此 message span 不再出现空 completion 与 root `ok` 并存的假成功状态。该恢复属于平台层 agent loop 不变量，与具体 OpenCode、Claude 或 Codex adapter 无关。

@@ -53,6 +53,12 @@ It does not own durable task state.
 
 ### A2A Possession
 
+The legacy compatibility Orchestrator still requires its invocation chain,
+worklist, delivery cursor, audit log, and delivery outbox projections. A shared
+database upgraded by a managed branch may omit those tables, so daemon startup
+must repair the exact legacy projection schema atomically before rebuilding A2A
+state; a missing optional projection must never take the project socket offline.
+
 Owns collaboration transfer:
 
 - current holder
@@ -107,7 +113,7 @@ interface TaskActionRecord {
   id: string;
   conversationId: string;
   actorId: string;
-  actorType: 'user' | 'agent' | 'system';
+  actorType: "user" | "agent" | "system";
   type: string;
   taskIds: string[];
   messageId?: string;
@@ -359,6 +365,16 @@ Useful read models:
 ## Migration Notes
 
 - Existing tasks remain valid task nodes.
+- A shared database can be upgraded to the managed Task lifecycle before every
+  legacy producer has migrated. The Task repository is the compatibility
+  boundary: it stores legacy `pending` as `ready`, maps `completed` to `done`
+  and `rejected` to `blocked`, normalizes `ready` back to `pending` for legacy
+  readers, and traverses only legal managed transitions for non-adjacent
+  updates. Unknown or unreachable legacy states fail with a repository-level
+  compatibility error instead of leaking a database-trigger error.
+- This Task status adapter is enabled by the presence of the managed Task
+  status constraint, not by a migration watermark. It can be removed after all
+  task producers and consumers use the managed lifecycle directly.
 - Migration version 18 creates a synthetic `task.created` action for each pre-existing task using `task-action-migrated-<taskId>`.
 - Existing chat messages can be backfilled with empty task/action bindings.
 - Existing A2A pass metadata can be linked opportunistically when chain/pass ids are present.

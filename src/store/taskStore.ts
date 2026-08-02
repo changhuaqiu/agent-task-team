@@ -365,7 +365,7 @@ export const createTaskSlice = (set: any, get: () => any) => {
     triggerProposal: (conversationId: string) => {
       const state = get();
       const conv = state.conversations.find((c: any) => c.id === conversationId);
-      if (!conv) return;
+      if (!conv || conv.autonomous) return;
 
       const proposalAgentId = getProposalAgentId(state, conv);
       if (!proposalAgentId) return;
@@ -391,6 +391,7 @@ export const createTaskSlice = (set: any, get: () => any) => {
         agentId: proposalAgentId,
         prompt,
         conversationId,
+        legacyProposal: true,
       });
     },
 

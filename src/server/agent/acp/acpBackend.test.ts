@@ -79,7 +79,10 @@ describe('AcpBackend (subprocess integration with mockAcpAgent)', () => {
       cwd: process.cwd(),
       env: { MOCK_ACP_SCENARIO: 'platform_mcp_permission' },
       permissionPolicy: 'deny',
-      autoApproveMcpToolNames: ['mcp.agent-task-team.task_create'],
+      autoApproveMcpToolNames: [
+        'mcp.agent-task-team.task_create',
+        'mcp__agent-task-team__task_create',
+      ],
     });
     const run = backend.execute('call scoped platform MCP', {});
     for await (const event of run.events) { void event; }
@@ -210,7 +213,7 @@ describe('AcpBackend (subprocess integration with mockAcpAgent)', () => {
 
     expect(await run.result).toMatchObject({
       status: 'failed',
-      reasonCode: 'acp_empty_completion',
+      reasonCode: 'acp_tool_completion_missing',
     });
     expect(contents.join('')).toContain('未返回最终文本');
   }, 30000);

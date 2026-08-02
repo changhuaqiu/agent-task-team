@@ -77,6 +77,7 @@ import {
   startPlatformEventRuntime,
 } from './platform-events';
 import { ensureAutonomousDeliveryRuntime } from './autonomous-delivery/bootstrap';
+import { autonomousDeliveryRepo } from './autonomous-delivery/repository';
 import { registerDeliveryEffectAdapters } from './autonomous-delivery/delivery-effects';
 import { deliveryAdvancementQueue } from './autonomous-delivery/advancement-queue';
 import { registerAutonomousDeliveryE2EDriver } from './testing/autonomous-delivery-e2e-driver';
@@ -118,6 +119,7 @@ type TerminalStartPayload = {
   contextSnapshot?: ContextSnapshot;
   workContract?: WorkContract;
   evaluation?: InvocationDispatchPlan['evaluation'];
+  legacyProposal?: boolean;
 };
 
 export function submitSocketTerminalStart(
@@ -126,6 +128,23 @@ export function submitSocketTerminalStart(
 ): InvocationSubmission {
   const conversationId = payload.conversationId?.trim();
   if (!conversationId) throw new Error('conversation_missing: terminal:start requires conversationId');
+  if (payload.legacyProposal && autonomousDeliveryRepo.getLatestByConversation(conversationId)) {
+    proofLogRepo.append({
+      eventType: 'legacy_proposal.suppressed',
+      conversationId,
+      agentId: payload.agentId,
+      actorId: payload.dispatchSource ?? 'user',
+      reasonCode: 'autonomous_delivery_owns_planning',
+    });
+    return {
+      disposition: 'accepted',
+      handled: true,
+      completion: Promise.resolve({
+        status: 'blocked',
+        reasonCode: 'autonomous_delivery_owns_planning',
+      }),
+    };
+  }
   return coordinator.submit({
     id: payload.dispatchId?.trim() || `socket:${Date.now()}:${Math.random().toString(36).slice(2, 10)}`,
     idempotencyKey: payload.dispatchId?.trim() || undefined,

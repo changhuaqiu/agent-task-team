@@ -39,13 +39,13 @@ describe('ProjectChatPanel', () => {
 
     render(<ProjectChatPanel />);
 
-    const viewport = screen.getByTestId('project-chat-viewport');
+    const chatViewport = screen.getByTestId('project-chat-viewport');
     const deliveryViewport = screen.getByTestId('autonomous-delivery-viewport');
-    expect(viewport.className).toContain('min-h-0');
-    expect(viewport.className).toContain('flex-1');
+    expect(chatViewport.className).toContain('min-h-0');
+    expect(chatViewport.className).toContain('flex-1');
     expect(deliveryViewport.className).toContain('max-h-[40%]');
     expect(deliveryViewport.className).toContain('overflow-y-auto');
-    expect(viewport.contains(screen.getByTestId('global-chat-room'))).toBe(true);
+    expect(chatViewport.contains(screen.getByTestId('global-chat-room'))).toBe(true);
     expect(deliveryViewport.contains(screen.getByTestId('autonomous-delivery-panel'))).toBe(true);
   });
 });

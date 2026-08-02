@@ -17,6 +17,7 @@ export interface AgentEvent {
   content: string;
   tool?: {
     name: string;
+    displayName?: string;
     callId?: string;
     input?: string;
     output?: string;

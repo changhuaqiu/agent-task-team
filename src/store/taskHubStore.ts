@@ -116,6 +116,7 @@ export interface Conversation {
   useWorktree?: boolean;
   gitRepoRoot?: string;
   breakdownStatus: 'none' | 'proposal' | 'confirmed' | 'no_account';
+  autonomous?: boolean;
   teamPackId?: string;
   createdAt: string;
   updatedAt: string;
@@ -1165,6 +1166,7 @@ export const useTaskHubStore = create<TaskHubState>()(
               useWorktree: c.use_worktree === 1 || c.use_worktree === true,
               gitRepoRoot: c.git_repo_root || undefined,
               breakdownStatus: c.breakdown_status || 'none',
+              autonomous: Boolean(c.autonomous),
               teamPackId: c.team_pack_id || undefined,
               createdAt: c.created_at,
               updatedAt: c.updated_at,
@@ -1402,6 +1404,7 @@ export const useTaskHubStore = create<TaskHubState>()(
             useWorktree,
             gitRepoRoot,
             breakdownStatus: 'none',
+            autonomous: Boolean(autonomous),
             teamPackId,
             createdAt: stamp,
             updatedAt: stamp,
@@ -1436,7 +1439,9 @@ export const useTaskHubStore = create<TaskHubState>()(
           }));
 
           if (teamPackId) {
-            applyConversationTeamPack(get, set, id, teamPackId, { triggerProposalAfterLoad: true });
+            applyConversationTeamPack(get, set, id, teamPackId, {
+              triggerProposalAfterLoad: !autonomous,
+            });
           }
 
           get().addPlatformNotice({

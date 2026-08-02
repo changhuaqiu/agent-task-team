@@ -412,6 +412,48 @@ describe('InvocationPlanner', () => {
     ]);
   });
 
+  it('suppresses a stale-tab legacy proposal after an external delivery run starts', async () => {
+    conversationRepo.create({ id: 'conv-external-autonomous', title: 'External autonomous run' });
+    autonomousDeliveryRepo.createRun({
+      idempotencyKey: 'external-autonomous-run',
+      goal: 'Deliver from another tab',
+      acceptanceCriteria: ['Planning has one authority'],
+      scope: { conversationId: 'conv-external-autonomous', projectPath: 'C:/fixture' },
+      authorization: {
+        allowCodeChanges: true,
+        allowPush: false,
+        allowPullRequest: false,
+        allowAutoMerge: false,
+      },
+      recoveryPolicy: {
+        maxAttemptsPerAction: 3,
+        maxRepairCycles: 2,
+        stallTimeoutMs: 60_000,
+      },
+      deliveryPolicy: {
+        requireReview: true,
+        requireWebE2E: true,
+        requireMerge: false,
+      },
+    });
+    const submit = vi.fn();
+
+    const submission = submitSocketTerminalStart({ submit }, {
+      dispatchId: 'stale-tab-proposal',
+      conversationId: 'conv-external-autonomous',
+      agentId: 'mario',
+      prompt: 'Generate the legacy proposal',
+      dispatchSource: 'user',
+      legacyProposal: true,
+    });
+
+    await expect(submission.completion).resolves.toEqual({
+      status: 'blocked',
+      reasonCode: 'autonomous_delivery_owns_planning',
+    });
+    expect(submit).not.toHaveBeenCalled();
+  });
+
   it('observes an invalid legacy Skill file path as a bounded Skill failure', async () => {
     const pack = teamPackRepo.getByName('default-team')!;
     teamPackRepo.updateRoleConfig(pack.id, 'peach', { accountIds: ['account-openai'] });

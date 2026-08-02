@@ -15,6 +15,7 @@ import { Send, Hash, Clock, Zap, Shield } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAutoScroll } from '@/hooks/useAutoScroll';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { extractTaskReference } from '@/lib/taskReference';
 
 function formatDateSeparator(dateStr: string): string {
   const date = new Date(dateStr);
@@ -64,7 +65,10 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const mentionOpenRef = useRef(false);
-  mentionOpenRef.current = mentionOpen;
+
+  useEffect(() => {
+    mentionOpenRef.current = mentionOpen;
+  }, [mentionOpen]);
 
   // Auto-scroll: follows new content when at bottom, ignores when user scrolled up
   useAutoScroll(scrollRef);
@@ -86,13 +90,12 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
   const handleSend = () => {
     if (!inputValue.trim() || runtimeRefreshInProgress || draftTargetMismatch) return;
 
-    // Basic regex to detect `#TASK-XXX` references
-    const taskRefMatch = inputValue.match(/#TASK-\d{3}/i);
+    const referencedTaskId = extractTaskReference(inputValue);
 
     addChatMessage({
       agentId: 'human',
       content: inputValue,
-      referencedTaskId: taskRefMatch ? taskRefMatch[0].toUpperCase() : undefined,
+      referencedTaskId,
       conversationId: selectedConversationId || undefined,
     });
 
@@ -134,7 +137,7 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
       textarea.focus();
       textarea.setSelectionRange(pos, pos);
     });
-  }, [inputValue, selectedConversationId]);
+  }, [inputValue, selectedConversationId, setInputValue]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey && !ime.isComposing()) {
@@ -235,13 +238,12 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
           }
 
           let lastDate = '';
-          return groups.map((group, gi) => {
+          return groups.map((group) => {
             const groupDate = new Date(group.messages[0].timestamp).toDateString();
             const showDateSep = groupDate !== lastDate;
             lastDate = groupDate;
 
             const meta = AGENT_META[group.agentId] || { emoji: '?', name: group.agentId, color: 'border-zinc-500/40' };
-            const isLatestGroup = gi === groups.length - 1;
             const isHuman = group.agentId === 'human';
 
             return (
@@ -263,7 +265,7 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
                     themeColor={meta.color}
                     agentEmoji={meta.emoji}
                     agentName={meta.name}
-                    defaultExpanded={isLatestGroup}
+                    defaultExpanded={false}
                     forceExpand={group.messages.some(m => m.isStreaming)}
                   />
                 )}

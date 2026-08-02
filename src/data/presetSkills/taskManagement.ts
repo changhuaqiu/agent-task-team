@@ -9,9 +9,9 @@ You can create, assign, and update tasks for your team through the platform fact
 
 Tool schemas in this skill are contracts, not proof that the current runtime registered them. Invoke only an exact platform tool name that the runtime explicitly exposes. If no exact platform task tool is exposed, edit the absolute TASKS.md path supplied by the platform.
 
-Never substitute runtime-native Task, Agent, SendMessage, TodoWrite, or TodoRead. Those tools belong to the underlying CLI and do not update the platform Task Graph or A2A possession state. Emit actionable A2A handoffs in your normal visible response instead of calling SendMessage.
+Runtime-native Task or Agent may be used for bounded parallel investigation or subwork inside the current Invocation. The platform waits for those children to converge, but they do not create or update platform Task Graph nodes, A2A possession, role ownership, or delivery receipts. SendMessage and local TodoWrite/TodoRead are likewise not platform fact sources. Emit cross-role business handoffs in your normal visible response or use an exact registered platform task tool.
 
-After emitting one actionable handoff, end the turn immediately. Do not execute the receiver's work, wait for a runtime-native child agent, or continue the same turn; the platform transfers possession only at the completed-turn boundary.
+After all runtime-native child work for your own role has converged, emit at most one actionable cross-role handoff and end the turn immediately. Do not execute or impersonate the receiver's work after that handoff; the platform transfers possession only at the completed-turn boundary.
 
 ## Guidelines
 
@@ -21,6 +21,7 @@ After emitting one actionable handoff, end the turn immediately. Do not execute 
 - Status changes into in_review or done require gate evidence. For a Git-backed project, use the Git Collaboration receipt tools; do not call task_update_status to imitate in_review or done. Non-Git tasks still require the applicable implementation or delivery evidence.
 - When a Team Harness review wakeup requests evidence.reviewReceipt, preserve the task's done status and submit the exact structured receipt requested by the wakeup. A PASS requires real review evidence and no unresolved blocking or important finding; implementer self-review is not an independent gate.
 - When a Team Harness verification wakeup requests evidence.verificationReceipt, preserve the task's done status and submit the exact structured receipt requested by the wakeup. For Web UI acceptance, use Browser/Playwright end to end; API-only checks are not equivalent. Every acceptance criterion needs its own real evidenceRefs, and a missing report must be reported as failed.
+- For a local artifact that needs a real browser HTTP check, call verification_serve_artifact with a project-relative artifact path. It returns a one-use 127.0.0.1 URL that closes after the first successful request or timeout. Open that URL with Playwright and assert the real response. Do not start a shell server and do not assume browser_run_code_unsafe exposes Node require/import.
 - A quality-gate reviewer explicitly woken for one in_review task may make a narrow decision on that task: PASS updates it to done with review evidence; REJECT updates it to rejected/blocked with the reason. This does not allow editing implementation content, title, owner, or unrelated tasks.
 - When an implementer updates a task to review/in_review, that transition already requests the configured quality gate. End the turn without a manual @reviewer A2A handoff. Create another pass only after an explicit platform wakeup failure or for a distinct specialist review.
 - Text scheduling is not execution. Do not claim a task lane is started unless a real dispatch receipt, A2A pass offer, task wakeup dispatch, or execution-start acknowledgement exists for the target agent and task.
@@ -71,6 +72,14 @@ After emitting one actionable handoff, end the turn immediately. Do not execute 
           { name: 'agent_id', type: 'string', required: true, description: 'New assignee agent ID' },
         ],
         handler: 'api://tasks/assign',
+      },
+      {
+        name: 'verification_serve_artifact',
+        description: 'Serve one current-project artifact through a one-use, short-lived 127.0.0.1 URL for real browser verification',
+        parameters: [
+          { name: 'artifact_path', type: 'string', required: true, description: 'Project-relative path of the artifact to serve' },
+        ],
+        handler: 'api://verification/serve-artifact',
       },
     ],
   }),

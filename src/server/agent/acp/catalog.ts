@@ -124,6 +124,7 @@ export function createBackend(
     | 'timeoutMs'
     | 'mcpServers'
     | 'autoApproveMcpToolNames'
+    | 'forwardNativeSubagentText'
   >,
 ): AgentBackend {
   return new AcpBackend({
@@ -140,6 +141,7 @@ export function createBackend(
     timeoutMs: opts?.timeoutMs,
     mcpServers: opts?.mcpServers,
     autoApproveMcpToolNames: opts?.autoApproveMcpToolNames,
+    forwardNativeSubagentText: opts?.forwardNativeSubagentText,
     engine: entry.id,
   });
 }

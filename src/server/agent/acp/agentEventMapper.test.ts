@@ -57,6 +57,26 @@ describe('mapAcpUpdate', () => {
   });
 
   describe('tool_call -> tool_use', () => {
+    it('uses Claude canonical tool metadata while retaining the descriptive title', () => {
+      const r = mapAcpUpdate({
+        sessionUpdate: 'tool_call',
+        toolCallId: 'child-1',
+        title: 'Review authentication changes',
+        kind: 'other',
+        rawInput: { subagent_type: 'general-purpose' },
+        _meta: { claudeCode: { toolName: 'Agent' } },
+      } as any);
+
+      expect(r).toMatchObject({
+        type: 'tool_use',
+        tool: {
+          name: 'Agent',
+          displayName: 'Review authentication changes',
+          callId: 'child-1',
+        },
+      });
+    });
+
     it('uses title as tool name, carries callId', () => {
       const r = mapAcpUpdate({
         sessionUpdate: 'tool_call',
@@ -124,6 +144,25 @@ describe('mapAcpUpdate', () => {
   });
 
   describe('tool_call_update -> tool_result', () => {
+    it('uses Claude canonical tool metadata on status-less refinement updates', () => {
+      const r = mapAcpUpdate({
+        sessionUpdate: 'tool_call_update',
+        toolCallId: 'child-1',
+        title: 'Review authentication changes',
+        _meta: { claudeCode: { toolName: 'Agent' } },
+      } as any);
+
+      expect(r).toMatchObject({
+        type: 'tool_result',
+        tool: {
+          name: 'Agent',
+          displayName: 'Review authentication changes',
+          callId: 'child-1',
+        },
+      });
+      expect((r as AgentEvent).tool?.status).toBeUndefined();
+    });
+
     it('carries callId and stringifies rawOutput', () => {
       const r = mapAcpUpdate({
         sessionUpdate: 'tool_call_update',

@@ -38,6 +38,38 @@ function nonEmptyStrings(value: unknown): string[] | undefined {
   return strings.length === value.length ? strings : undefined;
 }
 
+function normalizedOutcome(value: unknown): 'passed' | 'failed' | undefined {
+  if (typeof value !== 'string') return undefined;
+  switch (value.trim().toLowerCase()) {
+    case 'pass':
+    case 'passed':
+      return 'passed';
+    case 'fail':
+    case 'failed':
+      return 'failed';
+    default:
+      return undefined;
+  }
+}
+
+function normalizedCriterion(
+  value: unknown,
+  index: number,
+  rawResultCount: number,
+  expectedCriteria: string[],
+): string | undefined {
+  if (typeof value !== 'string' || !value.trim()) return undefined;
+  const acMatch = value.trim().match(/^AC(\d+)\b/i);
+  if (
+    acMatch
+    && Number(acMatch[1]) === index + 1
+    && rawResultCount === expectedCriteria.length
+  ) {
+    return expectedCriteria[index];
+  }
+  return value;
+}
+
 function counts(values: string[]): Map<string, number> {
   const result = new Map<string, number>();
   for (const value of values) result.set(value, (result.get(value) ?? 0) + 1);
@@ -59,9 +91,10 @@ export function validateAcceptanceVerificationReceipt(
   if (!isRecord(value)) return { present: false, valid: false, errors: [] };
 
   const errors: string[] = [];
+  const receiptStatus = normalizedOutcome(value.status);
   if (value.schemaVersion !== 1) errors.push('schema_version_invalid');
   if (value.deliveryRunId !== snapshot.run.id) errors.push('delivery_run_mismatch');
-  if (value.status !== 'passed' && value.status !== 'failed') errors.push('status_invalid');
+  if (!receiptStatus) errors.push('status_invalid');
   if (!['web_ui_e2e', 'automated_test', 'manual_review'].includes(String(value.method))) {
     errors.push('method_invalid');
   }
@@ -72,23 +105,26 @@ export function validateAcceptanceVerificationReceipt(
   if (typeof value.reportRef !== 'string' || !value.reportRef.trim()) errors.push('report_ref_missing');
   const specRefs = nonEmptyStrings(value.specRefs);
   if (!specRefs) errors.push('spec_refs_invalid');
+  const receiptEvidenceRefs = nonEmptyStrings(value.evidenceRefs);
 
   const rawResults = Array.isArray(value.acceptanceResults) ? value.acceptanceResults : [];
-  const acceptanceResults = rawResults.flatMap((item) => {
+  const acceptanceResults = rawResults.flatMap((item, index) => {
     if (!isRecord(item)) return [];
-    const evidenceRefs = nonEmptyStrings(item.evidenceRefs);
-    const status = item.status === 'passed'
-      ? 'passed' as const
-      : item.status === 'failed'
-        ? 'failed' as const
-        : undefined;
+    const evidenceRefs = nonEmptyStrings(item.evidenceRefs) ?? receiptEvidenceRefs;
+    const status = normalizedOutcome(item.status) ?? normalizedOutcome(item.result);
+    const criterion = normalizedCriterion(
+      item.criterion,
+      index,
+      rawResults.length,
+      snapshot.contract.acceptanceCriteria,
+    );
     if (
-      typeof item.criterion !== 'string'
+      !criterion
       || !status
       || !evidenceRefs
     ) return [];
     return [{
-      criterion: item.criterion,
+      criterion,
       status,
       evidenceRefs,
     }];
@@ -101,13 +137,13 @@ export function validateAcceptanceVerificationReceipt(
     errors.push('acceptance_criteria_mismatch');
   }
   if (
-    value.status === 'passed'
+    receiptStatus === 'passed'
     && acceptanceResults.some(item => item.status !== 'passed' || item.evidenceRefs.length === 0)
   ) {
     errors.push('passed_criterion_missing_evidence');
   }
   if (
-    value.status === 'failed'
+    receiptStatus === 'failed'
     && acceptanceResults.length > 0
     && acceptanceResults.every(item => item.status === 'passed')
   ) {
@@ -115,7 +151,7 @@ export function validateAcceptanceVerificationReceipt(
   }
   if (snapshot.contract.deliveryPolicy.requireWebE2E) {
     if (value.method !== 'web_ui_e2e') errors.push('web_e2e_method_required');
-    if (!['browser', 'playwright'].includes(String(value.tool).toLowerCase())) {
+    if (!/(browser|playwright)/i.test(String(value.tool))) {
       errors.push('web_e2e_tool_required');
     }
     if (!specRefs || specRefs.length === 0) errors.push('web_e2e_spec_ref_required');
@@ -124,7 +160,7 @@ export function validateAcceptanceVerificationReceipt(
   const payload: AcceptanceVerificationReceipt = {
     schemaVersion: 1,
     deliveryRunId: typeof value.deliveryRunId === 'string' ? value.deliveryRunId : snapshot.run.id,
-    status: value.status === 'passed' ? 'passed' : 'failed',
+    status: receiptStatus === 'passed' ? 'passed' : 'failed',
     method: value.method === 'web_ui_e2e' || value.method === 'manual_review'
       ? value.method
       : 'automated_test',

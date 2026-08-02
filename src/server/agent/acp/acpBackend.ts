@@ -28,6 +28,7 @@ export type AcpFailureReasonCode =
   | 'acp_concurrency_limit'
   | 'acp_connection_failed'
   | 'acp_empty_completion'
+  | 'acp_tool_completion_missing'
   | 'acp_event_limit'
   | 'acp_invalid_runtime'
   | 'acp_max_turn_timeout'
@@ -63,6 +64,27 @@ export interface AcpBackendOpts {
   limits?: Partial<AcpRuntimeLimits>;
   mcpServers?: acp.McpServer[];
   autoApproveMcpToolNames?: string[];
+  /**
+   * Forward text produced by runtime-native subagents through the parent ACP
+   * session. Claude's adapter already keeps the turn open until native
+   * subagents settle; forwarding makes that managed work visible to the
+   * platform instead of leaving an opaque background wait.
+   */
+  forwardNativeSubagentText?: boolean;
+}
+
+export function acpSessionMeta(
+  engine: EngineId,
+  forwardNativeSubagentText?: boolean,
+): Record<string, unknown> | undefined {
+  if (engine !== 'claude' || !forwardNativeSubagentText) return undefined;
+  return {
+    claudeCode: {
+      options: {
+        forwardSubagentText: true,
+      },
+    },
+  };
 }
 
 const ACP_CAPS_BASE = {
@@ -86,11 +108,12 @@ const DEFAULT_LIMITS: AcpRuntimeLimits = {
 };
 
 const EMPTY_COMPLETION_RECOVERY_PROMPT =
-  'The previous turn finished after tool execution without a final assistant message. '
-  + 'Provide the final answer to the original user request now. Do not repeat completed tool calls.';
+  'The previous turn finished without a final assistant message. '
+  + 'Provide the final answer to the original user request now. '
+  + 'Do not repeat any completed actions or tool calls.';
 
 const EMPTY_COMPLETION_FALLBACK =
-  '⚠️ Agent 已完成工具调用，但 ACP runtime 未返回最终文本；本次调用已标记失败，请重试。';
+  '⚠️ Agent runtime 未返回最终文本；本次调用已标记失败，请重试。';
 
 function resolveLimits(overrides?: Partial<AcpRuntimeLimits>): AcpRuntimeLimits {
   const merged = { ...DEFAULT_LIMITS, ...overrides };
@@ -249,8 +272,9 @@ export class AcpBackend implements AgentBackend {
     let resolveNext: ((value: IteratorResult<AgentEvent>) => void) | null = null;
     let streamFinished = false;
     let output = '';
-    let sawToolCall = false;
+    let sawToolActivity = false;
     let hasTextAfterLastTool = false;
+    let attemptHadVisibleActivity = false;
     let projectedChars = 0;
     let sessionId: string | undefined;
     let clientContext: acp.ClientContext | undefined;
@@ -293,9 +317,9 @@ export class AcpBackend implements AgentBackend {
         const remaining = limits.maxOutputChars - output.length;
         if (remaining <= 0 || boundedEvent.content.length > remaining) return false;
         output += boundedEvent.content;
-        if (sawToolCall && boundedEvent.content.trim()) hasTextAfterLastTool = true;
-      } else if (boundedEvent.type === 'tool_use') {
-        sawToolCall = true;
+        if (sawToolActivity && boundedEvent.content.trim()) hasTextAfterLastTool = true;
+      } else if (boundedEvent.type === 'tool_use' || boundedEvent.type === 'tool_result') {
+        sawToolActivity = true;
         hasTextAfterLastTool = false;
       }
       if (resolveNext) {
@@ -449,6 +473,7 @@ export class AcpBackend implements AgentBackend {
 
       const event = mapTurnUpdate(notification.update);
       if (event) {
+        attemptHadVisibleActivity = true;
         if (
           event.type === 'tool_use'
           && event.tool?.callId
@@ -498,6 +523,7 @@ export class AcpBackend implements AgentBackend {
       }
 
       try {
+        const sessionMeta = acpSessionMeta(this.o.engine, this.o.forwardNativeSubagentText);
         const stream = acp.ndJsonStream(
           Writable.toWeb(proc.stdin),
           Readable.toWeb(proc.stdout) as ReadableStream<Uint8Array>,
@@ -506,12 +532,16 @@ export class AcpBackend implements AgentBackend {
           createCorrelatedPlatformMcpPermissionPolicy(
             this.o.permissionPolicy ?? 'deny',
             approvedMcpToolCallIds,
+            autoApprovedMcpToolNames,
           ),
           this.o.permissionTimeoutMs,
         );
         const clientApp = acp
           .client({ name: 'agent-task-team' })
           .onRequest(acp.methods.client.session.requestPermission, async (ctx) => {
+            attemptHadVisibleActivity = true;
+            sawToolActivity = true;
+            hasTextAfterLastTool = false;
             markProtocolActivity();
             const response = await permissionHandler(ctx.params);
             markProtocolActivity();
@@ -549,6 +579,7 @@ export class AcpBackend implements AgentBackend {
                   sessionId,
                   cwd,
                   mcpServers: this.o.mcpServers ?? [],
+                  ...(sessionMeta ? { _meta: sessionMeta } : {}),
                 });
                 markProtocolActivity();
               } catch (error) {
@@ -569,6 +600,7 @@ export class AcpBackend implements AgentBackend {
               const newSession = await ctx.request(acp.methods.agent.session.new, {
                 cwd,
                 mcpServers: this.o.mcpServers ?? [],
+                ...(sessionMeta ? { _meta: sessionMeta } : {}),
               });
               markProtocolActivity();
               sessionId = newSession.sessionId;
@@ -586,12 +618,31 @@ export class AcpBackend implements AgentBackend {
 
             if (
               response.stopReason === 'end_turn'
-              && sawToolCall
-              && !hasTextAfterLastTool
+              && (!output.trim() || (sawToolActivity && !hasTextAfterLastTool))
             ) {
+              const canReplaceEmptySession = (
+                !opts.resumeSessionId
+                && !output.trim()
+                && !sawToolActivity
+                && !attemptHadVisibleActivity
+              );
+              if (canReplaceEmptySession) {
+                acceptSessionUpdates = false;
+                const replacementSession = await ctx.request(acp.methods.agent.session.new, {
+                  cwd,
+                  mcpServers: this.o.mcpServers ?? [],
+                  ...(sessionMeta ? { _meta: sessionMeta } : {}),
+                });
+                markProtocolActivity();
+                sessionId = replacementSession.sessionId;
+                acceptSessionUpdates = true;
+              }
               const recovery = await ctx.request(acp.methods.agent.session.prompt, {
                 sessionId,
-                prompt: [{ type: 'text', text: EMPTY_COMPLETION_RECOVERY_PROMPT }],
+                prompt: [{
+                  type: 'text',
+                  text: canReplaceEmptySession ? promptText : EMPTY_COMPLETION_RECOVERY_PROMPT,
+                }],
               });
               markProtocolActivity();
               if (resultResolved) return;
@@ -607,14 +658,13 @@ export class AcpBackend implements AgentBackend {
 
             if (
               response.stopReason === 'end_turn'
-              && sawToolCall
-              && !hasTextAfterLastTool
+              && (!output.trim() || (sawToolActivity && !hasTextAfterLastTool))
             ) {
               emit({ type: 'text', content: EMPTY_COMPLETION_FALLBACK, sessionId }, true);
               finalize(
                 'failed',
-                'acp_empty_completion',
-                'ACP ended after tool execution without a final assistant message',
+                sawToolActivity ? 'acp_tool_completion_missing' : 'acp_empty_completion',
+                'ACP ended without a final assistant message',
                 usage
                   ? {
                       default: {

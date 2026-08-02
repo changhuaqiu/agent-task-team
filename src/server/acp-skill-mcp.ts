@@ -158,7 +158,10 @@ export function registerAcpSkillMcpGrant(
       url: `${origin.replace(/\/$/, '')}/api/acp-tools`,
       headers: [{ name: 'Authorization', value: `Bearer ${token}` }],
     },
-    autoApproveToolNames: permittedTools.map((toolName) => `mcp.${serverName}.${toolName}`),
+    autoApproveToolNames: permittedTools.flatMap((toolName) => [
+      `mcp.${serverName}.${toolName}`,
+      `mcp__${serverName}__${toolName}`,
+    ]),
     revoke: () => {
       grantRegistry().delete(token);
       resetRateLimit(rateLimitKey);

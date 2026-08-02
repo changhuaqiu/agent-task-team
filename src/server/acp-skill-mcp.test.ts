@@ -10,6 +10,20 @@ import {
 afterEach(() => clearAcpSkillMcpGrantsForTests());
 
 describe('ACP skill MCP grants', () => {
+  it('publishes the scoped artifact verification tool schema', () => {
+    expect(listAcpSkillToolDefinitions(['verification_serve_artifact'])).toEqual([
+      expect.objectContaining({
+        name: 'verification_serve_artifact',
+        inputSchema: expect.objectContaining({
+          required: ['artifact_path'],
+          properties: {
+            artifact_path: expect.objectContaining({ type: 'string' }),
+          },
+        }),
+      }),
+    ]);
+  });
+
   it('publishes only permitted platform tools and revokes the invocation token', async () => {
     const grant = registerAcpSkillMcpGrant({
       agentId: 'luigi',
@@ -26,7 +40,9 @@ describe('ACP skill MCP grants', () => {
     });
     expect(grant.autoApproveToolNames).toEqual([
       `mcp.${grant.mcpServer.name}.task_list`,
+      `mcp__${grant.mcpServer.name}__task_list`,
       `mcp.${grant.mcpServer.name}.collaboration_record_pr`,
+      `mcp__${grant.mcpServer.name}__collaboration_record_pr`,
     ]);
     const authorization = grant.mcpServer.headers[0].value;
     const resolved = resolveAcpSkillMcpGrant(authorization)!;

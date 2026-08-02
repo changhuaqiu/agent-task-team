@@ -6,12 +6,17 @@ import { sessionRepo } from '@/server/repositories/session-repo';
 import { invocationRepo } from '@/server/repositories/invocation-repo';
 import { skillRepo } from '@/server/repositories/skill-repo';
 import { A2AReadModelProjection } from '@/server/a2a/projection';
+import { autonomousDeliveryRepo } from '@/server/autonomous-delivery/repository';
 
 export default function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return res.status(405).end();
 
   try {
-    const conversations = conversationRepo.list();
+    const autonomousConversationIds = new Set(autonomousDeliveryRepo.listConversationIds());
+    const conversations = conversationRepo.list().map((conversation) => ({
+      ...conversation,
+      autonomous: autonomousConversationIds.has(conversation.id),
+    }));
     const tasks = taskRepo.list();
 
     // Load recent messages per conversation

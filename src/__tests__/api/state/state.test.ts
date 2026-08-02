@@ -72,6 +72,45 @@ describe('GET /api/state', () => {
     expect(res._json.recentInvocations[0].id).toBe('inv-1');
   });
 
+  it('derives the autonomous conversation flag from persisted delivery runs', async () => {
+    const { conversationRepo } = await import('@/server/repositories/conversation-repo');
+    const { AutonomousDeliveryRepository } = await import('@/server/autonomous-delivery/repository');
+    conversationRepo.create({ id: 'conv-autonomous', title: 'Autonomous' });
+    conversationRepo.create({ id: 'conv-interactive', title: 'Interactive' });
+    new AutonomousDeliveryRepository().createRun({
+      idempotencyKey: 'state-autonomous-conversation',
+      goal: 'Deliver autonomously',
+      acceptanceCriteria: ['Result is verified'],
+      scope: { conversationId: 'conv-autonomous', projectPath: 'C:/fixture' },
+      authorization: {
+        allowCodeChanges: true,
+        allowPush: false,
+        allowPullRequest: false,
+        allowAutoMerge: false,
+      },
+      recoveryPolicy: {
+        maxAttemptsPerAction: 3,
+        maxRepairCycles: 2,
+        stallTimeoutMs: 60_000,
+      },
+      deliveryPolicy: {
+        requireReview: true,
+        requireWebE2E: true,
+        requireMerge: false,
+      },
+    });
+
+    const req = mockReq('GET');
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res._json.conversations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'conv-autonomous', autonomous: true }),
+      expect.objectContaining({ id: 'conv-interactive', autonomous: false }),
+    ]));
+  });
+
   it('returns all available messages below the server hydration cap', async () => {
     const { conversationRepo } = await import('@/server/repositories/conversation-repo');
     const { messageRepo } = await import('@/server/repositories/message-repo');

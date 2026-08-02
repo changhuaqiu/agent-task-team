@@ -257,6 +257,44 @@ describe('skillRepo', () => {
 });
 
 describe('seedPresetSkills', () => {
+  it('keeps full task management planner-only and assigns narrow status receipts to delivery roles', () => {
+    seedPresetSkills();
+
+    const management = skillRepo.getByName('task-management');
+    const receipt = skillRepo.getByName('task-status-receipt');
+    expect(management).toBeDefined();
+    expect(receipt).toBeDefined();
+    expect(receipt!.content).toContain('mainImpactReviewResult');
+    expect(receipt!.content).toContain('reviewReceipt');
+    for (const agentId of ['mario', 'luigi', 'toad', 'peach', 'dk', 'yoshi', 'planner', 'coder', 'reviewer', 'researcher', 'analyst', 'writer']) {
+      expect(skillRepo.getSkillIdsForAgent(agentId)).toContain(receipt!.id);
+    }
+    expect(skillRepo.getSkillIdsForAgent('mario')).toContain(management!.id);
+    expect(skillRepo.getSkillIdsForAgent('planner')).toContain(management!.id);
+    expect(skillRepo.getSkillIdsForAgent('peach')).not.toContain(management!.id);
+  });
+
+  it('idempotently backfills narrow receipt assignments into an existing seeded database', () => {
+    const existing = skillRepo.create({
+      name: 'task-management',
+      content: 'legacy task management',
+      isPreset: true,
+    });
+    skillRepo.assignToAgent('mario', existing.id);
+    skillRepo.assignToAgent('peach', existing.id);
+
+    seedPresetSkills();
+    seedPresetSkills();
+
+    const receipt = skillRepo.getByName('task-status-receipt');
+    expect(receipt).toBeDefined();
+    for (const agentId of ['mario', 'luigi', 'toad', 'peach', 'dk', 'yoshi', 'planner', 'coder', 'reviewer', 'researcher', 'analyst', 'writer']) {
+      expect(skillRepo.getSkillIdsForAgent(agentId).filter((id) => id === receipt!.id)).toHaveLength(1);
+    }
+    expect(skillRepo.getSkillIdsForAgent('peach')).not.toContain(existing.id);
+    expect(skillRepo.getSkillIdsForAgent('planner')).toContain(existing.id);
+  });
+
   it('seeds git-collaboration and assigns it to built-in team role ids', () => {
     seedPresetSkills();
 

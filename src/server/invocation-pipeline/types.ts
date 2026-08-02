@@ -58,6 +58,7 @@ export type InvocationReasonCode =
   | 'task_missing'
   | 'task_scope_mismatch'
   | 'agent_not_in_team'
+  | 'autonomous_delivery_owns_planning'
   | 'runtime_profile_missing'
   | 'required_skill_not_loaded'
   | 'skill_manifest_invalid'
