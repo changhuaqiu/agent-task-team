@@ -211,6 +211,78 @@ describe('ControlDecisionRepository', () => {
     })).toThrow(ControlActionClaimError);
   });
 
+  it('cancels a stale batch action while claiming valid siblings', () => {
+    new WorkContractRepository().issue({
+      workId: 'work-2',
+      attemptId: 'attempt-work-2',
+      projectId: 'project-1',
+      deliveryRunId: runId,
+      agentId: 'reviewer',
+      goal: 'Review',
+      acceptanceCriteria: ['Done'],
+      role: { id: 'reviewer' },
+      permissions: {},
+      authoritativeRefs: ['task:2'],
+      authoritativeRevisions: { task: 1 },
+      contextSnapshotRef: 'context:work-2',
+      allowedOutcomeTypes: ['submit_task_result'],
+      correlationId: 'corr-2',
+      causationId: 'cause-work-2',
+    });
+    snapshot.snapshotRevision = store.projectSnapshotRevision('project-1');
+    snapshot.workCells.push({
+      workId: 'work-2',
+      workEpoch: 1,
+      roleId: 'reviewer',
+      state: 'ready',
+      priority: 1,
+      queuedAt: snapshot.observedAt,
+    });
+    const computed = decideControlActions(snapshot, {
+      revision: 1,
+      maxConcurrent: 2,
+      roleCapacity: { implementer: 1, reviewer: 1 },
+      fairnessAgingMs: 1_000,
+    });
+    store.persist({ projectId: 'project-1', decision: computed });
+    new WorkContractRepository().issue({
+      workId: 'work-1',
+      attemptId: 'attempt-stale',
+      projectId: 'project-1',
+      deliveryRunId: runId,
+      agentId: 'implementer',
+      goal: 'Retry',
+      acceptanceCriteria: ['Done'],
+      role: { id: 'implementer' },
+      permissions: {},
+      authoritativeRefs: ['task:1'],
+      authoritativeRevisions: { task: 2 },
+      contextSnapshotRef: 'context:stale',
+      allowedOutcomeTypes: ['submit_task_result'],
+      correlationId: 'corr-1',
+      causationId: 'cause-stale',
+      expectedCurrentEpoch: 1,
+    });
+    db.prepare(`UPDATE delivery_control_decision SET snapshot_revision=? WHERE id=?`)
+      .run(store.projectSnapshotRevision('project-1'), computed.decisionId);
+
+    const claimed = store.claimDecision({
+      decisionId: computed.decisionId,
+      workerId: 'batch-worker',
+      leaseMs: 1_000,
+    });
+
+    expect(claimed.map((action) => action.target_work_id)).toEqual(['work-2']);
+    expect(store.listActions(computed.decisionId)).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        target_work_id: 'work-1',
+        status: 'cancelled',
+        failure_code: 'stale_work_epoch',
+      }),
+      expect.objectContaining({ target_work_id: 'work-2', status: 'claimed' }),
+    ]));
+  });
+
   it('does not persist wait actions', () => {
     snapshot.workCells[0]!.state = 'running';
     snapshot.workCells[0]!.slotId = 'implementer:1';

@@ -40,6 +40,7 @@
 | [`open-issues-33-35/`](open-issues-33-35/) | active | 复现并修复线上 #33–#35：A2A 意图、首次交接身份、预设升级与上下文去重 |
 | [`agent-eval-system/`](agent-eval-system/) | draft | 任务全链路评估：客观维度规则计算 + 主观维度 LLM-as-Judge 套 rubric，结果回流优化 RoleCard/Skill |
 | [`github-issue-agent-hook/`](github-issue-agent-hook/) | active | GitHub Issue 验签后幂等创建项目与 DeliveryRun，并复用现有自主交付链完成任务拆解和推进 |
+| [`wakeup-recovery/`](wakeup-recovery/) | active | Restore ACP wakeups, legacy Task-status projection, and stale batch reconciliation. |
 
 ## 依赖关系
 

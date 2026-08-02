@@ -675,6 +675,10 @@ reconcile 先回收再重领。每次重领复用同一 actionId，依赖 owner 
 回执前崩溃”造成重复业务结果。只有预算耗尽才原子发布 `control.action.failed`；
 Control snapshot 将其投影为 Human 可恢复失败，显式 `manual_resume` 后旧失败事实才失效。
 
+批量 claim 遇到已经被新 Work authority 取代的 ready action 时，将该 action 原子标记为
+`cancelled/stale_work_epoch`，并继续 claim 同一 decision 中仍有效的 sibling actions。单 action
+claim 仍保持 fail-closed；批量 reconcile 不得因为一条过期 action 永久阻断启动恢复与周期恢复。
+
 `wait` 仍是纯观察结果，不写 action 表；新 decision 只取消旧 decision 中
 尚未 claim 的动作，已 claim 动作继续依赖 owner 的 fencing/CAS 决定能否生效。
 

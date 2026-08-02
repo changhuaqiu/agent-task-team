@@ -72,6 +72,43 @@ describe('GET /api/state', () => {
     expect(res._json.recentInvocations[0].id).toBe('inv-1');
   });
 
+  it('projects managed task statuses into the legacy Web UI vocabulary', async () => {
+    const { conversationRepo } = await import('@/server/repositories/conversation-repo');
+    const { taskRepo } = await import('@/server/repositories/task-repo');
+
+    conversationRepo.create({ id: 'conv-status', title: 'Status compatibility' });
+    taskRepo.create({
+      id: 'task-proposed',
+      conversation_id: 'conv-status',
+      title: 'Proposed',
+      agent_id: 'mario',
+      initialStatus: 'proposed',
+    });
+    taskRepo.create({
+      id: 'task-ready',
+      conversation_id: 'conv-status',
+      title: 'Ready',
+      agent_id: 'luigi',
+    });
+    taskRepo.create({
+      id: 'task-cancelled',
+      conversation_id: 'conv-status',
+      title: 'Cancelled',
+      agent_id: 'peach',
+    });
+    taskRepo.transition('task-cancelled', { to: 'cancelled', expectedFrom: 'ready' });
+
+    const res = mockRes();
+    await handler(mockReq('GET'), res);
+
+    expect(Object.fromEntries(res._json.tasks.map((task: any) => [task.id, task.status])))
+      .toEqual({
+        'task-proposed': 'pending',
+        'task-ready': 'pending',
+        'task-cancelled': 'blocked',
+      });
+  });
+
   it('derives the autonomous conversation flag from persisted delivery runs', async () => {
     const { conversationRepo } = await import('@/server/repositories/conversation-repo');
     const { AutonomousDeliveryRepository } = await import('@/server/autonomous-delivery/repository');

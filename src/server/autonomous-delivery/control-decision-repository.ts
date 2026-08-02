@@ -272,6 +272,7 @@ export class ControlDecisionRepository {
         WHERE decision_id=? AND status='ready' AND attempt_count<max_attempts
         ORDER BY created_at,id
       `).all(input.decisionId) as PersistedControlActionRow[];
+      const claimableActions: PersistedControlActionRow[] = [];
       const batchSlots = new Set<string>();
       for (const action of actions) {
         if (action.target_work_id !== null) {
@@ -285,13 +286,18 @@ export class ControlDecisionRepository {
             && authority.current_epoch === action.work_epoch,
           );
           if (!validUnissuedWork && !validIssuedWork) {
-            throw new ControlActionClaimError(
-              'stale_work_epoch',
-              `Work authority changed for ${action.target_work_id}`,
-            );
+            db.prepare(`
+              UPDATE delivery_control_action
+              SET status='cancelled',failure_code='stale_work_epoch',updated_at=?,completed_at=?
+              WHERE id=? AND status='ready'
+            `).run(timestamp, timestamp, action.id);
+            continue;
           }
         }
-        if (!action.slot_id) continue;
+        if (!action.slot_id) {
+          claimableActions.push(action);
+          continue;
+        }
         if (batchSlots.has(action.slot_id)) {
           throw new ControlActionClaimError(
             'control_slot_duplicated',
@@ -311,10 +317,11 @@ export class ControlDecisionRepository {
             `Control slot is already reserved: ${action.slot_id}`,
           );
         }
+        claimableActions.push(action);
       }
 
       const leaseExpiresAt = new Date(now.getTime() + input.leaseMs).toISOString();
-      for (const action of actions) {
+      for (const action of claimableActions) {
         const claimed = db.prepare(`
           UPDATE delivery_control_action
           SET status='claimed',claim_token=?,lease_owner=?,lease_expires_at=?,

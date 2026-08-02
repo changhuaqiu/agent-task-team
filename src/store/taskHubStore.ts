@@ -42,6 +42,7 @@ import type { PhaseProposal } from '@/lib/breakdownParser';
 import type { SkillSummary } from '@/lib/agent-context/types';
 import type { DetectedRuntime, CliEngine } from '@/server/types';
 import type { A2APossessionView, ChatMessage, ToolEvent } from './types';
+import { toLegacyProjectTaskStatus } from '@/shared/task-status-compat';
 export type { A2AHandoffStatus, A2AHandoffView, A2APossessionView, ChatMessage, ToolEvent } from './types';
 
 // Re-export types from sub-stores (backward compatibility)
@@ -1179,7 +1180,7 @@ export const useTaskHubStore = create<TaskHubState>()(
               phaseId: t.phase_id || '',
               title: t.title,
               description: t.description || '',
-              status: t.status,
+              status: toLegacyProjectTaskStatus(t.status),
               agentId: t.agent_id,
               dependencies: typeof t.dependencies === 'string' ? JSON.parse(t.dependencies || '[]') : (t.dependencies || []),
               artifacts: typeof t.artifacts === 'string' ? JSON.parse(t.artifacts || '[]') : (t.artifacts || []),
@@ -2741,7 +2742,7 @@ socket.on('task.sync', ({ projectId, projectPath: _projectPath, conversationId, 
           phaseId: synced.phase || '',
           title: synced.title,
           description: synced.deliverable || '',
-          status: synced.status,
+          status: toLegacyProjectTaskStatus(synced.status),
           agentId: synced.agent || '',
           dependencies: synced.depends || [],
           artifacts: [],
@@ -2754,8 +2755,9 @@ socket.on('task.sync', ({ projectId, projectPath: _projectPath, conversationId, 
 
     const nextDescription = synced.deliverable || existing.description;
     const nextDependencies = synced.depends || existing.dependencies;
+    const nextStatus = toLegacyProjectTaskStatus(synced.status);
     const changed =
-      existing.status !== synced.status ||
+      existing.status !== nextStatus ||
       existing.agentId !== synced.agent ||
       existing.title !== synced.title ||
       existing.description !== nextDescription ||
@@ -2768,7 +2770,7 @@ socket.on('task.sync', ({ projectId, projectPath: _projectPath, conversationId, 
                 ...t,
                 title: synced.title || t.title,
                 description: nextDescription,
-                status: synced.status,
+                status: nextStatus,
                 agentId: synced.agent || t.agentId,
                 dependencies: nextDependencies,
                 updatedAt: new Date().toISOString(),

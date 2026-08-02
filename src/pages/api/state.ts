@@ -7,6 +7,7 @@ import { invocationRepo } from '@/server/repositories/invocation-repo';
 import { skillRepo } from '@/server/repositories/skill-repo';
 import { A2AReadModelProjection } from '@/server/a2a/projection';
 import { autonomousDeliveryRepo } from '@/server/autonomous-delivery/repository';
+import { toLegacyProjectTaskStatus } from '@/shared/task-status-compat';
 
 export default function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return res.status(405).end();
@@ -17,7 +18,10 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
       ...conversation,
       autonomous: autonomousConversationIds.has(conversation.id),
     }));
-    const tasks = taskRepo.list();
+    const tasks = taskRepo.list().map((task) => ({
+      ...task,
+      status: toLegacyProjectTaskStatus(task.status),
+    }));
 
     // Load recent messages per conversation
     const recentMessages: Record<string, unknown[]> = {};

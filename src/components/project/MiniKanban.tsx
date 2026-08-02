@@ -25,6 +25,7 @@ import { KanbanColumn } from './KanbanColumn';
 import { KanbanCard } from './KanbanCard';
 import { KanbanContextMenu } from './KanbanContextMenu';
 import { Columns3, Users, List } from 'lucide-react';
+import { toLegacyProjectTaskStatus } from '@/shared/task-status-compat';
 
 type ViewMode = 'status' | 'agent' | 'list';
 
@@ -50,7 +51,10 @@ function groupByStatus(tasks: Task[]): Record<TaskStatus, Task[]> {
     rejected: [],
     blocked: [],
   };
-  for (const t of tasks) map[t.status].push(t);
+  for (const task of tasks) {
+    const status = toLegacyProjectTaskStatus(task.status);
+    map[status].push(status === task.status ? task : { ...task, status });
+  }
   return map;
 }
 
