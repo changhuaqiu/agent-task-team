@@ -6,4 +6,4 @@
 - [x] Cancel stale batch actions while continuing valid siblings; preserve strict direct claims.
 - [x] Add regression tests and synchronize long-term technical documentation.
 - [x] Run targeted tests, type-check, production build and real Claude ACP smoke.
-- [ ] Restart the production server and verify browser rendering plus a scheduled wakeup.
+- [x] Restart the production server and verify browser rendering plus a scheduled wakeup.

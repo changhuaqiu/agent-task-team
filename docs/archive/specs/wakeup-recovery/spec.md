@@ -1,6 +1,6 @@
 # Wakeup Recovery Compatibility
 
-Status: `active`
+Status: `implemented` (2026-08-02)
 
 ## Problem
 
@@ -17,7 +17,7 @@ failure combined three independent faults:
    ready action to fail every periodic reconcile and preventing valid sibling
    actions from being claimed.
 
-## Contract
+## Implemented Contract
 
 - Managed Task storage remains authoritative. Legacy projections map
   `proposed`/`ready` to `pending` and `cancelled` to `blocked`.
@@ -35,8 +35,9 @@ failure combined three independent faults:
 - `docs/technical/execution/group-chat-task-graph.md`
 - `docs/technical/execution/platform-harness-state-machine-design.md`
 
-## Exit Condition
+## Exit Evidence
 
-All items in `tasks.md` and `checklist.md` are complete; stable behavior has been
-written into the long-term technical documentation above; then this directory is
-archived under `docs/archive/specs/`.
+All tasks and checks are complete. The production server was rebuilt and restarted
+on 2026-08-02; the browser rendered the chat input and Kanban without errors, the
+legacy state projection exposed no invalid statuses, and a post-restart scheduled
+Claude wakeup completed without `EPIPE`.
