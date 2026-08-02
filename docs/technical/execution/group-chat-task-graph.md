@@ -375,6 +375,10 @@ Useful read models:
 - This Task status adapter is enabled by the presence of the managed Task
   status constraint, not by a migration watermark. It can be removed after all
   task producers and consumers use the managed lifecycle directly.
+- `/api/state` is part of that compatibility boundary: while the project Kanban
+  still uses the legacy status union, it projects managed `proposed`/`ready` as
+  `pending` and `cancelled` as `blocked`. Managed storage is never rewritten to
+  satisfy the UI.
 - Migration version 18 creates a synthetic `task.created` action for each pre-existing task using `task-action-migrated-<taskId>`.
 - Existing chat messages can be backfilled with empty task/action bindings.
 - Existing A2A pass metadata can be linked opportunistically when chain/pass ids are present.

@@ -15,6 +15,8 @@
 import { AcpBackend, type AcpBackendOpts } from './acpBackend';
 import type { AgentBackend } from '../types';
 import type { EngineId } from '../capabilities';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import seed from './agentCatalog.seed.json';
 
 /**
@@ -127,9 +129,10 @@ export function createBackend(
     | 'forwardNativeSubagentText'
   >,
 ): AgentBackend {
+  const launcher = resolveCatalogLauncher(entry);
   return new AcpBackend({
-    command: entry.launcher.command,
-    args: entry.launcher.args,
+    command: launcher.command,
+    args: launcher.args,
     cwd: opts?.cwd,
     env: opts?.env,
     permissionPolicy: opts?.permissionPolicy,
@@ -141,7 +144,31 @@ export function createBackend(
     timeoutMs: opts?.timeoutMs,
     mcpServers: opts?.mcpServers,
     autoApproveMcpToolNames: opts?.autoApproveMcpToolNames,
-    forwardNativeSubagentText: opts?.forwardNativeSubagentText,
+    forwardNativeSubagentText:
+      opts?.forwardNativeSubagentText ?? (entry.id === 'claude'),
     engine: entry.id,
   });
+}
+
+const INSTALLED_ADAPTER_BINARIES: Readonly<Record<string, string>> = {
+  '@agentclientprotocol/claude-agent-acp': 'claude-agent-acp',
+  '@agentclientprotocol/codex-acp': 'codex-acp',
+};
+
+export function resolveCatalogLauncher(
+  entry: AgentCatalogEntry,
+  appRoot = process.cwd(),
+): { command: string; args: string[] } {
+  const packageName = entry.launcher.package;
+  const binaryName = packageName ? INSTALLED_ADAPTER_BINARIES[packageName] : undefined;
+  if (entry.delivery === 'adapter' && binaryName) {
+    const executable = join(
+      appRoot,
+      'node_modules',
+      '.bin',
+      `${binaryName}${process.platform === 'win32' ? '.cmd' : ''}`,
+    );
+    if (existsSync(executable)) return { command: executable, args: [] };
+  }
+  return { command: entry.launcher.command, args: [...entry.launcher.args] };
 }

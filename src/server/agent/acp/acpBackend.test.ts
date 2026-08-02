@@ -71,6 +71,28 @@ describe('AcpBackend (subprocess integration with mockAcpAgent)', () => {
     })]);
   }, 15_000);
 
+  it.each([
+    ['new', undefined],
+    ['load', 'stable-session'],
+  ])('passes Claude native-subagent metadata into session/%s', async (_mode, resumeSessionId) => {
+    const backend = new AcpBackend({
+      command: 'npx',
+      args: ['tsx', mockPath],
+      engine: 'claude',
+      cwd: process.cwd(),
+      env: { MOCK_ACP_SCENARIO: 'session_meta_echo' },
+      forwardNativeSubagentText: true,
+    });
+    const run = backend.execute('echo session metadata', { resumeSessionId });
+    for await (const event of run.events) { void event; }
+    const result = await run.result;
+
+    expect(result.status).toBe('completed');
+    expect(JSON.parse(result.output)).toEqual({
+      claudeCode: { options: { forwardSubagentText: true } },
+    });
+  }, 15_000);
+
   it('allows a correlated platform MCP call without widening the deny policy', async () => {
     const backend = new AcpBackend({
       command: 'npx',

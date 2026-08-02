@@ -64,7 +64,7 @@ const PERMISSION_OPTIONS: acp.PermissionOption[] = [
  *    (`process.exit(1)`) — so `AcpBackend`'s `close` handler fires with an
  *    abnormal exit and resolves `failed`. (Task 9 failure-recovery test.)
  */
-export type MockScenario = 'normal' | 'slow' | 'active' | 'error' | 'flood' | 'large' | 'wrong_session' | 'empty_once' | 'empty_silent' | 'fresh_session_recovery' | 'thinking_only' | 'tool_result_only' | 'tool_result_silent' | 'tool_only' | 'tool_silent' | 'mcp_echo' | 'platform_mcp_permission';
+export type MockScenario = 'normal' | 'slow' | 'active' | 'error' | 'flood' | 'large' | 'wrong_session' | 'empty_once' | 'empty_silent' | 'fresh_session_recovery' | 'thinking_only' | 'tool_result_only' | 'tool_result_silent' | 'tool_only' | 'tool_silent' | 'mcp_echo' | 'session_meta_echo' | 'platform_mcp_permission';
 
 /** How long the "slow" scenario blocks mid-turn before completing. */
 const SLOW_BLOCK_MS = 60_000;
@@ -98,6 +98,7 @@ export function createMockAgentApp(
   let promptCount = 0;
   let sessionCount = 0;
   let sessionMcpServers: acp.McpServer[] = [];
+  let sessionMeta: unknown;
   return acp
     .agent({ name: 'mock-acp-agent' })
     .onRequest(acp.methods.agent.initialize, () => ({
@@ -106,11 +107,13 @@ export function createMockAgentApp(
     }))
     .onRequest(acp.methods.agent.session.new, (ctx) => {
       sessionMcpServers = ctx.params.mcpServers;
+      sessionMeta = ctx.params._meta;
       sessionCount += 1;
       return { sessionId: `mock-${sessionCount}` };
     })
     .onRequest(acp.methods.agent.session.load, async (ctx) => {
       sessionMcpServers = ctx.params.mcpServers;
+      sessionMeta = ctx.params._meta;
       if (process.env.MOCK_ACP_LOAD_FAIL === 'true') {
         throw new Error('mock load failed');
       }
@@ -146,6 +149,14 @@ export function createMockAgentApp(
         await upd({
           sessionUpdate: 'agent_message_chunk',
           content: { type: 'text', text: JSON.stringify(sessionMcpServers) },
+        });
+        return { stopReason: 'end_turn' };
+      }
+
+      if (scenario === 'session_meta_echo') {
+        await upd({
+          sessionUpdate: 'agent_message_chunk',
+          content: { type: 'text', text: JSON.stringify(sessionMeta ?? null) },
         });
         return { stopReason: 'end_turn' };
       }
@@ -351,6 +362,7 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
       || envScenario === 'tool_only'
       || envScenario === 'tool_silent'
       || envScenario === 'mcp_echo'
+      || envScenario === 'session_meta_echo'
       || envScenario === 'platform_mcp_permission'
       ? envScenario
       : 'normal';

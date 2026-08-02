@@ -77,6 +77,30 @@ describe('MiniKanban integration', () => {
     expect(screen.getByText('Write tests')).toBeDefined();
   });
 
+  it('does not crash when persisted state still contains a managed ready status', () => {
+    useTaskHubStore.setState({
+      selectedConversationId: 'conv-managed',
+      tasks: [{
+        id: 'TASK-READY',
+        conversationId: 'conv-managed',
+        phaseId: '',
+        title: 'Managed ready task',
+        description: '',
+        status: 'ready' as never,
+        agentId: 'luigi',
+        dependencies: [],
+        artifacts: [],
+        createdAt: '2026-08-02T00:00:00Z',
+        updatedAt: '2026-08-02T00:00:00Z',
+      }],
+      phases: [],
+    });
+
+    render(<MiniKanban />);
+
+    expect(screen.getByText('Managed ready task')).toBeDefined();
+  });
+
   it('renders without expand button when no callback', () => {
     useTaskHubStore.setState({
       selectedConversationId: 'conv-1',

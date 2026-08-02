@@ -4,6 +4,8 @@
 
 Agent Task Hub 通过 **ACP（Agent Client Protocol）单一通路**驱动所有运行时（opencode / claude / codex），经 `AcpBackend`（`AgentBackend` 的唯一实现）将 ACP `session/update` 归一化为统一的 `AgentEvent` 流。Daemon 作为编排层负责 session 管理、invocation 跟踪和 socket 广播；启动差异只存在于 Agent Catalog，不进入 daemon 分支。
 
+Adapter 启动优先解析项目已安装且由 lockfile 固定的 `node_modules/.bin` 可执行文件；只有本地 binary 不存在时才回退到 Catalog 中带精确版本的 `npx` launcher。这样长期运行的 Next.js daemon 不会在每次 wakeup 中再嵌套一个包管理器进程，也不会把网络、cache 或 npm lifecycle 状态引入 ACP stdio 握手。
+
 > 历史上曾按引擎分别实现 `OpenCodeBackend` / `ClaudeBackend` / `CodexBackend` 与 `factory.ts` 的 engine `switch`；这些 bespoke backend 已在 ACP 迁移中移除（spec §7 / §8）。当前权威架构见 `architecture/cli-integration.md`。
 
 ---

@@ -7,7 +7,7 @@
 // transpiles via esbuild without type-checking.
 
 import { describe, it, expect } from 'vitest';
-import { loadCatalog, createBackend, validateCatalog } from './catalog';
+import { loadCatalog, createBackend, resolveCatalogLauncher, validateCatalog } from './catalog';
 import { AcpBackend } from './acpBackend';
 
 describe('AgentCatalog (loadCatalog + createBackend)', () => {
@@ -96,13 +96,38 @@ describe('AgentCatalog (loadCatalog + createBackend)', () => {
     }
   });
 
-  it('createBackend carries native subagent forwarding into the ACP backend', () => {
+  it('enables native subagent forwarding by default only for Claude', () => {
     const claudeEntry = loadCatalog().find((entry) => entry.id === 'claude')!;
-    const backend = createBackend(claudeEntry, { forwardNativeSubagentText: true });
-    const opts = (backend as unknown as {
+    const claudeBackend = createBackend(claudeEntry);
+    const claudeOpts = (claudeBackend as unknown as {
       o: { forwardNativeSubagentText?: boolean };
     }).o;
+    expect(claudeOpts.forwardNativeSubagentText).toBe(true);
 
-    expect(opts.forwardNativeSubagentText).toBe(true);
+    const opencodeEntry = loadCatalog().find((entry) => entry.id === 'opencode')!;
+    const opencodeBackend = createBackend(opencodeEntry);
+    const opencodeOpts = (opencodeBackend as unknown as {
+      o: { forwardNativeSubagentText?: boolean };
+    }).o;
+    expect(opencodeOpts.forwardNativeSubagentText).toBe(false);
+  });
+
+  it('prefers the installed pinned adapter binary over spawning npx', () => {
+    const claudeEntry = loadCatalog().find((entry) => entry.id === 'claude')!;
+    const launcher = resolveCatalogLauncher(claudeEntry, process.cwd());
+
+    expect(launcher.command.replace(/\\/g, '/')).toMatch(
+      /node_modules\/.bin\/claude-agent-acp(?:\.cmd)?$/,
+    );
+    expect(launcher.args).toEqual([]);
+  });
+
+  it('keeps the pinned catalog launcher as fallback when dependencies are external', () => {
+    const claudeEntry = loadCatalog().find((entry) => entry.id === 'claude')!;
+
+    expect(resolveCatalogLauncher(claudeEntry, '/missing-agent-task-hub')).toEqual({
+      command: 'npx',
+      args: ['-y', '@agentclientprotocol/claude-agent-acp@0.59.0'],
+    });
   });
 });
