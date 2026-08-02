@@ -16,17 +16,53 @@ interface MessageGroupProps {
 
 import React from 'react';
 
+interface AgentResponse {
+  id: string;
+  messages: ChatMessage[];
+}
+
+export function groupMessagesIntoAgentResponses(messages: ChatMessage[]): AgentResponse[] {
+  const responses: AgentResponse[] = [];
+
+  for (const message of messages) {
+    const previous = responses[responses.length - 1];
+    const belongsToPreviousInvocation = Boolean(
+      message.invocationId
+      && previous?.messages[0].invocationId === message.invocationId,
+    );
+
+    if (belongsToPreviousInvocation) {
+      previous.messages.push(message);
+      continue;
+    }
+
+    responses.push({
+      id: message.invocationId ?? message.id,
+      messages: [message],
+    });
+  }
+
+  return responses;
+}
+
 export const MessageGroup = React.memo(function MessageGroup({ messages, themeColor, agentEmoji, agentName, defaultExpanded, forceExpand }: MessageGroupProps) {
   const [expanded, setExpanded] = useState(defaultExpanded);
 
   // External force-expand (e.g. when a message in this group starts streaming)
   useEffect(() => {
-    if (forceExpand && !expanded) setExpanded(true);
+    if (forceExpand) setExpanded(true);
   }, [forceExpand]);
   if (messages.length === 0) return null;
 
-  if (messages.length === 1) {
-    return <ChatMessageItem message={messages[0]} />;
+  const responses = groupMessagesIntoAgentResponses(messages);
+
+  if (responses.length === 1) {
+    return (
+      <ChatMessageItem
+        message={responses[0].messages[0]}
+        responseSegments={responses[0].messages}
+      />
+    );
   }
 
   const firstTime = new Date(messages[0].timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
@@ -41,7 +77,7 @@ export const MessageGroup = React.memo(function MessageGroup({ messages, themeCo
       >
         <span className="text-[11px]">{agentEmoji}</span>
         <span className="text-[10px] font-bold text-[hsl(var(--text-secondary))]">{agentName}</span>
-        <span className="text-[9px] text-[hsl(var(--text-tertiary))]">{messages.length} 条</span>
+        <span className="text-[9px] text-[hsl(var(--text-tertiary))]">{responses.length} 次回复</span>
         <span className="text-[9px] text-[hsl(var(--text-tertiary))]">· {firstTime}-{lastTime}</span>
         <span className="text-[9px] text-[hsl(var(--text-tertiary))] ml-auto group-hover:text-[hsl(var(--text-primary))] transition-colors">
           {expanded ? '▼ 收起' : '▶ 展开'}
@@ -50,8 +86,12 @@ export const MessageGroup = React.memo(function MessageGroup({ messages, themeCo
 
       {expanded && (
         <div className="flex flex-col gap-4">
-          {messages.map((msg) => (
-            <ChatMessageItem key={msg.id} message={msg} />
+          {responses.map((response) => (
+            <ChatMessageItem
+              key={response.id}
+              message={response.messages[0]}
+              responseSegments={response.messages}
+            />
           ))}
         </div>
       )}

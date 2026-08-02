@@ -1,7 +1,7 @@
 'use client';
 
 import { useTaskHubStore, type ChatMessage } from '@/store/taskHubStore';
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { PixelAvatar } from './PixelAvatar';
 import { CliOutputBlock } from './CliOutputBlock';
 import { ProgressMessageCard } from './ProgressMessageCard';
@@ -22,6 +22,7 @@ import { isEngineeringCollaborationCard } from '@/lib/engineering-collaboration/
 
 interface ChatMessageItemProps {
   message: ChatMessage;
+  responseSegments?: ChatMessage[];
 }
 
 const AVATAR_THEME_CLASSES: Record<AgentTheme, string> = {
@@ -106,7 +107,7 @@ const formatContentWithMentions = (content: string) => {
   });
 };
 
-export function ChatMessageItem({ message }: ChatMessageItemProps) {
+export function ChatMessageItem({ message, responseSegments }: ChatMessageItemProps) {
   // 用 effectiveRoster（按当前 conversation 的 runtime roster，含 TeamPack 角色 planner/coder/reviewer），
   // 而非 agentRoster（6 人组初始，不含 TeamPack 角色）——否则消息找不到 agent → 无头像/名字
   const allAgents = useTaskHubStore((s) => s.getEffectiveRoster());
@@ -115,19 +116,16 @@ export function ChatMessageItem({ message }: ChatMessageItemProps) {
   const updateChatMessageStatus = useTaskHubStore((s) => s.updateChatMessageStatus);
   const selectedConversationId = useTaskHubStore((s) => s.selectedConversationId);
 
-  const isHuman = message.agentId === 'human';
-  const agent = allAgents.find((a) => a.id === message.agentId);
+  const segments = responseSegments?.length ? responseSegments : [message];
+  const responseMessage = segments[0];
+  const responseText = segments
+    .map((segment) => segment.content)
+    .filter(Boolean)
+    .join('\n\n');
+  const isHuman = responseMessage.agentId === 'human';
+  const agent = allAgents.find((a) => a.id === responseMessage.agentId);
 
   const timeString = new Date(message.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
-  const proposals = useMemo(() => parsePhaseBreakdown(message.content), [message.content]);
-  const hasPhaseStructure = proposals.length > 0;
-  const hasToolEvents = (message.toolEvents?.length ?? 0) > 0;
-  const taskRefs = useMemo(() => taskRefsFromMessage(message), [message]);
-  const taskActions = useMemo(() => taskActionsFromMessage(message), [message]);
-  const collaborationCard = isEngineeringCollaborationCard(message.metadata?.collaborationCard)
-    ? message.metadata.collaborationCard
-    : undefined;
-
   const [isHovered, setIsHovered] = useState(false);
 
   // Task status card rendering
@@ -147,6 +145,7 @@ export function ChatMessageItem({ message }: ChatMessageItemProps) {
 
   return (
     <div
+      data-testid={message.invocationId ? `agent-response-${message.invocationId}` : undefined}
       className={cn(
         'flex gap-3 w-full animate-fade-in',
         isHuman ? 'flex-row-reverse' : 'flex-row'
@@ -208,76 +207,90 @@ export function ChatMessageItem({ message }: ChatMessageItemProps) {
               : 'border-[hsl(var(--border))] rounded-tl-none'
           )}
         >
-          {message.isStreaming && !message.content && !hasToolEvents ? (
-            <span className="inline-block w-1.5 h-4 bg-current animate-pulse rounded-full opacity-50" />
-          ) : message.content && !(hasToolEvents && message.isStreaming) ? (
-            isHuman ? (
-              <div className="whitespace-pre-wrap break-words">{formatContentWithMentions(message.content)}</div>
-            ) : (
-              <MarkdownContent content={message.content} />
-            )
-          ) : null}
+          {segments.map((segment) => {
+            const segmentHasToolEvents = (segment.toolEvents?.length ?? 0) > 0;
+            const segmentProposals = parsePhaseBreakdown(segment.content);
+            const segmentTaskRefs = taskRefsFromMessage(segment);
+            const segmentTaskActions = taskActionsFromMessage(segment);
+            const segmentCollaborationCard = isEngineeringCollaborationCard(segment.metadata?.collaborationCard)
+              ? segment.metadata.collaborationCard
+              : undefined;
 
-          {message.progressData && (
-            <div className="mt-2">
-              <ProgressMessageCard
-                message={message}
-                onTaskClick={(taskId) => setSelectedTaskId(taskId)}
-              />
-            </div>
-          )}
+            return (
+              <div key={segment.id} data-message-segment-id={segment.id} className="mt-2 first:mt-0">
+                {segment.isStreaming && !segment.content && !segmentHasToolEvents ? (
+                  <span className="inline-block w-1.5 h-4 bg-current animate-pulse rounded-full opacity-50" />
+                ) : segment.content && !(segmentHasToolEvents && segment.isStreaming) ? (
+                  isHuman ? (
+                    <div className="whitespace-pre-wrap break-words">{formatContentWithMentions(segment.content)}</div>
+                  ) : (
+                    <MarkdownContent content={segment.content} />
+                  )
+                ) : null}
 
-          {hasToolEvents && (
-            <CliOutputBlock
-              events={message.toolEvents!}
-              isStreaming={!!message.isStreaming}
-              streamText={message.isStreaming ? message.content : undefined}
-            />
-          )}
+                {segment.progressData && (
+                  <div className="mt-2">
+                    <ProgressMessageCard
+                      message={segment}
+                      onTaskClick={(taskId) => setSelectedTaskId(taskId)}
+                    />
+                  </div>
+                )}
 
-          {!message.isStreaming && message.tokenUsage && hasToolEvents && (
-            <div className="mt-1.5">
-              <TokenBadge usage={message.tokenUsage} />
-            </div>
-          )}
+                {segmentHasToolEvents && (
+                  <CliOutputBlock
+                    events={segment.toolEvents!}
+                    isStreaming={!!segment.isStreaming}
+                    streamText={segment.isStreaming ? segment.content : undefined}
+                  />
+                )}
 
-          {hasPhaseStructure && (
-            <ChatPhaseProposals proposals={proposals} allAgents={allAgents} />
-          )}
+                {!segment.isStreaming && segment.tokenUsage && segmentHasToolEvents && (
+                  <div className="mt-1.5">
+                    <TokenBadge usage={segment.tokenUsage} />
+                  </div>
+                )}
 
-          {taskRefs.length > 0 && (
-            <TaskCapsules
-              tasks={taskRefs}
-              onSelectTask={setSelectedTaskId}
-              className="mt-2"
-            />
-          )}
+                {segmentProposals.length > 0 && (
+                  <ChatPhaseProposals proposals={segmentProposals} allAgents={allAgents} />
+                )}
 
-          {taskActions.length > 0 && (
-            <div className="mt-2 flex flex-col gap-1.5">
-              {taskActions.map((action) => (
-                <TaskActionCard
-                  key={action.id}
-                  action={action}
-                  onSelectTask={setSelectedTaskId}
-                />
-              ))}
-            </div>
-          )}
+                {segmentTaskRefs.length > 0 && (
+                  <TaskCapsules
+                    tasks={segmentTaskRefs}
+                    onSelectTask={setSelectedTaskId}
+                    className="mt-2"
+                  />
+                )}
 
-          {collaborationCard && (
-            <EngineeringCollaborationCard card={collaborationCard} onSelectTask={setSelectedTaskId} />
-          )}
+                {segmentTaskActions.length > 0 && (
+                  <div className="mt-2 flex flex-col gap-1.5">
+                    {segmentTaskActions.map((action) => (
+                      <TaskActionCard
+                        key={action.id}
+                        action={action}
+                        onSelectTask={setSelectedTaskId}
+                      />
+                    ))}
+                  </div>
+                )}
 
-          {message.isApprovalRequest && (
-            <ChatApprovalActions
-              messageId={message.id}
-              approvalStatus={message.approvalStatus ?? 'pending'}
-              rejectionReason={message.rejectionReason}
-              artifactPreview={message.artifactPreview}
-              onUpdateStatus={updateChatMessageStatus}
-            />
-          )}
+                {segmentCollaborationCard && (
+                  <EngineeringCollaborationCard card={segmentCollaborationCard} onSelectTask={setSelectedTaskId} />
+                )}
+
+                {segment.isApprovalRequest && (
+                  <ChatApprovalActions
+                    messageId={segment.id}
+                    approvalStatus={segment.approvalStatus ?? 'pending'}
+                    rejectionReason={segment.rejectionReason}
+                    artifactPreview={segment.artifactPreview}
+                    onUpdateStatus={updateChatMessageStatus}
+                  />
+                )}
+              </div>
+            );
+          })}
 
           {/* Hover Action Bar */}
           {isHovered && (
@@ -301,7 +314,7 @@ export function ChatMessageItem({ message }: ChatMessageItemProps) {
               <button
                 type="button"
                 onClick={() => {
-                  window.dispatchEvent(new CustomEvent('chat:quote', { detail: message.content }));
+                  window.dispatchEvent(new CustomEvent('chat:quote', { detail: responseText }));
                 }}
                 className="p-1 text-[hsl(var(--text-tertiary))] hover:text-[hsl(var(--text-primary))] rounded-[2px] hover:bg-[hsl(var(--bg-muted))] transition-colors"
                 title="引用此消息"
@@ -311,7 +324,7 @@ export function ChatMessageItem({ message }: ChatMessageItemProps) {
               </button>
               <button
                 type="button"
-                onClick={() => navigator.clipboard.writeText(message.content)}
+                onClick={() => navigator.clipboard.writeText(responseText)}
                 className="p-1 text-[hsl(var(--text-tertiary))] hover:text-[hsl(var(--text-primary))] rounded-[2px] hover:bg-[hsl(var(--bg-muted))] transition-colors"
                 title="复制内容"
                 aria-label="复制内容"
