@@ -87,6 +87,7 @@
 
 ### 产品 / 业务
 
+- `docs/product/STORY.md`：按“原用户处境 → 可感知变化 → 验证证据 → 保留边界”持续记录优化的真实效果
 - `docs/product/brand/agent-task-hub-brand-visual-system.md`：软件交付 Agent OS 的品牌视觉母题、海报构图、资产规范与 README 叙事顺序
 - `docs/product/ux/2026-05-01-ux-journey-and-gameplay-plan.md`
 - `docs/product/ux/2026-05-15-group-chat-task-flow.md`
