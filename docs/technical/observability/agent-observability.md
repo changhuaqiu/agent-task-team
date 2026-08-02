@@ -23,7 +23,7 @@
 - Runtime adapter 只把 ACP update 规范化为 `AgentEvent`；daemon 拥有 trace/span 身份并通过 best-effort telemetry sink 落库，adapter 不直接依赖 SQLite。
 - Observation Projection 只读聚合 Task Graph、A2A、proof 和 spans。
 - Project UI 只通过查询 API 读取，不在前端推断执行成功或 Agent 关系。
-- Runtime Message Projection 可以为同一次 invocation 持久化多条文本或工具事实；Project UI 仅在展示层按相同 `invocationId` 聚合这些连续事实，并保留事件顺序。展示聚合不得改写、丢弃或合并底层 `chat_message` 事实。
+- Runtime Message Projection 可以为同一次 invocation 持久化多条文本或工具事实；Project UI 仅在展示层按相同 `invocationId` 聚合这些连续事实，并保留事件顺序。流式临时投影与持久事实短暂重叠时只展示临时投影，完成后切换为持久事实，禁止把两种表示同时渲染。特殊业务卡片仍保持独立消息边界。展示聚合不得改写、丢弃或合并底层 `chat_message` 事实。
 - 外部 OTLP/Phoenix/Jaeger/LangSmith 适配属于后续 exporter，不进入核心 loop。
 
 ## 标准映射

@@ -26,9 +26,14 @@ export function groupMessagesIntoAgentResponses(messages: ChatMessage[]): AgentR
 
   for (const message of messages) {
     const previous = responses[responses.length - 1];
+    const previousMessage = previous?.messages[previous.messages.length - 1];
+    const isOrdinaryRuntimeSegment = message.intent !== 'task_status';
+    const previousIsOrdinaryRuntimeSegment = previousMessage?.intent !== 'task_status';
     const belongsToPreviousInvocation = Boolean(
       message.invocationId
-      && previous?.messages[0].invocationId === message.invocationId,
+      && previous?.messages[0].invocationId === message.invocationId
+      && isOrdinaryRuntimeSegment
+      && previousIsOrdinaryRuntimeSegment,
     );
 
     if (belongsToPreviousInvocation) {
@@ -37,12 +42,24 @@ export function groupMessagesIntoAgentResponses(messages: ChatMessage[]): AgentR
     }
 
     responses.push({
-      id: message.invocationId ?? message.id,
+      id: message.id,
       messages: [message],
     });
   }
 
-  return responses;
+  return responses.map((response) => {
+    const activeProvisional = response.messages.find((message) => message.isStreaming === true);
+    if (activeProvisional) {
+      return { id: activeProvisional.id, messages: [activeProvisional] };
+    }
+
+    const durableMessages = response.messages.filter((message) => message.isStreaming === undefined);
+    if (durableMessages.length > 0 && durableMessages.length < response.messages.length) {
+      return { id: durableMessages[0].id, messages: durableMessages };
+    }
+
+    return response;
+  });
 }
 
 export const MessageGroup = React.memo(function MessageGroup({ messages, themeColor, agentEmoji, agentName, defaultExpanded, forceExpand }: MessageGroupProps) {
