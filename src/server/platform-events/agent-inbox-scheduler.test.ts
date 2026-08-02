@@ -40,10 +40,11 @@ describe('AgentInboxScheduler', () => {
         prompt: 'Implement',
         correlationId: 'goal-trace-1',
         causationId: 'message-1',
+        legacyProposal: true,
       },
     });
     let submissions = 0;
-    let submittedTrace: { correlationId?: string; causationId?: string } | undefined;
+    let submittedTrace: { correlationId?: string; causationId?: string; legacyProposal?: boolean } | undefined;
     const scheduler = new AgentInboxScheduler({
       inbox,
       intervalMs: 10,
@@ -75,6 +76,7 @@ describe('AgentInboxScheduler', () => {
     expect(submittedTrace).toMatchObject({
       correlationId: 'goal-trace-1',
       causationId: 'message-1',
+      legacyProposal: true,
     });
     scheduler.stop();
   });

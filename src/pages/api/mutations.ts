@@ -551,6 +551,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
           referencedTaskId,
           source,
           fromAgentId,
+          legacyProposal,
           idempotencyKey,
         } = payload as Record<string, unknown>;
         if (typeof conversationId !== 'string' || !conversationId.trim()) {
@@ -570,6 +571,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         }
         if (fromAgentId !== undefined && typeof fromAgentId !== 'string') {
           return res.status(400).json({ ok: false, error: 'dispatch.enqueue fromAgentId must be a string' });
+        }
+        if (legacyProposal !== undefined && typeof legacyProposal !== 'boolean') {
+          return res.status(400).json({ ok: false, error: 'dispatch.enqueue legacyProposal must be a boolean' });
         }
         const allowedSources = ['user', 'a2a', 'workflow', 'review_gate', 'test_gate', 'system'];
         if (source !== undefined && (typeof source !== 'string' || !allowedSources.includes(source))) {
@@ -605,6 +609,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
             prompt,
             taskId: typeof referencedTaskId === 'string' ? referencedTaskId : undefined,
             fromAgentId: typeof fromAgentId === 'string' ? fromAgentId : undefined,
+            legacyProposal: legacyProposal === true,
           },
         });
         break;

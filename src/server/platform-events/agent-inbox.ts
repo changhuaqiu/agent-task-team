@@ -18,6 +18,7 @@ export interface AgentWorkCommand {
   chainId?: string;
   passId?: string;
   contextScenario?: ContextScenario;
+  legacyProposal?: boolean;
 }
 
 export const AGENT_INBOX_STATUSES = [

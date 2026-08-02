@@ -24,6 +24,7 @@ import { SkillRuntimeError, skillRuntime } from '../skills/skill-runtime';
 import { skillRepo } from '../repositories/skill-repo';
 import { getSupportedToolNames } from '../skill-tool-router';
 import { autonomousDeliveryContextContributor } from '../autonomous-delivery/context-contributor';
+import { autonomousDeliveryRepo } from '../autonomous-delivery/repository';
 import { resolveApplicationSnapshotRuntime } from '../evaluation/application-snapshot';
 import { projectContextContributor } from '../project-context/context-contributor';
 import { issueDispatchWorkContract } from '../work-contract/dispatch-contract';
@@ -60,6 +61,12 @@ export class InvocationPlanner implements InvocationPlannerPort {
     const conversation = conversationRepo.getById(trigger.conversationId);
     if (!conversation) {
       return { ok: false, outcome: { status: 'blocked', reasonCode: 'conversation_missing' } };
+    }
+    if (trigger.legacyProposal && autonomousDeliveryRepo.getLatestByConversation(trigger.conversationId)) {
+      return {
+        ok: false,
+        outcome: { status: 'blocked', reasonCode: 'autonomous_delivery_owns_planning' },
+      };
     }
     const task = trigger.taskId ? taskRepo.getById(trigger.taskId) : undefined;
     if (trigger.taskId && !task) {

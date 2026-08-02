@@ -314,6 +314,7 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
                                 referencedTaskId: item.referencedTaskId,
                                 conversationId: convId,
                                 queuedIdempotencyKey: item.idempotencyKey,
+                                legacyProposal: item.legacyProposal,
                               }).catch((error) => console.error('[dispatch] force send failed:', error));
                             }}
                             className="shrink-0 text-[hsl(var(--text-tertiary))] hover:text-amber-400"

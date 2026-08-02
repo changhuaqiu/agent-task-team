@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -44,5 +44,32 @@ describe('startArtifactLoopbackServer', () => {
       projectDir,
       artifactPath: '../secret.txt',
     })).rejects.toThrow('inside the current project directory');
+  });
+
+  it('rejects a project junction that resolves outside the project', async () => {
+    const parentDir = await mkdtemp(join(tmpdir(), 'ath-artifact-loopback-link-'));
+    tempDirs.push(parentDir);
+    const projectDir = join(parentDir, 'project');
+    const outsideDir = join(parentDir, 'outside');
+    await mkdir(projectDir);
+    await mkdir(outsideDir);
+    await writeFile(join(outsideDir, 'secret.txt'), 'secret');
+    await symlink(outsideDir, join(projectDir, 'linked'), 'junction');
+
+    await expect(startArtifactLoopbackServer({
+      projectDir,
+      artifactPath: 'linked/secret.txt',
+    })).rejects.toThrow('inside the current project directory');
+  });
+
+  it('rejects artifacts above the bounded verification size', async () => {
+    const projectDir = await mkdtemp(join(tmpdir(), 'ath-artifact-loopback-large-'));
+    tempDirs.push(projectDir);
+    await writeFile(join(projectDir, 'large.bin'), Buffer.alloc(10 * 1024 * 1024 + 1));
+
+    await expect(startArtifactLoopbackServer({
+      projectDir,
+      artifactPath: 'large.bin',
+    })).rejects.toThrow('verification limit');
   });
 });

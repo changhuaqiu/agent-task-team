@@ -436,6 +436,20 @@ describe('InvocationPlanner', () => {
         requireMerge: false,
       },
     });
+    await expect(new InvocationPlanner().prepare({
+      id: 'durable-stale-proposal',
+      source: 'user',
+      conversationId: 'conv-external-autonomous',
+      agentId: 'mario',
+      prompt: 'Generate the legacy proposal',
+      legacyProposal: true,
+    })).resolves.toEqual({
+      ok: false,
+      outcome: {
+        status: 'blocked',
+        reasonCode: 'autonomous_delivery_owns_planning',
+      },
+    });
     const submit = vi.fn();
 
     const submission = submitSocketTerminalStart({ submit }, {
@@ -452,6 +466,27 @@ describe('InvocationPlanner', () => {
       reasonCode: 'autonomous_delivery_owns_planning',
     });
     expect(submit).not.toHaveBeenCalled();
+  });
+
+  it('forwards the legacy proposal marker from socket dispatch into Invocation activation', () => {
+    const submit = vi.fn(() => ({
+      disposition: 'accepted' as const,
+      handled: true,
+      completion: Promise.resolve({ status: 'accepted' as const }),
+    }));
+
+    submitSocketTerminalStart({ submit }, {
+      dispatchId: 'socket-legacy-proposal',
+      conversationId: 'conv-no-delivery-run',
+      agentId: 'mario',
+      prompt: 'Generate a proposal',
+      dispatchSource: 'user',
+      legacyProposal: true,
+    });
+
+    expect(submit).toHaveBeenCalledWith(expect.objectContaining({
+      legacyProposal: true,
+    }));
   });
 
   it('observes an invalid legacy Skill file path as a bounded Skill failure', async () => {

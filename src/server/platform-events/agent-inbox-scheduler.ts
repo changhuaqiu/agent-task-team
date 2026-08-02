@@ -83,6 +83,7 @@ export class AgentInboxScheduler {
           chainId: item.command.chainId,
           passId: item.command.passId,
           contextScenario: item.command.contextScenario,
+          legacyProposal: item.command.legacyProposal,
         };
         const submission = this.options.submit(trigger);
         if (submission.disposition === 'deferred') {

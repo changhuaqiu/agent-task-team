@@ -311,5 +311,10 @@ describe('project session scoping', () => {
         legacyProposal: true,
       }),
     );
+    const enqueueCall = (global.fetch as ReturnType<typeof vi.fn>).mock.calls
+      .find(([, init]) => String(init?.body).includes('dispatch.enqueue'));
+    expect(JSON.parse(String(enqueueCall?.[1]?.body))).toMatchObject({
+      payload: { legacyProposal: true },
+    });
   });
 });

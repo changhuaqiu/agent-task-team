@@ -1,4 +1,4 @@
-import { existsSync, statSync } from 'node:fs';
+import { existsSync, realpathSync, statSync } from 'node:fs';
 import { isAbsolute, relative, resolve } from 'node:path';
 import type { ProofEventRow } from '../repositories/proof-log-repo';
 import type {
@@ -211,19 +211,35 @@ export function verificationReceiptFromProof(
       errors.push('project_path_required_for_artifacts');
     } else {
       const root = resolve(projectPath);
+      let canonicalRoot: string | undefined;
+      try {
+        canonicalRoot = realpathSync(root);
+      } catch {
+        errors.push('project_path_unreadable');
+      }
       for (const [kind, ref] of [
         ['report', candidate.payload.reportRef],
         ...candidate.payload.specRefs.map(ref => ['spec', ref]),
       ] as Array<[string, string]>) {
         if (/^https?:\/\//i.test(ref)) continue;
-        const target = resolve(root, ref);
-        const rel = relative(root, target);
-        if (rel.startsWith('..') || isAbsolute(rel)) {
-          errors.push(`${kind}_ref_outside_project`);
-          continue;
-        }
         try {
-          if (!existsSync(target) || !statSync(target).isFile()) {
+          const target = resolve(root, ref);
+          if (!existsSync(target)) {
+            errors.push(`${kind}_ref_missing`);
+            continue;
+          }
+          const canonicalTarget = realpathSync(target);
+          const rel = canonicalRoot ? relative(canonicalRoot, canonicalTarget) : '..';
+          if (
+            isAbsolute(rel)
+            || rel === '..'
+            || rel.startsWith(`..\\`)
+            || rel.startsWith('../')
+          ) {
+            errors.push(`${kind}_ref_outside_project`);
+            continue;
+          }
+          if (!statSync(canonicalTarget).isFile()) {
             errors.push(`${kind}_ref_missing`);
           }
         } catch {

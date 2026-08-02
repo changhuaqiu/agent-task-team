@@ -1,10 +1,19 @@
-import { describe, expect, it } from 'vitest';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
 import type { ProofEventRow } from '../repositories/proof-log-repo';
 import type { DeliveryRunSnapshot, GoalContract } from './types';
 import {
   validateAcceptanceVerificationReceipt,
   verificationReceiptFromProof,
 } from './verification-receipt';
+
+const tempDirs: string[] = [];
+
+afterEach(() => {
+  for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
 
 const contract: GoalContract = {
   idempotencyKey: 'verification-receipt-delivery',
@@ -162,5 +171,51 @@ describe('Acceptance Verification Receipt', () => {
       ...proof,
       created_at: '2026-07-18T23:59:00.000Z',
     }, snapshot()).present).toBe(false);
+  });
+
+  it('rejects local verification evidence that escapes through a junction', () => {
+    const parentDir = mkdtempSync(join(tmpdir(), 'ath-verification-receipt-link-'));
+    tempDirs.push(parentDir);
+    const projectDir = join(parentDir, 'project');
+    const outsideDir = join(parentDir, 'outside');
+    mkdirSync(projectDir);
+    mkdirSync(outsideDir);
+    writeFileSync(join(outsideDir, 'report.html'), 'outside');
+    symlinkSync(outsideDir, join(projectDir, 'linked'), 'junction');
+    const localSnapshot = snapshot();
+    localSnapshot.contract = {
+      ...contract,
+      scope: { ...contract.scope, projectPath: projectDir },
+    };
+    const proof: ProofEventRow = {
+      id: 'proof-link',
+      event_type: 'task_graph.gate_evidence.accepted',
+      conversation_id: 'conv-1',
+      task_id: 'task-1',
+      chain_id: null,
+      pass_id: null,
+      envelope_id: null,
+      node_id: null,
+      agent_id: 'qa',
+      actor_id: 'qa',
+      reason_code: null,
+      metadata: JSON.stringify({
+        gateName: 'delivery_evidence',
+        evidence: {
+          verificationReceipt: receipt({
+            reportRef: 'linked/report.html',
+            specRefs: ['https://example.test/spec'],
+          }),
+        },
+      }),
+      created_at: '2026-07-19T00:01:00.000Z',
+    };
+
+    const result = verificationReceiptFromProof(proof, localSnapshot, {
+      authorizedVerifierIds: ['qa'],
+      validateLocalArtifacts: true,
+    });
+    expect(result.valid).toBe(false);
+    expect(result.errors).toContain('report_ref_outside_project');
   });
 });

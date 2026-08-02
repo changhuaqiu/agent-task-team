@@ -233,6 +233,7 @@ export const createDaemonSlice = (set: any, get: () => any) => {
             referencedTaskId: entry.referencedTaskId,
             source: entry.source,
             fromAgentId: entry.fromAgentId,
+            legacyProposal: entry.legacyProposal,
             idempotencyKey: entry.idempotencyKey,
           },
         }),
@@ -317,6 +318,7 @@ export const createDaemonSlice = (set: any, get: () => any) => {
           taskId?: string;
           source?: PendingDispatch['source'];
           fromAgentId?: string;
+          legacyProposal?: boolean;
         };
         createdAt: string;
       }>;
@@ -340,6 +342,7 @@ export const createDaemonSlice = (set: any, get: () => any) => {
           referencedTaskId: item.command.taskId,
           source: item.command.source,
           fromAgentId: item.command.fromAgentId,
+          legacyProposal: item.command.legacyProposal,
           conversationId,
           queuedAt: item.createdAt,
         };
@@ -544,7 +547,7 @@ export const createDaemonSlice = (set: any, get: () => any) => {
       }
     },
 
-    forceSendDispatch: async ({ agentId, prompt, referencedTaskId, conversationId: explicitConvId, queuedIdempotencyKey }: { agentId: string; prompt: string; referencedTaskId?: string; conversationId?: string; queuedIdempotencyKey?: string }) => {
+    forceSendDispatch: async ({ agentId, prompt, referencedTaskId, conversationId: explicitConvId, queuedIdempotencyKey, legacyProposal }: { agentId: string; prompt: string; referencedTaskId?: string; conversationId?: string; queuedIdempotencyKey?: string; legacyProposal?: boolean }) => {
       const conversationId = explicitConvId ?? get().selectedConversationId ?? '';
       if (conversationId) {
         await get().clearPendingDispatches(agentId, conversationId, queuedIdempotencyKey);
@@ -556,7 +559,7 @@ export const createDaemonSlice = (set: any, get: () => any) => {
         activeRunsByAgent: { ...state.activeRunsByAgent, [agentId]: undefined },
       }));
       setTimeout(() => {
-        void get().dispatchToAgent({ agentId, prompt, referencedTaskId, conversationId });
+        void get().dispatchToAgent({ agentId, prompt, referencedTaskId, conversationId, legacyProposal });
       }, 500);
     },
 

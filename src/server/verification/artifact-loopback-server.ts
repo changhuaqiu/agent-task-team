@@ -1,9 +1,10 @@
 import { randomBytes } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { readFile, realpath, stat } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { basename, extname, isAbsolute, relative, resolve } from 'node:path';
 
 const DEFAULT_TTL_MS = 120_000;
+const MAX_ARTIFACT_BYTES = 10 * 1024 * 1024;
 
 export interface ArtifactLoopbackServerResult {
   url: string;
@@ -12,18 +13,26 @@ export interface ArtifactLoopbackServerResult {
   expiresAt: string;
 }
 
-function resolveProjectArtifact(projectDir: string, artifactPath: string): string {
-  const projectRoot = resolve(projectDir);
-  const resolvedArtifact = resolve(projectRoot, artifactPath);
-  const projectRelativePath = relative(projectRoot, resolvedArtifact);
+function isOutsideRoot(root: string, target: string): boolean {
+  const rel = relative(root, target);
+  return isAbsolute(rel) || rel === '..' || rel.startsWith(`..\\`) || rel.startsWith('../');
+}
+
+async function resolveProjectArtifact(projectDir: string, artifactPath: string): Promise<string> {
+  if (!artifactPath.trim()) {
+    throw new Error('artifact_path must resolve inside the current project directory');
+  }
+  const projectRoot = await realpath(resolve(projectDir));
+  const resolvedArtifact = await realpath(resolve(projectRoot, artifactPath));
   if (
-    !artifactPath.trim()
-    || isAbsolute(projectRelativePath)
-    || projectRelativePath === '..'
-    || projectRelativePath.startsWith(`..\\`)
-    || projectRelativePath.startsWith('../')
+    isOutsideRoot(projectRoot, resolvedArtifact)
   ) {
     throw new Error('artifact_path must resolve inside the current project directory');
+  }
+  const artifactStat = await stat(resolvedArtifact);
+  if (!artifactStat.isFile()) throw new Error('artifact_path must reference a regular file');
+  if (artifactStat.size > MAX_ARTIFACT_BYTES) {
+    throw new Error(`artifact exceeds the ${MAX_ARTIFACT_BYTES} byte verification limit`);
   }
   return resolvedArtifact;
 }
@@ -59,7 +68,7 @@ export async function startArtifactLoopbackServer(input: {
   artifactPath: string;
   ttlMs?: number;
 }): Promise<ArtifactLoopbackServerResult> {
-  const artifactPath = resolveProjectArtifact(input.projectDir, input.artifactPath);
+  const artifactPath = await resolveProjectArtifact(input.projectDir, input.artifactPath);
   const body = await readFile(artifactPath);
   const token = randomBytes(24).toString('base64url');
   const route = `/${token}/${encodeURIComponent(basename(artifactPath))}`;

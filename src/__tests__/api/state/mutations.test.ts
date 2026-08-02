@@ -123,6 +123,7 @@ describe('POST /api/mutations', () => {
         prompt: 'Continue the task',
         referencedTaskId: 'task-1',
         source: 'workflow',
+        legacyProposal: true,
         idempotencyKey: 'browser-request-1',
       },
     };
@@ -139,6 +140,7 @@ describe('POST /api/mutations', () => {
       source: 'workflow',
       prompt: 'Continue the task',
       taskId: 'task-1',
+      legacyProposal: true,
     });
     const { getDb } = await import('@/server/db/index');
     expect(getDb().prepare('SELECT COUNT(*) AS count FROM agent_inbox_item').get())

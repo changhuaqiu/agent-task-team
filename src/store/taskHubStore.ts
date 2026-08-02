@@ -87,6 +87,7 @@ export interface DispatchToAgentInput {
   contextSnapshot?: string;
   epochId?: string;
   queuedIdempotencyKey?: string;
+  legacyProposal?: boolean;
 }
 
 export interface DispatchReceipt {

@@ -156,6 +156,7 @@ export function submitSocketTerminalStart(
     fromAgentId: payload.fromAgentId,
     chainId: payload.chainId,
     passId: payload.passId,
+    legacyProposal: payload.legacyProposal,
   });
 }
 

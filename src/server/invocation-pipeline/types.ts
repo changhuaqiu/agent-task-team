@@ -23,6 +23,7 @@ export interface AgentActivationCommand {
   /** Stable business work identity. Retries rotate the epoch under the same workId. */
   workId?: string;
   contextScenario?: ContextScenario;
+  legacyProposal?: boolean;
   wakeup?: ContextRequest['wakeup'];
   evaluation?: {
     executionId: string;
