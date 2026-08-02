@@ -9,4 +9,4 @@
 - [x] A direct stale action claim remains rejected.
 - [x] Relevant automated tests, type-check and Webpack production build pass.
 - [x] Real Claude ACP smoke completes with visible text and no `EPIPE`.
-- [ ] Freshly restarted production server passes browser and scheduled-wakeup verification.
+- [x] Freshly restarted production server passes browser and scheduled-wakeup verification.
