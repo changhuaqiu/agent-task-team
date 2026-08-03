@@ -79,6 +79,22 @@ export class AcpRuntimeEventCoordinator {
     this.publish('runtime.session.confirmed', { runtimeSessionId });
   }
 
+  permissionRequested(input: {
+    requestId: string;
+    callId?: string;
+    options: string[];
+  }): void {
+    this.publish('runtime.permission.requested', input);
+  }
+
+  permissionResolved(input: {
+    requestId: string;
+    decision: 'allowed' | 'denied';
+    source: 'policy' | 'user';
+  }): void {
+    this.publish('runtime.permission.resolved', input);
+  }
+
   terminate(final: Pick<
     AgentResult,
     'status' | 'reasonCode' | 'durationMs' | 'sessionId' | 'usage'

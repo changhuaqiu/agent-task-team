@@ -149,6 +149,88 @@ describe('AcpBackend (subprocess integration with mockAcpAgent)', () => {
     expect(result.error).toBeUndefined();
   }, 30000);
 
+  it('reports the effective permission request and decision', async () => {
+    const requested: string[] = [];
+    const resolved: string[] = [];
+    const backend = new AcpBackend({
+      command: 'npx',
+      args: ['tsx', mockPath],
+      engine: 'opencode',
+      cwd: process.cwd(),
+      permissionPolicy: 'allow_once',
+      onPermissionRequested: (permission) => {
+        requested.push(permission.toolCall.toolCallId);
+      },
+      onPermissionResolved: (permission, response) => {
+        resolved.push(`${permission.toolCall.toolCallId}:${
+          response.outcome.outcome === 'selected' ? response.outcome.optionId : 'cancelled'
+        }`);
+      },
+    });
+
+    const run = backend.execute('hi', {});
+    for await (const event of run.events) void event;
+    expect(await run.result).toMatchObject({ status: 'completed' });
+    expect(requested).toEqual(['t1']);
+    expect(resolved).toEqual(['t1:allow']);
+  }, 30000);
+
+  it('fails permission closed when audit publication fails', async () => {
+    const backend = new AcpBackend({
+      command: 'npx',
+      args: ['tsx', mockPath],
+      engine: 'opencode',
+      cwd: process.cwd(),
+      permissionPolicy: 'allow_once',
+      onPermissionRequested: () => {
+        throw new Error('audit unavailable');
+      },
+    });
+
+    const run = backend.execute('hi', {});
+    const toolStatuses: string[] = [];
+    for await (const event of run.events) {
+      if (event.type === 'tool_result' && event.tool?.status) {
+        toolStatuses.push(event.tool.status);
+      }
+    }
+    expect(await run.result).toMatchObject({
+      status: 'failed',
+      reasonCode: 'acp_permission_audit_failed',
+    });
+    expect(toolStatuses).toEqual(['failed']);
+  }, 30000);
+
+  it('does not return a late allow when termination starts during policy evaluation', async () => {
+    const resolvedOptions: string[] = [];
+    const ordering: string[] = [];
+    let killRun = () => {};
+    const backend = new AcpBackend({
+      command: 'npx',
+      args: ['tsx', mockPath],
+      engine: 'opencode',
+      cwd: process.cwd(),
+      permissionPolicy: () => new Promise((resolveDecision) => {
+        setTimeout(() => resolveDecision('allow_once'), 50);
+      }),
+      onPermissionRequested: () => killRun(),
+      onPermissionResolved: (_permission, response) => {
+        ordering.push('permission-resolved');
+        resolvedOptions.push(
+          response.outcome.outcome === 'selected' ? response.outcome.optionId : 'cancelled',
+        );
+      },
+    });
+
+    const run = backend.execute('hi', {});
+    killRun = run.kill;
+    for await (const event of run.events) void event;
+    expect(await run.result).toMatchObject({ status: 'cancelled' });
+    ordering.push('invocation-terminal');
+    expect(resolvedOptions).not.toContain('allow');
+    expect(ordering).toEqual(['permission-resolved', 'invocation-terminal']);
+  }, 30000);
+
   it('kill() is callable and cancels the run', async () => {
     const backend = new AcpBackend({
       command: 'npx',

@@ -33,6 +33,7 @@ export type AcpFailureReasonCode =
   | 'acp_invalid_runtime'
   | 'acp_max_turn_timeout'
   | 'acp_output_limit'
+  | 'acp_permission_audit_failed'
   | 'acp_process_exited'
   | 'acp_resume_unsupported'
   | 'acp_session_identity_changed'
@@ -58,6 +59,11 @@ export interface AcpBackendOpts {
   env?: Record<string, string>;
   permissionPolicy?: AcpPermissionPolicy;
   permissionTimeoutMs?: number;
+  onPermissionRequested?: (request: acp.RequestPermissionRequest) => void;
+  onPermissionResolved?: (
+    request: acp.RequestPermissionRequest,
+    response: acp.RequestPermissionResponse,
+  ) => void;
   cancelGraceMs?: number;
   forceKillGraceMs?: number;
   maxTurnTimeoutMs?: number;
@@ -285,6 +291,8 @@ export class AcpBackend implements AgentBackend {
     let stderrTail = '';
     let initialized = false;
     let resultResolved = false;
+    let permissionAuditFailed = false;
+    let pendingPermissionRequests = 0;
     let processClosed = false;
     let terminationStarted = false;
     let termTimer: NodeJS.Timeout | undefined;
@@ -292,6 +300,13 @@ export class AcpBackend implements AgentBackend {
     let cleanupReleaseTimer: NodeJS.Timeout | undefined;
     let idleTimeoutTimer: NodeJS.Timeout | undefined;
     let maxTurnTimeoutTimer: NodeJS.Timeout | undefined;
+    let deferredFinalization: {
+      status: AgentResult['status'];
+      reasonCode?: AcpFailureReasonCode;
+      error?: string;
+      usage?: AgentResult['usage'];
+      gracefulCancel: boolean;
+    } | undefined;
 
     let resultResolve!: (result: AgentResult) => void;
     const resultPromise = new Promise<AgentResult>((resolveResult) => {
@@ -383,7 +398,7 @@ export class AcpBackend implements AgentBackend {
       }
     };
 
-    const finalize = (
+    const completeFinalization = (
       status: AgentResult['status'],
       reasonCode?: AcpFailureReasonCode,
       error?: string,
@@ -391,6 +406,11 @@ export class AcpBackend implements AgentBackend {
       gracefulCancel = false,
     ) => {
       if (resultResolved) return;
+      if (permissionAuditFailed) {
+        status = 'failed';
+        reasonCode = 'acp_permission_audit_failed';
+        error = 'ACP permission decision could not be persisted for audit';
+      }
       resultResolved = true;
       clearTimeout(idleTimeoutTimer);
       clearTimeout(maxTurnTimeoutTimer);
@@ -405,6 +425,36 @@ export class AcpBackend implements AgentBackend {
       });
       wakeGenerator();
       stopProcess(gracefulCancel);
+    };
+
+    const finalize = (
+      status: AgentResult['status'],
+      reasonCode?: AcpFailureReasonCode,
+      error?: string,
+      usage?: AgentResult['usage'],
+      gracefulCancel = false,
+    ) => {
+      if (resultResolved || deferredFinalization) return;
+      if (pendingPermissionRequests > 0) {
+        deferredFinalization = { status, reasonCode, error, usage, gracefulCancel };
+        stopProcess(gracefulCancel);
+        return;
+      }
+      completeFinalization(status, reasonCode, error, usage, gracefulCancel);
+    };
+
+    const finishPermissionRequest = () => {
+      pendingPermissionRequests = Math.max(0, pendingPermissionRequests - 1);
+      if (pendingPermissionRequests !== 0 || !deferredFinalization || resultResolved) return;
+      const pending = deferredFinalization;
+      deferredFinalization = undefined;
+      completeFinalization(
+        pending.status,
+        pending.reasonCode,
+        pending.error,
+        pending.usage,
+        pending.gracefulCancel,
+      );
     };
 
     const failForLimit = (reasonCode: 'acp_output_limit' | 'acp_event_limit', message: string) => {
@@ -539,13 +589,48 @@ export class AcpBackend implements AgentBackend {
         const clientApp = acp
           .client({ name: 'agent-task-team' })
           .onRequest(acp.methods.client.session.requestPermission, async (ctx) => {
-            attemptHadVisibleActivity = true;
-            sawToolActivity = true;
-            hasTextAfterLastTool = false;
-            markProtocolActivity();
-            const response = await permissionHandler(ctx.params);
-            markProtocolActivity();
-            return response;
+            const denyPermission = () => createPermissionHandler('deny')(ctx.params);
+            if (resultResolved) return denyPermission();
+            pendingPermissionRequests += 1;
+            try {
+              attemptHadVisibleActivity = true;
+              sawToolActivity = true;
+              hasTextAfterLastTool = false;
+              markProtocolActivity();
+              try {
+                this.o.onPermissionRequested?.(ctx.params);
+              } catch {
+                permissionAuditFailed = true;
+                const denied = await denyPermission();
+                try {
+                  this.o.onPermissionResolved?.(ctx.params, denied);
+                } catch {
+                  // The final result is forced to a stable audit failure below.
+                }
+                return denied;
+              }
+              let response = terminationStarted
+                ? await denyPermission()
+                : await permissionHandler(ctx.params);
+              if (resultResolved || terminationStarted) {
+                response = await denyPermission();
+              }
+              try {
+                this.o.onPermissionResolved?.(ctx.params, response);
+              } catch {
+                permissionAuditFailed = true;
+                response = await denyPermission();
+                try {
+                  this.o.onPermissionResolved?.(ctx.params, response);
+                } catch {
+                  // The final result is forced to a stable audit failure below.
+                }
+              }
+              markProtocolActivity();
+              return response;
+            } finally {
+              finishPermissionRequest();
+            }
           })
           .onNotification(acp.methods.client.session.update, (ctx) =>
             handleSessionUpdate(ctx.params),

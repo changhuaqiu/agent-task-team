@@ -119,6 +119,8 @@ export function createBackend(
     | 'env'
     | 'permissionPolicy'
     | 'permissionTimeoutMs'
+    | 'onPermissionRequested'
+    | 'onPermissionResolved'
     | 'cancelGraceMs'
     | 'forceKillGraceMs'
     | 'maxTurnTimeoutMs'
@@ -137,6 +139,8 @@ export function createBackend(
     env: opts?.env,
     permissionPolicy: opts?.permissionPolicy,
     permissionTimeoutMs: opts?.permissionTimeoutMs,
+    onPermissionRequested: opts?.onPermissionRequested,
+    onPermissionResolved: opts?.onPermissionResolved,
     cancelGraceMs: opts?.cancelGraceMs,
     forceKillGraceMs: opts?.forceKillGraceMs,
     maxTurnTimeoutMs: opts?.maxTurnTimeoutMs,
