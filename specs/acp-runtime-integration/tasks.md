@@ -31,6 +31,7 @@
 
 - [x] Catalog 启动参数精确锁版本并在加载时校验。
 - [x] 权限改为显式策略，默认 fail-closed，并覆盖 allow/deny/策略异常。
+- [x] 将自主交付 WorkContract 的代码修改授权映射为单次 ACP edit/execute 决策，并记录权限审计事件。
 - [x] 执行生命周期统一 finalize，取消采用 ACP cancel → TERM → KILL 的有界清理。
 - [x] 增加并发、事件队列、单事件、总输出和 stderr tail 上限。
 - [x] OpenCode/Codex 临时配置使用隔离目录、收紧权限并幂等清理。

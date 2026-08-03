@@ -113,6 +113,17 @@ interface AgentResult {
 
 **CLI 调用**：`claude -p --output-format stream-json --input-format stream-json --verbose --permission-mode bypassPermissions`
 
+### 自主 Invocation 的 ACP 权限桥接
+
+daemon 不再要求自主项目通过 `.claude/settings.local.json` 预先放开 Write/Edit/Bash。自主交付启动时，`GoalContract.authorization` 会被冻结进每次派发的 `WorkContract`；ACP backend 只消费当前 Invocation 的这份不可变授权，并只返回 `allow_once`。
+
+- `allowCodeChanges=true` 允许项目内 ACP `edit`、Claude 原生委派，以及严格白名单内的 test/build/lint 命令；文件目标通过真实路径检查，命令串联、重定向、任意解释器和网络/Git CLI 不在白名单内。
+- `git push`、创建 PR 和合并只能通过受信平台动作分别消费 `allowPush`、`allowPullRequest`、`allowAutoMerge`，不能从代码修改授权隐式放大。
+- 每次请求都会重新读取 Work Authority；contract 已关闭或 epoch/contract ID 已替换时立即拒绝，不能继续消费旧授权。
+- 这里的 `allowCodeChanges` 是本地代码执行的信任决定：test/build 脚本天然能够执行项目代码。Git/PR 字段约束平台 Provider 动作，但 ACP 策略不是恶意代码沙箱；需要对不受信仓库实施网络、凭据与文件系统硬隔离时，部署层必须提供独立执行沙箱。
+- 没有 WorkContract、授权字段不明确、策略超时或异常时保持 fail-closed；全局 `ACP_PERMISSION_MODE=allow_once` 仅保留为显式运维覆盖，不是自主交付的默认路径。
+- permission request 和最终决策写入 Invocation Runtime Event 流；平台因此可以审计某次调用是获准执行还是被策略拒绝。
+
 **stdin 协议**：prompt 作为 stream-json 格式写入 stdin：
 ```json
 {"type":"user","message":{"role":"user","content":[{"type":"text","text":"..."}]}}

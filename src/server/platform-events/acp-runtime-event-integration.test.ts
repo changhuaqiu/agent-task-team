@@ -113,6 +113,35 @@ describe('ACP Runtime event integration', () => {
     ]);
   });
 
+  it('records permission requests and policy decisions in the Invocation stream', () => {
+    coordinator.accept();
+    coordinator.start();
+    coordinator.permissionRequested({
+      requestId: 'session-1:call-1',
+      callId: 'call-1',
+      options: ['allow_once', 'reject_once'],
+    });
+    coordinator.permissionResolved({
+      requestId: 'session-1:call-1',
+      decision: 'allowed',
+      source: 'policy',
+    });
+
+    const events = log.listByInvocation('inv-1');
+    expect(events.slice(2).map((event) => [event.type, event.payload])).toEqual([
+      ['runtime.permission.requested', {
+        requestId: 'session-1:call-1',
+        callId: 'call-1',
+        options: ['allow_once', 'reject_once'],
+      }],
+      ['runtime.permission.resolved', {
+        requestId: 'session-1:call-1',
+        decision: 'allowed',
+        source: 'policy',
+      }],
+    ]);
+  });
+
   it('normalizes a lost resumed ACP session before terminating the Invocation', () => {
     coordinator.accept();
     coordinator.start();

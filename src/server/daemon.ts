@@ -24,6 +24,7 @@ import {
   prepareAcpRuntime,
 } from './agent/acp/runtimeSetup';
 import { createBackend as createAcpBackend } from './agent/acp/catalog';
+import { createWorkContractPermissionPolicy } from './agent/acp/permissionPolicy';
 import { checkCapabilities } from './agent/capabilityRouter';
 import { buildOpenCodeRunArgs } from './agent/opencode-prompt-delivery';
 import type { AgentEvent, AgentBackend } from './agent/types';
@@ -1742,7 +1743,35 @@ export default function registerDaemon(io: IOServer) {
       const backend: AgentBackend = createAcpBackend(entry, {
         cwd: prepared.cwd,
         env: prepared.env,
-        permissionPolicy: resolveAcpPermissionPolicy(),
+        permissionPolicy: workContract
+          ? createWorkContractPermissionPolicy({
+            workContract,
+            cwd: prepared.cwd,
+            engine: entry.id,
+          })
+          : resolveAcpPermissionPolicy(),
+        onPermissionRequested: (request) => {
+          runtimeEventCoordinator?.permissionRequested({
+            requestId: `${request.sessionId}:${request.toolCall.toolCallId}`,
+            callId: request.toolCall.toolCallId,
+            options: request.options.map((option) => option.kind),
+          });
+        },
+        onPermissionResolved: (request, response) => {
+          const selectedOptionId = response.outcome.outcome === 'selected'
+            ? response.outcome.optionId
+            : undefined;
+          const selected = selectedOptionId
+            ? request.options.find((option) => option.optionId === selectedOptionId)
+            : undefined;
+          runtimeEventCoordinator?.permissionResolved({
+            requestId: `${request.sessionId}:${request.toolCall.toolCallId}`,
+            decision: selected?.kind === 'allow_once' || selected?.kind === 'allow_always'
+              ? 'allowed'
+              : 'denied',
+            source: 'policy',
+          });
+        },
         mcpServers: acpToolGrant ? [acpToolGrant.mcpServer] : [],
         autoApproveMcpToolNames: acpToolGrant?.autoApproveToolNames ?? [],
       });
