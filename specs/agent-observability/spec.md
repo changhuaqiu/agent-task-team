@@ -6,8 +6,9 @@
 
 ## 1. Problem
 
-The platform already persists execution facts in `invocation`, `agent_event`, `chat_message`,
-`control_proof_event`, task graph, and A2A tables. These facts cannot currently answer one
+The platform already persists execution facts in `invocation`, `platform_event`, `chat_message`,
+`control_proof_event`, task graph, and A2A tables. The retained `agent_event` table is historical
+compatibility storage, not a current execution-fact owner. These facts cannot currently answer one
 project-level debugging question without manually joining logs:
 
 > What context did a role agent receive, what did it execute, which tools and skills were

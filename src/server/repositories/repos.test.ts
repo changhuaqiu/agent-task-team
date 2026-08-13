@@ -11,18 +11,15 @@ import {
 import { messageRepo } from './message-repo';
 import { sessionRepo } from './session-repo';
 import { invocationRepo } from './invocation-repo';
-import { eventRepo } from './event-repo';
 
 beforeEach(() => {
   const db = createTestDb();
   setTestDb(db);
   resetSeq();
 });
-
 afterEach(() => {
   resetDb();
 });
-
 describe('sortable-id', () => {
   it('generates unique IDs', () => {
     const ids = new Set<string>();
@@ -783,76 +780,5 @@ describe('invocation-repo', () => {
     expect(inv.account_id).toBe('acct-1');
     expect(inv.prompt).toBe('Fix the bug');
     expect(inv.session_id).toBe('ses-1');
-  });
-});
-
-describe('event-repo', () => {
-  let legacyId = 0;
-  beforeEach(() => {
-    conversationRepo.create({ id: 'conv-1', title: 'Test' });
-    taskRepo.create({ id: 'task-1', conversation_id: 'conv-1', title: 'T1', agent_id: 'agent-a' });
-  });
-
-  function insertLegacyEvent(input: {
-    conversationId: string;
-    taskId?: string;
-    agentId: string;
-    type: string;
-    payload?: Record<string, unknown>;
-  }): void {
-    legacyId += 1;
-    getDb().prepare(`
-      INSERT INTO agent_event (id,conversation_id,task_id,agent_id,type,payload,created_at)
-      VALUES (?,?,?,?,?,?,?)
-    `).run(
-      `legacy-event-${legacyId}`,
-      input.conversationId,
-      input.taskId ?? null,
-      input.agentId,
-      input.type,
-      input.payload ? JSON.stringify(input.payload) : null,
-      new Date(legacyId).toISOString(),
-    );
-  }
-
-  it('gets events by conversation', () => {
-    insertLegacyEvent({ conversationId: 'conv-1', agentId: 'agent-a', type: 'agent.text' });
-    insertLegacyEvent({ conversationId: 'conv-1', agentId: 'agent-a', type: 'agent.tool_use' });
-    const events = eventRepo.getByConversation('conv-1');
-    expect(events.length).toBe(2);
-    expect(events[0].type).toBe('agent.text');
-  });
-
-  it('gets events by task', () => {
-    insertLegacyEvent({ conversationId: 'conv-1', taskId: 'task-1', agentId: 'agent-a', type: 'agent.text' });
-    insertLegacyEvent({ conversationId: 'conv-1', agentId: 'agent-a', type: 'agent.text' });
-    const taskEvents = eventRepo.getByTask('task-1');
-    expect(taskEvents.length).toBe(1);
-  });
-
-  it('gets events by agent', () => {
-    insertLegacyEvent({ conversationId: 'conv-1', agentId: 'agent-a', type: 'agent.text' });
-    insertLegacyEvent({ conversationId: 'conv-1', agentId: 'agent-b', type: 'agent.text' });
-    const events = eventRepo.getByAgent('agent-a');
-    expect(events.length).toBe(1);
-  });
-
-  it('stores payload as JSON', () => {
-    insertLegacyEvent({
-      conversationId: 'conv-1',
-      agentId: 'agent-a',
-      type: 'agent.tool_use',
-      payload: { tool: 'Read', args: { path: '/foo' } },
-    });
-    const events = eventRepo.getByConversation('conv-1');
-    expect(JSON.parse(events[0].payload!)).toEqual({ tool: 'Read', args: { path: '/foo' } });
-  });
-
-  it('respects limit option', () => {
-    for (let i = 0; i < 5; i++) {
-      insertLegacyEvent({ conversationId: 'conv-1', agentId: 'agent-a', type: `event-${i}` });
-    }
-    const limited = eventRepo.getByConversation('conv-1', { limit: 3 });
-    expect(limited.length).toBe(3);
   });
 });

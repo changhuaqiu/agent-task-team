@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import { parseMentions, hasMentions, extractRawMentions } from './mention-parser';
-import { routeMessage, planSerialExecution } from './agent-router';
 
 describe('mention-parser', () => {
   describe('parseMentions', () => {
@@ -89,71 +88,6 @@ describe('mention-parser', () => {
 
     it('returns empty for no mentions', () => {
       expect(extractRawMentions('hello')).toEqual([]);
-    });
-  });
-});
-
-describe('agent-router', () => {
-  describe('routeMessage', () => {
-    it('routes based on mentions', () => {
-      const result = routeMessage('@mario do this', {
-        participants: ['mario', 'luigi'],
-        agentStatus: {},
-      });
-      expect(result.strategy).toBe('serial');
-      expect(result.targets).toEqual(['mario']);
-    });
-
-    it('broadcasts when no mentions', () => {
-      const result = routeMessage('hello', {
-        participants: ['mario', 'luigi'],
-        agentStatus: {},
-      });
-      expect(result.strategy).toBe('broadcast');
-      expect(result.targets).toEqual(['mario', 'luigi']);
-    });
-
-    it('filters out busy agents', () => {
-      const result = routeMessage('hello', {
-        participants: ['mario', 'luigi'],
-        agentStatus: { mario: 'busy' },
-      });
-      expect(result.targets).not.toContain('mario');
-      expect(result.targets).toContain('luigi');
-    });
-
-    it('filters out agents waiting for background child work', () => {
-      const result = routeMessage('hello', {
-        participants: ['mario', 'luigi'],
-        agentStatus: { mario: 'background' },
-      });
-      expect(result.targets).not.toContain('mario');
-      expect(result.targets).toContain('luigi');
-    });
-
-    it('returns all targets even if busy when no alternatives', () => {
-      const result = routeMessage('@mario do this', {
-        participants: ['mario'],
-        agentStatus: { mario: 'busy' },
-      });
-      expect(result.targets).toEqual(['mario']);
-    });
-  });
-
-  describe('planSerialExecution', () => {
-    it('plans sequential dispatches with delays', () => {
-      const plan = planSerialExecution(['mario', 'luigi'], 'write code', {});
-      expect(plan).toHaveLength(2);
-      expect(plan[0].agentId).toBe('mario');
-      expect(plan[0].delay).toBe(0);
-      expect(plan[1].agentId).toBe('luigi');
-      expect(plan[1].delay).toBe(1000);
-    });
-
-    it('returns single plan for single target', () => {
-      const plan = planSerialExecution(['mario'], 'write code', {});
-      expect(plan).toHaveLength(1);
-      expect(plan[0].delay).toBe(0);
     });
   });
 });

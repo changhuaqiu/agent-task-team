@@ -120,7 +120,7 @@
 
 ### 2) 视图：实现 Chat Hub（新组件/复用现有）
 
-- 新增组件（建议）：`src/components/chat/ChatHubView.tsx`
+- 聊天主视图继续由当前 `ClientHome` 与 `GlobalChatRoom` 组合承担，不新增平行的 `ChatHubView`。
   - 复用 `ConversationPicker`（作为顶部或侧边）
   - 复用 `ChatMessageItem`（渲染消息）
   - 替换 `GlobalChatRoom` 为 `ConversationChatRoom`（或在 `GlobalChatRoom` 中改为基于 selector 读取当前会话消息）

@@ -82,7 +82,8 @@ TeamPack 会话的服务端任务创建会经过 [`src/server/team-runtime/task-
 - `token_usage` — JSON 格式 token 用量数据（per-model）
 - `lease_expiry` — claim 过期时间
 
-- `conversation`、`task`、`chat_message`、`agent_session`、`invocation`、`agent_event` — 业务主数据
+- `conversation`、`task`、`chat_message`、`agent_session`、`invocation`、`platform_event` — 当前业务主数据与事件事实
+- `agent_event` — 仅保留的历史兼容表，不再承担当前事件读写 owner
 - `skill` — 能力模块核心表（name 唯一约束）
 - `skill_file` — skill 配套文件（FK → skill.id，CASCADE）
 - `agent_skill` — agent-skill 多对多关联（agent_id + skill_id 联合主键）
@@ -99,11 +100,8 @@ Repository 当前覆盖的核心对象：
 - `messageRepo`
 - `sessionRepo`
 - `invocationRepo`
-- `eventRepo`
-- `dispatchRepo` — dispatch 队列管理（操作 invocation 表的 dispatch_status 列，提供原子 claim、僵尸恢复、pending 查询）
 - `role_cards` 表：`id TEXT PK, data TEXT NOT NULL, is_preset INTEGER NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL`，其中 `data` 列以 JSON 存储完整 RoleCard（含 CapabilityProfile）
 - `skillRepo` — skill CRUD、文件管理、agent 绑定（[`skill-repo.ts`](../../src/server/repositories/skill-repo.ts)）
-- `dispatchRepo` — dispatch 状态管理（基于 invocation 表扩展列，[`dispatch-repo.ts`](../../src/server/repositories/dispatch-repo.ts)）
 
 新增模块：
 - [`src/server/workdir-manager.ts`](../../src/server/workdir-manager.ts) — WorkdirManager：per-task 工作目录创建、session 元数据读写、GC

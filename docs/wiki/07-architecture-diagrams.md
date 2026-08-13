@@ -152,7 +152,7 @@ sequenceDiagram
   participant Catalog as loadCatalog()
   participant Backend as AcpBackend
   participant Runtime as ACP Runtime (opencode/适配器)
-  participant MsgRepo as messageRepo + eventRepo
+  participant MsgRepo as messageRepo + Platform Event Log
 
   User->>UI: 点击运行 / 派发任务
   UI->>Store: dispatchToAgent() / simulateCliExecution()
@@ -239,7 +239,8 @@ flowchart LR
     Messages["chat_message"]
     Sessions["agent_session"]
     Invocations["invocation"]
-    Events["agent_event"]
+    Events["platform_event — 当前事件事实"]
+    LegacyEvents["agent_event — 历史兼容表"]
     Skills["skill"]
     SkillFiles["skill_file"]
     AgentSkills["agent_skill"]
@@ -268,6 +269,7 @@ flowchart LR
   Sessions --> DataDB
   Invocations --> DataDB
   Events --> DataDB
+  LegacyEvents --> DataDB
   Skills --> DataDB
   SkillFiles --> DataDB
   AgentSkills --> DataDB
@@ -282,7 +284,7 @@ flowchart LR
 
 - 前端不是直接读 localStorage，而是先经由 `GET /api/state` rehydrate
 - `taskHubStore` 是运行态编排层，不是唯一真相源
-- daemon 不只是终端桥接器，还承担 session、invocation、事件落库和 backend 选择
+- daemon 不只是终端桥接器，还承担 session、invocation、当前 Platform Event Log 事件落库和 backend 选择；`agent_event` 仅为历史兼容表
 - agent 执行是 **ACP 单一通路**：`AcpBackend`（`AgentBackend` 唯一实现）通过 ACP JSON-RPC over stdio 驱动 opencode（原生）/ claude、codex（适配器）
 - daemon 经 Agent Catalog 查表决定启动方式（无 engine `switch` 工厂）；找不到条目直接抛错，不静默回退
 - `gemini / mock` 没有 Catalog 条目，无法经 ACP 路径执行

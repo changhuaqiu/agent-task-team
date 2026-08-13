@@ -23,7 +23,8 @@
 /.pnp
 /build
 /coverage
-/node_modules
+node_modules/
+dist/
 /out/
 # debug
 # dependencies

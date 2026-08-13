@@ -122,6 +122,7 @@
 - `docs/technical/execution/platform-runtime-webui-current-architecture.html`：当前 Runtime 与 WebUI 的可视化架构，明确人的主动 Command 通路与自动展示投影通路
 - `docs/technical/integrations/github-issue-agent-hook.md`：GitHub Issue webhook 验签、幂等映射与 GoalContract 接入设计
 - `docs/technical/execution/project-context-bootstrap.md`：代码库发现、分层知识索引、workstream 投影、增量刷新和 ContextManager 接线设计
+- `docs/technical/execution/architecture-subtraction.md`：仓库依赖/构建产物、未挂载 UI 和无生产消费者浅 Module 的删除决策与保留边界
 - `docs/wiki/project-context.md`：Project Context 的当前入口、生成布局、dispatch 数据流、安全边界与验证命令
 
 说明：

@@ -370,7 +370,7 @@ hover 态不允许：
 
 建议开发拆为 3 个视觉单元：
 
-1. `WorkspaceRootRow`
+1. root 行由当前项目侧栏内部结构直接渲染，不保留独立且未挂载的 `WorkspaceRootRow`。
 2. `ProjectTreeItem`
 3. `ProjectTreeItemActions`
 

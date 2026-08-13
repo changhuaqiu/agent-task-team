@@ -43,7 +43,7 @@ created: 2026-02-26
                                                     -> 运行时（opencode acp / 适配器）
       -> forwardAgentEvent()
         -> socket.emit(...)
-        -> messageRepo / eventRepo / invocationRepo / sessionRepo
+        -> messageRepo / platform event log / invocationRepo / sessionRepo
 ```
 
 更细粒度的协议层流向（见 spec §4）：
@@ -214,7 +214,7 @@ daemon 不仅负责“转发”，还负责写入：
 - `sessionRepo`
 - `invocationRepo`
 - `messageRepo`
-- `eventRepo`
+- 历史 `agent_event` 不再通过独立 `eventRepo` 暴露；当前事件事实统一由 Platform Event Log 与消息投影承担。
 
 因此执行集成层现在已经是：执行层 + 观测层 + 审计层，而不是单纯的 stdout 桥接器。
 

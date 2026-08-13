@@ -6,7 +6,8 @@
   "scripts": {
     "setup": "bash setup.sh",
     "dev": "next dev --webpack",
-    "build": "next build",
+    "build": "pnpm run build:mcp && next build",
+    "build:mcp": "pnpm --filter @agent-task-hub/mcp-server build",
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",

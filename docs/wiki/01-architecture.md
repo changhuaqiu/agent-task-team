@@ -294,8 +294,6 @@ Agent Inbox 查询得到的项目展示投影，不负责出队或重试。
 | `messageRepo` | 聊天消息追加 |
 | `sessionRepo` | Agent Session 生命周期 |
 | `invocationRepo` | 执行记录跟踪 |
-| `eventRepo` | 事件日志追加 |
-| `dispatchRepo` | Dispatch 队列持久化 |
 | `skillRepo` | Skill CRUD + 绑定 |
 
 ### Daemon 职责
