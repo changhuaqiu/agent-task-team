@@ -1,6 +1,6 @@
 # Agent 可观测性架构
 
-> Canonical implementation contract: `specs/agent-observability/spec.md`
+> Implemented contract archive: `docs/archive/specs/agent-observability/spec.md`
 > Architecture diagram: `agent-observability-architecture.html`
 
 ## 决策

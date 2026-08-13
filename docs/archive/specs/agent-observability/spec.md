@@ -1,6 +1,6 @@
 # Agent Observability Workbench
 
-> Status: Active implementation
+> Status: implemented
 > Date: 2026-07-16
 > Scope: project-level agent turns, context, tools, skills, task workflow, and A2A causality
 

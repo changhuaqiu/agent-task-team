@@ -39,3 +39,7 @@
 ## Filesystem Cleanup Note
 
 历史 worktree 的 Git 注册与已合入分支已清理。Windows 拒绝递归删除部分已注销目录中的锁定或超长路径依赖文件，因此这些目录不再是 Git worktree、也不包含待保留提交，但仍可能存在纯磁盘残留；不得把它们误认为活动开发分支。
+
+## Round 2: Runtime Reachability
+
+第二轮从 Next.js 页面/API 与 daemon 入口反推静态 import 图，继续删除不可达功能：旧任务卡、独立项目选择器、workspace 标题 helper、War Room 时间线链、mention parser 和流式文本持久化器。后两者只有自身测试消费者；时间线链唯一外部引用是读取其源码文本的架构测试。此类测试不再作为保留生产死文件的理由。

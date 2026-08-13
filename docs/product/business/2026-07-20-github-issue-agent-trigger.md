@@ -2,7 +2,7 @@
 
 **状态**：Accepted
 **日期**：2026-07-20
-**关联规格**：`specs/github-issue-agent-hook/`
+**已实施规格归档**：`docs/archive/specs/github-issue-agent-hook/`
 
 ## 用户问题
 

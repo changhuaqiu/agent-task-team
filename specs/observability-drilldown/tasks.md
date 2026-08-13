@@ -1,6 +1,6 @@
 # Agent 可观测下钻任务
 
-> 按依赖顺序维护。基于 `specs/agent-observability/` 已落地的 span/投影/workbench。
+> 按依赖顺序维护。基于 `docs/archive/specs/agent-observability/` 已落地的 span/投影/workbench。
 
 ## P0 — 单 agent 垂直下钻（prompt / 工具 / 回复）
 

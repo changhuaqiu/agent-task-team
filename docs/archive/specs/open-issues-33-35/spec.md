@@ -1,6 +1,6 @@
 # 线上 Issues #33–#35 修复规格
 
-> 状态：active
+> 状态：implemented
 > 范围：A2A 分派意图、首次交接上下文、默认 TeamPack 升级、上下文分层去重
 > 关联 issue：#33、#34、#35
 

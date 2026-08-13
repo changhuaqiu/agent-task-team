@@ -11,7 +11,7 @@
 ### 已有信息架构
 
 - 顶部三视图切换：作战室 / 看板 / 质量，默认 `war_room`（[ClientHome.tsx](file:///Users/kk/agent-task-team/src/app/ClientHome.tsx#L17-L178)）
-- 会话（Conversation）已存在：选择/新建会话（[ConversationPicker.tsx](file:///Users/kk/agent-task-team/src/components/war-room/ConversationPicker.tsx#L6-L80)）
+- 会话（Conversation）已存在：当前由项目侧栏选择项目，由项目创建流程新增项目；不保留独立的 War Room 会话选择器。
 - 任务（Task）强依赖会话：`addTask` 需要 `selectedConversationId`（[taskHubStore.ts](file:///Users/kk/agent-task-team/src/store/taskHubStore.ts#L685-L713)）
 - 聊天目前是“全局聊天室”，不区分会话（[GlobalChatRoom.tsx](file:///Users/kk/agent-task-team/src/components/task-hub/GlobalChatRoom.tsx#L9-L109)）
 - 对话 `@agent` 会触发 `dispatchToAgent`（store 内 `addChatMessage`）（[taskHubStore.ts](file:///Users/kk/agent-task-team/src/store/taskHubStore.ts#L741-L777)）
@@ -57,7 +57,7 @@
 ### Journey 0：冷启动（首次进入）
 
 1. 空态引导：提示“先创建战役（会话）”，并给 2~3 个示例模板（例如：做一个 landing page、修一个 bug、写一个脚本）。
-2. 创建会话：title + goal（沿用 [ConversationPicker.tsx](file:///Users/kk/agent-task-team/src/components/war-room/ConversationPicker.tsx#L47-L78) 但以更强引导呈现）
+2. 创建项目：title + goal 由当前项目创建流程承载，不在聊天主视图重复提供创建表单。
 3. 进入 Chat Hub：输入框获得焦点，顶部展示“本会话上下文摘要”（goal、当前任务数、最新阻塞项）
 
 ### Journey 1：提出意图 → 形成可执行结构
@@ -121,7 +121,7 @@
 ### 2) 视图：实现 Chat Hub（新组件/复用现有）
 
 - 聊天主视图继续由当前 `ClientHome` 与 `GlobalChatRoom` 组合承担，不新增平行的 `ChatHubView`。
-  - 复用 `ConversationPicker`（作为顶部或侧边）
+  - 复用当前项目侧栏选择与项目创建流程，不新增平行选择器
   - 复用 `ChatMessageItem`（渲染消息）
   - 替换 `GlobalChatRoom` 为 `ConversationChatRoom`（或在 `GlobalChatRoom` 中改为基于 selector 读取当前会话消息）
   - 新增 Proposal Cards 容器（先支持“手动点击创建任务”，结构化输出暂由 mock/agent 产出文本驱动）

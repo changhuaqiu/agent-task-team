@@ -1,6 +1,6 @@
 # Architecture Subtraction
 
-> Status: completed
+> Status: implemented
 > Date: 2026-08-13
 
 ## Goal

@@ -18,3 +18,10 @@
 | `platform-runtime-events/` | implemented | 四类平台事件、Durable Dispatcher、Agent Inbox、9 领域 inline seam、delivery Process Manager 与 Runtime 消费者迁移已完成；长期事实见 `docs/technical/execution/platform-runtime-event-model.md` 与 `docs/wiki/04-backend-daemon.md` |
 | `durable-effect-outbox/` | implemented | 通用 Effect Outbox、Runtime completion 六类 adapter、v51 suppression bridge 与 A2A 事务边界已完成；长期设计见 `docs/technical/execution/durable-effect-outbox.md`，当前事实见 `docs/wiki/04-backend-daemon.md` |
 | `platform-harness-state-machines/` | implemented | Platform Harness 已收敛为领域 owner 状态机、WorkContract、Agent 自主循环、确定性 ControlAction、Gate/A2A/Delivery 闭环；长期设计见 `docs/technical/execution/platform-harness-state-machine-design.md` |
+| `agent-observability/` | implemented | Span、投影与项目观测工作台已落地；长期事实见 `docs/technical/observability/agent-observability.md` |
+| `agent-session-identity/` | implemented | 项目 × Agent session 隔离、ACP resume 与服务端事实源已落地 |
+| `architecture-subtraction/` | implemented | 第一轮依赖/产物、历史 worktree 与无生产消费者 Module 清理完成；长期决策见 `docs/technical/execution/architecture-subtraction.md` |
+| `architecture-subtraction-2/` | implemented | 第二轮从真实运行入口反推调用图，删除幽灵 UI、孤立 Module、自嗨测试并归档已完成规格；长期决策见 `docs/technical/execution/architecture-subtraction.md` |
+| `four-agent-pr-review-loop/` | implemented | 四 Agent PR 交付、评审、修复与合并证据闭环已落地 |
+| `github-issue-agent-hook/` | implemented | GitHub Issue 验签、幂等建项与自主交付链已落地；长期设计见 `docs/technical/integrations/github-issue-agent-hook.md` |
+| `open-issues-33-35/` | implemented | A2A 分派意图、首次交接身份、默认 TeamPack 升级与上下文去重修复已验收 |

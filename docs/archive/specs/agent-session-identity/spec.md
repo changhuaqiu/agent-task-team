@@ -1,6 +1,6 @@
 # Agent Session Identity
 
-> 状态：active
+> 状态：implemented
 > 关联 Issue：[#7](https://github.com/changhuaqiu/agent-task-team/issues/7)、[#8](https://github.com/changhuaqiu/agent-task-team/issues/8)、[#12](https://github.com/changhuaqiu/agent-task-team/issues/12)
 
 ## 1. 目标

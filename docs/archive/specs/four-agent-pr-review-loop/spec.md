@@ -1,6 +1,6 @@
 # 四 Agent PR 交付与评审闭环
 
-> 状态：active
+> 状态：implemented
 > 日期：2026-07-18
 > 依赖：`team-simplification`、`system-control-plane`、`platform-harness-state-machines`、`agent-observability`
 

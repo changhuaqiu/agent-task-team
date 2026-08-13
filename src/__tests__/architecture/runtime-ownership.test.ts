@@ -18,7 +18,6 @@ function productionTypeScriptFiles(directory: string): string[] {
 describe('runtime ownership architecture', () => {
   const daemon = source('src/server/daemon.ts');
   const taskHubStore = source('src/store/taskHubStore.ts');
-  const timelineCards = source('src/components/war-room/TimelineCards.tsx');
   const deliveryApi = source('src/pages/api/autonomous-delivery.ts');
   const githubIngress = source('src/server/github-issue-hook/ingress.ts');
   const mutationApi = source('src/pages/api/mutations.ts');
@@ -93,9 +92,6 @@ describe('runtime ownership architecture', () => {
   it('keeps WebUI notices read-only and removes the legacy Supervisor vocabulary', () => {
     expect(taskHubStore).not.toContain('SupervisorOutput');
     expect(taskHubStore).not.toContain('supervisor.output');
-    expect(timelineCards).not.toContain('addTask');
-    expect(timelineCards).not.toContain('inviteAgent');
-    expect(timelineCards).not.toContain('applySamplePlan');
     expect(deliveryApi).not.toContain('Delivery supervisor');
     expect(githubIngress).not.toContain('resolveSupervisor');
     expect(githubIngress).not.toContain('supervisor');

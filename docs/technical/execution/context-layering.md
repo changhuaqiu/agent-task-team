@@ -345,7 +345,7 @@ L3 跨项目身份：scope 升到 /agent/<id>（身份全局只读），项目�
 - `trigger` 表示输入来源，`scenario` 表示注入策略。目标 agent 在当前项目没有 active session 时，无论来源是 user 还是 A2A，都必须采用 `init` 注入策略。
 - 首次 A2A 仍保留 handoff artifact，因此 bootstrap identity/system prompt 与交接 focus 必须同时存在；已有 session 的 A2A 才省略 identity。
 - 会话资源路径只能由 runtime 注入绝对路径。protocol layer 不得硬编码 `.ath/TASKS.md` 等相对路径。
-- role、teamPack、protocol、collaboration、behavior 的职责边界以 `specs/open-issues-33-35/spec.md` §3.3 为准，禁止在多个 layer 重复同一动作规则。
+- role、teamPack、protocol、collaboration、behavior 的职责边界以 `docs/archive/specs/open-issues-33-35/spec.md` §3.3 为准，禁止在多个 layer 重复同一动作规则。
 
 ---
 
