@@ -6,4 +6,4 @@
 - [x] result、session、取消、超时、权限、Invocation 与持久化行为未改变。
 - [x] 架构守卫阻止恢复第二个终止归一化 owner。
 - [x] 文档、TypeScript、定向测试与构建通过；全量测试结果被精确记录。
-- [ ] 独立复审为 Critical 0 / Important 0 / Minor 0。
+- [x] 独立复审为 Critical 0 / Important 0 / Minor 0。

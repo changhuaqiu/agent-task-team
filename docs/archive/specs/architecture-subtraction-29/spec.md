@@ -1,6 +1,6 @@
 # Architecture Subtraction — Round 29
 
-> Status: active
+> Status: implemented
 > Date: 2026-08-15
 
 ## Goal
@@ -44,4 +44,4 @@ AcpBackend.execute()
 - `pnpm exec vitest run src/__tests__/architecture/runtime-ownership.test.ts src/server/agent/acp/acpBackend.test.ts src/server/agent/acp/acpBackend.compat.test.ts src/server/agent/acp/acpBackend.hardening.test.ts --reporter=verbose`：4 files / 52 tests 通过，覆盖正常完成、启动失败、取消、idle/hard timeout、异常退出、事件/输出上限、session 与架构 owner。
 - `pnpm build`：通过；仅保留既有 Turbopack NFT 动态路径 warning。
 - 全量测试已执行：204 files / 1516 tests passed，2 files / 2 tests skipped，1 test failed；唯一失败为既有稳定基线 `src/server/autonomous-delivery/control-runtime.test.ts:131`，不经过 AgentBackend/ACP 事件流。
-- 独立复审：待执行。
+- 独立复审：初审 Critical 0 / Important 1 / Minor 1；补强 daemon 真实事件绑定守卫、修正规格编号并增加终止位置断言后，最终复审 Critical 0 / Important 0 / Minor 0，Ready Yes。审查者在 base 与 head 均复现同一全量基线失败，并确认失败测试及其直接实现文件 blob 未变化。

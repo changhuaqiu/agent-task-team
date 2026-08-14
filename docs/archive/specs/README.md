@@ -48,6 +48,7 @@
 | `architecture-subtraction-26/` | implemented | 第二十六轮删除零生产消费者的 Proof Log 验收回执二次解析、旁路 policy 与失败构造器，真实 QualityGate admission 只接受项目内可信验收物；长期决策见 `docs/technical/execution/architecture-subtraction.md` |
 | `architecture-subtraction-27/` | implemented | 第二十七轮删除 socket transport 对 legacy proposal 的重复 DeliveryRun policy 与无消费者 Proof，统一由 Invocation Planner admission 覆盖 socket、Inbox、重试和恢复；长期决策见 `docs/technical/execution/architecture-subtraction.md` |
 | `architecture-subtraction-28/` | implemented | 第二十八轮删除单调用者、零行为的 `cliBridge` spawn 透传模块，由唯一 `AcpBackend` 直接拥有跨平台 `cross-spawn`；长期决策见 `docs/technical/execution/architecture-subtraction.md` |
+| `architecture-subtraction-29/` | implemented | 第二十九轮删除 daemon 对 ACP 事件流的二次终止包装与独立浅 helper，将 `done` 归一化收口到唯一 `AcpBackend`；长期决策见 `docs/technical/execution/architecture-subtraction.md` |
 | `four-agent-pr-review-loop/` | implemented | 四 Agent PR 交付、评审、修复与合并证据闭环已落地 |
 | `github-issue-agent-hook/` | implemented | GitHub Issue 验签、幂等建项与自主交付链已落地；长期设计见 `docs/technical/integrations/github-issue-agent-hook.md` |
 | `open-issues-33-35/` | implemented | A2A 分派意图、首次交接身份、默认 TeamPack 升级与上下文去重修复已验收 |
