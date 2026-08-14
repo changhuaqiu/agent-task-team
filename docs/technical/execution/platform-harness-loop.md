@@ -110,6 +110,7 @@ Task mutation / Autonomy Guard / A2A pass
 - TeamPack workflow state is the gate-routing authority: ordinary `quality_gate` work starts its configured owner once; advisory reviewers are not fanned out unless a risk-specific transition requests them.
 - Entering `review` / `in_review` is itself the quality-gate dispatch request. After writing that state, the implementer must end the turn without a manual `@reviewer` A2A handoff; only an explicit platform wakeup failure or a separately justified specialist review may create another pass.
 - Browser auto-proposal is only a human first-turn convenience. Agent, system, tool, and error messages cannot trigger it. Daemon process-start admission reserves `(conversation, agent)` before asynchronous setup so duplicate browser tabs cannot race-start the same role.
+- `terminal:start` is only a compatibility transport adapter: it normalizes the command and always submits it to Invocation Coordinator. The persisted `legacyProposal` marker reaches Invocation Planner, which alone checks the authoritative DeliveryRun and rejects ordinary proposal planning for autonomous projects; socket transport does not duplicate that policy or write a second suppression Proof.
 - Workdir names encode project/agent/task IDs as safe path segments; raw business IDs, including scoped task IDs, are never concatenated directly into a Windows path.
 - autonomy guard 按 `subtask_of` 的 child → parent 边递归判断完整子树，终态后唤醒 planner 收敛；
 - closure dispatch 写持久 proof，后续扫描以 `(conversationId, rootTaskId, reasonCode)` 去重。

@@ -9,6 +9,7 @@
 - [ ] Execution Plane only executes envelopes and reports lifecycle events.
 - [ ] UI store is not authoritative for runtime delivery success.
 - [ ] Daemon is not authoritative for team policy or workflow decisions.
+- [x] Socket compatibility transport does not duplicate legacy proposal policy or Proof facts.
 - [ ] A2A Possession owns collaboration semantics, not transport truth.
 
 ## State and Proof

@@ -138,3 +138,7 @@ ContextManager 曾为未来跨会话记忆预先冻结 `MemoryHook.recall/write`
 ## 第二十六轮：删除 Proof Log 验收回执假 admission
 
 验收回执的真实生产入口已经是 `GateOutcomeProcessManager` 对结构化 `record_gate_decision` outcome 直接校验并原子写入 QualityGate evidence/decision 与 Delivery receipt，但 `verification-receipt.ts` 仍保留一条只被自身测试调用的旧链：从 Proof Event metadata 再解析 `delivery_evidence`，附加 verifier allowlist、本地 report/spec 文件与 junction 越界检查，并提供一个无任何消费者的失败回执构造器。这些代码不会保护真实运行，反而让测试和接口错误宣称 Proof Log 能重新授予 Gate 结论。第二十六轮删除旧 helper、policy 与 Proof 解析自嗨测试；正式契约要求的 report/spec 必须是冻结 Delivery project path 内真实存在的普通文件，并由 live receipt validator 拒绝缺失、junction 越界与未绑定可信来源的 HTTP(S) 字符串。未来若支持远端验收物，必须先建立 provider/attachment receipt，不在 Gate 数据库事务内发起网络探测。verifier 身份继续绑定 Work Contract，Proof Log 只作审计与投影。
+
+## 第二十七轮：删除 socket transport 的 proposal policy 旁路
+
+普通项目的首轮方案仍使用 `legacyProposal` 意图标记，自主项目则必须由 Delivery `plan_goal` 独占规划；该规则已经由 `InvocationPlanner` 基于持久化 DeliveryRun 统一执行，并覆盖 socket、Agent Inbox、重试与重启恢复。但 daemon 的 `submitSocketTerminalStart()` 还在 Coordinator 之前重复查询 DeliveryRun、写一条无生产消费者的 `legacy_proposal.suppressed` Proof 并提前返回，导致 socket 命令绕过统一幂等、busy、completion 与观测 seam。第二十七轮删除 transport 私有 policy 与 Proof；socket 只归一化并提交命令，`legacyProposal` 继续持久传递，唯一拒绝事实留在 Invocation Planner。普通非自主 proposal 与自主规划权威均保持不变。

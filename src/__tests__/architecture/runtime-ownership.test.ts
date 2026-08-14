@@ -74,6 +74,21 @@ describe('runtime ownership architecture', () => {
     expect(daemon).toContain(`socket.on('terminal:kill'`);
   });
 
+  it('keeps legacy proposal policy inside Invocation Planner rather than socket transport', () => {
+    const socketAdapter = daemon.slice(
+      daemon.indexOf('export function submitSocketTerminalStart'),
+      daemon.indexOf("type AgentActivityStatus"),
+    );
+    const planner = source('src/server/invocation-pipeline/context-planner.ts');
+    expect(socketAdapter).toContain('return coordinator.submit({');
+    expect(socketAdapter).not.toMatch(/autonomousDeliveryRepo|proofLogRepo|legacy_proposal\.suppressed/);
+    expect(daemon).not.toContain('legacy_proposal.suppressed');
+    expect(planner).toContain(
+      'trigger.legacyProposal && autonomousDeliveryRepo.getLatestByConversation(trigger.conversationId)',
+    );
+    expect(planner).toContain("reasonCode: 'autonomous_delivery_owns_planning'");
+  });
+
   it('keeps acceptance verification admission on the QualityGate outcome seam', () => {
     const productionFiles = productionTypeScriptFiles('src');
     const retiredProofAdmission = /verificationReceiptFromProof|failedVerificationReceipt|VerificationProofPolicy|verifier_actor_mismatch|verifier_not_authorized/;

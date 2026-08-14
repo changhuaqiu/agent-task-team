@@ -50,6 +50,7 @@
 - [ ] Move task status mutation behind Task Authority.
 - [ ] Reduce `taskHubStore` dispatch responsibilities to intent submission and state subscription.
 - [ ] Reduce daemon responsibilities to execution and lifecycle reporting.
+- [x] Remove socket-local legacy proposal policy and route the command through Invocation Planner admission.
 
 ## Phase 6: Continue Gate and Safety
 

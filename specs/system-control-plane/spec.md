@@ -616,6 +616,7 @@ Future federation may extend this to a full PII pipeline and trust-level matrix.
 - The local daemon registers itself as `daemon:local`; browser clients register socket runtime nodes with 5s heartbeats.
 - Runtime health scan marks non-heartbeating nodes stale after 2 missed intervals and unreachable after 3 missed intervals.
 - Existing `terminal:start` dispatch now creates an envelope and proof timeline while preserving the compatibility execution path.
+- The `terminal:start` compatibility adapter only normalizes and submits commands; proposal admission is owned once by Invocation Planner for socket, durable Inbox, retry, and restart paths.
 - Existing A2A compatibility dispatch passes chain/pass metadata into the execution envelope.
 - Task Graph policy now writes proof events for blocked high-impact actions and keeps task action ids correlated through task/pass fields where available.
 - Full directed runtime routing and executor-only envelope consumption remain future work.

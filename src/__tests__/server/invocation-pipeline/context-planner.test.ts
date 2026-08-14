@@ -412,7 +412,7 @@ describe('InvocationPlanner', () => {
     ]);
   });
 
-  it('suppresses a stale-tab legacy proposal after an external delivery run starts', async () => {
+  it('routes a stale-tab legacy proposal through Coordinator and Planner admission', async () => {
     conversationRepo.create({ id: 'conv-external-autonomous', title: 'External autonomous run' });
     autonomousDeliveryRepo.createRun({
       idempotencyKey: 'external-autonomous-run',
@@ -436,23 +436,15 @@ describe('InvocationPlanner', () => {
         requireMerge: false,
       },
     });
-    await expect(new InvocationPlanner().prepare({
-      id: 'durable-stale-proposal',
-      source: 'user',
-      conversationId: 'conv-external-autonomous',
-      agentId: 'mario',
-      prompt: 'Generate the legacy proposal',
-      legacyProposal: true,
-    })).resolves.toEqual({
-      ok: false,
-      outcome: {
-        status: 'blocked',
-        reasonCode: 'autonomous_delivery_owns_planning',
-      },
+    const execute = vi.fn();
+    const recordProof = vi.fn();
+    const coordinator = new InvocationCoordinator({
+      planner: new InvocationPlanner(),
+      runtime: { isBusy: () => false, execute },
+      recordProof,
     });
-    const submit = vi.fn();
 
-    const submission = submitSocketTerminalStart({ submit }, {
+    const submission = submitSocketTerminalStart(coordinator, {
       dispatchId: 'stale-tab-proposal',
       conversationId: 'conv-external-autonomous',
       agentId: 'mario',
@@ -465,17 +457,30 @@ describe('InvocationPlanner', () => {
       status: 'blocked',
       reasonCode: 'autonomous_delivery_owns_planning',
     });
-    expect(submit).not.toHaveBeenCalled();
+    expect(submission.disposition).toBe('accepted');
+    expect(execute).not.toHaveBeenCalled();
+    expect(recordProof).toHaveBeenCalledWith(expect.objectContaining({
+      eventType: 'invocation.plan.blocked',
+      reasonCode: 'autonomous_delivery_owns_planning',
+    }));
   });
 
-  it('forwards the legacy proposal marker from socket dispatch into Invocation activation', () => {
-    const submit = vi.fn(() => ({
-      disposition: 'accepted' as const,
-      handled: true,
-      completion: Promise.resolve({ status: 'accepted' as const }),
-    }));
+  it('executes a legacy proposal for an ordinary project through Coordinator and Planner', async () => {
+    const pack = teamPackRepo.getByName('default-team')!;
+    teamPackRepo.updateRoleConfig(pack.id, 'mario', { accountIds: ['account-openai'] });
+    writeAccount({
+      id: 'account-openai', name: 'OpenAI', authMode: 'oauth', provider: 'openai', models: [],
+      enabled: true, status: 'valid', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    });
+    conversationRepo.create({ id: 'conv-no-delivery-run', title: 'Ordinary proposal', team_pack_id: pack.id });
+    const execute = vi.fn().mockResolvedValue({ status: 'accepted' as const, envelopeId: 'env-proposal' });
+    const coordinator = new InvocationCoordinator({
+      planner: new InvocationPlanner(),
+      runtime: { isBusy: () => false, execute },
+      recordProof: vi.fn(),
+    });
 
-    submitSocketTerminalStart({ submit }, {
+    const submission = submitSocketTerminalStart(coordinator, {
       dispatchId: 'socket-legacy-proposal',
       conversationId: 'conv-no-delivery-run',
       agentId: 'mario',
@@ -484,8 +489,9 @@ describe('InvocationPlanner', () => {
       legacyProposal: true,
     });
 
-    expect(submit).toHaveBeenCalledWith(expect.objectContaining({
-      legacyProposal: true,
+    await expect(submission.completion).resolves.toEqual({ status: 'accepted', envelopeId: 'env-proposal' });
+    expect(execute).toHaveBeenCalledWith(expect.objectContaining({
+      trigger: expect.objectContaining({ legacyProposal: true }),
     }));
   });
 
