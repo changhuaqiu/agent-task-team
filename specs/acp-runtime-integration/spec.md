@@ -106,6 +106,7 @@ interface AgentCatalogEntry {
 3. 创建或恢复 session。
 4. 提交 ContextManager 产出的 prompt/context。
 5. 将 ACP update 映射为内部 `AgentEvent`。
+6. 在 backend 边界保证事件流恰好包含一个终止 `done`；daemon 只消费该统一事件，不再次包装或补写终止事件。
 6. 处理 permission、cancel、进程退出、超时和协议错误。
 7. 关闭连接并回收子进程。
 

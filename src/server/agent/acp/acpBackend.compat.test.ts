@@ -95,7 +95,7 @@ function makeMockBackend(
  * Drain `run.events` to completion and collect the event types. Returns the
  * collected types + the resolved AgentResult. Draining is required so the
  * generator's `finally` runs (clearTimeout + killProcess) and the
- * withDoneGuarantee wrapper emits the terminal `done`.
+ * AcpBackend emits the terminal `done` at its own boundary.
  */
 async function drain(run: {
   events: AsyncGenerator<{ type: string }>;
@@ -130,8 +130,7 @@ describe('AcpBackend compatibility suite (spec §8: cancel / timeout / failure)'
 
     const { types, result } = await drain(run);
 
-    // withDoneGuarantee must emit a terminal `done` even on kill.
-    expect(types).toContain('done');
+    expect(types.filter((type) => type === 'done')).toHaveLength(1);
 
     // Cause-based close handler (Task 5 fix): kill() sets the `killed` flag →
     // the close handler resolves 'cancelled', deterministically.
@@ -155,7 +154,7 @@ describe('AcpBackend compatibility suite (spec §8: cancel / timeout / failure)'
 
     const { types, result } = await drain(run);
 
-    expect(types).toContain('done');
+    expect(types.filter((type) => type === 'done')).toHaveLength(1);
     // Timer wins → timedOut flag → close handler resolves 'timeout'.
     expect(result.status).toBe('timeout');
     expect(result.error).toContain('timed out');
@@ -182,7 +181,7 @@ describe('AcpBackend compatibility suite (spec §8: cancel / timeout / failure)'
     });
     const { types, result } = await drain(backend.execute('hi', {}));
 
-    expect(types).toContain('done');
+    expect(types.filter((type) => type === 'done')).toHaveLength(1);
     expect(result.status).toBe('timeout');
     expect(result.reasonCode).toBe('acp_max_turn_timeout');
     expect(result.error).toContain('hard limit');
@@ -208,7 +207,7 @@ describe('AcpBackend compatibility suite (spec §8: cancel / timeout / failure)'
     // paths yield 'failed' — the contract under test.)
     expect(types).toContain('error');
     // Final terminal event still emits.
-    expect(types).toContain('done');
+    expect(types.filter((type) => type === 'done')).toHaveLength(1);
 
     // No kill, no timeout → resolves 'failed'.
     expect(result.status).toBe('failed');

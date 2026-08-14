@@ -123,6 +123,15 @@ describe('runtime ownership architecture', () => {
     expect(serverFiles.filter((path) => retiredSpawnWrapper.test(source(path)))).toEqual([]);
   });
 
+  it('keeps terminal event normalization inside the sole ACP backend', () => {
+    const productionFiles = productionTypeScriptFiles('src/server');
+    const retiredDoneWrapper = /withDoneGuarantee|with-done-guarantee/;
+    expect(productionFiles.filter((path) => retiredDoneWrapper.test(source(path)))).toEqual([]);
+    expect(daemon).toContain('const { events, result, kill } = backend.execute(promptWithWorkdir, execOptions);');
+    expect(daemon).not.toMatch(/events:\s*rawEvents|ensureSingleTerminalDone/);
+    expect(source('src/server/agent/acp/acpBackend.ts')).toContain('ensureSingleTerminalDone');
+  });
+
   it('does not retain the bespoke CLI capability downgrade layer before ACP execution', () => {
     expect(daemon).not.toContain('checkCapabilities');
     expect(daemon).toContain('buildAcpExecOptions');

@@ -152,7 +152,7 @@ describe('AcpBackend (subprocess integration with mockAcpAgent)', () => {
     // Mock emits: agent_message_chunk "开始" → tool_call → (permission
     // explicitly allowed once) → tool_call_update completed → agent_message_chunk
     // "完成" → end_turn. mapAcpUpdate converts to text/tool_use/tool_result/
-    // text; withDoneGuarantee appends done.
+    // text; AcpBackend appends one terminal done at its boundary.
     expect(types).toEqual(['text', 'tool_use', 'tool_result', 'text', 'done']);
     expect(toolNames).toEqual(['改文件', '改文件']);
 
@@ -261,14 +261,13 @@ describe('AcpBackend (subprocess integration with mockAcpAgent)', () => {
     // kill() must not throw even if called immediately.
     expect(() => run.kill()).not.toThrow();
 
-    // Drain the event stream to completion. The withDoneGuarantee wrapper
-    // must still emit a `done` event after kill (generator terminates + the
-    // close handler resolves the result).
+    // Drain the event stream to completion. AcpBackend must still emit one
+    // terminal `done` after kill from the resolved result.
     const types: string[] = [];
     for await (const event of run.events) {
       types.push(event.type);
     }
-    expect(types).toContain('done');
+    expect(types.filter((type) => type === 'done')).toHaveLength(1);
 
     // Cause-based close handler: kill() → 'cancelled' (deterministic, not the
     // old loose set).

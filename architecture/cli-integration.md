@@ -78,7 +78,7 @@ daemon / dispatch / A2A / ContextManager
 - `src/server/agent/acp/agentCatalog.seed.json` — Catalog 启动事实源
 - `src/server/agent/acp/agentEventMapper.ts` — ACP `SessionUpdate` → `AgentEvent`
 - `src/server/agent/acp/runtimeSetup.ts` — `prepareAcpRuntime()` 每运行时准备
-- `src/server/agent/with-done-guarantee.ts` — 保证 `done` 事件最终发出
+- `src/server/agent/acp/acpBackend.ts` 内部负责保证 `done` 事件恰好发出一次；daemon 不做第二次终止归一化
 
 ## 设计原则
 
@@ -154,7 +154,7 @@ Catalog（`src/server/agent/acp/agentCatalog.seed.json`）是启动事实源（s
 3. 消费 `session/update` 通知，经 `agentEventMapper` 映射为 `AgentEvent`，直到收到 stop 消息。
 4. 处理 `requestPermission`：默认拒绝；只有显式 `ACP_PERMISSION_MODE=allow_once` 或注入策略才选择单次授权，策略错误/超时继续拒绝。
 5. 进程清理：调用方取消/超时先发送 ACP `session/cancel`，再按宽限期执行 TERM → KILL；一次性 finalize 保证 result 不依赖 child `close` 才能解析。
-6. 用 `withDoneGuarantee` 包装事件流，保证 `done` 事件最终发出。
+6. 在 backend 内部归一化事件流，保证 `done` 恰好发出一次；该逻辑不作为通用扩展点导出，daemon 直接消费归一化后的 `AgentRun.events`。
 7. 基于原因的关闭语义：`kill()` → `cancelled`，超时 → `timeout`，其他异常退出 → `failed`，并携带稳定 `reasonCode`；进程退出绝不会被判为 `completed`。
 8. 资源上限：全局并发 run、待消费事件、单事件字符、累计流式字符和 stderr tail 均为有界；消费者提前停止读取会主动取消运行。
 

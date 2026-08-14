@@ -146,3 +146,7 @@ ContextManager 曾为未来跨会话记忆预先冻结 `MemoryHook.recall/write`
 ## 第二十八轮：删除单调用者 CLI spawn 透传模块
 
 ACP 已是唯一 Agent backend，但执行链仍保留 `cliBridge.spawnCli()`：它只有 `AcpBackend` 一个生产调用者，函数体仅把 command、args 与 options 原样转交 `cross-spawn`，不提供校验、错误归一化、生命周期或第二种 adapter。该浅模块还引用已被 ACP 规格替代的历史 `cli-bridge-layer`，扩大了当前执行 interface。第二十八轮删除文件与自证测试，让 `AcpBackend` 直接拥有 `cross-spawn`；Windows `.cmd/.bat` 解析、spawn 失败、stdio、取消和进程树清理能力均由原依赖与 backend 测试继续保护。
+
+## 第二十九轮：收口终止事件归一化 owner
+
+`AcpBackend` 已经用同一 `AgentResult` 为成功、失败、取消、超时和底层无终止事件的路径保证 `done`，但 daemon 又对 backend 返回的同一事件流调用一次 `withDoneGuarantee`。第二层只会观察并透传已有 `done`，不增加保护；独立 helper 也没有第二个 backend 消费者，却让 backend 与编排层看起来都能拥有终止协议。第二十九轮删除 daemon 二次包装和独立浅模块，把保证逻辑内聚为唯一 `AcpBackend` 的私有实现细节。`AgentBackend` 契约继续要求事件流恰好一个终止 `done`，daemon 只消费统一事件并推进 Runtime/Invocation 投影，不再解释或修复 backend 协议。

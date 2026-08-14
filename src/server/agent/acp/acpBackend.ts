@@ -4,7 +4,6 @@ import { Readable, Writable } from 'node:stream';
 import * as acp from '@agentclientprotocol/sdk';
 import spawn from 'cross-spawn';
 import treeKill from 'tree-kill';
-import { withDoneGuarantee } from '../with-done-guarantee';
 import {
   createTurnScopedAcpEventMapper,
   KNOWN_SESSION_UPDATE_TYPES,
@@ -77,6 +76,28 @@ export interface AcpBackendOpts {
    * platform instead of leaving an opaque background wait.
    */
   forwardNativeSubagentText?: boolean;
+}
+
+async function* ensureSingleTerminalDone(
+  events: AsyncGenerator<AgentEvent>,
+  result: Promise<AgentResult>,
+): AsyncGenerator<AgentEvent> {
+  let sawDone = false;
+
+  for await (const event of events) {
+    if (sawDone) continue;
+    if (event.type === 'done') sawDone = true;
+    yield event;
+  }
+
+  if (!sawDone) {
+    const resolved = await result;
+    yield {
+      type: 'done',
+      content: resolved.output ?? '',
+      sessionId: resolved.sessionId,
+    };
+  }
 }
 
 export function acpSessionMeta(
@@ -153,7 +174,7 @@ function failedRun(
     yield { type: 'error', content: message };
   }
   return {
-    events: withDoneGuarantee(failureEvents(), resultPromise),
+    events: ensureSingleTerminalDone(failureEvents(), resultPromise),
     result: resultPromise,
     kill: () => {},
   };
@@ -811,7 +832,7 @@ export class AcpBackend implements AgentBackend {
     }
 
     return {
-      events: withDoneGuarantee(generator(), resultPromise),
+      events: ensureSingleTerminalDone(generator(), resultPromise),
       result: resultPromise,
       kill: () => {
         if (resultResolved) return;

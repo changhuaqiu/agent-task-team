@@ -32,7 +32,6 @@ import { createBackend as createAcpBackend } from './agent/acp/catalog';
 import { createWorkContractPermissionPolicy } from './agent/acp/permissionPolicy';
 import { buildAcpExecOptions } from './agent/acp/execOptions';
 import type { AgentEvent, AgentBackend } from './agent/types';
-import { withDoneGuarantee } from './agent/with-done-guarantee';
 import { isSkillTool } from './skill-tool-router';
 import { registerAcpSkillMcpGrant, resolveAcpMcpLoopbackOrigin } from './acp-skill-mcp';
 import { resolveNonWorktreeExecutionCwd, stableWorkdirTaskKey, WorkdirManager } from './workdir-manager';
@@ -1490,9 +1489,8 @@ export default function registerDaemon(io: IOServer) {
         promptWithWorkdir,
         engine === 'opencode' ? systemPrompt || undefined : execOptions.systemPrompt,
       );
-      const { events: rawEvents, result, kill } = backend.execute(promptWithWorkdir, execOptions);
+      const { events, result, kill } = backend.execute(promptWithWorkdir, execOptions);
       runtimeEventCoordinator?.start();
-      const events = withDoneGuarantee(rawEvents, result);
 
       activeProcesses.set(processKey(agentId, projectId), { kill });
       processStartGuard.markStarted(startKey);

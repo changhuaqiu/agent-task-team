@@ -50,6 +50,7 @@ export interface ExecOptions {
 }
 
 export interface AgentRun {
+  /** Backend-normalized stream containing exactly one terminal `done` event. */
   events: AsyncGenerator<AgentEvent>;
   result: Promise<AgentResult>;
   kill: () => void;
