@@ -34,7 +34,6 @@
 - task create/update/updateStatus
 - message append
 - dispatch enqueue（dispatch 持久化入队）
-- tool invoke（skill 定义的自定义 tool 路由）
 - ATH breakdown 初始化
 
 Task 取消统一走 `/api/task-graph` 的 `cancelTask` owner command。Session create/bind/seal 与 Invocation create/transition 属于服务端 Runtime owner，不向浏览器 mutation 暴露；前端只读取 `/api/state` 与 runtime projection。
@@ -46,7 +45,7 @@ TeamPack 会话的服务端任务创建会经过 [`src/server/team-runtime/task-
 - 如果请求显式提供 `agent_id`，API 保留该选择，不由团队流程覆盖。
 - 如果没有显式 `agent_id` 且 conversation 绑定了 `team_pack_id`，API 读取 TeamPack 并通过 `WorkflowPolicy.assignInitialTask()` 选择初始角色。
 - 如果既没有显式 `agent_id`，也无法从 TeamPack workflow、runtime roster 或调用方 fallback 解析出负责人，API 返回明确失败，不会写入空字符串 `agent_id`。
-- `tool.invoke` 的 `task_create` 复用同一分配逻辑，并把最终 agent 同步写入 SQLite 与 `TASKS.md`。
+- invocation-scoped Skill/MCP 的 `task_create` 通过 `skill-tool-executor` 写入 SQLite 与 `TASKS.md`；浏览器 mutation 不具备 Agent 工具执行权。
 - 该服务端路径只依赖 repository 与 `src/lib/team-runtime`，不导入前端 store。
 
 ### Skill API 路由
@@ -107,7 +106,7 @@ Repository 当前覆盖的核心对象：
 - [`src/server/task-file-service.ts`](../../src/server/task-file-service.ts) — TaskFileService：md 读写解析（ParsedTask + ParsedBlocker + 格式兼容）
 - [`src/server/task-file-watcher.ts`](../../src/server/task-file-watcher.ts) — TaskFileWatcher：chokidar 文件监听 + DB 创建/更新 + Socket 广播
 - [`src/server/skill-tool-executor.ts`](../../src/server/skill-tool-executor.ts) — Skill Tool 执行器：直接 DB 查询 + 文件双写
-- [`src/server/skill-tool-router.ts`](../../src/server/skill-tool-router.ts) — Tool 名称路由映射（api:// → toolName）
+- [`src/server/skill-tool-router.ts`](../../src/server/skill-tool-router.ts) — 正式平台 Tool 名称 allowlist
 
 这层的职责是：
 

@@ -85,7 +85,7 @@ Task mutation / Autonomy Guard / A2A pass
   `@mention` 来创建 Pass，也不得调用 runtime-native `SendMessage` 代替 A2A。
 - 当前持有者提交 `handoff_to_agent` 后必须立即结束本轮，不继续替目标角色读取、实现或等待底层子 Agent；
   平台在接纳 Outcome 后，由 A2A owner 原子创建 Pass、HandoffPacket 与下游 AgentInbox item。
-- daemon 只把平台工具白名单转交给 `tool.invoke`；未知或 runtime-native 工具仅做观测，不得异步伪装成平台工具执行。
+- daemon 只把平台工具白名单写入 invocation-scoped Skill/MCP grant；未知或 runtime-native 工具仅做观测，不得异步伪装成平台工具执行。
 
 ### Runtime 工作目录
 
@@ -167,7 +167,7 @@ Task mutation / Autonomy Guard / A2A pass
   `@mention` 和否定句均不得形成控制意图。
 - Store：展示事件没有 fallback 开关，旧控制事件无法重新接入。
 - Mention dispatch：多 mention 消息只派发首个有效入口角色；busy-before-send 与 client/server busy race 都必须保持用户消息和 dispatch 请求不丢失；恢复入队后只在真正启动时登记 A2A chain。
-- Tool boundary：runtime-native 协作工具不触发平台 `tool.invoke`；平台 A2A 只接受
+- Tool boundary：runtime-native 协作工具不触发平台 Skill Tool executor；平台 A2A 只接受
   invocation-scoped `agent_submit_outcome`，工具不可用时必须报告结构化阻塞，不能回退为可见 A2A 文本。
 - Workdir：worktree、真实非 worktree 项目路径、无项目 scratch 三种决策分别覆盖；另覆盖 Windows 保留字符与 scoped task ID 的安全路径编码。
 - Dispatch admission：非 human 消息不触发 proposal；同一 `(conversation, agent)` 的并发 start 只有一个能进入异步 runtime setup。

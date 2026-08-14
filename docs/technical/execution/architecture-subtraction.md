@@ -110,3 +110,7 @@ Google/Gemini API Key 账号能够由 OpenCode provider 配置消费，原生 Ge
 ## 第十九轮：收敛 Phase 持久化 interface
 
 `/api/phases` 已经实现阶段读取与写入，但 WebUI 的唯一写调用方仍通过通用 `/api/mutations` 的 `phase.upsert` / `phase.delete` 两个转发 case 持久化，形成两个公开 transport owner。`/api/state` 不包含 phases，因此独立 route 的 GET 仍承担真实启动水合；本轮把 store 写入迁到同一 route，删除 mutation 中的重复类型与 case，使 Phase CRUD 只保留 `/api/phases`，通用 mutation 从 14 种命令收敛到 12 种。
+
+## 第二十轮：删除浏览器 Agent Tool 执行旁路
+
+`/api/mutations` 的 `tool.invoke` 没有生产调用方，却复制了 task list/create/update/assign 的持久化、状态门禁和文件投影实现，并允许普通浏览器 payload 绕过 invocation grant、tool allowlist、task scope、rate limit 与 proof。正式工具链已经由 daemon 按 Invocation 注册短期 loopback bearer，通过 `/api/acp-tools` 与 `acp-skill-mcp` 进入唯一 `skill-tool-executor`。第二十轮删除旧 mutation case 及其自证测试，并把 `skill-tool-router` 从无消费者的 handler URL/mutation 映射收窄为真实工具名 allowlist；通用 mutation 从 12 种命令收敛到 11 种。

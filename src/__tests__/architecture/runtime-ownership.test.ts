@@ -128,6 +128,15 @@ describe('runtime ownership architecture', () => {
     expect(phasePersistenceRoutes).toEqual(['src/pages/api/phases.ts']);
   });
 
+  it('keeps Agent Tool execution out of generic browser mutations', () => {
+    expect(mutationApi).not.toContain("case 'tool.invoke'");
+    const skillToolExecutor = source('src/server/skill-tool-executor.ts');
+    const acpSkillMcp = source('src/server/acp-skill-mcp.ts');
+    expect(acpSkillMcp).toContain('return executeSkillTool({');
+    expect(skillToolExecutor).toContain('checkRateLimit(invocation.rateLimitKey ?? invocation.agentId)');
+    expect(skillToolExecutor).toContain("eventType: 'skill.tool.invoked'");
+  });
+
   it('keeps every production Task write inside an explicit Task Graph owner module', () => {
     const allowedOwnerImplementations = new Set([
       'src/server/repositories/task-command-service.ts',
