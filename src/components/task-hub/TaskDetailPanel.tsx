@@ -317,7 +317,9 @@ export function TaskDetailPanel() {
             </label>
             {editingField === 'agent' ? (
               <div className="flex flex-col gap-1">
-                {getEffectiveRoster().map((a) => (
+                {getEffectiveRoster().map((a) => {
+                  const roleCard = roleCards.find((card) => card.id === a.roleCardId);
+                  return (
                   <button
                     key={a.id}
                     type="button"
@@ -333,9 +335,10 @@ export function TaskDetailPanel() {
                   >
                     <span className="text-sm">{a.emoji}</span>
                     <span className="text-sm font-medium text-[hsl(var(--text-primary))]">{a.name}</span>
-                    <span className="text-xs text-[hsl(var(--text-tertiary))]">{a.roleLabel}</span>
+                    {roleCard && <span className="text-xs text-[hsl(var(--text-tertiary))]">{roleCard.displayName}</span>}
                   </button>
-                ))}
+                  );
+                })}
                 <button
                   type="button"
                   onClick={() => { updateTask(task.id, { agentId: '' }); setEditingField(null); }}
@@ -354,12 +357,10 @@ export function TaskDetailPanel() {
                 <span className="text-sm font-medium text-[hsl(var(--text-primary))]">
                   {agent?.name ?? 'Unassigned'}
                 </span>
-                {agent?.roleCardId ? (() => {
+                {agent?.roleCardId && (() => {
                   const rc = roleCards.find((c) => c.id === agent.roleCardId);
                   return rc ? <RoleCardBadge card={rc} size="sm" /> : null;
-                })() : (
-                  agent && <span className="text-xs text-[hsl(var(--text-tertiary))]">{agent.roleLabel}</span>
-                )}
+                })()}
               </button>
             )}
           </div>

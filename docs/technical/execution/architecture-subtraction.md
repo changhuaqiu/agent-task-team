@@ -154,3 +154,7 @@ ACP 已是唯一 Agent backend，但执行链仍保留 `cliBridge.spawnCli()`：
 ## 第三十轮：删除浏览器平行账号执行解析
 
 Team Runtime Contract 已通过 `resolveRuntimeAgentProfile()` 统一解析成员、RoleCard、Skill、账号 readiness、provider 路由和 legacy engine，并由 Store 缓存给 UI 与正式派发复用；但任务详情仍单独调用 `resolveAgentEngine()`，后者经一行 `providerToEngine()` 再转发共享映射，并在解析失败时猜测 `agent.cliEngine ?? 'opencode'`。这套平行 interface 只有一个生产组件消费者，却复制领域规则并能展示正式执行会拒绝的假运行按钮；同一 mapping 还经两层 Store 无消费者重导出。第三十轮让任务详情直接消费缓存 `RuntimeAgentProfile`，Profile 为空即不提供运行入口；删除平行 resolver、转发别名、Store mapping facade 与自证测试。共享账号规则、Team Runtime 缓存、历史读取迁移和正式派发链保持不变。
+
+## 第三十一轮：删除浏览器重复角色分类
+
+RoleCard 已经是岗位身份、显示名、能力和行为边界的正式 owner，但浏览器 `Agent` 仍保留 deprecated `role / roleLabel`，通过两张硬编码映射表和 `getEffectiveRoster()` 二次投影继续维护 `planner / worker / reviewer` 三态与岗位文案。`role` 没有生产读取者，`roleLabel` 的调用点也都已持有 RoleCard；两个 RoleCard lookup Store action 则完全没有消费者。第三十一轮删除这些兼容字段、映射、重导出和死 action，让 UI 与 Team context 直接解析 `roleCardId + RoleCard`；缺卡时保留成员名或省略岗位标签，不再猜测静态分类。Team Runtime、动态 TeamPack snapshot、账号、Skill 和正式派发保持不变。

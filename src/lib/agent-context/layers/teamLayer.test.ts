@@ -62,7 +62,12 @@ describe('buildTeamLayer', () => {
     expect(result).not.toContain('另起一行行首写 @agentId');
   });
 
-  it('uses a fallback role label without a matching role card', () => {
-    expect(buildTeamLayer('mario', [])).not.toBe('');
+  it('does not guess a static role classification without a matching role card', () => {
+    const result = buildTeamLayer('mario', []);
+
+    const rows = result.split('\n').filter((line) => line.startsWith('| @'));
+    expect(rows).toContain('| @luigi | ⚡ Luigi | Luigi |  |  | mid | 1 | 0/1 |');
+    expect(rows).toContain('| @peach | 🌸 Peach | Peach |  |  | mid | 1 | 0/1 |');
+    expect(rows).toContain('| @dk | ⚙️ Donkey Kong | Donkey Kong |  |  | mid | 1 | 0/1 |');
   });
 });

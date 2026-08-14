@@ -12,16 +12,11 @@ import { PRESET_ROLE_CARDS } from '@/data/presetRoleCards';
 
 // --- Agent Role & Roster ---
 
-export type AgentRole = 'planner' | 'worker' | 'reviewer';
 export type AgentTheme = 'mario' | 'luigi' | 'peach' | 'dk';
 
 export interface Agent {
   id: string;
   name: string;
-  /** @deprecated — use roleCardId + RoleCard instead */
-  role: AgentRole;
-  /** @deprecated — use roleCardId + RoleCard.displayName instead */
-  roleLabel: string;
   roleCardId: string;
   theme: AgentTheme;
   emoji: string;
@@ -34,8 +29,6 @@ const FALLBACK_AGENTS: Agent[] = [
   {
     id: 'mario',
     name: 'Mario',
-    role: 'planner',
-    roleLabel: '项目统筹',
     roleCardId: 'preset-planner',
     theme: 'mario',
     emoji: '⭐',
@@ -45,8 +38,6 @@ const FALLBACK_AGENTS: Agent[] = [
   {
     id: 'luigi',
     name: 'Luigi',
-    role: 'worker',
-    roleLabel: '全栈开发',
     roleCardId: 'preset-frontend',
     theme: 'luigi',
     emoji: '⚡',
@@ -56,8 +47,6 @@ const FALLBACK_AGENTS: Agent[] = [
   {
     id: 'peach',
     name: 'Peach',
-    role: 'reviewer',
-    roleLabel: '质量保障',
     roleCardId: 'preset-code-reviewer',
     theme: 'peach',
     emoji: '🌸',
@@ -67,8 +56,6 @@ const FALLBACK_AGENTS: Agent[] = [
   {
     id: 'dk',
     name: 'Donkey Kong',
-    role: 'reviewer',
-    roleLabel: '架构工程',
     roleCardId: 'preset-arch-reviewer',
     theme: 'dk',
     emoji: '⚙️',
@@ -78,20 +65,6 @@ const FALLBACK_AGENTS: Agent[] = [
 ];
 
 export let AGENT_ROSTER: Agent[] = [...FALLBACK_AGENTS];
-
-const ROLE_MAP: Record<string, AgentRole> = {
-  'preset-planner': 'planner',
-  'preset-frontend': 'worker',
-  'preset-code-reviewer': 'reviewer',
-  'preset-arch-reviewer': 'reviewer',
-};
-
-const ROLE_LABEL_MAP: Record<string, string> = {
-  'preset-planner': '项目统筹',
-  'preset-frontend': '全栈开发',
-  'preset-code-reviewer': '质量保障',
-  'preset-arch-reviewer': '架构工程',
-};
 
 export interface LoadAgentsOptions {
   signal?: AbortSignal;
@@ -118,8 +91,6 @@ export async function loadAgents(options: LoadAgentsOptions = {}): Promise<void>
     AGENT_ROSTER = data.agents.map((row: any) => ({
       id: row.id,
       name: row.name,
-      role: ROLE_MAP[row.role_card_id] ?? 'worker',
-      roleLabel: ROLE_LABEL_MAP[row.role_card_id] ?? row.name,
       roleCardId: row.role_card_id,
       theme: row.theme as AgentTheme,
       emoji: row.emoji,
@@ -214,13 +185,6 @@ export const createAgentSlice = (set: any, get: () => any) => {
       set((state: any) => ({
         roleCards: state.roleCards.filter((c: RoleCard) => !(c.id === cardId && !c.isPreset)),
       })),
-    getRoleCardById: (cardId: string): RoleCard | undefined =>
-      get().roleCards.find((c: RoleCard) => c.id === cardId),
-    getRoleCardForAgent: (agentId: string): RoleCard | undefined => {
-      const agent = AGENT_ROSTER.find((a) => a.id === agentId);
-      if (!agent?.roleCardId) return undefined;
-      return get().roleCards.find((c: RoleCard) => c.id === agent.roleCardId);
-    },
     setAgentRoleCardId: (agentId: string, roleCardId: string) => {
       const idx = AGENT_ROSTER.findIndex((a) => a.id === agentId);
       if (idx !== -1) {

@@ -49,6 +49,7 @@ describe('A2APossessionStrip', () => {
 
     expect(screen.getByText('派发回执')).toBeTruthy();
     expect(screen.getByText(/已确认接纳/)).toBeTruthy();
-    expect(screen.getAllByText(/项目统筹/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Mario/).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/项目统筹/)).toBeNull();
   });
 });

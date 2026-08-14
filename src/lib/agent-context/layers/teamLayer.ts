@@ -30,9 +30,8 @@ export function buildTeamLayer(selfId: string, allRoleCards: RoleCard[], current
     return {
       id: agent.id,
       name: agent.name,
-      displayName: rc?.displayName ?? agent.roleLabel,
       emoji: agent.emoji,
-      roleLabel: rc?.category ? ROLE_LABELS[rc.category] ?? agent.roleLabel : agent.roleLabel,
+      roleName: rc?.category ? ROLE_LABELS[rc.category] ?? rc.displayName : rc?.displayName ?? agent.name,
       strengths: rc?.responsibilities.slice(0, 3) ?? [],
       domains: rc?.capabilities?.domains ?? [],
       skills: rc?.capabilities?.skills ?? [],
@@ -48,7 +47,7 @@ export function buildTeamLayer(selfId: string, allRoleCards: RoleCard[], current
   const header = '| @mention | 名字 | 角色 | 领域 | 核心技能 | 资历 | 并行上限 | 当前负载 |';
   const sep = '|----------|------|------|------|---------|------|---------|---------|';
   const rows = teammates.map(
-    (t) => `| @${t.id} | ${t.emoji} ${t.name} | ${t.roleLabel} | ${t.domains.join(', ')} | ${t.skills.slice(0, 4).join(', ')} | ${t.seniority} | ${t.maxConcurrent} | ${t.currentLoad}/${t.maxConcurrent} |`,
+    (t) => `| @${t.id} | ${t.emoji} ${t.name} | ${t.roleName} | ${t.domains.join(', ')} | ${t.skills.slice(0, 4).join(', ')} | ${t.seniority} | ${t.maxConcurrent} | ${t.currentLoad}/${t.maxConcurrent} |`,
   );
 
   return [

@@ -42,11 +42,7 @@ export function AgentBar() {
           const profile = getAgentRuntimeProfile(agent.id);
           const roleCard = profile?.prompt.roleCard
             ?? (agent.roleCardId ? roleCards.find((c) => c.id === agent.roleCardId) ?? null : null);
-          const cfg = roleCard
-            ? getCategoryConfig(roleCard.category)
-            : agent.roleLabel
-              ? { themeVar: '--color-blue', label: agent.roleLabel }
-              : null;
+          const cfg = roleCard ? getCategoryConfig(roleCard.category) : null;
           const boundIds = profile?.agent.accountIds ?? agent.accountIds ?? roleCard?.accountIds ?? [];
           const boundCount = boundIds.length;
           const hasValidAccount = boundIds.some((id) => {
@@ -89,12 +85,12 @@ export function AgentBar() {
                   <span className="text-[10px] font-bold text-[hsl(var(--text-primary))]">
                     {agent.name}
                   </span>
-                  {(roleCard || agent.roleLabel) && (
+                  {roleCard && (
                     <span className={cn(
                       'text-[8px] font-bold tracking-wider uppercase',
                       cfg ? `text-[hsl(var(${cfg.themeVar}))]` : 'text-[hsl(var(--text-tertiary))]',
                     )}>
-                      {roleCard ? roleCard.displayName : agent.roleLabel}
+                      {roleCard.displayName}
                     </span>
                   )}
                 </div>

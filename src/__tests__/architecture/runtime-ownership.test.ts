@@ -58,12 +58,24 @@ describe('runtime ownership architecture', () => {
       'getDispatchReceiptsForSelectedConversation',
       'restoreConversation',
       'fixBlocker',
+      'getRoleCardById',
+      'getRoleCardForAgent',
     ]) {
       const actionPattern = new RegExp(`\\b${action}\\b`);
       expect(storeFiles.filter((path) => actionPattern.test(source(path)))).toEqual([]);
     }
     const retiredProgressCard = /progressData|ProgressMessageCard/;
     expect(productionTypeScriptFiles('src').filter((path) => retiredProgressCard.test(source(path)))).toEqual([]);
+  });
+
+  it('keeps browser Agent identity free of duplicate RoleCard facts', () => {
+    const agentStore = source('src/store/agentStore.ts');
+    const agentInterface = agentStore.match(/export interface Agent \{([\s\S]*?)\n\}/)?.[1] ?? '';
+    expect(agentInterface).not.toMatch(/^\s*role(?:Label)?:/m);
+
+    const retiredRoleProjection = /\bAgentRole\b|\broleLabel\b|\bROLE_(?:LABEL_)?MAP\b/;
+    expect(productionTypeScriptFiles('src').filter((path) => retiredRoleProjection.test(source(path))))
+      .toEqual([]);
   });
 
   it('keeps explicit human command adapters available', () => {

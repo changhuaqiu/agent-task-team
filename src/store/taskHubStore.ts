@@ -10,7 +10,7 @@ import type { TaskStatus, Task, TaskArtifact } from './taskStore';
 import { setTaskCounter, STATUS_LABELS, STATUS_ORDER } from './taskStore';
 import { createAgentSlice, AGENT_ROSTER } from './agentStore';
 import { loadAgents } from './agentStore';
-import type { Account, Agent, AgentRole } from './agentStore';
+import type { Account, Agent } from './agentStore';
 import { createDaemonSlice } from './daemonStore';
 import {
   socket,
@@ -42,7 +42,7 @@ export type { CliEngine, DetectedRuntime } from '@/server/types';
 export type { TaskStatus } from './taskStore';
 export type { Task, TaskArtifact } from './taskStore';
 export { STATUS_LABELS, STATUS_ORDER } from './taskStore';
-export type { AgentRole, AgentTheme, Agent } from './agentStore';
+export type { AgentTheme, Agent } from './agentStore';
 export { AGENT_ROSTER, loadAgents, PROVIDER_LABELS, PROVIDER_OPTIONS, MODEL_SUGGESTIONS } from './agentStore';
 export type { AccountProvider, AccountAuthMode, Account } from './agentStore';
 export type { PendingDispatch } from './daemonStore';
@@ -371,9 +371,9 @@ function getCachedEffectiveRoster(state: TaskHubState): Agent[] {
     const presetAgent = AGENT_ROSTER.find((agent) => agent.id === runtimeAgent.id);
     return {
       id: runtimeAgent.id,
-      name: runtimeAgent.displayName,
-      role: presetAgent?.role ?? ('worker' as AgentRole),
-      roleLabel: runtimeAgent.roleCard?.displayName ?? presetAgent?.roleLabel ?? runtimeAgent.displayName,
+      name: runtimeAgent.source === 'preset-agent'
+        ? presetAgent?.name ?? runtimeAgent.displayName
+        : runtimeAgent.displayName,
       roleCardId: runtimeAgent.roleCardId ?? presetAgent?.roleCardId ?? `team-role-${runtimeAgent.id}`,
       theme: runtimeAgent.theme ?? presetAgent?.theme ?? 'mario',
       emoji: runtimeAgent.emoji ?? presetAgent?.emoji ?? '🤖',
@@ -789,8 +789,6 @@ export interface TaskHubState {
   roleCards: RoleCard[];
   upsertRoleCard: (card: Omit<RoleCard, 'id' | 'createdAt' | 'updatedAt' | 'version' | 'isPreset'> & { id?: string; isPreset?: boolean }) => string;
   removeRoleCard: (cardId: string) => void;
-  getRoleCardById: (cardId: string) => RoleCard | undefined;
-  getRoleCardForAgent: (agentId: string) => RoleCard | undefined;
   setAgentRoleCardId: (agentId: string, roleCardId: string) => void;
   setRoleCardAccountIds: (roleCardId: string, accountIds: string[]) => void;
 

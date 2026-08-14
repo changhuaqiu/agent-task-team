@@ -92,6 +92,7 @@ export function AgentRosterModal() {
               {availableAgents.map((agent) => (
                 (() => {
                   const theme = CARD_THEME_CLASSES[agent.theme];
+                  const roleCard = roleCards.find((card) => card.id === agent.roleCardId);
                   return (
                 <div
                   key={agent.id}
@@ -117,14 +118,10 @@ export function AgentRosterModal() {
                       <h3 className="text-[14px] font-bold text-[hsl(var(--text-primary))] flex items-center gap-2">
                         {agent.name} <span>{agent.emoji}</span>
                       </h3>
-                      {agent.roleCardId && roleCards.find((c) => c.id === agent.roleCardId) ? (
+                      {roleCard && (
                         <div className="mt-1">
-                          <RoleCardSummary card={roleCards.find((c) => c.id === agent.roleCardId)!} />
+                          <RoleCardSummary card={roleCard} />
                         </div>
-                      ) : (
-                        <p className="text-[10px] font-bold text-[hsl(var(--text-tertiary))] uppercase tracking-wider mt-0.5">
-                          {agent.roleLabel}
-                        </p>
                       )}
                     </div>
 
