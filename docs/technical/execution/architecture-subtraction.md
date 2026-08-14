@@ -94,3 +94,7 @@ Google/Gemini API Key 账号能够由 OpenCode provider 配置消费，原生 Ge
 ## 第十五轮：删除账号验证旁路与 OAuth 假可达
 
 账号“测试连接”曾与正式 backend 分叉：Google/Kimi 分别运行厂商 CLI，OpenCode 运行主机默认配置，Other 更只执行 `echo "ok"`；同时 Kimi、OpenCode、Other OAuth 没有任何可注入 OpenCode 的身份，却仍可创建并被 Runtime 选择。第十五轮将 provider-to-engine、认证模式、Base URL 与 execution readiness 收口到共享账号规则；所有映射到 OpenCode 的 provider 只接受已验证、密钥和模型完整的 API Key 账号，并使用与 daemon 同构的临时 OpenCode provider/model/env 配置执行连接测试。连接字段变化会撤销既有验证，浏览器、服务端规划、评估快照恢复与 daemon 启动前均失败关闭。Gemini/Kimi/Other probe command 与只被自身测试调用的 `probeCli` wrapper 删除；Anthropic/OpenAI OAuth 仅因其 ACP Adapter 明确复用主机登录态而保留。
+
+## 第十六轮：删除未接线的 scopeGuard 伪门面
+
+旧 `scopeGuard.ts` 同时暴露项目断言、兼容过滤与 private 可见性断言，但四个 guard 接口均无生产调用，只由同名测试直接证明自己存在；唯一生产 import 是 history layer 对一行数组过滤的浅包装。它依赖的 `ContextRecord/filterVisible` 同样只有自己的测试消费者，是第二套未接线可见性模型。真实组装链早已在 `ContextManager` intake 拒绝错项目/缺项目输入，并由 Context Registry 统一过滤 project/global scope 与 agent/role/team visibility。第十六轮将 history 过滤内联，删除两套兼容模块及其自嗨测试，并同步活动 ContextManager 规格、长期文档与架构图，只保留真实生产 owner。

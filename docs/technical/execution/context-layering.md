@@ -1,9 +1,9 @@
 # Agent 上下文分层与边界设计（Context Layering & Boundary Design）
 
-> 日期：2026-07-14 ｜ 状态：设计稿·待审 ｜ 归属：Agent Task Hub / 上下文管理模块
+> 日期：2026-07-14 ｜ 状态：有效·当前事实已同步 ｜ 归属：Agent Task Hub / 上下文管理模块
 > 关联：`specs/context-manager/spec.md`（实现 spec，本设计是其分层与边界依据）、`docs/daily/2026-07-14-collab-efficiency-retro.md`（协作效率复盘·元病灶）、`docs/archive/specs/context-budget-management/`（已归档的预算守护基线）
-> 参照：Claude 的 `tools→system→messages` 稳定性分层与 context editing/compaction；CrewAI 的 `scope + private + importance` 记忆模型与 hierarchical manager
-> 一句话定位：**把上下文管理器重新定义为"单一注入网关 + 稳定性三层 + scope/private 标签"的纯组装引擎，并把它现在越界碰的角色过程/看板 schema 还给各自模块。**
+> 参照：Claude 的 `tools→system→messages` 稳定性分层与 context editing/compaction；CrewAI 的作用域记忆模型与 hierarchical manager
+> 一句话定位：**上下文管理器是“单一注入网关 + 稳定性三层 + Context Artifact/Registry”的纯组装引擎，并把角色过程/看板 schema 还给各自模块。**
 
 ---
 
@@ -25,7 +25,7 @@
 
 1. **单一注入网关**：所有模块（记忆/角色/任务/A2A/协议/质量）的数据，**只经上下文管理器一道闸**进 agent。任何模块都不得直连 agent。
 2. **稳定性分层**：按"多稳定"分三层（系统/工具/项目），**稳定性顺序 = 渲染顺序 = 裁剪逆序**，取代任意 P0–P4 整数。
-3. **category 无感**：上下文管理器只用 `importance`（裁剪）和 `scope + private`（可见性）做决策，把 `category` 和 `content` 当不透明载荷。新场景 = 新 category 标签，核心零改动（留空间）。
+3. **内容无感**：Registry 校验 Fragment 的 `kind/cluster/producer/scope/visibility/freshness` 后归一化为 Artifact；BudgetGuard 只消费 `delivery.importance/required` 等选择元数据，文本或 artifact reference 保持不透明。
 
 ---
 
@@ -39,9 +39,9 @@ Tier 1 系统层   [稳·永不裁]  role / protocol / collaboration / behavior
 Tier 2 工具层   [按角色·极少裁]  skill / tool（按 RoleCard 抽，角色天然不同）
                               ← Claude tools（最稳，角色差异的天然落点）
 Tier 3 项目层   [可裁]
-   ├ 共享体  private=false, scope=/project        （目标/决策/看板/task/handoff目标）
+   ├ 团队可见  scope=project(projectId), visibility=team       （目标/决策/看板）
    │                                       ← Claude mid-conversation system + durable memory
-   └ 私有体  private=true,  scope=/project/<agent> （该 agent 的轨迹）
+   └ 定向可见  scope=project(projectId), visibility=agent/role （任务、交接、轨迹）
                                      ← Claude messages（最易失效）+ context editing 裁剪对象
 ```
 
@@ -70,38 +70,41 @@ InteractionTier userMessage / teamLog                               ← 当前�
 - `history`：曾属 dialog → 现归知识层 memory（对话历史是"记忆"，不是"交互"）
 - `teamLog` 投影：曾属知识层 → 现归交互层（每轮不同的增量，不是稳定知识）
 
-**收益**：新增 layer 只改一个 tier 文件（深模块的 locality）；assembleContext 从 254 行的扁平 push 清单收敛为 ~20 行编排；可见性标签（scope/private/source）接线成 BudgetGuard 之前的真正 stage（spec §9，此前只写不读）。
+**收益**：新增 layer 只改一个 tier 文件（深模块的 locality）；assembleContext 从扁平 push 清单收敛为编排；结构化 scope/visibility/source 在 Context Registry 中成为 BudgetGuard 之前的真正过滤 stage。
 
 **退役记录（2026-07-22）**：主循环与 harness 已通过 `context-planner → ContextManager` 直接组装；生产代码与公共导出零调用审计通过后，`PromptComposer.ts` 兼容包装及只验证包装的测试已删除。仍有效的 role/team/collaboration/user-message/behavior layer 行为测试保留在各 layer 的同目录测试中，防止兼容层退役造成语义覆盖下降。
 
 ---
 
-## 3. scope / private / importance 标签机制（CrewAI 校准）
+## 3. ContextArtifact 的 scope / visibility / importance
 
-参考 CrewAI 的 `MemoryRecord`（`memory/types.py`），把"目标共享/轨迹隔离"从**结构切分**升级为**字段标签**——更灵活，且直接回答"谁看到什么"：
+当前统一模型是 `ContextArtifact`。它把“目标共享/轨迹隔离”表达为结构化 scope 与 visibility，并把裁剪权重放在 delivery 中：
 
 ```ts
-interface ContextRecord {
-  scope: string;        // 层级路径 "/project" 或 "/project/<agentId>"  ← 可见性边界
-  private: boolean;     // true=仅同源可见 / false=共享                  ← 轨迹隔离开关
-  importance: number;   // 0.0–1.0，裁剪排序键                            ← 取代 P0–P4
-  category: string;     // 标签：identity|protocol|task|trajectory|handoff-goal|acceptance|... （对核心无感）
-  content: string;      // 文本载荷（对核心无感）
-  source?: string;      // 来源 agent/session，溯源 + 隐私过滤
+interface ContextArtifact {
+  semantic: { kind: string; cluster: ContextCluster };
+  scope: { kind: 'project'; projectId: string } | { kind: 'global'; key: string };
+  visibility:
+    | { kind: 'team' }
+    | { kind: 'agent'; agentId: string }
+    | { kind: 'role'; archetypes: ContextArchetype[] };
+  source: { provider: string; owner: string; revision: string; observedAt: string };
+  delivery: { mode: DeliveryMode; channel: DeliveryChannel; required: boolean; importance: number };
+  content: string | { artifactRef: string };
 }
 ```
 
 标签值示例：
 
-| 上下文 | scope | private | importance | category |
+| 上下文 | scope | visibility | delivery.importance | semantic.kind |
 |---|---|---|---|---|
-| 项目目标/决策 | `/project` | false | 0.8 | decision |
-| 看板/任务状态 | `/project` | false | 0.6 | kanban |
-| 分配给"我"的任务 | `/project`（按 assignee 过滤）| false | 0.8 | task |
-| Mario 的协调轨迹 | `/project/mario` | true | 0.3 | trajectory |
-| DoD / 验收标准 | `/project` | false | 0.9 | acceptance |
+| 项目目标/决策 | project(projectId) | team | 0.8 | decision |
+| 看板/任务状态 | project(projectId) | team | 0.6 | kanban |
+| 分配给“我”的任务 | project(projectId) | agent(agentId) | 0.8 | task |
+| Mario 的协调轨迹 | project(projectId) | agent(mario) | 0.3 | trajectory |
+| DoD / 验收标准 | project(projectId) | role(reviewer) | 0.9 | acceptance |
 
-> importance 是建议默认值（可调），关键是**相对序**：系统层高、轨迹低。`category` 和 `content` 对上下文管理器不透明——未来质量模块塞 `category='acceptance'`、自管理模块塞 `category='reflection'`，核心不动。这就是"留空间"。
+> importance 是建议默认值（可调），关键是**相对序**：系统层高、轨迹低。Registry 对 content 不透明：它先验证 Fragment 的 `kind/cluster/producer/scope/visibility/freshness`，再归一化生成 Artifact 的 `semantic/source/lifecycle/delivery`；新增业务语义不需要新增第二套记录模型。
 
 ---
 
@@ -114,11 +117,11 @@ interface ContextRecord {
 ### IN（本模块拥有，高内聚）
 
 1. 分层组装（系统/工具/项目三层裁剪 × 系统/知识/任务/交互四层语义组织，见 §2.1）
-2. 可见性过滤（scope 路径 + private 标志 + source 归属，2026-07-17 接线为真正的 stage）
+2. 可见性过滤（结构化 project/global scope + team/agent/role visibility）
 3. 预算裁剪（importance 复合分）
-4. 上下文打标（每条带 scope/private/importance/category/source）
+4. 上下文归一化（每条带 semantic/scope/visibility/source/lifecycle/delivery）
 5. 健康报告（`ContextReport` → `context_health` / `usage_snapshot`）
-6. 组装契约 + 标签 schema（`ContextRecord`，版本化契约）
+6. 组装契约 + Artifact schema（`ContextArtifact`，版本化契约）
 
 ### OUT（别的模块的活，通过窄只读接口接入）
 
@@ -151,9 +154,9 @@ interface ContextRecord {
    数据生产者（各自拥有域，只读出）              唯一注入网关                消费者
    ┌──────────────────────────────┐        ┌──────────────────────┐      ┌────────────┐
    │ 记忆模块 Memory (L3)         │ recall │ 组装：系统/工具/项目   │prompt│  单个 agent │
-   │ 角色模块 RoleCard/TeamPack   │────────▶│ 可见性：scope+private │─────▶│  运行时     │
-   │ 任务/编排 daemon             │ getRole │ 裁剪：importance 复合 │      │ (OpenCode/  │
-   │ 消息/轨迹 messageRepo        │ getTask │ 打标：4字段·category  │      │  Claude/CLI)│
+   │ 角色模块 RoleCard/TeamPack   │────────▶│ Registry：scope +     │─────▶│  运行时     │
+   │ 任务/编排 daemon             │ getRole │ visibility + freshness│      │ (OpenCode/  │
+   │ 消息/轨迹 messageRepo        │ getTask │ Budget：delivery 元数据│      │  Claude/CLI)│
    │ A2A 协议 possession          │ getMsg  │ 无感                  │      └────────────┘
    │ 质量模块 quality_gate(future)│ handoff │                      │ report
    │ 协作协议 .ath/PROTOCOLS.md   │ DoD标签 │ 纯函数·只读·无 mutate │─────▶ 可观测/质量
@@ -162,7 +165,7 @@ interface ContextRecord {
         └── 所有生产者数据，只此一条路进 agent ⛔ 不得绕过网关直连 ──┘
 ```
 
-不变量：**没有任何箭头从生产者直连 agent。** 记忆模块决定"召回哪 10 条 durable 事实"，但召回结果作 source 喂给网关，由它按 scope/private/importance 决定怎么塞/塞多少/给谁看——**记忆模块不碰组装，上下文管理器不碰检索，职责正交**。
+不变量：**没有任何箭头从生产者直连 agent。** Contributor 产出 Fragment；Registry 按结构化 scope/visibility/freshness 过滤并归一化 Artifact，BudgetGuard 再按 delivery 元数据决定装多少——**生产者不碰组装，上下文管理器不碰检索，职责正交**。
 
 ---
 
@@ -181,7 +184,7 @@ interface ContextRecord {
 ```ts
 getProtocol(scope: string): Promise<string>  // 读 .ath/PROTOCOLS.md + 合并基础默认
 ```
-注入为系统层共享记录 `{scope:'/project', private:false, importance:0.8, category:'protocol'}`，内容对核心不透明。
+注入为 protocol cluster 的 project-scoped、team-visible Fragment，归一化后由 `delivery.importance` 参与选择；内容对 Registry 与预算模块不透明。
 
 **三个别混**：
 
@@ -199,32 +202,32 @@ getProtocol(scope: string): Promise<string>  // 读 .ath/PROTOCOLS.md + 合并�
 
 **Tier 1 系统层（永不裁）**
 
-| Layer | 现 P | scope | private | imp | category | 裁决 |
+| Layer | 现 P | scope | visibility | importance | cluster | 裁决 |
 |---|---|---|---|---|---|---|
-| roleLayer | sys | /project | F | 0.9 | identity | IN，**有 OUT 泄漏**⚠️ |
-| collaborationLayer | 1 | /project | F | 0.8 | protocol | IN，建议外置 → `.ath/PROTOCOLS.md` |
-| behaviorLayer | 0 | /project | F | 0.7 | protocol | IN（收尾决策），可并入 collaboration |
-| protocolLayer | 0 | /project | F | 0.7 | protocol | **拆分**：身份行 IN（Tier1）/ 看板 schema OUT（orchestrator，泄漏 #2） |
+| roleLayer | sys | project | agent/role | 0.9 | identity | IN，**有 OUT 泄漏**⚠️ |
+| collaborationLayer | 1 | project | team | 0.8 | protocol | IN，建议外置 → `.ath/PROTOCOLS.md` |
+| behaviorLayer | 0 | project | team | 0.7 | protocol | IN（收尾决策），可并入 collaboration |
+| protocolLayer | 0 | project | team | 0.7 | protocol | **拆分**：身份行 IN（Tier1）/ 看板 schema OUT（orchestrator，泄漏 #2） |
 
 **Tier 2 工具层（极少裁，按角色）**
 
-| Layer | 现 P | scope | private | imp | category | 裁决 |
+| Layer | 现 P | scope | visibility | importance | cluster | 裁决 |
 |---|---|---|---|---|---|---|
-| skillLayer | 3 | /project | F | 0.6 | capability | IN |
-| toolLayer | 3 | /project | F | 0.6 | capability | IN（已按 RoleCard 抽） |
+| skillLayer | 3 | project/global | agent/role | 0.6 | capability | IN |
+| toolLayer | 3 | project/global | agent/role | 0.6 | capability | IN（已按 RoleCard 抽） |
 
 **Tier 3 项目层（可裁）**
 
-| Layer | 现 P | scope | private | imp | category | 裁决 |
+| Layer | 现 P | scope | visibility | importance | cluster | 裁决 |
 |---|---|---|---|---|---|---|
-| projectLayer | sys | /project | F | 0.7 | project | IN |
-| projectStatusLayer（看板） | sys | /project | F | 0.6 | kanban | IN |
-| teamLayer（花名册） | 2 | /project | F | 0.5 | roster | IN |
-| teamPackLayer（目标/规范） | 1 | /project | F | 0.6 | norms | IN |
-| taskContextLayer（分配任务） | 0 | /project | F | 0.8 | task | IN |
-| a2aLayer（交接目标段） | 1 | /project | F | 0.7 | handoff-goal | IN |
-| historyLayer（轨迹） | 4 | /project/**&lt;agent&gt;** | **T** | 0.3 | trajectory | IN（relevance stub 待修） |
-| userMessageLayer（触发） | 0 | /project | — | 0.9 | user-input | IN（始终注入） |
+| projectLayer | sys | project | team | 0.7 | situation | IN |
+| projectStatusLayer（看板） | sys | project | team | 0.6 | situation | IN |
+| teamLayer（花名册） | 2 | project | team | 0.5 | situation | IN |
+| teamPackLayer（目标/规范） | 1 | project | team | 0.6 | situation | IN |
+| taskContextLayer（分配任务） | 0 | project | agent | 0.8 | focus | IN |
+| a2aLayer（交接目标段） | 1 | project | agent | 0.7 | focus | IN |
+| historyLayer（轨迹） | 4 | project | agent | 0.3 | dialog | IN |
+| userMessageLayer（触发） | 0 | project | agent | 0.9 | focus | IN（始终注入） |
 
 ### 7.2 OUT 泄漏（边界试金石）
 
@@ -248,10 +251,9 @@ interface BudgetPart {
   tier: 'system' | 'tool' | 'project';   // 结构层（硬约束）
   importance: number;                      // 0–1（层内排序）
   required?: boolean;                      // 必需内容先建立预算最低配额
-  scope: string; private: boolean;         // 可见性（不影响裁剪，影响谁见）
 }
 ```
-> `tier` 是**组装单元的元数据**，由 `category` 在组装时派生（identity/protocol→system、capability→tool、task/kanban/history/...→project）；`ContextRecord`（§3 数据模型）只存 category，不存 tier。
+> `tier` 是 BudgetGuard 的兼容组装元数据；当前 Artifact 由 `semantic.cluster` 与 `delivery` 表达结构和重要性，Registry 在进入预算裁剪前完成 scope/visibility 过滤。
 
 裁剪规则（取代 P0–P4 排序 + P0 硬上限 50%）：
 1. `system` 层按既有规则先处理；
@@ -268,35 +270,33 @@ interface BudgetPart {
 
 > 修正早先"对 teammate 藏共享目标"的过度简化——那会加重蒸发。retro 病根是 teammates 缺共享的决策/看板/DoD。
 
-**"每个人看到的不一样"不靠藏共享目标，而靠：①私有轨迹隔离 ②分配任务按 assignee 过滤 ③角色身份不同。共享基底全员可见——这正是治蒸发的药。**
+**"每个人看到的不一样"不靠藏共享目标，而靠结构化 scope 与 visibility：共享基底对团队可见，分配任务、交接和轨迹只对目标 agent/role 可见。**
 
-| 维度 | 内容 | scope | private | 谁见 |
+| 维度 | 内容 | scope | visibility | subject / 接收者 |
 |---|---|---|---|---|
-| 共享基底 | 目标/决策/看板/花名册/协议 | `/project` | F | 全员 |
-| 分配焦点 | 分配给"我"的 task | `/project`（按 assignee 过滤）| F | 该 assignee |
-| 交接目标段 | 收到的 handoff | `/project` | F | 接收方 |
-| 私有轨迹 | "我"的对话/探查/推理 | `/project/<self>` | **T** | 仅自己 |
-| 角色身份 | RoleCard 身份+职责 | 系统层 | — | 该角色 |
+| 共享基底 | 目标/决策/看板/花名册/协议 | `project(projectId)` | `team` | 当前项目团队 |
+| 分配焦点 | 分配给“我”的 task | `project(projectId)` | `agent(agentId)` | assignee |
+| 交接目标段 | 收到的 handoff | `project(projectId)` | `agent(agentId)` | 接收方 |
+| 个体轨迹 | “我”的对话/探查摘要 | `project(projectId)` | `agent(agentId)` | 轨迹所有者 |
+| 角色身份 | RoleCard 身份与职责 | `global` | `agent` 或 `role` | 指定 agent / archetype |
 
-**recall 过滤规则**：一条记录对 agent X 可见 ⟺ `(scope 以 X 允许路径开头) 且 (private=false 或 source===X)`。
-- Mario 允许 `/project` → 全量共享基底 + 自己 `/project/mario` 私有；
-- Luigi 允许 `/project` + `/project/luigi` → 全量共享基底 + 自己私有，**看不到** `/project/toad`、`/project/mario` 的私有轨迹。
+**Registry 过滤规则**：`project` scope 必须等于查询的 `conversationId`；`global` scope 只允许 identity/protocol/capability 等受控 cluster，并要求 agent/team subject。通过 scope 后，`team` 对项目团队可见，`agent` 必须精确匹配 `query.agentId`，`role` 必须命中查询 archetype。
 
 Mario 的"全局视野"是**角色职责驱动他用全量共享基底**做分派，不是特权层。
 
 ---
 
-## 10. L1 / L2 / L3 衔接（scope/private 统一机制）
+## 10. L1 / L2 / L3 衔接（Artifact 统一机制）
 
-同一套 `scope/private` 标志，跨三层边界：
+同一套结构化 Artifact 契约跨三层边界：
 
 ```
-L1 单 agent 组装：recall 按 scope+private 过滤 → 组装进单个 prompt
-L2 跨 agent handoff：抽取 private=false 记录 → HandoffSnapshot → 下游 a2aLayer 接收
-L3 跨项目身份：scope 升到 /agent/<id>（身份全局只读），项目段 scope=/project 不跟随
+L1 单 agent 组装：Registry 按 scope+visibility 选择 Artifact → 组装进单个 prompt
+L2 跨 agent handoff：Contributor 生成 receiver-visible Handoff Artifact/Packet → 下游 a2aLayer 接收
+L3 跨项目身份：身份 Artifact 使用 global scope + agent/role subject；project scope Artifact 不跨项目跟随
 ```
 
-**L2 HandoffSnapshot 抽取规则 = "只取 `private=false` 的相关记录"**。retro §5.2 的字段（task/acceptanceCriteria、openDecisions、selfCheckEvidence、changeScope、handoffNote）全部是共享体内容；上游私有轨迹（怎么推理、探查过哪些死路）永不进 handoff。"目标共享/轨迹隔离"一条原则，从单 agent 组装到跨 agent 交接到跨项目身份，用的是**同一个标志机制**。
+**L2 HandoffSnapshot 使用显式 packet schema，而不是从通用记录中按布尔标志抽取。** retro §5.2 的字段（task/acceptanceCriteria、openDecisions、selfCheckEvidence、changeScope、handoffNote）由 handoff contributor 明确产出，并标注当前项目 scope 与接收方 visibility；上游推理和探查轨迹不属于 packet schema，因此不会进入 handoff。
 
 ---
 
@@ -305,13 +305,13 @@ L3 跨项目身份：scope 升到 /agent/<id>（身份全局只读），项目�
 **本设计覆盖**：上下文管理器的分层模型、边界契约、标签机制、可见性、裁剪改造、协作协议落点。
 
 **明确不在本期**：
-- 向量记忆 / 语义检索 / consolidation 合并（CrewAI Unified Memory 级）→ L3 memory spec，deferred。本期只采纳 scope/private/importance **概念**，不引入向量库。
+- 向量记忆 / 语义检索 / consolidation 合并（CrewAI Unified Memory 级）→ L3 memory spec，deferred。本期只采用结构化 `scope/visibility` 与 `delivery.importance`，不引入向量库。
 - 角色工作过程的具体定义（Mario 怎么拆解、Peach 怎么评审）→ RoleCard / Skill。
 - 质量门禁的 enforcement（DoD/评审/门禁执行）→ quality_gate 模块；上下文管理器只携带 DoD 作标签。
 - 任务拆解/调度 → orchestrator。
 - A2A 持球/交接语义本身 → platform-harness-state-machines。
 
-**排序约束**：本设计是设计稿，不立即改代码。OUT 泄漏迁移（roleLayer/protocolLayer 重构）**排在 TASK-006 收口之后**（retro §5.5：改进不得吞掉实现带宽）。立即可做（低风险）：BudgetGuard 加 `tier+importance` 字段、history 层补 scope/private 标签。
+**排序约束**：OUT 泄漏迁移（roleLayer/protocolLayer 重构）仍排在 TASK-006 收口之后；结构化 Fragment/Artifact、Registry scope/visibility 过滤与 delivery importance 已成为当前事实，不再为 history 层维护第二套标签模型。
 
 ---
 
@@ -322,7 +322,7 @@ L3 跨项目身份：scope 升到 /agent/<id>（身份全局只读），项目�
 | 分层重构冲击在审的 TASK-006 | OUT 泄漏迁移延后到 TASK-006 收口后；立即可做的（BudgetGuard 字段、标签）低风险 |
 | importance 默认值拍脑袋 | 明确为"可调建议值"，关键是相对序；上线后按 `ContextReport` 实测调 |
 | `.ath/PROTOCOLS.md` 协议碎片化 | 基础默认模板 + 项目覆盖两层合并；retro M1 已建维护流程 |
-| scope/private 漏标导致串话/泄漏 | scopeGuard 断言 + 每层单测；跨 agent/跨项目边界钉死测试 |
+| scope/visibility 漏标导致串话/泄漏 | ContextManager intake 失败关闭 + Registry 过滤 + 每层单测；跨 agent/跨项目边界钉死测试 |
 | category 滥用退化为散文 | category 对核心无感，但每条须带可执行语义（acceptance 带 DoD 命令，非散文）|
 
 ---
@@ -331,7 +331,7 @@ L3 跨项目身份：scope 升到 /agent/<id>（身份全局只读），项目�
 
 - **Q1**：系统层 vs 工具层的前后顺序（默认系统层在前，可按变更频率调）。
 - **Q2**：`.ath/PROTOCOLS.md` 是否分文件（协作协议 / gate 定义 / 看板 schema）还是单文件分节——由协议维护方（Mario/团队）定，不影响本设计。
-- **Q3**：handoff 内"目标段 vs 轨迹段"的切分粒度（`a2aLayer` 渲染时按 private 过滤）——L2 落地时定。
+- **Q3**：handoff 内“目标段 vs 轨迹段”的切分粒度——由显式 Handoff Packet schema 与接收方 visibility 决定，不由渲染层解析通用记录。
 
 ---
 

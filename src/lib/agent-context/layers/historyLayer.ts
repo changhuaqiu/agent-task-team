@@ -1,6 +1,5 @@
 import type { ChatMessage } from '@/store/types';
 import { keywordRelevance, recencyScore } from '../relevance';
-import { filterByProjectId } from '../scopeGuard';
 
 const SENDER_LABELS: Record<string, string> = {
   human: '用户',
@@ -45,7 +44,7 @@ export function buildHistoryLayer(
 
   // 按 project_id 过滤（= conversationId）
   const filteredMessages = opts?.projectId
-    ? filterByProjectId(messages, opts.projectId)
+    ? messages.filter(message => message.conversationId === opts.projectId)
     : messages;
 
   const selfMessages = filteredMessages.filter((message) => message.agentId === selfId);

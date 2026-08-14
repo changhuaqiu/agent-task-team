@@ -8,8 +8,8 @@
 - [ ] T2 完成 `ContextManager.assembleContext()`：内部复用 `BudgetGuard`，按 system/tool/project + importance 组装并返回 `{ systemPrompt?, userPrompt, report, sessionId }`
 - [x] T3 主循环统一委托 `ContextManager`；迁移期 `PromptComposer` 包装在生产代码与公共导出零调用后删除（2026-07-22），有效 layer 行为测试迁入同目录测试文件
 - [ ] T4 `project` 升级为 `{ id, name, path }`；`projectLayer` 增加 id 展示
-- [ ] T5 history / taskContext / teamPack 层按 `project_id` 过滤；`scopeGuard.ts` 按 scope/private/接收者过滤并拒绝跨项目 source
-- [x] T6 P1 测试：ContextManager / scopeGuard / 各层 project_id 过滤与独立 layer 单测通过；build 通过（2026-07-22 复验）
+- [x] T5 仓储查询与 ContextManager intake 按 `project_id` 失败关闭；P5 Context Registry 按 project/global scope 与 agent/role/team visibility 过滤。未接线的 `scopeGuard.ts` 在 Round 16 删除
+- [x] T6 P1 测试：ContextManager intake / Context Registry / 各层 project_id 过滤与独立 layer 单测通过；build 通过（Round 16 复验）
 
 ## P2 — A2A 协议化 + 跨项目身份
 - [ ] T7 `a2a/context-builder.ts`：`renderDispatchPrompt` 退役；改为构造 `a2aHandoff` source（含交接包 + `remainingBudget` 元数据）

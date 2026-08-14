@@ -13,7 +13,7 @@
 
 - `ContextManager` 是统一组装入口；
 - `scenario × archetype × cluster` 能区分 init、handoff、wakeup、closure 等执行场景；
-- `scope/private/importance` 已有类型和边界测试；
+- `ContextFragment/ContextArtifact` 的结构化 `scope/visibility/delivery` 已有类型与 Registry 边界测试；
 - Team Log 已使用游标提供按 Agent 的增量上下文；
 - A2A 已有结构化交接包，而不是只依赖完整聊天历史。
 
@@ -304,8 +304,8 @@ required floor，并在自身无法装入时 fail closed。
 | --- | --- | --- |
 | `ContextManager` 单入口 | 保留 | 升级为 compiler facade |
 | `scenario × archetype × cluster` | 保留但降级 | 只作为 policy 输入，不直接等同生命周期 |
-| `ContextRecord` | 模型正确但未真正接入组装 | 扩为 Artifact，并在 intake 强制执行 |
-| `scopeGuard` | 保留 | 加 audience、authority、consistency 校验 |
+| `ContextArtifact` | 当前统一模型 | 保留结构化 scope/visibility/source/lifecycle/delivery，并在 Registry 强制执行 |
+| Context Registry | 保留 | 已统一 scope、visibility、freshness；继续扩展 authority、consistency 校验 |
 | Team Log cursor | 正确样板 | 泛化为 per-agent Context Checkpoint |
 | `A2AHandoffPacket` | 正确方向 | 补 acceptance、artifact refs、causal parent、source revisions |
 | Skill 全量层 | 可能重复 | 改为摘要索引 + JIT 内容 |

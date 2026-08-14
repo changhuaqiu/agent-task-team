@@ -1,9 +1,11 @@
 ---
-状态：评估稿 · 待评审
+状态：superseded · 历史评估稿
 doc_kind: plan
 created: 2026-07-17
 范围：src/lib/agent-context/
 ---
+
+> 本文不是当前实施计划。其中“接线 scopeGuard”建议已由 Context Artifact/Registry 的正式生产链替代；旧 scopeGuard 与 ContextRecord 在 Architecture Subtraction Round 16 删除。当前事实见 `docs/technical/execution/context-layering.md` 与 `specs/context-manager/spec.md`。
 
 # 架构评估报告 — agent-context 模块
 

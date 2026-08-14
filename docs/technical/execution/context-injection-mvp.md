@@ -1,7 +1,7 @@
 # 上下文注入策略 MVP（Context Injection Policy · MVP）
 
 > 日期：2026-07-15 ｜ 评审：2026-07-16 ｜ 状态：已评审·通过（含修订） ｜ 归属：Agent Task Hub / 团队协作 Harness
-> 关联：`docs/technical/execution/context-layering.md`（三层稳定性 + scope/private 边界）、`specs/context-manager/spec.md`（组装管道 v2）、`docs/technical/execution/platform-harness-state-machine-design.md`（A2A 聚合）、`src/lib/agent-context/ContextManager.ts`（15 层管道实现）
+> 关联：`docs/technical/execution/context-layering.md`（三层稳定性 + Context Artifact scope/visibility 边界）、`specs/context-manager/spec.md`（组装管道 v2）、`docs/technical/execution/platform-harness-state-machine-design.md`（A2A 聚合）、`src/lib/agent-context/ContextManager.ts`（15 层管道实现）
 > 参照：CrewAI 的 task.context 依赖图、OpenAI Swarm 的 handoff 函数化、LangGraph 的 state 读投影、Cognition (Devin) "Don't Build Multi-Agents"、Amazon 6-pager / Linear Issue 结构化模板
 > 一句话定位：**在已有的"组装管道 + 三层稳定性"之上，补一层显式的"场景 × 角色 → 注入策略"，让 agent 在正确的时间、以正确的方式、拿到正确的信息，同时把 loop 闭环的三条平台约束定死。**
 
@@ -9,7 +9,7 @@
 
 ## 0. 定位与前置
 
-现有 `ContextManager` 已经解决"怎么装"（15 层管道 + BudgetGuard + scopeGuard + 三层稳定性）。**它没解决"什么时候给谁装什么"**——所有场景、所有角色都过同一条 pipeline，只由预算被动挤压。
+现有 `ContextManager` 已经解决"怎么装"（分层组装 + intake 作用域校验 + Context Registry + BudgetGuard + 三层稳定性）。**它没解决"什么时候给谁装什么"**——所有场景、所有角色都过同一条 pipeline，只由预算被动挤压。
 
 本设计补的是**策略层**：把"团队协作 harness"里隐式散落的场景差异（首次进入 vs 迭代 vs 传球 vs 唤醒 vs 收敛）固化为显式的策略矩阵；同时给"agent 能自主 loop 起来"补三条平台侧强约束。
 

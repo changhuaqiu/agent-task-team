@@ -138,19 +138,19 @@
         <!-- ========== 中心：ContextManager 唯一组装出口 ========== -->
         <rect x="80" y="232" width="740" height="258" rx="10" fill="#0f172a"/>
         <rect x="80" y="232" width="740" height="258" rx="10" fill="rgba(6, 78, 59, 0.22)" stroke="#34d399" stroke-width="2"/>
-        <text x="100" y="256" fill="white" font-size="14" font-weight="700">★ ContextManager.assemble(opts)</text>
+        <text x="100" y="256" fill="white" font-size="14" font-weight="700">★ assembleContext(opts)</text>
         <text x="430" y="256" fill="#34d399" font-size="12" font-weight="600">→ { prompt, report }</text>
         <rect x="690" y="242" width="120" height="20" rx="4" fill="rgba(6, 78, 59, 0.5)" stroke="#34d399" stroke-width="1"/>
         <text x="750" y="256" fill="#34d399" font-size="8" font-weight="600" text-anchor="middle">唯一组装出口</text>
-        <text x="100" y="274" fill="#94a3b8" font-size="9">trigger + sources + identity + scope  →  BudgetGuard(P0–P4 裁剪)  →  { prompt, report }</text>
+        <text x="100" y="274" fill="#94a3b8" font-size="9">trigger + sources + identity + scope  →  BudgetGuard(tier + delivery)  →  { prompt, report }</text>
 
         <!-- 处理管线三件套 -->
         <rect x="100" y="288" width="200" height="64" rx="6" fill="#0f172a"/>
         <rect x="100" y="288" width="200" height="64" rx="6" fill="rgba(136, 19, 55, 0.3)" stroke="#fb7185" stroke-width="1.5" stroke-dasharray="4,3"/>
-        <text x="200" y="306" fill="#fb7185" font-size="10" font-weight="600" text-anchor="middle">scopeGuard</text>
-        <text x="200" y="322" fill="#cbd5e1" font-size="8" text-anchor="middle">组装前断言所有 source</text>
-        <text x="200" y="335" fill="#cbd5e1" font-size="8" text-anchor="middle">同 project_id · 跨项目被拦截</text>
-        <text x="200" y="348" fill="#94a3b8" font-size="7" text-anchor="middle">new · src/lib/agent-context</text>
+        <text x="200" y="306" fill="#fb7185" font-size="10" font-weight="600" text-anchor="middle">Intake + Context Registry</text>
+        <text x="200" y="322" fill="#cbd5e1" font-size="8" text-anchor="middle">输入失败关闭 · Fragment 统一过滤</text>
+        <text x="200" y="335" fill="#cbd5e1" font-size="8" text-anchor="middle">project/global scope · visibility</text>
+        <text x="200" y="348" fill="#94a3b8" font-size="7" text-anchor="middle">真实生产组装链</text>
 
         <rect x="312" y="288" width="240" height="64" rx="6" fill="#0f172a"/>
         <rect x="312" y="288" width="240" height="64" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
@@ -248,7 +248,7 @@
 
         <rect x="74" y="698" width="382" height="68" rx="6" fill="rgba(76, 29, 149, 0.5)" stroke="#a78bfa" stroke-width="1.5"/>
         <text x="84" y="716" fill="white" font-size="9" font-weight="600">结构性阻断串话</text>
-        <text x="84" y="732" fill="#cbd5e1" font-size="8">• scopeGuard 组装前断言（见上）</text>
+        <text x="84" y="732" fill="#cbd5e1" font-size="8">• Intake 失败关闭 + Registry 机械过滤</text>
         <text x="84" y="746" fill="#cbd5e1" font-size="8">• 不做跨项目 join · 不跨项目拉历史</text>
         <text x="84" y="760" fill="#a78bfa" font-size="8" font-weight="600">→ 项目 A 的 history/task 不渗入项目 B</text>
 
@@ -359,7 +359,7 @@
         </div>
         <ul>
           <li>① <b>主循环</b>(user_turn) 与 <b>A2A</b>(a2a_handoff) 原各自组装 prompt、各算预算</li>
-          <li>② 统一进 <b>ContextManager.assemble()</b>：scopeGuard → BudgetGuard → 输出</li>
+          <li>② 统一进 <b>assembleContext()</b>：Intake → Registry → BudgetGuard → 输出</li>
           <li>③ <b>PromptComposer</b> 退为渲染器，<b>renderDispatchPrompt</b> 退役</li>
           <li>④ A2A 不再自建管线，只产出交接包作为 <b>a2aHandoff source</b></li>
           <li>⑤ 预算/层优先级/作用域/身份 <b>对两条路径统一</b></li>
@@ -375,7 +375,7 @@
         <ul>
           <li><b>P1 · 非破坏先行</b>（Toad 主责，后端 TDD）</li>
           <li>　T1 schema 只读排查（占位列） · T2 ContextManager</li>
-          <li>　T3 Composer 委托 · T4 project{id} · T5 scopeGuard</li>
+          <li>　T3 Composer 委托 · T4 project{id} · T5 项目作用域</li>
           <li>　T6 P1 测试 ｜ <b>A2A 路径暂不动，并行运行</b></li>
           <li><b>P2 · 迁移</b></li>
           <li>　T7 a2aHandoff source · T8 daemon 改调</li>
@@ -407,7 +407,7 @@
         </div>
         <ul>
           <li>① 主循环与 A2A <b>同走 ContextManager</b>，共享 ContextBudget 与层优先级</li>
-          <li>② 跨项目：项目 A 的 history/task <b>不出现在</b>项目 B 的 prompt（scopeGuard 生效）</li>
+          <li>② 跨项目：项目 A 的 history/task <b>不出现在</b>项目 B 的 prompt（Intake + Registry 生效）</li>
           <li>③ 跨项目身份：同一 agent 多项目，<b>身份段一致、项目段隔离</b></li>
           <li>④ A2A 降级：renderDispatchPrompt 退役，交接包经 ContextManager 注入，<b>关键约束段不丢</b></li>
         </ul>
