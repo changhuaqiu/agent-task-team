@@ -185,6 +185,7 @@ Team Runtime remains the canonical resolver for:
 - prompt-layer team context
 
 Control Plane consumers must use Team Runtime outputs instead of importing frontend roster assumptions.
+Browser execution affordances follow the same rule: they consume the Store-cached `RuntimeAgentProfile` and must not reconstruct account readiness, provider routing, or fallback engines inside a component or Store slice.
 
 ### Layer 4: Dispatch Plane
 

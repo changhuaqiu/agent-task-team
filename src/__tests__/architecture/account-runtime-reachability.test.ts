@@ -1,9 +1,18 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 function source(path: string): string {
   return readFileSync(resolve(process.cwd(), path), 'utf8');
+}
+
+function productionTypeScriptFiles(directory: string): string[] {
+  return readdirSync(resolve(process.cwd(), directory)).flatMap((name) => {
+    const relative = `${directory}/${name}`;
+    const absolute = resolve(process.cwd(), relative);
+    if (statSync(absolute).isDirectory()) return productionTypeScriptFiles(relative);
+    return /\.tsx?$/.test(relative) && !/\.test\.tsx?$/.test(relative) ? [relative] : [];
+  });
 }
 
 describe('account runtime reachability architecture', () => {
@@ -14,6 +23,20 @@ describe('account runtime reachability architecture', () => {
       'src/lib/team-runtime/resolveRuntimeAgentProfile.ts',
     ].filter((path) => /const PROVIDER_TO_ENGINE/.test(source(path)));
     expect(owners).toEqual(['src/lib/account-auth.ts']);
+  });
+
+  it('keeps browser execution-profile resolution behind Team Runtime', () => {
+    const productionFiles = productionTypeScriptFiles('src');
+    const retiredBrowserResolvers = /\bresolveAgentEngine\b|\bproviderToEngine\b/;
+    expect(productionFiles.filter((path) => retiredBrowserResolvers.test(source(path)))).toEqual([]);
+
+    const storeFacade = source('src/store/taskHubStore.ts');
+    expect(storeFacade).not.toMatch(/export\s*\{[^}]*PROVIDER_TO_ENGINE/);
+
+    const taskDetail = source('src/components/task-hub/TaskDetailPanel.tsx');
+    expect(taskDetail).toContain('state.getAgentRuntimeProfile(selectedTask.agentId)');
+    expect(taskDetail).toContain('runtimeProfile?.execution.engine');
+    expect(taskDetail).not.toMatch(/agent\?\.cliEngine|['"]opencode['"]/);
   });
 
   it('does not retain vendor or unconditional probes for OpenCode-routed providers', () => {

@@ -193,6 +193,7 @@ Team Runtime 缓存是派生缓存，不是新的事实源。缓存只复用 `re
 
 - `getEffectiveRoster()` 委托 `resolveTeamRuntime()`。没有 TeamPack 时返回 preset agents；有 TeamPack 时以 TeamPack roles 为第一事实源，并为旧 UI 兼容保留必要映射。
 - `getAgentRuntimeProfile(agentId)` 委托 `resolveRuntimeAgentProfile()`。它返回单个成员的 RoleCard、Skill、账号和 engine；如果没有可执行账号或 fallback engine，返回 `null`。
+- 任务详情、成员账号面板和执行入口都直接消费同一份缓存 Profile；组件不得再次按账号重算 engine，也不得在 Profile 为空时猜测 OpenCode。账号 readiness 与 provider 路由只在共享账号规则和 Team Runtime resolver 中维护。
 - 浏览器直接 Human turn 会提交服务端 Command；服务端 Invocation Pipeline 在 preflight
   解析 `RuntimeAgentProfile`、编译 Context 并启动 Runtime。拿不到 profile 时发布
   `runtime.invocation.blocked/runtime_profile_missing`，浏览器只显示恢复动作。

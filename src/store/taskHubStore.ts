@@ -43,7 +43,7 @@ export type { TaskStatus } from './taskStore';
 export type { Task, TaskArtifact } from './taskStore';
 export { STATUS_LABELS, STATUS_ORDER } from './taskStore';
 export type { AgentRole, AgentTheme, Agent } from './agentStore';
-export { AGENT_ROSTER, loadAgents, PROVIDER_TO_ENGINE, PROVIDER_LABELS, PROVIDER_OPTIONS, MODEL_SUGGESTIONS, providerToEngine, resolveAgentEngine } from './agentStore';
+export { AGENT_ROSTER, loadAgents, PROVIDER_LABELS, PROVIDER_OPTIONS, MODEL_SUGGESTIONS } from './agentStore';
 export type { AccountProvider, AccountAuthMode, Account } from './agentStore';
 export type { PendingDispatch } from './daemonStore';
 

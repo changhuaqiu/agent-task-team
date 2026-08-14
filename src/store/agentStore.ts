@@ -4,11 +4,7 @@ import type { RoleCard } from '@/types/roleCard';
 import type { TeamPackRole } from '@/types/teamPack';
 import type { SkillSummary } from '@/lib/agent-context/types';
 import type { CliEngine } from '@/server/types';
-import { normalizeRuntimeCliEngine } from '@/lib/team-runtime/runtimeEngine';
 import {
-  PROVIDER_TO_ENGINE,
-  isAccountReadyForExecution,
-  providerToExecutionEngine,
   type AccountAuthMode,
   type AccountProvider,
 } from '@/lib/account-auth';
@@ -147,12 +143,6 @@ export async function loadAgents(options: LoadAgentsOptions = {}): Promise<void>
 
 export type { AccountAuthMode, AccountProvider } from '@/lib/account-auth';
 
-export { PROVIDER_TO_ENGINE } from '@/lib/account-auth';
-
-export function providerToEngine(provider: AccountProvider): CliEngine {
-  return providerToExecutionEngine(provider);
-}
-
 export interface Account {
   id: string;
   name: string;
@@ -187,26 +177,6 @@ export const MODEL_SUGGESTIONS: Partial<Record<AccountProvider, string[]>> = {
   kimi: ['moonshot-v2'],
   opencode: ['claude-sonnet-4-6', 'gpt-5.4'],
 };
-
-export function resolveAgentEngine(
-  agent: Agent,
-  accounts: Account[],
-): { engine: CliEngine; accountId: string } | null {
-  for (const accountId of agent.accountIds) {
-    const account = accounts.find((a) => (
-      a.id === accountId
-      && isAccountReadyForExecution({ ...a, hasApiKey: a.hasApiKey === true })
-    ));
-    if (account) {
-      return { engine: providerToEngine(account.provider), accountId };
-    }
-  }
-  if (agent.cliEngine) {
-    const engine = normalizeRuntimeCliEngine(agent.cliEngine);
-    return engine ? { engine, accountId: '' } : null;
-  }
-  return null;
-}
 
 // --- Agent Slice Creator ---
 

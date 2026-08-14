@@ -4,7 +4,6 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import {
   type TaskStatus,
   useTaskHubStore,
-  resolveAgentEngine,
 } from '@/store/taskHubStore';
 import { useShallow } from 'zustand/react/shallow';
 import { StatusBadge } from './StatusBadge';
@@ -103,7 +102,6 @@ export function TaskDetailPanel() {
     getEffectiveRoster,
     simulateCliExecution,
     daemonRuntimes,
-    accounts,
     agentStatus,
   } = useTaskHubStore(useShallow((s) => ({
     selectedTaskId: s.selectedTaskId,
@@ -116,9 +114,12 @@ export function TaskDetailPanel() {
     getEffectiveRoster: s.getEffectiveRoster,
     simulateCliExecution: s.simulateCliExecution,
     daemonRuntimes: s.daemonRuntimes,
-    accounts: s.accounts,
     agentStatus: s.agentStatus,
   })));
+  const runtimeProfile = useTaskHubStore((state) => {
+    const selectedTask = state.tasks.find((candidate) => candidate.id === state.selectedTaskId);
+    return selectedTask ? state.getAgentRuntimeProfile(selectedTask.agentId) : null;
+  });
   const panelRef = useRef<HTMLDivElement>(null);
   const descEditRef = useRef<HTMLTextAreaElement>(null);
   const reviewNoteRef = useRef<HTMLTextAreaElement>(null);
@@ -141,9 +142,11 @@ export function TaskDetailPanel() {
     return () => document.removeEventListener('keydown', handler);
   }, [setSelectedTaskId]);
 
-  const resolvedBinding = agent ? resolveAgentEngine(agent, accounts) : null;
-  const resolvedEngine = resolvedBinding?.engine ?? agent?.cliEngine ?? 'opencode';
-  const engineAvailable = daemonRuntimes.some((r) => r.engine === resolvedEngine && r.available);
+  const resolvedEngine = runtimeProfile?.execution.engine;
+  const engineAvailable = Boolean(
+    resolvedEngine
+      && daemonRuntimes.some((runtime) => runtime.engine === resolvedEngine && runtime.available),
+  );
 
   const handleDescEmoji = useCallback((emoji: string) => {
     const textarea = descEditRef.current;

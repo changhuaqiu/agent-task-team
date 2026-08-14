@@ -150,3 +150,7 @@ ACP 已是唯一 Agent backend，但执行链仍保留 `cliBridge.spawnCli()`：
 ## 第二十九轮：收口终止事件归一化 owner
 
 `AcpBackend` 已经用同一 `AgentResult` 为成功、失败、取消、超时和底层无终止事件的路径保证 `done`，但 daemon 又对 backend 返回的同一事件流调用一次 `withDoneGuarantee`。第二层只会观察并透传已有 `done`，不增加保护；独立 helper 也没有第二个 backend 消费者，却让 backend 与编排层看起来都能拥有终止协议。第二十九轮删除 daemon 二次包装和独立浅模块，把保证逻辑内聚为唯一 `AcpBackend` 的私有实现细节。`AgentBackend` 契约继续要求事件流恰好一个终止 `done`，daemon 只消费统一事件并推进 Runtime/Invocation 投影，不再解释或修复 backend 协议。
+
+## 第三十轮：删除浏览器平行账号执行解析
+
+Team Runtime Contract 已通过 `resolveRuntimeAgentProfile()` 统一解析成员、RoleCard、Skill、账号 readiness、provider 路由和 legacy engine，并由 Store 缓存给 UI 与正式派发复用；但任务详情仍单独调用 `resolveAgentEngine()`，后者经一行 `providerToEngine()` 再转发共享映射，并在解析失败时猜测 `agent.cliEngine ?? 'opencode'`。这套平行 interface 只有一个生产组件消费者，却复制领域规则并能展示正式执行会拒绝的假运行按钮；同一 mapping 还经两层 Store 无消费者重导出。第三十轮让任务详情直接消费缓存 `RuntimeAgentProfile`，Profile 为空即不提供运行入口；删除平行 resolver、转发别名、Store mapping facade 与自证测试。共享账号规则、Team Runtime 缓存、历史读取迁移和正式派发链保持不变。
