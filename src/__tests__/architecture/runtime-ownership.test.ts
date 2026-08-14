@@ -127,8 +127,16 @@ describe('runtime ownership architecture', () => {
     const productionFiles = productionTypeScriptFiles('src/server');
     const retiredDoneWrapper = /withDoneGuarantee|with-done-guarantee/;
     expect(productionFiles.filter((path) => retiredDoneWrapper.test(source(path)))).toEqual([]);
-    expect(daemon).toContain('const { events, result, kill } = backend.execute(promptWithWorkdir, execOptions);');
-    expect(daemon).not.toMatch(/events:\s*rawEvents|ensureSingleTerminalDone/);
+    const executeStart = daemon.indexOf(
+      'const { events, result, kill } = backend.execute(promptWithWorkdir, execOptions);',
+    );
+    const resultBoundary = daemon.indexOf('// Wait for final result', executeStart);
+    expect(executeStart).toBeGreaterThan(-1);
+    expect(resultBoundary).toBeGreaterThan(executeStart);
+    const eventConsumption = daemon.slice(executeStart, resultBoundary);
+    expect(eventConsumption).toContain('for await (const event of events)');
+    const executableEventConsumption = eventConsumption.replace(/\/\/.*$/gm, '');
+    expect(executableEventConsumption.match(/\bevents\b/g)).toHaveLength(2);
     expect(source('src/server/agent/acp/acpBackend.ts')).toContain('ensureSingleTerminalDone');
   });
 
