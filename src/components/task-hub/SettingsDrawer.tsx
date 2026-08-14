@@ -1,10 +1,9 @@
 'use client';
 
-import Link from 'next/link';
 import { useState } from 'react';
 import { useTaskHubStore } from '@/store/taskHubStore';
 import { cn } from '@/lib/utils';
-import { X, ExternalLink, Home } from 'lucide-react';
+import { X, Home } from 'lucide-react';
 import { RoleCardListPage } from '@/components/role-card/RoleCardListPage';
 import { RoleCardDetailDrawer } from '@/components/role-card/RoleCardDetailDrawer';
 import { RoleCardEditor } from '@/components/role-card/RoleCardEditor';
@@ -60,14 +59,6 @@ export function SettingsDrawer() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <Link
-              href="/settings/integrations"
-              onClick={() => setOpen(false)}
-              className="hidden sm:inline-flex items-center gap-1.5 rounded-[var(--radius-sm)] border border-[hsl(var(--border))] bg-[hsl(var(--bg-app))] px-2.5 py-1.5 text-[10px] font-bold text-[hsl(var(--text-tertiary))] transition-colors hover:border-[hsl(var(--text-primary))] hover:text-[hsl(var(--text-primary))]"
-            >
-              配置中心
-              <ExternalLink className="h-3 w-3" />
-            </Link>
             <button type="button" onClick={() => setOpen(false)} className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-[var(--radius-sm)] text-[hsl(var(--text-tertiary))] hover:text-[hsl(var(--text-primary))] hover:bg-[hsl(var(--bg-muted))] transition-colors" aria-label="关闭">
               <X className="w-4 h-4" />
             </button>

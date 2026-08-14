@@ -123,9 +123,8 @@ WebUI 有两个明确分离的入口：
   - CLI 执行入口
   - 终端输出
 - [`SettingsDrawer.tsx`](../../src/components/task-hub/SettingsDrawer.tsx)
-  - 系统摘要
-  - daemon / ACP runtime 检查
-  - 账号与执行配置入口
+  - 模型账号、角色素材、技能与团队套件的唯一配置入口
+  - 不暴露 runtime、channel、routing 等内部实现概念
 
 ### Skill 管理
 

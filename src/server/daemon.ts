@@ -103,10 +103,6 @@ type TerminalStartPayload = {
   passId?: string;
   engine?: CliEngine;
   runtimeId?: string;
-  providerProfileId?: string;
-  channel?: string;
-  authContextId?: string;
-  accountIds?: string[];
   accountId?: string;
   force?: boolean;
   projectSlug?: string;
@@ -591,9 +587,6 @@ export default function registerDaemon(io: IOServer) {
         passId,
         engine: rawEngine,
         runtimeId,
-        providerProfileId,
-        channel,
-        authContextId,
         accountId,
         force,
         projectSlug,

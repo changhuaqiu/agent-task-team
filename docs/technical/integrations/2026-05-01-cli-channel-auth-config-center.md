@@ -1,156 +1,53 @@
-# CLI / 渠道 / 认证 配置中心设计稿
+# CLI / 认证配置设计
 
-> 状态：设计稿，非完整落地现状
-> 更新：2026-05-02
->
-> 当前代码已落地“模型账号 + 角色素材 + 独立配置中心 + Provider Profiles / Channels / Routing Policy + daemon 扩展参数通路”。原实施规格已归档至 `docs/archive/specs/unify-integration-config-center/`；当前事实以本稿、`src/components/settings/IntegrationSettingsPage.tsx` 和代码实现为准。
+> 状态：当前实现事实
+> 更新：2026-08-15
 
-## 1. 当前代码事实
+## 1. 用户配置入口
 
-### 1.1 已落地能力
+设置抽屉是唯一配置入口，按用户对象分为：
 
-- 设置抽屉当前主入口是：`模型账号`、`角色卡`
-- `/settings/integrations` 已作为独立配置中心页面落地
-- 账号支持新增、编辑、删除、验证
-- OAuth 与 API Key 两种模式已按不同表单逻辑落地
-- 角色卡支持浏览、详情、编辑与账号绑定
-- 配置中心展示账号、角色素材、技能、团队套件与执行环境状态；账号/角色/技能/团队套件的深层编辑流程仍保留在设置抽屉
-- 配置中心支持编辑 `ProviderProfile / ChannelConfig / RoutingPolicy`
-- daemon 执行请求已支持 `engine / runtimeId / channel / authContextId / accountId` 参数通路
-- daemon 已有 `opencode / claude / codex` 三类主要 backend
+- 模型账号
+- 角色素材
+- 技能
+- 团队套件
 
-### 1.2 未落地能力
+不再提供独立“配置中心”总览。账号、角色、技能和团队信息不在第二个页面重复展示或编辑。
 
-- 完整的 `CLI Runtimes` 管理界面
-- 将所有聊天 / 执行 / 评审入口强制接入 `RoutingPolicy`
-- 独立 `gemini` backend
+## 2. 当前对象模型
 
-## 2. 当前问题
+### 2.1 Account
 
-当前项目虽然已经开始支持多 CLI 和账号绑定，但配置层仍存在几个缺口：
+账号是认证事实源，包含 provider、认证方式、Base URL、模型列表、启用状态和验证状态。OAuth 与 API Key 使用不同字段：OAuth 不要求 API Key，API Key 模式要求 Base URL 与密钥。
 
-1. 用户能看到执行环境健康状态，但还不能安装或管理自定义 runtime
-2. daemon 已有扩展参数，前端已有配置对象，但部分执行入口尚未读取 routing policy
-3. 设置抽屉仍承担账号/角色/技能/团队套件深层编辑，后续可继续收缩为摘要 + 跳转入口
+### 2.2 RoleCard / Skill / TeamPack
 
-## 3. 本文档的目标范围
+- RoleCard 描述可复用的角色素材。
+- Skill 是可安装并绑定到 Agent 的能力包。
+- TeamPack 固化项目团队成员、角色快照、账号和 Skill 绑定。
 
-本文档的作用不是描述“当前已经完成了什么”，而是定义未来统一配置中心的目标信息架构。
+这些对象均在设置抽屉中管理，项目运行时通过 TeamPack 与 Agent 绑定解析实际执行配置。
 
-设计目标：
+### 2.3 Runtime
 
-- 将配置对象拆为独立领域对象
-- 让执行环境从“写死 engine”演进为“账号 + runtime + channel + routing”组合
-- 给后续独立配置中心页面提供稳定蓝图
+daemon 通过本机 CLI 命令探测 OpenCode、Claude、Codex 等运行时的可用性，并在执行时通过 ACP Catalog 创建对应 backend。运行时选择来自项目团队成员的实际绑定和服务端解析，不由浏览器 localStorage 中的平行 routing 对象决定。
 
-## 4. 目标对象模型
+## 3. 删除的平行模型
 
-### 4.1 CliRuntime
+早期页面曾在前端维护 `ProviderProfile`、`ChannelConfig`、`RoutingPolicy`，但 daemon、dispatch、ACP 和项目执行链均不读取这些对象。它们已连同 `/settings/integrations` 页面删除，避免：
 
-表示一个可执行 runtime：
+- 向用户暴露 runtime、channel、routing 等实现概念；
+- 同一账号或模型选择出现两套入口；
+- localStorage 配置看似生效、实际不影响执行；
+- 为尚不存在的策略 seam 维护平行事实源。
 
-- `id`
-- `engine`
-- `mode`：`local`；远程 runtime 未来通过控制面正式接入，不复用已退役的 HTTP Bridge
-- `label`
-- `health`
-- `version`
-- `capabilities`
+如果未来确实需要默认路由，必须先在服务端建立被所有执行入口消费的权威事实源，再设计用户界面；不得先添加仅前端持久化的配置对象。
 
-说明：当前代码只具备部分探测能力，还没有完整的前端模型与管理界面。
+## 4. 保留边界
 
-### 4.2 Account
+- daemon 的 `engine / runtimeId / accountId` 执行参数通路继续保留，它们属于内部执行契约。
+- 浏览器 `terminal:start` 只发送服务端真实消费的单一 `accountId`，不再附带无消费者的 provider、channel、auth context 或账号候选数组。
+- 用户通过账号和 TeamPack 成员绑定表达意图，不直接编辑底层 routing 参数。
+- Gemini 仍不视为独立、完整支持的生产 backend。
 
-表示用户可配置的账号对象：
-
-- `id`
-- `provider`
-- `label`
-- `authMode`
-- `baseUrl?`
-- `models[]`
-- `status`
-
-当前这是最接近真实落地的配置对象。
-
-### 4.3 ProviderProfile
-
-表示模型厂商能力描述：
-
-- `id`
-- `provider`
-- `displayName`
-- `models[]`
-- `defaultModel`
-- `accountIds`
-- `enabled`
-
-### 4.4 ChannelConfig
-
-表示某一使用场景或接入渠道：
-
-- `id`
-- `name`
-- `purpose`
-- `defaultRuntimeId?`
-- `defaultProviderProfileId?`
-
-当前未落地。
-
-### 4.5 RoutingPolicy
-
-表示默认路由策略：
-
-- `id`
-- `scope`
-- `runtimeId`
-- `providerProfileId`
-- `fallbackRuntimeIds[]`
-- `enabled`
-
-## 5. 目标信息架构
-
-### 阶段一：当前已落地入口
-
-设置抽屉内：
-
-- `模型账号`
-- `角色卡`
-
-### 阶段二：独立配置中心
-
-当前 `/settings/integrations` 作为独立配置中心，不复制设置抽屉中的深层编辑流程。页面当前拆为：
-
-- `Accounts`
-- `Provider Profiles`
-- `Channels`
-- `Routing Policy`
-- `CLI Runtime health`
-
-## 6. 与当前代码的衔接关系
-
-当前应这样理解：
-
-- `SettingsDrawer.tsx`：账号、角色素材、技能、团队套件的深层编辑入口
-- `IntegrationSettingsPage.tsx`：配置中心总览和 routing 对象轻量编辑入口
-- `Account`：当前真实落地的配置对象
-- `RoleCard`：当前真实落地的协作对象
-- `ProviderProfile / ChannelConfig / RoutingPolicy`：当前真实落地的前端配置对象
-- `runtimeId / channel / authContextId`：执行请求参数通路
-
-不应这样理解：
-
-- 不应把配置中心理解为账号密钥或团队套件的第二套编辑系统
-- 不应把 `gemini` 视为当前已独立支持的 runtime
-
-## 7. 后续实施建议
-
-1. 将普通聊天、任务执行和评审入口统一读取 `RoutingPolicy`
-2. 补 runtime catalog 的真实 store 与 API
-3. 最后将设置抽屉收缩为摘要 + 跳转入口
-
-## 8. 当前结论
-
-- 这份文档保留为“目标设计稿”
-- 历史实施记录见 `docs/archive/specs/unify-integration-config-center/`
-- 如果代码继续演进，必须先更新该 spec，再更新本文档
+历史实施材料见 `docs/archive/specs/unify-integration-config-center/`；后续事实以本文件、设置抽屉和服务端运行链路为准。

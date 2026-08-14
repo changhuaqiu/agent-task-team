@@ -90,8 +90,13 @@ describe('project session scoping', () => {
       projectId: 'conv-new',
       conversationId: 'conv-new',
       agentId: 'mario',
+      accountId: 'acc-openai',
     }));
     expect(payload).not.toHaveProperty('sessionId');
+    expect(payload).not.toHaveProperty('providerProfileId');
+    expect(payload).not.toHaveProperty('channel');
+    expect(payload).not.toHaveProperty('authContextId');
+    expect(payload).not.toHaveProperty('accountIds');
   });
 
   it('does not let a browser cache choose the server runtime session', async () => {
@@ -116,6 +121,39 @@ describe('project session scoping', () => {
       agentId: 'mario',
     }));
     expect(payload).not.toHaveProperty('sessionId');
+  });
+
+  it('keeps the simulated terminal command free of retired routing fields', () => {
+    useTaskHubStore.setState({
+      tasks: [{
+        id: 'task-simulated',
+        conversationId: 'conv-new',
+        phaseId: '',
+        title: 'Simulated task',
+        description: 'Run the simulated task',
+        status: 'pending',
+        agentId: 'mario',
+        dependencies: [],
+        artifacts: [],
+        createdAt: '2026-05-17T00:00:00.000Z',
+        updatedAt: '2026-05-17T00:00:00.000Z',
+      }],
+    });
+    const emitSpy = vi.spyOn(socket, 'emit').mockImplementation(() => socket);
+
+    useTaskHubStore.getState().simulateCliExecution('task-simulated', 'run it');
+
+    const payload = emitSpy.mock.calls.find(([event]) => event === 'terminal:start')?.[1];
+    expect(payload).toEqual(expect.objectContaining({
+      projectId: 'conv-new',
+      conversationId: 'conv-new',
+      agentId: 'mario',
+      accountId: 'acc-openai',
+    }));
+    expect(payload).not.toHaveProperty('providerProfileId');
+    expect(payload).not.toHaveProperty('channel');
+    expect(payload).not.toHaveProperty('authContextId');
+    expect(payload).not.toHaveProperty('accountIds');
   });
 
   it('does not turn a display error back into a browser-side retry command', async () => {

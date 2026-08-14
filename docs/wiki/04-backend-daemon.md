@@ -166,10 +166,6 @@ Daemon 的边界是执行编排，不是团队规则解释器：
   allowMockRunner?,
   engine?,
   runtimeId?,
-  providerProfileId?,
-  channel?,
-  authContextId?,
-  accountIds?,
   accountId?,
   force?,
   projectSlug?
@@ -183,6 +179,7 @@ Daemon 的边界是执行编排，不是团队规则解释器：
 - `taskId`
 - `conversationId`
 - `engine`
+- `runtimeId`
 - `accountId`
 - `force`
 

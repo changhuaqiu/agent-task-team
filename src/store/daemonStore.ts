@@ -402,7 +402,6 @@ export const createDaemonSlice = (set: any, get: () => any) => {
 
       const projectId = conversationId;
       const runId = `run-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-      const effectiveIds = profile.agent.accountIds;
       const resolvedEngine = profile.execution.engine;
 
       console.log(`[dispatch] ${agentId} → engine=${resolvedEngine}, accountId=${profile.execution.accountId ?? '(none)'}, convId=${conversationId}`);
@@ -452,7 +451,6 @@ export const createDaemonSlice = (set: any, get: () => any) => {
         allowMockRunner: get().enableMockRunner,
         engine: resolvedEngine,
         runtimeId: profile.execution.runtimeId,
-        accountIds: effectiveIds,
         accountId: profile.execution.accountId ?? '',
         projectPath: conv?.projectPath || undefined,
         useWorktree: conv?.useWorktree || undefined,
@@ -585,7 +583,6 @@ export const createDaemonSlice = (set: any, get: () => any) => {
       }
 
       const runId = `run-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-      const effectiveIds = profile.agent.accountIds;
       const resolvedEngine = profile.execution.engine;
 
       const simComposeKey = `${projectId}:${agentId}`;
@@ -619,7 +616,6 @@ export const createDaemonSlice = (set: any, get: () => any) => {
         allowMockRunner: get().enableMockRunner,
         engine: resolvedEngine,
         runtimeId: profile.execution.runtimeId,
-        accountIds: effectiveIds,
         accountId: profile.execution.accountId ?? '',
         projectPath: conv?.projectPath || undefined,
         useWorktree: conv?.useWorktree || undefined,

@@ -74,3 +74,7 @@ Agent 执行已经统一到 ACP，但仓库仍保留一条没有生产消费者�
 ## 第十轮：收敛评估公开 interface
 
 评估手动提交已经由 `POST /api/eval/runs` 承担，但仍保留无消费者、仅转发同一 handler 的 `/api/eval/triggers`；pairwise 在统一身份与可信隔离尚未完成时也暴露一条永远返回 409 的假公开 route。第十轮删除这两个浅 interface，保留真实 runs 提交入口、内部 pairwise 算法和未来开放条件。
+
+## 第十一轮：删除前端假控制面
+
+独立 `/settings/integrations` 页面重复汇总设置抽屉已有的账号、角色、技能和团队信息，并维护 Provider Profile、Channel、Routing Policy 三类只在页面和 localStorage 中自循环、运行时从不读取的配置。第十一轮删除整页、假配置状态和专属测试，设置抽屉成为唯一用户入口；持久化升级到 v7 并清除旧僵尸键；`terminal:start` 同时删除 provider、channel、auth context 和账号候选数组等服务端从不消费的协议尾巴，只保留真实执行参数。

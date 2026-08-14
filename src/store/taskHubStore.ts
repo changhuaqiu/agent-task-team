@@ -29,14 +29,6 @@ import { resolveRuntimeAgentProfile, resolveTeamRuntime } from '@/lib/team-runti
 import type { PresetRuntimeAgentInput, RuntimeAgentProfile, TeamRuntime } from '@/lib/team-runtime';
 import type { RoleCard } from '@/types/roleCard';
 import type { TeamPackRole, TeamPack } from '@/types/teamPack';
-import {
-  DEFAULT_CHANNEL_CONFIGS,
-  DEFAULT_PROVIDER_PROFILES,
-  DEFAULT_ROUTING_POLICIES,
-  type ChannelConfig,
-  type ProviderProfile,
-  type RoutingPolicy,
-} from '@/types/integrationConfig';
 import type { Phase } from '@/types/phase';
 import type { PhaseProposal } from '@/lib/breakdownParser';
 import type { SkillSummary } from '@/lib/agent-context/types';
@@ -709,14 +701,6 @@ export interface TaskHubState {
   daemonRuntimes: DetectedRuntime[];
   setDaemonRuntimes: (runtimes: DetectedRuntime[]) => void;
 
-  providerProfiles: ProviderProfile[];
-  channelConfigs: ChannelConfig[];
-  routingPolicies: RoutingPolicy[];
-  updateProviderProfile: (id: string, patch: Partial<ProviderProfile>) => void;
-  updateChannelConfig: (id: string, patch: Partial<ChannelConfig>) => void;
-  updateRoutingPolicy: (id: string, patch: Partial<RoutingPolicy>) => void;
-  resetIntegrationDefaults: () => void;
-
   accounts: Account[];
   upsertAccount: (account: Omit<Account, 'id' | 'createdAt' | 'updatedAt' | 'status' | 'lastVerifiedAt' | 'verifyError' | 'hasApiKey'> & { id?: string; apiKey?: string }) => Promise<string>;
   removeAccount: (accountId: string) => Promise<void>;
@@ -880,35 +864,6 @@ export const useTaskHubStore = create<TaskHubState>()(
         setSettingsOpen: (open: boolean) => set({ isSettingsOpen: open }),
 
         accounts: [] as import('./agentStore').Account[],
-        providerProfiles: DEFAULT_PROVIDER_PROFILES,
-        channelConfigs: DEFAULT_CHANNEL_CONFIGS,
-        routingPolicies: DEFAULT_ROUTING_POLICIES,
-        updateProviderProfile: (id: string, patch: Partial<ProviderProfile>) => {
-          set((state: TaskHubState) => ({
-            providerProfiles: state.providerProfiles.map((profile) =>
-              profile.id === id ? { ...profile, ...patch } : profile
-            ),
-          }));
-        },
-        updateChannelConfig: (id: string, patch: Partial<ChannelConfig>) => {
-          set((state: TaskHubState) => ({
-            channelConfigs: state.channelConfigs.map((channel) =>
-              channel.id === id ? { ...channel, ...patch } : channel
-            ),
-          }));
-        },
-        updateRoutingPolicy: (id: string, patch: Partial<RoutingPolicy>) => {
-          set((state: TaskHubState) => ({
-            routingPolicies: state.routingPolicies.map((policy) =>
-              policy.id === id ? { ...policy, ...patch } : policy
-            ),
-          }));
-        },
-        resetIntegrationDefaults: () => set({
-          providerProfiles: DEFAULT_PROVIDER_PROFILES,
-          channelConfigs: DEFAULT_CHANNEL_CONFIGS,
-          routingPolicies: DEFAULT_ROUTING_POLICIES,
-        }),
         upsertAccount: async (account: Omit<import('./agentStore').Account, 'id' | 'createdAt' | 'updatedAt' | 'status' | 'lastVerifiedAt' | 'verifyError' | 'hasApiKey'> & { id?: string; apiKey?: string }): Promise<string> => {
           const isCreate = !account.id;
           const url = isCreate ? '/api/accounts' : `/api/accounts/${account.id}`;
@@ -1938,7 +1893,7 @@ export const useTaskHubStore = create<TaskHubState>()(
     },
     {
       name: 'agent-task-hub-store-clean',
-      version: 6,
+      version: 7,
       migrate: (persisted: any, version: number) => {
         if (version === 0) {
           const idMap: Record<string, string> = {
@@ -1993,13 +1948,13 @@ export const useTaskHubStore = create<TaskHubState>()(
         if (version < 4) {
           persisted.currentTeamPack = persisted.currentTeamPack ?? null;
         }
-        if (version < 5) {
-          persisted.providerProfiles = persisted.providerProfiles ?? DEFAULT_PROVIDER_PROFILES;
-          persisted.channelConfigs = persisted.channelConfigs ?? DEFAULT_CHANNEL_CONFIGS;
-          persisted.routingPolicies = persisted.routingPolicies ?? DEFAULT_ROUTING_POLICIES;
-        }
         if (version < 6) {
           persisted.agentSessions = { default: {} };
+        }
+        if (version < 7) {
+          delete persisted.providerProfiles;
+          delete persisted.channelConfigs;
+          delete persisted.routingPolicies;
         }
         return persisted;
       },
@@ -2014,9 +1969,6 @@ export const useTaskHubStore = create<TaskHubState>()(
         agentAccountOverrides: state.agentAccountOverrides,
         enableMockRunner: state.enableMockRunner,
         roleCards: state.roleCards,
-        providerProfiles: state.providerProfiles,
-        channelConfigs: state.channelConfigs,
-        routingPolicies: state.routingPolicies,
       }),
       onRehydrateStorage: () => (state) => {
         if (!state) return;
