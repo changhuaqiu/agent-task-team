@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { listAccounts, writeAccount, hasAccount } from '../../../server/accounts-file';
 import { hasCredential, writeCredential } from '../../../server/credentials';
+import { canExecuteAccount, GOOGLE_API_KEY_REQUIRED } from '../../../lib/account-auth';
 
 interface AccountMeta {
   id: string;
@@ -47,6 +48,11 @@ async function handleCreate(req: NextApiRequest, res: NextApiResponse) {
 
   if (!name || !provider || !authMode) {
     res.status(400).json({ error: 'Missing required fields: name, provider, authMode' });
+    return;
+  }
+
+  if (!canExecuteAccount(provider, authMode)) {
+    res.status(400).json({ error: GOOGLE_API_KEY_REQUIRED });
     return;
   }
 

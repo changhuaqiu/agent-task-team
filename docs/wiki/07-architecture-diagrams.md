@@ -287,7 +287,7 @@ flowchart LR
 - daemon 不只是终端桥接器，还承担 session、invocation、当前 Platform Event Log 事件落库和 backend 选择；`agent_event` 仅为历史兼容表
 - agent 执行是 **ACP 单一通路**：`AcpBackend`（`AgentBackend` 唯一实现）通过 ACP JSON-RPC over stdio 驱动 opencode（原生）/ claude、codex（适配器）
 - daemon 经 Agent Catalog 查表决定启动方式（无 engine `switch` 工厂）；找不到条目直接抛错，不静默回退
-- `gemini / mock` 没有 Catalog 条目，无法经 ACP 路径执行
+- 正式 Agent engine 只有 `opencode / claude / codex`；Google/Gemini 账号通过 OpenCode provider 配置映射到 `opencode`
 - 账号与凭据当前走文件存储，不走 SQLite
 - **Skill System**：正交于 RoleCard 的能力模块层，通过 SkillLayer（Layer 2）注入 systemPrompt，支持 Git 导入与 agent 绑定
 - **TaskFileWatcher**：文件驱动同步管道的核心——Agent 写 MD → watcher 解析 → DB 创建/更新 → Socket 广播 → store 刷新。这是"文件即真相源"架构的关键桥梁

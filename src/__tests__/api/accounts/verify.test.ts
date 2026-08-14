@@ -56,6 +56,56 @@ describe('POST /api/accounts/verify', () => {
     expect(res._json.ok).toBe(true);
   });
 
+  it('keeps Google account verification on the native Gemini CLI probe', async () => {
+    mockReadAccount.mockResolvedValue({
+      id: 'acct-google',
+      name: 'Google AI',
+      provider: 'google',
+      authMode: 'api_key',
+      models: ['gemini-2.5-pro'],
+      enabled: true,
+      status: 'pending',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    } as any);
+    mockReadCredential.mockResolvedValue({ apiKey: 'google-key' });
+    mockBuildProbeEnv.mockReturnValue({ GOOGLE_API_KEY: 'google-key' });
+    mockTryCliProbe.mockResolvedValue({ ok: true });
+
+    const req = mockReq('POST', { accountId: 'acct-google' });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(mockBuildProbeEnv).toHaveBeenCalledWith('google', 'google-key', undefined);
+    expect(mockTryCliProbe).toHaveBeenCalledWith('gemini', {
+      model: 'gemini-2.5-pro',
+      env: { GOOGLE_API_KEY: 'google-key' },
+    });
+    expect(res._json.ok).toBe(true);
+  });
+
+  it('rejects a historical Google OAuth account instead of reporting false reachability', async () => {
+    mockReadAccount.mockResolvedValue({
+      id: 'acct-google-oauth',
+      name: 'Legacy Google OAuth',
+      provider: 'google',
+      authMode: 'oauth',
+      models: ['gemini-2.5-pro'],
+      enabled: true,
+      status: 'unknown',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    } as any);
+
+    const req = mockReq('POST', { accountId: 'acct-google-oauth' });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(res._json).toMatchObject({ ok: false, error: expect.stringMatching(/require API Key/) });
+    expect(mockTryCliProbe).not.toHaveBeenCalled();
+    expect(mockWriteAccount).toHaveBeenCalledWith(expect.objectContaining({ status: 'error' }));
+  });
+
   it('returns ok:false for account with bad API key', async () => {
     mockReadAccount.mockResolvedValue({
       id: 'acct-1',

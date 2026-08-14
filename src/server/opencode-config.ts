@@ -56,7 +56,8 @@ export function generateRuntimeConfig(
   ).filter(Boolean);
   const hasProviderCredentials = !!input.provider && !!input.apiKey;
   const isNative = input.provider ? NATIVE_PROVIDERS.includes(input.provider) : false;
-  const needsProviderConfig = hasProviderCredentials && (!isNative || !!input.baseUrl);
+  const needsProviderConfig = hasProviderCredentials
+    && (input.provider === 'google' || !isNative || !!input.baseUrl);
 
   // Generate config if we need provider config, have a system prompt to inject,
   // or need to mount project-local OpenCode skills from an Agent Task Team workdir.

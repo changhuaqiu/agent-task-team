@@ -62,6 +62,17 @@ describe('runtime ownership architecture', () => {
     expect(productionTypeScriptFiles('src/server').filter((path) => forbiddenBypass.test(source(path)))).toEqual([]);
   });
 
+  it('keeps production Agent engines aligned with the ACP Catalog', () => {
+    const runtimeIdentityFiles = [
+      'src/server/types.ts',
+      'src/lib/team-runtime/types.ts',
+      'src/server/daemon.ts',
+      'src/server/invocation-pipeline/context-planner.ts',
+    ];
+    const retiredGeminiRuntime = /['"]gemini(?:-cli)?['"]/;
+    expect(runtimeIdentityFiles.filter((path) => retiredGeminiRuntime.test(source(path)))).toEqual([]);
+  });
+
   it('keeps the WorkContract root correlation above transport envelopes', () => {
     expect(daemon).toContain(
       'correlationId: workContract?.correlationId ?? invocationTraceId ?? invocation.id',

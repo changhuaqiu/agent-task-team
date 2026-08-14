@@ -4,6 +4,8 @@ import type { RoleCard } from '@/types/roleCard';
 import type { TeamPackRole } from '@/types/teamPack';
 import type { SkillSummary } from '@/lib/agent-context/types';
 import type { CliEngine } from '@/server/types';
+import { normalizeRuntimeCliEngine } from '@/lib/team-runtime/runtimeEngine';
+import type { AccountAuthMode, AccountProvider } from '@/lib/account-auth';
 import { PRESET_ROLE_CARDS } from '@/data/presetRoleCards';
 
 // --- Agent Role & Roster ---
@@ -137,12 +139,12 @@ export async function loadAgents(options: LoadAgentsOptions = {}): Promise<void>
 
 // --- Account types & helpers ---
 
-export type AccountProvider = 'anthropic' | 'openai' | 'google' | 'kimi' | 'opencode' | 'other';
+export type { AccountAuthMode, AccountProvider } from '@/lib/account-auth';
 
 export const PROVIDER_TO_ENGINE: Record<AccountProvider, CliEngine> = {
   anthropic: 'claude',
   openai: 'codex',
-  google: 'gemini',
+  google: 'opencode',
   kimi: 'opencode',
   opencode: 'opencode',
   other: 'opencode',
@@ -167,8 +169,6 @@ export interface Account {
   createdAt: string;
   updatedAt: string;
 }
-
-export type AccountAuthMode = 'api_key' | 'oauth';
 
 export const PROVIDER_LABELS: Record<AccountProvider, string> = {
   anthropic: 'Claude',
@@ -200,7 +200,8 @@ export function resolveAgentEngine(
     }
   }
   if (agent.cliEngine) {
-    return { engine: agent.cliEngine, accountId: '' };
+    const engine = normalizeRuntimeCliEngine(agent.cliEngine);
+    return engine ? { engine, accountId: '' } : null;
   }
   return null;
 }

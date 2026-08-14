@@ -12,6 +12,7 @@ import { startTaskWatcher } from './task-file-watcher';
 import { ensureTasksMdProjection } from './task-file-service';
 import type { AccountProvider as RuntimeAccountProvider } from './opencode-config';
 import type { CliEngine, DetectedRuntime } from './types';
+import { resolveRuntimeSelection } from './runtime-selection';
 import { sessionRepo } from './repositories/session-repo';
 import type { AgentSessionRow } from './repositories/session-repo';
 import { invocationRepo } from './repositories/invocation-repo';
@@ -159,22 +160,6 @@ const ENGINE_COMMAND: Record<CliEngine, string> = {
   opencode: 'opencode',
   claude: 'claude',
   codex: 'codex',
-  gemini: 'gemini',
-};
-
-const RUNTIME_ENGINE_MAP: Record<string, CliEngine> = {
-  daemon: 'opencode',
-  'opencode-local': 'opencode',
-  'claude-cli': 'claude',
-  'codex-cli': 'codex',
-  'gemini-cli': 'gemini',
-};
-
-const DEFAULT_RUNTIME_ID_BY_ENGINE: Record<CliEngine, string> = {
-  opencode: 'opencode-local',
-  claude: 'claude-cli',
-  codex: 'codex-cli',
-  gemini: 'gemini-cli',
 };
 
 /** Default CLI idle timeout (ms). Configurable via CLI_TIMEOUT_MS env. 0 = disabled. */
@@ -703,11 +688,9 @@ export default function registerDaemon(io: IOServer) {
         }
       };
 
-      const engineFromRuntime =
-        runtimeId && runtimeId in RUNTIME_ENGINE_MAP ? RUNTIME_ENGINE_MAP[runtimeId] : undefined;
-      const engine: CliEngine =
-        engineFromRuntime || (rawEngine && rawEngine in ENGINE_COMMAND ? rawEngine : 'opencode');
-      const effectiveRuntimeId = runtimeId?.trim() || DEFAULT_RUNTIME_ID_BY_ENGINE[engine];
+      const selection = resolveRuntimeSelection(rawEngine, runtimeId);
+      const engine: CliEngine = selection.engine;
+      const effectiveRuntimeId = selection.runtimeId;
       primaryCommand = ENGINE_COMMAND[engine];
 
       const targetNodeId = LOCAL_DAEMON_NODE_ID;
@@ -1388,8 +1371,8 @@ export default function registerDaemon(io: IOServer) {
 
       // --- ACP-only backend construction (Task 10, spec §7.4/§8) ---
       // The bespoke factory + AGENT_BACKEND=legacy fallback were removed —
-      // every engine MUST resolve to a catalog entry. Unknown engines (for
-      // example gemini, which has no catalog entry) throw explicitly here.
+      // every engine MUST resolve to a catalog entry. Unknown engines throw
+      // explicitly here instead of creating a parallel backend.
       //
       // `executeCwd`/`executeEnv` flow into checkCapabilities opts below so the
       // ACP path's prepared cwd/env (e.g. codex CODEX_HOME) reach the spawn.

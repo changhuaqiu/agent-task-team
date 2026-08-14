@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { readAccount, writeAccount, deleteAccount } from '../../../server/accounts-file';
 import { hasCredential, writeCredential, deleteCredential } from '../../../server/credentials';
+import { canExecuteAccount, GOOGLE_API_KEY_REQUIRED } from '../../../lib/account-auth';
 
 interface AccountMeta {
   id: string;
@@ -59,6 +60,11 @@ async function handlePatch(id: string, req: NextApiRequest, res: NextApiResponse
   }
 
   const { name, baseUrl, apiKey, models, enabled, provider } = req.body;
+
+  if (!canExecuteAccount(provider ?? existing.provider, existing.authMode)) {
+    res.status(400).json({ error: GOOGLE_API_KEY_REQUIRED });
+    return;
+  }
 
   const updated: AccountMeta = {
     ...existing,

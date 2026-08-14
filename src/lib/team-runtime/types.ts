@@ -1,10 +1,11 @@
 import type { RoleCard } from '@/types/roleCard';
 import type { TeamPack } from '@/types/teamPack';
+import type { RuntimeCliEngine } from './runtimeEngine';
+
+export type { RuntimeCliEngine } from './runtimeEngine';
 
 export type RuntimeAgentSource = 'preset-agent' | 'team-pack-role';
 export type RuntimeAgentTheme = 'mario' | 'luigi' | 'peach' | 'dk';
-export type RuntimeCliEngine = 'opencode' | 'claude' | 'codex' | 'gemini';
-
 export interface RuntimeSkillSummary {
   id?: string;
   name: string;

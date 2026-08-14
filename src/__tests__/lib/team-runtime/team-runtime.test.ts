@@ -297,8 +297,8 @@ describe('resolveRuntimeAgentProfile', () => {
     };
 
     const profile = resolveRuntimeAgentProfile(runtime, 'planner', [
-      { id: 'acc-disabled', provider: 'openai', enabled: false },
-      { id: 'acc-enabled', provider: 'anthropic', enabled: true },
+      { id: 'acc-disabled', provider: 'openai', authMode: 'api_key', enabled: false },
+      { id: 'acc-enabled', provider: 'anthropic', authMode: 'oauth', enabled: true },
     ]);
 
     expect(profile).toMatchObject({
@@ -307,8 +307,61 @@ describe('resolveRuntimeAgentProfile', () => {
     });
   });
 
-  it('falls back to explicit cliEngine when no account is enabled', () => {
+  it('routes an enabled Google account through the OpenCode ACP engine', () => {
     const runtime: TeamRuntime = {
+      conversationId: 'conv-team',
+      roster: [
+        {
+          id: 'planner',
+          displayName: 'Planner',
+          source: 'team-pack-role',
+          accountIds: ['acc-google'],
+          skills: [],
+        },
+      ],
+      communicationPolicy: {
+        canSend: () => true,
+        explainBlock: () => undefined,
+      },
+      workflowPolicy: {
+        assignInitialTask: () => null,
+        getNextAgent: () => null,
+      },
+    };
+
+    const profile = resolveRuntimeAgentProfile(runtime, 'planner', [
+      { id: 'acc-google', provider: 'google', authMode: 'api_key', enabled: true },
+    ]);
+
+    expect(profile).toMatchObject({
+      execution: { engine: 'opencode', accountId: 'acc-google' },
+    });
+  });
+
+  it('does not select a historical Google OAuth account for OpenCode execution', () => {
+    const runtime: TeamRuntime = {
+      conversationId: 'conv-team',
+      roster: [{
+        id: 'planner',
+        displayName: 'Planner',
+        source: 'team-pack-role',
+        accountIds: ['acc-google-oauth'],
+        skills: [],
+      }],
+      communicationPolicy: { canSend: () => true, explainBlock: () => undefined },
+      workflowPolicy: { assignInitialTask: () => null, getNextAgent: () => null },
+    };
+
+    expect(resolveRuntimeAgentProfile(runtime, 'planner', [{
+      id: 'acc-google-oauth',
+      provider: 'google',
+      authMode: 'oauth',
+      enabled: true,
+    }])).toBeNull();
+  });
+
+  it('migrates a legacy explicit gemini engine when no account is enabled', () => {
+    const runtime = {
       conversationId: 'conv-team',
       roster: [
         {
@@ -328,15 +381,15 @@ describe('resolveRuntimeAgentProfile', () => {
         assignInitialTask: () => null,
         getNextAgent: () => null,
       },
-    };
+    } as unknown as TeamRuntime;
 
     const profile = resolveRuntimeAgentProfile(runtime, 'planner', [
-      { id: 'acc-disabled', provider: 'openai', enabled: false },
+      { id: 'acc-disabled', provider: 'openai', authMode: 'api_key', enabled: false },
     ]);
 
     expect(profile).toMatchObject({
       agent: { id: 'planner' },
-      execution: { engine: 'gemini' },
+      execution: { engine: 'opencode' },
     });
     expect(profile?.execution.accountId).toBeUndefined();
   });
@@ -365,7 +418,7 @@ describe('resolveRuntimeAgentProfile', () => {
 
     expect(
       resolveRuntimeAgentProfile(runtime, 'planner', [
-        { id: 'acc-disabled', provider: 'openai', enabled: false },
+        { id: 'acc-disabled', provider: 'openai', authMode: 'api_key', enabled: false },
       ]),
     ).toBeNull();
   });

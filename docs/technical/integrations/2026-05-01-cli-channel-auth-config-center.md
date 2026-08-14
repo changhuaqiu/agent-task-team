@@ -48,6 +48,6 @@ daemon 通过本机 CLI 命令探测 OpenCode、Claude、Codex 等运行时的�
 - daemon 的 `engine / runtimeId / accountId` 执行参数通路继续保留，它们属于内部执行契约。
 - 浏览器 `terminal:start` 只发送服务端真实消费的单一 `accountId`，不再附带无消费者的 provider、channel、auth context 或账号候选数组。
 - 用户通过账号和 TeamPack 成员绑定表达意图，不直接编辑底层 routing 参数。
-- Gemini 仍不视为独立、完整支持的生产 backend。
+- Google/Gemini API Key 账号继续作为用户账号对象存在，并使用原生 Gemini CLI 做连接验证；正式 Agent 执行由 OpenCode ACP backend 承担，并按账号显式生成 Google provider、选中模型和密钥环境配置。Gemini CLI OAuth 登录态不能安全交给 OpenCode，创建 API 与设置界面均不再提供 Google OAuth，历史 Google OAuth 账号也不会进入执行解析；不存在独立 Gemini Agent backend。
 
 历史实施材料见 `docs/archive/specs/unify-integration-config-center/`；后续事实以本文件、设置抽屉和服务端运行链路为准。

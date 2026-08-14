@@ -12,6 +12,7 @@ import {
 } from '@/store/taskHubStore';
 import { TagEditor } from '@/components/ui/TagEditor';
 import { cn } from '@/lib/utils';
+import { canExecuteAccount } from '@/lib/account-auth';
 import { Plus, Trash2, Loader2, Zap, X } from 'lucide-react';
 
 const AUTH_MODE_OPTIONS: Array<{ value: AccountAuthMode; label: string }> = [
@@ -167,11 +168,16 @@ function AccountDialog({
   if (!open) return null;
 
   const isOAuth = authMode === 'oauth';
+  const unsupportedGoogleOAuth = !canExecuteAccount(provider, authMode);
   const suggestions = (MODEL_SUGGESTIONS[provider] ?? []).filter((m) => !models.includes(m));
 
-  const canSubmit = isOAuth
-    ? Boolean(name.trim())
-    : Boolean(name.trim()) && models.length > 0 && (isEdit || Boolean(baseUrl.trim() && apiKey.trim()));
+  const canSubmit = unsupportedGoogleOAuth
+    ? false
+    : isOAuth
+      ? Boolean(name.trim())
+      : Boolean(name.trim())
+        && models.length > 0
+        && (isEdit || Boolean(apiKey.trim() && (provider === 'google' || baseUrl.trim())));
 
   const handleSubmit = async () => {
     if (!canSubmit) return;
@@ -228,14 +234,20 @@ function AccountDialog({
                 <button
                   key={opt.value}
                   type="button"
-                  onClick={() => !isEdit && setAuthMode(opt.value)}
-                  disabled={isEdit}
+                  onClick={() => {
+                    if (!isEdit && canExecuteAccount(provider, opt.value)) {
+                      setAuthMode(opt.value);
+                    }
+                  }}
+                  disabled={isEdit || !canExecuteAccount(provider, opt.value)}
                   className={cn(
                     'flex-1 rounded-[var(--radius-sm)] py-1.5 text-[12px] font-medium transition',
                     authMode === opt.value
                       ? 'bg-[hsl(var(--accent))] text-white shadow-sm'
                       : 'text-[hsl(var(--text-terti))]',
-                    isEdit ? 'cursor-not-allowed' : 'hover:bg-[hsl(var(--bg-muted))]'
+                    isEdit || !canExecuteAccount(provider, opt.value)
+                      ? 'cursor-not-allowed opacity-50'
+                      : 'hover:bg-[hsl(var(--bg-muted))]'
                   )}
                 >
                   {opt.label}
@@ -253,29 +265,39 @@ function AccountDialog({
               />
             </div>
 
-            {isOAuth && (
-              <div className="space-y-1.5">
-                <label className="text-[11px] font-semibold uppercase tracking-wider text-[hsl(var(--text-tertiary))]">Provider</label>
-                <select
-                  value={provider}
-                  onChange={(e) => setProvider(e.target.value as AccountProvider)}
-                  className="w-full h-9 px-3 rounded-[var(--radius-md)] border border-[hsl(var(--border))] bg-[hsl(var(--bg-app))] text-[12px] font-medium outline-none focus:border-[hsl(var(--accent))]"
-                >
-                  {PROVIDER_OPTIONS.map((p) => (
-                    <option key={p} value={p}>{PROVIDER_LABELS[p]}</option>
-                  ))}
-                </select>
+            <div className="space-y-1.5">
+              <label className="text-[11px] font-semibold uppercase tracking-wider text-[hsl(var(--text-tertiary))]">Provider</label>
+              <select
+                value={provider}
+                onChange={(e) => {
+                  const nextProvider = e.target.value as AccountProvider;
+                  setProvider(nextProvider);
+                  if (!isEdit && nextProvider === 'google') setAuthMode('api_key');
+                }}
+                className="w-full h-9 px-3 rounded-[var(--radius-md)] border border-[hsl(var(--border))] bg-[hsl(var(--bg-app))] text-[12px] font-medium outline-none focus:border-[hsl(var(--accent))]"
+              >
+                {PROVIDER_OPTIONS.map((p) => (
+                  <option key={p} value={p}>{PROVIDER_LABELS[p]}</option>
+                ))}
+              </select>
+            </div>
+
+            {unsupportedGoogleOAuth && (
+              <div className="rounded-[var(--radius-md)] border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-[11px] text-amber-300">
+                Google/Gemini 正式执行需要 API Key；OAuth 登录态不能交给 OpenCode 使用。
               </div>
             )}
 
             {!isOAuth && (
               <>
                 <div className="space-y-1.5">
-                  <label className="text-[11px] font-semibold uppercase tracking-wider text-[hsl(var(--text-tertiary))]">API 服务地址</label>
+                  <label className="text-[11px] font-semibold uppercase tracking-wider text-[hsl(var(--text-tertiary))]">
+                    API 服务地址{provider === 'google' ? '（可选）' : ''}
+                  </label>
                   <input
                     value={baseUrl}
                     onChange={(e) => setBaseUrl(e.target.value)}
-                    placeholder="https://api.openai.com/v1"
+                    placeholder={provider === 'google' ? '留空使用 Google AI 默认地址' : 'https://api.openai.com/v1'}
                     className="w-full h-9 px-3 rounded-[var(--radius-md)] border border-[hsl(var(--border))] bg-[hsl(var(--bg-app))] text-[12px] font-medium outline-none focus:border-[hsl(var(--accent))]"
                   />
                 </div>

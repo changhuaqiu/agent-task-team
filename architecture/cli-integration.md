@@ -139,7 +139,7 @@ Catalog（`src/server/agent/acp/agentCatalog.seed.json`）是启动事实源（s
 
 - 适配器版本锁定（`package` + `version`），不使用未记录版本的隐式漂移。
 - 能力以 ACP `initialize` 握手与实测 smoke 为准，不按运行时名称猜测。
-- daemon 找不到 catalog 条目时**直接抛错**，不静默回退（例如 `gemini` / `mock` 没有 catalog 条目，无法经 ACP 路径执行）。
+- daemon ingress 只接受受支持且相互匹配的 engine/runtime；完全省略时才采用 OpenCode 默认值，未知显式值直接拒绝。Google/Gemini API Key 账号通过显式 OpenCode provider/model 配置进入 `opencode` Catalog 条目；原生 Gemini CLI 只负责 API Key 连接验证，不是 Agent backend，Google OAuth 不进入执行解析。
 
 ## 原生 vs 适配器
 

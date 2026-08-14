@@ -21,8 +21,8 @@ describe('providerToEngine', () => {
     expect(providerToEngine('openai')).toBe('codex');
   });
 
-  it('maps google → gemini', () => {
-    expect(providerToEngine('google')).toBe('gemini');
+  it('maps google → opencode', () => {
+    expect(providerToEngine('google')).toBe('opencode');
   });
 
   it('maps kimi → opencode', () => {
@@ -101,7 +101,7 @@ describe('resolveAgentEngine', () => {
     ];
 
     const result = resolveAgentEngine(agent, accounts);
-    expect(result).toEqual({ engine: 'gemini', accountId: 'acc2' });
+    expect(result).toEqual({ engine: 'opencode', accountId: 'acc2' });
   });
 
   it('skips non-existent accounts', () => {
@@ -109,7 +109,7 @@ describe('resolveAgentEngine', () => {
     const accounts = [makeAccount({ id: 'acc2', provider: 'google' })];
 
     const result = resolveAgentEngine(agent, accounts);
-    expect(result).toEqual({ engine: 'gemini', accountId: 'acc2' });
+    expect(result).toEqual({ engine: 'opencode', accountId: 'acc2' });
   });
 
   it('falls through to second account if first is disabled', () => {
@@ -120,7 +120,7 @@ describe('resolveAgentEngine', () => {
     ];
 
     const result = resolveAgentEngine(agent, accounts);
-    expect(result?.engine).toBe('gemini');
+    expect(result?.engine).toBe('opencode');
     expect(result?.accountId).toBe('acc2');
   });
 
@@ -130,6 +130,16 @@ describe('resolveAgentEngine', () => {
 
     const result = resolveAgentEngine(agent, accounts);
     expect(result).toEqual({ engine: 'codex', accountId: '' });
+  });
+
+  it('migrates a persisted legacy gemini engine to opencode', () => {
+    const agent = makeAgent({
+      id: 'a1',
+      accountIds: [],
+      cliEngine: 'gemini' as unknown as CliEngine,
+    });
+
+    expect(resolveAgentEngine(agent, [])).toEqual({ engine: 'opencode', accountId: '' });
   });
 
   it('returns null when no binding and no cliEngine', () => {

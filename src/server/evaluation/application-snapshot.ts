@@ -10,6 +10,7 @@ import { conversationRepo } from '../repositories/conversation-repo';
 import { skillRepo } from '../repositories/skill-repo';
 import { teamPackRepo } from '../repositories/team-pack-repo';
 import { digest, stableJson } from './defaults';
+import { normalizePersistedRuntimeSelection } from '../runtime-selection';
 
 type Row = Record<string, unknown>;
 
@@ -93,6 +94,7 @@ function frozenAgents(
   const accounts = listAccounts().map((account) => ({
     id: account.id,
     provider: account.provider,
+    authMode: account.authMode,
     enabled: account.enabled,
   }));
   const agents = team.roles.flatMap((role): FrozenAgentManifest[] => {
@@ -251,14 +253,18 @@ export function resolveApplicationSnapshotRuntime(
   });
   const agent = runtime.roster.find((item) => item.id === agentId);
   if (!agent) return undefined;
+  const execution = normalizePersistedRuntimeSelection(
+    frozenAgent.engine,
+    frozenAgent.runtimeId,
+  );
   return {
     snapshot,
     runtime,
     profile: {
       agent,
       execution: {
-        engine: frozenAgent.engine,
-        runtimeId: frozenAgent.runtimeId,
+        engine: execution.engine,
+        runtimeId: execution.runtimeId,
         accountId: frozenAgent.accountId,
       },
       prompt: {

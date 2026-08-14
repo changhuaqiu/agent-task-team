@@ -57,13 +57,21 @@ describe('generateRuntimeConfig: native providers without baseUrl', () => {
     expect(result.generated).toBe(false);
   });
 
-  it('returns { generated: false } for google without baseUrl', () => {
+  it('writes the selected Google account and model without requiring a baseUrl', () => {
     const result = generate({
       provider: 'google',
       apiKey: 'ai-go-789',
       models: ['gemini-2.5-pro'],
     });
-    expect(result.generated).toBe(false);
+    expect(result.generated).toBe(true);
+    const config = JSON.parse(fs.readFileSync(result.configPath!, 'utf-8'));
+    expect(config.model).toBe('google-compat/gemini-2.5-pro');
+    expect(config.provider['google-compat']).toMatchObject({
+      npm: '@ai-sdk/google',
+      models: { 'gemini-2.5-pro': { name: 'gemini-2.5-pro' } },
+      options: { apiKey: '{env:ATH_OC_API_KEY}' },
+    });
+    expect(result.env.ATH_OC_API_KEY).toBe('ai-go-789');
   });
 });
 

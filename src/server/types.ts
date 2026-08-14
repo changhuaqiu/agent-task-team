@@ -1,6 +1,8 @@
 // src/server/types.ts
 
-export type CliEngine = 'opencode' | 'claude' | 'codex' | 'gemini';
+import type { RuntimeCliEngine } from '@/lib/team-runtime/runtimeEngine';
+
+export type CliEngine = RuntimeCliEngine;
 
 export interface DetectedRuntime {
   engine: CliEngine;

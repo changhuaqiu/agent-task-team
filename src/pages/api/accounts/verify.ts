@@ -2,6 +2,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { readAccount, writeAccount } from '../../../server/accounts-file';
 import { readCredential } from '../../../server/credentials';
 import { tryCliProbe, buildProbeEnv } from '../../../server/cli-probe';
+import { canExecuteAccount, GOOGLE_API_KEY_REQUIRED } from '../../../lib/account-auth';
 
 type AccountProvider = 'anthropic' | 'openai' | 'google' | 'kimi' | 'opencode' | 'other';
 
@@ -30,6 +31,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   const provider = account.provider as AccountProvider;
+  if (!canExecuteAccount(provider, account.authMode)) {
+    const now = new Date().toISOString();
+    const error = GOOGLE_API_KEY_REQUIRED;
+    await writeAccount({
+      ...account,
+      status: 'error',
+      lastVerifiedAt: now,
+      updatedAt: now,
+      verifyError: error,
+    });
+    return res.status(200).json({ ok: false, error });
+  }
   const credential = await readCredential(accountId);
 
   if (account.authMode === 'api_key' && !credential?.apiKey) {

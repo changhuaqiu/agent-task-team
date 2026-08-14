@@ -64,6 +64,7 @@ export function resolveConversationRuntimeProfile(
   const accounts = listAccounts().map((account) => ({
     id: account.id,
     provider: account.provider,
+    authMode: account.authMode,
     enabled: account.enabled,
   }));
   return {

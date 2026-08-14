@@ -4,6 +4,7 @@ import { createTestDb, getDb, resetDb, setTestDb } from '../db';
 import {
   createCaseExecution,
   freezeApplicationSnapshot,
+  resolveApplicationSnapshotRuntime,
   transitionCaseExecution,
 } from './application-snapshot';
 import { createRunnerExperiment, EvaluationCaseRunner } from './case-runner';
@@ -18,6 +19,7 @@ vi.mock('../accounts-file', () => ({
   listAccounts: () => [{
     id: 'account-ref',
     provider: 'openai',
+    authMode: 'api_key',
     enabled: true,
   }],
 }));
@@ -104,6 +106,38 @@ describe('application snapshot and case execution', () => {
     expect(first.manifest).toMatchObject({ schemaVersion: 1, codeRevision });
     expect(() => getDb().prepare('UPDATE eval_application_snapshot SET name=? WHERE id=?')
       .run('changed', first.id)).toThrow(/immutable/);
+  });
+
+  it('normalizes a historical Gemini runtime without rewriting its immutable snapshot', () => {
+    const snapshot = freezeApplicationSnapshot({
+      conversationId: 'conv-runner', name: 'baseline', source: 'published',
+    });
+    const legacyAgents = snapshot.manifest.agents.map((agent) => ({
+      ...agent,
+      engine: 'gemini',
+      runtimeId: 'gemini-cli',
+    }));
+    getDb().prepare(`INSERT INTO eval_application_snapshot
+      (id,conversation_id,name,source,project_path,code_revision,team_manifest,agent_manifest,
+       manifest_digest,created_by,created_at)
+      SELECT 'legacy-gemini',conversation_id,'legacy','published',project_path,code_revision,
+       team_manifest,?,'legacy-gemini-digest',created_by,created_at
+      FROM eval_application_snapshot WHERE id=?`).run(JSON.stringify(legacyAgents), snapshot.id);
+
+    const resolved = resolveApplicationSnapshotRuntime(
+      'legacy-gemini',
+      'conv-runner',
+      'agent-runner',
+    );
+
+    expect(resolved?.profile.execution).toMatchObject({
+      engine: 'opencode',
+      runtimeId: 'opencode-local',
+    });
+    const persisted = getDb().prepare(
+      'SELECT agent_manifest FROM eval_application_snapshot WHERE id=?',
+    ).get('legacy-gemini') as { agent_manifest: string };
+    expect(persisted.agent_manifest).toContain('gemini-cli');
   });
 
   it('only verifies a completed execution with matching observed provenance', () => {

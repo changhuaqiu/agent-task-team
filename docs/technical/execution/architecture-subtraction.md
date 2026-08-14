@@ -86,3 +86,7 @@ Agent 执行已经统一到 ACP，但仓库仍保留一条没有生产消费者�
 ## 第十三轮：删除 tmux 平行执行链
 
 daemon 的 `ATH_TMUX_ENABLED` 分支被文档描述为 ACP 的可选观察模式，实际却在 backend 构造前直接拼接厂商私有 CLI 参数、送入 tmux pane 后提前返回，绕过统一 ACP 事件、session 确认和 Invocation 终结。`TmuxGateway`、`AgentPaneRegistry` 与 OpenCode legacy 参数模块没有其他生产消费者。第十三轮删除整条平行执行链，runtime context transport 收窄为 `acp`；终端 UI 继续消费 Runtime/ACP 投影，不依赖 tmux。
+
+## 第十四轮：删除假 Gemini Agent runtime
+
+Google/Gemini API Key 账号能够由 OpenCode provider 配置消费，原生 Gemini CLI 也能独立验证 API Key 连接；但浏览器 store 与 Team Runtime 曾把 Google 映射到 Catalog 不存在的 `gemini` engine，形成“配置成功、派发必失败”的假能力。第十四轮保留用户账号、模型建议和真实连接验证，将 Google API Key 的正式 Agent 执行统一映射为 `opencode`，并为每次执行显式生成 Google provider、选中模型与密钥环境；无法桥接到 OpenCode 的 Google OAuth 不再允许创建或进入执行解析。生产 engine 类型、daemon runtime map 与 Invocation Planner 不再声明 `gemini` / `gemini-cli`。历史浏览器对象和不可变评估快照只在读取边界迁移到 OpenCode；daemon 对其他未知或不匹配的显式 engine/runtime 失败关闭，不恢复第四条 backend。

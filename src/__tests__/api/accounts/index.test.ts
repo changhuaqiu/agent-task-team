@@ -90,15 +90,15 @@ describe('POST /api/accounts', () => {
     expect(res._json.account.status).toBe('pending');
   });
 
-  it('creates account with oauth auth', async () => {
+  it('creates a supported account with oauth auth', async () => {
     vi.mocked(hasAccount).mockResolvedValue(false);
     vi.mocked(writeAccount).mockResolvedValue(undefined);
 
     const req = mockReq('POST', {
-      name: 'My Google',
+      name: 'My Claude',
       authMode: 'oauth',
-      provider: 'google',
-      models: ['gemini-pro'],
+      provider: 'anthropic',
+      models: ['claude-sonnet-4-6'],
     });
     const res = mockRes();
 
@@ -107,6 +107,43 @@ describe('POST /api/accounts', () => {
     expect(res.statusCode).toBe(201);
     expect(res._json.account.authMode).toBe('oauth');
     expect(res._json.account.status).toBe('unknown');
+  });
+
+  it('rejects Google OAuth because OpenCode requires an API key', async () => {
+    const req = mockReq('POST', {
+      name: 'My Google',
+      authMode: 'oauth',
+      provider: 'google',
+      models: ['gemini-2.5-pro'],
+    });
+    const res = mockRes();
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(400);
+    expect(res._json.error).toMatch(/require API Key/);
+    expect(writeAccount).not.toHaveBeenCalled();
+  });
+
+  it('creates a Google API Key account without requiring a custom baseUrl', async () => {
+    vi.mocked(hasAccount).mockResolvedValue(false);
+    const req = mockReq('POST', {
+      name: 'Google API Key',
+      authMode: 'api_key',
+      provider: 'google',
+      apiKey: 'google-key',
+      models: ['gemini-2.5-pro'],
+    });
+    const res = mockRes();
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(201);
+    expect(res._json.account).toMatchObject({
+      authMode: 'api_key',
+      provider: 'google',
+      models: ['gemini-2.5-pro'],
+    });
   });
 
   it('rejects missing required fields (400)', async () => {

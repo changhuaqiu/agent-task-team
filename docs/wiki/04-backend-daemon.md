@@ -250,7 +250,7 @@ identity 或 causation，不能替换 trace。所有 A2A domain event 与下游 
 
 当前模式（catalog-driven，无 engine switch）：
 
-1. daemon 根据 `engine` 在 Catalog 中查表（`loadCatalog().find(e => e.id === engine)`）；**找不到条目直接抛错**，不静默回退（`gemini` / `mock` 无条目，无法经 ACP 执行）。
+1. daemon ingress 先拒绝未知或不匹配的显式 engine/runtime（完全省略时才默认 OpenCode），再根据 `engine` 在 Catalog 中查表；找不到条目直接抛错，不构造平行 backend。Google/Gemini 账号解析为 `opencode`，由显式 Google provider/model 配置和 Catalog 条目执行。
 2. `prepareAcpRuntime(entry, ...)` 做每运行时准备：opencode 在隔离临时目录写 fallback config 并通过 `OPENCODE_CONFIG` 注入，不修改项目文件；codex 隔离 `CODEX_HOME`（复制必要配置到收紧权限的临时目录，turn 后幂等清理）；claude passthrough（认证来自主机）。
 3. `createAcpBackend(entry, ...)` 构造 `AcpBackend`——经 `spawnCli`（cross-spawn，Windows .cmd/.bat 安全）spawn，完成 `initialize` → `session/new` → `prompt`，把 `session/update` 映射为统一 `AgentEvent`。
 4. daemon 通过 `AcpRuntimeEventCoordinator` 驱动 canonical 生命周期，并由其内部
@@ -375,7 +375,7 @@ daemon 当前已经具备会话级跟踪：
 
 补充说明：
 
-- `gemini` / `mock` 没有 Catalog 条目，无法经 ACP 路径执行（不再是“回退到 OpenCodeBackend”，而是直接抛错）。
+- 正式 Agent engine 只接受 `opencode` / `claude` / `codex`。Google/Gemini API Key 账号映射为 `opencode` 并生成确定性的账号/模型配置；原生 Gemini CLI 只用于 API Key 连接验证，不构成第四种 backend。Google OAuth 不进入执行解析；历史浏览器对象与不可变评估快照中的 Gemini 标识在各自读取边界迁移，其他未知输入失败关闭。
 - 适配器（claude / codex）的进程树是两层（`npx` → node 适配器 → 运行时），因此 `AcpBackend` 使用 `tree-kill` 清理，而非裸 `child.kill()`。
 
 ## 4.9 当前判断

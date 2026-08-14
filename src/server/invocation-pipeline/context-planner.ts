@@ -29,13 +29,7 @@ import { resolveApplicationSnapshotRuntime } from '../evaluation/application-sna
 import { projectContextContributor } from '../project-context/context-contributor';
 import { issueDispatchWorkContract } from '../work-contract/dispatch-contract';
 import { StaleWorkAuthorityError } from '../work-contract/repository';
-
-const RUNTIME_IDS = {
-  opencode: 'opencode-local',
-  claude: 'claude-cli',
-  codex: 'codex-cli',
-  gemini: 'gemini-cli',
-} as const;
+import { RUNTIME_ID_BY_ENGINE } from '../runtime-selection';
 
 function toChatMessage(row: MessageRow): ChatMessage {
   let metadata: Record<string, unknown> | undefined;
@@ -228,7 +222,7 @@ export class InvocationPlanner implements InvocationPlannerPort {
           path: conversation.project_path ?? '',
         },
       });
-      const runtimeId = profile.execution.runtimeId ?? RUNTIME_IDS[profile.execution.engine];
+      const runtimeId = profile.execution.runtimeId ?? RUNTIME_ID_BY_ENGINE[profile.execution.engine];
       const workContract = issueDispatchWorkContract({
         trigger,
         traceId,
