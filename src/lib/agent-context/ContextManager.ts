@@ -10,7 +10,7 @@ import { buildRoleLayer } from './layers/roleLayer';
 import { buildProjectLayer } from './layers/projectLayer';
 import { buildProjectStatusLayer } from './layers/projectStatusLayer';
 import { buildCollaborationLayer } from './layers/collaborationLayer';
-import { renderAllTiers, type ContextAssemblyPart } from './tiers';
+import { renderAllTiers } from './tiers';
 import { extractToolsFromSkills } from './skillTools';
 import type { SkillSummary, ToolDefinition } from './types';
 import { getDirective, resolveArchetype, type ContextArchetype, type ContextCluster } from './injectionPolicy';
@@ -102,8 +102,7 @@ export interface ContextReport {
   tokensUsed: number;
   tokensBudget: number;
   saturation: number;              // tokensUsed / tokensBudget
-  layers: Array<{ layer: string; priority?: number; tier?: ContextTier; importance?: number; tokens: number; trimmed: boolean }>;
-  p0Intact: boolean;               // P0 层是否完整未裁剪
+  layers: Array<{ layer: string; tier: ContextTier; importance: number; tokens: number; trimmed: boolean }>;
   droppedLayers: string[];
   recalledArtifacts: number;       // 记忆命中数（本期恒 0）
   teamLogUpToEntryId?: string;
@@ -153,13 +152,13 @@ export interface ContextManagerOptions {
   now?: () => Date;
 }
 
-const FRAGMENT_POLICY: Record<ContextCluster, { tier: ContextTier; importance: number }> = {
-  identity: { tier: 'system', importance: 0.9 },
-  protocol: { tier: 'system', importance: 0.8 },
-  capability: { tier: 'tool', importance: 0.6 },
-  situation: { tier: 'project', importance: 0.6 },
-  focus: { tier: 'project', importance: 0.8 },
-  dialog: { tier: 'project', importance: 0.3 },
+const FRAGMENT_TIER: Record<ContextCluster, ContextTier> = {
+  identity: 'system',
+  protocol: 'system',
+  capability: 'tool',
+  situation: 'project',
+  focus: 'project',
+  dialog: 'project',
 };
 
 async function digest(value: string): Promise<string> {
@@ -174,45 +173,6 @@ function renderFragmentContent(fragment: ContextArtifact): string {
     fragment.content.summary,
     `Artifact: ${fragment.content.artifactRef}`,
   ].filter(Boolean).join('\n');
-}
-
-function legacyPartToFragment(
-  part: ContextAssemblyPart,
-  index: number,
-  req: ContextRequest,
-  observedAt: string,
-): ContextFragment {
-  const subject = (() => {
-    if (['userMessage', 'history', 'teamLog', 'system'].includes(part.layer)) {
-      return { kind: 'agent' as const, id: req.agentId };
-    }
-    if (['team', 'teamPack'].includes(part.layer)) {
-      return { kind: 'team' as const, id: req.conversationId };
-    }
-    if (['project', 'projectStatus'].includes(part.layer)) {
-      return { kind: 'project' as const, id: req.conversationId };
-    }
-    if (['task', 'a2a', 'wakeup'].includes(part.layer) && req.taskId) {
-      return { kind: 'task' as const, id: req.taskId };
-    }
-    return { kind: 'agent' as const, id: req.agentId };
-  })();
-  return {
-    id: `legacy:${index}:${part.layer}`,
-    kind: `legacy.${part.layer}`,
-    cluster: part.cluster,
-    scope: { kind: 'project', projectId: req.conversationId },
-    subject,
-    producer: 'legacy-tier-adapter',
-    version: 'legacy-assembly-v1',
-    content: part.content,
-    visibility: part.private
-      ? { kind: 'agent', agentId: part.source ?? req.agentId }
-      : { kind: 'team' },
-    freshness: { observedAt },
-    evidenceRefs: [],
-    required: part.layer === 'userMessage' || part.layer === 'a2a',
-  };
 }
 
 function createMemoryContributor(memoryHook: MemoryHook): ContextContributor {
@@ -243,12 +203,11 @@ function createMemoryContributor(memoryHook: MemoryHook): ContextContributor {
 }
 
 function fragmentToBudgetPart(fragment: ContextArtifact): BudgetPart {
-  const policy = FRAGMENT_POLICY[fragment.cluster];
   return {
-    layer: `fragment:${fragment.producer}:${fragment.id}`,
+    layer: fragment.id,
     content: renderFragmentContent(fragment),
-    tier: policy.tier,
-    importance: policy.importance,
+    tier: FRAGMENT_TIER[fragment.cluster],
+    importance: fragment.delivery.importance,
     scope: fragment.scope.kind === 'project'
       ? `/project/${fragment.scope.projectId}`
       : `/global/${fragment.scope.key}`,
@@ -341,7 +300,7 @@ export class ContextManager {
     const bootstrapIdentity = getDirective(scenario, archetype, 'identity') === 'include'
       || (req.isFirstWake && req.scenario !== undefined);
 
-    const legacyParts = renderAllTiers({
+    const tierFragments = renderAllTiers({
       req,
       scenario,
       archetype,
@@ -358,7 +317,7 @@ export class ContextManager {
       skillSummaries,
       tools,
       teamLogEnvelope,
-    });
+    }, observedAt);
 
     // Bootstrap system prompt remains a separate runtime channel, but it is
     // represented as a fragment so ContextSnapshot covers everything the
@@ -387,22 +346,22 @@ export class ContextManager {
     const requiredSkillLayers = new Set(
       skillSummaries.filter(skill => skill.required).map(skill => `skill:${skill.id ?? skill.name}`),
     );
-    const legacyFragments = legacyParts.map((part, index) => ({
-      ...legacyPartToFragment(part, index, req, observedAt),
-      required: part.layer === 'userMessage'
-        || part.layer === 'a2a'
-        || requiredSkillLayers.has(part.layer),
+    const seedFragments = tierFragments.map(fragment => ({
+      ...fragment,
+      required: fragment.id === 'message:user'
+        || fragment.id === 'a2a:handoff'
+        || requiredSkillLayers.has(fragment.id),
     }));
-    const bootstrapFragmentId = 'legacy:bootstrap:system';
+    const bootstrapFragmentId = 'context:bootstrap';
     if (systemPrompt) {
-      legacyFragments.unshift({
+      seedFragments.unshift({
         id: bootstrapFragmentId,
-        kind: 'legacy.system-bootstrap',
+        kind: 'context.bootstrap',
         cluster: 'identity',
         scope: { kind: 'project', projectId: req.conversationId },
         subject: { kind: 'agent', id: req.agentId },
-        producer: 'legacy-tier-adapter',
-        version: 'legacy-assembly-v1',
+        producer: 'context-bootstrap',
+        version: 'context-assembly-v1',
         content: systemPrompt,
         visibility: { kind: 'agent', agentId: req.agentId },
         freshness: { observedAt },
@@ -426,7 +385,7 @@ export class ContextManager {
     };
     const collection = await collectContextFragments(
       query,
-      legacyFragments,
+      seedFragments,
       [createMemoryContributor(this.memoryHook), ...(this.options.contributors ?? [])],
     );
     const scenarioOmissions: ContextOmission[] = [];
@@ -443,18 +402,11 @@ export class ContextManager {
       return false;
     });
 
-    const legacyPartByFragmentId = new Map<string, ContextAssemblyPart>();
-    legacyParts.forEach((part, index) => {
-      legacyPartByFragmentId.set(`legacy:${index}:${part.layer}`, part);
-    });
     const fragmentByLayer = new Map<string, ContextArtifact>();
     const parts = scenarioFragments
       .filter(fragment => fragment.id !== bootstrapFragmentId)
       .map(fragment => {
-        const legacyPart = legacyPartByFragmentId.get(fragment.id);
-        const part = legacyPart
-          ? { ...legacyPart, required: fragment.required === true }
-          : fragmentToBudgetPart(fragment);
+        const part = fragmentToBudgetPart(fragment);
         fragmentByLayer.set(part.layer, fragment);
         return part;
       });
@@ -509,14 +461,10 @@ export class ContextManager {
     }
 
     // Health 层：生成 ContextReport
-    const systemLayers = parts.filter(p => p.tier === 'system');
-    const p0Intact = systemLayers.every(l => !budgetReport.trimmed.includes(l.layer)); // system 层完整（字段名保留兼容）// 注：p0Intact 现指 system 层完整；userMessage 等 former-P0 已归 project 层
-
     const trimmedLayers = new Set(budgetReport.trimmed);
     const loadedFragments = scenarioFragments.filter(fragment => {
       if (fragment.id === bootstrapFragmentId) return true;
-      const legacyPart = legacyPartByFragmentId.get(fragment.id);
-      const layer = legacyPart?.layer ?? fragmentToBudgetPart(fragment).layer;
+      const layer = fragmentToBudgetPart(fragment).layer;
       return !trimmedLayers.has(layer);
     });
     const loadedFragmentIds = new Set(loadedFragments.map(fragment => fragment.id));
@@ -610,13 +558,11 @@ export class ContextManager {
       saturation: budgetReport.totalTokens / budget.maxTokens,
       layers: parts.map(p => ({
         layer: p.layer,
-        priority: p.priority,        // legacy 显示字段（tier-based 层为 undefined）
-        tier: p.tier,                      // 结构层（spec §8）
-        importance: p.importance,          // 裁剪排序键
+        tier: p.tier,
+        importance: p.importance,
         tokens: Math.ceil(p.content.length / 4),
         trimmed: budgetReport.trimmed.includes(p.layer),
       })),
-      p0Intact,
       droppedLayers: [
         ...omissions
           .filter(item => item.reason !== 'budget_trimmed')

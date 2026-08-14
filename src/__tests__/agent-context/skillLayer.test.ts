@@ -60,7 +60,6 @@ describe('buildSkillLayer', () => {
       revision: 'skill-rev-1',
       contentHash: 'abc123',
       resourceRefs: ['/managed/with-files/references/guide.md'],
-      files: [{ path: 'src/utils.ts', content: 'export const x = 1;' }],
     });
     const result = buildSkillLayer([skill]);
     expect(result).toContain('Revision: skill-rev-1');

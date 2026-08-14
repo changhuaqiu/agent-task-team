@@ -21,9 +21,9 @@ export function renderKnowledgeTier({ ctx, push }: TierRenderInput): void {
   // be proven; tools share the same capability cluster.
   for (const skill of skillSummaries) {
     const layerId = skill.id ?? skill.name;
-    push('capability', `skill:${layerId}`, buildSkillLayer([skill]), { tier: 'tool', importance: 0.6 });
+    push('capability', `skill:${layerId}`, buildSkillLayer([skill]), {});
   }
-  push('capability', 'tool', buildToolLayer(tools), { tier: 'tool', importance: 0.6 });
+  push('capability', 'tool', buildToolLayer(tools), {});
 
   // Team roster — situation awareness. Omitted in wakeup.
   {
@@ -39,17 +39,17 @@ export function renderKnowledgeTier({ ctx, push }: TierRenderInput): void {
     const team = runtimeRoster !== undefined
       ? runtimeTeam
       : buildTeamLayer(ctx.agentId, allRoleCards ?? [], undefined);
-    push('situation', 'team', team, { tier: 'project', importance: 0.5, scope: '/project' });
+    push('situation', 'team', team, {});
   }
 
   // Team-pack context. Omitted in wakeup.
   if (teamPack) {
-    push('situation', 'teamPack', buildTeamPackLayer(ctx.agentId, teamPack), { tier: 'project', importance: 0.6, scope: '/project' });
+    push('situation', 'teamPack', buildTeamPackLayer(ctx.agentId, teamPack), {});
   }
 
   // History — agent's own trajectory memory. Private to this agent.
   push('dialog', 'history', buildHistoryLayer(messages, req.agentId, {
     query: req.rawPrompt,
     limit: 10,
-  }), { tier: 'project', importance: 0.3, scope: `/project/${req.agentId}`, private: true, source: req.agentId });
+  }), { private: true, source: req.agentId });
 }

@@ -328,7 +328,6 @@ export const createAgentSlice = (set: any, get: () => any) => {
           map[s.id] = {
             name: s.name,
             content: s.content,
-            files: (s.files ?? []).map((f: { path: string; content: string }) => ({ path: f.path, content: f.content })),
           };
         }
 
@@ -346,7 +345,6 @@ export const createAgentSlice = (set: any, get: () => any) => {
                 map[as.id] = {
                   name: as.name,
                   content: as.content,
-                  files: (as.files ?? []).map((f: { path: string; content: string }) => ({ path: f.path, content: f.content })),
                 };
               }
             }

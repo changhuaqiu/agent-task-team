@@ -333,7 +333,7 @@ required floor，并在自身无法装入时 fail closed。
 
 - `src/lib/agent-context/context-contracts.ts` 定义 Fragment、六维 Artifact、Query、Contributor 与 Snapshot；
 - `src/lib/agent-context/context-registry.ts` 负责同步/异步失败隔离、结构校验、归一化、去重、scope/visibility/freshness 门禁；
-- `ContextManager` 保持唯一组装入口，把 legacy Tier、Memory 与业务 Contributor 统一送入 Artifact 管线；
+- `ContextManager` 保持唯一组装入口；四个 Tier renderer 直接产出原生 Fragment，与 Memory 和业务 Contributor 统一送入 Artifact 管线；
 - Task Graph 上下文从 SQLite read model 读取 `updated_at` 原生 revision，Team Log 使用已消费水位作为 delta revision；
 - `context.assemble` observation span 保存完整 `ContextReport`，现有“Agent 调试”执行记录显示来源、revision、生命周期、通道、结果与 reason code；
 - 2026-07-19 定向验证覆盖跨项目 Task、全局伪装、私有/角色可见性、过期、重复版本、异常脱敏、场景省略和 required fail-closed；全量结果以当次迭代验证记录为准。

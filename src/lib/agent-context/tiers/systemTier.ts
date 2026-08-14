@@ -22,7 +22,7 @@ export function renderSystemTier({ ctx, push }: TierRenderInput): void {
   // decision so collaboration appears exactly once.
   const identityCarriesCollaboration = ctx.bootstrapIdentity;
   if (!identityCarriesCollaboration) {
-    push('protocol', 'collaboration', buildCollaborationLayer(), { tier: 'system', importance: 0.8 });
+    push('protocol', 'collaboration', buildCollaborationLayer(), {});
   }
 
   // Protocol hints per scenario (wakeup reason, dispatch intent, …).
@@ -32,8 +32,8 @@ export function renderSystemTier({ ctx, push }: TierRenderInput): void {
     hasTaskAssignment: !!task,
   });
   const protocolHint = buildProtocolHint(ctx.scenario, req.wakeup);
-  push('protocol', 'protocol', [protocol, protocolHint].filter(Boolean).join('\n\n'), { tier: 'system', importance: 0.8 });
+  push('protocol', 'protocol', [protocol, protocolHint].filter(Boolean).join('\n\n'), {});
 
   // Behaviour / close-the-loop requirements.
-  push('protocol', 'behavior', buildBehaviorLayer(), { tier: 'system', importance: 0.7 });
+  push('protocol', 'behavior', buildBehaviorLayer(), {});
 }

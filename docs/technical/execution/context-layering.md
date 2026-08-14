@@ -17,7 +17,7 @@
 
 下游 agent 需要的是**目标与决策**（为什么做、什么算 done、谁在做），不是上游的**完整思考轨迹**（探索过哪些死路、中间怎么推理）。这条原则要落成可执行的机制，而不是口号。
 
-现有一个 `ContextManager`（`specs/context-manager/`，正在 review），但它是**扁平的功能层 + P0–P4 优先级整数**，且把角色过程、看板 schema 混了进来。本设计重构它的分层与边界。
+历史 `ContextManager` 曾是**扁平的功能层 + P0–P4 优先级整数**，且把角色过程、看板 schema 混在一起；当前实现已按本设计收敛为 Tier renderer → Fragment → Registry/Artifact → Budget 的单向管线。
 
 ---
 
@@ -242,10 +242,10 @@ getProtocol(scope: string): Promise<string>  // 读 .ath/PROTOCOLS.md + 合并�
 ## 8. BudgetGuard 改造：P0–P4 整数 → 结构层 + importance
 
 ```ts
-// 现在
+// 已删除的旧契约
 interface BudgetPart { layer: string; content: string; priority: number } // 0–4
 
-// 改后
+// 当前契约
 interface BudgetPart {
   layer: string; content: string;
   tier: 'system' | 'tool' | 'project';   // 结构层（硬约束）
@@ -262,7 +262,7 @@ interface BudgetPart {
 4. required 集合自身无法装入时仍裁剪并 fail closed；
 5. token 估算（字符/4）与"保持原呈现顺序"逻辑保留。
 
-`ContextBudget`（maxTokens/reserveRatio）不动，消费方从 `priority` 改读 `tier + importance`。
+`ContextBudget`（maxTokens/reserveRatio）不动，消费方只读取 `tier + importance`；旧 `priority` 入口已删除。
 
 ---
 
@@ -337,7 +337,7 @@ L3 跨项目身份：身份 Artifact 使用 global scope + agent/role subject；
 
 ## 14. 与现有产出关系
 
-- **`specs/context-manager/spec.md`**：实现 spec，本设计是其**分层与边界的重构依据**。落地时该 spec 的 §5.2（对内分层）、§5.5（健康度）需按本设计更新；P0–P4 优先级被 §8 取代。
+- **`specs/context-manager/spec.md`**：活动实现 spec，本设计是其**分层与边界依据**。该 spec 的 §5.2（对内分层）、§5.5（健康度）已同步当前契约；P0–P4 优先级已被 §8 的结构层与 importance 取代。
 - **`docs/daily/2026-07-14-collab-efficiency-retro.md`**：元病灶来源。本设计的 §3 标签机制 + §10 L2 衔接直接对应 retro 的 M8（HandoffSnapshot）与"上下文管理器"元论点。
 - **`hello-agents/context-management-research.md`**：调研基线（Claude / OpenCode / MemGPT / mem0 分类），本设计在其分类框架内选定"显式管理派 + 稳定性分层"。
 # 2026-07-18 线上缺陷修正规则
@@ -360,9 +360,9 @@ L3 跨项目身份：身份 Artifact 使用 global scope + agent/role subject；
 保持 `assembleContext(request)` 这个深模块 interface 不变，在内部增加 Fragment 管线：
 
 ```text
-Legacy Tier Adapter ─┐
-Memory Contributor ──┼─> Contributor Registry
-Delivery/Review/... ─┘       ↓
+Native Tier Fragments ┐
+Memory Contributor ───┼─> Contributor Registry
+Delivery/Review/... ──┘       ↓
                         validate / normalize
                   Fragment → six-dimensional Artifact
                               ↓
@@ -393,13 +393,13 @@ Context State 由各事实域拥有；ContextManager 不复制事实源，只在
 
 - **新增第二个 Context Service**：拒绝。会形成新旧两条 Prompt 管线，调用方需要理解两套接口。
 - **让每个业务模块返回 Prompt 字符串**：拒绝。作用域、时效、预算和可见性规则会重新散落。
-- **一次性重写所有 Tier**：拒绝。先用 Legacy Tier Adapter 进入统一 Fragment 管线，再按事实域逐步替换；退出条件写入活动规格。
+- **保留 Tier/Artifact 双身份**：拒绝。Tier renderer 只负责确定性内容构建，并直接赋予稳定 Fragment 身份；Registry 后不再恢复旧 Prompt part。
 
 ### 后果
 
 - 新上下文来源只需实现 Contributor，ContextManager 主流程保持稳定。
 - Snapshot 成为 Harness 的可观察输入证据，可支持 no-progress、恢复和调试。
-- 迁移期仍保留 Legacy Tier Adapter，但所有最终内容必须经过相同选择与预算管线。
+- 四个 Tier renderer 与业务 Contributor 都只通过同一 Fragment → Artifact → budget 管线，没有 legacy 往返。
 - 当前动作、Goal/验收、授权约束和 required Skill 缺失时 fail closed；不能为了“让 Loop 继续”牺牲正确环境。
 - Task/project 双层隔离、global subject 白名单和错误脱敏属于 Registry 的机械边界，不交给 Prompt 自觉。
 - 成功 Snapshot 使用完整脱敏 manifest 的 SHA-256 标识，并暴露 scope、subject、visibility、source owner、consistency 与 delivery 元数据。

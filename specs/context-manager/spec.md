@@ -136,7 +136,7 @@ interface AssembledContext {
 └─────────────────────────────────────────────────────────┘
 ```
 
-当前 `ContextArtifact` 以 `cluster/semantic` 表达结构，以结构化 `scope/visibility` 表达可见性，以 `delivery.importance` 决定同层裁剪顺序。旧 `ContextRecord` 字符串 scope/private 模型未进入生产组装，已由 Registry 契约取代并删除；P0–P4 priority 只保留为迁移兼容字段。
+当前 `ContextArtifact` 以 `cluster/semantic` 表达结构，以结构化 `scope/visibility` 表达可见性，以 `delivery.importance` 决定同层裁剪顺序。旧 `ContextRecord` 字符串 scope/private 模型与 P0–P4 priority 均已由 Registry/Artifact 契约取代并删除。
 
 **四类上下文来源（source）**：
 | source | 何时注入 | 来自 |
@@ -169,21 +169,19 @@ interface ContextReport {
   saturation: number;              // tokensUsed / tokensBudget
   layers: Array<{
     layer: string;
-    tier?: 'system' | 'tool' | 'project';
-    importance?: number;
-    priority?: number;             // 仅迁移兼容
+    tier: 'system' | 'tool' | 'project';
+    importance: number;
     tokens: number;
     trimmed: boolean;
   }>;
-  p0Intact: boolean;               // 兼容字段；现表示 system 层完整
   droppedLayers: string[];
   recalledArtifacts: number;       // 记忆命中数（本期恒 0）
 }
 ```
 **健康度判据**（写入 `context_health.summary`）：
-- `healthy`：saturation < 0.8 且 p0Intact = true
+- `healthy`：saturation < 0.8 且 required 上下文完整
 - `saturated`：saturation ∈ [0.8, 1.0) 或 project 层发生裁剪
-- `degraded`：saturation ≥ 1.0 或 p0Intact = false（告警）
+- `degraded`：saturation ≥ 1.0 或 required 上下文缺失（后者 fail closed）
 
 **回写**：每次 `assembleContext` 完成后 `sessionRepo.writeContextHealth(sessionId, report)` 原子写入 `context_health`（报告 JSON）+ `usage_snapshot`（token 快照）。这两个字段**第一次有真实写入方**。回写同步/异步见开放问题 Q3。
 
@@ -297,12 +295,12 @@ interface ContextArtifact extends ContextFragment {
 }
 ```
 
-#### 兼容迁移
+#### 统一接入
 
-- 现有四层 Tier 渲染结果先通过 `LegacyTierContributor` 适配成 Fragment，再进入同一选择、预算与 Snapshot 管线。
+- 现有四层 Tier renderer 直接产出原生 Fragment，与业务 Contributor 一起进入同一选择、预算与 Snapshot 管线；不存在第二套 Prompt part 身份或 legacy 包装。
 - `MemoryHook` 通过内建 Memory Contributor 接入，不再在主流程里作为特殊分支处理。
 - 新业务模块不得直接修改 `rawPrompt` 或追加 Prompt 字符串；只允许注册 Contributor。
-- PromptComposer 兼容包装的退出条件是生产代码与公共导出均无调用方，已于 2026-07-22 满足并删除；`LegacyTierContributor` 的退出条件仍是 role/project/task/team/history/tool 等现有来源全部改为原生 Contributor。
+- PromptComposer 兼容包装已于 2026-07-22 删除；role/project/task/team/history/tool 的稳定生产 owner 已明确，Legacy Tier Adapter 的退出条件于 2026-08-15 满足并删除。
 
 #### 不变量
 

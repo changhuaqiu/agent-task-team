@@ -152,7 +152,6 @@ export class InvocationPlanner implements InvocationPlannerPort {
           name: skill.name,
           description: skill.description,
           content: skill.content ?? '',
-          files: skill.files,
           config: skill.config,
         })),
         ...(skillCompilation ? { getSkillCompilation: async () => skillCompilation } : {}),

@@ -3,9 +3,9 @@ import { composeWithBudget } from './BudgetGuard';
 import { ContextBudget } from './ContextBudget';
 
 describe('BudgetGuard — tier + importance 语义', () => {
-  it('系统层（priority 0 → system）永不裁，即使自身超预算', () => {
+  it('系统层永不裁，即使自身超预算', () => {
     const parts = [
-      { layer: 'role', content: 'R'.repeat(1000), priority: 0 }, // → system, 250 tokens
+      { layer: 'role', content: 'R'.repeat(1000), tier: 'system' as const, importance: 0.9 },
     ];
     const { prompt, report } = composeWithBudget(
       parts,
@@ -18,9 +18,9 @@ describe('BudgetGuard — tier + importance 语义', () => {
 
   it('超预算时 project 层先于 system/tool 被裁', () => {
     const parts = [
-      { layer: 'role', content: 'ROLE', priority: 0 },          // system
-      { layer: 'tool', content: 'TOOL', priority: 2 },          // tool
-      { layer: 'history', content: 'H'.repeat(500), priority: 4 }, // project
+      { layer: 'role', content: 'ROLE', tier: 'system' as const, importance: 0.9 },
+      { layer: 'tool', content: 'TOOL', tier: 'tool' as const, importance: 0.6 },
+      { layer: 'history', content: 'H'.repeat(500), tier: 'project' as const, importance: 0.3 },
     ];
     const { prompt } = composeWithBudget(
       parts,
@@ -90,10 +90,10 @@ describe('BudgetGuard — tier + importance 语义', () => {
     expect(report.trimmed).not.toContain('required-project-context');
   });
 
-  it('未超预算时所有层保留（legacy priority 调用方）', () => {
+  it('未超预算时所有层保留', () => {
     const parts = [
-      { layer: 'role', content: 'ROLE', priority: 0 },
-      { layer: 'history', content: 'HIST', priority: 4 },
+      { layer: 'role', content: 'ROLE', tier: 'system' as const, importance: 0.9 },
+      { layer: 'history', content: 'HIST', tier: 'project' as const, importance: 0.3 },
     ];
     const { prompt } = composeWithBudget(
       parts,

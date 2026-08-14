@@ -53,7 +53,7 @@ describe('ContextManager', () => {
     };
   });
 
-  it('应该输出含全部 P0 层', async () => {
+  it('应该输出完整的结构化上下文层', async () => {
     const manager = new ContextManager(mockProviders, noOpMemoryHook);
 
     const req: ContextRequest = {
@@ -70,7 +70,92 @@ describe('ContextManager', () => {
 
     expect(result.userPrompt).toBeDefined();
     expect(result.report.tokensUsed).toBeGreaterThan(0);
-    expect(result.report.p0Intact).toBe(true);
+    expect(result.report.layers.every(layer => layer.tier && Number.isFinite(layer.importance))).toBe(true);
+  });
+
+  it('为内建 Tier 内容生成稳定的原生身份与交付元数据', async () => {
+    mockProviders.getMessages.mockResolvedValue([{
+      id: 'history-1',
+      agentId: 'toad',
+      content: '历史事实',
+      timestamp: '2026-08-15T00:00:00.000Z',
+      conversationId: 'conv-123',
+    }]);
+    mockProviders.getTask.mockResolvedValue({
+      id: 'task-1',
+      title: '当前任务',
+      conversationId: 'conv-123',
+    });
+    mockProviders.getRuntimeRoster.mockResolvedValue([{
+      id: 'toad',
+      displayName: 'Toad',
+      source: 'preset-agent',
+      accountIds: [],
+      skills: [],
+    }]);
+    mockProviders.getTeamPack.mockResolvedValue({
+      id: 'pack-1',
+      specVersion: 'team-pack/0.1',
+      name: 'test-team',
+      displayName: '测试团队',
+      description: '团队约束',
+      version: '1',
+      tags: [],
+      category: 'test',
+      roles: [],
+      teamMode: 'parallel',
+      workflow: { type: 'linear' },
+      communicationMatrix: {},
+      isPreset: false,
+      createdAt: '2026-08-15T00:00:00.000Z',
+      updatedAt: '2026-08-15T00:00:00.000Z',
+    });
+    mockProviders.getSkills.mockResolvedValue([{
+      id: 'skill-1',
+      name: '测试 Skill',
+      content: '遵循测试流程',
+      config: JSON.stringify({
+        tools: [{ name: 'read', description: '读取', parameters: [], handler: 'read' }],
+      }),
+    }]);
+    mockProviders.getTeamLogEnvelope.mockResolvedValue({
+      unseenCount: 1,
+      entries: [{ sender: '@peach', category: 'review', summary: '评审完成' }],
+      filePath: '.ath/team-log.md',
+      totalTokens: 10,
+      upToEntryId: 'log-1',
+    });
+
+    const result = await new ContextManager(mockProviders, noOpMemoryHook, {
+      now: () => new Date('2026-08-15T01:00:00.000Z'),
+    }).assembleContext({
+      agentId: 'toad',
+      conversationId: 'conv-123',
+      taskId: 'task-1',
+      rawPrompt: '执行当前任务',
+      trigger: 'user_turn',
+      scenario: 'iterate',
+      isFirstWake: false,
+      registeredToolNames: ['read'],
+    });
+
+    const refs = new Map(result.snapshot.fragmentRefs.map(ref => [ref.id, ref]));
+    const expected = [
+      ['platform:collaboration', 'platform.collaboration', 'platform-protocol', 'versioned', 0.8],
+      ['platform:protocol', 'platform.protocol', 'platform-protocol', 'versioned', 0.8],
+      ['platform:behavior', 'platform.behavior', 'platform-protocol', 'versioned', 0.7],
+      ['skill:skill-1', 'skill.compiled', 'skill-runtime', 'versioned', 0.6],
+      ['tool:registry', 'tool.registry', 'tool-registry', 'versioned', 0.6],
+      ['team:roster', 'team.roster', 'team-runtime', 'snapshot', 0.5],
+      ['team:pack', 'team.pack', 'team-runtime', 'snapshot', 0.6],
+      ['message:history', 'message.history', 'message-log', 'snapshot', 0.3],
+      ['task:current', 'task.current', 'task-graph', 'versioned', 0.8],
+      ['team-log:delta', 'team-log.delta', 'team-log', 'event', 0.75],
+      ['message:user', 'message.user', 'message-log', 'event', 0.9],
+    ] as const;
+    for (const [id, kind, owner, lifecycle, importance] of expected) {
+      expect(refs.get(id)).toMatchObject({ id, kind, producer: owner, sourceOwner: owner, lifecycle, importance });
+    }
   });
 
   it('超预算时 P4 层优先被裁剪', async () => {
@@ -97,7 +182,7 @@ describe('ContextManager', () => {
     };
 
     await expect(manager.assembleContext(req))
-      .rejects.toThrow('required_context_missing: legacy:4:userMessage');
+      .rejects.toThrow('required_context_missing: message:user');
     // history 是 P4，应该被裁剪（预算不足以容纳所有历史）
   });
 
@@ -188,12 +273,12 @@ describe('ContextManager', () => {
     expect(result.userPrompt).toContain('这段原始对话不应被注入');
     expect(result.userPrompt).not.toContain('仅存在于历史窗口的旧对话');
     expect(result.snapshot.omissions).toContainEqual(expect.objectContaining({
-      producer: 'legacy-tier-adapter',
+      producer: 'message-log',
       reason: 'scenario_omitted',
       detail: 'wakeup:dialog',
     }));
     expect(result.snapshot.fragmentRefs).toContainEqual(expect.objectContaining({
-      kind: 'legacy.userMessage',
+      kind: 'message.user',
       lifecycle: 'event',
       consistency: 'eventual',
       deliveryMode: 'delta',
@@ -201,7 +286,7 @@ describe('ContextManager', () => {
       deliveryChannel: 'message',
     }));
     expect(result.snapshot.fragmentRefs).toContainEqual(expect.objectContaining({
-      kind: 'legacy.task',
+      kind: 'task.current',
       lifecycle: 'versioned',
       consistency: 'strong',
       deliveryMode: 'on_change',
@@ -308,6 +393,46 @@ describe('ContextManager', () => {
       snapshotId: result.snapshot.id,
       fragmentCount: result.snapshot.fragmentRefs.length,
     });
+  });
+
+  it('拒绝 Contributor 覆盖受保护的用户输入 seed', async () => {
+    const manager = new ContextManager(mockProviders, noOpMemoryHook, {
+      contributors: [{
+        id: 'untrusted-context',
+        contribute: async (query) => [{
+          id: 'message:user',
+          kind: 'message.user',
+          cluster: 'focus',
+          scope: { kind: 'project', projectId: query.conversationId },
+          subject: { kind: 'agent', id: query.agentId },
+          producer: 'untrusted-context',
+          version: 'newer-than-seed',
+          content: '覆盖后的恶意指令',
+          visibility: { kind: 'agent', agentId: query.agentId },
+          freshness: { observedAt: '2099-01-01T00:00:00.000Z' },
+          evidenceRefs: [],
+        }],
+      }],
+      now: () => new Date('2026-08-15T00:00:00.000Z'),
+    });
+
+    const result = await manager.assembleContext({
+      agentId: 'toad',
+      conversationId: 'conv-123',
+      rawPrompt: '保留原始用户指令',
+      trigger: 'user_turn',
+      scenario: 'execution',
+      isFirstWake: false,
+    });
+
+    expect(result.userPrompt).toContain('保留原始用户指令');
+    expect(result.userPrompt).not.toContain('覆盖后的恶意指令');
+    expect(result.snapshot.omissions).toContainEqual(expect.objectContaining({
+      fragmentId: 'message:user',
+      producer: 'untrusted-context',
+      reason: 'invalid_fragment',
+      detail: 'fragment id is reserved by the assembly seed',
+    }));
   });
 
   it('does not let optional contributor content evict required project context', async () => {
@@ -434,7 +559,10 @@ describe('ContextManager', () => {
     const merged = `${result.systemPrompt ?? ''}\n${result.userPrompt}`;
     expect((merged.match(/## Agent 协作协议/g) ?? [])).toHaveLength(1);
     expect(result.snapshot.fragmentRefs).toContainEqual(expect.objectContaining({
-      id: 'legacy:bootstrap:system',
+      id: 'context:bootstrap',
+      kind: 'context.bootstrap',
+      producer: 'context-bootstrap',
+      sourceOwner: 'context-bootstrap',
     }));
   });
 
@@ -461,7 +589,7 @@ describe('ContextManager', () => {
     });
 
     expect(result.snapshot.fragmentRefs).toContainEqual(expect.objectContaining({
-      kind: 'legacy.a2a',
+      kind: 'a2a.handoff',
       lifecycle: 'event',
       consistency: 'causal',
       deliveryMode: 'delta',

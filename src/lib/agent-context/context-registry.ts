@@ -117,13 +117,13 @@ function shouldReplace(current: ContextArtifact, candidate: ContextArtifact): bo
 
 function normalizeFragment(fragment: ContextFragment): ContextArtifact {
   const eventKinds = new Set([
-    'legacy.userMessage',
-    'legacy.a2a',
-    'legacy.teamLog',
+    'message.user',
+    'a2a.handoff',
+    'team-log.delta',
   ]);
   const versionedKinds = new Set([
-    'legacy.task',
-    'legacy.skill',
+    'task.current',
+    'skill.compiled',
     'delivery.goal',
     'delivery.policy',
   ]);
@@ -131,7 +131,7 @@ function normalizeFragment(fragment: ContextFragment): ContextArtifact {
     ? 'ephemeral'
     : eventKinds.has(fragment.kind)
       ? 'event'
-    : versionedKinds.has(fragment.kind) || fragment.kind.startsWith('legacy.skill:')
+    : versionedKinds.has(fragment.kind)
       ? 'versioned'
     : fragment.cluster === 'identity'
       ? 'static'
@@ -156,7 +156,7 @@ function normalizeFragment(fragment: ContextFragment): ContextArtifact {
         : lifecycle === 'versioned'
           ? 'on_change'
           : 'always';
-  const consistency = fragment.kind === 'legacy.a2a' || fragment.kind.includes('handoff')
+  const consistency = fragment.kind.includes('handoff')
       ? 'causal'
       : fragment.subject.kind === 'task' || fragment.subject.kind === 'goal'
         ? 'strong'
@@ -169,33 +169,28 @@ function normalizeFragment(fragment: ContextFragment): ContextArtifact {
     focus: 0.8,
     dialog: 0.3,
   };
-  const legacyOwnerByKind: Record<string, string> = {
-    'legacy.userMessage': 'message-log',
-    'legacy.history': 'message-log',
-    'legacy.teamLog': 'team-log',
-    'legacy.task': 'task-graph',
-    'legacy.a2a': 'a2a',
-    'legacy.team': 'team-runtime',
-    'legacy.teamPack': 'team-runtime',
-    'legacy.project': 'project-state',
-    'legacy.projectStatus': 'task-graph',
-    'legacy.system': 'role-card',
-    'legacy.role': 'role-card',
-    'legacy.protocol': 'platform-protocol',
-    'legacy.collaboration': 'platform-protocol',
-    'legacy.behavior': 'platform-protocol',
-    'legacy.tool': 'tool-registry',
+  const importanceByKind: Record<string, number> = {
+    'context.bootstrap': 0.9,
+    'platform.collaboration': 0.8,
+    'platform.protocol': 0.8,
+    'platform.behavior': 0.7,
+    'skill.compiled': 0.6,
+    'tool.registry': 0.6,
+    'team.roster': 0.5,
+    'team.pack': 0.6,
+    'message.history': 0.3,
+    'task.current': 0.8,
+    'a2a.handoff': 0.7,
+    'team-log.delta': 0.75,
+    'message.user': 0.9,
   };
-  const sourceOwner = fragment.kind.startsWith('legacy.skill:')
-    ? 'skill-runtime'
-    : legacyOwnerByKind[fragment.kind] ?? fragment.producer;
 
   return {
     ...fragment,
     semantic: { kind: fragment.kind, cluster: fragment.cluster },
     source: {
       provider: fragment.producer,
-      owner: sourceOwner,
+      owner: fragment.producer,
       revision: fragment.version,
       observedAt: fragment.freshness.observedAt,
     },
@@ -208,7 +203,7 @@ function normalizeFragment(fragment: ContextFragment): ContextArtifact {
       mode: deliveryMode,
       channel,
       required: fragment.required === true,
-      importance: importanceByCluster[fragment.cluster],
+      importance: importanceByKind[fragment.kind] ?? importanceByCluster[fragment.cluster],
     },
   };
 }
@@ -233,6 +228,7 @@ export async function collectContextFragments(
   const requiredFragmentIds = new Set<string>(
     seedFragments.filter(fragment => fragment.required).map(fragment => fragment.id),
   );
+  const reservedSeedIds = new Set(seedFragments.map(fragment => fragment.id));
   // Query requirements are authoritative even when a contributor was not
   // registered. Starting from the query prevents a missing registration from
   // silently degrading into "no requirement".
@@ -313,6 +309,14 @@ export async function collectContextFragments(
         producer: candidate.contributorId,
         reason: 'invalid_fragment',
         detail: 'fragment producer must match registered contributor id',
+        required: input.required === true || candidate.contributorRequired,
+      });
+      return;
+    }
+    if (candidate.contributorId && reservedSeedIds.has(input.id)) {
+      omissions.push({
+        ...omission(input, 'invalid_fragment', 'fragment id is reserved by the assembly seed'),
+        producer: candidate.contributorId,
         required: input.required === true || candidate.contributorRequired,
       });
       return;

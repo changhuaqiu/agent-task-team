@@ -25,7 +25,7 @@
 
 ## 不破坏
 - [ ] `platform-harness-state-machine-design.md` 的 A2A 聚合 / 交接 / 反回声语义不变
-- [ ] `BudgetGuard` 使用 system/tool/project + importance；旧 priority 仅保留兼容，不再驱动新记录
+- [x] `BudgetGuard` 仅使用 system/tool/project + importance；旧 priority 已删除
 - [ ] `acp-runtime-integration/` 的执行协议边界不受影响
 - [ ] build 通过；现有 A2A / context 测试不破
 

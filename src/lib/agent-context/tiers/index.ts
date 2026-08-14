@@ -9,7 +9,7 @@
 // then by importance). So tiers can be rendered in any order here.
 
 import type { ContextCluster } from '../injectionPolicy';
-import type { BudgetPart } from '../BudgetGuard';
+import type { ContextFragment, ContextSubject } from '../context-contracts';
 import type { TierContext } from './tierContext';
 import { renderSystemTier } from './systemTier';
 import { renderKnowledgeTier } from './knowledgeTier';
@@ -18,21 +18,69 @@ import { renderInteractionTier } from './interactionTier';
 
 export type { TierContext } from './tierContext';
 
-export interface ContextAssemblyPart extends BudgetPart {
-  cluster: ContextCluster;
+interface NativeFragmentIdentity {
+  id: string;
+  kind: string;
+  producer: string;
 }
 
-export function renderAllTiers(ctx: TierContext): ContextAssemblyPart[] {
-  const parts: ContextAssemblyPart[] = [];
+const IDENTITIES: Record<string, NativeFragmentIdentity> = {
+  collaboration: { id: 'platform:collaboration', kind: 'platform.collaboration', producer: 'platform-protocol' },
+  protocol: { id: 'platform:protocol', kind: 'platform.protocol', producer: 'platform-protocol' },
+  behavior: { id: 'platform:behavior', kind: 'platform.behavior', producer: 'platform-protocol' },
+  tool: { id: 'tool:registry', kind: 'tool.registry', producer: 'tool-registry' },
+  team: { id: 'team:roster', kind: 'team.roster', producer: 'team-runtime' },
+  teamPack: { id: 'team:pack', kind: 'team.pack', producer: 'team-runtime' },
+  history: { id: 'message:history', kind: 'message.history', producer: 'message-log' },
+  task: { id: 'task:current', kind: 'task.current', producer: 'task-graph' },
+  a2a: { id: 'a2a:handoff', kind: 'a2a.handoff', producer: 'a2a' },
+  teamLog: { id: 'team-log:delta', kind: 'team-log.delta', producer: 'team-log' },
+  userMessage: { id: 'message:user', kind: 'message.user', producer: 'message-log' },
+};
+
+function identityFor(layer: string): NativeFragmentIdentity {
+  if (layer.startsWith('skill:')) {
+    return { id: layer, kind: 'skill.compiled', producer: 'skill-runtime' };
+  }
+  const identity = IDENTITIES[layer];
+  if (!identity) throw new Error(`unknown_context_layer: ${layer}`);
+  return identity;
+}
+
+function subjectFor(layer: string, ctx: TierContext): ContextSubject {
+  if (layer === 'team' || layer === 'teamPack') {
+    return { kind: 'team', id: ctx.conversationId };
+  }
+  if ((layer === 'task' || layer === 'a2a') && ctx.req.taskId) {
+    return { kind: 'task', id: ctx.req.taskId };
+  }
+  return { kind: 'agent', id: ctx.agentId };
+}
+
+export function renderAllTiers(ctx: TierContext, observedAt: string): ContextFragment[] {
+  const fragments: ContextFragment[] = [];
 
   const push = (
     cluster: ContextCluster,
     layer: string,
     content: string | null | undefined,
-    opts: { tier: BudgetPart['tier']; importance: number; scope?: string; private?: boolean; source?: string },
+    opts: { private?: boolean; source?: string },
   ) => {
     if (content) {
-      parts.push({ cluster, layer, content, ...opts });
+      const identity = identityFor(layer);
+      fragments.push({
+        ...identity,
+        cluster,
+        scope: { kind: 'project', projectId: ctx.conversationId },
+        subject: subjectFor(layer, ctx),
+        version: 'context-assembly-v1',
+        content,
+        visibility: opts.private
+          ? { kind: 'agent', agentId: opts.source ?? ctx.agentId }
+          : { kind: 'team' },
+        freshness: { observedAt },
+        evidenceRefs: [],
+      });
     }
   };
 
@@ -43,5 +91,5 @@ export function renderAllTiers(ctx: TierContext): ContextAssemblyPart[] {
   renderTaskTier(input);
   renderInteractionTier(input);
 
-  return parts;
+  return fragments;
 }

@@ -122,3 +122,7 @@ Google/Gemini API Key 账号能够由 OpenCode provider 配置消费，原生 Ge
 ## 第二十二轮：删除浏览器平行 Task 生命周期
 
 Task Authority 已使用 `proposed/ready/in_progress/blocked/in_review/done/cancelled` 正式状态，但浏览器仍维护 `pending/in_progress/in_review/done/rejected/blocked` 第二套 vocabulary，并在 `/api/state`、store hydration、socket sync 和 Kanban 多次降级转换。结果是 `proposed/ready/cancelled` 语义丢失，“拒绝”按钮提交服务端不存在的 `rejected`，新建任务还询问一个 `task.create` 完全忽略的初始状态。第二十二轮将纯 TaskStatus vocabulary 与合法迁移下沉到共享 interface，服务端 repository 与浏览器共同消费；删除 legacy projection、无效状态选择和重复迁移表。外部 TASKS.md 历史文本仍在服务端 intake 归一化，不把兼容复杂度泄漏回 UI。
+
+## 第二十三轮：删除 Context Legacy Tier 往返
+
+ContextManager 已以 Fragment/Artifact Registry 作为唯一结构化入口，但现有 Tier 内容仍先生成旧 BudgetPart，再包装成 `legacy.*` Fragment；Registry 归一化后，Manager 又按临时 id 恢复旧 part。该往返不提供新过滤或权限，只迫使 Registry 维护第二套 kind、owner、lifecycle、importance 映射，并让 BudgetGuard 继续暴露 P0–P4 `priority`。第二十三轮让四个 Tier renderer 直接产出稳定原生 Fragment，预算只消费 Artifact 的 `tier + delivery.importance + required`，删除 legacy 包装、反包装、priority 与未消费的 Skill 文件兼容字段；外部 Contributor、Snapshot 和 runtime transport 保持不变。

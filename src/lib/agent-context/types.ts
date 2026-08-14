@@ -28,7 +28,5 @@ export interface SkillSummary {
   resourceRefs?: string[];
   activationReason?: 'agent_binding' | 'explicit' | 'task' | 'handoff' | 'rule' | 'semantic';
   required?: boolean;
-  /** Compatibility-only. New execution paths expose resourceRefs instead. */
-  files?: { path: string; content: string }[];
   config?: string;
 }

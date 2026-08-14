@@ -72,6 +72,17 @@ describe('runtime ownership architecture', () => {
     expect(productionTypeScriptFiles('src/server').filter((path) => retiredCapabilityLayer.test(source(path)))).toEqual([]);
   });
 
+  it('keeps context assembly on one native Fragment pipeline', () => {
+    const contextFiles = productionTypeScriptFiles('src/lib/agent-context');
+    const retiredContextAdapter = /legacyPartToFragment|ContextAssemblyPart|legacy-tier-adapter|legacy-assembly-v1|kind:\s*['"]legacy\./;
+    expect(contextFiles.filter((path) => retiredContextAdapter.test(source(path)))).toEqual([]);
+    const budgetGuard = source('src/lib/agent-context/BudgetGuard.ts');
+    expect(budgetGuard).not.toMatch(/\bpriority\??:/);
+    expect(budgetGuard).toContain('tier: ContextTier');
+    expect(budgetGuard).toContain('importance: number');
+    expect(source('src/lib/agent-context/ContextManager.ts')).not.toContain('p0Intact');
+  });
+
   it('keeps production Agent engines aligned with the ACP Catalog', () => {
     const runtimeIdentityFiles = [
       'src/server/types.ts',

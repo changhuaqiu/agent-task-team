@@ -321,7 +321,7 @@ MVP 上线后基于以下信号决定下一轮设计：
 | `missing_action` 频发（> 10% pass） | 约束 C 升级为硬拦截，pass 直接进 `blocked` |
 | `chain_closure_dispatched` 中 planner 输出质量差 | 补 `deliverables` / `decisions` 聚合 cluster（新 provider 方法） |
 | `handoff` 场景下下游频繁通过工具 recall 上游历史 | 补 `A2AHandoffPacket.successCriteria / attemptTrace / rejectedAlternatives` |
-| `iterate` 场景 tokens 用量常态偏高 | 引入 P0–P4 五档优先级 + BudgetGuard 按 priority 排序 |
+| `iterate` 场景 tokens 用量常态偏高 | 基于 Artifact `delivery.importance` 与实测效用调整同层选择 |
 | worker archetype 内部差异明显 | 拆出 implementer / arch_advisor 独立分档 |
 
 ---
@@ -330,7 +330,7 @@ MVP 上线后基于以下信号决定下一轮设计：
 
 - `A2AHandoffPacket` 新字段（`successCriteria` / `attemptTrace` / `rejectedAlternatives`）——等 handoff 场景 recall 信号出来再决定
 - `deliverables` / `decisions` 聚合 cluster——等 closure 输出质量数据决定
-- 五档优先级（P0–P4）——等 iterate token 数据决定
+- 新增平行优先级 vocabulary——不做；持续用 Artifact `delivery.importance` 演进
 - `review_reject / blocked_escalation / user_pivot / cross_chain` 独立 scenario——等 iterate 场景内的行为分布决定
 - `recall_upstream(messageIds)` 内建工具——等 handoff 后下游"信息不足"信号决定
 - 硬阻断（约束 A / C）——等误报率数据决定

@@ -13,7 +13,7 @@ export function renderTaskTier({ ctx, push }: TierRenderInput): void {
 
   // Assigned task context (DoD, description, phase).
   if (task) {
-    push('focus', 'task', buildTaskContextLayer(task), { tier: 'project', importance: 0.8, scope: '/project' });
+    push('focus', 'task', buildTaskContextLayer(task), {});
   }
 
   // A2A handoff — if this turn was triggered by a pass, surface the packet
@@ -26,6 +26,6 @@ export function renderTaskTier({ ctx, push }: TierRenderInput): void {
         ...req.a2aHandoff,
         possessionSummary: undefined,
       }),
-    }), { tier: 'project', importance: 0.7, scope: '/project' });
+    }), {});
   }
 }

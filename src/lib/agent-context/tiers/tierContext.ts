@@ -5,7 +5,6 @@ import type { TeamPack } from '@/types/teamPack';
 import type { ContextCluster, ContextArchetype } from '../injectionPolicy';
 import type { ContextScenario } from '../scenarioResolver';
 import type { ContextRequest } from '../ContextManager';
-import type { ContextTier } from '../BudgetGuard';
 import type { TeamLogEnvelope } from '../teamLog';
 import type { SkillSummary, ToolDefinition } from '../types';
 
@@ -42,9 +41,6 @@ export interface TierPush {
     layer: string,
     content: string | null | undefined,
     opts: {
-      tier: ContextTier;
-      importance: number;
-      scope?: string;
       private?: boolean;
       source?: string;
     },

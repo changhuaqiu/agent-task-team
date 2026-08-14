@@ -15,9 +15,6 @@ export function renderInteractionTier({ ctx, push }: TierRenderInput): void {
   // Team-log delta — what changed since this agent last saw the project.
   // Private (only the current agent's view is consistent).
   push('situation', 'teamLog', teamLogEnvelope ? renderTeamLogEnvelope(teamLogEnvelope) : '', {
-    tier: 'project',
-    importance: 0.75,
-    scope: '/project',
     private: true,
     source: req.agentId,
   });
@@ -25,6 +22,6 @@ export function renderInteractionTier({ ctx, push }: TierRenderInput): void {
   // User message — only when this is not an A2A handoff turn (handoff turns
   // carry their own focus via taskTier). Private to this agent.
   if (!req.a2aHandoff) {
-    push('focus', 'userMessage', buildUserMessageLayer(req.rawPrompt), { tier: 'project', importance: 0.9, scope: `/project/${req.agentId}`, private: true, source: req.agentId });
+    push('focus', 'userMessage', buildUserMessageLayer(req.rawPrompt), { private: true, source: req.agentId });
   }
 }
