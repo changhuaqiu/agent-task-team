@@ -1,6 +1,6 @@
 # Architecture Subtraction — Round 30
 
-> Status: active
+> Status: implemented
 > Date: 2026-08-15
 
 ## Goal
@@ -49,7 +49,8 @@ TaskDetailPanel
 
 - `pnpm install --offline --frozen-lockfile`：通过；719 packages，锁文件未变。
 - `pnpm exec tsc --noEmit --pretty false`：通过（UI 回归加入后复跑）。
-- `pnpm exec vitest run src/__tests__/architecture/account-runtime-reachability.test.ts src/__tests__/store/account-binding.test.ts src/__tests__/store/team-role-card-compatibility.test.ts src/__tests__/store/server-hydration-runtime.test.ts src/__tests__/store/team-pack-roster.test.ts src/__tests__/task-hub/TaskDetailPanel.runtime-profile.test.tsx --reporter=verbose`：6 files / 49 tests 通过；覆盖单一 mapping owner、正式 Profile resolver/cache/hydration/dispatch、动态 TeamPack 角色、UI 缺 Profile 失败关闭和账号变化后的响应式恢复。
+- `pnpm exec vitest run src/__tests__/architecture/account-runtime-reachability.test.ts src/__tests__/lib/team-runtime/team-runtime.test.ts src/__tests__/store/account-binding.test.ts src/__tests__/store/team-role-card-compatibility.test.ts src/__tests__/store/server-hydration-runtime.test.ts src/__tests__/store/team-pack-roster.test.ts src/__tests__/store/session-scope.test.ts src/__tests__/task-hub/TaskDetailPanel.runtime-profile.test.tsx --reporter=verbose`：8 files / 74 tests 通过；覆盖单一 mapping owner、正式 Profile resolver/cache/hydration/dispatch、动态 TeamPack 角色、UI 缺 Profile/Runtime 不可用/账号撤销失败关闭，以及跨项目任务不显示、不发送 `terminal:start` 和切项目清理任务选择。
 - `pnpm build`：通过；仅保留既有 Turbopack NFT 动态路径 warning。
-- 全量测试已执行：205 files / 1500 tests passed，2 files / 2 tests skipped，1 test failed；唯一失败为既有稳定基线 `src/server/autonomous-delivery/control-runtime.test.ts:131`，不经过浏览器账号/Profile 解析链。
-- 独立复审：待执行。
+- 全量测试已执行：205 files / 1502 tests passed，2 files / 2 tests skipped，1 test failed；唯一失败为既有稳定基线 `src/server/autonomous-delivery/control-runtime.test.ts:131`，不经过浏览器账号/Profile 解析链。
+- 首轮独立复审发现跨项目任务可能借用当前项目 Runtime Profile 的 1 项 Important，以及守卫范围、UI 负向覆盖 2 项 Minor；已通过展示边界、项目切换清理和执行动作边界三层 fail closed 修复，并补双项目真实回归。
+- 修复后独立复审：Critical 0 / Important 0 / Minor 0，Ready: Yes；独立复跑 8 files / 74 tests，通过 `git diff --check 8572e86..ac86035`，并确认稳定基线失败的测试 blob 与相关服务端 import graph 均未变化。
