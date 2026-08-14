@@ -102,3 +102,7 @@ Google/Gemini API Key 账号能够由 OpenCode provider 配置消费，原生 Ge
 ## 第十七轮：删除 ACP-only 链中的恒等 CapabilityRouter
 
 三种正式 runtime 已全部收敛到唯一 `AcpBackend`，但 daemon 前仍保留一套来自 bespoke CLI 时代的手工 `CapabilitySet` 与降级 router。当前唯一 backend 对 resume/system prompt/PTY 的声明完全相同，daemon 也不提交 maxTurns，因此 router 的唯一生产调用是恒等变换；其测试仅构造生产不可达的旧 CLI 合成能力矩阵。第十七轮删除该 router、手工能力矩阵和自嗨测试，把能力事实留给 Catalog、ACP initialize 握手与真实兼容测试，并让 daemon 的单一 `ExecOptions` 直接进入 `AcpBackend`。
+
+## 第十八轮：收回浏览器对 Session 与 Invocation 生命周期的旧写入口
+
+`/api/mutations` 曾同时承担 UI 数据写入和 Runtime 生命周期写入。随着 Task Graph、Session identity 与 Invocation Pipeline 成为唯一领域 owner，`task.delete` 别名以及 session create/bind/seal、invocation create/transition 七个动作已无任何生产调用，只剩 endpoint 自测；继续保留会让浏览器绕过版本、profile、runtime event 与 fencing 边界。第十八轮删除这些公开 case 及其自测：Task 取消只走 Task Graph `cancelTask`，Session 与 Invocation 只由服务端 owner 推进，浏览器保留投影读取而不写 Runtime 事实。

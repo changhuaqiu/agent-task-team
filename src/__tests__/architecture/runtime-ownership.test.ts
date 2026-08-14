@@ -97,6 +97,20 @@ describe('runtime ownership architecture', () => {
     }
   });
 
+  it('does not expose Task cancellation or Runtime lifecycle through generic browser mutations', () => {
+    for (const action of [
+      'task.delete',
+      'session.create',
+      'session.updateCliSessionId',
+      'session.seal',
+      'session.sealByTask',
+      'invocation.create',
+      'invocation.transition',
+    ]) {
+      expect(mutationApi).not.toContain(`case '${action}'`);
+    }
+  });
+
   it('keeps every production Task write inside an explicit Task Graph owner module', () => {
     const allowedOwnerImplementations = new Set([
       'src/server/repositories/task-command-service.ts',

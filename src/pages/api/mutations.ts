@@ -1,5 +1,4 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import type { InvocationPatch } from '@/server/repositories/invocation-repo';
 import type { TaskPatch } from '@/server/repositories/task-repo';
 
 type MutationType =
@@ -9,14 +8,7 @@ type MutationType =
   | 'task.create'
   | 'task.updateStatus'
   | 'task.update'
-  | 'task.delete'
   | 'message.append'
-  | 'session.create'
-  | 'session.updateCliSessionId'
-  | 'session.seal'
-  | 'session.sealByTask'
-  | 'invocation.create'
-  | 'invocation.transition'
   | 'a2a.human_handoff'
   | 'dispatch.enqueue'
   | 'dispatch.cancel'
@@ -399,96 +391,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         result = { id };
         break;
       }
-      case 'task.delete': {
-        const { taskRepo } = await import('@/server/repositories/task-repo');
-        const task = taskRepo.getById(payload.id as string);
-        if (!task) return res.status(404).json({ ok: false, error: `Task not found: ${payload.id}` });
-        const { stableTaskCommandKey, taskCommandService } = await import('@/server/repositories/task-command-service');
-        const idempotencyKey = typeof (payload as Record<string, unknown>).idempotencyKey === 'string'
-          ? String((payload as Record<string, unknown>).idempotencyKey)
-          : stableTaskCommandKey('mutation-api:task.delete', payload);
-        result = taskCommandService.transition({
-          conversationId: task.conversation_id,
-          taskId: task.id,
-          expectedTaskRevision: taskCommandService.expectedTaskRevision(
-            task.id,
-            idempotencyKey,
-            task.revision,
-          ),
-          expectedGraphRevision: taskCommandService.expectedGraphRevision(
-            task.conversation_id,
-            idempotencyKey,
-          ),
-          idempotencyKey,
-          actor: { type: 'user', id: 'webui:local-user' },
-          to: 'cancelled',
-        }).result.task;
-        break;
-      }
       case 'message.append': {
         const { messageRepo } = await import('@/server/repositories/message-repo');
         const id = messageRepo.append(payload as any);
         result = { id };
-        break;
-      }
-      case 'session.create': {
-        const { sessionRepo } = await import('@/server/repositories/session-repo');
-        result = sessionRepo.create(payload as any);
-        break;
-      }
-      case 'session.updateCliSessionId': {
-        const { sessionRepo } = await import('@/server/repositories/session-repo');
-        const { id, cliSessionId } = payload as any;
-        sessionRepo.updateCliSessionId(id, cliSessionId);
-        result = { id };
-        break;
-      }
-      case 'session.seal': {
-        const { sessionRepo } = await import('@/server/repositories/session-repo');
-        const { id, reason } = payload as any;
-        sessionRepo.seal(id, reason);
-        result = { id };
-        break;
-      }
-      case 'session.sealByTask': {
-        const { sessionRepo } = await import('@/server/repositories/session-repo');
-        const { agentId, taskId, reason } = payload as any;
-        sessionRepo.sealByTask(agentId, taskId, reason);
-        result = { agentId, taskId };
-        break;
-      }
-      case 'invocation.create': {
-        const { invocationRepo } = await import('@/server/repositories/invocation-repo');
-        result = invocationRepo.create(payload as any);
-        break;
-      }
-      case 'invocation.transition': {
-        const {
-          assertInvocationOutcome,
-          assertInvocationStatus,
-          invocationRepo,
-        } = await import('@/server/repositories/invocation-repo');
-        const { id, to: toValue, expectedFrom: expectedFromValue, outcome: outcomeValue, ...updates } = payload;
-        if (typeof id !== 'string' || !id.trim()) {
-          return res.status(400).json({ ok: false, error: 'invocation id is required' });
-        }
-        if (typeof toValue !== 'string') {
-          return res.status(400).json({ ok: false, error: 'to is required' });
-        }
-        const to = assertInvocationStatus(toValue);
-        const expectedFrom = typeof expectedFromValue === 'string'
-          ? assertInvocationStatus(expectedFromValue)
-          : undefined;
-        const outcome = typeof outcomeValue === 'string'
-          ? assertInvocationOutcome(outcomeValue)
-          : undefined;
-        const invocation = invocationRepo.transition(id, {
-          to,
-          expectedFrom,
-          outcome,
-          ...(updates as InvocationPatch),
-        });
-        result = invocation;
         break;
       }
       case 'a2a.human_handoff': {
@@ -960,17 +866,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         'invalid_task_status',
         'invalid_task_transition',
         'stale_task_transition',
-        'invalid_invocation_status',
-        'invalid_invocation_outcome',
-        'invalid_invocation_transition',
-        'stale_invocation_transition',
       ].includes(error.reasonCode)
     ) {
-      const status = [
-        'invalid_task_status',
-        'invalid_invocation_status',
-        'invalid_invocation_outcome',
-      ].includes(error.reasonCode) ? 400 : 409;
+      const status = error.reasonCode === 'invalid_task_status' ? 400 : 409;
       return res.status(status).json({
         ok: false,
         error: error.message,

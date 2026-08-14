@@ -112,6 +112,21 @@ describe('POST /api/mutations', () => {
     expect(res._json.ok).toBe(false);
   });
 
+  it.each([
+    'task.delete',
+    'session.create',
+    'session.updateCliSessionId',
+    'session.seal',
+    'session.sealByTask',
+    'invocation.create',
+    'invocation.transition',
+  ])('rejects retired browser-owned mutation %s', async (type) => {
+    const res = mockRes();
+    await handler(mockReq('POST', { type, payload: {} }), res);
+    expect(res.statusCode).toBe(400);
+    expect(res._json).toEqual({ ok: false, error: `Unknown mutation type: ${type}` });
+  });
+
   it('dispatch.enqueue persists an idempotent Agent Inbox command', async () => {
     await seedAgent();
     await seedTask();
@@ -985,20 +1000,6 @@ describe('POST /api/mutations', () => {
     expect(JSON.parse(messageRepo.getByConversation('conv-1')[0].mentions ?? '[]')).toEqual(['agent-b', 'agent-a']);
   });
 
-  it('task.delete records an owner-controlled cancellation instead of erasing history', async () => {
-    await seedTask();
-    const req = mockReq('POST', { type: 'task.delete', payload: { id: 'task-1' } });
-    const res = mockRes();
-    await handler(req, res);
-
-    expect(res._json.ok).toBe(true);
-    const { taskRepo } = await import('@/server/repositories/task-repo');
-    expect(taskRepo.getById('task-1')).toMatchObject({
-      status: 'cancelled',
-      revision: 1,
-    });
-  });
-
   it('message.append creates message with sortable ID', async () => {
     await seedConversation();
     const req = mockReq('POST', {
@@ -1012,123 +1013,6 @@ describe('POST /api/mutations', () => {
     expect(res._json.ok).toBe(true);
     expect(res._json.result.id).toBeTruthy();
     expect(res._json.result.id.startsWith('msg-')).toBe(true);
-  });
-
-  it('session.create creates session', async () => {
-    await seedTask();
-    const req = mockReq('POST', {
-      type: 'session.create',
-      payload: { id: 'ses-1', conversationId: 'conv-1', agentId: 'agent-a', taskId: 'task-1' },
-    });
-    const res = mockRes();
-    await handler(req, res);
-
-    expect(res.statusCode).toBe(200);
-    expect(res._json.ok).toBe(true);
-    expect(res._json.result.id).toBe('ses-1');
-    expect(res._json.result.status).toBe('active');
-  });
-
-  it('session.updateCliSessionId updates cli session', async () => {
-    await seedTask();
-    const { sessionRepo } = await import('@/server/repositories/session-repo');
-    sessionRepo.create({ id: 'ses-1', conversationId: 'conv-1', agentId: 'agent-a', taskId: 'task-1' });
-
-    const req = mockReq('POST', {
-      type: 'session.updateCliSessionId',
-      payload: { id: 'ses-1', cliSessionId: 'cli-123' },
-    });
-    const res = mockRes();
-    await handler(req, res);
-
-    expect(res._json.ok).toBe(true);
-    expect(sessionRepo.getById('ses-1')!.cli_session_id).toBe('cli-123');
-  });
-
-  it('session.seal seals session', async () => {
-    await seedTask();
-    const { sessionRepo } = await import('@/server/repositories/session-repo');
-    sessionRepo.create({ id: 'ses-1', conversationId: 'conv-1', agentId: 'agent-a', taskId: 'task-1' });
-
-    const req = mockReq('POST', {
-      type: 'session.seal',
-      payload: { id: 'ses-1', reason: 'completed' },
-    });
-    const res = mockRes();
-    await handler(req, res);
-
-    expect(res._json.ok).toBe(true);
-    expect(sessionRepo.getById('ses-1')!.status).toBe('sealed');
-    expect(sessionRepo.getById('ses-1')!.seal_reason).toBe('completed');
-  });
-
-  it('session.sealByTask seals all active sessions for agent+task', async () => {
-    await seedTask();
-    const { conversationRepo } = await import('@/server/repositories/conversation-repo');
-    const { sessionRepo } = await import('@/server/repositories/session-repo');
-    conversationRepo.create({ id: 'conv-2', title: 'Second project' });
-    sessionRepo.create({ id: 'ses-1', conversationId: 'conv-1', agentId: 'agent-a', taskId: 'task-1', seq: 0 });
-    sessionRepo.create({ id: 'ses-2', conversationId: 'conv-2', agentId: 'agent-a', taskId: 'task-1', seq: 1 });
-
-    const req = mockReq('POST', {
-      type: 'session.sealByTask',
-      payload: { agentId: 'agent-a', taskId: 'task-1', reason: 'done' },
-    });
-    const res = mockRes();
-    await handler(req, res);
-
-    expect(res._json.ok).toBe(true);
-    expect(sessionRepo.getById('ses-1')!.status).toBe('sealed');
-    expect(sessionRepo.getById('ses-2')!.status).toBe('sealed');
-  });
-
-  it('invocation.create creates invocation', async () => {
-    await seedTask();
-    const req = mockReq('POST', {
-      type: 'invocation.create',
-      payload: { id: 'inv-1', conversation_id: 'conv-1', agent_id: 'agent-a', task_id: 'task-1' },
-    });
-    const res = mockRes();
-    await handler(req, res);
-
-    expect(res.statusCode).toBe(200);
-    expect(res._json.ok).toBe(true);
-    expect(res._json.result.id).toBe('inv-1');
-    expect(res._json.result.status).toBe('planned');
-  });
-
-  it('invocation.transition separates lifecycle from outcome', async () => {
-    await seedConversation();
-    const { invocationRepo } = await import('@/server/repositories/invocation-repo');
-    invocationRepo.create({ id: 'inv-1', conversation_id: 'conv-1', agent_id: 'agent-a' });
-
-    const reqRunning = mockReq('POST', {
-      type: 'invocation.transition',
-      payload: { id: 'inv-1', to: 'starting', expectedFrom: 'planned' },
-    });
-    const resRunning = mockRes();
-    await handler(reqRunning, resRunning);
-    expect(resRunning._json.result.status).toBe('starting');
-    expect(invocationRepo.getById('inv-1')!.status).toBe('starting');
-
-    const reqSuccess = mockReq('POST', {
-      type: 'invocation.transition',
-      payload: {
-        id: 'inv-1',
-        to: 'terminated',
-        expectedFrom: 'starting',
-        outcome: 'completed',
-        exit_code: 0,
-      },
-    });
-    const resSuccess = mockRes();
-    await handler(reqSuccess, resSuccess);
-    expect(resSuccess._json.result).toMatchObject({ status: 'terminated', outcome: 'completed' });
-    expect(invocationRepo.getById('inv-1')).toMatchObject({
-      status: 'terminated',
-      outcome: 'completed',
-    });
-    expect(invocationRepo.getById('inv-1')!.exit_code).toBe(0);
   });
 
   it('dispatch.enqueue keeps the originating conversation scope', async () => {

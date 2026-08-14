@@ -31,15 +31,13 @@
 当前支持的 mutation 包括：
 
 - conversation create/update/delete
-- task create/update/updateStatus/delete
+- task create/update/updateStatus
 - message append
-- session create/update/seal
-- invocation create/updateStatus
 - dispatch enqueue（dispatch 持久化入队）
 - tool invoke（skill 定义的自定义 tool 路由）
-- event append
+- phase upsert/delete 与 ATH breakdown 初始化
 
-这意味着前端大部分结构化写操作都已经可以写入 SQLite，而不是停留在本地 store。
+Task 取消统一走 `/api/task-graph` 的 `cancelTask` owner command。Session create/bind/seal 与 Invocation create/transition 属于服务端 Runtime owner，不向浏览器 mutation 暴露；前端只读取 `/api/state` 与 runtime projection。
 
 TeamPack 会话的服务端任务创建会经过 [`src/server/team-runtime/task-assignment.ts`](../../src/server/team-runtime/task-assignment.ts)：
 

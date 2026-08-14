@@ -309,8 +309,8 @@ outcome: completed | failed | cancelled | timed_out
 只维护 runtime session binding，不再用“session 已确认”冒充“Invocation 已成功”。Daemon 在
 接收 Runtime 终止事实后，分别提交 Session binding 与 Invocation terminal outcome。
 
-API 只暴露 `invocation.transition`，owner 使用 `expectedFrom` 做 fencing，数据库 trigger
-拒绝未知状态、非法迁移和缺失/越界 outcome。`Invocation.terminated` 只说明一次 Agent 激活
+Invocation lifecycle 不向浏览器通用 mutation 暴露；Invocation Pipeline、daemon 与 Runtime
+Event owner 使用 `expectedFrom` 做 fencing，数据库 trigger 拒绝未知状态、非法迁移和缺失/越界 outcome。`Invocation.terminated` 只说明一次 Agent 激活
 已经结束，不代表 `Task.done`。
 
 ### 5.3 Agent Inbox 状态机的已落地边界

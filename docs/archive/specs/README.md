@@ -37,6 +37,7 @@
 | `architecture-subtraction-15/` | implemented | 第十五轮删除假账号验证旁路、OpenCode-routed OAuth 与自嗨 probe wrapper，把连接测试和最终执行收口到同一 provider/model/readiness 边界；长期决策见 `docs/technical/execution/architecture-subtraction.md` |
 | `architecture-subtraction-16/` | implemented | 第十六轮删除未接线的 scopeGuard、旧 ContextRecord 可见性模型及其自嗨测试，把项目隔离与可见性收口到 ContextManager intake 和 Context Registry；长期决策见 `docs/technical/execution/architecture-subtraction.md` |
 | `architecture-subtraction-17/` | implemented | 第十七轮删除 ACP-only 链中恒等的 CapabilityRouter、手工能力矩阵与合成测试，执行参数直接进入唯一 AcpBackend；长期决策见 `docs/technical/execution/architecture-subtraction.md` |
+| `architecture-subtraction-18/` | implemented | 第十八轮删除 `/api/mutations` 中零生产调用的 Task 取消别名及 Session/Invocation 生命周期写入口，写权收口到 Task Graph、Session identity 与 Invocation Pipeline owner；长期决策见 `docs/technical/execution/architecture-subtraction.md` |
 | `four-agent-pr-review-loop/` | implemented | 四 Agent PR 交付、评审、修复与合并证据闭环已落地 |
 | `github-issue-agent-hook/` | implemented | GitHub Issue 验签、幂等建项与自主交付链已落地；长期设计见 `docs/technical/integrations/github-issue-agent-hook.md` |
 | `open-issues-33-35/` | implemented | A2A 分派意图、首次交接身份、默认 TeamPack 升级与上下文去重修复已验收 |
