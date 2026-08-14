@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { NextApiRequest, NextApiResponse } from 'next';
-import handler from '@/pages/api/evaluations/proposals';
+import handler from '@/pages/api/eval/proposals';
 import { evaluationLab } from '@/server/evaluation/evaluation-lab';
 
 vi.mock('@/server/evaluation/evaluation-lab', () => ({

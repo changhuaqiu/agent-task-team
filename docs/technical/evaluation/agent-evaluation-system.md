@@ -11,7 +11,7 @@
 - `judge.ts` 只允许项目显式选择的 OpenAI/Anthropic API Key 账号，无工具权限；没有账号、超预算、Provider 被禁或调用失败时保留确定性结果并转 `partial`。
 - migration 27–38 提供数据库级不可变 rubric/snapshot/score/attempt、ApplicationSnapshot、case execution、带 fencing token 的 job、原子预算预留、双 Judge 复核队列、盲测换序、项目域标注、数据集/实验、gap、policy 与 change proposal 表；migration 41 补齐自主交付 `revision`，migration 42 不信任旧 checkpoint 的版本水位，按实际结构补建自主交付表并把旧 `root_task_id` 外键重建为 `ON DELETE SET NULL`。
 - 关闭轮次在 valid exit 后于本地事务内冻结快照并提交 job；后台 worker 只消费冻结快照并执行评估，主 Agent loop 不等待 Judge。
-- Pages API 的规范入口为 `/api/eval/*`；`/api/evaluations/*` 保留为当前 UI 的兼容入口。
+- Pages API 唯一入口为 `/api/eval/*`；UI、测试和服务端实现统一使用该路径。
 - 平台项目主内容区提供“协作 / 评估”工作模式；评估不是外部控制台，也不占用项目右侧调试栏。
 - P2 支持 dataset revision/split、双人标注加权 kappa、逐例 paired diff、固定种子 95% bootstrap CI、类型/难度/语言/角色拓扑分层、候选盲化与换序复测；实验只接受同 case/manifest 的 completed held-out run，提案审批只接受结论为 `candidate_improves` 的回归实验。
 - 主 Judge 的边界标签按需触发第二 Judge；一致才保留，分歧或第二 Judge 缺失进入人工复核，绝不平均成可信分数。

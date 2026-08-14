@@ -231,7 +231,7 @@ describe('ProjectEvaluationWorkspace', () => {
   it('leads with an understandable decision and progressively discloses raw scoring evidence', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       const url = String(input);
-      if (url.includes('/api/evaluations/run-simple')) {
+      if (url.includes('/api/eval/runs/run-simple')) {
         return jsonResponse({
           run: {
             id: 'run-simple', status: 'partial', gate_status: 'unknown',
@@ -271,7 +271,7 @@ describe('ProjectEvaluationWorkspace', () => {
           gaps: [],
         });
       }
-      if (url.includes('/api/evaluations?')) {
+      if (url.includes('/api/eval/runs?')) {
         return jsonResponse({
           runs: [{
             id: 'run-simple', status: 'partial', gate_status: 'unknown',
@@ -307,10 +307,57 @@ describe('ProjectEvaluationWorkspace', () => {
     expect(accessibility.violations).toEqual([]);
   });
 
+  it('submits and replays evaluations through the canonical run endpoints', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (init?.method === 'POST') return jsonResponse({ accepted: true });
+      if (url.includes('/api/eval/runs/run-actions')) {
+        return jsonResponse({
+          run: {
+            id: 'run-actions', status: 'completed', gate_status: 'pass',
+            overall_score: 100, evidence_coverage: 1, created_at: '2026-07-19T00:00:00.000Z',
+          },
+          snapshot: { data_quality: { missing: [], truncated: [] } },
+          scores: [],
+          gaps: [],
+        });
+      }
+      if (url.includes('/api/eval/runs?')) {
+        return jsonResponse({
+          runs: [{
+            id: 'run-actions', status: 'completed', gate_status: 'pass',
+            overall_score: 100, evidence_coverage: 1, created_at: '2026-07-19T00:00:00.000Z',
+          }],
+        });
+      }
+      if (url.includes('/datasets')) return jsonResponse({ datasets: [] });
+      if (url.includes('/application-snapshots')) return jsonResponse({ snapshots: [] });
+      if (url.includes('/experiments')) return jsonResponse({ experiments: [] });
+      if (url.includes('/reviews')) return jsonResponse({ reviews: [] });
+      return jsonResponse({ proposals: [] });
+    });
+
+    render(<ProjectEvaluationWorkspace conversationId="conv-actions"/>);
+    expect(await screen.findByRole('heading', { name: '通过' })).toBeDefined();
+
+    fireEvent.click(screen.getByRole('button', { name: '重新诊断' }));
+    await waitFor(() => expect(fetchMock.mock.calls.some(([input, init]) => {
+      if (String(input) !== '/api/eval/runs' || init?.method !== 'POST') return false;
+      return JSON.parse(String(init.body)).conversationId === 'conv-actions';
+    })).toBe(true));
+
+    fireEvent.click(screen.getByText('完整评分与证据'));
+    fireEvent.click(screen.getByRole('button', { name: '按冻结证据重放' }));
+    await waitFor(() => expect(fetchMock.mock.calls.some(([input, init]) => {
+      if (String(input) !== '/api/eval/runs/run-actions/replay' || init?.method !== 'POST') return false;
+      return JSON.parse(String(init.body)).conversationId === 'conv-actions';
+    })).toBe(true));
+  });
+
   it('opens existing observability drill-down from task evidence', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       const url = String(input);
-      if (url.includes('/api/evaluations/run-1')) {
+      if (url.includes('/api/eval/runs/run-1')) {
         return jsonResponse({
           run: {
             id: 'run-1', status: 'completed', gate_status: 'pass',
@@ -325,7 +372,7 @@ describe('ProjectEvaluationWorkspace', () => {
           gaps: [],
         });
       }
-      if (url.includes('/api/evaluations?')) {
+      if (url.includes('/api/eval/runs?')) {
         return jsonResponse({
           runs: [{
             id: 'run-1', status: 'completed', gate_status: 'pass',
@@ -356,7 +403,7 @@ describe('ProjectEvaluationWorkspace', () => {
       if (url === '/api/eval/proposals' && init?.method === 'POST') {
         return jsonResponse({ proposal: { id: 'proposal-created', status: 'draft' } });
       }
-      if (url.includes('/api/evaluations/run-gap')) {
+      if (url.includes('/api/eval/runs/run-gap')) {
         return jsonResponse({
           run: {
             id: 'run-gap', status: 'completed', gate_status: 'partial',
@@ -370,7 +417,7 @@ describe('ProjectEvaluationWorkspace', () => {
           }],
         });
       }
-      if (url.includes('/api/evaluations?')) {
+      if (url.includes('/api/eval/runs?')) {
         return jsonResponse({
           runs: [{
             id: 'run-gap', status: 'completed', gate_status: 'partial',

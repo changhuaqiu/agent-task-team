@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { NextApiRequest, NextApiResponse } from 'next';
-import datasetsHandler from '@/pages/api/evaluations/datasets';
-import annotationsHandler from '@/pages/api/evaluations/annotations';
-import experimentsHandler from '@/pages/api/evaluations/experiments';
-import pairwiseHandler from '@/pages/api/evaluations/pairwise';
+import datasetsHandler from '@/pages/api/eval/datasets';
+import annotationsHandler from '@/pages/api/eval/annotations';
+import experimentsHandler from '@/pages/api/eval/experiments';
+import pairwiseHandler from '@/pages/api/eval/pairwise';
 import { createTestDb, getDb, resetDb, setTestDb } from '../db';
 
 const now = '2026-07-19T00:00:00.000Z';

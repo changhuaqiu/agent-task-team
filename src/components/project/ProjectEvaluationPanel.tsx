@@ -104,7 +104,7 @@ export function ProjectEvaluationPanel({ conversationId, onWorkspaceChanged }: {
     const sequence = ++requestSequence.current;
     setLoading(true);
     try {
-      const response = await fetch(`/api/evaluations?conversationId=${encodeURIComponent(conversationId)}`, { cache: 'no-store' });
+      const response = await fetch(`/api/eval/runs?conversationId=${encodeURIComponent(conversationId)}`, { cache: 'no-store' });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error ?? `HTTP ${response.status}`);
       const nextRuns = Array.isArray(body.runs) ? body.runs : [];
@@ -113,7 +113,7 @@ export function ProjectEvaluationPanel({ conversationId, onWorkspaceChanged }: {
       const selectedId = nextRuns.some((run: Run) => run.id === report?.run.id)
         ? report?.run.id : nextRuns[0]?.id;
       if (selectedId) {
-        const detail = await fetch(`/api/evaluations/${encodeURIComponent(selectedId)}?conversationId=${encodeURIComponent(conversationId)}`, { cache: 'no-store' });
+        const detail = await fetch(`/api/eval/runs/${encodeURIComponent(selectedId)}?conversationId=${encodeURIComponent(conversationId)}`, { cache: 'no-store' });
         if (detail.ok) {
           const nextReport = await detail.json();
           if (sequence === requestSequence.current) setReport(nextReport);
@@ -146,7 +146,7 @@ export function ProjectEvaluationPanel({ conversationId, onWorkspaceChanged }: {
   const selectRun = async (runId: string) => {
     if (!conversationId) return;
     const sequence = ++requestSequence.current;
-    const response = await fetch(`/api/evaluations/${encodeURIComponent(runId)}?conversationId=${encodeURIComponent(conversationId)}`, { cache: 'no-store' });
+    const response = await fetch(`/api/eval/runs/${encodeURIComponent(runId)}?conversationId=${encodeURIComponent(conversationId)}`, { cache: 'no-store' });
     const nextReport = response.ok ? await response.json() : undefined;
     if (sequence === requestSequence.current) setReport(nextReport);
   };
@@ -154,7 +154,7 @@ export function ProjectEvaluationPanel({ conversationId, onWorkspaceChanged }: {
     if (!conversationId) return;
     setLoading(true);
     try {
-      const response = await fetch('/api/evaluations', {
+      const response = await fetch('/api/eval/runs', {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ conversationId, mode: 'online' }),
       });
@@ -169,7 +169,7 @@ export function ProjectEvaluationPanel({ conversationId, onWorkspaceChanged }: {
   };
   const replay = async () => {
     if (!report) return;
-    const response = await fetch(`/api/evaluations/${encodeURIComponent(report.run.id)}/replay`, {
+    const response = await fetch(`/api/eval/runs/${encodeURIComponent(report.run.id)}/replay`, {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ conversationId }),
     });
     if (!response.ok) setError((await response.json()).error);
