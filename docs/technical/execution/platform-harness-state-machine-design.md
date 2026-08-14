@@ -438,6 +438,11 @@ Delivery Process Manager 消费 `gate.*`，Delivery facts 读取 Gate status，r
 Gate Agent 通过 `record_gate_decision` 结构化 Outcome 返回判定。durable Gate Outcome
 Process Manager 只负责把已接纳 Outcome 翻译成 Gate owner Commands，并校验 Contract
 project/agent/target；Delivery review/verification receipt 同步保存为证据，但最终状态只读 Gate。
+Acceptance verification receipt 只在该 Outcome admission seam 直接校验结构、冻结 criteria、
+Contract agent 与 decision 一致性；report/spec 引用只接受冻结 project path 内真实存在的普通文件，
+并拒绝缺失、junction 越界和未绑定可信 provider/attachment receipt 的 HTTP(S) 字符串。Gate
+数据库事务不发起远端网络探测。Proof Log 是审计/投影，
+不会被再次解析为另一条 Gate admission，也不独立维护 verifier allowlist。
 
 Effect 创建时必须冻结：
 

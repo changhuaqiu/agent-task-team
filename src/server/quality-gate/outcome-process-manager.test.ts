@@ -1,4 +1,7 @@
 import type Database from 'better-sqlite3';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { AutonomousDeliveryRepository } from '../autonomous-delivery/repository';
 import { createTestDb, resetDb, setTestDb } from '../db';
@@ -13,9 +16,14 @@ describe('GateOutcomeProcessManager', () => {
   let contracts: WorkContractRepository;
   let gates: QualityGateRepository;
   let runId: string;
+  let projectDir: string;
   const now = new Date('2026-07-28T12:00:00.000Z');
 
   beforeEach(() => {
+    projectDir = mkdtempSync(join(tmpdir(), 'ath-gate-outcome-'));
+    mkdirSync(join(projectDir, 'evidence'));
+    writeFileSync(join(projectDir, 'evidence', 'report.txt'), 'report');
+    writeFileSync(join(projectDir, 'evidence', 'spec.md'), 'spec');
     db = createTestDb();
     setTestDb(db);
     db.prepare(`
@@ -29,7 +37,7 @@ describe('GateOutcomeProcessManager', () => {
       idempotencyKey: 'quality-gate-outcome-delivery',
       goal: 'Ship',
       acceptanceCriteria: ['Works'],
-      scope: { conversationId: 'project-1' },
+      scope: { conversationId: 'project-1', projectPath: projectDir },
       authorization: {
         allowCodeChanges: true,
         allowPush: false,
@@ -52,6 +60,7 @@ describe('GateOutcomeProcessManager', () => {
   afterEach(() => {
     resetDb();
     db.close();
+    rmSync(projectDir, { recursive: true, force: true });
   });
 
   it('turns an accepted verification outcome into one authoritative Gate decision', async () => {
@@ -83,32 +92,33 @@ describe('GateOutcomeProcessManager', () => {
       causationId: requested.gate.id,
       now,
     });
+    const outcomePayload = {
+      gateId: requested.gate.id,
+      decision: 'passed',
+      evidenceType: 'acceptance_verification',
+      evidence: { report: 'test:report' },
+      receipt: {
+        schemaVersion: 1,
+        deliveryRunId: runId,
+        status: 'passed',
+        method: 'automated_test',
+        verifierAgentId: 'qa',
+        tool: 'vitest',
+        reportRef: 'evidence/report.txt',
+        specRefs: ['evidence/spec.md'],
+        acceptanceResults: [{
+          criterion: 'Works',
+          status: 'passed',
+          evidenceRefs: ['test:report'],
+        }],
+      },
+    };
     const admitted = contracts.admitOutcome({
       outcomeId: 'outcome-verify',
       idempotencyKey: 'verify:decision',
       contractId: contract.contractId,
       outcomeType: 'record_gate_decision',
-      payload: {
-        gateId: requested.gate.id,
-        decision: 'passed',
-        evidenceType: 'acceptance_verification',
-        evidence: { report: 'test:report' },
-        receipt: {
-          schemaVersion: 1,
-          deliveryRunId: runId,
-          status: 'passed',
-          method: 'automated_test',
-          verifierAgentId: 'qa',
-          tool: 'vitest',
-          reportRef: 'test:report',
-          specRefs: ['spec:works'],
-          acceptanceResults: [{
-            criterion: 'Works',
-            status: 'passed',
-            evidenceRefs: ['test:report'],
-          }],
-        },
-      },
+      payload: outcomePayload,
       evidenceRefs: ['test:report'],
       projectId: contract.projectId,
       workId: contract.workId,
@@ -162,6 +172,117 @@ describe('GateOutcomeProcessManager', () => {
     });
   });
 
+  it('rejects invalid live verification receipts atomically at the QualityGate seam', () => {
+    const cases = [
+      {
+        name: 'verifier',
+        error: 'gate_outcome_verifier_mismatch',
+      },
+      {
+        name: 'decision',
+        error: 'gate_outcome_verification_decision_mismatch',
+      },
+      {
+        name: 'malformed',
+        error: 'gate_outcome_verification_receipt_invalid:report_ref_missing',
+      },
+    ];
+
+    for (const [index, testCase] of cases.entries()) {
+      const requested = gates.request({
+        conversationId: 'project-1',
+        kind: 'acceptance_verification',
+        targetType: 'delivery_run',
+        targetId: runId,
+        artifactRevision: `invalid-${index}`,
+        criteria: { acceptanceCriteria: ['Works'] },
+        actor: { type: 'system', id: 'delivery-control-process-manager' },
+        now,
+      });
+      const contract = contracts.issue({
+        workId: `delivery:${runId}:agent:qa:purpose:invalid-${testCase.name}`,
+        attemptId: `inv-${testCase.name}`,
+        projectId: 'project-1',
+        deliveryRunId: runId,
+        agentId: 'qa',
+        goal: 'Verify delivery',
+        acceptanceCriteria: ['Works'],
+        role: { id: 'qa' },
+        permissions: {},
+        authoritativeRefs: [`delivery_run:${runId}`, `quality_gate:${requested.gate.id}`],
+        authoritativeRevisions: { deliveryRun: 0, qualityGate: 0 },
+        contextSnapshotRef: `context:${testCase.name}`,
+        allowedOutcomeTypes: ['record_gate_decision'],
+        correlationId: `correlation-${testCase.name}`,
+        causationId: requested.gate.id,
+        now,
+      });
+      const validPayload = {
+        gateId: requested.gate.id,
+        decision: 'passed',
+        evidenceType: 'acceptance_verification',
+        evidence: { report: 'evidence/report.txt' },
+        receipt: {
+          schemaVersion: 1,
+          deliveryRunId: runId,
+          status: 'passed',
+          method: 'automated_test',
+          verifierAgentId: 'qa',
+          tool: 'vitest',
+          reportRef: 'evidence/report.txt',
+          specRefs: ['evidence/spec.md'],
+          acceptanceResults: [{
+            criterion: 'Works',
+            status: 'passed',
+            evidenceRefs: ['evidence/report.txt'],
+          }],
+        },
+      };
+      const invalidPayload = testCase.name === 'verifier'
+        ? {
+            ...validPayload,
+            receipt: { ...validPayload.receipt, verifierAgentId: 'intruder' },
+          }
+        : testCase.name === 'decision'
+          ? { ...validPayload, decision: 'rejected' }
+          : {
+              ...validPayload,
+              receipt: { ...validPayload.receipt, reportRef: '' },
+            };
+      const admitted = contracts.admitOutcome({
+        outcomeId: `outcome-${testCase.name}`,
+        idempotencyKey: `verify:${testCase.name}`,
+        contractId: contract.contractId,
+        outcomeType: 'record_gate_decision',
+        payload: invalidPayload,
+        evidenceRefs: ['evidence/report.txt'],
+        projectId: contract.projectId,
+        workId: contract.workId,
+        workEpoch: contract.workEpoch,
+        attemptId: contract.attemptId,
+        fencingToken: contract.fencingToken,
+        authoritativeRevisions: contract.authoritativeRevisions,
+        correlationId: contract.correlationId,
+        causationId: contract.contractId,
+        occurredAt: now.toISOString(),
+      }, now);
+      const event = new PlatformEventLog({ db })
+        .listStream(`work:${contract.workId}`)
+        .find(candidate => candidate.aggregate.id === admitted.outcome.id)!;
+
+      expect(() => new GateOutcomeProcessManager({ db }).handle(
+        event,
+        { signal: new AbortController().signal },
+      )).toThrow(testCase.error);
+      expect(gates.getSnapshot(requested.gate.id)).toMatchObject({
+        gate: { status: 'requested' },
+        evidence: [],
+      });
+      expect(gates.getSnapshot(requested.gate.id)?.decision).toBeUndefined();
+      expect(deliveries.getSnapshot(runId)?.receipts).toEqual([]);
+    }
+  });
+
   it('rolls back Gate evidence and decision when the Delivery receipt conflicts', async () => {
     const requested = gates.request({
       conversationId: 'project-1',
@@ -208,8 +329,8 @@ describe('GateOutcomeProcessManager', () => {
           method: 'automated_test',
           verifierAgentId: 'qa',
           tool: 'vitest',
-          reportRef: 'test:report',
-          specRefs: ['spec:works'],
+          reportRef: 'evidence/report.txt',
+          specRefs: ['evidence/spec.md'],
           acceptanceResults: [{
             criterion: 'Works',
             status: 'passed',

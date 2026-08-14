@@ -134,3 +134,7 @@ ContextManager 曾为未来跨会话记忆预先冻结 `MemoryHook.recall/write`
 ## 第二十五轮：收窄浏览器 Store 死 action
 
 `TaskHubState` 长期保留八个没有真实生产调用方的 action：三个浅读取 wrapper，以及旧聊天迁移、手动水合标记、独立会话恢复、浏览器 blocker 修复入口和只被自身单测消费的进度消息构造器。它们没有产生运行价值，却扩大 Store interface，并让调用者误以为旧迁移、浏览器领域写旁路和一条未接线的进度消息生产链仍受支持。第二十五轮删除这些 action、死 helper 自测及其无 producer 的 `progressData`/`ProgressMessageCard` UI 尾巴，保留真实 `loadFromServer` 水合、消息对账、删除失败聚合回滚、blocker 展示投影、Socket receipt 写入，以及通过普通聊天、任务通知和工程协作 metadata 呈现的进度；组件读取原始状态继续使用 Zustand selector，领域写入继续走正式 Human Command interface。
+
+## 第二十六轮：删除 Proof Log 验收回执假 admission
+
+验收回执的真实生产入口已经是 `GateOutcomeProcessManager` 对结构化 `record_gate_decision` outcome 直接校验并原子写入 QualityGate evidence/decision 与 Delivery receipt，但 `verification-receipt.ts` 仍保留一条只被自身测试调用的旧链：从 Proof Event metadata 再解析 `delivery_evidence`，附加 verifier allowlist、本地 report/spec 文件与 junction 越界检查，并提供一个无任何消费者的失败回执构造器。这些代码不会保护真实运行，反而让测试和接口错误宣称 Proof Log 能重新授予 Gate 结论。第二十六轮删除旧 helper、policy 与 Proof 解析自嗨测试；正式契约要求的 report/spec 必须是冻结 Delivery project path 内真实存在的普通文件，并由 live receipt validator 拒绝缺失、junction 越界与未绑定可信来源的 HTTP(S) 字符串。未来若支持远端验收物，必须先建立 provider/attachment receipt，不在 Gate 数据库事务内发起网络探测。verifier 身份继续绑定 Work Contract，Proof Log 只作审计与投影。

@@ -2,11 +2,9 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { ProofEventRow } from '../repositories/proof-log-repo';
 import type { DeliveryRunSnapshot, GoalContract } from './types';
 import {
   validateAcceptanceVerificationReceipt,
-  verificationReceiptFromProof,
 } from './verification-receipt';
 
 const tempDirs: string[] = [];
@@ -39,6 +37,16 @@ const contract: GoalContract = {
 };
 
 function snapshot(): DeliveryRunSnapshot {
+  const projectDir = mkdtempSync(join(tmpdir(), 'ath-verification-receipt-default-'));
+  tempDirs.push(projectDir);
+  mkdirSync(join(projectDir, 'playwright-report'));
+  mkdirSync(join(projectDir, 'e2e'));
+  writeFileSync(join(projectDir, 'playwright-report', 'index.html'), 'report');
+  writeFileSync(join(projectDir, 'e2e', 'group-chat-task-flow.spec.ts'), 'spec');
+  const snapshotContract: GoalContract = {
+    ...contract,
+    scope: { ...contract.scope, projectPath: projectDir },
+  };
   return {
     run: {
       id: 'run-1',
@@ -46,7 +54,7 @@ function snapshot(): DeliveryRunSnapshot {
       root_task_id: 'task-1',
       status: 'active',
       current_stage: 'verifying',
-      goal_contract_json: JSON.stringify(contract),
+      goal_contract_json: JSON.stringify(snapshotContract),
       repair_cycle: 0,
       revision: 0,
       escalation_code: null,
@@ -56,7 +64,7 @@ function snapshot(): DeliveryRunSnapshot {
       updated_at: '2026-07-19T00:00:00.000Z',
       completed_at: null,
     },
-    contract,
+    contract: snapshotContract,
     actions: [],
     attempts: [],
     receipts: [],
@@ -138,48 +146,17 @@ describe('Acceptance Verification Receipt', () => {
     });
   });
 
-  it('only reads verificationReceipt from a current delivery-evidence proof', () => {
-    const proof: ProofEventRow = {
-      id: 'proof-1',
-      event_type: 'task_graph.gate_evidence.accepted',
-      conversation_id: 'conv-1',
-      task_id: 'task-1',
-      chain_id: null,
-      pass_id: null,
-      envelope_id: null,
-      node_id: null,
-      agent_id: 'qa',
-      actor_id: 'qa',
-      reason_code: null,
-      metadata: JSON.stringify({
-        gateName: 'delivery_evidence',
-        evidence: { verificationReceipt: receipt() },
-      }),
-      created_at: '2026-07-19T00:01:00.000Z',
-    };
-
-    expect(verificationReceiptFromProof(proof, snapshot()).valid).toBe(true);
-    expect(verificationReceiptFromProof(proof, snapshot(), {
-      authorizedVerifierIds: ['qa'],
-      validateLocalArtifacts: false,
-    }).valid).toBe(true);
-    expect(verificationReceiptFromProof(proof, snapshot(), {
-      authorizedVerifierIds: ['someone-else'],
-      validateLocalArtifacts: false,
-    }).errors).toContain('verifier_not_authorized');
-    expect(verificationReceiptFromProof({
-      ...proof,
-      created_at: '2026-07-18T23:59:00.000Z',
-    }, snapshot()).present).toBe(false);
-  });
-
-  it('rejects local verification evidence that escapes through a junction', () => {
-    const parentDir = mkdtempSync(join(tmpdir(), 'ath-verification-receipt-link-'));
+  it('validates project-local report/spec files and rejects junction escapes', () => {
+    const parentDir = mkdtempSync(join(tmpdir(), 'ath-verification-receipt-'));
     tempDirs.push(parentDir);
     const projectDir = join(parentDir, 'project');
     const outsideDir = join(parentDir, 'outside');
     mkdirSync(projectDir);
     mkdirSync(outsideDir);
+    mkdirSync(join(projectDir, 'reports'));
+    mkdirSync(join(projectDir, 'e2e'));
+    writeFileSync(join(projectDir, 'reports', 'acceptance.html'), 'report');
+    writeFileSync(join(projectDir, 'e2e', 'acceptance.spec.ts'), 'spec');
     writeFileSync(join(outsideDir, 'report.html'), 'outside');
     symlinkSync(outsideDir, join(projectDir, 'linked'), 'junction');
     const localSnapshot = snapshot();
@@ -187,35 +164,22 @@ describe('Acceptance Verification Receipt', () => {
       ...contract,
       scope: { ...contract.scope, projectPath: projectDir },
     };
-    const proof: ProofEventRow = {
-      id: 'proof-link',
-      event_type: 'task_graph.gate_evidence.accepted',
-      conversation_id: 'conv-1',
-      task_id: 'task-1',
-      chain_id: null,
-      pass_id: null,
-      envelope_id: null,
-      node_id: null,
-      agent_id: 'qa',
-      actor_id: 'qa',
-      reason_code: null,
-      metadata: JSON.stringify({
-        gateName: 'delivery_evidence',
-        evidence: {
-          verificationReceipt: receipt({
-            reportRef: 'linked/report.html',
-            specRefs: ['https://example.test/spec'],
-          }),
-        },
-      }),
-      created_at: '2026-07-19T00:01:00.000Z',
-    };
 
-    const result = verificationReceiptFromProof(proof, localSnapshot, {
-      authorizedVerifierIds: ['qa'],
-      validateLocalArtifacts: true,
-    });
-    expect(result.valid).toBe(false);
-    expect(result.errors).toContain('report_ref_outside_project');
+    expect(validateAcceptanceVerificationReceipt(receipt({
+      reportRef: 'reports/acceptance.html',
+      specRefs: ['e2e/acceptance.spec.ts'],
+    }), localSnapshot).valid).toBe(true);
+    expect(validateAcceptanceVerificationReceipt(receipt({
+      reportRef: 'linked/report.html',
+      specRefs: ['e2e/acceptance.spec.ts'],
+    }), localSnapshot).errors).toContain('report_ref_outside_project');
+    expect(validateAcceptanceVerificationReceipt(receipt({
+      reportRef: 'reports/missing.html',
+      specRefs: ['e2e/acceptance.spec.ts'],
+    }), localSnapshot).errors).toContain('report_ref_missing');
+    expect(validateAcceptanceVerificationReceipt(receipt({
+      reportRef: 'https://evidence.example.test/report',
+      specRefs: ['e2e/acceptance.spec.ts'],
+    }), localSnapshot).errors).toContain('report_ref_remote_untrusted');
   });
 });

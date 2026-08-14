@@ -1,6 +1,5 @@
 import { existsSync, realpathSync, statSync } from 'node:fs';
 import { isAbsolute, relative, resolve } from 'node:path';
-import type { ProofEventRow } from '../repositories/proof-log-repo';
 import type {
   AcceptanceVerificationReceipt,
   DeliveryRunSnapshot,
@@ -13,23 +12,8 @@ export interface VerificationReceiptCandidate {
   errors: string[];
 }
 
-export interface VerificationProofPolicy {
-  authorizedVerifierIds: string[];
-  validateLocalArtifacts: boolean;
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function parseJsonRecord(value: string | null): Record<string, unknown> {
-  if (!value) return {};
-  try {
-    const parsed = JSON.parse(value);
-    return isRecord(parsed) ? parsed : {};
-  } catch {
-    return {};
-  }
 }
 
 function nonEmptyStrings(value: unknown): string[] | undefined {
@@ -82,6 +66,65 @@ function sameMultiset(left: string[], right: string[]): boolean {
   const rightCounts = counts(right);
   if (leftCounts.size !== rightCounts.size) return false;
   return [...leftCounts].every(([key, count]) => rightCounts.get(key) === count);
+}
+
+function validateArtifactReferences(
+  reportRef: string,
+  specRefs: string[],
+  snapshot: DeliveryRunSnapshot,
+): string[] {
+  const references = [
+    ['report', reportRef],
+    ...specRefs.map(ref => ['spec', ref]),
+  ].filter(([, ref]) => ref) as Array<[string, string]>;
+  const errors = references.flatMap(([kind, ref]) => (
+    /^https?:\/\//i.test(ref) ? [`${kind}_ref_remote_untrusted`] : []
+  ));
+  const localRefs = references.filter(([, ref]) => !/^https?:\/\//i.test(ref));
+  if (localRefs.length === 0) return errors;
+
+  const projectPath = snapshot.contract.scope.projectPath?.trim();
+  if (!projectPath) return [...errors, 'project_path_required_for_artifacts'];
+
+  const root = resolve(projectPath);
+  let canonicalRoot: string;
+  try {
+    canonicalRoot = realpathSync(root);
+    if (!statSync(canonicalRoot).isDirectory()) {
+      return [...errors, 'project_path_unreadable'];
+    }
+  } catch {
+    return [...errors, 'project_path_unreadable'];
+  }
+
+  for (const [kind, ref] of localRefs) {
+    if (isAbsolute(ref)) {
+      errors.push(`${kind}_ref_outside_project`);
+      continue;
+    }
+    try {
+      const target = resolve(root, ref);
+      if (!existsSync(target)) {
+        errors.push(`${kind}_ref_missing`);
+        continue;
+      }
+      const canonicalTarget = realpathSync(target);
+      const rel = relative(canonicalRoot, canonicalTarget);
+      if (
+        isAbsolute(rel)
+        || rel === '..'
+        || rel.startsWith(`..\\`)
+        || rel.startsWith('../')
+      ) {
+        errors.push(`${kind}_ref_outside_project`);
+        continue;
+      }
+      if (!statSync(canonicalTarget).isFile()) errors.push(`${kind}_ref_missing`);
+    } catch {
+      errors.push(`${kind}_ref_unreadable`);
+    }
+  }
+  return errors;
 }
 
 export function validateAcceptanceVerificationReceipt(
@@ -156,6 +199,11 @@ export function validateAcceptanceVerificationReceipt(
     }
     if (!specRefs || specRefs.length === 0) errors.push('web_e2e_spec_ref_required');
   }
+  errors.push(...validateArtifactReferences(
+    typeof value.reportRef === 'string' ? value.reportRef.trim() : '',
+    specRefs ?? [],
+    snapshot,
+  ));
 
   const payload: AcceptanceVerificationReceipt = {
     schemaVersion: 1,
@@ -177,107 +225,4 @@ export function validateAcceptanceVerificationReceipt(
     ...(errors.length > 0 ? { validationErrors: errors } : {}),
   };
   return { present: true, valid: errors.length === 0, payload, errors };
-}
-
-export function verificationReceiptFromProof(
-  proof: ProofEventRow,
-  snapshot: DeliveryRunSnapshot,
-  policy?: VerificationProofPolicy,
-): VerificationReceiptCandidate {
-  if (
-    proof.event_type !== 'task_graph.gate_evidence.accepted'
-    || proof.created_at < snapshot.run.created_at
-  ) {
-    return { present: false, valid: false, errors: [] };
-  }
-  const metadata = parseJsonRecord(proof.metadata);
-  if (metadata.gateName !== 'delivery_evidence') {
-    return { present: false, valid: false, errors: [] };
-  }
-  const evidence = isRecord(metadata.evidence) ? metadata.evidence : {};
-  const candidate = validateAcceptanceVerificationReceipt(evidence.verificationReceipt, snapshot);
-  if (!candidate.present || !candidate.payload || !policy) return candidate;
-
-  const errors = [...candidate.errors];
-  if (proof.actor_id !== candidate.payload.verifierAgentId) {
-    errors.push('verifier_actor_mismatch');
-  }
-  if (!policy.authorizedVerifierIds.includes(candidate.payload.verifierAgentId)) {
-    errors.push('verifier_not_authorized');
-  }
-  if (policy.validateLocalArtifacts) {
-    const projectPath = snapshot.contract.scope.projectPath;
-    if (!projectPath) {
-      errors.push('project_path_required_for_artifacts');
-    } else {
-      const root = resolve(projectPath);
-      let canonicalRoot: string | undefined;
-      try {
-        canonicalRoot = realpathSync(root);
-      } catch {
-        errors.push('project_path_unreadable');
-      }
-      for (const [kind, ref] of [
-        ['report', candidate.payload.reportRef],
-        ...candidate.payload.specRefs.map(ref => ['spec', ref]),
-      ] as Array<[string, string]>) {
-        if (/^https?:\/\//i.test(ref)) continue;
-        try {
-          const target = resolve(root, ref);
-          if (!existsSync(target)) {
-            errors.push(`${kind}_ref_missing`);
-            continue;
-          }
-          const canonicalTarget = realpathSync(target);
-          const rel = canonicalRoot ? relative(canonicalRoot, canonicalTarget) : '..';
-          if (
-            isAbsolute(rel)
-            || rel === '..'
-            || rel.startsWith(`..\\`)
-            || rel.startsWith('../')
-          ) {
-            errors.push(`${kind}_ref_outside_project`);
-            continue;
-          }
-          if (!statSync(canonicalTarget).isFile()) {
-            errors.push(`${kind}_ref_missing`);
-          }
-        } catch {
-          errors.push(`${kind}_ref_unreadable`);
-        }
-      }
-    }
-  }
-  return {
-    ...candidate,
-    valid: errors.length === 0,
-    errors,
-    payload: {
-      ...candidate.payload,
-      ...(errors.length > 0 ? { validationErrors: errors } : {}),
-    },
-  };
-}
-
-export function failedVerificationReceipt(
-  snapshot: DeliveryRunSnapshot,
-  proof: ProofEventRow,
-  errors: string[],
-): AcceptanceVerificationReceipt {
-  return {
-    schemaVersion: 1,
-    deliveryRunId: snapshot.run.id,
-    status: 'failed',
-    method: snapshot.contract.deliveryPolicy.requireWebE2E ? 'web_ui_e2e' : 'automated_test',
-    verifierAgentId: proof.actor_id ?? 'unknown',
-    tool: 'verification-contract',
-    reportRef: `proof:${proof.id}`,
-    specRefs: [],
-    acceptanceResults: snapshot.contract.acceptanceCriteria.map(criterion => ({
-      criterion,
-      status: 'failed',
-      evidenceRefs: [`proof:${proof.id}`],
-    })),
-    validationErrors: errors,
-  };
 }

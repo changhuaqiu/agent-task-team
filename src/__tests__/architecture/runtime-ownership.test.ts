@@ -74,6 +74,23 @@ describe('runtime ownership architecture', () => {
     expect(daemon).toContain(`socket.on('terminal:kill'`);
   });
 
+  it('keeps acceptance verification admission on the QualityGate outcome seam', () => {
+    const productionFiles = productionTypeScriptFiles('src');
+    const retiredProofAdmission = /verificationReceiptFromProof|failedVerificationReceipt|VerificationProofPolicy|verifier_actor_mismatch|verifier_not_authorized/;
+    expect(productionFiles.filter((path) => retiredProofAdmission.test(source(path)))).toEqual([]);
+    expect(productionFiles.filter((path) => /\bvalidateAcceptanceVerificationReceipt\b/.test(source(path))).sort())
+      .toEqual([
+        'src/server/autonomous-delivery/verification-receipt.ts',
+        'src/server/quality-gate/outcome-process-manager.ts',
+      ]);
+    const validator = source('src/server/autonomous-delivery/verification-receipt.ts');
+    const outcomeManager = source('src/server/quality-gate/outcome-process-manager.ts');
+    expect(outcomeManager.match(/validateAcceptanceVerificationReceipt\s*\(/g)).toHaveLength(1);
+    expect(`${validator}\n${outcomeManager}`).not.toMatch(
+      /proof-log-repo|ProofEventRow|task_graph\.gate_evidence\.accepted/,
+    );
+  });
+
   it('keeps agent execution on the ACP backend without a tmux CLI bypass', () => {
     expect(daemon).toContain('loadCatalog().find');
     expect(daemon).toContain('createAcpBackend');
