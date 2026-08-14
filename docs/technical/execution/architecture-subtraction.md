@@ -54,3 +54,7 @@ Agent 执行已经统一到 ACP，但仓库仍保留一条没有生产消费者�
 ## 第五轮：删除独立 daemon 与 standalone MCP 原型
 
 仓库曾保留 `backend/` 独立 Socket.IO daemon 与 `mcp-server/` stdio 包，但前者仍私有解析 `opencode run`，后者默认端口和 Socket path 与前者不匹配，并硬编码旧 6-Agent 阵容、`default` 项目和 mock 旁路。当前正式路径是 Next daemon + Control Plane + ACP，以及 daemon 按 Invocation 注入的 loopback、短期授权 MCP 工具。第五轮删除这两个无消费者并行入口，同时去掉 workspace 子包、root 构建负担与仅由旧 daemon 使用的 `express` 直接依赖。
+
+## 第六轮：删除无消费者的浅层 API transport
+
+`/api/tokens/summary` 没有任何调用方；聊天 Token 展示直接消费消息段上的 `tokenUsage`。`/api/engineering-collaboration` 同样没有调用方且生产默认关闭，工程协作正式入口已经由受控 Skill 工具直接调用 `EngineeringCollaborationService`。第六轮只删除这两个浅层 Pages API transport，保留 Token UI、工程协作领域服务、GitHub verifier、消息投影和 AgentOutcome 的独立契约。

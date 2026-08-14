@@ -49,7 +49,7 @@
 `agent_session` 表（`schema.ts:87-88`）：
 ```ts
 contextHealth: text('context_health'),    // JSON，全代码库零写入
-usageSnapshot: text('usage_snapshot'),    // JSON，仅 tokens/summary API 读取，零写入
+usageSnapshot: text('usage_snapshot'),    // JSON，当前零读写；本 spec 的 P1 Health 层负责首次激活
 ```
 `session-repo.ts` 全文只有 `incrementMessageCount` / `seal` 在写，无任何点写入这两个字段。它们是**为健康度预留的空壳**，本 spec 的 Health 层负责激活。（身份/作用域字段如 `roleCardId`、`conversation.account_id` 早已存在且在用，无需迁移。）
 

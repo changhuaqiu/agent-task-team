@@ -54,8 +54,8 @@
 | 方案 | 结论 | 原因 |
 | --- | --- | --- |
 | 仅更新 Luigi prompt / Skill 文案 | 否决 | 只能约束模型意图，不能形成可验证门禁 |
-| 在 API 或 ACP 工具入口分别校验 | 否决 | 多入口会重复规则，后续入口容易绕过 |
-| 在 `EngineeringCollaborationService` 统一校验 | 采用 | API、ACP Skill 和测试 seam 共享同一事实边界 |
+| 在 transport 或 ACP 工具入口分别校验 | 否决 | 多入口会重复规则，后续入口容易绕过 |
+| 在 `EngineeringCollaborationService` 统一校验 | 采用 | 当前 invocation-scoped Skill/MCP 入口与测试 seam 共享同一事实边界；旧 HTTP transport 已删除 |
 | 新建 receipt 专用表和数据库唯一约束 | 暂不采用 | 当前 action log 已是权威历史；为两个连续性不变量引入新表过重 |
 
 ### 3.3 冻结约束
