@@ -163,7 +163,6 @@ Daemon 的边界是执行编排，不是团队规则解释器：
   systemPrompt?,
   sessionId?,
   conversationId?,
-  allowMockRunner?,
   engine?,
   runtimeId?,
   accountId?,

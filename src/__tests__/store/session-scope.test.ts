@@ -97,6 +97,7 @@ describe('project session scoping', () => {
     expect(payload).not.toHaveProperty('channel');
     expect(payload).not.toHaveProperty('authContextId');
     expect(payload).not.toHaveProperty('accountIds');
+    expect(payload).not.toHaveProperty('allowMockRunner');
   });
 
   it('does not let a browser cache choose the server runtime session', async () => {
@@ -154,6 +155,7 @@ describe('project session scoping', () => {
     expect(payload).not.toHaveProperty('channel');
     expect(payload).not.toHaveProperty('authContextId');
     expect(payload).not.toHaveProperty('accountIds');
+    expect(payload).not.toHaveProperty('allowMockRunner');
   });
 
   it('does not turn a display error back into a browser-side retry command', async () => {

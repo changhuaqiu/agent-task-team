@@ -35,7 +35,6 @@ const RUNTIME_IDS = {
   claude: 'claude-cli',
   codex: 'codex-cli',
   gemini: 'gemini-cli',
-  mock: 'mock-runtime',
 } as const;
 
 function toChatMessage(row: MessageRow): ChatMessage {

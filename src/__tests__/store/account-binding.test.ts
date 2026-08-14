@@ -125,11 +125,11 @@ describe('resolveAgentEngine', () => {
   });
 
   it('returns agent.cliEngine fallback when no accountIds', () => {
-    const agent = makeAgent({ id: 'a1', accountIds: [], cliEngine: 'mock' });
+    const agent = makeAgent({ id: 'a1', accountIds: [], cliEngine: 'codex' });
     const accounts: Account[] = [];
 
     const result = resolveAgentEngine(agent, accounts);
-    expect(result).toEqual({ engine: 'mock', accountId: '' });
+    expect(result).toEqual({ engine: 'codex', accountId: '' });
   });
 
   it('returns null when no binding and no cliEngine', () => {

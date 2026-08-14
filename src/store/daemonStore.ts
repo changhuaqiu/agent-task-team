@@ -266,9 +266,6 @@ export const createDaemonSlice = (set: any, get: () => any) => {
     daemonRuntimes: [] as DetectedRuntime[],
     setDaemonRuntimes: (runtimes: DetectedRuntime[]) => set({ daemonRuntimes: runtimes }),
 
-    enableMockRunner: false as boolean,
-    setEnableMockRunner: (enabled: boolean) => set({ enableMockRunner: enabled }),
-
     terminalLogs: {} as Record<string, string[]>,
     agentStatus: {} as Record<string, AgentRunStatus>,
     activeRunsByAgent: {} as Record<string, ActiveAgentRun | undefined>,
@@ -277,18 +274,6 @@ export const createDaemonSlice = (set: any, get: () => any) => {
     pendingDispatches: {} as Record<string, PendingDispatch[]>,
     agentSessions: { default: {} } as Record<string, Record<string, string | undefined>>,
     needsFullCompose: {} as Record<string, boolean>,
-
-    refreshRuntimeCatalog: () => {},
-
-    getAvailableRuntime: (): { engine: CliEngine; available: boolean } | null => {
-      const runtimes = get().daemonRuntimes;
-      const found = runtimes.find((r: DetectedRuntime) => r.available);
-      if (found) return { engine: found.engine, available: true };
-      if (get().enableMockRunner) {
-        return { engine: 'mock' as CliEngine, available: true };
-      }
-      return null;
-    },
 
     connectDaemon: () => {
       if (socket.connected) return;
@@ -448,7 +433,6 @@ export const createDaemonSlice = (set: any, get: () => any) => {
         legacyProposal,
         agentId,
         prompt,
-        allowMockRunner: get().enableMockRunner,
         engine: resolvedEngine,
         runtimeId: profile.execution.runtimeId,
         accountId: profile.execution.accountId ?? '',
@@ -613,7 +597,6 @@ export const createDaemonSlice = (set: any, get: () => any) => {
         prompt,
         dispatchSource: 'workflow',
         dispatchIntent: 'implement',
-        allowMockRunner: get().enableMockRunner,
         engine: resolvedEngine,
         runtimeId: profile.execution.runtimeId,
         accountId: profile.execution.accountId ?? '',

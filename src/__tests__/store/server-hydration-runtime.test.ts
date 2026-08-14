@@ -107,10 +107,29 @@ describe('server hydration runtime gate', () => {
       version?: number;
       state?: Record<string, unknown>;
     };
-    expect(persisted.version).toBe(7);
+    expect(persisted.version).toBe(8);
     expect(persisted.state).not.toHaveProperty('providerProfiles');
     expect(persisted.state).not.toHaveProperty('channelConfigs');
     expect(persisted.state).not.toHaveProperty('routingPolicies');
+  });
+
+  it('removes the retired Mock Runner switch from persisted v7 state', async () => {
+    localStorage.setItem('agent-task-hub-store-clean', JSON.stringify({
+      version: 7,
+      state: { enableMockRunner: true },
+    }));
+
+    await useTaskHubStore.persist.rehydrate();
+
+    const state = useTaskHubStore.getState() as unknown as Record<string, unknown>;
+    expect(state).not.toHaveProperty('enableMockRunner');
+
+    const persisted = JSON.parse(localStorage.getItem('agent-task-hub-store-clean') ?? '{}') as {
+      version?: number;
+      state?: Record<string, unknown>;
+    };
+    expect(persisted.version).toBe(8);
+    expect(persisted.state).not.toHaveProperty('enableMockRunner');
   });
 
   it('keeps the UI gated until accounts and the selected Team Pack are dispatch-ready', async () => {

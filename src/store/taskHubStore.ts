@@ -682,15 +682,10 @@ export interface TaskHubState {
   runtimeRefreshInProgress: boolean;
   runtimeHydrationError: string | null;
   setHasHydrated: (hydrated: boolean) => void;
-  refreshRuntimeCatalog: () => void;
   mergeLegacyChatMessages: (legacyMessages: ChatMessage[]) => void;
-  getAvailableRuntime: () => { engine: CliEngine; available: boolean } | null;
 
   isSettingsOpen: boolean;
   setSettingsOpen: (open: boolean) => void;
-
-  enableMockRunner: boolean;
-  setEnableMockRunner: (enabled: boolean) => void;
 
   daemonConnection: {
     status: 'disconnected' | 'connecting' | 'connected';
@@ -1240,8 +1235,6 @@ export const useTaskHubStore = create<TaskHubState>()(
               '智能体配置',
               signal => loadAgents({ signal, propagateFailure: true }),
             );
-
-            get().refreshRuntimeCatalog();
 
             const existingIds = new Set(get().roleCards.map((c: any) => c.id));
             const missing = PRESET_ROLE_CARDS.filter((c) => !existingIds.has(c.id));
@@ -1893,7 +1886,7 @@ export const useTaskHubStore = create<TaskHubState>()(
     },
     {
       name: 'agent-task-hub-store-clean',
-      version: 7,
+      version: 8,
       migrate: (persisted: any, version: number) => {
         if (version === 0) {
           const idMap: Record<string, string> = {
@@ -1956,6 +1949,9 @@ export const useTaskHubStore = create<TaskHubState>()(
           delete persisted.channelConfigs;
           delete persisted.routingPolicies;
         }
+        if (version < 8) {
+          delete persisted.enableMockRunner;
+        }
         return persisted;
       },
       partialize: (state) => ({
@@ -1967,7 +1963,6 @@ export const useTaskHubStore = create<TaskHubState>()(
         activeAgentIds: state.activeAgentIds,
         currentTeamPack: state.currentTeamPack,
         agentAccountOverrides: state.agentAccountOverrides,
-        enableMockRunner: state.enableMockRunner,
         roleCards: state.roleCards,
       }),
       onRehydrateStorage: () => (state) => {

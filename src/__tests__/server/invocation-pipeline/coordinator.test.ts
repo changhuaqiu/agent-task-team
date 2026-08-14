@@ -21,8 +21,8 @@ const trigger: AgentActivationCommand = {
 function planFor(input: AgentActivationCommand): InvocationDispatchPlan {
   return {
     trigger: input,
-    engine: 'mock',
-    runtimeId: 'mock-runtime',
+    engine: 'opencode',
+    runtimeId: 'opencode-local',
     prompt: input.prompt,
   };
 }

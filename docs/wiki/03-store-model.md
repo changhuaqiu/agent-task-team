@@ -127,7 +127,6 @@ export interface Task {
 - 应用与连接：
   - `hasHydrated`
   - `daemonConnection`
-  - `enableMockRunner`
   - `daemonRuntimes`
 - 工作台上下文：
   - `conversations`
@@ -254,14 +253,13 @@ Team Runtime 缓存是派生缓存，不是新的事实源。缓存只复用 `re
 
 ### 执行环境
 
-- `refreshRuntimeCatalog()`
-- `getAvailableRuntime()`
-- 账号与 runtime 检查、配置相关方法
+- `daemonRuntimes` 接收 daemon 推送的本机 CLI 可用性。
+- 账号与 TeamPack 绑定解析单个执行 runtime 与 account。
 
 说明：
 
-- 当前 `refreshRuntimeCatalog()` 仍是空实现，尚未形成真正的前端 runtime catalog
-- 运行时可用性主要通过 daemon 推送和执行时解析决定，而不是完整的配置中心模型
+- 浏览器不维护平行 runtime catalog，也不提供 Mock Runner 产品开关。
+- 正式执行通过 daemon 的 ACP Catalog；测试 mock 只存在于自动化测试边界。
 
 ## 3.5 Socket 事件在当前版本中的作用
 

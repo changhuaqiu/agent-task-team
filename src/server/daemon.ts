@@ -163,7 +163,6 @@ const ENGINE_COMMAND: Record<CliEngine, string> = {
   claude: 'claude',
   codex: 'codex',
   gemini: 'gemini',
-  mock: process.execPath,
 };
 
 const RUNTIME_ENGINE_MAP: Record<string, CliEngine> = {
@@ -172,7 +171,6 @@ const RUNTIME_ENGINE_MAP: Record<string, CliEngine> = {
   'claude-cli': 'claude',
   'codex-cli': 'codex',
   'gemini-cli': 'gemini',
-  'mock-runtime': 'mock',
 };
 
 const DEFAULT_RUNTIME_ID_BY_ENGINE: Record<CliEngine, string> = {
@@ -180,7 +178,6 @@ const DEFAULT_RUNTIME_ID_BY_ENGINE: Record<CliEngine, string> = {
   claude: 'claude-cli',
   codex: 'codex-cli',
   gemini: 'gemini-cli',
-  mock: 'mock-runtime',
 };
 
 /** Default CLI idle timeout (ms). Configurable via CLI_TIMEOUT_MS env. 0 = disabled. */
@@ -1053,7 +1050,6 @@ export default function registerDaemon(io: IOServer) {
             const merged = systemPrompt ? `${systemPrompt}\n\n---\n\n${prompt || ''}` : (prompt || '');
             return ['-p', merged];
           }
-          case 'mock': return [join(/*turbopackIgnore: true*/ process.cwd(), 'backend', 'mock-opencode.js')];
           default: return [];
         }
       })();

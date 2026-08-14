@@ -3,7 +3,7 @@ import type { TeamPack } from '@/types/teamPack';
 
 export type RuntimeAgentSource = 'preset-agent' | 'team-pack-role';
 export type RuntimeAgentTheme = 'mario' | 'luigi' | 'peach' | 'dk';
-export type RuntimeCliEngine = 'opencode' | 'claude' | 'codex' | 'gemini' | 'mock';
+export type RuntimeCliEngine = 'opencode' | 'claude' | 'codex' | 'gemini';
 
 export interface RuntimeSkillSummary {
   id?: string;

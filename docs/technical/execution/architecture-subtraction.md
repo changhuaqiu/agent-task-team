@@ -78,3 +78,7 @@ Agent 执行已经统一到 ACP，但仓库仍保留一条没有生产消费者�
 ## 第十一轮：删除前端假控制面
 
 独立 `/settings/integrations` 页面重复汇总设置抽屉已有的账号、角色、技能和团队信息，并维护 Provider Profile、Channel、Routing Policy 三类只在页面和 localStorage 中自循环、运行时从不读取的配置。第十一轮删除整页、假配置状态和专属测试，设置抽屉成为唯一用户入口；持久化升级到 v7 并清除旧僵尸键；`terminal:start` 同时删除 provider、channel、auth context 和账号候选数组等服务端从不消费的协议尾巴，只保留真实执行参数。
+
+## 第十二轮：删除前端 Mock Runner 兼容层
+
+浏览器 store 仍保留空的 `refreshRuntimeCatalog()`、无调用方的 `getAvailableRuntime()` 和没有用户入口的 `enableMockRunner`；两条 `terminal:start` 还发送 daemon 从不读取的 `allowMockRunner`。生产 engine/runtime map 甚至继续声明 `mock-runtime`，并指向已经删除的 `backend/mock-opencode.js`。正式运行时可用性已经由 daemon 推送，执行统一通过 ACP Catalog。第十二轮删除这些空 seam、状态、UI 旁路、协议字段和不可执行的生产 mock runtime 身份，持久化升级到 v8 并清除旧键；自动化测试内部的 mock ACP agent 继续保留。

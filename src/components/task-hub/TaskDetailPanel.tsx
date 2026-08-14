@@ -102,7 +102,6 @@ export function TaskDetailPanel() {
     getEffectiveRoster,
     simulateCliExecution,
     daemonRuntimes,
-    enableMockRunner,
     accounts,
     agentStatus,
   } = useTaskHubStore(useShallow((s) => ({
@@ -116,7 +115,6 @@ export function TaskDetailPanel() {
     getEffectiveRoster: s.getEffectiveRoster,
     simulateCliExecution: s.simulateCliExecution,
     daemonRuntimes: s.daemonRuntimes,
-    enableMockRunner: s.enableMockRunner,
     accounts: s.accounts,
     agentStatus: s.agentStatus,
   })));
@@ -144,8 +142,7 @@ export function TaskDetailPanel() {
 
   const resolvedBinding = agent ? resolveAgentEngine(agent, accounts) : null;
   const resolvedEngine = resolvedBinding?.engine ?? agent?.cliEngine ?? 'opencode';
-  const engineAvailable = daemonRuntimes.some((r) => r.engine === resolvedEngine && r.available)
-    || (resolvedEngine === 'mock' && enableMockRunner);
+  const engineAvailable = daemonRuntimes.some((r) => r.engine === resolvedEngine && r.available);
 
   const handleDescEmoji = useCallback((emoji: string) => {
     const textarea = descEditRef.current;
