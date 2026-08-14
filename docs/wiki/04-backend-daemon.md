@@ -67,8 +67,6 @@ TeamPack 会话的服务端任务创建会经过 [`src/server/team-runtime/task-
 当前数据库技术栈：
 
 - `better-sqlite3`
-- `drizzle-orm`
-- `drizzle-kit`
 
 数据库包含以下表（migration v2 新增 skill 相关 3 张表，v4-v5 新增 dispatch 追踪列）：
 

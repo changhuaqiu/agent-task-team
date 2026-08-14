@@ -17,7 +17,7 @@
 1. **收口两条并行的 prompt 管线**：初始基线中「主循环（用户→agent）」走 `PromptComposer`、「A2A 派发（agent→agent）」由 `a2a/context-builder.ts` 自拼。当前两者统一经 `context-planner → ContextManager.assembleContext()` 组装；零调用的 `PromptComposer` 兼容包装已删除。
 2. **项目作用域（项目隔离）**：上下文按 `project_id`（= `conversationId`）隔离，agent 在项目 A 的历史/任务/团队不渗到项目 B。
 3. **跨项目身份**：同一 agent（如 mario）可出现在 N 个项目，跨项目**只保留身份**（角色卡 / agentId / 人格 / 基础能力），项目上下文不跟随。
-4. **填两个空壳字段**：`agent_session.context_health` 与 `usage_snapshot`（`schema.ts:87-88`）声明后全代码库零写入——本 spec 让它们成为上下文健康度的真实载体。
+4. **填两个空壳字段**：`agent_session.context_health` 与 `usage_snapshot`（`migrate.ts:63-64`）声明后全代码库零写入——本 spec 让它们成为上下文健康度的真实载体。
 
 并把 **A2A 降级为协议**：A2A（持球/交接）不再自建 prompt 管线，而是作为一个**上下文来源（source）**把交接包喂给 ContextManager；预算、层优先级、作用域、身份对两条路径统一生效。
 
@@ -41,15 +41,15 @@
 `projectId === conversationId`，所有业务表以 `conversation_id` 为隔离键——**隔离主键已天然存在**。本规格启动前，旧兼容入口的 `project` 只有 `{name, path}`，history / task / teamPack 各层也未显式按 `project_id` 断言过滤；这些缺口现由 `ContextManager`、`scopeGuard` 与对应 layer 测试约束。
 
 ### 2.3 跨项目身份现状
-身份三层建模已存在：`agents` 表（DB，`schema.ts:180`）→ `AGENT_ROSTER`（内存全局单例，`agentStore.ts:98`）→ `RuntimeAgent`（运行时）。RoleCard / TeamPack 全局共享。**身份全局 + 运行态按 conversation 隔离的事实已经成立**，但缺一条显式契约保证"跨项目只带身份"。本 spec 把这条事实上升为契约并钉死边界测试。
+身份三层建模已存在：`agents` 表（DB，`migrate.ts:206`）→ `AGENT_ROSTER`（内存全局单例，`agentStore.ts:98`）→ `RuntimeAgent`（运行时）。RoleCard / TeamPack 全局共享。**身份全局 + 运行态按 conversation 隔离的事实已经成立**，但缺一条显式契约保证"跨项目只带身份"。本 spec 把这条事实上升为契约并钉死边界测试。
 
 ### 2.4 健康度空壳字段（v2 修正）
 > ⚠️ **v1 草稿把空壳字段误判为"身份/作用域占位列"。侦察证伪：真实空壳字段是健康度/用量字段。**
 
-`agent_session` 表（`schema.ts:87-88`）：
-```ts
-contextHealth: text('context_health'),    // JSON，全代码库零写入
-usageSnapshot: text('usage_snapshot'),    // JSON，当前零读写；本 spec 的 P1 Health 层负责首次激活
+`agent_session` 表（`migrate.ts:63-64`）：
+```sql
+context_health TEXT,  -- JSON，全代码库零写入
+usage_snapshot TEXT,  -- JSON，当前零读写；本 spec 的 P1 Health 层负责首次激活
 ```
 `session-repo.ts` 全文只有 `incrementMessageCount` / `seal` 在写，无任何点写入这两个字段。它们是**为健康度预留的空壳**，本 spec 的 Health 层负责激活。（身份/作用域字段如 `roleCardId`、`conversation.account_id` 早已存在且在用，无需迁移。）
 

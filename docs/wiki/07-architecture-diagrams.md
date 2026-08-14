@@ -40,7 +40,7 @@ flowchart TB
 
   subgraph AppServer["Application Backend"]
     Repos["Repositories"]
-    DB["SQLite / Drizzle"]
+    DB["SQLite / better-sqlite3"]
     Daemon["Socket.io Daemon"]
     Catalog["Agent Catalog (seed)"]
     FileWatcher["TaskFileWatcher"]

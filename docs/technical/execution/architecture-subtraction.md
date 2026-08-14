@@ -66,3 +66,7 @@ Agent 执行已经统一到 ACP，但仓库仍保留一条没有生产消费者�
 ## 第八轮：收敛包管理事实源
 
 项目安装、workspace、README、setup 与冻结门禁均使用 pnpm，但根目录仍保留一份长期未更新、继续声明已删除 `express` 的 npm lockfile。第八轮删除 `package-lock.json`，只保留 `pnpm-lock.yaml`；同时去掉无直接引用的 `highlight.js` 直依赖（高亮能力仍由 `rehype-highlight` 传递提供），并将纯编译期的 `@types/cross-spawn` 归位到 devDependencies。
+
+## 第九轮：删除平行 Drizzle schema
+
+数据库真实建库、升级与查询长期由 `better-sqlite3`、`src/server/db/migrate.ts` 和 repositories 承担，但仓库仍维护一份没有任何 import、生成脚本或运行入口的 1436 行 `schema.ts`，并为它保留 `drizzle-orm` 与无配置入口的 `drizzle-kit`。第九轮删除这套平行事实源及依赖，只保留真实 SQLite 链路；同时删除 Chokidar 5 已自带声明后遗留的 `@types/chokidar`。

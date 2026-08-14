@@ -26,7 +26,7 @@
 | 应用快照与执行状态机 | `src/server/evaluation/application-snapshot.ts` |
 | Harness/Daemon 评估调度 | `src/server/evaluation/case-runner.ts` |
 | 运行监控与 retention | `src/server/evaluation/operations.ts` |
-| 数据模型 | `src/server/db/schema.ts`、migration 26–37 |
+| 数据模型 | `src/server/db/migrate.ts`（migration 26–37） |
 | API | `src/pages/api/eval/` |
 | 平台内评估工作区 | `src/components/project/ProjectEvaluationWorkspace.tsx` |
 

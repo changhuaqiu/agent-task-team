@@ -98,7 +98,7 @@ AgentInbox 和 Invocation Pipeline 负责可靠启动。`taskHubStore` 只提交
 │                              │                                  │
 │                              ▼                                  │
 │  ┌─────────────────────────────────────────────────────────┐    │
-│  │  SQLite (better-sqlite3 + Drizzle ORM)                  │    │
+│  │  SQLite (better-sqlite3 + SQL migrations)               │    │
 │  │  - conversation / task / message                        │    │
 │  │  - agent_session / invocation / event                   │    │
 │  │  - account / role_card / skill                          │    │

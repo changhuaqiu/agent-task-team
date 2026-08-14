@@ -543,7 +543,7 @@ Experiment
 
 已落地：
 
-- migration 27–38、Drizzle schema、数据库不可变约束、ApplicationSnapshot/case execution、原子预算预留、默认 rubric 与 12 个 train/tune/held-out 中英校准案例；migration 41 补齐旧库自主交付 `revision`，migration 42 按结构审计补建被历史版本碰撞跳过的自主交付表并修复旧 `root_task_id` 外键；
+- migration 27–38、版本化 SQL schema、数据库不可变约束、ApplicationSnapshot/case execution、原子预算预留、默认 rubric 与 12 个 train/tune/held-out 中英校准案例；migration 41 补齐旧库自主交付 `revision`，migration 42 按结构审计补建被历史版本碰撞跳过的自主交付表并修复旧 `root_task_id` 外键；
 - 提交事务内冻结的 snapshot builder、硬门禁/确定性 evaluator、锚点式无工具 Judge adapter、持久 job/lease token/retry、原子 report/gap/replay；
 - closure valid-exit 后异步提交与 `eval.*` proof；
 - `/api/eval/runs`、datasets、annotations、experiments、pairwise、reviews、proposals、policy、operations；

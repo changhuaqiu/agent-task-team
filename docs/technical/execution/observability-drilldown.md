@@ -70,7 +70,7 @@ ContextManager / dispatch
 
 | 层 | 文件 |
 | --- | --- |
-| 迁移/Schema | `src/server/db/migrate.ts`、`src/server/db/schema.ts` |
+| 迁移/Schema | `src/server/db/migrate.ts` |
 | Payload/脱敏 | `src/server/repositories/span-payload-repo.ts`、`src/server/observability/redaction.ts` |
 | 协议/采集 | `src/server/agent/acp/acpBackend.ts`、`src/server/agent/acp/agentEventMapper.ts`、`src/server/daemon.ts` |
 | 消息关联 | `src/server/repositories/message-repo.ts`、`src/store/taskHubStore.ts`、`src/store/daemonStore.ts` |

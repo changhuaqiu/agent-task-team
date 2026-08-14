@@ -682,7 +682,7 @@ task_sync 成功
 | Runtime completion Process Manager | `src/server/platform-events/runtime-completion-process-manager.ts` |
 | Worker 接线 | `src/server/platform-events/runtime-worker.ts` |
 | A2A 原子聚合与 Inbox 提交 | `src/server/a2a/collaboration.ts`、`src/server/a2a/outcome-process-manager.ts` |
-| 数据表与 migration 52 | `src/server/db/schema.ts`、`src/server/db/migrate.ts` |
+| 数据表与 migration 52 | `src/server/db/migrate.ts` |
 | 历史实施契约 | `docs/archive/specs/durable-effect-outbox/` |
 
 ---

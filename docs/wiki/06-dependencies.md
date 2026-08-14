@@ -20,8 +20,6 @@
   - 前端连接后端守护进程（`taskHubStore.ts`）
 - `better-sqlite3`
   - SQLite 驱动，作为应用当前默认持久化方案
-- `drizzle-orm`
-  - 数据库访问与 schema 映射
 - `socket.io`
   - 用于 Next 应用内的默认 daemon 与浏览器实时事件连接
 
@@ -33,8 +31,6 @@
   - Lint，配置入口为 [`eslint.config.mjs`](../../eslint.config.mjs)
 - `@tailwindcss/postcss`
   - Tailwind v4 的 postcss 集成
-- `drizzle-kit`
-  - SQLite schema / migration 工具链
 - `vitest`
   - 当前测试框架
 
