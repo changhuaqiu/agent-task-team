@@ -34,6 +34,7 @@
 | `architecture-subtraction-12/` | implemented | 第十二轮删除空 runtime catalog、Mock Runner 前后端兼容层及不可执行的生产 mock runtime 身份，保留 ACP 测试 mock；长期决策见 `docs/technical/execution/architecture-subtraction.md` |
 | `architecture-subtraction-13/` | implemented | 第十三轮删除绕过 ACP 的 tmux 厂商 CLI 平行执行链、pane registry 与 legacy 参数模块，收敛唯一 ACP backend；长期决策见 `docs/technical/execution/architecture-subtraction.md` |
 | `architecture-subtraction-14/` | implemented | 第十四轮保留真实 Google/Gemini API Key 账号能力，将执行收敛到 OpenCode ACP，并删除假 Gemini runtime 与 OAuth 假可达入口；长期决策见 `docs/technical/execution/architecture-subtraction.md` |
+| `architecture-subtraction-15/` | implemented | 第十五轮删除假账号验证旁路、OpenCode-routed OAuth 与自嗨 probe wrapper，把连接测试和最终执行收口到同一 provider/model/readiness 边界；长期决策见 `docs/technical/execution/architecture-subtraction.md` |
 | `four-agent-pr-review-loop/` | implemented | 四 Agent PR 交付、评审、修复与合并证据闭环已落地 |
 | `github-issue-agent-hook/` | implemented | GitHub Issue 验签、幂等建项与自主交付链已落地；长期设计见 `docs/technical/integrations/github-issue-agent-hook.md` |
 | `open-issues-33-35/` | implemented | A2A 分派意图、首次交接身份、默认 TeamPack 升级与上下文去重修复已验收 |

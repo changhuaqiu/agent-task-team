@@ -2,18 +2,22 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { readAccount, writeAccount } from '../../../server/accounts-file';
 import { readCredential } from '../../../server/credentials';
 import { tryCliProbe, buildProbeEnv } from '../../../server/cli-probe';
-import { canExecuteAccount, GOOGLE_API_KEY_REQUIRED } from '../../../lib/account-auth';
-
-type AccountProvider = 'anthropic' | 'openai' | 'google' | 'kimi' | 'opencode' | 'other';
-
-const PROVIDER_CLI: Record<AccountProvider, string> = {
-  anthropic: 'claude',
-  openai: 'codex',
-  google: 'gemini',
-  kimi: 'kimi',
-  opencode: 'opencode',
-  other: 'other',
-};
+import {
+  API_KEY_REQUIRED,
+  BASE_URL_REQUIRED,
+  canExecuteAccount,
+  isAccountAuthMode,
+  isAccountProvider,
+  isOpenCodeRoutedProvider,
+  providerToExecutionEngine,
+  requiresBaseUrl,
+  type AccountProvider,
+} from '../../../lib/account-auth';
+import {
+  cleanupRuntimeConfig,
+  generateRuntimeConfig,
+  makeInvocationId,
+} from '../../../server/opencode-config';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -30,10 +34,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(404).json({ error: 'Account not found' });
   }
 
-  const provider = account.provider as AccountProvider;
+  if (!isAccountProvider(account.provider) || !isAccountAuthMode(account.authMode)) {
+    const now = new Date().toISOString();
+    const error = 'Unsupported provider or authMode';
+    await writeAccount({ ...account, status: 'error', lastVerifiedAt: now, updatedAt: now, verifyError: error });
+    return res.status(200).json({ ok: false, error });
+  }
+  const provider: AccountProvider = account.provider;
   if (!canExecuteAccount(provider, account.authMode)) {
     const now = new Date().toISOString();
-    const error = GOOGLE_API_KEY_REQUIRED;
+    const error = API_KEY_REQUIRED;
     await writeAccount({
       ...account,
       status: 'error',
@@ -44,6 +54,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(200).json({ ok: false, error });
   }
   const credential = await readCredential(accountId);
+
+  if (requiresBaseUrl(provider) && !account.baseUrl?.trim()) {
+    const now = new Date().toISOString();
+    const error = BASE_URL_REQUIRED;
+    await writeAccount({
+      ...account,
+      status: 'error',
+      lastVerifiedAt: now,
+      updatedAt: now,
+      verifyError: error,
+    });
+    return res.status(200).json({ ok: false, error });
+  }
 
   if (account.authMode === 'api_key' && !credential?.apiKey) {
     await writeAccount({
@@ -56,13 +79,36 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(200).json({ ok: false, error: '该账号未配置 API Key' });
   }
 
+  if (
+    account.authMode === 'api_key'
+    && (!Array.isArray(account.models) || account.models.length === 0 || account.models.some((model) => typeof model !== 'string' || !model.trim()))
+  ) {
+    const now = new Date().toISOString();
+    const error = 'At least one model is required';
+    await writeAccount({ ...account, status: 'error', lastVerifiedAt: now, updatedAt: now, verifyError: error });
+    return res.status(200).json({ ok: false, error });
+  }
+
   const apiKey = credential?.apiKey ?? '';
-  const env = buildProbeEnv(provider, apiKey, account.baseUrl);
-  const cliName = PROVIDER_CLI[provider] ?? 'other';
+  const env = apiKey ? buildProbeEnv(provider, apiKey, account.baseUrl) : {};
   const model = account.models?.[0];
-
-  const result = await tryCliProbe(cliName, { model, env });
-
+  let result: Awaited<ReturnType<typeof tryCliProbe>>;
+  if (isOpenCodeRoutedProvider(provider)) {
+    const config = generateRuntimeConfig(makeInvocationId(`verify-${account.id}`), {
+      provider,
+      apiKey,
+      baseUrl: account.baseUrl,
+      models: account.models,
+      defaultModel: model,
+    });
+    try {
+      result = await tryCliProbe('opencode', { env: { ...env, ...config.env } });
+    } finally {
+      if (config.configDir) cleanupRuntimeConfig(config.configDir);
+    }
+  } else {
+    result = await tryCliProbe(providerToExecutionEngine(provider), { model, env });
+  }
   const now = new Date().toISOString();
   const updated = {
     ...account,

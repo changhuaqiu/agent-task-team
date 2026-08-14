@@ -1,21 +1,22 @@
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
+import type { AccountProvider } from '@/lib/account-auth';
 
 const execAsync = promisify(exec);
-
-type AccountProvider = 'anthropic' | 'openai' | 'google' | 'kimi' | 'opencode' | 'other';
 
 const SAFE_MODEL_RE = /^[\w.\-/]+$/;
 
 const CLI_OK_PATTERNS = [
   /budget/i,
-  /exceeded/i,
   /rate.?limit/i,
   /max.?tokens/i,
+  /pong/i,
+];
+
+const CLI_REJECT_PATTERNS = [
   /not.?supported/i,
   /invalid_request_error/i,
   /model.*(not|unsupported|unavailable)/i,
-  /pong/i,
 ];
 
 const STDOUT_ERROR_PATTERNS = [
@@ -29,10 +30,7 @@ const STDOUT_ERROR_PATTERNS = [
 const CLI_PROBE_CMD: Record<string, (model?: string) => string> = {
   claude: (m) => `echo "reply pong" | claude -p${m ? ` --model ${m}` : ''} --max-budget-usd 0.05`,
   codex: (m) => `codex exec${m ? ` --model ${m}` : ''} "reply pong"`,
-  gemini: (m) => `gemini -p "reply pong"${m ? ` --model ${m}` : ''}`,
-  kimi: (m) => `kimi --print${m ? ` --model ${m}` : ''} --prompt "reply pong"`,
   opencode: (m) => `opencode run${m ? ` --model ${m}` : ''} "reply pong"`,
-  other: () => 'echo "ok"',
 };
 
 export function buildProbeEnv(
@@ -117,6 +115,10 @@ export async function tryCliProbe(
       return { ok: false, error: `${cliName} CLI 无响应`, output: combined };
     }
 
+    if (CLI_REJECT_PATTERNS.some((re) => re.test(combined))) {
+      return { ok: false, error: `${cliName} CLI rejected the configured request`, output: combined };
+    }
+
     if (CLI_OK_PATTERNS.some((re) => re.test(combined))) {
       return { ok: true, output: combined };
     }
@@ -130,6 +132,10 @@ export async function tryCliProbe(
     const msg = err instanceof Error ? err.message : String(err);
     const stderr = (err as { stderr?: string }).stderr ?? '';
     const combined = `${msg} ${stderr}`.trim();
+
+    if (CLI_REJECT_PATTERNS.some((re) => re.test(msg) || re.test(stderr))) {
+      return { ok: false, error: msg.slice(0, 100), output: combined };
+    }
 
     if (CLI_OK_PATTERNS.some((re) => re.test(msg) || re.test(stderr))) {
       return { ok: true, output: combined };

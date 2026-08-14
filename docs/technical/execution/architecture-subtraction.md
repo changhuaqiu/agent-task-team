@@ -90,3 +90,7 @@ daemon 的 `ATH_TMUX_ENABLED` 分支被文档描述为 ACP 的可选观察模式
 ## 第十四轮：删除假 Gemini Agent runtime
 
 Google/Gemini API Key 账号能够由 OpenCode provider 配置消费，原生 Gemini CLI 也能独立验证 API Key 连接；但浏览器 store 与 Team Runtime 曾把 Google 映射到 Catalog 不存在的 `gemini` engine，形成“配置成功、派发必失败”的假能力。第十四轮保留用户账号、模型建议和真实连接验证，将 Google API Key 的正式 Agent 执行统一映射为 `opencode`，并为每次执行显式生成 Google provider、选中模型与密钥环境；无法桥接到 OpenCode 的 Google OAuth 不再允许创建或进入执行解析。生产 engine 类型、daemon runtime map 与 Invocation Planner 不再声明 `gemini` / `gemini-cli`。历史浏览器对象和不可变评估快照只在读取边界迁移到 OpenCode；daemon 对其他未知或不匹配的显式 engine/runtime 失败关闭，不恢复第四条 backend。
+
+## 第十五轮：删除账号验证旁路与 OAuth 假可达
+
+账号“测试连接”曾与正式 backend 分叉：Google/Kimi 分别运行厂商 CLI，OpenCode 运行主机默认配置，Other 更只执行 `echo "ok"`；同时 Kimi、OpenCode、Other OAuth 没有任何可注入 OpenCode 的身份，却仍可创建并被 Runtime 选择。第十五轮将 provider-to-engine、认证模式、Base URL 与 execution readiness 收口到共享账号规则；所有映射到 OpenCode 的 provider 只接受已验证、密钥和模型完整的 API Key 账号，并使用与 daemon 同构的临时 OpenCode provider/model/env 配置执行连接测试。连接字段变化会撤销既有验证，浏览器、服务端规划、评估快照恢复与 daemon 启动前均失败关闭。Gemini/Kimi/Other probe command 与只被自身测试调用的 `probeCli` wrapper 删除；Anthropic/OpenAI OAuth 仅因其 ACP Adapter 明确复用主机登录态而保留。

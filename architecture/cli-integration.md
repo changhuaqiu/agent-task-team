@@ -139,7 +139,7 @@ Catalog（`src/server/agent/acp/agentCatalog.seed.json`）是启动事实源（s
 
 - 适配器版本锁定（`package` + `version`），不使用未记录版本的隐式漂移。
 - 能力以 ACP `initialize` 握手与实测 smoke 为准，不按运行时名称猜测。
-- daemon ingress 只接受受支持且相互匹配的 engine/runtime；完全省略时才采用 OpenCode 默认值，未知显式值直接拒绝。Google/Gemini API Key 账号通过显式 OpenCode provider/model 配置进入 `opencode` Catalog 条目；原生 Gemini CLI 只负责 API Key 连接验证，不是 Agent backend，Google OAuth 不进入执行解析。
+- daemon ingress 只接受受支持且相互匹配的 engine/runtime；完全省略时才采用 OpenCode 默认值，未知显式值直接拒绝。daemon 在启动 ACP 前再次要求账号已启用、验证为 `valid`，且非空密钥、模型、必要 Base URL 与目标 engine 全部匹配。Google、Kimi、OpenCode、Other API Key 账号通过显式 OpenCode provider/model 配置进入 `opencode` Catalog 条目，其连接验证也运行同一配置下的 OpenCode，不再调用旁路厂商 CLI。只有 Anthropic/OpenAI 保留 ACP Adapter 可消费的主机 OAuth。
 
 ## 原生 vs 适配器
 

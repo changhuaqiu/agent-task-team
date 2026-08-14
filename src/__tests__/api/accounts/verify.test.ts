@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import fs from 'node:fs';
 import { mockReq, mockRes } from '../../../test-helpers/mock-api';
 
 vi.mock('../../../server/credentials', () => ({
@@ -56,7 +57,7 @@ describe('POST /api/accounts/verify', () => {
     expect(res._json.ok).toBe(true);
   });
 
-  it('keeps Google account verification on the native Gemini CLI probe', async () => {
+  it('verifies Google through the same OpenCode provider config used for execution', async () => {
     mockReadAccount.mockResolvedValue({
       id: 'acct-google',
       name: 'Google AI',
@@ -77,11 +78,83 @@ describe('POST /api/accounts/verify', () => {
     await handler(req, res);
 
     expect(mockBuildProbeEnv).toHaveBeenCalledWith('google', 'google-key', undefined);
-    expect(mockTryCliProbe).toHaveBeenCalledWith('gemini', {
-      model: 'gemini-2.5-pro',
-      env: { GOOGLE_API_KEY: 'google-key' },
+    expect(mockTryCliProbe).toHaveBeenCalledWith('opencode', {
+      env: expect.objectContaining({
+        GOOGLE_API_KEY: 'google-key',
+        ATH_OC_API_KEY: 'google-key',
+        OPENCODE_CONFIG: expect.any(String),
+      }),
     });
+    const probeEnv = mockTryCliProbe.mock.calls[0]?.[1]?.env;
+    expect(fs.existsSync(String(probeEnv?.OPENCODE_CONFIG))).toBe(false);
     expect(res._json.ok).toBe(true);
+  });
+
+  it.each([
+    ['anthropic', 'claude'],
+    ['openai', 'codex'],
+  ] as const)('preserves the host %s OAuth session for the %s ACP runtime', async (provider, cli) => {
+    mockReadAccount.mockResolvedValue({
+      id: `acct-${provider}-oauth`, name: `${provider} OAuth`, provider, authMode: 'oauth',
+      models: ['model-1'], enabled: true, status: 'unknown',
+      createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
+    } as any);
+    mockReadCredential.mockResolvedValue(null);
+    mockTryCliProbe.mockResolvedValue({ ok: true });
+
+    const res = mockRes();
+    await handler(mockReq('POST', { accountId: `acct-${provider}-oauth` }), res);
+
+    expect(mockBuildProbeEnv).not.toHaveBeenCalled();
+    expect(mockTryCliProbe).toHaveBeenCalledWith(cli, { model: 'model-1', env: {} });
+    expect(res._json.ok).toBe(true);
+  });
+
+  it('verifies a custom provider through OpenCode instead of an unconditional echo', async () => {
+    mockReadAccount.mockResolvedValue({
+      id: 'acct-other',
+      name: 'Compatible API',
+      provider: 'other',
+      authMode: 'api_key',
+      baseUrl: 'https://compatible.example/v1',
+      models: ['model-1'],
+      enabled: true,
+      status: 'pending',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    } as any);
+    mockReadCredential.mockResolvedValue({ apiKey: 'custom-key' });
+    mockBuildProbeEnv.mockReturnValue({ API_KEY: 'custom-key' });
+    mockTryCliProbe.mockResolvedValue({ ok: true });
+
+    await handler(mockReq('POST', { accountId: 'acct-other' }), mockRes());
+
+    expect(mockTryCliProbe).toHaveBeenCalledWith('opencode', {
+      env: expect.objectContaining({
+        API_KEY: 'custom-key',
+        ATH_OC_API_KEY: 'custom-key',
+        ATH_OC_BASE_URL: 'https://compatible.example/v1',
+        OPENCODE_CONFIG: expect.any(String),
+      }),
+    });
+  });
+
+  it('cleans the temporary OpenCode config when the probe throws', async () => {
+    mockReadAccount.mockResolvedValue({
+      id: 'acct-google-error', name: 'Google AI', provider: 'google', authMode: 'api_key',
+      models: ['gemini-2.5-pro'], enabled: true, status: 'pending',
+      createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
+    } as any);
+    mockReadCredential.mockResolvedValue({ apiKey: 'google-key' });
+    mockTryCliProbe.mockRejectedValue(new Error('probe crashed'));
+
+    await expect(handler(
+      mockReq('POST', { accountId: 'acct-google-error' }),
+      mockRes(),
+    )).rejects.toThrow('probe crashed');
+
+    const probeEnv = mockTryCliProbe.mock.calls[0]?.[1]?.env;
+    expect(fs.existsSync(String(probeEnv?.OPENCODE_CONFIG))).toBe(false);
   });
 
   it('rejects a historical Google OAuth account instead of reporting false reachability', async () => {
@@ -101,10 +174,33 @@ describe('POST /api/accounts/verify', () => {
     const res = mockRes();
     await handler(req, res);
 
-    expect(res._json).toMatchObject({ ok: false, error: expect.stringMatching(/require API Key/) });
+    expect(res._json).toMatchObject({ ok: false, error: expect.stringMatching(/requires API Key/) });
     expect(mockTryCliProbe).not.toHaveBeenCalled();
     expect(mockWriteAccount).toHaveBeenCalledWith(expect.objectContaining({ status: 'error' }));
   });
+
+  it.each(['kimi', 'opencode', 'other'] as const)(
+    'rejects a historical %s OAuth account before probing',
+    async (provider) => {
+      mockReadAccount.mockResolvedValue({
+        id: `acct-${provider}-oauth`,
+        name: `Legacy ${provider} OAuth`,
+        provider,
+        authMode: 'oauth',
+        models: ['model-1'],
+        enabled: true,
+        status: 'unknown',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      } as any);
+
+      const res = mockRes();
+      await handler(mockReq('POST', { accountId: `acct-${provider}-oauth` }), res);
+
+      expect(res._json.error).toMatch(/requires API Key/);
+      expect(mockTryCliProbe).not.toHaveBeenCalled();
+    },
+  );
 
   it('returns ok:false for account with bad API key', async () => {
     mockReadAccount.mockResolvedValue({
@@ -163,6 +259,39 @@ describe('POST /api/accounts/verify', () => {
     await handler(req, res);
 
     expect(res.statusCode).toBe(404);
+  });
+
+  it('rejects an API Key account with no model before invoking a CLI', async () => {
+    mockReadAccount.mockResolvedValue({
+      id: 'acct-no-model', name: 'No model', provider: 'google', authMode: 'api_key',
+      models: [], enabled: true, status: 'pending',
+      createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
+    } as any);
+    mockReadCredential.mockResolvedValue({ apiKey: 'google-key' });
+
+    const res = mockRes();
+    await handler(mockReq('POST', { accountId: 'acct-no-model' }), res);
+
+    expect(res._json).toMatchObject({ ok: false, error: expect.stringMatching(/model/i) });
+    expect(mockBuildProbeEnv).not.toHaveBeenCalled();
+    expect(mockTryCliProbe).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { provider: 'fake-provider', authMode: 'api_key' },
+    { provider: 'openai', authMode: 'magic-login' },
+  ])('rejects a persisted invalid account boundary: $provider/$authMode', async ({ provider, authMode }) => {
+    mockReadAccount.mockResolvedValue({
+      id: 'acct-invalid', name: 'Invalid', provider, authMode,
+      models: ['model'], enabled: true, status: 'valid',
+      createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
+    } as any);
+
+    const res = mockRes();
+    await handler(mockReq('POST', { accountId: 'acct-invalid' }), res);
+
+    expect(res._json.ok).toBe(false);
+    expect(mockTryCliProbe).not.toHaveBeenCalled();
   });
 
   it('updates account status to valid on success', async () => {

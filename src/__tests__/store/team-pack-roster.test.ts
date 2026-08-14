@@ -48,6 +48,7 @@ function makeAccount(id: string): Account {
     models: ['gpt-5.4'],
     enabled: true,
     status: 'valid',
+    hasApiKey: true,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };

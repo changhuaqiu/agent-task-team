@@ -1,13 +1,22 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { listAccounts, writeAccount, hasAccount } from '../../../server/accounts-file';
 import { hasCredential, writeCredential } from '../../../server/credentials';
-import { canExecuteAccount, GOOGLE_API_KEY_REQUIRED } from '../../../lib/account-auth';
+import {
+  API_KEY_REQUIRED,
+  BASE_URL_REQUIRED,
+  canExecuteAccount,
+  isAccountAuthMode,
+  isAccountProvider,
+  requiresBaseUrl,
+  type AccountAuthMode,
+  type AccountProvider,
+} from '../../../lib/account-auth';
 
 interface AccountMeta {
   id: string;
   name: string;
-  authMode: 'api_key' | 'oauth';
-  provider: 'anthropic' | 'openai' | 'google' | 'kimi' | 'opencode' | 'other';
+  authMode: AccountAuthMode;
+  provider: AccountProvider;
   baseUrl?: string;
   models: string[];
   enabled: boolean;
@@ -52,7 +61,27 @@ async function handleCreate(req: NextApiRequest, res: NextApiResponse) {
   }
 
   if (!canExecuteAccount(provider, authMode)) {
-    res.status(400).json({ error: GOOGLE_API_KEY_REQUIRED });
+    res.status(400).json({ error: API_KEY_REQUIRED });
+    return;
+  }
+
+  if (!isAccountProvider(provider) || !isAccountAuthMode(authMode)) {
+    res.status(400).json({ error: 'Unsupported provider or authMode' });
+    return;
+  }
+  if (authMode === 'api_key' && requiresBaseUrl(provider) && !baseUrl?.trim()) {
+    res.status(400).json({ error: BASE_URL_REQUIRED });
+    return;
+  }
+  if (authMode === 'api_key' && !apiKey?.trim()) {
+    res.status(400).json({ error: 'API Key is required' });
+    return;
+  }
+  if (
+    authMode === 'api_key'
+    && (!Array.isArray(models) || models.length === 0 || models.some((model) => typeof model !== 'string' || !model.trim()))
+  ) {
+    res.status(400).json({ error: 'At least one model is required' });
     return;
   }
 

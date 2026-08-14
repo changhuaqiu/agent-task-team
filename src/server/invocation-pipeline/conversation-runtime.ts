@@ -3,6 +3,7 @@ import { PRESET_ROLE_CARDS } from '@/data/presetRoleCards';
 import { resolveRuntimeAgentProfile, resolveTeamRuntime } from '@/lib/team-runtime';
 import type { RuntimeAgentProfile, RuntimeSkillSummary, TeamRuntime } from '@/lib/team-runtime';
 import { listAccounts } from '../accounts-file';
+import { hasCredential } from '../credentials';
 import { listAgents } from '../db/agentQueries';
 import { loadAllRoleCards } from '../db/roleCardQueries';
 import { conversationRepo } from '../repositories/conversation-repo';
@@ -66,6 +67,10 @@ export function resolveConversationRuntimeProfile(
     provider: account.provider,
     authMode: account.authMode,
     enabled: account.enabled,
+    status: account.status,
+    baseUrl: account.baseUrl,
+    models: account.models,
+    hasApiKey: hasCredential(account.id),
   }));
   return {
     runtime,

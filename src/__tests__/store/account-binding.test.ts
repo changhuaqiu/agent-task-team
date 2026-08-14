@@ -66,7 +66,8 @@ describe('resolveAgentEngine', () => {
     authMode: 'api_key',
     provider: 'anthropic',
     baseUrl: '',
-    models: [],
+    models: ['model-1'],
+    hasApiKey: true,
     enabled: true,
     status: 'valid',
     createdAt: '2026-01-01T00:00:00Z',
@@ -130,6 +131,26 @@ describe('resolveAgentEngine', () => {
 
     const result = resolveAgentEngine(agent, accounts);
     expect(result).toEqual({ engine: 'codex', accountId: '' });
+  });
+
+  it('does not resolve unverified or unsupported OAuth accounts', () => {
+    const agent = makeAgent({ id: 'a1', accountIds: ['pending', 'kimi-oauth'] });
+    const accounts = [
+      makeAccount({ id: 'pending', provider: 'google', status: 'pending' }),
+      makeAccount({ id: 'kimi-oauth', provider: 'kimi', authMode: 'oauth', status: 'valid' }),
+    ];
+
+    expect(resolveAgentEngine(agent, accounts)).toBeNull();
+  });
+
+  it.each([
+    { hasApiKey: false },
+    { models: [] },
+    { provider: 'kimi' as const, baseUrl: '' },
+  ])('does not resolve an incomplete API Key account: %j', (overrides) => {
+    const agent = makeAgent({ id: 'a1', accountIds: ['incomplete'] });
+    const account = makeAccount({ id: 'incomplete', ...overrides });
+    expect(resolveAgentEngine(agent, [account])).toBeNull();
   });
 
   it('migrates a persisted legacy gemini engine to opencode', () => {

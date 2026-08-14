@@ -15,16 +15,29 @@ import { invocationRepo } from '../repositories/invocation-repo';
 
 const now = '2026-07-19T00:00:00.000Z';
 
-vi.mock('../accounts-file', () => ({
-  listAccounts: () => [{
+const accountState = vi.hoisted(() => ({
+  account: {
     id: 'account-ref',
-    provider: 'openai',
-    authMode: 'api_key',
+    provider: 'openai' as const,
+    authMode: 'api_key' as const,
     enabled: true,
-  }],
+    status: 'valid' as const | 'error' | 'pending',
+    models: ['gpt-5.4'],
+  },
+  hasCredential: true,
+}));
+
+vi.mock('../accounts-file', () => ({
+  listAccounts: () => [accountState.account],
+}));
+
+vi.mock('../credentials', () => ({
+  hasCredential: () => accountState.hasCredential,
 }));
 
 beforeEach(() => {
+  accountState.account.status = 'valid';
+  accountState.hasCredential = true;
   setTestDb(createTestDb());
   getDb().prepare(`INSERT INTO team_pack
     (id,name,display_name,description,version,category,team_mode,workflow,communication_matrix,is_preset,created_at,updated_at)
@@ -106,6 +119,29 @@ describe('application snapshot and case execution', () => {
     expect(first.manifest).toMatchObject({ schemaVersion: 1, codeRevision });
     expect(() => getDb().prepare('UPDATE eval_application_snapshot SET name=? WHERE id=?')
       .run('changed', first.id)).toThrow(/immutable/);
+  });
+
+  it.each(['error', 'pending'] as const)(
+    'does not restore a snapshot through a currently %s account',
+    (status) => {
+      const snapshot = freezeApplicationSnapshot({
+        conversationId: 'conv-runner', name: 'baseline', source: 'published',
+      });
+      accountState.account.status = status;
+      expect(() => resolveApplicationSnapshotRuntime(
+        snapshot.id, 'conv-runner', 'agent-runner',
+      )).toThrow(/not ready/);
+    },
+  );
+
+  it('does not restore a snapshot after its API key is removed', () => {
+    const snapshot = freezeApplicationSnapshot({
+      conversationId: 'conv-runner', name: 'baseline', source: 'published',
+    });
+    accountState.hasCredential = false;
+    expect(() => resolveApplicationSnapshotRuntime(
+      snapshot.id, 'conv-runner', 'agent-runner',
+    )).toThrow(/not ready/);
   });
 
   it('normalizes a historical Gemini runtime without rewriting its immutable snapshot', () => {

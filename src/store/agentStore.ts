@@ -5,7 +5,13 @@ import type { TeamPackRole } from '@/types/teamPack';
 import type { SkillSummary } from '@/lib/agent-context/types';
 import type { CliEngine } from '@/server/types';
 import { normalizeRuntimeCliEngine } from '@/lib/team-runtime/runtimeEngine';
-import type { AccountAuthMode, AccountProvider } from '@/lib/account-auth';
+import {
+  PROVIDER_TO_ENGINE,
+  isAccountReadyForExecution,
+  providerToExecutionEngine,
+  type AccountAuthMode,
+  type AccountProvider,
+} from '@/lib/account-auth';
 import { PRESET_ROLE_CARDS } from '@/data/presetRoleCards';
 
 // --- Agent Role & Roster ---
@@ -141,17 +147,10 @@ export async function loadAgents(options: LoadAgentsOptions = {}): Promise<void>
 
 export type { AccountAuthMode, AccountProvider } from '@/lib/account-auth';
 
-export const PROVIDER_TO_ENGINE: Record<AccountProvider, CliEngine> = {
-  anthropic: 'claude',
-  openai: 'codex',
-  google: 'opencode',
-  kimi: 'opencode',
-  opencode: 'opencode',
-  other: 'opencode',
-};
+export { PROVIDER_TO_ENGINE } from '@/lib/account-auth';
 
 export function providerToEngine(provider: AccountProvider): CliEngine {
-  return PROVIDER_TO_ENGINE[provider];
+  return providerToExecutionEngine(provider);
 }
 
 export interface Account {
@@ -194,7 +193,10 @@ export function resolveAgentEngine(
   accounts: Account[],
 ): { engine: CliEngine; accountId: string } | null {
   for (const accountId of agent.accountIds) {
-    const account = accounts.find((a) => a.id === accountId && a.enabled);
+    const account = accounts.find((a) => (
+      a.id === accountId
+      && isAccountReadyForExecution({ ...a, hasApiKey: a.hasApiKey === true })
+    ));
     if (account) {
       return { engine: providerToEngine(account.provider), accountId };
     }

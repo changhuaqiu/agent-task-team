@@ -127,6 +127,11 @@ describe('credentials', () => {
       writeCredential('acct-1', { apiKey: 'a' });
       expect(hasCredential('acct-1')).toBe(true);
     });
+
+    it('returns false for an empty stored API key', () => {
+      writeCredential('acct-empty', { apiKey: '   ' });
+      expect(hasCredential('acct-empty')).toBe(false);
+    });
   });
 
   describe('listCredentialIds', () => {

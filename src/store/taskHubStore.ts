@@ -393,7 +393,11 @@ function getCachedAgentRuntimeProfile(state: TaskHubState, agentId: string): Run
   const cachedProfile = cache?.profilesByAgentId.get(agentId);
   if (cachedProfile?.accounts === state.accounts) return cachedProfile.profile;
 
-  const profile = resolveRuntimeAgentProfile(runtime, agentId, state.accounts);
+  const profile = resolveRuntimeAgentProfile(
+    runtime,
+    agentId,
+    state.accounts.map((account) => ({ ...account, hasApiKey: account.hasApiKey === true })),
+  );
   cache?.profilesByAgentId.set(agentId, { accounts: state.accounts, profile });
   return profile;
 }

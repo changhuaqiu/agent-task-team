@@ -6,6 +6,8 @@ import type { RuntimeAgentProfile, RuntimeSkillSummary, TeamRuntime } from '@/li
 import type { TeamPack } from '@/types/teamPack';
 import { getDb } from '../db';
 import { listAccounts } from '../accounts-file';
+import { hasCredential } from '../credentials';
+import { isAccountReadyForExecution } from '@/lib/account-auth';
 import { conversationRepo } from '../repositories/conversation-repo';
 import { skillRepo } from '../repositories/skill-repo';
 import { teamPackRepo } from '../repositories/team-pack-repo';
@@ -96,6 +98,10 @@ function frozenAgents(
     provider: account.provider,
     authMode: account.authMode,
     enabled: account.enabled,
+    status: account.status,
+    baseUrl: account.baseUrl,
+    models: account.models,
+    hasApiKey: hasCredential(account.id),
   }));
   const agents = team.roles.flatMap((role): FrozenAgentManifest[] => {
     const profile = resolveRuntimeAgentProfile(runtime, role.id, accounts);
@@ -208,6 +214,12 @@ export function resolveApplicationSnapshotRuntime(
   if (!frozenAgent) return undefined;
   if (frozenAgent.accountId) {
     const account = listAccounts().find((item) => item.id === frozenAgent.accountId && item.enabled);
+    if (account && !isAccountReadyForExecution({
+      ...account,
+      hasApiKey: hasCredential(account.id),
+    })) {
+      throw new Error(`Application snapshot account is not ready: ${frozenAgent.accountId}`);
+    }
     const currentDigest = account ? digest({
       provider: account.provider,
       authMode: account.authMode,

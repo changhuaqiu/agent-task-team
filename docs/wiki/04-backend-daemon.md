@@ -375,7 +375,7 @@ daemon 当前已经具备会话级跟踪：
 
 补充说明：
 
-- 正式 Agent engine 只接受 `opencode` / `claude` / `codex`。Google/Gemini API Key 账号映射为 `opencode` 并生成确定性的账号/模型配置；原生 Gemini CLI 只用于 API Key 连接验证，不构成第四种 backend。Google OAuth 不进入执行解析；历史浏览器对象与不可变评估快照中的 Gemini 标识在各自读取边界迁移，其他未知输入失败关闭。
+- 正式 Agent engine 只接受 `opencode` / `claude` / `codex`。Google、Kimi、OpenCode、Other API Key 账号映射为 `opencode`，连接验证和正式执行共用确定性的 OpenCode provider/model/env 配置；不再保留 Gemini/Kimi 私有 CLI 或空 echo 验证。上述 provider 的 OAuth 不进入执行解析；历史浏览器对象与不可变评估快照中的 Gemini runtime 标识在各自读取边界迁移，其他未知输入失败关闭。
 - 适配器（claude / codex）的进程树是两层（`npx` → node 适配器 → 运行时），因此 `AcpBackend` 使用 `tree-kill` 清理，而非裸 `child.kill()`。
 
 ## 4.9 当前判断

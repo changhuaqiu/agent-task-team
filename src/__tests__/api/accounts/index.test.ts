@@ -109,21 +109,24 @@ describe('POST /api/accounts', () => {
     expect(res._json.account.status).toBe('unknown');
   });
 
-  it('rejects Google OAuth because OpenCode requires an API key', async () => {
+  it.each(['google', 'kimi', 'opencode', 'other'] as const)(
+    'rejects %s OAuth because OpenCode requires an API key',
+    async (provider) => {
     const req = mockReq('POST', {
-      name: 'My Google',
+      name: `My ${provider}`,
       authMode: 'oauth',
-      provider: 'google',
-      models: ['gemini-2.5-pro'],
+      provider,
+      models: ['model-1'],
     });
     const res = mockRes();
 
     await handler(req, res);
 
     expect(res.statusCode).toBe(400);
-    expect(res._json.error).toMatch(/require API Key/);
+    expect(res._json.error).toMatch(/requires API Key/);
     expect(writeAccount).not.toHaveBeenCalled();
-  });
+    },
+  );
 
   it('creates a Google API Key account without requiring a custom baseUrl', async () => {
     vi.mocked(hasAccount).mockResolvedValue(false);
@@ -146,6 +149,38 @@ describe('POST /api/accounts', () => {
     });
   });
 
+  it('requires a Base URL for OpenCode-compatible providers', async () => {
+    const res = mockRes();
+    await handler(mockReq('POST', {
+      name: 'Kimi API Key',
+      authMode: 'api_key',
+      provider: 'kimi',
+      apiKey: 'kimi-key',
+      models: ['moonshot-v2'],
+    }), res);
+
+    expect(res.statusCode).toBe(400);
+    expect(res._json.error).toMatch(/Base URL/);
+    expect(writeAccount).not.toHaveBeenCalled();
+  });
+
+  it('does not create an API Key account without a key or model', async () => {
+    const noKey = mockRes();
+    await handler(mockReq('POST', {
+      name: 'No key', authMode: 'api_key', provider: 'google', models: ['gemini-2.5-pro'],
+    }), noKey);
+    expect(noKey.statusCode).toBe(400);
+    expect(noKey._json.error).toMatch(/API Key is required/);
+
+    const noModel = mockRes();
+    await handler(mockReq('POST', {
+      name: 'No model', authMode: 'api_key', provider: 'google', apiKey: 'google-key', models: [],
+    }), noModel);
+    expect(noModel.statusCode).toBe(400);
+    expect(noModel._json.error).toMatch(/model/);
+    expect(writeAccount).not.toHaveBeenCalled();
+  });
+
   it('rejects missing required fields (400)', async () => {
     const req = mockReq('POST', { provider: 'openai' });
     const res = mockRes();
@@ -155,6 +190,18 @@ describe('POST /api/accounts', () => {
     expect(res.statusCode).toBe(400);
   });
 
+  it.each([
+    { provider: 'fake-provider', authMode: 'api_key' },
+    { provider: 'openai', authMode: 'magic-login' },
+  ])('rejects unsupported account discriminants: $provider/$authMode', async ({ provider, authMode }) => {
+    const res = mockRes();
+    await handler(mockReq('POST', {
+      name: 'Invalid account', provider, authMode, apiKey: 'key', models: ['model'],
+    }), res);
+    expect(res.statusCode).toBe(400);
+    expect(writeAccount).not.toHaveBeenCalled();
+  });
+
   it('rejects duplicate name (409)', async () => {
     vi.mocked(hasAccount).mockResolvedValue(true);
 
@@ -162,7 +209,8 @@ describe('POST /api/accounts', () => {
       name: 'Existing',
       authMode: 'api_key',
       provider: 'openai',
-      models: [],
+      apiKey: 'sk-existing',
+      models: ['gpt-4'],
     });
     const res = mockRes();
 
@@ -181,7 +229,7 @@ describe('POST /api/accounts', () => {
       authMode: 'api_key',
       provider: 'openai',
       apiKey: 'sk-test-key',
-      models: [],
+      models: ['gpt-4'],
     });
     const res = mockRes();
 
@@ -207,7 +255,7 @@ describe('POST /api/accounts', () => {
         authMode: 'api_key',
         provider: 'openai',
         apiKey: `key-${i}`,
-        models: [],
+        models: ['gpt-4'],
       });
       const res = mockRes();
       await handler(req, res);

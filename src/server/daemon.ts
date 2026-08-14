@@ -10,9 +10,15 @@ import { buildProbeEnv } from './cli-probe';
 import { generateRuntimeConfig, cleanupRuntimeConfig, makeInvocationId } from './opencode-config';
 import { startTaskWatcher } from './task-file-watcher';
 import { ensureTasksMdProjection } from './task-file-service';
-import type { AccountProvider as RuntimeAccountProvider } from './opencode-config';
 import type { CliEngine, DetectedRuntime } from './types';
 import { resolveRuntimeSelection } from './runtime-selection';
+import {
+  isAccountAuthMode,
+  isAccountProvider,
+  isAccountReadyForExecution,
+  providerToExecutionEngine,
+  type AccountProvider,
+} from '@/lib/account-auth';
 import { sessionRepo } from './repositories/session-repo';
 import type { AgentSessionRow } from './repositories/session-repo';
 import { invocationRepo } from './repositories/invocation-repo';
@@ -172,15 +178,31 @@ function resolveAcpPermissionPolicy(): 'deny' | 'allow_once' {
   return process.env.ACP_PERMISSION_MODE === 'allow_once' ? 'allow_once' : 'deny';
 }
 
-type AccountProvider = 'anthropic' | 'openai' | 'google' | 'kimi' | 'opencode' | 'other';
-
-async function resolveCredentialEnv(accountId?: string): Promise<Record<string, string>> {
-  if (!accountId) return {};
+async function resolveExecutionAccount(accountId: string | undefined, engine: CliEngine) {
+  if (!accountId) return undefined;
   const account = await readAccount(accountId);
-  if (!account || account.authMode !== 'api_key') return {};
-  const cred = await readCredential(accountId);
-  if (!cred?.apiKey) return {};
-  return buildProbeEnv(account.provider as AccountProvider, cred.apiKey, account.baseUrl);
+  const credential = await readCredential(accountId);
+  if (
+    !account
+    || !isAccountProvider(account.provider)
+    || !isAccountAuthMode(account.authMode)
+    || !isAccountReadyForExecution({
+      ...account,
+      hasApiKey: Boolean(credential?.apiKey?.trim()),
+    })
+  ) {
+    throw new Error(`Account is not ready for execution: ${accountId}`);
+  }
+  if (providerToExecutionEngine(account.provider) !== engine) {
+    throw new Error(`Account engine does not match runtime: ${accountId}`);
+  }
+  return {
+    account,
+    credential,
+    env: account.authMode === 'api_key' && credential?.apiKey
+      ? buildProbeEnv(account.provider, credential.apiKey, account.baseUrl)
+      : {},
+  };
 }
 
 const execAsync = promisify(exec);
@@ -692,6 +714,7 @@ export default function registerDaemon(io: IOServer) {
       const engine: CliEngine = selection.engine;
       const effectiveRuntimeId = selection.runtimeId;
       primaryCommand = ENGINE_COMMAND[engine];
+      const executionAccount = await resolveExecutionAccount(accountId, engine);
 
       const targetNodeId = LOCAL_DAEMON_NODE_ID;
 
@@ -741,7 +764,7 @@ export default function registerDaemon(io: IOServer) {
       dispatchGateway.markSent(controlEnvelopeId);
       emitDispatchReceipt('sent');
 
-      const credentialEnv = await resolveCredentialEnv(accountId);
+      const credentialEnv = executionAccount?.env ?? {};
 
       // --- Session & Invocation tracking (SQLite) ---
       // Use conversationId for session scoping (project-level session per agent)
@@ -991,11 +1014,11 @@ export default function registerDaemon(io: IOServer) {
         // project-local Skills or authorizing the live shared workspace would
         // leak mutable production state into the isolated worktree.
         const projectSkillPaths = evaluation ? [] : resolveOpenCodeProjectSkillPaths(projectPath);
-        const account = accountId ? await readAccount(accountId) : undefined;
-        const cred = accountId ? await readCredential(accountId) : undefined;
+        const account = executionAccount?.account;
+        const cred = executionAccount?.credential;
         const invocationId = makeInvocationId(agentId);
         const result = generateRuntimeConfig(invocationId, {
-          provider: account?.provider as RuntimeAccountProvider | undefined,
+          provider: account?.provider as AccountProvider | undefined,
           apiKey: cred?.apiKey,
           baseUrl: account?.baseUrl,
           models: account?.models,

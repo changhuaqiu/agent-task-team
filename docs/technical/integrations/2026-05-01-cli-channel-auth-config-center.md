@@ -18,7 +18,7 @@
 
 ### 2.1 Account
 
-账号是认证事实源，包含 provider、认证方式、Base URL、模型列表、启用状态和验证状态。OAuth 与 API Key 使用不同字段：OAuth 不要求 API Key，API Key 模式要求 Base URL 与密钥。
+账号是认证事实源，包含 provider、认证方式、Base URL、模型列表、启用状态和验证状态。OAuth 与 API Key 使用不同字段：Anthropic/OpenAI 可使用 ACP Adapter 明确复用的主机 OAuth；映射到 OpenCode 的 Google、Kimi、OpenCode、Other 必须使用 API Key。OpenCode-compatible provider 还必须提供 Base URL，Google 可使用默认地址。API Key 账号只有在密钥非空、至少配置一个模型且验证状态为 `valid` 时才能进入执行解析；provider、Base URL、密钥或模型变化会立即把状态重置为 `pending`。
 
 ### 2.2 RoleCard / Skill / TeamPack
 
@@ -48,6 +48,6 @@ daemon 通过本机 CLI 命令探测 OpenCode、Claude、Codex 等运行时的�
 - daemon 的 `engine / runtimeId / accountId` 执行参数通路继续保留，它们属于内部执行契约。
 - 浏览器 `terminal:start` 只发送服务端真实消费的单一 `accountId`，不再附带无消费者的 provider、channel、auth context 或账号候选数组。
 - 用户通过账号和 TeamPack 成员绑定表达意图，不直接编辑底层 routing 参数。
-- Google/Gemini API Key 账号继续作为用户账号对象存在，并使用原生 Gemini CLI 做连接验证；正式 Agent 执行由 OpenCode ACP backend 承担，并按账号显式生成 Google provider、选中模型和密钥环境配置。Gemini CLI OAuth 登录态不能安全交给 OpenCode，创建 API 与设置界面均不再提供 Google OAuth，历史 Google OAuth 账号也不会进入执行解析；不存在独立 Gemini Agent backend。
+- Google、Kimi、OpenCode 与 Other API Key 账号的“测试连接”和正式 Agent 执行共用同一份临时 OpenCode provider/model/env 配置；不再运行 Gemini/Kimi 私有 CLI，也不存在 `echo ok` 假验证。临时配置在验证完成或失败后清理。浏览器解析、服务端规划、评估快照恢复和 daemon 最终启动边界都会复核同一 readiness，避免计划生成后的账号变化继续执行。上述 provider 的厂商 OAuth 登录态不能安全交给 OpenCode，创建、变更、验证与 Runtime selection 均失败关闭。Anthropic/OpenAI OAuth 只因 Claude/Codex ACP Adapter 明确复用主机登录态而保留。
 
 历史实施材料见 `docs/archive/specs/unify-integration-config-center/`；后续事实以本文件、设置抽屉和服务端运行链路为准。

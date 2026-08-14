@@ -72,7 +72,7 @@ export function deleteCredential(id: string): void {
 
 export function hasCredential(id: string): boolean {
   const all = readAll();
-  return id in all;
+  return Boolean(all[id]?.apiKey?.trim());
 }
 
 export function listCredentialIds(): string[] {

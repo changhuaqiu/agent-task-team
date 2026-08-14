@@ -1,13 +1,21 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { readAccount, writeAccount, deleteAccount } from '../../../server/accounts-file';
 import { hasCredential, writeCredential, deleteCredential } from '../../../server/credentials';
-import { canExecuteAccount, GOOGLE_API_KEY_REQUIRED } from '../../../lib/account-auth';
+import {
+  API_KEY_REQUIRED,
+  BASE_URL_REQUIRED,
+  canExecuteAccount,
+  isAccountProvider,
+  requiresBaseUrl,
+  type AccountAuthMode,
+  type AccountProvider,
+} from '../../../lib/account-auth';
 
 interface AccountMeta {
   id: string;
   name: string;
-  authMode: 'api_key' | 'oauth';
-  provider: 'anthropic' | 'openai' | 'google' | 'kimi' | 'opencode' | 'other';
+  authMode: AccountAuthMode;
+  provider: AccountProvider;
   baseUrl?: string;
   models: string[];
   enabled: boolean;
@@ -61,11 +69,40 @@ async function handlePatch(id: string, req: NextApiRequest, res: NextApiResponse
 
   const { name, baseUrl, apiKey, models, enabled, provider } = req.body;
 
-  if (!canExecuteAccount(provider ?? existing.provider, existing.authMode)) {
-    res.status(400).json({ error: GOOGLE_API_KEY_REQUIRED });
+  if (provider !== undefined && !isAccountProvider(provider)) {
+    res.status(400).json({ error: 'Unsupported provider' });
+    return;
+  }
+  if (apiKey !== undefined && (typeof apiKey !== 'string' || !apiKey.trim())) {
+    res.status(400).json({ error: 'API Key cannot be empty' });
+    return;
+  }
+  if (
+    existing.authMode === 'api_key'
+    && models !== undefined
+    && (!Array.isArray(models) || models.length === 0 || models.some((model) => typeof model !== 'string' || !model.trim()))
+  ) {
+    res.status(400).json({ error: 'At least one model is required' });
     return;
   }
 
+  if (!canExecuteAccount(provider ?? existing.provider, existing.authMode)) {
+    res.status(400).json({ error: API_KEY_REQUIRED });
+    return;
+  }
+  if (
+    existing.authMode === 'api_key'
+    && requiresBaseUrl(provider ?? existing.provider)
+    && !(baseUrl ?? existing.baseUrl)?.trim()
+  ) {
+    res.status(400).json({ error: BASE_URL_REQUIRED });
+    return;
+  }
+
+  const connectionChanged = (provider !== undefined && provider !== existing.provider)
+    || (baseUrl !== undefined && baseUrl !== existing.baseUrl)
+    || apiKey !== undefined
+    || (models !== undefined && JSON.stringify(models) !== JSON.stringify(existing.models));
   const updated: AccountMeta = {
     ...existing,
     ...(name !== undefined && { name }),
@@ -73,6 +110,11 @@ async function handlePatch(id: string, req: NextApiRequest, res: NextApiResponse
     ...(models !== undefined && { models }),
     ...(enabled !== undefined && { enabled }),
     ...(provider !== undefined && { provider }),
+    ...(connectionChanged && {
+      status: 'pending' as const,
+      lastVerifiedAt: undefined,
+      verifyError: undefined,
+    }),
     updatedAt: new Date().toISOString(),
   };
 

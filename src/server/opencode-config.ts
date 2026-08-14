@@ -1,8 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import type { AccountProvider } from '@/lib/account-auth';
 
-export type AccountProvider = 'anthropic' | 'openai' | 'google' | 'kimi' | 'opencode' | 'other';
+export type { AccountProvider } from '@/lib/account-auth';
 
 export interface RuntimeConfigInput {
   provider?: AccountProvider;
@@ -72,6 +73,7 @@ export function generateRuntimeConfig(
 
   const configDir = path.join(getDataDir(), `oc-config-${invocationId}`);
   const configPath = path.join(configDir, 'opencode.json');
+  try {
   const managedNames = new Set((input.managedSkillNames ?? []).map(name => name.toLocaleLowerCase('en-US')));
   const skillPaths = managedNames.size === 0
     ? requestedSkillPaths
@@ -156,7 +158,11 @@ export function generateRuntimeConfig(
     }
   }
 
-  return { generated: true, configPath, configDir, env };
+    return { generated: true, configPath, configDir, env };
+  } catch (error) {
+    cleanupRuntimeConfig(configDir);
+    throw error;
+  }
 }
 
 export function cleanupRuntimeConfig(configDir: string): void {

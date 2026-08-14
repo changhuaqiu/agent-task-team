@@ -72,7 +72,7 @@ pnpm dev
 
 ### Agent Backend
 
-Agent 执行统一经 ACP Catalog 与唯一 `AcpBackend`，当前 engine 为 OpenCode（原生 ACP）、Claude 和 Codex（ACP 适配器）。Google/Gemini 账号由 OpenCode provider 配置消费；原生 Gemini CLI 只用于账号连接验证，不是 Agent backend。新增 engine 必须先提供可验证的 Catalog/ACP Adapter，不能只扩展前端 union 或 daemon map。
+Agent 执行统一经 ACP Catalog 与唯一 `AcpBackend`，当前 engine 为 OpenCode（原生 ACP）、Claude 和 Codex（ACP 适配器）。Google、Kimi、OpenCode 与 Other API Key 账号由 OpenCode provider 配置消费，连接验证也复用该正式配置；不存在旁路厂商 CLI backend。新增 engine 必须先提供可验证的 Catalog/ACP Adapter，不能只扩展前端 union 或 daemon map。
 
 ## 项目结构
 

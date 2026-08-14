@@ -98,6 +98,22 @@ describe('PATCH /api/accounts/[id]', () => {
       'acct-123',
       expect.objectContaining({ apiKey: 'sk-new-key' }),
     );
+    expect(writeAccount).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'pending',
+      lastVerifiedAt: undefined,
+    }));
+  });
+
+  it.each([
+    { provider: 'invalid-provider' },
+    { models: [] },
+    { apiKey: '   ' },
+  ])('rejects an invalid execution configuration patch: %j', async (body) => {
+    vi.mocked(readAccount).mockResolvedValue(sampleAccount as any);
+    const res = mockRes();
+    await handler(mockReq('PATCH', body, { id: 'acct-123' }), res);
+    expect(res.statusCode).toBe(400);
+    expect(writeAccount).not.toHaveBeenCalled();
   });
 
   it('rejects authMode change (400)', async () => {
@@ -112,21 +128,24 @@ describe('PATCH /api/accounts/[id]', () => {
     expect(res._json.error).toMatch(/authMode/i);
   });
 
-  it('does not let an OAuth account become a Google execution account', async () => {
+  it.each(['google', 'kimi', 'opencode', 'other'])(
+    'does not let an OAuth account become a %s execution account',
+    async (provider) => {
     vi.mocked(readAccount).mockResolvedValue({
       ...sampleAccount,
       authMode: 'oauth',
       provider: 'anthropic',
     } as any);
 
-    const req = mockReq('PATCH', { provider: 'google' }, { id: 'acct-123' });
+    const req = mockReq('PATCH', { provider }, { id: 'acct-123' });
     const res = mockRes();
     await handler(req, res);
 
     expect(res.statusCode).toBe(400);
-    expect(res._json.error).toMatch(/require API Key/);
+    expect(res._json.error).toMatch(/requires API Key/);
     expect(writeAccount).not.toHaveBeenCalled();
-  });
+    },
+  );
 
   it('returns 404 for missing account', async () => {
     vi.mocked(readAccount).mockResolvedValue(undefined);

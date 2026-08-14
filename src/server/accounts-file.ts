@@ -1,11 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import type { AccountAuthMode, AccountProvider } from '@/lib/account-auth';
 
 export interface AccountMeta {
   id: string;
   name: string;
-  authMode: 'api_key' | 'oauth';
-  provider: 'anthropic' | 'openai' | 'google' | 'kimi' | 'opencode' | 'other';
+  authMode: AccountAuthMode;
+  provider: AccountProvider;
   baseUrl?: string;
   models: string[];
   enabled: boolean;

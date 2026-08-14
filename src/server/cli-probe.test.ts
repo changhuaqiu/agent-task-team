@@ -108,6 +108,28 @@ describe('tryCliProbe', () => {
     expect(result.ok).toBe(true);
   });
 
+  it.each([
+    'model gemini-missing unavailable',
+    'model foo is not supported',
+    'invalid_request_error: bad model',
+  ])('does not authenticate an explicitly rejected model: %s', async (message) => {
+    const result = await tryCliProbe('opencode', {
+      execFn: async () => ({ stdout: message }),
+    });
+    expect(result.ok).toBe(false);
+  });
+
+  it('does not authenticate an unavailable model reported through command failure', async () => {
+    const err = Object.assign(new Error('command failed'), {
+      code: 1,
+      stderr: 'model google-compat/missing unavailable',
+    });
+    const result = await tryCliProbe('opencode', {
+      execFn: async () => { throw err; },
+    });
+    expect(result.ok).toBe(false);
+  });
+
   it('returns ok:false for unauthorized stdout', async () => {
     const result = await tryCliProbe('claude', {
       execFn: async () => ({ stdout: 'Error: 401 Unauthorized' }),
@@ -238,16 +260,15 @@ describe('tryCliProbe', () => {
     expect(receivedCmd!).toContain('codex exec');
   });
 
-  it('builds correct shell command for gemini', async () => {
-    let receivedCmd: string;
-    await tryCliProbe('gemini', {
-      execFn: async (cmd) => {
-        receivedCmd = cmd;
-        return { stdout: 'pong' };
-      },
-    });
-    expect(receivedCmd!).toContain('gemini -p');
-  });
+  it.each(['gemini', 'kimi', 'other'])(
+    'does not retain the retired %s verification bypass',
+    async (cli) => {
+      await expect(tryCliProbe(cli)).resolves.toEqual({
+        ok: false,
+        error: `unknown CLI: ${cli}`,
+      });
+    },
+  );
 
   it('builds correct shell command for opencode', async () => {
     let receivedCmd: string;

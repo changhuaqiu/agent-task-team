@@ -28,6 +28,7 @@ function account(): Account {
     models: ['gpt-5.4'],
     enabled: true,
     status: 'valid',
+    hasApiKey: true,
     createdAt: '2026-07-21T00:00:00.000Z',
     updatedAt: '2026-07-21T00:00:00.000Z',
   };

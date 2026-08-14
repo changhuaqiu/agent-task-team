@@ -260,6 +260,7 @@ describe('resolveRuntimeAgentProfile', () => {
         authMode: 'api_key',
         provider: 'openai',
         models: ['gpt-5.4'],
+        hasApiKey: true,
         enabled: true,
         status: 'valid',
         createdAt: '2026-05-07T00:00:00.000Z',
@@ -297,8 +298,8 @@ describe('resolveRuntimeAgentProfile', () => {
     };
 
     const profile = resolveRuntimeAgentProfile(runtime, 'planner', [
-      { id: 'acc-disabled', provider: 'openai', authMode: 'api_key', enabled: false },
-      { id: 'acc-enabled', provider: 'anthropic', authMode: 'oauth', enabled: true },
+      { id: 'acc-disabled', provider: 'openai', authMode: 'api_key', enabled: false, status: 'valid', models: ['gpt-5.4'], hasApiKey: true },
+      { id: 'acc-enabled', provider: 'anthropic', authMode: 'oauth', enabled: true, status: 'valid', models: [], hasApiKey: false },
     ]);
 
     expect(profile).toMatchObject({
@@ -330,7 +331,7 @@ describe('resolveRuntimeAgentProfile', () => {
     };
 
     const profile = resolveRuntimeAgentProfile(runtime, 'planner', [
-      { id: 'acc-google', provider: 'google', authMode: 'api_key', enabled: true },
+      { id: 'acc-google', provider: 'google', authMode: 'api_key', enabled: true, status: 'valid', models: ['gemini-2.5-pro'], hasApiKey: true },
     ]);
 
     expect(profile).toMatchObject({
@@ -357,6 +358,26 @@ describe('resolveRuntimeAgentProfile', () => {
       provider: 'google',
       authMode: 'oauth',
       enabled: true,
+      status: 'valid',
+      models: [],
+      hasApiKey: false,
+    }])).toBeNull();
+  });
+
+  it('does not select an unverified API Key account', () => {
+    const runtime: TeamRuntime = {
+      conversationId: 'conv-team',
+      roster: [{
+        id: 'planner', displayName: 'Planner', source: 'team-pack-role',
+        accountIds: ['acc-pending'], skills: [],
+      }],
+      communicationPolicy: { canSend: () => true, explainBlock: () => undefined },
+      workflowPolicy: { assignInitialTask: () => null, getNextAgent: () => null },
+    };
+
+    expect(resolveRuntimeAgentProfile(runtime, 'planner', [{
+      id: 'acc-pending', provider: 'kimi', authMode: 'api_key', enabled: true, status: 'pending',
+      baseUrl: 'https://api.moonshot.cn/v1', models: ['moonshot-v2'], hasApiKey: true,
     }])).toBeNull();
   });
 
@@ -384,7 +405,7 @@ describe('resolveRuntimeAgentProfile', () => {
     } as unknown as TeamRuntime;
 
     const profile = resolveRuntimeAgentProfile(runtime, 'planner', [
-      { id: 'acc-disabled', provider: 'openai', authMode: 'api_key', enabled: false },
+      { id: 'acc-disabled', provider: 'openai', authMode: 'api_key', enabled: false, status: 'valid', models: ['gpt-5.4'], hasApiKey: true },
     ]);
 
     expect(profile).toMatchObject({
@@ -418,7 +439,7 @@ describe('resolveRuntimeAgentProfile', () => {
 
     expect(
       resolveRuntimeAgentProfile(runtime, 'planner', [
-        { id: 'acc-disabled', provider: 'openai', authMode: 'api_key', enabled: false },
+        { id: 'acc-disabled', provider: 'openai', authMode: 'api_key', enabled: false, status: 'valid', models: ['gpt-5.4'], hasApiKey: true },
       ]),
     ).toBeNull();
   });
