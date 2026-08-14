@@ -120,6 +120,8 @@ describe('POST /api/mutations', () => {
     'session.sealByTask',
     'invocation.create',
     'invocation.transition',
+    'phase.upsert',
+    'phase.delete',
   ])('rejects retired browser-owned mutation %s', async (type) => {
     const res = mockRes();
     await handler(mockReq('POST', { type, payload: {} }), res);

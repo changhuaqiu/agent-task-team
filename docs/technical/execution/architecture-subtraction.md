@@ -106,3 +106,7 @@ Google/Gemini API Key 账号能够由 OpenCode provider 配置消费，原生 Ge
 ## 第十八轮：收回浏览器对 Session 与 Invocation 生命周期的旧写入口
 
 `/api/mutations` 曾同时承担 UI 数据写入和 Runtime 生命周期写入。随着 Task Graph、Session identity 与 Invocation Pipeline 成为唯一领域 owner，`task.delete` 别名以及 session create/bind/seal、invocation create/transition 七个动作已无任何生产调用，只剩 endpoint 自测；继续保留会让浏览器绕过版本、profile、runtime event 与 fencing 边界。第十八轮删除这些公开 case 及其自测：Task 取消只走 Task Graph `cancelTask`，Session 与 Invocation 只由服务端 owner 推进，浏览器保留投影读取而不写 Runtime 事实。
+
+## 第十九轮：收敛 Phase 持久化 interface
+
+`/api/phases` 已经实现阶段读取与写入，但 WebUI 的唯一写调用方仍通过通用 `/api/mutations` 的 `phase.upsert` / `phase.delete` 两个转发 case 持久化，形成两个公开 transport owner。`/api/state` 不包含 phases，因此独立 route 的 GET 仍承担真实启动水合；本轮把 store 写入迁到同一 route，删除 mutation 中的重复类型与 case，使 Phase CRUD 只保留 `/api/phases`，通用 mutation 从 14 种命令收敛到 12 种。

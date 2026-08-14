@@ -21,6 +21,8 @@ describe('runtime ownership architecture', () => {
   const deliveryApi = source('src/pages/api/autonomous-delivery.ts');
   const githubIngress = source('src/server/github-issue-hook/ingress.ts');
   const mutationApi = source('src/pages/api/mutations.ts');
+  const phaseApi = source('src/pages/api/phases.ts');
+  const taskStore = source('src/store/taskStore.ts');
   const skillTools = source('src/server/skill-tool-executor.ts');
 
   it('does not accept browser execution acknowledgements for server-owned A2A work', () => {
@@ -109,6 +111,21 @@ describe('runtime ownership architecture', () => {
     ]) {
       expect(mutationApi).not.toContain(`case '${action}'`);
     }
+  });
+
+  it('keeps Phase persistence behind the dedicated Phase interface', () => {
+    expect(phaseApi).toContain("if (req.method === 'GET')");
+    expect(phaseApi).toContain("if (req.method === 'POST')");
+    expect(phaseApi).toContain("if (req.method === 'DELETE')");
+    expect(taskStore).toContain("fetch('/api/phases'");
+    expect(taskStore).toContain('fetch(`/api/phases?id=${encodeURIComponent(phaseId)}`');
+    for (const action of ['phase.upsert', 'phase.delete']) {
+      expect(mutationApi).not.toContain(`case '${action}'`);
+      expect(taskStore).not.toContain(`type: '${action}'`);
+    }
+    const phasePersistenceRoutes = productionTypeScriptFiles('src/pages/api')
+      .filter((path) => /phaseQueries|(?:listPhasesByConversation|upsertPhase|deletePhase)\(/.test(source(path)));
+    expect(phasePersistenceRoutes).toEqual(['src/pages/api/phases.ts']);
   });
 
   it('keeps every production Task write inside an explicit Task Graph owner module', () => {

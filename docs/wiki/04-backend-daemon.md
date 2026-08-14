@@ -35,9 +35,11 @@
 - message append
 - dispatch enqueue（dispatch 持久化入队）
 - tool invoke（skill 定义的自定义 tool 路由）
-- phase upsert/delete 与 ATH breakdown 初始化
+- ATH breakdown 初始化
 
 Task 取消统一走 `/api/task-graph` 的 `cancelTask` owner command。Session create/bind/seal 与 Invocation create/transition 属于服务端 Runtime owner，不向浏览器 mutation 暴露；前端只读取 `/api/state` 与 runtime projection。
+
+Phase 读取与写入统一由 `/api/phases` 承担；通用 mutation 不再重复暴露 phase upsert/delete。
 
 TeamPack 会话的服务端任务创建会经过 [`src/server/team-runtime/task-assignment.ts`](../../src/server/team-runtime/task-assignment.ts)：
 

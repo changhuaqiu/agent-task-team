@@ -321,23 +321,20 @@ export const createTaskSlice = (set: any, get: () => any) => {
 
       const phase = get().phases.find((p: Phase) => p.id === id);
       if (phase) {
-        fetch('/api/mutations', {
+        fetch('/api/phases', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
-            type: 'phase.upsert',
-            payload: {
-              id: phase.id,
-              conversationId: phase.conversationId,
-              title: phase.title,
-              description: phase.description,
-              order: phase.order,
-              status: phase.status,
-              createdAt: phase.createdAt,
-              updatedAt: phase.updatedAt,
-            },
+            id: phase.id,
+            conversationId: phase.conversationId,
+            title: phase.title,
+            description: phase.description,
+            order: phase.order,
+            status: phase.status,
+            createdAt: phase.createdAt,
+            updatedAt: phase.updatedAt,
           }),
-        }).catch((err: any) => console.error('[mutation] phase.upsert failed:', err));
+        }).catch((err: any) => console.error('[phases] upsert failed:', err));
       }
 
       return id;
@@ -346,11 +343,10 @@ export const createTaskSlice = (set: any, get: () => any) => {
     removePhase: (phaseId: string) => {
       set((state: any) => ({ phases: state.phases.filter((p: Phase) => p.id !== phaseId) }));
 
-      fetch('/api/mutations', {
-        method: 'POST',
+      fetch(`/api/phases?id=${encodeURIComponent(phaseId)}`, {
+        method: 'DELETE',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ type: 'phase.delete', payload: { id: phaseId } }),
-      }).catch((err: any) => console.error('[mutation] phase.delete failed:', err));
+      }).catch((err: any) => console.error('[phases] delete failed:', err));
     },
 
     // Breakdown actions

@@ -279,7 +279,8 @@ Agent Inbox 查询得到的项目展示投影，不负责出队或重试。
 | 端点 | 方法 | 职责 |
 |------|------|------|
 | `/api/state` | GET | 加载全量状态 |
-| `/api/mutations` | POST | 浏览器协作与数据命令；不写 Session/Invocation lifecycle |
+| `/api/mutations` | POST | 12 种浏览器协作与数据命令；不写 phase 或 Session/Invocation lifecycle |
+| `/api/phases` | GET/POST/DELETE | 阶段数据的唯一读写 interface |
 | `/api/daemon/init` | GET | 初始化 Socket.IO Daemon |
 | `/api/socketio` | WS | WebSocket 通信 |
 

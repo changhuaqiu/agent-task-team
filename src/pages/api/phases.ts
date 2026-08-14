@@ -18,11 +18,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     if (req.method === 'POST') {
-      const phase = req.body as Phase;
-      if (!phase.id || !phase.conversationId || !phase.title) {
-        return res.status(400).json({ error: 'id, conversationId, and title are required' });
+      if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
+        return res.status(400).json({ error: 'A complete valid phase is required' });
       }
-      const result = upsertPhase(phase);
+      const phase = req.body as Partial<Phase>;
+      if (
+        typeof phase.id !== 'string' || !phase.id.trim()
+        || typeof phase.conversationId !== 'string' || !phase.conversationId.trim()
+        || typeof phase.title !== 'string' || !phase.title.trim()
+        || typeof phase.description !== 'string'
+        || typeof phase.order !== 'number' || !Number.isFinite(phase.order)
+        || !['planned', 'active', 'done'].includes(phase.status ?? '')
+        || typeof phase.createdAt !== 'string' || !phase.createdAt.trim()
+        || typeof phase.updatedAt !== 'string' || !phase.updatedAt.trim()
+      ) {
+        return res.status(400).json({ error: 'A complete valid phase is required' });
+      }
+      const result = upsertPhase(phase as Phase);
       return res.status(200).json(result);
     }
 

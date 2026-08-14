@@ -13,8 +13,6 @@ type MutationType =
   | 'dispatch.enqueue'
   | 'dispatch.cancel'
   | 'tool.invoke'
-  | 'phase.upsert'
-  | 'phase.delete'
   | 'ath.initBreakdown';
 
 interface MutationRequest {
@@ -542,17 +540,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
           ? inbox.getByIdempotencyKey(conversationId, agentId, idempotencyKey)
           : undefined;
         result = { cancelled, status: item?.status ?? 'missing' };
-        break;
-      }
-      case 'phase.upsert': {
-        const { upsertPhase } = await import('@/server/db/phaseQueries');
-        result = upsertPhase(payload as any);
-        break;
-      }
-      case 'phase.delete': {
-        const { deletePhase } = await import('@/server/db/phaseQueries');
-        deletePhase(payload.id as string);
-        result = { id: payload.id };
         break;
       }
       case 'tool.invoke': {
