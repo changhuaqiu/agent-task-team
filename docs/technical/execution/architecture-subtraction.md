@@ -82,3 +82,7 @@ Agent 执行已经统一到 ACP，但仓库仍保留一条没有生产消费者�
 ## 第十二轮：删除前端 Mock Runner 兼容层
 
 浏览器 store 仍保留空的 `refreshRuntimeCatalog()`、无调用方的 `getAvailableRuntime()` 和没有用户入口的 `enableMockRunner`；两条 `terminal:start` 还发送 daemon 从不读取的 `allowMockRunner`。生产 engine/runtime map 甚至继续声明 `mock-runtime`，并指向已经删除的 `backend/mock-opencode.js`。正式运行时可用性已经由 daemon 推送，执行统一通过 ACP Catalog。第十二轮删除这些空 seam、状态、UI 旁路、协议字段和不可执行的生产 mock runtime 身份，持久化升级到 v8 并清除旧键；自动化测试内部的 mock ACP agent 继续保留。
+
+## 第十三轮：删除 tmux 平行执行链
+
+daemon 的 `ATH_TMUX_ENABLED` 分支被文档描述为 ACP 的可选观察模式，实际却在 backend 构造前直接拼接厂商私有 CLI 参数、送入 tmux pane 后提前返回，绕过统一 ACP 事件、session 确认和 Invocation 终结。`TmuxGateway`、`AgentPaneRegistry` 与 OpenCode legacy 参数模块没有其他生产消费者。第十三轮删除整条平行执行链，runtime context transport 收窄为 `acp`；终端 UI 继续消费 Runtime/ACP 投影，不依赖 tmux。

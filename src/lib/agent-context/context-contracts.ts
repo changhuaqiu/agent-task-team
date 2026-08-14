@@ -145,7 +145,7 @@ export interface ContextSnapshot {
   missingRequired: string[];
   omissions: ContextOmission[];
   runtimeInput?: {
-    transport: 'tmux' | 'acp';
+    transport: 'acp';
     systemPromptChannel: 'none' | 'instructions' | 'backend' | 'inline';
     promptDigest: string;
     systemPromptDigest?: string;

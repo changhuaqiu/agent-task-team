@@ -266,7 +266,7 @@ Team Runtime 缓存是派生缓存，不是新的事实源。缓存只复用 `re
 store 监听 daemon 推送的实时事件，并将其映射成前端状态：
 
 - `project:view`
-  - 统一接收 Runtime/ACP/tmux 的项目展示信封
+  - 统一接收 Runtime/ACP 的项目展示信封
   - 先校验 `version` 和 `projectId === selectedConversationId`
   - `runtime.*` 映射到聊天流、tool event、活动态和 session
   - `terminal.output` 写入 `terminalLogs`

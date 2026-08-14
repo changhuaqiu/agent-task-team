@@ -323,7 +323,7 @@ interface ContextArtifact extends ContextFragment {
 - `ContextContributor.id` 是 Registry 认证的生产者身份。Contributor 返回的每个 Fragment，其 `producer` 必须与注册 id 一致；请求声明的 required Contributor 即使未注册，也必须进入 missing-required。
 - ContextManager 生成 assembly snapshot；Daemon 在确定 transport、workdir 指令与 system prompt 投递通道后生成 runtime snapshot。对外观测使用 runtime snapshot id，确保 id 覆盖实际输入。
 - Snapshot manifest 必须包含 Fragment `kind / semantic`。运行时哈希必须包含 prompt、system prompt、transport 与 system prompt channel 的摘要。
-- 同一 system context 在一个 Runtime 中只能通过一个通道投递。OpenCode 使用配置文件 `instructions` 时，ACP prompt、tmux 参数与普通 prompt 不得再次内联同一 system context。
+- 同一 system context 在一个 Runtime 中只能通过一个通道投递。OpenCode 使用配置文件 `instructions` 时，ACP prompt 不得再次内联同一 system context。
 
 ---
 

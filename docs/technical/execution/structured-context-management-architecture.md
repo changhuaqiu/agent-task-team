@@ -344,7 +344,7 @@ required floor，并在自身无法装入时 fail closed。
 - Contributor 的注册 id 是可信生产者身份，Fragment 不能通过自报 `producer` 冒名，未注册的 required Contributor 也必须被报告为缺失；
 - ContextManager 先生成 assembly snapshot，Daemon 在 transport、workdir 指令和 system prompt 通道确定后再生成 runtime snapshot；调试 UI 以 runtime snapshot 为本轮实际输入凭证；
 - assembly manifest 包含 Fragment 的 `kind / semantic`，runtime manifest 额外包含 prompt、system prompt、transport 与投递通道摘要；
-- OpenCode 选择 `instructions` 文件作为 system context 通道后，ACP prompt 与 tmux 参数不再重复内联同一内容。
+- OpenCode 选择 `instructions` 文件作为 system context 通道后，ACP prompt 不再重复内联同一内容。
 
 ### C1：稳定态 / 版本态 / 动态态分流
 

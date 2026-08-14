@@ -226,7 +226,6 @@ spawn('script', ['-q', '/dev/null', 'opencode', ...args], {
   ├─ ACP 通路（agent 执行唯一 backend 路径）：
   │   ├─ loadCatalog().find(e => e.id === engine)（无条目 → 抛错，不回退）
   │   ├─ prepareAcpRuntime(entry, ...)（opencode 写 opencode.json / codex 隔离 CODEX_HOME / claude passthrough）
-  │   ├─ tmuxEnabled → tmux pane 模式（可选观察/执行，仍经 ACP backend）
   │   └─ createAcpBackend(entry, opts)
   │
   ├─ backend.execute(prompt, opts)

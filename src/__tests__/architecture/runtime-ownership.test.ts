@@ -53,6 +53,15 @@ describe('runtime ownership architecture', () => {
     expect(daemon).toContain(`socket.on('terminal:kill'`);
   });
 
+  it('keeps agent execution on the ACP backend without a tmux CLI bypass', () => {
+    expect(daemon).toContain('loadCatalog().find');
+    expect(daemon).toContain('createAcpBackend');
+    expect(daemon).not.toContain('ATH_TMUX_ENABLED');
+    expect(daemon).not.toContain("transport: 'tmux'");
+    const forbiddenBypass = /ATH_TMUX|TmuxGateway|AgentPaneRegistry|agent-panes:list|transport:\s*['"]tmux['"]|opencode-prompt-delivery/;
+    expect(productionTypeScriptFiles('src/server').filter((path) => forbiddenBypass.test(source(path)))).toEqual([]);
+  });
+
   it('keeps the WorkContract root correlation above transport envelopes', () => {
     expect(daemon).toContain(
       'correlationId: workContract?.correlationId ?? invocationTraceId ?? invocation.id',

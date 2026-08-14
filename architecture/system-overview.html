@@ -290,7 +290,7 @@
         <text x="60" y="952" fill="#fbbf24" font-size="9" font-weight="600">执行基建</text>
         <rect x="60" y="958" width="500" height="36" rx="6" fill="#0f172a"/>
         <rect x="60" y="958" width="500" height="36" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
-        <text x="310" y="974" fill="white" font-size="10" font-weight="600" text-anchor="middle">workdir · worktree · worktree-gc · tmux-gateway · agent-pane-registry</text>
+        <text x="310" y="974" fill="white" font-size="10" font-weight="600" text-anchor="middle">workdir · worktree · worktree-gc</text>
         <text x="310" y="988" fill="#94a3b8" font-size="8" text-anchor="middle">credentials · accounts-file · cli-probe · opencode-config · skill-tool-executor</text>
 
         <text x="578" y="952" fill="#fbbf24" font-size="9" font-weight="600">文件同步</text>
@@ -356,7 +356,7 @@
           <li>② <b>PromptComposer</b> 组装 16 层 prompt（预算裁剪）</li>
           <li>③ socket <b>terminal:start</b> → daemon</li>
           <li>④ <b>DispatchGateway</b> 建 ExecutionEnvelope + secret 检测</li>
-          <li>⑤ <b>AcpBackend</b> 通过统一 ACP Interface 驱动 runtime；tmux 仅作可选观察</li>
+          <li>⑤ <b>AcpBackend</b> 通过统一 ACP Interface 驱动 runtime</li>
           <li>⑥ <b>AgentEvent</b> 流 → forwardAgentEvent</li>
           <li>⑦ 持久化(message/event/session/invocation) + Socket 广播</li>
           <li>⑧ <b>A2A</b> 扫描输出 → 持球/传球 → <b>Task Flow</b> 流转</li>
@@ -374,7 +374,6 @@
           <li><b>P0</b> types-v2.ts ↔ types-possession.ts 并行，迁移未完成（正在改）</li>
           <li><b>P1</b> Runtime Router / Continue Gate / Possession Buffer 未实现</li>
           <li><b>P1</b> ContextBudget 精度不足（字符÷4 估算，GSSC 未接入裁剪）</li>
-          <li><b>P2</b> Tmux 模式是哑终端，不解析 AgentEvent</li>
           <li><b>P3</b> Proof Log / Execution Envelope 消费端缺失</li>
         </ul>
       </div>

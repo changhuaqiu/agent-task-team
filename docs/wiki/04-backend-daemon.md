@@ -184,7 +184,7 @@ Daemon 的边界是执行编排，不是团队规则解释器：
 
 ### 输出事件
 
-- `project:view` — 带版本和 `projectId` 的 Runtime/ACP/tmux 展示信封，只向项目 room 投递
+- `project:view` — 带版本和 `projectId` 的 Runtime/ACP 展示信封，只向项目 room 投递
 - `task.sync` — 任务文件变更同步（来自 TaskFileWatcher，含 tasks + blockers + conversationId）
 - `task.state` / `task.notification` / `task.wakeup` — 项目任务展示事件；浏览器不负责自动 dispatch
 - `a2a:*` / `dispatch.receipt` — 项目协作展示事件；执行和失败处理留在服务端
@@ -371,7 +371,7 @@ daemon 当前已经具备会话级跟踪：
 
 当前 agent 执行只有一条通路：**ACP**。daemon 经 Catalog 查表 → `AcpBackend` → ACP JSON-RPC over stdio 驱动运行时（opencode 原生 / claude、codex 适配器）。具体职责见 4.6。
 
-历史上曾存在 HTTP Bridge、本地 CLI per-engine 解析、`mock` / `gemini` 回退等并行路径；这些 bespoke backend 与 `factory.ts` 的 engine `switch` 已在 ACP 迁移与架构减法中移除。`tmux` 作为可选观察模式仍可接入 daemon，但 ACP 是 agent 执行的唯一 backend 通路。
+历史上曾存在 HTTP Bridge、本地 CLI per-engine 解析、`mock` / `gemini` 回退和 tmux 直跑厂商 CLI 等并行路径；这些 bespoke backend、`factory.ts` 的 engine `switch` 与 tmux 执行旁路均已在 ACP 迁移和架构减法中移除。ACP 是 agent 执行的唯一 backend 通路。
 
 补充说明：
 

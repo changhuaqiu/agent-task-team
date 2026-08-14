@@ -4,8 +4,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
-import { TmuxGateway } from './tmux-gateway';
-import { AgentPaneRegistry } from './agent-pane-registry';
 import { readAccount } from './accounts-file';
 import { readCredential } from './credentials';
 import { buildProbeEnv } from './cli-probe';
@@ -26,7 +24,6 @@ import {
 import { createBackend as createAcpBackend } from './agent/acp/catalog';
 import { createWorkContractPermissionPolicy } from './agent/acp/permissionPolicy';
 import { checkCapabilities } from './agent/capabilityRouter';
-import { buildOpenCodeRunArgs } from './agent/opencode-prompt-delivery';
 import type { AgentEvent, AgentBackend } from './agent/types';
 import { withDoneGuarantee } from './agent/with-done-guarantee';
 import { isSkillTool } from './skill-tool-router';
@@ -437,21 +434,6 @@ export default function registerDaemon(io: IOServer) {
   workdirManager.gc(24 * 3600 * 1000);
   startWorktreeGCScheduler(workdirManager);
 
-  const tmuxEnabled = process.env.ATH_TMUX_ENABLED === '1';
-  let tmuxGateway: TmuxGateway | undefined;
-  let agentPaneRegistry: AgentPaneRegistry | undefined;
-
-  if (tmuxEnabled) {
-    try {
-      tmuxGateway = new TmuxGateway();
-      agentPaneRegistry = new AgentPaneRegistry();
-      console.log('[daemon] tmux integration enabled');
-    } catch (err) {
-      console.error('[daemon] tmux not available, falling back to direct spawn:', (err as Error).message);
-      tmuxGateway = undefined;
-    }
-  }
-
   const effectOutbox = new DurableEffectOutbox();
   registerProductionRuntimeCompletionEffects(effectOutbox, {
     io,
@@ -547,14 +529,6 @@ export default function registerDaemon(io: IOServer) {
         runtimeNodeRepo.setStatus(connectedRuntimeNodeId, 'stale');
       }
       joinedConversationIds.clear();
-    });
-
-    socket.on('agent-panes:list', (callback) => {
-      if (!agentPaneRegistry) {
-        callback?.({ panes: [] });
-        return;
-      }
-      callback?.({ panes: agentPaneRegistry.listAll() });
     });
 
     socket.on('runtimes:list', async (callback) => {
@@ -829,8 +803,7 @@ export default function registerDaemon(io: IOServer) {
         });
       }
       if (
-        !tmuxGateway
-        && existingSession.cli_session_id
+        existingSession.cli_session_id
         && sessionRepo.releaseUnconfirmedRuntimeSessionId(
           existingSession.id,
           existingSession.cli_session_id,
@@ -909,7 +882,7 @@ export default function registerDaemon(io: IOServer) {
       };
 
       const recordRuntimeContextObservation = (input: {
-        transport: 'tmux' | 'acp';
+        transport: 'acp';
         systemPromptChannel: 'none' | 'instructions' | 'backend' | 'inline';
         prompt: string;
         systemPrompt?: string;
@@ -1027,33 +1000,6 @@ export default function registerDaemon(io: IOServer) {
       // stale frontend cache can resume another project's CLI context.
       const effectiveSessionId = agentSession.cli_session_id ?? undefined;
 
-      // Build CLI args for the optional tmux observation path.
-      const primaryArgs = (() => {
-        switch (engine) {
-          case 'opencode': {
-            return buildOpenCodeRunArgs({
-              prompt: prompt || '',
-              sessionId: effectiveSessionId,
-            });
-          }
-          case 'claude': {
-            const a = ['-p', prompt || '', '--output-format', 'stream-json'];
-            if (systemPrompt) a.push('--append-system-prompt', systemPrompt);
-            if (effectiveSessionId) a.push('--resume', effectiveSessionId);
-            return a;
-          }
-          case 'codex': {
-            const merged = systemPrompt ? `${systemPrompt}\n\n---\n\n${prompt || ''}` : (prompt || '');
-            return ['-q', merged, '--full-auto'];
-          }
-          case 'gemini': {
-            const merged = systemPrompt ? `${systemPrompt}\n\n---\n\n${prompt || ''}` : (prompt || '');
-            return ['-p', merged];
-          }
-          default: return [];
-        }
-      })();
-
       runtimeConfigDir = undefined;
       let runtimeConfigEnv: Record<string, string> = {};
 
@@ -1081,8 +1027,6 @@ export default function registerDaemon(io: IOServer) {
           runtimeConfigEnv = result.env;
         }
       }
-
-      const mergedEnv: Record<string, string> = { ...process.env, ...credentialEnv, ...runtimeConfigEnv } as Record<string, string>;
 
       let announcedRuntimeSessionId: string | undefined;
       let invocationSessionRecorded = false;
@@ -1297,73 +1241,7 @@ export default function registerDaemon(io: IOServer) {
           },
         });
       };
-      if (canonicalEngine && !tmuxGateway) {
-        runtimeEventCoordinator = createRuntimeEventCoordinator();
-        runtimeEventCoordinator?.accept();
-      }
-
-      // --- Local spawn mode ---
-      if (tmuxGateway && agentPaneRegistry) {
-        // tmux pane mode: agent runs inside a tmux pane with remain-on-exit
-        try {
-          const worktreeId = projectId || 'default';
-          await tmuxGateway.ensureServer(worktreeId);
-          const paneId = await tmuxGateway.createAgentPane(worktreeId);
-          const invocationId = `${agentId}-${Date.now()}`;
-          agentPaneRegistry.register(invocationId, worktreeId, paneId, 'daemon');
-
-          const envExports = Object.entries(mergedEnv).filter(([k]) => k !== 'PATH' && k !== 'HOME' && k !== 'USER').map(([k, v]) => `${k}='${String(v).replace(/'/g, "'\\''")}'`).join(' ');
-          recordRuntimeContextObservation({
-            transport: 'tmux',
-            systemPromptChannel: engine === 'opencode' && systemPrompt ? 'instructions' : 'inline',
-            prompt: JSON.stringify({ command: primaryCommand, args: primaryArgs }),
-            systemPrompt: systemPrompt || undefined,
-          });
-          capturePromptObservation(prompt || '', systemPrompt || undefined);
-          const shellCmd = `${envExports ? envExports + ' ' : ''}${[primaryCommand, ...primaryArgs].map((s) => `'${s.replace(/'/g, "'\\''")}'`).join(' ')}`;
-          await tmuxGateway.execInPane(worktreeId, paneId, shellCmd);
-          await tmuxGateway.setPaneReadOnly(worktreeId, paneId, true);
-
-          publishTerminalOutput(
-            `\x1b[33m$ [tmux:${paneId}] ${primaryCommand} ${primaryArgs.join(' ')}\x1b[0m\r\n`,
-          );
-
-          // Poll pane output for terminal:data events
-          const pollInterval = setInterval(async () => {
-            if (!activeProcesses.has(processKey(agentId, projectId))) {
-              clearInterval(pollInterval);
-              return;
-            }
-            try {
-              const content = await tmuxGateway.capturePane(worktreeId, paneId);
-              publishTerminalOutput(content.replace(/\n/g, '\r\n'));
-            } catch { /* pane gone */ }
-          }, 2000);
-
-          activeProcesses.set(processKey(agentId, projectId), {
-            kill: async () => {
-              clearInterval(pollInterval);
-              try {
-                await tmuxGateway.execInPane(worktreeId, paneId, 'C-c');
-                await new Promise((r) => setTimeout(r, 3000));
-              } catch { /* pane dead */ }
-              try {
-                await tmuxGateway.killPane(worktreeId, paneId);
-              } catch { /* already dead */ }
-              agentPaneRegistry.remove(invocationId);
-            },
-          });
-          processStartGuard.markStarted(startKey);
-          acknowledgeEnvelope();
-          return;
-        } catch (err) {
-          console.error('[daemon] tmux pane creation failed, falling back to direct spawn:', (err as Error).message);
-          if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
-        }
-      }
-
-      // --- Execute via Backend abstraction ---
-      if (!runtimeEventCoordinator && canonicalEngine) {
+      if (canonicalEngine) {
         runtimeEventCoordinator = createRuntimeEventCoordinator();
         runtimeEventCoordinator?.accept();
       }
@@ -1510,10 +1388,8 @@ export default function registerDaemon(io: IOServer) {
 
       // --- ACP-only backend construction (Task 10, spec §7.4/§8) ---
       // The bespoke factory + AGENT_BACKEND=legacy fallback were removed —
-      // every engine MUST resolve to a catalog entry. Unknown engines (e.g.
-      // gemini/mock, which have no catalog entry and were never functional
-      // through the bespoke backend) throw explicitly here; the optional tmux
-      // path (primaryArgs) is unaffected.
+      // every engine MUST resolve to a catalog entry. Unknown engines (for
+      // example gemini, which has no catalog entry) throw explicitly here.
       //
       // `executeCwd`/`executeEnv` flow into checkCapabilities opts below so the
       // ACP path's prepared cwd/env (e.g. codex CODEX_HOME) reach the spawn.
