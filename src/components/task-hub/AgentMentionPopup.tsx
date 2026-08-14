@@ -14,9 +14,8 @@ interface AgentMentionPopupProps {
 
 export function AgentMentionPopup({ inputValue, cursorPosition, selectedIndex, onSelect, onClose }: AgentMentionPopupProps) {
   const activeAgentIds = useTaskHubStore((s) => s.activeAgentIds);
-  const roleCards = useTaskHubStore((s) => s.roleCards);
-  const getEffectiveRoster = useTaskHubStore((s) => s.getEffectiveRoster);
-  const effectiveRoster = getEffectiveRoster();
+  const effectiveRoster = useTaskHubStore((s) => s.getEffectiveRoster());
+  const getAgentRoleCard = useTaskHubStore((s) => s.getAgentRoleCard);
 
   const activeAgents = effectiveRoster.filter((a) => activeAgentIds.includes(a.id));
 
@@ -26,9 +25,7 @@ export function AgentMentionPopup({ inputValue, cursorPosition, selectedIndex, o
   const query = atMatch ? atMatch[1].toLowerCase() : '';
 
   const filtered = activeAgents.filter((agent) => {
-    const roleCard = agent.roleCardId
-      ? roleCards.find((c) => c.id === agent.roleCardId)
-      : null;
+    const roleCard = getAgentRoleCard(agent.id);
     const displayName = roleCard?.displayName || '';
     return (
       agent.name.toLowerCase().includes(query) ||
@@ -61,9 +58,7 @@ export function AgentMentionPopup({ inputValue, cursorPosition, selectedIndex, o
         </div>
         <div className="py-1 max-h-[180px] overflow-y-auto scrollbar-thin">
           {filtered.map((agent, i) => {
-            const roleCard = agent.roleCardId
-              ? roleCards.find((c) => c.id === agent.roleCardId)
-              : null;
+            const roleCard = getAgentRoleCard(agent.id);
             const displayName = roleCard?.displayName || '';
 
             return (

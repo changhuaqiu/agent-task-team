@@ -81,6 +81,7 @@ describe('runtime ownership architecture', () => {
       'src/components/task-hub/AgentBar.tsx',
       'src/components/task-hub/AgentRosterModal.tsx',
       'src/components/task-hub/GlobalChatRoom.tsx',
+      'src/components/task-hub/AgentMentionPopup.tsx',
       'src/components/task-hub/TaskDetailPanel.tsx',
     ]) {
       expect(source(consumer)).toContain('getAgentRoleCard');

@@ -1,6 +1,6 @@
 'use client';
 
-import { useTaskHubStore, selectAvailableRoster } from '@/store/taskHubStore';
+import { useTaskHubStore } from '@/store/taskHubStore';
 import { useShallow } from 'zustand/react/shallow';
 import { PixelAvatar } from './PixelAvatar';
 import { X, Sparkles } from 'lucide-react';
@@ -43,7 +43,9 @@ const CARD_THEME_CLASSES: Record<AgentTheme, {
 export function AgentRosterModal() {
   const isOpen = useTaskHubStore((s) => s.isRosterModalOpen);
   const setOpen = useTaskHubStore((s) => s.setRosterModalOpen);
-  const availableAgents = useTaskHubStore(useShallow(selectAvailableRoster));
+  const availableAgents = useTaskHubStore(useShallow((state) => (
+    state.getEffectiveRoster().filter((agent) => !state.activeAgentIds.includes(agent.id))
+  )));
   const inviteAgent = useTaskHubStore((s) => s.inviteAgent);
   const addChatMessage = useTaskHubStore((s) => s.addChatMessage);
   const getAgentRoleCard = useTaskHubStore((s) => s.getAgentRoleCard);
