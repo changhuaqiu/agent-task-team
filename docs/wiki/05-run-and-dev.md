@@ -3,7 +3,7 @@
 ## 5.1 环境要求（建议）
 
 - Node.js：建议 20.x（至少满足 Next.js 16 的运行要求）
-- 包管理器：推荐 pnpm（仓库同时存在 `pnpm-lock.yaml` 与 `package-lock.json`）
+- 包管理器：pnpm 10.33.2；`pnpm-lock.yaml` 是唯一依赖锁定事实源
 - SQLite：默认由应用自动初始化，无需单独启动数据库服务
 
 ## 5.2 安装依赖

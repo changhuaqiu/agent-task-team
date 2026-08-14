@@ -62,3 +62,7 @@ Agent 执行已经统一到 ACP，但仓库仍保留一条没有生产消费者�
 ## 第七轮：收敛 ACP 真实运行探针
 
 早期 `probe-acp-nosdk.mjs` 通过未锁版本的 `npx` 手写 initialize，`verify-daemon-acp-routing.ts` 则重复拼装 catalog、runtime setup、capability 与 done guarantee；两者均无 package、文档或 CI 入口。第七轮删除这两个孤立探针，保留文档化、使用 Catalog 锁定 launcher 且覆盖 session resume 的 `scripts/smoke-acp-runtime.ts`，模块行为继续由自动化测试保护。
+
+## 第八轮：收敛包管理事实源
+
+项目安装、workspace、README、setup 与冻结门禁均使用 pnpm，但根目录仍保留一份长期未更新、继续声明已删除 `express` 的 npm lockfile。第八轮删除 `package-lock.json`，只保留 `pnpm-lock.yaml`；同时去掉无直接引用的 `highlight.js` 直依赖（高亮能力仍由 `rehype-highlight` 传递提供），并将纯编译期的 `@types/cross-spawn` 归位到 devDependencies。
