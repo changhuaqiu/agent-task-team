@@ -127,6 +127,7 @@ describe('project session scoping', () => {
 
   it('keeps the simulated terminal command free of retired routing fields', () => {
     useTaskHubStore.setState({
+      selectedConversationId: 'conv-new',
       tasks: [{
         id: 'task-simulated',
         conversationId: 'conv-new',

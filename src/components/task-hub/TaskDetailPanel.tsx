@@ -93,6 +93,7 @@ const statusActions: {
 export function TaskDetailPanel() {
   const {
     selectedTaskId,
+    selectedConversationId,
     setSelectedTaskId,
     tasks,
     updateTaskStatus,
@@ -105,6 +106,7 @@ export function TaskDetailPanel() {
     agentStatus,
   } = useTaskHubStore(useShallow((s) => ({
     selectedTaskId: s.selectedTaskId,
+    selectedConversationId: s.selectedConversationId,
     setSelectedTaskId: s.setSelectedTaskId,
     tasks: s.tasks,
     updateTaskStatus: s.updateTaskStatus,
@@ -118,7 +120,9 @@ export function TaskDetailPanel() {
   })));
   const runtimeProfile = useTaskHubStore((state) => {
     const selectedTask = state.tasks.find((candidate) => candidate.id === state.selectedTaskId);
-    return selectedTask ? state.getAgentRuntimeProfile(selectedTask.agentId) : null;
+    return selectedTask?.conversationId === state.selectedConversationId
+      ? state.getAgentRuntimeProfile(selectedTask.agentId)
+      : null;
   });
   const panelRef = useRef<HTMLDivElement>(null);
   const descEditRef = useRef<HTMLTextAreaElement>(null);
@@ -127,8 +131,13 @@ export function TaskDetailPanel() {
   const [editValue, setEditValue] = useState('');
 
   const task = tasks.find((t) => t.id === selectedTaskId);
-  const { graph, isLoading: graphLoading, error: graphError, refresh: refreshGraph } = useTaskGraph(task?.conversationId);
-  const agent = task ? getEffectiveRoster().find((a) => a.id === task.agentId) : null;
+  const taskMatchesSelectedConversation = task?.conversationId === selectedConversationId;
+  const { graph, isLoading: graphLoading, error: graphError, refresh: refreshGraph } = useTaskGraph(
+    taskMatchesSelectedConversation ? task.conversationId : undefined,
+  );
+  const agent = taskMatchesSelectedConversation
+    ? getEffectiveRoster().find((a) => a.id === task.agentId)
+    : null;
   const agentRunStatus = agent ? agentStatus[agent.id] : undefined;
   const isRunning = agentRunStatus === 'busy' || agentRunStatus === 'background';
   const isBackgroundRunning = agentRunStatus === 'background';
@@ -184,7 +193,7 @@ export function TaskDetailPanel() {
     });
   }, [editValue, task, updateTaskStatus]);
 
-  if (!task) return null;
+  if (!task || !taskMatchesSelectedConversation) return null;
 
   // Dependency resolution
   const depTasks = task.dependencies

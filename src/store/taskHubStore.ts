@@ -1320,6 +1320,7 @@ export const useTaskHubStore = create<TaskHubState>()(
             conversations: [conversation, ...state.conversations],
             selectedConversationId: id,
             selectedProjectId: id,
+            selectedTaskId: null,
             activeAgentIds: teamPackId ? [] : DEFAULT_ACTIVE_AGENT_IDS,
             currentTeamPack: null,
             agentSessions: {
@@ -1428,6 +1429,7 @@ export const useTaskHubStore = create<TaskHubState>()(
             set({
               selectedConversationId: conversationId,
               selectedProjectId: conversationId || 'default',
+              selectedTaskId: null,
               activeAgentIds: [],
               currentTeamPack: null,
               terminalLogs: {},
@@ -1443,6 +1445,7 @@ export const useTaskHubStore = create<TaskHubState>()(
           set({
             selectedConversationId: conversationId,
             selectedProjectId: conversationId || 'default',
+            selectedTaskId: null,
             activeAgentIds: DEFAULT_ACTIVE_AGENT_IDS,
             currentTeamPack: null,
             terminalLogs: {},

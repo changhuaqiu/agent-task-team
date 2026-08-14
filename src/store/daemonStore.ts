@@ -559,6 +559,10 @@ export const createDaemonSlice = (set: any, get: () => any) => {
       const agentId = task.agentId;
       const conversationId = task.conversationId;
       const projectId = conversationId;
+      if (state.selectedConversationId !== conversationId) {
+        console.warn(`[simulate] ${agentId} aborted: task ${taskId} is outside the selected conversation`);
+        return;
+      }
       const profile = state.getAgentRuntimeProfile(agentId);
       if (!profile) {
         console.warn(`[simulate] ${agentId} aborted: no runtime profile or enabled account for conversation ${conversationId}`);

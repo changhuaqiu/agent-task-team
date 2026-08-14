@@ -32,11 +32,17 @@ describe('account runtime reachability architecture', () => {
 
     const storeFacade = source('src/store/taskHubStore.ts');
     expect(storeFacade).not.toMatch(/export\s*\{[^}]*PROVIDER_TO_ENGINE/);
+    expect(productionTypeScriptFiles('src/store').filter((path) => /\bPROVIDER_TO_ENGINE\b/.test(source(path))))
+      .toEqual([]);
 
     const taskDetail = source('src/components/task-hub/TaskDetailPanel.tsx');
     expect(taskDetail).toContain('state.getAgentRuntimeProfile(selectedTask.agentId)');
+    expect(taskDetail).toContain('selectedTask?.conversationId === state.selectedConversationId');
     expect(taskDetail).toContain('runtimeProfile?.execution.engine');
     expect(taskDetail).not.toMatch(/agent\?\.cliEngine|['"]opencode['"]/);
+
+    const daemonStore = source('src/store/daemonStore.ts');
+    expect(daemonStore).toContain('state.selectedConversationId !== conversationId');
   });
 
   it('does not retain vendor or unconditional probes for OpenCode-routed providers', () => {
