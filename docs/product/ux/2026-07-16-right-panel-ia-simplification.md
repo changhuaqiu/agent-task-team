@@ -15,7 +15,7 @@
 | --- | --- | --- |
 | 看板 | `tasks` 按 `status` 分列 | 否，是 Task 的投影 |
 | 地图 | `/api/task-graph` 远程 + 本地 `tasks` 兜底 | 否，是同一 `tasks` 的关系投影 |
-| 待办 | `tasks` 过滤 `blocked/in_review/pending` 取前 6（`buildNextItems`） | 否，**是看板的子集** |
+| 待办 | `tasks` 过滤 `blocked/in_review/proposed/ready` 取前 6（`buildNextItems`） | 否，**是看板的子集** |
 | 风险 | `blockers` | 半独立，但量小 |
 | 调试 | observability spans | 是，属诊断 |
 
@@ -83,7 +83,7 @@
 - **事实源不变**：`Task[]` 仍是 `taskHubStore` 的单一事实源。本方案只重组投影层，不动领域事实源。
 - **容器瘦身为纯壳**：`ProjectRightPanel` 应从 ~330 行收敛到 ~80 行，只负责开合 + tab 切换 + 渲染当前视图，不再内联数据派生。
 - **视图表示不泄漏到容器**：地图视图模型（`TaskGraphMapView`、edge type、artifact kind）当前内联在容器（`ProjectRightPanel.tsx:86-130`），必须下沉到地图自己的视图层；容器不再 import 这些类型。
-- **状态机单一事实源**：`statusTransitions` 当前在 `MiniKanban.tsx:33-40` 与 `KanbanContextMenu.tsx:18-40` 各存一份，必须抽到 `lib/taskStatusTransitions.ts` 统一引用。
+- **状态机单一事实源**：状态 vocabulary、repository 迁移和无需证据的浏览器动作均由 `src/shared/task-status.ts` 提供；`MiniKanban`、`KanbanContextMenu` 与 `TaskDetailPanel` 共同引用。
 - **双数据源集中化**：地图的本地兜底 / 远程合并逻辑集中到一个 `useMapViewModel`，容器不感知。
 - **不引入新框架/新全局状态/新依赖**（`technical.md` §3）。
 - **`taskHubStore.ts`（2554 行）拆分不在本轮范围**，作为独立后续项。
@@ -101,7 +101,7 @@
 - `src/components/project/MiniKanban.tsx`——扩展 `ViewMode` 支持关系图（吸收 `TaskGraphMap` 作为渲染模式之一）。
 - 新增「需要关注」区组件——吸收 `buildNextItems`（L20-28）+ 风险渲染（L281-318）。
 - 地图数据编排 `localGraph`（L86-130）随 `TaskGraphMap` 一起下沉到视图层。
-- 抽 `lib/taskStatusTransitions.ts`，`MiniKanban` / `KanbanContextMenu` 改为引用。
+- `MiniKanban` / `KanbanContextMenu` / `TaskDetailPanel` 引用 `src/shared/task-status.ts`，不再各自维护迁移表。
 
 明确**不**在本轮：
 
@@ -114,7 +114,7 @@
 - 待办与风险的信息在「需要关注」区一处可见，不再有独立 tab。
 - 地图作为看板的视图模式可达，切换不丢失 `selectedTaskId`。
 - `ProjectRightPanel` 不再 import `TaskGraphMapView` 等地图视图内部类型。
-- `statusTransitions` 只有一处定义。
+- Task 状态与直接动作政策只有 `src/shared/task-status.ts` 一处定义。
 - 现有测试（`TaskGraphMap.test.tsx`、`KanbanCard.test.tsx`、`kanban-integration.test.tsx`）通过或相应更新。
 - 调试 tab 可达且默认不压过主流程。
 

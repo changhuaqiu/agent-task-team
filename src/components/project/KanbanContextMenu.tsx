@@ -5,6 +5,7 @@ import {
   Play,
   Eye,
   CheckCircle2,
+  XCircle,
   ShieldAlert,
   UserPlus,
   GitBranch,
@@ -12,31 +13,18 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { type Task, type TaskStatus, useTaskHubStore } from '@/store/taskHubStore';
+import { nextDirectTaskStatuses } from '@/shared/task-status';
 
 // --- Status transition map ---
 
-const statusTransitions: Record<
-  TaskStatus,
-  { target: TaskStatus; label: string; icon: typeof Play }[]
-> = {
-  pending: [
-    { target: 'in_progress', label: '开始', icon: Play },
-    { target: 'blocked', label: '阻塞', icon: ShieldAlert },
-  ],
-  in_progress: [
-    { target: 'in_review', label: '提交评审', icon: Eye },
-    { target: 'blocked', label: '阻塞', icon: ShieldAlert },
-  ],
-  in_review: [
-    { target: 'done', label: '通过', icon: CheckCircle2 },
-    { target: 'blocked', label: '阻塞', icon: ShieldAlert },
-  ],
-  done: [],
-  rejected: [{ target: 'pending', label: '重置', icon: Play }],
-  blocked: [
-    { target: 'pending', label: '重置', icon: Play },
-    { target: 'in_progress', label: '开始', icon: Play },
-  ],
+const transitionPresentation: Record<TaskStatus, { label: string; icon: typeof Play }> = {
+  proposed: { label: '待确认', icon: Play },
+  ready: { label: '恢复待处理', icon: Play },
+  in_progress: { label: '开始', icon: Play },
+  blocked: { label: '阻塞', icon: ShieldAlert },
+  in_review: { label: '提交评审', icon: Eye },
+  done: { label: '通过', icon: CheckCircle2 },
+  cancelled: { label: '取消', icon: XCircle },
 };
 
 // --- Props ---
@@ -67,7 +55,15 @@ export function KanbanContextMenu({
   const menuRef = useRef<HTMLDivElement>(null);
   const getEffectiveRoster = useTaskHubStore((s) => s.getEffectiveRoster);
   const activeAgentIds = useTaskHubStore((s) => s.activeAgentIds);
-  const transitions = statusTransitions[task.status] ?? [];
+  const transitions = nextDirectTaskStatuses(task.status).map((target) => ({
+    target,
+    ...transitionPresentation[target],
+    label: target === 'in_progress' && task.status === 'in_review'
+      ? '退回修改'
+      : target === 'ready' && task.status === 'proposed'
+        ? '确认待处理'
+        : transitionPresentation[target].label,
+  }));
   const hasDeps = task.dependencies && task.dependencies.length > 0;
   const assignableAgents = getEffectiveRoster().filter((agent) => (
     activeAgentIds.length === 0 || activeAgentIds.includes(agent.id)
@@ -107,6 +103,7 @@ export function KanbanContextMenu({
           {transitions.map(({ target, label, icon: Icon }) => (
             <button
               key={target}
+              data-status-target={target}
               type="button"
               className={cn(
                 'flex items-center gap-2 w-full px-3 py-1.5 text-sm text-[hsl(var(--text-primary))]',

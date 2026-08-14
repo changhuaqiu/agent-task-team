@@ -15,6 +15,7 @@ import { TaskGraphActionsPanel } from './TaskGraphActionsPanel';
 import { useTaskGraph } from './useTaskGraph';
 import { cn } from '@/lib/utils';
 import { EmojiPickerButton } from '@/components/ui/EmojiPickerButton';
+import { nextDirectTaskStatuses } from '@/shared/task-status';
 import {
   X,
   Link2,
@@ -68,8 +69,8 @@ const statusActions: {
       'bg-[hsl(var(--status-done-bg))] text-[hsl(var(--status-done))] border-[hsl(var(--status-done-border))] hover:bg-[hsl(var(--status-done))] hover:text-white',
   },
   {
-    target: 'rejected',
-    label: '拒绝',
+    target: 'cancelled',
+    label: '取消',
     icon: XCircle,
     className:
       'bg-[hsl(var(--status-rejected-bg))] text-[hsl(var(--status-rejected))] border-[hsl(var(--status-rejected-border))] hover:bg-[hsl(var(--status-rejected))] hover:text-white',
@@ -82,8 +83,8 @@ const statusActions: {
       'bg-[hsl(var(--status-blocked-bg))] text-[hsl(var(--status-blocked))] border-[hsl(var(--status-blocked-border))] hover:bg-[hsl(var(--status-blocked))] hover:text-white',
   },
   {
-    target: 'pending',
-    label: '重置',
+    target: 'ready',
+    label: '恢复待处理',
     icon: Clock,
     className:
       'bg-[hsl(var(--status-pending-bg))] text-[hsl(var(--status-pending))] border-[hsl(var(--status-pending-border))] hover:bg-[hsl(var(--status-pending))] hover:text-white',
@@ -188,9 +189,16 @@ export function TaskDetailPanel() {
     .filter(Boolean);
 
   // Filter actions to show only relevant transitions
-  const availableActions = statusActions.filter(
-    (a) => a.target !== task.status
-  );
+  const allowedTargets = new Set(nextDirectTaskStatuses(task.status));
+  const availableActions = statusActions
+    .filter((action) => allowedTargets.has(action.target))
+    .map((action) => (
+      action.target === 'in_progress' && task.status === 'in_review'
+        ? { ...action, label: '退回修改' }
+        : action.target === 'ready' && task.status === 'proposed'
+          ? { ...action, label: '确认待处理' }
+        : action
+    ));
 
   return (
     <>
@@ -345,10 +353,10 @@ export function TaskDetailPanel() {
           </div>
 
           {/* Review/Block Note */}
-          {(task.status === 'rejected' || task.status === 'blocked') && (
+          {task.status === 'blocked' && (
             <div className="space-y-1.5">
               <label className="text-xs font-medium uppercase tracking-wider text-[hsl(var(--text-tertiary))]">
-                {task.status === 'rejected' ? '拒绝原因' : '阻塞原因'}
+                阻塞原因
               </label>
               <div className="relative">
                 <textarea

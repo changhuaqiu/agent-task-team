@@ -659,7 +659,7 @@ describe('Team Pack Dynamic Roster', () => {
         phaseId: '',
         title: 'Existing task',
         description: '',
-        status: 'pending' as const,
+        status: 'ready' as const,
         agentId: 'mario',
         dependencies: [],
         artifacts: [],

@@ -32,7 +32,7 @@ Use the platform task_update_status tool only for the exact task in the current 
         description: 'Update the current dispatched task status and submit structured gate evidence',
         parameters: [
           { name: 'task_id', type: 'string', required: true, description: 'Current dispatched task ID' },
-          { name: 'status', type: 'string', required: true, description: 'New status: pending, in_progress, in_review, done, blocked, rejected' },
+          { name: 'status', type: 'string', required: true, description: 'New status: proposed, ready, in_progress, blocked, in_review, done, cancelled' },
           {
             name: 'evidence',
             type: 'object',

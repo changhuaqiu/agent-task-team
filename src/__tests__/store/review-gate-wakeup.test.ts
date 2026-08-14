@@ -251,7 +251,7 @@ describe('dependency_resolved wakeup', () => {
         phaseId: '',
         title: 'Integration wiring',
         description: 'Wire socket listeners to UI components',
-        status: 'pending',
+        status: 'ready',
         agentId: 'luigi',
         dependencies: ['TASK-004', 'TASK-006'],
         artifacts: [],
@@ -298,6 +298,6 @@ describe('dependency_resolved wakeup', () => {
     }));
 
     const task = useTaskHubStore.getState().getTaskById('TASK-007');
-    expect(task?.status).toBe('pending');
+    expect(task?.status).toBe('ready');
   });
 });

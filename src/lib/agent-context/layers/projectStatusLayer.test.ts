@@ -12,9 +12,9 @@ describe('buildProjectStatusLayer', () => {
     { id: 'TASK-001', title: '设计架构', agentId: 'mario', status: 'done' as const },
     { id: 'TASK-002', title: '实现登录页', agentId: 'luigi', status: 'in_progress' as const },
     { id: 'TASK-003', title: '实现用户API', agentId: 'toad', status: 'in_progress' as const },
-    { id: 'TASK-004', title: '实现注册页', agentId: 'luigi', status: 'pending' as const },
-    { id: 'TASK-005', title: '数据库迁移', agentId: 'toad', status: 'pending' as const },
-    { id: 'TASK-006', title: '单元测试', agentId: '', status: 'pending' as const },
+    { id: 'TASK-004', title: '实现注册页', agentId: 'luigi', status: 'proposed' as const },
+    { id: 'TASK-005', title: '数据库迁移', agentId: 'toad', status: 'ready' as const },
+    { id: 'TASK-006', title: '单元测试', agentId: '', status: 'ready' as const },
   ];
 
   it('renders project task board with summary', () => {

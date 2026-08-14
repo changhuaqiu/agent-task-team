@@ -214,7 +214,7 @@ Dispatch Gateway → ExecutionEnvelope → ACP Runtime
 ```
 
 **关键点**：
-- 任务完成（done/rejected）时 **不再** seal session
+- 任务完成或取消（done/cancelled）时 **不再** seal session
 - 进程退出失败时 **不再** seal session
 - Session 跟随项目生命周期
 

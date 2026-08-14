@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useTaskHubStore, selectActiveAgents, type TaskStatus } from '@/store/taskHubStore';
+import { useTaskHubStore, selectActiveAgents } from '@/store/taskHubStore';
 import { useShallow } from 'zustand/react/shallow';
 import { cn } from '@/lib/utils';
 import { X, Plus } from 'lucide-react';
@@ -21,7 +21,6 @@ export function NewTaskDialog() {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [agentId, setAgentId] = useState(() => activeAgents[0]?.id ?? '');
-  const [status, setStatus] = useState<TaskStatus>('pending');
   const [selectedDeps, setSelectedDeps] = useState<string[]>([]);
 
   useEffect(() => {
@@ -56,7 +55,6 @@ export function NewTaskDialog() {
     addTask({
       title: title.trim(),
       description: description.trim(),
-      status,
       agentId,
       dependencies: selectedDeps,
       artifacts: [],
@@ -160,8 +158,8 @@ export function NewTaskDialog() {
               </div>
             </div>
 
-            {/* Assignee + Status row */}
-            <div className="grid grid-cols-2 gap-3">
+            {/* Assignee */}
+            <div>
               <div className="space-y-1.5">
                 <label className="text-[11px] font-semibold uppercase tracking-wider text-[hsl(var(--text-tertiary))]">
                   分配给
@@ -182,20 +180,6 @@ export function NewTaskDialog() {
                 </select>
               </div>
 
-              <div className="space-y-1.5">
-                <label className="text-[11px] font-semibold uppercase tracking-wider text-[hsl(var(--text-tertiary))]">
-                  状态
-                </label>
-                <select
-                  value={status}
-                  onChange={(e) => setStatus(e.target.value as TaskStatus)}
-                  className="w-full px-3 py-2 text-[13px] bg-[hsl(var(--bg-muted))] border border-[hsl(var(--border))] rounded-[var(--radius-md)] text-[hsl(var(--text-primary))] outline-none focus:border-[hsl(var(--accent))] transition-all"
-                >
-                  <option value="pending">待处理</option>
-                  <option value="in_progress">进行中</option>
-                  <option value="blocked">已阻塞</option>
-                </select>
-              </div>
             </div>
 
             {/* Dependencies */}

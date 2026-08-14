@@ -12,7 +12,7 @@ function graph(): TaskGraphMapView {
       { id: 'root', title: '完整交付', status: 'in_progress', agent_id: 'pm' },
       { id: 'api', title: '任务图 API', status: 'done', agent_id: 'backend' },
       { id: 'ui', title: '群聊界面', status: 'blocked', agent_id: 'frontend' },
-      { id: 'release', title: '回归发布', status: 'pending', agent_id: 'qa' },
+      { id: 'release', title: '回归发布', status: 'ready', agent_id: 'qa' },
     ],
     edges: [
       { id: 'e1', from_task_id: 'api', to_task_id: 'root', type: 'subtask_of' },

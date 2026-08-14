@@ -41,6 +41,7 @@
 | `architecture-subtraction-19/` | implemented | 第十九轮把 Phase CRUD 收敛到唯一 `/api/phases` interface，删除通用 mutation 中的重复 upsert/delete 写入口；长期决策见 `docs/technical/execution/architecture-subtraction.md` |
 | `architecture-subtraction-20/` | implemented | 第二十轮删除无生产调用且绕过 Invocation grant 的浏览器 `tool.invoke`，Agent 工具只保留受控 Skill/MCP executor；长期决策见 `docs/technical/execution/architecture-subtraction.md` |
 | `architecture-subtraction-21/` | implemented | 第二十一轮删除无产品入口且依赖不可验证自由文本身份的人工 annotation route 与自循环统计，保留并修复历史 schema、retention 与聚合删除兼容；长期决策见 `docs/technical/execution/architecture-subtraction.md` |
+| `architecture-subtraction-22/` | implemented | 第二十二轮删除浏览器旧 Task 六态、兼容投影与无效直接动作，统一 repository、API、store、socket、UI 和 Agent preset 的七态契约；长期决策见 `docs/technical/execution/architecture-subtraction.md` |
 | `four-agent-pr-review-loop/` | implemented | 四 Agent PR 交付、评审、修复与合并证据闭环已落地 |
 | `github-issue-agent-hook/` | implemented | GitHub Issue 验签、幂等建项与自主交付链已落地；长期设计见 `docs/technical/integrations/github-issue-agent-hook.md` |
 | `open-issues-33-35/` | implemented | A2A 分派意图、首次交接身份、默认 TeamPack 升级与上下文去重修复已验收 |

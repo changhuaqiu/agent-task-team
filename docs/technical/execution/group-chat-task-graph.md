@@ -187,40 +187,35 @@ Any component that derives a filesystem path from a business ID must still encod
 - `src/server/task-flow/task-notification-publisher.ts` also persists `task-wakeup` system messages and emits `task.wakeup` when an explicit next actor is already known.
 - `task.updateStatus`, `task.update`, task tool invocations, structured task graph actions, and `TASKS.md` watcher sync publish task notifications after durable task state changes.
 - `TASKS.md` projection treats file IDs as project-local and deterministically scopes collisions, so synchronizing one project cannot overwrite another project's task rows.
-- First projection is also a state transition: when a newly discovered file row is already `in_review`, `done`, or another non-default state, the projector publishes the same notification/wakeup decision as an update from `pending`; it must not silently skip the quality gate merely because the row was new.
+- First projection is also a state transition: when a newly discovered file row is already `in_review`, `done`, or another non-default state, the projector publishes the same notification/wakeup decision as an update from `ready`; it must not silently skip the quality gate merely because the row was new.
 - Runtime admission may temporarily lead the file projection: while a task-correlated invocation is non-terminal, a stale file `todo/pending` row cannot regress an already confirmed `in_progress` task. Once that invocation is terminal, TASKS.md again has authority to reset the business status.
 - The frontend consumes `task.notification` as a system group-chat message instead of dispatching another agent run.
-- The frontend consumes `task.wakeup` as a system nudge; pending owners move to `in_progress`, and review wakeups dispatch reviewer roles through the review gate.
+- The frontend consumes `task.wakeup` as a system nudge; `ready` owners move to `in_progress`, and review wakeups dispatch reviewer roles through the review gate.
 - Targeted tests live in `src/__tests__/server/repositories/task-graph-repo.test.ts`.
 - Flow service tests live in `src/__tests__/server/task-flow/group-chat-task-flow.test.ts`.
 - API and UI tests cover graph reads, structured mutations, capsules, action cards, and the task map.
 
 ## State Transition Rules
 
-Allowed common transitions:
+The managed Task lifecycle uses the same canonical status contract in the
+repository, API, browser store, and UI:
 
 ```text
-created -> planned -> ready -> claimed -> running
-running -> waiting
-running -> blocked
-running -> review
-review -> done
-review -> reopened
-blocked -> waiting
-blocked -> ready
-done -> reopened
-ready/running/review -> merged
-created/planned/ready/blocked -> cancelled
+proposed -> ready | cancelled
+ready -> in_progress | blocked | cancelled
+in_progress -> blocked | in_review | cancelled
+blocked -> ready | in_progress | cancelled
+in_review -> done | in_progress | blocked | cancelled
+done -> ready
+cancelled -> (terminal)
 ```
 
 Rules:
 
-- `running` requires an owner.
-- A configured quality-gate reviewer may make a narrow decision on the specific `in_review` task that woke it: PASS advances that task to `done` with review evidence; REJECT advances it to `rejected`/`blocked` with a reason. This exception does not grant permission to edit the implementation, title, owner, or unrelated task rows.
-- `merged` requires a `merged_into` edge.
-- `waiting` should reference at least one dependency or blocker reason.
-- `reopened` must reference a review finding or corrective action.
-- Terminal history is not deleted when a task merges, cancels, or reopens.
+- `in_progress` requires an owner.
+- A configured quality-gate reviewer may make a narrow decision on the specific `in_review` task that woke it: PASS advances that task to `done` with review evidence; changes requested return it to `in_progress`, while an external blocker advances it to `blocked` with a reason. This exception does not grant permission to edit the implementation, title, owner, or unrelated task rows.
+- Reopening a completed task is the explicit `done -> ready` transition and should reference a review finding or corrective action.
+- Terminal history is not deleted when a task is cancelled or reopened.
 
 ## Edge Rules
 
@@ -297,9 +292,9 @@ Flow:
 1. A task mutation or `TASKS.md` sync changes a durable task fact.
 2. The notification publisher resolves recipients and then asks the Wakeup Layer whether the next actor is explicit.
 3. Wakeup Layer emits only these cases:
-   - `owner_ready`: a pending task has an owner and all dependencies are satisfied.
+   - `owner_ready`: a `ready` task has an owner and all dependencies are satisfied.
    - `review_requested`: a task enters `in_review` and reviewer roles are known.
-   - `dependency_resolved`: a dependency task reaches `done`, unblocking downstream pending owners.
+   - `dependency_resolved`: a dependency task reaches `done`, unblocking downstream `ready` owners.
 4. A `task-wakeup` system message is persisted with `startsA2AHandoff: false` and `startsDispatch: true`.
 5. `task.wakeup` is emitted to `io.to(conversationId)`.
 6. The server-side Agent Inbox and Harness start the known next actor; busy,
@@ -365,20 +360,13 @@ Useful read models:
 ## Migration Notes
 
 - Existing tasks remain valid task nodes.
-- A shared database can be upgraded to the managed Task lifecycle before every
-  legacy producer has migrated. The Task repository is the compatibility
-  boundary: it stores legacy `pending` as `ready`, maps `completed` to `done`
-  and `rejected` to `blocked`, normalizes `ready` back to `pending` for legacy
-  readers, and traverses only legal managed transitions for non-adjacent
-  updates. Unknown or unreachable legacy states fail with a repository-level
-  compatibility error instead of leaking a database-trigger error.
-- This Task status adapter is enabled by the presence of the managed Task
-  status constraint, not by a migration watermark. It can be removed after all
-  task producers and consumers use the managed lifecycle directly.
-- `/api/state` is part of that compatibility boundary: while the project Kanban
-  still uses the legacy status union, it projects managed `proposed`/`ready` as
-  `pending` and `cancelled` as `blocked`. Managed storage is never rewritten to
-  satisfy the UI.
+- The Task repository, API, browser store, socket projection, and platform tool
+  schemas consume the canonical managed lifecycle directly. Unknown states fail
+  at their ingress and are never re-projected as another internal lifecycle.
+- The browser, `/api/state`, socket task sync, and Task repository now share the
+  managed status vocabulary and legal transition interface. Compatibility for
+  historical TASKS.md labels remains at server intake; managed state is no
+  longer projected into a second browser lifecycle.
 - Migration version 18 creates a synthetic `task.created` action for each pre-existing task using `task-action-migrated-<taskId>`.
 - Existing chat messages can be backfilled with empty task/action bindings.
 - Existing A2A pass metadata can be linked opportunistically when chain/pass ids are present.

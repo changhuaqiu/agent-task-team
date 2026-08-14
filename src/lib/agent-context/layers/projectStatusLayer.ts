@@ -8,13 +8,17 @@ interface TaskInfo {
   id: string;
   title: string;
   agentId: string;
-  status: 'pending' | 'in_progress' | 'done';
+  status: TaskStatus;
 }
 
-const STATUS_LABELS: Record<string, string> = {
+const STATUS_LABELS: Record<TaskStatus, string> = {
+  proposed: '待确认',
+  ready: '待处理',
   done: '✓',
   in_progress: '进行中',
-  pending: '待处理',
+  blocked: '阻塞',
+  in_review: '评审中',
+  cancelled: '已取消',
 };
 
 export function buildProjectStatusLayer(
@@ -26,7 +30,9 @@ export function buildProjectStatusLayer(
   const total = tasks.length;
   const done = tasks.filter((t) => t.status === 'done').length;
   const inProgress = tasks.filter((t) => t.status === 'in_progress').length;
-  const pending = tasks.filter((t) => t.status === 'pending').length;
+  const ready = tasks.filter((t) => t.status === 'proposed' || t.status === 'ready').length;
+  const blocked = tasks.filter((t) => t.status === 'blocked').length;
+  const inReview = tasks.filter((t) => t.status === 'in_review').length;
 
   // Group tasks by agent
   const byAgent = new Map<string, TaskInfo[]>();
@@ -45,7 +51,7 @@ export function buildProjectStatusLayer(
   const lines: string[] = [
     `## 项目任务看板`,
     '',
-    `总进度：${total} 个任务 | ${done} 完成 | ${inProgress} 进行中 | ${pending} 待处理`,
+    `总进度：${total} 个任务 | ${done} 完成 | ${inProgress} 进行中 | ${inReview} 评审中 | ${ready} 待处理 | ${blocked} 阻塞`,
     '',
   ];
 
@@ -72,3 +78,4 @@ export function buildProjectStatusLayer(
 
   return lines.join('\n');
 }
+import type { TaskStatus } from '@/shared/task-status';

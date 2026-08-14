@@ -95,7 +95,7 @@ Task mutation / Autonomy Guard / A2A pass
 
 ### Outcome Reducer
 
-- runtime accepted 可以把 ready owner 的 Task 从 pending 推进到 in_progress；
+- runtime accepted 可以把 ready owner 的 Task 推进到 in_progress；
 - runtime success 只代表本轮执行结束，不代表实现证据或交付证据通过；
 - in_review/done 仍只能由结构化 task mutation/tool 经过 gate 后进入。
 - TASKS.md watcher 必须同时消费文件首次创建的 `add` 和后续更新的 `change`；watcher 先启动、Agent 后创建看板是新项目的正常路径，首个事件不能丢失。
@@ -157,7 +157,7 @@ Task mutation / Autonomy Guard / A2A pass
 - Coordinator：accepted、duplicate、busy、blocked。
 - Planner：真实 repository role/account/context 解析与缺配置错误。
 - Registry：无浏览器提交与显式 fallback。
-- Reducer：只允许 pending -> in_progress，不越过质量门禁。
+- Reducer：只允许 ready -> in_progress，不越过质量门禁。
 - File projection：当该任务已有已确认且尚未终止的 invocation 时，TASKS.md 中尚未来得及改写的 `todo/pending` 是 stale snapshot，不得把 reducer 已确认的 `in_progress` 回滚；invocation 终止后文件重新取得业务状态权威。
 - A2A：结构化 `handoff_to_agent`、A2A owner 原子建模、AgentInbox admission、
   Harness/runtime 启动确认以及无浏览器 fallback。

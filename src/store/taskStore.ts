@@ -5,33 +5,30 @@ import type { PhaseProposal } from '@/lib/breakdownParser';
 import { DispatchAdvisor } from '@/lib/dispatchAdvisor';
 import { AGENT_ROSTER } from './agentStore';
 import type { TeamPack } from '@/types/teamPack';
+import type { TaskStatus } from '@/shared/task-status';
+
+export type { TaskStatus } from '@/shared/task-status';
 
 // --- Task types ---
 
-export type TaskStatus =
-  | 'pending'
-  | 'in_progress'
-  | 'in_review'
-  | 'done'
-  | 'rejected'
-  | 'blocked';
-
 export const STATUS_LABELS: Record<TaskStatus, string> = {
-  pending: '待处理',
+  proposed: '待确认',
+  ready: '待处理',
   in_progress: '进行中',
+  blocked: '已阻塞',
   in_review: '评审中',
   done: '已完成',
-  rejected: '已拒绝',
-  blocked: '已阻塞',
+  cancelled: '已取消',
 };
 
 export const STATUS_ORDER: TaskStatus[] = [
   'blocked',
-  'rejected',
   'in_progress',
   'in_review',
-  'pending',
+  'proposed',
+  'ready',
   'done',
+  'cancelled',
 ];
 
 export interface TaskArtifact {
@@ -129,7 +126,7 @@ export const createTaskSlice = (set: any, get: () => any) => {
       return get().tasks.find((t: Task) => t.agentId === agentId && t.status === 'in_progress');
     },
 
-    addTask: (taskData: Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'conversationId' | 'phaseId'> & { phaseId?: string }) => {
+    addTask: (taskData: Omit<Task, 'id' | 'status' | 'createdAt' | 'updatedAt' | 'conversationId' | 'phaseId'> & { phaseId?: string }) => {
       const state = get();
       const conversationId = state.selectedConversationId;
       if (!conversationId) return;
@@ -147,7 +144,7 @@ export const createTaskSlice = (set: any, get: () => any) => {
       set((s: any) => ({
         tasks: [
           ...s.tasks,
-          { ...taskData, id, phaseId: taskData.phaseId || '', createdAt: stamp, updatedAt: stamp, conversationId },
+          { ...taskData, id, status: 'ready' as const, phaseId: taskData.phaseId || '', createdAt: stamp, updatedAt: stamp, conversationId },
         ],
       }));
 
@@ -406,7 +403,7 @@ export const createTaskSlice = (set: any, get: () => any) => {
       const currentTasks = state.tasks;
       const currentLoad: Record<string, number> = {};
       for (const t of currentTasks) {
-        if (t.status === 'in_progress' || t.status === 'pending') {
+        if (t.status === 'in_progress' || t.status === 'ready') {
           currentLoad[t.agentId] = (currentLoad[t.agentId] ?? 0) + 1;
         }
       }
@@ -435,7 +432,7 @@ export const createTaskSlice = (set: any, get: () => any) => {
               phaseId,
               title: taskProp.title,
               description: taskProp.description,
-              status: 'pending' as TaskStatus,
+              status: 'ready' as TaskStatus,
               agentId: taskProp.agentId || 'mario',
               dependencies: [],
               artifacts: [],
@@ -454,7 +451,6 @@ export const createTaskSlice = (set: any, get: () => any) => {
                 title: taskProp.title,
                 description: taskProp.description,
                 agent_id: taskProp.agentId || 'mario',
-                status: 'pending',
                 dependencies: JSON.stringify([]),
                 artifacts: JSON.stringify([]),
                 idempotencyKey: newTaskCommandId('task.create'),

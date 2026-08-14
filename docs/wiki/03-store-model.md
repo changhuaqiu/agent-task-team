@@ -15,18 +15,23 @@
 
 ```ts
 export type TaskStatus =
-  | 'pending'
+  | 'proposed'
+  | 'ready'
   | 'in_progress'
+  | 'blocked'
   | 'in_review'
   | 'done'
-  | 'rejected'
-  | 'blocked';
+  | 'cancelled';
 ```
 
 配套常量：
 
 - `STATUS_LABELS`
 - `STATUS_ORDER`
+
+状态 vocabulary 与合法迁移定义在 `src/shared/task-status.ts`，Task repository、`/api/state`、Zustand 与 Kanban 共同消费。浏览器不再把 `proposed/ready` 压成 `pending`，也不再虚构服务端不存在的 `rejected`；评审退回使用 `in_review → in_progress`。浏览器本地缓存仅在 v9 持久化迁移中一次性把旧 `pending/rejected` 转为 `ready/in_progress`，其他非法任务丢弃；socket 非法状态只留下可诊断同步错误，不写入 store。
+
+浏览器的直接状态动作还受命令策略约束：无证据控件不展示 `in_progress → in_review` 或 `in_review → done`。前者必须走实现证据流程，后者只由匹配当前 revision 的 QualityGate 通过事件推进。
 
 ### Agent
 

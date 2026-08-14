@@ -45,7 +45,7 @@ describe('ProjectRightPanel', () => {
         phaseId: '',
         title: 'Plain project task',
         description: '',
-        status: 'pending',
+        status: 'ready',
         agentId: 'mario',
         dependencies: [],
         artifacts: [],

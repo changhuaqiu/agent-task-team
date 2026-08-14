@@ -16,7 +16,13 @@ const statusConfig: Record<
   TaskStatus,
   { icon: typeof Clock; dotClass: string; badgeClass: string }
 > = {
-  pending: {
+  proposed: {
+    icon: Clock,
+    dotClass: 'bg-[hsl(var(--status-pending))]',
+    badgeClass:
+      'bg-[hsl(var(--status-pending-bg))] text-[hsl(var(--status-pending))] border-[hsl(var(--status-pending-border))]',
+  },
+  ready: {
     icon: Clock,
     dotClass: 'bg-[hsl(var(--status-pending))]',
     badgeClass:
@@ -40,11 +46,11 @@ const statusConfig: Record<
     badgeClass:
       'bg-[hsl(var(--status-done-bg))] text-[hsl(var(--status-done))] border-[hsl(var(--status-done-border))]',
   },
-  rejected: {
+  cancelled: {
     icon: XCircle,
-    dotClass: 'bg-[hsl(var(--status-rejected))]',
+    dotClass: 'bg-[hsl(var(--text-tertiary))]',
     badgeClass:
-      'bg-[hsl(var(--status-rejected-bg))] text-[hsl(var(--status-rejected))] border-[hsl(var(--status-rejected-border))]',
+      'bg-[hsl(var(--bg-muted))] text-[hsl(var(--text-tertiary))] border-[hsl(var(--border))]',
   },
   blocked: {
     icon: ShieldAlert,

@@ -313,7 +313,7 @@ async function executeVerificationServeArtifact(invocation: ToolInvocation): Pro
   if (!task || task.conversation_id !== invocation.conversationId) {
     return { success: false, error: 'Current dispatched task is not part of this conversation' };
   }
-  if (!['in_review', 'blocked', 'rejected', 'done'].includes(task.status)) {
+  if (!['in_review', 'blocked', 'done'].includes(task.status)) {
     return {
       success: false,
       error: `verification_serve_artifact is limited to quality-gate tasks; current status is ${task.status}`,

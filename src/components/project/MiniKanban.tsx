@@ -25,44 +25,26 @@ import { KanbanColumn } from './KanbanColumn';
 import { KanbanCard } from './KanbanCard';
 import { KanbanContextMenu } from './KanbanContextMenu';
 import { Columns3, Users, List } from 'lucide-react';
-import { toLegacyProjectTaskStatus } from '@/shared/task-status-compat';
+import { isTaskStatus, nextDirectTaskStatuses } from '@/shared/task-status';
 
 type ViewMode = 'status' | 'agent' | 'list';
-
-// --- Valid status transitions ---
-
-const VALID_TRANSITIONS: Record<TaskStatus, TaskStatus[]> = {
-  pending: ['in_progress', 'blocked'],
-  in_progress: ['in_review', 'blocked'],
-  in_review: ['done', 'blocked'],
-  done: [],
-  rejected: ['pending', 'in_progress'],
-  blocked: ['pending', 'in_progress'],
-};
 
 // --- Helpers ---
 
 function groupByStatus(tasks: Task[]): Record<TaskStatus, Task[]> {
   const map: Record<TaskStatus, Task[]> = {
-    pending: [],
+    proposed: [],
+    ready: [],
     in_progress: [],
+    blocked: [],
     in_review: [],
     done: [],
-    rejected: [],
-    blocked: [],
+    cancelled: [],
   };
   for (const task of tasks) {
-    const status = toLegacyProjectTaskStatus(task.status);
-    map[status].push(status === task.status ? task : { ...task, status });
+    map[task.status].push(task);
   }
   return map;
-}
-
-function isTaskStatus(value: unknown): value is TaskStatus {
-  return (
-    typeof value === 'string' &&
-    ['pending', 'in_progress', 'in_review', 'done', 'rejected', 'blocked'].includes(value)
-  );
 }
 
 // --- Sync age hook (pure external store) ---
@@ -212,7 +194,7 @@ export function MiniKanban(_props: MiniKanbanProps) {
     const overId = event.over?.id;
     if (activeTask && isTaskStatus(overId)) {
       const targetStatus = overId as TaskStatus;
-      const allowed = VALID_TRANSITIONS[activeTask.status] ?? [];
+      const allowed = nextDirectTaskStatuses(activeTask.status);
       if (allowed.includes(targetStatus)) {
         updateTaskStatus(activeTask.id, targetStatus);
       }
@@ -385,7 +367,7 @@ export function MiniKanban(_props: MiniKanbanProps) {
                   const columnTasks = grouped[status] || [];
                   const isValidTarget =
                     dragSourceStatus != null &&
-                    (VALID_TRANSITIONS[dragSourceStatus] ?? []).includes(status);
+                    nextDirectTaskStatuses(dragSourceStatus).includes(status);
 
                   return (
                     <KanbanColumn
@@ -511,12 +493,13 @@ export function MiniKanban(_props: MiniKanbanProps) {
 
 function StatusDot({ status }: { status: TaskStatus }) {
   const colors: Record<TaskStatus, string> = {
-    pending: 'bg-[hsl(var(--status-pending))]',
+    proposed: 'bg-[hsl(var(--status-pending))]',
+    ready: 'bg-[hsl(var(--status-pending))]',
     in_progress: 'bg-[hsl(var(--status-progress))]',
+    blocked: 'bg-[hsl(var(--status-blocked))]',
     in_review: 'bg-[hsl(var(--status-review))]',
     done: 'bg-[hsl(var(--status-done))]',
-    rejected: 'bg-[hsl(var(--status-rejected))]',
-    blocked: 'bg-[hsl(var(--status-blocked))]',
+    cancelled: 'bg-[hsl(var(--text-tertiary))]',
   };
   return <span className={cn('inline-block w-2 h-2 rounded-full shrink-0', colors[status])} />;
 }

@@ -118,3 +118,7 @@ Google/Gemini API Key 账号能够由 OpenCode provider 配置消费，原生 Ge
 ## 第二十一轮：删除无身份支撑的人工标注假能力
 
 `/api/eval/annotations` 没有 UI、脚本或运行时调用方，唯一消费者是 endpoint 自测；它调用的 annotation 写入、一致性统计与 weighted kappa 也只由该 route 和同模块自测消费。更重要的是，旧接口把自由文本 `reviewerName` 变成 `local-reviewer:*`，平台没有可信身份事实源，无法证明两名独立审核者或形成可信校准。第二十一轮删除这条公开 route 与自循环 lab 逻辑，不把“未挂载且不可采信”包装成现有能力。历史 `eval_annotation` 表继续保留，retention 仍用它保护有关联的旧 run；未来只有在统一身份、独立审核流程和真实 UI 同时存在时才允许重新引入人工校准。
+
+## 第二十二轮：删除浏览器平行 Task 生命周期
+
+Task Authority 已使用 `proposed/ready/in_progress/blocked/in_review/done/cancelled` 正式状态，但浏览器仍维护 `pending/in_progress/in_review/done/rejected/blocked` 第二套 vocabulary，并在 `/api/state`、store hydration、socket sync 和 Kanban 多次降级转换。结果是 `proposed/ready/cancelled` 语义丢失，“拒绝”按钮提交服务端不存在的 `rejected`，新建任务还询问一个 `task.create` 完全忽略的初始状态。第二十二轮将纯 TaskStatus vocabulary 与合法迁移下沉到共享 interface，服务端 repository 与浏览器共同消费；删除 legacy projection、无效状态选择和重复迁移表。外部 TASKS.md 历史文本仍在服务端 intake 归一化，不把兼容复杂度泄漏回 UI。

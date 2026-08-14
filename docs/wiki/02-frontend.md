@@ -114,6 +114,7 @@ WebUI 有两个明确分离的入口：
   - 基于 blocker 列表展示风险
 - [`MiniKanban.tsx`](../../src/components/project/MiniKanban.tsx)
   - 当前项目任务概览
+  - 直接展示 Task Authority 的正式状态，只允许共享 Task lifecycle 声明的合法拖拽与菜单操作
 
 ### 任务执行与设置
 

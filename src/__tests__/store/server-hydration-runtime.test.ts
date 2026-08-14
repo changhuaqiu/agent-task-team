@@ -108,7 +108,7 @@ describe('server hydration runtime gate', () => {
       version?: number;
       state?: Record<string, unknown>;
     };
-    expect(persisted.version).toBe(8);
+    expect(persisted.version).toBe(9);
     expect(persisted.state).not.toHaveProperty('providerProfiles');
     expect(persisted.state).not.toHaveProperty('channelConfigs');
     expect(persisted.state).not.toHaveProperty('routingPolicies');
@@ -129,8 +129,41 @@ describe('server hydration runtime gate', () => {
       version?: number;
       state?: Record<string, unknown>;
     };
-    expect(persisted.version).toBe(8);
+    expect(persisted.version).toBe(9);
     expect(persisted.state).not.toHaveProperty('enableMockRunner');
+  });
+
+  it('migrates legacy browser task statuses and drops unknown persisted tasks', async () => {
+    const baseTask = {
+      conversationId: CONVERSATION_ID,
+      phaseId: '',
+      title: 'Legacy task',
+      description: '',
+      agentId: 'mario',
+      dependencies: [],
+      artifacts: [],
+      createdAt: '2026-07-21T00:00:00.000Z',
+      updatedAt: '2026-07-21T00:00:00.000Z',
+    };
+    localStorage.setItem('agent-task-hub-store-clean', JSON.stringify({
+      version: 8,
+      state: {
+        tasks: [
+          { ...baseTask, id: 'legacy-pending', status: 'pending' },
+          { ...baseTask, id: 'legacy-rejected', status: 'rejected' },
+          { ...baseTask, id: 'legacy-unknown', status: 'future_status' },
+        ],
+      },
+    }));
+
+    await useTaskHubStore.persist.rehydrate();
+
+    expect(useTaskHubStore.getState().tasks.map(({ id, status }) => ({ id, status }))).toEqual([
+      { id: 'legacy-pending', status: 'ready' },
+      { id: 'legacy-rejected', status: 'in_progress' },
+    ]);
+    const persisted = JSON.parse(localStorage.getItem('agent-task-hub-store-clean') ?? '{}');
+    expect(persisted.version).toBe(9);
   });
 
   it('keeps the UI gated until accounts and the selected Team Pack are dispatch-ready', async () => {

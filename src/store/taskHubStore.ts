@@ -34,7 +34,7 @@ import type { PhaseProposal } from '@/lib/breakdownParser';
 import type { SkillSummary } from '@/lib/agent-context/types';
 import type { DetectedRuntime, CliEngine } from '@/server/types';
 import type { A2APossessionView, ChatMessage, ToolEvent } from './types';
-import { toLegacyProjectTaskStatus } from '@/shared/task-status-compat';
+import { assertTaskStatus, isTaskStatus } from '@/shared/task-status';
 export type { A2AHandoffStatus, A2AHandoffView, A2APossessionView, ChatMessage, ToolEvent } from './types';
 
 // Re-export types from sub-stores (backward compatibility)
@@ -756,7 +756,7 @@ export interface TaskHubState {
   inviteAgent:      (agentId: string) => void;
   dismissAgent:     (agentId: string) => void;
   updateTaskStatus: (taskId: string, status: TaskStatus, reviewNote?: string, evidence?: Record<string, unknown>) => Promise<void>;
-  addTask:          (taskData: Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'conversationId' | 'phaseId'> & { phaseId?: string }) => void;
+  addTask:          (taskData: Omit<Task, 'id' | 'status' | 'createdAt' | 'updatedAt' | 'conversationId' | 'phaseId'> & { phaseId?: string }) => void;
   removeTask:       (taskId: string) => void;
   updateTask:       (taskId: string, patch: Partial<Pick<Task, 'title' | 'description' | 'agentId' | 'dependencies' | 'artifacts'>>) => void;
   addChatMessage:   (msg: Omit<ChatMessage, 'id' | 'timestamp' | 'mentions' | 'intent'> & { conversationId?: string }) => void;
@@ -1134,7 +1134,7 @@ export const useTaskHubStore = create<TaskHubState>()(
               phaseId: t.phase_id || '',
               title: t.title,
               description: t.description || '',
-              status: toLegacyProjectTaskStatus(t.status),
+              status: assertTaskStatus(t.status),
               agentId: t.agent_id,
               dependencies: typeof t.dependencies === 'string' ? JSON.parse(t.dependencies || '[]') : (t.dependencies || []),
               artifacts: typeof t.artifacts === 'string' ? JSON.parse(t.artifacts || '[]') : (t.artifacts || []),
@@ -1890,7 +1890,7 @@ export const useTaskHubStore = create<TaskHubState>()(
     },
     {
       name: 'agent-task-hub-store-clean',
-      version: 8,
+      version: 9,
       migrate: (persisted: any, version: number) => {
         if (version === 0) {
           const idMap: Record<string, string> = {
@@ -1955,6 +1955,15 @@ export const useTaskHubStore = create<TaskHubState>()(
         }
         if (version < 8) {
           delete persisted.enableMockRunner;
+        }
+        if (version < 9 && Array.isArray(persisted.tasks)) {
+          persisted.tasks = persisted.tasks
+            .map((task: any) => {
+              if (task?.status === 'pending') return { ...task, status: 'ready' };
+              if (task?.status === 'rejected') return { ...task, status: 'in_progress' };
+              return task;
+            })
+            .filter((task: any) => isTaskStatus(task?.status));
         }
         return persisted;
       },
@@ -2539,7 +2548,7 @@ interface TaskStateSocketRow {
   phase_id?: string;
   title?: string;
   description?: string;
-  status?: TaskStatus;
+  status?: unknown;
   agent_id?: string;
   dependencies?: string | string[];
   artifacts?: string | TaskArtifact[];
@@ -2551,13 +2560,23 @@ interface TaskStateSocketRow {
 socket.on('task.state', ({ projectId, task: row }: { projectId?: string; task?: TaskStateSocketRow }) => {
   if (!row?.id || !row.conversation_id) return;
   if (!isCurrentProjectEvent(projectId, row.conversation_id)) return;
+  if (!isTaskStatus(row.status)) {
+    useTaskHubStore.setState({
+      taskSyncError: {
+        message: `task.state returned unsupported status: ${String(row.status)}`,
+        timestamp: new Date().toISOString(),
+        conversationId: row.conversation_id,
+      },
+    });
+    return;
+  }
   const task: Task = {
     id: row.id,
     conversationId: row.conversation_id,
     phaseId: row.phase_id || '',
     title: row.title || '',
     description: row.description || '',
-    status: row.status || 'pending',
+    status: row.status,
     agentId: row.agent_id || '',
     dependencies: typeof row.dependencies === 'string'
       ? JSON.parse(row.dependencies || '[]')
@@ -2679,6 +2698,17 @@ socket.on('task.wakeup', (wakeup: {
 
 socket.on('task.sync', ({ projectId, projectPath: _projectPath, conversationId, tasks: syncedTasks, blockers: syncedBlockers }: { projectId?: string; projectPath: string; conversationId: string; tasks: any[]; blockers?: any[] }) => {
   if (!isCurrentProjectEvent(projectId, conversationId)) return;
+  const invalidTask = syncedTasks.find((task) => !isTaskStatus(task?.status));
+  if (invalidTask) {
+    useTaskHubStore.setState({
+      taskSyncError: {
+        message: `task.sync returned unsupported status: ${String(invalidTask?.status)}`,
+        timestamp: new Date().toISOString(),
+        conversationId,
+      },
+    });
+    return;
+  }
   useTaskHubStore.setState({ lastTaskSyncAt: new Date().toISOString(), taskSyncError: null });
   const store = useTaskHubStore.getState();
 
@@ -2693,7 +2723,7 @@ socket.on('task.sync', ({ projectId, projectPath: _projectPath, conversationId, 
           phaseId: synced.phase || '',
           title: synced.title,
           description: synced.deliverable || '',
-          status: toLegacyProjectTaskStatus(synced.status),
+          status: synced.status,
           agentId: synced.agent || '',
           dependencies: synced.depends || [],
           artifacts: [],
@@ -2706,7 +2736,7 @@ socket.on('task.sync', ({ projectId, projectPath: _projectPath, conversationId, 
 
     const nextDescription = synced.deliverable || existing.description;
     const nextDependencies = synced.depends || existing.dependencies;
-    const nextStatus = toLegacyProjectTaskStatus(synced.status);
+    const nextStatus: TaskStatus = synced.status;
     const changed =
       existing.status !== nextStatus ||
       existing.agentId !== synced.agent ||

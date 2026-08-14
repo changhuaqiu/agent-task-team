@@ -48,7 +48,7 @@ export const KanbanCard = React.memo(function KanbanCard({ task, theme, onClick,
 
   const resolvedTheme = theme ?? themeFromAgentId(task.agentId);
   const isUnassigned = !task.agentId || task.agentId === '-';
-  const isMuted = task.status === 'blocked' || task.status === 'rejected';
+  const isMuted = task.status === 'blocked' || task.status === 'cancelled';
 
   const hasFileArtifact = task.artifacts?.some((a) => a.type === 'file' || a.type === 'pr' || a.type === 'log');
   const hasLinkArtifact = task.artifacts?.some((a) => a.type === 'link');

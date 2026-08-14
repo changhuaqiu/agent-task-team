@@ -7,7 +7,7 @@ const task = {
   phaseId: 'P1',
   title: 'Confirm task status',
   description: 'Publish status effects only after server confirmation.',
-  status: 'pending' as const,
+  status: 'ready' as const,
   agentId: 'luigi',
   dependencies: [],
   artifacts: [],

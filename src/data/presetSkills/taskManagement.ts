@@ -22,7 +22,7 @@ After all runtime-native child work for your own role has converged, emit at mos
 - When a Team Harness review wakeup requests evidence.reviewReceipt, preserve the task's done status and submit the exact structured receipt requested by the wakeup. A PASS requires real review evidence and no unresolved blocking or important finding; implementer self-review is not an independent gate.
 - When a Team Harness verification wakeup requests evidence.verificationReceipt, preserve the task's done status and submit the exact structured receipt requested by the wakeup. For Web UI acceptance, use Browser/Playwright end to end; API-only checks are not equivalent. Every acceptance criterion needs its own real evidenceRefs, and a missing report must be reported as failed.
 - For a local artifact that needs a real browser HTTP check, call verification_serve_artifact with a project-relative artifact path. It returns a one-use 127.0.0.1 URL that closes after the first successful request or timeout. Open that URL with Playwright and assert the real response. Do not start a shell server and do not assume browser_run_code_unsafe exposes Node require/import.
-- A quality-gate reviewer explicitly woken for one in_review task may make a narrow decision on that task: PASS updates it to done with review evidence; REJECT updates it to rejected/blocked with the reason. This does not allow editing implementation content, title, owner, or unrelated tasks.
+- A quality-gate reviewer explicitly woken for one in_review task may make a narrow decision on that task: PASS updates it to done with review evidence; changes requested return it to in_progress, while an external blocker updates it to blocked with the reason. This does not allow editing implementation content, title, owner, or unrelated tasks.
 - When an implementer updates a task to review/in_review, that transition already requests the configured quality gate. End the turn without a manual @reviewer A2A handoff. Create another pass only after an explicit platform wakeup failure or for a distinct specialist review.
 - Text scheduling is not execution. Do not claim a task lane is started unless a real dispatch receipt, A2A pass offer, task wakeup dispatch, or execution-start acknowledgement exists for the target agent and task.
 - For parallel dispatch, verify every target separately and report n/n dispatched. If only part of the fan-out starts, retry or escalate instead of saying all lanes started.
@@ -35,7 +35,7 @@ After all runtime-native child work for your own role has converged, emit at mos
         name: 'task_list',
         description: 'List tasks in the current project, optionally filtered by status or assigned agent',
         parameters: [
-          { name: 'status', type: 'string', required: false, description: 'Filter by status: pending, in_progress, in_review, done, blocked' },
+          { name: 'status', type: 'string', required: false, description: 'Filter by status: proposed, ready, in_progress, blocked, in_review, done, cancelled' },
           { name: 'agent_id', type: 'string', required: false, description: 'Filter by assignee agent ID' },
         ],
         handler: 'api://tasks/list',
@@ -59,7 +59,7 @@ After all runtime-native child work for your own role has converged, emit at mos
         description: 'Update a task status',
         parameters: [
           { name: 'task_id', type: 'string', required: true, description: 'Task ID to update' },
-          { name: 'status', type: 'string', required: true, description: 'New status: pending, in_progress, in_review, done, blocked' },
+          { name: 'status', type: 'string', required: true, description: 'New status: proposed, ready, in_progress, blocked, in_review, done, cancelled' },
           { name: 'evidence', type: 'object', required: false, description: 'Evidence for non-Git task gates. Git-backed in_review/done transitions require collaboration_record_pr or collaboration_record_merge instead. A review wakeup additionally requires reviewReceipt; a verification wakeup additionally requires verificationReceipt with deliveryRunId, verifierAgentId, method, tool, real reportRef/specRefs files, and criterion-specific acceptanceResults/evidenceRefs.' },
         ],
         handler: 'api://tasks/update',

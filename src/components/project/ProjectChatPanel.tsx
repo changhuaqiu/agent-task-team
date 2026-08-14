@@ -1,12 +1,10 @@
 'use client';
 
 import { useMemo } from 'react';
-import { useTaskHubStore, type TaskStatus, STATUS_LABELS } from '@/store/taskHubStore';
+import { useTaskHubStore, type TaskStatus, STATUS_LABELS, STATUS_ORDER } from '@/store/taskHubStore';
 import { GlobalChatRoom } from '@/components/task-hub/GlobalChatRoom';
 import { AgentBar } from '@/components/task-hub/AgentBar';
 import { AutonomousDeliveryPanel } from './AutonomousDeliveryPanel';
-
-const order: TaskStatus[] = ['blocked', 'rejected', 'in_progress', 'in_review', 'pending', 'done'];
 
 export function ProjectChatPanel() {
   const selectedConversationId = useTaskHubStore((s) => s.selectedConversationId);
@@ -23,12 +21,13 @@ export function ProjectChatPanel() {
 
   const counts = useMemo(() => {
     const map: Record<TaskStatus, number> = {
-      pending: 0,
+      proposed: 0,
+      ready: 0,
       in_progress: 0,
+      blocked: 0,
       in_review: 0,
       done: 0,
-      rejected: 0,
-      blocked: 0,
+      cancelled: 0,
     };
     for (const t of scoped) map[t.status]++;
     return map;
@@ -46,7 +45,7 @@ export function ProjectChatPanel() {
           </div>
           {selectedConversationId && (
             <div className="shrink-0 flex gap-1.5">
-              {order.map((s) => counts[s] > 0 && (
+              {STATUS_ORDER.map((s) => counts[s] > 0 && (
                 <div
                   key={s}
                   className="flex items-center gap-1 rounded-[4px] border border-[hsl(var(--border))] bg-[hsl(var(--bg-app))] px-2 py-0.5"

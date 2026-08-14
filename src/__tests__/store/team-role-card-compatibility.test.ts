@@ -340,7 +340,7 @@ describe('team role card compatibility', () => {
         phaseId: '',
         title: 'Plan work',
         description: 'Draft a plan',
-        status: 'pending',
+        status: 'ready',
         agentId: 'planner',
         dependencies: [],
         artifacts: [],

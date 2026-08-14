@@ -1,29 +1,18 @@
 import { getDb } from '../db/index';
 import { DomainEventPublisher, type DomainEventType } from '../platform-events/domain-events';
+import {
+  assertTaskStatus,
+  canTransitionTask,
+  type TaskStatus,
+} from '../../shared/task-status';
 
-export const TASK_STATUSES = [
-  'proposed',
-  'ready',
-  'in_progress',
-  'blocked',
-  'in_review',
-  'done',
-  'cancelled',
-] as const;
-
-export type TaskStatus = (typeof TASK_STATUSES)[number];
-
-const TASK_STATUS_SET = new Set<string>(TASK_STATUSES);
-
-const TASK_TRANSITIONS: Readonly<Record<TaskStatus, ReadonlySet<TaskStatus>>> = {
-  proposed: new Set(['ready', 'cancelled']),
-  ready: new Set(['in_progress', 'blocked', 'cancelled']),
-  in_progress: new Set(['blocked', 'in_review', 'cancelled']),
-  blocked: new Set(['ready', 'in_progress', 'cancelled']),
-  in_review: new Set(['done', 'in_progress', 'blocked', 'cancelled']),
-  done: new Set(['ready']),
-  cancelled: new Set(),
-};
+export {
+  assertTaskStatus,
+  canTransitionTask,
+  InvalidTaskStatusError,
+  TASK_STATUSES,
+  type TaskStatus,
+} from '../../shared/task-status';
 
 export interface TaskRow {
   id: string;
@@ -63,14 +52,6 @@ export interface TaskTransition {
   causationId?: string;
 }
 
-export class InvalidTaskStatusError extends Error {
-  readonly reasonCode = 'invalid_task_status';
-
-  constructor(readonly status: string) {
-    super(`Unsupported task status: ${status}`);
-  }
-}
-
 export class InvalidTaskTransitionError extends Error {
   readonly reasonCode = 'invalid_task_transition';
 
@@ -97,15 +78,6 @@ export class StaleTaskRevisionError extends Error {
   constructor(readonly taskId: string, readonly expected: number, readonly actual: number) {
     super(`Stale task revision for ${taskId}: expected ${expected}, found ${actual}`);
   }
-}
-
-export function assertTaskStatus(value: string): TaskStatus {
-  if (!TASK_STATUS_SET.has(value)) throw new InvalidTaskStatusError(value);
-  return value as TaskStatus;
-}
-
-export function canTransitionTask(from: TaskStatus, to: TaskStatus): boolean {
-  return from === to || TASK_TRANSITIONS[from].has(to);
 }
 
 function taskStatusEvent(previousStatus: TaskStatus, status: TaskStatus): DomainEventType {

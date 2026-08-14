@@ -253,12 +253,12 @@ describe('project view isolation', () => {
       tasks: [
         {
           id: 'TASK-001', conversationId: 'project-a', phaseId: '', title: 'A task',
-          description: '', status: 'pending', agentId: '', dependencies: [], artifacts: [],
+          description: '', status: 'ready', agentId: '', dependencies: [], artifacts: [],
           createdAt: unchangedAt, updatedAt: unchangedAt,
         },
         {
           id: 'TASK-001', conversationId: 'project-b', phaseId: '', title: 'B task',
-          description: '', status: 'pending', agentId: '', dependencies: [], artifacts: [],
+          description: '', status: 'ready', agentId: '', dependencies: [], artifacts: [],
           createdAt: unchangedAt, updatedAt: unchangedAt,
         },
       ],
@@ -280,7 +280,36 @@ describe('project view isolation', () => {
       title: 'A task updated', description: 'A only', status: 'done', agentId: 'mario',
     });
     expect(state.tasks.find((task) => task.conversationId === 'project-b')).toMatchObject({
-      title: 'B task', description: '', status: 'pending', agentId: '', updatedAt: unchangedAt,
+      title: 'B task', description: '', status: 'ready', agentId: '', updatedAt: unchangedAt,
     });
+  });
+
+  it('rejects invalid task socket statuses without mutating tasks', () => {
+    const before = useTaskHubStore.getState().tasks;
+
+    for (const status of ['pending', '', null, undefined]) {
+      emitServerEvent('task.state', {
+        projectId: 'project-a',
+        task: {
+          id: 'TASK-BAD-STATE',
+          conversation_id: 'project-a',
+          status,
+        },
+      });
+
+      expect(useTaskHubStore.getState().tasks).toBe(before);
+      expect(useTaskHubStore.getState().taskSyncError?.message).toContain('task.state');
+    }
+
+    emitServerEvent('task.sync', {
+      projectId: 'project-a',
+      conversationId: 'project-a',
+      projectPath: 'C:/project-a',
+      tasks: [{ id: 'TASK-BAD-SYNC', title: 'Bad', status: 'rejected' }],
+      blockers: [],
+    });
+
+    expect(useTaskHubStore.getState().tasks).toBe(before);
+    expect(useTaskHubStore.getState().taskSyncError?.message).toContain('task.sync');
   });
 });

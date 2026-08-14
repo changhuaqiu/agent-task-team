@@ -72,7 +72,7 @@ describe('GET /api/state', () => {
     expect(res._json.recentInvocations[0].id).toBe('inv-1');
   });
 
-  it('projects managed task statuses into the legacy Web UI vocabulary', async () => {
+  it('returns the managed task statuses without a browser compatibility projection', async () => {
     const { conversationRepo } = await import('@/server/repositories/conversation-repo');
     const { taskRepo } = await import('@/server/repositories/task-repo');
 
@@ -103,9 +103,9 @@ describe('GET /api/state', () => {
 
     expect(Object.fromEntries(res._json.tasks.map((task: any) => [task.id, task.status])))
       .toEqual({
-        'task-proposed': 'pending',
-        'task-ready': 'pending',
-        'task-cancelled': 'blocked',
+        'task-proposed': 'proposed',
+        'task-ready': 'ready',
+        'task-cancelled': 'cancelled',
       });
   });
 

@@ -34,7 +34,7 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     phaseId: '',
     title: 'Test task',
     description: 'A test task',
-    status: 'pending',
+    status: 'ready',
     agentId: 'mario',
     dependencies: [],
     artifacts: [],
@@ -137,8 +137,8 @@ describe('KanbanCard', () => {
     expect(card.className).toContain('opacity-80');
   });
 
-  it('applies muted styles for rejected tasks', () => {
-    const task = makeTask({ status: 'rejected' });
+  it('applies muted styles for cancelled tasks', () => {
+    const task = makeTask({ status: 'cancelled' });
     const { container } = render(<KanbanCard task={task} />);
 
     const card = container.firstElementChild as HTMLElement;

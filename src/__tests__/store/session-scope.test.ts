@@ -133,7 +133,7 @@ describe('project session scoping', () => {
         phaseId: '',
         title: 'Simulated task',
         description: 'Run the simulated task',
-        status: 'pending',
+        status: 'ready',
         agentId: 'mario',
         dependencies: [],
         artifacts: [],

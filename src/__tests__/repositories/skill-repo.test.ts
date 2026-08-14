@@ -295,6 +295,25 @@ describe('seedPresetSkills', () => {
     expect(skillRepo.getSkillIdsForAgent('planner')).toContain(existing.id);
   });
 
+  it('updates existing Task presets to the canonical status contract', () => {
+    for (const name of ['task-management', 'task-status-receipt']) {
+      skillRepo.create({
+        name,
+        content: 'legacy pending and rejected contract',
+        config: JSON.stringify({ legacy: true }),
+        isPreset: true,
+      });
+    }
+
+    seedPresetSkills();
+
+    for (const name of ['task-management', 'task-status-receipt']) {
+      const updated = skillRepo.getByName(name)!;
+      expect(`${updated.content}\n${updated.config}`).not.toMatch(/\b(?:pending|rejected)\b/);
+      expect(updated.config).toContain('proposed, ready, in_progress, blocked, in_review, done, cancelled');
+    }
+  });
+
   it('seeds git-collaboration and assigns it to built-in team role ids', () => {
     seedPresetSkills();
 

@@ -46,7 +46,7 @@ describe('MiniKanban integration', () => {
           phaseId: 'P1',
           title: 'Build API',
           description: 'Create REST endpoints',
-          status: 'pending',
+          status: 'ready',
           agentId: 'luigi',
           dependencies: [],
           artifacts: [],
@@ -77,7 +77,7 @@ describe('MiniKanban integration', () => {
     expect(screen.getByText('Write tests')).toBeDefined();
   });
 
-  it('does not crash when persisted state still contains a managed ready status', () => {
+  it('renders the managed ready status directly', () => {
     useTaskHubStore.setState({
       selectedConversationId: 'conv-managed',
       tasks: [{
@@ -86,7 +86,7 @@ describe('MiniKanban integration', () => {
         phaseId: '',
         title: 'Managed ready task',
         description: '',
-        status: 'ready' as never,
+        status: 'ready',
         agentId: 'luigi',
         dependencies: [],
         artifacts: [],

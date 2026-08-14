@@ -17,6 +17,7 @@ import { getDirective, resolveArchetype, type ContextArchetype, type ContextClus
 import { resolveScenario, type ContextScenario } from './scenarioResolver';
 import type { TeamLogEnvelope } from './teamLog';
 import type { SkillCompileResult, SkillDeliveryDecision } from '@/lib/skills/types';
+import type { TaskStatus } from '@/shared/task-status';
 import {
   noOpMemoryHook,
   type MemoryArtifact,
@@ -57,7 +58,7 @@ export interface ContextProviders {
     description?: string;
     phase?: { title: string };
   } | undefined>;
-  getTasks(conversationId: string): Promise<{ id: string; title: string; agentId: string; status: string }[]>;
+  getTasks(conversationId: string): Promise<{ id: string; title: string; agentId: string; status: TaskStatus }[]>;
   getTeamPack(agentId: string): Promise<TeamPack | undefined>;
   getRuntimeRoster(conversationId: string): Promise<RuntimeAgent[] | undefined>;
   getSkills(): Promise<SkillSummary[]>;
@@ -370,12 +371,7 @@ export class ContextManager {
         emoji: agent.emoji ?? '🤖',
       }));
       const projectStatus = tasks?.length
-        ? buildProjectStatusLayer(rosterForStatus, tasks.map(item => ({
-            ...item,
-            status: item.status === 'pending' || item.status === 'in_progress' || item.status === 'done'
-              ? item.status
-              : 'pending' as const,
-          })))
+        ? buildProjectStatusLayer(rosterForStatus, tasks)
         : '';
 
       systemPrompt = [

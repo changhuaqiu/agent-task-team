@@ -1,5 +1,7 @@
 # 玩法、用户旅程与 UX 设计规划（Chat-First · 轻量游戏化 · 独立开发者）
 
+> Status: superseded historical plan. 当前 Task 生命周期与 UI 动作以 `src/shared/task-status.ts` 和 `docs/technical/execution/group-chat-task-graph.md` 为准；下文旧六态仅保留为 2026-05-01 的设计背景。
+
 ## Summary
 
 围绕“独立开发者带一队 Agent 做项目”的定位，把产品主循环从「看板/作战室」调整为「对话驱动」，让用户在聊天里下达意图与约束，系统把它变成可追踪的会话、任务、执行与复盘。目标优先级：上手快、推进快（同时不牺牲质量与可解释性）。

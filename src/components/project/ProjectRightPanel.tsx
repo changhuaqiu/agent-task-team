@@ -22,7 +22,8 @@ function buildNextItems(tasks: Task[]): NextItem[] {
   for (const task of tasks) {
     if (task.status === 'blocked') items.push({ label: `解除阻塞：${task.id} ${task.title}`, taskId: task.id });
     if (task.status === 'in_review') items.push({ label: `等待评审：${task.id} ${task.title}`, taskId: task.id });
-    if (task.status === 'pending') items.push({ label: `可开始：${task.id} ${task.title}`, taskId: task.id });
+    if (task.status === 'proposed') items.push({ label: `待确认：${task.id} ${task.title}`, taskId: task.id });
+    if (task.status === 'ready') items.push({ label: `可开始：${task.id} ${task.title}`, taskId: task.id });
   }
   return items.slice(0, 6);
 }

@@ -39,13 +39,12 @@ interface TaskGraphMapProps {
 }
 
 const STATUS_LABELS: Record<string, string> = {
-  pending: '待处理',
+  proposed: '待确认',
+  ready: '待处理',
   in_progress: '进行中',
   in_review: '评审中',
   done: '完成',
   blocked: '阻塞',
-  merged: '已合并',
-  reopened: '重开',
   cancelled: '取消',
 };
 
