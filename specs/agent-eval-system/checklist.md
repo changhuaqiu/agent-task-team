@@ -86,8 +86,7 @@ static_validation:
 covered:
   immutable snapshots/replay, hard gates, multi-trace aggregation, project isolation,
   dual-Judge disagreement, retry/concurrency, atomic budget reservation,
-  global-dataset annotation scoping, weighted kappa usable sample count,
-  unverified reviewer fail-closed, degenerate kappa handling,
+  historical annotation retention compatibility,
   internal pairwise ordering/human resolution, no public pairwise route before identity isolation,
   immutable case promotion,
   server-derived API audit fields, platform workspace integration,

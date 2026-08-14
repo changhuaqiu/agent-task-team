@@ -3516,6 +3516,32 @@ END;
       db.exec("DELETE FROM runtime_node WHERE kind='bridge'");
     },
   },
+  {
+    version: 77,
+    run: (db) => {
+      const annotationTable = db.prepare(`
+        SELECT 1 FROM sqlite_master
+        WHERE type='table' AND name='eval_annotation'
+      `).get();
+      if (!annotationTable) return;
+      db.exec(`
+        UPDATE eval_annotation
+        SET conversation_id=COALESCE(
+          (SELECT r.conversation_id FROM eval_run r WHERE r.id=eval_annotation.run_id),
+          (SELECT d.conversation_id FROM eval_case c
+           JOIN eval_dataset d ON d.id=c.dataset_id
+           WHERE c.id=eval_annotation.case_id)
+        )
+        WHERE conversation_id IS NULL
+          AND COALESCE(
+            (SELECT r.conversation_id FROM eval_run r WHERE r.id=eval_annotation.run_id),
+            (SELECT d.conversation_id FROM eval_case c
+             JOIN eval_dataset d ON d.id=c.dataset_id
+             WHERE c.id=eval_annotation.case_id)
+          ) IS NOT NULL
+      `);
+    },
+  },
 ];
 
 export function applyMigrations(db: Database.Database): void {

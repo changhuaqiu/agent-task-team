@@ -40,8 +40,8 @@
 - 隐藏推理不进入快照；文本再次经过凭据脱敏和长度限制。
 - gap 只能生成 proposal；评估代码不直接修改 RoleCard、Skill 或协作策略。
 - 当前平台没有权限管理；评估只做 conversation/project 归属隔离并记录固定平台操作者，不自建 RBAC。
-- 全局数据集的 case 可跨项目读取，但 annotation 与一致性统计按 conversation 隔离；审核者名称仅用于校准审计。
-- 公开 API 的自填审核者名称标记为未验证，不能通过正式校准门；等待平台统一身份事实源。
+- 全局数据集的 case 可跨项目读取；历史 `eval_annotation` 行仍按 conversation 保存并受 retention 兼容保护，但当前没有 annotation writer 或一致性统计 API。
+- 人工校准等待平台统一身份事实源、独立审核流程和真实工作区入口；自由文本审核者姓名不构成可信身份。
 - 内部 pairwise 结果使用 opaque subject token，不携带 run id；未来开放 route 时沿用该最小披露契约，位置不一致需人工裁决后才形成 `resolved_winner`。
 - 但当前没有可验证审核者身份，同一操作者仍可能通过相邻接口解盲；因此当前不注册公开 pairwise route，内部算法仅用于开发验证。
 - 在线失败晋升创建新 dataset revision，旧 revision 保持不可变，晋升 case 内嵌脱敏冻结证据。

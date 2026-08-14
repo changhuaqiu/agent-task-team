@@ -256,7 +256,7 @@ type JudgeResult = {
 6. `eval_judge_attempt`：run/score、模型与参数、prompt digest、响应、解析状态、token/latency/error。
 7. `eval_gap`：差距、severity、证据、建议目标、状态。
 8. `eval_dataset` / `eval_case`：最小校准集与来源、split、标签、脱敏状态、revision。
-9. `eval_annotation`：人工标签、reviewer、rubric revision、盲审批次。
+9. `eval_annotation`：仅保留历史表与 retention 兼容；当前不注册 writer 或公开 route。
 
 ### 6.2 P2 表
 
@@ -321,7 +321,6 @@ closure proof committed
 | `/api/eval/runs/:id/replay` | POST | 基于原快照重评，不覆盖历史 |
 | `/api/eval/datasets` | GET/POST | 数据集列表与创建 |
 | `/api/eval/experiments` | GET/POST | P2 批量实验与比较 |
-| `/api/eval/annotations` | POST | 人工标注/仲裁 |
 | `/api/eval/gaps/:id/proposals` | POST | P2 生成变更提案 |
 
 所有写接口校验项目归属、服务端审计身份和 idempotency key。API 返回稳定 reason code，不把 Provider 错误直接暴露给普通用户。
@@ -380,7 +379,7 @@ P2 在同一项目内提供完整“评估”工作区：数据集、基线/候�
 
 - 当前平台没有用户、成员或 RBAC 事实源，本规格不新增独立权限系统、管理令牌或角色配置 UI；
 - 所有 API 必须校验 run、case、dataset、experiment、proposal 与当前 `conversation/project` 的归属；
-- 变更类审计字段使用服务端生成的本地平台操作者身份，不信任请求体伪造 `actorId/reviewerId/createdBy`；人工 annotation 单独要求 `reviewerName`，服务端归一化为 `local-reviewer:<name>`，只用于双人校准分组而非认证或授权；
+- 变更类审计字段使用服务端生成的本地平台操作者身份，不信任请求体伪造 `actorId/reviewerId/createdBy`；人工校准不得把自由文本审核者姓名归一化成伪身份，必须等待平台统一身份事实源；
 - 完整证据沿用平台现有调试入口的可见边界，不新增第二套证据存储；
 - 若未来平台建立统一身份与项目成员模型，评估能力接入该统一事实源，不自行维护成员表。
 
@@ -448,8 +447,8 @@ P2 在同一项目内提供完整“评估”工作区：数据集、基线/候�
 | D8 | 评估与 Agent 平台部署在同一产品、共享同一项目上下文 | 独立控制台会复制导航、项目选择和身份边界 | 评估作为项目主工作区的“评估”模式 | 独立评估站点或右侧调试栏 tab |
 | D9 | 仅给 run 打上 case/manifest 标签不能证明案例真的被执行 | 伪 provenance 会让回归门产生虚假安全感 | 旧客户端配对实验只作诊断；Harness/Daemon 评估模式只有在 case、快照、worktree HEAD、invocation、trace、proof 与 EvalRun 全部绑定后才写 `execution_verified=1` | 把标签匹配当作执行证明 |
 | D10 | Judge 调用发生在数据库事务之外，多个 worker 可同时越过“先查询后调用”的预算判断 | 日预算必须在外部调用前形成数据库内互斥占用 | 使用带过期时间的原子 token reservation；attempt 落库后释放 | 仅统计历史 token 后再决定是否调用 |
-| D11 | 全局数据集可被多个项目复用，但人工标注和校准结论属于当前项目 | 只按 dataset 聚合会跨项目污染 kappa | annotation 显式保存 conversation scope；审核者姓名用于校准审计，不代表权限角色 | 全局数据集上的全局 annotation |
-| D12 | 当前平台没有可验证的统一用户身份 | 自填 Alice/Bob 只能区分标签，不能证明是两个人 | API 标注记为 `identity_unverified`，不得使 rubric 进入 calibrated；统一身份接入后再开放校准门 | 把两个不同的输入姓名当作双人校准证据 |
+| D11 | 全局数据集可被多个项目复用，但平台尚无可验证人工审核身份 | 自填姓名不能证明两名独立审核者，未挂载接口也不能构成产品能力 | 删除当前 annotation writer/route；历史行继续按 conversation 保留；统一身份、独立审核流程与真实 UI 同时具备后再设计校准接口 | 用自由文本姓名或自循环 API 宣称可信校准 |
+| D12 | 当前平台没有可验证的统一用户身份 | 自填 Alice/Bob 只能区分字符串，不能证明是两个人 | 当前不注册 annotation writer/route；统一身份、独立审核流程与真实 UI 接通后再开放校准门 | 把两个不同的输入姓名当作双人校准证据 |
 | D13 | 同一平台操作者能通过 experiment/run 相邻接口识别 baseline/candidate | 仅把 runId 替换为 token 不能形成真正盲测 | pairwise 算法保留为内部验证；可信 case runner 已接通，但统一身份接通前不注册公开 route | 对无身份隔离的流程宣称“盲测” |
 | D14 | 评估系统与 Agent 平台部署在一起，平台已经有 Harness/Daemon 执行链 | 另建 runner 服务会重复账号、运行时、上下文和观测能力；直接读取当前配置又会让历史实验不可复现 | `runner` 定义为现有 Harness/Daemon 的**评估执行模式**：服务端冻结 `ApplicationSnapshot`，用同一 held-out case 分别触发 baseline/candidate；每次使用独立 worktree、任务上下文与 session，账号只保存引用；规划前校验目标 revision，结束后用实际 worktree HEAD、Skill/RoleCard/模型清单生成 observed digest，完全相等才写 `execution_verified=1` | 新建独立评估执行服务，或仅在 run 上附加客户端提供的 manifest 标签 |
 
@@ -546,7 +545,7 @@ Experiment
 - migration 27–38、版本化 SQL schema、数据库不可变约束、ApplicationSnapshot/case execution、原子预算预留、默认 rubric 与 12 个 train/tune/held-out 中英校准案例；migration 41 补齐旧库自主交付 `revision`，migration 42 按结构审计补建被历史版本碰撞跳过的自主交付表并修复旧 `root_task_id` 外键；
 - 提交事务内冻结的 snapshot builder、硬门禁/确定性 evaluator、锚点式无工具 Judge adapter、持久 job/lease token/retry、原子 report/gap/replay；
 - closure valid-exit 后异步提交与 `eval.*` proof；
-- `/api/eval/runs`、datasets、annotations、experiments、reviews、proposals、policy、operations；pairwise 当前仅保留内部算法，不注册公开 route；
+- `/api/eval/runs`、datasets、experiments、reviews、proposals、policy、operations；annotation 与 pairwise 当前都不注册公开 route；历史 annotation 表只为旧数据和 retention 兼容保留；
 - 平台项目内“协作 / 评估”工作模式、paired bootstrap 分层实验、盲测换序、双 Judge 分歧路由与受控 proposal 状态机。
 
 尚未满足 implemented 退出门：

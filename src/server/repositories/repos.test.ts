@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createTestDb, getDb, setTestDb, resetDb } from '../db/index';
+import { applyMigrations } from '../db/migrate';
+import { DEFAULT_RUBRIC_REVISION_ID, EVALUATOR_BUNDLE_REVISION, digest } from '../evaluation/defaults';
 import { generateSortableId, resetSeq } from './sortable-id';
 import { conversationRepo } from './conversation-repo';
 import {
@@ -86,6 +88,54 @@ describe('conversation-repo', () => {
     conversationRepo.create({ id: 'conv-1', title: 'To Delete' });
     conversationRepo.delete('conv-1');
     expect(conversationRepo.getById('conv-1')).toBeUndefined();
+  });
+
+  it('migrates and deletes legacy global-dataset annotations through their project run', () => {
+    conversationRepo.create({ id: 'conv-legacy-annotation', title: 'Legacy annotation owner' });
+    const db = getDb();
+    const timestamp = '2020-01-01T00:00:00.000Z';
+    db.exec('DROP TRIGGER trg_eval_annotation_conversation_insert');
+    db.prepare(`INSERT INTO eval_dataset
+      (id,conversation_id,name,description,revision,status,created_by,created_at,updated_at)
+      VALUES ('dataset-global-legacy',NULL,'Global legacy','Historical shared set',1,'active','system',?,?)`)
+      .run(timestamp, timestamp);
+    db.prepare(`INSERT INTO eval_case
+      (id,dataset_id,case_key,split,source_type,input_payload,expected_labels,metadata,content_hash,
+       redaction_status,created_at)
+      VALUES ('case-global-legacy','dataset-global-legacy','legacy-1','tune','manual','{}','{}','{}',
+        'legacy-hash','redacted',?)`).run(timestamp);
+    db.prepare(`INSERT INTO eval_subject_snapshot
+      (id,conversation_id,mode,evidence_cutoff_at,collected_at,snapshot_hash,evidence_refs,evidence_payload,
+       app_manifest,data_quality,task_type,difficulty,language)
+      VALUES ('snapshot-legacy-annotation','conv-legacy-annotation','online',?,?,'legacy-snapshot-hash',
+        '[]','{}','{}','{"coverage":1,"missing":[],"truncated":[]}','coding','unknown','unknown')`)
+      .run(timestamp, timestamp);
+    db.prepare(`INSERT INTO eval_run
+      (id,conversation_id,snapshot_id,rubric_revision_id,mode,idempotency_key,status,gate_status,
+       evidence_coverage,evaluator_bundle_digest,created_at,updated_at)
+      VALUES ('run-legacy-annotation','conv-legacy-annotation','snapshot-legacy-annotation',?,'online',
+        'legacy-annotation-run','partial','unknown',1,?,?,?)`)
+      .run(DEFAULT_RUBRIC_REVISION_ID, digest(EVALUATOR_BUNDLE_REVISION), timestamp, timestamp);
+    db.prepare(`INSERT INTO eval_annotation
+      (id,conversation_id,case_id,run_id,rubric_revision_id,reviewer_id,dimension_key,label,rationale,status,created_at)
+      VALUES ('annotation-legacy-migrate',NULL,'case-global-legacy','run-legacy-annotation',?,
+        'legacy-reviewer','correctness','partial','Historical row','submitted',?)`)
+      .run(DEFAULT_RUBRIC_REVISION_ID, timestamp);
+    db.prepare('DELETE FROM _schema_version WHERE version=77').run();
+
+    applyMigrations(db);
+    expect(db.prepare("SELECT conversation_id FROM eval_annotation WHERE id='annotation-legacy-migrate'").get())
+      .toEqual({ conversation_id: 'conv-legacy-annotation' });
+
+    db.prepare(`INSERT INTO eval_annotation
+      (id,conversation_id,case_id,run_id,rubric_revision_id,reviewer_id,dimension_key,label,rationale,status,created_at)
+      VALUES ('annotation-legacy-cleanup',NULL,'case-global-legacy','run-legacy-annotation',?,
+        'legacy-reviewer-2','correctness','partial','Unmigrated historical row','submitted',?)`)
+      .run(DEFAULT_RUBRIC_REVISION_ID, timestamp);
+    expect(conversationRepo.deleteAggregate('conv-legacy-annotation')).toBe(true);
+    expect(conversationRepo.getById('conv-legacy-annotation')).toBeUndefined();
+    expect(db.prepare("SELECT COUNT(*) count FROM eval_annotation WHERE run_id='run-legacy-annotation'").get())
+      .toEqual({ count: 0 });
   });
 
   it('returns undefined for missing conversation', () => {

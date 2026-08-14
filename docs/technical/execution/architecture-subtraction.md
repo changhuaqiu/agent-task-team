@@ -114,3 +114,7 @@ Google/Gemini API Key 账号能够由 OpenCode provider 配置消费，原生 Ge
 ## 第二十轮：删除浏览器 Agent Tool 执行旁路
 
 `/api/mutations` 的 `tool.invoke` 没有生产调用方，却复制了 task list/create/update/assign 的持久化、状态门禁和文件投影实现，并允许普通浏览器 payload 绕过 invocation grant、tool allowlist、task scope、rate limit 与 proof。正式工具链已经由 daemon 按 Invocation 注册短期 loopback bearer，通过 `/api/acp-tools` 与 `acp-skill-mcp` 进入唯一 `skill-tool-executor`。第二十轮删除旧 mutation case 及其自证测试，并把 `skill-tool-router` 从无消费者的 handler URL/mutation 映射收窄为真实工具名 allowlist；通用 mutation 从 12 种命令收敛到 11 种。
+
+## 第二十一轮：删除无身份支撑的人工标注假能力
+
+`/api/eval/annotations` 没有 UI、脚本或运行时调用方，唯一消费者是 endpoint 自测；它调用的 annotation 写入、一致性统计与 weighted kappa 也只由该 route 和同模块自测消费。更重要的是，旧接口把自由文本 `reviewerName` 变成 `local-reviewer:*`，平台没有可信身份事实源，无法证明两名独立审核者或形成可信校准。第二十一轮删除这条公开 route 与自循环 lab 逻辑，不把“未挂载且不可采信”包装成现有能力。历史 `eval_annotation` 表继续保留，retention 仍用它保护有关联的旧 run；未来只有在统一身份、独立审核流程和真实 UI 同时存在时才允许重新引入人工校准。

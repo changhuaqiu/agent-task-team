@@ -1,6 +1,6 @@
 # Agent 评估系统长期技术设计
 
-> 状态：P1 运行主链与 P2 数据/实验/单操作者提案闭环已实现；真实人工校准与可验证盲审身份仍待完成
+> 状态：P1 运行主链与 P2 数据/实验/单操作者提案闭环已实现；人工校准尚无可信身份与产品入口，当前不开放
 > 当前实施契约：[`specs/agent-eval-system/spec.md`](../../../specs/agent-eval-system/spec.md)
 
 ## 当前实现（2026-07-19）
@@ -9,20 +9,20 @@
 - `snapshot-builder.ts` 按 conversation/root task/optional chain/cutoff 冻结多 trace 证据，排除 thinking 和评估自身 proof，并记录代码、RoleCard、Skill、脱敏模型配置摘要、rubric 与 evaluator revision。
 - `deterministic-evaluator.ts` 先计算硬门禁，再计算完成、交付、可靠性和工具执行指标；`deterministic-v2` 把工具执行成功与离线用例定义的工具名称/必需参数匹配拆开，没有工具预期时正确性为 `not_applicable`。
 - `judge.ts` 只允许项目显式选择的 OpenAI/Anthropic API Key 账号，无工具权限；没有账号、超预算、Provider 被禁或调用失败时保留确定性结果并转 `partial`。
-- migration 27–38 提供数据库级不可变 rubric/snapshot/score/attempt、ApplicationSnapshot、case execution、带 fencing token 的 job、原子预算预留、双 Judge 复核队列、盲测换序、项目域标注、数据集/实验、gap、policy 与 change proposal 表；migration 41 补齐自主交付 `revision`，migration 42 不信任旧 checkpoint 的版本水位，按实际结构补建自主交付表并把旧 `root_task_id` 外键重建为 `ON DELETE SET NULL`。
+- migration 27–38 提供数据库级不可变 rubric/snapshot/score/attempt、ApplicationSnapshot、case execution、带 fencing token 的 job、原子预算预留、双 Judge 复核队列、盲测换序、数据集/实验、gap、policy 与 change proposal 表；历史 `eval_annotation` 表为旧数据和 retention 兼容保留，但当前没有 writer 或公开 route；migration 41 补齐自主交付 `revision`，migration 42 不信任旧 checkpoint 的版本水位，按实际结构补建自主交付表并把旧 `root_task_id` 外键重建为 `ON DELETE SET NULL`。
 - 关闭轮次在 valid exit 后于本地事务内冻结快照并提交 job；后台 worker 只消费冻结快照并执行评估，主 Agent loop 不等待 Judge。
 - Pages API 唯一入口为 `/api/eval/*`；UI、测试和服务端实现统一使用该路径。
 - 平台项目主内容区提供“协作 / 评估”工作模式；评估不是外部控制台，也不占用项目右侧调试栏。
-- P2 支持 dataset revision/split、双人标注加权 kappa、逐例 paired diff、固定种子 95% bootstrap CI、类型/难度/语言/角色拓扑分层、候选盲化与换序复测；实验只接受同 case/manifest 的 completed held-out run，提案审批只接受结论为 `candidate_improves` 的回归实验。
+- P2 支持 dataset revision/split、逐例 paired diff、固定种子 95% bootstrap CI、类型/难度/语言/角色拓扑分层、候选盲化与换序复测；实验只接受同 case/manifest 的 completed held-out run，提案审批只接受结论为 `candidate_improves` 的回归实验。
 - 主 Judge 的边界标签按需触发第二 Judge；一致才保留，分歧或第二 Judge 缺失进入人工复核，绝不平均成可信分数。
 - 离线实验由现有 Harness/Daemon 的评估模式读取 held-out case，分别激活 baseline/candidate ApplicationSnapshot，在指定 commit 的 detached worktree 与独立 session 中执行；完成后自动评估、校验 provenance 并聚合 paired diff。
 - 单次 Judge 请求上限 25 秒、job 最多 3 次尝试、线性回退 5/10 秒；包含最终可选第二 Judge 的理论最坏调用路径为 115 秒。运维 P95 从 run `created_at` 计算，包含排队时间，并同时暴露并发饱和度、当日已用/预留/剩余 token。
 
 当前限制：
 
-- 用户已确认平台当前没有权限管理；评估不自建 RBAC，服务端强制 conversation 归属。变更动作使用固定平台操作者审计身份；annotation 的审核者名称仅用于双人校准分组。未来身份能力只能接入平台统一事实源。
+- 用户已确认平台当前没有权限管理；评估不自建 RBAC，服务端强制 conversation 归属。变更动作使用固定平台操作者审计身份；人工校准不得用自由文本姓名冒充审核者身份，未来只能接入平台统一事实源。
 - 任务类型、难度和语言默认显式记为 `unknown`，等待确认最小枚举与标注责任人。
-- 人工校准当前提供数据与加权 kappa 计算接口，但尚未由两名审核者完成 held-out 实标，不能把默认 rubric 宣布为 calibrated。
+- 人工校准当前没有公开写入/统计接口或工作区入口；在可验证操作者身份与独立审核流程接通前，不能把默认 rubric 宣布为 calibrated。
 - SQLite 备份恢复、工作区 axe 可访问性扫描与 24-run/4-worker 容量演练已有自动化证据；生产环境继续积累真实 Provider 延迟分位数，但请求超时和总路径上界已由代码约束。
 
 ## 决策
@@ -69,14 +69,14 @@ Task/A2A/Proof/Observation facts
 
 ## 2026-07-19 可信性纠偏
 
-这轮评审确认评估能力与 Agent 平台是同一个产品内的深模块，而不是一套独立系统。项目 `conversationId` 是当前真实的数据隔离边界；平台尚无身份与权限事实源，因此不新增 RBAC。人工标注仍要求填写审核者名称，这是为了双人校准和审计，不表示获得某种权限。
+这轮评审确认评估能力与 Agent 平台是同一个产品内的深模块，而不是一套独立系统。项目 `conversationId` 是当前真实的数据隔离边界；平台尚无身份与权限事实源，因此不新增 RBAC。旧人工标注接口曾接收自由文本审核者名称，但无法证明独立身份，现已删除；历史表仅为旧数据兼容保留。
 
 实现采用以下 fail-closed 规则：
 
 - Judge token 在外部调用前通过 `eval_budget_reservation` 原子预留，预留带过期时间；OpenAI/Anthropic 输出均设置上限。
-- 全局数据集可以复用 case，但 `eval_annotation.conversation_id` 隔离各项目的标签与 kappa。
+- 全局数据集可以复用 case；历史 `eval_annotation.conversation_id` 仍保存旧项目边界，但当前没有 annotation writer 或 kappa API。
 - 删除项目会话时，先按聚合依赖顺序清理评估实验、运行、快照和项目数据集，再删除任务与会话；新建数据库同时用外键级联兜底，兼容早期数据库中仍是 `NO ACTION` 的评估外键。
-- 当前公开 API 的审核者名称不可验证，因此一致性结果明确返回 `identity_unverified`，不能把 rubric 标成 calibrated；这不是临时伪造 RBAC，而是对平台身份能力缺口的诚实呈现。
+- 人工校准必须等待可验证平台身份、独立审核流程与真实 UI；不再用 `identity_unverified` 响应包装一条没有可信消费者的假公开能力。
 - pairwise 换序与人工裁决算法保留为内部验证能力，但当前不注册公开 pairwise route。可信 case runner 已接通；当前剩余问题是同一平台操作者仍能从 experiment/run 相邻接口反推 A/B，因此统一身份接通前不对外宣称真正盲测。
 - 内部 pairwise 结果使用 opaque `subjectToken`，不携带 run id 或 application manifest；未来开放 route 时沿用该最小披露契约，换序不一致必须人工裁决并回写权威 winner。
 - 在线失败晋升不修改旧数据集，而是复制为新 revision，并把脱敏后的冻结 evidence 一并保存；retention 不删除其来源 run。

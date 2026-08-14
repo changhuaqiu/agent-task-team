@@ -78,7 +78,10 @@ export const conversationRepo = {
       ).run(id);
       db.prepare('DELETE FROM eval_change_proposal WHERE conversation_id = ?').run(id);
       db.prepare('DELETE FROM eval_budget_reservation WHERE conversation_id = ?').run(id);
-      db.prepare('DELETE FROM eval_annotation WHERE conversation_id = ?').run(id);
+      db.prepare(`DELETE FROM eval_annotation
+        WHERE conversation_id = ?
+          OR run_id IN (SELECT id FROM eval_run WHERE conversation_id = ?)`)
+        .run(id, id);
       db.prepare(
         `DELETE FROM eval_judge_attempt
          WHERE run_id IN (SELECT id FROM eval_run WHERE conversation_id = ?)`,

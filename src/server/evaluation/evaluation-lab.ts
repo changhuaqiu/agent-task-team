@@ -61,25 +61,6 @@ function summarize(deltas: number[], seedText: string): Record<string, unknown> 
   };
 }
 
-function weightedKappa(pairs: Array<[string, string]>): number | null {
-  const labels = ['fail', 'partial', 'pass'];
-  const usable = pairs.filter(([left, right]) => labels.includes(left) && labels.includes(right));
-  if (!usable.length) return null;
-  const weight = (left: string, right: string) =>
-    1 - ((labels.indexOf(left) - labels.indexOf(right)) / (labels.length - 1)) ** 2;
-  const observed = usable.reduce((sum, [left, right]) => sum + weight(left, right), 0) / usable.length;
-  const leftCounts = new Map(labels.map((label) => [label, usable.filter(([left]) => left === label).length]));
-  const rightCounts = new Map(labels.map((label) => [label, usable.filter(([, right]) => right === label).length]));
-  let expected = 0;
-  for (const left of labels) {
-    for (const right of labels) {
-      expected += weight(left, right) *
-        (leftCounts.get(left)! / usable.length) * (rightCounts.get(right)! / usable.length);
-    }
-  }
-  return expected === 1 ? null : (observed - expected) / (1 - expected);
-}
-
 function stratifiedSummary(
   entries: Array<{ delta: number; metadata: Record<string, unknown> }>,
   seedText: string,
@@ -173,68 +154,6 @@ export const evaluationLab = {
         contentHash: item.content_hash,
         redactionStatus: item.redaction_status,
       })),
-    };
-  },
-
-  annotate(input: { conversationId: string; caseId: string; runId?: string; reviewerId: string; dimensionKey: string; label: string; rationale: string; blindBatchId?: string }): Row {
-    if (!['pass', 'partial', 'fail', 'unknown'].includes(input.label)) throw new Error('Invalid annotation label');
-    const db = getDb();
-    if (!db.prepare('SELECT id FROM conversation WHERE id=?').get(input.conversationId)) {
-      throw new Error('Conversation not found');
-    }
-    const item = db.prepare(`SELECT c.id FROM eval_case c JOIN eval_dataset d ON d.id=c.dataset_id
-      WHERE c.id=? AND (d.conversation_id=? OR d.conversation_id IS NULL)`).get(input.caseId, input.conversationId);
-    if (!item) throw new Error('Case not found');
-    if (input.runId && !db.prepare('SELECT id FROM eval_run WHERE id=? AND conversation_id=?')
-      .get(input.runId, input.conversationId)) throw new Error('Run not found in project');
-    const id = `annotation-${randomUUID()}`;
-    db.prepare(`INSERT INTO eval_annotation
-      (id,conversation_id,case_id,run_id,rubric_revision_id,reviewer_id,dimension_key,label,rationale,blind_batch_id,status,created_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,'submitted',?)`).run(id, input.conversationId, input.caseId, input.runId ?? null,
-        DEFAULT_RUBRIC_REVISION_ID, input.reviewerId, input.dimensionKey, input.label,
-        input.rationale, input.blindBatchId ?? null, new Date().toISOString());
-    return db.prepare('SELECT * FROM eval_annotation WHERE id=?').get(id) as Row;
-  },
-
-  agreement(datasetId: string, conversationId: string): Record<string, unknown> {
-    const annotations = getDb().prepare(`SELECT a.* FROM eval_annotation a JOIN eval_case c ON c.id=a.case_id
-      JOIN eval_dataset d ON d.id=c.dataset_id
-      WHERE c.dataset_id=? AND a.conversation_id=?
-        AND (d.conversation_id=? OR d.conversation_id IS NULL)
-      ORDER BY a.case_id,a.dimension_key,a.created_at`).all(datasetId, conversationId, conversationId) as Row[];
-    const groups = new Map<string, Row[]>();
-    for (const item of annotations) {
-      const key = `${item.case_id}:${item.dimension_key}`;
-      groups.set(key, [...(groups.get(key) ?? []), item]);
-    }
-    let compared = 0;
-    let agreed = 0;
-    const pairs: Array<[string, string]> = [];
-    const disagreements: Row[] = [];
-    for (const items of groups.values()) {
-      const byReviewer = [...new Map(items.map((item) => [item.reviewer_id, item])).values()];
-      if (byReviewer.length < 2) continue;
-      compared += 1;
-      pairs.push([String(byReviewer[0]!.label), String(byReviewer[1]!.label)]);
-      if (byReviewer[0]!.label === byReviewer[1]!.label) agreed += 1;
-      else disagreements.push({ case_id: byReviewer[0]!.case_id, dimension_key: byReviewer[0]!.dimension_key,
-        labels: byReviewer.slice(0, 2).map((item) => item.label) });
-    }
-    const usablePairs = pairs.filter(([left, right]) =>
-      ['fail', 'partial', 'pass'].includes(left) && ['fail', 'partial', 'pass'].includes(right));
-    const kappa = weightedKappa(usablePairs);
-    const hasUnverifiedIdentity = annotations.some((item) =>
-      String(item.reviewer_id).startsWith('local-reviewer:'));
-    return {
-      compared, usableCompared: usablePairs.length, excluded: compared - usablePairs.length,
-      agreementRate: compared ? agreed / compared : null,
-      weightedKappa: kappa === null ? null : Math.round(kappa * 1_000) / 1_000,
-      threshold: 0.7, disagreements,
-      identityVerification: annotations.length === 0 ? 'not_observed'
-        : hasUnverifiedIdentity ? 'unverified' : 'verified',
-      status: hasUnverifiedIdentity ? 'identity_unverified'
-        : usablePairs.length < 10 ? 'insufficient_evidence'
-        : kappa !== null && kappa >= 0.7 ? 'calibrated' : 'needs_calibration',
     };
   },
 

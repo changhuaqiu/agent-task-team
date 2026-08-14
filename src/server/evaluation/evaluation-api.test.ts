@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { NextApiRequest, NextApiResponse } from 'next';
 import datasetsHandler from '@/pages/api/eval/datasets';
-import annotationsHandler from '@/pages/api/eval/annotations';
 import experimentsHandler from '@/pages/api/eval/experiments';
 import { createTestDb, getDb, resetDb, setTestDb } from '../db';
 
@@ -34,7 +33,7 @@ beforeEach(() => {
 afterEach(() => resetDb());
 
 describe('evaluation Pages APIs', () => {
-  it('derives audit identity on the server instead of trusting client actor fields', () => {
+  it('derives dataset audit identity on the server instead of trusting client actor fields', () => {
     const created = call(datasetsHandler, {
       method: 'POST',
       body: {
@@ -46,25 +45,6 @@ describe('evaluation Pages APIs', () => {
     expect(created.statusCode).toBe(201);
     const dataset = (created.body as { dataset: Record<string, unknown> }).dataset;
     expect(dataset.created_by).toBe('platform-user');
-    const item = getDb().prepare('SELECT id FROM eval_case WHERE dataset_id=?').get(dataset.id) as { id: string };
-    const annotated = call(annotationsHandler, {
-      method: 'POST',
-      body: {
-        conversationId: 'conv-api', caseId: item.id, reviewerId: 'forged-reviewer', reviewerName: 'Alice',
-        dimensionKey: 'correctness', label: 'partial', rationale: '需要补充证据',
-      },
-    });
-    expect(annotated.statusCode).toBe(201);
-    expect((annotated.body as { annotation: Record<string, unknown> }).annotation.reviewer_id)
-      .toBe('local-reviewer:alice');
-    const agreement = call(annotationsHandler, {
-      method: 'GET',
-      query: { conversationId: 'conv-api', datasetId: String(dataset.id) },
-    });
-    expect(agreement.body).toMatchObject({
-      identityVerification: 'unverified',
-      status: 'identity_unverified',
-    });
   });
 
   it('rejects an experiment dataset owned by another project', () => {

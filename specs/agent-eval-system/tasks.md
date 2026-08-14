@@ -24,10 +24,10 @@
 - [ ] **T2 Schema 与 migration**
   - [ ] 新增 `eval_rubric`、`eval_rubric_revision`
   - [ ] 新增 `eval_subject_snapshot`、`eval_run`、`eval_score`、`eval_judge_attempt`
-  - [ ] 新增 `eval_gap`、`eval_dataset`、`eval_case`、`eval_annotation`
+  - [ ] 新增 `eval_gap`、`eval_dataset`、`eval_case`；`eval_annotation` 仅作为历史 schema/retention 兼容保留
   - [ ] 建立 FK、唯一幂等键、查询索引和 retention 所需时间索引
 - [ ] **T3 Repository 与事务**
-  - [ ] 实现 rubric、snapshot、run/score/attempt、dataset/case/annotation、gap repositories
+  - [ ] 实现 rubric、snapshot、run/score/attempt、dataset/case、gap repositories
   - [ ] snapshot + run 创建、run 聚合完成使用 SQLite 事务
   - [ ] 覆盖分页、项目归属、按 rootTask/chain/status 查询
 - [ ] **T4 默认 Rubric 与最小校准集**
@@ -67,7 +67,7 @@
   - [ ] 重启、重复 closure、限流与 Provider 失败均不影响主链
 - [ ] **T11 Pages Router API**
   - [ ] `/api/eval/runs`、`runs/:id`、`runs/:id/replay`
-  - [ ] `/api/eval/datasets`、`annotations`
+  - [ ] `/api/eval/datasets`；人工校准等待统一身份与真实 UI，不注册 annotation route
   - [ ] 参数 schema、项目归属、服务端审计身份、分页、idempotency、稳定错误码
 - [ ] **T12 项目“评估”视图**
   - [ ] 列表展示通过状态、coverage、data quality、时间
@@ -137,7 +137,7 @@ P2: T15 + T16 → T17 → T18/T19 → T20
 
 - [x] **T21 可信边界硬化**
   - [x] Judge 日预算改为数据库原子 reservation，并为租约续期、模型输出设置上限
-  - [x] 全局数据集 annotation 按 conversation 隔离；公开 API 接受审核者名称以支持双人校准
+  - [x] 历史 annotation 行按 conversation 保留；删除依赖自由文本审核者名称且无产品入口的公开 API
   - [x] pairwise 使用 opaque subject token；人工裁决回写权威 winner
   - [x] case promotion 生成不可变的新 dataset revision、冻结脱敏 evidence 并受 retention 保护
 - [ ] **T22 平台 case runner 与发布门**

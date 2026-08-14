@@ -83,4 +83,28 @@ describe('evaluationOperations', () => {
       expect((db.prepare(`SELECT COUNT(*) count FROM ${table}`).get() as { count: number }).count).toBe(0);
     }
   });
+
+  it('keeps a historical run referenced by a retained annotation row', () => {
+    const db = getDb();
+    db.prepare(`INSERT INTO eval_dataset
+      (id,conversation_id,name,description,revision,status,created_by,created_at,updated_at)
+      VALUES ('dataset-history','conv-ops','Historical','Retained legacy data',1,'active','system',?,?)`)
+      .run(old, old);
+    db.prepare(`INSERT INTO eval_case
+      (id,dataset_id,case_key,split,source_type,input_payload,expected_labels,metadata,content_hash,
+       redaction_status,created_at)
+      VALUES ('case-history','dataset-history','history-1','tune','manual','{}','{}','{}','history-hash','redacted',?)`)
+      .run(old);
+    db.prepare(`INSERT INTO eval_annotation
+      (id,conversation_id,case_id,run_id,rubric_revision_id,reviewer_id,dimension_key,label,rationale,status,created_at)
+      VALUES ('annotation-history','conv-ops','case-history','run-old',?,'legacy-reviewer','correctness','partial',
+        'Historical row','submitted',?)`)
+      .run(DEFAULT_RUBRIC_REVISION_ID, old);
+
+    expect(evaluationOperations.enforceRetention('conv-ops')).toMatchObject({
+      deletedRuns: 0,
+      deletedSnapshots: 0,
+    });
+    expect(db.prepare("SELECT id FROM eval_run WHERE id='run-old'").get()).toEqual({ id: 'run-old' });
+  });
 });
