@@ -291,9 +291,9 @@ Agent Inbox / Harness 推进；Socket 展示消费者不能复用这些入口。
 - preview / summary / original 的单一表示约束；
 - 按需 outline/search/context。
 
-#### Memory 仍是 NoOp seam
+#### Memory 不预留专用 seam
 
-`MemoryHook` 当前只有 NoOp 实现，应视为有意保留但尚未验证的占位 seam，而不是已经成立的稳定接口。真实存储 adapter 尚未证明现有 scope、kind、content、evidence 契约足以承载 provenance、置信度、版本、生命周期和淘汰规则。
+只有 NoOp 实现的 `MemoryHook` 已由 Architecture Subtraction Round 24 删除。真实存储 adapter 尚未证明 scope、kind、content、evidence 契约足以承载 provenance、置信度、版本、生命周期和淘汰规则，因此 ContextManager 只保留已被真实来源使用的 `ContextContributor` 扩展面。
 
 #### 规格状态本身存在漂移
 
@@ -447,7 +447,7 @@ Checkpoint 在成功 dispatch/turn 边界提交，可由新 Session 恢复。它
 
 写入必须经过来源、置信度、适用范围、版本和淘汰规则；LLM 不得直接修改正式 Policy。
 
-不要承诺对当前 `MemoryHook` 做零改动替换。先在独立 memory spec 中确定 owner、读写不变量和故障恢复，再同时提供生产存储 adapter 与本地确定性测试 adapter；如果现有 interface 无法承载这些约束，应直接替换。
+不要预先承诺专用 memory interface 可零改动替换。先在独立 memory spec 中确定 owner、读写不变量和故障恢复，再提供生产存储 adapter 与本地确定性测试 adapter；读取侧复用 `ContextContributor`，写入协议由真实 memory owner 定义。
 
 #### 5.6 完成 Capability Resolver
 

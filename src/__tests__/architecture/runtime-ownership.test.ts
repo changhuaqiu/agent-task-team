@@ -11,7 +11,7 @@ function productionTypeScriptFiles(directory: string): string[] {
     const relative = `${directory}/${name}`;
     const absolute = resolve(process.cwd(), relative);
     if (statSync(absolute).isDirectory()) return productionTypeScriptFiles(relative);
-    return relative.endsWith('.ts') && !relative.endsWith('.test.ts') ? [relative] : [];
+    return /\.tsx?$/.test(relative) && !/\.test\.tsx?$/.test(relative) ? [relative] : [];
   });
 }
 
@@ -76,6 +76,8 @@ describe('runtime ownership architecture', () => {
     const contextFiles = productionTypeScriptFiles('src/lib/agent-context');
     const retiredContextAdapter = /legacyPartToFragment|ContextAssemblyPart|legacy-tier-adapter|legacy-assembly-v1|kind:\s*['"]legacy\./;
     expect(contextFiles.filter((path) => retiredContextAdapter.test(source(path)))).toEqual([]);
+    const retiredMemorySeam = /MemoryHook|noOpMemoryHook|memory-hook|recalledArtifacts/;
+    expect(productionTypeScriptFiles('src').filter((path) => retiredMemorySeam.test(source(path)))).toEqual([]);
     const budgetGuard = source('src/lib/agent-context/BudgetGuard.ts');
     expect(budgetGuard).not.toMatch(/\bpriority\??:/);
     expect(budgetGuard).toContain('tier: ContextTier');

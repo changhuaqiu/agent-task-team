@@ -120,7 +120,7 @@ interface ContextArtifact {
 2. 可见性过滤（结构化 project/global scope + team/agent/role visibility）
 3. 预算裁剪（importance 复合分）
 4. 上下文归一化（每条带 semantic/scope/visibility/source/lifecycle/delivery）
-5. 健康报告（`ContextReport` → `context_health` / `usage_snapshot`）
+5. 健康报告（`ContextReport` → observation span attributes → 项目观测投影）
 6. 组装契约 + Artifact schema（`ContextArtifact`，版本化契约）
 
 ### OUT（别的模块的活，通过窄只读接口接入）
@@ -128,15 +128,15 @@ interface ContextArtifact {
 | 关注点 | 归属 | 接入缝（只读） |
 |---|---|---|
 | 每个角色如何处理事情（角色工作过程） | RoleCard + per-role Skill | `getRoleCard()` |
-| agent 如何管理自己的上下文（自管理） | Memory / SelfMgmt（L3 spec） | `MemoryHook.recall/write`（已冻结 NoOp） |
+| agent 如何管理自己的上下文（自管理） | Memory / SelfMgmt（未来独立 spec） | 真实读取来源实现 `ContextContributor`；写入不属于 ContextManager |
 | 如何做质量管理（DoD/评审/门禁） | quality_gate（Peach + gate 协议） | DoD 作 `category='acceptance'` 高优标签入上下文；enforcement 读 `ContextReport` |
 | 任务拆解/调度 | orchestrator（daemon） | `getTask/getTasks/getRuntimeRoster` |
 | 跨 agent 协议（handoff/持球） | platform-harness-state-machines | `a2aHandoff` source |
-| 向量记忆/语义检索 | memory spec（L3，deferred） | `MemoryHook` 预留位 |
+| 向量记忆/语义检索 | memory spec（deferred） | 不预留专用 seam；真实 owner 成立后复用 `ContextContributor` |
 
 ### 低耦合三条硬规则
 
-1. **只读原则**：对所有外部数据只读不写（任务/消息/角色/交接包均不 mutate）。唯一"副作用"是健康度回写，`fire-and-forget`，不构成控制依赖。
+1. **只读原则**：对所有外部数据只读不写（任务/消息/角色/交接包均不 mutate）。报告复用本轮 observation span 持久化，不由 ContextManager 建立独立写链。
 2. **纯函数原则**：`assembleContext(req)` 是 `(ContextRequest, providers快照) → AssembledContext` 的纯函数，无隐藏状态。
 3. **唯一耦合面 = `ContextProviders` 接口**：所有 store 访问走 Provider，不直连 store。
 
@@ -144,7 +144,7 @@ interface ContextArtifact {
 
 ### write 反向流（不画进注入图）
 
-`MemoryHook.write()` 是 agent turn 之后往记忆写——属于 OUT 的"自管理"，**不经组装**。上下文管理器只托管该 seam 的签名（保证契约稳定），不参与 write 策略。
+记忆写入属于 agent turn 之后的 OUT 自管理，**不经组装**。ContextManager 不声明写协议；未来 memory 模块自行拥有持久化与恢复契约，只把需要注入的读取结果通过 `ContextContributor` 送入 Registry。
 
 ---
 
@@ -153,7 +153,7 @@ interface ContextArtifact {
 ```
    数据生产者（各自拥有域，只读出）              唯一注入网关                消费者
    ┌──────────────────────────────┐        ┌──────────────────────┐      ┌────────────┐
-   │ 记忆模块 Memory (L3)         │ recall │ 组装：系统/工具/项目   │prompt│  单个 agent │
+   │ 业务 ContextContributor      │fragment│ 组装：系统/工具/项目   │prompt│  单个 agent │
    │ 角色模块 RoleCard/TeamPack   │────────▶│ Registry：scope +     │─────▶│  运行时     │
    │ 任务/编排 daemon             │ getRole │ visibility + freshness│      │ (OpenCode/  │
    │ 消息/轨迹 messageRepo        │ getTask │ Budget：delivery 元数据│      │  Claude/CLI)│
@@ -361,8 +361,8 @@ L3 跨项目身份：身份 Artifact 使用 global scope + agent/role subject；
 
 ```text
 Native Tier Fragments ┐
-Memory Contributor ───┼─> Contributor Registry
-Delivery/Review/... ──┘       ↓
+Project/Delivery/... ─┼─> Contributor Registry
+Future real source ───┘       ↓
                         validate / normalize
                   Fragment → six-dimensional Artifact
                               ↓
@@ -384,7 +384,7 @@ Context State 由各事实域拥有；ContextManager 不复制事实源，只在
 |---|---|---|
 | Task、Ownership、Blocker | Task/A2A 模块 | 查询并选择相关 Fragment |
 | Repo、文档、ADR | Project Knowledge | 按场景、freshness 和预算投影 |
-| Decision、Fact、Lesson | Memory | recall 后作为 Fragment 进入统一过滤 |
+| Decision、Fact、Lesson（未来） | Memory | 真实 owner 成立后通过 Contributor 进入统一过滤 |
 | Tool、账号、权限 | Capability/Control Plane | 注入本轮可用能力与限制 |
 | Review、Web UI E2E、CI | Evidence Plane | 注入精确 Receipt 引用，不复制结果真相 |
 | Prompt / ContextSnapshot | ContextManager | 唯一组装权与本轮投影事实 |

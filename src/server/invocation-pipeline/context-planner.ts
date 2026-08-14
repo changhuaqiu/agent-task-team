@@ -1,7 +1,6 @@
 // Invocation Pipeline context compilation.
 import {
   ContextManager,
-  noOpMemoryHook,
   RequiredContextError,
 } from '@/lib/agent-context/ContextManager';
 import type { ChatMessage } from '@/store/types';
@@ -163,7 +162,7 @@ export class InvocationPlanner implements InvocationPlannerPort {
         getTeamLogEnvelope: async (conversationId, agentId, taskId) => trigger.evaluation
           ? { unseenCount: 0, entries: [], filePath: '.ath/team-log.md', totalTokens: 0 }
           : teamLogProjection.buildEnvelope(conversationId, agentId, taskId ? { taskId } : undefined),
-      }, noOpMemoryHook, {
+      }, {
         contributors: trigger.evaluation
           ? []
           : [projectContextContributor, autonomousDeliveryContextContributor],

@@ -18,11 +18,6 @@ import { resolveScenario, type ContextScenario } from './scenarioResolver';
 import type { TeamLogEnvelope } from './teamLog';
 import type { SkillCompileResult, SkillDeliveryDecision } from '@/lib/skills/types';
 import type { TaskStatus } from '@/shared/task-status';
-import {
-  noOpMemoryHook,
-  type MemoryArtifact,
-  type MemoryHook,
-} from './MemoryHook';
 import { collectContextFragments } from './context-registry';
 import { RequiredContextError } from './context-contracts';
 import type {
@@ -35,7 +30,6 @@ import type {
   ContextTrigger,
 } from './context-contracts';
 
-export { noOpMemoryHook } from './MemoryHook';
 export { RequiredContextError } from './context-contracts';
 export type {
   ContextArtifact,
@@ -104,7 +98,6 @@ export interface ContextReport {
   saturation: number;              // tokensUsed / tokensBudget
   layers: Array<{ layer: string; tier: ContextTier; importance: number; tokens: number; trimmed: boolean }>;
   droppedLayers: string[];
-  recalledArtifacts: number;       // 记忆命中数（本期恒 0）
   teamLogUpToEntryId?: string;
   loadedSkills: string[];
   eligibleSkills: Array<{ skillId: string; name: string; revision: string }>;
@@ -175,33 +168,6 @@ function renderFragmentContent(fragment: ContextArtifact): string {
   ].filter(Boolean).join('\n');
 }
 
-function createMemoryContributor(memoryHook: MemoryHook): ContextContributor {
-  return {
-    id: 'memory-hook',
-    async contribute(query: ContextQuery): Promise<ContextFragment[]> {
-      const artifacts = await memoryHook.recall({
-        scope: query.conversationId,
-        agentId: query.agentId,
-        query: query.requestText,
-        limit: 10,
-      });
-      return artifacts.map((artifact: MemoryArtifact) => ({
-        id: `memory:${artifact.id}`,
-        kind: `memory.${artifact.kind}`,
-        cluster: artifact.kind === 'blocker' ? 'focus' : 'situation',
-        scope: { kind: 'project', projectId: query.conversationId },
-        subject: { kind: 'agent', id: query.agentId },
-        producer: 'memory-hook',
-        version: artifact.timestamp || query.now,
-        content: artifact.content,
-        visibility: { kind: 'agent', agentId: query.agentId },
-        freshness: { observedAt: artifact.timestamp || query.now },
-        evidenceRefs: artifact.evidence ? [artifact.evidence] : [],
-      }));
-    },
-  };
-}
-
 function fragmentToBudgetPart(fragment: ContextArtifact): BudgetPart {
   return {
     layer: fragment.id,
@@ -220,16 +186,13 @@ function fragmentToBudgetPart(fragment: ContextArtifact): BudgetPart {
 // ContextManager 实现
 export class ContextManager {
   private providers: ContextProviders;
-  private memoryHook: MemoryHook;
   private options: ContextManagerOptions;
 
   constructor(
     providers: ContextProviders,
-    memoryHook: MemoryHook = noOpMemoryHook,
     options: ContextManagerOptions = {},
   ) {
     this.providers = providers;
-    this.memoryHook = memoryHook;
     this.options = options;
   }
 
@@ -386,7 +349,7 @@ export class ContextManager {
     const collection = await collectContextFragments(
       query,
       seedFragments,
-      [createMemoryContributor(this.memoryHook), ...(this.options.contributors ?? [])],
+      this.options.contributors ?? [],
     );
     const scenarioOmissions: ContextOmission[] = [];
     const scenarioFragments = collection.artifacts.filter(fragment => {
@@ -569,7 +532,6 @@ export class ContextManager {
           .map(item => item.fragmentId),
         ...budgetReport.trimmed,
       ],
-      recalledArtifacts: collection.artifacts.filter(fragment => fragment.producer === 'memory-hook').length,
       teamLogUpToEntryId: teamLogEnvelope?.upToEntryId,
       loadedSkills: skillDecisions.filter(decision => decision.outcome === 'loaded').map(decision => decision.name),
       eligibleSkills: (skillCompilation?.catalog ?? skillSummaries.map(skill => ({

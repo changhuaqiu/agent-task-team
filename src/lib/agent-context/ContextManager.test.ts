@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   ContextManager,
-  noOpMemoryHook,
   RequiredContextError,
   type ContextContributor,
   type ContextFragment,
@@ -54,7 +53,7 @@ describe('ContextManager', () => {
   });
 
   it('应该输出完整的结构化上下文层', async () => {
-    const manager = new ContextManager(mockProviders, noOpMemoryHook);
+    const manager = new ContextManager(mockProviders);
 
     const req: ContextRequest = {
       agentId: 'toad',
@@ -126,7 +125,7 @@ describe('ContextManager', () => {
       upToEntryId: 'log-1',
     });
 
-    const result = await new ContextManager(mockProviders, noOpMemoryHook, {
+    const result = await new ContextManager(mockProviders, {
       now: () => new Date('2026-08-15T01:00:00.000Z'),
     }).assembleContext({
       agentId: 'toad',
@@ -170,7 +169,7 @@ describe('ContextManager', () => {
 
     mockProviders.getMessages.mockResolvedValue(largeMessages);
 
-    const manager = new ContextManager(mockProviders, noOpMemoryHook);
+    const manager = new ContextManager(mockProviders);
 
     const req: ContextRequest = {
       agentId: 'toad',
@@ -187,7 +186,7 @@ describe('ContextManager', () => {
   });
 
   it('首次唤醒返回 systemPrompt', async () => {
-    const manager = new ContextManager(mockProviders, noOpMemoryHook);
+    const manager = new ContextManager(mockProviders);
 
     const req: ContextRequest = {
       agentId: 'toad',
@@ -212,7 +211,7 @@ describe('ContextManager', () => {
   });
 
   it('非首次唤醒不返回 systemPrompt', async () => {
-    const manager = new ContextManager(mockProviders, noOpMemoryHook);
+    const manager = new ContextManager(mockProviders);
 
     const req: ContextRequest = {
       agentId: 'toad',
@@ -247,7 +246,7 @@ describe('ContextManager', () => {
       totalTokens: 30,
       upToEntryId: 'msg-9',
     });
-    const manager = new ContextManager(mockProviders, noOpMemoryHook);
+    const manager = new ContextManager(mockProviders);
 
     const result = await manager.assembleContext({
       agentId: 'toad',
@@ -311,7 +310,7 @@ describe('ContextManager', () => {
       }],
       decisions: [],
     });
-    const manager = new ContextManager(mockProviders, noOpMemoryHook);
+    const manager = new ContextManager(mockProviders);
 
     const result = await manager.assembleContext({
       agentId: 'toad', conversationId: 'conv-123', rawPrompt: 'review this', trigger: 'user_turn', isFirstWake: false,
@@ -335,7 +334,7 @@ describe('ContextManager', () => {
       }],
       decisions: [],
     });
-    const manager = new ContextManager(mockProviders, noOpMemoryHook);
+    const manager = new ContextManager(mockProviders);
 
     await expect(manager.assembleContext({
       agentId: 'toad', conversationId: 'conv-123', rawPrompt: 'continue', trigger: 'user_turn', isFirstWake: false,
@@ -362,7 +361,7 @@ describe('ContextManager', () => {
         }];
       },
     };
-    const manager = new ContextManager(mockProviders, noOpMemoryHook, {
+    const manager = new ContextManager(mockProviders, {
       contributors: [contributor],
       now: () => new Date('2026-07-19T01:00:00.000Z'),
     });
@@ -396,7 +395,7 @@ describe('ContextManager', () => {
   });
 
   it('拒绝 Contributor 覆盖受保护的用户输入 seed', async () => {
-    const manager = new ContextManager(mockProviders, noOpMemoryHook, {
+    const manager = new ContextManager(mockProviders, {
       contributors: [{
         id: 'untrusted-context',
         contribute: async (query) => [{
@@ -436,7 +435,7 @@ describe('ContextManager', () => {
   });
 
   it('does not let optional contributor content evict required project context', async () => {
-    const manager = new ContextManager(mockProviders, noOpMemoryHook, {
+    const manager = new ContextManager(mockProviders, {
       contributors: [
         {
           id: 'optional-tools',
@@ -496,7 +495,7 @@ describe('ContextManager', () => {
   });
 
   it('still fails closed when required contributor content itself exceeds the budget', async () => {
-    const manager = new ContextManager(mockProviders, noOpMemoryHook, {
+    const manager = new ContextManager(mockProviders, {
       contributors: [{
         id: 'project-context',
         required: true,
@@ -543,7 +542,7 @@ describe('ContextManager', () => {
   });
 
   it('显式 Team Harness 场景在首个 session 仍完成身份 bootstrap', async () => {
-    const manager = new ContextManager(mockProviders, noOpMemoryHook);
+    const manager = new ContextManager(mockProviders);
 
     const result = await manager.assembleContext({
       agentId: 'toad',
@@ -567,7 +566,7 @@ describe('ContextManager', () => {
   });
 
   it('把 A2A 交接归一化为 causal event Artifact', async () => {
-    const manager = new ContextManager(mockProviders, noOpMemoryHook);
+    const manager = new ContextManager(mockProviders);
     const result = await manager.assembleContext({
       agentId: 'toad',
       conversationId: 'conv-123',
@@ -680,7 +679,7 @@ describe('ContextManager', () => {
         evidenceRefs: [],
       },
     ];
-    const manager = new ContextManager(mockProviders, noOpMemoryHook, {
+    const manager = new ContextManager(mockProviders, {
       contributors: [{ id: 'test-context', contribute: async () => fragments }],
       now: () => new Date('2026-07-19T00:00:00.000Z'),
     });
@@ -727,7 +726,7 @@ describe('ContextManager', () => {
       freshness: { observedAt },
       evidenceRefs: [],
     });
-    const manager = new ContextManager(mockProviders, noOpMemoryHook, {
+    const manager = new ContextManager(mockProviders, {
       contributors: [
         {
           id: 'old-decisions',
@@ -789,7 +788,7 @@ describe('ContextManager', () => {
 
   it('Snapshot id 包含 Fragment kind 与 semantic', async () => {
     const assemble = async (kind: string) => {
-      const manager = new ContextManager(mockProviders, noOpMemoryHook, {
+      const manager = new ContextManager(mockProviders, {
         contributors: [{
           id: 'semantic-source',
           contribute: async (query) => [{
@@ -830,7 +829,7 @@ describe('ContextManager', () => {
       title: '其他项目任务',
       conversationId: 'conv-other',
     });
-    const manager = new ContextManager(mockProviders, noOpMemoryHook);
+    const manager = new ContextManager(mockProviders);
 
     await expect(manager.assembleContext({
       agentId: 'toad',
@@ -844,7 +843,7 @@ describe('ContextManager', () => {
   });
 
   it('拒绝调用方提供的越域 Project 与 Message', async () => {
-    const manager = new ContextManager(mockProviders, noOpMemoryHook);
+    const manager = new ContextManager(mockProviders);
     await expect(manager.assembleContext({
       agentId: 'toad',
       conversationId: 'conv-123',
@@ -879,7 +878,7 @@ describe('ContextManager', () => {
       content: '没有项目归属的旧消息',
       timestamp: '2026-07-19T00:00:00.000Z',
     }]);
-    const manager = new ContextManager(mockProviders, noOpMemoryHook);
+    const manager = new ContextManager(mockProviders);
 
     await expect(manager.assembleContext({
       agentId: 'toad',
@@ -892,7 +891,7 @@ describe('ContextManager', () => {
   });
 
   it('required Contributor 未注册时仍然 fail closed', async () => {
-    const manager = new ContextManager(mockProviders, noOpMemoryHook);
+    const manager = new ContextManager(mockProviders);
 
     await expect(manager.assembleContext({
       agentId: 'toad',
@@ -906,7 +905,7 @@ describe('ContextManager', () => {
   });
 
   it('Contributor 不能通过伪造 producer 冒名满足 required 门禁', async () => {
-    const manager = new ContextManager(mockProviders, noOpMemoryHook, {
+    const manager = new ContextManager(mockProviders, {
       contributors: [{
         id: 'autonomous-delivery',
         required: true,
@@ -939,7 +938,7 @@ describe('ContextManager', () => {
   });
 
   it('必需 Fragment 校验失败时阻断执行', async () => {
-    const manager = new ContextManager(mockProviders, noOpMemoryHook, {
+    const manager = new ContextManager(mockProviders, {
       contributors: [{
         id: 'invalid-required',
         contribute: async () => [{
@@ -970,7 +969,7 @@ describe('ContextManager', () => {
   });
 
   it('把被场景省略的必需 Fragment 暴露为 missingRequired', async () => {
-    const manager = new ContextManager(mockProviders, noOpMemoryHook, {
+    const manager = new ContextManager(mockProviders, {
       contributors: [{
         id: 'required-dialog',
         required: true,

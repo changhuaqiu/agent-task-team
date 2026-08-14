@@ -6,7 +6,7 @@
 > 依赖设计：`docs/technical/execution/platform-harness-state-machine-design.md`（A2A 聚合与结构化交接）；依赖规格：`acp-runtime-integration/`（执行协议，正交）
 > 历史基线：`docs/archive/specs/context-budget-management/`（预算组件已落地并由本 spec 继续演进）
 > **不在本期**：跨会话记忆系统（archival 存储 + recall/write 落地）—— 另立 spec
-> 一句话定位：**管"上下文怎么用"（选层 / 裁剪 / 预算 / 作用域 / 健康度 / 记忆接入点），不管"怎么存"（消息归 message-repo，记忆归未来 memory-repo）。**
+> 一句话定位：**管"上下文怎么用"（选层 / 裁剪 / 预算 / 作用域 / 健康度），不管"怎么存"；业务上下文来源统一通过 `ContextContributor` 接入。**
 
 ---
 
@@ -17,7 +17,7 @@
 1. **收口两条并行的 prompt 管线**：初始基线中「主循环（用户→agent）」走 `PromptComposer`、「A2A 派发（agent→agent）」由 `a2a/context-builder.ts` 自拼。当前两者统一经 `context-planner → ContextManager.assembleContext()` 组装；零调用的 `PromptComposer` 兼容包装已删除。
 2. **项目作用域（项目隔离）**：上下文按 `project_id`（= `conversationId`）隔离，agent 在项目 A 的历史/任务/团队不渗到项目 B。
 3. **跨项目身份**：同一 agent（如 mario）可出现在 N 个项目，跨项目**只保留身份**（角色卡 / agentId / 人格 / 基础能力），项目上下文不跟随。
-4. **填两个空壳字段**：`agent_session.context_health` 与 `usage_snapshot`（`migrate.ts:63-64`）声明后全代码库零写入——本 spec 让它们成为上下文健康度的真实载体。
+4. **输出可观测报告**：`ContextReport` 随本轮 observation span 持久化，供项目观测投影读取；`agent_session.context_health` 与 `usage_snapshot`（`migrate.ts:63-64`）仍是未接线保留字段，不宣称已有 writer。
 
 并把 **A2A 降级为协议**：A2A（持球/交接）不再自建 prompt 管线，而是作为一个**上下文来源（source）**把交接包喂给 ContextManager；预算、层优先级、作用域、身份对两条路径统一生效。
 
@@ -48,10 +48,10 @@
 
 `agent_session` 表（`migrate.ts:63-64`）：
 ```sql
-context_health TEXT,  -- JSON，全代码库零写入
-usage_snapshot TEXT,  -- JSON，当前零读写；本 spec 的 P1 Health 层负责首次激活
+context_health TEXT,  -- 保留字段，当前全代码库零写入
+usage_snapshot TEXT,  -- 保留字段，当前全代码库零读写
 ```
-`session-repo.ts` 全文只有 `incrementMessageCount` / `seal` 在写，无任何点写入这两个字段。它们是**为健康度预留的空壳**，本 spec 的 Health 层负责激活。（身份/作用域字段如 `roleCardId`、`conversation.account_id` 早已存在且在用，无需迁移。）
+`session-repo.ts` 没有这两个字段的 writer。当前 `ContextReport` 由 daemon 写入 observation span attributes，项目观测投影按开放 JSON 对象读取；session 两字段仍未接线。（身份/作用域字段如 `roleCardId`、`conversation.account_id` 早已存在且在用，无需迁移。）
 
 ---
 
@@ -60,8 +60,7 @@ usage_snapshot TEXT,  -- JSON，当前零读写；本 spec 的 P1 Health 层负�
 ### 3.1 包含（本期 P1 + P2）
 - **P1 统一组装核心**：`ContextManager` 接口 + 主循环路径直接调用 `assembleContext()`；迁移期的 `PromptComposer` 包装在零调用审计后退役
 - **P1 项目作用域**：`project` 升级为 `{id, name, path}`；仓储查询、`ContextManager` intake 与 Context Registry 共同执行项目隔离和可见性过滤
-- **P1 健康度**：Health 层 + `ContextReport`，回写 `context_health` / `usage_snapshot`（激活空壳字段）
-- **P1 记忆接入点**：冻结 `MemoryHook.recall/write` 契约签名，NoOp 实现
+- **P1 健康度**：Health 层 + `ContextReport`，随 observation span 持久化并投影；不把未接线的 session 保留字段描述为现有能力
 - **P2 A2A 协议化**：A2A 派发改走 `ContextManager`（交接包作为 source），退役 `renderDispatchPrompt` 的自建 prompt
 - **P2 跨项目身份契约**：`IdentitySnapshot`（全局只读）vs `ScopedContext`（per project）分离建模落地
 
@@ -128,11 +127,8 @@ interface AssembledContext {
 │  Budget 层   │ system 不裁；tool 次之；project 先裁；      │
 │              │ 同层按 importance 从低到高裁剪              │
 ├─────────────────────────────────────────────────────────┤
-│  Memory Hook │ recall(scope,query)/write(artifact) 契约   │
-│              │ 本期 NoOp，记忆 spec 接入（见 5.6）         │
-├─────────────────────────────────────────────────────────┤
-│  Health 层   │ ContextReport → 回写 context_health/       │
-│              │ usage_snapshot（激活空壳字段，见 5.5）      │
+│  Health 层   │ ContextReport → observation span attributes │
+│              │ → 项目观测投影（见 5.5）                    │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -144,7 +140,7 @@ interface AssembledContext {
 | `userMessage` | trigger=user_turn | 原始 prompt |
 | `a2aHandoff` | trigger=a2a_handoff | possession 契约的交接包 |
 | `task` / `history` | 始终（按 project_id 过滤） | task-graph / chat_message |
-| `memory`（预留） | 后续 spec | archival recall/write |
+| 业务 Contributor | 按对应模块契约 | project context / autonomous delivery；未来真实来源沿用同一入口 |
 
 持久层（与 trigger 无关，每次都装）：identity（role）、project scope、protocol、behavior、collaboration、teamPack、team roster、skill/tool。
 
@@ -159,8 +155,8 @@ interface AssembledContext {
 - 契约：ContextManager 只在组装时读 `IdentitySnapshot`，**从不把项目状态写回身份**
 - 边界纪律（钉死测试）：同一 agentId 在新 conversation 醒来 = 全新开始，身份层照常注入，历史层 / 任务层 / 记忆层为空
 
-### 5.5 健康度度量与空壳字段回写（v2 新增）
-定义 `ContextReport`（回写到 `context_health` / `usage_snapshot`）：
+### 5.5 健康度度量与可观测投影
+定义 `ContextReport`（持久化于本轮 observation span attributes）：
 ```ts
 interface ContextReport {
   trigger: 'user_turn' | 'a2a_handoff' | 'resume';
@@ -175,37 +171,20 @@ interface ContextReport {
     trimmed: boolean;
   }>;
   droppedLayers: string[];
-  recalledArtifacts: number;       // 记忆命中数（本期恒 0）
 }
 ```
-**健康度判据**（写入 `context_health.summary`）：
+**健康度判据**（由报告字段推导）：
 - `healthy`：saturation < 0.8 且 required 上下文完整
 - `saturated`：saturation ∈ [0.8, 1.0) 或 project 层发生裁剪
 - `degraded`：saturation ≥ 1.0 或 required 上下文缺失（后者 fail closed）
 
-**回写**：每次 `assembleContext` 完成后 `sessionRepo.writeContextHealth(sessionId, report)` 原子写入 `context_health`（报告 JSON）+ `usage_snapshot`（token 快照）。这两个字段**第一次有真实写入方**。回写同步/异步见开放问题 Q3。
+**持久化与读取**：daemon 将 `ContextReport` 放入 `context.assemble` observation span attributes；`ProjectObservationProjection` 以 `Record<string, unknown>` 读取并生成项目观测投影。`agent_session.context_health/usage_snapshot` 当前仍无 writer 或 reader，不属于已实现契约。
 
-### 5.6 记忆 recall/write 钩子契约（v2 新增，冻结签名）
-```ts
-// src/lib/agent-context/MemoryHook.ts
-interface MemoryHook {
-  recall(input: {
-    scope: string;          // = conversationId（项目作用域）
-    agentId: string;
-    query: string;          // 召回锚点（本期用不到，预留）
-    limit?: number;
-  }): Promise<MemoryArtifact[]>;   // 本期 NoOp：返回 []
+### 5.6 上下文来源扩展契约
 
-  write(artifact: {
-    scope: string;
-    agentId: string;
-    kind: 'decision' | 'fact' | 'preference' | 'blocker';
-    content: string;
-    evidence?: string;
-  }): Promise<void>;              // 本期 NoOp：直接 resolve
-}
-```
-**为什么本期就要冻结签名**：记忆 spec 落地时只替换 `MemoryHook` 实现（接 memory-repo），组装管线零改动。签名在 P1 钉死 → 记忆系统是"插入式"工程，不返工组装层。
+`ContextContributor` 是唯一扩展 seam。业务模块只有在存在真实 owner 与生产数据源时才注册 Contributor；Registry 统一执行 producer、scope、visibility、freshness、required、失败隔离和 Artifact 归一化。
+
+跨会话 durable memory 仍不在本期。未来 memory 规格必须先确定持久化、provenance、生命周期、淘汰和故障恢复，再把读取侧实现为普通 `ContextContributor`；ContextManager 不预先冻结未被真实 adapter 验证的专用 recall/write 接口。
 
 ### 5.7 A2A 协议化（D4，降级）
 - **降级前**：A2A 派发自建 prompt（`renderDispatchPrompt`），独立预算（chain depth 8），绕过统一的 ContextManager 管线
@@ -213,7 +192,7 @@ interface MemoryHook {
 - 收益：A2A 派发的 prompt 与主循环**同享预算、层优先级、作用域、身份**；"一半战场"补齐
 
 ### 5.8 分阶段
-- **P1（非破坏迁移，已完成）**：`ContextManager` 接口 + 主循环改走它 + `project_id` 作用域 + Health 层回写 + MemoryHook 契约 NoOp；迁移期先由 PromptComposer 委托，确认零调用后于 2026-07-22 删除包装。未接线的独立 `scopeGuard` 后由 P5 Registry 的真实过滤取代并删除。
+- **P1（非破坏迁移，已完成）**：`ContextManager` 接口 + 主循环改走它 + `project_id` 作用域 + ContextReport observation span；迁移期先由 PromptComposer 委托，确认零调用后于 2026-07-22 删除包装。未接线的独立 `scopeGuard` 后由 P5 Registry 的真实过滤取代并删除。
 - **P2（迁移）**：A2A 派发改走 ContextManager，退役 `renderDispatchPrompt` 自建 prompt；跨项目身份契约（IdentitySnapshot/ScopedContext）落地。
 - **后续**：记忆 source 接入（另立 spec）。
 
@@ -298,7 +277,7 @@ interface ContextArtifact extends ContextFragment {
 #### 统一接入
 
 - 现有四层 Tier renderer 直接产出原生 Fragment，与业务 Contributor 一起进入同一选择、预算与 Snapshot 管线；不存在第二套 Prompt part 身份或 legacy 包装。
-- `MemoryHook` 通过内建 Memory Contributor 接入，不再在主流程里作为特殊分支处理。
+- 真实业务来源统一通过 `ContextContributor` 接入；不为尚未实现的来源保留专用 NoOp adapter。
 - 新业务模块不得直接修改 `rawPrompt` 或追加 Prompt 字符串；只允许注册 Contributor。
 - PromptComposer 兼容包装已于 2026-07-22 删除；role/project/task/team/history/tool 的稳定生产 owner 已明确，Legacy Tier Adapter 的退出条件于 2026-08-15 满足并删除。
 
@@ -327,12 +306,12 @@ interface ContextArtifact extends ContextFragment {
 
 ## 6. 影响面
 
-- **新增**：`src/lib/agent-context/ContextManager.ts`、`MemoryHook.ts`、`ContextReport.ts`、Context Registry、`IdentitySnapshot` 类型
-- **改**：dispatch 经 `context-planner` 调 `assembleContext` + 显式传 budget；`layers/projectLayer.ts` 增加 id + scope；`layers/historyLayer.ts` / `taskContextLayer.ts` / `teamPackLayer.ts` 按 project_id 过滤；`src/server/repositories/session-repo.ts` 新增 `writeContextHealth`
+- **新增**：`src/lib/agent-context/ContextManager.ts`、`ContextReport.ts`、Context Registry、`IdentitySnapshot` 类型
+- **改**：dispatch 经 `context-planner` 调 `assembleContext` + 显式传 budget；`layers/projectLayer.ts` 增加 id + scope；`layers/historyLayer.ts` / `taskContextLayer.ts` / `teamPackLayer.ts` 按 project_id 过滤；daemon observation span 持久化 ContextReport
 - **退役**：`src/lib/agent-context/PromptComposer.ts` 及只验证该包装的测试；仍有效的 role/team/collaboration/user-message/behavior layer 行为迁入各 layer 的同目录测试
 - **P2 改**：`src/server/a2a/context-builder.ts`（`renderDispatchPrompt` 退役，改为构造 a2aHandoff source）、`daemon.ts`（A2A 派发点改调 ContextManager）
 - **不改**：`platform-harness-state-machine-design.md` 的 A2A 语义、`ContextBudget` 容量模型、`cli-bridge-layer/`、15 个 `buildXxxLayer` 签名；`BudgetGuard` 在既有 tier + importance 选择前补 required floor
-- **测试**：ContextManager intake / Context Registry / identity 边界 / ContextReport / MemoryHook NoOp 各配套 `.test.ts`；A2A 派发 prompt 等价性测试（降级前后行为对齐，P2）
+- **测试**：ContextManager intake / Context Registry / identity 边界 / ContextReport 各配套 `.test.ts`；A2A 派发 prompt 等价性测试（降级前后行为对齐，P2）
 - **文档**：`specs/README.md`（草案→生效）、`docs/wiki/01-architecture.md` 上下文章节同步（AGENTS.md：实现必先改设计文档）
 
 ---
@@ -344,7 +323,7 @@ interface ContextArtifact extends ContextFragment {
 
 - **Q1：prompt 组装是否服务端化？** → **采纳 (a)**：P1 先建 lib 抽象供前端调用，服务端化推迟（P1 风险可控）。完全服务端化列开放问题 Q1，作 P2 候选。
 - **Q2：A2A 路径收口放 P1 还是 P2？** → **采纳 (a)**：放 P2（P1 先稳主循环，A2A 收口动 orchestrator/dispatch，风险隔离）。
-- **Q3：健康度回写同步还是异步？** → **采纳 (a)**：异步 fire-and-forget（健康度不影响 prompt 本身，不阻塞 dispatch）。
+- **Q3：健康度回写同步还是异步？** → **历史决策未落地**：当前不写 session 保留字段；报告随 observation span 持久化，不新增第二条 fire-and-forget writer。
 - **Q4：`ContextReport` 本期是否暴露到 UI？** → **采纳 (a)**：本期只出类型 + 日志，UI 另议（控制范围，frontend lane 本期不加入）。
 
 ---
@@ -356,8 +335,8 @@ interface ContextArtifact extends ContextFragment {
 | 主循环收口回归面大 | 迁移期保留兼容入口；零调用审计与上游回归通过后删除，并由各 layer + ContextManager + harness 测试持续守护 |
 | A2A 降级改变派发 prompt 文案，影响 agent 行为 | P2 先加等价性测试（关键段不丢），灰度 |
 | project_id 过滤漏掉某层 → 串话 | 仓储查询 + ContextManager intake + Registry 过滤；跨 agent/跨项目边界钉死测试 |
-| 健康度回写拖慢 dispatch | Q3 选异步 fire-and-forget |
-| Memory 契约签名单点返工 | P1 即冻结签名 + NoOp 测试，记忆 spec 接入零组装层改动 |
+| 健康报告产生第二条写链 | 复用本轮 observation span 持久化，不接线独立 session writer |
+| 为未来 memory 过早冻结错误契约 | 等真实 owner、持久化与恢复不变量明确后，以现有 `ContextContributor` 接入读取侧 |
 | 身份快照陈旧 | 只读快照 + 角色/人格变更走既有 role_cards / team_pack 更新通道，不在 ContextManager 内写 |
 | 跨项目隔离被未来需求侵蚀 | 5.4 边界纪律写进 spec + 钉死边界测试；任何"跨项目带历史"需求必须先改本 spec |
 
@@ -367,7 +346,7 @@ interface ContextArtifact extends ContextFragment {
 
 核心五条：
 1. 主循环与 A2A 派发**同走 ContextManager**，共享同一 `ContextBudget` 与层优先级（A2A 验收在 P2）
-2. `agent_session.context_health` / `usage_snapshot` 在每次 dispatch 后有真实写入，可查
+2. 每次 dispatch 的 observation span 包含 `ContextReport`，项目观测投影可读取；session 保留字段不作为验收能力
 3. 跨项目：agent 在项目 A 的 history / task 不出现在项目 B 的 prompt 中（intake 与 Registry 过滤生效）
-4. 跨项目身份：同一 agent 多项目，prompt 中身份段一致、项目段隔离；记忆层为空
-5. `MemoryHook.recall/write` 契约签名冻结，NoOp 实现可被记忆 spec 平滑替换；A2A 降级后交接包经 ContextManager 注入，关键约束段不丢
+4. 跨项目身份：同一 agent 多项目，prompt 中身份段一致、项目段隔离
+5. 业务上下文来源只通过 `ContextContributor` 接入；A2A 降级后交接包经 ContextManager 注入，关键约束段不丢

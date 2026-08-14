@@ -313,7 +313,7 @@ required floor，并在自身无法装入时 fail closed。
 | systemPrompt 仅首次注入 | 缺少失效机制 | bootstrap fingerprint + on-change invalidation |
 | protocol 每轮重复 | 安全但成本高 | 拆成稳定规则 + 当前场景 hint |
 | history 最近 10 条 | 仍是窗口截断 | self delta + structured checkpoint + reference |
-| MemoryHook NoOp | 可接受的迭代占位 | 待工作态稳定后再接 durable memory |
+| `ContextContributor` | 当前唯一来源扩展 seam | 未来 durable memory 有真实 owner 后复用，不预留专用 NoOp adapter |
 | `ContextReport` | 已补 Snapshot id、Artifact revision、omission、missing-required 与 Skill delivery evidence | 后续补 cache key 与 checkpoint |
 
 当前实现以 `ContextFragment` 作为 Contributor 接入格式，在 Registry 边界归一化为六维 `ContextArtifact`，再进入 scenario、预算和 Snapshot 管线。project/global scope、agent/role/team visibility、freshness 和 required 已成为机械门禁；consistency 当前完成分类，强一致读模型与 checkpoint 仍属于后续阶段。
@@ -333,7 +333,7 @@ required floor，并在自身无法装入时 fail closed。
 
 - `src/lib/agent-context/context-contracts.ts` 定义 Fragment、六维 Artifact、Query、Contributor 与 Snapshot；
 - `src/lib/agent-context/context-registry.ts` 负责同步/异步失败隔离、结构校验、归一化、去重、scope/visibility/freshness 门禁；
-- `ContextManager` 保持唯一组装入口；四个 Tier renderer 直接产出原生 Fragment，与 Memory 和业务 Contributor 统一送入 Artifact 管线；
+- `ContextManager` 保持唯一组装入口；四个 Tier renderer 直接产出原生 Fragment，与真实业务 Contributor 统一送入 Artifact 管线；
 - Task Graph 上下文从 SQLite read model 读取 `updated_at` 原生 revision，Team Log 使用已消费水位作为 delta revision；
 - `context.assemble` observation span 保存完整 `ContextReport`，现有“Agent 调试”执行记录显示来源、revision、生命周期、通道、结果与 reason code；
 - 2026-07-19 定向验证覆盖跨项目 Task、全局伪装、私有/角色可见性、过期、重复版本、异常脱敏、场景省略和 required fail-closed；全量结果以当次迭代验证记录为准。
@@ -370,7 +370,7 @@ required floor，并在自身无法装入时 fail closed。
 - 清理旧 tool results；
 - 对长交互生成结构化 checkpoint；
 - Skill / 大 Artifact / 历史正文按需读取；
-- MemoryHook 接入 durable memory，但 recall 结果仍经过 Artifact policy。
+- durable memory 先在独立规格中确定 owner、持久化与恢复契约，再以普通 `ContextContributor` 接入读取结果并经过 Artifact policy。
 
 Skill 的 C3 落地由 `specs/skill-package-progressive-loading/` 负责。第一阶段先采用“Agent 绑定即激活”，由平台确定性编译 `SKILL.md` 正文并只暴露附属资源引用；在加载证据稳定后，再把候选 Skill 与本轮激活 Skill 分离。
 

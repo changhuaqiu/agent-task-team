@@ -58,7 +58,7 @@
 - [x] 调用方仍只通过 `ContextManager.assembleContext()` 组装上下文
 - [x] 新模块可通过 `ContextContributor` 注入 fragment，无需修改 ContextManager 主流程
 - [x] Fragment 在 Registry 边界统一归一化为六维 `ContextArtifact`
-- [x] 现有 Tier 与 Memory 来源也进入统一 fragment 选择和 Snapshot 管线
+- [x] 现有 Tier 与业务 Contributor 进入统一 fragment 选择和 Snapshot 管线；不保留无真实来源的专用 NoOp seam
 - [x] project/global scope、agent/role/team visibility 与 freshness 被机械过滤
 - [x] 重复 fragment 只保留确定性的最新版本，并报告被替换项
 - [x] Contributor 同步/异步失败被隔离并可观察，不吞掉其他上下文或泄露原始错误

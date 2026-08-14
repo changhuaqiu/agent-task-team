@@ -126,3 +126,7 @@ Task Authority 已使用 `proposed/ready/in_progress/blocked/in_review/done/canc
 ## 第二十三轮：删除 Context Legacy Tier 往返
 
 ContextManager 已以 Fragment/Artifact Registry 作为唯一结构化入口，但现有 Tier 内容仍先生成旧 BudgetPart，再包装成 `legacy.*` Fragment；Registry 归一化后，Manager 又按临时 id 恢复旧 part。该往返不提供新过滤或权限，只迫使 Registry 维护第二套 kind、owner、lifecycle、importance 映射，并让 BudgetGuard 继续暴露 P0–P4 `priority`。第二十三轮让四个 Tier renderer 直接产出稳定原生 Fragment，预算只消费 Artifact 的 `tier + delivery.importance + required`，删除 legacy 包装、反包装、priority 与未消费的 Skill 文件兼容字段；外部 Contributor、Snapshot 和 runtime transport 保持不变。
+
+## 第二十四轮：删除 NoOp MemoryHook 假扩展点
+
+ContextManager 曾为未来跨会话记忆预先冻结 `MemoryHook.recall/write`，但全仓只有一个 NoOp adapter、没有任何写入调用或真实存储实现；Context Planner 每轮注入 NoOp，Manager 再把恒空结果包装成内建 Contributor，并输出恒为零且无人消费的 `recalledArtifacts`。这条专用 seam 没有被第二个 adapter 验证，反而提前承诺了 scope、kind、evidence 与生命周期模型。第二十四轮删除该文件、构造参数、内建包装和假指标；现有 `ContextContributor` 继续作为唯一上下文来源扩展面，未来 durable memory 必须先建立真实 owner 与持久化/恢复契约，再通过同一 Registry 接入读取侧。
