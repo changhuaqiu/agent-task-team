@@ -6,8 +6,7 @@
   "scripts": {
     "setup": "bash setup.sh",
     "dev": "next dev --webpack",
-    "build": "pnpm run build:mcp && next build",
-    "build:mcp": "pnpm --filter @agent-task-hub/mcp-server build",
+    "build": "next build",
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
@@ -40,7 +39,6 @@
     "cross-spawn": "^7.0.6",
     "drizzle-orm": "^0.45.2",
     "emoji-picker-react": "^4.19.1",
-    "express": "^5.2.1",
     "highlight.js": "^11.11.1",
     "lucide-react": "^1.14.0",
     "next": "16.2.4",

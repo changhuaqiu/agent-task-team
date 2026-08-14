@@ -25,12 +25,11 @@
 ## Prevention
 
 `.gitignore` 现在忽略任意层级 `node_modules/` 与 `dist/`。Git/Worktree 规范明确子包同样不得提交依赖或构建产物。
-根 `pnpm build` 会先执行 `build:mcp`，再执行 Next.js 生产构建，保证 fresh clone 不依赖被删除的预编译 MCP 文件。
+根 `pnpm build` 只构建当前 Next 应用；逐 Invocation MCP 工具属于 Next daemon 源码，不需要独立子包或预编译产物。
 
 ## Verification
 
 - `pnpm install --offline --frozen-lockfile`：通过，依赖可由 lockfile 与本地 store 恢复。
-- `pnpm --filter @agent-task-hub/mcp-server build`：通过，`dist` 可由源码重建且保持 ignored。
 - `pnpm exec tsc --noEmit --pretty false`：通过。
 - 相关架构、routing、repository 测试：88/88 通过。
 - `pnpm build`：通过。
@@ -51,3 +50,7 @@
 ## 第四轮：删除已退役的 OpenCode HTTP Bridge
 
 Agent 执行已经统一到 ACP，但仓库仍保留一条没有生产消费者的 `opencodeBridgeUrl` 隐藏执行分支，以及对应 HTTP Bridge 服务、安装/启动脚本、package commands 和两个状态 API。第四轮整链删除这些资产；OpenCode 继续作为原生 ACP runtime 受支持，不删除其 launcher、probe、账号或配置能力。
+
+## 第五轮：删除独立 daemon 与 standalone MCP 原型
+
+仓库曾保留 `backend/` 独立 Socket.IO daemon 与 `mcp-server/` stdio 包，但前者仍私有解析 `opencode run`，后者默认端口和 Socket path 与前者不匹配，并硬编码旧 6-Agent 阵容、`default` 项目和 mock 旁路。当前正式路径是 Next daemon + Control Plane + ACP，以及 daemon 按 Invocation 注入的 loopback、短期授权 MCP 工具。第五轮删除这两个无消费者并行入口，同时去掉 workspace 子包、root 构建负担与仅由旧 daemon 使用的 `express` 直接依赖。

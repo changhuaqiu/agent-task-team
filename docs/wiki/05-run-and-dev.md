@@ -83,20 +83,14 @@ Agent 执行经 **ACP（Agent Client Protocol）单一通路**驱动（见 [`arc
 - 当前项目上下文是否切换到正确 conversation
 - 账号与 runtime 状态是否可用
 
-## 5.7 可选：独立 daemon（非默认）
-
-仓库仍保留 `backend/server.js` 作为“独立 daemon”的可选实现，但当前默认链路并不依赖它。
-
-## 5.8 生产构建与运行
+## 5.7 生产构建与运行
 
 ```bash
 pnpm build
 pnpm start
 ```
 
-注意：当前默认 daemon 内置在 Next.js 中；如你改用独立 daemon，需要自行编排与对齐 Socket 地址。
-
-## 5.9 代码检查与测试
+## 5.8 代码检查与测试
 
 ```bash
 pnpm lint
@@ -104,7 +98,7 @@ pnpm test
 pnpm build
 ```
 
-## 5.10 常见问题排查
+## 5.9 常见问题排查
 
 - 页面卡在初始化：优先检查 `/api/state` 是否报错，以及本地 SQLite / repo 初始化是否正常
 - 终端无输出：检查 daemon 是否连接成功、账号是否可用、执行链路是否选择到正确 engine

@@ -225,7 +225,8 @@ daemon 不仅负责“转发”，还负责写入：
 1. **会话恢复（resume）**：`supportsResume:false`。ACP `session/load` 未接线，CapabilityRouter 会剔除 `resumeSessionId` 并开新会话。
 2. **人工确认权限策略**：deny 与显式 `allow_once` 已实现；需要浏览器/操作者参与的 confirm profile 尚未接入。
 3. **模型规范化**：model ID 跨运行时不通用（如 codex 的 `openai/x` + `reasoning_effort`）；ContextManager → ACP 的模型选择按运行时规范化是开放项。ACP `PromptRequest` 无 model 字段，`AcpBackend.execute` 忽略 `opts.model`，模型须经各运行时自身配置层注入（见 opencode 的 `opencode.json`）。
-4. **MCP 桥接**：`newSession({ mcpServers: [] })` 当前为空；后续可把框架 MCP 工具显式桥接给 agent。
+
+平台 MCP 已落地：daemon 为每次 Invocation 创建 loopback-only、短期 bearer grant，并把随机 server 名与允许工具注入 ACP 的 `session/new` 和 `session/load`；turn 完成后立即撤销。具体权限边界见 [`docs/technical/execution/four-agent-pr-review-loop.md`](../docs/technical/execution/four-agent-pr-review-loop.md)。
 
 ## 后续建议
 

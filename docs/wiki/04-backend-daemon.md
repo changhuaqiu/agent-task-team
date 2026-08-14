@@ -350,7 +350,7 @@ Catalog 三个条目（spec §2 / §5.1）：
 
 ACP timeout 分为两层：平台配置的 `CLI_TIMEOUT_MS` 是 idle timeout，任意 ACP session update 都会续期；AcpBackend 另有独立 hard max turn timeout，限制持续产生更新但始终不结束的异常进程。daemon 对 runtime 原生工具采用大小写无关判断，避免 OpenCode 的小写 `read/write/bash` 被当成平台自定义工具重复执行。
 
-延迟项（坦诚记录）：会话恢复（`session/load` 未接线，`supportsResume:false`）；需要人工交互的 confirm profile；跨运行时模型规范化；MCP 桥接（`mcpServers:[]` 当前为空）。CapabilityRouter 丢弃 resume 时 daemon 不再执行 fresh-session 自动重放，避免失败后重复副作用。详见 `architecture/cli-integration.md` 与 `specs/acp-runtime-integration/spec.md`。
+延迟项（坦诚记录）：会话恢复（`session/load` 未接线，`supportsResume:false`）；需要人工交互的 confirm profile；跨运行时模型规范化。CapabilityRouter 丢弃 resume 时 daemon 不再执行 fresh-session 自动重放，避免失败后重复副作用。平台 MCP 已由 daemon 按 Invocation 注入 loopback-only、短期 bearer grant，并在 turn 完成后撤销；权限边界见 `docs/technical/execution/four-agent-pr-review-loop.md`。其余 ACP 约束详见 `architecture/cli-integration.md` 与 `specs/acp-runtime-integration/spec.md`。
 
 ## 4.7 会话与调用追踪
 

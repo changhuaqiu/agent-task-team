@@ -22,8 +22,8 @@
   - SQLite 驱动，作为应用当前默认持久化方案
 - `drizzle-orm`
   - 数据库访问与 schema 映射
-- `express` + `socket.io`
-  - `socket.io` 用于默认 daemon；`express` 主要保留给独立 daemon / 可选后端场景
+- `socket.io`
+  - 用于 Next 应用内的默认 daemon 与浏览器实时事件连接
 
 ## 6.2 开发依赖（devDependencies）
 
