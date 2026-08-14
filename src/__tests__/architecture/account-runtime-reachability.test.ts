@@ -25,9 +25,12 @@ describe('account runtime reachability architecture', () => {
     expect(verify).toContain("tryCliProbe('opencode'");
   });
 
-  it('does not expose a self-tested probe wrapper from the ACP spawn module', () => {
-    const bridge = source('src/server/agent/cliBridge.ts');
-    expect(bridge).not.toContain('probeCli');
-    expect(bridge).not.toContain('tryCliProbe');
+  it('keeps cross-platform spawning inside the sole ACP backend without probe wrappers', () => {
+    const backend = source('src/server/agent/acp/acpBackend.ts');
+    expect(backend).toContain("import spawn from 'cross-spawn'");
+    expect(backend).toContain('proc = spawn(this.o.command, this.o.args');
+    expect(backend).not.toContain('probeCli');
+    expect(backend).not.toContain('tryCliProbe');
+    expect(source('src/server/agent/acp/catalog.ts')).not.toContain('cross-spawn');
   });
 });

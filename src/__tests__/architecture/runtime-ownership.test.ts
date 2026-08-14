@@ -115,6 +115,14 @@ describe('runtime ownership architecture', () => {
     expect(productionTypeScriptFiles('src/server').filter((path) => forbiddenBypass.test(source(path)))).toEqual([]);
   });
 
+  it('keeps cross-platform process spawning inside the sole ACP backend', () => {
+    const serverFiles = productionTypeScriptFiles('src/server');
+    expect(serverFiles.filter((path) => /from ['"]cross-spawn['"]/.test(source(path))))
+      .toEqual(['src/server/agent/acp/acpBackend.ts']);
+    const retiredSpawnWrapper = /\bspawnCli\b|agent\/cliBridge|agent\\cliBridge/;
+    expect(serverFiles.filter((path) => retiredSpawnWrapper.test(source(path)))).toEqual([]);
+  });
+
   it('does not retain the bespoke CLI capability downgrade layer before ACP execution', () => {
     expect(daemon).not.toContain('checkCapabilities');
     expect(daemon).toContain('buildAcpExecOptions');

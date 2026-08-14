@@ -27,6 +27,7 @@
 - [x] 相关单元测试、集成测试、类型检查和构建通过。
 - [x] `architecture/cli-integration.md` 与 `docs/wiki/04-backend-daemon.md` 已同步。
 - [x] 所有 legacy backend 和迁移旗标已删除。
+- [x] 跨平台进程启动由唯一 `AcpBackend` 直接拥有，不保留单调用者 pass-through spawn 模块。
 
 ## 健壮性
 

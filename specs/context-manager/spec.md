@@ -310,7 +310,7 @@ interface ContextArtifact extends ContextFragment {
 - **改**：dispatch 经 `context-planner` 调 `assembleContext` + 显式传 budget；`layers/projectLayer.ts` 增加 id + scope；`layers/historyLayer.ts` / `taskContextLayer.ts` / `teamPackLayer.ts` 按 project_id 过滤；daemon observation span 持久化 ContextReport
 - **退役**：`src/lib/agent-context/PromptComposer.ts` 及只验证该包装的测试；仍有效的 role/team/collaboration/user-message/behavior layer 行为迁入各 layer 的同目录测试
 - **P2 改**：`src/server/a2a/context-builder.ts`（`renderDispatchPrompt` 退役，改为构造 a2aHandoff source）、`daemon.ts`（A2A 派发点改调 ContextManager）
-- **不改**：`platform-harness-state-machine-design.md` 的 A2A 语义、`ContextBudget` 容量模型、`cli-bridge-layer/`、15 个 `buildXxxLayer` 签名；`BudgetGuard` 在既有 tier + importance 选择前补 required floor
+- **不改**：`platform-harness-state-machine-design.md` 的 A2A 语义、`ContextBudget` 容量模型、`AcpBackend` 执行语义、15 个 `buildXxxLayer` 签名；`BudgetGuard` 在既有 tier + importance 选择前补 required floor
 - **测试**：ContextManager intake / Context Registry / identity 边界 / ContextReport 各配套 `.test.ts`；A2A 派发 prompt 等价性测试（降级前后行为对齐，P2）
 - **文档**：`specs/README.md`（草案→生效）、`docs/wiki/01-architecture.md` 上下文章节同步（AGENTS.md：实现必先改设计文档）
 

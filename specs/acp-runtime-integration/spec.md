@@ -101,7 +101,7 @@ interface AgentCatalogEntry {
 
 `AcpBackend` 负责：
 
-1. 根据 Catalog 启动 ACP agent。
+1. 根据 Catalog 通过 `cross-spawn` 直接启动 ACP agent；跨平台 shim 解析属于该唯一 backend 的内部实现，不另设透传 wrapper。
 2. 完成初始化与认证协商。
 3. 创建或恢复 session。
 4. 提交 ContextManager 产出的 prompt/context。

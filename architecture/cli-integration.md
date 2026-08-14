@@ -6,7 +6,7 @@ created: 2026-02-26
 
 # Agent 执行集成架构：ACP 统一接入
 
-> 更新：2026-07-15
+> 更新：2026-08-15
 
 ## 概述
 
@@ -78,7 +78,6 @@ daemon / dispatch / A2A / ContextManager
 - `src/server/agent/acp/agentCatalog.seed.json` — Catalog 启动事实源
 - `src/server/agent/acp/agentEventMapper.ts` — ACP `SessionUpdate` → `AgentEvent`
 - `src/server/agent/acp/runtimeSetup.ts` — `prepareAcpRuntime()` 每运行时准备
-- `src/server/agent/cliBridge.ts` — `spawnCli`（cross-spawn，Windows .cmd/.bat 安全）
 - `src/server/agent/with-done-guarantee.ts` — 保证 `done` 事件最终发出
 
 ## 设计原则
@@ -150,7 +149,7 @@ Catalog（`src/server/agent/acp/agentCatalog.seed.json`）是启动事实源（s
 
 `AcpBackend`（spec §5.2）是 `AgentBackend` 的唯一实现，职责包括：
 
-1. 经 `spawnCli`（cross-spawn，Windows .cmd/.bat 安全）启动 ACP agent 子进程。
+1. `AcpBackend` 直接经 `cross-spawn` 启动 ACP agent 子进程并保留 Windows `.cmd/.bat` shim 解析；不设置单调用者透传模块。
 2. ACP 协议握手：`initialize` → `session/new` → `prompt`。**必须先 `initialize` 再 `session/new`**——codex-acp / claude-agent-acp 适配器强制此顺序，违反会返回 JSON-RPC `-32603`。
 3. 消费 `session/update` 通知，经 `agentEventMapper` 映射为 `AgentEvent`，直到收到 stop 消息。
 4. 处理 `requestPermission`：默认拒绝；只有显式 `ACP_PERMISSION_MODE=allow_once` 或注入策略才选择单次授权，策略错误/超时继续拒绝。

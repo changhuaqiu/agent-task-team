@@ -142,3 +142,7 @@ ContextManager 曾为未来跨会话记忆预先冻结 `MemoryHook.recall/write`
 ## 第二十七轮：删除 socket transport 的 proposal policy 旁路
 
 普通项目的首轮方案仍使用 `legacyProposal` 意图标记，自主项目则必须由 Delivery `plan_goal` 独占规划；该规则已经由 `InvocationPlanner` 基于持久化 DeliveryRun 统一执行，并覆盖 socket、Agent Inbox、重试与重启恢复。但 daemon 的 `submitSocketTerminalStart()` 还在 Coordinator 之前重复查询 DeliveryRun、写一条无生产消费者的 `legacy_proposal.suppressed` Proof 并提前返回，导致 socket 命令绕过统一幂等、busy、completion 与观测 seam。第二十七轮删除 transport 私有 policy 与 Proof；socket 只归一化并提交命令，`legacyProposal` 继续持久传递，唯一拒绝事实留在 Invocation Planner。普通非自主 proposal 与自主规划权威均保持不变。
+
+## 第二十八轮：删除单调用者 CLI spawn 透传模块
+
+ACP 已是唯一 Agent backend，但执行链仍保留 `cliBridge.spawnCli()`：它只有 `AcpBackend` 一个生产调用者，函数体仅把 command、args 与 options 原样转交 `cross-spawn`，不提供校验、错误归一化、生命周期或第二种 adapter。该浅模块还引用已被 ACP 规格替代的历史 `cli-bridge-layer`，扩大了当前执行 interface。第二十八轮删除文件与自证测试，让 `AcpBackend` 直接拥有 `cross-spawn`；Windows `.cmd/.bat` 解析、spawn 失败、stdio、取消和进程树清理能力均由原依赖与 backend 测试继续保护。

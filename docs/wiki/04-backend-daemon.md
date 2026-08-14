@@ -250,7 +250,7 @@ identity 或 causation，不能替换 trace。所有 A2A domain event 与下游 
 
 1. daemon ingress 先拒绝未知或不匹配的显式 engine/runtime（完全省略时才默认 OpenCode），再根据 `engine` 在 Catalog 中查表；找不到条目直接抛错，不构造平行 backend。Google/Gemini 账号解析为 `opencode`，由显式 Google provider/model 配置和 Catalog 条目执行。
 2. `prepareAcpRuntime(entry, ...)` 做每运行时准备：opencode 在隔离临时目录写 fallback config 并通过 `OPENCODE_CONFIG` 注入，不修改项目文件；codex 隔离 `CODEX_HOME`（复制必要配置到收紧权限的临时目录，turn 后幂等清理）；claude passthrough（认证来自主机）。
-3. `createAcpBackend(entry, ...)` 构造 `AcpBackend`——经 `spawnCli`（cross-spawn，Windows .cmd/.bat 安全）spawn，完成 `initialize` → `session/new` → `prompt`，把 `session/update` 映射为统一 `AgentEvent`。
+3. `createAcpBackend(entry, ...)` 构造 `AcpBackend`——由该唯一 backend 直接经 `cross-spawn`（Windows `.cmd/.bat` 安全）启动进程，完成 `initialize` → `session/new` → `prompt`，把 `session/update` 映射为统一 `AgentEvent`；不保留单调用者透传 spawn 模块。
 4. daemon 通过 `AcpRuntimeEventCoordinator` 驱动 canonical 生命周期，并由其内部
    `RuntimeAgentEventBridge` 将 `AgentEvent` 归一化为 `runtime.*` Platform Event。
    Socket、消息、Invocation、A2A outcome 与 observation 均从该事件流消费；原始

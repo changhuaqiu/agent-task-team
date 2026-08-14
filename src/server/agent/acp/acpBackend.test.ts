@@ -4,7 +4,7 @@
 // (via `npx tsx mockAcpAgent.ts`), drives one prompt turn over stdio JSON-RPC,
 // and asserts the mapped event sequence + final AgentResult.
 //
-// Exercises the full path: spawnCli → ndJsonStream → client().connectWith →
+// Exercises the full path: cross-spawn → ndJsonStream → client().connectWith →
 // buildSession → session.prompt → session/update* (mapped via mapAcpUpdate) →
 // session/request_permission (explicit allow-once policy) → PromptResponse(end_turn).
 //

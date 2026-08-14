@@ -24,6 +24,7 @@
 - [ ] 三种运行时分别通过新会话、恢复、工具、权限、取消、异常退出和完成事件验收。
 - [x] 删除 `claude.ts`、`opencode.ts`、`codex.ts` 的 bespoke 实现。
 - [x] 删除按 engine 分支的 factory 和手工运行时能力矩阵。
+- [x] 删除单调用者的 `cliBridge` 透传模块，由唯一 `AcpBackend` 直接拥有 `cross-spawn`。
 - [x] 更新架构与 daemon 长期文档。
 - [x] 运行安装、类型检查、构建、单元测试和集成测试。
 

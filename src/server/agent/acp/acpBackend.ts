@@ -2,8 +2,8 @@ import { existsSync, statSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 import { Readable, Writable } from 'node:stream';
 import * as acp from '@agentclientprotocol/sdk';
+import spawn from 'cross-spawn';
 import treeKill from 'tree-kill';
-import { spawnCli } from '../cliBridge';
 import { withDoneGuarantee } from '../with-done-guarantee';
 import {
   createTurnScopedAcpEventMapper,
@@ -242,9 +242,9 @@ export class AcpBackend implements AgentBackend {
       ...opts.env,
     };
 
-    let proc: ReturnType<typeof spawnCli>;
+    let proc: ReturnType<typeof spawn>;
     try {
-      proc = spawnCli(this.o.command, this.o.args, {
+      proc = spawn(this.o.command, this.o.args, {
         cwd,
         env: env as typeof process.env,
         stdio: ['pipe', 'pipe', 'pipe'],
