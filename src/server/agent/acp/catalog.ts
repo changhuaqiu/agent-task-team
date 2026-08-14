@@ -13,8 +13,7 @@
 // AcpBackend uses its fail-closed default policy.
 
 import { AcpBackend, type AcpBackendOpts } from './acpBackend';
-import type { AgentBackend } from '../types';
-import type { EngineId } from '../capabilities';
+import type { AgentBackend, EngineId } from '../types';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import seed from './agentCatalog.seed.json';
@@ -101,7 +100,7 @@ export function validateCatalog(value: unknown): AgentCatalogEntry[] {
  *
  * The entry's `id` is also a valid `EngineId` (the three runtimes are
  * 'opencode' | 'claude' | 'codex'), so it flows straight through as the
- * `engine` identity on the resulting `CapabilitySet`.
+ * backend execution identity.
  *
  * @param entry  Catalog entry to launch.
  * @param opts   Optional `{ cwd, env }`:

@@ -30,7 +30,7 @@ import {
 } from './agent/acp/runtimeSetup';
 import { createBackend as createAcpBackend } from './agent/acp/catalog';
 import { createWorkContractPermissionPolicy } from './agent/acp/permissionPolicy';
-import { checkCapabilities } from './agent/capabilityRouter';
+import { buildAcpExecOptions } from './agent/acp/execOptions';
 import type { AgentEvent, AgentBackend } from './agent/types';
 import { withDoneGuarantee } from './agent/with-done-guarantee';
 import { isSkillTool } from './skill-tool-router';
@@ -1397,8 +1397,8 @@ export default function registerDaemon(io: IOServer) {
       // every engine MUST resolve to a catalog entry. Unknown engines throw
       // explicitly here instead of creating a parallel backend.
       //
-      // `executeCwd`/`executeEnv` flow into checkCapabilities opts below so the
-      // ACP path's prepared cwd/env (e.g. codex CODEX_HOME) reach the spawn.
+      // `executeCwd`/`executeEnv` flow into the single ExecOptions object below
+      // so the ACP path's prepared cwd/env (e.g. codex CODEX_HOME) reach spawn.
       let executeCwd = runtimeWd;
       let executeEnv: Record<string, string> = {
         ...credentialEnv,
@@ -1483,42 +1483,31 @@ export default function registerDaemon(io: IOServer) {
       // (see ~L690), so resetTimeout, backend.execute, and the retry path all
       // read this single floored value — no separate effectiveTimeoutMs needed.
 
-      // CapabilityRouter：按 backend 能力降级（resume/systemPrompt/maxTurns/PTY）+ 警告
-      const capsResult = checkCapabilities(backend, {
-        prompt: promptWithWorkdir,
-        opts: {
-          cwd: executeCwd,
-          // OpenCode loads the same system context from OPENCODE_CONFIG
-          // instructions. Other ACP runtimes keep the backend system channel.
-          systemPrompt: engine === 'opencode' ? undefined : systemPrompt || undefined,
-          resumeSessionId: effectiveSessionId || undefined,
-          timeout: timeoutMs > 0 ? timeoutMs : undefined,
-          env: executeEnv,
-        },
+      const execOptions = buildAcpExecOptions({
+        engine,
+        cwd: executeCwd,
+        systemPrompt: systemPrompt || undefined,
+        resumeSessionId: effectiveSessionId || undefined,
+        timeoutMs,
+        env: executeEnv,
       });
-      if (capsResult.warnings.length > 0) {
-        console.warn(
-          `[daemon] capability degradation for ${agentId} (${capsResult.warnings[0].engine}):`,
-          capsResult.warnings.map((w) => `${w.field}→${w.action}`),
-        );
-      }
       recordRuntimeContextObservation({
         transport: 'acp',
         systemPromptChannel: engine === 'opencode' && systemPrompt
           ? 'instructions'
-          : capsResult.opts.systemPrompt
+          : execOptions.systemPrompt
             ? 'backend'
             : 'none',
-        prompt: capsResult.prompt,
+        prompt: promptWithWorkdir,
         systemPrompt: engine === 'opencode'
           ? systemPrompt || undefined
-          : capsResult.opts.systemPrompt,
+          : execOptions.systemPrompt,
       });
       capturePromptObservation(
-        capsResult.prompt,
-        engine === 'opencode' ? systemPrompt || undefined : capsResult.opts.systemPrompt,
+        promptWithWorkdir,
+        engine === 'opencode' ? systemPrompt || undefined : execOptions.systemPrompt,
       );
-      const { events: rawEvents, result, kill } = backend.execute(capsResult.prompt, capsResult.opts);
+      const { events: rawEvents, result, kill } = backend.execute(promptWithWorkdir, execOptions);
       runtimeEventCoordinator?.start();
       const events = withDoneGuarantee(rawEvents, result);
 

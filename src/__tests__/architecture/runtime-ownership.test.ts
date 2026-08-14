@@ -62,6 +62,14 @@ describe('runtime ownership architecture', () => {
     expect(productionTypeScriptFiles('src/server').filter((path) => forbiddenBypass.test(source(path)))).toEqual([]);
   });
 
+  it('does not retain the bespoke CLI capability downgrade layer before ACP execution', () => {
+    expect(daemon).not.toContain('checkCapabilities');
+    expect(daemon).toContain('buildAcpExecOptions');
+    expect(daemon).toContain('backend.execute(promptWithWorkdir, execOptions)');
+    const retiredCapabilityLayer = /CapabilitySet|capabilityRouter|backend\.capabilities/;
+    expect(productionTypeScriptFiles('src/server').filter((path) => retiredCapabilityLayer.test(source(path)))).toEqual([]);
+  });
+
   it('keeps production Agent engines aligned with the ACP Catalog', () => {
     const runtimeIdentityFiles = [
       'src/server/types.ts',

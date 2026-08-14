@@ -98,3 +98,7 @@ Google/Gemini API Key 账号能够由 OpenCode provider 配置消费，原生 Ge
 ## 第十六轮：删除未接线的 scopeGuard 伪门面
 
 旧 `scopeGuard.ts` 同时暴露项目断言、兼容过滤与 private 可见性断言，但四个 guard 接口均无生产调用，只由同名测试直接证明自己存在；唯一生产 import 是 history layer 对一行数组过滤的浅包装。它依赖的 `ContextRecord/filterVisible` 同样只有自己的测试消费者，是第二套未接线可见性模型。真实组装链早已在 `ContextManager` intake 拒绝错项目/缺项目输入，并由 Context Registry 统一过滤 project/global scope 与 agent/role/team visibility。第十六轮将 history 过滤内联，删除两套兼容模块及其自嗨测试，并同步活动 ContextManager 规格、长期文档与架构图，只保留真实生产 owner。
+
+## 第十七轮：删除 ACP-only 链中的恒等 CapabilityRouter
+
+三种正式 runtime 已全部收敛到唯一 `AcpBackend`，但 daemon 前仍保留一套来自 bespoke CLI 时代的手工 `CapabilitySet` 与降级 router。当前唯一 backend 对 resume/system prompt/PTY 的声明完全相同，daemon 也不提交 maxTurns，因此 router 的唯一生产调用是恒等变换；其测试仅构造生产不可达的旧 CLI 合成能力矩阵。第十七轮删除该 router、手工能力矩阵和自嗨测试，把能力事实留给 Catalog、ACP initialize 握手与真实兼容测试，并让 daemon 的单一 `ExecOptions` 直接进入 `AcpBackend`。

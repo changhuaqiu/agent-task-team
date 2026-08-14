@@ -155,7 +155,7 @@ ACP 文本更新是流式增量，不是独立聊天消息。daemon 可以逐 ch
 2. 接入 OpenCode、Claude、Codex Catalog launcher。
 3. 让 daemon 通过同一选择器路由 ACP/legacy，并逐个运行兼容性套件。
 4. 某运行时通过验收后移除其 legacy 路径。
-5. 三者全部通过后删除 factory 分支、私有解析器与手工 CapabilitySet。
+5. 三者全部通过后删除 factory 分支、私有解析器与手工 CapabilitySet（Architecture Subtraction Round 17 完成最终清理）。
 
 这不是三期产品方案；所有步骤属于同一活动规格和同一次交付。临时 legacy 路径不得在规格完成后保留。
 
@@ -182,7 +182,7 @@ ACP 是长生命周期 daemon 启动的外部进程边界，不能假设 adapter
 5. **资源有界**：限制全局并发 run 数、待消费事件数、单事件字符数、累计文本输出和 stderr tail；超过上限时以稳定 reason code 失败并回收进程。
 6. **诊断不泄密**：stderr 只保留有界、脱敏的尾部用于失败定位；正常执行不把原始 stderr 逐块写入日志。
 7. **临时状态可回收**：OpenCode fallback config 和 Codex 隔离 home 均写入受控临时目录，权限尽可能收紧，cleanup 幂等；不得修改用户项目中的 `opencode.json`。
-8. **重试不重复副作用**：只有本轮实际尝试了 resume 且失败发生在 session 建立前，才允许 fresh-session 重试；被 capability router 丢弃的 resume 不能触发重复 prompt。
+8. **重试不重复副作用**：已有 runtime session id 时必须尝试 `session/load`；握手不支持或加载失败均失败关闭，不得静默 fresh-session 重放 prompt。
 9. **空闲与总时长分离**：`ExecOptions.timeout` 表示无 ACP 协议活动的 idle timeout，任意 session update（包括不展示的 usage/plan update）均续期；另设独立 hard max turn timeout，防止持续产生无效更新的进程无限占用资源。
 10. **原生工具不重复拦截**：daemon 判断 runtime 原生工具时大小写无关；`Read/Write/Bash` 与 `read/write/bash` 语义相同，不得作为平台自定义工具再次调用。
 11. **流式增量不是消息边界**：实时 socket 保留增量，聊天持久化按 Invocation 合并连续文本；工具和终止事件会关闭当前文本段。

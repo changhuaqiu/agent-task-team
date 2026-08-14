@@ -36,7 +36,6 @@ created: 2026-02-26
       -> loadCatalog().find(e => e.id === engine)   // Catalog 查表，无 switch
       -> prepareAcpRuntime(entry, ...)              // 每运行时文件系统/环境准备
       -> createAcpBackend(entry, ...)               // 构造 AcpBackend（唯一实现）
-      -> checkCapabilities(backend, ...)            // CapabilityRouter 按能力降级
       -> backend.execute(prompt, opts)              -> AgentBackend 契约
                                                     -> AcpBackend
                                                     -> ACP JSON-RPC over stdio
@@ -79,8 +78,6 @@ daemon / dispatch / A2A / ContextManager
 - `src/server/agent/acp/agentCatalog.seed.json` — Catalog 启动事实源
 - `src/server/agent/acp/agentEventMapper.ts` — ACP `SessionUpdate` → `AgentEvent`
 - `src/server/agent/acp/runtimeSetup.ts` — `prepareAcpRuntime()` 每运行时准备
-- `src/server/agent/capabilityRouter.ts` — 按能力降级
-- `src/server/agent/capabilities.ts` — `CapabilitySet` 类型
 - `src/server/agent/cliBridge.ts` — `spawnCli`（cross-spawn，Windows .cmd/.bat 安全）
 - `src/server/agent/with-done-guarantee.ts` — 保证 `done` 事件最终发出
 
@@ -172,16 +169,11 @@ Catalog（`src/server/agent/acp/agentCatalog.seed.json`）是启动事实源（s
 - **codex**：隔离 `CODEX_HOME`——在临时目录复制必要的 `~/.codex/auth.json` + `config.toml`，返回 `cleanup` 在 turn 结束后清理。codex-acp 经 `CODEX_HOME` 读取 ChatGPT OAuth 认证。
 - **claude**：passthrough（认证来自主机 Claude Code OAuth 或 `ANTHROPIC_API_KEY`），无 cwd 配置、无 env 覆盖。
 
-## CapabilityRouter
+## 能力事实与执行参数
 
-`capabilityRouter.ts` 在 `backend.execute` 之前根据 `backend.capabilities` 做能力降级（backend 无关，对 ACP 同样适用）：
+三种运行时只有 ACP 通路，能力事实由 Catalog 的 `verifiedCapabilities`、ACP `initialize` 握手和兼容测试共同证明。daemon 构造一次 `ExecOptions` 并直接交给 `AcpBackend.execute()`；不再维护已恒等化的手工 `CapabilitySet` 或运行前降级器。
 
-- `resumeSessionId` + `supportsResume:false` → 剔除 resume，开新会话
-- `systemPrompt` + `supportsSystemPrompt` → 拼进 prompt 头
-- `maxTurns` + `supportsMaxTurns:false` → 剔除
-- `requiresPty:true` 但环境无 PTY → best-effort 警告（ACP `requiresPty:false`，不会触发）
-
-ACP 的能力声明：`supportsResume:false`、`supportsModel:true`、`supportsSystemPrompt:true`（`systemPromptMode:'none'`，由 `AcpBackend` 自行拼进 prompt）、`requiresPty:false`。
+已有 runtime session id 时 `AcpBackend` 使用 `session/load`，运行时握手未声明 `loadSession` 则失败关闭；system prompt、cwd/env 与 timeout 同样通过稳定执行契约传入，不按 runtime 名称猜测或静默丢弃。
 
 ## 当前执行流程
 
@@ -199,9 +191,8 @@ daemon 的主要步骤：
 4. `loadCatalog().find(e => e.id === engine)`——找不到条目直接抛错（不静默回退）
 5. `prepareAcpRuntime(entry, ...)` 做文件系统 / 环境准备
 6. `createAcpBackend(entry, ...)` 构造 backend
-7. `checkCapabilities(backend, ...)` 按能力降级
-8. `backend.execute(prompt, opts)`，消费 `AgentEvent` 流
-9. 写入 repo 并广播给前端
+7. `backend.execute(prompt, opts)`，消费 `AgentEvent` 流
+8. 写入 repo 并广播给前端
 
 ### 3. backend 执行
 
@@ -222,15 +213,13 @@ daemon 不仅负责“转发”，还负责写入：
 
 以下能力本期**未实现**，属于后续迭代：
 
-1. **会话恢复（resume）**：`supportsResume:false`。ACP `session/load` 未接线，CapabilityRouter 会剔除 `resumeSessionId` 并开新会话。
-2. **人工确认权限策略**：deny 与显式 `allow_once` 已实现；需要浏览器/操作者参与的 confirm profile 尚未接入。
-3. **模型规范化**：model ID 跨运行时不通用（如 codex 的 `openai/x` + `reasoning_effort`）；ContextManager → ACP 的模型选择按运行时规范化是开放项。ACP `PromptRequest` 无 model 字段，`AcpBackend.execute` 忽略 `opts.model`，模型须经各运行时自身配置层注入（见 opencode 的 `opencode.json`）。
+1. **人工确认权限策略**：deny 与显式 `allow_once` 已实现；需要浏览器/操作者参与的 confirm profile 尚未接入。
+2. **模型规范化**：model ID 跨运行时不通用（如 codex 的 `openai/x` + `reasoning_effort`）；ContextManager → ACP 的模型选择按运行时规范化是开放项。ACP `PromptRequest` 无 model 字段，模型须经各运行时自身配置层注入（见 opencode 的 `opencode.json`）。
 
 平台 MCP 已落地：daemon 为每次 Invocation 创建 loopback-only、短期 bearer grant，并把随机 server 名与允许工具注入 ACP 的 `session/new` 和 `session/load`；turn 完成后立即撤销。具体权限边界见 [`docs/technical/execution/four-agent-pr-review-loop.md`](../docs/technical/execution/four-agent-pr-review-loop.md)。
 
 ## 后续建议
 
-1. 接线 `session/load` 以支持真正的会话恢复。
-2. 在现有 fail-closed 权限策略上接入需要操作者参与的 confirm profile。
-3. 推进跨运行时模型规范化。
-4. 持续保持本文档与 `src/server/agent/acp/*`、`src/server/daemon.ts` 一致。
+1. 在现有 fail-closed 权限策略上接入需要操作者参与的 confirm profile。
+2. 推进跨运行时模型规范化。
+3. 持续保持本文档与 `src/server/agent/acp/*`、`src/server/daemon.ts` 一致。

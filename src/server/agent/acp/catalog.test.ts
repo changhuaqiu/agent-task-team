@@ -62,23 +62,18 @@ describe('AgentCatalog (loadCatalog + createBackend)', () => {
     }])).toThrow(/not pinned/);
   });
 
-  it('createBackend(opencodeEntry) returns an AcpBackend with engine=opencode + requiresPty=false', () => {
+  it('createBackend(opencodeEntry) returns the unified AcpBackend', () => {
     const opencodeEntry = loadCatalog().find((e) => e.id === 'opencode')!;
     const backend = createBackend(opencodeEntry);
 
     // The backend is an AcpBackend instance.
     expect(backend).toBeInstanceOf(AcpBackend);
 
-    // Capabilities reflect the engine identity + ACP's no-PTY advantage.
-    expect(backend.capabilities.engine).toBe('opencode');
-    expect(backend.capabilities.requiresPty).toBe(false);
-    expect(backend.capabilities.outputMode).toBe('events');
   });
 
   it('createBackend passes cwd + env through to the AcpBackend', () => {
     // AcpBackend stores opts.cwd + opts.env; execute() falls back to / merges
-    // them. We verify the backend constructs without error, retains the engine
-    // identity for each catalog runtime, and that env is plumbed through to
+    // them. We verify the backend constructs without error and that env is plumbed through to
     // the backend's options (the codex smoke + Task 8 daemon rely on this to
     // isolate CODEX_HOME). The cwd/env values themselves are exercised by the
     // real-runtime smoke; here we just confirm the wiring.
@@ -87,7 +82,6 @@ describe('AgentCatalog (loadCatalog + createBackend)', () => {
     for (const entry of loadCatalog()) {
       const backend = createBackend(entry, { cwd, env });
       expect(backend).toBeInstanceOf(AcpBackend);
-      expect(backend.capabilities.engine).toBe(entry.id);
       // Access the private opts to confirm env passthrough (test file is
       // excluded from tsc; vitest transpiles via esbuild without type-check).
       const opts = (backend as unknown as { o: { cwd?: string; env?: Record<string, string> } }).o;

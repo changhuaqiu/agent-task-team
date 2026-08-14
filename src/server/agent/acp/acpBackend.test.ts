@@ -44,6 +44,22 @@ describe('isAcpResourceNotFound', () => {
 });
 
 describe('AcpBackend (subprocess integration with mockAcpAgent)', () => {
+  it('joins the backend system prompt and user prompt at the ACP prompt boundary', async () => {
+    const backend = new AcpBackend({
+      command: 'npx',
+      args: ['tsx', mockPath],
+      engine: 'codex',
+      cwd: process.cwd(),
+      env: { MOCK_ACP_SCENARIO: 'prompt_echo' },
+    });
+    const run = backend.execute('user request', { systemPrompt: 'system context' });
+    for await (const event of run.events) { void event; }
+    const result = await run.result;
+
+    expect(result.status).toBe('completed');
+    expect(result.output).toBe('system context\n\nuser request');
+  }, 15_000);
+
   it('passes configured MCP servers into a new ACP session', async () => {
     const backend = new AcpBackend({
       command: 'npx',

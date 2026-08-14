@@ -30,11 +30,9 @@ const PROMPT = 'Reply with a single short greeting sentence.';
 const DEFAULT_TURN_TIMEOUT_MS = 120_000;
 
 /**
- * Default smoke model per runtime, applied via an isolated runtime config —
- * NOT via execute() opts. AcpBackend.execute() ignores
- * `opts.model` (Task 5 deferral), and the ACP protocol's PromptRequest has no
- * per-prompt model field anyway, so the model MUST be set through the agent's
- * own config layer.
+ * Default smoke model per runtime, applied via an isolated runtime config.
+ * ACP PromptRequest has no per-prompt model field and ExecOptions deliberately
+ * exposes none, so the model MUST be set through the agent's own config layer.
  *
  * opencode: the host's configured default (`zhipuai-coding-plan/glm-4.7`, set
  * in ~/.config/opencode/opencode.json) emits only `agent_thought_chunk`

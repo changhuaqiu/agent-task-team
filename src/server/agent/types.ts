@@ -1,8 +1,8 @@
 // src/server/agent/types.ts
 
-import type { CapabilitySet } from './capabilities';
-
 // --- Unified event types ---
+export type EngineId = 'claude' | 'opencode' | 'codex';
+
 export type AgentEventType =
   | 'text'
   | 'thinking'
@@ -43,12 +43,9 @@ export interface AgentResult {
 // --- Backend interface ---
 export interface ExecOptions {
   cwd?: string;
-  model?: string;
   systemPrompt?: string;
-  maxTurns?: number;
   timeout?: number;
   resumeSessionId?: string;
-  customArgs?: string[];
   env?: Record<string, string>;
 }
 
@@ -64,6 +61,4 @@ export interface AgentRun {
 
 export interface AgentBackend {
   execute(prompt: string, opts: ExecOptions): AgentRun;
-  /** 该 backend 的能力声明，供 CapabilityRouter（Phase 2）按能力调度 + 降级 */
-  readonly capabilities: CapabilitySet;
 }

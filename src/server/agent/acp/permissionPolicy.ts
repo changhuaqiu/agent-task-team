@@ -4,7 +4,7 @@ import type {
 } from '@agentclientprotocol/sdk';
 import { existsSync, realpathSync } from 'node:fs';
 import { dirname, isAbsolute, relative, resolve } from 'node:path';
-import type { EngineId } from '../capabilities';
+import type { EngineId } from '../types';
 import { workContractRepo } from '../../work-contract/repository';
 import type { WorkAuthorityRow, WorkContract } from '../../work-contract/types';
 

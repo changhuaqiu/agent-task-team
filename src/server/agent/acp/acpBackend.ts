@@ -21,7 +21,7 @@ import type {
   AgentRun,
   ExecOptions,
 } from '../types';
-import type { CapabilitySet, EngineId } from '../capabilities';
+import type { EngineId } from '../types';
 
 export type AcpFailureReasonCode =
   | 'acp_cancelled'
@@ -92,18 +92,6 @@ export function acpSessionMeta(
     },
   };
 }
-
-const ACP_CAPS_BASE = {
-  promptMode: 'stdin-stream-json',
-  outputMode: 'events',
-  supportsResume: true,
-  supportsModel: true,
-  supportsSystemPrompt: true,
-  systemPromptMode: 'none',
-  supportsMaxTurns: false,
-  supportsPermissionMode: true,
-  requiresPty: false,
-} satisfies Omit<CapabilitySet, 'engine'>;
 
 const DEFAULT_LIMITS: AcpRuntimeLimits = {
   maxConcurrentRuns: 10,
@@ -212,11 +200,7 @@ function processExitMessage(code: number | null, signal: NodeJS.Signals | null, 
 }
 
 export class AcpBackend implements AgentBackend {
-  readonly capabilities: CapabilitySet;
-
-  constructor(private o: AcpBackendOpts) {
-    this.capabilities = { ...ACP_CAPS_BASE, engine: this.o.engine };
-  }
+  constructor(private o: AcpBackendOpts) {}
 
   execute(prompt: string, opts: ExecOptions): AgentRun {
     const startTime = Date.now();
