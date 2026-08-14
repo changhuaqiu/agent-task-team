@@ -155,51 +155,6 @@ describe('ChatMessage extensions', () => {
     });
   });
 
-  describe('createProgressMessage', () => {
-    it('builds correct message for start type', () => {
-      const msg = useTaskHubStore.getState().createProgressMessage({
-        taskId: 'T-001',
-        taskTitle: 'Init project',
-        type: 'start',
-      }, 'conv-1');
-      expect(msg.agentId).toBe('system');
-      expect(msg.intent).toBe('progress');
-      expect(msg.progressData?.type).toBe('start');
-      expect(msg.progressData?.taskId).toBe('T-001');
-      expect(msg.content).toContain('T-001');
-      expect(msg.content).toContain('开始执行');
-    });
-
-    it('builds correct message for complete type', () => {
-      const msg = useTaskHubStore.getState().createProgressMessage({
-        taskId: 'T-001',
-        taskTitle: 'Init project',
-        type: 'complete',
-      }, 'conv-1');
-      expect(msg.progressData?.type).toBe('complete');
-      expect(msg.content).toContain('执行完成');
-    });
-
-    it('builds correct message for update type with steps', () => {
-      const msg = useTaskHubStore.getState().createProgressMessage({
-        taskId: 'T-001',
-        taskTitle: 'Init project',
-        type: 'update',
-        completedSteps: 2,
-        totalSteps: 4,
-        steps: [
-          { label: 'Install deps', status: 'done' },
-          { label: 'Config Tailwind', status: 'done' },
-          { label: 'Setup ESLint', status: 'in_progress' },
-          { label: 'Create layout', status: 'pending' },
-        ],
-      }, 'conv-1');
-      expect(msg.progressData?.completedSteps).toBe(2);
-      expect(msg.progressData?.totalSteps).toBe(4);
-      expect(msg.progressData?.steps).toHaveLength(4);
-    });
-  });
-
   describe('streaming message buffer', () => {
     it('flushes buffered text when stream completes before the next animation frame', async () => {
       useTaskHubStore.setState({

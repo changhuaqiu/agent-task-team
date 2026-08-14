@@ -28,13 +28,6 @@ export interface ChatMessage {
   selectedProposals?: string[];
   toolEvents?: ToolEvent[];
   isStreaming?: boolean;
-  progressData?: {
-    taskId: string;
-    type: 'start' | 'update' | 'complete';
-    completedSteps: number;
-    totalSteps: number;
-    steps: { label: string; status: 'done' | 'in_progress' | 'pending' }[];
-  };
   artifactPreview?: {
     files: { path: string; change: 'added' | 'modified' | 'deleted' }[];
   };

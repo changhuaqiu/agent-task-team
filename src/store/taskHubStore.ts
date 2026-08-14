@@ -414,7 +414,6 @@ const selectPendingCount = (state: TaskHubState) => {
 const makeId = (prefix: string) =>
   `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
-const EMPTY_EVENTS: InternalEvent[] = [];
 const EMPTY_BLOCKERS: Blocker[] = [];
 const EMPTY_CHAT: ChatMessage[] = [];
 const DEFAULT_ACTIVE_AGENT_IDS = ['mario', 'luigi'];
@@ -685,8 +684,6 @@ export interface TaskHubState {
   hasHydrated: boolean;
   runtimeRefreshInProgress: boolean;
   runtimeHydrationError: string | null;
-  setHasHydrated: (hydrated: boolean) => void;
-  mergeLegacyChatMessages: (legacyMessages: ChatMessage[]) => void;
 
   isSettingsOpen: boolean;
   setSettingsOpen: (open: boolean) => void;
@@ -729,13 +726,10 @@ export interface TaskHubState {
   getTasksByAgent: (agentId: string) => Task[];
   getTaskById:     (taskId: string) => Task | undefined;
   getAgentCurrentTask: (agentId: string) => Task | undefined;
-  getConversations: () => Conversation[];
   getSelectedConversation: () => Conversation | undefined;
-  getEventsForSelectedConversation: () => InternalEvent[];
   getOpenBlockersForSelectedConversation: () => Blocker[];
   getChatMessagesForSelectedConversation: () => ChatMessage[];
   getA2AForSelectedConversation: () => A2APossessionView | undefined;
-  getDispatchReceiptsForSelectedConversation: () => DispatchReceipt[];
   recordDispatchReceipt: (receipt: DispatchReceipt) => void;
   replaceA2AProjection: (snapshot: A2APossessionView) => void;
 
@@ -748,11 +742,9 @@ export interface TaskHubState {
     conversationId: string,
     options?: { persist?: boolean },
   ) => Promise<boolean>;
-  restoreConversation: (conversation: Conversation) => void;
   addPlatformNotice: (notice: PlatformNoticeEnvelope) => void;
   addEvent: (event: Omit<InternalEvent, 'id' | 'timestamp'> & { id?: string; timestamp?: string }) => void;
   openBlocker: (input: Omit<Blocker, 'id' | 'status' | 'createdAt'> & { id?: string; status?: Blocker['status']; createdAt?: string }) => string;
-  fixBlocker: (conversationId: string, blockerId: string) => void;
   inviteAgent:      (agentId: string) => void;
   dismissAgent:     (agentId: string) => void;
   updateTaskStatus: (taskId: string, status: TaskStatus, reviewNote?: string, evidence?: Record<string, unknown>) => Promise<void>;
@@ -793,15 +785,6 @@ export interface TaskHubState {
   agentAccountOverrides: Record<string, string[]>;
   agentRoleCardOverrides: Record<string, string>;
   setAgentAccountIds: (agentId: string, accountIds: string[]) => void;
-
-  createProgressMessage: (params: {
-    taskId: string;
-    taskTitle: string;
-    type: 'start' | 'update' | 'complete';
-    completedSteps?: number;
-    totalSteps?: number;
-    steps?: { label: string; status: 'done' | 'in_progress' | 'pending' }[];
-  }, conversationId: string) => ChatMessage;
 
   roleCards: RoleCard[];
   upsertRoleCard: (card: Omit<RoleCard, 'id' | 'createdAt' | 'updatedAt' | 'version' | 'isPreset'> & { id?: string; isPreset?: boolean }) => string;
@@ -857,7 +840,6 @@ export const useTaskHubStore = create<TaskHubState>()(
         hasHydrated: false,
         runtimeRefreshInProgress: false,
         runtimeHydrationError: null as string | null,
-        setHasHydrated: (hydrated: boolean) => set({ hasHydrated: hydrated }),
 
         isSettingsOpen: false,
         setSettingsOpen: (open: boolean) => set({ isSettingsOpen: open }),
@@ -934,16 +916,10 @@ export const useTaskHubStore = create<TaskHubState>()(
         a2aByConversation: {} as Record<string, A2APossessionView>,
         dispatchReceiptsByConversation: {} as Record<string, DispatchReceipt[]>,
 
-        getConversations: () => get().conversations,
         getSelectedConversation: () => {
           const id = get().selectedConversationId;
           if (!id) return undefined;
           return getConvLookup(get().conversations)[id];
-        },
-        getEventsForSelectedConversation: () => {
-          const id = get().selectedConversationId;
-          if (!id) return EMPTY_EVENTS;
-          return get().eventsByConversation[id] ?? EMPTY_EVENTS;
         },
         getOpenBlockersForSelectedConversation: () => {
           const id = get().selectedConversationId;
@@ -959,11 +935,6 @@ export const useTaskHubStore = create<TaskHubState>()(
           const id = get().selectedConversationId;
           if (!id) return undefined;
           return get().a2aByConversation[id];
-        },
-        getDispatchReceiptsForSelectedConversation: () => {
-          const id = get().selectedConversationId;
-          if (!id) return [];
-          return get().dispatchReceiptsByConversation[id] ?? [];
         },
         recordDispatchReceipt: (receipt: DispatchReceipt) => set((state: TaskHubState) => {
           const existing = state.dispatchReceiptsByConversation[receipt.conversationId] ?? [];
@@ -1326,25 +1297,6 @@ export const useTaskHubStore = create<TaskHubState>()(
           return published;
         },
 
-        mergeLegacyChatMessages: (legacyMessages: ChatMessage[]) => {
-          if (!legacyMessages.length) return;
-          let conversationId: string | null =
-            get().selectedConversationId ??
-            get().conversations[0]?.id ??
-            null;
-          if (!conversationId) {
-            get().createConversation({ title: '未命名会话', goal: '迁移自旧版本的聊天记录' });
-            conversationId = get().selectedConversationId ?? null;
-          }
-          if (!conversationId) return;
-          set((state: TaskHubState) => ({
-            chatMessagesByConversation: {
-              ...state.chatMessagesByConversation,
-              [conversationId]: [...(state.chatMessagesByConversation[conversationId] || []), ...legacyMessages],
-            },
-          }));
-        },
-
         createConversation: async ({ title, goal, projectPath, priority, teamPackId, useWorktree, gitRepoRoot, autonomous }: { title: string; goal: string; projectPath?: string; priority?: Conversation['priority']; teamPackId?: string; useWorktree?: boolean; gitRepoRoot?: string; autonomous?: boolean }) => {
           const id = makeId('conv');
           const stamp = new Date().toISOString();
@@ -1573,31 +1525,6 @@ export const useTaskHubStore = create<TaskHubState>()(
           }
         },
 
-        restoreConversation: (conversation: Conversation) => {
-          set((state: TaskHubState) => ({
-            conversations: [...state.conversations, conversation],
-            selectedConversationId: conversation.id,
-          }));
-          fetch('/api/mutations', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              type: 'conversation.create',
-              payload: {
-                id: conversation.id,
-                title: conversation.title,
-                goal: conversation.goal,
-                status: conversation.status,
-                priority: conversation.priority,
-                project_path: conversation.projectPath,
-                team_pack_id: conversation.teamPackId,
-                use_worktree: conversation.useWorktree,
-                git_repo_root: conversation.gitRepoRoot,
-              },
-            }),
-          }).catch(() => {});
-        },
-
         addEvent: ({ id, timestamp, ...event }: Omit<InternalEvent, 'id' | 'timestamp'> & { id?: string; timestamp?: string }) => {
           const resolvedId = id ?? makeId('evt');
           const resolvedTimestamp = timestamp ?? new Date().toISOString();
@@ -1648,52 +1575,6 @@ export const useTaskHubStore = create<TaskHubState>()(
           });
 
           return resolvedId;
-        },
-
-        fixBlocker: (conversationId: string, blockerId: string) => {
-          const stamp = new Date().toISOString();
-          set((state: TaskHubState) => ({
-            blockersByConversation: {
-              ...state.blockersByConversation,
-              [conversationId]: (state.blockersByConversation[conversationId] || []).map((b: Blocker) =>
-                b.id === blockerId ? { ...b, status: 'fixed', resolvedAt: stamp } : b
-              ),
-            },
-          }));
-          get().addEvent({ conversationId, type: 'blocker.fixed', payload: { blockerId } });
-        },
-
-        createProgressMessage: (params: {
-          taskId: string;
-          taskTitle: string;
-          type: 'start' | 'update' | 'complete';
-          completedSteps?: number;
-          totalSteps?: number;
-          steps?: { label: string; status: 'done' | 'in_progress' | 'pending' }[];
-        }, conversationId: string): ChatMessage => {
-          const id = `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-          const contentTemplates: Record<string, string> = {
-            start: `▶ #${params.taskId} 开始执行 — ${params.taskTitle}`,
-            update: `⟳ #${params.taskId} 进度更新 — ${params.completedSteps}/${params.totalSteps}`,
-            complete: `✓ #${params.taskId} 执行完成 — ${params.taskTitle}`,
-          };
-
-          return {
-            id,
-            agentId: 'system',
-            content: contentTemplates[params.type],
-            timestamp: new Date().toISOString(),
-            intent: 'progress',
-            referencedTaskId: params.taskId,
-            conversationId,
-            progressData: {
-              taskId: params.taskId,
-              type: params.type,
-              completedSteps: params.completedSteps ?? 0,
-              totalSteps: params.totalSteps ?? 0,
-              steps: params.steps ?? [],
-            },
-          };
         },
 
         addChatMessage: async (msg: Omit<ChatMessage, 'id' | 'timestamp' | 'mentions' | 'intent'> & { conversationId?: string }) => {

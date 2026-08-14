@@ -4,7 +4,6 @@ import { useTaskHubStore, type ChatMessage } from '@/store/taskHubStore';
 import { useState } from 'react';
 import { PixelAvatar } from './PixelAvatar';
 import { CliOutputBlock } from './CliOutputBlock';
-import { ProgressMessageCard } from './ProgressMessageCard';
 import { cn } from '@/lib/utils';
 import { parsePhaseBreakdown } from '@/lib/breakdownParser';
 import { User, Lightbulb, Play, Eye, Link2, Copy, ExternalLink, Activity } from 'lucide-react';
@@ -227,15 +226,6 @@ export function ChatMessageItem({ message, responseSegments }: ChatMessageItemPr
                     <MarkdownContent content={segment.content} />
                   )
                 ) : null}
-
-                {segment.progressData && (
-                  <div className="mt-2">
-                    <ProgressMessageCard
-                      message={segment}
-                      onTaskClick={(taskId) => setSelectedTaskId(taskId)}
-                    />
-                  </div>
-                )}
 
                 {segmentHasToolEvents && (
                   <CliOutputBlock

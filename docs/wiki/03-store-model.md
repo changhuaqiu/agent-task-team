@@ -105,7 +105,6 @@ export interface Task {
 
 - `toolEvents`
 - `isStreaming`
-- `progressData`
 - `artifactPreview`
 - `rejectionReason`
 - `selectedProposals`
@@ -115,6 +114,7 @@ export interface Task {
 - 普通对话
 - Agent 流式输出
 - 工具调用记录
+- 通过普通消息、任务通知和工程协作 metadata 呈现的进度
 - 进度信息
 - 审批 / 拒绝结果
 
@@ -303,6 +303,8 @@ store 监听 daemon 推送的实时事件，并将其映射成前端状态：
 - Human Command adapter：只由人的点击、输入和确认调用，向服务端提交命令。
 - Display projection adapter：消费项目事件并更新本地展示 Store，不发执行命令。
 - Team Runtime 的前端缓存与工作台展示模型。
+
+Store interface 只保留有真实 UI、Socket、middleware 或内部 slice 消费者的 action。原始状态读取直接使用 Zustand selector；没有消费者的 selected-project 浅 wrapper、旧迁移入口和浏览器领域写旁路不作为“未来可能使用”的兼容面保留。
 
 它不是自动执行状态机；Task wakeup、A2A、恢复和重试的 owner 在服务端。
 

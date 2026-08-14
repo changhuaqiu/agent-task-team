@@ -44,6 +44,7 @@
 | `architecture-subtraction-22/` | implemented | 第二十二轮删除浏览器旧 Task 六态、兼容投影与无效直接动作，统一 repository、API、store、socket、UI 和 Agent preset 的七态契约；长期决策见 `docs/technical/execution/architecture-subtraction.md` |
 | `architecture-subtraction-23/` | implemented | 第二十三轮删除 ContextManager Legacy Tier 往返、P0–P4 priority、p0Intact 与未消费 Skill 文件投影，Tier 内容直接进入原生 Fragment/Artifact 管线；长期决策见 `docs/technical/execution/architecture-subtraction.md` |
 | `architecture-subtraction-24/` | implemented | 第二十四轮删除只有 NoOp 实现的 MemoryHook 专用 seam、内建空 Contributor 与恒零报告字段，未来真实来源统一复用 ContextContributor；长期决策见 `docs/technical/execution/architecture-subtraction.md` |
+| `architecture-subtraction-25/` | implemented | 第二十五轮删除八个零生产消费者的浏览器 Store action、自嗨测试及无 producer 的进度卡 UI 尾巴，Store interface 只保留真实消费者与正式命令；长期决策见 `docs/technical/execution/architecture-subtraction.md` |
 | `four-agent-pr-review-loop/` | implemented | 四 Agent PR 交付、评审、修复与合并证据闭环已落地 |
 | `github-issue-agent-hook/` | implemented | GitHub Issue 验签、幂等建项与自主交付链已落地；长期设计见 `docs/technical/integrations/github-issue-agent-hook.md` |
 | `open-issues-33-35/` | implemented | A2A 分派意图、首次交接身份、默认 TeamPack 升级与上下文去重修复已验收 |

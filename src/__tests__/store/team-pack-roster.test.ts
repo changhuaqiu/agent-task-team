@@ -666,6 +666,22 @@ describe('Team Pack Dynamic Roster', () => {
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
+      const event = {
+        id: 'event-delete-failed',
+        conversationId: conversation.id,
+        type: 'conversation.updated' as const,
+        timestamp: new Date().toISOString(),
+      };
+      const blocker = {
+        id: 'blocker-delete-failed',
+        conversationId: conversation.id,
+        taskId: task.id,
+        type: 'manual' as const,
+        reasonSummary: 'keep blocker state',
+        status: 'open' as const,
+        createdAt: new Date().toISOString(),
+      };
+      const sessions = { mario: 'session-delete-failed' };
       useTaskHubStore.setState({
         conversations: [conversation],
         selectedConversationId: conversation.id,
@@ -680,6 +696,9 @@ describe('Team Pack Dynamic Roster', () => {
             timestamp: new Date().toISOString(),
           }],
         },
+        eventsByConversation: { [conversation.id]: [event] },
+        blockersByConversation: { [conversation.id]: [blocker] },
+        agentSessions: { default: {}, [conversation.id]: sessions },
       });
       vi.spyOn(global, 'fetch').mockResolvedValue({
         ok: false,
@@ -692,9 +711,13 @@ describe('Team Pack Dynamic Roster', () => {
       expect(deleted).toBe(false);
       const restored = useTaskHubStore.getState();
       expect(restored.selectedConversationId).toBe(conversation.id);
+      expect(restored.selectedProjectId).toBe(conversation.id);
       expect(restored.conversations).toContainEqual(conversation);
       expect(restored.tasks).toContainEqual(task);
       expect(restored.chatMessagesByConversation[conversation.id]).toHaveLength(1);
+      expect(restored.eventsByConversation[conversation.id]).toEqual([event]);
+      expect(restored.blockersByConversation[conversation.id]).toEqual([blocker]);
+      expect(restored.agentSessions[conversation.id]).toEqual(sessions);
     });
   });
 });

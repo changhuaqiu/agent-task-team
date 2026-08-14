@@ -47,6 +47,25 @@ describe('runtime ownership architecture', () => {
     expect(taskHubStore).not.toContain('harnessFallbackReasonCode');
   });
 
+  it('keeps the browser Store interface free of zero-consumer compatibility actions', () => {
+    const storeFiles = productionTypeScriptFiles('src/store');
+    for (const action of [
+      'setHasHydrated',
+      'createProgressMessage',
+      'mergeLegacyChatMessages',
+      'getConversations',
+      'getEventsForSelectedConversation',
+      'getDispatchReceiptsForSelectedConversation',
+      'restoreConversation',
+      'fixBlocker',
+    ]) {
+      const actionPattern = new RegExp(`\\b${action}\\b`);
+      expect(storeFiles.filter((path) => actionPattern.test(source(path)))).toEqual([]);
+    }
+    const retiredProgressCard = /progressData|ProgressMessageCard/;
+    expect(productionTypeScriptFiles('src').filter((path) => retiredProgressCard.test(source(path)))).toEqual([]);
+  });
+
   it('keeps explicit human command adapters available', () => {
     expect(taskHubStore).toContain(`type: 'a2a.human_handoff'`);
     expect(taskHubStore).not.toContain(`socket.emit('a2a:user-turn-created'`);

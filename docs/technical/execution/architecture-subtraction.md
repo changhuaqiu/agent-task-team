@@ -130,3 +130,7 @@ ContextManager 已以 Fragment/Artifact Registry 作为唯一结构化入口，�
 ## 第二十四轮：删除 NoOp MemoryHook 假扩展点
 
 ContextManager 曾为未来跨会话记忆预先冻结 `MemoryHook.recall/write`，但全仓只有一个 NoOp adapter、没有任何写入调用或真实存储实现；Context Planner 每轮注入 NoOp，Manager 再把恒空结果包装成内建 Contributor，并输出恒为零且无人消费的 `recalledArtifacts`。这条专用 seam 没有被第二个 adapter 验证，反而提前承诺了 scope、kind、evidence 与生命周期模型。第二十四轮删除该文件、构造参数、内建包装和假指标；现有 `ContextContributor` 继续作为唯一上下文来源扩展面，未来 durable memory 必须先建立真实 owner 与持久化/恢复契约，再通过同一 Registry 接入读取侧。
+
+## 第二十五轮：收窄浏览器 Store 死 action
+
+`TaskHubState` 长期保留八个没有真实生产调用方的 action：三个浅读取 wrapper，以及旧聊天迁移、手动水合标记、独立会话恢复、浏览器 blocker 修复入口和只被自身单测消费的进度消息构造器。它们没有产生运行价值，却扩大 Store interface，并让调用者误以为旧迁移、浏览器领域写旁路和一条未接线的进度消息生产链仍受支持。第二十五轮删除这些 action、死 helper 自测及其无 producer 的 `progressData`/`ProgressMessageCard` UI 尾巴，保留真实 `loadFromServer` 水合、消息对账、删除失败聚合回滚、blocker 展示投影、Socket receipt 写入，以及通过普通聊天、任务通知和工程协作 metadata 呈现的进度；组件读取原始状态继续使用 Zustand selector，领域写入继续走正式 Human Command interface。
