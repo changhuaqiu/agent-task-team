@@ -18,13 +18,7 @@
     "e2e:autonomous": "playwright test --config=playwright.autonomous.config.ts",
     "e2e:headed": "playwright test --headed",
     "e2e:report": "playwright show-report",
-    "hook:github:install": "node scripts/install-github-issue-hook.mjs",
-    "bridge:install": "bash bridge/install.sh",
-    "bridge:start": "node bridge/opencode-bridge.mjs",
-    "bridge:check": "bash scripts/opencode-bridge-install.sh",
-    "bridge:serve": "bash scripts/opencode-bridge-start.sh",
-    "bridge:check:win": "powershell -ExecutionPolicy Bypass -File .\\scripts\\opencode-bridge-install.ps1",
-    "bridge:serve:win": "powershell -ExecutionPolicy Bypass -File .\\scripts\\opencode-bridge-start.ps1"
+    "hook:github:install": "node scripts/install-github-issue-hook.mjs"
   },
   "dependencies": {
     "@agentclientprotocol/claude-agent-acp": "0.59.0",

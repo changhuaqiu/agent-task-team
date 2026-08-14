@@ -39,6 +39,6 @@
 
 - [ ] Existing A2A possession behavior remains compatible during migration.
 - [ ] Existing direct user dispatch still works while moving through Dispatch Gateway.
-- [ ] Existing bridge execution can report lifecycle events in the new model.
+- [ ] Existing runtime execution can report lifecycle events in the new model.
 - [ ] Old compatibility socket events are treated as transport adapters.
 - [ ] Documentation reflects actual implementation state at every phase.

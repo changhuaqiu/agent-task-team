@@ -3495,6 +3495,27 @@ END;
       }
     },
   },
+  {
+    version: 76,
+    run: (db) => {
+      const runtimeNodeTable = db.prepare(`
+        SELECT 1 FROM sqlite_master
+        WHERE type='table' AND name='runtime_node'
+      `).get();
+      if (!runtimeNodeTable) return;
+      const bindingTable = db.prepare(`
+        SELECT 1 FROM sqlite_master
+        WHERE type='table' AND name='agent_binding'
+      `).get();
+      if (bindingTable) {
+        db.exec(`
+          DELETE FROM agent_binding
+          WHERE node_id IN (SELECT id FROM runtime_node WHERE kind='bridge')
+        `);
+      }
+      db.exec("DELETE FROM runtime_node WHERE kind='bridge'");
+    },
+  },
 ];
 
 export function applyMigrations(db: Database.Database): void {

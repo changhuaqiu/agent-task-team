@@ -12,7 +12,7 @@ Agent Task Hub has grown from a single UI-driven task workspace into a multi-ins
 
 - browser UI instances create user turns and render runtime state
 - the local daemon starts CLI runtimes and streams lifecycle events
-- OpenCode bridge and future remote runtimes execute outside the local daemon process
+- future remote runtimes may execute outside the local daemon process
 - agents collaborate through A2A possession handoffs
 - workflow, tasks, accounts, skills, worktrees, sessions, and runtime bindings all affect execution
 
@@ -47,12 +47,12 @@ The control plane owns decisions and facts.
 
 The execution plane owns side effects and reports lifecycle events.
 
-UI, daemon, bridge, and remote runtimes are separate instances. Cross-instance actions must use explicit identity, session, envelope, health, and acknowledgement semantics.
+UI, daemon, and remote runtimes are separate instances. Cross-instance actions must use explicit identity, session, envelope, health, and acknowledgement semantics.
 
 ## Goals
 
 - Establish a single decision path for user dispatch, A2A handoff, workflow dispatch, review gates, and system-triggered execution.
-- Treat browser, daemon, bridge, and remote runtimes as runtime nodes with identity and health.
+- Treat browser, daemon, and remote runtimes as runtime nodes with identity and health.
 - Track which runtime node currently owns each executable agent binding.
 - Replace naked prompt dispatch and broadcast routing with typed execution envelopes.
 - Record proof events for every critical state transition and dispatch phase.
@@ -86,12 +86,10 @@ flowchart TD
 
   Dispatch --> Router["Runtime Router"]
   Router --> Local["Local Daemon Executor"]
-  Router --> Bridge["Bridge Executor"]
   Router --> Remote["Remote Executor"]
   Router --> Worktree["Worktree Executor"]
 
   Local --> Proof
-  Bridge --> Proof
   Remote --> Proof
   Worktree --> Proof
 ```
@@ -267,7 +265,7 @@ It may:
 ## Core Domain Types
 
 ```typescript
-type RuntimeNodeKind = 'browser' | 'daemon' | 'bridge' | 'remote' | 'worktree';
+type RuntimeNodeKind = 'browser' | 'daemon' | 'remote' | 'worktree';
 
 type RuntimeNodeStatus = 'reachable' | 'stale' | 'unreachable' | 'suspended';
 
@@ -367,7 +365,7 @@ the actual `execution_envelope` table contract before mutating lifecycle state:
   Invocations as the active-dispatch facts, so `acknowledged` neither suppresses
   recovery forever nor causes a duplicate wakeup while execution is still running;
 - daemon startup settles non-terminal Invocations left by a previous process,
-  and every bridge/backend success, runtime failure, timeout, or setup-failure
+  and every runtime success, runtime failure, timeout, or setup-failure
   path settles the Invocation created by that attempt;
 - lifecycle methods report whether a transition was applied; daemon
   `dispatch.receipt` events are emitted only for applied transitions, so late,
@@ -593,7 +591,7 @@ Future federation may extend this to a full PII pipeline and trust-level matrix.
 ### Phase 4: Executor Envelope
 
 - Make daemon consume `ExecutionEnvelope`.
-- Make bridge and future remote executors consume the same envelope shape.
+- Make future remote executors consume the same envelope shape.
 - Return `started`, `failed`, and `completed` lifecycle events.
 
 ### Phase 5: Continue Gate

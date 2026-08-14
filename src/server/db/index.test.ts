@@ -79,6 +79,57 @@ describe('SQLite Foundation', () => {
     expect(row.v).toBeGreaterThanOrEqual(1);
   });
 
+  it('removes retired HTTP bridge runtime nodes and their live bindings', () => {
+    const now = new Date().toISOString();
+    db.prepare(`
+      INSERT INTO runtime_node (
+        id,kind,label,endpoint,status,capabilities,trust_level,
+        last_heartbeat_at,missed_heartbeats,created_at,updated_at
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
+    `).run(
+      'bridge:https://legacy.example', 'bridge', 'Legacy bridge',
+      'https://legacy.example', 'reachable', '["execute","bridge-run"]',
+      'paired', now, 0, now, now,
+    );
+    db.prepare(`
+      INSERT INTO agent_binding (
+        id,conversation_id,agent_id,node_id,runtime_id,status,created_at,updated_at
+      ) VALUES (?,?,?,?,?,'idle',?,?)
+    `).run(
+      'binding-legacy-bridge', 'conv-legacy', 'mario',
+      'bridge:https://legacy.example', 'opencode', now, now,
+    );
+    db.prepare(`
+      INSERT INTO runtime_node (
+        id,kind,label,endpoint,status,capabilities,trust_level,
+        last_heartbeat_at,missed_heartbeats,created_at,updated_at
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
+    `).run(
+      'remote:retained', 'remote', 'Remote executor',
+      'https://remote.example', 'reachable', '["execute"]',
+      'paired', now, 0, now, now,
+    );
+    db.prepare(`
+      INSERT INTO agent_binding (
+        id,conversation_id,agent_id,node_id,runtime_id,status,created_at,updated_at
+      ) VALUES (?,?,?,?,?,'idle',?,?)
+    `).run(
+      'binding-remote-retained', 'conv-remote', 'luigi',
+      'remote:retained', 'opencode', now, now,
+    );
+    db.prepare('DELETE FROM _schema_version WHERE version=76').run();
+
+    applyMigrations(db);
+
+    expect(db.prepare("SELECT id FROM runtime_node WHERE kind='bridge'").all()).toEqual([]);
+    expect(db.prepare('SELECT id FROM agent_binding WHERE id=?').get('binding-legacy-bridge'))
+      .toBeUndefined();
+    expect(db.prepare('SELECT id,kind FROM runtime_node WHERE id=?').get('remote:retained'))
+      .toEqual({ id: 'remote:retained', kind: 'remote' });
+    expect(db.prepare('SELECT id FROM agent_binding WHERE id=?').get('binding-remote-retained'))
+      .toEqual({ id: 'binding-remote-retained' });
+  });
+
   it('backfills legacy session engine and account from the latest successful invocation', () => {
     const now = new Date().toISOString();
     db.prepare(
@@ -650,7 +701,7 @@ describe('SQLite Foundation', () => {
     expect(db.prepare('SELECT version FROM _schema_version WHERE version = 40').get())
       .toEqual({ version: 40 });
     expect(db.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-      .toEqual({ version: 75 });
+      .toEqual({ version: 76 });
   });
 
   it('retires the parallel A2A worklist schema at migration 62', () => {
@@ -699,7 +750,7 @@ describe('SQLite Foundation', () => {
           'autonomous_delivery_advancement_request',
         ]));
         expect(checkpoint.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-          .toEqual({ version: 75 });
+          .toEqual({ version: 76 });
         expect(checkpoint.pragma('foreign_key_check')).toEqual([]);
       } finally {
         checkpoint.close();

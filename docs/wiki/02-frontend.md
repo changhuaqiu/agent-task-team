@@ -124,7 +124,7 @@ WebUI 有两个明确分离的入口：
   - 终端输出
 - [`SettingsDrawer.tsx`](../../src/components/task-hub/SettingsDrawer.tsx)
   - 系统摘要
-  - daemon / runtime / bridge 检查
+  - daemon / ACP runtime 检查
   - 账号与执行配置入口
 
 ### Skill 管理

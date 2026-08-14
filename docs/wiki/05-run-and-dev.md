@@ -41,7 +41,6 @@ Agent 执行经 **ACP（Agent Client Protocol）单一通路**驱动（见 [`arc
 - **claude**（ACP 适配器）：主机完成 Claude Code OAuth 登录（`~/.claude/`）或设置 `ANTHROPIC_API_KEY`；daemon 启动 `npx -y @agentclientprotocol/claude-agent-acp`。
 - **codex**（ACP 适配器）：主机完成 ChatGPT OAuth 登录（`~/.codex/auth.json`）；daemon 启动 `npx -y @agentclientprotocol/codex-acp`。
 
-> ⚠️ **Opencode Bridge（本机转发）已不再是 daemon 的执行通路**。历史上 `scripts/opencode-bridge-install.*` / `scripts/opencode-bridge-start.*`（默认端口 `8787`）用于把远程 Web 的执行转发到本机 `opencode run`；ACP 迁移后 daemon 不再经 Bridge 调用 opencode CLI。这些脚本与 `bridge/` 组件仍保留在仓库中，可作为独立的开发/转发工具，但不再是推荐的产品执行路径。
 >
 > TODO：若需“远程 Web → 本机运行时”的执行能力，需基于 ACP runtime 重新设计远程编排方案（当前未定，不在本期范围）。
 

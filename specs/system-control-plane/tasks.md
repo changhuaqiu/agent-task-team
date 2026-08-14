@@ -38,7 +38,7 @@
 - [ ] Add directed runtime routing by `toNodeId`.
 - [x] Keep socket compatibility events as transport adapters.
 - [x] Make daemon acknowledge envelope start explicitly.
-- [x] Make bridge execution report the same lifecycle states.
+- [x] Make local daemon execution report the same lifecycle states.
 - [x] Store envelope terminal state on completion, failure, timeout, or rejection.
 - [ ] Add integration tests for no-ACK and unreachable-node paths.
 

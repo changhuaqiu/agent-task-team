@@ -6,6 +6,7 @@ import { runtimeNodeRepo } from '@/server/repositories/runtime-node-repo';
 import { agentBindingRepo } from '@/server/repositories/agent-binding-repo';
 import { executionEnvelopeRepo } from '@/server/repositories/execution-envelope-repo';
 import { proofLogRepo } from '@/server/repositories/proof-log-repo';
+import { isRuntimeNodeKind } from '@/server/repositories/control-plane-types';
 
 let db: Database.Database;
 
@@ -41,6 +42,12 @@ describe('system control plane migrations', () => {
 });
 
 describe('runtimeNodeRepo', () => {
+  it('rejects retired and unknown runtime kinds at the network allowlist seam', () => {
+    expect(isRuntimeNodeKind('bridge')).toBe(false);
+    expect(isRuntimeNodeKind('arbitrary-client-value')).toBe(false);
+    expect(isRuntimeNodeKind('remote')).toBe(true);
+  });
+
   it('registers and updates runtime nodes', () => {
     const node = runtimeNodeRepo.register({
       id: 'node-local',
@@ -66,13 +73,13 @@ describe('runtimeNodeRepo', () => {
   });
 
   it('tracks heartbeat misses and recovery', () => {
-    runtimeNodeRepo.register({ id: 'node-bridge', kind: 'bridge', label: 'Bridge' });
+    runtimeNodeRepo.register({ id: 'node-remote-heartbeat', kind: 'remote', label: 'Remote executor' });
 
-    expect(runtimeNodeRepo.recordMiss('node-bridge')!.status).toBe('reachable');
-    expect(runtimeNodeRepo.recordMiss('node-bridge')!.status).toBe('stale');
-    expect(runtimeNodeRepo.recordMiss('node-bridge')!.status).toBe('unreachable');
+    expect(runtimeNodeRepo.recordMiss('node-remote-heartbeat')!.status).toBe('reachable');
+    expect(runtimeNodeRepo.recordMiss('node-remote-heartbeat')!.status).toBe('stale');
+    expect(runtimeNodeRepo.recordMiss('node-remote-heartbeat')!.status).toBe('unreachable');
 
-    const recovered = runtimeNodeRepo.heartbeat('node-bridge')!;
+    const recovered = runtimeNodeRepo.heartbeat('node-remote-heartbeat')!;
     expect(recovered.status).toBe('reachable');
     expect(recovered.missed_heartbeats).toBe(0);
     expect(recovered.last_heartbeat_at).toBeTruthy();
@@ -151,7 +158,7 @@ describe('executionEnvelopeRepo', () => {
       passId: 'pass-1',
       fromNodeId: 'node-local',
       fromAgentId: 'mario',
-      toNodeId: 'node-bridge',
+      toNodeId: 'node-remote',
       toAgentId: 'dk',
       payload: {
         handoffPacketId: 'packet-1',

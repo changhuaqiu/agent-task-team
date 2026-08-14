@@ -52,7 +52,7 @@ WebUI 只通过 `consumeProjectViewEvent(envelope)` 接收 Runtime 展示流。�
               WebUI display projection Store
 ```
 
-结构化 Runtime 事件、ACP delta、tmux/bridge 原始输出可以共享该展示信封，但必须使用明确的 `kind`，不得继续把 plan/tool/usage/error/system 混入无约束的 `agent:event`。终端视图同时投影 ACP 文本与结构化 plan/tool/warning/completion 时间线，因此不再只对 tmux/bridge 有内容。
+结构化 Runtime 事件、ACP delta 与可选 tmux 原始输出可以共享该展示信封，但必须使用明确的 `kind`，不得继续把 plan/tool/usage/error/system 混入无约束的 `agent:event`。终端视图同时投影 ACP 文本与结构化 plan/tool/warning/completion 时间线，因此不依赖 tmux 才有内容。
 
 Socket 断线不通过重放命令恢复；持久部分重新查询事实，瞬态 delta 和终端字节允许丢失。
 消息展示必须采用“实时提示 + 持久对账”：

@@ -16,7 +16,7 @@
 - 聊天目前是“全局聊天室”，不区分会话（[GlobalChatRoom.tsx](file:///Users/kk/agent-task-team/src/components/task-hub/GlobalChatRoom.tsx#L9-L109)）
 - 对话 `@agent` 会触发 `dispatchToAgent`（store 内 `addChatMessage`）（[taskHubStore.ts](file:///Users/kk/agent-task-team/src/store/taskHubStore.ts#L741-L777)）
 - 任务详情抽屉提供状态流转 + Run Opencode + Terminal（[TaskDetailPanel.tsx](file:///Users/kk/agent-task-team/src/components/task-hub/TaskDetailPanel.tsx#L88-L256)）
-- 设置抽屉提供 daemon/opencode/bridge 检测与配置（[SettingsDrawer.tsx](file:///Users/kk/agent-task-team/src/components/task-hub/SettingsDrawer.tsx#L8-L229)）
+- 设置页提供账号与运行时配置；Agent 执行统一由 daemon 经 ACP 驱动。
 
 ### 关键 UX 问题（阻碍 Chat-First 主循环）
 

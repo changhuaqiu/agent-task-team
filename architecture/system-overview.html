@@ -110,10 +110,7 @@
         <text x="572" y="864" fill="#64748b" font-size="8">横切：被各层调用</text>
 
         <!-- 到外部进程的箭头 -->
-        <!-- daemon → Bridge (bridge 模式) -->
-        <path d="M 1064 600 L 1090 600 L 1090 643 L 1100 643" fill="none" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <text x="1098" y="596" fill="#94a3b8" font-size="8">bridge 模式</text>
-        <!-- backend factory → CLI 子进程 -->
+        <!-- ACP backend → CLI 子进程 -->
         <line x1="1064" y1="702" x2="1100" y2="702" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         <text x="1066" y="694" fill="#94a3b8" font-size="8">spawn</text>
         <!-- MCP ↔ daemon (socket.io client) -->
@@ -323,13 +320,6 @@
         <text x="1226" y="492" fill="#94a3b8" font-size="8" text-anchor="middle">stdio · @modelcontextprotocol</text>
         <text x="1226" y="505" fill="#94a3b8" font-size="8" text-anchor="middle">dispatch_to_agent · list_agents · check_daemon</text>
 
-        <!-- OpenCode Bridge (对齐 L6/L7) -->
-        <rect x="1100" y="620" width="252" height="52" rx="6" fill="#0f172a"/>
-        <rect x="1100" y="620" width="252" height="52" rx="6" fill="rgba(30, 41, 59, 0.6)" stroke="#94a3b8" stroke-width="1.5"/>
-        <text x="1226" y="638" fill="white" font-size="11" font-weight="600" text-anchor="middle">OpenCode Bridge :8787</text>
-        <text x="1226" y="652" fill="#94a3b8" font-size="8" text-anchor="middle">HTTP /health · /run</text>
-        <text x="1226" y="665" fill="#94a3b8" font-size="8" text-anchor="middle">本机 opencode 远程化（开发链路）</text>
-
         <!-- CLI 子进程 -->
         <rect x="1100" y="680" width="252" height="52" rx="6" fill="#0f172a"/>
         <rect x="1100" y="680" width="252" height="52" rx="6" fill="rgba(30, 41, 59, 0.6)" stroke="#94a3b8" stroke-width="1.5"/>
@@ -346,9 +336,8 @@
         <text x="1100" y="824" fill="#94a3b8" font-size="9" font-weight="600">进程拓扑</text>
         <text x="1100" y="840" fill="#64748b" font-size="8">• Next.js 主进程 :3000（含 daemon）</text>
         <text x="1100" y="854" fill="#64748b" font-size="8">• Socket.IO path /api/socketio</text>
-        <text x="1100" y="868" fill="#64748b" font-size="8">• Bridge :8787（HTTP，可选）</text>
-        <text x="1100" y="882" fill="#64748b" font-size="8">• MCP stdio（按需拉起）</text>
-        <text x="1100" y="896" fill="#64748b" font-size="8">• CLI 子进程（spawn）</text>
+        <text x="1100" y="868" fill="#64748b" font-size="8">• MCP stdio（按需拉起）</text>
+        <text x="1100" y="882" fill="#64748b" font-size="8">• ACP runtime 子进程（spawn）</text>
 
         <!-- ========== 图例 ========== -->
         <text x="52" y="1042" fill="white" font-size="10" font-weight="600">图例</text>
@@ -384,7 +373,7 @@
           <li>② <b>PromptComposer</b> 组装 16 层 prompt（预算裁剪）</li>
           <li>③ socket <b>terminal:start</b> → daemon</li>
           <li>④ <b>DispatchGateway</b> 建 ExecutionEnvelope + secret 检测</li>
-          <li>⑤ <b>Backend</b> 执行：spawn 本地 CLI / HTTP bridge / tmux</li>
+          <li>⑤ <b>AcpBackend</b> 通过统一 ACP Interface 驱动 runtime；tmux 仅作可选观察</li>
           <li>⑥ <b>AgentEvent</b> 流 → forwardAgentEvent</li>
           <li>⑦ 持久化(message/event/session/invocation) + Socket 广播</li>
           <li>⑧ <b>A2A</b> 扫描输出 → 持球/传球 → <b>Task Flow</b> 流转</li>
@@ -402,10 +391,8 @@
           <li><b>P0</b> types-v2.ts ↔ types-possession.ts 并行，迁移未完成（正在改）</li>
           <li><b>P1</b> Runtime Router / Continue Gate / Possession Buffer 未实现</li>
           <li><b>P1</b> ContextBudget 精度不足（字符÷4 估算，GSSC 未接入裁剪）</li>
-          <li><b>P2</b> gemini / mock 无独立 backend（回退 OpenCode）</li>
           <li><b>P2</b> Tmux 模式是哑终端，不解析 AgentEvent</li>
           <li><b>P2</b> MCP Server 端口/agent 列表硬编码</li>
-          <li><b>P3</b> backend/ 废弃目录未清理 · Bridge 无完整前端 UI</li>
           <li><b>P3</b> Proof Log / Execution Envelope 消费端缺失</li>
         </ul>
       </div>
@@ -427,7 +414,7 @@
     </div>
 
     <p class="footer">
-      Agent Task Hub · 系统架构总览 · 2026-07-12 · Mario 统筹 · 基于 src/ + backend/ + bridge/ + mcp-server/ 实际代码梳理
+      Agent Task Hub · 系统架构总览 · 基于 src/ + mcp-server/ 当前代码梳理
     </p>
   </div>
 

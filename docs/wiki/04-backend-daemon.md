@@ -166,7 +166,6 @@ Daemon 的边界是执行编排，不是团队规则解释器：
   sessionId?,
   conversationId?,
   allowMockRunner?,
-  opencodeBridgeUrl?, // ⚠️ legacy：Bridge 执行路径已移除（见 §4.8），字段保留但不再驱动执行
   engine?,
   runtimeId?,
   providerProfileId?,
@@ -378,7 +377,7 @@ daemon 当前已经具备会话级跟踪：
 
 当前 agent 执行只有一条通路：**ACP**。daemon 经 Catalog 查表 → `AcpBackend` → ACP JSON-RPC over stdio 驱动运行时（opencode 原生 / claude、codex 适配器）。具体职责见 4.6。
 
-历史上曾存在 Bridge（`opencodeBridgeUrl`）、本地 CLI per-engine 解析、`mock` / `gemini` 回退等并行路径；这些 bespoke backend 与 `factory.ts` 的 engine `switch` 已在 ACP 迁移中移除（spec §7 / §8）。`tmux` 作为可选观察/执行模式仍可接入 daemon，但 ACP 是 agent 执行的唯一 backend 通路。
+历史上曾存在 HTTP Bridge、本地 CLI per-engine 解析、`mock` / `gemini` 回退等并行路径；这些 bespoke backend 与 `factory.ts` 的 engine `switch` 已在 ACP 迁移与架构减法中移除。`tmux` 作为可选观察模式仍可接入 daemon，但 ACP 是 agent 执行的唯一 backend 通路。
 
 补充说明：
 

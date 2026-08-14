@@ -3,8 +3,8 @@ import { createHash } from 'node:crypto';
 import type { ContextSnapshot } from '@/lib/agent-context/ContextManager';
 
 export interface RuntimeContextInput {
-  transport: 'bridge' | 'tmux' | 'acp';
-  systemPromptChannel: 'none' | 'bridge' | 'instructions' | 'backend' | 'inline';
+  transport: 'tmux' | 'acp';
+  systemPromptChannel: 'none' | 'instructions' | 'backend' | 'inline';
   prompt: string;
   systemPrompt?: string;
 }

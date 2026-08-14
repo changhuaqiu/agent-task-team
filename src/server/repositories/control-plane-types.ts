@@ -1,4 +1,15 @@
-export type RuntimeNodeKind = 'browser' | 'daemon' | 'bridge' | 'remote' | 'worktree';
+export type RuntimeNodeKind = 'browser' | 'daemon' | 'remote' | 'worktree';
+
+const RUNTIME_NODE_KINDS: ReadonlySet<string> = new Set([
+  'browser',
+  'daemon',
+  'remote',
+  'worktree',
+]);
+
+export function isRuntimeNodeKind(value: unknown): value is RuntimeNodeKind {
+  return typeof value === 'string' && RUNTIME_NODE_KINDS.has(value);
+}
 
 export type RuntimeNodeStatus = 'reachable' | 'stale' | 'unreachable' | 'suspended';
 

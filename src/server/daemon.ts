@@ -35,7 +35,7 @@ import { resolveNonWorktreeExecutionCwd, stableWorkdirTaskKey, WorkdirManager } 
 import { getDb } from './db';
 import { DispatchGateway } from './control-plane/dispatch-gateway';
 import { runtimeNodeRepo } from './repositories/runtime-node-repo';
-import type { DispatchIntent, DispatchSource, RuntimeNodeKind } from './repositories/control-plane-types';
+import { isRuntimeNodeKind, type DispatchIntent, type DispatchSource, type RuntimeNodeKind } from './repositories/control-plane-types';
 import { taskRepo } from './repositories/task-repo';
 import { taskCommandService } from './repositories/task-command-service';
 import { conversationRepo } from './repositories/conversation-repo';
@@ -101,7 +101,6 @@ type TerminalStartPayload = {
   fromAgentId?: string;
   chainId?: string;
   passId?: string;
-  opencodeBridgeUrl?: string;
   engine?: CliEngine;
   runtimeId?: string;
   providerProfileId?: string;
@@ -174,7 +173,6 @@ const ENGINE_COMMAND: Record<CliEngine, string> = {
 const RUNTIME_ENGINE_MAP: Record<string, CliEngine> = {
   daemon: 'opencode',
   'opencode-local': 'opencode',
-  'opencode-bridge': 'opencode',
   'claude-cli': 'claude',
   'codex-cli': 'codex',
   'gemini-cli': 'gemini',
@@ -191,7 +189,6 @@ const DEFAULT_RUNTIME_ID_BY_ENGINE: Record<CliEngine, string> = {
 
 /** Default CLI idle timeout (ms). Configurable via CLI_TIMEOUT_MS env. 0 = disabled. */
 const DEFAULT_TIMEOUT_MS = 300_000; // 5 min
-const STRIP_ANSI_RE = /\x1b\[[0-9;]*[a-zA-Z]|\x1b\].*?\x07|\x1b[()>]|\r/g;
 const LOCAL_DAEMON_NODE_ID = 'daemon:local';
 const RUNTIME_HEARTBEAT_INTERVAL_MS = 5_000;
 const OPENCODE_PROJECT_SKILLS_DIR = join('.opencode', 'skills');
@@ -522,23 +519,28 @@ export default function registerDaemon(io: IOServer) {
 
     socket.on('runtime:hello', (payload: {
       nodeId?: string;
-      kind?: RuntimeNodeKind;
+      kind?: unknown;
       label?: string;
       endpoint?: string;
       capabilities?: string[];
     }) => {
-      if (!payload?.nodeId) return;
-      connectedRuntimeNodeId = payload.nodeId;
+      const nodeId = typeof payload?.nodeId === 'string' ? payload.nodeId.trim() : '';
+      const kind = payload?.kind ?? 'browser';
+      if (!nodeId || !isRuntimeNodeKind(kind)) {
+        socket.emit('runtime:registration-rejected', { reasonCode: 'invalid_runtime_node' });
+        return;
+      }
+      connectedRuntimeNodeId = nodeId;
       dispatchGateway.ensureRuntimeNode({
-        id: payload.nodeId,
-        kind: payload.kind ?? 'browser',
-        label: payload.label ?? payload.nodeId,
+        id: nodeId,
+        kind,
+        label: typeof payload.label === 'string' && payload.label.trim() ? payload.label.trim() : nodeId,
         endpoint: payload.endpoint,
         capabilities: payload.capabilities ?? ['socket-transport'],
-        trustLevel: payload.kind === 'browser' ? 'paired' : 'local',
+        trustLevel: kind === 'browser' ? 'paired' : 'local',
       });
-      dispatchGateway.heartbeat(payload.nodeId);
-      socket.emit('runtime:registered', { nodeId: payload.nodeId });
+      dispatchGateway.heartbeat(nodeId);
+      socket.emit('runtime:registered', { nodeId });
     });
 
     socket.on('runtime:heartbeat', (payload: { nodeId?: string }) => {
@@ -587,7 +589,6 @@ export default function registerDaemon(io: IOServer) {
         fromAgentId,
         chainId,
         passId,
-        opencodeBridgeUrl,
         engine: rawEngine,
         runtimeId,
         providerProfileId,
@@ -745,19 +746,7 @@ export default function registerDaemon(io: IOServer) {
       const effectiveRuntimeId = runtimeId?.trim() || DEFAULT_RUNTIME_ID_BY_ENGINE[engine];
       primaryCommand = ENGINE_COMMAND[engine];
 
-      const targetNodeId = opencodeBridgeUrl
-        ? `bridge:${String(opencodeBridgeUrl).trim().replace(/\/+$/, '')}`
-        : LOCAL_DAEMON_NODE_ID;
-      if (opencodeBridgeUrl) {
-        dispatchGateway.ensureRuntimeNode({
-          id: targetNodeId,
-          kind: 'bridge',
-          label: 'OpenCode bridge',
-          endpoint: String(opencodeBridgeUrl).trim().replace(/\/+$/, ''),
-          capabilities: ['execute', 'bridge-run'],
-          trustLevel: 'paired',
-        });
-      }
+      const targetNodeId = LOCAL_DAEMON_NODE_ID;
 
       const envelope = dispatchGateway.requestDispatch({
         source: dispatchSource ?? 'user',
@@ -850,8 +839,7 @@ export default function registerDaemon(io: IOServer) {
         });
       }
       if (
-        !opencodeBridgeUrl
-        && !tmuxGateway
+        !tmuxGateway
         && existingSession.cli_session_id
         && sessionRepo.releaseUnconfirmedRuntimeSessionId(
           existingSession.id,
@@ -931,8 +919,8 @@ export default function registerDaemon(io: IOServer) {
       };
 
       const recordRuntimeContextObservation = (input: {
-        transport: 'bridge' | 'tmux' | 'acp';
-        systemPromptChannel: 'none' | 'bridge' | 'instructions' | 'backend' | 'inline';
+        transport: 'tmux' | 'acp';
+        systemPromptChannel: 'none' | 'instructions' | 'backend' | 'inline';
         prompt: string;
         systemPrompt?: string;
       }) => {
@@ -1049,7 +1037,7 @@ export default function registerDaemon(io: IOServer) {
       // stale frontend cache can resume another project's CLI context.
       const effectiveSessionId = agentSession.cli_session_id ?? undefined;
 
-      // Build CLI args for non-Backend paths (tmux, bridge)
+      // Build CLI args for the optional tmux observation path.
       const primaryArgs = (() => {
         switch (engine) {
           case 'opencode': {
@@ -1169,47 +1157,6 @@ export default function registerDaemon(io: IOServer) {
 
       // Start initial timeout
       if (timeoutMs > 0) resetTimeout();
-
-      // --- Bridge NDJSON line parser (OpenCode format) ---
-      const parseAndForwardBridgeLine = (line: string): boolean => {
-        const trimmed = line.replace(STRIP_ANSI_RE, '').trim();
-        if (!trimmed) return false;
-        let parsed: unknown;
-        try { parsed = JSON.parse(trimmed); } catch { return false; }
-        if (!parsed || typeof parsed !== 'object') return false;
-        const obj = parsed as Record<string, unknown>;
-        const part = (obj.part && typeof obj.part === 'object') ? (obj.part as Record<string, unknown>) : undefined;
-        const type = typeof obj.type === 'string' ? obj.type : undefined;
-
-        const sessionId =
-          (typeof obj.sessionID === 'string' ? obj.sessionID : undefined) ||
-          (typeof obj.sessionId === 'string' ? obj.sessionId : undefined) ||
-          (typeof obj.session_id === 'string' ? obj.session_id : undefined) ||
-          (typeof part?.sessionID === 'string' ? part.sessionID : undefined) ||
-          (typeof part?.sessionId === 'string' ? part.sessionId : undefined);
-
-        if (type === 'text' || type === 'message' || type === 'assistant') {
-          const text = (typeof part?.text === 'string' ? part.text : undefined) || (typeof obj.content === 'string' ? obj.content : undefined);
-          if (text) handleAdapterSignal({ type: 'text', content: text, sessionId });
-          return !!text;
-        } else if (type === 'tool_use') {
-          const toolName = typeof part?.tool === 'string' ? part.tool : undefined;
-          if (toolName) handleAdapterSignal({ type: 'tool_use', content: '', tool: { name: toolName, input: typeof part?.input === 'object' ? JSON.stringify(part.input) : undefined }, sessionId });
-          return !!toolName;
-        } else if (type === 'error') {
-          const errorObj = (obj.error && typeof obj.error === 'object') ? (obj.error as Record<string, unknown>) : undefined;
-          const errorName = typeof errorObj?.name === 'string' ? errorObj.name : '未知错误';
-          handleAdapterSignal({ type: 'error', content: errorName, sessionId });
-          return true;
-        } else if (type === 'done' || type === 'result') {
-          const resultText = typeof obj.result === 'string'
-            ? obj.result
-            : (typeof obj.content === 'string' ? obj.content : '');
-          handleAdapterSignal({ type: 'done', content: resultText, sessionId });
-          return true;
-        }
-        return false;
-      };
 
       function isBackgroundChildTool(name: string): boolean {
         const normalized = name.trim().toLowerCase();
@@ -1364,121 +1311,6 @@ export default function registerDaemon(io: IOServer) {
       if (canonicalEngine && !tmuxGateway) {
         runtimeEventCoordinator = createRuntimeEventCoordinator();
         runtimeEventCoordinator?.accept();
-      }
-
-      // --- Bridge mode (remote opencode via HTTP proxy) ---
-      if (opencodeBridgeUrl) {
-        const url = String(opencodeBridgeUrl).trim().replace(/\/+$/, '');
-        const controller = new AbortController();
-        activeProcesses.set(processKey(agentId, projectId), { kill: () => controller.abort() });
-        processStartGuard.markStarted(startKey);
-        acknowledgeEnvelope();
-        runtimeEventCoordinator?.start();
-
-        publishTerminalOutput(`\x1b[33m$ opencode-bridge ${url}\x1b[0m\r\n`);
-        recordRuntimeContextObservation({
-          transport: 'bridge',
-          systemPromptChannel: systemPrompt ? 'bridge' : 'none',
-          prompt: prompt || '',
-          systemPrompt: systemPrompt || undefined,
-        });
-        capturePromptObservation(prompt || '', systemPrompt || undefined);
-
-        try {
-          const r = await fetch(`${url}/run`, {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({
-              prompt: prompt || '',
-              systemPrompt: systemPrompt || undefined,
-              sessionId: effectiveSessionId,
-              engine,
-              runtimeId,
-              providerProfileId,
-              channel,
-              authContextId,
-            }),
-            signal: controller.signal,
-          });
-
-          if (!r.ok || !r.body) {
-            publishRuntimeWarning(`Bridge 连接失败 (HTTP ${r.status})`, 'spawn_failed');
-            // 失败不 seal session（保持 active，下次 @ resume，id 不变）—— specs/agent-session-stability
-            runtimeEventCoordinator?.failSetup('spawn_failed', observedRuntimeSessionId);
-            markExecutionOrEnvelopeFailed('spawn_failed');
-            publishTerminalExit({ code: 127, command: 'bridge', reasonCode: 'spawn_failed' });
-            activeProcesses.delete(processKey(agentId, projectId));
-            if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
-            return;
-          }
-
-          const decoder = new TextDecoder();
-          const reader = r.body.getReader();
-          let buffer = '';
-          const rawTextFallback: string[] = [];
-          let parsedAgentText = false;
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            const str = decoder.decode(value, { stream: true });
-            publishTerminalOutput(str.replace(/\n/g, '\r\n'));
-            resetTimeout();
-            buffer += str;
-            let idx = buffer.indexOf('\n');
-            while (idx !== -1) {
-              const line = buffer.slice(0, idx);
-              buffer = buffer.slice(idx + 1);
-              const parsed = parseAndForwardBridgeLine(line);
-              parsedAgentText ||= parsed;
-              if (!parsed) {
-                const fallbackLine = line.replace(STRIP_ANSI_RE, '').trim();
-                if (fallbackLine) rawTextFallback.push(fallbackLine);
-              }
-              idx = buffer.indexOf('\n');
-            }
-          }
-          if (buffer.trim()) {
-            const parsed = parseAndForwardBridgeLine(buffer);
-            parsedAgentText ||= parsed;
-            if (!parsed) {
-              const fallbackLine = buffer.replace(STRIP_ANSI_RE, '').trim();
-              if (fallbackLine) rawTextFallback.push(fallbackLine);
-            }
-          }
-
-          if (!parsedAgentText && rawTextFallback.length > 0) {
-            handleAdapterSignal({ type: 'text', content: rawTextFallback.join('\n') });
-          }
-          runtimeEventCoordinator?.terminate({
-            status: 'completed',
-            durationMs: Math.max(0, Date.now() - runtimeStartedAtMs),
-            sessionId: observedRuntimeSessionId ?? effectiveSessionId,
-          });
-          clearProcessTimeout();
-          clearInterval(heartbeatTimer);
-          markExecutionCompleted();
-          // Don't seal on successful completion — session stays active for --resume reuse
-          publishTerminalExit({
-            code: 0,
-            command: 'bridge',
-            activity: hasBackgroundChildActivity ? 'awaiting_children' : 'idle',
-          });
-          activeProcesses.delete(processKey(agentId, projectId));
-          if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
-          return;
-        } catch (e) {
-          clearProcessTimeout();
-          clearInterval(heartbeatTimer);
-          const msg = String((e as Error)?.message || e);
-          publishRuntimeWarning(`Bridge 错误：${msg}`, 'spawn_failed');
-          // 失败不 seal session（保持 active，下次 @ resume，id 不变）—— specs/agent-session-stability
-          runtimeEventCoordinator?.failSetup('spawn_failed', observedRuntimeSessionId);
-          markExecutionOrEnvelopeFailed('spawn_failed');
-          publishTerminalExit({ code: 127, command: 'bridge', reasonCode: 'spawn_failed' });
-          activeProcesses.delete(processKey(agentId, projectId));
-          if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
-          return;
-        }
       }
 
       // --- Local spawn mode ---
@@ -1691,8 +1523,8 @@ export default function registerDaemon(io: IOServer) {
       // The bespoke factory + AGENT_BACKEND=legacy fallback were removed —
       // every engine MUST resolve to a catalog entry. Unknown engines (e.g.
       // gemini/mock, which have no catalog entry and were never functional
-      // through the bespoke backend) throw explicitly here; their tmux/bridge
-      // paths (primaryArgs) are unaffected.
+      // through the bespoke backend) throw explicitly here; the optional tmux
+      // path (primaryArgs) is unaffected.
       //
       // `executeCwd`/`executeEnv` flow into checkCapabilities opts below so the
       // ACP path's prepared cwd/env (e.g. codex CODEX_HOME) reach the spawn.

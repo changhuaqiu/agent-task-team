@@ -145,8 +145,8 @@ export interface ContextSnapshot {
   missingRequired: string[];
   omissions: ContextOmission[];
   runtimeInput?: {
-    transport: 'bridge' | 'tmux' | 'acp';
-    systemPromptChannel: 'none' | 'bridge' | 'instructions' | 'backend' | 'inline';
+    transport: 'tmux' | 'acp';
+    systemPromptChannel: 'none' | 'instructions' | 'backend' | 'inline';
     promptDigest: string;
     systemPromptDigest?: string;
     combinedDigest: string;

@@ -23,6 +23,7 @@
 | `architecture-subtraction/` | implemented | 第一轮依赖/产物、历史 worktree 与无生产消费者 Module 清理完成；长期决策见 `docs/technical/execution/architecture-subtraction.md` |
 | `architecture-subtraction-2/` | implemented | 第二轮从真实运行入口反推调用图，删除幽灵 UI、孤立 Module、自嗨测试并归档已完成规格；长期决策见 `docs/technical/execution/architecture-subtraction.md` |
 | `architecture-subtraction-3/` | implemented | 第三轮将评估 Pages API 收敛到唯一 `/api/eval/*`，删除重复公开入口并补齐交互回归保护；长期决策见 `docs/technical/execution/architecture-subtraction.md` |
+| `architecture-subtraction-4/` | implemented | 第四轮删除已被 ACP 替代的 OpenCode HTTP Bridge 隐藏执行链、服务、脚本和无消费者 API，并清理旧节点状态；长期决策见 `docs/technical/execution/architecture-subtraction.md` |
 | `four-agent-pr-review-loop/` | implemented | 四 Agent PR 交付、评审、修复与合并证据闭环已落地 |
 | `github-issue-agent-hook/` | implemented | GitHub Issue 验签、幂等建项与自主交付链已落地；长期设计见 `docs/technical/integrations/github-issue-agent-hook.md` |
 | `open-issues-33-35/` | implemented | A2A 分派意图、首次交接身份、默认 TeamPack 升级与上下文去重修复已验收 |

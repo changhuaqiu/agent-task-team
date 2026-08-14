@@ -47,3 +47,7 @@
 ## Round 3: One Evaluation Interface
 
 评估 Pages API 只保留 `/api/eval/*`。原 `/api/evaluations/*` 与 `/api/eval/*` 暴露相同能力，后者却通过 13 个浅转发 Module 依赖前者，导致 UI、测试和文档长期混用两套公开 Interface。第三轮把实现迁入规范路径并直接删除兼容目录，不保留无退出条件的转发层。
+
+## 第四轮：删除已退役的 OpenCode HTTP Bridge
+
+Agent 执行已经统一到 ACP，但仓库仍保留一条没有生产消费者的 `opencodeBridgeUrl` 隐藏执行分支，以及对应 HTTP Bridge 服务、安装/启动脚本、package commands 和两个状态 API。第四轮整链删除这些资产；OpenCode 继续作为原生 ACP runtime 受支持，不删除其 launcher、probe、账号或配置能力。

@@ -51,7 +51,7 @@
 
 - `id`
 - `engine`
-- `mode`：`local` / `bridge`
+- `mode`：`local`；远程 runtime 未来通过控制面正式接入，不复用已退役的 HTTP Bridge
 - `label`
 - `health`
 - `version`

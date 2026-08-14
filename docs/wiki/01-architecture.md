@@ -19,14 +19,14 @@ Agent Task Hub 正在从前端驱动的多智能体工作台，演进为“控�
 | 平面 | 职责 |
 |------|------|
 | **Control Plane** | 统一任务、workflow、dispatch、A2A、runtime health、policy、proof 与 context 决策 |
-| **Execution Plane** | local daemon、OpenCode bridge、remote runtime、worktree executor 只消费 execution envelope 并报告生命周期 |
+| **Execution Plane** | local daemon、remote runtime、worktree executor 只消费 execution envelope 并报告生命周期 |
 | **UX Plane** | 发送用户意图、订阅状态、展示可解释失败，不作为跨实例投递事实源 |
 
 关键原则：
 
 - UI store 是运行时缓存，不是跨实例 dispatch 的事实源。
 - daemon 是 executor，不应长期承担团队策略、workflow 和 A2A delivery 决策。
-- browser、daemon、bridge、remote runtime 都是 runtime node，跨实例动作必须有身份、envelope、health、ACK 和 proof。
+- browser、daemon、remote runtime 都是 runtime node，跨实例动作必须有身份、envelope、health、ACK 和 proof。
 - A2A possession 负责“谁持球、谁能传球”；Control Plane 负责“能否投递、投给哪个实例、是否启动成功”。
 
 ## 1.2 运行时拓扑
@@ -46,11 +46,9 @@ flowchart TD
   API --> CX["Context Plane"]
   DG --> RR["Runtime Router"]
   RR --> LD["Local Daemon"]
-  RR --> OB["OpenCode Bridge"]
   RR --> RM["Remote Runtime"]
   RR --> WT["Worktree Executor"]
   LD --> PL
-  OB --> PL
   RM --> PL
   WT --> PL
 ```
