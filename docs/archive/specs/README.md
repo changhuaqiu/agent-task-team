@@ -29,6 +29,7 @@
 | `architecture-subtraction-7/` | implemented | 第七轮删除无入口且已被标准 real-runtime smoke 与自动化测试替代的两个旧 ACP 探针；长期决策见 `docs/technical/execution/architecture-subtraction.md` |
 | `architecture-subtraction-8/` | implemented | 第八轮删除陈旧 npm lockfile、重复高亮直依赖并归位纯类型包，统一 pnpm 依赖事实源；长期决策见 `docs/technical/execution/architecture-subtraction.md` |
 | `architecture-subtraction-9/` | implemented | 第九轮删除无消费者的平行 Drizzle schema/tooling 与旧 Chokidar 类型包，数据库事实收敛到 better-sqlite3 + SQL migrations；长期决策见 `docs/technical/execution/architecture-subtraction.md` |
+| `architecture-subtraction-10/` | implemented | 第十轮删除评估模块重复转发和固定失败的公开 route，保留唯一 runs 提交入口与内部 pairwise 算法；长期决策见 `docs/technical/execution/architecture-subtraction.md` |
 | `four-agent-pr-review-loop/` | implemented | 四 Agent PR 交付、评审、修复与合并证据闭环已落地 |
 | `github-issue-agent-hook/` | implemented | GitHub Issue 验签、幂等建项与自主交付链已落地；长期设计见 `docs/technical/integrations/github-issue-agent-hook.md` |
 | `open-issues-33-35/` | implemented | A2A 分派意图、首次交接身份、默认 TeamPack 升级与上下文去重修复已验收 |

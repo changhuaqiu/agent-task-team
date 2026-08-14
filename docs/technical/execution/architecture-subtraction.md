@@ -70,3 +70,7 @@ Agent 执行已经统一到 ACP，但仓库仍保留一条没有生产消费者�
 ## 第九轮：删除平行 Drizzle schema
 
 数据库真实建库、升级与查询长期由 `better-sqlite3`、`src/server/db/migrate.ts` 和 repositories 承担，但仓库仍维护一份没有任何 import、生成脚本或运行入口的 1436 行 `schema.ts`，并为它保留 `drizzle-orm` 与无配置入口的 `drizzle-kit`。第九轮删除这套平行事实源及依赖，只保留真实 SQLite 链路；同时删除 Chokidar 5 已自带声明后遗留的 `@types/chokidar`。
+
+## 第十轮：收敛评估公开 interface
+
+评估手动提交已经由 `POST /api/eval/runs` 承担，但仍保留无消费者、仅转发同一 handler 的 `/api/eval/triggers`；pairwise 在统一身份与可信隔离尚未完成时也暴露一条永远返回 409 的假公开 route。第十轮删除这两个浅 interface，保留真实 runs 提交入口、内部 pairwise 算法和未来开放条件。

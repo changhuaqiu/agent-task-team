@@ -3,7 +3,6 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import datasetsHandler from '@/pages/api/eval/datasets';
 import annotationsHandler from '@/pages/api/eval/annotations';
 import experimentsHandler from '@/pages/api/eval/experiments';
-import pairwiseHandler from '@/pages/api/eval/pairwise';
 import { createTestDb, getDb, resetDb, setTestDb } from '../db';
 
 const now = '2026-07-19T00:00:00.000Z';
@@ -127,12 +126,4 @@ describe('evaluation Pages APIs', () => {
     expect(foreign).toMatchObject({ statusCode: 400, body: { error: 'Dataset not found in project' } });
   });
 
-  it('fails closed instead of claiming blind pairwise integrity without platform identity', () => {
-    const result = call(pairwiseHandler, {
-      method: 'GET',
-      query: { conversationId: 'conv-api', id: 'pairwise-any' },
-    });
-    expect(result).toMatchObject({ statusCode: 409 });
-    expect(result.body).toMatchObject({ code: 'pairwise_blind_integrity_unavailable' });
-  });
 });

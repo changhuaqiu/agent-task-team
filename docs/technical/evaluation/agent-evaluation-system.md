@@ -77,8 +77,8 @@ Task/A2A/Proof/Observation facts
 - 全局数据集可以复用 case，但 `eval_annotation.conversation_id` 隔离各项目的标签与 kappa。
 - 删除项目会话时，先按聚合依赖顺序清理评估实验、运行、快照和项目数据集，再删除任务与会话；新建数据库同时用外键级联兜底，兼容早期数据库中仍是 `NO ACTION` 的评估外键。
 - 当前公开 API 的审核者名称不可验证，因此一致性结果明确返回 `identity_unverified`，不能把 rubric 标成 calibrated；这不是临时伪造 RBAC，而是对平台身份能力缺口的诚实呈现。
-- pairwise 换序与人工裁决算法保留为内部验证能力，但公开 pairwise API 返回 `pairwise_blind_integrity_unavailable`。可信 case runner 已接通；当前剩余问题是同一平台操作者仍能从 experiment/run 相邻接口反推 A/B，因此统一身份接通前不对外宣称真正盲测。
-- pairwise 客户端只拿到 opaque `subjectToken`，不能从响应获得 run id 或 application manifest；换序不一致必须人工裁决并回写权威 winner。
+- pairwise 换序与人工裁决算法保留为内部验证能力，但当前不注册公开 pairwise route。可信 case runner 已接通；当前剩余问题是同一平台操作者仍能从 experiment/run 相邻接口反推 A/B，因此统一身份接通前不对外宣称真正盲测。
+- 内部 pairwise 结果使用 opaque `subjectToken`，不携带 run id 或 application manifest；未来开放 route 时沿用该最小披露契约，换序不一致必须人工裁决并回写权威 winner。
 - 在线失败晋升不修改旧数据集，而是复制为新 revision，并把脱敏后的冻结 evidence 一并保存；retention 不删除其来源 run。
 - 现有 Harness/Daemon 已接入评估执行模式，能够把 held-out case、ApplicationSnapshot、worktree HEAD、invocation、trace、proof 与 EvalRun 绑定；只有 target/observed manifest 完全相等时才写 `execution_verified=1`。旧的客户端配对实验仍默认 `execution_verified=0`，只作诊断。
 

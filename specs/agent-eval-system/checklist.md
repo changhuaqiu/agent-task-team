@@ -88,7 +88,7 @@ covered:
   dual-Judge disagreement, retry/concurrency, atomic budget reservation,
   global-dataset annotation scoping, weighted kappa usable sample count,
   unverified reviewer fail-closed, degenerate kappa handling,
-  internal pairwise ordering/human resolution, public pairwise fail-closed,
+  internal pairwise ordering/human resolution, no public pairwise route before identity isolation,
   immutable case promotion,
   server-derived API audit fields, platform workspace integration,
   immutable ApplicationSnapshot, explicit Skill revision loading,

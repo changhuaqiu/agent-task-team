@@ -66,7 +66,7 @@
   - [ ] 记录 `eval.queued/started/completed/partial/failed/replayed`
   - [ ] 重启、重复 closure、限流与 Provider 失败均不影响主链
 - [ ] **T11 Pages Router API**
-  - [ ] `/api/eval/runs`、`runs/:id`、`triggers`、`runs/:id/replay`
+  - [ ] `/api/eval/runs`、`runs/:id`、`runs/:id/replay`
   - [ ] `/api/eval/datasets`、`annotations`
   - [ ] 参数 schema、项目归属、服务端审计身份、分页、idempotency、稳定错误码
 - [ ] **T12 项目“评估”视图**
@@ -147,7 +147,7 @@ P2: T15 + T16 → T17 → T18/T19 → T20
   - [ ] 接入可验证审核者身份，使实验创建者与盲评者可被平台事实源区分
   - [x] 生成绑定 case、application manifest、run、snapshot 与服务端 proof event 的不可伪造 execution provenance
   - [x] 只有 provenance 验证通过时写入 `execution_verified=1`
-  - [ ] 以上两项完成后开放当前 fail-closed 的公开 pairwise API
+  - [ ] 以上两项完成后新增公开 pairwise route
   - [ ] 完成每个 case 的盲测/换序复测后，才允许 proposal 审批与 apply
 - [ ] **T23 工作区操作闭环**
   - [x] 在平台内“评估”工作区完成 case promotion 审批与 Judge 分歧裁决

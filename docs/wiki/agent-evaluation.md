@@ -42,11 +42,11 @@
 - 当前平台没有权限管理；评估只做 conversation/project 归属隔离并记录固定平台操作者，不自建 RBAC。
 - 全局数据集的 case 可跨项目读取，但 annotation 与一致性统计按 conversation 隔离；审核者名称仅用于校准审计。
 - 公开 API 的自填审核者名称标记为未验证，不能通过正式校准门；等待平台统一身份事实源。
-- pairwise 响应使用 opaque subject token，不暴露 run id；位置不一致需人工裁决后才形成 `resolved_winner`。
-- 但当前没有可验证审核者身份，同一操作者仍可能通过相邻接口解盲；因此公开 pairwise API 暂时返回 `pairwise_blind_integrity_unavailable`，内部算法仅用于开发验证。
+- 内部 pairwise 结果使用 opaque subject token，不携带 run id；未来开放 route 时沿用该最小披露契约，位置不一致需人工裁决后才形成 `resolved_winner`。
+- 但当前没有可验证审核者身份，同一操作者仍可能通过相邻接口解盲；因此当前不注册公开 pairwise route，内部算法仅用于开发验证。
 - 在线失败晋升创建新 dataset revision，旧 revision 保持不可变，晋升 case 内嵌脱敏冻结证据。
 - 平台 runner 已按现有 Harness/Daemon 的评估执行模式接通：服务端从 held-out case 创建 baseline/candidate 执行，使用指定 commit 的 detached worktree 与独立 session；只有 target/observed manifest、invocation、trace 和 EvalRun 均绑定时才写 `execution_verified=1`。
-- 真实双人身份与盲审隔离仍未接通，因此 verified 实验可以形成统计结果，但 proposal 审批/apply 仍需每例完成一致或人工裁决的 pairwise 结论；公开 pairwise API 继续 fail-closed。
+- 真实双人身份与盲审隔离仍未接通，因此 verified 实验可以形成统计结果，但 proposal 审批/apply 仍需每例完成一致或人工裁决的 pairwise 结论；统一身份接通前不开放 pairwise route。
 - 线上失败只有经人工复核后才能进入 train/tune，不能直接进入 held-out。
 
 ## 运维

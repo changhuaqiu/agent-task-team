@@ -317,7 +317,7 @@ closure proof committed
 |---|---|---|
 | `/api/eval/runs` | GET | 按 conversation/rootTask/status 分页查询 |
 | `/api/eval/runs/:id` | GET | 报告、分数、覆盖率与证据引用 |
-| `/api/eval/triggers` | POST | 手动提交幂等线上评估 |
+| `/api/eval/runs` | POST | 手动提交幂等线上评估 |
 | `/api/eval/runs/:id/replay` | POST | 基于原快照重评，不覆盖历史 |
 | `/api/eval/datasets` | GET/POST | 数据集列表与创建 |
 | `/api/eval/experiments` | GET/POST | P2 批量实验与比较 |
@@ -450,7 +450,7 @@ P2 在同一项目内提供完整“评估”工作区：数据集、基线/候�
 | D10 | Judge 调用发生在数据库事务之外，多个 worker 可同时越过“先查询后调用”的预算判断 | 日预算必须在外部调用前形成数据库内互斥占用 | 使用带过期时间的原子 token reservation；attempt 落库后释放 | 仅统计历史 token 后再决定是否调用 |
 | D11 | 全局数据集可被多个项目复用，但人工标注和校准结论属于当前项目 | 只按 dataset 聚合会跨项目污染 kappa | annotation 显式保存 conversation scope；审核者姓名用于校准审计，不代表权限角色 | 全局数据集上的全局 annotation |
 | D12 | 当前平台没有可验证的统一用户身份 | 自填 Alice/Bob 只能区分标签，不能证明是两个人 | API 标注记为 `identity_unverified`，不得使 rubric 进入 calibrated；统一身份接入后再开放校准门 | 把两个不同的输入姓名当作双人校准证据 |
-| D13 | 同一平台操作者能通过 experiment/run 相邻接口识别 baseline/candidate | 仅把 runId 替换为 token 不能形成真正盲测 | pairwise 算法保留为内部验证；可信 case runner 已接通，但公开 API 在统一身份接通前仍返回 fail-closed reason code | 对无身份隔离的流程宣称“盲测” |
+| D13 | 同一平台操作者能通过 experiment/run 相邻接口识别 baseline/candidate | 仅把 runId 替换为 token 不能形成真正盲测 | pairwise 算法保留为内部验证；可信 case runner 已接通，但统一身份接通前不注册公开 route | 对无身份隔离的流程宣称“盲测” |
 | D14 | 评估系统与 Agent 平台部署在一起，平台已经有 Harness/Daemon 执行链 | 另建 runner 服务会重复账号、运行时、上下文和观测能力；直接读取当前配置又会让历史实验不可复现 | `runner` 定义为现有 Harness/Daemon 的**评估执行模式**：服务端冻结 `ApplicationSnapshot`，用同一 held-out case 分别触发 baseline/candidate；每次使用独立 worktree、任务上下文与 session，账号只保存引用；规划前校验目标 revision，结束后用实际 worktree HEAD、Skill/RoleCard/模型清单生成 observed digest，完全相等才写 `execution_verified=1` | 新建独立评估执行服务，或仅在 run 上附加客户端提供的 manifest 标签 |
 
 ### 10.4 Runner 术语与可信执行契约
@@ -546,14 +546,14 @@ Experiment
 - migration 27–38、版本化 SQL schema、数据库不可变约束、ApplicationSnapshot/case execution、原子预算预留、默认 rubric 与 12 个 train/tune/held-out 中英校准案例；migration 41 补齐旧库自主交付 `revision`，migration 42 按结构审计补建被历史版本碰撞跳过的自主交付表并修复旧 `root_task_id` 外键；
 - 提交事务内冻结的 snapshot builder、硬门禁/确定性 evaluator、锚点式无工具 Judge adapter、持久 job/lease token/retry、原子 report/gap/replay；
 - closure valid-exit 后异步提交与 `eval.*` proof；
-- `/api/eval/runs`、datasets、annotations、experiments、pairwise、reviews、proposals、policy、operations；
+- `/api/eval/runs`、datasets、annotations、experiments、reviews、proposals、policy、operations；pairwise 当前仅保留内部算法，不注册公开 route；
 - 平台项目内“协作 / 评估”工作模式、paired bootstrap 分层实验、盲测换序、双 Judge 分歧路由与受控 proposal 状态机。
 
 尚未满足 implemented 退出门：
 
 - O1–O4 中与模型、数据外发和人工阈值相关的项目仍需产品负责人确认；当前采用保守默认值；
 - 用户已确认当前平台没有权限管理；conversation 归属隔离是本阶段真实边界，统一身份接入属于平台未来能力；
-- 第二轮设计审查纠正了五个容易“看起来成熟、实际上不可信”的点：预算改为原子预留；全局数据集的标注按项目隔离；pairwise API 只暴露 opaque subject token；case promotion 生成新 dataset revision 并冻结脱敏证据；回归门要求真实 case runner provenance；
+- 第二轮设计审查纠正了五个容易“看起来成熟、实际上不可信”的点：预算改为原子预留；全局数据集的标注按项目隔离；pairwise 内部结果使用 opaque subject token，公开 route 等待身份隔离；case promotion 生成新 dataset revision 并冻结脱敏证据；回归门要求真实 case runner provenance；
 - 第三轮把 runner 收敛为现有 Harness/Daemon 的评估执行模式，接通 ApplicationSnapshot、指定 commit detached worktree、独立 session、显式 Skill revision、执行 proof、EvalRun 与自动 paired aggregation；没有另建执行服务；
 - 第四轮把工具“执行成功”与“选择/参数正确”落成两个独立指标，并将评分语义升级为 `eval-bundle-v2 / deterministic-v2`；历史结果不原地改写；
 - 第五轮补齐 24-run/4-worker 容量演练、queue-inclusive P95、并发饱和度与预算余量指标，并将 Judge 最坏调用路径约束在 120 秒 SLO 内；
