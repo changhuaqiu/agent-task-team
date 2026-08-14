@@ -6,6 +6,8 @@ import { TaskDetailPanel } from '@/components/task-hub/TaskDetailPanel';
 import { useTaskHubStore, type Account } from '@/store/taskHubStore';
 import { socket } from '@/store/daemonStore';
 import type { TeamPack } from '@/types/teamPack';
+import { PRESET_ROLE_CARDS } from '@/data/presetRoleCards';
+import { roleCardToSnapshot } from '@/server/team-pack-role-snapshot';
 
 vi.mock('@/components/task-hub/useTaskGraph', () => ({
   useTaskGraph: () => ({ graph: null, isLoading: false, error: null, refresh: vi.fn() }),
@@ -53,7 +55,17 @@ function teamPackWithCodexAccount(): TeamPack {
     version: '1.0.0',
     tags: [],
     category: 'test',
-    roles: [{ id: 'mario', displayName: 'Mario B', soul: '', required: true, accountIds: ['account-codex'] }],
+    roles: [{
+      id: 'mario',
+      displayName: 'Mario B',
+      soul: '',
+      required: true,
+      accountIds: ['account-codex'],
+      roleCardSnapshot: roleCardToSnapshot({
+        ...PRESET_ROLE_CARDS[0],
+        displayName: 'Snapshot Architect',
+      }),
+    }],
     teamMode: 'pipeline',
     workflow: { type: 'linear' },
     communicationMatrix: {},
@@ -64,6 +76,32 @@ function teamPackWithCodexAccount(): TeamPack {
 }
 
 describe('TaskDetailPanel runtime profile', () => {
+  it('keeps the TeamPack member name separate from its snapshot RoleCard', () => {
+    useTaskHubStore.setState({
+      selectedTaskId: 'task-role-snapshot',
+      selectedConversationId: 'conversation-role-snapshot',
+      conversations: [{
+        id: 'conversation-role-snapshot', title: 'Snapshot', goal: '', status: 'active', priority: 'p1',
+        projectPath: '', breakdownStatus: 'none', teamPackId: 'team-b',
+        createdAt: '2026-08-15T00:00:00.000Z', updatedAt: '2026-08-15T00:00:00.000Z',
+      }],
+      currentTeamPack: teamPackWithCodexAccount(),
+      activeAgentIds: ['mario'],
+      tasks: [{
+        id: 'task-role-snapshot', conversationId: 'conversation-role-snapshot', phaseId: '',
+        title: 'Snapshot role task', description: '', status: 'ready', agentId: 'mario',
+        dependencies: [], artifacts: [], createdAt: '2026-08-15T00:00:00.000Z',
+        updatedAt: '2026-08-15T00:00:00.000Z',
+      }],
+      accounts: [],
+    });
+
+    render(<TaskDetailPanel />);
+
+    expect(screen.getByText('Mario B')).toBeDefined();
+    expect(screen.getByText('Snapshot Architect')).toBeDefined();
+  });
+
   it('fails closed without a profile and reacts when the canonical profile becomes executable', async () => {
     useTaskHubStore.setState({
       selectedTaskId: 'task-runtime-profile',

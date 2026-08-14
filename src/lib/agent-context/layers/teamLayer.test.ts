@@ -66,8 +66,8 @@ describe('buildTeamLayer', () => {
     const result = buildTeamLayer('mario', []);
 
     const rows = result.split('\n').filter((line) => line.startsWith('| @'));
-    expect(rows).toContain('| @luigi | ⚡ Luigi | Luigi |  |  | mid | 1 | 0/1 |');
-    expect(rows).toContain('| @peach | 🌸 Peach | Peach |  |  | mid | 1 | 0/1 |');
-    expect(rows).toContain('| @dk | ⚙️ Donkey Kong | Donkey Kong |  |  | mid | 1 | 0/1 |');
+    expect(rows).toContain('| @luigi | ⚡ Luigi |  |  |  | mid | 1 | 0/1 |');
+    expect(rows).toContain('| @peach | 🌸 Peach |  |  |  | mid | 1 | 0/1 |');
+    expect(rows).toContain('| @dk | ⚙️ Donkey Kong |  |  |  | mid | 1 | 0/1 |');
   });
 });

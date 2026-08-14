@@ -369,11 +369,12 @@ function getCachedEffectiveRoster(state: TaskHubState): Agent[] {
 
   const effectiveRoster = runtime.roster.map((runtimeAgent) => {
     const presetAgent = AGENT_ROSTER.find((agent) => agent.id === runtimeAgent.id);
+    const teamRole = runtime.teamPack?.roles.find((role) => role.id === runtimeAgent.id);
     return {
       id: runtimeAgent.id,
       name: runtimeAgent.source === 'preset-agent'
         ? presetAgent?.name ?? runtimeAgent.displayName
-        : runtimeAgent.displayName,
+        : teamRole?.displayName ?? runtimeAgent.displayName,
       roleCardId: runtimeAgent.roleCardId ?? presetAgent?.roleCardId ?? `team-role-${runtimeAgent.id}`,
       theme: runtimeAgent.theme ?? presetAgent?.theme ?? 'mario',
       emoji: runtimeAgent.emoji ?? presetAgent?.emoji ?? '🤖',
@@ -385,6 +386,10 @@ function getCachedEffectiveRoster(state: TaskHubState): Agent[] {
 
   if (cache) cache.effectiveRoster = effectiveRoster;
   return effectiveRoster;
+}
+
+function getCachedAgentRoleCard(state: TaskHubState, agentId: string): RoleCard | undefined {
+  return getCachedTeamRuntime(state).roster.find((agent) => agent.id === agentId)?.roleCard;
 }
 
 function getCachedAgentRuntimeProfile(state: TaskHubState, agentId: string): RuntimeAgentProfile | null {
@@ -435,9 +440,7 @@ function resolveMentionAgentIds(state: TaskHubState, tokens: string[]): string[]
   for (const agent of roster) {
     byMention.set(agent.id.toLowerCase(), agent.id);
     byMention.set(agent.name.toLowerCase(), agent.id);
-    const roleCardName = agent.roleCardId
-      ? state.roleCards.find((card) => card.id === agent.roleCardId)?.displayName
-      : undefined;
+    const roleCardName = getCachedAgentRoleCard(state, agent.id)?.displayName;
     if (roleCardName) byMention.set(roleCardName.toLowerCase(), agent.id);
   }
   return [...new Set(tokens.map((token) => byMention.get(token.toLowerCase())).filter(Boolean) as string[])];
@@ -708,6 +711,7 @@ export interface TaskHubState {
   activeAgentIds: string[];
   currentTeamPack: TeamPack | null;
   getEffectiveRoster: () => Agent[];
+  getAgentRoleCard: (agentId: string) => RoleCard | undefined;
   getAgentRuntimeProfile: (agentId: string) => RuntimeAgentProfile | null;
   setTeamRoleAccountIds: (agentId: string, accountIds: string[]) => Promise<void>;
   setTeamRoleSkillIds: (agentId: string, skillIds: string[]) => Promise<void>;
@@ -956,6 +960,10 @@ export const useTaskHubStore = create<TaskHubState>()(
 
         getEffectiveRoster: () => {
           return getCachedEffectiveRoster(get());
+        },
+
+        getAgentRoleCard: (agentId: string) => {
+          return getCachedAgentRoleCard(get(), agentId);
         },
 
         getAgentRuntimeProfile: (agentId: string) => {

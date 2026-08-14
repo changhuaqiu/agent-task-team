@@ -70,8 +70,7 @@ export function A2APossessionStrip() {
     const id = state.selectedConversationId;
     return id ? state.dispatchReceiptsByConversation[id] ?? EMPTY_DISPATCH_RECEIPTS : EMPTY_DISPATCH_RECEIPTS;
   });
-  const getEffectiveRoster = useTaskHubStore((state) => state.getEffectiveRoster);
-  const roster = getEffectiveRoster();
+  const roster = useTaskHubStore((state) => state.getEffectiveRoster());
 
   const latestReceipt = dispatchReceipts[dispatchReceipts.length - 1];
   if ((!a2a || a2a.handoffs.length === 0) && !latestReceipt) return null;

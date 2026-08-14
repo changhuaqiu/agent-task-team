@@ -8,11 +8,11 @@ import { cn } from '@/lib/utils';
 
 export function AgentBar() {
   const activeAgentIds = useTaskHubStore((s) => s.activeAgentIds);
-  const roleCards = useTaskHubStore((s) => s.roleCards);
   const accounts = useTaskHubStore((s) => s.accounts);
   const setRosterModalOpen = useTaskHubStore((s) => s.setRosterModalOpen);
   const tasks = useTaskHubStore((s) => s.tasks);
-  const getEffectiveRoster = useTaskHubStore((s) => s.getEffectiveRoster);
+  const effectiveRoster = useTaskHubStore((s) => s.getEffectiveRoster());
+  const getAgentRoleCard = useTaskHubStore((s) => s.getAgentRoleCard);
   const getAgentRuntimeProfile = useTaskHubStore((s) => s.getAgentRuntimeProfile);
 
   const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
@@ -30,7 +30,6 @@ export function AgentBar() {
     return () => document.removeEventListener('mousedown', handler);
   }, [expandedAgent]);
 
-  const effectiveRoster = getEffectiveRoster();
   const activeAgents = effectiveRoster.filter((a) => activeAgentIds.includes(a.id));
 
   if (activeAgents.length === 0) return null;
@@ -40,8 +39,7 @@ export function AgentBar() {
       <div className="flex items-center gap-1.5 flex-wrap">
         {activeAgents.map((agent) => {
           const profile = getAgentRuntimeProfile(agent.id);
-          const roleCard = profile?.prompt.roleCard
-            ?? (agent.roleCardId ? roleCards.find((c) => c.id === agent.roleCardId) ?? null : null);
+          const roleCard = getAgentRoleCard(agent.id) ?? null;
           const cfg = roleCard ? getCategoryConfig(roleCard.category) : null;
           const boundIds = profile?.agent.accountIds ?? agent.accountIds ?? roleCard?.accountIds ?? [];
           const boundCount = boundIds.length;

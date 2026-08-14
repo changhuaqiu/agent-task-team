@@ -99,8 +99,8 @@ export function TaskDetailPanel() {
     updateTaskStatus,
     updateTask,
     removeTask,
-    roleCards,
-    getEffectiveRoster,
+    effectiveRoster,
+    getAgentRoleCard,
     simulateCliExecution,
     daemonRuntimes,
     agentStatus,
@@ -112,8 +112,8 @@ export function TaskDetailPanel() {
     updateTaskStatus: s.updateTaskStatus,
     updateTask: s.updateTask,
     removeTask: s.removeTask,
-    roleCards: s.roleCards,
-    getEffectiveRoster: s.getEffectiveRoster,
+    effectiveRoster: s.getEffectiveRoster(),
+    getAgentRoleCard: s.getAgentRoleCard,
     simulateCliExecution: s.simulateCliExecution,
     daemonRuntimes: s.daemonRuntimes,
     agentStatus: s.agentStatus,
@@ -123,6 +123,12 @@ export function TaskDetailPanel() {
     return selectedTask?.conversationId === state.selectedConversationId
       ? state.getAgentRuntimeProfile(selectedTask.agentId)
       : null;
+  });
+  const selectedAgentRoleCard = useTaskHubStore((state) => {
+    const selectedTask = state.tasks.find((candidate) => candidate.id === state.selectedTaskId);
+    return selectedTask?.conversationId === state.selectedConversationId
+      ? state.getAgentRoleCard(selectedTask.agentId)
+      : undefined;
   });
   const panelRef = useRef<HTMLDivElement>(null);
   const descEditRef = useRef<HTMLTextAreaElement>(null);
@@ -136,7 +142,7 @@ export function TaskDetailPanel() {
     taskMatchesSelectedConversation ? task.conversationId : undefined,
   );
   const agent = taskMatchesSelectedConversation
-    ? getEffectiveRoster().find((a) => a.id === task.agentId)
+    ? effectiveRoster.find((a) => a.id === task.agentId)
     : null;
   const agentRunStatus = agent ? agentStatus[agent.id] : undefined;
   const isRunning = agentRunStatus === 'busy' || agentRunStatus === 'background';
@@ -317,8 +323,8 @@ export function TaskDetailPanel() {
             </label>
             {editingField === 'agent' ? (
               <div className="flex flex-col gap-1">
-                {getEffectiveRoster().map((a) => {
-                  const roleCard = roleCards.find((card) => card.id === a.roleCardId);
+                {effectiveRoster.map((a) => {
+                  const roleCard = getAgentRoleCard(a.id);
                   return (
                   <button
                     key={a.id}
@@ -357,10 +363,7 @@ export function TaskDetailPanel() {
                 <span className="text-sm font-medium text-[hsl(var(--text-primary))]">
                   {agent?.name ?? 'Unassigned'}
                 </span>
-                {agent?.roleCardId && (() => {
-                  const rc = roleCards.find((c) => c.id === agent.roleCardId);
-                  return rc ? <RoleCardBadge card={rc} size="sm" /> : null;
-                })()}
+                {selectedAgentRoleCard && <RoleCardBadge card={selectedAgentRoleCard} size="sm" />}
               </button>
             )}
           </div>

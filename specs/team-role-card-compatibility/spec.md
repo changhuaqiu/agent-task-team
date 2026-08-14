@@ -74,7 +74,7 @@ Resolution rules after team-first fusion:
 8. Async TeamPack loads may update active agents only when the selected project still matches the requested `teamPackId`; stale responses must be ignored.
 9. Synthesized TeamPack role snapshots must preserve execution semantics: implementation roles such as backend/frontend/coder can modify code and create files, while reviewer/planner/QA roles remain propose-only unless explicitly bound to a modifying RoleCard.
 10. Preset TeamPacks should bind each known role to the matching preset RoleCard so runtime prompts do not accidentally downgrade implementers into advisory-only roles.
-11. The browser `Agent` projection does not duplicate RoleCard facts as `role` or `roleLabel`. UI and prompt presentation resolve the RoleCard by `roleCardId`; missing cards remain visibly unclassified instead of falling back to a guessed three-state role.
+11. The browser `Agent` projection does not duplicate RoleCard facts as `role` or `roleLabel`. `TeamPackRole.displayName` remains the member name even when its snapshot RoleCard has a different display name; UI, mentions and prompt presentation resolve global/snapshot RoleCards through the Team Runtime-backed `getAgentRoleCard(agentId)` selector. Missing cards remain visibly unclassified instead of falling back to a guessed three-state role.
 
 ## Acceptance Criteria
 

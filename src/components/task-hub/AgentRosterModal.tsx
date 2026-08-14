@@ -46,7 +46,7 @@ export function AgentRosterModal() {
   const availableAgents = useTaskHubStore(useShallow(selectAvailableRoster));
   const inviteAgent = useTaskHubStore((s) => s.inviteAgent);
   const addChatMessage = useTaskHubStore((s) => s.addChatMessage);
-  const roleCards = useTaskHubStore((s) => s.roleCards);
+  const getAgentRoleCard = useTaskHubStore((s) => s.getAgentRoleCard);
 
   if (!isOpen) return null;
 
@@ -92,7 +92,7 @@ export function AgentRosterModal() {
               {availableAgents.map((agent) => (
                 (() => {
                   const theme = CARD_THEME_CLASSES[agent.theme];
-                  const roleCard = roleCards.find((card) => card.id === agent.roleCardId);
+                  const roleCard = getAgentRoleCard(agent.id);
                   return (
                 <div
                   key={agent.id}

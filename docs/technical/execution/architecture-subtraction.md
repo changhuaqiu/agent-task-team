@@ -157,4 +157,4 @@ Team Runtime Contract 已通过 `resolveRuntimeAgentProfile()` 统一解析成�
 
 ## 第三十一轮：删除浏览器重复角色分类
 
-RoleCard 已经是岗位身份、显示名、能力和行为边界的正式 owner，但浏览器 `Agent` 仍保留 deprecated `role / roleLabel`，通过两张硬编码映射表和 `getEffectiveRoster()` 二次投影继续维护 `planner / worker / reviewer` 三态与岗位文案。`role` 没有生产读取者，`roleLabel` 的调用点也都已持有 RoleCard；两个 RoleCard lookup Store action 则完全没有消费者。第三十一轮删除这些兼容字段、映射、重导出和死 action，让 UI 与 Team context 直接解析 `roleCardId + RoleCard`；缺卡时保留成员名或省略岗位标签，不再猜测静态分类。Team Runtime、动态 TeamPack snapshot、账号、Skill 和正式派发保持不变。
+RoleCard 已经是岗位身份、显示名、能力和行为边界的正式 owner，但浏览器 `Agent` 仍保留 deprecated `role / roleLabel`，通过两张硬编码映射表和 `getEffectiveRoster()` 二次投影继续维护 `planner / worker / reviewer` 三态与岗位文案。`role` 没有生产读取者，`roleLabel` 的调用点也都已持有 RoleCard；两个只查全局数组的 RoleCard lookup Store action 则完全没有消费者。第三十一轮删除这些兼容字段、映射、重导出和死 action，让成员名与岗位名分离：TeamPack 成员名固定来自 `TeamPackRole.displayName`，UI、任务详情与 @提及通过 Team Runtime 缓存解析 global/snapshot RoleCard；缺卡时保留成员名或省略岗位标签，不再猜测静态分类。账号、Skill 和正式派发保持不变。

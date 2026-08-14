@@ -53,7 +53,7 @@ export interface Agent {
 说明：
 
 - `role / roleLabel` 兼容投影已删除；浏览器不再维护第二套 `planner / worker / reviewer` 分类或岗位显示名缓存
-- `roleCardId + RoleCard` 是岗位身份、岗位显示名、能力与行为边界的唯一事实；preset 成员名保持成员身份，RoleCard 单独显示岗位；缺失时不猜测分类
+- `roleCardId + RoleCard` 是岗位身份、岗位显示名、能力与行为边界的唯一事实；preset 成员名保持成员身份，TeamPack 成员名只来自 `TeamPackRole.displayName`，snapshot RoleCard 单独显示岗位；缺失时不猜测分类
 - RoleCard 现包含可选 `capabilities` 字段（`CapabilityProfile`），作为第 8 维度描述：
   - `domains`：擅长领域列表
   - `skills`：技能标签
@@ -187,11 +187,12 @@ export interface Task {
 
 当前团队身份、执行资料和协作策略不再由 store 自己拼装。store 只负责把 rehydrate 得到的 Conversation、TeamPack、RoleCard、Account、Skill 和 agent 绑定传入 `src/lib/team-runtime/`，再缓存解析结果用于 UI 和派发。
 
-Team Runtime 缓存是派生缓存，不是新的事实源。缓存只复用 `resolveTeamRuntime()`、`getEffectiveRoster()` 和 `getAgentRuntimeProfile()` 的结果；当 conversation、TeamPack、RoleCard、Skill、账号绑定、角色卡覆盖、active roster 或 preset roster 签名发生变化时必须失效。这样可以避免组件 render 阶段反复扫描并创建 roster/profile 对象，同时保持 Team Runtime Contract 仍然是团队语义的唯一领域契约。
+Team Runtime 缓存是派生缓存，不是新的事实源。缓存只复用 `resolveTeamRuntime()`、`getEffectiveRoster()`、`getAgentRoleCard()` 和 `getAgentRuntimeProfile()` 的结果；当 conversation、TeamPack、RoleCard、Skill、账号绑定、角色卡覆盖、active roster 或 preset roster 签名发生变化时必须失效。这样可以避免组件 render 阶段反复扫描并创建 roster/profile 对象，同时保持 Team Runtime Contract 仍然是团队语义的唯一领域契约。
 
 关键规则：
 
 - `getEffectiveRoster()` 委托 `resolveTeamRuntime()`。没有 TeamPack 时返回 preset agents；有 TeamPack 时以 TeamPack roles 为第一事实源；浏览器成员投影只保留成员标识与展示/执行字段，不复制 RoleCard 岗位事实。
+- `getAgentRoleCard(agentId)` 从同一 Team Runtime roster 读取已解析 RoleCard，因而同时支持全局卡与 TeamPack snapshot；UI、任务详情和 @提及不得重新只查全局 `roleCards` 数组。
 - `getAgentRuntimeProfile(agentId)` 委托 `resolveRuntimeAgentProfile()`。它返回单个成员的 RoleCard、Skill、账号和 engine；如果没有可执行账号或 fallback engine，返回 `null`。
 - 任务详情、成员账号面板和执行入口都直接消费同一份缓存 Profile；组件不得再次按账号重算 engine，也不得在 Profile 为空时猜测 OpenCode。账号 readiness 与 provider 路由只在共享账号规则和 Team Runtime resolver 中维护。
 - 浏览器直接 Human turn 会提交服务端 Command；服务端 Invocation Pipeline 在 preflight

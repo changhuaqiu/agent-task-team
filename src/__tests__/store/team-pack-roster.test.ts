@@ -6,6 +6,8 @@ import {
   type DispatchToAgentInput,
 } from '@/store/taskHubStore';
 import type { TeamPack, TeamPackRole } from '@/types/teamPack';
+import { PRESET_ROLE_CARDS } from '@/data/presetRoleCards';
+import { roleCardToSnapshot } from '@/server/team-pack-role-snapshot';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -126,7 +128,14 @@ describe('Team Pack Dynamic Roster', () => {
 
     it('effectiveRoster merges team pack roles with AGENT_ROSTER', () => {
       const roles = [
-        makeRole({ id: 'mario', displayName: 'Super Planner' }),
+        makeRole({
+          id: 'mario',
+          displayName: 'Super Planner',
+          roleCardSnapshot: roleCardToSnapshot({
+            ...PRESET_ROLE_CARDS[0],
+            displayName: 'Architecture Reviewer',
+          }),
+        }),
         makeRole({ id: 'newagent', displayName: 'New Agent' }),
       ];
       const teamPack = makeTeamPack({ id: 'pack-2', roles });
@@ -157,6 +166,8 @@ describe('Team Pack Dynamic Roster', () => {
       const marios = roster.filter((a) => a.id === 'mario');
       expect(marios).toHaveLength(1);
       expect(marios[0].name).toBe('Super Planner');
+      expect(useTaskHubStore.getState().getAgentRoleCard('mario')?.displayName)
+        .toBe('Architecture Reviewer');
 
       expect(ids).toContain('newagent');
 
@@ -602,7 +613,14 @@ describe('Team Pack Dynamic Roster', () => {
       const teamPack = makeTeamPack({
         id: 'pack-cjk-mentions',
         roles: [
-          makeRole({ id: 'planner', displayName: '规划师' }),
+          makeRole({
+            id: 'planner',
+            displayName: '成员规划师',
+            roleCardSnapshot: roleCardToSnapshot({
+              ...PRESET_ROLE_CARDS[0],
+              displayName: '架构评审岗位',
+            }),
+          }),
           makeRole({ id: 'coder', displayName: '实现者' }),
         ],
       });
@@ -627,8 +645,11 @@ describe('Team Pack Dynamic Roster', () => {
 
       await useTaskHubStore.getState().addChatMessage({
         agentId: 'human',
-        content: '@规划师 请先分析这个项目',
+        content: '@架构评审岗位 请先分析这个项目',
       });
+
+      expect(useTaskHubStore.getState().getEffectiveRoster().find((agent) => agent.id === 'planner')?.name)
+        .toBe('成员规划师');
 
       expect(dispatchToAgent).not.toHaveBeenCalled();
       expect(fetchSpy.mock.calls.map(([, init]) => JSON.parse(String(init?.body))))

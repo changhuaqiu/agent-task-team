@@ -31,7 +31,7 @@ export function buildTeamLayer(selfId: string, allRoleCards: RoleCard[], current
       id: agent.id,
       name: agent.name,
       emoji: agent.emoji,
-      roleName: rc?.category ? ROLE_LABELS[rc.category] ?? rc.displayName : rc?.displayName ?? agent.name,
+      roleName: rc?.category ? ROLE_LABELS[rc.category] ?? rc.displayName : rc?.displayName ?? '',
       strengths: rc?.responsibilities.slice(0, 3) ?? [],
       domains: rc?.capabilities?.domains ?? [],
       skills: rc?.capabilities?.skills ?? [],

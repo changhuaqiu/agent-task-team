@@ -36,8 +36,7 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
   const pendingDispatches = useTaskHubStore(useShallow((s) => s.pendingDispatches));
   const clearPendingDispatches = useTaskHubStore((s) => s.clearPendingDispatches);
   const forceSendDispatch = useTaskHubStore((s) => s.forceSendDispatch);
-  const getEffectiveRoster = useTaskHubStore((s) => s.getEffectiveRoster);
-  const effectiveRoster = getEffectiveRoster();
+  const effectiveRoster = useTaskHubStore((s) => s.getEffectiveRoster());
 
   const currentPending = useMemo(() => {
     const convId = selectedConversationId;
@@ -392,7 +391,7 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
                 const roster = store.getEffectiveRoster();
                 const activeAgents = roster.filter((a) => store.activeAgentIds.includes(a.id));
                 const filtered = activeAgents.filter((agent) => {
-                  const roleCard = agent.roleCardId ? store.roleCards.find((c) => c.id === agent.roleCardId) : null;
+                  const roleCard = store.getAgentRoleCard(agent.id);
                   const displayName = roleCard?.displayName || '';
                   return (
                     agent.name.toLowerCase().includes(query) ||

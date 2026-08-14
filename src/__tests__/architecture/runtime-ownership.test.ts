@@ -76,6 +76,15 @@ describe('runtime ownership architecture', () => {
     const retiredRoleProjection = /\bAgentRole\b|\broleLabel\b|\bROLE_(?:LABEL_)?MAP\b/;
     expect(productionTypeScriptFiles('src').filter((path) => retiredRoleProjection.test(source(path))))
       .toEqual([]);
+    expect(taskHubStore).toContain('getAgentRoleCard: (agentId: string) => RoleCard | undefined');
+    for (const consumer of [
+      'src/components/task-hub/AgentBar.tsx',
+      'src/components/task-hub/AgentRosterModal.tsx',
+      'src/components/task-hub/GlobalChatRoom.tsx',
+      'src/components/task-hub/TaskDetailPanel.tsx',
+    ]) {
+      expect(source(consumer)).toContain('getAgentRoleCard');
+    }
   });
 
   it('keeps explicit human command adapters available', () => {
