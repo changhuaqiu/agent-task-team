@@ -35,4 +35,4 @@
 - `pnpm exec tsc --noEmit`：通过。
 - `pnpm build`：通过；仅有既有 Turbopack NFT 动态路径警告。
 - 最终全量：205 files / 1512 tests 通过，2 files / 2 tests 跳过，1 file / 1 test 失败；唯一失败为稳定基线 `src/server/autonomous-delivery/control-runtime.test.ts:131`。
-- 独立复审：待执行。
+- 独立复审：首轮 Critical 0 / Important 0 / Minor 1；补强声明级 guard 后 Critical 0 / Important 0 / Minor 0，Ready: Yes。修复后定向 7 files / 70 tests、独立架构守卫 1 file / 31 tests 通过，status 与 base→HEAD diff-check clean。
