@@ -112,12 +112,13 @@ describe('runtime ownership architecture', () => {
     expect(taskAssignment).not.toContain('TaskAssignmentSource');
     const commandGuard = source('src/server/a2a/command-guard.ts');
     const teamPackLayer = source('src/lib/agent-context/layers/teamPackLayer.ts');
-    expect(productionFiles.filter((path) => /communicationPolicy\.canSend|\bgetEscalationTarget(?:FromMatrix)?\b/.test(source(path)))).toEqual([]);
-    expect(runtimeTypes).not.toContain('canSend(');
-    expect(runtimeTypes).not.toContain('getEscalationTarget');
+    const retiredCommunicationSurface = /\bCommunicationPolicy\b|\bresolveCommunicationPolicy\b|\bcommunicationPolicy\b|\bexplainBlock\b|\bgetEscalationTarget(?:FromMatrix)?\b/;
+    expect(productionFiles.filter((path) => retiredCommunicationSurface.test(source(path)))).toEqual([]);
+    expect(existsSync(resolve(process.cwd(), 'src/lib/team-runtime/resolveCommunicationPolicy.ts'))).toBe(false);
+    expect(runtimeTypes).toContain('explainHandoffBlock(fromAgentId: string, toAgentId: string): string | undefined;');
     expect(runtimeBarrel).not.toMatch(/resolveCommunicationPolicy|CommunicationPolicy/);
-    expect(commandGuard).toContain('runtime.communicationPolicy.explainBlock(');
-    expect(commandGuard.match(/runtime\.communicationPolicy\.explainBlock\(/g)).toHaveLength(1);
+    expect(commandGuard).toContain('runtime.explainHandoffBlock(');
+    expect(commandGuard.match(/runtime\.explainHandoffBlock\(/g)).toHaveLength(1);
     expect(teamPackLayer).toMatch(/canReceiveFrom/);
     expect(teamPackLayer).toMatch(/canEscalateTo/);
   });

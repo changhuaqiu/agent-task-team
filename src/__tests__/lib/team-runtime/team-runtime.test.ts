@@ -18,9 +18,7 @@ describe('team-runtime public contract', () => {
     const runtime: TeamRuntime = {
       conversationId: 'conv-1',
       roster: [agent],
-      communicationPolicy: {
-        explainBlock: () => undefined,
-      },
+      explainHandoffBlock: () => undefined,
       initialAgentId: null,
     };
 
@@ -176,7 +174,7 @@ describe('resolveTeamRuntime', () => {
         source: 'preset-agent',
       }),
     ]);
-    expect(runtime.communicationPolicy.explainBlock('mario', 'any-agent')).toBeUndefined();
+    expect(runtime.explainHandoffBlock('mario', 'any-agent')).toBeUndefined();
   });
 
   it('uses TeamPack roles as the primary runtime roster when a TeamPack is bound', () => {
@@ -318,8 +316,8 @@ describe('resolveTeamRuntime', () => {
       agentRoleCardOverrides: {},
     });
 
-    expect(runtime.communicationPolicy.explainBlock('planner', 'reviewer')).toBeUndefined();
-    expect(runtime.communicationPolicy.explainBlock('reviewer', 'planner')).toBe('团队协作规则阻止了这次转交');
+    expect(runtime.explainHandoffBlock('planner', 'reviewer')).toBeUndefined();
+    expect(runtime.explainHandoffBlock('reviewer', 'planner')).toBe('团队协作规则阻止了这次转交');
   });
 
   it('keeps receive and escalation guidance in the TeamPack prompt', () => {
@@ -374,9 +372,25 @@ describe('resolveTeamRuntime', () => {
       agentRoleCardOverrides: {},
     });
 
-    expect(runtime.communicationPolicy.explainBlock('peach', 'dk')).toBeUndefined();
-    expect(runtime.communicationPolicy.explainBlock('peach', 'yoshi')).toBe('团队协作规则阻止了这次转交');
-    expect(runtime.communicationPolicy.explainBlock('yoshi', 'dk')).toBe('团队协作规则阻止了这次转交');
+    expect(runtime.explainHandoffBlock('peach', 'dk')).toBeUndefined();
+    expect(runtime.explainHandoffBlock('peach', 'yoshi')).toBe('团队协作规则阻止了这次转交');
+    expect(runtime.explainHandoffBlock('yoshi', 'dk')).toBe('团队协作规则阻止了这次转交');
+
+    const missingPeachMatrix = { ...oldDefaultTeam.communicationMatrix };
+    delete missingPeachMatrix.peach;
+    const runtimeWithoutSenderRow = resolveTeamRuntime({
+      conversationId: 'conv-default-missing-row',
+      teamPack: { ...oldDefaultTeam, communicationMatrix: missingPeachMatrix },
+      presetAgents: [],
+      activeAgentIds: ['mario', 'luigi', 'toad', 'peach', 'dk', 'yoshi'],
+      roleCards: [],
+      skillsMap: {},
+      agentSkillIds: {},
+      agentAccountOverrides: {},
+      agentRoleCardOverrides: {},
+    });
+    expect(runtimeWithoutSenderRow.explainHandoffBlock('peach', 'dk'))
+      .toBe('团队协作规则阻止了这次转交');
   });
 });
 
@@ -428,9 +442,7 @@ describe('resolveRuntimeAgentProfile', () => {
           skills: [],
         },
       ],
-      communicationPolicy: {
-        explainBlock: () => undefined,
-      },
+      explainHandoffBlock: () => undefined,
       initialAgentId: null,
     };
 
@@ -457,9 +469,7 @@ describe('resolveRuntimeAgentProfile', () => {
           skills: [],
         },
       ],
-      communicationPolicy: {
-        explainBlock: () => undefined,
-      },
+      explainHandoffBlock: () => undefined,
       initialAgentId: null,
     };
 
@@ -482,7 +492,7 @@ describe('resolveRuntimeAgentProfile', () => {
         accountIds: ['acc-google-oauth'],
         skills: [],
       }],
-      communicationPolicy: { explainBlock: () => undefined },
+      explainHandoffBlock: () => undefined,
       initialAgentId: null,
     };
 
@@ -504,7 +514,7 @@ describe('resolveRuntimeAgentProfile', () => {
         id: 'planner', displayName: 'Planner', source: 'team-pack-role',
         accountIds: ['acc-pending'], skills: [],
       }],
-      communicationPolicy: { explainBlock: () => undefined },
+      explainHandoffBlock: () => undefined,
       initialAgentId: null,
     };
 
@@ -527,9 +537,7 @@ describe('resolveRuntimeAgentProfile', () => {
           skills: [],
         },
       ],
-      communicationPolicy: {
-        explainBlock: () => undefined,
-      },
+      explainHandoffBlock: () => undefined,
       initialAgentId: null,
     } as unknown as TeamRuntime;
 
@@ -556,9 +564,7 @@ describe('resolveRuntimeAgentProfile', () => {
           skills: [],
         },
       ],
-      communicationPolicy: {
-        explainBlock: () => undefined,
-      },
+      explainHandoffBlock: () => undefined,
       initialAgentId: null,
     };
 

@@ -31,15 +31,11 @@ export interface RuntimeAgent {
   canReview?: boolean;
 }
 
-export interface CommunicationPolicy {
-  explainBlock(fromAgentId: string, toAgentId: string): string | undefined;
-}
-
 export interface TeamRuntime {
   conversationId: string;
   teamPack?: TeamPack;
   roster: RuntimeAgent[];
-  communicationPolicy: CommunicationPolicy;
+  explainHandoffBlock(fromAgentId: string, toAgentId: string): string | undefined;
   initialAgentId: string | null;
 }
 

@@ -2,16 +2,14 @@ import { describe, expect, it, vi } from 'vitest';
 import type { TeamRuntime } from '@/lib/team-runtime';
 import { A2ACommandGuard } from './command-guard';
 
-function runtime(explainBlock: (from: string, to: string) => string | undefined): TeamRuntime {
+function runtime(explainHandoffBlock: (from: string, to: string) => string | undefined): TeamRuntime {
   return {
     conversationId: 'project-policy',
     roster: [
       { id: 'lead', displayName: 'Lead', source: 'preset-agent', accountIds: [], skills: [] },
       { id: 'builder', displayName: 'Builder', source: 'preset-agent', accountIds: [], skills: [] },
     ],
-    communicationPolicy: {
-      explainBlock,
-    },
+    explainHandoffBlock,
     initialAgentId: null,
   };
 }
@@ -46,9 +44,9 @@ describe('A2ACommandGuard', () => {
   });
 
   it('enforces communication policy for agents but not explicit human commands', () => {
-    const explainBlock = vi.fn(() => 'review must go through lead');
+    const explainHandoffBlock = vi.fn(() => 'review must go through lead');
     const guard = new A2ACommandGuard({
-      resolveRuntime: () => runtime(explainBlock),
+      resolveRuntime: () => runtime(explainHandoffBlock),
     });
 
     expect(() => guard.assert({
@@ -63,13 +61,13 @@ describe('A2ACommandGuard', () => {
       fromHolderType: 'user',
       branches: [{ toAgentId: 'builder' }],
     })).not.toThrow();
-    expect(explainBlock).toHaveBeenCalledTimes(1);
+    expect(explainHandoffBlock).toHaveBeenCalledTimes(1);
   });
 
   it('treats an empty policy reason as blocked and uses the generic detail', () => {
-    const explainBlock = vi.fn(() => '');
+    const explainHandoffBlock = vi.fn(() => '');
     const guard = new A2ACommandGuard({
-      resolveRuntime: () => runtime(explainBlock),
+      resolveRuntime: () => runtime(explainHandoffBlock),
     });
 
     expect(() => guard.assert({
@@ -78,13 +76,13 @@ describe('A2ACommandGuard', () => {
       fromHolderType: 'agent',
       branches: [{ toAgentId: 'builder' }],
     })).toThrowError('a2a_communication_policy_blocked: lead:builder:communication policy denied the handoff');
-    expect(explainBlock).toHaveBeenCalledTimes(1);
+    expect(explainHandoffBlock).toHaveBeenCalledTimes(1);
   });
 
   it('rejects an agent source outside the roster before consulting policy', () => {
-    const explainBlock = vi.fn(() => undefined);
+    const explainHandoffBlock = vi.fn(() => undefined);
     const guard = new A2ACommandGuard({
-      resolveRuntime: () => runtime(explainBlock),
+      resolveRuntime: () => runtime(explainHandoffBlock),
     });
 
     expect(() => guard.assert({
@@ -95,7 +93,7 @@ describe('A2ACommandGuard', () => {
     })).toThrowError(expect.objectContaining({
       reasonCode: 'a2a_source_not_in_roster',
     }));
-    expect(explainBlock).not.toHaveBeenCalled();
+    expect(explainHandoffBlock).not.toHaveBeenCalled();
   });
 
   it('rejects a missing conversation runtime before the aggregate is called', () => {

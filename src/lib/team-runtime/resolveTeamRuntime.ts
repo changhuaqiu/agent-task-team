@@ -5,9 +5,17 @@ import type {
   RuntimeSkillSummary,
   TeamRuntime,
 } from './types';
-import { resolveCommunicationPolicy } from './resolveCommunicationPolicy';
 import type { RoleCard } from '@/types/roleCard';
 import type { TeamPack } from '@/types/teamPack';
+
+const HANDOFF_BLOCK_REASON = '团队协作规则阻止了这次转交';
+const DEFAULT_TEAM_AGENT_IDS = ['mario', 'luigi', 'peach', 'dk'];
+const DEFAULT_TEAM_REQUIRED_SENDS: Record<string, string[]> = {
+  mario: ['luigi', 'peach', 'dk'],
+  luigi: ['mario', 'peach'],
+  peach: ['mario', 'luigi', 'dk'],
+  dk: ['mario', 'luigi', 'peach'],
+};
 
 export interface PresetRuntimeAgentInput {
   id: string;
@@ -135,6 +143,26 @@ function initialAgentId(teamPack: TeamPack | undefined, roster: RuntimeAgent[]):
   return roleId && availableAgentIds.has(roleId) ? roleId : null;
 }
 
+function isDefaultHarnessTeam(teamPack: TeamPack): boolean {
+  if (teamPack.name === 'default-team') return true;
+  const roleIds = new Set(teamPack.roles.map((role) => role.id));
+  return DEFAULT_TEAM_AGENT_IDS.every((id) => roleIds.has(id));
+}
+
+function explainHandoffBlock(
+  teamPack: TeamPack | undefined,
+  fromAgentId: string,
+  toAgentId: string,
+): string | undefined {
+  if (!teamPack) return undefined;
+  const row = teamPack.communicationMatrix[fromAgentId];
+  if (!row) return HANDOFF_BLOCK_REASON;
+  const allowed = row.canSendTo.includes(toAgentId)
+    || (isDefaultHarnessTeam(teamPack)
+      && (DEFAULT_TEAM_REQUIRED_SENDS[fromAgentId]?.includes(toAgentId) ?? false));
+  return allowed ? undefined : HANDOFF_BLOCK_REASON;
+}
+
 export function resolveTeamRuntime(input: ResolveTeamRuntimeInput): TeamRuntime {
   const roster = input.teamPack
     ? teamRoleRuntimeAgents(input)
@@ -150,7 +178,11 @@ export function resolveTeamRuntime(input: ResolveTeamRuntimeInput): TeamRuntime 
     conversationId: input.conversationId,
     teamPack: input.teamPack,
     roster: orderedRoster,
-    communicationPolicy: resolveCommunicationPolicy(input.teamPack),
+    explainHandoffBlock: (fromAgentId, toAgentId) => explainHandoffBlock(
+      input.teamPack,
+      fromAgentId,
+      toAgentId,
+    ),
     initialAgentId: initialAgentId(input.teamPack, orderedRoster),
   };
 }

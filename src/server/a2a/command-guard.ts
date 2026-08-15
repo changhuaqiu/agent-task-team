@@ -52,7 +52,7 @@ export class A2ACommandGuard {
         );
       }
       if (input.fromHolderType === 'agent') {
-        const explanation = runtime.communicationPolicy.explainBlock(
+        const explanation = runtime.explainHandoffBlock(
           input.fromHolderId,
           branch.toAgentId,
         );
