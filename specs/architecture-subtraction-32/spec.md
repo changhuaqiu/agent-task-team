@@ -36,4 +36,8 @@
 
 - `pnpm install --offline --frozen-lockfile`：通过；719 packages，锁文件未变。
 - 基线 `pnpm exec vitest run src/lib/agent-context/ContextManager.test.ts src/lib/agent-context/layers/teamLayer.test.ts src/__tests__/server/invocation-pipeline/context-planner.test.ts src/__tests__/architecture/runtime-ownership.test.ts --reporter=dot`：4 files / 60 tests 通过。
-- 其余验证待实现后记录。
+- `pnpm exec tsc --noEmit`：通过。
+- `pnpm exec vitest run src/lib/agent-context/ContextManager.test.ts src/__tests__/server/invocation-pipeline/context-planner.test.ts src/__tests__/architecture/runtime-ownership.test.ts --reporter=dot`：3 files / 58 tests 通过。
+- `pnpm run build`：通过；仅保留既有 Turbopack NFT 动态路径 warning。
+- `pnpm test -- --reporter=dot`：执行完成；205 files / 1506 tests 通过，2 files / 2 tests skipped，1 个既有稳定基线失败仍为 `src/server/autonomous-delivery/control-runtime.test.ts:131`，未表述为全量通过。
+- 独立复审待记录。
