@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -86,6 +86,26 @@ describe('runtime ownership architecture', () => {
     ]) {
       expect(source(consumer)).toContain('getAgentRoleCard');
     }
+  });
+
+  it('keeps Team Runtime workflow policy limited to real initial assignment', () => {
+    const productionFiles = productionTypeScriptFiles('src');
+    const retiredWorkflowSurface = /\bTeamModeEngine\b|\bgetNextAgent\b|\bgetNextRole\b|\bcanCommunicate\b/;
+    expect(productionFiles.filter((path) => retiredWorkflowSurface.test(source(path)))).toEqual([]);
+    expect(existsSync(resolve(process.cwd(), 'src/lib/orchestration/TeamModeEngine.ts'))).toBe(false);
+
+    const runtimeTypes = source('src/lib/team-runtime/types.ts');
+    const workflowPolicy = source('src/lib/team-runtime/resolveWorkflowPolicy.ts');
+    const taskAssignment = source('src/server/team-runtime/task-assignment.ts');
+    expect(runtimeTypes).toContain('selectInitialAgent(): string | null;');
+    expect(runtimeTypes).not.toContain('interface TaskAssignment');
+    expect(workflowPolicy).toContain("teamPack.teamMode === 'pipeline'");
+    expect(workflowPolicy).toContain("teamPack.teamMode === 'parallel'");
+    expect(workflowPolicy).not.toMatch(/new Date|taskResult|assignedAt/);
+    expect(taskAssignment).toContain('runtime.workflowPolicy.selectInitialAgent()');
+    expect(taskAssignment).not.toContain('fallbackAgentId');
+    expect(taskAssignment).not.toContain('TaskAssignmentSource');
+    expect(source('src/server/a2a/command-guard.ts')).toContain('runtime.communicationPolicy.canSend');
   });
 
   it('keeps explicit human command adapters available', () => {

@@ -134,20 +134,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       }
       case 'task.create': {
         const { stableTaskCommandKey, taskCommandService } = await import('@/server/repositories/task-command-service');
-        const { resolveInitialTaskAssignment } = await import('@/server/team-runtime/task-assignment');
+        const { resolveInitialTaskAgentId } = await import('@/server/team-runtime/task-assignment');
         const taskPayload = payload as any;
         if (taskPayload.conversation_id) {
-          const assignment = resolveInitialTaskAssignment({
+          const agentId = resolveInitialTaskAgentId({
             conversationId: taskPayload.conversation_id,
-            taskId: taskPayload.id,
-            title: taskPayload.title,
-            description: taskPayload.description,
             explicitAgentId: taskPayload.agent_id,
           });
-          if (!assignment.agentId) {
-            return res.status(400).json({ ok: false, error: assignment.reason });
+          if (!agentId) {
+            return res.status(400).json({ ok: false, error: 'No workflow assignment was available.' });
           }
-          taskPayload.agent_id = assignment.agentId;
+          taskPayload.agent_id = agentId;
         }
         const idempotencyKey = typeof taskPayload.idempotencyKey === 'string'
           ? taskPayload.idempotencyKey

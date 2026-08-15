@@ -165,4 +165,4 @@ RoleCard 已经是岗位身份、显示名、能力和行为边界的正式 owne
 
 ## 第三十三轮：删除 TeamModeEngine 假想工作流 interface
 
-Team Runtime 的正式任务创建只需要根据 TeamPack workflow 与当前 roster 选择初始负责人，但旧 `WorkflowPolicy` 还暴露零消费者的 `getNextAgent(taskResult)`，并为它保留独立 `TeamModeEngine`、四套 Strategy 的 `getNextRole` 与重复 `canCommunicate`。完整 Task 输入、task result、roleId 和 assignedAt 从未参与正式决策或持久化；真正的 A2A 通信规则已经由独立 `CommunicationPolicy` 读取同一 communication matrix，后续任务推进也归 Task Graph / Platform Harness。第三十三轮删除这组假接口和独立 Strategy module，把四模式初始选择内聚到 Team Runtime 的 `selectInitialAgent()`；显式负责人优先、runtime roster/fallback、A2A admission 与 TeamPack 数据模型保持不变。
+Team Runtime 的正式任务创建只需要根据 TeamPack workflow 与当前 roster 选择初始负责人，但旧 `WorkflowPolicy` 还暴露零消费者的 `getNextAgent(taskResult)`，并为它保留独立 `TeamModeEngine`、四套 Strategy 的 `getNextRole` 与重复 `canCommunicate`。完整 Task 输入、task result、roleId 和 assignedAt 从未参与正式决策或持久化；所谓调用方 fallback 参数同样没有任何生产传入者。真正的 A2A 通信规则已经由独立 `CommunicationPolicy` 读取同一 communication matrix，后续任务推进也归 Task Graph / Platform Harness。第三十三轮删除这组假接口、独立 Strategy module、伪分配结果对象与无调用者 fallback，把四模式初始选择内聚到 Team Runtime 的 `selectInitialAgent()`；显式负责人优先、runtime roster、A2A admission 与 TeamPack 数据模型保持不变。

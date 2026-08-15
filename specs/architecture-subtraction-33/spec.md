@@ -20,14 +20,14 @@
 
 1. `WorkflowPolicy` 只暴露 `selectInitialAgent(): string | null`，不再承诺未接线的后续角色路由。
 2. `resolveWorkflowPolicy()` 保持 pipeline / parallel / hub_spoke / custom 四种初始选择语义与 roster availability 校验。
-3. 删除 `TeamModeEngine`、Strategy interface、`TaskAssignment` 伪结果对象以及 `getNextAgent / getNextRole / canCommunicate` 死接口。
-4. 没有 TeamPack 或没有可用 workflow 成员时返回 `null`；服务端仍按既有顺序尝试 runtime roster 与调用方 fallback。
+3. 删除 `TeamModeEngine`、Strategy interface、Team Runtime 的 `TaskAssignment` 伪结果对象以及 `getNextAgent / getNextRole / canCommunicate` 死接口。
+4. 没有 TeamPack 或没有可用 workflow 成员时返回 `null`；服务端仍尝试 runtime roster。删除零调用者的调用方 fallback 参数，无负责人时继续返回明确失败。
 5. 保留 TeamPack workflow/communicationMatrix 数据结构、`CommunicationPolicy`、A2A admission、显式任务负责人优先级与任务持久化行为。
 
 ## Exit Criteria
 
 - 生产 TypeScript/TSX 中不存在 `TeamModeEngine`、`getNextAgent`、`getNextRole` 或 TeamMode Strategy `canCommunicate`。
-- Team Runtime public export 不再暴露零消费者 `resolveWorkflowPolicy` helper、`WorkflowPolicy` 或 `TaskAssignment` 类型；调用方只通过 `TeamRuntime` 使用收窄后的策略。
+- Team Runtime barrel/public export 不再暴露零消费者 `resolveWorkflowPolicy` helper、`WorkflowPolicy` 或其 `TaskAssignment` 伪结果类型；调用方只通过 `TeamRuntime` 使用收窄后的策略。
 - 行为测试通过 Team Runtime interface 覆盖四种模式、无 TeamPack、无可用成员与正式任务创建链。
 - 架构守卫禁止被删的宽接口和独立 orchestration module 回流。
 - 当前技术/wiki/roadmap 只描述真实的初始分配能力，不再宣称存在后续角色引擎。

@@ -8,15 +8,6 @@ export type RoleCardSnapshot = Omit<RoleCard, 'id' | 'isPreset' | 'version' | 'c
   snapshottedAt: string;
 };
 
-export interface Task {
-  id: string;
-  description: string;
-  status: 'pending' | 'in_progress' | 'completed' | 'failed';
-  assignedTo?: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
 export interface WorkflowTransition {
   from: string;
   to: string;

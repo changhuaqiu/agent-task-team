@@ -22,8 +22,7 @@ describe('team-runtime public contract', () => {
         explainBlock: () => undefined,
       },
       workflowPolicy: {
-        assignInitialTask: () => null,
-        getNextAgent: () => null,
+        selectInitialAgent: () => null,
       },
     };
 
@@ -108,6 +107,57 @@ const teamPack: TeamPack = {
   updatedAt: '2026-05-07T00:00:00.000Z',
 };
 
+const initialAssignmentCases = [
+  {
+    mode: 'pipeline',
+    workflow: {
+      type: 'linear',
+      steps: [
+        { role: 'reviewer', action: 'review', output: 'review' },
+        { role: 'planner', action: 'plan', output: 'plan' },
+      ],
+    },
+    expected: 'reviewer',
+  },
+  {
+    mode: 'parallel',
+    workflow: {
+      type: 'linear',
+      steps: [
+        { role: 'missing-role', action: 'skip', output: 'none' },
+        { role: 'planner', action: 'plan', output: 'plan' },
+      ],
+    },
+    expected: 'planner',
+  },
+  {
+    mode: 'hub_spoke',
+    workflow: {
+      type: 'state_machine',
+      states: [
+        { name: 'done', role: 'planner', description: 'Done', transitions: [], terminal: true },
+        { name: 'review', role: 'reviewer', description: 'Review', transitions: [] },
+      ],
+    },
+    expected: 'reviewer',
+  },
+  {
+    mode: 'custom',
+    workflow: {
+      type: 'state_machine',
+      states: [
+        { name: 'plan', role: 'planner', description: 'Plan', transitions: [] },
+        { name: 'review', role: 'reviewer', description: 'Review', transitions: [] },
+      ],
+    },
+    expected: 'planner',
+  },
+] satisfies Array<{
+  mode: TeamPack['teamMode'];
+  workflow: TeamPack['workflow'];
+  expected: string;
+}>;
+
 describe('resolveTeamRuntime', () => {
   it('uses preset roster when no TeamPack is bound', () => {
     const runtime = resolveTeamRuntime({
@@ -150,6 +200,81 @@ describe('resolveTeamRuntime', () => {
       source: 'team-pack-role',
       accountIds: ['acc-team'],
     });
+  });
+
+  it.each(initialAssignmentCases)(
+    'selects the initial $mode workflow agent through the Team Runtime interface',
+    ({ mode, workflow, expected }) => {
+      const runtime = resolveTeamRuntime({
+        conversationId: `conv-${mode}`,
+        teamPack: { ...teamPack, teamMode: mode, workflow },
+        presetAgents: [presetAgent],
+        activeAgentIds: ['planner', 'reviewer'],
+        roleCards: [],
+        skillsMap: {},
+        agentSkillIds: {},
+        agentAccountOverrides: {},
+        agentRoleCardOverrides: {},
+      });
+
+      expect(runtime.workflowPolicy.selectInitialAgent()).toBe(expected);
+    },
+  );
+
+  it('returns no initial workflow agent without a TeamPack or a roster member', () => {
+    const plainRuntime = resolveTeamRuntime({
+      conversationId: 'conv-plain-policy',
+      presetAgents: [presetAgent],
+      activeAgentIds: ['mario'],
+      roleCards: [],
+      skillsMap: {},
+      agentSkillIds: {},
+      agentAccountOverrides: {},
+      agentRoleCardOverrides: {},
+    });
+    const missingRoleRuntime = resolveTeamRuntime({
+      conversationId: 'conv-missing-role',
+      teamPack: {
+        ...teamPack,
+        workflow: {
+          type: 'linear',
+          steps: [{ role: 'missing-role', action: 'plan', output: 'plan' }],
+        },
+      },
+      presetAgents: [],
+      activeAgentIds: ['planner', 'reviewer'],
+      roleCards: [],
+      skillsMap: {},
+      agentSkillIds: {},
+      agentAccountOverrides: {},
+      agentRoleCardOverrides: {},
+    });
+
+    expect(plainRuntime.workflowPolicy.selectInitialAgent()).toBeNull();
+    expect(missingRoleRuntime.workflowPolicy.selectInitialAgent()).toBeNull();
+  });
+
+  it('preserves the hub-style initial selection for an unknown persisted team mode', () => {
+    const runtime = resolveTeamRuntime({
+      conversationId: 'conv-legacy-mode',
+      teamPack: {
+        ...teamPack,
+        teamMode: 'retired-mode' as TeamPack['teamMode'],
+        workflow: {
+          type: 'state_machine',
+          states: [{ name: 'start', role: 'reviewer', description: 'Start', transitions: [] }],
+        },
+      },
+      presetAgents: [],
+      activeAgentIds: ['planner', 'reviewer'],
+      roleCards: [],
+      skillsMap: {},
+      agentSkillIds: {},
+      agentAccountOverrides: {},
+      agentRoleCardOverrides: {},
+    });
+
+    expect(runtime.workflowPolicy.selectInitialAgent()).toBe('reviewer');
   });
 
   it('lets TeamPack role card overrides replace default role cards', () => {
@@ -292,8 +417,7 @@ describe('resolveRuntimeAgentProfile', () => {
         explainBlock: () => undefined,
       },
       workflowPolicy: {
-        assignInitialTask: () => null,
-        getNextAgent: () => null,
+        selectInitialAgent: () => null,
       },
     };
 
@@ -325,8 +449,7 @@ describe('resolveRuntimeAgentProfile', () => {
         explainBlock: () => undefined,
       },
       workflowPolicy: {
-        assignInitialTask: () => null,
-        getNextAgent: () => null,
+        selectInitialAgent: () => null,
       },
     };
 
@@ -350,7 +473,7 @@ describe('resolveRuntimeAgentProfile', () => {
         skills: [],
       }],
       communicationPolicy: { canSend: () => true, explainBlock: () => undefined },
-      workflowPolicy: { assignInitialTask: () => null, getNextAgent: () => null },
+      workflowPolicy: { selectInitialAgent: () => null },
     };
 
     expect(resolveRuntimeAgentProfile(runtime, 'planner', [{
@@ -372,7 +495,7 @@ describe('resolveRuntimeAgentProfile', () => {
         accountIds: ['acc-pending'], skills: [],
       }],
       communicationPolicy: { canSend: () => true, explainBlock: () => undefined },
-      workflowPolicy: { assignInitialTask: () => null, getNextAgent: () => null },
+      workflowPolicy: { selectInitialAgent: () => null },
     };
 
     expect(resolveRuntimeAgentProfile(runtime, 'planner', [{
@@ -399,8 +522,7 @@ describe('resolveRuntimeAgentProfile', () => {
         explainBlock: () => undefined,
       },
       workflowPolicy: {
-        assignInitialTask: () => null,
-        getNextAgent: () => null,
+        selectInitialAgent: () => null,
       },
     } as unknown as TeamRuntime;
 
@@ -432,8 +554,7 @@ describe('resolveRuntimeAgentProfile', () => {
         explainBlock: () => undefined,
       },
       workflowPolicy: {
-        assignInitialTask: () => null,
-        getNextAgent: () => null,
+        selectInitialAgent: () => null,
       },
     };
 

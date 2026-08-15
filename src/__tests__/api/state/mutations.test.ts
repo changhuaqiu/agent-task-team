@@ -63,7 +63,7 @@ async function seedConversation() {
   conversationRepo.create({ id: 'conv-1', title: 'Seed Conv' });
 }
 
-async function seedTeamPackConversation() {
+async function seedTeamPackConversation(firstWorkflowRole: string | null = 'planner') {
   const { conversationRepo } = await import('@/server/repositories/conversation-repo');
   const { teamPackRepo } = await import('@/server/repositories/team-pack-repo');
   const pack = teamPackRepo.create({
@@ -77,10 +77,12 @@ async function seedTeamPackConversation() {
     ],
     workflow: {
       type: 'linear',
-      steps: [
-        { role: 'planner', action: 'plan', output: 'plan' },
-        { role: 'coder', action: 'build', output: 'implementation' },
-      ],
+      steps: firstWorkflowRole === null
+        ? []
+        : [
+            { role: firstWorkflowRole, action: 'plan', output: 'plan' },
+            { role: 'coder', action: 'build', output: 'implementation' },
+          ],
     },
     communicationMatrix: {
       planner: { canSendTo: ['coder'], canReceiveFrom: [] },
@@ -432,6 +434,19 @@ describe('POST /api/mutations', () => {
 
     const { taskRepo } = await import('@/server/repositories/task-repo');
     expect(taskRepo.getById('task-team-1')!.agent_id).toBe('planner');
+  });
+
+  it('task.create falls back to the first runtime role when the workflow role is unavailable', async () => {
+    await seedTeamPackConversation(null);
+    const req = mockReq('POST', {
+      type: 'task.create',
+      payload: { id: 'task-team-roster', conversation_id: 'conv-team', title: 'Use the runtime roster' },
+    });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res._json.result.agent_id).toBe('coder');
   });
 
   it('task.create rejects a non-TeamPack task without an explicit agent', async () => {

@@ -14,8 +14,7 @@ function runtime(canSend: (from: string, to: string) => boolean): TeamRuntime {
       explainBlock: (from, to) => canSend(from, to) ? undefined : 'review must go through lead',
     },
     workflowPolicy: {
-      assignInitialTask: () => null,
-      getNextAgent: () => null,
+      selectInitialAgent: () => null,
     },
   };
 }

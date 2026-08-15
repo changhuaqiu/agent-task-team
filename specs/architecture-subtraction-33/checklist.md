@@ -3,9 +3,9 @@
 - [ ] `WorkflowPolicy` 只暴露 `selectInitialAgent(): string | null`。
 - [ ] pipeline / parallel / hub_spoke / custom 初始负责人选择语义保持。
 - [ ] 无 TeamPack、无 workflow 成员和 roster 不可用时继续返回 `null`。
-- [ ] `TeamModeEngine / getNextAgent / getNextRole / Strategy.canCommunicate / TaskAssignment` 死接口残留为零。
+- [ ] `TeamModeEngine / getNextAgent / getNextRole / Strategy.canCommunicate` 与 Team Runtime `TaskAssignment` 伪结果接口残留为零。
 - [ ] A2A `CommunicationPolicy` 与 TeamPack communication matrix 保持正式可达。
-- [ ] 显式负责人、workflow、runtime roster、fallback 的服务端优先级不变。
+- [ ] 显式负责人、workflow、runtime roster 的服务端优先级不变；零调用者 fallback 参数已删除。
 - [ ] 测试通过 Team Runtime / mutation 正式 interface 验证，不保留死实现自测。
 - [ ] 架构守卫覆盖生产 TS/TSX，禁止宽接口回流。
 - [ ] 文档、TypeScript、定向测试、构建与全量结果精确记录。

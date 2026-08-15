@@ -37,16 +37,8 @@ export interface CommunicationPolicy {
   getEscalationTarget?(fromAgentId: string, blockedToAgentId?: string): string | undefined;
 }
 
-export interface TaskAssignment {
-  taskId: string;
-  agentId: string;
-  roleId: string;
-  assignedAt: string;
-}
-
 export interface WorkflowPolicy {
-  assignInitialTask(task: { id: string; description?: string; status?: string }): TaskAssignment | null;
-  getNextAgent(currentAgentId: string, taskResult: unknown): string | null;
+  selectInitialAgent(): string | null;
 }
 
 export interface TeamRuntime {
