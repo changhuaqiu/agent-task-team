@@ -258,12 +258,6 @@ export const skillRepo = {
     return getDb().prepare('SELECT * FROM skill_revision WHERE id = ?').get(id) as SkillRevisionRow | undefined;
   },
 
-  getRevisionByHash(skillId: string, contentHash: string): SkillRevisionRow | undefined {
-    return getDb()
-      .prepare('SELECT * FROM skill_revision WHERE skill_id = ? AND content_hash = ?')
-      .get(skillId, contentHash) as SkillRevisionRow | undefined;
-  },
-
   getActiveRevision(skillId: string): SkillRevisionRow | undefined {
     return getDb()
       .prepare(`SELECT r.* FROM skill s JOIN skill_revision r ON r.id = s.active_revision_id WHERE s.id = ?`)
@@ -278,7 +272,9 @@ export const skillRepo = {
 
   createOrActivateRevision(input: CreateSkillRevisionInput): SkillRevisionRow {
     const db = getDb();
-    const existing = skillRepo.getRevisionByHash(input.skillId, input.contentHash);
+    const existing = db
+      .prepare('SELECT * FROM skill_revision WHERE skill_id = ? AND content_hash = ?')
+      .get(input.skillId, input.contentHash) as SkillRevisionRow | undefined;
     if (existing) {
       db.prepare('UPDATE skill SET active_revision_id = ? WHERE id = ?').run(existing.id, input.skillId);
       return existing;

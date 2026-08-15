@@ -167,14 +167,6 @@ describe('task-repo', () => {
     expect(tasks.length).toBe(2);
   });
 
-  it('gets tasks by agent', () => {
-    taskRepo.create({ id: 'task-1', conversation_id: 'conv-1', title: 'T1', agent_id: 'agent-a' });
-    taskRepo.create({ id: 'task-2', conversation_id: 'conv-1', title: 'T2', agent_id: 'agent-b' });
-    const tasks = taskRepo.getByAgent('agent-a');
-    expect(tasks.length).toBe(1);
-    expect(tasks[0].id).toBe('task-1');
-  });
-
   it('transitions task status through the canonical state machine', () => {
     taskRepo.create({ id: 'task-1', conversation_id: 'conv-1', title: 'T1', agent_id: 'a' });
     taskRepo.transition('task-1', { to: 'in_progress', expectedFrom: 'ready' });
@@ -227,12 +219,6 @@ describe('task-repo', () => {
       expectedFrom: 'in_progress',
       expectedRevision: created.revision,
     })).toThrow(StaleTaskRevisionError);
-  });
-
-  it('deletes a task', () => {
-    taskRepo.create({ id: 'task-1', conversation_id: 'conv-1', title: 'T1', agent_id: 'a' });
-    taskRepo.delete('task-1');
-    expect(taskRepo.getById('task-1')).toBeUndefined();
   });
 
   it('foreign key prevents deleting conversation with tasks', () => {
@@ -385,30 +371,6 @@ describe('session-repo', () => {
     sessionRepo.seal('ses-1', 'rotated');
     const ses2 = sessionRepo.create({ id: 'ses-2', conversationId: 'conv-1', agentId: 'agent-a', taskId: 'task-1', seq: 1 });
     expect(ses2.id).toBe('ses-2');
-  });
-
-  it('appends stream chunks to one text message', () => {
-    const id = messageRepo.append({
-      conversationId: 'conv-1',
-      senderType: 'agent',
-      senderId: 'a1',
-      content: '工作',
-    });
-    expect(messageRepo.appendTextChunk(id, '目录')).toBe(true);
-    expect(messageRepo.getByConversation('conv-1')).toMatchObject([
-      { id, content: '工作目录', content_type: 'text' },
-    ]);
-  });
-
-  it('does not append text chunks to tool messages', () => {
-    const id = messageRepo.append({
-      conversationId: 'conv-1',
-      senderType: 'agent',
-      senderId: 'a1',
-      content: 'tool',
-      contentType: 'tool_use',
-    });
-    expect(messageRepo.appendTextChunk(id, 'unexpected')).toBe(false);
   });
 
   it('keeps one active logical session per project and agent', () => {

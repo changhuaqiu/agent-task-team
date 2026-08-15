@@ -79,18 +79,6 @@ export const messageRepo = {
     return getDb().prepare('SELECT * FROM chat_message WHERE id = ?').get(id) as MessageRow | undefined;
   },
 
-  appendTextChunk(id: string, chunk: string): boolean {
-    if (!chunk) return true;
-    const result = getDb()
-      .prepare(
-        `UPDATE chat_message
-         SET content = content || ?
-         WHERE id = ? AND content_type = 'text'`,
-      )
-      .run(chunk, id);
-    return result.changes === 1;
-  },
-
   getByConversation(
     convId: string,
     options?: { limit?: number; cursor?: string },

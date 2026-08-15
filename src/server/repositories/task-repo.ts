@@ -146,12 +146,6 @@ export const taskRepo = {
       .all(conversationId) as TaskRow[];
   },
 
-  getByAgent(agentId: string): TaskRow[] {
-    return getDb()
-      .prepare('SELECT * FROM task WHERE agent_id = ? ORDER BY created_at DESC')
-      .all(agentId) as TaskRow[];
-  },
-
   transition(id: string, transition: TaskTransition): TaskRow | undefined {
     const now = new Date().toISOString();
     const db = getDb();
@@ -296,7 +290,4 @@ export const taskRepo = {
     return getDb().prepare('SELECT * FROM task ORDER BY created_at ASC').all() as TaskRow[];
   },
 
-  delete(id: string): void {
-    getDb().prepare('DELETE FROM task WHERE id = ?').run(id);
-  },
 };
