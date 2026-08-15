@@ -6,7 +6,7 @@ created: 2026-02-26
 
 # Agent Task Hub Project Roadmap
 
-> 维护者：Admin | 最后更新：2026-07-14
+> 维护者：Admin | 最后更新：2026-08-15
 >
 > **规则**：只记录当前项目真实在推进的工作流与长期方向。
 > 外部迁入的 feature/backlog 体系已移除，不再作为本项目规划依据。
@@ -24,7 +24,7 @@ created: 2026-02-26
 | Role Card 生态系统 | in-progress | Admin | `docs/product/business/2026-05-05-role-card-ecosystem-analysis.md` 与 `specs/team-role-card-compatibility/` |
 | 安全扫描 | in-progress | Admin | 基于导入管道的 SoulScan 精简版：Prompt 注入检测 + 敏感信息检测 + 危险指令检测 |
 | 项目绑定 | in-progress | Admin | 项目与 TeamPack 1:1 绑定，生命周期内不可切换，projects 表新增 team_pack_id 外键 |
-| 团队模式引擎 | in-progress | Admin | TeamModeEngine 四种策略：pipeline / parallel / hub_spoke / custom 状态机 |
+| 团队初始分配策略 | in-progress | Admin | Team Runtime 按 pipeline / parallel / hub_spoke / custom workflow 选择初始负责人；后续推进由 Task Graph / Platform Harness 负责 |
 | 来源追踪 | in-progress | Admin | TeamPack.source 字段记录导入来源（github/preset），支持 URL 和 importedAt 时间戳 |
 | 输入验证 | in-progress | Admin | 导入管道的目录结构探测 + pack.json 格式校验 + role.json 语义化版本验证 |
 | 速率限制 | in-progress | Admin | 导入管道 shallow clone 30s 超时 + GitHub API 调用频率控制 |

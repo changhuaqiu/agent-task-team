@@ -162,3 +162,7 @@ RoleCard 已经是岗位身份、显示名、能力和行为边界的正式 owne
 ## 第三十二轮：删除 ContextManager 静态团队 fallback
 
 正式 Invocation 在进入 ContextManager 前已经由 Team Runtime 解析当前项目 roster，并无条件注入 `RuntimeAgent[]`；Knowledge Tier 却仍在 roster 为 `undefined` 时调用 `buildTeamLayer()`，通过浏览器 `AGENT_ROSTER + allRoleCards` 重建另一套静态团队。这条 fallback 没有第二个生产入口，`getAllRoleCards`、Tier 字段和独立 renderer 只为它存在，而且无法忠实表达动态 TeamPack snapshot 与项目成员名。第三十二轮删除整条平行 seam，把 runtime roster 收紧为必需数组；空数组表示没有团队内容，不恢复默认成员。当前 Agent RoleCard identity、Context Registry、预算、Snapshot、A2A 与 dispatch 保持不变。
+
+## 第三十三轮：删除 TeamModeEngine 假想工作流 interface
+
+Team Runtime 的正式任务创建只需要根据 TeamPack workflow 与当前 roster 选择初始负责人，但旧 `WorkflowPolicy` 还暴露零消费者的 `getNextAgent(taskResult)`，并为它保留独立 `TeamModeEngine`、四套 Strategy 的 `getNextRole` 与重复 `canCommunicate`。完整 Task 输入、task result、roleId 和 assignedAt 从未参与正式决策或持久化；真正的 A2A 通信规则已经由独立 `CommunicationPolicy` 读取同一 communication matrix，后续任务推进也归 Task Graph / Platform Harness。第三十三轮删除这组假接口和独立 Strategy module，把四模式初始选择内聚到 Team Runtime 的 `selectInitialAgent()`；显式负责人优先、runtime roster/fallback、A2A admission 与 TeamPack 数据模型保持不变。

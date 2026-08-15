@@ -35,6 +35,7 @@
 | [`team-role-card-compatibility/`](team-role-card-compatibility/) | active | 自动化已完成，仍需三项人工兼容验收 |
 | [`role-card-format/`](role-card-format/) | draft | 冻结角色卡/Team Pack 文件格式并替换即将移除的示例 |
 | [`agent-eval-system/`](agent-eval-system/) | draft | 任务全链路评估：客观维度规则计算 + 主观维度 LLM-as-Judge 套 rubric，结果回流优化 RoleCard/Skill |
+| [`architecture-subtraction-33/`](architecture-subtraction-33/) | active | 删除 Team Runtime 零消费者的后续角色/重复通信策略，工作流只保留真实初始负责人选择 |
 
 ## 依赖关系
 
