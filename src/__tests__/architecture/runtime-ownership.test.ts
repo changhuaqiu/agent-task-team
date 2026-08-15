@@ -323,6 +323,21 @@ describe('runtime ownership architecture', () => {
     expect(todoMentions).toEqual([]);
   });
 
+  it('keeps Task Graph row lookup details private to repository writes and aggregate reads', () => {
+    const repository = source('src/server/repositories/task-graph-repo.ts');
+    for (const retired of [
+      'getEdgeById',
+      'getArtifactById',
+      'getBindingById',
+      'listBindings',
+      'TaskGraphCommitRow',
+    ]) {
+      expect(repository).not.toMatch(new RegExp(`\\b${retired}\\b`));
+    }
+    expect(repository).toContain('export interface TaskGraphCommitRecord');
+    expect(repository).toContain("ORDER BY created_at ASC, id ASC");
+  });
+
   it('keeps WebUI notices read-only and removes the legacy Supervisor vocabulary', () => {
     expect(taskHubStore).not.toContain('SupervisorOutput');
     expect(taskHubStore).not.toContain('supervisor.output');

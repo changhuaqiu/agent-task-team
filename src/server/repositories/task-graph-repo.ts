@@ -130,7 +130,7 @@ export class TaskGraphLegacyReplayUnavailableError extends Error {
   readonly reasonCode = 'task_graph_legacy_replay_unavailable';
 }
 
-interface TaskGraphCommitRow {
+export interface TaskGraphCommitRecord {
   idempotency_key: string;
   conversation_id: string;
   request_digest: string;
@@ -139,8 +139,6 @@ interface TaskGraphCommitRow {
   result_json: string;
   created_at: string;
 }
-
-export type TaskGraphCommitRecord = TaskGraphCommitRow;
 
 function stringifyJson(value: unknown): string {
   return JSON.stringify(value ?? {});
@@ -293,7 +291,7 @@ export const taskGraphRepo = {
       }
       const duplicate = db.prepare(`
         SELECT * FROM task_graph_commit WHERE idempotency_key=?
-      `).get(idempotencyKey) as TaskGraphCommitRow | undefined;
+      `).get(idempotencyKey) as TaskGraphCommitRecord | undefined;
       if (duplicate) {
         if (
           duplicate.conversation_id !== input.conversationId
@@ -398,7 +396,7 @@ export const taskGraphRepo = {
       }
       const duplicate = db.prepare(`
         SELECT * FROM task_graph_commit WHERE idempotency_key=?
-      `).get(idempotencyKey) as TaskGraphCommitRow | undefined;
+      `).get(idempotencyKey) as TaskGraphCommitRecord | undefined;
       if (duplicate) {
         if (
           duplicate.conversation_id !== input.conversationId
@@ -596,11 +594,7 @@ export const taskGraphRepo = {
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `).run(id, input.conversationId, input.fromTaskId, input.toTaskId, input.type, input.createdByActionId, now);
 
-    return this.getEdgeById(id)!;
-  },
-
-  getEdgeById(id: string): TaskEdgeRow | undefined {
-    return getDb().prepare('SELECT * FROM task_edge WHERE id = ?').get(id) as TaskEdgeRow | undefined;
+    return getDb().prepare('SELECT * FROM task_edge WHERE id = ?').get(id) as TaskEdgeRow;
   },
 
   listEdges(conversationId: string): TaskEdgeRow[] {
@@ -696,11 +690,7 @@ export const taskGraphRepo = {
       now,
     );
 
-    return this.getArtifactById(id)!;
-  },
-
-  getArtifactById(id: string): TaskArtifactRefRow | undefined {
-    return getDb().prepare('SELECT * FROM task_artifact_ref WHERE id = ?').get(id) as TaskArtifactRefRow | undefined;
+    return getDb().prepare('SELECT * FROM task_artifact_ref WHERE id = ?').get(id) as TaskArtifactRefRow;
   },
 
   listArtifacts(conversationId: string): TaskArtifactRefRow[] {
@@ -726,17 +716,7 @@ export const taskGraphRepo = {
       VALUES (?, ?, ?, ?, ?, ?)
     `).run(id, input.conversationId, input.messageId, input.taskId, input.actionId ?? null, now);
 
-    return this.getBindingById(id)!;
-  },
-
-  getBindingById(id: string): ChatTaskBindingRow | undefined {
-    return getDb().prepare('SELECT * FROM chat_task_binding WHERE id = ?').get(id) as ChatTaskBindingRow | undefined;
-  },
-
-  listBindings(conversationId: string): ChatTaskBindingRow[] {
-    return getDb()
-      .prepare('SELECT * FROM chat_task_binding WHERE conversation_id = ? ORDER BY created_at ASC, id ASC')
-      .all(conversationId) as ChatTaskBindingRow[];
+    return getDb().prepare('SELECT * FROM chat_task_binding WHERE id = ?').get(id) as ChatTaskBindingRow;
   },
 
   getGraph(conversationId: string): TaskGraphView {
@@ -747,7 +727,9 @@ export const taskGraphRepo = {
       edges: this.listEdges(conversationId),
       actions: this.listActions(conversationId),
       artifacts: this.listArtifacts(conversationId),
-      bindings: this.listBindings(conversationId),
+      bindings: getDb()
+        .prepare('SELECT * FROM chat_task_binding WHERE conversation_id = ? ORDER BY created_at ASC, id ASC')
+        .all(conversationId) as ChatTaskBindingRow[],
     };
   },
 
