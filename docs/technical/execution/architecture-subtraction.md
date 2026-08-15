@@ -198,3 +198,7 @@ Task Graph 的正式读取面已经是 `TaskGraphView` 与调用方实际使用�
 ## 第四十一轮：收窄 Session、Invocation 与 Binding repository 表面
 
 当前 runtime 调用链已经用 session identity bind/confirm/release、execution-profile/load-failure 封存、Invocation transition 与 Binding lifecycle 表达真实状态转换，但三个 repository 仍保留 10 个没有任何生产消费者的查询/封装方法：其中 4 个只被 repository 自测调用，其余连自测都没有。第四十一轮删除这些假公开 interface 与自嗨测试，并用全生产 TS/TSX 扫描阻止回流；保留 daemon、State API、session recovery、invocation dispatch status 与 binding 启停链。
+
+## 第四十二轮：删除 repository 自用标量读表面
+
+Message、Observation Span、Span Payload 与 Proof Log repository 仍暴露六个只有自身实现或 repository 自测消费者的标量读方法。这些方法没有隐藏校验、事务或远程 adapter 语义，却让测试绕过生产真正消费的 conversation/span/envelope/domain-key 聚合读面。第四十二轮删除这六个浅 interface；Payload `put` 与 Proof `append` 直接返回本次持久化的完整 row，测试改为穿过正式聚合 interface 验证可观测结果。消息历史/Context、Observability projection/payload endpoint 与 Proof/Team Log 保持不变。
