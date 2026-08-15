@@ -252,14 +252,9 @@ export class WorkContractRepository {
     }).immediate();
   }
 
-  getContractRow(contractId: string): WorkContractRow | undefined {
+  private getContractRow(contractId: string): WorkContractRow | undefined {
     return getDb().prepare('SELECT * FROM work_contract WHERE id=?')
       .get(contractId) as WorkContractRow | undefined;
-  }
-
-  getContract(contractId: string): WorkContract | undefined {
-    const row = this.getContractRow(contractId);
-    return row ? contractFromRow(row) : undefined;
   }
 
   getAuthority(workId: string): WorkAuthorityRow | undefined {
@@ -267,7 +262,7 @@ export class WorkContractRepository {
       .get(workId) as WorkAuthorityRow | undefined;
   }
 
-  listActiveAuthoritiesForTask(projectId: string, taskId: string): WorkAuthorityRow[] {
+  private listActiveAuthoritiesForTask(projectId: string, taskId: string): WorkAuthorityRow[] {
     return getDb().prepare(`
       SELECT authority.*
       FROM work_authority authority

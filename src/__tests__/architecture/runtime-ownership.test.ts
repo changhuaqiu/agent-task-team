@@ -249,6 +249,18 @@ describe('runtime ownership architecture', () => {
     }
   });
 
+  it('keeps WorkContract row and task-authority queries internal to the repository', () => {
+    const repository = source('src/server/work-contract/repository.ts');
+    const production = productionTypeScriptFiles('src').map((path) => source(path)).join('\n');
+
+    expect(repository).not.toMatch(/^  getContract\s*\(/m);
+    expect(production).not.toMatch(/\bworkContractRepo\.getContract\b/);
+    expect(repository).toMatch(/^  private getContractRow\s*\(/m);
+    expect(repository).toMatch(/^  private listActiveAuthoritiesForTask\s*\(/m);
+    expect(repository).not.toMatch(/^  getContractRow\s*\(/m);
+    expect(repository).not.toMatch(/^  listActiveAuthoritiesForTask\s*\(/m);
+  });
+
   it('keeps explicit human command adapters available', () => {
     expect(taskHubStore).toContain(`type: 'a2a.human_handoff'`);
     expect(taskHubStore).not.toContain(`socket.emit('a2a:user-turn-created'`);
