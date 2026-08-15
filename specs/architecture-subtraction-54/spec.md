@@ -38,4 +38,8 @@
 
 - `pnpm install --offline --frozen-lockfile`：719 packages。
 - 修改前定向：3 files / 76 tests 通过。
-- 其余待实现后回填。
+- 修改后定向：3 files / 77 tests 通过。
+- `pnpm exec tsc --noEmit`：通过。
+- `pnpm build`：通过；仅保留既有 whole-project NFT tracing warning。
+- 非并行全量：206 files / 1520 tests 通过，2 files / 2 tests skipped；唯一失败为稳定基线 `src/server/autonomous-delivery/control-runtime.test.ts:131`，该文件不在本轮 diff。
+- 独立复审：待回填。
