@@ -25,6 +25,19 @@ describe('account runtime reachability architecture', () => {
     expect(owners).toEqual(['src/lib/account-auth.ts']);
   });
 
+  it('keeps account execution readiness types in one production owner', () => {
+    const productionFiles = productionTypeScriptFiles('src');
+    const retiredTeamRuntimeTypes = /\bRuntimeAccountProvider\b|\bRuntimeAccountInput\b/;
+    expect(productionFiles.filter((path) => retiredTeamRuntimeTypes.test(source(path)))).toEqual([]);
+
+    const resolver = source('src/lib/team-runtime/resolveRuntimeAgentProfile.ts');
+    const runtimeBarrel = source('src/lib/team-runtime/index.ts');
+    expect(resolver).toContain('type AccountExecutionCandidate');
+    expect(resolver).toContain('Array<AccountExecutionCandidate & { id: string }>');
+    expect(resolver).toContain('isAccountReadyForExecution(account)');
+    expect(runtimeBarrel).not.toMatch(/RuntimeAccountProvider|RuntimeAccountInput/);
+  });
+
   it('keeps browser execution-profile resolution behind Team Runtime', () => {
     const productionFiles = productionTypeScriptFiles('src');
     const retiredBrowserResolvers = /\bresolveAgentEngine\b|\bproviderToEngine\b/;

@@ -33,4 +33,8 @@
 
 ## Verification
 
-- 待实现后记录。
+- `pnpm install --offline --frozen-lockfile`：通过，719 packages，lockfile 未变。
+- 基线定向命令：`pnpm exec vitest run src/__tests__/lib/team-runtime/team-runtime.test.ts src/__tests__/architecture/account-runtime-reachability.test.ts src/server/evaluation/application-snapshot.test.ts src/__tests__/store/server-hydration-runtime.test.ts src/__tests__/store/team-role-card-compatibility.test.ts --reporter=dot`，5 files / 61 tests 通过。
+- 实现后同一定向命令：5 files / 62 tests 通过；新增共享账号候选唯一 owner 架构守卫。
+- `pnpm exec tsc --noEmit`：通过。
+- 构建、全量测试与独立复审待完成。

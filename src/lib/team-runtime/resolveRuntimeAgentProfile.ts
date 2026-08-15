@@ -3,27 +3,13 @@ import { normalizeRuntimeCliEngine } from './runtimeEngine';
 import {
   isAccountReadyForExecution,
   providerToExecutionEngine,
-  type AccountAuthMode,
-  type AccountProvider,
+  type AccountExecutionCandidate,
 } from '@/lib/account-auth';
-
-export type RuntimeAccountProvider = AccountProvider;
-
-export interface RuntimeAccountInput {
-  id: string;
-  provider: RuntimeAccountProvider;
-  authMode: AccountAuthMode;
-  enabled: boolean;
-  status: 'unknown' | 'valid' | 'pending' | 'error';
-  baseUrl?: string;
-  models: string[];
-  hasApiKey: boolean;
-}
 
 export function resolveRuntimeAgentProfile(
   runtime: TeamRuntime,
   agentId: string,
-  accounts: RuntimeAccountInput[],
+  accounts: Array<AccountExecutionCandidate & { id: string }>,
 ): RuntimeAgentProfile | null {
   const agent = runtime.roster.find((item) => item.id === agentId);
   if (!agent) return null;
