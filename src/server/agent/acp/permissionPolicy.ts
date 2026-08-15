@@ -90,7 +90,7 @@ function isAllowedLocalVerificationCommand(command: string): boolean {
  * execution to local verification commands. External delivery stays on
  * trusted platform actions instead of generic shell access.
  */
-export function createAutonomousWorkPermissionPolicy(input: {
+function createAutonomousWorkPermissionPolicy(input: {
   permissions: unknown;
   cwd: string;
   engine: EngineId;

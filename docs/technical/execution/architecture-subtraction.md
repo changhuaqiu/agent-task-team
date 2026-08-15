@@ -244,3 +244,7 @@ TypeScript import 图显示，ACP mock agent 与 GitHub Issue fixture 是 `src/s
 A2A、ACP 与 Autonomous Delivery 的正式模块已经由可调用 class/function、真实 injected port、持久化和事件协议表达，但若干只在定义文件内部使用的结构类型仍被 named export 暴露。这些类型没有模块外消费者、版本兼容或序列化职责，不应被误认为可依赖的公共契约。第五十二轮把这些实现专用类型收回模块内部，同时保留全部正式运行端口。
 
 角色卡导入的安全扫描只有一个实现与一个调用方，旧 `SecurityScanner` interface 加 singleton object 没有隐藏复杂度或替换价值。本轮改为直接 `scanRoleCardContent()` 函数；prompt injection、敏感凭据、JWT/SSH、危险命令、异常长度与重复字符规则，以及导入失败处理均保持不变。
+
+## 第五十三轮：ACP 测试统一穿过正式 interface
+
+ACP event mapper、WorkContract permission 与 session-load failure handling 各自保留了一组只供测试直接调用的内部 helper export。生产调用方从不消费这些名字：事件只穿过 turn-scoped mapper，daemon 只构造带 authority/epoch 复核的 WorkContract policy，会话分类与诊断脱敏只由 AcpBackend 使用。第五十三轮把五个 helper 收回 implementation，并将测试替换为从正式 mapper/backend/policy 观察 AgentEvent、AgentResult、reason code、visible error 与脱敏输出；真实 smoke 需要的 active-run count 和正式 correlated MCP/permission handler 保持公开。

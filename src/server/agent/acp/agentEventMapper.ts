@@ -1,10 +1,10 @@
 // src/server/agent/acp/agentEventMapper.ts
 //
-// Base mapper plus a turn-scoped correlator for ACP `SessionUpdate` events.
+// Turn-scoped mapper for ACP `SessionUpdate` events.
 //
 // Spec: specs/acp-runtime-integration/spec.md §5.3 (event mapping).
-// `mapAcpUpdate` remains pure. `createTurnScopedAcpEventMapper` owns only the
-// toolCallId/name correlation needed during one AcpBackend execution.
+// Pure update mapping and toolCallId/name correlation are implementation
+// details of the single public turn-scoped mapper.
 
 import type { SessionUpdate } from '@agentclientprotocol/sdk';
 import type { AgentEvent } from '../types';
@@ -74,7 +74,7 @@ function canonicalToolName(update: SessionUpdate): string | undefined {
  *  - `tool_call`                   -> `{ type: 'tool_use', content: '', tool: { name, callId, input? } }`
  *  - `tool_call_update`            -> `{ type: 'tool_result', content, tool: { name, callId } }`
  */
-export function mapAcpUpdate(update: SessionUpdate): AgentEvent | null {
+function mapAcpUpdate(update: SessionUpdate): AgentEvent | null {
   switch (update.sessionUpdate) {
     case 'agent_message_chunk': {
       const content = update.content;

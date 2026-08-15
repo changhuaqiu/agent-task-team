@@ -117,6 +117,9 @@ export function createMockAgentApp(
       if (process.env.MOCK_ACP_LOAD_FAIL === 'true') {
         throw new Error('mock load failed');
       }
+      if (process.env.MOCK_ACP_LOAD_MISSING === 'true') {
+        throw acp.RequestError.resourceNotFound(ctx.params.sessionId);
+      }
       // ACP load may replay history. The client must not append this content
       // to the new invocation's event stream.
       await ctx.client.notify(acp.methods.client.session.update, {

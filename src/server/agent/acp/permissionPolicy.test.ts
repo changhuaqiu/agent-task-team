@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  createAutonomousWorkPermissionPolicy,
   createCorrelatedPlatformMcpPermissionPolicy,
   createPermissionHandler,
   createWorkContractPermissionPolicy,
@@ -26,6 +25,36 @@ const request = {
   ],
 } as RequestPermissionRequest;
 
+function createTestWorkContractPolicy(input: {
+  permissions: unknown;
+  cwd: string;
+  engine: Parameters<typeof createWorkContractPermissionPolicy>[0]['engine'];
+  isAuthorityActive: () => boolean;
+}) {
+  const workContract = {
+    contractId: 'test-contract',
+    workId: 'test-work',
+    workEpoch: 1,
+    projectId: 'test-project',
+    permissions: input.permissions,
+  } as WorkContract;
+  return createWorkContractPermissionPolicy({
+    workContract,
+    cwd: input.cwd,
+    engine: input.engine,
+    authorityReader: () => input.isAuthorityActive() ? {
+      work_id: workContract.workId,
+      project_id: workContract.projectId,
+      current_epoch: workContract.workEpoch,
+      current_contract_id: workContract.contractId,
+      status: 'active',
+      revision: 0,
+      updated_at: new Date().toISOString(),
+      closed_at: null,
+    } : undefined,
+  });
+}
+
 describe('ACP permission policy', () => {
   it('denies by default', async () => {
     await expect(createPermissionHandler()(request)).resolves.toEqual({
@@ -41,7 +70,7 @@ describe('ACP permission policy', () => {
 
   it('maps an autonomous WorkContract to project-scoped one-shot edits and execution', async () => {
     const cwd = process.cwd();
-    const policy = createAutonomousWorkPermissionPolicy({
+    const policy = createTestWorkContractPolicy({
       cwd,
       engine: 'claude',
       isAuthorityActive: () => true,
@@ -79,7 +108,7 @@ describe('ACP permission policy', () => {
 
   it('keeps project and external-effect boundaries when code changes are authorized', async () => {
     const cwd = process.cwd();
-    const policy = createAutonomousWorkPermissionPolicy({
+    const policy = createTestWorkContractPolicy({
       cwd,
       engine: 'claude',
       isAuthorityActive: () => true,
@@ -121,7 +150,7 @@ describe('ACP permission policy', () => {
   });
 
   it('never infers external Git delivery effects from generic shell execution', async () => {
-    const policy = createAutonomousWorkPermissionPolicy({
+    const policy = createTestWorkContractPolicy({
       cwd: process.cwd(),
       engine: 'claude',
       isAuthorityActive: () => true,
@@ -157,7 +186,7 @@ describe('ACP permission policy', () => {
   });
 
   it('does not infer autonomous permission without an explicit code-change grant', async () => {
-    const policy = createAutonomousWorkPermissionPolicy({
+    const policy = createTestWorkContractPolicy({
       cwd: process.cwd(),
       engine: 'claude',
       isAuthorityActive: () => true,
@@ -180,7 +209,7 @@ describe('ACP permission policy', () => {
     mkdirSync(outside);
     symlinkSync(outside, resolve(cwd, 'linked-outside'), 'junction');
     try {
-      const policy = createAutonomousWorkPermissionPolicy({
+      const policy = createTestWorkContractPolicy({
         cwd,
         engine: 'claude',
         isAuthorityActive: () => true,

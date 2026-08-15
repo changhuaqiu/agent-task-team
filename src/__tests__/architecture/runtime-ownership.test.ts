@@ -659,6 +659,34 @@ describe('runtime ownership architecture', () => {
     );
   });
 
+  it('keeps ACP mapping, permission, and session diagnostics behind formal interfaces', () => {
+    const internalByOwner: Record<string, string[]> = {
+      'src/server/agent/acp/agentEventMapper.ts': ['mapAcpUpdate'],
+      'src/server/agent/acp/permissionPolicy.ts': ['createAutonomousWorkPermissionPolicy'],
+      'src/server/agent/acp/acpBackend.ts': [
+        'sanitizeAcpDiagnostic',
+        'isAcpResourceNotFound',
+        'describeAcpSessionLoadFailure',
+      ],
+    };
+
+    for (const [owner, names] of Object.entries(internalByOwner)) {
+      const publicNames = exportedSurface(owner);
+      for (const name of names) expect(publicNames).not.toContain(name);
+    }
+
+    expect(exportedSurface('src/server/agent/acp/agentEventMapper.ts')).toContain(
+      'createTurnScopedAcpEventMapper',
+    );
+    expect(exportedSurface('src/server/agent/acp/permissionPolicy.ts')).toContain(
+      'createWorkContractPermissionPolicy',
+    );
+    expect(exportedSurface('src/server/agent/acp/acpBackend.ts')).toContain('AcpBackend');
+    expect(exportedSurface('src/server/agent/acp/acpBackend.ts')).toContain(
+      'getActiveAcpRunCount',
+    );
+  });
+
   it('keeps scalar lookups and state-machine helpers behind their owning modules', () => {
     expect(exportedSurfaceFromText('object-alias.ts', `
       const getPhaseById = () => undefined;

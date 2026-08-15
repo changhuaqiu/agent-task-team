@@ -1,13 +1,15 @@
 import { describe, it, expect } from 'vitest';
 import {
   createTurnScopedAcpEventMapper,
-  mapAcpUpdate,
   KNOWN_SESSION_UPDATE_TYPES,
 } from './agentEventMapper';
 import type { AgentEvent } from '../types';
 
 // Test inputs use `as any` because we are constructing raw ACP SessionUpdate
 // payloads inline. This file is excluded from tsc (tsconfig exclude **/*.test.ts).
+
+const mapAcpUpdate = (update: Parameters<ReturnType<typeof createTurnScopedAcpEventMapper>>[0]) =>
+  createTurnScopedAcpEventMapper()(update);
 
 describe('mapAcpUpdate', () => {
   describe('agent_message_chunk', () => {
