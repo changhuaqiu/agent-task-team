@@ -33,7 +33,7 @@
 - `pnpm install --offline --frozen-lockfile`：719 packages，通过。
 - 冻结基线：8 files / 67 tests 通过。
 - 实现后定向：9 files / 66 tests 通过，覆盖 Task 状态、Credential、RoleCard、Observability payload/API、Runtime Event projection 与架构守卫。
-- 完整移除 in-flight 假状态后定向：12 files / 93 tests 通过，补充 Store session scope、project-view isolation 与 dispatch receipt 投影。
+- 完整移除 in-flight 假状态后的最终定向：12 files / 93 tests 通过，补充 Store session scope、project-view isolation 与 dispatch receipt 投影；随后 `tsc`、build 与非并行 full 均在最终生产代码上重跑。
 - `pnpm exec tsc --noEmit`：通过。
 - `pnpm build`：通过；仅有既有 Turbopack NFT 动态路径警告。
 - 最终非并行全量：205 files / 1508 tests 通过，2 files / 2 tests 跳过，1 file / 1 test 失败；唯一失败为稳定基线 `src/server/autonomous-delivery/control-runtime.test.ts:131`。

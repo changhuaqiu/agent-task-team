@@ -109,7 +109,7 @@ adapter 不接触 `invocationId / traceId / spanId` 或仓储。daemon 持有关
 
 - 全量 payload 写入前必过密钥脱敏（Bearer/sk-/gh_*/api_key/连接串等）。
 - 列表预览维持 2000 字符；payload 单条上限（默认 256 KiB）超出截断并标记。
-- 凭据、环境变量、authorization 头、私钥、隐藏推理不落；仅 runtime 主动暴露的 thinking summary 默认采集并可显式关闭。
+- 凭据、环境变量、authorization 头、私钥、隐藏推理不落；仅 runtime 主动暴露的 thinking summary 进入脱敏、限额 payload，UI 默认折叠，当前没有 capture opt-out。
 - span payload 表遵循与 span 相同的保留策略（后续 P2 增加清理）。
 
 ## 9. 失败语义

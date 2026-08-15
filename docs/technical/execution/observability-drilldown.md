@@ -84,7 +84,7 @@ ContextManager / dispatch
 - `npm test -- --run`：115 files / 1010 tests passed。
 - `npx tsc --noEmit`：passed。
 - `npm run build`：passed。
-- 覆盖迁移、payload repo/脱敏/上限、scoped API、消息精确关联、projection、drawer、DAG、plan mapping、thinking 开关、空 completion recovery。
+- 覆盖迁移、payload repo/脱敏/上限、scoped API、消息精确关联、projection、drawer、DAG、plan mapping、thinking payload 与空 completion recovery。
 
 真实 OpenCode ACP E2E：
 

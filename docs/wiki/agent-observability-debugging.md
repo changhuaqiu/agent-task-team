@@ -14,7 +14,7 @@
 - ACP adapter 只归一化 `AgentEvent`；daemon 持有 trace/span 与数据库身份。
 - `end_turn` 不等于用户已收到答复。
 - payload 先脱敏、后限额、再落库；详情 API 必须校验 conversation 归属。
-- thinking 只采 runtime 主动暴露的 summary，默认折叠且可关闭。
+- thinking 只采 runtime 主动暴露的 summary，统一脱敏、限额且 UI 默认折叠；当前没有 capture opt-out。
 - 可观测写入失败只产生 partial trace，不得中断 agent loop。
 
 ## 常用查询

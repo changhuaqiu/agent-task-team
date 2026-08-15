@@ -30,7 +30,7 @@
 - [x] payload 写入前完成密钥脱敏（Bearer/sk-/gh_*/api_key/连接串）。
 - [x] 超过上限的 payload 被截断并带可见标记。
 - [x] 凭据、authorization 头、私钥不以明文出现在 payload。
-- [x] thinking 采集受显式开关控制且 UI 默认折叠。
+- [x] runtime 主动暴露的 thinking summary 进入脱敏、限额 payload 且 UI 默认折叠；当前没有 capture opt-out。
 
 ## 验证与文档
 

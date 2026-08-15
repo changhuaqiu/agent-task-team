@@ -6,7 +6,7 @@
 
 - [x] 新增迁移与 `observation_span_payload` 表 + `span-payload-repo.ts`（写入前脱敏、按 span 懒加载、单条上限截断标记）。
 - [x] daemon telemetry sink 在实际 `backend.execute()` 前落 `system_prompt` / `assembled_prompt` 全量 payload，关联 root span。
-- [x] daemon 将连续 text 合并为 `kind=message` 子 span，落 `completion` 与 `usage`；`thinking` 默认采集并可关闭。
+- [x] daemon 将连续 text 合并为 `kind=message` 子 span，落 `completion` 与 `usage`；runtime 主动暴露的 `thinking` summary 进入脱敏、限额 payload，UI 默认折叠。
 - [x] tool span 补写 `tool_input` / `tool_output` payload（保留 2000 字符预览）。
 - [x] `chat_message` 增加 `invocation_id`；daemon、socket、store 全链路透传。
 - [x] `/api/observability/span-payload?conversationId=&spanId=` scoped 只读端点（无缓存、归属校验、404/400）。

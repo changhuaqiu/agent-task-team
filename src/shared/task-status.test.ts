@@ -16,12 +16,11 @@ describe('shared TaskStatus contract', () => {
   });
 
   it('shares the repository transition graph with browser callers', () => {
-    expect(canTransitionTask('in_review', 'done')).toBe(true);
-    expect(canTransitionTask('in_review', 'in_progress')).toBe(true);
-    expect(canTransitionTask('in_review', 'blocked')).toBe(true);
-    expect(canTransitionTask('in_review', 'cancelled')).toBe(true);
-    expect(canTransitionTask('in_review', 'ready')).toBe(false);
-    expect(canTransitionTask('cancelled', 'ready')).toBe(false);
+    const next = (from: (typeof TASK_STATUSES)[number]) => TASK_STATUSES.filter(
+      (status) => status !== from && canTransitionTask(from, status),
+    );
+    expect(next('in_review')).toEqual(['in_progress', 'blocked', 'done', 'cancelled']);
+    expect(next('cancelled')).toEqual([]);
   });
 
   it('does not expose evidence-gated review or completion as direct browser actions', () => {
