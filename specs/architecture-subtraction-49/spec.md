@@ -34,8 +34,10 @@
 
 - `pnpm install --offline --frozen-lockfile` 通过，复用冻结 lockfile 安装 719 个依赖包。
 - 实现前定向回归：10 files / 170 tests 通过。
-- 实现后定向回归：10 files / 170 tests 通过；删除 1 个死接口自测并新增 1 个架构守卫，测试总数净零变化。
+- 首次实现后定向回归：10 files / 170 tests 通过；删除 1 个死接口自测并新增 1 个架构守卫，测试总数净零变化。
 - `pnpm exec tsc --noEmit` 通过。
 - `pnpm build` 通过；仅保留 `next.config.ts` 已知 NFT tracing warning。
-- 非并行全量执行完成：205 files / 1508 tests 通过，2 files / 2 tests 跳过；唯一失败仍为稳定基线 `src/server/autonomous-delivery/control-runtime.test.ts:131`，该文件不在本轮 diff。
-- 独立复审待回填。
+- 首轮独立复审：Critical 0 / Important 0 / Minor 2；要求用 AST 锁完整 export surface，并补真实 Conversation aggregate Phase cleanup 回归。
+- 修复后聚焦回归：2 files / 86 tests 通过，`pnpm exec tsc --noEmit` 再次通过；完整定向回归为 10 files / 171 tests 通过。
+- 最终非并行全量执行完成：205 files / 1509 tests 通过，2 files / 2 tests 跳过；唯一失败仍为稳定基线 `src/server/autonomous-delivery/control-runtime.test.ts:131`，该文件不在本轮 diff。
+- 最终独立复审待回填。

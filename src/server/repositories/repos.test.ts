@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createTestDb, getDb, setTestDb, resetDb } from '../db/index';
 import { applyMigrations } from '../db/migrate';
+import { listPhasesByConversation, upsertPhase } from '../db/phaseQueries';
 import { DEFAULT_RUBRIC_REVISION_ID, EVALUATOR_BUNDLE_REVISION, digest } from '../evaluation/defaults';
 import { generateSortableId, resetSeq } from './sortable-id';
 import { conversationRepo } from './conversation-repo';
@@ -88,6 +89,25 @@ describe('conversation-repo', () => {
     conversationRepo.create({ id: 'conv-1', title: 'To Delete' });
     conversationRepo.delete('conv-1');
     expect(conversationRepo.getById('conv-1')).toBeUndefined();
+  });
+
+  it('deletes phase rows as part of the conversation aggregate', () => {
+    conversationRepo.create({ id: 'conv-with-phase', title: 'Aggregate owner' });
+    const timestamp = '2026-08-15T00:00:00.000Z';
+    upsertPhase({
+      id: 'phase-owned',
+      conversationId: 'conv-with-phase',
+      title: 'Owned phase',
+      description: 'Must be removed with its aggregate',
+      order: 0,
+      status: 'planned',
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+    expect(listPhasesByConversation('conv-with-phase')).toHaveLength(1);
+
+    expect(conversationRepo.deleteAggregate('conv-with-phase')).toBe(true);
+    expect(listPhasesByConversation('conv-with-phase')).toEqual([]);
   });
 
   it('migrates and deletes legacy global-dataset annotations through their project run', () => {

@@ -1,5 +1,6 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
+import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 
 function source(path: string): string {
@@ -13,6 +14,54 @@ function productionTypeScriptFiles(directory: string): string[] {
     if (statSync(absolute).isDirectory()) return productionTypeScriptFiles(relative);
     return /\.tsx?$/.test(relative) && !/\.test\.tsx?$/.test(relative) ? [relative] : [];
   });
+}
+
+function exportedSurface(path: string): Set<string> {
+  const file = ts.createSourceFile(path, source(path), ts.ScriptTarget.Latest, true);
+  const names = new Set<string>();
+  const addName = (name: ts.PropertyName | ts.BindingName | undefined) => {
+    if (name && (ts.isIdentifier(name) || ts.isStringLiteral(name))) names.add(name.text);
+  };
+  const addObjectProperties = (expression: ts.Expression | undefined) => {
+    if (!expression || !ts.isObjectLiteralExpression(expression)) return;
+    for (const property of expression.properties) {
+      if (ts.isSpreadAssignment(property)) continue;
+      addName(property.name);
+    }
+  };
+
+  for (const statement of file.statements) {
+    if (ts.isExportDeclaration(statement) && statement.exportClause && ts.isNamedExports(statement.exportClause)) {
+      statement.exportClause.elements.forEach((element) => {
+        names.add(element.name.text);
+        if (element.propertyName) names.add(element.propertyName.text);
+      });
+      continue;
+    }
+    if (ts.isExportAssignment(statement)) {
+      if (ts.isIdentifier(statement.expression)) names.add(statement.expression.text);
+      addObjectProperties(statement.expression);
+      continue;
+    }
+    if (!statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)) continue;
+    if (ts.isVariableStatement(statement)) {
+      for (const declaration of statement.declarationList.declarations) {
+        addName(declaration.name);
+        addObjectProperties(declaration.initializer);
+      }
+      continue;
+    }
+    if (
+      ts.isFunctionDeclaration(statement)
+      || ts.isClassDeclaration(statement)
+      || ts.isInterfaceDeclaration(statement)
+      || ts.isTypeAliasDeclaration(statement)
+      || ts.isEnumDeclaration(statement)
+    ) {
+      addName(statement.name);
+    }
+  }
+  return names;
 }
 
 describe('runtime ownership architecture', () => {
@@ -546,14 +595,9 @@ describe('runtime ownership architecture', () => {
     };
 
     for (const [owner, names] of Object.entries(internalByOwner)) {
-      const ownerSource = source(owner);
+      const publicNames = exportedSurface(owner);
       for (const name of names) {
-        expect(ownerSource).not.toMatch(
-          new RegExp(`^export\\s+(?:async\\s+)?(?:function|class|const|let|type|interface|enum)\\s+${name}\\b`, 'm'),
-        );
-        expect(ownerSource).not.toMatch(
-          new RegExp(`^export\\s+(?:type\\s+)?\\{[^}]*\\b${name}\\b`, 'm'),
-        );
+        expect(publicNames).not.toContain(name);
       }
     }
   });
