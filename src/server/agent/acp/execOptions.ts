@@ -1,6 +1,6 @@
 import type { EngineId, ExecOptions } from '../types';
 
-export interface AcpExecOptionsInput {
+interface AcpExecOptionsInput {
   engine: EngineId;
   cwd: string;
   env: Record<string, string>;

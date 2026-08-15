@@ -2,18 +2,18 @@ import type { TeamRuntime } from '@/lib/team-runtime';
 import { resolveConversationRuntime } from '../invocation-pipeline/conversation-runtime';
 import { A2ACollaborationInvariantError } from './collaboration';
 
-export interface A2ACommandGuardBranch {
+interface A2ACommandGuardBranch {
   toAgentId: string;
 }
 
-export interface A2ACommandGuardInput {
+interface A2ACommandGuardInput {
   conversationId: string;
   fromHolderId: string;
   fromHolderType: 'user' | 'agent' | 'system';
   branches: A2ACommandGuardBranch[];
 }
 
-export interface A2ACommandGuardOptions {
+interface A2ACommandGuardOptions {
   resolveRuntime?: (conversationId: string) => TeamRuntime | undefined;
 }
 

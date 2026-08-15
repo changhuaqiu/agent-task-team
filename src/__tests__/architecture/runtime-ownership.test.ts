@@ -574,6 +574,91 @@ describe('runtime ownership architecture', () => {
     }
   });
 
+  it('keeps A2A, ACP, delivery, and role-card scan implementation types private', () => {
+    const internalByOwner: Record<string, string[]> = {
+      'src/server/a2a/collaboration.ts': [
+        'A2APassGroupStatus',
+        'A2APassGroup',
+        'A2AAggregatePass',
+        'A2ACollaborationRepositoryOptions',
+      ],
+      'src/server/a2a/command-guard.ts': [
+        'A2ACommandGuardBranch',
+        'A2ACommandGuardInput',
+        'A2ACommandGuardOptions',
+      ],
+      'src/server/a2a/human-command-service.ts': [
+        'HumanHandoffCommand',
+        'HumanHandoffResult',
+        'HumanA2ACommandServiceOptions',
+      ],
+      'src/server/a2a/types-possession.ts': [
+        'PossessionHolderType',
+        'PossessionChainStatus',
+        'PossessionStatus',
+      ],
+      'src/server/acp-skill-mcp.ts': ['AcpSkillToolDefinition', 'AcpSkillMcpScope'],
+      'src/server/agent/acp/acpBackend.ts': ['AcpFailureReasonCode', 'AcpRuntimeLimits'],
+      'src/server/agent/acp/execOptions.ts': ['AcpExecOptionsInput'],
+      'src/server/agent/acp/permissionPolicy.ts': [
+        'AcpPermissionDecision',
+        'AutonomousAcpAuthorization',
+      ],
+      'src/server/agent/acp/runtimeSetup.ts': ['PreparedRuntime', 'PrepareAcpOptions'],
+      'src/server/autonomous-delivery/advancement-queue.ts': [
+        'DeliveryAdvancementRequestQueueOptions',
+      ],
+      'src/server/autonomous-delivery/control-command-adapter.ts': [
+        'ProductionControlCommandAdapterOptions',
+      ],
+      'src/server/autonomous-delivery/control-decision-repository.ts': [
+        'PersistedControlActionStatus',
+        'PersistedControlDecisionRow',
+      ],
+      'src/server/autonomous-delivery/control-decision.ts': [
+        'ControlActionType',
+        'RetryBudgetSnapshot',
+        'WorkCellControlState',
+      ],
+      'src/server/autonomous-delivery/control-process-manager.ts': [
+        'DeliveryControlProcessManagerOptions',
+        'ControlReconcileResult',
+      ],
+      'src/server/autonomous-delivery/control-runtime.ts': ['DeliveryControlRuntimeOptions'],
+      'src/server/autonomous-delivery/control-snapshot-builder.ts': [
+        'ControlSnapshotRetryLimits',
+        'RepositoryControlSnapshotBuilderOptions',
+      ],
+      'src/server/autonomous-delivery/delivery-effects.ts': [
+        'DeliveryIntegrationEffectPayload',
+        'RegisterDeliveryEffectsOptions',
+      ],
+      'src/server/autonomous-delivery/provider-actions.ts': [
+        'ProviderCommandResult',
+        'ProviderIntegrationObservation',
+      ],
+      'src/server/autonomous-delivery/types.ts': ['GitHubIssueGoalSource'],
+      'src/server/autonomous-delivery/verification-receipt.ts': ['VerificationReceiptCandidate'],
+      'src/server/autonomous-delivery/wait-for-graph.ts': ['WaitForDeadlock'],
+      'src/server/security-scanner.ts': ['ScanResult', 'SecurityScanner', 'securityScanner'],
+    };
+
+    for (const [owner, names] of Object.entries(internalByOwner)) {
+      const publicNames = exportedSurface(owner);
+      for (const name of names) expect(publicNames).not.toContain(name);
+    }
+
+    const production = productionTypeScriptFiles('src').map((path) => source(path)).join('\n');
+    expect(production).not.toMatch(/\binterface\s+SecurityScanner\b/);
+    expect(production).not.toMatch(/\bsecurityScanner\.scan\b/);
+    expect(source('src/server/security-scanner.ts')).toContain(
+      'export function scanRoleCardContent',
+    );
+    expect(source('src/server/role-card-import.ts')).toContain(
+      'scanRoleCardContent(parsed.soulContent)',
+    );
+  });
+
   it('keeps scalar lookups and state-machine helpers behind their owning modules', () => {
     expect(exportedSurfaceFromText('object-alias.ts', `
       const getPhaseById = () => undefined;

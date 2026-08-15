@@ -12,7 +12,7 @@ import type {
   PassStatus,
 } from './types-possession';
 
-export type A2APassGroupStatus =
+type A2APassGroupStatus =
   | 'offered'
   | 'active'
   | 'recovering'
@@ -20,7 +20,7 @@ export type A2APassGroupStatus =
   | 'failed'
   | 'cancelled';
 
-export interface A2APassGroup {
+interface A2APassGroup {
   id: string;
   chainId: string;
   sourcePossessionId: string;
@@ -41,7 +41,7 @@ export interface A2APassGroup {
   completedAt?: string;
 }
 
-export interface A2AAggregatePass {
+interface A2AAggregatePass {
   id: string;
   chainId: string;
   groupId: string;
@@ -359,7 +359,7 @@ function renderPacket(packet: Omit<
   ].join('\n');
 }
 
-export interface A2ACollaborationRepositoryOptions {
+interface A2ACollaborationRepositoryOptions {
   db?: Database.Database;
   inbox?: AgentInbox;
   now?: () => Date;

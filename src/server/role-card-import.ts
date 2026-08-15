@@ -5,7 +5,7 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import os from 'os';
 import { upsertRoleCard } from './db/roleCardQueries';
-import { securityScanner } from './security-scanner';
+import { scanRoleCardContent } from './security-scanner';
 import { generateSortableId } from './repositories/sortable-id';
 import { createErrorMessage, type ErrorMessage } from './error-messages';
 import type { RoleCard, RoleCardCategory } from '@/types/roleCard';
@@ -234,7 +234,7 @@ export async function importRoleCardFromUrl(source: string): Promise<{ imported:
         }
 
         // Security scan before upserting to database
-        const scanResult = securityScanner.scan(parsed.soulContent);
+        const scanResult = scanRoleCardContent(parsed.soulContent);
         if (!scanResult.passed) {
           const errorMsg = createErrorMessage('SECURITY_SCAN_FAILED');
           errors.push(`${path.basename(dir)}: ${errorMsg.description}`);

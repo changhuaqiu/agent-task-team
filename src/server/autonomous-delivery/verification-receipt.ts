@@ -5,7 +5,7 @@ import type {
   DeliveryRunSnapshot,
 } from './types';
 
-export interface VerificationReceiptCandidate {
+interface VerificationReceiptCandidate {
   present: boolean;
   valid: boolean;
   payload?: AcceptanceVerificationReceipt;

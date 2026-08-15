@@ -20,7 +20,7 @@ export interface AutonomousDeliveryRuntimePort {
   advance(runId: string, cause?: AdvancementCause): Promise<AdvanceResult>;
 }
 
-export interface DeliveryControlRuntimeOptions {
+interface DeliveryControlRuntimeOptions {
   repository?: AutonomousDeliveryRepository;
   processManager?: DeliveryControlProcessManager;
   workerId: string;

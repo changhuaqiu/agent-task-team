@@ -12,7 +12,7 @@ interface AdvancementRequestRow {
   attempt_count: number;
 }
 
-export interface DeliveryAdvancementRequestQueueOptions {
+interface DeliveryAdvancementRequestQueueOptions {
   db?: Database.Database;
   now?: () => Date;
 }

@@ -15,7 +15,7 @@ export type DeliveryStage =
   | 'integrating'
   | 'delivering';
 
-export interface GitHubIssueGoalSource {
+interface GitHubIssueGoalSource {
   kind: 'github_issue';
   externalId: string;
   url: string;

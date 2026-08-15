@@ -7,7 +7,7 @@ import {
 } from './collaboration';
 import { A2ACommandGuard } from './command-guard';
 
-export interface HumanHandoffCommand {
+interface HumanHandoffCommand {
   conversationId: string;
   messageId: string;
   prompt: string;
@@ -15,11 +15,11 @@ export interface HumanHandoffCommand {
   taskId?: string;
 }
 
-export type HumanHandoffResult =
+type HumanHandoffResult =
   | { status: 'aborted'; previous?: AbortedA2ACollaboration }
   | { status: 'offered'; handoff: OfferedPassGroup };
 
-export interface HumanA2ACommandServiceOptions {
+interface HumanA2ACommandServiceOptions {
   db?: Database.Database;
   collaboration?: A2ACollaborationRepository;
   commandGuard?: Pick<A2ACommandGuard, 'assert'>;

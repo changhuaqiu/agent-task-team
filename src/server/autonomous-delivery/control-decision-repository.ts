@@ -5,14 +5,14 @@ import { PlatformEventLog } from '../platform-events/event-log';
 import type { ControlAction, ControlDecision } from './control-decision';
 import { resolveGoalCorrelationId, type GoalContract } from './types';
 
-export type PersistedControlActionStatus =
+type PersistedControlActionStatus =
   | 'ready'
   | 'claimed'
   | 'applied'
   | 'failed'
   | 'cancelled';
 
-export interface PersistedControlDecisionRow {
+interface PersistedControlDecisionRow {
   id: string;
   run_id: string;
   project_id: string;

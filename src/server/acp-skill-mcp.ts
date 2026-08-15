@@ -28,7 +28,7 @@ type SkillToolConfig = {
   parameters?: SkillParameter[];
 };
 
-export type AcpSkillToolDefinition = {
+type AcpSkillToolDefinition = {
   name: string;
   description?: string;
   inputSchema: {
@@ -39,7 +39,7 @@ export type AcpSkillToolDefinition = {
   };
 };
 
-export type AcpSkillMcpScope = {
+type AcpSkillMcpScope = {
   agentId: string;
   conversationId: string;
   projectId?: string;

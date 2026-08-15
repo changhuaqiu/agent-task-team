@@ -1,8 +1,8 @@
-export type PossessionHolderType = 'user' | 'agent' | 'system';
+type PossessionHolderType = 'user' | 'agent' | 'system';
 
-export type PossessionChainStatus = 'active' | 'completed' | 'aborted' | 'timeout';
+type PossessionChainStatus = 'active' | 'completed' | 'aborted' | 'timeout';
 
-export type PossessionStatus =
+type PossessionStatus =
   | 'open'
   | 'handoff_drafted'
   | 'handoff_offered'

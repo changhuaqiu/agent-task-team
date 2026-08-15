@@ -22,7 +22,7 @@ import type {
 } from '../types';
 import type { EngineId } from '../types';
 
-export type AcpFailureReasonCode =
+type AcpFailureReasonCode =
   | 'acp_cancelled'
   | 'acp_concurrency_limit'
   | 'acp_connection_failed'
@@ -41,7 +41,7 @@ export type AcpFailureReasonCode =
   | 'acp_startup_failed'
   | 'acp_timeout';
 
-export interface AcpRuntimeLimits {
+interface AcpRuntimeLimits {
   maxConcurrentRuns: number;
   maxQueuedEvents: number;
   maxEventChars: number;
