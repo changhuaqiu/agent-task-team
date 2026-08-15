@@ -269,7 +269,7 @@ describe('proofLogRepo', () => {
       'dispatch.started',
     ]);
     expect(proofLogRepo.getByConversation('conv-1')).toHaveLength(2);
-    expect(proofLogRepo.getById(started.id)!.event_type).toBe('dispatch.started');
+    expect(started.event_type).toBe('dispatch.started');
   });
 
   it('finds persistent closure proofs by domain key', () => {

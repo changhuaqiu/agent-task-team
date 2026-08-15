@@ -11,12 +11,16 @@ afterEach(() => resetDb());
 describe('spanPayloadRepo', () => {
   it('redacts secrets, preserves full ordinary content and marks byte truncation', () => {
     const span = observationSpanRepo.start({ traceId: generateTraceId(), name: 'agent.invoke', kind: 'agent', conversationId: 'conv-obs' });
-    spanPayloadRepo.put(span.span_id, 'system_prompt', `api_key=secret-value\n${'中'.repeat(100_000)}`);
-    const payload = spanPayloadRepo.get(span.span_id, 'system_prompt')!;
+    const payload = spanPayloadRepo.put(
+      span.span_id,
+      'system_prompt',
+      `api_key=secret-value\n${'中'.repeat(100_000)}`,
+    )!;
     expect(payload.content).toContain('api_key=[REDACTED]');
     expect(payload.content).not.toContain('secret-value');
     expect(payload.truncated).toBe(1);
     expect(payload.byte_size).toBeLessThanOrEqual(256 * 1024);
+    expect(spanPayloadRepo.listBySpan(span.span_id)).toEqual([payload]);
   });
 
   it('defaults thinking capture on and accepts an exact case-insensitive false opt-out', () => {

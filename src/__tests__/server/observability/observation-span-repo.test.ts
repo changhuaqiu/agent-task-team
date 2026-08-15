@@ -17,7 +17,8 @@ describe('observationSpanRepo', () => {
 
     expect(traceId).toMatch(/^[0-9a-f]{32}$/);
     expect(root.span_id).toMatch(/^[0-9a-f]{16}$/);
-    const spans = observationSpanRepo.listByTrace(traceId);
+    const spans = observationSpanRepo.listByConversation('conv-obs')
+      .filter((span) => span.trace_id === traceId);
     expect(spans.find(span => span.kind === 'agent')).toMatchObject({ status: 'ok' });
     expect(spans.find(span => span.kind === 'tool')).toMatchObject({ status: 'ok', parent_span_id: root.span_id });
   });

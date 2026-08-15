@@ -125,19 +125,6 @@ export const messageRepo = {
       .all(convId, limit) as MessageRow[];
   },
 
-  getByTask(taskId: string): MessageRow[] {
-    return getDb()
-      .prepare('SELECT * FROM chat_message WHERE task_id = ? ORDER BY created_at ASC')
-      .all(taskId) as MessageRow[];
-  },
-
-  getByAgent(agentId: string, options?: { limit?: number }): MessageRow[] {
-    const limit = options?.limit ?? 50;
-    return getDb()
-      .prepare('SELECT * FROM chat_message WHERE sender_id = ? ORDER BY created_at DESC LIMIT ?')
-      .all(agentId, limit) as MessageRow[];
-  },
-
   getByConversationAgent(convId: string, agentId: string, options?: { limit?: number }): MessageRow[] {
     const limit = options?.limit ?? 10;
     return getDb()
@@ -148,10 +135,4 @@ export const messageRepo = {
       .reverse() as MessageRow[];
   },
 
-  countByConversation(convId: string): number {
-    const row = getDb()
-      .prepare('SELECT COUNT(*) as count FROM chat_message WHERE conversation_id = ?')
-      .get(convId) as { count: number };
-    return row.count;
-  },
 };

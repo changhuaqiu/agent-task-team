@@ -41,12 +41,15 @@ export const spanPayloadRepo = {
         truncated = excluded.truncated,
         created_at = excluded.created_at`)
       .run(spanId, role, seq, sanitized.content, sanitized.byteSize, truncated ? 1 : 0, now);
-    return spanPayloadRepo.get(spanId, role, seq);
-  },
-
-  get(spanId: string, role: ObservationPayloadRole, seq = 0): ObservationSpanPayloadRow | undefined {
-    return getDb().prepare(`SELECT * FROM observation_span_payload
-      WHERE span_id = ? AND role = ? AND seq = ?`).get(spanId, role, seq) as ObservationSpanPayloadRow | undefined;
+    return {
+      span_id: spanId,
+      role,
+      seq,
+      content: sanitized.content,
+      byte_size: sanitized.byteSize,
+      truncated: truncated ? 1 : 0,
+      created_at: now,
+    };
   },
 
   listBySpan(spanId: string): ObservationSpanPayloadRow[] {

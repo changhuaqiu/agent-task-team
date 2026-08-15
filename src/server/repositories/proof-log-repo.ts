@@ -36,6 +36,21 @@ export const proofLogRepo = {
   append(input: AppendProofEventInput): ProofEventRow {
     const id = generateSortableId('proof');
     const now = new Date().toISOString();
+    const row: ProofEventRow = {
+      id,
+      event_type: input.eventType,
+      conversation_id: input.conversationId ?? null,
+      task_id: input.taskId ?? null,
+      chain_id: input.chainId ?? null,
+      pass_id: input.passId ?? null,
+      envelope_id: input.envelopeId ?? null,
+      node_id: input.nodeId ?? null,
+      agent_id: input.agentId ?? null,
+      actor_id: input.actorId ?? null,
+      reason_code: input.reasonCode ?? null,
+      metadata: input.metadata ? JSON.stringify(input.metadata) : null,
+      created_at: now,
+    };
     getDb()
       .prepare(
         `INSERT INTO control_proof_event (
@@ -55,19 +70,12 @@ export const proofLogRepo = {
         input.agentId ?? null,
         input.actorId ?? null,
         input.reasonCode ?? null,
-        input.metadata ? JSON.stringify(input.metadata) : null,
+        row.metadata,
         now,
       );
-    const row = proofLogRepo.getById(id)!;
     const entry = proofToTeamLogEntry(row);
     if (entry) teamLogProjection.append(entry);
     return row;
-  },
-
-  getById(id: string): ProofEventRow | undefined {
-    return getDb()
-      .prepare('SELECT * FROM control_proof_event WHERE id = ?')
-      .get(id) as ProofEventRow | undefined;
   },
 
   getByEnvelope(envelopeId: string): ProofEventRow[] {

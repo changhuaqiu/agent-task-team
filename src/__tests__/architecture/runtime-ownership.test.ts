@@ -181,6 +181,30 @@ describe('runtime ownership architecture', () => {
     }
   });
 
+  it('keeps message and observability repositories on their aggregate read interfaces', () => {
+    const production = productionTypeScriptFiles('src').map((path) => source(path)).join('\n');
+    const retiredByOwner = {
+      messageRepo: ['getByTask', 'getByAgent', 'countByConversation'],
+      observationSpanRepo: ['listByTrace'],
+      spanPayloadRepo: ['get'],
+      proofLogRepo: ['getById'],
+    } as const;
+    const repositoryByOwner = {
+      messageRepo: source('src/server/repositories/message-repo.ts'),
+      observationSpanRepo: source('src/server/repositories/observation-span-repo.ts'),
+      spanPayloadRepo: source('src/server/repositories/span-payload-repo.ts'),
+      proofLogRepo: source('src/server/repositories/proof-log-repo.ts'),
+    } as const;
+
+    for (const [owner, methods] of Object.entries(retiredByOwner)) {
+      for (const method of methods) {
+        expect(production).not.toMatch(new RegExp(`\\b${owner}\\.${method}\\b`));
+        expect(repositoryByOwner[owner as keyof typeof repositoryByOwner])
+          .not.toMatch(new RegExp(`^  ${method}\\s*\\(`, 'm'));
+      }
+    }
+  });
+
   it('keeps explicit human command adapters available', () => {
     expect(taskHubStore).toContain(`type: 'a2a.human_handoff'`);
     expect(taskHubStore).not.toContain(`socket.emit('a2a:user-turn-created'`);

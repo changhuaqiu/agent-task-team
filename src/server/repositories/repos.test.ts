@@ -288,25 +288,6 @@ describe('message-repo', () => {
     expect(page[0].id).toBe(id2);
   });
 
-  it('gets messages by task', () => {
-    conversationRepo.create({ id: 'conv-2', title: 'T2' });
-    taskRepo.create({ id: 'task-1', conversation_id: 'conv-1', title: 'T1', agent_id: 'a' });
-    messageRepo.append({ conversationId: 'conv-1', taskId: 'task-1', senderType: 'agent', senderId: 'a', content: 'Task msg' });
-    messageRepo.append({ conversationId: 'conv-1', senderType: 'human', senderId: 'u1', content: 'Non-task msg' });
-
-    const taskMsgs = messageRepo.getByTask('task-1');
-    expect(taskMsgs.length).toBe(1);
-    expect(taskMsgs[0].content).toBe('Task msg');
-  });
-
-  it('gets messages by agent', () => {
-    messageRepo.append({ conversationId: 'conv-1', senderType: 'agent', senderId: 'agent-a', content: 'From A' });
-    messageRepo.append({ conversationId: 'conv-1', senderType: 'agent', senderId: 'agent-b', content: 'From B' });
-    const msgs = messageRepo.getByAgent('agent-a');
-    expect(msgs.length).toBe(1);
-    expect(msgs[0].content).toBe('From A');
-  });
-
   it('gets private history by conversation and agent in chronological order', () => {
     conversationRepo.create({ id: 'conv-2', title: 'Other' });
     messageRepo.append({ conversationId: 'conv-1', senderType: 'agent', senderId: 'agent-a', content: 'First' });
@@ -314,12 +295,6 @@ describe('message-repo', () => {
     messageRepo.append({ conversationId: 'conv-1', senderType: 'agent', senderId: 'agent-a', content: 'Second' });
     messageRepo.append({ conversationId: 'conv-2', senderType: 'agent', senderId: 'agent-a', content: 'Other project' });
     expect(messageRepo.getByConversationAgent('conv-1', 'agent-a').map((row) => row.content)).toEqual(['First', 'Second']);
-  });
-
-  it('counts messages by conversation', () => {
-    messageRepo.append({ conversationId: 'conv-1', senderType: 'human', senderId: 'u1', content: 'A' });
-    messageRepo.append({ conversationId: 'conv-1', senderType: 'human', senderId: 'u1', content: 'B' });
-    expect(messageRepo.countByConversation('conv-1')).toBe(2);
   });
 
   it('round-trips mentions as JSON', () => {

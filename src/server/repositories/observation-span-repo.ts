@@ -92,11 +92,6 @@ export const observationSpanRepo = {
     return getDb().prepare('SELECT * FROM observation_span WHERE span_id = ?').get(spanId) as ObservationSpanRow | undefined;
   },
 
-  listByTrace(traceId: string): ObservationSpanRow[] {
-    return getDb().prepare('SELECT * FROM observation_span WHERE trace_id = ? ORDER BY started_at, span_id')
-      .all(traceId) as ObservationSpanRow[];
-  },
-
   listByConversation(conversationId: string, limit = 2_000): ObservationSpanRow[] {
     return getDb().prepare(`SELECT * FROM observation_span WHERE conversation_id = ?
       ORDER BY started_at DESC, span_id DESC LIMIT ?`).all(conversationId, limit) as ObservationSpanRow[];
