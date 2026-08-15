@@ -1,6 +1,6 @@
 # Architecture Subtraction — Round 43
 
-> Status: active
+> Status: implemented
 > Date: 2026-08-15
 
 ## Goal

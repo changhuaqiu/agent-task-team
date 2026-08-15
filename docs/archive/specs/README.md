@@ -62,6 +62,7 @@
 | `architecture-subtraction-40/` | implemented | 第四十轮删除未接线的 Agent-TeamPack 并行成员表与六个零消费 repository interface，保留 Conversation→TeamPack→TeamPackRole 正式配置链 |
 | `architecture-subtraction-41/` | implemented | 第四十一轮收窄 Session、Invocation 与 Agent Binding repository，删除 10 个零消费查询/封装 interface，保留正式 runtime lifecycle |
 | `architecture-subtraction-42/` | implemented | 第四十二轮删除 Message、Observation、Payload 与 Proof repository 六个自用/自测标量读 interface，保留正式聚合投影 |
+| `architecture-subtraction-43/` | implemented | 第四十三轮删除 Message、Task 与 Skill repository 四个零消费浅 interface，保留 ACP 消息持久化、Task lifecycle 与 Skill revision 幂等安装 |
 | `four-agent-pr-review-loop/` | implemented | 四 Agent PR 交付、评审、修复与合并证据闭环已落地 |
 | `github-issue-agent-hook/` | implemented | GitHub Issue 验签、幂等建项与自主交付链已落地；长期设计见 `docs/technical/integrations/github-issue-agent-hook.md` |
 | `open-issues-33-35/` | implemented | A2A 分派意图、首次交接身份、默认 TeamPack 升级与上下文去重修复已验收 |
