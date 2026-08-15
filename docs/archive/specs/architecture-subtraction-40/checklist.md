@@ -8,4 +8,4 @@
 - [x] forward-only migration 在真实 SQLite 删除遗留表。
 - [x] 架构守卫阻止旧表写读和旧 interface 回流。
 - [x] 文档、类型、定向测试、构建与全量结果精确记录。
-- [ ] 独立复审为 Critical 0 / Important 0。
+- [x] 独立复审为 Critical 0 / Important 0。
