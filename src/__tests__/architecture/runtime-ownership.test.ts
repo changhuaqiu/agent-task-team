@@ -253,7 +253,9 @@ describe('runtime ownership architecture', () => {
     const repository = source('src/server/work-contract/repository.ts');
     const production = productionTypeScriptFiles('src').map((path) => source(path)).join('\n');
 
-    expect(repository).not.toMatch(/^  getContract\s*\(/m);
+    expect(repository).not.toMatch(
+      /^  (?:(?:public|private|protected)\s+)?getContract\s*(?:\(|=)/m,
+    );
     expect(production).not.toMatch(/\bworkContractRepo\.getContract\b/);
     expect(repository).toMatch(/^  private getContractRow\s*\(/m);
     expect(repository).toMatch(/^  private listActiveAuthoritiesForTask\s*\(/m);
