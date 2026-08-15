@@ -1,6 +1,6 @@
 # Architecture Subtraction — Round 31
 
-> Status: active
+> Status: implemented
 > Date: 2026-08-15
 
 ## Goal
@@ -39,4 +39,4 @@
 - `pnpm exec vitest run src/__tests__/architecture/runtime-ownership.test.ts src/__tests__/lib/team-runtime/team-runtime.test.ts src/__tests__/store/account-binding.test.ts src/__tests__/store/default-team-harness.test.ts src/lib/agent-context/layers/teamLayer.test.ts src/__tests__/task-hub/AgentRolePresentation.test.tsx src/__tests__/task-hub/A2APossessionStrip.test.tsx src/__tests__/task-hub/TaskDetailPanel.runtime-profile.test.tsx src/__tests__/store/team-pack-roster.test.ts src/__tests__/store/team-role-card-compatibility.test.ts --reporter=dot`：10 files / 82 tests 通过；覆盖生产零残留、默认 RoleCard 分类、preset/TeamPack roster、snapshot RoleCard selector、RoleCard 缺失失败关闭、成员名与岗位名分离、岗位名 @提及及真实候选弹层、持球/回执成员身份、任务详情、Roster Modal 响应更新、账号与 Runtime Profile 链。
 - `pnpm build`：通过；仅保留既有 Turbopack NFT 动态路径 warning。
 - 最终全量测试：206 files / 1508 tests passed，2 files / 2 tests skipped，1 test failed；唯一失败为既有稳定基线 `src/server/autonomous-delivery/control-runtime.test.ts:131`，不经过浏览器 Agent/RoleCard 展示投影。较早一次全量中的 ACP 子进程 15 秒并发超时已单独复跑为 1 file / 18 tests 全过，并在后续两次全量中通过。
-- 首轮独立复审：Critical 0 / Important 2 / Minor 1；发现 TeamPack snapshot 名称覆盖成员名、任务详情无法解析 snapshot RoleCard、Team context 缺卡重复成员名，均已修复并补行为回归。第二次复审发现 @mention 子弹层仍重复查询全局卡、Roster Modal 未订阅解析结果（Important 1 / Minor 1），也已修复，待最终复审。
+- 首轮独立复审：Critical 0 / Important 2 / Minor 1；发现 TeamPack snapshot 名称覆盖成员名、任务详情无法解析 snapshot RoleCard、Team context 缺卡重复成员名，均已修复并补行为回归。第二次复审发现 @mention 子弹层仍重复查询全局卡、Roster Modal 未订阅解析结果（Important 1 / Minor 1），也已修复。最终复审：Critical 0 / Important 0 / Minor 0，Ready Yes。

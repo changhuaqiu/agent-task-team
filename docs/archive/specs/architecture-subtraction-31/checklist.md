@@ -8,4 +8,4 @@
 - [x] DK 默认评审身份由真实 RoleCard 断言覆盖。
 - [x] 架构守卫覆盖生产 TS/TSX，禁止旧字段和死 action 回流。
 - [x] 文档、TypeScript、定向测试、构建和全量结果精确记录。
-- [ ] 独立复审为 Critical 0 / Important 0 / Minor 0。
+- [x] 独立复审为 Critical 0 / Important 0 / Minor 0。
