@@ -18,7 +18,6 @@ export interface TierContext {
   agentId: string;
   conversationId: string;
   roleCard: RoleCard | undefined;
-  allRoleCards: RoleCard[];
   messages: ChatMessage[];
   task: {
     id: string;
@@ -29,7 +28,7 @@ export interface TierContext {
   } | undefined;
   tasks: { id: string; title: string; agentId: string; status: string }[];
   teamPack: TeamPack | undefined;
-  runtimeRoster: RuntimeAgent[] | undefined;
+  runtimeRoster: RuntimeAgent[];
   skillSummaries: SkillSummary[];
   tools: ToolDefinition[];
   teamLogEnvelope: TeamLogEnvelope | undefined;

@@ -35,7 +35,6 @@ describe('ContextManager', () => {
   beforeEach(() => {
     mockProviders = {
       getRoleCard: vi.fn().mockResolvedValue(mockRoleCard),
-      getAllRoleCards: vi.fn().mockResolvedValue([mockRoleCard]),
       getMessages: vi.fn().mockResolvedValue([]),
       getTask: vi.fn().mockResolvedValue(undefined),
       getTasks: vi.fn().mockResolvedValue([]),
@@ -68,6 +67,8 @@ describe('ContextManager', () => {
     const result = await manager.assembleContext(req);
 
     expect(result.userPrompt).toBeDefined();
+    expect(result.userPrompt).not.toContain('## 当前团队');
+    expect(result.snapshot.fragmentRefs.some(ref => ref.id === 'team:roster')).toBe(false);
     expect(result.report.tokensUsed).toBeGreaterThan(0);
     expect(result.report.layers.every(layer => layer.tier && Number.isFinite(layer.importance))).toBe(true);
   });
@@ -85,13 +86,22 @@ describe('ContextManager', () => {
       title: '当前任务',
       conversationId: 'conv-123',
     });
-    mockProviders.getRuntimeRoster.mockResolvedValue([{
-      id: 'toad',
-      displayName: 'Toad',
-      source: 'preset-agent',
-      accountIds: [],
-      skills: [],
-    }]);
+    mockProviders.getRuntimeRoster.mockResolvedValue([
+      {
+        id: 'toad',
+        displayName: 'Runtime Toad',
+        source: 'preset-agent',
+        accountIds: [],
+        skills: [],
+      },
+      {
+        id: 'dynamic-reviewer',
+        displayName: 'Runtime Only Reviewer',
+        source: 'team-pack',
+        accountIds: [],
+        skills: [],
+      },
+    ]);
     mockProviders.getTeamPack.mockResolvedValue({
       id: 'pack-1',
       specVersion: 'team-pack/0.1',
@@ -155,6 +165,10 @@ describe('ContextManager', () => {
     for (const [id, kind, owner, lifecycle, importance] of expected) {
       expect(refs.get(id)).toMatchObject({ id, kind, producer: owner, sourceOwner: owner, lifecycle, importance });
     }
+    expect(result.userPrompt).toContain('- Runtime Toad @toad（当前角色）');
+    expect(result.userPrompt).toContain('- Runtime Only Reviewer @dynamic-reviewer');
+    expect(result.userPrompt).not.toContain('@mario');
+    expect(result.userPrompt).not.toContain('@luigi');
   });
 
   it('超预算时 P4 层优先被裁剪', async () => {

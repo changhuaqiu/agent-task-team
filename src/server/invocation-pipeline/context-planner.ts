@@ -122,7 +122,6 @@ export class InvocationPlanner implements InvocationPlannerPort {
         : undefined;
       const manager = new ContextManager({
         getRoleCard: async () => profile.prompt.roleCard,
-        getAllRoleCards: async () => runtime.roster.map((agent) => agent.roleCard).filter(Boolean) as NonNullable<typeof profile.prompt.roleCard>[],
         getMessages: async (conversationId, limit) => trigger.evaluation
           ? []
           : messageRepo.getByConversationAgent(conversationId, trigger.agentId, { limit: limit ?? 10 })

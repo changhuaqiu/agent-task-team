@@ -9,13 +9,12 @@
 
 import { buildSkillLayer } from '../layers/skillLayer';
 import { buildToolLayer } from '../layers/toolLayer';
-import { buildTeamLayer } from '../layers/teamLayer';
 import { buildTeamPackLayer } from '../layers/teamPackLayer';
 import { buildHistoryLayer } from '../layers/historyLayer';
 import type { TierRenderInput } from './tierContext';
 
 export function renderKnowledgeTier({ ctx, push }: TierRenderInput): void {
-  const { req, allRoleCards, runtimeRoster, teamPack, messages, skillSummaries, tools } = ctx;
+  const { req, runtimeRoster, teamPack, messages, skillSummaries, tools } = ctx;
 
   // Capability — bound skills are scenario-invariant so required delivery can
   // be proven; tools share the same capability cluster.
@@ -27,7 +26,7 @@ export function renderKnowledgeTier({ ctx, push }: TierRenderInput): void {
 
   // Team roster — situation awareness. Omitted in wakeup.
   {
-    const runtimeTeam = runtimeRoster?.length
+    const runtimeTeam = runtimeRoster.length
       ? [
           '## 当前团队',
           ...runtimeRoster.map((member) => {
@@ -36,10 +35,7 @@ export function renderKnowledgeTier({ ctx, push }: TierRenderInput): void {
           }),
         ].join('\n')
       : '';
-    const team = runtimeRoster !== undefined
-      ? runtimeTeam
-      : buildTeamLayer(ctx.agentId, allRoleCards ?? [], undefined);
-    push('situation', 'team', team, {});
+    push('situation', 'team', runtimeTeam, {});
   }
 
   // Team-pack context. Omitted in wakeup.

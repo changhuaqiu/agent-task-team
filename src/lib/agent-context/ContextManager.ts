@@ -43,7 +43,6 @@ export type {
 // Provider 层（P1 只返回 mock，预留接口）
 export interface ContextProviders {
   getRoleCard(agentId: string): Promise<RoleCard | undefined>;
-  getAllRoleCards(): Promise<RoleCard[]>;
   getMessages(conversationId: string, limit?: number): Promise<ChatMessage[]>;
   getTask(taskId: string): Promise<{
     id: string;
@@ -54,7 +53,7 @@ export interface ContextProviders {
   } | undefined>;
   getTasks(conversationId: string): Promise<{ id: string; title: string; agentId: string; status: TaskStatus }[]>;
   getTeamPack(agentId: string): Promise<TeamPack | undefined>;
-  getRuntimeRoster(conversationId: string): Promise<RuntimeAgent[] | undefined>;
+  getRuntimeRoster(conversationId: string): Promise<RuntimeAgent[]>;
   getSkills(): Promise<SkillSummary[]>;
   getSkillCompilation?(): Promise<SkillCompileResult>;
   getCurrentLoad(): Record<string, number>;  // P1: 当前负载 {agentId: taskCount}
@@ -201,7 +200,6 @@ export class ContextManager {
 
     // Provider 层：取原料（只读）
     const roleCard = await this.providers.getRoleCard(req.agentId);
-    const allRoleCards = await this.providers.getAllRoleCards();
     const messages = await this.providers.getMessages(req.conversationId, 10);
     if (req.project?.id && req.project.id !== req.conversationId) {
       throw new Error(`context_scope_mismatch: project ${req.project.id}`);
@@ -271,7 +269,6 @@ export class ContextManager {
       agentId: req.agentId,
       conversationId: req.conversationId,
       roleCard,
-      allRoleCards: allRoleCards ?? [],
       messages,
       task,
       tasks,
@@ -287,7 +284,7 @@ export class ContextManager {
     // agent actually receives.
     let systemPrompt: string | undefined;
     if (bootstrapIdentity) {
-      const rosterForStatus = (runtimeRoster ?? []).map((agent) => ({
+      const rosterForStatus = runtimeRoster.map((agent) => ({
         id: agent.id,
         name: agent.displayName,
         emoji: agent.emoji ?? '🤖',

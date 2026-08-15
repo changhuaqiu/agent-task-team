@@ -183,6 +183,22 @@ describe('runtime ownership architecture', () => {
     expect(source('src/lib/agent-context/ContextManager.ts')).not.toContain('p0Intact');
   });
 
+  it('keeps the formal Team Runtime roster as the sole team identity input for context', () => {
+    const productionFiles = productionTypeScriptFiles('src');
+    const retiredStaticRosterSeam = /\bgetAllRoleCards\b|\bbuildTeamLayer\b/;
+    expect(productionFiles.filter((path) => retiredStaticRosterSeam.test(source(path)))).toEqual([]);
+
+    const contextManager = source('src/lib/agent-context/ContextManager.ts');
+    const tierContext = source('src/lib/agent-context/tiers/tierContext.ts');
+    const knowledgeTier = source('src/lib/agent-context/tiers/knowledgeTier.ts');
+    const planner = source('src/server/invocation-pipeline/context-planner.ts');
+    expect(contextManager).toContain('getRuntimeRoster(conversationId: string): Promise<RuntimeAgent[]>;');
+    expect(tierContext).not.toContain('allRoleCards');
+    expect(knowledgeTier).toContain('runtimeRoster.map');
+    expect(knowledgeTier).not.toContain('AGENT_ROSTER');
+    expect(planner).toContain('getRuntimeRoster: async () => runtime.roster');
+  });
+
   it('keeps production Agent engines aligned with the ACP Catalog', () => {
     const runtimeIdentityFiles = [
       'src/server/types.ts',
