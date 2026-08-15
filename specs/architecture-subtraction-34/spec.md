@@ -34,4 +34,10 @@
 
 ## Verification
 
-- 待执行并精确记录。
+- `pnpm install --offline --frozen-lockfile`：通过；719 packages，锁文件未变。
+- 基线 `pnpm exec vitest run src/__tests__/lib/team-runtime/team-runtime.test.ts src/server/a2a/command-guard.test.ts src/__tests__/api/state/mutations.test.ts src/__tests__/architecture/runtime-ownership.test.ts --reporter=dot`：4 files / 93 tests 通过。
+- `pnpm exec tsc --noEmit`：通过。
+- 实现后同一定向命令：4 files / 94 tests 通过。
+- `pnpm build`：通过；保留既有 Next.js NFT tracing warning。
+- `pnpm test -- --run --reporter=dot`：执行完成；205 files / 1515 tests 通过，2 files / 2 tests skipped，1 file / 1 test failed。唯一失败为稳定基线 `src/server/autonomous-delivery/control-runtime.test.ts:131`，本轮定向链与生产构建均通过，不将全量 suite 误记为全绿。
+- 独立复审待执行。
