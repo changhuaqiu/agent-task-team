@@ -4,5 +4,5 @@
 - [x] 先同步 Round36 规格、当前架构 wiki、daemon 说明与活动控制面契约。
 - [x] 将 handoff 准入收进 Team Runtime 直接 interface，删除嵌套 policy Module/type。
 - [x] 迁移真实 Team Runtime / Command Guard 测试并强化架构防回流守卫。
-- [ ] 完成 TypeScript、定向测试、构建、全量测试与独立复审。
-- [ ] 归档规格并完成交付门禁。
+- [x] 完成 TypeScript、定向测试、构建、全量测试与独立复审。
+- [x] 归档规格并完成交付门禁。
