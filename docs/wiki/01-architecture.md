@@ -176,7 +176,7 @@ Dispatch Gateway → ExecutionEnvelope → ACP Runtime
 
 - `TeamRuntime.roster`：当前项目可展示、可绑定、可派发、可注入 prompt 的团队成员。
 - `RuntimeAgentProfile`：单个成员的执行资料，包含账号、engine、RoleCard、Skill、TeamPack 和 roster。
-- `CommunicationPolicy`：A2A handoff 是否允许，以及被阻止时的用户可读说明。
+- `CommunicationPolicy`：一次返回 A2A handoff 的阻止原因；`undefined` 表示允许，字符串表示用户可读的拒绝说明，不再暴露重复 predicate 或未接线 escalation resolver。
 - `WorkflowPolicy`：根据 TeamPack workflow 与当前 roster 选择会话的初始任务负责人；后续任务推进归 Task Graph / Platform Harness，不在 Team Runtime 暴露未接线的角色路由。
 
 当前落地链路：
