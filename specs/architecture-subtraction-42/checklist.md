@@ -9,4 +9,4 @@
 - [x] Proof envelope/conversation/domain-key 查询保持。
 - [x] 架构守卫阻止六个旧 interface 回流。
 - [x] 文档、类型、定向、build 与全量结果精确记录。
-- [ ] 独立复审为 Critical 0 / Important 0。
+- [x] 独立复审为 Critical 0 / Important 0。
