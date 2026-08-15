@@ -178,3 +178,7 @@ A2A Command Guard 是 `CommunicationPolicy` 的唯一生产消费者，但旧 in
 ## 第三十六轮：删除嵌套 CommunicationPolicy
 
 第三十四轮收敛重复 predicate 后，`CommunicationPolicy` 只剩一个 `explainBlock(from, to)` 方法；它没有第二种 adapter、状态或跨进程边界，唯一生产消费者也只是从 `TeamRuntime.communicationPolicy` 取出该方法。这层嵌套 interface 没有隐藏额外复杂度。第三十六轮将矩阵/default-team 兼容实现内聚到 Team Runtime，直接暴露 `explainHandoffBlock()`，Command Guard 只跨一个正式 interface；删除独立 policy 类型、resolver 文件和嵌套字段。无 TeamPack、普通矩阵、default-team 四人补全、Human 豁免、roster 顺序、reason code、TeamPack 数据与 Context prompt 保持不变。
+
+## 第三十七轮：删除 Team Runtime 重复账号候选类型
+
+账号 Provider、认证模式、Base URL、模型、启用/验证状态与 API Key readiness 已经由 `account-auth.ts` 的 `AccountExecutionCandidate` 和 `isAccountReadyForExecution()` 统一拥有，但 Team Runtime 又声明了逐字段相同的 `RuntimeAccountInput`，并为 `AccountProvider` 增加零消费者的 `RuntimeAccountProvider` 改名。这两个公开类型没有 adapter、迁移或验证职责，只让共享账号规则存在第二份可能漂移的 schema。第三十七轮让 `resolveRuntimeAgentProfile()` 直接接受共享候选类型与账号 `id` 的交集，删除重复 interface、Provider 别名和 barrel 重导出。浏览器 Store、Invocation Pipeline、Evaluation Snapshot、历史 engine 迁移、runtime selection、daemon 最终执行复核和凭据边界保持不变。

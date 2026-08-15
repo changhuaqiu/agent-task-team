@@ -75,6 +75,7 @@ Resolution rules after team-first fusion:
 9. Synthesized TeamPack role snapshots must preserve execution semantics: implementation roles such as backend/frontend/coder can modify code and create files, while reviewer/planner/QA roles remain propose-only unless explicitly bound to a modifying RoleCard.
 10. Preset TeamPacks should bind each known role to the matching preset RoleCard so runtime prompts do not accidentally downgrade implementers into advisory-only roles.
 11. The browser `Agent` projection does not duplicate RoleCard facts as `role` or `roleLabel`. `TeamPackRole.displayName` remains the member name even when its snapshot RoleCard has a different display name; UI, mentions and prompt presentation resolve global/snapshot RoleCards through the Team Runtime-backed `getAgentRoleCard(agentId)` selector. Missing cards remain visibly unclassified instead of falling back to a guessed three-state role.
+12. Runtime account readiness fields and validation are owned by `src/lib/account-auth.ts`. Team Runtime profile resolution consumes that shared candidate contract plus account `id`; it must not maintain parallel Provider or account-input aliases.
 
 ## Acceptance Criteria
 
