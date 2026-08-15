@@ -31,4 +31,10 @@
 
 ## Verification
 
-- 待执行。
+- `pnpm install --offline --frozen-lockfile`：719 packages，通过。
+- 冻结基线：7 files / 105 tests 通过。
+- `pnpm exec tsc --noEmit`：通过。
+- 实现后定向：8 files / 106 tests 通过，覆盖 TeamPack repository/API/role config/seed/runtime、真实 SQLite migration、evaluation recovery 与架构守卫。
+- `pnpm build`：通过；仅有既有 Turbopack NFT 动态路径警告。
+- 全量测试执行完成：205 files / 1519 tests 通过，2 files / 2 tests 跳过，1 file / 1 test 失败；唯一失败为稳定基线 `src/server/autonomous-delivery/control-runtime.test.ts:131`。
+- 独立复审：待执行。
