@@ -29,4 +29,10 @@
 
 ## Verification
 
-- 待执行。
+- `pnpm install --offline --frozen-lockfile`：719 packages，通过。
+- 冻结基线：7 files / 73 tests 通过。
+- 实现后定向：7 files / 73 tests 通过，覆盖 Task Graph repository/API、工程协作、Outcome、Observation projection 与架构守卫。
+- `pnpm exec tsc --noEmit`：通过。
+- `pnpm build`：通过；仅有既有 Turbopack NFT 动态路径警告。
+- 最终全量：205 files / 1511 tests 通过，2 files / 2 tests 跳过，1 file / 1 test 失败；唯一失败为稳定基线 `src/server/autonomous-delivery/control-runtime.test.ts:131`。
+- 独立复审：待执行。
