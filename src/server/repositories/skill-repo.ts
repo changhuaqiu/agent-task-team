@@ -234,13 +234,6 @@ export const skillRepo = {
     });
   },
 
-  getSkillIdsForAgent(agentId: string): string[] {
-    const rows = getDb()
-      .prepare('SELECT skill_id FROM agent_skill WHERE agent_id = ?')
-      .all(agentId) as { skill_id: string }[];
-    return rows.map((r) => r.skill_id);
-  },
-
   getAllAgentSkillIds(): Record<string, string[]> {
     const rows = getDb()
       .prepare('SELECT agent_id, skill_id FROM agent_skill ORDER BY agent_id, skill_id')

@@ -341,13 +341,6 @@ export const invocationRepo = {
     }).immediate();
   },
 
-  getByAgent(agentId: string, options?: { limit?: number }): InvocationRow[] {
-    const limit = options?.limit ?? 50;
-    return getDb()
-      .prepare('SELECT * FROM invocation WHERE agent_id = ? ORDER BY created_at DESC LIMIT ?')
-      .all(agentId, limit) as InvocationRow[];
-  },
-
   getByConversation(convId: string): InvocationRow[] {
     return getDb()
       .prepare('SELECT * FROM invocation WHERE conversation_id = ? ORDER BY created_at ASC')

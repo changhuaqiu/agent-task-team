@@ -7,6 +7,10 @@ import type Database from 'better-sqlite3';
 
 let db: Database.Database;
 
+const skillIdsForAgent = (agentId: string): string[] => (
+  skillRepo.getSkillsForAgent(agentId).map((skill) => skill.id)
+);
+
 beforeEach(() => {
   db = createTestDb();
   setTestDb(db);
@@ -150,7 +154,7 @@ describe('skillRepo', () => {
       // files gone
       expect(skillRepo.listFiles(skill.id)).toHaveLength(0);
       // agent association gone
-      expect(skillRepo.getSkillIdsForAgent('agent-1')).toHaveLength(0);
+      expect(skillIdsForAgent('agent-1')).toHaveLength(0);
     });
   });
 
@@ -216,7 +220,7 @@ describe('skillRepo', () => {
       skillRepo.assignToAgent('agent-x', s1.id);
       skillRepo.assignToAgent('agent-x', s2.id);
 
-      const ids = skillRepo.getSkillIdsForAgent('agent-x');
+      const ids = skillIdsForAgent('agent-x');
       expect(ids).toHaveLength(2);
       expect(ids).toContain(s1.id);
       expect(ids).toContain(s2.id);
@@ -227,7 +231,7 @@ describe('skillRepo', () => {
       skillRepo.assignToAgent('agent-y', s1.id);
 
       skillRepo.removeAgentAssignment('agent-y', s1.id);
-      expect(skillRepo.getSkillIdsForAgent('agent-y')).toHaveLength(0);
+      expect(skillIdsForAgent('agent-y')).toHaveLength(0);
     });
 
     it('setAgentSkills replaces all assignments', () => {
@@ -237,7 +241,7 @@ describe('skillRepo', () => {
       skillRepo.assignToAgent('agent-z', s1.id);
       skillRepo.setAgentSkills('agent-z', [s2.id]);
 
-      const ids = skillRepo.getSkillIdsForAgent('agent-z');
+      const ids = skillIdsForAgent('agent-z');
       expect(ids).toHaveLength(1);
       expect(ids).toContain(s2.id);
     });
@@ -267,11 +271,11 @@ describe('seedPresetSkills', () => {
     expect(receipt!.content).toContain('mainImpactReviewResult');
     expect(receipt!.content).toContain('reviewReceipt');
     for (const agentId of ['mario', 'luigi', 'toad', 'peach', 'dk', 'yoshi', 'planner', 'coder', 'reviewer', 'researcher', 'analyst', 'writer']) {
-      expect(skillRepo.getSkillIdsForAgent(agentId)).toContain(receipt!.id);
+      expect(skillIdsForAgent(agentId)).toContain(receipt!.id);
     }
-    expect(skillRepo.getSkillIdsForAgent('mario')).toContain(management!.id);
-    expect(skillRepo.getSkillIdsForAgent('planner')).toContain(management!.id);
-    expect(skillRepo.getSkillIdsForAgent('peach')).not.toContain(management!.id);
+    expect(skillIdsForAgent('mario')).toContain(management!.id);
+    expect(skillIdsForAgent('planner')).toContain(management!.id);
+    expect(skillIdsForAgent('peach')).not.toContain(management!.id);
   });
 
   it('idempotently backfills narrow receipt assignments into an existing seeded database', () => {
@@ -289,10 +293,10 @@ describe('seedPresetSkills', () => {
     const receipt = skillRepo.getByName('task-status-receipt');
     expect(receipt).toBeDefined();
     for (const agentId of ['mario', 'luigi', 'toad', 'peach', 'dk', 'yoshi', 'planner', 'coder', 'reviewer', 'researcher', 'analyst', 'writer']) {
-      expect(skillRepo.getSkillIdsForAgent(agentId).filter((id) => id === receipt!.id)).toHaveLength(1);
+      expect(skillIdsForAgent(agentId).filter((id) => id === receipt!.id)).toHaveLength(1);
     }
-    expect(skillRepo.getSkillIdsForAgent('peach')).not.toContain(existing.id);
-    expect(skillRepo.getSkillIdsForAgent('planner')).toContain(existing.id);
+    expect(skillIdsForAgent('peach')).not.toContain(existing.id);
+    expect(skillIdsForAgent('planner')).toContain(existing.id);
   });
 
   it('updates existing Task presets to the canonical status contract', () => {
@@ -328,7 +332,7 @@ describe('seedPresetSkills', () => {
     expect(skill!.content).toContain('GitLab: use `glab` first');
 
     for (const agentId of ['mario', 'luigi', 'toad', 'peach', 'dk', 'yoshi', 'planner', 'coder', 'reviewer', 'researcher', 'analyst', 'writer']) {
-      expect(skillRepo.getSkillIdsForAgent(agentId)).toContain(skill!.id);
+      expect(skillIdsForAgent(agentId)).toContain(skill!.id);
     }
   });
 

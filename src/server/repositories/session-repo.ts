@@ -32,14 +32,6 @@ export interface SessionExecutionProfile {
 }
 
 export const sessionRepo = {
-  findActive(agentId: string, taskId: string): AgentSessionRow | undefined {
-    return getDb()
-      .prepare(
-        'SELECT * FROM agent_session WHERE agent_id = ? AND task_id = ? AND status = ? ORDER BY seq DESC LIMIT 1',
-      )
-      .get(agentId, taskId, 'active') as AgentSessionRow | undefined;
-  },
-
   findActiveByConversation(agentId: string, conversationId: string, isolationKey = ''): AgentSessionRow | undefined {
     return getDb()
       .prepare(

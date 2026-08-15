@@ -321,14 +321,14 @@ describe('session-repo', () => {
       agentId: 'agent-a',
       taskId: 'task-1',
     });
-    const found = sessionRepo.findActive('agent-a', 'task-1');
+    const found = sessionRepo.findActiveByConversation('agent-a', 'conv-1');
     expect(found).toBeDefined();
     expect(found!.id).toBe('ses-1');
     expect(found!.status).toBe('active');
   });
 
   it('returns undefined when no active session', () => {
-    expect(sessionRepo.findActive('agent-a', 'task-1')).toBeUndefined();
+    expect(sessionRepo.findActiveByConversation('agent-a', 'conv-1')).toBeUndefined();
   });
 
   it('increments message count', () => {
@@ -347,10 +347,10 @@ describe('session-repo', () => {
     expect(sealed.sealed_at).toBeTruthy();
   });
 
-  it('findActive returns undefined after sealing', () => {
+  it('findActiveByConversation returns undefined after sealing', () => {
     sessionRepo.create({ id: 'ses-1', conversationId: 'conv-1', agentId: 'agent-a', taskId: 'task-1' });
     sessionRepo.seal('ses-1', 'done');
-    expect(sessionRepo.findActive('agent-a', 'task-1')).toBeUndefined();
+    expect(sessionRepo.findActiveByConversation('agent-a', 'conv-1')).toBeUndefined();
   });
 
   it('lists active sessions by conversation', () => {
@@ -686,14 +686,6 @@ describe('invocation-repo', () => {
     expect(inv.status).toBe('terminated');
     expect(inv.outcome).toBe('failed');
     expect(inv.error_message).toBe('OOM');
-  });
-
-  it('gets invocations by agent', () => {
-    invocationRepo.create({ id: 'inv-1', conversation_id: 'conv-1', agent_id: 'agent-a' });
-    invocationRepo.create({ id: 'inv-2', conversation_id: 'conv-1', agent_id: 'agent-b' });
-    const invs = invocationRepo.getByAgent('agent-a');
-    expect(invs.length).toBe(1);
-    expect(invs[0].id).toBe('inv-1');
   });
 
   it('gets invocations by conversation', () => {
