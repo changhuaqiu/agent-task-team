@@ -8,4 +8,4 @@
 - [x] 工程协作与 outcome 测试穿过正式聚合读面。
 - [x] 架构守卫阻止两个旧 interface 回流。
 - [x] 文档、类型、定向、build 与全量结果记录。
-- [ ] 独立复审为 Critical 0 / Important 0。
+- [x] 独立复审为 Critical 0 / Important 0。
