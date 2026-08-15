@@ -801,6 +801,28 @@ describe('runtime ownership architecture', () => {
     expect(outboxSource).not.toMatch(/private fail\([\s\S]*?registration:/);
   });
 
+  it('keeps Workdir and Worktree implementation details behind their owners', () => {
+    const workdirSource = source('src/server/workdir-manager.ts');
+    const production = productionTypeScriptFiles('src').map((path) => source(path)).join('\n');
+
+    for (const retired of ['refreshContextFiles', '.ath-role.md', '.ath-team.md', 'activeDirs']) {
+      expect(production).not.toContain(retired);
+    }
+
+    expect(workdirSource).toMatch(/private async resolveProjectWorkdir\(/);
+    expect(exportedSurface('src/server/workdir-manager.ts')).toEqual(expect.not.arrayContaining([
+      'SessionMeta',
+      'GCMeta',
+      'safeWorkdirSegment',
+    ]));
+    expect(exportedSurface('src/server/worktree-manager.ts')).toEqual(expect.not.arrayContaining([
+      'BRANCH_PREFIX',
+      'WorktreeInfo',
+    ]));
+    expect(exportedSurface('src/server/workdir-manager.ts')).toContain('WorkdirManager');
+    expect(exportedSurface('src/server/worktree-manager.ts')).toContain('WorktreeManager');
+  });
+
   it('allows global broadcast only for the system runtime catalog', () => {
     const broadcastEvents = Array.from(
       daemon.matchAll(/\bbroadcast\('([^']+)'/g),

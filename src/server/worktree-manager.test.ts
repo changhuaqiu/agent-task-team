@@ -4,7 +4,9 @@ import path from 'node:path';
 import os from 'node:os';
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
-import { WorktreeManager, BRANCH_PREFIX } from './worktree-manager';
+import { WorktreeManager } from './worktree-manager';
+
+const EXPECTED_BRANCH_PREFIX = 'worktree';
 
 const execAsync = promisify(exec);
 
@@ -25,7 +27,7 @@ describe('WorktreeManager', { timeout: 15_000 }, () => {
 
   it('should create a worktree with worktree/ prefix from main', async () => {
     const info = await manager.createWorktree('conv-abc123');
-    expect(info.branch).toBe(`${BRANCH_PREFIX}/conv-abc123`);
+    expect(info.branch).toBe(`${EXPECTED_BRANCH_PREFIX}/conv-abc123`);
     expect(fs.existsSync(info.path)).toBe(true);
   });
 
@@ -60,7 +62,7 @@ describe('WorktreeManager', { timeout: 15_000 }, () => {
 
   it('should return correct branch name', () => {
     const b = manager.getBranchName('conv-branch');
-    expect(b).toBe(`${BRANCH_PREFIX}/conv-branch`);
+    expect(b).toBe(`${EXPECTED_BRANCH_PREFIX}/conv-branch`);
   });
 
   it('should return valid head commit in worktree info', async () => {
@@ -87,8 +89,8 @@ describe('WorktreeManager', { timeout: 15_000 }, () => {
 
       expect(path.dirname(info.path)).toBe(fs.realpathSync(storageRoot));
       expect(info.head).toBe(expectedHead);
-      const { stdout } = await execAsync(`git branch --list "${BRANCH_PREFIX}/conv-external"`, { cwd: testRepo });
-      expect(stdout).toContain(`${BRANCH_PREFIX}/conv-external`);
+      const { stdout } = await execAsync(`git branch --list "${EXPECTED_BRANCH_PREFIX}/conv-external"`, { cwd: testRepo });
+      expect(stdout).toContain(`${EXPECTED_BRANCH_PREFIX}/conv-external`);
     } finally {
       fs.rmSync(storageRoot, { recursive: true, force: true });
     }
@@ -105,7 +107,7 @@ describe('WorktreeManager', { timeout: 15_000 }, () => {
 
       expect(fs.existsSync(legacy.path)).toBe(false);
       expect(path.dirname(migrated.path)).toBe(fs.realpathSync(storageRoot));
-      expect(migrated.branch).toBe(`${BRANCH_PREFIX}/conv-migrate`);
+      expect(migrated.branch).toBe(`${EXPECTED_BRANCH_PREFIX}/conv-migrate`);
       expect(migrated.head).toBe(currentHead);
     } finally {
       fs.rmSync(storageRoot, { recursive: true, force: true });
@@ -167,12 +169,12 @@ describe('WorktreeManager', { timeout: 15_000 }, () => {
 
   it('attaches an existing unregistered conversation branch', async () => {
     const currentHead = await WorktreeManager.getHead(testRepo);
-    await execAsync(`git branch "${BRANCH_PREFIX}/conv-unregistered" "${currentHead}"`, { cwd: testRepo });
+    await execAsync(`git branch "${EXPECTED_BRANCH_PREFIX}/conv-unregistered" "${currentHead}"`, { cwd: testRepo });
     const storageRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'worktree-unregistered-storage-'));
     try {
       const attached = await new WorktreeManager(testRepo, storageRoot)
         .createWorktree('conv-unregistered', currentHead!);
-      expect(attached.branch).toBe(`${BRANCH_PREFIX}/conv-unregistered`);
+      expect(attached.branch).toBe(`${EXPECTED_BRANCH_PREFIX}/conv-unregistered`);
       expect(attached.head).toBe(currentHead);
     } finally {
       fs.rmSync(storageRoot, { recursive: true, force: true });

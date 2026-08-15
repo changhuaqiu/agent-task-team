@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { resolveNonWorktreeExecutionCwd, safeWorkdirSegment, stableWorkdirTaskKey, WorkdirManager } from '@/server/workdir-manager';
+import { resolveNonWorktreeExecutionCwd, stableWorkdirTaskKey, WorkdirManager } from '@/server/workdir-manager';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
@@ -55,7 +55,7 @@ describe('WorkdirManager', () => {
     it('encodes Windows-reserved characters in scoped task IDs', async () => {
       const taskId = 'conv-1:TASK-001';
       const wd = await mgr().resolveWorkdir('peach', 'conv-1', taskId);
-      expect(path.basename(path.dirname(wd))).toBe(`task-${safeWorkdirSegment(taskId)}`);
+      expect(path.basename(path.dirname(wd))).toMatch(/^task-conv-1_TASK-001~[0-9a-f]{8}$/);
       expect(wd).not.toContain(':TASK');
       expect(fs.existsSync(wd)).toBe(true);
     });

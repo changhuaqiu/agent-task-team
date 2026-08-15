@@ -248,3 +248,7 @@ A2A、ACP 与 Autonomous Delivery 的正式模块已经由可调用 class/functi
 ## 第五十三轮：ACP 测试统一穿过正式 interface
 
 ACP event mapper、WorkContract permission 与 session-load failure handling 各自保留了一组只供测试直接调用的内部 helper export。生产调用方从不消费这些名字：事件只穿过 turn-scoped mapper，daemon 只构造带 authority/epoch 复核的 WorkContract policy，会话分类与诊断脱敏只由 AcpBackend 使用。第五十三轮把五个 helper 收回 implementation，并将测试替换为从正式 mapper/backend/policy 观察 AgentEvent、AgentResult、reason code、visible error 与脱敏输出；真实 smoke 需要的 active-run count 和正式 correlated MCP/permission handler 保持公开。
+
+## 第五十四轮：收窄 Workdir / Worktree interface 并删除假状态
+
+工作目录 owner 遗留了一条从未接入 runtime、ContextManager 或 watcher 的 `refreshContextFiles()`：它独自写入 `.ath-role.md` 与 `.ath-team.md`，全仓没有 reader，因此不是兼容能力。`activeDirs` 同样只有 add/delete、没有任何读取，不能表达 GC 或健康状态。第五十四轮直接删除这条不可达功能与假状态，把只供 owner 使用的路径编码、session/GC row、Worktree 分支前缀与返回 row 收回 implementation，并将只由 `resolveWorkdir()` 调用的项目 Worktree 解析标为 private。正式 runtime 继续只穿过 cwd 解析、session/GC 元数据和 Worktree lifecycle interface；测试从最终路径及真实 Git 行为验证结果。
