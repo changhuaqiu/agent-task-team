@@ -37,4 +37,6 @@
 - 基线定向命令：`pnpm exec vitest run src/__tests__/lib/team-runtime/team-runtime.test.ts src/__tests__/architecture/account-runtime-reachability.test.ts src/server/evaluation/application-snapshot.test.ts src/__tests__/store/server-hydration-runtime.test.ts src/__tests__/store/team-role-card-compatibility.test.ts --reporter=dot`，5 files / 61 tests 通过。
 - 实现后同一定向命令：5 files / 62 tests 通过；新增共享账号候选唯一 owner 架构守卫。
 - `pnpm exec tsc --noEmit`：通过。
-- 构建、全量测试与独立复审待完成。
+- `pnpm build`：通过；保留既有 Next.js NFT tracing warning。
+- `pnpm test -- --run --reporter=dot`：执行完成；205 files / 1518 tests 通过，2 files / 2 tests skipped，1 file / 1 test failed。唯一失败为稳定基线 `src/server/autonomous-delivery/control-runtime.test.ts:131`；本轮定向链与生产构建均通过，不将全量 suite 误记为全绿。
+- 独立复审待完成。
