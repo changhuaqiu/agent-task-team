@@ -1,6 +1,6 @@
 # Architecture Subtraction — Round 33
 
-> Status: active
+> Status: implemented
 > Date: 2026-08-15
 
 ## Goal
@@ -42,3 +42,5 @@
 - `pnpm build`：通过；保留既有 Next.js NFT tracing warning。
 - `pnpm test -- --run --reporter=dot`：执行完成；205 files / 1514 tests 通过，2 files / 2 tests skipped，1 file / 1 test failed。唯一失败为稳定基线 `src/server/autonomous-delivery/control-runtime.test.ts:131`，本轮定向链与生产构建均通过，不将全量 suite 误记为全绿。
 - 首轮独立复审：Critical 0 / Important 1 / Minor 1；要求回填验证事实并锁定 barrel/旧 `Task` 类型不回流，已修复，等待聚焦复审。
+- 修复后 `pnpm exec tsc --noEmit` 与同一定向命令再次通过：4 files / 93 tests。
+- 最终独立复审：Critical 0 / Important 0 / Minor 0；Ready: Yes。

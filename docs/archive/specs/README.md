@@ -52,6 +52,7 @@
 | `architecture-subtraction-30/` | implemented | 第三十轮删除浏览器平行账号→engine resolver 与 Store mapping facade，任务详情统一消费 Team Runtime Profile，并在展示、切项目和执行边界阻断跨项目 stale task |
 | `architecture-subtraction-31/` | implemented | 第三十一轮删除浏览器 Agent 的重复 role/roleLabel 事实与零消费者 lookup action，成员身份与 global/TeamPack snapshot RoleCard 岗位展示统一经 Team Runtime 解析 |
 | `architecture-subtraction-32/` | implemented | 第三十二轮删除 ContextManager 的静态团队 roster fallback 与平行 RoleCard 花名册输入，上下文团队身份只消费 Team Runtime roster |
+| `architecture-subtraction-33/` | implemented | 第三十三轮删除 Team Runtime 零消费者的后续角色路由、重复通信策略与伪分配对象，工作流只保留真实初始负责人选择 |
 | `four-agent-pr-review-loop/` | implemented | 四 Agent PR 交付、评审、修复与合并证据闭环已落地 |
 | `github-issue-agent-hook/` | implemented | GitHub Issue 验签、幂等建项与自主交付链已落地；长期设计见 `docs/technical/integrations/github-issue-agent-hook.md` |
 | `open-issues-33-35/` | implemented | A2A 分派意图、首次交接身份、默认 TeamPack 升级与上下文去重修复已验收 |
