@@ -57,6 +57,7 @@
 | `architecture-subtraction-35/` | implemented | 第三十五轮删除单 getter WorkflowPolicy，Team Runtime 直接产出初始负责人值并保留四模式与任务创建顺序 |
 | `architecture-subtraction-36/` | implemented | 第三十六轮删除嵌套 CommunicationPolicy，Team Runtime 直接提供 A2A handoff 准入结果并保留矩阵/default-team/Human 边界 |
 | `architecture-subtraction-37/` | implemented | 第三十七轮删除 Team Runtime 重复账号候选 interface 与 Provider 别名，账号 readiness schema 只由 `account-auth` 拥有 |
+| `architecture-subtraction-38/` | implemented | 第三十八轮删除服务端 `CliEngine` 同义别名与 Store 重导出，让 daemon、Invocation 与浏览器投影统一使用 `RuntimeCliEngine`，保留真实 `DetectedRuntime` 链 |
 | `four-agent-pr-review-loop/` | implemented | 四 Agent PR 交付、评审、修复与合并证据闭环已落地 |
 | `github-issue-agent-hook/` | implemented | GitHub Issue 验签、幂等建项与自主交付链已落地；长期设计见 `docs/technical/integrations/github-issue-agent-hook.md` |
 | `open-issues-33-35/` | implemented | A2A 分派意图、首次交接身份、默认 TeamPack 升级与上下文去重修复已验收 |
