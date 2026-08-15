@@ -101,7 +101,7 @@ Repository 当前覆盖的核心对象：
 - `skillRepo` — skill CRUD、文件管理、agent 绑定（[`skill-repo.ts`](../../src/server/repositories/skill-repo.ts)）
 
 新增模块：
-- [`src/server/workdir-manager.ts`](../../src/server/workdir-manager.ts) — WorkdirManager：per-task 工作目录创建、session 元数据读写、GC
+- [`src/server/workdir-manager.ts`](../../src/server/workdir-manager.ts) — WorkdirManager：统一拥有 per-task cwd 解析、session/GC 元数据与 Worktree GC；路径编码和元数据 row 属于内部实现，不生成无人消费的 role/team sidecar 文件
 - [`src/lib/agent-context/layers/toolLayer.ts`](../../src/lib/agent-context/layers/toolLayer.ts) — 从 skill.config.tools 生成 tool 定义注入 prompt
 - [`src/server/task-file-service.ts`](../../src/server/task-file-service.ts) — TaskFileService：md 读写解析（ParsedTask + ParsedBlocker + 格式兼容）
 - [`src/server/task-file-watcher.ts`](../../src/server/task-file-watcher.ts) — TaskFileWatcher：chokidar 文件监听 + DB 创建/更新 + Socket 广播
