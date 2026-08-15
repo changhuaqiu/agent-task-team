@@ -1,6 +1,13 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  outputFileTracingExcludes: {
+    '/*': [
+      'src/test-helpers/**/*',
+      'src/**/*.test.ts',
+      'src/**/*.test.tsx',
+    ],
+  },
   allowedDevOrigins: [
     '127.0.0.1',
     'localhost',

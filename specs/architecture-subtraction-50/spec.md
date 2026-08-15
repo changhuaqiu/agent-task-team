@@ -19,7 +19,7 @@
 1. 将 ACP mock agent 与其测试迁到 `src/test-helpers/acp/`，所有 AcpBackend subprocess 测试从该路径启动，不改变 scripted scenario 或 stdio 行为。
 2. 将 GitHub Issue config/payload fixture 迁到 `src/test-helpers/github-issue-hook.ts`，route/compiler/ingress 测试共用该唯一测试 seam。
 3. 收回二十三个同文件-only export；保留实现、错误类型、reason code、默认值与调用顺序，不新增替代 wrapper。
-4. 正式 `src/server` 不再包含测试 double/fixture；`AcpBackend`、GitHub ingress、Daemon Store、Context contributor、repository lifecycle 和 UI TokenBadge 行为保持。
+4. 正式 `src/server` 不再包含测试 double/fixture，Next output tracing 也全局排除 test-helper 与测试源文件；`AcpBackend`、GitHub ingress、Daemon Store、Context contributor、repository lifecycle 和 UI TokenBadge 行为保持。
 5. 架构守卫锁定旧生产 fixture 路径不存在、测试 helper 无生产 import，并用 AST 锁定内部符号不重新进入公共 surface。
 
 ## Exit Criteria
@@ -36,4 +36,6 @@
 - `pnpm exec tsc --noEmit` 通过。
 - `pnpm build` 通过；仅保留 `next.config.ts` 既有整项目 NFT tracing warning。实际 `.next/server/**/*.js` 中没有 mock agent、测试 secret 或 test-helper 路径。
 - 非并行全量执行完成：205 files / 1510 tests 通过，2 files / 2 tests 跳过；唯一失败仍为稳定基线 `src/server/autonomous-delivery/control-runtime.test.ts:131`，该文件不在本轮 diff。
-- 独立复审待回填。
+- 首轮独立复审：Critical 0 / Important 1 / Minor 0；发现 Next NFT tracing 仍把 test-helper 纳入部署文件清单。
+- 修复后通过 Next 16 `outputFileTracingExcludes` 全局排除 `src/test-helpers/**/*` 与 `src/**/*.test.{ts,tsx}`；`pnpm build` 通过，逐个解析 50 份 `.next/**/*.nft.json` 后测试源命中为 0，生成的 server JS 中 test-helper/mock/fixture 符号命中为 0。
+- 修复后定向回归 8 files / 85 tests 通过，`pnpm exec tsc --noEmit` 通过；最终独立复审待回填。

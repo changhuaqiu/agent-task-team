@@ -72,6 +72,7 @@ function exportedSurface(path: string): Set<string> {
 }
 
 describe('runtime ownership architecture', () => {
+  const nextConfig = source('next.config.ts');
   const daemon = source('src/server/daemon.ts');
   const taskHubStore = source('src/store/taskHubStore.ts');
   const deliveryApi = source('src/pages/api/autonomous-delivery.ts');
@@ -621,6 +622,9 @@ describe('runtime ownership architecture', () => {
     expect(existsSync(resolve(process.cwd(), 'src/server/github-issue-hook/test-fixtures.ts'))).toBe(false);
     expect(existsSync(resolve(process.cwd(), 'src/test-helpers/acp/mockAcpAgent.ts'))).toBe(true);
     expect(existsSync(resolve(process.cwd(), 'src/test-helpers/github-issue-hook.ts'))).toBe(true);
+    expect(nextConfig).toContain("'src/test-helpers/**/*'");
+    expect(nextConfig).toContain("'src/**/*.test.ts'");
+    expect(nextConfig).toContain("'src/**/*.test.tsx'");
     expect(
       productionTypeScriptFiles('src/server').filter((path) => /(?:mock|fixture)/i.test(path)),
     ).toEqual([]);

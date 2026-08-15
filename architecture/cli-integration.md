@@ -172,7 +172,7 @@ Catalog（`src/server/agent/acp/agentCatalog.seed.json`）是启动事实源（s
 
 三种运行时只有 ACP 通路，能力事实由 Catalog 的 `verifiedCapabilities`、ACP `initialize` 握手和兼容测试共同证明。daemon 构造一次 `ExecOptions` 并直接交给 `AcpBackend.execute()`；不再维护已恒等化的手工 `CapabilitySet` 或运行前降级器。
 
-ACP scripted mock 是测试 Adapter，位于 `src/test-helpers/acp/mockAcpAgent.ts`；生产 `src/server/agent/acp/` 只包含 Catalog、setup、唯一 backend 与协议映射，不承载可启动的 mock runtime。
+ACP scripted mock 是测试 Adapter，位于 `src/test-helpers/acp/mockAcpAgent.ts`；生产 `src/server/agent/acp/` 只包含 Catalog、setup、唯一 backend 与协议映射，不承载可启动的 mock runtime。Next output tracing 全局排除 test-helper 与测试源，部署 NFT 不携带该 mock。
 
 已有 runtime session id 时 `AcpBackend` 使用 `session/load`，运行时握手未声明 `loadSession` 则失败关闭；system prompt、cwd/env 与 timeout 同样通过稳定执行契约传入，不按 runtime 名称猜测或静默丢弃。
 

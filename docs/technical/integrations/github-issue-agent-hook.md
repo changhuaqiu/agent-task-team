@@ -70,7 +70,7 @@ GitHub
 
 GitHub 是 true external dependency，transport 和 payload 会变化；自主交付是项目内部稳定能力。把 seam 放在“可信外部 Issue -> GoalContract”之间，可以让 route 保持浅薄，让所有业务不变量集中在一个模块，并通过 fake Runtime 与内存 SQLite 从同一 interface 测试。
 
-测试使用的 hook config 与 webhook payload factory 位于 `src/test-helpers/github-issue-hook.ts`；生产 ingress 目录不暴露 fixture，也不把测试默认 secret、仓库或 Issue 当成运行时配置。
+测试使用的 hook config 与 webhook payload factory 位于 `src/test-helpers/github-issue-hook.ts`；生产 ingress 目录不暴露 fixture，Next output tracing 也排除该目录，不把测试默认 secret、仓库或 Issue 带入运行时配置或部署文件清单。
 
 删除该模块后，仓库策略、幂等、事务和编译逻辑会重新散落到 route、Conversation repository 和 Runtime 调用方，因此该模块具有实际深度和维护 locality。
 
