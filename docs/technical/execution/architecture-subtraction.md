@@ -182,3 +182,7 @@ A2A Command Guard 是 `CommunicationPolicy` 的唯一生产消费者，但旧 in
 ## 第三十七轮：删除 Team Runtime 重复账号候选类型
 
 账号 Provider、认证模式、Base URL、模型、启用/验证状态与 API Key readiness 已经由 `account-auth.ts` 的 `AccountExecutionCandidate` 和 `isAccountReadyForExecution()` 统一拥有，但 Team Runtime 又声明了逐字段相同的 `RuntimeAccountInput`，并为 `AccountProvider` 增加零消费者的 `RuntimeAccountProvider` 改名。这两个公开类型没有 adapter、迁移或验证职责，只让共享账号规则存在第二份可能漂移的 schema。第三十七轮让 `resolveRuntimeAgentProfile()` 直接接受共享候选类型与账号 `id` 的交集，删除重复 interface、Provider 别名和 barrel 重导出。浏览器 Store、Invocation Pipeline、Evaluation Snapshot、历史 engine 迁移、runtime selection、daemon 最终执行复核和凭据边界保持不变。
+
+## 第三十八轮：删除服务端 CliEngine 同义别名
+
+正式 Agent engine 已由 Team Runtime 的 `RuntimeCliEngine` 限定为 OpenCode、Claude 与 Codex，但 `server/types.ts` 仍用逐字别名 `CliEngine` 重新命名同一类型，并让 daemon、Invocation Pipeline、Agent Store、Daemon Store 与 TaskHub barrel 跨两套名称传递同一三个字符串。该别名没有服务端专属成员、验证、迁移或 adapter，只扩大了 interface 并制造“浏览器/服务端 engine 可能不同”的假象。第三十八轮让所有生产调用方直接消费 `RuntimeCliEngine`，删除别名与二次重导出；真实 `DetectedRuntime` list/update、任务详情可用性判断、Catalog、runtimeId/provider 映射、历史迁移、持久化与 socket wire shape 保持不变。

@@ -95,6 +95,7 @@ interface AgentCatalogEntry {
 - Catalog 是启动事实源，factory 不再按 engine 写 `switch`。
 - 适配器和 SDK 必须锁定版本，不使用未记录版本的隐式漂移。
 - Catalog 只接受当前已验收的 runtime id；新增 runtime 必须先扩展内部 `EngineId` 并通过兼容套件。
+- 生产 Agent engine 的唯一类型身份是 `RuntimeCliEngine`；daemon、Invocation、Store 和 runtime detection 不得维护服务端或浏览器同义别名。
 - 能力以 ACP 初始化握手与实测结果为准，不按运行时名称猜测。
 
 ### 5.2 AcpBackend

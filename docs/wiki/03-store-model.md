@@ -45,10 +45,12 @@ export interface Agent {
   theme: AgentTheme;
   emoji: string;
   isOnline: boolean;
-  cliEngine?: CliEngine;
+  cliEngine?: RuntimeCliEngine;
   accountIds: string[];
 }
 ```
+
+`RuntimeCliEngine` 是 daemon、Invocation、Team Runtime 与浏览器 Store 共用的唯一 Agent engine 类型；Store 不再维护 `CliEngine` 改名别名。`DetectedRuntime` 仍是 daemon 可用性 list/update 的 transport 投影。
 
 说明：
 
