@@ -376,6 +376,19 @@ describe('resolveTeamRuntime', () => {
     expect(runtime.explainHandoffBlock('peach', 'yoshi')).toBe('团队协作规则阻止了这次转交');
     expect(runtime.explainHandoffBlock('yoshi', 'dk')).toBe('团队协作规则阻止了这次转交');
 
+    const roleIdentifiedRuntime = resolveTeamRuntime({
+      conversationId: 'conv-default-role-identified',
+      teamPack: { ...oldDefaultTeam, name: 'managed-four-role-copy' },
+      presetAgents: [],
+      activeAgentIds: ['mario', 'luigi', 'toad', 'peach', 'dk', 'yoshi'],
+      roleCards: [],
+      skillsMap: {},
+      agentSkillIds: {},
+      agentAccountOverrides: {},
+      agentRoleCardOverrides: {},
+    });
+    expect(roleIdentifiedRuntime.explainHandoffBlock('peach', 'dk')).toBeUndefined();
+
     const missingPeachMatrix = { ...oldDefaultTeam.communicationMatrix };
     delete missingPeachMatrix.peach;
     const runtimeWithoutSenderRow = resolveTeamRuntime({

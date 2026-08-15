@@ -29,8 +29,9 @@ describe('A2ACommandGuard', () => {
   });
 
   it('rejects targets outside the conversation roster', () => {
+    const explainHandoffBlock = vi.fn(() => undefined);
     const guard = new A2ACommandGuard({
-      resolveRuntime: () => runtime(() => undefined),
+      resolveRuntime: () => runtime(explainHandoffBlock),
     });
 
     expect(() => guard.assert({
@@ -41,6 +42,7 @@ describe('A2ACommandGuard', () => {
     })).toThrowError(expect.objectContaining({
       reasonCode: 'a2a_target_not_in_roster',
     }));
+    expect(explainHandoffBlock).not.toHaveBeenCalled();
   });
 
   it('enforces communication policy for agents but not explicit human commands', () => {
