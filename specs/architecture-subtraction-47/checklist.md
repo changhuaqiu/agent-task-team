@@ -1,6 +1,6 @@
 # Acceptance Checklist
 
-- [x] 九个零生产消费者符号删除。
+- [x] 十个零生产消费者符号删除。
 - [x] Task canonical transition 与 direct-action policy 保持。
 - [x] credential 单项生命周期与 account readiness 保持。
 - [x] RoleCard upsert/load 保持。

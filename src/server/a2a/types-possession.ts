@@ -37,18 +37,6 @@ export type PassIntent =
   | 'coord'
   | 'handoff_test';
 
-export type PassBlockPhase =
-  | 'holder'
-  | 'intent'
-  | 'roster'
-  | 'policy'
-  | 'budget'
-  | 'dedup'
-  | 'offer'
-  | 'start'
-  | 'run'
-  | 'idle';
-
 export interface A2APossessionChain {
   id: string;
   conversationId: string;

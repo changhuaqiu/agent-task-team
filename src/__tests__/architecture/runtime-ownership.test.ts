@@ -496,6 +496,7 @@ describe('runtime ownership architecture', () => {
       'WorkflowStepStatus',
       'TeamRole',
       'A2APass',
+      'PassBlockPhase',
       'getTaskCounter',
       'takeInFlightDispatch',
       'nextTaskStatuses',
