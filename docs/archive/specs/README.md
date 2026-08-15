@@ -60,6 +60,7 @@
 | `architecture-subtraction-38/` | implemented | 第三十八轮删除服务端 `CliEngine` 同义别名与 Store 重导出，让 daemon、Invocation 与浏览器投影统一使用 `RuntimeCliEngine`，保留真实 `DetectedRuntime` 链 |
 | `architecture-subtraction-39/` | implemented | 第三十九轮收窄 Task Graph repository interface，删除四个仅供自身使用的 row lookup 方法与重复 commit-row 类型名，保留聚合读模型与真实幂等恢复 |
 | `architecture-subtraction-40/` | implemented | 第四十轮删除未接线的 Agent-TeamPack 并行成员表与六个零消费 repository interface，保留 Conversation→TeamPack→TeamPackRole 正式配置链 |
+| `architecture-subtraction-41/` | implemented | 第四十一轮收窄 Session、Invocation 与 Agent Binding repository，删除 10 个零消费查询/封装 interface，保留正式 runtime lifecycle |
 | `four-agent-pr-review-loop/` | implemented | 四 Agent PR 交付、评审、修复与合并证据闭环已落地 |
 | `github-issue-agent-hook/` | implemented | GitHub Issue 验签、幂等建项与自主交付链已落地；长期设计见 `docs/technical/integrations/github-issue-agent-hook.md` |
 | `open-issues-33-35/` | implemented | A2A 分派意图、首次交接身份、默认 TeamPack 升级与上下文去重修复已验收 |
