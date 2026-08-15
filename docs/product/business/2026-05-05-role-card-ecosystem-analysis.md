@@ -243,6 +243,8 @@ Pragmatic, test-first, frequent commits
 
 **当前产品模型**：TeamPack 已经不只是导入格式，而是项目团队的配置单元。一个项目绑定 TeamPack 后，角色列表、任务流程、团队协作规则、提示词团队上下文、Skill 绑定和 A2A handoff 都应从同一份团队定义解析。用户理解的是“一支团队如何协作”，而不是多个内部执行选项如何拼接。
 
+当前关系只有一条：项目（Conversation）选择一个 TeamPack，TeamPack 自身定义成员角色；RoleCard、Account 与 Skill 绑定在对应 `TeamPackRole` 上。不存在“把全局 Agent 再加入 TeamPack”的第二套成员关系，历史 `agent_team_pack` 表不属于当前产品模型。
+
 面向用户的 TeamPack 页面应保持一个清晰主任务：
 
 - 展示已配置的团队成员。

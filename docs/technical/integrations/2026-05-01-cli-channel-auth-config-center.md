@@ -25,6 +25,7 @@
 - RoleCard 描述可复用的角色素材。
 - Skill 是可安装并绑定到 Agent 的能力包。
 - TeamPack 固化项目团队成员、角色快照、账号和 Skill 绑定。
+- 项目通过 `conversation.team_pack_id` 选择 TeamPack；成员和 RoleCard/Account/Skill 配置直接属于 `TeamPackRole`，不维护平行的 Agent-TeamPack assignment 表。
 
 这些对象均在设置抽屉中管理，项目运行时通过 TeamPack 与 Agent 绑定解析实际执行配置。
 

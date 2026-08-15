@@ -190,3 +190,7 @@ A2A Command Guard 是 `CommunicationPolicy` 的唯一生产消费者，但旧 in
 ## 第三十九轮：收窄 Task Graph repository 自用 lookup interface
 
 Task Graph 的正式读取面已经是 `TaskGraphView` 与调用方实际使用的 action/edge/artifact 查询，但 repository 对象仍公开 `getEdgeById`、`getArtifactById`、`getBindingById` 和 `listBindings`：前三者分别只在一次写入后自用，后者只为 `getGraph()` 组装聚合。它们没有外部消费者、独立校验、adapter 或恢复语义，却扩大了调用方必须辨认的持久化 interface。同文件还把同一个 commit row 先声明为 `TaskGraphCommitRow`、再导出为 `TaskGraphCommitRecord`。第三十九轮让写入方法直接返回刚持久化的行、让 bindings 只通过聚合读模型读取，并把 commit row 收敛为单一公开类型名；幂等恢复、revision、排序、schema、API 与 Task Authority 行为保持不变。
+
+## 第四十轮：删除未接线的 Agent-TeamPack 并行成员关系
+
+当前 TeamPack 产品关系已收敛为“Conversation 选择 TeamPack，TeamPackRole 定义成员并持有 RoleCard/Account/Skill 配置”，但早期 schema 仍保留 `agent_team_pack`，repository 也暴露 assign/remove/list 两向查询。整条链没有 API、UI、Store、Runtime、seed 或脚本消费者，只有自嗨 repository 测试；同一 repository 的 `addRole/removeRole` 也从未被调用，真实编辑使用整包 roles 更新和 role config。第四十轮删除六个死 interface 与其测试，并用 forward-only migration 删除遗留表；保留 Conversation 绑定、TeamPack/Role 数据、导入导出、角色配置和 Team Runtime 解析。
