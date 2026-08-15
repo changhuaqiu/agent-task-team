@@ -39,4 +39,4 @@
 - `pnpm exec tsc --noEmit` 通过。
 - `pnpm build` 通过；仅保留既有 whole-project NFT tracing warning。
 - 非并行全量测试执行完成：206 files / 1519 tests 通过，2 files / 2 tests 跳过；唯一失败仍为稳定基线 `src/server/autonomous-delivery/control-runtime.test.ts:131`，该文件不在本轮 diff。
-- 独立复审待执行。
+- 独立复审：Critical 0 / Important 0 / Minor 0，独立 6 files / 124 tests 与 tsc 通过；真实 Claude smoke 1 file / 1 test 按环境条件跳过，Ready: Yes。

@@ -9,4 +9,4 @@
 - [x] 架构守卫覆盖本轮 public surface。
 - [x] ACP 活动规格与长期架构文档已同步。
 - [x] 定向测试、tsc、build 与全量测试已执行。
-- [ ] 独立复审无 Critical / Important。
+- [x] 独立复审无 Critical / Important。
