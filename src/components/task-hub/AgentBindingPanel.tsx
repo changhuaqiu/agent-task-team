@@ -28,10 +28,9 @@ const STATUS_LABEL: Record<string, string> = {
 
 interface AgentBindingPanelProps {
   agentId: string;
-  agentName: string;
 }
 
-export function AgentBindingPanel({ agentId, agentName }: AgentBindingPanelProps) {
+export function AgentBindingPanel({ agentId }: AgentBindingPanelProps) {
   const {
     accounts,
     roleCards,

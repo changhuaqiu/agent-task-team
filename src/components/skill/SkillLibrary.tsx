@@ -10,8 +10,6 @@ import { SkillDetail, type SkillDetailData } from './SkillDetail';
 export function SkillLibrary() {
   const skillsMap = useTaskHubStore((s) => s.skillsMap);
   const loadSkills = useTaskHubStore((s) => s.loadSkills);
-  const importSkills = useTaskHubStore((s) => s.importSkills);
-
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<SkillDetailData | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);

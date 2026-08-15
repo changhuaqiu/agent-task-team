@@ -8,7 +8,7 @@ export const config = {
   },
 };
 
-export default function handler(req: NextApiRequest, res: NextApiResponse) {
+export default function handler(_req: NextApiRequest, res: NextApiResponse) {
   if (!ensureProjectSocketRuntime(res)) {
     return res.status(503).json({ ok: false, error: 'Socket runtime is not available' });
   }

@@ -680,7 +680,7 @@ export class DurableEffectOutbox {
         }, now, `succeeded:${claim.row.attempt_count}`);
       }).immediate();
     } catch (error) {
-      return this.fail(claim.row, claim.attemptId, claim.registration, error);
+      return this.fail(claim.row, claim.attemptId, error);
     }
     if (afterCommit) {
       try {
@@ -719,7 +719,7 @@ export class DurableEffectOutbox {
         ? 'succeeded'
         : 'fenced';
     } catch (error) {
-      return this.fail(claim.row, claim.attemptId, claim.registration, error);
+      return this.fail(claim.row, claim.attemptId, error);
     } finally {
       clearTimeout(timeout);
       clearInterval(heartbeat);
@@ -755,7 +755,6 @@ export class DurableEffectOutbox {
   private fail(
     row: EffectRow,
     attemptId: string,
-    registration: DurableEffectRegistration,
     error: unknown,
   ): 'retry_queued' | 'dead_lettered' | 'fenced' {
     const db = this.database ?? getDb();

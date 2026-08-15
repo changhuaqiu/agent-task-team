@@ -1,21 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { teamPackRepo } from '@/server/repositories/team-pack-repo';
 
-interface UpdateInput {
-  name?: string;
-  displayName?: string;
-  description?: string;
-  version?: string;
-  tags?: string[];
-  category?: string;
-  teamMode?: string;
-  roles?: unknown[];
-  workflow?: Record<string, unknown>;
-  communicationMatrix?: Record<string, { canSendTo: string[]; canReceiveFrom: string[]; canEscalateTo?: string[] }>;
-  sharedContext?: Record<string, unknown>;
-  rules?: Record<string, unknown>;
-}
-
 function validateUpdateInput(input: Record<string, unknown>): { valid: boolean; error?: string } {
   const allowedFields = ['name', 'displayName', 'description', 'version', 'tags', 'category', 'teamMode', 'roles', 'workflow', 'communicationMatrix', 'sharedContext', 'rules'];
   const invalidKeys = Object.keys(input).filter(key => !allowedFields.includes(key));

@@ -257,7 +257,7 @@ export function CliOutputBlock({ events, isStreaming, streamText }: CliOutputBlo
       {expanded && (
         <div className="border-t border-[hsl(var(--border-subtle))] bg-[linear-gradient(180deg,hsl(var(--bg-muted)),hsl(var(--bg-card)))]">
           <div className="space-y-2 p-2.5">
-            {visibleEvents.map((event, i) => (
+            {visibleEvents.map((event) => (
               <ToolRow
                 key={event.id}
                 event={event}

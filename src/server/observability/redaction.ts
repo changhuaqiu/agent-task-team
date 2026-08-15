@@ -16,7 +16,7 @@ function observationText(value: unknown): string | undefined {
   try { text = typeof value === 'string' ? value : JSON.stringify(value); }
   catch { text = String(value); }
   for (const pattern of SECRET_PATTERNS) {
-    text = text.replace(pattern, (match, prefix?: string) => prefix ? `${prefix}[REDACTED]` : '[REDACTED]');
+    text = text.replace(pattern, (_match, prefix?: string) => prefix ? `${prefix}[REDACTED]` : '[REDACTED]');
   }
   return text;
 }

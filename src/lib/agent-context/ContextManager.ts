@@ -23,7 +23,6 @@ import { RequiredContextError } from './context-contracts';
 import type {
   ContextArtifact,
   ContextContributor,
-  ContextFragment,
   ContextOmission,
   ContextQuery,
   ContextSnapshot,
@@ -294,7 +293,7 @@ export class ContextManager {
         : '';
 
       systemPrompt = [
-        buildRoleLayer({ id: req.agentId, name: roleCard?.name ?? 'Agent' }, roleCard),
+        buildRoleLayer(roleCard),
         getDirective(scenario, archetype, 'situation') === 'include'
           ? buildProjectLayer(req.project ?? { name: '', path: '', id: '' })
           : '',

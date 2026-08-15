@@ -7,7 +7,7 @@ import { PRESET_ROLE_CARDS } from '@/data/presetRoleCards';
 // Sub-store slice creators
 import { createTaskSlice } from './taskStore';
 import type { TaskStatus, Task, TaskArtifact } from './taskStore';
-import { setTaskCounter, STATUS_LABELS, STATUS_ORDER } from './taskStore';
+import { setTaskCounter } from './taskStore';
 import { createAgentSlice, AGENT_ROSTER } from './agentStore';
 import { loadAgents } from './agentStore';
 import type { Account, Agent } from './agentStore';

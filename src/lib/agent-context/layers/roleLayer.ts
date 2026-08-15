@@ -6,10 +6,7 @@ const FORMAT_LABELS: Record<string, string> = {
   checklist: '检查清单',
 };
 
-export function buildRoleLayer(
-  agent: { id: string; displayName?: string; name: string },
-  roleCard?: RoleCard,
-): string {
+export function buildRoleLayer(roleCard?: RoleCard): string {
   if (!roleCard) return '';
   const parts: string[] = [];
 

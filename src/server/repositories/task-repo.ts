@@ -1,7 +1,6 @@
 import { getDb } from '../db/index';
 import { DomainEventPublisher, type DomainEventType } from '../platform-events/domain-events';
 import {
-  assertTaskStatus,
   canTransitionTask,
   type TaskStatus,
 } from '../../shared/task-status';

@@ -15,7 +15,6 @@ import {
   computeInstalledPackageHash,
   computeSkillPackageHash,
   normalizeSkillRelativePath,
-  parseSkillMarkdown,
   SkillPackageError,
   validateSkillPackage,
 } from './skill-package';

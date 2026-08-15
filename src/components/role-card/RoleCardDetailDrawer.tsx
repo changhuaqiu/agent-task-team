@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useTaskHubStore } from '@/store/taskHubStore';
-import { RoleCardBadge, getCategoryConfig } from './RoleCardBadge';
+import { getCategoryConfig } from './RoleCardBadge';
 import { X, Copy, Pencil, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 

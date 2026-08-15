@@ -39,7 +39,7 @@ import { resolveNonWorktreeExecutionCwd, stableWorkdirTaskKey, WorkdirManager } 
 import { getDb } from './db';
 import { DispatchGateway } from './control-plane/dispatch-gateway';
 import { runtimeNodeRepo } from './repositories/runtime-node-repo';
-import { isRuntimeNodeKind, type DispatchIntent, type DispatchSource, type RuntimeNodeKind } from './repositories/control-plane-types';
+import { isRuntimeNodeKind, type DispatchIntent, type DispatchSource } from './repositories/control-plane-types';
 import { taskRepo } from './repositories/task-repo';
 import { taskCommandService } from './repositories/task-command-service';
 import { conversationRepo } from './repositories/conversation-repo';
@@ -82,7 +82,6 @@ import {
   startPlatformEventRuntime,
 } from './platform-events';
 import { ensureAutonomousDeliveryRuntime } from './autonomous-delivery/bootstrap';
-import { autonomousDeliveryRepo } from './autonomous-delivery/repository';
 import { registerDeliveryEffectAdapters } from './autonomous-delivery/delivery-effects';
 import { deliveryAdvancementQueue } from './autonomous-delivery/advancement-queue';
 import { registerAutonomousDeliveryE2EDriver } from './testing/autonomous-delivery-e2e-driver';
@@ -615,13 +614,6 @@ export default function registerDaemon(io: IOServer) {
           kind: 'runtime.warning',
           agentId,
           payload: { message, reasonCode },
-        });
-      };
-      const publishTerminalOutput = (data: string) => {
-        projectViewPublisher.publish(sessionConvId, {
-          kind: 'terminal.output',
-          agentId,
-          payload: { data },
         });
       };
       const publishTerminalExit = (input: {
@@ -1187,7 +1179,6 @@ export default function registerDaemon(io: IOServer) {
       const canonicalEngine = (
         engine === 'opencode' || engine === 'claude' || engine === 'codex'
       ) ? engine : undefined;
-      const runtimeStartedAtMs = Date.now();
       const createRuntimeEventCoordinator = () => {
         if (!canonicalEngine) return undefined;
         return new AcpRuntimeEventCoordinator({

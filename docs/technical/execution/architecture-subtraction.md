@@ -234,3 +234,7 @@ Invocation repository 的状态常量、transition input、错误类、校验与
 ## 第五十轮：把测试 Adapter 移出生产树并收回叶子 export
 
 TypeScript import 图显示，ACP mock agent 与 GitHub Issue fixture 是 `src/server` 中仅有的两个零生产入边模块；它们的全部消费者都是测试。第五十轮保留测试能力但将其迁到 `src/test-helpers/`，生产 server 树不再把 mock/fixture 伪装成正式模块；Next output tracing 同时全局排除 test-helper 与测试源，避免部署 NFT 清单重新把它们带回生产产物。同轮把只在定义文件内部消费的 Store buffer、Token summary 子卡、Context contributor class、默认常量、错误表/错误类与 repository 校验细节收回内部；正式调用方继续只穿过 AcpBackend、GitHub ingress、Store slice、ContextContributor 实例、repository lifecycle 与 TokenBadge interface。
+
+## 第五十一轮：严格未使用声明清零
+
+生产源码启用 `noUnusedLocals/noUnusedParameters` 的审计结果必须清零；不可达 helper、无消费 interface、无效 props 与依赖参数不作为“以后可能用”的预留面保留。框架固定签名允许以 `_` 前缀明确忽略；其余内部签名直接收窄并同步调用方，避免用占位参数伪装能力。

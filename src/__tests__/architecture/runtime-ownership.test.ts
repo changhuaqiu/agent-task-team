@@ -671,6 +671,23 @@ describe('runtime ownership architecture', () => {
     }
   });
 
+  it('keeps strict-unused production placeholders retired', () => {
+    const daemonSource = source('src/server/daemon.ts');
+    expect(daemonSource).not.toContain('publishTerminalOutput');
+    expect(daemonSource).not.toContain('runtimeStartedAtMs');
+    expect(daemonSource).not.toContain("import { autonomousDeliveryRepo }");
+
+    expect(source('src/pages/api/team-packs/[packId].ts')).not.toContain('interface UpdateInput');
+    expect(source('src/components/task-hub/AgentBindingPanel.tsx')).not.toContain('agentName: string');
+    expect(source('src/components/role-card/RoleCardListPage.tsx')).not.toContain('onClose: () => void');
+    expect(source('src/lib/agent-context/layers/roleLayer.ts')).toMatch(
+      /buildRoleLayer\(roleCard\?: RoleCard\)/,
+    );
+
+    const outboxSource = source('src/server/platform-events/durable-effect-outbox.ts');
+    expect(outboxSource).not.toMatch(/private fail\([\s\S]*?registration:/);
+  });
+
   it('allows global broadcast only for the system runtime catalog', () => {
     const broadcastEvents = Array.from(
       daemon.matchAll(/\bbroadcast\('([^']+)'/g),

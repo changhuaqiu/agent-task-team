@@ -113,7 +113,7 @@ export function AgentBar() {
               {isExpanded && (
                 <div className="absolute left-0 top-full mt-1 z-30 w-[280px]">
                   <div className="border-2 border-[hsl(var(--text-primary))] rounded-[4px] bg-[hsl(var(--bg-elevated))] shadow-[3px_3px_0px_hsl(var(--text-primary))]">
-                    <AgentBindingPanel agentId={agent.id} agentName={agent.name} />
+                    <AgentBindingPanel agentId={agent.id} />
                   </div>
                 </div>
               )}

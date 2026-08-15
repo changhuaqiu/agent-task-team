@@ -76,7 +76,7 @@ export function SettingsDrawer() {
           />
           <div className="p-5 space-y-3">
             {activeTab === 'accounts' && <SettingsAccountsTab />}
-            {activeTab === 'roles' && <RoleCardListPage onClose={() => setOpen(false)} />}
+            {activeTab === 'roles' && <RoleCardListPage />}
             {activeTab === 'skills' && <SkillLibrary />}
             {activeTab === 'team-packs' && <SettingsTeamPacksTab />}
           </div>

@@ -97,7 +97,7 @@ function RoleCardCard({
   );
 }
 
-export function RoleCardListPage({ onClose }: { onClose: () => void }) {
+export function RoleCardListPage() {
   const roleCards = useTaskHubStore((s) => s.roleCards);
   const setDetailOpen = useTaskHubStore((s) => s.setRoleCardDetailOpen);
   const setEditorOpen = useTaskHubStore((s) => s.setRoleCardEditorOpen);

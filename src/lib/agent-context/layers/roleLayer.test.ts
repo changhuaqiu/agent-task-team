@@ -35,12 +35,10 @@ function makeRoleCard(overrides: Partial<RoleCard> = {}): RoleCard {
   };
 }
 
-const agent = { id: 'mario', name: 'Mario' };
-
 describe('buildRoleLayer', () => {
   it('returns empty string when no roleCard is provided', () => {
-    expect(buildRoleLayer(agent)).toBe('');
-    expect(buildRoleLayer(agent, undefined)).toBe('');
+    expect(buildRoleLayer()).toBe('');
+    expect(buildRoleLayer(undefined)).toBe('');
   });
 
   it('includes the persona introduction', () => {
@@ -48,7 +46,7 @@ describe('buildRoleLayer', () => {
       persona: { introduction: '我是规划专家', voice: '', mindset: '', habits: '', collaboration: '' },
     });
 
-    expect(buildRoleLayer(agent, roleCard)).toContain('我是规划专家');
+    expect(buildRoleLayer(roleCard)).toContain('我是规划专家');
   });
 
   it('includes non-empty persona dimensions', () => {
@@ -61,7 +59,7 @@ describe('buildRoleLayer', () => {
         collaboration: '主动沟通',
       },
     });
-    const result = buildRoleLayer(agent, roleCard);
+    const result = buildRoleLayer(roleCard);
 
     expect(result).toContain('## 语气风格');
     expect(result).toContain('友好语气');
@@ -77,7 +75,7 @@ describe('buildRoleLayer', () => {
     const roleCard = makeRoleCard({
       persona: { introduction: 'intro', voice: 'voice', mindset: '', habits: '', collaboration: '' },
     });
-    const result = buildRoleLayer(agent, roleCard);
+    const result = buildRoleLayer(roleCard);
 
     expect(result).toContain('## 语气风格');
     expect(result).not.toContain('## 思维模式');
@@ -91,7 +89,7 @@ describe('buildRoleLayer', () => {
       nonResponsibilities: ['直接编码'],
       forbiddenActions: ['修改数据库'],
     });
-    const result = buildRoleLayer(agent, roleCard);
+    const result = buildRoleLayer(roleCard);
 
     expect(result).toContain('## 角色约束');
     expect(result).toContain('- 职责：任务分解、资源协调');
@@ -100,35 +98,32 @@ describe('buildRoleLayer', () => {
   });
 
   it('includes the evidence constraint', () => {
-    const result = buildRoleLayer(agent, makeRoleCard({ requiresEvidence: true }));
+    const result = buildRoleLayer(makeRoleCard({ requiresEvidence: true }));
     expect(result).toContain('- 评审/建议必须附带具体证据和文件引用');
   });
 
   it('includes a non-freeform output format', () => {
-    const result = buildRoleLayer(agent, makeRoleCard({ outputFormat: 'structured_list' }));
+    const result = buildRoleLayer(makeRoleCard({ outputFormat: 'structured_list' }));
     expect(result).toContain('- 输出格式：结构化列表');
   });
 
   it('omits the freeform output format', () => {
-    const result = buildRoleLayer(agent, makeRoleCard({ outputFormat: 'freeform', category: 'frontend' }));
+    const result = buildRoleLayer(makeRoleCard({ outputFormat: 'freeform', category: 'frontend' }));
     expect(result).not.toContain('输出格式');
   });
 
   it('includes the propose-only constraint', () => {
-    const result = buildRoleLayer(agent, makeRoleCard({ allowedActions: ['can_propose_only'] }));
+    const result = buildRoleLayer(makeRoleCard({ allowedActions: ['can_propose_only'] }));
     expect(result).toContain('- 只能提出建议，不能直接修改代码');
   });
 
   it('omits propose-only when code modification is also allowed', () => {
     const roleCard = makeRoleCard({ allowedActions: ['can_propose_only', 'can_modify_code'] });
-    expect(buildRoleLayer(agent, roleCard)).not.toContain('只能提出建议');
+    expect(buildRoleLayer(roleCard)).not.toContain('只能提出建议');
   });
 
   it('does not make the implementation role advisory-only', () => {
-    const result = buildRoleLayer(
-      { id: 'luigi', name: 'Luigi' },
-      PRESET_ROLE_CARD_MAP['preset-frontend'],
-    );
+    const result = buildRoleLayer(PRESET_ROLE_CARD_MAP['preset-frontend']);
 
     expect(result).toContain('## 角色约束');
     expect(result).toContain('职责：全栈开发、API 设计、数据模型、UI 组件、接口契约');
@@ -136,10 +131,7 @@ describe('buildRoleLayer', () => {
   });
 
   it('keeps the planner persona voice internally consistent', () => {
-    const result = buildRoleLayer(
-      { id: 'mario', name: 'Mario' },
-      PRESET_ROLE_CARD_MAP['preset-planner'],
-    );
+    const result = buildRoleLayer(PRESET_ROLE_CARD_MAP['preset-planner']);
 
     expect(result).toContain('沉稳');
     expect(result).not.toContain('走！');
@@ -147,10 +139,10 @@ describe('buildRoleLayer', () => {
 
   it('includes confirmation constraints', () => {
     const roleCard = makeRoleCard({ requiresConfirmation: ['架构变更', '数据库迁移'] });
-    expect(buildRoleLayer(agent, roleCard)).toContain('- 以下操作需用户确认：架构变更、数据库迁移');
+    expect(buildRoleLayer(roleCard)).toContain('- 以下操作需用户确认：架构变更、数据库迁移');
   });
 
   it('omits the constraints section when none apply', () => {
-    expect(buildRoleLayer(agent, makeRoleCard())).not.toContain('## 角色约束');
+    expect(buildRoleLayer(makeRoleCard())).not.toContain('## 角色约束');
   });
 });
