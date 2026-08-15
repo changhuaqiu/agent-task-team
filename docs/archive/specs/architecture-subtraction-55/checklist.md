@@ -8,4 +8,4 @@
 - [x] 架构守卫阻止 filesystem session metadata 回流。
 - [x] 当前事实文档不再宣称 `.session.json` 承担续接。
 - [x] 定向、tsc、build 与全量验证已记录。
-- [ ] 独立复审无 Critical / Important。
+- [x] 独立复审无 Critical / Important。
