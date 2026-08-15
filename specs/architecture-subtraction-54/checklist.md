@@ -8,4 +8,4 @@
 - [x] Worktree create/list/remove/migration 与外部 repository 行为保持。
 - [x] 内部 DTO/helper/constant 不在 public export surface。
 - [x] 定向、tsc、build 与全量验证已记录。
-- [ ] 独立复审无 Critical / Important。
+- [x] 独立复审无 Critical / Important。
