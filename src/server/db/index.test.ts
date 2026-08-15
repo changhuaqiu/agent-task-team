@@ -731,10 +731,16 @@ describe('SQLite Foundation', () => {
       DELETE FROM _schema_version WHERE version = 78;
       CREATE TABLE agent_team_pack (
         agent_id TEXT NOT NULL,
-        pack_id TEXT NOT NULL,
+        pack_id TEXT NOT NULL REFERENCES team_pack(id) ON DELETE CASCADE,
         role_id TEXT NOT NULL,
         assigned_at TEXT NOT NULL,
         PRIMARY KEY (agent_id, pack_id)
+      );
+      INSERT INTO team_pack (
+        id, name, display_name, description, workflow, communication_matrix, created_at, updated_at
+      ) VALUES (
+        'legacy-pack', 'legacy-pack', 'Legacy Pack', '', '{"type":"linear"}', '{}',
+        '2026-08-15T00:00:00.000Z', '2026-08-15T00:00:00.000Z'
       );
       INSERT INTO agent_team_pack (agent_id, pack_id, role_id, assigned_at)
       VALUES ('legacy-agent', 'legacy-pack', 'legacy-role', '2026-08-15T00:00:00.000Z');
