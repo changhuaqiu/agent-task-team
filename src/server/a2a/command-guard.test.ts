@@ -1,8 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { TeamRuntime } from '@/lib/team-runtime';
 import { A2ACommandGuard } from './command-guard';
 
-function runtime(canSend: (from: string, to: string) => boolean): TeamRuntime {
+function runtime(explainBlock: (from: string, to: string) => string | undefined): TeamRuntime {
   return {
     conversationId: 'project-policy',
     roster: [
@@ -10,8 +10,7 @@ function runtime(canSend: (from: string, to: string) => boolean): TeamRuntime {
       { id: 'builder', displayName: 'Builder', source: 'preset-agent', accountIds: [], skills: [] },
     ],
     communicationPolicy: {
-      canSend,
-      explainBlock: (from, to) => canSend(from, to) ? undefined : 'review must go through lead',
+      explainBlock,
     },
     workflowPolicy: {
       selectInitialAgent: () => null,
@@ -22,7 +21,7 @@ function runtime(canSend: (from: string, to: string) => boolean): TeamRuntime {
 describe('A2ACommandGuard', () => {
   it('accepts an agent handoff only when source, target and policy all allow it', () => {
     const guard = new A2ACommandGuard({
-      resolveRuntime: () => runtime(() => true),
+      resolveRuntime: () => runtime(() => undefined),
     });
 
     expect(() => guard.assert({
@@ -35,7 +34,7 @@ describe('A2ACommandGuard', () => {
 
   it('rejects targets outside the conversation roster', () => {
     const guard = new A2ACommandGuard({
-      resolveRuntime: () => runtime(() => true),
+      resolveRuntime: () => runtime(() => undefined),
     });
 
     expect(() => guard.assert({
@@ -49,8 +48,9 @@ describe('A2ACommandGuard', () => {
   });
 
   it('enforces communication policy for agents but not explicit human commands', () => {
+    const explainBlock = vi.fn(() => 'review must go through lead');
     const guard = new A2ACommandGuard({
-      resolveRuntime: () => runtime(() => false),
+      resolveRuntime: () => runtime(explainBlock),
     });
 
     expect(() => guard.assert({
@@ -67,6 +67,7 @@ describe('A2ACommandGuard', () => {
       fromHolderType: 'user',
       branches: [{ toAgentId: 'builder' }],
     })).not.toThrow();
+    expect(explainBlock).toHaveBeenCalledTimes(1);
   });
 
   it('rejects a missing conversation runtime before the aggregate is called', () => {

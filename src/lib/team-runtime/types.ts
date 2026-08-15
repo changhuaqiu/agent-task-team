@@ -32,9 +32,7 @@ export interface RuntimeAgent {
 }
 
 export interface CommunicationPolicy {
-  canSend(fromAgentId: string, toAgentId: string): boolean;
   explainBlock(fromAgentId: string, toAgentId: string): string | undefined;
-  getEscalationTarget?(fromAgentId: string, blockedToAgentId?: string): string | undefined;
 }
 
 export interface WorkflowPolicy {

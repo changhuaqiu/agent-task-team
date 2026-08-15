@@ -51,18 +51,17 @@ export class A2ACommandGuard {
           branch.toAgentId,
         );
       }
-      if (
-        input.fromHolderType === 'agent'
-        && !runtime.communicationPolicy.canSend(input.fromHolderId, branch.toAgentId)
-      ) {
+      if (input.fromHolderType === 'agent') {
         const explanation = runtime.communicationPolicy.explainBlock(
           input.fromHolderId,
           branch.toAgentId,
-        ) ?? 'communication policy denied the handoff';
-        throw new A2ACollaborationInvariantError(
-          'a2a_communication_policy_blocked',
-          `${input.fromHolderId}:${branch.toAgentId}:${explanation}`,
         );
+        if (explanation !== undefined) {
+          throw new A2ACollaborationInvariantError(
+            'a2a_communication_policy_blocked',
+            `${input.fromHolderId}:${branch.toAgentId}:${explanation || 'communication policy denied the handoff'}`,
+          );
+        }
       }
     }
   }

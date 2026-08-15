@@ -109,7 +109,16 @@ describe('runtime ownership architecture', () => {
     expect(taskAssignment).toContain('runtime.workflowPolicy.selectInitialAgent()');
     expect(taskAssignment).not.toContain('fallbackAgentId');
     expect(taskAssignment).not.toContain('TaskAssignmentSource');
-    expect(source('src/server/a2a/command-guard.ts')).toContain('runtime.communicationPolicy.canSend');
+    const commandGuard = source('src/server/a2a/command-guard.ts');
+    const teamPackLayer = source('src/lib/agent-context/layers/teamPackLayer.ts');
+    expect(productionFiles.filter((path) => /communicationPolicy\.canSend|\bgetEscalationTarget\b/.test(source(path)))).toEqual([]);
+    expect(runtimeTypes).not.toContain('canSend(');
+    expect(runtimeTypes).not.toContain('getEscalationTarget');
+    expect(runtimeBarrel).not.toMatch(/resolveCommunicationPolicy|CommunicationPolicy/);
+    expect(commandGuard).toContain('runtime.communicationPolicy.explainBlock(');
+    expect(commandGuard.match(/runtime\.communicationPolicy\.explainBlock\(/g)).toHaveLength(1);
+    expect(teamPackLayer).toMatch(/canReceiveFrom/);
+    expect(teamPackLayer).toMatch(/canEscalateTo/);
   });
 
   it('keeps explicit human command adapters available', () => {

@@ -24,31 +24,11 @@ function canSendFromMatrix(teamPack: TeamPack, fromAgentId: string, toAgentId: s
   return DEFAULT_TEAM_REQUIRED_SENDS[fromAgentId]?.includes(toAgentId) ?? false;
 }
 
-function getEscalationTargetFromMatrix(teamPack: TeamPack, fromAgentId: string, blockedToAgentId?: string): string | undefined {
-  const row = teamPack.communicationMatrix[fromAgentId];
-  const candidates = row?.canEscalateTo?.filter((agentId) => agentId !== 'human' && agentId !== fromAgentId && agentId !== blockedToAgentId) ?? [];
-  if (candidates.length > 0) return candidates[0];
-
-  if (isDefaultHarnessTeam(teamPack) && fromAgentId !== 'mario' && blockedToAgentId !== 'mario') {
-    return 'mario';
-  }
-
-  return undefined;
-}
-
 export function resolveCommunicationPolicy(teamPack?: TeamPack): CommunicationPolicy {
   return {
-    canSend(fromAgentId: string, toAgentId: string) {
-      if (!teamPack) return true;
-      return canSendFromMatrix(teamPack, fromAgentId, toAgentId);
-    },
     explainBlock(fromAgentId: string, toAgentId: string) {
-      if (this.canSend(fromAgentId, toAgentId)) return undefined;
+      if (!teamPack || canSendFromMatrix(teamPack, fromAgentId, toAgentId)) return undefined;
       return BLOCK_REASON;
-    },
-    getEscalationTarget(fromAgentId: string, blockedToAgentId?: string) {
-      if (!teamPack) return undefined;
-      return getEscalationTargetFromMatrix(teamPack, fromAgentId, blockedToAgentId);
     },
   };
 }

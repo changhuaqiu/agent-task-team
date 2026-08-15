@@ -3,6 +3,7 @@ import { resolveRuntimeAgentProfile, resolveTeamRuntime } from '@/lib/team-runti
 import type { TeamRuntime, RuntimeAgent, RuntimeAgentProfile, PresetRuntimeAgentInput } from '@/lib/team-runtime';
 import type { RoleCard } from '@/types/roleCard';
 import type { TeamPack } from '@/types/teamPack';
+import { buildTeamPackLayer } from '@/lib/agent-context/layers/teamPackLayer';
 
 describe('team-runtime public contract', () => {
   it('exports runtime contract types through the public index', () => {
@@ -18,7 +19,6 @@ describe('team-runtime public contract', () => {
       conversationId: 'conv-1',
       roster: [agent],
       communicationPolicy: {
-        canSend: () => true,
         explainBlock: () => undefined,
       },
       workflowPolicy: {
@@ -178,6 +178,7 @@ describe('resolveTeamRuntime', () => {
         source: 'preset-agent',
       }),
     ]);
+    expect(runtime.communicationPolicy.explainBlock('mario', 'any-agent')).toBeUndefined();
   });
 
   it('uses TeamPack roles as the primary runtime roster when a TeamPack is bound', () => {
@@ -319,9 +320,25 @@ describe('resolveTeamRuntime', () => {
       agentRoleCardOverrides: {},
     });
 
-    expect(runtime.communicationPolicy.canSend('planner', 'reviewer')).toBe(true);
-    expect(runtime.communicationPolicy.canSend('reviewer', 'planner')).toBe(false);
+    expect(runtime.communicationPolicy.explainBlock('planner', 'reviewer')).toBeUndefined();
     expect(runtime.communicationPolicy.explainBlock('reviewer', 'planner')).toBe('团队协作规则阻止了这次转交');
+  });
+
+  it('keeps receive and escalation guidance in the TeamPack prompt', () => {
+    const prompt = buildTeamPackLayer('planner', {
+      ...teamPack,
+      communicationMatrix: {
+        ...teamPack.communicationMatrix,
+        planner: {
+          canSendTo: ['reviewer'],
+          canReceiveFrom: ['reviewer'],
+          canEscalateTo: ['human'],
+        },
+      },
+    });
+
+    expect(prompt).toContain('reviewer');
+    expect(prompt).toContain('human');
   });
 
   it('does not resurrect removed roles from older default-team matrices', () => {
@@ -358,9 +375,9 @@ describe('resolveTeamRuntime', () => {
       agentRoleCardOverrides: {},
     });
 
-    expect(runtime.communicationPolicy.canSend('peach', 'yoshi')).toBe(false);
-    expect(runtime.communicationPolicy.canSend('yoshi', 'dk')).toBe(false);
-    expect(runtime.communicationPolicy.getEscalationTarget?.('peach', 'yoshi')).toBe('mario');
+    expect(runtime.communicationPolicy.explainBlock('peach', 'dk')).toBeUndefined();
+    expect(runtime.communicationPolicy.explainBlock('peach', 'yoshi')).toBe('团队协作规则阻止了这次转交');
+    expect(runtime.communicationPolicy.explainBlock('yoshi', 'dk')).toBe('团队协作规则阻止了这次转交');
   });
 });
 
@@ -413,7 +430,6 @@ describe('resolveRuntimeAgentProfile', () => {
         },
       ],
       communicationPolicy: {
-        canSend: () => true,
         explainBlock: () => undefined,
       },
       workflowPolicy: {
@@ -445,7 +461,6 @@ describe('resolveRuntimeAgentProfile', () => {
         },
       ],
       communicationPolicy: {
-        canSend: () => true,
         explainBlock: () => undefined,
       },
       workflowPolicy: {
@@ -472,7 +487,7 @@ describe('resolveRuntimeAgentProfile', () => {
         accountIds: ['acc-google-oauth'],
         skills: [],
       }],
-      communicationPolicy: { canSend: () => true, explainBlock: () => undefined },
+      communicationPolicy: { explainBlock: () => undefined },
       workflowPolicy: { selectInitialAgent: () => null },
     };
 
@@ -494,7 +509,7 @@ describe('resolveRuntimeAgentProfile', () => {
         id: 'planner', displayName: 'Planner', source: 'team-pack-role',
         accountIds: ['acc-pending'], skills: [],
       }],
-      communicationPolicy: { canSend: () => true, explainBlock: () => undefined },
+      communicationPolicy: { explainBlock: () => undefined },
       workflowPolicy: { selectInitialAgent: () => null },
     };
 
@@ -518,7 +533,6 @@ describe('resolveRuntimeAgentProfile', () => {
         },
       ],
       communicationPolicy: {
-        canSend: () => true,
         explainBlock: () => undefined,
       },
       workflowPolicy: {
@@ -550,7 +564,6 @@ describe('resolveRuntimeAgentProfile', () => {
         },
       ],
       communicationPolicy: {
-        canSend: () => true,
         explainBlock: () => undefined,
       },
       workflowPolicy: {
