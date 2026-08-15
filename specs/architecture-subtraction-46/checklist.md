@@ -7,5 +7,5 @@
 - [x] close/task lifecycle 与 Outcome admission 保持。
 - [x] permission policy 与 dispatch contract 保持。
 - [x] 架构守卫阻止公共 interface 回流。
-- [ ] 文档、类型、定向、build 与全量结果记录。
+- [x] 文档、类型、定向、build 与全量结果记录。
 - [ ] 独立复审为 Critical 0 / Important 0。
