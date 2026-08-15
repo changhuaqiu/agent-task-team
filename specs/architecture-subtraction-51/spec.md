@@ -31,9 +31,10 @@
 
 - `pnpm install --offline --frozen-lockfile` 通过，安装 719 个冻结依赖包。
 - 实现前严格未使用检查：生产源码 21 个 TS6133/TS6196 命中。
-- 实现后同一严格检查：生产源码 0 个 TS6133/TS6196 命中。
+- 实现后同一严格检查仅剩 2 个既有测试文件诊断；过滤 `src/__tests__/` 与 `*.test.*` 后，生产源码 0 个 TS6133/TS6196 命中。
 - 定向回归：实现前 7 files / 110 tests，通过；实现后 7 files / 111 tests，通过。
 - `pnpm exec tsc --noEmit` 通过。
 - `pnpm build` 通过；仅保留既有 whole-project NFT tracing warning。
 - 非并行全量执行完成：205 files / 1511 tests 通过，2 files / 2 tests 跳过；唯一失败仍为稳定基线 `src/server/autonomous-delivery/control-runtime.test.ts:131`，该文件不在本轮 diff。
-- 独立复审待回填。
+- 首轮独立复审：Critical 0 / Important 1 / Minor 0；代码与调用图无回归，发现 canonical tasks/checklist 未同步已完成事实。
+- 修复后独立复审待回填。
