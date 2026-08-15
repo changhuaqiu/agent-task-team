@@ -7,7 +7,6 @@ import {
   writeCredential,
   deleteCredential,
   hasCredential,
-  listCredentialIds,
 } from './credentials';
 
 describe('credentials', () => {
@@ -134,30 +133,11 @@ describe('credentials', () => {
     });
   });
 
-  describe('listCredentialIds', () => {
-    it('returns empty array when no file', () => {
-      expect(listCredentialIds()).toEqual([]);
-    });
-
-    it('returns all account IDs', () => {
-      writeCredential('acct-1', { apiKey: 'a' });
-      writeCredential('acct-2', { apiKey: 'b' });
-      const ids = listCredentialIds().sort();
-      expect(ids).toEqual(['acct-1', 'acct-2']);
-    });
-  });
-
   describe('corrupt file handling', () => {
     it('returns null for readCredential when file is corrupt', () => {
       fs.mkdirSync(tmpDir, { recursive: true });
       fs.writeFileSync(credPath(), '{ not valid json !!!');
       expect(readCredential('acct-1')).toBeNull();
-    });
-
-    it('returns empty array for listCredentialIds when file is corrupt', () => {
-      fs.mkdirSync(tmpDir, { recursive: true });
-      fs.writeFileSync(credPath(), '{ not valid json !!!');
-      expect(listCredentialIds()).toEqual([]);
     });
 
     it('overwrites corrupt file on write', () => {

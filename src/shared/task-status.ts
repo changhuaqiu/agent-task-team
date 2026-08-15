@@ -49,10 +49,6 @@ export function assertTaskStatus(value: string): TaskStatus {
   return value;
 }
 
-export function nextTaskStatuses(from: TaskStatus): readonly TaskStatus[] {
-  return TASK_TRANSITIONS[from];
-}
-
 /** Evidence-free transitions that a direct browser action may submit. */
 export function nextDirectTaskStatuses(from: TaskStatus): readonly TaskStatus[] {
   return DIRECT_TASK_TRANSITIONS[from];

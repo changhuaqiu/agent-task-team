@@ -27,8 +27,6 @@ export type OutputFormat = 'freeform' | 'structured_list' | 'report' | 'checklis
 
 export type RiskGrading = 'none' | 'required' | 'optional';
 
-export type WorkflowStepStatus = 'pending' | 'in_progress' | 'completed' | 'blocked';
-
 export interface WorkflowStep {
   id: string;
   name: string;

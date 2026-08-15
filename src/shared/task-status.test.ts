@@ -3,7 +3,6 @@ import {
   assertTaskStatus,
   canTransitionTask,
   nextDirectTaskStatuses,
-  nextTaskStatuses,
   TASK_STATUSES,
 } from './task-status';
 
@@ -17,10 +16,12 @@ describe('shared TaskStatus contract', () => {
   });
 
   it('shares the repository transition graph with browser callers', () => {
-    expect(nextTaskStatuses('in_review')).toEqual(['done', 'in_progress', 'blocked', 'cancelled']);
+    expect(canTransitionTask('in_review', 'done')).toBe(true);
     expect(canTransitionTask('in_review', 'in_progress')).toBe(true);
+    expect(canTransitionTask('in_review', 'blocked')).toBe(true);
+    expect(canTransitionTask('in_review', 'cancelled')).toBe(true);
     expect(canTransitionTask('in_review', 'ready')).toBe(false);
-    expect(nextTaskStatuses('cancelled')).toEqual([]);
+    expect(canTransitionTask('cancelled', 'ready')).toBe(false);
   });
 
   it('does not expose evidence-gated review or completion as direct browser actions', () => {

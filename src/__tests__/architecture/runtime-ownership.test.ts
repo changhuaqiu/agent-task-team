@@ -490,6 +490,24 @@ describe('runtime ownership architecture', () => {
     expect(githubIngress).not.toContain('supervisor');
   });
 
+  it('keeps retired test-only and zero-consumer interfaces out of production source', () => {
+    const production = productionTypeScriptFiles('src').map((path) => source(path)).join('\n');
+    for (const retired of [
+      'WorkflowStepStatus',
+      'TeamRole',
+      'A2APass',
+      'getTaskCounter',
+      'takeInFlightDispatch',
+      'nextTaskStatuses',
+      'listCredentialIds',
+      'deleteRoleCard',
+      'isThinkingCaptureEnabled',
+      'ATH_OBSERVABILITY_CAPTURE_THINKING',
+    ]) {
+      expect(production).not.toMatch(new RegExp(`\\b${retired}\\b`));
+    }
+  });
+
   it('allows global broadcast only for the system runtime catalog', () => {
     const broadcastEvents = Array.from(
       daemon.matchAll(/\bbroadcast\('([^']+)'/g),

@@ -50,8 +50,7 @@
 
 新增 runtime 只需继续输出统一 `AgentEvent`，不得在可观测页面增加 runtime 专属查询分支。
 完整 payload 与列表预览分离；payload 查询必须携带 conversationId 并校验 span 归属。
-thinking 仅指 runtime 主动暴露的 reasoning summary，默认采集、可通过
-`ATH_OBSERVABILITY_CAPTURE_THINKING=false` 关闭；隐藏 chain-of-thought 永不采集。
+thinking 仅指 runtime 主动暴露的 reasoning summary，并按统一脱敏与容量上限采集；当前没有关闭开关，隐藏 chain-of-thought 永不采集。
 新增业务工作流必须先进入其权威事实表，再由 projection 读取；不得让 span 成为任务状态权威。
 当引入 OTLP exporter 时，本地 span id/trace id 与语义字段保持不变，exporter 只做映射和发送。
 

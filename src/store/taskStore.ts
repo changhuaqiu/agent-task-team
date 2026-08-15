@@ -78,7 +78,6 @@ function getTaskLookup(tasks: Task[]): Record<string, Task> {
 }
 
 export function setTaskCounter(val: number) { taskCounter = val; }
-export function getTaskCounter() { return taskCounter; }
 
 function getInitialTeamRoleId(teamPack: TeamPack): string | null {
   const available = new Set(teamPack.roles.map((role) => role.id));

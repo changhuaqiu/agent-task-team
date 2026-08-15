@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createTestDb, setTestDb } from './index';
-import { upsertRoleCard, loadAllRoleCards, deleteRoleCard } from './roleCardQueries';
+import { upsertRoleCard, loadAllRoleCards } from './roleCardQueries';
 import type { RoleCard } from '@/types/roleCard';
 
 const makeCard = (id: string): RoleCard => ({
@@ -58,16 +58,6 @@ describe('roleCardQueries', () => {
     const loaded = loadAllRoleCards();
     expect(loaded).toHaveLength(1);
     expect(loaded[0].displayName).toBe('Updated');
-  });
-
-  it('deletes a non-preset role card', () => {
-    const card = makeCard('custom-card');
-    upsertRoleCard(card);
-
-    deleteRoleCard('custom-card');
-
-    const loaded = loadAllRoleCards();
-    expect(loaded).toHaveLength(0);
   });
 
   it('preserves capabilities through round-trip', () => {

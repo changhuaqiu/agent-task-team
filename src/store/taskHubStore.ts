@@ -98,8 +98,6 @@ export interface DispatchReceipt {
   createdAt: string;
 }
 
-export type TeamRole = 'dev' | 'ux' | 'qa' | 'arch';
-
 export interface Conversation {
   id: string;
   title: string;

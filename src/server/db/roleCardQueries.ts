@@ -21,8 +21,3 @@ export function loadAllRoleCards(): RoleCard[] {
   const rows = db.prepare('SELECT data FROM role_cards').all() as Array<{ data: string }>;
   return rows.map((row) => JSON.parse(row.data) as RoleCard);
 }
-
-export function deleteRoleCard(id: string): void {
-  const db = getDb();
-  db.prepare('DELETE FROM role_cards WHERE id = ?').run(id);
-}

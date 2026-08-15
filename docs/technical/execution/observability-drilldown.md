@@ -8,7 +8,7 @@
 ## 1. 已冻结的设计
 
 1. 新消息通过 `chat_message.invocation_id` 精确关联 invocation；历史空值才按 agent + 时间就近匹配，并在 UI 标记“历史就近匹配”。
-2. thinking 指 runtime 主动暴露的 reasoning summary，默认采集；`ATH_OBSERVABILITY_CAPTURE_THINKING=false` 可关闭。隐藏 chain-of-thought 永不采集。
+2. thinking 指 runtime 主动暴露的 reasoning summary，按统一脱敏与容量上限采集；当前没有关闭开关，隐藏 chain-of-thought 永不采集。
 3. Agent 调用链采用 `@xyflow/react` + `@dagrejs/dagre`，数据只来自 `chain_id`、`pass_id`、worklist 与 A2A audit，不解析聊天正文。
 4. `AcpBackend` 只做 ACP → `AgentEvent` 协议归一化；daemon 是 invocation/root span 的所有者，也是唯一 telemetry sink。adapter 不依赖 SQLite 或 observation repository。
 5. 遥测始终 best-effort；写入失败不得中断 agent loop。

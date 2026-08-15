@@ -3,7 +3,6 @@ import { createTestDb, resetDb, setTestDb } from '@/server/db';
 import { conversationRepo } from '@/server/repositories/conversation-repo';
 import { generateTraceId, observationSpanRepo } from '@/server/repositories/observation-span-repo';
 import { spanPayloadRepo } from '@/server/repositories/span-payload-repo';
-import { isThinkingCaptureEnabled } from '@/server/observability/redaction';
 
 beforeEach(() => { setTestDb(createTestDb()); conversationRepo.create({ id: 'conv-obs', title: 'Observability' }); });
 afterEach(() => resetDb());
@@ -21,11 +20,5 @@ describe('spanPayloadRepo', () => {
     expect(payload.truncated).toBe(1);
     expect(payload.byte_size).toBeLessThanOrEqual(256 * 1024);
     expect(spanPayloadRepo.listBySpan(span.span_id)).toEqual([payload]);
-  });
-
-  it('defaults thinking capture on and accepts an exact case-insensitive false opt-out', () => {
-    expect(isThinkingCaptureEnabled(undefined)).toBe(true);
-    expect(isThinkingCaptureEnabled(' FALSE ')).toBe(false);
-    expect(isThinkingCaptureEnabled('0')).toBe(true);
   });
 });

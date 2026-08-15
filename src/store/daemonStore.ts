@@ -167,13 +167,6 @@ function queueKey(agentId: string, conversationId: string): string {
   return `${agentId}:${conversationId}`;
 }
 
-export function takeInFlightDispatch(agentId: string, conversationId: string): InFlightDispatch | undefined {
-  const key = queueKey(agentId, conversationId);
-  const dispatch = inFlightDispatches.get(key);
-  inFlightDispatches.delete(key);
-  return dispatch;
-}
-
 export function clearInFlightDispatch(agentId: string, conversationId: string): void {
   inFlightDispatches.delete(queueKey(agentId, conversationId));
 }

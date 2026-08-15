@@ -63,6 +63,7 @@ describe('Runtime Event consumer projections', () => {
       coordinator.bindSession('session-1', 'runtime-session-1', 'created');
       coordinator.confirmSession('runtime-session-1');
     }
+    coordinator.adapterEvent({ type: 'thinking', content: 'reasoning summary' });
     coordinator.adapterEvent({ type: 'text', content: 'hello' });
     coordinator.adapterEvent({
       type: 'tool_use',
@@ -83,6 +84,7 @@ describe('Runtime Event consumer projections', () => {
     expect(runtimeEvents.map((event) => event.type)).toEqual([
       'runtime.invocation.accepted',
       'runtime.invocation.started',
+      'runtime.thinking.segment.completed',
       'runtime.message.segment.completed',
       'runtime.tool.started',
       'runtime.tool.completed',
@@ -117,6 +119,9 @@ describe('Runtime Event consumer projections', () => {
     ]);
     expect(db.prepare('SELECT COUNT(*) count FROM runtime_observability_projection').get())
       .toEqual({ count: events.length });
+    expect(db.prepare(`
+      SELECT role,content FROM observation_span_payload WHERE role='thinking'
+    `).all()).toEqual([{ role: 'thinking', content: 'reasoning summary' }]);
     expect(db.prepare(`
       SELECT span_id,status FROM observation_span
       WHERE invocation_id='inv-1' ORDER BY span_id

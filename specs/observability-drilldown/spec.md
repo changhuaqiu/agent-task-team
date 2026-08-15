@@ -57,7 +57,7 @@ CREATE INDEX idx_span_payload_span ON observation_span_payload(span_id);
 
 ### 4.2 新增 span kind：`message`
 
-ACP 一次 turn 的连续 text 段合并为一条 `kind=message` 的子 span（parent = root agent span），`output_preview` = 回复摘要，全文进 payload `role=completion`，并带 `usage`（token）。`thinking` **默认采集**（决策 2）进 payload `role=thinking`，不进正文预览；提供 `ATH_OBSERVABILITY_CAPTURE_THINKING=false` 开关可关闭。这里只指 ACP runtime 主动暴露的 thought/reasoning summary，绝不尝试获取隐藏 chain-of-thought；thinking 属敏感内容，与其它 payload 一样过脱敏、总量上限并在 UI 中默认折叠。
+ACP 一次 turn 的连续 text 段合并为一条 `kind=message` 的子 span（parent = root agent span），`output_preview` = 回复摘要，全文进 payload `role=completion`，并带 `usage`（token）。`thinking` 进 payload `role=thinking`，不进正文预览。这里只指 ACP runtime 主动暴露的 thought/reasoning summary，绝不尝试获取隐藏 chain-of-thought；thinking 属敏感内容，与其它 payload 一样过脱敏、总量上限并在 UI 中默认折叠。当前生产链没有 thinking 采集开关。
 
 ### 4.3 消息↔调用精确关联
 
@@ -145,7 +145,7 @@ adapter 不接触 `invocationId / traceId / spanId` 或仓储。daemon 持有关
 ## 13. 已冻结决策（2026-07-15）
 
 1. **精确关联**：P0 直接加 `chat_message.invocation_id`，daemon 落消息时写入；历史空值回退就近匹配。
-2. **thinking 默认采集**：默认打开，进 `role=thinking` payload，脱敏+上限；`ATH_OBSERVABILITY_CAPTURE_THINKING=false` 可关。因此 `thinking` span 采集从 P2 提前到 P0。
+2. **thinking summary 采集**：runtime 主动暴露的 summary 进 `role=thinking` payload，统一脱敏并受容量上限保护；隐藏 chain-of-thought 永不采集。当前没有关闭开关。
 3. **DAG 组件**：采用 ReactFlow + dagre 渲染调用链。
 
 ## 14. Agent turn 完成不变量（Issue #17）

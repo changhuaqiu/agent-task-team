@@ -151,7 +151,7 @@ export interface Task {
   - `accounts`
   - `roleCards`
   - 角色卡可持久化到 `role_cards` SQLite 表（JSON `data` 列存储完整 RoleCard）
-  - 配套查询函数：`upsertRoleCard`、`loadAllRoleCards`、`deleteRoleCard`
+  - 配套写/读函数：`upsertRoleCard`、`loadAllRoleCards`
 - Skill 能力模块：
   - `skillsMap: Record<string, SkillSummary>`
   - `agentSkillIds: Record<string, string[]>`

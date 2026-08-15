@@ -74,7 +74,3 @@ export function hasCredential(id: string): boolean {
   const all = readAll();
   return Boolean(all[id]?.apiKey?.trim());
 }
-
-export function listCredentialIds(): string[] {
-  return Object.keys(readAll());
-}

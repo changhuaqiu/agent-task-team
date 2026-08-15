@@ -218,3 +218,7 @@ Task Graph repository 的 `listActions(conversationId)` 只被自身 `getGraph()
 ## 第四十六轮：收窄 WorkContract repository 公共 interface
 
 `WorkContractRepository.getContract()` 全仓零消费者，而 `getContractRow()` 与 `listActiveAuthoritiesForTask()` 只服务同一个 repository 的 issue、Outcome admission 与 task close 实现，却仍作为公共方法暴露。第四十六轮删除零消费者 domain getter，并将两个内部查询标为 private；正式 `issue`、authority epoch fencing、`closeActiveForTask`、`close`、`admitOutcome`、Permission Policy 与 Dispatch Contract 行为保持不变。
+
+## 第四十七轮：删除零消费者公共面与虚假 thinking 开关
+
+全仓仍残留一批只被自身测试消费或完全没有消费者的公共类型/函数：旧静态团队角色、重复的 Task 状态读取、Store 调试 getter、Credential/RoleCard 标量查询，以及未进入任何生产调用链的 A2A 类型。Observability 文档还宣称可用 `ATH_OBSERVABILITY_CAPTURE_THINKING=false` 关闭 thinking 采集，但生产投影从未读取该环境变量。第四十七轮删除这些假公共面和对应自测，保留 canonical Task 状态图、credential/RoleCard 正式生命周期、A2A possession owner 与 runtime thinking payload 投影；当前事实明确为 runtime 主动暴露的 summary 按统一脱敏与容量限制采集，隐藏 chain-of-thought 永不采集，当前没有关闭开关。

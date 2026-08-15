@@ -73,21 +73,6 @@ export interface A2APossession {
   summary?: string;
 }
 
-export interface A2APass {
-  id: string;
-  chainId: string;
-  fromPossessionId: string;
-  fromHolderId: string;
-  toAgentId: string;
-  status: PassStatus;
-  intent: PassIntent;
-  reason?: string;
-  phase?: PassBlockPhase;
-  handoffPacketId?: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
 export interface A2AHandoffPacket {
   id: string;
   chainId: string;

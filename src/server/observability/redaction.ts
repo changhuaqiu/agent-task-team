@@ -41,7 +41,3 @@ export function sanitizeObservationPayload(
   if (content.endsWith('\uFFFD')) content = content.slice(0, -1);
   return { content, byteSize: Buffer.byteLength(content, 'utf8'), truncated: true };
 }
-
-export function isThinkingCaptureEnabled(value = process.env.ATH_OBSERVABILITY_CAPTURE_THINKING): boolean {
-  return value?.trim().toLowerCase() !== 'false';
-}
