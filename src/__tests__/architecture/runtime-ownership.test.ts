@@ -235,6 +235,7 @@ describe('runtime ownership architecture', () => {
   });
 
   it('keeps production Agent engines aligned with the ACP Catalog', () => {
+    const productionFiles = productionTypeScriptFiles('src');
     const runtimeIdentityFiles = [
       'src/server/types.ts',
       'src/lib/team-runtime/types.ts',
@@ -243,6 +244,9 @@ describe('runtime ownership architecture', () => {
     ];
     const retiredGeminiRuntime = /['"]gemini(?:-cli)?['"]/;
     expect(runtimeIdentityFiles.filter((path) => retiredGeminiRuntime.test(source(path)))).toEqual([]);
+    expect(productionFiles.filter((path) => /\bCliEngine\b/.test(source(path)))).toEqual([]);
+    expect(source('src/server/types.ts')).toContain('engine: RuntimeCliEngine;');
+    expect(taskHubStore).not.toMatch(/export type \{[^}]*CliEngine/);
   });
 
   it('keeps the WorkContract root correlation above transport envelopes', () => {

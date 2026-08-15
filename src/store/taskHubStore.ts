@@ -32,13 +32,13 @@ import type { TeamPackRole, TeamPack } from '@/types/teamPack';
 import type { Phase } from '@/types/phase';
 import type { PhaseProposal } from '@/lib/breakdownParser';
 import type { SkillSummary } from '@/lib/agent-context/types';
-import type { DetectedRuntime, CliEngine } from '@/server/types';
+import type { DetectedRuntime } from '@/server/types';
 import type { A2APossessionView, ChatMessage, ToolEvent } from './types';
 import { assertTaskStatus, isTaskStatus } from '@/shared/task-status';
 export type { A2AHandoffStatus, A2AHandoffView, A2APossessionView, ChatMessage, ToolEvent } from './types';
 
 // Re-export types from sub-stores (backward compatibility)
-export type { CliEngine, DetectedRuntime } from '@/server/types';
+export type { DetectedRuntime } from '@/server/types';
 export type { TaskStatus } from './taskStore';
 export type { Task, TaskArtifact } from './taskStore';
 export { STATUS_LABELS, STATUS_ORDER } from './taskStore';

@@ -3,7 +3,7 @@
 import type { RoleCard } from '@/types/roleCard';
 import type { TeamPackRole } from '@/types/teamPack';
 import type { SkillSummary } from '@/lib/agent-context/types';
-import type { CliEngine } from '@/server/types';
+import type { RuntimeCliEngine } from '@/lib/team-runtime/runtimeEngine';
 import {
   type AccountAuthMode,
   type AccountProvider,
@@ -21,7 +21,7 @@ export interface Agent {
   theme: AgentTheme;
   emoji: string;
   isOnline: boolean;
-  cliEngine?: CliEngine;
+  cliEngine?: RuntimeCliEngine;
   accountIds: string[];
 }
 
@@ -80,7 +80,7 @@ export async function loadAgents(options: LoadAgentsOptions = {}): Promise<void>
     if (data.agents.length === 0) return;
 
     const prevOnline: Record<string, boolean> = {};
-    const prevCliEngine: Record<string, CliEngine | undefined> = {};
+    const prevCliEngine: Record<string, RuntimeCliEngine | undefined> = {};
     const prevAccountIds: Record<string, string[]> = {};
     for (const a of AGENT_ROSTER) {
       prevOnline[a.id] = a.isOnline;

@@ -33,4 +33,8 @@
 
 ## Verification
 
-- 待实现后记录。
+- `pnpm install --offline --frozen-lockfile`：通过，719 packages，lockfile 未变。
+- 基线 `pnpm exec vitest run src/server/runtime-selection.test.ts src/__tests__/architecture/runtime-ownership.test.ts src/__tests__/task-hub/TaskDetailPanel.runtime-profile.test.tsx src/__tests__/server/invocation-pipeline/context-planner.test.ts src/__tests__/lib/team-runtime/team-runtime.test.ts --reporter=dot`：5 files / 73 tests 通过。
+- 实现后同一定向命令：5 files / 73 tests 通过；架构守卫新增生产 `CliEngine` 零残留与 TaskHub 不重导出断言。
+- `pnpm exec tsc --noEmit`：通过。
+- 构建、全量测试与独立复审待完成。

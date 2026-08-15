@@ -2,10 +2,8 @@
 
 import type { RuntimeCliEngine } from '@/lib/team-runtime/runtimeEngine';
 
-export type CliEngine = RuntimeCliEngine;
-
 export interface DetectedRuntime {
-  engine: CliEngine;
+  engine: RuntimeCliEngine;
   available: boolean;
   path?: string;
   version?: string;

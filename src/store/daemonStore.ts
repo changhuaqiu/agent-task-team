@@ -1,7 +1,7 @@
 'use client';
 
 import { io } from 'socket.io-client';
-import type { DetectedRuntime, CliEngine } from '@/server/types';
+import type { DetectedRuntime } from '@/server/types';
 
 // --- Shared socket instance ---
 export const socket = io(undefined, { path: '/api/socketio', autoConnect: false });

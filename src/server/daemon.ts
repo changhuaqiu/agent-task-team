@@ -10,7 +10,8 @@ import { buildProbeEnv } from './cli-probe';
 import { generateRuntimeConfig, cleanupRuntimeConfig, makeInvocationId } from './opencode-config';
 import { startTaskWatcher } from './task-file-watcher';
 import { ensureTasksMdProjection } from './task-file-service';
-import type { CliEngine, DetectedRuntime } from './types';
+import type { DetectedRuntime } from './types';
+import type { RuntimeCliEngine } from '@/lib/team-runtime/runtimeEngine';
 import { resolveRuntimeSelection } from './runtime-selection';
 import {
   isAccountAuthMode,
@@ -104,7 +105,7 @@ type TerminalStartPayload = {
   fromAgentId?: string;
   chainId?: string;
   passId?: string;
-  engine?: CliEngine;
+  engine?: RuntimeCliEngine;
   runtimeId?: string;
   accountId?: string;
   force?: boolean;
@@ -144,7 +145,7 @@ export function submitSocketTerminalStart(
 
 type AgentActivityStatus = 'running' | 'awaiting_children' | 'idle';
 
-const ENGINE_COMMAND: Record<CliEngine, string> = {
+const ENGINE_COMMAND: Record<RuntimeCliEngine, string> = {
   opencode: 'opencode',
   claude: 'claude',
   codex: 'codex',
@@ -160,7 +161,7 @@ function resolveAcpPermissionPolicy(): 'deny' | 'allow_once' {
   return process.env.ACP_PERMISSION_MODE === 'allow_once' ? 'allow_once' : 'deny';
 }
 
-async function resolveExecutionAccount(accountId: string | undefined, engine: CliEngine) {
+async function resolveExecutionAccount(accountId: string | undefined, engine: RuntimeCliEngine) {
   if (!accountId) return undefined;
   const account = await readAccount(accountId);
   const credential = await readCredential(accountId);
@@ -191,7 +192,7 @@ const execAsync = promisify(exec);
 
 async function detectAvailableRuntimes(): Promise<DetectedRuntime[]> {
   const results: DetectedRuntime[] = [];
-  const engines: CliEngine[] = ['claude', 'codex', 'opencode'];
+  const engines: RuntimeCliEngine[] = ['claude', 'codex', 'opencode'];
   for (const engine of engines) {
     const command = ENGINE_COMMAND[engine];
     try {
@@ -693,7 +694,7 @@ export default function registerDaemon(io: IOServer) {
       };
 
       const selection = resolveRuntimeSelection(rawEngine, runtimeId);
-      const engine: CliEngine = selection.engine;
+      const engine: RuntimeCliEngine = selection.engine;
       const effectiveRuntimeId = selection.runtimeId;
       primaryCommand = ENGINE_COMMAND[engine];
       const executionAccount = await resolveExecutionAccount(accountId, engine);

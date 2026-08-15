@@ -1,5 +1,5 @@
 // Invocation Pipeline contracts.
-import type { CliEngine } from '../types';
+import type { RuntimeCliEngine } from '@/lib/team-runtime/runtimeEngine';
 import type { ContextReport, ContextRequest, ContextSnapshot } from '../../lib/agent-context/ContextManager';
 import type { ContextScenario } from '../../lib/agent-context/scenarioResolver';
 import type { WorkContract } from '../work-contract/types';
@@ -34,7 +34,7 @@ export interface AgentActivationCommand {
 }
 export interface InvocationDispatchPlan {
   trigger: AgentActivationCommand;
-  engine: CliEngine;
+  engine: RuntimeCliEngine;
   accountId?: string;
   runtimeId: string;
   systemPrompt?: string;
