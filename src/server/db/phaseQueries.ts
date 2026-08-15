@@ -9,7 +9,7 @@ export function listPhasesByConversation(conversationId: string): Phase[] {
   return rows.map(rowToPhase);
 }
 
-export function getPhaseById(id: string): Phase | undefined {
+function getPhaseById(id: string): Phase | undefined {
   const db = getDb();
   const row = db.prepare('SELECT * FROM phase WHERE id = ?').get(id) as PhaseRow | undefined;
   return row ? rowToPhase(row) : undefined;
@@ -45,11 +45,6 @@ export function upsertPhase(phase: Phase): Phase {
 export function deletePhase(id: string): void {
   const db = getDb();
   db.prepare('DELETE FROM phase WHERE id = ?').run(id);
-}
-
-export function deletePhasesByConversation(conversationId: string): void {
-  const db = getDb();
-  db.prepare('DELETE FROM phase WHERE conversation_id = ?').run(conversationId);
 }
 
 interface PhaseRow {

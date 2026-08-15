@@ -226,3 +226,7 @@ Task Graph repository 的 `listActions(conversationId)` 只被自身 `getGraph()
 ## 第四十八轮：把测试夹具与资源清理移出生产公共面
 
 ACP setup 与 Project Context scanner 各遗留一个只有定义、没有任何消费者的导出符号；ACP permission 还保留一个只由自身单测调用、对所有 edit 一律放行的宽策略。正式执行已经由 WorkContract authority、cwd 边界和受控命令策略失败关闭，因此这些接口不再代表生产能力。SkillRuntime 同样不应为 unit/integration/E2E 暴露 `packageFromLegacyInput()`：测试数据构造迁入 test-helper，生产模块只保留安装与编译。TASKS.md watcher 的清理能力则不删除，而是由 `startTaskWatcher()` 返回幂等 cleanup，把资源所有权绑定到创建调用；重复 start 不取得已有 watcher 的关闭权。
+
+## 第四十九轮：把状态机与写后回读收回实现内部
+
+Invocation repository 的状态常量、transition input、错误类、校验与迁移 predicate 没有任何模块外消费者，却作为一组可导入 interface 暴露；Phase/Agent query 也把只供自身写后回读和删除保护的标量 lookup 公开给测试。第四十九轮删除三个真正无消费者的 helper，将这些实现细节和六个只在定义模块内调用的编排 helper 收回内部。正式调用方继续只穿过 Invocation lifecycle、Phase list/upsert/delete、Agent list/upsert/delete、WorkContract dispatch、Task notification/watcher、worktree GC scheduler 与 Invocation registry；测试不再把内部 SQL/状态 predicate 当作第二套 interface。

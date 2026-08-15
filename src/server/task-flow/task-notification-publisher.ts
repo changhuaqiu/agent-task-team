@@ -57,7 +57,7 @@ function emitWakeupToConversation(io: IOServer | undefined, conversationId: stri
   io.to(conversationId).emit('task.wakeup', { ...wakeup, projectId: conversationId });
 }
 
-export function emitTaskState(io: IOServer | undefined, task: TaskRow): void {
+function emitTaskState(io: IOServer | undefined, task: TaskRow): void {
   if (!io) return;
   io.to(task.conversation_id).emit('task.state', {
     projectId: task.conversation_id,

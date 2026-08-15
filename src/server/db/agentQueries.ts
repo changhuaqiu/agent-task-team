@@ -16,7 +16,7 @@ export function listAgents(): AgentDbRow[] {
   return db.prepare('SELECT * FROM agents').all() as AgentDbRow[];
 }
 
-export function getAgentById(id: string): AgentDbRow | undefined {
+function getAgentById(id: string): AgentDbRow | undefined {
   const db = getDb();
   return db.prepare('SELECT * FROM agents WHERE id = ?').get(id) as AgentDbRow | undefined;
 }

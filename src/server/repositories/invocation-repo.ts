@@ -1,7 +1,7 @@
 import { getDb } from '../db/index';
 import { DomainEventPublisher, type DomainEventType } from '../platform-events/domain-events';
 
-export const INVOCATION_STATUSES = [
+const INVOCATION_STATUSES = [
   'planned',
   'starting',
   'running',
@@ -12,7 +12,7 @@ export const INVOCATION_STATUSES = [
 export type InvocationStatus = (typeof INVOCATION_STATUSES)[number];
 const INVOCATION_STATUS_SET = new Set<string>(INVOCATION_STATUSES);
 
-export const INVOCATION_OUTCOMES = [
+const INVOCATION_OUTCOMES = [
   'completed',
   'failed',
   'cancelled',
@@ -20,7 +20,6 @@ export const INVOCATION_OUTCOMES = [
 ] as const;
 
 export type InvocationOutcome = (typeof INVOCATION_OUTCOMES)[number];
-const INVOCATION_OUTCOME_SET = new Set<string>(INVOCATION_OUTCOMES);
 
 const INVOCATION_TRANSITIONS: Readonly<Record<InvocationStatus, ReadonlySet<InvocationStatus>>> = {
   planned: new Set(['starting', 'terminating', 'terminated']),
@@ -89,13 +88,13 @@ export type InvocationPatch = Partial<
   >
 >;
 
-export interface InvocationTransition extends InvocationPatch {
+interface InvocationTransition extends InvocationPatch {
   to: InvocationStatus;
   expectedFrom?: InvocationStatus;
   outcome?: InvocationOutcome;
 }
 
-export class InvalidInvocationTransitionError extends Error {
+class InvalidInvocationTransitionError extends Error {
   readonly reasonCode = 'invalid_invocation_transition';
 
   constructor(
@@ -107,7 +106,7 @@ export class InvalidInvocationTransitionError extends Error {
   }
 }
 
-export class InvalidInvocationStatusError extends Error {
+class InvalidInvocationStatusError extends Error {
   readonly reasonCode = 'invalid_invocation_status';
 
   constructor(readonly status: string) {
@@ -115,7 +114,7 @@ export class InvalidInvocationStatusError extends Error {
   }
 }
 
-export class StaleInvocationTransitionError extends Error {
+class StaleInvocationTransitionError extends Error {
   readonly reasonCode = 'stale_invocation_transition';
 
   constructor(
@@ -127,7 +126,7 @@ export class StaleInvocationTransitionError extends Error {
   }
 }
 
-export class InvalidInvocationOutcomeError extends Error {
+class InvalidInvocationOutcomeError extends Error {
   readonly reasonCode = 'invalid_invocation_outcome';
 
   constructor(readonly status: InvocationStatus, readonly outcome?: string) {
@@ -141,19 +140,12 @@ export class InvalidInvocationOutcomeError extends Error {
   }
 }
 
-export function assertInvocationStatus(value: string): InvocationStatus {
+function assertInvocationStatus(value: string): InvocationStatus {
   if (!INVOCATION_STATUS_SET.has(value)) throw new InvalidInvocationStatusError(value);
   return value as InvocationStatus;
 }
 
-export function assertInvocationOutcome(value: string): InvocationOutcome {
-  if (!INVOCATION_OUTCOME_SET.has(value)) {
-    throw new InvalidInvocationOutcomeError('terminated', value);
-  }
-  return value as InvocationOutcome;
-}
-
-export function canTransitionInvocation(from: InvocationStatus, to: InvocationStatus): boolean {
+function canTransitionInvocation(from: InvocationStatus, to: InvocationStatus): boolean {
   return from === to || INVOCATION_TRANSITIONS[from].has(to);
 }
 

@@ -100,7 +100,7 @@ async function* ensureSingleTerminalDone(
   }
 }
 
-export function acpSessionMeta(
+function acpSessionMeta(
   engine: EngineId,
   forwardNativeSubagentText?: boolean,
 ): Record<string, unknown> | undefined {

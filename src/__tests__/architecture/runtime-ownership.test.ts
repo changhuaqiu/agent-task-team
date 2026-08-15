@@ -517,6 +517,47 @@ describe('runtime ownership architecture', () => {
     }
   });
 
+  it('keeps scalar lookups and state-machine helpers behind their owning modules', () => {
+    const production = productionTypeScriptFiles('src').map((path) => source(path)).join('\n');
+    for (const retired of ['closeDb', 'assertInvocationOutcome', 'deletePhasesByConversation']) {
+      expect(production).not.toMatch(new RegExp(`\\b${retired}\\b`));
+    }
+
+    const internalByOwner: Record<string, string[]> = {
+      'src/server/repositories/invocation-repo.ts': [
+        'INVOCATION_STATUSES',
+        'INVOCATION_OUTCOMES',
+        'InvocationTransition',
+        'InvalidInvocationTransitionError',
+        'InvalidInvocationStatusError',
+        'StaleInvocationTransitionError',
+        'InvalidInvocationOutcomeError',
+        'assertInvocationStatus',
+        'canTransitionInvocation',
+      ],
+      'src/server/db/phaseQueries.ts': ['getPhaseById'],
+      'src/server/db/agentQueries.ts': ['getAgentById'],
+      'src/server/agent/acp/acpBackend.ts': ['acpSessionMeta'],
+      'src/server/work-contract/dispatch-contract.ts': ['deriveWorkId'],
+      'src/server/task-flow/task-notification-publisher.ts': ['emitTaskState'],
+      'src/server/task-file-watcher.ts': ['resolveTaskStorageIds'],
+      'src/server/worktree-gc.ts': ['runWorktreeGC'],
+      'src/server/invocation-pipeline/registry.ts': ['submitAgentActivation'],
+    };
+
+    for (const [owner, names] of Object.entries(internalByOwner)) {
+      const ownerSource = source(owner);
+      for (const name of names) {
+        expect(ownerSource).not.toMatch(
+          new RegExp(`^export\\s+(?:async\\s+)?(?:function|class|const|let|type|interface|enum)\\s+${name}\\b`, 'm'),
+        );
+        expect(ownerSource).not.toMatch(
+          new RegExp(`^export\\s+(?:type\\s+)?\\{[^}]*\\b${name}\\b`, 'm'),
+        );
+      }
+    }
+  });
+
   it('allows global broadcast only for the system runtime catalog', () => {
     const broadcastEvents = Array.from(
       daemon.matchAll(/\bbroadcast\('([^']+)'/g),

@@ -20,7 +20,7 @@ export function registerInvocationCoordinator(io: IOServer, coordinator: Invocat
   (io as unknown as Record<symbol, unknown>)[INVOCATION_COORDINATOR_KEY] = coordinator;
 }
 
-export function submitAgentActivation(
+function submitAgentActivation(
   io: IOServer | undefined,
   trigger: AgentActivationCommand,
 ): InvocationSubmission | undefined {

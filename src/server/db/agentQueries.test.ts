@@ -1,7 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createTestDb, setTestDb } from './index';
-import { listAgents, getAgentById, upsertAgent, deleteAgent } from './agentQueries';
+import { listAgents, upsertAgent, deleteAgent } from './agentQueries';
 import { seedPresetAgents } from './seed-agents';
+
+function storedAgent(id: string) {
+  return listAgents().find((agent) => agent.id === id);
+}
 
 describe('agentQueries', () => {
   beforeEach(() => {
@@ -43,9 +47,9 @@ describe('agentQueries', () => {
     });
   });
 
-  describe('getAgentById', () => {
+  describe('listAgents scalar lookup', () => {
     it('returns undefined for non-existent agent', () => {
-      expect(getAgentById('nonexistent')).toBeUndefined();
+      expect(storedAgent('nonexistent')).toBeUndefined();
     });
 
     it('returns the correct agent after upsert', () => {
@@ -57,7 +61,7 @@ describe('agentQueries', () => {
         emoji: '🧪',
       });
 
-      const agent = getAgentById('test-agent');
+      const agent = storedAgent('test-agent');
       expect(agent).toBeDefined();
       expect(agent!.id).toBe('test-agent');
       expect(agent!.name).toBe('Test Agent');
@@ -157,10 +161,10 @@ describe('agentQueries', () => {
         emoji: '🗑️',
       });
 
-      expect(getAgentById('deletable')).toBeDefined();
+      expect(storedAgent('deletable')).toBeDefined();
 
       deleteAgent('deletable');
-      expect(getAgentById('deletable')).toBeUndefined();
+      expect(storedAgent('deletable')).toBeUndefined();
       expect(listAgents()).toHaveLength(0);
     });
 
@@ -168,7 +172,7 @@ describe('agentQueries', () => {
       seedPresetAgents();
 
       expect(() => deleteAgent('mario')).toThrow('Cannot delete preset agent');
-      expect(getAgentById('mario')).toBeDefined();
+      expect(storedAgent('mario')).toBeDefined();
     });
 
     it('does not throw when deleting non-existent agent', () => {

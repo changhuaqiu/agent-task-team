@@ -26,7 +26,7 @@ function queryActiveSlugs(): Set<string> {
  * Run a single GC pass: collect active slugs, then delegate to WorkdirManager.gcWorktrees().
  * Errors are caught and logged — never crash the process.
  */
-export async function runWorktreeGC(workdirManager: WorkdirManager): Promise<string[]> {
+async function runWorktreeGC(workdirManager: WorkdirManager): Promise<string[]> {
   console.log('[worktree-gc] starting GC pass');
   try {
     const activeSlugs = queryActiveSlugs();

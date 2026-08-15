@@ -2,10 +2,8 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { createTestDb, setTestDb, getDb } from './index';
 import {
   listPhasesByConversation,
-  getPhaseById,
   upsertPhase,
   deletePhase,
-  deletePhasesByConversation,
 } from './phaseQueries';
 import type { Phase } from '@/types/phase';
 
@@ -31,6 +29,10 @@ const makePhase = (overrides: Partial<Phase> = {}): Phase => ({
   ...overrides,
 });
 
+function storedPhase(id: string, conversationId = CONV_ID): Phase | undefined {
+  return listPhasesByConversation(conversationId).find((phase) => phase.id === id);
+}
+
 describe('phaseQueries', () => {
   beforeEach(() => {
     const db = createTestDb();
@@ -43,7 +45,7 @@ describe('phaseQueries', () => {
     const phase = makePhase();
     upsertPhase(phase);
 
-    const loaded = getPhaseById(phase.id);
+    const loaded = storedPhase(phase.id);
     expect(loaded).toBeDefined();
     expect(loaded!.id).toBe(phase.id);
     expect(loaded!.title).toBe('Test Phase');
@@ -57,7 +59,7 @@ describe('phaseQueries', () => {
     const updated = makePhase({ title: 'Updated', status: 'active' });
     upsertPhase(updated);
 
-    const loaded = getPhaseById(phase.id);
+    const loaded = storedPhase(phase.id);
     expect(loaded!.title).toBe('Updated');
     expect(loaded!.status).toBe('active');
   });
@@ -84,35 +86,23 @@ describe('phaseQueries', () => {
   });
 
   it('returns undefined for non-existent phase', () => {
-    expect(getPhaseById('nonexistent')).toBeUndefined();
+    expect(storedPhase('nonexistent')).toBeUndefined();
   });
 
   it('deletes a single phase', () => {
     const phase = makePhase({ id: `${CONV_ID}-PHASE-del` });
     upsertPhase(phase);
-    expect(getPhaseById(phase.id)).toBeDefined();
+    expect(storedPhase(phase.id)).toBeDefined();
 
     deletePhase(phase.id);
-    expect(getPhaseById(phase.id)).toBeUndefined();
-  });
-
-  it('deletes all phases by conversation', () => {
-    upsertPhase(makePhase({ id: `${CONV_ID}-PHASE-0`, order: 0 }));
-    upsertPhase(makePhase({ id: `${CONV_ID}-PHASE-1`, order: 1 }));
-    const OTHER_CONV = 'conv-other-999';
-    upsertPhase(makePhase({ id: `${OTHER_CONV}-PHASE-0`, conversationId: OTHER_CONV }));
-
-    deletePhasesByConversation(CONV_ID);
-
-    expect(listPhasesByConversation(CONV_ID)).toHaveLength(0);
-    expect(listPhasesByConversation(OTHER_CONV)).toHaveLength(1);
+    expect(storedPhase(phase.id)).toBeUndefined();
   });
 
   it('handles null description', () => {
     const phase = makePhase({ description: '' });
     upsertPhase(phase);
 
-    const loaded = getPhaseById(phase.id);
+    const loaded = storedPhase(phase.id);
     expect(loaded!.description).toBe('');
   });
 
@@ -121,7 +111,7 @@ describe('phaseQueries', () => {
 
     for (const status of ['planned', 'active', 'done'] as const) {
       upsertPhase(makePhase({ status }));
-      expect(getPhaseById(phase.id)!.status).toBe(status);
+      expect(storedPhase(phase.id)!.status).toBe(status);
     }
   });
 });

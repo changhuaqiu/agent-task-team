@@ -361,6 +361,8 @@ daemon 当前已经具备会话级跟踪：
 - `invocationRepo.updateDispatchStatus()` — 更新 dispatch 状态和 token 用量
 - `invocationRepo.listRecent()` — 为 State API 提供最近调用投影
 
+Invocation 状态校验、合法迁移矩阵和错误构造是 repository 内部实现；调用方只提交 lifecycle transition 并消费 row/result，不导入第二套状态机 helper。
+
 这使系统能记录：
 
 - 某个项目下某个 agent 的会话链

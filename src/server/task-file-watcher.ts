@@ -39,7 +39,7 @@ function normalizeDependencyList(value: string | null | undefined): string {
  * has a database-wide primary key. Preserve legacy IDs when safe and scope
  * only collisions until the table can migrate to a composite identity.
  */
-export function resolveTaskStorageIds(
+function resolveTaskStorageIds(
   conversationId: string,
   localTaskIds: string[],
 ): Map<string, string> {

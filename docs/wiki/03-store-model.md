@@ -167,7 +167,7 @@ export interface Task {
 
 1. 页面初始化时，store 从 `GET /api/state` rehydrate
 2. 用户操作通过 store action 触发本地更新
-3. store 按领域 interface 写入后端：通用协作命令调用 `/api/mutations`，阶段数据调用 `/api/phases`
+3. store 按领域 interface 写入后端：通用协作命令调用 `/api/mutations`，阶段数据调用 `/api/phases`；Phase 的服务端正式 interface 是 list/upsert/delete，标量写后回读只属于持久化实现。
 4. daemon 事件通过 Socket 进入 store
 
 因此 store 更接近：

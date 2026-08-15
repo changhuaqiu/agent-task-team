@@ -3,7 +3,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import handler from '@/pages/api/phases';
 import { createTestDb, resetDb, setTestDb } from '@/server/db';
 import { conversationRepo } from '@/server/repositories/conversation-repo';
-import { getPhaseById, upsertPhase } from '@/server/db/phaseQueries';
+import { listPhasesByConversation, upsertPhase } from '@/server/db/phaseQueries';
 
 function response() {
   const res = {
@@ -87,7 +87,7 @@ describe('/api/phases', () => {
       deleteRes as unknown as NextApiResponse,
     );
     expect(deleteRes.body).toEqual({ ok: true });
-    expect(getPhaseById('phase-a')).toBeUndefined();
+    expect(listPhasesByConversation('project-a').some((item) => item.id === 'phase-a')).toBe(false);
   });
 
   it('rejects incomplete requests and unsupported methods', async () => {

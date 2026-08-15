@@ -29,7 +29,7 @@ function purposeFor(trigger: AgentActivationCommand): string {
   return 'execute';
 }
 
-export function deriveWorkId(trigger: AgentActivationCommand): string {
+function deriveWorkId(trigger: AgentActivationCommand): string {
   const explicit = trigger.workId?.trim();
   if (explicit) return explicit;
   if (trigger.passId) return `a2a-pass:${trigger.passId}`;
