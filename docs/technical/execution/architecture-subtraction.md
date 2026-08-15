@@ -210,3 +210,7 @@ Message repository 的 `appendTextChunk` 没有生产写入者，Task repository
 ## 第四十四轮：收窄 Session、Invocation 与 Skill 重复读面
 
 Invocation 的按 agent 查询、Session 的 task-keyed active lookup、Skill 的单 Agent ID-only assignment 查询都只剩 repository/seed 自测消费者。正式执行已经分别以 conversation/recent/dispatch lifecycle、conversation+isolation session identity、`getSkillsForAgent`/`getAllAgentSkillIds` 作为读面。第四十四轮删除这三个重复 interface，并让 assignment 测试穿过正式聚合读面；Invocation dispatch、Session runtime identity 与 Skill preset/runtime 行为保持不变。
+
+## 第四十五轮：将 Task Graph 标量集合读面收进聚合
+
+Task Graph repository 的 `listActions(conversationId)` 只被自身 `getGraph()` 组装调用，`listArtifacts(conversationId)` 也只额外服务绕过正式聚合的测试；Pages API、Observation projection 与任务流的 conversation 级事实源已经是 `TaskGraphView`。第四十五轮删除这两个浅 interface，在 `getGraph()` 内保持既有 SQL、排序与 row shape，并让测试穿过正式聚合读面。真实 task-scoped `listActionsForTask`、edge/revision/commit 与 artifact write 行为保持不变。
