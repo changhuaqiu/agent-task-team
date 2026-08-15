@@ -9,4 +9,4 @@
 - [x] 二十三个同文件-only 符号不再属于公共 interface。
 - [x] 架构守卫阻止测试 fixture 与内部 export 回流。
 - [x] 文档、类型、定向、build 与全量结果记录。
-- [ ] 独立复审无 Critical / Important。
+- [x] 独立复审无 Critical / Important。

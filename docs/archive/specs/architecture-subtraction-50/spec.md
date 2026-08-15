@@ -1,6 +1,6 @@
 # Architecture Subtraction — Round 50
 
-> Status: active
+> Status: implemented
 > Date: 2026-08-15
 
 ## Goal
@@ -38,4 +38,5 @@
 - 非并行全量执行完成：205 files / 1510 tests 通过，2 files / 2 tests 跳过；唯一失败仍为稳定基线 `src/server/autonomous-delivery/control-runtime.test.ts:131`，该文件不在本轮 diff。
 - 首轮独立复审：Critical 0 / Important 1 / Minor 0；发现 Next NFT tracing 仍把 test-helper 纳入部署文件清单。
 - 修复后通过 Next 16 `outputFileTracingExcludes` 全局排除 `src/test-helpers/**/*` 与 `src/**/*.test.{ts,tsx}`；`pnpm build` 通过，逐个解析 50 份 `.next/**/*.nft.json` 后测试源命中为 0，生成的 server JS 中 test-helper/mock/fixture 符号命中为 0。
-- 修复后定向回归 8 files / 85 tests 通过，`pnpm exec tsc --noEmit` 通过；最终独立复审待回填。
+- 修复后定向回归 8 files / 85 tests 通过，`pnpm exec tsc --noEmit` 通过。
+- 最终独立复审：Critical 0 / Important 0 / Minor 0，Ready: Yes；审查者独立执行 build，解析 50 份 NFT manifest 与 190 份 server JS 均确认测试源、mock 与 fixture 零命中，架构守卫 1 file / 34 tests 通过。
