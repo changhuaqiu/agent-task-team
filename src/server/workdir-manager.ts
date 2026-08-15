@@ -3,12 +3,12 @@ import path from 'path';
 import crypto from 'node:crypto';
 import { WorktreeManager } from './worktree-manager';
 
-export interface SessionMeta {
+interface SessionMeta {
   sessionId: string;
   updatedAt: string;
 }
 
-export interface GCMeta {
+interface GCMeta {
   taskId: string;
   completedAt: string;
 }
@@ -19,7 +19,7 @@ export function stableWorkdirTaskKey(taskId?: string): string {
 }
 
 /** Encode an external business identifier as one portable path segment. */
-export function safeWorkdirSegment(value: string): string {
+function safeWorkdirSegment(value: string): string {
   const trimmed = value.trim();
   let sanitized = trimmed
     .replace(/[<>:"/\\|?*\u0000-\u001F]/g, '_')
@@ -51,7 +51,6 @@ export class WorkdirManager {
   private root: string;
   private worktreeManager: WorktreeManager;
   private repoWorktreeManagers = new Map<string, WorktreeManager>();
-  private activeDirs: Set<string> = new Set();
 
   constructor(root: string, repoRoot?: string) {
     this.root = root;
@@ -71,7 +70,7 @@ export class WorkdirManager {
     return manager;
   }
 
-  async resolveProjectWorkdir(projectSlug: string, startPoint?: string, repoRoot?: string): Promise<string> {
+  private async resolveProjectWorkdir(projectSlug: string, startPoint?: string, repoRoot?: string): Promise<string> {
     const manager = this.managerForRepo(repoRoot);
     const worktreePath = manager.getWorktreePath(projectSlug);
 
@@ -114,7 +113,6 @@ export class WorkdirManager {
     const taskDir = path.join(path.dirname(baseDir), `task-${safeTaskId}`, 'workdir');
     fs.mkdirSync(taskDir, { recursive: true });
 
-    this.activeDirs.add(path.dirname(taskDir));
     return taskDir;
   }
 
@@ -139,7 +137,6 @@ export class WorkdirManager {
       taskId,
       completedAt: new Date().toISOString(),
     }));
-    this.activeDirs.delete(taskRoot);
   }
 
   gc(ttlMs: number): void {
@@ -193,12 +190,4 @@ export class WorkdirManager {
     return removed;
   }
 
-  refreshContextFiles(workdir: string, context: { roleCardContent?: string; teamInfo?: string }): void {
-    if (context.roleCardContent) {
-      fs.writeFileSync(path.join(workdir, '.ath-role.md'), context.roleCardContent);
-    }
-    if (context.teamInfo) {
-      fs.writeFileSync(path.join(workdir, '.ath-team.md'), context.teamInfo);
-    }
-  }
 }

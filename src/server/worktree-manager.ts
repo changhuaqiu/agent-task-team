@@ -5,9 +5,9 @@ import path from 'node:path';
 
 const execFileAsync = promisify(execFile);
 
-export const BRANCH_PREFIX = 'worktree';
+const BRANCH_PREFIX = 'worktree';
 
-export interface WorktreeInfo {
+interface WorktreeInfo {
   path: string;
   branch: string;
   head: string;
