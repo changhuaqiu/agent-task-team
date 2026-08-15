@@ -186,3 +186,7 @@ A2A Command Guard 是 `CommunicationPolicy` 的唯一生产消费者，但旧 in
 ## 第三十八轮：删除服务端 CliEngine 同义别名
 
 正式 Agent engine 已由 Team Runtime 的 `RuntimeCliEngine` 限定为 OpenCode、Claude 与 Codex，但 `server/types.ts` 仍用逐字别名 `CliEngine` 重新命名同一类型，并让 daemon、Invocation Pipeline、Agent Store、Daemon Store 与 TaskHub barrel 跨两套名称传递同一三个字符串。该别名没有服务端专属成员、验证、迁移或 adapter，只扩大了 interface 并制造“浏览器/服务端 engine 可能不同”的假象。第三十八轮让所有生产调用方直接消费 `RuntimeCliEngine`，删除别名与二次重导出；真实 `DetectedRuntime` list/update、任务详情可用性判断、Catalog、runtimeId/provider 映射、历史迁移、持久化与 socket wire shape 保持不变。
+
+## 第三十九轮：收窄 Task Graph repository 自用 lookup interface
+
+Task Graph 的正式读取面已经是 `TaskGraphView` 与调用方实际使用的 action/edge/artifact 查询，但 repository 对象仍公开 `getEdgeById`、`getArtifactById`、`getBindingById` 和 `listBindings`：前三者分别只在一次写入后自用，后者只为 `getGraph()` 组装聚合。它们没有外部消费者、独立校验、adapter 或恢复语义，却扩大了调用方必须辨认的持久化 interface。同文件还把同一个 commit row 先声明为 `TaskGraphCommitRow`、再导出为 `TaskGraphCommitRecord`。第三十九轮让写入方法直接返回刚持久化的行、让 bindings 只通过聚合读模型读取，并把 commit row 收敛为单一公开类型名；幂等恢复、revision、排序、schema、API 与 Task Authority 行为保持不变。

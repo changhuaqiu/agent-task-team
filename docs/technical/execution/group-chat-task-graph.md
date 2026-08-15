@@ -163,9 +163,10 @@ Any component that derives a filesystem path from a business ID must still encod
 ## Current Implementation Status
 
 - Migration version 18 creates `task_action`, `task_edge`, `task_artifact_ref`, and `chat_task_binding`, and backfills existing task rows as `task.created` actions.
-- `src/server/repositories/task-graph-repo.ts` provides the first Task Graph repository API.
+- `src/server/repositories/task-graph-repo.ts` owns Task Graph persistence. Its public interface exposes domain writes, caller-used domain queries, and the aggregate `TaskGraphView`; per-row lookup helpers used only to finish an internal write are not public repository operations.
 - `src/server/task-flow/group-chat-task-flow.ts` provides the first chat-driven domain service on top of the repository API.
 - The repository treats `task_action` as the explainability event log and returns `TaskGraphView` as the first read model.
+- Chat bindings are read through `TaskGraphView`; callers do not consume a parallel standalone binding-list interface.
 - `task_edge` rejects cycles for `subtask_of`, `depends_on`, and `merged_into` relationships.
 - Handoff intent is recorded by the A2A owner; Task Graph no longer exposes a parallel
   `recordHandoff*` mutation API.
