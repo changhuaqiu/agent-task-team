@@ -37,4 +37,6 @@
 - `pnpm exec tsc --noEmit` 通过。
 - `pnpm build` 通过；仅保留既有 whole-project NFT tracing warning。
 - 非并行全量测试执行完成：206 files / 1519 tests 通过，2 files / 2 tests 跳过；唯一失败仍为稳定基线 `src/server/autonomous-delivery/control-runtime.test.ts:131`，该文件生产代码不在本轮 diff。
-- 独立复审待执行。
+- 首轮独立复审：Critical 0 / Important 0 / Minor 1，20 files / 154 tests 与 tsc 独立通过；唯一 Minor 为旧 scanner singleton 的 public-surface 防回流守卫不完整。
+- 修复后定向回归：architecture guard + security scanner 2 files / 43 tests 全部通过。
+- 最终独立复审：Critical 0 / Important 0 / Minor 0，architecture guard 独立 1 file / 36 tests 通过，Ready: Yes。
