@@ -170,3 +170,7 @@ Team Runtime 的正式任务创建只需要根据 TeamPack workflow 与当前 ro
 ## 第三十四轮：收敛 A2A 通信策略为单一准入结果
 
 A2A Command Guard 是 `CommunicationPolicy` 的唯一生产消费者，但旧 interface 要求调用方先执行 `canSend()`，拒绝后再执行 `explainBlock()`；后者内部又重复调用 `canSend()`。同一 interface 还保留完全没有生产消费者的 `getEscalationTarget()` 与独立 resolver，并把策略构造 helper/type 从 Team Runtime barrel 暴露给不存在的外部调用者。第三十四轮把策略收敛为一次 `explainBlock(from, to)`：`undefined` 表示允许，字符串表示拒绝原因；Command Guard 只读取一次并维持原 reason code。零消费者 escalation 与 public export 被删除，TeamPack 的收发/升级数据、Context prompt、default-team matrix 补全、roster 校验、Human 豁免和 A2A durable owner 均保持不变。
+
+## 第三十五轮：删除单 getter WorkflowPolicy
+
+第三十三轮清掉假想的后续角色路由后，`WorkflowPolicy` 只剩 `selectInitialAgent()` 一个无参数 getter。它没有状态、I/O 或第二种 adapter；唯一生产调用方在构建 Team Runtime 后立即调用一次，而 resolver 也只被 Team Runtime 内部调用。这层 interface 没有隐藏复杂度，只把已经确定的值包进对象。第三十五轮让 `resolveTeamRuntime()` 在已排序 roster 上直接产出 `initialAgentId`，任务创建按“显式负责人 → 初始值 → roster 首成员”消费；删除 policy 类型、独立文件和方法调用。四种 TeamPack mode、未知历史 mode、缺失角色、A2A、TeamPack schema 与后续 Task Graph / Platform Harness 职责保持不变。

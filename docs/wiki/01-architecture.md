@@ -172,12 +172,12 @@ Dispatch Gateway → ExecutionEnvelope → ACP Runtime
 - RoleCard、Account、Skill 绑定
 - preset agents 和当前 active agent 列表
 
-解析结果包含四个关键对象：
+解析结果包含四个关键事实：
 
 - `TeamRuntime.roster`：当前项目可展示、可绑定、可派发、可注入 prompt 的团队成员。
 - `RuntimeAgentProfile`：单个成员的执行资料，包含账号、engine、RoleCard、Skill、TeamPack 和 roster。
 - `CommunicationPolicy`：一次返回 A2A handoff 的阻止原因；`undefined` 表示允许，字符串表示用户可读的拒绝说明，不再暴露重复 predicate 或未接线 escalation resolver。
-- `WorkflowPolicy`：根据 TeamPack workflow 与当前 roster 选择会话的初始任务负责人；后续任务推进归 Task Graph / Platform Harness，不在 Team Runtime 暴露未接线的角色路由。
+- `TeamRuntime.initialAgentId`：根据 TeamPack workflow 与当前 roster 直接派生会话的初始任务负责人；它是确定值，不再包裹单 getter policy。后续任务推进归 Task Graph / Platform Harness。
 
 当前落地链路：
 
@@ -188,7 +188,7 @@ Dispatch Gateway → ExecutionEnvelope → ACP Runtime
 - `/api/state` 返回所有持久化 agent-skill 绑定，支持动态 TeamPack role。
 - A2A Command guard 从 Team Runtime 读取当前 conversation roster 与 communication policy；
   Agent 交接只接受结构化 `handoff_to_agent`，`@roleId` / `@displayName` 只用于显示和检索。
-- `/api/mutations` 的任务创建在没有显式负责人时通过 `WorkflowPolicy.selectInitialAgent()` 选择 TeamPack 初始角色。
+- `/api/mutations` 的任务创建在没有显式负责人时读取 `TeamRuntime.initialAgentId`；为空时再使用 runtime roster 首成员。
 
 ### D) 会话隔离机制
 

@@ -43,7 +43,7 @@ Phase 读取与写入统一由 `/api/phases` 承担；通用 mutation 不再重�
 TeamPack 会话的服务端任务创建会经过 [`src/server/team-runtime/task-assignment.ts`](../../src/server/team-runtime/task-assignment.ts)：
 
 - 如果请求显式提供 `agent_id`，API 保留该选择，不由团队流程覆盖。
-- 如果没有显式 `agent_id` 且 conversation 绑定了 `team_pack_id`，API 读取 TeamPack 并通过 `WorkflowPolicy.selectInitialAgent()` 选择初始角色。
+- 如果没有显式 `agent_id` 且 conversation 绑定了 `team_pack_id`，API 读取 TeamPack，并从 `TeamRuntime.initialAgentId` 取得初始角色。
 - 如果既没有显式 `agent_id`，也无法从 TeamPack workflow 或 runtime roster 解析出负责人，API 返回明确失败，不会写入空字符串 `agent_id`；生产调用链不存在另一套调用方 fallback。
 - invocation-scoped Skill/MCP 的 `task_create` 通过 `skill-tool-executor` 写入 SQLite 与 `TASKS.md`；浏览器 mutation 不具备 Agent 工具执行权。
 - 该服务端路径只依赖 repository 与 `src/lib/team-runtime`，不导入前端 store。
@@ -144,7 +144,7 @@ Daemon 的边界是执行编排，不是团队规则解释器：
 
 - 前端 dispatch 已经把 `RuntimeAgentProfile` 解析成 `terminal:start` payload 中的 `agentId`、`engine`、`accountId`、prompt 上下文。
 - A2A 使用 [`src/server/a2a/runtime-snapshot-provider.ts`](../../src/server/a2a/runtime-snapshot-provider.ts) 从 repository 和 Team Runtime Contract 读取当前会话 roster 与通信规则。
-- 服务端任务创建使用 [`src/server/team-runtime/task-assignment.ts`](../../src/server/team-runtime/task-assignment.ts) 调用 `WorkflowPolicy.selectInitialAgent()`。
+- 服务端任务创建使用 [`src/server/team-runtime/task-assignment.ts`](../../src/server/team-runtime/task-assignment.ts) 读取 `TeamRuntime.initialAgentId`，为空时才回退到 runtime roster 首成员。
 - Daemon 不直接读取前端 store，也不在执行循环中手写 TeamPack workflow 或通信矩阵判断。
 
 ## 4.4 Socket 事件协议
