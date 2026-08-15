@@ -206,3 +206,7 @@ Message、Observation Span、Span Payload 与 Proof Log repository 仍暴露六�
 ## 第四十三轮：删除 Message/Task 死方法与 Skill 内部 lookup
 
 Message repository 的 `appendTextChunk` 没有生产写入者，Task repository 的按 agent 读取和 raw delete 也只有自测；实际 ACP text 会合并后 append 为完整消息，Task 通过查询/transition/update 与 aggregate cleanup 管理。Skill repository 另把仅供 `createOrActivateRevision` 使用的 hash lookup 暴露为公开方法。第四十三轮删除这四个浅 interface，将 hash 幂等查询内聚到 revision 安装事务；Message history、Task lifecycle、Skill immutable revision/install/compile 保持不变。
+
+## 第四十四轮：收窄 Session、Invocation 与 Skill 重复读面
+
+Invocation 的按 agent 查询、Session 的 task-keyed active lookup、Skill 的单 Agent ID-only assignment 查询都只剩 repository/seed 自测消费者。正式执行已经分别以 conversation/recent/dispatch lifecycle、conversation+isolation session identity、`getSkillsForAgent`/`getAllAgentSkillIds` 作为读面。第四十四轮删除这三个重复 interface，并让 assignment 测试穿过正式聚合读面；Invocation dispatch、Session runtime identity 与 Skill preset/runtime 行为保持不变。
