@@ -9,4 +9,4 @@
 - [x] TASKS.md 首次 add、restart reproject 与 conversation isolation 保持。
 - [x] 架构守卫阻止五个退休接口回流。
 - [x] 文档、类型、定向、build 与全量结果记录。
-- [ ] 独立复审无 Critical / Important。
+- [x] 独立复审无 Critical / Important。

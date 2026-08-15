@@ -67,6 +67,7 @@
 | `architecture-subtraction-45/` | implemented | 第四十五轮删除 Task Graph conversation actions/artifacts 两个浅集合读 interface，让正式读取统一穿过 `TaskGraphView` 聚合 |
 | `architecture-subtraction-46/` | implemented | 第四十六轮删除 WorkContract 零消费者 domain getter，并将 row 与 task-authority 查询收为 repository private helper |
 | `architecture-subtraction-47/` | implemented | 第四十七轮删除零消费者公共面、不可观察的 in-flight dispatch 假状态与从未接线的 thinking 采集假开关 |
+| `architecture-subtraction-48/` | implemented | 第四十八轮删除 ACP、Project Context、Skill 与 TASKS.md watcher 中零消费者或测试专用的浅接口，并将 watcher 清理绑定到创建者 |
 | `four-agent-pr-review-loop/` | implemented | 四 Agent PR 交付、评审、修复与合并证据闭环已落地 |
 | `github-issue-agent-hook/` | implemented | GitHub Issue 验签、幂等建项与自主交付链已落地；长期设计见 `docs/technical/integrations/github-issue-agent-hook.md` |
 | `open-issues-33-35/` | implemented | A2A 分派意图、首次交接身份、默认 TeamPack 升级与上下文去重修复已验收 |
