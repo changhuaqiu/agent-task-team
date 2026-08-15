@@ -25,7 +25,7 @@
 ## P2 — task 交互与体验
 
 - [x] Task × Chain 视图（任务节点叠加交汇的链/agent）。
-- [x] 采集 `plan` span（thinking 已在 P0 默认开）。
+- [x] 采集 `plan` span（thinking summary 已在 P0 进入脱敏、限额 payload）。
 - [x] 可观测面板由 5s 轮询改为 Socket 增量推送。
 - [x] P2 测试与回归。
 
