@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   createAutonomousWorkPermissionPolicy,
-  createCodeChangePermissionPolicy,
   createCorrelatedPlatformMcpPermissionPolicy,
   createPermissionHandler,
   createWorkContractPermissionPolicy,
@@ -37,23 +36,6 @@ describe('ACP permission policy', () => {
   it('selects allow_once only when explicitly configured', async () => {
     await expect(createPermissionHandler('allow_once')(request)).resolves.toEqual({
       outcome: { outcome: 'selected', optionId: 'allow-once' },
-    });
-  });
-
-  it('allows a one-shot project edit without opening command execution', async () => {
-    const policy = createCodeChangePermissionPolicy('deny');
-    await expect(createPermissionHandler(policy)(request)).resolves.toEqual({
-      outcome: { outcome: 'selected', optionId: 'allow-once' },
-    });
-    await expect(createPermissionHandler(policy)({
-      ...request,
-      toolCall: {
-        ...request.toolCall,
-        toolCallId: 'execute-call',
-        kind: 'execute',
-      },
-    })).resolves.toEqual({
-      outcome: { outcome: 'selected', optionId: 'reject' },
     });
   });
 

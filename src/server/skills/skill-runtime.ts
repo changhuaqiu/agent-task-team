@@ -311,22 +311,3 @@ export class RepositorySkillRuntime implements SkillRuntimeInterface {
 }
 
 export const skillRuntime = new RepositorySkillRuntime();
-
-export function packageFromLegacyInput(input: {
-  name: string;
-  description: string;
-  content: string;
-  files: Array<{ path: string; content: string }>;
-  config?: string;
-  isPreset?: boolean;
-}): SkillPackageInput {
-  const skillMarkdown = canonicalSkillMarkdown(input.name, input.description, input.content);
-  const parsed = parseSkillMarkdown(skillMarkdown);
-  return {
-    ...parsed,
-    skillMarkdown,
-    files: input.files.map(file => ({ path: file.path, content: Buffer.from(file.content, 'utf8') })),
-    config: input.config,
-    isPreset: input.isPreset,
-  };
-}

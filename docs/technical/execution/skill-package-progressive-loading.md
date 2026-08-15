@@ -177,6 +177,7 @@ OpenCode、Claude 和 Codex 的原生 Skill 发现能力与配置方式并不完
 ## 8. 当前已落地（2026-07-18）
 
 - `RepositorySkillRuntime` 已统一标准目录安装、旧数据库 Skill 兼容包生成与绑定编译；
+- unit、integration 与 E2E 所需的 `SkillPackageInput` 构造只存在于 test-helper；生产 SkillRuntime 不暴露测试 fixture，正式接口保持为安装与编译。
 - installed revision 以 content hash 存放在 `.ath/skill-packages/<package-slug>/<hash>/`，数据库保存不可变 revision 与资源索引；旧名称通过稳定、防碰撞 slug 迁移，不改变用户可见名称、ID 或绑定；
 - Harness 在选择 runtime 之前按 Agent 绑定编译 Skill，因此 Claude、Codex、OpenCode 共享同一份正文与交付证据；
 - `ContextManager` 只消费 compile result，正文以独立 `skill:<id>` budget part 编入 capability，资源仅提供受管绝对路径引用；

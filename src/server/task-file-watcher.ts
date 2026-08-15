@@ -143,9 +143,13 @@ function rejectInvalidProjectionTransition(input: {
   updateTaskInMd(input.projectPath, input.localTaskId, { status: input.authoritativeStatus });
 }
 
-export function startTaskWatcher(projectPath: string, conversationId: string, io: IOServer): void {
+export function startTaskWatcher(
+  projectPath: string,
+  conversationId: string,
+  io: IOServer,
+): () => void {
   const key = watcherKey(projectPath, conversationId);
-  if (watchers.has(key)) return;
+  if (watchers.has(key)) return () => undefined;
 
   const tasksFile = `${projectPath}/.ath/TASKS.md`;
   const watcher = watch(tasksFile, {
@@ -169,20 +173,20 @@ export function startTaskWatcher(projectPath: string, conversationId: string, io
   watcher.on('change', scheduleSync);
 
   watchers.set(key, watcher);
-}
 
-export function stopTaskWatcher(projectPath: string, conversationId: string): void {
-  const key = watcherKey(projectPath, conversationId);
-  const watcher = watchers.get(key);
-  if (watcher) {
-    watcher.close();
+  let cleaned = false;
+  return () => {
+    if (cleaned) return;
+    cleaned = true;
+    if (watchers.get(key) !== watcher) return;
+    void watcher.close();
     watchers.delete(key);
-  }
-  const timer = debounceTimers.get(key);
-  if (timer) {
-    clearTimeout(timer);
-    debounceTimers.delete(key);
-  }
+    const timer = debounceTimers.get(key);
+    if (timer) {
+      clearTimeout(timer);
+      debounceTimers.delete(key);
+    }
+  };
 }
 
 export function syncTasksToDb(

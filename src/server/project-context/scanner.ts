@@ -961,9 +961,6 @@ export async function scanProject(
   };
 }
 
-export function fingerprintCurrentInputs(inputs: ProjectFreshnessInput[]): string {
-  return fingerprintFreshness(inputs);
-}
 
 export async function readCurrentFreshness(
   root: string,

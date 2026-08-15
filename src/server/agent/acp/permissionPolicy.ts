@@ -33,15 +33,6 @@ async function evaluatePolicy(
   return typeof policy === 'function' ? policy(request) : policy;
 }
 
-export function createCodeChangePermissionPolicy(
-  basePolicy: AcpPermissionPolicy,
-): AcpPermissionPolicy {
-  return async (request) => {
-    if (request.toolCall.kind === 'edit') return 'allow_once';
-    return evaluatePolicy(basePolicy, request);
-  };
-}
-
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === 'object'
     ? value as Record<string, unknown>

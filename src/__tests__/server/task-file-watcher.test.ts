@@ -12,26 +12,33 @@ import { invocationRepo } from '@/server/repositories/invocation-repo';
 import { proofLogRepo } from '@/server/repositories/proof-log-repo';
 import { taskGraphRepo } from '@/server/repositories/task-graph-repo';
 import { readTasksMd } from '@/server/task-file-service';
-import { startTaskWatcher, stopTaskWatcher, syncTasksToDb } from '@/server/task-file-watcher';
+import { startTaskWatcher, syncTasksToDb } from '@/server/task-file-watcher';
 import type { Server as IOServer } from 'socket.io';
 
 let projectPath: string;
+let watcherCleanups: Array<() => void>;
 
 beforeEach(() => {
   setTestDb(createTestDb());
   resetSeq();
+  watcherCleanups = [];
   conversationRepo.create({ id: 'conv-1', title: 'Watcher Conv' });
   projectPath = join(tmpdir(), `ath-task-watcher-${Date.now()}-${Math.random().toString(36).slice(2)}`, 'runtime-dir');
   mkdirSync(join(projectPath, '.ath'), { recursive: true });
 });
 
 afterEach(() => {
-  stopTaskWatcher(projectPath, 'conv-1');
-  stopTaskWatcher(projectPath, 'conv-other');
+  for (const cleanup of watcherCleanups.reverse()) cleanup();
   rmSync(projectPath, { recursive: true, force: true });
   resetDb();
   resetSeq();
 });
+
+function watchTasks(conversationId: string, io: IOServer): () => void {
+  const cleanup = startTaskWatcher(projectPath, conversationId, io);
+  watcherCleanups.push(cleanup);
+  return cleanup;
+}
 
 function writeTasksMd(status: string, deliverable = '-'): void {
   writeFileSync(join(projectPath, '.ath', 'TASKS.md'), `# 任务看板
@@ -66,7 +73,7 @@ describe('syncTasksToDb', () => {
     const emit = vi.fn();
     const io = { to: vi.fn(() => ({ emit })), emit: vi.fn() };
 
-    startTaskWatcher(projectPath, 'conv-1', io as unknown as IOServer);
+    watchTasks('conv-1', io as unknown as IOServer);
     await new Promise(resolve => setTimeout(resolve, 100));
     writeTasksMd('doing');
 
@@ -82,6 +89,27 @@ describe('syncTasksToDb', () => {
     });
   });
 
+  it('does not let a duplicate start cleanup close the existing watcher', async () => {
+    const emit = vi.fn();
+    const io = { to: vi.fn(() => ({ emit })), emit: vi.fn() };
+
+    watchTasks('conv-1', io as unknown as IOServer);
+    const duplicateCleanup = watchTasks('conv-1', io as unknown as IOServer);
+    duplicateCleanup();
+    await new Promise(resolve => setTimeout(resolve, 100));
+    writeTasksMd('doing');
+
+    const deadline = Date.now() + 5_000;
+    while (!taskRepo.getById('TASK-003') && Date.now() < deadline) {
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+
+    expect(taskRepo.getById('TASK-003')).toMatchObject({
+      conversation_id: 'conv-1',
+      status: 'in_progress',
+    });
+  });
+
   it('reprojects an existing TASKS.md when the watcher starts after a restart', async () => {
     upsertAgent({
       id: 'peach',
@@ -94,7 +122,7 @@ describe('syncTasksToDb', () => {
     const emit = vi.fn();
     const io = { to: vi.fn(() => ({ emit })), emit: vi.fn() };
 
-    startTaskWatcher(projectPath, 'conv-1', io as unknown as IOServer);
+    watchTasks('conv-1', io as unknown as IOServer);
 
     const deadline = Date.now() + 5_000;
     while (!taskRepo.getById('TASK-003') && Date.now() < deadline) {
@@ -153,7 +181,7 @@ describe('syncTasksToDb', () => {
     const ioOne = { to: vi.fn(() => ({ emit: emitOne })), emit: vi.fn() };
     const ioOther = { to: vi.fn(() => ({ emit: emitOther })), emit: vi.fn() };
 
-    startTaskWatcher(projectPath, 'conv-1', ioOne as unknown as IOServer);
+    watchTasks('conv-1', ioOne as unknown as IOServer);
     await new Promise(resolve => setTimeout(resolve, 100));
     writeTasksMd('todo');
 
@@ -161,7 +189,7 @@ describe('syncTasksToDb', () => {
     while (!taskRepo.getByConversation('conv-1').length && Date.now() < firstDeadline) {
       await new Promise(resolve => setTimeout(resolve, 50));
     }
-    startTaskWatcher(projectPath, 'conv-other', ioOther as unknown as IOServer);
+    watchTasks('conv-other', ioOther as unknown as IOServer);
     const secondDeadline = Date.now() + 5_000;
     while (!taskRepo.getByConversation('conv-other').length && Date.now() < secondDeadline) {
       await new Promise(resolve => setTimeout(resolve, 50));

@@ -222,3 +222,7 @@ Task Graph repository 的 `listActions(conversationId)` 只被自身 `getGraph()
 ## 第四十七轮：删除零消费者公共面与虚假 thinking 开关
 
 全仓仍残留一批只被自身测试消费或完全没有消费者的公共类型/函数：旧静态团队角色、重复的 Task 状态读取、Store 调试 getter、Credential/RoleCard 标量查询，以及未进入任何生产调用链的 A2A 类型。Store 的 in-flight dispatch Map 也只剩 set/delete 而没有 read，receipt cleanup 因此不影响任何投影。Observability 文档还宣称可用 `ATH_OBSERVABILITY_CAPTURE_THINKING=false` 关闭 thinking 采集，但生产投影从未读取该环境变量。第四十七轮删除这些假公共面、不可观察状态分支和对应自测，保留 canonical Task 状态图、pending dispatch/receipt 投影、credential/RoleCard 正式生命周期、A2A possession owner 与 runtime thinking payload 投影；当前事实明确为 runtime 主动暴露的 summary 按统一脱敏与容量限制采集，隐藏 chain-of-thought 永不采集，当前没有关闭开关。
+
+## 第四十八轮：把测试夹具与资源清理移出生产公共面
+
+ACP setup 与 Project Context scanner 各遗留一个只有定义、没有任何消费者的导出符号；ACP permission 还保留一个只由自身单测调用、对所有 edit 一律放行的宽策略。正式执行已经由 WorkContract authority、cwd 边界和受控命令策略失败关闭，因此这些接口不再代表生产能力。SkillRuntime 同样不应为 unit/integration/E2E 暴露 `packageFromLegacyInput()`：测试数据构造迁入 test-helper，生产模块只保留安装与编译。TASKS.md watcher 的清理能力则不删除，而是由 `startTaskWatcher()` 返回幂等 cleanup，把资源所有权绑定到创建调用；重复 start 不取得已有 watcher 的关闭权。

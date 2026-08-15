@@ -11,7 +11,8 @@ import { teamPackRepo } from '@/server/repositories/team-pack-repo';
 import { capturePromptPayloads } from '@/server/observability/prompt-observation';
 import { deleteAccount, writeAccount } from '@/server/accounts-file';
 import { skillRepo } from '@/server/repositories/skill-repo';
-import { RepositorySkillRuntime, packageFromLegacyInput } from '@/server/skills/skill-runtime';
+import { RepositorySkillRuntime } from '@/server/skills/skill-runtime';
+import { buildSkillPackageInput } from '@/test-helpers/skill-package';
 
 /**
  * 群聊发任务全链路 E2E
@@ -222,7 +223,7 @@ test.describe('群聊发任务全链路', () => {
         team_pack_id: pack.id,
         project_path: process.cwd(),
       });
-      const revision = await new RepositorySkillRuntime().install(packageFromLegacyInput({
+      const revision = await new RepositorySkillRuntime().install(buildSkillPackageInput({
         name: `e2e-tampered-${suffix}`,
         description: 'Required Skill tamper guard',
         content: 'This package must remain immutable.',

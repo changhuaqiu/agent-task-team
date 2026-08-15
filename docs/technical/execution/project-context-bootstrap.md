@@ -466,5 +466,6 @@ cached checkpoint signature 的 lstat 也属于 metadata checks，必须计入 `
 
 - 既有 conversation 无需数据库迁移；首次 dispatch lazy initialize。
 - 既有 `.ath/PROJECT.md`、`TASKS.md`、`PROTOCOLS.md` 保持原职责。
+- freshness fingerprint 是 scanner 内部实现细节；外部只消费扫描结果与当前 freshness 读取，不暴露无消费者的二次包装。
 - `.ath/context/` 采用独立 schemaVersion；不兼容时显式刷新。
 - 删除 `.ath/context/` 可安全回到未初始化状态并重建。

@@ -6,7 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTestDb, resetDb, setTestDb } from '@/server/db/index';
 import { resetSeq } from '@/server/repositories/sortable-id';
 import { skillRepo } from '@/server/repositories/skill-repo';
-import { RepositorySkillRuntime, packageFromLegacyInput } from '@/server/skills/skill-runtime';
+import { RepositorySkillRuntime } from '@/server/skills/skill-runtime';
+import { buildSkillPackageInput } from '@/test-helpers/skill-package';
 
 let db: Database.Database;
 let tempDir: string;
@@ -32,7 +33,7 @@ afterEach(async () => {
 describe('RepositorySkillRuntime', () => {
   it('installs an immutable package and compiles only SKILL.md with resource references', async () => {
     const runtime = new RepositorySkillRuntime();
-    const revision = await runtime.install(packageFromLegacyInput({
+    const revision = await runtime.install(buildSkillPackageInput({
       name: 'code-review',
       description: 'Review code changes safely',
       content: 'Check correctness first.',
@@ -52,13 +53,13 @@ describe('RepositorySkillRuntime', () => {
 
   it('is idempotent for the same content and creates a new revision after an edit', async () => {
     const runtime = new RepositorySkillRuntime();
-    const first = await runtime.install(packageFromLegacyInput({
+    const first = await runtime.install(buildSkillPackageInput({
       name: 'code-review', description: 'Review safely', content: 'Version one.', files: [],
     }));
-    const same = await runtime.install(packageFromLegacyInput({
+    const same = await runtime.install(buildSkillPackageInput({
       name: 'code-review', description: 'Review safely', content: 'Version one.', files: [],
     }));
-    const second = await runtime.install(packageFromLegacyInput({
+    const second = await runtime.install(buildSkillPackageInput({
       name: 'code-review', description: 'Review safely', content: 'Version two.', files: [],
     }));
 
@@ -69,10 +70,10 @@ describe('RepositorySkillRuntime', () => {
 
   it('versions behavior config with the package instead of reading mutable skill state', async () => {
     const runtime = new RepositorySkillRuntime();
-    const first = await runtime.install(packageFromLegacyInput({
+    const first = await runtime.install(buildSkillPackageInput({
       name: 'configured-skill', description: 'Configured', content: 'Use configured tools.', files: [], config: '{"tools":["Read"]}',
     }));
-    const second = await runtime.install(packageFromLegacyInput({
+    const second = await runtime.install(buildSkillPackageInput({
       name: 'configured-skill', description: 'Configured', content: 'Use configured tools.', files: [], config: '{"tools":["Read","Write"]}',
     }));
     const compiled = await runtime.compile({ skillIds: [second.skillId] });
@@ -99,7 +100,7 @@ describe('RepositorySkillRuntime', () => {
 
   it('rebuilds the active revision after a config-only edit', async () => {
     const runtime = new RepositorySkillRuntime();
-    const first = await runtime.install(packageFromLegacyInput({
+    const first = await runtime.install(buildSkillPackageInput({
       name: 'config-edit', description: 'Config edit', content: 'Use tools.', files: [], config: '{"tools":["Read"]}',
     }));
     skillRepo.update(first.skillId, { config: '{"tools":["Write"]}' });
@@ -117,11 +118,11 @@ describe('RepositorySkillRuntime', () => {
       reasonCode: 'required_skill_not_loaded',
     });
 
-    const revision = await runtime.install(packageFromLegacyInput({
+    const revision = await runtime.install(buildSkillPackageInput({
       name: 'tamper-check', description: 'Detect modified package files', content: 'Original body.', files: [],
     }));
     await fs.writeFile(path.join(revision.packagePath, 'SKILL.md'), 'modified', 'utf8');
-    await expect(runtime.install(packageFromLegacyInput({
+    await expect(runtime.install(buildSkillPackageInput({
       name: 'tamper-check', description: 'Detect modified package files', content: 'Original body.', files: [],
     }))).rejects.toMatchObject({ reasonCode: 'skill_revision_mismatch' });
     await expect(runtime.compile({ skillIds: [revision.skillId] })).rejects.toMatchObject({
@@ -135,7 +136,7 @@ describe('RepositorySkillRuntime', () => {
       throw new Error('revision write failed');
     });
 
-    await expect(runtime.install(packageFromLegacyInput({
+    await expect(runtime.install(buildSkillPackageInput({
       name: 'atomic-install', description: 'Atomic install', content: 'Do not leave partial records.', files: [],
     }))).rejects.toThrow('revision write failed');
     expect(skillRepo.getByName('atomic-install')).toBeUndefined();

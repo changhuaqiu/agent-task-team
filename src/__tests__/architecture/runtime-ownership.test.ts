@@ -507,6 +507,11 @@ describe('runtime ownership architecture', () => {
       'deleteRoleCard',
       'isThinkingCaptureEnabled',
       'ATH_OBSERVABILITY_CAPTURE_THINKING',
+      'HOST_THOUGHT_ONLY_OPENCODE_MODEL',
+      'fingerprintCurrentInputs',
+      'createCodeChangePermissionPolicy',
+      'packageFromLegacyInput',
+      'stopTaskWatcher',
     ]) {
       expect(production).not.toMatch(new RegExp(`\\b${retired}\\b`));
     }

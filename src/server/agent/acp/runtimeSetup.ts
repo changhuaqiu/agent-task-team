@@ -93,12 +93,6 @@ function idempotentTempCleanup(path: string): () => void {
 }
 
 /**
- * The host opencode default model that ONLY emits thought chunks (no text).
- * Documented to explain why the fallback model is required.
- */
-export const HOST_THOUGHT_ONLY_OPENCODE_MODEL = 'zhipuai-coding-plan/glm-4.7';
-
-/**
  * Prepare the filesystem/env for an ACP runtime turn.
  *
  * Dispatches on the catalog runtime id so native (opencode) and adapter

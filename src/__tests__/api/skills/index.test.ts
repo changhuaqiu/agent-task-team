@@ -8,7 +8,8 @@ import { mockReq, mockRes } from '@/test-helpers/mock-api';
 import handler from '@/pages/api/skills/index';
 import detailHandler from '@/pages/api/skills/[id]';
 import agentSkillsHandler from '@/pages/api/agents/[agentId]/skills';
-import { RepositorySkillRuntime, packageFromLegacyInput } from '@/server/skills/skill-runtime';
+import { RepositorySkillRuntime } from '@/server/skills/skill-runtime';
+import { buildSkillPackageInput } from '@/test-helpers/skill-package';
 
 let skillDataDir: string;
 let previousSkillDataDir: string | undefined;
@@ -84,7 +85,7 @@ describe('GET /api/skills/:id', () => {
   });
 
   it('returns the active installed revision without exposing package paths', async () => {
-    const revision = await new RepositorySkillRuntime().install(packageFromLegacyInput({
+    const revision = await new RepositorySkillRuntime().install(buildSkillPackageInput({
       name: 'installed-detail', description: 'Installed detail', content: 'Use it.',
       files: [{ path: 'references/guide.md', content: 'guide' }],
     }));
@@ -118,7 +119,7 @@ describe('PATCH /api/skills/:id', () => {
 
   it('invalidates and rebuilds the active revision after a config-only update', async () => {
     const runtime = new RepositorySkillRuntime();
-    const first = await runtime.install(packageFromLegacyInput({
+    const first = await runtime.install(buildSkillPackageInput({
       name: 'config-api-update',
       description: 'Config API update',
       content: 'Use configured tools.',

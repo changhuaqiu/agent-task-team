@@ -14,7 +14,8 @@ import { sessionRepo } from '@/server/repositories/session-repo';
 import { writeAccount } from '@/server/accounts-file';
 import { InvocationPlanner } from '@/server/invocation-pipeline/context-planner';
 import { skillRepo } from '@/server/repositories/skill-repo';
-import { RepositorySkillRuntime, packageFromLegacyInput } from '@/server/skills/skill-runtime';
+import { RepositorySkillRuntime } from '@/server/skills/skill-runtime';
+import { buildSkillPackageInput } from '@/test-helpers/skill-package';
 import { InvocationCoordinator } from '@/server/invocation-pipeline/coordinator';
 import { submitSocketTerminalStart } from '@/server/daemon';
 import { projectObservationProjection } from '@/server/observability/ProjectObservationProjection';
@@ -323,7 +324,7 @@ describe('InvocationPlanner', () => {
       enabled: true, status: 'valid', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     });
     conversationRepo.create({ id: 'conv-skill', title: 'Skill Dispatch', team_pack_id: pack.id });
-    const revision = await new RepositorySkillRuntime().install(packageFromLegacyInput({
+    const revision = await new RepositorySkillRuntime().install(buildSkillPackageInput({
       name: 'review-safely', description: 'Review changes safely', content: 'Always inspect the diff before approval.',
       files: [{ path: 'references/checklist.md', content: 'Long checklist stays on demand.' }],
     }));
@@ -351,7 +352,7 @@ describe('InvocationPlanner', () => {
       enabled: true, status: 'valid', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     });
     conversationRepo.create({ id: 'conv-collab-tool', title: 'Collaboration Tool', team_pack_id: pack.id });
-    const revision = await new RepositorySkillRuntime().install(packageFromLegacyInput({
+    const revision = await new RepositorySkillRuntime().install(buildSkillPackageInput({
       name: 'collaboration-tools', description: 'Provider receipts', content: 'Use the exact platform tool.', files: [],
       config: JSON.stringify({ tools: [{
         name: 'collaboration_record_pr', description: 'Record PR', handler: 'api://collaboration/pull-request',
@@ -378,7 +379,7 @@ describe('InvocationPlanner', () => {
       enabled: true, status: 'valid', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     });
     conversationRepo.create({ id: 'conv-socket-skill', title: 'Socket Skill Guard', team_pack_id: pack.id });
-    const revision = await new RepositorySkillRuntime().install(packageFromLegacyInput({
+    const revision = await new RepositorySkillRuntime().install(buildSkillPackageInput({
       name: 'required-guard', description: 'Required guard', content: 'Validate before dispatch.', files: [],
     }));
     skillRepo.assignToAgent('peach', revision.skillId);
