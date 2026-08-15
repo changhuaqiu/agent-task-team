@@ -35,16 +35,12 @@ export interface CommunicationPolicy {
   explainBlock(fromAgentId: string, toAgentId: string): string | undefined;
 }
 
-export interface WorkflowPolicy {
-  selectInitialAgent(): string | null;
-}
-
 export interface TeamRuntime {
   conversationId: string;
   teamPack?: TeamPack;
   roster: RuntimeAgent[];
   communicationPolicy: CommunicationPolicy;
-  workflowPolicy: WorkflowPolicy;
+  initialAgentId: string | null;
 }
 
 export interface RuntimeAgentProfile {

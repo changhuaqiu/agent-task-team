@@ -32,8 +32,7 @@ export function resolveInitialTaskAgentId(input: ResolveInitialTaskAgentInput): 
       agentRoleCardOverrides: {},
     });
 
-    const workflowAgentId = runtime.workflowPolicy.selectInitialAgent();
-    if (workflowAgentId) return workflowAgentId;
+    if (runtime.initialAgentId) return runtime.initialAgentId;
 
     const rosterAgentId = runtime.roster[0]?.id;
     if (rosterAgentId) return rosterAgentId;

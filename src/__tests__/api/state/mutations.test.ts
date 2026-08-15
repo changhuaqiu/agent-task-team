@@ -419,7 +419,7 @@ describe('POST /api/mutations', () => {
     expect(res._json.result.status).toBe('ready');
   });
 
-  it('task.create assigns a TeamPack task through WorkflowPolicy when no explicit agent is supplied', async () => {
+  it('task.create assigns a TeamPack task from TeamRuntime initialAgentId when no explicit agent is supplied', async () => {
     await seedTeamPackConversation();
     const req = mockReq('POST', {
       type: 'task.create',
@@ -468,7 +468,7 @@ describe('POST /api/mutations', () => {
     expect(taskRepo.list().some((task) => task.agent_id === '')).toBe(false);
   });
 
-  it('task.create preserves an explicit agent instead of overriding with WorkflowPolicy', async () => {
+  it('task.create preserves an explicit agent instead of overriding with TeamRuntime initialAgentId', async () => {
     await seedTeamPackConversation();
     const req = mockReq('POST', {
       type: 'task.create',

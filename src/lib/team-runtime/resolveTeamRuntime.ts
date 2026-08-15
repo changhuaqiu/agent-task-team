@@ -6,7 +6,6 @@ import type {
   TeamRuntime,
 } from './types';
 import { resolveCommunicationPolicy } from './resolveCommunicationPolicy';
-import { resolveWorkflowPolicy } from './resolveWorkflowPolicy';
 import type { RoleCard } from '@/types/roleCard';
 import type { TeamPack } from '@/types/teamPack';
 
@@ -115,6 +114,27 @@ function teamRoleRuntimeAgents(input: ResolveTeamRuntimeInput): RuntimeAgent[] {
   });
 }
 
+function initialAgentId(teamPack: TeamPack | undefined, roster: RuntimeAgent[]): string | null {
+  if (!teamPack) return null;
+  const availableAgentIds = new Set(roster.map((agent) => agent.id));
+
+  if (teamPack.teamMode === 'pipeline') {
+    const roleId = teamPack.workflow.steps?.[0]?.role;
+    return roleId && availableAgentIds.has(roleId) ? roleId : null;
+  }
+
+  if (teamPack.teamMode === 'parallel') {
+    return teamPack.workflow.steps
+      ?.map((step) => step.role)
+      .find((roleId) => availableAgentIds.has(roleId)) ?? null;
+  }
+
+  // hub_spoke and custom both start from the first non-terminal workflow state.
+  // Preserve the former runtime fallback for an unknown persisted mode.
+  const roleId = teamPack.workflow.states?.find((state) => !state.terminal)?.role;
+  return roleId && availableAgentIds.has(roleId) ? roleId : null;
+}
+
 export function resolveTeamRuntime(input: ResolveTeamRuntimeInput): TeamRuntime {
   const roster = input.teamPack
     ? teamRoleRuntimeAgents(input)
@@ -131,6 +151,6 @@ export function resolveTeamRuntime(input: ResolveTeamRuntimeInput): TeamRuntime 
     teamPack: input.teamPack,
     roster: orderedRoster,
     communicationPolicy: resolveCommunicationPolicy(input.teamPack),
-    workflowPolicy: resolveWorkflowPolicy(input.teamPack, orderedRoster.map((agent) => agent.id)),
+    initialAgentId: initialAgentId(input.teamPack, orderedRoster),
   };
 }

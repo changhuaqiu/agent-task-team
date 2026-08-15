@@ -12,9 +12,7 @@ function runtime(explainBlock: (from: string, to: string) => string | undefined)
     communicationPolicy: {
       explainBlock,
     },
-    workflowPolicy: {
-      selectInitialAgent: () => null,
-    },
+    initialAgentId: null,
   };
 }
 

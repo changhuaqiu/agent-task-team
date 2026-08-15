@@ -88,25 +88,26 @@ describe('runtime ownership architecture', () => {
     }
   });
 
-  it('keeps Team Runtime workflow policy limited to real initial assignment', () => {
+  it('keeps Team Runtime initial assignment as a direct derived value', () => {
     const productionFiles = productionTypeScriptFiles('src');
-    const retiredWorkflowSurface = /\bTeamModeEngine\b|\bgetNextAgent\b|\bgetNextRole\b|\bcanCommunicate\b/;
+    const retiredWorkflowSurface = /\bTeamModeEngine\b|\bWorkflowPolicy\b|\bresolveWorkflowPolicy\b|\bselectInitialAgent\b|\bworkflowPolicy\b|\bgetNextAgent\b|\bgetNextRole\b|\bcanCommunicate\b/;
     expect(productionFiles.filter((path) => retiredWorkflowSurface.test(source(path)))).toEqual([]);
     expect(existsSync(resolve(process.cwd(), 'src/lib/orchestration/TeamModeEngine.ts'))).toBe(false);
+    expect(existsSync(resolve(process.cwd(), 'src/lib/team-runtime/resolveWorkflowPolicy.ts'))).toBe(false);
 
     const runtimeTypes = source('src/lib/team-runtime/types.ts');
     const runtimeBarrel = source('src/lib/team-runtime/index.ts');
-    const workflowPolicy = source('src/lib/team-runtime/resolveWorkflowPolicy.ts');
+    const teamRuntimeResolver = source('src/lib/team-runtime/resolveTeamRuntime.ts');
     const taskAssignment = source('src/server/team-runtime/task-assignment.ts');
     const teamPackTypes = source('src/types/teamPack.ts');
-    expect(runtimeTypes).toContain('selectInitialAgent(): string | null;');
+    expect(runtimeTypes).toContain('initialAgentId: string | null;');
     expect(runtimeTypes).not.toContain('interface TaskAssignment');
     expect(runtimeBarrel).not.toMatch(/resolveWorkflowPolicy|WorkflowPolicy|TaskAssignment/);
     expect(teamPackTypes).not.toMatch(/export interface Task\b/);
-    expect(workflowPolicy).toContain("teamPack.teamMode === 'pipeline'");
-    expect(workflowPolicy).toContain("teamPack.teamMode === 'parallel'");
-    expect(workflowPolicy).not.toMatch(/new Date|taskResult|assignedAt/);
-    expect(taskAssignment).toContain('runtime.workflowPolicy.selectInitialAgent()');
+    expect(teamRuntimeResolver).toContain("teamPack.teamMode === 'pipeline'");
+    expect(teamRuntimeResolver).toContain("teamPack.teamMode === 'parallel'");
+    expect(teamRuntimeResolver).not.toMatch(/new Date|taskResult|assignedAt/);
+    expect(taskAssignment).toContain('runtime.initialAgentId');
     expect(taskAssignment).not.toContain('fallbackAgentId');
     expect(taskAssignment).not.toContain('TaskAssignmentSource');
     const commandGuard = source('src/server/a2a/command-guard.ts');

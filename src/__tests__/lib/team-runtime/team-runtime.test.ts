@@ -21,9 +21,7 @@ describe('team-runtime public contract', () => {
       communicationPolicy: {
         explainBlock: () => undefined,
       },
-      workflowPolicy: {
-        selectInitialAgent: () => null,
-      },
+      initialAgentId: null,
     };
 
     const profile: RuntimeAgentProfile = {
@@ -218,7 +216,7 @@ describe('resolveTeamRuntime', () => {
         agentRoleCardOverrides: {},
       });
 
-      expect(runtime.workflowPolicy.selectInitialAgent()).toBe(expected);
+      expect(runtime.initialAgentId).toBe(expected);
     },
   );
 
@@ -251,8 +249,8 @@ describe('resolveTeamRuntime', () => {
       agentRoleCardOverrides: {},
     });
 
-    expect(plainRuntime.workflowPolicy.selectInitialAgent()).toBeNull();
-    expect(missingRoleRuntime.workflowPolicy.selectInitialAgent()).toBeNull();
+    expect(plainRuntime.initialAgentId).toBeNull();
+    expect(missingRoleRuntime.initialAgentId).toBeNull();
   });
 
   it('preserves the hub-style initial selection for an unknown persisted team mode', () => {
@@ -275,7 +273,7 @@ describe('resolveTeamRuntime', () => {
       agentRoleCardOverrides: {},
     });
 
-    expect(runtime.workflowPolicy.selectInitialAgent()).toBe('reviewer');
+    expect(runtime.initialAgentId).toBe('reviewer');
   });
 
   it('lets TeamPack role card overrides replace default role cards', () => {
@@ -433,9 +431,7 @@ describe('resolveRuntimeAgentProfile', () => {
       communicationPolicy: {
         explainBlock: () => undefined,
       },
-      workflowPolicy: {
-        selectInitialAgent: () => null,
-      },
+      initialAgentId: null,
     };
 
     const profile = resolveRuntimeAgentProfile(runtime, 'planner', [
@@ -464,9 +460,7 @@ describe('resolveRuntimeAgentProfile', () => {
       communicationPolicy: {
         explainBlock: () => undefined,
       },
-      workflowPolicy: {
-        selectInitialAgent: () => null,
-      },
+      initialAgentId: null,
     };
 
     const profile = resolveRuntimeAgentProfile(runtime, 'planner', [
@@ -489,7 +483,7 @@ describe('resolveRuntimeAgentProfile', () => {
         skills: [],
       }],
       communicationPolicy: { explainBlock: () => undefined },
-      workflowPolicy: { selectInitialAgent: () => null },
+      initialAgentId: null,
     };
 
     expect(resolveRuntimeAgentProfile(runtime, 'planner', [{
@@ -511,7 +505,7 @@ describe('resolveRuntimeAgentProfile', () => {
         accountIds: ['acc-pending'], skills: [],
       }],
       communicationPolicy: { explainBlock: () => undefined },
-      workflowPolicy: { selectInitialAgent: () => null },
+      initialAgentId: null,
     };
 
     expect(resolveRuntimeAgentProfile(runtime, 'planner', [{
@@ -536,9 +530,7 @@ describe('resolveRuntimeAgentProfile', () => {
       communicationPolicy: {
         explainBlock: () => undefined,
       },
-      workflowPolicy: {
-        selectInitialAgent: () => null,
-      },
+      initialAgentId: null,
     } as unknown as TeamRuntime;
 
     const profile = resolveRuntimeAgentProfile(runtime, 'planner', [
@@ -567,9 +559,7 @@ describe('resolveRuntimeAgentProfile', () => {
       communicationPolicy: {
         explainBlock: () => undefined,
       },
-      workflowPolicy: {
-        selectInitialAgent: () => null,
-      },
+      initialAgentId: null,
     };
 
     expect(
