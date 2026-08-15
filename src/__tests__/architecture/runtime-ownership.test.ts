@@ -111,7 +111,7 @@ describe('runtime ownership architecture', () => {
     expect(taskAssignment).not.toContain('TaskAssignmentSource');
     const commandGuard = source('src/server/a2a/command-guard.ts');
     const teamPackLayer = source('src/lib/agent-context/layers/teamPackLayer.ts');
-    expect(productionFiles.filter((path) => /communicationPolicy\.canSend|\bgetEscalationTarget\b/.test(source(path)))).toEqual([]);
+    expect(productionFiles.filter((path) => /communicationPolicy\.canSend|\bgetEscalationTarget(?:FromMatrix)?\b/.test(source(path)))).toEqual([]);
     expect(runtimeTypes).not.toContain('canSend(');
     expect(runtimeTypes).not.toContain('getEscalationTarget');
     expect(runtimeBarrel).not.toMatch(/resolveCommunicationPolicy|CommunicationPolicy/);

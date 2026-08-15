@@ -58,9 +58,7 @@ describe('A2ACommandGuard', () => {
       fromHolderId: 'lead',
       fromHolderType: 'agent',
       branches: [{ toAgentId: 'builder' }],
-    })).toThrowError(expect.objectContaining({
-      reasonCode: 'a2a_communication_policy_blocked',
-    }));
+    })).toThrowError('a2a_communication_policy_blocked: lead:builder:review must go through lead');
     expect(() => guard.assert({
       conversationId: 'project-policy',
       fromHolderId: 'human',
@@ -68,6 +66,38 @@ describe('A2ACommandGuard', () => {
       branches: [{ toAgentId: 'builder' }],
     })).not.toThrow();
     expect(explainBlock).toHaveBeenCalledTimes(1);
+  });
+
+  it('treats an empty policy reason as blocked and uses the generic detail', () => {
+    const explainBlock = vi.fn(() => '');
+    const guard = new A2ACommandGuard({
+      resolveRuntime: () => runtime(explainBlock),
+    });
+
+    expect(() => guard.assert({
+      conversationId: 'project-policy',
+      fromHolderId: 'lead',
+      fromHolderType: 'agent',
+      branches: [{ toAgentId: 'builder' }],
+    })).toThrowError('a2a_communication_policy_blocked: lead:builder:communication policy denied the handoff');
+    expect(explainBlock).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects an agent source outside the roster before consulting policy', () => {
+    const explainBlock = vi.fn(() => undefined);
+    const guard = new A2ACommandGuard({
+      resolveRuntime: () => runtime(explainBlock),
+    });
+
+    expect(() => guard.assert({
+      conversationId: 'project-policy',
+      fromHolderId: 'outside-agent',
+      fromHolderType: 'agent',
+      branches: [{ toAgentId: 'builder' }],
+    })).toThrowError(expect.objectContaining({
+      reasonCode: 'a2a_source_not_in_roster',
+    }));
+    expect(explainBlock).not.toHaveBeenCalled();
   });
 
   it('rejects a missing conversation runtime before the aggregate is called', () => {

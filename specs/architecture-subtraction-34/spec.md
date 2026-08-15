@@ -40,4 +40,6 @@
 - 实现后同一定向命令：4 files / 94 tests 通过。
 - `pnpm build`：通过；保留既有 Next.js NFT tracing warning。
 - `pnpm test -- --run --reporter=dot`：执行完成；205 files / 1515 tests 通过，2 files / 2 tests skipped，1 file / 1 test failed。唯一失败为稳定基线 `src/server/autonomous-delivery/control-runtime.test.ts:131`，本轮定向链与生产构建均通过，不将全量 suite 误记为全绿。
-- 独立复审待执行。
+- 第一次独立复审：Critical 0 / Important 0 / Minor 3；运行时语义与调用图通过，要求补强旧 escalation helper 的架构正则、三条互不重名的 TeamPack prompt 权限断言，以及 Command Guard 的精确错误、空原因 fallback 与 source-before-policy 顺序门禁。
+- 修复后 `pnpm exec tsc --noEmit`：通过；同一定向命令 4 files / 96 tests 通过。
+- 最终独立复审待执行。

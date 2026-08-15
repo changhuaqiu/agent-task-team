@@ -330,15 +330,16 @@ describe('resolveTeamRuntime', () => {
       communicationMatrix: {
         ...teamPack.communicationMatrix,
         planner: {
-          canSendTo: ['reviewer'],
-          canReceiveFrom: ['reviewer'],
-          canEscalateTo: ['human'],
+          canSendTo: ['send-only-agent'],
+          canReceiveFrom: ['receive-only-agent'],
+          canEscalateTo: ['escalation-only-agent'],
         },
       },
     });
 
-    expect(prompt).toContain('reviewer');
-    expect(prompt).toContain('human');
+    expect(prompt).toContain('- 可以发送消息给：send-only-agent');
+    expect(prompt).toContain('- 可以接收来自以下角色的消息：receive-only-agent');
+    expect(prompt).toContain('- 可以升级给：escalation-only-agent');
   });
 
   it('does not resurrect removed roles from older default-team matrices', () => {
