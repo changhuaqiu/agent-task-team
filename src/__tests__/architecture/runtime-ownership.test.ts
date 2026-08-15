@@ -805,13 +805,15 @@ describe('runtime ownership architecture', () => {
     const workdirSource = source('src/server/workdir-manager.ts');
     const production = productionTypeScriptFiles('src').map((path) => source(path)).join('\n');
 
-    for (const retired of ['refreshContextFiles', '.ath-role.md', '.ath-team.md', 'activeDirs']) {
+    for (const retired of ['refreshContextFiles', '.ath-role.md', '.ath-team.md', 'activeDirs', '.session.json']) {
       expect(production).not.toContain(retired);
+    }
+    for (const retired of ['writeSessionMeta', 'readSessionMeta', 'SessionMeta']) {
+      expect(production).not.toMatch(new RegExp(`\\b${retired}\\b`));
     }
 
     expect(workdirSource).toMatch(/private async resolveProjectWorkdir\(/);
     expect(exportedSurface('src/server/workdir-manager.ts')).toEqual(expect.not.arrayContaining([
-      'SessionMeta',
       'GCMeta',
       'safeWorkdirSegment',
     ]));

@@ -79,16 +79,8 @@ describe('WorkdirManager', () => {
     });
   });
 
-  describe('writeSessionMeta / readSessionMeta', () => {
-    it('writes and reads session metadata', async () => {
-      const m = mgr();
-      await m.resolveWorkdir('mario', 'proj-1', 'TASK-001');
-      m.writeSessionMeta('mario', 'proj-1', 'TASK-001', { sessionId: 'sess-abc' });
-      const meta = m.readSessionMeta('mario', 'proj-1', 'TASK-001');
-      expect(meta?.sessionId).toBe('sess-abc');
-    });
-
-    it('creates scoped metadata directories when execution uses a shared Git worktree', async () => {
+  describe('writeGCMeta', () => {
+    it('creates scoped GC metadata when execution uses a shared Git worktree', async () => {
       const repoRoot = path.join(tmpRoot, 'metadata-repo');
       fs.mkdirSync(repoRoot, { recursive: true });
       await execAsync('git init -b main', { cwd: repoRoot });
@@ -102,30 +94,19 @@ describe('WorkdirManager', () => {
         repoRoot,
       });
 
-      m.writeSessionMeta('dk', 'conv-git', 'TASK-008', { sessionId: 'sess-git' });
       m.writeGCMeta('dk', 'conv-git', 'TASK-008');
 
       const taskRoot = path.join(tmpRoot, 'conv-git', 'dk', 'task-TASK-008');
-      expect(fs.existsSync(path.join(taskRoot, '.session.json'))).toBe(true);
       expect(fs.existsSync(path.join(taskRoot, '.gc_meta.json'))).toBe(true);
-      expect(m.readSessionMeta('dk', 'conv-git', 'TASK-008')?.sessionId).toBe('sess-git');
     });
 
-    it('returns null when no session metadata exists', () => {
-      const meta = mgr().readSessionMeta('mario', 'proj-1', 'TASK-999');
-      expect(meta).toBeNull();
-    });
-
-    it('creates metadata directories when execution uses an external worktree', () => {
+    it('writes only the completion time required by GC', () => {
       const m = mgr();
-      m.writeSessionMeta('mario', 'proj-worktree', 'TASK-WT', { sessionId: 'sess-wt' });
       m.writeGCMeta('mario', 'proj-worktree', 'TASK-WT');
 
       const taskRoot = path.join(tmpRoot, 'proj-worktree', 'mario', 'task-TASK-WT');
-      expect(JSON.parse(fs.readFileSync(path.join(taskRoot, '.session.json'), 'utf8')))
-        .toMatchObject({ sessionId: 'sess-wt' });
       expect(JSON.parse(fs.readFileSync(path.join(taskRoot, '.gc_meta.json'), 'utf8')))
-        .toMatchObject({ taskId: 'TASK-WT' });
+        .toEqual({ completedAt: expect.any(String) });
     });
   });
 
@@ -135,7 +116,7 @@ describe('WorkdirManager', () => {
       const wd = await m.resolveWorkdir('mario', 'proj-1', 'TASK-001');
       const gcPath = path.join(path.dirname(wd), '.gc_meta.json');
       fs.writeFileSync(gcPath, JSON.stringify({
-        taskId: 'TASK-001',
+        taskId: 'TASK-001', // Historical files may contain ignored extra fields.
         completedAt: new Date(Date.now() - 48 * 3600 * 1000).toISOString(),
       }));
       m.gc(24 * 3600 * 1000);
@@ -147,7 +128,6 @@ describe('WorkdirManager', () => {
       const wd = await m.resolveWorkdir('mario', 'proj-1', 'TASK-001');
       const gcPath = path.join(path.dirname(wd), '.gc_meta.json');
       fs.writeFileSync(gcPath, JSON.stringify({
-        taskId: 'TASK-001',
         completedAt: new Date().toISOString(),
       }));
       m.gc(24 * 3600 * 1000);

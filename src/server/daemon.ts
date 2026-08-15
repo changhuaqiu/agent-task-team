@@ -1104,12 +1104,6 @@ export default function registerDaemon(io: IOServer) {
           invocationId: invocation.id,
           payload: { sessionId: runtimeSessionId },
         });
-        if (taskId && projectId) {
-          workdirManager.writeSessionMeta(agentId, projectId, taskId, {
-            sessionId: runtimeSessionId,
-            updatedAt: '',
-          });
-        }
       }
 
       // Adapter signals enter the Runtime coordinator first. Text/thinking
