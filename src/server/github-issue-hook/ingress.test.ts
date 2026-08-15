@@ -7,7 +7,7 @@ import type { GoalContract } from '../autonomous-delivery/types';
 import { createTestDb, resetDb, setTestDb } from '../db';
 import { conversationRepo } from '../repositories/conversation-repo';
 import { GitHubIssueAgentIngress } from './ingress';
-import { githubIssueHookConfig, githubIssuePayload } from './test-fixtures';
+import { githubIssueHookConfig, githubIssuePayload } from '@/test-helpers/github-issue-hook';
 
 describe('GitHubIssueAgentIngress', () => {
   let projectPath: string;

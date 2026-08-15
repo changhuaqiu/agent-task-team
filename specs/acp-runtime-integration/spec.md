@@ -153,7 +153,7 @@ ACP 文本更新是流式增量，不是独立聊天消息。daemon 可以逐 ch
 
 本规格作为一次完整实施交付，内部按以下顺序降低回归风险：
 
-1. 建立 ACP 基础设施与 mock agent 测试。
+1. 建立 ACP 基础设施与 `src/test-helpers/acp/` 中的 mock agent 测试；测试 Adapter 不进入生产 server 模块树。
 2. 接入 OpenCode、Claude、Codex Catalog launcher。
 3. 让 daemon 通过同一选择器路由 ACP/legacy，并逐个运行兼容性套件。
 4. 某运行时通过验收后移除其 legacy 路径。

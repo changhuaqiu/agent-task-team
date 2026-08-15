@@ -1,4 +1,7 @@
-import type { GitHubIssueHookConfig, GitHubIssueWebhookPayload } from './types';
+import type {
+  GitHubIssueHookConfig,
+  GitHubIssueWebhookPayload,
+} from '@/server/github-issue-hook/types';
 
 export function githubIssueHookConfig(
   projectPath: string,

@@ -230,3 +230,7 @@ ACP setup 与 Project Context scanner 各遗留一个只有定义、没有任何
 ## 第四十九轮：把状态机与写后回读收回实现内部
 
 Invocation repository 的状态常量、transition input、错误类、校验与迁移 predicate 没有任何模块外消费者，却作为一组可导入 interface 暴露；Phase/Agent query 也把只供自身写后回读和删除保护的标量 lookup 公开给测试。第四十九轮删除三个真正无消费者的 helper，将这些实现细节和六个只在定义模块内调用的编排 helper 收回内部。正式调用方继续只穿过 Invocation lifecycle、Phase list/upsert/delete、Agent list/upsert/delete、WorkContract dispatch、Task notification/watcher、worktree GC scheduler 与 Invocation registry；测试不再把内部 SQL/状态 predicate 当作第二套 interface。
+
+## 第五十轮：把测试 Adapter 移出生产树并收回叶子 export
+
+TypeScript import 图显示，ACP mock agent 与 GitHub Issue fixture 是 `src/server` 中仅有的两个零生产入边模块；它们的全部消费者都是测试。第五十轮保留测试能力但将其迁到 `src/test-helpers/`，生产 server 树不再把 mock/fixture 伪装成正式模块。同轮把只在定义文件内部消费的 Store buffer、Token summary 子卡、Context contributor class、默认常量、错误表/错误类与 repository 校验细节收回内部；正式调用方继续只穿过 AcpBackend、GitHub ingress、Store slice、ContextContributor 实例、repository lifecycle 与 TokenBadge interface。

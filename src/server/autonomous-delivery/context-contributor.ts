@@ -22,7 +22,7 @@ function deliveryPolicyText(query: ContextQuery, snapshot: NonNullable<ReturnTyp
   ].join('\n');
 }
 
-export class AutonomousDeliveryContextContributor implements ContextContributor {
+class AutonomousDeliveryContextContributor implements ContextContributor {
   readonly id = 'autonomous-delivery';
 
   constructor(private readonly repository: AutonomousDeliveryRepository = autonomousDeliveryRepo) {}

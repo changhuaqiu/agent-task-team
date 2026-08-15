@@ -14,7 +14,7 @@ export type GitProviderVerificationReasonCode =
   | 'repository_mismatch'
   | 'git_provider_response_invalid';
 
-export class GitProviderVerificationError extends Error {
+class GitProviderVerificationError extends Error {
   constructor(public readonly reasonCode: GitProviderVerificationReasonCode, message: string) {
     super(message);
     this.name = 'GitProviderVerificationError';

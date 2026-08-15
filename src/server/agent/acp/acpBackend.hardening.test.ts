@@ -10,7 +10,7 @@ import {
   type AcpBackendOpts,
 } from './acpBackend';
 
-const mockPath = join(dirname(fileURLToPath(import.meta.url)), 'mockAcpAgent.ts');
+const mockPath = join(dirname(fileURLToPath(import.meta.url)), '../../../test-helpers/acp/mockAcpAgent.ts');
 const tsxCliPath = fileURLToPath(import.meta.resolve('tsx/cli'));
 const tempDirs = new Set<string>();
 

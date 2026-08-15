@@ -66,7 +66,7 @@ export interface ExecutionEnvelopeTransition {
   reasonCode?: string;
 }
 
-export class InvalidExecutionEnvelopeTransitionError extends Error {
+class InvalidExecutionEnvelopeTransitionError extends Error {
   readonly reasonCode = 'invalid_execution_envelope_transition';
 
   constructor(
@@ -78,7 +78,7 @@ export class InvalidExecutionEnvelopeTransitionError extends Error {
   }
 }
 
-export class StaleExecutionEnvelopeTransitionError extends Error {
+class StaleExecutionEnvelopeTransitionError extends Error {
   readonly reasonCode = 'stale_execution_envelope_transition';
 
   constructor(
@@ -90,7 +90,7 @@ export class StaleExecutionEnvelopeTransitionError extends Error {
   }
 }
 
-export class InvalidExecutionEnvelopeReasonError extends Error {
+class InvalidExecutionEnvelopeReasonError extends Error {
   readonly reasonCode = 'invalid_execution_envelope_reason';
 
   constructor(readonly status: ExecutionEnvelopeStatus) {

@@ -155,6 +155,8 @@ Skill 加载流程：`loadFromServer()` → `loadSkills()` → `GET /api/skills`
 - 调用 store action
 - 通过 store 间接触发 API 写入与实时更新
 
+`daemonStore` 对外只提供 slice、socket/runtime 注册与 TaskHub 实际调用的 watchdog seam；浏览器 node-id 和流式 buffer 的 schedule/append/flush 是同模块实现细节。Token 用量对外渲染入口是 `TokenBadge`，其展开卡片不作为独立公共组件。
+
 ## 2.6 样式与设计系统
 
 全局样式位于 [`src/app/globals.css`](../../src/app/globals.css)：

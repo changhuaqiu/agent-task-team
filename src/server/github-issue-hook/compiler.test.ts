@@ -5,7 +5,7 @@ import {
   extractIssueAcceptanceCriteria,
   parseGitHubIssuePayload,
 } from './compiler';
-import { githubIssueHookConfig, githubIssuePayload } from './test-fixtures';
+import { githubIssueHookConfig, githubIssuePayload } from '@/test-helpers/github-issue-hook';
 
 describe('GitHub Issue GoalContract compiler', () => {
   it('extracts unique unchecked Markdown checklist items', () => {

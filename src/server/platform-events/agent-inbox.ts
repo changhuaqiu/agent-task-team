@@ -21,7 +21,7 @@ export interface AgentWorkCommand {
   legacyProposal?: boolean;
 }
 
-export const AGENT_INBOX_STATUSES = [
+const AGENT_INBOX_STATUSES = [
   'enqueued',
   'claimed',
   'admitted',

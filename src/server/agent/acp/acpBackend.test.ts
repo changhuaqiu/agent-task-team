@@ -22,7 +22,7 @@ import {
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const mockPath = join(__dirname, 'mockAcpAgent.ts');
+const mockPath = join(__dirname, '../../../test-helpers/acp/mockAcpAgent.ts');
 
 describe('isAcpResourceNotFound', () => {
   it('recognizes ACP code and message without widening other load failures', () => {

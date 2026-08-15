@@ -48,7 +48,7 @@ import { AcpBackend, getActiveAcpRunCount } from './acpBackend';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const mockPath = join(__dirname, 'mockAcpAgent.ts');
+const mockPath = join(__dirname, '../../../test-helpers/acp/mockAcpAgent.ts');
 const tempDirs = new Set<string>();
 
 afterEach(async () => {

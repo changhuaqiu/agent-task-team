@@ -1,4 +1,4 @@
-// src/server/agent/acp/mockAcpAgent.test.ts
+// src/test-helpers/acp/mockAcpAgent.test.ts
 //
 // In-process test for the mock ACP agent (test double). Drives one prompt turn
 // through a real `client()` ClientApp connected directly to

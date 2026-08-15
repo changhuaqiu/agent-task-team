@@ -616,6 +616,57 @@ describe('runtime ownership architecture', () => {
     }
   });
 
+  it('keeps test adapters outside production modules and leaf helpers internal', () => {
+    expect(existsSync(resolve(process.cwd(), 'src/server/agent/acp/mockAcpAgent.ts'))).toBe(false);
+    expect(existsSync(resolve(process.cwd(), 'src/server/github-issue-hook/test-fixtures.ts'))).toBe(false);
+    expect(existsSync(resolve(process.cwd(), 'src/test-helpers/acp/mockAcpAgent.ts'))).toBe(true);
+    expect(existsSync(resolve(process.cwd(), 'src/test-helpers/github-issue-hook.ts'))).toBe(true);
+    expect(
+      productionTypeScriptFiles('src/server').filter((path) => /(?:mock|fixture)/i.test(path)),
+    ).toEqual([]);
+
+    const productionImportsTestHelpers = productionTypeScriptFiles('src')
+      .filter((path) => !path.startsWith('src/test-helpers/'))
+      .filter((path) => /['"][^'"]*test-helpers\//.test(source(path)));
+    expect(productionImportsTestHelpers).toEqual([]);
+
+    const internalByOwner: Record<string, string[]> = {
+      'src/store/daemonStore.ts': [
+        'getBrowserRuntimeNodeId',
+        'scheduleBufferFlush',
+        'flushStreamBufferForMessage',
+        'appendToStreamBuffer',
+      ],
+      'src/components/task-hub/TokenSummary.tsx': ['TokenSummaryCard'],
+      'src/server/autonomous-delivery/context-contributor.ts': ['AutonomousDeliveryContextContributor'],
+      'src/server/platform-events/agent-inbox.ts': ['AGENT_INBOX_STATUSES'],
+      'src/server/platform-events/types.ts': ['RUNTIME_LIFECYCLE_EVENT_TYPES'],
+      'src/server/github-issue-hook/signature.ts': ['MAX_GITHUB_WEBHOOK_BYTES'],
+      'src/server/error-messages.ts': ['ERROR_MESSAGES'],
+      'src/server/evaluation/defaults.ts': ['DEFAULT_RUBRIC_ID', 'DEFAULT_DATASET_ID'],
+      'src/server/engineering-collaboration/github-cli-verifier.ts': ['GitProviderVerificationError'],
+      'src/server/project-context/manifest-validation.ts': ['digestProjectContextManifest'],
+      'src/server/autonomous-delivery/repository.ts': [
+        'InvalidDeliveryRunTransitionError',
+        'InvalidDeliveryRunStateError',
+        'DeliveryRunIdempotencyConflictError',
+        'ActiveDeliveryRunConflictError',
+        'DeliveryReceiptIdempotencyConflictError',
+      ],
+      'src/server/autonomous-delivery/control-decision-repository.ts': ['ControlDecisionConflictError'],
+      'src/server/repositories/execution-envelope-repo.ts': [
+        'InvalidExecutionEnvelopeTransitionError',
+        'StaleExecutionEnvelopeTransitionError',
+        'InvalidExecutionEnvelopeReasonError',
+      ],
+    };
+
+    for (const [owner, names] of Object.entries(internalByOwner)) {
+      const publicNames = exportedSurface(owner);
+      for (const name of names) expect(publicNames).not.toContain(name);
+    }
+  });
+
   it('allows global broadcast only for the system runtime catalog', () => {
     const broadcastEvents = Array.from(
       daemon.matchAll(/\bbroadcast\('([^']+)'/g),

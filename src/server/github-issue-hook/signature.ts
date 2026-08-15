@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage } from 'node:http';
 
-export const MAX_GITHUB_WEBHOOK_BYTES = 1024 * 1024;
+const MAX_GITHUB_WEBHOOK_BYTES = 1024 * 1024;
 
 export class WebhookPayloadTooLargeError extends Error {
   readonly code = 'payload_too_large';

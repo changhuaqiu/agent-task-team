@@ -363,6 +363,8 @@ daemon 当前已经具备会话级跟踪：
 
 Invocation 状态校验、合法迁移矩阵和错误构造是 repository 内部实现；调用方只提交 lifecycle transition 并消费 row/result，不导入第二套状态机 helper。
 
+同样，Autonomous Delivery / Execution Envelope 的内部错误类、Inbox/runtime event 集合、Evaluation 默认 ID 与 Git/Webhook 校验常量不属于跨模块 interface；调用方只消费 owner 的稳定结果、reason code 与持久化生命周期。ACP/GitHub 测试 double 统一位于 `src/test-helpers/`，不进入生产 server 模块树。
+
 这使系统能记录：
 
 - 某个项目下某个 agent 的会话链

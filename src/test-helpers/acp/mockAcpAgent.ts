@@ -1,4 +1,4 @@
-// src/server/agent/acp/mockAcpAgent.ts
+// src/test-helpers/acp/mockAcpAgent.ts
 //
 // Mock ACP agent (agent-side test double). Emits a fixed, scripted sequence of
 // `session/update` notifications on each `session/prompt` and requests
@@ -8,7 +8,7 @@
 // Dual-mode:
 //  (a) Importable: `createMockAgentApp()` returns an `AgentApp` that a test can
 //      connect to in-process via `clientApp.connectWith(agentApp, ...)`.
-//  (b) Spawnable: when run directly (`npx tsx src/server/agent/acp/mockAcpAgent.ts`),
+//  (b) Spawnable: when run directly (`npx tsx src/test-helpers/acp/mockAcpAgent.ts`),
 //      it connects to `process.stdin`/`process.stdout` over NDJSON stdio.
 //
 // Uses the MODERN `agent()` app-builder API (NOT the deprecated
@@ -346,7 +346,7 @@ export function createMockAgentApp(
 }
 
 // ---------------------------------------------------------------------------
-// Subprocess entry: `npx tsx src/server/agent/acp/mockAcpAgent.ts` serves an
+// Subprocess entry: `npx tsx src/test-helpers/acp/mockAcpAgent.ts` serves an
 // ACP agent over NDJSON stdio. The client (e.g. AcpBackend in Task 5) spawns
 // this process and speaks ACP over stdin/stdout.
 //

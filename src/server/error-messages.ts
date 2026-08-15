@@ -21,7 +21,7 @@ export interface ErrorMessage {
   details?: string;
 }
 
-export const ERROR_MESSAGES: Record<ErrorCode, Omit<ErrorMessage, 'code' | 'details'>> = {
+const ERROR_MESSAGES: Record<ErrorCode, Omit<ErrorMessage, 'code' | 'details'>> = {
   INVALID_URL: {
     message: 'Invalid URL',
     description: '提供的 URL 格式不正确',

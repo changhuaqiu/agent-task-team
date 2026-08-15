@@ -9,7 +9,7 @@ export const socket = io(undefined, { path: '/api/socketio', autoConnect: false 
 const BROWSER_NODE_STORAGE_KEY = 'ath.browserRuntimeNodeId';
 let runtimeHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
-export function getBrowserRuntimeNodeId(): string {
+function getBrowserRuntimeNodeId(): string {
   if (typeof window === 'undefined') return 'browser:ssr';
   const existing = window.localStorage.getItem(BROWSER_NODE_STORAGE_KEY);
   if (existing) return existing;
@@ -82,7 +82,7 @@ export function clearWatchdog(agentId: string) {
   }
 }
 
-export function scheduleBufferFlush(getState: () => any, setState: (partial: any) => void) {
+function scheduleBufferFlush(getState: () => any, setState: (partial: any) => void) {
   if (bufferFlushScheduled) return;
   bufferFlushScheduled = true;
   requestAnimationFrame(() => {
@@ -111,7 +111,7 @@ export function scheduleBufferFlush(getState: () => any, setState: (partial: any
   });
 }
 
-export function flushStreamBufferForMessage(
+function flushStreamBufferForMessage(
   messageId: string,
   conversationId: string,
   setState: (partial: any) => void,
@@ -133,7 +133,7 @@ export function flushStreamBufferForMessage(
   });
 }
 
-export function appendToStreamBuffer(messageId: string, content: string) {
+function appendToStreamBuffer(messageId: string, content: string) {
   streamBuffer[messageId] = (streamBuffer[messageId] || '') + content;
 }
 

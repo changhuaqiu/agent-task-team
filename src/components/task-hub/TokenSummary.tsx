@@ -13,7 +13,7 @@ interface TokenSummaryCardProps {
   summary: TokenUsageSummary;
 }
 
-export function TokenSummaryCard({ summary }: TokenSummaryCardProps) {
+function TokenSummaryCard({ summary }: TokenSummaryCardProps) {
   const modelEntries = Object.entries(summary.byModel);
   const hasMultipleModels = modelEntries.length > 1;
   const totalTokens =

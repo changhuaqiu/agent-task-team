@@ -55,7 +55,7 @@ export class StaleControlSnapshotError extends Error {
   }
 }
 
-export class ControlDecisionConflictError extends Error {
+class ControlDecisionConflictError extends Error {
   readonly reasonCode = 'control_decision_conflict';
 }
 

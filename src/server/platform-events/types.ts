@@ -180,7 +180,7 @@ export type RuntimeEventPayload<TType extends RuntimeEventType> =
       ? RuntimeActivityPayloadMap[TType]
       : never;
 
-export const RUNTIME_LIFECYCLE_EVENT_TYPES: ReadonlySet<RuntimeLifecycleEventType> = new Set([
+const RUNTIME_LIFECYCLE_EVENT_TYPES: ReadonlySet<RuntimeLifecycleEventType> = new Set([
   'runtime.invocation.blocked',
   'runtime.invocation.accepted',
   'runtime.invocation.started',

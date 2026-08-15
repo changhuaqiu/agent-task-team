@@ -20,7 +20,7 @@
 
 ## 验证与文档
 
-- [x] mock ACP 集成测试通过。
+- [x] `src/test-helpers/acp/` mock ACP 集成测试通过，生产 server 树不承载测试 runtime。
 - [x] OpenCode 真实 smoke test 通过。
 - [x] Claude 真实 smoke test 通过。
 - [x] Codex 真实 smoke test 通过。

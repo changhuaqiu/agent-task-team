@@ -3,7 +3,7 @@
 ## 基础设施
 
 - [x] 固定 `@agentclientprotocol/sdk`、Claude ACP 适配器和 Codex ACP 适配器版本。
-- [x] 建立 `src/server/agent/acp/` 公共模块与 mock ACP agent。
+- [x] 建立 `src/server/agent/acp/` 生产模块与 `src/test-helpers/acp/` mock ACP agent。
 - [x] 实现 stdio transport、连接生命周期和子进程回收。
 - [x] 实现 ACP update → `AgentEvent` 完整映射及未知事件保护。
 - [x] 在单次 turn 内关联 `toolCallId → tool name`，补全无 title 的 result update。

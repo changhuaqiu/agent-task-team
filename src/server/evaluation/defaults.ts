@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto';
 import type Database from 'better-sqlite3';
 
-export const DEFAULT_RUBRIC_ID = 'rubric-agent-task-v1';
+const DEFAULT_RUBRIC_ID = 'rubric-agent-task-v1';
 export const DEFAULT_RUBRIC_REVISION_ID = 'rubric-agent-task-v1-r1';
-export const DEFAULT_DATASET_ID = 'dataset-agent-task-calibration-v1';
+const DEFAULT_DATASET_ID = 'dataset-agent-task-calibration-v1';
 export const EVALUATOR_BUNDLE_REVISION = 'eval-bundle-v2';
 export const EVALUATION_RUN_SLO_MS = 120_000;
 export const JUDGE_REQUEST_TIMEOUT_MS = 25_000;

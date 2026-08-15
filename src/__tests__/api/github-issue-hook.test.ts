@@ -6,7 +6,7 @@ import { Readable } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AutonomousDeliveryRepository } from '@/server/autonomous-delivery/repository';
 import { createTestDb, resetDb, setTestDb } from '@/server/db';
-import { githubIssuePayload } from '@/server/github-issue-hook/test-fixtures';
+import { githubIssuePayload } from '@/test-helpers/github-issue-hook';
 import type { NextApiRequest, NextApiResponse } from 'next';
 
 const runtime = vi.hoisted(() => ({

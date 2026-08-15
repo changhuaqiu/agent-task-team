@@ -26,7 +26,7 @@ const DELIVERY_RUN_TRANSITIONS: Readonly<
   cancelled: new Set(),
 };
 
-export class InvalidDeliveryRunTransitionError extends Error {
+class InvalidDeliveryRunTransitionError extends Error {
   readonly reasonCode = 'invalid_delivery_run_transition';
 
   constructor(
@@ -38,7 +38,7 @@ export class InvalidDeliveryRunTransitionError extends Error {
   }
 }
 
-export class InvalidDeliveryRunStateError extends Error {
+class InvalidDeliveryRunStateError extends Error {
   readonly reasonCode = 'invalid_delivery_run_state';
 
   constructor(
@@ -49,7 +49,7 @@ export class InvalidDeliveryRunStateError extends Error {
   }
 }
 
-export class DeliveryRunIdempotencyConflictError extends Error {
+class DeliveryRunIdempotencyConflictError extends Error {
   readonly reasonCode = 'delivery_run_idempotency_conflict';
 
   constructor(readonly idempotencyKey: string) {
@@ -57,7 +57,7 @@ export class DeliveryRunIdempotencyConflictError extends Error {
   }
 }
 
-export class ActiveDeliveryRunConflictError extends Error {
+class ActiveDeliveryRunConflictError extends Error {
   readonly reasonCode = 'active_delivery_run_conflict';
 
   constructor(readonly conversationId: string, readonly runId: string) {
@@ -65,7 +65,7 @@ export class ActiveDeliveryRunConflictError extends Error {
   }
 }
 
-export class DeliveryReceiptIdempotencyConflictError extends Error {
+class DeliveryReceiptIdempotencyConflictError extends Error {
   readonly reasonCode = 'delivery_receipt_idempotency_conflict';
 
   constructor(readonly idempotencyKey: string) {

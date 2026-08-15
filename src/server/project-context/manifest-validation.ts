@@ -53,7 +53,7 @@ function canonicalIdentity(value: string): string {
   return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
 }
 
-export function digestProjectContextManifest(manifest: ProjectContextManifest): string {
+function digestProjectContextManifest(manifest: ProjectContextManifest): string {
   return createHash('sha256').update(JSON.stringify(manifest)).digest('hex');
 }
 
