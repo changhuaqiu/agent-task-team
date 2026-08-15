@@ -9,6 +9,7 @@ import {
 } from './ContextManager';
 import type { RoleCard } from '@/types/roleCard';
 import type { ChatMessage } from '@/store/types';
+import type { RuntimeAgent } from '@/lib/team-runtime';
 import { ContextBudget } from './ContextBudget';
 
 describe('ContextManager', () => {
@@ -97,11 +98,11 @@ describe('ContextManager', () => {
       {
         id: 'dynamic-reviewer',
         displayName: 'Runtime Only Reviewer',
-        source: 'team-pack',
+        source: 'team-pack-role',
         accountIds: [],
         skills: [],
       },
-    ]);
+    ] satisfies RuntimeAgent[]);
     mockProviders.getTeamPack.mockResolvedValue({
       id: 'pack-1',
       specVersion: 'team-pack/0.1',
