@@ -58,6 +58,7 @@ describe('SQLite Foundation', () => {
     expect(tableNames).toContain('a2a_pass_group');
     expect(tableNames).toContain('a2a_pass');
     expect(tableNames).toContain('a2a_handoff_packet');
+    expect(tableNames).not.toContain('agent_team_pack');
   });
 
   it('creates indexes', () => {
@@ -701,7 +702,7 @@ describe('SQLite Foundation', () => {
     expect(db.prepare('SELECT version FROM _schema_version WHERE version = 40').get())
       .toEqual({ version: 40 });
     expect(db.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-      .toEqual({ version: 77 });
+      .toEqual({ version: 78 });
   });
 
   it('retires the parallel A2A worklist schema at migration 62', () => {
@@ -723,6 +724,29 @@ describe('SQLite Foundation', () => {
       )
     `).all()).toHaveLength(5);
     expect(db.pragma('foreign_key_check')).toEqual([]);
+  });
+
+  it('removes the legacy Agent-TeamPack membership table at migration 78', () => {
+    db.exec(`
+      DELETE FROM _schema_version WHERE version = 78;
+      CREATE TABLE agent_team_pack (
+        agent_id TEXT NOT NULL,
+        pack_id TEXT NOT NULL,
+        role_id TEXT NOT NULL,
+        assigned_at TEXT NOT NULL,
+        PRIMARY KEY (agent_id, pack_id)
+      );
+      INSERT INTO agent_team_pack (agent_id, pack_id, role_id, assigned_at)
+      VALUES ('legacy-agent', 'legacy-pack', 'legacy-role', '2026-08-15T00:00:00.000Z');
+    `);
+
+    applyMigrations(db);
+
+    expect(db.prepare(`
+      SELECT name FROM sqlite_master WHERE type='table' AND name='agent_team_pack'
+    `).get()).toBeUndefined();
+    expect(db.prepare('SELECT version FROM _schema_version WHERE version = 78').get())
+      .toEqual({ version: 78 });
   });
 
   it('repairs v26-v40 checkpoints whose migration collision skipped autonomous delivery tables', () => {
@@ -750,7 +774,7 @@ describe('SQLite Foundation', () => {
           'autonomous_delivery_advancement_request',
         ]));
         expect(checkpoint.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-          .toEqual({ version: 77 });
+          .toEqual({ version: 78 });
         expect(checkpoint.pragma('foreign_key_check')).toEqual([]);
       } finally {
         checkpoint.close();

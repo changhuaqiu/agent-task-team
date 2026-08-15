@@ -3542,6 +3542,10 @@ END;
       `);
     },
   },
+  {
+    version: 78,
+    sql: `DROP TABLE IF EXISTS agent_team_pack;`,
+  },
 ];
 
 export function applyMigrations(db: Database.Database): void {

@@ -123,6 +123,30 @@ describe('runtime ownership architecture', () => {
     expect(teamPackLayer).toMatch(/canEscalateTo/);
   });
 
+  it('keeps TeamPack membership on roles instead of a parallel Agent-Pack interface', () => {
+    const teamPackRepo = source('src/server/repositories/team-pack-repo.ts');
+    for (const retiredMethod of [
+      'addRole',
+      'removeRole',
+      'assignAgentToPack',
+      'removeAgentFromPack',
+      'getAgentsForPack',
+      'getPacksForAgent',
+    ]) {
+      expect(teamPackRepo).not.toMatch(new RegExp(`\\b${retiredMethod}\\b`));
+    }
+    expect(teamPackRepo).not.toContain('agent_team_pack');
+    expect(
+      productionTypeScriptFiles('src')
+        .filter((path) => path !== 'src/server/db/migrate.ts')
+        .filter((path) => /agent_team_pack/.test(source(path))),
+    ).toEqual([]);
+
+    const migrations = source('src/server/db/migrate.ts');
+    expect(migrations).toContain('version: 78');
+    expect(migrations).toContain('DROP TABLE IF EXISTS agent_team_pack');
+  });
+
   it('keeps explicit human command adapters available', () => {
     expect(taskHubStore).toContain(`type: 'a2a.human_handoff'`);
     expect(taskHubStore).not.toContain(`socket.emit('a2a:user-turn-created'`);

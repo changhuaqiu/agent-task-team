@@ -248,35 +248,6 @@ export const teamPackRepo = {
 
   // ── Role Management ──────────────────────
 
-  addRole(packId: string, inputRole: TeamPackRole): void {
-    const now = new Date().toISOString();
-    const role = materializeTeamRoleSnapshot(inputRole, loadSnapshotSourceCards(), now);
-    getDb().prepare(
-      `INSERT INTO team_pack_role (
-        id, pack_id, role_id, display_name, soul, required, description,
-        role_card_id, role_card_snapshot, account_ids, skill_ids, created_at
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(
-      generateSortableId('tpr'),
-      packId,
-      role.id,
-      role.displayName,
-      role.soul,
-      role.required ? 1 : 0,
-      role.description ?? null,
-      role.roleCardId ?? null,
-      role.roleCardSnapshot ? JSON.stringify(role.roleCardSnapshot) : null,
-      role.accountIds ? JSON.stringify(role.accountIds) : null,
-      role.skillIds ? JSON.stringify(role.skillIds) : null,
-      now
-    );
-  },
-
-  removeRole(packId: string, roleId: string): void {
-    getDb().prepare('DELETE FROM team_pack_role WHERE pack_id = ? AND role_id = ?').run(packId, roleId);
-  },
-
   updateRoleConfig(
     packId: string,
     roleId: string,
@@ -331,39 +302,4 @@ export const teamPackRepo = {
     return materializeTeamPack(pack, loadSnapshotSourceCards());
   },
 
-  // ── Agent Assignment ─────────────────────
-
-  assignAgentToPack(agentId: string, packId: string, roleId: string): void {
-    const now = new Date().toISOString();
-    getDb().prepare(
-      `INSERT INTO agent_team_pack (agent_id, pack_id, role_id, assigned_at)
-       VALUES (?, ?, ?, ?)
-       ON CONFLICT(agent_id, pack_id) DO UPDATE SET role_id = excluded.role_id, assigned_at = excluded.assigned_at`
-    ).run(agentId, packId, roleId, now);
-  },
-
-  removeAgentFromPack(agentId: string, packId: string): void {
-    getDb().prepare('DELETE FROM agent_team_pack WHERE agent_id = ? AND pack_id = ?').run(agentId, packId);
-  },
-
-  getAgentsForPack(packId: string): { agentId: string; roleId: string }[] {
-    return getDb().prepare(
-      'SELECT agent_id as agentId, role_id as roleId FROM agent_team_pack WHERE pack_id = ?'
-    ).all(packId) as { agentId: string; roleId: string }[];
-  },
-
-  getPacksForAgent(agentId: string): TeamPack[] {
-    const db = getDb();
-    const rows = db.prepare(
-      `SELECT tp.* FROM team_pack tp
-       JOIN agent_team_pack atp ON atp.pack_id = tp.id
-       WHERE atp.agent_id = ?
-       ORDER BY tp.name ASC`
-    ).all(agentId) as TeamPackRow[];
-
-    return rows.map(pack => {
-      const roles = db.prepare('SELECT * FROM team_pack_role WHERE pack_id = ? ORDER BY role_id').all(pack.id) as TeamPackRoleRow[];
-      return rowToTeamPack(pack, roles);
-    });
-  },
 };

@@ -27,9 +27,9 @@ describe('team_pack tables exist after migration', () => {
     expect(tables).toHaveLength(1);
   });
 
-  it('has agent_team_pack table', () => {
+  it('does not retain the retired agent_team_pack table', () => {
     const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='agent_team_pack'").all();
-    expect(tables).toHaveLength(1);
+    expect(tables).toEqual([]);
   });
 });
 
@@ -347,39 +347,5 @@ describe('teamPackRepo.delete', () => {
 
     const roleRows = db.prepare('SELECT * FROM team_pack_role WHERE pack_id = ?').all(pack.id);
     expect(roleRows).toHaveLength(0);
-  });
-});
-
-describe('teamPackRepo agent assignment', () => {
-  it('assigns and retrieves agents for a pack', () => {
-    const pack = teamPackRepo.create({
-      name: 'assign-test',
-      displayName: 'Assign',
-      description: '',
-      roles: [{ id: 'dev', displayName: 'Dev', soul: '#', required: true }],
-      workflow: { type: 'linear' },
-      communicationMatrix: {},
-    });
-
-    teamPackRepo.assignAgentToPack('agent-1', pack.id, 'dev');
-    const agents = teamPackRepo.getAgentsForPack(pack.id);
-    expect(agents).toHaveLength(1);
-    expect(agents[0].agentId).toBe('agent-1');
-    expect(agents[0].roleId).toBe('dev');
-  });
-
-  it('removes agent from pack', () => {
-    const pack = teamPackRepo.create({
-      name: 'remove-test',
-      displayName: 'Remove',
-      description: '',
-      roles: [{ id: 'dev', displayName: 'Dev', soul: '#', required: true }],
-      workflow: { type: 'linear' },
-      communicationMatrix: {},
-    });
-
-    teamPackRepo.assignAgentToPack('agent-x', pack.id, 'dev');
-    teamPackRepo.removeAgentFromPack('agent-x', pack.id);
-    expect(teamPackRepo.getAgentsForPack(pack.id)).toHaveLength(0);
   });
 });
