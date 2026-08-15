@@ -147,6 +147,7 @@ ACP 文本更新是流式增量，不是独立聊天消息。daemon 可以逐 ch
 - 通用 shell 不承担外部交付动作：`git`、`gh`、网络命令、命令串联、重定向和任意解释器执行均不从 `allowCodeChanges` 获得权限。push、创建 PR、合并必须分别通过受信平台动作消费 `allowPush`、`allowPullRequest`、`allowAutoMerge`。
 - 文件修改必须通过真实路径确认其最近已存在祖先仍位于 Invocation 工作目录内；符号链接或 junction 不得把授权带出项目边界。
 - Invocation 工作目录只通过 `WorkdirManager.resolveWorkdir()` 解析；portable path 编码、项目 Worktree 选择与元数据 row 属于该模块 implementation，不作为可绕过正式 cwd 解析的平行 interface。
+- 逻辑 session、runtime session id、恢复、封存与消息计数只持久化在 SQLite `sessionRepo`；Workdir 不写 `.session.json`，文件 sidecar 不得成为第二套恢复事实源。
 - `allowCodeChanges` 是对受信 Agent 与当前项目代码的本地执行授权，不是针对恶意仓库代码的 OS 沙箱；测试/构建本身可以执行项目脚本。`allowPush`、`allowPullRequest`、`allowAutoMerge` 约束平台拥有的一等 Provider 动作。需要把不受信项目代码与宿主机、网络完全隔离的部署，必须另行配置平台执行沙箱，不能把 ACP 命令匹配当作安全沙箱。
 - 每个 ACP permission request 及最终 allowed/denied 决策必须写入同一 Invocation 的 Runtime Event 流，以便区分“Agent 没有执行”与“平台策略拒绝”。已结束或已替换 Invocation 不得继续消费旧授权。
 - Claude ACP 会话必须保留运行时原生的 `Task` / `Agent` 子代理能力，并通过 session 元数据启用 `forwardSubagentText`。ACP adapter 负责让父 turn 等待其原生子代理收敛，平台负责转发子代理输出，并按同一 `toolCallId` 的 `tool_call` / `tool_call_update` 配对将活动状态从 `awaiting_children` 恢复到 `running`；不得用“曾经调用过子代理”的粘滞布尔值阻塞 Invocation。

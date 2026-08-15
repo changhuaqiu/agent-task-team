@@ -80,7 +80,7 @@ Pass、HandoffPacket 与 AgentInbox 同事务创建，因此 Task wakeup 与显�
 task 引用，只要任一 task 的权威 owner 不是目标 Agent，就以 `task_owner_mismatch` 拒绝命令并停止创建
 pass。不能先按目标 Agent 过滤再把结果为空解释成“普通无 task A2A”，否则错误 owner 会绕过 Task Graph。
 
-worktree 运行时还要区分两个目录契约：Agent 命令在 conversation 级 Git worktree 执行；`.session.json` / `.gc_meta.json` 则保存在平台 workspace 的 conversation/agent/task 隔离目录。共享 worktree 路径存在不代表后者已经创建，所有元数据写入口必须原子确保 scoped task root 存在。元数据目录缺失不得在业务 turn 已完成后抛出 ENOENT，并把完成结果覆盖为 `spawn_failed`。
+worktree 运行时还要区分两个目录契约：Agent 命令在 conversation 级 Git worktree 执行；垃圾回收读取的 `.gc_meta.json` 保存在平台 workspace 的 conversation/agent/task 隔离目录。共享 worktree 路径存在不代表后者已经创建，因此 GC 写入口必须原子确保 scoped task root 存在。逻辑 session 与 runtime session id 由 SQLite `sessionRepo` 唯一持久化，不写 `.session.json`；业务 turn 完成后不得再由无人消费的文件旁路抛错并把结果覆盖为 `spawn_failed`。
 
 ## 事实源
 

@@ -252,3 +252,7 @@ ACP event mapper、WorkContract permission 与 session-load failure handling 各
 ## 第五十四轮：收窄 Workdir / Worktree interface 并删除假状态
 
 工作目录 owner 遗留了一条从未接入 runtime、ContextManager 或 watcher 的 `refreshContextFiles()`：它独自写入 `.ath-role.md` 与 `.ath-team.md`，全仓没有 reader，因此不是兼容能力。`activeDirs` 同样只有 add/delete、没有任何读取，不能表达 GC 或健康状态。第五十四轮直接删除这条不可达功能与假状态，把只供 owner 使用的路径编码、session/GC row、Worktree 分支前缀与返回 row 收回 implementation，并将只由 `resolveWorkdir()` 调用的项目 Worktree 解析标为 private。正式 runtime 继续只穿过 cwd 解析、session/GC 元数据和 Worktree lifecycle interface；测试从最终路径及真实 Git 行为验证结果。
+
+## 第五十五轮：删除 filesystem session 旁路
+
+进一步追踪发现，工作目录中的 `.session.json` 只有 daemon 写入，没有生产 reader、恢复入口、迁移或投影消费者；真正的会话创建、runtime id 确认、恢复、封存和消息计数早已由 SQLite `sessionRepo` 统一承担。第五十五轮删除 `writeSessionMeta`、`readSessionMeta`、`SessionMeta` 与 daemon 写入，避免无人消费的同步文件 I/O 在 turn 完成后制造失败，并阻止第二套 session 事实源回流。`.gc_meta.json` 因被 TTL GC 真实读取而保留，但 row 收窄为唯一消费字段 `completedAt`；历史文件中的额外 `taskId` 不影响宽松 JSON 读取，无需迁移。

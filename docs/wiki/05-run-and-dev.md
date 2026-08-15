@@ -73,9 +73,10 @@ Agent 执行经 **ACP（Agent Client Protocol）单一通路**驱动（见 [`arc
         base/                   ← 跨 task 共享基础环境（node_modules 等）
         task-{taskId}/
           workdir/              ← agent 执行 cwd
-          .session.json         ← session 续接信息
           .gc_meta.json         ← GC 元数据（完成后写入）
 ```
+
+Session 续接不依赖工作目录文件；逻辑 session 与 runtime session id 由 SQLite `sessionRepo` 持久化和恢复。工作目录 sidecar 只保留被 GC 实际读取的 `.gc_meta.json`。
 
 如果你遇到“页面状态和预期不一致”，优先排查：
 
