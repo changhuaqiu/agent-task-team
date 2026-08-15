@@ -27,7 +27,6 @@
 | 规格 | 状态 | 当前边界 |
 | --- | --- | --- |
 | [`acp-runtime-integration/`](acp-runtime-integration/) | active | 用统一 ACP client 一次接入 OpenCode 原生 ACP、Claude/Codex ACP 适配器，并删除 bespoke backend |
-| [`architecture-subtraction-51/`](architecture-subtraction-51/) | active | 删除严格 TypeScript 检查确认的生产死声明与无效参数 |
 | [`context-manager/`](context-manager/) | active | 统一上下文注入、项目隔离、可见性与 A2A 上下文来源；以 `docs/technical/execution/context-layering.md` 为设计依据 |
 | [`skill-package-progressive-loading/`](skill-package-progressive-loading/) | active | 用标准 Skill 目录、不可变安装 revision、确定性上下文编译和加载证据保证 Agent 真正获得已绑定 Skill |
 | [`team-simplification/`](team-simplification/) | active | 默认团队从 6 人收敛到 4 人并清理旧 preset |

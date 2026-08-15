@@ -1,6 +1,6 @@
 # Architecture Subtraction — Round 51
 
-> Status: active
+> Status: implemented
 > Date: 2026-08-15
 
 ## Goal
@@ -37,4 +37,4 @@
 - `pnpm build` 通过；仅保留既有 whole-project NFT tracing warning。
 - 非并行全量执行完成：205 files / 1511 tests 通过，2 files / 2 tests 跳过；唯一失败仍为稳定基线 `src/server/autonomous-delivery/control-runtime.test.ts:131`，该文件不在本轮 diff。
 - 首轮独立复审：Critical 0 / Important 1 / Minor 0；代码与调用图无回归，发现 canonical tasks/checklist 未同步已完成事实。
-- 修复后独立复审待回填。
+- 修复后独立复审：Critical 0 / Important 0 / Minor 0，Ready: Yes；状态、严格检查口径、git status 与 base→Head diff-check 均通过。

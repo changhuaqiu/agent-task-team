@@ -70,6 +70,7 @@
 | `architecture-subtraction-48/` | implemented | 第四十八轮删除 ACP、Project Context、Skill 与 TASKS.md watcher 中零消费者或测试专用的浅接口，并将 watcher 清理绑定到创建者 |
 | `architecture-subtraction-49/` | implemented | 第四十九轮删除死数据库/Invocation helper，并把模块内部状态机、标量 lookup 与编排 helper 收回实现内部 |
 | `architecture-subtraction-50/` | implemented | 第五十轮把 ACP/GitHub 测试 Adapter 移出生产树，收回同文件-only 公共面，并从 Next 部署 tracing 排除测试源 |
+| `architecture-subtraction-51/` | implemented | 第五十一轮删除严格 TypeScript 检查确认的生产死声明、无效 props 与占位参数 |
 | `four-agent-pr-review-loop/` | implemented | 四 Agent PR 交付、评审、修复与合并证据闭环已落地 |
 | `github-issue-agent-hook/` | implemented | GitHub Issue 验签、幂等建项与自主交付链已落地；长期设计见 `docs/technical/integrations/github-issue-agent-hook.md` |
 | `open-issues-33-35/` | implemented | A2A 分派意图、首次交接身份、默认 TeamPack 升级与上下文去重修复已验收 |

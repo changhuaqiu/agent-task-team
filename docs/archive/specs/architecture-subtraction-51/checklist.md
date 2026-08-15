@@ -7,4 +7,4 @@
 - [x] Durable Effect retry/dead-letter/fencing 保持。
 - [x] 相关设计文档已同步。
 - [x] 定向测试、常规 tsc、build 与全量测试已执行。
-- [ ] 独立复审无 Critical / Important。
+- [x] 独立复审无 Critical / Important。
