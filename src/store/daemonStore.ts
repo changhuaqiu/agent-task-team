@@ -152,23 +152,9 @@ export interface PendingDispatch {
   legacyProposal?: boolean;
 }
 
-type InFlightDispatch = Omit<
-  PendingDispatch,
-  'queuedAt' | 'idempotencyKey' | 'inboxItemId' | 'persistenceStatus'
->;
-
-// Browser busy state is only a projection. Keep the request until daemon
-// confirms it was sent so an agent_busy response can recover it into the
-// conversation-scoped pending queue instead of dropping the user turn.
-const inFlightDispatches = new Map<string, InFlightDispatch>();
-
 /** Composite key for per-project queue isolation: agentId:conversationId */
 function queueKey(agentId: string, conversationId: string): string {
   return `${agentId}:${conversationId}`;
-}
-
-export function clearInFlightDispatch(agentId: string, conversationId: string): void {
-  inFlightDispatches.delete(queueKey(agentId, conversationId));
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- set/get typed as any to avoid circular dependency with TaskHubState
@@ -401,15 +387,6 @@ export const createDaemonSlice = (set: any, get: () => any) => {
         conversationId,
         type: 'run.started',
         payload: { runId, agentId, taskId: referencedTaskId, engine: resolvedEngine },
-      });
-
-      inFlightDispatches.set(queueKey(agentId, conversationId), {
-        prompt,
-        referencedTaskId,
-        source,
-        fromAgentId,
-        conversationId,
-        legacyProposal,
       });
 
       socket.emit('terminal:start', {

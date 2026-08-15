@@ -221,4 +221,4 @@ Task Graph repository 的 `listActions(conversationId)` 只被自身 `getGraph()
 
 ## 第四十七轮：删除零消费者公共面与虚假 thinking 开关
 
-全仓仍残留一批只被自身测试消费或完全没有消费者的公共类型/函数：旧静态团队角色、重复的 Task 状态读取、Store 调试 getter、Credential/RoleCard 标量查询，以及未进入任何生产调用链的 A2A 类型。Observability 文档还宣称可用 `ATH_OBSERVABILITY_CAPTURE_THINKING=false` 关闭 thinking 采集，但生产投影从未读取该环境变量。第四十七轮删除这些假公共面和对应自测，保留 canonical Task 状态图、credential/RoleCard 正式生命周期、A2A possession owner 与 runtime thinking payload 投影；当前事实明确为 runtime 主动暴露的 summary 按统一脱敏与容量限制采集，隐藏 chain-of-thought 永不采集，当前没有关闭开关。
+全仓仍残留一批只被自身测试消费或完全没有消费者的公共类型/函数：旧静态团队角色、重复的 Task 状态读取、Store 调试 getter、Credential/RoleCard 标量查询，以及未进入任何生产调用链的 A2A 类型。Store 的 in-flight dispatch Map 也只剩 set/delete 而没有 read，receipt cleanup 因此不影响任何投影。Observability 文档还宣称可用 `ATH_OBSERVABILITY_CAPTURE_THINKING=false` 关闭 thinking 采集，但生产投影从未读取该环境变量。第四十七轮删除这些假公共面、不可观察状态分支和对应自测，保留 canonical Task 状态图、pending dispatch/receipt 投影、credential/RoleCard 正式生命周期、A2A possession owner 与 runtime thinking payload 投影；当前事实明确为 runtime 主动暴露的 summary 按统一脱敏与容量限制采集，隐藏 chain-of-thought 永不采集，当前没有关闭开关。

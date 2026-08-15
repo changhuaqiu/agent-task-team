@@ -17,7 +17,6 @@ import {
   resetWatchdog,
   clearWatchdog,
   registerBrowserRuntimeNode,
-  clearInFlightDispatch,
 } from './daemonStore';
 import type { PendingDispatch } from './daemonStore';
 import {
@@ -2342,12 +2341,6 @@ socket.on(PROJECT_VIEW_CHANNEL, consumeProjectViewEvent);
 socket.on('dispatch.receipt', (receipt: DispatchReceipt) => {
   if (!receipt || !isCurrentProjectEvent(receipt.projectId, receipt.conversationId)) return;
   if (!receipt.receiptId || !receipt.targetAgentId) return;
-  if (
-    receipt.phase === 'acknowledged'
-    || receipt.phase === 'rejected'
-  ) {
-    clearInFlightDispatch(receipt.targetAgentId, receipt.conversationId);
-  }
   useTaskHubStore.getState().recordDispatchReceipt(receipt);
 });
 
