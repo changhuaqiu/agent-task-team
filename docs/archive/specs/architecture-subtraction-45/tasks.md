@@ -5,4 +5,4 @@
 - [x] 将 actions/artifacts 查询内聚到 `getGraph()`。
 - [x] 迁移测试并增加架构防回流守卫。
 - [x] 完成验证、独立复审与归档。
-- [ ] 合并并推送 main。
+- [x] 合并并推送 main。

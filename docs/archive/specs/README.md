@@ -64,6 +64,7 @@
 | `architecture-subtraction-42/` | implemented | 第四十二轮删除 Message、Observation、Payload 与 Proof repository 六个自用/自测标量读 interface，保留正式聚合投影 |
 | `architecture-subtraction-43/` | implemented | 第四十三轮删除 Message、Task 与 Skill repository 四个零消费浅 interface，保留 ACP 消息持久化、Task lifecycle 与 Skill revision 幂等安装 |
 | `architecture-subtraction-44/` | implemented | 第四十四轮删除 Session、Invocation 与 Skill repository 三个仅自测消费的重复读 interface，保留正式 runtime identity、dispatch lifecycle 与 Skill assignment 聚合读面 |
+| `architecture-subtraction-45/` | implemented | 第四十五轮删除 Task Graph conversation actions/artifacts 两个浅集合读 interface，让正式读取统一穿过 `TaskGraphView` 聚合 |
 | `four-agent-pr-review-loop/` | implemented | 四 Agent PR 交付、评审、修复与合并证据闭环已落地 |
 | `github-issue-agent-hook/` | implemented | GitHub Issue 验签、幂等建项与自主交付链已落地；长期设计见 `docs/technical/integrations/github-issue-agent-hook.md` |
 | `open-issues-33-35/` | implemented | A2A 分派意图、首次交接身份、默认 TeamPack 升级与上下文去重修复已验收 |
