@@ -73,6 +73,7 @@
 | `architecture-subtraction-51/` | implemented | 第五十一轮删除严格 TypeScript 检查确认的生产死声明、无效 props 与占位参数 |
 | `architecture-subtraction-52/` | implemented | 第五十二轮收窄 A2A、ACP 与 Autonomous Delivery 的实现专用 named types，并删除单实现 SecurityScanner 伪接口；长期决策见 `docs/technical/execution/architecture-subtraction.md` |
 | `architecture-subtraction-53/` | implemented | 第五十三轮把 ACP test-only implementation helper 收回 mapper/backend/WorkContract policy 内部，并让测试统一穿过正式 interface；长期决策见 `docs/technical/execution/architecture-subtraction.md` |
+| `architecture-subtraction-54/` | implemented | 第五十四轮删除 Workdir 不可达 sidecar 写入与只写不读假状态，并收窄 Workdir/Worktree implementation surface；长期决策见 `docs/technical/execution/architecture-subtraction.md` |
 | `four-agent-pr-review-loop/` | implemented | 四 Agent PR 交付、评审、修复与合并证据闭环已落地 |
 | `github-issue-agent-hook/` | implemented | GitHub Issue 验签、幂等建项与自主交付链已落地；长期设计见 `docs/technical/integrations/github-issue-agent-hook.md` |
 | `open-issues-33-35/` | implemented | A2A 分派意图、首次交接身份、默认 TeamPack 升级与上下文去重修复已验收 |
