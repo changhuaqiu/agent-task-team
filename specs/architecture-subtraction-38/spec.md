@@ -37,4 +37,6 @@
 - 基线 `pnpm exec vitest run src/server/runtime-selection.test.ts src/__tests__/architecture/runtime-ownership.test.ts src/__tests__/task-hub/TaskDetailPanel.runtime-profile.test.tsx src/__tests__/server/invocation-pipeline/context-planner.test.ts src/__tests__/lib/team-runtime/team-runtime.test.ts --reporter=dot`：5 files / 73 tests 通过。
 - 实现后同一定向命令：5 files / 73 tests 通过；架构守卫新增生产 `CliEngine` 零残留与 TaskHub 不重导出断言。
 - `pnpm exec tsc --noEmit`：通过。
-- 构建、全量测试与独立复审待完成。
+- `pnpm build`：通过；保留既有 Next.js NFT tracing warning。
+- `pnpm test -- --run --reporter=dot`：执行完成；205 files / 1518 tests 通过，2 files / 2 tests skipped，1 file / 1 test failed。唯一失败为稳定基线 `src/server/autonomous-delivery/control-runtime.test.ts:131`；本轮定向链与生产构建均通过，不将全量 suite 误记为全绿。
+- 独立复审待完成。
