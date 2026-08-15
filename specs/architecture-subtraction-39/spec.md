@@ -31,4 +31,10 @@
 
 ## Verification
 
-- 待执行。
+- `pnpm install --offline --frozen-lockfile`：通过，719 packages，lockfile 未变。
+- 基线定向命令（Task Graph repository、command service、group-chat flow、engineering collaboration、architecture guard）：5 files / 61 tests 通过。
+- 实现后同一定向命令：5 files / 62 tests 通过；新增防回流守卫。
+- `pnpm exec tsc --noEmit`：通过。
+- `pnpm build`：通过；保留既有 Next.js NFT tracing warning。
+- `pnpm test -- --run --reporter=dot`：执行完成；205 files / 1519 tests 通过，2 files / 2 tests skipped，1 file / 1 test failed。唯一失败为稳定基线 `src/server/autonomous-delivery/control-runtime.test.ts:131`；不将全量 suite 误记为全绿。
+- 独立复审待完成。
