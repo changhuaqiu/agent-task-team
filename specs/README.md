@@ -26,6 +26,7 @@
 
 | 规格 | 状态 | 当前边界 |
 | --- | --- | --- |
+| [`architecture-subtraction-43/`](architecture-subtraction-43/) | active | 删除 Message/Task/Skill repository 四个零消费浅 interface |
 | [`acp-runtime-integration/`](acp-runtime-integration/) | active | 用统一 ACP client 一次接入 OpenCode 原生 ACP、Claude/Codex ACP 适配器，并删除 bespoke backend |
 | [`context-manager/`](context-manager/) | active | 统一上下文注入、项目隔离、可见性与 A2A 上下文来源；以 `docs/technical/execution/context-layering.md` 为设计依据 |
 | [`skill-package-progressive-loading/`](skill-package-progressive-loading/) | active | 用标准 Skill 目录、不可变安装 revision、确定性上下文编译和加载证据保证 Agent 真正获得已绑定 Skill |

@@ -202,3 +202,7 @@ Task Graph 的正式读取面已经是 `TaskGraphView` 与调用方实际使用�
 ## 第四十二轮：删除 repository 自用标量读表面
 
 Message、Observation Span、Span Payload 与 Proof Log repository 仍暴露六个只有自身实现或 repository 自测消费者的标量读方法。这些方法没有隐藏校验、事务或远程 adapter 语义，却让测试绕过生产真正消费的 conversation/span/envelope/domain-key 聚合读面。第四十二轮删除这六个浅 interface；Payload `put` 与 Proof `append` 直接返回本次持久化的完整 row，测试改为穿过正式聚合 interface 验证可观测结果。消息历史/Context、Observability projection/payload endpoint 与 Proof/Team Log 保持不变。
+
+## 第四十三轮：删除 Message/Task 死方法与 Skill 内部 lookup
+
+Message repository 的 `appendTextChunk` 没有生产写入者，Task repository 的按 agent 读取和 raw delete 也只有自测；实际 ACP text 会合并后 append 为完整消息，Task 通过查询/transition/update 与 aggregate cleanup 管理。Skill repository 另把仅供 `createOrActivateRevision` 使用的 hash lookup 暴露为公开方法。第四十三轮删除这四个浅 interface，将 hash 幂等查询内聚到 revision 安装事务；Message history、Task lifecycle、Skill immutable revision/install/compile 保持不变。
