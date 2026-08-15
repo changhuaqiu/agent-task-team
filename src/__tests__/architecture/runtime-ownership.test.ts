@@ -16,8 +16,8 @@ function productionTypeScriptFiles(directory: string): string[] {
   });
 }
 
-function exportedSurface(path: string): Set<string> {
-  const file = ts.createSourceFile(path, source(path), ts.ScriptTarget.Latest, true);
+function exportedSurfaceFromText(path: string, contents: string): Set<string> {
+  const file = ts.createSourceFile(path, contents, ts.ScriptTarget.Latest, true);
   const names = new Set<string>();
   const addName = (name: ts.PropertyName | ts.BindingName | undefined) => {
     if (name && (ts.isIdentifier(name) || ts.isStringLiteral(name))) names.add(name.text);
@@ -27,6 +27,9 @@ function exportedSurface(path: string): Set<string> {
     for (const property of expression.properties) {
       if (ts.isSpreadAssignment(property)) continue;
       addName(property.name);
+      if (ts.isPropertyAssignment(property) && ts.isIdentifier(property.initializer)) {
+        names.add(property.initializer.text);
+      }
     }
   };
 
@@ -62,6 +65,10 @@ function exportedSurface(path: string): Set<string> {
     }
   }
   return names;
+}
+
+function exportedSurface(path: string): Set<string> {
+  return exportedSurfaceFromText(path, source(path));
 }
 
 describe('runtime ownership architecture', () => {
@@ -567,6 +574,13 @@ describe('runtime ownership architecture', () => {
   });
 
   it('keeps scalar lookups and state-machine helpers behind their owning modules', () => {
+    expect(exportedSurfaceFromText('object-alias.ts', `
+      const getPhaseById = () => undefined;
+      const getAgentById = () => undefined;
+      export const api = { lookup: getPhaseById };
+      export default { find: getAgentById };
+    `)).toEqual(new Set(['api', 'lookup', 'getPhaseById', 'find', 'getAgentById']));
+
     const production = productionTypeScriptFiles('src').map((path) => source(path)).join('\n');
     for (const retired of ['closeDb', 'assertInvocationOutcome', 'deletePhasesByConversation']) {
       expect(production).not.toMatch(new RegExp(`\\b${retired}\\b`));
