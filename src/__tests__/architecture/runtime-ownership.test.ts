@@ -640,7 +640,7 @@ describe('runtime ownership architecture', () => {
       'src/server/autonomous-delivery/types.ts': ['GitHubIssueGoalSource'],
       'src/server/autonomous-delivery/verification-receipt.ts': ['VerificationReceiptCandidate'],
       'src/server/autonomous-delivery/wait-for-graph.ts': ['WaitForDeadlock'],
-      'src/server/security-scanner.ts': ['ScanResult'],
+      'src/server/security-scanner.ts': ['ScanResult', 'SecurityScanner', 'securityScanner'],
     };
 
     for (const [owner, names] of Object.entries(internalByOwner)) {
