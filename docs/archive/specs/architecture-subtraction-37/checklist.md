@@ -7,4 +7,4 @@
 - [x] 历史 engine 迁移、runtime selection、daemon 执行复核与凭据边界未改变。
 - [x] 架构守卫阻止重复别名和输入 interface 回流。
 - [x] 文档、TypeScript、定向测试、构建与全量结果精确记录。
-- [ ] 独立复审为 Critical 0 / Important 0。
+- [x] 独立复审为 Critical 0 / Important 0。
