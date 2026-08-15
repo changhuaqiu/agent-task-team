@@ -105,7 +105,7 @@ describe('Task outcome and Gate lifecycle process managers', () => {
     expect(taskGraphRepo.listActionsForTask('task-1').filter((action) =>
       action.proof_event_id === event.eventId
     )).toHaveLength(1);
-    expect(taskGraphRepo.listArtifacts('project-1')).toMatchObject([
+    expect(taskGraphRepo.getGraph('project-1').artifacts).toMatchObject([
       { task_id: 'task-1', path: 'src/feature.ts' },
       { task_id: 'task-1', path: 'test:vitest-passed' },
     ]);

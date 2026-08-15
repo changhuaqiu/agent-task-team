@@ -127,7 +127,7 @@ describe('EngineeringCollaborationService', () => {
     expect(taskGraphRepo.listActionsForTask('TASK-PR')).toEqual(expect.arrayContaining([
       expect.objectContaining({ type: 'task.pull_request_submitted', actor_id: 'luigi' }),
     ]));
-    expect(taskGraphRepo.listArtifacts('conv-pr-loop')).toEqual(expect.arrayContaining([
+    expect(taskGraphRepo.getGraph('conv-pr-loop').artifacts).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: 'pull_request', url: pullRequest.url }),
     ]));
     const message = messageRepo.getById(result.messageId)!;
@@ -170,7 +170,7 @@ describe('EngineeringCollaborationService', () => {
       status: 'in_progress',
       review_note: 'Checkout loses the selected address.',
     });
-    expect(taskGraphRepo.listArtifacts('conv-pr-loop')).toEqual(expect.arrayContaining([
+    expect(taskGraphRepo.getGraph('conv-pr-loop').artifacts).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: 'review', url: review.reviewUrl }),
     ]));
     expect(JSON.parse(messageRepo.getById(result.messageId)!.metadata!)).toMatchObject({ collaborationCard: {
@@ -199,7 +199,7 @@ describe('EngineeringCollaborationService', () => {
       taskId: 'TASK-PR', actorAgentId: 'peach', pullRequestUrl: pullRequest.url, reviewUrl: staleReview.reviewUrl,
       evidence: { testResult: 'ok', blockerCount: 0, summary: 'Looks good', qualityDecision: 'pass' },
     })).rejects.toMatchObject<Partial<EngineeringCollaborationError>>({ reasonCode: 'pull_request_head_changed' });
-    expect(taskGraphRepo.listArtifacts('conv-pr-loop').filter((artifact) => artifact.kind === 'review')).toHaveLength(0);
+    expect(taskGraphRepo.getGraph('conv-pr-loop').artifacts.filter((artifact) => artifact.kind === 'review')).toHaveLength(0);
   });
 
   it('fails closed without an authoritative Git repository context', async () => {
@@ -246,7 +246,7 @@ describe('EngineeringCollaborationService', () => {
     };
     const before = {
       actions: taskGraphRepo.listActionsForTask('TASK-PR').length,
-      artifacts: taskGraphRepo.listArtifacts('conv-pr-loop').length,
+      artifacts: taskGraphRepo.getGraph('conv-pr-loop').artifacts.length,
       messages: messageRepo.getByConversation('conv-pr-loop').length,
       proofs: proofLogRepo.findByType({
         eventType: 'engineering.pull_request.verified',
@@ -266,7 +266,7 @@ describe('EngineeringCollaborationService', () => {
     expect(taskRepo.getById('TASK-PR')?.status).toBe('in_progress');
     expect({
       actions: taskGraphRepo.listActionsForTask('TASK-PR').length,
-      artifacts: taskGraphRepo.listArtifacts('conv-pr-loop').length,
+      artifacts: taskGraphRepo.getGraph('conv-pr-loop').artifacts.length,
       messages: messageRepo.getByConversation('conv-pr-loop').length,
       proofs: proofLogRepo.findByType({
         eventType: 'engineering.pull_request.verified',
@@ -290,7 +290,7 @@ describe('EngineeringCollaborationService', () => {
     applyLatestTaskGateDecision();
     const before = {
       actions: taskGraphRepo.listActionsForTask('TASK-PR').length,
-      artifacts: taskGraphRepo.listArtifacts('conv-pr-loop').length,
+      artifacts: taskGraphRepo.getGraph('conv-pr-loop').artifacts.length,
       messages: messageRepo.getByConversation('conv-pr-loop').length,
     };
 
@@ -302,7 +302,7 @@ describe('EngineeringCollaborationService', () => {
     expect(taskRepo.getById('TASK-PR')?.status).toBe('in_progress');
     expect({
       actions: taskGraphRepo.listActionsForTask('TASK-PR').length,
-      artifacts: taskGraphRepo.listArtifacts('conv-pr-loop').length,
+      artifacts: taskGraphRepo.getGraph('conv-pr-loop').artifacts.length,
       messages: messageRepo.getByConversation('conv-pr-loop').length,
     }).toEqual(before);
   });
@@ -400,7 +400,7 @@ describe('EngineeringCollaborationService', () => {
 
     expect(result.receipt).toEqual(merge);
     expect(taskRepo.getById('TASK-PR')?.status).toBe('done');
-    expect(taskGraphRepo.listArtifacts('conv-pr-loop')).toEqual(expect.arrayContaining([
+    expect(taskGraphRepo.getGraph('conv-pr-loop').artifacts).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: 'merge', url: pullRequest.url }),
     ]));
     expect(JSON.parse(messageRepo.getById(result.messageId)!.metadata!)).toMatchObject({ collaborationCard: {

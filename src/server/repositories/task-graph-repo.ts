@@ -557,12 +557,6 @@ export const taskGraphRepo = {
     return getDb().prepare('SELECT * FROM task_action WHERE id = ?').get(id) as TaskActionRow | undefined;
   },
 
-  listActions(conversationId: string): TaskActionRow[] {
-    return getDb()
-      .prepare('SELECT * FROM task_action WHERE conversation_id = ? ORDER BY created_at ASC, id ASC')
-      .all(conversationId) as TaskActionRow[];
-  },
-
   listActionsForTask(taskId: string): TaskActionRow[] {
     return getDb()
       .prepare('SELECT * FROM task_action ORDER BY created_at ASC, id ASC')
@@ -693,12 +687,6 @@ export const taskGraphRepo = {
     return getDb().prepare('SELECT * FROM task_artifact_ref WHERE id = ?').get(id) as TaskArtifactRefRow;
   },
 
-  listArtifacts(conversationId: string): TaskArtifactRefRow[] {
-    return getDb()
-      .prepare('SELECT * FROM task_artifact_ref WHERE conversation_id = ? ORDER BY created_at ASC, id ASC')
-      .all(conversationId) as TaskArtifactRefRow[];
-  },
-
   bindMessage(input: {
     conversationId: string;
     messageId: string;
@@ -720,14 +708,19 @@ export const taskGraphRepo = {
   },
 
   getGraph(conversationId: string): TaskGraphView {
+    const db = getDb();
     return {
       conversationId,
       revision: this.revision(conversationId),
       tasks: taskRepo.getByConversation(conversationId),
       edges: this.listEdges(conversationId),
-      actions: this.listActions(conversationId),
-      artifacts: this.listArtifacts(conversationId),
-      bindings: getDb()
+      actions: db
+        .prepare('SELECT * FROM task_action WHERE conversation_id = ? ORDER BY created_at ASC, id ASC')
+        .all(conversationId) as TaskActionRow[],
+      artifacts: db
+        .prepare('SELECT * FROM task_artifact_ref WHERE conversation_id = ? ORDER BY created_at ASC, id ASC')
+        .all(conversationId) as TaskArtifactRefRow[],
+      bindings: db
         .prepare('SELECT * FROM chat_task_binding WHERE conversation_id = ? ORDER BY created_at ASC, id ASC')
         .all(conversationId) as ChatTaskBindingRow[],
     };

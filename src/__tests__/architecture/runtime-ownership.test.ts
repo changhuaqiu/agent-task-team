@@ -451,14 +451,18 @@ describe('runtime ownership architecture', () => {
 
   it('keeps Task Graph row lookup details private to repository writes and aggregate reads', () => {
     const repository = source('src/server/repositories/task-graph-repo.ts');
+    const production = productionTypeScriptFiles('src').map((path) => source(path)).join('\n');
     for (const retired of [
       'getEdgeById',
       'getArtifactById',
       'getBindingById',
       'listBindings',
+      'listActions',
+      'listArtifacts',
       'TaskGraphCommitRow',
     ]) {
       expect(repository).not.toMatch(new RegExp(`\\b${retired}\\b`));
+      expect(production).not.toMatch(new RegExp(`\\btaskGraphRepo\\.${retired}\\b`));
     }
     expect(repository).toContain('export interface TaskGraphCommitRecord');
     expect(repository).toContain("ORDER BY created_at ASC, id ASC");
