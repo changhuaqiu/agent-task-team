@@ -9,4 +9,4 @@
 - [x] 三个死 helper 删除，内部-only helper 不再导出。
 - [x] 架构守卫阻止死 helper和内部实现重新进入公共 interface。
 - [x] 文档、类型、定向、build 与全量结果记录。
-- [ ] 独立复审无 Critical / Important。
+- [x] 独立复审无 Critical / Important。

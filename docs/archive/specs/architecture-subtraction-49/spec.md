@@ -1,6 +1,6 @@
 # Architecture Subtraction — Round 49
 
-> Status: active
+> Status: implemented
 > Date: 2026-08-15
 
 ## Goal
@@ -42,4 +42,4 @@
 - 第二轮独立复审：Critical 0 / Important 0 / Minor 1；发现 exported object 的改名属性仍可暴露内部 helper。
 - 最终 guard 同时记录 exported object 的属性名与 identifier initializer，并以 synthetic alias/default-object 回归锁定；完整定向 10 files / 171 tests 与 `pnpm exec tsc --noEmit` 再次通过。
 - 最终非并行全量执行完成：205 files / 1509 tests 通过，2 files / 2 tests 跳过；唯一失败仍为稳定基线 `src/server/autonomous-delivery/control-runtime.test.ts:131`，该文件不在本轮 diff。
-- 最终独立复审待回填。
+- 最终独立复审：Critical 0 / Important 0 / Minor 0，Ready: Yes；审查员独立复跑 architecture guard 1 file / 33 tests 通过，HEAD、status 与 diff-check clean。
