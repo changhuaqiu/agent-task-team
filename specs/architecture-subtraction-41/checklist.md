@@ -9,4 +9,4 @@
 - [x] Binding lifecycle 与 State API active-session 投影保持。
 - [x] 架构守卫阻止旧 repository 表面回流。
 - [x] 文档、类型、定向、构建与全量结果精确记录。
-- [ ] 独立复审为 Critical 0 / Important 0。
+- [x] 独立复审为 Critical 0 / Important 0。
