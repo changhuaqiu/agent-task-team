@@ -158,3 +158,7 @@ Team Runtime Contract 已通过 `resolveRuntimeAgentProfile()` 统一解析成�
 ## 第三十一轮：删除浏览器重复角色分类
 
 RoleCard 已经是岗位身份、显示名、能力和行为边界的正式 owner，但浏览器 `Agent` 仍保留 deprecated `role / roleLabel`，通过两张硬编码映射表和 `getEffectiveRoster()` 二次投影继续维护 `planner / worker / reviewer` 三态与岗位文案。`role` 没有生产读取者，`roleLabel` 的调用点也都已持有 RoleCard；两个只查全局数组的 RoleCard lookup Store action 则完全没有消费者。第三十一轮删除这些兼容字段、映射、重导出和死 action，让成员名与岗位名分离：TeamPack 成员名固定来自 `TeamPackRole.displayName`，UI、任务详情与 @提及通过 Team Runtime 缓存解析 global/snapshot RoleCard；缺卡时保留成员名或省略岗位标签，不再猜测静态分类。账号、Skill 和正式派发保持不变。
+
+## 第三十二轮：删除 ContextManager 静态团队 fallback
+
+正式 Invocation 在进入 ContextManager 前已经由 Team Runtime 解析当前项目 roster，并无条件注入 `RuntimeAgent[]`；Knowledge Tier 却仍在 roster 为 `undefined` 时调用 `buildTeamLayer()`，通过浏览器 `AGENT_ROSTER + allRoleCards` 重建另一套静态团队。这条 fallback 没有第二个生产入口，`getAllRoleCards`、Tier 字段和独立 renderer 只为它存在，而且无法忠实表达动态 TeamPack snapshot 与项目成员名。第三十二轮删除整条平行 seam，把 runtime roster 收紧为必需数组；空数组表示没有团队内容，不恢复默认成员。当前 Agent RoleCard identity、Context Registry、预算、Snapshot、A2A 与 dispatch 保持不变。

@@ -62,7 +62,7 @@ usage_snapshot TEXT,  -- 保留字段，当前全代码库零读写
 - **P1 项目作用域**：`project` 升级为 `{id, name, path}`；仓储查询、`ContextManager` intake 与 Context Registry 共同执行项目隔离和可见性过滤
 - **P1 健康度**：Health 层 + `ContextReport`，随 observation span 持久化并投影；不把未接线的 session 保留字段描述为现有能力
 - **P2 A2A 协议化**：A2A 派发改走 `ContextManager`（交接包作为 source），退役 `renderDispatchPrompt` 的自建 prompt
-- **P2 跨项目身份契约**：`IdentitySnapshot`（全局只读）vs `ScopedContext`（per project）分离建模落地
+- **P2 跨项目身份契约**：`IdentitySnapshot`（全局只读）vs `ScopedContext`（per project）分离建模落地；团队花名册只从当前项目 Team Runtime roster 注入，不回退到静态浏览器 roster
 
 ### 3.2 不包含（YAGNI / 后续）
 - 跨会话 archival 记忆系统（存储 schema + recall/write 真实实现）—— **另立 spec**（已同意记忆单独立项）
@@ -81,6 +81,7 @@ usage_snapshot TEXT,  -- 保留字段，当前全代码库零读写
 - 身份跨项目共享 = **只读快照**（角色卡 / agentId / 人格），项目内状态不写回身份
 - 预算对两条路径统一：复用 `ContextBudget` + `BudgetGuard`，不引入第二套预算
 - CLI 进程模型：每次 dispatch 是新进程，输出 prompt 必须自包含、全量发送
+- `ContextProviders.getRuntimeRoster()` 是团队花名册的必需只读来源；空 roster 保持为空，不允许通过 `getAllRoleCards` 或静态 `AGENT_ROSTER` 猜测团队
 - 遵循 `docs/standards/technical.md`（实现期对齐）
 
 ---

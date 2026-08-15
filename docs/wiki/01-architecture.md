@@ -184,7 +184,7 @@ Dispatch Gateway → ExecutionEnvelope → ACP Runtime
 - Store 的 `getEffectiveRoster()` 与 `getAgentRuntimeProfile()` 委托给 Team Runtime Contract，store 只缓存结果，不拥有规则。
 - 浏览器任务详情等执行入口直接消费 `RuntimeAgentProfile`；不保留组件级账号→engine resolver、Store 映射 facade 或缺失 Profile 时的默认 runtime。
 - `dispatchToAgent()` 先解析 `RuntimeAgentProfile`，再 compose prompt 与发送 `terminal:start`；缺少可执行资料时明确中止，不静默落到错误角色。
-- PromptComposer 接收 runtime roster，TeamLayer 不再以静态 `AGENT_ROSTER` 作为唯一团队事实。
+- Invocation Planner 把 Team Runtime roster 作为 ContextManager 的必需 provider 数据；Knowledge Tier 不再保留静态 `AGENT_ROSTER + RoleCard` fallback，空 roster 也不猜测默认团队。
 - `/api/state` 返回所有持久化 agent-skill 绑定，支持动态 TeamPack role。
 - A2A Command guard 从 Team Runtime 读取当前 conversation roster 与 communication policy；
   Agent 交接只接受结构化 `handoff_to_agent`，`@roleId` / `@displayName` 只用于显示和检索。

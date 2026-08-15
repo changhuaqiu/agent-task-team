@@ -130,7 +130,7 @@ interface ContextArtifact {
 | 每个角色如何处理事情（角色工作过程） | RoleCard + per-role Skill | `getRoleCard()` |
 | agent 如何管理自己的上下文（自管理） | Memory / SelfMgmt（未来独立 spec） | 真实读取来源实现 `ContextContributor`；写入不属于 ContextManager |
 | 如何做质量管理（DoD/评审/门禁） | quality_gate（Peach + gate 协议） | DoD 作 `category='acceptance'` 高优标签入上下文；enforcement 读 `ContextReport` |
-| 任务拆解/调度 | orchestrator（daemon） | `getTask/getTasks/getRuntimeRoster` |
+| 任务拆解/调度与团队花名册 | Team Runtime + orchestrator（daemon） | `getTask/getTasks/getRuntimeRoster`；roster 为必需数组，空数组不触发静态 fallback |
 | 跨 agent 协议（handoff/持球） | platform-harness-state-machines | `a2aHandoff` source |
 | 向量记忆/语义检索 | memory spec（deferred） | 不预留专用 seam；真实 owner 成立后复用 `ContextContributor` |
 
@@ -140,7 +140,7 @@ interface ContextArtifact {
 2. **纯函数原则**：`assembleContext(req)` 是 `(ContextRequest, providers快照) → AssembledContext` 的纯函数，无隐藏状态。
 3. **唯一耦合面 = `ContextProviders` 接口**：所有 store 访问走 Provider，不直连 store。
 
-> ⚠️ 现存耦合债：`ContextManager.ts:23` 直接 `import { AGENT_ROSTER } from '@/store/agentStore'`，绕过 Provider。落地时改为 `providers.getRuntimeRoster()`。
+> 该耦合债已清理：ContextManager 不读取浏览器 `AGENT_ROSTER` 或全量 RoleCard 来重建团队；正式 Invocation 只把 Team Runtime 已解析的 `RuntimeAgent[]` 交给 `getRuntimeRoster()`。
 
 ### write 反向流（不画进注入图）
 
