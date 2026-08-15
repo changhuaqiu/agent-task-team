@@ -147,6 +147,40 @@ describe('runtime ownership architecture', () => {
     expect(migrations).toContain('DROP TABLE IF EXISTS agent_team_pack');
   });
 
+  it('keeps runtime repositories free of zero-consumer query and wrapper methods', () => {
+    const production = productionTypeScriptFiles('src').map((path) => source(path)).join('\n');
+    const retiredByOwner = {
+      sessionRepo: [
+        'findByAgentAndTask',
+        'updateCliSessionId',
+        'sealByTask',
+        'sealByConversation',
+        'countByAgentAndConversation',
+        'listActiveByAgent',
+        'findLatestActiveByAgent',
+      ],
+      invocationRepo: ['getActive', 'findLatestCompletedForAgent'],
+      agentBindingRepo: ['listByNode'],
+    } as const;
+
+    for (const [owner, methods] of Object.entries(retiredByOwner)) {
+      for (const method of methods) {
+        expect(production).not.toMatch(new RegExp(`\\b${owner}\\.${method}\\b`));
+      }
+    }
+
+    const repositorySources = [
+      source('src/server/repositories/session-repo.ts'),
+      source('src/server/repositories/invocation-repo.ts'),
+      source('src/server/repositories/agent-binding-repo.ts'),
+    ].join('\n');
+    for (const methods of Object.values(retiredByOwner)) {
+      for (const method of methods) {
+        expect(repositorySources).not.toMatch(new RegExp(`\\b${method}\\s*\\(`));
+      }
+    }
+  });
+
   it('keeps explicit human command adapters available', () => {
     expect(taskHubStore).toContain(`type: 'a2a.human_handoff'`);
     expect(taskHubStore).not.toContain(`socket.emit('a2a:user-turn-created'`);

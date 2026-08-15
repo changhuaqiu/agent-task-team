@@ -370,12 +370,6 @@ describe('session-repo', () => {
     expect(sessionRepo.findActive('agent-a', 'task-1')).toBeUndefined();
   });
 
-  it('updates cli_session_id', () => {
-    sessionRepo.create({ id: 'ses-1', conversationId: 'conv-1', agentId: 'agent-a', taskId: 'task-1' });
-    sessionRepo.updateCliSessionId('ses-1', 'cli-ses-123');
-    expect(sessionRepo.getById('ses-1')!.cli_session_id).toBe('cli-ses-123');
-  });
-
   it('increments message count', () => {
     sessionRepo.create({ id: 'ses-1', conversationId: 'conv-1', agentId: 'agent-a', taskId: 'task-1' });
     sessionRepo.incrementMessageCount('ses-1');
@@ -392,30 +386,10 @@ describe('session-repo', () => {
     expect(sealed.sealed_at).toBeTruthy();
   });
 
-  it('seals sessions by agent and task', () => {
-    conversationRepo.create({ id: 'conv-2', title: 'Test 2' });
-    sessionRepo.create({ id: 'ses-1', conversationId: 'conv-1', agentId: 'agent-a', taskId: 'task-1', seq: 0 });
-    sessionRepo.create({ id: 'ses-2', conversationId: 'conv-2', agentId: 'agent-a', taskId: 'task-1', seq: 1 });
-    sessionRepo.sealByTask('agent-a', 'task-1', 'done');
-    expect(sessionRepo.getById('ses-1')!.status).toBe('sealed');
-    expect(sessionRepo.getById('ses-2')!.status).toBe('sealed');
-  });
-
   it('findActive returns undefined after sealing', () => {
     sessionRepo.create({ id: 'ses-1', conversationId: 'conv-1', agentId: 'agent-a', taskId: 'task-1' });
     sessionRepo.seal('ses-1', 'done');
     expect(sessionRepo.findActive('agent-a', 'task-1')).toBeUndefined();
-  });
-
-  it('lists active sessions by agent', () => {
-    conversationRepo.create({ id: 'conv-2', title: 'Test 2' });
-    taskRepo.create({ id: 'task-2', conversation_id: 'conv-2', title: 'T2', agent_id: 'agent-a' });
-    sessionRepo.create({ id: 'ses-1', conversationId: 'conv-1', agentId: 'agent-a', taskId: 'task-1' });
-    sessionRepo.create({ id: 'ses-2', conversationId: 'conv-2', agentId: 'agent-a', taskId: 'task-2' });
-    sessionRepo.seal('ses-2', 'done');
-    const active = sessionRepo.listActiveByAgent('agent-a');
-    expect(active.length).toBe(1);
-    expect(active[0].id).toBe('ses-1');
   });
 
   it('lists active sessions by conversation', () => {
@@ -789,15 +763,6 @@ describe('invocation-repo', () => {
     invocationRepo.create({ id: 'inv-1', conversation_id: 'conv-1', agent_id: 'agent-a' });
     const invs = invocationRepo.getByConversation('conv-1');
     expect(invs.length).toBe(1);
-  });
-
-  it('getActive excludes terminal statuses', () => {
-    invocationRepo.create({ id: 'inv-1', conversation_id: 'conv-1', agent_id: 'agent-a' });
-    invocationRepo.create({ id: 'inv-2', conversation_id: 'conv-1', agent_id: 'agent-a' });
-    invocationRepo.transition('inv-2', { to: 'terminated', outcome: 'completed' });
-    const active = invocationRepo.getActive();
-    expect(active.length).toBe(1);
-    expect(active[0].id).toBe('inv-1');
   });
 
   it('requires retry to create a new invocation identity', () => {

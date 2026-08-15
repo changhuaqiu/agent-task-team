@@ -48,12 +48,6 @@ export const sessionRepo = {
       .get(agentId, conversationId, isolationKey, 'active') as AgentSessionRow | undefined;
   },
 
-  findByAgentAndTask(agentId: string, taskId: string): AgentSessionRow[] {
-    return getDb()
-      .prepare('SELECT * FROM agent_session WHERE agent_id = ? AND task_id = ? ORDER BY seq ASC')
-      .all(agentId, taskId) as AgentSessionRow[];
-  },
-
   create(input: {
     id: string;
     conversationId: string;
@@ -122,15 +116,6 @@ export const sessionRepo = {
     return getDb().prepare('SELECT * FROM agent_session WHERE id = ?').get(id) as
       | AgentSessionRow
       | undefined;
-  },
-
-  updateCliSessionId(id: string, cliSessionId: string): void {
-    const result = sessionRepo.bindRuntimeSessionId(id, cliSessionId);
-    if (result.status === 'mismatch') {
-      throw new Error(
-        `session_identity_changed: binding ${id} already uses ${result.current}, received ${cliSessionId}`,
-      );
-    }
   },
 
   bindRuntimeSessionId(id: string, runtimeSessionId: string): SessionIdentityBindResult {
@@ -315,48 +300,11 @@ export const sessionRepo = {
     }).immediate();
   },
 
-  sealByTask(agentId: string, taskId: string, reason: string): void {
-    const db = getDb();
-    db.transaction(() => {
-      const sessions = sessionRepo.findByAgentAndTask(agentId, taskId)
-        .filter((session) => session.status === 'active');
-      for (const session of sessions) sessionRepo.seal(session.id, reason);
-    }).immediate();
-  },
-
-  sealByConversation(agentId: string, conversationId: string, reason: string): void {
-    const db = getDb();
-    db.transaction(() => {
-      const sessions = sessionRepo.listActiveByConversation(conversationId)
-        .filter((session) => session.agent_id === agentId);
-      for (const session of sessions) sessionRepo.seal(session.id, reason);
-    }).immediate();
-  },
-
-  countByAgentAndConversation(agentId: string, conversationId: string): number {
-    const row = getDb()
-      .prepare('SELECT COUNT(*) as cnt FROM agent_session WHERE agent_id = ? AND conversation_id = ?')
-      .get(agentId, conversationId) as { cnt: number } | undefined;
-    return row?.cnt ?? 0;
-  },
-
   nextSeqForAgent(agentId: string, taskId: string): number {
     const row = getDb()
       .prepare('SELECT MAX(seq) as max_seq FROM agent_session WHERE agent_id = ? AND task_id = ?')
       .get(agentId, taskId) as { max_seq: number | null } | undefined;
     return (row?.max_seq ?? -1) + 1;
-  },
-
-  listActiveByAgent(agentId: string): AgentSessionRow[] {
-    return getDb()
-      .prepare('SELECT * FROM agent_session WHERE agent_id = ? AND status = ? ORDER BY created_at DESC')
-      .all(agentId, 'active') as AgentSessionRow[];
-  },
-
-  findLatestActiveByAgent(agentId: string): AgentSessionRow | undefined {
-    return getDb()
-      .prepare("SELECT * FROM agent_session WHERE agent_id = ? AND status = 'active' ORDER BY created_at DESC LIMIT 1")
-      .get(agentId) as AgentSessionRow | undefined;
   },
 
   listActiveByConversation(convId: string): AgentSessionRow[] {

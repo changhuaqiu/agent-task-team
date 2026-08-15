@@ -67,12 +67,6 @@ export const agentBindingRepo = {
       .all(conversationId) as AgentBindingRow[];
   },
 
-  listByNode(nodeId: string): AgentBindingRow[] {
-    return getDb()
-      .prepare('SELECT * FROM agent_binding WHERE node_id = ? ORDER BY conversation_id ASC, agent_id ASC')
-      .all(nodeId) as AgentBindingRow[];
-  },
-
   markStarted(conversationId: string, agentId: string, envelopeId: string): AgentBindingRow | undefined {
     const now = new Date().toISOString();
     const db = getDb();

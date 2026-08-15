@@ -354,12 +354,6 @@ export const invocationRepo = {
       .all(convId) as InvocationRow[];
   },
 
-  getActive(): InvocationRow[] {
-    return getDb()
-      .prepare("SELECT * FROM invocation WHERE status != 'terminated' ORDER BY created_at ASC")
-      .all() as InvocationRow[];
-  },
-
   listRecent(options?: { limit?: number }): InvocationRow[] {
     const limit = options?.limit ?? 50;
     return getDb()
@@ -382,12 +376,4 @@ export const invocationRepo = {
     db.prepare(`UPDATE invocation SET ${sets.join(', ')} WHERE id = ?`).run(...values);
   },
 
-  findLatestCompletedForAgent(agentId: string): InvocationRow | undefined {
-    const db = getDb();
-    return db.prepare(`
-      SELECT * FROM invocation
-      WHERE agent_id = ? AND status = 'terminated' AND outcome = 'completed'
-      ORDER BY created_at DESC LIMIT 1
-    `).get(agentId) as InvocationRow | undefined;
-  },
 };
