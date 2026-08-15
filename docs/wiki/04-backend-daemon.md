@@ -208,7 +208,7 @@ Pass Group、Pass、HandoffPacket 与 AgentInbox Command。UI 只提交 Human Co
 Agent 不能靠最终文本或 `@mention` 创建平台协作。WorkContract Agent 只能提交结构化
 `handoff_to_agent` Outcome；Outcome admission 通过后，durable
 `A2AOutcomeProcessManager` 调用 A2A owner。`A2ACommandGuard` 在写入前统一校验当前
-conversation roster 和 `CommunicationPolicy.explainBlock()` 的单次准入结果，显式 Human Command 只豁免 agent-to-agent
+conversation roster 和 `TeamRuntime.explainHandoffBlock()` 的单次准入结果，显式 Human Command 只豁免 agent-to-agent
 矩阵，不豁免 roster。
 
 所有下游执行先进入持久 `AgentInbox`。Inbox admission 只把 Pass 推进到 `starting`；

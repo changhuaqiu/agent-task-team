@@ -174,3 +174,7 @@ A2A Command Guard 是 `CommunicationPolicy` 的唯一生产消费者，但旧 in
 ## 第三十五轮：删除单 getter WorkflowPolicy
 
 第三十三轮清掉假想的后续角色路由后，`WorkflowPolicy` 只剩 `selectInitialAgent()` 一个无参数 getter。它没有状态、I/O 或第二种 adapter；唯一生产调用方在构建 Team Runtime 后立即调用一次，而 resolver 也只被 Team Runtime 内部调用。这层 interface 没有隐藏复杂度，只把已经确定的值包进对象。第三十五轮让 `resolveTeamRuntime()` 在已排序 roster 上直接产出 `initialAgentId`，任务创建按“显式负责人 → 初始值 → roster 首成员”消费；删除 policy 类型、独立文件和方法调用。四种 TeamPack mode、未知历史 mode、缺失角色、A2A、TeamPack schema 与后续 Task Graph / Platform Harness 职责保持不变。
+
+## 第三十六轮：删除嵌套 CommunicationPolicy
+
+第三十四轮收敛重复 predicate 后，`CommunicationPolicy` 只剩一个 `explainBlock(from, to)` 方法；它没有第二种 adapter、状态或跨进程边界，唯一生产消费者也只是从 `TeamRuntime.communicationPolicy` 取出该方法。这层嵌套 interface 没有隐藏额外复杂度。第三十六轮将矩阵/default-team 兼容实现内聚到 Team Runtime，直接暴露 `explainHandoffBlock()`，Command Guard 只跨一个正式 interface；删除独立 policy 类型、resolver 文件和嵌套字段。无 TeamPack、普通矩阵、default-team 四人补全、Human 豁免、roster 顺序、reason code、TeamPack 数据与 Context prompt 保持不变。

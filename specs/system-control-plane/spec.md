@@ -22,7 +22,7 @@ The server-side Platform Harness now owns the execution loop boundaries:
 - Delivery Control Process Manager computes actions from authoritative owner facts.
 - `A2ACollaborationRepository` owns possession, pass groups, policy admission and durable Inbox handoff.
 - AgentInbox and Invocation Pipeline own reliable admission, preflight and Runtime start.
-- Team Runtime remains the roster, communication policy and executable-profile resolver.
+- Team Runtime remains the roster, communication-admission and executable-profile resolver; callers do not own a parallel policy object.
 
 This creates system-level ambiguity:
 
