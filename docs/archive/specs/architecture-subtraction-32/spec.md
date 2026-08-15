@@ -1,6 +1,6 @@
 # Architecture Subtraction — Round 32
 
-> Status: active
+> Status: implemented
 > Date: 2026-08-15
 
 ## Goal
@@ -40,4 +40,6 @@
 - `pnpm exec vitest run src/lib/agent-context/ContextManager.test.ts src/__tests__/server/invocation-pipeline/context-planner.test.ts src/__tests__/architecture/runtime-ownership.test.ts --reporter=dot`：3 files / 58 tests 通过。
 - `pnpm run build`：通过；仅保留既有 Turbopack NFT 动态路径 warning。
 - `pnpm test -- --reporter=dot`：执行完成；205 files / 1506 tests 通过，2 files / 2 tests skipped，1 个既有稳定基线失败仍为 `src/server/autonomous-delivery/control-runtime.test.ts:131`，未表述为全量通过。
-- 独立复审待记录。
+- 首轮独立复审：Critical 0 / Important 0 / Minor 1；唯一 Minor 是测试 fixture 使用了不可达的 `source: 'team-pack'`。
+- 修复后将 fixture 改为正式 `source: 'team-pack-role'`，并以 `satisfies RuntimeAgent[]` 锁定生产类型；重新执行 TypeScript 与 3 files / 58 tests 均通过。
+- 最终独立复审：Critical 0 / Important 0 / Minor 0，Ready: Yes。
