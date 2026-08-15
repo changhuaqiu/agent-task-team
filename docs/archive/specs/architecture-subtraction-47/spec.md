@@ -1,6 +1,6 @@
 # Architecture Subtraction — Round 47
 
-> Status: active
+> Status: implemented
 > Date: 2026-08-15
 
 ## Goal
@@ -37,4 +37,4 @@
 - `pnpm exec tsc --noEmit`：通过。
 - `pnpm build`：通过；仅有既有 Turbopack NFT 动态路径警告。
 - 最终非并行全量：205 files / 1508 tests 通过，2 files / 2 tests 跳过，1 file / 1 test 失败；唯一失败为稳定基线 `src/server/autonomous-delivery/control-runtime.test.ts:131`。
-- 独立复审：待回填。
+- 独立复审：首轮 Critical 0 / Important 1 / Minor 2；修正活动 Observability 契约、Task 状态图精确回归与验证顺序后为 Critical 0 / Important 0 / Minor 1；清理最后一处“默认开”暗示后 Critical 0 / Important 0 / Minor 0，Ready: Yes。独立复跑原定向 9 files / 66 tests、Store/architecture 4 files / 59 tests、修复后 task-status/architecture 2 files / 35 tests 均通过，status 与 base→HEAD diff-check clean。

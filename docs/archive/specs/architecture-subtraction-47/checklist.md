@@ -10,4 +10,4 @@
 - [x] 当前事实不再宣称不存在的 thinking opt-out。
 - [x] 架构守卫阻止旧公共面和环境变量回流。
 - [x] 文档、类型、定向、build 与全量结果记录。
-- [ ] 独立复审无 Critical / Important。
+- [x] 独立复审无 Critical / Important。
