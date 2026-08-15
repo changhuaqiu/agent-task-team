@@ -1,0 +1,32 @@
+# Architecture Subtraction — Round 46
+
+> Status: active
+> Date: 2026-08-15
+
+## Goal
+
+收窄 `WorkContractRepository` 的公共 interface：删除零消费者的 domain getter，并把只服务 repository 实现的 row/authority 查询收为 private helper。
+
+## Evidence
+
+- `getContract(contractId)` 全仓没有生产、测试、脚本或动态消费者。
+- `getContractRow(contractId)` 只被同一个 class 的 issue、domain 转换与 outcome admission 使用。
+- `listActiveAuthoritiesForTask(projectId, taskId)` 只被同一个 class 的 `closeActiveForTask()` 使用。
+- 正式执行依赖 `issue`、`getAuthority`、`closeActiveForTask`、`close` 与 `admitOutcome`，这些 interface 不属于本轮删除范围。
+
+## Contract
+
+1. 删除 `getContract(contractId)`。
+2. 将 `getContractRow` 与 `listActiveAuthoritiesForTask` 标记为 private，不改变 SQL、排序、row shape 或调用位置。
+3. 保留 WorkContract issue/idempotency、authority epoch fencing、task close 与 Outcome admission 行为。
+4. 架构守卫阻止 `getContract` 公共方法回流，并确认两个 helper 只能以 private 形式存在。
+
+## Exit Criteria
+
+- `getContract` 公共方法零残留，两个内部 helper 不再进入公共 interface。
+- WorkContract repository、permission policy、dispatch contract、Task/QualityGate/A2A outcome 定向回归通过。
+- install、tsc、build、全量与独立复审完成并记录。
+
+## Verification
+
+- 待执行。

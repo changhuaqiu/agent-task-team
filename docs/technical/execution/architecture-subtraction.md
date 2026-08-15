@@ -214,3 +214,7 @@ Invocation 的按 agent 查询、Session 的 task-keyed active lookup、Skill �
 ## 第四十五轮：将 Task Graph 标量集合读面收进聚合
 
 Task Graph repository 的 `listActions(conversationId)` 只被自身 `getGraph()` 组装调用，`listArtifacts(conversationId)` 也只额外服务绕过正式聚合的测试；Pages API、Observation projection 与任务流的 conversation 级事实源已经是 `TaskGraphView`。第四十五轮删除这两个浅 interface，在 `getGraph()` 内保持既有 SQL、排序与 row shape，并让测试穿过正式聚合读面。真实 task-scoped `listActionsForTask`、edge/revision/commit 与 artifact write 行为保持不变。
+
+## 第四十六轮：收窄 WorkContract repository 公共 interface
+
+`WorkContractRepository.getContract()` 全仓零消费者，而 `getContractRow()` 与 `listActiveAuthoritiesForTask()` 只服务同一个 repository 的 issue、Outcome admission 与 task close 实现，却仍作为公共方法暴露。第四十六轮删除零消费者 domain getter，并将两个内部查询标为 private；正式 `issue`、authority epoch fencing、`closeActiveForTask`、`close`、`admitOutcome`、Permission Policy 与 Dispatch Contract 行为保持不变。
