@@ -7,7 +7,7 @@ import type {
   DeliveryRunSnapshot,
 } from './types';
 
-export interface ProviderCommandResult {
+interface ProviderCommandResult {
   stdout: string;
   stderr: string;
 }
@@ -18,7 +18,7 @@ export type ProviderCommandRunner = (
   options: { cwd: string; timeoutMs: number },
 ) => Promise<ProviderCommandResult>;
 
-export interface ProviderIntegrationObservation {
+interface ProviderIntegrationObservation {
   state: 'pending' | 'passed' | 'failed';
   receipt?: DeliveryActionReceipt;
   detail?: string;

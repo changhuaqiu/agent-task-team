@@ -8,14 +8,14 @@ import type { EngineId } from '../types';
 import { workContractRepo } from '../../work-contract/repository';
 import type { WorkAuthorityRow, WorkContract } from '../../work-contract/types';
 
-export type AcpPermissionDecision = 'allow_once' | 'deny';
+type AcpPermissionDecision = 'allow_once' | 'deny';
 export type AcpPermissionPolicy =
   | AcpPermissionDecision
   | ((request: RequestPermissionRequest) =>
       | AcpPermissionDecision
       | Promise<AcpPermissionDecision>);
 
-export interface AutonomousAcpAuthorization {
+interface AutonomousAcpAuthorization {
   allowCodeChanges?: boolean;
   allowPush?: boolean;
   allowPullRequest?: boolean;

@@ -1,17 +1,12 @@
 // src/server/security-scanner.ts
 
-export interface ScanResult {
+interface ScanResult {
   passed: boolean;
   warnings: string[];
   critical: string[];
 }
 
-export interface SecurityScanner {
-  scan(content: string): ScanResult;
-}
-
-export const securityScanner: SecurityScanner = {
-  scan(content: string): ScanResult {
+export function scanRoleCardContent(content: string): ScanResult {
     const warnings: string[] = [];
     const critical: string[] = [];
 
@@ -106,5 +101,4 @@ export const securityScanner: SecurityScanner = {
       warnings,
       critical,
     };
-  },
-};
+}

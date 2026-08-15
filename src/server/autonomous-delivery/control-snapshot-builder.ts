@@ -57,13 +57,13 @@ interface ControlActionFailureFactRow {
   reason_code: string;
 }
 
-export interface ControlSnapshotRetryLimits {
+interface ControlSnapshotRetryLimits {
   invocation: number;
   effect: number;
   task_rework: number;
 }
 
-export interface RepositoryControlSnapshotBuilderOptions {
+interface RepositoryControlSnapshotBuilderOptions {
   db?: Database.Database;
   retryLimits?: Partial<ControlSnapshotRetryLimits>;
   now?: () => Date;

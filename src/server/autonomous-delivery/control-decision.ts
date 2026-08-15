@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { WaitForEdge } from './wait-for-graph';
 
-export type ControlActionType =
+type ControlActionType =
   | 'initializeGraph'
   | 'activate'
   | 'wait'
@@ -18,13 +18,13 @@ export type RetryBudgetKind =
   | 'effect'
   | 'task_rework';
 
-export interface RetryBudgetSnapshot {
+interface RetryBudgetSnapshot {
   kind: RetryBudgetKind;
   attemptsUsed: number;
   maxAttempts: number;
 }
 
-export type WorkCellControlState =
+type WorkCellControlState =
   | 'ready'
   | 'running'
   | 'artifact_submitted'

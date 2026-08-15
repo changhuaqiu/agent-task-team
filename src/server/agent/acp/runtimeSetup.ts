@@ -32,7 +32,7 @@ import type { AgentCatalogEntry } from './catalog';
 // Per-runtime setup
 // ---------------------------------------------------------------------------
 
-export interface PreparedRuntime {
+interface PreparedRuntime {
   /** Working directory the ACP agent should run in. */
   cwd: string;
   /** Env vars (merged on top of process.env at spawn time). */
@@ -41,7 +41,7 @@ export interface PreparedRuntime {
   cleanup?: () => void;
 }
 
-export interface PrepareAcpOptions {
+interface PrepareAcpOptions {
   cwd: string;
   env: Record<string, string>;
   /**

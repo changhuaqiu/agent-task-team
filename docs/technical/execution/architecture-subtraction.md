@@ -238,3 +238,9 @@ TypeScript import 图显示，ACP mock agent 与 GitHub Issue fixture 是 `src/s
 ## 第五十一轮：严格未使用声明清零
 
 生产源码启用 `noUnusedLocals/noUnusedParameters` 的审计结果必须清零；不可达 helper、无消费 interface、无效 props 与依赖参数不作为“以后可能用”的预留面保留。框架固定签名允许以 `_` 前缀明确忽略；其余内部签名直接收窄并同步调用方，避免用占位参数伪装能力。
+
+## 第五十二轮：收窄实现类型并删除单实现安全扫描接口
+
+A2A、ACP 与 Autonomous Delivery 的正式模块已经由可调用 class/function、真实 injected port、持久化和事件协议表达，但若干只在定义文件内部使用的结构类型仍被 named export 暴露。这些类型没有模块外消费者、版本兼容或序列化职责，不应被误认为可依赖的公共契约。第五十二轮把这些实现专用类型收回模块内部，同时保留全部正式运行端口。
+
+角色卡导入的安全扫描只有一个实现与一个调用方，旧 `SecurityScanner` interface 加 singleton object 没有隐藏复杂度或替换价值。本轮改为直接 `scanRoleCardContent()` 函数；prompt injection、敏感凭据、JWT/SSH、危险命令、异常长度与重复字符规则，以及导入失败处理均保持不变。

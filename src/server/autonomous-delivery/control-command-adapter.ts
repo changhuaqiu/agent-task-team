@@ -22,7 +22,7 @@ import type {
 } from './control-process-manager';
 import { RepositoryControlSnapshotBuilder } from './control-snapshot-builder';
 
-export interface ProductionControlCommandAdapterOptions {
+interface ProductionControlCommandAdapterOptions {
   db?: Database.Database;
   inbox?: AgentInbox;
   deliveries?: AutonomousDeliveryRepository;

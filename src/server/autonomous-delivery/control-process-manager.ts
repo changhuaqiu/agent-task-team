@@ -27,7 +27,7 @@ export interface ControlCommandPort {
   ): ControlCommandResult;
 }
 
-export interface DeliveryControlProcessManagerOptions {
+interface DeliveryControlProcessManagerOptions {
   snapshots?: RepositoryControlSnapshotBuilder;
   decisions?: ControlDecisionRepository;
   commands: ControlCommandPort;
@@ -36,7 +36,7 @@ export interface DeliveryControlProcessManagerOptions {
   now?: () => Date;
 }
 
-export interface ControlReconcileResult {
+interface ControlReconcileResult {
   snapshot: DeliveryControlSnapshot;
   decision: ControlDecision;
   claimed: PersistedControlActionRow[];

@@ -11,11 +11,11 @@ export const DELIVERY_EFFECT_TYPES = {
   githubIntegrate: 'delivery.github.integrate',
 } as const;
 
-export interface DeliveryIntegrationEffectPayload {
+interface DeliveryIntegrationEffectPayload {
   runId: string;
 }
 
-export interface RegisterDeliveryEffectsOptions {
+interface RegisterDeliveryEffectsOptions {
   provider?: ProviderActionPort;
   deliveries?: AutonomousDeliveryRepository;
 }

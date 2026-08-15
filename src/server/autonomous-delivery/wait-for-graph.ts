@@ -4,7 +4,7 @@ export interface WaitForEdge {
   reasonCode: string;
 }
 
-export interface WaitForDeadlock {
+interface WaitForDeadlock {
   cycle: string[];
   edges: WaitForEdge[];
 }
