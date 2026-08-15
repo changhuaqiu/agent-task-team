@@ -31,7 +31,8 @@
 
 - `pnpm install --offline --frozen-lockfile`：719 packages，通过。
 - 冻结基线：4 files / 94 tests 通过。
-- 实现后定向：4 files / 93 tests 通过，覆盖 repositories、Skill assignment/seed、Context Planner、Dispatch Gateway 与架构守卫。
+- 实现后定向：4 files / 93 tests 通过，覆盖 repositories、Skill assignment/seed、Context Planner 与 Dispatch Gateway。
+- 架构守卫：`runtime-ownership.test.ts` 1 file / 30 tests 通过。
 - `pnpm exec tsc --noEmit`：通过。
 - `pnpm build`：通过；仅有既有 Turbopack NFT 动态路径警告。
 - 最终全量：205 files / 1511 tests 通过，2 files / 2 tests 跳过，1 file / 1 test 失败；唯一失败为稳定基线 `src/server/autonomous-delivery/control-runtime.test.ts:131`。
