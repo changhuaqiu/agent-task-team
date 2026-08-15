@@ -95,10 +95,14 @@ describe('runtime ownership architecture', () => {
     expect(existsSync(resolve(process.cwd(), 'src/lib/orchestration/TeamModeEngine.ts'))).toBe(false);
 
     const runtimeTypes = source('src/lib/team-runtime/types.ts');
+    const runtimeBarrel = source('src/lib/team-runtime/index.ts');
     const workflowPolicy = source('src/lib/team-runtime/resolveWorkflowPolicy.ts');
     const taskAssignment = source('src/server/team-runtime/task-assignment.ts');
+    const teamPackTypes = source('src/types/teamPack.ts');
     expect(runtimeTypes).toContain('selectInitialAgent(): string | null;');
     expect(runtimeTypes).not.toContain('interface TaskAssignment');
+    expect(runtimeBarrel).not.toMatch(/resolveWorkflowPolicy|WorkflowPolicy|TaskAssignment/);
+    expect(teamPackTypes).not.toMatch(/export interface Task\b/);
     expect(workflowPolicy).toContain("teamPack.teamMode === 'pipeline'");
     expect(workflowPolicy).toContain("teamPack.teamMode === 'parallel'");
     expect(workflowPolicy).not.toMatch(/new Date|taskResult|assignedAt/);
