@@ -349,17 +349,17 @@ ACP timeout 分为两层：平台配置的 `CLI_TIMEOUT_MS` 是 idle timeout，�
 
 daemon 当前已经具备会话级跟踪：
 
-- `sessionRepo.findActiveByConversation()`
-- `sessionRepo.create()`
-- `sessionRepo.updateCliSessionId()`
-- `sessionRepo.sealByConversation()`
+- `sessionRepo.getOrCreateActive()`
+- `sessionRepo.bindRuntimeSessionId()` / `confirmRuntimeSessionId()` / `releaseUnconfirmedRuntimeSessionId()`
+- `sessionRepo.sealIfLatestInvocationLoadFailed()` / `sealIfExecutionProfileChanged()`
+- `sessionRepo.incrementMessageCount()` / `seal()`
 
 调用级跟踪：
 
 - `invocationRepo.create()`
-- `invocationRepo.updateStatus()`
+- `invocationRepo.transition()`
 - `invocationRepo.updateDispatchStatus()` — 更新 dispatch 状态和 token 用量
-- `invocationRepo.findLatestCompletedForAgent()` — 查找 agent 最近完成的 invocation（用于 workdir 复用）
+- `invocationRepo.listRecent()` — 为 State API 提供最近调用投影
 
 这使系统能记录：
 

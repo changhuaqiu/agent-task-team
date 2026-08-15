@@ -194,3 +194,7 @@ Task Graph 的正式读取面已经是 `TaskGraphView` 与调用方实际使用�
 ## 第四十轮：删除未接线的 Agent-TeamPack 并行成员关系
 
 当前 TeamPack 产品关系已收敛为“Conversation 选择 TeamPack，TeamPackRole 定义成员并持有 RoleCard/Account/Skill 配置”，但早期 schema 仍保留 `agent_team_pack`，repository 也暴露 assign/remove/list 两向查询。整条链没有 API、UI、Store、Runtime、seed 或脚本消费者，只有自嗨 repository 测试；同一 repository 的 `addRole/removeRole` 也从未被调用，真实编辑使用整包 roles 更新和 role config。第四十轮删除六个死 interface 与其测试，并用 forward-only migration 删除遗留表；保留 Conversation 绑定、TeamPack/Role 数据、导入导出、角色配置和 Team Runtime 解析。
+
+## 第四十一轮：收窄 Session、Invocation 与 Binding repository 表面
+
+当前 runtime 调用链已经用 session identity bind/confirm/release、execution-profile/load-failure 封存、Invocation transition 与 Binding lifecycle 表达真实状态转换，但三个 repository 仍保留 10 个没有任何生产消费者的查询/封装方法：其中 4 个只被 repository 自测调用，其余连自测都没有。第四十一轮删除这些假公开 interface 与自嗨测试，并用全生产 TS/TSX 扫描阻止回流；保留 daemon、State API、session recovery、invocation dispatch status 与 binding 启停链。
