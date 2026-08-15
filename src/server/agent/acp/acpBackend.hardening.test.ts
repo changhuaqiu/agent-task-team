@@ -6,7 +6,6 @@ import { fileURLToPath } from 'node:url';
 import {
   AcpBackend,
   getActiveAcpRunCount,
-  sanitizeAcpDiagnostic,
   type AcpBackendOpts,
 } from './acpBackend';
 
@@ -140,7 +139,6 @@ describe('AcpBackend hardening', () => {
   }, 15_000);
 
   it('never exposes raw bearer credentials from stderr', async () => {
-    expect(sanitizeAcpDiagnostic('Authorization: Bearer test-secret-token')).toContain('[REDACTED]');
     const run = backend('error').execute('hello', {});
     const { events, result } = await drain(run);
     const diagnostic = `${result.error ?? ''}\n${events.map((event) => event.content).join('\n')}`;

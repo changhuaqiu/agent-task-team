@@ -5,7 +5,7 @@
 // and asserts the mapped event sequence + final AgentResult.
 //
 // Exercises the full path: cross-spawn → ndJsonStream → client().connectWith →
-// buildSession → session.prompt → session/update* (mapped via mapAcpUpdate) →
+// buildSession → session.prompt → session/update* (mapped by the turn-scoped mapper) →
 // session/request_permission (explicit allow-once policy) → PromptResponse(end_turn).
 //
 // This file is excluded from tsc (tsconfig exclude **/*.test.ts); vitest
@@ -14,34 +14,11 @@
 import { describe, it, expect } from 'vitest';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import {
-  AcpBackend,
-  describeAcpSessionLoadFailure,
-  isAcpResourceNotFound,
-} from './acpBackend';
+import { AcpBackend } from './acpBackend';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const mockPath = join(__dirname, '../../../test-helpers/acp/mockAcpAgent.ts');
-
-describe('isAcpResourceNotFound', () => {
-  it('recognizes ACP code and message without widening other load failures', () => {
-    expect(isAcpResourceNotFound({ code: -32002, message: 'missing' })).toBe(true);
-    expect(isAcpResourceNotFound(new Error('Resource not found: session-1'))).toBe(true);
-    expect(isAcpResourceNotFound(new Error('authentication failed'))).toBe(false);
-  });
-
-  it('keeps the raw diagnostic internal and gives the user an actionable retry message', () => {
-    expect(describeAcpSessionLoadFailure(
-      new Error('Resource not found: missing-session'),
-      'missing-session',
-    )).toEqual({
-      diagnostic: 'ACP session load failed for missing-session: Resource not found: missing-session',
-      visibleMessage: '之前的 Agent 会话已失效，系统已重置会话。请重新发送本条消息。',
-      reasonCode: 'acp_session_not_found',
-    });
-  });
-});
 
 describe('AcpBackend (subprocess integration with mockAcpAgent)', () => {
   it('joins the backend system prompt and user prompt at the ACP prompt boundary', async () => {
@@ -151,7 +128,7 @@ describe('AcpBackend (subprocess integration with mockAcpAgent)', () => {
 
     // Mock emits: agent_message_chunk "开始" → tool_call → (permission
     // explicitly allowed once) → tool_call_update completed → agent_message_chunk
-    // "完成" → end_turn. mapAcpUpdate converts to text/tool_use/tool_result/
+    // "完成" → end_turn. The turn-scoped mapper converts to text/tool_use/tool_result/
     // text; AcpBackend appends one terminal done at its boundary.
     expect(types).toEqual(['text', 'tool_use', 'tool_result', 'text', 'done']);
     expect(toolNames).toEqual(['改文件', '改文件']);
@@ -375,6 +352,30 @@ describe('AcpBackend (subprocess integration with mockAcpAgent)', () => {
       sessionId: 'stable-session',
       reasonCode: 'acp_session_load_failed',
     });
+  }, 30000);
+
+  it('reports a missing resumed session through the backend result and visible event', async () => {
+    const backend = new AcpBackend({
+      command: 'npx',
+      args: ['tsx', mockPath],
+      engine: 'opencode',
+      cwd: process.cwd(),
+      env: { MOCK_ACP_LOAD_MISSING: 'true' },
+    });
+
+    const run = backend.execute('continue', { resumeSessionId: 'missing-session' });
+    const events = [];
+    for await (const event of run.events) events.push(event);
+
+    expect(await run.result).toMatchObject({
+      status: 'failed',
+      sessionId: 'missing-session',
+      reasonCode: 'acp_session_not_found',
+    });
+    expect(events).toContainEqual(expect.objectContaining({
+      type: 'error',
+      content: '之前的 Agent 会话已失效，系统已重置会话。请重新发送本条消息。',
+    }));
   }, 30000);
 
   it('rejects a session update whose identity differs from the active binding', async () => {

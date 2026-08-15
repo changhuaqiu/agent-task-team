@@ -180,21 +180,21 @@ function failedRun(
   };
 }
 
-export function sanitizeAcpDiagnostic(value: string): string {
+function sanitizeAcpDiagnostic(value: string): string {
   return value
     .replace(/(bearer\s+)[^\s"']+/gi, '$1[REDACTED]')
     .replace(/\b(?:sk|rk|ghp|github_pat|xox[baprs])-[-_a-z0-9]{8,}\b/gi, '[REDACTED]')
     .replace(/(["']?(?:api[_-]?key|access[_-]?token|password|secret)["']?\s*[:=]\s*["']?)[^"'\s]+/gi, '$1[REDACTED]');
 }
 
-export function isAcpResourceNotFound(error: unknown): boolean {
+function isAcpResourceNotFound(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false;
   const candidate = error as { code?: unknown; message?: unknown };
   return candidate.code === -32002
     || (typeof candidate.message === 'string' && /resource not found/i.test(candidate.message));
 }
 
-export function describeAcpSessionLoadFailure(error: unknown, sessionId: string): {
+function describeAcpSessionLoadFailure(error: unknown, sessionId: string): {
   diagnostic: string;
   visibleMessage: string;
   reasonCode: Extract<

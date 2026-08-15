@@ -133,6 +133,8 @@ ACP `tool_call_update` 可以只携带 `toolCallId`，不重复 `tool_call` 中�
 `in_progress` 只是中间状态，不得生成工具终态；`completed` 与 `failed` 必须分别
 归一化为成功和失败事实，禁止把失败调用记录为完成。
 
+ACP update 的公共映射 interface 是单次 turn 持有的 mapper；纯 update 映射、tool-name correlation 与 safe stringify 都属于该 mapper 的 implementation，不单独向调用方或测试公开。测试必须从 turn-scoped mapper 或 `AcpBackend` 观察 `AgentEvent`。
+
 ACP 文本更新是流式增量，不是独立聊天消息。daemon 可以逐 chunk 广播以保持实时反馈，但持久化时必须在单次 Invocation 内合并连续 `text` chunk；`tool_use`、`tool_result`、`error` 与 `done` 构成文本段边界，禁止把每个汉字或 token 写成一条 `chat_message`。
 
 ## 6. 权限与安全
@@ -141,6 +143,7 @@ ACP 文本更新是流式增量，不是独立聊天消息。daemon 可以逐 ch
 - permission request 必须经过统一策略：允许、拒绝或请求用户确认。
 - 无交互执行只能使用用户预先授权的策略；默认不采用“选择第一个选项自动授权”。
 - 自主交付的 `GoalContract.authorization.allowCodeChanges=true` 是一次显式、项目范围内的预授权。平台必须把该授权冻结进当前 `WorkContract`，并可据此对项目内 ACP `edit`、Claude 原生委派和严格白名单内的本地 test/build/lint `execute` 请求选择 `allow_once`；每次决策前必须重新验证当前 Work Authority 的 contract、epoch 与 active 状态。不得选择 `allow_always`，也不得在没有有效 WorkContract、无法识别授权或策略异常时放行。
+- 自主授权的公共 permission interface 必须接收完整 WorkContract 并复核 Work Authority；从 permissions/cwd/engine 生成具体决策函数是模块内部实现，不作为可绕过 authority 的并行入口。
 - 通用 shell 不承担外部交付动作：`git`、`gh`、网络命令、命令串联、重定向和任意解释器执行均不从 `allowCodeChanges` 获得权限。push、创建 PR、合并必须分别通过受信平台动作消费 `allowPush`、`allowPullRequest`、`allowAutoMerge`。
 - 文件修改必须通过真实路径确认其最近已存在祖先仍位于 Invocation 工作目录内；符号链接或 junction 不得把授权带出项目边界。
 - `allowCodeChanges` 是对受信 Agent 与当前项目代码的本地执行授权，不是针对恶意仓库代码的 OS 沙箱；测试/构建本身可以执行项目脚本。`allowPush`、`allowPullRequest`、`allowAutoMerge` 约束平台拥有的一等 Provider 动作。需要把不受信项目代码与宿主机、网络完全隔离的部署，必须另行配置平台执行沙箱，不能把 ACP 命令匹配当作安全沙箱。

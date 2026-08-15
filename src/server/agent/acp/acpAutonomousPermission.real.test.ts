@@ -3,7 +3,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { createBackend, loadCatalog } from './catalog';
-import { createAutonomousWorkPermissionPolicy } from './permissionPolicy';
+import { createWorkContractPermissionPolicy } from './permissionPolicy';
+import type { WorkContract } from '../../work-contract/types';
 
 const runReal = process.env.RUN_REAL_CLAUDE_ACP === '1';
 const suite = runReal ? describe : describe.skip;
@@ -28,20 +29,36 @@ suite('Claude ACP autonomous permission compatibility (real runtime)', () => {
     expect(entry).toBeDefined();
     const requestedKinds: string[] = [];
     const decisions: string[] = [];
+    const workContract = {
+      contractId: 'real-claude-contract',
+      workId: 'real-claude-work',
+      workEpoch: 1,
+      projectId: 'real-claude-project',
+      permissions: {
+        authorization: {
+          allowCodeChanges: true,
+          allowPush: false,
+          allowPullRequest: false,
+          allowAutoMerge: false,
+        },
+      },
+    } as WorkContract;
     const backend = createBackend(entry!, {
       cwd,
-      permissionPolicy: createAutonomousWorkPermissionPolicy({
+      permissionPolicy: createWorkContractPermissionPolicy({
+        workContract,
         cwd,
         engine: 'claude',
-        isAuthorityActive: () => true,
-        permissions: {
-          authorization: {
-            allowCodeChanges: true,
-            allowPush: false,
-            allowPullRequest: false,
-            allowAutoMerge: false,
-          },
-        },
+        authorityReader: () => ({
+          work_id: workContract.workId,
+          project_id: workContract.projectId,
+          current_epoch: workContract.workEpoch,
+          current_contract_id: workContract.contractId,
+          status: 'active',
+          revision: 0,
+          updated_at: new Date().toISOString(),
+          closed_at: null,
+        }),
       }),
       onPermissionRequested: (request) => {
         requestedKinds.push(request.toolCall.kind ?? 'unknown');
