@@ -25,7 +25,7 @@ The previous dynamic roster fix solved display, but not runtime identity. The ap
 
 - `AgentBar` uses `getEffectiveRoster()`.
 - `AgentBindingPanel` uses `getEffectiveRoster()` for display but uses `RoleCard.accountIds` for binding.
-- `daemonStore.dispatchToAgent()` uses `AGENT_ROSTER`.
+- Invocation Planner uses the server-side Team Runtime roster; `daemonStore` has no dispatch action.
 - `setAgentRoleCardId()` mutates `AGENT_ROSTER`.
 - `loadSkills()` loads assignments for `AGENT_ROSTER` IDs only.
 
@@ -88,6 +88,6 @@ Resolution rules after team-first fusion:
 - Switching `planner` to an existing RoleCard stores a `TeamPackRole.roleCardSnapshot` when a TeamPack role exists.
 - After switching to a RoleCard, account resolution uses TeamPack member account IDs first, then the role snapshot/source RoleCard as fallback.
 - Adding a skill to `planner` writes `TeamPackRole.skillIds` when a TeamPack role exists; legacy `/api/agents/{agentId}/skills` remains the fallback without TeamPack.
-- Dispatch to `planner` resolves an agent from `getEffectiveRoster()` and sends the chosen account IDs to `terminal:start`.
+- Planning for `planner` resolves the server-side Team Runtime member and selected account into `InvocationDispatchPlan`; the browser sends neither account IDs nor an execution event.
 - Tests cover dynamic role account binding, role switching, skill hydration IDs, and dispatch profile resolution.
 - TeamPacks can be materialized and exported with member snapshots so sharing does not require external RoleCards.

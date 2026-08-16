@@ -44,6 +44,15 @@ type TaskOutcomeType =
   | 'report_blocked'
   | 'request_human_decision';
 
+class StaleTaskCommandRevisionError extends Error {
+  readonly reasonCode = 'stale_task_revision';
+
+  constructor(taskId: string, expected: number, actual: number) {
+    super(`stale_task_revision:${taskId}:${expected}:${actual}`);
+    this.name = 'StaleTaskCommandRevisionError';
+  }
+}
+
 export function stableTaskCommandKey(
   scope: string,
   value: unknown,
@@ -57,8 +66,10 @@ function assertOwnedTask(input: ExistingTaskCommand): TaskRow {
     throw new Error(`Task not found in conversation: ${input.taskId}`);
   }
   if (task.revision !== input.expectedTaskRevision) {
-    throw new Error(
-      `stale_task_revision:${input.taskId}:${input.expectedTaskRevision}:${task.revision}`,
+    throw new StaleTaskCommandRevisionError(
+      input.taskId,
+      input.expectedTaskRevision,
+      task.revision,
     );
   }
   return task;
@@ -142,6 +153,15 @@ function artifactKind(reference: string): ArtifactKind {
 }
 
 export const taskCommandService = {
+  hasRecordedCommand(conversationId: string, idempotencyKey: string): boolean {
+    const prior = taskGraphRepo.getCommitByIdempotencyKey(idempotencyKey);
+    if (!prior) return false;
+    if (prior.conversation_id !== conversationId) {
+      throw new Error(`task_graph_idempotency_scope_conflict:${idempotencyKey}`);
+    }
+    return true;
+  },
+
   expectedGraphRevision(conversationId: string, idempotencyKey: string): number {
     const prior = taskGraphRepo.getCommitByIdempotencyKey(idempotencyKey);
     if (prior) {

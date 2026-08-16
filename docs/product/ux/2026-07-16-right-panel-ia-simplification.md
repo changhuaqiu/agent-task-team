@@ -1,6 +1,6 @@
 # 项目右面板信息架构精简决策
 
-> Status: Decision（待实现）
+> Status: Implementation in progress（2026-08-16 已完成 5→2 与“需要关注”，地图视图模型仍待下沉）
 > Date: 2026-07-16
 > 决策类型：业务 / UX 信息架构变更（`docs/standards/business.md` §5）+ 技术架构方向（`docs/standards/technical.md` §5）
 > 关联文档：`docs/product/ux/2026-05-15-group-chat-task-flow.md`、`docs/technical/execution/group-chat-task-graph.md`
@@ -103,9 +103,9 @@
 - 地图数据编排 `localGraph`（L86-130）随 `TaskGraphMap` 一起下沉到视图层。
 - `MiniKanban` / `KanbanContextMenu` / `TaskDetailPanel` 引用 `src/shared/task-status.ts`，不再各自维护迁移表。
 
-明确**不**在本轮：
+原决策明确**不**在当时轮次；当前由 `specs/frontend-architecture-refactor/` 继续推进：
 
-- `taskHubStore.ts` 拆分。
+- `taskHubStore.ts` 责任收缩。
 - 任何 server / API / schema 变更（纯前端 IA 重组，不动数据层）。
 
 ## 七、成功标准（验收）

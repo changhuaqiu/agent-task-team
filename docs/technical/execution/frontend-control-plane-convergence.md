@@ -1,0 +1,312 @@
+# 前端与控制面收敛架构
+
+> Status: Target architecture（实施中）
+> Date: 2026-08-16
+> Product decision: `docs/product/ux/2026-08-16-delivery-workspace-refactor.md`
+> Active spec: `specs/frontend-architecture-refactor/`
+
+## 1. 重构前基线
+
+本规格启动时的审计基线（完成状态见第 9 节）：
+
+| 表面 | 当前事实 | 架构问题 |
+| --- | --- | --- |
+| `taskHubStore.ts` | 2671 行、31 个生产消费者 | 同时承担投影、水合、Human Command、任务写入、运行配置和 UI 状态 |
+| `taskStore.ts` | 任务 optimistic update 后直接调用 `dispatchToAgent()` | 浏览器把任务变化解释为下一条执行命令 |
+| `daemonStore.ts` | 直接计算运行配置、busy 队列并发出 `terminal:start` | 浏览器持有派发 admission 与部分运行生命周期 |
+| `daemon.ts` | 1918 行 | transport、执行协调和生命周期仍集中，尚未完成 executor-only 收敛 |
+| 页面 | Project/Conversation/Delivery 多套语言并存 | 投影结构泄漏领域历史，用户和代码都难定位 owner |
+
+服务端已经具备 `DispatchGateway`、Task Graph、Agent Inbox、Invocation Pipeline、Process Manager、
+Project View Projection 和持久化消息对账。这次重构不新增并行控制面，而是完成浏览器责任回收。
+
+## 2. 架构原则
+
+### 2.1 Deep Module
+
+重构以 Depth 为目标，不以“文件更多”或“行数更平均”为目标。每个 Module 应通过小 Interface 隐藏大量
+Implementation 细节，并提高调用方 Leverage：页面只表达用户意图和渲染视图，不重复拼接任务、消息、阻塞、
+交付、团队和运行状态。
+
+### 2.2 唯一事实 owner
+
+- Project、Delivery、Task、Gate、Message、Invocation 和 Runtime lifecycle 继续由服务端领域 owner 持有。
+- WebUI Store 是可重建的展示投影，不是持久事实或自动化 owner。
+- Human Command 通过显式 Command Interface 进入服务端；展示事件只更新投影。
+- Socket 断线靠只读快照和持久消息对账恢复，不靠重发命令。
+
+### 2.3 Replace, do not layer
+
+每个迁移步骤必须删除被替代的旧 Implementation。不得在 `taskHubStore` 外再包一个长期共存的“大 façade”，
+不得同时保留 `terminal:start` 与新 Command 路径，也不得维护两套任务状态词汇。
+
+## 3. 目标模块
+
+```text
+React Delivery Workspace
+        |
+        | read
+        v
+DeliveryWorkspaceProjection
+        ^
+        | snapshots + project:view
+ProjectViewAdapter ------------------ canonical service facts
+
+React explicit user action
+        |
+        v
+HumanCommandGateway
+        |
+        v
+server Command owner -> domain event -> Process Manager / Inbox / DispatchGateway
+                                                |
+                                                v
+                                      Daemon ExecutionAdapter
+                                                |
+                                                v
+                                      ACP lifecycle + receipts
+```
+
+### 3.1 `DeliveryWorkspaceProjection` Module
+
+Interface：按当前交付返回一个不可写的 `DeliveryWorkspaceView`，并暴露稳定 selector。视图至少包含交付摘要、验收项、
+当前工作、需要处理、活动摘要和任务视图输入。
+
+Implementation：隐藏 Conversation 兼容映射、Task/Blocker/Delivery/Message 合并、排序、空态、状态文案和项目隔离。
+组件不得自行重复过滤同一领域数据。
+
+测试：直接对纯投影 Interface 做表驱动测试；不 mock React 组件内部细节。
+
+### 3.2 `HumanCommandGateway` Module
+
+Interface：`submit(command) -> CommandReceipt`。命令必须包含稳定幂等键、项目、交付、actor 和明确来源。
+
+第一条落地命令为 `delivery.requirement.submit`：
+
+```ts
+interface SubmitDeliveryRequirementCommand {
+  type: 'delivery.requirement.submit';
+  idempotencyKey: string;
+  projectPath: string;
+  deliveryId: string;
+  actor: { type: 'user'; id: string };
+  content: string;
+  targetAgentIds: string[];
+  taskId?: string;
+  issuedAt: string;
+}
+
+interface CommandReceipt {
+  idempotencyKey: string;
+  commandType: SubmitDeliveryRequirementCommand['type'];
+  projectPath: string;
+  deliveryId: string;
+  status: 'accepted' | 'rejected';
+  duplicate: boolean;
+  messageId?: string;
+  targetAgentIds: string[];
+  reasonCode?: string;
+  userMessage?: string;
+  recordedAt: string;
+}
+```
+
+Implementation：Web API Adapter 只负责把 Command 传到同源 `/api/human-commands` 并还原 receipt；内存 Adapter
+为调用方测试提供同一 Interface。服务端 Human Command owner 在一个 SQLite 事务内完成：
+
+1. 校验 idempotency key、actor、Delivery、Project 路径和可选 Task 范围；
+2. 通过 Team Runtime 校验显式目标，或选择 `initialAgentId -> roster[0]` 默认接手人；
+3. 持久化 `chat_message`；
+4. 建立 A2A possession、handoff packet 和 Agent Inbox 工作；
+5. 写入 `human_command_receipt` 并返回权威 message id 与接手人。
+
+相同 key + 相同请求返回同一 receipt 且 `duplicate=true`；相同 key + 不同请求返回
+`human_command_idempotency_conflict`；项目/任务范围不匹配不产生消息或执行事实；没有可用成员返回持久化的 rejected
+receipt。网络失败由 Web Adapter 作为 transport error 抛出，领域拒绝必须返回 receipt，调用方不得从 HTTP `ok`
+自行猜测命令是否被接受。
+
+交付已删除时 receipt 的 `conversation_id` 允许为空，但 receipt 仍保留原命令中的 `deliveryId`；项目范围不匹配和
+handoff 未接纳同样持久化 rejected receipt。handoff 未接纳使用嵌套 savepoint 回滚消息、A2A 与 Inbox，再在外层
+事务写拒绝 receipt，避免“有消息但没有团队工作”的半成品。
+
+`message.append -> a2a.human_handoff` 两次浏览器 mutation 在迁移后删除。浏览器只在 accepted/duplicate receipt
+返回后把权威消息加入本地投影；提交中状态属于 UI-only pending command，不预写领域消息。
+
+第二条落地命令为 `delivery.plan.request`。它复用相同的项目/交付/actor/幂等契约，不携带浏览器选择的 runtime、账号
+或 session。服务端通过 Team Runtime 选择 `initialAgentId -> roster[0]`，在同一事务内写入 Agent Inbox 与
+`human_command_receipt`；Invocation Pipeline 的 planning scenario 消费 Inbox。新建交付的首次规划使用按 Delivery
+稳定的幂等键，人工重新规划使用新的显式命令。浏览器只在 accepted receipt 后把 `breakdownStatus` 投影为 proposal。
+
+Task 创建、改派和显式开始仍由既有 Task Command Service 持有事实。需要执行时，API 发布 `owner_ready` Task Wakeup，
+经服务端 Invocation Pipeline/Inbox 推进；`platform-harness` 对 accepted Wakeup 的 `in_progress` 投影不得再次产生 Wakeup。
+因此删除 `taskStore` 中 task create/reassign/status change 后直接调用 `dispatchToAgent()` 的实现，不另包一层客户端 façade。
+浏览器不得先写 Task 领域状态：创建、编辑和状态命令等待服务端返回带 `revision` 的权威 Task 后再更新投影，请求携带
+`expectedTaskRevision`。`GET /api/state` 和 `task.state` Socket 投影都必须携带该 revision；rehydrate 按
+`(conversationId, taskId)` 与当前 Store 合并，旧快照不能覆盖更高 revision 的 Socket 投影，只有实际接纳的投影才推进
+本地 epoch。HTTP 响应也只有 revision 不落后于当前投影时才能提交。服务端在证据 Gate、恢复 Wakeup 等副作用之前完成
+revision admission；证据不足的拒绝把恢复 Inbox Command 与 `task_command_rejection_receipt` 放入同一事务。仅已经持久化的
+同一幂等命令允许按冻结结果重放，重试不会再次触发恢复工作。
+
+任务详情中的人工“请求进度”使用 `task.progress.request` Human Command。服务端校验 Project/Delivery/Task 范围和任务 owner，
+再原子写入 Agent Inbox 与 receipt；它不允许浏览器选择 engine/account/session，也不把按钮伪装成 `simulateCliExecution`。
+该命令落地后删除浏览器 pending dispatch 队列、强制发送、`dispatch.enqueue/cancel` 兼容 API 和所有
+`terminal:start` emitter；队列展示若仍需要，应改读服务端 Inbox 的只读调试投影，而不是在浏览器持有可变副本。
+
+浏览器不选择 runtime、账号、agent session、busy queue 或重试策略。
+
+这是一个真实 Seam：生产 Adapter 使用 Web API，测试 Adapter 使用内存 receipt。出现第二个真实远端 transport 前，
+不得扩展为通用 transport framework。
+
+### 3.3 `ProjectViewAdapter` Module
+
+Interface：订阅项目展示信封、读取当前项目快照、合并持久消息。
+
+Implementation：复用 `consumeProjectViewEvent`、项目 room 和消息快照契约；校验版本与 `projectId` 后才更新投影。
+它不能导入 `HumanCommandGateway`，静态架构测试必须阻止展示事件产生网络写入或执行命令。
+
+### 3.4 `Daemon ExecutionAdapter` Module
+
+Interface：消费已裁决的 Execution Envelope，报告 started/completed/failed/cancelled lifecycle。
+
+Implementation：隐藏 ACP Catalog、Session、进程、流式事件和清理。Daemon 不再从 socket payload 重做业务 policy，
+不把 UI 在线状态当执行条件。
+
+对 Invocation Pipeline 暴露的最小端口固定为 `isBusy(agentId, deliveryId)` 与
+`execute(InvocationDispatchPlan)`。Adapter 对本地 agent + delivery 先做原子进程占位；占位失败时在创建 envelope 之前
+返回 `agent_busy`。占位成功后才按 Agent Binding 创建定向 Execution Envelope，并依次完成
+`sent -> acknowledged`，随后把 Plan 和 envelope context 交给慢速 ACP setup。这样并发 activation 不会 ACK 一个最终
+未获准启动的进程。指向其他节点但当前进程没有对应 executor 的命令以
+`runtime_executor_not_connected` 拒绝，绝不在本地降级执行。
+Adapter 只接受 Planner 已完成 Team、Skill、Context、WorkContract 与 runtime
+裁决后的 Plan；Daemon 内部执行函数负责 ACP 生命周期，不再接受浏览器塑形的 `TerminalStartPayload`。原
+`terminal:start` / `terminal:kill` Socket 命令没有合法生产消费者，删除而不提供兼容转发；只读
+`daemon:status` 暂留作运行投影水合，不具备派发或恢复写权限。
+
+Execution Envelope 必须定向到唯一 `toNodeId`，节点只能读取自己的 runnable envelope。目标节点在路由前已不可达时
+以 `runtime_unreachable` 拒绝；进入 `sent` 后超过 TTL 仍未 ACK 的 envelope 由 daemon 周期扫描为 `expired`，记录
+`ack_timeout`，不得由浏览器重发或改派。已 ACK 的 envelope 即使 backend setup 延迟也不再参与 no-ACK 过期；setup
+失败转为执行失败 proof，不会失去活进程追踪。
+
+本次发布的生产执行器是**单 daemon、本地执行**：定向 envelope、ACK、no-ACK 与不可达语义已经落地，但尚未提供跨节点
+transport consumer。非本地 `toNodeId` 一律 fail closed；多节点远端执行属于目标架构，不计入本次已完成能力。
+
+任务图恢复、closure wakeup 和归档扫描由 `AutonomyGuardOwner` 持有。它可以与本地 executor 同进程部署，但不在
+Daemon ExecutionAdapter 内执行；daemon transport 只启动/停止该服务端 owner，不再读取 Task/Envelope/Gate 来决定恢复动作。
+
+## 4. Locality 规则
+
+- 交付页面需要的派生数据集中在 `DeliveryWorkspaceProjection`，不散落于 `ProjectChatPanel`、`ProjectRightPanel`、
+  `ProjectSidebar` 和各个卡片。
+- UI-only 状态（面板开合、当前视图、草稿）靠近所属组件；只有跨路由且必须保留的 UI 状态进入小型 UI Store。
+- 领域类型来自 `src/shared/` 或服务端只读契约；组件不定义第二套 Task/Delivery vocabulary。
+- 运行诊断数据只在调试功能目录消费，不扩散到主视图。
+
+## 5. 迁移切片
+
+### Phase 1：对象语言与页面投影
+
+- 新增纯 `DeliveryWorkspaceProjection` 和测试。
+- 侧栏从“Conversation 即项目”改为“Project -> Delivery”展示。
+- 交付摘要成为中心主视图；聊天降为活动区。
+- 右面板完成 5 -> 2 的既有 IA 决策。
+
+本阶段不改变服务端 schema，可用兼容映射读取现有 Conversation；映射只存在于投影 Module，并注明退出条件。
+
+### Phase 2：Human Command 单入口
+
+- 建立 `HumanCommandGateway` 及 receipt。
+- 先把交付补充要求迁到原子 Human Command；再迁移任务动作和交付动作。
+- 删除浏览器任务 mutation 后自动 `dispatchToAgent()` 的行为。
+- optimistic UI 只表现 pending command；服务端投影确认后才成为领域事实。
+
+### Phase 3：浏览器退出派发控制
+
+- 删除 `daemonStore.dispatchToAgent`、浏览器 busy queue、`forceSendDispatch` 和 `terminal:start` emitter。
+- 所有用户派发由服务端 Command owner 经 Inbox / DispatchGateway 推进。
+- Store 只保留运行展示状态和明确的人类命令提交状态。
+
+### Phase 4：Daemon executor-only 与删除兼容
+
+- Daemon transport 只归一化 envelope/cancel 命令并调用 ExecutionAdapter。
+- 业务 policy、任务状态推进、自动恢复和重试只在服务端 owner。
+- 删除零消费者类型、旧事件、兼容测试和失效文档，更新当前架构图与 wiki。
+
+## 6. 架构门禁
+
+1. `src/components/**` 不得发出 `terminal:start`、A2A ACK 或 Runtime lifecycle mutation。
+2. Project View / Socket 展示消费者不得 import 或调用 Human Command Interface。
+3. `taskStore` 的任务写方法不得调用 `dispatchToAgent`。
+4. 主视图组件只消费 `DeliveryWorkspaceView` 和局部 UI 状态，不直接拼装跨领域对象。
+5. UI 中的 TaskStatus 只来自 `src/shared/task-status.ts`。
+6. 生产代码中自动执行只有 Agent Inbox / Harness / Process Manager / DispatchGateway / Effect Worker owner。
+7. 每删除一条旧路径，同步删除其类型、测试和事实文档；兼容映射必须有明确退出条件。
+
+## 7. 验证与度量
+
+- 静态依赖测试：验证上述禁止 import/call 关系。
+- Interface 测试：投影合并、项目隔离、命令幂等 receipt、失败回滚和消息对账。
+- 组件测试：Project -> Delivery 导航、任务/调试二级结构、需要处理、草稿保持。
+- 浏览器 E2E：新建交付、补充要求、查看验收、处理异常、切换任务视图、进入调试。
+- 运行验证：浏览器离线时服务端自动任务继续；多标签页不会重复启动 Agent。
+
+退出度量不以单纯 LOC 为准，但必须同时满足：
+
+- `useTaskHubStore` 的主工作区生产消费者从 31 个持续下降，跨领域 selector 归入投影 Interface；
+- React/store 生产代码中 `terminal:start` emitter 为 0；
+- `taskStore` 中自动 `dispatchToAgent` 调用为 0；
+- 右面板一级 tab 为 2；
+- 主视图内部实现词扫描为 0；
+- 关键 E2E 和架构门禁全部通过。
+
+## 8. 风险与回退
+
+- **对象迁移风险**：现有 Conversation 同时承载旧项目和交付语义。Phase 1 只做只读兼容映射；引入独立 Delivery schema
+  必须另行冻结数据迁移契约。
+- **双写风险**：optimistic Store 与服务端回执可能产生短暂重复。通过幂等键和投影对账解决，不新增客户端事实。
+- **大爆炸风险**：页面重构和控制链收敛按四个 Phase 独立验证；任一 Phase 回退时恢复该 Phase 的提交，不恢复已确认
+  无生产价值的旧 owner。
+- **外部参考风险**：禁止复制源码和品牌资产；评审增加命名、视觉和依赖来源检查。
+
+## 9. 当前实施状态（2026-08-16）
+
+- Phase 1 已建立 `DeliveryWorkspaceProjection`，首批消费者为交付主视图和右侧工作面板；投影统一给出阶段、验收进度、
+  当前工作和需要关注。
+- 顶栏、侧栏、创建弹窗和活动输入已统一为 Project -> Delivery 用户语言；全局手工“新建任务”入口已删除。
+- 右面板已从五个一级 tab 收敛为任务/调试，待办与风险统一为“需要关注”，关系图下沉为任务视图模式。
+- “需要关注”只接受人工 blocker 和自主交付 `waiting_human` 升级事实；普通 ready/review、自动 gate 失败和 timeout
+  仍属于团队工作状态，不再误报为用户待办。`DeliveryRunSnapshot` 通过工作区局部状态进入只读投影，不进入全局事实 Store。
+- 未选择交付时活动输入被禁用，Store 不再隐式创建或选择 Conversation，避免要求跨项目落入任意交付。
+- `delivery.requirement.submit` 已成为交付补充要求的单入口。浏览器通过 `HumanCommandGateway` 一次提交，服务端在同一
+  SQLite 事务内写入消息、A2A possession、handoff packet、Agent Inbox 与 `human_command_receipt`；默认接手人由
+  Team Runtime 的 `initialAgentId -> roster[0]` 决定。
+- 浏览器已删除 `message.append -> a2a.human_handoff` 双调用和补充要求的乐观领域写入；accepted/duplicate receipt
+  返回后才投影权威 message id。领域拒绝保留草稿，传输失败可使用同一幂等键和 issuedAt 重试。
+- 关系图请求在交付切换时取消并按 request sequence 拒绝迟到响应，面板还会校验返回的 `conversationId`。
+- `delivery.plan.request` 与 `task.progress.request` 已进入同一 Human Command owner；Task 创建、改派、显式开始由
+  Task Command Service 写事实，并由服务端 Task Wakeup 触发执行。浏览器等待带 revision 的 Task 回执后再投影，
+  不再乐观写入领域状态。水合按任务 revision 合并，不允许迟到的 `/api/state` 覆盖较新的 Socket 事实。
+- Task 证据 Gate 的拒绝采用 Task revision CAS，并在同一 SQLite 事务写入恢复 `AgentInbox` Command 与
+  `task_command_rejection_receipt`。migration v82 将交付/任务 ID 固化为审计标识，使聚合删除后相同幂等键仍返回冻结
+  403 receipt，不会重复产生恢复工作。
+- `taskStore` 的任务变化后自动派发已删除；`daemonStore` 的浏览器 runtime 注册、busy queue、强制发送、自动重试、
+  `terminal:start` emitter 与 `dispatch.enqueue/cancel` 兼容 API 已删除。React/store 仅保留运行展示状态和只读水合。
+- Phase 3 浏览器控制面收缩和核心回归已完成；Phase 4 已让 daemon 通过定向 `ExecutionAdapter` 接受已裁决 Plan，
+  在 envelope 前原子占位、在 ACP setup 前 ACK，并把自主恢复 policy 移到 `AutonomyGuardOwner`。当前只接通本地单 daemon；
+  更细的进程生命周期拆分、取消命令、远端 transport 和重启恢复仍保留在活动规格中。
+
+### 验证证据
+
+- `pnpm exec tsc --noEmit --pretty false`：通过。
+- Human Command service/API/Adapter 原子性、回滚、幂等与拒绝语义：18/18 通过；相关 Store、组件、API 和架构
+  定向回归：125/125 通过。
+- 审查后新增的项目隔离、用户关注、关系图竞态、活动输入、默认接手人与自主交付组件回归：64/64 通过。
+- `/api/mutations` 集成测试覆盖任务 revision admission、拒绝回执重放、证据恢复时序、Team Pack roster 和无接手人冲突；
+  本轮相关控制面定向回归全部通过。
+- ACP backend 因全量并发超时的用例单独重跑：17/17 通过。
+- `pnpm build`：通过；保留主线既有 `worktree-manager` NFT 动态路径告警。
+- 最终全量测试（`--maxWorkers=4`）：1559 通过、2 跳过、1 失败；唯一失败为 `control-runtime` human-resume，继续复现
+  `docs/technical/execution/architecture-subtraction.md` 已记录的主线基线问题，本规格新增和更新用例均通过。
+- 本轮新增模块与组件的定向 ESLint 通过；仓库级 lint 仍保留既有 `no-explicit-any` 等基线债务，不将其误记为本轮清零。
+- 真实浏览器回归：在 Next.js 16.2.4 开发服务中新建非自主交付，切换任务看板/关系图，通过 Human Command
+  提交补充要求并看到权威活动；最终刷新后阶段/验收/当前工作/需关注与任务/调试层级正确，交付与活动只出现一次，
+  控制台错误为 0。

@@ -29,7 +29,6 @@ import {
   ShieldAlert,
   Clock,
   Trash2,
-  Terminal as TerminalIcon,
 } from 'lucide-react';
 
 const artifactIcons = {
@@ -101,8 +100,7 @@ export function TaskDetailPanel() {
     removeTask,
     effectiveRoster,
     getAgentRoleCard,
-    simulateCliExecution,
-    daemonRuntimes,
+    requestTaskProgress,
     agentStatus,
   } = useTaskHubStore(useShallow((s) => ({
     selectedTaskId: s.selectedTaskId,
@@ -114,16 +112,9 @@ export function TaskDetailPanel() {
     removeTask: s.removeTask,
     effectiveRoster: s.getEffectiveRoster(),
     getAgentRoleCard: s.getAgentRoleCard,
-    simulateCliExecution: s.simulateCliExecution,
-    daemonRuntimes: s.daemonRuntimes,
+    requestTaskProgress: s.requestTaskProgress,
     agentStatus: s.agentStatus,
   })));
-  const runtimeProfile = useTaskHubStore((state) => {
-    const selectedTask = state.tasks.find((candidate) => candidate.id === state.selectedTaskId);
-    return selectedTask?.conversationId === state.selectedConversationId
-      ? state.getAgentRuntimeProfile(selectedTask.agentId)
-      : null;
-  });
   const selectedAgentRoleCard = useTaskHubStore((state) => {
     const selectedTask = state.tasks.find((candidate) => candidate.id === state.selectedTaskId);
     return selectedTask?.conversationId === state.selectedConversationId
@@ -135,6 +126,21 @@ export function TaskDetailPanel() {
   const reviewNoteRef = useRef<HTMLTextAreaElement>(null);
   const [editingField, setEditingField] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
+  const [progressRequestState, setProgressRequestState] = useState<{
+    taskId: string;
+    inFlight: boolean;
+    error: string | null;
+  }>();
+  const progressRequestInFlight = progressRequestState?.taskId === selectedTaskId
+    && progressRequestState.inFlight;
+  const progressRequestError = progressRequestState?.taskId === selectedTaskId
+    ? progressRequestState.error
+    : null;
+  const progressCommandRef = useRef<{
+    taskId: string;
+    idempotencyKey: string;
+    issuedAt: string;
+  } | null>(null);
 
   const task = tasks.find((t) => t.id === selectedTaskId);
   const taskMatchesSelectedConversation = task?.conversationId === selectedConversationId;
@@ -157,11 +163,29 @@ export function TaskDetailPanel() {
     return () => document.removeEventListener('keydown', handler);
   }, [setSelectedTaskId]);
 
-  const resolvedEngine = runtimeProfile?.execution.engine;
-  const engineAvailable = Boolean(
-    resolvedEngine
-      && daemonRuntimes.some((runtime) => runtime.engine === resolvedEngine && runtime.available),
-  );
+  const handleProgressRequest = async () => {
+    if (!task || progressRequestInFlight) return;
+    const pending = progressCommandRef.current?.taskId === task.id
+      ? progressCommandRef.current
+      : {
+        taskId: task.id,
+        idempotencyKey: `human:${task.conversationId}:${task.id}:progress:${Date.now()}`,
+        issuedAt: new Date().toISOString(),
+      };
+    progressCommandRef.current = pending;
+    setProgressRequestState({ taskId: task.id, inFlight: true, error: null });
+    const result = await requestTaskProgress(
+      task.id,
+      '请给出当前进度、已完成内容、阻塞项和下一步。',
+      pending,
+    );
+    if (result.ok) progressCommandRef.current = null;
+    setProgressRequestState({
+      taskId: task.id,
+      inFlight: false,
+      error: result.ok ? null : result.error,
+    });
+  };
 
   const handleDescEmoji = useCallback((emoji: string) => {
     const textarea = descEditRef.current;
@@ -197,7 +221,7 @@ export function TaskDetailPanel() {
       textarea.focus();
       textarea.setSelectionRange(pos, pos);
     });
-  }, [editValue, task, updateTaskStatus]);
+  }, [task, updateTaskStatus]);
 
   if (!task || !taskMatchesSelectedConversation) return null;
 
@@ -518,18 +542,23 @@ export function TaskDetailPanel() {
                 </button>
               );
             })}
-            {engineAvailable && task.status === 'in_progress' && (
+            {task.status === 'in_progress' && (
               <button
                 type="button"
-                onClick={() => simulateCliExecution(task.id, `任务：${task.title}。请给出简短的进度更新。`, undefined)}
-                disabled={isRunning}
+                onClick={() => void handleProgressRequest()}
+                disabled={progressRequestInFlight}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[var(--radius-sm)] border border-[hsl(var(--border))] bg-[hsl(var(--bg-muted))] text-[hsl(var(--text-primary))] text-[11px] font-semibold transition-all duration-200 hover:bg-[hsl(var(--bg-card-hover))] disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <TerminalIcon className="w-3.5 h-3.5" />
-                {isBackgroundRunning ? '等待子任务返回…' : (isRunning ? '智能体忙碌中…' : `运行 ${resolvedEngine}`)}
+                <Clock className="w-3.5 h-3.5" />
+                {progressRequestInFlight ? '正在提交…' : '请求进度'}
               </button>
             )}
           </div>
+          {progressRequestError && (
+            <p role="alert" className="text-[10px] text-[hsl(var(--status-blocked))]">
+              {progressRequestError}
+            </p>
+          )}
           <button
             type="button"
             onClick={() => {

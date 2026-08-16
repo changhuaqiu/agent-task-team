@@ -1,10 +1,9 @@
 // @vitest-environment jsdom
 
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { TaskDetailPanel } from '@/components/task-hub/TaskDetailPanel';
 import { useTaskHubStore, type Account } from '@/store/taskHubStore';
-import { socket } from '@/store/daemonStore';
 import type { TeamPack } from '@/types/teamPack';
 import { PRESET_ROLE_CARDS } from '@/data/presetRoleCards';
 import { roleCardToSnapshot } from '@/server/team-pack-role-snapshot';
@@ -92,6 +91,7 @@ describe('TaskDetailPanel runtime profile', () => {
         title: 'Snapshot role task', description: '', status: 'ready', agentId: 'mario',
         dependencies: [], artifacts: [], createdAt: '2026-08-15T00:00:00.000Z',
         updatedAt: '2026-08-15T00:00:00.000Z',
+        revision: 0,
       }],
       accounts: [],
     });
@@ -102,7 +102,7 @@ describe('TaskDetailPanel runtime profile', () => {
     expect(screen.getByText('Snapshot Architect')).toBeDefined();
   });
 
-  it('fails closed without a profile and reacts when the canonical profile becomes executable', async () => {
+  it('shows a user-facing progress request without exposing runtime availability', () => {
     useTaskHubStore.setState({
       selectedTaskId: 'task-runtime-profile',
       selectedConversationId: 'conversation-runtime-profile',
@@ -118,6 +118,7 @@ describe('TaskDetailPanel runtime profile', () => {
         artifacts: [],
         createdAt: '2026-08-15T00:00:00.000Z',
         updatedAt: '2026-08-15T00:00:00.000Z',
+        revision: 0,
       }],
       accounts: [],
       agentAccountOverrides: { mario: ['account-codex'] },
@@ -131,27 +132,16 @@ describe('TaskDetailPanel runtime profile', () => {
 
     expect(screen.queryByRole('button', { name: /opencode/ })).toBeNull();
     expect(screen.queryByRole('button', { name: /codex/ })).toBeNull();
+    expect(screen.getByRole('button', { name: '请求进度' })).toBeDefined();
 
     act(() => {
       useTaskHubStore.setState({ accounts: [executableAccount()] });
     });
     expect(screen.queryByRole('button', { name: /codex/ })).toBeNull();
-
-    act(() => {
-      useTaskHubStore.setState({ daemonRuntimes: [{ engine: 'codex', available: true }] });
-    });
-
-    await waitFor(() => expect(screen.getByRole('button', { name: /codex/ })).toBeDefined());
-
-    act(() => {
-      useTaskHubStore.setState({ accounts: [{ ...executableAccount(), status: 'error' }] });
-    });
-    await waitFor(() => expect(screen.queryByRole('button', { name: /codex/ })).toBeNull());
+    expect(screen.getByRole('button', { name: '请求进度' })).toBeDefined();
   });
 
-  it('does not render or dispatch a task from a different selected conversation', () => {
-    const emitSpy = vi.spyOn(socket, 'emit').mockImplementation(() => socket);
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+  it('does not render or request progress for a task from a different selected conversation', () => {
     useTaskHubStore.setState({
       selectedTaskId: 'task-project-a',
       selectedConversationId: 'project-b',
@@ -165,6 +155,7 @@ describe('TaskDetailPanel runtime profile', () => {
         id: 'task-project-a', conversationId: 'project-a', phaseId: '', title: 'Project A task',
         description: '', status: 'in_progress', agentId: 'mario', dependencies: [], artifacts: [],
         createdAt: '2026-08-15T00:00:00.000Z', updatedAt: '2026-08-15T00:00:00.000Z',
+        revision: 0,
       }],
       accounts: [executableAccount()],
       agentAccountOverrides: {},
@@ -174,13 +165,7 @@ describe('TaskDetailPanel runtime profile', () => {
     render(<TaskDetailPanel />);
 
     expect(screen.queryByText('Project A task')).toBeNull();
-    expect(screen.queryByRole('button', { name: /codex/ })).toBeNull();
-
-    act(() => {
-      void useTaskHubStore.getState().simulateCliExecution('task-project-a', 'do not dispatch');
-    });
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('outside the selected conversation'));
-    expect(emitSpy).not.toHaveBeenCalledWith('terminal:start', expect.anything());
+    expect(screen.queryByRole('button', { name: '请求进度' })).toBeNull();
   });
 
   it('clears task selection when switching projects', () => {
@@ -192,7 +177,6 @@ describe('TaskDetailPanel runtime profile', () => {
         { id: 'project-b', title: 'B', goal: '', status: 'active', priority: 'p1', projectPath: '', breakdownStatus: 'none', createdAt: '2026-08-15T00:00:00.000Z', updatedAt: '2026-08-15T00:00:00.000Z' },
       ],
       refreshConversationMessages: vi.fn().mockResolvedValue(undefined) as never,
-      refreshPendingDispatches: vi.fn().mockResolvedValue(undefined) as never,
     });
 
     act(() => useTaskHubStore.getState().setSelectedConversationId('project-b'));

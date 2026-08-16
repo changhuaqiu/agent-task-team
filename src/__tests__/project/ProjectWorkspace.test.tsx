@@ -24,7 +24,7 @@ vi.mock('@/components/project/AgentObservabilityDrawer', () => ({
 afterEach(cleanup);
 
 describe('ProjectWorkspace', () => {
-  it('switches the same selected project between collaboration and evaluation modes', () => {
+  it('switches the same selected delivery between delivery and evaluation modes', () => {
     useTaskHubStore.setState({
       selectedConversationId: 'conv-platform',
       conversations: [{
@@ -34,7 +34,7 @@ describe('ProjectWorkspace', () => {
         updatedAt: '2026-07-19T00:00:00.000Z',
       }],
     });
-    render(<ProjectWorkspace/>);
+    render(<ProjectWorkspace />);
     expect(screen.getByTestId('collaboration-workspace')).toBeDefined();
     expect(screen.queryByTestId('evaluation-workspace')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '评估' }));

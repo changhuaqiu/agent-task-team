@@ -2,25 +2,23 @@
 
 import { useTaskHubStore } from '@/store/taskHubStore';
 import { TaskDetailPanel } from '@/components/task-hub/TaskDetailPanel';
-import { NewTaskDialog } from '@/components/task-hub/NewTaskDialog';
 import { AgentRosterModal } from '@/components/task-hub/AgentRosterModal';
 import { SettingsDrawer } from '@/components/task-hub/SettingsDrawer';
 import { ProjectWorkspace } from '@/components/project/ProjectWorkspace';
+import { ProjectCreateDialog } from '@/components/project/ProjectCreateDialog';
 import { LoadingSkeleton } from '@/components/ui/LoadingSkeleton';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { AlertTriangle, Plus, RefreshCw, Settings } from 'lucide-react';
 
 export default function ClientHome() {
   const hasHydrated = useTaskHubStore((s) => s.hasHydrated);
   const runtimeHydrationError = useTaskHubStore((s) => s.runtimeHydrationError);
   const selectedTaskId = useTaskHubStore((s) => s.selectedTaskId);
-  const selectedConversationId = useTaskHubStore((s) => s.selectedConversationId);
-  const isNewTaskDialogOpen = useTaskHubStore((s) => s.isNewTaskDialogOpen);
   const isRosterModalOpen = useTaskHubStore((s) => s.isRosterModalOpen);
-  const setNewTaskDialogOpen = useTaskHubStore((s) => s.setNewTaskDialogOpen);
   const setSettingsOpen = useTaskHubStore((s) => s.setSettingsOpen);
   const connectDaemon = useTaskHubStore((s) => s.connectDaemon);
   const loadFromServer = useTaskHubStore((s) => s.loadFromServer);
+  const [isCreateDeliveryOpen, setCreateDeliveryOpen] = useState(false);
 
   useEffect(() => {
     loadFromServer().then(() => connectDaemon());
@@ -42,10 +40,10 @@ export default function ClientHome() {
           </div>
           <div>
             <h1 className="text-[16px] font-bold tracking-tight text-[hsl(var(--text-primary))] uppercase">
-              DevOps 中心
+              交付中心
             </h1>
             <p className="text-[11px] text-[hsl(var(--text-tertiary))] font-bold tracking-widest uppercase">
-              多智能体协作
+              软件交付 Agent OS
             </p>
           </div>
         </div>
@@ -53,12 +51,11 @@ export default function ClientHome() {
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => setNewTaskDialogOpen(true)}
-            disabled={!selectedConversationId}
+            onClick={() => setCreateDeliveryOpen(true)}
             className="inline-flex items-center gap-1.5 bg-[hsl(var(--text-primary))] text-[hsl(var(--text-inverse))] px-3.5 py-2 rounded-[var(--radius-md)] text-[12px] font-semibold hover:opacity-90 active:scale-[0.97] transition-all duration-200 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Plus className="w-3.5 h-3.5" />
-            新建任务
+            新建交付
           </button>
 
           <button
@@ -99,8 +96,7 @@ export default function ClientHome() {
       {/* ── Task Detail Drawer ── */}
       {selectedTaskId && <TaskDetailPanel />}
 
-      {/* ── New Task Dialog ── */}
-      {isNewTaskDialogOpen && <NewTaskDialog />}
+      <ProjectCreateDialog open={isCreateDeliveryOpen} onClose={() => setCreateDeliveryOpen(false)} />
 
       {/* ── Agent Roster Modal ── */}
       {isRosterModalOpen && <AgentRosterModal />}

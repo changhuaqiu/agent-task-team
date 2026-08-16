@@ -256,3 +256,10 @@ ACP event mapper、WorkContract permission 与 session-load failure handling 各
 ## 第五十五轮：删除 filesystem session 旁路
 
 进一步追踪发现，工作目录中的 `.session.json` 只有 daemon 写入，没有生产 reader、恢复入口、迁移或投影消费者；真正的会话创建、runtime id 确认、恢复、封存和消息计数早已由 SQLite `sessionRepo` 统一承担。第五十五轮删除 `writeSessionMeta`、`readSessionMeta`、`SessionMeta` 与 daemon 写入，避免无人消费的同步文件 I/O 在 turn 完成后制造失败，并阻止第二套 session 事实源回流。`.gc_meta.json` 因被 TTL GC 真实读取而保留，但 row 收窄为唯一消费字段 `completedAt`；历史文件中的额外 `taskId` 不影响宽松 JSON 读取，无需迁移。
+
+## 第五十六轮：删除全局手工“新建任务”入口
+
+首页曾把“新建任务”作为全局主操作，同时又在侧栏提供“新建项目”，与已经接受的自主交付产品对象冲突；
+对应 `NewTaskDialog` 只由首页按钮挂载，`isNewTaskDialogOpen` 也只为该弹窗存在。交付工作区第一阶段把唯一主创建
+动作收敛为“新建交付”，复用真实收集项目目录、目标、验收和授权的 `ProjectCreateDialog`，并整链删除旧弹窗及
+Store 开合状态。Task 继续由 Task Authority 和交付流程拥有，不再把一个无项目/验收上下文的手工 Task 表单放在全局层。

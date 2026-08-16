@@ -5,7 +5,7 @@
 - [x] Update `AgentBindingPanel` to bind accounts through runtime profile fallback rules.
 - [x] Update `setAgentRoleCardId()` so dynamic Team Pack roles are stored in `agentRoleCardOverrides`, not only in `AGENT_ROSTER`.
 - [x] Update `loadSkills()` to hydrate hardcoded and effective roster IDs.
-- [x] Update `daemonStore.dispatchToAgent()` and `simulateCliExecution()` to use `getAgentRuntimeProfile()`.
+- [x] Migrate runtime-profile selection to server-side Team Runtime / Invocation Planner; the retired browser dispatch methods no longer exist.
 - [x] Add focused Vitest coverage for dynamic Team Pack role binding, skills, and dispatch profile resolution.
 - [x] Add TeamPack role snapshot materialization and self-contained export.
 - [x] Preserve implementation permissions when synthesizing TeamPack role snapshots.

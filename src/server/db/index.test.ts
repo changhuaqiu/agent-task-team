@@ -40,6 +40,7 @@ describe('SQLite Foundation', () => {
     expect(tableNames).toContain('runtime_completion_legacy_effect_suppression');
     expect(tableNames).not.toContain('runtime_completion_step_receipt');
     expect(tableNames).toContain('agent_inbox_item');
+    expect(tableNames).toContain('task_command_rejection_receipt');
     expect(tableNames).toContain('eval_review_queue');
     expect(tableNames).toContain('eval_pairwise_round');
     expect(tableNames).toContain('github_issue_ingress');
@@ -71,6 +72,17 @@ describe('SQLite Foundation', () => {
   it('enforces foreign keys', () => {
     const result = db.pragma('foreign_keys') as Array<Record<string, number>>;
     expect(result[0].foreign_keys).toBe(1);
+  });
+
+  it('does not cascade Task rejection receipts with their aggregate', () => {
+    const foreignKeys = db.pragma('foreign_key_list(task_command_rejection_receipt)') as Array<{
+      from: string;
+      on_delete: string;
+    }>;
+    expect(foreignKeys.some((foreignKey) => foreignKey.from === 'conversation_id')).toBe(false);
+    expect(foreignKeys.some((foreignKey) => foreignKey.from === 'task_id')).toBe(false);
+    expect(foreignKeys.find((foreignKey) => foreignKey.from === 'recovery_inbox_item_id')?.on_delete)
+      .toBe('SET NULL');
   });
 
   it('tracks schema version', () => {
@@ -702,7 +714,7 @@ describe('SQLite Foundation', () => {
     expect(db.prepare('SELECT version FROM _schema_version WHERE version = 40').get())
       .toEqual({ version: 40 });
     expect(db.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-      .toEqual({ version: 78 });
+      .toEqual({ version: 82 });
   });
 
   it('retires the parallel A2A worklist schema at migration 62', () => {
@@ -780,7 +792,7 @@ describe('SQLite Foundation', () => {
           'autonomous_delivery_advancement_request',
         ]));
         expect(checkpoint.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-          .toEqual({ version: 78 });
+          .toEqual({ version: 82 });
         expect(checkpoint.pragma('foreign_key_check')).toEqual([]);
       } finally {
         checkpoint.close();

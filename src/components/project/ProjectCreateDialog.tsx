@@ -188,7 +188,7 @@ export function ProjectCreateDialog({
         autonomous,
       });
       if (!conversationId) {
-        throw new Error('创建项目失败，请稍后重试');
+        throw new Error('创建交付失败，请稍后重试');
       }
       createdConversationId = conversationId;
       if (autonomous) {
@@ -257,7 +257,7 @@ export function ProjectCreateDialog({
         }
         const rolledBack = await deleteConversation(createdConversationId);
         if (!rolledBack) {
-          createFailure = `${createFailure}；自动回滚失败，项目已保留，请稍后重试或手动删除`;
+          createFailure = `${createFailure}；自动回滚失败，交付记录已保留，请稍后重试或手动删除`;
         }
       }
       setCreateError(createFailure);
@@ -280,10 +280,10 @@ export function ProjectCreateDialog({
           <div className="flex items-center justify-between px-5 py-4 border-b border-[hsl(var(--border))] shrink-0">
             <div>
               <div className="text-[11px] font-bold tracking-widest uppercase text-[hsl(var(--text-tertiary))]">
-                新建项目
+                新建交付
               </div>
               <div className="text-[14px] font-semibold text-[hsl(var(--text-primary))] mt-1">
-                起个头，细节在对话中梳理
+                说清目标、验收标准、工作范围和授权
               </div>
             </div>
             <button
@@ -298,7 +298,7 @@ export function ProjectCreateDialog({
           <div className="p-5 space-y-4 overflow-y-auto">
             <div className="space-y-1.5">
               <label className="text-[11px] font-semibold uppercase tracking-wider text-[hsl(var(--text-tertiary))]">
-                项目标题
+                交付标题
               </label>
               <input
                 ref={titleRef}
@@ -393,7 +393,7 @@ export function ProjectCreateDialog({
                         不选择
                       </div>
                       <div className="text-[11px] text-[hsl(var(--text-tertiary))] mt-0.5">
-                        使用默认配置创建项目
+                        使用默认团队创建交付
                       </div>
                     </div>
                     {effectiveTeamPackId === null && (
@@ -446,12 +446,12 @@ export function ProjectCreateDialog({
 
             <div className="space-y-1.5">
               <label className="text-[11px] font-semibold uppercase tracking-wider text-[hsl(var(--text-tertiary))]">
-                一句话描述
+                交付目标
               </label>
               <textarea
                 value={goal}
                 onChange={(event) => setGoal(event.target.value)}
-                placeholder="简单描述你想做什么，细节可以稍后在对话中补充。"
+                placeholder="描述需要得到的结果，后续可以向团队补充要求。"
                 rows={2}
                 className="w-full px-3 py-2 rounded-[var(--radius-md)] border border-[hsl(var(--border))] bg-[hsl(var(--bg-muted))] text-[13px] font-medium outline-none resize-none focus:border-[hsl(var(--accent))]"
               />
@@ -538,7 +538,7 @@ export function ProjectCreateDialog({
               )}
             >
               <Plus className="w-3.5 h-3.5" />
-              {creating ? '正在创建…' : '创建项目'}
+              {creating ? '正在创建…' : '创建交付'}
             </button>
           </div>
         </div>

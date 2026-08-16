@@ -170,6 +170,12 @@ export interface Task {
 3. store 按领域 interface 写入后端：通用协作命令调用 `/api/mutations`，阶段数据调用 `/api/phases`；Phase 的服务端正式 interface 是 list/upsert/delete，标量写后回读只属于持久化实现。
 4. daemon 事件通过 Socket 进入 store
 
+Task 投影是版本化读模型：`GET /api/state` 水合和 `task.state` Socket 事件都携带服务端 revision。水合按
+`(conversationId, taskId)` 和当前 Store 逐项合并，保留较高 revision；水合请求开始后由 Socket 新增、且所属交付仍在快照
+中的 Task 即使未出现在旧快照里也会保留。只有实际接纳的投影才推进浏览器的 task mutation epoch。HTTP 命令结果也只有
+不落后于当前 revision 时才能进入 store。缺少 revision 的 Task 写命令 fail closed，服务端在
+Gate/Wakeup 副作用前执行 CAS；证据不足时恢复 Inbox 与拒绝 receipt 同事务提交，已持久化的同一幂等命令只返回冻结结果。
+
 因此 store 更接近：
 
 - 前端运行时缓存
@@ -179,11 +185,11 @@ export interface Task {
 
 控制平面迁移后，store 还需要进一步降级：
 
-- store 发送 dispatch intent，不直接判定跨实例投递成功。
+- store 只提交显式 Human/Task Command，不构造或发送 runtime dispatch intent。
 - store 订阅 `RuntimeNode`、`AgentBinding`、`ExecutionEnvelope` 与 `ProofLog` 派生状态。
 - `agentStatus` 只能作为 UI 快照；runtime health 与 agent binding 事实必须来自 Control Plane。
 - `a2aByConversation` 仍可缓存当前协作视图，但 handoff delivery 成败由 Dispatch Gateway 和 Proof Log 决定。
-- 用户消息、A2A、workflow 自动派发最终应走同一个 server-side dispatch path。
+- 用户消息、A2A、workflow 自动派发已经在服务端汇入 Inbox / Invocation Pipeline；剩余工作是继续拆小 UI Store。
 
 ### Team Runtime Cache
 
@@ -207,10 +213,8 @@ Team Runtime 缓存是派生缓存，不是新的事实源。缓存只复用 `re
   都可作为 Human Command 的目标。消息先持久化，再由 `HumanA2ACommandService` 原子创建
   A2A 聚合与 AgentInbox Command；store 不发送 `terminal:start` 或
   `a2a:user-turn-created`。
-- 忙碌 agent 的人工派发通过 `dispatch.enqueue` 写入服务端 Agent Inbox；浏览器
-  `pendingDispatches` 只是按 `agentId:conversationId` 查询得到的展示投影。浏览器 busy
-  快照可能落后于 daemon，因此最终 admission、排队和重试结果以服务端为准；收到
-  `agent_busy` 展示事件不会在浏览器侧再次入队或重试。
+- 忙碌 agent 的人工要求由服务端 Human Command owner 写入 Agent Inbox。浏览器不再维护 `pendingDispatches`、
+  不调用 `dispatch.enqueue/cancel`，也不根据 busy 快照重试；最终 admission、排队和重试结果以服务端为准。
 - `getAgentRuntimeProfile()` 返回空时，store 既记录 `invocation.aborted/no_runtime_profile`，也在对应项目聊天区显示“为该角色绑定可用账号或执行引擎”的恢复提示；不能只留下控制台 warning。相关缺陷由 [#16](https://github.com/changhuaqiu/agent-task-team/issues/16) 跟踪。
 - A2A possession UI 状态由 `a2aByConversation` 缓存服务端版本化 `a2a.snapshot`，记录
   `currentHolderIds[]` 与最近交接事件。它只是读模型，不作为协作或任务事实源。
@@ -241,12 +245,12 @@ Team Runtime 缓存是派生缓存，不是新的事实源。缓存只复用 `re
 - `updateTask()`
 - `removeTask()`
 
-### 聊天与派发
+### 聊天与命令
 
 - `addChatMessage()`
-- `dispatchToAgent()`
-- `confirmBreakdown()` 现在经过 `DispatchAdvisor` —— 一个编程式匹配器，根据 capability profiles、当前负载和 forbidden actions 建议 agent 分配。Advisor 在任务创建前产出带有 `suggestedAgentIds` 的 enriched PhaseProposals
-- 当前通过 `composeSystemPrompt(opts)` 构建 systemPrompt，`ComposeOptions.skills` 从 `skillsMap` 解析，团队花名册来自 Team Runtime roster
+- `triggerProposal()` 通过 `delivery.plan.request` Human Command 请求服务端规划
+- `requestTaskProgress()` 通过 `task.progress.request` Human Command 请求任务负责人汇报
+- `confirmBreakdown()` 写入 Task Command；负责人和后续执行由服务端 Team Runtime / Task Wakeup 决定
 - 流式消息处理相关方法
 
 ### Skill 管理

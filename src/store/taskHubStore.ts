@@ -5,7 +5,7 @@ import { persist } from 'zustand/middleware';
 import { PRESET_ROLE_CARDS } from '@/data/presetRoleCards';
 
 // Sub-store slice creators
-import { createTaskSlice } from './taskStore';
+import { createTaskSlice, observeAuthoritativeTaskProjection } from './taskStore';
 import type { TaskStatus, Task, TaskArtifact } from './taskStore';
 import { setTaskCounter } from './taskStore';
 import { createAgentSlice, AGENT_ROSTER } from './agentStore';
@@ -16,9 +16,7 @@ import {
   socket,
   resetWatchdog,
   clearWatchdog,
-  registerBrowserRuntimeNode,
 } from './daemonStore';
-import type { PendingDispatch } from './daemonStore';
 import {
   isProjectViewEnvelope,
   PROJECT_VIEW_CHANNEL,
@@ -34,6 +32,10 @@ import type { SkillSummary } from '@/lib/agent-context/types';
 import type { DetectedRuntime } from '@/server/types';
 import type { A2APossessionView, ChatMessage, ToolEvent } from './types';
 import { assertTaskStatus, isTaskStatus } from '@/shared/task-status';
+import {
+  createHumanCommandIdempotencyKey,
+  humanCommandGateway,
+} from '@/lib/human-command';
 export type { A2AHandoffStatus, A2AHandoffView, A2APossessionView, ChatMessage, ToolEvent } from './types';
 
 // Re-export types from sub-stores (backward compatibility)
@@ -44,7 +46,6 @@ export { STATUS_LABELS, STATUS_ORDER } from './taskStore';
 export type { AgentTheme, Agent } from './agentStore';
 export { AGENT_ROSTER, loadAgents, PROVIDER_LABELS, PROVIDER_OPTIONS, MODEL_SUGGESTIONS } from './agentStore';
 export type { AccountProvider, AccountAuthMode, Account } from './agentStore';
-export type { PendingDispatch } from './daemonStore';
 
 // --- Types that remain in this module ---
 
@@ -64,22 +65,6 @@ export interface WorktreeInfo {
   path: string;
   branch: string;
   head: string;
-}
-
-export interface DispatchToAgentInput {
-  agentId: string;
-  prompt: string;
-  referencedTaskId?: string;
-  accountIds?: string[];
-  source?: 'user' | 'a2a' | 'workflow' | 'review_gate' | 'test_gate' | 'system';
-  fromAgentId?: string;
-  conversationId?: string;
-  chainId?: string;
-  passId?: string;
-  contextSnapshot?: string;
-  epochId?: string;
-  queuedIdempotencyKey?: string;
-  legacyProposal?: boolean;
 }
 
 export interface DispatchReceipt {
@@ -404,14 +389,6 @@ function getCachedAgentRuntimeProfile(state: TaskHubState, agentId: string): Run
   return profile;
 }
 
-const selectPendingCount = (state: TaskHubState) => {
-  const counts: Record<string, number> = {};
-  for (const [agentId, queue] of Object.entries(state.pendingDispatches)) {
-    if (queue && queue.length > 0) counts[agentId] = queue.length;
-  }
-  return counts;
-};
-
 // --- Helpers for server hydration ---
 const makeId = (prefix: string) =>
   `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -449,14 +426,6 @@ function resolveMentionAgentIds(state: TaskHubState, tokens: string[]): string[]
  */
 export function selectUserEntryAgentIds(resolvedAgentIds: string[]): string[] {
   return resolvedAgentIds.length > 0 ? [resolvedAgentIds[0]] : [];
-}
-
-export function shouldTriggerInitialProposal(
-  senderAgentId: string,
-  breakdownStatus: Conversation['breakdownStatus'],
-  mentionCount: number,
-): boolean {
-  return senderAgentId === 'human' && breakdownStatus === 'none' && mentionCount === 0;
 }
 
 export const RUNTIME_HYDRATION_TIMEOUT_MS = 15_000;
@@ -504,7 +473,7 @@ function applyConversationTeamPack(
   set: (partial: any) => void,
   conversationId: string | null,
   teamPackId: string,
-  options: { triggerProposalAfterLoad?: boolean; propagateFailure?: boolean } = {},
+  options: { propagateFailure?: boolean } = {},
 ): Promise<void> {
   return fetchRuntimeJson<TeamPack>(`/api/team-packs/${teamPackId}`, '团队运行配置')
     .then((teamPack) => {
@@ -524,9 +493,6 @@ function applyConversationTeamPack(
           activeAgentIds: teamPack.roles.map((role: any) => role.id),
           currentTeamPack: teamPack,
         });
-        if (options.triggerProposalAfterLoad && conversationId) {
-          setTimeout(() => get().triggerProposal(conversationId), 500);
-        }
       } else {
         throw new Error('团队运行配置无效，请重试或重新绑定账号。');
       }
@@ -749,10 +715,21 @@ export interface TaskHubState {
   inviteAgent:      (agentId: string) => void;
   dismissAgent:     (agentId: string) => void;
   updateTaskStatus: (taskId: string, status: TaskStatus, reviewNote?: string, evidence?: Record<string, unknown>) => Promise<void>;
-  addTask:          (taskData: Omit<Task, 'id' | 'status' | 'createdAt' | 'updatedAt' | 'conversationId' | 'phaseId'> & { phaseId?: string }) => void;
+  addTask:          (taskData: Omit<Task, 'id' | 'status' | 'createdAt' | 'updatedAt' | 'conversationId' | 'phaseId'> & { phaseId?: string }) => Promise<void>;
   removeTask:       (taskId: string) => void;
-  updateTask:       (taskId: string, patch: Partial<Pick<Task, 'title' | 'description' | 'agentId' | 'dependencies' | 'artifacts'>>) => void;
-  addChatMessage:   (msg: Omit<ChatMessage, 'id' | 'timestamp' | 'mentions' | 'intent'> & { conversationId?: string }) => void;
+  updateTask:       (taskId: string, patch: Partial<Pick<Task, 'title' | 'description' | 'agentId' | 'dependencies' | 'artifacts'>>) => Promise<void>;
+  requestTaskProgress: (
+    taskId: string,
+    request: string,
+    options?: { idempotencyKey?: string; issuedAt?: string },
+  ) => Promise<{ ok: true } | { ok: false; error: string }>;
+  addChatMessage:   (msg: Omit<ChatMessage, 'id' | 'timestamp' | 'mentions' | 'intent'> & {
+    conversationId?: string;
+    commandIdempotencyKey?: string;
+    commandIssuedAt?: string;
+  }) => Promise<
+    { ok: true } | { ok: false; error: string }
+  >;
   updateChatMessageStatus: (msgId: string, status: 'approved' | 'rejected', rejectionReason?: string) => void;
 
   terminalLogs: Record<string, string[]>;
@@ -760,26 +737,17 @@ export interface TaskHubState {
   activeRunsByAgent: Record<string, ActiveAgentRun | undefined>;
   activeStreamMessageId: Record<string, string>;
   activeStreamConversationId: Record<string, string>;
-  pendingDispatches: Record<string, PendingDispatch[]>;
   dispatchReceiptsByConversation: Record<string, DispatchReceipt[]>;
 
   connectDaemon: () => void;
-  refreshPendingDispatches: (conversationId: string) => Promise<void>;
   upsertAgentSession: (projectId: ProjectId, agentId: string, sessionId: string) => void;
-  dispatchToAgent: (input: DispatchToAgentInput) => Promise<boolean>;
-  forceSendDispatch: (input: DispatchToAgentInput) => Promise<void>;
-  enqueueDispatch: (agentId: string, payload: Omit<PendingDispatch, 'queuedAt' | 'idempotencyKey' | 'inboxItemId' | 'persistenceStatus'> & { idempotencyKey?: string }) => void;
-  clearPendingDispatches: (agentId: string, conversationId: string, idempotencyKey?: string) => Promise<void>;
   appendTerminalLog: (agentId: string, log: string) => void;
-  simulateCliExecution: (taskId: string, prompt: string, sessionId?: string) => void;
   ensureStreamMessage: (agentId: string, conversationId: string, invocationId?: string) => string;
   appendToStreamMessage: (messageId: string, patch: { content?: string; toolEvent?: ToolEvent }) => void;
   completeStreamMessage: (agentId: string) => void;
   cleanupStaleStreams: () => void;
   selectedTaskId: string | null;
   setSelectedTaskId: (id: string | null) => void;
-  isNewTaskDialogOpen: boolean;
-  setNewTaskDialogOpen: (open: boolean) => void;
   isRosterModalOpen: boolean;
   setRosterModalOpen: (open: boolean) => void;
 
@@ -798,7 +766,10 @@ export interface TaskHubState {
   removePhase: (phaseId: string) => void;
 
   setBreakdownStatus: (conversationId: string, status: Conversation['breakdownStatus']) => void;
-  triggerProposal: (conversationId: string) => void;
+  triggerProposal: (
+    conversationId: string,
+    options?: { idempotencyKey?: string; issuedAt?: string },
+  ) => Promise<void>;
   confirmBreakdown: (conversationId: string, proposals: PhaseProposal[]) => void;
 
   isRoleCardDetailOpen: boolean;
@@ -823,7 +794,7 @@ export interface TaskHubState {
   removeWorktree: (projectSlug: string) => Promise<void>;
 }
 
-export { selectActiveAgents, selectAvailableRoster, selectAgentRoster, selectPendingCount };
+export { selectActiveAgents, selectAvailableRoster, selectAgentRoster };
 
 // --- Composed Store ---
 
@@ -1029,6 +1000,10 @@ export const useTaskHubStore = create<TaskHubState>()(
         loadFromServer: () => {
           if (loadFromServerInFlight) return loadFromServerInFlight;
 
+          const taskKeysAtHydrationStart = new Set(
+            get().tasks.map((task) => `${task.conversationId}\u0000${task.id}`),
+          );
+
           const hydration = (async () => {
             const isBackgroundRefresh = get().hasHydrated;
             // Keep readiness monotonic once the workspace is interactive.
@@ -1102,20 +1077,26 @@ export const useTaskHubStore = create<TaskHubState>()(
               updatedAt: c.updated_at,
             }));
 
-            const tasks: import('./taskStore').Task[] = (data.tasks || []).map((t: any) => ({
-              id: t.id,
-              conversationId: t.conversation_id,
-              phaseId: t.phase_id || '',
-              title: t.title,
-              description: t.description || '',
-              status: assertTaskStatus(t.status),
-              agentId: t.agent_id,
-              dependencies: typeof t.dependencies === 'string' ? JSON.parse(t.dependencies || '[]') : (t.dependencies || []),
-              artifacts: typeof t.artifacts === 'string' ? JSON.parse(t.artifacts || '[]') : (t.artifacts || []),
-              reviewNote: t.review_note,
-              createdAt: t.created_at,
-              updatedAt: t.updated_at,
-            }));
+            const tasks: import('./taskStore').Task[] = (data.tasks || []).map((t: any) => {
+              if (!Number.isSafeInteger(t.revision) || Number(t.revision) < 0) {
+                throw new Error(`task_revision_invalid:${String(t.id ?? 'unknown')}`);
+              }
+              return {
+                id: t.id,
+                conversationId: t.conversation_id,
+                phaseId: t.phase_id || '',
+                title: t.title,
+                description: t.description || '',
+                status: assertTaskStatus(t.status),
+                agentId: t.agent_id,
+                dependencies: typeof t.dependencies === 'string' ? JSON.parse(t.dependencies || '[]') : (t.dependencies || []),
+                artifacts: typeof t.artifacts === 'string' ? JSON.parse(t.artifacts || '[]') : (t.artifacts || []),
+                reviewNote: t.review_note,
+                createdAt: t.created_at,
+                updatedAt: t.updated_at,
+                revision: Number(t.revision),
+              };
+            });
 
             // Server bindings are authoritative. Never revive a runtime
             // session from persisted browser state when the server has no
@@ -1132,22 +1113,60 @@ export const useTaskHubStore = create<TaskHubState>()(
               }
             }
 
-            set((state: TaskHubState) => ({
-              conversations,
-              tasks,
-              chatMessagesByConversation: reconcileHydratedMessageMaps(
-                state.chatMessagesByConversation,
-                mapMessagesToState(data.recentMessages || {}),
-                new Set(Object.values(state.activeStreamMessageId).filter(Boolean)),
-              ),
-              agentSessions: serverSessions,
-              needsFullCompose: hydratedNeedsFullCompose,
-              a2aByConversation: Object.fromEntries(
-                ((data.a2aSnapshots || []) as A2APossessionView[])
-                  .filter((snapshot) => snapshot?.conversationId && snapshot?.chainId)
-                  .map((snapshot) => [snapshot.conversationId, snapshot]),
-              ),
-            }));
+            const admittedHydrationTaskIds: string[] = [];
+            set((state: TaskHubState) => {
+              const currentTasks = new Map(state.tasks.map((task) => [
+                `${task.conversationId}\u0000${task.id}`,
+                task,
+              ]));
+              const hydratedConversationIds = new Set(conversations.map((conversation) => conversation.id));
+              const hydratedTaskKeys = new Set(tasks.map((task) => (
+                `${task.conversationId}\u0000${task.id}`
+              )));
+              const mergedTasks = tasks.map((hydrated) => {
+                const current = currentTasks.get(`${hydrated.conversationId}\u0000${hydrated.id}`);
+                if (
+                  current
+                  && typeof current.revision === 'number'
+                  && current.revision > Number(hydrated.revision)
+                ) return current;
+                admittedHydrationTaskIds.push(hydrated.id);
+                return hydrated;
+              });
+              for (const [taskKey, current] of currentTasks) {
+                if (
+                  !hydratedTaskKeys.has(taskKey)
+                  && !taskKeysAtHydrationStart.has(taskKey)
+                  && hydratedConversationIds.has(current.conversationId)
+                ) {
+                  // The state response may have been serialized before a
+                  // Socket-created Task arrived. It is already an admitted
+                  // authoritative projection, so an older snapshot must not
+                  // erase it. Tasks that existed before hydration still obey
+                  // snapshot deletion semantics.
+                  mergedTasks.push(current);
+                }
+              }
+              return {
+                conversations,
+                tasks: mergedTasks,
+                chatMessagesByConversation: reconcileHydratedMessageMaps(
+                  state.chatMessagesByConversation,
+                  mapMessagesToState(data.recentMessages || {}),
+                  new Set(Object.values(state.activeStreamMessageId).filter(Boolean)),
+                ),
+                agentSessions: serverSessions,
+                needsFullCompose: hydratedNeedsFullCompose,
+                a2aByConversation: Object.fromEntries(
+                  ((data.a2aSnapshots || []) as A2APossessionView[])
+                    .filter((snapshot) => snapshot?.conversationId && snapshot?.chainId)
+                    .map((snapshot) => [snapshot.conversationId, snapshot]),
+                ),
+              };
+            });
+            for (const taskId of admittedHydrationTaskIds) {
+              observeAuthoritativeTaskProjection(taskId);
+            }
 
             // Keep a still-valid selection, otherwise use the most recently
             // updated conversation. Runtime dependencies are hydrated below
@@ -1349,9 +1368,7 @@ export const useTaskHubStore = create<TaskHubState>()(
           }));
 
           if (teamPackId) {
-            applyConversationTeamPack(get, set, id, teamPackId, {
-              triggerProposalAfterLoad: !autonomous,
-            });
+            applyConversationTeamPack(get, set, id, teamPackId);
           }
 
           get().addPlatformNotice({
@@ -1377,7 +1394,7 @@ export const useTaskHubStore = create<TaskHubState>()(
             });
             if (!response.ok) {
               const body = await response.json().catch(() => ({}));
-              throw new Error(body.error ?? '创建项目失败');
+              throw new Error(body.error ?? '创建交付失败');
             }
           } catch (error) {
             await get().deleteConversation(id, { persist: false });
@@ -1385,8 +1402,11 @@ export const useTaskHubStore = create<TaskHubState>()(
             return '';
           }
 
-          if (!teamPackId && !autonomous) {
-            setTimeout(() => get().triggerProposal(id), 500);
+          if (!autonomous) {
+            void get().triggerProposal(id, {
+              idempotencyKey: `human:${id}:delivery.plan.request:initial`,
+              issuedAt: stamp,
+            });
           }
           return id;
         },
@@ -1404,9 +1424,6 @@ export const useTaskHubStore = create<TaskHubState>()(
             socket.emit('conversation:join', { conversationId });
             void get().refreshConversationMessages(conversationId).catch((error: unknown) => {
               console.error('[messages] failed to reconcile selected project:', error);
-            });
-            void get().refreshPendingDispatches(conversationId).catch((error: unknown) => {
-              console.error('[dispatch] failed to refresh Agent Inbox projection:', error);
             });
             socket.emit('daemon:status', { projectId: conversationId }, (response: {
               activeAgents?: Record<string, { taskId?: string; conversationId?: string }>;
@@ -1583,27 +1600,23 @@ export const useTaskHubStore = create<TaskHubState>()(
           return resolvedId;
         },
 
-        addChatMessage: async (msg: Omit<ChatMessage, 'id' | 'timestamp' | 'mentions' | 'intent'> & { conversationId?: string }) => {
-          if (!get().selectedConversationId && get().conversations.length === 0 && msg.agentId === 'human') {
-            const title = msg.content.length > 20
-              ? msg.content.slice(0, msg.content.indexOf('，') > 0 ? msg.content.indexOf('，') : 20)
-              : msg.content;
-            get().createConversation({ title, goal: msg.content });
-          }
-
-          const { conversationId: conv, ...rest } = msg as any;
-          let conversationId = conv ?? get().selectedConversationId;
-          // Fallback: if no conversation is selected but some exist, auto-select
-          // the first one instead of silently dropping the message (issue #38).
-          if (!conversationId && get().conversations.length > 0) {
-            const first = get().conversations[0];
-            conversationId = first.id;
-            set({ selectedConversationId: first.id });
-          }
-          if (!conversationId) return;
+        addChatMessage: async (
+          msg: Omit<ChatMessage, 'id' | 'timestamp' | 'mentions' | 'intent'> & {
+            conversationId?: string;
+            commandIdempotencyKey?: string;
+            commandIssuedAt?: string;
+          },
+        ): Promise<{ ok: true } | { ok: false; error: string }> => {
+          const {
+            conversationId: conv,
+            commandIdempotencyKey,
+            commandIssuedAt,
+            ...rest
+          } = msg;
+          const conversationId = conv ?? get().selectedConversationId;
+          if (!conversationId) return { ok: false, error: '请先选择或新建一个交付' };
 
           const mentions = extractMentionTokens(rest.content);
-          const messageId = `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 
           let intent: ChatMessage['intent'] = 'general';
           const contentLower = rest.content.toLowerCase();
@@ -1616,91 +1629,98 @@ export const useTaskHubStore = create<TaskHubState>()(
           }
 
           const existingConv = get().conversations.find((c: Conversation) => c.id === conversationId);
-          if (
-            existingConv
-            && shouldTriggerInitialProposal(rest.agentId, existingConv.breakdownStatus, mentions.length)
-          ) {
-            setTimeout(() => {
-              const state = useTaskHubStore.getState();
-              if (state.conversations.find((c: Conversation) => c.id === conversationId)?.breakdownStatus === 'none') {
-                state.triggerProposal(conversationId);
-              }
-            }, 500);
-          }
-
-          // A user turn is a chat fact even when every target is busy. Persist
-          // it before dispatch admission so queueing can never make it vanish.
-          set((state: TaskHubState) => ({
-            chatMessagesByConversation: {
-              ...state.chatMessagesByConversation,
-              [conversationId]: [
-                ...(state.chatMessagesByConversation[conversationId] || []),
-                {
-                  ...rest,
-                  id: messageId,
-                  timestamp: new Date().toISOString(),
-                  mentions,
-                  intent,
-                },
-              ].sort((a: any, b: any) => (a.timestamp || '').localeCompare(b.timestamp || '')),
-            },
-          }));
-
-          const messagePersistence = fetch('/api/mutations', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ type: 'message.append', payload: {
-              conversationId,
-              taskId: rest.referencedTaskId,
-              senderType: rest.agentId === 'human' ? 'human' : 'agent',
-              senderId: rest.agentId,
-              content: rest.content,
-              mentions,
-              intent,
-              metadata: {
-                source: rest.source,
-                fromAgentId: rest.fromAgentId,
-              },
-            }}),
-          });
 
           if (rest.agentId === 'human') {
+            if (!existingConv) return { ok: false, error: '当前交付不存在或已被删除' };
             const resolvedMentions = resolveMentionAgentIds(get(), mentions);
             const entryAgentIds = selectUserEntryAgentIds(resolvedMentions);
             try {
-              const persisted = await messagePersistence;
-              if (!persisted.ok) {
-                throw new Error(`message_append_http_${persisted.status}`);
-              }
-              const persistedBody = typeof persisted.json === 'function'
-                ? await persisted.json() as { result?: { id?: string } }
-                : undefined;
-              const authoritativeMessageId = persistedBody?.result?.id ?? messageId;
-              const response = await fetch('/api/mutations', {
-                method: 'POST',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({
-                  type: 'a2a.human_handoff',
-                  payload: {
-                    conversationId,
-                    messageId: authoritativeMessageId,
-                    prompt: rest.content,
-                    targetAgentIds: entryAgentIds,
-                    taskId: rest.referencedTaskId,
-                  },
-                }),
+              const receipt = await humanCommandGateway.submit({
+                type: 'delivery.requirement.submit',
+                idempotencyKey: commandIdempotencyKey
+                  ?? createHumanCommandIdempotencyKey(conversationId),
+                projectPath: existingConv.projectPath,
+                deliveryId: conversationId,
+                actor: { type: 'user', id: 'human' },
+                content: rest.content,
+                targetAgentIds: entryAgentIds,
+                ...(rest.referencedTaskId ? { taskId: rest.referencedTaskId } : {}),
+                issuedAt: commandIssuedAt ?? new Date().toISOString(),
+                mentions,
+                intent,
               });
-              if (!response.ok) {
-                throw new Error(`a2a_human_handoff_http_${response.status}`);
+              if (receipt.status === 'rejected') {
+                return {
+                  ok: false,
+                  error: receipt.userMessage ?? '团队未能接手这条要求',
+                };
               }
+              if (!receipt.messageId) throw new Error('命令回执缺少消息标识');
+              const receiptMessageId = receipt.messageId;
+              set((state: TaskHubState) => {
+                const current = state.chatMessagesByConversation[conversationId] || [];
+                if (current.some((message) => message.id === receiptMessageId)) return state;
+                return {
+                  chatMessagesByConversation: {
+                    ...state.chatMessagesByConversation,
+                    [conversationId]: [
+                      ...current,
+                      {
+                        ...rest,
+                        id: receiptMessageId,
+                        timestamp: receipt.recordedAt,
+                        mentions,
+                        intent,
+                      },
+                    ].sort((a, b) => (a.timestamp || '').localeCompare(b.timestamp || '')),
+                  },
+                };
+              });
             } catch (error) {
-              console.error('[a2a] failed to submit human command:', error);
+              console.error('[human-command] submit failed:', error);
+              return {
+                ok: false,
+                error: error instanceof Error ? error.message : '命令提交失败，请稍后重试',
+              };
             }
           } else {
-            void messagePersistence.catch(
+            const messageId = `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+            set((state: TaskHubState) => ({
+              chatMessagesByConversation: {
+                ...state.chatMessagesByConversation,
+                [conversationId]: [
+                  ...(state.chatMessagesByConversation[conversationId] || []),
+                  {
+                    ...rest,
+                    id: messageId,
+                    timestamp: new Date().toISOString(),
+                    mentions,
+                    intent,
+                  },
+                ].sort((a, b) => (a.timestamp || '').localeCompare(b.timestamp || '')),
+              },
+            }));
+            void fetch('/api/mutations', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ type: 'message.append', payload: {
+                conversationId,
+                taskId: rest.referencedTaskId,
+                senderType: 'agent',
+                senderId: rest.agentId,
+                content: rest.content,
+                mentions,
+                intent,
+                metadata: {
+                  source: rest.source,
+                  fromAgentId: rest.fromAgentId,
+                },
+              }}),
+            }).catch(
               (error) => console.error('[mutation] message.append failed:', error),
             );
           }
+          return { ok: true };
         },
 
         updateChatMessageStatus: (msgId: string, status: 'approved' | 'rejected', rejectionReason?: string) =>
@@ -1901,7 +1921,6 @@ socket.off('connect_error');
 
 socket.on('connect', () => {
   useTaskHubStore.getState().setDaemonConnection({ status: 'connected' });
-  registerBrowserRuntimeNode();
   const selectedConversationId = useTaskHubStore.getState().selectedConversationId;
   if (selectedConversationId) {
     socket.emit('conversation:join', { conversationId: selectedConversationId });
@@ -2436,6 +2455,7 @@ interface TaskStateSocketRow {
   review_note?: string | null;
   created_at?: string;
   updated_at?: string;
+  revision?: number;
 }
 
 socket.on('task.state', ({ projectId, task: row }: { projectId?: string; task?: TaskStateSocketRow }) => {
@@ -2445,6 +2465,16 @@ socket.on('task.state', ({ projectId, task: row }: { projectId?: string; task?: 
     useTaskHubStore.setState({
       taskSyncError: {
         message: `task.state returned unsupported status: ${String(row.status)}`,
+        timestamp: new Date().toISOString(),
+        conversationId: row.conversation_id,
+      },
+    });
+    return;
+  }
+  if (!Number.isSafeInteger(row.revision) || Number(row.revision) < 0) {
+    useTaskHubStore.setState({
+      taskSyncError: {
+        message: 'task.state returned no authoritative revision',
         timestamp: new Date().toISOString(),
         conversationId: row.conversation_id,
       },
@@ -2468,12 +2498,25 @@ socket.on('task.state', ({ projectId, task: row }: { projectId?: string; task?: 
     reviewNote: row.review_note || undefined,
     createdAt: row.created_at || new Date().toISOString(),
     updatedAt: row.updated_at || new Date().toISOString(),
+    revision: Number(row.revision),
   };
+  const current = useTaskHubStore.getState().tasks.find(
+    (item) => item.id === task.id && item.conversationId === task.conversationId,
+  );
+  if (
+    typeof current?.revision === 'number'
+    && current.revision > Number(task.revision)
+  ) return;
+  observeAuthoritativeTaskProjection(task.id);
   useTaskHubStore.setState((state) => {
-    const exists = state.tasks.some((item) => item.id === task.id);
+    const exists = state.tasks.some(
+      (item) => item.id === task.id && item.conversationId === task.conversationId,
+    );
     return {
       tasks: exists
-        ? state.tasks.map((item) => item.id === task.id ? task : item)
+        ? state.tasks.map((item) => (
+            item.id === task.id && item.conversationId === task.conversationId ? task : item
+          ))
         : [...state.tasks, task],
     };
   });
@@ -2610,6 +2653,7 @@ socket.on('task.sync', ({ projectId, projectPath: _projectPath, conversationId, 
           artifacts: [],
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
+          revision: -1,
         }],
       }));
       continue;

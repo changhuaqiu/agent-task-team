@@ -1,3 +1,4 @@
+import type Database from 'better-sqlite3';
 import { getDb } from '../db/index';
 import { generateSortableId } from './sortable-id';
 import { messageToTeamLogEntry, teamLogProjection } from '../team-log/TeamLogProjection';
@@ -30,13 +31,14 @@ export interface NewMessage {
   metadata?: Record<string, unknown>;
   visibility?: string;
   invocationId?: string;
+  projectTeamLog?: boolean;
 }
 
 export const messageRepo = {
-  append(input: NewMessage): string {
+  append(input: NewMessage, database: Database.Database = getDb()): string {
     const id = generateSortableId('msg');
     const now = new Date().toISOString();
-    getDb()
+    database
       .prepare(
         `INSERT INTO chat_message (id, conversation_id, task_id, sender_type, sender_id, content, content_type, mentions, intent, metadata, visibility, invocation_id, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -71,7 +73,7 @@ export const messageRepo = {
       invocation_id: input.invocationId ?? null,
       created_at: now,
     });
-    if (entry) teamLogProjection.append(entry);
+    if (entry && input.projectTeamLog !== false) teamLogProjection.append(entry);
     return id;
   },
 

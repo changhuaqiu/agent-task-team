@@ -614,10 +614,10 @@ Future federation may extend this to a full PII pipeline and trust-level matrix.
 - Repository modules exist for proof events, runtime nodes, agent bindings, and execution envelopes.
 - Targeted repository tests cover migration existence, heartbeat miss/recovery, binding lifecycle, envelope lifecycle/expiry, and proof timeline queries.
 - A lightweight `DispatchGateway` now creates execution envelopes, records proof events, checks target runtime health, and applies a first-pass secret gate.
-- The local daemon registers itself as `daemon:local`; browser clients register socket runtime nodes with 5s heartbeats.
+- The local daemon registers itself as `daemon:local`; browser clients are not runtime nodes.
 - Runtime health scan marks non-heartbeating nodes stale after 2 missed intervals and unreachable after 3 missed intervals.
-- Existing `terminal:start` dispatch now creates an envelope and proof timeline while preserving the compatibility execution path.
-- The `terminal:start` compatibility adapter only normalizes and submits commands; proposal admission is owned once by Invocation Planner for socket, durable Inbox, retry, and restart paths.
+- Human/Task Commands reach the durable Inbox and Invocation Coordinator, which creates the envelope and proof timeline.
+- `terminal:start` / `terminal:kill` compatibility transport is removed; proposal admission is owned once by Invocation Planner for durable Inbox, retry, and restart paths.
 - Existing A2A compatibility dispatch passes chain/pass metadata into the execution envelope.
 - Task Graph policy now writes proof events for blocked high-impact actions and keeps task action ids correlated through task/pass fields where available.
 - Full directed runtime routing and executor-only envelope consumption remain future work.

@@ -61,7 +61,7 @@ Task mutation / Autonomy Guard / A2A pass
 - 接收完整 plan 并提交执行；
 - 当前实现复用 daemon 已有执行入口；
 - ACP 分支只需实现相同端口，无需修改 Task、A2A 或 Context 层。
-- daemon 兼容入口的参数解构、诊断日志和 preflight 校验不得引用浏览器环境全局变量；所有日志字段必须来自显式 payload 或已解析 plan，且诊断代码不得位于可捕获错误边界之外而中断执行。
+- daemon 执行入口的参数解构、诊断日志和 preflight 校验不得引用浏览器环境全局变量；所有日志字段必须来自已解析 plan，且诊断代码不得位于可捕获错误边界之外而中断执行。
 - 用户消息必须先写入聊天事实源，再触发 dispatch；runtime 是否 busy 不能影响消息可见性和持久化。
 - 浏览器与 daemon 的 busy 快照可能短暂不一致。人工 Command 如果在服务端 admission
   时遇到 `agent_busy`，页面只展示拒绝原因，由人决定是否重试；不得因收到错误事件自动
@@ -110,7 +110,7 @@ Task mutation / Autonomy Guard / A2A pass
 - TeamPack workflow state is the gate-routing authority: ordinary `quality_gate` work starts its configured owner once; advisory reviewers are not fanned out unless a risk-specific transition requests them.
 - Entering `review` / `in_review` is itself the quality-gate dispatch request. After writing that state, the implementer must end the turn without a manual `@reviewer` A2A handoff; only an explicit platform wakeup failure or a separately justified specialist review may create another pass.
 - Browser auto-proposal is only a human first-turn convenience. Agent, system, tool, and error messages cannot trigger it. Daemon process-start admission reserves `(conversation, agent)` before asynchronous setup so duplicate browser tabs cannot race-start the same role.
-- `terminal:start` is only a compatibility transport adapter: it normalizes the command and always submits it to Invocation Coordinator. The persisted `legacyProposal` marker reaches Invocation Planner, which alone checks the authoritative DeliveryRun and rejects ordinary proposal planning for autonomous projects; socket transport does not duplicate that policy or write a second suppression Proof.
+- Browser execution transport has been removed. `delivery.plan.request` reaches Invocation Coordinator through the durable Inbox; Invocation Planner alone checks the authoritative DeliveryRun and rejects conflicting legacy proposal planning.
 - Workdir names encode project/agent/task IDs as safe path segments; raw business IDs, including scoped task IDs, are never concatenated directly into a Windows path.
 - autonomy guard 按 `subtask_of` 的 child → parent 边递归判断完整子树，终态后唤醒 planner 收敛；
 - closure dispatch 写持久 proof，后续扫描以 `(conversationId, rootTaskId, reasonCode)` 去重。
@@ -121,7 +121,7 @@ Task mutation / Autonomy Guard / A2A pass
 - ContextManager 不再推送群聊正文，只在 situation 簇注入 ≤150 token 的未消费摘要信封；handoff/wakeup 按当前 task 过滤；
 - Harness plan 携带本轮 envelope 的 `upToEntryId`，daemon 仅在本轮完成后推进 `agent_log_cursor`，不会误消费执行期间新到的消息；
 - hot 视图受 50 条、24 小时和 5KB 三重上限控制；7 天内溢出按日归档，更早内容进入 INDEX 摘要并继续以 DB 为 cold source；
-- 用户直发尚未完全迁入 Harness 时，daemon 对缺少 envelope snapshot 的 terminal payload 做一次兼容补位；迁移完成后删除该分支。
+- 所有执行计划由 Harness 携带 context/team-log snapshot；daemon 只对服务端 Plan 做有界的 team-log 补位。
 
 ## 兼容机制
 
@@ -175,9 +175,8 @@ Task mutation / Autonomy Guard / A2A pass
 - Gate routing：默认团队普通 review 只启动 Peach，DK 保持按需。
 - Gate de-duplication：实现角色进入 review 后不得再手工 @ 默认 reviewer；Task Wakeup 是普通质量门的唯一启动事实。
 - Dependency de-duplication：Task Notification Publisher 同时理解 task edges 与 TASKS.md dependencies，并且是 dependency_resolved / unblocked_unassigned 的唯一 wakeup 生产者；watcher 不保留前端直发兼容分支。
-- Daemon smoke：使用隔离数据目录和已安装的 ACP test runtime 从人工
-  `terminal:start` Command 跑到 AgentEvent/`project:view:terminal.exited`，覆盖
-  payload 解构、preflight 日志和协议适配。
+- Daemon smoke：使用隔离数据目录和已安装的 ACP test runtime 从服务端 Activation Command 跑到
+  AgentEvent/`project:view:terminal.exited`，覆盖 Plan 解构、preflight 日志和协议适配。
 
 ## 验证结果
 

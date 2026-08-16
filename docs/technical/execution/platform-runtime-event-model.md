@@ -106,8 +106,8 @@ spec §7 的四角色就是这"不同方法"的分类。
 │   用户/Web UI          ACP 执行进程            领域状态变更            │
 │   ─────────────       ──────────────          ──────────────         │
 │   C2S Command          opencode/claude/         task / review         │
-│   (terminal:start,     codex 子进程             delivery              │
-│    task mutation...)   产生原始信号             a2a(possession/chain) │
+│   (Human/Task          codex 子进程             delivery              │
+│    Command...)         产生原始信号             a2a(possession/chain) │
 │        │                    │                    envelope/session     │
 │        │                    │                    binding/node         │
 │   [命令通道,             [原始信号,            [表是事实源,            │

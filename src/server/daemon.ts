@@ -39,29 +39,23 @@ import { resolveNonWorktreeExecutionCwd, stableWorkdirTaskKey, WorkdirManager } 
 import { getDb } from './db';
 import { DispatchGateway } from './control-plane/dispatch-gateway';
 import { runtimeNodeRepo } from './repositories/runtime-node-repo';
-import { isRuntimeNodeKind, type DispatchIntent, type DispatchSource } from './repositories/control-plane-types';
+import { isRuntimeNodeKind } from './repositories/control-plane-types';
+import { agentBindingRepo } from './repositories/agent-binding-repo';
 import { taskRepo } from './repositories/task-repo';
 import { taskCommandService } from './repositories/task-command-service';
 import { conversationRepo } from './repositories/conversation-repo';
-import { taskGraphRepo } from './repositories/task-graph-repo';
 import { executionEnvelopeRepo } from './repositories/execution-envelope-repo';
 import { proofLogRepo } from './repositories/proof-log-repo';
-import { resolveTaskNotificationAudience } from './task-flow/task-notification-publisher';
-import { resolveAutonomyGuardWakeups } from './task-flow/autonomy-guard';
+import { AutonomyGuardOwner } from './control-plane/autonomy-guard-owner';
 import { startWorktreeGCScheduler, stopWorktreeGCScheduler } from './worktree-gc';
 import {
   InvocationCoordinator,
   InvocationFailureEventPublisher,
   InvocationPlanner,
   registerInvocationCoordinator,
-  submitTaskWakeupToInvocationPipeline,
   type InvocationDispatchPlan,
-  type InvocationDispatchOutcome,
-  type InvocationSubmission,
 } from './invocation-pipeline';
 import { finalizeRuntimeContextSnapshot } from './invocation-pipeline/runtime-context-snapshot';
-import type { ContextReport, ContextSnapshot } from '../lib/agent-context/ContextManager';
-import type { ContextScenario } from '../lib/agent-context/scenarioResolver';
 import { generateSpanId, generateTraceId, observationSpanRepo } from './repositories/observation-span-repo';
 import { capturePromptPayloads } from './observability/prompt-observation';
 import { teamLogProjection } from './team-log/TeamLogProjection';
@@ -86,61 +80,11 @@ import { registerDeliveryEffectAdapters } from './autonomous-delivery/delivery-e
 import { deliveryAdvancementQueue } from './autonomous-delivery/advancement-queue';
 import { registerAutonomousDeliveryE2EDriver } from './testing/autonomous-delivery-e2e-driver';
 import { ProjectViewPublisher } from './project-view/project-view-publisher';
-import type { WorkContract } from './work-contract/types';
 import { renderWorkContractInstruction } from './work-contract/dispatch-contract';
-
-type TerminalStartPayload = {
-  dispatchId?: string;
-  projectId?: string;
-  taskId?: string;
-  agentId: string;
-  prompt: string;
-  systemPrompt?: string;
-  sessionId?: string;
-  conversationId?: string;
-  sourceNodeId?: string;
-  dispatchSource?: DispatchSource;
-  dispatchIntent?: DispatchIntent;
-  fromAgentId?: string;
-  chainId?: string;
-  passId?: string;
-  engine?: RuntimeCliEngine;
-  runtimeId?: string;
-  accountId?: string;
-  force?: boolean;
-  projectSlug?: string;
-  projectPath?: string;
-  useWorktree?: boolean;
-  contextScenario?: ContextScenario;
-  teamLogUpToEntryId?: string;
-  traceId?: string;
-  contextReport?: ContextReport;
-  contextSnapshot?: ContextSnapshot;
-  workContract?: WorkContract;
-  evaluation?: InvocationDispatchPlan['evaluation'];
-  legacyProposal?: boolean;
-};
-
-export function submitSocketTerminalStart(
-  coordinator: Pick<InvocationCoordinator, 'submit'>,
-  payload: TerminalStartPayload,
-): InvocationSubmission {
-  const conversationId = payload.conversationId?.trim();
-  if (!conversationId) throw new Error('conversation_missing: terminal:start requires conversationId');
-  return coordinator.submit({
-    id: payload.dispatchId?.trim() || `socket:${Date.now()}:${Math.random().toString(36).slice(2, 10)}`,
-    idempotencyKey: payload.dispatchId?.trim() || undefined,
-    source: payload.dispatchSource ?? 'user',
-    conversationId,
-    taskId: payload.taskId,
-    agentId: payload.agentId,
-    prompt: payload.prompt,
-    fromAgentId: payload.fromAgentId,
-    chainId: payload.chainId,
-    passId: payload.passId,
-    legacyProposal: payload.legacyProposal,
-  });
-}
+import {
+  DaemonExecutionAdapter,
+  type DaemonExecutionDispatchContext,
+} from './daemon-execution-adapter';
 
 type AgentActivityStatus = 'running' | 'awaiting_children' | 'idle';
 
@@ -233,66 +177,48 @@ export default function registerDaemon(io: IOServer) {
     publish: (projectId, event) => projectViewPublisher.publish(projectId, event),
   });
   const dispatchGateway = new DispatchGateway();
-  // Deferred until after the Agent Runtime port is constructed; the port closes over this handler.
+  // Deferred until the ACP execution backend has finished constructing its local dependencies.
   // eslint-disable-next-line prefer-const
-  let handleTerminalStart: ((payload: TerminalStartPayload, emitToRequester: (event: string, data: unknown) => void) => Promise<void>) | undefined;
+  let executePlan: ((
+    plan: InvocationDispatchPlan,
+    dispatch: DaemonExecutionDispatchContext,
+  ) => Promise<void>) | undefined;
 
+  const executionAdapter = new DaemonExecutionAdapter({
+    nodeId: LOCAL_DAEMON_NODE_ID,
+    dispatch: dispatchGateway,
+    resolveTargetNodeId(plan) {
+      return agentBindingRepo.get(
+        plan.trigger.conversationId,
+        plan.trigger.agentId,
+      )?.node_id ?? LOCAL_DAEMON_NODE_ID;
+    },
+    backend: {
+      isBusy(agentId, deliveryId) {
+        return activeProcesses.has(processKey(agentId, deliveryId));
+      },
+      reserve(plan) {
+        const key = processKey(plan.trigger.agentId, plan.trigger.conversationId);
+        return processStartGuard.claim(key, activeProcesses.has(key), false);
+      },
+      release(plan) {
+        processStartGuard.release(processKey(
+          plan.trigger.agentId,
+          plan.trigger.conversationId,
+        ));
+      },
+      async execute(plan, dispatch) {
+        if (!executePlan) throw new Error('daemon execution backend is not ready');
+        await executePlan(plan, dispatch);
+      },
+    },
+  });
   const invocationCoordinator = new InvocationCoordinator({
     planner: new InvocationPlanner(),
     failureEvents: new InvocationFailureEventPublisher({
       runtimeActorId: LOCAL_DAEMON_NODE_ID,
     }),
-    runtime: {
-      isBusy(agentId, conversationId) {
-        return activeProcesses.has(processKey(agentId, conversationId));
-      },
-      async execute(plan: InvocationDispatchPlan): Promise<InvocationDispatchOutcome> {
-        if (!handleTerminalStart) {
-          return { status: 'failed', reasonCode: 'internal_error', message: 'daemon runtime port is not ready' };
-        }
-        await handleTerminalStart({
-          projectId: plan.trigger.conversationId,
-          conversationId: plan.trigger.conversationId,
-          taskId: plan.trigger.taskId,
-          agentId: plan.trigger.agentId,
-          prompt: plan.prompt,
-          systemPrompt: [
-            plan.systemPrompt,
-            renderWorkContractInstruction(plan.workContract),
-          ].filter(Boolean).join('\n\n'),
-          sourceNodeId: LOCAL_DAEMON_NODE_ID,
-          dispatchSource: plan.trigger.source,
-          dispatchIntent: plan.trigger.source === 'review_gate'
-            ? 'review'
-            : plan.trigger.source === 'test_gate'
-              ? 'verify'
-              : plan.trigger.source === 'a2a'
-                ? 'delegate'
-                : 'implement',
-          fromAgentId: plan.trigger.fromAgentId,
-          chainId: plan.trigger.chainId,
-          passId: plan.trigger.passId,
-          engine: plan.engine,
-          runtimeId: plan.runtimeId,
-          accountId: plan.accountId,
-          projectPath: plan.projectPath,
-          useWorktree: plan.useWorktree,
-          contextScenario: plan.contextScenario,
-          teamLogUpToEntryId: plan.teamLogUpToEntryId,
-          traceId: plan.traceId,
-          contextReport: plan.contextReport,
-          contextSnapshot: plan.contextSnapshot,
-          workContract: plan.workContract,
-          evaluation: plan.evaluation,
-        }, (event, data) => {
-          const scopedData = data && typeof data === 'object'
-            ? { ...(data as Record<string, unknown>), projectId: plan.trigger.conversationId }
-            : { value: data, projectId: plan.trigger.conversationId };
-          io.to(plan.trigger.conversationId).emit(event, scopedData);
-        });
-        return { status: 'accepted' };
-      },
-    },
+    runtime: executionAdapter,
   });
   registerInvocationCoordinator(io, invocationCoordinator);
   const agentInbox = new AgentInbox();
@@ -323,6 +249,7 @@ export default function registerDaemon(io: IOServer) {
 
   const runtimeHealthTimer = setInterval(() => {
     dispatchGateway.heartbeat(LOCAL_DAEMON_NODE_ID);
+    dispatchGateway.expireUnacknowledged();
     const now = Date.now();
     for (const node of runtimeNodeRepo.list()) {
       if (node.id === LOCAL_DAEMON_NODE_ID || node.status === 'suspended') continue;
@@ -334,89 +261,8 @@ export default function registerDaemon(io: IOServer) {
   }, RUNTIME_HEARTBEAT_INTERVAL_MS);
   runtimeHealthTimer.unref();
 
-  const autonomyWakeupPublishedAt = new Map<string, number>();
-  let lastTeamLogArchiveSweepAt = 0;
-  const autonomyGuardTimer = setInterval(() => {
-    const now = Date.now();
-    for (const [key, timestamp] of autonomyWakeupPublishedAt) {
-      if (now - timestamp > 2 * 60 * 1000) autonomyWakeupPublishedAt.delete(key);
-    }
-
-    const tasks = taskRepo.list();
-    const conversationIds = Array.from(new Set(tasks.map((task) => task.conversation_id)));
-    if (now - lastTeamLogArchiveSweepAt >= 24 * 60 * 60 * 1000) {
-      for (const conversationId of conversationIds) {
-        try {
-          teamLogProjection.materializeRegistered(conversationId);
-        } catch (error) {
-          console.warn(`[team-log] daily archive sweep failed for ${conversationId}:`, error);
-        }
-      }
-      lastTeamLogArchiveSweepAt = now;
-    }
-    for (const conversationId of conversationIds) {
-      const conversationTasks = tasks.filter((task) => task.conversation_id === conversationId);
-      const audience = resolveTaskNotificationAudience(conversationId);
-      const closureProofs = proofLogRepo.findByType({
-        eventType: 'chain_closure_dispatched',
-        conversationId,
-        reasonCode: 'chain_ready_for_closure',
-      });
-      const wakeups = resolveAutonomyGuardWakeups({
-        tasks: conversationTasks,
-        envelopes: executionEnvelopeRepo.listByConversation(conversationId),
-        coordinatorAgentIds: audience.coordinatorAgentIds,
-        reviewAgentIds: audience.reviewGateAgentIds,
-        qaAgentIds: audience.qaAgentIds,
-        edges: taskGraphRepo.listEdges(conversationId),
-        closureDispatchedRootTaskIds: closureProofs
-          .map((proof) => proof.task_id)
-          .filter((taskId): taskId is string => Boolean(taskId)),
-      });
-      for (const wakeup of wakeups) {
-        const key = wakeup.metadata.idempotencyKey;
-        if (autonomyWakeupPublishedAt.has(key)) continue;
-        autonomyWakeupPublishedAt.set(key, now);
-        proofLogRepo.append({
-          eventType: 'autonomy_guard.wakeup',
-          conversationId: wakeup.conversationId,
-          taskId: wakeup.taskId,
-          agentId: wakeup.agentId,
-          reasonCode: wakeup.reasonCode,
-          metadata: {
-            dispatchSource: wakeup.dispatchSource,
-            idempotencyKey: key,
-          },
-        });
-        const submission = submitTaskWakeupToInvocationPipeline(io, wakeup);
-        if (
-          wakeup.reasonCode === 'chain_ready_for_closure'
-          && submission?.handled
-          && submission.disposition === 'accepted'
-        ) {
-          proofLogRepo.append({
-            eventType: 'chain_closure_dispatched',
-            conversationId: wakeup.conversationId,
-            taskId: wakeup.metadata.rootTaskId ?? wakeup.taskId,
-            agentId: wakeup.agentId,
-            reasonCode: wakeup.reasonCode,
-            metadata: {
-              idempotencyKey: key,
-              subtreeSize: wakeup.metadata.subtreeSize,
-              partial: wakeup.metadata.partial,
-            },
-          });
-        }
-        io.to(wakeup.conversationId).emit('task.wakeup', {
-          ...wakeup,
-          projectId: wakeup.conversationId,
-          id: `wakeup-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-          createdAt: new Date().toISOString(),
-        });
-      }
-    }
-  }, Number(process.env.AUTONOMY_GUARD_INTERVAL_MS || 60_000));
-  autonomyGuardTimer.unref();
+  const autonomyGuardOwner = new AutonomyGuardOwner({ io });
+  autonomyGuardOwner.start();
 
   const workspacesRoot = process.env.ATH_WORKSPACES_ROOT || join(/*turbopackIgnore: true*/ process.cwd(), '.ath', 'workspaces');
   const workdirManager = new WorkdirManager(workspacesRoot);
@@ -532,83 +378,56 @@ export default function registerDaemon(io: IOServer) {
     })();
   });
 
-  handleTerminalStart = async ({
-        projectId,
-        taskId,
-        agentId,
-        prompt: incomingPrompt,
-        systemPrompt,
-        conversationId,
-        sourceNodeId,
-        dispatchSource,
-        dispatchIntent,
-        fromAgentId,
-        chainId,
-        passId,
-        engine: rawEngine,
-        runtimeId,
-        accountId,
-        force,
-        projectSlug,
-        projectPath,
-        useWorktree,
-        contextScenario,
-        teamLogUpToEntryId,
-        traceId: requestedTraceId,
-        contextReport,
-        contextSnapshot,
-        workContract,
-        evaluation,
-      }: TerminalStartPayload, emitToRequester) => {
-      const startKey = processKey(agentId, projectId || conversationId);
-      if (!processStartGuard.claim(startKey, activeProcesses.has(startKey), Boolean(force))) {
-        const busyProjectId = conversationId?.trim() || projectId?.trim();
-        if (busyProjectId) {
-          projectViewPublisher.publish(busyProjectId, {
-            kind: 'runtime.warning',
-            agentId,
-            payload: {
-              message: 'Agent is already starting or running',
-              reasonCode: 'agent_busy',
-            },
-          });
-          projectViewPublisher.publish(busyProjectId, {
-            kind: 'terminal.exited',
-            agentId,
-            payload: { code: 1, command: 'dispatch', reasonCode: 'agent_busy' },
-          });
-        } else {
-          emitToRequester('command:error', {
-            command: 'terminal:start',
-            agentId,
-            message: 'Agent is already starting or running',
-            reasonCode: 'agent_busy',
-          });
-        }
-        return;
-      }
-      console.log(`[daemon] terminal:start agent=${agentId}, engine=${rawEngine}, accountId=${accountId ?? '(none)'}, force=${force}, busy=${activeProcesses.has(processKey(agentId, projectId))}`);
+  executePlan = async (
+    plan: InvocationDispatchPlan,
+    dispatch: DaemonExecutionDispatchContext,
+  ) => {
+      const projectId = plan.trigger.conversationId;
+      const conversationId = projectId;
+      const taskId = plan.trigger.taskId;
+      const agentId = plan.trigger.agentId;
+      const incomingPrompt = plan.prompt;
+      const systemPrompt = [
+        plan.systemPrompt,
+        renderWorkContractInstruction(plan.workContract),
+      ].filter(Boolean).join('\n\n');
+      const targetNodeId = dispatch.targetNodeId;
+      const dispatchSource = plan.trigger.source;
+      const chainId = plan.trigger.chainId;
+      const passId = plan.trigger.passId;
+      const rawEngine = plan.engine;
+      const runtimeId = plan.runtimeId;
+      const accountId = plan.accountId;
+      const projectSlug = projectId;
+      const projectPath = plan.projectPath;
+      const useWorktree = plan.useWorktree;
+      const contextScenario = plan.contextScenario;
+      const teamLogUpToEntryId = plan.teamLogUpToEntryId;
+      const requestedTraceId = plan.traceId;
+      const contextReport = plan.contextReport;
+      const contextSnapshot = plan.contextSnapshot;
+      const workContract = plan.workContract;
+      const evaluation = plan.evaluation;
+      const startKey = processKey(agentId, projectId);
+      console.log(`[daemon] execute agent=${agentId}, engine=${rawEngine}, accountId=${accountId ?? '(none)'}, busy=${activeProcesses.has(processKey(agentId, projectId))}`);
       console.log(`[daemon] systemPrompt=${systemPrompt ? `${systemPrompt.length} chars` : '(none)'}, prompt=${incomingPrompt ? `${incomingPrompt.length} chars` : '(none)'}`);
       let primaryCommand = 'unknown';
       let runtimeConfigDir: string | undefined;
-      let controlEnvelopeId: string | undefined;
+      const controlEnvelopeId = dispatch.envelopeId;
       let invocationTraceId = workContract?.correlationId ?? requestedTraceId;
       let rootObservationSpanId: string | undefined;
       let evaluationObservedDigest: string | undefined;
       let runtimeContextObservationRecorded = false;
       let finishObservation: (status: 'ok' | 'error' | 'cancelled', errorMessage?: string) => void = () => {};
       // ACP per-runtime cleanup (e.g. codex temp CODEX_HOME). Declared here so
-      // the outer catch (terminal:start error) can clean up if setup succeeds
+      // the outer execution catch can clean up if setup succeeds
       // but a later step throws before the execute IIFE takes over.
       let acpCleanup: (() => void) | undefined;
       let revokeAcpTools: (() => void) | undefined;
       let runtimeEventCoordinator: AcpRuntimeEventCoordinator | undefined;
 
       try {
-      if (!conversationId && !projectId) {
-        throw new Error('session_scope_missing: terminal:start requires conversationId or projectId');
-      }
-      const sessionConvId = conversationId || projectId!;
+      const sessionConvId = projectId;
       const publishRuntimeWarning = (message: string, reasonCode?: string) => {
         projectViewPublisher.publish(sessionConvId, {
           kind: 'runtime.warning',
@@ -661,11 +480,6 @@ export default function registerDaemon(io: IOServer) {
           createdAt: new Date().toISOString(),
         });
       };
-      const acknowledgeEnvelope = () => {
-        if (!controlEnvelopeId) return;
-        dispatchGateway.acknowledge(controlEnvelopeId);
-        emitDispatchReceipt('acknowledged');
-      };
       const markExecutionCompleted = () => {
         finishObservation('ok');
         if (!controlEnvelopeId) return;
@@ -691,53 +505,17 @@ export default function registerDaemon(io: IOServer) {
       primaryCommand = ENGINE_COMMAND[engine];
       const executionAccount = await resolveExecutionAccount(accountId, engine);
 
-      const targetNodeId = LOCAL_DAEMON_NODE_ID;
-
-      const envelope = dispatchGateway.requestDispatch({
-        source: dispatchSource ?? 'user',
-        intent: dispatchIntent ?? 'answer',
-        conversationId: sessionConvId,
-        taskId,
-        chainId,
-        passId,
-        fromNodeId: sourceNodeId ?? 'browser:unknown',
-        fromAgentId,
-        toNodeId: targetNodeId,
-        toAgentId: agentId,
-        runtimeId: effectiveRuntimeId,
-        payload: {
-          prompt: prompt || '',
-          contextRefs: [
-            ...(taskId ? [`task:${taskId}`] : []),
-            ...(chainId ? [`chain:${chainId}`] : []),
-            ...(passId ? [`pass:${passId}`] : []),
-          ],
-        },
-      });
-      controlEnvelopeId = envelope.id;
-      emitDispatchReceipt('requested', envelope.reason_code ?? undefined);
-
-      if (envelope.status === 'rejected') {
-        emitDispatchReceipt('rejected', envelope.reason_code ?? 'runtime_rejected');
-        publishRuntimeWarning(
-          `目标运行实例不可达：${envelope.reason_code ?? 'blocked'}`,
-          envelope.reason_code ?? 'runtime_blocked',
-        );
-        return;
+      const envelope = executionEnvelopeRepo.getById(controlEnvelopeId);
+      if (
+        !envelope
+        || envelope.to_node_id !== LOCAL_DAEMON_NODE_ID
+        || envelope.status !== 'acknowledged'
+      ) {
+        throw new Error('directed_execution_envelope_not_acknowledged');
       }
-
-      // Only kill existing process on explicit force send
-      if (force && activeProcesses.has(processKey(agentId, projectId))) {
-        activeProcesses.get(processKey(agentId, projectId))?.kill();
-      }
-      // If agent is busy and not forcing, reject silently — client should have queued
-      if (!force && activeProcesses.has(processKey(agentId, projectId))) {
-        markExecutionOrEnvelopeFailed('agent_busy');
-        publishRuntimeWarning('Agent is busy, message queued', 'agent_busy');
-        return;
-      }
-      dispatchGateway.markSent(controlEnvelopeId);
+      emitDispatchReceipt('requested');
       emitDispatchReceipt('sent');
+      emitDispatchReceipt('acknowledged');
 
       const credentialEnv = executionAccount?.env ?? {};
 
@@ -1480,8 +1258,6 @@ export default function registerDaemon(io: IOServer) {
 
       activeProcesses.set(processKey(agentId, projectId), { kill });
       processStartGuard.markStarted(startKey);
-      acknowledgeEnvelope();
-
       // Consume events and forward to socket
       (async () => {
         try {
@@ -1716,7 +1492,7 @@ export default function registerDaemon(io: IOServer) {
         }
       })();
       } catch (err) {
-        console.error(`[daemon] terminal:start error for agent=${agentId}:`, err);
+        console.error(`[daemon] execution error for agent=${agentId}:`, err);
         finishObservation('error', 'internal_error');
         runtimeEventCoordinator?.failSetup('internal_error');
         if (evaluation) {
@@ -1738,7 +1514,7 @@ export default function registerDaemon(io: IOServer) {
           }
         }
         if (controlEnvelopeId) {
-          const receiptConversationId = conversationId || projectId || 'default';
+          const receiptConversationId = projectId;
           const current = executionEnvelopeRepo.getById(controlEnvelopeId);
           if (current?.status === 'acknowledged') {
             dispatchGateway.markExecutionFailed(controlEnvelopeId, 'internal_error');
@@ -1759,96 +1535,31 @@ export default function registerDaemon(io: IOServer) {
             });
           }
         }
-        const failureProjectId = conversationId?.trim() || projectId?.trim();
-        if (failureProjectId) {
-          projectViewPublisher.publish(failureProjectId, {
-            kind: 'runtime.warning',
-            agentId,
-            payload: {
-              message: `内部错误：${(err as Error)?.message || '未知'}`,
-              reasonCode: 'internal_error',
-            },
-          });
-          projectViewPublisher.publish(failureProjectId, {
-            kind: 'terminal.exited',
-            agentId,
-            payload: {
-              code: 1,
-              command: primaryCommand,
-              reasonCode: 'internal_error',
-            },
-          });
-        } else {
-          emitToRequester('command:error', {
-            command: 'terminal:start',
-            agentId,
+        projectViewPublisher.publish(projectId, {
+          kind: 'runtime.warning',
+          agentId,
+          payload: {
             message: `内部错误：${(err as Error)?.message || '未知'}`,
             reasonCode: 'internal_error',
-          });
-        }
+          },
+        });
+        projectViewPublisher.publish(projectId, {
+          kind: 'terminal.exited',
+          agentId,
+          payload: {
+            code: 1,
+            command: primaryCommand,
+            reasonCode: 'internal_error',
+          },
+        });
         activeProcesses.delete(processKey(agentId, projectId));
         if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
         acpCleanup?.();
         revokeAcpTools?.();
-      } finally {
-        processStartGuard.release(startKey);
       }
     };
 
   io.on('connection', (socket: Socket) => {
-    socket.on('terminal:start', (payload: TerminalStartPayload) => {
-      try {
-        const submission = submitSocketTerminalStart(invocationCoordinator, payload);
-        void submission.completion.then((outcome) => {
-          if (outcome.status === 'accepted') return;
-          const reasonCode = 'reasonCode' in outcome ? outcome.reasonCode : 'internal_error';
-          const projectId = payload.conversationId?.trim() || payload.projectId?.trim();
-          if (!projectId) return;
-          projectViewPublisher.publish(projectId, {
-            kind: 'runtime.warning',
-            agentId: payload.agentId,
-            payload: { message: `派发被服务端阻止：${reasonCode}`, reasonCode },
-          });
-          projectViewPublisher.publish(projectId, {
-            kind: 'terminal.exited',
-            agentId: payload.agentId,
-            payload: { code: 1, command: 'harness', reasonCode },
-          });
-        });
-      } catch (error) {
-        const commandProjectId = payload.conversationId?.trim() || payload.projectId?.trim();
-        socket.emit('command:error', {
-          command: 'terminal:start',
-          projectId: commandProjectId,
-          agentId: payload.agentId,
-          message: (error as Error).message,
-          reasonCode: 'conversation_missing',
-        });
-      }
-    });
-
-    // Force-kill a running agent process
-    socket.on('terminal:kill', ({ agentId, projectId: killProjectId, force }: { agentId: string; projectId?: string; force?: boolean }) => {
-      if (!killProjectId?.trim()) {
-        socket.emit('command:error', { command: 'terminal:kill', reasonCode: 'project_id_required' });
-        return;
-      }
-      const key = processKey(agentId, killProjectId);
-      if (activeProcesses.has(key)) {
-        activeProcesses.get(key)?.kill();
-        activeProcesses.delete(key);
-        projectViewPublisher.publish(killProjectId, {
-          kind: 'terminal.exited',
-          agentId,
-          payload: {
-            code: 0,
-            command: 'kill',
-            reasonCode: force ? 'force_killed' : 'killed',
-          },
-        });
-      }
-    });
-
     socket.on('daemon:status', ({ projectId }: { projectId?: string }, callback) => {
       const activeAgents: Record<string, { taskId?: string; conversationId?: string }> = {};
       const normalizedProjectId = projectId?.trim();
@@ -1909,7 +1620,7 @@ export default function registerDaemon(io: IOServer) {
     agentInboxScheduler.stop();
     stopWorktreeGCScheduler();
     clearInterval(runtimeHealthTimer);
-    clearInterval(autonomyGuardTimer);
+    autonomyGuardOwner.stop();
     for (const active of activeProcesses.values()) active.kill();
     activeProcesses.clear();
   };

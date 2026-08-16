@@ -33,10 +33,12 @@
 - conversation create/update/delete
 - task create/update/updateStatus
 - message append
-- dispatch enqueue（dispatch 持久化入队）
 - ATH breakdown 初始化
 
 Task 取消统一走 `/api/task-graph` 的 `cancelTask` owner command。Session create/bind/seal 与 Invocation create/transition 属于服务端 Runtime owner，不向浏览器 mutation 暴露；前端只读取 `/api/state` 与 runtime projection。
+
+人的补充要求、规划请求与任务进度请求走 `/api/human-commands`，由 `HumanCommandService` 返回持久
+`human_command_receipt`；`dispatch.enqueue/cancel` 已从通用 mutation 入口移除。
 
 Phase 读取与写入统一由 `/api/phases` 承担；通用 mutation 不再重复暴露 phase upsert/delete。
 
@@ -66,6 +68,10 @@ TeamPack 会话的服务端任务创建会经过 [`src/server/team-runtime/task-
 当前数据库技术栈：
 
 - `better-sqlite3`
+
+数据库 migration 当前推进到 v82；v81 新增 `task_command_rejection_receipt`，用于冻结 Task 证据 Gate 的拒绝响应，
+并与对应恢复 `agent_inbox_item` 在同一事务提交；v82 将其交付/任务关联改为不可变审计标识，聚合删除不会清除回执。
+相同幂等键只重放已持久结果，内容漂移返回冲突。
 
 数据库包含以下表（migration v2 新增 skill 相关 3 张表，v4-v5 新增 dispatch 追踪列）：
 
@@ -116,10 +122,13 @@ Repository 当前覆盖的核心对象：
 
 ## 4.3 Daemon 当前职责
 
-[`src/server/daemon.ts`](../../src/server/daemon.ts) 不再只是 stdout 转发器，而是执行编排中心：
+[`src/server/daemon.ts`](../../src/server/daemon.ts) 是服务端执行器，接收 Invocation Planner 已裁决的
+`InvocationDispatchPlan`：
 
-- 接收 `terminal:start`
-- 解析 engine / runtime / account 上下文
+- 通过 [`DaemonExecutionAdapter`](../../src/server/daemon-execution-adapter.ts) 暴露最小 `isBusy + execute(plan)` 端口；
+  Adapter 先原子占用本地 agent + delivery 进程键，占位成功后才建立定向 envelope、完成 `sent -> acknowledged`，
+  再进入慢速 backend setup；并发 activation 在 envelope 创建前以 `agent_busy` 延后
+- 使用 Plan 中已裁决的 engine / runtime / account / context / WorkContract
 - 查找或创建 agent session
 - 创建 invocation 记录
 - 选择 Agent Backend
@@ -133,53 +142,35 @@ Repository 当前覆盖的核心对象：
 - timeout 管理
 - ACP 统一通路：经 Agent Catalog 查表 → `AcpBackend` → ACP JSON-RPC over stdio 驱动运行时（见 4.6）
 - 任务创建经过 DispatchAdvisor 步骤，以编程式匹配将任务分配到 agent（基于 capability profiles、当前负载和 forbidden actions）
-- Dispatch 持久化：入队时写入 SQLite invocation 表，崩溃后可恢复；同 agent+task 的 dispatch 自动合并（coalescing）
+- Execution Envelope 定向路由：只投递到明确 `toNodeId`；不可达目标在路由前拒绝，`sent` 后无 ACK 的 envelope
+  周期过期为 `ack_timeout`；已 ACK 的延迟启动不会过期或遗留失管进程
 - Workdir 隔离：每次执行分配独立 `cwd`（`.ath/workspaces/{projectId}/{agentId}/task-{taskId}/workdir/`），跨 task 共享 `base/` 基础环境
 - Session resume 降级：resume 失败时自动以 fresh session 重试，保持同一 workdir
 - Token 追踪：从 CLI 流式输出提取 token 用量，按 invocation 持久化
 - Tool 拦截：识别 skill 定义的自定义 tool_use（非原生 tool），路由到内部 API
 - GC：启动时清理过期 task 工作目录（24h TTL），active root 引用计数保护
 
-Daemon 的边界是执行编排，不是团队规则解释器：
+Daemon 的边界是执行，不是团队规则解释器：
 
-- 前端 dispatch 已经把 `RuntimeAgentProfile` 解析成 `terminal:start` payload 中的 `agentId`、`engine`、`accountId`、prompt 上下文。
+- 当前发布只连接单个本地 daemon executor。非本地 `toNodeId` 以
+  `runtime_executor_not_connected` fail closed；跨节点 transport consumer 尚未实现，不能把目标拓扑描述成现有能力。
+
+- Invocation Planner 在进入 Adapter 前完成 Team、Skill、Context、WorkContract 和 Runtime Profile 裁决。
 - A2A 使用 [`src/server/a2a/runtime-snapshot-provider.ts`](../../src/server/a2a/runtime-snapshot-provider.ts) 从 repository 和 Team Runtime Contract 读取当前会话 roster 与通信规则。
 - 服务端任务创建使用 [`src/server/team-runtime/task-assignment.ts`](../../src/server/team-runtime/task-assignment.ts) 读取 `TeamRuntime.initialAgentId`，为空时才回退到 runtime roster 首成员。
 - Daemon 不直接读取前端 store，也不在执行循环中手写 TeamPack workflow 或通信矩阵判断。
+- Task Graph 的恢复、closure wakeup 和归档扫描由独立
+  [`AutonomyGuardOwner`](../../src/server/control-plane/autonomy-guard-owner.ts) 决策；它可与 executor 同进程部署，
+  但不属于 daemon transport 或 ExecutionAdapter。
 
 ## 4.4 Socket 事件协议
 
-### 输入事件：`terminal:start`
+### 输入事件
 
-当前 payload 已明显扩展：
+浏览器不再拥有执行输入事件：`terminal:start` 与 `terminal:kill` Socket 命令均已删除。服务端内部入口是
+`AgentInbox/Task Wakeup -> InvocationCoordinator -> InvocationPlanner -> DaemonExecutionAdapter`。
 
-```ts
-{
-  projectId?,
-  taskId?,
-  agentId,
-  prompt,
-  systemPrompt?,
-  sessionId?,
-  conversationId?,
-  engine?,
-  runtimeId?,
-  accountId?,
-  force?,
-  projectSlug?
-}
-```
-
-其中当前实际起主要作用的字段是：
-
-- `agentId`
-- `prompt`
-- `taskId`
-- `conversationId`
-- `engine`
-- `runtimeId`
-- `accountId`
-- `force`
+`daemon:status` 是当前保留的只读 Socket 查询，只用于按项目水合活动 Agent，不具备启动、取消、重试或恢复写权限。
 
 ### 输出事件
 
@@ -395,13 +386,13 @@ Invocation 状态校验、合法迁移矩阵和错误构造是 repository 内部
 
 Skill 执行当前不再直接依赖 runtime 原生目录发现。`src/server/skills/skill-runtime.ts` 是统一入口：安装时校验 `<name>/SKILL.md`、生成稳定 content hash、写入受管不可变目录并记录 revision；执行时根据 `agent_skill` 绑定编译固定版本。
 
-每轮 dispatch 在 runtime 选择之前完成 Skill 编译。浏览器 Socket 派发也只提交原始输入并统一进入服务端 Harness，不能直接调用 runtime。`SKILL.md` 正文进入 capability context，`references/`、`scripts/`、`assets/` 只成为按需路径索引。ContextReport 记录 eligible、activated、loaded、revision、hash、reason 和 token；必需 Skill 未实际进入最终 Prompt 时阻断执行。OpenCode 项目原生 skillPaths 会过滤掉与平台本轮托管 Skill 重名的目录，非重名原生 Skill 保持可发现。
+每轮 dispatch 在 runtime 选择之前完成 Skill 编译。浏览器 Human/Task Command 只提交原始意图并统一进入服务端 Harness，不能直接调用 runtime。`SKILL.md` 正文进入 capability context，`references/`、`scripts/`、`assets/` 只成为按需路径索引。ContextReport 记录 eligible、activated、loaded、revision、hash、reason 和 token；必需 Skill 未实际进入最终 Prompt 时阻断执行。OpenCode 项目原生 skillPaths 会过滤掉与平台本轮托管 Skill 重名的目录，非重名原生 Skill 保持可发现。
 
 旧 `skill.content + skill_file` 仍是兼容编辑入口；名称、描述、正文、config 或文件变化会使活动 revision 失效，并在下一次使用时生成新版本。旧名称迁移使用稳定、防碰撞的 package slug，不改变 Skill ID、显示名或绑定。工具 config 纳入 revision hash并随 revision 固化。包校验失败会写入有界失败 span/proof、阻断执行并返回稳定 reason code，失败 decision 已可从观测投影和调试页查看。长期设计与错误码见 `docs/technical/execution/skill-package-progressive-loading.md`。
 
 ## 4.4 Agent Session 身份边界
 
-Daemon 不接受浏览器缓存作为会话恢复依据。正式 dispatch 必须携带 `conversationId` 或 `projectId`；缺失 scope 时返回 `session_scope_missing`，不再落入共享的 `default` scope。
+Daemon 不接受浏览器缓存作为会话恢复依据。正式 `InvocationDispatchPlan` 必须携带 Delivery/Conversation scope；Planner 缺失 scope 时失败关闭，不再落入共享的 `default` scope。
 
 每次 dispatch 先取得或原子创建 `(conversation_id, agent_id)` 唯一的 active Logical Agent Session，再创建引用它的 Invocation。Logical Session 尚未绑定 runtime id 时，ACP 使用 `session/new`，首个返回 id 通过 compare-and-set 写入；已经绑定时使用 `session/load`。任何不同 id 都视为 `session_identity_changed`，不会覆盖数据库状态。timeout、cancel 或 adapter 退出不会自动 seal Session，下一轮仍恢复原 id。
 
@@ -414,6 +405,6 @@ Invocation 前比较本次解析出的 Profile；任一字段变化都先把旧 
 把 Codex 创建的 session id 交给 Claude（或把一个账号的 session id 交给另一个账号）后才收到
 `Resource not found`。
 
-前端 `agentSessions` 是服务端状态的显示缓存：hydrate 时以 `/api/state.activeSessions` 整体替换，不与 localStorage 合并，也不在 `terminal:start` 中回传 session id。
+前端 `agentSessions` 是服务端状态的显示缓存：hydrate 时以 `/api/state.activeSessions` 整体替换，不与 localStorage 合并，也不随 Human/Task Command 回传 session id。
 
 首次 `session/new` 的 resource 可能直到 prompt 成功结束才由 adapter 持久化。因此新 binding 在首个 Invocation 成功前属于 unconfirmed：若该轮取消、超时或失败，daemon 清除该 binding；若 daemon 在清理前异常退出，下一次 dispatch 会根据“存在 Invocation 记录但从未成功”的证据做同样的预检修复。已经成功使用过的 confirmed binding 不执行此恢复，load 失败时保留原 identity 并向用户报告错误。

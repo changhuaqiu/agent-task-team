@@ -250,6 +250,7 @@ export const executionEnvelopeRepo = {
         if (executionEnvelopeRepo.transition(row.id, {
           to: 'expired',
           expectedFrom: envelope.status,
+          reasonCode: envelope.status === 'sent' ? 'ack_timeout' : 'dispatch_ttl_expired',
         })) changed += 1;
       }
       return changed;

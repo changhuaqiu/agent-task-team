@@ -263,9 +263,8 @@ Observability 和 Audit 是横跨所有 module seam 的只读投影；Evaluation
 
 #### 执行入口仍然分散
 
-前端 `dispatchToAgent()` / `terminal:start` 只允许由人的点击、输入或确认调用，属于
-Human Command adapter。A2A、Task Wakeup、质量门、恢复与重试均由服务端
-Agent Inbox / Harness 推进；Socket 展示消费者不能复用这些入口。因此浏览器不再是
+前端只允许由人的点击、输入或确认提交 Human/Task Command。A2A、Task Wakeup、质量门、恢复与重试均由服务端
+Agent Inbox / Harness 推进；Socket 展示消费者不能复用这些入口，`terminal:start` / `terminal:kill` 旁路已删除。因此浏览器不再是
 自动执行 owner。
 
 后果：
@@ -335,7 +334,7 @@ Intent
 
 - 前端 Store 只提交 intent、订阅状态；
 - daemon 只消费 Envelope、回报生命周期；
-- `terminal:start` 降级为 transport adapter；
+- Daemon ExecutionAdapter 只接受已裁决的 `InvocationDispatchPlan`；
 - Dispatch Gateway 成为唯一 started/failed/terminal 权威入口；
 - 完成 directed routing、ACK、ContinueGate 和 circuit breaker。
 - 退役 A2A 的 `buildDispatchContext()` / `renderDispatchPrompt()` 平行组装路径，让交接上下文也经过 ContextManager；

@@ -90,6 +90,16 @@ describe('project view isolation', () => {
     expect(useTaskHubStore.getState().terminalLogs).toEqual({});
   });
 
+  it('rejects empty project scope and unsupported envelope versions', () => {
+    const before = useTaskHubStore.getState();
+    expect(consumeProjectViewEvent(envelope('', 'terminal.output'))).toBe(false);
+    expect(consumeProjectViewEvent({
+      ...envelope('project-a', 'terminal.output'),
+      version: 2,
+    } as never)).toBe(false);
+    expect(useTaskHubStore.getState()).toBe(before);
+  });
+
   it('applies an event from the selected project', () => {
     expect(consumeProjectViewEvent(envelope('project-a', 'terminal.output'))).toBe(true);
     expect(useTaskHubStore.getState().terminalLogs.mario).toEqual(['hello\r\n']);
@@ -230,23 +240,6 @@ describe('project view isolation', () => {
     });
   });
 
-  it('keeps explicit human commands available', async () => {
-    const emit = vi.spyOn(socket, 'emit').mockImplementation(() => socket);
-    const accepted = await useTaskHubStore.getState().dispatchToAgent({
-      agentId: 'mario',
-      conversationId: 'project-a',
-      prompt: 'human typed command',
-      source: 'user',
-    });
-
-    expect(accepted).toBe(true);
-    expect(emit).toHaveBeenCalledWith('terminal:start', expect.objectContaining({
-      projectId: 'project-a',
-      conversationId: 'project-a',
-      prompt: 'human typed command',
-      dispatchSource: 'user',
-    }));
-  });
   it('scopes task.sync updates by project when task ids collide', () => {
     const unchangedAt = '2026-07-26T00:00:00.000Z';
     useTaskHubStore.setState({

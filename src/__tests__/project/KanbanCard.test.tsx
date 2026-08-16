@@ -41,6 +41,7 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     createdAt: '2026-01-01T00:00:00Z',
     updatedAt: '2026-01-01T00:00:00Z',
     ...overrides,
+    revision: overrides.revision ?? 0,
   };
 }
 

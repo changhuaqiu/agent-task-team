@@ -51,7 +51,7 @@
 
 新增深模块 `SkillRuntime`，外部接口只暴露 `install()` 和 `compile()`。ContextManager 不解析目录或查询 Skill 仓储。
 
-所有浏览器 `terminal:start` 请求只携带原始用户输入，必须先进入服务端 Harness planner；客户端组装的 prompt、system prompt、Skill 列表或 revision 证据均不具权威性。只有 planner 成功后，daemon runtime port 才能执行。
+所有浏览器 Human/Task Command 只携带原始用户意图并进入服务端 Harness planner；客户端组装的 prompt、system prompt、Skill 列表或 revision 证据均不具权威性。只有 planner 成功后，daemon runtime port 才能执行。
 
 ### 4.4 第一阶段激活
 

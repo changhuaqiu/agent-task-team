@@ -3546,6 +3546,123 @@ END;
     version: 78,
     sql: `DROP TABLE IF EXISTS agent_team_pack;`,
   },
+  {
+    version: 79,
+    sql: `
+CREATE TABLE IF NOT EXISTS human_command_receipt (
+  id TEXT PRIMARY KEY,
+  idempotency_key TEXT NOT NULL UNIQUE,
+  request_digest TEXT NOT NULL,
+  command_type TEXT NOT NULL,
+  conversation_id TEXT NOT NULL REFERENCES conversation(id) ON DELETE CASCADE,
+  project_path TEXT NOT NULL,
+  actor_type TEXT NOT NULL,
+  actor_id TEXT NOT NULL,
+  receipt_json TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_human_command_receipt_conversation
+  ON human_command_receipt(conversation_id,created_at,id);
+`,
+  },
+  {
+    version: 80,
+    foreignKeysOff: true,
+    run: (db) => {
+      const tables = db.prepare(`
+        SELECT COUNT(*) AS count FROM sqlite_master
+        WHERE type='table' AND name IN ('human_command_receipt','conversation')
+      `).get() as { count: number };
+      if (tables.count !== 2) return;
+      db.exec(`
+        ALTER TABLE human_command_receipt RENAME TO human_command_receipt_v79;
+        CREATE TABLE human_command_receipt (
+          id TEXT PRIMARY KEY,
+          idempotency_key TEXT NOT NULL UNIQUE,
+          request_digest TEXT NOT NULL,
+          command_type TEXT NOT NULL,
+          conversation_id TEXT REFERENCES conversation(id) ON DELETE CASCADE,
+          project_path TEXT NOT NULL,
+          actor_type TEXT NOT NULL,
+          actor_id TEXT NOT NULL,
+          receipt_json TEXT NOT NULL,
+          created_at TEXT NOT NULL
+        );
+        INSERT INTO human_command_receipt (
+          id,idempotency_key,request_digest,command_type,conversation_id,
+          project_path,actor_type,actor_id,receipt_json,created_at
+        )
+        SELECT
+          id,idempotency_key,request_digest,command_type,conversation_id,
+          project_path,actor_type,actor_id,receipt_json,created_at
+        FROM human_command_receipt_v79;
+        DROP TABLE human_command_receipt_v79;
+        CREATE INDEX idx_human_command_receipt_conversation
+          ON human_command_receipt(conversation_id,created_at,id);
+      `);
+    },
+  },
+  {
+    version: 81,
+    sql: `
+CREATE TABLE IF NOT EXISTS task_command_rejection_receipt (
+  id TEXT PRIMARY KEY,
+  idempotency_key TEXT NOT NULL UNIQUE,
+  request_digest TEXT NOT NULL,
+  command_type TEXT NOT NULL,
+  conversation_id TEXT NOT NULL REFERENCES conversation(id) ON DELETE CASCADE,
+  task_id TEXT NOT NULL REFERENCES task(id) ON DELETE CASCADE,
+  expected_task_revision INTEGER NOT NULL CHECK(expected_task_revision >= 0),
+  response_json TEXT NOT NULL,
+  recovery_inbox_item_id TEXT REFERENCES agent_inbox_item(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_task_command_rejection_receipt_task
+  ON task_command_rejection_receipt(conversation_id,task_id,created_at,id);
+`,
+  },
+  {
+    version: 82,
+    foreignKeysOff: true,
+    run: (db) => {
+      const tables = db.prepare(`
+        SELECT COUNT(*) AS count FROM sqlite_master
+        WHERE type='table'
+          AND name IN ('task_command_rejection_receipt','conversation','agent_inbox_item')
+      `).get() as { count: number };
+      // Some recovery tests intentionally open partial historical checkpoints.
+      // As with migration v80, only rebuild the aggregate-linked table when
+      // the complete owning schema is present.
+      if (tables.count !== 3) return;
+      db.exec(`
+        ALTER TABLE task_command_rejection_receipt
+          RENAME TO task_command_rejection_receipt_v81;
+        CREATE TABLE task_command_rejection_receipt (
+          id TEXT PRIMARY KEY,
+          idempotency_key TEXT NOT NULL UNIQUE,
+          request_digest TEXT NOT NULL,
+          command_type TEXT NOT NULL,
+          conversation_id TEXT NOT NULL,
+          task_id TEXT NOT NULL,
+          expected_task_revision INTEGER NOT NULL CHECK(expected_task_revision >= 0),
+          response_json TEXT NOT NULL,
+          recovery_inbox_item_id TEXT REFERENCES agent_inbox_item(id) ON DELETE SET NULL,
+          created_at TEXT NOT NULL
+        );
+        INSERT INTO task_command_rejection_receipt (
+          id,idempotency_key,request_digest,command_type,conversation_id,task_id,
+          expected_task_revision,response_json,recovery_inbox_item_id,created_at
+        )
+        SELECT
+          id,idempotency_key,request_digest,command_type,conversation_id,task_id,
+          expected_task_revision,response_json,recovery_inbox_item_id,created_at
+        FROM task_command_rejection_receipt_v81;
+        DROP TABLE task_command_rejection_receipt_v81;
+        CREATE INDEX idx_task_command_rejection_receipt_task
+          ON task_command_rejection_receipt(conversation_id,task_id,created_at,id);
+      `);
+    },
+  },
 ];
 
 export function applyMigrations(db: Database.Database): void {

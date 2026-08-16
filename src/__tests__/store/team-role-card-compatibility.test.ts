@@ -283,36 +283,6 @@ describe('team role card compatibility', () => {
     expect(useTaskHubStore.getState().getAgentRuntimeProfile('planner')).not.toBe(firstProfile);
   });
 
-  it('records an aborted invocation and shows recovery guidance when a user dispatch has no executable profile', async () => {
-    const emitSpy = vi.spyOn(socket, 'emit');
-    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    vi.spyOn(global, 'fetch').mockResolvedValue({ ok: true } as Response);
-
-    await useTaskHubStore.getState().dispatchToAgent({
-      agentId: 'planner',
-      prompt: 'Draft a plan',
-      conversationId: 'conv-team',
-    });
-
-    const state = useTaskHubStore.getState();
-    expect(state.agentStatus.planner).not.toBe('busy');
-    expect(state.activeRunsByAgent.planner).toBeUndefined();
-    expect(emitSpy).not.toHaveBeenCalledWith('terminal:start', expect.anything());
-    expect(state.eventsByConversation['conv-team']).toContainEqual(expect.objectContaining({
-      type: 'invocation.aborted',
-      conversationId: 'conv-team',
-      payload: {
-        agentId: 'planner',
-        reasonCode: 'no_runtime_profile',
-        message: '请先为该角色绑定可用账号或执行引擎',
-      },
-    }));
-    expect(state.chatMessagesByConversation['conv-team']).toContainEqual(expect.objectContaining({
-      agentId: 'system',
-      content: '@planner 未启动：请先为该角色绑定可用账号或执行引擎。',
-    }));
-  });
-
   it('does not register an A2A executing chain when user mention dispatch is rejected', () => {
     const emitSpy = vi.spyOn(socket, 'emit');
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
@@ -328,42 +298,6 @@ describe('team role card compatibility', () => {
       targetAgentIds: ['planner'],
     }));
     expect(useTaskHubStore.getState().agentStatus.planner).not.toBe('busy');
-  });
-
-  it('records an aborted invocation event when simulating a task for a dynamic role without an executable profile', () => {
-    const emitSpy = vi.spyOn(socket, 'emit');
-    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    useTaskHubStore.setState({
-      tasks: [{
-        id: 'task-plan',
-        conversationId: 'conv-team',
-        phaseId: '',
-        title: 'Plan work',
-        description: 'Draft a plan',
-        status: 'ready',
-        agentId: 'planner',
-        dependencies: [],
-        artifacts: [],
-        createdAt: '2026-05-06T00:00:00.000Z',
-        updatedAt: '2026-05-06T00:00:00.000Z',
-      }],
-    });
-
-    useTaskHubStore.getState().simulateCliExecution('task-plan', 'Draft a plan');
-
-    const state = useTaskHubStore.getState();
-    expect(state.agentStatus.planner).not.toBe('busy');
-    expect(state.activeRunsByAgent.planner).toBeUndefined();
-    expect(emitSpy).not.toHaveBeenCalledWith('terminal:start', expect.anything());
-    expect(state.eventsByConversation['conv-team']).toContainEqual(expect.objectContaining({
-      type: 'invocation.aborted',
-      conversationId: 'conv-team',
-      payload: {
-        agentId: 'planner',
-        reasonCode: 'no_runtime_profile',
-        message: '请先为该角色绑定可用账号或执行引擎',
-      },
-    }));
   });
 
   it('persists dynamic team role account bindings through the team role API', async () => {

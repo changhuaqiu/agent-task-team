@@ -6,33 +6,6 @@ import type { DetectedRuntime } from '@/server/types';
 // --- Shared socket instance ---
 export const socket = io(undefined, { path: '/api/socketio', autoConnect: false });
 
-const BROWSER_NODE_STORAGE_KEY = 'ath.browserRuntimeNodeId';
-let runtimeHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
-
-function getBrowserRuntimeNodeId(): string {
-  if (typeof window === 'undefined') return 'browser:ssr';
-  const existing = window.localStorage.getItem(BROWSER_NODE_STORAGE_KEY);
-  if (existing) return existing;
-  const id = `browser:${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-  window.localStorage.setItem(BROWSER_NODE_STORAGE_KEY, id);
-  return id;
-}
-
-export function registerBrowserRuntimeNode() {
-  const nodeId = getBrowserRuntimeNodeId();
-  socket.emit('runtime:hello', {
-    nodeId,
-    kind: 'browser',
-    label: 'Browser UI',
-    capabilities: ['dispatch-intent', 'socket-transport'],
-  });
-  socket.emit('runtime:heartbeat', { nodeId });
-  if (runtimeHeartbeatTimer) clearInterval(runtimeHeartbeatTimer);
-  runtimeHeartbeatTimer = setInterval(() => {
-    if (socket.connected) socket.emit('runtime:heartbeat', { nodeId });
-  }, 5_000);
-}
-
 // --- Stream watchdogs & buffer (module-level, shared across slice & socket listeners) ---
 
 const STREAM_WATCHDOG_MS = 300_000;
@@ -40,11 +13,6 @@ const streamWatchdogs: Record<string, ReturnType<typeof setTimeout>> = {};
 
 const streamBuffer: Record<string, string> = {};
 let bufferFlushScheduled = false;
-
-const NO_RUNTIME_PROFILE_ABORT = {
-  reasonCode: 'no_runtime_profile',
-  message: '请先为该角色绑定可用账号或执行引擎',
-} as const;
 
 type AgentRunStatus = 'idle' | 'busy' | 'background';
 type ActiveAgentRun = {
@@ -139,104 +107,10 @@ function appendToStreamBuffer(messageId: string, content: string) {
 
 // --- Daemon Slice Creator ---
 
-export interface PendingDispatch {
-  idempotencyKey: string;
-  inboxItemId?: string;
-  persistenceStatus: 'persisting' | 'persisted' | 'failed';
-  prompt: string;
-  referencedTaskId?: string;
-  queuedAt: string;
-  source?: 'user' | 'a2a' | 'workflow' | 'review_gate' | 'test_gate' | 'system';
-  fromAgentId?: string;
-  conversationId: string;
-  legacyProposal?: boolean;
-}
-
-/** Composite key for per-project queue isolation: agentId:conversationId */
-function queueKey(agentId: string, conversationId: string): string {
-  return `${agentId}:${conversationId}`;
-}
-
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- set/get typed as any to avoid circular dependency with TaskHubState
 export const createDaemonSlice = (set: any, get: () => any) => {
   const _resetWatchdog = (agentId: string) => resetWatchdog(agentId, get, set);
   const _scheduleFlush = () => scheduleBufferFlush(get, set);
-  const _recordNoRuntimeProfileAbort = (conversationId: string, agentId: string, visibleToUser = false) => {
-    get().addEvent({
-      conversationId,
-      type: 'invocation.aborted',
-      payload: {
-        agentId,
-        ...NO_RUNTIME_PROFILE_ABORT,
-      },
-    });
-    if (visibleToUser) {
-      get().addChatMessage({
-        agentId: 'system',
-        conversationId,
-        content: `@${agentId} 未启动：${NO_RUNTIME_PROFILE_ABORT.message}。`,
-        source: 'system',
-      });
-    }
-  };
-  const _updatePendingPersistence = (
-    agentId: string,
-    conversationId: string,
-    idempotencyKey: string,
-    patch: Partial<Pick<PendingDispatch, 'persistenceStatus' | 'inboxItemId'>>,
-  ) => {
-    const key = queueKey(agentId, conversationId);
-    set((state: any) => ({
-      pendingDispatches: {
-        ...state.pendingDispatches,
-        [key]: (state.pendingDispatches[key] || []).map((item: PendingDispatch) =>
-          item.idempotencyKey === idempotencyKey ? { ...item, ...patch } : item),
-      },
-    }));
-  };
-  const _persistPendingDispatch = async (
-    agentId: string,
-    entry: PendingDispatch,
-    attemptsRemaining = 3,
-  ): Promise<void> => {
-    try {
-      const response = await fetch('/api/mutations', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          type: 'dispatch.enqueue',
-          payload: {
-            agentId,
-            conversationId: entry.conversationId,
-            prompt: entry.prompt,
-            referencedTaskId: entry.referencedTaskId,
-            source: entry.source,
-            fromAgentId: entry.fromAgentId,
-            legacyProposal: entry.legacyProposal,
-            idempotencyKey: entry.idempotencyKey,
-          },
-        }),
-      });
-      if (!response.ok) throw new Error(`dispatch_enqueue_http_${response.status}`);
-      const body = typeof response.json === 'function'
-        ? await response.json() as { result?: { id?: string } }
-        : {};
-      _updatePendingPersistence(agentId, entry.conversationId, entry.idempotencyKey, {
-        persistenceStatus: 'persisted',
-        inboxItemId: body.result?.id,
-      });
-    } catch {
-      if (attemptsRemaining > 1) {
-        setTimeout(() => {
-          void _persistPendingDispatch(agentId, entry, attemptsRemaining - 1);
-        }, 500);
-        return;
-      }
-      _updatePendingPersistence(agentId, entry.conversationId, entry.idempotencyKey, {
-        persistenceStatus: 'failed',
-      });
-    }
-  };
 
   return {
     daemonConnection: { status: 'disconnected' as 'disconnected' | 'connecting' | 'connected', error: undefined as string | undefined },
@@ -250,73 +124,17 @@ export const createDaemonSlice = (set: any, get: () => any) => {
     activeRunsByAgent: {} as Record<string, ActiveAgentRun | undefined>,
     activeStreamMessageId: {} as Record<string, string>,
     activeStreamConversationId: {} as Record<string, string>,
-    pendingDispatches: {} as Record<string, PendingDispatch[]>,
     agentSessions: { default: {} } as Record<string, Record<string, string | undefined>>,
     needsFullCompose: {} as Record<string, boolean>,
 
     connectDaemon: () => {
       if (socket.connected) return;
       get().setDaemonConnection({ status: 'connecting' });
-      const conversationId = get().selectedConversationId;
-      if (conversationId) {
-        void get().refreshPendingDispatches(conversationId).catch((error: unknown) => {
-          console.error('[dispatch] failed to hydrate Agent Inbox projection:', error);
-        });
-      }
       fetch('/api/daemon/init')
         .catch((e: any) => {
           get().setDaemonConnection({ status: 'disconnected', error: String((e as any)?.message || e) });
         })
         .finally(() => socket.connect());
-    },
-
-    refreshPendingDispatches: async (conversationId: string) => {
-      const response = await fetch(`/api/dispatches?conversationId=${encodeURIComponent(conversationId)}`);
-      if (!response.ok) throw new Error(`dispatch_list_http_${response.status}`);
-      const items = await response.json() as Array<{
-        id: string;
-        projectAgentId: string;
-        idempotencyKey: string;
-        command: {
-          prompt: string;
-          taskId?: string;
-          source?: PendingDispatch['source'];
-          fromAgentId?: string;
-          legacyProposal?: boolean;
-        };
-        createdAt: string;
-      }>;
-      const current = get().pendingDispatches as Record<string, PendingDispatch[]>;
-      const next = Object.fromEntries(
-        Object.entries(current).filter(([, queue]) => queue[0]?.conversationId !== conversationId),
-      ) as Record<string, PendingDispatch[]>;
-      for (const [key, queue] of Object.entries(current)) {
-        const unconfirmed = queue.filter((item) =>
-          item.conversationId === conversationId && item.persistenceStatus !== 'persisted');
-        if (unconfirmed.length) next[key] = unconfirmed;
-      }
-      for (const item of items) {
-        const key = queueKey(item.projectAgentId, conversationId);
-        const queue = next[key] ??= [];
-        const projected: PendingDispatch = {
-          idempotencyKey: item.idempotencyKey,
-          inboxItemId: item.id,
-          persistenceStatus: 'persisted',
-          prompt: item.command.prompt,
-          referencedTaskId: item.command.taskId,
-          source: item.command.source,
-          fromAgentId: item.command.fromAgentId,
-          legacyProposal: item.command.legacyProposal,
-          conversationId,
-          queuedAt: item.createdAt,
-        };
-        const existingIndex = queue.findIndex(
-          (candidate) => candidate.idempotencyKey === item.idempotencyKey,
-        );
-        if (existingIndex >= 0) queue[existingIndex] = projected;
-        else queue.push(projected);
-      }
-      set({ pendingDispatches: next });
     },
 
     upsertAgentSession: (projectId: string, agentId: string, sessionId: string) =>
@@ -330,190 +148,6 @@ export const createDaemonSlice = (set: any, get: () => any) => {
         },
       })),
 
-    dispatchToAgent: async ({ agentId, prompt, referencedTaskId, source, fromAgentId, conversationId: explicitConvId, chainId, passId, legacyProposal }: { agentId: string; prompt: string; referencedTaskId?: string; source?: 'user' | 'a2a' | 'workflow' | 'review_gate' | 'test_gate' | 'system'; fromAgentId?: string; conversationId?: string; chainId?: string; passId?: string; legacyProposal?: boolean }) => {
-      if ((source === undefined || source === 'user') && get().runtimeRefreshInProgress) {
-        console.warn(`[dispatch] ${agentId} deferred: runtime configuration refresh in progress`);
-        return false;
-      }
-      const conversationId =
-        explicitConvId ??
-        (referencedTaskId ? get().getTaskById(referencedTaskId)?.conversationId : undefined) ??
-        get().selectedConversationId;
-      if (!conversationId) {
-        console.warn(`[dispatch] ${agentId} aborted: no conversationId`);
-        return false;
-      }
-
-      const profile = get().getAgentRuntimeProfile(agentId);
-      if (!profile) {
-        console.warn(`[dispatch] ${agentId} aborted: no runtime profile or enabled account for conversation ${conversationId}`);
-        _recordNoRuntimeProfileAbort(conversationId, agentId, source === undefined || source === 'user');
-        return false;
-      }
-
-      if (get().agentStatus[agentId] && get().agentStatus[agentId] !== 'idle') {
-        console.log(`[dispatch] ${agentId} busy, enqueuing for conversation ${conversationId}`);
-        get().enqueueDispatch(agentId, {
-          prompt,
-          referencedTaskId,
-          source,
-          fromAgentId,
-          conversationId,
-          legacyProposal,
-        });
-        return true;
-      }
-
-      const projectId = conversationId;
-      const runId = `run-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-      const resolvedEngine = profile.execution.engine;
-
-      console.log(`[dispatch] ${agentId} → engine=${resolvedEngine}, accountId=${profile.execution.accountId ?? '(none)'}, convId=${conversationId}`);
-
-      const conv = get().conversations.find((c: any) => c.id === conversationId);
-      const composeKey = `${conversationId}:${agentId}`;
-
-      set((state: any) => ({
-        agentStatus: { ...state.agentStatus, [agentId]: 'busy' },
-        terminalLogs: { ...state.terminalLogs, [agentId]: [] },
-        needsFullCompose: { ...state.needsFullCompose, [composeKey]: false },
-        activeRunsByAgent: {
-          ...state.activeRunsByAgent,
-          [agentId]: { runId, taskId: referencedTaskId, conversationId, startedAt: new Date().toISOString(), activity: 'foreground' },
-        },
-      }));
-
-      get().addEvent({
-        conversationId,
-        type: 'run.started',
-        payload: { runId, agentId, taskId: referencedTaskId, engine: resolvedEngine },
-      });
-
-      socket.emit('terminal:start', {
-        dispatchId: runId,
-        projectId,
-        taskId: referencedTaskId,
-        conversationId,
-        sourceNodeId: getBrowserRuntimeNodeId(),
-        dispatchSource: source ?? 'user',
-        dispatchIntent: source === 'a2a' ? 'delegate' : (source === 'workflow' ? 'implement' : 'answer'),
-        fromAgentId,
-        chainId,
-        passId,
-        legacyProposal,
-        agentId,
-        prompt,
-        engine: resolvedEngine,
-        runtimeId: profile.execution.runtimeId,
-        accountId: profile.execution.accountId ?? '',
-        projectPath: conv?.projectPath || undefined,
-        useWorktree: conv?.useWorktree || undefined,
-      });
-      return true;
-    },
-
-    enqueueDispatch: (agentId: string, payload: Omit<PendingDispatch, 'queuedAt' | 'idempotencyKey' | 'inboxItemId' | 'persistenceStatus'> & { idempotencyKey?: string }) => {
-      const conversationId = payload.conversationId
-        ?? (payload.referencedTaskId ? get().getTaskById(payload.referencedTaskId)?.conversationId : undefined)
-        ?? get().selectedConversationId;
-      if (!conversationId) return;
-
-      const idempotencyKey = payload.idempotencyKey
-        ?? `browser:${conversationId}:${agentId}:${Date.now()}:${Math.random().toString(36).slice(2, 10)}`;
-      const entry: PendingDispatch = {
-        ...payload,
-        idempotencyKey,
-        persistenceStatus: 'persisting',
-        queuedAt: new Date().toISOString(),
-        conversationId,
-      };
-      const key = queueKey(agentId, conversationId);
-
-      set((state: any) => ({
-        pendingDispatches: {
-          ...state.pendingDispatches,
-          [key]: [...(state.pendingDispatches[key] || []), entry],
-        },
-      }));
-
-      void _persistPendingDispatch(agentId, entry);
-    },
-
-    clearPendingDispatches: async (agentId: string, conversationId: string, idempotencyKey?: string) => {
-      const key = queueKey(agentId, conversationId);
-      const currentQueue = (get().pendingDispatches[key] || []) as PendingDispatch[];
-      const target = idempotencyKey
-        ? currentQueue.find((item) => item.idempotencyKey === idempotencyKey)
-        : undefined;
-      if (
-        target?.persistenceStatus === 'persisting'
-        || (!idempotencyKey && currentQueue.some((item) => item.persistenceStatus === 'persisting'))
-      ) {
-        throw new Error('dispatch_persistence_in_progress');
-      }
-      const response = await fetch('/api/mutations', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          type: 'dispatch.cancel',
-          payload: { agentId, conversationId, idempotencyKey },
-        }),
-      });
-      if (!response.ok) throw new Error(`dispatch_cancel_http_${response.status}`);
-      const cancellation = typeof response.json === 'function'
-        ? await response.json() as { result?: { cancelled?: number; status?: string } }
-        : {};
-      await get().refreshPendingDispatches(conversationId);
-      const terminalOrAbsent = cancellation.result?.status === 'missing'
-        || cancellation.result?.status === 'cancelled'
-        || cancellation.result?.status === 'completed'
-        || cancellation.result?.status === 'failed';
-      if (
-        idempotencyKey
-        && terminalOrAbsent
-      ) {
-        const nextPending = { ...get().pendingDispatches };
-        const remaining = ((nextPending[key] || []) as PendingDispatch[])
-          .filter((item) => item.idempotencyKey !== idempotencyKey);
-        if (remaining.length) nextPending[key] = remaining;
-        else delete nextPending[key];
-        set({ pendingDispatches: nextPending });
-      } else if (!idempotencyKey) {
-        const nextPending = { ...get().pendingDispatches };
-        const remaining = ((nextPending[key] || []) as PendingDispatch[])
-          .filter((item) => item.persistenceStatus !== 'failed');
-        if (remaining.length) nextPending[key] = remaining;
-        else delete nextPending[key];
-        set({ pendingDispatches: nextPending });
-      }
-      if (
-        idempotencyKey
-        && (
-          cancellation.result?.status === 'claimed'
-          || ((get().pendingDispatches[key] || []) as PendingDispatch[])
-            .some((item) => item.idempotencyKey === idempotencyKey)
-        )
-      ) {
-        throw new Error('dispatch_not_cancellable');
-      }
-    },
-
-    forceSendDispatch: async ({ agentId, prompt, referencedTaskId, conversationId: explicitConvId, queuedIdempotencyKey, legacyProposal }: { agentId: string; prompt: string; referencedTaskId?: string; conversationId?: string; queuedIdempotencyKey?: string; legacyProposal?: boolean }) => {
-      const conversationId = explicitConvId ?? get().selectedConversationId ?? '';
-      if (conversationId) {
-        await get().clearPendingDispatches(agentId, conversationId, queuedIdempotencyKey);
-      }
-      socket.emit('terminal:kill', { agentId, projectId: conversationId || get().selectedProjectId, force: true });
-      get().completeStreamMessage(agentId);
-      set((state: any) => ({
-        agentStatus: { ...state.agentStatus, [agentId]: 'idle' },
-        activeRunsByAgent: { ...state.activeRunsByAgent, [agentId]: undefined },
-      }));
-      setTimeout(() => {
-        void get().dispatchToAgent({ agentId, prompt, referencedTaskId, conversationId, legacyProposal });
-      }, 500);
-    },
-
     appendTerminalLog: (agentId: string, log: string) =>
       set((state: any) => ({
         terminalLogs: {
@@ -521,63 +155,6 @@ export const createDaemonSlice = (set: any, get: () => any) => {
           [agentId]: [...(state.terminalLogs[agentId] || []), log],
         },
       })),
-
-    simulateCliExecution: async (taskId: string, prompt: string) => {
-      const state = get();
-      const task = state.tasks.find((t: any) => t.id === taskId);
-      if (!task) return;
-      const agentId = task.agentId;
-      const conversationId = task.conversationId;
-      const projectId = conversationId;
-      if (state.selectedConversationId !== conversationId) {
-        console.warn(`[simulate] ${agentId} aborted: task ${taskId} is outside the selected conversation`);
-        return;
-      }
-      const profile = state.getAgentRuntimeProfile(agentId);
-      if (!profile) {
-        console.warn(`[simulate] ${agentId} aborted: no runtime profile or enabled account for conversation ${conversationId}`);
-        _recordNoRuntimeProfileAbort(conversationId, agentId);
-        return;
-      }
-
-      const runId = `run-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-      const resolvedEngine = profile.execution.engine;
-
-      const simComposeKey = `${projectId}:${agentId}`;
-      const conv = state.conversations.find((c: any) => c.id === conversationId);
-
-      set((s: any) => ({
-        agentStatus: { ...s.agentStatus, [agentId]: 'busy' },
-        terminalLogs: { ...s.terminalLogs, [agentId]: [] },
-        needsFullCompose: { ...s.needsFullCompose, [simComposeKey]: false },
-        activeRunsByAgent: {
-          ...s.activeRunsByAgent,
-          [agentId]: { runId, taskId, conversationId, startedAt: new Date().toISOString(), activity: 'foreground' },
-        },
-      }));
-
-      get().addEvent({
-        conversationId,
-        type: 'run.started',
-        payload: { runId, agentId, taskId, engine: resolvedEngine },
-      });
-
-      socket.emit('terminal:start', {
-        dispatchId: runId,
-        projectId,
-        taskId,
-        conversationId,
-        agentId,
-        prompt,
-        dispatchSource: 'workflow',
-        dispatchIntent: 'implement',
-        engine: resolvedEngine,
-        runtimeId: profile.execution.runtimeId,
-        accountId: profile.execution.accountId ?? '',
-        projectPath: conv?.projectPath || undefined,
-        useWorktree: conv?.useWorktree || undefined,
-      });
-    },
 
     ensureStreamMessage: (agentId: string, conversationId: string, invocationId?: string): string => {
       const existing = get().activeStreamMessageId[agentId];

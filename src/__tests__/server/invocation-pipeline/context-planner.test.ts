@@ -17,7 +17,6 @@ import { skillRepo } from '@/server/repositories/skill-repo';
 import { RepositorySkillRuntime } from '@/server/skills/skill-runtime';
 import { buildSkillPackageInput } from '@/test-helpers/skill-package';
 import { InvocationCoordinator } from '@/server/invocation-pipeline/coordinator';
-import { submitSocketTerminalStart } from '@/server/daemon';
 import { projectObservationProjection } from '@/server/observability/ProjectObservationProjection';
 import { autonomousDeliveryRepo } from '@/server/autonomous-delivery/repository';
 
@@ -371,7 +370,7 @@ describe('InvocationPlanner', () => {
     expect(`${result.plan.systemPrompt ?? ''}\n${result.plan.prompt}`).toContain('collaboration_record_pr');
   });
 
-  it('routes every browser dispatch source through required-Skill validation', async () => {
+  it('routes every activation source through required-Skill validation', async () => {
     const pack = teamPackRepo.getByName('default-team')!;
     teamPackRepo.updateRoleConfig(pack.id, 'peach', { accountIds: ['account-openai'] });
     writeAccount({
@@ -392,12 +391,12 @@ describe('InvocationPlanner', () => {
     });
 
     for (const source of ['user', 'workflow', 'review_gate', 'a2a'] as const) {
-      const submission = submitSocketTerminalStart(coordinator, {
-        dispatchId: `socket-${source}`,
+      const submission = coordinator.submit({
+        id: `activation-${source}`,
         conversationId: 'conv-socket-skill',
         agentId: 'peach',
         prompt: `dispatch ${source}`,
-        dispatchSource: source,
+        source,
       });
       await expect(submission.completion).resolves.toMatchObject({
         status: 'failed',
@@ -413,7 +412,7 @@ describe('InvocationPlanner', () => {
     ]);
   });
 
-  it('routes a stale-tab legacy proposal through Coordinator and Planner admission', async () => {
+  it('routes a legacy proposal through Coordinator and Planner admission', async () => {
     conversationRepo.create({ id: 'conv-external-autonomous', title: 'External autonomous run' });
     autonomousDeliveryRepo.createRun({
       idempotencyKey: 'external-autonomous-run',
@@ -445,12 +444,12 @@ describe('InvocationPlanner', () => {
       recordProof,
     });
 
-    const submission = submitSocketTerminalStart(coordinator, {
-      dispatchId: 'stale-tab-proposal',
+    const submission = coordinator.submit({
+      id: 'legacy-proposal',
       conversationId: 'conv-external-autonomous',
       agentId: 'mario',
       prompt: 'Generate the legacy proposal',
-      dispatchSource: 'user',
+      source: 'user',
       legacyProposal: true,
     });
 
@@ -481,12 +480,12 @@ describe('InvocationPlanner', () => {
       recordProof: vi.fn(),
     });
 
-    const submission = submitSocketTerminalStart(coordinator, {
-      dispatchId: 'socket-legacy-proposal',
+    const submission = coordinator.submit({
+      id: 'legacy-proposal',
       conversationId: 'conv-no-delivery-run',
       agentId: 'mario',
       prompt: 'Generate a proposal',
-      dispatchSource: 'user',
+      source: 'user',
       legacyProposal: true,
     });
 

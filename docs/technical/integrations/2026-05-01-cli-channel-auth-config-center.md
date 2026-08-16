@@ -47,7 +47,7 @@ daemon 通过本机 CLI 命令探测 OpenCode、Claude、Codex 等运行时的�
 ## 4. 保留边界
 
 - daemon 的 `engine / runtimeId / accountId` 执行参数通路继续保留，它们属于内部执行契约。
-- 浏览器 `terminal:start` 只发送服务端真实消费的单一 `accountId`，不再附带无消费者的 provider、channel、auth context 或账号候选数组。
+- 浏览器不发送执行账号或 runtime；Invocation Planner 只把已裁决的单一 `accountId` 放入服务端 `InvocationDispatchPlan`，不携带 provider、channel、auth context 或账号候选数组。
 - 用户通过账号和 TeamPack 成员绑定表达意图，不直接编辑底层 routing 参数。
 - Google、Kimi、OpenCode 与 Other API Key 账号的“测试连接”和正式 Agent 执行共用同一份临时 OpenCode provider/model/env 配置；不再运行 Gemini/Kimi 私有 CLI，也不存在 `echo ok` 假验证。临时配置在验证完成或失败后清理。浏览器解析、服务端规划、评估快照恢复和 daemon 最终启动边界都会复核同一 readiness，避免计划生成后的账号变化继续执行。上述 provider 的厂商 OAuth 登录态不能安全交给 OpenCode，创建、变更、验证与 Runtime selection 均失败关闭。Anthropic/OpenAI OAuth 只因 Claude/Codex ACP Adapter 明确复用主机登录态而保留。
 

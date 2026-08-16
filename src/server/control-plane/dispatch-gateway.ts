@@ -74,6 +74,10 @@ export class DispatchGateway {
     }
   }
 
+  expireUnacknowledged(now = new Date()): number {
+    return executionEnvelopeRepo.expireStale(now);
+  }
+
   requestDispatch(input: DispatchGatewayRequest): ExecutionEnvelopeRow {
     const targetNode = runtimeNodeRepo.getById(input.toNodeId);
     const sourceNode = runtimeNodeRepo.getById(input.fromNodeId);

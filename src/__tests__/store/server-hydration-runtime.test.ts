@@ -6,6 +6,7 @@ import {
   useTaskHubStore,
   type Account,
 } from '@/store/taskHubStore';
+import { socket } from '@/store/daemonStore';
 import type { TeamPack } from '@/types/teamPack';
 
 const CONVERSATION_ID = 'conv-cold-team';
@@ -17,6 +18,10 @@ function json(data: unknown): Response {
     status: 200,
     headers: { 'content-type': 'application/json' },
   });
+}
+
+function emitServerEvent(event: string, payload: unknown) {
+  (socket as unknown as { emitEvent(args: unknown[]): void }).emitEvent([event, payload]);
 }
 
 function account(): Account {
@@ -166,7 +171,7 @@ describe('server hydration runtime gate', () => {
     expect(persisted.version).toBe(9);
   });
 
-  it('keeps the UI gated until accounts and the selected Team Pack are dispatch-ready', async () => {
+  it('keeps the UI gated until accounts and the selected Team Pack are hydrated', async () => {
     let resolveTeamPack!: (response: Response) => void;
     let markTeamPackRequested!: () => void;
     const teamPackResponse = new Promise<Response>((resolve) => {
@@ -235,11 +240,6 @@ describe('server hydration runtime gate', () => {
       engine: 'codex',
       accountId: ACCOUNT_ID,
     });
-    const dispatchToAgent = vi.fn();
-    useTaskHubStore.setState({ dispatchToAgent: dispatchToAgent as typeof state.dispatchToAgent });
-    useTaskHubStore.getState().triggerProposal(CONVERSATION_ID);
-    expect(dispatchToAgent).not.toHaveBeenCalled();
-    useTaskHubStore.setState({ dispatchToAgent: state.dispatchToAgent });
   });
 
   it('reuses one hydration run when Strict Mode overlaps state and Team Pack loading', async () => {
@@ -366,24 +366,12 @@ describe('server hydration runtime gate', () => {
     expect(useTaskHubStore.getState().hasHydrated).toBe(true);
   });
 
-  it('holds a Human Command while an interactive runtime refresh is in progress', async () => {
+  it('does not let a delayed state snapshot overwrite a newer Task socket revision', async () => {
     useTaskHubStore.setState({
       hasHydrated: true,
-      conversations: [{
-        id: CONVERSATION_ID,
-        title: 'Interactive project',
-        goal: '',
-        status: 'active',
-        priority: 'p1',
-        projectPath: 'C:/fixture',
-        breakdownStatus: 'none',
-        createdAt: '2026-07-21T00:00:00.000Z',
-        updatedAt: '2026-07-21T00:00:00.000Z',
-      }],
       selectedConversationId: CONVERSATION_ID,
       selectedProjectId: CONVERSATION_ID,
     });
-
     let resolveState!: (response: Response) => void;
     let markStateRequested!: () => void;
     const stateResponse = new Promise<Response>((resolve) => { resolveState = resolve; });
@@ -397,34 +385,154 @@ describe('server hydration runtime gate', () => {
       if (url === '/api/accounts') return json({ accounts: [] });
       if (url === '/api/agents') return json({ agents: [] });
       if (url === '/api/skills' || url.includes('/skills')) return json([]);
-      return json({});
+      return json([]);
     }));
 
     const refresh = useTaskHubStore.getState().loadFromServer();
     await stateRequested;
-    expect(useTaskHubStore.getState()).toMatchObject({
-      hasHydrated: true,
-      runtimeRefreshInProgress: true,
+    emitServerEvent('task.state', {
+      projectId: CONVERSATION_ID,
+      task: {
+        id: 'TASK-STATE-RACE',
+        conversation_id: CONVERSATION_ID,
+        title: 'New socket fact',
+        description: '',
+        status: 'blocked',
+        agent_id: 'mario',
+        dependencies: '[]',
+        artifacts: '[]',
+        revision: 2,
+        created_at: '2026-08-16T00:00:00.000Z',
+        updated_at: '2026-08-16T00:02:00.000Z',
+      },
     });
-
-    const accepted = await useTaskHubStore.getState().dispatchToAgent({
-      agentId: 'mario',
-      prompt: 'keep this human command in the composer',
-      conversationId: CONVERSATION_ID,
-      source: 'user',
-    });
-    expect(accepted).toBe(false);
-    expect(useTaskHubStore.getState().chatMessagesByConversation[CONVERSATION_ID]).toBeUndefined();
-
     resolveState(json({
-      conversations: [],
+      conversations: [{
+        id: CONVERSATION_ID,
+        title: 'Hydration race',
+        goal: '',
+        status: 'active',
+        priority: 'p1',
+        project_path: 'C:/fixture',
+        created_at: '2026-08-16T00:00:00.000Z',
+        updated_at: '2026-08-16T00:00:00.000Z',
+      }],
+      tasks: [{
+        id: 'TASK-STATE-RACE',
+        conversation_id: CONVERSATION_ID,
+        title: 'Old HTTP snapshot',
+        description: '',
+        status: 'in_progress',
+        agent_id: 'mario',
+        dependencies: '[]',
+        artifacts: '[]',
+        revision: 1,
+        created_at: '2026-08-16T00:00:00.000Z',
+        updated_at: '2026-08-16T00:01:00.000Z',
+      }],
+      phases: [],
+      recentMessages: {},
+      activeSessions: [],
+    }));
+    await refresh;
+
+    expect(useTaskHubStore.getState().getTaskById('TASK-STATE-RACE')).toMatchObject({
+      title: 'New socket fact',
+      status: 'blocked',
+      revision: 2,
+    });
+  });
+
+  it('does not let a delayed state snapshot erase a Task created by Socket after hydration began', async () => {
+    useTaskHubStore.setState({
+      hasHydrated: true,
+      selectedConversationId: CONVERSATION_ID,
+      selectedProjectId: CONVERSATION_ID,
+      tasks: [],
+    });
+    let resolveState!: (response: Response) => void;
+    let markStateRequested!: () => void;
+    const stateResponse = new Promise<Response>((resolve) => { resolveState = resolve; });
+    const stateRequested = new Promise<void>((resolve) => { markStateRequested = resolve; });
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === '/api/state') {
+        markStateRequested();
+        return stateResponse;
+      }
+      if (url === '/api/accounts') return json({ accounts: [] });
+      if (url === '/api/agents') return json({ agents: [] });
+      if (url === '/api/skills' || url.includes('/skills')) return json([]);
+      return json([]);
+    }));
+
+    const refresh = useTaskHubStore.getState().loadFromServer();
+    await stateRequested;
+    emitServerEvent('task.state', {
+      projectId: CONVERSATION_ID,
+      task: {
+        id: 'TASK-SOCKET-CREATED',
+        conversation_id: CONVERSATION_ID,
+        title: 'Socket-created task',
+        description: '',
+        status: 'ready',
+        agent_id: 'mario',
+        dependencies: '[]',
+        artifacts: '[]',
+        revision: 0,
+        created_at: '2026-08-16T00:03:00.000Z',
+        updated_at: '2026-08-16T00:03:00.000Z',
+      },
+    });
+    resolveState(json({
+      conversations: [{
+        id: CONVERSATION_ID,
+        title: 'Hydration race',
+        goal: '',
+        status: 'active',
+        priority: 'p1',
+        project_path: 'C:/fixture',
+        created_at: '2026-08-16T00:00:00.000Z',
+        updated_at: '2026-08-16T00:00:00.000Z',
+      }],
       tasks: [],
       phases: [],
       recentMessages: {},
       activeSessions: [],
     }));
     await refresh;
-    expect(useTaskHubStore.getState().runtimeRefreshInProgress).toBe(false);
+
+    expect(useTaskHubStore.getState().getTaskById('TASK-SOCKET-CREATED')).toMatchObject({
+      title: 'Socket-created task',
+      revision: 0,
+    });
+  });
+
+  it('fails closed when an authoritative Task hydration row has no revision', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input) === '/api/state') {
+        return json({
+          conversations: [],
+          tasks: [{
+            id: 'TASK-NO-REVISION',
+            conversation_id: CONVERSATION_ID,
+            title: 'Malformed task',
+            status: 'ready',
+            agent_id: 'mario',
+          }],
+          phases: [],
+          recentMessages: {},
+          activeSessions: [],
+        });
+      }
+      return json({});
+    }));
+
+    await useTaskHubStore.getState().loadFromServer();
+
+    expect(useTaskHubStore.getState().runtimeHydrationError)
+      .toContain('task_revision_invalid:TASK-NO-REVISION');
+    expect(useTaskHubStore.getState().tasks).toEqual([]);
   });
 
   it('exits the loading skeleton with a retryable error when accounts time out', async () => {

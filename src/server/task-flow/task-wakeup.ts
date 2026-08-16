@@ -221,6 +221,25 @@ export function resolveTaskWakeups(input: ResolveTaskWakeupsInput): TaskWakeup[]
     });
   }
 
+  // A user moving a ready task to in_progress is an execution request. The
+  // server submits it through the same owner-ready pipeline that task creation
+  // uses. The platform-harness transition is the acceptance projection and
+  // must never schedule a second execution.
+  if (
+    input.task.status === 'in_progress'
+    && input.previousTask?.status === 'ready'
+    && changedFields.includes('status')
+    && input.actorId !== 'platform-harness'
+  ) {
+    addWakeup(wakeups, {
+      task: input.task,
+      agentId: input.task.agent_id,
+      actorId: input.actorId,
+      reasonCode: 'owner_ready',
+      dispatchSource: 'workflow',
+    });
+  }
+
   if (
     input.task.status === 'in_progress' &&
     input.previousTask?.status === 'in_review' &&

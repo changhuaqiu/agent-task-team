@@ -36,9 +36,20 @@ vi.mock('@dnd-kit/utilities', () => ({
 }));
 
 describe('ProjectRightPanel', () => {
-  it('does not block the kanban when the project has no team pack', () => {
+  it('shows one task workspace and keeps debug as the only secondary tab', () => {
     useTaskHubStore.setState({
       selectedConversationId: 'conv-plain',
+      conversations: [{
+        id: 'conv-plain',
+        title: 'Plain delivery',
+        goal: 'Ship the requested change',
+        status: 'active',
+        priority: 'p1',
+        projectPath: 'C:\\workspace\\plain-project',
+        breakdownStatus: 'confirmed',
+        createdAt: '2026-05-07T00:00:00.000Z',
+        updatedAt: '2026-05-07T00:00:00.000Z',
+      }],
       tasks: [{
         id: 'TASK-001',
         conversationId: 'conv-plain',
@@ -51,14 +62,21 @@ describe('ProjectRightPanel', () => {
         artifacts: [],
         createdAt: '2026-05-07T00:00:00.000Z',
         updatedAt: '2026-05-07T00:00:00.000Z',
+        revision: 0,
       }],
       phases: [],
+      blockersByConversation: {},
+      chatMessagesByConversation: {},
     });
 
-    render(<ProjectRightPanel teamPackId="" />);
+    render(<ProjectRightPanel />);
 
-    expect(screen.getAllByText('看板').length).toBeGreaterThan(0);
+    expect(screen.getByRole('tab', { name: /任务/ })).toBeDefined();
+    expect(screen.getByRole('tab', { name: '调试' })).toBeDefined();
+    expect(screen.queryByRole('tab', { name: '地图' })).toBeNull();
+    expect(screen.queryByRole('tab', { name: '待办' })).toBeNull();
+    expect(screen.queryByRole('tab', { name: '风险' })).toBeNull();
+    expect(screen.getByText('需要关注')).toBeDefined();
     expect(screen.getByText('TASK-001')).toBeDefined();
-    expect(screen.queryByText('请先选择团队套件')).toBeNull();
   });
 });

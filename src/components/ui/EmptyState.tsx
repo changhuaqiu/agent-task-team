@@ -8,6 +8,7 @@ interface EmptyStateProps {
   title: string;
   description: string;
   actions?: Array<{ label: string; value: string }>;
+  onAction?: (value: string) => void;
   className?: string;
 }
 
@@ -16,6 +17,7 @@ export const EmptyState = React.memo(function EmptyState({
   title,
   description,
   actions,
+  onAction,
   className,
 }: EmptyStateProps) {
   return (
@@ -37,11 +39,7 @@ export const EmptyState = React.memo(function EmptyState({
             <button
               key={index}
               type="button"
-              onClick={() => {
-                // 触发自定义事件，由父组件处理
-                const event = new CustomEvent('suggestion-click', { detail: action.value });
-                window.dispatchEvent(event);
-              }}
+              onClick={() => onAction?.(action.value)}
               className="text-[11px] px-4 py-2 rounded-full border border-[hsl(var(--border))] bg-[hsl(var(--bg-muted))] text-[hsl(var(--text-tertiary))] hover:border-[hsl(var(--text-primary))] hover:text-[hsl(var(--text-primary))] transition-all duration-[var(--duration-fast)]"
             >
               {action.label}

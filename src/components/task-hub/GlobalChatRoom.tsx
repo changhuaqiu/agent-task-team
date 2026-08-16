@@ -2,8 +2,7 @@
 
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { useIMEGuard } from '@/hooks/useIMEGuard';
-import { useShallow } from 'zustand/react/shallow';
-import { useTaskHubStore, type ChatMessage, type PendingDispatch } from '@/store/taskHubStore';
+import { useTaskHubStore, type ChatMessage } from '@/store/taskHubStore';
 import type { Agent } from '@/store/agentStore';
 import { ChatMessageItem } from './ChatMessageItem';
 import { MessageGroup } from './MessageGroup';
@@ -11,11 +10,12 @@ import { ChatFilterBar, type ChatFilter } from './ChatFilterBar';
 import { AgentMentionPopup } from './AgentMentionPopup';
 import { A2APossessionStrip } from './A2APossessionStrip';
 import { EmojiPickerButton } from '@/components/ui/EmojiPickerButton';
-import { Send, Hash, Clock, Zap, Shield } from 'lucide-react';
+import { Send, Hash, Shield } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAutoScroll } from '@/hooks/useAutoScroll';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { extractTaskReference } from '@/lib/taskReference';
+import { createHumanCommandIdempotencyKey } from '@/lib/human-command/types';
 
 function formatDateSeparator(dateStr: string): string {
   const date = new Date(dateStr);
@@ -33,27 +33,9 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
   const chatMessages = useTaskHubStore((s) => s.getChatMessagesForSelectedConversation());
   const addChatMessage = useTaskHubStore((s) => s.addChatMessage);
   const runtimeRefreshInProgress = useTaskHubStore((s) => s.runtimeRefreshInProgress);
-  const pendingDispatches = useTaskHubStore(useShallow((s) => s.pendingDispatches));
-  const clearPendingDispatches = useTaskHubStore((s) => s.clearPendingDispatches);
-  const forceSendDispatch = useTaskHubStore((s) => s.forceSendDispatch);
-  const effectiveRoster = useTaskHubStore((s) => s.getEffectiveRoster());
-
-  const currentPending = useMemo(() => {
-    const convId = selectedConversationId;
-    if (!convId) return {};
-    const result: Record<string, PendingDispatch[]> = {};
-    for (const [key, queue] of Object.entries(pendingDispatches)) {
-      if (!queue || queue.length === 0) continue;
-      if (key.endsWith(`:${convId}`)) {
-        const agentId = key.slice(0, -(convId.length + 1));
-        result[agentId] = queue;
-      }
-    }
-    return result;
-  }, [pendingDispatches, selectedConversationId]);
-
-  const hasPending = Object.keys(currentPending).length > 0;
   const [inputValue, setInputValue] = useState('');
+  const [sendError, setSendError] = useState<string | null>(null);
+  const [sendInProgress, setSendInProgress] = useState(false);
   const [draftConversationId, setDraftConversationId] = useState<string | null>(null);
   const [filter, setFilter] = useState<ChatFilter>({ intent: null, agentId: null, userOnly: false, search: '' });
   const [mentionOpen, setMentionOpen] = useState(false);
@@ -64,6 +46,7 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const mentionOpenRef = useRef(false);
+  const pendingCommandRef = useRef<{ idempotencyKey: string; issuedAt: string } | null>(null);
 
   useEffect(() => {
     mentionOpenRef.current = mentionOpen;
@@ -76,6 +59,7 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail;
+      pendingCommandRef.current = null;
       setInputValue(`> ${detail}\n\n`);
       setDraftConversationId(selectedConversationId);
     };
@@ -86,20 +70,46 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
   const draftTargetMismatch = Boolean(inputValue.trim())
     && draftConversationId !== selectedConversationId;
 
-  const handleSend = () => {
-    if (!inputValue.trim() || runtimeRefreshInProgress || draftTargetMismatch) return;
+  const handleSend = async () => {
+    if (
+      !selectedConversationId
+      || !inputValue.trim()
+      || runtimeRefreshInProgress
+      || draftTargetMismatch
+      || sendInProgress
+    ) return;
 
     const referencedTaskId = extractTaskReference(inputValue);
+    const content = inputValue;
+    const pendingCommand = pendingCommandRef.current ?? {
+      idempotencyKey: createHumanCommandIdempotencyKey(selectedConversationId),
+      issuedAt: new Date().toISOString(),
+    };
+    pendingCommandRef.current = pendingCommand;
+    setSendError(null);
+    setSendInProgress(true);
 
-    addChatMessage({
-      agentId: 'human',
-      content: inputValue,
-      referencedTaskId,
-      conversationId: selectedConversationId || undefined,
-    });
-
-    setInputValue('');
-    setDraftConversationId(null);
+    try {
+      const result = await addChatMessage({
+        agentId: 'human',
+        content,
+        referencedTaskId,
+        conversationId: selectedConversationId,
+        commandIdempotencyKey: pendingCommand.idempotencyKey,
+        commandIssuedAt: pendingCommand.issuedAt,
+      });
+      if (!result.ok) {
+        setSendError(result.error);
+        return;
+      }
+      pendingCommandRef.current = null;
+      setInputValue('');
+      setDraftConversationId(null);
+    } catch (error) {
+      setSendError(error instanceof Error ? error.message : '命令提交失败，请稍后重试');
+    } finally {
+      setSendInProgress(false);
+    }
   };
 
   const handleMentionSelect = (agentId: string) => {
@@ -110,6 +120,7 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
     const before = inputValue.slice(0, atStart);
     const after = inputValue.slice(cursorPos);
     const newValue = `${before}@${agentId} ${after}`;
+    pendingCommandRef.current = null;
     setInputValue(newValue);
     setMentionOpen(false);
     // Focus back to textarea
@@ -121,6 +132,7 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
   };
 
   const handleEmojiInsert = useCallback((emoji: string) => {
+    pendingCommandRef.current = null;
     if (!inputValue.trim()) setDraftConversationId(selectedConversationId);
     const textarea = textareaRef.current;
     if (!textarea) {
@@ -141,7 +153,7 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey && !ime.isComposing()) {
       e.preventDefault();
-      handleSend();
+      void handleSend();
     }
   };
 
@@ -204,24 +216,26 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
         {!selectedConversationId && chatMessages.length === 0 && (
           <EmptyState
             icon={Shield}
-            title="作战指挥室"
-            description="描述你想构建的东西，或 @Agent 下达具体指令。首次发送将自动创建项目。"
-            actions={[
-              { label: '@Mario 帮我规划一下…', value: '@Mario 帮我规划一下…' },
-              { label: '@Luigi 写一个…', value: '@Luigi 写一个…' },
-              { label: '@Peach 审查…', value: '@Peach 审查…' },
-            ]}
+            title="交付活动"
+            description="选择或新建一个交付后，可在这里向团队补充要求。"
           />
         )}
         {selectedConversationId && chatMessages.length === 0 && (
           <EmptyState
             icon={Hash}
-            title="准备好开始"
-            description={`@Mario 可以帮你分析项目、出技术方案，或直接 @Agent 下达指令`}
+            title="等待团队活动"
+            description="系统会在这里汇总关键讨论、工作变化和交接。你也可以补充要求。"
             actions={[
-              { label: '@Mario 帮我规划一下…', value: '@Mario 帮我规划一下…' },
-              { label: '@Luigi 直接开始…', value: '@Luigi 直接开始…' },
+              { label: '补充背景…', value: '补充背景：' },
+              { label: '调整验收标准…', value: '调整验收标准：' },
             ]}
+            onAction={(value) => {
+              pendingCommandRef.current = null;
+              setInputValue(value);
+              setDraftConversationId(selectedConversationId);
+              setSendError(null);
+              requestAnimationFrame(() => textareaRef.current?.focus());
+            }}
           />
         )}
         {(() => {
@@ -274,86 +288,6 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
         })()}
       </div>
 
-      {/* Pending Queue Indicator */}
-      {hasPending && (
-        <div className="shrink-0 px-4 py-2 bg-[hsl(var(--bg-muted))] border-t border-[hsl(var(--border-subtle))]">
-          <div className="flex flex-col gap-1.5">
-            {Object.entries(currentPending).map(([agentId, queue]) => {
-              if (!queue || queue.length === 0) return null;
-              const agent = effectiveRoster.find((a) => a.id === agentId);
-              const convId = selectedConversationId ?? '';
-              return (
-                <div key={agentId} className="flex items-start gap-2">
-                  <div className="flex items-center gap-1.5 shrink-0 mt-0.5">
-                    <Clock className="w-3 h-3 text-[hsl(var(--text-tertiary))]" />
-                    <span className="text-[10px] font-bold text-[hsl(var(--text-secondary))]">
-                      {agent?.emoji} {agent?.name ?? agentId}
-                    </span>
-                    <span className="text-[9px] bg-[hsl(var(--accent-soft))] text-[hsl(var(--accent))] px-1 rounded-[2px]">{queue.length}</span>
-                  </div>
-                  <div className="flex-1 flex flex-col gap-1 min-w-0">
-                    {queue.map((item, i) => (
-                      <div
-                        key={`${agentId}-${i}`}
-                        className="flex items-center gap-1.5 text-[10px] text-[hsl(var(--text-tertiary))] bg-[hsl(var(--bg-card))] rounded-[2px] border border-[hsl(var(--border-subtle))] px-2 py-1"
-                      >
-                        <span className="truncate flex-1 text-[hsl(var(--text-primary))]">{item.prompt.slice(0, 80)}{item.prompt.length > 80 ? '…' : ''}</span>
-                        {item.persistenceStatus !== 'persisted' && (
-                          <span className={item.persistenceStatus === 'failed' ? 'text-red-400' : 'text-amber-400'}>
-                            {item.persistenceStatus === 'failed' ? 'not saved' : 'saving…'}
-                          </span>
-                        )}
-                        {i === 0 && item.persistenceStatus === 'persisted' && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              void forceSendDispatch({
-                                agentId,
-                                prompt: item.prompt,
-                                referencedTaskId: item.referencedTaskId,
-                                conversationId: convId,
-                                queuedIdempotencyKey: item.idempotencyKey,
-                                legacyProposal: item.legacyProposal,
-                              }).catch((error) => console.error('[dispatch] force send failed:', error));
-                            }}
-                            className="shrink-0 text-[hsl(var(--text-tertiary))] hover:text-amber-400"
-                            title="强制发送（中断当前任务）"
-                          >
-                            <Zap className="w-3 h-3" />
-                          </button>
-                        )}
-                        {item.persistenceStatus !== 'persisting' && <button
-                          type="button"
-                          onClick={() => {
-                            void clearPendingDispatches(agentId, convId, item.idempotencyKey)
-                              .catch((error) => console.error('[dispatch] cancel failed:', error));
-                          }}
-                          className="shrink-0 text-[hsl(var(--text-tertiary))] hover:text-[hsl(var(--status-rejected))]"
-                          title="移除此条"
-                        >
-                          ×
-                        </button>}
-                      </div>
-                    ))}
-                  </div>
-                  {queue.every((item) => item.persistenceStatus !== 'persisting') && <button
-                    type="button"
-                    onClick={() => {
-                      void clearPendingDispatches(agentId, convId)
-                        .catch((error) => console.error('[dispatch] cancel all failed:', error));
-                    }}
-                    className="shrink-0 text-[9px] text-[hsl(var(--text-tertiary))] hover:text-[hsl(var(--status-rejected))] mt-0.5"
-                    title="清空全部"
-                  >
-                    全部清空
-                  </button>}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
       {/* Input Area */}
       <div className={cn(
         'shrink-0 p-4 bg-[hsl(var(--bg-card))]',
@@ -369,7 +303,7 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
               onClose={() => setMentionOpen(false)}
             />
           )}
-          <label htmlFor="chat-input" className="sr-only">消息输入</label>
+          <label htmlFor="chat-input" className="sr-only">向团队补充要求</label>
           <textarea
             id="chat-input"
             ref={textareaRef}
@@ -377,6 +311,8 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
             onChange={(e) => {
               const wasEmpty = !inputValue.trim();
               const isEmpty = !e.target.value.trim();
+              pendingCommandRef.current = null;
+              setSendError(null);
               setInputValue(e.target.value);
               if (isEmpty) setDraftConversationId(null);
               else if (wasEmpty) setDraftConversationId(selectedConversationId);
@@ -424,7 +360,8 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
             }}
             onCompositionStart={ime.onCompositionStart}
             onCompositionEnd={ime.onCompositionEnd}
-            placeholder="发送消息或 @智能体…"
+            placeholder="向团队补充要求…"
+            disabled={!selectedConversationId || sendInProgress}
             rows={1}
 
             className={cn(
@@ -440,10 +377,14 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
           />
           <EmojiPickerButton onEmojiSelect={handleEmojiInsert} placement="top-end" />
           <button
-            onClick={handleSend}
-            disabled={!inputValue.trim() || runtimeRefreshInProgress || draftTargetMismatch}
+            onClick={() => void handleSend()}
+            disabled={!selectedConversationId || !inputValue.trim() || runtimeRefreshInProgress || draftTargetMismatch || sendInProgress}
             title={
-              draftTargetMismatch
+              !selectedConversationId
+                ? '请先选择或新建一个交付'
+                : sendInProgress
+                ? '正在提交要求…'
+                : draftTargetMismatch
                 ? '草稿属于先前项目，请切回原项目或清空后重写'
                 : runtimeRefreshInProgress
                   ? '运行配置刷新完成后即可发送'
@@ -462,12 +403,17 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
           </button>
         </div>
         <p className="text-[9px] font-medium text-[hsl(var(--text-tertiary))] mt-2 ml-1">
-          {draftTargetMismatch
+          {!selectedConversationId
+            ? '请先选择或新建一个交付，再向团队补充要求'
+            : draftTargetMismatch
             ? '草稿属于先前项目，请切回原项目或清空后重写'
+            : sendInProgress
+              ? '正在提交要求，服务端确认后会显示在活动流中'
             : runtimeRefreshInProgress
               ? '正在刷新运行配置，草稿会保留，刷新完成后即可发送'
-              : '使用 #TASK-000 引用任务 · @Agent 提及智能体'}
+              : '使用 #TASK-000 引用任务 · 未指定负责人时由团队自动接手'}
         </p>
+        {sendError && <p role="alert" className="mt-2 ml-1 text-[10px] text-red-600">{sendError}</p>}
       </div>
     </div>
   );

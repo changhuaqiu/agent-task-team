@@ -649,4 +649,4 @@ CREATE TABLE IF NOT EXISTS agent_log_cursor (
 - wakeup 的 situation 簇为轻量模式：只注入 team-log envelope，不重新注入团队花名册和 TeamPack 全景。
 - `agent_log_cursor.last_consumed_id` 可以指向 message 或 proof。查询时先定位该源记录的 `(created_at, id)`，再以二元游标读取后续条目；不同 id prefix 不直接比较。
 - proof 投影只接受面向协作的系统事件（wakeup、closure、合法出口异常），控制平面内部流水不进入 team log。
-- 用户直发仍走浏览器 compose 的兼容阶段，daemon `terminal:start` 在 payload 未携带 `teamLogUpToEntryId` 时执行一次 server-side envelope 补位；Harness 路径已携带快照时不重复注入。该兼容逻辑随用户直发完全迁入 Harness 后删除。
+- 用户命令已统一进入服务端 Harness；`InvocationDispatchPlan` 携带 `teamLogUpToEntryId`，daemon 只在服务端 Plan 缺少快照时执行一次有界 envelope 补位，不接受浏览器 compose 的执行上下文。

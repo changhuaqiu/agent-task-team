@@ -64,7 +64,6 @@ function resetReviewGateStore() {
     terminalLogs: {},
     activeRunsByAgent: {},
     agentSessions: { 'conv-review': {} },
-    pendingDispatches: {},
     needsFullCompose: {},
   });
 }

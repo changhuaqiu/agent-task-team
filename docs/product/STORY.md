@@ -2,7 +2,7 @@
 topics: [product-story, user-outcomes, optimization, evidence]
 doc_kind: product-story
 created: 2026-08-02
-updated: 2026-08-03
+updated: 2026-08-16
 ---
 
 # Agent Task Hub 产品故事
@@ -58,6 +58,49 @@ updated: 2026-08-03
 - [唤醒恢复实施归档](../archive/specs/wakeup-recovery/spec.md)
 - [群聊任务图与状态投影](../technical/execution/group-chat-task-graph.md)
 - [统一 ACP 执行链](../technical/execution/opencode-integration-executable-chain.md)
+
+---
+
+## 2026-08-16：用户先看到交付，不再先理解 Agent 内部
+
+### 原来的处境
+
+首页同时把项目、会话、群聊、任务、团队、地图、待办、风险和调试放在第一层。用户进入系统后先看到“作战指挥室”
+和 Agent 卡片，右侧还要在五个 tab 间寻找进度；“新建项目”和“新建任务”又同时竞争主操作。用户必须先理解平台
+内部如何组织 Agent，才能回答“这次交付完成到哪、是否需要我处理”。
+
+### 优化后的变化
+
+- 顶栏只保留一个主操作“新建交付”，创建时直接收集目标、项目目录、验收标准和授权；
+- 侧栏按真实项目目录分组交付，中心首屏展示目标、工作进度和需要关注，聊天降为“团队活动”；
+- 右侧一级入口从五个收敛为“任务/调试”，“需要关注”只出现必须由用户补充信息、选择或授权的事项，关系图成为任务视图模式；
+- 用户无需 `@Agent` 也能补充要求，默认接球人由服务端 Team Runtime 决定；未选交付不能发送，无接手人会明确提示。
+- 补充要求只有在服务端同时记录消息和团队接手工作后才进入活动流；失败时草稿保留，重试不会重复创建消息或工作项。
+- 任务详情中的“请求进度”只表达用户意图，不再让用户选择执行引擎或由当前浏览器直接启动 Agent；任务开始与自动接续
+  即使页面断开，也由服务端命令、Inbox 和执行器链路持有。
+
+### 已验证的效果
+
+- 在独立 worktree 的 Next.js 16.2.4 服务上完成真实浏览器检查，辅助技术树确认唯一主创建动作、Project -> Delivery
+  文案、交付摘要、次级团队活动，以及任务/调试两级结构；
+- 原交付投影、项目组件、草稿保持和架构门禁 88 项定向测试通过；审查后新增的隔离、关注语义、关系图竞态、
+  默认接手人、自主交付组件、Task revision 合并和持久拒绝回执回归均通过；
+- TypeScript 检查和生产 build 通过；控制面收敛后的全量测试 1559 通过、2 跳过，只剩 human-resume 场景继续复现主线
+  已记录的 1 个基线失败，本轮新增与更新用例没有失败。
+- 真实浏览器中完成新建交付、任务视图切换和补充要求提交；刷新后权威活动仍只出现一次且控制台无错误。
+
+### 仍然保留的边界
+
+当前 `Conversation` 仍是持久化兼容对象，独立 Delivery schema 尚未冻结；自主交付验收详情仍由现有 snapshot 面板读取。
+独立 Delivery schema、完整验收详情和 `taskHubStore` 的进一步展示/UI 状态拆分尚未完成；部分 Task/交付操作仍走各自
+领域 API，而非全部统一到 `HumanCommandGateway`。Daemon 已删除浏览器启动/强杀旁路，但更细的进程生命周期模块拆分、
+重启恢复仍按活动规格继续验收；当前发布只接通本地单 daemon，非本地节点会明确拒绝，远端 transport 尚未实现。
+
+### 设计与实现依据
+
+- [交付工作区前端决策](ux/2026-08-16-delivery-workspace-refactor.md)
+- [前端与控制面收敛架构](../technical/execution/frontend-control-plane-convergence.md)
+- [活动实现规格](../../specs/frontend-architecture-refactor/spec.md)
 - [Platform Harness 状态机](../technical/execution/platform-harness-state-machine-design.md)
 
 ---

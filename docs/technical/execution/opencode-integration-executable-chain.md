@@ -13,10 +13,10 @@ Adapter 启动优先解析项目已安装且由 lockfile 固定的 `node_modules
 ## 1. 架构分层
 
 ```
-前端 (store)
-  │  terminal:start (Socket)
+服务端 Invocation Pipeline
+  │  InvocationDispatchPlan
   ▼
-Daemon (daemon.ts)
+DaemonExecutionAdapter → daemon.ts
   │  loadCatalog().find(e => e.id === engine) → createAcpBackend(entry)
   ▼
 AgentBackend (interface, src/server/agent/types.ts)
@@ -214,7 +214,7 @@ spawn('script', ['-q', '/dev/null', 'opencode', ...args], {
 ## 5. Daemon 编排流程
 
 ```text
-人工 terminal:start Command / 服务端 Harness dispatch
+Human/Task Command → Agent Inbox → 服务端 Harness dispatch
   │
   ├─ Harness / DispatchGateway 检查 admission、busy 与幂等
   ├─ 解析 engine (runtimeId → RUNTIME_ENGINE_MAP)

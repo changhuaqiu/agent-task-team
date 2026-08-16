@@ -75,6 +75,24 @@ describe('task wakeup resolver', () => {
     expect(wakeups).toEqual([]);
   });
 
+  it('routes an explicit user start through the server pipeline exactly once', () => {
+    const started = task({ id: 'TASK-START', agent_id: 'toad', status: 'in_progress' });
+    const previous = { ...started, status: 'ready' as const };
+    const input = {
+      task: started,
+      previousTask: previous,
+      changedFields: ['status'],
+      coordinatorAgentIds: [],
+      reviewAgentIds: [],
+      conversationTasks: [started],
+      edges: [],
+    };
+
+    expect(resolveTaskWakeups({ ...input, actorId: 'webui:local-user' }))
+      .toMatchObject([{ taskId: 'TASK-START', agentId: 'toad', reasonCode: 'owner_ready' }]);
+    expect(resolveTaskWakeups({ ...input, actorId: 'platform-harness' })).toEqual([]);
+  });
+
   it('wakes review roles when a task enters review and skips the actor', () => {
     const reviewed = task({ id: 'TASK-003', agent_id: 'toad', status: 'in_review' });
 

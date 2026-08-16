@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { selectUserEntryAgentIds, shouldTriggerInitialProposal, useTaskHubStore } from '@/store/taskHubStore';
+import { selectUserEntryAgentIds, useTaskHubStore } from '@/store/taskHubStore';
 
 describe('ChatMessage extensions', () => {
   beforeEach(() => {
@@ -29,16 +29,6 @@ describe('ChatMessage extensions', () => {
 
     it('does not invent an entry when no mention resolves', () => {
       expect(selectUserEntryAgentIds([])).toEqual([]);
-    });
-  });
-
-  describe('initial proposal routing', () => {
-    it('allows only a human first turn without an explicit mention', () => {
-      expect(shouldTriggerInitialProposal('human', 'none', 0)).toBe(true);
-      expect(shouldTriggerInitialProposal('system', 'none', 0)).toBe(false);
-      expect(shouldTriggerInitialProposal('peach', 'none', 0)).toBe(false);
-      expect(shouldTriggerInitialProposal('human', 'proposal', 0)).toBe(false);
-      expect(shouldTriggerInitialProposal('human', 'none', 1)).toBe(false);
     });
   });
 
@@ -218,27 +208,22 @@ describe('ChatMessage extensions', () => {
     });
   });
 
-  describe('addChatMessage auto-create conversation', () => {
-    it('auto-creates a conversation when none selected and none exist', () => {
+  describe('addChatMessage delivery scope', () => {
+    it('does not create a bare conversation when none is selected', async () => {
       const store = useTaskHubStore.getState();
       expect(store.conversations.length).toBe(0);
       expect(store.selectedConversationId).toBeNull();
 
-      // Add a human message — should auto-create a conversation
-      useTaskHubStore.getState().addChatMessage({
+      const result = await useTaskHubStore.getState().addChatMessage({
         agentId: 'human',
         content: 'Hello world, this is a test message',
       });
 
       const after = useTaskHubStore.getState();
-      expect(after.conversations.length).toBe(1);
-      expect(after.selectedConversationId).not.toBeNull();
-
-      // The message should be stored in the newly created conversation
-      const convId = after.selectedConversationId!;
-      const messages = after.chatMessagesByConversation[convId] ?? [];
-      expect(messages.length).toBe(1);
-      expect(messages[0].content).toBe('Hello world, this is a test message');
+      expect(result).toEqual({ ok: false, error: '请先选择或新建一个交付' });
+      expect(after.conversations.length).toBe(0);
+      expect(after.selectedConversationId).toBeNull();
+      expect(after.chatMessagesByConversation).toEqual({});
     });
 
     it('does NOT auto-create when conversations already exist', () => {

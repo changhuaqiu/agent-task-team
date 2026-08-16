@@ -62,7 +62,6 @@ function resetBackgroundSessionStore() {
     agentSessions: { 'conv-bg': { mario: 'session-bg' } },
     activeStreamMessageId: {},
     activeStreamConversationId: {},
-    pendingDispatches: {},
   });
 }
 

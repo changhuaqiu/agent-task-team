@@ -8,7 +8,7 @@ Accepted and implemented — 2026-07-14（2026-07-26 完成浏览器控制路径
 
 ## 背景
 
-当前系统已具备 Team Runtime、ContextManager、Task Wakeup、A2A、DispatchGateway、ExecutionEnvelope、session、invocation 和 AgentBackend，但实际续接仍依赖浏览器 store。服务端能够判断下一位 Agent，却只能向浏览器发送事件；浏览器再组装上下文并发出 `terminal:start`。
+实施前系统虽已具备 Team Runtime、ContextManager、Task Wakeup、A2A、DispatchGateway、ExecutionEnvelope、session、invocation 和 AgentBackend，实际续接仍依赖浏览器 store；本 ADR 决定并已完成该责任迁移。
 
 这使浏览器成为隐含控制面，导致无浏览器无法继续、队列不持久、状态权威重复，并增加 A2A/Wakeup 双派发风险。
 
@@ -48,6 +48,6 @@ ACP 只解决执行协议，不解决角色、上下文、工作流和续接权�
 
 ## 退出与迁移条件
 
-退出条件已满足：所有自动触发走服务端 Harness，没有 compatibility fallback；
-浏览器 `pendingDispatches` 仅是 Agent Inbox 展示投影。人工点击或输入仍可经
-Command adapter 提交 `terminal:start`，但收到 Socket 展示事件不会产生执行命令。
+退出条件已满足：所有自动触发走服务端 Harness，没有 compatibility fallback；浏览器 `pendingDispatches`、
+`terminal:start` 与 `terminal:kill` 已删除。人工点击或输入经 Human/Task Command 进入服务端 owner，Socket 展示事件
+不会产生执行命令。

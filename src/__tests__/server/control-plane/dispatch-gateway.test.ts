@@ -1,10 +1,12 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createTestDb, resetDb, setTestDb } from '@/server/db/index';
 import { resetSeq } from '@/server/repositories/sortable-id';
 import { DispatchGateway } from '@/server/control-plane/dispatch-gateway';
 import { runtimeNodeRepo } from '@/server/repositories/runtime-node-repo';
 import { executionEnvelopeRepo } from '@/server/repositories/execution-envelope-repo';
 import { proofLogRepo } from '@/server/repositories/proof-log-repo';
+import { DaemonExecutionAdapter } from '@/server/daemon-execution-adapter';
+import type { InvocationDispatchPlan } from '@/server/invocation-pipeline';
 
 beforeEach(() => {
   const db = createTestDb();
@@ -74,6 +76,93 @@ describe('DispatchGateway', () => {
     expect(envelope.status).toBe('rejected');
     expect(envelope.reason_code).toBe('runtime_unreachable');
     expect(proofLogRepo.getByEnvelope(envelope.id).map((event) => event.event_type)).toContain('dispatch.rejected');
+  });
+
+  it('routes an envelope only to its directed runtime node', () => {
+    const gateway = new DispatchGateway();
+    gateway.ensureRuntimeNode({ id: 'control-1', kind: 'daemon', label: 'Control owner' });
+    gateway.ensureRuntimeNode({ id: 'daemon-a', kind: 'daemon', label: 'Daemon A' });
+    gateway.ensureRuntimeNode({ id: 'daemon-b', kind: 'daemon', label: 'Daemon B' });
+
+    const envelope = gateway.requestDispatch({
+      source: 'workflow',
+      intent: 'implement',
+      conversationId: 'conv-1',
+      fromNodeId: 'control-1',
+      toNodeId: 'daemon-b',
+      toAgentId: 'mario',
+      runtimeId: 'codex-local',
+      payload: { prompt: 'directed work', contextRefs: [] },
+    });
+
+    expect(executionEnvelopeRepo.listRunnableForNode('daemon-a')).toEqual([]);
+    expect(executionEnvelopeRepo.listRunnableForNode('daemon-b')).toEqual([
+      expect.objectContaining({ id: envelope.id, to_node_id: 'daemon-b' }),
+    ]);
+  });
+
+  it('expires a sent envelope with an explicit no-ACK reason', () => {
+    const gateway = new DispatchGateway();
+    gateway.ensureRuntimeNode({ id: 'control-1', kind: 'daemon', label: 'Control owner' });
+    gateway.ensureRuntimeNode({ id: 'daemon-1', kind: 'daemon', label: 'Daemon' });
+    const envelope = gateway.requestDispatch({
+      source: 'workflow',
+      intent: 'implement',
+      conversationId: 'conv-1',
+      fromNodeId: 'control-1',
+      toNodeId: 'daemon-1',
+      toAgentId: 'mario',
+      runtimeId: 'codex-local',
+      ttlMs: 1,
+      payload: { prompt: 'wait for ACK', contextRefs: [] },
+    });
+    gateway.markSent(envelope.id);
+
+    expect(gateway.expireUnacknowledged(new Date(Date.now() + 10_000))).toBe(1);
+    expect(executionEnvelopeRepo.getById(envelope.id)).toMatchObject({
+      status: 'expired',
+      reason_code: 'ack_timeout',
+    });
+  });
+
+  it('keeps an acknowledged envelope fenced while backend startup is delayed', async () => {
+    const gateway = new DispatchGateway();
+    gateway.ensureRuntimeNode({ id: 'daemon-1', kind: 'daemon', label: 'Daemon' });
+    let releaseStartup!: () => void;
+    const startupGate = new Promise<void>((resolve) => { releaseStartup = resolve; });
+    const execute = vi.fn(() => startupGate);
+    const adapter = new DaemonExecutionAdapter({
+      nodeId: 'daemon-1',
+      dispatch: gateway,
+      resolveTargetNodeId: () => 'daemon-1',
+      backend: {
+        isBusy: () => false,
+        reserve: () => true,
+        release: vi.fn(),
+        execute,
+      },
+    });
+    const plan = {
+      trigger: {
+        id: 'delayed-start',
+        source: 'workflow',
+        conversationId: 'conv-1',
+        agentId: 'mario',
+        prompt: 'delayed backend startup',
+      },
+      runtimeId: 'codex-local',
+      prompt: 'delayed backend startup',
+    } as InvocationDispatchPlan;
+
+    const pending = adapter.execute(plan);
+    await vi.waitFor(() => expect(execute).toHaveBeenCalledOnce());
+    const [created] = executionEnvelopeRepo.listByConversation('conv-1');
+    expect(created.status).toBe('acknowledged');
+    expect(gateway.expireUnacknowledged(new Date(Date.now() + 10 * 60_000))).toBe(0);
+    expect(executionEnvelopeRepo.getById(created.id)?.status).toBe('acknowledged');
+
+    releaseStartup();
+    await expect(pending).resolves.toMatchObject({ status: 'accepted', envelopeId: created.id });
   });
 
   it('blocks secret-bearing envelopes and stores redacted payload', () => {

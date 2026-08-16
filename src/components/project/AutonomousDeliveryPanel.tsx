@@ -36,7 +36,13 @@ function EvidenceRef({ value }: { value: string }) {
   return <span className="break-all font-mono text-[10px]">{value}</span>;
 }
 
-export function AutonomousDeliveryPanel({ conversationId }: { conversationId: string }) {
+export function AutonomousDeliveryPanel({
+  conversationId,
+  onSnapshotChange,
+}: {
+  conversationId: string;
+  onSnapshotChange?: (snapshot: DeliveryRunSnapshot | undefined) => void;
+}) {
   const [snapshot, setSnapshot] = useState<DeliveryRunSnapshot>();
   const [resumePending, setResumePending] = useState(false);
   const [resumeError, setResumeError] = useState<string>();
@@ -50,7 +56,9 @@ export function AutonomousDeliveryPanel({ conversationId }: { conversationId: st
         `/api/autonomous-delivery?conversationId=${encodeURIComponent(conversationId)}`,
       );
       if (disposed || response.status === 404 || !response.ok) return;
-      setSnapshot(await response.json() as DeliveryRunSnapshot);
+      const nextSnapshot = await response.json() as DeliveryRunSnapshot;
+      setSnapshot(nextSnapshot);
+      onSnapshotChange?.(nextSnapshot);
     };
     void load();
     const timer = window.setInterval(() => void load(), 3_000);
@@ -58,7 +66,7 @@ export function AutonomousDeliveryPanel({ conversationId }: { conversationId: st
       disposed = true;
       window.clearInterval(timer);
     };
-  }, [conversationId]);
+  }, [conversationId, onSnapshotChange]);
 
   if (!snapshot) return null;
   const { run, contract, bundle } = snapshot;
@@ -85,6 +93,7 @@ export function AutonomousDeliveryPanel({ conversationId }: { conversationId: st
         throw new Error(payload.error ?? '无法继续运行');
       }
       setSnapshot(payload.snapshot);
+      onSnapshotChange?.(payload.snapshot);
       resumeCommandId.current = undefined;
     } catch (error) {
       setResumeError(error instanceof Error ? error.message : String(error));

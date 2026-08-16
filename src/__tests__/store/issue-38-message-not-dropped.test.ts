@@ -1,12 +1,10 @@
-// Regression test for issue #38 Bug 1: a human message sent when projects exist
-// but none is selected must not be silently dropped. Previously addChatMessage
-// returned early at `if (!conversationId) return`, losing the message. The fix
-// auto-selects the first conversation as a fallback.
+// Superseding regression for issue #38: an unscoped human message must not be
+// attached to an arbitrary existing delivery. The UI requires explicit scope.
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useTaskHubStore } from '@/store/taskHubStore';
 
-describe('issue #38 Bug 1 — message not dropped when project exists but none selected', () => {
+describe('issue #38 superseded — activity submission requires an explicit delivery', () => {
   beforeEach(() => {
     useTaskHubStore.setState({
       conversations: [],
@@ -26,7 +24,7 @@ describe('issue #38 Bug 1 — message not dropped when project exists but none s
     };
   });
 
-  it('auto-selects the first conversation and keeps the message instead of dropping it', async () => {
+  it('does not auto-select the first conversation or persist an unscoped message', async () => {
     // Seed one conversation but leave nothing selected.
     useTaskHubStore.setState({
       conversations: [
@@ -36,16 +34,14 @@ describe('issue #38 Bug 1 — message not dropped when project exists but none s
       chatMessagesByConversation: {},
     });
 
-    await useTaskHubStore.getState().addChatMessage({
+    const result = await useTaskHubStore.getState().addChatMessage({
       agentId: 'human',
       content: '这条消息不该丢',
     });
 
     const state = useTaskHubStore.getState();
-    // Fallback selection happened.
-    expect(state.selectedConversationId).toBe('conv-1');
-    // Message was attached to that conversation, not dropped.
-    const msgs = state.chatMessagesByConversation['conv-1'] ?? [];
-    expect(msgs.some((m: any) => m.content === '这条消息不该丢')).toBe(true);
+    expect(result).toEqual({ ok: false, error: '请先选择或新建一个交付' });
+    expect(state.selectedConversationId).toBeNull();
+    expect(state.chatMessagesByConversation['conv-1']).toBeUndefined();
   });
 });

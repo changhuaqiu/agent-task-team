@@ -1,7 +1,4 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtempSync, rmSync } from 'fs';
-import { tmpdir } from 'os';
-import { join } from 'path';
 import { createTestDb, setTestDb, resetDb } from '@/server/db/index';
 import { resetSeq } from '@/server/repositories/sortable-id';
 import handler from '@/pages/api/mutations';
@@ -41,18 +38,6 @@ beforeEach(() => {
   setTestDb(createTestDb());
   resetSeq();
 });
-
-async function seedAgent() {
-  const { upsertAgent } = await import('@/server/db/agentQueries');
-  upsertAgent({
-    id: 'mario',
-    name: 'Mario',
-    roleCardId: 'developer',
-    theme: 'red',
-    emoji: '🍄',
-    isPreset: true,
-  });
-}
 
 afterEach(() => {
   resetDb();
@@ -125,134 +110,13 @@ describe('POST /api/mutations', () => {
     'phase.upsert',
     'phase.delete',
     'tool.invoke',
+    'dispatch.enqueue',
+    'dispatch.cancel',
   ])('rejects retired browser-owned mutation %s', async (type) => {
     const res = mockRes();
     await handler(mockReq('POST', { type, payload: {} }), res);
     expect(res.statusCode).toBe(400);
     expect(res._json).toEqual({ ok: false, error: `Unknown mutation type: ${type}` });
-  });
-
-  it('dispatch.enqueue persists an idempotent Agent Inbox command', async () => {
-    await seedAgent();
-    await seedTask();
-    const body = {
-      type: 'dispatch.enqueue',
-      payload: {
-        agentId: 'mario',
-        conversationId: 'conv-1',
-        prompt: 'Continue the task',
-        referencedTaskId: 'task-1',
-        source: 'workflow',
-        legacyProposal: true,
-        idempotencyKey: 'browser-request-1',
-      },
-    };
-    const first = mockRes();
-    const second = mockRes();
-
-    await handler(mockReq('POST', body), first);
-    await handler(mockReq('POST', body), second);
-
-    expect(first.statusCode).toBe(200);
-    expect(second.statusCode).toBe(200);
-    expect(second._json.result.id).toBe(first._json.result.id);
-    expect(first._json.result.command).toMatchObject({
-      source: 'workflow',
-      prompt: 'Continue the task',
-      taskId: 'task-1',
-      legacyProposal: true,
-    });
-    const { getDb } = await import('@/server/db/index');
-    expect(getDb().prepare('SELECT COUNT(*) AS count FROM agent_inbox_item').get())
-      .toEqual({ count: 1 });
-    expect(getDb().prepare('SELECT COUNT(*) AS count FROM invocation').get())
-      .toEqual({ count: 0 });
-  });
-
-  it('dispatch.enqueue reports an idempotency conflict', async () => {
-    await seedAgent();
-    await seedConversation();
-    const first = {
-      type: 'dispatch.enqueue',
-      payload: {
-        agentId: 'mario',
-        conversationId: 'conv-1',
-        prompt: 'First',
-        idempotencyKey: 'same-key',
-      },
-    };
-    await handler(mockReq('POST', first), mockRes());
-    const conflict = mockRes();
-
-    await handler(mockReq('POST', {
-      ...first,
-      payload: { ...first.payload, prompt: 'Different' },
-    }), conflict);
-
-    expect(conflict.statusCode).toBe(409);
-    expect(conflict._json.reasonCode).toBe('agent_inbox_idempotency_conflict');
-  });
-
-  it('dispatch.enqueue validates source and task scope before persisting', async () => {
-    await seedAgent();
-    await seedTask();
-    const invalidSource = mockRes();
-    await handler(mockReq('POST', {
-      type: 'dispatch.enqueue',
-      payload: {
-        agentId: 'mario',
-        conversationId: 'conv-1',
-        prompt: 'Invalid',
-        source: 'socket',
-        idempotencyKey: 'invalid-source',
-      },
-    }), invalidSource);
-    expect(invalidSource.statusCode).toBe(400);
-
-    const { conversationRepo } = await import('@/server/repositories/conversation-repo');
-    conversationRepo.create({ id: 'conv-2', title: 'Other' });
-    const mismatch = mockRes();
-    await handler(mockReq('POST', {
-      type: 'dispatch.enqueue',
-      payload: {
-        agentId: 'mario',
-        conversationId: 'conv-2',
-        referencedTaskId: 'task-1',
-        prompt: 'Wrong project',
-        idempotencyKey: 'wrong-project',
-      },
-    }), mismatch);
-    expect(mismatch.statusCode).toBe(409);
-  });
-
-  it('dispatch.cancel changes only queued Inbox work', async () => {
-    await seedAgent();
-    await seedConversation();
-    const enqueue = {
-      type: 'dispatch.enqueue',
-      payload: {
-        agentId: 'mario',
-        conversationId: 'conv-1',
-        prompt: 'Cancel me',
-        idempotencyKey: 'cancel-me',
-      },
-    };
-    await handler(mockReq('POST', enqueue), mockRes());
-    const cancelled = mockRes();
-
-    await handler(mockReq('POST', {
-      type: 'dispatch.cancel',
-      payload: {
-        agentId: 'mario',
-        conversationId: 'conv-1',
-        idempotencyKey: 'cancel-me',
-      },
-    }), cancelled);
-
-    expect(cancelled.statusCode).toBe(200);
-    expect(cancelled._json.result).toEqual({ cancelled: 1, status: 'cancelled' });
-    const { AgentInbox } = await import('@/server/platform-events/agent-inbox');
-    expect(new AgentInbox().listPending('conv-1')).toHaveLength(0);
   });
 
   it('conversation.create returns conversation', async () => {
@@ -419,6 +283,33 @@ describe('POST /api/mutations', () => {
     expect(res._json.result.status).toBe('ready');
   });
 
+  it('task.create requests execution through the server wakeup pipeline', async () => {
+    await seedConversation();
+    const emit = vi.fn();
+    const to = vi.fn(() => ({ emit }));
+    const req = mockReq('POST', {
+      type: 'task.create',
+      payload: {
+        id: 'task-start-on-create',
+        conversation_id: 'conv-1',
+        title: 'Start through server owner',
+        agent_id: 'agent-a',
+        requestExecution: true,
+      },
+    });
+    const res = mockRes();
+    res.socket = { server: { io: { to, emit: vi.fn() } } };
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(emit).toHaveBeenCalledWith('task.wakeup', expect.objectContaining({
+      taskId: 'task-start-on-create',
+      agentId: 'agent-a',
+      reasonCode: 'owner_ready',
+    }));
+  });
+
   it('task.create assigns a TeamPack task from TeamRuntime initialAgentId when no explicit agent is supplied', async () => {
     await seedTeamPackConversation();
     const req = mockReq('POST', {
@@ -484,11 +375,14 @@ describe('POST /api/mutations', () => {
 
   it('task.updateStatus changes status', async () => {
     await seedTask();
+    const emit = vi.fn();
+    const to = vi.fn(() => ({ emit }));
     const req = mockReq('POST', {
       type: 'task.updateStatus',
-      payload: { id: 'task-1', status: 'in_progress' },
+      payload: { id: 'task-1', status: 'in_progress', expectedTaskRevision: 0 },
     });
     const res = mockRes();
+    res.socket = { server: { io: { to, emit: vi.fn() } } };
     await handler(req, res);
 
     expect(res.statusCode).toBe(200);
@@ -498,6 +392,93 @@ describe('POST /api/mutations', () => {
 
     const { taskRepo } = await import('@/server/repositories/task-repo');
     expect(taskRepo.getById('task-1')!.status).toBe('in_progress');
+    expect(emit).toHaveBeenCalledWith('task.wakeup', expect.objectContaining({
+      taskId: 'task-1',
+      agentId: 'agent-a',
+      reasonCode: 'owner_ready',
+    }));
+  });
+
+  it('task.updateStatus rejects a stale browser revision instead of overwriting newer facts', async () => {
+    await seedTask();
+    const first = mockRes();
+    await handler(mockReq('POST', {
+      type: 'task.updateStatus',
+      payload: {
+        id: 'task-1',
+        status: 'in_progress',
+        expectedTaskRevision: 0,
+        idempotencyKey: 'status-revision-1',
+      },
+    }), first);
+    const stale = mockRes();
+    await handler(mockReq('POST', {
+      type: 'task.updateStatus',
+      payload: {
+        id: 'task-1',
+        status: 'blocked',
+        expectedTaskRevision: 0,
+        idempotencyKey: 'status-revision-stale',
+      },
+    }), stale);
+
+    expect(first.statusCode).toBe(200);
+    expect(stale.statusCode).toBe(409);
+    expect(stale._json.reasonCode).toBe('stale_task_revision');
+    const { taskRepo } = await import('@/server/repositories/task-repo');
+    expect(taskRepo.getById('task-1')).toMatchObject({ status: 'in_progress', revision: 1 });
+  });
+
+  it('admits the task revision before evidence recovery side effects', async () => {
+    await seedTask();
+    const { taskRepo } = await import('@/server/repositories/task-repo');
+    taskRepo.transition('task-1', { to: 'in_progress' });
+    const submit = vi.fn(() => ({
+      handled: true,
+      disposition: 'accepted' as const,
+      completion: new Promise<never>(() => {}),
+    }));
+    const to = vi.fn(() => ({ emit: vi.fn() }));
+    const io = { to };
+    const { registerInvocationCoordinator } = await import('@/server/invocation-pipeline/registry');
+    registerInvocationCoordinator(io as never, { submit } as never);
+    const res = mockRes();
+    res.socket = { server: { io } };
+
+    await handler(mockReq('POST', {
+      type: 'task.updateStatus',
+      payload: {
+        id: 'task-1',
+        status: 'in_review',
+        expectedTaskRevision: 0,
+        actorId: 'agent-a',
+        actorType: 'agent',
+      },
+    }), res);
+
+    expect(res.statusCode).toBe(409);
+    expect(res._json.reasonCode).toBe('stale_task_revision');
+    expect(submit).not.toHaveBeenCalled();
+    expect(to).not.toHaveBeenCalled();
+  });
+
+  it('requires a task revision for browser-owned task mutations', async () => {
+    await seedTask();
+    const statusRes = mockRes();
+    await handler(mockReq('POST', {
+      type: 'task.updateStatus',
+      payload: { id: 'task-1', status: 'in_progress' },
+    }), statusRes);
+    const updateRes = mockRes();
+    await handler(mockReq('POST', {
+      type: 'task.update',
+      payload: { id: 'task-1', title: 'Stale title' },
+    }), updateRes);
+
+    expect(statusRes.statusCode).toBe(400);
+    expect(statusRes._json.reasonCode).toBe('task_revision_required');
+    expect(updateRes.statusCode).toBe(400);
+    expect(updateRes._json.reasonCode).toBe('task_revision_required');
   });
 
   it('task.updateStatus replays the frozen result when the first HTTP response is lost', async () => {
@@ -507,6 +488,7 @@ describe('POST /api/mutations', () => {
       payload: {
         id: 'task-1',
         status: 'in_progress',
+        expectedTaskRevision: 0,
         idempotencyKey: 'browser-task-status-command-1',
       },
     };
@@ -540,6 +522,7 @@ describe('POST /api/mutations', () => {
       payload: {
         id: 'task-1',
         status: 'in_review',
+        expectedTaskRevision: 1,
         actorId: 'agent-a',
         actorType: 'agent',
         idempotencyKey: 'browser-task-review-command-1',
@@ -578,6 +561,7 @@ describe('POST /api/mutations', () => {
       payload: {
         id: 'task-1',
         status: 'in_review',
+        expectedTaskRevision: 1,
         actorId: 'reviewer',
         actorType: 'agent',
         evidence: {
@@ -613,17 +597,17 @@ describe('POST /api/mutations', () => {
     await seedTask();
     const emit = vi.fn();
     const to = vi.fn(() => ({ emit }));
-    const submit = vi.fn(() => ({
-      handled: true,
-      disposition: 'accepted' as const,
-      completion: new Promise<never>(() => {}),
-    }));
     const io = { to };
-    const { registerInvocationCoordinator } = await import('@/server/invocation-pipeline/registry');
-    registerInvocationCoordinator(io as never, { submit } as never);
     const req = mockReq('POST', {
       type: 'task.updateStatus',
-      payload: { id: 'task-1', status: 'in_review', actorId: 'agent-a', actorType: 'agent' },
+      payload: {
+        id: 'task-1',
+        status: 'in_review',
+        expectedTaskRevision: 0,
+        actorId: 'agent-a',
+        actorType: 'agent',
+        idempotencyKey: 'evidence-recovery-1',
+      },
     });
     const res = mockRes();
     res.socket = { server: { io } };
@@ -643,30 +627,31 @@ describe('POST /api/mutations', () => {
         missingFields: expect.arrayContaining(['installResult', 'buildResult', 'impactEvidence']),
       }),
     }));
-    expect(submit).toHaveBeenCalledWith(expect.objectContaining({
-      conversationId: 'conv-1',
-      taskId: 'task-1',
-      agentId: 'agent-a',
-      contextScenario: 'recovery',
-      wakeup: expect.objectContaining({ reasonCode: 'missing_implementation_evidence' }),
-    }));
+    const { getDb } = await import('@/server/db');
+    expect(getDb().prepare(`
+      SELECT project_id,project_agent_id,idempotency_key,command_json
+      FROM agent_inbox_item
+    `).all()).toEqual([expect.objectContaining({
+      project_id: 'conv-1',
+      project_agent_id: 'agent-a',
+      idempotency_key: 'task-evidence-recovery:evidence-recovery-1',
+      command_json: expect.stringContaining('"contextScenario":"recovery"'),
+    })]);
   });
 
   it('routes WebUI evidence recovery to the Task owner when actorId is omitted', async () => {
     await seedTask();
     const emit = vi.fn();
     const to = vi.fn(() => ({ emit }));
-    const submit = vi.fn(() => ({
-      handled: true,
-      disposition: 'accepted' as const,
-      completion: new Promise<never>(() => {}),
-    }));
     const io = { to };
-    const { registerInvocationCoordinator } = await import('@/server/invocation-pipeline/registry');
-    registerInvocationCoordinator(io as never, { submit } as never);
     const req = mockReq('POST', {
       type: 'task.updateStatus',
-      payload: { id: 'task-1', status: 'in_review' },
+      payload: {
+        id: 'task-1',
+        status: 'in_review',
+        expectedTaskRevision: 0,
+        idempotencyKey: 'evidence-recovery-owner',
+      },
     });
     const res = mockRes();
     res.socket = { server: { io } };
@@ -674,20 +659,91 @@ describe('POST /api/mutations', () => {
     await handler(req, res);
 
     expect(res.statusCode).toBe(403);
-    expect(submit).toHaveBeenCalledWith(expect.objectContaining({
-      conversationId: 'conv-1',
-      taskId: 'task-1',
-      agentId: 'agent-a',
-      contextScenario: 'recovery',
-    }));
     expect(emit).toHaveBeenCalledWith('task.wakeup', expect.objectContaining({
       taskId: 'task-1',
       agentId: 'agent-a',
       reasonCode: 'missing_implementation_evidence',
     }));
-    expect(submit).not.toHaveBeenCalledWith(expect.objectContaining({
-      agentId: 'mutation-api',
-    }));
+    const { getDb } = await import('@/server/db');
+    expect(getDb().prepare(`
+      SELECT project_agent_id FROM agent_inbox_item
+      WHERE idempotency_key='task-evidence-recovery:evidence-recovery-owner'
+    `).get()).toEqual({ project_agent_id: 'agent-a' });
+  });
+
+  it('replays a persisted evidence rejection without dispatching recovery twice', async () => {
+    await seedTask();
+    const body = {
+      type: 'task.updateStatus',
+      payload: {
+        id: 'task-1',
+        status: 'in_review',
+        expectedTaskRevision: 0,
+        actorId: 'agent-a',
+        actorType: 'agent',
+        idempotencyKey: 'evidence-recovery-replay',
+      },
+    };
+    const firstEmit = vi.fn();
+    const first = mockRes();
+    first.socket = { server: { io: { to: vi.fn(() => ({ emit: firstEmit })) } } };
+    await handler(mockReq('POST', body), first);
+
+    const { taskRepo } = await import('@/server/repositories/task-repo');
+    taskRepo.transition('task-1', { to: 'in_progress' });
+    const replayEmit = vi.fn();
+    const replay = mockRes();
+    replay.socket = { server: { io: { to: vi.fn(() => ({ emit: replayEmit })) } } };
+    await handler(mockReq('POST', body), replay);
+
+    expect(first.statusCode).toBe(403);
+    expect(replay.statusCode).toBe(403);
+    expect(replay._json).toEqual(first._json);
+    expect(firstEmit).toHaveBeenCalledTimes(1);
+    expect(replayEmit).not.toHaveBeenCalled();
+    const { getDb } = await import('@/server/db');
+    expect(getDb().prepare(`
+      SELECT COUNT(*) count FROM agent_inbox_item
+      WHERE idempotency_key='task-evidence-recovery:evidence-recovery-replay'
+    `).get()).toEqual({ count: 1 });
+  });
+
+  it('replays a persisted evidence rejection after the Task and Delivery are deleted', async () => {
+    await seedTask();
+    const body = {
+      type: 'task.updateStatus',
+      payload: {
+        id: 'task-1',
+        status: 'in_review',
+        expectedTaskRevision: 0,
+        actorId: 'agent-a',
+        actorType: 'agent',
+        idempotencyKey: 'evidence-recovery-deleted-aggregate',
+      },
+    };
+    const first = mockRes();
+    first.socket = { server: { io: { to: vi.fn(() => ({ emit: vi.fn() })) } } };
+    await handler(mockReq('POST', body), first);
+
+    const deleted = mockRes();
+    await handler(mockReq('POST', {
+      type: 'conversation.delete',
+      payload: { id: 'conv-1' },
+    }), deleted);
+
+    const replay = mockRes();
+    replay.socket = { server: { io: { to: vi.fn(() => ({ emit: vi.fn() })) } } };
+    await handler(mockReq('POST', body), replay);
+
+    expect(first.statusCode).toBe(403);
+    expect(deleted._json).toEqual({ ok: true, result: { id: 'conv-1', deleted: true } });
+    expect(replay.statusCode).toBe(403);
+    expect(replay._json).toEqual(first._json);
+    const { getDb } = await import('@/server/db');
+    expect(getDb().prepare(`
+      SELECT conversation_id,task_id FROM task_command_rejection_receipt
+      WHERE idempotency_key='evidence-recovery-deleted-aggregate'
+    `).get()).toEqual({ conversation_id: 'conv-1', task_id: 'task-1' });
   });
 
   it('task.updateStatus cannot fabricate done for a Git-backed task', async () => {
@@ -697,7 +753,7 @@ describe('POST /api/mutations', () => {
     const req = mockReq('POST', {
       type: 'task.updateStatus',
       payload: {
-        id: 'task-1', status: 'done', actorId: 'mario', actorType: 'agent',
+        id: 'task-1', status: 'done', expectedTaskRevision: 0, actorId: 'mario', actorType: 'agent',
         evidence: {
           mergedToMain: true, mainInstallResult: 'passed', mainBuildResult: 'passed',
           mainTestResult: 'passed', mainImpactReviewResult: 'passed',
@@ -725,6 +781,7 @@ describe('POST /api/mutations', () => {
       payload: {
         id: 'task-1',
         status: 'done',
+        expectedTaskRevision: 2,
         reviewNote: 'LGTM',
         evidence: {
           mergedToMain: true,
@@ -749,7 +806,7 @@ describe('POST /api/mutations', () => {
     await seedTask();
     const req = mockReq('POST', {
       type: 'task.update',
-      payload: { id: 'task-1', title: 'Renamed', description: 'Updated desc' },
+      payload: { id: 'task-1', title: 'Renamed', description: 'Updated desc', expectedTaskRevision: 0 },
     });
     const res = mockRes();
     await handler(req, res);
@@ -776,6 +833,7 @@ describe('POST /api/mutations', () => {
         id: 'task-1',
         title: 'Depends on setup',
         dependencies: ['task-dependency'],
+        expectedTaskRevision: 0,
         idempotencyKey: 'browser-task-update-command-1',
       },
     };
@@ -806,7 +864,7 @@ describe('POST /api/mutations', () => {
     const emit = vi.fn();
     const req = mockReq('POST', {
       type: 'task.update',
-      payload: { id: 'task-1', agentId: 'agent-b', actorId: 'planner', actorType: 'agent' },
+      payload: { id: 'task-1', agentId: 'agent-b', expectedTaskRevision: 0, actorId: 'planner', actorType: 'agent' },
     });
     const res = mockRes();
     res.socket = { server: { io: { to: vi.fn(() => ({ emit })), emit: vi.fn() } } };
@@ -832,101 +890,6 @@ describe('POST /api/mutations', () => {
     expect(res._json.ok).toBe(true);
     expect(res._json.result.id).toBeTruthy();
     expect(res._json.result.id.startsWith('msg-')).toBe(true);
-  });
-
-  it('dispatch.enqueue keeps the originating conversation scope', async () => {
-    await seedAgent();
-    await seedConversation();
-    const { AgentInbox } = await import('@/server/platform-events/agent-inbox');
-    const req = mockReq('POST', {
-      type: 'dispatch.enqueue',
-      payload: {
-        agentId: 'mario',
-        conversationId: 'conv-1',
-        prompt: 'queued project turn',
-        idempotencyKey: 'queued-project-turn',
-      },
-    });
-    const res = mockRes();
-
-    await handler(req, res);
-
-    expect(res.statusCode).toBe(200);
-    expect(new AgentInbox().listPending('conv-1')).toContainEqual(expect.objectContaining({
-      projectAgentId: 'mario',
-      command: expect.objectContaining({ prompt: 'queued project turn' }),
-    }));
-    expect(new AgentInbox().listPending('default')).toHaveLength(0);
-  });
-
-  it('a2a.human_handoff creates authoritative collaboration and Inbox work', async () => {
-    await seedAgent();
-    await seedConversation();
-    const req = mockReq('POST', {
-      type: 'a2a.human_handoff',
-      payload: {
-        conversationId: 'conv-1',
-        messageId: 'message-human-1',
-        prompt: 'Implement the accepted design',
-        targetAgentIds: ['mario'],
-      },
-    });
-    const res = mockRes();
-
-    await handler(req, res);
-
-    expect(res.statusCode).toBe(200);
-    expect(res._json.result).toMatchObject({
-      status: 'offered',
-      handoff: {
-        passes: [{ toAgentId: 'mario', status: 'offered' }],
-        inboxItems: [{
-          projectAgentId: 'mario',
-          status: 'enqueued',
-          command: { source: 'a2a', passId: expect.any(String) },
-        }],
-      },
-    });
-  });
-
-  it('a2a.human_handoff rejects a target outside the conversation roster', async () => {
-    await seedAgent();
-    await seedConversation();
-    const req = mockReq('POST', {
-      type: 'a2a.human_handoff',
-      payload: {
-        conversationId: 'conv-1',
-        messageId: 'message-human-unknown',
-        prompt: 'Do work',
-        targetAgentIds: ['not-in-project'],
-      },
-    });
-    const res = mockRes();
-
-    await handler(req, res);
-
-    expect(res.statusCode).toBe(404);
-    expect(res._json).toMatchObject({
-      ok: false,
-      reasonCode: 'a2a_target_not_in_roster',
-    });
-    const { AgentInbox } = await import('@/server/platform-events/agent-inbox');
-    expect(new AgentInbox().listPending('conv-1')).toHaveLength(0);
-  });
-
-  it('dispatch.enqueue rejects a missing conversation scope', async () => {
-    const { AgentInbox } = await import('@/server/platform-events/agent-inbox');
-    const req = mockReq('POST', {
-      type: 'dispatch.enqueue',
-      payload: { agentId: 'agent-a', prompt: 'must not use default' },
-    });
-    const res = mockRes();
-
-    await handler(req, res);
-
-    expect(res.statusCode).toBe(400);
-    expect(res._json).toEqual({ ok: false, error: 'dispatch.enqueue requires conversationId' });
-    expect(new AgentInbox().listPending('default')).toHaveLength(0);
   });
 
   it('rejects the removed legacy event.append mutation', async () => {

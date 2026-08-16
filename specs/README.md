@@ -31,6 +31,7 @@
 | [`skill-package-progressive-loading/`](skill-package-progressive-loading/) | active | 用标准 Skill 目录、不可变安装 revision、确定性上下文编译和加载证据保证 Agent 真正获得已绑定 Skill |
 | [`team-simplification/`](team-simplification/) | active | 默认团队从 6 人收敛到 4 人并清理旧 preset |
 | [`system-control-plane/`](system-control-plane/) | active | 统一 dispatch、policy、proof、health 与跨实例状态权威 |
+| [`frontend-architecture-refactor/`](frontend-architecture-refactor/) | active | 以项目中的交付为主对象重构工作区，并完成 WebUI 被动投影、Human Command 单入口和浏览器退出派发控制 |
 | [`observability-drilldown/`](observability-drilldown/) | active | 在 agent-observability 之上补 ACP 边界的完整 prompt/工具/回复采集、消息卡下钻抽屉与调用链 DAG |
 | [`team-role-card-compatibility/`](team-role-card-compatibility/) | active | 自动化已完成，仍需三项人工兼容验收 |
 | [`role-card-format/`](role-card-format/) | draft | 冻结角色卡/Team Pack 文件格式并替换即将移除的示例 |
@@ -42,7 +43,8 @@
 system-control-plane
 ├── acp-runtime-integration
 ├── context-manager
-└── observability-drilldown（基于已落地的 agent-observability）
+├── observability-drilldown（基于已落地的 agent-observability）
+└── frontend-architecture-refactor
 
 skill-package-progressive-loading
 ├── context-manager

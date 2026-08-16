@@ -92,6 +92,7 @@
 - `docs/product/ux/2026-05-01-ux-journey-and-gameplay-plan.md`
 - `docs/product/ux/2026-05-15-group-chat-task-flow.md`
 - `docs/product/ux/2026-07-16-right-panel-ia-simplification.md`：项目右面板从 5 tab 精简为 2 tab（任务主视图 + 调试）的 IA 决策，含业务判断与技术约束
+- `docs/product/ux/2026-08-16-delivery-workspace-refactor.md`：以项目中的一次交付为主对象重构首页、导航、任务与调试层级，并规定外部参考的独立实现边界
 - `docs/product/ux/2026-07-19-evaluation-platform-workspace.md`：评估作为当前项目内建工作模式、而非外部系统或右侧栏附属页的 IA 决策
 - `docs/product/business/2026-05-01-engineering-role-card-business-plan.md`
 - `docs/product/business/2026-07-18-skill-package-runtime-model.md`：Skill 包、安装版本、Agent 绑定与本轮使用证据的产品模型
@@ -119,6 +120,7 @@
 - `docs/technical/execution/durable-effect-outbox.md`：Process Manager 副作用的原子接纳、lane 顺序、两类执行语义、崩溃恢复与 Runtime completion 首个采用者设计
 - `docs/technical/execution/platform-runtime-current-architecture.html`：当前 Platform Runtime 的可视化架构、事件投递与终态后 Effect 重试边界
 - `docs/technical/execution/webui-passive-project-projection.md`：Human Command 与自动展示消费分离、项目 room 隔离和 WebUI 被动投影契约
+- `docs/technical/execution/frontend-control-plane-convergence.md`：交付工作区投影、Human Command 单入口、浏览器退出派发控制与 Daemon executor-only 的目标架构
 - `docs/technical/execution/platform-runtime-webui-current-architecture.html`：当前 Runtime 与 WebUI 的可视化架构，明确人的主动 Command 通路与自动展示投影通路
 - `docs/technical/integrations/github-issue-agent-hook.md`：GitHub Issue webhook 验签、幂等映射与 GoalContract 接入设计
 - `docs/technical/execution/project-context-bootstrap.md`：代码库发现、分层知识索引、workstream 投影、增量刷新和 ContextManager 接线设计
@@ -140,6 +142,7 @@
 - `specs/context-manager/`
 - `specs/team-simplification/`
 - `specs/system-control-plane/`
+- `specs/frontend-architecture-refactor/`
 - 其余活动规格及状态统一以 `specs/README.md` 的登记表为准
 
 说明：

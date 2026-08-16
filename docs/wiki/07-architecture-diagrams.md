@@ -154,11 +154,10 @@ sequenceDiagram
   participant Runtime as ACP Runtime (opencode/适配器)
   participant MsgRepo as messageRepo + Platform Event Log
 
-  User->>UI: 点击运行 / 派发任务
-  UI->>Store: dispatchToAgent() / simulateCliExecution()
-  Store->>Socket: 提交 terminal:start Command（显式人工意图）
-  Socket->>Daemon: 校验并接纳 Command
-  Daemon->>Daemon: Harness + DispatchGateway 创建 execution envelope
+  User->>UI: 提交要求 / 请求规划或进度
+  UI->>Store: 提交 Human Command
+  Store->>Daemon: HTTP Command -> Agent Inbox / Coordinator
+  Daemon->>Daemon: Planner + DispatchGateway 创建 execution envelope
   Daemon->>Accounts: 读取账号与凭据
   Daemon->>SessionRepo: 查找或创建 agent_session
   Daemon->>InvRepo: 创建 invocation

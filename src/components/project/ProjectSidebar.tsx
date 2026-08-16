@@ -4,7 +4,6 @@
 import { useMemo, useRef, useState } from 'react';
 import { Search } from 'lucide-react';
 import { useTaskHubStore, type Conversation } from '@/store/taskHubStore';
-import { ProjectCreateDialog } from './ProjectCreateDialog';
 import { WorkspaceSection } from './WorkspaceSection';
 import { ProjectTreeItem } from './ProjectTreeItem';
 import { getProjectStatus } from './getProjectStatus';
@@ -18,8 +17,8 @@ interface WorkspaceGroup {
 }
 
 function extractFolderName(path: string): string {
-  const trimmed = path.replace(/\/+$/, '');
-  const last = trimmed.split('/').pop() || trimmed;
+  const trimmed = path.replace(/[\\/]+$/, '');
+  const last = trimmed.split(/[\\/]/).pop() || trimmed;
   return last || path;
 }
 
@@ -77,7 +76,6 @@ export function ProjectSidebar() {
   const tasks = useTaskHubStore((s) => s.tasks);
   const blockers = useTaskHubStore((s) => s.blockersByConversation);
 
-  const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isExpanded, setIsExpanded] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
@@ -117,12 +115,18 @@ export function ProjectSidebar() {
     if (!searchQuery.trim()) return workspaceGroups;
     const q = searchQuery.trim().toLowerCase();
     return workspaceGroups
-      .map((group) => ({
-        ...group,
-        conversations: group.conversations.filter(
-          (c) => c.title.toLowerCase().includes(q) || (c.goal && c.goal.toLowerCase().includes(q))
-        ),
-      }))
+      .map((group) => {
+        const groupMatches = group.name.toLowerCase().includes(q)
+          || group.fullPath?.toLowerCase().includes(q);
+        return {
+          ...group,
+          conversations: groupMatches
+            ? group.conversations
+            : group.conversations.filter(
+              (c) => c.title.toLowerCase().includes(q) || (c.goal && c.goal.toLowerCase().includes(q)),
+            ),
+        };
+      })
       .filter((group) => group.conversations.length > 0);
   }, [workspaceGroups, searchQuery]);
 
@@ -176,19 +180,11 @@ export function ProjectSidebar() {
                 <span className="text-[10px] font-bold tracking-wider uppercase">◂</span>
               </button>
               <span className="text-[13px] font-medium text-[hsl(var(--text-primary))] truncate min-w-0">
-                项目
+                项目与交付
               </span>
               <span className="text-[11px] text-[hsl(var(--text-tertiary))] tabular-nums">
                 {conversations.length}
               </span>
-              <button
-                type="button"
-                onClick={() => setIsCreateOpen(true)}
-                className="shrink-0 ml-auto p-1 rounded-[var(--radius-sm)] text-[hsl(var(--text-tertiary))] hover:text-[hsl(var(--text-primary))] hover:bg-[hsl(var(--bg-muted))] transition-colors"
-                title="新建项目"
-              >
-                <span className="text-[13px]">+</span>
-              </button>
             </div>
           ) : (
             <div className="flex flex-col items-center gap-2">
@@ -199,14 +195,6 @@ export function ProjectSidebar() {
                 title="展开侧栏"
               >
                 <span className="text-[10px]">▸</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setIsCreateOpen(true)}
-                className="w-8 h-8 rounded-[var(--radius-md)] flex items-center justify-center text-[hsl(var(--text-tertiary))] hover:bg-[hsl(var(--bg-card-hover))] transition-colors"
-                title="新建项目"
-              >
-                <span className="text-[13px]">+</span>
               </button>
             </div>
           )}
@@ -220,7 +208,7 @@ export function ProjectSidebar() {
               <input
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="搜索项目..."
+                placeholder="搜索项目或交付..."
                 className="w-full pl-7 pr-2 py-1.5 text-[12px] bg-[hsl(var(--bg-app))] border border-[hsl(var(--border-subtle))] rounded-[var(--radius-md)] text-[hsl(var(--text-primary))] placeholder:text-[hsl(var(--text-tertiary))] focus:outline-none focus:border-[hsl(var(--accent))] transition-colors"
               />
             </div>
@@ -279,7 +267,7 @@ export function ProjectSidebar() {
 
               {sorted.length === 0 && (
                 <div className="px-6 py-4 text-[11px] text-[hsl(var(--text-tertiary))]">
-                  还没有项目
+                  还没有交付
                 </div>
               )}
             </>
@@ -317,7 +305,6 @@ export function ProjectSidebar() {
         </div>
       </aside>
 
-      <ProjectCreateDialog open={isCreateOpen} onClose={() => setIsCreateOpen(false)} />
     </>
   );
 }

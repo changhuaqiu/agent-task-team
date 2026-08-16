@@ -22,11 +22,15 @@ Agent Task Hub 正在从前端驱动的多智能体工作台，演进为“控�
 | **Execution Plane** | local daemon、remote runtime、worktree executor 只消费 execution envelope 并报告生命周期 |
 | **UX Plane** | 发送用户意图、订阅状态、展示可解释失败，不作为跨实例投递事实源 |
 
+其中 remote runtime 是目标边界，不是当前发布能力。当前生产链仅连接单个本地 daemon executor；非本地
+`toNodeId` 会产生持久拒绝，不会在本地降级执行。跨节点 transport consumer 仍待后续规格落地。
+
 关键原则：
 
 - UI store 是运行时缓存，不是跨实例 dispatch 的事实源。
 - daemon 是 executor，不应长期承担团队策略、workflow 和 A2A delivery 决策。
-- browser、daemon、remote runtime 都是 runtime node，跨实例动作必须有身份、envelope、health、ACK 和 proof。
+- 目标架构中的 browser、daemon、remote runtime 都有明确 node identity；当前已实现 browser 到本地 daemon 的
+  envelope、health、ACK 和 proof 边界，远端 transport 尚未实现。
 - A2A possession 负责“谁持球、谁能传球”；Control Plane 负责“能否投递、投给哪个实例、是否启动成功”。
 
 ## 1.2 运行时拓扑
@@ -67,17 +71,17 @@ AgentInbox 和 Invocation Pipeline 负责可靠启动。`taskHubStore` 只提交
 │                        Browser (前端)                           │
 │  ┌───────────────────────────────────────────────────────────┐  │
 │  │  Zustand Store                                            │  │
-│  │  - pendingDispatches (按 agentId:conversationId 隔离)     │  │
-│  │  - agentStatus / activeRunsByAgent                        │  │
-│  │  - chatMessagesByConversation                             │  │
+│  │  - Delivery / Task / Message 版本化读模型                 │  │
+│  │  - agentStatus / activeRunsByAgent 展示投影               │  │
+│  │  - UI-only 草稿、面板与选中状态                           │  │
 │  └───────────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────┘
-                              │ Socket.io
+                 Human Command API │ Socket.io 只读事件
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                     Next.js Server                              │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐  │
-│  │ /api/state  │  │ /api/mutat. │  │ /api/socketio (Daemon)  │  │
+│  │ /api/state  │  │ /api/human-commands │ /api/socketio        │  │
 │  └─────────────┘  └─────────────┘  └─────────────────────────┘  │
 │                              │                                  │
 │                              ▼                                  │
@@ -128,16 +132,14 @@ AgentInbox 和 Invocation Pipeline 负责可靠启动。`taskHubStore` 只提交
 ### B) 用户操作与持久化
 
 1. 用户在工作台操作（创建项目、任务、消息等）
-2. WebUI Command adapter 把这次显式人工意图提交到 Socket Command 或
-   `POST /api/mutations`
+2. WebUI Command adapter 把这次显式人工意图提交到 `/api/human-commands` 或对应领域 Command API
 3. 服务端校验并执行 Command，写入 Repository → SQLite，并发布后续领域/展示事件
 4. WebUI 自动事件消费者只更新展示投影，不因收到事件再次发出控制命令
 
 ### C) 任务执行链路
 
-> 人的显式派发仍可由 WebUI 通过 `terminal:start` Command 提交；A2A、workflow、
-> review gate、恢复和重试由服务端 Agent Inbox / Harness 持有。两者都会进入
-> Dispatch Gateway，但服务端展示事件不会反向触发浏览器派发。
+> 人的显式意图与 A2A、workflow、review gate、恢复和重试都由服务端 Command owner / Agent Inbox / Harness
+> 持有并进入 Dispatch Gateway；服务端展示事件不会反向触发浏览器派发。
 
 ```text
 人点击 / 输入命令
@@ -145,7 +147,7 @@ AgentInbox 和 Invocation Pipeline 负责可靠启动。`taskHubStore` 只提交
     ▼
 WebUI Command adapter
     │
-    └─ terminal:start / mutation Command
+    └─ Human Command / Task Command
               │
 自动来源       │
 (A2A/workflow/review/recovery)
@@ -182,8 +184,8 @@ Dispatch Gateway → ExecutionEnvelope → ACP Runtime
 当前落地链路：
 
 - Store 的 `getEffectiveRoster()` 与 `getAgentRuntimeProfile()` 委托给 Team Runtime Contract，store 只缓存结果，不拥有规则。
-- 浏览器任务详情等执行入口直接消费 `RuntimeAgentProfile`；不保留组件级账号→engine resolver、Store 映射 facade 或缺失 Profile 时的默认 runtime。
-- `dispatchToAgent()` 先解析 `RuntimeAgentProfile`，再 compose prompt 与发送 `terminal:start`；缺少可执行资料时明确中止，不静默落到错误角色。
+- 浏览器任务详情不读取或选择 `RuntimeAgentProfile.execution`；账号→engine 解析和缺失 Profile 的失败关闭由 Team Runtime / Invocation Planner 持有。
+- 人的要求、规划和进度请求只提交带幂等键的 Command；Planner 生成 `InvocationDispatchPlan` 后才进入 Daemon ExecutionAdapter。
 - Invocation Planner 把 Team Runtime roster 作为 ContextManager 的必需 provider 数据；Knowledge Tier 不再保留静态 `AGENT_ROSTER + RoleCard` fallback，空 roster 也不猜测默认团队。
 - `/api/state` 返回所有持久化 agent-skill 绑定，支持动态 TeamPack role。
 - A2A Command guard 从 Team Runtime 读取当前 conversation roster，并直接调用一次 handoff 准入方法；

@@ -43,9 +43,65 @@ describe('ProjectChatPanel', () => {
     const deliveryViewport = screen.getByTestId('autonomous-delivery-viewport');
     expect(chatViewport.className).toContain('min-h-0');
     expect(chatViewport.className).toContain('flex-1');
-    expect(deliveryViewport.className).toContain('max-h-[40%]');
+    expect(deliveryViewport.className).toContain('max-h-[32%]');
     expect(deliveryViewport.className).toContain('overflow-y-auto');
     expect(chatViewport.contains(screen.getByTestId('global-chat-room'))).toBe(true);
     expect(deliveryViewport.contains(screen.getByTestId('autonomous-delivery-panel'))).toBe(true);
+  });
+
+  it('answers stage, acceptance, current work, and attention on the first screen', () => {
+    useTaskHubStore.setState({
+      selectedConversationId: 'conv-overview',
+      conversations: [{
+        id: 'conv-overview',
+        title: 'Overview delivery',
+        goal: 'Make progress legible',
+        status: 'active',
+        priority: 'p1',
+        projectPath: 'C:/projects/overview',
+        breakdownStatus: 'confirmed',
+        autonomous: true,
+        createdAt: '2026-08-16T00:00:00.000Z',
+        updatedAt: '2026-08-16T00:00:00.000Z',
+      }],
+      tasks: [{
+        id: 'TASK-CURRENT',
+        conversationId: 'conv-overview',
+        phaseId: '',
+        title: 'Wire acceptance projection',
+        description: '',
+        status: 'in_progress',
+        agentId: 'luigi',
+        dependencies: [],
+        artifacts: [],
+        createdAt: '2026-08-16T00:00:00.000Z',
+        updatedAt: '2026-08-16T00:00:00.000Z',
+        revision: 0,
+      }],
+      blockersByConversation: { 'conv-overview': [] },
+      chatMessagesByConversation: { 'conv-overview': [] },
+    });
+
+    render(<ProjectChatPanel deliveryRunSnapshot={{
+      run: {
+        id: 'run-overview',
+        conversation_id: 'conv-overview',
+        status: 'active',
+        current_stage: 'verifying',
+      },
+      contract: { acceptanceCriteria: ['Unit tests pass', 'Browser E2E passes'] },
+      bundle: {
+        acceptanceResults: [{
+          criterion: 'Unit tests pass',
+          status: 'passed',
+          evidenceRefs: ['test:unit'],
+        }],
+      },
+    } as never} />);
+
+    expect(screen.getByText('验收中')).toBeTruthy();
+    expect(screen.getByText('1/2')).toBeTruthy();
+    expect(screen.getByText('当前工作：Wire acceptance projection')).toBeTruthy();
+    expect(screen.getByText('需关注')).toBeTruthy();
   });
 });

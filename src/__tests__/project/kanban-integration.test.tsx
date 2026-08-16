@@ -52,6 +52,7 @@ describe('MiniKanban integration', () => {
           artifacts: [],
           createdAt: '2026-05-04T00:00:00Z',
           updatedAt: '2026-05-04T00:00:00Z',
+          revision: 0,
         },
         {
           id: 'TASK-002',
@@ -65,6 +66,7 @@ describe('MiniKanban integration', () => {
           artifacts: [{ type: 'file', label: 'test.ts' }],
           createdAt: '2026-05-04T00:00:00Z',
           updatedAt: '2026-05-04T00:00:00Z',
+          revision: 0,
         },
       ],
       phases: [],
@@ -92,6 +94,7 @@ describe('MiniKanban integration', () => {
         artifacts: [],
         createdAt: '2026-08-02T00:00:00Z',
         updatedAt: '2026-08-02T00:00:00Z',
+        revision: 0,
       }],
       phases: [],
     });

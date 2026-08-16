@@ -4,8 +4,11 @@ import type { Phase } from '@/types/phase';
 import type { PhaseProposal } from '@/lib/breakdownParser';
 import { DispatchAdvisor } from '@/lib/dispatchAdvisor';
 import { AGENT_ROSTER } from './agentStore';
-import type { TeamPack } from '@/types/teamPack';
 import type { TaskStatus } from '@/shared/task-status';
+import {
+  createHumanCommandIdempotencyKey,
+  humanCommandGateway,
+} from '@/lib/human-command';
 
 export type { TaskStatus } from '@/shared/task-status';
 
@@ -50,17 +53,86 @@ export interface Task {
   reviewNote?: string;
   createdAt: string;
   updatedAt: string;
+  revision: number;
 }
 
 // --- Module-level counters (shared across app slice loadFromServer) ---
 
 let taskCounter = 1;
 let statePhasesSeq = 1;
+const taskMutationEpoch = new Map<string, number>();
 
 function newTaskCommandId(scope: string): string {
   const identity = globalThis.crypto?.randomUUID?.()
     ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   return `webui:${scope}:${identity}`;
+}
+
+function nextTaskMutationEpoch(taskId: string): number {
+  const next = (taskMutationEpoch.get(taskId) ?? 0) + 1;
+  taskMutationEpoch.set(taskId, next);
+  return next;
+}
+
+export function observeAuthoritativeTaskProjection(taskId: string): void {
+  nextTaskMutationEpoch(taskId);
+}
+
+function parseJsonArray<T>(value: unknown): T[] {
+  if (Array.isArray(value)) return value as T[];
+  if (typeof value !== 'string' || !value) return [];
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return Array.isArray(parsed) ? parsed as T[] : [];
+  } catch {
+    return [];
+  }
+}
+
+function authoritativeTask(value: unknown): Task | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const row = value as Record<string, unknown>;
+  if (
+    typeof row.id !== 'string'
+    || typeof row.conversation_id !== 'string'
+    || typeof row.title !== 'string'
+    || typeof row.status !== 'string'
+    || typeof row.agent_id !== 'string'
+    || !Number.isSafeInteger(row.revision)
+    || Number(row.revision) < 0
+  ) return undefined;
+  return {
+    id: row.id,
+    conversationId: row.conversation_id,
+    phaseId: typeof row.phase_id === 'string' ? row.phase_id : '',
+    title: row.title,
+    description: typeof row.description === 'string' ? row.description : '',
+    status: row.status as TaskStatus,
+    agentId: row.agent_id,
+    dependencies: parseJsonArray<string>(row.dependencies),
+    artifacts: parseJsonArray<TaskArtifact>(row.artifacts),
+    ...(typeof row.review_note === 'string' ? { reviewNote: row.review_note } : {}),
+    createdAt: typeof row.created_at === 'string' ? row.created_at : new Date().toISOString(),
+    updatedAt: typeof row.updated_at === 'string' ? row.updated_at : new Date().toISOString(),
+    revision: Number(row.revision),
+  };
+}
+
+function shouldApplyCommandResult(
+  current: Task | undefined,
+  incoming: Task,
+  commandEpoch: number,
+): boolean {
+  const currentRevision = typeof current?.revision === 'number'
+    ? current.revision
+    : -1;
+  const incomingRevision = incoming.revision;
+  if (incomingRevision < currentRevision) return false;
+  if (
+    taskMutationEpoch.get(incoming.id) !== commandEpoch
+    && incomingRevision <= currentRevision
+  ) return false;
+  return true;
 }
 
 // --- Task lookup index (O(1) by reference equality) ---
@@ -79,25 +151,6 @@ function getTaskLookup(tasks: Task[]): Record<string, Task> {
 
 export function setTaskCounter(val: number) { taskCounter = val; }
 
-function getInitialTeamRoleId(teamPack: TeamPack): string | null {
-  const available = new Set(teamPack.roles.map((role) => role.id));
-  const workflow = teamPack.workflow ?? {};
-  const firstStepRole = workflow.steps?.[0]?.role;
-  if (firstStepRole && available.has(firstStepRole)) return firstStepRole;
-
-  const firstStateRole = workflow.states?.find((state) => !state.terminal)?.role;
-  if (firstStateRole && available.has(firstStateRole)) return firstStateRole;
-
-  return teamPack.roles.find((role) => role.required)?.id ?? teamPack.roles[0]?.id ?? null;
-}
-
-function getProposalAgentId(state: any, conv: any): string | null {
-  if (!conv.teamPackId) return 'mario';
-  const teamPack = state.currentTeamPack;
-  if (!teamPack || teamPack.id !== conv.teamPackId) return null;
-  return getInitialTeamRoleId(teamPack);
-}
-
 // --- Task Slice Creator ---
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- set/get typed as any to avoid circular dependency with TaskHubState
@@ -106,10 +159,8 @@ export const createTaskSlice = (set: any, get: () => any) => {
     tasks: [] as Task[],
     selectedTaskId: null as string | null,
     phases: [] as Phase[],
-    isNewTaskDialogOpen: false as boolean,
 
     setSelectedTaskId: (id: string | null) => set({ selectedTaskId: id }),
-    setNewTaskDialogOpen: (open: boolean) => set({ isNewTaskDialogOpen: open }),
 
     getTasksByAgent: (agentId: string): Task[] => {
       const state = get();
@@ -125,7 +176,41 @@ export const createTaskSlice = (set: any, get: () => any) => {
       return get().tasks.find((t: Task) => t.agentId === agentId && t.status === 'in_progress');
     },
 
-    addTask: (taskData: Omit<Task, 'id' | 'status' | 'createdAt' | 'updatedAt' | 'conversationId' | 'phaseId'> & { phaseId?: string }) => {
+    requestTaskProgress: async (
+      taskId: string,
+      request: string,
+      options: { idempotencyKey?: string; issuedAt?: string } = {},
+    ): Promise<{ ok: true } | { ok: false; error: string }> => {
+      const task = get().getTaskById(taskId);
+      const conversation = task
+        ? get().conversations.find((candidate: any) => candidate.id === task.conversationId)
+        : undefined;
+      if (!task || !conversation) return { ok: false, error: '当前任务不存在或已被删除' };
+      try {
+        const receipt = await humanCommandGateway.submit({
+          type: 'task.progress.request',
+          idempotencyKey: options.idempotencyKey
+            ?? createHumanCommandIdempotencyKey(task.conversationId),
+          projectPath: conversation.projectPath,
+          deliveryId: task.conversationId,
+          taskId,
+          actor: { type: 'user', id: 'human' },
+          request,
+          issuedAt: options.issuedAt ?? new Date().toISOString(),
+        });
+        if (receipt.status === 'rejected') {
+          return { ok: false, error: receipt.userMessage ?? '团队未能接收进度请求' };
+        }
+        return { ok: true };
+      } catch (error) {
+        return {
+          ok: false,
+          error: error instanceof Error ? error.message : '进度请求提交失败，请稍后重试',
+        };
+      }
+    },
+
+    addTask: async (taskData: Omit<Task, 'id' | 'status' | 'createdAt' | 'updatedAt' | 'conversationId' | 'phaseId'> & { phaseId?: string }) => {
       const state = get();
       const conversationId = state.selectedConversationId;
       if (!conversationId) return;
@@ -138,28 +223,25 @@ export const createTaskSlice = (set: any, get: () => any) => {
       if (existing) return;
 
       const id = `TASK-${String(taskCounter++).padStart(3, '0')}`;
-      const stamp = new Date().toISOString();
-
-      set((s: any) => ({
-        tasks: [
-          ...s.tasks,
-          { ...taskData, id, status: 'ready' as const, phaseId: taskData.phaseId || '', createdAt: stamp, updatedAt: stamp, conversationId },
-        ],
-      }));
-
-      if (taskData.agentId) {
-        get().dispatchToAgent({
-          agentId: taskData.agentId,
-          referencedTaskId: id,
-          prompt: `You are assigned ${id}: ${taskData.title}. ${taskData.description}. Reply with your plan and next steps.`,
+      try {
+        const response = await fetch('/api/mutations', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ type: 'task.create', payload: { id, conversation_id: conversationId, title: taskData.title, description: taskData.description, agent_id: taskData.agentId, dependencies: taskData.dependencies, artifacts: taskData.artifacts, requestExecution: true, idempotencyKey: newTaskCommandId('task.create') } }),
         });
+        const body = await response.json().catch(() => ({}));
+        const created = authoritativeTask(body?.result);
+        if (!response.ok || !created) {
+          throw new Error(typeof body?.error === 'string' ? body.error : `HTTP ${response.status}`);
+        }
+        set((state: any) => ({
+          tasks: state.tasks.some((task: Task) => task.id === created.id)
+            ? state.tasks.map((task: Task) => task.id === created.id ? created : task)
+            : [...state.tasks, created],
+        }));
+      } catch (error) {
+        console.error('[mutation] task.create failed:', error);
       }
-
-      fetch('/api/mutations', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ type: 'task.create', payload: { id, conversation_id: conversationId, title: taskData.title, description: taskData.description, agent_id: taskData.agentId, dependencies: JSON.stringify(taskData.dependencies), artifacts: JSON.stringify(taskData.artifacts), idempotencyKey: newTaskCommandId('task.create') } }),
-      }).catch((err: any) => console.error('[mutation] task.create failed:', err));
     },
 
     removeTask: (taskId: string) =>
@@ -168,63 +250,45 @@ export const createTaskSlice = (set: any, get: () => any) => {
         selectedTaskId: state.selectedTaskId === taskId ? null : state.selectedTaskId,
       })),
 
-    updateTask: (taskId: string, patch: Partial<Pick<Task, 'title' | 'description' | 'agentId' | 'dependencies' | 'artifacts'>>) => {
+    updateTask: async (taskId: string, patch: Partial<Pick<Task, 'title' | 'description' | 'agentId' | 'dependencies' | 'artifacts'>>) => {
       const prev = get().getTaskById(taskId);
-
-      set((state: any) => ({
-        tasks: state.tasks.map((task: Task) =>
-          task.id === taskId ? { ...task, ...patch, updatedAt: new Date().toISOString() } : task
-        ),
-      }));
-
-      if (prev && patch.agentId && patch.agentId !== prev.agentId) {
-        const title = patch.title ?? prev.title;
-        const description = patch.description ?? prev.description;
-        get().dispatchToAgent({
-          agentId: patch.agentId,
-          referencedTaskId: taskId,
-          prompt: `You are assigned ${taskId}: ${title}. ${description}. Reply with your plan and next steps.`,
-        });
+      if (!prev) return;
+      if (!Number.isSafeInteger(prev.revision) || Number(prev.revision) < 0) {
+        console.error('[mutation] task.update requires an authoritative task revision');
+        return;
       }
-
-      fetch('/api/mutations', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ type: 'task.update', payload: { id: taskId, ...patch, idempotencyKey: newTaskCommandId('task.update') } }),
-      }).catch((err: any) => console.error('[mutation] task.update failed:', err));
+      const epoch = nextTaskMutationEpoch(taskId);
+      try {
+        const response = await fetch('/api/mutations', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ type: 'task.update', payload: { id: taskId, ...patch, expectedTaskRevision: prev.revision, idempotencyKey: newTaskCommandId('task.update') } }),
+        });
+        const body = await response.json().catch(() => ({}));
+        const updated = authoritativeTask(body?.result);
+        if (!response.ok || !updated) {
+          throw new Error(typeof body?.error === 'string' ? body.error : `HTTP ${response.status}`);
+        }
+        set((state: any) => {
+          const current = state.tasks.find((task: Task) => task.id === taskId);
+          if (!shouldApplyCommandResult(current, updated, epoch)) return {};
+          return {
+            tasks: state.tasks.map((task: Task) => task.id === taskId ? updated : task),
+          };
+        });
+      } catch (error) {
+        console.error('[mutation] task.update failed:', error);
+      }
     },
 
     updateTaskStatus: async (taskId: string, status: TaskStatus, reviewNote?: string, evidence?: Record<string, unknown>) => {
       const prev = get().getTaskById(taskId);
       if (!prev) return;
       const conversationId = prev.conversationId;
+      const epoch = nextTaskMutationEpoch(taskId);
 
-      set((state: any) => ({
-        tasks: state.tasks.map((task: Task) =>
-          task.id === taskId
-            ? {
-                ...task,
-                status,
-                reviewNote: reviewNote ?? task.reviewNote,
-                updatedAt: new Date().toISOString(),
-              }
-            : task
-        ),
-      }));
-
-      const rollbackWithBlocker = (reasonSummary: string) => {
-        set((state: any) => ({
-          tasks: state.tasks.map((task: Task) =>
-            task.id === taskId
-              ? {
-                  ...task,
-                  status: prev.status,
-                  reviewNote: prev.reviewNote,
-                  updatedAt: prev.updatedAt,
-                }
-              : task
-          ),
-        }));
+      const reportFailure = (reasonSummary: string) => {
+        if (taskMutationEpoch.get(taskId) !== epoch) return;
         get().openBlocker?.({
           conversationId,
           taskId,
@@ -234,22 +298,42 @@ export const createTaskSlice = (set: any, get: () => any) => {
         });
       };
 
+      if (!Number.isSafeInteger(prev.revision) || Number(prev.revision) < 0) {
+        reportFailure('任务版本尚未完成同步，请刷新后重试。');
+        return;
+      }
+
       try {
         const response = await fetch('/api/mutations', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ type: 'task.updateStatus', payload: { id: taskId, status, reviewNote, evidence, idempotencyKey: newTaskCommandId('task.updateStatus') } }),
+          body: JSON.stringify({ type: 'task.updateStatus', payload: { id: taskId, status, reviewNote, evidence, expectedTaskRevision: prev.revision, idempotencyKey: newTaskCommandId('task.updateStatus') } }),
         });
+        const body = await response.json().catch(() => ({}));
         if (!response.ok) {
-          const body = await response.json().catch(() => ({}));
           const responseError = typeof body?.error === 'string' ? body.error : '';
           const httpError = `HTTP ${response.status}${response.statusText ? ` ${response.statusText}` : ''}`;
-          rollbackWithBlocker(responseError || `状态流转到 ${status} 被服务端拒绝（${httpError}）。`);
+          reportFailure(responseError || `状态流转到 ${status} 被服务端拒绝（${httpError}）。`);
           return;
         }
+        const authoritative = authoritativeTask(body?.result);
+        if (!authoritative) {
+          reportFailure('服务端没有返回权威任务状态，请刷新后重试。');
+          return;
+        }
+        let applied = false;
+        set((state: any) => {
+          const current = state.tasks.find((task: Task) => task.id === taskId);
+          if (!shouldApplyCommandResult(current, authoritative, epoch)) return {};
+          applied = true;
+          return {
+            tasks: state.tasks.map((task: Task) => task.id === taskId ? authoritative : task),
+          };
+        });
+        if (!applied) return;
       } catch (error) {
         const networkError = error instanceof Error ? error.message : String(error);
-        rollbackWithBlocker(`状态流转到 ${status} 失败：${networkError}`);
+        reportFailure(`状态流转到 ${status} 失败：${networkError}`);
         return;
       }
 
@@ -258,14 +342,6 @@ export const createTaskSlice = (set: any, get: () => any) => {
         type: 'task.status_changed',
         payload: { taskId, status, reviewNote },
       });
-
-      if (status === 'in_progress') {
-        get().dispatchToAgent({
-          agentId: prev.agentId,
-          referencedTaskId: prev.id,
-          prompt: `Start ${prev.id}: ${prev.title}. ${prev.description}`,
-        });
-      }
 
       const updated = get().getTaskById(taskId);
       if (!updated) return;
@@ -354,37 +430,33 @@ export const createTaskSlice = (set: any, get: () => any) => {
       }));
     },
 
-    triggerProposal: (conversationId: string) => {
+    triggerProposal: async (
+      conversationId: string,
+      options: { idempotencyKey?: string; issuedAt?: string } = {},
+    ) => {
       const state = get();
       const conv = state.conversations.find((c: any) => c.id === conversationId);
       if (!conv || conv.autonomous) return;
 
-      const proposalAgentId = getProposalAgentId(state, conv);
-      if (!proposalAgentId) return;
-
-      const profile = state.getAgentRuntimeProfile(proposalAgentId);
-      if (!profile) {
+      try {
+        const receipt = await humanCommandGateway.submit({
+          type: 'delivery.plan.request',
+          idempotencyKey: options.idempotencyKey
+            ?? createHumanCommandIdempotencyKey(conversationId),
+          projectPath: conv.projectPath,
+          deliveryId: conversationId,
+          actor: { type: 'user', id: 'human' },
+          issuedAt: options.issuedAt ?? new Date().toISOString(),
+        });
+        if (receipt.status === 'accepted') {
+          get().setBreakdownStatus(conversationId, 'proposal');
+          return;
+        }
         get().setBreakdownStatus(conversationId, 'no_account');
-        return;
+      } catch (error) {
+        console.error('[human-command] delivery.plan.request failed:', error);
+        get().setBreakdownStatus(conversationId, 'no_account');
       }
-
-      get().setBreakdownStatus(conversationId, 'proposal');
-      const prompt = `请先基于以下项目目标输出一份技术架构方案和业务方案草案。
-
-方案需要包含：
-- 技术架构：核心技术选型、模块划分、关键依赖
-- 业务方案：核心流程、边界条件、优先级建议
-
-和用户讨论确认后，当你判断需求已足够清晰，再使用 PHASE/TASK 格式输出任务拆解。
-
-项目：${conv.title}
-目标：${conv.goal}${conv.projectPath ? `\n项目路径：${conv.projectPath}` : ''}`;
-      get().dispatchToAgent({
-        agentId: proposalAgentId,
-        prompt,
-        conversationId,
-        legacyProposal: true,
-      });
     },
 
     confirmBreakdown: (conversationId: string, proposals: PhaseProposal[]) => {
@@ -452,6 +524,7 @@ export const createTaskSlice = (set: any, get: () => any) => {
                 agent_id: taskProp.agentId || 'mario',
                 dependencies: JSON.stringify([]),
                 artifacts: JSON.stringify([]),
+                requestExecution: true,
                 idempotencyKey: newTaskCommandId('task.create'),
               },
             }),
@@ -489,16 +562,6 @@ export const createTaskSlice = (set: any, get: () => any) => {
             tasks: mdTasks,
           },
         }),
-      }).then(() => {
-        // Dispatch Planner to drive task assignment
-        const taskCount = enriched.reduce((sum, p) => sum + p.tasks.length, 0);
-        get().dispatchToAgent({
-          agentId: 'mario',
-          prompt: `任务分解已完成，共 ${taskCount} 个任务已写入 .ath/TASKS.md。请：
-1. 读取 .ath/TASKS.md 确认任务清单
-2. 按优先级和依赖关系，逐个使用 task_assign 工具将任务分配给对应 Agent
-3. task_assign 会自动触发目标 Agent 的 dispatch`,
-        });
       }).catch((e) => console.error('[confirmBreakdown] .ath/ write failed:', e));
 
       const totalTasks = enriched.reduce((sum, p) => sum + p.tasks.length, 0);
@@ -514,7 +577,7 @@ export const createTaskSlice = (set: any, get: () => any) => {
       const systemMsg = {
         id: `msg-${Date.now()}-sys`,
         agentId: 'system' as const,
-        content: `已创建 **${totalTasks} 个任务**，分 **${totalPhases} 个阶段**执行：\n\n${phaseSummary}\n\n你可以随时 @Agent 追加指令或调整计划。`,
+        content: `已创建 **${totalTasks} 个任务**，分 **${totalPhases} 个阶段**执行：\n\n${phaseSummary}\n\n你可以随时向团队追加要求或调整计划。`,
         timestamp: new Date().toISOString(),
         intent: 'general' as const,
         conversationId,

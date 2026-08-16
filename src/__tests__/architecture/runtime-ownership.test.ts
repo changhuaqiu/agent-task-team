@@ -81,6 +81,7 @@ describe('runtime ownership architecture', () => {
   const phaseApi = source('src/pages/api/phases.ts');
   const taskStore = source('src/store/taskStore.ts');
   const skillTools = source('src/server/skill-tool-executor.ts');
+  const autonomyOwner = source('src/server/control-plane/autonomy-guard-owner.ts');
 
   it('does not accept browser execution acknowledgements for server-owned A2A work', () => {
     for (const event of [
@@ -202,6 +203,11 @@ describe('runtime ownership architecture', () => {
     const migrations = source('src/server/db/migrate.ts');
     expect(migrations).toContain('version: 78');
     expect(migrations).toContain('DROP TABLE IF EXISTS agent_team_pack');
+    expect(migrations).toContain('version: 79');
+    expect(migrations).toContain('CREATE TABLE IF NOT EXISTS human_command_receipt');
+    expect(migrations).toContain('version: 80');
+    expect(migrations).toContain('version: 81');
+    expect(migrations).toContain('version: 82');
   });
 
   it('keeps runtime repositories free of zero-consumer query and wrapper methods', () => {
@@ -321,21 +327,45 @@ describe('runtime ownership architecture', () => {
   });
 
   it('keeps explicit human command adapters available', () => {
-    expect(taskHubStore).toContain(`type: 'a2a.human_handoff'`);
+    const gateway = source('src/lib/human-command/WebHumanCommandGateway.ts');
+    const commandApi = source('src/pages/api/human-commands.ts');
+    const executionAdapter = source('src/server/daemon-execution-adapter.ts');
+    expect(taskHubStore).toContain('humanCommandGateway.submit({');
+    expect(taskHubStore).not.toContain(`type: 'a2a.human_handoff'`);
+    expect(gateway).toContain("private readonly endpoint = '/api/human-commands'");
+    expect(commandApi).toContain('new HumanCommandService().submit');
     expect(taskHubStore).not.toContain(`socket.emit('a2a:user-turn-created'`);
     expect(daemon).not.toContain(`socket.on('a2a:user-turn-created'`);
-    expect(daemon).toContain(`socket.on('terminal:start'`);
-    expect(daemon).toContain(`socket.on('terminal:kill'`);
+    expect(daemon).not.toContain(`socket.on('terminal:start'`);
+    expect(daemon).not.toContain(`socket.on('terminal:kill'`);
+    expect(daemon).toContain('runtime: executionAdapter');
+    expect(executionAdapter).toContain('implements AgentRuntimePort');
+    expect(executionAdapter).toContain('execute(plan: InvocationDispatchPlan)');
+    expect(productionTypeScriptFiles('src').filter((path) => source(path).includes("emit('terminal:start'"))).toEqual([]);
   });
 
-  it('keeps legacy proposal policy inside Invocation Planner rather than socket transport', () => {
-    const socketAdapter = daemon.slice(
-      daemon.indexOf('export function submitSocketTerminalStart'),
-      daemon.indexOf("type AgentActivityStatus"),
+  it('keeps autonomy recovery policy outside daemon execution transport', () => {
+    expect(daemon).toContain('const autonomyGuardOwner = new AutonomyGuardOwner({ io })');
+    expect(daemon).not.toContain('resolveAutonomyGuardWakeups');
+    expect(daemon).not.toContain('chain_ready_for_closure');
+    expect(autonomyOwner).toContain('resolveAutonomyGuardWakeups');
+    expect(autonomyOwner).toContain('submitTaskWakeupToInvocationPipeline');
+  });
+
+  it('keeps the Project View consumer passive', () => {
+    const consumer = taskHubStore.slice(
+      taskHubStore.indexOf('export function consumeProjectViewEvent'),
+      taskHubStore.indexOf('socket.on(PROJECT_VIEW_CHANNEL'),
     );
+    expect(consumer).not.toContain('humanCommandGateway');
+    expect(consumer).not.toContain('.submit(');
+    expect(consumer).not.toContain('dispatchToAgent');
+    expect(consumer).not.toContain('fetch(');
+  });
+
+  it('keeps legacy proposal policy inside Invocation Planner rather than daemon transport', () => {
     const planner = source('src/server/invocation-pipeline/context-planner.ts');
-    expect(socketAdapter).toContain('return coordinator.submit({');
-    expect(socketAdapter).not.toMatch(/autonomousDeliveryRepo|proofLogRepo|legacy_proposal\.suppressed/);
+    expect(daemon).not.toContain('submitSocketTerminalStart');
     expect(daemon).not.toContain('legacy_proposal.suppressed');
     expect(planner).toContain(
       'trigger.legacyProposal && autonomousDeliveryRepo.getLatestByConversation(trigger.conversationId)',

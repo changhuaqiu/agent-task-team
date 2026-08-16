@@ -186,7 +186,7 @@ OpenCode、Claude 和 Codex 的原生 Skill 发现能力与配置方式并不完
 - ContextReport 与 observation span 保存 eligible/activated/decision、revision、hash、reason、token，不保存附属资源正文；
 - 包校验失败会先写入有界的失败 context span/proof，再以稳定 reason code 阻断；Agent 调试页可显示失败 Skill、已知 revision 与原因；
 - 标准包和 legacy 迁移产生的 `SkillPackageError` 都在 `SkillRuntime` 边界规范化为稳定 runtime reason code，包含非法旧文件路径在内的编译失败使用同一观测路径；
-- 浏览器 `terminal:start` 只发送原始输入和派发元数据，服务端 Socket 入口统一进入 Harness，不能绕过 Skill 编译和 fail-closed 门禁；
+- 浏览器只提交原始 Human/Task Command；服务端 Harness 在生成 `InvocationDispatchPlan` 前统一完成 Skill 编译和 fail-closed 门禁；
 - Skill 详情显示活动执行版本与资源分类，Agent 调试页显示已绑定、本轮激活、已编入和未加载结果。
 
 当前兼容策略仍保留旧 Skill API 和 `skill_file` 作为编辑/展示入口；任何正文、描述、名称、config 或文件更新都会清除 active revision，下次编译重新生成版本。会影响工具声明的 config 也纳入 revision hash 并固化到 revision，编译不得读取同一版本之外的可变 config。候选路由、`$skill-name` 强信号和语义激活仍属于后续阶段。

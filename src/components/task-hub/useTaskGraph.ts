@@ -1,35 +1,56 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { TaskGraphApiView } from '@/lib/taskGraphView';
 
 export function useTaskGraph(conversationId: string | null | undefined) {
   const [graph, setGraph] = useState<TaskGraphApiView | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const requestSequence = useRef(0);
+  const activeRequest = useRef<AbortController | null>(null);
 
   const refresh = useCallback(async () => {
+    const requestId = ++requestSequence.current;
+    activeRequest.current?.abort();
     if (!conversationId) {
       setGraph(null);
       setError(null);
+      setIsLoading(false);
       return;
     }
 
+    const controller = new AbortController();
+    activeRequest.current = controller;
     setIsLoading(true);
+    setGraph(null);
+    setError(null);
     try {
-      const response = await fetch(`/api/task-graph?conversationId=${encodeURIComponent(conversationId)}`);
+      const response = await fetch(`/api/task-graph?conversationId=${encodeURIComponent(conversationId)}`, {
+        signal: controller.signal,
+      });
       if (!response.ok) throw new Error(`任务图加载失败：${response.status}`);
-      setGraph(await response.json());
-      setError(null);
+      const nextGraph = await response.json() as TaskGraphApiView;
+      if (requestSequence.current === requestId && nextGraph.conversationId === conversationId) {
+        setGraph(nextGraph);
+        setError(null);
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      if (requestSequence.current === requestId && !(err instanceof DOMException && err.name === 'AbortError')) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
     } finally {
-      setIsLoading(false);
+      if (requestSequence.current === requestId) setIsLoading(false);
     }
   }, [conversationId]);
 
   useEffect(() => {
+    // Loading an external projection is the synchronization this effect owns.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void refresh();
+    return () => {
+      activeRequest.current?.abort();
+    };
   }, [refresh]);
 
   return { graph, isLoading, error, refresh };
