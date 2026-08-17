@@ -4,12 +4,14 @@ import { createTestDb, resetDb, setTestDb } from '../db';
 import { invocationRepo } from '../repositories/invocation-repo';
 import { taskRepo } from '../repositories/task-repo';
 import { WorkContractRepository } from '../work-contract/repository';
+import { buildWorkIdentity } from '../work-contract/work-identity';
 import { DurableEffectOutbox } from '../platform-events/durable-effect-outbox';
 import { qualityGateRepo } from '../quality-gate/repository';
 import { A2ACollaborationRepository } from '../a2a/collaboration';
 import { AgentInbox } from '../platform-events/agent-inbox';
 import { AutonomousDeliveryRepository } from './repository';
 import { decideControlActions } from './control-decision';
+import { ControlDecisionRepository } from './control-decision-repository';
 import { RepositoryControlSnapshotBuilder } from './control-snapshot-builder';
 
 describe('RepositoryControlSnapshotBuilder', () => {
@@ -342,11 +344,11 @@ describe('RepositoryControlSnapshotBuilder', () => {
       expectedFrom: 'in_progress',
       expectedRevision: task.revision,
     })!;
-    qualityGateRepo.request({
+    const requestedGate = qualityGateRepo.request({
       conversationId: 'project-1',
       kind: 'code_review',
       targetType: 'task',
-      targetId: task.id,
+      targetId: 'task-review-cell',
       artifactRevision: String(task.revision),
       criteria: {},
       actor: { type: 'system', id: 'test' },
@@ -355,7 +357,13 @@ describe('RepositoryControlSnapshotBuilder', () => {
 
     const snapshot = new RepositoryControlSnapshotBuilder({ db, now: () => now }).build(runId);
     const sourceWorkId = `task:${task.id}:agent:agent-a:purpose:execute`;
-    const reviewerWorkId = `task:${task.id}:agent:reviewer:purpose:review`;
+    const reviewerWorkId = buildWorkIdentity({
+      scope: 'task',
+      targetId: task.id,
+      agentId: 'reviewer',
+      gateId: requestedGate.gate.id,
+      purpose: 'review',
+    });
     expect(snapshot.workCells).toEqual(expect.arrayContaining([
       expect.objectContaining({ workId: sourceWorkId, state: 'waiting_gate' }),
       expect.objectContaining({
@@ -369,6 +377,227 @@ describe('RepositoryControlSnapshotBuilder', () => {
       blocker: reviewerWorkId,
       reasonCode: 'quality_gate',
     });
+    new AgentInbox({ db, now: () => now }).enqueue({
+      projectId: 'project-1',
+      projectAgentId: 'reviewer',
+      idempotencyKey: 'queued-review-work',
+      command: {
+        source: 'review_gate',
+        workId: reviewerWorkId,
+        taskId: task.id,
+        deliveryRunId: runId,
+        prompt: 'Review',
+      },
+    });
+    const queuedSnapshot = new RepositoryControlSnapshotBuilder({ db, now: () => now })
+      .build(runId);
+    expect(queuedSnapshot.workCells.find((cell) => cell.workId === reviewerWorkId))
+      .toMatchObject({ state: 'queued' });
+    expect(decideControlActions(queuedSnapshot, {
+      revision: 5,
+      maxConcurrent: 2,
+      roleCapacity: { reviewer: 1 },
+      fairnessAgingMs: 1_000,
+    }).actions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'wait',
+        targetWorkId: reviewerWorkId,
+        reasonCode: 'dispatch_pending',
+      }),
+    ]));
+  });
+
+  it('starts a fresh Gate-scoped review after a legacy review authority has closed', () => {
+    db.prepare(`
+      INSERT INTO agents (id,name,role_card_id,theme,emoji,created_at,updated_at)
+      VALUES ('reviewer','Reviewer','preset-code-reviewer','default','R',?,?)
+    `).run(now.toISOString(), now.toISOString());
+    let task = taskRepo.create({
+      id: 'task-second-review',
+      conversation_id: 'project-1',
+      title: 'Review the next artifact revision',
+      agent_id: 'agent-a',
+    }, now);
+    task = taskRepo.transition(task.id, { to: 'in_progress' }, now)!;
+    task = taskRepo.transition(task.id, { to: 'in_review' }, now)!;
+
+    const legacy = issue(
+      `task:${task.id}:agent:reviewer:purpose:review`,
+      'reviewer',
+      'legacy-review-attempt',
+      task.id,
+    );
+    contracts.close({
+      workId: legacy.workId,
+      expectedEpoch: legacy.workEpoch,
+      correlationId: legacy.correlationId,
+      causationId: legacy.contractId,
+      now,
+    });
+    const requested = qualityGateRepo.request({
+      conversationId: 'project-1',
+      kind: 'code_review',
+      targetType: 'task',
+      targetId: task.id,
+      artifactRevision: String(task.revision),
+      criteria: {},
+      actor: { type: 'system', id: 'test' },
+      now,
+    });
+    const expectedWorkId = buildWorkIdentity({
+      scope: 'task',
+      targetId: task.id,
+      agentId: 'reviewer',
+      gateId: requested.gate.id,
+      purpose: 'review',
+    });
+
+    const snapshot = new RepositoryControlSnapshotBuilder({ db, now: () => now }).build(runId);
+    expect(snapshot.workCells).toEqual(expect.arrayContaining([
+      expect.objectContaining({ workId: legacy.workId, state: 'completed' }),
+      expect.objectContaining({ workId: expectedWorkId, state: 'ready' }),
+    ]));
+    expect(decideControlActions(snapshot, {
+      revision: 1,
+      maxConcurrent: 2,
+      roleCapacity: { reviewer: 1 },
+      fairnessAgingMs: 1_000,
+    }).actions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'activate', targetWorkId: expectedWorkId }),
+    ]));
+  });
+
+  it('keeps an open Gate schedulable after implementer assignment metadata changes', () => {
+    db.prepare(`
+      INSERT INTO agents (id,name,role_card_id,theme,emoji,created_at,updated_at)
+      VALUES ('reviewer','Reviewer','preset-code-reviewer','default','R',?,?)
+    `).run(now.toISOString(), now.toISOString());
+    let task = taskRepo.create({
+      id: 'task-unassigned-after-submit',
+      conversation_id: 'project-1',
+      title: 'Review submitted work independently',
+      agent_id: 'agent-a',
+    }, now);
+    task = taskRepo.transition(task.id, { to: 'in_progress' }, now)!;
+    task = taskRepo.transition(task.id, { to: 'in_review' }, now)!;
+    const requested = qualityGateRepo.request({
+      conversationId: 'project-1',
+      kind: 'code_review',
+      targetType: 'task',
+      targetId: task.id,
+      artifactRevision: String(task.revision),
+      criteria: {},
+      actor: { type: 'system', id: 'test' },
+      now,
+    });
+    const revisionBeforeMetadataChange = new ControlDecisionRepository(db)
+      .projectSnapshotRevision('project-1');
+    const changed = taskRepo.update(task.id, { agent_id: '' })!;
+    expect(changed.revision).toBeGreaterThan(task.revision);
+    expect(new ControlDecisionRepository(db).projectSnapshotRevision('project-1'))
+      .toBeGreaterThan(revisionBeforeMetadataChange);
+    const reviewWorkId = buildWorkIdentity({
+      scope: 'task',
+      targetId: task.id,
+      agentId: 'reviewer',
+      gateId: requested.gate.id,
+      purpose: 'review',
+    });
+
+    const snapshot = new RepositoryControlSnapshotBuilder({ db, now: () => now }).build(runId);
+    expect(snapshot.workCells).toEqual(expect.arrayContaining([
+      expect.objectContaining({ workId: reviewWorkId, state: 'ready' }),
+    ]));
+    expect(decideControlActions(snapshot, {
+      revision: 3,
+      maxConcurrent: 2,
+      roleCapacity: { reviewer: 1 },
+      fairnessAgingMs: 1_000,
+    }).actions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'activate', targetWorkId: reviewWorkId }),
+    ]));
+  });
+
+  it('projects an accepted Gate blocker as waiting_human instead of retrying the evaluator', () => {
+    let task = taskRepo.create({
+      id: 'task-gate-blocked',
+      conversation_id: 'project-1',
+      title: 'Review needs external permission',
+      agent_id: 'agent-a',
+    }, now);
+    task = taskRepo.transition(task.id, { to: 'in_progress' }, now)!;
+    task = taskRepo.transition(task.id, { to: 'in_review' }, now)!;
+    const requested = qualityGateRepo.request({
+      conversationId: 'project-1',
+      kind: 'code_review',
+      targetType: 'task',
+      targetId: task.id,
+      artifactRevision: String(task.revision),
+      criteria: {},
+      actor: { type: 'system', id: 'test' },
+      now,
+    });
+    const workId = buildWorkIdentity({
+      scope: 'task',
+      targetId: task.id,
+      agentId: 'reviewer',
+      gateId: requested.gate.id,
+      purpose: 'review',
+    });
+    const deliveryRevision = (db.prepare(`
+      SELECT revision FROM autonomous_delivery_run WHERE id=?
+    `).get(runId) as { revision: number }).revision;
+    const contract = contracts.issue({
+      workId,
+      attemptId: 'attempt-gate-blocked',
+      projectId: 'project-1',
+      deliveryRunId: runId,
+      taskId: task.id,
+      agentId: 'reviewer',
+      goal: 'Review with external permission',
+      acceptanceCriteria: ['Report a blocker when permission is unavailable'],
+      role: { id: 'reviewer' },
+      permissions: {},
+      authoritativeRefs: [`task:${task.id}`, `delivery:${runId}`],
+      authoritativeRevisions: { task: task.revision, deliveryRun: deliveryRevision },
+      contextSnapshotRef: 'context:gate-blocked',
+      allowedOutcomeTypes: ['report_blocked'],
+      correlationId: 'corr:gate-blocked',
+      causationId: requested.gate.id,
+      now,
+    });
+    expect(contracts.admitOutcome({
+      outcomeId: 'outcome-gate-blocked',
+      idempotencyKey: 'outcome-gate-blocked',
+      contractId: contract.contractId,
+      outcomeType: 'report_blocked',
+      payload: { reason: 'browser_permission_required' },
+      evidenceRefs: ['permission:browser'],
+      projectId: contract.projectId,
+      workId: contract.workId,
+      workEpoch: contract.workEpoch,
+      attemptId: contract.attemptId,
+      fencingToken: contract.fencingToken,
+      authoritativeRevisions: contract.authoritativeRevisions,
+      correlationId: contract.correlationId,
+      causationId: contract.contractId,
+      occurredAt: now.toISOString(),
+    }, now)).toMatchObject({ status: 'accepted' });
+
+    const snapshot = new RepositoryControlSnapshotBuilder({ db, now: () => now }).build(runId);
+    expect(snapshot.workCells.find((cell) => cell.workId === workId)).toMatchObject({
+      state: 'waiting_human',
+      humanResolution: 'required',
+      gateStatus: 'requested',
+    });
+    expect(decideControlActions(snapshot, {
+      revision: 5,
+      maxConcurrent: 2,
+      roleCapacity: { reviewer: 1 },
+      fairnessAgingMs: 1_000,
+    }).actions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'escalateToHuman', targetWorkId: workId }),
+    ]));
   });
 
   it('[scenario:review-rework] derives a bounded rework action from authoritative Gate history', () => {
@@ -512,6 +741,98 @@ describe('RepositoryControlSnapshotBuilder', () => {
     expect(after.workCells.find((cell) => cell.workId.includes('task-b'))?.state).toBe('ready');
   });
 
+  it('uses existing authority epoch when a task contract predates delivery ownership', () => {
+    const task = taskRepo.create({
+      id: 'task-existing-authority',
+      conversation_id: 'project-1',
+      title: 'Existing task',
+      agent_id: 'agent-a',
+    }, now);
+    const workId = `task:${task.id}:agent:${task.agent_id}:purpose:execute`;
+    const external = contracts.issue({
+      workId,
+      attemptId: 'external-attempt',
+      projectId: 'project-1',
+      taskId: task.id,
+      agentId: task.agent_id,
+      goal: task.title,
+      acceptanceCriteria: ['Done'],
+      role: { id: 'implementer' },
+      permissions: {},
+      authoritativeRefs: [`work:${workId}`],
+      authoritativeRevisions: { work: 1 },
+      contextSnapshotRef: `context:${workId}`,
+      allowedOutcomeTypes: ['submit_task_result'],
+      correlationId: `corr:${workId}`,
+      causationId: `cause:${workId}`,
+      now,
+    });
+
+    const cell = new RepositoryControlSnapshotBuilder({ db, now: () => now })
+      .build(runId)
+      .workCells.find((candidate) => candidate.workId === workId);
+
+    expect(cell).toMatchObject({
+      workId,
+      workEpoch: external.workEpoch,
+      state: 'ready',
+    });
+  });
+
+  it('uses existing reviewer authority epoch when requesting a delivery-owned task gate', () => {
+    db.prepare(`
+      INSERT INTO agents (id,name,role_card_id,theme,emoji,created_at,updated_at)
+      VALUES ('reviewer','Reviewer','preset-code-reviewer','default','R',?,?)
+    `).run(now.toISOString(), now.toISOString());
+    let task = taskRepo.create({
+      id: 'task-existing-reviewer',
+      conversation_id: 'project-1',
+      title: 'Review existing task',
+      agent_id: 'agent-a',
+    }, now);
+    task = taskRepo.transition(task.id, { to: 'in_progress' }, now)!;
+    task = taskRepo.transition(task.id, { to: 'in_review' }, now)!;
+    qualityGateRepo.request({
+      conversationId: 'project-1',
+      kind: 'code_review',
+      targetType: 'task',
+      targetId: task.id,
+      artifactRevision: String(task.revision),
+      criteria: {},
+      actor: { type: 'system', id: 'test' },
+      now,
+    });
+    const reviewWorkId = `task:${task.id}:agent:reviewer:purpose:review`;
+    const external = contracts.issue({
+      workId: reviewWorkId,
+      attemptId: 'external-review-attempt',
+      projectId: 'project-1',
+      taskId: task.id,
+      agentId: 'reviewer',
+      goal: task.title,
+      acceptanceCriteria: ['Review'],
+      role: { id: 'reviewer' },
+      permissions: {},
+      authoritativeRefs: [`work:${reviewWorkId}`],
+      authoritativeRevisions: { work: 1 },
+      contextSnapshotRef: `context:${reviewWorkId}`,
+      allowedOutcomeTypes: ['record_gate_decision'],
+      correlationId: `corr:${reviewWorkId}`,
+      causationId: `cause:${reviewWorkId}`,
+      now,
+    });
+
+    const cell = new RepositoryControlSnapshotBuilder({ db, now: () => now })
+      .build(runId)
+      .workCells.find((candidate) => candidate.workId === reviewWorkId);
+
+    expect(cell).toMatchObject({
+      workEpoch: external.workEpoch,
+      state: 'ready',
+      purpose: 'review',
+    });
+  });
+
   it('turns completed delivery work into independent review and verification Gate Work Cells', () => {
     db.prepare(`
       INSERT INTO agents (id,name,role_card_id,theme,emoji,created_at,updated_at)
@@ -533,8 +854,9 @@ describe('RepositoryControlSnapshotBuilder', () => {
       { state: 'artifact_submitted' },
     ]);
 
+    const gates = new Map<string, string>();
     for (const kind of ['delivery_review', 'acceptance_verification'] as const) {
-      qualityGateRepo.request({
+      const requested = qualityGateRepo.request({
         conversationId: 'project-1',
         kind,
         targetType: 'delivery_run',
@@ -544,17 +866,30 @@ describe('RepositoryControlSnapshotBuilder', () => {
         actor: { type: 'system', id: 'test' },
         now,
       });
+      gates.set(kind, requested.gate.id);
     }
     const after = new RepositoryControlSnapshotBuilder({ db, now: () => now }).build(runId);
     expect(after.workCells.filter((cell) =>
       cell.purpose === 'review' || cell.purpose === 'verification'
     )).toMatchObject([
       {
-        workId: `delivery:${runId}:agent:reviewer:purpose:review`,
+        workId: buildWorkIdentity({
+          scope: 'delivery',
+          targetId: runId,
+          agentId: 'reviewer',
+          gateId: gates.get('delivery_review')!,
+          purpose: 'review',
+        }),
         state: 'ready',
       },
       {
-        workId: `delivery:${runId}:agent:reviewer:purpose:verify`,
+        workId: buildWorkIdentity({
+          scope: 'delivery',
+          targetId: runId,
+          agentId: 'reviewer',
+          gateId: gates.get('acceptance_verification')!,
+          purpose: 'verify',
+        }),
         state: 'ready',
       },
     ]);

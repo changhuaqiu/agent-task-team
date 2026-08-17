@@ -55,6 +55,7 @@ export function ProjectChatPanel({
           <AutonomousDeliveryPanel
             key={selectedDeliveryId}
             conversationId={selectedDeliveryId}
+            stage={delivery?.stage}
             onSnapshotChange={onDeliveryRunSnapshotChange}
           />
         </div>

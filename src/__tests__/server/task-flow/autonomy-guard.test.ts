@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest';
 import type { ExecutionEnvelopeRow } from '@/server/repositories/execution-envelope-repo';
 import type { InvocationRow } from '@/server/repositories/invocation-repo';
 import type { TaskRow } from '@/server/repositories/task-repo';
-import { resolveAutonomyGuardWakeups } from '@/server/task-flow/autonomy-guard';
+import {
+  resolveAutonomyGuardActions,
+  resolveAutonomyGuardWakeups,
+} from '@/server/task-flow/autonomy-guard';
 import type { TaskEdgeRow } from '@/server/repositories/task-graph-repo';
 
 function task(overrides: Partial<TaskRow> & Pick<TaskRow, 'id' | 'agent_id' | 'status'>): TaskRow {
@@ -68,6 +71,10 @@ function invocation(
     usage: overrides.usage ?? null,
     error_message: overrides.error_message ?? null,
     prompt: overrides.prompt ?? null,
+    work_contract_id: overrides.work_contract_id ?? null,
+    work_id: overrides.work_id ?? null,
+    work_epoch: overrides.work_epoch ?? null,
+    fencing_token: overrides.fencing_token ?? null,
     dispatch_status: overrides.dispatch_status ?? null,
     token_usage: overrides.token_usage ?? null,
     lease_expiry: overrides.lease_expiry ?? null,
@@ -164,6 +171,155 @@ describe('autonomy guard wakeups', () => {
 
     expect(wakeups).toEqual([
       expect.objectContaining({ taskId: 'TASK-003', agentId: 'peach', reasonCode: 'stale_review_gate' }),
+    ]);
+  });
+
+  it('does not invent a reviewer wakeup before a review gate is requested', () => {
+    const wakeups = resolveAutonomyGuardWakeups({
+      tasks: [
+        task({ id: 'TASK-003', agent_id: 'toad', status: 'in_review' }),
+      ],
+      envelopes: [],
+      coordinatorAgentIds: ['mario'],
+      reviewAgentIds: ['peach'],
+      qaAgentIds: ['yoshi'],
+      reviewableTaskIds: [],
+      now: new Date('2026-05-21T00:31:00.000Z'),
+    });
+
+    expect(wakeups).toEqual([]);
+  });
+
+  it('escalates instead of retrying after the task-agent failure budget is exhausted', () => {
+    const reviewTask = task({
+      id: 'TASK-003',
+      agent_id: 'toad',
+      status: 'in_review',
+      updated_at: '2026-05-21T00:00:00.000Z',
+    });
+    const failures = [1, 2, 3].map((index) => invocation({
+      id: `inv-${index}`,
+      task_id: reviewTask.id,
+      agent_id: 'peach',
+      status: 'terminated',
+      outcome: 'failed',
+      reason_code: 'acp_startup_failed',
+      created_at: `2026-05-21T00:0${index}:00.000Z`,
+    }));
+
+    const actions = resolveAutonomyGuardActions({
+      tasks: [reviewTask],
+      envelopes: [],
+      invocations: failures,
+      coordinatorAgentIds: ['mario'],
+      reviewAgentIds: ['peach'],
+      qaAgentIds: ['yoshi'],
+      now: new Date('2026-05-21T00:31:00.000Z'),
+      maxAttemptsPerTaskAgent: 3,
+      retryBudgetEscalationAvailable: true,
+    });
+
+    expect(actions.wakeups).toEqual([]);
+    expect(actions.escalations).toEqual([expect.objectContaining({
+      taskId: 'TASK-003',
+      agentId: 'peach',
+      attempts: 3,
+      lastReasonCode: 'acp_startup_failed',
+    })]);
+  });
+
+  it('keeps ordinary tasks recoverable when no durable escalation owner exists', () => {
+    const readyTask = task({ id: 'TASK-004', agent_id: 'luigi', status: 'ready' });
+    const failures = [1, 2, 3].map((index) => invocation({
+      id: `ordinary-inv-${index}`,
+      task_id: readyTask.id,
+      agent_id: 'luigi',
+      status: 'terminated',
+      outcome: 'failed',
+      created_at: `2026-05-21T00:0${index}:00.000Z`,
+    }));
+
+    const actions = resolveAutonomyGuardActions({
+      tasks: [readyTask],
+      envelopes: [],
+      invocations: failures,
+      coordinatorAgentIds: ['mario'],
+      reviewAgentIds: ['peach'],
+      qaAgentIds: ['yoshi'],
+      maxAttemptsPerTaskAgent: 3,
+      retryBudgetEscalationAvailable: false,
+    });
+
+    expect(actions.escalations).toEqual([]);
+    expect(actions.wakeups).toEqual([
+      expect.objectContaining({ taskId: readyTask.id, agentId: 'luigi' }),
+    ]);
+  });
+
+  it('resets the retry budget when the task revision is updated', () => {
+    const reviewTask = task({
+      id: 'TASK-003',
+      agent_id: 'toad',
+      status: 'in_review',
+      updated_at: '2026-05-21T00:10:00.000Z',
+    });
+    const oldFailures = [1, 2, 3].map((index) => invocation({
+      id: `old-inv-${index}`,
+      task_id: reviewTask.id,
+      agent_id: 'peach',
+      status: 'terminated',
+      outcome: 'failed',
+      created_at: `2026-05-21T00:0${index}:00.000Z`,
+    }));
+
+    const actions = resolveAutonomyGuardActions({
+      tasks: [reviewTask],
+      envelopes: [],
+      invocations: oldFailures,
+      coordinatorAgentIds: ['mario'],
+      reviewAgentIds: ['peach'],
+      qaAgentIds: ['yoshi'],
+      now: new Date('2026-05-21T00:41:00.000Z'),
+      maxAttemptsPerTaskAgent: 3,
+    });
+
+    expect(actions.escalations).toEqual([]);
+    expect(actions.wakeups).toEqual([
+      expect.objectContaining({ taskId: 'TASK-003', agentId: 'peach' }),
+    ]);
+  });
+
+  it('opens a fresh attempt window after a human resumes the delivery', () => {
+    const reviewTask = task({
+      id: 'TASK-003',
+      agent_id: 'toad',
+      status: 'in_review',
+      updated_at: '2026-05-21T00:00:00.000Z',
+    });
+    const oldFailures = [1, 2, 3].map((index) => invocation({
+      id: `old-inv-${index}`,
+      task_id: reviewTask.id,
+      agent_id: 'peach',
+      status: 'terminated',
+      outcome: 'failed',
+      created_at: `2026-05-21T00:0${index}:00.000Z`,
+    }));
+
+    const actions = resolveAutonomyGuardActions({
+      tasks: [reviewTask],
+      envelopes: [],
+      invocations: oldFailures,
+      coordinatorAgentIds: ['mario'],
+      reviewAgentIds: ['peach'],
+      qaAgentIds: ['yoshi'],
+      now: new Date('2026-05-21T00:41:00.000Z'),
+      attemptWindowStartedAt: '2026-05-21T00:40:00.000Z',
+      maxAttemptsPerTaskAgent: 3,
+    });
+
+    expect(actions.escalations).toEqual([]);
+    expect(actions.wakeups).toEqual([
+      expect.objectContaining({ taskId: 'TASK-003', agentId: 'peach' }),
     ]);
   });
 

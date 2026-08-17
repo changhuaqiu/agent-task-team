@@ -21,6 +21,7 @@
 5. 建立 `DeliveryWorkspaceProjection` 和 `HumanCommandGateway` 两个深 Module；不新增第二个全局事实 Store。
 6. 浏览器最终不得发出 `terminal:start`，任务 mutation 不得自动调用 `dispatchToAgent`。
 7. 外部项目只作为研究参考，Implementation、视觉和文案独立完成；不得去除复制代码本应保留的许可声明。
+8. 团队活动以 Invocation 回复为单位：同一次调用不裂泡，不同调用不按 Agent 合并；系统活动与 Agent 正文分面渲染，工具摘要始终可见。
 
 ## 3. 范围
 

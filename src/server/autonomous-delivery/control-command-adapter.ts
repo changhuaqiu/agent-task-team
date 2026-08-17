@@ -21,6 +21,7 @@ import type {
   ControlCommandResult,
 } from './control-process-manager';
 import { RepositoryControlSnapshotBuilder } from './control-snapshot-builder';
+import { parseWorkIdentity } from '../work-contract/work-identity';
 
 interface ProductionControlCommandAdapterOptions {
   db?: Database.Database;
@@ -28,11 +29,6 @@ interface ProductionControlCommandAdapterOptions {
   deliveries?: AutonomousDeliveryRepository;
   now?: () => Date;
   effects?: Pick<DurableEffectOutbox, 'enqueueBatch'>;
-}
-
-function taskIdFromWorkId(workId: string): string | undefined {
-  const match = /^task:(.+):agent:[^:]+:purpose:[^:]+$/.exec(workId);
-  return match?.[1];
 }
 
 export class ProductionControlCommandAdapter implements ControlCommandPort {
@@ -45,9 +41,9 @@ export class ProductionControlCommandAdapter implements ControlCommandPort {
 
   constructor(options: ProductionControlCommandAdapterOptions = {}) {
     this.database = options.db;
-    this.inbox = options.inbox ?? new AgentInbox({ db: options.db });
-    this.deliveries = options.deliveries ?? autonomousDeliveryRepo;
     this.now = options.now ?? (() => new Date());
+    this.inbox = options.inbox ?? new AgentInbox({ db: options.db, now: this.now });
+    this.deliveries = options.deliveries ?? autonomousDeliveryRepo;
     this.effects = options.effects ?? new DurableEffectOutbox({ db: options.db, now: this.now });
     this.snapshots = new RepositoryControlSnapshotBuilder({
       db: options.db,
@@ -206,14 +202,19 @@ export class ProductionControlCommandAdapter implements ControlCommandPort {
   ): ControlCommandResult {
     const runId = decision.runId;
     const task = this.taskFor(action);
-    if (!task?.agent_id) return { status: 'rejected', reasonCode: 'control_task_owner_missing' };
-    const review = action.targetWorkId?.endsWith(':purpose:review') === true;
-    const verification = action.targetWorkId?.endsWith(':purpose:verify') === true;
-    const targetAgent = action.targetWorkId?.match(/:agent:([^:]+):purpose:/)?.[1]
-      ?? task.agent_id;
-    const deliveryReview = review && action.targetWorkId?.startsWith('delivery:') === true;
+    if (!task) return { status: 'rejected', reasonCode: 'control_task_missing' };
+    const workIdentity = parseWorkIdentity(action.targetWorkId);
+    const review = workIdentity?.purpose === 'review';
+    const verification = workIdentity?.purpose === 'verify';
+    const targetAgent = workIdentity?.agentId ?? task.agent_id;
+    if (!targetAgent || ((!review && !verification) && !task.agent_id)) {
+      return { status: 'rejected', reasonCode: 'control_task_owner_missing' };
+    }
+    const deliveryReview = review && workIdentity?.scope === 'delivery';
     const gate = review || verification
-      ? qualityGateRepo.listForTarget(
+      ? (workIdentity?.gateId
+          ? qualityGateRepo.get(workIdentity.gateId)
+          : qualityGateRepo.listForTarget(
           deliveryReview || verification ? 'delivery_run' : 'task',
           deliveryReview || verification ? runId : task.id,
         ).filter((candidate) => candidate.kind === (
@@ -222,8 +223,45 @@ export class ProductionControlCommandAdapter implements ControlCommandPort {
             : verification
               ? 'acceptance_verification'
               : 'code_review'
-        )).at(-1)
+          )).at(-1))
       : undefined;
+    const deliverySnapshot = deliveryReview || verification
+      ? this.deliveries.getSnapshot(runId)
+      : undefined;
+    const receiptInstruction = deliveryReview
+      ? `The top-level payload.receipt is required and must be: ${JSON.stringify({
+          schemaVersion: 1,
+          deliveryRunId: runId,
+          status: 'passed | failed',
+          reviewerAgentId: targetAgent,
+          summary: 'non-empty review summary',
+          evidenceRefs: ['artifact-or-test-reference'],
+          findings: [{
+            severity: 'blocking | important | advisory',
+            status: 'open | resolved',
+            description: 'finding description',
+            evidenceRefs: ['finding-reference'],
+          }],
+        })}`
+      : verification
+        ? `The top-level payload.receipt is required and must be: ${JSON.stringify({
+            schemaVersion: 1,
+            deliveryRunId: runId,
+            status: 'passed | failed',
+            method: 'web_ui_e2e | automated_test | manual_review',
+            verifierAgentId: targetAgent,
+            tool: 'tool used for verification',
+            reportRef: 'project-relative existing report file',
+            specRefs: ['project-relative existing spec file'],
+            acceptanceResults: (deliverySnapshot?.contract.acceptanceCriteria ?? []).map(
+              (criterion) => ({
+                criterion,
+                status: 'passed | failed',
+                evidenceRefs: ['criterion-evidence-reference'],
+              }),
+            ),
+          })}`
+        : 'A Task Gate does not require a Delivery receipt.';
     const db = this.database ?? getDb();
     db.transaction(() => {
       if (!review && !verification && task.status !== 'in_progress') {
@@ -268,7 +306,9 @@ export class ProductionControlCommandAdapter implements ControlCommandPort {
                     : `Review task ${task.id}「${task.title}」.`
                   : 'Verify the delivery acceptance criteria.',
                 `Quality Gate: ${gate?.id ?? 'missing'}.`,
-                'Submit exactly one structured record_gate_decision AgentOutcome with evidence and receipt.',
+                'Submit exactly one structured record_gate_decision AgentOutcome.',
+                'Its payload must contain the exact gateId above, decision as passed | changes_requested | rejected, evidenceType, and evidence.',
+                receiptInstruction,
               ].join(' ')
             : action.type === 'retry'
             ? `恢复任务 ${task.id}「${task.title}」。根据当前权威事实继续，不要复用旧 attempt 的结果。`
@@ -413,9 +453,11 @@ export class ProductionControlCommandAdapter implements ControlCommandPort {
 
   private taskFor(action: ControlAction) {
     if (!action.targetWorkId) return undefined;
-    const direct = taskIdFromWorkId(action.targetWorkId);
-    if (direct) return taskRepo.getById(direct);
-    const deliveryId = action.targetWorkId.match(/^delivery:([^:]+):/)?.[1];
+    const identity = parseWorkIdentity(action.targetWorkId);
+    if (identity?.scope === 'task') return taskRepo.getById(identity.targetId);
+    const deliveryId = identity?.scope === 'delivery'
+      ? identity.targetId
+      : action.targetWorkId.match(/^delivery:([^:]+):/)?.[1];
     if (deliveryId) {
       const delivery = this.deliveries.getRun(deliveryId);
       if (delivery?.root_task_id) return taskRepo.getById(delivery.root_task_id);

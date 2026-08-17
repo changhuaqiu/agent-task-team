@@ -7,12 +7,12 @@ import {
   AutonomousDeliveryRepository,
   autonomousDeliveryRepo,
 } from '../autonomous-delivery/repository';
-import { validateAcceptanceVerificationReceipt } from '../autonomous-delivery/verification-receipt';
 import { getDb } from '../db';
 import type { PlatformEventHandler } from '../platform-events/dispatcher';
 import type { AgentOutcomeRow, WorkContractRow } from '../work-contract/types';
 import { QualityGateInvariantError, QualityGateRepository } from './repository';
 import type { QualityGateDecision, QualityGateRow } from './types';
+import { validateDeliveryGateReceipt } from './delivery-receipt-validation';
 
 type OutcomeDecision = Exclude<QualityGateDecision, 'cancelled'>;
 
@@ -81,37 +81,17 @@ function deliveryReceipt(
   const runId = contract.delivery_run_id;
   const snapshot = runId ? deliveries.getSnapshot(runId) : undefined;
   if (!snapshot) throw new QualityGateInvariantError('gate_outcome_delivery_missing');
-  if (gate.kind === 'acceptance_verification') {
-    const candidate = validateAcceptanceVerificationReceipt(payload.receipt, snapshot);
-    if (!candidate.valid || !candidate.payload) {
-      throw new QualityGateInvariantError(
-        `gate_outcome_verification_receipt_invalid:${candidate.errors.join(',')}`,
-      );
-    }
-    if (candidate.payload.verifierAgentId !== contract.agent_id) {
-      throw new QualityGateInvariantError('gate_outcome_verifier_mismatch');
-    }
-    if (
-      (payload.decision === 'passed') !== (candidate.payload.status === 'passed')
-    ) throw new QualityGateInvariantError('gate_outcome_verification_decision_mismatch');
-    return candidate.payload;
-  }
-  if (gate.kind === 'delivery_review') {
-    const receipt = payload.receipt as Partial<AcceptanceReviewReceipt> | undefined;
-    if (
-      !receipt
-      || receipt.schemaVersion !== 1
-      || receipt.deliveryRunId !== runId
-      || receipt.reviewerAgentId !== contract.agent_id
-      || !Array.isArray(receipt.findings)
-      || !Array.isArray(receipt.evidenceRefs)
-      || !receipt.summary?.trim()
-      || !['passed', 'failed'].includes(String(receipt.status))
-      || ((payload.decision === 'passed') !== (receipt.status === 'passed'))
-    ) throw new QualityGateInvariantError('gate_outcome_review_receipt_invalid');
-    return receipt as AcceptanceReviewReceipt;
-  }
-  return undefined;
+  if (gate.kind !== 'acceptance_verification' && gate.kind !== 'delivery_review') return undefined;
+  const validation = validateDeliveryGateReceipt({
+    kind: gate.kind,
+    runId,
+    agentId: contract.agent_id,
+    decision: payload.decision,
+    receipt: payload.receipt,
+    snapshot,
+  });
+  if (!validation.valid) throw new QualityGateInvariantError(validation.reasonCode);
+  return validation.receipt;
 }
 
 export interface GateOutcomeProcessManagerOptions {

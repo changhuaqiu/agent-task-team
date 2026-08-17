@@ -16,6 +16,24 @@ export interface ResolveAutonomyGuardWakeupsInput {
   closureDispatchedRootTaskIds?: string[];
   now?: Date;
   staleMs?: number;
+  maxAttemptsPerTaskAgent?: number;
+  retryBudgetEscalationAvailable?: boolean;
+  attemptWindowStartedAt?: string;
+  reviewableTaskIds?: string[];
+}
+
+export interface AutonomyGuardEscalation {
+  conversationId: string;
+  taskId: string;
+  taskStatus: string;
+  agentId: string;
+  attempts: number;
+  lastReasonCode?: string;
+}
+
+export interface AutonomyGuardActions {
+  wakeups: TaskWakeup[];
+  escalations: AutonomyGuardEscalation[];
 }
 
 const ACTIVE_ENVELOPE_STATUSES = new Set(['drafted', 'validated', 'routed', 'sent']);
@@ -77,11 +95,13 @@ function makeWakeup(input: {
   };
 }
 
-export function resolveAutonomyGuardWakeups(input: ResolveAutonomyGuardWakeupsInput): TaskWakeup[] {
+export function resolveAutonomyGuardActions(input: ResolveAutonomyGuardWakeupsInput): AutonomyGuardActions {
   const now = input.now ?? new Date();
   const staleMs = input.staleMs ?? 30 * 60 * 1000;
   const tasksById = new Map(input.tasks.map((task) => [task.id, task]));
   const wakeups: TaskWakeup[] = [];
+  const escalations: AutonomyGuardEscalation[] = [];
+  const maxAttempts = Math.max(1, input.maxAttemptsPerTaskAgent ?? 3);
   const terminalTaskStatuses = new Set(['done', 'cancelled']);
   const subtaskEdges = (input.edges ?? []).filter((edge) => edge.type === 'subtask_of');
   const childrenByParent = new Map<string, string[]>();
@@ -91,10 +111,42 @@ export function resolveAutonomyGuardWakeups(input: ResolveAutonomyGuardWakeupsIn
     childIds.add(edge.from_task_id);
   }
   const dispatchedRoots = new Set(input.closureDispatchedRootTaskIds ?? []);
+  const reviewableTaskIds = input.reviewableTaskIds
+    ? new Set(input.reviewableTaskIds)
+    : undefined;
   const closureRootIds = new Set<string>();
   const pushOnce = (wakeup: TaskWakeup) => {
     if (wakeups.some((item) => item.metadata.idempotencyKey === wakeup.metadata.idempotencyKey)) return;
     wakeups.push(wakeup);
+  };
+  const retryBudgetExhausted = (task: TaskRow, agentId: string): boolean => {
+    if (!input.retryBudgetEscalationAvailable) return false;
+    const taskUpdatedAt = new Date(task.updated_at).getTime();
+    const recoveryStartedAt = input.attemptWindowStartedAt
+      ? new Date(input.attemptWindowStartedAt).getTime()
+      : 0;
+    const attemptWindowStartedAt = Math.max(taskUpdatedAt, recoveryStartedAt);
+    const failures = (input.invocations ?? [])
+      .filter((invocation) =>
+        invocation.task_id === task.id
+        && invocation.agent_id === agentId
+        && invocation.status === 'terminated'
+        && (invocation.outcome === 'failed' || invocation.outcome === 'timed_out')
+        && new Date(invocation.created_at).getTime() >= attemptWindowStartedAt
+      )
+      .sort((left, right) => left.created_at.localeCompare(right.created_at));
+    if (failures.length < maxAttempts) return false;
+    if (!escalations.some((item) => item.taskId === task.id && item.agentId === agentId)) {
+      escalations.push({
+        conversationId: task.conversation_id,
+        taskId: task.id,
+        taskStatus: task.status,
+        agentId,
+        attempts: failures.length,
+        lastReasonCode: failures.at(-1)?.reason_code ?? undefined,
+      });
+    }
+    return true;
   };
 
   const collectDescendants = (rootTaskId: string): TaskRow[] => {
@@ -146,6 +198,7 @@ export function resolveAutonomyGuardWakeups(input: ResolveAutonomyGuardWakeupsIn
     const activeDispatch = hasActiveDispatch(task.id, input.envelopes, input.invocations ?? []);
 
     if (task.status === 'ready' && task.agent_id && dependenciesSatisfied(task, tasksById) && !activeDispatch) {
+      if (retryBudgetExhausted(task, task.agent_id)) continue;
       pushOnce(makeWakeup({
         task,
         agentId: task.agent_id,
@@ -158,6 +211,7 @@ export function resolveAutonomyGuardWakeups(input: ResolveAutonomyGuardWakeupsIn
     }
 
     if (task.status === 'in_progress' && task.agent_id && isStale && !activeDispatch) {
+      if (retryBudgetExhausted(task, task.agent_id)) continue;
       pushOnce(makeWakeup({
         task,
         agentId: task.agent_id,
@@ -169,8 +223,14 @@ export function resolveAutonomyGuardWakeups(input: ResolveAutonomyGuardWakeupsIn
       continue;
     }
 
-    if (task.status === 'in_review' && isStale && !activeDispatch) {
+    if (
+      task.status === 'in_review'
+      && isStale
+      && !activeDispatch
+      && (!reviewableTaskIds || reviewableTaskIds.has(task.id))
+    ) {
       for (const reviewAgentId of input.reviewAgentIds) {
+        if (retryBudgetExhausted(task, reviewAgentId)) continue;
         pushOnce(makeWakeup({
           task,
           agentId: reviewAgentId,
@@ -185,5 +245,9 @@ export function resolveAutonomyGuardWakeups(input: ResolveAutonomyGuardWakeupsIn
 
   }
 
-  return wakeups;
+  return { wakeups, escalations };
+}
+
+export function resolveAutonomyGuardWakeups(input: ResolveAutonomyGuardWakeupsInput): TaskWakeup[] {
+  return resolveAutonomyGuardActions(input).wakeups;
 }

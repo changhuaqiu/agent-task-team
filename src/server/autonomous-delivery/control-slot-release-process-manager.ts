@@ -18,6 +18,8 @@ export class ControlSlotReleaseProcessManager {
       &&
       event.type !== 'runtime.invocation.started'
       && event.type !== 'runtime.invocation.terminated'
+      && event.type !== 'agent.work.cancelled'
+      && event.type !== 'agent.work.expired'
     ) return;
     if (signal.aborted) throw signal.reason ?? new Error('control_slot_release_aborted');
     if (
@@ -31,6 +33,24 @@ export class ControlSlotReleaseProcessManager {
         reasonCode: event.type === 'runtime.invocation.blocked'
           ? 'invocation_preflight_blocked'
           : 'context_preflight_blocked',
+        now: new Date(event.recordedAt),
+      });
+      return;
+    }
+    if (event.type === 'agent.work.cancelled' || event.type === 'agent.work.expired') {
+      if (!event.inboxItemId) return;
+      const row = (this.database ?? getDb()).prepare(`
+        SELECT command_json FROM agent_inbox_item WHERE id=?
+      `).get(event.inboxItemId) as { command_json: string } | undefined;
+      if (!row) return;
+      const workId = (JSON.parse(row.command_json) as { workId?: unknown }).workId;
+      if (typeof workId !== 'string' || !workId.trim()) return;
+      const reasonCode = (event.payload as { reasonCode?: unknown }).reasonCode;
+      this.decisions.releaseSlotsForWork({
+        workId: workId.trim(),
+        reasonCode: `${event.type}:${
+          typeof reasonCode === 'string' && reasonCode.trim() ? reasonCode.trim() : 'unknown'
+        }`,
         now: new Date(event.recordedAt),
       });
       return;

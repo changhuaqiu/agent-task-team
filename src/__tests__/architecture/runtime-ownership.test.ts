@@ -348,7 +348,7 @@ describe('runtime ownership architecture', () => {
     expect(daemon).toContain('const autonomyGuardOwner = new AutonomyGuardOwner({ io })');
     expect(daemon).not.toContain('resolveAutonomyGuardWakeups');
     expect(daemon).not.toContain('chain_ready_for_closure');
-    expect(autonomyOwner).toContain('resolveAutonomyGuardWakeups');
+    expect(autonomyOwner).toContain('resolveAutonomyGuardActions');
     expect(autonomyOwner).toContain('submitTaskWakeupToInvocationPipeline');
   });
 

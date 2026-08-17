@@ -37,7 +37,7 @@ describe('PlatformEventRuntimeWorker', () => {
     worker.start();
     worker.start();
     await vi.advanceTimersByTimeAsync(100);
-    expect(calls).toEqual({ register: 14, recover: 1, discover: 1, drain: 1 });
+    expect(calls).toEqual({ register: 15, recover: 1, discover: 1, drain: 1 });
 
     releaseDrain();
     await vi.advanceTimersByTimeAsync(10);
@@ -100,8 +100,11 @@ describe('PlatformEventRuntimeWorker', () => {
     }), expect.objectContaining({
       id: 'control-slot-release-process-manager:context:v1',
       pattern: 'context.snapshot.rejected',
+    }), expect.objectContaining({
+      id: 'control-slot-release-process-manager:inbox:v1',
+      pattern: 'agent.work.*',
     })]));
-    expect(registrations).toHaveLength(15);
+    expect(registrations).toHaveLength(16);
   });
 
   it('wires Effect and terminal Control facts back into Delivery reconciliation', () => {

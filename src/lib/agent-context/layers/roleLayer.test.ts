@@ -134,7 +134,17 @@ describe('buildRoleLayer', () => {
     const result = buildRoleLayer(PRESET_ROLE_CARD_MAP['preset-planner']);
 
     expect(result).toContain('沉稳');
+    expect(result).toContain('直接完成当前工作');
+    expect(result).toContain('不重新输出身份介绍');
     expect(result).not.toContain('走！');
+  });
+
+  it('keeps reviewer output on evidence and one final verdict', () => {
+    const result = buildRoleLayer(makeRoleCard({ category: 'code_reviewer' }));
+
+    expect(result).toContain('直接使用工具核验');
+    expect(result).toContain('一次最终裁决');
+    expect(result).toContain('不逐步播报检查计划');
   });
 
   it('includes confirmation constraints', () => {

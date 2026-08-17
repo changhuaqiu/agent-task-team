@@ -10,6 +10,8 @@ import {
 import type { AgentOutcome, AgentOutcomeType, WorkContract } from './types';
 import { invocationRepo } from '../repositories/invocation-repo';
 import { taskRepo } from '../repositories/task-repo';
+import { QualityGateRepository } from '../quality-gate/repository';
+import { AutonomousDeliveryRepository } from '../autonomous-delivery/repository';
 
 const NOW = new Date('2026-07-28T08:00:00.000Z');
 
@@ -179,6 +181,195 @@ describe('WorkContractRepository', () => {
       status: 'rejected',
       reasonCode: 'terminal_outcome_already_accepted',
     });
+  });
+
+  it('rejects incomplete or mismatched Gate outcomes without consuming the terminal outcome slot', () => {
+    const reviewedTask = taskRepo.create({
+      id: 'task-gate-reviewed',
+      conversation_id: 'project-work',
+      title: 'Reviewed task',
+      agent_id: 'builder',
+    });
+    const otherTask = taskRepo.create({
+      id: 'task-gate-other',
+      conversation_id: 'project-work',
+      title: 'Other task',
+      agent_id: 'builder',
+    });
+    const gates = new QualityGateRepository();
+    const expectedGate = gates.request({
+      conversationId: 'project-work',
+      kind: 'code_review',
+      targetType: 'task',
+      targetId: reviewedTask.id,
+      artifactRevision: String(reviewedTask.revision),
+      criteria: {},
+      actor: { type: 'system', id: 'test' },
+      now: NOW,
+    });
+    const mismatchedGate = gates.request({
+      conversationId: 'project-work',
+      kind: 'code_review',
+      targetType: 'task',
+      targetId: otherTask.id,
+      artifactRevision: String(otherTask.revision),
+      criteria: {},
+      actor: { type: 'system', id: 'test' },
+      now: NOW,
+    });
+    const repository = new WorkContractRepository();
+    const contract = repository.issue({
+      workId: `task:${reviewedTask.id}:agent:reviewer:purpose:review`,
+      attemptId: 'attempt-gate-review',
+      projectId: 'project-work',
+      taskId: reviewedTask.id,
+      agentId: 'reviewer',
+      goal: 'Review the task',
+      acceptanceCriteria: ['Record the Gate decision with evidence'],
+      role: { name: 'reviewer' },
+      permissions: {},
+      authoritativeRefs: [`task:${reviewedTask.id}`],
+      authoritativeRevisions: { task: reviewedTask.revision },
+      contextSnapshotRef: 'ctx-gate-review',
+      allowedOutcomeTypes: ['record_gate_decision'],
+      correlationId: 'trace-gate-review',
+      causationId: 'trigger-gate-review',
+      now: NOW,
+    });
+
+    const missingEvidence = repository.admitOutcome(outcome(contract, {
+      outcomeId: 'outcome-gate-missing-evidence',
+      idempotencyKey: 'outcome-gate-missing-evidence',
+      outcomeType: 'record_gate_decision',
+      payload: {
+        gateId: expectedGate.gate.id,
+        decision: 'passed',
+        evidenceType: 'code_review',
+      },
+    }));
+    expect(missingEvidence).toMatchObject({
+      status: 'rejected',
+      reasonCode: 'gate_outcome_evidence_required',
+    });
+
+    const wrongTarget = repository.admitOutcome(outcome(contract, {
+      outcomeId: 'outcome-gate-wrong-target',
+      idempotencyKey: 'outcome-gate-wrong-target',
+      outcomeType: 'record_gate_decision',
+      payload: {
+        gateId: mismatchedGate.gate.id,
+        decision: 'passed',
+        evidenceType: 'code_review',
+        evidence: { summary: 'looks good' },
+      },
+    }));
+    expect(wrongTarget).toMatchObject({
+      status: 'rejected',
+      reasonCode: 'gate_outcome_task_mismatch',
+    });
+
+    expect(repository.admitOutcome(outcome(contract, {
+      outcomeId: 'outcome-gate-corrected',
+      idempotencyKey: 'outcome-gate-corrected',
+      outcomeType: 'record_gate_decision',
+      payload: {
+        gateId: expectedGate.gate.id,
+        decision: 'passed',
+        evidenceType: 'code_review',
+        evidence: { summary: 'looks good' },
+      },
+    }))).toMatchObject({ status: 'accepted' });
+    expect(getDb().prepare(`
+      SELECT COUNT(*) AS count FROM agent_outcome
+      WHERE contract_id=? AND admission_status='accepted'
+    `).get(contract.contractId)).toEqual({ count: 1 });
+  });
+
+  it('rejects an invalid Delivery Gate receipt before consuming the terminal slot', () => {
+    const delivery = new AutonomousDeliveryRepository().createRun({
+      idempotencyKey: 'delivery-receipt-admission',
+      goal: 'Ship the reviewed delivery',
+      acceptanceCriteria: ['Works'],
+      scope: { conversationId: 'project-work' },
+      authorization: {
+        allowCodeChanges: true,
+        allowPush: false,
+        allowPullRequest: false,
+        allowAutoMerge: false,
+      },
+      recoveryPolicy: {
+        maxAttemptsPerAction: 2,
+        maxRepairCycles: 1,
+        stallTimeoutMs: 60_000,
+      },
+      deliveryPolicy: {
+        requireReview: true,
+        requireWebE2E: false,
+        requireMerge: false,
+      },
+    }, NOW).run;
+    const gate = new QualityGateRepository().request({
+      conversationId: 'project-work',
+      kind: 'delivery_review',
+      targetType: 'delivery_run',
+      targetId: delivery.id,
+      artifactRevision: '1',
+      criteria: {},
+      actor: { type: 'system', id: 'test' },
+      now: NOW,
+    });
+    const repository = new WorkContractRepository();
+    const contract = repository.issue({
+      workId: `delivery:${delivery.id}:agent:reviewer:gate:${gate.gate.id}:purpose:review`,
+      attemptId: 'attempt-delivery-review',
+      projectId: 'project-work',
+      deliveryRunId: delivery.id,
+      agentId: 'reviewer',
+      goal: 'Review delivery',
+      acceptanceCriteria: ['Works'],
+      role: { id: 'reviewer' },
+      permissions: {},
+      authoritativeRefs: [`delivery:${delivery.id}`, `gate:${gate.gate.id}`],
+      authoritativeRevisions: { deliveryRun: delivery.revision },
+      contextSnapshotRef: 'ctx-delivery-review',
+      allowedOutcomeTypes: ['record_gate_decision'],
+      correlationId: 'trace-delivery-review',
+      causationId: gate.gate.id,
+      now: NOW,
+    });
+    const payload = {
+      gateId: gate.gate.id,
+      decision: 'passed',
+      evidenceType: 'delivery_review',
+      evidence: { summary: 'reviewed' },
+    };
+
+    expect(repository.admitOutcome(outcome(contract, {
+      outcomeId: 'outcome-delivery-review-invalid',
+      idempotencyKey: 'outcome-delivery-review-invalid',
+      outcomeType: 'record_gate_decision',
+      payload,
+    }))).toMatchObject({
+      status: 'rejected',
+      reasonCode: 'gate_outcome_review_receipt_invalid',
+    });
+    expect(repository.admitOutcome(outcome(contract, {
+      outcomeId: 'outcome-delivery-review-corrected',
+      idempotencyKey: 'outcome-delivery-review-corrected',
+      outcomeType: 'record_gate_decision',
+      payload: {
+        ...payload,
+        receipt: {
+          schemaVersion: 1,
+          deliveryRunId: delivery.id,
+          status: 'passed',
+          reviewerAgentId: 'reviewer',
+          summary: 'Delivery review passed',
+          evidenceRefs: ['report:review'],
+          findings: [],
+        },
+      },
+    }))).toMatchObject({ status: 'accepted' });
   });
 
   it('rejects an otherwise valid outcome after the authoritative Task revision changes', () => {

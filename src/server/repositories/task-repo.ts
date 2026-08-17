@@ -246,6 +246,22 @@ export const taskRepo = {
       if (!previous) return undefined;
       const result = db.prepare(`UPDATE task SET ${sets.join(', ')} WHERE id = ?`).run(...values);
       if (result.changes !== 1) return undefined;
+      const current = taskRepo.getById(id)!;
+      new DomainEventPublisher(db).publish({
+        type: 'task.updated',
+        projectId: previous.conversation_id,
+        aggregate: { type: 'task', id, version: current.revision },
+        projectAgentId: current.agent_id || previous.agent_id || undefined,
+        correlationId: trace?.correlationId,
+        causationId: trace?.causationId,
+        occurredAt: now,
+        payload: {
+          changedFields: Object.keys(updates).sort(),
+          status: current.status,
+          previousAgentId: previous.agent_id,
+          agentId: current.agent_id,
+        },
+      });
       if (
         updates.agent_id !== undefined
         && updates.agent_id !== previous.agent_id
@@ -266,7 +282,7 @@ export const taskRepo = {
           },
         });
       }
-      return taskRepo.getById(id);
+      return current;
     }).immediate();
   },
 

@@ -85,6 +85,45 @@ describe('AutonomousDeliveryPanel', () => {
     expect(screen.queryByText(/receipt|runtime|lease|session/i)).toBeNull();
   });
 
+  it('uses the workspace projection stage when the persisted run stage is stale', async () => {
+    const snapshot = {
+      run: {
+        id: 'delivery-stale-stage',
+        conversation_id: contract.scope.conversationId,
+        start_idempotency_key: contract.idempotencyKey,
+        root_task_id: 'task-1',
+        status: 'active',
+        current_stage: 'planning',
+        goal_contract_json: JSON.stringify(contract),
+        repair_cycle: 0,
+        revision: 1,
+        escalation_code: null,
+        escalation_detail: null,
+        delivery_bundle_json: null,
+        created_at: '2026-07-19T00:00:00.000Z',
+        updated_at: '2026-07-19T00:00:00.000Z',
+        completed_at: null,
+      },
+      contract,
+      receipts: [],
+    } satisfies DeliveryRunSnapshot;
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => snapshot,
+    }));
+
+    render(
+      <AutonomousDeliveryPanel
+        conversationId={contract.scope.conversationId}
+        stage="reviewing"
+      />,
+    );
+
+    expect(await screen.findByText('正在评审')).toBeDefined();
+    expect(screen.queryByText('正在规划')).toBeNull();
+  });
+
   it('完成后先展示摘要，并按需展开验收结果', async () => {
     const snapshot = {
       run: {

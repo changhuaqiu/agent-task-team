@@ -618,6 +618,32 @@ Future federation may extend this to a full PII pipeline and trust-level matrix.
 - Runtime health scan marks non-heartbeating nodes stale after 2 missed intervals and unreachable after 3 missed intervals.
 - Human/Task Commands reach the durable Inbox and Invocation Coordinator, which creates the envelope and proof timeline.
 - `terminal:start` / `terminal:kill` compatibility transport is removed; proposal admission is owned once by Invocation Planner for durable Inbox, retry, and restart paths.
+- Gate evaluation work uses a Gate-scoped Work identity. The identity contains the Task or Delivery target, evaluator Agent, exact
+  `gateId`, and purpose. A closed authority from an earlier artifact revision is historical evidence, never the current Gate's
+  liveness signal. The control snapshot must synthesize a fresh ready Work Cell for every requested/evaluating Gate that has no
+  current Invocation or accepted decision outcome.
+- Work identity parsing/building is owned by one deep server module; the snapshot builder, command adapter, WorkContract issuer,
+  and Gate lifecycle owner must not maintain independent string heuristics.
+- A rollout that changes Work Cell projection or scheduling semantics increments the Delivery control policy revision. Persisted
+  decisions from the prior projection remain immutable, while the same owner-fact revision can converge under a new decision id.
+- Once a Task artifact is in review, its latest requested/evaluating Gate remains independently schedulable by exact `gateId` even
+  if non-artifact Task metadata changes or the implementer assignment is cleared. Assignment is not artifact identity, and cannot
+  silently discard a submitted review cycle.
+- Every semantic Task mutation that increments Task revision publishes a Task owner event in the same transaction. Control
+  snapshots must not read mutable Task facts whose changes are invisible to the project snapshot revision used in Decision identity.
+- Gate Work dispatch resolves the evaluator from the structured Work identity. The target Task supplies artifact context, but its
+  current implementer assignment is not an admission requirement for an independent reviewer or verifier Invocation.
+- Terminal Task cleanup cancels ordinary execution/correction Inbox items but preserves Delivery-scoped review and verification
+  Work, which is intentionally created after Tasks are done. Inbox cancellation/expiry releases any applied Control slot by Work id;
+  periodic recovery also reconciles already-terminal Inbox rows so a deployment does not depend on replaying old cancellation events.
+- Delivery Gate Outcome admission validates the same top-level review/verification receipt schema used by the Gate Process Manager.
+  A missing or invalid receipt is rejected before consuming the WorkContract terminal slot, and the dispatch prompt supplies the
+  exact required schema plus acceptance criteria so the Agent can correct and resubmit.
+- Durable Inbox liveness is part of the Work Cell projection. A Work with an enqueued/released/claimed Inbox item is
+  `queued`, not `ready`; Control Decision emits `dispatch_pending` and cannot create another activation for the same Work id.
+  Once admitted, WorkContract/Invocation facts own liveness so a terminal Invocation can still project retry or completion.
+- A Gate evaluator's accepted `request_human_decision` or `report_blocked` Outcome projects `waiting_human` immediately. It is a
+  terminal, user-actionable result for that attempt and must not be treated as an Invocation failure eligible for blind retry.
 - Existing A2A compatibility dispatch passes chain/pass metadata into the execution envelope.
 - Task Graph policy now writes proof events for blocked high-impact actions and keeps task action ids correlated through task/pass fields where available.
 - Full directed runtime routing and executor-only envelope consumption remain future work.
@@ -629,5 +655,7 @@ Future federation may extend this to a full PII pipeline and trust-level matrix.
 - A2A handoff and direct user dispatch use the same gateway path.
 - Runtime node and agent binding state are visible in debug UI or diagnostics.
 - Every dispatch has a proof timeline with requested, gated, routed, sent, started, and terminal states where applicable.
+- A second review cycle for the same Task and reviewer autonomously creates a new Invocation and cannot be stranded by the prior
+  Gate's closed Work Authority.
 - UI store no longer acts as the authoritative source for cross-instance delivery success.
 - Existing Team Runtime and A2A Possession semantics remain intact.

@@ -27,6 +27,10 @@
 - [x] Dispatch to unreachable nodes is blocked before transport send.
 - [ ] Runtime routing is directed by `toNodeId`, not broadcast-only.
 - [x] Executor start acknowledgement is required before marking dispatch started.
+- [x] Autonomy recovery observes active Invocations and stops identical task/agent redispatch after the configured attempt budget only when an active Delivery owns a durable `waiting_human` escalation; ordinary Tasks are not silently stranded, and a human resume opens a fresh bounded attempt window.
+- [x] Reviewer wakeups require a requested/evaluating QualityGate for the current Task revision; a rejected or missing Gate never loops back to the same reviewer.
+- [x] `record_gate_decision` admission transaction rejects informal verdict aliases, missing evidence, Gate ids whose Task/Delivery target does not match the WorkContract, and invalid Delivery review/verification receipts before the outcome can be recorded as accepted; a rejected attempt does not consume the terminal outcome slot.
+- [x] Repeated review cycles for the same Task/reviewer use distinct Gate-scoped Work identities, remain schedulable across implementer metadata changes, deduplicate pending Inbox work, and restart without human input unless the evaluator records an explicit human blocker.
 
 ## Policy
 

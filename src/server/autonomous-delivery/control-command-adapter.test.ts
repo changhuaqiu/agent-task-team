@@ -233,6 +233,7 @@ describe('ProductionControlCommandAdapter', () => {
       claimToken: 'claim-review-request',
     })).toEqual({ status: 'applied' });
 
+    taskRepo.update('task-1', { agent_id: '' });
     const second = decide();
     const activateReview = second.decision.actions.find((item) =>
       item.type === 'activate' && item.targetWorkId?.endsWith(':purpose:review')
@@ -252,11 +253,13 @@ describe('ProductionControlCommandAdapter', () => {
       contextScenario: 'code_review',
     });
     expect(command.prompt).toContain('Quality Gate:');
+    expect(command.prompt).toContain('top-level payload.receipt is required');
+    expect(command.prompt).toContain('reviewerAgentId');
     expect(new RepositoryControlSnapshotBuilder({ db, now: () => now }).build(runId).workCells)
       .toEqual(expect.arrayContaining([
         expect.objectContaining({
-          workId: `delivery:${runId}:agent:reviewer:purpose:review`,
-          state: 'running',
+          workId: activateReview!.targetWorkId,
+          state: 'queued',
         }),
       ]));
   });

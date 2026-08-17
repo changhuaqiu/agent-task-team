@@ -63,6 +63,23 @@ function projectName(path: string): string {
   return normalized.split(/[\\/]/).pop() || normalized || '未指定目录';
 }
 
+function projectStage(
+  scopedRun: DeliveryRunSnapshot | undefined,
+  tasks: readonly Task[],
+  fallback: Conversation['status'],
+): DeliveryWorkspaceView['stage'] {
+  if (!scopedRun) return fallback;
+  if (scopedRun.run.status === 'completed') return 'completed';
+
+  const persistedStage = scopedRun.run.current_stage;
+  if (!['planning', 'executing'].includes(persistedStage)) return persistedStage;
+  if (tasks.some((task) => task.status === 'in_review')) return 'reviewing';
+  if (tasks.some((task) => task.status === 'in_progress' || task.status === 'blocked')) {
+    return 'executing';
+  }
+  return persistedStage;
+}
+
 export function projectDeliveryWorkspace(
   source: DeliveryWorkspaceSource,
   deliveryId: string | null,
@@ -121,9 +138,7 @@ export function projectDeliveryWorkspace(
       autonomous: conversation.autonomous === true,
       updatedAt: conversation.updatedAt,
     },
-    stage: scopedRun?.run.status === 'completed'
-      ? 'completed'
-      : scopedRun?.run.current_stage ?? conversation.status,
+    stage: projectStage(scopedRun, tasks, conversation.status),
     acceptance: (() => {
       const criteria = scopedRun?.contract?.acceptanceCriteria ?? [];
       const results = scopedRun?.bundle?.acceptanceResults ?? [];
@@ -139,7 +154,11 @@ export function projectDeliveryWorkspace(
     })(),
     work: {
       tasks,
-      current: tasks.filter((task) => task.status === 'in_progress' || task.status === 'blocked'),
+      current: tasks.filter((task) => (
+        task.status === 'in_progress'
+        || task.status === 'blocked'
+        || task.status === 'in_review'
+      )),
       total: tasks.length,
       completed: tasks.filter((task) => task.status === 'done').length,
       inProgress: tasks.filter((task) => task.status === 'in_progress').length,

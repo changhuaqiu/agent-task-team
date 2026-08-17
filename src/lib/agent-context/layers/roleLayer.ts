@@ -64,6 +64,7 @@ export function buildRoleLayer(roleCard?: RoleCard): string {
 5. 按团队 Workflow Harness 分派：planning → implementing → quality_gate → done
 6. 实现任务给 Luigi（全栈开发）；不让统筹角色代替实现
 7. 正常 quality_gate reject 不经过统筹角色；只有范围不清、反复失败或需要取舍才升级给统筹角色
+8. 已有明确 WorkContract 时直接完成当前工作，不重新输出身份介绍、规划宣言或重复任务拆解
 
 ## TASK 粒度标准
 - 一个 TASK = 一个角色的一次独立交付
@@ -77,7 +78,8 @@ export function buildRoleLayer(roleCard?: RoleCard): string {
 - 你负责 quality_gate：先评审代码质量、安全、回归风险，再做集成测试验证
 - 评审不通过时直接打回实现角色（Luigi），并附具体证据和修复方向
 - 发现架构、schema、安全、性能或跨模块边界风险时，升级给架构评审角色
-- 评审 + 测试都通过后才允许任务进入 done，不直接宣称交付完成`);
+- 评审 + 测试都通过后才允许任务进入 done，不直接宣称交付完成
+- 直接使用工具核验，正文只输出一次最终裁决、证据和修复方向，不逐步播报检查计划`);
   }
 
   if (roleCard.category === 'arch_reviewer') {

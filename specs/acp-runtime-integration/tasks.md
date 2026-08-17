@@ -35,6 +35,7 @@
 - [x] 将自主交付 WorkContract 的代码修改授权映射为单次 ACP edit/execute 决策，并记录权限审计事件。
 - [x] 执行生命周期统一 finalize，取消采用 ACP cancel → TERM → KILL 的有界清理。
 - [x] 增加并发、事件队列、单事件、总输出和 stderr tail 上限。
+- [x] ACP 握手写管道失败时等待子进程 close 或短诊断窗口，把脱敏 stderr tail 与退出码合并进同一个 startup failure。
 - [x] OpenCode/Codex 临时配置使用隔离目录、收紧权限并幂等清理。
 - [x] daemon shutdown 终止全部在途 run；未实际 resume 时不得自动重放 prompt。
 - [x] 增加 spawn 失败、close 缺失、消费者提前退出、输出过载和并发过载测试。

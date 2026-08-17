@@ -3,6 +3,7 @@ import type { ContextScenario } from '../../lib/agent-context/scenarioResolver';
 import { getDb } from '../db';
 import type { AgentActivationSource } from '../invocation-pipeline/types';
 import { generateSortableId } from '../repositories/sortable-id';
+import { parseWorkIdentity } from '../work-contract/work-identity';
 import { PlatformEventLog } from './event-log';
 import type { PlatformEvent } from './types';
 
@@ -21,16 +22,13 @@ export interface AgentWorkCommand {
   legacyProposal?: boolean;
 }
 
-const AGENT_INBOX_STATUSES = [
-  'enqueued',
-  'claimed',
-  'admitted',
-  'released',
-  'expired',
-  'cancelled',
-] as const;
-
-export type AgentInboxStatus = (typeof AGENT_INBOX_STATUSES)[number];
+export type AgentInboxStatus =
+  | 'enqueued'
+  | 'claimed'
+  | 'admitted'
+  | 'released'
+  | 'expired'
+  | 'cancelled';
 
 export interface AgentInboxItem {
   id: string;
@@ -370,11 +368,18 @@ export class AgentInbox {
   cancelPendingForTask(projectId: string, taskId: string): number {
     const db = this.database ?? getDb();
     return db.transaction(() => {
-      const rows = db.prepare(`
+      const rows = (db.prepare(`
         SELECT * FROM agent_inbox_item
         WHERE project_id=? AND status IN ('enqueued','released')
           AND json_extract(command_json, '$.taskId')=?
-      `).all(projectId, taskId) as AgentInboxRow[];
+      `).all(projectId, taskId) as AgentInboxRow[]).filter((row) => {
+        const command = JSON.parse(row.command_json) as AgentWorkCommand;
+        const identity = parseWorkIdentity(command.workId);
+        return !(
+          identity?.scope === 'delivery'
+          && (identity.purpose === 'review' || identity.purpose === 'verify')
+        );
+      });
       return this.cancelRows(rows, 'task_terminal');
     }).immediate();
   }

@@ -6,7 +6,6 @@ import { GlobalChatRoom } from '@/components/task-hub/GlobalChatRoom';
 import { useTaskHubStore } from '@/store/taskHubStore';
 
 vi.mock('@/hooks/useAutoScroll', () => ({ useAutoScroll: () => {} }));
-vi.mock('@/components/task-hub/MessageGroup', () => ({ MessageGroup: () => null }));
 vi.mock('@/components/task-hub/ChatFilterBar', () => ({ ChatFilterBar: () => null }));
 vi.mock('@/components/task-hub/AgentMentionPopup', () => ({ AgentMentionPopup: () => null }));
 vi.mock('@/components/task-hub/A2APossessionStrip', () => ({ A2APossessionStrip: () => null }));

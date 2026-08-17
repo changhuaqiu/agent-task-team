@@ -72,6 +72,10 @@ server Command owner -> domain event -> Process Manager / Inbox / DispatchGatewa
 Interface：按当前交付返回一个不可写的 `DeliveryWorkspaceView`，并暴露稳定 selector。视图至少包含交付摘要、验收项、
 当前工作、需要处理、活动摘要和任务视图输入。
 
+阶段与当前工作属于跨领域展示投影：DeliveryRun 提供自主交付阶段，Task Authority 提供工作项状态。当持久化
+DeliveryRun 仍停留在 `planning`/`executing`，但同一交付的权威 Task 已进入 `in_review` 时，投影必须展示
+`reviewing`；`in_review` 同时属于当前工作。该校正规则只改变展示，不反向修改 DeliveryRun 或 Task 事实。
+
 Implementation：隐藏 Conversation 兼容映射、Task/Blocker/Delivery/Message 合并、排序、空态、状态文案和项目隔离。
 组件不得自行重复过滤同一领域数据。
 
@@ -164,6 +168,16 @@ Interface：订阅项目展示信封、读取当前项目快照、合并持久�
 Implementation：复用 `consumeProjectViewEvent`、项目 room 和消息快照契约；校验版本与 `projectId` 后才更新投影。
 它不能导入 `HumanCommandGateway`，静态架构测试必须阻止展示事件产生网络写入或执行命令。
 
+项目活动的读侧投影遵守以下消息身份规则：
+
+1. `invocationId` 是一次 Agent 回复的稳定身份；同一 Invocation 的文本、工具事件和最终消息即使被并行 Agent 事件穿插，也投影到同一个回复实体。
+2. 没有 `invocationId` 的人工消息按持久消息 ID 独立展示；不同 Invocation 绝不按 `agentId` 合并。
+3. `task_status` 和 system sender 投影为活动提示，不进入 Agent 气泡分组；原始通知正文只作为可展开的审计详情。
+4. 活跃的 provisional 回复与同 Invocation 的 durable 消息重叠时只显示 provisional；完成并对账后只显示 durable，避免刷新前后裂成两个回复。
+5. 工具调用摘要始终可见，详情可折叠；中间自然语言过程默认折叠，最终自然语言结论保持可见。
+
+这些规则由纯时间线投影函数持有，`GlobalChatRoom` 只渲染投影结果，不再按连续发送者临时分组。
+
 ### 3.4 `Daemon ExecutionAdapter` Module
 
 Interface：消费已裁决的 Execution Envelope，报告 started/completed/failed/cancelled lifecycle。
@@ -181,6 +195,10 @@ Adapter 只接受 Planner 已完成 Team、Skill、Context、WorkContract 与 ru
 裁决后的 Plan；Daemon 内部执行函数负责 ACP 生命周期，不再接受浏览器塑形的 `TerminalStartPayload`。原
 `terminal:start` / `terminal:kill` Socket 命令没有合法生产消费者，删除而不提供兼容转发；只读
 `daemon:status` 暂留作运行投影水合，不具备派发或恢复写权限。
+
+Control Runtime 的 Command Adapter、Agent Inbox、Delivery Repository 与 Effect Outbox 必须共享同一个注入时钟。
+否则测试、恢复重放或节点时钟校正时，新入队工作的 `availableAt` 可能晚于调度器的权威时间，表现为已经显示“执行中”
+却没有可领取工作。时钟是 Adapter 组合根的一部分，不允许内部依赖自行回退到墙上时钟。
 
 Execution Envelope 必须定向到唯一 `toNodeId`，节点只能读取自己的 runnable envelope。目标节点在路由前已不可达时
 以 `runtime_unreachable` 拒绝；进入 `sent` 后超过 TTL 仍未 ACK 的 envelope 由 daemon 周期扫描为 `expired`，记录
@@ -208,6 +226,7 @@ Daemon ExecutionAdapter 内执行；daemon transport 只启动/停止该服务�
 - 新增纯 `DeliveryWorkspaceProjection` 和测试。
 - 侧栏从“Conversation 即项目”改为“Project -> Delivery”展示。
 - 交付摘要成为中心主视图；聊天降为活动区。
+- 团队活动按 Invocation 合并消息：工具事件始终直接展示，中间自然语言过程说明默认折叠，最后一段正文和结构化任务/交接卡保持可见。
 - 右面板完成 5 -> 2 的既有 IA 决策。
 
 本阶段不改变服务端 schema，可用兼容映射读取现有 Conversation；映射只存在于投影 Module，并注明退出条件。
@@ -288,6 +307,31 @@ Daemon ExecutionAdapter 内执行；daemon transport 只启动/停止该服务�
 - Task 证据 Gate 的拒绝采用 Task revision CAS，并在同一 SQLite 事务写入恢复 `AgentInbox` Command 与
   `task_command_rejection_receipt`。migration v82 将交付/任务 ID 固化为审计标识，使聚合删除后相同幂等键仍返回冻结
   403 receipt，不会重复产生恢复工作。
+- `record_gate_decision` 在 `WorkContractRepository` 的 admission 事务内校验 decision、显式 evidence、Gate 存在性，
+  以及 Gate target 与 Contract 的 Task/Delivery 绑定。失败只记录 rejected outcome，不占用 Contract 唯一终态名额，
+  修正后的 outcome 仍可重新提交；异步 Gate Process Manager 不承担第一道完整性校验。
+- Gate 评审/验收的 Work identity 必须包含精确 `gateId`。同一任务与 reviewer 的下一轮 Gate 是新工作，不得复用上一轮
+  已关闭的 Work Authority；旧 authority 只作为历史证据。Work identity 的构造、解析、purpose/agent/target 提取统一由
+  一个深模块持有，Snapshot Builder、Control Command Adapter 与 Gate Lifecycle 不再各自解析字符串。
+- Work Cell 投影或调度语义变化必须同步提升 Delivery control policy revision；旧版本已持久化的确定性 Decision 保持不可变，
+  新版本即使观察到相同 owner-fact revision，也会以新的 Decision identity 完成部署后收敛。本轮 Gate-scoped Work、Task owner-event 与 Durable Inbox liveness 投影使用 revision 5。
+- Task 已进入 `in_review` 后，最新 requested/evaluating Gate 由精确 `gateId` 持有生命周期；执行人清空或其他非制品字段导致的
+  Task revision 变化不得取消本轮评审。Reviewer Work 独立于 implementer assignment 调度，避免卡片元数据操作吞掉已提交制品。
+- Task 的语义更新与 `task.updated` owner event 必须同事务提交。Control Snapshot 读取的 Task revision 变化必须同步推进
+  project snapshot revision，避免同一 deterministic Decision identity 绑定两份不同内容。
+- Gate Command Adapter 从结构化 Work identity 解析 reviewer/verifier；Task 只提供目标制品与上下文。只有 execution Work
+  依赖 Task 当前 implementer assignment，独立 Gate Work 不得因 owner 清空而拒绝。
+- `task.done/cancelled` 清理只取消执行/返工 Inbox；Delivery-scoped review/verification 本来就在 Task done 后运行，必须保留。
+  `agent.work.cancelled/expired` 事件按 command Work id 释放 applied Control slot，避免预检失败造成永久容量泄漏。
+  `recoverExpired()` 同时扫描 applied action 对应的 terminal Inbox，覆盖处理器升级后旧事件不重放的部署恢复场景。
+- Delivery Gate 的 review/verification receipt 使用同一深校验模块，WorkContract admission 与 Gate Process Manager 不再各自
+  解释 schema。缺失/非法顶层 `payload.receipt` 在占用终态 Outcome 前拒绝；Prompt 明示完整 receipt schema 与验收标准。
+- Control Snapshot 将 Durable Inbox 的 `enqueued/released/claimed` 投影为 Work Cell `queued`；Decision 只输出
+  `dispatch_pending`，不重复 activate。Inbox admitted 后由 WorkAuthority/Invocation 接管，终态 Invocation 仍能投影 retry/completed。
+- Gate Agent 已 accepted 的 `request_human_decision/report_blocked` 直接投影 `waiting_human` 并升级 Delivery；权限或外部依赖
+  未解除前不再重复启动同一 evaluator，也不允许用伪造回执绕过质量策略。
+- AutonomyGuard 只有在存在可持久化 `waiting_human` 的活动 Delivery owner 时才启用失败预算抑制。普通 Task 没有该
+  owner 时继续保留恢复 wakeup，避免任务停在 ready/in_progress/in_review 且没有任何用户可见升级事实。
 - `taskStore` 的任务变化后自动派发已删除；`daemonStore` 的浏览器 runtime 注册、busy queue、强制发送、自动重试、
   `terminal:start` emitter 与 `dispatch.enqueue/cancel` 兼容 API 已删除。React/store 仅保留运行展示状态和只读水合。
 - Phase 3 浏览器控制面收缩和核心回归已完成；Phase 4 已让 daemon 通过定向 `ExecutionAdapter` 接受已裁决 Plan，
@@ -296,7 +340,8 @@ Daemon ExecutionAdapter 内执行；daemon transport 只启动/停止该服务�
 
 ### 验证证据
 
-- `pnpm exec tsc --noEmit --pretty false`：通过。
+- `pnpm exec tsc --noEmit --pretty false`：本轮改动文件无新增类型错误；仓库级检查仍被既有 `.next/types/validator.ts`
+  过期路由引用和 `e2e/autonomous-delivery-closure.spec.ts` 的旧 API 引用阻断，不将其误记为本轮通过。
 - Human Command service/API/Adapter 原子性、回滚、幂等与拒绝语义：18/18 通过；相关 Store、组件、API 和架构
   定向回归：125/125 通过。
 - 审查后新增的项目隔离、用户关注、关系图竞态、活动输入、默认接手人与自主交付组件回归：64/64 通过。
@@ -310,3 +355,9 @@ Daemon ExecutionAdapter 内执行；daemon transport 只启动/停止该服务�
 - 真实浏览器回归：在 Next.js 16.2.4 开发服务中新建非自主交付，切换任务看板/关系图，通过 Human Command
   提交补充要求并看到权威活动；最终刷新后阶段/验收/当前工作/需关注与任务/调试层级正确，交付与活动只出现一次，
   控制台错误为 0。
+- 自主链路实跑：Delivery `delivery-0001786897386331-006536-140198c5` 在无人代写 Gate 结论的前提下完成 Task Review
+  与 Delivery Review；Acceptance Verification 因目标明确要求 Web UI E2E、而 Playwright 权限被拒绝，稳定收敛到
+  `waiting_human`。该结果验证了 evaluator 工具调用、Gate-scoped Work、严格 receipt admission、下一阶段自动推进，
+  以及真实外部权限边界上的停止语义；系统没有继续空转或伪造验收回执。
+- 自主控制面定向回归：14 个测试文件、94/94 通过，覆盖 Work identity、Gate outcome admission、Delivery receipt、
+  Durable Inbox、Control slot 回收、Snapshot/Decision/Command Adapter 与 Runtime。

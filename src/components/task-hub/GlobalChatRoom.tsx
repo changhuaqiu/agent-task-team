@@ -2,10 +2,11 @@
 
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { useIMEGuard } from '@/hooks/useIMEGuard';
-import { useTaskHubStore, type ChatMessage } from '@/store/taskHubStore';
+import { useTaskHubStore } from '@/store/taskHubStore';
 import type { Agent } from '@/store/agentStore';
 import { ChatMessageItem } from './ChatMessageItem';
-import { MessageGroup } from './MessageGroup';
+import { ChatActivityNotice } from './ChatActivityNotice';
+import { projectChatTimeline } from './chatTimelineProjection';
 import { ChatFilterBar, type ChatFilter } from './ChatFilterBar';
 import { AgentMentionPopup } from './AgentMentionPopup';
 import { A2APossessionStrip } from './A2APossessionStrip';
@@ -157,17 +158,6 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
     }
   };
 
-  const AGENT_META: Record<string, { emoji: string; name: string; color: string }> = {
-    mario:  { emoji: '⭐', name: 'Mario',       color: 'border-red-500/40' },
-    luigi:  { emoji: '⚡', name: 'Luigi',       color: 'border-green-500/40' },
-    toad:   { emoji: '🛡️', name: 'Toad',       color: 'border-amber-300/40' },
-    peach:  { emoji: '🌸', name: 'Peach',       color: 'border-pink-500/40' },
-    dk:     { emoji: '⚙️', name: 'Donkey Kong', color: 'border-amber-700/40' },
-    yoshi:  { emoji: '🎵', name: 'Yoshi',       color: 'border-green-400/40' },
-    system: { emoji: '⚙️', name: '系统', color: 'border-violet-500/40' },
-    human:  { emoji: '👤', name: '用户', color: 'border-[hsl(var(--agent-owner))]/40' },
-  };
-
   const filteredMessages = useMemo(() => {
     let msgs = chatMessages;
     if (filter.intent) msgs = msgs.filter(m => m.intent === filter.intent);
@@ -179,6 +169,7 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
     }
     return msgs;
   }, [chatMessages, filter]);
+  const timelineItems = useMemo(() => projectChatTimeline(filteredMessages), [filteredMessages]);
 
   return (
     <div
@@ -239,47 +230,33 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
           />
         )}
         {(() => {
-          const groups: { agentId: string; messages: ChatMessage[] }[] = [];
-          const msgs = filteredMessages;
-          for (const msg of msgs) {
-            const lastGroup = groups[groups.length - 1];
-            if (lastGroup && lastGroup.agentId === msg.agentId) {
-              lastGroup.messages.push(msg);
-            } else {
-              groups.push({ agentId: msg.agentId, messages: [msg] });
-            }
-          }
-
-          let lastDate = '';
-          return groups.map((group) => {
-            const groupDate = new Date(group.messages[0].timestamp).toDateString();
-            const showDateSep = groupDate !== lastDate;
-            lastDate = groupDate;
-
-            const meta = AGENT_META[group.agentId] || { emoji: '?', name: group.agentId, color: 'border-zinc-500/40' };
-            const isHuman = group.agentId === 'human';
+          return timelineItems.map((item, index) => {
+            const firstMessage = item.kind === 'activity' ? item.message : item.messages[0];
+            const groupDate = new Date(firstMessage.timestamp).toDateString();
+            const previousItem = index > 0 ? timelineItems[index - 1] : undefined;
+            const previousMessage = previousItem?.kind === 'activity'
+              ? previousItem.message
+              : previousItem?.messages[0];
+            const previousDate = previousMessage
+              ? new Date(previousMessage.timestamp).toDateString()
+              : '';
+            const showDateSep = groupDate !== previousDate;
 
             return (
-              <div key={group.messages[0].id}>
+              <div key={item.id}>
                 {showDateSep && (
                   <div className="text-center my-3">
                     <span className="text-[9px] text-[hsl(var(--text-tertiary))] bg-[hsl(var(--bg-card))] px-3 py-0.5 rounded-full border border-[hsl(var(--border-subtle))]">
-                      ── {formatDateSeparator(group.messages[0].timestamp)} ──
+                      ── {formatDateSeparator(firstMessage.timestamp)} ──
                     </span>
                   </div>
                 )}
-                {isHuman ? (
-                  group.messages.map((msg) => (
-                    <ChatMessageItem key={msg.id} message={msg} />
-                  ))
+                {item.kind === 'activity' ? (
+                  <ChatActivityNotice message={item.message} />
                 ) : (
-                  <MessageGroup
-                    messages={group.messages}
-                    themeColor={meta.color}
-                    agentEmoji={meta.emoji}
-                    agentName={meta.name}
-                    defaultExpanded={false}
-                    forceExpand={group.messages.some(m => m.isStreaming)}
+                  <ChatMessageItem
+                    message={item.messages[0]}
+                    responseSegments={item.messages}
                   />
                 )}
               </div>

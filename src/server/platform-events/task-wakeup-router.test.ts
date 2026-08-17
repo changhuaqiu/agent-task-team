@@ -2,6 +2,7 @@ import type Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb, resetDb, setTestDb } from '../db';
 import { taskRepo } from '../repositories/task-repo';
+import { buildWorkIdentity } from '../work-contract/work-identity';
 import { AgentInbox } from './agent-inbox';
 import { PlatformEventLog } from './event-log';
 import { TaskWakeupRouter } from './task-wakeup-router';
@@ -69,5 +70,58 @@ describe('TaskWakeupRouter', () => {
     expect(db.prepare(
       `SELECT status,last_error FROM agent_inbox_item WHERE project_id='project-1'`,
     ).get()).toEqual({ status: 'cancelled', last_error: 'task_terminal' });
+  });
+
+  it('preserves Delivery Gate work after the root Task is done', () => {
+    taskRepo.create({
+      id: 'task-delivery-gates',
+      conversation_id: 'project-1',
+      title: 'Delivered Task',
+      agent_id: 'implementer',
+    });
+    taskRepo.transition('task-delivery-gates', { to: 'in_progress' });
+    taskRepo.transition('task-delivery-gates', { to: 'in_review' });
+    const execution = inbox.enqueue({
+      projectId: 'project-1',
+      projectAgentId: 'implementer',
+      idempotencyKey: 'execution-before-terminal',
+      command: {
+        source: 'system',
+        taskId: 'task-delivery-gates',
+        workId: buildWorkIdentity({
+          scope: 'task',
+          targetId: 'task-delivery-gates',
+          agentId: 'implementer',
+          purpose: 'execute',
+        }),
+        prompt: 'Execute',
+      },
+    });
+    const deliveryReview = inbox.enqueue({
+      projectId: 'project-1',
+      projectAgentId: 'reviewer',
+      idempotencyKey: 'delivery-review-after-terminal',
+      command: {
+        source: 'review_gate',
+        taskId: 'task-delivery-gates',
+        deliveryRunId: 'delivery-1',
+        workId: buildWorkIdentity({
+          scope: 'delivery',
+          targetId: 'delivery-1',
+          agentId: 'reviewer',
+          gateId: 'gate-delivery-1',
+          purpose: 'review',
+        }),
+        prompt: 'Review delivery',
+      },
+    });
+
+    taskRepo.transition('task-delivery-gates', { to: 'done' });
+    const done = log.listStream('task:task-delivery-gates')
+      .find((event) => event.type === 'task.done')!;
+    router.handle(done, { signal: new AbortController().signal });
+
+    expect(inbox.get(execution.id)).toMatchObject({ status: 'cancelled' });
+    expect(inbox.get(deliveryReview.id)).toMatchObject({ status: 'enqueued' });
   });
 });

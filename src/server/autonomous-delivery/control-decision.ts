@@ -26,6 +26,7 @@ interface RetryBudgetSnapshot {
 
 type WorkCellControlState =
   | 'ready'
+  | 'queued'
   | 'running'
   | 'artifact_submitted'
   | 'waiting_dependency'
@@ -360,7 +361,7 @@ export function decideControlActions(
     if (cell.state === 'waiting_human') {
       proposals.push(cell.humanResolution === 'resolved'
         ? { ...base, rank: 20, type: 'resume', reasonCode: 'human_resolution_received' }
-        : { ...base, rank: 60, type: 'wait', reasonCode: 'waiting_human' });
+        : { ...base, rank: 10, type: 'escalateToHuman', reasonCode: 'waiting_human' });
       continue;
     }
     if (cell.state === 'artifact_submitted' && (cell.gateStatus ?? 'none') === 'none') {
@@ -428,6 +429,10 @@ export function decideControlActions(
         slotId: cell.slotId,
         reasonCode: 'invocation_running',
       });
+      continue;
+    }
+    if (cell.state === 'queued') {
+      proposals.push({ ...base, rank: 60, type: 'wait', reasonCode: 'dispatch_pending' });
       continue;
     }
     if (cell.state === 'waiting_gate') {

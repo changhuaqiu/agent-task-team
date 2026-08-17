@@ -464,13 +464,24 @@ export class ControlDecisionRepository {
     const timestamp = now.toISOString();
     const db = this.database ?? getDb();
     return db.transaction(() => {
+      const terminalInboxSlots = db.prepare(`
+        UPDATE delivery_control_action
+        SET status='cancelled',failure_code='inbox_terminal_before_invocation',
+            updated_at=?,completed_at=?
+        WHERE status='applied' AND type IN ('activate','retry')
+          AND EXISTS (
+            SELECT 1 FROM agent_inbox_item inbox
+            WHERE inbox.idempotency_key=delivery_control_action.id
+              AND inbox.status IN ('cancelled','expired')
+          )
+      `).run(timestamp, timestamp).changes;
       const expired = db.prepare(`
         SELECT action.*,decision.project_id
         FROM delivery_control_action action
         JOIN delivery_control_decision decision ON decision.id=action.decision_id
         WHERE action.status='claimed' AND action.lease_expires_at<?
       `).all(timestamp) as Array<PersistedControlActionRow & { project_id: string }>;
-      let recovered = 0;
+      let recovered = terminalInboxSlots;
       for (const action of expired) {
         const exhausted = action.attempt_count >= action.max_attempts;
         const updated = db.prepare(`

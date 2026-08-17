@@ -118,6 +118,31 @@ describe('DeliveryWorkspaceProjection', () => {
     });
   });
 
+  it('uses authoritative task progress when the persisted delivery stage is stale', () => {
+    const view = projectDeliveryWorkspace({
+      conversations: [delivery],
+      tasks: [task('TASK-1', 'in_review')],
+      blockersByConversation: {},
+      chatMessagesByConversation: {},
+      deliveryRunSnapshot: {
+        run: {
+          id: 'run-stale-stage',
+          conversation_id: delivery.id,
+          status: 'active',
+          current_stage: 'planning',
+        },
+        contract: { acceptanceCriteria: ['报告通过评审'] },
+      } as never,
+    }, delivery.id);
+
+    expect(view).toMatchObject({
+      stage: 'reviewing',
+      work: {
+        current: [expect.objectContaining({ id: 'TASK-1', status: 'in_review' })],
+      },
+    });
+  });
+
   it('returns null when the selected delivery is absent', () => {
     expect(projectDeliveryWorkspace({
       conversations: [delivery], tasks: [], blockersByConversation: {}, chatMessagesByConversation: {},

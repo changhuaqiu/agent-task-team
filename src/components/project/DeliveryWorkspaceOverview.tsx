@@ -53,7 +53,7 @@ export function DeliveryWorkspaceOverview({ view }: { view: DeliveryWorkspaceVie
           </div>
           <div className="min-w-[72px] rounded-md bg-[hsl(var(--bg-muted))] px-2.5 py-2">
             <div className="flex items-center gap-1 text-[10px] text-[hsl(var(--text-tertiary))]"><CircleDot className="size-3" />当前工作</div>
-            <div className="mt-1 text-sm font-semibold tabular-nums text-[hsl(var(--text-primary))]">{view.work.inProgress}/{view.work.total}</div>
+            <div className="mt-1 text-sm font-semibold tabular-nums text-[hsl(var(--text-primary))]">{view.work.current.length}/{view.work.total}</div>
           </div>
           <div className="min-w-[72px] rounded-md bg-[hsl(var(--bg-muted))] px-2.5 py-2">
             <div className="flex items-center gap-1 text-[10px] text-[hsl(var(--text-tertiary))]"><AlertTriangle className="size-3" />需关注</div>

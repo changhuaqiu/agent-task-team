@@ -2,6 +2,7 @@ import type Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb, resetDb, setTestDb } from '../db';
 import { PlatformEventLog } from '../platform-events/event-log';
+import { AgentInbox } from '../platform-events/agent-inbox';
 import { WorkContractRepository } from '../work-contract/repository';
 import { AutonomousDeliveryRepository } from './repository';
 import {
@@ -317,6 +318,37 @@ describe('ControlDecisionRepository', () => {
       leaseMs: 1_000,
       now: new Date('2026-07-28T00:00:04.000Z'),
     })).toMatchObject({ status: 'claimed', attempt_count: 2 });
+  });
+
+  it('releases an applied slot when its durable Inbox item is already terminal', () => {
+    const computed = decision();
+    store.persist({ projectId: 'project-1', decision: computed });
+    const action = store.listActions(computed.decisionId)[0]!;
+    const claimed = store.claim({
+      actionId: action.id,
+      workerId: 'worker-1',
+      leaseMs: 10_000,
+      now: new Date('2026-07-28T00:00:01.000Z'),
+    });
+    expect(store.complete({
+      actionId: action.id,
+      claimToken: claimed.claim_token!,
+      now: new Date('2026-07-28T00:00:02.000Z'),
+    })).toBe(true);
+    const inbox = new AgentInbox({ db, now: () => new Date('2026-07-28T00:00:03.000Z') });
+    inbox.enqueue({
+      projectId: 'project-1',
+      projectAgentId: 'implementer',
+      idempotencyKey: action.id,
+      command: { source: 'system', workId: 'work-1', prompt: 'Execute' },
+    });
+    expect(inbox.cancelPending('project-1', 'implementer', action.id)).toBe(1);
+
+    expect(store.recoverExpired(new Date('2026-07-28T00:00:04.000Z'))).toBe(1);
+    expect(store.listActions(computed.decisionId)[0]).toMatchObject({
+      status: 'cancelled',
+      failure_code: 'inbox_terminal_before_invocation',
+    });
   });
 
   it('fences stale completion and failure before the recovery sweep', () => {

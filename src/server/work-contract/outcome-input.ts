@@ -50,6 +50,22 @@ export function parseAgentOutcomeInput(value: unknown): AgentOutcome {
   if (!Number.isFinite(Date.parse(occurredAt))) {
     throw new InvalidAgentOutcomeInputError('occurredAt');
   }
+  if (outcomeType === 'record_gate_decision') {
+    const payload = record(input.payload, 'payload');
+    text(payload.gateId, 'payload.gateId');
+    text(payload.evidenceType, 'payload.evidenceType');
+    if (
+      !Object.prototype.hasOwnProperty.call(payload, 'evidence')
+      || payload.evidence === null
+      || payload.evidence === undefined
+    ) {
+      throw new InvalidAgentOutcomeInputError('payload.evidence');
+    }
+    const decision = text(payload.decision, 'payload.decision');
+    if (!['passed', 'changes_requested', 'rejected'].includes(decision)) {
+      throw new InvalidAgentOutcomeInputError('payload.decision');
+    }
+  }
   return {
     outcomeId: text(input.outcomeId, 'outcomeId'),
     idempotencyKey: text(input.idempotencyKey, 'idempotencyKey'),

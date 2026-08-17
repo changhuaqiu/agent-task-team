@@ -2,6 +2,7 @@ import type Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb, resetDb, setTestDb } from '../db';
 import { invocationRepo } from '../repositories/invocation-repo';
+import { AgentInbox } from '../platform-events/agent-inbox';
 import { WorkContractRepository } from '../work-contract/repository';
 import { AutonomousDeliveryRepository } from './repository';
 import { decideControlActions } from './control-decision';
@@ -197,6 +198,70 @@ describe('ControlSlotReleaseProcessManager', () => {
     expect(decisions.listActions(retryDecision.decisionId)[0]).toMatchObject({
       status: 'cancelled',
       failure_code: 'context_preflight_blocked',
+    });
+
+    const inboxDecision = decideControlActions({
+      runId: run.id,
+      snapshotRevision: decisions.projectSnapshotRevision('project-1'),
+      observedAt: now.toISOString(),
+      workCells: [{
+        workId: contract.workId,
+        workEpoch: contract.workEpoch,
+        roleId: 'implementer',
+        state: 'ready',
+        priority: 50,
+        queuedAt: now.toISOString(),
+      }],
+      waitForEdges: [],
+      closure: { satisfied: false },
+    }, {
+      revision: 3,
+      maxConcurrent: 1,
+      roleCapacity: { implementer: 1 },
+      fairnessAgingMs: 1_000,
+    });
+    decisions.persist({ projectId: 'project-1', decision: inboxDecision, now });
+    const [inboxClaim] = decisions.claimDecision({
+      decisionId: inboxDecision.decisionId,
+      workerId: 'worker-1',
+      leaseMs: 30_000,
+      now,
+    });
+    decisions.complete({
+      actionId: inboxClaim!.id,
+      claimToken: inboxClaim!.claim_token!,
+      now,
+    });
+    const item = new AgentInbox({ db, now: () => now }).enqueue({
+      projectId: 'project-1',
+      projectAgentId: 'agent-1',
+      idempotencyKey: 'cancelled-inbox-work',
+      command: {
+        source: 'system',
+        workId: contract.workId,
+        prompt: 'Execute',
+      },
+    });
+    await new ControlSlotReleaseProcessManager(db).handle({
+      eventId: 'inbox-cancelled-1',
+      type: 'agent.work.cancelled',
+      category: 'coordination',
+      schemaVersion: 1,
+      projectId: 'project-1',
+      streamKey: 'agent-work:project-1:agent-1',
+      streamSequence: 1,
+      aggregate: { type: 'agent_inbox_item', id: item.id },
+      actor: { type: 'system', id: 'agent-inbox' },
+      inboxItemId: item.id,
+      correlationId: contract.correlationId,
+      occurredAt: now.toISOString(),
+      recordedAt: now.toISOString(),
+      payload: { reasonCode: 'task_terminal' },
+    }, { signal: new AbortController().signal });
+
+    expect(decisions.listActions(inboxDecision.decisionId)[0]).toMatchObject({
+      status: 'cancelled',
+      failure_code: 'agent.work.cancelled:task_terminal',
     });
   });
 });

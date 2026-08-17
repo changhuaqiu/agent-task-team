@@ -20,7 +20,7 @@ function makeTempDir(): string {
 }
 
 function backend(
-  scenario: 'normal' | 'slow' | 'active' | 'error' | 'flood' | 'large' | 'wrong_session',
+  scenario: 'normal' | 'slow' | 'active' | 'error' | 'startup_abort' | 'flood' | 'large' | 'wrong_session',
   overrides: Partial<AcpBackendOpts> = {},
 ) {
   return new AcpBackend({
@@ -74,6 +74,17 @@ describe('AcpBackend hardening', () => {
     expect(events.some((event) => event.type === 'error')).toBe(true);
     expect(result).toMatchObject({ status: 'failed', reasonCode: 'acp_startup_failed' });
   });
+
+  it('preserves subprocess exit and stderr diagnostics when the ACP handshake breaks', async () => {
+    const run = backend('startup_abort').execute('hello', {});
+    const { events, result } = await drain(run);
+    const diagnostic = `${result.error ?? ''}\n${events.map((event) => event.content).join('\n')}`;
+
+    expect(result).toMatchObject({ status: 'failed', reasonCode: 'acp_startup_failed' });
+    expect(diagnostic).toContain('ACP connection failed');
+    expect(diagnostic).toContain('code 23');
+    expect(diagnostic).toContain('adapter bootstrap failed before ACP handshake');
+  }, 15_000);
 
   it('resolves cancellation independently of the child close event', async () => {
     const run = backend('slow', { cancelGraceMs: 250 }).execute('hello', {});

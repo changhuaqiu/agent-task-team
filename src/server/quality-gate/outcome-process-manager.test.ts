@@ -172,7 +172,7 @@ describe('GateOutcomeProcessManager', () => {
     });
   });
 
-  it('rejects invalid live verification receipts atomically at the QualityGate seam', () => {
+  it('rejects invalid live verification receipts before the QualityGate seam', () => {
     const cases = [
       {
         name: 'verifier',
@@ -266,14 +266,16 @@ describe('GateOutcomeProcessManager', () => {
         causationId: contract.contractId,
         occurredAt: now.toISOString(),
       }, now);
-      const event = new PlatformEventLog({ db })
+      expect(admitted).toMatchObject({
+        status: 'rejected',
+        reasonCode: testCase.error,
+      });
+      expect(new PlatformEventLog({ db })
         .listStream(`work:${contract.workId}`)
-        .find(candidate => candidate.aggregate.id === admitted.outcome.id)!;
-
-      expect(() => new GateOutcomeProcessManager({ db }).handle(
-        event,
-        { signal: new AbortController().signal },
-      )).toThrow(testCase.error);
+        .some(candidate => (
+          candidate.aggregate.id === admitted.outcome.id
+          && candidate.type === 'agent.outcome.accepted'
+        ))).toBe(false);
       expect(gates.getSnapshot(requested.gate.id)).toMatchObject({
         gate: { status: 'requested' },
         evidence: [],

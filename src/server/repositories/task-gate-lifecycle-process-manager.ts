@@ -4,6 +4,7 @@ import type { PlatformEventHandler } from '../platform-events/dispatcher';
 import type { QualityGateRow } from '../quality-gate/types';
 import { workContractRepo } from '../work-contract/repository';
 import type { WorkAuthorityRow } from '../work-contract/types';
+import { hasWorkPurpose } from '../work-contract/work-identity';
 import { taskCommandService } from './task-command-service';
 import { StaleTaskRevisionError, taskRepo } from './task-repo';
 
@@ -94,7 +95,7 @@ export class TaskGateLifecycleProcessManager {
     const taskPrefix = `task:${input.taskId}:`;
     for (const authority of authorities) {
       if (!authority.work_id.startsWith(taskPrefix)) continue;
-      const reviewerWork = authority.work_id.endsWith(':purpose:review');
+      const reviewerWork = hasWorkPurpose(authority.work_id, 'review');
       if (!input.closeExecution && !reviewerWork) continue;
       workContractRepo.close({
         workId: authority.work_id,

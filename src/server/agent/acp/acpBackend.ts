@@ -305,6 +305,12 @@ export class AcpBackend implements AgentBackend {
     let cleanupReleaseTimer: NodeJS.Timeout | undefined;
     let idleTimeoutTimer: NodeJS.Timeout | undefined;
     let maxTurnTimeoutTimer: NodeJS.Timeout | undefined;
+    let connectionFailureTimer: NodeJS.Timeout | undefined;
+    let processExitDiagnostic: string | undefined;
+    let pendingConnectionFailure: {
+      reasonCode: Extract<AcpFailureReasonCode, 'acp_connection_failed' | 'acp_startup_failed'>;
+      message: string;
+    } | undefined;
     let deferredFinalization: {
       status: AgentResult['status'];
       reasonCode?: AcpFailureReasonCode;
@@ -419,6 +425,7 @@ export class AcpBackend implements AgentBackend {
       resultResolved = true;
       clearTimeout(idleTimeoutTimer);
       clearTimeout(maxTurnTimeoutTimer);
+      clearTimeout(connectionFailureTimer);
       resultResolve({
         status,
         output,
@@ -469,6 +476,21 @@ export class AcpBackend implements AgentBackend {
       finalize('failed', reasonCode, message, undefined, true);
     };
 
+    const finalizePendingConnectionFailure = () => {
+      if (!pendingConnectionFailure || resultResolved) return;
+      const pending = pendingConnectionFailure;
+      pendingConnectionFailure = undefined;
+      clearTimeout(connectionFailureTimer);
+      const stderrDiagnostic = stderrTail.trim()
+        ? `stderr: ${sanitizeAcpDiagnostic(stderrTail.trim())}`
+        : undefined;
+      const diagnostic = [pending.message, processExitDiagnostic ?? stderrDiagnostic]
+        .filter(Boolean)
+        .join('; ');
+      emit({ type: 'error', content: diagnostic, sessionId }, true);
+      finalize('failed', pending.reasonCode, diagnostic);
+    };
+
     const idleTimeoutMs = Math.max(1, opts.timeout ?? this.o.timeoutMs ?? 120_000);
     const maxTurnTimeoutMs = this.o.maxTurnTimeoutMs
       ?? Math.max(idleTimeoutMs * 6, 30 * 60_000);
@@ -510,8 +532,13 @@ export class AcpBackend implements AgentBackend {
       clearTimeout(forceKillTimer);
       clearTimeout(cleanupReleaseTimer);
       releaseSlot();
-      if (resultResolved) return;
       const message = processExitMessage(code, signal, stderrTail);
+      processExitDiagnostic = message;
+      if (resultResolved) return;
+      if (pendingConnectionFailure) {
+        finalizePendingConnectionFailure();
+        return;
+      }
       emit({ type: 'error', content: message, sessionId }, true);
       finalize('failed', 'acp_process_exited', message);
     });
@@ -783,16 +810,22 @@ export class AcpBackend implements AgentBackend {
           })
           .catch((error: unknown) => {
             if (resultResolved) return;
-            const message = `ACP connection failed: ${error instanceof Error ? error.message : String(error)}`;
-            emit({ type: 'error', content: message, sessionId }, true);
-            finalize(
-              'failed',
-              initialized ? 'acp_connection_failed' : 'acp_startup_failed',
-              message,
+            const message = sanitizeAcpDiagnostic(
+              `ACP connection failed: ${error instanceof Error ? error.message : String(error)}`,
             );
+            pendingConnectionFailure = {
+              reasonCode: initialized ? 'acp_connection_failed' : 'acp_startup_failed',
+              message,
+            };
+            if (processClosed) {
+              finalizePendingConnectionFailure();
+              return;
+            }
+            connectionFailureTimer = setTimeout(finalizePendingConnectionFailure, 250);
+            connectionFailureTimer.unref?.();
           })
           .finally(() => {
-            if (!resultResolved) {
+            if (!resultResolved && !pendingConnectionFailure) {
               const message = 'ACP connection closed before the turn completed';
               emit({ type: 'error', content: message, sessionId }, true);
               finalize('failed', 'acp_connection_failed', message);

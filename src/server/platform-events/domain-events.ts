@@ -3,6 +3,12 @@ import { PlatformEventLog } from './event-log';
 import type { EventObjectRef, PlatformEvent } from './types';
 
 export interface DomainEventPayloadMap {
+  'task.updated': {
+    changedFields: string[];
+    status: string;
+    previousAgentId: string;
+    agentId: string;
+  };
   'task.assigned': { previousAgentId?: string; agentId: string; status: string };
   'task.ready': { previousStatus: string; status: string; agentId: string };
   'task.in_progress': { previousStatus: string; status: string; agentId: string };
@@ -135,7 +141,7 @@ export type DomainEventType = keyof DomainEventPayloadMap;
 
 export const DOMAIN_EVENT_TYPES_BY_OWNER = {
   task: [
-    'task.assigned', 'task.ready', 'task.in_progress', 'task.in_review',
+    'task.updated', 'task.assigned', 'task.ready', 'task.in_progress', 'task.in_review',
     'task.changes_requested', 'task.done', 'task.blocked', 'task.cancelled',
   ],
   gate: [

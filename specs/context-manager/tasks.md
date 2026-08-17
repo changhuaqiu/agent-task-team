@@ -45,6 +45,7 @@
 - [x] T26 定义 ContextFragment / ContextArtifact / ContextQuery / ContextSnapshot / ContextContributor 契约
 - [x] T27 在 ContextManager 内实现 Contributor Registry、失败隔离、去重、作用域、可见性与 freshness 选择
 - [x] T28 将现有 Tier 输出和业务 Contributor 接入统一 Fragment → Artifact 管线，不新增平行 Prompt 出口；只有 NoOp 实现的 MemoryHook 在 Round 24 删除
+- [x] T29 收敛 Agent 输出契约：禁止身份/计划/工具复述，WorkContract 只经结构化 outcome 推进；角色特定层只补岗位差异，不重复跨角色行为规则
 - [x] T29 扩展完整 Team Harness 场景，并保留 init/iterate/wakeup 兼容解析
 - [x] T30 AssembledContext、ContextReport 与 Harness plan 暴露 snapshot id、fragment refs、omission 和 missing-required
 - [x] T31 通过 ContextManager 外部 seam 覆盖跨项目、私有、角色、过期、重复、Contributor 失败和预算裁剪测试

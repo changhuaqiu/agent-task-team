@@ -2,6 +2,8 @@ import { timingSafeEqual } from 'node:crypto';
 import { getDb } from '../db';
 import { PlatformEventLog } from '../platform-events/event-log';
 import { generateSortableId } from '../repositories/sortable-id';
+import { AutonomousDeliveryRepository } from '../autonomous-delivery/repository';
+import { validateDeliveryGateReceipt } from '../quality-gate/delivery-receipt-validation';
 import {
   AGENT_OUTCOME_TYPES,
   type AgentOutcome,
@@ -57,6 +59,67 @@ function safeTokenEquals(left: string, right: string): boolean {
   const leftBytes = Buffer.from(left);
   const rightBytes = Buffer.from(right);
   return leftBytes.length === rightBytes.length && timingSafeEqual(leftBytes, rightBytes);
+}
+
+function gateOutcomeRejectionReason(
+  input: AgentOutcome,
+  contract: WorkContractRow,
+  db: ReturnType<typeof getDb>,
+): string | undefined {
+  if (input.outcomeType !== 'record_gate_decision') return undefined;
+  if (!input.payload || typeof input.payload !== 'object' || Array.isArray(input.payload)) {
+    return 'gate_outcome_payload_invalid';
+  }
+  const payload = input.payload as Record<string, unknown>;
+  const gateId = typeof payload.gateId === 'string' ? payload.gateId.trim() : '';
+  const evidenceType = typeof payload.evidenceType === 'string'
+    ? payload.evidenceType.trim()
+    : '';
+  if (!gateId) return 'gate_outcome_gate_id_required';
+  if (!evidenceType) return 'gate_outcome_evidence_type_required';
+  if (
+    !Object.prototype.hasOwnProperty.call(payload, 'evidence')
+    || payload.evidence === null
+    || payload.evidence === undefined
+  ) return 'gate_outcome_evidence_required';
+  if (!['passed', 'changes_requested', 'rejected'].includes(String(payload.decision))) {
+    return 'gate_outcome_decision_invalid';
+  }
+  const gate = db.prepare(`
+    SELECT conversation_id,target_type,target_id,kind
+    FROM quality_gate
+    WHERE id=?
+  `).get(gateId) as {
+    conversation_id: string;
+    target_type: 'task' | 'delivery_run';
+    target_id: string;
+    kind: string;
+  } | undefined;
+  if (!gate) return 'gate_outcome_gate_missing';
+  if (gate.conversation_id !== contract.project_id) return 'gate_outcome_project_mismatch';
+  if (gate.target_type === 'task' && gate.target_id !== contract.task_id) {
+    return 'gate_outcome_task_mismatch';
+  }
+  if (gate.target_type === 'delivery_run' && gate.target_id !== contract.delivery_run_id) {
+    return 'gate_outcome_delivery_mismatch';
+  }
+  if (gate.target_type === 'delivery_run') {
+    if (gate.kind !== 'delivery_review' && gate.kind !== 'acceptance_verification') {
+      return 'gate_outcome_delivery_kind_invalid';
+    }
+    const snapshot = new AutonomousDeliveryRepository(db).getSnapshot(gate.target_id);
+    if (!snapshot) return 'gate_outcome_delivery_missing';
+    const validation = validateDeliveryGateReceipt({
+      kind: gate.kind,
+      runId: gate.target_id,
+      agentId: contract.agent_id,
+      decision: payload.decision as 'passed' | 'changes_requested' | 'rejected',
+      receipt: payload.receipt,
+      snapshot,
+    });
+    if (!validation.valid) return validation.reasonCode;
+  }
+  return undefined;
 }
 
 function contractFromRow(row: WorkContractRow): WorkContract {
@@ -424,6 +487,9 @@ export class WorkContractRepository {
         if (!delivery || delivery.revision !== frozenRevisions.deliveryRun) {
           rejectionReason = 'delivery_authoritative_revision_stale';
         }
+      }
+      if (!rejectionReason && contract) {
+        rejectionReason = gateOutcomeRejectionReason(input, contract, db);
       }
       if (!rejectionReason && contract && contract.correlation_id !== input.correlationId) {
         rejectionReason = 'correlation_mismatch';

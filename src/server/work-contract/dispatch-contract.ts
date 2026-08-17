@@ -133,6 +133,9 @@ export function renderWorkContractInstruction(contract: WorkContract): string {
     'Report candidate results with the agent_submit_outcome platform tool.',
     'The tool binds the private fencing token and authoritative revisions for this invocation.',
     'A stale epoch or superseded attempt will be rejected; do not mutate domain state directly.',
+    'Treat TASKS.md, task status, assignee, deliverable metadata, and gate state as read-only projections.',
+    'Submit exactly one terminal outcome before ending; the Process Manager applies task and gate transitions atomically.',
+    'Tool calls are visible in the platform trace. Do not narrate or repeat the tool sequence in assistant text.',
     '',
     '```json',
     JSON.stringify({

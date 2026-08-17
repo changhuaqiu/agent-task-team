@@ -37,6 +37,7 @@
 - [x] 消费者提前停止读取事件时，运行会被取消并回收。
 - [x] 全局并发、事件队列、单事件、总输出和 stderr 均有上限。
 - [x] stderr 诊断经过脱敏，不记录 prompt、token 或完整凭据。
+- [x] `write EPIPE` 等握手失败不会抢先丢弃随后到达的子进程 stderr 与退出码。
 - [x] 临时 runtime 配置不污染项目目录，cleanup 可重复调用。
 - [x] daemon shutdown 会终止所有活跃 ACP 进程。
 - [x] 不支持 resume 的 backend 不会因失败重复执行 prompt。

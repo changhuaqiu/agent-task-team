@@ -57,7 +57,14 @@
 - [ ] Add `ContinueGateLite`.
 - [ ] Use holder buffer thresholds to decide checkpoint, pass, pause, or stop.
 - [x] Add lightweight `SecretGate` for execution envelopes.
-- [ ] Add circuit breaker for repeated runtime start failures.
+- [x] Add circuit breaker for repeated runtime start failures; AutonomyGuard counts failed task/agent attempts since the latest task revision or human-resume window, stops redispatch only when an active Delivery can persist the escalation, and escalates that run to `waiting_human`; ordinary Tasks remain recoverable instead of being silently stranded.
+- [x] Require an open revision-matched QualityGate before AutonomyGuard can wake a reviewer, and preserve existing implementer/reviewer WorkAuthority epochs when Delivery adopts a pre-existing Task so Gate actions are not cancelled as stale.
+- [x] Validate `record_gate_decision` evidence and exact Task/Delivery Gate target inside WorkContract admission so rejected attempts do not consume the terminal outcome slot.
+- [x] Validate Delivery Gate receipt schemas in admission and render their exact required shape in evaluator prompts.
+- [x] Project pending Durable Inbox items as queued Work and prohibit duplicate activation while an Agent is busy.
+- [x] Bind review/verification Work identity to the exact Gate, recover after a prior authority closed, and keep submitted review schedulable when implementer assignment metadata changes.
+- [x] Preserve post-Task Delivery Gate Inbox work and release Control slots on Inbox cancellation/expiry.
+- [x] Bump the Delivery control policy revision when Work Cell projection semantics change so persisted deterministic decision identities cannot conflict across a rollout.
 - [ ] Add diagnostics view for proof timeline and runtime health.
 
 ## Phase 7: Documentation and Cleanup

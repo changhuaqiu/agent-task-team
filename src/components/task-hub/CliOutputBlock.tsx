@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState } from 'react';
 import {
   Activity,
   AlertTriangle,
@@ -169,22 +169,10 @@ function ToolRow({ event, isLast }: { event: ToolEvent; isLast: boolean }) {
 }
 
 export function CliOutputBlock({ events, isStreaming, streamText }: CliOutputBlockProps) {
-  const [expanded, setExpanded] = useState(true);
-  const [bodyExpanded, setBodyExpanded] = useState(true);
-  const [userInteracted, setUserInteracted] = useState(false);
-  const prevStreamingRef = useRef(isStreaming);
-
-  useEffect(() => {
-    if (isStreaming) {
-      setExpanded(true);
-      setBodyExpanded(true);
-      setUserInteracted(false);
-    } else if (prevStreamingRef.current && !isStreaming && !userInteracted) {
-      setExpanded(false);
-      setBodyExpanded(false);
-    }
-    prevStreamingRef.current = isStreaming;
-  }, [isStreaming, userInteracted]);
+  const [expandedPreference, setExpandedPreference] = useState<boolean | null>(null);
+  const [bodyExpandedPreference, setBodyExpandedPreference] = useState<boolean | null>(null);
+  const expanded = expandedPreference ?? isStreaming;
+  const bodyExpanded = bodyExpandedPreference ?? isStreaming;
 
   const toolEvents = events.filter((e) => e.type === 'tool_use' || e.type === 'tool_result');
   const errorCount = events.filter((e) => e.type === 'error').length;
@@ -193,13 +181,11 @@ export function CliOutputBlock({ events, isStreaming, streamText }: CliOutputBlo
   const visibleEvents = bodyExpanded ? events : events.slice(-5);
 
   const handleToggle = () => {
-    setUserInteracted(true);
-    setExpanded(!expanded);
+    setExpandedPreference(!expanded);
   };
 
   const handleBodyToggle = () => {
-    setUserInteracted(true);
-    setBodyExpanded(!bodyExpanded);
+    setBodyExpandedPreference(!bodyExpanded);
   };
 
   return (

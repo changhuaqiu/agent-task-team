@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, CheckCircle2, ChevronDown, LoaderCircle } from 'lucide-react';
 import type { DeliveryRunSnapshot } from '@/server/autonomous-delivery/types';
+import type { DeliveryWorkspaceView } from '@/lib/delivery-workspace/DeliveryWorkspaceProjection';
 
 const STAGE_LABELS: Record<string, string> = {
   planning: '正在规划',
@@ -38,9 +39,11 @@ function EvidenceRef({ value }: { value: string }) {
 
 export function AutonomousDeliveryPanel({
   conversationId,
+  stage,
   onSnapshotChange,
 }: {
   conversationId: string;
+  stage?: DeliveryWorkspaceView['stage'];
   onSnapshotChange?: (snapshot: DeliveryRunSnapshot | undefined) => void;
 }) {
   const [snapshot, setSnapshot] = useState<DeliveryRunSnapshot>();
@@ -70,6 +73,7 @@ export function AutonomousDeliveryPanel({
 
   if (!snapshot) return null;
   const { run, contract, bundle } = snapshot;
+  const displayedStage = stage ?? run.current_stage;
   const resume = async () => {
     setResumePending(true);
     setResumeError(undefined);
@@ -249,8 +253,8 @@ export function AutonomousDeliveryPanel({
           {run.status === 'retrying'
             ? '正在自动恢复'
             : run.status === 'waiting_gate'
-              ? `等待${STAGE_LABELS[run.current_stage] ?? '验收'}结果`
-              : STAGE_LABELS[run.current_stage] ?? '自主推进中'}
+              ? `等待${STAGE_LABELS[displayedStage] ?? '验收'}结果`
+              : STAGE_LABELS[displayedStage] ?? '自主推进中'}
         </span>
         <span className="ml-auto text-[10px] text-[hsl(var(--text-tertiary))]">
           你可以离开，完成后会在这里交付

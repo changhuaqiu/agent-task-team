@@ -7,6 +7,7 @@
 - [x] 仓储查询与 ContextManager intake 按 `project_id` 过滤或失败关闭
 - [x] Context Registry 按 project/global scope 与 agent/role/team visibility 执行机械过滤
 - [x] 仍有效的 role/team/collaboration/user-message/behavior layer 行为测试已迁入同目录测试；ContextManager intake / Registry / layer 过滤单测绿
+- [x] 工具调用保持独立可见，Agent 正文不重复播报工具过程；WorkContract 明确禁止先改任务投影再提交旧 revision outcome
 - [x] build 通过（2026-07-22 复验）
 
 ## P2 — A2A 协议化 + 身份

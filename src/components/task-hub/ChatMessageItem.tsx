@@ -10,7 +10,6 @@ import { User, Lightbulb, Play, Eye, Link2, Copy, ExternalLink, Activity } from 
 import { openAgentObservabilityDrawer } from '@/components/project/AgentObservabilityDrawer';
 import { MarkdownContent } from './MarkdownContent';
 import { TokenBadge } from './TokenSummary';
-import { TaskStatusCard } from './TaskStatusCard';
 import { TaskCapsules, type TaskCapsuleRef } from './TaskCapsules';
 import { TaskActionCard, type TaskActionCardRef } from './TaskActionCard';
 import { ChatPhaseProposals } from './ChatPhaseProposals';
@@ -123,24 +122,32 @@ export function ChatMessageItem({ message, responseSegments }: ChatMessageItemPr
     .join('\n\n');
   const isHuman = responseMessage.agentId === 'human';
   const agent = allAgents.find((a) => a.id === responseMessage.agentId);
+  const hasToolTrace = !isHuman && segments.some((segment) => (segment.toolEvents?.length ?? 0) > 0);
+  const toolEvents = segments.flatMap((segment) => segment.toolEvents ?? []);
+  const responseIsStreaming = segments.some((segment) => segment.isStreaming === true);
+  const streamingToolText = segments.find((segment) => segment.isStreaming)?.content;
+  const tokenUsage = [...segments].reverse().find((segment) => segment.tokenUsage)?.tokenUsage;
+  const responseTaskRefs = Array.from(new Map(
+    segments.flatMap(taskRefsFromMessage).map((task) => [task.id, task]),
+  ).values());
+  const responseTaskActions = Array.from(new Map(
+    segments.flatMap(taskActionsFromMessage).map((action) => [action.id, action]),
+  ).values());
+  const responseCollaborationCard = [...segments]
+    .reverse()
+    .map((segment) => segment.metadata?.collaborationCard)
+    .find(isEngineeringCollaborationCard);
+  const plainTextSegments = segments.filter((segment) =>
+    Boolean(segment.content) && (segment.toolEvents?.length ?? 0) === 0
+  );
+  const finalPlainTextId = plainTextSegments.at(-1)?.id;
+  const intermediateNarrativeSegments = hasToolTrace
+    ? plainTextSegments.filter((segment) => segment.id !== finalPlainTextId)
+    : [];
+  const intermediateNarrativeIds = new Set(intermediateNarrativeSegments.map((segment) => segment.id));
 
   const timeString = new Date(message.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
   const [isHovered, setIsHovered] = useState(false);
-
-  // Task status card rendering
-  if (message.intent === 'task_status') {
-    return (
-      <div className="py-1">
-        <TaskStatusCard
-          taskId={message.metadata?.taskId || ''}
-          agentId={message.agentId === 'system' ? (message.metadata?.agentId || '') : message.agentId}
-          title={message.metadata?.title || ''}
-          status={message.metadata?.status || ''}
-          timestamp={message.timestamp}
-        />
-      </div>
-    );
-  }
 
   return (
     <div
@@ -190,8 +197,9 @@ export function ChatMessageItem({ message, responseSegments }: ChatMessageItemPr
 
         {/* A2A source label */}
         {!isHuman && message.source === 'a2a' && message.fromAgentId && (
-          <span className="text-xs text-gray-400 mb-1 block">
-            [{message.fromAgentId} → {message.agentId}]
+          <span className="mb-1 inline-flex items-center gap-1 text-[10px] text-[hsl(var(--text-tertiary))]">
+            <Link2 className="h-3 w-3" />
+            接手自 {message.fromAgentId}
           </span>
         )}
 
@@ -206,20 +214,32 @@ export function ChatMessageItem({ message, responseSegments }: ChatMessageItemPr
               : 'border-[hsl(var(--border))] rounded-tl-none'
           )}
         >
+          {intermediateNarrativeSegments.length > 0 && (
+            <details
+              data-testid="agent-progress-details"
+              className="mb-2 rounded-[3px] border border-[hsl(var(--border-subtle))] bg-[hsl(var(--bg-muted))] px-2 py-1.5"
+            >
+              <summary className="cursor-pointer select-none text-[10px] font-bold text-[hsl(var(--text-secondary))]">
+                过程说明 {intermediateNarrativeSegments.length} 条
+              </summary>
+              <div className="mt-2 space-y-2 border-t border-[hsl(var(--border-subtle))] pt-2 text-[hsl(var(--text-secondary))]">
+                {intermediateNarrativeSegments.map((segment) => (
+                  <MarkdownContent key={segment.id} content={segment.content} />
+                ))}
+              </div>
+            </details>
+          )}
+
           {segments.map((segment) => {
             const segmentHasToolEvents = (segment.toolEvents?.length ?? 0) > 0;
+            const hideSegmentNarrative = segmentHasToolEvents || intermediateNarrativeIds.has(segment.id);
             const segmentProposals = parsePhaseBreakdown(segment.content);
-            const segmentTaskRefs = taskRefsFromMessage(segment);
-            const segmentTaskActions = taskActionsFromMessage(segment);
-            const segmentCollaborationCard = isEngineeringCollaborationCard(segment.metadata?.collaborationCard)
-              ? segment.metadata.collaborationCard
-              : undefined;
 
             return (
               <div key={segment.id} data-message-segment-id={segment.id} className="mt-2 first:mt-0">
                 {segment.isStreaming && !segment.content && !segmentHasToolEvents ? (
                   <span className="inline-block w-1.5 h-4 bg-current animate-pulse rounded-full opacity-50" />
-                ) : segment.content && !(segmentHasToolEvents && segment.isStreaming) ? (
+                ) : segment.content && !hideSegmentNarrative ? (
                   isHuman ? (
                     <div className="whitespace-pre-wrap break-words">{formatContentWithMentions(segment.content)}</div>
                   ) : (
@@ -227,46 +247,8 @@ export function ChatMessageItem({ message, responseSegments }: ChatMessageItemPr
                   )
                 ) : null}
 
-                {segmentHasToolEvents && (
-                  <CliOutputBlock
-                    events={segment.toolEvents!}
-                    isStreaming={!!segment.isStreaming}
-                    streamText={segment.isStreaming ? segment.content : undefined}
-                  />
-                )}
-
-                {!segment.isStreaming && segment.tokenUsage && segmentHasToolEvents && (
-                  <div className="mt-1.5">
-                    <TokenBadge usage={segment.tokenUsage} />
-                  </div>
-                )}
-
                 {segmentProposals.length > 0 && (
                   <ChatPhaseProposals proposals={segmentProposals} allAgents={allAgents} />
-                )}
-
-                {segmentTaskRefs.length > 0 && (
-                  <TaskCapsules
-                    tasks={segmentTaskRefs}
-                    onSelectTask={setSelectedTaskId}
-                    className="mt-2"
-                  />
-                )}
-
-                {segmentTaskActions.length > 0 && (
-                  <div className="mt-2 flex flex-col gap-1.5">
-                    {segmentTaskActions.map((action) => (
-                      <TaskActionCard
-                        key={action.id}
-                        action={action}
-                        onSelectTask={setSelectedTaskId}
-                      />
-                    ))}
-                  </div>
-                )}
-
-                {segmentCollaborationCard && (
-                  <EngineeringCollaborationCard card={segmentCollaborationCard} onSelectTask={setSelectedTaskId} />
                 )}
 
                 {segment.isApprovalRequest && (
@@ -281,6 +263,44 @@ export function ChatMessageItem({ message, responseSegments }: ChatMessageItemPr
               </div>
             );
           })}
+
+          {responseTaskRefs.length > 0 && (
+            <TaskCapsules
+              tasks={responseTaskRefs}
+              onSelectTask={setSelectedTaskId}
+              className="mt-2"
+            />
+          )}
+
+          {responseTaskActions.length > 0 && (
+            <div className="mt-2 flex flex-col gap-1.5">
+              {responseTaskActions.map((action) => (
+                <TaskActionCard
+                  key={action.id}
+                  action={action}
+                  onSelectTask={setSelectedTaskId}
+                />
+              ))}
+            </div>
+          )}
+
+          {responseCollaborationCard && (
+            <EngineeringCollaborationCard card={responseCollaborationCard} onSelectTask={setSelectedTaskId} />
+          )}
+
+          {toolEvents.length > 0 && (
+            <CliOutputBlock
+              events={toolEvents}
+              isStreaming={responseIsStreaming}
+              streamText={responseIsStreaming ? streamingToolText : undefined}
+            />
+          )}
+
+          {tokenUsage && (
+            <div className="mt-1.5">
+              <TokenBadge usage={tokenUsage} />
+            </div>
+          )}
 
           {/* Hover Action Bar */}
           {isHovered && (

@@ -1,11 +1,14 @@
 import type { Server as IOServer } from 'socket.io';
 import { executionEnvelopeRepo } from '../repositories/execution-envelope-repo';
+import { invocationRepo } from '../repositories/invocation-repo';
 import { proofLogRepo } from '../repositories/proof-log-repo';
 import { taskGraphRepo } from '../repositories/task-graph-repo';
 import { taskRepo } from '../repositories/task-repo';
 import { submitTaskWakeupToInvocationPipeline } from '../invocation-pipeline';
 import { teamLogProjection } from '../team-log/TeamLogProjection';
-import { resolveAutonomyGuardWakeups } from '../task-flow/autonomy-guard';
+import { autonomousDeliveryRepo } from '../autonomous-delivery/repository';
+import { qualityGateRepo } from '../quality-gate/repository';
+import { resolveAutonomyGuardActions } from '../task-flow/autonomy-guard';
 import { resolveTaskNotificationAudience } from '../task-flow/task-notification-publisher';
 
 export interface AutonomyGuardOwnerOptions {
@@ -73,9 +76,22 @@ export class AutonomyGuardOwner {
         conversationId,
         reasonCode: 'chain_ready_for_closure',
       });
-      const wakeups = resolveAutonomyGuardWakeups({
+      const delivery = autonomousDeliveryRepo.getLatestByConversation(conversationId);
+      const deliveryCanOwnEscalation = Boolean(
+        delivery && ['active', 'waiting_gate', 'retrying'].includes(delivery.run.status),
+      );
+      const reviewableTaskIds = conversationTasks
+        .filter((task) => {
+          const gate = qualityGateRepo.listForTarget('task', task.id).at(-1);
+          return gate
+            && gate.artifact_revision === String(task.revision)
+            && (gate.status === 'requested' || gate.status === 'evaluating');
+        })
+        .map((task) => task.id);
+      const actions = resolveAutonomyGuardActions({
         tasks: conversationTasks,
         envelopes: executionEnvelopeRepo.listByConversation(conversationId),
+        invocations: invocationRepo.listByConversation(conversationId),
         coordinatorAgentIds: audience.coordinatorAgentIds,
         reviewAgentIds: audience.reviewGateAgentIds,
         qaAgentIds: audience.qaAgentIds,
@@ -83,13 +99,39 @@ export class AutonomyGuardOwner {
         closureDispatchedRootTaskIds: closureProofs
           .map((proof) => proof.task_id)
           .filter((taskId): taskId is string => Boolean(taskId)),
+        maxAttemptsPerTaskAgent: delivery?.contract.recoveryPolicy.maxAttemptsPerAction ?? 3,
+        retryBudgetEscalationAvailable: deliveryCanOwnEscalation,
+        attemptWindowStartedAt: delivery?.run.updated_at,
+        reviewableTaskIds,
       });
-      for (const wakeup of wakeups) this.publish(wakeup, now);
+      if (
+        actions.escalations.length > 0
+        && delivery
+        && deliveryCanOwnEscalation
+      ) {
+        const escalation = actions.escalations[0];
+        autonomousDeliveryRepo.transitionRun({
+          runId: delivery.run.id,
+          to: 'waiting_human',
+          stage: escalation.taskStatus === 'in_review' ? 'reviewing' : delivery.run.current_stage,
+          expectedRevision: delivery.run.revision,
+          escalationCode: 'runtime_retry_budget_exhausted',
+          escalationDetail: [
+            `任务 ${escalation.taskId} 调用 ${escalation.agentId} 连续失败 ${escalation.attempts} 次，已停止自动重试。`,
+            escalation.lastReasonCode ? `最近原因：${escalation.lastReasonCode}` : '',
+          ].filter(Boolean).join(' '),
+          actor: { type: 'system', id: 'autonomy-guard' },
+          eventIdempotencyKey: `autonomy-guard:retry-budget:${escalation.taskId}:${escalation.agentId}:${delivery.run.revision}`,
+          now: new Date(now),
+        });
+        continue;
+      }
+      for (const wakeup of actions.wakeups) this.publish(wakeup, now);
     }
   }
 
   private publish(
-    wakeup: ReturnType<typeof resolveAutonomyGuardWakeups>[number],
+    wakeup: ReturnType<typeof resolveAutonomyGuardActions>['wakeups'][number],
     now: number,
   ): void {
     const key = wakeup.metadata.idempotencyKey;
