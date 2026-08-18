@@ -1,16 +1,14 @@
 import {
-  closeSync,
   existsSync,
-  fstatSync,
-  lstatSync,
   mkdirSync,
-  openSync,
   readFileSync,
+  realpathSync,
   renameSync,
   unlinkSync,
   writeFileSync,
 } from 'fs';
-import { join } from 'path';
+import { join, resolve } from 'path';
+import { getDb } from './db';
 import {
   assertTaskStatus,
   type TaskStatus,
@@ -83,75 +81,53 @@ const STATUS_REVERSE: Record<TaskStatus, string> = {
 };
 
 const TASKS_PROJECTION_OWNER_FILE = 'TASKS.owner.json';
-const TASKS_PROJECTION_LOCK_FILE = 'TASKS.projection.lock';
-const TASKS_PROJECTION_LOCK_STALE_AFTER_MS = 60_000;
 
 type TasksProjectionOwnerRecord =
   | { conversationId: string; state: 'claiming' | 'owned' }
   | { state: 'invalid' };
 
+export type TasksProjectionClaimState = 'claiming' | 'owned' | 'foreign_owned';
+
 function tasksProjectionOwnerPath(projectPath: string): string {
   return join(projectPath, '.ath', TASKS_PROJECTION_OWNER_FILE);
 }
 
-function withTasksMdProjectionLock<T>(projectPath: string, operation: () => T): T {
-  const dir = join(projectPath, '.ath');
-  mkdirSync(dir, { recursive: true });
-  const lockPath = join(dir, TASKS_PROJECTION_LOCK_FILE);
-  const ownerToken = `${process.pid}:${Date.now()}:${Math.random().toString(36).slice(2)}`;
-  let descriptor: number | undefined;
-  for (let attempt = 0; attempt < 2 && descriptor === undefined; attempt += 1) {
-    try {
-      descriptor = openSync(lockPath, 'wx');
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
-      const metadata = lstatSync(lockPath);
-      if (!metadata.isFile() || metadata.isSymbolicLink()) {
-        throw new Error('tasks_projection_lock_invalid');
-      }
-      if (Date.now() - metadata.mtimeMs <= TASKS_PROJECTION_LOCK_STALE_AFTER_MS) {
-        throw new Error('tasks_projection_claim_busy');
-      }
-      unlinkSync(lockPath);
-    }
-    if (descriptor !== undefined) {
-      try {
-        writeFileSync(descriptor, JSON.stringify({
-          ownerToken,
-          pid: process.pid,
-          createdAt: new Date().toISOString(),
-        }), 'utf-8');
-      } catch (error) {
-        closeSync(descriptor);
-        descriptor = undefined;
-        try {
-          unlinkSync(lockPath);
-        } catch {
-          // Preserve the original lock initialization error.
-        }
-        throw error;
-      }
-    }
-  }
-  if (descriptor === undefined) throw new Error('tasks_projection_claim_busy');
-  const acquiredMetadata = fstatSync(descriptor);
+export function canonicalTasksProjectionPath(projectPath: string): string {
+  let canonicalPath = resolve(projectPath);
   try {
+    canonicalPath = realpathSync.native(canonicalPath);
+  } catch {
+    // Runtime directories can be claimed before their first projection exists.
+  }
+  return process.platform === 'win32' ? canonicalPath.toLowerCase() : canonicalPath;
+}
+
+export function withTasksMdProjectionTransaction<T>(projectPath: string, operation: () => T): T {
+  const lockKey = canonicalTasksProjectionPath(projectPath);
+  return getDb().transaction(() => {
+    getDb().prepare(`
+      INSERT INTO task_projection_mutex(project_path,revision,updated_at)
+      VALUES (?,1,?)
+      ON CONFLICT(project_path) DO UPDATE SET
+        revision=task_projection_mutex.revision+1,
+        updated_at=excluded.updated_at
+    `).run(lockKey, new Date().toISOString());
     return operation();
-  } finally {
-    closeSync(descriptor);
+  })();
+}
+
+function writeTextAtomically(targetPath: string, content: string): void {
+  const tempPath = `${targetPath}.${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.tmp`;
+  try {
+    writeFileSync(tempPath, content, 'utf-8');
+    renameSync(tempPath, targetPath);
+  } catch (error) {
     try {
-      const currentMetadata = lstatSync(lockPath);
-      const currentLock = JSON.parse(readFileSync(lockPath, 'utf-8')) as { ownerToken?: string };
-      if (
-        currentMetadata.isFile()
-        && !currentMetadata.isSymbolicLink()
-        && currentLock.ownerToken === ownerToken
-        && (acquiredMetadata.ino === 0 || currentMetadata.ino === 0 || acquiredMetadata.ino === currentMetadata.ino)
-        && (acquiredMetadata.dev === 0 || currentMetadata.dev === 0 || acquiredMetadata.dev === currentMetadata.dev)
-      ) unlinkSync(lockPath);
+      unlinkSync(tempPath);
     } catch {
-      // A replaced or unreadable lock belongs to recovery; do not delete it.
+      // Preserve the original write/rename failure.
     }
+    throw error;
   }
 }
 
@@ -163,10 +139,13 @@ function readTasksMdProjectionOwnerRecord(projectPath: string): TasksProjectionO
     if (typeof parsed.conversationId !== 'string' || !parsed.conversationId.trim()) {
       return { state: 'invalid' };
     }
-    return {
-      conversationId: parsed.conversationId.trim(),
-      state: parsed.state === 'claiming' ? 'claiming' : 'owned',
-    };
+    if (parsed.state === undefined || parsed.state === 'owned') {
+      return { conversationId: parsed.conversationId.trim(), state: 'owned' };
+    }
+    if (parsed.state === 'claiming') {
+      return { conversationId: parsed.conversationId.trim(), state: 'claiming' };
+    }
+    return { state: 'invalid' };
   } catch {
     return { state: 'invalid' };
   }
@@ -175,6 +154,27 @@ function readTasksMdProjectionOwnerRecord(projectPath: string): TasksProjectionO
 export function readTasksMdProjectionOwner(projectPath: string): string | undefined {
   const owner = readTasksMdProjectionOwnerRecord(projectPath);
   return owner?.state === 'owned' ? owner.conversationId : undefined;
+}
+
+export function beginTasksMdProjectionClaim(
+  projectPath: string,
+  conversationId: string,
+): TasksProjectionClaimState {
+  return withTasksMdProjectionTransaction(projectPath, () => {
+    const owner = readTasksMdProjectionOwnerRecord(projectPath);
+    if (!owner) {
+      writeTasksMdProjectionOwner(projectPath, conversationId, 'claiming');
+      return 'claiming';
+    }
+    if (owner.state === 'invalid') throw new Error('tasks_projection_owner_invalid');
+    if (owner.state === 'claiming') {
+      if (owner.conversationId !== conversationId) {
+        throw new Error('tasks_projection_claimed_by_other_conversation');
+      }
+      return 'claiming';
+    }
+    return owner.conversationId === conversationId ? 'owned' : 'foreign_owned';
+  });
 }
 
 export function canSyncTasksMdProjection(projectPath: string, conversationId: string): boolean {
@@ -193,13 +193,11 @@ function writeTasksMdProjectionOwner(
   const dir = join(projectPath, '.ath');
   mkdirSync(dir, { recursive: true });
   const targetPath = tasksProjectionOwnerPath(projectPath);
-  const tempPath = `${targetPath}.${Date.now()}-${Math.random().toString(36).slice(2)}.tmp`;
-  writeFileSync(tempPath, JSON.stringify({
+  writeTextAtomically(targetPath, JSON.stringify({
     conversationId,
     state,
     claimedAt: new Date().toISOString(),
-  }, null, 2), 'utf-8');
-  renameSync(tempPath, targetPath);
+  }, null, 2));
 }
 
 export function parseTasksMd(content: string): ParsedTask[] {
@@ -525,7 +523,33 @@ export function writeTasksMd(projectPath: string, tasks: ParsedTask[], blockers?
   if (blockers && blockers.length > 0) {
     content += '\n' + formatBlockersMd(blockers);
   }
-  writeFileSync(join(dir, 'TASKS.md'), content, 'utf-8');
+  writeTextAtomically(join(dir, 'TASKS.md'), content);
+}
+
+export function quarantineLegacyTasksMdProjection(
+  projectPath: string,
+  conversationId: string,
+  rawContent: string,
+): string | undefined {
+  return withTasksMdProjectionTransaction(projectPath, () => {
+    const owner = readTasksMdProjectionOwnerRecord(projectPath);
+    if (
+      owner
+      && !(
+        owner.state === 'claiming'
+        && owner.conversationId === conversationId
+      )
+    ) return undefined;
+    const dir = join(projectPath, '.ath');
+    mkdirSync(dir, { recursive: true });
+    const safeConversationId = conversationId.replace(/[^a-zA-Z0-9_-]+/g, '-').slice(0, 48) || 'conversation';
+    const archivePath = join(
+      dir,
+      `TASKS.legacy-conflict.${safeConversationId}.${Date.now()}-${Math.random().toString(36).slice(2)}.md`,
+    );
+    writeTextAtomically(archivePath, rawContent);
+    return archivePath;
+  });
 }
 
 function projectionDependencies(value: string | null): string[] {
@@ -548,7 +572,7 @@ export function ensureTasksMdProjection(
   conversationId: string,
   rows: TaskProjectionSource[],
 ): boolean {
-  return withTasksMdProjectionLock(projectPath, () => {
+  return withTasksMdProjectionTransaction(projectPath, () => {
     const tasksPath = join(projectPath, '.ath', 'TASKS.md');
     if (
       existsSync(tasksPath)
@@ -573,10 +597,25 @@ export function ensureTasksMdProjection(
 export function readTasksMdForProjectionOwner(
   projectPath: string,
   conversationId: string,
-): { tasks: ParsedTask[]; blockers: ParsedBlocker[] } | undefined {
-  return withTasksMdProjectionLock(projectPath, () => {
-    if (!canSyncTasksMdProjection(projectPath, conversationId)) return undefined;
-    return readTasksMd(projectPath);
+  options: { allowClaiming?: boolean } = {},
+): { tasks: ParsedTask[]; blockers: ParsedBlocker[]; rawContent: string } | undefined {
+  return withTasksMdProjectionTransaction(projectPath, () => {
+    const owner = readTasksMdProjectionOwnerRecord(projectPath);
+    const canRead = !owner || (
+      'conversationId' in owner
+      && owner.conversationId === conversationId
+      && (
+        owner.state === 'owned'
+        || (options.allowClaiming === true && owner.state === 'claiming')
+      )
+    );
+    if (!canRead) return undefined;
+    const filePath = join(projectPath, '.ath', 'TASKS.md');
+    const projection = readTasksMd(projectPath);
+    return {
+      ...projection,
+      rawContent: existsSync(filePath) ? readFileSync(filePath, 'utf-8') : '',
+    };
   });
 }
 
@@ -586,7 +625,7 @@ export function writeOwnedTasksMd(
   tasks: ParsedTask[],
   blockers?: ParsedBlocker[],
 ): boolean {
-  return withTasksMdProjectionLock(projectPath, () => {
+  return withTasksMdProjectionTransaction(projectPath, () => {
     if (!canSyncTasksMdProjection(projectPath, conversationId)) return false;
     writeTasksMd(projectPath, tasks, blockers);
     return true;
@@ -598,7 +637,7 @@ export function appendTaskToOwnedTasksMd(
   conversationId: string,
   task: ParsedTask,
 ): boolean {
-  return withTasksMdProjectionLock(projectPath, () => {
+  return withTasksMdProjectionTransaction(projectPath, () => {
     if (!canSyncTasksMdProjection(projectPath, conversationId)) return false;
     const { tasks, blockers } = readTasksMd(projectPath);
     const existingIndex = tasks.findIndex((candidate) => candidate.id === task.id);
@@ -615,7 +654,7 @@ export function updateTaskInMd(
   taskId: string,
   updates: Partial<Pick<ParsedTask, 'status' | 'agent' | 'deliverable'>>,
 ): boolean {
-  return withTasksMdProjectionLock(projectPath, () => {
+  return withTasksMdProjectionTransaction(projectPath, () => {
     if (!canSyncTasksMdProjection(projectPath, conversationId)) return false;
     const { tasks, blockers } = readTasksMd(projectPath);
     const idx = tasks.findIndex((t) => t.id === taskId);
@@ -632,7 +671,7 @@ export function restoreTaskInMdProjection(
   localTaskId: string,
   row: TaskProjectionSource,
 ): boolean {
-  return withTasksMdProjectionLock(projectPath, () => {
+  return withTasksMdProjectionTransaction(projectPath, () => {
     if (!canSyncTasksMdProjection(projectPath, conversationId)) return false;
     const { tasks, blockers } = readTasksMd(projectPath);
     const idx = tasks.findIndex((task) => task.id === localTaskId);
@@ -655,7 +694,7 @@ export function initProjectDir(projectPath: string, meta: ProjectMeta): void {
   mkdirSync(dir, { recursive: true });
 
   if (!existsSync(join(dir, 'TASKS.md'))) {
-    writeFileSync(join(dir, 'TASKS.md'), formatTasksMd([]), 'utf-8');
+    writeTextAtomically(join(dir, 'TASKS.md'), formatTasksMd([]));
   }
 
   if (!existsSync(join(dir, 'PROJECT.md'))) {

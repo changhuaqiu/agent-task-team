@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { createTestDb, resetDb, setTestDb } from '@/server/db/index';
@@ -11,7 +11,12 @@ import { taskRepo } from '@/server/repositories/task-repo';
 import { invocationRepo } from '@/server/repositories/invocation-repo';
 import { proofLogRepo } from '@/server/repositories/proof-log-repo';
 import { taskGraphRepo } from '@/server/repositories/task-graph-repo';
-import { ensureTasksMdProjection, readTasksMd } from '@/server/task-file-service';
+import {
+  beginTasksMdProjectionClaim,
+  ensureTasksMdProjection,
+  readTasksMd,
+  readTasksMdProjectionOwner,
+} from '@/server/task-file-service';
 import { startTaskWatcher, syncTasksToDb } from '@/server/task-file-watcher';
 import { WorkContractRepository } from '@/server/work-contract/repository';
 import type { Server as IOServer } from 'socket.io';
@@ -160,6 +165,36 @@ describe('syncTasksToDb', () => {
     ]);
   });
 
+  it('keeps legacy bytes recoverable until imported Tasks commit, then publishes owned', () => {
+    writeTasksMd('todo', 'legacy-task.md');
+    const tasksPath = join(projectPath, '.ath', 'TASKS.md');
+    const legacyContent = `${readFileSync(tasksPath, 'utf-8')}\n<!-- crash-recovery marker -->\n`;
+    writeFileSync(tasksPath, legacyContent, 'utf-8');
+    const emit = vi.fn();
+    const io = { to: vi.fn(() => ({ emit })), emit: vi.fn() };
+
+    expect(beginTasksMdProjectionClaim(projectPath, 'conv-1')).toBe('claiming');
+    expect(readTasksMdProjectionOwner(projectPath)).toBeUndefined();
+    expect(readFileSync(tasksPath, 'utf-8')).toBe(legacyContent);
+    expect(() => beginTasksMdProjectionClaim(projectPath, 'conv-other'))
+      .toThrow('tasks_projection_claimed_by_other_conversation');
+
+    syncTasksToDb(projectPath, 'conv-1', io as unknown as IOServer, {
+      allowClaimingProjection: true,
+      throwOnError: true,
+      skipForeignTaskCollisions: true,
+    });
+    expect(taskRepo.getById('TASK-003')).toMatchObject({ conversation_id: 'conv-1' });
+    expect(readTasksMdProjectionOwner(projectPath)).toBeUndefined();
+    expect(readFileSync(tasksPath, 'utf-8')).toBe(legacyContent);
+
+    ensureTasksMdProjection(projectPath, 'conv-1', taskRepo.getByConversation('conv-1'));
+    expect(readTasksMdProjectionOwner(projectPath)).toBe('conv-1');
+    expect(readTasksMd(projectPath).tasks).toEqual([
+      expect.objectContaining({ id: 'TASK-003', deliverable: 'legacy-task.md' }),
+    ]);
+  });
+
   it('does not adopt a legacy task id already owned by another Conversation', () => {
     conversationRepo.create({ id: 'conv-other', title: 'Other delivery' });
     taskRepo.create({
@@ -169,6 +204,12 @@ describe('syncTasksToDb', () => {
       agent_id: 'mario',
     });
     writeTasksMd('doing', 'foreign.md');
+    const legacyTasksPath = join(projectPath, '.ath', 'TASKS.md');
+    writeFileSync(
+      legacyTasksPath,
+      `${readFileSync(legacyTasksPath, 'utf-8')}\n<!-- preserve legacy operator note -->\n`,
+      'utf-8',
+    );
     const emit = vi.fn();
     const io = { to: vi.fn(() => ({ emit })), emit: vi.fn() };
 
@@ -184,6 +225,12 @@ describe('syncTasksToDb', () => {
       status: 'ready',
     });
     expect(readTasksMd(projectPath).tasks).toEqual([]);
+    const legacyArchive = readdirSync(join(projectPath, '.ath'))
+      .find((name) => name.startsWith('TASKS.legacy-conflict.conv-1.'));
+    expect(legacyArchive).toBeTruthy();
+    const archivedContent = readFileSync(join(projectPath, '.ath', legacyArchive!), 'utf-8');
+    expect(archivedContent).toContain('TASK-003');
+    expect(archivedContent).toContain('preserve legacy operator note');
     expect(emit).toHaveBeenCalledWith('task.sync_error', expect.objectContaining({
       reasonCode: 'task_graph.legacy_projection_foreign_task_skipped',
     }));
@@ -280,6 +327,48 @@ describe('syncTasksToDb', () => {
       reasonCode: 'task_graph.owned_projection_unknown_task',
     }));
   });
+
+  it('restores every authoritative row when an owned projection is emptied', () => {
+    taskRepo.create({
+      id: 'TASK-AUTH', conversation_id: 'conv-1', title: 'Authoritative task', agent_id: 'mario',
+    });
+    ensureTasksMdProjection(projectPath, 'conv-1', taskRepo.getByConversation('conv-1'));
+    writeFileSync(join(projectPath, '.ath', 'TASKS.md'), `# 任务看板
+
+| ID | Title | Phase | Role | Agent | Status | Depends | Deliverable |
+|----|-------|-------|------|-------|--------|---------|-------------|
+`, 'utf-8');
+    const emit = vi.fn();
+    const io = { to: vi.fn(() => ({ emit })), emit: vi.fn() };
+
+    syncTasksToDb(projectPath, 'conv-1', io as unknown as IOServer);
+
+    expect(readTasksMd(projectPath).tasks).toEqual([
+      expect.objectContaining({ id: 'TASK-AUTH', title: 'Authoritative task' }),
+    ]);
+  });
+
+  it('restores an owned projection after TASKS.md is deleted', async () => {
+    taskRepo.create({
+      id: 'TASK-AUTH', conversation_id: 'conv-1', title: 'Authoritative task', agent_id: 'mario',
+    });
+    ensureTasksMdProjection(projectPath, 'conv-1', taskRepo.getByConversation('conv-1'));
+    const emit = vi.fn();
+    const io = { to: vi.fn(() => ({ emit })), emit: vi.fn() };
+    watchTasks('conv-1', io as unknown as IOServer);
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    const tasksPath = join(projectPath, '.ath', 'TASKS.md');
+    rmSync(tasksPath);
+    const deadline = Date.now() + 5_000;
+    while (!existsSync(tasksPath) && Date.now() < deadline) {
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+
+    expect(readTasksMd(projectPath).tasks).toEqual([
+      expect.objectContaining({ id: 'TASK-AUTH', title: 'Authoritative task' }),
+    ]);
+  }, 10_000);
 
   it('keeps WorkContract-managed status authoritative over a stale TASKS.md row', () => {
     taskRepo.create({

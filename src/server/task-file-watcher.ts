@@ -1,13 +1,16 @@
 import { watch } from 'chokidar';
 import type { FSWatcher } from 'chokidar';
-import { existsSync, readFileSync, realpathSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
+  canonicalTasksProjectionPath,
   canSyncTasksMdProjection,
+  quarantineLegacyTasksMdProjection,
   readTasksMdForProjectionOwner,
   readTasksMdProjectionOwner,
   restoreTaskInMdProjection,
   updateTaskInMd,
+  withTasksMdProjectionTransaction,
   writeOwnedTasksMd,
 } from './task-file-service';
 import { canTransitionTask, taskRepo } from './repositories/task-repo';
@@ -29,13 +32,7 @@ const watchers = new Map<string, { conversationId: string; watcher: FSWatcher }>
 const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 function watcherKey(projectPath: string): string {
-  let resolved = resolve(projectPath);
-  try {
-    resolved = realpathSync.native(resolved);
-  } catch {
-    // The watcher can be registered before the runtime directory exists.
-  }
-  return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+  return canonicalTasksProjectionPath(projectPath);
 }
 
 function normalizeDependencyList(value: string | null | undefined): string {
@@ -257,6 +254,7 @@ export function startTaskWatcher(
   // Both a pre-existing file and the normal first-run creation are `add`.
   watcher.on('add', scheduleSync);
   watcher.on('change', scheduleSync);
+  watcher.on('unlink', scheduleSync);
 
   watchers.set(key, { conversationId, watcher });
 
@@ -280,17 +278,47 @@ export function syncTasksToDb(
   conversationId: string,
   io: IOServer,
   options: {
+    allowClaimingProjection?: boolean;
     throwOnError?: boolean;
     skipForeignTaskCollisions?: boolean;
   } = {},
+): void {
+  withTasksMdProjectionTransaction(projectPath, () => {
+    syncTasksToDbWithinProjectionTransaction(projectPath, conversationId, io, options);
+  });
+}
+
+function syncTasksToDbWithinProjectionTransaction(
+  projectPath: string,
+  conversationId: string,
+  io: IOServer,
+  options: {
+    allowClaimingProjection?: boolean;
+    throwOnError?: boolean;
+    skipForeignTaskCollisions?: boolean;
+  },
 ): void {
   const tasksFile = join(projectPath, '.ath', 'TASKS.md');
   const failures: Error[] = [];
   const projectionOwner = readTasksMdProjectionOwner(projectPath);
 
-  const snapshot = readTasksMdForProjectionOwner(projectPath, conversationId);
+  const snapshot = readTasksMdForProjectionOwner(projectPath, conversationId, {
+    allowClaiming: options.allowClaimingProjection,
+  });
   if (!snapshot) return;
-  const { tasks: parsedTasks, blockers } = snapshot;
+  const { tasks: parsedTasks, blockers, rawContent } = snapshot;
+  const foreignLegacyTasks = options.skipForeignTaskCollisions
+    ? parsedTasks.filter((task) => {
+        const existing = taskRepo.getById(task.id);
+        return Boolean(existing && existing.conversation_id !== conversationId);
+      })
+    : [];
+  const legacyArchivePath = foreignLegacyTasks.length > 0
+    ? quarantineLegacyTasksMdProjection(projectPath, conversationId, rawContent)
+    : undefined;
+  if (foreignLegacyTasks.length > 0 && !legacyArchivePath) {
+    throw new Error('task_projection_owner_changed_during_legacy_quarantine');
+  }
   const legacyFilteredTasks = options.skipForeignTaskCollisions
     ? parsedTasks.filter((task) => {
         const existing = taskRepo.getById(task.id);
@@ -305,6 +333,7 @@ export function syncTasksToDb(
           metadata: {
             source: 'TASKS.md',
             foreignConversationId: existing.conversation_id,
+            legacyArchivePath,
           },
         });
         io.to(conversationId).emit('task.sync_error', {
@@ -313,7 +342,7 @@ export function syncTasksToDb(
           conversationId,
           taskId: task.id,
           reasonCode,
-          message: `历史 TASKS.md 中的 ${task.id} 已归属其他交付，接管时未重复导入。`,
+          message: `历史 TASKS.md 中的 ${task.id} 与其他交付重名，未自动导入；原始看板已隔离到 ${legacyArchivePath}，需要时请通过 task_create 显式采用。`,
         });
         return false;
       })
@@ -370,7 +399,7 @@ export function syncTasksToDb(
         });
       }
     }
-    if (blockers.length === 0) return;
+    if (blockers.length === 0 && !projectionMembershipDrift) return;
   }
   if (parsed.length === 0 && blockers.length === 0 && !projectionMembershipDrift) return;
 

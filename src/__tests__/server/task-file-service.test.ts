@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, rmSync, existsSync, utimesSync, writeFileSync } from 'fs';
+import { mkdirSync, rmSync, existsSync, writeFileSync } from 'fs';
 import { join } from 'path';
+import { createTestDb, resetDb, setTestDb } from '@/server/db';
 import {
   parseTasksMd,
   formatTasksMd,
@@ -16,8 +17,18 @@ import {
 
 const TMP = join(__dirname, '__tmp_task_file_service__');
 
-beforeEach(() => { mkdirSync(TMP, { recursive: true }); });
-afterEach(() => { rmSync(TMP, { recursive: true, force: true }); });
+let testDb: ReturnType<typeof createTestDb>;
+
+beforeEach(() => {
+  testDb = createTestDb();
+  setTestDb(testDb);
+  mkdirSync(TMP, { recursive: true });
+});
+afterEach(() => {
+  rmSync(TMP, { recursive: true, force: true });
+  testDb.close();
+  resetDb();
+});
 
 describe('ensureTasksMdProjection', () => {
   it('materializes current Task Graph rows into the runtime worktree once', () => {
@@ -62,6 +73,17 @@ describe('ensureTasksMdProjection', () => {
     expect(readTasksMd(TMP).tasks.map((task) => task.id)).toEqual(['TASK-RECOVERED']);
   });
 
+  it('fails closed for an unknown owner state', () => {
+    mkdirSync(join(TMP, '.ath'), { recursive: true });
+    writeFileSync(join(TMP, '.ath', 'TASKS.owner.json'), JSON.stringify({
+      conversationId: 'conv-1',
+      state: 'owend',
+    }), 'utf-8');
+
+    expect(canSyncTasksMdProjection(TMP, 'conv-1')).toBe(false);
+    expect(readTasksMdProjectionOwner(TMP)).toBeUndefined();
+  });
+
   it('rejects a stale Conversation writer after ownership transfers', () => {
     ensureTasksMdProjection(TMP, 'conv-old', [{
       id: 'TASK-SHARED', title: 'Old delivery', status: 'ready', agent_id: 'mario', dependencies: null,
@@ -78,19 +100,6 @@ describe('ensureTasksMdProjection', () => {
     });
   });
 
-  it('recovers a lock abandoned by a crashed projection writer', () => {
-    const lockPath = join(TMP, '.ath', 'TASKS.projection.lock');
-    mkdirSync(join(TMP, '.ath'), { recursive: true });
-    writeFileSync(lockPath, JSON.stringify({ ownerToken: 'dead-writer' }), 'utf-8');
-    const staleAt = new Date(Date.now() - 61_000);
-    utimesSync(lockPath, staleAt, staleAt);
-
-    expect(ensureTasksMdProjection(TMP, 'conv-recovered', [{
-      id: 'TASK-AFTER-CRASH', title: 'Continue safely', status: 'ready', agent_id: 'luigi', dependencies: null,
-    }])).toBe(true);
-    expect(existsSync(lockPath)).toBe(false);
-    expect(readTasksMdProjectionOwner(TMP)).toBe('conv-recovered');
-  });
 });
 
 describe('parseTasksMd', () => {

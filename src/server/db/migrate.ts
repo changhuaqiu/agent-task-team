@@ -3794,6 +3794,16 @@ CREATE INDEX IF NOT EXISTS idx_task_command_rejection_receipt_task
       `);
     },
   },
+  {
+    version: 84,
+    sql: `
+      CREATE TABLE IF NOT EXISTS task_projection_mutex (
+        project_path TEXT PRIMARY KEY,
+        revision INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL
+      );
+    `,
+  },
 ];
 
 export function applyMigrations(db: Database.Database): void {

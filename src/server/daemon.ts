@@ -9,7 +9,10 @@ import { readCredential } from './credentials';
 import { buildProbeEnv } from './cli-probe';
 import { generateRuntimeConfig, cleanupRuntimeConfig, makeInvocationId } from './opencode-config';
 import { startTaskWatcher, syncTasksToDb } from './task-file-watcher';
-import { ensureTasksMdProjection, readTasksMdProjectionOwner } from './task-file-service';
+import {
+  beginTasksMdProjectionClaim,
+  ensureTasksMdProjection,
+} from './task-file-service';
 import type { DetectedRuntime } from './types';
 import type { RuntimeCliEngine } from '@/lib/team-runtime/runtimeEngine';
 import { resolveRuntimeSelection } from './runtime-selection';
@@ -1074,17 +1077,30 @@ export default function registerDaemon(io: IOServer) {
           workDir: taskProjectDir,
         });
       }
-      let projectedTasks = evaluation
-        ? taskRepo.getByConversation(sessionConvId).filter((item) => item.id === taskId)
-        : taskRepo.getByConversation(sessionConvId);
-      if (!evaluation && !readTasksMdProjectionOwner(taskProjectDir)) {
-        syncTasksToDb(taskProjectDir, sessionConvId, io, {
-          throwOnError: true,
-          skipForeignTaskCollisions: true,
-        });
-        projectedTasks = taskRepo.getByConversation(sessionConvId);
+      if (evaluation) {
+        ensureTasksMdProjection(
+          taskProjectDir,
+          sessionConvId,
+          taskRepo.getByConversation(sessionConvId).filter((item) => item.id === taskId),
+        );
+      } else {
+        const claimState = beginTasksMdProjectionClaim(taskProjectDir, sessionConvId);
+        if (claimState === 'claiming') {
+          // The claiming marker commits before legacy import. A crash leaves the
+          // original file recoverable, and the next daemon resumes this phase.
+          syncTasksToDb(taskProjectDir, sessionConvId, io, {
+            allowClaimingProjection: true,
+            throwOnError: true,
+            skipForeignTaskCollisions: true,
+          });
+        }
+        // This transaction starts only after legacy Task import committed.
+        ensureTasksMdProjection(
+          taskProjectDir,
+          sessionConvId,
+          taskRepo.getByConversation(sessionConvId),
+        );
       }
-      ensureTasksMdProjection(taskProjectDir, sessionConvId, projectedTasks);
       if (!evaluation) startTaskWatcher(taskProjectDir, sessionConvId, io);
       if (evaluation && effectiveSlug) {
         const { WorktreeManager } = await import('./worktree-manager');
