@@ -96,6 +96,7 @@ updated: 2026-08-18
 - 真实自主交付完成 Task Review 和 Delivery Review 后，自动进入 Acceptance Verification；由于目标要求 Web UI E2E、而浏览器权限被拒绝，系统稳定停在 `waiting_human`，没有重复启动 evaluator 或伪造验收回执。自主控制面 14 个测试文件 94/94 通过。
 - 续作检查点的接纳、快照投影、独立预算、继续派发、新轮次提示、A2A 交接与四出口协作协议已覆盖执行、Task 评审、Delivery 评审和验收验证；Gate 续作的新轮次同时收到上一轮摘要、精确下一动作、剩余步骤、证据、Gate id 与 receipt 约束。同一 WorkContract 的第二个续作检查点会被拒绝，排队中的续作计入并发容量，避免状态播报或 reconcile 形成无界循环。最终全量回归 1609 通过、2 跳过。
 - Agent 把同一步并行交给多个角色后，平台会等待全部分支终结并只回调原负责人一次；回调携带 complete/partial 分支摘要和精确 outcome 证据，不复制分支聊天，也不会因一支失败丢掉其他成功结果。并行宽度限制为 3，越界 handoff 在 Outcome 接纳事务内拒绝且不占用终态槽；取消或替换协作时，平台会取消 pending 回调、关闭已签发权限，并在派发和结果接纳两端拒绝旧 Possession revision。A2A、Inbox、WorkContract、Invocation Pipeline、ContextManager 相关回归 276/276 通过。
+- 多个交付复用同一项目目录时，`TASKS.md` 现在只归当前 Conversation 的 Task Graph 所有；新交付会先重建自己的投影并关闭旧 watcher。Task 一旦进入 WorkContract，文件中的状态、owner、标题、交付物和依赖全部只读，不能再把评审中或阻塞中的工作拉回执行。真实故障曾让同一成果产生重复父子任务、32 个执行 epoch 和 59 次 Task revision；对应接管与 revision 保护回归已覆盖，修复后的 3000 页面可正常加载且无控制台错误。
 - 在真实 3000 页面复核已完成交付：页面显示 100% 验收，历史中 2 条超长 Agent 回复进入渐进展开，11 个已完成 Trace 在收起态直接显示工具调用，浏览器控制台无应用错误。
 
 ### 仍然保留的边界
@@ -105,6 +106,7 @@ updated: 2026-08-18
 领域 API，而非全部统一到 `HumanCommandGateway`。Daemon 已删除浏览器启动/强杀旁路，但更细的进程生命周期模块拆分、
 重启恢复仍按活动规格继续验收；当前发布只接通本地单 daemon，非本地节点会明确拒绝，远端 transport 尚未实现。
 当前续作由 Agent 在退出前显式提交检查点；基于上下文占用、运行时长和产出规模自动触发检查点仍属于后续能力。
+历史上已经导入的影子 Task 保留审计事实，不由升级代码静默删除；修复阻止新影子工作和继续回滚，已有记录仍需通过正式取消/收口命令处理。
 
 ### 设计与实现依据
 

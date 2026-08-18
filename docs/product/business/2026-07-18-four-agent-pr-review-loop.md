@@ -26,6 +26,9 @@
 - DK 是按风险触发的架构 gate，不是每个 task 的固定中转；
 - Luigi 对实现和 PR 完整性负责；
 - Peach 是唯一默认质量 gate owner，负责代码评审与集成测试；
+- 一个交付只允许存在一张权威 Task Graph。共享工作目录中的 `TASKS.md` 是当前会话的兼容投影，不能把旧会话任务再次导入为“影子任务”；
+- 角色是否参与由当前 WorkContract / QualityGate 决定，而不是因为角色出现在团队列表或聊天里。Mario、Luigi、Peach、DK 没有当前责任时保持静默；
+- 评审结论必须绑定被评审 Task 的精确 revision。进入 WorkContract 后，文件投影不能把 `in_review`、`blocked` 或其他权威状态改回执行态，避免实现者和评审者在同一份成果上重复接力；
 - 用户默认保留 merge 权限，后续可以显式授予团队协调者。
 
 当 PR 新增提交时，聊天不会覆盖旧评审，而是明确显示“需要重审”；只有当前版本零 blocker 的真实评审、授权合并和 main 复验都完成后，Mario 才能发布合并闭环卡并关闭任务。

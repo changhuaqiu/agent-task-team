@@ -32,6 +32,8 @@
 - [x] `record_gate_decision` admission transaction rejects informal verdict aliases, missing evidence, Gate ids whose Task/Delivery target does not match the WorkContract, and invalid Delivery review/verification receipts before the outcome can be recorded as accepted; a rejected attempt does not consume the terminal outcome slot.
 - [x] Repeated review cycles for the same Task/reviewer use distinct Gate-scoped Work identities, remain schedulable across implementer metadata changes, deduplicate pending Inbox work, and restart without human input unless the evaluator records an explicit human blocker.
 - [x] An accepted `continue_work` checkpoint from execution, Task review, Delivery review, or acceptance verification becomes a dedicated bounded continuation, carries the exact next action into a fresh WorkContract epoch, never consumes the Invocation failure budget, and a WorkContract cannot admit a second continuation checkpoint; queued continuations reserve durable capacity, while legacy unversioned rows retain retry compatibility.
+- [x] A shared runtime directory has one Conversation-owned `TASKS.md` projection; takeover rebuilds it from the new Conversation Task Graph, stale watchers stop syncing, and old task rows cannot become shadow work in a new Delivery.
+- [x] A Task with WorkContract history rejects every file-originated business-field mutation, restores its authoritative projection, and preserves the Task revision frozen by an active QualityGate.
 
 ## Policy
 

@@ -37,6 +37,7 @@ export interface TaskProjectionSource {
   status: TaskStatus;
   agent_id: string;
   dependencies: string | null;
+  description?: string | null;
 }
 
 const STATUS_MAP: Record<string, TaskStatus> = {
@@ -69,6 +70,34 @@ const STATUS_REVERSE: Record<TaskStatus, string> = {
   blocked: 'blocked',
   cancelled: 'cancelled',
 };
+
+const TASKS_PROJECTION_OWNER_FILE = 'TASKS.owner.json';
+
+function tasksProjectionOwnerPath(projectPath: string): string {
+  return join(projectPath, '.ath', TASKS_PROJECTION_OWNER_FILE);
+}
+
+export function readTasksMdProjectionOwner(projectPath: string): string | undefined {
+  const filePath = tasksProjectionOwnerPath(projectPath);
+  if (!existsSync(filePath)) return undefined;
+  try {
+    const parsed = JSON.parse(readFileSync(filePath, 'utf-8')) as Record<string, unknown>;
+    return typeof parsed.conversationId === 'string' && parsed.conversationId.trim()
+      ? parsed.conversationId.trim()
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function writeTasksMdProjectionOwner(projectPath: string, conversationId: string): void {
+  const dir = join(projectPath, '.ath');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(tasksProjectionOwnerPath(projectPath), JSON.stringify({
+    conversationId,
+    claimedAt: new Date().toISOString(),
+  }, null, 2), 'utf-8');
+}
 
 export function parseTasksMd(content: string): ParsedTask[] {
   const lines = content.split('\n');
@@ -406,9 +435,21 @@ function projectionDependencies(value: string | null): string[] {
   }
 }
 
-/** Materialize the compatibility task entry once without overwriting runtime edits. */
-export function ensureTasksMdProjection(projectPath: string, rows: TaskProjectionSource[]): boolean {
-  if (existsSync(join(projectPath, '.ath', 'TASKS.md'))) return false;
+/**
+ * Claim the runtime directory for one Conversation and materialize its
+ * authoritative Task Graph. A different or legacy owner is replaced before a
+ * watcher can import stale rows into the new Conversation.
+ */
+export function ensureTasksMdProjection(
+  projectPath: string,
+  conversationId: string,
+  rows: TaskProjectionSource[],
+): boolean {
+  const tasksPath = join(projectPath, '.ath', 'TASKS.md');
+  if (
+    existsSync(tasksPath)
+    && readTasksMdProjectionOwner(projectPath) === conversationId
+  ) return false;
   writeTasksMd(projectPath, rows.map((row) => ({
     id: row.id,
     title: row.title,
@@ -417,8 +458,9 @@ export function ensureTasksMdProjection(projectPath: string, rows: TaskProjectio
     agent: row.agent_id,
     status: row.status,
     depends: projectionDependencies(row.dependencies),
-    deliverable: '',
+    deliverable: row.description ?? '',
   })));
+  writeTasksMdProjectionOwner(projectPath, conversationId);
   return true;
 }
 
@@ -427,6 +469,26 @@ export function updateTaskInMd(projectPath: string, taskId: string, updates: Par
   const idx = tasks.findIndex((t) => t.id === taskId);
   if (idx === -1) return false;
   Object.assign(tasks[idx], updates);
+  writeTasksMd(projectPath, tasks, blockers);
+  return true;
+}
+
+export function restoreTaskInMdProjection(
+  projectPath: string,
+  localTaskId: string,
+  row: TaskProjectionSource,
+): boolean {
+  const { tasks, blockers } = readTasksMd(projectPath);
+  const idx = tasks.findIndex((task) => task.id === localTaskId);
+  if (idx === -1) return false;
+  tasks[idx] = {
+    ...tasks[idx],
+    title: row.title,
+    agent: row.agent_id,
+    status: row.status,
+    depends: projectionDependencies(row.dependencies),
+    deliverable: row.description ?? '',
+  };
   writeTasksMd(projectPath, tasks, blockers);
   return true;
 }

@@ -9,6 +9,7 @@ import {
   readTasksMd,
   initProjectDir,
   ensureTasksMdProjection,
+  readTasksMdProjectionOwner,
 } from '@/server/task-file-service';
 
 const TMP = join(__dirname, '__tmp_task_file_service__');
@@ -18,7 +19,7 @@ afterEach(() => { rmSync(TMP, { recursive: true, force: true }); });
 
 describe('ensureTasksMdProjection', () => {
   it('materializes current Task Graph rows into the runtime worktree once', () => {
-    expect(ensureTasksMdProjection(TMP, [{
+    expect(ensureTasksMdProjection(TMP, 'conv-1', [{
       id: 'TASK-PR', title: 'Review PR evidence', status: 'in_review', agent_id: 'peach',
       dependencies: JSON.stringify(['TASK-BASE']),
     }])).toBe(true);
@@ -26,10 +27,24 @@ describe('ensureTasksMdProjection', () => {
     expect(readTasksMd(TMP).tasks).toEqual([expect.objectContaining({
       id: 'TASK-PR', status: 'in_review', agent: 'peach', depends: ['TASK-BASE'],
     })]);
-    expect(ensureTasksMdProjection(TMP, [{
+    expect(readTasksMdProjectionOwner(TMP)).toBe('conv-1');
+    expect(ensureTasksMdProjection(TMP, 'conv-1', [{
       id: 'TASK-NEW', title: 'Do not overwrite', status: 'ready', agent_id: 'luigi', dependencies: null,
     }])).toBe(false);
     expect(readTasksMd(TMP).tasks.map((task) => task.id)).toEqual(['TASK-PR']);
+  });
+
+  it('rebuilds a shared runtime projection when a new Conversation takes ownership', () => {
+    ensureTasksMdProjection(TMP, 'conv-old', [{
+      id: 'TASK-OLD', title: 'Old delivery', status: 'in_progress', agent_id: 'mario', dependencies: null,
+    }]);
+
+    expect(ensureTasksMdProjection(TMP, 'conv-new', [{
+      id: 'TASK-NEW', title: 'New delivery', status: 'ready', agent_id: 'mario', dependencies: null,
+    }])).toBe(true);
+
+    expect(readTasksMdProjectionOwner(TMP)).toBe('conv-new');
+    expect(readTasksMd(TMP).tasks.map((task) => task.id)).toEqual(['TASK-NEW']);
   });
 });
 

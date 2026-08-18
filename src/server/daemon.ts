@@ -1077,7 +1077,7 @@ export default function registerDaemon(io: IOServer) {
       const projectedTasks = evaluation
         ? taskRepo.getByConversation(sessionConvId).filter((item) => item.id === taskId)
         : taskRepo.getByConversation(sessionConvId);
-      ensureTasksMdProjection(taskProjectDir, projectedTasks);
+      ensureTasksMdProjection(taskProjectDir, sessionConvId, projectedTasks);
       if (!evaluation) startTaskWatcher(taskProjectDir, sessionConvId, io);
       if (evaluation && effectiveSlug) {
         const { WorktreeManager } = await import('./worktree-manager');

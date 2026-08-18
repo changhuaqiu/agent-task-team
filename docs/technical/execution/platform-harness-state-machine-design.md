@@ -304,6 +304,15 @@ TASKS.md 仍可解析 `todo / doing / review` 等展示词，但它们只会被�
 Command 请求 owner 迁移。非法跳转会产生 `task.sync_error`、恢复文件中的权威状态，不能
 修改数据库事实。
 
+文件投影还必须服从两条协作隔离规则：
+
+1. 同一运行目录在任一时刻只归一个 Conversation 的 Task Graph 投影所有。新 Conversation
+   接管共享目录时，必须先以自己的权威 Task Graph 重建 `TASKS.md`，旧会话任务不得通过
+   watcher 再次导入；旧 watcher 失去所有权后不得继续同步。
+2. Task 一旦进入 WorkContract 管理，`TASKS.md` 对该 Task 的状态、owner、标题、交付物和依赖
+   字段永久退化为只读投影。文件里的陈旧值不能推进或回滚 Task revision；watcher 必须恢复
+   当前权威字段并留下可诊断 receipt。这样 QualityGate 的 artifactRevision 不会被文件竞态打穿。
+
 ### 5.2 Invocation 状态机的已落地边界
 
 Invocation owner 已将“执行生命周期”和“执行结果”拆开：

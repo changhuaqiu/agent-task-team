@@ -2,9 +2,14 @@ import { watch } from 'chokidar';
 import type { FSWatcher } from 'chokidar';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { readTasksMd, updateTaskInMd } from './task-file-service';
+import {
+  readTasksMd,
+  readTasksMdProjectionOwner,
+  restoreTaskInMdProjection,
+  updateTaskInMd,
+} from './task-file-service';
 import { canTransitionTask, taskRepo } from './repositories/task-repo';
-import type { TaskPatch, TaskStatus } from './repositories/task-repo';
+import type { TaskPatch, TaskRow, TaskStatus } from './repositories/task-repo';
 import {
   stableTaskCommandKey,
   taskCommandService,
@@ -15,13 +20,14 @@ import { proofLogRepo } from './repositories/proof-log-repo';
 import { taskGraphRepo } from './repositories/task-graph-repo';
 import { hasCurrentVerifiedMerge } from './task-flow/task-gate-evidence';
 import { publishTaskChangeNotification } from './task-flow/task-notification-publisher';
+import { getDb } from './db';
 import type { Server as IOServer } from 'socket.io';
 
-const watchers = new Map<string, FSWatcher>();
+const watchers = new Map<string, { conversationId: string; watcher: FSWatcher }>();
 const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
-function watcherKey(projectPath: string, conversationId: string): string {
-  return `${conversationId}\0${resolve(projectPath)}`;
+function watcherKey(projectPath: string): string {
+  return resolve(projectPath);
 }
 
 function normalizeDependencyList(value: string | null | undefined): string {
@@ -58,6 +64,10 @@ function hasActiveTaskInvocation(conversationId: string, taskId: string, agentId
     && invocation.agent_id === agentId
     && invocation.status !== 'terminated'
   ));
+}
+
+function hasWorkContractHistory(taskId: string): boolean {
+  return Boolean(getDb().prepare('SELECT 1 FROM work_contract WHERE task_id=? LIMIT 1').get(taskId));
 }
 
 function isProtectedProjectionTransition(conversationId: string, nextStatus: string): boolean {
@@ -143,13 +153,57 @@ function rejectInvalidProjectionTransition(input: {
   updateTaskInMd(input.projectPath, input.localTaskId, { status: input.authoritativeStatus });
 }
 
+function rejectManagedProjectionTransition(input: {
+  projectPath: string;
+  conversationId: string;
+  localTaskId: string;
+  storageTaskId: string;
+  attemptedStatus: TaskStatus;
+  authoritativeTask: TaskRow;
+  io: IOServer;
+}): void {
+  const reasonCode = 'task_graph.file_projection_managed_work';
+  proofLogRepo.append({
+    eventType: 'task_graph.transition.blocked',
+    conversationId: input.conversationId,
+    taskId: input.storageTaskId,
+    actorId: 'task-file-watcher',
+    reasonCode,
+    metadata: {
+      attemptedStatus: input.attemptedStatus,
+      authoritativeStatus: input.authoritativeTask.status,
+      source: 'TASKS.md',
+      authority: 'work_contract',
+    },
+  });
+  input.io.to(input.conversationId).emit('task.sync_error', {
+    projectId: input.conversationId,
+    projectPath: input.projectPath,
+    conversationId: input.conversationId,
+    taskId: input.storageTaskId,
+    reasonCode,
+    message: `Task ${input.localTaskId} 已由 WorkContract 管理；TASKS.md 仅作只读投影，权威任务字段已恢复。`,
+  });
+  restoreTaskInMdProjection(input.projectPath, input.localTaskId, input.authoritativeTask);
+}
+
 export function startTaskWatcher(
   projectPath: string,
   conversationId: string,
   io: IOServer,
 ): () => void {
-  const key = watcherKey(projectPath, conversationId);
-  if (watchers.has(key)) return () => undefined;
+  const key = watcherKey(projectPath);
+  const existing = watchers.get(key);
+  if (existing?.conversationId === conversationId) return () => undefined;
+  if (existing) {
+    void existing.watcher.close();
+    watchers.delete(key);
+    const existingTimer = debounceTimers.get(key);
+    if (existingTimer) {
+      clearTimeout(existingTimer);
+      debounceTimers.delete(key);
+    }
+  }
 
   const tasksFile = `${projectPath}/.ath/TASKS.md`;
   const watcher = watch(tasksFile, {
@@ -164,7 +218,10 @@ export function startTaskWatcher(
     if (debounceTimers.has(key)) clearTimeout(debounceTimers.get(key)!);
     debounceTimers.set(key, setTimeout(() => {
       debounceTimers.delete(key);
-      syncTasksToDb(projectPath, conversationId, io);
+      const projectionOwner = readTasksMdProjectionOwner(projectPath);
+      if (!projectionOwner || projectionOwner === conversationId) {
+        syncTasksToDb(projectPath, conversationId, io);
+      }
     }, 500));
   };
 
@@ -172,13 +229,13 @@ export function startTaskWatcher(
   watcher.on('add', scheduleSync);
   watcher.on('change', scheduleSync);
 
-  watchers.set(key, watcher);
+  watchers.set(key, { conversationId, watcher });
 
   let cleaned = false;
   return () => {
     if (cleaned) return;
     cleaned = true;
-    if (watchers.get(key) !== watcher) return;
+    if (watchers.get(key)?.watcher !== watcher) return;
     void watcher.close();
     watchers.delete(key);
     const timer = debounceTimers.get(key);
@@ -195,6 +252,8 @@ export function syncTasksToDb(
   io: IOServer,
   options: { throwOnError?: boolean } = {},
 ): void {
+  const projectionOwner = readTasksMdProjectionOwner(projectPath);
+  if (projectionOwner && projectionOwner !== conversationId) return;
   const tasksFile = join(projectPath, '.ath', 'TASKS.md');
   const failures: Error[] = [];
 
@@ -310,10 +369,28 @@ export function syncTasksToDb(
     const stalePendingDuringActiveInvocation = existing.status === 'in_progress'
       && t.status === 'ready'
       && hasActiveTaskInvocation(conversationId, storageId, existing.agent_id);
+    const managedTask = hasWorkContractHistory(storageId);
+    const managedProjectionChanged = managedTask && (
+      existing.status !== t.status
+      || existing.agent_id !== t.agent
+      || existing.title !== t.title
+      || (existing.description ?? '') !== (t.deliverable || '')
+      || normalizeDependencyList(existing.dependencies) !== JSON.stringify(storageDependencies)
+    );
     const protectedProjectionTransition = existing.status !== t.status
       && (isProtectedProjectionTransition(conversationId, t.status)
         || isProtectedGitReceiptRollback(conversationId, storageId, existing.status));
-    if (protectedProjectionTransition) {
+    if (managedProjectionChanged) {
+      rejectManagedProjectionTransition({
+        projectPath,
+        conversationId,
+        localTaskId: t.id,
+        storageTaskId: storageId,
+        attemptedStatus: t.status,
+        authoritativeTask: existing,
+        io,
+      });
+    } else if (protectedProjectionTransition) {
       rejectProjectionTransition({
         projectPath,
         conversationId,
@@ -338,21 +415,21 @@ export function syncTasksToDb(
         });
       }
     }
-    if (t.agent && existing.agent_id !== t.agent) {
+    if (!managedTask && t.agent && existing.agent_id !== t.agent) {
       updates.agent_id = t.agent;
       changedFields.push('agent_id');
     }
-    if (existing.title !== t.title) {
+    if (!managedTask && existing.title !== t.title) {
       updates.title = t.title;
       changedFields.push('title');
     }
     const nextDescription = t.deliverable || '';
-    if ((existing.description ?? '') !== nextDescription) {
+    if (!managedTask && (existing.description ?? '') !== nextDescription) {
       updates.description = nextDescription;
       changedFields.push('description');
     }
     const nextDependencies = JSON.stringify(storageDependencies);
-    if (normalizeDependencyList(existing.dependencies) !== nextDependencies) {
+    if (!managedTask && normalizeDependencyList(existing.dependencies) !== nextDependencies) {
       updates.dependencies = nextDependencies;
       changedFields.push('dependencies');
     }
