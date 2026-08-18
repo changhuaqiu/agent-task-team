@@ -3,6 +3,7 @@
 import { useEffect } from 'react';
 import { useTaskHubStore } from '@/store/taskHubStore';
 import { cn } from '@/lib/utils';
+import { findActiveAgentMention } from '@/lib/agent-mention-routing';
 
 interface AgentMentionPopupProps {
   inputValue: string;
@@ -19,10 +20,8 @@ export function AgentMentionPopup({ inputValue, cursorPosition, selectedIndex, o
 
   const activeAgents = effectiveRoster.filter((a) => activeAgentIds.includes(a.id));
 
-  // Extract the search text after @
-  const textBeforeCursor = inputValue.slice(0, cursorPosition);
-  const atMatch = textBeforeCursor.match(/@([\w\u4e00-\u9fff-]*)$/);
-  const query = atMatch ? atMatch[1].toLowerCase() : '';
+  const activeMention = findActiveAgentMention(inputValue, cursorPosition);
+  const query = activeMention?.query.toLowerCase() ?? '';
 
   const filtered = activeAgents.filter((agent) => {
     const roleCard = getAgentRoleCard(agent.id);
@@ -46,7 +45,7 @@ export function AgentMentionPopup({ inputValue, cursorPosition, selectedIndex, o
     return () => window.removeEventListener('keydown', handler, true);
   }, [filtered, onClose]);
 
-  if (filtered.length === 0 || !atMatch) return null;
+  if (filtered.length === 0 || !activeMention) return null;
 
   return (
     <div className="absolute bottom-full left-0 mb-1 z-50 min-w-[200px]">

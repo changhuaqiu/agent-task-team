@@ -171,6 +171,7 @@ describe('resolveTeamRuntime', () => {
       expect.objectContaining({
         id: 'mario',
         displayName: 'Mario',
+        mentionHandles: ['Mario'],
         source: 'preset-agent',
       }),
     ]);
@@ -194,6 +195,7 @@ describe('resolveTeamRuntime', () => {
     expect(runtime.roster[0]).toMatchObject({
       id: 'planner',
       displayName: 'Planner',
+      mentionHandles: ['Planner'],
       source: 'team-pack-role',
       accountIds: ['acc-team'],
     });

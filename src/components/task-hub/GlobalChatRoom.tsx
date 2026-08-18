@@ -17,6 +17,7 @@ import { useAutoScroll } from '@/hooks/useAutoScroll';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { extractTaskReference } from '@/lib/taskReference';
 import { createHumanCommandIdempotencyKey } from '@/lib/human-command/types';
+import { findActiveAgentMention } from '@/lib/agent-mention-routing';
 
 function formatDateSeparator(dateStr: string): string {
   const date = new Date(dateStr);
@@ -114,19 +115,17 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
   };
 
   const handleMentionSelect = (agentId: string) => {
-    const textBefore = inputValue.slice(0, cursorPos);
-    const atMatch = textBefore.match(/@\w*$/);
-    if (!atMatch) return;
-    const atStart = textBefore.lastIndexOf('@');
-    const before = inputValue.slice(0, atStart);
-    const after = inputValue.slice(cursorPos);
+    const activeMention = findActiveAgentMention(inputValue, cursorPos);
+    if (!activeMention) return;
+    const before = inputValue.slice(0, activeMention.start);
+    const after = inputValue.slice(activeMention.end);
     const newValue = `${before}@${agentId} ${after}`;
     pendingCommandRef.current = null;
     setInputValue(newValue);
     setMentionOpen(false);
     // Focus back to textarea
     requestAnimationFrame(() => {
-      const pos = atStart + agentId.length + 2; // @agentId + space
+      const pos = activeMention.start + agentId.length + 2; // @agentId + space
       textareaRef.current?.focus();
       textareaRef.current?.setSelectionRange(pos, pos);
     });
@@ -294,12 +293,14 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
               if (isEmpty) setDraftConversationId(null);
               else if (wasEmpty) setDraftConversationId(selectedConversationId);
               setCursorPos(e.target.selectionStart ?? e.target.value.length);
-              const textBefore = e.target.value.slice(0, e.target.selectionStart ?? e.target.value.length);
-              const atMatch = textBefore.match(/@([\w\u4e00-\u9fff-]*)$/);
-              const hasAt = !!atMatch;
+              const activeMention = findActiveAgentMention(
+                e.target.value,
+                e.target.selectionStart ?? e.target.value.length,
+              );
+              const hasAt = activeMention !== null;
               setMentionOpen(hasAt);
-              if (hasAt && atMatch) {
-                const query = atMatch[1].toLowerCase();
+              if (activeMention) {
+                const query = activeMention.query.toLowerCase();
                 const store = useTaskHubStore.getState();
                 const roster = store.getEffectiveRoster();
                 const activeAgents = roster.filter((a) => store.activeAgentIds.includes(a.id));
@@ -318,7 +319,7 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
             }}
             onKeyDown={(e) => {
               if (ime.isComposing()) return;
-              if (mentionOpenRef.current && (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter' || e.key === 'Tab' || e.key === 'Escape')) {
+              if (mentionOpenRef.current && mentionFiltered.length > 0 && (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter' || e.key === 'Tab' || e.key === 'Escape')) {
                 e.preventDefault();
                 e.stopPropagation();
                 if (e.key === 'Enter' || e.key === 'Tab') {
@@ -388,7 +389,7 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
               ? '正在提交要求，服务端确认后会显示在活动流中'
             : runtimeRefreshInProgress
               ? '正在刷新运行配置，草稿会保留，刷新完成后即可发送'
-              : '使用 #TASK-000 引用任务 · 未指定负责人时由团队自动接手'}
+              : '行首 @成员 可定向派工（最多 3 位）· 正文中的 @ 仅作文字 · #TASK-000 引用任务'}
         </p>
         {sendError && <p role="alert" className="mt-2 ml-1 text-[10px] text-red-600">{sendError}</p>}
       </div>

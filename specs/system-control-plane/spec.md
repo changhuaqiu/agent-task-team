@@ -513,6 +513,15 @@ System Control Plane becomes responsible for delivery semantics:
 
 A2A must submit pass intents to Dispatch Gateway instead of owning the full runtime delivery chain.
 
+### Human `@handle` routing contract
+
+- A user mention is a work-routing command only when it begins a line, after optional whitespace or Markdown quote/list markers. Inline mentions, email addresses, and fenced code examples remain ordinary text.
+- The parser resolves stable Agent ids first, then Team Runtime member names and RoleCard display names. Unknown or ambiguous handles fail admission with a user-readable correction; they never silently fall back to another member.
+- One user turn may name at most three distinct members. Repeated aliases for the same member are deduplicated in source order; wider work is rejected before the chat fact or A2A pass group is created.
+- The server reparses `content` against the authoritative Team Runtime roster and derives the actual targets and persisted mention ids. Browser-supplied `targetAgentIds` and `mentions` are projections, not routing authority.
+- With no routing mention, Team Runtime chooses `initialAgentId`, then the first validated roster member. A user-originated multi-target command creates one durable A2A pass group with one branch per target and uses the direct-join semantics below.
+- Agent-originated collaboration remains structured: text emitted by an Agent, including `@handle`, cannot create or change possession without an admitted handoff command.
+
 ### Parallel collaboration callback contract
 
 - A single pass group may address at most three distinct agents. Wider work must first be decomposed into bounded task or pass groups; breadth rejection uses `a2a_pass_group_too_wide`.

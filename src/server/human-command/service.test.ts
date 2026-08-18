@@ -102,6 +102,114 @@ describe('HumanCommandService', () => {
       .toEqual({ idempotency_key: 'requirement-1' });
   });
 
+  it('derives a bounded multi-target pass group from line-start mentions', () => {
+    for (const id of ['luigi', 'peach', 'dk']) {
+      upsertAgent({
+        id,
+        name: id,
+        roleCardId: 'developer',
+        theme: 'green',
+        emoji: '🤖',
+        isPreset: true,
+      });
+    }
+    const receipt = new HumanCommandService({
+      db,
+      now: () => NOW,
+      resolveRuntime: () => runtime(['mario', 'luigi', 'peach', 'dk']),
+    }).submit(command({
+      content: '@mario @luigi @peach 请并行分析',
+      // Browser projections are not routing authority.
+      targetAgentIds: ['dk'],
+      mentions: ['dk'],
+    }));
+
+    expect(receipt).toMatchObject({
+      status: 'accepted',
+      targetAgentIds: ['mario', 'luigi', 'peach'],
+    });
+    expect(db.prepare('SELECT mentions FROM chat_message').get()).toEqual({
+      mentions: JSON.stringify(['mario', 'luigi', 'peach']),
+    });
+    expect(db.prepare('SELECT COUNT(*) count FROM a2a_pass').get()).toEqual({ count: 3 });
+    expect(db.prepare('SELECT COUNT(*) count FROM agent_inbox_item').get()).toEqual({ count: 3 });
+  });
+
+  it('keeps TeamPack member and RoleCard display aliases aligned with the browser', () => {
+    upsertAgent({
+      id: 'planner',
+      name: 'Planner',
+      roleCardId: 'developer',
+      theme: 'blue',
+      emoji: '🤖',
+      isPreset: true,
+    });
+    const teamRuntime = runtime(['planner']);
+    teamRuntime.roster[0].displayName = '架构评审岗位';
+    teamRuntime.roster[0].mentionHandles = ['成员规划师', '架构评审岗位'];
+
+    const receipt = new HumanCommandService({
+      db,
+      now: () => NOW,
+      resolveRuntime: () => teamRuntime,
+    }).submit(command({
+      content: '@成员规划师 请先分析',
+      targetAgentIds: [],
+    }));
+
+    expect(receipt).toMatchObject({ status: 'accepted', targetAgentIds: ['planner'] });
+    expect(db.prepare('SELECT mentions FROM chat_message').get()).toEqual({
+      mentions: JSON.stringify(['planner']),
+    });
+  });
+
+  it('treats inline mentions as text and routes through the Team Runtime default', () => {
+    const routed = runtime(['mario', 'luigi']);
+    routed.initialAgentId = 'mario';
+    const receipt = new HumanCommandService({
+      db,
+      now: () => NOW,
+      resolveRuntime: () => routed,
+    }).submit(command({
+      content: '请和 @luigi 讨论，但先由默认成员接手',
+      targetAgentIds: ['luigi'],
+      mentions: ['luigi'],
+    }));
+
+    expect(receipt).toMatchObject({ status: 'accepted', targetAgentIds: ['mario'] });
+    expect(db.prepare('SELECT mentions FROM chat_message').get()).toEqual({ mentions: '[]' });
+  });
+
+  it('rejects unknown and over-limit routing handles before persisting chat or work', () => {
+    const service = new HumanCommandService({
+      db,
+      now: () => NOW,
+      resolveRuntime: () => runtime(['mario', 'luigi', 'peach', 'dk']),
+    });
+
+    const unknown = service.submit(command({
+      content: '@ghost 请处理',
+      idempotencyKey: 'unknown-mention',
+      targetAgentIds: [],
+    }));
+    const overflow = service.submit(command({
+      content: '@mario @luigi @peach @dk 请处理',
+      idempotencyKey: 'overflow-mention',
+      targetAgentIds: [],
+    }));
+
+    expect(unknown).toMatchObject({
+      status: 'rejected',
+      reasonCode: 'human_command_mention_unknown',
+    });
+    expect(overflow).toMatchObject({
+      status: 'rejected',
+      reasonCode: 'human_command_mention_limit_exceeded',
+    });
+    expect(db.prepare('SELECT COUNT(*) count FROM chat_message').get()).toEqual({ count: 0 });
+    expect(db.prepare('SELECT COUNT(*) count FROM agent_inbox_item').get()).toEqual({ count: 0 });
+  });
+
   it('returns the persisted receipt for an exact retry without duplicating facts', () => {
     const service = new HumanCommandService({
       db,
@@ -115,6 +223,20 @@ describe('HumanCommandService', () => {
     expect(db.prepare('SELECT COUNT(*) count FROM chat_message').get()).toEqual({ count: 1 });
     expect(db.prepare('SELECT COUNT(*) count FROM human_command_receipt').get()).toEqual({ count: 1 });
     expect(db.prepare('SELECT COUNT(*) count FROM agent_inbox_item').get()).toEqual({ count: 1 });
+  });
+
+  it('treats browser routing projections as irrelevant to command idempotency', () => {
+    const service = new HumanCommandService({
+      db,
+      now: () => NOW,
+      resolveRuntime: () => runtime(['mario']),
+    });
+    const first = service.submit(command({ targetAgentIds: [], mentions: [] }));
+    const duplicate = service.submit(command({ targetAgentIds: ['stale-browser-id'], mentions: ['stale-browser-id'] }));
+
+    expect(duplicate).toEqual({ ...first, duplicate: true });
+    expect(db.prepare('SELECT COUNT(*) count FROM chat_message').get()).toEqual({ count: 1 });
+    expect(db.prepare('SELECT COUNT(*) count FROM human_command_receipt').get()).toEqual({ count: 1 });
   });
 
   it('rejects reusing an idempotency key for a different command', () => {

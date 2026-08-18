@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { selectUserEntryAgentIds, useTaskHubStore } from '@/store/taskHubStore';
+import { useTaskHubStore } from '@/store/taskHubStore';
 
 describe('ChatMessage extensions', () => {
   beforeEach(() => {
@@ -20,16 +20,6 @@ describe('ChatMessage extensions', () => {
       setTimeout(() => callback(0), 0);
       return 0;
     };
-  });
-
-  describe('user entry routing', () => {
-    it('dispatches only the first resolved mention as the team-loop entry', () => {
-      expect(selectUserEntryAgentIds(['mario', 'luigi', 'peach'])).toEqual(['mario']);
-    });
-
-    it('does not invent an entry when no mention resolves', () => {
-      expect(selectUserEntryAgentIds([])).toEqual([]);
-    });
   });
 
   describe('A2A possession view state', () => {

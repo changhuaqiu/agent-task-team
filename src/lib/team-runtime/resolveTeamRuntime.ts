@@ -57,6 +57,7 @@ function presetRuntimeAgent(agent: PresetRuntimeAgentInput, input: ResolveTeamRu
   return {
     id: agent.id,
     displayName: roleCard?.displayName ?? agent.name,
+    mentionHandles: [agent.name, roleCard?.displayName ?? ''].filter(Boolean),
     source: 'preset-agent',
     roleCardId,
     roleCard,
@@ -112,6 +113,7 @@ function teamRoleRuntimeAgents(input: ResolveTeamRuntimeInput): RuntimeAgent[] {
     return {
       id: role.id,
       displayName: roleCard?.displayName ?? role.displayName,
+      mentionHandles: [role.displayName, roleCard?.displayName ?? ''].filter(Boolean),
       source: 'team-pack-role',
       roleCardId: roleCard?.id ?? roleCardId,
       roleCard,

@@ -9,6 +9,7 @@ import { messageRepo } from '@/server/repositories/message-repo';
 import { generateSortableId } from '@/server/repositories/sortable-id';
 import { teamLogProjection } from '@/server/team-log/TeamLogProjection';
 import { AgentInbox } from '@/server/platform-events/agent-inbox';
+import { analyzeAgentMentionRouting } from '@/lib/agent-mention-routing';
 
 interface ReceiptRow {
   idempotency_key: string;
@@ -52,9 +53,12 @@ function canonicalize(value: unknown): unknown {
   return value;
 }
 
-function requestDigest(command: HumanCommand): string {
+function requestDigest(command: HumanCommand, includeClientRoutingProjection = false): string {
+  const digestInput = command.type === 'delivery.requirement.submit' && !includeClientRoutingProjection
+    ? { ...command, targetAgentIds: [], mentions: undefined }
+    : command;
   return createHash('sha256')
-    .update(JSON.stringify(canonicalize(command)))
+    .update(JSON.stringify(canonicalize(digestInput)))
     .digest('hex');
 }
 
@@ -165,7 +169,8 @@ export class HumanCommandService {
         FROM human_command_receipt WHERE idempotency_key=?
       `).get(idempotencyKey) as ReceiptRow | undefined;
       if (existing) {
-        if (existing.request_digest !== digest) {
+        const legacyDigest = requestDigest(normalizedCommand, true);
+        if (existing.request_digest !== digest && existing.request_digest !== legacyDigest) {
           throw new HumanCommandIdempotencyConflictError(idempotencyKey);
         }
         return { ...JSON.parse(existing.receipt_json) as CommandReceipt, duplicate: true };
@@ -221,21 +226,53 @@ export class HumanCommandService {
           userMessage: '当前交付的团队配置不可用',
         });
       }
-      const roster = new Set(runtime.roster.map((agent) => agent.id));
-      const invalidTarget = normalizedTargets.find((id) => !roster.has(id));
-      if (invalidTarget) {
+      const mentionRouting = analyzeAgentMentionRouting(
+        content,
+        runtime.roster.map((agent) => ({
+          agentId: agent.id,
+          handles: [
+            agent.id,
+            agent.displayName,
+            ...(agent.mentionHandles ?? []),
+            runtime.teamPack?.roles.find((role) => role.id === agent.id)?.displayName ?? '',
+            agent.roleCard?.displayName ?? '',
+          ],
+        })),
+      );
+      if (mentionRouting.unknownHandles.length > 0) {
+        const availableHandles = runtime.roster
+          .slice(0, 5)
+          .map((agent) => `@${agent.id}`)
+          .join('、');
         return this.recordReceipt(db, digest, normalizedCommand, {
           status: 'rejected',
           targetAgentIds: [],
-          reasonCode: 'a2a_target_not_in_roster',
-          userMessage: `成员 ${invalidTarget} 不属于当前交付团队`,
+          reasonCode: 'human_command_mention_unknown',
+          userMessage: `未找到成员：${mentionRouting.unknownHandles.map((handle) => `@${handle}`).join('、')}${availableHandles ? `。可用成员：${availableHandles}` : ''}`,
         });
       }
+      if (mentionRouting.ambiguousHandles.length > 0) {
+        return this.recordReceipt(db, digest, normalizedCommand, {
+          status: 'rejected',
+          targetAgentIds: [],
+          reasonCode: 'human_command_mention_ambiguous',
+          userMessage: `成员名称不唯一，请改用 Agent ID：${mentionRouting.ambiguousHandles.map((handle) => `@${handle}`).join('、')}`,
+        });
+      }
+      if (mentionRouting.overflowHandles.length > 0) {
+        return this.recordReceipt(db, digest, normalizedCommand, {
+          status: 'rejected',
+          targetAgentIds: [],
+          reasonCode: 'human_command_mention_limit_exceeded',
+          userMessage: '一次最多可指定 3 位成员，请拆成多条要求',
+        });
+      }
+      const roster = new Set(runtime.roster.map((agent) => agent.id));
       const defaultTarget = runtime.initialAgentId && roster.has(runtime.initialAgentId)
         ? runtime.initialAgentId
         : runtime.roster[0]?.id;
-      const targets = normalizedTargets.length > 0
-        ? normalizedTargets
+      const targets = mentionRouting.targetAgentIds.length > 0
+        ? mentionRouting.targetAgentIds
         : [defaultTarget].filter((id): id is string => Boolean(id));
       if (targets.length === 0) {
         return this.recordReceipt(db, digest, normalizedCommand, {
@@ -254,7 +291,7 @@ export class HumanCommandService {
             senderType: 'human',
             senderId: actorId,
             content,
-            mentions: normalizedCommand.mentions,
+            mentions: mentionRouting.targetAgentIds,
             intent: normalizedCommand.intent ?? 'general',
             metadata: { source: 'human-command', idempotencyKey },
             projectTeamLog: false,

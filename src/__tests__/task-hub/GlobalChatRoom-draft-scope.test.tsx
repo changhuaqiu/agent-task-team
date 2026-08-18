@@ -161,6 +161,39 @@ describe('GlobalChatRoom draft scope', () => {
       }));
   });
 
+  it('submits an unknown line-start handle instead of swallowing Enter on an empty popup', async () => {
+    const fetchSpy = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const command = JSON.parse(String(init?.body));
+      return {
+        ok: false,
+        status: 409,
+        json: async () => ({
+          receipt: {
+            idempotencyKey: command.idempotencyKey,
+            commandType: command.type,
+            projectPath: command.projectPath,
+            deliveryId: command.deliveryId,
+            status: 'rejected',
+            duplicate: false,
+            targetAgentIds: [],
+            reasonCode: 'human_command_mention_unknown',
+            userMessage: '未找到成员：@ghost。可用成员：@mario',
+            recordedAt: stamp,
+          },
+        }),
+      } as Response;
+    });
+    vi.stubGlobal('fetch', fetchSpy);
+    render(<GlobalChatRoom />);
+    const input = screen.getByRole('textbox', { name: '向团队补充要求' });
+
+    fireEvent.change(input, { target: { value: '@ghost', selectionStart: 6 } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    expect((await screen.findByRole('alert')).textContent).toContain('未找到成员：@ghost');
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
   it('surfaces a server-owned no-recipient receipt and retains the draft', async () => {
     const fetchSpy = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
       const command = JSON.parse(String(init?.body));

@@ -43,6 +43,7 @@
 - [ ] Possession violations are reported as holder failures.
 - [x] Secret material is blocked or redacted before cross-instance delivery.
 - [x] Fan-out accepts at most three distinct receivers; once all Agent-owned branches settle, exactly one durable callback returns a bounded complete/partial result bundle to the original holder; human-originated multi-target work retains direct join semantics.
+- [x] Human line-start `@handle` commands are parsed against Team Runtime on both the editing surface and server admission; inline/fenced mentions do not route, unknown/ambiguous/over-limit commands fail visibly, and accepted targets are persisted as stable Agent ids.
 - [x] The callback WorkContract authoritatively binds its reconciliation Possession; dispatch and admission fence its revision, while chain abort cancels pending callback Inbox work and closes active callback authority.
 
 ## Migration

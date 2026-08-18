@@ -66,6 +66,7 @@
 - [x] Preserve post-Task Delivery Gate Inbox work and release Control slots on Inbox cancellation/expiry.
 - [x] Bump the Delivery control policy revision when Work Cell projection semantics change so persisted deterministic decision identities cannot conflict across a rollout.
 - [x] Bound A2A fan-out to three receivers, reopen the original holder for deterministic callback reconciliation, and bind that Possession into the callback WorkContract.
+- [x] Promote user line-start `@handle` from a browser hint to a server-validated Team Runtime routing command, including multi-target admission, visible invalid-handle failures, and inline/code exclusion.
 - [x] Build a bounded selective result bundle with successful summaries, failure reasons, and exact branch outcome evidence refs; cover all-success, partial-failure, idempotency, restart binding, and breadth rejection.
 - [x] Fence callback dispatch by the open Possession revision; chain abort cancels pending callbacks and closes already-issued callback WorkAuthority.
 - [ ] Add diagnostics view for proof timeline and runtime health.

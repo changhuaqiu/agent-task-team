@@ -20,6 +20,7 @@ Good prompts focus on the outcome, not just the topic:
 ## 2. Use `@agent` Only When You Need Routing
 
 Write `@agentId` at the beginning of a new line to route a message to a specific agent in the workspace.
+You can place up to three handles at the beginning of the same line for parallel work. An inline `@name`, email address, or fenced code example is ordinary text and does not dispatch work.
 
 Example:
 
@@ -83,6 +84,7 @@ Before implementing or reviewing:
 ## 2. 只有需要定向路由时才用 `@agent`
 
 如果你要指定某个 Agent 执行，请另起一行、行首写 `@agentId`。
+同一行开头最多可以连续写 3 个成员并行处理。正文里的 `@名字`、邮箱地址和代码块示例都只是文字，不会派工。
 
 示例：
 

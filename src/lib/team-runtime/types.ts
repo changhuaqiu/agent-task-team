@@ -19,6 +19,7 @@ export interface RuntimeSkillSummary {
 export interface RuntimeAgent {
   id: string;
   displayName: string;
+  mentionHandles?: string[];
   source: RuntimeAgentSource;
   roleCardId?: string;
   roleCard?: RoleCard;

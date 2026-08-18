@@ -189,7 +189,7 @@ Dispatch Gateway → ExecutionEnvelope → ACP Runtime
 - Invocation Planner 把 Team Runtime roster 作为 ContextManager 的必需 provider 数据；Knowledge Tier 不再保留静态 `AGENT_ROSTER + RoleCard` fallback，空 roster 也不猜测默认团队。
 - `/api/state` 返回所有持久化 agent-skill 绑定，支持动态 TeamPack role。
 - A2A Command guard 从 Team Runtime 读取当前 conversation roster，并直接调用一次 handoff 准入方法；
-  Agent 交接只接受结构化 `handoff_to_agent`，`@roleId` / `@displayName` 只用于显示和检索。
+  用户行首 `@roleId` / `@displayName` 由 Human Command 服务按当前 roster 重新解析，可形成最多三分支的持久协作组；Agent 交接仍只接受结构化 `handoff_to_agent`，Agent 文本中的 `@` 只用于显示和检索。
 - `/api/mutations` 的任务创建在没有显式负责人时读取 `TeamRuntime.initialAgentId`；为空时再使用 runtime roster 首成员。
 
 ### D) 会话隔离机制

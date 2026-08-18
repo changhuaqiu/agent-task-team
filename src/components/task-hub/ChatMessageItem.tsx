@@ -87,7 +87,7 @@ function taskActionsFromMessage(message: ChatMessage): TaskActionCardRef[] {
 }
 
 const formatContentWithMentions = (content: string) => {
-  const mentionRegex = /(@\w+)/g;
+  const mentionRegex = /(@[\p{L}\p{N}\p{M}_./-]+)/gu;
   const parts = content.split(mentionRegex);
 
   return parts.map((part, i) => {

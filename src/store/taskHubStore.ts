@@ -36,6 +36,7 @@ import {
   createHumanCommandIdempotencyKey,
   humanCommandGateway,
 } from '@/lib/human-command';
+import { analyzeAgentMentionRouting } from '@/lib/agent-mention-routing';
 export type { A2AHandoffStatus, A2AHandoffView, A2APossessionView, ChatMessage, ToolEvent } from './types';
 
 // Re-export types from sub-stores (backward compatibility)
@@ -396,37 +397,6 @@ const makeId = (prefix: string) =>
 const EMPTY_BLOCKERS: Blocker[] = [];
 const EMPTY_CHAT: ChatMessage[] = [];
 const DEFAULT_ACTIVE_AGENT_IDS = ['mario', 'luigi'];
-const MENTION_PATTERN = /@([\w\u4e00-\u9fff-]+)/g;
-
-function extractMentionTokens(content: string): string[] {
-  const tokens: string[] = [];
-  let match: RegExpExecArray | null;
-  MENTION_PATTERN.lastIndex = 0;
-  while ((match = MENTION_PATTERN.exec(content)) !== null) {
-    tokens.push(match[1]);
-  }
-  return tokens;
-}
-
-function resolveMentionAgentIds(state: TaskHubState, tokens: string[]): string[] {
-  const roster = state.getEffectiveRoster();
-  const byMention = new Map<string, string>();
-  for (const agent of roster) {
-    byMention.set(agent.id.toLowerCase(), agent.id);
-    byMention.set(agent.name.toLowerCase(), agent.id);
-    const roleCardName = getCachedAgentRoleCard(state, agent.id)?.displayName;
-    if (roleCardName) byMention.set(roleCardName.toLowerCase(), agent.id);
-  }
-  return [...new Set(tokens.map((token) => byMention.get(token.toLowerCase())).filter(Boolean) as string[])];
-}
-
-/**
- * A normal chat turn has one team-loop entry point. Later mentions describe
- * downstream collaboration and must not bypass A2A possession by fan-out.
- */
-export function selectUserEntryAgentIds(resolvedAgentIds: string[]): string[] {
-  return resolvedAgentIds.length > 0 ? [resolvedAgentIds[0]] : [];
-}
 
 export const RUNTIME_HYDRATION_TIMEOUT_MS = 15_000;
 
@@ -1616,7 +1586,18 @@ export const useTaskHubStore = create<TaskHubState>()(
           const conversationId = conv ?? get().selectedConversationId;
           if (!conversationId) return { ok: false, error: '请先选择或新建一个交付' };
 
-          const mentions = extractMentionTokens(rest.content);
+          const mentionRouting = analyzeAgentMentionRouting(
+            rest.content,
+            get().getEffectiveRoster().map((agent) => ({
+              agentId: agent.id,
+              handles: [
+                agent.id,
+                agent.name,
+                getCachedAgentRoleCard(get(), agent.id)?.displayName ?? '',
+              ],
+            })),
+          );
+          const mentions = mentionRouting.targetAgentIds;
 
           let intent: ChatMessage['intent'] = 'general';
           const contentLower = rest.content.toLowerCase();
@@ -1632,8 +1613,6 @@ export const useTaskHubStore = create<TaskHubState>()(
 
           if (rest.agentId === 'human') {
             if (!existingConv) return { ok: false, error: '当前交付不存在或已被删除' };
-            const resolvedMentions = resolveMentionAgentIds(get(), mentions);
-            const entryAgentIds = selectUserEntryAgentIds(resolvedMentions);
             try {
               const receipt = await humanCommandGateway.submit({
                 type: 'delivery.requirement.submit',
@@ -1643,7 +1622,7 @@ export const useTaskHubStore = create<TaskHubState>()(
                 deliveryId: conversationId,
                 actor: { type: 'user', id: 'human' },
                 content: rest.content,
-                targetAgentIds: entryAgentIds,
+                targetAgentIds: mentionRouting.targetAgentIds,
                 ...(rest.referencedTaskId ? { taskId: rest.referencedTaskId } : {}),
                 issuedAt: commandIssuedAt ?? new Date().toISOString(),
                 mentions,
@@ -1669,7 +1648,7 @@ export const useTaskHubStore = create<TaskHubState>()(
                         ...rest,
                         id: receiptMessageId,
                         timestamp: receipt.recordedAt,
-                        mentions,
+                        mentions: mentionRouting.hasRoutingMentions ? receipt.targetAgentIds : [],
                         intent,
                       },
                     ].sort((a, b) => (a.timestamp || '').localeCompare(b.timestamp || '')),
