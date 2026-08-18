@@ -103,6 +103,18 @@ describe('decideControlActions', () => {
     ]);
   });
 
+  it('counts a durable queued dispatch against global and role capacity', () => {
+    const decision = decideControlActions(snapshot([
+      cell('queued-builder', 'queued', { slotId: 'builder:1' }),
+      cell('ready-builder', 'ready'),
+    ]), { ...POLICY, maxConcurrent: 1, roleCapacity: { builder: 1 } });
+
+    expect(decision.actions.find((action) => action.targetWorkId === 'queued-builder'))
+      .toMatchObject({ type: 'wait', slotId: 'builder:1', reasonCode: 'dispatch_pending' });
+    expect(decision.actions.find((action) => action.targetWorkId === 'ready-builder'))
+      .toMatchObject({ type: 'wait', reasonCode: 'global_capacity_exhausted' });
+  });
+
   it('applies role capacity independently from global capacity', () => {
     const decision = decideControlActions(snapshot([
       cell('running-builder', 'running', { slotId: 'builder:1' }),
@@ -146,6 +158,34 @@ describe('decideControlActions', () => {
         targetWorkId: 'effect-exhausted',
       }),
     ]));
+  });
+
+  it('continues planned work without using failure retry and escalates only its own budget', () => {
+    const decision = decideControlActions(snapshot([
+      cell('continue-now', 'continuation_pending', {
+        continuation: { requestsUsed: 2, maxRequests: 3 },
+      }),
+      cell('continue-exhausted', 'continuation_pending', {
+        roleId: 'reviewer',
+        continuation: { requestsUsed: 4, maxRequests: 3 },
+      }),
+    ]), POLICY);
+
+    expect(decision.actions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'continue',
+        targetWorkId: 'continue-now',
+        reasonCode: 'agent_requested_continuation',
+        slotId: 'builder:1',
+      }),
+      expect.objectContaining({
+        type: 'escalateToHuman',
+        targetWorkId: 'continue-exhausted',
+        reasonCode: 'continuation_budget_exhausted',
+      }),
+    ]));
+    expect(decision.actions.find((action) => action.targetWorkId === 'continue-now')?.retryBudgetKind)
+      .toBeUndefined();
   });
 
   it('does not retry work without available global or role capacity', () => {

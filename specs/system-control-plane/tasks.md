@@ -54,7 +54,7 @@
 
 ## Phase 6: Continue Gate and Safety
 
-- [ ] Add `ContinueGateLite`.
+- [x] Add `ContinueGateLite` for validated, bounded `continue_work` checkpoints and dedicated continuation dispatch across execution, Task review, Delivery review, and acceptance verification Work.
 - [ ] Use holder buffer thresholds to decide checkpoint, pass, pause, or stop.
 - [x] Add lightweight `SecretGate` for execution envelopes.
 - [x] Add circuit breaker for repeated runtime start failures; AutonomyGuard counts failed task/agent attempts since the latest task revision or human-resume window, stops redispatch only when an active Delivery can persist the escalation, and escalates that run to `waiting_human`; ordinary Tasks remain recoverable instead of being silently stranded.

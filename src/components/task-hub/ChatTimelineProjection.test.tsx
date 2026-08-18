@@ -67,7 +67,7 @@ describe('projectChatTimeline', () => {
 });
 
 describe('ChatMessageItem invocation surface', () => {
-  it('folds progress, keeps the final answer visible, and combines tools into one visible trace', () => {
+  it('folds progress, keeps the final answer visible, and exposes tool calls in a compact trace', () => {
     const segments = [
       message({ id: 'progress', agentId: 'peach', invocationId: 'inv-review', content: '正在核对文件' }),
       message({ id: 'write', agentId: 'peach', invocationId: 'inv-review', content: '', toolEvents: [{
@@ -83,11 +83,52 @@ describe('ChatMessageItem invocation surface', () => {
 
     expect(screen.getByText('评审完成，证据已确认。')).toBeDefined();
     expect(screen.getByTestId('agent-progress-details').hasAttribute('open')).toBe(false);
-    const traceToggle = screen.getByRole('button', { name: /CLI Trace.*2 条事件/ });
+    const traceToggle = screen.getByRole('button', { name: /CLI Trace.*2 条事件.*2 次工具调用/ });
     expect(traceToggle).toBeDefined();
-    expect(screen.queryByText('Write')).toBeNull();
+    expect(screen.getByTestId('cli-trace-preview')).toBeDefined();
+    expect(screen.getByText('Write')).toBeDefined();
+    expect(screen.getByText('Read')).toBeDefined();
     fireEvent.click(traceToggle);
     expect(screen.getByText('Write')).toBeDefined();
     expect(screen.getByText('Read')).toBeDefined();
+  });
+
+  it('collapses long agent prose without hiding the full response permanently', () => {
+    const longAnswer = [
+      '结论：功能已经完成。',
+      '证据：相关测试全部通过。',
+      ...Array.from({ length: 20 }, (_, index) => `过程细节 ${index + 1}：这里是仅在展开后阅读的说明。`),
+    ].join('\n\n');
+
+    render(<ChatMessageItem message={message({
+      id: 'long-final',
+      agentId: 'mario',
+      invocationId: 'inv-long',
+      content: longAnswer,
+    })} />);
+
+    expect(screen.getByText('结论：功能已经完成。')).toBeDefined();
+    expect(screen.getByTestId('agent-narrative-content').className).toContain('max-h-44');
+    fireEvent.click(screen.getByRole('button', { name: '展开完整回复' }));
+    expect(screen.getByText(/过程细节 20/)).toBeDefined();
+    expect(screen.getByTestId('agent-narrative-content').className).not.toContain('max-h-44');
+    expect(screen.getByRole('button', { name: '收起完整回复' }).getAttribute('aria-expanded')).toBe('true');
+  });
+
+  it.each([
+    ['single paragraph', '这是一个没有空行的超长单段。'.repeat(100)],
+    ['fenced code', `\`\`\`ts\n${'const value = 1;\n'.repeat(60)}\`\`\``],
+  ])('visually bounds long %s content until the user expands it', (_shape, content) => {
+    render(<ChatMessageItem message={message({
+      id: `long-${_shape}`,
+      agentId: 'mario',
+      invocationId: `inv-${_shape}`,
+      content,
+    })} />);
+
+    const narrative = screen.getByTestId('agent-narrative-content');
+    expect(narrative.className).toContain('overflow-hidden');
+    fireEvent.click(screen.getByRole('button', { name: '展开完整回复' }));
+    expect(narrative.className).not.toContain('overflow-hidden');
   });
 });

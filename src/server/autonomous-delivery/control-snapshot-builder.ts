@@ -17,6 +17,7 @@ import {
   hasWorkPurpose,
   parseWorkIdentity,
 } from '../work-contract/work-identity';
+import { continueGateLite } from '../work-contract/continue-gate';
 
 interface WorkCellFactRow {
   work_id: string;
@@ -33,6 +34,8 @@ interface WorkCellFactRow {
   invocation_outcome: string | null;
   invocation_reason_code: string | null;
   outcome_type: AgentOutcomeType | null;
+  current_continuation_count: number;
+  continuation_count: number;
 }
 
 interface TaskFactRow {
@@ -42,6 +45,11 @@ interface TaskFactRow {
   dependencies: string | null;
   revision: number;
   created_at: string;
+}
+
+interface ContinuationFacts {
+  byContract: Map<string, number>;
+  byWork: Map<string, number>;
 }
 
 interface A2AWaitFactRow {
@@ -66,6 +74,7 @@ interface ControlSnapshotRetryLimits {
   invocation: number;
   effect: number;
   task_rework: number;
+  continuation: number;
 }
 
 interface RepositoryControlSnapshotBuilderOptions {
@@ -78,6 +87,7 @@ const DEFAULT_RETRY_LIMITS: ControlSnapshotRetryLimits = {
   invocation: 3,
   effect: 5,
   task_rework: 2,
+  continuation: 6,
 };
 
 function roleId(row: WorkCellFactRow): string {
@@ -98,6 +108,29 @@ function retryBudget(
   limits: ControlSnapshotRetryLimits,
 ) {
   return { kind, attemptsUsed, maxAttempts: limits[kind] };
+}
+
+function validContinuationFacts(db: Database.Database, runId: string): ContinuationFacts {
+  const rows = db.prepare(`
+    SELECT outcome.contract_id,outcome.work_id,outcome.payload_json
+    FROM agent_outcome outcome
+    JOIN work_contract contract ON contract.id=outcome.contract_id
+    WHERE contract.delivery_run_id=?
+      AND outcome.admission_status='accepted'
+      AND outcome.outcome_type='continue_work'
+  `).all(runId) as Array<{ contract_id: string; work_id: string; payload_json: string }>;
+  const byContract = new Map<string, number>();
+  const byWork = new Map<string, number>();
+  for (const row of rows) {
+    try {
+      if (!continueGateLite.admit(JSON.parse(row.payload_json)).accepted) continue;
+    } catch {
+      continue;
+    }
+    byContract.set(row.contract_id, (byContract.get(row.contract_id) ?? 0) + 1);
+    byWork.set(row.work_id, (byWork.get(row.work_id) ?? 0) + 1);
+  }
+  return { byContract, byWork };
 }
 
 function deliveryGatePurpose(
@@ -136,7 +169,7 @@ export class RepositoryControlSnapshotBuilder {
     } | undefined;
     if (!run) throw new Error(`Delivery run not found: ${runId}`);
 
-    const rows = db.prepare(`
+    const rawRows = db.prepare(`
       SELECT
         authority.work_id,
         authority.current_epoch,
@@ -164,7 +197,16 @@ export class RepositoryControlSnapshotBuilder {
       LEFT JOIN invocation ON invocation.work_contract_id=contract.id
       WHERE contract.delivery_run_id=?
       ORDER BY contract.created_at,authority.work_id
-    `).all(runId) as WorkCellFactRow[];
+    `).all(runId) as Array<Omit<
+      WorkCellFactRow,
+      'current_continuation_count' | 'continuation_count'
+    >>;
+    const continuationFacts = validContinuationFacts(db, runId);
+    const rows: WorkCellFactRow[] = rawRows.map((row) => ({
+      ...row,
+      current_continuation_count: continuationFacts.byContract.get(row.contract_id) ?? 0,
+      continuation_count: continuationFacts.byWork.get(row.work_id) ?? 0,
+    }));
 
     const contract = JSON.parse(run.goal_contract_json) as GoalContract;
     const limits: ControlSnapshotRetryLimits = {
@@ -500,9 +542,15 @@ export class RepositoryControlSnapshotBuilder {
     }
     for (const cell of workCells) {
       if (!inboxWork.has(cell.workId)) continue;
-      if (cell.state !== 'ready' && cell.state !== 'retry_pending') continue;
+      if (
+        cell.state !== 'ready'
+        && cell.state !== 'retry_pending'
+        && cell.state !== 'continuation_pending'
+      ) continue;
       cell.state = 'queued';
-      delete cell.slotId;
+      const slotId = inboxWork.get(cell.workId);
+      if (slotId) cell.slotId = slotId;
+      else delete cell.slotId;
       delete cell.failure;
     }
     const lastHumanResume = (db.prepare(`
@@ -785,6 +833,18 @@ export class RepositoryControlSnapshotBuilder {
         return { ...base, purpose: 'review', state: 'waiting_gate', gateStatus: 'requested' };
       }
       if (row.invocation_status === 'terminated') {
+        if (row.current_continuation_count > 0) {
+          return {
+            ...base,
+            purpose: 'review',
+            state: 'continuation_pending',
+            gateStatus: 'requested',
+            continuation: {
+              requestsUsed: row.continuation_count,
+              maxRequests: limits.continuation,
+            },
+          };
+        }
         return {
           ...base,
           purpose: 'review',
@@ -851,6 +911,17 @@ export class RepositoryControlSnapshotBuilder {
         return { ...gateBase, state: 'waiting_gate', gateStatus: 'requested' };
       }
       if (row.invocation_status === 'terminated') {
+        if (row.current_continuation_count > 0) {
+          return {
+            ...gateBase,
+            state: 'continuation_pending',
+            gateStatus: 'requested',
+            continuation: {
+              requestsUsed: row.continuation_count,
+              maxRequests: limits.continuation,
+            },
+          };
+        }
         return {
           ...gateBase,
           state: 'retry_pending',
@@ -969,6 +1040,16 @@ export class RepositoryControlSnapshotBuilder {
       };
     }
     if (row.invocation_status === 'terminated') {
+      if (row.current_continuation_count > 0) {
+        return {
+          ...base,
+          state: 'continuation_pending',
+          continuation: {
+            requestsUsed: row.continuation_count,
+            maxRequests: limits.continuation,
+          },
+        };
+      }
       const attemptsUsed = this.invocationAttempts(db, row.work_id);
       return {
         ...base,

@@ -3663,6 +3663,137 @@ CREATE INDEX IF NOT EXISTS idx_task_command_rejection_receipt_task
       `);
     },
   },
+  {
+    version: 83,
+    foreignKeysOff: true,
+    run: (db) => {
+      const actionTable = db.prepare(`
+        SELECT 1 FROM sqlite_master
+        WHERE type='table' AND name='delivery_control_action'
+      `).get();
+      const dependencies = db.prepare(`
+        SELECT COUNT(*) AS count FROM sqlite_master
+        WHERE type='table' AND name IN (
+          'conversation','autonomous_delivery_run','delivery_control_decision'
+        )
+      `).get() as { count: number };
+      if (!actionTable || dependencies.count !== 3) return;
+      const columns = new Set(
+        (db.prepare('PRAGMA table_info(delivery_control_action)').all() as Array<{
+          name: string;
+        }>).map((column) => column.name),
+      );
+      if (!columns.has('attempt_count')) {
+        db.exec(`
+          ALTER TABLE delivery_control_action
+          ADD COLUMN attempt_count INTEGER NOT NULL DEFAULT 0
+        `);
+      }
+      if (!columns.has('max_attempts')) {
+        db.exec(`
+          ALTER TABLE delivery_control_action
+          ADD COLUMN max_attempts INTEGER NOT NULL DEFAULT 3
+        `);
+      }
+      db.exec(`
+        DROP INDEX IF EXISTS idx_delivery_control_action_claim;
+        DROP INDEX IF EXISTS uq_delivery_control_active_slot;
+        DROP TRIGGER IF EXISTS trg_control_action_attempt_bounds_insert;
+        DROP TRIGGER IF EXISTS trg_control_action_attempt_bounds_update;
+        DROP TRIGGER IF EXISTS trg_control_action_lease_shape_insert;
+        DROP TRIGGER IF EXISTS trg_control_action_lease_shape_update;
+        ALTER TABLE delivery_control_action RENAME TO delivery_control_action_v82;
+        CREATE TABLE delivery_control_action (
+          id TEXT PRIMARY KEY,
+          decision_id TEXT NOT NULL REFERENCES delivery_control_decision(id) ON DELETE CASCADE,
+          run_id TEXT NOT NULL REFERENCES autonomous_delivery_run(id) ON DELETE CASCADE,
+          type TEXT NOT NULL CHECK(type IN (
+            'initializeGraph','activate','continue','retry','requestGate','integrate','finalize',
+            'resume','escalateToHuman','terminate'
+          )),
+          target_work_id TEXT,
+          work_epoch INTEGER,
+          slot_id TEXT,
+          reason_code TEXT NOT NULL,
+          retry_budget_kind TEXT,
+          termination_outcome TEXT,
+          status TEXT NOT NULL CHECK(status IN ('ready','claimed','applied','failed','cancelled')),
+          claim_token TEXT,
+          lease_owner TEXT,
+          lease_expires_at TEXT,
+          failure_code TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          completed_at TEXT,
+          attempt_count INTEGER NOT NULL DEFAULT 0,
+          max_attempts INTEGER NOT NULL DEFAULT 3,
+          CHECK(
+            (target_work_id IS NULL AND work_epoch IS NULL)
+            OR (target_work_id IS NOT NULL AND work_epoch IS NOT NULL AND work_epoch>=0)
+          )
+        );
+        INSERT INTO delivery_control_action (
+          id,decision_id,run_id,type,target_work_id,work_epoch,slot_id,reason_code,
+          retry_budget_kind,termination_outcome,status,claim_token,lease_owner,
+          lease_expires_at,failure_code,created_at,updated_at,completed_at,
+          attempt_count,max_attempts
+        )
+        SELECT
+          id,decision_id,run_id,type,target_work_id,work_epoch,slot_id,reason_code,
+          retry_budget_kind,termination_outcome,status,claim_token,lease_owner,
+          lease_expires_at,failure_code,created_at,updated_at,completed_at,
+          attempt_count,max_attempts
+        FROM delivery_control_action_v82;
+        DROP TABLE delivery_control_action_v82;
+        CREATE INDEX idx_delivery_control_action_claim
+          ON delivery_control_action(run_id,status,created_at);
+        CREATE UNIQUE INDEX uq_delivery_control_active_slot
+          ON delivery_control_action(run_id,slot_id)
+          WHERE slot_id IS NOT NULL
+            AND type IN ('activate','continue','retry')
+            AND status IN ('claimed','applied');
+        CREATE TRIGGER trg_control_action_attempt_bounds_insert
+        BEFORE INSERT ON delivery_control_action
+        WHEN NEW.attempt_count < 0 OR NEW.max_attempts <= 0
+          OR NEW.attempt_count > NEW.max_attempts
+        BEGIN
+          SELECT RAISE(ABORT,'control_action_attempt_bounds_invalid');
+        END;
+        CREATE TRIGGER trg_control_action_attempt_bounds_update
+        BEFORE UPDATE OF attempt_count,max_attempts ON delivery_control_action
+        WHEN NEW.attempt_count < OLD.attempt_count OR NEW.max_attempts <= 0
+          OR NEW.attempt_count > NEW.max_attempts
+        BEGIN
+          SELECT RAISE(ABORT,'control_action_attempt_bounds_invalid');
+        END;
+        CREATE TRIGGER trg_control_action_lease_shape_insert
+        BEFORE INSERT ON delivery_control_action
+        WHEN (
+          NEW.status='claimed'
+          AND (NEW.claim_token IS NULL OR NEW.lease_owner IS NULL OR NEW.lease_expires_at IS NULL)
+        ) OR (
+          NEW.status<>'claimed'
+          AND (NEW.claim_token IS NOT NULL OR NEW.lease_owner IS NOT NULL OR NEW.lease_expires_at IS NOT NULL)
+        )
+        BEGIN
+          SELECT RAISE(ABORT,'delivery_control_action_lease_shape_invalid');
+        END;
+        CREATE TRIGGER trg_control_action_lease_shape_update
+        BEFORE UPDATE OF status,claim_token,lease_owner,lease_expires_at
+        ON delivery_control_action
+        WHEN (
+          NEW.status='claimed'
+          AND (NEW.claim_token IS NULL OR NEW.lease_owner IS NULL OR NEW.lease_expires_at IS NULL)
+        ) OR (
+          NEW.status<>'claimed'
+          AND (NEW.claim_token IS NOT NULL OR NEW.lease_owner IS NOT NULL OR NEW.lease_expires_at IS NOT NULL)
+        )
+        BEGIN
+          SELECT RAISE(ABORT,'delivery_control_action_lease_shape_invalid');
+        END;
+      `);
+    },
+  },
 ];
 
 export function applyMigrations(db: Database.Database): void {

@@ -105,6 +105,42 @@ const formatContentWithMentions = (content: string) => {
   });
 };
 
+const LONG_NARRATIVE_CHARACTER_LIMIT = 900;
+const LONG_NARRATIVE_LINE_LIMIT = 18;
+
+function AgentNarrative({ content }: { content: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const shouldCollapse = content.length > LONG_NARRATIVE_CHARACTER_LIMIT
+    || content.split('\n').length > LONG_NARRATIVE_LINE_LIMIT;
+
+  if (!shouldCollapse) return <MarkdownContent content={content} />;
+
+  return (
+    <div data-testid="agent-narrative-disclosure">
+      <div
+        data-testid="agent-narrative-content"
+        className={cn('relative', !expanded && 'max-h-44 overflow-hidden')}
+      >
+        <MarkdownContent content={content} />
+        {!expanded && (
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-[hsl(var(--bg-card))] to-transparent"
+          />
+        )}
+      </div>
+      <button
+        type="button"
+        aria-expanded={expanded}
+        onClick={() => setExpanded((current) => !current)}
+        className="mt-2 text-[10px] font-semibold text-[hsl(var(--accent))] hover:underline"
+      >
+        {expanded ? '收起完整回复' : '展开完整回复'}
+      </button>
+    </div>
+  );
+}
+
 export function ChatMessageItem({ message, responseSegments }: ChatMessageItemProps) {
   // 用 effectiveRoster（按当前 conversation 的 runtime roster，含 TeamPack 角色 planner/coder/reviewer），
   // 而非 agentRoster（6 人组初始，不含 TeamPack 角色）——否则消息找不到 agent → 无头像/名字
@@ -243,7 +279,7 @@ export function ChatMessageItem({ message, responseSegments }: ChatMessageItemPr
                   isHuman ? (
                     <div className="whitespace-pre-wrap break-words">{formatContentWithMentions(segment.content)}</div>
                   ) : (
-                    <MarkdownContent content={segment.content} />
+                    <AgentNarrative content={segment.content} />
                   )
                 ) : null}
 

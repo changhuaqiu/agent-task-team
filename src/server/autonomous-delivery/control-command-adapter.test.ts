@@ -6,6 +6,9 @@ import { DurableEffectOutbox } from '../platform-events/durable-effect-outbox';
 import { qualityGateRepo } from '../quality-gate/repository';
 import { taskGraphRepo } from '../repositories/task-graph-repo';
 import { taskRepo } from '../repositories/task-repo';
+import { invocationRepo } from '../repositories/invocation-repo';
+import { WorkContractRepository } from '../work-contract/repository';
+import { buildWorkIdentity } from '../work-contract/work-identity';
 import { ProductionControlCommandAdapter } from './control-command-adapter';
 import { decideControlActions } from './control-decision';
 import { RepositoryControlSnapshotBuilder } from './control-snapshot-builder';
@@ -85,6 +88,77 @@ describe('ProductionControlCommandAdapter', () => {
     return { snapshot, decision };
   }
 
+  function checkpointGateWork(input: {
+    workId: string;
+    agentId: string;
+    taskId: string;
+    suffix: string;
+  }) {
+    const task = taskRepo.getById(input.taskId)!;
+    const contracts = new WorkContractRepository();
+    const contract = contracts.issue({
+      workId: input.workId,
+      attemptId: `attempt-${input.suffix}`,
+      projectId: 'project-1',
+      deliveryRunId: runId,
+      taskId: task.id,
+      agentId: input.agentId,
+      goal: 'Finish the Gate evaluation',
+      acceptanceCriteria: ['Record the Gate decision with evidence'],
+      role: { id: 'reviewer' },
+      permissions: {},
+      authoritativeRefs: [`task:${task.id}`, `delivery_run:${runId}`],
+      authoritativeRevisions: {
+        task: task.revision,
+        deliveryRun: deliveries.getRun(runId)!.revision,
+      },
+      contextSnapshotRef: `context-${input.suffix}`,
+      allowedOutcomeTypes: ['continue_work', 'record_gate_decision'],
+      correlationId: 'delivery-root-trace',
+      causationId: `start-${input.suffix}`,
+      now,
+    });
+    invocationRepo.create({
+      id: contract.attemptId,
+      conversation_id: 'project-1',
+      agent_id: input.agentId,
+      work_contract_id: contract.contractId,
+      work_id: contract.workId,
+      work_epoch: contract.workEpoch,
+      fencing_token: contract.fencingToken,
+    }, now);
+    expect(contracts.admitOutcome({
+      outcomeId: `outcome-${input.suffix}`,
+      idempotencyKey: `outcome-${input.suffix}`,
+      contractId: contract.contractId,
+      outcomeType: 'continue_work',
+      payload: {
+        schemaVersion: 1,
+        reason: 'verification_follow_up',
+        summary: `Checkpoint summary ${input.suffix}`,
+        nextAction: `Exact next action ${input.suffix}`,
+        completedSteps: ['Checked the primary evidence.'],
+        remainingSteps: ['Check the remaining evidence.'],
+      },
+      evidenceRefs: [`trace:${input.suffix}`],
+      projectId: contract.projectId,
+      workId: contract.workId,
+      workEpoch: contract.workEpoch,
+      attemptId: contract.attemptId,
+      fencingToken: contract.fencingToken,
+      authoritativeRevisions: contract.authoritativeRevisions,
+      correlationId: contract.correlationId,
+      causationId: contract.contractId,
+      occurredAt: now.toISOString(),
+    })).toMatchObject({ status: 'accepted' });
+    invocationRepo.transition(contract.attemptId, {
+      to: 'terminated',
+      outcome: 'completed',
+      reason_code: 'agent_requested_continuation',
+    }, now);
+    return contract;
+  }
+
   it('turns activate into durable AgentInbox work without starting Runtime directly', async () => {
     const { snapshot, decision } = decide();
     const action = decision.actions[0]!;
@@ -110,6 +184,166 @@ describe('ProductionControlCommandAdapter', () => {
       correlationId: 'delivery-root-trace',
     });
   });
+
+  it('dispatches a dedicated continuation with the admitted checkpoint and evidence', async () => {
+    const task = taskRepo.getById('task-1')!;
+    const workId = 'task:task-1:agent:agent-1:purpose:execute';
+    const contracts = new WorkContractRepository();
+    const contract = contracts.issue({
+      workId,
+      attemptId: 'attempt-continuation-1',
+      projectId: 'project-1',
+      deliveryRunId: runId,
+      taskId: task.id,
+      agentId: 'agent-1',
+      goal: task.title,
+      acceptanceCriteria: ['Works'],
+      role: { id: 'agent-1' },
+      permissions: {},
+      authoritativeRefs: [`task:${task.id}`, `delivery_run:${runId}`],
+      authoritativeRevisions: {
+        task: task.revision,
+        deliveryRun: deliveries.getRun(runId)!.revision,
+      },
+      contextSnapshotRef: 'context:continuation-1',
+      allowedOutcomeTypes: ['continue_work', 'submit_task_result'],
+      correlationId: 'delivery-root-trace',
+      causationId: 'continuation-start',
+      now,
+    });
+    invocationRepo.create({
+      id: contract.attemptId,
+      conversation_id: 'project-1',
+      agent_id: 'agent-1',
+      work_contract_id: contract.contractId,
+      work_id: contract.workId,
+      work_epoch: contract.workEpoch,
+      fencing_token: contract.fencingToken,
+    }, now);
+    expect(contracts.admitOutcome({
+      outcomeId: 'outcome-continuation-1',
+      idempotencyKey: 'outcome-continuation-1',
+      contractId: contract.contractId,
+      outcomeType: 'continue_work',
+      payload: {
+        schemaVersion: 1,
+        reason: 'multi_step',
+        summary: 'Repository mapping is complete.',
+        nextAction: 'Implement the scheduler change.',
+        completedSteps: ['Mapped the current lifecycle.'],
+        remainingSteps: ['Implement the scheduler.', 'Run focused tests.'],
+      },
+      evidenceRefs: ['trace:repository-map'],
+      projectId: contract.projectId,
+      workId: contract.workId,
+      workEpoch: contract.workEpoch,
+      attemptId: contract.attemptId,
+      fencingToken: contract.fencingToken,
+      authoritativeRevisions: contract.authoritativeRevisions,
+      correlationId: contract.correlationId,
+      causationId: contract.contractId,
+      occurredAt: now.toISOString(),
+    })).toMatchObject({ status: 'accepted' });
+    invocationRepo.transition(contract.attemptId, {
+      to: 'terminated',
+      outcome: 'completed',
+      reason_code: 'agent_requested_continuation',
+    }, now);
+
+    const { snapshot, decision } = decide();
+    const action = decision.actions.find((item) => item.type === 'continue')!;
+    expect(action).toMatchObject({ targetWorkId: workId });
+    expect(await adapter.execute(action, {
+      decision,
+      snapshot,
+      claimToken: 'claim-continuation',
+    })).toEqual({ status: 'applied' });
+
+    const command = JSON.parse((db.prepare(`
+      SELECT command_json FROM agent_inbox_item WHERE idempotency_key=?
+    `).get(action.actionId) as { command_json: string }).command_json);
+    expect(command).toMatchObject({
+      source: 'system',
+      contextScenario: 'recovery',
+      workId,
+      taskId: 'task-1',
+      deliveryRunId: runId,
+    });
+    expect(command.prompt).toContain('Repository mapping is complete.');
+    expect(command.prompt).toContain('Implement the scheduler change.');
+    expect(command.prompt).toContain('trace:repository-map');
+  });
+
+  it.each([
+    { scope: 'task', purpose: 'review', gateKind: 'code_review', source: 'review_gate' },
+    { scope: 'delivery', purpose: 'review', gateKind: 'delivery_review', source: 'review_gate' },
+    { scope: 'delivery', purpose: 'verify', gateKind: 'acceptance_verification', source: 'test_gate' },
+  ] as const)(
+    'combines the checkpoint with $gateKind instructions for Gate continuation',
+    async ({ scope, purpose, gateKind, source }) => {
+      db.prepare(`
+        INSERT INTO agents (id,name,role_card_id,theme,emoji,created_at,updated_at)
+        VALUES ('reviewer','Reviewer','preset-code-reviewer','default','R',?,?)
+      `).run(now.toISOString(), now.toISOString());
+      taskRepo.transition('task-1', { to: 'in_progress' }, now);
+      taskRepo.transition('task-1', { to: 'in_review' }, now);
+      if (scope === 'delivery') taskRepo.transition('task-1', { to: 'done' }, now);
+      const task = taskRepo.getById('task-1')!;
+      const requested = qualityGateRepo.request({
+        conversationId: 'project-1',
+        kind: gateKind,
+        targetType: scope === 'task' ? 'task' : 'delivery_run',
+        targetId: scope === 'task' ? task.id : runId,
+        artifactRevision: scope === 'task' ? String(task.revision) : 'delivery-revision-1',
+        criteria: {},
+        actor: { type: 'system', id: 'test' },
+        now,
+      });
+      const suffix = `${scope}-${purpose}`;
+      const workId = buildWorkIdentity({
+        scope,
+        targetId: scope === 'task' ? task.id : runId,
+        agentId: 'reviewer',
+        gateId: requested.gate.id,
+        purpose,
+      });
+      checkpointGateWork({ workId, agentId: 'reviewer', taskId: task.id, suffix });
+
+      const snapshot = new RepositoryControlSnapshotBuilder({ db, now: () => now }).build(runId);
+      const decision = decideControlActions(snapshot, {
+        revision: 1,
+        maxConcurrent: 1,
+        roleCapacity: { reviewer: 1 },
+        fairnessAgingMs: 1_000,
+      });
+      const action = decision.actions.find((item) =>
+        item.type === 'continue' && item.targetWorkId === workId
+      )!;
+      expect(action).toBeDefined();
+      expect(await adapter.execute(action, {
+        decision,
+        snapshot,
+        claimToken: `claim-${suffix}`,
+      })).toEqual({ status: 'applied' });
+
+      const command = JSON.parse((db.prepare(`
+        SELECT command_json FROM agent_inbox_item WHERE idempotency_key=?
+      `).get(action.actionId) as { command_json: string }).command_json);
+      expect(command).toMatchObject({
+        source,
+        contextScenario: 'recovery',
+        workId,
+        taskId: task.id,
+        deliveryRunId: runId,
+      });
+      expect(command.prompt).toContain(`Checkpoint summary ${suffix}`);
+      expect(command.prompt).toContain(`Exact next action ${suffix}`);
+      expect(command.prompt).toContain(`trace:${suffix}`);
+      expect(command.prompt).toContain(`Quality Gate: ${requested.gate.id}`);
+      expect(command.prompt).toContain('record_gate_decision');
+      if (scope === 'delivery') expect(command.prompt).toContain('payload.receipt is required');
+    },
+  );
 
   it('initializes the root Task through the Task owner before any Agent activation', async () => {
     db.prepare('DELETE FROM task WHERE id=?').run('task-1');

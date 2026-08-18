@@ -174,11 +174,12 @@ export function CliOutputBlock({ events, isStreaming, streamText }: CliOutputBlo
   const expanded = expandedPreference ?? isStreaming;
   const bodyExpanded = bodyExpandedPreference ?? isStreaming;
 
-  const toolEvents = events.filter((e) => e.type === 'tool_use' || e.type === 'tool_result');
+  const toolCallEvents = events.filter((e) => e.type === 'tool_use');
   const errorCount = events.filter((e) => e.type === 'error').length;
-  const activeTool = isStreaming ? toolEvents[toolEvents.length - 1] : undefined;
+  const activeTool = isStreaming ? toolCallEvents[toolCallEvents.length - 1] : undefined;
   const needsCollapse = events.length > 5;
   const visibleEvents = bodyExpanded ? events : events.slice(-5);
+  const previewToolCalls = toolCallEvents.slice(-3);
 
   const handleToggle = () => {
     setExpandedPreference(!expanded);
@@ -234,11 +235,42 @@ export function CliOutputBlock({ events, isStreaming, streamText }: CliOutputBlo
             </div>
             <div className="mt-0.5 truncate font-mono text-[10px] text-[hsl(var(--text-tertiary))]">
               {events.length} 条事件
-              {activeTool ? ` · 当前：${extractLabel(activeTool.label)}` : toolEvents.length > 0 ? ` · ${toolEvents.length} 个工具事件` : ''}
+              {activeTool ? ` · 当前：${extractLabel(activeTool.label)}` : toolCallEvents.length > 0 ? ` · ${toolCallEvents.length} 次工具调用` : ''}
             </div>
           </div>
         </div>
       </button>
+
+      {!expanded && previewToolCalls.length > 0 && (
+        <div
+          data-testid="cli-trace-preview"
+          className="border-t border-[hsl(var(--border-subtle))] bg-[hsl(var(--bg-muted))] px-3 py-2"
+        >
+          <div className="space-y-1.5">
+            {previewToolCalls.map((event, index) => {
+              const label = extractLabel(event.label);
+              const primaryArg = extractPrimaryArg(event.detail);
+              const isActive = isStreaming && index === previewToolCalls.length - 1;
+              return (
+                <div key={event.id} className="flex min-w-0 items-center gap-2 text-[10px]">
+                  <ToolGlyph label={label} tone={isActive ? 'active' : 'done'} />
+                  <span className="shrink-0 font-semibold text-[hsl(var(--text-secondary))]">{label}</span>
+                  {primaryArg && (
+                    <span className="min-w-0 flex-1 truncate font-mono text-[hsl(var(--text-tertiary))]">
+                      {primaryArg}
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          {toolCallEvents.length > previewToolCalls.length && (
+            <div className="mt-1.5 text-[9px] text-[hsl(var(--text-tertiary))]">
+              另有 {toolCallEvents.length - previewToolCalls.length} 次调用，展开查看全部
+            </div>
+          )}
+        </div>
+      )}
 
       {expanded && (
         <div className="border-t border-[hsl(var(--border-subtle))] bg-[linear-gradient(180deg,hsl(var(--bg-muted)),hsl(var(--bg-card)))]">

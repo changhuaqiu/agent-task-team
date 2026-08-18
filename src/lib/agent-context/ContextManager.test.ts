@@ -195,9 +195,10 @@ describe('ContextManager', () => {
       budgetOverride: new ContextBudget({ maxTokens: 1000 }),
     };
 
-    await expect(manager.assembleContext(req))
-      .rejects.toThrow('required_context_missing: message:user');
-    // history 是 P4，应该被裁剪（预算不足以容纳所有历史）
+    const result = await manager.assembleContext(req);
+    expect(result.report.droppedLayers).toContain('message:history');
+    expect(result.report.missingRequired).toEqual([]);
+    expect(result.userPrompt).toContain('a'.repeat(400));
   });
 
   it('首次唤醒返回 systemPrompt', async () => {

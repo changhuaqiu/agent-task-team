@@ -231,6 +231,26 @@ The router must know:
 
 Continue Gate decides whether an active run should continue, checkpoint, pause, pass, or stop.
 
+`ContinueGateLite` owns the first production continuation seam. An Agent may submit
+`continue_work` only with a versioned checkpoint containing a concise summary, the exact next
+action, and a non-empty remaining-step list. The admission transaction validates that checkpoint
+before accepting it. After the Invocation terminates, Control Snapshot projects
+`continuation_pending`; Control Decision emits a dedicated `continue` action, and the Command
+Adapter starts a fresh fenced WorkContract epoch with the checkpoint in its recovery prompt.
+
+Execution, Task review, Delivery review, and acceptance-verification WorkContracts all authorize
+the same bounded continuation checkpoint; Gate evaluators do not have to misreport an incomplete
+multi-step verification as a runtime failure. An accepted continuation is planned progress, not an Invocation failure. It does not consume the
+runtime-failure retry budget and must not use the generic `retry` action or
+`invocation_completed_without_outcome` reason. Continuations are independently bounded per Work;
+when the continuation budget is exhausted, the run escalates to a visible human boundary instead
+of looping forever. A terminal outcome, explicit handoff, or blocker always takes precedence over
+an older checkpoint. A queued continuation reserves the same durable role/global slot as an
+activation or retry until Inbox cancellation, expiry, Invocation start, or Invocation termination
+releases it. Historical accepted `continue_work` rows that do not satisfy the versioned checkpoint
+schema remain on the legacy Invocation retry path; they are never silently reinterpreted as a new
+continuation.
+
 Initial signals:
 
 - holder turn count
@@ -644,6 +664,10 @@ Future federation may extend this to a full PII pipeline and trust-level matrix.
   Once admitted, WorkContract/Invocation facts own liveness so a terminal Invocation can still project retry or completion.
 - A Gate evaluator's accepted `request_human_decision` or `report_blocked` Outcome projects `waiting_human` immediately. It is a
   terminal, user-actionable result for that attempt and must not be treated as an Invocation failure eligible for blind retry.
+- `ContinueGateLite` validates versioned `continue_work` checkpoints and projects accepted checkpoints as bounded
+  `continuation_pending` Work. Control emits a dedicated `continue` action whose next Invocation receives the summary, exact next
+  action, remaining steps, and evidence references. Planned continuation is separate from failure retry accounting; exhausting its
+  own budget escalates visibly instead of becoming a fake runtime failure.
 - Existing A2A compatibility dispatch passes chain/pass metadata into the execution envelope.
 - Task Graph policy now writes proof events for blocked high-impact actions and keeps task action ids correlated through task/pass fields where available.
 - Full directed runtime routing and executor-only envelope consumption remain future work.

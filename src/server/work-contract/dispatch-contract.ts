@@ -17,6 +17,7 @@ const EXECUTION_OUTCOMES: AgentOutcomeType[] = [
 ];
 
 const GATE_OUTCOMES: AgentOutcomeType[] = [
+  'continue_work',
   'record_gate_decision',
   'report_blocked',
   'request_human_decision',
@@ -134,7 +135,10 @@ export function renderWorkContractInstruction(contract: WorkContract): string {
     'The tool binds the private fencing token and authoritative revisions for this invocation.',
     'A stale epoch or superseded attempt will be rejected; do not mutate domain state directly.',
     'Treat TASKS.md, task status, assignee, deliverable metadata, and gate state as read-only projections.',
-    'Submit exactly one terminal outcome before ending; the Process Manager applies task and gate transitions atomically.',
+    'Before ending, submit exactly one terminal outcome or one continue_work checkpoint; the Process Manager applies task and gate transitions atomically.',
+    'If substantial work remains but this Invocation must stop, submit continue_work with payload '
+      + '{ schemaVersion: 1, reason: multi_step | context_boundary | verification_follow_up, summary, nextAction, completedSteps: string[], remainingSteps: non-empty string[] }. '
+      + 'The platform will start a bounded continuation from that checkpoint; do not use continue_work for an external or human blocker.',
     'Tool calls are visible in the platform trace. Do not narrate or repeat the tool sequence in assistant text.',
     '',
     '```json',

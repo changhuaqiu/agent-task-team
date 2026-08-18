@@ -141,6 +141,36 @@ describe('ControlDecisionRepository', () => {
       .toBe(computed.decisionId);
   });
 
+  it('reserves and releases a continuation through the durable slot lifecycle', () => {
+    snapshot.workCells[0] = {
+      ...snapshot.workCells[0]!,
+      state: 'continuation_pending',
+      continuation: { requestsUsed: 1, maxRequests: 3 },
+    };
+    const computed = decision();
+    expect(computed.actions[0]).toMatchObject({
+      type: 'continue',
+      slotId: 'implementer:1',
+    });
+    store.persist({ projectId: 'project-1', decision: computed });
+    const action = store.listActions(computed.decisionId)[0]!;
+    const claimed = store.claim({
+      actionId: action.id,
+      workerId: 'worker-1',
+      leaseMs: 10_000,
+      now: new Date('2026-07-28T00:00:01.000Z'),
+    });
+    expect(store.complete({
+      actionId: action.id,
+      claimToken: claimed.claim_token!,
+      now: new Date('2026-07-28T00:00:02.000Z'),
+    })).toBe(true);
+    expect(store.releaseSlot({
+      actionId: action.id,
+      reasonCode: 'invocation_started',
+    })).toBe(true);
+  });
+
   it('rejects a decision and claim after authoritative project facts advance', () => {
     const computed = decision();
     new PlatformEventLog({ db }).append({

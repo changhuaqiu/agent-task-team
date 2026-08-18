@@ -380,12 +380,14 @@ describe('runtime ownership architecture', () => {
     expect(productionFiles.filter((path) => /\bvalidateAcceptanceVerificationReceipt\b/.test(source(path))).sort())
       .toEqual([
         'src/server/autonomous-delivery/verification-receipt.ts',
-        'src/server/quality-gate/outcome-process-manager.ts',
+        'src/server/quality-gate/delivery-receipt-validation.ts',
       ]);
     const validator = source('src/server/autonomous-delivery/verification-receipt.ts');
+    const receiptValidation = source('src/server/quality-gate/delivery-receipt-validation.ts');
     const outcomeManager = source('src/server/quality-gate/outcome-process-manager.ts');
-    expect(outcomeManager.match(/validateAcceptanceVerificationReceipt\s*\(/g)).toHaveLength(1);
-    expect(`${validator}\n${outcomeManager}`).not.toMatch(
+    expect(receiptValidation.match(/validateAcceptanceVerificationReceipt\s*\(/g)).toHaveLength(1);
+    expect(outcomeManager.match(/validateDeliveryGateReceipt\s*\(/g)).toHaveLength(1);
+    expect(`${validator}\n${receiptValidation}\n${outcomeManager}`).not.toMatch(
       /proof-log-repo|ProofEventRow|task_graph\.gate_evidence\.accepted/,
     );
   });

@@ -556,6 +556,74 @@ describe('SQLite Foundation', () => {
     expect(after.v).toBe(before.v);
   });
 
+  it('upgrades ControlAction when the earlier attempt-column migration was recorded out of order', () => {
+    const legacyDb = new Database(':memory:');
+    try {
+      legacyDb.exec(`
+        CREATE TABLE _schema_version (version INTEGER PRIMARY KEY);
+        CREATE TABLE conversation (id TEXT PRIMARY KEY);
+        CREATE TABLE autonomous_delivery_run (id TEXT PRIMARY KEY);
+        CREATE TABLE delivery_control_decision (id TEXT PRIMARY KEY);
+        CREATE TABLE delivery_control_action (
+          id TEXT PRIMARY KEY,
+          decision_id TEXT NOT NULL,
+          run_id TEXT NOT NULL,
+          type TEXT NOT NULL,
+          target_work_id TEXT,
+          work_epoch INTEGER,
+          slot_id TEXT,
+          reason_code TEXT NOT NULL,
+          retry_budget_kind TEXT,
+          termination_outcome TEXT,
+          status TEXT NOT NULL,
+          claim_token TEXT,
+          lease_owner TEXT,
+          lease_expires_at TEXT,
+          failure_code TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          completed_at TEXT
+        );
+        INSERT INTO conversation (id) VALUES ('project-1');
+        INSERT INTO autonomous_delivery_run (id) VALUES ('run-1');
+        INSERT INTO delivery_control_decision (id) VALUES ('decision-1');
+        INSERT INTO delivery_control_action (
+          id,decision_id,run_id,type,target_work_id,work_epoch,slot_id,reason_code,
+          status,created_at,updated_at
+        ) VALUES (
+          'legacy-action','decision-1','run-1','activate','work-1',1,
+          'implementer:1','work_ready','ready','2026-07-28T00:00:00.000Z',
+          '2026-07-28T00:00:00.000Z'
+        );
+      `);
+      const recordVersion = legacyDb.prepare(
+        'INSERT INTO _schema_version (version) VALUES (?)',
+      );
+      for (let version = 1; version <= 82; version += 1) recordVersion.run(version);
+
+      applyMigrations(legacyDb);
+
+      expect(legacyDb.prepare(`
+        SELECT type,attempt_count,max_attempts FROM delivery_control_action
+        WHERE id='legacy-action'
+      `).get()).toEqual({ type: 'activate', attempt_count: 0, max_attempts: 3 });
+      expect(legacyDb.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
+        .toEqual({ version: 83 });
+      expect(() => legacyDb.prepare(`
+        INSERT INTO delivery_control_action (
+          id,decision_id,run_id,type,target_work_id,work_epoch,slot_id,reason_code,
+          status,created_at,updated_at
+        ) VALUES (
+          'continue-action','decision-1','run-1','continue','work-1',1,
+          'implementer:1','agent_requested_continuation','ready',
+          '2026-07-28T00:01:00.000Z','2026-07-28T00:01:00.000Z'
+        )
+      `).run()).not.toThrow();
+    } finally {
+      legacyDb.close();
+    }
+  });
+
   it('guards immutable Delivery start keys and claimed ControlAction lease shape', () => {
     const now = '2026-07-28T08:00:00.000Z';
     db.prepare(`
@@ -714,7 +782,7 @@ describe('SQLite Foundation', () => {
     expect(db.prepare('SELECT version FROM _schema_version WHERE version = 40').get())
       .toEqual({ version: 40 });
     expect(db.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-      .toEqual({ version: 82 });
+      .toEqual({ version: 83 });
   });
 
   it('retires the parallel A2A worklist schema at migration 62', () => {
@@ -792,7 +860,7 @@ describe('SQLite Foundation', () => {
           'autonomous_delivery_advancement_request',
         ]));
         expect(checkpoint.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-          .toEqual({ version: 82 });
+          .toEqual({ version: 83 });
         expect(checkpoint.pragma('foreign_key_check')).toEqual([]);
       } finally {
         checkpoint.close();

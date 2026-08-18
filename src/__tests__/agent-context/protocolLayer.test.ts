@@ -14,17 +14,18 @@ describe('deriveRoleFromCard', () => {
 });
 
 describe('buildProtocolLayer', () => {
-  it('includes identity and requires the runtime absolute task path', () => {
+  it('includes identity while treating the Task projection as read-only', () => {
     const result = buildProtocolLayer({ agentId: 'luigi', agentRole: 'backend', hasTaskAssignment: false });
     expect(result).toContain('agentId: luigi');
     expect(result).toContain('Role: backend');
-    expect(result).toContain('任务看板绝对路径');
-    expect(result).not.toContain('.ath/TASKS.md');
+    expect(result).toContain('Task/TASKS.md 是只读投影');
+    expect(result).toContain('不要自行修改 Task Graph');
   });
 
-  it('includes task assignment guidance when hasTaskAssignment=true', () => {
+  it('requires one structured outcome when a task is assigned', () => {
     const result = buildProtocolLayer({ agentId: 'luigi', agentRole: 'backend', hasTaskAssignment: true });
-    expect(result).toContain('你被分配了');
+    expect(result).toContain('你已被分配任务');
+    expect(result).toContain('提交一个结构化 outcome');
   });
 
   it('does not duplicate planner dispatch responsibilities', () => {
@@ -32,14 +33,14 @@ describe('buildProtocolLayer', () => {
     expect(result).not.toContain('调度职责');
   });
 
-  it('includes self-check guidance when no task', () => {
+  it('does not invent Task Graph work when no task is assigned', () => {
     const result = buildProtocolLayer({ agentId: 'luigi', agentRole: 'backend', hasTaskAssignment: false });
-    expect(result).toContain('自检');
+    expect(result).toContain('没有明确任务时按用户指令执行');
   });
 
-  it('allows a reviewer to make only the assigned gate decision', () => {
+  it('keeps reviewer decisions behind a structured outcome', () => {
     const result = buildProtocolLayer({ agentId: 'peach', agentRole: 'testing', hasTaskAssignment: true });
-    expect(result).toContain('PASS → done');
-    expect(result).toContain('唯一例外是 reviewer');
+    expect(result).toContain('不跳过 review 或伪造执行/验收证据');
+    expect(result).toContain('agent_submit_outcome');
   });
 });

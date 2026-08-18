@@ -22,6 +22,7 @@ import type {
 } from './control-process-manager';
 import { RepositoryControlSnapshotBuilder } from './control-snapshot-builder';
 import { parseWorkIdentity } from '../work-contract/work-identity';
+import { continueGateLite } from '../work-contract/continue-gate';
 
 interface ProductionControlCommandAdapterOptions {
   db?: Database.Database;
@@ -59,6 +60,7 @@ export class ProductionControlCommandAdapter implements ControlCommandPort {
       case 'initializeGraph':
         return this.initializeGraph(action, context.decision.runId);
       case 'activate':
+      case 'continue':
       case 'retry':
         return this.dispatch(action, context.decision);
       case 'requestGate':
@@ -228,6 +230,12 @@ export class ProductionControlCommandAdapter implements ControlCommandPort {
     const deliverySnapshot = deliveryReview || verification
       ? this.deliveries.getSnapshot(runId)
       : undefined;
+    const continuation = action.type === 'continue'
+      ? this.continuationPrompt(action.targetWorkId)
+      : undefined;
+    if (continuation && !continuation.accepted) {
+      return { status: 'rejected', reasonCode: continuation.reasonCode };
+    }
     const receiptInstruction = deliveryReview
       ? `The top-level payload.receipt is required and must be: ${JSON.stringify({
           schemaVersion: 1,
@@ -291,7 +299,7 @@ export class ProductionControlCommandAdapter implements ControlCommandPort {
           workId: action.targetWorkId,
           taskId: task.id,
           deliveryRunId: runId,
-          contextScenario: action.type === 'retry'
+          contextScenario: action.type === 'retry' || action.type === 'continue'
             ? 'recovery'
             : review
               ? 'code_review'
@@ -300,16 +308,23 @@ export class ProductionControlCommandAdapter implements ControlCommandPort {
                 : 'execution',
           prompt: review || verification
             ? [
-                review
-                  ? deliveryReview
-                    ? 'Review the completed delivery.'
-                    : `Review task ${task.id}「${task.title}」.`
-                  : 'Verify the delivery acceptance criteria.',
+                action.type === 'continue' && continuation?.accepted
+                  ? continuation.prompt
+                  : review
+                    ? deliveryReview
+                      ? 'Review the completed delivery.'
+                      : `Review task ${task.id}「${task.title}」.`
+                    : 'Verify the delivery acceptance criteria.',
                 `Quality Gate: ${gate?.id ?? 'missing'}.`,
+                action.type === 'continue'
+                  ? 'This is a continued Gate evaluation. Preserve the checkpoint progress and finish the same Gate; do not restart the review or verification.'
+                  : '',
                 'Submit exactly one structured record_gate_decision AgentOutcome.',
                 'Its payload must contain the exact gateId above, decision as passed | changes_requested | rejected, evidenceType, and evidence.',
                 receiptInstruction,
               ].join(' ')
+            : action.type === 'continue' && continuation?.accepted
+            ? continuation.prompt
             : action.type === 'retry'
             ? `恢复任务 ${task.id}「${task.title}」。根据当前权威事实继续，不要复用旧 attempt 的结果。`
             : `执行任务 ${task.id}「${task.title}」。完成后提交结构化 AgentOutcome 和证据。`,
@@ -317,6 +332,55 @@ export class ProductionControlCommandAdapter implements ControlCommandPort {
       });
     }).immediate();
     return { status: 'applied' };
+  }
+
+  private continuationPrompt(workId: string | undefined):
+    | { accepted: true; prompt: string }
+    | { accepted: false; reasonCode: string } {
+    if (!workId) return { accepted: false, reasonCode: 'continuation_work_missing' };
+    const db = this.database ?? getDb();
+    const row = db.prepare(`
+      SELECT outcome.payload_json,outcome.evidence_refs_json
+      FROM work_authority authority
+      JOIN agent_outcome outcome ON outcome.contract_id=authority.current_contract_id
+      WHERE authority.work_id=?
+        AND authority.status='active'
+        AND outcome.admission_status='accepted'
+        AND outcome.outcome_type='continue_work'
+      ORDER BY outcome.recorded_at DESC,outcome.id DESC LIMIT 1
+    `).get(workId) as { payload_json: string; evidence_refs_json: string } | undefined;
+    if (!row) return { accepted: false, reasonCode: 'continuation_checkpoint_missing' };
+    let payload: unknown;
+    let evidenceRefs: unknown;
+    try {
+      payload = JSON.parse(row.payload_json);
+      evidenceRefs = JSON.parse(row.evidence_refs_json);
+    } catch {
+      return { accepted: false, reasonCode: 'continuation_checkpoint_invalid' };
+    }
+    const admission = continueGateLite.admit(payload);
+    if (!admission.accepted) return admission;
+    const checkpoint = admission.checkpoint;
+    const references = Array.isArray(evidenceRefs)
+      ? evidenceRefs.filter((item): item is string => typeof item === 'string' && Boolean(item.trim()))
+      : [];
+    return {
+      accepted: true,
+      prompt: [
+        '继续当前任务，不要重新规划或重复已经完成的步骤。',
+        `上一轮检查点摘要：${checkpoint.summary}`,
+        `本轮精确下一动作：${checkpoint.nextAction}`,
+        ...(checkpoint.completedSteps.length > 0
+          ? ['已完成：', ...checkpoint.completedSteps.map((step) => `- ${step}`)]
+          : []),
+        '剩余步骤：',
+        ...checkpoint.remainingSteps.map((step) => `- ${step}`),
+        ...(references.length > 0
+          ? ['已有证据引用：', ...references.map((reference) => `- ${reference}`)]
+          : []),
+        '先核对当前权威事实和工作区，再从“本轮精确下一动作”继续。完成、交接、阻塞或仍需续作时提交一个新的结构化 AgentOutcome。',
+      ].join('\n'),
+    };
   }
 
   private requestGate(

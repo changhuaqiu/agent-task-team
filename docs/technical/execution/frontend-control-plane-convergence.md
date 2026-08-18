@@ -174,7 +174,7 @@ Implementation：复用 `consumeProjectViewEvent`、项目 room 和消息快照�
 2. 没有 `invocationId` 的人工消息按持久消息 ID 独立展示；不同 Invocation 绝不按 `agentId` 合并。
 3. `task_status` 和 system sender 投影为活动提示，不进入 Agent 气泡分组；原始通知正文只作为可展开的审计详情。
 4. 活跃的 provisional 回复与同 Invocation 的 durable 消息重叠时只显示 provisional；完成并对账后只显示 durable，避免刷新前后裂成两个回复。
-5. 工具调用摘要始终可见，详情可折叠；中间自然语言过程默认折叠，最终自然语言结论保持可见。
+5. 工具调用的名称和主要目标始终可见，完整输入输出可折叠；中间自然语言过程默认折叠。最终自然语言回复超过阅读阈值时只收起正文容器，不得收起工具、结构化证据、任务引用或阻塞事实。
 
 这些规则由纯时间线投影函数持有，`GlobalChatRoom` 只渲染投影结果，不再按连续发送者临时分组。
 
@@ -314,7 +314,7 @@ Daemon ExecutionAdapter 内执行；daemon transport 只启动/停止该服务�
   已关闭的 Work Authority；旧 authority 只作为历史证据。Work identity 的构造、解析、purpose/agent/target 提取统一由
   一个深模块持有，Snapshot Builder、Control Command Adapter 与 Gate Lifecycle 不再各自解析字符串。
 - Work Cell 投影或调度语义变化必须同步提升 Delivery control policy revision；旧版本已持久化的确定性 Decision 保持不可变，
-  新版本即使观察到相同 owner-fact revision，也会以新的 Decision identity 完成部署后收敛。本轮 Gate-scoped Work、Task owner-event 与 Durable Inbox liveness 投影使用 revision 5。
+  新版本即使观察到相同 owner-fact revision，也会以新的 Decision identity 完成部署后收敛。Gate-scoped Work、Task owner-event 与 Durable Inbox liveness 投影使用 revision 5；正式 continuation 投影使用 revision 6。
 - Task 已进入 `in_review` 后，最新 requested/evaluating Gate 由精确 `gateId` 持有生命周期；执行人清空或其他非制品字段导致的
   Task revision 变化不得取消本轮评审。Reviewer Work 独立于 implementer assignment 调度，避免卡片元数据操作吞掉已提交制品。
 - Task 的语义更新与 `task.updated` owner event 必须同事务提交。Control Snapshot 读取的 Task revision 变化必须同步推进
@@ -330,6 +330,13 @@ Daemon ExecutionAdapter 内执行；daemon transport 只启动/停止该服务�
   `dispatch_pending`，不重复 activate。Inbox admitted 后由 WorkAuthority/Invocation 接管，终态 Invocation 仍能投影 retry/completed。
 - Gate Agent 已 accepted 的 `request_human_decision/report_blocked` 直接投影 `waiting_human` 并升级 Delivery；权限或外部依赖
   未解除前不再重复启动同一 evaluator，也不允许用伪造回执绕过质量策略。
+- `ContinueGateLite` 成为 `continue_work` 的唯一解释者：admission 先校验 versioned checkpoint；终态 Invocation 将 Work 投影为
+  `continuation_pending`，Decision 输出独立 `continue`，Adapter 把摘要、精确下一动作、剩余步骤和证据带入新 WorkContract epoch。
+  执行、Task 评审、Delivery 评审和验收验证 WorkContract 均可使用同一有界续作出口；续作拥有独立有界预算，不再被计作
+  `invocation_completed_without_outcome`，也不消耗真正的 runtime failure retry budget。
+  migration v83 将 `continue` 纳入 Control Action schema、唯一 slot 索引、claim/release 和 terminal Inbox 回收；活动 Inbox 会把
+  `continuation_pending` 投影为带 slot 的 `queued`，同一 checkpoint 不能重复派发或绕过 role/global capacity。升级前已 accepted
+  但不满足 v1 schema 的历史 `continue_work` 继续走原 Invocation retry，不会被新 Adapter 错误接管。
 - AutonomyGuard 只有在存在可持久化 `waiting_human` 的活动 Delivery owner 时才启用失败预算抑制。普通 Task 没有该
   owner 时继续保留恢复 wakeup，避免任务停在 ready/in_progress/in_review 且没有任何用户可见升级事实。
 - `taskStore` 的任务变化后自动派发已删除；`daemonStore` 的浏览器 runtime 注册、busy queue、强制发送、自动重试、
@@ -340,24 +347,28 @@ Daemon ExecutionAdapter 内执行；daemon transport 只启动/停止该服务�
 
 ### 验证证据
 
-- `pnpm exec tsc --noEmit --pretty false`：本轮改动文件无新增类型错误；仓库级检查仍被既有 `.next/types/validator.ts`
-  过期路由引用和 `e2e/autonomous-delivery-closure.spec.ts` 的旧 API 引用阻断，不将其误记为本轮通过。
+- `pnpm exec tsc --noEmit`：本轮改动文件无新增类型错误；仓库级检查仍被既有 `.next/types/validator.ts`
+  过期路由引用、`e2e/autonomous-delivery-closure.spec.ts` 的旧 API 引用和 Quality Gate Process Manager 的既有
+  nullable 类型错误阻断，不将其误记为本轮通过。
 - Human Command service/API/Adapter 原子性、回滚、幂等与拒绝语义：18/18 通过；相关 Store、组件、API 和架构
   定向回归：125/125 通过。
 - 审查后新增的项目隔离、用户关注、关系图竞态、活动输入、默认接手人与自主交付组件回归：64/64 通过。
 - `/api/mutations` 集成测试覆盖任务 revision admission、拒绝回执重放、证据恢复时序、Team Pack roster 和无接手人冲突；
   本轮相关控制面定向回归全部通过。
-- ACP backend 因全量并发超时的用例单独重跑：17/17 通过。
+- ACP backend 因全量并发时序抖动的两个测试文件单 worker 重跑：22/22 通过。
 - `pnpm build`：通过；保留主线既有 `worktree-manager` NFT 动态路径告警。
-- 最终全量测试（`--maxWorkers=4`）：1559 通过、2 跳过、1 失败；唯一失败为 `control-runtime` human-resume，继续复现
-  `docs/technical/execution/architecture-subtraction.md` 已记录的主线基线问题，本规格新增和更新用例均通过。
+- 自主续作完成时的全量测试（`--maxWorkers=4`）：1600 通过、2 跳过、0 失败。追加团队活动渐进展开后再次全量运行：1599 通过、2 跳过、2 个 ACP 时序用例失败；失败文件单 worker 重跑全部通过，未发现触及本轮 UI/Prompt/Control 变更的失败。
 - 本轮新增模块与组件的定向 ESLint 通过；仓库级 lint 仍保留既有 `no-explicit-any` 等基线债务，不将其误记为本轮清零。
 - 真实浏览器回归：在 Next.js 16.2.4 开发服务中新建非自主交付，切换任务看板/关系图，通过 Human Command
   提交补充要求并看到权威活动；最终刷新后阶段/验收/当前工作/需关注与任务/调试层级正确，交付与活动只出现一次，
   控制台错误为 0。
+- 真实历史回归：3000 页面显示最新交付已完成且验收 100%；2 条超长 Agent 正文默认收敛，11 个已完成 Trace 在收起态直接投影最近工具名称/目标，工具详情仍可展开，控制台无应用错误。
 - 自主链路实跑：Delivery `delivery-0001786897386331-006536-140198c5` 在无人代写 Gate 结论的前提下完成 Task Review
   与 Delivery Review；Acceptance Verification 因目标明确要求 Web UI E2E、而 Playwright 权限被拒绝，稳定收敛到
   `waiting_human`。该结果验证了 evaluator 工具调用、Gate-scoped Work、严格 receipt admission、下一阶段自动推进，
   以及真实外部权限边界上的停止语义；系统没有继续空转或伪造验收回执。
 - 自主控制面定向回归：14 个测试文件、94/94 通过，覆盖 Work identity、Gate outcome admission、Delivery receipt、
   Durable Inbox、Control slot 回收、Snapshot/Decision/Command Adapter 与 Runtime。
+- 自主续作与协作决策回归覆盖 checkpoint admission 与单轮幂等、`continuation_pending`/durable queued 投影、独立预算、
+  `continue` Command、容量与 slot 回收、执行/Task 评审/Delivery 评审/验收验证恢复提示、历史格式兼容、A2A 生命周期和
+  四出口协作协议；最终仓库全量回归 1609 通过、2 跳过，受影响文件 ESLint 通过。

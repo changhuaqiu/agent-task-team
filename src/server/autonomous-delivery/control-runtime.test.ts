@@ -4,6 +4,10 @@ import { createTestDb, resetDb, setTestDb } from '../db';
 import { InvocationFailureEventPublisher } from '../invocation-pipeline/failure-event-publisher';
 import { AgentInbox } from '../platform-events/agent-inbox';
 import { PlatformEventLog } from '../platform-events/event-log';
+import { invocationRepo } from '../repositories/invocation-repo';
+import { taskRepo } from '../repositories/task-repo';
+import { WorkContractRepository } from '../work-contract/repository';
+import { AutonomousDeliveryRepository } from './repository';
 import { ControlSlotReleaseProcessManager } from './control-slot-release-process-manager';
 import { DeliveryControlRuntime } from './control-runtime';
 
@@ -212,5 +216,127 @@ describe('DeliveryControlRuntime', () => {
       event.type === 'delivery.run.state_changed'
       && event.causationId === receiptEvent.eventId
     )?.actor).toEqual({ type: 'user', id: 'operator-1' });
+  });
+
+  it('[scenario:continuation] dispatches one Inbox command per admitted checkpoint', async () => {
+    const runtime = new DeliveryControlRuntime({
+      workerId: 'test-worker',
+      now: () => now,
+      policy: {
+        revision: 6,
+        maxConcurrent: 1,
+        roleCapacity: { implementer: 1 },
+        fairnessAgingMs: 1_000,
+      },
+    });
+    const started = runtime.start({
+      idempotencyKey: 'continuation-command-1',
+      goal: 'Ship a multi-step change',
+      acceptanceCriteria: ['Works'],
+      scope: { conversationId: 'project-1' },
+      authorization: {
+        allowCodeChanges: true,
+        allowPush: false,
+        allowPullRequest: false,
+        allowAutoMerge: false,
+      },
+      recoveryPolicy: {
+        maxAttemptsPerAction: 2,
+        maxRepairCycles: 1,
+        stallTimeoutMs: 60_000,
+      },
+      deliveryPolicy: {
+        requireReview: false,
+        requireWebE2E: false,
+        requireMerge: false,
+      },
+    });
+    const task = taskRepo.create({
+      id: 'task-continuation',
+      conversation_id: 'project-1',
+      title: 'Implement the multi-step change',
+      agent_id: 'planner',
+    });
+    const inProgress = taskRepo.transition(task.id, { to: 'in_progress' }, now)!;
+    const workId = `task:${task.id}:agent:planner:purpose:execute`;
+    const contracts = new WorkContractRepository();
+    const contract = contracts.issue({
+      workId,
+      attemptId: 'attempt-continuation',
+      projectId: 'project-1',
+      deliveryRunId: started.run.id,
+      taskId: task.id,
+      agentId: 'planner',
+      goal: task.title,
+      acceptanceCriteria: ['Works'],
+      role: { id: 'implementer' },
+      permissions: {},
+      authoritativeRefs: [`task:${task.id}`, `delivery_run:${started.run.id}`],
+      authoritativeRevisions: {
+        task: inProgress.revision,
+        deliveryRun: new AutonomousDeliveryRepository().getRun(started.run.id)!.revision,
+      },
+      contextSnapshotRef: 'context:continuation',
+      allowedOutcomeTypes: ['continue_work', 'submit_task_result'],
+      correlationId: started.contract.correlationId!,
+      causationId: 'continuation-start',
+      now,
+    });
+    invocationRepo.create({
+      id: contract.attemptId,
+      conversation_id: 'project-1',
+      agent_id: 'planner',
+      work_contract_id: contract.contractId,
+      work_id: contract.workId,
+      work_epoch: contract.workEpoch,
+      fencing_token: contract.fencingToken,
+    }, now);
+    expect(contracts.admitOutcome({
+      outcomeId: 'outcome-continuation',
+      idempotencyKey: 'outcome-continuation',
+      contractId: contract.contractId,
+      outcomeType: 'continue_work',
+      payload: {
+        schemaVersion: 1,
+        reason: 'multi_step',
+        summary: 'Architecture mapping is complete.',
+        nextAction: 'Implement the scheduler change.',
+        completedSteps: ['Mapped the control path.'],
+        remainingSteps: ['Implement the change.', 'Run tests.'],
+      },
+      evidenceRefs: ['trace:control-map'],
+      projectId: contract.projectId,
+      workId: contract.workId,
+      workEpoch: contract.workEpoch,
+      attemptId: contract.attemptId,
+      fencingToken: contract.fencingToken,
+      authoritativeRevisions: contract.authoritativeRevisions,
+      correlationId: contract.correlationId,
+      causationId: contract.contractId,
+      occurredAt: now.toISOString(),
+    })).toMatchObject({ status: 'accepted' });
+    invocationRepo.transition(contract.attemptId, {
+      to: 'terminated',
+      outcome: 'completed',
+      reason_code: 'agent_requested_continuation',
+    }, now);
+
+    expect(await runtime.advance(started.run.id, { kind: 'fact_changed' }))
+      .toMatchObject({ disposition: 'acted' });
+    expect(db.prepare(`
+      SELECT COUNT(*) AS count FROM agent_inbox_item
+      WHERE json_extract(command_json,'$.workId')=?
+    `).get(workId)).toEqual({ count: 1 });
+    expect(db.prepare(`
+      SELECT type,status FROM delivery_control_action
+      WHERE target_work_id=? AND type='continue'
+    `).all(workId)).toEqual([{ type: 'continue', status: 'applied' }]);
+
+    expect(await runtime.advance(started.run.id, { kind: 'periodic_reconcile' }))
+      .toMatchObject({ disposition: 'waiting' });
+    expect(db.prepare(`
+      SELECT COUNT(*) AS count FROM agent_inbox_item
+      WHERE json_extract(command_json,'$.workId')=?
+    `).get(workId)).toEqual({ count: 1 });
   });
 });

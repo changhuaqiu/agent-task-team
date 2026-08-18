@@ -1,9 +1,11 @@
 import { createHash } from 'node:crypto';
 import type { WaitForEdge } from './wait-for-graph';
+import { continueGateLite } from '../work-contract/continue-gate';
 
 type ControlActionType =
   | 'initializeGraph'
   | 'activate'
+  | 'continue'
   | 'wait'
   | 'retry'
   | 'requestGate'
@@ -32,6 +34,7 @@ type WorkCellControlState =
   | 'waiting_dependency'
   | 'waiting_gate'
   | 'waiting_human'
+  | 'continuation_pending'
   | 'retry_pending'
   | 'completed'
   | 'failed';
@@ -47,6 +50,10 @@ export interface WorkCellControlSnapshot {
   slotId?: string;
   gateStatus?: 'none' | 'requested' | 'passed' | 'failed';
   humanResolution?: 'required' | 'resolved';
+  continuation?: {
+    requestsUsed: number;
+    maxRequests: number;
+  };
   failure?: {
     reasonCode: string;
     retryable: boolean;
@@ -215,6 +222,14 @@ function validate(
         || budget.maxAttempts < 0
       ) throw new Error('invalid_control_retry_budget');
     }
+    if (cell.continuation) {
+      if (
+        !Number.isSafeInteger(cell.continuation.requestsUsed)
+        || !Number.isSafeInteger(cell.continuation.maxRequests)
+        || cell.continuation.requestsUsed < 0
+        || cell.continuation.maxRequests < 1
+      ) throw new Error('invalid_control_continuation_budget');
+    }
   }
 }
 
@@ -334,13 +349,17 @@ export function decideControlActions(
   }
 
   const occupiedSlots = new Set(
-    cells.filter((cell) => cell.state === 'running' && cell.slotId)
+    cells.filter((cell) => (
+      cell.state === 'running' || cell.state === 'queued'
+    ) && cell.slotId)
       .map((cell) => cell.slotId!),
   );
-  let activeCount = cells.filter((cell) => cell.state === 'running').length;
+  let activeCount = cells.filter((cell) => (
+    cell.state === 'running' || cell.state === 'queued'
+  )).length;
   const activeByRole = new Map<string, number>();
   for (const cell of cells) {
-    if (cell.state !== 'running') continue;
+    if (cell.state !== 'running' && cell.state !== 'queued') continue;
     activeByRole.set(cell.roleId, (activeByRole.get(cell.roleId) ?? 0) + 1);
   }
 
@@ -362,6 +381,54 @@ export function decideControlActions(
       proposals.push(cell.humanResolution === 'resolved'
         ? { ...base, rank: 20, type: 'resume', reasonCode: 'human_resolution_received' }
         : { ...base, rank: 10, type: 'escalateToHuman', reasonCode: 'waiting_human' });
+      continue;
+    }
+    if (cell.state === 'continuation_pending') {
+      const continuation = cell.continuation;
+      const disposition = continuation
+        ? continueGateLite.decide({
+            requested: true,
+            continuationsUsed: continuation.requestsUsed,
+            maxContinuations: continuation.maxRequests,
+          })
+        : { disposition: 'escalate' as const, reasonCode: 'continuation_budget_exhausted' as const };
+      if (disposition.disposition === 'escalate') {
+        proposals.push({
+          ...base,
+          rank: 10,
+          type: 'escalateToHuman',
+          reasonCode: disposition.reasonCode,
+        });
+        continue;
+      }
+      const roleLimit = policy.roleCapacity[cell.roleId] ?? policy.maxConcurrent;
+      const roleActive = activeByRole.get(cell.roleId) ?? 0;
+      const hasGlobalCapacity = activeCount < policy.maxConcurrent;
+      const hasRoleCapacity = roleActive < roleLimit;
+      const slotId = hasGlobalCapacity && hasRoleCapacity
+        ? firstFreeSlot(cell.roleId, roleLimit, occupiedSlots)
+        : undefined;
+      if (!slotId) {
+        proposals.push({
+          ...base,
+          rank: 60,
+          type: 'wait',
+          reasonCode: hasGlobalCapacity
+            ? 'role_capacity_exhausted'
+            : 'global_capacity_exhausted',
+        });
+      } else {
+        occupiedSlots.add(slotId);
+        activeCount += 1;
+        activeByRole.set(cell.roleId, roleActive + 1);
+        proposals.push({
+          ...base,
+          rank: 35,
+          type: 'continue',
+          slotId,
+          reasonCode: 'agent_requested_continuation',
+        });
+      }
       continue;
     }
     if (cell.state === 'artifact_submitted' && (cell.gateStatus ?? 'none') === 'none') {
@@ -432,7 +499,13 @@ export function decideControlActions(
       continue;
     }
     if (cell.state === 'queued') {
-      proposals.push({ ...base, rank: 60, type: 'wait', reasonCode: 'dispatch_pending' });
+      proposals.push({
+        ...base,
+        rank: 60,
+        type: 'wait',
+        slotId: cell.slotId,
+        reasonCode: 'dispatch_pending',
+      });
       continue;
     }
     if (cell.state === 'waiting_gate') {

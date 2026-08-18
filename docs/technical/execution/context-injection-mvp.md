@@ -178,7 +178,7 @@ if 根任务的所有子任务都进入终态（done / abandoned / cancelled）
 `protocolLayer` 现有内容不动，按 scenario 追加一段。所有模板都要短、动词开头、给出合法出口。
 
 ### `init` / `iterate`
-不追加特殊段。现有 `collaborationLayer` 的三选一决策树（更新 TASKS.md / 知会 / A2A）已覆盖。
+不追加特殊段。现有 `collaborationLayer` 使用统一的四出口决策树：当前角色完成、同角色带检查点续跑、携带精确动作与证据交接给其他角色、遇到真实外部边界时阻塞或请求人类决策。普通状态播报、礼貌确认和没有接手动作的 A2A 不构成合法出口。
 
 ### `handoff` 提示段
 ```

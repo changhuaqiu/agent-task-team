@@ -14,6 +14,14 @@ import { QualityGateRepository } from '../quality-gate/repository';
 import { AutonomousDeliveryRepository } from '../autonomous-delivery/repository';
 
 const NOW = new Date('2026-07-28T08:00:00.000Z');
+const CONTINUATION_CHECKPOINT = {
+  schemaVersion: 1,
+  reason: 'multi_step',
+  summary: 'Mapped the current implementation.',
+  nextAction: 'Implement the queued continuation.',
+  completedSteps: ['Inspected the control flow.'],
+  remainingSteps: ['Implement the change.', 'Run focused tests.'],
+};
 
 function issue(
   repository: WorkContractRepository,
@@ -161,14 +169,24 @@ describe('WorkContractRepository', () => {
     });
   });
 
-  it('allows progress updates but admits only one terminal outcome per contract', () => {
+  it('admits at most one continuation checkpoint and one terminal outcome per contract', () => {
     const repository = new WorkContractRepository();
     const contract = issue(repository, { attemptId: 'attempt-terminal' });
     expect(repository.admitOutcome(outcome(contract, {
       outcomeId: 'outcome-progress',
       idempotencyKey: 'outcome-progress',
       outcomeType: 'continue_work',
+      payload: CONTINUATION_CHECKPOINT,
     }))).toMatchObject({ status: 'accepted' });
+    expect(repository.admitOutcome(outcome(contract, {
+      outcomeId: 'outcome-second-progress',
+      idempotencyKey: 'outcome-second-progress',
+      outcomeType: 'continue_work',
+      payload: CONTINUATION_CHECKPOINT,
+    }))).toMatchObject({
+      status: 'rejected',
+      reasonCode: 'continuation_already_accepted',
+    });
     expect(repository.admitOutcome(outcome(contract, {
       outcomeId: 'outcome-terminal',
       idempotencyKey: 'outcome-terminal',
@@ -181,6 +199,24 @@ describe('WorkContractRepository', () => {
       status: 'rejected',
       reasonCode: 'terminal_outcome_already_accepted',
     });
+  });
+
+  it('rejects an unusable continuation checkpoint without consuming the terminal slot', () => {
+    const repository = new WorkContractRepository();
+    const contract = issue(repository, { attemptId: 'attempt-continuation' });
+    expect(repository.admitOutcome(outcome(contract, {
+      outcomeId: 'outcome-invalid-continuation',
+      idempotencyKey: 'outcome-invalid-continuation',
+      outcomeType: 'continue_work',
+      payload: { summary: 'still working' },
+    }))).toMatchObject({
+      status: 'rejected',
+      reasonCode: 'continuation_schema_version_invalid',
+    });
+    expect(repository.admitOutcome(outcome(contract, {
+      outcomeId: 'outcome-after-invalid-continuation',
+      idempotencyKey: 'outcome-after-invalid-continuation',
+    }))).toMatchObject({ status: 'accepted' });
   });
 
   it('rejects incomplete or mismatched Gate outcomes without consuming the terminal outcome slot', () => {

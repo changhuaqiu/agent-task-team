@@ -30,7 +30,7 @@ interface DeliveryControlRuntimeOptions {
 }
 
 const DEFAULT_POLICY: DeliveryControlPolicy = {
-  revision: 5,
+  revision: 6,
   maxConcurrent: 4,
   roleCapacity: {},
   fairnessAgingMs: 60_000,

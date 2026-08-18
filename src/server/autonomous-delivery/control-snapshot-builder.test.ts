@@ -70,12 +70,42 @@ describe('RepositoryControlSnapshotBuilder', () => {
       role: { id: agentId === 'agent-a' ? 'implementer' : 'reviewer' },
       permissions: {},
       authoritativeRefs: [`work:${workId}`],
-      authoritativeRevisions: { work: 1 },
+      authoritativeRevisions: {
+        work: 1,
+        deliveryRun: new AutonomousDeliveryRepository().getRun(runId)!.revision,
+      },
       contextSnapshotRef: `context:${workId}`,
-      allowedOutcomeTypes: ['submit_task_result', 'report_blocked'],
+      allowedOutcomeTypes: ['continue_work', 'submit_task_result', 'report_blocked'],
       correlationId: `corr:${workId}`,
       causationId: `cause:${workId}`,
       now,
+    });
+  }
+
+  function admitContinuation(contract: ReturnType<typeof issue>, suffix: string) {
+    return contracts.admitOutcome({
+      outcomeId: `continuation-${suffix}`,
+      idempotencyKey: `continuation-${suffix}`,
+      contractId: contract.contractId,
+      outcomeType: 'continue_work',
+      payload: {
+        schemaVersion: 1,
+        reason: 'verification_follow_up',
+        summary: 'The first verification pass is complete.',
+        nextAction: 'Finish the remaining verification checks.',
+        completedSteps: ['Reviewed the primary evidence.'],
+        remainingSteps: ['Verify the remaining evidence.'],
+      },
+      evidenceRefs: [`trace:${suffix}`],
+      projectId: contract.projectId,
+      workId: contract.workId,
+      workEpoch: contract.workEpoch,
+      attemptId: contract.attemptId,
+      fencingToken: contract.fencingToken,
+      authoritativeRevisions: contract.authoritativeRevisions,
+      correlationId: contract.correlationId,
+      causationId: contract.contractId,
+      occurredAt: now.toISOString(),
     });
   }
 
@@ -147,6 +177,116 @@ describe('RepositoryControlSnapshotBuilder', () => {
         },
       },
     });
+  });
+
+  it('projects a planned continuation separately from Invocation failure retry', () => {
+    const contract = issue('work-a', 'agent-a', 'attempt-a');
+    invocationRepo.create({
+      id: contract.attemptId,
+      conversation_id: 'project-1',
+      agent_id: 'agent-a',
+      work_contract_id: contract.contractId,
+      work_id: contract.workId,
+      work_epoch: contract.workEpoch,
+      fencing_token: contract.fencingToken,
+    }, now);
+    const continuationAdmission = contracts.admitOutcome({
+      outcomeId: 'continuation-a',
+      idempotencyKey: 'continuation-a',
+      contractId: contract.contractId,
+      outcomeType: 'continue_work',
+      payload: {
+        schemaVersion: 1,
+        reason: 'multi_step',
+        summary: 'The current architecture is mapped.',
+        nextAction: 'Implement the scheduler change.',
+        completedSteps: ['Mapped the current path.'],
+        remainingSteps: ['Implement the change.', 'Run focused tests.'],
+      },
+      evidenceRefs: ['trace:architecture-map'],
+      projectId: contract.projectId,
+      workId: contract.workId,
+      workEpoch: contract.workEpoch,
+      attemptId: contract.attemptId,
+      fencingToken: contract.fencingToken,
+      authoritativeRevisions: contract.authoritativeRevisions,
+      correlationId: contract.correlationId,
+      causationId: contract.contractId,
+      occurredAt: now.toISOString(),
+    });
+    expect(continuationAdmission).toMatchObject({ status: 'accepted' });
+    invocationRepo.transition(contract.attemptId, {
+      to: 'terminated',
+      outcome: 'completed',
+      reason_code: 'agent_requested_continuation',
+    }, now);
+
+    const snapshot = new RepositoryControlSnapshotBuilder({
+      db,
+      retryLimits: { invocation: 1, continuation: 4 },
+      now: () => now,
+    }).build(runId);
+
+    expect(snapshot.workCells[0]).toMatchObject({
+      workId: contract.workId,
+      state: 'continuation_pending',
+      continuation: { requestsUsed: 1, maxRequests: 4 },
+    });
+    expect(snapshot.workCells[0].failure).toBeUndefined();
+  });
+
+  it('keeps a legacy unversioned continue_work on the failure-retry path', () => {
+    const contract = issue('work-a', 'agent-a', 'attempt-a');
+    invocationRepo.create({
+      id: contract.attemptId,
+      conversation_id: 'project-1',
+      agent_id: 'agent-a',
+      work_contract_id: contract.contractId,
+      work_id: contract.workId,
+      work_epoch: contract.workEpoch,
+      fencing_token: contract.fencingToken,
+    }, now);
+    db.prepare(`
+      INSERT INTO agent_outcome (
+        id,idempotency_key,contract_id,project_id,work_id,work_epoch,attempt_id,
+        fencing_token,outcome_type,payload_json,evidence_refs_json,
+        authoritative_revisions_json,correlation_id,causation_id,occurred_at,
+        admission_status,rejection_reason,recorded_at
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    `).run(
+      'legacy-continuation-a',
+      'legacy-continuation-a',
+      contract.contractId,
+      contract.projectId,
+      contract.workId,
+      contract.workEpoch,
+      contract.attemptId,
+      contract.fencingToken,
+      'continue_work',
+      JSON.stringify({ summary: 'legacy progress update' }),
+      '[]',
+      JSON.stringify(contract.authoritativeRevisions),
+      contract.correlationId,
+      contract.contractId,
+      now.toISOString(),
+      'accepted',
+      null,
+      now.toISOString(),
+    );
+    invocationRepo.transition(contract.attemptId, {
+      to: 'terminated',
+      outcome: 'completed',
+      reason_code: 'legacy_progress_exit',
+    }, now);
+
+    const snapshot = new RepositoryControlSnapshotBuilder({ db, now: () => now }).build(runId);
+
+    expect(snapshot.workCells[0]).toMatchObject({
+      workId: contract.workId,
+      state: 'retry_pending',
+      failure: { reasonCode: 'legacy_progress_exit' },
+    });
+    expect(snapshot.workCells[0].continuation).toBeUndefined();
   });
 
   it('does not let a terminal admitted Inbox item mask a failed Invocation retry', () => {
@@ -760,7 +900,11 @@ describe('RepositoryControlSnapshotBuilder', () => {
       role: { id: 'implementer' },
       permissions: {},
       authoritativeRefs: [`work:${workId}`],
-      authoritativeRevisions: { work: 1 },
+      authoritativeRevisions: {
+        work: 1,
+        task: task.revision,
+        deliveryRun: new AutonomousDeliveryRepository().getRun(runId)!.revision,
+      },
       contextSnapshotRef: `context:${workId}`,
       allowedOutcomeTypes: ['submit_task_result'],
       correlationId: `corr:${workId}`,
@@ -779,7 +923,7 @@ describe('RepositoryControlSnapshotBuilder', () => {
     });
   });
 
-  it('uses existing reviewer authority epoch when requesting a delivery-owned task gate', () => {
+  it('continues a delivery-owned Task Gate review from a valid checkpoint', () => {
     db.prepare(`
       INSERT INTO agents (id,name,role_card_id,theme,emoji,created_at,updated_at)
       VALUES ('reviewer','Reviewer','preset-code-reviewer','default','R',?,?)
@@ -807,6 +951,7 @@ describe('RepositoryControlSnapshotBuilder', () => {
       workId: reviewWorkId,
       attemptId: 'external-review-attempt',
       projectId: 'project-1',
+      deliveryRunId: runId,
       taskId: task.id,
       agentId: 'reviewer',
       goal: task.title,
@@ -814,13 +959,33 @@ describe('RepositoryControlSnapshotBuilder', () => {
       role: { id: 'reviewer' },
       permissions: {},
       authoritativeRefs: [`work:${reviewWorkId}`],
-      authoritativeRevisions: { work: 1 },
+      authoritativeRevisions: {
+        work: 1,
+        task: task.revision,
+        deliveryRun: new AutonomousDeliveryRepository().getRun(runId)!.revision,
+      },
       contextSnapshotRef: `context:${reviewWorkId}`,
-      allowedOutcomeTypes: ['record_gate_decision'],
+      allowedOutcomeTypes: ['continue_work', 'record_gate_decision'],
       correlationId: `corr:${reviewWorkId}`,
       causationId: `cause:${reviewWorkId}`,
       now,
     });
+
+    invocationRepo.create({
+      id: external.attemptId,
+      conversation_id: 'project-1',
+      agent_id: 'reviewer',
+      work_contract_id: external.contractId,
+      work_id: external.workId,
+      work_epoch: external.workEpoch,
+      fencing_token: external.fencingToken,
+    }, now);
+    expect(admitContinuation(external, 'task-gate')).toMatchObject({ status: 'accepted' });
+    invocationRepo.transition(external.attemptId, {
+      to: 'terminated',
+      outcome: 'completed',
+      reason_code: 'agent_requested_continuation',
+    }, now);
 
     const cell = new RepositoryControlSnapshotBuilder({ db, now: () => now })
       .build(runId)
@@ -828,8 +993,66 @@ describe('RepositoryControlSnapshotBuilder', () => {
 
     expect(cell).toMatchObject({
       workEpoch: external.workEpoch,
-      state: 'ready',
+      state: 'continuation_pending',
       purpose: 'review',
+      gateStatus: 'requested',
+      continuation: { requestsUsed: 1 },
+    });
+  });
+
+  it('continues a Delivery Gate verification from a valid checkpoint', () => {
+    taskRepo.create({
+      id: 'task-delivery-continuation',
+      conversation_id: 'project-1',
+      title: 'Delivery ready for verification',
+      agent_id: 'agent-a',
+    }, now);
+    taskRepo.transition('task-delivery-continuation', { to: 'in_progress' }, now);
+    taskRepo.transition('task-delivery-continuation', { to: 'in_review' }, now);
+    taskRepo.transition('task-delivery-continuation', { to: 'done' }, now);
+    const requested = qualityGateRepo.request({
+      conversationId: 'project-1',
+      kind: 'acceptance_verification',
+      targetType: 'delivery_run',
+      targetId: runId,
+      artifactRevision: 'revision-1',
+      criteria: {},
+      actor: { type: 'system', id: 'test' },
+      now,
+    });
+    const workId = buildWorkIdentity({
+      scope: 'delivery',
+      targetId: runId,
+      agentId: 'reviewer',
+      gateId: requested.gate.id,
+      purpose: 'verify',
+    });
+    const contract = issue(workId, 'reviewer', 'delivery-verification-attempt');
+    invocationRepo.create({
+      id: contract.attemptId,
+      conversation_id: 'project-1',
+      agent_id: 'reviewer',
+      work_contract_id: contract.contractId,
+      work_id: contract.workId,
+      work_epoch: contract.workEpoch,
+      fencing_token: contract.fencingToken,
+    }, now);
+    expect(admitContinuation(contract, 'delivery-gate')).toMatchObject({ status: 'accepted' });
+    invocationRepo.transition(contract.attemptId, {
+      to: 'terminated',
+      outcome: 'completed',
+      reason_code: 'agent_requested_continuation',
+    }, now);
+
+    const cell = new RepositoryControlSnapshotBuilder({ db, now: () => now })
+      .build(runId)
+      .workCells.find((candidate) => candidate.workId === workId);
+
+    expect(cell).toMatchObject({
+      state: 'continuation_pending',
+      purpose: 'verification',
+      gateStatus: 'requested',
+      continuation: { requestsUsed: 1 },
     });
   });
 

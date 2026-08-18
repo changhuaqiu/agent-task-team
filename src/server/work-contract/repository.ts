@@ -4,6 +4,7 @@ import { PlatformEventLog } from '../platform-events/event-log';
 import { generateSortableId } from '../repositories/sortable-id';
 import { AutonomousDeliveryRepository } from '../autonomous-delivery/repository';
 import { validateDeliveryGateReceipt } from '../quality-gate/delivery-receipt-validation';
+import { continueGateLite } from './continue-gate';
 import {
   AGENT_OUTCOME_TYPES,
   type AgentOutcome,
@@ -120,6 +121,12 @@ function gateOutcomeRejectionReason(
     if (!validation.valid) return validation.reasonCode;
   }
   return undefined;
+}
+
+function continuationOutcomeRejectionReason(input: AgentOutcome): string | undefined {
+  if (input.outcomeType !== 'continue_work') return undefined;
+  const admission = continueGateLite.admit(input.payload);
+  return admission.accepted ? undefined : admission.reasonCode;
 }
 
 function contractFromRow(row: WorkContractRow): WorkContract {
@@ -489,10 +496,19 @@ export class WorkContractRepository {
         }
       }
       if (!rejectionReason && contract) {
-        rejectionReason = gateOutcomeRejectionReason(input, contract, db);
+        rejectionReason = continuationOutcomeRejectionReason(input)
+          ?? gateOutcomeRejectionReason(input, contract, db);
       }
       if (!rejectionReason && contract && contract.correlation_id !== input.correlationId) {
         rejectionReason = 'correlation_mismatch';
+      } else if (!rejectionReason && contract && input.outcomeType === 'continue_work' && db.prepare(`
+        SELECT 1 FROM agent_outcome
+        WHERE contract_id=?
+          AND admission_status='accepted'
+          AND outcome_type='continue_work'
+        LIMIT 1
+      `).get(contract.id)) {
+        rejectionReason = 'continuation_already_accepted';
       } else if (!rejectionReason && contract && db.prepare(`
         SELECT 1 FROM agent_outcome
         WHERE contract_id=?
