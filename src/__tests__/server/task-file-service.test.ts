@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, rmSync, existsSync, writeFileSync } from 'fs';
+import { mkdirSync, rmSync, existsSync, utimesSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import {
   parseTasksMd,
@@ -9,7 +9,9 @@ import {
   readTasksMd,
   initProjectDir,
   ensureTasksMdProjection,
+  canSyncTasksMdProjection,
   readTasksMdProjectionOwner,
+  updateTaskInMd,
 } from '@/server/task-file-service';
 
 const TMP = join(__dirname, '__tmp_task_file_service__');
@@ -45,6 +47,49 @@ describe('ensureTasksMdProjection', () => {
 
     expect(readTasksMdProjectionOwner(TMP)).toBe('conv-new');
     expect(readTasksMd(TMP).tasks.map((task) => task.id)).toEqual(['TASK-NEW']);
+  });
+
+  it('fails closed for malformed ownership and repairs it during the next claim', () => {
+    mkdirSync(join(TMP, '.ath'), { recursive: true });
+    writeFileSync(join(TMP, '.ath', 'TASKS.owner.json'), '{broken', 'utf-8');
+
+    expect(canSyncTasksMdProjection(TMP, 'conv-1')).toBe(false);
+    expect(readTasksMdProjectionOwner(TMP)).toBeUndefined();
+    expect(ensureTasksMdProjection(TMP, 'conv-1', [{
+      id: 'TASK-RECOVERED', title: 'Repair projection', status: 'ready', agent_id: 'mario', dependencies: null,
+    }])).toBe(true);
+    expect(readTasksMdProjectionOwner(TMP)).toBe('conv-1');
+    expect(readTasksMd(TMP).tasks.map((task) => task.id)).toEqual(['TASK-RECOVERED']);
+  });
+
+  it('rejects a stale Conversation writer after ownership transfers', () => {
+    ensureTasksMdProjection(TMP, 'conv-old', [{
+      id: 'TASK-SHARED', title: 'Old delivery', status: 'ready', agent_id: 'mario', dependencies: null,
+    }]);
+    ensureTasksMdProjection(TMP, 'conv-new', [{
+      id: 'TASK-SHARED', title: 'New delivery', status: 'in_review', agent_id: 'peach', dependencies: null,
+    }]);
+
+    expect(updateTaskInMd(TMP, 'conv-old', 'TASK-SHARED', { status: 'in_progress' })).toBe(false);
+    expect(readTasksMd(TMP).tasks[0]).toMatchObject({
+      title: 'New delivery',
+      status: 'in_review',
+      agent: 'peach',
+    });
+  });
+
+  it('recovers a lock abandoned by a crashed projection writer', () => {
+    const lockPath = join(TMP, '.ath', 'TASKS.projection.lock');
+    mkdirSync(join(TMP, '.ath'), { recursive: true });
+    writeFileSync(lockPath, JSON.stringify({ ownerToken: 'dead-writer' }), 'utf-8');
+    const staleAt = new Date(Date.now() - 61_000);
+    utimesSync(lockPath, staleAt, staleAt);
+
+    expect(ensureTasksMdProjection(TMP, 'conv-recovered', [{
+      id: 'TASK-AFTER-CRASH', title: 'Continue safely', status: 'ready', agent_id: 'luigi', dependencies: null,
+    }])).toBe(true);
+    expect(existsSync(lockPath)).toBe(false);
+    expect(readTasksMdProjectionOwner(TMP)).toBe('conv-recovered');
   });
 });
 

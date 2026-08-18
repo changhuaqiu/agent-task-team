@@ -1,12 +1,14 @@
 import { watch } from 'chokidar';
 import type { FSWatcher } from 'chokidar';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import {
-  readTasksMd,
+  canSyncTasksMdProjection,
+  readTasksMdForProjectionOwner,
   readTasksMdProjectionOwner,
   restoreTaskInMdProjection,
   updateTaskInMd,
+  writeOwnedTasksMd,
 } from './task-file-service';
 import { canTransitionTask, taskRepo } from './repositories/task-repo';
 import type { TaskPatch, TaskRow, TaskStatus } from './repositories/task-repo';
@@ -27,7 +29,13 @@ const watchers = new Map<string, { conversationId: string; watcher: FSWatcher }>
 const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 function watcherKey(projectPath: string): string {
-  return resolve(projectPath);
+  let resolved = resolve(projectPath);
+  try {
+    resolved = realpathSync.native(resolved);
+  } catch {
+    // The watcher can be registered before the runtime directory exists.
+  }
+  return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
 }
 
 function normalizeDependencyList(value: string | null | undefined): string {
@@ -64,6 +72,10 @@ function hasActiveTaskInvocation(conversationId: string, taskId: string, agentId
     && invocation.agent_id === agentId
     && invocation.status !== 'terminated'
   ));
+}
+
+function dependencyList(value: string | null | undefined): string[] {
+  return JSON.parse(normalizeDependencyList(value)) as string[];
 }
 
 function hasWorkContractHistory(taskId: string): boolean {
@@ -117,7 +129,12 @@ function rejectProjectionTransition(input: {
       ? `Task ${input.localTaskId} 不能通过 TASKS.md 进入 done；必须由当前 QualityGate passed 事件完成。状态已恢复为 ${input.authoritativeStatus}。`
       : `Git 任务 ${input.localTaskId} 不能通过 TASKS.md 进入 ${input.attemptedStatus}；请使用结构化 PR/review 回执。状态已恢复为 ${input.authoritativeStatus}。`,
   });
-  updateTaskInMd(input.projectPath, input.localTaskId, { status: input.authoritativeStatus });
+  updateTaskInMd(
+    input.projectPath,
+    input.conversationId,
+    input.localTaskId,
+    { status: input.authoritativeStatus },
+  );
 }
 
 function rejectInvalidProjectionTransition(input: {
@@ -150,7 +167,12 @@ function rejectInvalidProjectionTransition(input: {
     reasonCode,
     message: `TASKS.md 请求了非法任务迁移 ${input.authoritativeStatus} → ${input.attemptedStatus}；权威状态未改变。`,
   });
-  updateTaskInMd(input.projectPath, input.localTaskId, { status: input.authoritativeStatus });
+  updateTaskInMd(
+    input.projectPath,
+    input.conversationId,
+    input.localTaskId,
+    { status: input.authoritativeStatus },
+  );
 }
 
 function rejectManagedProjectionTransition(input: {
@@ -184,7 +206,12 @@ function rejectManagedProjectionTransition(input: {
     reasonCode,
     message: `Task ${input.localTaskId} 已由 WorkContract 管理；TASKS.md 仅作只读投影，权威任务字段已恢复。`,
   });
-  restoreTaskInMdProjection(input.projectPath, input.localTaskId, input.authoritativeTask);
+  restoreTaskInMdProjection(
+    input.projectPath,
+    input.conversationId,
+    input.localTaskId,
+    input.authoritativeTask,
+  );
 }
 
 export function startTaskWatcher(
@@ -218,9 +245,11 @@ export function startTaskWatcher(
     if (debounceTimers.has(key)) clearTimeout(debounceTimers.get(key)!);
     debounceTimers.set(key, setTimeout(() => {
       debounceTimers.delete(key);
-      const projectionOwner = readTasksMdProjectionOwner(projectPath);
-      if (!projectionOwner || projectionOwner === conversationId) {
+      if (!canSyncTasksMdProjection(projectPath, conversationId)) return;
+      try {
         syncTasksToDb(projectPath, conversationId, io);
+      } catch (error) {
+        console.error('[task-watcher] TASKS.md synchronization failed:', error);
       }
     }, 500));
   };
@@ -250,17 +279,83 @@ export function syncTasksToDb(
   projectPath: string,
   conversationId: string,
   io: IOServer,
-  options: { throwOnError?: boolean } = {},
+  options: {
+    throwOnError?: boolean;
+    skipForeignTaskCollisions?: boolean;
+  } = {},
 ): void {
-  const projectionOwner = readTasksMdProjectionOwner(projectPath);
-  if (projectionOwner && projectionOwner !== conversationId) return;
   const tasksFile = join(projectPath, '.ath', 'TASKS.md');
   const failures: Error[] = [];
+  const projectionOwner = readTasksMdProjectionOwner(projectPath);
 
-  const { tasks: parsed, blockers } = readTasksMd(projectPath);
+  const snapshot = readTasksMdForProjectionOwner(projectPath, conversationId);
+  if (!snapshot) return;
+  const { tasks: parsedTasks, blockers } = snapshot;
+  const legacyFilteredTasks = options.skipForeignTaskCollisions
+    ? parsedTasks.filter((task) => {
+        const existing = taskRepo.getById(task.id);
+        if (!existing || existing.conversation_id === conversationId) return true;
+        const reasonCode = 'task_graph.legacy_projection_foreign_task_skipped';
+        proofLogRepo.append({
+          eventType: 'task_graph.transition.blocked',
+          conversationId,
+          taskId: task.id,
+          actorId: 'task-file-watcher',
+          reasonCode,
+          metadata: {
+            source: 'TASKS.md',
+            foreignConversationId: existing.conversation_id,
+          },
+        });
+        io.to(conversationId).emit('task.sync_error', {
+          projectId: conversationId,
+          projectPath,
+          conversationId,
+          taskId: task.id,
+          reasonCode,
+          message: `历史 TASKS.md 中的 ${task.id} 已归属其他交付，接管时未重复导入。`,
+        });
+        return false;
+      })
+    : parsedTasks;
+  const candidateStorageIds = resolveTaskStorageIds(
+    conversationId,
+    legacyFilteredTasks.map((task) => task.id),
+  );
+  const unknownOwnedTasks = projectionOwner === conversationId
+    ? legacyFilteredTasks.filter((task) => !taskRepo.getById(candidateStorageIds.get(task.id)!))
+    : [];
+  const unknownOwnedTaskIds = new Set(unknownOwnedTasks.map((task) => task.id));
+  const parsed = legacyFilteredTasks.filter((task) => !unknownOwnedTaskIds.has(task.id));
+  for (const task of unknownOwnedTasks) {
+    const reasonCode = 'task_graph.owned_projection_unknown_task';
+    proofLogRepo.append({
+      eventType: 'task_graph.transition.blocked',
+      conversationId,
+      taskId: task.id,
+      actorId: 'task-file-watcher',
+      reasonCode,
+      metadata: { source: 'TASKS.md' },
+    });
+    io.to(conversationId).emit('task.sync_error', {
+      projectId: conversationId,
+      projectPath,
+      conversationId,
+      taskId: task.id,
+      reasonCode,
+      message: `已接管的 TASKS.md 不能创建陌生任务 ${task.id}；请使用 task_create，文件已从 Task Graph 恢复。`,
+    });
+  }
+  const authoritativeIds = projectionOwner === conversationId
+    ? new Set(taskRepo.getByConversation(conversationId).map((task) => task.id))
+    : new Set<string>();
+  const projectionMembershipDrift = unknownOwnedTasks.length > 0 || (
+    projectionOwner === conversationId
+    && [...authoritativeIds].some((taskId) => !parsedTasks.some((task) => task.id === taskId))
+  );
 
   // Alert when file exists and has content but parser returned 0 tasks
-  if (parsed.length === 0) {
+  if (parsedTasks.length === 0) {
     if (existsSync(tasksFile)) {
       const raw = readFileSync(tasksFile, 'utf-8');
       const nonEmptyLines = raw.split('\n').filter((l: string) => l.trim().length > 0);
@@ -277,14 +372,23 @@ export function syncTasksToDb(
     }
     if (blockers.length === 0) return;
   }
+  if (parsed.length === 0 && blockers.length === 0 && !projectionMembershipDrift) return;
 
-  const storageIds = resolveTaskStorageIds(conversationId, parsed.map((task) => task.id));
+  const storageIds = new Map(parsed.map((task) => [task.id, candidateStorageIds.get(task.id)!]));
 
   for (const t of parsed) {
     const storageId = storageIds.get(t.id)!;
-    const storageDependencies = t.depends.map((dependencyId) => (
-      storageIds.get(dependencyId) ?? dependencyId
-    ));
+    const storageDependencies = t.depends.flatMap((dependencyId) => {
+      const storageDependencyId = storageIds.get(dependencyId);
+      if (storageDependencyId) return [storageDependencyId];
+      if (
+        options.skipForeignTaskCollisions
+      ) {
+        const dependency = taskRepo.getById(dependencyId);
+        if (dependency && dependency.conversation_id !== conversationId) return [];
+      }
+      return [dependencyId];
+    });
     const existing = taskRepo.getById(storageId);
     if (!existing) {
       try {
@@ -513,7 +617,28 @@ export function syncTasksToDb(
     throw new AggregateError(failures, `task_sync_failed:${failures.length}`);
   }
 
-  const authoritativeTasks = parsed.map((task) => {
+  let reprojectedTasks: typeof parsed | undefined;
+  if (projectionMembershipDrift) {
+    const parsedById = new Map(parsedTasks.map((task) => [task.id, task]));
+    reprojectedTasks = taskRepo.getByConversation(conversationId).map((task) => ({
+      id: task.id,
+      title: task.title,
+      phase: parsedById.get(task.id)?.phase ?? '',
+      role: parsedById.get(task.id)?.role ?? 'worker',
+      agent: task.agent_id ?? '',
+      status: task.status,
+      depends: dependencyList(task.dependencies),
+      deliverable: task.description ?? '',
+    }));
+    writeOwnedTasksMd(
+      projectPath,
+      conversationId,
+      reprojectedTasks,
+      blockers,
+    );
+  }
+
+  const authoritativeTasks = (reprojectedTasks ?? parsed).map((task) => {
     const storageId = storageIds.get(task.id)!;
     const authoritative = taskRepo.getById(storageId);
     if (!authoritative) return task;
@@ -523,6 +648,7 @@ export function syncTasksToDb(
       deliverable: authoritative.description ?? '',
       status: authoritative.status,
       agent: authoritative.agent_id ?? '',
+      depends: dependencyList(authoritative.dependencies),
     };
   });
 

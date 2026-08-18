@@ -307,8 +307,13 @@ Command 请求 owner 迁移。非法跳转会产生 `task.sync_error`、恢复�
 文件投影还必须服从两条协作隔离规则：
 
 1. 同一运行目录在任一时刻只归一个 Conversation 的 Task Graph 投影所有。新 Conversation
-   接管共享目录时，必须先以自己的权威 Task Graph 重建 `TASKS.md`，旧会话任务不得通过
-   watcher 再次导入；旧 watcher 失去所有权后不得继续同步。
+   接管共享目录时，必须通过 `TASKS.owner.json` 的 `claiming -> owned` 两阶段租约，以自己的
+   权威 Task Graph 重建 `TASKS.md`；所有 task tool、Harness receipt 和 watcher 写入都必须在
+   同一投影锁内校验租约。owner 文件损坏或处于 claiming 时同步必须 fail closed；旧 watcher
+   失去所有权后不得继续同步。升级旧版无 owner 文件的目录时，daemon 先导入尚未归属其他
+   Conversation 的本地任务，再声明所有权并重建，不能为避免 shadow task 而直接覆盖历史数据。
+   所有权建立后，文件中新增的陌生行不能再隐式创建 Task；watcher 必须要求 `task_create` 并从
+   Task Graph 恢复成员集合，避免已退出角色或陈旧进程再次制造 shadow work。
 2. Task 一旦进入 WorkContract 管理，`TASKS.md` 对该 Task 的状态、owner、标题、交付物和依赖
    字段永久退化为只读投影。文件里的陈旧值不能推进或回滚 Task revision；watcher 必须恢复
    当前权威字段并留下可诊断 receipt。这样 QualityGate 的 artifactRevision 不会被文件竞态打穿。

@@ -15,7 +15,7 @@ import { EngineeringCollaborationService } from './engineering-collaboration/ser
 import { GhCliGitProviderVerifier } from './engineering-collaboration/github-cli-verifier';
 import type { ImplementationEvidence, MergeEvidence, ReviewEvidence } from '@/lib/engineering-collaboration/types';
 import type { Server as IOServer } from 'socket.io';
-import { readTasksMd, updateTaskInMd, writeTasksMd } from './task-file-service';
+import { appendTaskToOwnedTasksMd, updateTaskInMd } from './task-file-service';
 import { startArtifactLoopbackServer } from './verification/artifact-loopback-server';
 
 // ── Types ──────────────────────────────────────
@@ -68,10 +68,15 @@ function resolveTaskProjectDir(invocation: ToolInvocation, conversationId = invo
 function projectAuthoritativeTask(invocation: ToolInvocation, taskId: string): void {
   const task = taskRepo.getById(taskId);
   if (!task) return;
-  const projected = updateTaskInMd(resolveTaskProjectDir(invocation, task.conversation_id), taskId, {
-    status: task.status,
-    agent: task.agent_id ?? '',
-  });
+  const projected = updateTaskInMd(
+    resolveTaskProjectDir(invocation, task.conversation_id),
+    task.conversation_id,
+    taskId,
+    {
+      status: task.status,
+      agent: task.agent_id ?? '',
+    },
+  );
   if (!projected) throw new Error(`Runtime TASKS.md does not contain ${taskId}`);
 }
 
@@ -180,11 +185,20 @@ function executeTaskCreate(invocation: ToolInvocation): ToolResult {
     const role = (invocation.input.role as string) || 'worker';
     const phase = (invocation.input.phase as string) || '';
     const deliverable = (invocation.input.deliverable as string) || '';
-    const { tasks: existingTasks, blockers } = readTasksMd(projectDir);
-    existingTasks.push({ id, title, phase, role, agent: agentId, status: 'ready', depends: dependencies, deliverable });
-    writeTasksMd(projectDir, existingTasks, blockers);
+    const projected = appendTaskToOwnedTasksMd(projectDir, invocation.conversationId, {
+      id,
+      title,
+      phase,
+      role,
+      agent: agentId,
+      status: 'ready',
+      depends: dependencies,
+      deliverable,
+    });
+    if (!projected) throw new Error('Runtime TASKS.md belongs to another Conversation');
   } catch (e) {
     console.error('[task_create] failed to update TASKS.md:', e);
+    reconcileAuthoritativeTaskProjection(invocation, id);
   }
 
   return { success: true, data: task };
@@ -244,13 +258,7 @@ function executeTaskUpdateStatus(invocation: ToolInvocation): ToolResult {
     causationId: invocation.causationId,
     to: status,
   });
-  // Also update TASKS.md
-  try {
-    const projectDir = resolveTaskProjectDir(invocation, existing.conversation_id);
-    updateTaskInMd(projectDir, taskId, { status });
-  } catch (e) {
-    console.error('[task_update_status] failed to update TASKS.md:', e);
-  }
+  reconcileAuthoritativeTaskProjection(invocation, taskId);
 
   return { success: true, data: transitioned.result.task };
 }

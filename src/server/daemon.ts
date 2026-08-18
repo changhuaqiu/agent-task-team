@@ -8,8 +8,8 @@ import { readAccount } from './accounts-file';
 import { readCredential } from './credentials';
 import { buildProbeEnv } from './cli-probe';
 import { generateRuntimeConfig, cleanupRuntimeConfig, makeInvocationId } from './opencode-config';
-import { startTaskWatcher } from './task-file-watcher';
-import { ensureTasksMdProjection } from './task-file-service';
+import { startTaskWatcher, syncTasksToDb } from './task-file-watcher';
+import { ensureTasksMdProjection, readTasksMdProjectionOwner } from './task-file-service';
 import type { DetectedRuntime } from './types';
 import type { RuntimeCliEngine } from '@/lib/team-runtime/runtimeEngine';
 import { resolveRuntimeSelection } from './runtime-selection';
@@ -1074,9 +1074,16 @@ export default function registerDaemon(io: IOServer) {
           workDir: taskProjectDir,
         });
       }
-      const projectedTasks = evaluation
+      let projectedTasks = evaluation
         ? taskRepo.getByConversation(sessionConvId).filter((item) => item.id === taskId)
         : taskRepo.getByConversation(sessionConvId);
+      if (!evaluation && !readTasksMdProjectionOwner(taskProjectDir)) {
+        syncTasksToDb(taskProjectDir, sessionConvId, io, {
+          throwOnError: true,
+          skipForeignTaskCollisions: true,
+        });
+        projectedTasks = taskRepo.getByConversation(sessionConvId);
+      }
       ensureTasksMdProjection(taskProjectDir, sessionConvId, projectedTasks);
       if (!evaluation) startTaskWatcher(taskProjectDir, sessionConvId, io);
       if (evaluation && effectiveSlug) {

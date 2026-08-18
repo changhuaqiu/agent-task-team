@@ -47,7 +47,12 @@ export async function reduceAcceptedWakeup(io: IOServer, wakeup: TaskWakeup): Pr
   let projectionErrorMessage: string | undefined;
   if (task.work_dir) {
     try {
-      projected = updateTaskInMd(task.work_dir, wakeup.taskId, { status: 'in_progress' });
+      projected = updateTaskInMd(
+        task.work_dir,
+        task.conversation_id,
+        wakeup.taskId,
+        { status: 'in_progress' },
+      );
     } catch (error) {
       projectionFailureCause = 'io_error';
       projectionErrorMessage = sanitizeProjectionErrorMessage(error);

@@ -58,7 +58,7 @@ UI, daemon, and remote runtimes are separate instances. Cross-instance actions m
 - Record proof events for every critical state transition and dispatch phase.
 - Keep Team Runtime as the source for roster, role, account, skill, workflow, and communication policy.
 - Keep Task Authority as the source for task state and leases.
-- Keep exactly one Conversation-owned `TASKS.md` compatibility projection per runtime directory; a new owner rebuilds it from Task Authority before starting its watcher.
+- Keep exactly one Conversation-owned `TASKS.md` compatibility projection per canonical runtime directory; every server-side writer validates the same claiming/owned lease, malformed ownership fails closed, legacy unowned rows are adopted without duplicating task ids already owned by another Conversation, and a new owner rebuilds from Task Authority before starting its watcher. After ownership is established, unknown file rows are rejected and membership is restored from Task Authority; new Tasks require the structured task command.
 - Once a Task has entered WorkContract management, reject file-originated business-field changes and restore the authoritative projection so review/blocked states and frozen Gate revisions cannot be invalidated by a stale compatibility row.
 - Make runtime failures explainable before they become generic timeouts.
 - Allow future federation without forcing full zero-trust mesh complexity into the first implementation.

@@ -448,7 +448,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         break;
       }
       case 'ath.initBreakdown': {
-        const { initProjectDir, writeTasksMd } = await import('@/server/task-file-service');
+        const {
+          ensureTasksMdProjection,
+          initProjectDir,
+          writeOwnedTasksMd,
+        } = await import('@/server/task-file-service');
         const { conversationId, projectName, projectGoal, tasks } = payload as any;
 
         // Scope .ath/ under workspaces/<conversationId>/ so projects don't collide
@@ -464,7 +468,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         });
 
         if (tasks?.length) {
-          writeTasksMd(projectDir, tasks);
+          ensureTasksMdProjection(projectDir, conversationId, []);
+          if (!writeOwnedTasksMd(projectDir, conversationId, tasks)) {
+            throw new Error('tasks_projection_owner_mismatch');
+          }
         }
 
         result = { projectDir };

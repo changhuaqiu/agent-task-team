@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdirSync, rmSync, writeFileSync } from 'fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { createTestDb, resetDb, setTestDb } from '@/server/db/index';
@@ -140,6 +140,55 @@ describe('syncTasksToDb', () => {
     }));
   });
 
+  it('adopts legacy unowned tasks before claiming the projection', () => {
+    writeTasksMd('todo', 'legacy-task.md');
+    const emit = vi.fn();
+    const io = { to: vi.fn(() => ({ emit })), emit: vi.fn() };
+
+    syncTasksToDb(projectPath, 'conv-1', io as unknown as IOServer, {
+      throwOnError: true,
+      skipForeignTaskCollisions: true,
+    });
+    ensureTasksMdProjection(projectPath, 'conv-1', taskRepo.getByConversation('conv-1'));
+
+    expect(taskRepo.getById('TASK-003')).toMatchObject({
+      conversation_id: 'conv-1',
+      description: 'legacy-task.md',
+    });
+    expect(readTasksMd(projectPath).tasks).toEqual([
+      expect.objectContaining({ id: 'TASK-003', deliverable: 'legacy-task.md' }),
+    ]);
+  });
+
+  it('does not adopt a legacy task id already owned by another Conversation', () => {
+    conversationRepo.create({ id: 'conv-other', title: 'Other delivery' });
+    taskRepo.create({
+      id: 'TASK-003',
+      conversation_id: 'conv-other',
+      title: 'Existing delivery task',
+      agent_id: 'mario',
+    });
+    writeTasksMd('doing', 'foreign.md');
+    const emit = vi.fn();
+    const io = { to: vi.fn(() => ({ emit })), emit: vi.fn() };
+
+    syncTasksToDb(projectPath, 'conv-1', io as unknown as IOServer, {
+      throwOnError: true,
+      skipForeignTaskCollisions: true,
+    });
+    ensureTasksMdProjection(projectPath, 'conv-1', taskRepo.getByConversation('conv-1'));
+
+    expect(taskRepo.getByConversation('conv-1')).toEqual([]);
+    expect(taskRepo.getById('TASK-003')).toMatchObject({
+      conversation_id: 'conv-other',
+      status: 'ready',
+    });
+    expect(readTasksMd(projectPath).tasks).toEqual([]);
+    expect(emit).toHaveBeenCalledWith('task.sync_error', expect.objectContaining({
+      reasonCode: 'task_graph.legacy_projection_foreign_task_skipped',
+    }));
+  });
+
   it('publishes task notifications when TASKS.md changes status or deliverable', () => {
     taskRepo.create({
       id: 'TASK-003',
@@ -211,6 +260,27 @@ describe('syncTasksToDb', () => {
     ]);
   }, 15_000);
 
+  it('removes unknown rows written after an owned projection is established', () => {
+    taskRepo.create({
+      id: 'TASK-AUTH', conversation_id: 'conv-1', title: 'Authoritative task', agent_id: 'mario',
+    });
+    ensureTasksMdProjection(projectPath, 'conv-1', taskRepo.getByConversation('conv-1'));
+    writeTasksMd('doing', 'stale-shadow.md');
+    const emit = vi.fn();
+    const io = { to: vi.fn(() => ({ emit })), emit: vi.fn() };
+
+    syncTasksToDb(projectPath, 'conv-1', io as unknown as IOServer);
+
+    expect(taskRepo.getByConversation('conv-1').map((task) => task.id)).toEqual(['TASK-AUTH']);
+    expect(readTasksMd(projectPath).tasks).toEqual([
+      expect.objectContaining({ id: 'TASK-AUTH', status: 'ready' }),
+    ]);
+    expect(emit).toHaveBeenCalledWith('task.sync_error', expect.objectContaining({
+      taskId: 'TASK-003',
+      reasonCode: 'task_graph.owned_projection_unknown_task',
+    }));
+  });
+
   it('keeps WorkContract-managed status authoritative over a stale TASKS.md row', () => {
     taskRepo.create({
       id: 'TASK-003',
@@ -218,6 +288,7 @@ describe('syncTasksToDb', () => {
       title: 'Review exact revision',
       description: 'authoritative.md',
       agent_id: 'mario',
+      dependencies: ['TASK-AUTH'],
     });
     taskRepo.transition('TASK-003', { to: 'in_progress' });
     taskRepo.transition('TASK-003', { to: 'in_review' });
@@ -240,6 +311,12 @@ describe('syncTasksToDb', () => {
       causationId: 'trigger-managed-file-projection',
     });
     writeTasksMd('doing', 'stale projection');
+    const tasksPath = join(projectPath, '.ath', 'TASKS.md');
+    writeFileSync(
+      tasksPath,
+      readFileSync(tasksPath, 'utf-8').replace('| - | stale projection |', '| TASK-STALE | stale projection |'),
+      'utf-8',
+    );
 
     const emit = vi.fn();
     const io = { to: vi.fn(() => ({ emit })), emit: vi.fn() };
@@ -253,6 +330,7 @@ describe('syncTasksToDb', () => {
     expect(readTasksMd(projectPath).tasks[0]).toMatchObject({
       status: 'in_review',
       deliverable: 'authoritative.md',
+      depends: ['TASK-AUTH'],
     });
     expect(proofLogRepo.findByType({
       eventType: 'task_graph.transition.blocked',
@@ -263,6 +341,9 @@ describe('syncTasksToDb', () => {
     expect(emit).toHaveBeenCalledWith('task.sync_error', expect.objectContaining({
       taskId: 'TASK-003',
       reasonCode: 'task_graph.file_projection_managed_work',
+    }));
+    expect(emit).toHaveBeenCalledWith('task.sync', expect.objectContaining({
+      tasks: [expect.objectContaining({ depends: ['TASK-AUTH'] })],
     }));
   });
 
