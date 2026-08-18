@@ -511,6 +511,15 @@ System Control Plane becomes responsible for delivery semantics:
 
 A2A must submit pass intents to Dispatch Gateway instead of owning the full runtime delivery chain.
 
+### Parallel collaboration callback contract
+
+- A single pass group may address at most three distinct agents. Wider work must first be decomposed into bounded task or pass groups; breadth rejection uses `a2a_pass_group_too_wide`.
+- A successful one-to-one transfer may close directly. An Agent-owned fan-out group never ends merely because every receiver Invocation ended: after all branches settle, the aggregate opens one source reconciliation Possession and durably enqueues the original holder on the same `sourceWorkId`. Human-originated multi-target commands have no executable source holder and therefore preserve direct join semantics while exposing complete/partial branch facts.
+- The reconciliation command carries a deterministic result bundle capped at 24,000 characters, containing each branch's pass id, target agent, requested action, terminal status, bounded result summary or failure reason, and exact accepted outcome evidence refs. Missing accepted-outcome alignment is explicit rather than indistinguishable from an outcome with no evidence. It must not copy the full conversation or every branch transcript.
+- Partial failure still returns successful branch results. The original holder decides the next structured outcome from the complete/partial bundle instead of restarting finished branches.
+- The reconciliation Inbox command is idempotent by group and Possession. Its WorkContract carries an authoritative `a2a_possession:<id>` ref and frozen Possession revision. Dispatch and outcome admission both require the same project, holder, active chain, open status, and revision. Aborting or superseding a chain cancels every pending chain Inbox item and closes any active callback WorkAuthority, so a claimed, queued, or already-authorized stale callback cannot start new Agent/tool work or mutate Task/Gate/A2A facts after restart.
+- Result-bundle text is input to the normal ContextManager pipeline, not a second prompt assembler. Context scope, required context, budget, and runtime snapshot rules remain authoritative.
+
 ## Workflow Integration
 
 Workflow Engine submits dispatch intents to Dispatch Gateway.

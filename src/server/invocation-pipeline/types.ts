@@ -19,6 +19,9 @@ export interface AgentActivationCommand {
   fromAgentId?: string;
   chainId?: string;
   passId?: string;
+  possessionId?: string;
+  possessionRevision?: number;
+  a2aHandoff?: ContextRequest['a2aHandoff'];
   idempotencyKey?: string;
   /** Stable business work identity. Retries rotate the epoch under the same workId. */
   workId?: string;
@@ -69,6 +72,7 @@ export type InvocationReasonCode =
   | 'skill_revision_mismatch'
   | 'required_context_missing'
   | 'context_assembly_failed'
+  | 'a2a_possession_stale'
   | 'work_authority_conflict'
   | 'runtime_rejected'
   | 'internal_error';

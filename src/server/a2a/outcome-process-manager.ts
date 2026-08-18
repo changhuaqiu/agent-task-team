@@ -205,6 +205,17 @@ function passIdFromContract(contract: WorkContractRow): string | undefined {
   return undefined;
 }
 
+function possessionIdFromContract(contract: WorkContractRow): string | undefined {
+  const refs = JSON.parse(contract.authoritative_refs_json) as unknown;
+  if (!Array.isArray(refs)) return undefined;
+  for (const reference of refs) {
+    if (typeof reference !== 'string') continue;
+    const match = /^(?:a2a_)?possession:(.+)$/.exec(reference);
+    if (match?.[1]) return match[1];
+  }
+  return undefined;
+}
+
 function outcomeSummary(outcome: AgentOutcomeRow): string {
   try {
     const payload = JSON.parse(outcome.payload_json) as unknown;
@@ -272,13 +283,29 @@ export class A2AOutcomeProcessManager {
     }
     if (outcome.outcome_type !== 'handoff_to_agent') {
       if (outcome.outcome_type === 'continue_work') return;
+      const boundPossessionId = possessionIdFromContract(contract);
+      const boundPossession = boundPossessionId
+        ? this.collaboration.getPossession(boundPossessionId)
+        : undefined;
+      if (boundPossessionId && !boundPossession) {
+        throw new A2ACollaborationInvariantError(
+          'a2a_possession_missing',
+          boundPossessionId,
+        );
+      }
+      if (boundPossession && boundPossession.holderId !== contract.agent_id) {
+        throw new A2ACollaborationInvariantError(
+          'a2a_source_holder_mismatch',
+          `${boundPossession.holderId}:${contract.agent_id}`,
+        );
+      }
       const parentPassId = passIdFromContract(contract);
       const parentPass = parentPassId
         ? this.collaboration.getPass(parentPassId)
         : undefined;
-      const possession = parentPass?.targetPossessionId
+      const possession = boundPossession ?? (parentPass?.targetPossessionId
         ? this.collaboration.getPossession(parentPass.targetPossessionId)
-        : undefined;
+        : undefined);
       if (
         parentPass
         && possession?.status === 'open'
@@ -320,6 +347,18 @@ export class A2AOutcomeProcessManager {
         'a2a_source_possession_missing',
         payload.sourcePossessionId,
       );
+    }
+    if (!source) {
+      const boundPossessionId = possessionIdFromContract(contract);
+      source = boundPossessionId
+        ? this.collaboration.getPossession(boundPossessionId)
+        : undefined;
+      if (boundPossessionId && !source) {
+        throw new A2ACollaborationInvariantError(
+          'a2a_possession_missing',
+          boundPossessionId,
+        );
+      }
     }
     if (!source) {
       const parentPassId = passIdFromContract(contract);

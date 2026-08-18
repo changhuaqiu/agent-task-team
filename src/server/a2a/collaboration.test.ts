@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb, getDb, resetDb, setTestDb } from '../db';
 import { AgentInbox } from '../platform-events/agent-inbox';
+import { WorkContractRepository } from '../work-contract/repository';
 import {
   A2ACollaborationInvariantError,
   A2AIdempotencyConflictError,
@@ -85,7 +86,7 @@ describe('A2ACollaborationRepository', () => {
     });
   });
 
-  it('[scenario:parallel-handoff] joins only after every receiver returns a terminal result', () => {
+  it('[scenario:parallel-handoff] returns one bounded callback after every receiver settles', () => {
     const created = repository.createChain({
       conversationId: 'project-a2a-aggregate',
       rootTriggerType: 'user_turn',
@@ -131,10 +132,56 @@ describe('A2ACollaborationRepository', () => {
       expectedRevision: started[1]!.possession.revision,
       summary: 'verification completed',
     });
-    expect(repository.getGroup(offered.group.id)).toMatchObject({
-      status: 'completed',
+    const group = repository.getGroup(offered.group.id)!;
+    expect(group).toMatchObject({
+      status: 'recovering',
       resolvedCount: 2,
+      recoveryPossessionId: expect.any(String),
     });
+    expect(repository.getChain(created.chain.id)).toMatchObject({ status: 'active' });
+    const callbacks = new AgentInbox({ db: getDb() }).listPending('project-a2a-aggregate')
+      .filter((item) => item.projectAgentId === 'lead');
+    expect(callbacks).toHaveLength(1);
+    expect(callbacks[0]).toMatchObject({
+      idempotencyKey: expect.stringContaining(`a2a-reconcile:${group.id}`),
+      command: {
+        workId: 'parallel-source-work',
+        possessionId: group.recoveryPossessionId,
+        contextScenario: 'recovery',
+        a2aHandoff: {
+          title: 'a2a-collaboration',
+          evidenceRefs: [],
+        },
+      },
+    });
+    const callbackBundle = JSON.parse(callbacks[0]!.command.a2aHandoff!.possessionSummary);
+    expect(callbackBundle).toMatchObject({
+      schemaVersion: 1,
+      completeness: 'complete',
+      branches: [
+        {
+          toAgentId: 'builder',
+          summary: 'implementation completed',
+          status: 'completed',
+          outcomeEvidence: 'missing',
+          missingOutcomeReason: 'accepted_outcome_not_found',
+        },
+        {
+          toAgentId: 'tester',
+          summary: 'verification completed',
+          status: 'completed',
+          outcomeEvidence: 'missing',
+          missingOutcomeReason: 'accepted_outcome_not_found',
+        },
+      ],
+    });
+    const reconciliation = repository.getPossession(group.recoveryPossessionId!)!;
+    repository.completePossession({
+      possessionId: reconciliation.id,
+      expectedRevision: reconciliation.revision,
+      summary: 'parallel results synthesized',
+    });
+    expect(repository.getGroup(group.id)).toMatchObject({ status: 'completed' });
     expect(repository.getChain(created.chain.id)).toMatchObject({ status: 'completed' });
   });
 
@@ -168,11 +215,12 @@ describe('A2ACollaborationRepository', () => {
       status: 'active',
       resolvedCount: 0,
     });
+    const longFailureReason = `runtime_profile_missing:${'x'.repeat(5_000)}`;
     repository.failPass({
       passId: offered.passes[1]!.id,
       expectedRevision: 0,
       status: 'rejected',
-      reasonCode: 'runtime_profile_missing',
+      reasonCode: longFailureReason,
       phase: 'start',
     });
     expect(repository.getGroup(offered.group.id)).toMatchObject({
@@ -203,10 +251,28 @@ describe('A2ACollaborationRepository', () => {
         expect.objectContaining({
           command: expect.objectContaining({
             workId: 'source-work',
+            possessionId: group.recoveryPossessionId,
             contextScenario: 'recovery',
           }),
         }),
       ]));
+    const callback = new AgentInbox({ db: getDb() }).listPending('project-a2a-aggregate')
+      .find((item) => item.projectAgentId === 'lead')!;
+    expect(JSON.parse(callback.command.a2aHandoff!.possessionSummary)).toMatchObject({
+      completeness: 'partial',
+      branches: [
+        { toAgentId: 'builder', status: 'completed', summary: 'built' },
+        {
+          toAgentId: 'tester',
+          status: 'rejected',
+          reasonCode: expect.stringContaining('[truncated]'),
+          outcomeEvidence: 'missing',
+        },
+      ],
+    });
+    const partialBundle = JSON.parse(callback.command.a2aHandoff!.possessionSummary);
+    expect(partialBundle.branches[1].reasonCode.length).toBeLessThanOrEqual(1_200);
+    expect(callback.command.a2aHandoff!.possessionSummary.length).toBeLessThanOrEqual(24_000);
     const recovery = repository.getPossession(group.recoveryPossessionId!)!;
     repository.completePossession({
       possessionId: recovery.id,
@@ -215,6 +281,159 @@ describe('A2ACollaborationRepository', () => {
     });
     expect(repository.getGroup(group.id)).toMatchObject({ status: 'completed' });
     expect(repository.getChain(created.chain.id)).toMatchObject({ status: 'completed' });
+  });
+
+  it('keeps human-originated multi-target commands as a direct join', () => {
+    const created = repository.createChain({
+      conversationId: 'project-a2a-aggregate',
+      rootTriggerType: 'user_turn',
+      rootTriggerId: 'human-fanout',
+      holderId: 'human',
+      holderType: 'user',
+    });
+    const offered = repository.offerPassGroup({
+      chainId: created.chain.id,
+      sourcePossessionId: created.rootPossession.id,
+      expectedSourceRevision: created.rootPossession.revision,
+      idempotencyKey: 'human-fanout',
+      branches: [
+        { toAgentId: 'builder', intent: 'implement', packet: packet('build') },
+        { toAgentId: 'reviewer', intent: 'review', packet: packet('review') },
+      ],
+    });
+    for (const pass of offered.passes) {
+      const admitted = repository.markPassAdmitted(pass.id, pass.revision);
+      const starting = repository.markPassStarting(admitted.id, admitted.revision);
+      const started = repository.markPassStarted(starting.id, starting.revision);
+      repository.completePossession({
+        possessionId: started.possession.id,
+        expectedRevision: started.possession.revision,
+        summary: `${pass.toAgentId} completed`,
+      });
+    }
+
+    expect(repository.getGroup(offered.group.id)).toMatchObject({ status: 'completed' });
+    expect(repository.getChain(created.chain.id)).toMatchObject({ status: 'completed' });
+    expect(new AgentInbox({ db: getDb() }).listPending('project-a2a-aggregate')
+      .filter((item) => item.projectAgentId === 'human')).toHaveLength(0);
+  });
+
+  it('selects exact accepted outcome evidence without copying branch transcripts', () => {
+    const created = repository.createChain({
+      conversationId: 'project-a2a-aggregate',
+      rootTriggerType: 'system',
+      rootTriggerId: 'evidence-callback',
+      holderId: 'lead',
+      holderType: 'agent',
+    });
+    const offered = repository.offerPassGroup({
+      chainId: created.chain.id,
+      sourcePossessionId: created.rootPossession.id,
+      sourceWorkId: 'evidence-source-work',
+      expectedSourceRevision: created.rootPossession.revision,
+      idempotencyKey: 'evidence-fanout',
+      branches: [
+        { toAgentId: 'builder', intent: 'implement', packet: packet('build the feature') },
+        { toAgentId: 'reviewer', intent: 'review', packet: packet('review the feature') },
+      ],
+    });
+    const started = offered.passes.map((pass) => {
+      const admitted = repository.markPassAdmitted(pass.id, pass.revision);
+      const starting = repository.markPassStarting(admitted.id, admitted.revision);
+      return repository.markPassStarted(starting.id, starting.revision);
+    });
+    const contracts = new WorkContractRepository();
+    for (const [index, branch] of started.entries()) {
+      const contract = contracts.issue({
+        workId: `branch-work-${index}`,
+        attemptId: `branch-attempt-${index}`,
+        projectId: 'project-a2a-aggregate',
+        agentId: branch.pass.toAgentId,
+        goal: 'Complete the branch',
+        acceptanceCriteria: ['Return evidence'],
+        role: {},
+        permissions: {},
+        authoritativeRefs: [`a2a_pass:${branch.pass.id}`],
+        authoritativeRevisions: {},
+        contextSnapshotRef: `branch-context-${index}`,
+        allowedOutcomeTypes: ['submit_task_result'],
+        correlationId: 'evidence-trace',
+        causationId: branch.pass.id,
+        now: NOW,
+      });
+      expect(contracts.admitOutcome({
+        outcomeId: `branch-outcome-${index}`,
+        idempotencyKey: `branch-outcome-${index}`,
+        contractId: contract.contractId,
+        outcomeType: 'submit_task_result',
+        payload: { summary: index === 0 ? 'Implemented with tests' : 'Review passed' },
+        evidenceRefs: index === 0
+          ? ['src/feature.ts:12', 'tests/feature.test.ts:8']
+          : ['review:approved'],
+        projectId: contract.projectId,
+        workId: contract.workId,
+        workEpoch: contract.workEpoch,
+        attemptId: contract.attemptId,
+        fencingToken: contract.fencingToken,
+        authoritativeRevisions: contract.authoritativeRevisions,
+        correlationId: contract.correlationId,
+        causationId: contract.contractId,
+        occurredAt: NOW.toISOString(),
+      })).toMatchObject({ status: 'accepted' });
+      repository.completePossession({
+        possessionId: branch.possession.id,
+        expectedRevision: branch.possession.revision,
+        summary: index === 0 ? 'Implemented with tests' : 'Review passed',
+      });
+    }
+
+    const callback = new AgentInbox({ db: getDb() }).listPending('project-a2a-aggregate')
+      .find((item) => item.projectAgentId === 'lead')!;
+    const bundle = JSON.parse(callback.command.a2aHandoff!.possessionSummary);
+    expect(callback.command.a2aHandoff!.evidenceRefs).toEqual([
+      'src/feature.ts:12',
+      'tests/feature.test.ts:8',
+      'review:approved',
+    ]);
+    expect(bundle.branches).toEqual([
+      expect.objectContaining({
+        toAgentId: 'builder',
+        outcomeId: 'branch-outcome-0',
+        outcomeEvidence: 'aligned',
+        evidenceRefs: ['src/feature.ts:12', 'tests/feature.test.ts:8'],
+      }),
+      expect.objectContaining({
+        toAgentId: 'reviewer',
+        outcomeId: 'branch-outcome-1',
+        outcomeEvidence: 'aligned',
+        evidenceRefs: ['review:approved'],
+      }),
+    ]);
+    expect(callback.command.a2aHandoff!.possessionSummary).not.toContain('message-1');
+  });
+
+  it('rejects more than three fan-out targets before creating aggregate state', () => {
+    const created = repository.createChain({
+      conversationId: 'project-a2a-aggregate',
+      rootTriggerType: 'user_turn',
+      rootTriggerId: 'message-too-wide',
+      holderId: 'lead',
+      holderType: 'agent',
+    });
+    expect(() => repository.offerPassGroup({
+      chainId: created.chain.id,
+      sourcePossessionId: created.rootPossession.id,
+      sourceWorkId: 'wide-work',
+      expectedSourceRevision: created.rootPossession.revision,
+      idempotencyKey: 'too-wide',
+      branches: ['a', 'b', 'c', 'd'].map((toAgentId) => ({
+        toAgentId,
+        intent: 'delegate' as const,
+        packet: packet(`delegate ${toAgentId}`),
+      })),
+    })).toThrowError(expect.objectContaining({ reasonCode: 'a2a_pass_group_too_wide' }));
+    expect(getDb().prepare('SELECT COUNT(*) count FROM a2a_pass_group').get())
+      .toEqual({ count: 0 });
   });
 
   it('rejects cycle transfer and hop-budget exhaustion from the possession ancestry', () => {

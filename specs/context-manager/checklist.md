@@ -73,3 +73,4 @@
 - [x] required Contributor 未注册、返回空结果或伪造 producer 时均 fail closed
 - [x] assembly snapshot 哈希包含 kind/semantic，Daemon 生成覆盖最终 Runtime 输入的 runtime snapshot
 - [x] OpenCode system context 仅通过 instructions 投递一次
+- [x] A2A 并行回调只注入有界的 complete/partial 结果包，经统一 ContextManager 组装；成功证据不因其他分支失败而丢失，完整分支对话不进入回调

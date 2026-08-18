@@ -42,6 +42,7 @@ export interface TierPush {
     opts: {
       private?: boolean;
       source?: string;
+      evidenceRefs?: string[];
     },
   ): void;
 }

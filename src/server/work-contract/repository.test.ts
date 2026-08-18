@@ -12,6 +12,7 @@ import { invocationRepo } from '../repositories/invocation-repo';
 import { taskRepo } from '../repositories/task-repo';
 import { QualityGateRepository } from '../quality-gate/repository';
 import { AutonomousDeliveryRepository } from '../autonomous-delivery/repository';
+import { A2ACollaborationRepository } from '../a2a/collaboration';
 
 const NOW = new Date('2026-07-28T08:00:00.000Z');
 const CONTINUATION_CHECKPOINT = {
@@ -167,6 +168,118 @@ describe('WorkContractRepository', () => {
       status: 'rejected',
       reasonCode: 'outcome_type_not_allowed',
     });
+  });
+
+  it('rejects an over-wide A2A handoff before it consumes the terminal outcome slot', () => {
+    const repository = new WorkContractRepository();
+    const contract = issue(repository, {
+      attemptId: 'attempt-wide-handoff',
+      allowedOutcomeTypes: ['handoff_to_agent', 'submit_task_result'],
+    });
+    expect(repository.admitOutcome(outcome(contract, {
+      outcomeId: 'outcome-wide-handoff',
+      idempotencyKey: 'outcome-wide-handoff',
+      outcomeType: 'handoff_to_agent',
+      payload: {
+        idempotencyKey: 'wide-handoff',
+        branches: ['a', 'b', 'c', 'd'].map((toAgentId) => ({ toAgentId })),
+      },
+    }))).toMatchObject({
+      status: 'rejected',
+      reasonCode: 'a2a_pass_group_too_wide',
+    });
+    expect(repository.admitOutcome(outcome(contract, {
+      outcomeId: 'outcome-after-wide-handoff',
+      idempotencyKey: 'outcome-after-wide-handoff',
+    }))).toMatchObject({ status: 'accepted' });
+  });
+
+  it('rejects a callback outcome when its frozen A2A Possession was aborted', () => {
+    const collaboration = new A2ACollaborationRepository({ db: getDb() });
+    const created = collaboration.createChain({
+      conversationId: 'project-work',
+      rootTriggerType: 'system',
+      rootTriggerId: 'stale-callback-root',
+      holderId: 'builder',
+      holderType: 'agent',
+    });
+    const packet = (requestedAction: string) => ({
+      title: requestedAction,
+      requestedAction,
+      possessionSummary: requestedAction,
+      relevantDecisions: [],
+      evidenceRefs: [],
+      constraints: [],
+      openQuestions: [],
+      forbiddenBehaviors: [],
+      sourceMessageIds: ['stale-callback-root'],
+    });
+    const offered = collaboration.offerPassGroup({
+      chainId: created.chain.id,
+      sourcePossessionId: created.rootPossession.id,
+      sourceWorkId: 'task:task-1:agent:builder',
+      expectedSourceRevision: created.rootPossession.revision,
+      idempotencyKey: 'stale-callback-fanout',
+      branches: [
+        { toAgentId: 'worker-a', intent: 'implement', packet: packet('Implement') },
+        { toAgentId: 'worker-b', intent: 'review', packet: packet('Review') },
+      ],
+    });
+    for (const pass of offered.passes) {
+      const admitted = collaboration.markPassAdmitted(pass.id, pass.revision);
+      const starting = collaboration.markPassStarting(admitted.id, admitted.revision);
+      const started = collaboration.markPassStarted(starting.id, starting.revision);
+      collaboration.completePossession({
+        possessionId: started.possession.id,
+        expectedRevision: started.possession.revision,
+        summary: `${pass.toAgentId} done`,
+      });
+    }
+    const group = collaboration.getGroup(offered.group.id)!;
+    const reconciliation = collaboration.getPossession(group.recoveryPossessionId!)!;
+    const repository = new WorkContractRepository();
+    const contract = repository.issue({
+      workId: 'task:task-1:agent:builder',
+      attemptId: 'stale-callback-attempt',
+      projectId: 'project-work',
+      agentId: 'builder',
+      goal: 'Synthesize branch results',
+      acceptanceCriteria: ['Submit one result'],
+      role: {},
+      permissions: {},
+      authoritativeRefs: [`a2a_possession:${reconciliation.id}`],
+      authoritativeRevisions: { a2aPossession: reconciliation.revision },
+      contextSnapshotRef: 'stale-callback-context',
+      allowedOutcomeTypes: ['submit_task_result'],
+      correlationId: 'stale-callback-trace',
+      causationId: reconciliation.id,
+      now: NOW,
+    });
+    const callbackInbox = getDb().prepare(`
+      SELECT id,status FROM agent_inbox_item
+      WHERE json_extract(command_json,'$.possessionId')=?
+    `).get(reconciliation.id) as { id: string; status: string };
+    expect(callbackInbox.status).toBe('enqueued');
+    collaboration.abortActiveChain('project-work', 'human_cancelled');
+
+    expect(getDb().prepare(`
+      SELECT status FROM agent_inbox_item WHERE id=?
+    `).get(callbackInbox.id)).toEqual({ status: 'cancelled' });
+    expect(repository.getAuthority(contract.workId)).toMatchObject({ status: 'closed' });
+
+    expect(repository.admitOutcome(outcome(contract, {
+      outcomeId: 'stale-callback-outcome',
+      idempotencyKey: 'stale-callback-outcome',
+      authoritativeRevisions: contract.authoritativeRevisions,
+      correlationId: contract.correlationId,
+    }))).toMatchObject({
+      status: 'rejected',
+      reasonCode: 'work_authority_stale',
+    });
+    expect(getDb().prepare(`
+      SELECT COUNT(*) count FROM agent_outcome
+      WHERE contract_id=? AND admission_status='accepted'
+    `).get(contract.contractId)).toEqual({ count: 0 });
   });
 
   it('admits at most one continuation checkpoint and one terminal outcome per contract', () => {

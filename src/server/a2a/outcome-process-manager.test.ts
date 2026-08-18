@@ -222,6 +222,99 @@ describe('A2AOutcomeProcessManager', () => {
       .toEqual({ count: 0 });
   });
 
+  it('closes the exact reconciliation possession bound to a callback WorkContract', async () => {
+    const collaboration = new A2ACollaborationRepository({ db: getDb() });
+    const chain = collaboration.createChain({
+      conversationId: 'project-a2a-outcome',
+      rootTriggerType: 'system',
+      rootTriggerId: 'callback-root',
+      holderId: 'lead',
+      holderType: 'agent',
+    });
+    const offered = collaboration.offerPassGroup({
+      chainId: chain.chain.id,
+      sourcePossessionId: chain.rootPossession.id,
+      sourceWorkId: 'callback-source-work',
+      expectedSourceRevision: chain.rootPossession.revision,
+      idempotencyKey: 'callback-fanout',
+      branches: ['builder', 'reviewer'].map((toAgentId) => ({
+        toAgentId,
+        intent: 'delegate' as const,
+        packet: {
+          title: `Work for ${toAgentId}`,
+          requestedAction: `Complete ${toAgentId} branch`,
+          possessionSummary: `Branch owned by ${toAgentId}`,
+          relevantDecisions: [],
+          evidenceRefs: [],
+          constraints: [],
+          openQuestions: [],
+          forbiddenBehaviors: [],
+          sourceMessageIds: ['callback-root'],
+        },
+      })),
+    });
+    for (const pass of offered.passes) {
+      const admitted = collaboration.markPassAdmitted(pass.id, pass.revision);
+      const starting = collaboration.markPassStarting(admitted.id, admitted.revision);
+      const started = collaboration.markPassStarted(starting.id, starting.revision);
+      collaboration.completePossession({
+        possessionId: started.possession.id,
+        expectedRevision: started.possession.revision,
+        summary: `${pass.toAgentId} completed`,
+      });
+    }
+    const group = collaboration.getGroup(offered.group.id)!;
+    const reconciliation = collaboration.getPossession(group.recoveryPossessionId!)!;
+    const contracts = new WorkContractRepository();
+    const contract = contracts.issue({
+      workId: 'callback-source-work',
+      attemptId: 'callback-attempt',
+      projectId: 'project-a2a-outcome',
+      agentId: 'lead',
+      goal: 'Synthesize parallel results',
+      acceptanceCriteria: ['Return one result'],
+      role: {},
+      permissions: {},
+      authoritativeRefs: [`a2a_possession:${reconciliation.id}`],
+      authoritativeRevisions: { a2aPossession: reconciliation.revision },
+      contextSnapshotRef: 'callback-context',
+      allowedOutcomeTypes: ['submit_task_result'],
+      correlationId: 'callback-trace',
+      causationId: reconciliation.id,
+      now: NOW,
+    });
+    expect(contracts.admitOutcome({
+      outcomeId: 'callback-outcome',
+      idempotencyKey: 'callback-outcome',
+      contractId: contract.contractId,
+      outcomeType: 'submit_task_result',
+      payload: { summary: 'Parallel work synthesized' },
+      evidenceRefs: ['callback:final'],
+      projectId: contract.projectId,
+      workId: contract.workId,
+      workEpoch: contract.workEpoch,
+      attemptId: contract.attemptId,
+      fencingToken: contract.fencingToken,
+      authoritativeRevisions: contract.authoritativeRevisions,
+      correlationId: contract.correlationId,
+      causationId: contract.contractId,
+      occurredAt: NOW.toISOString(),
+    })).toMatchObject({ status: 'accepted' });
+    const event = new PlatformEventLog({ db: getDb() })
+      .listStream(`work:${contract.workId}`)
+      .find((candidate) => candidate.type === 'agent.outcome.accepted')!;
+
+    await new A2AOutcomeProcessManager({ db: getDb(), collaboration })
+      .handle(event, { signal: new AbortController().signal });
+
+    expect(collaboration.getPossession(reconciliation.id)).toMatchObject({
+      status: 'completed',
+      summary: 'Parallel work synthesized',
+    });
+    expect(collaboration.getGroup(group.id)).toMatchObject({ status: 'completed' });
+    expect(collaboration.getChain(chain.chain.id)).toMatchObject({ status: 'completed' });
+  });
+
   it.each([
     ['report_blocked', 'dependency_unavailable'],
     ['request_human_decision', 'human_decision_requested'],

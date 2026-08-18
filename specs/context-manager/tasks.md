@@ -50,3 +50,4 @@
 - [x] T30 AssembledContext、ContextReport 与 Harness plan 暴露 snapshot id、fragment refs、omission 和 missing-required
 - [x] T31 通过 ContextManager 外部 seam 覆盖跨项目、私有、角色、过期、重复、Contributor 失败和预算裁剪测试
 - [x] T32 BudgetGuard 落实 required floor，防止可选上下文挤掉 required Project Context
+- [x] T33 将 A2A 并行回调的选择性结果包作为 focus 输入送入既有 ContextManager；结果包有界、保留精确 evidence refs，且不包含完整对话历史

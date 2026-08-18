@@ -82,6 +82,9 @@ export class AgentInboxScheduler {
           fromAgentId: item.command.fromAgentId,
           chainId: item.command.chainId,
           passId: item.command.passId,
+          possessionId: item.command.possessionId,
+          possessionRevision: item.command.possessionRevision,
+          a2aHandoff: item.command.a2aHandoff,
           contextScenario: item.command.contextScenario,
           legacyProposal: item.command.legacyProposal,
         };

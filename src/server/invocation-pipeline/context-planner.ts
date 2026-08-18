@@ -26,7 +26,10 @@ import { autonomousDeliveryContextContributor } from '../autonomous-delivery/con
 import { autonomousDeliveryRepo } from '../autonomous-delivery/repository';
 import { resolveApplicationSnapshotRuntime } from '../evaluation/application-snapshot';
 import { projectContextContributor } from '../project-context/context-contributor';
-import { issueDispatchWorkContract } from '../work-contract/dispatch-contract';
+import {
+  issueDispatchWorkContract,
+  StaleA2APossessionError,
+} from '../work-contract/dispatch-contract';
 import { StaleWorkAuthorityError } from '../work-contract/repository';
 import { RUNTIME_ID_BY_ENGINE } from '../runtime-selection';
 
@@ -200,7 +203,7 @@ export class InvocationPlanner implements InvocationPlannerPort {
         registeredToolNames: getSupportedToolNames(),
         trigger: contextTrigger,
         scenario: trigger.contextScenario,
-        a2aHandoff: trigger.source === 'a2a' ? {
+        a2aHandoff: trigger.source === 'a2a' ? trigger.a2aHandoff ?? {
           title: trigger.fromAgentId ?? 'agent',
           requestedAction: referenceResolution.prompt,
           possessionSummary: referenceResolution.prompt,
@@ -262,7 +265,9 @@ export class InvocationPlanner implements InvocationPlannerPort {
         'required_skill_not_loaded', 'skill_manifest_invalid', 'skill_package_missing',
         'skill_path_invalid', 'skill_path_duplicate', 'skill_revision_mismatch',
       ];
-      const reasonCode: InvocationReasonCode = error instanceof StaleWorkAuthorityError
+      const reasonCode: InvocationReasonCode = error instanceof StaleA2APossessionError
+        ? 'a2a_possession_stale'
+        : error instanceof StaleWorkAuthorityError
         ? 'work_authority_conflict'
         : error instanceof SkillRuntimeError
         && skillReasonCodes.includes(error.reasonCode as InvocationReasonCode)

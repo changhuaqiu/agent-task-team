@@ -64,7 +64,7 @@ export function renderAllTiers(ctx: TierContext, observedAt: string): ContextFra
     cluster: ContextCluster,
     layer: string,
     content: string | null | undefined,
-    opts: { private?: boolean; source?: string },
+    opts: { private?: boolean; source?: string; evidenceRefs?: string[] },
   ) => {
     if (content) {
       const identity = identityFor(layer);
@@ -79,7 +79,7 @@ export function renderAllTiers(ctx: TierContext, observedAt: string): ContextFra
           ? { kind: 'agent', agentId: opts.source ?? ctx.agentId }
           : { kind: 'team' },
         freshness: { observedAt },
-        evidenceRefs: [],
+        evidenceRefs: opts.evidenceRefs ?? [],
       });
     }
   };

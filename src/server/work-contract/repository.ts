@@ -129,6 +129,57 @@ function continuationOutcomeRejectionReason(input: AgentOutcome): string | undef
   return admission.accepted ? undefined : admission.reasonCode;
 }
 
+function handoffOutcomeRejectionReason(input: AgentOutcome): string | undefined {
+  if (input.outcomeType !== 'handoff_to_agent') return undefined;
+  if (!input.payload || typeof input.payload !== 'object' || Array.isArray(input.payload)) {
+    return 'a2a_outcome_payload_invalid';
+  }
+  const branches = (input.payload as Record<string, unknown>).branches;
+  if (!Array.isArray(branches) || branches.length === 0) {
+    return 'a2a_pass_group_empty';
+  }
+  if (branches.length > 3) return 'a2a_pass_group_too_wide';
+  return undefined;
+}
+
+function a2aPossessionOutcomeRejectionReason(
+  contract: WorkContractRow,
+  frozenRevisions: Record<string, string | number>,
+  db: ReturnType<typeof getDb>,
+): string | undefined {
+  const refs = parseJson<string[]>(contract.authoritative_refs_json);
+  const reference = refs.find((candidate) => /^(?:a2a_)?possession:/.test(candidate));
+  if (!reference) return undefined;
+  const possessionId = reference.replace(/^(?:a2a_)?possession:/, '');
+  if (!possessionId) return 'a2a_possession_missing';
+  const possession = db.prepare(`
+    SELECT
+      possession.revision,
+      possession.status,
+      possession.holder_id,
+      chain.conversation_id
+    FROM a2a_possession possession
+    JOIN a2a_possession_chain chain ON chain.id=possession.chain_id
+    WHERE possession.id=?
+  `).get(possessionId) as {
+    revision: number;
+    status: string;
+    holder_id: string;
+    conversation_id: string;
+  } | undefined;
+  if (!possession) return 'a2a_possession_missing';
+  if (possession.conversation_id !== contract.project_id) return 'a2a_possession_project_mismatch';
+  if (possession.holder_id !== contract.agent_id) return 'a2a_possession_holder_mismatch';
+  if (possession.status !== 'open') return 'a2a_possession_not_open';
+  const frozenRevision = frozenRevisions.a2aPossession;
+  if (
+    typeof frozenRevision !== 'number'
+    || !Number.isSafeInteger(frozenRevision)
+    || possession.revision !== frozenRevision
+  ) return 'a2a_possession_revision_stale';
+  return undefined;
+}
+
 function contractFromRow(row: WorkContractRow): WorkContract {
   return {
     contractId: row.id,
@@ -497,6 +548,8 @@ export class WorkContractRepository {
       }
       if (!rejectionReason && contract) {
         rejectionReason = continuationOutcomeRejectionReason(input)
+          ?? handoffOutcomeRejectionReason(input)
+          ?? a2aPossessionOutcomeRejectionReason(contract, frozenRevisions, db)
           ?? gateOutcomeRejectionReason(input, contract, db);
       }
       if (!rejectionReason && contract && contract.correlation_id !== input.correlationId) {

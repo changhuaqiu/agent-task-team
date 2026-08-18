@@ -96,6 +96,9 @@ export interface DomainEventPayloadMap {
     chainId: string;
     groupId: string;
     recovered: boolean;
+    reconciled?: boolean;
+    completeness?: 'complete' | 'partial';
+    failedPassIds?: string[];
   };
   'a2a.pass.failed': {
     chainId: string;
@@ -109,6 +112,7 @@ export interface DomainEventPayloadMap {
     groupId: string;
     recoveryPossessionId: string;
     failedPassIds: string[];
+    kind?: 'synthesis' | 'partial_recovery';
   };
   'a2a.chain.completed': { status: string };
   'a2a.chain.aborted': { status: string; reason?: string };

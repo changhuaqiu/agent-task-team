@@ -95,6 +95,7 @@ updated: 2026-08-18
 - 使用包含大量并行 Agent 历史和失败重试的真实交付复核团队活动：页面完全水合后投影为 15 个 Invocation 回复、15 个聚合 Trace 和 27 个紧凑系统活动；已完成 Trace 全部默认收起，“某 Agent N 次回复”入口为 0，同一工作项在每次回复中最多出现一次。全新页面加载后没有控制台错误。
 - 真实自主交付完成 Task Review 和 Delivery Review 后，自动进入 Acceptance Verification；由于目标要求 Web UI E2E、而浏览器权限被拒绝，系统稳定停在 `waiting_human`，没有重复启动 evaluator 或伪造验收回执。自主控制面 14 个测试文件 94/94 通过。
 - 续作检查点的接纳、快照投影、独立预算、继续派发、新轮次提示、A2A 交接与四出口协作协议已覆盖执行、Task 评审、Delivery 评审和验收验证；Gate 续作的新轮次同时收到上一轮摘要、精确下一动作、剩余步骤、证据、Gate id 与 receipt 约束。同一 WorkContract 的第二个续作检查点会被拒绝，排队中的续作计入并发容量，避免状态播报或 reconcile 形成无界循环。最终全量回归 1609 通过、2 跳过。
+- Agent 把同一步并行交给多个角色后，平台会等待全部分支终结并只回调原负责人一次；回调携带 complete/partial 分支摘要和精确 outcome 证据，不复制分支聊天，也不会因一支失败丢掉其他成功结果。并行宽度限制为 3，越界 handoff 在 Outcome 接纳事务内拒绝且不占用终态槽；取消或替换协作时，平台会取消 pending 回调、关闭已签发权限，并在派发和结果接纳两端拒绝旧 Possession revision。A2A、Inbox、WorkContract、Invocation Pipeline、ContextManager 相关回归 276/276 通过。
 - 在真实 3000 页面复核已完成交付：页面显示 100% 验收，历史中 2 条超长 Agent 回复进入渐进展开，11 个已完成 Trace 在收起态直接显示工具调用，浏览器控制台无应用错误。
 
 ### 仍然保留的边界

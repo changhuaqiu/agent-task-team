@@ -608,6 +608,7 @@ describe('ContextManager', () => {
       lifecycle: 'event',
       consistency: 'causal',
       deliveryMode: 'delta',
+      evidenceRefs: ['artifact:test-result'],
     }));
   });
 

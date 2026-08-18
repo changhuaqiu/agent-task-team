@@ -194,6 +194,13 @@ interface ContextReport {
 - **降级后**：A2A 只产出交接包（possession contract 不变）；派发时以 `trigger=a2a_handoff` + `a2aHandoff` source 调 ContextManager；chain depth 作为 source 内元数据保留（交接包内 `remainingBudget`），不再作为顶层预算
 - 收益：A2A 派发的 prompt 与主循环**同享预算、层优先级、作用域、身份**；"一半战场"补齐
 
+并行分支的回调同样不得形成第二条 Prompt 管线。A2A owner 在全部分支终结后生成有界的
+选择性结果包，只携带每个分支的稳定 id、目标 Agent、请求动作、终态摘要/失败原因和精确
+evidence refs，不复制完整对话或分支 transcript。该结果包作为回调动作的原始 focus 输入进入
+既有 `context-planner → ContextManager`，仍受项目作用域、required floor、预算裁剪和 runtime
+snapshot 约束。部分失败必须保留成功分支结果；来源缺失或无法与 accepted outcome 对齐时
+应明确标记缺失，不得猜测或拉入无关历史。
+
 ### 5.8 分阶段
 - **P1（非破坏迁移，已完成）**：`ContextManager` 接口 + 主循环改走它 + `project_id` 作用域 + ContextReport observation span；迁移期先由 PromptComposer 委托，确认零调用后于 2026-07-22 删除包装。未接线的独立 `scopeGuard` 后由 P5 Registry 的真实过滤取代并删除。
 - **P2（迁移）**：A2A 派发改走 ContextManager，退役 `renderDispatchPrompt` 自建 prompt；跨项目身份契约（IdentitySnapshot/ScopedContext）落地。

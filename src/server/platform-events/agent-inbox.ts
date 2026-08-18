@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import type { ContextRequest } from '../../lib/agent-context/ContextManager';
 import type { ContextScenario } from '../../lib/agent-context/scenarioResolver';
 import { getDb } from '../db';
 import type { AgentActivationSource } from '../invocation-pipeline/types';
@@ -18,6 +19,9 @@ export interface AgentWorkCommand {
   fromAgentId?: string;
   chainId?: string;
   passId?: string;
+  possessionId?: string;
+  possessionRevision?: number;
+  a2aHandoff?: ContextRequest['a2aHandoff'];
   contextScenario?: ContextScenario;
   legacyProposal?: boolean;
 }

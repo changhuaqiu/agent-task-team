@@ -162,10 +162,13 @@ A2A 的目标权威是一个 `A2ACollaboration` 聚合，而不是 Chain、Workl
 - migration 62 已删除 `invocation_chain / chain_worklist / delivery_cursor /
   a2a_audit_log / a2a_delivery`，源码中不再保留第二套兼容状态机。
 
-显式 fan-out 为同一 source possession 下的一个 pass group。已启动的分支各自产生 open
-possession，不能因另一分支失败而回滚；失败分支产生一个指向原 holder 的 recovery
-possession。source possession、成功子分支和 recovery possession 在同一聚合事务中提交。
-Chain 在仍有任一 open/recovery possession 时保持 active。
+显式 fan-out 为同一 source possession 下的一个 pass group，单组最多三个不同接球人。已启动
+的分支各自产生 open possession，不能因另一分支失败而回滚。Agent 发起的 fan-out 在全部分支终结后，聚合不把
+"每个 Agent 都说完了"误判为协作完成，而是原子创建一个指向原 holder 的 reconciliation
+possession，并以同一个 source Work 写入持久 Agent Inbox。成功的一对一 transfer 可以直接
+完成；Agent 发起的 fan-out 无论全部成功还是部分失败，都必须经原 holder 汇总为一个结构化下一步。
+Human 发起的多目标命令没有可执行的 source holder，保留直接 join，并在聚合事件中暴露 complete/partial 分支事实。
+Chain 在仍有任一 open/reconciliation possession 时保持 active。
 
 Agent 主动协作不再从最终回复文本中猜测。Agent 必须提交结构化
 `handoff_to_agent` Outcome，A2A 流程协调器读取已接纳 Outcome 和不可变 WorkContract，
@@ -186,9 +189,15 @@ AgentOutcome(handoff_to_agent)
 
 Pass Group 的 join 不在 `started` 时完成。Group 持久绑定 source Work 与 DeliveryRun；
 每个未终结分支形成 `sourceWorkId -> a2a-pass:<passId>` wait-for 边。全部 receiver
-Possession 终结后才关闭 source Possession；若存在失败分支，聚合原子创建 recovery
-Possession，并向原 holder 写入复用 sourceWorkId 的持久 Inbox，由新 epoch 继续，而不是
-把旧 Invocation 重新执行一遍。
+Possession 终结后才关闭 source Possession。fan-out 的 join 生成有界选择性结果包：按稳定顺序
+携带每个 pass 的目标、请求动作、终态摘要或失败原因，以及 accepted outcome 的精确 evidence
+refs；无法对齐 accepted outcome 时显式标记 missing，不复制完整聊天或分支 transcript，最终 focus
+文本上限为 24,000 字符。原 holder 的回调 Inbox 复用 sourceWorkId 并绑定新的
+`a2a_possession` 权威引用与 revision；派发与 Outcome 接纳同时校验项目、holder、active chain、
+open 状态和 revision。链被取消或替换时，平台取消其全部 pending Inbox 项并关闭已签发的回调
+WorkAuthority，因此 queued、claimed 或已授权的旧回调都不能再启动 Agent/工具或写入事实。有效回调
+由新 epoch 继续；幂等键保证同一 group 只产生一次回调，部分失败
+不会抹掉已完成分支，也不会重跑旧 Invocation。
 
 `handoff_to_agent.payload` 至少包含稳定幂等键和一个或多个明确分支：
 

@@ -26,6 +26,6 @@ export function renderTaskTier({ ctx, push }: TierRenderInput): void {
         ...req.a2aHandoff,
         possessionSummary: undefined,
       }),
-    }), {});
+    }), { evidenceRefs: req.a2aHandoff.evidenceRefs });
   }
 }
