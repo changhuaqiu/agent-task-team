@@ -63,6 +63,26 @@ function outcomeReasonCode(outcome: AgentOutcomeRow): string {
     : 'agent_reported_blocked';
 }
 
+function normalizeLegacyAcceptedHandoff(outcome: AgentOutcomeRow): AgentOutcomeRow {
+  try {
+    const payload = JSON.parse(outcome.payload_json) as unknown;
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return outcome;
+    const record = payload as Record<string, unknown>;
+    if (typeof record.idempotencyKey === 'string' && record.idempotencyKey.trim()) {
+      return outcome;
+    }
+    return {
+      ...outcome,
+      payload_json: JSON.stringify({
+        ...record,
+        idempotencyKey: `legacy-outcome:${outcome.id}`,
+      }),
+    };
+  } catch {
+    return outcome;
+  }
+}
+
 export function applyAcceptedA2AHandoff(input: {
   db: Database.Database;
   outcome: AgentOutcomeRow;
@@ -343,7 +363,7 @@ export class A2AOutcomeProcessManager {
     }
     applyAcceptedA2AHandoff({
       db,
-      outcome,
+      outcome: normalizeLegacyAcceptedHandoff(outcome),
       contract,
       collaboration: this.collaboration,
       commandGuard: this.commandGuard,

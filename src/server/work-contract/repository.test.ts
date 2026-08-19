@@ -201,6 +201,22 @@ describe('WorkContractRepository', () => {
       allowedOutcomeTypes: ['handoff_to_agent', 'submit_task_result'],
     });
     expect(repository.admitOutcome(outcome(contract, {
+      outcomeId: 'outcome-missing-handoff-key',
+      idempotencyKey: 'outcome-missing-handoff-key',
+      outcomeType: 'handoff_to_agent',
+      payload: {
+        branches: [{
+          toAgentId: 'builder',
+          intent: 'implement',
+          title: 'Implement the task',
+          requestedAction: 'Implement the task',
+        }],
+      },
+    }))).toMatchObject({
+      status: 'rejected',
+      reasonCode: 'a2a_outcome_invalid',
+    });
+    expect(repository.admitOutcome(outcome(contract, {
       outcomeId: 'outcome-invalid-handoff',
       idempotencyKey: 'outcome-invalid-handoff',
       outcomeType: 'handoff_to_agent',

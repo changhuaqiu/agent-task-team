@@ -46,8 +46,9 @@
 - [x] The callback WorkContract authoritatively binds its reconciliation Possession; dispatch and admission fence its revision, while chain abort cancels pending callback Inbox work and closes active callback authority.
 - [x] `handoff_to_agent` uses one admission/processing schema, accepts compatible string evidence by normalizing it into structured references, and cannot be accepted then dead-lettered for a schema disagreement between layers.
 - [x] Handoff admission atomically creates the durable PassGroup and receiver Inbox commands with the accepted outcome; aggregate invariants roll back fully and leave a rejected outcome that can be corrected and resubmitted.
-- [x] A2A outcome handler v2 safely recovers unsuperseded v1 dead letters, binds replay to the originating accepted outcome and Work epoch, compares the full normalized PassGroup request digest, and rejects later-epoch idempotency-key reuse instead of waiting on an unrelated group.
+- [x] A2A outcome handler v3 safely recovers unsuperseded v2 dead letters, binds replay to the originating accepted outcome and Work epoch, compares the full normalized PassGroup request digest, and rejects later-epoch idempotency-key reuse instead of waiting on an unrelated group.
 - [x] A v84 PassGroup without origin columns can only be claimed by the earliest accepted handoff that used its Work/key pair; a later callback epoch cannot adopt that historical group even when its normalized digest is identical.
+- [x] Durable v2 recovery derives a stable outcome-scoped key for historical accepted handoffs that predate the key requirement, while current synchronous admission still rejects a new handoff without `idempotencyKey`.
 - [x] An accepted handoff is dependency waiting until the durable A2A callback wakes the original holder; coordinator Agents do not spend continuation budget on receiver polling.
 - [x] Internal completion-without-outcome exhaustion fails visibly as a system problem instead of asking the user to decide Agent-lane health; genuine human boundaries use actionable, user-readable copy without ControlAction ids.
 

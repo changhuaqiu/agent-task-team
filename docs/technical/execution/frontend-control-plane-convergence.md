@@ -360,11 +360,12 @@ Daemon ExecutionAdapter 内执行；daemon transport 只启动/停止该服务�
   Team Workflow 使用的 `quality_gate` 在边界归一为 A2A 的 canonical `verify` intent，避免业务阶段词与协议词不一致造成异步死信。
   admission 与 PassGroup/Possession/receiver Inbox 创建处于同一个 SQLite transaction；重复目标、source revision、cycle、hop budget
   或路由策略失败会整体回滚并记录 rejected outcome。durable outcome handler 只做已创建 group 的幂等恢复，不再承担首次确定性校验。
-  handler revision v2 会恢复未被后续 Work epoch 覆盖的 v1 历史死信；已有 group 必须匹配完整 normalized request digest 和最初创建它的
+  handler revision v3 会恢复未被后续 Work epoch 覆盖的 v2 历史死信；已有 group 必须匹配完整 normalized request digest 和最初创建它的
   accepted outcome/Work epoch。同一 epoch 的重复投递安全幂等，后续回调 epoch 即使复用完全相同的 key/packet 也同步拒绝为
   `a2a_idempotency_conflict`，不会错误等待旧 group。v85 之前没有 origin 字段的历史 group 只允许同一 Work 下最早使用该 handoff key 的
   accepted outcome 原子补绑定；任何后续 epoch 都不能认领历史 group。v87 会再次执行同一幂等 schema repair，覆盖开发数据库曾由
-  隔离分支占用 v85/v86、但实际没有 origin columns 的迁移编号碰撞。
+  隔离分支占用 v85/v86、但实际没有 origin columns 的迁移编号碰撞。历史已 accepted、但旧 admission 未要求 `idempotencyKey` 的 handoff
+  仅在 durable v3 handler 内使用 `legacy-outcome:<outcomeId>` 恢复；当前同步 admission 仍严格拒绝缺 key 的新请求。
 - `invocation_completed_without_outcome` 等内部协议故障只消耗系统自动恢复预算，预算耗尽后进入可诊断失败，不得伪装成需要用户判断
   Agent lane 是否可用的业务决策。`waiting_human` 仅保留给 Agent 显式上报的阻塞、授权/配置缺失和真正的外部业务选择；界面展示可执行的
   人话说明，不暴露 ControlAction id。

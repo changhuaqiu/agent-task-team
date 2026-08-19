@@ -178,7 +178,7 @@ export class PlatformEventRuntimeWorker {
     if (resolved.a2aOutcome !== false) {
       const a2aOutcome = new A2AOutcomeProcessManager(resolved.a2aOutcome);
       this.dispatcher.register({
-        id: 'a2a-outcome-process-manager:v2',
+        id: 'a2a-outcome-process-manager:v3',
         pattern: 'agent.outcome.accepted',
         stereotype: 'process_manager',
         reliability: 'durable',

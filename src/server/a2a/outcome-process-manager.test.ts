@@ -428,7 +428,7 @@ describe('A2AOutcomeProcessManager', () => {
     });
   });
 
-  it('replays a legacy v1 dead letter through the safely idempotent v2 handler', async () => {
+  it('replays a legacy v2 dead letter through the safely idempotent v3 handler', async () => {
     const contracts = new WorkContractRepository();
     const contract = contracts.issue({
       workId: 'legacy-handoff:lead',
@@ -478,6 +478,21 @@ describe('A2AOutcomeProcessManager', () => {
       .listStream(`work:${contract.workId}`)
       .find((event) => event.type === 'agent.outcome.accepted')!;
 
+    const acceptedRow = getDb().prepare('SELECT payload_json FROM agent_outcome WHERE id=?')
+      .get('outcome-legacy-handoff') as { payload_json: string };
+    const legacyPayload = JSON.parse(acceptedRow.payload_json) as Record<string, unknown>;
+    delete legacyPayload.idempotencyKey;
+    getDb().exec('DROP TRIGGER trg_agent_outcome_immutable');
+    getDb().prepare('UPDATE agent_outcome SET payload_json=? WHERE id=?')
+      .run(JSON.stringify(legacyPayload), 'outcome-legacy-handoff');
+    getDb().exec(`
+      CREATE TRIGGER trg_agent_outcome_immutable
+      BEFORE UPDATE ON agent_outcome
+      BEGIN
+        SELECT RAISE(ABORT, 'agent_outcome_immutable');
+      END;
+    `);
+
     getDb().prepare('DELETE FROM agent_inbox_item WHERE project_id=?')
       .run(contract.projectId);
     getDb().prepare('DELETE FROM a2a_handoff_packet').run();
@@ -499,7 +514,7 @@ describe('A2AOutcomeProcessManager', () => {
       retryDelayMs: () => 0,
     });
     dispatcher.register({
-      id: 'a2a-outcome-process-manager:v1',
+      id: 'a2a-outcome-process-manager:v2',
       pattern: 'agent.outcome.accepted',
       stereotype: 'process_manager',
       reliability: 'durable',
@@ -509,12 +524,12 @@ describe('A2AOutcomeProcessManager', () => {
     getDb().prepare(`
       UPDATE platform_event_delivery
       SET status='dead_letter',attempt_count=5,last_error='a2a_outcome_invalid: evidenceRefs[0]'
-      WHERE handler_id='a2a-outcome-process-manager:v1' AND event_id=?
+      WHERE handler_id='a2a-outcome-process-manager:v2' AND event_id=?
     `).run(acceptedEvent.eventId);
 
     const manager = new A2AOutcomeProcessManager({ db: getDb() });
     dispatcher.register({
-      id: 'a2a-outcome-process-manager:v2',
+      id: 'a2a-outcome-process-manager:v3',
       pattern: 'agent.outcome.accepted',
       stereotype: 'process_manager',
       reliability: 'durable',
@@ -526,12 +541,12 @@ describe('A2AOutcomeProcessManager', () => {
       WHERE event_id=? ORDER BY handler_id
     `).all(acceptedEvent.eventId)).toEqual([
       {
-        handler_id: 'a2a-outcome-process-manager:v1',
+        handler_id: 'a2a-outcome-process-manager:v2',
         status: 'dead_letter',
         next_attempt_at: acceptedEvent.recordedAt,
       },
       {
-        handler_id: 'a2a-outcome-process-manager:v2',
+        handler_id: 'a2a-outcome-process-manager:v3',
         status: 'queued',
         next_attempt_at: acceptedEvent.recordedAt,
       },
@@ -541,11 +556,14 @@ describe('A2AOutcomeProcessManager', () => {
       SELECT handler_id,status FROM platform_event_delivery
       WHERE event_id=? ORDER BY handler_id
     `).all(acceptedEvent.eventId)).toEqual([
-      { handler_id: 'a2a-outcome-process-manager:v1', status: 'dead_letter' },
-      { handler_id: 'a2a-outcome-process-manager:v2', status: 'succeeded' },
+      { handler_id: 'a2a-outcome-process-manager:v2', status: 'dead_letter' },
+      { handler_id: 'a2a-outcome-process-manager:v3', status: 'succeeded' },
     ]);
-    expect(getDb().prepare('SELECT status FROM a2a_pass_group').all())
-      .toEqual([{ status: 'offered' }]);
+    expect(getDb().prepare('SELECT idempotency_key,status FROM a2a_pass_group').all())
+      .toEqual([{
+        idempotency_key: 'legacy-outcome:outcome-legacy-handoff',
+        status: 'offered',
+      }]);
   });
 
   it('closes the exact reconciliation possession bound to a callback WorkContract', async () => {
