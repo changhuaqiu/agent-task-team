@@ -262,6 +262,10 @@ the original holder. The delegating Agent MUST NOT submit `continue_work` merely
 receiver. Internal protocol failures such as `invocation_completed_without_outcome` consume the
 automatic recovery budget and terminate as a system failure when exhausted; they are not human
 business decisions and MUST NOT transition the Delivery to `waiting_human`.
+The Command Adapter MUST treat the exact exhausted failure projected for the target Work epoch as
+authoritative termination evidence. It MUST NOT require that an exhausted retryable Work Cell has
+already changed to the separate `failed` state, and an adapter rejection of that internal
+termination MUST NOT be reclassified as a human-recoverable business decision.
 The boundary normalizes the workflow-facing `quality_gate` alias to the canonical A2A `verify`
 intent so Team workflow vocabulary cannot create an asynchronous schema dead letter.
 Admission creates the normalized PassGroup, Possession transition, and receiver Inbox commands in

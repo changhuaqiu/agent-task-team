@@ -515,8 +515,20 @@ export class ProductionControlCommandAdapter implements ControlCommandPort {
         to === 'failed'
         && !facts.closure.unrecoverableReasonCode
         && !facts.workCells.some((cell) => (
-          cell.state === 'failed'
-          && (!action.targetWorkId || cell.workId === action.targetWorkId)
+          (
+            cell.state === 'failed'
+            && (!action.targetWorkId || cell.workId === action.targetWorkId)
+            && (action.workEpoch === undefined || cell.workEpoch === action.workEpoch)
+          )
+          || (
+            action.targetWorkId !== undefined
+            && action.workEpoch !== undefined
+            && cell.workId === action.targetWorkId
+            && cell.workEpoch === action.workEpoch
+            && cell.failure?.reasonCode === action.reasonCode
+            && !cell.failure.humanRecoverable
+            && cell.failure.budget.attemptsUsed >= cell.failure.budget.maxAttempts
+          )
         ))
       ) {
         return { status: 'rejected', reasonCode: 'delivery_failure_not_authoritative' };

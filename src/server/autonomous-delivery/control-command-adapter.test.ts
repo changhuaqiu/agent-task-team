@@ -185,6 +185,96 @@ describe('ProductionControlCommandAdapter', () => {
     expect(run.escalation_detail).not.toContain(action.actionId);
   });
 
+  it('accepts an exhausted internal protocol failure as authoritative termination evidence', () => {
+    const workId = buildWorkIdentity({
+      scope: 'task',
+      targetId: 'task-1',
+      agentId: 'agent-1',
+      purpose: 'execute',
+    });
+    const contracts = new WorkContractRepository();
+    let latestEpoch = 0;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      const task = taskRepo.getById('task-1')!;
+      const contract = contracts.issue({
+        workId,
+        attemptId: `attempt-protocol-${attempt}`,
+        projectId: 'project-1',
+        deliveryRunId: runId,
+        taskId: task.id,
+        agentId: 'agent-1',
+        goal: task.title,
+        acceptanceCriteria: ['Works'],
+        role: { id: 'agent-1' },
+        permissions: {},
+        authoritativeRefs: [`task:${task.id}`, `delivery_run:${runId}`],
+        authoritativeRevisions: {
+          task: task.revision,
+          deliveryRun: deliveries.getRun(runId)!.revision,
+        },
+        contextSnapshotRef: `context:protocol-${attempt}`,
+        allowedOutcomeTypes: ['submit_task_result'],
+        correlationId: 'delivery-root-trace',
+        causationId: `protocol-start-${attempt}`,
+        now,
+      });
+      latestEpoch = contract.workEpoch;
+      invocationRepo.create({
+        id: contract.attemptId,
+        conversation_id: 'project-1',
+        agent_id: 'agent-1',
+        work_contract_id: contract.contractId,
+        work_id: contract.workId,
+        work_epoch: contract.workEpoch,
+        fencing_token: contract.fencingToken,
+      }, now);
+      invocationRepo.transition(contract.attemptId, {
+        to: 'terminated',
+        outcome: 'completed',
+      }, now);
+    }
+
+    const { snapshot, decision } = decide();
+    const terminate = decision.actions.find((action) => action.type === 'terminate')!;
+    expect(terminate).toMatchObject({
+      targetWorkId: workId,
+      workEpoch: latestEpoch,
+      reasonCode: 'invocation_completed_without_outcome',
+      terminationOutcome: 'failed',
+    });
+
+    const withoutTarget = { ...terminate };
+    delete withoutTarget.targetWorkId;
+    const withoutEpoch = { ...terminate };
+    delete withoutEpoch.workEpoch;
+    for (const forged of [
+      withoutTarget,
+      withoutEpoch,
+      { ...terminate, targetWorkId: 'task:other:agent:agent-1:purpose:execute' },
+      { ...terminate, workEpoch: latestEpoch - 1 },
+      { ...terminate, reasonCode: 'different_internal_failure' },
+    ]) {
+      expect(adapter.execute(forged, {
+        decision,
+        snapshot,
+        claimToken: 'claim-invalid-protocol-failure',
+      })).toEqual({
+        status: 'rejected',
+        reasonCode: 'delivery_failure_not_authoritative',
+      });
+    }
+
+    expect(adapter.execute(terminate, {
+      decision,
+      snapshot,
+      claimToken: 'claim-protocol-failure',
+    })).toEqual({ status: 'applied' });
+    expect(deliveries.getRun(runId)).toMatchObject({
+      status: 'failed',
+      escalation_code: 'invocation_completed_without_outcome',
+    });
+  });
+
   it('turns activate into durable AgentInbox work without starting Runtime directly', async () => {
     const { snapshot, decision } = decide();
     const action = decision.actions[0]!;
