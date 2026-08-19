@@ -9,6 +9,8 @@ const SUPPORTED_TOOL_NAMES = new Set([
   'collaboration_record_pr',
   'collaboration_record_review',
   'collaboration_record_merge',
+  'team_memory_record',
+  'team_memory_recall',
 ]);
 
 export function isSkillTool(toolName: string): boolean {

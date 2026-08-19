@@ -4,6 +4,7 @@ import type { Server as IOServer } from 'socket.io';
 import type { McpServer } from '@agentclientprotocol/sdk';
 import { TASK_MANAGEMENT_SKILL } from '@/data/presetSkills/taskManagement';
 import { GIT_COLLABORATION_SKILL } from '@/data/presetSkills/gitCollaboration';
+import { TEAM_MEMORY_SKILL } from '@/data/presetSkills/teamMemory';
 import { executeSkillTool, resetRateLimit, type ToolResult } from './skill-tool-executor';
 import { isSkillTool } from './skill-tool-router';
 import type { AgentOutcomeType, WorkContract } from './work-contract/types';
@@ -79,7 +80,7 @@ function jsonSchemaType(type: string): string {
 }
 
 const TOOL_DEFINITIONS = new Map<string, AcpSkillToolDefinition>(
-  [TASK_MANAGEMENT_SKILL, GIT_COLLABORATION_SKILL]
+  [TASK_MANAGEMENT_SKILL, GIT_COLLABORATION_SKILL, TEAM_MEMORY_SKILL]
     .flatMap((skill) => parseTools(skill.config ?? '{}'))
     .filter((tool) => isSkillTool(tool.name))
     .map((tool) => {

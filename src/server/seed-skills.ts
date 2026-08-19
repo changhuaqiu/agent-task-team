@@ -68,4 +68,11 @@ export function seedPresetSkills(): void {
       skillRepo.assignToAgent(agentId, gitCollaboration.id);
     }
   }
+
+  const teamMemory = skillRepo.getByName('team-memory');
+  if (teamMemory) {
+    for (const agentId of BUILT_IN_TEAM_AGENT_IDS) {
+      skillRepo.assignToAgent(agentId, teamMemory.id);
+    }
+  }
 }

@@ -1,10 +1,12 @@
 import { TASK_MANAGEMENT_SKILL } from './presetSkills/taskManagement';
 import { GIT_COLLABORATION_SKILL } from './presetSkills/gitCollaboration';
 import { TASK_STATUS_RECEIPT_SKILL } from './presetSkills/taskStatusReceipt';
+import { TEAM_MEMORY_SKILL } from './presetSkills/teamMemory';
 
 export const PRESET_SKILLS = [
   GIT_COLLABORATION_SKILL,
   TASK_STATUS_RECEIPT_SKILL,
+  TEAM_MEMORY_SKILL,
   {
     name: 'code-review',
     description: '结构化代码审查，提供 checklist 和反馈模板',

@@ -17,6 +17,15 @@ import type { ImplementationEvidence, MergeEvidence, ReviewEvidence } from '@/li
 import type { Server as IOServer } from 'socket.io';
 import { appendTaskToOwnedTasksMd, updateTaskInMd } from './task-file-service';
 import { startArtifactLoopbackServer } from './verification/artifact-loopback-server';
+import { getDb } from './db';
+import {
+  MEMORY_DISPOSITIONS,
+  MEMORY_RELATION_KINDS,
+  TEAM_MEMORY_KINDS,
+  teamMemory,
+  type MemoryRelationKind,
+  type TeamMemoryKind,
+} from './team-memory/team-memory';
 
 // ── Types ──────────────────────────────────────
 
@@ -436,6 +445,121 @@ async function executeRecordMerge(invocation: ToolInvocation): Promise<ToolResul
   return { success: true, data };
 }
 
+function stringArray(value: unknown): string[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) return undefined;
+  return value.map((item) => String(item));
+}
+
+function executeTeamMemoryRecord(invocation: ToolInvocation): ToolResult {
+  const disposition = invocation.input.disposition;
+  const idempotencyKey = invocation.input.idempotency_key;
+  if (
+    typeof disposition !== 'string'
+    || !MEMORY_DISPOSITIONS.includes(disposition as (typeof MEMORY_DISPOSITIONS)[number])
+    || !nonEmptyText(idempotencyKey)
+  ) return { success: false, error: 'disposition and idempotency_key are required' };
+  const kind = invocation.input.kind;
+  if (kind !== undefined && (
+    typeof kind !== 'string' || !TEAM_MEMORY_KINDS.includes(kind as TeamMemoryKind)
+  )) return { success: false, error: 'kind is invalid' };
+  const sourceRefs = stringArray(invocation.input.source_refs);
+  if (invocation.input.source_refs !== undefined && !sourceRefs) {
+    return { success: false, error: 'source_refs must be a string array' };
+  }
+  const relationshipInput = recordInput(invocation.input.relationship);
+  let relationship: {
+    subjectAgentId: string;
+    objectAgentId: string;
+    relationKind: MemoryRelationKind;
+  } | undefined;
+  if (relationshipInput) {
+    const subjectAgentId = relationshipInput.subjectAgentId ?? relationshipInput.subject_agent_id;
+    const objectAgentId = relationshipInput.objectAgentId ?? relationshipInput.object_agent_id;
+    const relationKind = relationshipInput.relationKind ?? relationshipInput.relation_kind;
+    if (
+      !nonEmptyText(subjectAgentId)
+      || !nonEmptyText(objectAgentId)
+      || !nonEmptyText(relationKind)
+      || !MEMORY_RELATION_KINDS.includes(relationKind as MemoryRelationKind)
+    ) return { success: false, error: 'relationship coordinates are invalid' };
+    relationship = {
+      subjectAgentId: subjectAgentId.trim(),
+      objectAgentId: objectAgentId.trim(),
+      relationKind: relationKind as MemoryRelationKind,
+    };
+  }
+  const result = teamMemory.record({
+    conversationId: invocation.conversationId,
+    taskId: invocation.taskId,
+    agentId: invocation.agentId,
+    idempotencyKey: idempotencyKey.trim(),
+    disposition: disposition as (typeof MEMORY_DISPOSITIONS)[number],
+    opportunityId: nonEmptyText(invocation.input.opportunity_id)
+      ? invocation.input.opportunity_id.trim()
+      : undefined,
+    kind: kind as TeamMemoryKind | undefined,
+    content: nonEmptyText(invocation.input.content) ? invocation.input.content.trim() : undefined,
+    scope: ['project', 'task', 'agent'].includes(String(invocation.input.scope))
+      ? invocation.input.scope as 'project' | 'task' | 'agent'
+      : undefined,
+    visibility: ['team', 'agent'].includes(String(invocation.input.visibility))
+      ? invocation.input.visibility as 'team' | 'agent'
+      : undefined,
+    sourceRefs,
+    reasonCode: nonEmptyText(invocation.input.reason_code)
+      ? invocation.input.reason_code.trim()
+      : undefined,
+    supersedesId: nonEmptyText(invocation.input.supersedes_id)
+      ? invocation.input.supersedes_id.trim()
+      : undefined,
+    relationship,
+  });
+  return { success: true, data: result };
+}
+
+function executeTeamMemoryRecall(invocation: ToolInvocation): ToolResult {
+  const limit = invocation.input.limit;
+  if (limit !== undefined && (!Number.isInteger(limit) || Number(limit) < 1 || Number(limit) > 10)) {
+    return { success: false, error: 'limit must be an integer between 1 and 10' };
+  }
+  const result = teamMemory.recall({
+    conversationId: invocation.conversationId,
+    taskId: invocation.taskId,
+    agentId: invocation.agentId,
+    query: nonEmptyText(invocation.input.query) ? invocation.input.query.trim() : undefined,
+    limit: limit === undefined ? undefined : Number(limit),
+  });
+  return { success: true, data: result };
+}
+
+function memoryObservationSourceRefs(
+  invocation: ToolInvocation,
+  proofId: string,
+): string[] {
+  if (!invocation.taskId) return [`proof:${proofId}`];
+  const actionTypesByTool: Record<string, string[]> = {
+    task_update_status: ['task.review_requested', 'task.status_changed'],
+    collaboration_record_pr: ['task.pull_request_submitted'],
+    collaboration_record_review: ['task.provider_review_received'],
+    collaboration_record_merge: ['task.pull_request_merged'],
+  };
+  const actionTypes = actionTypesByTool[invocation.toolName] ?? [];
+  const placeholders = actionTypes.map(() => '?').join(',');
+  const action = actionTypes.length > 0
+    ? getDb().prepare(`
+        SELECT action.id
+        FROM task_action action,json_each(action.task_ids) task_ref
+        WHERE task_ref.value=? AND action.type IN (${placeholders})
+        ORDER BY action.created_at DESC,action.id DESC LIMIT 1
+      `).get(invocation.taskId, ...actionTypes) as { id: string } | undefined
+    : undefined;
+  return [
+    ...(action ? [`task-action:${action.id}`] : [`proof:${proofId}`]),
+    `task:${invocation.taskId}`,
+  ];
+}
+
 // ── Tool dispatch map ──────────────────────────
 
 const TOOL_EXECUTORS: Record<string, (invocation: ToolInvocation) => ToolResult | Promise<ToolResult>> = {
@@ -447,6 +571,8 @@ const TOOL_EXECUTORS: Record<string, (invocation: ToolInvocation) => ToolResult 
   collaboration_record_pr: executeRecordPullRequest,
   collaboration_record_review: executeRecordReview,
   collaboration_record_merge: executeRecordMerge,
+  team_memory_record: executeTeamMemoryRecord,
+  team_memory_recall: executeTeamMemoryRecall,
 };
 
 // ── Main entry point ───────────────────────────
@@ -463,7 +589,7 @@ export async function executeSkillTool(invocation: ToolInvocation): Promise<Tool
 
     const result = await executor(invocation);
 
-    proofLogRepo.append({
+    const proof = proofLogRepo.append({
       eventType: 'skill.tool.invoked',
       conversationId: invocation.conversationId,
       taskId: invocation.taskId,
@@ -473,6 +599,50 @@ export async function executeSkillTool(invocation: ToolInvocation): Promise<Tool
         success: result.success,
       },
     });
+
+    const requestedStatus = invocation.toolName === 'task_update_status'
+      ? String(invocation.input.status ?? '')
+      : '';
+    const createsMemoryOpportunity = result.success && (
+      ['collaboration_record_pr', 'collaboration_record_review', 'collaboration_record_merge']
+        .includes(invocation.toolName)
+      || (invocation.toolName === 'task_update_status' && ['in_review', 'done'].includes(requestedStatus))
+    );
+    if (createsMemoryOpportunity) {
+      try {
+        teamMemory.observe({
+          conversationId: invocation.conversationId,
+          taskId: invocation.taskId,
+          agentId: invocation.agentId,
+          idempotencyKey: stableTaskCommandKey('team-memory-observe', {
+            rateLimitKey: invocation.rateLimitKey ?? invocation.agentId,
+            toolName: invocation.toolName,
+            input: invocation.input,
+          }),
+          sourceRefs: memoryObservationSourceRefs(invocation, proof.id),
+          reasonCode: `tool_boundary:${invocation.toolName}`,
+          kindHint: invocation.toolName === 'collaboration_record_review' ? 'lesson' : 'decision',
+        });
+      } catch (memoryError) {
+        console.error('[skill-tool] failed to persist memory opportunity:', memoryError);
+        try {
+          proofLogRepo.append({
+            eventType: 'team_memory.observe.failed',
+            conversationId: invocation.conversationId,
+            taskId: invocation.taskId,
+            agentId: invocation.agentId,
+            reasonCode: 'memory_observation_failed',
+            metadata: {
+              sourceProofId: proof.id,
+              toolName: invocation.toolName,
+              error: memoryError instanceof Error ? memoryError.message : String(memoryError),
+            },
+          });
+        } catch {
+          // Memory observation is non-authoritative and cannot replace the tool result.
+        }
+      }
+    }
 
     return result;
   } catch (err) {

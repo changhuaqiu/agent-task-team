@@ -26,6 +26,7 @@ import { autonomousDeliveryContextContributor } from '../autonomous-delivery/con
 import { autonomousDeliveryRepo } from '../autonomous-delivery/repository';
 import { resolveApplicationSnapshotRuntime } from '../evaluation/application-snapshot';
 import { projectContextContributor } from '../project-context/context-contributor';
+import { teamMemoryContextContributor } from '../team-memory/context-contributor';
 import {
   issueDispatchWorkContract,
   StaleA2APossessionError,
@@ -167,7 +168,7 @@ export class InvocationPlanner implements InvocationPlannerPort {
       }, {
         contributors: trigger.evaluation
           ? []
-          : [projectContextContributor, autonomousDeliveryContextContributor],
+          : [projectContextContributor, autonomousDeliveryContextContributor, teamMemoryContextContributor],
       });
       const referenceResolution = trigger.evaluation
         ? { prompt: trigger.prompt, records: [] }

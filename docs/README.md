@@ -100,6 +100,7 @@
 - `docs/product/business/2026-07-19-evaluation-object-model.md`：评估测试集、被测对象、任务执行与结果展示的产品对象模型
 - `docs/product/business/2026-07-20-github-issue-agent-trigger.md`：GitHub Issue 作为自主交付来源、但不替代内部项目与 Task Graph 的产品决策
 - `docs/product/business/2026-07-20-project-context-bootstrap.md`：从目录选择到可复用项目上下文的产品对象、双场景流程与共享边界
+- `docs/product/business/2026-08-19-team-memory-and-collaboration-relationships.md`：团队记忆与 Agent↔Agent 工程关系记忆的产品边界
 
 ### 技术设计
 
@@ -124,6 +125,7 @@
 - `docs/technical/execution/platform-runtime-webui-current-architecture.html`：当前 Runtime 与 WebUI 的可视化架构，明确人的主动 Command 通路与自动展示投影通路
 - `docs/technical/integrations/github-issue-agent-hook.md`：GitHub Issue webhook 验签、幂等映射与 GoalContract 接入设计
 - `docs/technical/execution/project-context-bootstrap.md`：代码库发现、分层知识索引、workstream 投影、增量刷新和 ContextManager 接线设计
+- `docs/technical/execution/team-memory.md`：项目级团队记忆、写入机会、证据治理、召回与工程协作关系投影
 - `docs/technical/execution/architecture-subtraction.md`：仓库依赖/构建产物、未挂载 UI 和无生产消费者浅 Module 的删除决策与保留边界
 - `docs/wiki/project-context.md`：Project Context 的当前入口、生成布局、dispatch 数据流、安全边界与验证命令
 

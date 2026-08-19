@@ -3804,6 +3804,118 @@ CREATE INDEX IF NOT EXISTS idx_task_command_rejection_receipt_task
       );
     `,
   },
+  {
+    version: 85,
+    sql: `
+CREATE TABLE IF NOT EXISTS team_memory_item (
+  id TEXT PRIMARY KEY,
+  idempotency_key TEXT NOT NULL,
+  conversation_id TEXT NOT NULL REFERENCES conversation(id) ON DELETE CASCADE,
+  task_id TEXT REFERENCES task(id) ON DELETE SET NULL,
+  scope_kind TEXT NOT NULL CHECK(scope_kind IN ('project','task','agent')),
+  visibility TEXT NOT NULL CHECK(visibility IN ('team','agent')),
+  owner_agent_id TEXT,
+  kind TEXT NOT NULL CHECK(kind IN (
+    'decision','fact','lesson','correction','open_loop','relationship'
+  )),
+  content TEXT NOT NULL CHECK(length(trim(content)) > 0 AND length(content) <= 2000),
+  status TEXT NOT NULL CHECK(status IN ('proposed','accepted','superseded','retired')),
+  subject_agent_id TEXT,
+  object_agent_id TEXT,
+  relation_kind TEXT CHECK(relation_kind IS NULL OR relation_kind IN (
+    'handoff','review','expertise','communication'
+  )),
+  source_refs_json TEXT NOT NULL,
+  proposer_agent_id TEXT NOT NULL,
+  accepted_by TEXT,
+  supersedes_id TEXT REFERENCES team_memory_item(id) ON DELETE SET NULL,
+  revision INTEGER NOT NULL DEFAULT 0 CHECK(revision >= 0),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  retired_at TEXT,
+  UNIQUE(conversation_id,idempotency_key),
+  CHECK(scope_kind <> 'task' OR task_id IS NOT NULL),
+  CHECK(scope_kind <> 'agent' OR owner_agent_id IS NOT NULL),
+  CHECK(visibility <> 'agent' OR owner_agent_id IS NOT NULL),
+  CHECK(
+    kind <> 'relationship'
+    OR (
+      subject_agent_id IS NOT NULL
+      AND object_agent_id IS NOT NULL
+      AND subject_agent_id <> object_agent_id
+      AND relation_kind IS NOT NULL
+    )
+  )
+);
+CREATE INDEX IF NOT EXISTS idx_team_memory_recall
+  ON team_memory_item(conversation_id,status,task_id,updated_at,id);
+CREATE INDEX IF NOT EXISTS idx_team_memory_owner
+  ON team_memory_item(conversation_id,owner_agent_id,status,updated_at,id);
+
+CREATE TABLE IF NOT EXISTS team_memory_opportunity (
+  id TEXT PRIMARY KEY,
+  idempotency_key TEXT NOT NULL,
+  conversation_id TEXT NOT NULL REFERENCES conversation(id) ON DELETE CASCADE,
+  task_id TEXT REFERENCES task(id) ON DELETE SET NULL,
+  agent_id TEXT NOT NULL,
+  kind_hint TEXT CHECK(kind_hint IS NULL OR kind_hint IN (
+    'decision','fact','lesson','correction','open_loop','relationship'
+  )),
+  source_refs_json TEXT NOT NULL,
+  disposition TEXT NOT NULL CHECK(disposition IN ('deferred','proposed','abstained')),
+  reason_code TEXT,
+  resolved_memory_id TEXT REFERENCES team_memory_item(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  resolved_at TEXT,
+  UNIQUE(conversation_id,idempotency_key)
+);
+CREATE INDEX IF NOT EXISTS idx_team_memory_opportunity_pending
+  ON team_memory_opportunity(conversation_id,agent_id,disposition,updated_at,id);
+
+CREATE TABLE IF NOT EXISTS team_memory_event (
+  id TEXT PRIMARY KEY,
+  conversation_id TEXT NOT NULL REFERENCES conversation(id) ON DELETE CASCADE,
+  memory_id TEXT REFERENCES team_memory_item(id) ON DELETE CASCADE,
+  opportunity_id TEXT REFERENCES team_memory_opportunity(id) ON DELETE CASCADE,
+  event_type TEXT NOT NULL,
+  actor_type TEXT NOT NULL CHECK(actor_type IN ('agent','human','system')),
+  actor_id TEXT NOT NULL,
+  reason_code TEXT,
+  metadata_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  CHECK(memory_id IS NOT NULL OR opportunity_id IS NOT NULL)
+);
+CREATE INDEX IF NOT EXISTS idx_team_memory_event_memory
+  ON team_memory_event(memory_id,created_at,id);
+CREATE INDEX IF NOT EXISTS idx_team_memory_event_opportunity
+  ON team_memory_event(opportunity_id,created_at,id);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS team_memory_fts USING fts5(
+  memory_id UNINDEXED,
+  content,
+  tokenize='unicode61'
+);
+CREATE TRIGGER IF NOT EXISTS trg_team_memory_fts_insert
+AFTER INSERT ON team_memory_item
+WHEN NEW.status='accepted'
+BEGIN
+  INSERT INTO team_memory_fts(memory_id,content) VALUES (NEW.id,NEW.content);
+END;
+CREATE TRIGGER IF NOT EXISTS trg_team_memory_fts_update
+AFTER UPDATE OF content,status ON team_memory_item
+BEGIN
+  DELETE FROM team_memory_fts WHERE memory_id=OLD.id;
+  INSERT INTO team_memory_fts(memory_id,content)
+    SELECT NEW.id,NEW.content WHERE NEW.status='accepted';
+END;
+CREATE TRIGGER IF NOT EXISTS trg_team_memory_fts_delete
+AFTER DELETE ON team_memory_item
+BEGIN
+  DELETE FROM team_memory_fts WHERE memory_id=OLD.id;
+END;
+    `,
+  },
 ];
 
 export function applyMigrations(db: Database.Database): void {
