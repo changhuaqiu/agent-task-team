@@ -7,6 +7,29 @@ interface Migration {
   foreignKeysOff?: boolean;
 }
 
+function ensureA2AOutcomeOriginColumns(db: Database.Database): void {
+  const tableExists = db.prepare(`
+    SELECT 1 FROM sqlite_master
+    WHERE type='table' AND name='a2a_pass_group'
+  `).get();
+  if (!tableExists) return;
+  const columns = new Set(
+    (db.prepare('PRAGMA table_info(a2a_pass_group)').all() as Array<{ name: string }>)
+      .map((column) => column.name),
+  );
+  if (!columns.has('source_work_epoch')) {
+    db.exec('ALTER TABLE a2a_pass_group ADD COLUMN source_work_epoch INTEGER');
+  }
+  if (!columns.has('source_outcome_id')) {
+    db.exec('ALTER TABLE a2a_pass_group ADD COLUMN source_outcome_id TEXT');
+  }
+  db.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_a2a_pass_group_source_outcome
+      ON a2a_pass_group(source_outcome_id)
+      WHERE source_outcome_id IS NOT NULL
+  `);
+}
+
 const MIGRATIONS: Migration[] = [
   {
     version: 1,
@@ -3806,28 +3829,14 @@ CREATE INDEX IF NOT EXISTS idx_task_command_rejection_receipt_task
   },
   {
     version: 85,
-    run: (db) => {
-      const tableExists = db.prepare(`
-        SELECT 1 FROM sqlite_master
-        WHERE type='table' AND name='a2a_pass_group'
-      `).get();
-      if (!tableExists) return;
-      const columns = new Set(
-        (db.prepare('PRAGMA table_info(a2a_pass_group)').all() as Array<{ name: string }>)
-          .map((column) => column.name),
-      );
-      if (!columns.has('source_work_epoch')) {
-        db.exec('ALTER TABLE a2a_pass_group ADD COLUMN source_work_epoch INTEGER');
-      }
-      if (!columns.has('source_outcome_id')) {
-        db.exec('ALTER TABLE a2a_pass_group ADD COLUMN source_outcome_id TEXT');
-      }
-      db.exec(`
-        CREATE UNIQUE INDEX IF NOT EXISTS uq_a2a_pass_group_source_outcome
-          ON a2a_pass_group(source_outcome_id)
-          WHERE source_outcome_id IS NOT NULL
-      `);
-    },
+    run: ensureA2AOutcomeOriginColumns,
+  },
+  {
+    // Some development databases already recorded v85/v86 from isolated branches
+    // before this migration was merged. Re-run the idempotent shape repair at a
+    // fresh version so those databases cannot skip the actual columns.
+    version: 87,
+    run: ensureA2AOutcomeOriginColumns,
   },
 ];
 

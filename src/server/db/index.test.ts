@@ -119,9 +119,40 @@ describe('SQLite Foundation', () => {
         VALUES ('group-2','work-1',2,'outcome-1')
       `).run()).toThrow();
       expect(legacyDb.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-        .toEqual({ version: 85 });
+        .toEqual({ version: 87 });
     } finally {
       legacyDb.close();
+    }
+  });
+
+  it('repairs A2A origin columns when v85 and v86 were already recorded elsewhere', () => {
+    const collidedDb = new Database(':memory:');
+    try {
+      collidedDb.exec(`
+        CREATE TABLE _schema_version (version INTEGER PRIMARY KEY);
+        CREATE TABLE a2a_pass_group (
+          id TEXT PRIMARY KEY,
+          source_work_id TEXT
+        );
+      `);
+      const recordVersion = collidedDb.prepare(
+        'INSERT INTO _schema_version (version) VALUES (?)',
+      );
+      for (let version = 1; version <= 86; version += 1) recordVersion.run(version);
+
+      applyMigrations(collidedDb);
+
+      const columns = collidedDb.prepare('PRAGMA table_info(a2a_pass_group)').all() as Array<{
+        name: string;
+      }>;
+      expect(columns.map((column) => column.name)).toEqual(expect.arrayContaining([
+        'source_work_epoch',
+        'source_outcome_id',
+      ]));
+      expect(collidedDb.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
+        .toEqual({ version: 87 });
+    } finally {
+      collidedDb.close();
     }
   });
 
@@ -664,7 +695,7 @@ describe('SQLite Foundation', () => {
         WHERE id='legacy-action'
       `).get()).toEqual({ type: 'activate', attempt_count: 0, max_attempts: 3 });
       expect(legacyDb.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-        .toEqual({ version: 85 });
+        .toEqual({ version: 87 });
       expect(() => legacyDb.prepare(`
         INSERT INTO delivery_control_action (
           id,decision_id,run_id,type,target_work_id,work_epoch,slot_id,reason_code,
@@ -838,7 +869,7 @@ describe('SQLite Foundation', () => {
     expect(db.prepare('SELECT version FROM _schema_version WHERE version = 40').get())
       .toEqual({ version: 40 });
     expect(db.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-      .toEqual({ version: 85 });
+      .toEqual({ version: 87 });
   });
 
   it('retires the parallel A2A worklist schema at migration 62', () => {
@@ -916,7 +947,7 @@ describe('SQLite Foundation', () => {
           'autonomous_delivery_advancement_request',
         ]));
         expect(checkpoint.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-          .toEqual({ version: 85 });
+          .toEqual({ version: 87 });
         expect(checkpoint.pragma('foreign_key_check')).toEqual([]);
       } finally {
         checkpoint.close();
