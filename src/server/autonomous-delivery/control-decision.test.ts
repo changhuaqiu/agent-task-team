@@ -160,6 +160,26 @@ describe('decideControlActions', () => {
     ]));
   });
 
+  it('fails an exhausted internal protocol error instead of asking the user to route it', () => {
+    const decision = decideControlActions(snapshot([
+      cell('protocol-exhausted', 'retry_pending', {
+        failure: {
+          reasonCode: 'invocation_completed_without_outcome',
+          retryable: true,
+          humanRecoverable: false,
+          budget: { kind: 'invocation', attemptsUsed: 3, maxAttempts: 3 },
+        },
+      }),
+    ]), POLICY);
+
+    expect(decision.actions).toMatchObject([{
+      type: 'terminate',
+      targetWorkId: 'protocol-exhausted',
+      reasonCode: 'invocation_completed_without_outcome',
+      terminationOutcome: 'failed',
+    }]);
+  });
+
   it('continues planned work without using failure retry and escalates only its own budget', () => {
     const decision = decideControlActions(snapshot([
       cell('continue-now', 'continuation_pending', {

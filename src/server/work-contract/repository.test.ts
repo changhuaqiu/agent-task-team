@@ -194,6 +194,34 @@ describe('WorkContractRepository', () => {
     }))).toMatchObject({ status: 'accepted' });
   });
 
+  it('rejects a malformed A2A branch before it consumes the terminal outcome slot', () => {
+    const repository = new WorkContractRepository();
+    const contract = issue(repository, {
+      attemptId: 'attempt-invalid-handoff',
+      allowedOutcomeTypes: ['handoff_to_agent', 'submit_task_result'],
+    });
+    expect(repository.admitOutcome(outcome(contract, {
+      outcomeId: 'outcome-invalid-handoff',
+      idempotencyKey: 'outcome-invalid-handoff',
+      outcomeType: 'handoff_to_agent',
+      payload: {
+        idempotencyKey: 'invalid-handoff',
+        branches: [{
+          toAgentId: 'builder',
+          intent: 'implement',
+          title: 'Implement the task',
+        }],
+      },
+    }))).toMatchObject({
+      status: 'rejected',
+      reasonCode: 'a2a_outcome_invalid',
+    });
+    expect(repository.admitOutcome(outcome(contract, {
+      outcomeId: 'outcome-after-invalid-handoff',
+      idempotencyKey: 'outcome-after-invalid-handoff',
+    }))).toMatchObject({ status: 'accepted' });
+  });
+
   it('rejects a callback outcome when its frozen A2A Possession was aborted', () => {
     const collaboration = new A2ACollaborationRepository({ db: getDb() });
     const created = collaboration.createChain({

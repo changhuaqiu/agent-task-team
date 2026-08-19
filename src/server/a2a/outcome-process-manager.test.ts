@@ -4,6 +4,7 @@ import { PlatformEventLog } from '../platform-events/event-log';
 import { WorkContractRepository } from '../work-contract/repository';
 import type { AgentOutcome } from '../work-contract/types';
 import { AutonomousDeliveryRepository } from '../autonomous-delivery/repository';
+import { PlatformEventDispatcher } from '../platform-events/dispatcher';
 import { A2ACollaborationRepository } from './collaboration';
 import { A2AOutcomeProcessManager } from './outcome-process-manager';
 
@@ -84,11 +85,12 @@ describe('A2AOutcomeProcessManager', () => {
             title: 'Implement TASK-1',
             requestedAction: 'Implement the accepted design',
             possessionSummary: 'The design is approved',
+            evidenceRefs: ['task:TASK-1', 'docs/design.md'],
             constraints: ['Do not change the public contract'],
           },
           {
             toAgentId: 'reviewer',
-            intent: 'review',
+            intent: 'quality_gate',
             taskId: 'TASK-2',
             title: 'Review TASK-1',
             requestedAction: 'Review the implementation evidence',
@@ -110,7 +112,14 @@ describe('A2AOutcomeProcessManager', () => {
     const event = new PlatformEventLog({ db: getDb() })
       .listStream(`work:${contract.workId}`)
       .find((candidate) => candidate.type === 'agent.outcome.accepted')!;
-    const manager = new A2AOutcomeProcessManager({ db: getDb() });
+    const manager = new A2AOutcomeProcessManager({
+      db: getDb(),
+      commandGuard: {
+        assert: () => {
+          throw new Error('mutable policy must not be re-evaluated after admission');
+        },
+      },
+    });
 
     await manager.handle(event, { signal: new AbortController().signal });
     await manager.handle(event, { signal: new AbortController().signal });
@@ -126,10 +135,10 @@ describe('A2AOutcomeProcessManager', () => {
       delivery_run_id: deliveryRunId,
     }]);
     expect(getDb().prepare(`
-      SELECT to_agent_id,status FROM a2a_pass ORDER BY to_agent_id
+      SELECT to_agent_id,status,intent FROM a2a_pass ORDER BY to_agent_id
     `).all()).toEqual([
-      { to_agent_id: 'builder', status: 'offered' },
-      { to_agent_id: 'reviewer', status: 'offered' },
+      { to_agent_id: 'builder', status: 'offered', intent: 'implement' },
+      { to_agent_id: 'reviewer', status: 'offered', intent: 'verify' },
     ]);
     expect(getDb().prepare(`
       SELECT project_agent_id,status,
@@ -164,9 +173,18 @@ describe('A2AOutcomeProcessManager', () => {
       { correlation_id: 'trace-handoff' },
       { correlation_id: 'trace-handoff' },
     ]);
+    expect(getDb().prepare(`
+      SELECT evidence_refs FROM a2a_handoff_packet
+      WHERE to_agent_id='builder'
+    `).get()).toEqual({
+      evidence_refs: JSON.stringify([
+        { label: 'task:TASK-1', taskId: 'TASK-1' },
+        { label: 'docs/design.md', path: 'docs/design.md' },
+      ]),
+    });
   });
 
-  it('rejects a target outside the configured platform roster before creating a chain', async () => {
+  it('rejects a target outside the configured platform roster before creating a chain', () => {
     const contracts = new WorkContractRepository();
     const contract = contracts.issue({
       workId: 'project-start:lead',
@@ -185,7 +203,7 @@ describe('A2AOutcomeProcessManager', () => {
       causationId: 'message-root',
       now: NOW,
     });
-    contracts.admitOutcome({
+    const admission = contracts.admitOutcome({
       outcomeId: 'outcome-unknown-target',
       idempotencyKey: 'outcome-unknown-target',
       contractId: contract.contractId,
@@ -210,16 +228,324 @@ describe('A2AOutcomeProcessManager', () => {
       causationId: contract.contractId,
       occurredAt: NOW.toISOString(),
     });
-    const event = new PlatformEventLog({ db: getDb() })
+    expect(admission).toMatchObject({
+      status: 'rejected',
+      reasonCode: 'a2a_target_not_in_roster',
+    });
+    expect(new PlatformEventLog({ db: getDb() })
       .listStream(`work:${contract.workId}`)
-      .find((candidate) => candidate.type === 'agent.outcome.accepted')!;
-
-    expect(() => new A2AOutcomeProcessManager({ db: getDb() }).handle(
-      event,
-      { signal: new AbortController().signal },
-    )).toThrowError(expect.objectContaining({ reasonCode: 'a2a_target_not_in_roster' }));
+      .some((candidate) => candidate.type === 'agent.outcome.accepted')).toBe(false);
     expect(getDb().prepare('SELECT COUNT(*) count FROM a2a_possession_chain').get())
       .toEqual({ count: 0 });
+  });
+
+  it('rejects duplicate handoff targets atomically before accepting the outcome', () => {
+    const contracts = new WorkContractRepository();
+    const contract = contracts.issue({
+      workId: 'project-start:lead',
+      attemptId: 'inv-duplicate-target',
+      projectId: 'project-a2a-outcome',
+      agentId: 'lead',
+      goal: 'Delegate once per receiver',
+      acceptanceCriteria: ['one branch per receiver'],
+      role: {},
+      permissions: {},
+      authoritativeRefs: ['project:project-a2a-outcome'],
+      authoritativeRevisions: { project: 1 },
+      contextSnapshotRef: 'context-duplicate-target',
+      allowedOutcomeTypes: ['handoff_to_agent'],
+      correlationId: 'trace-duplicate-target',
+      causationId: 'message-duplicate-target',
+      now: NOW,
+    });
+    const submit = (
+      suffix: string,
+      targets: string[],
+      activeContract = contract,
+      handoffKey = `handoff-${suffix}`,
+    ) => contracts.admitOutcome({
+      outcomeId: `outcome-${suffix}`,
+      idempotencyKey: `outcome-${suffix}`,
+      contractId: activeContract.contractId,
+      outcomeType: 'handoff_to_agent',
+      payload: {
+        idempotencyKey: handoffKey,
+        branches: targets.map((toAgentId, index) => ({
+          toAgentId,
+          intent: 'implement',
+          title: `Implement branch ${index + 1}`,
+          requestedAction: `Implement branch ${index + 1}`,
+        })),
+      },
+      evidenceRefs: [],
+      projectId: activeContract.projectId,
+      workId: activeContract.workId,
+      workEpoch: activeContract.workEpoch,
+      attemptId: activeContract.attemptId,
+      fencingToken: activeContract.fencingToken,
+      authoritativeRevisions: activeContract.authoritativeRevisions,
+      correlationId: activeContract.correlationId,
+      causationId: activeContract.contractId,
+      occurredAt: NOW.toISOString(),
+    });
+
+    expect(submit('duplicate-target', ['builder', 'builder'])).toMatchObject({
+      status: 'rejected',
+      reasonCode: 'a2a_duplicate_group_target',
+    });
+    expect(getDb().prepare('SELECT COUNT(*) count FROM a2a_possession_chain').get())
+      .toEqual({ count: 0 });
+    expect(getDb().prepare('SELECT COUNT(*) count FROM a2a_pass_group').get())
+      .toEqual({ count: 0 });
+    expect(submit('corrected-target', ['builder'])).toMatchObject({ status: 'accepted' });
+    expect(getDb().prepare('SELECT COUNT(*) count FROM a2a_pass_group').get())
+      .toEqual({ count: 1 });
+
+    const nextContract = contracts.issue({
+      workId: contract.workId,
+      attemptId: 'inv-conflicting-reuse',
+      projectId: contract.projectId,
+      agentId: contract.agentId,
+      goal: contract.goal,
+      acceptanceCriteria: contract.acceptanceCriteria,
+      role: contract.role,
+      permissions: contract.permissions,
+      authoritativeRefs: contract.authoritativeRefs,
+      authoritativeRevisions: contract.authoritativeRevisions,
+      contextSnapshotRef: 'context-conflicting-reuse',
+      allowedOutcomeTypes: ['handoff_to_agent'],
+      correlationId: contract.correlationId,
+      causationId: contract.contractId,
+      now: NOW,
+    });
+    expect(submit(
+      'identical-reuse',
+      ['builder'],
+      nextContract,
+      'handoff-corrected-target',
+    )).toMatchObject({
+      status: 'rejected',
+      reasonCode: 'a2a_idempotency_conflict',
+    });
+    expect(submit(
+      'conflicting-reuse',
+      ['reviewer'],
+      nextContract,
+      'handoff-corrected-target',
+    )).toMatchObject({
+      status: 'rejected',
+      reasonCode: 'a2a_idempotency_conflict',
+    });
+    expect(getDb().prepare('SELECT to_agent_id FROM a2a_pass').all())
+      .toEqual([{ to_agent_id: 'builder' }]);
+  });
+
+  it('does not let a later Work epoch claim an unbound v84 pass group', () => {
+    const contracts = new WorkContractRepository();
+    const issue = (
+      attemptId: string,
+      allowedOutcomeTypes: Array<'handoff_to_agent' | 'continue_work'>,
+    ) => contracts.issue({
+      workId: 'legacy-boundary:lead',
+      attemptId,
+      projectId: 'project-a2a-outcome',
+      agentId: 'lead',
+      goal: 'Preserve the original handoff identity',
+      acceptanceCriteria: ['later epochs cannot claim an old group'],
+      role: {},
+      permissions: {},
+      authoritativeRefs: ['project:project-a2a-outcome'],
+      authoritativeRevisions: { project: 1 },
+      contextSnapshotRef: `context-${attemptId}`,
+      allowedOutcomeTypes,
+      correlationId: 'trace-legacy-boundary',
+      causationId: `cause-${attemptId}`,
+      now: NOW,
+    });
+    const handoffPayload = {
+      idempotencyKey: 'legacy-stable-handoff-key',
+      branches: [{
+        toAgentId: 'builder',
+        intent: 'implement',
+        title: 'Implement the bounded work',
+        requestedAction: 'Implement the bounded work',
+      }],
+    };
+    const admit = (
+      contract: ReturnType<typeof issue>,
+      outcomeId: string,
+      outcomeType: 'handoff_to_agent' | 'continue_work',
+      payload: Record<string, unknown>,
+    ) => contracts.admitOutcome({
+      outcomeId,
+      idempotencyKey: outcomeId,
+      contractId: contract.contractId,
+      outcomeType,
+      payload,
+      evidenceRefs: [],
+      projectId: contract.projectId,
+      workId: contract.workId,
+      workEpoch: contract.workEpoch,
+      attemptId: contract.attemptId,
+      fencingToken: contract.fencingToken,
+      authoritativeRevisions: contract.authoritativeRevisions,
+      correlationId: contract.correlationId,
+      causationId: contract.contractId,
+      occurredAt: NOW.toISOString(),
+    });
+
+    const original = issue('legacy-original', ['handoff_to_agent']);
+    expect(admit(original, 'outcome-legacy-original', 'handoff_to_agent', handoffPayload))
+      .toMatchObject({ status: 'accepted' });
+    getDb().prepare(`
+      UPDATE a2a_pass_group
+      SET source_work_epoch=NULL,source_outcome_id=NULL,status='completed',completed_at=?
+      WHERE source_work_id=? AND idempotency_key=?
+    `).run(NOW.toISOString(), original.workId, handoffPayload.idempotencyKey);
+
+    const callback = issue('legacy-callback', ['continue_work']);
+    expect(admit(callback, 'outcome-legacy-callback', 'continue_work', {
+      schemaVersion: 1,
+      reason: 'multi_step',
+      summary: 'Original handoff callback was already processed',
+      nextAction: 'Continue with the callback result.',
+      completedSteps: ['Processed the original handoff callback.'],
+      remainingSteps: ['Continue the source work.'],
+    })).toMatchObject({ status: 'accepted' });
+
+    const later = issue('legacy-later-reuse', ['handoff_to_agent']);
+    expect(admit(later, 'outcome-legacy-later-reuse', 'handoff_to_agent', handoffPayload))
+      .toMatchObject({
+        status: 'rejected',
+        reasonCode: 'a2a_idempotency_conflict',
+      });
+    expect(getDb().prepare(`
+      SELECT source_work_epoch,source_outcome_id FROM a2a_pass_group
+      WHERE source_work_id=? AND idempotency_key=?
+    `).get(original.workId, handoffPayload.idempotencyKey)).toEqual({
+      source_work_epoch: null,
+      source_outcome_id: null,
+    });
+  });
+
+  it('replays a legacy v1 dead letter through the safely idempotent v2 handler', async () => {
+    const contracts = new WorkContractRepository();
+    const contract = contracts.issue({
+      workId: 'legacy-handoff:lead',
+      attemptId: 'legacy-handoff-attempt',
+      projectId: 'project-a2a-outcome',
+      agentId: 'lead',
+      goal: 'Recover the legacy handoff',
+      acceptanceCriteria: ['builder receives the work'],
+      role: {},
+      permissions: {},
+      authoritativeRefs: ['project:project-a2a-outcome'],
+      authoritativeRevisions: { project: 1 },
+      contextSnapshotRef: 'context-legacy-handoff',
+      allowedOutcomeTypes: ['handoff_to_agent'],
+      correlationId: 'trace-legacy-handoff',
+      causationId: 'message-legacy-handoff',
+      now: NOW,
+    });
+    const admission = contracts.admitOutcome({
+      outcomeId: 'outcome-legacy-handoff',
+      idempotencyKey: 'outcome-legacy-handoff',
+      contractId: contract.contractId,
+      outcomeType: 'handoff_to_agent',
+      payload: {
+        idempotencyKey: 'handoff-legacy-v1',
+        branches: [{
+          toAgentId: 'builder',
+          intent: 'quality_gate',
+          title: 'Verify the recovered work',
+          requestedAction: 'Verify the recovered work',
+          evidenceRefs: ['task:TASK-014'],
+        }],
+      },
+      evidenceRefs: [],
+      projectId: contract.projectId,
+      workId: contract.workId,
+      workEpoch: contract.workEpoch,
+      attemptId: contract.attemptId,
+      fencingToken: contract.fencingToken,
+      authoritativeRevisions: contract.authoritativeRevisions,
+      correlationId: contract.correlationId,
+      causationId: contract.contractId,
+      occurredAt: NOW.toISOString(),
+    });
+    expect(admission).toMatchObject({ status: 'accepted' });
+    const acceptedEvent = new PlatformEventLog({ db: getDb() })
+      .listStream(`work:${contract.workId}`)
+      .find((event) => event.type === 'agent.outcome.accepted')!;
+
+    getDb().prepare('DELETE FROM agent_inbox_item WHERE project_id=?')
+      .run(contract.projectId);
+    getDb().prepare('DELETE FROM a2a_handoff_packet').run();
+    getDb().prepare('DELETE FROM a2a_pass').run();
+    getDb().prepare('DELETE FROM a2a_pass_group').run();
+    getDb().prepare('DELETE FROM a2a_possession').run();
+    getDb().prepare('DELETE FROM a2a_possession_chain WHERE conversation_id=?')
+      .run(contract.projectId);
+    expect(getDb().prepare('SELECT COUNT(*) count FROM a2a_pass_group').get())
+      .toEqual({ count: 0 });
+
+    const recoveryNow = new Date(Date.parse(acceptedEvent.recordedAt) + 1_000);
+    let deliveryId = 0;
+    const dispatcher = new PlatformEventDispatcher({
+      db: getDb(),
+      now: () => recoveryNow,
+      workerId: 'legacy-recovery-worker',
+      idFactory: (prefix) => `${prefix}-legacy-${++deliveryId}`,
+      retryDelayMs: () => 0,
+    });
+    dispatcher.register({
+      id: 'a2a-outcome-process-manager:v1',
+      pattern: 'agent.outcome.accepted',
+      stereotype: 'process_manager',
+      reliability: 'durable',
+      handle: () => undefined,
+    });
+    expect(dispatcher.recover()).toMatchObject({ enqueued: 1 });
+    getDb().prepare(`
+      UPDATE platform_event_delivery
+      SET status='dead_letter',attempt_count=5,last_error='a2a_outcome_invalid: evidenceRefs[0]'
+      WHERE handler_id='a2a-outcome-process-manager:v1' AND event_id=?
+    `).run(acceptedEvent.eventId);
+
+    const manager = new A2AOutcomeProcessManager({ db: getDb() });
+    dispatcher.register({
+      id: 'a2a-outcome-process-manager:v2',
+      pattern: 'agent.outcome.accepted',
+      stereotype: 'process_manager',
+      reliability: 'durable',
+      handle: manager.handle,
+    });
+    expect(dispatcher.recover()).toMatchObject({ enqueued: 1 });
+    expect(getDb().prepare(`
+      SELECT handler_id,status,next_attempt_at FROM platform_event_delivery
+      WHERE event_id=? ORDER BY handler_id
+    `).all(acceptedEvent.eventId)).toEqual([
+      {
+        handler_id: 'a2a-outcome-process-manager:v1',
+        status: 'dead_letter',
+        next_attempt_at: acceptedEvent.recordedAt,
+      },
+      {
+        handler_id: 'a2a-outcome-process-manager:v2',
+        status: 'queued',
+        next_attempt_at: acceptedEvent.recordedAt,
+      },
+    ]);
+    expect(await dispatcher.drain()).toMatchObject({ succeeded: 1, deadLettered: 0 });
+    expect(getDb().prepare(`
+      SELECT handler_id,status FROM platform_event_delivery
+      WHERE event_id=? ORDER BY handler_id
+    `).all(acceptedEvent.eventId)).toEqual([
+      { handler_id: 'a2a-outcome-process-manager:v1', status: 'dead_letter' },
+      { handler_id: 'a2a-outcome-process-manager:v2', status: 'succeeded' },
+    ]);
+    expect(getDb().prepare('SELECT status FROM a2a_pass_group').all())
+      .toEqual([{ status: 'offered' }]);
   });
 
   it('closes the exact reconciliation possession bound to a callback WorkContract', async () => {

@@ -253,6 +253,28 @@ releases it. Historical accepted `continue_work` rows that do not satisfy the ve
 schema remain on the legacy Invocation retry path; they are never silently reinterpreted as a new
 continuation.
 
+`handoff_to_agent` is a terminal, event-driven delegation outcome rather than a polling
+checkpoint. WorkContract admission and the A2A outcome process manager MUST use the same parser
+and normalization rules for every branch, including evidence references. A handoff that cannot be
+executed is rejected before it consumes the terminal-outcome slot; an accepted handoff MUST be
+projected as dependency waiting until the bounded A2A result callback opens a fresh fenced epoch for
+the original holder. The delegating Agent MUST NOT submit `continue_work` merely to poll the
+receiver. Internal protocol failures such as `invocation_completed_without_outcome` consume the
+automatic recovery budget and terminate as a system failure when exhausted; they are not human
+business decisions and MUST NOT transition the Delivery to `waiting_human`.
+The boundary normalizes the workflow-facing `quality_gate` alias to the canonical A2A `verify`
+intent so Team workflow vocabulary cannot create an asynchronous schema dead letter.
+Admission creates the normalized PassGroup, Possession transition, and receiver Inbox commands in
+the same SQLite transaction as the accepted outcome. Duplicate receivers, stale/missing source
+Possessions, cycles, hop-budget violations, and routing-policy failures therefore produce a
+rejected, correctable outcome with no partial A2A aggregates. The durable outcome handler is an
+idempotent recovery path for already-created groups, not the first place deterministic invariants
+can fail.
+The recovery handler uses revision `v2` so historical `v1` dead letters are replayable after the
+normalization fix. It ignores handoffs superseded by a later accepted Work epoch, verifies the full
+normalized request digest before treating an existing group as an idempotent replay, and rejects a
+reused group key whose targets or packet content changed.
+
 Initial signals:
 
 - holder turn count
@@ -516,10 +538,11 @@ A2A must submit pass intents to Dispatch Gateway instead of owning the full runt
 ### Parallel collaboration callback contract
 
 - A single pass group may address at most three distinct agents. Wider work must first be decomposed into bounded task or pass groups; breadth rejection uses `a2a_pass_group_too_wide`.
-- A successful one-to-one transfer may close directly. An Agent-owned fan-out group never ends merely because every receiver Invocation ended: after all branches settle, the aggregate opens one source reconciliation Possession and durably enqueues the original holder on the same `sourceWorkId`. Human-originated multi-target commands have no executable source holder and therefore preserve direct join semantics while exposing complete/partial branch facts.
+- An Agent-owned handoff never ends merely because its receiver Invocation ended, including a successful one-to-one transfer: after all branches settle, the aggregate opens one source reconciliation Possession and durably enqueues the original holder on the same `sourceWorkId`. Human-originated commands have no executable source Work and therefore preserve direct completion semantics while exposing complete/partial branch facts.
 - The reconciliation command carries a deterministic result bundle capped at 24,000 characters, containing each branch's pass id, target agent, requested action, terminal status, bounded result summary or failure reason, and exact accepted outcome evidence refs. Missing accepted-outcome alignment is explicit rather than indistinguishable from an outcome with no evidence. It must not copy the full conversation or every branch transcript.
 - Partial failure still returns successful branch results. The original holder decides the next structured outcome from the complete/partial bundle instead of restarting finished branches.
 - The reconciliation Inbox command is idempotent by group and Possession. Its WorkContract carries an authoritative `a2a_possession:<id>` ref and frozen Possession revision. Dispatch and outcome admission both require the same project, holder, active chain, open status, and revision. Aborting or superseding a chain cancels every pending chain Inbox item and closes any active callback WorkAuthority, so a claimed, queued, or already-authorized stale callback cannot start new Agent/tool work or mutate Task/Gate/A2A facts after restart.
+- PassGroup replay is bound to the exact accepted outcome id and Work epoch that created it. The same handoff key in a later callback epoch is a new command and must be rejected as an idempotency conflict rather than silently attached to the earlier group.
 - Result-bundle text is input to the normal ContextManager pipeline, not a second prompt assembler. Context scope, required context, budget, and runtime snapshot rules remain authoritative.
 
 ## Workflow Integration

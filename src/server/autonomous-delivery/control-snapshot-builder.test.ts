@@ -27,6 +27,12 @@ describe('RepositoryControlSnapshotBuilder', () => {
       INSERT INTO conversation (id,title,status,created_at,updated_at)
       VALUES ('project-1','Project','active',?,?)
     `).run(now.toISOString(), now.toISOString());
+    const insertAgent = db.prepare(`
+      INSERT INTO agents (id,name,role_card_id,theme,emoji,created_at,updated_at)
+      VALUES (?,?,'role','default','🤖',?,?)
+    `);
+    insertAgent.run('agent-a', 'Agent A', now.toISOString(), now.toISOString());
+    insertAgent.run('agent-b', 'Agent B', now.toISOString(), now.toISOString());
     runId = new AutonomousDeliveryRepository().createRun({
       idempotencyKey: 'control-snapshot-delivery',
       goal: 'Ship',
@@ -170,12 +176,88 @@ describe('RepositoryControlSnapshotBuilder', () => {
       failure: {
         reasonCode: 'runtime_transport_lost',
         retryable: true,
+        humanRecoverable: false,
         budget: {
           kind: 'invocation',
           attemptsUsed: 1,
           maxAttempts: 4,
         },
       },
+    });
+  });
+
+  it('projects an accepted handoff as dependency waiting before A2A processing catches up', () => {
+    const contract = contracts.issue({
+      workId: 'project-start:agent-a',
+      attemptId: 'handoff-attempt',
+      projectId: 'project-1',
+      deliveryRunId: runId,
+      agentId: 'agent-a',
+      goal: 'Delegate implementation',
+      acceptanceCriteria: ['Receiver completes the task'],
+      role: { id: 'coordinator' },
+      permissions: { canDelegate: true },
+      authoritativeRefs: [`delivery_run:${runId}`],
+      authoritativeRevisions: {
+        deliveryRun: new AutonomousDeliveryRepository().getRun(runId)!.revision,
+      },
+      contextSnapshotRef: 'context:handoff',
+      allowedOutcomeTypes: ['handoff_to_agent'],
+      correlationId: 'corr:handoff',
+      causationId: 'cause:handoff',
+      now,
+    });
+    invocationRepo.create({
+      id: contract.attemptId,
+      conversation_id: 'project-1',
+      agent_id: contract.agentId,
+      work_contract_id: contract.contractId,
+      work_id: contract.workId,
+      work_epoch: contract.workEpoch,
+      fencing_token: contract.fencingToken,
+    }, now);
+    invocationRepo.transition(contract.attemptId, { to: 'starting' }, now);
+    invocationRepo.transition(contract.attemptId, { to: 'running' }, now);
+    expect(contracts.admitOutcome({
+      outcomeId: 'handoff-outcome',
+      idempotencyKey: 'handoff-outcome',
+      contractId: contract.contractId,
+      outcomeType: 'handoff_to_agent',
+      payload: {
+        idempotencyKey: 'handoff-group',
+        branches: [{
+          toAgentId: 'agent-b',
+          intent: 'implement',
+          title: 'Implement the task',
+          requestedAction: 'Implement and submit the result',
+          evidenceRefs: ['task:TASK-013'],
+        }],
+      },
+      evidenceRefs: [],
+      projectId: contract.projectId,
+      workId: contract.workId,
+      workEpoch: contract.workEpoch,
+      attemptId: contract.attemptId,
+      fencingToken: contract.fencingToken,
+      authoritativeRevisions: contract.authoritativeRevisions,
+      correlationId: contract.correlationId,
+      causationId: contract.contractId,
+      occurredAt: now.toISOString(),
+    })).toMatchObject({ status: 'accepted' });
+    invocationRepo.transition(contract.attemptId, { to: 'terminated', outcome: 'completed' }, now);
+
+    const snapshot = new RepositoryControlSnapshotBuilder({ db, now: () => now }).build(runId);
+    expect(snapshot.workCells.find((cell) => cell.workId === contract.workId)).toMatchObject({
+      state: 'waiting_dependency',
+    });
+    expect(decideControlActions(snapshot, {
+      revision: 7,
+      maxConcurrent: 1,
+      roleCapacity: { coordinator: 1 },
+      fairnessAgingMs: 1_000,
+    }).actions.find((action) => action.targetWorkId === contract.workId)).toMatchObject({
+      type: 'wait',
+      reasonCode: 'dependency_pending',
     });
   });
 
@@ -1053,6 +1135,74 @@ describe('RepositoryControlSnapshotBuilder', () => {
       purpose: 'verification',
       gateStatus: 'requested',
       continuation: { requestsUsed: 1 },
+    });
+  });
+
+  it('terminates an exhausted internal Gate invocation failure without human escalation', () => {
+    taskRepo.create({
+      id: 'task-gate-runtime-failure',
+      conversation_id: 'project-1',
+      title: 'Delivery ready for verification',
+      agent_id: 'agent-a',
+    }, now);
+    taskRepo.transition('task-gate-runtime-failure', { to: 'in_progress' }, now);
+    taskRepo.transition('task-gate-runtime-failure', { to: 'in_review' }, now);
+    taskRepo.transition('task-gate-runtime-failure', { to: 'done' }, now);
+    const requested = qualityGateRepo.request({
+      conversationId: 'project-1',
+      kind: 'acceptance_verification',
+      targetType: 'delivery_run',
+      targetId: runId,
+      artifactRevision: 'revision-runtime-failure',
+      criteria: {},
+      actor: { type: 'system', id: 'test' },
+      now,
+    });
+    const workId = buildWorkIdentity({
+      scope: 'delivery',
+      targetId: runId,
+      agentId: 'reviewer',
+      gateId: requested.gate.id,
+      purpose: 'verify',
+    });
+    const contract = issue(workId, 'reviewer', 'delivery-verification-runtime-failure');
+    invocationRepo.create({
+      id: contract.attemptId,
+      conversation_id: 'project-1',
+      agent_id: 'reviewer',
+      work_contract_id: contract.contractId,
+      work_id: contract.workId,
+      work_epoch: contract.workEpoch,
+      fencing_token: contract.fencingToken,
+    }, now);
+    invocationRepo.transition(contract.attemptId, {
+      to: 'terminated',
+      outcome: 'failed',
+      reason_code: 'acp_timeout',
+    }, now);
+
+    const snapshot = new RepositoryControlSnapshotBuilder({
+      db,
+      retryLimits: { invocation: 1 },
+      now: () => now,
+    }).build(runId);
+    expect(snapshot.workCells.find((candidate) => candidate.workId === workId)).toMatchObject({
+      state: 'retry_pending',
+      failure: {
+        reasonCode: 'acp_timeout',
+        humanRecoverable: false,
+        budget: { attemptsUsed: 1, maxAttempts: 1 },
+      },
+    });
+    expect(decideControlActions(snapshot, {
+      revision: 7,
+      maxConcurrent: 1,
+      roleCapacity: { reviewer: 1 },
+      fairnessAgingMs: 1_000,
+    }).actions.find((action) => action.targetWorkId === workId)).toMatchObject({
+      type: 'terminate',
+      reasonCode: 'acp_timeout',
+      terminationOutcome: 'failed',
     });
   });
 

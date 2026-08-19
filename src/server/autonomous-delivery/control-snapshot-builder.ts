@@ -110,6 +110,20 @@ function retryBudget(
   return { kind, attemptsUsed, maxAttempts: limits[kind] };
 }
 
+function internalInvocationFailure(
+  reasonCode: string,
+  attemptsUsed: number,
+  limits: ControlSnapshotRetryLimits,
+  retryable = true,
+): NonNullable<WorkCellControlSnapshot['failure']> {
+  return {
+    reasonCode,
+    retryable,
+    humanRecoverable: false,
+    budget: retryBudget('invocation', attemptsUsed, limits),
+  };
+}
+
 function validContinuationFacts(db: Database.Database, runId: string): ContinuationFacts {
   const rows = db.prepare(`
     SELECT outcome.contract_id,outcome.work_id,outcome.payload_json
@@ -850,12 +864,11 @@ export class RepositoryControlSnapshotBuilder {
           purpose: 'review',
           state: 'retry_pending',
           gateStatus: 'requested',
-          failure: {
-            reasonCode: row.invocation_reason_code ?? 'task_gate_invocation_failed',
-            retryable: true,
-            humanRecoverable: true,
-            budget: retryBudget('invocation', this.invocationAttempts(db, row.work_id), limits),
-          },
+          failure: internalInvocationFailure(
+            row.invocation_reason_code ?? 'task_gate_invocation_failed',
+            this.invocationAttempts(db, row.work_id),
+            limits,
+          ),
         };
       }
       return { ...base, purpose: 'review', state: 'ready', gateStatus: 'requested' };
@@ -926,12 +939,11 @@ export class RepositoryControlSnapshotBuilder {
           ...gateBase,
           state: 'retry_pending',
           gateStatus: 'requested',
-          failure: {
-            reasonCode: row.invocation_reason_code ?? 'gate_invocation_failed',
-            retryable: true,
-            humanRecoverable: true,
-            budget: retryBudget('invocation', this.invocationAttempts(db, row.work_id), limits),
-          },
+          failure: internalInvocationFailure(
+            row.invocation_reason_code ?? 'gate_invocation_failed',
+            this.invocationAttempts(db, row.work_id),
+            limits,
+          ),
         };
       }
       return { ...gateBase, state: 'ready', gateStatus: 'requested' };
@@ -1025,6 +1037,9 @@ export class RepositoryControlSnapshotBuilder {
         gateStatus: gate?.status === 'passed' ? 'passed' : 'none',
       };
     }
+    if (row.outcome_type === 'handoff_to_agent') {
+      return { ...base, state: 'waiting_dependency' };
+    }
     if (row.authority_status === 'closed') {
       return { ...base, state: 'completed' };
     }
@@ -1051,18 +1066,19 @@ export class RepositoryControlSnapshotBuilder {
         };
       }
       const attemptsUsed = this.invocationAttempts(db, row.work_id);
+      const reasonCode = row.invocation_reason_code
+        ?? (row.invocation_outcome === 'completed'
+          ? 'invocation_completed_without_outcome'
+          : 'invocation_failed');
       return {
         ...base,
         state: 'retry_pending',
-        failure: {
-          reasonCode: row.invocation_reason_code
-            ?? (row.invocation_outcome === 'completed'
-              ? 'invocation_completed_without_outcome'
-              : 'invocation_failed'),
-          retryable: row.invocation_outcome !== 'cancelled',
-          humanRecoverable: true,
-          budget: retryBudget('invocation', attemptsUsed, limits),
-        },
+        failure: internalInvocationFailure(
+          reasonCode,
+          attemptsUsed,
+          limits,
+          row.invocation_outcome !== 'cancelled',
+        ),
       };
     }
     return { ...base, state: 'ready' };

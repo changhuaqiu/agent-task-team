@@ -32,6 +32,26 @@ interface ProductionControlCommandAdapterOptions {
   effects?: Pick<DurableEffectOutbox, 'enqueueBatch'>;
 }
 
+function humanEscalationDetail(reasonCode: string): string {
+  if (reasonCode === 'waiting_human') {
+    return 'Agent 遇到需要你确认的事项，请查看聊天中的具体问题，处理后再继续。';
+  }
+  if (reasonCode.includes('authorization') || reasonCode.includes('permission')) {
+    return '任务需要额外授权才能继续，请完成授权后再继续。';
+  }
+  if (
+    reasonCode.includes('runtime_profile')
+    || reasonCode.includes('account')
+    || reasonCode.includes('configuration')
+  ) {
+    return '当前缺少可用的 Agent 账号配置，请完成配置后再继续。';
+  }
+  if (reasonCode.includes('deadlock')) {
+    return '任务之间出现互相等待，系统无法安全决定先后顺序，请确认要优先推进的事项。';
+  }
+  return '任务遇到系统无法自动处理的外部阻塞，请查看聊天中的具体说明。';
+}
+
 export class ProductionControlCommandAdapter implements ControlCommandPort {
   private readonly database?: Database.Database;
   private readonly inbox: AgentInbox;
@@ -467,7 +487,7 @@ export class ProductionControlCommandAdapter implements ControlCommandPort {
       stage: snapshot.run.current_stage,
       expectedRevision: snapshot.run.revision,
       escalationCode: action.reasonCode,
-      escalationDetail: `ControlAction ${action.actionId} requires human resolution`,
+      escalationDetail: humanEscalationDetail(action.reasonCode),
       now: this.now(),
     });
     return transitioned

@@ -1,6 +1,6 @@
 import type { TeamRuntime } from '@/lib/team-runtime';
 import { resolveConversationRuntime } from '../invocation-pipeline/conversation-runtime';
-import { A2ACollaborationInvariantError } from './collaboration';
+import { A2ACollaborationInvariantError } from './errors';
 
 interface A2ACommandGuardBranch {
   toAgentId: string;

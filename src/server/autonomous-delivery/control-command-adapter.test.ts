@@ -159,6 +159,32 @@ describe('ProductionControlCommandAdapter', () => {
     return contract;
   }
 
+  it('renders a human boundary without exposing internal ControlAction ids', () => {
+    const action = {
+      actionId: 'control-action:internal-id',
+      type: 'escalateToHuman' as const,
+      reasonCode: 'waiting_human',
+    };
+    const snapshot = new RepositoryControlSnapshotBuilder({ db, now: () => now }).build(runId);
+    expect(adapter.execute(action, {
+      decision: {
+        decisionId: 'decision-human-boundary',
+        runId,
+        snapshotRevision: snapshot.snapshotRevision,
+        policyRevision: 7,
+        actions: [action],
+      },
+      snapshot,
+      claimToken: 'claim-human-boundary',
+    })).toEqual({ status: 'applied' });
+
+    const run = deliveries.getRun(runId)!;
+    expect(run.status).toBe('waiting_human');
+    expect(run.escalation_detail).toContain('请查看聊天中的具体问题');
+    expect(run.escalation_detail).not.toContain('ControlAction');
+    expect(run.escalation_detail).not.toContain(action.actionId);
+  });
+
   it('turns activate into durable AgentInbox work without starting Runtime directly', async () => {
     const { snapshot, decision } = decide();
     const action = decision.actions[0]!;

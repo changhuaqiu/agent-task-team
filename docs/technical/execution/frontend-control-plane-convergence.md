@@ -353,6 +353,21 @@ Daemon ExecutionAdapter 内执行；daemon transport 只启动/停止该服务�
   migration v83 将 `continue` 纳入 Control Action schema、唯一 slot 索引、claim/release 和 terminal Inbox 回收；活动 Inbox 会把
   `continuation_pending` 投影为带 slot 的 `queued`，同一 checkpoint 不能重复派发或绕过 role/global capacity。升级前已 accepted
   但不满足 v1 schema 的历史 `continue_work` 继续走原 Invocation retry，不会被新 Adapter 错误接管。
+- `handoff_to_agent` 是终态、事件驱动的协作出口，不是统筹 Agent 的轮询检查点。WorkContract admission 与 A2A Process Manager
+  复用同一解析/标准化模块：字符串证据引用兼容归一为结构化引用，非法 branch 在占用终态 Outcome 前拒绝。已接纳交接直接投影为
+  `waiting_dependency`，无论单人派工还是多人协作，接收者全部收口后都由 durable A2A result callback 为原持有者开启新 fenced epoch；统筹角色不得用
+  `continue_work` 查询接收者是否完成。
+  Team Workflow 使用的 `quality_gate` 在边界归一为 A2A 的 canonical `verify` intent，避免业务阶段词与协议词不一致造成异步死信。
+  admission 与 PassGroup/Possession/receiver Inbox 创建处于同一个 SQLite transaction；重复目标、source revision、cycle、hop budget
+  或路由策略失败会整体回滚并记录 rejected outcome。durable outcome handler 只做已创建 group 的幂等恢复，不再承担首次确定性校验。
+  handler revision v2 会恢复未被后续 Work epoch 覆盖的 v1 历史死信；已有 group 必须匹配完整 normalized request digest 和最初创建它的
+  accepted outcome/Work epoch。同一 epoch 的重复投递安全幂等，后续回调 epoch 即使复用完全相同的 key/packet 也同步拒绝为
+  `a2a_idempotency_conflict`，不会错误等待旧 group。v85 之前没有 origin 字段的历史 group 只允许同一 Work 下最早使用该 handoff key 的
+  accepted outcome 原子补绑定；任何后续 epoch 都不能认领历史 group。
+- `invocation_completed_without_outcome` 等内部协议故障只消耗系统自动恢复预算，预算耗尽后进入可诊断失败，不得伪装成需要用户判断
+  Agent lane 是否可用的业务决策。`waiting_human` 仅保留给 Agent 显式上报的阻塞、授权/配置缺失和真正的外部业务选择；界面展示可执行的
+  人话说明，不暴露 ControlAction id。
+  这次 Work Cell 语义变更使用 control policy revision 7，避免与 revision 6 的持久化决策 identity 冲突。
 - AutonomyGuard 只有在存在可持久化 `waiting_human` 的活动 Delivery owner 时才启用失败预算抑制。普通 Task 没有该
   owner 时继续保留恢复 wakeup，避免任务停在 ready/in_progress/in_review 且没有任何用户可见升级事实。
 - `taskStore` 的任务变化后自动派发已删除；`daemonStore` 的浏览器 runtime 注册、busy queue、强制发送、自动重试、

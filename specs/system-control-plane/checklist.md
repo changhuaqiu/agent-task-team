@@ -42,8 +42,14 @@
 - [ ] Team policy failures are not masked by breadth, dedup, or timeout checks.
 - [ ] Possession violations are reported as holder failures.
 - [x] Secret material is blocked or redacted before cross-instance delivery.
-- [x] Fan-out accepts at most three distinct receivers; once all Agent-owned branches settle, exactly one durable callback returns a bounded complete/partial result bundle to the original holder; human-originated multi-target work retains direct join semantics.
+- [x] Handoffs accept at most three distinct receivers; once every Agent-owned single-transfer or fan-out branch settles, exactly one durable callback returns a bounded complete/partial result bundle to the original holder; human-originated work retains direct completion semantics.
 - [x] The callback WorkContract authoritatively binds its reconciliation Possession; dispatch and admission fence its revision, while chain abort cancels pending callback Inbox work and closes active callback authority.
+- [x] `handoff_to_agent` uses one admission/processing schema, accepts compatible string evidence by normalizing it into structured references, and cannot be accepted then dead-lettered for a schema disagreement between layers.
+- [x] Handoff admission atomically creates the durable PassGroup and receiver Inbox commands with the accepted outcome; aggregate invariants roll back fully and leave a rejected outcome that can be corrected and resubmitted.
+- [x] A2A outcome handler v2 safely recovers unsuperseded v1 dead letters, binds replay to the originating accepted outcome and Work epoch, compares the full normalized PassGroup request digest, and rejects later-epoch idempotency-key reuse instead of waiting on an unrelated group.
+- [x] A v84 PassGroup without origin columns can only be claimed by the earliest accepted handoff that used its Work/key pair; a later callback epoch cannot adopt that historical group even when its normalized digest is identical.
+- [x] An accepted handoff is dependency waiting until the durable A2A callback wakes the original holder; coordinator Agents do not spend continuation budget on receiver polling.
+- [x] Internal completion-without-outcome exhaustion fails visibly as a system problem instead of asking the user to decide Agent-lane health; genuine human boundaries use actionable, user-readable copy without ControlAction ids.
 
 ## Migration
 

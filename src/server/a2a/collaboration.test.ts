@@ -185,6 +185,63 @@ describe('A2ACollaborationRepository', () => {
     expect(repository.getChain(created.chain.id)).toMatchObject({ status: 'completed' });
   });
 
+  it('returns a bounded callback after a successful single-agent transfer', () => {
+    const created = repository.createChain({
+      conversationId: 'project-a2a-aggregate',
+      rootTriggerType: 'user_turn',
+      rootTriggerId: 'message-single-transfer',
+      holderId: 'lead',
+      holderType: 'agent',
+      config: { maxDepth: 5 },
+    });
+    const offered = repository.offerPassGroup({
+      chainId: created.chain.id,
+      sourcePossessionId: created.rootPossession.id,
+      sourceWorkId: 'single-source-work',
+      expectedSourceRevision: created.rootPossession.revision,
+      idempotencyKey: 'single-transfer',
+      branches: [
+        { toAgentId: 'builder', intent: 'implement', packet: packet('build once') },
+      ],
+    });
+    const admitted = repository.markPassAdmitted(offered.passes[0]!.id, 0);
+    const starting = repository.markPassStarting(admitted.id, admitted.revision);
+    const started = repository.markPassStarted(starting.id, starting.revision);
+
+    repository.completePossession({
+      possessionId: started.possession.id,
+      expectedRevision: started.possession.revision,
+      summary: 'single implementation completed',
+    });
+
+    const group = repository.getGroup(offered.group.id)!;
+    expect(group).toMatchObject({
+      mode: 'transfer',
+      status: 'recovering',
+      resolvedCount: 1,
+      recoveryPossessionId: expect.any(String),
+    });
+    const callbacks = new AgentInbox({ db: getDb() }).listPending('project-a2a-aggregate')
+      .filter((item) => item.projectAgentId === 'lead');
+    expect(callbacks).toHaveLength(1);
+    expect(callbacks[0]).toMatchObject({
+      command: {
+        workId: 'single-source-work',
+        possessionId: group.recoveryPossessionId,
+        contextScenario: 'recovery',
+      },
+    });
+
+    const recovery = repository.getPossession(group.recoveryPossessionId!)!;
+    repository.completePossession({
+      possessionId: recovery.id,
+      expectedRevision: recovery.revision,
+      summary: 'single result accepted',
+    });
+    expect(repository.getGroup(group.id)).toMatchObject({ status: 'completed' });
+    expect(repository.getChain(created.chain.id)).toMatchObject({ status: 'completed' });
+  });
+
   it('keeps successful fan-out branches and atomically opens source recovery for failures', () => {
     const created = repository.createChain({
       conversationId: 'project-a2a-aggregate',

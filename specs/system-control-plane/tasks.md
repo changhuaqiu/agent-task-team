@@ -68,6 +68,8 @@
 - [x] Bound A2A fan-out to three receivers, reopen the original holder for deterministic callback reconciliation, and bind that Possession into the callback WorkContract.
 - [x] Build a bounded selective result bundle with successful summaries, failure reasons, and exact branch outcome evidence refs; cover all-success, partial-failure, idempotency, restart binding, and breadth rejection.
 - [x] Fence callback dispatch by the open Possession revision; chain abort cancels pending callbacks and closes already-issued callback WorkAuthority.
+- [x] Share one normalized handoff payload contract between synchronous WorkContract admission and asynchronous A2A processing; accepted single-agent and fan-out delegation waits for its event callback instead of polling, while malformed handoffs remain correctable without consuming the terminal slot and replay remains bound to its originating outcome epoch.
+- [x] Keep internal invocation/protocol exhaustion inside automatic recovery and failure handling; reserve `waiting_human` for explicit Agent blockers, authorization, configuration, or external business decisions, and render those boundaries in user language.
 - [ ] Add diagnostics view for proof timeline and runtime health.
 
 ## Phase 7: Documentation and Cleanup

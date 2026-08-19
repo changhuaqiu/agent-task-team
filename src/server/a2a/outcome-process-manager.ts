@@ -3,196 +3,13 @@ import { getDb } from '../db';
 import type { PlatformEventHandler } from '../platform-events/dispatcher';
 import type { AgentOutcomeRow, WorkContractRow } from '../work-contract/types';
 import {
+  A2AIdempotencyConflictError,
   A2ACollaborationInvariantError,
   A2ACollaborationRepository,
+  a2aPassGroupRequestDigest,
 } from './collaboration';
 import { A2ACommandGuard } from './command-guard';
-import type { A2AHandoffPacket, PassIntent } from './types-possession';
-
-const PASS_INTENTS = new Set<PassIntent>([
-  'delegate',
-  'review',
-  'answer',
-  'verify',
-  'implement',
-  'plan',
-  'reject',
-  'escalate',
-  'coord',
-  'handoff_test',
-]);
-
-interface HandoffBranchInput {
-  toAgentId: string;
-  intent: PassIntent;
-  taskId?: string;
-  title: string;
-  requestedAction: string;
-  possessionSummary?: string;
-  relevantDecisions: string[];
-  evidenceRefs: A2AHandoffPacket['evidenceRefs'];
-  constraints: string[];
-  openQuestions: string[];
-  forbiddenBehaviors: string[];
-  sourceMessageIds: string[];
-}
-
-interface HandoffOutcomePayload {
-  idempotencyKey: string;
-  sourcePossessionId?: string;
-  expectedSourceRevision?: number;
-  maxHops?: number;
-  branches: HandoffBranchInput[];
-}
-
-function requiredString(value: unknown, field: string): string {
-  if (typeof value !== 'string' || !value.trim()) {
-    throw new A2ACollaborationInvariantError('a2a_outcome_invalid', field);
-  }
-  return value.trim();
-}
-
-function optionalString(value: unknown, field: string): string | undefined {
-  if (value === undefined) return undefined;
-  return requiredString(value, field);
-}
-
-function stringArray(value: unknown, field: string): string[] {
-  if (value === undefined) return [];
-  if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) {
-    throw new A2ACollaborationInvariantError('a2a_outcome_invalid', field);
-  }
-  return value.map((item) => item.trim()).filter(Boolean);
-}
-
-function evidenceArray(
-  value: unknown,
-  fallback: string[],
-): A2AHandoffPacket['evidenceRefs'] {
-  if (value === undefined) {
-    return fallback.map((reference) => ({ label: reference, path: reference }));
-  }
-  if (!Array.isArray(value)) {
-    throw new A2ACollaborationInvariantError('a2a_outcome_invalid', 'evidenceRefs');
-  }
-  return value.map((item, index) => {
-    if (!item || typeof item !== 'object' || Array.isArray(item)) {
-      throw new A2ACollaborationInvariantError(
-        'a2a_outcome_invalid',
-        `evidenceRefs[${index}]`,
-      );
-    }
-    const record = item as Record<string, unknown>;
-    const path = optionalString(record.path, `evidenceRefs[${index}].path`);
-    const taskId = optionalString(record.taskId, `evidenceRefs[${index}].taskId`);
-    const url = optionalString(record.url, `evidenceRefs[${index}].url`);
-    return {
-      label: requiredString(record.label, `evidenceRefs[${index}].label`),
-      ...(path ? { path } : {}),
-      ...(taskId ? { taskId } : {}),
-      ...(url ? { url } : {}),
-    };
-  });
-}
-
-function parsePayload(payloadJson: string, evidenceRefsJson: string): HandoffOutcomePayload {
-  let value: unknown;
-  let envelopeEvidence: unknown;
-  try {
-    value = JSON.parse(payloadJson);
-    envelopeEvidence = JSON.parse(evidenceRefsJson);
-  } catch {
-    throw new A2ACollaborationInvariantError('a2a_outcome_invalid', 'json');
-  }
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new A2ACollaborationInvariantError('a2a_outcome_invalid', 'payload');
-  }
-  const record = value as Record<string, unknown>;
-  if (!Array.isArray(record.branches) || record.branches.length === 0) {
-    throw new A2ACollaborationInvariantError('a2a_outcome_invalid', 'branches');
-  }
-  const fallbackEvidence = stringArray(envelopeEvidence, 'envelope.evidenceRefs');
-  const branches = record.branches.map((item, index): HandoffBranchInput => {
-    if (!item || typeof item !== 'object' || Array.isArray(item)) {
-      throw new A2ACollaborationInvariantError(
-        'a2a_outcome_invalid',
-        `branches[${index}]`,
-      );
-    }
-    const branch = item as Record<string, unknown>;
-    const intent = requiredString(branch.intent, `branches[${index}].intent`) as PassIntent;
-    if (!PASS_INTENTS.has(intent)) {
-      throw new A2ACollaborationInvariantError(
-        'a2a_outcome_invalid',
-        `branches[${index}].intent`,
-      );
-    }
-    const taskId = optionalString(branch.taskId, `branches[${index}].taskId`);
-    const possessionSummary = optionalString(
-      branch.possessionSummary,
-      `branches[${index}].possessionSummary`,
-    );
-    return {
-      toAgentId: requiredString(branch.toAgentId, `branches[${index}].toAgentId`),
-      intent,
-      ...(taskId ? { taskId } : {}),
-      title: requiredString(branch.title, `branches[${index}].title`),
-      requestedAction: requiredString(
-        branch.requestedAction,
-        `branches[${index}].requestedAction`,
-      ),
-      ...(possessionSummary ? { possessionSummary } : {}),
-      relevantDecisions: stringArray(
-        branch.relevantDecisions,
-        `branches[${index}].relevantDecisions`,
-      ),
-      evidenceRefs: evidenceArray(branch.evidenceRefs, fallbackEvidence),
-      constraints: stringArray(branch.constraints, `branches[${index}].constraints`),
-      openQuestions: stringArray(
-        branch.openQuestions,
-        `branches[${index}].openQuestions`,
-      ),
-      forbiddenBehaviors: stringArray(
-        branch.forbiddenBehaviors,
-        `branches[${index}].forbiddenBehaviors`,
-      ),
-      sourceMessageIds: stringArray(
-        branch.sourceMessageIds,
-        `branches[${index}].sourceMessageIds`,
-      ),
-    };
-  });
-  const expectedSourceRevision = record.expectedSourceRevision;
-  if (
-    expectedSourceRevision !== undefined
-    && (!Number.isSafeInteger(expectedSourceRevision) || Number(expectedSourceRevision) < 0)
-  ) {
-    throw new A2ACollaborationInvariantError(
-      'a2a_outcome_invalid',
-      'expectedSourceRevision',
-    );
-  }
-  const maxHops = record.maxHops;
-  if (
-    maxHops !== undefined
-    && (!Number.isSafeInteger(maxHops) || Number(maxHops) <= 0)
-  ) {
-    throw new A2ACollaborationInvariantError('a2a_outcome_invalid', 'maxHops');
-  }
-  const sourcePossessionId = optionalString(
-    record.sourcePossessionId,
-    'sourcePossessionId',
-  );
-  return {
-    idempotencyKey: requiredString(record.idempotencyKey, 'idempotencyKey'),
-    ...(sourcePossessionId ? { sourcePossessionId } : {}),
-    ...(expectedSourceRevision === undefined
-      ? {}
-      : { expectedSourceRevision: Number(expectedSourceRevision) }),
-    ...(maxHops === undefined ? {} : { maxHops: Number(maxHops) }),
-    branches,
-  };
-}
+import { parseHandoffOutcomeJson } from './handoff-outcome';
 
 function passIdFromContract(contract: WorkContractRow): string | undefined {
   const refs = JSON.parse(contract.authoritative_refs_json) as unknown;
@@ -244,6 +61,199 @@ function outcomeReasonCode(outcome: AgentOutcomeRow): string {
   return outcome.outcome_type === 'request_human_decision'
     ? 'human_decision_requested'
     : 'agent_reported_blocked';
+}
+
+export function applyAcceptedA2AHandoff(input: {
+  db: Database.Database;
+  outcome: AgentOutcomeRow;
+  contract: WorkContractRow;
+  collaboration?: A2ACollaborationRepository;
+  commandGuard?: Pick<A2ACommandGuard, 'assert'>;
+}): void {
+  const collaboration = input.collaboration ?? new A2ACollaborationRepository({ db: input.db });
+  const commandGuard = input.commandGuard ?? new A2ACommandGuard();
+  const payload = parseHandoffOutcomeJson(
+    input.outcome.payload_json,
+    input.outcome.evidence_refs_json,
+  );
+  const superseded = input.db.prepare(`
+    SELECT 1 FROM agent_outcome
+    WHERE work_id=? AND admission_status='accepted'
+      AND (
+        work_epoch>?
+        OR (work_epoch=? AND recorded_at>? AND id<>?)
+      )
+    LIMIT 1
+  `).get(
+    input.outcome.work_id,
+    input.outcome.work_epoch,
+    input.outcome.work_epoch,
+    input.outcome.recorded_at,
+    input.outcome.id,
+  );
+  if (superseded) return;
+  const branches = payload.branches.map((branch) => ({
+    toAgentId: branch.toAgentId,
+    intent: branch.intent,
+    taskId: branch.taskId ?? input.contract.task_id ?? undefined,
+    packet: {
+      title: branch.title,
+      requestedAction: branch.requestedAction,
+      possessionSummary: branch.possessionSummary ?? branch.requestedAction,
+      relevantDecisions: branch.relevantDecisions,
+      evidenceRefs: branch.evidenceRefs,
+      constraints: branch.constraints,
+      openQuestions: branch.openQuestions,
+      forbiddenBehaviors: branch.forbiddenBehaviors,
+      sourceMessageIds: branch.sourceMessageIds.length > 0
+        ? branch.sourceMessageIds
+        : [input.outcome.causation_id],
+    },
+  }));
+  const existingGroup = input.db.prepare(`
+    SELECT id,chain_id,source_possession_id,request_digest,
+           source_work_epoch,source_outcome_id
+    FROM a2a_pass_group
+    WHERE source_work_id=? AND idempotency_key=?
+    LIMIT 1
+  `).get(input.contract.work_id, payload.idempotencyKey) as {
+    id: string;
+    chain_id: string;
+    source_possession_id: string;
+    request_digest: string;
+    source_work_epoch: number | null;
+    source_outcome_id: string | null;
+  } | undefined;
+  if (existingGroup) {
+    const replayDigest = a2aPassGroupRequestDigest({
+      chainId: existingGroup.chain_id,
+      sourcePossessionId: existingGroup.source_possession_id,
+      sourceWorkId: input.contract.work_id,
+      deliveryRunId: input.contract.delivery_run_id ?? undefined,
+      branches,
+    });
+    if (replayDigest !== existingGroup.request_digest) {
+      throw new A2AIdempotencyConflictError(payload.idempotencyKey);
+    }
+    if (existingGroup.source_outcome_id) {
+      if (
+        existingGroup.source_outcome_id !== input.outcome.id
+        || existingGroup.source_work_epoch !== input.outcome.work_epoch
+      ) {
+        throw new A2AIdempotencyConflictError(payload.idempotencyKey);
+      }
+      return;
+    }
+    const legacyOrigin = input.db.prepare(`
+      SELECT id,work_epoch
+      FROM agent_outcome
+      WHERE work_id=?
+        AND admission_status='accepted'
+        AND outcome_type='handoff_to_agent'
+        AND json_valid(payload_json)=1
+        AND json_extract(payload_json,'$.idempotencyKey')=?
+      ORDER BY work_epoch,recorded_at,id
+      LIMIT 1
+    `).get(input.outcome.work_id, payload.idempotencyKey) as {
+      id: string;
+      work_epoch: number;
+    } | undefined;
+    if (
+      !legacyOrigin
+      || legacyOrigin.id !== input.outcome.id
+      || legacyOrigin.work_epoch !== input.outcome.work_epoch
+    ) {
+      throw new A2AIdempotencyConflictError(payload.idempotencyKey);
+    }
+    const bound = input.db.prepare(`
+      UPDATE a2a_pass_group
+      SET source_work_epoch=?,source_outcome_id=?,updated_at=?
+      WHERE id=? AND source_outcome_id IS NULL
+    `).run(
+      input.outcome.work_epoch,
+      input.outcome.id,
+      input.outcome.recorded_at,
+      existingGroup.id,
+    );
+    if (bound.changes !== 1) {
+      throw new A2AIdempotencyConflictError(payload.idempotencyKey);
+    }
+    return;
+  }
+
+  commandGuard.assert({
+    conversationId: input.contract.project_id,
+    fromHolderId: input.contract.agent_id,
+    fromHolderType: 'agent',
+    branches: payload.branches,
+  });
+
+  let source = payload.sourcePossessionId
+    ? collaboration.getPossession(payload.sourcePossessionId)
+    : undefined;
+  if (payload.sourcePossessionId && !source) {
+    throw new A2ACollaborationInvariantError(
+      'a2a_source_possession_missing',
+      payload.sourcePossessionId,
+    );
+  }
+  if (!source) {
+    const boundPossessionId = possessionIdFromContract(input.contract);
+    source = boundPossessionId
+      ? collaboration.getPossession(boundPossessionId)
+      : undefined;
+    if (boundPossessionId && !source) {
+      throw new A2ACollaborationInvariantError('a2a_possession_missing', boundPossessionId);
+    }
+  }
+  if (!source) {
+    const parentPassId = passIdFromContract(input.contract);
+    const parentPass = parentPassId ? collaboration.getPass(parentPassId) : undefined;
+    source = parentPass?.targetPossessionId
+      ? collaboration.getPossession(parentPass.targetPossessionId)
+      : collaboration.findOpenPossessionForHolder(
+        input.contract.project_id,
+        input.contract.agent_id,
+      );
+  }
+  if (!source) {
+    source = collaboration.createChain({
+      conversationId: input.contract.project_id,
+      rootTriggerType: 'system',
+      rootTriggerId: input.outcome.id,
+      correlationId: input.contract.correlation_id,
+      holderId: input.contract.agent_id,
+      holderType: 'agent',
+      config: payload.maxHops ? { maxDepth: payload.maxHops } : {},
+    }).rootPossession;
+  }
+  if (source.holderId !== input.contract.agent_id) {
+    throw new A2ACollaborationInvariantError(
+      'a2a_source_holder_mismatch',
+      `${source.holderId}:${input.contract.agent_id}`,
+    );
+  }
+  if (
+    payload.expectedSourceRevision !== undefined
+    && payload.expectedSourceRevision !== source.revision
+  ) {
+    throw new A2ACollaborationInvariantError(
+      'a2a_source_revision_mismatch',
+      `${payload.expectedSourceRevision}:${source.revision}`,
+    );
+  }
+  collaboration.offerPassGroup({
+    chainId: source.chainId,
+    sourcePossessionId: source.id,
+    sourceWorkId: input.contract.work_id,
+    sourceWorkEpoch: input.outcome.work_epoch,
+    sourceOutcomeId: input.outcome.id,
+    deliveryRunId: input.contract.delivery_run_id ?? undefined,
+    expectedSourceRevision: source.revision,
+    idempotencyKey: payload.idempotencyKey,
+    maxHops: payload.maxHops,
+    branches,
+  });
 }
 
 export interface A2AOutcomeProcessManagerOptions {
@@ -331,99 +341,12 @@ export class A2AOutcomeProcessManager {
       }
       return;
     }
-    const payload = parsePayload(outcome.payload_json, outcome.evidence_refs_json);
-    this.commandGuard.assert({
-      conversationId: contract.project_id,
-      fromHolderId: contract.agent_id,
-      fromHolderType: 'agent',
-      branches: payload.branches,
-    });
-
-    let source = payload.sourcePossessionId
-      ? this.collaboration.getPossession(payload.sourcePossessionId)
-      : undefined;
-    if (payload.sourcePossessionId && !source) {
-      throw new A2ACollaborationInvariantError(
-        'a2a_source_possession_missing',
-        payload.sourcePossessionId,
-      );
-    }
-    if (!source) {
-      const boundPossessionId = possessionIdFromContract(contract);
-      source = boundPossessionId
-        ? this.collaboration.getPossession(boundPossessionId)
-        : undefined;
-      if (boundPossessionId && !source) {
-        throw new A2ACollaborationInvariantError(
-          'a2a_possession_missing',
-          boundPossessionId,
-        );
-      }
-    }
-    if (!source) {
-      const parentPassId = passIdFromContract(contract);
-      const parentPass = parentPassId
-        ? this.collaboration.getPass(parentPassId)
-        : undefined;
-      source = parentPass?.targetPossessionId
-        ? this.collaboration.getPossession(parentPass.targetPossessionId)
-        : this.collaboration.findOpenPossessionForHolder(
-          contract.project_id,
-          contract.agent_id,
-        );
-    }
-    if (!source) {
-      source = this.collaboration.createChain({
-        conversationId: contract.project_id,
-        rootTriggerType: 'system',
-        rootTriggerId: outcome.id,
-        correlationId: contract.correlation_id,
-        holderId: contract.agent_id,
-        holderType: 'agent',
-        config: payload.maxHops ? { maxDepth: payload.maxHops } : {},
-      }).rootPossession;
-    }
-    if (source.holderId !== contract.agent_id) {
-      throw new A2ACollaborationInvariantError(
-        'a2a_source_holder_mismatch',
-        `${source.holderId}:${contract.agent_id}`,
-      );
-    }
-    if (
-      payload.expectedSourceRevision !== undefined
-      && payload.expectedSourceRevision !== source.revision
-    ) {
-      throw new A2ACollaborationInvariantError(
-        'a2a_source_revision_mismatch',
-        `${payload.expectedSourceRevision}:${source.revision}`,
-      );
-    }
-    this.collaboration.offerPassGroup({
-      chainId: source.chainId,
-      sourcePossessionId: source.id,
-      sourceWorkId: contract.work_id,
-      deliveryRunId: contract.delivery_run_id ?? undefined,
-      expectedSourceRevision: source.revision,
-      idempotencyKey: payload.idempotencyKey,
-      maxHops: payload.maxHops,
-      branches: payload.branches.map((branch) => ({
-        toAgentId: branch.toAgentId,
-        intent: branch.intent,
-        taskId: branch.taskId ?? contract.task_id ?? undefined,
-        packet: {
-          title: branch.title,
-          requestedAction: branch.requestedAction,
-          possessionSummary: branch.possessionSummary ?? branch.requestedAction,
-          relevantDecisions: branch.relevantDecisions,
-          evidenceRefs: branch.evidenceRefs,
-          constraints: branch.constraints,
-          openQuestions: branch.openQuestions,
-          forbiddenBehaviors: branch.forbiddenBehaviors,
-          sourceMessageIds: branch.sourceMessageIds.length > 0
-            ? branch.sourceMessageIds
-            : [outcome.causation_id],
-        },
-      })),
+    applyAcceptedA2AHandoff({
+      db,
+      outcome,
+      contract,
+      collaboration: this.collaboration,
+      commandGuard: this.commandGuard,
     });
   };
 }

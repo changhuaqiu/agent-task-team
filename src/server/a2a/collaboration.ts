@@ -3,8 +3,8 @@ import type Database from 'better-sqlite3';
 import { getDb } from '../db';
 import { AgentInbox, type AgentInboxItem } from '../platform-events/agent-inbox';
 import { DomainEventPublisher } from '../platform-events/domain-events';
+import { PlatformEventLog } from '../platform-events/event-log';
 import { generateSortableId } from '../repositories/sortable-id';
-import { workContractRepo } from '../work-contract/repository';
 import type {
   A2AHandoffPacket,
   A2APossession,
@@ -13,6 +13,9 @@ import type {
   PassStatus,
 } from './types-possession';
 import { buildA2AResultBundle } from './result-bundle';
+import { A2ACollaborationInvariantError } from './errors';
+
+export { A2ACollaborationInvariantError } from './errors';
 
 const MAX_PASS_GROUP_BRANCHES = 3;
 
@@ -29,6 +32,8 @@ interface A2APassGroup {
   chainId: string;
   sourcePossessionId: string;
   sourceWorkId?: string;
+  sourceWorkEpoch?: number;
+  sourceOutcomeId?: string;
   deliveryRunId?: string;
   idempotencyKey: string;
   requestDigest: string;
@@ -134,6 +139,8 @@ interface GroupRow {
   chain_id: string;
   source_possession_id: string;
   source_work_id: string | null;
+  source_work_epoch: number | null;
+  source_outcome_id: string | null;
   delivery_run_id: string | null;
   idempotency_key: string;
   request_digest: string;
@@ -182,12 +189,6 @@ const FAILED_PASS_STATUSES = new Set<PassStatus>([
   'error',
 ]);
 
-export class A2ACollaborationInvariantError extends Error {
-  constructor(readonly reasonCode: string, detail: string) {
-    super(`${reasonCode}: ${detail}`);
-  }
-}
-
 export class StaleA2ARevisionError extends Error {
   readonly reasonCode = 'stale_a2a_revision';
 
@@ -224,6 +225,32 @@ function canonicalize(value: unknown): unknown {
 
 function digest(value: unknown): string {
   return createHash('sha256').update(JSON.stringify(canonicalize(value))).digest('hex');
+}
+
+export interface A2APassGroupRequestDigestInput {
+  chainId: string;
+  sourcePossessionId: string;
+  sourceWorkId?: string;
+  deliveryRunId?: string;
+  branches: Array<{
+    toAgentId: string;
+    intent: PassIntent;
+    taskId?: string;
+    packet: Omit<
+      A2AHandoffPacket,
+      'id' | 'chainId' | 'passId' | 'fromHolderId' | 'toAgentId' | 'createdAt'
+    >;
+  }>;
+}
+
+export function a2aPassGroupRequestDigest(input: A2APassGroupRequestDigestInput): string {
+  return digest({
+    chainId: input.chainId,
+    sourcePossessionId: input.sourcePossessionId,
+    sourceWorkId: input.sourceWorkId,
+    deliveryRunId: input.deliveryRunId,
+    branches: input.branches,
+  });
 }
 
 function nonEmpty(value: string, field: string): string {
@@ -312,6 +339,8 @@ function groupFromRow(row: GroupRow): A2APassGroup {
     chainId: row.chain_id,
     sourcePossessionId: row.source_possession_id,
     sourceWorkId: row.source_work_id ?? undefined,
+    sourceWorkEpoch: row.source_work_epoch ?? undefined,
+    sourceOutcomeId: row.source_outcome_id ?? undefined,
     deliveryRunId: row.delivery_run_id ?? undefined,
     idempotencyKey: row.idempotency_key,
     requestDigest: row.request_digest,
@@ -543,12 +572,36 @@ export class A2ACollaborationRepository {
         current_epoch: number;
       }>;
       for (const authority of callbackAuthorities) {
-        workContractRepo.close({
-          workId: authority.work_id,
-          expectedEpoch: authority.current_epoch,
+        const closed = db.prepare(`
+          UPDATE work_authority
+          SET status='closed',revision=revision+1,updated_at=?,closed_at=?
+          WHERE work_id=? AND current_epoch=? AND status='active'
+        `).run(now, now, authority.work_id, authority.current_epoch);
+        if (closed.changes !== 1) continue;
+        const current = db.prepare(`
+          SELECT project_id,current_contract_id FROM work_authority WHERE work_id=?
+        `).get(authority.work_id) as {
+          project_id: string;
+          current_contract_id: string;
+        };
+        new PlatformEventLog({ db }).append({
+          type: 'work.authority.closed',
+          category: 'coordination',
+          projectId: current.project_id,
+          streamKey: `work:${authority.work_id}`,
+          aggregate: {
+            type: 'work_authority',
+            id: authority.work_id,
+            version: authority.current_epoch,
+          },
+          actor: { type: 'system', id: 'platform-harness' },
           correlationId: chainCorrelationId(chain),
           causationId: abortReason,
-          now: new Date(now),
+          occurredAt: now,
+          payload: {
+            contractId: current.current_contract_id,
+            workEpoch: authority.current_epoch,
+          },
         });
       }
       db.prepare(`
@@ -595,23 +648,12 @@ export class A2ACollaborationRepository {
     }).immediate();
   }
 
-  offerPassGroup(input: {
-    chainId: string;
-    sourcePossessionId: string;
-    sourceWorkId?: string;
-    deliveryRunId?: string;
+  offerPassGroup(input: A2APassGroupRequestDigestInput & {
     expectedSourceRevision: number;
     idempotencyKey: string;
+    sourceWorkEpoch?: number;
+    sourceOutcomeId?: string;
     maxHops?: number;
-    branches: Array<{
-      toAgentId: string;
-      intent: PassIntent;
-      taskId?: string;
-      packet: Omit<
-        A2AHandoffPacket,
-        'id' | 'chainId' | 'passId' | 'fromHolderId' | 'toAgentId' | 'createdAt'
-      >;
-    }>;
   }): OfferedPassGroup {
     if (input.branches.length === 0) {
       throw new A2ACollaborationInvariantError('a2a_pass_group_empty', input.chainId);
@@ -621,13 +663,7 @@ export class A2ACollaborationRepository {
       throw new A2ACollaborationInvariantError('a2a_duplicate_group_target', input.chainId);
     }
     const idempotencyKey = nonEmpty(input.idempotencyKey, 'idempotencyKey');
-    const requestDigest = digest({
-      chainId: input.chainId,
-      sourcePossessionId: input.sourcePossessionId,
-      sourceWorkId: input.sourceWorkId,
-      deliveryRunId: input.deliveryRunId,
-      branches: input.branches,
-    });
+    const requestDigest = a2aPassGroupRequestDigest(input);
     const db = this.db();
     return db.transaction(() => {
       const duplicate = db.prepare(`
@@ -687,16 +723,19 @@ export class A2ACollaborationRepository {
       const mode = input.branches.length === 1 ? 'transfer' : 'fan_out';
       db.prepare(`
         INSERT INTO a2a_pass_group (
-          id,chain_id,source_possession_id,source_work_id,delivery_run_id,
+          id,chain_id,source_possession_id,source_work_id,source_work_epoch,
+          source_outcome_id,delivery_run_id,
           idempotency_key,request_digest,mode,status,
           expected_count,resolved_count,recovery_possession_id,hop_count,max_hops,
           revision,created_at,updated_at,completed_at
-        ) VALUES (?,?,?,?,?,?,?,?,'offered',?,0,NULL,?,?,0,?,?,NULL)
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,'offered',?,0,NULL,?,?,0,?,?,NULL)
       `).run(
         groupId,
         chain.id,
         source.id,
         input.sourceWorkId?.trim() || null,
+        input.sourceWorkEpoch ?? null,
+        input.sourceOutcomeId?.trim() || null,
         input.deliveryRunId?.trim() || null,
         idempotencyKey,
         requestDigest,
@@ -1223,7 +1262,10 @@ export class A2ACollaborationRepository {
     `).run(now, now, source.id);
 
     const canReconcile = source.holder_type === 'agent';
-    if (!canReconcile || (group.mode === 'transfer' && failures.length === 0)) {
+    const isUnboundSuccessfulTransfer = group.mode === 'transfer'
+      && failures.length === 0
+      && !group.source_work_id;
+    if (!canReconcile || isUnboundSuccessfulTransfer) {
       db.prepare(`
         UPDATE a2a_pass_group
         SET status='completed',resolved_count=expected_count,revision=revision+1,

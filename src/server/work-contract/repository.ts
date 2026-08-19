@@ -5,6 +5,10 @@ import { generateSortableId } from '../repositories/sortable-id';
 import { AutonomousDeliveryRepository } from '../autonomous-delivery/repository';
 import { validateDeliveryGateReceipt } from '../quality-gate/delivery-receipt-validation';
 import { continueGateLite } from './continue-gate';
+import { A2ACommandGuard } from '../a2a/command-guard';
+import { A2ACollaborationInvariantError } from '../a2a/errors';
+import { parseHandoffOutcome } from '../a2a/handoff-outcome';
+import { applyAcceptedA2AHandoff } from '../a2a/outcome-process-manager';
 import {
   AGENT_OUTCOME_TYPES,
   type AgentOutcome,
@@ -129,17 +133,30 @@ function continuationOutcomeRejectionReason(input: AgentOutcome): string | undef
   return admission.accepted ? undefined : admission.reasonCode;
 }
 
-function handoffOutcomeRejectionReason(input: AgentOutcome): string | undefined {
+function handoffOutcomeRejectionReason(
+  input: AgentOutcome,
+  contract: WorkContractRow,
+): string | undefined {
   if (input.outcomeType !== 'handoff_to_agent') return undefined;
-  if (!input.payload || typeof input.payload !== 'object' || Array.isArray(input.payload)) {
-    return 'a2a_outcome_payload_invalid';
+  try {
+    const payload = parseHandoffOutcome(input.payload, input.evidenceRefs);
+    new A2ACommandGuard().assert({
+      conversationId: contract.project_id,
+      fromHolderId: contract.agent_id,
+      fromHolderType: 'agent',
+      branches: payload.branches,
+    });
+  } catch (error) {
+    if (error instanceof A2ACollaborationInvariantError) return error.reasonCode;
+    throw error;
   }
-  const branches = (input.payload as Record<string, unknown>).branches;
-  if (!Array.isArray(branches) || branches.length === 0) {
-    return 'a2a_pass_group_empty';
-  }
-  if (branches.length > 3) return 'a2a_pass_group_too_wide';
   return undefined;
+}
+
+function invariantReasonCode(error: unknown): string | undefined {
+  if (!error || typeof error !== 'object') return undefined;
+  const reasonCode = (error as { reasonCode?: unknown }).reasonCode;
+  return typeof reasonCode === 'string' && reasonCode.trim() ? reasonCode : undefined;
 }
 
 function a2aPossessionOutcomeRejectionReason(
@@ -548,7 +565,7 @@ export class WorkContractRepository {
       }
       if (!rejectionReason && contract) {
         rejectionReason = continuationOutcomeRejectionReason(input)
-          ?? handoffOutcomeRejectionReason(input)
+          ?? handoffOutcomeRejectionReason(input, contract)
           ?? a2aPossessionOutcomeRejectionReason(contract, frozenRevisions, db)
           ?? gateOutcomeRejectionReason(input, contract, db);
       }
@@ -572,6 +589,38 @@ export class WorkContractRepository {
         rejectionReason = 'terminal_outcome_already_accepted';
       }
       const recordedAt = now.toISOString();
+      if (!rejectionReason && contract && input.outcomeType === 'handoff_to_agent') {
+        try {
+          db.transaction(() => applyAcceptedA2AHandoff({
+            db,
+            contract,
+            outcome: {
+              id: input.outcomeId,
+              idempotency_key: input.idempotencyKey,
+              contract_id: input.contractId,
+              project_id: input.projectId,
+              work_id: input.workId,
+              work_epoch: input.workEpoch,
+              attempt_id: input.attemptId,
+              fencing_token: input.fencingToken,
+              outcome_type: input.outcomeType,
+              payload_json: canonicalJson(input.payload ?? {}),
+              evidence_refs_json: canonicalJson(input.evidenceRefs),
+              authoritative_revisions_json: canonicalJson(input.authoritativeRevisions),
+              correlation_id: input.correlationId,
+              causation_id: input.causationId,
+              occurred_at: input.occurredAt,
+              admission_status: 'accepted',
+              rejection_reason: null,
+              recorded_at: recordedAt,
+            },
+          }))();
+        } catch (error) {
+          const reasonCode = invariantReasonCode(error);
+          if (!reasonCode) throw error;
+          rejectionReason = reasonCode;
+        }
+      }
       db.prepare(`
         INSERT INTO agent_outcome (
           id,idempotency_key,contract_id,project_id,work_id,work_epoch,attempt_id,

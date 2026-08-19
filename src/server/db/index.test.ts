@@ -69,6 +69,62 @@ describe('SQLite Foundation', () => {
     expect(indexes.length).toBeGreaterThanOrEqual(9);
   });
 
+  it('binds an A2A pass group to the outcome epoch that created it', () => {
+    const columns = db.prepare('PRAGMA table_info(a2a_pass_group)').all() as Array<{
+      name: string;
+    }>;
+    expect(columns.map((column) => column.name)).toEqual(expect.arrayContaining([
+      'source_work_epoch',
+      'source_outcome_id',
+    ]));
+    const indexes = db.prepare('PRAGMA index_list(a2a_pass_group)').all() as Array<{
+      name: string;
+      unique: number;
+    }>;
+    expect(indexes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: 'uq_a2a_pass_group_source_outcome', unique: 1 }),
+    ]));
+  });
+
+  it('adds A2A outcome-epoch binding to a v84 database', () => {
+    const legacyDb = new Database(':memory:');
+    try {
+      legacyDb.exec(`
+        CREATE TABLE _schema_version (version INTEGER PRIMARY KEY);
+        CREATE TABLE a2a_pass_group (
+          id TEXT PRIMARY KEY,
+          source_work_id TEXT
+        );
+      `);
+      const recordVersion = legacyDb.prepare(
+        'INSERT INTO _schema_version (version) VALUES (?)',
+      );
+      for (let version = 1; version <= 84; version += 1) recordVersion.run(version);
+
+      applyMigrations(legacyDb);
+
+      const columns = legacyDb.prepare('PRAGMA table_info(a2a_pass_group)').all() as Array<{
+        name: string;
+      }>;
+      expect(columns.map((column) => column.name)).toEqual(expect.arrayContaining([
+        'source_work_epoch',
+        'source_outcome_id',
+      ]));
+      legacyDb.prepare(`
+        INSERT INTO a2a_pass_group (id,source_work_id,source_work_epoch,source_outcome_id)
+        VALUES ('group-1','work-1',1,'outcome-1')
+      `).run();
+      expect(() => legacyDb.prepare(`
+        INSERT INTO a2a_pass_group (id,source_work_id,source_work_epoch,source_outcome_id)
+        VALUES ('group-2','work-1',2,'outcome-1')
+      `).run()).toThrow();
+      expect(legacyDb.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
+        .toEqual({ version: 85 });
+    } finally {
+      legacyDb.close();
+    }
+  });
+
   it('enforces foreign keys', () => {
     const result = db.pragma('foreign_keys') as Array<Record<string, number>>;
     expect(result[0].foreign_keys).toBe(1);
@@ -608,7 +664,7 @@ describe('SQLite Foundation', () => {
         WHERE id='legacy-action'
       `).get()).toEqual({ type: 'activate', attempt_count: 0, max_attempts: 3 });
       expect(legacyDb.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-        .toEqual({ version: 84 });
+        .toEqual({ version: 85 });
       expect(() => legacyDb.prepare(`
         INSERT INTO delivery_control_action (
           id,decision_id,run_id,type,target_work_id,work_epoch,slot_id,reason_code,
@@ -782,7 +838,7 @@ describe('SQLite Foundation', () => {
     expect(db.prepare('SELECT version FROM _schema_version WHERE version = 40').get())
       .toEqual({ version: 40 });
     expect(db.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-      .toEqual({ version: 84 });
+      .toEqual({ version: 85 });
   });
 
   it('retires the parallel A2A worklist schema at migration 62', () => {
@@ -860,7 +916,7 @@ describe('SQLite Foundation', () => {
           'autonomous_delivery_advancement_request',
         ]));
         expect(checkpoint.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-          .toEqual({ version: 84 });
+          .toEqual({ version: 85 });
         expect(checkpoint.pragma('foreign_key_check')).toEqual([]);
       } finally {
         checkpoint.close();
