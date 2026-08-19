@@ -346,31 +346,6 @@ export const invocationRepo = {
       .all(limit) as InvocationRow[];
   },
 
-  settleInterrupted(reasonCode = 'process_restarted'): number {
-    const db = getDb();
-    const interrupted = db.prepare(`
-      SELECT * FROM invocation
-      WHERE status IN ('planned','starting','running','terminating')
-      ORDER BY created_at,id
-    `).all() as InvocationRow[];
-    let settled = 0;
-    for (const invocation of interrupted) {
-      try {
-        const result = invocationRepo.transition(invocation.id, {
-          to: 'terminated',
-          expectedFrom: invocation.status,
-          outcome: 'failed',
-          reason_code: reasonCode,
-        });
-        if (result) settled += 1;
-      } catch (error) {
-        if (error instanceof StaleInvocationTransitionError) continue;
-        throw error;
-      }
-    }
-    return settled;
-  },
-
   updateDispatchStatus(id: string, dispatchStatus: string, extra?: { tokenUsage?: string }): void {
     const db = getDb();
     const now = new Date().toISOString();
