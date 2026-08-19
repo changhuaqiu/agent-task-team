@@ -79,6 +79,7 @@ import {
   startPlatformEventRuntime,
 } from './platform-events';
 import { ensureAutonomousDeliveryRuntime } from './autonomous-delivery/bootstrap';
+import { DeliveryTaskTruthReconciler } from './autonomous-delivery/delivery-task-truth-reconciler';
 import { registerDeliveryEffectAdapters } from './autonomous-delivery/delivery-effects';
 import { deliveryAdvancementQueue } from './autonomous-delivery/advancement-queue';
 import { registerAutonomousDeliveryE2EDriver } from './testing/autonomous-delivery-e2e-driver';
@@ -266,6 +267,8 @@ export default function registerDaemon(io: IOServer) {
 
   const autonomyGuardOwner = new AutonomyGuardOwner({ io });
   autonomyGuardOwner.start();
+  const deliveryTaskTruthReconciler = new DeliveryTaskTruthReconciler();
+  deliveryTaskTruthReconciler.start();
 
   const workspacesRoot = process.env.ATH_WORKSPACES_ROOT || join(/*turbopackIgnore: true*/ process.cwd(), '.ath', 'workspaces');
   const workdirManager = new WorkdirManager(workspacesRoot);
@@ -1644,6 +1647,7 @@ export default function registerDaemon(io: IOServer) {
     stopWorktreeGCScheduler();
     clearInterval(runtimeHealthTimer);
     autonomyGuardOwner.stop();
+    deliveryTaskTruthReconciler.stop();
     for (const active of activeProcesses.values()) active.kill();
     activeProcesses.clear();
   };

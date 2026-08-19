@@ -52,8 +52,13 @@ export function DeliveryWorkspaceOverview({ view }: { view: DeliveryWorkspaceVie
             </div>
           </div>
           <div className="min-w-[72px] rounded-md bg-[hsl(var(--bg-muted))] px-2.5 py-2">
-            <div className="flex items-center gap-1 text-[10px] text-[hsl(var(--text-tertiary))]"><CircleDot className="size-3" />当前工作</div>
-            <div className="mt-1 text-sm font-semibold tabular-nums text-[hsl(var(--text-primary))]">{view.work.current.length}/{view.work.total}</div>
+            <div className="flex items-center gap-1 text-[10px] text-[hsl(var(--text-tertiary))]"><CircleDot className="size-3" />任务</div>
+            <div className="mt-1 flex items-baseline gap-1 text-[hsl(var(--text-primary))]">
+              <span className="text-sm font-semibold tabular-nums">{view.work.completed}/{view.work.total}</span>
+              {view.work.terminalProjectionConflict && (
+                <span className="text-[9px] font-medium text-[hsl(var(--status-pending))]">需核对</span>
+              )}
+            </div>
           </div>
           <div className="min-w-[72px] rounded-md bg-[hsl(var(--bg-muted))] px-2.5 py-2">
             <div className="flex items-center gap-1 text-[10px] text-[hsl(var(--text-tertiary))]"><AlertTriangle className="size-3" />需关注</div>
@@ -69,9 +74,15 @@ export function DeliveryWorkspaceOverview({ view }: { view: DeliveryWorkspaceVie
         </div>
         <span className="text-[10px] tabular-nums text-[hsl(var(--text-tertiary))]">{acceptanceProgress}%</span>
       </div>
-      <div className="mt-2 truncate text-[10px] text-[hsl(var(--text-tertiary))]">
-        当前工作：{currentWork ? currentWork.title : view.work.total > 0 ? '等待下一项工作开始' : '尚未拆分任务'}
-      </div>
+      {view.work.terminalProjectionConflict ? (
+        <div className="mt-2 text-[10px] text-[hsl(var(--status-pending))]">
+          交付和验收已完成；任务明细仍有未完成项，需核对。
+        </div>
+      ) : (
+        <div className="mt-2 truncate text-[10px] text-[hsl(var(--text-tertiary))]">
+          当前工作：{currentWork ? currentWork.title : view.work.total > 0 ? '等待下一项工作开始' : '尚未拆分任务'}
+        </div>
+      )}
     </section>
   );
 }

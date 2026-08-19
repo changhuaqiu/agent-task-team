@@ -76,6 +76,17 @@ Interface：按当前交付返回一个不可写的 `DeliveryWorkspaceView`，�
 DeliveryRun 仍停留在 `planning`/`executing`，但同一交付的权威 Task 已进入 `in_review` 时，投影必须展示
 `reviewing`；`in_review` 同时属于当前工作。该校正规则只改变展示，不反向修改 DeliveryRun 或 Task 事实。
 
+终态真相采用单向优先级：`DeliveryRun(completed) + DeliveryBundle` 冻结交付与验收结论，Task 继续作为工作明细投影。
+若终态交付下存在非 `done` Task，`DeliveryWorkspaceProjection` 输出 `terminalProjectionConflict`，组件保留真实任务比例并追加
+“需核对”，但不得把交付阶段或 Bundle 验收结果降级。前端不声称所有冲突都在自动修复，因为未关联/可选 Task 不一定属于
+reconciler 候选；任务完成数和验收通过数必须分别标注。
+
+历史修复由服务端 `DeliveryTaskTruthReconciler` 持有。候选 Task 必须同时满足：关联 completed DeliveryRun、当前非 `done`、
+并且在 `completed_at` 之前已经存在包含该 Task 的 `task.review_recorded` 且 payload.status 为 `done`，该 Action 还必须引用同一
+Task 的不可变 `gate.passed` 事件与已通过的 `code_review` Gate。owner 使用 Task revision CAS
+恢复投影，追加 `task.status_changed` 审计 Action、`task.done` Domain Event 和 Proof Log；重复扫描无副作用。它不根据 Bundle
+摘要批量完成任务，也不重新裁决 Gate。
+
 Implementation：隐藏 Conversation 兼容映射、Task/Blocker/Delivery/Message 合并、排序、空态、状态文案和项目隔离。
 组件不得自行重复过滤同一领域数据。
 
@@ -290,6 +301,11 @@ Daemon ExecutionAdapter 内执行；daemon transport 只启动/停止该服务�
 
 - Phase 1 已建立 `DeliveryWorkspaceProjection`，首批消费者为交付主视图和右侧工作面板；投影统一给出阶段、验收进度、
   当前工作和需要关注。
+- 终态交付真相已冻结为 DeliveryRun + DeliveryBundle，Task 仅作为可校准的工作明细；任务完成与验收通过采用独立标签和计数。
+- `DeliveryTaskTruthReconciler` 在 daemon 启动时及周期扫描 completed Delivery 的 Task 明细。它用 WorkContract 绑定、
+  `task.review_recorded`、不可变 `gate.passed`、通过的 code-review Gate、Task stream sequence 与完成时间共同裁定候选；
+  keyset 分页不会被不可修复旧行饿死，多实例通过 Task/Graph CAS 幂等收敛。合法状态路径、Action、Proof 与最终 `task.done`
+  在同一 SQLite 事务提交。未关联或缺少冻结证据的 Task 不会被自动改写，页面只显示通用“需核对”。
 - 顶栏、侧栏、创建弹窗和活动输入已统一为 Project -> Delivery 用户语言；全局手工“新建任务”入口已删除。
 - 右面板已从五个一级 tab 收敛为任务/调试，待办与风险统一为“需要关注”，关系图下沉为任务视图模式。
 - “需要关注”只接受人工 blocker 和自主交付 `waiting_human` 升级事实；普通 ready/review、自动 gate 失败和 timeout
@@ -372,3 +388,7 @@ Daemon ExecutionAdapter 内执行；daemon transport 只启动/停止该服务�
 - 自主续作与协作决策回归覆盖 checkpoint admission 与单轮幂等、`continuation_pending`/durable queued 投影、独立预算、
   `continue` Command、容量与 slot 回收、执行/Task 评审/Delivery 评审/验收验证恢复提示、历史格式兼容、A2A 生命周期和
   四出口协作协议；最终仓库全量回归 1609 通过、2 跳过，受影响文件 ESLint 通过。
+- 终态交付 Task 投影校准定向回归 14/14 通过；连同 Task Command、Gate/Delivery Process Manager 与 Wakeup Router 的扩大回归
+  33/33 通过，受影响文件 ESLint 通过，独立代码复审无 Critical/Important。仓库全量运行 1631 通过、2 跳过，唯一失败为既有
+  `evaluation/recovery.test.ts` 仍断言 migration 83、实际主线已为 84；`tsc`/build 仍仅被既有
+  `quality-gate/outcome-process-manager.ts:87` 的 nullable `runId` 类型错误阻断。

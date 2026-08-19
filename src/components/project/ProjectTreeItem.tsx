@@ -64,8 +64,11 @@ export function ProjectTreeItem({
             {title}
           </span>
           {taskCount > 0 && (
-            <span className="ml-auto shrink-0 text-[10px] tabular-nums text-[hsl(var(--text-tertiary))]">
-              {doneCount}/{taskCount}
+            <span
+              className="ml-auto shrink-0 text-[10px] tabular-nums text-[hsl(var(--text-tertiary))]"
+              title={`任务完成 ${doneCount}/${taskCount}`}
+            >
+              任务 {doneCount}/{taskCount}
             </span>
           )}
         </div>

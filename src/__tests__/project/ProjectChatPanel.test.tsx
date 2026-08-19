@@ -101,7 +101,66 @@ describe('ProjectChatPanel', () => {
 
     expect(screen.getByText('验收中')).toBeTruthy();
     expect(screen.getByText('1/2')).toBeTruthy();
+    expect(screen.getByText('任务')).toBeTruthy();
+    expect(screen.getByText('0/1')).toBeTruthy();
     expect(screen.getByText('当前工作：Wire acceptance projection')).toBeTruthy();
     expect(screen.getByText('需关注')).toBeTruthy();
+  });
+
+  it('does not downgrade completed acceptance while a historical Task is being reconciled', () => {
+    useTaskHubStore.setState({
+      selectedConversationId: 'conv-terminal-conflict',
+      conversations: [{
+        id: 'conv-terminal-conflict',
+        title: 'Completed delivery',
+        goal: 'Keep terminal truth stable',
+        status: 'completed',
+        priority: 'p1',
+        projectPath: 'C:/projects/completed',
+        breakdownStatus: 'confirmed',
+        autonomous: true,
+        createdAt: '2026-08-19T00:00:00.000Z',
+        updatedAt: '2026-08-19T01:00:00.000Z',
+      }],
+      tasks: [{
+        id: 'TASK-STALE',
+        conversationId: 'conv-terminal-conflict',
+        phaseId: '',
+        title: 'Historically reviewed task',
+        description: '',
+        status: 'in_progress',
+        agentId: 'luigi',
+        dependencies: [],
+        artifacts: [],
+        createdAt: '2026-08-19T00:00:00.000Z',
+        updatedAt: '2026-08-19T01:00:00.000Z',
+        revision: 5,
+      }],
+      blockersByConversation: { 'conv-terminal-conflict': [] },
+      chatMessagesByConversation: { 'conv-terminal-conflict': [] },
+    });
+
+    render(<ProjectChatPanel deliveryRunSnapshot={{
+      run: {
+        id: 'run-completed',
+        conversation_id: 'conv-terminal-conflict',
+        status: 'completed',
+        current_stage: 'delivering',
+      },
+      contract: { acceptanceCriteria: ['Review passed'] },
+      bundle: {
+        acceptanceResults: [{
+          criterion: 'Review passed',
+          status: 'passed',
+          evidenceRefs: ['review:task-stale'],
+        }],
+      },
+    } as never} />);
+
+    expect(screen.getByText('已完成')).toBeTruthy();
+    expect(screen.getByText('1/1')).toBeTruthy();
+    expect(screen.getByText('0/1')).toBeTruthy();
+    expect(screen.getByText('需核对')).toBeTruthy();
+    expect(screen.getByText('交付和验收已完成；任务明细仍有未完成项，需核对。')).toBeTruthy();
   });
 });

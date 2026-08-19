@@ -48,6 +48,7 @@ export interface DeliveryWorkspaceView {
     completed: number;
     inProgress: number;
     blocked: number;
+    terminalProjectionConflict: boolean;
   };
   attention: DeliveryAttentionItem[];
   recentActivity: ChatMessage[];
@@ -163,6 +164,8 @@ export function projectDeliveryWorkspace(
       completed: tasks.filter((task) => task.status === 'done').length,
       inProgress: tasks.filter((task) => task.status === 'in_progress').length,
       blocked: tasks.filter((task) => task.status === 'blocked').length,
+      terminalProjectionConflict: scopedRun?.run.status === 'completed'
+        && tasks.some((task) => task.status !== 'done' && task.status !== 'cancelled'),
     },
     attention,
     recentActivity: messages.slice(-20),

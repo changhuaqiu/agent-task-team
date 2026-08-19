@@ -14,7 +14,15 @@ export interface DomainEventPayloadMap {
   'task.in_progress': { previousStatus: string; status: string; agentId: string };
   'task.in_review': { previousStatus: string; status: string; agentId: string };
   'task.changes_requested': { previousStatus: string; status: string; agentId: string; reviewNote?: string };
-  'task.done': { previousStatus: string; status: string; agentId: string };
+  'task.done': {
+    previousStatus: string;
+    status: string;
+    agentId: string;
+    reconciledFromStatus?: string;
+    reasonCode?: string;
+    deliveryRunId?: string;
+    sourceActionId?: string;
+  };
   'task.blocked': { previousStatus: string; status: string; agentId: string; reviewNote?: string };
   'task.cancelled': { previousStatus: string; status: string; agentId: string };
   'gate.requested': {

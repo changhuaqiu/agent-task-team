@@ -25,6 +25,7 @@
 - [x] 删除按连续 Agent 合并并折叠历史的活动分组，改为跨并行事件稳定聚合同一 Invocation。
 - [x] 将 Task 通知、自动唤醒和系统控制变化改为独立活动提示；保持工具 Trace 摘要可见、过程说明默认折叠、最终结论直接展示。
 - [x] 将已完成 Trace 的最近工具名称和目标直接投影到收起态，并把超长 Agent 正文改为原位渐进展开；工具、任务和证据卡不随正文隐藏。
+- [x] 将任务完成数与验收通过数改为明确、独立的展示口径；终态交付与 Task 冲突时保留任务比例并显示“需核对”。
 - [x] 完成组件测试与浏览器 E2E。
 
 ## Phase 2：Human Command 单入口
@@ -52,6 +53,7 @@
 - [x] 提取并验证 Daemon ExecutionAdapter 的最小 Interface。
 - [x] 删除 Daemon transport 中重复的业务 policy、任务推进和恢复判断；恢复与 closure policy 迁入服务端 owner。
 - [x] 完成本地 daemon 的 directed admission、原子进程占位与 no-ACK/unreachable 测试；非本地执行明确 fail closed。
+- [x] 增加终态交付 Task 投影校准 owner：只使用完成前已存在的 `task.review_recorded(status=done)` 证据，幂等修复历史回退并留下审计事实。
 - [x] 更新当前架构图、`docs/wiki/02-frontend.md`、`docs/wiki/04-backend-daemon.md`。
 - [x] 删除失效 UI、事件、类型、测试和文档；不保留无退出条件的兼容层。
 - [x] 执行 typecheck、相关测试、全量测试、build 和浏览器回归。

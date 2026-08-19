@@ -143,6 +143,41 @@ describe('DeliveryWorkspaceProjection', () => {
     });
   });
 
+  it('keeps completed delivery acceptance authoritative while flagging a stale Task projection', () => {
+    const view = projectDeliveryWorkspace({
+      conversations: [delivery],
+      tasks: [task('TASK-1', 'in_progress'), task('TASK-2', 'done')],
+      blockersByConversation: {},
+      chatMessagesByConversation: {},
+      deliveryRunSnapshot: {
+        run: {
+          id: 'run-completed',
+          conversation_id: delivery.id,
+          status: 'completed',
+          current_stage: 'delivering',
+        },
+        contract: { acceptanceCriteria: ['报告通过评审'] },
+        bundle: {
+          acceptanceResults: [{
+            criterion: '报告通过评审',
+            status: 'passed',
+            evidenceRefs: ['review:1'],
+          }],
+        },
+      } as never,
+    }, delivery.id);
+
+    expect(view).toMatchObject({
+      stage: 'completed',
+      acceptance: { total: 1, passed: 1, pending: 0 },
+      work: {
+        total: 2,
+        completed: 1,
+        terminalProjectionConflict: true,
+      },
+    });
+  });
+
   it('returns null when the selected delivery is absent', () => {
     expect(projectDeliveryWorkspace({
       conversations: [delivery], tasks: [], blockersByConversation: {}, chatMessagesByConversation: {},
