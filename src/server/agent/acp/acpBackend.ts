@@ -358,6 +358,10 @@ export class AcpBackend implements AgentBackend {
       return true;
     };
 
+    const boundedEventChars = (content: string): number => content.length > limits.maxEventChars
+      ? limits.maxEventChars + '\n[truncated]'.length
+      : content.length;
+
     const signalTree = (signal: NodeJS.Signals) => {
       if (processClosed) return;
       const signalDirectChild = () => {
@@ -564,14 +568,8 @@ export class AcpBackend implements AgentBackend {
           approvedMcpToolCallIds.add(event.tool.callId);
         }
         if (event.sessionId === undefined) event.sessionId = sessionId;
-        if (event.content.length > limits.maxEventChars) {
-          failForLimit(
-            'acp_event_limit',
-            `ACP event exceeded ${limits.maxEventChars} characters`,
-          );
-          return;
-        }
-        if (projectedChars + event.content.length > limits.maxOutputChars) {
+        const projectedEventChars = boundedEventChars(event.content);
+        if (projectedChars + projectedEventChars > limits.maxOutputChars) {
           failForLimit(
             'acp_output_limit',
             `ACP output exceeded ${limits.maxOutputChars} characters`,
@@ -589,7 +587,7 @@ export class AcpBackend implements AgentBackend {
           failForLimit('acp_event_limit', 'ACP event stream rejected an update');
           return;
         }
-        projectedChars += event.content.length;
+        projectedChars += projectedEventChars;
       } else if (!KNOWN_SESSION_UPDATE_TYPES.has(notification.update.sessionUpdate)) {
         console.warn('[acp] unknown session update ignored:', notification.update.sessionUpdate);
       }

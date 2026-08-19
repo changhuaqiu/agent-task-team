@@ -124,12 +124,18 @@ describe('AcpBackend hardening', () => {
     expect(getActiveAcpRunCount()).toBe(0);
   });
 
-  it('fails and cleans up when one ACP event exceeds the size limit', async () => {
+  it('truncates one oversized ACP event without losing the completed turn', async () => {
     const run = backend('large', {
       limits: { maxEventChars: 128, maxOutputChars: 1_000 },
     }).execute('hello', {});
-    const { result } = await drain(run);
-    expect(result).toMatchObject({ status: 'failed', reasonCode: 'acp_event_limit' });
+    const { events, result } = await drain(run);
+    expect(result).toMatchObject({ status: 'completed' });
+    expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'text',
+        content: `${'x'.repeat(128)}\n[truncated]`,
+      }),
+    ]));
   }, 15_000);
 
   it('fails when cumulative streamed output exceeds the turn budget', async () => {

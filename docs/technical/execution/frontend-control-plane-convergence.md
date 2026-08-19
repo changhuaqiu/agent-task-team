@@ -369,6 +369,8 @@ Daemon ExecutionAdapter 内执行；daemon transport 只启动/停止该服务�
 - `invocation_completed_without_outcome` 等内部协议故障只消耗系统自动恢复预算，预算耗尽后进入可诊断失败，不得伪装成需要用户判断
   Agent lane 是否可用的业务决策。`waiting_human` 仅保留给 Agent 显式上报的阻塞、授权/配置缺失和真正的外部业务选择；界面展示可执行的
   人话说明，不暴露 ControlAction id。
+  单条 ACP session update 超过展示上限时在边界截断并保留 `[truncated]` 标记，不再终止整个 turn；累计输出、队列和并发预算仍保持硬限制，
+  避免一次超长工具结果让聊天气泡永远停在“思考中”且丢失后续最终回复。
   这次 Work Cell 语义变更使用 control policy revision 7，避免与 revision 6 的持久化决策 identity 冲突。
 - AutonomyGuard 只有在存在可持久化 `waiting_human` 的活动 Delivery owner 时才启用失败预算抑制。普通 Task 没有该
   owner 时继续保留恢复 wakeup，避免任务停在 ready/in_progress/in_review 且没有任何用户可见升级事实。
