@@ -44,6 +44,7 @@ describe('TeamMemory', () => {
     conversationRepo.create({ id: 'project-a', title: 'Project A' });
     conversationRepo.create({ id: 'project-b', title: 'Project B' });
     taskRepo.create({ id: 'TASK-1', conversation_id: 'project-a', title: 'Build', agent_id: 'builder' });
+    taskRepo.create({ id: 'TASK-1B', conversation_id: 'project-a', title: 'Sibling', agent_id: 'builder' });
     taskRepo.create({ id: 'TASK-2', conversation_id: 'project-b', title: 'Other', agent_id: 'other' });
     proof('proof-a', 'project-a');
     proof('proof-b', 'project-b', 'TASK-2');
@@ -103,6 +104,19 @@ describe('TeamMemory', () => {
       .toEqual({ count: 0 });
     expect(getDb().prepare('SELECT COUNT(*) AS count FROM team_memory_opportunity').get())
       .toEqual({ count: 0 });
+  });
+
+  it('requires task-scoped memory to cite evidence from that exact task', () => {
+    expect(() => memory.record({
+      conversationId: 'project-a',
+      taskId: 'TASK-1B',
+      agentId: 'builder',
+      idempotencyKey: 'wrong-task-source',
+      disposition: 'propose',
+      kind: 'lesson',
+      content: 'A lesson from a different task must not leak into this task scope.',
+      sourceRefs: ['proof:proof-a'],
+    })).toThrowError(expect.objectContaining({ reasonCode: 'memory_task_source_mismatch' }));
   });
 
   it('keeps deferred opportunities content-free and visible only to the owning agent', async () => {
@@ -198,7 +212,7 @@ describe('TeamMemory', () => {
       disposition: 'propose',
       kind: 'relationship',
       content: 'Builder hands review-ready work to reviewer with proof references.',
-      sourceRefs: [`a2a-pass:${offered.passes[0].id}`],
+      sourceRefs: [`a2a-pass:${offered.passes[0].id}`, 'task:TASK-1'],
       relationship: {
         subjectAgentId: 'builder',
         objectAgentId: 'reviewer',
@@ -227,7 +241,7 @@ describe('TeamMemory', () => {
       disposition: 'propose',
       kind: 'relationship',
       content: 'Builder hands work to an unrelated agent.',
-      sourceRefs: [`a2a-pass:${offered.passes[0].id}`],
+      sourceRefs: [`a2a-pass:${offered.passes[0].id}`, 'task:TASK-1'],
       relationship: {
         subjectAgentId: 'builder',
         objectAgentId: 'other-agent',
@@ -235,6 +249,59 @@ describe('TeamMemory', () => {
       },
     });
     expect(unbound.memory?.status).toBe('proposed');
+
+    const humanChain = repository.createChain({
+      conversationId: 'project-a',
+      rootTriggerType: 'user_turn',
+      rootTriggerId: 'human-root-message',
+      holderId: 'human',
+      holderType: 'user',
+      config: { maxDepth: 4 },
+    });
+    const humanOffered = repository.offerPassGroup({
+      chainId: humanChain.chain.id,
+      sourcePossessionId: humanChain.rootPossession.id,
+      sourceWorkId: 'TASK-1',
+      expectedSourceRevision: humanChain.rootPossession.revision,
+      idempotencyKey: 'human-handoff-reviewer',
+      branches: [{
+        toAgentId: 'reviewer',
+        intent: 'review',
+        taskId: 'TASK-1',
+        packet: {
+          title: 'Human handoff', requestedAction: 'Review', possessionSummary: 'User request',
+          relevantDecisions: [], evidenceRefs: ['proof:proof-a'], constraints: [],
+          openQuestions: [], forbiddenBehaviors: [], sourceMessageIds: [],
+        },
+      }],
+    });
+    const humanAdmitted = repository.markPassAdmitted(humanOffered.passes[0].id, humanOffered.passes[0].revision);
+    const humanStarting = repository.markPassStarting(humanAdmitted.id, humanAdmitted.revision);
+    const humanStarted = repository.markPassStarted(humanStarting.id, humanStarting.revision);
+    repository.completePossession({
+      possessionId: humanStarted.possession.id,
+      expectedRevision: humanStarted.possession.revision,
+      summary: 'Human-originated pass completed',
+    });
+    const humanRelationship = memory.record({
+      conversationId: 'project-a',
+      taskId: 'TASK-1',
+      agentId: 'reviewer',
+      idempotencyKey: 'human-relationship-rejected',
+      disposition: 'propose',
+      kind: 'relationship',
+      content: 'Human relationship data must not auto-materialize.',
+      sourceRefs: [`a2a-pass:${humanOffered.passes[0].id}`, 'task:TASK-1'],
+      relationship: {
+        subjectAgentId: 'human',
+        objectAgentId: 'reviewer',
+        relationKind: 'handoff',
+      },
+    });
+    expect(humanRelationship.memory?.status).toBe('proposed');
+    expect(memory.recall({
+      conversationId: 'project-a', taskId: 'TASK-1', agentId: 'reviewer',
+    }).relationships.map((item) => item.otherAgentId)).not.toContain('human');
   });
 
   it('applies human lifecycle decisions and removes retired content from FTS recall', () => {
@@ -273,5 +340,23 @@ describe('TeamMemory', () => {
     expect(getDb().prepare('SELECT memory_id FROM team_memory_fts WHERE memory_id=?').all(accepted.id))
       .toEqual([]);
   });
-});
 
+  it('removes canonical rows and FTS projections with the owning conversation aggregate', () => {
+    memory.record({
+      conversationId: 'project-a',
+      taskId: 'TASK-1',
+      agentId: 'builder',
+      idempotencyKey: 'aggregate-delete-memory',
+      disposition: 'propose',
+      kind: 'fact',
+      content: 'This memory belongs only to project A.',
+      scope: 'project',
+      sourceRefs: ['proof:proof-a'],
+    });
+    expect(conversationRepo.deleteAggregate('project-a')).toBe(true);
+    expect(getDb().prepare('SELECT COUNT(*) AS count FROM team_memory_item').get())
+      .toEqual({ count: 0 });
+    expect(getDb().prepare('SELECT COUNT(*) AS count FROM team_memory_fts').get())
+      .toEqual({ count: 0 });
+  });
+});

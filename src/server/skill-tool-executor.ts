@@ -467,6 +467,14 @@ function executeTeamMemoryRecord(invocation: ToolInvocation): ToolResult {
   if (invocation.input.source_refs !== undefined && !sourceRefs) {
     return { success: false, error: 'source_refs must be a string array' };
   }
+  if (
+    invocation.input.scope !== undefined
+    && !['project', 'task', 'agent'].includes(String(invocation.input.scope))
+  ) return { success: false, error: 'scope is invalid' };
+  if (
+    invocation.input.visibility !== undefined
+    && !['team', 'agent'].includes(String(invocation.input.visibility))
+  ) return { success: false, error: 'visibility is invalid' };
   const relationshipInput = recordInput(invocation.input.relationship);
   let relationship: {
     subjectAgentId: string;

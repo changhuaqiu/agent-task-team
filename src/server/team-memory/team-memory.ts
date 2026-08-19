@@ -134,6 +134,7 @@ export type MemoryRecordResult = {
 type ResolvedSource = {
   ref: string;
   kind: 'task' | 'proof' | 'task-action' | 'a2a-pass' | 'message';
+  taskIds: string[];
   relationshipPair?: { subjectAgentId: string; objectAgentId: string; relationKind: 'handoff' | 'review' };
 };
 
@@ -234,21 +235,21 @@ function resolveSources(conversationId: string, refs: string[]): ResolvedSource[
     if (kind === 'task') {
       const row = db.prepare('SELECT conversation_id FROM task WHERE id=?').get(id) as { conversation_id: string } | undefined;
       if (row?.conversation_id !== conversationId) throw new TeamMemoryError('memory_source_scope_mismatch', ref);
-      return { ref, kind };
+      return { ref, kind, taskIds: [id] };
     }
     if (kind === 'proof') {
-      const row = db.prepare('SELECT conversation_id FROM control_proof_event WHERE id=?').get(id) as { conversation_id: string | null } | undefined;
+      const row = db.prepare('SELECT conversation_id,task_id FROM control_proof_event WHERE id=?').get(id) as { conversation_id: string | null; task_id: string | null } | undefined;
       if (row?.conversation_id !== conversationId) throw new TeamMemoryError('memory_source_scope_mismatch', ref);
-      return { ref, kind };
+      return { ref, kind, taskIds: row.task_id ? [row.task_id] : [] };
     }
     if (kind === 'task-action') {
       const row = db.prepare(`
-        SELECT conversation_id,actor_id,type,task_ids FROM task_action WHERE id=?
-      `).get(id) as { conversation_id: string; actor_id: string; type: string; task_ids: string } | undefined;
+        SELECT conversation_id,actor_id,actor_type,type,task_ids FROM task_action WHERE id=?
+      `).get(id) as { conversation_id: string; actor_id: string; actor_type: string; type: string; task_ids: string } | undefined;
       if (row?.conversation_id !== conversationId) throw new TeamMemoryError('memory_source_scope_mismatch', ref);
+      const taskIds = parseRefs(row.task_ids);
       let relationshipPair: ResolvedSource['relationshipPair'];
-      if (row.type === 'task.provider_review_received') {
-        const taskIds = parseRefs(row.task_ids);
+      if (row.type === 'task.provider_review_received' && row.actor_type === 'agent') {
         const task = taskIds.length === 1
           ? db.prepare('SELECT agent_id FROM task WHERE id=? AND conversation_id=?')
             .get(taskIds[0], conversationId) as { agent_id: string } | undefined
@@ -261,25 +262,29 @@ function resolveSources(conversationId: string, refs: string[]): ResolvedSource[
           };
         }
       }
-      return { ref, kind, relationshipPair };
+      return { ref, kind, taskIds, relationshipPair };
     }
     if (kind === 'a2a-pass') {
       const row = db.prepare(`
-        SELECT chain.conversation_id,pass.from_holder_id,pass.to_agent_id,pass.status
+        SELECT chain.conversation_id,pass.from_holder_id,pass.to_agent_id,pass.status,
+          source_possession.holder_type
         FROM a2a_pass pass
         JOIN a2a_possession_chain chain ON chain.id=pass.chain_id
+        JOIN a2a_possession source_possession ON source_possession.id=pass.from_possession_id
         WHERE pass.id=?
       `).get(id) as {
         conversation_id: string;
         from_holder_id: string;
         to_agent_id: string;
         status: string;
+        holder_type: string;
       } | undefined;
       if (row?.conversation_id !== conversationId) throw new TeamMemoryError('memory_source_scope_mismatch', ref);
       return {
         ref,
         kind,
-        relationshipPair: row.status === 'completed' ? {
+        taskIds: [],
+        relationshipPair: row.status === 'completed' && row.holder_type === 'agent' ? {
           subjectAgentId: row.from_holder_id,
           objectAgentId: row.to_agent_id,
           relationKind: 'handoff',
@@ -287,9 +292,9 @@ function resolveSources(conversationId: string, refs: string[]): ResolvedSource[
       };
     }
     if (kind === 'message') {
-      const row = db.prepare('SELECT conversation_id FROM chat_message WHERE id=?').get(id) as { conversation_id: string } | undefined;
+      const row = db.prepare('SELECT conversation_id,task_id FROM chat_message WHERE id=?').get(id) as { conversation_id: string; task_id: string | null } | undefined;
       if (row?.conversation_id !== conversationId) throw new TeamMemoryError('memory_source_scope_mismatch', ref);
-      return { ref, kind };
+      return { ref, kind, taskIds: row.task_id ? [row.task_id] : [] };
     }
     throw new TeamMemoryError('memory_source_invalid', `Unsupported memory source kind: ${kind}`);
   });
@@ -404,15 +409,29 @@ export class TeamMemory {
       SELECT * FROM team_memory_item WHERE conversation_id=? AND idempotency_key=?
     `).get(input.conversationId, idempotencyKey) as TeamMemoryItemRow | undefined;
     if (existingItem) {
+      const opportunity = getDb().prepare(`
+        SELECT * FROM team_memory_opportunity WHERE resolved_memory_id=?
+      `).get(existingItem.id) as MemoryOpportunityRow;
+      const replayScope = input.scope ?? (input.taskId ? 'task' : 'project');
+      const replayVisibility = input.visibility ?? (replayScope === 'agent' ? 'agent' : 'team');
+      const replayRefs = input.opportunityId
+        ? parseRefs(opportunity?.source_refs_json ?? '[]')
+        : canonicalRefs(input.sourceRefs);
       if (
         input.disposition !== 'propose'
         || existingItem.proposer_agent_id !== input.agentId
         || existingItem.kind !== input.kind
         || existingItem.content !== input.content?.trim()
+        || existingItem.task_id !== (input.taskId ?? null)
+        || existingItem.scope_kind !== replayScope
+        || existingItem.visibility !== replayVisibility
+        || existingItem.supersedes_id !== (input.supersedesId ?? null)
+        || existingItem.subject_agent_id !== (input.relationship?.subjectAgentId ?? null)
+        || existingItem.object_agent_id !== (input.relationship?.objectAgentId ?? null)
+        || existingItem.relation_kind !== (input.relationship?.relationKind ?? null)
+        || !sameStringArray(parseRefs(existingItem.source_refs_json), replayRefs)
+        || (input.opportunityId !== undefined && opportunity?.id !== input.opportunityId)
       ) throw new TeamMemoryError('memory_idempotency_conflict', idempotencyKey);
-      const opportunity = getDb().prepare(`
-        SELECT * FROM team_memory_opportunity WHERE resolved_memory_id=?
-      `).get(existingItem.id) as MemoryOpportunityRow;
       return { opportunity, memory: existingItem, replayed: true };
     }
 
@@ -497,7 +516,16 @@ export class TeamMemory {
     if (sourceRefs.length === 0) throw new TeamMemoryError('memory_source_required', 'propose requires source refs');
     const scope = input.scope ?? (input.taskId ? 'task' : 'project');
     const visibility = input.visibility ?? (scope === 'agent' ? 'agent' : 'team');
+    if (!['project', 'task', 'agent'].includes(scope)) {
+      throw new TeamMemoryError('memory_scope_invalid', `Unsupported scope: ${scope}`);
+    }
+    if (!['team', 'agent'].includes(visibility)) {
+      throw new TeamMemoryError('memory_visibility_invalid', `Unsupported visibility: ${visibility}`);
+    }
     if (scope === 'task' && !input.taskId) throw new TeamMemoryError('memory_task_required', 'task scope requires taskId');
+    if (scope === 'task' && !sources.some((source) => source.taskIds.includes(input.taskId!))) {
+      throw new TeamMemoryError('memory_task_source_mismatch', 'task-scoped memory requires a source from the current task');
+    }
     if (scope === 'agent' && visibility !== 'agent') {
       throw new TeamMemoryError('memory_visibility_invalid', 'agent scope must be agent-private');
     }
@@ -720,7 +748,9 @@ export class TeamMemory {
       SELECT pass.id,pass.from_holder_id,pass.to_agent_id,pass.status,pass.updated_at
       FROM a2a_pass pass
       JOIN a2a_possession_chain chain ON chain.id=pass.chain_id
+      JOIN a2a_possession source_possession ON source_possession.id=pass.from_possession_id
       WHERE chain.conversation_id=?
+        AND source_possession.holder_type='agent'
         AND (pass.from_holder_id=? OR pass.to_agent_id=?)
       ORDER BY pass.updated_at DESC,pass.id DESC LIMIT 50
     `).all(conversationId, agentId, agentId) as Array<{
@@ -742,6 +772,7 @@ export class TeamMemory {
       SELECT action.id,action.actor_id,action.task_ids,action.created_at
       FROM task_action action
       WHERE action.conversation_id=? AND action.type='task.provider_review_received'
+        AND action.actor_type='agent'
       ORDER BY action.created_at DESC,action.id DESC LIMIT 50
     `).all(conversationId) as Array<{
       id: string;

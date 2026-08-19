@@ -3834,7 +3834,6 @@ CREATE TABLE IF NOT EXISTS team_memory_item (
   updated_at TEXT NOT NULL,
   retired_at TEXT,
   UNIQUE(conversation_id,idempotency_key),
-  CHECK(scope_kind <> 'task' OR task_id IS NOT NULL),
   CHECK(scope_kind <> 'agent' OR owner_agent_id IS NOT NULL),
   CHECK(visibility <> 'agent' OR owner_agent_id IS NOT NULL),
   CHECK(
