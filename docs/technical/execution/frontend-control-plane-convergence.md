@@ -371,6 +371,8 @@ Daemon ExecutionAdapter 内执行；daemon transport 只启动/停止该服务�
   人话说明，不暴露 ControlAction id。
   Command Adapter 对失败终止的权威性校验同时接受目标 Work epoch 上“预算已耗尽且 reasonCode 精确一致”的内部故障；不能要求该
   `retry_pending` Cell 预先变成另一种 `failed` 状态，否则控制器会自相矛盾并把内部拒绝错误升级给用户。
+  Daemon 启动时会把数据库中遗留的所有非终态 Invocation 结算为 `failed/process_restarted` 并发布标准终态事件；重启前已经失联的
+  进程不能继续以 `running` 污染聊天气泡或占用调度状态，Control Plane 可据此按现有预算重试或收口。
   单条 ACP session update 超过展示上限时在边界截断并保留 `[truncated]` 标记，不再终止整个 turn；累计输出、队列和并发预算仍保持硬限制，
   避免一次超长工具结果让聊天气泡永远停在“思考中”且丢失后续最终回复。
   这次 Work Cell 语义变更使用 control policy revision 7，避免与 revision 6 的持久化决策 identity 冲突。

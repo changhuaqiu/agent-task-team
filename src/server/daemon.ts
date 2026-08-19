@@ -171,6 +171,12 @@ function resolveOpenCodeProjectSkillPaths(projectPath?: string): string[] {
 }
 
 export default function registerDaemon(io: IOServer) {
+  const interruptedInvocations = invocationRepo.settleInterrupted();
+  if (interruptedInvocations > 0) {
+    console.warn(
+      `[daemon] settled ${interruptedInvocations} interrupted invocation(s) after restart`,
+    );
+  }
   startEvaluationWorker();
   const activeProcesses = new Map<string, { kill: () => void }>();
   const processKey = (agentId: string, projectId?: string) => `${agentId}@${projectId || 'default'}`;
