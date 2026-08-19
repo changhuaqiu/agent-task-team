@@ -169,6 +169,63 @@ describe('ChatMessage extensions', () => {
       expect(message?.isStreaming).toBe(false);
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
+
+    it('starts a fresh bubble when the same agent begins a new invocation', () => {
+      useTaskHubStore.setState({
+        selectedConversationId: 'conv-1',
+        chatMessagesByConversation: { 'conv-1': [] },
+        activeStreamMessageId: {},
+        activeStreamConversationId: {},
+      });
+
+      const firstId = useTaskHubStore.getState().ensureStreamMessage('mario', 'conv-1', 'inv-1');
+      const secondId = useTaskHubStore.getState().ensureStreamMessage('mario', 'conv-1', 'inv-2');
+      const messages = useTaskHubStore.getState().chatMessagesByConversation['conv-1'];
+
+      expect(secondId).not.toBe(firstId);
+      expect(messages.find((message) => message.id === firstId)?.isStreaming).toBe(false);
+      expect(messages.find((message) => message.id === secondId)).toMatchObject({
+        invocationId: 'inv-2',
+        isStreaming: true,
+      });
+    });
+
+    it('does not let a delayed completion close a newer invocation', () => {
+      useTaskHubStore.setState({
+        selectedConversationId: 'conv-1',
+        chatMessagesByConversation: { 'conv-1': [] },
+        activeStreamMessageId: {},
+        activeStreamConversationId: {},
+      });
+
+      const firstId = useTaskHubStore.getState().ensureStreamMessage('mario', 'conv-1', 'inv-1');
+      const secondId = useTaskHubStore.getState().ensureStreamMessage('mario', 'conv-1', 'inv-2');
+      useTaskHubStore.getState().completeStreamMessage('mario', 'inv-1');
+
+      expect(useTaskHubStore.getState().activeStreamMessageId.mario).toBe(secondId);
+      expect(useTaskHubStore.getState().chatMessagesByConversation['conv-1']).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: firstId, isStreaming: false }),
+          expect.objectContaining({ id: secondId, isStreaming: true }),
+        ]),
+      );
+    });
+
+    it('still closes a legacy stream that was created before invocation correlation', () => {
+      useTaskHubStore.setState({
+        selectedConversationId: 'conv-1',
+        chatMessagesByConversation: { 'conv-1': [] },
+        activeStreamMessageId: {},
+        activeStreamConversationId: {},
+      });
+
+      const messageId = useTaskHubStore.getState().ensureStreamMessage('mario', 'conv-1');
+      useTaskHubStore.getState().completeStreamMessage('mario', 'inv-now-known');
+
+      expect(useTaskHubStore.getState().activeStreamMessageId.mario).toBeUndefined();
+      expect(useTaskHubStore.getState().chatMessagesByConversation['conv-1'])
+        .toContainEqual(expect.objectContaining({ id: messageId, isStreaming: false }));
+    });
   });
 
   describe('confirmBreakdown system feedback', () => {

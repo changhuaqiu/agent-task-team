@@ -18,9 +18,43 @@ function isSystemActivity(message: ChatMessage): boolean {
 
 function selectInvocationProjection(messages: ChatMessage[]): ChatMessage[] {
   const activeProvisional = messages.find((message) => message.isStreaming === true);
-  if (activeProvisional) return [activeProvisional];
-
   const durableMessages = messages.filter((message) => message.isStreaming === undefined);
+  const durableNarrative = durableMessages.map((message) => message.content).join('');
+
+  if (activeProvisional) {
+    // During an active Invocation, the live row contains the latest aggregate
+    // text while durable rows may only be earlier segments flushed before a
+    // tool call. Use durable narrative only when the live row is empty; a
+    // correlated terminal event settles the live row before final projection.
+    if (
+      activeProvisional.content.trim().length === 0
+      && durableNarrative.trim().length > 0
+    ) {
+      return activeProvisional.toolEvents?.length
+        ? [...durableMessages, activeProvisional]
+        : durableMessages;
+    }
+    return [activeProvisional];
+  }
+
+  const completedProvisional = [...messages].reverse().find((message) => (
+    message.isStreaming === false
+  ));
+  if (completedProvisional?.content.trim().length) {
+    if (durableNarrative === completedProvisional.content) {
+      return completedProvisional.toolEvents?.length
+        ? [...durableMessages, { ...completedProvisional, content: '' }]
+        : durableMessages;
+    }
+    return [
+      ...durableMessages.filter((message) => message.content.trim().length === 0),
+      completedProvisional,
+    ];
+  }
+  if (completedProvisional?.toolEvents?.length) {
+    return [...durableMessages, completedProvisional];
+  }
+
   if (durableMessages.length > 0 && durableMessages.length < messages.length) {
     return durableMessages;
   }

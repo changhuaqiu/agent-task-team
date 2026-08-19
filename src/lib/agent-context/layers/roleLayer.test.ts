@@ -104,12 +104,22 @@ describe('buildRoleLayer', () => {
 
   it('includes a non-freeform output format', () => {
     const result = buildRoleLayer(makeRoleCard({ outputFormat: 'structured_list' }));
-    expect(result).toContain('- 输出格式：结构化列表');
+    expect(result).toContain('- 工作产物格式：结构化列表');
+    expect(result).toContain('聊天回执仍遵守全局“对用户说人话”契约');
   });
 
   it('omits the freeform output format', () => {
     const result = buildRoleLayer(makeRoleCard({ outputFormat: 'freeform', category: 'frontend' }));
-    expect(result).not.toContain('输出格式');
+    expect(result).not.toContain('工作产物格式');
+  });
+
+  it('keeps persona voice subordinate to the user-visible response contract', () => {
+    const result = buildRoleLayer(makeRoleCard({
+      persona: { introduction: 'intro', voice: '技术细节丰富', mindset: '', habits: '', collaboration: '' },
+    }));
+
+    expect(result).toContain('语气只影响表达风格');
+    expect(result).toContain('不能增加用户不需要的技术细节');
   });
 
   it('includes the propose-only constraint', () => {

@@ -13,15 +13,25 @@ const streamWatchdogs: Record<string, ReturnType<typeof setTimeout>> = {};
 
 const streamBuffer: Record<string, string> = {};
 let bufferFlushScheduled = false;
+let streamMessageSequence = 0;
 
 type AgentRunStatus = 'idle' | 'busy' | 'background';
 type ActiveAgentRun = {
   runId: string;
+  invocationId?: string;
   taskId?: string;
   conversationId: string;
   startedAt: string;
   activity?: 'foreground' | 'awaiting_children';
 };
+
+interface StreamProjectionMessage {
+  id: string;
+  invocationId?: string;
+  isStreaming?: boolean;
+  metadata?: { invocationStartedAt?: string };
+  [key: string]: unknown;
+}
 
 export function resetWatchdog(agentId: string, getState: () => any, setState: (partial: any) => void) {
   if (streamWatchdogs[agentId]) clearTimeout(streamWatchdogs[agentId]);
@@ -156,17 +166,54 @@ export const createDaemonSlice = (set: any, get: () => any) => {
         },
       })),
 
-    ensureStreamMessage: (agentId: string, conversationId: string, invocationId?: string): string => {
+    ensureStreamMessage: (
+      agentId: string,
+      conversationId: string,
+      invocationId?: string,
+      invocationStartedAt?: string,
+    ): string | undefined => {
       const existing = get().activeStreamMessageId[agentId];
       if (existing) {
         const existingConvId = get().activeStreamConversationId[agentId];
         const msgs = get().chatMessagesByConversation[existingConvId ?? conversationId] ?? [];
-        if (msgs.some((m: any) => m.id === existing)) {
+        const existingMessage = (msgs as StreamProjectionMessage[]).find((message) => message.id === existing);
+        if (
+          existingMessage
+          && (!invocationId || existingMessage.invocationId === invocationId)
+        ) {
           _resetWatchdog(agentId);
           return existing;
         }
+        const activeStartedAt = existingMessage?.metadata?.invocationStartedAt;
+        if (
+          existingMessage?.invocationId
+          && invocationId
+          && activeStartedAt
+          && invocationStartedAt
+          && invocationStartedAt < activeStartedAt
+        ) {
+          return undefined;
+        }
+        // A late/missed completion event must not let the next Invocation
+        // reuse the previous bubble. Close the old projection before opening
+        // a new one for the same Agent.
+        if (existingMessage) {
+          get().completeStreamMessage(agentId, existingMessage.invocationId);
+        }
       }
-      const id = `msg-${Date.now()}-${agentId}`;
+      const activeRun = get().activeRunsByAgent[agentId] as ActiveAgentRun | undefined;
+      if (
+        invocationId
+        && activeRun?.invocationId
+        && activeRun.invocationId !== invocationId
+        && (
+          !invocationStartedAt
+          || invocationStartedAt <= activeRun.startedAt
+        )
+      ) {
+        return undefined;
+      }
+      const id = `msg-${Date.now()}-${agentId}-${++streamMessageSequence}`;
       const stamp = new Date().toISOString();
       set((state: any) => ({
         activeStreamMessageId: { ...state.activeStreamMessageId, [agentId]: id },
@@ -175,7 +222,17 @@ export const createDaemonSlice = (set: any, get: () => any) => {
           ...state.chatMessagesByConversation,
           [conversationId]: [
             ...(state.chatMessagesByConversation[conversationId] || []),
-            { id, agentId, content: '', timestamp: stamp, conversationId, invocationId, isStreaming: true, toolEvents: [] },
+            {
+              id,
+              agentId,
+              content: '',
+              timestamp: stamp,
+              conversationId,
+              invocationId,
+              isStreaming: true,
+              toolEvents: [],
+              metadata: invocationStartedAt ? { invocationStartedAt } : undefined,
+            },
           ],
         },
       }));
@@ -212,11 +269,46 @@ export const createDaemonSlice = (set: any, get: () => any) => {
       }
     },
 
-    completeStreamMessage: (agentId: string) => {
+    completeStreamMessage: (agentId: string, invocationId?: string) => {
       const activeId = get().activeStreamMessageId[agentId];
+      const trackedConvId = get().activeStreamConversationId[agentId];
+
+      // Completion is correlated by Invocation, not merely by Agent. If a
+      // delayed terminal event belongs to an older Invocation, settle only
+      // that older provisional row and leave the current stream untouched.
+      const trackedMessages = trackedConvId
+        ? (get().chatMessagesByConversation[trackedConvId] ?? [])
+        : [];
+      const activeMessage = activeId
+        ? (trackedMessages as StreamProjectionMessage[]).find((message) => message.id === activeId)
+        : undefined;
+      if (
+        invocationId
+        && (
+          !activeMessage
+          || (
+            activeMessage.invocationId !== undefined
+            && activeMessage.invocationId !== invocationId
+          )
+        )
+      ) {
+        set((state: { chatMessagesByConversation: Record<string, StreamProjectionMessage[]> }) => ({
+          chatMessagesByConversation: Object.fromEntries(
+            Object.entries(state.chatMessagesByConversation).map(([conversationId, messages]) => [
+              conversationId,
+              messages.map((message) => (
+                message.invocationId === invocationId && message.isStreaming === true
+                  ? { ...message, isStreaming: false }
+                  : message
+              )),
+            ]),
+          ),
+        }));
+        return;
+      }
+
       if (!activeId) return;
       clearWatchdog(agentId);
-      const trackedConvId = get().activeStreamConversationId[agentId];
       if (trackedConvId) {
         flushStreamBufferForMessage(activeId, trackedConvId, set);
       }

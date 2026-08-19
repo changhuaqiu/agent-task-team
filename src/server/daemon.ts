@@ -171,14 +171,20 @@ function resolveOpenCodeProjectSkillPaths(projectPath?: string): string[] {
 
 export default function registerDaemon(io: IOServer) {
   startEvaluationWorker();
-  const activeProcesses = new Map<string, { kill: () => void }>();
+  const activeProcesses = new Map<string, {
+    kill: () => void;
+    invocationId: string;
+    taskId?: string;
+    conversationId: string;
+    startedAt: string;
+  }>();
   const processKey = (agentId: string, projectId?: string) => `${agentId}@${projectId || 'default'}`;
   const processStartGuard = new ProcessStartGuard();
   const broadcast = (event: string, data: unknown) => io.emit(event, data);
   const projectViewPublisher = new ProjectViewPublisher(io);
   const runtimeSocketProjection = new RuntimeSocketProjection({
     publish: (projectId, event) => projectViewPublisher.publish(projectId, event),
-  });
+  }, (invocationId) => invocationRepo.getById(invocationId)?.created_at);
   const dispatchGateway = new DispatchGateway();
   // Deferred until the ACP execution backend has finished constructing its local dependencies.
   // eslint-disable-next-line prefer-const
@@ -286,11 +292,18 @@ export default function registerDaemon(io: IOServer) {
       });
     },
     onMessageProjected: (message) => {
+      const projectedInvocation = message.invocation_id
+        ? invocationRepo.getById(message.invocation_id)
+        : undefined;
       projectViewPublisher.publish(message.conversation_id, {
         kind: 'chat.message.persisted',
         agentId: message.sender_id,
         invocationId: message.invocation_id ?? undefined,
-        payload: { message },
+        invocationStartedAt: projectedInvocation?.created_at,
+        payload: {
+          message,
+          invocationTerminal: projectedInvocation?.status === 'terminated',
+        },
       });
     },
     onObservabilityUpdated: (projectId, invocationId) => {
@@ -421,6 +434,8 @@ export default function registerDaemon(io: IOServer) {
       let rootObservationSpanId: string | undefined;
       let evaluationObservedDigest: string | undefined;
       let runtimeContextObservationRecorded = false;
+      let projectedInvocationId: string | undefined;
+      let projectedInvocationStartedAt: string | undefined;
       let finishObservation: (status: 'ok' | 'error' | 'cancelled', errorMessage?: string) => void = () => {};
       // ACP per-runtime cleanup (e.g. codex temp CODEX_HOME). Declared here so
       // the outer execution catch can clean up if setup succeeds
@@ -435,6 +450,8 @@ export default function registerDaemon(io: IOServer) {
         projectViewPublisher.publish(sessionConvId, {
           kind: 'runtime.warning',
           agentId,
+          invocationId: projectedInvocationId,
+          invocationStartedAt: projectedInvocationStartedAt,
           payload: { message, reasonCode },
         });
       };
@@ -447,6 +464,8 @@ export default function registerDaemon(io: IOServer) {
         projectViewPublisher.publish(sessionConvId, {
           kind: 'terminal.exited',
           agentId,
+          invocationId: projectedInvocationId,
+          invocationStartedAt: projectedInvocationStartedAt,
           payload: input,
         });
       };
@@ -595,6 +614,8 @@ export default function registerDaemon(io: IOServer) {
         correlation_id: invocationTraceId,
         causation_id: controlEnvelopeId ?? workContract?.causationId,
       });
+      projectedInvocationId = invocation.id;
+      projectedInvocationStartedAt = invocation.created_at;
       runtimeCompletionContextRepo.create({
         invocationId: invocation.id,
         conversationId: sessionConvId,
@@ -838,6 +859,7 @@ export default function registerDaemon(io: IOServer) {
             kind: 'runtime.activity',
             agentId,
             invocationId: invocation.id,
+            invocationStartedAt: invocation.created_at,
             payload: {
               status: 'running',
               sessionId: agentSession?.cli_session_id,
@@ -863,6 +885,7 @@ export default function registerDaemon(io: IOServer) {
           kind: 'runtime.activity',
           agentId,
           invocationId: invocation.id,
+          invocationStartedAt: invocation.created_at,
           payload: {
             taskId,
             sessionId: eventSessionId(),
@@ -883,6 +906,7 @@ export default function registerDaemon(io: IOServer) {
           kind: 'runtime.session',
           agentId,
           invocationId: invocation.id,
+          invocationStartedAt: invocation.created_at,
           payload: { sessionId: runtimeSessionId },
         });
       }
@@ -940,6 +964,7 @@ export default function registerDaemon(io: IOServer) {
               : 'runtime.thinking.delta',
             agentId,
             invocationId: invocation.id,
+            invocationStartedAt: invocation.created_at,
             payload: {
               taskId,
               content: event.content,
@@ -1279,7 +1304,13 @@ export default function registerDaemon(io: IOServer) {
       const { events, result, kill } = backend.execute(promptWithWorkdir, execOptions);
       runtimeEventCoordinator?.start();
 
-      activeProcesses.set(processKey(agentId, projectId), { kill });
+      activeProcesses.set(processKey(agentId, projectId), {
+        kill,
+        invocationId: invocation.id,
+        taskId,
+        conversationId: sessionConvId,
+        startedAt: invocation.created_at,
+      });
       processStartGuard.markStarted(startKey);
       // Consume events and forward to socket
       (async () => {
@@ -1561,6 +1592,8 @@ export default function registerDaemon(io: IOServer) {
         projectViewPublisher.publish(projectId, {
           kind: 'runtime.warning',
           agentId,
+          invocationId: projectedInvocationId,
+          invocationStartedAt: projectedInvocationStartedAt,
           payload: {
             message: `内部错误：${(err as Error)?.message || '未知'}`,
             reasonCode: 'internal_error',
@@ -1569,6 +1602,8 @@ export default function registerDaemon(io: IOServer) {
         projectViewPublisher.publish(projectId, {
           kind: 'terminal.exited',
           agentId,
+          invocationId: projectedInvocationId,
+          invocationStartedAt: projectedInvocationStartedAt,
           payload: {
             code: 1,
             command: primaryCommand,
@@ -1584,26 +1619,28 @@ export default function registerDaemon(io: IOServer) {
 
   io.on('connection', (socket: Socket) => {
     socket.on('daemon:status', ({ projectId }: { projectId?: string }, callback) => {
-      const activeAgents: Record<string, { taskId?: string; conversationId?: string }> = {};
+      const activeAgents: Record<string, {
+        taskId?: string;
+        conversationId?: string;
+        invocationId?: string;
+        startedAt?: string;
+      }> = {};
       const normalizedProjectId = projectId?.trim();
       if (!normalizedProjectId) {
         callback?.({ activeAgents, error: 'project_id_required' });
         return;
       }
-      for (const [key] of activeProcesses) {
+      for (const [key, process] of activeProcesses) {
         const separator = key.lastIndexOf('@');
         const agentId = separator >= 0 ? key.slice(0, separator) : key;
         const activeProjectId = separator >= 0 ? key.slice(separator + 1) : 'default';
         if (activeProjectId !== normalizedProjectId) continue;
-        const session = sessionRepo.findActiveByConversation(agentId, normalizedProjectId, '');
-        if (session) {
-          activeAgents[agentId] = {
-            taskId: session.task_id || undefined,
-            conversationId: session.conversation_id || undefined,
-          };
-        } else {
-          activeAgents[agentId] = {};
-        }
+        activeAgents[agentId] = {
+          taskId: process.taskId,
+          conversationId: process.conversationId,
+          invocationId: process.invocationId,
+          startedAt: process.startedAt,
+        };
       }
       callback?.({ activeAgents });
     });

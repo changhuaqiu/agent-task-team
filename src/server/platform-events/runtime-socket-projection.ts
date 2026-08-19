@@ -11,12 +11,19 @@ export interface RuntimeSocketProjectionPort {
  * envelope; their durable boundary remains runtime.*.segment.completed.
  */
 export class RuntimeSocketProjection {
-  constructor(private readonly port: RuntimeSocketProjectionPort) {}
+  constructor(
+    private readonly port: RuntimeSocketProjectionPort,
+    private readonly resolveInvocationStartedAt: (invocationId: string) => string | undefined = () => undefined,
+  ) {}
 
   project(event: PlatformEvent): void {
+    const invocationStartedAt = event.invocationId
+      ? this.resolveInvocationStartedAt(event.invocationId)
+      : undefined;
     const base = {
       agentId: event.projectAgentId,
       invocationId: event.invocationId,
+      ...(invocationStartedAt ? { invocationStartedAt } : {}),
       eventId: event.eventId,
       occurredAt: event.occurredAt,
     };

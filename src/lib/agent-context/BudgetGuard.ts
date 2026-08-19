@@ -60,7 +60,7 @@ export function composeWithBudget(
       // 系统层永不裁（spec §8）
       included.push(r.part);
       usedTokens += tokens;
-      if (tokens > available) systemOverflow = true;
+      if (usedTokens > available) systemOverflow = true;
     } else if (usedTokens + tokens <= available) {
       included.push(r.part);
       usedTokens += tokens;

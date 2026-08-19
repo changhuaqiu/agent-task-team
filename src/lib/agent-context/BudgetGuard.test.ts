@@ -16,6 +16,21 @@ describe('BudgetGuard — tier + importance 语义', () => {
     expect(report.systemOverflow).toBe(true); // 但标记溢出
   });
 
+  it('reports cumulative system overflow across multiple system fragments', () => {
+    const parts = [
+      { layer: 'protocol', content: 'P'.repeat(240), tier: 'system' as const, importance: 1 },
+      { layer: 'response', content: 'R'.repeat(240), tier: 'system' as const, importance: 1 },
+    ];
+
+    const { report } = composeWithBudget(
+      parts,
+      new ContextBudget({ maxTokens: 100, reserveRatio: 0 }),
+    );
+
+    expect(report.totalTokens).toBe(120);
+    expect(report.systemOverflow).toBe(true);
+  });
+
   it('超预算时 project 层先于 system/tool 被裁', () => {
     const parts = [
       { layer: 'role', content: 'ROLE', tier: 'system' as const, importance: 0.9 },

@@ -56,17 +56,141 @@ describe('projectChatTimeline', () => {
     expect(timeline.map((item) => item.kind)).toEqual(['activity', 'activity']);
   });
 
-  it('shows only an active provisional response while durable rows overlap it', () => {
+  it('keeps the latest live aggregate over an earlier durable progress segment', () => {
     const timeline = projectChatTimeline([
-      message({ id: 'live', agentId: 'mario', invocationId: 'inv-live', content: '实时内容', isStreaming: true }),
-      message({ id: 'durable', agentId: 'mario', invocationId: 'inv-live', content: '持久内容' }),
+      message({ id: 'durable-progress', agentId: 'mario', invocationId: 'inv-live', content: '正在检查。' }),
+      message({ id: 'live-final', agentId: 'mario', invocationId: 'inv-live', content: '正在检查。已修复，可以刷新查看。', isStreaming: true }),
     ]);
 
-    expect(timeline[0].kind === 'response' && timeline[0].messages.map((item) => item.id)).toEqual(['live']);
+    expect(timeline[0].kind === 'response' && timeline[0].messages.map((item) => item.id)).toEqual(['live-final']);
+  });
+
+  it('does not let an empty stale bubble hide a durable final answer', () => {
+    const timeline = projectChatTimeline([
+      message({
+        id: 'stale-live',
+        agentId: 'peach',
+        invocationId: 'inv-done',
+        content: '',
+        isStreaming: true,
+        toolEvents: [{ id: 'live-tool', type: 'tool_use', label: 'Read', timestamp: '2026-07-30T02:30:00.000Z' }],
+      }),
+      message({ id: 'durable-final', agentId: 'peach', invocationId: 'inv-done', content: '评审已通过，可以继续交付。' }),
+    ]);
+
+    expect(timeline[0].kind === 'response' && timeline[0].messages).toEqual([
+      expect.objectContaining({ id: 'durable-final', content: '评审已通过，可以继续交付。' }),
+      expect.objectContaining({
+        id: 'stale-live',
+        toolEvents: [expect.objectContaining({ label: 'Read' })],
+      }),
+    ]);
+  });
+
+  it('keeps a completed aggregate while only an earlier durable progress segment exists', () => {
+    const timeline = projectChatTimeline([
+      message({
+        id: 'durable-progress',
+        agentId: 'peach',
+        invocationId: 'inv-settled',
+        content: '正在检查。',
+      }),
+      message({
+        id: 'completed-aggregate',
+        agentId: 'peach',
+        invocationId: 'inv-settled',
+        content: '正在检查。已修复，可以刷新查看。',
+        isStreaming: false,
+      }),
+    ]);
+
+    expect(timeline[0].kind === 'response' && timeline[0].messages).toEqual([
+      expect.objectContaining({
+        id: 'completed-aggregate',
+        content: '正在检查。已修复，可以刷新查看。',
+      }),
+    ]);
+  });
+
+  it('keeps provisional trace events after durable narrative covers the completed aggregate', () => {
+    const timeline = projectChatTimeline([
+      message({
+        id: 'durable-final',
+        agentId: 'peach',
+        invocationId: 'inv-covered',
+        content: '已修复，可以刷新查看。',
+      }),
+      message({
+        id: 'completed-with-trace',
+        agentId: 'peach',
+        invocationId: 'inv-covered',
+        content: '已修复，可以刷新查看。',
+        isStreaming: false,
+        toolEvents: [{ id: 'live-tool', type: 'tool_use', label: 'Read', timestamp: '2026-07-30T02:30:00.000Z' }],
+      }),
+    ]);
+
+    expect(timeline[0].kind === 'response' && timeline[0].messages).toEqual([
+      expect.objectContaining({ id: 'durable-final', content: '已修复，可以刷新查看。' }),
+      expect.objectContaining({
+        id: 'completed-with-trace',
+        content: '',
+        toolEvents: [expect.objectContaining({ label: 'Read' })],
+      }),
+    ]);
+  });
+
+  it('keeps completed provisional narrative visible until durable narrative arrives', () => {
+    const timeline = projectChatTimeline([
+      message({
+        id: 'completed-live',
+        agentId: 'peach',
+        invocationId: 'inv-ordering',
+        content: '评审已完成，结果正在落库。',
+        isStreaming: false,
+        toolEvents: [{ id: 'live-tool', type: 'tool_use', label: 'Read', timestamp: '2026-07-30T02:30:00.000Z' }],
+      }),
+      message({
+        id: 'durable-tool',
+        agentId: 'peach',
+        invocationId: 'inv-ordering',
+        content: '',
+        toolEvents: [{ id: 'durable-tool', type: 'tool_use', label: 'Read', timestamp: '2026-07-30T02:30:01.000Z' }],
+      }),
+    ]);
+
+    expect(timeline[0].kind === 'response' && timeline[0].messages).toEqual([
+      expect.objectContaining({ id: 'durable-tool', toolEvents: [expect.objectContaining({ label: 'Read' })] }),
+      expect.objectContaining({ id: 'completed-live', content: '评审已完成，结果正在落库。' }),
+    ]);
   });
 });
 
 describe('ChatMessageItem invocation surface', () => {
+  it('counts the same durable and live tool phase only once', () => {
+    const segments = [
+      message({
+        id: 'durable-tool',
+        agentId: 'peach',
+        invocationId: 'inv-dedup',
+        content: '',
+        toolEvents: [{ id: 'call-1:started', type: 'tool_use', label: 'Read', timestamp: '2026-07-30T02:30:00.000Z' }],
+      }),
+      message({
+        id: 'live-tool',
+        agentId: 'peach',
+        invocationId: 'inv-dedup',
+        content: '已完成检查。',
+        isStreaming: false,
+        toolEvents: [{ id: 'call-1:started', type: 'tool_use', label: 'Read', timestamp: '2026-07-30T02:30:00.100Z' }],
+      }),
+    ];
+
+    render(<ChatMessageItem message={segments[0]} responseSegments={segments} />);
+
+    expect(screen.getByRole('button', { name: /CLI Trace.*1 条事件.*1 次工具调用/ })).toBeDefined();
+  });
+
   it('folds progress, keeps the final answer visible, and exposes tool calls in a compact trace', () => {
     const segments = [
       message({ id: 'progress', agentId: 'peach', invocationId: 'inv-review', content: '正在核对文件' }),

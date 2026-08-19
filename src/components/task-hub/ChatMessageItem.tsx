@@ -159,7 +159,11 @@ export function ChatMessageItem({ message, responseSegments }: ChatMessageItemPr
   const isHuman = responseMessage.agentId === 'human';
   const agent = allAgents.find((a) => a.id === responseMessage.agentId);
   const hasToolTrace = !isHuman && segments.some((segment) => (segment.toolEvents?.length ?? 0) > 0);
-  const toolEvents = segments.flatMap((segment) => segment.toolEvents ?? []);
+  const toolEvents = Array.from(new Map(
+    segments
+      .flatMap((segment) => segment.toolEvents ?? [])
+      .map((event) => [event.id, event]),
+  ).values());
   const responseIsStreaming = segments.some((segment) => segment.isStreaming === true);
   const streamingToolText = segments.find((segment) => segment.isStreaming)?.content;
   const tokenUsage = [...segments].reverse().find((segment) => segment.tokenUsage)?.tokenUsage;

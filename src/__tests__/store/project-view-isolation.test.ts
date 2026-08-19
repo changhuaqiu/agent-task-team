@@ -116,6 +116,445 @@ describe('project view isolation', () => {
     }));
   });
 
+  it('separates consecutive invocations and ignores a late completion from the first', () => {
+    expect(consumeProjectViewEvent({
+      ...envelope('project-a', 'runtime.text.delta'),
+      invocationId: 'inv-1',
+      payload: { content: 'first' },
+    })).toBe(true);
+    const firstStreamId = useTaskHubStore.getState().activeStreamMessageId.mario;
+
+    expect(consumeProjectViewEvent({
+      ...envelope('project-a', 'runtime.text.delta'),
+      invocationId: 'inv-2',
+      occurredAt: '2026-07-26T00:00:01.000Z',
+      payload: { content: 'second' },
+    })).toBe(true);
+    const secondStreamId = useTaskHubStore.getState().activeStreamMessageId.mario;
+
+    expect(secondStreamId).not.toBe(firstStreamId);
+    expect(consumeProjectViewEvent({
+      version: 1,
+      projectId: 'project-a',
+      occurredAt: '2026-07-26T00:00:02.000Z',
+      kind: 'runtime.completed',
+      agentId: 'mario',
+      invocationId: 'inv-1',
+      payload: { outcome: 'completed' },
+    })).toBe(true);
+
+    expect(useTaskHubStore.getState().activeStreamMessageId.mario).toBe(secondStreamId);
+    expect(useTaskHubStore.getState().chatMessagesByConversation['project-a']).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: firstStreamId, invocationId: 'inv-1', isStreaming: false }),
+        expect.objectContaining({ id: secondStreamId, invocationId: 'inv-2', isStreaming: true }),
+      ]),
+    );
+  });
+
+  it('ignores late text and tool events instead of letting an old invocation retake the stream', () => {
+    expect(consumeProjectViewEvent({
+      ...envelope('project-a', 'runtime.text.delta'),
+      occurredAt: '2026-07-26T00:00:02.000Z',
+      invocationId: 'inv-current',
+      invocationStartedAt: '2026-07-26T00:00:02.000Z',
+      payload: { content: 'current answer' },
+    })).toBe(true);
+    const currentStreamId = useTaskHubStore.getState().activeStreamMessageId.mario;
+
+    expect(consumeProjectViewEvent({
+      ...envelope('project-a', 'runtime.text.delta'),
+      occurredAt: '2026-07-26T00:00:01.000Z',
+      invocationId: 'inv-old',
+      invocationStartedAt: '2026-07-26T00:00:00.000Z',
+      payload: { content: 'late old text' },
+    })).toBe(true);
+    expect(consumeProjectViewEvent({
+      version: 1,
+      projectId: 'project-a',
+      occurredAt: '2026-07-26T00:00:01.500Z',
+      kind: 'runtime.tool.started',
+      agentId: 'mario',
+      invocationId: 'inv-old',
+      invocationStartedAt: '2026-07-26T00:00:00.000Z',
+      payload: { toolName: 'OldTool' },
+    })).toBe(true);
+
+    const state = useTaskHubStore.getState();
+    expect(state.activeStreamMessageId.mario).toBe(currentStreamId);
+    expect(state.chatMessagesByConversation['project-a']).toHaveLength(1);
+    expect(state.chatMessagesByConversation['project-a'][0]).toMatchObject({
+      id: currentStreamId,
+      invocationId: 'inv-current',
+      content: 'current answer',
+      isStreaming: true,
+      toolEvents: [],
+    });
+  });
+
+  it('does not append a late warning to a newer invocation', () => {
+    consumeProjectViewEvent({
+      ...envelope('project-a', 'runtime.text.delta'),
+      invocationId: 'inv-2',
+      payload: { content: 'new invocation answer' },
+    });
+    const newStreamId = useTaskHubStore.getState().activeStreamMessageId.mario;
+
+    expect(consumeProjectViewEvent({
+      version: 1,
+      projectId: 'project-a',
+      occurredAt: '2026-07-26T00:00:01.000Z',
+      kind: 'runtime.warning',
+      agentId: 'mario',
+      invocationId: 'inv-1',
+      payload: { message: 'late warning' },
+    })).toBe(true);
+
+    const state = useTaskHubStore.getState();
+    expect(state.activeStreamMessageId.mario).toBe(newStreamId);
+    expect(state.chatMessagesByConversation['project-a'].find((message) => message.id === newStreamId))
+      .toMatchObject({ content: 'new invocation answer', isStreaming: true });
+    const warning = state.chatMessagesByConversation['project-a'].find(
+      (message) => message.content === '⚠️ late warning',
+    );
+    expect(warning).toBeDefined();
+    expect(warning?.isStreaming).not.toBe(true);
+  });
+
+  it('does not let an uncorrelated legacy warning close a correlated stream', () => {
+    consumeProjectViewEvent({
+      ...envelope('project-a', 'runtime.text.delta'),
+      invocationId: 'inv-current',
+      payload: { content: 'current answer' },
+    });
+    const currentStreamId = useTaskHubStore.getState().activeStreamMessageId.mario;
+
+    expect(consumeProjectViewEvent({
+      version: 1,
+      projectId: 'project-a',
+      occurredAt: '2026-07-26T00:00:01.000Z',
+      kind: 'runtime.warning',
+      agentId: 'mario',
+      payload: { message: 'uncorrelated warning' },
+    })).toBe(true);
+
+    const state = useTaskHubStore.getState();
+    expect(state.activeStreamMessageId.mario).toBe(currentStreamId);
+    expect(state.chatMessagesByConversation['project-a']).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: currentStreamId, content: 'current answer', isStreaming: true }),
+      expect.objectContaining({ content: '⚠️ uncorrelated warning' }),
+    ]));
+  });
+
+  it('does not let a late terminal exit settle a newer invocation', () => {
+    consumeProjectViewEvent({
+      ...envelope('project-a', 'runtime.text.delta'),
+      invocationId: 'inv-current',
+      payload: { content: 'current answer' },
+    });
+    const currentStreamId = useTaskHubStore.getState().activeStreamMessageId.mario;
+    useTaskHubStore.setState({
+      agentStatus: { mario: 'busy' },
+      activeRunsByAgent: {
+        mario: {
+          runId: 'run-current',
+          conversationId: 'project-a',
+          startedAt: '2026-07-26T00:00:00.000Z',
+        },
+      },
+    });
+
+    expect(consumeProjectViewEvent({
+      version: 1,
+      projectId: 'project-a',
+      occurredAt: '2026-07-26T00:00:01.000Z',
+      kind: 'terminal.exited',
+      agentId: 'mario',
+      invocationId: 'inv-old',
+      payload: { code: 0, command: 'old command' },
+    })).toBe(true);
+
+    const state = useTaskHubStore.getState();
+    expect(state.agentStatus.mario).toBe('busy');
+    expect(state.activeRunsByAgent.mario?.runId).toBe('run-current');
+    expect(state.activeStreamMessageId.mario).toBe(currentStreamId);
+    expect(state.chatMessagesByConversation['project-a'].find((message) => message.id === currentStreamId))
+      .toMatchObject({ content: 'current answer', isStreaming: true });
+  });
+
+  it('keeps a recovered run when a late idle or exit arrives without an active stream', () => {
+    useTaskHubStore.setState({
+      agentStatus: { mario: 'busy' },
+      activeRunsByAgent: {
+        mario: {
+          runId: 'recovered-mario',
+          invocationId: 'inv-current',
+          conversationId: 'project-a',
+          startedAt: '2026-07-26T00:00:00.000Z',
+        },
+      },
+      activeStreamMessageId: {},
+      activeStreamConversationId: {},
+    });
+
+    expect(consumeProjectViewEvent({
+      version: 1,
+      projectId: 'project-a',
+      occurredAt: '2026-07-26T00:00:01.000Z',
+      kind: 'runtime.activity',
+      agentId: 'mario',
+      invocationId: 'inv-old',
+      payload: { status: 'idle' },
+    })).toBe(true);
+    expect(consumeProjectViewEvent({
+      version: 1,
+      projectId: 'project-a',
+      occurredAt: '2026-07-26T00:00:02.000Z',
+      kind: 'terminal.exited',
+      agentId: 'mario',
+      payload: { code: 0, command: 'legacy exit without invocation' },
+    })).toBe(true);
+
+    const state = useTaskHubStore.getState();
+    expect(state.agentStatus.mario).toBe('busy');
+    expect(state.activeRunsByAgent.mario).toMatchObject({
+      runId: 'recovered-mario',
+      invocationId: 'inv-current',
+    });
+
+    expect(consumeProjectViewEvent({
+      version: 1,
+      projectId: 'project-a',
+      occurredAt: '2026-07-26T00:00:03.000Z',
+      kind: 'runtime.activity',
+      agentId: 'mario',
+      invocationId: 'inv-new',
+      invocationStartedAt: '2026-07-26T00:00:03.000Z',
+      payload: { status: 'running', taskId: 'task-new' },
+    })).toBe(true);
+    expect(useTaskHubStore.getState().activeRunsByAgent.mario).toMatchObject({
+      runId: 'inv-new',
+      invocationId: 'inv-new',
+      taskId: 'task-new',
+      startedAt: '2026-07-26T00:00:03.000Z',
+    });
+
+    expect(consumeProjectViewEvent({
+      version: 1,
+      projectId: 'project-a',
+      occurredAt: '2026-07-26T00:00:02.500Z',
+      kind: 'runtime.tool.started',
+      agentId: 'mario',
+      invocationId: 'inv-current',
+      invocationStartedAt: '2026-07-26T00:00:00.000Z',
+      payload: { toolName: 'LateOldTool' },
+    })).toBe(true);
+    expect(useTaskHubStore.getState().activeStreamMessageId.mario).toBeUndefined();
+
+    expect(consumeProjectViewEvent({
+      ...envelope('project-a', 'runtime.text.delta'),
+      occurredAt: '2026-07-26T00:00:03.100Z',
+      invocationId: 'inv-new',
+      invocationStartedAt: '2026-07-26T00:00:03.000Z',
+      payload: { content: 'new answer' },
+    })).toBe(true);
+    expect(useTaskHubStore.getState().chatMessagesByConversation['project-a'])
+      .toContainEqual(expect.objectContaining({
+        invocationId: 'inv-new',
+        content: 'new answer',
+        isStreaming: true,
+      }));
+  });
+
+  it('treats an empty daemon status after reconnect as an authoritative idle snapshot', () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ messages: [] }),
+    })));
+    vi.spyOn(socket, 'emit').mockImplementation(((event: string, ...args: unknown[]) => {
+      if (event === 'daemon:status') {
+        const callback = args.at(-1) as ((response: unknown) => void) | undefined;
+        callback?.({ activeAgents: {} });
+      }
+      return socket;
+    }) as typeof socket.emit);
+    useTaskHubStore.setState({
+      agentStatus: { mario: 'busy' },
+      activeRunsByAgent: {
+        mario: {
+          runId: 'stale-recovered-run',
+          invocationId: 'inv-ended-while-offline',
+          conversationId: 'project-a',
+          startedAt: '2026-07-26T00:00:00.000Z',
+        },
+      },
+    });
+
+    (socket as unknown as { emitEvent(args: unknown[]): void }).emitEvent(['connect']);
+
+    expect(useTaskHubStore.getState().agentStatus.mario).toBe('idle');
+    expect(useTaskHubStore.getState().activeRunsByAgent.mario).toBeUndefined();
+  });
+
+  it('allows a newer invocation to enter background or fail before producing text', () => {
+    const recoveredRun = {
+      runId: 'recovered-old',
+      invocationId: 'inv-old',
+      conversationId: 'project-a',
+      startedAt: '2026-07-26T00:00:00.000Z',
+    };
+    useTaskHubStore.setState({
+      agentStatus: { mario: 'busy' },
+      activeRunsByAgent: { mario: recoveredRun },
+      activeStreamMessageId: {},
+      activeStreamConversationId: {},
+    });
+
+    expect(consumeProjectViewEvent({
+      version: 1,
+      projectId: 'project-a',
+      occurredAt: '2026-07-26T00:00:01.000Z',
+      kind: 'runtime.activity',
+      agentId: 'mario',
+      invocationId: 'inv-background',
+      invocationStartedAt: '2026-07-26T00:00:01.000Z',
+      payload: { status: 'awaiting_children', taskId: 'task-background' },
+    })).toBe(true);
+    expect(useTaskHubStore.getState().activeRunsByAgent.mario).toMatchObject({
+      invocationId: 'inv-background',
+      taskId: 'task-background',
+      activity: 'awaiting_children',
+    });
+
+    useTaskHubStore.setState({
+      agentStatus: { mario: 'busy' },
+      activeRunsByAgent: { mario: recoveredRun },
+      activeStreamMessageId: {},
+      activeStreamConversationId: {},
+    });
+    expect(consumeProjectViewEvent({
+      version: 1,
+      projectId: 'project-a',
+      occurredAt: '2026-07-26T00:00:02.000Z',
+      kind: 'terminal.exited',
+      agentId: 'mario',
+      invocationId: 'inv-spawn-failed',
+      invocationStartedAt: '2026-07-26T00:00:02.000Z',
+      payload: { code: 1, reasonCode: 'spawn_failed' },
+    })).toBe(true);
+    expect(useTaskHubStore.getState().agentStatus.mario).toBe('idle');
+    expect(useTaskHubStore.getState().activeRunsByAgent.mario).toBeUndefined();
+  });
+
+  it('does not inherit an old background run when a newer streamed invocation exits', () => {
+    useTaskHubStore.setState({
+      agentStatus: { mario: 'background' },
+      activeRunsByAgent: {
+        mario: {
+          runId: 'run-old-background',
+          invocationId: 'inv-old',
+          taskId: 'task-old',
+          conversationId: 'project-a',
+          startedAt: '2026-07-26T00:00:00.000Z',
+          activity: 'awaiting_children',
+        },
+      },
+      activeStreamMessageId: {},
+      activeStreamConversationId: {},
+    });
+    expect(consumeProjectViewEvent({
+      ...envelope('project-a', 'runtime.text.delta'),
+      occurredAt: '2026-07-26T00:00:01.100Z',
+      invocationId: 'inv-new',
+      invocationStartedAt: '2026-07-26T00:00:01.000Z',
+      payload: { content: 'new invocation answer' },
+    })).toBe(true);
+
+    expect(consumeProjectViewEvent({
+      version: 1,
+      projectId: 'project-a',
+      occurredAt: '2026-07-26T00:00:01.200Z',
+      kind: 'runtime.activity',
+      agentId: 'mario',
+      invocationId: 'inv-new',
+      invocationStartedAt: '2026-07-26T00:00:01.000Z',
+      payload: { status: 'running' },
+    })).toBe(true);
+    expect(useTaskHubStore.getState().activeRunsByAgent.mario).toMatchObject({
+      runId: 'inv-new',
+      invocationId: 'inv-new',
+      taskId: undefined,
+      startedAt: '2026-07-26T00:00:01.000Z',
+      activity: 'foreground',
+    });
+
+    useTaskHubStore.setState((state) => ({
+      agentStatus: { ...state.agentStatus, mario: 'background' },
+      activeRunsByAgent: {
+        ...state.activeRunsByAgent,
+        mario: {
+          runId: 'run-old-background',
+          invocationId: 'inv-old',
+          taskId: 'task-old',
+          conversationId: 'project-a',
+          startedAt: '2026-07-26T00:00:00.000Z',
+          activity: 'awaiting_children',
+        },
+      },
+    }));
+    expect(consumeProjectViewEvent({
+      version: 1,
+      projectId: 'project-a',
+      occurredAt: '2026-07-26T00:00:01.300Z',
+      kind: 'runtime.activity',
+      agentId: 'mario',
+      invocationId: 'inv-new',
+      invocationStartedAt: '2026-07-26T00:00:01.000Z',
+      payload: { status: 'awaiting_children' },
+    })).toBe(true);
+    expect(useTaskHubStore.getState().activeRunsByAgent.mario).toMatchObject({
+      runId: 'inv-new',
+      invocationId: 'inv-new',
+      taskId: undefined,
+      startedAt: '2026-07-26T00:00:01.000Z',
+      activity: 'awaiting_children',
+    });
+
+    useTaskHubStore.setState((state) => ({
+      agentStatus: { ...state.agentStatus, mario: 'background' },
+      activeRunsByAgent: {
+        ...state.activeRunsByAgent,
+        mario: {
+          runId: 'run-old-background',
+          invocationId: 'inv-old',
+          taskId: 'task-old',
+          conversationId: 'project-a',
+          startedAt: '2026-07-26T00:00:00.000Z',
+          activity: 'awaiting_children',
+        },
+      },
+    }));
+
+    expect(consumeProjectViewEvent({
+      version: 1,
+      projectId: 'project-a',
+      occurredAt: '2026-07-26T00:00:02.000Z',
+      kind: 'terminal.exited',
+      agentId: 'mario',
+      invocationId: 'inv-new',
+      invocationStartedAt: '2026-07-26T00:00:01.000Z',
+      payload: { code: 0 },
+    })).toBe(true);
+
+    const state = useTaskHubStore.getState();
+    expect(state.agentStatus.mario).toBe('idle');
+    expect(state.activeRunsByAgent.mario).toBeUndefined();
+    expect(state.eventsByConversation['project-a']).toContainEqual(expect.objectContaining({
+      type: 'run.finished',
+      payload: expect.objectContaining({ runId: 'inv-new', taskId: undefined }),
+    }));
+  });
+
   it('renders runtime warnings without persisting or emitting a command', () => {
     const fetchSpy = vi.fn();
     vi.stubGlobal('fetch', fetchSpy);

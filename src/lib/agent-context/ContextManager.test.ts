@@ -192,7 +192,9 @@ describe('ContextManager', () => {
       rawPrompt: 'a'.repeat(400),
       trigger: 'user_turn',
       isFirstWake: false,
-      budgetOverride: new ContextBudget({ maxTokens: 1000 }),
+      // The user-visible response contract is a non-trimmable system rule;
+      // leave enough headroom for it while still forcing history to drop.
+      budgetOverride: new ContextBudget({ maxTokens: 1300 }),
     };
 
     const result = await manager.assembleContext(req);
@@ -224,6 +226,9 @@ describe('ContextManager', () => {
     const merged = `${result.systemPrompt ?? ''}\n\n${result.userPrompt}`;
     const collaborationOccurrences = (merged.match(/## Agent 协作协议/g) ?? []).length;
     expect(collaborationOccurrences).toBe(1);
+    const responseContractOccurrences = (merged.match(/## 对用户说人话/g) ?? []).length;
+    expect(responseContractOccurrences).toBe(1);
+    expect(result.systemPrompt).toContain('第一行直接说结果');
   });
 
   it('非首次唤醒不返回 systemPrompt', async () => {
@@ -240,6 +245,8 @@ describe('ContextManager', () => {
     const result = await manager.assembleContext(req);
 
     expect(result.systemPrompt).toBeUndefined();
+    expect(result.userPrompt).toContain('## 对用户说人话');
+    expect(result.userPrompt).toContain('普通回复控制在 1–5 句');
   });
 
   it('按 wakeup 策略省略 dialog 并暴露簇决策', async () => {
@@ -314,6 +321,7 @@ describe('ContextManager', () => {
     // collaboration 协议仍必须经 message channel 注入，不能因为 isFirstWake
     // 被整体丢弃。之前用 !req.isFirstWake 做 guard 导致此处出现 0 次。
     expect(result.userPrompt).toContain('## Agent 协作协议');
+    expect(result.userPrompt).toContain('## 对用户说人话');
   });
 
   it('编译绑定 Skill 并在报告中记录版本与交付结果', async () => {

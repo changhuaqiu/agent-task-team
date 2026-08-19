@@ -28,6 +28,7 @@ const IDENTITIES: Record<string, NativeFragmentIdentity> = {
   collaboration: { id: 'platform:collaboration', kind: 'platform.collaboration', producer: 'platform-protocol' },
   protocol: { id: 'platform:protocol', kind: 'platform.protocol', producer: 'platform-protocol' },
   behavior: { id: 'platform:behavior', kind: 'platform.behavior', producer: 'platform-protocol' },
+  'user-visible-response': { id: 'platform:user-visible-response', kind: 'platform.user-visible-response', producer: 'platform-protocol' },
   tool: { id: 'tool:registry', kind: 'tool.registry', producer: 'tool-registry' },
   team: { id: 'team:roster', kind: 'team.roster', producer: 'team-runtime' },
   teamPack: { id: 'team:pack', kind: 'team.pack', producer: 'team-runtime' },

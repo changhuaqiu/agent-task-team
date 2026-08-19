@@ -10,6 +10,7 @@ import { buildRoleLayer } from './layers/roleLayer';
 import { buildProjectLayer } from './layers/projectLayer';
 import { buildProjectStatusLayer } from './layers/projectStatusLayer';
 import { buildCollaborationLayer } from './layers/collaborationLayer';
+import { buildUserVisibleResponseLayer } from './layers/userVisibleResponseLayer';
 import { renderAllTiers } from './tiers';
 import { extractToolsFromSkills } from './skillTools';
 import type { SkillSummary, ToolDefinition } from './types';
@@ -299,6 +300,7 @@ export class ContextManager {
           : '',
         getDirective(scenario, archetype, 'protocol') === 'include' ? buildCollaborationLayer() : '',
         getDirective(scenario, archetype, 'situation') === 'include' ? projectStatus : '',
+        getDirective(scenario, archetype, 'protocol') === 'include' ? buildUserVisibleResponseLayer() : '',
       ].filter(Boolean).join('\n\n');
     }
 

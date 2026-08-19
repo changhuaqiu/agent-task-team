@@ -56,6 +56,7 @@ export type AgentRunActivity = 'foreground' | 'awaiting_children';
 
 export interface ActiveAgentRun {
   runId: string;
+  invocationId?: string;
   taskId?: string;
   conversationId: string;
   startedAt: string;
@@ -490,7 +491,9 @@ export function mapMessagesToState(recentMessages: Record<string, any[]>): Recor
         const meta = m.metadata ? (typeof m.metadata === 'string' ? JSON.parse(m.metadata) : m.metadata) : {};
         const invocationId = m.invocation_id ?? meta?.invocationId;
         const toolEvent: ToolEvent = {
-          id: m.id,
+          id: meta?.toolEvent?.callId
+            ? `${meta.toolEvent.callId}:started`
+            : m.id,
           type: 'tool_use',
           label: meta?.toolEvent?.name || m.content.replace(/^🔧\s*使用工具：/, ''),
           detail: meta?.toolEvent?.input || undefined,
@@ -553,21 +556,40 @@ export function reconcileConversationMessages(
 
   const localIds = new Set(localMessages.map((message) => message.id));
   const durableIds = new Set(durableMessages.map((message) => message.id));
-  const durableInvocationIds = new Set(
-    durableMessages
-      .map((message) => message.invocationId)
-      .filter((value): value is string => !!value),
-  );
+  const durableById = new Map<string, ChatMessage>();
+  for (const message of localMessages) {
+    if (!isProvisionalRuntimeMessage(message)) durableById.set(message.id, message);
+  }
+  for (const message of durableMessages) durableById.set(message.id, message);
+  const durableNarrativeByInvocation = new Map<string, string>();
+  for (const message of [...durableById.values()].sort((left, right) => {
+    const timeOrder = left.timestamp.localeCompare(right.timestamp);
+    return timeOrder !== 0 ? timeOrder : left.id.localeCompare(right.id);
+  })) {
+    if (!message.invocationId || !message.content) continue;
+    durableNarrativeByInvocation.set(
+      message.invocationId,
+      `${durableNarrativeByInvocation.get(message.invocationId) ?? ''}${message.content}`,
+    );
+  }
   const unmatchedDurable = durableMessages.filter((message) => !localIds.has(message.id));
   const retainedLocal = localMessages.filter((local) => {
     if (durableIds.has(local.id)) return false;
     if (
       isProvisionalRuntimeMessage(local)
       && local.invocationId
-      && durableInvocationIds.has(local.invocationId)
       && !activeStreamMessageIds.has(local.id)
+      && (local.toolEvents?.length ?? 0) === 0
     ) {
-      return false;
+      const durableNarrative = durableNarrativeByInvocation.get(local.invocationId) ?? '';
+      if (
+        durableNarrative
+        && (
+          local.content.trim().length === 0
+          || durableNarrative === local.content
+          || !local.content.startsWith(durableNarrative)
+        )
+      ) return false;
     }
     const optimisticMatch = unmatchedDurable.findIndex((durable) => (
       isSameOptimisticMessage(local, durable)
@@ -712,9 +734,14 @@ export interface TaskHubState {
   connectDaemon: () => void;
   upsertAgentSession: (projectId: ProjectId, agentId: string, sessionId: string) => void;
   appendTerminalLog: (agentId: string, log: string) => void;
-  ensureStreamMessage: (agentId: string, conversationId: string, invocationId?: string) => string;
+  ensureStreamMessage: (
+    agentId: string,
+    conversationId: string,
+    invocationId?: string,
+    invocationStartedAt?: string,
+  ) => string | undefined;
   appendToStreamMessage: (messageId: string, patch: { content?: string; toolEvent?: ToolEvent }) => void;
-  completeStreamMessage: (agentId: string) => void;
+  completeStreamMessage: (agentId: string, invocationId?: string) => void;
   cleanupStaleStreams: () => void;
   selectedTaskId: string | null;
   setSelectedTaskId: (id: string | null) => void;
@@ -1396,7 +1423,7 @@ export const useTaskHubStore = create<TaskHubState>()(
               console.error('[messages] failed to reconcile selected project:', error);
             });
             socket.emit('daemon:status', { projectId: conversationId }, (response: {
-              activeAgents?: Record<string, { taskId?: string; conversationId?: string }>;
+              activeAgents?: Record<string, { taskId?: string; conversationId?: string; invocationId?: string; startedAt?: string }>;
             }) => {
               if (get().selectedConversationId !== conversationId || !response?.activeAgents) return;
               const statusUpdate: Record<string, AgentRunStatus> = {};
@@ -1406,9 +1433,10 @@ export const useTaskHubStore = create<TaskHubState>()(
                 statusUpdate[agentId] = 'busy';
                 runsUpdate[agentId] = {
                   runId: `recovered-${agentId}`,
+                  invocationId: info.invocationId,
                   taskId: info.taskId,
                   conversationId,
-                  startedAt: new Date().toISOString(),
+                  startedAt: info.startedAt ?? new Date().toISOString(),
                 };
               }
               set({ agentStatus: statusUpdate, activeRunsByAgent: runsUpdate });
@@ -1915,7 +1943,7 @@ socket.on('connect', () => {
     }
   });
 
-  if (selectedConversationId) socket.emit('daemon:status', { projectId: selectedConversationId }, (response: { activeAgents: Record<string, { taskId?: string; conversationId?: string }> }) => {
+  if (selectedConversationId) socket.emit('daemon:status', { projectId: selectedConversationId }, (response: { activeAgents: Record<string, { taskId?: string; conversationId?: string; invocationId?: string; startedAt?: string }> }) => {
     if (!response?.activeAgents) return;
     const statusUpdate: Record<string, AgentRunStatus> = {};
     const runsUpdate: Record<string, ActiveAgentRun | undefined> = {};
@@ -1925,16 +1953,26 @@ socket.on('connect', () => {
       runsUpdate[agentId] = info.conversationId
         ? {
             runId: `recovered-${agentId}`,
+            invocationId: info.invocationId,
             taskId: info.taskId,
             conversationId: info.conversationId,
-            startedAt: new Date().toISOString(),
+            startedAt: info.startedAt ?? new Date().toISOString(),
           }
         : undefined;
     }
-    useTaskHubStore.setState((state) => ({
-      agentStatus: { ...state.agentStatus, ...statusUpdate },
-      activeRunsByAgent: { ...state.activeRunsByAgent, ...runsUpdate },
-    }));
+    useTaskHubStore.setState((state) => {
+      const agentStatus = { ...state.agentStatus };
+      const activeRunsByAgent = { ...state.activeRunsByAgent };
+      for (const [agentId, run] of Object.entries(activeRunsByAgent)) {
+        if (run?.conversationId !== selectedConversationId) continue;
+        activeRunsByAgent[agentId] = undefined;
+        agentStatus[agentId] = 'idle';
+      }
+      return {
+        agentStatus: { ...agentStatus, ...statusUpdate },
+        activeRunsByAgent: { ...activeRunsByAgent, ...runsUpdate },
+      };
+    });
   });
 
   useTaskHubStore.getState().cleanupStaleStreams();
@@ -2016,11 +2054,61 @@ function handleAgentSession(input: {
   useTaskHubStore.getState().upsertAgentSession(input.projectId, input.agentId, input.sessionId);
 }
 
-function handleAgentActivity({ projectId, taskId, agentId, sessionId, status, reason }: {
+function activeStreamMessageForAgent(state: TaskHubState, agentId: string): ChatMessage | undefined {
+  const messageId = state.activeStreamMessageId[agentId];
+  const conversationId = state.activeStreamConversationId[agentId];
+  if (!messageId || !conversationId) return undefined;
+  return state.chatMessagesByConversation[conversationId]
+    ?.find((message) => message.id === messageId);
+}
+
+function eventMatchesActiveStreamInvocation(
+  state: TaskHubState,
+  agentId: string,
+  invocationId?: string,
+): boolean {
+  const activeMessage = activeStreamMessageForAgent(state, agentId);
+  if (activeMessage?.invocationId) return activeMessage.invocationId === invocationId;
+  const activeRunInvocationId = state.activeRunsByAgent[agentId]?.invocationId;
+  return !activeRunInvocationId || activeRunInvocationId === invocationId;
+}
+
+function classifyInvocationEvent(
+  state: TaskHubState,
+  agentId: string,
+  invocationId?: string,
+  invocationStartedAt?: string,
+): 'current' | 'newer' | 'stale' {
+  const activeMessage = activeStreamMessageForAgent(state, agentId);
+  const activeRun = state.activeRunsByAgent[agentId];
+  const currentInvocationId = activeMessage?.invocationId ?? activeRun?.invocationId;
+  if (!currentInvocationId || currentInvocationId === invocationId) return 'current';
+  const currentStartedAt = activeMessage?.metadata?.invocationStartedAt ?? activeRun?.startedAt;
+  return invocationId && invocationStartedAt && currentStartedAt && invocationStartedAt > currentStartedAt
+    ? 'newer'
+    : 'stale';
+}
+
+function reusableActiveRun(
+  state: TaskHubState,
+  agentId: string,
+  invocationId?: string,
+): ActiveAgentRun | undefined {
+  const candidate = state.activeRunsByAgent[agentId];
+  if (!candidate) return undefined;
+  return candidate.invocationId === invocationId
+    || (!candidate.invocationId && !invocationId)
+    ? candidate
+    : undefined;
+}
+
+function handleAgentActivity({ projectId, taskId, agentId, sessionId, invocationId, invocationStartedAt, status, reason }: {
   projectId: string;
   taskId?: string;
   agentId: string;
   sessionId?: string;
+  invocationId?: string;
+  invocationStartedAt?: string;
   status: 'running' | 'awaiting_children' | 'idle';
   reason?: string;
 }): void {
@@ -2028,23 +2116,46 @@ function handleAgentActivity({ projectId, taskId, agentId, sessionId, status, re
   if (sessionId) {
     state.upsertAgentSession(projectId, agentId, sessionId);
   }
+  const relation = classifyInvocationEvent(state, agentId, invocationId, invocationStartedAt);
+  if (relation === 'stale') return;
+  const priorInvocationId = activeStreamMessageForAgent(state, agentId)?.invocationId
+    ?? state.activeRunsByAgent[agentId]?.invocationId;
+  if (relation === 'newer' && priorInvocationId) {
+    state.completeStreamMessage(agentId, priorInvocationId);
+  }
 
   if (status === 'running') {
+    const existing = reusableActiveRun(state, agentId, invocationId);
     resetWatchdog(agentId, useTaskHubStore.getState, useTaskHubStore.setState);
+    useTaskHubStore.setState((s) => ({
+      agentStatus: { ...s.agentStatus, [agentId]: 'busy' },
+      activeRunsByAgent: {
+        ...s.activeRunsByAgent,
+        [agentId]: {
+          runId: existing?.runId ?? invocationId ?? `run-${agentId}-${Date.now()}`,
+          invocationId: invocationId,
+          taskId: taskId ?? existing?.taskId,
+          conversationId: projectId,
+          startedAt: existing?.startedAt ?? invocationStartedAt ?? new Date().toISOString(),
+          activity: 'foreground',
+        },
+      },
+    }));
     return;
   }
   if (status === 'awaiting_children') {
     clearWatchdog(agentId);
-    const existing = state.activeRunsByAgent[agentId];
+    const existing = reusableActiveRun(state, agentId, invocationId);
     useTaskHubStore.setState((s) => ({
       agentStatus: { ...s.agentStatus, [agentId]: 'background' },
       activeRunsByAgent: {
         ...s.activeRunsByAgent,
         [agentId]: {
-          runId: existing?.runId ?? `background-${agentId}-${Date.now()}`,
+          runId: existing?.runId ?? invocationId ?? `background-${agentId}-${Date.now()}`,
+          invocationId: invocationId ?? existing?.invocationId,
           taskId: taskId ?? existing?.taskId,
           conversationId: projectId,
-          startedAt: existing?.startedAt ?? new Date().toISOString(),
+          startedAt: existing?.startedAt ?? invocationStartedAt ?? new Date().toISOString(),
           activity: 'awaiting_children',
         },
       },
@@ -2062,7 +2173,7 @@ function handleAgentActivity({ projectId, taskId, agentId, sessionId, status, re
       agentStatus: { ...s.agentStatus, [agentId]: 'idle' },
       activeRunsByAgent: { ...s.activeRunsByAgent, [agentId]: undefined },
     }));
-    state.completeStreamMessage(agentId);
+    state.completeStreamMessage(agentId, invocationId);
   }
 }
 
@@ -2070,12 +2181,13 @@ function handleAgentEvent(event: {
   agentId: string;
   type: string;
   content?: string;
-  tool?: { name?: string; input?: string; output?: string };
+  tool?: { callId?: string; name?: string; input?: string; output?: string };
   sessionId?: string;
   invocationId?: string;
   conversationId?: string;
+  invocationStartedAt?: string;
 }): void {
-  const { agentId, type, content, tool, sessionId, invocationId, conversationId: eventConvId } = event;
+  const { agentId, type, content, tool, sessionId, invocationId, conversationId: eventConvId, invocationStartedAt } = event;
   const state = useTaskHubStore.getState();
 
   const active = state.activeRunsByAgent[agentId];
@@ -2099,25 +2211,28 @@ function handleAgentEvent(event: {
   }
 
   if (type === 'done') {
-    state.completeStreamMessage(agentId);
+    state.completeStreamMessage(agentId, invocationId);
     return;
   }
 
-  let activeId = state.activeStreamMessageId[agentId];
-  if (!activeId) {
-    activeId = state.ensureStreamMessage(agentId, conversationId, invocationId);
+  if (type === 'thinking') {
+    return;
+  }
+  if (type === 'plan') {
+    // Plan updates are projected in observability; they are not chat content.
+    return;
   }
 
+  const activeId = state.ensureStreamMessage(agentId, conversationId, invocationId, invocationStartedAt);
+  if (!activeId) return;
   if (type === 'text') {
     state.appendToStreamMessage(activeId, { content: content || '' });
-  } else if (type === 'thinking') {
-    // skip
-  } else if (type === 'plan') {
-    // Plan updates are projected in observability; they are not chat content.
   } else if (type === 'tool_use') {
     state.appendToStreamMessage(activeId, {
       toolEvent: {
-        id: `te-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        id: tool?.callId
+          ? `${tool.callId}:started`
+          : `te-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         type: 'tool_use',
         label: tool?.name || 'unknown',
         detail: tool?.input,
@@ -2127,7 +2242,9 @@ function handleAgentEvent(event: {
   } else if (type === 'tool_result') {
     state.appendToStreamMessage(activeId, {
       toolEvent: {
-        id: `te-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        id: tool?.callId
+          ? `${tool.callId}:completed`
+          : `te-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         type: 'tool_result',
         label: tool?.name || 'unknown',
         detail: tool?.output,
@@ -2137,7 +2254,9 @@ function handleAgentEvent(event: {
   } else if (type === 'error') {
     state.appendToStreamMessage(activeId, {
       toolEvent: {
-        id: `te-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        id: tool?.callId
+          ? `${tool.callId}:failed`
+          : `te-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         type: 'error',
         label: '错误',
         detail: content,
@@ -2156,8 +2275,9 @@ function handleAgentDelta(event: {
   content?: string;
   sessionId?: string;
   invocationId?: string;
+  invocationStartedAt?: string;
 }): void {
-  const { projectId, agentId, type, content, sessionId, invocationId } = event;
+  const { projectId, agentId, type, content, sessionId, invocationId, invocationStartedAt } = event;
   const state = useTaskHubStore.getState();
   if (sessionId) state.upsertAgentSession(projectId, agentId, sessionId);
   if (type === 'heartbeat') {
@@ -2165,8 +2285,8 @@ function handleAgentDelta(event: {
     return;
   }
   if (type !== 'text') return;
-  const activeId = state.activeStreamMessageId[agentId]
-    ?? state.ensureStreamMessage(agentId, projectId, invocationId);
+  const activeId = state.ensureStreamMessage(agentId, projectId, invocationId, invocationStartedAt);
+  if (!activeId) return;
   state.appendToStreamMessage(activeId, { content: content || '' });
 }
 
@@ -2192,6 +2312,8 @@ export function consumeProjectViewEvent(envelope: unknown): boolean {
         agentId,
         taskId: typeof payload.taskId === 'string' ? payload.taskId : undefined,
         sessionId: typeof payload.sessionId === 'string' ? payload.sessionId : undefined,
+        invocationId: event.invocationId,
+        invocationStartedAt: event.invocationStartedAt,
         status,
         reason: typeof payload.reason === 'string' ? payload.reason : undefined,
       });
@@ -2206,6 +2328,7 @@ export function consumeProjectViewEvent(envelope: unknown): boolean {
       type: event.kind === 'runtime.text.delta' ? 'text' : 'thinking',
       content: typeof payload.content === 'string' ? payload.content : '',
       invocationId: event.invocationId,
+      invocationStartedAt: event.invocationStartedAt,
     });
     if (event.kind === 'runtime.text.delta' && typeof payload.content === 'string') {
       handleTerminalData({ agentId, data: payload.content });
@@ -2227,7 +2350,9 @@ export function consumeProjectViewEvent(envelope: unknown): boolean {
       type: 'tool_use',
       conversationId: event.projectId,
       invocationId: event.invocationId,
+      invocationStartedAt: event.invocationStartedAt,
       tool: {
+        callId: typeof payload.callId === 'string' ? payload.callId : undefined,
         name: typeof payload.toolName === 'string' ? payload.toolName : 'unknown',
         input: typeof payload.input === 'string' ? payload.input : undefined,
       },
@@ -2246,8 +2371,10 @@ export function consumeProjectViewEvent(envelope: unknown): boolean {
       type: event.kind === 'runtime.tool.failed' ? 'error' : 'tool_result',
       conversationId: event.projectId,
       invocationId: event.invocationId,
+      invocationStartedAt: event.invocationStartedAt,
       content: typeof payload.output === 'string' ? payload.output : undefined,
       tool: {
+        callId: typeof payload.callId === 'string' ? payload.callId : undefined,
         name: typeof payload.toolName === 'string' ? payload.toolName : 'unknown',
         output: typeof payload.output === 'string' ? payload.output : undefined,
       },
@@ -2261,9 +2388,14 @@ export function consumeProjectViewEvent(envelope: unknown): boolean {
     const message = typeof payload.message === 'string' ? payload.message : 'Runtime warning';
     const state = useTaskHubStore.getState();
     const activeId = state.activeStreamMessageId[agentId];
-    if (activeId) {
+    const warningMatchesActiveInvocation = eventMatchesActiveStreamInvocation(
+      state,
+      agentId,
+      event.invocationId,
+    );
+    if (activeId && warningMatchesActiveInvocation) {
       state.appendToStreamMessage(activeId, { content: `\n⚠️ ${message}` });
-      state.completeStreamMessage(agentId);
+      state.completeStreamMessage(agentId, event.invocationId);
     } else {
       appendProjectedChatMessage(event.projectId, agentId, `⚠️ ${message}`);
     }
@@ -2288,6 +2420,13 @@ export function consumeProjectViewEvent(envelope: unknown): boolean {
   } else if (event.kind === 'chat.message.persisted') {
     const rawMessage = payload.message;
     if (!rawMessage || typeof rawMessage !== 'object') return false;
+    if (
+      payload.invocationTerminal === true
+      && agentId
+      && event.invocationId
+    ) {
+      useTaskHubStore.getState().completeStreamMessage(agentId, event.invocationId);
+    }
     const durableMessages = mapMessagesToState({
       [event.projectId]: [rawMessage],
     })[event.projectId] ?? [];
@@ -2307,6 +2446,7 @@ export function consumeProjectViewEvent(envelope: unknown): boolean {
       type: 'done',
       conversationId: event.projectId,
       invocationId: event.invocationId,
+      invocationStartedAt: event.invocationStartedAt,
     });
     appendStructuredTerminalLine(
       agentId,
@@ -2326,6 +2466,8 @@ export function consumeProjectViewEvent(envelope: unknown): boolean {
       code: payload.code,
       command: typeof payload.command === 'string' ? payload.command : undefined,
       reasonCode: typeof payload.reasonCode === 'string' ? payload.reasonCode : undefined,
+      invocationId: event.invocationId,
+      invocationStartedAt: event.invocationStartedAt,
       activity: activity === 'awaiting_children' || activity === 'idle' ? activity : undefined,
     });
   } else {
@@ -2342,17 +2484,30 @@ socket.on('dispatch.receipt', (receipt: DispatchReceipt) => {
   useTaskHubStore.getState().recordDispatchReceipt(receipt);
 });
 
-function handleTerminalExit({ projectId, agentId, code, command, reasonCode, activity }: {
+function handleTerminalExit({ projectId, agentId, code, command, reasonCode, invocationId, invocationStartedAt, activity }: {
   projectId: string;
   agentId: string;
   code: number;
   command?: string;
   reasonCode?: string;
+  invocationId?: string;
+  invocationStartedAt?: string;
   activity?: 'awaiting_children' | 'idle';
 }): void {
   const store = useTaskHubStore.getState();
-  const active = store.activeRunsByAgent[agentId];
-  const runId = active?.runId;
+  const relation = classifyInvocationEvent(store, agentId, invocationId, invocationStartedAt);
+  const currentStreamInvocationId = activeStreamMessageForAgent(store, agentId)?.invocationId;
+  if (relation === 'stale') {
+    store.appendTerminalLog(agentId, `\r\n\x1b[36m[process exited with code ${code}]\x1b[0m\r\n`);
+    return;
+  }
+  if (relation === 'newer' && currentStreamInvocationId) {
+    store.completeStreamMessage(agentId, currentStreamInvocationId);
+  }
+  const active = relation === 'current'
+    ? reusableActiveRun(store, agentId, invocationId)
+    : undefined;
+  const runId = active?.runId ?? invocationId;
   const taskId = active?.taskId;
   const backgroundWaiting = code === 0 && (activity === 'awaiting_children' || active?.activity === 'awaiting_children');
 
@@ -2383,9 +2538,10 @@ function handleTerminalExit({ projectId, agentId, code, command, reasonCode, act
           ? { ...active, conversationId: projectId, activity: 'awaiting_children' }
           : {
               runId: `background-${agentId}-${Date.now()}`,
+              invocationId,
               taskId,
               conversationId: projectId,
-              startedAt: new Date().toISOString(),
+              startedAt: invocationStartedAt ?? new Date().toISOString(),
               activity: 'awaiting_children',
             },
       },
@@ -2400,12 +2556,13 @@ function handleTerminalExit({ projectId, agentId, code, command, reasonCode, act
     activeRunsByAgent: { ...state.activeRunsByAgent, [agentId]: undefined },
     needsFullCompose: { ...state.needsFullCompose, [exitComposeKey]: true },
   }));
-  useTaskHubStore.getState().completeStreamMessage(agentId);
+  useTaskHubStore.getState().completeStreamMessage(agentId, invocationId);
 }
 
-socket.on('command:error', ({ projectId, agentId, message }: {
+socket.on('command:error', ({ projectId, agentId, invocationId, message }: {
   projectId?: string;
   agentId?: string;
+  invocationId?: string;
   message?: string;
 }) => {
   if (!agentId || !message) return;
@@ -2413,9 +2570,14 @@ socket.on('command:error', ({ projectId, agentId, message }: {
   const state = useTaskHubStore.getState();
 
   const activeId = state.activeStreamMessageId[agentId];
-  if (activeId) {
+  const errorMatchesActiveInvocation = eventMatchesActiveStreamInvocation(
+    state,
+    agentId,
+    invocationId,
+  );
+  if (activeId && errorMatchesActiveInvocation) {
     state.appendToStreamMessage(activeId, { content: `\n⚠️ ${message}` });
-    state.completeStreamMessage(agentId);
+    state.completeStreamMessage(agentId, invocationId);
   } else {
     appendProjectedChatMessage(projectId, agentId || 'system', `⚠️ ${message}`);
   }

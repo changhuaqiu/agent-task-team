@@ -137,6 +137,44 @@ describe('durable message reconciliation', () => {
     expect(reconcileConversationMessages([provisional], [durable])).toEqual([durable]);
   });
 
+  it('does not evict provisional final text when only a durable tool row exists', () => {
+    const provisional = message({
+      id: 'stream-with-final',
+      content: '最终答复仍应可见',
+      invocationId: 'inv-tool-first',
+      isStreaming: false,
+    });
+    const durableTool = message({
+      id: 'durable-tool',
+      content: '',
+      invocationId: 'inv-tool-first',
+      toolEvents: [{ id: 'durable-tool', type: 'tool_use', label: 'Read', timestamp }],
+      metadata: { sourceEventId: 'event-tool' },
+    });
+
+    expect(reconcileConversationMessages([provisional], [durableTool])).toEqual(
+      expect.arrayContaining([provisional, durableTool]),
+    );
+  });
+
+  it('keeps a completed aggregate while durable narrative is only its progress prefix', () => {
+    const completed = message({
+      id: 'stream-completed',
+      content: '正在检查。已修复，可以刷新查看。',
+      invocationId: 'inv-progress-first',
+      isStreaming: false,
+    });
+    const durableProgress = message({
+      id: 'durable-progress',
+      content: '正在检查。',
+      invocationId: 'inv-progress-first',
+    });
+
+    expect(reconcileConversationMessages([completed], [durableProgress])).toEqual(
+      expect.arrayContaining([completed, durableProgress]),
+    );
+  });
+
   it('deduplicates an optimistic human message against its durable copy', () => {
     const optimistic = message({ id: 'optimistic', agentId: 'human', content: 'hello' });
     const durable = message({
@@ -246,6 +284,43 @@ describe('durable message reconciliation', () => {
 
     expect(useTaskHubStore.getState().chatMessagesByConversation['project-a']).toEqual([
       expect.objectContaining({ id: 'msg-durable', content: 'complete answer' }),
+    ]);
+  });
+
+  it('settles a stale stream when the durable message confirms the invocation is terminal', () => {
+    useTaskHubStore.setState({
+      chatMessagesByConversation: {
+        'project-a': [message({
+          id: 'stream-terminal',
+          content: '',
+          invocationId: 'inv-1',
+          isStreaming: true,
+          toolEvents: [{
+            id: 'tool-live',
+            type: 'tool_use',
+            label: 'Read',
+            timestamp,
+          }],
+        })],
+      },
+      activeStreamMessageId: { mario: 'stream-terminal' },
+      activeStreamConversationId: { mario: 'project-a' },
+    });
+
+    const envelope = persistedEnvelope();
+    expect(consumeProjectViewEvent({
+      ...envelope,
+      payload: { ...envelope.payload, invocationTerminal: true },
+    })).toBe(true);
+
+    expect(useTaskHubStore.getState().activeStreamMessageId.mario).toBeUndefined();
+    expect(useTaskHubStore.getState().chatMessagesByConversation['project-a']).toEqual([
+      expect.objectContaining({ id: 'msg-durable', content: 'complete answer' }),
+      expect.objectContaining({
+        id: 'stream-terminal',
+        isStreaming: false,
+        toolEvents: [expect.objectContaining({ label: 'Read' })],
+      }),
     ]);
   });
 

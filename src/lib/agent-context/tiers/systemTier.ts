@@ -10,6 +10,7 @@
 import { buildCollaborationLayer } from '../layers/collaborationLayer';
 import { buildProtocolLayer, deriveRoleFromCard } from '../layers/protocolLayer';
 import { buildBehaviorLayer } from '../layers/behaviorLayer';
+import { buildUserVisibleResponseLayer } from '../layers/userVisibleResponseLayer';
 import { buildProtocolHint } from '../protocolHints';
 import type { TierRenderInput } from './tierContext';
 
@@ -36,4 +37,10 @@ export function renderSystemTier({ ctx, push }: TierRenderInput): void {
 
   // Behaviour / close-the-loop requirements.
   push('protocol', 'behavior', buildBehaviorLayer(), {});
+
+  // Product-level user communication contract. Keep it after role/protocol
+  // guidance so persona or internal lifecycle vocabulary cannot override it.
+  if (!identityCarriesCollaboration) {
+    push('protocol', 'user-visible-response', buildUserVisibleResponseLayer(), {});
+  }
 }

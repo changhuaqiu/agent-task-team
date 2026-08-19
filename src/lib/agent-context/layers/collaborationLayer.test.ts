@@ -18,9 +18,8 @@ describe('buildCollaborationLayer', () => {
     expect(result).toContain('伪协作结果');
     expect(result).toContain('@mention');
     expect(result).toContain('不会唤醒对方');
-    expect(result).toContain('先行动、后说明');
-    expect(result).toContain('工具轨迹由界面展示');
     expect(result).toContain('不要用流程辩解代替行动');
+    expect(result).toContain('对用户说人话');
     expect(result).toContain('话多、绕、没在做事、怎么还没结束');
     expect(result).toContain('TASKS.md');
     expect(result).toContain('只读权威事实');

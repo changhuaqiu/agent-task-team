@@ -22,6 +22,7 @@ export interface ProjectViewEventInput {
   kind: ProjectViewEventKind;
   agentId?: string;
   invocationId?: string;
+  invocationStartedAt?: string;
   eventId?: string;
   occurredAt?: string;
   payload: Record<string, unknown>;

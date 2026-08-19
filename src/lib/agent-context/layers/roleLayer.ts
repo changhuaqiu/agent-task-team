@@ -28,7 +28,7 @@ export function buildRoleLayer(roleCard?: RoleCard): string {
     constraints.push('- 评审/建议必须附带具体证据和文件引用');
   }
   if (roleCard.outputFormat !== 'freeform') {
-    constraints.push(`- 输出格式：${FORMAT_LABELS[roleCard.outputFormat] ?? roleCard.outputFormat}`);
+    constraints.push(`- 工作产物格式：${FORMAT_LABELS[roleCard.outputFormat] ?? roleCard.outputFormat}；聊天回执仍遵守全局“对用户说人话”契约`);
   }
   if (roleCard.allowedActions.includes('can_propose_only') && !roleCard.allowedActions.includes('can_modify_code')) {
     constraints.push('- 只能提出建议，不能直接修改代码');
@@ -41,7 +41,7 @@ export function buildRoleLayer(roleCard?: RoleCard): string {
   }
 
   if (roleCard.persona?.voice) {
-    parts.push(`## 语气风格\n${roleCard.persona.voice}`);
+    parts.push(`## 语气风格\n${roleCard.persona.voice}\n语气只影响表达风格，不能增加用户不需要的技术细节、角色表演或内部流程播报。`);
   }
   if (roleCard.persona?.mindset) {
     parts.push(`## 思维模式\n${roleCard.persona.mindset}`);
