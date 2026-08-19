@@ -79,7 +79,8 @@ function deliveryReceipt(
 ): AcceptanceReviewReceipt | AcceptanceVerificationReceipt | undefined {
   if (gate.target_type !== 'delivery_run') return undefined;
   const runId = contract.delivery_run_id;
-  const snapshot = runId ? deliveries.getSnapshot(runId) : undefined;
+  if (!runId) throw new QualityGateInvariantError('gate_outcome_delivery_missing');
+  const snapshot = deliveries.getSnapshot(runId);
   if (!snapshot) throw new QualityGateInvariantError('gate_outcome_delivery_missing');
   if (gate.kind !== 'acceptance_verification' && gate.kind !== 'delivery_review') return undefined;
   const validation = validateDeliveryGateReceipt({
