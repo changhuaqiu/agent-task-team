@@ -156,6 +156,64 @@ describe('TeamMemory', () => {
     }).deferred).toEqual([]);
   });
 
+  it('makes opportunity resolution retries idempotent and rejects semantic drift', () => {
+    const opportunity = memory.observe({
+      conversationId: 'project-a',
+      taskId: 'TASK-1',
+      agentId: 'builder',
+      idempotencyKey: 'retryable-opportunity',
+      sourceRefs: ['proof:proof-a'],
+      reasonCode: 'review-boundary',
+      kindHint: 'lesson',
+    });
+    expect(() => memory.observe({
+      conversationId: 'project-a',
+      taskId: 'TASK-1',
+      agentId: 'builder',
+      idempotencyKey: 'retryable-opportunity',
+      sourceRefs: ['proof:proof-a'],
+      reasonCode: 'review-boundary',
+      kindHint: 'decision',
+    })).toThrowError(expect.objectContaining({ reasonCode: 'memory_idempotency_conflict' }));
+
+    const input = {
+      conversationId: 'project-a',
+      taskId: 'TASK-1',
+      agentId: 'builder',
+      idempotencyKey: 'resolve-opportunity-once',
+      opportunityId: opportunity.id,
+      disposition: 'abstain' as const,
+      reasonCode: 'no_durable_delta',
+    };
+    expect(memory.record(input).replayed).toBe(false);
+    getDb().prepare(`
+      UPDATE team_memory_opportunity
+      SET resolution_idempotency_key=NULL,resolution_digest='legacy:v85'
+      WHERE id=?
+    `).run(opportunity.id);
+    expect(memory.record(input)).toMatchObject({ replayed: true, opportunity: { disposition: 'abstained' } });
+    expect(() => memory.record({ ...input, reasonCode: 'changed_reason' }))
+      .toThrowError(expect.objectContaining({ reasonCode: 'memory_idempotency_conflict' }));
+
+    const direct = {
+      conversationId: 'project-a',
+      taskId: 'TASK-1',
+      agentId: 'builder',
+      idempotencyKey: 'direct-abstain-retry',
+      disposition: 'abstain' as const,
+      sourceRefs: ['proof:proof-a'],
+      reasonCode: 'nothing_to_store',
+    };
+    const directFirst = memory.record(direct);
+    expect(directFirst.replayed).toBe(false);
+    getDb().prepare(`
+      UPDATE team_memory_opportunity
+      SET resolution_idempotency_key=NULL,resolution_digest='legacy:v85'
+      WHERE id=?
+    `).run(directFirst.opportunity.id);
+    expect(memory.record(direct).replayed).toBe(true);
+  });
+
   it('accepts only an exact completed A2A relationship and derives a score-free relationship summary', () => {
     let sequence = 0;
     const repository = new A2ACollaborationRepository({
@@ -233,7 +291,7 @@ describe('TeamMemory', () => {
     ]);
     expect(JSON.stringify(recalled.relationships)).not.toMatch(/score|trust|personality/i);
 
-    const unbound = memory.record({
+    expect(() => memory.record({
       conversationId: 'project-a',
       taskId: 'TASK-1',
       agentId: 'builder',
@@ -247,8 +305,7 @@ describe('TeamMemory', () => {
         objectAgentId: 'other-agent',
         relationKind: 'handoff',
       },
-    });
-    expect(unbound.memory?.status).toBe('proposed');
+    })).toThrow(/authoritative Agent endpoints/);
 
     const humanChain = repository.createChain({
       conversationId: 'project-a',
@@ -283,7 +340,7 @@ describe('TeamMemory', () => {
       expectedRevision: humanStarted.possession.revision,
       summary: 'Human-originated pass completed',
     });
-    const humanRelationship = memory.record({
+    expect(() => memory.record({
       conversationId: 'project-a',
       taskId: 'TASK-1',
       agentId: 'reviewer',
@@ -297,11 +354,61 @@ describe('TeamMemory', () => {
         objectAgentId: 'reviewer',
         relationKind: 'handoff',
       },
-    });
-    expect(humanRelationship.memory?.status).toBe('proposed');
+    })).toThrow(/authoritative Agent endpoints/);
     expect(memory.recall({
       conversationId: 'project-a', taskId: 'TASK-1', agentId: 'reviewer',
     }).relationships.map((item) => item.otherAgentId)).not.toContain('human');
+  });
+
+  it('reports relationship totals from the full fact set while bounding evidence samples', () => {
+    getDb().prepare(`
+      INSERT INTO a2a_possession_chain (
+        id,conversation_id,root_trigger_type,root_trigger_id,status,current_holder_id,
+        config,created_at,revision,updated_at
+      ) VALUES (?,?,?,?,?,?,?,?,?,?)
+    `).run('count-chain', 'project-a', 'user_turn', 'count-root', 'completed', 'reviewer', '{}', NOW, 0, NOW);
+    getDb().prepare(`
+      INSERT INTO a2a_possession (
+        id,chain_id,holder_id,holder_type,status,started_at,summary,revision,updated_at
+      ) VALUES (?,?,?,?,?,?,?,?,?)
+    `).run('count-possession', 'count-chain', 'builder', 'agent', 'completed', NOW, 'done', 0, NOW);
+    const insertPass = getDb().prepare(`
+      INSERT INTO a2a_pass (
+        id,chain_id,from_possession_id,from_holder_id,to_agent_id,status,intent,
+        created_at,updated_at,hop_count,revision
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
+    `);
+    insertPass.run(
+      'count-pass-other', 'count-chain', 'count-possession', 'builder', 'other-agent',
+      'completed', 'review', NOW, new Date(Date.parse(NOW) - 1).toISOString(), 0, 0,
+    );
+    for (let index = 0; index < 60; index += 1) {
+      insertPass.run(
+        `count-pass-${index}`,
+        'count-chain',
+        'count-possession',
+        'builder',
+        'reviewer',
+        index < 55 ? 'completed' : 'failed',
+        'review',
+        NOW,
+        new Date(Date.parse(NOW) + index).toISOString(),
+        0,
+        0,
+      );
+    }
+    const relationships = memory.recall({
+      conversationId: 'project-a', taskId: 'TASK-1', agentId: 'builder',
+    }).relationships;
+    const summary = relationships.find((item) => item.otherAgentId === 'reviewer')!;
+    expect(summary).toMatchObject({
+      otherAgentId: 'reviewer',
+      handoffCount: 60,
+      completedHandoffCount: 55,
+    });
+    expect(summary.evidenceRefs.length).toBeLessThanOrEqual(3);
+    expect(relationships.find((item) => item.otherAgentId === 'other-agent')?.evidenceRefs)
+      .toEqual(['a2a-pass:count-pass-other']);
   });
 
   it('applies human lifecycle decisions and removes retired content from FTS recall', () => {
@@ -339,6 +446,100 @@ describe('TeamMemory', () => {
     }).items.map((item) => item.id)).not.toContain(accepted.id);
     expect(getDb().prepare('SELECT memory_id FROM team_memory_fts WHERE memory_id=?').all(accepted.id))
       .toEqual([]);
+  });
+
+  it('accepts a correction by atomically superseding the predecessor', () => {
+    const predecessor = memory.record({
+      conversationId: 'project-a', taskId: 'TASK-1', agentId: 'builder',
+      idempotencyKey: 'old-memory', disposition: 'propose', kind: 'decision',
+      content: 'Use the old handoff contract.', scope: 'project', sourceRefs: ['proof:proof-a'],
+    }).memory!;
+    const correction = memory.record({
+      conversationId: 'project-a', taskId: 'TASK-1', agentId: 'builder',
+      idempotencyKey: 'replacement-memory', disposition: 'propose', kind: 'correction',
+      content: 'Use the corrected handoff contract.', scope: 'project', sourceRefs: ['proof:proof-a'],
+      supersedesId: predecessor.id,
+    }).memory!;
+    const accepted = memory.decide({
+      memoryId: correction.id,
+      expectedRevision: correction.revision,
+      decision: 'accept',
+      actor: { type: 'human', id: 'human' },
+      reasonCode: 'correction_confirmed',
+    });
+    expect(accepted.status).toBe('accepted');
+    expect(getDb().prepare('SELECT status FROM team_memory_item WHERE id=?').get(predecessor.id))
+      .toEqual({ status: 'superseded' });
+    expect(memory.recall({
+      conversationId: 'project-a', taskId: 'TASK-1', agentId: 'reviewer', query: 'handoff contract',
+    }).items.map((item) => item.id)).toEqual([accepted.id]);
+    expect(getDb().prepare(`
+      SELECT event_type,actor_type,actor_id FROM team_memory_event
+      WHERE memory_id IN (?,?) AND event_type IN ('memory.accepted','memory.superseded')
+        AND actor_type='human'
+      ORDER BY event_type
+    `).all(predecessor.id, correction.id)).toEqual([
+      { event_type: 'memory.accepted', actor_type: 'human', actor_id: 'human' },
+      { event_type: 'memory.superseded', actor_type: 'human', actor_id: 'human' },
+    ]);
+  });
+
+  it('prevents an agent from replacing another agent private memory', () => {
+    const privateMemory = memory.record({
+      conversationId: 'project-a', taskId: 'TASK-1', agentId: 'builder',
+      idempotencyKey: 'private-builder-memory', disposition: 'propose', kind: 'lesson',
+      content: 'Builder private lesson.', scope: 'agent', visibility: 'agent',
+      sourceRefs: ['proof:proof-a'],
+    }).memory!;
+    expect(() => memory.record({
+      conversationId: 'project-a', taskId: 'TASK-1', agentId: 'reviewer',
+      idempotencyKey: 'replace-private-builder-memory', disposition: 'propose', kind: 'lesson',
+      content: 'Reviewer cannot rewrite it.', scope: 'agent', visibility: 'agent',
+      sourceRefs: ['proof:proof-a'], supersedesId: privateMemory.id,
+    })).toThrowError(expect.objectContaining({ reasonCode: 'memory_supersedes_invalid' }));
+  });
+
+  it('rebuilds the derived FTS projection from accepted canonical rows', () => {
+    const item = memory.record({
+      conversationId: 'project-a', taskId: 'TASK-1', agentId: 'builder',
+      idempotencyKey: 'rebuildable-index', disposition: 'propose', kind: 'fact',
+      content: 'A uniquely rebuildable memory token.', scope: 'project', sourceRefs: ['proof:proof-a'],
+    }).memory!;
+    getDb().prepare('DELETE FROM team_memory_fts WHERE memory_id=?').run(item.id);
+    expect(memory.rebuildIndex()).toEqual({ canonicalCount: 1, indexedCount: 1 });
+    expect(memory.recall({
+      conversationId: 'project-a', taskId: 'TASK-1', agentId: 'reviewer', query: 'rebuildable',
+    }).items.map((row) => row.id)).toContain(item.id);
+  });
+
+  it('retires task-owned memory state when its task is deleted without globalizing it', () => {
+    const taskMemory = memory.record({
+      conversationId: 'project-a', taskId: 'TASK-1', agentId: 'builder',
+      idempotencyKey: 'task-delete-memory', disposition: 'propose', kind: 'lesson',
+      content: 'Task-only lesson.', sourceRefs: ['proof:proof-a'],
+    }).memory!;
+    const projectMemory = memory.record({
+      conversationId: 'project-a', taskId: 'TASK-1', agentId: 'builder',
+      idempotencyKey: 'project-survives-task-delete', disposition: 'propose', kind: 'fact',
+      content: 'Project-wide fact.', scope: 'project', sourceRefs: ['proof:proof-a'],
+    }).memory!;
+    const opportunity = memory.observe({
+      conversationId: 'project-a', taskId: 'TASK-1', agentId: 'builder',
+      idempotencyKey: 'task-delete-opportunity', sourceRefs: ['proof:proof-a'],
+      reasonCode: 'task_boundary',
+    });
+
+    getDb().prepare('DELETE FROM task WHERE id=?').run('TASK-1');
+
+    expect(getDb().prepare('SELECT 1 FROM team_memory_item WHERE id=?').get(taskMemory.id)).toBeUndefined();
+    expect(getDb().prepare('SELECT task_id FROM team_memory_item WHERE id=?').get(projectMemory.id))
+      .toEqual({ task_id: null });
+    expect(getDb().prepare(`
+      SELECT COUNT(*) AS count FROM team_memory_event
+      WHERE memory_id=? AND event_type='memory.proposed'
+    `).get(projectMemory.id)).toEqual({ count: 1 });
+    expect(getDb().prepare('SELECT 1 FROM team_memory_opportunity WHERE id=?').get(opportunity.id))
+      .toBeUndefined();
   });
 
   it('removes canonical rows and FTS projections with the owning conversation aggregate', () => {

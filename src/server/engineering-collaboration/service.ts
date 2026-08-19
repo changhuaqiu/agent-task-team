@@ -129,7 +129,7 @@ export class EngineeringCollaborationService {
     evidence: ImplementationEvidence;
     correlationId?: string;
     causationId?: string;
-  }): Promise<{ receipt: PullRequestReceipt; card: EngineeringCollaborationCard; messageId: string }> {
+  }): Promise<{ receipt: PullRequestReceipt; card: EngineeringCollaborationCard; messageId: string; actionId: string }> {
     const task = assertTask(input.taskId);
     assertConversation(task, input.expectedConversationId);
     if (task.agent_id !== input.actorAgentId) {
@@ -305,7 +305,7 @@ export class EngineeringCollaborationService {
         actorId: input.actorAgentId,
         metadata: { repository: receipt.repository, number: receipt.number, headSha: receipt.headSha, actionId: action.id },
       });
-      return { card, messageId };
+      return { card, messageId, actionId: action.id };
     })();
     return { receipt, ...result };
   }
@@ -319,7 +319,7 @@ export class EngineeringCollaborationService {
     evidence: ReviewEvidence;
     correlationId?: string;
     causationId?: string;
-  }): Promise<{ receipt: ReviewReceipt; card: EngineeringCollaborationCard; messageId: string }> {
+  }): Promise<{ receipt: ReviewReceipt; card: EngineeringCollaborationCard; messageId: string; actionId: string }> {
     const task = assertTask(input.taskId);
     assertConversation(task, input.expectedConversationId);
     if (task.status !== 'in_review') {
@@ -453,7 +453,7 @@ export class EngineeringCollaborationService {
         actorId: input.actorAgentId,
         metadata: { reviewId: receipt.reviewId, headSha: receipt.headSha, decision: receipt.decision, actionId: action.id },
       });
-      return { card, messageId };
+      return { card, messageId, actionId: action.id };
     })();
     return { receipt, ...result };
   }
@@ -466,7 +466,7 @@ export class EngineeringCollaborationService {
     evidence: MergeEvidence;
     correlationId?: string;
     causationId?: string;
-  }): Promise<{ receipt: MergeReceipt; card: EngineeringCollaborationCard; messageId: string }> {
+  }): Promise<{ receipt: MergeReceipt; card: EngineeringCollaborationCard; messageId: string; actionId: string }> {
     const task = assertTask(input.taskId);
     assertConversation(task, input.expectedConversationId);
     const audience = resolveTaskNotificationAudience(task.conversation_id);
@@ -550,7 +550,7 @@ export class EngineeringCollaborationService {
         actorId: input.actorAgentId,
         metadata: { mergeSha: receipt.mergeSha, headSha: receipt.headSha, actionId: action.id },
       });
-      return { card, messageId };
+      return { card, messageId, actionId: action.id };
     })();
     return { receipt, ...result };
   }

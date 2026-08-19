@@ -17,7 +17,6 @@ import type { ImplementationEvidence, MergeEvidence, ReviewEvidence } from '@/li
 import type { Server as IOServer } from 'socket.io';
 import { appendTaskToOwnedTasksMd, updateTaskInMd } from './task-file-service';
 import { startArtifactLoopbackServer } from './verification/artifact-loopback-server';
-import { getDb } from './db';
 import {
   MEMORY_DISPOSITIONS,
   MEMORY_RELATION_KINDS,
@@ -47,6 +46,14 @@ export interface ToolResult {
   success: boolean;
   data?: unknown;
   error?: string;
+}
+
+interface InternalToolResult extends ToolResult {
+  internalBoundary?: {
+    conversationId: string;
+    taskId: string;
+    taskActionId: string;
+  };
 }
 
 // ── Rate Limiter ───────────────────────────────
@@ -213,7 +220,7 @@ function executeTaskCreate(invocation: ToolInvocation): ToolResult {
   return { success: true, data: task };
 }
 
-function executeTaskUpdateStatus(invocation: ToolInvocation): ToolResult {
+function executeTaskUpdateStatus(invocation: ToolInvocation): InternalToolResult {
   const taskId = invocation.input.task_id as string;
   const statusValue = invocation.input.status;
 
@@ -269,7 +276,15 @@ function executeTaskUpdateStatus(invocation: ToolInvocation): ToolResult {
   });
   reconcileAuthoritativeTaskProjection(invocation, taskId);
 
-  return { success: true, data: transitioned.result.task };
+  return {
+    success: true,
+    data: transitioned.result.task,
+    internalBoundary: {
+      conversationId: existing.conversation_id,
+      taskId,
+      taskActionId: transitioned.result.action.id,
+    },
+  };
 }
 
 function executeTaskAssign(invocation: ToolInvocation): ToolResult {
@@ -389,7 +404,7 @@ function collaborationService(): EngineeringCollaborationService {
   return new EngineeringCollaborationService(new GhCliGitProviderVerifier());
 }
 
-async function executeRecordPullRequest(invocation: ToolInvocation): Promise<ToolResult> {
+async function executeRecordPullRequest(invocation: ToolInvocation): Promise<InternalToolResult> {
   const taskId = invocation.input.task_id as string;
   const pullRequestUrl = invocation.input.pull_request_url as string;
   const evidence = implementationEvidenceInput(invocation.input.evidence);
@@ -404,10 +419,15 @@ async function executeRecordPullRequest(invocation: ToolInvocation): Promise<Too
     causationId: invocation.causationId,
   });
   reconcileAuthoritativeTaskProjection(invocation, taskId);
-  return { success: true, data };
+  const { actionId, ...publicData } = data;
+  return {
+    success: true,
+    data: publicData,
+    internalBoundary: { conversationId: invocation.conversationId, taskId, taskActionId: actionId },
+  };
 }
 
-async function executeRecordReview(invocation: ToolInvocation): Promise<ToolResult> {
+async function executeRecordReview(invocation: ToolInvocation): Promise<InternalToolResult> {
   const taskId = invocation.input.task_id as string;
   const pullRequestUrl = invocation.input.pull_request_url as string;
   const reviewUrl = invocation.input.review_url as string;
@@ -424,10 +444,15 @@ async function executeRecordReview(invocation: ToolInvocation): Promise<ToolResu
     causationId: invocation.causationId,
   });
   reconcileAuthoritativeTaskProjection(invocation, taskId);
-  return { success: true, data };
+  const { actionId, ...publicData } = data;
+  return {
+    success: true,
+    data: publicData,
+    internalBoundary: { conversationId: invocation.conversationId, taskId, taskActionId: actionId },
+  };
 }
 
-async function executeRecordMerge(invocation: ToolInvocation): Promise<ToolResult> {
+async function executeRecordMerge(invocation: ToolInvocation): Promise<InternalToolResult> {
   const taskId = invocation.input.task_id as string;
   const pullRequestUrl = invocation.input.pull_request_url as string;
   const evidence = mergeEvidenceInput(invocation.input.evidence);
@@ -442,7 +467,12 @@ async function executeRecordMerge(invocation: ToolInvocation): Promise<ToolResul
     causationId: invocation.causationId,
   });
   reconcileAuthoritativeTaskProjection(invocation, taskId);
-  return { success: true, data };
+  const { actionId, ...publicData } = data;
+  return {
+    success: true,
+    data: publicData,
+    internalBoundary: { conversationId: invocation.conversationId, taskId, taskActionId: actionId },
+  };
 }
 
 function stringArray(value: unknown): string[] | undefined {
@@ -541,36 +571,9 @@ function executeTeamMemoryRecall(invocation: ToolInvocation): ToolResult {
   return { success: true, data: result };
 }
 
-function memoryObservationSourceRefs(
-  invocation: ToolInvocation,
-  proofId: string,
-): string[] {
-  if (!invocation.taskId) return [`proof:${proofId}`];
-  const actionTypesByTool: Record<string, string[]> = {
-    task_update_status: ['task.review_requested', 'task.status_changed'],
-    collaboration_record_pr: ['task.pull_request_submitted'],
-    collaboration_record_review: ['task.provider_review_received'],
-    collaboration_record_merge: ['task.pull_request_merged'],
-  };
-  const actionTypes = actionTypesByTool[invocation.toolName] ?? [];
-  const placeholders = actionTypes.map(() => '?').join(',');
-  const action = actionTypes.length > 0
-    ? getDb().prepare(`
-        SELECT action.id
-        FROM task_action action,json_each(action.task_ids) task_ref
-        WHERE task_ref.value=? AND action.type IN (${placeholders})
-        ORDER BY action.created_at DESC,action.id DESC LIMIT 1
-      `).get(invocation.taskId, ...actionTypes) as { id: string } | undefined
-    : undefined;
-  return [
-    ...(action ? [`task-action:${action.id}`] : [`proof:${proofId}`]),
-    `task:${invocation.taskId}`,
-  ];
-}
-
 // ── Tool dispatch map ──────────────────────────
 
-const TOOL_EXECUTORS: Record<string, (invocation: ToolInvocation) => ToolResult | Promise<ToolResult>> = {
+const TOOL_EXECUTORS: Record<string, (invocation: ToolInvocation) => InternalToolResult | Promise<InternalToolResult>> = {
   task_list: executeTaskList,
   task_create: executeTaskCreate,
   task_update_status: executeTaskUpdateStatus,
@@ -596,11 +599,12 @@ export async function executeSkillTool(invocation: ToolInvocation): Promise<Tool
     }
 
     const result = await executor(invocation);
+    const { internalBoundary, ...publicResult } = result;
 
     const proof = proofLogRepo.append({
       eventType: 'skill.tool.invoked',
-      conversationId: invocation.conversationId,
-      taskId: invocation.taskId,
+      conversationId: internalBoundary?.conversationId ?? invocation.conversationId,
+      taskId: internalBoundary?.taskId ?? invocation.taskId,
       agentId: invocation.agentId,
       metadata: {
         toolName: invocation.toolName,
@@ -611,7 +615,7 @@ export async function executeSkillTool(invocation: ToolInvocation): Promise<Tool
     const requestedStatus = invocation.toolName === 'task_update_status'
       ? String(invocation.input.status ?? '')
       : '';
-    const createsMemoryOpportunity = result.success && (
+    const createsMemoryOpportunity = publicResult.success && internalBoundary && (
       ['collaboration_record_pr', 'collaboration_record_review', 'collaboration_record_merge']
         .includes(invocation.toolName)
       || (invocation.toolName === 'task_update_status' && ['in_review', 'done'].includes(requestedStatus))
@@ -619,15 +623,16 @@ export async function executeSkillTool(invocation: ToolInvocation): Promise<Tool
     if (createsMemoryOpportunity) {
       try {
         teamMemory.observe({
-          conversationId: invocation.conversationId,
-          taskId: invocation.taskId,
+          conversationId: internalBoundary.conversationId,
+          taskId: internalBoundary.taskId,
           agentId: invocation.agentId,
           idempotencyKey: stableTaskCommandKey('team-memory-observe', {
-            rateLimitKey: invocation.rateLimitKey ?? invocation.agentId,
-            toolName: invocation.toolName,
-            input: invocation.input,
+            taskActionId: internalBoundary.taskActionId,
           }),
-          sourceRefs: memoryObservationSourceRefs(invocation, proof.id),
+          sourceRefs: [
+            `task-action:${internalBoundary.taskActionId}`,
+            `task:${internalBoundary.taskId}`,
+          ],
           reasonCode: `tool_boundary:${invocation.toolName}`,
           kindHint: invocation.toolName === 'collaboration_record_review' ? 'lesson' : 'decision',
         });
@@ -652,7 +657,7 @@ export async function executeSkillTool(invocation: ToolInvocation): Promise<Tool
       }
     }
 
-    return result;
+    return publicResult;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return { success: false, error: message };

@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { getDb } from '../db';
+import { resolveConversationRuntime } from '../invocation-pipeline/conversation-runtime';
 import { generateSortableId } from '../repositories/sortable-id';
 
 export const TEAM_MEMORY_KINDS = [
@@ -58,6 +59,8 @@ export interface MemoryOpportunityRow {
   disposition: 'deferred' | 'proposed' | 'abstained';
   reason_code: string | null;
   resolved_memory_id: string | null;
+  resolution_idempotency_key: string | null;
+  resolution_digest: string | null;
   created_at: string;
   updated_at: string;
   resolved_at: string | null;
@@ -310,11 +313,28 @@ function relationshipIsBound(
     && source.relationshipPair.objectAgentId === relationship.objectAgentId);
 }
 
+function assertRelationshipEndpointsAreAgents(
+  conversationId: string,
+  relationship: NonNullable<RecordMemoryInput['relationship']>,
+  sources: ResolvedSource[],
+): void {
+  if (relationshipIsBound(relationship, sources)) return;
+  const roster = new Set(
+    (resolveConversationRuntime(conversationId)?.roster ?? []).map((agent) => agent.id),
+  );
+  if (!roster.has(relationship.subjectAgentId) || !roster.has(relationship.objectAgentId)) {
+    throw new TeamMemoryError(
+      'memory_relationship_endpoint_invalid',
+      'Relationship memory is limited to authoritative Agent endpoints',
+    );
+  }
+}
+
 function acceptanceDecision(input: {
   kind: TeamMemoryKind;
   sources: ResolvedSource[];
   relationship?: NonNullable<RecordMemoryInput['relationship']>;
-}): { accepted: boolean; acceptedBy?: string; reason: string } {
+}): { accepted: boolean; reason: string } {
   const strongSource = input.sources.some((source) => (
     source.kind === 'proof' || source.kind === 'task-action' || source.kind === 'a2a-pass'
   ));
@@ -325,7 +345,7 @@ function acceptanceDecision(input: {
       return { accepted: false, reason: 'relationship_evidence_unbound' };
     }
   }
-  return { accepted: true, acceptedBy: 'system:evidence-gate-v1', reason: 'evidence_gate_passed' };
+  return { accepted: true, reason: 'evidence_gate_passed' };
 }
 
 function queryTerms(value: string | undefined): string | undefined {
@@ -341,8 +361,106 @@ function stableDigest(value: unknown): string {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
 }
 
+function assertSupersessionCompatible(
+  replacement: TeamMemoryItemRow,
+  predecessor: TeamMemoryItemRow,
+): void {
+  if (
+    predecessor.conversation_id !== replacement.conversation_id
+    || predecessor.status !== 'accepted'
+    || predecessor.scope_kind !== replacement.scope_kind
+    || predecessor.visibility !== replacement.visibility
+    || predecessor.owner_agent_id !== replacement.owner_agent_id
+    || (
+      predecessor.kind !== replacement.kind
+      && replacement.kind !== 'correction'
+    )
+    || (
+      (predecessor.kind === 'relationship' || replacement.kind === 'relationship')
+      && (
+        predecessor.subject_agent_id !== replacement.subject_agent_id
+        || predecessor.object_agent_id !== replacement.object_agent_id
+        || predecessor.relation_kind !== replacement.relation_kind
+      )
+    )
+  ) {
+    throw new TeamMemoryError('memory_supersedes_invalid', predecessor.id);
+  }
+}
+
+function acceptMemory(input: {
+  memoryId: string;
+  expectedRevision: number;
+  actor: { type: 'human' | 'system'; id: string };
+  reasonCode: string;
+  now: string;
+}): TeamMemoryItemRow {
+  const memory = getMemory(input.memoryId);
+  if (!memory || memory.status !== 'proposed' || memory.revision !== input.expectedRevision) {
+    throw new TeamMemoryError('memory_revision_stale', input.memoryId);
+  }
+  if (memory.kind === 'relationship') {
+    const relationship = {
+      subjectAgentId: memory.subject_agent_id!,
+      objectAgentId: memory.object_agent_id!,
+      relationKind: memory.relation_kind!,
+    };
+    assertRelationshipEndpointsAreAgents(
+      memory.conversation_id,
+      relationship,
+      resolveSources(memory.conversation_id, parseRefs(memory.source_refs_json)),
+    );
+  }
+  if (memory.supersedes_id) {
+    const predecessor = getMemory(memory.supersedes_id);
+    if (!predecessor) throw new TeamMemoryError('memory_supersedes_invalid', memory.supersedes_id);
+    assertSupersessionCompatible(memory, predecessor);
+    const superseded = getDb().prepare(`
+      UPDATE team_memory_item
+      SET status='superseded',revision=revision+1,updated_at=?
+      WHERE id=? AND revision=? AND status='accepted'
+    `).run(input.now, predecessor.id, predecessor.revision);
+    if (superseded.changes !== 1) {
+      throw new TeamMemoryError('memory_supersedes_stale', predecessor.id);
+    }
+    event({
+      conversationId: memory.conversation_id,
+      memoryId: predecessor.id,
+      eventType: 'memory.superseded',
+      actor: input.actor,
+      reasonCode: input.reasonCode,
+      metadata: { replacementMemoryId: memory.id },
+      now: input.now,
+    });
+  }
+  const accepted = getDb().prepare(`
+    UPDATE team_memory_item
+    SET status='accepted',accepted_by=?,revision=revision+1,updated_at=?,retired_at=NULL
+    WHERE id=? AND revision=? AND status='proposed'
+  `).run(
+    `${input.actor.type}:${input.actor.id}`,
+    input.now,
+    memory.id,
+    input.expectedRevision,
+  );
+  if (accepted.changes !== 1) throw new TeamMemoryError('memory_revision_stale', memory.id);
+  event({
+    conversationId: memory.conversation_id,
+    memoryId: memory.id,
+    eventType: 'memory.accepted',
+    actor: input.actor,
+    reasonCode: input.reasonCode,
+    now: input.now,
+  });
+  return getMemory(memory.id)!;
+}
+
 export class TeamMemory {
   observe(input: ObserveMemoryInput): MemoryOpportunityRow {
+    return getDb().transaction(() => this.observeWithinTransaction(input)).immediate();
+  }
+
+  private observeWithinTransaction(input: ObserveMemoryInput): MemoryOpportunityRow {
     requiredText(input.conversationId, 'conversationId', 200);
     requiredText(input.agentId, 'agentId', 200);
     const idempotencyKey = requiredText(input.idempotencyKey, 'idempotencyKey', 500);
@@ -359,6 +477,7 @@ export class TeamMemory {
       if (
         duplicate.agent_id !== input.agentId
         || duplicate.task_id !== (input.taskId ?? null)
+        || duplicate.kind_hint !== (input.kindHint ?? null)
         || duplicate.reason_code !== reasonCode
         || !sameStringArray(parseRefs(duplicate.source_refs_json), sourceRefs)
       ) throw new TeamMemoryError('memory_idempotency_conflict', idempotencyKey);
@@ -398,6 +517,10 @@ export class TeamMemory {
   }
 
   record(input: RecordMemoryInput): MemoryRecordResult {
+    return getDb().transaction(() => this.recordWithinTransaction(input)).immediate();
+  }
+
+  private recordWithinTransaction(input: RecordMemoryInput): MemoryRecordResult {
     requiredText(input.conversationId, 'conversationId', 200);
     requiredText(input.agentId, 'agentId', 200);
     const idempotencyKey = requiredText(input.idempotencyKey, 'idempotencyKey', 500);
@@ -435,19 +558,92 @@ export class TeamMemory {
       return { opportunity, memory: existingItem, replayed: true };
     }
 
-    const pending = input.opportunityId ? getOpportunity(input.opportunityId) : undefined;
+    const opportunity = input.opportunityId ? getOpportunity(input.opportunityId) : undefined;
+    const sourceRefs = opportunity
+      ? parseRefs(opportunity.source_refs_json)
+      : canonicalRefs(input.sourceRefs);
+    if (input.sourceRefs && opportunity && !sameStringArray(canonicalRefs(input.sourceRefs), sourceRefs)) {
+      throw new TeamMemoryError('memory_source_mismatch', 'Deferred opportunity sources are immutable');
+    }
+    const resolutionDigest = stableDigest({
+      conversationId: input.conversationId,
+      taskId: input.taskId ?? null,
+      agentId: input.agentId,
+      disposition: input.disposition,
+      opportunityId: input.opportunityId ?? null,
+      kind: input.kind ?? null,
+      content: input.content?.trim() ?? null,
+      scope: input.scope ?? null,
+      visibility: input.visibility ?? null,
+      sourceRefs,
+      reasonCode: input.reasonCode ?? null,
+      supersedesId: input.supersedesId ?? null,
+      relationship: input.relationship ?? null,
+    });
+    const keyedResolution = getDb().prepare(`
+      SELECT * FROM team_memory_opportunity
+      WHERE conversation_id=? AND resolution_idempotency_key=?
+    `).get(input.conversationId, idempotencyKey) as MemoryOpportunityRow | undefined;
+    const legacyDirectAbstain = !keyedResolution && !input.opportunityId
+      ? getDb().prepare(`
+          SELECT * FROM team_memory_opportunity
+          WHERE conversation_id=? AND idempotency_key=?
+            AND disposition='abstained' AND resolution_idempotency_key IS NULL
+        `).get(input.conversationId, idempotencyKey) as MemoryOpportunityRow | undefined
+      : undefined;
+    const resolvedReplay = keyedResolution ?? legacyDirectAbstain ?? (
+      opportunity && opportunity.disposition !== 'deferred'
+        ? opportunity
+        : undefined
+    );
+    if (resolvedReplay) {
+      const legacyReplay = (
+        resolvedReplay.resolution_digest === 'legacy:v85'
+        || resolvedReplay.resolution_idempotency_key === null
+      );
+      if (legacyReplay) {
+        const compatible = (
+          input.disposition === 'abstain'
+          && resolvedReplay.disposition === 'abstained'
+          && resolvedReplay.conversation_id === input.conversationId
+          && resolvedReplay.agent_id === input.agentId
+          && resolvedReplay.task_id === (input.taskId ?? null)
+          && (input.kind === undefined || resolvedReplay.kind_hint === input.kind)
+          && resolvedReplay.reason_code === (input.reasonCode ?? 'agent_abstained')
+          && !input.content?.trim()
+          && sameStringArray(parseRefs(resolvedReplay.source_refs_json), sourceRefs)
+          && (!input.opportunityId || input.opportunityId === resolvedReplay.id)
+        );
+        if (!compatible) throw new TeamMemoryError('memory_idempotency_conflict', idempotencyKey);
+        const upgraded = getDb().prepare(`
+          UPDATE team_memory_opportunity
+          SET resolution_idempotency_key=?,resolution_digest=?
+          WHERE id=? AND (
+            resolution_digest='legacy:v85' OR resolution_idempotency_key IS NULL
+          )
+        `).run(idempotencyKey, resolutionDigest, resolvedReplay.id);
+        if (upgraded.changes !== 1) {
+          throw new TeamMemoryError('memory_idempotency_conflict', idempotencyKey);
+        }
+        return { opportunity: getOpportunity(resolvedReplay.id)!, replayed: true };
+      }
+      if (resolvedReplay.resolution_digest !== resolutionDigest) {
+        throw new TeamMemoryError('memory_idempotency_conflict', idempotencyKey);
+      }
+      return {
+        opportunity: resolvedReplay,
+        memory: resolvedReplay.resolved_memory_id
+          ? getMemory(resolvedReplay.resolved_memory_id)
+          : undefined,
+        replayed: true,
+      };
+    }
+    const pending = opportunity?.disposition === 'deferred' ? opportunity : undefined;
     if (input.opportunityId && (
       !pending
       || pending.conversation_id !== input.conversationId
       || pending.agent_id !== input.agentId
-      || pending.disposition !== 'deferred'
     )) throw new TeamMemoryError('memory_opportunity_unavailable', input.opportunityId);
-    const sourceRefs = pending
-      ? parseRefs(pending.source_refs_json)
-      : canonicalRefs(input.sourceRefs);
-    if (input.sourceRefs && pending && !sameStringArray(canonicalRefs(input.sourceRefs), sourceRefs)) {
-      throw new TeamMemoryError('memory_source_mismatch', 'Deferred opportunity sources are immutable');
-    }
     const sources = resolveSources(input.conversationId, sourceRefs);
     const now = new Date().toISOString();
     const db = getDb();
@@ -471,17 +667,29 @@ export class TeamMemory {
       const opportunityId = pending?.id ?? generateSortableId('memory-opportunity');
       db.transaction(() => {
         if (pending) {
-          db.prepare(`
+          const updated = db.prepare(`
             UPDATE team_memory_opportunity
-            SET disposition='abstained',reason_code=?,updated_at=?,resolved_at=?
+            SET disposition='abstained',reason_code=?,updated_at=?,resolved_at=?,
+                resolution_idempotency_key=?,resolution_digest=?
             WHERE id=? AND disposition='deferred'
-          `).run(input.reasonCode ?? 'agent_abstained', now, now, pending.id);
+          `).run(
+            input.reasonCode ?? 'agent_abstained',
+            now,
+            now,
+            idempotencyKey,
+            resolutionDigest,
+            pending.id,
+          );
+          if (updated.changes !== 1) {
+            throw new TeamMemoryError('memory_opportunity_unavailable', pending.id);
+          }
         } else {
           db.prepare(`
             INSERT INTO team_memory_opportunity (
               id,idempotency_key,conversation_id,task_id,agent_id,kind_hint,
-              source_refs_json,disposition,reason_code,created_at,updated_at,resolved_at
-            ) VALUES (?,?,?,?,?,?,?,'abstained',?,?,?,?)
+              source_refs_json,disposition,reason_code,created_at,updated_at,resolved_at,
+              resolution_idempotency_key,resolution_digest
+            ) VALUES (?,?,?,?,?,?,?,'abstained',?,?,?,?,?,?)
           `).run(
             opportunityId,
             idempotencyKey,
@@ -494,6 +702,8 @@ export class TeamMemory {
             now,
             now,
             now,
+            idempotencyKey,
+            resolutionDigest,
           );
         }
         event({
@@ -537,12 +747,18 @@ export class TeamMemory {
         || input.relationship.subjectAgentId === input.relationship.objectAgentId
         || !MEMORY_RELATION_KINDS.includes(input.relationship.relationKind)
       ) throw new TeamMemoryError('memory_relationship_invalid', 'Agent relationship is invalid');
+      assertRelationshipEndpointsAreAgents(input.conversationId, input.relationship, sources);
     } else if (input.relationship) {
       throw new TeamMemoryError('memory_relationship_invalid', 'relationship coordinates require relationship kind');
     }
     if (input.supersedesId) {
       const superseded = getMemory(input.supersedesId);
-      if (!superseded || superseded.conversation_id !== input.conversationId) {
+      if (
+        !superseded
+        || superseded.conversation_id !== input.conversationId
+        || superseded.status !== 'accepted'
+        || (superseded.visibility === 'agent' && superseded.owner_agent_id !== input.agentId)
+      ) {
         throw new TeamMemoryError('memory_supersedes_invalid', input.supersedesId);
       }
     }
@@ -567,30 +783,45 @@ export class TeamMemory {
         visibility === 'agent' ? input.agentId : null,
         kind,
         content,
-        admission.accepted ? 'accepted' : 'proposed',
+        'proposed',
         input.relationship?.subjectAgentId ?? null,
         input.relationship?.objectAgentId ?? null,
         input.relationship?.relationKind ?? null,
         JSON.stringify(sourceRefs),
         input.agentId,
-        admission.acceptedBy ?? null,
+        null,
         input.supersedesId ?? null,
         now,
         now,
       );
+      if (input.supersedesId) {
+        assertSupersessionCompatible(getMemory(memoryId)!, getMemory(input.supersedesId)!);
+      }
       if (pending) {
-        db.prepare(`
+        const resolved = db.prepare(`
           UPDATE team_memory_opportunity
-          SET disposition='proposed',resolved_memory_id=?,reason_code=?,updated_at=?,resolved_at=?
+          SET disposition='proposed',resolved_memory_id=?,reason_code=?,updated_at=?,resolved_at=?,
+              resolution_idempotency_key=?,resolution_digest=?
           WHERE id=? AND disposition='deferred'
-        `).run(memoryId, admission.reason, now, now, pending.id);
+        `).run(
+          memoryId,
+          admission.reason,
+          now,
+          now,
+          idempotencyKey,
+          resolutionDigest,
+          pending.id,
+        );
+        if (resolved.changes !== 1) {
+          throw new TeamMemoryError('memory_opportunity_unavailable', pending.id);
+        }
       } else {
         db.prepare(`
           INSERT INTO team_memory_opportunity (
             id,idempotency_key,conversation_id,task_id,agent_id,kind_hint,
             source_refs_json,disposition,reason_code,resolved_memory_id,
-            created_at,updated_at,resolved_at
-          ) VALUES (?,?,?,?,?,?,?,'proposed',?,?,?, ?,?)
+            created_at,updated_at,resolved_at,resolution_idempotency_key,resolution_digest
+          ) VALUES (?,?,?,?,?,?,?,'proposed',?,?,?,?,?,?,?)
         `).run(
           opportunityId,
           `proposal:${idempotencyKey}`,
@@ -604,25 +835,29 @@ export class TeamMemory {
           now,
           now,
           now,
+          idempotencyKey,
+          resolutionDigest,
         );
-      }
-      if (admission.accepted && input.supersedesId) {
-        db.prepare(`
-          UPDATE team_memory_item
-          SET status='superseded',revision=revision+1,updated_at=?
-          WHERE id=? AND conversation_id=? AND status='accepted'
-        `).run(now, input.supersedesId, input.conversationId);
       }
       event({
         conversationId: input.conversationId,
         memoryId,
         opportunityId,
-        eventType: admission.accepted ? 'memory.accepted' : 'memory.proposed',
+        eventType: 'memory.proposed',
         actor: { type: 'agent', id: input.agentId },
         reasonCode: admission.reason,
         metadata: { sourceDigest: stableDigest(sourceRefs) },
         now,
       });
+      if (admission.accepted) {
+        acceptMemory({
+          memoryId,
+          expectedRevision: 0,
+          actor: { type: 'system', id: 'evidence-gate-v1' },
+          reasonCode: admission.reason,
+          now,
+        });
+      }
     }).immediate();
     return { opportunity: getOpportunity(opportunityId)!, memory: getMemory(memoryId)!, replayed: false };
   }
@@ -633,7 +868,6 @@ export class TeamMemory {
     if (memory.revision !== input.expectedRevision) {
       throw new TeamMemoryError('memory_revision_stale', input.memoryId);
     }
-    const nextStatus = input.decision === 'accept' ? 'accepted' : 'retired';
     if (input.decision === 'accept' && memory.status !== 'proposed') {
       throw new TeamMemoryError('memory_transition_invalid', `${memory.status} -> accepted`);
     }
@@ -642,19 +876,28 @@ export class TeamMemory {
     }
     const now = new Date().toISOString();
     const result = getDb().transaction(() => {
+      const reasonCode = requiredText(input.reasonCode, 'reasonCode', 200);
+      if (input.decision === 'accept') {
+        return acceptMemory({
+          memoryId: memory.id,
+          expectedRevision: input.expectedRevision,
+          actor: input.actor,
+          reasonCode,
+          now,
+        });
+      }
       const updated = getDb().prepare(`
         UPDATE team_memory_item
-        SET status=?,accepted_by=CASE WHEN ?='accepted' THEN ? ELSE accepted_by END,
-            revision=revision+1,updated_at=?,retired_at=CASE WHEN ?='retired' THEN ? ELSE NULL END
-        WHERE id=? AND revision=?
-      `).run(nextStatus, nextStatus, `${input.actor.type}:${input.actor.id}`, now, nextStatus, now, input.memoryId, input.expectedRevision);
+        SET status='retired',revision=revision+1,updated_at=?,retired_at=?
+        WHERE id=? AND revision=? AND status IN ('proposed','accepted')
+      `).run(now, now, input.memoryId, input.expectedRevision);
       if (updated.changes !== 1) throw new TeamMemoryError('memory_revision_stale', input.memoryId);
       event({
         conversationId: memory.conversation_id,
         memoryId: memory.id,
-        eventType: nextStatus === 'accepted' ? 'memory.accepted' : 'memory.retired',
+        eventType: 'memory.retired',
         actor: input.actor,
-        reasonCode: requiredText(input.reasonCode, 'reasonCode', 200),
+        reasonCode,
         now,
       });
       return getMemory(input.memoryId)!;
@@ -689,7 +932,8 @@ export class TeamMemory {
           input.taskId ?? null,
           limit,
         ) as TeamMemoryItemRow[];
-      } catch {
+      } catch (error) {
+        console.warn('[team-memory] FTS recall failed; using canonical recent rows', error);
         items = [];
       }
     }
@@ -728,6 +972,27 @@ export class TeamMemory {
     };
   }
 
+  rebuildIndex(): { canonicalCount: number; indexedCount: number } {
+    const db = getDb();
+    return db.transaction(() => {
+      db.prepare('DELETE FROM team_memory_fts').run();
+      db.prepare(`
+        INSERT INTO team_memory_fts(memory_id,content)
+        SELECT id,content FROM team_memory_item WHERE status='accepted'
+      `).run();
+      const canonicalCount = Number((db.prepare(`
+        SELECT COUNT(*) AS count FROM team_memory_item WHERE status='accepted'
+      `).get() as { count: number }).count);
+      const indexedCount = Number((db.prepare(`
+        SELECT COUNT(*) AS count FROM team_memory_fts
+      `).get() as { count: number }).count);
+      if (canonicalCount !== indexedCount) {
+        throw new TeamMemoryError('memory_index_inconsistent', `${canonicalCount}:${indexedCount}`);
+      }
+      return { canonicalCount, indexedCount };
+    }).immediate();
+  }
+
   private relationships(conversationId: string, agentId: string): TeamMemoryRelationshipSummary[] {
     const db = getDb();
     const summaries = new Map<string, TeamMemoryRelationshipSummary>();
@@ -744,57 +1009,115 @@ export class TeamMemory {
       summaries.set(otherAgentId, current);
       return current;
     };
-    const passes = db.prepare(`
-      SELECT pass.id,pass.from_holder_id,pass.to_agent_id,pass.status,pass.updated_at
+    const passAggregates = db.prepare(`
+      SELECT
+        CASE WHEN pass.from_holder_id=? THEN pass.to_agent_id ELSE pass.from_holder_id END AS other_agent_id,
+        COUNT(*) AS handoff_count,
+        SUM(CASE WHEN pass.status='completed' THEN 1 ELSE 0 END) AS completed_count,
+        MAX(pass.updated_at) AS last_observed_at
       FROM a2a_pass pass
       JOIN a2a_possession_chain chain ON chain.id=pass.chain_id
       JOIN a2a_possession source_possession ON source_possession.id=pass.from_possession_id
       WHERE chain.conversation_id=?
         AND source_possession.holder_type='agent'
         AND (pass.from_holder_id=? OR pass.to_agent_id=?)
-      ORDER BY pass.updated_at DESC,pass.id DESC LIMIT 50
-    `).all(conversationId, agentId, agentId) as Array<{
-      id: string;
-      from_holder_id: string;
-      to_agent_id: string;
-      status: string;
-      updated_at: string;
+        AND pass.from_holder_id<>pass.to_agent_id
+      GROUP BY other_agent_id
+    `).all(agentId, conversationId, agentId, agentId) as Array<{
+      other_agent_id: string;
+      handoff_count: number;
+      completed_count: number;
+      last_observed_at: string;
     }>;
-    for (const pass of passes) {
-      const other = pass.from_holder_id === agentId ? pass.to_agent_id : pass.from_holder_id;
-      if (!other || other === agentId) continue;
-      const summary = ensure(other, pass.updated_at);
-      summary.handoffCount += 1;
-      if (pass.status === 'completed') summary.completedHandoffCount += 1;
-      if (summary.evidenceRefs.length < 3) summary.evidenceRefs.push(`a2a-pass:${pass.id}`);
+    for (const aggregate of passAggregates) {
+      if (!aggregate.other_agent_id || aggregate.other_agent_id === agentId) continue;
+      const summary = ensure(aggregate.other_agent_id, aggregate.last_observed_at);
+      summary.handoffCount = Number(aggregate.handoff_count);
+      summary.completedHandoffCount = Number(aggregate.completed_count);
     }
-    const reviews = db.prepare(`
-      SELECT action.id,action.actor_id,action.task_ids,action.created_at
+    const reviewAggregates = db.prepare(`
+      SELECT
+        CASE WHEN action.actor_id=? THEN task.agent_id ELSE action.actor_id END AS other_agent_id,
+        COUNT(*) AS review_count,
+        MAX(action.created_at) AS last_observed_at
       FROM task_action action
+      JOIN json_each(action.task_ids) task_ref
+      JOIN task ON task.id=task_ref.value AND task.conversation_id=action.conversation_id
       WHERE action.conversation_id=? AND action.type='task.provider_review_received'
         AND action.actor_type='agent'
-      ORDER BY action.created_at DESC,action.id DESC LIMIT 50
-    `).all(conversationId) as Array<{
-      id: string;
-      actor_id: string;
-      task_ids: string;
-      created_at: string;
+        AND (action.actor_id=? OR task.agent_id=?)
+        AND action.actor_id<>task.agent_id
+      GROUP BY other_agent_id
+    `).all(agentId, conversationId, agentId, agentId) as Array<{
+      other_agent_id: string;
+      review_count: number;
+      last_observed_at: string;
     }>;
-    for (const review of reviews) {
-      const taskIds = parseRefs(review.task_ids);
-      if (taskIds.length !== 1) continue;
-      const task = db.prepare('SELECT agent_id FROM task WHERE id=? AND conversation_id=?')
-        .get(taskIds[0], conversationId) as { agent_id: string } | undefined;
-      if (!task || (review.actor_id !== agentId && task.agent_id !== agentId)) continue;
-      const other = review.actor_id === agentId ? task.agent_id : review.actor_id;
-      if (!other || other === agentId) continue;
-      const summary = ensure(other, review.created_at);
-      summary.reviewCount += 1;
-      if (summary.evidenceRefs.length < 3) summary.evidenceRefs.push(`task-action:${review.id}`);
+    for (const aggregate of reviewAggregates) {
+      if (!aggregate.other_agent_id || aggregate.other_agent_id === agentId) continue;
+      const summary = ensure(aggregate.other_agent_id, aggregate.last_observed_at);
+      summary.reviewCount = Number(aggregate.review_count);
     }
-    return [...summaries.values()]
-      .sort((left, right) => right.lastObservedAt.localeCompare(left.lastObservedAt))
+    const selectedSummaries = [...summaries.values()]
+      .sort((left, right) => (
+        right.lastObservedAt.localeCompare(left.lastObservedAt)
+        || left.otherAgentId.localeCompare(right.otherAgentId)
+      ))
       .slice(0, 5);
+    const selectedAgentIds = JSON.stringify(selectedSummaries.map((summary) => summary.otherAgentId));
+    const recentPasses = db.prepare(`
+      WITH facts AS (
+        SELECT pass.id,
+          CASE WHEN pass.from_holder_id=? THEN pass.to_agent_id ELSE pass.from_holder_id END AS other_agent_id,
+          pass.updated_at
+        FROM a2a_pass pass
+        JOIN a2a_possession_chain chain ON chain.id=pass.chain_id
+        JOIN a2a_possession source_possession ON source_possession.id=pass.from_possession_id
+        WHERE chain.conversation_id=? AND source_possession.holder_type='agent'
+          AND (pass.from_holder_id=? OR pass.to_agent_id=?)
+      ), ranked AS (
+        SELECT *,ROW_NUMBER() OVER (
+          PARTITION BY other_agent_id ORDER BY updated_at DESC,id DESC
+        ) AS evidence_rank
+        FROM facts
+      )
+      SELECT id,other_agent_id FROM ranked
+      WHERE evidence_rank<=3 AND other_agent_id IN (SELECT value FROM json_each(?))
+      ORDER BY other_agent_id,evidence_rank
+    `).all(agentId, conversationId, agentId, agentId, selectedAgentIds) as Array<{
+      id: string; other_agent_id: string;
+    }>;
+    for (const pass of recentPasses) {
+      const summary = summaries.get(pass.other_agent_id);
+      if (summary && summary.evidenceRefs.length < 3) summary.evidenceRefs.push(`a2a-pass:${pass.id}`);
+    }
+    const recentReviews = db.prepare(`
+      WITH facts AS (
+        SELECT action.id,
+          CASE WHEN action.actor_id=? THEN task.agent_id ELSE action.actor_id END AS other_agent_id,
+          action.created_at
+        FROM task_action action
+        JOIN json_each(action.task_ids) task_ref
+        JOIN task ON task.id=task_ref.value AND task.conversation_id=action.conversation_id
+        WHERE action.conversation_id=? AND action.type='task.provider_review_received'
+          AND action.actor_type='agent' AND (action.actor_id=? OR task.agent_id=?)
+      ), ranked AS (
+        SELECT *,ROW_NUMBER() OVER (
+          PARTITION BY other_agent_id ORDER BY created_at DESC,id DESC
+        ) AS evidence_rank
+        FROM facts
+      )
+      SELECT id,other_agent_id FROM ranked
+      WHERE evidence_rank<=3 AND other_agent_id IN (SELECT value FROM json_each(?))
+      ORDER BY other_agent_id,evidence_rank
+    `).all(agentId, conversationId, agentId, agentId, selectedAgentIds) as Array<{
+      id: string; other_agent_id: string;
+    }>;
+    for (const review of recentReviews) {
+      const summary = summaries.get(review.other_agent_id);
+      if (summary && summary.evidenceRefs.length < 3) summary.evidenceRefs.push(`task-action:${review.id}`);
+    }
+    return selectedSummaries;
   }
 }
 

@@ -8,7 +8,7 @@
 
 ## 2. Module seam
 
-外部 interface 只有 `record / observe / recall / decide`。证据解析、去重、状态机、检索、关系投影和审计隐藏在 module 内。调用者无需知道 FTS、表结构或召回排序细节。
+外部业务 interface 只有 `record / observe / recall / decide`，另提供运维恢复用 `rebuildIndex`。证据解析、幂等接纳、状态机、检索、关系投影和审计隐藏在 module 内。调用者无需知道 FTS、表结构或召回排序细节。
 
 ```text
 Task / Proof / A2A / Review
@@ -32,6 +32,10 @@ Task / Proof / A2A / Review
 - `team_memory_item`：canonical memory、作用域、可见性、来源、关系坐标与 lifecycle revision。
 - `team_memory_fts`：由 trigger 维护的派生检索索引；不拥有状态和权限。
 - retire/supersede 先更新 canonical row，再由 trigger/invalidation 使索引读面消失。
+- opportunity resolution 持久化独立 idempotency key 与 canonical digest；同义重试返回原 receipt，语义漂移 fail closed，pending→resolved 使用条件更新。
+- `record/observe` 从 admission 首次读取起就在 SQLite immediate transaction 内执行，跨进程同义写被串行化；v85 已解决 opportunity 在 v86 标记为 legacy，并在第一次兼容重放时保守校验后升级 key/digest。
+- replacement 接受在同一 immediate transaction 内 CAS predecessor 与 replacement，并分别写 `memory.superseded` / `memory.accepted` 事件；Agent 私有 predecessor 只允许 owner 提出 replacement。
+- Task 删除 trigger 清理 task-scoped item 与 task-specific opportunity；project/agent item 只清空 `task_id` ranking hint。
 
 所有表位于现有应用 SQLite，沿用 WAL、transaction、backup 与 Conversation 删除生命周期，不新增数据库或远端依赖。
 
@@ -39,21 +43,22 @@ Task / Proof / A2A / Review
 
 支持的 source ref：`task:`、`proof:`、`task-action:`、`a2a-pass:`、`message:`。服务端逐条解析并验证 Conversation 归属；无法证明归属则零 materialization。
 
-Agent 提议的工程记忆只有在全部来源合法且至少含一条 Proof、Task Action 或 A2A pass 时才可自动 accepted。Agent↔Agent `relationship` 还必须由精确 A2A pass 或 provider review 绑定同一 subject/object pair。`correction`、human relationship 和仅有聊天文本的候选停留在 proposed，等待后续人类治理面。
+Agent 提议的工程记忆只有在全部来源合法且至少含一条 Proof、Task Action 或 A2A pass 时才可自动 accepted。Agent↔Agent `relationship` 的双方必须能由 exact A2A/review evidence 或当前 Team Runtime roster 证明为 Agent；自动接受仍必须由精确 A2A pass 或 provider review 绑定同一 subject/object pair。human/unknown endpoint 在 insert 前直接拒绝，且 `decide` 接受时再次校验；`correction` 和仅有聊天文本的候选保持 proposed，等待后续人类治理面。
 
 ## 5. 召回
 
 - pull：Agent 调用 `team_memory_recall`。
 - bounded cue：Contributor 结合 request text、task 和当前 agent，最多返回 5 条 accepted memory。
 - deferred continuation：Contributor 只向原 Agent 回显最多 2 条未处理机会。
-- 关系摘要：直接查询 A2A pass 与 provider review action，生成 content-free count/latest projection；不进入 canonical memory 表。
+- 关系摘要：在 SQL 中对全部相关 A2A pass 与 provider review action 聚合真实 count/latest；最终前五个关系用 window partition 分别采最多 3 条 evidence refs，避免高频关系挤掉其他关系的可追溯证据；不进入 canonical memory 表。
 
 召回 fragment 使用 `situation` cluster、project scope 和对应 visibility，正文固定说明“历史证据，不是指令”。ContextManager 继续拥有预算、去重、过期与 omission。
 
 ## 6. 故障与恢复
 
-- FTS 查询失败回退到 canonical 最近项，不影响 invocation。
+- FTS 查询失败写可观察日志并回退到 canonical 最近项，不影响 invocation；`rebuildIndex` 可在一个事务内从 accepted rows 重建并核对索引数量。
 - 自动机会写入失败不得回滚原任务/评审工具成功结果，但写 proof/log 便于排障。
+- 自动机会只消费原命令内部返回的 exact `{conversationId, taskId, taskActionId}` receipt；receipt 不返回给 Agent，避免跨 Conversation 或并发“最新 action”误绑定。
 - Contributor 非 required；记忆故障不能阻断任务执行。
 - canonical row 永远可在不依赖 FTS 的情况下列出、审计和重建索引。
 

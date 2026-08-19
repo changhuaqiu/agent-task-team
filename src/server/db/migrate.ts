@@ -3915,6 +3915,54 @@ BEGIN
 END;
     `,
   },
+  {
+    version: 86,
+    run: (db) => {
+      const columns = new Set(
+        (db.pragma('table_info(team_memory_opportunity)') as Array<{ name: string }>)
+          .map((column) => column.name),
+      );
+      if (!columns.has('resolution_idempotency_key')) {
+        db.exec('ALTER TABLE team_memory_opportunity ADD COLUMN resolution_idempotency_key TEXT');
+      }
+      if (!columns.has('resolution_digest')) {
+        db.exec('ALTER TABLE team_memory_opportunity ADD COLUMN resolution_digest TEXT');
+      }
+      db.exec(`
+        UPDATE team_memory_opportunity
+        SET resolution_digest='legacy:v85'
+        WHERE disposition IN ('abstained','proposed')
+          AND resolution_digest IS NULL;
+      `);
+      db.exec(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_team_memory_opportunity_resolution_key
+          ON team_memory_opportunity(conversation_id,resolution_idempotency_key)
+          WHERE resolution_idempotency_key IS NOT NULL;
+      `);
+      const taskExists = db.prepare(`
+        SELECT 1 FROM sqlite_master WHERE type='table' AND name='task'
+      `).get();
+      if (taskExists) {
+        db.exec(`
+          CREATE TRIGGER IF NOT EXISTS trg_team_memory_task_delete
+          BEFORE DELETE ON task
+          BEGIN
+            DELETE FROM team_memory_opportunity
+              WHERE resolved_memory_id IN (
+                SELECT id FROM team_memory_item
+                WHERE task_id=OLD.id AND scope_kind='task'
+              );
+            DELETE FROM team_memory_item WHERE task_id=OLD.id AND scope_kind='task';
+            DELETE FROM team_memory_opportunity
+              WHERE task_id=OLD.id AND disposition IN ('deferred','abstained')
+                AND resolved_memory_id IS NULL;
+            UPDATE team_memory_opportunity SET task_id=NULL WHERE task_id=OLD.id;
+            UPDATE team_memory_item SET task_id=NULL WHERE task_id=OLD.id AND scope_kind<>'task';
+          END;
+        `);
+      }
+    },
+  },
 ];
 
 export function applyMigrations(db: Database.Database): void {

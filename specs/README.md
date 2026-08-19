@@ -36,7 +36,6 @@
 | [`team-role-card-compatibility/`](team-role-card-compatibility/) | active | 自动化已完成，仍需三项人工兼容验收 |
 | [`role-card-format/`](role-card-format/) | draft | 冻结角色卡/Team Pack 文件格式并替换即将移除的示例 |
 | [`agent-eval-system/`](agent-eval-system/) | draft | 任务全链路评估：客观维度规则计算 + 主观维度 LLM-as-Judge 套 rubric，结果回流优化 RoleCard/Skill |
-| [`team-memory/`](team-memory/) | active | 项目级团队记忆、写入机会、证据治理、召回与 Agent↔Agent 工程关系记忆 |
 
 ## 依赖关系
 
@@ -45,7 +44,7 @@ system-control-plane
 ├── acp-runtime-integration
 ├── context-manager
 ├── observability-drilldown（基于已落地的 agent-observability）
-├── team-memory（读取侧复用 context-manager，事实来源复用 Task/Proof/A2A）
+├── team-memory（已实施，规格已归档；读取侧复用 context-manager，事实来源复用 Task/Proof/A2A）
 └── frontend-architecture-refactor
 
 skill-package-progressive-loading

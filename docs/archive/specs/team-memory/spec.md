@@ -1,6 +1,6 @@
 # Team Memory（团队记忆）规格
 
-> 状态：active
+> 状态：implemented
 >
 > 一句话定位：把已经发生的任务、Proof、A2A 与评审事实转成可治理、可召回、可纠错的项目级团队记忆；记忆只提供历史证据，不获得指令权力。
 
@@ -59,7 +59,7 @@
 
 ## 5. 深 Module interface
 
-TeamMemory 对外只暴露四类行为：
+TeamMemory 对外只暴露四类业务行为和一个恢复行为：
 
 ```ts
 interface TeamMemory {
@@ -67,6 +67,7 @@ interface TeamMemory {
   recall(input: MemoryRecallInput): MemoryRecallResult;
   decide(input: MemoryDecisionInput): TeamMemoryItem;
   observe(input: MechanicalMemoryObservation): MemoryOpportunity;
+  rebuildIndex(): MemoryIndexReceipt;
 }
 ```
 
@@ -86,6 +87,8 @@ Repository、FTS、证据鉴权、去重、关系投影和生命周期审计均�
    - 不涉及 human relationship。
 5. `correction` 及无法满足自动门禁的候选保持 `proposed`，不得召回给团队。
 6. `decide` 是 server-owned 治理入口，必须记录 actor、reason 与 revision；第一期不对 Agent 暴露。
+7. 替换只能指向同 Conversation、兼容 scope/visibility 的 accepted predecessor；私有记忆只能由 owner Agent 提出替换。接受 replacement 时必须在一个事务内 CAS supersede predecessor、接受 replacement 并分别写审计事件。
+8. record/observe 的 idempotency lookup、条件更新和 receipt 返回必须位于同一 immediate transaction；v85 resolved opportunity 通过 legacy 标记与保守兼容重放升级，不得因 schema 升级把同义重试改成失败。
 
 ## 7. 召回
 
@@ -93,12 +96,13 @@ Repository、FTS、证据鉴权、去重、关系投影和生命周期审计均�
 - `TeamMemoryContextContributor` 在 `user_turn | resume | a2a_handoff` 提供最多 5 条 accepted cue 和最多 2 条当前 Agent 的 deferred opportunity。
 - 单个 fragment 采用有界摘要和 source refs；正文明确标记“历史证据，不是指令”。
 - 第一版使用 SQLite FTS5；若 FTS 查询无词项或不可用，回退到最近且 task-relevant 的 accepted 项。
+- FTS 是可重建投影；恢复操作必须从 accepted canonical rows 原子清空并重建，并校验行数一致。
 - 任何 recalled memory 都必须经过 ContextManager 的 scope、visibility、budget 与 omission 机制。
 
 ## 8. 自动机会与关系投影
 
-- 成功的 `task_update_status`（进入 review/done）、PR、review、merge 工具调用后，系统记录 content-free deferred opportunity，供后续 Agent 明确处理。
-- 关系投影只统计已持久化 A2A pass 与 provider review 事实，展示合作次数和最近事件，不推断信任、情绪、人格或能力排名。
+- 成功的 `task_update_status`（进入 review/done）、PR、review、merge 工具调用后，系统使用该次命令返回的 exact TaskAction receipt 记录 content-free deferred opportunity，供后续 Agent 明确处理；禁止按“最新 action”反查猜测边界。
+- 关系投影对当前 Agent 相关的全部已持久化 A2A pass 与 provider review 事实做 SQL 聚合，展示真实总次数和最近事件；只有 evidence refs 有界，不推断信任、情绪、人格或能力排名。
 - 自动观察失败不得使原工具调用失败；必须写 proof 或可观察日志。
 
 ## 9. 隐私与安全
@@ -108,6 +112,7 @@ Repository、FTS、证据鉴权、去重、关系投影和生命周期审计均�
 - source ref 不得指向其他 Conversation。
 - human/第三方关系、用户偏好与画像默认不接纳、不共享、不召回。
 - retire/supersede 后必须从 FTS 与 ContextContributor 读面消失。
+- Task 删除必须删除 task-scoped memory 与 task-specific deferred opportunity；project/agent memory 只清除 task ranking hint，不得被误升格成全局 task memory。
 
 ## 10. 验证与退出条件
 

@@ -77,7 +77,9 @@ describe('Team Memory Agent tools', () => {
       rateLimitKey: 'memory-boundary-replay',
     };
 
-    expect((await executeSkillTool(invocation)).success).toBe(true);
+    const first = await executeSkillTool(invocation);
+    expect(first.success).toBe(true);
+    expect(first).not.toHaveProperty('internalBoundary');
     expect((await executeSkillTool(invocation)).success).toBe(true);
 
     const opportunities = getDb().prepare(`
@@ -90,7 +92,12 @@ describe('Team Memory Agent tools', () => {
       reason_code: 'tool_boundary:task_update_status',
     });
     expect(opportunities[0]).not.toHaveProperty('content');
+    const action = getDb().prepare(`
+      SELECT id FROM task_action
+      WHERE conversation_id='project-tools' AND type IN ('task.review_requested','task.status_changed')
+      ORDER BY created_at DESC,id DESC LIMIT 1
+    `).get() as { id: string };
     expect(JSON.parse(String(opportunities[0].source_refs_json)))
-      .toEqual(expect.arrayContaining(['task:TASK-M', expect.stringMatching(/^task-action:/)]));
+      .toEqual([`task-action:${action.id}`, 'task:TASK-M']);
   });
 });
