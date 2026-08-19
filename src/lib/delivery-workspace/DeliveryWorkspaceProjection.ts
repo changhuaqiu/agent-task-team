@@ -14,6 +14,12 @@ export interface DeliveryAttentionItem {
   evidenceRef?: string;
 }
 
+export interface DeliveryAcceptanceEvidenceItem {
+  criterion: string;
+  status: 'passed' | 'failed' | 'pending';
+  evidenceRefs: string[];
+}
+
 export interface DeliveryWorkspaceSource {
   conversations: readonly Conversation[];
   tasks: readonly Task[];
@@ -36,10 +42,20 @@ export interface DeliveryWorkspaceView {
   stage: DeliveryStage | Conversation['status'];
   acceptance: {
     criteria: string[];
+    evidence: DeliveryAcceptanceEvidenceItem[];
     total: number;
     passed: number;
     failed: number;
     pending: number;
+    verification?: {
+      method: 'web_ui_e2e' | 'automated_test' | 'manual_review';
+      verifierAgentId: string;
+      tool: string;
+      reportRef: string;
+      specRefs: string[];
+      codeRevision?: string;
+      completedAt: string;
+    };
   };
   work: {
     tasks: Task[];
@@ -142,15 +158,36 @@ export function projectDeliveryWorkspace(
     stage: projectStage(scopedRun, tasks, conversation.status),
     acceptance: (() => {
       const criteria = scopedRun?.contract?.acceptanceCriteria ?? [];
-      const results = scopedRun?.bundle?.acceptanceResults ?? [];
-      const passed = results.filter((item) => item.status === 'passed').length;
-      const failed = results.filter((item) => item.status === 'failed').length;
+      const frozenBundle = scopedRun?.run.status === 'completed' ? scopedRun.bundle : undefined;
+      const results = frozenBundle?.acceptanceResults ?? [];
+      const remainingResults = [...results];
+      const evidence = criteria.map((criterion): DeliveryAcceptanceEvidenceItem => {
+        const resultIndex = remainingResults.findIndex((item) => item.criterion === criterion);
+        if (resultIndex < 0) {
+          return { criterion, status: 'pending', evidenceRefs: [] };
+        }
+        const [result] = remainingResults.splice(resultIndex, 1);
+        return {
+          criterion,
+          status: result.status,
+          evidenceRefs: [...result.evidenceRefs],
+        };
+      });
+      const passed = evidence.filter((item) => item.status === 'passed').length;
+      const failed = evidence.filter((item) => item.status === 'failed').length;
+      const verification = frozenBundle?.verification;
       return {
         criteria,
+        evidence,
         total: criteria.length,
         passed,
         failed,
         pending: Math.max(0, criteria.length - passed - failed),
+        verification: verification && frozenBundle ? {
+          ...verification,
+          specRefs: [...verification.specRefs],
+          completedAt: frozenBundle.completedAt,
+        } : undefined,
       };
     })(),
     work: {

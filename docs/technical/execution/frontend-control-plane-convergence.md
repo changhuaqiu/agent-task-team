@@ -81,6 +81,12 @@ DeliveryRun 仍停留在 `planning`/`executing`，但同一交付的权威 Task 
 “需核对”，但不得把交付阶段或 Bundle 验收结果降级。前端不声称所有冲突都在自动修复，因为未关联/可选 Task 不一定属于
 reconciler 候选；任务完成数和验收通过数必须分别标注。
 
+验收证据同样由投影统一收口。`DeliveryWorkspaceProjection` 只读取冻结 `DeliveryBundle.acceptanceResults` 与
+`DeliveryBundle.verification`，按 GoalContract 中的验收标准输出逐条结论、证据引用和验证元数据；缺少冻结结果的标准保持
+`pending`。组件不得扫描聊天消息寻找“已通过”等自然语言，也不得直接解析尚未成为 Bundle 的原始 receipt。这样“聊天汇报”
+与“正式验收事实”在展示边界上保持分离。证据详情使用原生渐进展开交互，验证方式、验证人、工具、报告、规格、代码版本和
+完成时间均可查看，但不在首屏堆叠实现概念。
+
 历史修复由服务端 `DeliveryTaskTruthReconciler` 持有。候选 Task 必须同时满足：关联 completed DeliveryRun、当前非 `done`、
 并且在 `completed_at` 之前已经存在包含该 Task 的 `task.review_recorded` 且 payload.status 为 `done`，该 Action 还必须引用同一
 Task 的不可变 `gate.passed` 事件与已通过的 `code_review` Gate。owner 使用 Task revision CAS

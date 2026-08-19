@@ -85,7 +85,7 @@ describe('DeliveryWorkspaceProjection', () => {
     expect(view?.attention.filter((item) => item.taskId === 'TASK-1')).toHaveLength(1);
   });
 
-  it('projects delivery stage, acceptance progress, and current work from the run snapshot', () => {
+  it('projects frozen acceptance evidence and verification metadata from a completed run', () => {
     const view = projectDeliveryWorkspace({
       conversations: [delivery],
       tasks: [task('TASK-1', 'in_progress'), task('TASK-2', 'done')],
@@ -95,7 +95,7 @@ describe('DeliveryWorkspaceProjection', () => {
         run: {
           id: 'run-acceptance',
           conversation_id: delivery.id,
-          status: 'active',
+          status: 'completed',
           current_stage: 'verifying',
         },
         contract: {
@@ -107,14 +107,98 @@ describe('DeliveryWorkspaceProjection', () => {
             status: 'passed',
             evidenceRefs: ['build:1'],
           }],
+          verification: {
+            method: 'automated_test',
+            verifierAgentId: 'peach',
+            tool: 'pnpm test',
+            reportRef: 'reports/verification.md',
+            specRefs: ['specs/frontend-architecture-refactor/spec.md'],
+            codeRevision: 'abc1234',
+          },
+          completedAt: '2026-08-16T01:02:03.000Z',
         },
       } as never,
     }, delivery.id);
 
     expect(view).toMatchObject({
-      stage: 'verifying',
-      acceptance: { total: 2, passed: 1, failed: 0, pending: 1 },
+      stage: 'completed',
+      acceptance: {
+        total: 2,
+        passed: 1,
+        failed: 0,
+        pending: 1,
+        evidence: [
+          { criterion: '构建通过', status: 'passed', evidenceRefs: ['build:1'] },
+          { criterion: '浏览器验收通过', status: 'pending', evidenceRefs: [] },
+        ],
+        verification: {
+          method: 'automated_test',
+          verifierAgentId: 'peach',
+          tool: 'pnpm test',
+          reportRef: 'reports/verification.md',
+          specRefs: ['specs/frontend-architecture-refactor/spec.md'],
+          codeRevision: 'abc1234',
+          completedAt: '2026-08-16T01:02:03.000Z',
+        },
+      },
       work: { current: [expect.objectContaining({ id: 'TASK-1' })] },
+    });
+  });
+
+  it('does not count a bundle before the delivery run is completed', () => {
+    const view = projectDeliveryWorkspace({
+      conversations: [delivery],
+      tasks: [],
+      blockersByConversation: {},
+      chatMessagesByConversation: {},
+      deliveryRunSnapshot: {
+        run: {
+          id: 'run-delivering', conversation_id: delivery.id, status: 'active', current_stage: 'delivering',
+        },
+        contract: { acceptanceCriteria: ['构建通过'] },
+        bundle: {
+          acceptanceResults: [{ criterion: '构建通过', status: 'passed', evidenceRefs: ['build:1'] }],
+          verification: {
+            method: 'automated_test', verifierAgentId: 'peach', tool: 'pnpm test',
+            reportRef: 'reports/verification.md', specRefs: [],
+          },
+          completedAt: '2026-08-16T01:02:03.000Z',
+        },
+      } as never,
+    }, delivery.id);
+
+    expect(view?.acceptance).toMatchObject({
+      total: 1,
+      passed: 0,
+      pending: 1,
+      evidence: [{ criterion: '构建通过', status: 'pending', evidenceRefs: [] }],
+      verification: undefined,
+    });
+  });
+
+  it('does not treat an agent chat claim as acceptance evidence', () => {
+    const view = projectDeliveryWorkspace({
+      conversations: [delivery],
+      tasks: [],
+      blockersByConversation: {},
+      chatMessagesByConversation: {
+        [delivery.id]: [{
+          id: 'message-claim', agentId: 'peach', content: '已经全部验收通过。',
+          timestamp: '2026-08-16T00:03:00.000Z', mentions: [], intent: 'general',
+        }],
+      },
+      deliveryRunSnapshot: {
+        run: { id: 'run-claim', conversation_id: delivery.id, status: 'active', current_stage: 'verifying' },
+        contract: { acceptanceCriteria: ['浏览器验收通过'] },
+      } as never,
+    }, delivery.id);
+
+    expect(view?.acceptance).toMatchObject({
+      total: 1,
+      passed: 0,
+      pending: 1,
+      evidence: [{ criterion: '浏览器验收通过', status: 'pending', evidenceRefs: [] }],
+      verification: undefined,
     });
   });
 
