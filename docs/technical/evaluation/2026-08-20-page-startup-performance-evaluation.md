@@ -3,7 +3,7 @@
 - Change ID: `page-startup-performance-2026-08-20`
 - Evaluation level: C
 - Status: accepted
-- Code/spec revision: baseline `65326f8`; candidate `codex/page-performance` working tree
+- Code/spec revision: baseline `65326f8`; candidate `6be6e26`
 - Evaluator/benchmark revision: `docs/technical/evaluation/data/page-startup-performance-2026-08-20.json`
 
 ## Why
