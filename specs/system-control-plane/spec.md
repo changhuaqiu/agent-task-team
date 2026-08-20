@@ -262,6 +262,14 @@ the original holder. The delegating Agent MUST NOT submit `continue_work` merely
 receiver. Internal protocol failures such as `invocation_completed_without_outcome` consume the
 automatic recovery budget and terminate as a system failure when exhausted; they are not human
 business decisions and MUST NOT transition the Delivery to `waiting_human`.
+Completion without an accepted Outcome uses a dedicated one-attempt `outcome_recovery` budget,
+not the ordinary Invocation retry budget. The recovery activation keeps the same stable Work id
+but opens a fresh fenced epoch, supplies the previous turn's durable output and authoritative
+context, and authorizes only the `agent_submit_outcome` platform tool. It MUST NOT grant native
+edit/execute permission or Skill tools, and its prompt MUST ask the Agent only to select and submit
+one allowed structured exit; it must not re-run implementation or verification. A recovery turn
+that also terminates without an accepted Outcome, or fails at Runtime, is authoritative internal
+failure evidence and terminates the Delivery without a second recovery turn or human escalation.
 The Command Adapter MUST treat the exact exhausted failure projected for the target Work epoch as
 authoritative termination evidence. It MUST NOT require that an exhausted retryable Work Cell has
 already changed to the separate `failed` state, and an adapter rejection of that internal

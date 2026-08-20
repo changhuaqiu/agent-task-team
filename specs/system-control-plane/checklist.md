@@ -51,6 +51,7 @@
 - [x] Durable v2 recovery derives a stable outcome-scoped key for historical accepted handoffs that predate the key requirement, while current synchronous admission still rejects a new handoff without `idempotencyKey`.
 - [x] An accepted handoff is dependency waiting until the durable A2A callback wakes the original holder; coordinator Agents do not spend continuation budget on receiver polling.
 - [x] Internal completion-without-outcome exhaustion fails visibly as a system problem instead of asking the user to decide Agent-lane health; genuine human boundaries use actionable, user-readable copy without ControlAction ids.
+- [x] Completion without Outcome opens exactly one fresh fenced outcome-only epoch, preserves the last durable output in context, exposes only `agent_submit_outcome`, grants no native edit/execute or Skill tools, and fails without human escalation if that recovery turn does not submit an accepted Outcome.
 - [x] One oversized ACP session update is truncated at the display boundary without terminating the turn; cumulative output and queued-event limits remain hard, so a large tool result cannot strand the visible chat before the final reply.
 
 ## Migration

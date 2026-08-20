@@ -164,10 +164,10 @@ describe('decideControlActions', () => {
     const decision = decideControlActions(snapshot([
       cell('protocol-exhausted', 'retry_pending', {
         failure: {
-          reasonCode: 'invocation_completed_without_outcome',
+          reasonCode: 'outcome_recovery_failed',
           retryable: true,
           humanRecoverable: false,
-          budget: { kind: 'invocation', attemptsUsed: 3, maxAttempts: 3 },
+          budget: { kind: 'outcome_recovery', attemptsUsed: 1, maxAttempts: 1 },
         },
       }),
     ]), POLICY);
@@ -175,7 +175,7 @@ describe('decideControlActions', () => {
     expect(decision.actions).toMatchObject([{
       type: 'terminate',
       targetWorkId: 'protocol-exhausted',
-      reasonCode: 'invocation_completed_without_outcome',
+      reasonCode: 'outcome_recovery_failed',
       terminationOutcome: 'failed',
     }]);
   });

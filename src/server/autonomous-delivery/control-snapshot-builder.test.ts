@@ -63,7 +63,13 @@ describe('RepositoryControlSnapshotBuilder', () => {
     db.close();
   });
 
-  function issue(workId: string, agentId: string, attemptId: string, taskId?: string) {
+  function issue(
+    workId: string,
+    agentId: string,
+    attemptId: string,
+    taskId?: string,
+    permissions: Record<string, unknown> = {},
+  ) {
     return contracts.issue({
       workId,
       attemptId,
@@ -74,7 +80,7 @@ describe('RepositoryControlSnapshotBuilder', () => {
       goal: workId,
       acceptanceCriteria: ['Done'],
       role: { id: agentId === 'agent-a' ? 'implementer' : 'reviewer' },
-      permissions: {},
+      permissions,
       authoritativeRefs: [`work:${workId}`],
       authoritativeRevisions: {
         work: 1,
@@ -184,6 +190,87 @@ describe('RepositoryControlSnapshotBuilder', () => {
         },
       },
     });
+  });
+
+  it('uses one outcome-only recovery epoch instead of rerunning completed work', () => {
+    const initial = issue('work-outcome-recovery', 'agent-a', 'attempt-initial', undefined, {
+      executionMode: 'standard',
+    });
+    invocationRepo.create({
+      id: initial.attemptId,
+      conversation_id: 'project-1',
+      agent_id: initial.agentId,
+      work_contract_id: initial.contractId,
+      work_id: initial.workId,
+      work_epoch: initial.workEpoch,
+      fencing_token: initial.fencingToken,
+    }, now);
+    invocationRepo.transition(initial.attemptId, {
+      to: 'terminated',
+      outcome: 'completed',
+    }, now);
+
+    const firstSnapshot = new RepositoryControlSnapshotBuilder({ db, now: () => now }).build(runId);
+    expect(firstSnapshot.workCells[0]).toMatchObject({
+      state: 'retry_pending',
+      failure: {
+        reasonCode: 'invocation_completed_without_outcome',
+        humanRecoverable: false,
+        budget: { kind: 'outcome_recovery', attemptsUsed: 0, maxAttempts: 1 },
+      },
+    });
+    expect(decideControlActions(firstSnapshot, {
+      revision: 8,
+      maxConcurrent: 1,
+      roleCapacity: { implementer: 1 },
+      fairnessAgingMs: 1_000,
+    }).actions).toMatchObject([{
+      type: 'retry',
+      targetWorkId: initial.workId,
+      retryBudgetKind: 'outcome_recovery',
+    }]);
+
+    const recovery = issue(
+      initial.workId,
+      'agent-a',
+      'attempt-outcome-recovery',
+      undefined,
+      { executionMode: 'outcome_recovery', tools: ['agent_submit_outcome'] },
+    );
+    invocationRepo.create({
+      id: recovery.attemptId,
+      conversation_id: 'project-1',
+      agent_id: recovery.agentId,
+      work_contract_id: recovery.contractId,
+      work_id: recovery.workId,
+      work_epoch: recovery.workEpoch,
+      fencing_token: recovery.fencingToken,
+    }, now);
+    invocationRepo.transition(recovery.attemptId, {
+      to: 'terminated',
+      outcome: 'completed',
+    }, now);
+
+    const exhausted = new RepositoryControlSnapshotBuilder({ db, now: () => now }).build(runId);
+    expect(exhausted.workCells[0]).toMatchObject({
+      state: 'retry_pending',
+      failure: {
+        reasonCode: 'outcome_recovery_failed',
+        humanRecoverable: false,
+        budget: { kind: 'outcome_recovery', attemptsUsed: 1, maxAttempts: 1 },
+      },
+    });
+    expect(decideControlActions(exhausted, {
+      revision: 8,
+      maxConcurrent: 1,
+      roleCapacity: { implementer: 1 },
+      fairnessAgingMs: 1_000,
+    }).actions).toMatchObject([{
+      type: 'terminate',
+      targetWorkId: recovery.workId,
+      reasonCode: 'outcome_recovery_failed',
+      terminationOutcome: 'failed',
+    }]);
   });
 
   it('projects an accepted handoff as dependency waiting before A2A processing catches up', () => {
@@ -627,6 +714,78 @@ describe('RepositoryControlSnapshotBuilder', () => {
         reasonCode: 'dispatch_pending',
       }),
     ]));
+  });
+
+  it('routes a completed Gate turn without a decision through outcome-only recovery', () => {
+    db.prepare(`
+      INSERT INTO agents (id,name,role_card_id,theme,emoji,created_at,updated_at)
+      VALUES ('reviewer','Reviewer','preset-code-reviewer','default','R',?,?)
+    `).run(now.toISOString(), now.toISOString());
+    taskRepo.create({
+      id: 'task-gate-outcome-recovery',
+      conversation_id: 'project-1',
+      title: 'Review recovery',
+      agent_id: 'agent-a',
+    }, now);
+    taskRepo.transition('task-gate-outcome-recovery', { to: 'in_progress' }, now);
+    taskRepo.transition('task-gate-outcome-recovery', { to: 'in_review' }, now);
+    const task = taskRepo.getById('task-gate-outcome-recovery')!;
+    const requested = qualityGateRepo.request({
+      conversationId: 'project-1',
+      kind: 'code_review',
+      targetType: 'task',
+      targetId: task.id,
+      artifactRevision: String(task.revision),
+      criteria: {},
+      actor: { type: 'system', id: 'test' },
+      now,
+    });
+    const workId = buildWorkIdentity({
+      scope: 'task',
+      targetId: task.id,
+      agentId: 'reviewer',
+      gateId: requested.gate.id,
+      purpose: 'review',
+    });
+    const contract = contracts.issue({
+      workId,
+      attemptId: 'attempt-gate-missing-outcome',
+      projectId: 'project-1',
+      deliveryRunId: runId,
+      taskId: task.id,
+      agentId: 'reviewer',
+      goal: 'Review the task',
+      acceptanceCriteria: ['Record a decision'],
+      role: { id: 'reviewer' },
+      permissions: { executionMode: 'standard' },
+      authoritativeRefs: [`task:${task.id}`, `quality_gate:${requested.gate.id}`],
+      authoritativeRevisions: { task: task.revision },
+      contextSnapshotRef: 'context-gate-missing-outcome',
+      allowedOutcomeTypes: ['continue_work', 'record_gate_decision'],
+      correlationId: 'corr-gate-missing-outcome',
+      causationId: 'cause-gate-missing-outcome',
+      now,
+    });
+    invocationRepo.create({
+      id: contract.attemptId,
+      conversation_id: 'project-1',
+      agent_id: contract.agentId,
+      work_contract_id: contract.contractId,
+      work_id: contract.workId,
+      work_epoch: contract.workEpoch,
+      fencing_token: contract.fencingToken,
+    }, now);
+    invocationRepo.transition(contract.attemptId, { to: 'terminated', outcome: 'completed' }, now);
+
+    const snapshot = new RepositoryControlSnapshotBuilder({ db, now: () => now }).build(runId);
+    expect(snapshot.workCells.find((cell) => cell.workId === workId)).toMatchObject({
+      purpose: 'review',
+      state: 'retry_pending',
+      failure: {
+        reasonCode: 'invocation_completed_without_outcome',
+        budget: { kind: 'outcome_recovery', attemptsUsed: 0, maxAttempts: 1 },
+      },
+    });
   });
 
   it('starts a fresh Gate-scoped review after a legacy review authority has closed', () => {

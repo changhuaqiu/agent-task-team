@@ -380,11 +380,14 @@ Daemon ExecutionAdapter 内执行；daemon transport 只启动/停止该服务�
 - `invocation_completed_without_outcome` 等内部协议故障只消耗系统自动恢复预算，预算耗尽后进入可诊断失败，不得伪装成需要用户判断
   Agent lane 是否可用的业务决策。`waiting_human` 仅保留给 Agent 显式上报的阻塞、授权/配置缺失和真正的外部业务选择；界面展示可执行的
   人话说明，不暴露 ControlAction id。
+  正常完成但未提交 Outcome 时，自动恢复不是重跑原任务，而是最多一次 outcome-only fenced epoch：保留上一轮持久回复与权威上下文，
+  只暴露 `agent_submit_outcome`，拒绝原生 edit/execute 与 Skill 工具。恢复轮次仍无 accepted Outcome 或 Runtime 失败时直接以内部系统故障
+  终止，不再重复实现、重复验收或打扰用户。
   Command Adapter 对失败终止的权威性校验同时接受目标 Work epoch 上“预算已耗尽且 reasonCode 精确一致”的内部故障；不能要求该
   `retry_pending` Cell 预先变成另一种 `failed` 状态，否则控制器会自相矛盾并把内部拒绝错误升级给用户。
   单条 ACP session update 超过展示上限时在边界截断并保留 `[truncated]` 标记，不再终止整个 turn；累计输出、队列和并发预算仍保持硬限制，
   避免一次超长工具结果让聊天气泡永远停在“思考中”且丢失后续最终回复。
-  这次 Work Cell 语义变更使用 control policy revision 7，避免与 revision 6 的持久化决策 identity 冲突。
+  这次 outcome recovery 的 Work Cell 语义变更使用 control policy revision 8，避免与 revision 7 的持久化决策 identity 冲突。
 - AutonomyGuard 只有在存在可持久化 `waiting_human` 的活动 Delivery owner 时才启用失败预算抑制。普通 Task 没有该
   owner 时继续保留恢复 wakeup，避免任务停在 ready/in_progress/in_review 且没有任何用户可见升级事实。
 - `taskStore` 的任务变化后自动派发已删除；`daemonStore` 的浏览器 runtime 注册、busy queue、强制发送、自动重试、

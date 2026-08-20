@@ -2,7 +2,7 @@ import type Database from 'better-sqlite3';
 import type { ContextRequest } from '../../lib/agent-context/ContextManager';
 import type { ContextScenario } from '../../lib/agent-context/scenarioResolver';
 import { getDb } from '../db';
-import type { AgentActivationSource } from '../invocation-pipeline/types';
+import type { AgentActivationSource, AgentExecutionMode } from '../invocation-pipeline/types';
 import { generateSortableId } from '../repositories/sortable-id';
 import { parseWorkIdentity } from '../work-contract/work-identity';
 import { PlatformEventLog } from './event-log';
@@ -14,6 +14,7 @@ export interface AgentWorkCommand {
   correlationId?: string;
   causationId?: string;
   workId?: string;
+  executionMode?: AgentExecutionMode;
   taskId?: string;
   deliveryRunId?: string;
   fromAgentId?: string;

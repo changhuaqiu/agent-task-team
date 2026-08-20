@@ -17,6 +17,7 @@ type ControlActionType =
 
 export type RetryBudgetKind =
   | 'invocation'
+  | 'outcome_recovery'
   | 'effect'
   | 'task_rework';
 

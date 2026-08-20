@@ -24,6 +24,29 @@ const GATE_OUTCOMES: AgentOutcomeType[] = [
   'request_human_decision',
 ];
 
+interface WorkContractPermissions {
+  executionMode?: 'standard' | 'outcome_recovery';
+  tools?: unknown;
+  authorization?: unknown;
+}
+
+function permissionEnvelope(contract: WorkContract): WorkContractPermissions {
+  return contract.permissions !== null && typeof contract.permissions === 'object'
+    ? contract.permissions as WorkContractPermissions
+    : {};
+}
+
+export function workContractToolNames(contract: WorkContract): string[] {
+  const tools = permissionEnvelope(contract).tools;
+  return Array.isArray(tools)
+    ? [...new Set(tools.filter((tool): tool is string => typeof tool === 'string' && Boolean(tool.trim())))]
+    : [];
+}
+
+export function isOutcomeRecoveryContract(contract: WorkContract): boolean {
+  return permissionEnvelope(contract).executionMode === 'outcome_recovery';
+}
+
 export class StaleA2APossessionError extends Error {
   readonly reasonCode = 'a2a_possession_stale';
 
@@ -148,6 +171,7 @@ export function issueDispatchWorkContract(input: {
         : ['Return a structured outcome with evidence']);
     const gateWork = input.trigger.source === 'review_gate' || input.trigger.source === 'test_gate';
 
+    const outcomeRecovery = input.trigger.executionMode === 'outcome_recovery';
     return workContractRepo.issue({
       workId,
       attemptId: generateSortableId('inv'),
@@ -159,16 +183,19 @@ export function issueDispatchWorkContract(input: {
       acceptanceCriteria,
       role: input.role ?? {},
       permissions: {
+        executionMode: outcomeRecovery ? 'outcome_recovery' : 'standard',
         runtime: {
           engine: input.runtime.engine,
           runtimeId: input.runtime.runtimeId,
           ...(input.runtime.accountId ? { accountId: input.runtime.accountId } : {}),
         },
-        tools: [...new Set([
-          ...input.runtime.toolNames,
-          'agent_submit_outcome',
-        ])].sort(),
-        authorization: deliveryContract?.authorization ?? {},
+        tools: outcomeRecovery
+          ? ['agent_submit_outcome']
+          : [...new Set([
+              ...input.runtime.toolNames,
+              'agent_submit_outcome',
+            ])].sort(),
+        authorization: outcomeRecovery ? {} : deliveryContract?.authorization ?? {},
       },
       authoritativeRefs,
       authoritativeRevisions,
@@ -186,14 +213,22 @@ export function issueDispatchWorkContract(input: {
 }
 
 export function renderWorkContractInstruction(contract: WorkContract): string {
+  const outcomeRecovery = isOutcomeRecoveryContract(contract);
   return [
     '# Platform Work Contract',
     '',
     'This invocation is authorized only by the immutable contract below.',
-    'Report candidate results with the agent_submit_outcome platform tool.',
+    outcomeRecovery
+      ? 'This is an outcome-only recovery turn. Immediately report exactly one candidate result with the agent_submit_outcome platform tool.'
+      : 'Report candidate results with the agent_submit_outcome platform tool.',
     'The tool binds the private fencing token and authoritative revisions for this invocation.',
     'A stale epoch or superseded attempt will be rejected; do not mutate domain state directly.',
     'Treat TASKS.md, task status, assignee, deliverable metadata, and gate state as read-only projections.',
+    ...(outcomeRecovery ? [
+      'Do not repeat implementation, review, verification, shell commands, file edits, delegation, or exploratory work.',
+      'Use the previous durable reply and evidence already present in context to choose one allowed structured exit.',
+      'Do not send a narrative assistant reply before calling agent_submit_outcome.',
+    ] : []),
     'Before ending, submit exactly one terminal outcome or one continue_work checkpoint; the Process Manager applies task and gate transitions atomically.',
     'If substantial work remains but this Invocation must stop, submit continue_work with payload '
       + '{ schemaVersion: 1, reason: multi_step | context_boundary | verification_follow_up, summary, nextAction, completedSteps: string[], remainingSteps: non-empty string[] }. '

@@ -3,7 +3,12 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ContextSnapshot } from '../../lib/agent-context/ContextManager';
 import { createTestDb, resetDb, setTestDb } from '../db';
 import { taskRepo } from '../repositories/task-repo';
-import { issueDispatchWorkContract, StaleA2APossessionError } from './dispatch-contract';
+import {
+  issueDispatchWorkContract,
+  renderWorkContractInstruction,
+  StaleA2APossessionError,
+  workContractToolNames,
+} from './dispatch-contract';
 
 describe('issueDispatchWorkContract', () => {
   let db: Database.Database;
@@ -81,6 +86,69 @@ describe('issueDispatchWorkContract', () => {
       ]));
     },
   );
+
+  it('issues an outcome-only recovery contract without implementation tools or authorization', () => {
+    const task = taskRepo.create({
+      id: 'task-outcome-recovery',
+      conversation_id: 'project-1',
+      title: 'Recover the structured result',
+      agent_id: 'implementer',
+    }, now);
+    const snapshot: ContextSnapshot = {
+      id: 'context-outcome-recovery',
+      query: {
+        scenario: 'recovery',
+        trigger: 'resume',
+        conversationId: 'project-1',
+        agentId: 'implementer',
+        archetype: 'worker',
+        taskId: task.id,
+        budgetTokens: 1_000,
+        requiredContributorIds: [],
+        now: now.toISOString(),
+        requestDigest: 'outcome-recovery-digest',
+      },
+      fragmentRefs: [],
+      capabilities: [],
+      constraints: [],
+      missingRequired: [],
+      omissions: [],
+      compiledPrompt: 'Use the prior durable reply to submit the structured result.',
+      createdAt: now.toISOString(),
+    };
+
+    const contract = issueDispatchWorkContract({
+      trigger: {
+        id: 'trigger-outcome-recovery',
+        source: 'system',
+        conversationId: 'project-1',
+        agentId: 'implementer',
+        taskId: task.id,
+        executionMode: 'outcome_recovery',
+        contextScenario: 'recovery',
+        prompt: 'Submit the prior result only.',
+      },
+      traceId: 'trace-outcome-recovery',
+      contextSnapshot: snapshot,
+      task,
+      role: { id: 'implementer' },
+      runtime: {
+        engine: 'codex',
+        runtimeId: 'runtime-1',
+        toolNames: ['shell', 'edit_file', 'project_skill'],
+      },
+    });
+
+    expect(workContractToolNames(contract)).toEqual(['agent_submit_outcome']);
+    expect(contract.permissions).toMatchObject({
+      executionMode: 'outcome_recovery',
+      authorization: {},
+    });
+    const instruction = renderWorkContractInstruction(contract);
+    expect(instruction).toContain('outcome-only recovery turn');
+    expect(instruction).toContain('Do not repeat implementation');
+    expect(instruction).toContain('Do not send a narrative assistant reply');
+  });
 
   it('binds an A2A reconciliation possession into callback authority', () => {
     db.prepare(`

@@ -580,6 +580,12 @@ correlationId / causationId
 Agent 在这个边界内自主循环。只有当它提交结构化 outcome，或者 Invocation 因外部原因终止时，
 控制权才回到 Harness。
 
+若 Runtime 正常结束但当前 Contract 没有 accepted Outcome，Harness 不重新执行原任务。Control
+Snapshot 将它投影为独立的 `outcome_recovery` 预算，最多签发一个新的 fenced epoch；该 Contract
+只授权 `agent_submit_outcome`，禁止原生 edit/execute 和 Skill 工具，并把上一轮持久化回复与当前
+权威事实作为上下文，要求 Agent 只提交一次受支持的结构化出口。恢复轮次仍无 Outcome 或 Runtime
+失败时，平台以内部协议故障终止，不再重试整项工作，也不升级为需要用户判断的业务问题。
+
 结构化 Outcome 使用统一信封：
 
 ```text

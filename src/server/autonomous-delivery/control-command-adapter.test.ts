@@ -7,6 +7,7 @@ import { qualityGateRepo } from '../quality-gate/repository';
 import { taskGraphRepo } from '../repositories/task-graph-repo';
 import { taskRepo } from '../repositories/task-repo';
 import { invocationRepo } from '../repositories/invocation-repo';
+import { messageRepo } from '../repositories/message-repo';
 import { WorkContractRepository } from '../work-contract/repository';
 import { buildWorkIdentity } from '../work-contract/work-identity';
 import { ProductionControlCommandAdapter } from './control-command-adapter';
@@ -185,6 +186,83 @@ describe('ProductionControlCommandAdapter', () => {
     expect(run.escalation_detail).not.toContain(action.actionId);
   });
 
+  it('dispatches completion without Outcome as a restricted outcome-only recovery', async () => {
+    const workId = buildWorkIdentity({
+      scope: 'task',
+      targetId: 'task-1',
+      agentId: 'agent-1',
+      purpose: 'execute',
+    });
+    const contracts = new WorkContractRepository();
+    const contract = contracts.issue({
+      workId,
+      attemptId: 'attempt-completed-without-outcome',
+      projectId: 'project-1',
+      deliveryRunId: runId,
+      taskId: 'task-1',
+      agentId: 'agent-1',
+      goal: 'Implement',
+      acceptanceCriteria: ['Works'],
+      role: { id: 'agent-1' },
+      permissions: { executionMode: 'standard' },
+      authoritativeRefs: ['task:task-1'],
+      authoritativeRevisions: { task: taskRepo.getById('task-1')!.revision },
+      contextSnapshotRef: 'context-standard',
+      allowedOutcomeTypes: ['continue_work', 'submit_task_result', 'request_review'],
+      correlationId: 'delivery-root-trace',
+      causationId: 'initial-execution',
+      now,
+    });
+    invocationRepo.create({
+      id: contract.attemptId,
+      conversation_id: 'project-1',
+      agent_id: contract.agentId,
+      work_contract_id: contract.contractId,
+      work_id: contract.workId,
+      work_epoch: contract.workEpoch,
+      fencing_token: contract.fencingToken,
+    }, now);
+    invocationRepo.transition(contract.attemptId, {
+      to: 'terminated',
+      outcome: 'completed',
+    }, now);
+    messageRepo.append({
+      conversationId: 'project-1',
+      taskId: 'task-1',
+      senderType: 'agent',
+      senderId: 'agent-1',
+      content: '实现与测试已经完成，证据是 reports/voice-e2e.md。',
+      invocationId: contract.attemptId,
+      projectTeamLog: false,
+    }, db);
+
+    const { snapshot, decision } = decide();
+    const action = decision.actions.find((candidate) => candidate.targetWorkId === workId)!;
+    expect(action).toMatchObject({
+      type: 'retry',
+      reasonCode: 'invocation_completed_without_outcome',
+      retryBudgetKind: 'outcome_recovery',
+    });
+    expect(await adapter.execute(action, {
+      decision,
+      snapshot,
+      claimToken: 'claim-outcome-recovery',
+    })).toEqual({ status: 'applied' });
+
+    const command = JSON.parse((db.prepare(`
+      SELECT command_json FROM agent_inbox_item WHERE idempotency_key=?
+    `).get(action.actionId) as { command_json: string }).command_json);
+    expect(command).toMatchObject({
+      source: 'system',
+      workId,
+      executionMode: 'outcome_recovery',
+      contextScenario: 'recovery',
+    });
+    expect(command.prompt).toContain('不要重新实现');
+    expect(command.prompt).toContain('立即调用一次 agent_submit_outcome');
+    expect(command.prompt).toContain('reports/voice-e2e.md');
+  });
+
   it('accepts an exhausted internal protocol failure as authoritative termination evidence', () => {
     const workId = buildWorkIdentity({
       scope: 'task',
@@ -194,7 +272,7 @@ describe('ProductionControlCommandAdapter', () => {
     });
     const contracts = new WorkContractRepository();
     let latestEpoch = 0;
-    for (let attempt = 1; attempt <= 3; attempt += 1) {
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
       const task = taskRepo.getById('task-1')!;
       const contract = contracts.issue({
         workId,
@@ -206,7 +284,10 @@ describe('ProductionControlCommandAdapter', () => {
         goal: task.title,
         acceptanceCriteria: ['Works'],
         role: { id: 'agent-1' },
-        permissions: {},
+        permissions: {
+          executionMode: attempt === 2 ? 'outcome_recovery' : 'standard',
+          ...(attempt === 2 ? { tools: ['agent_submit_outcome'] } : {}),
+        },
         authoritativeRefs: [`task:${task.id}`, `delivery_run:${runId}`],
         authoritativeRevisions: {
           task: task.revision,
@@ -239,7 +320,7 @@ describe('ProductionControlCommandAdapter', () => {
     expect(terminate).toMatchObject({
       targetWorkId: workId,
       workEpoch: latestEpoch,
-      reasonCode: 'invocation_completed_without_outcome',
+      reasonCode: 'outcome_recovery_failed',
       terminationOutcome: 'failed',
     });
 
@@ -271,7 +352,7 @@ describe('ProductionControlCommandAdapter', () => {
     })).toEqual({ status: 'applied' });
     expect(deliveries.getRun(runId)).toMatchObject({
       status: 'failed',
-      escalation_code: 'invocation_completed_without_outcome',
+      escalation_code: 'outcome_recovery_failed',
     });
   });
 

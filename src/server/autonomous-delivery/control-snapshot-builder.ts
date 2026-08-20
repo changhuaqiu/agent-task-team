@@ -26,6 +26,7 @@ interface WorkCellFactRow {
   contract_id: string;
   agent_id: string;
   role_json: string;
+  execution_mode: string | null;
   created_at: string;
   task_id: string | null;
   task_status: string | null;
@@ -72,6 +73,7 @@ interface ControlActionFailureFactRow {
 
 interface ControlSnapshotRetryLimits {
   invocation: number;
+  outcome_recovery: number;
   effect: number;
   task_rework: number;
   continuation: number;
@@ -85,6 +87,7 @@ interface RepositoryControlSnapshotBuilderOptions {
 
 const DEFAULT_RETRY_LIMITS: ControlSnapshotRetryLimits = {
   invocation: 3,
+  outcome_recovery: 1,
   effect: 5,
   task_rework: 2,
   continuation: 6,
@@ -115,12 +118,13 @@ function internalInvocationFailure(
   attemptsUsed: number,
   limits: ControlSnapshotRetryLimits,
   retryable = true,
+  kind: Extract<RetryBudgetKind, 'invocation' | 'outcome_recovery'> = 'invocation',
 ): NonNullable<WorkCellControlSnapshot['failure']> {
   return {
     reasonCode,
     retryable,
     humanRecoverable: false,
-    budget: retryBudget('invocation', attemptsUsed, limits),
+    budget: retryBudget(kind, attemptsUsed, limits),
   };
 }
 
@@ -191,6 +195,7 @@ export class RepositoryControlSnapshotBuilder {
         contract.id AS contract_id,
         contract.agent_id,
         contract.role_json,
+        json_extract(contract.permissions_json, '$.executionMode') AS execution_mode,
         contract.created_at,
         contract.task_id,
         task.status AS task_status,
@@ -864,10 +869,11 @@ export class RepositoryControlSnapshotBuilder {
           purpose: 'review',
           state: 'retry_pending',
           gateStatus: 'requested',
-          failure: internalInvocationFailure(
-            row.invocation_reason_code ?? 'task_gate_invocation_failed',
-            this.invocationAttempts(db, row.work_id),
+          failure: this.terminatedInvocationFailure(
+            db,
+            row,
             limits,
+            'task_gate_invocation_failed',
           ),
         };
       }
@@ -939,10 +945,11 @@ export class RepositoryControlSnapshotBuilder {
           ...gateBase,
           state: 'retry_pending',
           gateStatus: 'requested',
-          failure: internalInvocationFailure(
-            row.invocation_reason_code ?? 'gate_invocation_failed',
-            this.invocationAttempts(db, row.work_id),
+          failure: this.terminatedInvocationFailure(
+            db,
+            row,
             limits,
+            'gate_invocation_failed',
           ),
         };
       }
@@ -1065,20 +1072,10 @@ export class RepositoryControlSnapshotBuilder {
           },
         };
       }
-      const attemptsUsed = this.invocationAttempts(db, row.work_id);
-      const reasonCode = row.invocation_reason_code
-        ?? (row.invocation_outcome === 'completed'
-          ? 'invocation_completed_without_outcome'
-          : 'invocation_failed');
       return {
         ...base,
         state: 'retry_pending',
-        failure: internalInvocationFailure(
-          reasonCode,
-          attemptsUsed,
-          limits,
-          row.invocation_outcome !== 'cancelled',
-        ),
+        failure: this.terminatedInvocationFailure(db, row, limits, 'invocation_failed'),
       };
     }
     return { ...base, state: 'ready' };
@@ -1089,6 +1086,49 @@ export class RepositoryControlSnapshotBuilder {
       SELECT COUNT(*) AS count FROM invocation
       WHERE work_id=? AND status='terminated'
     `).get(workId) as { count: number }).count;
+  }
+
+  private outcomeRecoveryAttempts(db: Database.Database, workId: string): number {
+    return (db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM invocation
+      JOIN work_contract contract ON contract.id=invocation.work_contract_id
+      WHERE invocation.work_id=?
+        AND invocation.status='terminated'
+        AND json_extract(contract.permissions_json, '$.executionMode')='outcome_recovery'
+    `).get(workId) as { count: number }).count;
+  }
+
+  private terminatedInvocationFailure(
+    db: Database.Database,
+    row: WorkCellFactRow,
+    limits: ControlSnapshotRetryLimits,
+    fallbackReasonCode: string,
+  ): NonNullable<WorkCellControlSnapshot['failure']> {
+    if (row.execution_mode === 'outcome_recovery') {
+      return internalInvocationFailure(
+        'outcome_recovery_failed',
+        this.outcomeRecoveryAttempts(db, row.work_id),
+        limits,
+        true,
+        'outcome_recovery',
+      );
+    }
+    if (row.invocation_outcome === 'completed' && !row.invocation_reason_code) {
+      return internalInvocationFailure(
+        'invocation_completed_without_outcome',
+        this.outcomeRecoveryAttempts(db, row.work_id),
+        limits,
+        true,
+        'outcome_recovery',
+      );
+    }
+    return internalInvocationFailure(
+      row.invocation_reason_code ?? fallbackReasonCode,
+      this.invocationAttempts(db, row.work_id),
+      limits,
+      row.invocation_outcome !== 'cancelled',
+    );
   }
 
   private gateReworkCyclesUsed(

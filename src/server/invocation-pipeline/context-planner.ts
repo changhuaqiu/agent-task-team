@@ -108,9 +108,10 @@ export class InvocationPlanner implements InvocationPlannerPort {
       trigger.evaluation ? `evaluation:${trigger.evaluation.executionId}` : '',
     );
     const isFirstWake = !activeSession;
+    const outcomeRecovery = trigger.executionMode === 'outcome_recovery';
 
     try {
-      const boundSkillIds = profile.prompt.skills
+      const boundSkillIds = (outcomeRecovery ? [] : profile.prompt.skills)
         .map(skill => skill.id)
         .filter((skillId): skillId is string => Boolean(skillId));
       const skillCompilation = boundSkillIds.length > 0
@@ -148,7 +149,7 @@ export class InvocationPlanner implements InvocationPlannerPort {
           })),
         getTeamPack: async () => runtime.teamPack,
         getRuntimeRoster: async () => runtime.roster,
-        getSkills: async () => profile.prompt.skills.map(skill => ({
+        getSkills: async () => (outcomeRecovery ? [] : profile.prompt.skills).map(skill => ({
           id: skill.id,
           name: skill.name,
           description: skill.description,
@@ -169,7 +170,7 @@ export class InvocationPlanner implements InvocationPlannerPort {
           ? []
           : [projectContextContributor, autonomousDeliveryContextContributor],
       });
-      const referenceResolution = trigger.evaluation
+      const referenceResolution = trigger.evaluation || outcomeRecovery
         ? { prompt: trigger.prompt, records: [] }
         : await resolveExternalReferences({
           prompt: trigger.prompt,
@@ -200,7 +201,7 @@ export class InvocationPlanner implements InvocationPlannerPort {
         taskId: trigger.taskId,
         deliveryRunId: trigger.deliveryRunId,
         rawPrompt: referenceResolution.prompt,
-        registeredToolNames: getSupportedToolNames(),
+        registeredToolNames: outcomeRecovery ? [] : getSupportedToolNames(),
         trigger: contextTrigger,
         scenario: trigger.contextScenario,
         a2aHandoff: trigger.source === 'a2a' ? trigger.a2aHandoff ?? {

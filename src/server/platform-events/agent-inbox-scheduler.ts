@@ -77,6 +77,7 @@ export class AgentInboxScheduler {
           correlationId: item.command.correlationId,
           causationId: item.command.causationId,
           workId: item.command.workId,
+          executionMode: item.command.executionMode,
           taskId: item.command.taskId,
           deliveryRunId: item.command.deliveryRunId,
           fromAgentId: item.command.fromAgentId,

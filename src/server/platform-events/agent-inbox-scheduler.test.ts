@@ -42,6 +42,7 @@ describe('AgentInboxScheduler', () => {
         causationId: 'message-1',
         possessionId: 'possession-1',
         possessionRevision: 4,
+        executionMode: 'outcome_recovery',
         a2aHandoff: {
           title: 'lead',
           requestedAction: 'Implement',
@@ -62,6 +63,7 @@ describe('AgentInboxScheduler', () => {
       causationId?: string;
       possessionId?: string;
       possessionRevision?: number;
+      executionMode?: string;
       a2aHandoff?: { evidenceRefs: string[] };
       legacyProposal?: boolean;
     } | undefined;
@@ -98,6 +100,7 @@ describe('AgentInboxScheduler', () => {
       causationId: 'message-1',
       possessionId: 'possession-1',
       possessionRevision: 4,
+      executionMode: 'outcome_recovery',
       a2aHandoff: expect.objectContaining({ evidenceRefs: ['spec.md'] }),
       legacyProposal: true,
     });

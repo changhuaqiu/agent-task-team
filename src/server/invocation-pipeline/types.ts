@@ -5,6 +5,7 @@ import type { ContextScenario } from '../../lib/agent-context/scenarioResolver';
 import type { WorkContract } from '../work-contract/types';
 
 export type AgentActivationSource = 'user' | 'a2a' | 'workflow' | 'review_gate' | 'test_gate' | 'system';
+export type AgentExecutionMode = 'standard' | 'outcome_recovery';
 
 export interface AgentActivationCommand {
   id: string;
@@ -25,6 +26,7 @@ export interface AgentActivationCommand {
   idempotencyKey?: string;
   /** Stable business work identity. Retries rotate the epoch under the same workId. */
   workId?: string;
+  executionMode?: AgentExecutionMode;
   contextScenario?: ContextScenario;
   legacyProposal?: boolean;
   wakeup?: ContextRequest['wakeup'];

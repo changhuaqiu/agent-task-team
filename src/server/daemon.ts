@@ -84,7 +84,10 @@ import { registerDeliveryEffectAdapters } from './autonomous-delivery/delivery-e
 import { deliveryAdvancementQueue } from './autonomous-delivery/advancement-queue';
 import { registerAutonomousDeliveryE2EDriver } from './testing/autonomous-delivery-e2e-driver';
 import { ProjectViewPublisher } from './project-view/project-view-publisher';
-import { renderWorkContractInstruction } from './work-contract/dispatch-contract';
+import {
+  renderWorkContractInstruction,
+  workContractToolNames,
+} from './work-contract/dispatch-contract';
 import {
   DaemonExecutionAdapter,
   type DaemonExecutionDispatchContext,
@@ -1188,7 +1191,9 @@ export default function registerDaemon(io: IOServer) {
       executeCwd = prepared.cwd;
       executeEnv = prepared.env;
       acpCleanup = prepared.cleanup;
-      const permittedAcpTools = (contextReport?.availableTools ?? []).filter(isSkillTool);
+      const permittedAcpTools = (workContract
+        ? workContractToolNames(workContract)
+        : contextReport?.availableTools ?? []).filter(isSkillTool);
       const mcpOrigin = resolveAcpMcpLoopbackOrigin(io);
       if ((permittedAcpTools.length > 0 || workContract) && !mcpOrigin) {
         throw new Error('acp_skill_mcp_unavailable: daemon HTTP listener has no loopback address');
