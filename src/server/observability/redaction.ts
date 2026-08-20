@@ -6,7 +6,7 @@ const SECRET_PATTERNS: RegExp[] = [
   /\b(Bearer\s+)[A-Za-z0-9._~+/=-]+/gi,
   /\b(sk-[A-Za-z0-9_-]{16,})\b/g,
   /\b(gh[pousr]_[A-Za-z0-9]{20,})\b/g,
-  /((?:api[_-]?key|access[_-]?token|authorization|password|secret)\s*[=:]\s*["']?)[^\s,"'}]+/gi,
+  /((?:["']?(?:api[_-]?key|access[_-]?token|authorization|password|secret)["']?)\s*[=:]\s*["']?)[^\s,"'}]+/gi,
   /\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?):\/\/[^\s]+/gi,
 ];
 

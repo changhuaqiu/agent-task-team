@@ -1,6 +1,14 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  serverExternalPackages: [
+    '@opentelemetry/api',
+    '@opentelemetry/core',
+    '@opentelemetry/exporter-trace-otlp-proto',
+    '@opentelemetry/resources',
+    '@opentelemetry/sdk-trace-base',
+    '@opentelemetry/sdk-trace-node',
+  ],
   outputFileTracingExcludes: {
     '/*': [
       'src/test-helpers/**/*',

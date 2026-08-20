@@ -110,6 +110,41 @@ describe('PlatformEventRuntimeWorker', () => {
     expect(registrations).toHaveLength(16);
   });
 
+  it('registers Phoenix projection only when the collector is explicitly configured', () => {
+    const previousEndpoint = process.env.PHOENIX_COLLECTOR_ENDPOINT;
+    const previousProject = process.env.ATH_PHOENIX_PROJECT_NAME;
+    const registrations: Array<{ id: string; pattern: string }> = [];
+    const dispatcher = {
+      register(registration: { id: string; pattern: string }) { registrations.push(registration); },
+      recover() { return { enqueued: 0, abandonedAttempts: 0 }; },
+      discover() { return 0; },
+      async drain() { return { succeeded: 0, failed: 0, deadLettered: 0 }; },
+    };
+    try {
+      delete process.env.PHOENIX_COLLECTOR_ENDPOINT;
+      new PlatformEventRuntimeWorker({ dispatcher });
+      expect(registrations.some((registration) => registration.id.startsWith('phoenix-trace-export:')))
+        .toBe(false);
+
+      registrations.length = 0;
+      process.env.PHOENIX_COLLECTOR_ENDPOINT = 'http://127.0.0.1:6006';
+      process.env.ATH_PHOENIX_PROJECT_NAME = 'agent-task-team';
+      new PlatformEventRuntimeWorker({
+        dispatcher,
+        phoenix: { sink: { export: vi.fn(async () => undefined) } },
+      });
+      expect(registrations).toEqual(expect.arrayContaining([expect.objectContaining({
+        id: 'phoenix-trace-export:v1',
+        pattern: 'runtime.invocation.terminated',
+      })]));
+    } finally {
+      if (previousEndpoint === undefined) delete process.env.PHOENIX_COLLECTOR_ENDPOINT;
+      else process.env.PHOENIX_COLLECTOR_ENDPOINT = previousEndpoint;
+      if (previousProject === undefined) delete process.env.ATH_PHOENIX_PROJECT_NAME;
+      else process.env.ATH_PHOENIX_PROJECT_NAME = previousProject;
+    }
+  });
+
   it('wires Effect and terminal Control facts back into Delivery reconciliation', () => {
     const registrations: Array<{ id: string; pattern: string }> = [];
     const dispatcher = {

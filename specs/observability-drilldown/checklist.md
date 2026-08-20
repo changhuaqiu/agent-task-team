@@ -38,3 +38,14 @@
 - [x] 现有 execution / A2A / task / observability 测试保持通过。
 - [x] 类型检查与生产构建通过。
 - [x] `docs/technical/` 与 `docs/wiki/` 已同步；`agent-observability` 迭代路径已更新。
+
+## Phoenix 外部投影（P3）
+
+- [x] 未配置 `PHOENIX_COLLECTOR_ENDPOINT` 时没有 Phoenix handler 和网络请求。
+- [x] 一次终态 Invocation 在 Phoenix 中形成一个 `AGENT` root、`LLM` message 与 `TOOL` children。
+- [x] Phoenix Project 固定为应用，Conversation 映射为 Session；task/agent/work/chain/pass 可过滤。
+- [x] durable replay 复用确定性外部 trace/span id，不生成重复 Trace。
+- [x] 默认不导出全量内容；开启 redacted 模式后 prompt/tool/reply 可见且敏感值已脱敏。
+- [x] thinking/隐藏推理、credential、环境变量与任意未知 attributes 不进入 Phoenix。
+- [x] Phoenix 停止或超时只产生可重试 delivery，不影响本地 Invocation/Task/Outcome 状态。
+- [x] 本地 `http://127.0.0.1:6006` 真实验收可看到 `agent-task-team` 项目和至少一条 Trace。

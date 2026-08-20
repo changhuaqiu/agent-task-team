@@ -157,3 +157,49 @@ ACP 的 `stopReason=end_turn` 只说明协议 turn 已停止，不等价于“�
 3. recovery 仍无文本时，结果使用稳定原因码 `acp_empty_completion` 标记失败，并向事件流写入一条明确的系统降级文本，禁止“工具执行成功 + invocation succeeded + 用户无消息”的假成功。
 4. recovery 复用既有 idle timeout 与 hard max turn timeout，不重置为新的无限循环；同一 invocation 的总恢复次数固定为 1。replacement session 只允许用于尚未产生任何用户可见文本或工具副作用的全新会话，显式 resume 与工具 turn 禁止换 session。
 5. `agent.message` span 必须反映最终恢复文本或降级文本；root span 状态与 invocation 终态保持一致。
+
+## 15. Phoenix 外部观测投影（P3）
+
+Phoenix 是 `observation_span` 的外部只读投影，不是新的执行事实源。`invocation`、Task Graph、
+A2A、Outcome、Gate 与 proof 的状态和完成判断仍完全留在本地；Phoenix 不可用、导出超时或
+认证失败均不得阻断 Agent loop，也不得改变业务状态。
+
+### 15.1 启用与拓扑
+
+- 仅当 `PHOENIX_COLLECTOR_ENDPOINT` 非空时注册 durable exporter；未配置时零网络请求、零投递积压。
+- `ATH_PHOENIX_PROJECT_NAME` 默认为 `agent-task-team`，对应 Phoenix Project；
+  `conversation_id` 映射为 OpenInference `session.id`；每个终态 Invocation 映射为一个 Trace。
+- `PHOENIX_API_KEY` 为可选 bearer credential；本地默认端点为显式配置的
+  `http://127.0.0.1:6006`，exporter 统一归一化到 HTTP OTLP `/v1/traces`。
+- Runtime worker 在 `runtime.invocation.terminated` 上注册独立 durable projection handler。
+  handler 只读取已经结束的本地 spans；若本地 projection 尚未收口则失败重试。
+
+### 15.2 语义映射
+
+| 本地 span | OpenInference kind | 主要属性 |
+|---|---|---|
+| root `agent` | `AGENT` | `agent.name`、`session.id`、invocation/task/work/chain/pass id |
+| `message` | `LLM` | engine、redacted completion、token usage |
+| `tool` | `TOOL` | tool name/call id、redacted input/output |
+| `context` | `PROMPT` | context assembly 摘要 |
+| `workflow` / `handoff` / `runtime` | `CHAIN` | 本地 kind 与因果标识 |
+
+Phoenix 使用符合 W3C/OTel 长度的确定性 trace/span id，原始本地 id 作为 `ath.*` 属性保留。
+同一 durable delivery 重试必须复用相同外部 id，使接收端可幂等覆盖而不是制造重复 Trace。
+
+### 15.3 内容与安全
+
+- 默认只导出结构、状态、耗时、token 和脱敏预览。
+- 只有 `ATH_PHOENIX_EXPORT_CONTENT=redacted` 时才导出本地已经过
+  `sanitizeObservationPayload` 的 system/assembled prompt、completion 与 tool I/O。
+- hidden chain-of-thought 永不导出；`thinking` payload 即便在本地存在，也不进入 Phoenix。
+- exporter 只允许已知 OpenInference/`ath.*` 字段，禁止把任意 attributes、环境变量、授权头或
+  credential 整体透传。
+
+### 15.4 可靠性与可验证性
+
+- 导出采用现有 `platform_event_delivery` 的 claim/lease/retry/dead-letter，不新增平行重试表。
+- handler revision 必须稳定且不得包含 endpoint、Project、内容模式或 credential；配置未启用时不注册 handler，后续启用并重启可从历史终态事件回放，credential 轮换不得制造新 handler 或遗留不可认领 delivery。
+- 单次 OTLP 请求固定 10 秒上限且 handler 受 AbortSignal 约束；Abort 后不再等待不支持主动取消的 exporter 连接，由固定请求上限完成后台收口。网络失败抛出稳定 `phoenix_export_*` reason，供 delivery 诊断。
+- 测试必须覆盖：配置关闭、endpoint 归一化、父子结构、确定性 id、内容开关、脱敏、成功、重试和
+  Phoenix 不可用时业务投影仍成功。

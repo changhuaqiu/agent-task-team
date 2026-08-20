@@ -29,6 +29,10 @@ import { TaskOutcomeProcessManager } from '../repositories/task-outcome-process-
 import {
   TaskGateLifecycleProcessManager,
 } from '../repositories/task-gate-lifecycle-process-manager';
+import {
+  createPhoenixHandlerRegistration,
+  type PhoenixProjectionOverrides,
+} from '../observability/phoenix-config';
 
 let worker: PlatformEventRuntimeWorker | undefined;
 
@@ -49,6 +53,7 @@ export interface PlatformEventRuntimeWorkerOptions {
   effectOutbox?: WorkerEffects;
   a2aOutcome?: A2AOutcomeProcessManagerOptions | false;
   a2aLifecycle?: A2ALifecycleProcessManagerOptions | false;
+  phoenix?: PhoenixProjectionOverrides | false;
 }
 
 export class PlatformEventRuntimeWorker {
@@ -94,6 +99,10 @@ export class PlatformEventRuntimeWorker {
       reliability: 'durable',
       handle: observabilityProjection.handle,
     });
+    if (resolved.phoenix !== false) {
+      const phoenix = createPhoenixHandlerRegistration(process.env, resolved.phoenix);
+      if (phoenix) this.dispatcher.register(phoenix);
+    }
     const a2aProjectViewProjection = new A2AProjectViewProjection({
       onProjected: resolved.onA2AProjected,
     });

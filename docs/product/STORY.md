@@ -99,6 +99,7 @@ updated: 2026-08-18
 - Agent 把同一步并行交给多个角色后，平台会等待全部分支终结并只回调原负责人一次；回调携带 complete/partial 分支摘要和精确 outcome 证据，不复制分支聊天，也不会因一支失败丢掉其他成功结果。并行宽度限制为 3，越界 handoff 在 Outcome 接纳事务内拒绝且不占用终态槽；取消或替换协作时，平台会取消 pending 回调、关闭已签发权限，并在派发和结果接纳两端拒绝旧 Possession revision。A2A、Inbox、WorkContract、Invocation Pipeline、ContextManager 相关回归 276/276 通过。
 - 多个交付复用同一项目目录时，`TASKS.md` 现在只归当前 Conversation 的 Task Graph 所有；新交付会先重建自己的投影并关闭旧 watcher。Task 一旦进入 WorkContract，文件中的状态、owner、标题、交付物和依赖全部只读，不能再把评审中或阻塞中的工作拉回执行。真实故障曾让同一成果产生重复父子任务、32 个执行 epoch 和 59 次 Task revision；对应接管与 revision 保护回归已覆盖，修复后的 3000 页面可正常加载且无控制台错误。
 - 在真实 3000 页面复核已完成交付：页面显示 100% 验收，历史中 2 条超长 Agent 回复进入渐进展开，11 个已完成 Trace 在收起态直接显示工具调用，浏览器控制台无应用错误。
+- 本地终态 Invocation 现在可通过 durable OTLP 投影进入 Phoenix：真实 `127.0.0.1:6006` 中已出现 `agent-task-team` Project、Conversation Session 与包含 AGENT/LLM/TOOL 子树的 Trace；同一 Invocation 重放后 Trace 数没有增加。Phoenix 故障只重试外部投影，不改变本地任务与验收事实；thinking 和未知属性不会外发。
 
 ### 仍然保留的边界
 
@@ -108,6 +109,7 @@ updated: 2026-08-18
 重启恢复仍按活动规格继续验收；当前发布只接通本地单 daemon，非本地节点会明确拒绝，远端 transport 尚未实现。
 当前续作由 Agent 在退出前显式提交检查点；基于上下文占用、运行时长和产出规模自动触发检查点仍属于后续能力。
 历史上已经导入的影子 Task 保留审计事实，不由升级代码静默删除；修复阻止新影子工作和继续回滚，已有记录仍需通过正式取消/收口命令处理。
+Phoenix 默认只导出脱敏预览，只有显式设置 `ATH_PHOENIX_EXPORT_CONTENT=redacted` 才导出本地已脱敏的较完整内容；Phoenix 仍是观察面，不是任务完成或验收的事实源。
 
 ### 设计与实现依据
 

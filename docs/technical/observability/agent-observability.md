@@ -24,7 +24,8 @@
 - Observation Projection 只读聚合 Task Graph、A2A、proof 和 spans。
 - Project UI 只通过查询 API 读取，不在前端推断执行成功或 Agent 关系。
 - Runtime Message Projection 可以为同一次 invocation 持久化多条文本或工具事实；Project UI 仅在展示层按相同 `invocationId` 聚合这些连续事实，并保留事件顺序。流式临时投影与持久事实短暂重叠时只展示临时投影，完成后切换为持久事实，禁止把两种表示同时渲染。特殊业务卡片仍保持独立消息边界。展示聚合不得改写、丢弃或合并底层 `chat_message` 事实。
-- 外部 OTLP/Phoenix/Jaeger/LangSmith 适配属于后续 exporter，不进入核心 loop。
+- 外部 OTLP/Phoenix 通过终态 Runtime Event 的 durable projection 接入，不进入核心 loop，
+  不参与任务完成判断；未配置 collector 时不注册 handler。
 
 ## 标准映射
 
@@ -52,7 +53,49 @@
 完整 payload 与列表预览分离；payload 查询必须携带 conversationId 并校验 span 归属。
 thinking 仅指 runtime 主动暴露的 reasoning summary，并按统一脱敏与容量上限采集；当前没有关闭开关，隐藏 chain-of-thought 永不采集。
 新增业务工作流必须先进入其权威事实表，再由 projection 读取；不得让 span 成为任务状态权威。
-当引入 OTLP exporter 时，本地 span id/trace id 与语义字段保持不变，exporter 只做映射和发送。
+OTLP exporter 保持本地 span/trace 事实不变，只做确定性身份映射和发送。外部 OTel id 从
+`invocation_id + local trace/span id` 确定性生成，原 id 保留为 `ath.*` 属性，保证 retry/replay
+不会制造新的 Phoenix Trace。Phoenix Project 表示 Agent Task Hub 应用，Conversation 表示
+OpenInference Session，每次 Agent turn 表示一个 Trace。
+
+## Phoenix 接入
+
+配置 `PHOENIX_COLLECTOR_ENDPOINT` 后，Runtime Worker 为
+`runtime.invocation.terminated` 注册 Phoenix durable projection。该 handler 等待本地
+`runtime-observability-projection` 收口后读取同一 Invocation 的完整 span 树，映射为
+OpenInference `AGENT / LLM / TOOL / PROMPT / CHAIN` 并经 OTLP HTTP protobuf 发往
+`/v1/traces`。投递复用 `platform_event_delivery` 的 claim、lease、retry 与 dead-letter，
+不再创建第二套 exporter 队列。
+
+配置边界：
+
+- `PHOENIX_COLLECTOR_ENDPOINT`：显式启用并指定 collector；未配置即关闭。
+- `ATH_PHOENIX_PROJECT_NAME`：Phoenix Project，默认 `agent-task-team`。
+- `PHOENIX_API_KEY`：可选 bearer credential，只进入 exporter header，不写日志和 span。
+- `ATH_PHOENIX_EXPORT_CONTENT=redacted`：允许导出本地已脱敏的 prompt、tool I/O 与 completion；
+  默认只导出结构、状态、预览与 token。
+
+Phoenix 是可替换的外部观察面：服务不可用时 durable delivery 独立重试，本地消息、Task、
+Outcome、Gate、proof 和 Delivery 仍按原链路推进。hidden chain-of-thought 与本地 thinking
+payload 永不导出；未知 attributes 不做透传。handler identity 与 endpoint、Project、内容模式和
+credential 解耦，轮换 API key 不会重放全部历史或留下无法认领的旧 delivery。preview 模式不读取
+完整 payload；redacted 模式在 SQL 读取阶段应用 trace-wide 内容预算，再执行最终字节级脱敏与截断。
+OTLP HTTP 请求固定 10 秒上限；durable handler 的 AbortSignal 触发后立即释放共享 worker，不再等待
+不支持主动取消的 exporter 连接，后台收口仍受上述固定上限约束。
+
+### 依赖决策
+
+采用 Phoenix 原生支持的标准 OTLP HTTP protobuf 路径，固定
+`@opentelemetry/api`、`core`、`exporter-trace-otlp-proto`、`resources`、`sdk-trace-base` 与
+`sdk-trace-node`。没有引入 `@arizeai/phoenix-otel` 的整套便捷封装，因为本项目不需要其
+Vercel/AI SDK instrumentation，直接使用标准 exporter 能缩小依赖与启动面；也没有手写
+OTLP protobuf，因为那会复制协议编码、认证 header、export result 和 timeout 语义。
+同时不启用全局 auto-instrumentation：它会把 Next.js HTTP/render spans 混入 Agent Trace，
+并使 Phoenix provider 变成应用全局事实。exporter 使用 non-global provider，只发送从
+`observation_span` 重建出的 OpenInference spans。
+
+这些包通过 `serverExternalPackages` 保持为 Node 原生依赖；Phoenix 未配置时 Runtime Worker
+只加载轻量配置模块，OTel/Phoenix 实现通过 handler 首次执行时动态加载，避免增加默认启动路径。
 
 ## Agent loop 完成语义
 

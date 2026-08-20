@@ -34,3 +34,13 @@
 - [x] 同步 `docs/technical/` 与 `docs/wiki/`；更新 `agent-observability` 迭代路径。
 - [x] 运行安装、类型检查、构建、单元/集成测试与真实 OpenCode ACP E2E。
 - [ ] 用户验收后，将本 spec 迁入 `docs/archive/specs/` 并从 active registry 移除。
+
+## P3 — Phoenix OTLP 外部投影
+
+- [x] 冻结 Phoenix Project / Session / Trace 与 OpenInference span kind 映射。
+- [x] 增加环境驱动的 Phoenix exporter 配置，未配置时不注册、不请求网络。
+- [x] 在 `runtime.invocation.terminated` 上注册 durable handler，从本地终态 spans 重建并导出 OTLP Trace。
+- [x] 外部 trace/span id 使用本地身份的确定性映射；原始 id 以 `ath.*` 属性保留。
+- [x] 默认仅导出结构与预览；`ATH_PHOENIX_EXPORT_CONTENT=redacted` 才导出已脱敏 payload，永不导出 thinking。
+- [x] 补配置、映射、脱敏、重试、关闭与真实本地 Phoenix 验收测试。
+- [x] 同步长期可观测设计与本地运行配置说明。
