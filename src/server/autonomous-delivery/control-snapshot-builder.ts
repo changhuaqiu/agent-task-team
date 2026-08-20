@@ -786,6 +786,28 @@ export class RepositoryControlSnapshotBuilder {
       queuedAt: row.created_at,
     };
     const workIdentity = parseWorkIdentity(row.work_id);
+    if (row.execution_mode === 'outcome_recovery' && !row.invocation_id) {
+      const purpose = workIdentity?.purpose === 'review'
+        ? 'review' as const
+        : workIdentity?.purpose === 'verify'
+          ? 'verification' as const
+          : 'execution' as const;
+      return {
+        ...base,
+        purpose,
+        state: 'retry_pending',
+        ...(purpose === 'review' || purpose === 'verification'
+          ? { gateStatus: 'requested' as const }
+          : {}),
+        failure: internalInvocationFailure(
+          'outcome_recovery_failed',
+          this.outcomeRecoveryAttempts(db, row.work_id),
+          limits,
+          true,
+          'outcome_recovery',
+        ),
+      };
+    }
     const taskReview = workIdentity?.scope === 'task'
       && workIdentity.purpose === 'review'
       && row.task_id;
@@ -1091,10 +1113,8 @@ export class RepositoryControlSnapshotBuilder {
   private outcomeRecoveryAttempts(db: Database.Database, workId: string): number {
     return (db.prepare(`
       SELECT COUNT(*) AS count
-      FROM invocation
-      JOIN work_contract contract ON contract.id=invocation.work_contract_id
-      WHERE invocation.work_id=?
-        AND invocation.status='terminated'
+      FROM work_contract contract
+      WHERE contract.work_id=?
         AND json_extract(contract.permissions_json, '$.executionMode')='outcome_recovery'
     `).get(workId) as { count: number }).count;
   }

@@ -237,6 +237,27 @@ describe('RepositoryControlSnapshotBuilder', () => {
       undefined,
       { executionMode: 'outcome_recovery', tools: ['agent_submit_outcome'] },
     );
+    const rejectedBeforeInvocation = new RepositoryControlSnapshotBuilder({
+      db,
+      now: () => now,
+    }).build(runId);
+    expect(rejectedBeforeInvocation.workCells[0]).toMatchObject({
+      state: 'retry_pending',
+      failure: {
+        reasonCode: 'outcome_recovery_failed',
+        budget: { kind: 'outcome_recovery', attemptsUsed: 1, maxAttempts: 1 },
+      },
+    });
+    expect(decideControlActions(rejectedBeforeInvocation, {
+      revision: 8,
+      maxConcurrent: 1,
+      roleCapacity: { implementer: 1 },
+      fairnessAgingMs: 1_000,
+    }).actions[0]).toMatchObject({
+      type: 'terminate',
+      targetWorkId: recovery.workId,
+      reasonCode: 'outcome_recovery_failed',
+    });
     invocationRepo.create({
       id: recovery.attemptId,
       conversation_id: 'project-1',
@@ -784,6 +805,36 @@ describe('RepositoryControlSnapshotBuilder', () => {
       failure: {
         reasonCode: 'invocation_completed_without_outcome',
         budget: { kind: 'outcome_recovery', attemptsUsed: 0, maxAttempts: 1 },
+      },
+    });
+
+    const recovery = contracts.issue({
+      workId,
+      attemptId: 'attempt-gate-outcome-recovery',
+      projectId: 'project-1',
+      deliveryRunId: runId,
+      taskId: task.id,
+      agentId: 'reviewer',
+      goal: 'Record the prior review result',
+      acceptanceCriteria: ['Record a decision'],
+      role: { id: 'reviewer' },
+      permissions: { executionMode: 'outcome_recovery', tools: ['agent_submit_outcome'] },
+      authoritativeRefs: [`task:${task.id}`, `quality_gate:${requested.gate.id}`],
+      authoritativeRevisions: { task: task.revision },
+      contextSnapshotRef: 'context-gate-outcome-recovery',
+      allowedOutcomeTypes: ['continue_work', 'record_gate_decision'],
+      correlationId: 'corr-gate-missing-outcome',
+      causationId: 'cause-gate-outcome-recovery',
+      now,
+    });
+    const failedRecovery = new RepositoryControlSnapshotBuilder({ db, now: () => now }).build(runId);
+    expect(failedRecovery.workCells.find((cell) => cell.workId === recovery.workId)).toMatchObject({
+      purpose: 'review',
+      state: 'retry_pending',
+      gateStatus: 'requested',
+      failure: {
+        reasonCode: 'outcome_recovery_failed',
+        budget: { kind: 'outcome_recovery', attemptsUsed: 1, maxAttempts: 1 },
       },
     });
   });
