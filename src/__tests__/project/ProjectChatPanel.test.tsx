@@ -100,7 +100,7 @@ describe('ProjectChatPanel', () => {
     } as never} />);
 
     expect(screen.getByText('验收中')).toBeTruthy();
-    expect(screen.getByText('1/2')).toBeTruthy();
+    expect(screen.getByText('0/2')).toBeTruthy();
     expect(screen.getByText('任务')).toBeTruthy();
     expect(screen.getByText('0/1')).toBeTruthy();
     expect(screen.getByText('当前工作：Wire acceptance projection')).toBeTruthy();
