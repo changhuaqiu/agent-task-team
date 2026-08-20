@@ -1,23 +1,38 @@
 'use client';
 
+import dynamic from 'next/dynamic';
 import { useTaskHubStore } from '@/store/taskHubStore';
-import { TaskDetailPanel } from '@/components/task-hub/TaskDetailPanel';
-import { AgentRosterModal } from '@/components/task-hub/AgentRosterModal';
-import { SettingsDrawer } from '@/components/task-hub/SettingsDrawer';
 import { ProjectWorkspace } from '@/components/project/ProjectWorkspace';
-import { ProjectCreateDialog } from '@/components/project/ProjectCreateDialog';
 import { LoadingSkeleton } from '@/components/ui/LoadingSkeleton';
 import { useEffect, useState } from 'react';
 import { AlertTriangle, Plus, RefreshCw, Settings } from 'lucide-react';
+import { useShallow } from 'zustand/react/shallow';
+
+const TaskDetailPanel = dynamic(() => import('@/components/task-hub/TaskDetailPanel').then((mod) => mod.TaskDetailPanel));
+const AgentRosterModal = dynamic(() => import('@/components/task-hub/AgentRosterModal').then((mod) => mod.AgentRosterModal));
+const SettingsDrawer = dynamic(() => import('@/components/task-hub/SettingsDrawer').then((mod) => mod.SettingsDrawer));
+const ProjectCreateDialog = dynamic(() => import('@/components/project/ProjectCreateDialog').then((mod) => mod.ProjectCreateDialog));
 
 export default function ClientHome() {
-  const hasHydrated = useTaskHubStore((s) => s.hasHydrated);
-  const runtimeHydrationError = useTaskHubStore((s) => s.runtimeHydrationError);
-  const selectedTaskId = useTaskHubStore((s) => s.selectedTaskId);
-  const isRosterModalOpen = useTaskHubStore((s) => s.isRosterModalOpen);
-  const setSettingsOpen = useTaskHubStore((s) => s.setSettingsOpen);
-  const connectDaemon = useTaskHubStore((s) => s.connectDaemon);
-  const loadFromServer = useTaskHubStore((s) => s.loadFromServer);
+  const {
+    hasHydrated,
+    runtimeHydrationError,
+    selectedTaskId,
+    isRosterModalOpen,
+    isSettingsOpen,
+    setSettingsOpen,
+    connectDaemon,
+    loadFromServer,
+  } = useTaskHubStore(useShallow((s) => ({
+    hasHydrated: s.hasHydrated,
+    runtimeHydrationError: s.runtimeHydrationError,
+    selectedTaskId: s.selectedTaskId,
+    isRosterModalOpen: s.isRosterModalOpen,
+    isSettingsOpen: s.isSettingsOpen,
+    setSettingsOpen: s.setSettingsOpen,
+    connectDaemon: s.connectDaemon,
+    loadFromServer: s.loadFromServer,
+  })));
   const [isCreateDeliveryOpen, setCreateDeliveryOpen] = useState(false);
 
   useEffect(() => {
@@ -96,12 +111,14 @@ export default function ClientHome() {
       {/* ── Task Detail Drawer ── */}
       {selectedTaskId && <TaskDetailPanel />}
 
-      <ProjectCreateDialog open={isCreateDeliveryOpen} onClose={() => setCreateDeliveryOpen(false)} />
+      {isCreateDeliveryOpen && (
+        <ProjectCreateDialog open onClose={() => setCreateDeliveryOpen(false)} />
+      )}
 
       {/* ── Agent Roster Modal ── */}
       {isRosterModalOpen && <AgentRosterModal />}
 
-      <SettingsDrawer />
+      {isSettingsOpen && <SettingsDrawer />}
     </main>
   );
 }

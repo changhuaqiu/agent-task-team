@@ -4,24 +4,11 @@ import { useEffect, useMemo, useState } from 'react';
 import { Activity, AlertTriangle, Clock3, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { SpanCallTree } from './SpanCallTree';
+import type { AgentObservabilityTarget } from './agent-observability-controller';
 
-type Target = {
-  conversationId: string;
-  invocationId?: string;
-  traceId?: string;
-  agentId?: string;
-  taskId?: string;
-  chainId?: string;
-  passId?: string;
-  timestamp?: string;
-};
 type Span = { span_id: string; parent_span_id: string | null; kind: string; name: string; status: string; started_at: string; durationMs?: number; parsedAttributes?: Record<string, unknown> };
 type Trace = { traceId: string; invocationId?: string; agentId?: string; startedAt: string; durationMs?: number; totalTokens: number; spans: Span[] };
 type Payload = { role: string; seq: number; content: string; byte_size: number; truncated: number };
-
-export function openAgentObservabilityDrawer(target: Target) {
-  window.dispatchEvent(new CustomEvent<Target>('observability:open', { detail: target }));
-}
 
 function PayloadBlock({ label, payload }: { label: string; payload?: Payload }) {
   if (!payload) return null;
@@ -33,27 +20,21 @@ function PayloadBlock({ label, payload }: { label: string; payload?: Payload }) 
   </section>;
 }
 
-export function AgentObservabilityDrawer() {
-  const [target, setTarget] = useState<Target>();
+export function AgentObservabilityDrawer({
+  target,
+  onClose,
+}: {
+  target: AgentObservabilityTarget;
+  onClose: () => void;
+}) {
   const [trace, setTrace] = useState<Trace>();
   const [payloads, setPayloads] = useState<Record<string, Payload[]>>({});
   const [tab, setTab] = useState<'prompt' | 'tools' | 'response'>('prompt');
   const [selectedSpanId, setSelectedSpanId] = useState<string>();
   const [error, setError] = useState<string>();
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const open = (event: Event) => {
-      const detail = (event as CustomEvent<Target>).detail;
-      if (!detail?.conversationId) return;
-      setTarget(detail); setTrace(undefined); setPayloads({}); setTab('prompt'); setError(undefined); setLoading(true);
-    };
-    window.addEventListener('observability:open', open);
-    return () => window.removeEventListener('observability:open', open);
-  }, []);
-
-  useEffect(() => {
-    if (!target) return;
     const controller = new AbortController();
     const params = new URLSearchParams({ conversationId: target.conversationId, limit: '100' });
     if (target.invocationId) params.set('invocationId', target.invocationId);
@@ -103,8 +84,7 @@ export function AgentObservabilityDrawer() {
     return () => { cancelled = true; };
   }, [payloads, relevantSpans, target]);
 
-  if (!target) return null;
-  const close = () => setTarget(undefined);
+  const close = onClose;
   const rootStart = trace ? new Date(trace.startedAt).getTime() : 0;
   const total = Math.max(1, trace?.durationMs ?? Math.max(1, ...(trace?.spans.map(span => (new Date(span.started_at).getTime() - rootStart) + (span.durationMs ?? 1)) ?? [1])));
 

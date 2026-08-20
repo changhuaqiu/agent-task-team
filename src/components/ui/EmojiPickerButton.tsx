@@ -9,7 +9,7 @@ import {
 } from 'react';
 import dynamic from 'next/dynamic';
 import { Smile } from 'lucide-react';
-import { EmojiStyle, type EmojiClickData } from 'emoji-picker-react';
+import type { EmojiClickData, EmojiStyle } from 'emoji-picker-react';
 import { cn } from '@/lib/utils';
 
 const EmojiPicker = dynamic(() => import('emoji-picker-react'), {
@@ -18,6 +18,7 @@ const EmojiPicker = dynamic(() => import('emoji-picker-react'), {
     <div className="w-[352px] h-[435px] rounded-[var(--radius-lg)] bg-[hsl(var(--bg-card))] animate-skeleton" />
   ),
 });
+const NATIVE_EMOJI_STYLE = 'native' as EmojiStyle;
 
 export type EmojiPickerPlacement = 'top-start' | 'top-end' | 'bottom-start' | 'bottom-end';
 
@@ -87,7 +88,7 @@ export function EmojiPickerButton({
   }, [open, close]);
 
   const handleEmojiClick = useCallback(
-    (emojiData: EmojiClickData, _event: MouseEvent) => {
+    (emojiData: EmojiClickData) => {
       // For custom emojis, pass the unified ID; for native, pass the emoji char
       onEmojiSelect(emojiData.isCustom ? emojiData.unified : emojiData.emoji);
       close();
@@ -132,7 +133,7 @@ export function EmojiPickerButton({
           <div className="rounded-[var(--radius-lg)] border-2 border-[hsl(var(--text-primary))] shadow-[3px_3px_0px_hsl(var(--text-primary))] overflow-hidden">
             <EmojiPicker
               onEmojiClick={handleEmojiClick}
-              emojiStyle={EmojiStyle.NATIVE}
+              emojiStyle={NATIVE_EMOJI_STYLE}
               lazyLoadEmojis
               searchPlaceholder="搜索表情…"
               width={352}

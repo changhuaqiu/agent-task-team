@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { TaskGraphApiView } from '@/lib/taskGraphView';
 
-export function useTaskGraph(conversationId: string | null | undefined) {
+export function useTaskGraph(conversationId: string | null | undefined, enabled = true) {
   const [graph, setGraph] = useState<TaskGraphApiView | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -13,7 +13,7 @@ export function useTaskGraph(conversationId: string | null | undefined) {
   const refresh = useCallback(async () => {
     const requestId = ++requestSequence.current;
     activeRequest.current?.abort();
-    if (!conversationId) {
+    if (!conversationId || !enabled) {
       setGraph(null);
       setError(null);
       setIsLoading(false);
@@ -42,7 +42,7 @@ export function useTaskGraph(conversationId: string | null | undefined) {
     } finally {
       if (requestSequence.current === requestId) setIsLoading(false);
     }
-  }, [conversationId]);
+  }, [conversationId, enabled]);
 
   useEffect(() => {
     // Loading an external projection is the synchronization this effect owns.

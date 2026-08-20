@@ -183,6 +183,11 @@ Gate/Wakeup 副作用前执行 CAS；证据不足时恢复 Inbox 与拒绝 recei
 
 而不是持久化主数据源。
 
+首屏水合采用有界快照。`/api/state` 只返回交付、任务、运行绑定、协作摘要、团队资料和每个交付最近 200 条消息；
+Invocation 调试对象由调试接口按需读取，不再混入主工作区快照。浏览器完成首屏门禁后，对当前交付异步调用最新消息快照；
+用户继续查看更早活动时，Store 使用 `(createdAt,id)` 游标向前分页并与实时消息对账，直到服务端返回 `hasMore=false`。
+时间线只控制同时渲染的聚合项数量，不改变 Store 中已接纳的消息，也不改变 Socket 消息的权威性。
+
 控制平面迁移后，store 还需要进一步降级：
 
 - store 只提交显式 Human/Task Command，不构造或发送 runtime dispatch intent。

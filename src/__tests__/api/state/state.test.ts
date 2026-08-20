@@ -39,11 +39,11 @@ describe('GET /api/state', () => {
     expect(res._json.tasks).toEqual([]);
     expect(res._json.recentMessages).toEqual({});
     expect(res._json.activeSessions).toEqual([]);
-    expect(res._json.recentInvocations).toEqual([]);
+    expect(res._json).not.toHaveProperty('recentInvocations');
     expect(res._json.a2aSnapshots).toEqual([]);
   });
 
-  it('returns conversations, tasks, messages, sessions, and invocations', async () => {
+  it('returns conversations, tasks, messages, and sessions without debug invocations', async () => {
     const { conversationRepo } = await import('@/server/repositories/conversation-repo');
     const { taskRepo } = await import('@/server/repositories/task-repo');
     const { messageRepo } = await import('@/server/repositories/message-repo');
@@ -68,8 +68,7 @@ describe('GET /api/state', () => {
     expect(res._json.recentMessages['conv-1'].length).toBe(1);
     expect(res._json.activeSessions.length).toBe(1);
     expect(res._json.activeSessions[0].id).toBe('ses-1');
-    expect(res._json.recentInvocations.length).toBe(1);
-    expect(res._json.recentInvocations[0].id).toBe('inv-1');
+    expect(res._json).not.toHaveProperty('recentInvocations');
   });
 
   it('returns the managed task statuses without a browser compatibility projection', async () => {
@@ -148,12 +147,12 @@ describe('GET /api/state', () => {
     ]));
   });
 
-  it('returns all available messages below the server hydration cap', async () => {
+  it('returns the latest 200 messages for bounded workspace hydration', async () => {
     const { conversationRepo } = await import('@/server/repositories/conversation-repo');
     const { messageRepo } = await import('@/server/repositories/message-repo');
 
     conversationRepo.create({ id: 'conv-1', title: 'Test' });
-    for (let i = 0; i < 120; i++) {
+    for (let i = 0; i < 240; i++) {
       messageRepo.append({ conversationId: 'conv-1', senderType: 'human', senderId: 'u1', content: `Msg ${i}` });
     }
 
@@ -161,10 +160,12 @@ describe('GET /api/state', () => {
     const res = mockRes();
     await handler(req, res);
 
-    expect(res._json.recentMessages['conv-1'].length).toBe(120);
+    expect(res._json.recentMessages['conv-1']).toHaveLength(200);
+    expect(res._json.recentMessages['conv-1'][0].content).toBe('Msg 40');
+    expect(res._json.recentMessages['conv-1'].at(-1).content).toBe('Msg 239');
   });
 
-  it('limits recent invocations to 50', async () => {
+  it('keeps invocation debug payloads out of workspace hydration', async () => {
     const { conversationRepo } = await import('@/server/repositories/conversation-repo');
     const { invocationRepo } = await import('@/server/repositories/invocation-repo');
 
@@ -177,7 +178,7 @@ describe('GET /api/state', () => {
     const res = mockRes();
     await handler(req, res);
 
-    expect(res._json.recentInvocations.length).toBe(50);
+    expect(res._json).not.toHaveProperty('recentInvocations');
   });
 
   it('excludes sealed sessions from activeSessions', async () => {

@@ -323,6 +323,11 @@ Daemon ExecutionAdapter 内执行；daemon transport 只启动/停止该服务�
 - 浏览器已删除 `message.append -> a2a.human_handoff` 双调用和补充要求的乐观领域写入；accepted/duplicate receipt
   返回后才投影权威 message id。领域拒绝保留草稿，传输失败可使用同一幂等键和 issuedAt 重试。
 - 关系图请求在交付切换时取消并按 request sequence 拒绝迟到响应，面板还会校验返回的 `conversationId`。
+- 首屏性能边界采用“有界水合 + 意图加载”。`/api/state` 不再返回没有主工作区消费者的 recent Invocation 调试对象，
+  每个交付只投影最近 200 条消息；当前交付在 `hasHydrated=true` 后异步对账最新消息快照，并通过 `(createdAt,id)` 游标继续读取
+  更早历史。活动时间线首次渲染最近 120 个聚合项，用户可逐批显示更早内容。设置、任务详情、成员/创建弹窗、评估工作区、
+  关系图组件与 Agent 调用详情均使用客户端动态 import；右侧关系图数据和调试组件只有在对应视图实际打开时才加载。该收敛
+  不改变服务端消息、Invocation 或 Task 的事实源。
 - `delivery.plan.request` 与 `task.progress.request` 已进入同一 Human Command owner；Task 创建、改派、显式开始由
   Task Command Service 写事实，并由服务端 Task Wakeup 触发执行。浏览器等待带 revision 的 Task 回执后再投影，
   不再乐观写入领域状态。水合按任务 revision 合并，不允许迟到的 `/api/state` 覆盖较新的 Socket 事实。

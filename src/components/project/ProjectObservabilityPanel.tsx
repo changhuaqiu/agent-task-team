@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Activity, ChevronDown, ChevronRight, Clock3, RefreshCw, Wrench } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { AgentChainGraph, type ObservationChain } from './AgentChainGraph';
-import { openAgentObservabilityDrawer } from './AgentObservabilityDrawer';
+import { openAgentObservabilityDrawer } from './agent-observability-controller';
 import { SpanCallTree } from './SpanCallTree';
 import { socket } from '@/store/daemonStore';
 

@@ -1,5 +1,3 @@
-'use client';
-
 import ClientHome from './ClientHome';
 
 export default function Home() {

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, CheckCircle2, CircleHelp, FlaskConical, RefreshCw, RotateCcw, XCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { openAgentObservabilityDrawer } from './AgentObservabilityDrawer';
+import { openAgentObservabilityDrawer } from './agent-observability-controller';
 
 type Run = {
   id: string; status: string; gate_status: string; overall_score?: number;

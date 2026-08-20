@@ -17,14 +17,14 @@ vi.mock('@/components/project/ProjectEvaluationWorkspace', () => ({
   ProjectEvaluationWorkspace: ({ conversationId }: { conversationId?: string }) =>
     <section data-testid="evaluation-workspace">{conversationId}</section>,
 }));
-vi.mock('@/components/project/AgentObservabilityDrawer', () => ({
-  AgentObservabilityDrawer: () => <aside data-testid="observability-drawer-host"/>,
+vi.mock('@/components/project/AgentObservabilityDrawerHost', () => ({
+  AgentObservabilityDrawerHost: () => <aside data-testid="observability-drawer-host"/>,
 }));
 
 afterEach(cleanup);
 
 describe('ProjectWorkspace', () => {
-  it('switches the same selected delivery between delivery and evaluation modes', () => {
+  it('switches the same selected delivery between delivery and evaluation modes', async () => {
     useTaskHubStore.setState({
       selectedConversationId: 'conv-platform',
       conversations: [{
@@ -39,7 +39,7 @@ describe('ProjectWorkspace', () => {
     expect(screen.queryByTestId('evaluation-workspace')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '评估' }));
     expect(screen.queryByTestId('collaboration-workspace')).toBeNull();
-    expect(screen.getByTestId('evaluation-workspace').textContent).toBe('conv-platform');
+    expect((await screen.findByTestId('evaluation-workspace')).textContent).toBe('conv-platform');
     expect(screen.getByTestId('project-sidebar')).toBeDefined();
     expect(screen.getByTestId('observability-drawer-host')).toBeDefined();
   });

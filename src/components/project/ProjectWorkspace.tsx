@@ -1,15 +1,17 @@
 'use client';
 
+import dynamic from 'next/dynamic';
 import { useCallback, useState } from 'react';
 import { FlaskConical, MessagesSquare } from 'lucide-react';
 import { ProjectSidebar } from './ProjectSidebar';
 import { ProjectChatPanel } from './ProjectChatPanel';
 import { ProjectRightPanel } from './ProjectRightPanel';
-import { ProjectEvaluationWorkspace } from './ProjectEvaluationWorkspace';
-import { AgentObservabilityDrawer } from './AgentObservabilityDrawer';
+import { AgentObservabilityDrawerHost } from './AgentObservabilityDrawerHost';
 import { useTaskHubStore } from '@/store/taskHubStore';
 import { cn } from '@/lib/utils';
 import type { DeliveryRunSnapshot } from '@/server/autonomous-delivery/types';
+
+const ProjectEvaluationWorkspace = dynamic(() => import('./ProjectEvaluationWorkspace').then((mod) => mod.ProjectEvaluationWorkspace));
 
 export function ProjectWorkspace() {
   const selectedConversation = useTaskHubStore((s) => s.getSelectedConversation());
@@ -69,7 +71,7 @@ export function ProjectWorkspace() {
           </main>
         )}
       </div>
-      <AgentObservabilityDrawer />
+      <AgentObservabilityDrawerHost />
     </div>
   );
 }

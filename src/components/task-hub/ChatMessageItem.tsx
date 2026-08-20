@@ -7,7 +7,7 @@ import { CliOutputBlock } from './CliOutputBlock';
 import { cn } from '@/lib/utils';
 import { parsePhaseBreakdown } from '@/lib/breakdownParser';
 import { User, Lightbulb, Play, Eye, Link2, Copy, ExternalLink, Activity } from 'lucide-react';
-import { openAgentObservabilityDrawer } from '@/components/project/AgentObservabilityDrawer';
+import { openAgentObservabilityDrawer } from '@/components/project/agent-observability-controller';
 import { MarkdownContent } from './MarkdownContent';
 import { TokenBadge } from './TokenSummary';
 import { TaskCapsules, type TaskCapsuleRef } from './TaskCapsules';

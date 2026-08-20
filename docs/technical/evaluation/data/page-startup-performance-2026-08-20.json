@@ -1,0 +1,73 @@
+{
+  "changeId": "page-startup-performance-2026-08-20",
+  "environment": {
+    "framework": "Next.js 16.2.4",
+    "mode": "next dev --webpack",
+    "url": "http://localhost:3000/",
+    "dataset": {
+      "conversations": 7,
+      "tasks": 14,
+      "persistedMessages": 2054,
+      "recentInvocations": 50
+    }
+  },
+  "commands": {
+    "snapshot": "Use better-sqlite3 Database.backup() to copy the live data.db; point both revisions at that same ATH_DATA_DIR snapshot",
+    "state": "Warm GET /api/state once; repeat Invoke-WebRequest five times; record RawContentLength and Stopwatch elapsed milliseconds",
+    "scripts": "Warm GET / once; regex root HTML for unique script src attributes; request each script and record RawContentLength"
+  },
+  "baseline": {
+    "stateSamples": [
+      { "bytes": 3249278, "timeMs": 210.1 },
+      { "bytes": 3249278, "timeMs": 208.8 },
+      { "bytes": 3249278, "timeMs": 172.8 },
+      { "bytes": 3249278, "timeMs": 186.7 },
+      { "bytes": 3249278, "timeMs": 171.2 }
+    ],
+    "stateBytes": 3249278,
+    "stateAverageMs": 189.9,
+    "stateMaxMs": 210.1,
+    "initialScriptCount": 5,
+    "initialScripts": [
+      { "src": "/_next/static/chunks/main-app.js", "bytes": 12069990 },
+      { "src": "/_next/static/chunks/app-pages-internals.js", "bytes": 263309 },
+      { "src": "/_next/static/chunks/app/page.js", "bytes": 14512729 },
+      { "src": "/_next/static/chunks/polyfills.js", "bytes": 112594 },
+      { "src": "/_next/static/chunks/webpack.js", "bytes": 142828 }
+    ],
+    "initialScriptBytes": 27101450,
+    "pageScriptBytes": 14512729,
+    "defaultTaskGraphRequests": 1
+  },
+  "candidate": {
+    "stateSamples": [
+      { "bytes": 1130900, "timeMs": 69.2 },
+      { "bytes": 1130900, "timeMs": 60.7 },
+      { "bytes": 1130900, "timeMs": 47.8 },
+      { "bytes": 1130900, "timeMs": 68.4 },
+      { "bytes": 1130900, "timeMs": 77.2 }
+    ],
+    "stateBytes": 1130900,
+    "stateAverageMs": 64.7,
+    "stateMaxMs": 77.2,
+    "initialScriptCount": 5,
+    "initialScripts": [
+      { "src": "/_next/static/chunks/main-app.js", "bytes": 12070124 },
+      { "src": "/_next/static/chunks/app-pages-internals.js", "bytes": 263465 },
+      { "src": "/_next/static/chunks/app/page.js", "bytes": 8015775 },
+      { "src": "/_next/static/chunks/polyfills.js", "bytes": 112594 },
+      { "src": "/_next/static/chunks/webpack.js", "bytes": 144671 }
+    ],
+    "initialScriptBytes": 20606629,
+    "pageScriptBytes": 8015775,
+    "bootstrapMessages": 1289,
+    "recentInvocationsPresent": false,
+    "defaultTaskGraphRequests": 0
+  },
+  "deltasPercent": {
+    "stateBytes": -65.2,
+    "stateAverageMs": -66.0,
+    "initialScriptBytes": -24.0,
+    "pageScriptBytes": -44.8
+  }
+}

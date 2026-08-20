@@ -18,6 +18,8 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { extractTaskReference } from '@/lib/taskReference';
 import { createHumanCommandIdempotencyKey } from '@/lib/human-command/types';
 
+export const INITIAL_TIMELINE_ITEM_LIMIT = 120;
+
 function formatDateSeparator(dateStr: string): string {
   const date = new Date(dateStr);
   const today = new Date();
@@ -34,8 +36,13 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
   const chatMessages = useTaskHubStore((s) => s.getChatMessagesForSelectedConversation());
   const addChatMessage = useTaskHubStore((s) => s.addChatMessage);
   const runtimeRefreshInProgress = useTaskHubStore((s) => s.runtimeRefreshInProgress);
+  const messageHistory = useTaskHubStore((s) => selectedConversationId
+    ? s.messageHistoryByConversation[selectedConversationId]
+    : undefined);
+  const loadOlderConversationMessages = useTaskHubStore((s) => s.loadOlderConversationMessages);
   const [inputValue, setInputValue] = useState('');
   const [sendError, setSendError] = useState<string | null>(null);
+  const [historyLoadError, setHistoryLoadError] = useState<string | null>(null);
   const [sendInProgress, setSendInProgress] = useState(false);
   const [draftConversationId, setDraftConversationId] = useState<string | null>(null);
   const [filter, setFilter] = useState<ChatFilter>({ intent: null, agentId: null, userOnly: false, search: '' });
@@ -44,6 +51,10 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
   const [mentionSelectedIndex, setMentionSelectedIndex] = useState(0);
   const [mentionFiltered, setMentionFiltered] = useState<Agent[]>([]);
   const [cursorPos, setCursorPos] = useState(0);
+  const [timelineWindow, setTimelineWindow] = useState({
+    conversationId: selectedConversationId,
+    count: INITIAL_TIMELINE_ITEM_LIMIT,
+  });
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const mentionOpenRef = useRef(false);
@@ -170,6 +181,14 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
     return msgs;
   }, [chatMessages, filter]);
   const timelineItems = useMemo(() => projectChatTimeline(filteredMessages), [filteredMessages]);
+  const visibleTimelineItemCount = timelineWindow.conversationId === selectedConversationId
+    ? timelineWindow.count
+    : INITIAL_TIMELINE_ITEM_LIMIT;
+  const hiddenTimelineItemCount = Math.max(0, timelineItems.length - visibleTimelineItemCount);
+  const visibleTimelineItems = useMemo(
+    () => timelineItems.slice(-visibleTimelineItemCount),
+    [timelineItems, visibleTimelineItemCount],
+  );
 
   return (
     <div
@@ -229,11 +248,45 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
             }}
           />
         )}
+        {(hiddenTimelineItemCount > 0 || messageHistory?.hasMore) && (
+          <button
+            type="button"
+            disabled={messageHistory?.isLoadingOlder}
+            onClick={async () => {
+              setHistoryLoadError(null);
+              if (hiddenTimelineItemCount > 0) {
+                setTimelineWindow({
+                  conversationId: selectedConversationId,
+                  count: visibleTimelineItemCount + INITIAL_TIMELINE_ITEM_LIMIT,
+                });
+                return;
+              }
+              if (!selectedConversationId || !messageHistory?.hasMore) return;
+              try {
+                await loadOlderConversationMessages(selectedConversationId);
+                setTimelineWindow({
+                  conversationId: selectedConversationId,
+                  count: visibleTimelineItemCount + 500,
+                });
+              } catch (error) {
+                setHistoryLoadError(error instanceof Error ? error.message : '更早活动加载失败');
+              }
+            }}
+            className="self-center rounded-full border border-[hsl(var(--border-subtle))] bg-[hsl(var(--bg-card))] px-3 py-1.5 text-[10px] font-semibold text-[hsl(var(--text-secondary))] hover:border-[hsl(var(--accent))] hover:text-[hsl(var(--accent))]"
+          >
+            {hiddenTimelineItemCount > 0
+              ? `显示更早的 ${Math.min(INITIAL_TIMELINE_ITEM_LIMIT, hiddenTimelineItemCount)} 条活动`
+              : messageHistory?.isLoadingOlder ? '正在加载更早活动…' : '加载更早活动'}
+          </button>
+        )}
+        {historyLoadError && (
+          <div className="self-center text-[10px] text-rose-600">{historyLoadError}</div>
+        )}
         {(() => {
-          return timelineItems.map((item, index) => {
+          return visibleTimelineItems.map((item, index) => {
             const firstMessage = item.kind === 'activity' ? item.message : item.messages[0];
             const groupDate = new Date(firstMessage.timestamp).toDateString();
-            const previousItem = index > 0 ? timelineItems[index - 1] : undefined;
+            const previousItem = index > 0 ? visibleTimelineItems[index - 1] : undefined;
             const previousMessage = previousItem?.kind === 'activity'
               ? previousItem.message
               : previousItem?.messages[0];

@@ -115,6 +115,36 @@ export const messageRepo = {
       .all(convId, limit) as MessageRow[];
   },
 
+  getLatestPageByConversation(
+    convId: string,
+    options: {
+      limit: number;
+      before?: { createdAt: string; id: string };
+    },
+  ): MessageRow[] {
+    if (options.before) {
+      return getDb()
+        .prepare(
+          `SELECT * FROM (
+            SELECT * FROM chat_message
+            WHERE conversation_id = ?
+              AND (created_at < ? OR (created_at = ? AND id < ?))
+            ORDER BY created_at DESC, id DESC
+            LIMIT ?
+          )
+          ORDER BY created_at ASC, id ASC`,
+        )
+        .all(
+          convId,
+          options.before.createdAt,
+          options.before.createdAt,
+          options.before.id,
+          options.limit,
+        ) as MessageRow[];
+    }
+    return this.getLatestByConversation(convId, { limit: options.limit });
+  },
+
   getByConversationAgent(convId: string, agentId: string, options?: { limit?: number }): MessageRow[] {
     const limit = options?.limit ?? 10;
     return getDb()

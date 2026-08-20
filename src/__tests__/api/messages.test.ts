@@ -73,6 +73,8 @@ describe('GET /api/messages', () => {
         content: 'durable A',
         invocation_id: 'inv-a',
       })],
+      hasMore: false,
+      nextCursor: expect.objectContaining({ id: expect.any(String) }),
     });
   });
 
@@ -92,10 +94,44 @@ describe('GET /api/messages', () => {
       res as unknown as NextApiResponse,
     );
 
-    const messages = (res.body as { messages: Array<{ content: string }> }).messages;
+    const body = res.body as {
+      messages: Array<{ content: string; id: string; created_at: string }>;
+      hasMore: boolean;
+      nextCursor: { id: string; createdAt: string };
+    };
+    const messages = body.messages;
     expect(messages).toHaveLength(1000);
     expect(messages[0].content).toBe('message-1');
     expect(messages.at(-1)?.content).toBe('message-1000');
+    expect(body.hasMore).toBe(true);
+
+    const older = response();
+    handler(
+      {
+        method: 'GET',
+        query: {
+          conversationId: 'project-a',
+          beforeCreatedAt: body.nextCursor.createdAt,
+          beforeId: body.nextCursor.id,
+          limit: '500',
+        },
+      } as unknown as NextApiRequest,
+      older as unknown as NextApiResponse,
+    );
+    expect(older.body).toEqual({
+      messages: [expect.objectContaining({ content: 'message-0' })],
+      hasMore: false,
+      nextCursor: expect.objectContaining({ id: expect.any(String) }),
+    });
+  });
+
+  it('rejects a partial history cursor', () => {
+    const res = response();
+    handler(
+      { method: 'GET', query: { conversationId: 'project-a', beforeId: 'msg-1' } } as unknown as NextApiRequest,
+      res as unknown as NextApiResponse,
+    );
+    expect(res.statusCode).toBe(400);
   });
 
   it('rejects an empty project id', () => {

@@ -61,6 +61,12 @@ export interface ActiveAgentRun {
   activity?: AgentRunActivity;
 }
 
+export interface MessageHistoryState {
+  hasMore: boolean;
+  nextCursor: { createdAt: string; id: string } | null;
+  isLoadingOlder: boolean;
+}
+
 export interface WorktreeInfo {
   path: string;
   branch: string;
@@ -686,6 +692,7 @@ export interface TaskHubState {
   lastTaskSyncAt: string | null;
   clearTaskSyncError: () => void;
   chatMessagesByConversation: Record<string, ChatMessage[]>;
+  messageHistoryByConversation: Record<string, MessageHistoryState>;
   eventsByConversation: Record<string, InternalEvent[]>;
   blockersByConversation: Record<string, Blocker[]>;
   a2aByConversation: Record<string, A2APossessionView>;
@@ -702,6 +709,7 @@ export interface TaskHubState {
 
   loadFromServer: () => Promise<void>;
   refreshConversationMessages: (conversationId: string) => Promise<void>;
+  loadOlderConversationMessages: (conversationId: string) => Promise<void>;
 
   createConversation: (input: { title: string; goal: string; projectPath?: string; priority?: Conversation['priority']; teamPackId?: string; useWorktree?: boolean; gitRepoRoot?: string; autonomous?: boolean }) => Promise<string>;
   setSelectedConversationId: (conversationId: string | null) => void;
@@ -804,6 +812,7 @@ export const useTaskHubStore = create<TaskHubState>()(
       const [set, get] = a;
       let loadFromServerInFlight: Promise<void> | null = null;
       const messageRefreshesInFlight = new Map<string, Promise<void>>();
+      const olderMessageRefreshesInFlight = new Map<string, Promise<void>>();
 
       // App slice (conversations, chat, events, blockers, accounts, settings, hydration)
       const appSlice = {
@@ -881,6 +890,7 @@ export const useTaskHubStore = create<TaskHubState>()(
         lastTaskSyncAt: null as string | null,
         clearTaskSyncError: () => set({ taskSyncError: null }),
         chatMessagesByConversation: {} as Record<string, ChatMessage[]>,
+        messageHistoryByConversation: {} as Record<string, MessageHistoryState>,
         eventsByConversation: {} as Record<string, InternalEvent[]>,
         blockersByConversation: {} as Record<string, Blocker[]>,
         a2aByConversation: {} as Record<string, A2APossessionView>,
@@ -1256,6 +1266,11 @@ export const useTaskHubStore = create<TaskHubState>()(
             }
 
             set({ hasHydrated: true, runtimeHydrationError: null });
+            if (selectedConversation) {
+              void get().refreshConversationMessages(selectedConversation.id).catch((error: unknown) => {
+                console.error('[messages] failed to reconcile initial project:', error);
+              });
+            }
           } catch (err) {
             console.error('[loadFromServer] Failed:', err);
             set({
@@ -1292,10 +1307,20 @@ export const useTaskHubStore = create<TaskHubState>()(
             if (!response.ok) {
               throw new Error(`message_snapshot_http_${response.status}`);
             }
-            const body = await response.json() as { messages?: unknown };
+            const body = await response.json() as {
+              messages?: unknown;
+              hasMore?: unknown;
+              nextCursor?: unknown;
+            };
             if (!Array.isArray(body.messages)) {
               throw new Error('message_snapshot_invalid');
             }
+            const nextCursor = body.nextCursor
+              && typeof body.nextCursor === 'object'
+              && typeof (body.nextCursor as { createdAt?: unknown }).createdAt === 'string'
+              && typeof (body.nextCursor as { id?: unknown }).id === 'string'
+              ? body.nextCursor as { createdAt: string; id: string }
+              : null;
             const durableMessages = mapMessagesToState({
               [normalizedConversationId]: body.messages,
             })[normalizedConversationId] ?? [];
@@ -1308,6 +1333,14 @@ export const useTaskHubStore = create<TaskHubState>()(
                   new Set(Object.values(state.activeStreamMessageId).filter(Boolean)),
                 ),
               },
+              messageHistoryByConversation: {
+                ...state.messageHistoryByConversation,
+                [normalizedConversationId]: {
+                  hasMore: body.hasMore === true,
+                  nextCursor,
+                  isLoadingOlder: false,
+                },
+              },
             }));
           })();
           const published = refresh.finally(() => {
@@ -1316,6 +1349,83 @@ export const useTaskHubStore = create<TaskHubState>()(
             }
           });
           messageRefreshesInFlight.set(normalizedConversationId, published);
+          return published;
+        },
+
+        loadOlderConversationMessages: (conversationId: string) => {
+          const normalizedConversationId = conversationId.trim();
+          if (!normalizedConversationId) return Promise.resolve();
+          const existing = olderMessageRefreshesInFlight.get(normalizedConversationId);
+          if (existing) return existing;
+          const history = get().messageHistoryByConversation[normalizedConversationId];
+          if (!history?.hasMore || !history.nextCursor) return Promise.resolve();
+          const cursor = history.nextCursor;
+
+          const refresh = (async () => {
+            set((state: TaskHubState) => ({
+              messageHistoryByConversation: {
+                ...state.messageHistoryByConversation,
+                [normalizedConversationId]: { ...history, isLoadingOlder: true },
+              },
+            }));
+            const params = new URLSearchParams({
+              conversationId: normalizedConversationId,
+              beforeCreatedAt: cursor.createdAt,
+              beforeId: cursor.id,
+              limit: '500',
+            });
+            const response = await fetch(`/api/messages?${params}`, { cache: 'no-store' });
+            if (!response.ok) throw new Error(`message_history_http_${response.status}`);
+            const body = await response.json() as {
+              messages?: unknown;
+              hasMore?: unknown;
+              nextCursor?: { createdAt?: unknown; id?: unknown } | null;
+            };
+            if (!Array.isArray(body.messages)) throw new Error('message_history_invalid');
+            const durableMessages = mapMessagesToState({
+              [normalizedConversationId]: body.messages,
+            })[normalizedConversationId] ?? [];
+            const nextCursor = body.nextCursor
+              && typeof body.nextCursor.createdAt === 'string'
+              && typeof body.nextCursor.id === 'string'
+              ? { createdAt: body.nextCursor.createdAt, id: body.nextCursor.id }
+              : null;
+            set((state: TaskHubState) => ({
+              chatMessagesByConversation: {
+                ...state.chatMessagesByConversation,
+                [normalizedConversationId]: reconcileConversationMessages(
+                  state.chatMessagesByConversation[normalizedConversationId] ?? [],
+                  durableMessages,
+                  new Set(Object.values(state.activeStreamMessageId).filter(Boolean)),
+                ),
+              },
+              messageHistoryByConversation: {
+                ...state.messageHistoryByConversation,
+                [normalizedConversationId]: {
+                  hasMore: body.hasMore === true,
+                  nextCursor,
+                  isLoadingOlder: false,
+                },
+              },
+            }));
+          })().catch((error) => {
+            set((state: TaskHubState) => ({
+              messageHistoryByConversation: {
+                ...state.messageHistoryByConversation,
+                [normalizedConversationId]: {
+                  ...(state.messageHistoryByConversation[normalizedConversationId] ?? history),
+                  isLoadingOlder: false,
+                },
+              },
+            }));
+            throw error;
+          });
+          const published = refresh.finally(() => {
+            if (olderMessageRefreshesInFlight.get(normalizedConversationId) === published) {
+              olderMessageRefreshesInFlight.delete(normalizedConversationId);
+            }
+          });
+          olderMessageRefreshesInFlight.set(normalizedConversationId, published);
           return published;
         },
 

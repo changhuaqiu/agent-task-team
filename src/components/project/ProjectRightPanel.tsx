@@ -1,18 +1,21 @@
 'use client';
 
+import dynamic from 'next/dynamic';
 import { useMemo, useState } from 'react';
 import { AlertTriangle, Network, PanelRightClose, PanelRightOpen, Rows3 } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { useTaskHubStore } from '@/store/taskHubStore';
 import { projectDeliveryWorkspace } from '@/lib/delivery-workspace/DeliveryWorkspaceProjection';
-import { TaskGraphMap, type TaskGraphMapView } from '@/components/task-hub/TaskGraphMap';
+import type { TaskGraphMapView } from '@/components/task-hub/TaskGraphMap';
 import { useTaskGraph } from '@/components/task-hub/useTaskGraph';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/Tabs';
 import { cn } from '@/lib/utils';
 import { DeliveryAttentionSection } from './DeliveryAttentionSection';
 import { MiniKanban } from './MiniKanban';
-import { ProjectObservabilityPanel } from './ProjectObservabilityPanel';
 import type { DeliveryRunSnapshot } from '@/server/autonomous-delivery/types';
+
+const ProjectObservabilityPanel = dynamic(() => import('./ProjectObservabilityPanel').then((mod) => mod.ProjectObservabilityPanel));
+const TaskGraphMap = dynamic(() => import('@/components/task-hub/TaskGraphMap').then((mod) => mod.TaskGraphMap));
 
 function SyncStatusBar() {
   const { syncError, lastSyncAt, selectedDeliveryId, clearError } = useTaskHubStore(useShallow((state) => ({
@@ -72,7 +75,11 @@ export function ProjectRightPanel({ deliveryRunSnapshot }: { deliveryRunSnapshot
   const [open, setOpen] = useState(() => (delivery?.work.total ?? 0) > 0 || (delivery?.attention.length ?? 0) > 0);
   const [activeTab, setActiveTab] = useState<'tasks' | 'debug'>('tasks');
   const [taskView, setTaskView] = useState<'board' | 'map'>('board');
-  const { graph: remoteGraph, isLoading: graphLoading, error: graphError } = useTaskGraph(selectedDeliveryId);
+  const graphRequested = open && activeTab === 'tasks' && taskView === 'map';
+  const { graph: remoteGraph, isLoading: graphLoading, error: graphError } = useTaskGraph(
+    selectedDeliveryId,
+    graphRequested,
+  );
 
   const localGraph = useMemo<TaskGraphMapView>(() => ({
     conversationId: selectedDeliveryId ?? '',
@@ -202,7 +209,9 @@ export function ProjectRightPanel({ deliveryRunSnapshot }: { deliveryRunSnapshot
             </TabsContent>
 
             <TabsContent value="debug" className="min-h-0 flex-1 overflow-y-auto p-3 scrollbar-thin">
-              <ProjectObservabilityPanel conversationId={selectedDeliveryId ?? undefined} />
+              {activeTab === 'debug' && (
+                <ProjectObservabilityPanel conversationId={selectedDeliveryId ?? undefined} />
+              )}
             </TabsContent>
           </Tabs>
         </aside>

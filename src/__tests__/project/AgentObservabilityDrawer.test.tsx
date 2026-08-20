@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { AgentObservabilityDrawer, openAgentObservabilityDrawer } from '@/components/project/AgentObservabilityDrawer';
+import { AgentObservabilityDrawerHost } from '@/components/project/AgentObservabilityDrawerHost';
+import { openAgentObservabilityDrawer } from '@/components/project/agent-observability-controller';
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
@@ -18,7 +19,7 @@ describe('AgentObservabilityDrawer', () => {
         spans: [{ span_id: 'message-1', kind: 'message', name: 'agent.message', status: 'ok', started_at: '2026-07-16T00:00:00.010Z', durationMs: 80, parsedAttributes: {} }],
       }] }) } as Response;
     }));
-    render(<AgentObservabilityDrawer />);
+    render(<AgentObservabilityDrawerHost />);
     openAgentObservabilityDrawer({ conversationId: 'conv-obs', invocationId: 'inv-1' });
     await waitFor(() => expect(screen.getByText('Agent 调用详情')).toBeDefined());
     fireEvent.click(await screen.findByText('模型回复'));

@@ -101,6 +101,7 @@ function resetStore() {
     activeStreamMessageId: {},
     activeStreamConversationId: {},
     chatMessagesByConversation: {},
+    messageHistoryByConversation: {},
     eventsByConversation: {},
   });
 }
@@ -274,6 +275,49 @@ describe('durable message reconciliation', () => {
       expect.objectContaining({ id: 'local' }),
       expect.objectContaining({ id: 'msg-durable' }),
     ]);
+  });
+
+  it('loads older durable pages without replacing newer or live messages', async () => {
+    const older = {
+      ...persistedEnvelope().payload.message,
+      id: 'msg-older',
+      content: 'older durable answer',
+      created_at: '2026-07-25T00:00:00.000Z',
+    };
+    const fetchSpy = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        messages: [older],
+        hasMore: false,
+        nextCursor: { createdAt: older.created_at, id: older.id },
+      }),
+    } as Response));
+    vi.stubGlobal('fetch', fetchSpy);
+    useTaskHubStore.setState({
+      chatMessagesByConversation: {
+        'project-a': [message({ id: 'msg-newer', content: 'newer live answer' })],
+      },
+      messageHistoryByConversation: {
+        'project-a': {
+          hasMore: true,
+          nextCursor: { createdAt: timestamp, id: 'msg-newer' },
+          isLoadingOlder: false,
+        },
+      },
+    });
+
+    await useTaskHubStore.getState().loadOlderConversationMessages('project-a');
+
+    expect(String(fetchSpy.mock.calls[0]?.[0])).toContain('beforeId=msg-newer');
+    expect(useTaskHubStore.getState().chatMessagesByConversation['project-a']).toEqual([
+      expect.objectContaining({ id: 'msg-older' }),
+      expect.objectContaining({ id: 'msg-newer' }),
+    ]);
+    expect(useTaskHubStore.getState().messageHistoryByConversation['project-a']).toEqual({
+      hasMore: false,
+      nextCursor: { createdAt: older.created_at, id: older.id },
+      isLoadingOlder: false,
+    });
   });
 
   it('refreshes the selected project on project switch and socket reconnect', async () => {

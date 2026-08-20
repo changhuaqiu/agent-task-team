@@ -1,10 +1,13 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { ProjectRightPanel } from '@/components/project/ProjectRightPanel';
 import { useTaskHubStore } from '@/store/taskHubStore';
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 vi.mock('@dnd-kit/core', () => ({
   DndContext: ({ children }: { children: React.ReactNode }) => <div data-testid="dnd-context">{children}</div>,
@@ -36,7 +39,14 @@ vi.mock('@dnd-kit/utilities', () => ({
 }));
 
 describe('ProjectRightPanel', () => {
-  it('shows one task workspace and keeps debug as the only secondary tab', () => {
+  it('shows one task workspace and loads the task graph only after map intent', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        conversationId: 'conv-plain', tasks: [], edges: [], artifacts: [], revision: 0,
+      }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
     useTaskHubStore.setState({
       selectedConversationId: 'conv-plain',
       conversations: [{
@@ -78,5 +88,12 @@ describe('ProjectRightPanel', () => {
     expect(screen.queryByRole('tab', { name: '风险' })).toBeNull();
     expect(screen.getByText('需要关注')).toBeDefined();
     expect(screen.getByText('TASK-001')).toBeDefined();
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: '关系图' }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      '/api/task-graph?conversationId=conv-plain',
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    ));
   });
 });
