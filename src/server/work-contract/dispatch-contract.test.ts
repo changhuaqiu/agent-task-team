@@ -313,4 +313,50 @@ describe('issueDispatchWorkContract', () => {
       runtime: { engine: 'codex', runtimeId: 'runtime-1', toolNames: [] },
     })).toThrow(/Delivery owner is terminal/);
   });
+
+  it('allows Delivery Gate Work to keep a done Task as read-only artifact context', () => {
+    let task = taskRepo.create({
+      id: 'task-delivery-review-context', conversation_id: 'project-1',
+      title: 'Completed artifact', agent_id: 'builder',
+    }, now);
+    task = taskRepo.transition(task.id, { to: 'in_progress' }, now)!;
+    task = taskRepo.transition(task.id, { to: 'in_review' }, now)!;
+    task = taskRepo.transition(task.id, { to: 'done' }, now)!;
+    const delivery = new AutonomousDeliveryRepository(db).createRun({
+      idempotencyKey: 'active-delivery-review', goal: 'Review delivery', acceptanceCriteria: ['Passed'],
+      scope: { conversationId: 'project-1' },
+      authorization: {
+        allowCodeChanges: true, allowPush: false, allowPullRequest: false, allowAutoMerge: false,
+      },
+      recoveryPolicy: { maxAttemptsPerAction: 2, maxRepairCycles: 1, stallTimeoutMs: 60_000 },
+      deliveryPolicy: { requireReview: true, requireWebE2E: false, requireMerge: false },
+    }, now).run;
+    const snapshot: ContextSnapshot = {
+      id: 'context-delivery-review',
+      query: {
+        scenario: 'code_review', trigger: 'review_request', conversationId: 'project-1',
+        agentId: 'reviewer', archetype: 'reviewer', taskId: task.id, budgetTokens: 1_000,
+        requiredContributorIds: [], now: now.toISOString(), requestDigest: 'delivery-review',
+      },
+      fragmentRefs: [], capabilities: [], constraints: [], missingRequired: [], omissions: [],
+      compiledPrompt: 'Review delivery', createdAt: now.toISOString(),
+    };
+    const contract = issueDispatchWorkContract({
+      trigger: {
+        id: 'trigger-delivery-review', source: 'review_gate', conversationId: 'project-1',
+        agentId: 'reviewer', taskId: task.id, deliveryRunId: delivery.id,
+        prompt: 'Review delivery',
+      },
+      traceId: 'trace-delivery-review', contextSnapshot: snapshot, task,
+      role: { id: 'reviewer' },
+      executionProfile: { ...executionProfile, stage: 'review', exitPolicy: 'gate_decision' },
+      runtime: { engine: 'codex', runtimeId: 'runtime-1', toolNames: [] },
+    });
+
+    expect(contract).toMatchObject({
+      taskId: task.id,
+      deliveryRunId: delivery.id,
+      workId: `delivery:${delivery.id}:agent:reviewer:purpose:review`,
+    });
+  });
 });

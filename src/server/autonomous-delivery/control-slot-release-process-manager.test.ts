@@ -52,12 +52,12 @@ describe('ControlSlotReleaseProcessManager', () => {
 
     expect(release).toHaveBeenCalledWith(expect.objectContaining({
       workId: 'task:1:agent:builder:purpose:execute',
-      workEpoch: 2,
+      workEpoch: 1,
       reasonCode: 'work_authority_closed',
     }));
   });
 
-  it('releases activate/retry slots when Runtime starts or preflight is blocked', async () => {
+  it('releases initial and retry reservations by their causal Control action', async () => {
     const run = new AutonomousDeliveryRepository().createRun({
       idempotencyKey: 'control-slot-release-delivery',
       goal: 'Ship',
@@ -81,32 +81,14 @@ describe('ControlSlotReleaseProcessManager', () => {
       },
     }, now).run;
     const contracts = new WorkContractRepository();
-    const contract = contracts.issue({
-      workId: 'work-1',
-      attemptId: 'attempt-1',
-      projectId: 'project-1',
-      deliveryRunId: run.id,
-      agentId: 'agent-1',
-      goal: 'Implement',
-      acceptanceCriteria: ['Done'],
-      role: { id: 'implementer' },
-      permissions: {},
-      authoritativeRefs: ['task:1'],
-      authoritativeRevisions: { task: 1 },
-      contextSnapshotRef: 'context:1',
-      allowedOutcomeTypes: ['submit_task_result'],
-      correlationId: 'corr-1',
-      causationId: 'cause-1',
-      now,
-    });
     const decisions = new ControlDecisionRepository(db);
     const decision = decideControlActions({
       runId: run.id,
       snapshotRevision: decisions.projectSnapshotRevision('project-1'),
       observedAt: now.toISOString(),
       workCells: [{
-        workId: contract.workId,
-        workEpoch: contract.workEpoch,
+        workId: 'work-1',
+        workEpoch: 0,
         roleId: 'implementer',
         state: 'ready',
         priority: 50,
@@ -130,6 +112,24 @@ describe('ControlSlotReleaseProcessManager', () => {
     decisions.complete({
       actionId: claim!.id,
       claimToken: claim!.claim_token!,
+      now,
+    });
+    const contract = contracts.issue({
+      workId: 'work-1',
+      attemptId: 'attempt-1',
+      projectId: 'project-1',
+      deliveryRunId: run.id,
+      agentId: 'agent-1',
+      goal: 'Implement',
+      acceptanceCriteria: ['Done'],
+      role: { id: 'implementer' },
+      permissions: {},
+      authoritativeRefs: ['task:1'],
+      authoritativeRevisions: { task: 1 },
+      contextSnapshotRef: 'context:1',
+      allowedOutcomeTypes: ['submit_task_result'],
+      correlationId: 'corr-1',
+      causationId: claim!.id,
       now,
     });
     invocationRepo.create({
@@ -202,32 +202,55 @@ describe('ControlSlotReleaseProcessManager', () => {
       claimToken: retryClaim!.claim_token!,
       now,
     });
+    const retryContract = contracts.issue({
+      workId: contract.workId,
+      attemptId: 'attempt-2',
+      projectId: 'project-1',
+      deliveryRunId: run.id,
+      agentId: 'agent-1',
+      goal: 'Retry implementation',
+      acceptanceCriteria: ['Done'],
+      role: { id: 'implementer' },
+      permissions: {},
+      authoritativeRefs: ['task:1'],
+      authoritativeRevisions: { task: 1 },
+      contextSnapshotRef: 'context:2',
+      allowedOutcomeTypes: ['submit_task_result'],
+      correlationId: 'corr-1',
+      causationId: retryClaim!.id,
+      expectedCurrentEpoch: contract.workEpoch,
+      now,
+    });
+    invocationRepo.create({
+      id: retryContract.attemptId,
+      conversation_id: 'project-1',
+      agent_id: 'agent-1',
+      work_contract_id: retryContract.contractId,
+      work_id: retryContract.workId,
+      work_epoch: retryContract.workEpoch,
+      fencing_token: retryContract.fencingToken,
+    }, now);
 
     await new ControlSlotReleaseProcessManager(db).handle({
-      eventId: 'context-blocked-1',
-      type: 'context.snapshot.rejected',
-      category: 'coordination',
+      eventId: 'runtime-started-2',
+      type: 'runtime.invocation.started',
+      category: 'runtime_lifecycle',
       schemaVersion: 1,
       projectId: 'project-1',
-      streamKey: 'context_snapshot:rejected-1',
+      streamKey: `invocation:${retryContract.attemptId}`,
       streamSequence: 1,
-      aggregate: { type: 'context_snapshot', id: 'rejected-1' },
-      actor: { type: 'system', id: 'context-manager' },
-      invocationId: 'preflight-1',
-      correlationId: contract.correlationId,
+      aggregate: { type: 'invocation', id: retryContract.attemptId },
+      actor: { type: 'runtime', id: 'daemon' },
+      invocationId: retryContract.attemptId,
+      correlationId: retryContract.correlationId,
       occurredAt: now.toISOString(),
       recordedAt: now.toISOString(),
-      payload: {
-        reasonCode: 'required_context_missing',
-        workId: contract.workId,
-        deliveryRunId: run.id,
-        missingRequired: ['task.description'],
-      },
+      payload: { adapter: 'acp', engine: 'codex' },
     }, { signal: new AbortController().signal });
 
     expect(decisions.listActions(retryDecision.decisionId)[0]).toMatchObject({
       status: 'cancelled',
-      failure_code: 'context_preflight_blocked',
+      failure_code: 'invocation_started',
     });
 
     const inboxDecision = decideControlActions({
@@ -235,8 +258,8 @@ describe('ControlSlotReleaseProcessManager', () => {
       snapshotRevision: decisions.projectSnapshotRevision('project-1'),
       observedAt: now.toISOString(),
       workCells: [{
-        workId: contract.workId,
-        workEpoch: contract.workEpoch,
+        workId: retryContract.workId,
+        workEpoch: retryContract.workEpoch,
         roleId: 'implementer',
         state: 'ready',
         priority: 50,
@@ -265,10 +288,10 @@ describe('ControlSlotReleaseProcessManager', () => {
     const item = new AgentInbox({ db, now: () => now }).enqueue({
       projectId: 'project-1',
       projectAgentId: 'agent-1',
-      idempotencyKey: 'cancelled-inbox-work',
+      idempotencyKey: inboxClaim!.id,
       command: {
         source: 'system',
-        workId: contract.workId,
+        workId: retryContract.workId,
         prompt: 'Execute',
       },
     });
@@ -283,7 +306,7 @@ describe('ControlSlotReleaseProcessManager', () => {
       aggregate: { type: 'agent_inbox_item', id: item.id },
       actor: { type: 'system', id: 'agent-inbox' },
       inboxItemId: item.id,
-      correlationId: contract.correlationId,
+      correlationId: retryContract.correlationId,
       occurredAt: now.toISOString(),
       recordedAt: now.toISOString(),
       payload: { reasonCode: 'task_terminal' },

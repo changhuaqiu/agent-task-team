@@ -837,6 +837,9 @@ WorkAuthority 或占用中的 Control slot。统一由 `WorkLifecycleReconciler`
 - 终态收口之后才迟到的 `agent.work.enqueued` 会再次核对 owner，并立即取消，封住跨事务派工竞态；
 - 尚未签发 WorkContract 的 claimed Inbox 也按 command 的 Task/Delivery scope 取消；WorkContract 签发事务会再次读取
   owner 状态并拒绝终态 owner，保证 planner 不能在终态之后补建 Authority；
+- Delivery review/verify 可以继续携带 done Task 作为只读制品上下文；其签发守卫由 Delivery 状态决定；
+- Control action 预留签发前 Work epoch，WorkContract 使用下一 epoch，因此槽位释放优先沿 Inbox idempotency /
+  WorkContract causation 精确定位 Control action，不能把 Invocation epoch 直接当作预留 epoch；
 - 不越权把其他 Runtime 可能仍持有的 Invocation 写成 terminated，迟到写入由 epoch fencing 拒绝；
 - 新的 durable handler 会回放历史终态事件，因此部署也能修复已有孤儿 Work。
 

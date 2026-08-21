@@ -7,6 +7,7 @@ import type { AgentActivationCommand } from '../invocation-pipeline/types';
 import type { ExecutionProfile } from '../invocation-pipeline/execution-profile';
 import { WorkContractInvariantError, workContractRepo } from './repository';
 import type { AgentOutcomeType, WorkContract } from './types';
+import { parseWorkIdentity } from './work-identity';
 
 const EXECUTION_OUTCOMES: AgentOutcomeType[] = [
   'continue_work',
@@ -110,6 +111,12 @@ function deriveWorkId(trigger: AgentActivationCommand): string {
   const explicit = trigger.workId?.trim();
   if (explicit) return explicit;
   if (trigger.passId) return `a2a-pass:${trigger.passId}`;
+  if (
+    trigger.deliveryRunId
+    && (trigger.source === 'review_gate' || trigger.source === 'test_gate')
+  ) {
+    return `delivery:${trigger.deliveryRunId}:agent:${trigger.agentId}:purpose:${purposeFor(trigger)}`;
+  }
   if (trigger.taskId) {
     return `task:${trigger.taskId}:agent:${trigger.agentId}:purpose:${purposeFor(trigger)}`;
   }
@@ -136,11 +143,22 @@ export function issueDispatchWorkContract(input: {
   const db = getDb();
   return db.transaction(() => {
     assertA2APossessionDispatchable(input.trigger);
+    const workId = deriveWorkId(input.trigger);
+    const workIdentity = parseWorkIdentity(workId);
+    const deliveryScopedGate = Boolean(
+      input.trigger.deliveryRunId
+      && (input.trigger.source === 'review_gate' || input.trigger.source === 'test_gate'),
+    );
     const currentTask = input.trigger.taskId
       ? db.prepare('SELECT status FROM task WHERE id=? AND conversation_id=?')
           .get(input.trigger.taskId, input.trigger.conversationId) as { status: string } | undefined
       : undefined;
-    if (currentTask && ['done', 'cancelled'].includes(currentTask.status)) {
+    if (
+      currentTask
+      && ['done', 'cancelled'].includes(currentTask.status)
+      && workIdentity?.scope !== 'delivery'
+      && !deliveryScopedGate
+    ) {
       throw new WorkContractInvariantError(`Task owner is terminal: ${input.trigger.taskId}`);
     }
     const delivery = input.trigger.deliveryRunId
@@ -157,7 +175,6 @@ export function issueDispatchWorkContract(input: {
         recoveryPolicy?: unknown;
       }
       : undefined;
-    const workId = deriveWorkId(input.trigger);
     const currentEpoch = workContractRepo.getAuthority(workId)?.current_epoch ?? 0;
     const authoritativeRefs = [
       `context_snapshot:${input.contextSnapshot.id}`,

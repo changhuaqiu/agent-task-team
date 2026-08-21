@@ -722,7 +722,11 @@ Future federation may extend this to a full PII pipeline and trust-level matrix.
   a durable `agent.work.enqueued` guard cancels commands that race and arrive after owner termination.
   Cancellation is selected from the Inbox command's Task/Delivery scope even when context planning has not issued a WorkContract yet.
   WorkContract issue re-reads owner state inside its transaction and rejects terminal Task/Delivery owners, closing the final
-  claim-before-contract race.
+  claim-before-contract race. A done Task may still be attached as read-only context to Delivery-scoped review/verification Work;
+  that Work is governed by the Delivery owner, not rejected by the Task terminal guard.
+- Control capacity is reserved by the pre-issue Work epoch, while the new WorkContract/Invocation owns the next epoch. Runtime
+  start, Inbox terminal, and Authority close release the exact causal Control action id carried through Inbox idempotency and
+  WorkContract causation; epoch-minus-one matching is only a legacy fallback.
 - `ContinueGateLite` validates versioned `continue_work` checkpoints and projects accepted checkpoints as bounded
   `continuation_pending` Work. Control emits a dedicated `continue` action whose next Invocation receives the summary, exact next
   action, remaining steps, and evidence references. Planned continuation is separate from failure retry accounting; exhausting its
