@@ -98,6 +98,8 @@ describe('WorkLifecycleReconciler', () => {
         workId: deliveryWorkId, prompt: 'Review',
       },
     });
+    const claimedTaskInbox = inbox.claimNext();
+    expect(claimedTaskInbox?.id).toBe(taskInbox.id);
     taskRepo.transition(task.id, { to: 'in_progress' });
     taskRepo.transition(task.id, { to: 'in_review' });
     taskRepo.transition(task.id, { to: 'done' });
@@ -109,6 +111,7 @@ describe('WorkLifecycleReconciler', () => {
     expect(contracts.getAuthority(taskWorkId)?.status).toBe('closed');
     expect(contracts.getAuthority(deliveryWorkId)?.status).toBe('active');
     expect(inbox.get(taskInbox.id)?.status).toBe('cancelled');
+    expect(inbox.get(taskInbox.id)?.leaseToken).toBeUndefined();
     expect(inbox.get(deliveryInbox.id)?.status).toBe('enqueued');
 
     new AutonomousDeliveryRepository(db).transitionRun({

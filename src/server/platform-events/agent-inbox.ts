@@ -400,12 +400,12 @@ export class AgentInbox {
     return db.transaction(() => {
       const rows = db.prepare(`
         SELECT * FROM agent_inbox_item
-        WHERE project_id=? AND status IN ('enqueued','released')
+        WHERE project_id=? AND status IN ('enqueued','released','claimed')
       `).all(projectId) as AgentInboxRow[];
       return this.cancelRows(rows.filter((row) => {
         const command = JSON.parse(row.command_json) as AgentWorkCommand;
         return typeof command.workId === 'string' && targets.has(command.workId);
-      }), reasonCode);
+      }), reasonCode, true);
     }).immediate();
   }
 
@@ -449,7 +449,11 @@ export class AgentInbox {
     }).immediate();
   }
 
-  private cancelRows(rows: AgentInboxRow[], reasonCode: string): number {
+  private cancelRows(
+    rows: AgentInboxRow[],
+    reasonCode: string,
+    includeClaimed = false,
+  ): number {
     if (rows.length === 0) return 0;
     const db = this.database ?? getDb();
     const now = this.now().toISOString();
@@ -457,8 +461,11 @@ export class AgentInbox {
     for (const item of rows) {
       const result = db.prepare(`
         UPDATE agent_inbox_item
-        SET status='cancelled', last_error=?, updated_at=?, settled_at=?
-        WHERE id=? AND status IN ('enqueued','released')
+        SET status='cancelled', lease_token=NULL, lease_expires_at=NULL,
+            last_error=?, updated_at=?, settled_at=?
+        WHERE id=? AND status IN (${includeClaimed
+          ? "'enqueued','released','claimed'"
+          : "'enqueued','released'"})
       `).run(reasonCode, now, now, item.id);
       if (result.changes !== 1) continue;
       cancelled += 1;

@@ -714,9 +714,10 @@ Future federation may extend this to a full PII pipeline and trust-level matrix.
   `BlockedRecoveryOwner` may move the Task back to `ready` only after a deterministic probe proves that the named recovery
   condition is now satisfied. Unknown, malformed, unchanged, or Gate-evaluator blockers fail closed and remain visible instead
   of looping; Gate blocker recovery stays human-owned until a Gate-specific probe exists.
-- A terminal Task event closes only Task-scoped Work Authorities and cancels their pending Inbox commands, preserving Delivery
+- A terminal Task event closes only Task-scoped Work Authorities and cancels their pending or claimed Inbox commands, preserving Delivery
   review/verification Work. A terminal Delivery event closes every Work Authority whose current WorkContract belongs to that
-  Delivery and cancels its pending Inbox commands. `work.authority.closed` releases the corresponding applied Control slot.
+  Delivery and cancels its pending or claimed Inbox commands. Owner-terminal cancellation clears any outstanding Inbox lease;
+  `work.authority.closed` releases the corresponding applied Control slot.
   Historical terminal events are replayed through the durable Process Manager so rollout also repairs pre-existing orphan Work.
 - `ContinueGateLite` validates versioned `continue_work` checkpoints and projects accepted checkpoints as bounded
   `continuation_pending` Work. Control emits a dedicated `continue` action whose next Invocation receives the summary, exact next
