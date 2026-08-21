@@ -24,6 +24,9 @@ interface AutonomousAcpAuthorization {
 
 interface WorkContractPermissionEnvelope {
   authorization?: AutonomousAcpAuthorization;
+  executionProfile?: {
+    capabilities?: unknown;
+  };
 }
 
 async function evaluatePolicy(
@@ -42,6 +45,12 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
 function readAuthorization(permissions: unknown): AutonomousAcpAuthorization | undefined {
   const envelope = asRecord(permissions) as WorkContractPermissionEnvelope | undefined;
   return asRecord(envelope?.authorization) as AutonomousAcpAuthorization | undefined;
+}
+
+function hasExecutionCapability(permissions: unknown, capability: string): boolean {
+  const envelope = asRecord(permissions) as WorkContractPermissionEnvelope | undefined;
+  const capabilities = envelope?.executionProfile?.capabilities;
+  return Array.isArray(capabilities) && capabilities.includes(capability);
 }
 
 function commandFrom(request: RequestPermissionRequest): string | undefined {
@@ -66,7 +75,15 @@ function isPathInsideCwd(filePath: string, cwd: string): boolean {
 function editTargetsProject(request: RequestPermissionRequest, cwd: string): boolean {
   const input = asRecord(request.toolCall.rawInput);
   const filePath = input?.file_path;
-  return typeof filePath === 'string' && isPathInsideCwd(filePath, cwd);
+  if (typeof filePath === 'string') return isPathInsideCwd(filePath, cwd);
+
+  // codex-acp intentionally omits file-change rawInput and carries the
+  // requested write root in vendor metadata instead. Keep the same project
+  // containment rule rather than denying every Codex edit.
+  const codex = asRecord(asRecord(request._meta)?.codex);
+  const params = asRecord(codex?.params);
+  const grantRoot = params?.grantRoot;
+  return typeof grantRoot === 'string' && isPathInsideCwd(grantRoot, cwd);
 }
 
 function isAllowedLocalVerificationCommand(command: string): boolean {
@@ -80,6 +97,12 @@ function isAllowedLocalVerificationCommand(command: string): boolean {
   }
   return /^(?:npx(?:\.cmd)?(?:\s+--no-install)?|pnpm(?:\.cmd)?\s+exec)\s+(?:vitest|tsc|eslint)(?:\.cmd)?(?:\s|$)/i.test(command)
     || /^(?:npx(?:\.cmd)?(?:\s+--no-install)?|pnpm(?:\.cmd)?\s+exec)\s+next(?:\.cmd)?\s+build(?:\s|$)/i.test(command);
+}
+
+function isAllowedBrowserVerificationCommand(command: string): boolean {
+  if (!command || /[\r\n;&|><`\x00]|\$\(/.test(command)) return false;
+  return /^(?:npx(?:\.cmd)?(?:\s+--no-install)?|pnpm(?:\.cmd)?\s+exec)\s+playwright(?:\.cmd)?\s+test(?:\s|$)/i.test(command)
+    || /^(?:npm(?:\.cmd)?|pnpm(?:\.cmd)?|yarn(?:\.cmd)?|bun(?:\.exe)?)\s+run\s+(?:test:)?e2e(?::[\w.-]+)?(?:\s|$)/i.test(command);
 }
 
 /**
@@ -97,11 +120,18 @@ function createAutonomousWorkPermissionPolicy(input: {
   isAuthorityActive: () => boolean | Promise<boolean>;
 }): AcpPermissionPolicy {
   const authorization = readAuthorization(input.permissions);
-  if (authorization?.allowCodeChanges !== true) return 'deny';
+  const browserVerification = hasExecutionCapability(input.permissions, 'browser_verification');
 
   return async (request) => {
     if (!await input.isAuthorityActive()) return 'deny';
     const kind = request.toolCall.kind;
+
+    if (browserVerification && kind === 'execute') {
+      const command = commandFrom(request);
+      if (command && isAllowedBrowserVerificationCommand(command)) return 'allow_once';
+    }
+
+    if (authorization?.allowCodeChanges !== true) return 'deny';
 
     if (kind === 'edit') {
       return editTargetsProject(request, input.cwd) ? 'allow_once' : 'deny';

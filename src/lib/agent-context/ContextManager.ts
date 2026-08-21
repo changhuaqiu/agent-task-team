@@ -385,7 +385,7 @@ export class ContextManager {
     const omissions = [...collection.omissions, ...scenarioOmissions, ...budgetOmissions];
 
     const capabilityIncluded = getDirective(scenario, archetype, 'capability') === 'include';
-    const skillDecisions: SkillDeliveryDecision[] = skillSummaries.map(skill => {
+    const activatedSkillDecisions: SkillDeliveryDecision[] = skillSummaries.map(skill => {
       const skillId = skill.id ?? skill.name;
       const layer = `skill:${skillId}`;
       const skillPart = parts.find(part => part.layer === layer);
@@ -410,6 +410,11 @@ export class ContextManager {
         tokens: skillPart ? Math.ceil(skillPart.content.length / 4) : 0,
       };
     });
+    const activatedSkillIds = new Set(activatedSkillDecisions.map((decision) => decision.skillId));
+    const skillDecisions: SkillDeliveryDecision[] = [
+      ...(skillCompilation?.decisions.filter((decision) => !activatedSkillIds.has(decision.skillId)) ?? []),
+      ...activatedSkillDecisions,
+    ];
     const missingRequiredSkill = skillSummaries.find(skill => {
       if (!skill.required || !capabilityIncluded) return false;
       const decision = skillDecisions.find(item => item.skillId === (skill.id ?? skill.name));

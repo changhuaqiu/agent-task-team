@@ -11,6 +11,7 @@
 ## Agent 获得 Skill
 
 - [x] 已绑定 Skill 进入 activation plan。
+- [x] 已绑定候选与本轮 activated Skill 分离，未激活正文和工具不进入 Prompt。
 - [x] 最终 Prompt 中存在固定 revision 的 SKILL.md 正文。
 - [x] references/scripts/assets 正文未被默认拼接。
 - [x] required Skill 缺失、损坏或被裁剪时 dispatch 被阻止。

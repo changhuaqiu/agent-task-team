@@ -32,6 +32,7 @@ import {
 } from '../work-contract/dispatch-contract';
 import { StaleWorkAuthorityError } from '../work-contract/repository';
 import { RUNTIME_ID_BY_ENGINE } from '../runtime-selection';
+import { resolveExecutionProfileForTrigger } from './execution-profile';
 
 function toChatMessage(row: MessageRow): ChatMessage {
   let metadata: Record<string, unknown> | undefined;
@@ -114,9 +115,37 @@ export class InvocationPlanner implements InvocationPlannerPort {
       const boundSkillIds = (outcomeRecovery ? [] : profile.prompt.skills)
         .map(skill => skill.id)
         .filter((skillId): skillId is string => Boolean(skillId));
+      const deliveryPolicy = trigger.deliveryRunId
+        ? (() => {
+            const run = autonomousDeliveryRepo.getRun(trigger.deliveryRunId);
+            if (!run) return undefined;
+            const contract = JSON.parse(run.goal_contract_json) as {
+              deliveryPolicy?: { requireWebE2E?: boolean; requireMerge?: boolean };
+            };
+            return contract.deliveryPolicy;
+          })()
+        : undefined;
+      const executionProfile = resolveExecutionProfileForTrigger({
+        trigger,
+        task,
+        deliveryPolicy,
+        skills: outcomeRecovery ? [] : profile.prompt.skills,
+      });
+      if (executionProfile.missingRequiredSkillNames.length > 0) {
+        throw new SkillRuntimeError(
+          'required_skill_not_loaded',
+          `Required execution Skill is not bound: ${executionProfile.missingRequiredSkillNames.join(', ')}`,
+        );
+      }
+      const activationReasons = Object.fromEntries(
+        executionProfile.activatedSkills.map((skill) => [skill.skillId, skill.reason]),
+      );
       const skillCompilation = boundSkillIds.length > 0
         ? await skillRuntime.compile({
           skillIds: boundSkillIds,
+          activatedSkillIds: executionProfile.activatedSkills.map((skill) => skill.skillId),
+          requiredSkillIds: executionProfile.requiredSkillIds,
+          activationReasons,
           revisionIds: evaluationResolution
             ? Object.fromEntries(evaluationResolution.snapshot.manifest.agents
               .find((agent) => agent.agentId === trigger.agentId)?.skillRevisions
@@ -230,6 +259,7 @@ export class InvocationPlanner implements InvocationPlannerPort {
         contextSnapshot: context.snapshot,
         task,
         role: profile.prompt.roleCard,
+        executionProfile,
         runtime: {
           engine: profile.execution.engine,
           runtimeId,
@@ -255,6 +285,7 @@ export class InvocationPlanner implements InvocationPlannerPort {
           contextReport: context.report,
           contextSnapshot: context.snapshot,
           workContract,
+          executionProfile,
           evaluation: evaluationResolution ? {
             ...trigger.evaluation!,
             applicationManifest: evaluationResolution.snapshot.manifest,

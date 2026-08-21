@@ -69,6 +69,10 @@ Agent 绑定的全部 Skill 进入本轮 activation plan。`SKILL.md` 正文编�
 
 `loadedSkills: string[]` 保留为兼容显示字段，但不能作为加载完成的唯一证据。
 
+### 4.6 第二阶段增量（2026-08-21）
+
+`ExecutionProfileResolver` 已把 Agent binding 解释为 eligible 集合，并用 `$skill-name`、Task 文本强信号、trigger source、context scenario 与 Delivery policy 生成 activated/required 集合。平台内建工作流 Skill 按规则路由；未知自定义 Skill 暂保持 binding 激活以兼容既有配置。description 向量语义路由与结构化 handoff required-skill 字段仍未落地。
+
 ## 5. 兼容与迁移
 
 - 现有 `skill.content + skill_file` 数据必须可迁移为兼容包 revision；

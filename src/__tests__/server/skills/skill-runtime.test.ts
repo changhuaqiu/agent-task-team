@@ -130,6 +130,35 @@ describe('RepositorySkillRuntime', () => {
     });
   });
 
+  it('separates eligible Skills from the routed activation set', async () => {
+    const runtime = new RepositorySkillRuntime();
+    const selected = await runtime.install(buildSkillPackageInput({
+      name: 'selected-skill', description: 'Selected', content: 'Selected body.', files: [],
+    }));
+    const omitted = await runtime.install(buildSkillPackageInput({
+      name: 'omitted-skill', description: 'Omitted', content: 'Omitted body.', files: [],
+    }));
+
+    const compiled = await runtime.compile({
+      skillIds: [selected.skillId, omitted.skillId],
+      activatedSkillIds: [selected.skillId],
+      requiredSkillIds: [selected.skillId],
+      activationReasons: { [selected.skillId]: 'task' },
+    });
+
+    expect(compiled.catalog).toHaveLength(2);
+    expect(compiled.activated).toMatchObject([{ skillId: selected.skillId, reason: 'task', required: true }]);
+    expect(compiled.decisions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ skillId: selected.skillId, outcome: 'loaded', activationReason: 'task' }),
+      expect.objectContaining({
+        skillId: omitted.skillId,
+        outcome: 'omitted',
+        reasonCode: 'not_activated_for_execution_profile',
+        tokens: 0,
+      }),
+    ]));
+  });
+
   it('rolls back mutable skill records when revision persistence fails', async () => {
     const runtime = new RepositorySkillRuntime();
     vi.spyOn(skillRepo, 'createOrActivateRevision').mockImplementation(() => {

@@ -25,6 +25,9 @@ Task mutation / Autonomy Guard / A2A pass
   -> InvocationPlanner
      -> conversation + task
      -> TeamRuntime + enabled account
+     -> ExecutionProfileResolver
+        -> stage + activated/required Skills
+        -> capabilities + exit policy
      -> ContextManager
         -> resolve scenario + role archetype
         -> apply cluster injection policy
@@ -51,6 +54,7 @@ Task mutation / Autonomy Guard / A2A pass
 
 - 从 Conversation、TeamPack、RoleCard、Account、Skill、Task、Message 和 Session 仓库读取本轮事实；
 - 通过 TeamRuntime 解析角色与执行 profile；
+- 通过 ExecutionProfileResolver 从服务端事实编译本轮 stage、Skill activation、required capability 与唯一出口；
 - 通过 ContextManager 组装 server-owned prompt；
 - 输出与具体 Runtime SDK 无关的 `InvocationDispatchPlan`。
 - 按 trigger source 区分 user turn、A2A handoff 与系统 resume，并把 wakeup reason 和已解析 scenario 透传到执行完成边界。
@@ -86,6 +90,9 @@ Task mutation / Autonomy Guard / A2A pass
 - 当前持有者提交 `handoff_to_agent` 后必须立即结束本轮，不继续替目标角色读取、实现或等待底层子 Agent；
   平台在接纳 Outcome 后，由 A2A owner 原子创建 Pass、HandoffPacket 与下游 AgentInbox item。
 - daemon 只把平台工具白名单写入 invocation-scoped Skill/MCP grant；未知或 runtime-native 工具仅做观测，不得异步伪装成平台工具执行。
+- WorkContract 持久化 ExecutionProfile。真实浏览器验收只在 `browser_verification` capability 存在且 authority 有效时放行本地 Playwright test 命令；普通工作不能借验证名义获得任意 shell、后台进程或外部发布权限。
+- `browser-verification` 是阶段路由 Skill：Web E2E/test gate/Task 浏览器强信号会激活它；普通实现不加载其正文。Git 协作 Skill 同理，只在合并策略或 Git/PR 强信号存在时激活。
+- Codex ACP 文件修改请求不提供通用 `rawInput.file_path`，路径来自受信适配器元数据 `codex.params.grantRoot`；权限策略对两种形态统一执行 realpath 项目包含校验，缺路径继续拒绝。
 
 ### Runtime 工作目录
 

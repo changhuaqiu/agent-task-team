@@ -68,4 +68,14 @@ export function seedPresetSkills(): void {
       skillRepo.assignToAgent(agentId, gitCollaboration.id);
     }
   }
+
+  // Browser verification is routed only for browser/Web E2E work. Binding it
+  // makes the capability eligible; the execution profile decides per turn
+  // whether its body is activated.
+  const browserVerification = skillRepo.getByName('browser-verification');
+  if (browserVerification) {
+    for (const agentId of BUILT_IN_TEAM_AGENT_IDS) {
+      skillRepo.assignToAgent(agentId, browserVerification.id);
+    }
+  }
 }

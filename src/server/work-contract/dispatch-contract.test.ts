@@ -9,6 +9,17 @@ import {
   StaleA2APossessionError,
   workContractToolNames,
 } from './dispatch-contract';
+import type { ExecutionProfile } from '../invocation-pipeline/execution-profile';
+
+const executionProfile: ExecutionProfile = {
+  stage: 'implement',
+  eligibleSkillIds: [],
+  activatedSkills: [],
+  requiredSkillIds: [],
+  missingRequiredSkillNames: [],
+  capabilities: [],
+  exitPolicy: 'structured_outcome',
+};
 
 describe('issueDispatchWorkContract', () => {
   let db: Database.Database;
@@ -73,6 +84,11 @@ describe('issueDispatchWorkContract', () => {
         contextSnapshot: snapshot,
         task,
         role: { id: 'reviewer' },
+        executionProfile: {
+          ...executionProfile,
+          stage: source === 'review_gate' ? 'review' : 'verify',
+          exitPolicy: 'gate_decision',
+        },
         runtime: {
           engine: 'codex',
           runtimeId: 'runtime-1',
@@ -132,6 +148,7 @@ describe('issueDispatchWorkContract', () => {
       contextSnapshot: snapshot,
       task,
       role: { id: 'implementer' },
+      executionProfile: { ...executionProfile, stage: 'recover', exitPolicy: 'outcome_recovery' },
       runtime: {
         engine: 'codex',
         runtimeId: 'runtime-1',
@@ -201,6 +218,7 @@ describe('issueDispatchWorkContract', () => {
       traceId: 'trace-a2a-callback',
       contextSnapshot: snapshot,
       role: { id: 'lead' },
+      executionProfile,
       runtime: {
         engine: 'codex',
         runtimeId: 'runtime-1',
@@ -231,6 +249,7 @@ describe('issueDispatchWorkContract', () => {
       traceId: 'trace-stale-a2a-callback',
       contextSnapshot: snapshot,
       role: { id: 'lead' },
+      executionProfile,
       runtime: {
         engine: 'codex',
         runtimeId: 'runtime-1',

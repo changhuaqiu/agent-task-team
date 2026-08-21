@@ -67,7 +67,7 @@ interface SkillRuntime {
 
 ContextManager 不理解目录、不读取数据库，也不自行选择 Skill，只消费 `SkillCompileResult`。
 
-### 2.4 第一阶段：绑定即激活
+### 2.4 第一阶段历史基线：绑定即激活
 
 第一阶段优先保证确定性：
 
@@ -95,6 +95,8 @@ AgentSkillBinding
 4. description 驱动的语义选择。
 
 语义选择未达到置信阈值时不得伪造确定性；应保留候选目录并记录 `selection_ambiguous`，由后续交互或评测改进。
+
+第二阶段的确定性强信号已于 2026-08-21 落地：`ExecutionProfileResolver` 根据服务端 Task、trigger source、context scenario、Delivery policy 与 `$skill-name` 生成 activated/required 集合。平台内建工作流 Skill 按 stage 路由；未纳入已知路由的自定义 Skill 暂保持绑定即激活。description 向量语义路由仍未启用。
 
 ## 3. 包校验
 
@@ -176,7 +178,7 @@ OpenCode、Claude 和 Codex 的原生 Skill 发现能力与配置方式并不完
 
 ## 8. 当前已落地（2026-07-18）
 
-- `RepositorySkillRuntime` 已统一标准目录安装、旧数据库 Skill 兼容包生成与绑定编译；
+- `RepositorySkillRuntime` 已统一标准目录安装、旧数据库 Skill 兼容包生成与绑定编译，并区分 eligible、activated 与 required；
 - unit、integration 与 E2E 所需的 `SkillPackageInput` 构造只存在于 test-helper；生产 SkillRuntime 不暴露测试 fixture，正式接口保持为安装与编译。
 - installed revision 以 content hash 存放在 `.ath/skill-packages/<package-slug>/<hash>/`，数据库保存不可变 revision 与资源索引；旧名称通过稳定、防碰撞 slug 迁移，不改变用户可见名称、ID 或绑定；
 - Harness 在选择 runtime 之前按 Agent 绑定编译 Skill，因此 Claude、Codex、OpenCode 共享同一份正文与交付证据；
@@ -186,7 +188,7 @@ OpenCode、Claude 和 Codex 的原生 Skill 发现能力与配置方式并不完
 - ContextReport 与 observation span 保存 eligible/activated/decision、revision、hash、reason、token，不保存附属资源正文；
 - 包校验失败会先写入有界的失败 context span/proof，再以稳定 reason code 阻断；Agent 调试页可显示失败 Skill、已知 revision 与原因；
 - 标准包和 legacy 迁移产生的 `SkillPackageError` 都在 `SkillRuntime` 边界规范化为稳定 runtime reason code，包含非法旧文件路径在内的编译失败使用同一观测路径；
-- 浏览器只提交原始 Human/Task Command；服务端 Harness 在生成 `InvocationDispatchPlan` 前统一完成 Skill 编译和 fail-closed 门禁；
+- 浏览器只提交原始 Human/Task Command；服务端 Harness 在生成 `InvocationDispatchPlan` 前先编译 ExecutionProfile，再统一完成 Skill 编译和 fail-closed 门禁；
 - Skill 详情显示活动执行版本与资源分类，Agent 调试页显示已绑定、本轮激活、已编入和未加载结果。
 
-当前兼容策略仍保留旧 Skill API 和 `skill_file` 作为编辑/展示入口；任何正文、描述、名称、config 或文件更新都会清除 active revision，下次编译重新生成版本。会影响工具声明的 config 也纳入 revision hash 并固化到 revision，编译不得读取同一版本之外的可变 config。候选路由、`$skill-name` 强信号和语义激活仍属于后续阶段。
+当前兼容策略仍保留旧 Skill API 和 `skill_file` 作为编辑/展示入口；任何正文、描述、名称、config 或文件更新都会清除 active revision，下次编译重新生成版本。会影响工具声明的 config 也纳入 revision hash 并固化到 revision，编译不得读取同一版本之外的可变 config。`$skill-name`、Task/场景与 Delivery policy 强信号已经落地；description 向量语义激活仍属于后续阶段。

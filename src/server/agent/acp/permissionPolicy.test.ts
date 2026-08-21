@@ -106,6 +106,73 @@ describe('ACP permission policy', () => {
     })).resolves.toEqual({ outcome: { outcome: 'selected', optionId: 'allow-once' } });
   });
 
+  it('allows only constrained Playwright tests when the execution profile requires browser verification', async () => {
+    const cwd = mkdtempSync(resolve(tmpdir(), 'ath-browser-policy-'));
+    try {
+      const policy = createTestWorkContractPolicy({
+        permissions: {
+          authorization: { allowCodeChanges: false },
+          executionProfile: { capabilities: ['browser_verification'] },
+        },
+        cwd,
+        engine: 'codex',
+        isAuthorityActive: () => true,
+      });
+      const decide = (command: string) => createPermissionHandler(policy)({
+        ...request,
+        toolCall: {
+          ...request.toolCall,
+          toolCallId: command,
+          kind: 'execute',
+          rawInput: { command },
+        },
+      });
+
+      await expect(decide('pnpm exec playwright test e2e/voice.spec.ts')).resolves.toEqual({
+        outcome: { outcome: 'selected', optionId: 'allow-once' },
+      });
+      await expect(decide('npx --no-install playwright test --config=playwright.config.ts')).resolves.toEqual({
+        outcome: { outcome: 'selected', optionId: 'allow-once' },
+      });
+      await expect(decide('node -e "require(\'playwright\')"')).resolves.toEqual({
+        outcome: { outcome: 'selected', optionId: 'reject' },
+      });
+      await expect(decide('pnpm exec playwright test && git push')).resolves.toEqual({
+        outcome: { outcome: 'selected', optionId: 'reject' },
+      });
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('reads Codex file-change grantRoot metadata while preserving project containment', async () => {
+    const cwd = mkdtempSync(resolve(tmpdir(), 'ath-codex-edit-policy-'));
+    const outside = mkdtempSync(resolve(tmpdir(), 'ath-codex-edit-outside-'));
+    try {
+      const policy = createTestWorkContractPolicy({
+        permissions: { authorization: { allowCodeChanges: true } },
+        cwd,
+        engine: 'codex',
+        isAuthorityActive: () => true,
+      });
+      const decide = (grantRoot: string) => createPermissionHandler(policy)({
+        ...request,
+        toolCall: { ...request.toolCall, toolCallId: grantRoot, kind: 'edit', rawInput: undefined },
+        _meta: { codex: { params: { grantRoot } } },
+      });
+
+      await expect(decide(cwd)).resolves.toEqual({
+        outcome: { outcome: 'selected', optionId: 'allow-once' },
+      });
+      await expect(decide(outside)).resolves.toEqual({
+        outcome: { outcome: 'selected', optionId: 'reject' },
+      });
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
   it('keeps project and external-effect boundaries when code changes are authorized', async () => {
     const cwd = process.cwd();
     const policy = createTestWorkContractPolicy({

@@ -75,8 +75,12 @@ export interface SkillCompileResult {
 }
 
 export interface SkillCompileRequest {
+  /** Every Skill bound to the Agent and therefore eligible for deterministic routing. */
   skillIds: string[];
+  /** Routed subset whose bodies and tools enter this Invocation. Defaults to every eligible Skill. */
+  activatedSkillIds?: string[];
   requiredSkillIds?: string[];
+  activationReasons?: Record<string, SkillActivationReason>;
   /** Evaluation/replay mode: require these immutable revisions instead of current active revisions. */
   revisionIds?: Record<string, string>;
 }

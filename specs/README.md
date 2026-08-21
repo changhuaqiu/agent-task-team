@@ -36,6 +36,7 @@
 | [`team-role-card-compatibility/`](team-role-card-compatibility/) | active | 自动化已完成，仍需三项人工兼容验收 |
 | [`role-card-format/`](role-card-format/) | draft | 冻结角色卡/Team Pack 文件格式并替换即将移除的示例 |
 | [`agent-eval-system/`](agent-eval-system/) | draft | 任务全链路评估：客观维度规则计算 + 主观维度 LLM-as-Judge 套 rubric，结果回流优化 RoleCard/Skill |
+| [`rule-execution-profile/`](rule-execution-profile/) | active | 将阶段、Skill 激活、必需能力、权限和唯一出口编译为服务端 WorkContract，而不是依赖角色自由记忆规则 |
 
 ## 依赖关系
 

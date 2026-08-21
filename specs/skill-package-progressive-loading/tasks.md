@@ -35,7 +35,7 @@
 
 ## 后续阶段（不属于本规格退出条件）
 
-- [ ] eligible 与 activated 分离。
-- [ ] `$skill-name`、Task、handoff 强信号路由。
+- [x] eligible 与 activated 分离。
+- [ ] `$skill-name`、Task、handoff 强信号路由（已完成 `$skill-name`、Task/场景/Delivery policy；结构化 handoff required-skill 待补）。
 - [ ] description 语义路由与歧义消解。
 - [ ] Skill Eval 与反馈候选区。

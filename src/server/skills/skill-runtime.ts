@@ -232,13 +232,21 @@ export class RepositorySkillRuntime implements SkillRuntimeInterface {
 
   async compile(input: SkillCompileRequest): Promise<SkillCompileResult> {
     const skillIds = Array.from(new Set(input.skillIds));
-    const required = new Set(input.requiredSkillIds ?? skillIds);
+    const activatedIds = Array.from(new Set(input.activatedSkillIds ?? skillIds));
+    const required = new Set(input.requiredSkillIds ?? activatedIds);
+    for (const activatedSkillId of activatedIds) {
+      if (!skillIds.includes(activatedSkillId)) {
+        throw new SkillRuntimeError('required_skill_not_loaded', `Activated skill is not eligible: ${activatedSkillId}`);
+      }
+    }
     for (const requiredSkillId of required) {
-      if (!skillIds.includes(requiredSkillId)) {
-        throw new SkillRuntimeError('required_skill_not_loaded', `Required skill is not eligible: ${requiredSkillId}`);
+      if (!activatedIds.includes(requiredSkillId)) {
+        throw new SkillRuntimeError('required_skill_not_loaded', `Required skill is not activated: ${requiredSkillId}`);
       }
     }
     const installed: InstalledSkillRevision[] = [];
+    const catalog: SkillCompileResult['catalog'] = [];
+    const omittedDecisions: SkillCompileResult['decisions'] = [];
     for (const skillId of skillIds) {
       const skill = skillRepo.getById(skillId);
       if (!skill) {
@@ -248,8 +256,43 @@ export class RepositorySkillRuntime implements SkillRuntimeInterface {
         continue;
       }
       const requestedRevisionId = input.revisionIds?.[skillId];
+      if (!activatedIds.includes(skillId)) {
+        const revision = requestedRevisionId
+          ? skillRepo.getRevisionById(requestedRevisionId)
+          : skillRepo.getActiveRevision(skillId);
+        if (requestedRevisionId && (!revision || revision.skill_id !== skillId)) {
+          throw new SkillRuntimeError(
+            'skill_revision_mismatch',
+            `Requested revision ${requestedRevisionId} does not belong to skill ${skillId}`,
+          );
+        }
+        catalog.push({
+          skillId,
+          name: skill.name,
+          description: skill.description ?? '',
+          revision: revision?.id ?? 'uninstalled',
+        });
+        omittedDecisions.push({
+          skillId,
+          name: skill.name,
+          revision: revision?.id ?? 'uninstalled',
+          contentHash: revision?.content_hash ?? 'unknown',
+          outcome: 'omitted',
+          reasonCode: 'not_activated_for_execution_profile',
+          activationReason: input.activationReasons?.[skillId] ?? 'agent_binding',
+          tokens: 0,
+        });
+        continue;
+      }
       if (!requestedRevisionId) {
-        installed.push(await this.ensureRevision(skill));
+        const installedSkill = await this.ensureRevision(skill);
+        installed.push(installedSkill);
+        catalog.push({
+          skillId: installedSkill.skillId,
+          name: installedSkill.name,
+          description: installedSkill.description,
+          revision: installedSkill.revision,
+        });
         continue;
       }
       const revision = skillRepo.getRevisionById(requestedRevisionId);
@@ -273,16 +316,18 @@ export class RepositorySkillRuntime implements SkillRuntimeInterface {
       if (installedHash !== revision.content_hash) {
         throw new SkillRuntimeError('skill_revision_mismatch', `Installed package hash mismatch for skill ${skill.name}`);
       }
-      installed.push(revisionToInstalled(skill, revision));
+      const installedSkill = revisionToInstalled(skill, revision);
+      installed.push(installedSkill);
+      catalog.push({
+        skillId: installedSkill.skillId,
+        name: installedSkill.name,
+        description: installedSkill.description,
+        revision: installedSkill.revision,
+      });
     }
 
     return {
-      catalog: installed.map(skill => ({
-        skillId: skill.skillId,
-        name: skill.name,
-        description: skill.description,
-        revision: skill.revision,
-      })),
+      catalog,
       activated: installed.map(skill => ({
         skillId: skill.skillId,
         name: skill.name,
@@ -291,20 +336,20 @@ export class RepositorySkillRuntime implements SkillRuntimeInterface {
         contentHash: skill.contentHash,
         body: skill.body,
         resourceRefs: skill.resourceRefs,
-        reason: 'agent_binding',
+        reason: input.activationReasons?.[skill.skillId] ?? 'agent_binding',
         required: required.has(skill.skillId),
         config: skill.config,
       })),
-      decisions: installed.map(skill => ({
+      decisions: [...omittedDecisions, ...installed.map(skill => ({
         skillId: skill.skillId,
         name: skill.name,
         revision: skill.revision,
         contentHash: skill.contentHash,
-        outcome: 'loaded',
-        reasonCode: 'compiled_from_agent_binding',
-        activationReason: 'agent_binding',
+        outcome: 'loaded' as const,
+        reasonCode: 'compiled_from_execution_profile',
+        activationReason: input.activationReasons?.[skill.skillId] ?? 'agent_binding',
         tokens: Math.ceil(skill.body.length / 4),
-      })),
+      }))],
     };
   }
 }

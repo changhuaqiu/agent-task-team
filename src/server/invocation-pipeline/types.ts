@@ -3,6 +3,7 @@ import type { RuntimeCliEngine } from '@/lib/team-runtime/runtimeEngine';
 import type { ContextReport, ContextRequest, ContextSnapshot } from '../../lib/agent-context/ContextManager';
 import type { ContextScenario } from '../../lib/agent-context/scenarioResolver';
 import type { WorkContract } from '../work-contract/types';
+import type { ExecutionProfile } from './execution-profile';
 
 export type AgentActivationSource = 'user' | 'a2a' | 'workflow' | 'review_gate' | 'test_gate' | 'system';
 export type AgentExecutionMode = 'standard' | 'outcome_recovery';
@@ -52,6 +53,7 @@ export interface InvocationDispatchPlan {
   contextReport: ContextReport;
   contextSnapshot?: ContextSnapshot;
   workContract: WorkContract;
+  executionProfile: ExecutionProfile;
   evaluation?: AgentActivationCommand['evaluation'] & {
     applicationManifest: object;
   };

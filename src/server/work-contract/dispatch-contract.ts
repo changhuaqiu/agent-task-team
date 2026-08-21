@@ -4,6 +4,7 @@ import { getDb } from '../db';
 import type { TaskRow } from '../repositories/task-repo';
 import { generateSortableId } from '../repositories/sortable-id';
 import type { AgentActivationCommand } from '../invocation-pipeline/types';
+import type { ExecutionProfile } from '../invocation-pipeline/execution-profile';
 import { workContractRepo } from './repository';
 import type { AgentOutcomeType, WorkContract } from './types';
 
@@ -26,6 +27,7 @@ const GATE_OUTCOMES: AgentOutcomeType[] = [
 
 interface WorkContractPermissions {
   executionMode?: 'standard' | 'outcome_recovery';
+  executionProfile?: ExecutionProfile;
   tools?: unknown;
   authorization?: unknown;
 }
@@ -123,6 +125,7 @@ export function issueDispatchWorkContract(input: {
   contextSnapshot: ContextSnapshot;
   task?: TaskRow;
   role: unknown;
+  executionProfile: ExecutionProfile;
   runtime: {
     engine: string;
     runtimeId: string;
@@ -184,6 +187,7 @@ export function issueDispatchWorkContract(input: {
       role: input.role ?? {},
       permissions: {
         executionMode: outcomeRecovery ? 'outcome_recovery' : 'standard',
+        executionProfile: input.executionProfile,
         runtime: {
           engine: input.runtime.engine,
           runtimeId: input.runtime.runtimeId,
@@ -214,6 +218,7 @@ export function issueDispatchWorkContract(input: {
 
 export function renderWorkContractInstruction(contract: WorkContract): string {
   const outcomeRecovery = isOutcomeRecoveryContract(contract);
+  const executionProfile = permissionEnvelope(contract).executionProfile;
   return [
     '# Platform Work Contract',
     '',
@@ -224,6 +229,11 @@ export function renderWorkContractInstruction(contract: WorkContract): string {
     'The tool binds the private fencing token and authoritative revisions for this invocation.',
     'A stale epoch or superseded attempt will be rejected; do not mutate domain state directly.',
     'Treat TASKS.md, task status, assignee, deliverable metadata, and gate state as read-only projections.',
+    ...(executionProfile ? [
+      `Execution stage: ${executionProfile.stage}.`,
+      `Required capabilities: ${executionProfile.capabilities.length > 0 ? executionProfile.capabilities.join(', ') : 'none'}.`,
+      `Exit policy: ${executionProfile.exitPolicy}. Follow this exit; do not substitute a progress-only reply.`,
+    ] : []),
     ...(outcomeRecovery ? [
       'Do not repeat implementation, review, verification, shell commands, file edits, delegation, or exploratory work.',
       'Use the previous durable reply and evidence already present in context to choose one allowed structured exit.',

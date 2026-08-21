@@ -336,6 +336,19 @@ describe('seedPresetSkills', () => {
     }
   });
 
+  it('seeds browser verification as an eligible capability for built-in roles', () => {
+    seedPresetSkills();
+
+    const skill = skillRepo.getByName('browser-verification');
+    expect(skill).toBeDefined();
+    expect(skill!.is_preset).toBe(1);
+    expect(skill!.content).toContain('verification_serve_artifact');
+    expect(skill!.content).toContain('do not import or require Playwright');
+    for (const agentId of ['mario', 'luigi', 'toad', 'peach', 'dk', 'yoshi', 'planner', 'coder', 'reviewer', 'researcher', 'analyst', 'writer']) {
+      expect(skillIdsForAgent(agentId)).toContain(skill!.id);
+    }
+  });
+
   it('updates existing preset git-collaboration content on seed', () => {
     const stale = skillRepo.create({
       name: 'git-collaboration',

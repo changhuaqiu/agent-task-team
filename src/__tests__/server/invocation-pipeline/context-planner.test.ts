@@ -19,6 +19,7 @@ import { buildSkillPackageInput } from '@/test-helpers/skill-package';
 import { InvocationCoordinator } from '@/server/invocation-pipeline/coordinator';
 import { projectObservationProjection } from '@/server/observability/ProjectObservationProjection';
 import { autonomousDeliveryRepo } from '@/server/autonomous-delivery/repository';
+import { seedPresetSkills } from '@/server/seed-skills';
 
 let dataDir: string;
 let previousDataDir: string | undefined;
@@ -30,6 +31,7 @@ beforeEach(() => {
   previousDataDir = process.env.ATH_DATA_DIR;
   dataDir = mkdtempSync(join(tmpdir(), 'ath-harness-'));
   process.env.ATH_DATA_DIR = dataDir;
+  seedPresetSkills();
 });
 afterEach(() => {
   resetDb();
@@ -199,7 +201,7 @@ describe('InvocationPlanner', () => {
 
   it('injects the active DeliveryRun through the production Context Contributor', async () => {
     const pack = teamPackRepo.getByName('default-team')!;
-    teamPackRepo.updateRoleConfig(pack.id, 'luigi', { accountIds: ['account-openai'] });
+    teamPackRepo.updateRoleConfig(pack.id, 'mario', { accountIds: ['account-openai'] });
     writeAccount({
       id: 'account-openai',
       name: 'OpenAI',
@@ -250,7 +252,7 @@ describe('InvocationPlanner', () => {
       id: 'trigger-delivery-context',
       source: 'workflow',
       conversationId: 'conv-delivery-context',
-      agentId: 'luigi',
+      agentId: 'mario',
       prompt: '开始规划',
       contextScenario: 'planning',
     });
@@ -274,7 +276,7 @@ describe('InvocationPlanner', () => {
       id: 'trigger-delivery-context-missing',
       source: 'workflow',
       conversationId: 'conv-delivery-context',
-      agentId: 'luigi',
+      agentId: 'mario',
       prompt: '继续执行',
       contextScenario: 'execution',
       deliveryRunId: 'delivery-missing',
@@ -338,7 +340,7 @@ describe('InvocationPlanner', () => {
     expect(`${result.plan.systemPrompt ?? ''}\n${result.plan.prompt}`).toContain('Always inspect the diff before approval.');
     expect(result.plan.prompt).toContain('checklist.md');
     expect(result.plan.prompt).not.toContain('Long checklist stays on demand.');
-    expect(result.plan.contextReport.skillDecisions[0]).toMatchObject({
+    expect(result.plan.contextReport.skillDecisions.find((decision) => decision.skillId === revision.skillId)).toMatchObject({
       skillId: revision.skillId, revision: revision.revision, contentHash: revision.contentHash, outcome: 'loaded',
     });
   });
@@ -368,6 +370,58 @@ describe('InvocationPlanner', () => {
     if (!result.ok) return;
     expect(result.plan.contextReport.availableTools).toContain('collaboration_record_pr');
     expect(`${result.plan.systemPrompt ?? ''}\n${result.plan.prompt}`).toContain('collaboration_record_pr');
+  });
+
+  it('routes a browser-evidence Task to browser verification without loading unrelated Git guidance', async () => {
+    const pack = teamPackRepo.getByName('default-team')!;
+    teamPackRepo.updateRoleConfig(pack.id, 'luigi', { accountIds: ['account-openai'] });
+    writeAccount({
+      id: 'account-openai', name: 'OpenAI', authMode: 'oauth', provider: 'openai', models: [],
+      enabled: true, status: 'valid', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    });
+    conversationRepo.create({ id: 'conv-browser-rule', title: 'Browser Rule', team_pack_id: pack.id });
+    taskRepo.create({
+      id: 'TASK-BROWSER',
+      conversation_id: 'conv-browser-rule',
+      title: '语音体验改进',
+      description: '完成 app.js 改动、npm run check 和浏览器实测记录',
+      agent_id: 'luigi',
+    });
+
+    const result = await new InvocationPlanner().prepare({
+      id: 'trigger-browser-rule',
+      source: 'workflow',
+      conversationId: 'conv-browser-rule',
+      taskId: 'TASK-BROWSER',
+      agentId: 'luigi',
+      contextScenario: 'execution',
+      prompt: '继续完成任务',
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.plan.executionProfile).toMatchObject({
+      stage: 'implement',
+      capabilities: expect.arrayContaining(['task_receipt', 'browser_verification']),
+      missingRequiredSkillNames: [],
+    });
+    expect(result.plan.contextReport.loadedSkills).toEqual(expect.arrayContaining([
+      'task-status-receipt',
+      'browser-verification',
+    ]));
+    expect(result.plan.contextReport.loadedSkills).not.toContain('git-collaboration');
+    expect(result.plan.contextReport.skillDecisions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        name: 'git-collaboration',
+        outcome: 'omitted',
+        reasonCode: 'not_activated_for_execution_profile',
+      }),
+    ]));
+    expect(result.plan.workContract.permissions).toMatchObject({
+      executionProfile: {
+        capabilities: expect.arrayContaining(['browser_verification']),
+      },
+    });
   });
 
   it('routes every activation source through required-Skill validation', async () => {
@@ -407,9 +461,9 @@ describe('InvocationPlanner', () => {
     const snapshot = projectObservationProjection.build('conv-socket-skill', 10);
     expect(snapshot.traces).toHaveLength(4);
     expect(snapshot.traces.every((trace) => trace.status === 'error')).toBe(true);
-    expect(snapshot.traces[0].context?.skillDecisions).toMatchObject([
-      { skillId: revision.skillId, outcome: 'failed', reasonCode: 'skill_manifest_invalid' },
-    ]);
+    expect(snapshot.traces[0].context?.skillDecisions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ skillId: revision.skillId, outcome: 'failed', reasonCode: 'skill_manifest_invalid' }),
+    ]));
   });
 
   it('routes a legacy proposal through Coordinator and Planner admission', async () => {
@@ -515,8 +569,9 @@ describe('InvocationPlanner', () => {
     expect(result).toMatchObject({ ok: false, outcome: { status: 'failed', reasonCode: 'skill_path_invalid' } });
     const snapshot = projectObservationProjection.build('conv-legacy-path', 10);
     expect(snapshot.traces).toHaveLength(1);
-    expect(snapshot.traces[0]).toMatchObject({ status: 'error', context: {
-      skillDecisions: [{ skillId: skill.id, outcome: 'failed', reasonCode: 'skill_path_invalid' }],
-    } });
+    expect(snapshot.traces[0]).toMatchObject({ status: 'error' });
+    expect(snapshot.traces[0].context?.skillDecisions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ skillId: skill.id, outcome: 'failed', reasonCode: 'skill_path_invalid' }),
+    ]));
   });
 });
