@@ -39,8 +39,11 @@ export class ControlSlotReleaseProcessManager {
       return;
     }
     if (event.type === 'work.authority.closed') {
+      const workEpoch = (event.payload as { workEpoch?: unknown }).workEpoch;
+      if (!Number.isSafeInteger(workEpoch) || Number(workEpoch) <= 0) return;
       this.decisions.releaseSlotsForWork({
         workId: event.aggregate.id,
+        workEpoch: Number(workEpoch),
         reasonCode: 'work_authority_closed',
         now: new Date(event.recordedAt),
       });
@@ -65,11 +68,12 @@ export class ControlSlotReleaseProcessManager {
       return;
     }
     const invocation = (this.database ?? getDb()).prepare(`
-      SELECT work_id FROM invocation WHERE id=?
-    `).get(event.invocationId) as { work_id: string | null } | undefined;
+      SELECT work_id,work_epoch FROM invocation WHERE id=?
+    `).get(event.invocationId) as { work_id: string | null; work_epoch: number | null } | undefined;
     if (!invocation?.work_id) return;
     this.decisions.releaseSlotsForWork({
       workId: invocation.work_id,
+      ...(invocation.work_epoch ? { workEpoch: invocation.work_epoch } : {}),
       reasonCode: event.type === 'runtime.invocation.started'
         ? 'invocation_started'
         : 'invocation_terminated_before_start_projection',

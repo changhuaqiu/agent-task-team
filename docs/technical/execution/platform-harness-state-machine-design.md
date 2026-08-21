@@ -835,6 +835,8 @@ WorkAuthority 或占用中的 Control slot。统一由 `WorkLifecycleReconciler`
 - 先关闭 WorkAuthority 形成 fencing 事实，再取消 pending/claimed Inbox command 并清除 Inbox lease；
 - `work.authority.closed` 释放 applied Control slot；
 - 终态收口之后才迟到的 `agent.work.enqueued` 会再次核对 owner，并立即取消，封住跨事务派工竞态；
+- 尚未签发 WorkContract 的 claimed Inbox 也按 command 的 Task/Delivery scope 取消；WorkContract 签发事务会再次读取
+  owner 状态并拒绝终态 owner，保证 planner 不能在终态之后补建 Authority；
 - 不越权把其他 Runtime 可能仍持有的 Invocation 写成 terminated，迟到写入由 epoch fencing 拒绝；
 - 新的 durable handler 会回放历史终态事件，因此部署也能修复已有孤儿 Work。
 
@@ -845,6 +847,10 @@ WorkAuthority 或占用中的 Control slot。统一由 `WorkLifecycleReconciler`
 把 Task 移回 `ready`。`request_human_decision` 始终归 Human；未知、缺字段或环境未变化的 blocker
 保持 blocked；Gate evaluator blocker 暂时继续由 Human 处理，直到存在 Gate 专用探针。这样恢复次数由
 事实变化驱动，而不是由唤醒次数驱动。
+
+Execution Profile 中 capability 表示“所需 Skill 已可用”，而不是“任务文字提出了该要求”。缺失必需 Skill 时仍记录
+`missingRequiredSkillNames`，但不声明对应 capability；绑定或配置补齐后，旧 WorkContract 与当前 Profile 之间才形成
+可被恢复探针验证的 capability delta。
 
 ## 11. 实施切片
 

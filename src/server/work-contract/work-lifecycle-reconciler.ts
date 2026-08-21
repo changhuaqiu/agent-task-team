@@ -40,30 +40,17 @@ export class WorkLifecycleReconciler {
       `).get(event.inboxItemId, event.projectId) as { command_json: string } | undefined;
       if (!row) return;
       const command = JSON.parse(row.command_json) as AgentWorkCommand;
-      if (!command.workId) return;
-      const owner = getDb().prepare(`
-        SELECT contract.task_id,contract.delivery_run_id,
-               task.status AS task_status,delivery.status AS delivery_status
-        FROM work_authority authority
-        JOIN work_contract contract ON contract.id=authority.current_contract_id
-        LEFT JOIN task ON task.id=contract.task_id
-        LEFT JOIN autonomous_delivery_run delivery ON delivery.id=contract.delivery_run_id
-        WHERE authority.work_id=? AND authority.project_id=?
-      `).get(command.workId, event.projectId) as {
-        task_id: string | null;
-        delivery_run_id: string | null;
-        task_status: string | null;
-        delivery_status: string | null;
-      } | undefined;
-      if (!owner) return;
+      const delivery = command.deliveryRunId ? getDb().prepare(`
+        SELECT status FROM autonomous_delivery_run WHERE id=? AND conversation_id=?
+      `).get(command.deliveryRunId, event.projectId) as { status: string } | undefined : undefined;
       if (
-        owner.delivery_run_id
-        && owner.delivery_status
-        && ['completed', 'failed', 'cancelled'].includes(owner.delivery_status)
+        command.deliveryRunId
+        && delivery
+        && ['completed', 'failed', 'cancelled'].includes(delivery.status)
       ) {
         this.reconcileDelivery(
           event.projectId,
-          owner.delivery_run_id,
+          command.deliveryRunId,
           event.correlationId,
           event.eventId,
           new Date(event.recordedAt),
@@ -71,16 +58,18 @@ export class WorkLifecycleReconciler {
         return;
       }
       const identity = parseWorkIdentity(command.workId);
+      const task = command.taskId ? getDb().prepare(`
+        SELECT status FROM task WHERE id=? AND conversation_id=?
+      `).get(command.taskId, event.projectId) as { status: string } | undefined : undefined;
       if (
-        owner.task_id
-        && identity?.scope === 'task'
-        && identity.targetId === owner.task_id
-        && owner.task_status
-        && ['done', 'cancelled'].includes(owner.task_status)
+        command.taskId
+        && task
+        && identity?.scope !== 'delivery'
+        && ['done', 'cancelled'].includes(task.status)
       ) {
         this.reconcileTask(
           event.projectId,
-          owner.task_id,
+          command.taskId,
           event.correlationId,
           event.eventId,
           new Date(event.recordedAt),
@@ -140,6 +129,7 @@ export class WorkLifecycleReconciler {
       [...new Set([...existing, ...closed.map((authority) => authority.work_id)])],
       'task_owner_terminal',
     );
+    this.inbox.cancelForTerminalTask(projectId, taskId);
   }
 
   private reconcileDelivery(
@@ -158,5 +148,6 @@ export class WorkLifecycleReconciler {
       [...new Set([...existing, ...closed.map((authority) => authority.work_id)])],
       'delivery_owner_terminal',
     );
+    this.inbox.cancelForTerminalDelivery(projectId, deliveryRunId);
   }
 }

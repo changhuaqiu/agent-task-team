@@ -409,6 +409,41 @@ export class AgentInbox {
     }).immediate();
   }
 
+  cancelForTerminalTask(projectId: string, taskId: string): number {
+    const db = this.database ?? getDb();
+    return db.transaction(() => {
+      const rows = db.prepare(`
+        SELECT * FROM agent_inbox_item
+        WHERE project_id=? AND status IN ('enqueued','released','claimed')
+          AND json_extract(command_json, '$.taskId')=?
+      `).all(projectId, taskId) as AgentInboxRow[];
+      return this.cancelRows(rows.filter((row) => {
+        const command = JSON.parse(row.command_json) as AgentWorkCommand;
+        const identity = parseWorkIdentity(command.workId);
+        const deliveryGateWithoutIdentity = !identity
+          && Boolean(command.deliveryRunId)
+          && (command.source === 'review_gate' || command.source === 'test_gate');
+        return identity?.scope !== 'delivery' && !deliveryGateWithoutIdentity;
+      }), 'task_owner_terminal', true);
+    }).immediate();
+  }
+
+  cancelForTerminalDelivery(projectId: string, deliveryRunId: string): number {
+    const db = this.database ?? getDb();
+    return db.transaction(() => {
+      const rows = db.prepare(`
+        SELECT * FROM agent_inbox_item
+        WHERE project_id=? AND status IN ('enqueued','released','claimed')
+      `).all(projectId) as AgentInboxRow[];
+      return this.cancelRows(rows.filter((row) => {
+        const command = JSON.parse(row.command_json) as AgentWorkCommand;
+        const identity = parseWorkIdentity(command.workId);
+        return command.deliveryRunId === deliveryRunId
+          || (identity?.scope === 'delivery' && identity.targetId === deliveryRunId);
+      }), 'delivery_owner_terminal', true);
+    }).immediate();
+  }
+
   private settleClaim(
     itemId: string,
     leaseToken: string,

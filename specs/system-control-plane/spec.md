@@ -720,6 +720,9 @@ Future federation may extend this to a full PII pipeline and trust-level matrix.
   `work.authority.closed` releases the corresponding applied Control slot.
   Historical terminal events are replayed through the durable Process Manager so rollout also repairs pre-existing orphan Work;
   a durable `agent.work.enqueued` guard cancels commands that race and arrive after owner termination.
+  Cancellation is selected from the Inbox command's Task/Delivery scope even when context planning has not issued a WorkContract yet.
+  WorkContract issue re-reads owner state inside its transaction and rejects terminal Task/Delivery owners, closing the final
+  claim-before-contract race.
 - `ContinueGateLite` validates versioned `continue_work` checkpoints and projects accepted checkpoints as bounded
   `continuation_pending` Work. Control emits a dedicated `continue` action whose next Invocation receives the summary, exact next
   action, remaining steps, and evidence references. Planned continuation is separate from failure retry accounting; exhausting its
@@ -737,6 +740,8 @@ Future federation may extend this to a full PII pipeline and trust-level matrix.
 - Every dispatch has a proof timeline with requested, gated, routed, sent, started, and terminal states where applicable.
 - A blocked Task cannot redispatch from `task.blocked` alone; a recovery requires a persisted accepted blocker plus a satisfied,
   reason-coded machine probe, and the recovery action is idempotent for the blocker Outcome and Task revision.
+- An execution capability means its required Skill is currently available, not merely that Task text requests it. Blocked recovery
+  compares the frozen WorkContract profile with this ready-capability profile so a Skill binding/configuration delta is provable.
 - Terminal Task and Delivery owners leave no in-scope active Work Authority, pending Inbox item, or applied Control slot after
   durable event processing; late runtime writes are rejected by the closed Work epoch rather than being falsely settled.
 - A second review cycle for the same Task and reviewer autonomously creates a new Invocation and cannot be stranded by the prior

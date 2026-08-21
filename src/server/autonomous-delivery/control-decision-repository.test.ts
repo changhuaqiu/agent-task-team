@@ -141,6 +141,48 @@ describe('ControlDecisionRepository', () => {
       .toBe(computed.decisionId);
   });
 
+  it('releases only the requested Work epoch', () => {
+    const computed = decision();
+    store.persist({ projectId: 'project-1', decision: computed });
+    const epochOne = store.listActions(computed.decisionId)[0]!;
+    const claimed = store.claim({
+      actionId: epochOne.id,
+      workerId: 'worker-epoch-1',
+      leaseMs: 10_000,
+      now: new Date('2026-07-28T00:00:01.000Z'),
+    });
+    store.complete({
+      actionId: epochOne.id,
+      claimToken: claimed.claim_token!,
+      now: new Date('2026-07-28T00:00:02.000Z'),
+    });
+    db.prepare(`
+      INSERT INTO delivery_control_action (
+        id,decision_id,run_id,type,target_work_id,work_epoch,slot_id,reason_code,
+        retry_budget_kind,termination_outcome,status,claim_token,lease_owner,
+        lease_expires_at,attempt_count,max_attempts,failure_code,created_at,updated_at,completed_at
+      )
+      SELECT
+        'action-epoch-2',decision_id,run_id,type,target_work_id,2,'implementer:2',reason_code,
+        retry_budget_kind,termination_outcome,'applied',NULL,NULL,NULL,1,max_attempts,NULL,
+        created_at,updated_at,completed_at
+      FROM delivery_control_action WHERE id=?
+    `).run(epochOne.id);
+
+    expect(store.releaseSlotsForWork({
+      workId: 'work-1',
+      workEpoch: 1,
+      reasonCode: 'work_authority_closed',
+    })).toBe(1);
+    expect(db.prepare(`
+      SELECT id,status FROM delivery_control_action
+      WHERE id IN (?,?) ORDER BY id
+    `).all(epochOne.id, 'action-epoch-2')).toEqual([
+      { id: 'action-epoch-2', status: 'applied' },
+      { id: epochOne.id, status: 'cancelled' },
+    ]);
+  });
+
   it('reserves and releases a continuation through the durable slot lifecycle', () => {
     snapshot.workCells[0] = {
       ...snapshot.workCells[0]!,

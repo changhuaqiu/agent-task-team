@@ -142,4 +142,62 @@ describe('WorkLifecycleReconciler', () => {
     expect(contracts.getAuthority(deliveryWorkId)?.status).toBe('closed');
     expect(inbox.get(deliveryInbox.id)?.status).toBe('cancelled');
   });
+
+  it('cancels claimed Task and Delivery commands even before a WorkContract exists', async () => {
+    const task = taskRepo.create({
+      id: 'task-unissued',
+      conversation_id: 'project-1',
+      title: 'Unissued work',
+      agent_id: 'builder',
+    });
+    const taskWorkId = buildWorkIdentity({
+      scope: 'task', targetId: task.id, agentId: 'builder', purpose: 'execute',
+    });
+    const taskItem = inbox.enqueue({
+      projectId: 'project-1', projectAgentId: 'builder', idempotencyKey: 'unissued-task',
+      command: { source: 'workflow', taskId: task.id, workId: taskWorkId, prompt: 'Build' },
+    });
+    expect(inbox.claimNext()?.id).toBe(taskItem.id);
+    taskRepo.transition(task.id, { to: 'in_progress' });
+    taskRepo.transition(task.id, { to: 'cancelled' });
+    const taskTerminal = log.listStream(`task:${task.id}`)
+      .find((event) => event.type === 'task.cancelled')!;
+    const reconciler = new WorkLifecycleReconciler({ inbox, contracts });
+
+    await reconciler.handle(taskTerminal, { signal: new AbortController().signal });
+
+    expect(inbox.get(taskItem.id)).toMatchObject({ status: 'cancelled' });
+    expect(contracts.getAuthority(taskWorkId)).toBeUndefined();
+
+    const delivery = new AutonomousDeliveryRepository(db).createRun({
+      idempotencyKey: 'unissued-delivery',
+      goal: 'Ship', acceptanceCriteria: ['Done'], scope: { conversationId: 'project-1' },
+      authorization: {
+        allowCodeChanges: true, allowPush: false, allowPullRequest: false, allowAutoMerge: false,
+      },
+      recoveryPolicy: { maxAttemptsPerAction: 2, maxRepairCycles: 1, stallTimeoutMs: 60_000 },
+      deliveryPolicy: { requireReview: true, requireWebE2E: false, requireMerge: false },
+    }, now).run;
+    const deliveryWorkId = buildWorkIdentity({
+      scope: 'delivery', targetId: delivery.id, agentId: 'reviewer', purpose: 'review',
+    });
+    const deliveryItem = inbox.enqueue({
+      projectId: 'project-1', projectAgentId: 'reviewer', idempotencyKey: 'unissued-delivery',
+      command: {
+        source: 'review_gate', deliveryRunId: delivery.id, workId: deliveryWorkId, prompt: 'Review',
+      },
+    });
+    expect(inbox.claimNext()?.id).toBe(deliveryItem.id);
+    new AutonomousDeliveryRepository(db).transitionRun({
+      runId: delivery.id, to: 'failed', stage: 'planning', expectedRevision: delivery.revision,
+      actor: { type: 'system', id: 'test' }, now,
+    });
+    const deliveryTerminal = log.listStream(`delivery_run:${delivery.id}`)
+      .find((event) => event.type === 'delivery.run.failed')!;
+
+    await reconciler.handle(deliveryTerminal, { signal: new AbortController().signal });
+
+    expect(inbox.get(deliveryItem.id)).toMatchObject({ status: 'cancelled' });
+    expect(contracts.getAuthority(deliveryWorkId)).toBeUndefined();
+  });
 });

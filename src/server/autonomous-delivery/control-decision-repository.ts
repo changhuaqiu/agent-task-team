@@ -444,6 +444,7 @@ export class ControlDecisionRepository {
 
   releaseSlotsForWork(input: {
     workId: string;
+    workEpoch?: number;
     reasonCode: string;
     now?: Date;
   }): number {
@@ -451,12 +452,16 @@ export class ControlDecisionRepository {
     return (this.database ?? getDb()).prepare(`
       UPDATE delivery_control_action
       SET status='cancelled',failure_code=?,updated_at=?,completed_at=?
-      WHERE target_work_id=? AND type IN ('activate','continue','retry') AND status='applied'
+      WHERE target_work_id=?
+        AND (? IS NULL OR work_epoch=?)
+        AND type IN ('activate','continue','retry') AND status='applied'
     `).run(
       input.reasonCode,
       timestamp,
       timestamp,
       input.workId,
+      input.workEpoch ?? null,
+      input.workEpoch ?? null,
     ).changes;
   }
 

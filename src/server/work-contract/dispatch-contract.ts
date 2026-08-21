@@ -5,7 +5,7 @@ import type { TaskRow } from '../repositories/task-repo';
 import { generateSortableId } from '../repositories/sortable-id';
 import type { AgentActivationCommand } from '../invocation-pipeline/types';
 import type { ExecutionProfile } from '../invocation-pipeline/execution-profile';
-import { workContractRepo } from './repository';
+import { WorkContractInvariantError, workContractRepo } from './repository';
 import type { AgentOutcomeType, WorkContract } from './types';
 
 const EXECUTION_OUTCOMES: AgentOutcomeType[] = [
@@ -136,9 +136,19 @@ export function issueDispatchWorkContract(input: {
   const db = getDb();
   return db.transaction(() => {
     assertA2APossessionDispatchable(input.trigger);
+    const currentTask = input.trigger.taskId
+      ? db.prepare('SELECT status FROM task WHERE id=? AND conversation_id=?')
+          .get(input.trigger.taskId, input.trigger.conversationId) as { status: string } | undefined
+      : undefined;
+    if (currentTask && ['done', 'cancelled'].includes(currentTask.status)) {
+      throw new WorkContractInvariantError(`Task owner is terminal: ${input.trigger.taskId}`);
+    }
     const delivery = input.trigger.deliveryRunId
       ? autonomousDeliveryRepo.getRun(input.trigger.deliveryRunId)
       : undefined;
+    if (delivery && ['completed', 'failed', 'cancelled'].includes(delivery.status)) {
+      throw new WorkContractInvariantError(`Delivery owner is terminal: ${delivery.id}`);
+    }
     const deliveryContract = delivery
       ? JSON.parse(delivery.goal_contract_json) as {
         goal?: string;

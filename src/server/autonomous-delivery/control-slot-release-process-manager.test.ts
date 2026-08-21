@@ -52,6 +52,7 @@ describe('ControlSlotReleaseProcessManager', () => {
 
     expect(release).toHaveBeenCalledWith(expect.objectContaining({
       workId: 'task:1:agent:builder:purpose:execute',
+      workEpoch: 2,
       reasonCode: 'work_authority_closed',
     }));
   });

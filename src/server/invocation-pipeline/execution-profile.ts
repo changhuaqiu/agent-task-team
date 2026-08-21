@@ -110,7 +110,7 @@ export function resolveExecutionProfile(input: ResolveExecutionProfileInput): Ex
     || BROWSER_SIGNAL.test(taskText);
   if (requiresBrowser) {
     activate('browser-verification', 'rule', true);
-    capabilities.add('browser_verification');
+    if (byName.has('browser-verification')) capabilities.add('browser_verification');
   }
 
   if (input.deliveryPolicy?.requireMerge === true || GIT_SIGNAL.test(taskText)) {

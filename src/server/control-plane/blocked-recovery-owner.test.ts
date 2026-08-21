@@ -12,6 +12,7 @@ import {
   type BlockedRecoveryCandidate,
   type BlockedRecoveryProbe,
 } from './blocked-recovery-owner';
+import { resolveExecutionProfile } from '../invocation-pipeline/execution-profile';
 
 describe('BlockedRecoveryOwner', () => {
   let db: Database.Database;
@@ -107,6 +108,26 @@ describe('BlockedRecoveryOwner', () => {
   });
 
   it('requires a real execution-capability delta instead of retrying an unchanged permission blocker', () => {
+    const beforeBinding = resolveExecutionProfile({
+      source: 'workflow',
+      prompt: 'Verify in browser',
+      task: { title: 'Verify in browser' },
+      skills: [{ id: 'status', name: 'task-status-receipt' }],
+    });
+    const afterBinding = resolveExecutionProfile({
+      source: 'workflow',
+      prompt: 'Verify in browser',
+      task: { title: 'Verify in browser' },
+      skills: [
+        { id: 'status', name: 'task-status-receipt' },
+        { id: 'skill-browser', name: 'browser-verification' },
+      ],
+    });
+    expect(beforeBinding).toMatchObject({
+      capabilities: ['task_receipt'],
+      missingRequiredSkillNames: ['browser-verification'],
+    });
+    expect(afterBinding.capabilities).toContain('browser_verification');
     const candidate = {
       task: {
         id: 'task-browser',
@@ -128,7 +149,7 @@ describe('BlockedRecoveryOwner', () => {
         work_id: buildWorkIdentity({
           scope: 'task', targetId: 'task-browser', agentId: 'builder', purpose: 'execute',
         }),
-        permissions_json: JSON.stringify({ executionProfile: { capabilities: [] } }),
+        permissions_json: JSON.stringify({ executionProfile: beforeBinding }),
       },
       blocker: {
         type: 'permission_boundary',
@@ -136,15 +157,12 @@ describe('BlockedRecoveryOwner', () => {
         recoveryCondition: 'Allow the headless browser',
       },
     } as BlockedRecoveryCandidate;
-    const probe = new ExecutionCapabilityRecoveryProbe(() => ({
-      capabilities: ['browser_verification'],
-      requiredSkillIds: ['skill-browser'],
-    }));
+    const probe = new ExecutionCapabilityRecoveryProbe(() => afterBinding);
 
     expect(probe.evaluate(candidate)).toEqual({
       satisfied: true,
       reasonCode: 'execution_capability_added',
-      fingerprint: 'browser_verification:skill-browser',
+      fingerprint: 'browser_verification:skill-browser,status',
     });
 
     candidate.contract.permissions_json = JSON.stringify({

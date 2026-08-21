@@ -59,6 +59,7 @@ describe('resolveExecutionProfile', () => {
 
     expect(profile.stage).toBe('verify');
     expect(profile.missingRequiredSkillNames).toEqual(['browser-verification']);
+    expect(profile.capabilities).not.toContain('browser_verification');
   });
 
   it('keeps outcome recovery free of implementation Skills and capabilities', () => {

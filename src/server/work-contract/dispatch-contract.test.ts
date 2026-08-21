@@ -10,6 +10,7 @@ import {
   workContractToolNames,
 } from './dispatch-contract';
 import type { ExecutionProfile } from '../invocation-pipeline/execution-profile';
+import { AutonomousDeliveryRepository } from '../autonomous-delivery/repository';
 
 const executionProfile: ExecutionProfile = {
   stage: 'implement',
@@ -256,5 +257,60 @@ describe('issueDispatchWorkContract', () => {
         toolNames: [],
       },
     })).toThrowError(StaleA2APossessionError);
+  });
+
+  it('rejects WorkContract issue when planning finishes after its owner terminates', () => {
+    let task = taskRepo.create({
+      id: 'task-terminal-race',
+      conversation_id: 'project-1',
+      title: 'Terminal race',
+      agent_id: 'builder',
+    }, now);
+    const snapshot: ContextSnapshot = {
+      id: 'context-terminal-race',
+      query: {
+        scenario: 'execution', trigger: 'task_wakeup', conversationId: 'project-1',
+        agentId: 'builder', archetype: 'executor', taskId: task.id, budgetTokens: 1_000,
+        requiredContributorIds: [], now: now.toISOString(), requestDigest: 'terminal-race',
+      },
+      fragmentRefs: [], capabilities: [], constraints: [], missingRequired: [], omissions: [],
+      compiledPrompt: 'Execute', createdAt: now.toISOString(),
+    };
+    task = taskRepo.transition(task.id, { to: 'in_progress' }, now)!;
+    task = taskRepo.transition(task.id, { to: 'cancelled' }, now)!;
+
+    expect(() => issueDispatchWorkContract({
+      trigger: {
+        id: 'trigger-terminal-task', source: 'workflow', conversationId: 'project-1',
+        agentId: 'builder', taskId: task.id, prompt: 'Execute',
+      },
+      traceId: 'trace-terminal-task', contextSnapshot: snapshot, task,
+      role: { id: 'builder' }, executionProfile,
+      runtime: { engine: 'codex', runtimeId: 'runtime-1', toolNames: [] },
+    })).toThrow(/Task owner is terminal/);
+
+    const deliveryRepo = new AutonomousDeliveryRepository(db);
+    const delivery = deliveryRepo.createRun({
+      idempotencyKey: 'terminal-delivery-race', goal: 'Ship', acceptanceCriteria: ['Done'],
+      scope: { conversationId: 'project-1' },
+      authorization: {
+        allowCodeChanges: true, allowPush: false, allowPullRequest: false, allowAutoMerge: false,
+      },
+      recoveryPolicy: { maxAttemptsPerAction: 2, maxRepairCycles: 1, stallTimeoutMs: 60_000 },
+      deliveryPolicy: { requireReview: false, requireWebE2E: false, requireMerge: false },
+    }, now).run;
+    deliveryRepo.transitionRun({
+      runId: delivery.id, to: 'failed', stage: 'planning', expectedRevision: delivery.revision, now,
+    });
+
+    expect(() => issueDispatchWorkContract({
+      trigger: {
+        id: 'trigger-terminal-delivery', source: 'system', conversationId: 'project-1',
+        agentId: 'builder', deliveryRunId: delivery.id, prompt: 'Execute',
+      },
+      traceId: 'trace-terminal-delivery', contextSnapshot: snapshot,
+      role: { id: 'builder' }, executionProfile,
+      runtime: { engine: 'codex', runtimeId: 'runtime-1', toolNames: [] },
+    })).toThrow(/Delivery owner is terminal/);
   });
 });
