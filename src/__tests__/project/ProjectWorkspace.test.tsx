@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { ProjectWorkspace } from '@/components/project/ProjectWorkspace';
 import { useTaskHubStore } from '@/store/taskHubStore';
 
@@ -14,17 +14,26 @@ vi.mock('@/components/project/ProjectRightPanel', () => ({
   ProjectRightPanel: () => <aside data-testid="project-right-panel"/>,
 }));
 vi.mock('@/components/project/ProjectEvaluationWorkspace', () => ({
-  ProjectEvaluationWorkspace: ({ conversationId }: { conversationId?: string }) =>
-    <section data-testid="evaluation-workspace">{conversationId}</section>,
+  ProjectEvaluationWorkspace: ({ conversationId, rootTaskId }: {
+    conversationId?: string;
+    rootTaskId?: string;
+  }) => <section data-testid="evaluation-workspace">{conversationId}:{rootTaskId}</section>,
 }));
 vi.mock('@/components/project/AgentObservabilityDrawerHost', () => ({
   AgentObservabilityDrawerHost: () => <aside data-testid="observability-drawer-host"/>,
 }));
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 describe('ProjectWorkspace', () => {
   it('switches the same selected delivery between delivery and evaluation modes', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({ run: { root_task_id: 'task-root' } }),
+    } as Response);
     useTaskHubStore.setState({
       selectedConversationId: 'conv-platform',
       conversations: [{
@@ -39,7 +48,8 @@ describe('ProjectWorkspace', () => {
     expect(screen.queryByTestId('evaluation-workspace')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '评估' }));
     expect(screen.queryByTestId('collaboration-workspace')).toBeNull();
-    expect((await screen.findByTestId('evaluation-workspace')).textContent).toBe('conv-platform');
+    await waitFor(() => expect(screen.getByTestId('evaluation-workspace').textContent)
+      .toBe('conv-platform:task-root'));
     expect(screen.getByTestId('project-sidebar')).toBeDefined();
     expect(screen.getByTestId('observability-drawer-host')).toBeDefined();
   });

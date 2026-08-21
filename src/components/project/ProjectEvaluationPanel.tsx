@@ -26,6 +26,9 @@ type Report = {
 
 const LABELS: Record<string, string> = {
   completion: '任务完成度', delivery: '交付证据', reliability: '执行可靠性', efficiency: '工具执行成功率',
+  handoff_reliability: '交接回执完整度', fanout_join: '并行分支汇合',
+  branch_completion: '协作分支完成度', collaboration_recovery: '协作恢复健康度',
+  collaboration_rework: '重复与返工', agent_contribution: 'Agent 贡献画像',
   correctness: '结果正确性', tool_correctness: '工具选择与参数正确性',
   instruction_following: '指令遵循', collaboration: '协作质量', clarity: '交付清晰度',
   'gate.task_completion': '完成门禁', 'gate.delivery_evidence': '交付门禁',
@@ -40,6 +43,7 @@ const DATA_SOURCE_LABELS: Record<string, string> = {
   team_configuration_revision: '团队配置版本',
   skill_revision: 'Skill 版本',
   model_configuration_revision: '模型配置版本',
+  mutable_state_at_cutoff: '截止时点状态证据',
 };
 const RESULT_LABELS: Record<string, string> = {
   pass: '符合',
@@ -85,8 +89,9 @@ function formatScore(value: number | undefined): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(1);
 }
 
-export function ProjectEvaluationPanel({ conversationId, onWorkspaceChanged }: {
+export function ProjectEvaluationPanel({ conversationId, rootTaskId, onWorkspaceChanged }: {
   conversationId?: string;
+  rootTaskId?: string;
   onWorkspaceChanged?: () => void;
 }) {
   const [runs, setRuns] = useState<Run[]>([]);
@@ -104,7 +109,8 @@ export function ProjectEvaluationPanel({ conversationId, onWorkspaceChanged }: {
     const sequence = ++requestSequence.current;
     setLoading(true);
     try {
-      const response = await fetch(`/api/eval/runs?conversationId=${encodeURIComponent(conversationId)}`, { cache: 'no-store' });
+      const rootQuery = rootTaskId ? `&rootTaskId=${encodeURIComponent(rootTaskId)}` : '';
+      const response = await fetch(`/api/eval/runs?conversationId=${encodeURIComponent(conversationId)}${rootQuery}`, { cache: 'no-store' });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error ?? `HTTP ${response.status}`);
       const nextRuns = Array.isArray(body.runs) ? body.runs : [];
@@ -141,7 +147,7 @@ export function ProjectEvaluationPanel({ conversationId, onWorkspaceChanged }: {
       if (refreshTimer.current !== undefined) window.clearTimeout(refreshTimer.current);
       requestSequence.current += 1;
     };
-  }, [conversationId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [conversationId, rootTaskId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const selectRun = async (runId: string) => {
     if (!conversationId) return;
@@ -156,7 +162,7 @@ export function ProjectEvaluationPanel({ conversationId, onWorkspaceChanged }: {
     try {
       const response = await fetch('/api/eval/runs', {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ conversationId, mode: 'online' }),
+        body: JSON.stringify({ conversationId, rootTaskId, mode: 'online' }),
       });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error);
@@ -244,10 +250,14 @@ export function ProjectEvaluationPanel({ conversationId, onWorkspaceChanged }: {
       <div><div className="text-xs font-semibold">评估结果</div><div className="text-[9px] text-[hsl(var(--text-tertiary))]">先看结论，再按需展开完整证据</div></div>
       <div className="flex gap-1">
         <button type="button" onClick={() => void load()} aria-label="刷新评估" className="rounded-md p-1.5 hover:bg-[hsl(var(--bg-card-hover))]"><RefreshCw className={cn('size-3.5', loading && 'animate-spin')}/></button>
-        <button type="button" onClick={() => void submit()} className="rounded-md bg-[hsl(var(--accent))] px-2 py-1 text-[9px] text-white">重新诊断</button>
+        <button type="button" onClick={() => void submit()} disabled={!rootTaskId}
+          className="rounded-md bg-[hsl(var(--accent))] px-2 py-1 text-[9px] text-white disabled:cursor-not-allowed disabled:opacity-40">重新诊断</button>
       </div>
     </div>
     {error && <div className="rounded-md border border-rose-500/30 bg-rose-500/10 p-2 text-[9px] text-rose-600">{error}</div>}
+    {!rootTaskId && <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-2 text-[9px] text-amber-700">
+      当前交付尚未建立根任务，暂不能运行在线评估。
+    </div>}
     {actionMessage && <div role="status" className="rounded-md border border-[hsl(var(--border-subtle))] bg-[hsl(var(--bg-muted))] p-2 text-[9px]">
       {actionMessage}
     </div>}

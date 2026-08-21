@@ -3838,6 +3838,42 @@ CREATE INDEX IF NOT EXISTS idx_task_command_rejection_receipt_task
     version: 87,
     run: ensureA2AOutcomeOriginColumns,
   },
+  {
+    version: 88,
+    run: (db) => {
+      const indexes: Array<[string, string[], string]> = [
+        ['autonomous_delivery_run', ['conversation_id', 'root_task_id', 'created_at'], `CREATE INDEX IF NOT EXISTS idx_delivery_run_root_task
+          ON autonomous_delivery_run(conversation_id,root_task_id,created_at)`],
+        ['work_contract', ['project_id', 'delivery_run_id', 'created_at'], `CREATE INDEX IF NOT EXISTS idx_work_contract_delivery_run
+          ON work_contract(project_id,delivery_run_id,created_at)`],
+        ['invocation', ['conversation_id', 'task_id', 'created_at'], `CREATE INDEX IF NOT EXISTS idx_invocation_task_created
+          ON invocation(conversation_id,task_id,created_at)`],
+        ['invocation', ['conversation_id', 'work_id', 'created_at'], `CREATE INDEX IF NOT EXISTS idx_invocation_work_created
+          ON invocation(conversation_id,work_id,created_at)`],
+        ['a2a_pass', ['task_id', 'created_at'], `CREATE INDEX IF NOT EXISTS idx_a2a_pass_task_created
+          ON a2a_pass(task_id,created_at)`],
+        ['a2a_pass_group', ['source_work_id', 'created_at'], `CREATE INDEX IF NOT EXISTS idx_a2a_group_source_work
+          ON a2a_pass_group(source_work_id,created_at)`],
+        ['a2a_pass_group', ['delivery_run_id', 'created_at'], `CREATE INDEX IF NOT EXISTS idx_a2a_group_delivery_run
+          ON a2a_pass_group(delivery_run_id,created_at)`],
+        ['observation_span', ['conversation_id', 'task_id', 'started_at'], `CREATE INDEX IF NOT EXISTS idx_observation_span_task
+          ON observation_span(conversation_id,task_id,started_at)`],
+        ['observation_span', ['conversation_id', 'pass_id', 'started_at'], `CREATE INDEX IF NOT EXISTS idx_observation_span_pass
+          ON observation_span(conversation_id,pass_id,started_at)`],
+        ['control_proof_event', ['conversation_id', 'task_id', 'created_at'], `CREATE INDEX IF NOT EXISTS idx_control_proof_task_created
+          ON control_proof_event(conversation_id,task_id,created_at)`],
+        ['platform_event', ['project_id', 'aggregate_id', 'occurred_at'], `CREATE INDEX IF NOT EXISTS idx_platform_event_aggregate_occurred
+          ON platform_event(project_id,aggregate_id,occurred_at)`],
+      ];
+      const exists = db.prepare(`SELECT 1 FROM sqlite_master WHERE type='table' AND name=?`);
+      for (const [table, requiredColumns, sql] of indexes) {
+        if (!exists.get(table)) continue;
+        const columns = new Set((db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>)
+          .map((column) => column.name));
+        if (requiredColumns.every((column) => columns.has(column))) db.exec(sql);
+      }
+    },
+  },
 ];
 
 export function applyMigrations(db: Database.Database): void {

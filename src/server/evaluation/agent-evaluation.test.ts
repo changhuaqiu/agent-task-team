@@ -5,6 +5,9 @@ import type { JudgePort } from './judge';
 import type { EvaluationScore } from './types';
 import { DEFAULT_RUBRIC_REVISION_ID, stableJson } from './defaults';
 import { evaluationOperations } from './operations';
+import { buildSubjectSnapshot } from './snapshot-builder';
+import { evaluateDeterministically } from './deterministic-evaluator';
+import { A2ACollaborationRepository } from '../a2a/collaboration';
 
 const now = '2026-07-19T00:00:00.000Z';
 const judgeScores: EvaluationScore[] = ['correctness', 'instruction_following', 'collaboration', 'clarity'].map((dimensionKey) => ({
@@ -46,6 +49,240 @@ beforeEach(() => {
 afterEach(() => resetDb());
 
 describe('AgentEvaluation', () => {
+  it('rejects an online project-wide evaluation without a root task', () => {
+    expect(() => new AgentEvaluation(judge).submit({
+      conversationId: 'conv-eval',
+      evidenceCutoffAt: now,
+    })).toThrow('evaluation_root_task_required');
+    expect(() => new AgentEvaluation(judge).submit({
+      conversationId: 'conv-eval', mode: 'replay', evidenceCutoffAt: now,
+    })).toThrow('evaluation_replay_source_required');
+  });
+
+  it('excludes unrelated conversation invocations from root-task reliability', () => {
+    const db = getDb();
+    db.prepare(`INSERT INTO invocation
+      (id,conversation_id,task_id,agent_id,status,engine,created_at,updated_at)
+      VALUES (?,?,?,?,?,?,?,?)`).run(
+      'invocation-root', 'conv-eval', 'task-root', 'luigi', 'planned', 'codex', now, now,
+    );
+    db.prepare(`INSERT INTO invocation
+      (id,conversation_id,task_id,agent_id,status,engine,created_at,updated_at)
+      VALUES (?,?,?,?,?,?,?,?)`).run(
+      'invocation-unrelated', 'conv-eval', null, 'other-agent', 'planned', 'codex', now, now,
+    );
+    db.prepare(`INSERT INTO observation_span
+      (span_id,trace_id,name,kind,status,conversation_id,task_id,agent_id,invocation_id,attributes,started_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run(
+      'span-unrelated', 'trace-unrelated', 'unrelated turn', 'agent', 'running',
+      'conv-eval', null, 'other-agent', 'invocation-unrelated', '{}', now,
+    );
+
+    const snapshot = buildSubjectSnapshot({
+      conversationId: 'conv-eval', rootTaskId: 'task-root', evidenceCutoffAt: now,
+    });
+    const evidence = snapshot.evidence as Record<string, Array<Record<string, unknown>>>;
+    expect(evidence.invocations.map((item) => item.id)).toEqual(['invocation-root']);
+    expect(evidence.spans.map((item) => item.span_id)).not.toContain('span-unrelated');
+  });
+
+  it('discovers A2A groups from task membership without a manually supplied chain id', () => {
+    getDb().prepare(`INSERT INTO task
+      (id,conversation_id,title,status,agent_id,created_at,updated_at)
+      VALUES (?,?,?,?,?,?,?)`).run(
+      'task-unrelated', 'conv-eval', '同链无关任务', 'ready', 'peach', now, now,
+    );
+    const collaboration = new A2ACollaborationRepository({ db: getDb(), now: () => new Date(now) });
+    const created = collaboration.createChain({
+      conversationId: 'conv-eval',
+      rootTriggerType: 'user_turn',
+      rootTriggerId: 'command-for-root-task',
+      holderId: 'mario',
+      holderType: 'agent',
+    });
+    const related = collaboration.offerPassGroup({
+      chainId: created.chain.id,
+      sourcePossessionId: created.rootPossession.id,
+      expectedSourceRevision: created.rootPossession.revision,
+      idempotencyKey: 'root-task-fanout',
+      branches: [
+        {
+          toAgentId: 'luigi', intent: 'implement', taskId: 'task-root',
+          packet: {
+            title: '实现', requestedAction: '实现根任务', possessionSummary: '按验收标准实现',
+            relevantDecisions: [], evidenceRefs: [], constraints: [], openQuestions: [],
+            forbiddenBehaviors: [], sourceMessageIds: [],
+          },
+        },
+        {
+          toAgentId: 'peach', intent: 'review', taskId: 'task-root',
+          packet: {
+            title: '复核', requestedAction: '复核根任务', possessionSummary: '检查实现与证据',
+            relevantDecisions: [], evidenceRefs: [], constraints: [], openQuestions: [],
+            forbiddenBehaviors: [], sourceMessageIds: [],
+          },
+        },
+      ],
+    });
+    const admitted = collaboration.markPassAdmitted(related.passes[0]!.id, related.passes[0]!.revision);
+    const starting = collaboration.markPassStarting(admitted.id, admitted.revision);
+    const started = collaboration.markPassStarted(starting.id, starting.revision);
+    const unrelated = collaboration.offerPassGroup({
+      chainId: created.chain.id,
+      sourcePossessionId: started.possession.id,
+      expectedSourceRevision: started.possession.revision,
+      idempotencyKey: 'unrelated-same-chain',
+      branches: [{
+        toAgentId: 'toad', intent: 'verify', taskId: 'task-unrelated',
+        packet: {
+          title: '无关复核', requestedAction: '处理另一个任务', possessionSummary: '不属于根任务闭包',
+          relevantDecisions: [], evidenceRefs: [], constraints: [], openQuestions: [],
+          forbiddenBehaviors: [], sourceMessageIds: [],
+        },
+      }],
+    });
+
+    const snapshot = buildSubjectSnapshot({
+      conversationId: 'conv-eval', rootTaskId: 'task-root', evidenceCutoffAt: now,
+    });
+    const evidence = snapshot.evidence as Record<string, Array<Record<string, unknown>>>;
+    expect(evidence.chains).toHaveLength(1);
+    expect(evidence.passGroups).toHaveLength(1);
+    expect(evidence.passes).toHaveLength(2);
+    expect(evidence.passGroups.map((group) => group.id)).not.toContain(unrelated.group.id);
+    expect(evidence.passes.map((pass) => pass.id)).not.toContain(unrelated.passes[0]!.id);
+    expect(snapshot.evidenceRefs).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: 'event', chainId: created.chain.id, passId: related.passes[0]!.id,
+      }),
+    ]));
+    expect(snapshot.chainId).toBeUndefined();
+    expect(evaluateDeterministically(snapshot)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ dimensionKey: 'gate.handoff_receipts', label: 'fail' }),
+      expect.objectContaining({ dimensionKey: 'handoff_reliability', normalizedScore: 50 }),
+      expect.objectContaining({ dimensionKey: 'fanout_join', normalizedScore: 0 }),
+    ]));
+  });
+
+  it('discovers delivery-bound collaboration even before a task-bound WorkContract exists', () => {
+    getDb().prepare(`INSERT INTO autonomous_delivery_run
+      (id,conversation_id,root_task_id,start_idempotency_key,status,current_stage,goal_contract_json,created_at,updated_at)
+      VALUES (?,?,?,?,?,?,?,?,?)`).run(
+      'delivery-root', 'conv-eval', 'task-root', 'delivery-root-start', 'active', 'executing', '{}', now, now,
+    );
+    const collaboration = new A2ACollaborationRepository({ db: getDb(), now: () => new Date(now) });
+    const created = collaboration.createChain({
+      conversationId: 'conv-eval', rootTriggerType: 'system', rootTriggerId: 'delivery-root',
+      holderId: 'mario', holderType: 'agent',
+    });
+    const offered = collaboration.offerPassGroup({
+      chainId: created.chain.id,
+      sourcePossessionId: created.rootPossession.id,
+      expectedSourceRevision: created.rootPossession.revision,
+      deliveryRunId: 'delivery-root',
+      idempotencyKey: 'delivery-bound-handoff',
+      branches: [{
+        toAgentId: 'luigi', intent: 'implement',
+        packet: {
+          title: '实现', requestedAction: '执行 Delivery 工作', possessionSummary: '根任务交付分支',
+          relevantDecisions: [], evidenceRefs: [], constraints: [], openQuestions: [],
+          forbiddenBehaviors: [], sourceMessageIds: [],
+        },
+      }],
+    });
+
+    const snapshot = buildSubjectSnapshot({
+      conversationId: 'conv-eval', rootTaskId: 'task-root', evidenceCutoffAt: now,
+    });
+    const evidence = snapshot.evidence as Record<string, Array<Record<string, unknown>>>;
+    expect(evidence.passGroups.map((group) => group.id)).toEqual([offered.group.id]);
+    expect(evidence.passes.map((pass) => pass.id)).toEqual([offered.passes[0]!.id]);
+  });
+
+  it('does not project mutable pass state that changed after a historical cutoff', () => {
+    let clock = new Date(now);
+    const collaboration = new A2ACollaborationRepository({ db: getDb(), now: () => clock });
+    const created = collaboration.createChain({
+      conversationId: 'conv-eval', rootTriggerType: 'system', rootTriggerId: 'task-root',
+      holderId: 'mario', holderType: 'agent',
+    });
+    const offered = collaboration.offerPassGroup({
+      chainId: created.chain.id,
+      sourcePossessionId: created.rootPossession.id,
+      expectedSourceRevision: created.rootPossession.revision,
+      idempotencyKey: 'late-pass',
+      branches: [{
+        toAgentId: 'luigi', intent: 'implement', taskId: 'task-root',
+        packet: {
+          title: '实现', requestedAction: '执行', possessionSummary: '历史边界测试',
+          relevantDecisions: [], evidenceRefs: [], constraints: [], openQuestions: [],
+          forbiddenBehaviors: [], sourceMessageIds: [],
+        },
+      }],
+    });
+    clock = new Date('2026-07-19T00:01:00.000Z');
+    collaboration.markPassAdmitted(offered.passes[0]!.id, offered.passes[0]!.revision);
+
+    const snapshot = buildSubjectSnapshot({
+      conversationId: 'conv-eval', rootTaskId: 'task-root', evidenceCutoffAt: now,
+    });
+    const evidence = snapshot.evidence as Record<string, Array<Record<string, unknown>>>;
+    expect(evidence.passes).toEqual([]);
+    expect(snapshot.dataQuality.missing).toContain('handoff_receipts');
+  });
+
+  it('reports duplicate Work attempts, repeated passes, and task reopen as rework', () => {
+    const snapshot = buildSubjectSnapshot({
+      conversationId: 'conv-eval', rootTaskId: 'task-root', evidenceCutoffAt: now,
+    });
+    snapshot.evidence = {
+      ...snapshot.evidence,
+      chains: [{ id: 'chain-rework' }],
+      passGroups: [],
+      invocations: [
+        { id: 'inv-1', work_id: 'work-repeat', agent_id: 'luigi', status: 'terminated', outcome: 'failed' },
+        { id: 'inv-2', work_id: 'work-repeat', agent_id: 'luigi', status: 'terminated', outcome: 'completed' },
+      ],
+      passes: [
+        { id: 'pass-1', chain_id: 'chain-rework', from_holder_id: 'mario', to_agent_id: 'luigi', task_id: 'task-root', intent: 'implement' },
+        { id: 'pass-2', chain_id: 'chain-rework', from_holder_id: 'mario', to_agent_id: 'luigi', task_id: 'task-root', intent: 'implement' },
+      ],
+      taskActions: [{
+        id: 'reopen-action', payload: { previousStatus: 'in_review', status: 'in_progress' },
+      }],
+    };
+    expect(evaluateDeterministically(snapshot)).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        dimensionKey: 'collaboration_rework', label: 'fail', normalizedScore: 40,
+        rationale: '重复 Work 调用 1，重复交接 1，任务 reopen 1。',
+      }),
+    ]));
+  });
+
+  it('keeps recovery score event evidence drillable to its collaboration branch', () => {
+    const snapshot = buildSubjectSnapshot({
+      conversationId: 'conv-eval', rootTaskId: 'task-root', evidenceCutoffAt: now,
+    });
+    snapshot.evidence = {
+      ...snapshot.evidence,
+      chains: [{ id: 'chain-recovery' }],
+      passGroups: [{ id: 'group-recovery', status: 'completed', expected_count: 1, resolved_count: 1 }],
+      passes: [{ id: 'pass-recovery', group_id: 'group-recovery', status: 'completed' }],
+      collaborationEvents: [{
+        id: 'event-recovery', type: 'a2a.pass.group_recovery_opened',
+        payload: { chainId: 'chain-recovery', passId: 'pass-recovery' },
+      }],
+    };
+
+    const recovery = evaluateDeterministically(snapshot)
+      .find((item) => item.dimensionKey === 'collaboration_recovery');
+    expect(recovery?.evidenceRefs).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: 'event', id: 'event-recovery', chainId: 'chain-recovery', passId: 'pass-recovery',
+      }),
+    ]));
+  });
+
   it('persists one idempotent job and produces a replayable report', async () => {
     const service = new AgentEvaluation(judge);
     const request = { conversationId: 'conv-eval', rootTaskId: 'task-root', evidenceCutoffAt: now } as const;
@@ -92,6 +329,31 @@ describe('AgentEvaluation', () => {
     const p95 = latencies[Math.floor((latencies.length - 1) * 0.95)]!;
     expect(runIds.size).toBe(1);
     expect(p95).toBeLessThan(500);
+  });
+
+  it('keeps a fresh high-cardinality root snapshot submission below 500ms', () => {
+    const db = getDb();
+    const insertInvocation = db.prepare(`INSERT INTO invocation
+      (id,conversation_id,task_id,agent_id,status,engine,created_at,updated_at)
+      VALUES (?,?,?,?,?,?,?,?)`);
+    const insertSpan = db.prepare(`INSERT INTO observation_span
+      (span_id,trace_id,name,kind,status,conversation_id,task_id,agent_id,invocation_id,attributes,started_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?)`);
+    db.transaction(() => {
+      for (let index = 0; index < 300; index += 1) {
+        const invocationId = `fresh-invocation-${index}`;
+        insertInvocation.run(invocationId, 'conv-eval', 'task-root', `agent-${index % 4}`,
+          'planned', 'codex', now, now);
+        insertSpan.run(`fresh-span-${index}`, `fresh-trace-${index}`, 'agent turn', 'agent', 'running',
+          'conv-eval', 'task-root', `agent-${index % 4}`, invocationId, '{}', now);
+      }
+    })();
+
+    const started = performance.now();
+    new AgentEvaluation(judge).submit({
+      conversationId: 'conv-eval', rootTaskId: 'task-root', triggerId: 'fresh-high-cardinality',
+    });
+    expect(performance.now() - started).toBeLessThan(500);
   });
 
   it('does not let an overall score conceal a failed hard gate', async () => {

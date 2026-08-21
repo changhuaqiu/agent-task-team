@@ -7,7 +7,7 @@
 
 - `src/server/evaluation/agent-evaluation.ts` 是外部主接口，负责幂等提交、持久 job、重试租约、报告、重放与状态 proof。
 - `snapshot-builder.ts` 按 conversation/root task/optional chain/cutoff 冻结多 trace 证据，排除 thinking 和评估自身 proof，并记录代码、RoleCard、Skill、脱敏模型配置摘要、rubric 与 evaluator revision。
-- `deterministic-evaluator.ts` 先计算硬门禁，再计算完成、交付、可靠性和工具执行指标；`deterministic-v2` 把工具执行成功与离线用例定义的工具名称/必需参数匹配拆开，没有工具预期时正确性为 `not_applicable`。
+- `deterministic-evaluator.ts` 先计算硬门禁，再计算完成、交付、可靠性和工具执行指标；`deterministic-v3` 在 v2 的工具正确性边界上增加根任务级交接回执、fan-out/join、恢复状态与 Agent 贡献画像。
 - `judge.ts` 只允许项目显式选择的 OpenAI/Anthropic API Key 账号，无工具权限；没有账号、超预算、Provider 被禁或调用失败时保留确定性结果并转 `partial`。
 - migration 27–38 提供数据库级不可变 rubric/snapshot/score/attempt、ApplicationSnapshot、case execution、带 fencing token 的 job、原子预算预留、双 Judge 复核队列、盲测换序、数据集/实验、gap、policy 与 change proposal 表；历史 `eval_annotation` 表为旧数据和 retention 兼容保留，但当前没有 writer 或公开 route；migration 41 补齐自主交付 `revision`，migration 42 不信任旧 checkpoint 的版本水位，按实际结构补建自主交付表并把旧 `root_task_id` 外键重建为 `ON DELETE SET NULL`。
 - 关闭轮次在 valid exit 后于本地事务内冻结快照并提交 job；后台 worker 只消费冻结快照并执行评估，主 Agent loop 不等待 Judge。
@@ -26,6 +26,18 @@
 - SQLite 备份恢复、工作区 axe 可访问性扫描与 24-run/4-worker 容量演练已有自动化证据；生产环境继续积累真实 Provider 延迟分位数，但请求超时和总路径上界已由代码约束。
 
 ## 决策
+
+### 2026-08-21 根任务级可观测证据闭包
+
+在线评测不再接受仅有 `conversationId` 的“项目诊断”。一次评测必须绑定根任务，`EvalSnapshotBuilder` 通过根任务级证据收集模块扩展 Task 后代、WorkContract、A2A pass group/pass、Invocation 与 observation span 的关联闭包。这个模块是评测与执行数据模型之间的唯一关联 seam，调用者不自行拼接表关系。
+
+- `chainId` 是可选收窄条件，不是发现多 Agent 协作的前置条件。
+- 未绑定 task/work/A2A 的会话级 Invocation 不进入根任务可靠性指标。
+- A2A group 与 pass 是交接、fan-out、join、失败和恢复指标的权威事实；聊天文本中的“已完成”不算回执。
+- A2A 历史事件既冻结在快照正文，也进入统一证据引用目录；引用从事件载荷保留 `chainId` / `passId`，使恢复结论可直接下钻到协作链或分支。
+- Phoenix 继续承载跨 trace 浏览、会话分析与后续 evaluator 投影；本地冻结 snapshot/score 仍是可复现评测事实源，系统不从 Phoenix 回读业务真相。
+- 在线 closure cutoff 来自权威终态事件；手动请求未指定时使用服务端冻结事务的采集时点。cutoff 后更新的 mutable fact 不倒灌旧边界，而是被列为 late fact 并降低 coverage；显式 replay 只能复用已有 snapshot。
+- `eval-bundle-v3` 的高频 Task/DeliveryRun/Work/A2A/Invocation/Span/Proof/Event 关联键由 migration v88 建立索引，fresh submit 仍需遵守 500ms 本地提交预算。
 
 平台采用“业务事实源 + 冻结评估快照 + 可版本化评分器”的结构。
 

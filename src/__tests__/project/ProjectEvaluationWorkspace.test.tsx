@@ -337,13 +337,14 @@ describe('ProjectEvaluationWorkspace', () => {
       return jsonResponse({ proposals: [] });
     });
 
-    render(<ProjectEvaluationWorkspace conversationId="conv-actions"/>);
+    render(<ProjectEvaluationWorkspace conversationId="conv-actions" rootTaskId="task-actions"/>);
     expect(await screen.findByRole('heading', { name: '通过' })).toBeDefined();
 
     fireEvent.click(screen.getByRole('button', { name: '重新诊断' }));
     await waitFor(() => expect(fetchMock.mock.calls.some(([input, init]) => {
       if (String(input) !== '/api/eval/runs' || init?.method !== 'POST') return false;
-      return JSON.parse(String(init.body)).conversationId === 'conv-actions';
+      const body = JSON.parse(String(init.body));
+      return body.conversationId === 'conv-actions' && body.rootTaskId === 'task-actions';
     })).toBe(true));
 
     fireEvent.click(screen.getByText('完整评分与证据'));

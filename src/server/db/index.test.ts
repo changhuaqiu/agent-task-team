@@ -119,7 +119,7 @@ describe('SQLite Foundation', () => {
         VALUES ('group-2','work-1',2,'outcome-1')
       `).run()).toThrow();
       expect(legacyDb.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-        .toEqual({ version: 87 });
+        .toEqual({ version: 88 });
     } finally {
       legacyDb.close();
     }
@@ -150,7 +150,7 @@ describe('SQLite Foundation', () => {
         'source_outcome_id',
       ]));
       expect(collidedDb.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-        .toEqual({ version: 87 });
+        .toEqual({ version: 88 });
     } finally {
       collidedDb.close();
     }
@@ -695,7 +695,7 @@ describe('SQLite Foundation', () => {
         WHERE id='legacy-action'
       `).get()).toEqual({ type: 'activate', attempt_count: 0, max_attempts: 3 });
       expect(legacyDb.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-        .toEqual({ version: 87 });
+        .toEqual({ version: 88 });
       expect(() => legacyDb.prepare(`
         INSERT INTO delivery_control_action (
           id,decision_id,run_id,type,target_work_id,work_epoch,slot_id,reason_code,
@@ -869,7 +869,7 @@ describe('SQLite Foundation', () => {
     expect(db.prepare('SELECT version FROM _schema_version WHERE version = 40').get())
       .toEqual({ version: 40 });
     expect(db.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-      .toEqual({ version: 87 });
+      .toEqual({ version: 88 });
   });
 
   it('retires the parallel A2A worklist schema at migration 62', () => {
@@ -947,7 +947,7 @@ describe('SQLite Foundation', () => {
           'autonomous_delivery_advancement_request',
         ]));
         expect(checkpoint.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-          .toEqual({ version: 87 });
+          .toEqual({ version: 88 });
         expect(checkpoint.pragma('foreign_key_check')).toEqual([]);
       } finally {
         checkpoint.close();

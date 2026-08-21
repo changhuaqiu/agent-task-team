@@ -1,7 +1,7 @@
 'use client';
 
 import dynamic from 'next/dynamic';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { FlaskConical, MessagesSquare } from 'lucide-react';
 import { ProjectSidebar } from './ProjectSidebar';
 import { ProjectChatPanel } from './ProjectChatPanel';
@@ -23,6 +23,19 @@ export function ProjectWorkspace() {
   const deliveryRunSnapshot = deliveryRunState && deliveryRunState.deliveryId === selectedConversation?.id
     ? deliveryRunState.snapshot
     : undefined;
+  useEffect(() => {
+    const deliveryId = selectedConversation?.id;
+    if (!deliveryId) return;
+    let disposed = false;
+    void fetch(`/api/autonomous-delivery?conversationId=${encodeURIComponent(deliveryId)}`, {
+      cache: 'no-store',
+    }).then(async (response) => {
+      if (!response.ok || disposed) return;
+      const snapshot = await response.json() as DeliveryRunSnapshot;
+      if (!disposed) setDeliveryRunState({ deliveryId, snapshot });
+    }).catch(() => undefined);
+    return () => { disposed = true; };
+  }, [selectedConversation?.id]);
   const handleDeliveryRunSnapshotChange = useCallback((snapshot: DeliveryRunSnapshot | undefined) => {
     const deliveryId = selectedConversation?.id;
     if (!deliveryId || !snapshot) return;
@@ -66,7 +79,8 @@ export function ProjectWorkspace() {
         ) : (
           <main className="min-h-0 flex-1 overflow-y-auto bg-[hsl(var(--bg-muted))] p-4 lg:p-6">
             <div className="mx-auto max-w-6xl">
-              <ProjectEvaluationWorkspace conversationId={selectedConversation?.id} />
+              <ProjectEvaluationWorkspace conversationId={selectedConversation?.id}
+                rootTaskId={deliveryRunSnapshot?.run.root_task_id ?? undefined} />
             </div>
           </main>
         )}

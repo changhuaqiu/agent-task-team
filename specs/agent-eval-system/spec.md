@@ -1,6 +1,6 @@
 # Agent 评估系统（Agent Evaluation System）
 
-> 状态：draft（完成方案审计，待产品与技术评审后转 active）
+> 状态：active（2026-08-21 用户确认：基于可观测事实建立评测体系）
 > 初始日期：2026-07-18
 > 最近修订：2026-07-18
 > 规格事实源：本文件；实施任务见 [`tasks.md`](./tasks.md)，验收门见 [`checklist.md`](./checklist.md)
@@ -95,6 +95,26 @@ EvalSubject =
 | 建议可自动 apply | 评分劫持与自我强化 | 只生成变更提案，人工审批、回归、回退 |
 
 ---
+
+### 2.4 可观测驱动的多 Agent 评测边界
+
+在线评测必须绑定 `rootTaskId`。项目/Conversation 只是隔离与聚合容器，不能作为一次在线评测样本；缺少根任务的在线提交必须以稳定错误 `evaluation_root_task_required` 拒绝，不能退化为“整段会话诊断”。
+
+`EvalSnapshotBuilder` 通过一个根任务级证据收集接口隐藏关联实现，并按以下闭包冻结事实：
+
+1. 根任务及其 `subtask_of` 后代；
+2. 这些任务绑定的 `WorkContract / Work / DeliveryRun`；
+3. 由任务、Work 或 DeliveryRun 关联到的 A2A pass group、pass、possession chain；
+4. 由 task、WorkContract、Invocation、chain 或 pass 关联到的 observation span；
+5. 只保留上述闭包内的 Invocation、message、proof 与交付证据。
+
+`chainId` 只用于进一步收窄已验证属于该项目且属于根任务闭包的协作链，不能作为发现协作证据的必填条件。没有 task/work/A2A 绑定的 Conversation 级 Invocation 不得进入根任务的可靠性分母。
+
+在线 closure 使用权威终态事件的 `occurredAt` 作为 `evidenceCutoffAt`；手动评测未提供 cutoff 时才使用服务端冻结事务的采集时点。显式重放只能引用已持久化的冻结 snapshot；对 cutoff 后才更新终态的可变事实采取保守策略：不把当前终态投射回历史，而是降低证据覆盖并返回证据不足。
+
+多 Agent 确定性评测至少分别输出：交接回执完整度、分支完成度、fan-out/join 一致性、交接失败与恢复、重复调用/重复 pass/reopen，以及按 Agent 汇总的贡献与失败画像。`fanout_join` 只评价 `fan_out` group；普通 transfer 不进入该分母。Agent 画像只用于诊断，不能做个人绩效排名。
+
+Phoenix 是上述本地事实的外部可观测投影与人工分析入口，不是评测真相源。后续可把评测结论投影为 OpenInference `EVALUATOR` span/annotation，但禁止从 Phoenix 反向覆盖 Task、A2A、proof、snapshot 或 score 事实。
 
 ## 3. 成熟能力地图与分期
 

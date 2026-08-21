@@ -99,7 +99,9 @@ function findReusableSnapshot(request: EvaluationRequest): SubjectSnapshot | und
   const match = candidates.find((candidate) => {
     const manifest = parse(candidate.app_manifest, {}) as Record<string, unknown>;
     return String(manifest.evaluationCaseId ?? '') === String(request.caseId ?? '') &&
-      digest(manifest.applicationVariant ?? null) === expectedVariant;
+      digest(manifest.applicationVariant ?? null) === expectedVariant &&
+      manifest.rubricRevisionId === DEFAULT_RUBRIC_REVISION_ID &&
+      manifest.evaluatorBundleDigest === digest(EVALUATOR_BUNDLE_REVISION);
   });
   return match ? loadSnapshot(match.id, request.conversationId) : undefined;
 }
@@ -251,13 +253,20 @@ export class AgentEvaluation {
       throw new Error('Evaluation case not found in project');
     }
     const mode = request.mode ?? 'online';
-    const cutoff = request.evidenceCutoffAt ?? new Date().toISOString();
+    if (mode === 'online' && !request.rootTaskId?.trim()) {
+      throw new Error('evaluation_root_task_required');
+    }
+    if (mode === 'replay' && !request.sourceSnapshotId?.trim()) {
+      throw new Error('evaluation_replay_source_required');
+    }
+    const requestedCutoff = request.evidenceCutoffAt;
+    const cutoff = requestedCutoff ?? new Date().toISOString();
     const normalized = { ...request, mode, evidenceCutoffAt: cutoff };
     // Validate before idempotency lookup or snapshot reuse so an offline call
     // can never inherit a legacy snapshot without verified execution evidence.
     assertOfflineEvaluationProvenance(normalized);
     const key = digest({ conversationId: request.conversationId, rootTaskId: request.rootTaskId ?? null,
-      chainId: request.chainId ?? null, triggerId: request.triggerId ?? cutoff, mode,
+      chainId: request.chainId ?? null, triggerId: request.triggerId ?? requestedCutoff ?? cutoff, mode,
       caseId: request.caseId ?? null,
       applicationManifestDigest: request.applicationManifest ? digest(request.applicationManifest) : null,
       rubric: DEFAULT_RUBRIC_REVISION_ID, bundle: EVALUATOR_BUNDLE_REVISION });
