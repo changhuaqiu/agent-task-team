@@ -145,10 +145,6 @@ export function issueDispatchWorkContract(input: {
     assertA2APossessionDispatchable(input.trigger);
     const workId = deriveWorkId(input.trigger);
     const workIdentity = parseWorkIdentity(workId);
-    const deliveryScopedGate = Boolean(
-      input.trigger.deliveryRunId
-      && (input.trigger.source === 'review_gate' || input.trigger.source === 'test_gate'),
-    );
     const currentTask = input.trigger.taskId
       ? db.prepare('SELECT status FROM task WHERE id=? AND conversation_id=?')
           .get(input.trigger.taskId, input.trigger.conversationId) as { status: string } | undefined
@@ -157,7 +153,6 @@ export function issueDispatchWorkContract(input: {
       currentTask
       && ['done', 'cancelled'].includes(currentTask.status)
       && workIdentity?.scope !== 'delivery'
-      && !deliveryScopedGate
     ) {
       throw new WorkContractInvariantError(`Task owner is terminal: ${input.trigger.taskId}`);
     }
