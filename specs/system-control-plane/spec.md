@@ -708,8 +708,16 @@ Future federation may extend this to a full PII pipeline and trust-level matrix.
 - Durable Inbox liveness is part of the Work Cell projection. A Work with an enqueued/released/claimed Inbox item is
   `queued`, not `ready`; Control Decision emits `dispatch_pending` and cannot create another activation for the same Work id.
   Once admitted, WorkContract/Invocation facts own liveness so a terminal Invocation can still project retry or completion.
-- A Gate evaluator's accepted `request_human_decision` or `report_blocked` Outcome projects `waiting_human` immediately. It is a
-  terminal, user-actionable result for that attempt and must not be treated as an Invocation failure eligible for blind retry.
+- `request_human_decision` and Task-execution `report_blocked` are different control facts. An accepted
+  `request_human_decision` projects `waiting_human` immediately. An accepted execution `report_blocked` records a structured
+  blocker and leaves the Task blocked; it must not itself wake the same Agent or consume Invocation retry budget. A server-owned
+  `BlockedRecoveryOwner` may move the Task back to `ready` only after a deterministic probe proves that the named recovery
+  condition is now satisfied. Unknown, malformed, unchanged, or Gate-evaluator blockers fail closed and remain visible instead
+  of looping; Gate blocker recovery stays human-owned until a Gate-specific probe exists.
+- A terminal Task event closes only Task-scoped Work Authorities and cancels their pending Inbox commands, preserving Delivery
+  review/verification Work. A terminal Delivery event closes every Work Authority whose current WorkContract belongs to that
+  Delivery and cancels its pending Inbox commands. `work.authority.closed` releases the corresponding applied Control slot.
+  Historical terminal events are replayed through the durable Process Manager so rollout also repairs pre-existing orphan Work.
 - `ContinueGateLite` validates versioned `continue_work` checkpoints and projects accepted checkpoints as bounded
   `continuation_pending` Work. Control emits a dedicated `continue` action whose next Invocation receives the summary, exact next
   action, remaining steps, and evidence references. Planned continuation is separate from failure retry accounting; exhausting its
@@ -725,6 +733,10 @@ Future federation may extend this to a full PII pipeline and trust-level matrix.
 - A2A handoff and direct user dispatch use the same gateway path.
 - Runtime node and agent binding state are visible in debug UI or diagnostics.
 - Every dispatch has a proof timeline with requested, gated, routed, sent, started, and terminal states where applicable.
+- A blocked Task cannot redispatch from `task.blocked` alone; a recovery requires a persisted accepted blocker plus a satisfied,
+  reason-coded machine probe, and the recovery action is idempotent for the blocker Outcome and Task revision.
+- Terminal Task and Delivery owners leave no in-scope active Work Authority, pending Inbox item, or applied Control slot after
+  durable event processing; late runtime writes are rejected by the closed Work epoch rather than being falsely settled.
 - A second review cycle for the same Task and reviewer autonomously creates a new Invocation and cannot be stranded by the prior
   Gate's closed Work Authority.
 - UI store no longer acts as the authoritative source for cross-instance delivery success.

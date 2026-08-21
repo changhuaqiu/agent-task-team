@@ -825,6 +825,26 @@ preflight 事实投影 `escalateToHuman`，并忽略显式 `manual_resume` 之�
 
 迁移已完成，旧目录、导出和兼容别名均已删除。
 
+### 10.1 完成托管与阻塞恢复
+
+Task、Delivery 到达终态后，业务对象虽然已经结束，运行侧仍可能留下排队命令、当前
+WorkAuthority 或占用中的 Control slot。统一由 `WorkLifecycleReconciler` 消费终态 owner event：
+
+- Task `done/cancelled` 只收口 `task:<id>` 范围的 Work，保留后置 Delivery review/verify；
+- Delivery `completed/failed/cancelled` 收口当前 WorkContract 归属该 run 的全部 Work；
+- 先关闭 WorkAuthority 形成 fencing 事实，再取消尚未 claimed 的 Inbox command；
+- `work.authority.closed` 释放 applied Control slot；
+- 不越权把其他 Runtime 可能仍持有的 Invocation 写成 terminated，迟到写入由 epoch fencing 拒绝；
+- 新的 durable handler 会回放历史终态事件，因此部署也能修复已有孤儿 Work。
+
+`task.blocked` 是 blocker 事实，不是 wakeup command。`TaskWakeupRouter` 不再对它直接派工。
+`BlockedRecoveryOwner` 读取最新 accepted Task execution `report_blocked` 和结构化
+`blocker.type / recoveryCondition`，
+调用确定性探针；只有探针证明恢复条件满足，才能通过 Task Authority 以 outcome+revision 幂等键
+把 Task 移回 `ready`。`request_human_decision` 始终归 Human；未知、缺字段或环境未变化的 blocker
+保持 blocked；Gate evaluator blocker 暂时继续由 Human 处理，直到存在 Gate 专用探针。这样恢复次数由
+事实变化驱动，而不是由唤醒次数驱动。
+
 ## 11. 实施切片
 
 | 切片 | 内容 | 退出条件 |
@@ -854,6 +874,7 @@ preflight 事实投影 `escalateToHuman`，并忽略显式 `manual_resume` 之�
 11. 多 Agent 调度只管理 Work Cell 和协作边，不读取或合并各 Agent 的内部 Todo。
 12. 对共享事实的并发写入必须经过 owner 的版本校验、lease 或 fencing；不能靠消息时序碰运气。
 13. 系统必须能检测 wait-for graph 的死锁和 A2A 循环传球，并升级给 Human 或 Lead Agent。
+14. 终态 owner 必须最终收回其 WorkAuthority；blocked 只有在恢复条件被证明满足后才能重新派工。
 
 跨模块 trace 使用一条连续因果链，不在每张表复制一套可能漂移的字段：
 

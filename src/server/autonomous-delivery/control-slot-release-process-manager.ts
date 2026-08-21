@@ -20,6 +20,7 @@ export class ControlSlotReleaseProcessManager {
       && event.type !== 'runtime.invocation.terminated'
       && event.type !== 'agent.work.cancelled'
       && event.type !== 'agent.work.expired'
+      && event.type !== 'work.authority.closed'
     ) return;
     if (signal.aborted) throw signal.reason ?? new Error('control_slot_release_aborted');
     if (
@@ -33,6 +34,14 @@ export class ControlSlotReleaseProcessManager {
         reasonCode: event.type === 'runtime.invocation.blocked'
           ? 'invocation_preflight_blocked'
           : 'context_preflight_blocked',
+        now: new Date(event.recordedAt),
+      });
+      return;
+    }
+    if (event.type === 'work.authority.closed') {
+      this.decisions.releaseSlotsForWork({
+        workId: event.aggregate.id,
+        reasonCode: 'work_authority_closed',
         now: new Date(event.recordedAt),
       });
       return;

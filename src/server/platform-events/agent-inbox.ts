@@ -389,6 +389,26 @@ export class AgentInbox {
     }).immediate();
   }
 
+  cancelPendingForWorkIds(
+    projectId: string,
+    workIds: readonly string[],
+    reasonCode = 'work_owner_terminal',
+  ): number {
+    const targets = new Set(workIds.map((workId) => workId.trim()).filter(Boolean));
+    if (targets.size === 0) return 0;
+    const db = this.database ?? getDb();
+    return db.transaction(() => {
+      const rows = db.prepare(`
+        SELECT * FROM agent_inbox_item
+        WHERE project_id=? AND status IN ('enqueued','released')
+      `).all(projectId) as AgentInboxRow[];
+      return this.cancelRows(rows.filter((row) => {
+        const command = JSON.parse(row.command_json) as AgentWorkCommand;
+        return typeof command.workId === 'string' && targets.has(command.workId);
+      }), reasonCode);
+    }).immediate();
+  }
+
   private settleClaim(
     itemId: string,
     leaseToken: string,

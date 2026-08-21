@@ -37,7 +37,7 @@ describe('PlatformEventRuntimeWorker', () => {
     worker.start();
     worker.start();
     await vi.advanceTimersByTimeAsync(100);
-    expect(calls).toEqual({ register: 15, recover: 1, discover: 1, drain: 1 });
+    expect(calls).toEqual({ register: 18, recover: 1, discover: 1, drain: 1 });
 
     releaseDrain();
     await vi.advanceTimersByTimeAsync(10);
@@ -106,8 +106,17 @@ describe('PlatformEventRuntimeWorker', () => {
     }), expect.objectContaining({
       id: 'control-slot-release-process-manager:inbox:v1',
       pattern: 'agent.work.*',
+    }), expect.objectContaining({
+      id: 'control-slot-release-process-manager:work:v1',
+      pattern: 'work.authority.closed',
+    }), expect.objectContaining({
+      id: 'work-lifecycle-reconciler:task:v1',
+      pattern: 'task.*',
+    }), expect.objectContaining({
+      id: 'work-lifecycle-reconciler:delivery:v1',
+      pattern: 'delivery.run.*',
     })]));
-    expect(registrations).toHaveLength(16);
+    expect(registrations).toHaveLength(19);
   });
 
   it('wires Effect and terminal Control facts back into Delivery reconciliation', () => {

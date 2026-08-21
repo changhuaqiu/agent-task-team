@@ -1,5 +1,5 @@
 import type Database from 'better-sqlite3';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTestDb, resetDb, setTestDb } from '../db';
 import { invocationRepo } from '../repositories/invocation-repo';
 import { AgentInbox } from '../platform-events/agent-inbox';
@@ -23,8 +23,37 @@ describe('ControlSlotReleaseProcessManager', () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     resetDb();
     db.close();
+  });
+
+  it('releases an applied slot when Work Authority closes', async () => {
+    const release = vi.spyOn(ControlDecisionRepository.prototype, 'releaseSlotsForWork')
+      .mockReturnValue(1);
+    const event = new (await import('../platform-events/event-log')).PlatformEventLog({ db }).append({
+      type: 'work.authority.closed',
+      category: 'coordination',
+      projectId: 'project-1',
+      streamKey: 'work:task:1:agent:builder:purpose:execute',
+      aggregate: {
+        type: 'work_authority',
+        id: 'task:1:agent:builder:purpose:execute',
+        version: 2,
+      },
+      actor: { type: 'system', id: 'test' },
+      correlationId: 'corr-work-close',
+      payload: { workEpoch: 2 },
+    });
+
+    await new ControlSlotReleaseProcessManager(db).handle(event, {
+      signal: new AbortController().signal,
+    });
+
+    expect(release).toHaveBeenCalledWith(expect.objectContaining({
+      workId: 'task:1:agent:builder:purpose:execute',
+      reasonCode: 'work_authority_closed',
+    }));
   });
 
   it('releases activate/retry slots when Runtime starts or preflight is blocked', async () => {

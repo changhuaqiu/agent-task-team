@@ -124,4 +124,24 @@ describe('TaskWakeupRouter', () => {
     expect(inbox.get(execution.id)).toMatchObject({ status: 'cancelled' });
     expect(inbox.get(deliveryReview.id)).toMatchObject({ status: 'enqueued' });
   });
+
+  it('does not turn a blocked fact into a blind retry command', () => {
+    taskRepo.create({
+      id: 'task-blocked',
+      conversation_id: 'project-1',
+      title: 'Blocked Task',
+      agent_id: 'implementer',
+    });
+    taskRepo.transition('task-blocked', { to: 'in_progress' });
+    taskRepo.transition('task-blocked', {
+      to: 'blocked',
+      reviewNote: 'Browser permission is unavailable',
+    });
+    const blocked = log.listStream('task:task-blocked')
+      .find((event) => event.type === 'task.blocked')!;
+
+    router.handle(blocked, { signal: new AbortController().signal });
+
+    expect(inbox.listPending('project-1')).toHaveLength(0);
+  });
 });

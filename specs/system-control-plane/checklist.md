@@ -53,6 +53,8 @@
 - [x] Internal completion-without-outcome exhaustion fails visibly as a system problem instead of asking the user to decide Agent-lane health; genuine human boundaries use actionable, user-readable copy without ControlAction ids.
 - [x] Completion without Outcome opens exactly one fresh fenced outcome-only epoch, preserves the last durable output in context, exposes only `agent_submit_outcome`, grants no native edit/execute or Skill tools, and fails without human escalation if that recovery turn does not submit an accepted Outcome.
 - [x] One oversized ACP session update is truncated at the display boundary without terminating the turn; cumulative output and queued-event limits remain hard, so a large tool result cannot strand the visible chat before the final reply.
+- [x] `task.blocked` is never a wakeup by itself; only a satisfied machine recovery probe can resume Task-execution `report_blocked`, while `request_human_decision` and Gate blockers remain explicitly human-owned.
+- [x] Terminal Task/Delivery replay closes every in-scope current Work Authority, cancels pending Inbox work, and releases its applied Control slot without terminating a possibly live Invocation from another runtime owner.
 
 ## Migration
 

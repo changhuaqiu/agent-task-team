@@ -10,6 +10,7 @@ import { autonomousDeliveryRepo } from '../autonomous-delivery/repository';
 import { qualityGateRepo } from '../quality-gate/repository';
 import { resolveAutonomyGuardActions } from '../task-flow/autonomy-guard';
 import { resolveTaskNotificationAudience } from '../task-flow/task-notification-publisher';
+import { BlockedRecoveryOwner } from './blocked-recovery-owner';
 
 export interface AutonomyGuardOwnerOptions {
   io: IOServer;
@@ -29,6 +30,7 @@ export class AutonomyGuardOwner {
   private readonly publishedAt = new Map<string, number>();
   private lastTeamLogArchiveSweepAt = 0;
   private timer?: NodeJS.Timeout;
+  private readonly blockedRecovery = new BlockedRecoveryOwner();
 
   constructor(options: AutonomyGuardOwnerOptions) {
     this.io = options.io;
@@ -51,6 +53,11 @@ export class AutonomyGuardOwner {
 
   runOnce(): void {
     const now = this.now();
+    try {
+      this.blockedRecovery.runOnce();
+    } catch (error) {
+      console.warn('[autonomy-guard] blocked recovery sweep failed:', error);
+    }
     for (const [key, timestamp] of this.publishedAt) {
       if (now - timestamp > 2 * 60 * 1000) this.publishedAt.delete(key);
     }

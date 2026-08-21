@@ -29,6 +29,7 @@ import { TaskOutcomeProcessManager } from '../repositories/task-outcome-process-
 import {
   TaskGateLifecycleProcessManager,
 } from '../repositories/task-gate-lifecycle-process-manager';
+import { WorkLifecycleReconciler } from '../work-contract/work-lifecycle-reconciler';
 
 let worker: PlatformEventRuntimeWorker | undefined;
 
@@ -124,6 +125,20 @@ export class PlatformEventRuntimeWorker {
       reliability: 'durable',
       handle: taskWakeupRouter.handle,
     });
+    const workLifecycle = new WorkLifecycleReconciler();
+    for (const [id, pattern] of [
+      ['work-lifecycle-reconciler:task:v1', 'task.*'],
+      ['work-lifecycle-reconciler:delivery:v1', 'delivery.run.*'],
+    ] as const) {
+      this.dispatcher.register({
+        id,
+        pattern,
+        stereotype: 'process_manager',
+        reliability: 'durable',
+        timeoutMs: 5_000,
+        handle: workLifecycle.handle,
+      });
+    }
     if (resolved.deliveryAdvancement) {
       const deliveryProcessManager = new DeliveryProcessManager(resolved.deliveryAdvancement);
       this.dispatcher.register({
@@ -170,6 +185,14 @@ export class PlatformEventRuntimeWorker {
     this.dispatcher.register({
       id: 'control-slot-release-process-manager:inbox:v1',
       pattern: 'agent.work.*',
+      stereotype: 'process_manager',
+      reliability: 'durable',
+      timeoutMs: 5_000,
+      handle: controlSlotRelease.handle,
+    });
+    this.dispatcher.register({
+      id: 'control-slot-release-process-manager:work:v1',
+      pattern: 'work.authority.closed',
       stereotype: 'process_manager',
       reliability: 'durable',
       timeoutMs: 5_000,

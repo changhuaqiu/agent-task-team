@@ -18,6 +18,7 @@ import {
   type WorkContract,
   type WorkContractRow,
 } from './types';
+import { parseWorkIdentity } from './work-identity';
 
 const OUTCOME_TYPE_SET = new Set<string>(AGENT_OUTCOME_TYPES);
 
@@ -411,6 +412,93 @@ export class WorkContractRepository {
         AND contract.task_id=?
       ORDER BY authority.work_id
     `).all(projectId, taskId) as WorkAuthorityRow[];
+  }
+
+  private listActiveAuthoritiesForDelivery(
+    projectId: string,
+    deliveryRunId: string,
+  ): WorkAuthorityRow[] {
+    return getDb().prepare(`
+      SELECT authority.*
+      FROM work_authority authority
+      JOIN work_contract contract
+        ON contract.id=authority.current_contract_id
+      WHERE authority.project_id=?
+        AND authority.status='active'
+        AND contract.delivery_run_id=?
+      ORDER BY authority.work_id
+    `).all(projectId, deliveryRunId) as WorkAuthorityRow[];
+  }
+
+  listCurrentTaskScopedWorkIds(projectId: string, taskId: string): string[] {
+    return (getDb().prepare(`
+      SELECT authority.work_id
+      FROM work_authority authority
+      JOIN work_contract contract ON contract.id=authority.current_contract_id
+      WHERE authority.project_id=? AND contract.task_id=?
+      ORDER BY authority.work_id
+    `).all(projectId, taskId) as Array<{ work_id: string }>)
+      .map((row) => row.work_id)
+      .filter((workId) => {
+        const identity = parseWorkIdentity(workId);
+        return identity?.scope === 'task' && identity.targetId === taskId;
+      });
+  }
+
+  listCurrentDeliveryWorkIds(projectId: string, deliveryRunId: string): string[] {
+    return (getDb().prepare(`
+      SELECT authority.work_id
+      FROM work_authority authority
+      JOIN work_contract contract ON contract.id=authority.current_contract_id
+      WHERE authority.project_id=? AND contract.delivery_run_id=?
+      ORDER BY authority.work_id
+    `).all(projectId, deliveryRunId) as Array<{ work_id: string }>)
+      .map((row) => row.work_id);
+  }
+
+  closeActiveTaskScoped(input: {
+    projectId: string;
+    taskId: string;
+    correlationId: string;
+    causationId: string;
+    now?: Date;
+  }): WorkAuthorityRow[] {
+    const timestamp = input.now ?? new Date();
+    const db = getDb();
+    return db.transaction(() => this.listActiveAuthoritiesForTask(
+      input.projectId,
+      input.taskId,
+    ).filter((authority) => {
+      const identity = parseWorkIdentity(authority.work_id);
+      return identity?.scope === 'task' && identity.targetId === input.taskId;
+    }).map((authority) => this.close({
+      workId: authority.work_id,
+      expectedEpoch: authority.current_epoch,
+      correlationId: input.correlationId,
+      causationId: input.causationId,
+      now: timestamp,
+    }))).immediate();
+  }
+
+  closeActiveForDelivery(input: {
+    projectId: string;
+    deliveryRunId: string;
+    correlationId: string;
+    causationId: string;
+    now?: Date;
+  }): WorkAuthorityRow[] {
+    const timestamp = input.now ?? new Date();
+    const db = getDb();
+    return db.transaction(() => this.listActiveAuthoritiesForDelivery(
+      input.projectId,
+      input.deliveryRunId,
+    ).map((authority) => this.close({
+      workId: authority.work_id,
+      expectedEpoch: authority.current_epoch,
+      correlationId: input.correlationId,
+      causationId: input.causationId,
+      now: timestamp,
+    }))).immediate();
   }
 
   closeActiveForTask(input: {

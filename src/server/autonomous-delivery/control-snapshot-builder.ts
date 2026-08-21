@@ -996,7 +996,10 @@ export class RepositoryControlSnapshotBuilder {
         },
       };
     }
-    if (row.outcome_type === 'report_blocked' || row.outcome_type === 'request_human_decision') {
+    if (row.outcome_type === 'report_blocked') {
+      return { ...base, state: 'waiting_dependency' };
+    }
+    if (row.outcome_type === 'request_human_decision') {
       return {
         ...base,
         state: 'waiting_human',
