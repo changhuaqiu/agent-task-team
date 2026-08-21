@@ -834,6 +834,7 @@ WorkAuthority 或占用中的 Control slot。统一由 `WorkLifecycleReconciler`
 - Delivery `completed/failed/cancelled` 收口当前 WorkContract 归属该 run 的全部 Work；
 - 先关闭 WorkAuthority 形成 fencing 事实，再取消 pending/claimed Inbox command 并清除 Inbox lease；
 - `work.authority.closed` 释放 applied Control slot；
+- 终态收口之后才迟到的 `agent.work.enqueued` 会再次核对 owner，并立即取消，封住跨事务派工竞态；
 - 不越权把其他 Runtime 可能仍持有的 Invocation 写成 terminated，迟到写入由 epoch fencing 拒绝；
 - 新的 durable handler 会回放历史终态事件，因此部署也能修复已有孤儿 Work。
 

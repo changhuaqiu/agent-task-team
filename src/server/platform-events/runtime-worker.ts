@@ -129,6 +129,7 @@ export class PlatformEventRuntimeWorker {
     for (const [id, pattern] of [
       ['work-lifecycle-reconciler:task:v1', 'task.*'],
       ['work-lifecycle-reconciler:delivery:v1', 'delivery.run.*'],
+      ['work-lifecycle-reconciler:late-inbox:v1', 'agent.work.enqueued'],
     ] as const) {
       this.dispatcher.register({
         id,

@@ -718,7 +718,8 @@ Future federation may extend this to a full PII pipeline and trust-level matrix.
   review/verification Work. A terminal Delivery event closes every Work Authority whose current WorkContract belongs to that
   Delivery and cancels its pending or claimed Inbox commands. Owner-terminal cancellation clears any outstanding Inbox lease;
   `work.authority.closed` releases the corresponding applied Control slot.
-  Historical terminal events are replayed through the durable Process Manager so rollout also repairs pre-existing orphan Work.
+  Historical terminal events are replayed through the durable Process Manager so rollout also repairs pre-existing orphan Work;
+  a durable `agent.work.enqueued` guard cancels commands that race and arrive after owner termination.
 - `ContinueGateLite` validates versioned `continue_work` checkpoints and projects accepted checkpoints as bounded
   `continuation_pending` Work. Control emits a dedicated `continue` action whose next Invocation receives the summary, exact next
   action, remaining steps, and evidence references. Planned continuation is separate from failure retry accounting; exhausting its

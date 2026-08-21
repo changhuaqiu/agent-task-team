@@ -150,42 +150,47 @@ export class BlockedRecoveryOwner {
     const blocked = taskRepo.list().filter((task) => task.status === 'blocked');
     const result: BlockedRecoveryRunResult = { inspected: blocked.length, recovered: 0, deferred: [] };
     for (const task of blocked) {
-      const candidate = currentCandidate(task);
-      if (!candidate) {
-        result.deferred.push({ taskId: task.id, reasonCode: 'structured_blocker_missing' });
-        continue;
-      }
-      const probe = this.probe.evaluate(candidate);
-      if (!probe.satisfied) {
-        result.deferred.push({ taskId: task.id, reasonCode: probe.reasonCode });
-        continue;
-      }
-      const idempotencyKey = stableTaskCommandKey('blocked-recovery', {
-        outcomeId: candidate.outcome.id,
-        taskRevision: task.revision,
-        fingerprint: probe.fingerprint,
-      });
-      taskCommandService.transition({
-        conversationId: task.conversation_id,
-        taskId: task.id,
-        expectedTaskRevision: task.revision,
-        expectedGraphRevision: taskCommandService.expectedGraphRevision(
-          task.conversation_id,
+      try {
+        const candidate = currentCandidate(task);
+        if (!candidate) {
+          result.deferred.push({ taskId: task.id, reasonCode: 'structured_blocker_missing' });
+          continue;
+        }
+        const probe = this.probe.evaluate(candidate);
+        if (!probe.satisfied) {
+          result.deferred.push({ taskId: task.id, reasonCode: probe.reasonCode });
+          continue;
+        }
+        const idempotencyKey = stableTaskCommandKey('blocked-recovery', {
+          outcomeId: candidate.outcome.id,
+          taskRevision: task.revision,
+          fingerprint: probe.fingerprint,
+        });
+        taskCommandService.transition({
+          conversationId: task.conversation_id,
+          taskId: task.id,
+          expectedTaskRevision: task.revision,
+          expectedGraphRevision: taskCommandService.expectedGraphRevision(
+            task.conversation_id,
+            idempotencyKey,
+          ),
           idempotencyKey,
-        ),
-        idempotencyKey,
-        to: 'ready',
-        actor: { type: 'system', id: 'blocked-recovery-owner' },
-        correlationId: candidate.outcome.correlation_id,
-        causationId: candidate.outcome.id,
-        actionType: 'task.resumed',
-        actionPayload: {
-          blockerOutcomeId: candidate.outcome.id,
-          recoveryReasonCode: probe.reasonCode,
-          recoveryFingerprint: probe.fingerprint,
-        },
-      });
-      result.recovered += 1;
+          to: 'ready',
+          actor: { type: 'system', id: 'blocked-recovery-owner' },
+          correlationId: candidate.outcome.correlation_id,
+          causationId: candidate.outcome.id,
+          actionType: 'task.resumed',
+          actionPayload: {
+            blockerOutcomeId: candidate.outcome.id,
+            recoveryReasonCode: probe.reasonCode,
+            recoveryFingerprint: probe.fingerprint,
+          },
+        });
+        result.recovered += 1;
+      } catch (error) {
+        console.warn(`[blocked-recovery] failed to inspect ${task.id}:`, error);
+        result.deferred.push({ taskId: task.id, reasonCode: 'recovery_evaluation_failed' });
+      }
     }
     return result;
   }

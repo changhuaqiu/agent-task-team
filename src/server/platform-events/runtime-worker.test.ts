@@ -37,7 +37,7 @@ describe('PlatformEventRuntimeWorker', () => {
     worker.start();
     worker.start();
     await vi.advanceTimersByTimeAsync(100);
-    expect(calls).toEqual({ register: 18, recover: 1, discover: 1, drain: 1 });
+    expect(calls).toEqual({ register: 19, recover: 1, discover: 1, drain: 1 });
 
     releaseDrain();
     await vi.advanceTimersByTimeAsync(10);
@@ -115,8 +115,11 @@ describe('PlatformEventRuntimeWorker', () => {
     }), expect.objectContaining({
       id: 'work-lifecycle-reconciler:delivery:v1',
       pattern: 'delivery.run.*',
+    }), expect.objectContaining({
+      id: 'work-lifecycle-reconciler:late-inbox:v1',
+      pattern: 'agent.work.enqueued',
     })]));
-    expect(registrations).toHaveLength(19);
+    expect(registrations).toHaveLength(20);
   });
 
   it('wires Effect and terminal Control facts back into Delivery reconciliation', () => {

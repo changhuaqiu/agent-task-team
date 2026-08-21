@@ -114,6 +114,16 @@ describe('WorkLifecycleReconciler', () => {
     expect(inbox.get(taskInbox.id)?.leaseToken).toBeUndefined();
     expect(inbox.get(deliveryInbox.id)?.status).toBe('enqueued');
 
+    const lateTaskInbox = inbox.enqueue({
+      projectId: 'project-1', projectAgentId: 'builder', idempotencyKey: 'late-task-command',
+      command: { source: 'workflow', taskId: task.id, workId: taskWorkId, prompt: 'Late retry' },
+    });
+    const lateEnqueued = log.listStream('agent-work:project-1:builder')
+      .filter((event) => event.type === 'agent.work.enqueued')
+      .at(-1)!;
+    await reconciler.handle(lateEnqueued, { signal: new AbortController().signal });
+    expect(inbox.get(lateTaskInbox.id)?.status).toBe('cancelled');
+
     new AutonomousDeliveryRepository(db).transitionRun({
       runId: delivery.id,
       to: 'failed',
